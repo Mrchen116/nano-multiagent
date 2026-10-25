@@ -5,7 +5,7 @@ interface Host {
   readonly available: boolean;
   readonly processInstanceId?: string;
   enable(): void;
-  disable(): Promise<{confirmed: boolean; processInstanceId?: string}>;
+  disable(): Promise<{confirmed: boolean; processInstanceId?: string; errorDetail?: string}>;
 }
 interface Options {
   nodeId: string;
@@ -79,21 +79,21 @@ export class NodeAgentLifecycle {
     const proof=this.options.proof(agentId);
     if(proof)this.options.saveProof(agentId,{...proof,stopped:true});
   }
-  private async stop(state: AgentLifecycleSnapshot, stopping: Promise<{confirmed:boolean;processInstanceId?:string}>): Promise<void> {
+  private async stop(state: AgentLifecycleSnapshot, stopping: Promise<{confirmed:boolean;processInstanceId?:string;errorDetail?:string}>): Promise<void> {
     const proof = this.options.proof(state.agent_id);
     const result = await stopping;
     const processId = result.processInstanceId ?? proof?.processInstanceId ?? state.process_instance_id;
-    const confirmed = result.processInstanceId ? result.confirmed : !proof || proof.stopped || proof.boot !== this.options.boot;
+    const confirmed = result.processInstanceId ? result.confirmed : proof ? proof.stopped || proof.boot !== this.options.boot : !state.process_instance_id;
     if (confirmed) this.options.saveProof(state.agent_id, {boot:this.options.boot, processInstanceId:processId, stopped:true});
     await this.publish(state, confirmed ? 'disabled' : 'stop_unconfirmed', processId,
-      confirmed ? undefined : 'managed_cleanup_unconfirmed');
+      confirmed ? undefined : 'managed_cleanup_unconfirmed', confirmed ? undefined : result.errorDetail ?? 'Previous runtime cleanup is still unconfirmed on this machine boot.');
   }
-  private async publish(state: AgentLifecycleSnapshot, observed: AgentLifecycleSnapshot['observed'], processId: string | null, errorCode?: string): Promise<void> {
+  private async publish(state: AgentLifecycleSnapshot, observed: AgentLifecycleSnapshot['observed'], processId: string | null, errorCode?: string, errorDetail?: string): Promise<void> {
     if (this.options.snapshot(state.agent_id)?.revision !== state.revision) return;
-    const next = {...state, observed, process_instance_id:processId, error_code:errorCode ?? null,
+    const next = {...state, observed, process_instance_id:processId, error_code:errorCode ?? null, error_detail:errorDetail ?? null,
       applied_revision: observed === 'enabled' || observed === 'disabled' ? state.revision : state.applied_revision};
     this.options.save(next);
     await this.options.report({node_id:this.options.nodeId, agent_id:state.agent_id, revision:state.revision,
-      observed, process_instance_id:processId, error_code:errorCode ?? null});
+      observed, process_instance_id:processId, error_code:errorCode ?? null,error_detail:errorDetail ?? null});
   }
 }

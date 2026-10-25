@@ -88,7 +88,7 @@ export class RuntimeSupervisor {
   private stopping = false;
   private restarts = 0;
   private starting?: Promise<void>;
-  private disabling?: Promise<{ confirmed: boolean; processInstanceId?: string }>;
+  private disabling?: Promise<{ confirmed: boolean; processInstanceId?: string; errorDetail?: string }>;
   private recovery?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private wakeTimer?: () => void;
@@ -168,7 +168,7 @@ export class RuntimeSupervisor {
     if (!this.stopping) this.options.onError(new Error('DSH restart limit reached; node requires restart'));
   }
   /** Close admission immediately; only native cleanup plus process exit confirms a stop. */
-  disable(): Promise<{ confirmed: boolean; processInstanceId?: string }> {
+  disable(): Promise<{ confirmed: boolean; processInstanceId?: string; errorDetail?: string }> {
     this.stopping = true;
     this.ready = false;
     if (this.timer) clearTimeout(this.timer);
@@ -179,7 +179,8 @@ export class RuntimeSupervisor {
     this.disabling = (async () => {
       void this.options.onUnavailable?.().catch(this.options.onError);
       if (!client) return { confirmed: true, processInstanceId };
-      if (client.process.exitCode !== null || client.process.signalCode !== null) return { confirmed: false, processInstanceId };
+      if (client.process.exitCode !== null || client.process.signalCode !== null) return { confirmed: false, processInstanceId, errorDetail: 'Runtime exited before managed cleanup was confirmed.' };
+      let errorDetail: string | undefined;
       let timeout: ReturnType<typeof setTimeout>;
       const force = () => {
         if (client.process.exitCode !== null || client.process.signalCode !== null) return;
@@ -189,7 +190,7 @@ export class RuntimeSupervisor {
         } catch (error) { this.options.onError(error); }
       };
       const deadline = new Promise<boolean>(resolve => {
-        timeout = setTimeout(() => { force(); resolve(false); }, this.options.stopTimeoutMs ?? 5000);
+        timeout = setTimeout(() => { errorDetail = 'Managed cleanup did not finish within the stop deadline.'; force(); resolve(false); }, this.options.stopTimeoutMs ?? 5000);
       });
       const cleanup = (async () => {
         const result = await client.rpc.request('agent.disable', {cursors: this.options.disableCursors?.() ?? {}}) as { confirmed: boolean; history?: RuntimeStopHistory[] };
@@ -197,11 +198,11 @@ export class RuntimeSupervisor {
         client.process.kill('SIGTERM');
         await client.exited;
         return result.confirmed === true;
-      })().catch(error => { this.options.onError(error); return false; });
+      })().catch(error => { errorDetail = `Managed cleanup failed: ${String(error instanceof Error ? error.message : error).split('\n')[0]!.slice(0,500)}`; this.options.onError(error); return false; });
       const confirmed = await Promise.race([cleanup, deadline]);
       clearTimeout(timeout!);
       if (!confirmed) force();
-      return { confirmed, processInstanceId };
+      return { confirmed, processInstanceId, ...(!confirmed ? {errorDetail: errorDetail ?? 'Runtime did not confirm managed cleanup.'} : {}) };
     })();
     return this.disabling;
   }

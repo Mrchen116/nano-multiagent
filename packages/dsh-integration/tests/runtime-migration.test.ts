@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, rm, cp, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, cp, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -101,6 +101,24 @@ it('splits old roots, native descendants, fork prefixes, attachments and busines
   const completed = await readFile(join(home, RUNTIME_LAYOUT_MARKER), 'utf8');
   await applyRuntimeMigration(config); await verifyRuntimeMigration(config);
   expect(await readFile(join(home, RUNTIME_LAYOUT_MARKER), 'utf8')).toBe(completed);
+});
+
+it('plans legacy single-file domains without upgrading the stopped source in place',async()=>{
+  const {config,home}=await fixture();
+  await rm(join(home,'storages',modelDomain.name),{recursive:true,force:true});
+  const storage=await openMigrationStorage(home);
+  const legacy=await storage.domain.open({...modelDomain,layout:'single'});
+  await legacy.table('sessions').put(encode('a-old'),{revision:'old',sticky:{provider:'provider',model:'model'}});
+  await legacy.close();await storage.close();
+  const path=join(home,'storages',`${modelDomain.name}.json`),before=await readFile(path),names=await readdir(join(home,'storages'));
+  const plan=await planRuntimeMigration(config);
+  expect(plan.blockers).toEqual([]);
+  expect(await readFile(path)).toEqual(before);
+  expect(await readdir(join(home,'storages'))).toEqual(names);
+  expect(plan.records.some(record=>record.domain===modelDomain.name&&record.agentId==='a')).toBe(true);
+  await applyRuntimeMigration(config);await verifyRuntimeMigration(config);
+  expect(await readFile(path)).toEqual(before);
+  expect(await readdir(join(home,'storages'))).toEqual(names);
 });
 
 it('resumes an interrupted native prefix without appending duplicate events and permits restoring the untouched source backup', async () => {

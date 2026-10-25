@@ -14,6 +14,9 @@ it('clears cold durable inbox once per disable revision and preserves fresh post
   const start=async(lifecycle?:unknown)=>{client=new RuntimeClient({home,cwd:home});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle});await client.rpc.request('session.ensure',binding(home));};
   try {
     await prepareProfile(home); await start();
+    const {sessionId, ...rest}=binding(home);
+    await expect(client!.rpc.request('session.ensure',{...rest,sessionId})).resolves.toMatchObject({sessionId:'root'});
+    await expect(client!.rpc.request('session.ensure',{...rest,sessionId,ownerId:'other'})).rejects.toThrow('binding conflict');
     await client!.rpc.request('session.submit',input('old'));
     client!.process.kill('SIGKILL'); await client!.exited;
     await start({revision:3,disabledThroughRevision:2});
@@ -79,7 +82,7 @@ it('reports unconfirmed when a managed owner cleanup throws even though Cordis d
   try {
     await writeFile(join(home,'cleanup.mjs'), `export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.effect(()=>()=>{throw new Error('fixture-cleanup-failed');});});}`);
     await prepareProfile(home,[{insert:[{id:'cleanup-error',name:join(home,'cleanup.mjs')}]}]);await supervisor.start();
-    expect(await supervisor.disable()).toMatchObject({confirmed:false});
+    expect(await supervisor.disable()).toMatchObject({confirmed:false,errorDetail:expect.stringContaining('fixture-cleanup-failed')});
     expect(errors.join('')).toContain('fixture-cleanup-failed');
   } finally {supervisor.process?.kill('SIGKILL');await rm(home,{recursive:true,force:true});}
 },10000);

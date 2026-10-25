@@ -31,6 +31,18 @@ it('persists disable and rejects stale input and output even after a new enable'
   } finally { db.close(); }
 });
 
+it('replaces cleanup evidence on stop and the next process launch',()=>{
+  const db=new DatabaseSync(':memory:');
+  try {
+    const authority=new AgentLifecycleAuthority(db);
+    authority.saveProof('a',{boot:'one',processInstanceId:'first',stopped:false});
+    authority.saveProof('a',{boot:'one',processInstanceId:'first',stopped:true});
+    expect(new AgentLifecycleAuthority(db).proof('a')?.stopped).toBe(true);
+    authority.saveProof('a',{boot:'one',processInstanceId:'second',stopped:false});
+    expect(new AgentLifecycleAuthority(db).proof('a')).toEqual({boot:'one',processInstanceId:'second',stopped:false});
+  } finally {db.close();}
+});
+
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import { SingleThread } from '../src/single-thread.js';

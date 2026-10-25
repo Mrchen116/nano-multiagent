@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
-import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
+import { AgentLifecycleAction, AgentLifecycleChatNotice, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import { setLanguage } from '../../../i18n';
 import { useAuthStore } from '../../auth/auth-store';
 
@@ -20,6 +20,12 @@ function mount(owner = true) {
   return client;
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it('explains that chat retains messages without processing them while stopping',async()=>{
+  setLanguage('en');vi.stubGlobal('fetch',vi.fn(async()=>Response.json(snapshot('disabled','stopping',2))));
+  render(<QueryClientProvider client={new QueryClient()}><AgentLifecycleChatNotice agentId="a" name="Assistant" /></QueryClientProvider>);
+  await screen.findByText('Messages are kept, but this Agent will not process them.');
+  expect(screen.queryByRole('button')).toBeNull();
+});
 it('stops while offline without saving a draft and cannot enable until cleanup is confirmed', async () => {
   let state = snapshot();
   const fetch = vi.fn(async (_url, init) => {

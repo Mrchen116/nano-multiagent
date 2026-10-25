@@ -18,17 +18,19 @@ import type { UserStreamEvent } from "../../realtime/user-stream";
 // 直接注入事件，通过 capturedResyncHandler 断言 onResyncRequired 已注册。
 let capturedStatusHandler: ((ev: UserStreamEvent) => void) | null = null;
 let capturedResyncHandler: (() => Promise<void>) | null = null;
+const streamSubscribers = new Set<{onEvent:(ev:UserStreamEvent)=>void;onRecovery?:()=>Promise<void>}>();
 
 vi.mock("../../realtime/user-stream", () => ({
     subscribeUserStream: (input: {
       onEvent: (ev: UserStreamEvent) => void;
       onRecovery?: () => Promise<void>;
     }) => {
-      capturedStatusHandler = input.onEvent;
-      capturedResyncHandler = input.onRecovery ?? null;
+      streamSubscribers.add(input);
+      capturedStatusHandler = event => { for (const subscriber of streamSubscribers) subscriber.onEvent(event); };
+      capturedResyncHandler = async () => { await Promise.all([...streamSubscribers].map(subscriber=>subscriber.onRecovery?.())); };
       return () => {
-        capturedStatusHandler = null;
-        capturedResyncHandler = null;
+        streamSubscribers.delete(input);
+        if (!streamSubscribers.size) { capturedStatusHandler = null; capturedResyncHandler = null; }
       };
     }
 }));
@@ -419,6 +421,7 @@ describe("ChatWorkspacePage — integration", () => {
   let fetchSpy: ReturnType<typeof mockFetch>;
 
   beforeEach(() => {
+    streamSubscribers.clear();
     setLanguage("en");
     capturedStatusHandler = null;
     capturedResyncHandler = null;

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rename, stat, writeFile, chmod } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, cp, rm, readdir, readFile, rename, stat, writeFile, chmod } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Context } from '@deepseek-ai/cordis';
@@ -109,6 +110,18 @@ export async function openMigrationStorage(home: string, storageRoot = join(home
 }
 type MigrationStorage = Awaited<ReturnType<typeof openMigrationStorage>>;
 
+// Public JSON backend may upgrade a legacy domain while opening it. Plan reads
+// a disposable storage copy so the stopped source and its digest stay immutable.
+async function openSourceStorage(home: string, root = join(home, 'storages')): Promise<MigrationStorage> {
+  const temporary = await mkdtemp(join(tmpdir(), 'nano-migration-read-'));
+  try {
+    const copy = join(temporary, 'storages');
+    if (await exists(root)) await cp(root, copy, {recursive: true});
+    const storage = await openMigrationStorage(home, copy);
+    return {...storage, async close() { try { await storage.close(); } finally { await rm(temporary, {recursive: true, force: true}); } }};
+  } catch (error) { await rm(temporary, {recursive: true, force: true}); throw error; }
+}
+
 async function sessionSummary(handle: SessionHandle, visit?: (events: readonly SessionEvent[]) => Promise<void>) {
   const hash = createHash('sha256').update(JSON.stringify([handle.header, handle.inheritedEventCount]));
   let count = 0;
@@ -208,7 +221,7 @@ export async function planRuntimeMigration(config: RuntimeMigrationConfig): Prom
   const pendingRecords: Omit<DomainUnit, 'agentId'>[] = [], edges: [string, string][] = [];
   const sourceHomes = [...new Set([config.home, ...partitions.map(p => p.sourceHome)])];
   for (const home of sourceHomes) {
-    const storage = await openMigrationStorage(home);
+    const storage = await openSourceStorage(home);
     try {
       const personal = partitions.find(p => p.sourceHome === home && p.key.startsWith('personal:'));
       for (const {header} of await storage.sessions.list()) {
@@ -272,7 +285,7 @@ export async function planRuntimeMigration(config: RuntimeMigrationConfig): Prom
       if (!partition) { blockers.push(`Unowned schedule directory ${home}/schedules/${name}`); continue; }
       for (const unit of await names(join(home, 'schedules', name)))
         if (unit.replace(/\.json$/, '') !== scheduleDomain.name) blockers.push(`Unsupported Schedule storage ${home}/schedules/${name}/${unit}`);
-      const storage = await openMigrationStorage(home, join(home, 'schedules', name));
+      const storage = await openSourceStorage(home, join(home, 'schedules', name));
       try {
         const domain = await storage.domain.open(scheduleDomain);
         for (const [key, value] of domain.table('tasks').entries()) {

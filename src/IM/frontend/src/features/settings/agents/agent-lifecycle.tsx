@@ -49,6 +49,13 @@ export function useAgentLifecycle(agentId: string) {
   return {query, mutation};
 }
 type Lifecycle = ReturnType<typeof useAgentLifecycle>;
+/** Explain retained chat messages without offering lifecycle changes in chat. */
+export function AgentLifecycleChatNotice({agentId, name}: {agentId:string; name:string}) {
+  const lifecycle = useAgentLifecycle(agentId);
+  const l = useLabels();
+  if (lifecycle.query.data?.desired !== 'disabled') return null;
+  return <div className="chat-observer-notice" role="status"><strong>{name} · {l('不处理新消息','Not processing new messages')}</strong><span>{l('消息会保留，但该 Agent 不会处理。','Messages are kept, but this Agent will not process them.')}</span></div>;
+}
 function useLabels() {
   const { i18n } = useTranslation();
   return (zh: string, en: string) => i18n.language.startsWith('zh') ? zh : en;

@@ -770,7 +770,7 @@ export default class NanoRuntime {
   private async ensure(binding: SessionBinding) {
     if (!this.accepting) throw new RpcError(-32003, 'Runtime is not accepting sessions');
     const previous = this.bindings.get(binding.sessionId);
-    if (previous && JSON.stringify(previous) !== JSON.stringify(binding)) throw new RpcError(-32002, 'Session binding conflict');
+    if (previous && (['sessionId', 'agentId', 'ownerId', 'cwd', 'revision'] as const).some(key => previous[key] !== binding[key])) throw new RpcError(-32002, 'Session binding conflict');
     const preset = `nano:${binding.agentId}:${binding.revision}`;
     const config = this.configurations.get(preset);
     if (config?.personal && (binding.ownerId !== config.personal.ownerId || binding.cwd !== config.workspace)) throw new RpcError(-32004, 'Personal Session must retain its owner and private workspace');

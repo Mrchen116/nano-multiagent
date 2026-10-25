@@ -69,13 +69,13 @@ let external: ExternalChannels;
 let managed: ManagedChannels;
 const knowledgeByPartition = new Map<string, KnowledgeUpdates>();
 const knowledge = { get busy() { return [...knowledgeByPartition.values()].some(item => item.busy); },
-  recover: () => settlePartitions([...knowledgeByPartition.values()].map(item => item.recover())),
-  migrateSkills: () => settlePartitions([...knowledgeByPartition.values()].map(item => item.migrateSkills())),
+  recover: () => settlePartitions([...knowledgeByPartition].filter(([key]) => runtime.partitions.get(key)?.agents.every(agent => runtime.availableFor(agent.agentId))).map(([, item]) => item.recover())),
+  migrateSkills: () => settlePartitions([...knowledgeByPartition].filter(([key]) => runtime.partitions.get(key)?.agents.every(agent => runtime.availableFor(agent.agentId))).map(([, item]) => item.migrateSkills())),
   stop: () => Promise.all([...knowledgeByPartition.values()].map(item => item.stop())) };
 let history: ConversationHistory;
 const workflowsByPartition = new Map<string, WorkflowResults>();
 const workflows = { get busy() { return [...workflowsByPartition.values()].some(item => item.busy); },
-  recover: () => settlePartitions([...workflowsByPartition.values()].map(item => item.recover())),
+  recover: () => settlePartitions([...workflowsByPartition].filter(([key]) => runtime.partitions.get(key)?.agents.every(agent => runtime.availableFor(agent.agentId))).map(([, item]) => item.recover())),
   stop: () => Promise.all([...workflowsByPartition.values()].map(item => item.stop())) };
 let trajectory: NodeTrajectory;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
@@ -464,8 +464,8 @@ let stopping = false;
 agentLifecycle = new NodeAgentLifecycle({
   nodeId: config.node.node_id, boot: machineBoot,
   snapshot: agentId => store.lifecycle.snapshot(agentId), save: state => store.lifecycle.save(state),
-  proof: agentId => { const value = store.command(`lifecycle-proof:${agentId}`); return value ? JSON.parse(value) : undefined; },
-  saveProof: (agentId, proof) => store.saveCommand(`lifecycle-proof:${agentId}`, JSON.stringify(proof)),
+  proof: agentId => store.lifecycle.proof(agentId),
+  saveProof: (agentId, proof) => store.lifecycle.saveProof(agentId, proof),
   host: agentId => supervisors.get(runtime.forAgent(agentId).key)!, start: agentId => runtime.startAgent(agentId),
   cancel: agentId => { store.cancelAgent(agentId); inbox.cancelAgent(agentId); product.cancelAgent(agentId); globalProduct.cancelAgent(agentId); },
   resetHeartbeat: agentId => heartbeat.resetAgent(agentId),

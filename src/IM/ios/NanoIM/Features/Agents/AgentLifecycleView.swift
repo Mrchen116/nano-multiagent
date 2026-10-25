@@ -36,6 +36,29 @@ struct AgentLifecycleChange: Encodable, Sendable {
     let expected_revision: Int
 }
 
+struct AgentLifecycleChatNotice: View {
+    let client: IMClient
+    let agent: ActorRef
+    @Environment(\.scenePhase) private var phase
+    @State private var state: AgentLifecycleSnapshot?
+    var body: some View {
+        Group {
+            if state?.desired == "disabled" {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(agent.display_name ?? agent.id) · \(L("不处理新消息", "Not processing new messages"))").font(.caption.weight(.semibold))
+                    Text(L("消息会保留，但该 Agent 不会处理。", "Messages are kept, but this Agent will not process them.")).font(.caption)
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(10).background(.bar)
+            }
+        }.task(id: "\(agent.id)-\(phase == .active)") {
+            guard phase == .active else { return }
+            repeat {
+                if let current: AgentLifecycleSnapshot = try? await client.get(agentPath(agent.id) + "/lifecycle") { state = current }
+                try? await Task.sleep(for: .seconds(3))
+            } while !Task.isCancelled
+        }
+    }
+}
+
 /// A page supplies either its configuration Toggle or one native action row.
 struct AgentLifecycleControls: View {
     let client: IMClient
