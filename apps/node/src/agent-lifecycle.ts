@@ -4,7 +4,6 @@ interface Proof { boot: string; processInstanceId: string | null; stopped: boole
 interface Host {
   readonly available: boolean;
   readonly processInstanceId?: string;
-  enable(): void;
   disable(): Promise<{confirmed: boolean; processInstanceId?: string; errorDetail?: string}>;
 }
 interface Options {
@@ -45,7 +44,7 @@ export class NodeAgentLifecycle {
     if (state.desired === 'disabled') {
       this.options.cancel(state.agent_id);
       this.options.resetHeartbeat(state.agent_id);
-      // disable closes automatic restart synchronously, before reporting or drains.
+      // Product admission is already closed; native cleanup is scoped to this Agent.
       const stopping = host.disable();
       task = this.stop(state, stopping);
     } else {
@@ -53,7 +52,6 @@ export class NodeAgentLifecycle {
         this.options.cancel(state.agent_id);
         this.options.resetHeartbeat(state.agent_id);
       }
-      host.enable();
       task = this.options.start(state.agent_id);
     }
     this.applying.set(state.agent_id, {revision:state.revision, task});
@@ -81,11 +79,14 @@ export class NodeAgentLifecycle {
   }
   private async stop(state: AgentLifecycleSnapshot, stopping: Promise<{confirmed:boolean;processInstanceId?:string;errorDetail?:string}>): Promise<void> {
     const proof = this.options.proof(state.agent_id);
-    const result = await stopping;
+    const result = await stopping.catch(error => ({confirmed:false, processInstanceId:this.options.host(state.agent_id).processInstanceId, errorDetail:String(error)}));
     const processId = result.processInstanceId ?? proof?.processInstanceId ?? state.process_instance_id;
-    const confirmed = result.processInstanceId ? result.confirmed : proof ? proof.stopped || proof.boot !== this.options.boot : !state.process_instance_id;
+    const priorSettled = proof ? proof.stopped || proof.boot !== this.options.boot || proof.processInstanceId === result.processInstanceId : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
+    const confirmed = result.processInstanceId ? result.confirmed && priorSettled : proof ? proof.stopped || proof.boot !== this.options.boot : !state.process_instance_id;
     if (confirmed) this.options.saveProof(state.agent_id, {boot:this.options.boot, processInstanceId:processId, stopped:true});
-    await this.publish(state, confirmed ? 'disabled' : 'stop_unconfirmed', processId,
+    // Disabled intent still names the last execution host at the center. A new
+    // shared management host cannot replace that identity via an enabling report.
+    await this.publish(state, confirmed ? 'disabled' : 'stop_unconfirmed', state.process_instance_id ?? processId,
       confirmed ? undefined : 'managed_cleanup_unconfirmed', confirmed ? undefined : result.errorDetail ?? 'Previous runtime cleanup is still unconfirmed on this machine boot.');
   }
   private async publish(state: AgentLifecycleSnapshot, observed: AgentLifecycleSnapshot['observed'], processId: string | null, errorCode?: string, errorDetail?: string): Promise<void> {

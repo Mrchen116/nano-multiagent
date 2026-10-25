@@ -36,7 +36,7 @@ export class TaskExecutionDriver {
   stop(): void { this.stopped = true; }
   private readonly states=new Map<string,State>();
   private readonly shortRuns=new Map<string,number>();
-  constructor(private readonly ctx:Context,private readonly options:{peer:RpcPeer;bindings:Map<string,SessionBinding>;configuration:(agent:Agent)=>AgentConfiguration|undefined;lifecycleRevision?:()=>number}) {
+  constructor(private readonly ctx:Context,private readonly options:{peer:RpcPeer;bindings:Map<string,SessionBinding>;configuration:(agent:Agent)=>AgentConfiguration|undefined;lifecycleRevision?:(agentId:string)=>number;allowed?:(agentId:string)=>boolean}) {
     ctx.on('session/event',(session,event)=>{
       const binding=options.bindings.get(session.id);if(!binding)return;
       const state=this.state(session.id),agentId=binding.agentId;
@@ -180,7 +180,7 @@ export class TaskExecutionDriver {
   }
   private enabled(agent:Agent):boolean {
     const config=this.options.configuration(agent);
-    return !this.stopped&&!!config&&config.features?.task_graph!==false&&(!config.toolAllowlist||config.toolAllowlist.includes('task_graph'));
+    return !this.stopped&&!!config&&this.options.allowed?.(config.agentId)!==false&&config.features?.task_graph!==false&&(!config.toolAllowlist||config.toolAllowlist.includes('task_graph'));
   }
   private identity(agent:Agent){const binding=this.options.bindings.get(agent.id)!;return {sessionId:agent.id,agentId:binding.agentId,ownerId:binding.ownerId};}
   private async snapshot(agent:Agent):Promise<TaskExecutionSnapshot> {
@@ -209,7 +209,7 @@ export class TaskExecutionDriver {
     return 'Task responsibility changed. Stop further actions for removed/reassigned/paused/completed Tasks. Continue unrelated user work and remaining responsibilities. This is not human consent.\n'+JSON.stringify({removed,changed,doing:after.tasks.filter(t=>t.status==='doing').map(t=>`${t.graph_id}/${t.node_id}`),waiting:after.tasks.filter(t=>t.status==='waiting').map(t=>`${t.graph_id}/${t.node_id}`),repair_task_ids:after.repair_task_ids});
   }
   private message(agent:Agent,text:string,sourceChannel:'task-execution'|'task-change'|'task-human-control',id=MessageId(`${sourceChannel}:${randomUUID()}`)):UserMessage {
-    return freezeMessage({id,role:'user',source:{kind:'nano-system',lifecycle_revision:this.options.lifecycleRevision?.()??1,actorId:this.options.bindings.get(agent.id)!.agentId,channel:sourceChannel,messageId:id},content:[{type:'text',text}]});
+    return freezeMessage({id,role:'user',source:{kind:'nano-system',lifecycle_revision:this.options.lifecycleRevision?.(this.options.bindings.get(agent.id)!.agentId)??1,actorId:this.options.bindings.get(agent.id)!.agentId,channel:sourceChannel,messageId:id},content:[{type:'text',text}]});
   }
   private restore(agent:Agent,messages:UserMessage[]):void {
     for(const message of messages.toReversed())if(!agent.inbox.nextTurn.some(m=>m.id===message.id)&&!agent.inbox.nextStep.some(m=>m.id===message.id))agent.inbox.prepend(channel(message)==='task-human-control'?'next-step':'next-turn',message);
@@ -242,7 +242,7 @@ export class TaskExecutionDriver {
     try {
       await this.ctx.sessions.flush(agent.session);
       const snapshot=await this.snapshot(agent);
-      if(this.exhausted(agentId))return;
+      if(!this.enabled(agent)||this.exhausted(agentId))return;
       if(snapshot.kind==='unavailable'){if(!state.interrupted)this.hold(state,'source');return;}
       this.refreshDenials(state,snapshot);
       if(!this.runnable(state,snapshot)||state.limited===fingerprint(snapshot)||state.blocked||agent.status!=='idle'||!reconsider&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))return;

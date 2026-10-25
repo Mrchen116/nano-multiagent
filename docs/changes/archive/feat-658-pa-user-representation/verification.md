@@ -1,5 +1,7 @@
 # Verification Report: feat-658
 
+> 基线更正（2026-10-26）：下文保留各冻结版本的核验结果。PR #409 恢复普通 Agent 共享 host 后，逐 Agent home 拆分迁移及其前置限制已撤销；当前集成核验见 [M1 后续记录](M1-user-representation/progress.md#共享运行时修正后的-pr-更新2026-10-26)。本 unit 的 IM representation 列迁移仍需要执行。
+
 > Validation snapshot: `8e4054197908a1a433f748525c9650a831a950b6 → 3689a8b84ba09e69eae013bb79d93a1c4d1f2010`
 
 ## Summary

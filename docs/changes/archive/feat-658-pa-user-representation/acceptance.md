@@ -1,5 +1,7 @@
 # feat-658 — 独立产品验收报告
 
+> 基线更正（2026-10-26）：本报告各轮保留当时实际结果。PR #409 已撤销 feat-657 的普通 Agent 独立进程和 home 拆分；下文最后一轮的拆分迁移 blocker 不再是当前部署要求。新共享运行时集成核验见 [M1 后续记录](M1-user-representation/progress.md#共享运行时修正后的-pr-更新2026-10-26)，不把原 fresh partition 验收改写成新版旧数据恢复证明。
+
 > Round 1 · mode=full · 2026-10-25
 >
 > Validation snapshot: `8e4054197908a1a433f748525c9650a831a950b6 → 9c5aecd558e1d16c5e5d948c010859a70e0901f8`

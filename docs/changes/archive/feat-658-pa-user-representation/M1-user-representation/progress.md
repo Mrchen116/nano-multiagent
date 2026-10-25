@@ -86,3 +86,12 @@
 - 此新实例起初遗漏前一实例已保存的“仅允许本机测试 origin”配置增量，daily 默认禁推送生效，因此保留首次 partial 结果，不将其计作一次授权 push 通过；按同一获准验收范围补入 Q/PA 配置后，以自然续办要求仅推送已有提交、不改文件或重复 commit，结果另行核对。真实 Q/PA provider 请求与 Q Codex review 已保留 `final-integration-contexts/`，Q 无 send_user_message，根 PA 有该工具，收到的原用户/PA/message/限制完整。
 - 续办最终完成：Q 向正确 PA 的实收回执 `3cb1efe6ed364dd7b69bb263340bb008`；PA 核实后向主人回报 `0165f8e6401641e781001cadce2a3b8c`。主 Agent 真实 Web 查看并保存截图，独立产品 R5 以正式 API/Git/本机远端复核后最终 pass；HEAD 与 origin/main 同为 `04420a5a8e42d266bb0f3a34d42fb263a58da945`，相对初始化仅一个业务提交、仅新增 final-integration.md。
 - 最终再次 fetch，origin/main 仍为 `1219d903b`，无新增上游差异。两套本轮测试栈与专用模拟器已停止，49303/49803 无 listener，无本 worktree 遗留进程；原数据、迁移拒绝报告、备份、上下文与截图保留在本地。开发 worktree 保留供 PR 审查，不部署、不发布安装包。
+
+### 共享运行时修正后的 PR 更新（2026-10-26）
+
+- 用户指出 feat-657 的纠正已合入，要求核对 PR #408。同步 main `dfb871662`（PR #409 / bugfix-660）；合并自动成功，无文本冲突。普通 Agent 继续共享 ordinary host 和原 home，PA 保留 binding/epoch 分区，不引入 control host 或逐 Agent 数据拆分。
+- 对 main 的产品交叉差异只有 `NanoRuntime.Submit.source` 的 `sender`、`pa_agent_id` 类型字段；shared lifecycle 的逐 Agent 准入、OwnedSessions、冷历史与停止逻辑完整继承。本 unit 的代表发送、披露检查和 ComposeMessage 行为无需重写。
+- 测试处置：保留既有 shared lifecycle、来源/审核、PA representation 与子 Agent 交付覆盖；在 `agent-disable-native.test.ts` 已有冷恢复测试中增加代发来源断言，证明重新启用后的新输入经过进程重启仍保留用户 sender、PA 来源及 lifecycle revision。没有新增平行套件或修改超时。
+- 修正 deployment-prompt 与报告入口：旧拆分 plan 拒绝仅保留为当时历史，不能继续要求部署执行已删除工具；本 unit 自有 IM nullable representation 列迁移及旧历史不补授权规则不变。生产与此前验收数据均未迁移或改写。
+- 验证：Node 24.22.1 下 build/typecheck 通过；docs-check（270 maintained sources / 68 routes）、unit archive 与 diff 检查通过。定向 10 文件 72 测试首轮 71 通过，新增断言错误地查已消费消息而非仍 pending 的 inbox 事件；改为公开持久队列事件后冷恢复来源断言通过。该文件复验 6/7，另一次未改动的 A/B PTY 停止在 B 收尾时报告 cleanup failed；原样单独复验 1/1 通过。未修改产品代码、超时或错误传播，不能把复验写成首轮全绿或已查明 PTY 偶发根因。日志：本机 `~/.codex/reports/feat658-acceptance/shared-runtime-update/`，远端整树 CI 以更新后的 PR checks 为准。
+- 独立 patch/context 审查：0 存活兼容性问题，独立来源与安全测试 22/22；结论与边界见 code-review R7。没有新产品 UI 差异，复用先前 Web/iOS 验收，不将两版既有真实 provider 请求冒充本次新的整栈模型旅程。

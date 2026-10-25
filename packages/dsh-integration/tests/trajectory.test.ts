@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it('reads cold native history without activating an Agent and replaces the observer generation on normal activation', async () => {
+it.each([false,true])('reads cold history without activation, including disabled=%s, then follows explicit activation', async disabled => {
   const home = await mkdtemp(join(tmpdir(), 'nano-trajectory-'));
   let client: RuntimeClient | undefined;
   let logs = '';
@@ -13,9 +13,9 @@ it('reads cold native history without activating an Agent and replaces the obser
   const scope = { observerId: 'viewer', rootAgentId: 'a', rootSessionId: binding.sessionId, sessionId: binding.sessionId, ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 };
   const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAIAAACwpMoFAAABNklEQVR4nO3ZwQmAMBQFwVRjY5ZtB9qD2ILkILgZ+PdJ2OMb235N33He08f9xh2rfXg1V+C4K3DcFTjuChx3BY67AsddgeOuwHFX4LgrcNwVOO4KHHcFjrvjj4/mvj+B467AcVfguCtw3BU47gocdwWOuwLHXYHjrsBxV+C4K3DcFTjuChx37cFxV+C4K3DcFTjuChx3BY67AsddgeOuwHFX4LgrcNwVOO4KHHcFjrsCx117cNwVOO4KHHcFjrsCx12B467AcVfguCtw3BU47gocdwWOuwLHXYHjrsBx1x4cdwWOuwLHXYHjrsBxV+C4K3DcFTjuChx3BY67AsddgeOuwHFX4LgrcNy1B8ddgeOuwHFX4LgrcNwVOO4KHHcFjrsCx12B467AcVfguCtw3BU47gocdx+RTJHLcoVInQAAAABJRU5ErkJggg==';
   const source = { kind: 'chat', conversationId: 'private-chat', messageId: 'input', url: '/im/v1/conversations/private-chat/images/photo' };
-  const start = async () => {
+  const start = async (disabled = false) => {
     client = new RuntimeClient({ home, cwd: home, onLog: value => { logs += value; } });
-    await client.rpc.request('initialize', configuration);
+    await client.rpc.request('initialize', {...configuration, ...(disabled ? {lifecycle:{a:{revision:2,disabled:true,disabledThroughRevision:2}}} : {})});
   };
   try {
     await writeFile(join(home, 'lifecycle.mjs'), `import{appendFile}from'node:fs/promises';export const name='trajectory-lifecycle';export const inject=['agents'];export function apply(ctx){ctx.on('agent/created',async({agent})=>{await appendFile(process.env.DSH_HOME+'/created',agent.id+'\\n')});}`);
@@ -25,7 +25,7 @@ it('reads cold native history without activating an Agent and replaces the obser
     await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: 'cold-input', mode: 'inject', content: [{ type: 'text', text: 'Read without waking' }, { type: 'image', data: imageData, mediaType: 'image/png' }], attachmentSources: [null, source], source: { kind: 'system', actorId: 'owner', channel: 'test', messageId: 'input' } });
     await client!.shutdown();
     const before = await readFile(join(home, 'created'), 'utf8');
-    await start();
+    await start(disabled);
     expect(await client!.rpc.request('trajectory.prepare', scope)).toMatchObject({ version: '0.2.1-alpha.1' });
     await expect(client!.rpc.request('trajectory.prepare', { ...scope, observerId: 'wrong', rootAgentId: 'other' })).rejects.toThrow(/scope/i);
     expect(await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs' })).toEqual({ ok: true, value: [] });
@@ -50,6 +50,13 @@ it('reads cold native history without activating an Agent and replaces the obser
     expect(JSON.stringify(image.value)).toContain('image/png');
     await expect(client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'session/cancel', params: {} })).rejects.toThrow(/read.only/i);
     expect(await readFile(join(home, 'created'), 'utf8')).toBe(before);
+    const exported = await client!.rpc.request('session.export', {sessionId:binding.sessionId}) as {path:string};
+    expect(await readFile(exported.path,'utf8')).toContain('cold-input');
+    if (disabled) {
+      await expect(client!.rpc.request('session.ensure', binding)).rejects.toThrow('agent_disabled');
+      await client!.rpc.request('model.setup.snapshot', {});
+      await client!.rpc.request('agent.enable', {agentId:'a',revision:3,disabledThroughRevision:2});
+    }
     // Only normal business activation may acquire an Agent owner.
     await client!.rpc.request('session.ensure', binding);
     await expect(client!.rpc.request('trajectory.next', { observerId: 'viewer', streamId: opened.streamId })).rejects.toThrow(/generation_changed/);

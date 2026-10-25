@@ -1,5 +1,7 @@
 # feat-658 Code Review
 
+> 最新共享 host 集成审查见文末 R7；先前各轮保持其原冻结版本与证据范围。
+
 - Reviewer: independent agent; did not implement the reviewed change.
 - Mode: full.
 - Reviewed range: `8e4054197908a1a433f748525c9650a831a950b6..3689a8b84ba09e69eae013bb79d93a1c4d1f2010`.
@@ -163,3 +165,13 @@ R4 pending evidence: **closed** within the stated fresh-partition integration sc
 ```
 
 Final code/context review outcome: pass, with the documented old-runtime migration and test-stability limits. No source modification, service mutation or extra review loop occurred. Caller owns canonical reconciliation, archival, PR and PR CI; this report does not authorize production migration/deployment/release.
+
+## R7 — Shared runtime compatibility review (2026-10-26)
+
+Independent reviewer `feat658_shared_runtime_review` reviewed the merged working tree of `871cdf5c3` and main `dfb871662`, focused on feat-658 provenance/authorization versus bugfix-660 shared lifecycle. Caller transcribed the result here; reviewer did not modify implementation.
+
+- Result: `[]`, no confirmed or plausible surviving compatibility finding. Relative to corrected main, the only overlapping product change in `index.ts` extends `Submit.source` with `sender` and `pa_agent_id`; the per-Agent enabled/revision checks and source spread remain intact.
+- OwnedSessions restores the original session/preset; disabled-revision barriers cancel old queued execution without erasing history. Disposed sessions clear transient Inbox observation flags, while restored review context retains historical provenance. Root-only PA delegation, trusted ProductBridge identity and publication lifecycle checks do not require ordinary Agent process isolation.
+- Independent verification: `approval-sources.test.ts` and `personal-security.test.ts`, 22/22 passed; diff whitespace check passed. Reviewer assessed the added cold-recovery provenance assertion; caller subsequently corrected its observation from consumed `user/message` to the native persisted inbox event because this fixture deliberately keeps the input pending. Product code was unchanged.
+- Context Mode B inspected source projection/restored approval composition and prior real provider requests from the two component versions. Those separate samples are not a new integrated real-model journey. The caller's native shared-host/cold-recovery regression supplies merged-runtime evidence; unchanged UI acceptance is reused.
+- Earlier R6 split-migration prerequisite is superseded by PR #409, which removed that layout and tool. The feat-658 IM representation-column migration remains required. This review does not authorize production changes.

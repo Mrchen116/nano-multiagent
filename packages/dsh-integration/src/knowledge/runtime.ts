@@ -35,7 +35,7 @@ export class KnowledgeRuntime extends Service {
   private readonly state: Promise<Domain<KnowledgeDomain>>;
   private readonly scans = new Map<string, number>();
   private readonly active = new Map<string, Active>();
-  private readonly tasks = new Set<Promise<unknown>>();
+  private readonly tasks = new Map<Promise<unknown>, string>();
   private readonly host: Context;
   private stopping = false;
   private updateHeld = false;
@@ -74,12 +74,12 @@ export class KnowledgeRuntime extends Service {
     ctx.on('tools/result', (exec, result) => {
       const review = exec.agent && this.children.get(exec.agent);
       if (review) { review.work.reads.observe(exec, result); return; }
-      if (exec.name === 'skill' && exec.agent && !result.isError && this.config(exec.agent)) this.track(this.used(exec.agent, (exec.arguments as { name: string }).name, exec.callId));
+      if (exec.name === 'skill' && exec.agent && !result.isError && this.config(exec.agent)) this.track(this.used(exec.agent, (exec.arguments as { name: string }).name, exec.callId), this.config(exec.agent)!.agentId);
     });
     ctx.on('session/event', (session, event) => {
       if (event.type === 'user/message' && event.data.source.kind === 'skill-invocation') {
         const agent = this.host.agents.get(session.id);
-        if (agent && this.config(agent)) this.track(this.used(agent, event.data.source.name, event.data.id));
+        if (agent && this.config(agent)) this.track(this.used(agent, event.data.source.name, event.data.id), this.config(agent)!.agentId);
       }
       if (event.type !== 'step/start' || !session.header.parentSession) return;
       const active = this.reviewIdentity(session.id);
@@ -107,8 +107,8 @@ export class KnowledgeRuntime extends Service {
   busyKinds(agentId: string): KnowledgeKind[] { return [...new Set([...this.active.values()].filter(work => work.agentId === agentId).flatMap(work => work.kinds).concat(this.scans.has(agentId) ? ['skills'] : []))]; }
   /** Pause periodic curation during an update without changing Feature settings. */
   suspendUpdates(held: boolean): void { this.updateHeld = held; }
-  private track(task: Promise<unknown>) {
-    this.tasks.add(task); void task.catch(error => this.host.logger('nano-knowledge').warn(String(error))).finally(() => this.tasks.delete(task));
+  private track(task: Promise<unknown>, agentId: string) {
+    this.tasks.set(task, agentId); void task.catch(error => this.host.logger('nano-knowledge').warn(String(error))).finally(() => this.tasks.delete(task));
   }
   config(agent: Agent) { return this.options.configOf(agent); }
   files(agent: Agent) { return new KnowledgeFiles(agent.session.header.cwd!, this.config(agent)?.knowledge?.globalSkillRoot); }
@@ -183,13 +183,15 @@ export class KnowledgeRuntime extends Service {
     return this.reviews();
   }
   /** Preserve stopped review and notification evidence without re-emitting old work. */
-  async cancelPersisted(): Promise<void> {
+  async cancelPersisted(agentId: string): Promise<void> {
     const state = await this.state;
     for (const [id, review] of state.table('reviews').entries()) {
-      if (['running', 'interrupted'].includes(review.status)) await state.table('reviews').put(id, {...review, status: 'cancelled', diagnostic: 'agent_disabled'});
+      if (review.agentId === agentId && ['running', 'interrupted'].includes(review.status)) await state.table('reviews').put(id, {...review, status: 'cancelled', diagnostic: 'agent_disabled'});
     }
-    for (const [id, fact] of state.table('facts').entries()) await state.table('facts').put(id, {...fact, cancelledByDisable: true});
-    this.undelivered.clear();
+    for (const [id, fact] of state.table('facts').entries()) if (fact.agentId === agentId) {
+      await state.table('facts').put(id, {...fact, cancelledByDisable: true}); this.undelivered.delete(fact.id);
+    }
+    for (const [id, pending] of this.pendingBatches) if (pending.agentId === agentId) this.pendingBatches.delete(id);
   }
   async reviews() { return [...(await this.state).table('reviews').entries()].map(([, value]) => value); }
   /** A Feature owns this listener and its disposal cancels only this kind of accepted review. */
@@ -205,7 +207,7 @@ export class KnowledgeRuntime extends Service {
         if (!agent) return;
         const files = this.files(agent);
         this.scans.set(agentId, (this.scans.get(agentId) ?? 0) + 1);
-        this.track(Promise.all([files.curate(files.skillRoot), ...(this.config(agent)?.knowledge?.globalSkillRoot ? [files.curate(this.config(agent)!.knowledge!.globalSkillRoot!)] : [])]).then(() => invalidateSkills(this.config(agent)!)).finally(() => { const remaining = this.scans.get(agentId)! - 1; if (remaining) this.scans.set(agentId, remaining); else this.scans.delete(agentId); }));
+        this.track(Promise.all([files.curate(files.skillRoot), ...(this.config(agent)?.knowledge?.globalSkillRoot ? [files.curate(this.config(agent)!.knowledge!.globalSkillRoot!)] : [])]).then(() => invalidateSkills(this.config(agent)!)).finally(() => { const remaining = this.scans.get(agentId)! - 1; if (remaining) this.scans.set(agentId, remaining); else this.scans.delete(agentId); }), agentId);
       };
       const timer = setInterval(scan, 3600000); timer.unref(); ctx.effect(() => () => clearInterval(timer));
     }
@@ -251,7 +253,7 @@ export class KnowledgeRuntime extends Service {
       if (!controller.signal.aborted) throw error;
     }).finally(() => this.active.delete(id));
     this.active.set(id, { controller, task, agentId: config.agentId, rootSessionId: agent.id, kinds: batch ? ['skills'] : ['memory', 'skills'], source: batch ? 'F4' : 'F3', turn: this.turn(agent), reads, batch });
-    this.track(task);
+    this.track(task, config.agentId);
   }
   private async review(agent: Agent, id: string, signal: AbortSignal, batch?: Batch) {
     const config = this.config(agent)!; const work = this.active.get(id)!;
@@ -358,8 +360,13 @@ export class KnowledgeRuntime extends Service {
     for (const work of active) work.controller.abort();
     await Promise.allSettled(active.map(value => value.task));
   }
+  /** Settle only this Agent's accepted reviews and maintenance writes. */
+  async stopAgent(agentId: string) {
+    for (const work of this.active.values()) if (work.agentId === agentId) work.controller.abort();
+    await Promise.allSettled([...this.tasks].filter(([, owner]) => owner === agentId).map(([task]) => task));
+  }
   async stop() {
     this.stopping = true; for (const work of this.active.values()) work.controller.abort();
-    await Promise.allSettled([...this.tasks, ...[...this.active.values()].map(work => work.task)]);
+    await Promise.allSettled([...this.tasks.keys(), ...[...this.active.values()].map(work => work.task)]);
   }
 }
