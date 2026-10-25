@@ -28,12 +28,3 @@ feat-657 的真实产品目标是持久停用一个 Agent，清理它的子 Agen
 对 Nano 锁定安装的 DSH `0.2.1-alpha.1` 实测，同一 Context/运行进程里的 A、B 可以独立取消；A 的 `AgentHandle.dispose()` 终止其真实 Bash Job，B 与 B 的 Job 继续运行。普通 `cancel()` 只停止当前活动，不等于持久停用；Nano 仍需持有和使用 DSH 的生命周期能力，并管理自己的归属、停用状态和唤醒入口。上游 `drainContinuableDescendants` 还明确提供按父 Agent 清理子树的公开接口。证据位于本地 `~/.codex/reports/dsh-session-isolation-20261025/`，源码基线 `5badb15009ae1756c3afe0ae0cef1faafc290ccc`；相关 339 项上游测试在补齐原生构建后通过。
 
 本次是单一、机械回退，不选择替代架构；以 #406 第一父提交的产品树为比较基线。必须保留之前已有的共享普通 Agent、PA 隔离、模型配置、聊天、Work、Task 与 `/stop` 行为，保留数据库和历史资产。原始停用需求继续有效，但撤回期间不宣称已经提供持久停用功能。
-
-## 修复
-
-使用 `git revert --no-commit -m 1 1219d903b` 生成逆向变更；产品源码、测试、锁文件和 current specs 与 `befcbab3a` 完全一致。保留 archive 中 feat-657 的全部交付证据，给 spec/design/deployment-prompt 加撤回说明，不恢复旧活动目录。生产未采用此版本，因此不执行数据迁移或数据库回滚，也不删除已存在数据。
-
-## 验证
-
-- 源码与 current specs 的逐文件 Git 比较：与 #406 第一父提交 `befcbab3a` 无差异；#407 的 Context Engineering 变更保留。
-- 本地回归、独立审查和远端 CI 在交付阶段记录实际结果；不能把机械回退等同于已经重新验收所有用户旅程。

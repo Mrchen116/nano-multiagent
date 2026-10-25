@@ -49,7 +49,7 @@ const overrideSchema = z.object({
   config: configSchema,
   baseRevision: z.string(),
 });
-const domain: HistoryDomain = defineDomain({
+export const historyDomain: HistoryDomain = defineDomain({
   name: "nano_history",
   version: 1,
   layout: "per-record",
@@ -94,7 +94,7 @@ export class NativeHistory {
     private readonly ctx: Context,
     private readonly home: string,
   ) {
-    this.state = ctx.storageDomain.open(domain);
+    this.state = ctx.storageDomain.open(historyDomain);
     ctx.effect(() => async () => {
       await this.stop();
       await (await this.state).close();

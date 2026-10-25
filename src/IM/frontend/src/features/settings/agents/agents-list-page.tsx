@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { AgentRow } from "./agent-row";
+import { AgentLifecycleRow as AgentRow } from "./agent-lifecycle";
 import { PersonalAgentEntry, configuredPersonalAgent, usePersonalAgentEntry } from "./personal-agent-entry";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { listPublicAgents } from "./public-agents";

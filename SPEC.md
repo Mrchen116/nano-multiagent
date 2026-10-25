@@ -14,7 +14,8 @@ flowchart TD
   IM <-->|设备认证 WS / HTTP| Node[用户机器：TypeScript Node]
   Feishu[飞书] <-->|平台长连接 / API| Channels[Channels]
   Channels <--> Node
-  Node <-->|stdio JSON RPC| DSH[官方 DSH 子进程 + Nano plugins]
+  Node <-->|stdio JSON RPC| Control[control host：管理与只读历史]
+  Node <-->|stdio JSON RPC| DSH[每个产品 Agent 独立 DSH host + Nano plugins]
   DSH --> LLM[配置的模型服务]
   DSH --> Workspace[Agent workspace / tools / skills]
 ```
@@ -39,6 +40,8 @@ flowchart TD
 
 Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产品层依赖 `RuntimePort`，不持有 DSH 对象。运行时接线集中在 integration，跨进程传递的是产品身份、输入来源、操作 ID、持久序号及真实事件。
 
+每个产品 Agent（普通 Agent 与 PA）拥有独立 DSH 进程与持久 home，同一 Agent 的跨聊天主会话、子 Agent 和受管工作归于该进程；PA 保留 binding/epoch 身份边界。独立 control host 不创建业务 Agent，承担模型与凭据管理、不需执行的配置操作和公开 persistence API 的只读历史投影。停用的产品进程不因读取历史或全部 Agent 停用而启动。旧共享 home 必须先停服并完成显式离线迁移、校验和布局标记发布；普通启动不自动扫描复制全部历史。
+
 ## 依赖方向
 
 - IM 只依赖 product-contracts，不导入 Node、PA、Channels 或 DSH。
@@ -57,7 +60,7 @@ IM 持有账号、私人/公司资源空间、聊天、任务图与配置操作�
 
 用户消息被持久接收、Agent 完成、结果发给用户是不同事实。断线恢复按稳定输入和操作身份查询持久状态，不盲目重放工具或外发。未知发送保留未知；审批保留真实来源和调用归属。活跃运行发出 liveness，中心不会把安静的模型/工具/审批等待当作失败；执行进程消失后心跳停止，中心才按超时回收。
 
-配置 scope 决定各 Agent 的有效能力。全局插件与 workspace 私有插件是不同归属；默认发现与显式空集合不同。历史分支使用消息点配置。Cron 回到创建它的原主会话，一次性任务在停机期间到期后按 DSH 规则补发；Heartbeat 保留产品的忙碌跳过、活跃时段、任务节律和静默策略。
+配置 scope 决定各 Agent 的有效能力。全局插件与 workspace 私有插件是不同归属；默认发现与显式空集合不同。历史分支使用消息点配置。Cron 回到创建它的原主会话，一次性任务在普通停机期间到期后按 DSH 规则补发。真人停用 Agent 是例外：停用期错过的触发不补跑，重新启用只允许新工作与独立周期计划的未来触发，旧任务及其等待计划需要真人明确恢复；Heartbeat 保留产品的忙碌跳过、活跃时段、任务节律和静默策略。
 
 ## 进一步阅读
 

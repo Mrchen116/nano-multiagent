@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
-import { AgentRow } from "./agent-row";
+import { AgentLifecycleRow as AgentRow } from "./agent-lifecycle";
 import { PersonalAgentEntry, configuredPersonalAgent, usePersonalAgentEntry } from "./personal-agent-entry";
 import { listPublicAgents } from "./public-agents";
 import { useAuthStore } from "../../auth/auth-store";

@@ -1,3 +1,4 @@
+import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { mergeStatements } from '@openuidev/lang-core';
 import { interactiveResponse } from '@nano/product-contracts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -49,6 +50,7 @@ export class PersonalActions {
     if(!op)fail(404,'proposal_not_found');return op;
   }
   validate(b:Row,op:Row) {
+    requireLifecycle(this.db,b.agent_id,JSON.parse(op.evidence_json).lifecycle_revision);
     if(!this.pa.sourceAllowed(b,op.conversation_id,'write'))fail(403,'destination_not_accessible');
     const frozen=JSON.parse(op.payload_json);
     const profile=one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id);
@@ -113,7 +115,7 @@ export class PersonalActions {
     const sources=all(this.db,'SELECT DISTINCT conversation_id FROM pa_source_reads WHERE binding_id=? ORDER BY conversation_id',b.binding_id)
       .map(source=>({...source,allowed:this.pa.sourceAllowed(b,source.conversation_id)}));
     const chat=one(this.db,'SELECT id,title,type,external_source FROM conversations WHERE id=?',args.conversation_id)!;
-    const evidence={agent_profile_version:one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id)!.profile_version,
+    const evidence={lifecycle_revision:lifecycle(this.db,b.agent_id).revision,agent_profile_version:one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id)!.profile_version,
       owner_guard:this.pa.authorizationGuard(b),policy:this.pa.policy(b.binding_id),
       owner_user_id:b.owner_user_id,
       recipient:{conversation_id:chat.id,name:chat.title,conversation_type:chat.type,channel:chat.external_source??'web',members:this.pa.ctx.messaging.members(chat.id).map(member=>this.pa.ctx.messaging.actor(member))},
@@ -157,6 +159,7 @@ export class PersonalActions {
   }
   commit(principal:Row,args:Row,waits:{node_id:string;wait:Row}[] = []) {
     const b=this.pa.authority(principal,args), initial=this.operation(b,args.proposal_ref);
+    requireLifecycle(this.db,b.agent_id,args.lifecycle_revision);
     if(initial.state==='confirmed')return {state:'confirmed',message_id:initial.message_id,result:initial.result_json?JSON.parse(initial.result_json):undefined,conversation_id:initial.conversation_id};
     if(['sending','unknown'].includes(initial.state))return {state:'unknown',conversation_id:initial.conversation_id};
     const original=JSON.parse(initial.payload_json).task;
@@ -169,7 +172,7 @@ export class PersonalActions {
       const payload=JSON.parse(op.payload_json),s=this.pa.ctx.messaging;
       if(payload.task) {
         const task=payload.task;
-        const result=this.pa.ctx.gateway.tasks.executeDelegated({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:task.source_message_id},b.owner_user_id,task.action,task.arguments,notices,waits);
+        const result=this.pa.ctx.gateway.tasks.executeDelegated({kind:'agent',id:b.agent_id,node_id:b.node_id,source_message_id:task.source_message_id,lifecycle_revision:args.lifecycle_revision},b.owner_user_id,task.action,task.arguments,notices,waits);
         this.db.prepare("UPDATE pa_operations SET state='confirmed',result_json=?,verdict_ref=NULL WHERE operation_id=?").run(JSON.stringify(result),op.operation_id);
         this.db.prepare('UPDATE pa_policies SET disclosure_revision=disclosure_revision+1 WHERE binding_id=?').run(b.binding_id);
         return {state:'confirmed',conversation_id:op.conversation_id,result};

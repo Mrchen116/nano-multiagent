@@ -15,6 +15,10 @@
     "./trajectory-wire": {
       "types": "./lib/trajectory-wire.d.ts",
       "default": "./lib/trajectory-wire.js"
+    },
+    "./agent-lifecycle": {
+      "types": "./lib/agent-lifecycle.d.ts",
+      "default": "./lib/agent-lifecycle.js"
     }
   },
   "scripts": {

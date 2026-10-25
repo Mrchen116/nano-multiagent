@@ -18,10 +18,9 @@ struct AgentWorkView: View {
     private var online: Bool { root?.node_connection_state == "online" }
     var body: some View {
         List {
-            if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
-            if !loaded { ProgressView() }
-            if let root {
-                Section {
+            Section {
+                Text(agentID).font(.headline)
+                if let root {
                     HStack(spacing: 8) {
                         Circle().fill(online ? NanoTheme.accent : NanoTheme.muted).frame(width: 7, height: 7)
                         Text(online ? L("在线", "Online") : L("离线 · 活动状态未知", "Offline · activity unknown"))
@@ -41,6 +40,11 @@ struct AgentWorkView: View {
                         if sessionID == nil { AgentWorkUsage(value: root.latest_main_usage, title: L("最近上下文", "Latest context")) }
                     }.font(.subheadline)
                 }
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online)
+            }
+            if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
+            if !loaded { ProgressView() }
+            if let root {
                 if !(root.other_executions ?? []).isEmpty {
                     Section(L("关联执行", "Related executions")) {
                         ForEach(root.other_executions ?? []) { session in

@@ -1,3 +1,4 @@
+import { lifecycle, lifecycleAllows } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
 import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
@@ -197,16 +198,17 @@ export class PersonalAgents {
     this.wake(b);
     return this.policy(b.binding_id);
   }
-  wake(b: Row) { this.ctx.gateway.send(b.node_id,{type:'pa.observations.available',payload:{agent_id:b.agent_id,binding_id:b.binding_id,epoch:b.node_epoch}}); }
+  wake(b: Row) { const state=lifecycle(this.db,b.agent_id);if(state.desired==='enabled')this.ctx.gateway.send(b.node_id,{type:'pa.observations.available',payload:{agent_id:b.agent_id,binding_id:b.binding_id,epoch:b.node_epoch,lifecycle_revision:state.revision}}); }
   observations(principal: Row,args:Row) {
     const b=this.authority(principal,args), policy=this.policy(b.binding_id);
     const items:Row[]=all(this.db,"SELECT * FROM pa_source_events WHERE binding_id=? AND state IN ('pending','received') ORDER BY event_id",b.binding_id)
+      .filter(e=>lifecycleAllows(this.db,b.agent_id,JSON.parse(e.payload_json).lifecycle_revision))
       .filter(e=>!e.conversation_id || this.sourceAllowed(b,e.conversation_id))
       .filter(e=>!e.message_id || this.messageAllowed(b,one(this.db,'SELECT * FROM messages WHERE id=?',e.message_id)!))
       .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>{
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
-        return {...e,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
+        return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
           ...(message?{mentioned_agent_ids:this.addressedAgents(message)}:{}),payload:JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
