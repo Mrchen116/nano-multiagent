@@ -11,11 +11,16 @@ import {inputEvidence} from './input-evidence.js';
 const channel=(m:UserMessage)=>m.source.kind==='nano-system'?m.source.channel:undefined;
 const automatic=(m:UserMessage)=>channel(m)==='task-execution';
 const change=(m:UserMessage)=>channel(m)==='task-change';
+const externalWake=(m:UserMessage)=>m.source.kind==='user'||m.source.kind==='schedule'||
+  m.source.kind==='nano-system'&&!['task-execution','task-change','task-human-control','revalidation','personal-state'].includes(m.source.channel);
+const SHORT_RUN_LIMIT=256;
+const SUSTAINED_STEPS=3;
 interface State {
   checking:boolean;requested:boolean;queued?:string;changeQueued?:string;serial:number;seenSerial:number;
   automaticTurn:boolean;interrupted?:'error'|'cancelled'|'source'|'flush';interruptedAt?:string;recoveringTurn?:number;
   blocked:boolean;shown?:TaskExecutionSnapshot;limited?:string;
   denied:Map<string,Map<string,string>>;deniedCalls:Set<string>;
+  run?:{steps:number;automatic:boolean;external:boolean};
 }
 const fingerprint=(snapshot:TaskExecutionSnapshot)=>JSON.stringify(snapshot);
 type Task=TaskExecutionSnapshot['tasks'][number];
@@ -27,7 +32,33 @@ const actionKey=(exec:ToolExecution)=>JSON.stringify([exec.name,exec.arguments])
 /** Schedule native turns from current product responsibility, without another execution loop. */
 export class TaskExecutionDriver {
   private readonly states=new Map<string,State>();
+  private readonly shortRuns=new Map<string,number>();
   constructor(private readonly ctx:Context,private readonly options:{peer:RpcPeer;bindings:Map<string,SessionBinding>;configuration:(agent:Agent)=>AgentConfiguration|undefined}) {
+    ctx.on('session/event',(session,event)=>{
+      const binding=options.bindings.get(session.id);if(!binding)return;
+      const state=this.state(session.id),agentId=binding.agentId;
+      if(event.type==='turn/start')state.run={steps:0,automatic:false,external:false};
+      const run=state.run;if(!run)return;
+      if(event.type==='step/start') {
+        // pre-step is only a proposal; rejected steps and provider retries are not work rounds.
+        if(++run.steps>=SUSTAINED_STEPS&&!this.exhausted(agentId))this.shortRuns.set(agentId,0);
+      } else if(event.type==='user/message') {
+        if(automatic(event.data))run.automatic=true;
+        if(externalWake(event.data)) {
+          run.external=true;
+          // Admission of an independent input reopens a stopped Agent, but does
+          // not replenish a still-active short-run streak.
+          if(this.exhausted(agentId))this.shortRuns.set(agentId,0);
+        }
+      } else if(event.type==='turn/end') {
+        if(run.automatic&&!run.external&&run.steps>0&&run.steps<SUSTAINED_STEPS) {
+          const count=Math.min(SHORT_RUN_LIMIT,(this.shortRuns.get(agentId)??0)+1);
+          if(count===SHORT_RUN_LIMIT&&!this.exhausted(agentId))ctx.logger('nano-task-execution').warn(`Agent ${agentId}: automatic Task continuation stopped after ${SHORT_RUN_LIMIT} consecutive short runs; waiting for an independent wake.`);
+          this.shortRuns.set(agentId,count);
+        }
+        state.run=undefined;
+      }
+    });
     ctx.on('agent/status',({agent,status})=>{
       if(status!=='idle')return;
       void this.poke(agent);
@@ -65,12 +96,14 @@ export class TaskExecutionDriver {
       if(changes.length)state.changeQueued=undefined;
       const retain=()=>messages.splice(0,messages.length,...ordinary);
       if(state.blocked){this.restore(agent,ordinary);retain();return {kind:'reject'};}
+      if(own.length&&this.exhausted(options.bindings.get(agent.id)!.agentId)&&!ordinary.some(externalWake)){retain();return {kind:'reject'};}
       if(!this.enabled(agent)){retain();return own.length&&!ordinary.length?{kind:'reject'}:next();}
       if(state.interrupted&&own.length&&!ordinary.length){retain();return {kind:'reject'};}
       const dirty=state.serial!==state.seenSerial;
       if(!own.length&&!changes.length&&!ordinary.length&&!dirty&&!state.automaticTurn)return next();
       const serial=state.serial,snapshot=await this.snapshot(agent);
       if(state.blocked){this.restore(agent,ordinary);retain();return {kind:'reject'};}
+      if(own.length&&this.exhausted(options.bindings.get(agent.id)!.agentId)&&!ordinary.some(externalWake)){retain();return {kind:'reject'};}
       signal.throwIfAborted();
       state.seenSerial=serial;
       const previous=state.shown;
@@ -113,6 +146,7 @@ export class TaskExecutionDriver {
     let state=this.states.get(id);
     if(!state){state={checking:false,requested:false,serial:1,seenSerial:0,automaticTurn:false,blocked:false,denied:new Map(),deniedCalls:new Set()};this.states.set(id,state);}return state;
   }
+  private exhausted(agentId:string):boolean {return (this.shortRuns.get(agentId)??0)>=SHORT_RUN_LIMIT;}
   private hold(state:State,reason:NonNullable<State['interrupted']>):void {
     state.interrupted=reason;state.interruptedAt=responsibility(state.shown);state.recoveringTurn=undefined;
   }
@@ -196,6 +230,8 @@ export class TaskExecutionDriver {
   /** Reserve one continuation after persistence and a second native inbox check. */
   async poke(agent:Agent,reconsider=false):Promise<void> {
     if(!this.options.bindings.has(agent.id)||!this.enabled(agent))return;
+    const agentId=this.options.bindings.get(agent.id)!.agentId;
+    if(this.exhausted(agentId))return;
     const state=this.state(agent.id);
     if(state.checking){state.requested=true;return;}
     if(state.queued||state.blocked||['error','cancelled'].includes(state.interrupted??'')&&!reconsider||agent.status!=='idle'||!reconsider&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))return;
@@ -203,6 +239,7 @@ export class TaskExecutionDriver {
     try {
       await this.ctx.sessions.flush(agent.session);
       const snapshot=await this.snapshot(agent);
+      if(this.exhausted(agentId))return;
       if(snapshot.kind==='unavailable'){if(!state.interrupted)this.hold(state,'source');return;}
       this.refreshDenials(state,snapshot);
       if(!this.runnable(state,snapshot)||state.limited===fingerprint(snapshot)||state.blocked||agent.status!=='idle'||!reconsider&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))return;
