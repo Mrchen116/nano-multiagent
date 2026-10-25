@@ -46,7 +46,7 @@
 - 新回归实际经历 128 轮中的长跑清零、随后 256 次短跑触顶、触顶前短外部输入不清零、触顶后内部上下文执行不解锁、产品 Agent 跨会话共享及其他 Agent 隔离、真人短输入恢复后的再次 256 次触顶、原生 Schedule 恢复。
 - 环境：Node 25.8.2、pnpm 11.7.0；包管理器报告该 Node 不在仓库声明的 24.22.1/26.12.1 范围内。以上仅为该本地环境验证，未替代受支持 Node 版本上的 CI；未运行全仓 CI、真实 LLM 或生产验收。
 - 用户产品验收：待完成；“对的”确认的是设计，不记为运行验收。
-- 独立 full code review 已完成，确认一个 personal-state 分类问题；本次修正后待 closure，见 [code-review](code-review.md)。
+- 独立 full code review 确认一个 personal-state 分类问题，修复于 `f18f7ced9` 后经独立 closure 关闭，剩余 findings 为 `[]`；见 [code-review](code-review.md)。
 
 ## Canonical 文档影响
 

@@ -24,4 +24,12 @@
 
 ## Closure
 
-Pending。F1 已按上述方向修复，待独立 closure 核对固定修复提交。尚未取得用户实际产品验收，也未完成完整本地 CI 或 canonical 归并；unit 保留 active，不声明 Passed。
+- 2026-10-25，同一独立审查线程执行 closure。
+- finding_origin_head: `40f3660a0303bd027833fbb0d5842ab2d270e23d`。
+- validated_at / effective_through: `f18f7ced9e04596fed807c00a10ad6117a647706`。
+- effective_base: `b80e6d74d72ed6f169142008a16c7c0811646754`；期间没有同步 main，原 full review 对未变部分保留有效。
+- F1: **closed**。独立内存探针确认触顶计数 `256 → personal-state 后仍为 256 → 真人输入后为 0`；核对新增 native 回归与文档，复用 14/14 测试证据，diff 检查通过。
+- Remaining findings: `[]`。Code review final result: **Passed**。
+- 此次 closure 记录提交仅更新事实文档，不修改受审源码或测试，保留审查结论。
+
+用户实际产品验收、完整本地 CI 和 canonical 归并仍待完成；unit 保留 active。Code review 通过不代表这些门禁已完成。
