@@ -199,3 +199,15 @@ V1 身份及 V4 原生通用编辑采用的决定性行为已观察通过；PA/�
 已实际完成 B 私聊观察；owner 显示名经原生设置恢复为 Test User 并出现 Saved，模拟器回到 owner nano 登录状态。测试产生一条 E 私聊 ToAssistant 请求及 E 润色回复；未向研发日常或双方群发送草稿。未保存测试密码，未停服务，未启动其他模拟器。卡片编辑值保留为本轮验收历史，未删旧证据。
 
 下一轮只需新构建的原生附件打开、必要的身份/采用窄回归，以及 caller 合入新 main 后受影响的集成链；不因历史 G1/G2 记录仍在而重复整套矩阵。当前 G4 未关闭，不能交付为总体通过。
+
+## R4：原生附件修复定向复验（2026-10-25）
+
+**定向结论：pass，G4 关闭。** 受验原生构建为 `8b517546da5a9abc23eec13a2fd48fe712d9157c`（caller 重建并安装至同一专用 Simulator）；旧环境 IM 已更新至集成 server `7e67`、端口仍为 49303、原数据保留。Node 因旧测试数据迁移拒绝保持停止，本轮不触发 ToAssistant 或新模型执行。新 daily 49803 的集成模型/上下文证据由 caller 另行完成；本节不能替代该独立范围的验证。
+
+- reviewer 使用原生 UI 真登录 B（reviewer_b_658），进入双方身份验收群并点击同一 `review-b.md`。本次显示应用内原生文件预览，能实际阅读“轻记待办：独立风险与证据核验（B）”、结论边界及证据表内容；不再跳 Safari 报缺少授权。关闭预览回到原群。证据：`/Users/czj/.codex/reports/feat658-acceptance/independent-review/r4/native-attachment-preview.png`。
+- B 群内发送者仍是 Test User / owner 头像 / 左侧气泡，Sent by PA 与姓名相邻，手动消息无该标记。附件呈现为 review-b.md 按钮，正文保持原句。证据：`r4/native-other-marker.png`。
+- 独立正式 API 重新以 B GET 同一目标资源，200 / 6920 bytes，SHA256 仍为 `0a71418241a758f20131db59191ad7601b4c50d21f90696e5bf4b7c02e9158e1`，与 R3 原文件、Web 下载一致；证据 `r4/attachment-get.json`。这里的哈希来自正式 GET，不冒称已导出原生预览缓存另做哈希。
+- 本地 Compose 窄回归：owner 登录状态下，点击已有 E 卡“采用到当前私聊输入框”，只填入最新卡片值 `Native replacement 658.`；未点 Send，随后清空并观察 Send disabled。E 最后消息仍为 R3 的 21:32 润色回复。证据 `r4/native-compose-retained.png`。未重跑已通过的冲突/权限/跨会话完整矩阵。
+- 收尾：模拟器保留 B 登录、位于双方身份验收群，预览已关闭；无新增测试消息、无模型请求、无服务操作，owner 名称仍为已恢复的 Test User。原生测试/构建日志由 caller 保存，本 reviewer 以实际 UI 结果关闭 G4。
+
+截至 R4，R1–R3 记录的 G1–G4 均已有对应关闭证据；既有 Web、共享委托及原生其他决定性旅程 retained，S1/S2 minor 仍按原记录保留。最终集成版放行还须结合 caller 本轮新 daily 的集成证据，不将旧冻结栈的 LLM 通过无条件外推到新运行时。
