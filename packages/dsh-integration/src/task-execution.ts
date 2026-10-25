@@ -12,7 +12,7 @@ const channel=(m:UserMessage)=>m.source.kind==='nano-system'?m.source.channel:un
 const automatic=(m:UserMessage)=>channel(m)==='task-execution';
 const change=(m:UserMessage)=>channel(m)==='task-change';
 const externalWake=(m:UserMessage)=>m.source.kind==='user'||m.source.kind==='schedule'||
-  m.source.kind==='nano-system'&&!['task-execution','task-change','task-human-control','revalidation'].includes(m.source.channel);
+  m.source.kind==='nano-system'&&!['task-execution','task-change','task-human-control','revalidation','personal-state'].includes(m.source.channel);
 const SHORT_RUN_LIMIT=256;
 const SUSTAINED_STEPS=3;
 interface State {

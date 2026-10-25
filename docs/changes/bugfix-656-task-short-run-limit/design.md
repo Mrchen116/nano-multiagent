@@ -26,7 +26,7 @@
 | 已触顶 | 独立输入实际进入执行 | 清零并解除自动续推限制 |
 | 已触顶 | 责任/配置刷新、停止上下文、投递重校验 | 不解除限制 |
 
-独立输入使用已消费的可信 source：真人输入、Schedule，以及除 `task-execution`、`task-change`、`task-human-control`、`revalidation` 外的宿主输入（包括 Inbox、Heartbeat、渠道消息）。入队或请求唤醒本身不清零。
+独立输入使用已消费的可信 source：真人输入、Schedule，以及除 `task-execution`、`task-change`、`task-human-control`、`revalidation`、`personal-state` 外的宿主输入（包括 Inbox、Heartbeat、渠道消息）。入队或请求唤醒本身不清零；PA 来源和权限策略同步同样属于内部上下文。
 
 ## 状态、失败与回滚边界
 
@@ -46,7 +46,7 @@
 - 新回归实际经历 128 轮中的长跑清零、随后 256 次短跑触顶、触顶前短外部输入不清零、触顶后内部上下文执行不解锁、产品 Agent 跨会话共享及其他 Agent 隔离、真人短输入恢复后的再次 256 次触顶、原生 Schedule 恢复。
 - 环境：Node 25.8.2、pnpm 11.7.0；包管理器报告该 Node 不在仓库声明的 24.22.1/26.12.1 范围内。以上仅为该本地环境验证，未替代受支持 Node 版本上的 CI；未运行全仓 CI、真实 LLM 或生产验收。
 - 用户产品验收：待完成；“对的”确认的是设计，不记为运行验收。
-- 独立 code review：待完成，见 [code-review](code-review.md)。
+- 独立 full code review 已完成，确认一个 personal-state 分类问题；本次修正后待 closure，见 [code-review](code-review.md)。
 
 ## Canonical 文档影响
 

@@ -59,7 +59,7 @@ export function apply(ctx){
 
     // Refreshes and admitted internal context must not reopen a stopped Agent.
     await client.rpc.request('task.execution.changed',{agentId:'a'});
-    for(const channel of ['task-human-control','revalidation']) {
+    for(const channel of ['task-human-control','revalidation','personal-state']) {
       const before=count('s').steps;
       await client.rpc.request('session.submit',{sessionId:'s',inputId:channel,mode:'followup',content:[{type:'text',text:channel}],source:{kind:'system',actorId:'a',channel,messageId:channel}});
       await expect.poll(async()=>count('s').steps>before&&await idle('s')).toBe(true);
@@ -74,7 +74,7 @@ export function apply(ctx){
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'late-short',mode:'followup',content:[{type:'text',text:'short'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'late-short'}});
     await expect.poll(async()=>count('s').automatic>=640&&await idle('s'),{timeout:45_000}).toBe(true);
     expect(count('s').automatic).toBe(640);
-    expect(count('s').steps).toBe(967);
+    expect(count('s').steps).toBe(968);
 
     // A real native Schedule also reopens the exhausted Agent, without a human turn.
     await client.rpc.request('schedule.command',{agentId:'a',sessionId:'s',action:'create',args:{title:'Independent check',prompt:'Read the current Task.',after_seconds:1}});
