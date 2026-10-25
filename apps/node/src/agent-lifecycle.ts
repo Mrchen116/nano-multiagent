@@ -84,7 +84,9 @@ export class NodeAgentLifecycle {
     const priorSettled = proof ? proof.stopped || proof.boot !== this.options.boot || proof.processInstanceId === result.processInstanceId : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
     const confirmed = result.processInstanceId ? result.confirmed && priorSettled : proof ? proof.stopped || proof.boot !== this.options.boot : !state.process_instance_id;
     if (confirmed) this.options.saveProof(state.agent_id, {boot:this.options.boot, processInstanceId:processId, stopped:true});
-    await this.publish(state, confirmed ? 'disabled' : 'stop_unconfirmed', processId,
+    // Disabled intent still names the last execution host at the center. A new
+    // shared management host cannot replace that identity via an enabling report.
+    await this.publish(state, confirmed ? 'disabled' : 'stop_unconfirmed', state.process_instance_id ?? processId,
       confirmed ? undefined : 'managed_cleanup_unconfirmed', confirmed ? undefined : result.errorDetail ?? 'Previous runtime cleanup is still unconfirmed on this machine boot.');
   }
   private async publish(state: AgentLifecycleSnapshot, observed: AgentLifecycleSnapshot['observed'], processId: string | null, errorCode?: string, errorDetail?: string): Promise<void> {

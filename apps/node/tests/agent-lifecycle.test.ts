@@ -31,3 +31,13 @@ it('never lets delayed disabled intent override a newer enabled generation',asyn
   const f=fixture();f.states.set('a',{...initial(),revision:3,disabled_through_revision:2});await f.lifecycle.synchronize([{...initial(),revision:3,disabled_through_revision:2}]);
   await f.lifecycle.apply({...initial(),desired:'disabled',revision:2});expect(f.cancelled).toEqual([]);expect(f.lifecycle.allowed('a')).toBe(true);
 });
+
+it.each([true,false])('reports the prior execution identity after a host restart (prior cleanup confirmed=%s)',async priorStopped=>{
+  const f=fixture();
+  const disabled={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,observed:'stopping' as const,process_instance_id:'prior-host'};
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'prior-host',stopped:priorStopped});
+  f.setStop({confirmed:true,processInstanceId:'new-shared-host'});
+  await f.lifecycle.synchronize([disabled]);
+  expect(f.reports.at(-1)).toMatchObject({process_instance_id:'prior-host',observed:priorStopped?'disabled':'stop_unconfirmed'});
+  expect(f.lifecycle.allowed('a')).toBe(false);
+});
