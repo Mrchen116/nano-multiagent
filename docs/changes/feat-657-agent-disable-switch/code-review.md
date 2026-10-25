@@ -72,3 +72,35 @@ JS
 - 复用 caller 的版本化 build/typecheck、PA/IM/Node/native/cold-history 测试证据；读取 `/tmp/nano-feat657-build3.log`、`/tmp/nano-feat657-typecheck3.log`、`/tmp/nano-feat657-stop-fix-test.log` 的通过结果。未重复全量测试。
 
 报告由共享现场 caller 提交；本 reviewer 未提交、未创建额外 worktree 或服务。
+
+## Round 2 — Targeted closure
+
+- review_mode: closure
+- finding_origin_head / pre_fix_head: `935510058d338866e2310f54c1804d6120eac51c`
+- validated_at: `e55e5285a2ee2ab9193ebdb94680585726441ce5`
+- scope: `935510058..e55e5285a` 的 W1/W2 修复、新增 SessionBinding/proof/恢复分区/chat notice 代码与关联测试；全部四份最终 delta。
+- retained_from: Round 1 完整审查，未受上述修复影响的生命周期、DSH owner、Task、外部输出、历史和隔离证据继续有效；未重复 FULL。
+- 结论：**PASS，0 个存活代码发现**。
+
+```json
+[]
+```
+
+### Focus findings
+
+| Finding | 状态 | 修复与直接证据 |
+|---|---|---|
+| R1 P2 / verifier W1：plan 修改 legacy 源 | closed | `runtime-migration.ts` 新 `openSourceStorage` 将 storages/Schedule domain 复制到随机临时目录再经公开 Domain API 读取，close/error 均清理；native sessions/attachments 仍只读源。新增 legacy single-layout 测试在 plan/apply/verify 后对照源文件字节与目录清单，源未变且迁移成功。apply 的源读取只进行 session/attachment copy，不在源打开 domain。 |
+| R1 P2 / verifier W2：停止失败具体原因丢失 | closed | supervisor 以 errorDetail 区分已提前退出、deadline、cleanup 异常；异常首行有界500字符。Node stop→publish 同时保存并报告 error_detail，IM既有owner显示/非owner脱敏保持；真实cleanupthrow测试断言返回详情包含实际失败原因。 |
+
+### 新增修复风险核对
+
+- `SessionBinding` 的5个身份字段（sessionId/agentId/ownerId/cwd/revision）逐值比较，去除 JSON 属性顺序造成的假冲突，未放松实质身份；native test 同时证明重排成功与 owner 改动被拒。
+- cleanup proof 使用独立持久表 UPSERT，launch 将旧 stopped=true 更新为新实例false，成功清理可写true；未知旧实例无proof且有process_instance_id时仍未确认。原 recordStopped 对已disabled的保护保留，Node重启不能消除未知清理。PA回归实测新authority读到更新证据。
+- knowledge/workflow 恢复集合只选择 runtime.availableFor 的分区；分区级 runtime scoped/generation/lifecycle 边界保留，不会因停用Agent影响其他Agent恢复。
+- Web和iOS在聊天按 participant Agent 的 desired=disabled 提供只读提示，保留发送/阅读，无新增开关。Web user-stream 测试mock改为真实多订阅语义，未删除既有身份或重连断言。
+- delta校正只将iOS聊天说明拆成独立触发场景，以涵盖已确认disabled；未更改受审实现。全部delta核对见verification R2。
+
+复用 caller 版本化窄测（`/tmp/nano-feat657-last-narrow.log`：3 files/15 tests）、typecheck5 及前端全套（`/tmp/nano-feat657-frontend-green.log`：108 files/1028 tests）的通过结果，独立读取日志和新增断言。没有重复全量测试。最终产品旅程、原生视觉和后端高负载timeout单独复核仍由caller收口，本代码审查不代替这些门禁。
+
+本轮只追加报告和授权的iOS delta文字校正，未提交、未启动服务。

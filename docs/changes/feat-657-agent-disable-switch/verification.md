@@ -117,3 +117,57 @@ Outcome: **implementation-mismatch**（W1/W2）；delta文本校正后可定向�
 复用 caller 针对冻结版本交接的 IM真实WebSocket/CAS/冻结Schedule、PA 25 files/197 tests、Node controller/partition/layout、native stop 5 tests、coldhistory 4 files/7 tests、migration 4 tests。独立读取 build/typecheck/stop-fix日志的通过尾部：`/tmp/nano-feat657-build3.log`、`/tmp/nano-feat657-typecheck3.log`、`/tmp/nano-feat657-stop-fix-test.log`。不声称这些局部通过替代最终CI或原生视觉。
 
 本轮只写本报告和code-review.md。独立复现仅用随机临时副本并在finally删除；没有创建服务、额外worktree、生产变更或提交。共享现场报告由caller提交。
+
+## Round 2 — Targeted Closure
+
+- verification_mode: targeted-closure（附全部 corrected delta reconciliation）
+- review_round: 2
+- fix_delta_range: `935510058d338866e2310f54c1804d6120eac51c..e55e5285a2ee2ab9193ebdb94680585726441ce5`
+- validated_at: `e55e5285a2ee2ab9193ebdb94680585726441ce5`
+- prior_verification_path: 本报告 Round 1
+- focus_issues: W1/W2；产品 R1-1/R1-2 对应修复的静态实现；cleanup proof UPSERT 与恢复分区过滤的新风险。
+- verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION（本次定向静态闭环）**
+- requires_full_verification: false
+- retained_from: Round 1 的全部未受影响需求、设计、架构与M1实施证据；不重新验收整个unit。M1真实产品、原生视觉、最终CI/指标及current归并仍依赖caller最终汇总，本轮PASS不能取代它们。
+
+### Completeness / Correctness / Coherence Closure
+
+| 项目 | 契约与实现证据 | 验证结果 |
+|---|---|---|
+| W1 / M1-W6 静止迁移源 | 原 deployment-prompt 保护源约定；`runtime-migration.ts` openSourceStorage在临时copy打开domain，普通domain和Schedule owner均走该路径，finally移除副本；session公开read保留 | closed。新增legacy single-layout模型domain回归覆盖plan/apply/verify、源字节和目录不变，并保留target内容验证。没有为通过测试改迁移预期。 |
+| W2 / spec清理失败具体原因 | `client.ts` errorDetail已覆盖cleanup异常、截止、提前退出；`NodeAgentLifecycle.stop/publish`传持久error_detail和report；IM已有脱敏及UI显示 | closed。真实cleanupthrow断言携带真实原因；deadline的状态仍未确认，不能enable。 |
+| 产品R1-1 / 新工作重新启用 | integration ensure仅按SessionBinding五个真实字段比较；字段顺序不再产生冲突 | 静态closed；native回归重排成功，owner变更仍拒绝。真实新消息恢复结果由产品reviewer追加。 |
+| 产品R1-2 / 停用消息明确不接手 | Web MessagePane和iOS ConversationView按Agent participant装配readonly notice，desired=disabled时说明不处理，保留历史/发送 | 静态closed；Web lifecycle notice回归与全前端通过。真实原生可见性仍由原生验收交接。 |
+| offline/restart proof更新 | 独立agent_cleanup_proofs UPSERT；main只使用该authority，launch/cleanup替换事实；无proof但IM有旧process实例时不确认 | covered。PA测试重新构造authority读取stopped更新，并验证新实例覆盖旧确认；R1 Node未知清理/recordStopped保护仍适用。 |
+| knowledge/workflow恢复只选可用分区 | main集合过滤runtime.availableFor，原scoped generation/lifecycle gate保留 | covered。只缩小恢复资格，没有跨Agent恢复或副作用绕过。 |
+
+### M1 evidence retained / 尚待外部门禁
+
+R1 的 M1-R1～R4、W1～W6覆盖表继续作为任务全量映射。两项 WARNING 已清零；产品acceptance Round 1已记录的R1-1/R1-2只能在真实新版本产品报告完成后正式变成产品pass。本轮未把正在进行的backend task-execution-limits负载超时复核当成无关已知失败或静态代码缺陷，也没有重跑全套。最终还需caller完成SPEC/current归并、原生视觉/资源指标证据与最终CI结算。
+
+## Corrected Delta Reconciliation
+
+本段核对全部四份delta，而非只核文字变更行。R2受审代码为`e55e5285a`；报告本轮另作下述一处已授权delta校正。不存在需要再扩大FULL的共享边界变化。
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| gateway/service-lifecycle：整Agent停止、自动恢复/输入阻断、离线先应用、历史及外部已提交动作 | R1 IM/Node/PA/native stop/cold history边界未变化；新增恢复集合仅可用分区 | R1 native/Node/PA有效证据；R2窄测 | aligned |
+| gateway/service-lifecycle：管理能力明确限定不需执行操作 | RuntimePartitions对已停用configuration保存/目录和冷history走control，对执行RPC拒绝；control模型设置不启动disabled产品host | RuntimePartitions disabled配置/冷history回归沿用 | aligned |
+| gateway/service-lifecycle：旧共享home离线迁移，源不变，verify后发布 | RuntimeLayout拒旧数据；openSourceStorage临时副本；verify marker | 新legacy single-layout源不变 + 原迁移中断/污染/回退测试 | aligned |
+| gateway/task-graphs：全旧未完冻结、真人指定恢复、/stop不变 | task freeze表、validate/authenticated resume_request，Schedule关联冻结 | R1 IM冻结todo/doing/waiting及指定恢复证据未受影响 | aligned |
+| im/agents-nodes：真人独立开关、状态/离线例外、具体原因、重新启用新工作/未来周期 | R1生命周期与客户端；R2 errorDetail传播、ensure语义比较 | native真实cleanupthrow/重排绑定/旧owner拒绝，IM/PA有效证据 | aligned |
+| im/agents-nodes：聊天中明确不处理，消息保留且无生命周期操作 | AgentLifecycleChatNotice→MessagePane；未动聊天send/read | Web notice回归与108files/1028tests全套 | aligned |
+| im/ios-client：三页单操作、未确认禁enable、旧任务提示 | 三处AgentLifecycleControls入口、canEnable守卫未变 | R1 iOS contract/build；原生视觉由产品验收 | aligned（静态契约） |
+| im/ios-client：停用Agent聊天说明 | ConversationView按参与者Agent显示readonly notice | 代码绑定+共享语义；原生可见性由产品报告 | aligned；本轮将说明从等待确认场景拆为独立WHEN停用聊天场景，避免遗漏已确认disabled |
+
+### Uncovered Observable Behavior
+
+None。proof UPSERT修复停用/重启的既有事实正确性，绑定语义比较恢复既有新工作资格，availableFor过滤恢复集合兑现原禁止唤醒，均未引入新的产品策略。新增聊天说明、停用态管理范围及旧home启动拒绝已由最终delta覆盖。
+
+Outcome: **aligned**。
+
+### Final SPEC / current merge obligation
+
+最终仍须把这四份已核对delta归并进current，并在顶层`SPEC.md`统一写明每产品Agent独立home/DSH host及零Agent control；Cron普通停机补发的既有句必须链接Agent停用例外，保留普通Node重启的原语义。该收尾由caller执行，不通过改delta来弱化W1/W2或产品需求。
+
+本轮读取并复用 `/tmp/nano-feat657-last-narrow.log`（3 files/15 pass）、`/tmp/nano-feat657-typecheck5.log` 和 `/tmp/nano-feat657-frontend-green.log`（108 files/1028 pass）。只修改本报告、code-review报告及授权iOS delta文字，未提交、未启动服务或迁移live源。

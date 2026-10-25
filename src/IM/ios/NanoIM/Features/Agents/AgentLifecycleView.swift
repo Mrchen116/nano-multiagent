@@ -42,7 +42,7 @@ struct AgentLifecycleChatNotice: View {
     @Environment(\.scenePhase) private var phase
     @State private var state: AgentLifecycleSnapshot?
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             if state?.desired == "disabled" {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(agent.display_name ?? agent.id) · \(L("不处理新消息", "Not processing new messages"))").font(.caption.weight(.semibold))
