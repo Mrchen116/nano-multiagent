@@ -29,7 +29,63 @@ ls -td /Users/czj/Repos/LLM_PROXY/logs/session/* | head
 
 session 目录中的 `*-req-*` 是代理收到的请求，`*-downstream-res-*` 是返回调用方的响应，`*-non-stream-res-*` 是聚合后的非流式结果。需要排查协议转换或 session 未被识别时，再按时间和协议查看 `logs/raw/`；Session Inspector 也从 `logs/session/` 构建 timeline。
 
-这些日志证明 provider 实际收到和返回了什么，应用是否正确消费、持久化并送达用户仍需结合 Gateway/IM runtime evidence。原始内容可能含 prompt、工具参数和第三方数据，不提交进本仓；unit 中只记录 session id、时间范围、要证明的 claim 和必要的脱敏摘要。日志会按 LLM_PROXY 的 retention 配置清理，长期回归应进入测试。
+Session 请求证明代理入口收到什么；若发生协议转换，需再核对 raw 中同时间戳的 upstream-req，才能判断提交给 provider 的实际结构。请求日志本身不证明模型已成功响应、正确消费或产品已持久化/送达，仍需结合响应、后续调用和 Gateway/IM runtime evidence。原始内容可能含 prompt、工具参数和第三方数据，不提交进本仓；unit 中只记录 session id、时间范围、要证明的 claim 和必要的脱敏摘要。日志会按 LLM_PROXY 的 retention 配置清理，长期回归应进入测试。
+
+## 观察实际 Agent Context
+
+设计判断见 [Agent Context Engineering](agent-context-engineering.md)；这里仅维护取证操作。先记受审 commit、Agent/主与子 session、模型/provider、配置代次、任务唯一标记和时间段。优先创建合成任务，使用 [隔离运行环境](worktree-runtime.md)，不要为审查扫描所有生产会话。
+
+### 从装配到 provider 请求
+
+1. 沿 `apps/node/src/configuration.ts::runtime`、integration 的 `agent-config.ts` / `capabilities.ts` 定位配置与过滤；`session.capabilities` 和 `configuration.preview` 可查看 Prompt 组装、工具/Skill 目录，但它们是预览。DSH `llm/stream` 是适配前内容，也不能证明 wire 序列化保真。
+2. 运行已限定的任务，从 Work 视图或 fixture 获取主 session ID，按本页入口找到该 session 的 `*-req-*` 与对应响应。**只检查需要的轮次**：首次请求、工具执行后的下一请求、配置变化后的下一新回复，以及受影响的恢复点。工具结果通常在后续模型请求中；最后一个工具事件没有后续请求时，不能声称它已被模型消费。
+3. 当前代理在 `logs/raw/<bucket>/` 保存同一时间戳的 `*-upstream-req-*`。Session req 是代理入口；转换后的 upstream-req 才是发往 provider 的 payload。用文件时间戳和返回链路关联，检查实际协议而不是假定两份 JSON 相同。缺失记录可能源于日志保留或写入失败，标明缺口，不能由 preview 补证。
+4. Anthropic 入口重点看 `system/messages/tools`；OpenAI Chat 看 `messages/tools`；Responses 上游看 `instructions/input/tools`（本机 Codex 桥接也会将 system 内容放在 `input` 的 system 消息中，不能只查 `instructions`）。检查完整的相关字段及顺序：最终身份/规则、实际可调用 schema、Skill 目录与加载正文、消息/提醒/结果和来源表示。PTC/代码执行呈现时，工具说明和结果可能在 wrapper 或系统文本里，不能只数 `tools` 名称。native source 元数据也可能投影为文本，需追踪其最终表示。
+5. 对照响应中的实际工具调用、后续请求与产品事实：参数是否来自正常可获得的信息、模型如何解释结果、是否采取正确下一步、是否真的交付。请求存在仅证明交付内容；需要响应/实际行为才能判断消费。UI presenter 与内部返回值只作辅助。
+
+可先对**已定位的单份请求**做不输出正文的结构检查（仓库根运行；参数换成该任务的真实文件）：
+
+```bash
+python3 - /absolute/path/to/one-req-anthropic.json <<'PYCTX'
+import json
+import sys
+from pathlib import Path
+payload = json.loads(Path(sys.argv[1]).read_text())
+messages = payload.get("messages", payload.get("input", []))
+tools = payload.get("tools", [])
+print({"keys": sorted(payload),
+       "instruction_chars": len(json.dumps(payload.get("system", payload.get("instructions", "")))),
+       "message_count": len(messages) if isinstance(messages, list) else None,
+       "tool_count": len(tools),
+       "roles_or_types": [item.get("role", item.get("type")) for item in messages if isinstance(item, dict)]
+                         if isinstance(messages, list) else []})
+PYCTX
+```
+
+这只确认结构，语义仍需在本机读取相关片段并核对预期。不要把原请求、headers、认证配置或整段对话粘进报告。按 [Evidence](evidence.md) 保存小型脱敏结论、命令、session/请求时间戳、字段位置及限制；单独的哈希或“有该字段”不能替代语义证据。
+
+### 可复用 seam 与代表性任务
+
+以下是按 Surface 找现场的入口；执行前核实锁定版本与测试名，不把测试源码当执行结果。测试 import 构建产物时先确保 `pnpm build` 对应受审版本。
+
+| 需要观察什么 | 入口 | 证据边界 |
+|---|---|---|
+| 真实 adapter 序列化的 system/tools/messages、主/子请求归属 | `packages/dsh-integration/tests/llm-attribution.test.ts` 的本地 HTTP provider | 真 DSH + HTTP 捕获，响应为 stub，不能证明真实模型选择 |
+| 任务结果未知、重试与动态反馈 | `packages/dsh-integration/tests/task-feedback.test.ts`；`features/task-graphs.ts` 的 output.render/deferContext | 模拟结果与 llm/stream 捕获；产品事实和真实 wire 需另对照 |
+| Inbox wake/read/持久摄取、发送结果 | `packages/personal-assistant/tests/{global-agent,inbox,tool-references}.test.ts`；`global-agent.ts` / `inbox.ts` / integration `global-mode.ts` | 宿主行为和投影；不等于模型已消费 |
+| 配置、Feature 与 Skill 变化 | `packages/dsh-integration/tests/{capabilities,native-human-source,communication-native}.test.ts` | 区分预览断言、模拟输入与最终请求；真实选择需代表性任务 |
+| Memory、原生换窗及 Skill 恢复 | `packages/dsh-integration/tests/{knowledge,agent-context-default}.test.ts`；`features/memory-curation.ts` / `compaction.ts` | 选当前实际 engine 的路径；工具可用不证明等待事项已恢复 |
+
+普通窄回归可直接运行，例如：
+
+```bash
+pnpm exec vitest run packages/dsh-integration/tests/llm-attribution.test.ts packages/dsh-integration/tests/task-feedback.test.ts
+pnpm exec vitest run packages/personal-assistant/tests/inbox.test.ts packages/personal-assistant/tests/global-agent.test.ts
+```
+
+真实模型任务复用 `scripts/e2e-up.sh --profile daily --wt <绝对目录>` 的独立身份，从 Web/其真实 API 发合成请求，读 Work 和本机请求；结束执行配对的 e2e-down。例如让 Global Agent 读 Inbox 后向来源聊天交付一个可核对结果；再在同一 Agent 空闲后切换 Skill/Feature，通过正常任务观察下一请求。不要为了制造“通过”给出内部参数、正确解释或伪造模型响应。
+
+同一证据只声称实际覆盖的状态。未走到的 unknown/拒绝/恢复分支可先用既有确定性 fixture 检查机制，报告中保留真实模型未验证的范围。已有观察能力足够时不另建 Snapshot 平台；具体盲区先记录缺失层级和受影响判断，再考虑最小只读诊断。
 
 ## 本地代理接口
 - Base URL: `http://127.0.0.1:4000`

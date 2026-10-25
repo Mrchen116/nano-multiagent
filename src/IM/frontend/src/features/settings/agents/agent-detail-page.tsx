@@ -1,3 +1,5 @@
+import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
+import { useAuthStore } from '../../auth/auth-store';
 import "./agent-settings.css";
 import {AgentOverviewPanel, AgentSessionsPanel} from "./agent-summary-panels";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
@@ -1310,6 +1312,8 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     };
   }, []);
 
+  const lifecycle = useAgentLifecycle(agentId);
+  const self = useAuthStore(s => s.user?.id);
   const settings = useAgentSettingsState(agentId);
   const detailQuery = settings.query;
   const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
@@ -1640,6 +1644,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             </p>
           </div>
           <div className="im-agent-header-actions">
+              <AgentLifecycleAction lifecycle={lifecycle} canManage={!!self && draft.owner_id === self} />
               <button
                 type="button"
                 className="im-settings-action"
@@ -1651,6 +1656,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               {activeSection === "config" && isDirty && <span className="im-settings-save-state">{t("agents.detail.unsavedChanges")}</span>}
             </div>
         </div>
+        <AgentLifecycleStatus lifecycle={lifecycle} online={displayedNodeStatus === "online"} />
         {errorMessage ? (
           <p
             data-testid={openDirectChatMutation.isError ? "open-chat-error" : "agent-save-error"}

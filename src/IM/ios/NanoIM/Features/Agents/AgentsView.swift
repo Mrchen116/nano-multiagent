@@ -36,7 +36,7 @@ struct AgentsView: View {
             if let binding, personalMatches {
                 Section(L("我的个人助手", "My personal assistant")) {
                     NavigationLink { AgentConfigView(client: client, agentID: binding.agent_id) } label: {
-                        agentRow(name: binding.display_name, subtitle: L("个人助手", "Personal assistant"), status: contacts.first { $0.agent_id == binding.agent_id }?.status)
+                        agentRow(agentID: binding.agent_id, name: binding.display_name, subtitle: L("个人助手", "Personal assistant"), status: contacts.first { $0.agent_id == binding.agent_id }?.status)
                     }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
                         .accessibilityHint(L("打开个人助手配置", "Open personal assistant settings"))
                 }
@@ -47,8 +47,7 @@ struct AgentsView: View {
                 NavigationLink {
                     AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
                 } label: {
-                    agentRow(name: contact.display_name, subtitle: (contact.node_name ?? L("未知设备", "Unknown device")) + " · " + (contact.work_mode == "global" ? L("全局", "Global") : L("单会话", "Single thread")), status: contact.status)
-                        .accessibilityLabel("\(contact.display_name), \(contact.status ?? "unknown"), \(contact.node_name ?? "")")
+                    agentRow(agentID: contact.agent_id ?? contact.user_id, name: contact.display_name, subtitle: (contact.node_name ?? L("未知设备", "Unknown device")) + " · " + (contact.work_mode == "global" ? L("全局", "Global") : L("单会话", "Single thread")), status: contact.status)
                 }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
             }
             } }
@@ -65,12 +64,13 @@ struct AgentsView: View {
             repeat { await load(); try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled
         }
     }
-    private func agentRow(name: String, subtitle: String, status: String?) -> some View {
+    private func agentRow(agentID: String, name: String, subtitle: String, status: String?) -> some View {
         HStack(spacing: 12) {
             AvatarView(name: name, online: status == "online", kind: "agent")
             VStack(alignment: .leading, spacing: 6) {
                 Text(name).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).fixedSize(horizontal: false, vertical: true)
                 Text(subtitle).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: false, online: status == "online", compact: true)
             }
             Spacer(minLength: 4)
             if let status {
@@ -143,6 +143,7 @@ struct AgentProfileView: View {
                     if let statusError { Text(statusError).font(.caption).foregroundStyle(NanoTheme.muted) }
                     else if shownContact.status != "online" { Text(L("设备离线，Agent 回复需设备恢复在线。", "The device is offline. Agent replies require it to reconnect.")).font(.caption).foregroundStyle(NanoTheme.muted) }
                 }.padding(.vertical, 8)
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: owned, online: shownContact.status == "online")
             }
             Section(L("概览", "Overview")) {
                 LabeledContent(L("管理者", "Owner"), value: shownContact.owner_display_name ?? shownContact.owner_id ?? "—")

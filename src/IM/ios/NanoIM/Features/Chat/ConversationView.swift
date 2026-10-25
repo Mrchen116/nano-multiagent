@@ -37,6 +37,9 @@ struct ConversationView: View {
     var body: some View {
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
+            ForEach((conversation?.participants ?? []).filter { $0.type == "agent" }, id: \.id) { agent in
+                AgentLifecycleChatNotice(client: store.client, agent: agent)
+            }
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary).padding(6) }
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
             ScrollViewReader { scroll in

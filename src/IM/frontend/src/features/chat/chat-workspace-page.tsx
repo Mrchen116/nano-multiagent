@@ -1,3 +1,4 @@
+import { AgentLifecycleChatNotice } from '../settings/agents/agent-lifecycle';
 import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
 import { PersonalAgentCollaboration } from '../personal-agent/personal-agent-collaboration';
 import { getPersonalAgent, renamePersonalAgent } from '../personal-agent/personal-agent-api';
@@ -1212,6 +1213,7 @@ export function ChatWorkspacePage() {
       {showDetail && (
         activeConversation ? (
           <MessagePane
+            lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} />)}
             onJoin={async () => { await joinConversation(activeConversation.id); await queryClient.invalidateQueries({ queryKey: ["chat"] }); }}
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}

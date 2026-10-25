@@ -1,3 +1,4 @@
+import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
 import { withHumanApproval } from "./messaging.js";
@@ -16,6 +17,7 @@ export type Connection = {
   node_epoch: number;
   token: string;
   lastSeen: number;
+  agent_lifecycle_v1?: boolean;
 };
 type Browser = {
   socket: WebSocket;
@@ -65,6 +67,7 @@ export class Gateway {
           this.send(row.node_id,{type:'task.execution.changed',payload:{...change,agent_id:row.agent_id}});
       },
     });
+    for(const state of all(ctx.db,"SELECT * FROM agent_lifecycle WHERE desired='disabled'"))this.tasks.freezeAgent(state.agent_id,state.actor_user_id,state.revision,false);
   }
   isOnline(id: string) {
     return this.nodes.has(id);
@@ -103,18 +106,20 @@ export class Gateway {
   }
   send(nodeId: string, frame: Row): boolean {
     const c = this.nodes.get(nodeId);
+    if(frame.type==='agent.work.permission'&&!lifecycleAllows(this.ctx.db,frame.payload.root_agent_id,frame.payload.lifecycle_revision))return false;
     if (frame.type === "relay.message") {
       if (this.ctx.updates?.gate(nodeId)) return false;
       const p = frame.payload;
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", p.agent_id, nodeId);
       const conversation = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", p.conversation_id);
+      if(!profile||!lifecycleAllows(this.ctx.db,profile.agent_id,p.lifecycle_revision))return false;
       if (!agentAvailable(this.ctx.db, profile) || !conversation || !canActorAccess(this.ctx.db,this.ctx.messaging.agentUser(profile!.agent_id).id,conversation.space_id)) return false;
     }
     if (frame.type === "node.streaming_delta" && frame.payload?.kind === "permission_response") {
       const message = one(this.ctx.db, "SELECT m.conversation_id,u.username FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", frame.payload.message_id);
       const profile = message?.username?.startsWith("agent:") ? one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", message.username.slice(6), nodeId) : undefined;
       const conversation = message ? one(this.ctx.db, "SELECT space_id FROM conversations WHERE id=?", message.conversation_id) : undefined;
-      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id) return false;
+      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id || !lifecycleAllows(this.ctx.db,profile!.agent_id,frame.payload.lifecycle_revision)) return false;
     }
     return !!c && this.valid(c) && this.write(c.socket, frame);
   }
@@ -324,6 +329,7 @@ export class Gateway {
     }
     const old = this.nodes.get(c.node_id);
     if (old && old.socket !== c.socket) old.socket.close(1008, "connection replaced");
+    c.agent_lifecycle_v1=p.capabilities?.agent_lifecycle_v1===true;
     this.nodes.set(c.node_id, c);
     db.prepare(
       `INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES(?,?,?,'online',?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_name=excluded.node_name,status='online',last_error=NULL,last_heartbeat_at=excluded.last_heartbeat_at,agent_count=excluded.agent_count,version=excluded.version`,
@@ -378,12 +384,14 @@ export class Gateway {
           id,
         );
       }
+      if(!c.agent_lifecycle_v1&&lifecycle(db,id).desired==='disabled')db.prepare("UPDATE agent_lifecycle SET observed='stop_unconfirmed',error_code='node_upgrade_required',error_detail='Update this node to confirm all managed execution has stopped' WHERE agent_id=?").run(id);
       this.ctx.messaging.agentUser(id);
     }
     this.publishNodeStatus(c, "online", { last_heartbeat_at: now(), last_error: null });
     return {
       message_type: "node.register",
       relay_request_ids:1, work_sync_http:1,
+      agent_lifecycle_v1:1, agent_lifecycles:p.agents.map((id:string)=>lifecycle(db,id)),
       im_user_url: this.ctx.publicUrl,
       node_id: c.node_id,
       node_epoch: c.node_epoch,
@@ -419,6 +427,20 @@ export class Gateway {
     if (this.nodes.get(c.node_id) !== c || !this.valid(c) || p.node_id !== c.node_id)
       fail(403, "node_not_registered");
     c.lastSeen = Date.now();
+    if(type==='agent.lifecycle.report') {
+      this.requireAgent(c,p.agent_id);
+      if(!c.agent_lifecycle_v1)fail(409,'node_upgrade_required');
+      new AgentLifecycles(this.ctx).report(p.agent_id,p);return ack();
+    }
+    if(type==='task.execution.frozen_schedules') {
+      this.requireAgent(c,p.agent_id);
+      return ack({schedule_ids:all(db,'SELECT schedule_id FROM task_lifecycle_schedules WHERE agent_id=?',p.agent_id).map(row=>row.schedule_id)});
+    }
+    const effect=type==='agent.message'||type==='agent.config.boundary'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)||['pa.source.admit','pa.incident.report','pa.action.prepare','pa.action.review-result','pa.action.commit'].includes(type);
+    if(effect) {
+      const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
+      this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);
+    }
     const waiter = p.request_id ? this.pending.get(p.request_id) : undefined;
     if (waiter && waiter.connection === c && waiter.responseType === type) {
       clearTimeout(waiter.timer);
@@ -482,6 +504,7 @@ export class Gateway {
                 id: p.agent_id,
                 node_id: c.node_id,
                 source_message_id: p.source_message_id,
+                lifecycle_revision:p.lifecycle_revision,
               },
               p.action,
               p.args ?? {},
@@ -691,6 +714,7 @@ export class Gateway {
           )
           ?.username.slice(6);
       const a = this.requireAgent(c, source);
+      requireLifecycle(db,a.agent_id,p.lifecycle_revision);
       const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
       if(personal && !this.ctx.personal!.ownerConversation(personal,p.conversation_id))fail(403,"personal_reviewed_delivery_required");
       s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id, "write");
@@ -778,6 +802,7 @@ export class Gateway {
       s = this.ctx.messaging;
     if (p.kind === "turn_start") {
       const a = this.requireAgent(c, p.agent_id);
+      requireLifecycle(db,a.agent_id,p.lifecycle_revision);
       if (p.agent_user_id && p.agent_user_id !== s.agentUser(a.agent_id).id)
         fail(403, "agent_user_id does not match source Agent");
       const id = p.conversation_id ?? s.resolveTarget(a.agent_id, p.to_user_id);
@@ -809,6 +834,7 @@ export class Gateway {
         if (t.predecessor_message_id) {
           if (t.include_handoff)
             this.streaming(c, {
+              lifecycle_revision:p.lifecycle_revision,
               kind: "reply_process",
               message_id: t.predecessor_message_id,
               item: {
@@ -820,6 +846,7 @@ export class Gateway {
             });
         }
         this.streaming(c, {
+          lifecycle_revision:p.lifecycle_revision,
           kind: "reply_process",
           message_id: m.id,
           item: {
@@ -843,6 +870,8 @@ export class Gateway {
     const m = s.message(p.message_id);
     if (m.sender_type !== "agent") fail(403, "streaming message must belong to an Agent");
     this.requireAgent(c, m.sender.id);
+    requireLifecycle(db,m.sender.id,p.lifecycle_revision);
+    requireLifecycle(db,m.sender.id,m.lifecycle_revision);
     const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",m.sender.id);
     if(personal && !this.ctx.personal!.ownerConversation(personal,m.conversation_id))fail(403,"personal_reviewed_delivery_required");
     s.access({ ...c, kind: "gateway" }, m.conversation_id, m.sender.id, "write");
@@ -929,6 +958,7 @@ export class Gateway {
           agent_id: agent.agent_id,
           node_id: c.node_id,
           node_epoch: c.node_epoch,
+          lifecycle_revision:lifecycle(db,agent.agent_id).revision,
           run_id: p.run_id,
         });
       } else Object.assign(entry, { status: "resolved", decision: p.decision });
@@ -968,7 +998,7 @@ export class Gateway {
     const db = this.ctx.db,
       s = this.ctx.messaging;
     const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", m.conversation_id);
-    if (!conversation || !agentAvailable(db, a) || !canActorAccess(db,s.agentUser(a.agent_id).id,conversation.space_id)) return;
+    if (!conversation || lifecycle(db,a.agent_id).desired!=='enabled' || !agentAvailable(db, a) || !canActorAccess(db,s.agentUser(a.agent_id).id,conversation.space_id)) return;
     const personal=one(db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',a.agent_id);
     if(personal && !this.ctx.personal!.messageAllowed(personal,m)) return;
     if (one(db, "SELECT 1 FROM relay_tasks WHERE idempotency_key=?", key)) return;
@@ -976,6 +1006,7 @@ export class Gateway {
     const c = s.conversation(m.conversation_id, s.agentUser(a.agent_id).id);
     const relay = randomUUID(),
       payload = {
+        lifecycle_revision:lifecycle(db,a.agent_id).revision,
         relay_task_id: relay,
         idempotency_key: key,
         conversation_id: c.id,
@@ -1111,6 +1142,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
                   g.send(c.node_id, {
                     type: "node.streaming_delta",
                     payload: {
+                      lifecycle_revision:permission.lifecycle_revision,
                       kind: "permission_response",
                       message_id: row.id,
                       request_id: permission.request_id,

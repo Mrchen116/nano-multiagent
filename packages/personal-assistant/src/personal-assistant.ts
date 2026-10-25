@@ -126,7 +126,7 @@ export class PersonalAssistant {
     const conversation = await this.resolve(config,target);
     if (inbox.blocking(config.agentId,conversation)) return {status:'held_for_revalidation',target,
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
-    inbox.preparePublication(call.operationId,target,publicationBody);
+    inbox.preparePublication(call.operationId,target,publicationBody,binding.agentId);
     if (conversation === config.personal!.conversationId) {
       if(representation==='owner')throw new Error('Owner representation cannot target the owner PA conversation');
       // Private owner replies use the ordinary publication path, including IntelligentUI.

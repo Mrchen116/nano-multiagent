@@ -38,13 +38,34 @@ export class ExternalChannels {
   private readonly dispatches = new Map<string, Promise<void>>();
   private flushing?: Promise<void>;
   private flushAgain = false;
-  constructor(path: string, private readonly options: Options) { this.state = new ExternalStore(path); }
+  constructor(path: string, private readonly options: Options) {
+    this.state = new ExternalStore(path);
+    const relay=options.relay,im=options.im;
+    this.options={...options,relay:{get ready(){return relay.ready;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
+      im:(path,request)=>{
+        const identity=options.store.lifecycle.current();
+        if(!identity)return im(path,request);
+        const revision=options.store.lifecycle.assert(identity.agentId,identity.revision);
+        const url=new URL(path,'http://local');
+        const headers=new Headers(request?.headers);headers.set('x-agent-lifecycle-revision',String(revision));
+        let body=request?.body;
+        if(typeof body==='string' && headers.get('content-type')==='application/json')body=JSON.stringify({...JSON.parse(body),lifecycle_revision:revision});
+        else url.searchParams.set('lifecycle_revision',String(revision));
+        return im(url.pathname+url.search,{...request,headers,body});
+      }};
+  }
   historyConversation(agentId: string, source: string, chatId: string): string | undefined {
     if (source !== 'feishu') return;
     return this.state.chats().find(chat => chat.agentId === agentId && chat.sourceId === chatId)?.id;
   }
   get ready() { return this.options.relay.ready; }
-  add(agentId: string, connection: Connection): void { this.connections.set(agentId, connection); }
+  add(agentId: string, connection: Connection): void {
+    this.connections.set(agentId,{config:connection.config,
+      send:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.send(...args);},
+      thinking:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.thinking(...args);},
+      image:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.image(...args);},
+      updateCard:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.updateCard(...args);}});
+  }
   remove(agentId: string): void { this.connections.delete(agentId); }
   available(agentId: string): boolean { return this.connections.has(agentId); }
 
@@ -58,7 +79,7 @@ export class ExternalChannels {
     this.state.saveChat({ id, agentId, appId, chatId: message.chatId, sourceId, isGroup: message.isGroup, ...previous, ...(message.chatName ? { name: message.chatName } : {}) });
     const text = message.parts.filter(part => part.type === 'text').map(part => part.text).join('');
     const attachments = message.parts.filter(part => part.type === 'image').map(part => ({ url: `${eventId}:${part.key}`, content_type: 'image/png', file_name: part.key }));
-    const input: RelayInput = { relay_task_id: eventId, idempotency_key: eventId, agent_id: agentId, conversation_id: id,
+    let input: RelayInput = { relay_task_id: eventId, idempotency_key: eventId, agent_id: agentId, conversation_id: id,
       metadata: { conversation_type: message.isGroup ? 'group' : 'direct', mentioned_agent_ids: message.mentioned ? [agentId] : [],
         external_reply: eventId, source_timestamp: message.time, channel: 'feishu',
         sender_display_name: message.senderName, ...(message.contextOnly ? { context_only: true } : {}),
@@ -68,12 +89,18 @@ export class ExternalChannels {
         created_at: new Date(Number.isFinite(Number(message.time)) && Number(message.time) > 0 ? Number(message.time) : Date.now()).toISOString(),
         ...(message.senderId === connection.config.ownerOpenId && this.options.store.ownerTimezone ? { timezone: this.options.store.ownerTimezone } : {}),
       } };
+    input=this.options.store.admitInput(input);
     this.state.saveInbound(eventId, id, message, input);
     const task = this.admit(eventId).finally(() => this.admissions.delete(eventId)); this.admissions.set(eventId, task); return task;
   }
   private async admit(id: string) {
     const row = this.state.inbound().find(row => row.id === id)!;
     if (row.accepted) return;
+    if(!this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1))return;
+    return this.options.store.lifecycle.run(row.input.agent_id,row.input.lifecycle_revision??1,()=>this.admitInput(row));
+  }
+  private async admitInput(row:ReturnType<ExternalStore['inbound']>[number]) {
+    const id=row.id;
     const chat = this.state.chat(row.chatId)!; const connection = this.connections.get(chat.agentId)!;
     if (!row.reaction && (this.options.attention?.(row.input) ?? (!row.message.isGroup || row.message.mentioned))) {
       try { const reaction = await connection.thinking(row.message.messageId); if (reaction) this.state.reaction(id, reaction); } catch (error) { this.options.onError(error); }
@@ -87,6 +114,7 @@ export class ExternalChannels {
       }
     }
     for (const attachment of row.input.message.attachments) attachment.content_type = this.state.image(attachment.url, chat.agentId)!.mediaType;
+    this.options.store.lifecycle.assert(chat.agentId);
     this.state.updateInput(id, row.message, row.input);
     if(this.options.personalAgent?.(chat.agentId)) {
       if(!this.ready)throw new Error('Personal source authority requires the center');
@@ -105,6 +133,14 @@ export class ExternalChannels {
   }
 
   async request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> {
+    if(type==='node.delivery_receipt')return this.requestAdmitted(type,payload);
+    const output=this.state.output(String(payload.message_id));
+    const agentId=output?this.state.chat(output.chatId)!.agentId:typeof payload.agent_id==='string'?payload.agent_id:typeof payload.from_session_id==='string'?payload.from_session_id.split('|')[0]:this.options.store.lifecycle.current()?.agentId;
+    if(!agentId)return this.requestAdmitted(type,payload);
+    const revision=output?.lifecycle_revision??(typeof payload.lifecycle_revision==='number'?payload.lifecycle_revision:undefined);
+    return this.options.store.lifecycle.run(agentId,revision,()=>this.requestAdmitted(type,this.options.store.executionPayload(payload)));
+  }
+  private async requestAdmitted(type:string,payload:Record<string,unknown>):Promise<ProtocolFrame> {
     if(type==='node.delivery_receipt' && typeof payload.external_source_message_id==='string') {
       const source=this.state.inbound().find(row=>row.mirror===payload.external_source_message_id && row.input.agent_id===payload.agent_id);
       if(source && ['completed','failed'].includes(String(payload.delivery_status)))await this.removeReaction(source.id);
@@ -120,7 +156,7 @@ export class ExternalChannels {
       if (chat) {
         const notice = payload.system_notice as { source_agent_id: string };
         if (notice.source_agent_id !== chat.agentId) throw new Error('Knowledge notice belongs to another Agent');
-        const output = this.state.prepare(chat.id, String(payload.idempotency_key), 'explicit');
+        const output = this.state.prepare(chat.id, String(payload.idempotency_key), 'explicit',Number(payload.lifecycle_revision??1));
         await this.publish(output, String(payload.text));
         this.state.frame(output.id, { ...payload, kind: 'system_notice' });
         void this.flush().catch(this.options.onError);
@@ -147,9 +183,9 @@ export class ExternalChannels {
       if (chat) {
         const agentId = String(payload.from_session_id).split('|')[0];
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
-        const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit');
-        this.state.frame(output.id, { kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
-        const complete = { kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_incident_ref:payload.pa_incident_ref, delivery_status: 'completed' };
+        const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit',Number(payload.lifecycle_revision??1));
+        this.state.frame(output.id, { lifecycle_revision:output.lifecycle_revision,kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
+        const complete = { lifecycle_revision:output.lifecycle_revision,kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_incident_ref:payload.pa_incident_ref, delivery_status: 'completed' };
         await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
@@ -158,7 +194,7 @@ export class ExternalChannels {
     if (payload.kind === 'turn_start') {
       const chat = this.state.chat(String(payload.conversation_id));
       if (!chat) return this.options.relay.request(type, payload);
-      const output = this.state.prepare(chat.id, String(payload.idempotency_key), typeof payload.external_reply === 'string' ? payload.external_reply : undefined);
+      const output = this.state.prepare(chat.id, String(payload.idempotency_key), typeof payload.external_reply === 'string' ? payload.external_reply : undefined,Number(payload.lifecycle_revision??1));
       this.state.frame(output.id, payload);
       void this.flush().catch(this.options.onError); return ack(type, { message_id: output.id, conversation_id: chat.id });
     }
@@ -186,6 +222,10 @@ export class ExternalChannels {
     }
   }
   private async publish(output: ExternalOutput, text: string, metadata?: Record<string, unknown>): Promise<void> {
+    const agentId=this.state.chat(output.chatId)!.agentId;
+    return this.options.store.lifecycle.run(agentId,output.lifecycle_revision,()=>this.publishAdmitted(output,text,metadata));
+  }
+  private async publishAdmitted(output: ExternalOutput, text:string, metadata?:Record<string,unknown>):Promise<void> {
     const active = this.dispatches.get(output.id); if (active) return active;
     const task = (async () => {
       const current = this.state.output(output.id)!;
@@ -195,6 +235,7 @@ export class ExternalChannels {
       if (!connection || connection.config.appId !== chat.appId) throw new Error('External app is unavailable');
       const card = this.options.runtimeFooter && metadata ? runtimeCard(text, metadata) : undefined;
       const dispatch=async(body:string,frozenCard?:Record<string,unknown>)=>{
+        this.options.store.lifecycle.assert(chat.agentId,output.lifecycle_revision);
         this.state.settle(output.id,'sending');
         try { const id=await connection.send(chat.chatId,body,output.operationId,frozenCard);this.state.settle(output.id,'confirmed',id);return id; }
         catch {this.state.settle(output.id,'unknown');throw new RelayDeliveryError('External send outcome is unknown; it will not be automatically repeated','unknown');}
@@ -211,7 +252,7 @@ export class ExternalChannels {
   }
   private async removeReaction(id: string): Promise<void> {
     const row = this.state.inbound().find(row => row.id === id); if (!row?.reaction) return;
-    const connection = this.connections.get(row.input.agent_id); if (!connection) return;
+    const connection = this.connections.get(row.input.agent_id); if (!connection || !this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1)) return;
     try { await connection.thinking(row.message.messageId, row.reaction); this.state.reaction(id, null); } catch (error) { this.options.onError(error); }
   }
   private query(payload: Record<string, unknown>): Record<string, unknown> | undefined {
@@ -241,8 +282,10 @@ export class ExternalChannels {
       for (const row of this.state.inbound()) await this.mirrorInput(row);
       for (const frame of this.state.pendingFrames()) {
         const output = this.state.output(frame.outputId)!; const chat = this.state.chat(output.chatId)!;
-        if (!chat.shadowId) continue;
+        if (!chat.shadowId || !this.options.store.lifecycle.allowed(chat.agentId,output.lifecycle_revision)) continue;
+        frame.body={...frame.body,agent_id:chat.agentId,lifecycle_revision:output.lifecycle_revision};
         try {
+        await this.options.store.lifecycle.run(chat.agentId,output.lifecycle_revision,async()=>{
         if (frame.body.kind === 'system_notice') {
           const { kind: _, ...payload } = frame.body;
           const response = await this.options.relay.request('node.system_message', { ...payload, node_id: this.options.nodeId, conversation_id: chat.shadowId });
@@ -253,16 +296,21 @@ export class ExternalChannels {
           if (typeof response.payload.message_id !== 'string') throw new Error('IM mirror has no message identity');
           this.state.mirrorOutput(output.id, response.payload.message_id);
         } else {
-          if (!output.imId) continue;
+          if (!output.imId) return;
           await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, message_id: output.imId });
         }
         this.state.confirmFrame(frame.id);
+        });
         } catch(error) { this.options.onError(error); }
       }
       }
     })().finally(() => { this.flushing = undefined; }); this.flushing = task; return task;
   }
   private async mirrorInput(row: ReturnType<ExternalStore['inbound']>[number]): Promise<void> {
+    if(row.mirror || !this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1))return;
+    return this.options.store.lifecycle.run(row.input.agent_id,row.input.lifecycle_revision??1,()=>this.mirrorAdmitted(row));
+  }
+  private async mirrorAdmitted(row:ReturnType<ExternalStore['inbound']>[number]):Promise<void> {
         if (row.mirror) return;
         const chat = this.state.chat(row.chatId)!;
         if (!chat.shadowId) {
@@ -301,7 +349,8 @@ export class ExternalChannels {
     if (pending?.settled) return { toast: { type: 'info', content: '审批已结束' }, card: { type: 'raw', data: approvalStatus('已处理') } };
     if (!pending || !connection?.config.ownerOpenId || event.operator?.open_id !== connection.config.ownerOpenId || pending.platformId !== event.context?.open_message_id) return { toast: { type: 'error', content: '此审批不可用或无权操作' } };
     const output = this.state.output(pending.outputId)!; if (this.state.chat(output.chatId)!.agentId !== agentId || !['allow_once', 'deny'].includes(decision ?? '')) return { toast: { type: 'error', content: '无效审批' } };
-    await this.options.permission({ request_id: requestId, decision });
+    this.options.store.lifecycle.assert(agentId,output.lifecycle_revision);
+    await this.options.permission({ request_id: requestId, decision,agent_id:agentId,lifecycle_revision:output.lifecycle_revision });
     this.state.settleApproval(requestId!); return { toast: { type: 'success', content: '已提交审批决定' }, card: { type: 'raw', data: approvalStatus(decision!) } };
   }
   private async resolveApproval(requestId: string, decision: string): Promise<void> {

@@ -8,7 +8,7 @@ import { NodeStore } from './store.js';
 import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
-interface RelayPort { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
+interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
 interface InputEvidence { accepted: boolean; pending?: boolean; turn?: number; terminal?: unknown }
 interface Options {
   nodeId: string;
@@ -28,10 +28,14 @@ export class SingleThread {
   private readonly controls: SessionControls;
   private readonly draining = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
-  private readonly pendingApprovals = new Map<string, { sessionId: string; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
+  private readonly pendingApprovals = new Map<string, { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
   private readonly streams = new Map<string, { sessionId: string; turn: number; chain: Promise<unknown> }>();
   constructor(private readonly options: Options) {
+    const relay=options.relay,runtime=options.runtime;
+    options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
+      runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
+    this.options=options;
     this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, value) => {
       const data = value as { sessionId: string; event?: RuntimeEvent };
@@ -45,6 +49,12 @@ export class SingleThread {
     });
   }
 
+  /** Discard local streaming and permission obligations for a disabled Agent. */
+  cancelAgent(agentId:string):void {
+    for(const [id,pending] of this.pendingApprovals)if(this.binding(pending.sessionId).agentId===agentId)this.pendingApprovals.delete(id);
+    for(const [id,stream] of this.streams)if(this.binding(stream.sessionId).agentId===agentId)this.streams.delete(id);
+    for(const sessionId of this.dirty)if(this.binding(sessionId).agentId===agentId)this.dirty.delete(sessionId);
+  }
   /** Covers reconciliation, output delivery and durable inputs still awaiting completion. */
   get busy(): boolean {
     return this.controls.busy || this.draining.size > 0 || this.dirty.size > 0 || this.streams.size > 0 || this.pendingApprovals.size > 0 ||
@@ -54,6 +64,10 @@ export class SingleThread {
 
   /** Store inbound content before acknowledging its durable runtime handoff. */
   async receive(input: RelayInput): Promise<void> {
+    input=this.options.store.admitInput(input);
+    return this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.receiveAdmitted(input));
+  }
+  private async receiveAdmitted(input: RelayInput): Promise<void> {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
@@ -100,11 +114,15 @@ export class SingleThread {
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
     await runtime.request('session.ensure', runtimeBinding(binding));
-    for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted) await this.submit(binding, pending.input);
+    for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted && !pending.terminal) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
   }
 
   async background(sessionId: string, input: RelayInput): Promise<void> {
+    input=this.options.store.admitInput(input);
+    return this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.backgroundAdmitted(sessionId,input));
+  }
+  private async backgroundAdmitted(sessionId: string, input: RelayInput): Promise<void> {
     const binding=this.binding(sessionId);
     if(binding.agentId!==input.agent_id||binding.conversationId!==input.conversation_id)throw new Error('Background result belongs to another conversation');
     this.options.store.receive(sessionId,input);await this.options.runtime.request('session.ensure',runtimeBinding(binding));
@@ -112,6 +130,10 @@ export class SingleThread {
   }
 
   private async submit(binding: SessionBinding, input: RelayInput) {
+    if(!this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
+    return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision??1,()=>this.submitAdmitted(binding,input));
+  }
+  private async submitAdmitted(binding: SessionBinding, input: RelayInput) {
     const { store, runtime } = this.options;
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
@@ -151,6 +173,7 @@ export class SingleThread {
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
   async heartbeatBinding(config: AgentConfiguration): Promise<SessionBinding> {
     const { store, runtime } = this.options;
+    store.lifecycle.assert(config.agentId);
     const binding = store.canonical(config.agentId) ?? store.bind({ sessionId: randomUUID(), agentId: config.agentId,
       conversationId: `owner:${this.options.ownerId}`, ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision });
     store.markCanonical(binding);
@@ -161,12 +184,15 @@ export class SingleThread {
   /** Durable history is replayed on reconnect; display notifications are just hints. */
   async recover(externalOnly = false): Promise<void> {
     for (const binding of this.options.store.bindings()) {
+      if(!this.options.store.lifecycle.allowed(binding.agentId))continue;
       if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
       if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
+      await this.options.store.lifecycle.run(binding.agentId,undefined,async()=>{
       await this.options.runtime.request('session.ensure', runtimeBinding(binding));
       await this.controls.recover(binding.agentId);
-      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted) await this.submit(binding, input.input);
+      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted && !input.terminal) await this.submit(binding, input.input);
       await this.reconcile(binding.sessionId);
+      });
     }
   }
 
@@ -175,12 +201,18 @@ export class SingleThread {
     const requestId = String(payload.request_id);
     const pending = this.pendingApprovals.get(requestId);
     if (!pending) throw new Error('Permission is no longer pending');
+    this.options.store.lifecycle.assert(this.binding(pending.sessionId).agentId,pending.revision);
     pending.decision = String(payload.decision);
     const decision = payload.decision === 'allow' || payload.decision === 'allow_once' ? 'allowed-once' : 'rejected';
     await this.options.runtime.request('approval.answer', { requestId, decision, ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}) });
   }
 
   private reconcile(sessionId: string): Promise<void> {
+    const agent=this.binding(sessionId).agentId;
+    if(!this.options.store.lifecycle.allowed(agent))return Promise.resolve();
+    return this.options.store.lifecycle.run(agent,undefined,()=>this.reconcileAdmitted(sessionId));
+  }
+  private reconcileAdmitted(sessionId: string): Promise<void> {
     this.dirty.add(sessionId);
     const active = this.draining.get(sessionId);
     if (active) return active;
@@ -209,6 +241,7 @@ export class SingleThread {
     }
     const events = logicalEvents(store.events(sessionId), read.modelRuns ?? []);
     for (const input of store.inputs(sessionId)) {
+      if(!store.lifecycle.allowed(binding.agentId,input.input.lifecycle_revision??1) || input.terminal?.includes('cancelled_by_disable'))continue;
       if (input.turn === null) continue;
       const turn = input.turn;
       const run = read.modelRuns?.find(run => run.turn === turn);
@@ -347,8 +380,12 @@ export class SingleThread {
     }
   }
   private async approval(request: Approval) {
-    const pending: { sessionId: string; messageId: string; posted: boolean; decision?: string; outcome?: string } = {
-      sessionId: request.sessionId, messageId: '', posted: false,
+    const agentId=this.binding(request.sessionId).agentId;
+    return this.options.store.lifecycle.run(agentId,request.lifecycle_revision,()=>this.approvalAdmitted(request));
+  }
+  private async approvalAdmitted(request:Approval) {
+    const pending: { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string } = {
+      sessionId: request.sessionId, revision:this.options.store.lifecycle.assert(this.binding(request.sessionId).agentId), messageId: '', posted: false,
     };
     this.pendingApprovals.set(request.requestId, pending);
     await this.reconcile(request.sessionId);
@@ -422,7 +459,7 @@ export class SingleThread {
   }
   async stop(): Promise<void> { this.unsubscribe(); await this.controls.stop(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
 }
-interface Approval { toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
+interface Approval { lifecycle_revision?:number; toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
 interface Stream { sessionId: string; frame: { type: string; attemptId: string; turn?: number; index?: number; chunk?: { type: string; text?: string } } }
 function runtimeBinding(binding: SessionBinding) {
   const { conversationId: _conversation, ...runtime } = binding;

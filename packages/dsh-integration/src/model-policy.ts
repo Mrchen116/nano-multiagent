@@ -13,7 +13,7 @@ interface Selection { revision: string; chain?: string; selected?: ModelRoute; e
 interface Command { sessionId: string; action: string; argument: string; status: 'pending' | 'completed'; text?: string; success?: boolean }
 interface ModelDomain extends DomainSpec { tables: { sessions: DomainTableSpec<string, Selection>; commands: DomainTableSpec<string, Command> } }
 const routeSchema = z.object({ provider: z.string(), model: z.string(), reasoningEffort: z.string().optional(), maxTokens: z.number().optional() });
-const domain: ModelDomain = defineDomain({ name: 'nano_model', version: 1, layout: 'per-record', tables: {
+export const modelDomain: ModelDomain = defineDomain({ name: 'nano_model', version: 1, layout: 'per-record', tables: {
   sessions: domainTable(z.object({ revision: z.string(), chain: z.string().optional(), selected: routeSchema.optional(), effort: z.string().optional(), ultracode: z.boolean().optional(), sticky: routeSchema.optional() })),
   commands: domainTable(z.object({ sessionId: z.string(), action: z.string(), argument: z.string(), status: z.enum(['pending', 'completed']), text: z.string().optional(), success: z.boolean().optional() })),
 } });
@@ -31,7 +31,7 @@ export class ModelPolicy extends Service {
   private readonly configs = new Map<string, AgentConfiguration>();
   private readonly host: Context;
   constructor(ctx: Context, options: { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => Promise<{ published: boolean }>; notify: (sessionId: string) => void }) {
-    super(ctx, 'nanoModels'); this.host = ctx; this.state = ctx.storageDomain.open(domain);
+    super(ctx, 'nanoModels'); this.host = ctx; this.state = ctx.storageDomain.open(modelDomain);
     this.fallback = new ModelFallback(ctx, { route: agent => this.route(agent), select: (agent, route) => { this.selections.get(agent.id)!.selected = route; }, sticky: async (agent, route) => { const selection = this.selections.get(agent.id)!; selection.sticky = route; delete selection.effort; delete selection.selected; await (await this.state).table('sessions').put(key(agent.id), selection); }, ...options });
     ctx.effect(() => async () => { await this.stop(); await (await this.state).close(); });
   }
@@ -149,8 +149,17 @@ export class ModelPolicy extends Service {
       });
     } catch (error) { return complete(signal.aborted ? '本次控制操作未执行：已取消。' : `控制操作失败：${String(error)}`, false); }
   }
+  /** Expire old control requests alongside model continuations at a disable boundary. */
+  async cancelPersisted(): Promise<void> {
+    for (const active of this.commands.values()) active.abort.abort();
+    await this.fallback.cancelPersisted();
+    const commands = (await this.state).table('commands');
+    for (const [id, command] of commands.entries()) if (command.status === 'pending') {
+      await commands.put(id, {...command, status: 'completed', success: false, text: '本次控制操作未执行：Agent 已停用。'});
+    }
+  }
   cancelCommands(sessionId: string) {
     for (const active of this.commands.values()) if (active.sessionId === sessionId) active.abort.abort();
   }
-  async stop() { await this.fallback.stop(); for (const active of this.commands.values()) active.abort.abort(); await Promise.allSettled([...this.commands.values()].map(active => active.task)); }
+  async stop() { for (const active of this.commands.values()) active.abort.abort(); await this.fallback.stop(); await Promise.allSettled([...this.commands.values()].map(active => active.task)); }
 }

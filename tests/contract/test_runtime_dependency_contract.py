@@ -24,7 +24,10 @@ ALLOWED = {
         "@nano/trajectory-ui/client",
     },
     "packages/trajectory-ui": {"@nano/product-contracts"},
-    "src/IM/frontend": {"@nano/product-contracts/capabilities"},
+    "src/IM/frontend": {
+        "@nano/product-contracts/capabilities",
+        "@nano/product-contracts/agent-lifecycle",
+    },
     "apps/im-server": {
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",

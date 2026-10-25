@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 export type AttachmentSource = { kind: 'chat'; conversationId: string; messageId: string; url: string } | { kind: 'workspace'; path: string };
 interface SourcesDomain extends DomainSpec { tables: { sources: DomainTableSpec<string, AttachmentSource[]> } }
-const domainSpec: SourcesDomain = defineDomain({ name: 'nano_trajectory_sources', version: 1, layout: 'per-record', tables: { sources: domainTable(z.array(z.any())) } });
+export const trajectorySourcesDomain: SourcesDomain = defineDomain({ name: 'nano_trajectory_sources', version: 1, layout: 'per-record', tables: { sources: domainTable(z.array(z.any())) } });
 declare module '@deepseek-ai/cordis' { interface Context { nanoTrajectoryAttachments: TrajectoryAttachments } }
 
 /** Persists provenance identities, never attachment bytes or arbitrary viewer paths. */
@@ -15,7 +15,7 @@ export class TrajectoryAttachments extends Service {
   private writes = Promise.resolve();
   constructor(ctx: Context) {
     super(ctx, 'nanoTrajectoryAttachments');
-    this.domain = ctx.storageDomain.open(domainSpec);
+    this.domain = ctx.storageDomain.open(trajectorySourcesDomain);
     ctx.effect(() => async () => { await this.writes; await (await this.domain).close(); });
     ctx.on('tools/result', (exec, result) => {
       if (exec.name !== 'read_image' || result.isError || !exec.agent?.session.header.cwd) return;

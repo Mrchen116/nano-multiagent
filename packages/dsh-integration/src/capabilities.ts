@@ -57,6 +57,9 @@ export class ToolSelection {
     finally { this.changing = false; }
   }
   private refresh(agent: Agent, state: { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }) {
+    // Provider teardown publishes tools/change while sibling Agent scopes are
+    // already unloading; rebuilding their restrictions would register new effects.
+    if (agent.ctx.fiber.uid === null) return;
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
     const disabled: string[] = [];
