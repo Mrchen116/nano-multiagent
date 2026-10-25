@@ -1,3 +1,5 @@
+> **已撤回（2026-10-25）**：#406 的产品实现由 [bugfix-660](../../bugfix-660-revert-agent-process-isolation/fix.md) 撤回。本文仅保留历史记录，不是当前契约，也不得继续按此部署或实施。
+
 # feat-657: Agent 停用开关
 
 ## Relations

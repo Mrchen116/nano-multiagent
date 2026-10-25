@@ -2,7 +2,7 @@ import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
-import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
+import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, MessageApprovalContext } from '@nano/product-contracts';
 import { canonicalJson, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
@@ -21,7 +21,7 @@ interface Options {
 }
 export interface ProductCall {
   method: string; args: Record<string, unknown>; operationId: string; callId: string;
-  sessionId: string; rootSessionId: string; agentId: string; ownerId: string; lifecycle_revision?:number;
+  sessionId: string; rootSessionId: string; agentId: string; ownerId: string;
 }
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */
@@ -40,7 +40,6 @@ export class GlobalAgent {
   private readonly childDrains = new Map<string, Promise<void>>();
   private readonly childrenDirty = new Set<string>();
   private readonly calls = new Map<string, AbortController>();
-  private readonly callAgents = new Map<string,string>();
   private receiptDrain?: Promise<void>;
   private receiptTimer?: ReturnType<typeof setTimeout>;
   private receiptBackoff=1000;
@@ -52,10 +51,6 @@ export class GlobalAgent {
   private readonly reconciliation = new Map<string, number>();
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
-    const relay=options.relay,runtime=options.runtime;
-    options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
-      runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
-    this.options=options;
     for(const binding of options.store.bindings())if(options.agents.some(agent=>agent.agentId===binding.agentId && agent.mode==='global'))options.inbox.workPending(binding.sessionId,true);
     this.controls = new SessionControls(options);
     this.personal = new PersonalAssistant(options);
@@ -72,16 +67,6 @@ export class GlobalAgent {
       }
     });
   }
-  /** Close queued wakes and abort this Agent's product calls without waiting for runtime teardown. */
-  cancelAgent(agentId:string):void {
-    this.options.inbox.cancelAgent(agentId,this.options.store.bindings().filter(b=>b.agentId===agentId).map(b=>b.sessionId));
-    this.backgroundRequested.delete(agentId);this.waitingForIdle.delete(agentId);
-    for(const [id,owner] of this.callAgents)if(owner===agentId)this.calls.get(id)?.abort();
-    for(const binding of this.options.store.bindings().filter(b=>b.agentId===agentId)) {
-      this.dirty.delete(binding.sessionId);this.childrenDirty.delete(binding.sessionId);this.options.inbox.workPending(binding.sessionId,false);
-    }
-    this.armBackground();
-  }
   /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
   get busy(): boolean {
     return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.calls.size > 0 ||
@@ -95,7 +80,6 @@ export class GlobalAgent {
     });
   }
   private async main(config: AgentConfiguration): Promise<SessionBinding> {
-    this.options.store.lifecycle.assert(config.agentId);
     const { runtime } = this.options; const binding = this.binding(config);
     const { conversationId: _, ...runtimeBinding } = binding;
     await runtime.request('session.ensure', runtimeBinding);
@@ -111,11 +95,6 @@ export class GlobalAgent {
   }
   heartbeatBinding(config: AgentConfiguration): Promise<SessionBinding> { return this.main(config); }
   async receive(input: RelayInput): Promise<void> {
-    const prior=this.options.inbox.input(input.agent_id,input.message.id);
-    input=this.options.store.admitInput(prior?{...input,lifecycle_revision:prior.lifecycle_revision??1}:input);
-    return this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.receiveAdmitted(input));
-  }
-  private async receiveAdmitted(input: RelayInput): Promise<void> {
     const config = this.options.agents.find(agent=>agent.agentId===input.agent_id && agent.mode==='global');
     if (!config) throw new Error('No global Agent for input');
     const command = controlText(input);
@@ -163,11 +142,6 @@ export class GlobalAgent {
     this.receiptDrain=task;return task;
   }
   private async ingest(input: RelayInput, deferWake = false): Promise<void> {
-    const prior=this.options.inbox.input(input.agent_id,input.message.id);
-    input=this.options.store.admitInput(prior?{...input,lifecycle_revision:prior.lifecycle_revision??1}:input);
-    return this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.ingestAdmitted(input,deferWake));
-  }
-  private async ingestAdmitted(input: RelayInput, deferWake = false): Promise<void> {
     const config = this.options.agents.find(agent => agent.agentId === input.agent_id && agent.mode === 'global');
     if (!config) throw new Error('No global Agent for input');
     const stopping=input.message.sender_type==='user'&&controlText(input)==='/stop'&&!!this.options.taskStop;
@@ -208,8 +182,7 @@ export class GlobalAgent {
     }
   }
   private wake(config: AgentConfiguration, binding: SessionBinding, background = false): Promise<void> {
-    if (this.stopped || !this.options.store.lifecycle.allowed(config.agentId)) return Promise.resolve();
-    if(this.options.store.lifecycle.current()?.agentId!==config.agentId)return this.options.store.lifecycle.run(config.agentId,undefined,()=>this.wake(config,binding,background));
+    if (this.stopped) return Promise.resolve();
     if (background && config.personal) this.backgroundRequested.add(config.agentId);
     const active = this.waking.get(config.agentId);
     if (active) return active;
@@ -256,14 +229,14 @@ export class GlobalAgent {
   private armBackground(): void {
     clearTimeout(this.backgroundTimer); this.backgroundTimer = undefined;
     if (this.stopped || this.backgroundDrain || this.options.relay.ready === false) return;
-    const deadlines = this.options.agents.filter(agent=>agent.personal && this.options.store.lifecycle.allowed(agent.agentId) && !this.waitingForIdle.has(agent.agentId))
+    const deadlines = this.options.agents.filter(agent=>agent.personal && !this.waitingForIdle.has(agent.agentId))
       .flatMap(agent=>{const pending=this.options.inbox.background(agent.agentId);return pending ? [pending.dueAt] : [];});
     if (!deadlines.length) return;
     this.backgroundTimer = setTimeout(()=>{
       this.backgroundTimer=undefined;
       this.backgroundDrain = (async()=>{
         await this.recoverPersonalObservations();
-        for(const config of this.options.agents.filter(agent=>agent.personal && this.options.store.lifecycle.allowed(agent.agentId))) {
+        for(const config of this.options.agents.filter(agent=>agent.personal)) {
           try { await this.wake(config,await this.main(config),true); } catch(error) { this.options.onError(error); }
         }
       })().catch(this.options.onError).finally(()=>{this.backgroundDrain=undefined;this.armBackground();});
@@ -324,7 +297,7 @@ export class GlobalAgent {
     const publications=Promise.all(this.options.store.bindings().filter(binding=>this.options.agents.some(agent=>agent.agentId===binding.agentId&&!agent.personal)).map(async binding=>{
       try{await this.recoverPublications(binding);}catch(error){this.scheduleRecovery();this.options.onError(error);}
     }));
-    await Promise.all(this.options.agents.filter(agent=>agent.mode==='global' && this.options.store.lifecycle.allowed(agent.agentId)).map(config=>this.options.store.lifecycle.run(config.agentId,undefined,async()=>{
+    await Promise.all(this.options.agents.filter(agent=>agent.mode==='global').map(async config=>{
       try {
         for(const input of this.options.inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
         if(config.personal)await this.restorePersonalInputs(config);
@@ -349,7 +322,7 @@ export class GlobalAgent {
         }
         await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
       } catch(error) {this.scheduleRecovery();this.options.onError(error);}
-    })));
+    }));
     await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();await publications;
   }
   /** Consume persisted source events without changing the owner's read receipts. */
@@ -357,9 +330,8 @@ export class GlobalAgent {
     if (this.options.relay.ready === false) return Promise.resolve();
     if (this.observations) return this.observations;
     const task = (async()=>{
-      for (const config of this.options.agents.filter(agent=>agent.personal && this.options.store.lifecycle.allowed(agent.agentId))) {
+      for (const config of this.options.agents.filter(agent=>agent.personal)) {
         try {
-        await this.options.store.lifecycle.run(config.agentId,undefined,async()=>{
         let more = true;
         while (more) {
           const batch = await this.personal.request(config,'pa.observations.read',{limit:50});
@@ -373,12 +345,11 @@ export class GlobalAgent {
                 await this.personal.request(config,'pa.observations.ack',{event_ids:[event.event_id],stage:'processed'}); continue;
               }
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
-                lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
+                relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
                 metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
                   attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,sender:message.sender}},true);
             } else {
-              this.options.store.lifecycle.assert(config.agentId,event.lifecycle_revision??1);
               const binding=await this.main(config);
               if (['conversation.membership_changed','source.revoked','policy.changed'].includes(event.kind)) {
                 await this.refreshPersonalSources(config);
@@ -398,16 +369,12 @@ export class GlobalAgent {
           }
         }
         if (this.options.inbox.wakePending(config.agentId)!==undefined) await this.wake(config,await this.main(config));
-        });
         } catch(error) { this.options.onError(error); }
       }
     })().finally(()=>{this.observations=undefined;this.armBackground();});
     this.observations=task; return task;
   }
   async call(call: ProductCall): Promise<unknown> {
-    return this.options.store.lifecycle.run(call.agentId,call.lifecycle_revision,()=>this.callAdmitted(call));
-  }
-  private async callAdmitted(call: ProductCall): Promise<unknown> {
     const binding = this.options.store.bindings().find(binding => binding.sessionId === call.rootSessionId);
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
     if ((call.method === 'inbox' || call.method === 'conversations') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may consume Inbox or query conversation history');
@@ -417,7 +384,7 @@ export class GlobalAgent {
     return call.method === 'inbox' && call.args.action === 'read' ? result : references.result(call.agentId, call.method, result);
   }
   private async execute(call: ProductCall, binding: SessionBinding): Promise<unknown> {
-    const controller = new AbortController(); this.calls.set(call.operationId, controller);this.callAgents.set(call.operationId,call.agentId);
+    const controller = new AbortController(); this.calls.set(call.operationId, controller);
     try {
       const personalConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId && agent.personal);
       if(call.method==='pa.authorization') {
@@ -518,7 +485,7 @@ export class GlobalAgent {
       if (call.method === 'send_message.context') return await this.messageContext(binding, call.args);
       if (call.method === 'send_message') return await this.send(binding, call, controller.signal);
       throw new Error(`Unknown product method: ${call.method}`);
-    } finally { this.calls.delete(call.operationId);this.callAgents.delete(call.operationId); }
+    } finally { this.calls.delete(call.operationId); }
   }
   private async messageContext(binding: SessionBinding, args: Record<string, unknown>): Promise<MessageApprovalContext> {
     const target = String(args.target ?? '');
@@ -561,7 +528,6 @@ export class GlobalAgent {
     const previous = inbox.publication(call.operationId);
     if (previous) {
       if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
-      if(previous.state==='cancelled_by_disable')throw new Error('stale_lifecycle');
       if (previous.result) return JSON.parse(previous.result) as unknown;
       if(previous.state==='unknown' || previous.state==='sending') {
         const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
@@ -596,7 +562,7 @@ export class GlobalAgent {
     }
     signal.throwIfAborted();
     // Receive and dispatch admission are synchronous in this node's event loop.
-    inbox.preparePublication(call.operationId, target, publicationBody,binding.agentId);
+    inbox.preparePublication(call.operationId, target, publicationBody);
     // External conversations and their IM mirrors share one delivery target.
     const inboxTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const revalidate = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
@@ -748,29 +714,6 @@ export class GlobalAgent {
     this.options.onWork?.();
     if(incomplete)throw new Error('Work descendant records are not yet available');
   }
-  /** Commit final durable stop facts without creating inputs, waking agents or sending messages. */
-  recordStopped(agentId: string, snapshots: RuntimeStopHistory[]): void {
-    const {store,inbox}=this.options;
-    for(const snapshot of snapshots) {
-      const root=store.bindings().find(binding=>binding.sessionId===snapshot.rootSessionId&&binding.agentId===agentId);
-      if(!root)throw new Error('Stopped history has no trusted root');
-      const child=snapshot.sessionId!==root.sessionId;
-      if(!child)store.recordEvents(root.sessionId,snapshot.events);
-      if(this.options.agents.find(agent=>agent.agentId===agentId)?.mode!=='global')continue;
-      const binding={...root,sessionId:snapshot.sessionId};
-      const prior=inbox.workCheckpoints(root.sessionId)[snapshot.sessionId];
-      const events=logicalEvents(workSuffix(child?snapshot.events:store.events(root.sessionId,(prior?.replayFrom??0)-1),prior),snapshot.modelRuns);
-      const facts=child?[this.workEvent(binding,'registered','session_registered',{scope:'subagent',parent_session_id:snapshot.parentSessionId??root.sessionId,child_agent_id:snapshot.sessionId,title:snapshot.sessionId})]:[];
-      for(const event of events) {
-        const projected=projectWorkEvent(snapshot.sessionId,event,events,child);
-        if(projected)facts.push(this.workEvent(binding,`runtime:${event.seq}`,projected.type,projected.payload,projected.turn,event.time));
-      }
-      inbox.commitWork(snapshot.sessionId,workCheckpoint(root.sessionId,snapshot.throughSeq,events,snapshot.modelVersion),facts);
-      inbox.workPending(root.sessionId,false);
-    }
-    this.options.onWork?.();
-  }
-
   private workEvent(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()) {
     return { event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
       session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), type, payload, observed_at: new Date(time).toISOString() };

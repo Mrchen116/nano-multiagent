@@ -92,7 +92,6 @@ export interface MessagePaneProps {
   conversation: Conversation;
   /** Owner-only collaboration summary, within the existing scrollable chat. */
   collaborationContent?: React.ReactNode;
-  lifecycleNotice?: React.ReactNode;
   headerActions?: React.ReactNode;
   focusMessageId?: string | null;
   personalAgent?: boolean;
@@ -230,7 +229,6 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
 export function MessagePane({
   conversation,
   collaborationContent,
-  lifecycleNotice,
   headerActions,
   focusMessageId,
   personalAgent = false,
@@ -1196,7 +1194,6 @@ export function MessagePane({
         {collaborationContent}
       </div>
 
-      {lifecycleNotice}
       {conversation.is_observer && <div className="chat-observer-notice" role="status">
         <strong>{t("chat.messagePane.observerTitle")}</strong>
         <span>{t("chat.messagePane.observerDescription")}</span>

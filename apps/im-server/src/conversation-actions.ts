@@ -1,4 +1,3 @@
-import { requireLifecycle } from './agent-lifecycle.js';
 import { agentAvailable } from "./identity.js";
 import { createHmac, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -93,7 +92,6 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
         r = params(req);
       if (p.kind !== "gateway") fail(401, "gateway credential required");
       const c = s.access(p, r.conversation_id, b.agent_id, "write");
-      requireLifecycle(db,b.agent_id,b.lifecycle_revision);
       if (!c.external_source || c.config_agent_id !== b.agent_id)
         fail(404, "external conversation not accessible");
       if (
@@ -112,7 +110,6 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
         key,
         b.delivery_status,
       );
-      requireLifecycle(db,b.agent_id,m.lifecycle_revision);
       db.prepare(
         "UPDATE messages SET content=?,thinking_json=?,tool_calls_json=?,token_usage_json=?,elapsed_ms=?,delivery_status=?,kernel_message_id=? WHERE id=?",
       ).run(
@@ -403,7 +400,6 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     if (m.conversation_id !== r.conversation_id) fail(409, "message_id not found");
     const card = m.permission_requests.find((x: Row) => x.request_id === r.request_id);
     if (!card) fail(409, "request_id not found");
-    requireLifecycle(db,card.agent_id,card.lifecycle_revision);
     const epoch =
       one(db, "SELECT node_epoch FROM node_binding_state WHERE node_id=?", card.node_id)
         ?.node_epoch ?? 0;
@@ -451,7 +447,6 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     ctx.gateway.send(card.node_id, {
       type: "node.streaming_delta",
       payload: {
-        lifecycle_revision:card.lifecycle_revision,
         kind: "permission_response",
         message_id: m.id,
         request_id: r.request_id,

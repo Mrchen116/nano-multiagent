@@ -1,6 +1,5 @@
 import type { PersonalAgentIdentity } from './personal-agent.js';
 export * from './personal-agent.js';
-export * from './agent-lifecycle.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
   agentId: string;
@@ -34,8 +33,6 @@ export interface SessionBinding {
   revision: string;
 }
 export interface RelayInput {
-  /** Execution epoch captured at first admission, retained on redelivery. */
-  lifecycle_revision?: number;
   relay_task_id: string;
   agent_id: string;
   conversation_id: string;
@@ -68,7 +65,7 @@ export interface RuntimePort {
   /** Capture the current host generation for one asynchronous reconciliation. */
   capture?(): RuntimePort;
 }
-export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld' | 'cancelled_by_disable';
+export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
 
 /** Host-resolved public messaging identity; never supplied by model arguments. */
 export interface MessageApprovalContext {
@@ -98,14 +95,3 @@ export { interactiveCatalog, interactiveTools } from './interactive-catalog.js';
 
 export * from './work-sync.js';
 export * from './task-execution.js';
-
-/** Final durable incremental history returned by a stopped execution host. */
-export interface RuntimeStopHistory {
-  sessionId: string;
-  rootSessionId: string;
-  parentSessionId?: string;
-  events: RuntimeEvent[];
-  modelRuns: ModelRunProjection[];
-  modelVersion?: string;
-  throughSeq: number;
-}

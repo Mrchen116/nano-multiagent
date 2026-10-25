@@ -155,16 +155,3 @@
   .im-directory-agents { grid-template-columns: minmax(0,1fr); }
   .im-agent-directory > .im-settings-search { width: 100%; }
 }
-
-.im-agent-lifecycle-row-main { display: flex; align-items: center; gap: 4px; }
-.im-agent-lifecycle-row-main > .im-agent-row { min-width: 0; flex: 1; }
-.im-agent-lifecycle-action { flex-shrink: 0; min-height: 36px; padding: 5px 9px; border-radius: 6px; font-size: 12px; line-height: 20px; white-space: normal; }
-.im-agent-lifecycle-action.danger { color: #a43434; border-color: #e9c1bd; background: #fff3f2; }
-.im-agent-lifecycle-status { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--im-text-muted); padding: 8px 0; overflow-wrap: anywhere; }
-.im-agent-lifecycle-status strong { color: var(--im-text); }
-.im-agent-lifecycle-status.warning strong { color: #8c5b16; }
-.im-agent-lifecycle-status.compact { padding: 0 10px 8px; font-size: 11px; }
-@media (max-width: 440px) {
-  .im-agent-panel-header-row { flex-wrap: wrap; }
-  .im-agent-header-actions { flex-wrap: wrap; flex-basis: 100%; justify-content: flex-end; }
-}

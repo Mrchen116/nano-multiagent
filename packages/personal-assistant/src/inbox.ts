@@ -37,27 +37,8 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS relay_controls(agent_id TEXT,message_id TEXT,input TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
     `);
-    if(!(this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).some(c=>c.name==='agent_id'))this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
     this.db.prepare('INSERT OR IGNORE INTO metadata VALUES(?,?)').run('journal', randomUUID());
     this.journalId = (this.db.prepare('SELECT value FROM metadata WHERE key=?').get('journal') as { value: string }).value;
-  }
-  /** Read immutable admission data before deciding whether a transport duplicate is current. */
-  input(agentId:string,messageId:string):RelayInput|undefined {
-    const row=this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND message_id=?').get(agentId,messageId) as {payload:string}|undefined;
-    return row?JSON.parse(row.payload) as RelayInput:undefined;
-  }
-  /** Retire pending execution without deleting raw inbox, journal, receipts or ACK cursors. */
-  cancelAgent(agentId: string, sessionIds: string[] = []): void {
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      this.db.prepare('UPDATE inbox SET consumed=1 WHERE agent_id=?').run(agentId);
-      this.admitWake(agentId,this.watermark(agentId));
-      this.db.prepare('DELETE FROM background_wakes WHERE agent_id=?').run(agentId);
-      this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=?').run(agentId);
-      this.db.prepare("UPDATE publications SET state=CASE WHEN state='sending' THEN 'unknown' ELSE 'cancelled_by_disable' END WHERE agent_id=? AND state IN ('prepared','sending')").run(agentId);
-      for(const session of sessionIds)this.db.prepare("UPDATE publications SET state=CASE WHEN state='sending' THEN 'unknown' ELSE 'cancelled_by_disable' END WHERE agent_id IS NULL AND substr(id,1,?)=? AND state IN ('prepared','sending')").run(session.length+1,`${session}:`);
-      this.db.exec('COMMIT');
-    } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
   /** Persist an input and its first background deadline together.
    * Args:
@@ -399,7 +380,7 @@ export class InboxStore {
   publication(id: string): { target: string; body: string; state: string; result: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null } | undefined; }
   /** Read uncertain sends owned by this execution session without replaying them. */
   pendingPublications(session: string): {id:string;target:string;body:string}[] { return this.db.prepare("SELECT id,target,body FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string}[]; }
-  preparePublication(id: string, target: string, body: string, agentId?: string): void { this.db.prepare("INSERT OR IGNORE INTO publications(id,target,body,state,result,agent_id) VALUES(?,?,?,'prepared',NULL,?)").run(id, target, body, agentId??null); }
+  preparePublication(id: string, target: string, body: string): void { this.db.prepare("INSERT OR IGNORE INTO publications VALUES(?,?,?,'prepared',NULL)").run(id, target, body); }
   settlePublication(id: string, state: string, result?: unknown): void { this.db.prepare('UPDATE publications SET state=?,result=? WHERE id=?').run(state, result === undefined ? null : JSON.stringify(result), id); }
   close(): void { this.db.close(); }
 }

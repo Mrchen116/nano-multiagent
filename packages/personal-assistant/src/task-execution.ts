@@ -11,11 +11,7 @@ interface Options {
 /** Resolve product scope and native waiting evidence without scheduling model execution. */
 export class TaskExecution {
   private readonly waitingAgents=new Set<string>();
-  constructor(private readonly options:Options) {
-    const runtime=options.runtime,relay=options.relay;
-    this.options={...options,runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))},
-      relay:{request:(type,payload)=>relay.request(type,options.store.executionPayload(payload))}};
-  }
+  constructor(private readonly options:Options) {}
   private binding(identity:{sessionId:string;agentId:string;ownerId:string}):SessionBinding {
     const binding=this.options.store.bindings().find(b=>b.sessionId===identity.sessionId);
     if(!binding||binding.agentId!==identity.agentId||binding.ownerId!==identity.ownerId||binding.ownerId!==this.options.ownerId)throw new Error('Task execution identity mismatch');
@@ -26,13 +22,8 @@ export class TaskExecution {
   }
   /** Read current full responsibility; missing runtime evidence is never valid waiting. */
   async snapshot(identity:{sessionId:string;agentId:string;ownerId:string}):Promise<TaskExecutionSnapshot> {
-    if(!this.options.store.lifecycle.allowed(identity.agentId))return {kind:'quiescent',tasks:[],repair_task_ids:[],reason:'agent_disabled'};
-    return this.options.store.lifecycle.run(identity.agentId,undefined,()=>this.snapshotAdmitted(identity));
-  }
-  private async snapshotAdmitted(identity:{sessionId:string;agentId:string;ownerId:string}):Promise<TaskExecutionSnapshot> {
     const binding=this.binding(identity),config=this.options.agents.find(a=>a.agentId===binding.agentId)!;
     const empty={tasks:[],repair_task_ids:[]};
-    if(!this.options.store.lifecycle.allowed(binding.agentId))return {kind:'quiescent',...empty,reason:'agent_disabled'};
     if(this.options.store.bindingFor(binding.agentId,binding.conversationId)?.sessionId!==binding.sessionId)return {kind:'quiescent',...empty,reason:'session_superseded'};
     if(config.features?.task_graph===false||config.toolAllowlist&&!config.toolAllowlist.includes('task_graph'))return {kind:'quiescent',...empty};
     if(this.options.store.controls().some(i=>i.action==='task-stop'&&i.binding.sessionId===binding.sessionId&&!i.text))return {kind:'unavailable',...empty,reason:'stop_pending'};
@@ -40,7 +31,6 @@ export class TaskExecution {
     if(config.mode==='single_thread'&&!conversation)return {kind:'quiescent',...empty};
     try {
       const frame=await this.options.relay.request('task.execution.snapshot',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:conversation,request_id:randomUUID()});
-      this.options.store.lifecycle.assert(binding.agentId);
       if(!frame.payload.ok)throw new Error('Task source unavailable');
       const items=(frame.payload.result as {items:TaskResponsibility[]}).items;
       const tasks=items.map(({graph_id,node_id,title,status,revision,updated_at,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,updated_at,conversation:{id:conversation.id},relative_url,wait,resume_request}));
@@ -57,7 +47,6 @@ export class TaskExecution {
   }
   /** Resolve a Schedule only within the assignee's current product session scope. */
   async inspect(input:{agent_id:string;conversation_id:string;schedule_id:string}):Promise<TaskWaitInspection> {
-    this.options.store.lifecycle.assert(input.agent_id);
     const config=this.options.agents.find(a=>a.agentId===input.agent_id);
     if(!config)throw new Error('Unknown task owner');
     const bindings=this.options.store.bindings().filter(b=>b.agentId===config.agentId&&this.options.store.bindingFor(b.agentId,b.conversationId)?.sessionId===b.sessionId);
@@ -67,10 +56,6 @@ export class TaskExecution {
   }
   /** Fence, drain, and atomically pause the host-attested human stop scope. */
   async stop(binding:SessionBinding,input:RelayInput):Promise<{wasRunning:boolean;paused:number}> {
-    input=this.options.store.admitInput(input);
-    return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision,()=>this.stopAdmitted(binding,input));
-  }
-  private async stopAdmitted(binding:SessionBinding,input:RelayInput):Promise<{wasRunning:boolean;paused:number}> {
     const id=`task-stop:${binding.agentId}:${input.message.id}`;
     const intent=this.options.store.control(id)??{id,binding,input,action:'task-stop',argument:''};
     this.options.store.saveControl(intent);
@@ -91,26 +76,23 @@ export class TaskExecution {
   }
   /** Restore pending stop fences before any runtime session is recovered. */
   async recoverStops(agentIds?:string[]):Promise<void> {
-    for(const intent of this.options.store.controls())if(this.options.store.lifecycle.allowed(intent.binding.agentId,intent.input.lifecycle_revision??1)&&intent.action==='task-stop'&&!intent.text&&(!agentIds||agentIds.includes(intent.binding.agentId)))await this.stop(intent.binding,intent.input);
+    for(const intent of this.options.store.controls())if(intent.action==='task-stop'&&!intent.text&&(!agentIds||agentIds.includes(intent.binding.agentId)))await this.stop(intent.binding,intent.input);
   }
   /** Restore responsibility even when a UI action preceded the first chat input. */
   async recover(agentIds:string[]):Promise<void> {
     for(const agentId of agentIds) {
-      if(!this.options.store.lifecycle.allowed(agentId))continue;
-      await this.options.store.lifecycle.run(agentId,undefined,async()=>{
       const config=this.options.agents.find(a=>a.agentId===agentId)!;
-      if(config.features?.task_graph===false||config.toolAllowlist&&!config.toolAllowlist.includes('task_graph'))return;
+      if(config.features?.task_graph===false||config.toolAllowlist&&!config.toolAllowlist.includes('task_graph'))continue;
       const frame=await this.options.relay.request('task.execution.scopes',{node_id:this.options.nodeId,agent_id:agentId,request_id:randomUUID()});
-      if(!frame.payload.ok)return;
+      if(!frame.payload.ok)continue;
       const scopes=(frame.payload.result as {conversation_ids:string[]}).conversation_ids;
       for(const conversationId of config.mode==='global'?(scopes.length?[`global:${agentId}`]:[]):scopes) {
         const binding=this.options.store.bindingFor(agentId,conversationId)??this.options.store.bind({agentId,conversationId,sessionId:randomUUID(),ownerId:this.options.ownerId,cwd:config.workspace,revision:config.revision});
         await this.options.runtime.request('session.ensure',(({conversationId,...value})=>value)(binding));
       }
       await this.changed(agentId);
-      });
     }
   }
-  async changed(agentId:string,reset=true):Promise<void> {if(!this.options.store.lifecycle.allowed(agentId))return;await this.options.store.lifecycle.run(agentId,undefined,()=>this.options.runtime.request('task.execution.changed',{agentId,reset}));}
+  async changed(agentId:string,reset=true):Promise<void> {await this.options.runtime.request('task.execution.changed',{agentId,reset});}
   async watch():Promise<void> {await Promise.allSettled([...this.waitingAgents].map(id=>this.changed(id,false)));}
 }

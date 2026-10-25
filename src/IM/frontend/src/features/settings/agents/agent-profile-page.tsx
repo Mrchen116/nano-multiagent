@@ -1,4 +1,3 @@
-import { AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import "./agent-settings.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -15,7 +14,6 @@ import { AgentWorkPanel } from "./agent-work-panel";
 /** Public profile and Work never load another person's writable configuration. */
 export function AgentProfilePage() {
   const { agentId } = useParams();
-  const lifecycle = useAgentLifecycle(agentId ?? "");
   const self = useAuthStore(s => s.user?.id);
   const { t } = useTranslation();
   const isMobile = useIsMobile();
@@ -69,7 +67,6 @@ export function AgentProfilePage() {
             </button>
           </div>
         </div>
-        <AgentLifecycleStatus lifecycle={lifecycle} online={agent.status === "online"} />
         {send.isError && <p role="alert" className="im-agent-footer-status error">{t("chat.contacts.failed")}</p>}
         <nav
           className="im-agent-settings-tabs"

@@ -174,22 +174,13 @@ export class KnowledgeRuntime extends Service {
       return known.get(id)!;
     });
   }
-  async facts() { return [...(await this.state).table('facts').entries()].map(([, value]) => value).filter(value => !value.cancelledByDisable); }
+  async facts() { return [...(await this.state).table('facts').entries()].map(([, value]) => value); }
   async acknowledge(id: string) { await (await this.state).table('facts').delete(storageKey(id)); this.undelivered.delete(id); }
   async recover() {
     for (const fact of await this.facts()) this.undelivered.add(fact.id);
     const reviews = (await this.state).table('reviews');
     for (const [id, review] of reviews.entries()) if (review.status === 'running') await reviews.put(id, { ...review, status: 'interrupted' });
     return this.reviews();
-  }
-  /** Preserve stopped review and notification evidence without re-emitting old work. */
-  async cancelPersisted(): Promise<void> {
-    const state = await this.state;
-    for (const [id, review] of state.table('reviews').entries()) {
-      if (['running', 'interrupted'].includes(review.status)) await state.table('reviews').put(id, {...review, status: 'cancelled', diagnostic: 'agent_disabled'});
-    }
-    for (const [id, fact] of state.table('facts').entries()) await state.table('facts').put(id, {...fact, cancelledByDisable: true});
-    this.undelivered.clear();
   }
   async reviews() { return [...(await this.state).table('reviews').entries()].map(([, value]) => value); }
   /** A Feature owns this listener and its disposal cancels only this kind of accepted review. */

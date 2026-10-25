@@ -20,19 +20,18 @@ export class SessionControls {
   /** Unfinished controls remain busy even after a failed delivery or reconnect. */
   get busy(): boolean { return this.active.size > 0 || this.options.store.controls().some(intent => !intent.delivered); }
   run(binding: SessionBinding, input: RelayInput, action: string, argument: string): Promise<void> {
-    input=this.options.store.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
     const existing = this.active.get(id); if (existing) return existing;
     const intent = this.options.store.control(id) ?? { id, binding, input, action, argument };
     this.options.store.saveControl(intent);
-    const task = (this.tails.get(binding.sessionId) ?? Promise.resolve()).then(() => this.options.store.lifecycle.run(binding.agentId,intent.input.lifecycle_revision??1,()=>this.perform(intent)));
+    const task = (this.tails.get(binding.sessionId) ?? Promise.resolve()).then(() => this.perform(intent));
     const settled = task.catch(() => {}); this.tails.set(binding.sessionId, settled); this.active.set(id, task);
     void settled.then(() => { this.active.delete(id); if (this.tails.get(binding.sessionId) === settled) this.tails.delete(binding.sessionId); });
     return task;
   }
   async wait(sessionId: string) { await this.tails.get(sessionId); }
   async recover(agentId: string) {
-    for (const intent of this.options.store.controls()) if (this.options.store.lifecycle.allowed(agentId,intent.input.lifecycle_revision??1) && intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
+    for (const intent of this.options.store.controls()) if (intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
   }
   private async perform(intent: ControlIntent) {
     const { store, runtime, relay, nodeId } = this.options; const { binding, input } = intent;

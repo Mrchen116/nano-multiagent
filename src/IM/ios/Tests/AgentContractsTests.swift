@@ -118,22 +118,3 @@ struct AgentContractsTests {
     #expect(preview["heartbeat_enabled"] == .bool(false))
     #expect(preview["cron_enabled"] == .bool(true))
 }
-
-@Test func lifecycleRequiresConfirmedCurrentRevisionBeforeEnabling() throws {
-    for observed in ["stopping", "stop_unconfirmed", "disabled"] {
-        let response = "{\"agent_id\":\"a\",\"desired\":\"disabled\",\"revision\":3,\"applied_revision\":2,\"observed\":\"\(observed)\",\"error_code\":null,\"error_detail\":null}"
-        var state = try JSONDecoder().decode(AgentLifecycleSnapshot.self, from: Data(response.utf8))
-        #expect(!state.canEnable)
-        #expect(state.action != .enable)
-        #expect(state.action == (observed == "stop_unconfirmed" ? .retry : nil))
-        state.applied_revision = 3
-        #expect(state.canEnable == (observed == "disabled"))
-    }
-    let enabled = try JSONDecoder().decode(AgentLifecycleSnapshot.self, from: Data(#"{"agent_id":"a","desired":"enabled","revision":4,"applied_revision":3,"observed":"enabling"}"#.utf8))
-    #expect(enabled.action == .disable)
-    let data = try JSONEncoder().encode(AgentLifecycleChange(enabled: false, request_id: "request", expected_revision: 4))
-    let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    #expect(body["enabled"] as? Bool == false)
-    #expect(body["expected_revision"] as? Int == 4)
-    #expect(body["request_id"] as? String == "request")
-}

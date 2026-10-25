@@ -17,9 +17,6 @@ interface Options {
   bindings(): SessionBinding[];
   create(partition: RuntimePartition): PartitionRuntime;
   onError(error: unknown): void;
-  home?(partition: RuntimePartition): string;
-  allowed?(agentId: string): boolean;
-  execution?<T>(agentId: string, action: () => T, revision?: number): T;
 }
 const object = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : {};
 
@@ -31,35 +28,20 @@ export class RuntimePartitions implements RuntimePort {
   readonly partitions = new Map<string, RuntimePartition>();
   private readonly agents = new Map<string, RuntimePartition>();
   private readonly sessions = new Map<string, RuntimePartition>();
-  private readonly observers = new Map<string, { partition: RuntimePartition; generation: number; cold?: boolean }>();
+  private readonly observers = new Map<string, { partition: RuntimePartition; generation: number }>();
   private readonly approvals = new Map<string, RuntimePartition>();
   private readonly handlers = new Map<string, (params: unknown) => unknown | Promise<unknown>>();
   private readonly listeners = new Set<(method: string, params: unknown) => void>();
   private readonly starting = new Map<string, Promise<void>>();
   private started = false;
   constructor(private readonly options: Options) {
-    this.create('control');
+    this.create('ordinary');
     for (const config of options.agents) this.assign(config);
     for (const binding of options.bindings()) this.sessions.set(binding.sessionId, this.forAgent(binding.agentId));
   }
-  static key(config: AgentConfiguration): string { return config.personal ? `personal:${config.personal.bindingId}:${config.personal.epoch}` : `agent:${config.agentId}`; }
-  get available() { return [...this.partitions.values()].filter(p => this.enabled(p)).every(p => p.runtime.available); }
-  private enabled(partition: RuntimePartition) { return partition.agents.every(agent => this.options.allowed?.(agent.agentId) !== false); }
-  private execution<T>(partition: RuntimePartition, action: () => T, revision?: number): T {
-    if (!this.enabled(partition)) throw new Error('agent_disabled');
-    const agent = partition.agents[0];
-    return agent && this.options.execution ? this.options.execution(agent.agentId, action, revision) : action();
-  }
-  private invoke(partition: RuntimePartition, method: string, params: unknown): Promise<unknown> {
-    const revision = object(params).lifecycle_revision;
-    return this.execution(partition, async () => {
-      const generation = partition.generation;
-      const result = await partition.runtime.request(method, params);
-      if (generation !== partition.generation) throw new Error('Runtime generation_changed');
-      return this.execution(partition, () => result);
-    }, typeof revision === 'number' ? revision : undefined);
-  }
-  availableFor(agentId: string) { return this.options.allowed?.(agentId) !== false && this.agents.get(agentId)?.runtime.available === true; }
+  static key(config: AgentConfiguration): string { return config.personal ? `personal:${config.personal.bindingId}:${config.personal.epoch}` : 'ordinary'; }
+  get available() { return [...this.partitions.values()].every(partition => partition.runtime.available); }
+  availableFor(agentId: string) { return this.agents.get(agentId)?.runtime.available === true; }
   forAgent(agentId: string): RuntimePartition {
     const partition = this.agents.get(agentId);
     if (!partition) throw new Error(`Unknown runtime Agent: ${agentId}`);
@@ -75,7 +57,7 @@ export class RuntimePartitions implements RuntimePort {
         current();
         const value = object(params);
         if (['knowledge.facts', 'knowledge.acknowledge', 'workflow.pending', 'workflow.acknowledge'].includes(method)) {
-          const result = await this.invoke(partition, method, params);
+          const result = await partition.runtime.request(method, params);
           current();
           if (method === 'knowledge.facts') for (const fact of (object(result).facts ?? []) as unknown[]) this.validateOrigin(partition, fact);
           if (method === 'workflow.pending') for (const record of result as unknown[]) this.validateOrigin(partition, record);
@@ -87,7 +69,7 @@ export class RuntimePartitions implements RuntimePort {
         return result;
       },
       onNotification: listener => partition.runtime.onNotification((method, value) => {
-        try { if(this.validateOrigin(partition, value, true)) this.execution(partition, () => listener(method, value)); } catch (error) { this.options.onError(error); }
+        try { if(this.validateOrigin(partition, value, true)) listener(method, value); } catch (error) { this.options.onError(error); }
       }),
     };
   }
@@ -106,12 +88,10 @@ export class RuntimePartitions implements RuntimePort {
   }
   async start(): Promise<void> {
     this.started = true;
-    await this.startControl();
+    await this.startPartition(this.partitions.get('ordinary')!);
     // One unavailable PA must not prevent unrelated Agents from starting.
-    await Promise.all([...this.partitions.values()].filter(p => p.key !== 'control' && this.enabled(p)).map(p => this.startPartition(p).catch(this.options.onError)));
+    await Promise.all([...this.partitions.values()].filter(p => p.key !== 'ordinary').map(p => this.startPartition(p).catch(this.options.onError)));
   }
-  async startControl() { this.started = true; await this.startPartition(this.partitions.get('control')!); }
-  async startAgent(agentId: string) { const partition = this.forAgent(agentId); if (this.enabled(partition)) await this.startPartition(partition); }
   async shutdown() { await Promise.all([...this.partitions.values()].map(p => p.runtime.shutdown())); }
   private async startPartition(partition: RuntimePartition): Promise<void> {
     if (partition.runtime.available) return;
@@ -130,7 +110,7 @@ export class RuntimePartitions implements RuntimePort {
         const data = object(value);
         if (method === 'approval.request' && typeof data.requestId === 'string') this.approvals.set(data.requestId, partition);
         if (method === 'approval.resolved' && typeof data.requestId === 'string') this.approvals.delete(data.requestId);
-        this.execution(partition, () => { for (const listener of this.listeners) listener(method, value); });
+        for (const listener of this.listeners) listener(method, value);
       } catch (error) { this.options.onError(error); }
     });
     return partition;
@@ -186,7 +166,7 @@ export class RuntimePartitions implements RuntimePort {
     return true;
   }
   private attachHandler(partition: RuntimePartition, method: string, handler: (params: unknown) => unknown | Promise<unknown>) {
-    partition.runtime.handle(method, async params => { this.validateOrigin(partition, params); return this.execution(partition, () => handler(params)); });
+    partition.runtime.handle(method, async params => { this.validateOrigin(partition, params); return handler(params); });
   }
   async request(method: string, params: unknown): Promise<unknown> {
     const value = object(params);
@@ -195,9 +175,8 @@ export class RuntimePartitions implements RuntimePort {
       const prepared: RuntimePartition[] = [];
       try {
         for (const partition of this.partitions.values()) {
-          if (!this.enabled(partition)) continue;
           prepared.push(partition);
-          const result = await this.invoke(partition, method, params) as {ready: boolean};
+          const result = await partition.runtime.request(method, params) as {ready: boolean};
           if (!result.ready) throw new Error('A runtime is busy');
         }
         return {ready: true};
@@ -205,62 +184,39 @@ export class RuntimePartitions implements RuntimePort {
     }
     if (method === 'update.release') { await Promise.all([...this.partitions.values()].filter(p => p.runtime.available).map(p => p.runtime.request(method, params))); return {released: true}; }
     if (method.startsWith('model.setup.')) {
-      const ordinary = this.partitions.get('control')!;
+      const ordinary = this.partitions.get('ordinary')!;
       if (method === 'model.setup.stage' && !this.available) throw new Error('A runtime is unavailable for model configuration');
       const result = await ordinary.runtime.request(method, params);
       if (['model.setup.stage', 'model.setup.restore'].includes(method)) {
-        for (const partition of this.partitions.values()) if (partition !== ordinary && partition.runtime.available) await this.invoke(partition, method, params);
+        for (const partition of this.partitions.values()) if (partition !== ordinary && (method !== 'model.setup.restore' || partition.runtime.available)) await partition.runtime.request(method, params);
       }
       if (method === 'model.setup.finish') {
         const snapshot = await ordinary.runtime.request('model.setup.snapshot', {});
-        for (const partition of this.partitions.values()) if (partition !== ordinary && partition.runtime.available) { await this.invoke(partition, method, params); await partition.runtime.request('model.setup.sync', snapshot); }
+        for (const partition of this.partitions.values()) if (partition !== ordinary && partition.runtime.available) { await partition.runtime.request(method, params); await partition.runtime.request('model.setup.sync', snapshot); }
       }
       return result;
     }
     if (method === 'approval.answer') {
       const partition = this.approvals.get(String(value.requestId));
       if (!partition) throw new Error('Unknown approval request');
-      return this.invoke(partition, method, params);
+      return partition.runtime.request(method, params);
     }
     if (method.startsWith('trajectory.') && method !== 'trajectory.prepare') {
       const observer = this.observers.get(String(value.observerId));
       if (!observer || observer.generation !== observer.partition.generation) throw new Error('trajectory generation_changed');
       if (method === 'trajectory.close') this.observers.delete(String(value.observerId));
-      if (observer.cold) return observer.partition.runtime.request(`cold.${method}`, params);
-      return this.invoke(observer.partition, method, params);
+      return observer.partition.runtime.request(method, params);
     }
     let partition: RuntimePartition;
     if (method === 'configuration.apply' || method === 'configuration.prepare') {
       const candidate = (method === 'configuration.prepare' ? value.config : params) as AgentConfiguration;
       // Preparing a candidate must not change what a crashed child initializes from.
       partition = this.routeConfiguration(candidate);
-      if (this.options.allowed?.(candidate.agentId) === false) {
-        if (method === 'configuration.apply') { this.assign(candidate); return {effective: true}; }
-        return {ready: true};
-      }
       if (this.started && !partition.runtime.available) await this.startPartition(partition);
     } else if (['configuration.preview', 'configuration.catalog'].includes(method) && value.config) {
       const candidate = value.config as AgentConfiguration;
-      partition = this.partitions.get('control')!;
+      partition = candidate.personal ? this.forAgent(candidate.agentId) : this.partitions.get('ordinary')!;
     } else partition = this.resolve(value);
-    if (method === 'configuration.catalog' && !this.enabled(partition)) {
-      return this.partitions.get('control')!.runtime.request(method, {config: partition.agents[0], cwd: value.cwd});
-    }
-    if (!this.enabled(partition) && ['trajectory.prepare', 'session.export'].includes(method)) {
-      const binding = this.options.bindings().find(binding => binding.sessionId === (value.rootSessionId ?? value.sessionId));
-      if (!binding || binding.agentId !== partition.agents[0]?.agentId || !this.options.home) throw new Error('Session has no trusted runtime binding');
-      const control = this.partitions.get('control')!;
-      const source = {home: this.options.home(partition), binding, config: partition.agents[0]};
-      if (method === 'session.export') return control.runtime.request('cold.session.export', {...source, sessionId: value.sessionId});
-      const id = String(value.observerId);
-      if (this.observers.has(id)) throw new Error('Observer identity already in use');
-      const generation = control.generation;
-      const result = await control.runtime.request('cold.trajectory.prepare', {...source, scope: params});
-      if (generation !== control.generation) throw new Error('trajectory generation_changed');
-      this.observers.set(id, {partition: control, generation, cold: true});
-      return result;
-    }
-    if (!this.enabled(partition)) throw new Error('agent_disabled');
     if (method === 'session.ensure') {
       const id = String(value.sessionId);
       const existing = this.sessions.get(id);
@@ -271,11 +227,11 @@ export class RuntimePartitions implements RuntimePort {
       const id = String(value.observerId);
       if (this.observers.has(id)) throw new Error('Observer identity already in use');
       const generation = partition.generation;
-      const result = await this.invoke(partition, method, params);
+      const result = await partition.runtime.request(method, params);
       if (generation !== partition.generation) throw new Error('trajectory generation_changed');
       this.observers.set(id, {partition, generation}); return result;
     }
-    const result = await this.invoke(partition, method, params);
+    const result = await partition.runtime.request(method, params);
     if (method === 'configuration.apply' && object(result).effective === true) {
       const {operationId: _operationId, fingerprint: _fingerprint, ...applied} = value;
       this.assign(applied as unknown as AgentConfiguration);

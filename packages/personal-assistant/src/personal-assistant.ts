@@ -123,7 +123,7 @@ export class PersonalAssistant {
     const conversation = await this.resolve(config,target);
     if (inbox.blocking(config.agentId,conversation)) return {status:'held_for_revalidation',target,
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
-    inbox.preparePublication(call.operationId,target,publicationBody,binding.agentId);
+    inbox.preparePublication(call.operationId,target,publicationBody);
     if (conversation === config.personal!.conversationId) {
       // Private owner replies use the ordinary publication path, including IntelligentUI.
       inbox.settlePublication(call.operationId,'sending');

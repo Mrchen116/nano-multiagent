@@ -1,4 +1,3 @@
-import { useAuthStore } from '../../auth/auth-store';
 vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
@@ -211,31 +210,6 @@ describe("agent detail page", () => {
     view.rerender(<QueryClientProvider client={client}><MemoryRouter><AgentDetailPage /></MemoryRouter></QueryClientProvider>);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByLabelText("App ID")).toHaveValue("draft-app-id");
-  });
-
-  it("disables immediately without saving or replacing the current configuration draft", async () => {
-    const original = useAuthStore.getState().user;
-    useAuthStore.setState({user: {id: "owner-1"} as never});
-    let lifecycle = {agent_id: "agent-core-1", desired: "enabled", observed: "enabled", revision: 1, applied_revision: 1};
-    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
-      if (String(url).includes("/lifecycle")) {
-        if (init?.method === "PUT") lifecycle = {...lifecycle, desired: "disabled", observed: "stopping", revision: 2};
-        return Response.json(lifecycle);
-      }
-      return Response.json({binding:null, creation:null});
-    }));
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
-    const view = renderDetailPage();
-    try {
-      const name = await screen.findByDisplayValue("Core Planner");
-      await userEvent.clear(name);
-      await userEvent.type(name, "Unsaved emergency edit");
-      await userEvent.click(await screen.findByRole("button", {name: "Disable"}));
-      await screen.findByText("Stopping managed execution; stop is not confirmed yet.");
-      expect(name).toHaveValue("Unsaved emergency edit");
-      expect(apiMocks.updateAgentConfigMock).not.toHaveBeenCalled();
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    } finally { view.unmount(); vi.unstubAllGlobals(); useAuthStore.setState({user:original}); }
   });
 
   it("protects an edited configuration when opening the personal assistant from the rail", async () => {

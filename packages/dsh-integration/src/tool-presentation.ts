@@ -8,11 +8,11 @@ const keyOf = (session: string, call: string) => Buffer.from(JSON.stringify([ses
 
 type ToolView = {callId: string; call?: ToolCallView; result?: ToolResultView; childSessionId?: string; delegationKind?: string};
 interface ToolViewDomain extends DomainSpec {tables: {calls: DomainTableSpec<string, ToolView>}}
-export const toolViewsDomain: ToolViewDomain = defineDomain({name:'nano_tool_views',version:1,layout:'per-record',tables:{calls:domainTable(z.object({callId:z.string(),call:z.any().optional(),result:z.any().optional(),childSessionId:z.string().optional(),delegationKind:z.string().optional()}))}});
+const spec: ToolViewDomain = defineDomain({name:'nano_tool_views',version:1,layout:'per-record',tables:{calls:domainTable(z.object({callId:z.string(),call:z.any().optional(),result:z.any().optional(),childSessionId:z.string().optional(),delegationKind:z.string().optional()}))}});
 
 /** Freeze public presenter output in a Nano domain; native logs accept no external event vocabulary. */
 export function recordToolPresentations(ctx: Context): (sessionId: string, events: readonly SessionEvent[]) => Promise<SessionEvent[]> {
-  const domain = ctx.storageDomain.open(toolViewsDomain);
+  const domain = ctx.storageDomain.open(spec);
   let writes = Promise.resolve();
   ctx.effect(() => async () => {await writes; await (await domain).close();});
   ctx.on('tools/pre-execute', async (exec, next) => {

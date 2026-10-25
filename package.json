@@ -23,8 +23,7 @@
     "tsx": "4.22.4",
     "typescript": "6.0.3",
     "vitest": "4.1.11",
-    "zod": "4.6.5",
-    "@nano/dsh-integration": "workspace:*"
+    "zod": "4.6.5"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.2.1-alpha.1"

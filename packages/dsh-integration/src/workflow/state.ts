@@ -33,7 +33,6 @@ export interface WorkflowRecord {
   logs: { at: number; text: string; phase?: string }[];
   result?: WorkflowResult;
   delivered?: boolean;
-  cancelledByDisable?: boolean;
 }
 export interface BudgetRecord {
   id: string;

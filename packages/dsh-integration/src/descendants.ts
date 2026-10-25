@@ -17,7 +17,7 @@ interface Catalog {
   witness?: Witness;
 }
 interface CatalogDomain extends DomainSpec { tables: { sessions: DomainTableSpec<string, Catalog> } }
-export const descendantDomain: CatalogDomain = defineDomain({name:'nano_work_catalog',version:1,layout:'per-record',tables:{
+const domain: CatalogDomain = defineDomain({name:'nano_work_catalog',version:1,layout:'per-record',tables:{
   sessions:domainTable(z.object({rootId:z.string(),cursor:z.number(),children:z.array(z.custom<SubagentCatalogEntry>()),active:z.boolean(),
     witness:z.object({header:z.string(),eventCount:z.number().optional(),sizeBytes:z.number().optional()}).optional()})),
 }});
@@ -44,7 +44,7 @@ export class DescendantReader {
   readonly ready: Promise<void>;
 
   constructor(private readonly ctx: Context) {
-    this.storage = ctx.storageDomain.open(descendantDomain);
+    this.storage = ctx.storageDomain.open(domain);
     this.ready = this.storage.then(storage => {
       for (const [encoded, catalog] of storage.table('sessions').entries()) {
         const id = SessionId(Buffer.from(encoded,'base64url').toString());
