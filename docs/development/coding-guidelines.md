@@ -4,6 +4,8 @@
 
 架构边界以 [`../../SPEC.md`](../../SPEC.md) 为准，测试规范以 [`testing.md`](testing.md) 为准；本文不复制这些领域的规则。
 
+普通 API docstring 不能替代模型可见接口设计；影响 Agent 实际看到的信息或其消费链路时，按 [Agent Context Engineering](agent-context-engineering.md) 设计与验证。
+
 ## Commenting and Docstrings
 
 目标：让调用者不用读实现也会用，让维护者看懂“为什么/约束”，避免过期注释。

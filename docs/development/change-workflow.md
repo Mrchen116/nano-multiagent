@@ -83,6 +83,14 @@ Bugfix lite
 
 `change-fast-close` 负责锁定现有 diff、建立事后 unit、回填文档、执行 code review、归并 canonical spec 并按用户授权交付。
 
+## Agent Context 的条件接入
+
+按 [Agent Context Engineering](agent-context-engineering.md#范围与影响判断) 判断模型可见信息及其选择、注入、加载、更新和恢复是否受影响；包括间接影响，不按文件名触发。纯 UI 样式和无 Context 影响的内部变化不触发完整审查。
+
+相关 Full 设计在原 design/milestone 中说明消费链与验证，原 design-reviewer 执行 [agent-context-review](../../.claude/skills/agent-context-review/SKILL.md) 的 Design Review；原 code reviewer 执行 Implementation Review，结果仍在原报告/输出。两个编排路径及 impl-worker 都需验证实际交付与适用行为，verifier 核一致性和证据并复用有效审查。lite 不补 design Gate；快速开发在既有 as-built design/code review 中承接。无 unit 的直接小修若实际影响 Context，也按相同原则自检，不因此强制新 Gate。
+
+新 Skill 是现有角色的审查方法，不是新角色或审批。只覆盖受影响链路及必要交互；证据不足如实说明，是否阻断仍按现有退出标准和严重度判断。模式、取证及 finding 内容由 Skill 和规范维护，本流程不复制细则。
+
 ## 阶段 1：首文档
 
 `change-spec-author` 与用户收口“做什么”或“出了什么问题”，产出 `spec.md`、`motivation.md`、`incident.md`，或 lite 路径的 `fix.md`。

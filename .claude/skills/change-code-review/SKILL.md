@@ -12,6 +12,7 @@ description: "用户要求审查代码 diff，或 change 流程进入独立 code
 - full 审指定完整 diff；patch 审 pre_fix_head..HEAD；closure 核 focus_findings 与 finding_origin_head..HEAD。未指定目标时确认合理 base，不能把空 upstream diff 当作无改动。
 - 包含属于本任务的未提交改动，保留用户其他工作。patch/closure 不自行扩大到整条分支；发现影响扩大时报告需 full。
 - 审查者关注正确性、被删除的不变量、实际调用方、复用/复杂度和运行代价，方法自主。候选需位置、具体触发场景与后果，不以数量凑 finding。
+- diff 直接或间接影响模型可见 Context 或其生命周期时，由本 reviewer 调用 [agent-context-review](../agent-context-review/SKILL.md) 的 Implementation Review 方法；除代码正确性，还检查模型不可获得的必填参数、错误状态/来源及组装不一致等接口设计缺陷。沿用本次输出格式，Context finding 附该 Skill 要求的证据字段；无 Context 影响不做完整 Context Review。
 - 普通明确问题由独立审查者直接举证。高风险或存在争议、关键条件无法确认的候选，注明需要追加核验的原因与条件，交 caller 安排；只做审查，不修改被审对象。
 - 审查者或追加核验者返回 CONFIRMED（直接证据）、PLAUSIBLE（机制有据但条件未证实）或 REFUTED（反证）。未确认的条件明确标出；不把假想边界或风格偏好报成缺陷。
 

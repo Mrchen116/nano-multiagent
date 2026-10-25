@@ -21,6 +21,7 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 | 单包 current behavior | [docs/specs/](docs/specs/README.md) |
 | 是否建立 change unit、选择生命周期或实施方式、查看门禁 | [docs/development/change-workflow.md](docs/development/change-workflow.md) |
 | 开发环境、测试、注释、worktree E2E 与 LLM 联调 | [docs/development/](docs/development/README.md) |
+| 模型可见信息及其选择、注入、加载、更新与恢复 | [Agent Context Engineering](docs/development/agent-context-engineering.md) |
 | 启动、观察、排障和恢复 current 系统 | [docs/operations/](docs/operations/README.md) |
 | change unit 目录、文件归属和归档 | [docs/changes/README.md](docs/changes/README.md) |
 | Agent 评测集、物化方法和实验协议 | [evals/README.md](evals/README.md) |
