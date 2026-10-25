@@ -6,7 +6,7 @@ function fixture() {
   const states=new Map<string,AgentLifecycleSnapshot>(),proofs=new Map<string,{boot:string;processInstanceId:string|null;stopped:boolean}>(),reports:AgentLifecycleReport[]=[],started:string[]=[],cancelled:string[]=[];
   let stopped:{confirmed:boolean;processInstanceId?:string}={confirmed:true};
   const lifecycle=new NodeAgentLifecycle({nodeId:'node',boot:'boot-one',snapshot:id=>states.get(id),save:s=>states.set(s.agent_id,s),proof:id=>proofs.get(id),saveProof:(id,p)=>proofs.set(id,p),
-    host:()=>({available:false,enable:()=>{},disable:async()=>stopped}),start:async id=>{started.push(id);},cancel:id=>{cancelled.push(id);},resetHeartbeat:()=>{},report:async r=>{reports.push(r);}});
+    host:()=>({available:false,disable:async()=>stopped}),start:async id=>{started.push(id);},cancel:id=>{cancelled.push(id);},resetHeartbeat:()=>{},report:async r=>{reports.push(r);}});
   return {lifecycle,states,proofs,reports,started,cancelled,setStop:(result:typeof stopped)=>{stopped=result;}};
 }
 it('waits for the authoritative snapshot and closes admission synchronously on disable',async()=>{

@@ -14,8 +14,7 @@ flowchart TD
   IM <-->|设备认证 WS / HTTP| Node[用户机器：TypeScript Node]
   Feishu[飞书] <-->|平台长连接 / API| Channels[Channels]
   Channels <--> Node
-  Node <-->|stdio JSON RPC| Control[control host：管理与只读历史]
-  Node <-->|stdio JSON RPC| DSH[每个产品 Agent 独立 DSH host + Nano plugins]
+  Node <-->|stdio JSON RPC| DSH[普通 Agent 共享 DSH host；PA 按 binding/epoch 隔离]
   DSH --> LLM[配置的模型服务]
   DSH --> Workspace[Agent workspace / tools / skills]
 ```
@@ -40,7 +39,7 @@ flowchart TD
 
 Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产品层依赖 `RuntimePort`，不持有 DSH 对象。运行时接线集中在 integration，跨进程传递的是产品身份、输入来源、操作 ID、持久序号及真实事件。
 
-每个产品 Agent（普通 Agent 与 PA）拥有独立 DSH 进程与持久 home，同一 Agent 的跨聊天主会话、子 Agent 和受管工作归于该进程；PA 保留 binding/epoch 身份边界。独立 control host 不创建业务 Agent，承担模型与凭据管理、不需执行的配置操作和公开 persistence API 的只读历史投影。停用的产品进程不因读取历史或全部 Agent 停用而启动。旧共享 home 必须先停服并完成显式离线迁移、校验和布局标记发布；普通启动不自动扫描复制全部历史。
+普通 Agent 共享一个 DSH host 与既有持久 home；PA 按 binding/epoch 保留独立 host 和 home。每个产品 Agent 的跨聊天 root Session 由 integration 持有 DSH 公开 AgentHandle，子 Agent、Job 和终端沿原生 owner scope 管理。停用仅取消并释放目标 Agent 的执行与恢复入口，不退出或重启共享 host；未确认清理完成时保留 stop_unconfirmed。模型管理、配置与只读历史继续由所在 host 提供，冷历史查询不创建或恢复 Agent。沿用既有目录，无需拆分历史或发布新布局标记。
 
 ## 依赖方向
 

@@ -62,82 +62,91 @@ export class WorkflowResults {
       const binding = store
         .bindings()
         .find((binding) => binding.sessionId === record.parentSessionId);
-      if (!binding) continue;
+      if (!binding || !store.lifecycle.allowed(binding.agentId)) continue;
       const config = this.options.agents.find(
         (agent) => agent.agentId === binding.agentId,
       );
       if (!config) continue;
-      const inputId = `workflow-result:${this.options.partitionKey ? `${this.options.partitionKey}:` : ""}${record.id}`;
-      const source = store
-        .inputs(binding.sessionId)
-        .find((input) => record.inputIds.includes(input.id))?.input;
-      const content = `A background Workflow has finished. This is a system result, not a new human instruction or permission. Return the useful result to the original conversation(s).\n${JSON.stringify({ runId: record.id, name: record.meta.name, ...record.result })}`;
-      const backgroundReturns = [
-        {
-          task_id: record.id,
-          task_type: "workflow",
-          workflow_run_id: record.id,
-          description: record.meta.description,
-          status:
-            record.result.stopReason === "completed"
-              ? "completed"
-              : record.result.stopReason === "cancelled"
-                ? "killed"
-                : "failed",
-          result:
-            record.result.stopReason === "completed"
-              ? JSON.stringify(record.result.value)
-              : undefined,
-          error: record.result.error,
-          usage: record.usage,
-          diagnostics: record.logs?.map((log) => log.text).join("\n"),
-          duration_ms: record.endedAt - record.startedAt,
-          resume_hint: `/workflows ${record.id} resume`,
-        },
-      ];
-      if (config.mode === "global") {
-        const prior = (await runtime.request("session.lookup", {
-          sessionId: binding.sessionId,
-          inputId,
-        })) as { accepted: boolean };
-        if (!prior.accepted)
-          await runtime.request("session.submit", {
-            sessionId: binding.sessionId,
-            inputId,
-            mode: "followup",
-            content: [{ type: "text", text: content }],
-            source: {
-              kind: "system",
-              actorId: "workflow",
-              channel: "workflow",
-              messageId: inputId,
-              background_returns: backgroundReturns,
+      try {
+        await store.lifecycle.run(binding.agentId, undefined, async () => {
+          const inputId = `workflow-result:${this.options.partitionKey ? `${this.options.partitionKey}:` : ""}${record.id}`;
+          const source = store
+            .inputs(binding.sessionId)
+            .find((input) => record.inputIds.includes(input.id))?.input;
+          const content = `A background Workflow has finished. This is a system result, not a new human instruction or permission. Return the useful result to the original conversation(s).\n${JSON.stringify({ runId: record.id, name: record.meta.name, ...record.result })}`;
+          const backgroundReturns = [
+            {
+              task_id: record.id,
+              task_type: "workflow",
+              workflow_run_id: record.id,
+              description: record.meta.description,
+              status:
+                record.result.stopReason === "completed"
+                  ? "completed"
+                  : record.result.stopReason === "cancelled"
+                    ? "killed"
+                    : "failed",
+              result:
+                record.result.stopReason === "completed"
+                  ? JSON.stringify(record.result.value)
+                  : undefined,
+              error: record.result.error,
+              usage: record.usage,
+              diagnostics: record.logs?.map((log) => log.text).join("\n"),
+              duration_ms: record.endedAt - record.startedAt,
+              resume_hint: `/workflows ${record.id} resume`,
             },
-          });
-      } else {
-        await this.options.receive(binding.sessionId, {
-          agent_id: binding.agentId,
-          conversation_id: binding.conversationId,
-          relay_task_id: inputId,
-          idempotency_key: inputId,
-          message: {
-            id: inputId,
-            content,
-            sender_user_id: "workflow",
-            sender_type: "system",
-            attachments: [],
-          },
-          metadata: {
-            ...source?.metadata,
-            runtime_input_id: `${binding.agentId}:${inputId}`,
-            content_parts: undefined,
-            context_only: false,
-            mentioned_agent_ids: [binding.agentId],
-            background_returns: backgroundReturns,
-          },
+          ];
+          if (config.mode === "global") {
+            const prior = (await runtime.request("session.lookup", {
+              sessionId: binding.sessionId,
+              inputId,
+            })) as { accepted: boolean };
+            if (!prior.accepted)
+              await runtime.request("session.submit", {
+                sessionId: binding.sessionId,
+                inputId,
+                mode: "followup",
+                content: [{ type: "text", text: content }],
+                source: {
+                  kind: "system",
+                  actorId: "workflow",
+                  channel: "workflow",
+                  messageId: inputId,
+                  background_returns: backgroundReturns,
+                },
+              });
+          } else {
+            await this.options.receive(binding.sessionId, {
+              agent_id: binding.agentId,
+              conversation_id: binding.conversationId,
+              relay_task_id: inputId,
+              idempotency_key: inputId,
+              message: {
+                id: inputId,
+                content,
+                sender_user_id: "workflow",
+                sender_type: "system",
+                attachments: [],
+              },
+              metadata: {
+                ...source?.metadata,
+                runtime_input_id: `${binding.agentId}:${inputId}`,
+                content_parts: undefined,
+                context_only: false,
+                mentioned_agent_ids: [binding.agentId],
+                background_returns: backgroundReturns,
+              },
+            });
+          }
+          store.lifecycle.assert(binding.agentId);
+          await runtime.request("workflow.acknowledge", { runId: record.id });
         });
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code !== "agent_disabled" && code !== "stale_lifecycle") throw error;
+        this.options.onError(error);
       }
-      await runtime.request("workflow.acknowledge", { runId: record.id });
     }
   }
   async stop() {

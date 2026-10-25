@@ -150,11 +150,13 @@ export class ModelPolicy extends Service {
     } catch (error) { return complete(signal.aborted ? '本次控制操作未执行：已取消。' : `控制操作失败：${String(error)}`, false); }
   }
   /** Expire old control requests alongside model continuations at a disable boundary. */
-  async cancelPersisted(): Promise<void> {
-    for (const active of this.commands.values()) active.abort.abort();
-    await this.fallback.cancelPersisted();
+  async cancelPersisted(owns: (sessionId: string) => boolean = () => true): Promise<void> {
+    const active = [...this.commands.values()].filter(command => owns(command.sessionId));
+    for (const command of active) command.abort.abort();
+    await Promise.allSettled(active.map(command => command.task));
+    await this.fallback.cancelPersisted(owns);
     const commands = (await this.state).table('commands');
-    for (const [id, command] of commands.entries()) if (command.status === 'pending') {
+    for (const [id, command] of commands.entries()) if (owns(command.sessionId) && command.status === 'pending') {
       await commands.put(id, {...command, status: 'completed', success: false, text: '本次控制操作未执行：Agent 已停用。'});
     }
   }

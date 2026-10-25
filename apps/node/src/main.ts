@@ -2,7 +2,6 @@ import {validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { NodeAgentLifecycle } from './agent-lifecycle.js';
-import { requireRuntimeLayout } from './runtime-layout.js';
 import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -43,9 +42,8 @@ const lifecycle=await claimGateway(configPath);
 if (!config.node.user_id || !config.im_service.token) throw new Error('Bind this node before starting its runtime');
 const home = join(dirname(configPath), '.dsh-runtime', config.node.node_id);
 await mkdir(home, { recursive: true });
-await requireRuntimeLayout(home, config.node.node_id);
 const { providers, env } = providerProfiles(config.llm);
-const modelEnvironment = await readFile(join(home, 'control', '.env'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+const modelEnvironment = await readFile(join(home, '.env'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
 Object.assign(env, parseEnv(modelEnvironment));
 const machineBoot = process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
@@ -69,13 +67,13 @@ let external: ExternalChannels;
 let managed: ManagedChannels;
 const knowledgeByPartition = new Map<string, KnowledgeUpdates>();
 const knowledge = { get busy() { return [...knowledgeByPartition.values()].some(item => item.busy); },
-  recover: () => settlePartitions([...knowledgeByPartition].filter(([key]) => runtime.partitions.get(key)?.agents.every(agent => runtime.availableFor(agent.agentId))).map(([, item]) => item.recover())),
-  migrateSkills: () => settlePartitions([...knowledgeByPartition].filter(([key]) => runtime.partitions.get(key)?.agents.every(agent => runtime.availableFor(agent.agentId))).map(([, item]) => item.migrateSkills())),
+  recover: () => settlePartitions([...knowledgeByPartition].filter(([key]) => runtime.partitions.get(key)?.runtime.available).map(([, item]) => item.recover())),
+  migrateSkills: () => settlePartitions([...knowledgeByPartition].filter(([key]) => runtime.partitions.get(key)?.runtime.available).map(([, item]) => item.migrateSkills())),
   stop: () => Promise.all([...knowledgeByPartition.values()].map(item => item.stop())) };
 let history: ConversationHistory;
 const workflowsByPartition = new Map<string, WorkflowResults>();
 const workflows = { get busy() { return [...workflowsByPartition.values()].some(item => item.busy); },
-  recover: () => settlePartitions([...workflowsByPartition].filter(([key]) => runtime.partitions.get(key)?.agents.every(agent => runtime.availableFor(agent.agentId))).map(([, item]) => item.recover())),
+  recover: () => settlePartitions([...workflowsByPartition].filter(([key]) => runtime.partitions.get(key)?.runtime.available).map(([, item]) => item.recover())),
   stop: () => Promise.all([...workflowsByPartition.values()].map(item => item.stop())) };
 let trajectory: NodeTrajectory;
 const channelKey = await ChannelKey.load(join(dirname(configPath), 'channel-credentials-v1.pem'));
@@ -84,7 +82,7 @@ async function settlePartitions(tasks: Promise<unknown>[]): Promise<void> {
   for (const result of await Promise.allSettled(tasks)) if (result.status === 'rejected') reportError(result.reason);
 }
 function installPartitionConsumers(partition: RuntimePartition): void {
-  if (!product || partition.key === 'control' || knowledgeByPartition.has(partition.key)) return;
+  if (!product || partition.key === 'ordinary' || knowledgeByPartition.has(partition.key)) return;
   const port = runtime.scoped(partition);
   const partitionKey = partition.key;
   knowledgeByPartition.set(partition.key, new KnowledgeUpdates({ nodeId: config.node.node_id, agents: partition.agents,
@@ -99,55 +97,53 @@ async function reportPersonalAvailability(partition: RuntimePartition, available
   }).catch(reportError);
 }
 const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings(), onError: reportError,
-  home: partition => partition.key === 'control' ? join(home, 'control') : join(home, 'agents', Buffer.from(partition.key).toString('base64url')),
   allowed: agentId => agentLifecycle?.allowed(agentId) === true,
   execution: (agentId, action, revision) => store.lifecycle.run(agentId, revision, action),
   create: partition => {
-    const partitionHome = partition.key === 'control' ? join(home, 'control') : join(home, 'agents', Buffer.from(partition.key).toString('base64url'));
+    const partitionHome = partition.key === 'ordinary' ? home : join(home, 'pa', Buffer.from(partition.key).toString('base64url'));
     const supervisor = new RuntimeSupervisor({ home: partitionHome, cwd: partitionHome, env,
       onLog: text => process.stderr.write(text),
-      disableCursors: () => Object.fromEntries(partition.agents.flatMap(agent => store.bindings().filter(binding => binding.agentId === agent.agentId).flatMap(binding => {
-        const cuts = inbox.workCheckpoints(binding.sessionId);
-        return [[binding.sessionId, store.cursor(binding.sessionId)], ...Object.entries(cuts).map(([id, cut]) => [id, cut.replayFrom - 1])];
-      }))),
-      onDisabledHistory: snapshots => { if (partition.agents[0]) globalProduct.recordStopped(partition.agents[0].agentId, snapshots); },
       initialize: async rpc => {
         await writeFile(join(partitionHome, 'runtime.pid'), String(supervisor.process!.pid));
-        if (partition.key !== 'control') {
-          await agentLifecycle.launching(partition.agents[0]!.agentId, supervisor.processInstanceId!);
-          const snapshot = await runtime.partitions.get('control')!.runtime.request('model.setup.snapshot', {});
+        for (const agent of partition.agents) if (agentLifecycle.allowed(agent.agentId)) await agentLifecycle.launching(agent.agentId, supervisor.processInstanceId!);
+        if (partition.key !== 'ordinary') {
+          const snapshot = await runtime.partitions.get('ordinary')!.runtime.request('model.setup.snapshot', {});
           await rpc.request('model.setup.sync', snapshot);
         }
-        const frozen = partition.agents[0] ? await relay.request('task.execution.frozen_schedules', {node_id:config.node.node_id,agent_id:partition.agents[0].agentId}, {priority:'control'}) : undefined;
-        await rpc.request('initialize', { protocol: 1, blockedScheduleIds: frozen?.payload.schedule_ids ?? [], lifecycle: partition.agents[0] ? {revision: store.lifecycle.snapshot(partition.agents[0].agentId)!.revision, disabledThroughRevision: store.lifecycle.snapshot(partition.agents[0].agentId)!.disabled_through_revision} : undefined, taskStops:store.controls().filter(i=>i.action==='task-stop'&&!i.text&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
+        const frozen = await Promise.all(partition.agents.map(agent => relay.request('task.execution.frozen_schedules', {node_id:config.node.node_id,agent_id:agent.agentId}, {priority:'control'})));
+        const states = Object.fromEntries(partition.agents.map(agent => {
+          const state = store.lifecycle.snapshot(agent.agentId)!;
+          return [agent.agentId, {revision:state.revision, disabled:state.desired==='disabled', disabledThroughRevision:state.disabled_through_revision}];
+        }));
+        await rpc.request('initialize', { protocol: 1, blockedScheduleIds: frozen.flatMap(frame => frame.payload.schedule_ids ?? []), lifecycle: states, taskStops:store.controls().filter(i=>i.action==='task-stop'&&!i.text&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
           providers: providerProfiles(config.llm).providers,
           pendingConfigurations: operations?.pending().filter(item => partition.agents.some(agent => agent.agentId === item.candidate.agent_id)).map(item => ({operationId: item.intent.operation_id, fingerprint: item.intent.candidate_fingerprint, config: configuration.runtime(item.candidate)})) ?? [],
           bindings: store.bindings().filter(binding => partition.agents.some(agent => agent.agentId === binding.agentId)).map(({ conversationId: _, ...binding }) => binding) });
       },
       onReady: async () => {
-        if (partition.agents[0]) await agentLifecycle.ready(partition.agents[0].agentId, supervisor.processInstanceId!);
+        for (const agent of partition.agents) if (agentLifecycle.allowed(agent.agentId)) await agentLifecycle.ready(agent.agentId, supervisor.processInstanceId!);
         installPartitionConsumers(partition);
         await reportPersonalAvailability(partition,true);
         if (!updateHolding) await admitted(async () => {
-          if (partition.key === 'control') await modelSetup.recover();
+          if (partition.key === 'ordinary') await modelSetup.recover();
           if (operations) {
-            if (partition.key === 'control') await operations.recover();
+            if (partition.key === 'ordinary') await operations.recover();
             else queueMicrotask(() => { void operations.recover().catch(reportError); });
           }
           if (relay.ready) await knowledgeByPartition.get(partition.key)?.migrateSkills();
-          if (product && partition.key !== 'control') {
-            if(relay.ready){await tasks.recoverStops(partition.agents.map(a=>a.agentId));await tasks.recover(partition.agents.map(a=>a.agentId));}
+          if (product) {
+            if(relay.ready){await tasks.recoverStops(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));await tasks.recover(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));}
             await settlePartitions([product.recover(!relay.ready), globalProduct.recover(), external.recover(),
               knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover()]);
           }
         });
-        if (partition.key === 'control') await lifecycle.ready(supervisor.process!.pid!);
+        if (partition.key === 'ordinary') await lifecycle.ready(supervisor.process!.pid!);
       },
       onError: reportError,
       onUnavailable: async () => {
         await reportPersonalAvailability(partition,false);
         for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
-        if (partition.key === 'control') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }
+        if (partition.key === 'ordinary') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }
       },
     });
     supervisors.set(partition.key, supervisor);
@@ -309,6 +305,7 @@ const relay = new WebRelayConnection({
     if(state==='ready') {
       lifecycleSync = agentLifecycle.synchronize(relay.registration?.agent_lifecycles as AgentLifecycleSnapshot[]);
       await lifecycleSync;
+      await runtime.start();
       workAvailable=true;workSync.signal();
       if(typeof relay.registration?.owner_timezone==='string')store.setOwnerTimezone(relay.registration.owner_timezone);
     }
@@ -466,12 +463,32 @@ agentLifecycle = new NodeAgentLifecycle({
   snapshot: agentId => store.lifecycle.snapshot(agentId), save: state => store.lifecycle.save(state),
   proof: agentId => store.lifecycle.proof(agentId),
   saveProof: (agentId, proof) => store.lifecycle.saveProof(agentId, proof),
-  host: agentId => supervisors.get(runtime.forAgent(agentId).key)!, start: agentId => runtime.startAgent(agentId),
+  host: agentId => {
+    const supervisor = supervisors.get(runtime.forAgent(agentId).key)!;
+    return {get available() {return supervisor.available;}, get processInstanceId() {return supervisor.processInstanceId;}, disable: async () => {
+      await runtime.startAgent(agentId);
+      const cursors = Object.fromEntries(store.bindings().filter(binding => binding.agentId === agentId).flatMap(binding => {
+        const cuts = inbox.workCheckpoints(binding.sessionId);
+        return [[binding.sessionId, store.cursor(binding.sessionId)], ...Object.entries(cuts).map(([id, cut]) => [id, cut.replayFrom - 1])];
+      }));
+      const result = await supervisor.disableAgent(agentId, store.lifecycle.snapshot(agentId)!.revision, cursors);
+      if (result.confirmed) globalProduct.recordStopped(agentId, result.history ?? []);
+      return result;
+    }};
+  },
+  start: async agentId => {
+    await runtime.startAgent(agentId);
+    const state = store.lifecycle.snapshot(agentId)!;
+    const frozen = await relay.request('task.execution.frozen_schedules', {node_id:config.node.node_id,agent_id:agentId}, {priority:'control'});
+    const supervisor = supervisors.get(runtime.forAgent(agentId).key)!;
+    await supervisor.request('agent.enable', {agentId, revision:state.revision, disabledThroughRevision:state.disabled_through_revision, blockedScheduleIds:frozen.payload.schedule_ids ?? []});
+    await agentLifecycle.launching(agentId, supervisor.processInstanceId!);
+    await agentLifecycle.ready(agentId, supervisor.processInstanceId!);
+  },
   cancel: agentId => { store.cancelAgent(agentId); inbox.cancelAgent(agentId); product.cancelAgent(agentId); globalProduct.cancelAgent(agentId); },
   resetHeartbeat: agentId => heartbeat.resetAgent(agentId),
   report: async report => { await relay.request('agent.lifecycle.report', {...report}, {priority:'control'}); },
 });
-await runtime.startControl();
 await updater.start();
 await managed.start();
 workSync.start();

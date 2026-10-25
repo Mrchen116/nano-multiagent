@@ -21,7 +21,7 @@ function fixture(){
   const bindings=agents.map(agent=>({agentId:agent.agentId,sessionId:`root-${agent.agentId}`,ownerId:'owner',cwd:agent.workspace,revision:'1',conversationId:'dm'})) as SessionBinding[];
   const errors:unknown[]=[];const hosts=new Map<string,Host>();
   const runtime=new RuntimePartitions({agents,bindings:()=>bindings,create:partition=>{const host=new Host();hosts.set(partition.key,host);return host;},onError:error=>errors.push(error)});
-  return {runtime,hosts,errors,ordinary:hosts.get('agent:ordinary')!,pa:hosts.get('personal:pa:1')!};
+  return {runtime,hosts,errors,ordinary:hosts.get('ordinary')!,pa:hosts.get('personal:pa:1')!};
 }
 it('keeps sessions, child callbacks and configuration in their trusted host',async()=>{
   const {runtime,ordinary,pa,errors}=fixture();const received:unknown[]=[];
@@ -58,7 +58,7 @@ it('routes opaque observer handles only to the prepared generation and releases 
   expect(pa.calls.at(-1)?.method).toBe('trajectory.call');expect(ordinary.calls).toEqual([]);
   expect(runtime.unavailable(runtime.forAgent('pa'))).toEqual(['observer']);
   await expect(runtime.request('trajectory.next',{observerId:'observer'})).rejects.toThrow('generation_changed');
-  (runtime.partitions.get('control')!.runtime as Host).result['update.prepare']={ready:true};ordinary.result['update.prepare']={ready:true};pa.result['update.prepare']={ready:false};
+  ordinary.result['update.prepare']={ready:true};pa.result['update.prepare']={ready:false};
   expect(await runtime.request('update.prepare',{operationId:'update'})).toEqual({ready:false});
   expect(ordinary.calls.at(-1)?.method).toBe('update.release');expect(pa.calls.at(-1)?.method).toBe('update.release');
 });
@@ -124,41 +124,49 @@ it('does not acknowledge a new host fact when an old generation delivery complet
   } finally {release();await updates.stop();inbox.close();store.close();}
 });
 
-it('isolates every ordinary Agent and keeps the credential host free of product agents',async()=>{
+it('shares the ordinary host while retaining the personal Agent boundary',async()=>{
   const agents=[config('a'),config('b'),config('pa',true)];
   const runtime=new RuntimePartitions({agents,bindings:()=>[],create:()=>new Host(),onError:()=>{}});
-  expect(runtime.forAgent('a')).not.toBe(runtime.forAgent('b'));
-  expect(runtime.forAgent('a').key).toBe('agent:a');
-  expect(runtime.partitions.get('control')?.agents).toEqual([]);
+  expect(runtime.forAgent('a')).toBe(runtime.forAgent('b'));
+  expect(runtime.forAgent('a')).not.toBe(runtime.forAgent('pa'));
+  expect(runtime.forAgent('a').key).toBe('ordinary');
+  expect(runtime.partitions.has('control')).toBe(false);
 });
 
-it('saves disabled configuration and previews without starting the product host',async()=>{
-  const hosts=new Map<string,Host>();
-  const runtime=new RuntimePartitions({agents:[config('a')],bindings:()=>[],allowed:()=>false,
-    create:p=>{const host=new Host();host.available=false;hosts.set(p.key,host);return host;},onError:()=>{}});
-  await runtime.startControl();
+it('keeps disabled configuration, previews, model settings and history on the shared host',async()=>{
+  const hosts=new Map<string,Host>(),binding={agentId:'a',sessionId:'root-a',ownerId:'owner',cwd:'/private/work',revision:'1'} as SessionBinding;
+  const runtime=new RuntimePartitions({agents:[config('a')],bindings:()=>[binding],allowed:()=>false,
+    create:p=>{const host=new Host();hosts.set(p.key,host);return host;},onError:()=>{}});
+  await runtime.start();
   expect(runtime.available).toBe(true);expect(runtime.availableFor('a')).toBe(false);
-  expect(await runtime.request('configuration.prepare',{config:config('a')})).toEqual({ready:true});
+  await runtime.request('configuration.prepare',{config:config('a')});
   expect(await runtime.request('configuration.apply',{...config('a'),revision:'2'})).toEqual({effective:true});
   await runtime.request('configuration.preview',{config:config('a')});
-  expect(hosts.get('agent:a')?.available).toBe(false);
-  expect(hosts.get('agent:a')?.calls).toEqual([]);
-  expect(hosts.get('control')?.calls.at(-1)?.method).toBe('configuration.preview');
   await runtime.request('model.setup.snapshot',{});
-  expect(hosts.get('control')?.calls.at(-1)?.method).toBe('model.setup.snapshot');
-  await expect(runtime.request('session.submit',{agentId:'a',sessionId:'a-session'})).rejects.toThrow('agent_disabled');
-});
-
-it('reads stopped history through control without starting or invoking the product host',async()=>{
-  const hosts=new Map<string,Host>(),binding={agentId:'a',sessionId:'root-a',ownerId:'owner',cwd:'/private/work',revision:'1'} as SessionBinding;
-  const runtime=new RuntimePartitions({agents:[config('a')],bindings:()=>[binding],allowed:()=>false,home:p=>`/runtime/${p.key}`,
-    create:p=>{const host=new Host();hosts.set(p.key,host);return host;},onError:()=>{}});
   const scope={observerId:'cold',rootAgentId:'a',rootSessionId:'root-a',sessionId:'root-a'};
   await runtime.request('trajectory.prepare',scope);
-  expect(hosts.get('control')!.calls.at(-1)).toEqual({method:'cold.trajectory.prepare',params:{scope,home:'/runtime/agent:a',binding,config:config('a')}});
   await runtime.request('trajectory.call',{observerId:'cold',method:'session/read'});
-  expect(hosts.get('control')!.calls.at(-1)?.method).toBe('cold.trajectory.call');
   await runtime.request('session.export',{sessionId:'root-a'});
-  expect(hosts.get('control')!.calls.at(-1)?.method).toBe('cold.session.export');
-  expect(hosts.get('agent:a')!.calls).toEqual([]);
+  expect(hosts.size).toBe(1);
+  expect(hosts.get('ordinary')!.calls.map(call=>call.method)).toEqual(['configuration.prepare','configuration.apply','configuration.preview','model.setup.snapshot','trajectory.prepare','trajectory.call','session.export']);
+  await expect(runtime.request('session.submit',{agentId:'a',sessionId:'root-a'})).rejects.toThrow('agent_disabled');
+});
+
+it('fences A callbacks and collections without blocking B in their shared host',async()=>{
+  const host=new Host(),errors:unknown[]=[],received:unknown[]=[];
+  const bindings=['a','b'].map(agentId=>({agentId,sessionId:'root-'+agentId,ownerId:'owner',cwd:'/tmp',revision:'1'} as SessionBinding));
+  const runtime=new RuntimePartitions({agents:[config('a'),config('b')],bindings:()=>bindings,allowed:id=>id!=='a',create:()=>host,onError:error=>errors.push(error)});
+  runtime.onNotification((_method,params)=>received.push(params));
+  host.emit('session.event',{sessionId:'a-child',rootSessionId:'root-a'});
+  host.emit('session.event',{sessionId:'b-child',rootSessionId:'root-b'});
+  expect(received).toEqual([{sessionId:'b-child',rootSessionId:'root-b'}]);
+  await expect(runtime.request('session.submit',{sessionId:'a-child'})).rejects.toThrow('agent_disabled');
+  await runtime.request('session.submit',{sessionId:'b-child'});
+  await expect(runtime.request('session.submit',{agentId:'b',sessionId:'root-a'})).rejects.toThrow('conflicting');
+  const port=runtime.scoped(runtime.forAgent('a'));
+  host.result['knowledge.facts']={facts:bindings.map(binding=>({id:binding.agentId,agentId:binding.agentId,rootSessionId:binding.sessionId}))};
+  expect(await port.request('knowledge.facts',{})).toMatchObject({facts:[{id:'b'}]});
+  host.result['workflow.pending']=bindings.map(binding=>({id:binding.agentId,parentSessionId:binding.sessionId}));
+  expect(await port.request('workflow.pending',{})).toEqual([{id:'b',parentSessionId:'root-b'}]);
+  expect(errors).toHaveLength(1);
 });

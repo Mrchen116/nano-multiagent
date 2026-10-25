@@ -806,17 +806,18 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     return { text };
   }
   /** Retain interrupted execution evidence without making old results deliverable. */
-  async cancelPersisted(): Promise<void> {
+  async cancelPersisted(owns: (sessionId: string) => boolean = () => true): Promise<void> {
     await this.ready;
     const table = (await this.storage).table('runs');
     for (const [id, record] of table.entries()) {
+      if (!owns(record.parentSessionId)) continue;
+      this.undelivered.delete(record.id);
       const next: WorkflowRecord = { ...record, cancelledByDisable: true,
         ...(['running', 'paused', 'interrupted'].includes(record.state) ? {state: 'cancelled' as const, endedAt: Date.now()} : {}),
         revision: record.revision + 1 };
       await table.put(id, next);
       this.recoveredRecords.set(record.id, next);
     }
-    this.undelivered.clear();
   }
   async stopSession(sessionId: string) {
     const active = [...this.live.values()].filter(
