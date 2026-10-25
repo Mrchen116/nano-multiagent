@@ -211,3 +211,19 @@ V1 身份及 V4 原生通用编辑采用的决定性行为已观察通过；PA/�
 - 收尾：模拟器保留 B 登录、位于双方身份验收群，预览已关闭；无新增测试消息、无模型请求、无服务操作，owner 名称仍为已恢复的 Test User。原生测试/构建日志由 caller 保存，本 reviewer 以实际 UI 结果关闭 G4。
 
 截至 R4，R1–R3 记录的 G1–G4 均已有对应关闭证据；既有 Web、共享委托及原生其他决定性旅程 retained，S1/S2 minor 仍按原记录保留。最终集成版放行还须结合 caller 本轮新 daily 的集成证据，不将旧冻结栈的 LLM 通过无条件外推到新运行时。
+
+## R5：最终集成 daily 证据收口（2026-10-25）
+
+**最终产品验收结论：pass（下述范围与部署限制保留）。** 产品代码受验基线仍为 `8b517546d`；R4 原生修复及既有 V1–V4 证据 retained。caller 在新隔离 daily `http://127.0.0.1:49803` 进行真实 Web 自然输入；reviewer 本轮独立通过正式 API、实际 Git/本机 bare 远端和真实模型上下文核对最终结果，没有重做 UI 矩阵，也不冒称亲自发起 caller 的 Web 请求。
+
+- 实际输入 `7f8985ec34f84a90a17a81d306405a61` 经 PA 转为群内 owner 消息 `1e77adad641b4d038bda8cefaeb20c84`，sender 为 `u_2do5cthz` / user、`pa_agent_id=pa_d2f6246b3d4b`。Q 正常创建单一提交 `04420a5a8e42d266bb0f3a34d42fb263a58da945`。daily 初始“不推送仓库”配置使推送被阻止；PA 如实报告未推送，并未要求主人重复批准同一业务范围或绕过上级限制。
+- caller 补回既定验收所需的“仅明确交办时允许向指定本机 bare origin 推送”fixture 增量，before/after 完整保存于 `final-integration-contexts/environment-delta.json`；并未关闭审核或放开外部仓库。用户续办消息 `2aa21dc3337f41deade5d39b2219cf72` 经代发 `8d8186e30c7e45398e0d71969ed0eb32` 交给 Q。Q 仅补做同一提交的推送，没有另建提交。
+- reviewer 实际运行 Git 核对：project 位于 `.e2e-final-integration/.gateway-workspace/wt-.e2e-final-integration-93894/project`；历史仅初始化 `c3d4dfe` 加上述一个业务提交。`git show --stat HEAD` 只有 `final-integration.md`（3 行），正文包含指定原文；`git ls-remote origin refs/heads/main` 与 HEAD 均为完整 `04420a5a…`。origin 为 `.e2e-final-integration/acceptance-remote.git` 本机绝对路径。无 tracked 修改，三份初始 brief/checklist/feedback 保持 untracked。注意 environment-delta 中 baseline_commit 记录的是调整 fixture 时已经完成的 `04420a5a…`，不能误作原初始化基线。
+- Q 完成消息 `3cb1efe6ed364dd7b69bb263340bb008` 真实位于 `c_l8vkyytt`。reviewer GET 会话确认双方参与者为 daily-quality 与正确的 `pa_d2f6246b3d4b`，不是依据标题猜测。PA 主人私聊 `c_b365ee7686f0` 已有最终回报 `0165f8e6401641e781001cadce2a3b8c`：明确已核实同一提交、远端一致、仅新增目标文件、无重复提交、未合并/部署。本轮独立快照在 `independent-review/final-integration-messages.json` 和 `final-integration-pa-conversation.json`。
+- 真实 Q 请求上下文含两次来源消息的 user sender 和 PA ID，并含向 `agent:pa_d2f6246b3d4b` 成功发送完成消息的工具结果；PA 实际上下文含该 Q 完成来信。reviewer 已读取 `final-integration-contexts/q-actual-request.json`、`pa-actual-request.json`、review 快照及 provenance 对应片段。结果与正式产品消息和真实 Git 一致，足以确认上游生命周期/每 Agent 隔离集成后，在 fresh partition 中委托承接、实际执行、正确 PA 回报仍成立。
+
+### 保留范围与部署限制
+
+原 B/C/D 历史、恢复和子 Agent 证据是合入上游生命周期变更前的冻结栈实测，继续作为本 unit 机制的历史证据；本轮 fresh daily 没有证明新版运行时能直接恢复旧数据。旧 49303 的 Node 启动被上游 feat-657 迁移计划拒绝，涉及旧测试数据的 unowned preview/reviewer、workspace 与 schedule；没有 apply，旧数据被保留。这不是本 unit PA 列迁移失败，也不能写成新版旧数据恢复已通过。部署前须按上游迁移契约处理，当前验收不是生产迁移/部署授权。
+
+G1–G4 均已关闭；S1/S2 minor 保留，不扩大为本 unit 阻断。没有剩余已知的本 unit 必要产品旅程缺口。本 reviewer 仅提交 acceptance，后续 canonical/归档/PR/CI 由 caller 收尾；没有合并、部署或发布授权。
