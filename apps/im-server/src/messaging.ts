@@ -1,3 +1,4 @@
+import { lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import {RelayDelivery} from './relay-delivery.js';
 import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
 import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
@@ -312,6 +313,7 @@ export class Messaging {
           "conversation_id",
           "sender_user_id",
           "sender_type",
+          "lifecycle_revision",
           "content",
           "delivery_status",
           "created_at",
@@ -408,9 +410,10 @@ export class Messaging {
     if (old) return this.message(old.id);
     const id = randomUUID().replaceAll("-", "");
     const at = extra.created_at ?? now();
+    const sourceAgent=type==='agent'?one(this.db,"SELECT agent_id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE u.id=?",sender):undefined;
     this.db
       .prepare(
-        `INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,caller_idempotency_key,sender_display_name,sender_source_id,timezone) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,caller_idempotency_key,sender_display_name,sender_source_id,timezone,lifecycle_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         id,
@@ -425,6 +428,7 @@ export class Messaging {
         extra.sender_display_name ?? null,
         extra.sender_source_id ?? null,
         extra.timezone ?? null,
+        sourceAgent?lifecycle(this.db,sourceAgent.agent_id).revision:null,
       );
     this.db
       .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
@@ -541,6 +545,7 @@ export class Messaging {
     let sender = p.id,
       type = "user";
     if (p.kind === "gateway") {
+      requireLifecycle(this.db,q.agent_id,b.lifecycle_revision);
       if(one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",q.agent_id) && (b.sender?.type??b.sender_type)!=="agent")fail(403,"owner_identity_cannot_be_delegated");
       sender =
         b.sender?.type === "agent" || b.sender_type === "agent"
@@ -640,7 +645,7 @@ export class Messaging {
   }
   private relayAgents(id: string): Row[] {
     return this.members(id).filter(u=>u.username.startsWith("agent:") && conversationAccess(this.db,id,u.id)?.can_write)
-      .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean) as Row[];
+      .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean).filter(a=>lifecycle(this.db,a!.agent_id).desired==='enabled') as Row[];
   }
   private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = [], contextOnlyAgentId?: string): Row[] {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
@@ -648,7 +653,7 @@ export class Messaging {
     for (const a of agents) {
       const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
-      const payload = {relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
+      const payload = {lifecycle_revision:lifecycle(this.db,a.agent_id).revision,relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
           conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
@@ -668,6 +673,7 @@ export class Messaging {
   /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
   relayEligible(task: Row): boolean {
     const payload = JSON.parse(task.payload_json), agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
+    if(!lifecycleAllows(this.db,payload.agent_id,payload.lifecycle_revision))return false;
     const epoch = one(this.db, 'SELECT node_epoch FROM node_binding_state WHERE node_id=?', task.target_node_id)?.node_epoch ?? 0;
     if (payload.metadata?.node_epoch !== undefined && payload.metadata.node_epoch !== epoch) return false;
     return !!agent && agent.node_id===task.target_node_id && !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;

@@ -109,7 +109,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     for (const [, budget] of storage.table("budgets").entries())
       this.budgets.set(budget.id, budget);
     for (const [, record] of storage.table("runs").entries())
-      { this.recoveredRecords.set(record.id, record); if (record.result && !record.delivered) this.undelivered.add(record.id); }
+      { this.recoveredRecords.set(record.id, record); if (record.result && !record.delivered && !record.cancelledByDisable) this.undelivered.add(record.id); }
     for (const [id, record] of storage.table("runs").entries())
       if (record.state === "running" || record.state === "paused") {
         await storage.table("runs").put(id, {
@@ -121,7 +121,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
       }
   }
   private save(record: WorkflowRecord) {
-    if (record.result && !record.delivered) this.undelivered.add(record.id);
+    if (record.result && !record.delivered && !record.cancelledByDisable) this.undelivered.add(record.id);
     record.revision++;
     const snapshot = structuredClone(record);
     return this.enqueue(async () => {
@@ -753,7 +753,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     await this.ready;
     return [...(await this.storage).table("runs").entries()]
       .map(([, record]) => record)
-      .filter((record) => record.result && !record.delivered)
+      .filter((record) => record.result && !record.delivered && !record.cancelledByDisable)
       .map((record) => this.project(record));
   }
   async acknowledge(id: string) {
@@ -804,6 +804,19 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     }
     await table.put(key(id), { sessionId: parent.id, argument, text });
     return { text };
+  }
+  /** Retain interrupted execution evidence without making old results deliverable. */
+  async cancelPersisted(): Promise<void> {
+    await this.ready;
+    const table = (await this.storage).table('runs');
+    for (const [id, record] of table.entries()) {
+      const next: WorkflowRecord = { ...record, cancelledByDisable: true,
+        ...(['running', 'paused', 'interrupted'].includes(record.state) ? {state: 'cancelled' as const, endedAt: Date.now()} : {}),
+        revision: record.revision + 1 };
+      await table.put(id, next);
+      this.recoveredRecords.set(record.id, next);
+    }
+    this.undelivered.clear();
   }
   async stopSession(sessionId: string) {
     const active = [...this.live.values()].filter(

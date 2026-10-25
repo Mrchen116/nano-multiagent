@@ -47,7 +47,7 @@ const route = z.object({
   reasoningEffort: z.string().optional(),
   maxTokens: z.number().optional(),
 });
-const domain: RunDomain = defineDomain({
+export const modelRunsDomain: RunDomain = defineDomain({
   name: 'nano_model_runs',
   version: 1,
   layout: 'per-record',
@@ -122,7 +122,7 @@ export class ModelFallback {
     private readonly ctx: Context,
     private readonly host: Host,
   ) {
-    this.storage = ctx.storageDomain.open(domain);
+    this.storage = ctx.storageDomain.open(modelRunsDomain);
     this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.historical.set(run.id,run); });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
@@ -393,6 +393,14 @@ export class ModelFallback {
       this.host.notify(agent.id);
       if (run.state === 'switching' && !run.pending) this.schedule(agent, config, run);
     });
+  }
+  /** Invalidate durable unfinished attempts before any restored Agent can attach. */
+  async cancelPersisted(): Promise<void> {
+    await this.ready;
+    for (const run of new Map([...this.historical, ...this.runs]).values()) {
+      if (run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
+    }
+    await this.checkpoint();
   }
   async stop() {
     this.stopped = true;

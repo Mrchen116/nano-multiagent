@@ -1,3 +1,4 @@
+import { AgentLifecycles, lifecycle, registerAgentLifecycleRoutes } from './agent-lifecycle.js';
 import { createHash, randomUUID } from "node:crypto";
 import { changeCapability, effectiveFeatures, featureDependencies, validateCapabilities } from '@nano/product-contracts/capabilities';
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -469,6 +470,7 @@ export class ConfigOperations {
         "UPDATE agent_config_operations SET status='committed',updated_at=? WHERE operation_id=?",
       ).run(now(), op.operation_id);
     });
+    new AgentLifecycles(this.ctx).deliver(lifecycle(db,op.agent_id));
     return profileResponse(one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", op.agent_id)!);
   }
 }
@@ -608,6 +610,7 @@ function requiredWorkspace(p: Row) {
   return p.workspace_root;
 }
 export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
+  registerAgentLifecycleRoutes(app,ctx);
   app.addHook('onRequest', async (req, reply) => {
     if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
       reply.header('Cache-Control','private, no-store');

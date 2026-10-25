@@ -4,7 +4,7 @@ import type { FeishuMessage } from '@nano/channels';
 import type { RelayInput } from '@nano/product-contracts';
 
 export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
-export interface ExternalOutput { id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
+export interface ExternalOutput { lifecycle_revision:number; id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
 
 /** Separate facts for platform delivery and IM projection; one can succeed without the other. */
 export class ExternalStore {
@@ -19,6 +19,7 @@ export class ExternalStore {
       CREATE TABLE IF NOT EXISTS images(url TEXT PRIMARY KEY,agent_id TEXT NOT NULL,data BLOB NOT NULL,media_type TEXT NOT NULL,uploaded TEXT);
       CREATE TABLE IF NOT EXISTS approvals(request_id TEXT PRIMARY KEY,output_id TEXT NOT NULL,platform_id TEXT,body TEXT NOT NULL,settled INTEGER NOT NULL DEFAULT 0);
     `);
+    if(!(this.db.prepare('PRAGMA table_info(outputs)').all() as {name:string}[]).some(c=>c.name==='lifecycle_revision'))this.db.exec('ALTER TABLE outputs ADD COLUMN lifecycle_revision INTEGER NOT NULL DEFAULT 1');
     // A crash after dispatch has no trustworthy platform result. Recovery must never blindly send it again.
     this.db.exec("UPDATE outputs SET state='unknown' WHERE state='sending'");
   }
@@ -37,11 +38,11 @@ export class ExternalStore {
   mirrorInput(id: string, messageId: string): void { this.db.prepare('UPDATE inbound SET mirror=? WHERE id=?').run(messageId, id); }
   reaction(id: string, reaction: string | null): void { this.db.prepare('UPDATE inbound SET reaction=? WHERE id=?').run(reaction, id); }
   output(id: string): ExternalOutput | undefined {
-    return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId FROM outputs WHERE id=?').get(id) as unknown as ExternalOutput | undefined;
+    return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId,lifecycle_revision FROM outputs WHERE id=?').get(id) as unknown as ExternalOutput | undefined;
   }
-  prepare(chatId: string, operationId: string, reply?: string): ExternalOutput {
+  prepare(chatId: string, operationId: string, reply?: string, revision=1): ExternalOutput {
     const id = `external:${createHash('sha256').update(operationId).digest('hex')}`;
-    this.db.prepare('INSERT OR IGNORE INTO outputs(id,chat_id,operation_id,reply) VALUES(?,?,?,?)').run(id, chatId, operationId, reply ?? null);
+    this.db.prepare('INSERT OR IGNORE INTO outputs(id,chat_id,operation_id,reply,lifecycle_revision) VALUES(?,?,?,?,?)').run(id, chatId, operationId, reply ?? null, revision);
     return this.output(id)!;
   }
   settle(id: string, state: string, platformId?: string): void { this.db.prepare('UPDATE outputs SET state=?,platform_id=coalesce(?,platform_id) WHERE id=?').run(state, platformId ?? null, id); }

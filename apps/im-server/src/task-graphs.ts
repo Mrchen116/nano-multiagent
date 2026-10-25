@@ -1,3 +1,4 @@
+import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
 import { effectiveFeatures } from '@nano/product-contracts/capabilities';
 import { canAccessSpace, canActorAccess } from "./identity.js";
@@ -26,6 +27,7 @@ export interface TaskGraphActor {
   id: string;
   node_id?: string;
   source_message_id?: string;
+  lifecycle_revision?: number;
 }
 export class TaskGraphError extends Error {
   constructor(
@@ -590,13 +592,16 @@ export class TaskGraphService {
             actor.node_id ?? null, action==='execution_pause'?1:0, ['execution','execution_scopes'].includes(action)?1:0,
           );
     if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
+    if(write&&actor.kind==='agent')requireLifecycle(this.db,actor.id,actor.lifecycle_revision);
     const user = this.personalRead?.ownerUserId ?? delegatedAccessUser ?? delegatedOwner ?? p.id,
       actorName = `${p.display_name} (${actor.id})`;
     const identity = {type:actor.kind,id:actor.id};
     if(['execution','execution_scopes','execution_pause'].includes(action)) {
       if(actor.kind!=='agent') forbidden();
       if(action==='execution'&&p.work_mode!=='global' && !args.conversation_id) fail('conversation_required','SingleThread execution requires its bound conversation');
+      if(action!=='execution_pause'&&lifecycle(this.db,actor.id).desired!=='enabled')return action==='execution_scopes'?{conversation_ids:[]}:{items:[]};
       const result=this.list(user,identity,{assignee_type:'agent',assignee_id:actor.id,statuses:'doing,waiting'},true);
+      result.items=result.items.filter((n:Obj)=>!this.row('SELECT 1 FROM task_lifecycle_freezes WHERE graph_id=? AND node_id=?',n.graph_id,n.node_id));
       const items=result.items.filter((n:Obj)=>(action==='execution_scopes'||p.work_mode==='global'||n.conversation.id===args.conversation_id) && n.conversation.can_write);
       if(action==='execution_scopes')return {conversation_ids:[...new Set(items.map((n:Obj)=>n.conversation.id))]};
       return {items};
@@ -808,9 +813,18 @@ export class TaskGraphService {
     for (const n of doc.nodes) {
       const old = before?.nodes.find((x:Obj) => x.id === n.id);
       if (!old || !sameActor(old.assignee,n.assignee)) this.assignee(n.assignee, doc.conversation_id);
+      const frozen=this.row('SELECT 1 FROM task_lifecycle_freezes WHERE graph_id=? AND node_id=?',doc.graph_id,n.id);
+      if(n.assignee?.type==='agent'&&['doing','waiting'].includes(n.status)&&(!old||old.status!==n.status||!sameActor(old.assignee,n.assignee))) {
+        if(lifecycle(this.db,n.assignee.id).desired!=='enabled')fail('agent_disabled','Enable this Agent before restoring work');
+        if(frozen&&(actor.kind!=='user'||n.status!=='doing'))fail('task_requires_human_resume','Only a human can explicitly restore this frozen task');
+      }
+      if(frozen&&actor.kind==='user'&&n.status==='doing'&&old?.status!=='doing') {
+        this.db.prepare('DELETE FROM task_lifecycle_freezes WHERE graph_id=? AND node_id=?').run(doc.graph_id,n.id);
+        this.db.prepare('DELETE FROM task_lifecycle_schedules WHERE graph_id=? AND node_id=?').run(doc.graph_id,n.id);
+      }
       // Only the authenticated human mutation records resume intent. Agent prose,
       // delegated writes and later metadata edits cannot manufacture this fact.
-      if(actor.kind==='user'&&old?.status==='paused'&&n.status==='doing')n.resume_request={actor_id:actor.id,at:now,revision:doc.revision};
+      if(actor.kind==='user'&&(old?.status==='paused'||frozen)&&n.status==='doing')n.resume_request={actor_id:actor.id,at:now,revision:doc.revision};
       else if(!['doing','waiting'].includes(n.status)||old&&!sameActor(old.assignee,n.assignee))delete n.resume_request;
     }
     for (const n of doc.nodes) if (n.status === 'waiting') {
@@ -875,7 +889,7 @@ export class TaskGraphService {
           const now=new Date().toISOString(),ids=new Set(nodes.map(n=>n.node_id));
           const next={...structuredClone(before),revision:before.revision+1,updated_at:now,updated_by:actor.id};
           for(const node of next.nodes)if(ids.has(node.id)) {
-            node.status='paused';delete node.wait;delete node.resume_request;node.updated_at=now;node.updated_by=actor.id;node.updated_by_actor={type:'agent',id:actor.id};
+            this.pauseNode(node,{type:'agent',id:actor.id},now);
           }
           this.save({...next,owner_id:row.owner_id});
           for(const notice of taskNotices(next,before,actor.id,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
@@ -888,6 +902,39 @@ export class TaskGraphService {
     } catch(error) {this.db.exec('ROLLBACK');throw error;}
     try {this.messaging.publishMessages(notices);this.execution?.changed({agent_ids:[actor.id],conversation_ids:conversationId?[conversationId]:[]});} catch { /* Reconnect reconciles durable state. */ }
     return result!;
+  }
+  private pauseNode(node:Obj,actor:Obj,at:string):void {
+    node.status='paused';delete node.wait;delete node.resume_request;
+    node.updated_at=at;node.updated_by=actor.id;node.updated_by_actor=actor;
+  }
+  /** Project an already committed Agent barrier across all old unfinished work.
+   *
+   * Args:
+   *   agentId: Agent selected by the authenticated lifecycle owner.
+   *   userId: Human control actor, never impersonated as an Agent.
+   *   revision: Persistent disable generation; repeated projection is idempotent.
+   *   publish: False during startup recovery before the transport is initialized.
+   */
+  freezeAgent(agentId:string,userId:string,revision:number,publish=true):void {
+    const notices:Obj[]=[];
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for(const row of this.rows("SELECT DISTINCT g.* FROM task_graphs g JOIN json_each(g.document_json,'$.nodes') n WHERE json_extract(n.value,'$.assignee.type')='agent' AND json_extract(n.value,'$.assignee.id')=? AND json_extract(n.value,'$.status') NOT IN ('done','closed')",agentId)) {
+        const doc=JSON.parse(row.document_json),at=new Date().toISOString();let changed=false;
+        for(const node of doc.nodes)if(node.assignee?.type==='agent'&&node.assignee.id===agentId&&!['done','closed'].includes(node.status)) {
+          this.db.prepare('INSERT INTO task_lifecycle_freezes VALUES(?,?,?,?) ON CONFLICT(graph_id,node_id) DO UPDATE SET agent_id=excluded.agent_id,revision=excluded.revision').run(doc.graph_id,node.id,agentId,revision);
+          if(node.wait?.schedule_id)this.db.prepare('INSERT OR IGNORE INTO task_lifecycle_schedules VALUES(?,?,?,?)').run(agentId,node.wait.schedule_id,doc.graph_id,node.id);
+          if(['doing','waiting'].includes(node.status)) {this.pauseNode(node,{type:'user',id:userId},at);changed=true;}
+        }
+        if(changed) {
+          const next={...doc,owner_id:row.owner_id,revision:doc.revision+1,updated_at:at,updated_by:userId};this.save(next);
+          for(const notice of taskNotices(next,JSON.parse(row.document_json),userId,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',doc.conversation_id,uid)))
+            notices.push(this.messaging.persistTaskNotice(doc.conversation_id,userId,notice.content,notice.metadata));
+        }
+      }
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+    if(publish) {this.messaging.publishMessages(notices);this.execution?.changed({agent_ids:[agentId],conversation_ids:[]});}
   }
   /** Capture former assignees so reassignment invalidates both execution owners. */
   changeHint(graphId?:string):TaskExecutionChange {
@@ -947,6 +994,10 @@ export class TaskGraphService {
         doc.conversation_id,
         space,
       );
+    for(const node of doc.nodes)if(node.assignee?.type==='agent'&&!['done','closed'].includes(node.status)) {
+      const state=lifecycle(this.db,node.assignee.id);
+      if(state.desired==='disabled')this.db.prepare('INSERT OR IGNORE INTO task_lifecycle_freezes VALUES(?,?,?,?)').run(doc.graph_id,node.id,node.assignee.id,state.revision);
+    }
   }
   private receipt(actor: string, key: string, hash: string, doc: Obj, result: Obj) {
     this.db

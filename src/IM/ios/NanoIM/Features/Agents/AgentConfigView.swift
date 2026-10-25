@@ -17,6 +17,8 @@ struct AgentConfigView: View {
     @State private var confirmLeave = false
     @State private var preview: AgentPrompt?
     @State private var saved = false
+    @State private var lifecycleUserID: String?
+    @State private var lifecycleContact: Contact?
     private var dirty: Bool {
         guard let config else { return false }
         var baseline = config.draft; baseline.fixed_tools = draft.fixed_tools
@@ -26,6 +28,11 @@ struct AgentConfigView: View {
     var body: some View {
         ScrollViewReader { proxy in
         Form {
+            Section {
+                Text(config?.display_name ?? agentID).font(.headline)
+                if let contact = lifecycleContact { Text((contact.status == "online" ? L("设备在线", "Device online") : L("设备离线", "Device offline")) + " · " + (contact.node_name ?? "")).font(.caption).foregroundStyle(.secondary) }
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: lifecycleUserID != nil && config?.owner_id == lifecycleUserID, online: lifecycleContact?.status == "online", configuration: true)
+            }
             if let config {
                 AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability).disabled(pending || busy || conflicted)
                 AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID).disabled(pending || busy || conflicted)
@@ -95,7 +102,8 @@ struct AgentConfigView: View {
         .toolbar { if dirty || pending { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
         .confirmationDialog(L("离开并放弃未保存草稿？", "Leave and discard unsaved draft?"), isPresented: $confirmLeave, titleVisibility: .visible) { Button(L("离开", "Leave"), role: .destructive) { dismiss() } }
         .sheet(item: $preview) { value in AgentTextSheet(title: L("提示词预览", "Prompt preview"), text: value.prompt, preview: true) }
-        .task { await load() }
+        .task { lifecycleUserID = await client.session.currentUser()?.id; await load() }
+        .task { repeat { lifecycleContact = try? await client.contacts(kind: "agent").first { $0.agent_id == agentID }; try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled }
     }
     private func changeCapability(_ action: CapabilityAction) {
         capabilityToast = nil

@@ -1,3 +1,4 @@
+import { requireLifecycle } from './agent-lifecycle.js';
 import { requireCompanyAdmin } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -112,6 +113,7 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       p.owner_id,
     );
     if (!a) fail(404, "target not accessible");
+    requireLifecycle(db,b.agent_id,b.lifecycle_revision);
     return {
       conversation_id: ctx.messaging.resolveTarget(b.agent_id, b.target),
     };
@@ -125,7 +127,7 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
         cId = params(req)?.conversation_id ?? q.conversation_id,
         isImage = req.url.split("?")[0]!.endsWith("/images");
       if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(p,cId,q.agent_id);
-      else ctx.messaging.access(p, cId, q.agent_id, "write");
+      else {ctx.messaging.access(p, cId, q.agent_id, "write");if(p.kind==='gateway')requireLifecycle(db,q.agent_id,q.lifecycle_revision==null?undefined:Number(q.lifecycle_revision));}
       const fileName = basename(String(q.file_name ?? "").trim()),
         key = isImage
           ? String(req.headers["idempotency-key"] ?? "").trim()
@@ -186,7 +188,7 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
           fail(415, "image content does not match content type");
         const fresh = ctx.messaging.principal(req);
         if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(fresh,cId,q.agent_id);
-        else ctx.messaging.access(fresh, cId, q.agent_id, "write");
+        else {ctx.messaging.access(fresh, cId, q.agent_id, "write");if(fresh.kind==='gateway')requireLifecycle(db,q.agent_id,q.lifecycle_revision==null?undefined:Number(q.lifecycle_revision));}
         const digest = hash.digest("hex"),
           old = one(
             db,

@@ -29,7 +29,7 @@ export class NativeTrajectory {
   }) {}
 
   /** Register the private carrier operations with the existing runtime peer. */
-  register(peer: RpcPeer): void {
+  register(peer: Pick<RpcPeer, 'handle'>): void {
     peer.handle('trajectory.prepare', value => this.prepare(value as TrajectoryScope));
     peer.handle('trajectory.call', value => this.call(value as Request));
     peer.handle('trajectory.open', value => this.open(value as Request));
