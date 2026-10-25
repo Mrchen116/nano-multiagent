@@ -34,3 +34,13 @@
 用户指出原型擅自添加“主执行 1 / 子 Agent 2 / 后台 Bash / 终端 2”统计，超出停用开关需求。作者删除统计及自造的活动列表/Work 恢复按钮；Work 背景恢复当前基线框架，只新增生命周期入口与必要状态。旧任务恢复复用既有 Tasks 详情的真人操作。上表修订前截图只能作为已走查交互的历史证据，不能作为最终 Work 布局实施依据；最终画面以本次修订后原型和下方新取证为准。
 
 修订后重新实际渲染并走过停用→已停用→重新启用：状态提示仍保留旧任务不自动恢复；320 宽无页面横向溢出，统计节点已删除。最终布局参考 [桌面修订稿](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/revised-desktop.png) 与 [320 宽重新启用](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/revised-enabled-320.png)。
+
+## iOS 页面关系修订（用户再次反馈后）
+
+用户指出原 iOS 局部卡片不合理。作者确认它把配置 Toggle 和详情/Work 按钮拼在同一卡片，还把设计说明混入产品。旧 `prototype-ios-intent.png` 与 Round 1 对该画面的通过判断不再代表最终稿。
+
+重新读取 `AgentConfigView.swift` 的 Form/导航保存按钮、`AgentsView.swift` 的 AgentProfileView 身份/概览/管理区、`AgentWorkView.swift` 的状态/上下文/轮次。修订原型分成三个独立页面，每页只保留一个生命周期主入口；失败时提供重试，禁止启用。配置草稿与开关独立，短状态说明替代重复长段落，原生 Button 使用文字行，不画成 Web 实心色按钮。演示选择器与说明位于手机区域之外。
+
+首次未指定开发目录的 `xcrun simctl` 失败；随后按 iOS README 指定 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，已成功列出 iOS 26.4 runtime 和 iPhone 17 / 17 Pro 等可用设备。本轮未运行原生客户端，证据仍是源码结构加实际渲染的 HTML，不是原生运行结果。design runbook 已落实完整 Xcode 与隔离模拟器来源，实施时集中完成三个入口的原生布局与动态字体走查。
+
+实际渲染已逐页检查：配置 Toggle 停用后仅保留开关与短状态，名称草稿保留；详情原位显示单个“重新启用”，无 Toggle；Work 失败后主操作替换为“重试停止”，没有可启用按钮。代表性证据：[配置停用](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/ios-config-disabled.png)、[详情停用](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/ios-profile-disabled.png)、[Work 失败](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/ios-work-failed.png)。证据为本机 HTML 截图，不提交图片缓存。

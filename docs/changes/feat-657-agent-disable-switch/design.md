@@ -147,9 +147,11 @@ Work 正文、工作记录/原生轨迹切换与现有布局保持不变；不�
 | Web `/settings/agents/:id` | 紧凑身份页头、发消息、工作/概览/配置等标签，白色连续内容；详情页头在标签切换时保留 | 页头并排增加“停用”及独立状态条，工作页直接可达；不新增整页控制台 |
 | Web Agent 列表/侧栏 | 头像、名称、设备归属，presence 表示设备在线 | 增加明确停用状态；目录行提供独立按钮，不能把按钮嵌套在原 row button 内；非 owner 只读 |
 | Web 窄屏 | 侧栏隐藏、详情返回按钮与标签横向导航 | 身份与操作可换行，状态解释占整行，不截断“未确认”；停用保持首屏可达 |
-| iOS AgentProfile / AgentConfig / AgentWork | 已有 List、身份区、配置项和 Work 控制记录 | 配置首 Section 增加“启用 Agent”Toggle，下面独立状态说明；详情/Work 顶部现有 Section 中放 destructive 停用 Button，行高至少 44pt，不新增手势/导航/模态确认 |
+| iOS AgentProfile / AgentConfig / AgentWork | 已有独立的 List/Form、身份区、配置项和 Work 控制记录 | 配置首 Section 仅一个“启用 Agent”Toggle；详情身份区、Work 顶部 Section 各仅一个文字行 Button。确认停用后原位变为“重新启用”，失败时变为“重试停止”；控件至少 44pt |
 
-iOS 是既有原生控件绑定与状态行增量，原型含独立 List 形式的局部说明，不把缩窄 Web 当 iOS 设计；本轮只验证 HTML 设计表达，不声称原生视觉已验收。实施默认编译/契约测试与 Web 共享语义验证，有布局或无障碍差异才扩大原生走查。
+iOS 原型按 `AgentConfigView` 的 Form、`AgentsView.swift` 中 AgentProfileView 的身份/概览/管理 Section、`AgentWorkView` 的状态/上下文/轮次 Section 分页呈现，保留各自导航和相邻内容。演示页选择器在手机区域外。配置页不另放启用/停用按钮；详情和 Work 不再放 Toggle。配置开关失败时保持关闭且不可启用，仅增加重试停止行；状态变化不改名称草稿。产品只显示必要的短状态与操作后果，页面实现规则全部放在产品外。
+
+本轮重新读取现有 Swift 页面并渲染 HTML 原型，未运行原生客户端，不声称完成原生视觉对照或验收。用户已指出原布局混淆页面，因此 M1-W5 需在原生客户端集中走查这三个入口的布局、单一操作与状态换行，不重复全部后端场景。完整 Xcode 与 iOS 26.4 模拟器资源已在本机核实，启动方式见 runbook。
 
 ### 原型对齐契约
 
@@ -158,7 +160,7 @@ iOS 是既有原生控件绑定与状态行增量，原型含独立 List 形式�
 | 身份→设备→开关，停用不等配置保存 | must-match | Web 列表、详情、Work | 1440×1000、390×844、320×740；enabled | M1-R1 / M1-W4 |
 | stopping/disabled/offline pending/stop_unconfirmed，禁止未确认时启用 | must-match | Web 共用 lifecycle 状态区 | 上述宽度；正常/离线/失败/重试/非 owner | M1-R2 / M1-W4 |
 | enable 后旧任务仍暂停、历史仍可读 | must-match | Web Work/配置 | 390×844、桌面；disabled→enabled | M1-R3 / M1-W4 |
-| iOS 既有 Section 中 Toggle、按钮和状态行的顺序/语义 | may-adapt | iOS 详情/配置/Work | 依既有原生样式；可换行完整标签，44pt 控件 | M1-W5；共享行为由 M1-R1～R3 验证 |
+| iOS 三个独立页面，每页一个生命周期主入口、短状态说明；配置开关不与同义按钮共存 | must-match | iOS 详情/配置/Work | 原生控件可适配；正常/停用/失败、动态字体下标签完整、44pt 控件 | M1-W5；共享行为由 M1-R1～R3 验证 |
 | 当前其他设置、聊天和轨迹正文 | out-of-scope | 原入口 | 继续当前产品，不由原型假数据重设计 | 相关回归 |
 
 ### 原型走查
@@ -192,9 +194,11 @@ iOS 是既有原生控件绑定与状态行增量，原型含独立 List 形式�
 |---|---|---|---|
 | IM + Node + DSH hosts | `"$MAIN/scripts/e2e-down.sh" --wt "$WT"` | 在实施 worktree `pnpm build`、`npm --prefix src/IM/frontend ci`、`npm --prefix src/IM/frontend run build` 后，`PATH="$MAIN/.venv/bin:$PATH" "$WT/scripts/e2e-up.sh" --profile daily --wt "$WT"` | source `.e2e-ports.env`，`curl -fsS "$IM_URL/openapi.json"`；读取本轮 `.e2e-daily.json` 并核实节点 ready、Agent 配置及 frontend 版本 |
 
-**Review 驱动方式**：真实 Web 入口操作列表/详情/Work 的停用、重试、重新启用。通过真实消息/任务/计划创建受控活动，用后台进度文件持续增长和 Work 记录验证停止；Node/DSH PID 与进程组证据只作为补充。iOS 默认编译与相关契约回归，不重复共享业务旅程。
+**Review 驱动方式**：真实 Web 入口操作列表/详情/Work 的停用、重试、重新启用。通过真实消息/任务/计划创建受控活动，用后台进度文件持续增长和 Work 记录验证停止；Node/DSH PID 与进程组证据只作为补充。iOS 编译与契约回归，并在原生客户端集中检查三个入口的布局与状态，不重复共享后端旅程。
 
 **验收前置**：daily 模板提供真实 P/E/Q、PA、测试 owner 和模型；本机已成功启动该隔离模板。新增一个 single-thread Agent 与一个无管理权限测试用户；临时目录内使用持续追加文件的无危险 Bash、TERM 忽略进程与嵌套子任务。离线场景只断开该测试节点连接，不关整机网络。无需外部用户、生产 Bot 或付费新资源。外部 Channel 的迟到投递/去重采用既有 adapter 契约加确定性集成测试，群聊/私聊用户体验由真实内置 IM 覆盖。
+
+**iOS 资源与驱动**：按 [iOS README](../../../src/IM/ios/README.md) 使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，避免默认 CommandLineTools 选择。本机已核实完整 Xcode、iOS 26.4 runtime 与 iPhone 17 / 17 Pro device type 可用；实施时用 simctl 创建本任务独立 simulator，按 README 的 build/test 入口构建，设置 `NANO_IM_BASE_URL` 为本任务 daily IM 地址，以同一测试 owner 登录。检查 Agent 配置/详情/Work 的正常、停用、失败状态及系统动态字体放大；完成后关闭并删除本任务 simulator，不使用其他任务命名的设备。无需签名账号或外部真机。
 
 ## Milestones
 
@@ -212,5 +216,5 @@ iOS 是既有原生控件绑定与状态行增量，原型含独立 List 形式�
 - **M1-W2 [worker]** 实际 OS 子进程测试覆盖普通后台 Bash、管道、孙进程、PTY、TERM 忽略升级和主进程卡住；记录准入延迟/清理延迟、全部受管资源结算及其他 Agent 连续性。平台超出 DSH 边界明确列出，不以 root PID exit 伪造 pass。
 - **M1-W3 [worker]** 每 Agent 一进程与独立 home、model setup/control-only、update barrier、disabled 冷历史与全部停用状态测试；runtime dependency contract、相关 typecheck/build 通过。
 - **M1-W4 [worker]** 真实 Web 1440/390/320 宽度的原型对照证据与实际操作覆盖，列表/详情/Work 入口一致；证据仅按 evidence 规则记录，不提交敏感截图缓存。
-- **M1-W5 [worker]** iOS 原生控件绑定、真人权限、pending/failed/disabled 解码和 enable 行为回归及编译通过；未实际走查原生视觉则不写视觉 pass。
+- **M1-W5 [worker]** iOS 原生控件绑定、真人权限、pending/failed/disabled 解码和 enable 行为回归及编译通过；在可用原生客户端实际检查配置/详情/Work 每页只有一个生命周期主入口、停止与失败状态短句可读、动态字体换行和 44pt 触控区域，并保留对照证据。未实际走查不得写原生视觉 pass。
 - **M1-W6 [worker]** 迁移在副本上验证会话/子树/任务/计划/Workflow/知识记录/Work 游标完整；中断继续和回退通过、无跨 Agent 数据；daily 4 Agent 内存/启动数字与关闭资源释放有记录。完成后归并 specs 与顶层拓扑，不更改 DSH 内部格式。

@@ -91,3 +91,56 @@ Raft 只读对照了 `agentOrchestrator.ts:12765` 的 manual-stop admission 和 
 
 - **R1-R1 — accepted**：实施时在 integration 声明实际消费的 DSH 服务依赖，迁移从同一适配边界调用公开能力；属于本文已有依赖红线的落实，不增加抽象。本轮不修改依赖或实施代码，不改变已审架构。
 - 作者确认最终修订稿与需求一致；无未解决的实质问题。用户指出的统计及 Work 扩张已删除，并由本轮 reviewer 重新实际走查。受审产物此后无实质修改。
+
+## Round 2
+
+### Metadata
+
+- reviewer target: `/root/design_review`，同一独立 reviewer。
+- review_mode: `full`
+- mode_reason: iOS 页面关系及 must-match 改变，M1-W5 增加原生布局验收退出标准；按 skill 扩为 full，未改变部分保留 Round 1 的直接证据。
+- started_at: 2026-10-25T17:03:58+08:00
+- completed_at: 2026-10-25T17:07:00+08:00（分钟级记录）
+- duration: 约 3 分钟。
+- scope: main，相对 `e5856ec23` 的 prototype、design、ios-client delta、design-evidence 修订，及本轮内补齐的 iOS runbook；只追加报告，未改作者产物或提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本结论替代 Round 1 对旧 iOS 卡片的正面判断。旧卡片把 Toggle 和同义按钮拼在一处，用户指出的问题成立；此前 Approved 不能证明该设计合理。最终三页表达已消除重复入口。批准仍仅针对设计，未完成原生实现或原生视觉验收。
+
+### Coverage 与证据
+
+**retained_from: Round 1。** 相对基线的 diff 未改变需求、生命周期接口/状态机、进程边界、DSH 接入、迁移、Web 布局和 M1-R1～R4/W1～W4/W6；保留 Round 1 对这些部分的实际组装、公开 API、权限与恢复证据。职责判断不变：iOS 只消费同一 lifecycle 权威，不另建状态机或恢复机制。共享 render 实际随本轮原型操作从 enabled→disabled→enabled→failed，Web 状态与启用禁用关系仍一致。
+
+重新读取 `AgentsView.swift:113` 的 AgentProfileView（身份、设备、发消息、概览、Work 与管理入口）、`AgentConfigView.swift:28` 的 Form 和导航保存操作，以及 `AgentWorkView.swift:20` 的 List、状态/上下文/执行轮次。三页原型分别保留这些相邻关系，不再用一张卡片代替三个入口。
+
+独立会话 `feat657-r2` 实际渲染并切换三页，逐页观察正常、已停用及停止失败；同时从配置开关停用、详情重新启用、Work 停用。证据均为本机 HTML 截图：
+
+| 页面 | 画面、操作与判断 | 代表性证据 |
+|---|---|---|
+| 配置 | 目标名称在开关之前；只有一个 Toggle。关闭后保留未保存名称草稿；失败时 Toggle 关闭且禁用，新增的唯一可用动作是重试停止，没有重新启用按钮。 | [停用与草稿](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/r2-config-disabled.png)、[失败](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/r2-config-failed.png) |
+| 详情 | 身份和设备位于操作之前；保留发消息，生命周期只有一行按钮。停用后原位显示重新启用，失败原位替换成重试；无 Toggle。 | [停用](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/r2-profile-disabled.png)、[失败](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/r2-profile-failed.png) |
+| Work | 保留目标身份、设备与上下文区域，再接唯一生命周期按钮；状态短句说明失败对象，操作不与开关竞争。轮次正文未重设计。 | [正常](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/r2-work-enabled.png)、[失败](/Users/czj/Repos/nano-multiagent/output/playwright/feat-657/r2-work-failed.png) |
+
+页面选择器和设计解释在手机区域之外。短状态可读，停用后的文字明确旧任务不自动恢复。ios-client delta 已把不重复入口写入消费者契约；must-match 与 M1-W5 对应单一入口、完整换行和触控区域，未把尚未决定的页面关系留给“原生适配”。
+
+### 本轮问题闭环与验收前置
+
+本轮检查一度发现必验原生环境未落实：默认 `xcrun --find simctl` 失败。作者随后补充完整 Xcode 路径和隔离模拟器流程；reviewer 独立执行 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl list devices available` 成功，确认 iOS 26.4 及 iPhone 17/17 Pro 资源。最终 runbook 明确 README build/test、daily 地址与账号、独立 simulator 和清理，缺口关闭。没有启动或占用其他任务设备。
+
+原生动态字体、真实触控尺寸及布局仍须按 M1-W5 验收；本轮 HTML 不冒充原生结果。旧 iOS 截图不再是最终通过依据。Round 1 无开放 issue；用户提出的重复入口问题已按上述实际画面关闭。
+
+### Issues / Recommendations
+
+无新增 CRITICAL、WARNING 或可选建议。
+
+### 清理
+
+`feat657-r2` 浏览器已关闭，共享服务未动。只追加本 Round，保留旧报告历史。
+
+### Author Resolutions
+
+- 作者确认用户指出的 iOS 重复操作与页面混淆问题成立；已按本轮证据修正原型、设计契约与验收前置。接受 R2 结论，无未解决实质问题。
+- R2 后仅将原有 R1 Author Resolutions 归回 Round 1 下，并追加本段；未改 reviewer 原文或任何受审设计，门禁结论 retained。
