@@ -26,3 +26,11 @@
 ## 现场清理
 
 真实 daily 栈已通过 `scripts/e2e-down.sh` 停止，IM 64516 无监听；受控 unknown 的 RuntimeClient 已 shutdown。另核实并停止首次中断 workspace-tools 测试遗留的孤儿 DSH（cwd 为该测试临时目录）。一次性试点驱动脚本已删除；合成请求、运行数据和小型证据原件保留在仓外/ignored 路径。开发 worktree 随开放 PR 保留。
+
+## Final sync 与门禁有效性
+
+独立 code review / verifier 在 `572d336a5b721c221a844bf20e7841d785295a89` 执行，均为 PASS、0 CRITICAL / 0 WARNING；各自完整结论见 unit 根报告。Design R1 Approved，唯一可选建议已由最终独立 reviewer 的两模式试运行落实。
+
+2026-10-25 收尾 fetch 后 `origin/main` 仍为 `b4ea8f908691d6a309ceb787d4d37d36ec7dfc69`，没有上游代码或规则增量，无需 merge/rebase。`572d336a5..e281e80f5` 仅加入两份独立报告和本验证记录；随后只补本收尾说明并整体移动 unit 到 archive。未改变设计、实现、退出判据、runtime 或模型证据，因此 Gate 2、code review、verification 与本地测试 retained；归档路径由 docs-check 和 archive guard 再核。
+
+no spec delta：长期方法已进入 development 与 Skills，未改变产品 current behavior。最终 `effective_base` 为上述 main；最终 `effective_through` 在 PR Validation Summary 记录实际归档提交 SHA，并保留原 `validated_at` / `executed_base`。远端 CI 在 PR 创建后以该 head 核对，结果与 check 链接记录于 PR；本报告保留执行时点，不冒称当时已有远端结果。
