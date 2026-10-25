@@ -1,3 +1,4 @@
+import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -376,6 +377,7 @@ export class Work {
       } else (payload.work_facts ??= []).push({ type: kind, ...p });
     } else if (itemKind === "permission") {
       Object.assign(payload, p.permission_request ?? p, {
+        lifecycle_revision:p.lifecycle_revision??p.permission_request?.lifecycle_revision,
         node_epoch:
           one(
             this.db,
@@ -838,11 +840,13 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       );
     });
     if (!item) fail(409, "request_ended");
+    requireLifecycle(db,a.agent_id,JSON.parse(item.payload).lifecycle_revision);
     if (!JSON.parse(item.payload).options?.some((o: Row) => o.id === b.decision))
       fail(409, "invalid_decision");
     const result = await ctx.gateway.request(a.node_id, "agent.work.permission", {
       request_id: id,
       root_agent_id: a.agent_id,
+      lifecycle_revision:JSON.parse(item.payload).lifecycle_revision,
       session_id: item.session_id,
       decision: b.decision,
       reason: b.reason ?? "",

@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS messages (
     conversation_id TEXT NOT NULL,
     sender_user_id TEXT NOT NULL,
     sender_type TEXT NOT NULL DEFAULT 'user',
+    lifecycle_revision INTEGER,
     content TEXT NOT NULL,
     attachments_json TEXT NOT NULL DEFAULT '[]',
     delivery_status TEXT NOT NULL,
@@ -553,3 +554,35 @@ CREATE TABLE IF NOT EXISTS agent_settings_snapshots (
   workspace_root TEXT, profile_version INTEGER NOT NULL, captured_at TEXT NOT NULL,
   data_json TEXT NOT NULL, PRIMARY KEY(agent_id,section)
 );
+
+-- Human lifecycle intent is independent of registration and profile configuration.
+CREATE TABLE IF NOT EXISTS agent_lifecycle (
+  agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+  desired TEXT NOT NULL DEFAULT 'enabled', revision INTEGER NOT NULL DEFAULT 1,
+  disabled_through_revision INTEGER NOT NULL DEFAULT 0,
+  request_id TEXT, actor_user_id TEXT, requested_at TEXT NOT NULL,
+  applied_revision INTEGER NOT NULL DEFAULT 0, observed TEXT NOT NULL DEFAULT 'enabling',
+  process_instance_id TEXT, confirmed_at TEXT, error_code TEXT, error_detail TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_lifecycle_requests (
+  agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL, intent TEXT NOT NULL, revision INTEGER NOT NULL,
+  PRIMARY KEY(agent_id,request_id)
+);
+CREATE TABLE IF NOT EXISTS task_lifecycle_freezes (
+  graph_id TEXT NOT NULL REFERENCES task_graphs(graph_id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL, agent_id TEXT NOT NULL, revision INTEGER NOT NULL,
+  PRIMARY KEY(graph_id,node_id)
+);
+CREATE TRIGGER IF NOT EXISTS agent_lifecycle_created AFTER INSERT ON agent_profiles BEGIN
+  INSERT OR IGNORE INTO agent_lifecycle(agent_id,requested_at) VALUES(NEW.agent_id,NEW.created_at);
+END;
+INSERT OR IGNORE INTO agent_lifecycle(agent_id,requested_at) SELECT agent_id,created_at FROM agent_profiles;
+
+CREATE TRIGGER IF NOT EXISTS personal_observation_lifecycle AFTER INSERT ON pa_source_events BEGIN
+  UPDATE pa_source_events SET payload_json=json_set(payload_json,'$.lifecycle_revision',
+    (SELECT l.revision FROM agent_lifecycle l JOIN personal_agent_bindings b ON b.agent_id=l.agent_id WHERE b.binding_id=NEW.binding_id))
+  WHERE event_id=NEW.event_id;
+END;
+
+CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,schedule_id TEXT NOT NULL,graph_id TEXT NOT NULL,node_id TEXT NOT NULL,PRIMARY KEY(agent_id,schedule_id));

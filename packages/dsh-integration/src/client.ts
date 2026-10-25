@@ -1,9 +1,11 @@
 /** Product-facing lifecycle for one owner node's official DSH process. */
+import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdir, symlink, writeFile, readlink, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { RuntimeStopHistory } from '@nano/product-contracts';
 import { RpcPeer } from './rpc.js';
 
 const require = createRequire(import.meta.url);
@@ -37,6 +39,7 @@ async function link(target: string, path: string) {
 
 /** Process exit is requested only after the runtime has drained durable owners. */
 export class RuntimeClient {
+  readonly processInstanceId = randomUUID();
   readonly process: ChildProcessWithoutNullStreams;
   readonly rpc: RpcPeer;
   readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
@@ -44,7 +47,7 @@ export class RuntimeClient {
   constructor(options: { home: string; cwd: string; env?: NodeJS.ProcessEnv; onLog?: (text: string) => void }) {
     const cli = require.resolve('@deepseek-ai/dsh/package.json');
     this.process = spawn(process.execPath, [join(dirname(cli), 'lib/bin.js'), '--profile', 'nano'], {
-      cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
       env: { ...process.env, ...options.env, DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1' },
     });
     this.rpc = new RpcPeer(this.process.stdout, this.process.stdin);
@@ -73,6 +76,9 @@ interface SupervisorOptions {
   onReady: () => Promise<void>;
   onUnavailable?: () => Promise<void>;
   onError: (error: unknown) => void;
+  stopTimeoutMs?: number;
+  disableCursors?: () => Record<string, number>;
+  onDisabledHistory?: (history: RuntimeStopHistory[]) => void;
 }
 
 /** Restarts the execution process while the node retains inbound and delivery facts. */
@@ -81,6 +87,8 @@ export class RuntimeSupervisor {
   private ready = false;
   private stopping = false;
   private restarts = 0;
+  private starting?: Promise<void>;
+  private disabling?: Promise<{ confirmed: boolean; processInstanceId?: string }>;
   private recovery?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private wakeTimer?: () => void;
@@ -89,6 +97,7 @@ export class RuntimeSupervisor {
   constructor(private readonly options: SupervisorOptions) {}
   get process() { return this.client?.process; }
   get available() { return this.ready; }
+  get processInstanceId() { return this.client?.processInstanceId; }
 
   /** Calls are never replayed: product owners reconcile stable operation identities. */
   request(method: string, params: unknown): Promise<unknown> {
@@ -101,20 +110,36 @@ export class RuntimeSupervisor {
   }
   handle(method: string, handler: (params: unknown) => unknown | Promise<unknown>): void {
     this.handlers.set(method, handler);
-    this.client?.rpc.handle(method, handler);
+    if (this.client) this.installHandler(this.client, method, handler);
   }
-  async start(): Promise<void> { await this.launch(); }
+  private installHandler(client: RuntimeClient, method: string, handler: (params: unknown) => unknown | Promise<unknown>): void {
+    client.rpc.handle(method, params => {
+      if (this.stopping || this.client !== client) throw new Error('Agent is disabled or runtime instance is stale');
+      return handler(params);
+    });
+  }
+  async start(): Promise<void> {
+    if (this.stopping) throw new Error('Agent is disabled');
+    if (this.ready) return;
+    if (!this.starting) {
+      const starting = this.launch().finally(() => { if (this.starting === starting) this.starting = undefined; });
+      this.starting = starting;
+    }
+    await this.starting;
+  }
   private async launch(): Promise<void> {
+    if (this.stopping) throw new Error('Agent is disabled');
     const client = new RuntimeClient(this.options);
     this.client = client;
-    for (const [method, handler] of this.handlers) client.rpc.handle(method, handler);
-    client.rpc.onNotification((method, params) => { for (const listener of this.listeners) listener(method, params); });
+    for (const [method, handler] of this.handlers) this.installHandler(client, method, handler);
+    client.rpc.onNotification((method, params) => { if (this.client !== client || this.stopping) return; for (const listener of this.listeners) listener(method, params); });
     try {
       await this.options.initialize(client.rpc);
-      if (this.stopping) return;
+      if (this.stopping || this.client !== client) return;
       this.ready = true;
       await this.options.onReady();
     } catch (error) {
+      if (this.stopping || this.client !== client) return;
       this.ready = false;
       await this.options.onUnavailable?.();
       client.process.kill('SIGTERM');
@@ -125,6 +150,7 @@ export class RuntimeSupervisor {
       if (this.stopping || this.client !== client) return;
       this.ready = false;
       await this.options.onUnavailable?.();
+      if (this.stopping || this.client !== client) return;
       this.options.onError(new Error('DSH runtime exited; recovering persisted sessions'));
       this.recovery = this.recover();
     }).catch(this.options.onError);
@@ -141,7 +167,55 @@ export class RuntimeSupervisor {
     }
     if (!this.stopping) this.options.onError(new Error('DSH restart limit reached; node requires restart'));
   }
+  /** Close admission immediately; only native cleanup plus process exit confirms a stop. */
+  disable(): Promise<{ confirmed: boolean; processInstanceId?: string }> {
+    this.stopping = true;
+    this.ready = false;
+    if (this.timer) clearTimeout(this.timer);
+    this.wakeTimer?.();
+    if (this.disabling) return this.disabling;
+    const client = this.client;
+    const processInstanceId = client?.processInstanceId;
+    this.disabling = (async () => {
+      void this.options.onUnavailable?.().catch(this.options.onError);
+      if (!client) return { confirmed: true, processInstanceId };
+      if (client.process.exitCode !== null || client.process.signalCode !== null) return { confirmed: false, processInstanceId };
+      let timeout: ReturnType<typeof setTimeout>;
+      const force = () => {
+        if (client.process.exitCode !== null || client.process.signalCode !== null) return;
+        try {
+          if (process.platform !== 'win32' && client.process.pid) process.kill(-client.process.pid, 'SIGKILL');
+          else client.process.kill('SIGKILL');
+        } catch (error) { this.options.onError(error); }
+      };
+      const deadline = new Promise<boolean>(resolve => {
+        timeout = setTimeout(() => { force(); resolve(false); }, this.options.stopTimeoutMs ?? 5000);
+      });
+      const cleanup = (async () => {
+        const result = await client.rpc.request('agent.disable', {cursors: this.options.disableCursors?.() ?? {}}) as { confirmed: boolean; history?: RuntimeStopHistory[] };
+        if (result.confirmed) this.options.onDisabledHistory?.(result.history ?? []);
+        client.process.kill('SIGTERM');
+        await client.exited;
+        return result.confirmed === true;
+      })().catch(error => { this.options.onError(error); return false; });
+      const confirmed = await Promise.race([cleanup, deadline]);
+      clearTimeout(timeout!);
+      if (!confirmed) force();
+      return { confirmed, processInstanceId };
+    })();
+    return this.disabling;
+  }
+  /** Explicitly reopen a confirmed stopped host; start creates a new instance. */
+  enable(): void {
+    if (!this.stopping) return;
+    if (this.client && this.client.process.exitCode === null && this.client.process.signalCode === null) throw new Error('Previous runtime has not exited');
+    this.stopping = false;
+    this.disabling = undefined;
+    this.starting = undefined;
+    this.restarts = 0;
+  }
   async shutdown(): Promise<void> {
+    if (this.disabling) { await this.disabling; return; }
     this.stopping = true;
     this.ready = false;
     await this.options.onUnavailable?.();

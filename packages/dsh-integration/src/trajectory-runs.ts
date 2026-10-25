@@ -8,7 +8,7 @@ import type { TrajectoryRun } from '@nano/product-contracts';
 import { z } from 'zod';
 
 interface RunDomain extends DomainSpec { tables: { runs: DomainTableSpec<string, TrajectoryRun> } }
-const runDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', version: 1, layout: 'per-record', tables: {
+export const trajectoryRunsDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', version: 1, layout: 'per-record', tables: {
   runs: domainTable(z.object({
     runId: z.string(), parentSessionId: z.string(), sessionId: z.string(), provider: z.string(), label: z.string().optional(),
     kind: z.enum(['tool', 'memory', 'skills', 'combined', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
@@ -46,7 +46,7 @@ export class TrajectoryRuns extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'nanoTrajectoryRuns');
-    this.domain = ctx.storageDomain.open(runDomain);
+    this.domain = ctx.storageDomain.open(trajectoryRunsDomain);
     ctx.effect(() => async () => { try { await this.writes; } finally { await (await this.domain).close(); } });
     ctx.on('agent/created', ({ agent }) => {
       if (!agent.session.header.parentSession) return;
