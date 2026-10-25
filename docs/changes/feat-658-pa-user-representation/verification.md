@@ -87,3 +87,55 @@ None.
 - 修正上述两项后进行指定 delta/targeted closure；最终校正 delta-spec 时再按 corrected-delta 对账，不把此初轮报告误用为最终 pass。
 
 Report ownership: shared caller checkout; only this report and code-review.md written by reviewer. Caller owns report commit/reachability and all source fixes. No reviewer-created service/worktree needs cleanup.
+
+## Round 2 — targeted closure and corrected delta
+
+- `verification_mode=targeted-closure + corrected-delta`.
+- `validated_at=16798fb3be2e46500ba25c01996f3c615ac29288`.
+- `effective_base=b4ea8f908691d6a309ceb787d4d37d36ec7dfc69`; `effective_through=16798fb3be2e46500ba25c01996f3c615ac29288`.
+- Repair range reviewed from R1 head through validated_at; source repairs are `abdf2afc7`, related legacy tests `9c5aecd55`. Verified effective_base differs from the original base only in three feat-659 design files. No product-code drift invalidates R1 coverage.
+- Four unit delta-spec files are unchanged since R1; this is **no textual spec delta**, with a requested reconciliation of every requirement/scenario against the repaired implementation and applicable tests. This is not a second full implementation or product review.
+
+### Targeted closure summary
+
+| R1 issue | Contract / repaired implementation | Direct evidence | Outcome |
+|---|---|---|---|
+| WARNING 1 history shape | Gateway PA history/restore/child; `policy/codex-context.ts:42` recognizes actual sender.kind as well as Inbox sender.type | actual-shape retention regression `approval-sources.test.ts:202`, independently passed | closed |
+| WARNING 2 model wire constants | `design.md:102`; `work.ts:747` strips exactly format/catalog_version on model history only | `personal-sources.test.ts:142` confirms retained source and complete client wire, independently passed | closed |
+
+Current static closure issues: **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. `requires_full_verification=false`. Static verdict: **pass for the dispatched repair and corrected-delta scope**. Overall M1/PR readiness remains pending independent product/native acceptance; R1 historical status above remains intact as a prior snapshot.
+
+### Evidence additions and boundaries
+
+- Independent narrow command is recorded in code-review R2: 4 files / 30 tests pass on the validated head, covering both repairs and the new legacy/migration tests. No full-suite rerun was needed for this delta.
+- Read saved logs under `/Users/czj/.codex/reports/feat658-acceptance/`: backend 134 files / 717 tests; Web 107 files / 1025 tests; Python 70 pass / 32 deselected; Ruff check and 88-file format check pass; typecheck completes; generated iOS runtime check passes. Saved native logs end in BUILD SUCCEEDED, TEST SUCCEEDED and ARCHIVE SUCCEEDED. These are reused build/regression evidence, not native UI acceptance.
+- `migration/results.json` identifies revision `9c5aecd55` and shows real CLI dry-run/apply/verify/reapply/verify all exit 0, pre-migration startup refusal and post-migration acceptance. It is a file database seeded from the base schema with **synthetic legacy rows**, not a production database copy. Six business-table counts and legacy NULL provenance remain preserved. No mixed-version production exercise was performed; deployment coordination remains an explicit deployment procedure.
+- `journey-final-git.json` has B=`18bed6d...`, C=`c47c03e...`, D=`d6082fff...` as three distinct additions and local origin main at D, clean working tree, B/C unchanged and review-a absent. Reused caller records distinguish the failed A from successful B/C/D, with zero duplicate approval in those successful scenarios. These artifacts support actual isolated Git side effects and unchanged completed work; independent product reviewer owns final natural-journey verdict.
+- Inspected real-context requests q-before-commit, q-after-restart, q-codex-review, q-execution-child and q-child-review. The child **execution prompt is a parent summary**, while child **independent-review evidence** includes original message `c2a5165e69b843ac972241c87dffe1ba`, owner `u_c3ibn6j3`, PA `pa_8b3969af44b2` and the explicit D-only/no-merge/no-deploy/no-release/B-C-not-redo/A-paused restrictions. Do not claim all original chat text was injected into the child execution prompt. The synthetic-provider ordinary/PA/SingleThread/CC matrix retains its original limitation.
+- C/D successful messages contain an explicit PA ID in public text as well as metadata. Actual contact receipt matches the PA; this does not isolate a metadata-only addressing experiment.
+- Product reviewer is still working. Source-level identity and Compose tests plus the saved Web observations do not close iOS native visual/interaction acceptance. Mac lock-screen blockage and pending user unlock are environmental, not inferred code defects. Baseline private-chat title behavior is not a feat-658 regression and is not added to this scope.
+
+## Corrected Delta Reconciliation
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| `gateway/personal-agent.md` — tool boundary / owner-only participation | `global-mode.ts:29,72`, `agent-config.ts:134`, `product-bridge.ts:21`, `global-agent.ts:381`, `personal-actions.ts:53` | personal-child-delivery; personal-security; personal-representation selected-author scenario | aligned |
+| `gateway/personal-agent.md` — natural representation vs own speech / real scope | `personal-security.ts:72,81,135`, `personal-assistant.ts:113,145`, `personal-actions.ts:205` | personal-security frozen action; representation tests; real B/C/D records support delivery and execution; final product wording/ambiguity judgment pending | aligned (implementation/spec; product gate separate) |
+| `gateway/personal-agent.md` — clear references and material ambiguity | `personal-security.ts:135` fixed guidance | actual assembled PA context retained; natural B/C/D relevant-context results; product reviewer owns explicit ambiguous-object scenario | aligned (declared behavior implemented; final product evidence pending) |
+| `gateway/personal-agent.md` — normal execution and original limits | `policy/sources.ts:8,10`, `personal-security.ts:81`, `personal-actions.ts:159,184` | sources provenance tests; actual Q/Codex and child review preserve original limits; isolated B/C/D Git artifacts | aligned |
+| `gateway/personal-agent.md` — history/restore/child/contact PA | `work.ts:725,730`, `inbox.ts:258`, `single-thread.ts:144`, repaired `policy/codex-context.ts:42` | actual-kind + 41-entry retention passed; child delivery; q-after-restart/q-child-review; matching PA contact receipt, metadata-only isolation not claimed | aligned |
+| `gateway/personal-agent.md` — no self-authorization/history upgrade | `personal-agent.ts:127,181,251`, `schema.sql:465`, `messaging.ts:665`, `attention.ts:14` | personal-representation author/guard/idempotence and missing-representation self tests; migration legacy preservation | aligned |
+| `gateway/agent-capabilities.md` — generic draft, ToAssistant, host constants | `message-arguments.ts:4,17`, Web catalog/interactive-card, iOS custom action/host, repaired `work.ts:747` | parameter normalization; real-shape model source vs client wire test; parser rejects sending mixtures; Web workspace/card and iOS runtime regressions | aligned |
+| `gateway/agent-capabilities.md` — wake/restore/child/reviewer registration and receipts | `global-mode.ts:15`, `policy/sources.ts:187`, `global-agent.ts:212`, `capabilities.ts:71`, root-local registration | synthetic actual-runtime matrix (limited), real Q restore/Codex/child materials, personal-child-delivery and approval-sources | aligned |
+| `im/personal-agent.md` — existing draft adoption / PA representation | `personal-actions.ts:205`, `messaging.ts:331`, Web compose host, iOS compose host | representation atomic projection; Web adoption no-send/conflict/permission and native host regression | aligned |
+| `im/personal-agent.md` — both sides/later identity/self/legacy records | `messaging.ts:331`, Web `message-pane.tsx:1857`, iOS `ChatMessageView.swift:32`, realtime model propagation | reducer/message-pane/ChatState; legacy migration test; independent product V1–V3 verdict and native interaction still pending | aligned (static contract; native gate open) |
+| `im/conversations-messages.md` — shared persistence/authorization, offline read and fork history | `messaging.ts:437`, `interactions.ts:13,25,66,79,133,154`, `conversation-actions.ts:332` | existing interactive persistence/fork suite retained; representation executor/participation/replace/context regression; complete backend suite reused | aligned |
+| `im/conversations-messages.md` — edited local adoption, current clicker target rights | Web `interactive-card.tsx:67`, `chat-workspace-page.tsx:1134`; iOS `InteractiveRuntime.swift:146`, `ChatStore.swift:65` | Web card/workspace current expression/no-send; iOS host edited-value/no-send; independent Web observations; native product gate open | aligned |
+| `im/conversations-messages.md` — invalid target and unsent conflict | same Web/iOS host permission/conflict branches | Web both-target integration and native conflict/cancel/replace/denied regression | aligned |
+| `im/conversations-messages.md` — ToAssistant distinction and replaced/fork disable | `interactive-source.ts:55`, Web readOnly/source freshness, iOS current source checks, `interactions.ts:25` | parser mixture rejection; interactive-card stale source check; native host check; existing readonly/fork protection | aligned |
+
+### Uncovered Observable Behavior
+
+None requiring an additional canonical behavioral requirement was found in the unit diff. Private audit linkage, atomic source ordering, selected-author permission checks, root-only tool enforcement, relay/control/guard self-exclusion, protocol normalization and migration/history preservation implement the existing representation/interaction boundaries; operational transition and old draft-entry retirement are documented in deployment-prompt. The shared formal-mention schema guidance explains the existing attention protocol without changing group reply policy. Both review repairs implement the already-approved scope and add no independent external behavior.
+
+Outcome: **aligned**. The four delta-spec files are suitable for canonical reconciliation after the independent product/native gates pass. This is not an overall milestone pass or authorization to merge/deploy/release. No new report commit was made in this shared checkout; caller owns commit/reachability. Only the two assigned reports were appended.
