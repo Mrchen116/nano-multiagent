@@ -72,7 +72,7 @@ DSH 未受管外部进程/已接受的外部副作用不承诺撤销。清理失
 
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
-| 本 unit Node + IM + Web | `./scripts/e2e-down.sh --runtime-root /tmp/nano-bugfix-660` | `./scripts/e2e-up.sh --profile daily --runtime-root /tmp/nano-bugfix-660`（按脚本 help 补齐隔离端口和配置） | `.e2e-daily.json` 内端点与真实消息 |
+| 本 unit Node + IM + Web | `./scripts/e2e-down.sh --wt /tmp/nano-bugfix-660` | `./scripts/e2e-up.sh --profile daily --wt /tmp/nano-bugfix-660`（脚本分配隔离端口与配置） | `.e2e-daily.json` 内端点与真实消息 |
 
 **Review 驱动方式**：端到端真栈，从 Web 入口走停用/状态/重试/启用/历史和旧任务恢复；并行 A/B 的后台 Bash 与子 Agent 用真实执行证据。客户端实现无变化，已有 iOS 界面证据保留，仅在实际改动原生 UI 时重新原生验收。
 
