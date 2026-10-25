@@ -2,7 +2,7 @@
 
 ## Relations
 
-- Supersedes runtime design: [feat-657](../archive/feat-657-agent-disable-switch/design.md)
+- Supersedes runtime design: [feat-657](../feat-657-agent-disable-switch/design.md)
 - Corrects: PR #406 / `1219d903b1ba851cf49631fe37e5d52b49e8474c`
 
 ## 原始报告
