@@ -68,7 +68,8 @@ export class ToolSelection {
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
     const fixed = fixedTools(state.config.mode, agent.session.header.origin === 'subagent' ? 'subagent' : state.config.personal ? 'personal' : 'root');
-    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
+    // Root PA representation is scope-local; DSH excludes local tools from inherited masks.
+    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !disabled.includes(name)) });
   }
 }
 

@@ -38,8 +38,8 @@ export async function codexPolicy(config: ApprovalConfiguration): Promise<string
 type Row = Record<string, unknown>;
 type Entry = { row: Row; text: string; kind: 'history' | 'protected' | 'tool'; required: boolean };
 const historical = (row: Row) => 'user' in row || 'agent_instructions' in row
-  || Array.isArray((row.inbox_result as Row | undefined)?.messages)
-    && ((row.inbox_result as Row).messages as Row[]).some(message => (message.sender as Row | undefined)?.type === 'user');
+  || Array.isArray(((row.inbox_result ?? row.conversations_result) as Row | undefined)?.messages)
+    && (((row.inbox_result ?? row.conversations_result) as Row).messages as Row[]).some(message => (message.sender as Row | undefined)?.type === 'user');
 
 /** Shorten only evidence bodies; source labels and both ends survive budget recovery. */
 function bounded(row: Row, limit: number, minimumBodyTokens = 0, measure = tokenCost): string {
@@ -48,14 +48,15 @@ function bounded(row: Row, limit: number, minimumBodyTokens = 0, measure = token
   let body: string;
   let render: (text: string) => string;
   const field = ['user', 'assistant', 'agent_instructions', 'tool_result'].find(key => key in row);
-  const page = row.inbox_result as Row | undefined;
+  const pageKey = 'inbox_result' in row ? 'inbox_result' : 'conversations_result';
+  const page = row[pageKey] as Row | undefined;
   if (field) {
     body = typeof row[field] === 'string' ? row[field] as string : JSON.stringify(row[field]);
     render = text => JSON.stringify({ ...row, [field]: text });
   } else if (Array.isArray(page?.messages) && page.messages.length === 1) {
     const message = page.messages[0] as Row;
     body = JSON.stringify(message.content ?? []);
-    render = text => JSON.stringify({ ...row, inbox_result: { ...page, messages: [{ ...message, content: [{ type: 'text', text }] }] } });
+    render = text => JSON.stringify({ ...row, [pageKey]: { ...page, messages: [{ ...message, content: [{ type: 'text', text }] }] } });
   } else {
     const { id, origin, observation, ...evidence } = row;
     body = JSON.stringify(evidence);

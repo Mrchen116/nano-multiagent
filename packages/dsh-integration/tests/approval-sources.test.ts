@@ -196,3 +196,23 @@ it('distinguishes attested Task stop and UI resume from automatic Task reminders
   expect(entries.filter(row=>row.origin?.kind==='human-task-control').at(-1).user).toContain('"revision":5');
   expect(entries.filter(row=>row.origin?.kind==='human')).toHaveLength(1);
 });
+
+
+it('retains represented user provenance across live input, history reads and recovered review evidence', async () => {
+  const message = {id:'original',sender:{type:'user',id:'owner'},pa_agent_id:'pa',created_at:'2026-10-25T01:00:00Z',content:[{type:'text',text:'Push branch report; do not merge or deploy.'}]};
+  const page = {target:'group',messages:[message]};
+  const messages = [call('in','inbox',{action:'read',target:'group'}),result('in',page),
+    call('history','conversations',{action:'read',target:'group'}),result('history',page),
+    call('sent','send_user_message',{target:'group',text:'Publish report'}),result('sent',{status:'sent',message_id:'sent-owner'}),
+    call('held','send_user_message',{target:'group',text:'Publish report'}),result('held',{status:'held_for_revalidation'})];
+  const sources = new ApprovalSources(); sources.recordInbox('session','in');
+  const events = [{seq:0,type:'turn/start'}, {seq:1,type:'tool/result',data:{message:{toolCallId:'in',content:[{type:'text',text:JSON.stringify(page)}]}}}];
+  expect(sources.humanInputs(fixture(messages,events))).toEqual([{id:'original',text:'Push branch report; do not merge or deploy.',sender:message.sender,pa_agent_id:'pa'}]);
+  const evidence = await sources.history(fixture(messages));
+  expect(evidence.find(row=>row.conversations_result)).toMatchObject({conversations_result:page,observation:'historical'});
+  expect(evidence.find(row=>row.send_user_message_result)).toMatchObject({send_user_message_result:{status:'sent',message_id:'sent-owner'}});
+  expect(evidence.filter(row=>row.send_user_message_result)).toHaveLength(2);
+  const restored = codexEntries(sources.restoreEntries(evidence,true));
+  expect(restored.find(row=>row.inbox_result)).toMatchObject({inbox_result:page,observation:'restored'});
+  expect(restored.find(row=>row.conversations_result)).toMatchObject({conversations_result:page,observation:'historical'});
+});

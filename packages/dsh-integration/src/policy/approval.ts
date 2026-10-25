@@ -17,6 +17,7 @@ import { classify } from './classifier.js';
 import type {} from './cc.js';
 import type {} from './codex.js';
 import { contextTools } from '../agent-context.js';
+import { normalizeMessageArguments } from '../message-arguments.js';
 import { isHumanSource } from '../input-source.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
@@ -100,6 +101,7 @@ export class NanoApproval extends Service {
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
+    if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments)};
     const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
     if (!agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return next();
     const downstream = await next();
@@ -116,10 +118,10 @@ export class NanoApproval extends Service {
         || exec.name === 'skill_manage' && (exec.arguments as { action?: unknown }).action === 'list'
         || exec.name === 'task_graph' && ['list', 'get'].includes((exec.arguments as { action: string }).action)
         || exec.name === 'workflow' && ['list', 'read'].includes((exec.arguments as { action: string }).action))
-      || !['bash', 'send_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
+      || !['bash', 'send_message', 'send_user_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
     // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
-    if (config.personal && policy.enabled && exec.name === 'send_message') return allow('product_disclosure_gate');
+    if (config.personal && policy.enabled && ['send_message', 'send_user_message'].includes(exec.name)) return allow('product_disclosure_gate');
     const messageContext = exec.name === 'send_message'
       ? await this.ctx.nanoProduct.call('send_message.context', { target: (exec.arguments as { target?: unknown }).target }, exec) as MessageApprovalContext : undefined;
     if (messageContext?.recipient.kind === 'owner') return allow('owner_message');

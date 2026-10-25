@@ -14,7 +14,7 @@ it.each(['nano', 'codex'] as const)('keeps %s ordinary approval inside effective
 export const name='pa-owner-approval';export const inject=['tools','llm'];export function apply(ctx){
 const steps=new Set();
 ctx.tools.register({name:'owner_action',description:'Perform an owner action',parameters:{type:'object',properties:{text:{type:'string'}},required:['text']},output:{schema:{type:'object'},render:(_a,r)=>[{type:'text',text:JSON.stringify(r)}]},execute:args=>({executed:args.text})});
-ctx.on('tools/pre-execute',(exec,next)=>exec.name==='send_message'&&exec.arguments.target==='blocked'?{kind:'deny',reason:'Explicit restriction'}:next());
+ctx.on('tools/pre-execute',(exec,next)=>['send_message','send_user_message'].includes(exec.name)&&exec.arguments.target==='blocked'?{kind:'deny',reason:'Explicit restriction'}:next());
 ctx.on('llm/stream',async function*(o){
  if(o.model==='review'){
   const prompt=JSON.stringify(o.messages);await appendFile(process.env.DSH_HOME+'/review-input.jsonl',prompt+'\\n');
@@ -31,10 +31,10 @@ ctx.on('llm/stream',async function*(o){
   client.rpc.handle('product.call',value=>{const call=value as any;
    if(call.method==='send_message.context')return {target:'peer',sender:{type:'agent',agent_id:'pa'},recipient:{kind:'user'},channel:'web'};
    if(call.method==='pa.authorization'){authorityReads++;return {owner_messages:[{content:'DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT'.repeat(50000)}]};}
-   if(call.method==='send_message'){sent.push(call.args.text);return {status:'sent',message_id:'actual'};}
+   if(['send_message','send_user_message'].includes(call.method)){if(call.args.text==='OWNER_REPRESENTATION')expect(call.args.interactive).toEqual({source:'root = TextContent("Confirmed")',format:'openui',catalog_version:'nano-1'});sent.push(call.args.text);return {status:'sent',message_id:'actual'};}
    throw Error('Unexpected product call '+call.method);
   });
-  const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'main',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home,rules,reviewer:{provider:'fixture',model:'review'}}};
+  const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'main',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home,rules,alwaysAllowTools:['send_user_message'],reviewer:{provider:'fixture',model:'review'}}};
   await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
   await client.rpc.request('session.ensure',{sessionId:'root',agentId:'pa',ownerId:'owner',revision:'1',cwd:home});
   for(const [index,call] of [
@@ -42,14 +42,19 @@ ctx.on('llm/stream',async function*(o){
    {name:'owner_action',args:{text:'FORBIDDEN_DISCLOSURE'}},
    {name:'send_message',args:{target:'peer',text:'CURRENT_OWNER_CHOICE chosen reservation'}},
    {name:'send_message',args:{target:'blocked',text:'Chosen reservation'}},
+   {name:'send_user_message',args:{target:'peer',text:'OWNER_REPRESENTATION',interactive:{source:'root = TextContent("Confirmed")'}}},
+   {name:'send_user_message',args:{target:'blocked',text:'Not sent'}},
+   {name:'send_user_message',args:{target:'peer',text:'Invalid identity',send_as:'owner'}},
+   {name:'send_message',args:{target:'peer',text:'Invalid protocol',interactive:{source:'root = TextContent("Legacy")',format:'openui',catalog_version:'nano-1'}}},
   ].entries()){
    const id=String(index);
    await client.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text:JSON.stringify(call)}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
    await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal,{timeout:10000}).toBeTruthy();
   }
   const observation=await client.rpc.request('session.observe',{sessionId:'root'}) as any;
+  expect(observation.approvals.find((row:any)=>row.callId==='call-4')).toMatchObject({source:'product_disclosure_gate'});
   const results=observation.events.filter((event:any)=>event.type==='tool/result').map((event:any)=>event.data.message);
-  expect(sent).toEqual(['CURRENT_OWNER_CHOICE chosen reservation']);expect(results[0].isError).not.toBe(true);expect(results[3].isError).toBe(true);expect(JSON.stringify(results[3])).toContain('Explicit restriction');expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBe(0);
+  expect(sent,JSON.stringify(results)).toEqual(['CURRENT_OWNER_CHOICE chosen reservation','OWNER_REPRESENTATION']);expect(results[4].isError).not.toBe(true);expect(results[5].isError).toBe(true);expect(results[6].isError).toBe(true);expect(results[7].isError).toBe(true);expect(results[0].isError).not.toBe(true);expect(results[3].isError).toBe(true);expect(JSON.stringify(results[3])).toContain('Explicit restriction');expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBe(0);
   const prompt=await readFile(join(home,'review-input.jsonl'),'utf8');expect(prompt).toContain('CURRENT_OWNER_CHOICE');expect(prompt).not.toContain('DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT');expect(prompt).not.toContain('nano_personal_authorization');
  }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}finally{if(client)await client.shutdown().catch(()=>{});await rm(home,{recursive:true,force:true});}
 },20000);
@@ -66,7 +71,7 @@ it('keeps the ordinary Global capability catalog and executes owner extensions a
       await writeFile(join(root,'extension.mjs'),`export const name='owner-extension';export const inject=['tools'];export function apply(ctx){ctx.tools.register({name:'owner_tool',description:'Owner installed tool',parameters:{type:'object',properties:{}},output:{schema:{type:'object'},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},execute:()=>({value:'OWNER_EXTENSION_EXECUTED'})});}`);
       await writeFile(join(root,'plugins.json'),JSON.stringify([{module:'./extension.mjs'}]));
       await writeFile(join(root,'fixture.mjs'),`import{writeFile}from'node:fs/promises';
-export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',text:'Draft',interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("Draft")'},reply_draft:{target_conversation_id:'source',source_message_id:'source-message',field_name:'reply'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
+export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',text:'Draft',interactive:{source:'root = TextContent("Draft")'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
       await prepareProfile(root,[{insert:[{id:'capability-fixture',name:join(root,'fixture.mjs')}]}]);
       let logs='';const client=new RuntimeClient({home:root,cwd:root,onLog:text=>{logs+=text;}});
       const calls:any[]=[];
@@ -82,7 +87,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
         expect(results.every((entry:any)=>!entry.result.isError),JSON.stringify(results)).toBe(true);
         expect(JSON.stringify(results)).toContain('OWNER_EXTENSION_EXECUTED');expect(JSON.stringify(results)).toContain('SHELL_EXECUTED');
         const catalog=await client.rpc.request('configuration.catalog',{agentId:'agent',cwd:root}) as any;
-        const names=catalog.tools.map((tool:any)=>tool.name).sort();catalogs.push(names.filter((name:string)=>name!=='personal_sources'));
+        const names=catalog.tools.map((tool:any)=>tool.name).sort();catalogs.push(names.filter((name:string)=>!['personal_sources','send_user_message'].includes(name)));
         for(const name of ['bash','read','write','web_search','web_fetch','skill_manage','plugin_manager','owner_tool','task_graph'])expect(names).toContain(name);
         expect(catalog.skills.map((skill:any)=>skill.name)).toEqual(expect.arrayContaining(['owner-skill','nano-ongoing-work']));
         expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('持续推进已交办的工作');
@@ -97,7 +102,11 @@ export const name='capability-fixture';export const inject=['tools'];export func
         if(personal){
           expect(names).toContain('personal_sources');
           expect(calls.find(call=>call.method==='personal_sources').args).toEqual({action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1});
-          expect(calls.find(call=>call.method==='send_message').args.reply_draft).toEqual({target_conversation_id:'source',source_message_id:'source-message',field_name:'reply'});
+          expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-1',source:'root = TextContent("Draft")'});
+          expect(names).toContain('send_user_message');
+          const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
+          expect(Object.keys(send.parameters.properties)).toEqual(['target','text','interactive']);
+          expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
           expect(await readFile(join(root,'.nanoassistant','memory','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');
         }
@@ -126,9 +135,11 @@ it('projects the exact frozen disclosure and complete audience without backend g
   policy:{revision:12,excluded_conversation_ids:[]},sources:[{conversation_id:'old-read-chat',allowed:true}],recipient_risks:[],external_destination:null,
   payload:{content:text,attachments:[],attachment_snapshots:[]}};
  const original=JSON.stringify(frozen);
- expect(personalReviewAction(frozen)).toEqual({tool:'send_message',arguments:{target:'group',text},audience:{name:'Development',type:'group',channel:'web',members:[
+ expect(personalReviewAction(frozen)).toEqual({tool:'send_message',representation:'self',arguments:{target:'group',text},audience:{name:'Development',type:'group',channel:'web',members:[
   {id:'owner',name:'Owner',type:'user',is_owner:true},{id:'p',name:'P',type:'agent'},{id:'q',name:'Q',type:'agent'},{id:'e',name:'E',type:'agent'}]}});
  expect(JSON.stringify(frozen)).toBe(original);
+ frozen.payload.representation='owner';
+ expect(personalReviewAction(frozen)).toMatchObject({tool:'send_user_message',representation:'owner',arguments:{target:'group',text}});
  const interactive={format:'openui',source:'root = TextContent("Full visible text")'};
  const attachment={url:'/file',text:'Actual full attachment body',sha256:'content-hash'};
  frozen.payload={...frozen.payload,interactive,attachments:[{url:'/file'}],attachment_snapshots:[attachment]};

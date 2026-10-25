@@ -5,6 +5,8 @@ interface NanoInputIdentity {
   channel: string;
   messageId: string;
   contextEnvelope?: string;
+  sender?: Record<string, unknown>;
+  pa_agent_id?: string;
   background_returns?: Record<string, unknown>[];
 }
 

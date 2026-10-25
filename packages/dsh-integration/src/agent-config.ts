@@ -131,6 +131,7 @@ export class ConfigurationScopes extends Service {
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     if (config.systemPrompt) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
+    if (config.personal && agent.session.header.origin !== 'subagent') await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
   }
   async setFeatures(agentId: string, features: Record<string, boolean>): Promise<void> {

@@ -177,7 +177,7 @@ it('bypasses the classifier for selected Nano Auto queries while retaining write
     { name: 'create_goal', args: { objective: 'A persistent objective' } },
     { name: 'update_goal', args: { action: 'resume' } },
     { name: 'bash', args: { command: 'pwd' } },
-    { name: 'send_message', args: { target: 'group', text: 'A synthetic reply' } },
+    { name: 'send_message', args: { target: 'group', text: 'A synthetic reply', interactive: {source:'root = TextContent("Public card text")'} } },
   ];
   const home = await mkdtemp(join(tmpdir(), 'nano-query-approval-'));
   let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
@@ -193,7 +193,7 @@ export function apply(ctx) {
    const row=JSON.parse(prompt.split('\\n').findLast(line=>line.startsWith('{')));
    const [name,args]=Object.entries(row).find(([key])=>key!=='id');
    const pending={name,arguments:args};
-   await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({name:pending.name,action:pending.arguments.action??null})+'\\n');
+   await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({name:pending.name,action:pending.arguments.action??null,arguments:pending.arguments})+'\\n');
    yield {type:'block-end',index:0,block:{type:'text',text:options.system.startsWith('REVIEW_POLICY')?'{"risk":"high","decision":"deny","reason":"Synthetic denial"}':'<block>yes</block><reason>Synthetic denial</reason>'}};
    yield {type:'finish',reason:{kind:'stop'}};return;
   }
@@ -226,7 +226,7 @@ export function apply(ctx) {
       effects.push(call); return { ok: true };
     });
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
-    const reviewLog = async () => readFile(join(home, 'reviews.jsonl'), 'utf8').then(text => text.trim().split('\n').map(line => JSON.parse(line) as { name: string; action: string | null }), error => {
+    const reviewLog = async () => readFile(join(home, 'reviews.jsonl'), 'utf8').then(text => text.trim().split('\n').map(line => JSON.parse(line) as { name: string; action: string | null; arguments: any }), error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
     });
@@ -241,6 +241,7 @@ export function apply(ctx) {
       const observed = await client.rpc.request('session.observe', { sessionId: config.agentId }) as { events: { type: string; data: any }[]; approvals: { source: string }[] };
       const results = observed.events.filter(event => event.type === 'tool/result');
       expect(results).toHaveLength(calls.length);
+      if (config.agentId === 'writes') expect(reviews.find(review=>review.name==='send_message')?.arguments.interactive).toEqual({source:'root = TextContent("Public card text")',format:'openui',catalog_version:'nano-1'});
       if (['writes', 'dsh'].includes(config.agentId)) {
         expect(new Set(reviews.map(review => `${review.name}:${review.action}`))).toEqual(new Set(calls.map(call => `${call.name}:${'action' in call.args ? call.args.action : null}`)));
         expect(results.every(event => event.data.message.isError)).toBe(true);
