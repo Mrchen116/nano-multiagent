@@ -18,3 +18,12 @@
 首轮 daily：`/tmp/nano-feat-657-acceptance/.e2e-daily.json`，IM `http://127.0.0.1:53116`。P/E/Q/PA 真实生命周期报告均 enabled/revision1，各自不同 processInstanceId。客户端编辑未保存名称后直接停用，配置草稿未提交。该进程加载了中间构建，清理时暴露 ToolSelection 卸载注册竞态，界面显示“停止未确认”且只有重试，证据 `/tmp/nano-feat-657-acceptance/web-stop-unconfirmed.png`；修复版本需要重新起栈核验，不把这次当正常停止成功。
 
 模拟器：本任务独立 `Nano feat657` / `C268926E-861B-450F-8F1B-477ADD9C0B34`。CUA 初次连接现有 Simulator AX 接口两次超时；正在启动独立设备，不干预其他任务的模拟器。
+
+
+## 最终收口 · 2026-10-25
+
+实施与全部审查修复已提交，版本链与可复核证据汇总到 [implementation-evidence.md](../implementation-evidence.md)。静态 Round 2 无存活 CRITICAL/WARNING，四份 corrected delta aligned；产品 Round 2 真实验证 global/PA/single-thread 启停、新消息、群提及、活动 Bash 停止且其他 Agent 完成、离线重启/明确指定 Task 恢复、全停用管理/冷历史、真实无响应 host 的停止未确认/重试/禁止启用。iOS 三页与聊天、最大动态字体已实测，完整 test 与 Release archive 成功。
+
+最后同步 main `f31339119` 仅为 feat-658 文档，未改变本 unit 的实现或已验证契约。源码冻结 `a97c96f65`；其后的变更仅为 canonical spec 归并、报告、归档。此前修复 `acd31de98` 只使 iOS 聊天 notice 的首次空态保持挂载以启动轮询，实际原生截图与最新测试覆盖，保留不受影响的静态结论；没有新业务协议或生命周期状态语义。SPEC 已对齐独立 Agent/control 拓扑与 Cron 停用例外。
+
+本地后端全套 738 pass、一个既有高轮次用例并发负载超时；该用例同源码原阈值单独运行 pass，合计 739 个用例有通过证据。Web 1,028 pass，Python 70 pass；未把并发 timeout 隐去或放宽阈值。最终交付继续要求远端完整 CI 全绿。验证后停止自建服务，保留测试证据及开发 worktree；无生产部署、重启、迁移或发布。

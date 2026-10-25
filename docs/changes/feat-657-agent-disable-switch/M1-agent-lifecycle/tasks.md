@@ -5,9 +5,11 @@
 - [x] 每 Agent 独立 home/process 与零 Agent control host；离线迁移 plan/apply/verify。
 - [x] Node 启动权威同步、原始代次、取消/重新启用屏障、未知清理证据保留。
 - [x] PA 输入、输出、外部渠道、Heartbeat、Task 恢复屏障。
-- [ ] DSH 所有受管 owner 清理、冷恢复屏障和最后增量 Work 历史整体验证。
-- [ ] 完整 daily 场景、iOS 三页实际检查、独立产品/静态门禁。
-- [ ] final sync、spec 归并、全量 CI、归档和 Ready PR。
+- [x] DSH 所有受管 owner 清理、冷恢复屏障和最后增量 Work 历史整体验证。
+- [x] 完整 daily 场景、iOS 三页实际检查、独立产品/静态门禁。
+- [x] final sync、spec 归并、本地等价检查和完整归档。
+
+交付通过 Ready PR 的远端完整 CI 收口，不自动 merge；PR 与最终 head 由交付回复记录。
 
 ## 回归测试归属
 
