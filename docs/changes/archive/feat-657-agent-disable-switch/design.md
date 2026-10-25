@@ -198,7 +198,7 @@ iOS 原型按 `AgentConfigView` 的 Form、`AgentsView.swift` 中 AgentProfileVi
 
 **验收前置**：daily 模板提供真实 P/E/Q、PA、测试 owner 和模型；本机已成功启动该隔离模板。新增一个 single-thread Agent 与一个无管理权限测试用户；临时目录内使用持续追加文件的无危险 Bash、TERM 忽略进程与嵌套子任务。离线场景只断开该测试节点连接，不关整机网络。无需外部用户、生产 Bot 或付费新资源。外部 Channel 的迟到投递/去重采用既有 adapter 契约加确定性集成测试，群聊/私聊用户体验由真实内置 IM 覆盖。
 
-**iOS 资源与驱动**：按 [iOS README](../../../src/IM/ios/README.md) 使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，避免默认 CommandLineTools 选择。本机已核实完整 Xcode、iOS 26.4 runtime 与 iPhone 17 / 17 Pro device type 可用；实施时用 simctl 创建本任务独立 simulator，按 README 的 build/test 入口构建，设置 `NANO_IM_BASE_URL` 为本任务 daily IM 地址，以同一测试 owner 登录。检查 Agent 配置/详情/Work 的正常、停用、失败状态及系统动态字体放大；完成后关闭并删除本任务 simulator，不使用其他任务命名的设备。无需签名账号或外部真机。
+**iOS 资源与驱动**：按 [iOS README](../../../../src/IM/ios/README.md) 使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，避免默认 CommandLineTools 选择。本机已核实完整 Xcode、iOS 26.4 runtime 与 iPhone 17 / 17 Pro device type 可用；实施时用 simctl 创建本任务独立 simulator，按 README 的 build/test 入口构建，设置 `NANO_IM_BASE_URL` 为本任务 daily IM 地址，以同一测试 owner 登录。检查 Agent 配置/详情/Work 的正常、停用、失败状态及系统动态字体放大；完成后关闭并删除本任务 simulator，不使用其他任务命名的设备。无需签名账号或外部真机。
 
 ## Milestones
 
