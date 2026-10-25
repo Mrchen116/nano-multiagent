@@ -150,3 +150,13 @@ PA 通过自然请求生成卡片 `1a9e1c5362124d95a1a392fe8b8dbad8`，仍以 PA
 本 reviewer 未启动服务。浏览器 viewport 已 reset，owner 姓名已恢复，账号回到 nano；已关闭自己的临时标签，不动 caller 的标签/服务。临时 B、双方群/私聊、卡片历史保留在隔离环境供复验；PA 卡片群保持离群拒绝测试的最终状态，见 environment-delta.json。凭据已脱敏。
 
 本报告仅提交 acceptance.md，远端 push 由 caller 统一执行。不得把本报告当作 merge、部署或发布授权。下一轮至少关闭 G1–G2，并核对其前置和受验版本；已有 Web 证据未失效时不要求重跑整套矩阵。
+
+## R2：附件定向复验（环境阻塞，2026-10-25）
+
+- 受验版本：`cfba1fcd345c3fb5cfd48ed7384846d0a243d967`。caller 已说明本次仅补充 PA 固定指导中的原生附件引用发送路径；reviewer 未读实现，未调整 prompt、审核开关或产品数据。R1 历史失败保留。
+- 范围：沿用 owner 已真实上传的 `review-b.md`（消息 `8597ad32523242aea310e575c649cf12`），拟以自然语言请求转发到 `c_cibgdrue`，再验 B 的实际打开/下载及正式 GET 内容一致性。未重复其他已通过 Web 矩阵。
+- 本轮原 IAB 不可用（创建返回 Browser is not available），改用独立 Chrome 临时标签。真实登录 `nano` 成功并打开原 PA 私聊，页面仍能读取 R1 真实附件与两次失败记录。
+- 填入自然请求“请再代我把刚上传的 review-b.md 附件转发到‘双方身份验收群’c_cibgdrue，正文是‘这份核验报告供讨论参考，功能结论仍是证据不足。’请确保乙能真正打开文件，报告原样保留，不加入群，不创建其他任务。”但 Send 点击及输入框 Enter 均未提交。截图/AX 仍显示未发草稿与末条 R1 消息，未产生可观察的新用户消息或 PA 执行。锁屏与 Chrome 输入无效的因果关系未独立证实。
+- 证据：`/Users/czj/.codex/reports/feat658-acceptance/independent-review/r2/request-unsent.png`、`request-unsent-ax.txt`。未用 API 代替 UI 发送，未观察真实审核、新目标附件或 B 下载；不据此判修复失败或成功。
+- 本轮结论：**inconclusive（环境阻塞）**。G2 保留为未关闭，G1 原生阻塞仍未关闭；总体验收仍未通过。需在可交互 Web 环境继续此同一自然转发旅程，随后补齐原生必验。caller 的自动化通过不替代该证据。
+- 收尾：清空本轮未发草稿并确认 Send 恢复 disabled，关闭本 reviewer 新建 Chrome 标签；未修改/停止任何服务，未创建新产品消息或任务。仅提交本报告，push 仍由 caller 执行。
