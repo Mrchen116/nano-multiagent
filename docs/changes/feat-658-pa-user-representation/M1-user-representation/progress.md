@@ -60,3 +60,11 @@
 - 实际 Q model 请求、重启后请求及 Codex reviewer 输入已保存 `real-contexts/`，并移除 replayed thinking block；真实 sender/pa_agent_id/原文范围保留。`journey-b-q-work-items.json` 与 `journey-b-q-audit.json` 关联实际 commit/push call id，审核明确基于用户原授权放行。普通/PA/SingleThread/child 与 CC 的完整注入矩阵仍参考 runtime-context 的真实 DSH + synthetic provider 样本，不能将其混写成真实模型执行。
 - 文件库副本演练 `migration/results.json`：使用基线 schema 和明确标注的 synthetic 旧业务行，真实 CLI dry-run → apply → verify → apply → verify 全部 exit 0；旧库启动被 migration guard 拒绝，迁移后启动成功；messages=1 / operations=3（prepared/allowed/confirmed）/ delegation=1 / event=1 / relay=1 / draft=1 全保留，旧 provenance NULL。不是生产数据库演练，未触碰生产。
 - 新增旧 payload 缺 representation 的 confirmed 重试与身份冲突回归，迁移/representation 7 tests 通过；`docs-check` 在项目 Python 环境通过（291 sources / 67 required routes）。版本协调由部署提示词规定停流量后统一升级，未进行生产或旧客户端混跑。
+
+### D 完成、证据边界与同步
+
+- D 真正完成：执行助手 `d259d74a-bbb7-4c4c-ba0d-144c12eedd26` 只创建 review-d.md，Q 独立读取并检查后提交/推送 `d6082fff53ddb71054e97f709c8ac89d98f48c87`；本机 origin main 同值，工作区干净，B/C blob 未变、A 文件不存在。Q 对实际 PA 发送结果 `c34800c3011d41f09e2a60ec3f0ed34a`。因此修正后 B/C/D 三次独立自然表述的执行均成功，A 首次失败不被删除或改称成功。
+- Q 实际通过 conversations.read(limit=50) 重读原群消息；`journey-final-q-work-items.json`、`journey-final-q-child-work-items.json`、audit 和 Git 证据可复查。执行子 Agent 的任务正文是父 Agent 摘要，不冒称其模型输入复制全部聊天；实际子 Agent 独立审核 `real-contexts/q-child-review.json` 保留原 message id `c2a5165e69b843ac972241c87dffe1ba`、用户 `u_c3ibn6j3`、PA ID 与完整原范围，未仅凭父摘要扩权。
+- 独立产品 reviewer 已核普通 E Compose 最新编辑、只填稿、冲突取消/替换、同会话、无权限保留值及 ToAssistant 独立提交；最终 verdict 和剩余必验场景以其 acceptance 报告为准。
+- 相邻既有现象：B 查看普通 owner↔B 私聊时标题仍是创建者保存的 B 名字；消息本身双方身份正确。DB `c_hlsapj1c.title=独立验收成员乙`，`title_is_custom=0`，`creator_id=u_c3ibn6j3`；基线与当前 Messaging.conversation 的共享 title 投影、Web 联系人创建 title 和 header 读取逻辑均未改。不在 feat-658 扩大修改私聊标题契约；独立 reviewer 保留体验判断。
+- 同步 `origin/main=b4ea8f908` 到 `8a010ff834fe5b61919b78360698cf802608487d`。上游增量只有 feat-659 设计及审查文档三文件，无产品/测试/共享契约变化；本次既有代码测试、模型服务与 UI 构建结论 retained，实际执行版本不冒写为 merge head。最终门禁有效范围由独立报告明确。
