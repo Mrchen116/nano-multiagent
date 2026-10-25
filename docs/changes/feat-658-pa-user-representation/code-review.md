@@ -64,3 +64,20 @@ Surviving code findings:
 ```
 
 This closes the reviewed code findings, not the outstanding independent product/native acceptance gate. See verifier R2 for corrected-delta outcome and evidence limits.
+
+## Round 3 — attachment guidance patch
+
+- `review_mode=patch`; reviewed only `cfba1fcd345c3fb5cfd48ed7384846d0a243d967^..cfba1fcd345c3fb5cfd48ed7384846d0a243d967` (two files), plus the unchanged attachment snapshot/copy call paths needed to check the guidance.
+- `validated_at=cfba1fcd345c3fb5cfd48ed7384846d0a243d967`; `effective_base=b4ea8f908691d6a309ceb787d4d37d36ec7dfc69`; `effective_through=cfba1fcd345c3fb5cfd48ed7384846d0a243d967`.
+- `personal-security.ts:135` accurately describes the existing native-resource path: Markdown URL in text is found by `PersonalActions.attachments()`, accessible resource bytes/hash are frozen and rechecked, original authorization and disclosure review still apply, and commit rewrites native URLs through `Messaging.copyReferences()`. Local filesystem paths are not uploads; nonreviewable resource contents still fail instead of being silently sent. No schema, upload tool, transport permission or identity path was added.
+- The extension to `personal-disclosure.test.ts:136` checks the existing behavior on an owner-authored message: full text snapshot, represented owner/PA identity, target-conversation Markdown URL and copied resource hash/storage. This is a regression assertion for a depended-on transport capability; it is not presented as a red reproduction of a previously broken server copy implementation.
+- Independent command: Node 24.22.1 `node_modules/vitest/vitest.mjs run apps/im-server/tests/personal-disclosure.test.ts --maxWorkers=2`; **1 file / 17 tests passed**, 21:18:22, duration 539 ms. Caller-reported personal-security 8-test result/integration build are reused and were not repeated.
+- Read product R1's two preserved attachment failures: local-path request lacked upload capability; after a genuine owner upload, natural forwarding still refused because PA did not discover the supported native-resource expression. Those are pre-fix product failures. A static review or successful transport test does not close the natural-model/product finding; targeted product re-review remains separate, and native UI remains blocked.
+
+Surviving patch findings:
+
+```json
+[]
+```
+
+No new defect was found in the dispatched patch. R1/R2 conclusions outside its affected scope are retained. Only report appendices were written; no source/test/service mutation was performed by this reviewer.
