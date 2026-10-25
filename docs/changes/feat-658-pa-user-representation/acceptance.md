@@ -160,3 +160,42 @@ PA 通过自然请求生成卡片 `1a9e1c5362124d95a1a392fe8b8dbad8`，仍以 PA
 - 证据：`/Users/czj/.codex/reports/feat658-acceptance/independent-review/r2/request-unsent.png`、`request-unsent-ax.txt`。未用 API 代替 UI 发送，未观察真实审核、新目标附件或 B 下载；不据此判修复失败或成功。
 - 本轮结论：**inconclusive（环境阻塞）**。G2 保留为未关闭，G1 原生阻塞仍未关闭；总体验收仍未通过。需在可交互 Web 环境继续此同一自然转发旅程，随后补齐原生必验。caller 的自动化通过不替代该证据。
 - 收尾：清空本轮未发草稿并确认 Send 恢复 disabled，关闭本 reviewer 新建 Chrome 标签；未修改/停止任何服务，未创建新产品消息或任务。仅提交本报告，push 仍由 caller 执行。
+
+## R3：设备解锁后的原生必验与附件续验（2026-10-25）
+
+### 版本与结论
+
+用户明确解锁设备后，reviewer 使用专用 Simulator `Nano feat-658 acceptance`（iOS 26.4）实际操作。运行 IM/Node 保持 `cfba1fcd3`；原生二进制由 caller 提供 build revision `3689a8b84`，UI 此后未变。期间 caller 合入新 main 并开始附件修复，但未重启这套运行产品；以下结论只对冻结运行版本成立，不冒称集成新版本已经验收。
+
+**本轮总体仍 fail：原 G1 环境阻塞关闭，G2 自然附件转发缺口关闭；新增 G4 原生附件打开失败，必须修复复验。** R1/R2 的失败和环境阻塞均保留为历史。其他 R1 Web/共享执行旅程 retained；本轮未重复整套 LLM 委托链。
+
+### 独立原生操作与观察
+
+本节截图统一位于 `/Users/czj/.codex/reports/feat658-acceptance/independent-review/r3/`。
+
+| 检查 | 实际结果 | 证据 |
+|---|---|---|
+| owner 群/私聊身份 | nano 真登录；代发是本人右侧气泡、本人 Test User 姓名/头像及相邻 Sent by PA；本人手动消息不带标记 | native-owner-group.png、native-owner-direct.png |
+| B 群/私聊身份与长名 | B 真登录；同一代发显示 owner 左侧姓名/头像及标记，B 自己回复在右侧。临时 owner 长名 `Native Acceptance Owner With A Deliberately Long Display Name 658` 换两行，标记完整、正文可读 | native-other-group-long-name.png、native-other-direct-long-name.png |
+| 多段/长内容 | 研发日常原委托长消息正常换行，代发身份不混进正文；E 的长说明及可编辑卡片可读、可滚动 | native-cross-chat-unsent.png、native-conflict-cancel.png |
+| 普通 E 最新值同会话采用 | 将真实模型生成的卡片编辑为 `Native latest draft 658.`，采用后当前输入框得到该最新值；未点 Send、未新增该文本消息 | native-same-chat-latest.png |
+| 冲突取消与替换 | 再编辑成 `Native replacement 658.`，出现 Replace unsent content?；点弹窗外取消后原输入保留；再次采用并明确 Replace 后才替换 | native-conflict-prompt.png、native-conflict-cancel.png、native-conflict-replaced.png |
+| 无权目标保留 | 点“采用到Q与PA协作输入框”，出现 This conversation is unavailable or you do not have permission to write；卡片最新值和原输入均保留，未跳转/发消息 | native-denied-preserves.png |
+| 跨会话采用 | 编辑 E 润色卡为 `Native cross-chat draft: meet at 5 PM with screenshots.`，采用到研发日常后进入该群且只填入此最新文本；随后 reviewer 清空，未公开发送 | native-cross-chat-unsent.png |
+| ToAssistant 区别 | 返回 E 源卡点击“请 Agent 继续”，在 E 私聊实际新增 21:31 的同名用户请求；E 随后真实回复按最新英文草稿润色，群列表最新消息仍是 20:56。区别于此前纯采用 | native-toassistant-request.png；真实 E 会话历史 |
+
+V1 身份及 V4 原生通用编辑采用的决定性行为已观察通过；PA/普通 Agent 两类 Web 卡片证据仍沿用 R1，本轮原生采用链选用 E 卡。AX 同时包含完整 owner 名称和 sent by PA；未额外声称进行完整 VoiceOver 手势巡检。既有 S1（B 私聊标题为自己）在原生也出现，消息发送者身份本身正确，仍依 caller 的既有基线核定为 out-of-unit minor。
+
+### G2 附件自然转发已关闭，G4 原生打开失败
+
+- 输入与 Web 点击分工：root 在其可用真实 IAB 发出自然请求 `e1f6b09c8b55406c86885ffce77cdbcd`，未提示工具名或操作方法；随后 root 用 B 真登录并点群内 `review-b.md`，实际下载 `/Users/czj/Downloads/attachment.md`。reviewer 未冒称亲自操作该 Web 标签，已独立看 `attachment-b-received.png`、读取下载明细及下载文件。
+- reviewer 独立正式 API 以 B 登录读目标消息 `dccfb651265943058949b30fbff31a48`：`sender_type=user`、owner `u_c3ibn6j3`、`pa_agent_id=pa_8b3969af44b2`、completed。正文原句后指向目标群资源 `/im/v1/conversations/c_cibgdrue/attachments/d351fe76ecb8489e9d90d60f0eecdbb7`；其 `attachments` 数组为空，实际附件通过原生资源 Markdown 链接呈现，不把它写成独立附件对象。
+- B GET 目标资源为 200 / 6920 bytes；源 PA 私聊资源 `344efadbdfbb434e9dde4e21696ffc5a` GET 为 404 `resource not accessible`。目标、root Web 下载文件和原始报告 byte-identical，SHA256 为 `0a71418241a758f20131db59191ad7601b4c50d21f90696e5bf4b7c02e9158e1`。独立证据为 `r3/attachment-independent-check.json`。可见标签保留 review-b.md，但 Web 下载默认文件名是 attachment.md。
+- reviewer 读取 caller 导出的真实 operation `dcb44009-1f9a-4084-b8c7-58e509387496`：confirmed、同一目标 message ID、完整附件快照/hash、真实模型 allow（`codexOAuth:gpt-6-luna`）及用户具体转发授权理由；见证据根目录 `attachment-forward-operation.json`。未改审核策略或伪造 allow。
+- **G4 / major / direct：** reviewer 在 B 原生群聊实际点 `review-b.md`，应用跳到 Safari，页面显示 `{"detail":"missing or invalid authorization header"}`，未打开报告。`native-attachment-open.png` 是实际失败截图。该结果不能被 Web 下载成功或 API 200 覆盖。caller 确认属于本次跨端附件验收范围并接手修复；reviewer 未读实现定位或改代码。
+
+### 收尾与下一轮范围
+
+已实际完成 B 私聊观察；owner 显示名经原生设置恢复为 Test User 并出现 Saved，模拟器回到 owner nano 登录状态。测试产生一条 E 私聊 ToAssistant 请求及 E 润色回复；未向研发日常或双方群发送草稿。未保存测试密码，未停服务，未启动其他模拟器。卡片编辑值保留为本轮验收历史，未删旧证据。
+
+下一轮只需新构建的原生附件打开、必要的身份/采用窄回归，以及 caller 合入新 main 后受影响的集成链；不因历史 G1/G2 记录仍在而重复整套矩阵。当前 G4 未关闭，不能交付为总体通过。
