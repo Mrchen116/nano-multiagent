@@ -76,3 +76,22 @@ Context impact: read-only projection of already durable history. No change to LL
 ## Final evidence closure
 
 The completed independent product `regression.md` Round 3 passes at `6769c89cb`, closing both reconnect and cold Work issues. Independently inspected its actual screenshot (`product/r3-disabled-interrupted.png`) and native-history text: all four Agents Disabled, P Idle, old execution Interrupted, earlier Completed turns retained, history readable. This resolves the earlier product evidence limitation. No code changed after Round 3; final code findings remain `[]`. The native ownership fixtures and the separate actual-provider root Context probe retain their explicitly different evidence scopes.
+
+## Round 4 — Linux CI PTY cleanup ordering patch
+
+- reviewed_at: 2026-10-26, Asia/Shanghai.
+- review_mode: patch; fixed scope `6b1245bc7..2f9765d3f75cf72445532089406214161b8f4a18`; prior full and bounded conclusions retained.
+- Changed source: only `packages/dsh-integration/src/index.ts:714-724` and removal of the previous post-Job terminal signal block.
+- Surviving findings:
+
+```json
+[]
+```
+
+Read the actual first remote failure excerpt in `/Users/czj/.codex/reports/bugfix-660/ci-first-failure.log`: Linux CI run `40208579485` had 735/736 backend tests pass and the same-host A/B native cleanup case fail with `kill ESRCH` from `LocalPtySession.interruptOnce → LocalTerminalHandle.signalForeground`; frontend passed. This failure supersedes any inference that the earlier macOS result proved Linux PTY cleanup.
+
+The patch closes each target Agent's owned terminals through public `signal` and awaited `kill` before enumerating/killing/waiting on its native Jobs. Inspected the installed public TerminalService implementation: `list(owner)` uses exact Agent ownership, `kill(owner,id)` awaits backend close and removes a record only after successful quiescent cleanup, and a close failure resets its in-flight close marker and rethrows. Inspected LocalPtySession close/interrupt behavior: explicit close terminates the PTY, settles active send and awaits completion before the later Job cancellation can re-interrupt its foreground group. The pre-existing narrow ESRCH allowance applies only to the explicit signal; kill failures and every other cleanup failure still propagate. Native descendant/root disposal, proof/fence checks, host lifetime, and B's resource selection remain unchanged. No DSH source or private import is modified.
+
+Reused rebuilt DSH evidence (`shared-pty-order-build.log`, TypeScript build succeeds) and the complete affected native file (`shared-pty-order.log`, 7/7 pass locally), including A/B child/grandchild/continuable/Bash/PTY cleanup with same PID, retry, cleanup-throw, cold-stop, cold-inbox, schedule and selective durable owners. No test was weakened or skipped by this patch. The fixed revision's Linux CI is still pending at this review snapshot: source inspection and macOS passes support the change but do not establish the affected Linux result.
+
+Context review delta: cancellation order of already owned terminal resources only. The patch does not change system/tools/schema/history/source assembly or activation; the existing actual-provider root probe and Web R1–R3 evidence remain applicable within their stated scopes. The Linux terminal boundary is separately pending its affected-platform CI result. No additional LLM probe or broad re-review is required by this bounded delta.

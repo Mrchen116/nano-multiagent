@@ -172,3 +172,32 @@ Test evidence is compositional rather than a claim that an unperformed final who
 ### Final corrected-delta reconciliation
 
 All six lifecycle delta scenarios remain **aligned**, with no uncovered observable behavior: target-only shared cleanup, disabled automatic entry/recovery, offline intent ordering, management/history without activation, retained original shared ordinary data and PA scope, and truthful external-effect boundaries. The corrected stop-history path supplies durable terminal facts instead of changing the promised contract. All necessary implementation, recovery, real Context and product exit evidence now exists; no CRITICAL or WARNING remains.
+
+## Round 5 — Linux CI PTY ordering verification delta
+
+> validated_at: `2f9765d3f75cf72445532089406214161b8f4a18`; executed_base: `5b09dbe82292e0b5005d70b5561a74df1885d8f1`; fix delta: `6b1245bc7..2f9765d3f`.
+
+- verification_mode: delta; prior full verification and Web/Context gates retained.
+- requires_full_verification: false; the actual change is limited to terminal/Job cleanup order.
+- code findings: `[]`; corrected-delta outcome: **aligned**.
+- Local implementation verification: pass, 0 confirmed implementation issues.
+- Remote Linux gate: **pending**, not reported as pass. The previous final pass is historical and must not be used to claim all CI passed for this patched revision.
+- report_commit: none; caller owns consolidation. No implementation/tests/services changed by this reviewer.
+
+### Failure and corrected mechanism
+
+CI run `40208579485` is direct affected-platform evidence: backend 735/736 pass, one real same-host A/B terminal-cleanup failure; frontend pass. The exact failure was `Runtime cleanup failed: kill ESRCH` in native LocalPtySession's interrupt path, not a model, frontend or product-state mismatch (`ci-first-failure.log`). `index.ts:714-724` now explicitly signals and awaits closure of each target-owned terminal before native Job cancellation. Public TerminalService awaits close before removing its record; failure is rethrown rather than suppressed. Root/descendant scopes are still disposed after Jobs settle, and genuine cleanup errors still prevent confirmation. Exact Agent ownership filters preserve B and PA scope. The existing narrow signal ESRCH catch is unchanged in scope and does not absorb kill/close failures.
+
+### Evidence and retained gates
+
+| Gate / contract | Evidence | Result at this snapshot |
+|---|---|---|
+| Target-only terminal/Job cleanup; B and shared host preserved | Inspected bounded source and public TerminalService/LocalPtySession close semantics; same-host native regression assertions retained | aligned |
+| Final local build | `shared-pty-order-build.log`: rebuilt DSH TypeScript pass | pass |
+| Complete affected native lifecycle tests | `shared-pty-order.log`: all 7 tests pass locally, no new skips | pass on macOS |
+| Actual Linux failing seam at patched revision | Fixed revision remote CI not yet completed/provided | pending; no platform pass inferred |
+| Real Web lifecycle/Task/offline/retry/all-disabled/Work/history | Existing R1–R3 product report and inspected artifacts; no entry/protocol/projection change in this patch | retained pass within recorded scope |
+| Actual Context preset/history/source consumption | Prior precise real-provider create/dispose/resume probe; no model-visible assembly change | retained pass within recorded single-model scope |
+| Lifecycle delta and architecture | Same target owner boundary, cleanup truthfulness, native public API and shared host/PA topology | aligned; no uncovered observable behavior |
+
+The remaining delivery gate is the fixed revision's actual Linux CI result. Do not merge or report a cross-platform CI pass based solely on this local rerun. This pending check is an evidence limitation, not an additional confirmed code defect or a reason to invalidate unrelated Web/Context evidence. No speculative additional loops or broad reruns were requested by this review.
