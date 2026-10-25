@@ -40,7 +40,7 @@ Session 请求证明代理入口收到什么；若发生协议转换，需再核
 1. 沿 `apps/node/src/configuration.ts::runtime`、integration 的 `agent-config.ts` / `capabilities.ts` 定位配置与过滤；`session.capabilities` 和 `configuration.preview` 可查看 Prompt 组装、工具/Skill 目录，但它们是预览。DSH `llm/stream` 是适配前内容，也不能证明 wire 序列化保真。
 2. 运行已限定的任务，从 Work 视图或 fixture 获取主 session ID，按本页入口找到该 session 的 `*-req-*` 与对应响应。**只检查需要的轮次**：首次请求、工具执行后的下一请求、配置变化后的下一新回复，以及受影响的恢复点。工具结果通常在后续模型请求中；最后一个工具事件没有后续请求时，不能声称它已被模型消费。
 3. 当前代理在 `logs/raw/<bucket>/` 保存同一时间戳的 `*-upstream-req-*`。Session req 是代理入口；转换后的 upstream-req 才是发往 provider 的 payload。用文件时间戳和返回链路关联，检查实际协议而不是假定两份 JSON 相同。缺失记录可能源于日志保留或写入失败，标明缺口，不能由 preview 补证。
-4. Anthropic 入口重点看 `system/messages/tools`；OpenAI Chat 看 `messages/tools`；Responses 上游看 `instructions/input/tools`。检查完整的相关字段及顺序：最终身份/规则、实际可调用 schema、Skill 目录与加载正文、消息/提醒/结果和来源表示。PTC/代码执行呈现时，工具说明和结果可能在 wrapper 或系统文本里，不能只数 `tools` 名称。native source 元数据也可能投影为文本，需追踪其最终表示。
+4. Anthropic 入口重点看 `system/messages/tools`；OpenAI Chat 看 `messages/tools`；Responses 上游看 `instructions/input/tools`（本机 Codex 桥接也会将 system 内容放在 `input` 的 system 消息中，不能只查 `instructions`）。检查完整的相关字段及顺序：最终身份/规则、实际可调用 schema、Skill 目录与加载正文、消息/提醒/结果和来源表示。PTC/代码执行呈现时，工具说明和结果可能在 wrapper 或系统文本里，不能只数 `tools` 名称。native source 元数据也可能投影为文本，需追踪其最终表示。
 5. 对照响应中的实际工具调用、后续请求与产品事实：参数是否来自正常可获得的信息、模型如何解释结果、是否采取正确下一步、是否真的交付。请求存在仅证明交付内容；需要响应/实际行为才能判断消费。UI presenter 与内部返回值只作辅助。
 
 可先对**已定位的单份请求**做不输出正文的结构检查（仓库根运行；参数换成该任务的真实文件）：
