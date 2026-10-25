@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { personalFixture } from './personal-fixture.js';
 
 it('publishes reviewed owner identity atomically without treating it as original owner authorization', () => {
@@ -60,4 +61,27 @@ it('keeps the PA as card executor while the owner is its public author and reche
   const second=service.actions.commit(principal,prepare({...input,request_key:'replacement',interactive:{...interactive,supersedes_message_id:first.message_id}}));
   expect(ctx.messaging.interactions.readDraft(req)).toMatchObject({can_interact:false,superseded_by:second.message_id});
   expect(db.prepare('SELECT count(*) n FROM relay_tasks WHERE message_id IN (?,?)').get(first.message_id,second.message_id)).toEqual({n:0});
+});
+
+
+it.each(['prepared','allowed','confirmed'])('decodes a legacy %s operation as self and never upgrades it to owner',state=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();
+ db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+ const input={...args,request_key:'legacy',conversation_id:'peer',content:'Legacy self message'};
+ const proposal=service.actions.prepare(principal,input);
+ const payload=JSON.parse(String(db.prepare('SELECT payload_json FROM pa_operations WHERE operation_id=?').get(proposal.proposal_ref)!.payload_json));
+ delete payload.representation;
+ const json=JSON.stringify(payload),hash=createHash('sha256').update(json).digest('hex');
+ db.prepare('UPDATE pa_operations SET payload_json=?,payload_digest=? WHERE operation_id=?').run(json,hash,proposal.proposal_ref);
+ const p=service.actions.prepare(principal,input);
+ expect(p.proposal_ref).toBe(proposal.proposal_ref);
+ expect(()=>service.actions.prepare(principal,{...input,representation:'owner'})).toThrow('operation_key_content_conflict');
+ const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
+ const commit={...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref};
+ if(state==='confirmed')service.actions.commit(principal,commit);
+ else if(state==='prepared')expect(p.state).toBe('prepared');
+ const sent=service.actions.commit(principal,commit),message=ctx.messaging.message(sent.message_id);
+ expect(message).toMatchObject({sender_user_id:'a1',sender_type:'agent',delegation:{agent_id:'a'}});
+ expect(message).not.toHaveProperty('pa_agent_id');
+ expect(db.prepare('SELECT count(*) n FROM messages WHERE id=?').get(sent.message_id)).toEqual({n:1});
 });
