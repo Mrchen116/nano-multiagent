@@ -230,3 +230,75 @@ R2 无其他遗留问题。R3 对需求和共享接口重新做 full 判断，�
 
 - Round 3 无 finding；作者核对真实工具权限、公开动作扩展、双端执行与上下文覆盖证据，接受 Approved，0 CRITICAL / 0 WARNING。受审 spec/design/delta/prototype/部署方案保持冻结。
 - 收尾仅把 design-evidence 的临时静态服务状态改为已停止，并追加本结论；没有实质方案变化，R3 证据 retained，无需再次复审。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: `/root/feat658_design_review`（继续由原独立 reviewer 审查）
+- review_mode: `full`
+- mode_reason: 本轮将共享消息来源对象改为顶层可选 PA ID，并补充 S5 的联系 PA 行为及 M1 验收；涉及共享接口与需求，使用 full。完整重核身份、审核、历史与路由闭环；没有变化的原型交互保留此前独立观察，不重复启动服务。
+- started_at: `2026-10-25T19:43:32+08:00`
+- completed_at: `2026-10-25T19:44:40+08:00`
+- duration: `PT1M8S`（本轮有计时的文档及代码核对区间，报告落笔另计）
+- baseline: main `f31339119`；审查五个已暂存 unit 文档的实际 diff。相对 R3 基线 `797b225df`，IM、PA、integration、product-contracts 和双端实现目录没有变化。只追加本报告，不改作者产物、不暂存、不提交。
+- artifacts: 当前 spec、完整 design、四份 delta、deployment-prompt、design-evidence，以及 R1–R3 和 Author Resolutions；原型本轮未修改。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**。
+
+普通用户 sender 加可选 `pa_agent_id` 足以表达新消息的主体和实际代发 PA。简化没有撤掉发送前审核、卡片执行者或 PA 原始证据控制，也没有在接收端引入新的授权等级。本结论是设计通过，不代表字段、真实模型上下文或客户端已实现。
+
+### Coverage 与证据
+
+#### 用户要求、共享字段与实际消费链
+
+spec 已保留用户关于“有无 PA 代回答、给 PA ID、方便直接联系”的原话与确认。D1/D3、消息示例、Inbox/历史说明、Gateway delta 和 M1 使用同一含义：sender 表达用户主体，顶层可选 PA ID 只表达本条实际代发者；普通亲发省略。新代表消息不带 delegation 对象、kind、authorized_by 或重复 PA 名字/标签，模型与公共发送请求不能填写该字段。
+
+真实 `messaging.ts:330` 当前将旧代发表直接投影为 delegation；`RelayInput.message` 尚无该来源字段；`inbox.ts:258` 和 `work.ts:722` 起均独立组装消息片段。新版设计已明确由 IM 受控事务的同一 `message(id)` 投影产生新字段，再贯穿事件、relay、Inbox 每片、正式历史查询和审核/恢复/子 Agent，不假定只改 TypeScript 类型便能自然传递。旧行继续保留 Agent 作者和 UI 标签，不从旧对象反填新字段，也不新增旧对象到模型上下文；既有原始记录无需破坏性改写。
+
+S1–S4 的用户主身份、自然口吻、实质歧义澄清、范围限制及自己发言区别保持；S6 的两工具和通用草稿采用保持。新增 S5 使用字段定位实际 PA，没有新增联系人服务或权限协议。现有 `work.ts:549` 起的 resolve_target 与 `messaging.ts:738` 起的 `agent:`/Agent ID 解析提供寻址入口，仍执行原会话和空间访问限制。设计明确后续联系经过这些现有路径；PA ID 本身不赋予联系或读取私人 Work 的权限。
+
+#### 审核、来源说明与恢复
+
+从真实组装核对 `agent-config.ts:105` 安装 GlobalMode；`global-mode.ts:15` 的来源段目前只在 global 注入，`classifier.ts:16` 和 `codex-context.ts:35` 已引用共享 inboxSourceInstructions。设计复用这一个说明来源，仅增加约定的三句字段解释，并明确补齐 SingleThread/执行子 Agent 的实际系统上下文；不是只把字段放进数据后假定模型知道它。每条消息结果只携带数据，不重复附解释，不覆盖用户 custom_prompt。
+
+`single-thread.ts:119` 起现在将消息转为正文和来源 envelope；`policy/sources.ts` 的 humanInputs、appendResult、restoreEntries 与 `policy/approval.ts:59` 起父子继承均是必须适配的真实消费路径，已被设计清单和 M1 的实际 context 证据覆盖。旧历史规则仍需区分“保留已有用户委托”与“产生新许可/事件”，两种审核 provider 也同步该语义，不能只改普通 Agent 提示。接收端按普通用户规则理解正文并审核实际动作，三句说明不承担完整授权算法。
+
+发送前真实原始委托、披露、完整 payload、受众、guard、两次权限检查、permit 和幂等事务仍保留；内部 representation 与 representation_operation_id 不因公开字段减少而删除。PA 专属原始证据排除与普通接收者规则分开：`personal-agent.ts:128` 的 directOwnerMessage、messageEvidence、authorizationGuard，及 `personal-actions.ts` 的 last_owner_message_id 均被设计明确列入排除代发的路径，避免自身公开表达成为新的主人原话。
+
+#### 路由、卡片与架构判断
+
+`messaging.ts:645` 的用户消息 relay 将消息投影作为 payload，能够沿用既有目标、群策略和去重。新版设计仍要求排除实际发送 PA，并覆盖观察 feed；Slash 控制不能因 sender 变成 user 而触发 `/stop`、`/new` 或来源设置。普通接收者继续读作用户消息，控制证据的排除由产品与 PA 专属指导承担，没有把额外的 PA 授权判断散布给所有 Agent。
+
+R1-W1 的卡片方案没有退化：`Interactions.source/contexts/prepare/record` 仍从内部受控 operation 关联解析同一 executor，不使用公开用户 username 截取 Agent ID，也不把简化后的公开字段当作客户端签发的执行身份。owner 卡片要求 PA 当前参与、可用且可写；提交者仍是实际点击用户，同 PA 替换逐次重新审核。公开来源精简与内部执行资格各自有明确职责。
+
+与额外代表对象、授权等级或独立身份表相比，当前方案复用用户作者、旧代发表与审核事务，只增加一项实际需要的公开 ID。IM 保有消息和身份事实，PA 编排发送/收件，integration 维护模型来源及审核，客户端本地化标记；依赖方向与 R3 一致，未新增 DSH 私有接口或运行时机制。
+
+#### 前端、delta、M1 与部署
+
+- `retained_from: Round 3` — Compose 原型、V1–V4 内容关系、交互动作和冲突/失败状态未变；R1 的身份布局与 R3 的独立编辑采用走查继续适用。本轮唯一文案调整是屏幕阅读标签改为“用户名字，由 PA 代发”，与不再提供额外 PA 名称相容，不需要新布局或新交互。未启动原型、真实服务或模拟器；原生 VoiceOver 和真实客户端仍由 M1 检验。
+- 四份 delta 的 canonical target 与未变 Scenario 保留正确。Gateway personal-agent 增加普通 sender/PA ID 的消费者含义及按用户要求联系 PA，其余三份无需重复协议字段。S5、Runbook 旅程 4、M1 R3 对应联系正确 PA；旅程 5、W1 验证真实 context 的字段唯一、亲发省略、旧历史不回填，未把本轮文档审查当作实际模型通过。
+- 单 M1 的工具身份、审核、双端、历史/子 Agent 与卡片退出标准完整保留；不产生并行实施冲突。资源可用性 `retained_from: Round 1–3`，本轮没有新外部资源前置，也不将旧资源探针升级为新功能证据。
+- deployment-prompt 保留协调版本后启用、旧操作 self、旧数据不升级、停止新代发后前向修复，并补新投影及旧标签不回填核对。内部 nullable operation 迁移不因公开对象删除而改变。独立 `git diff --cached --check` 无错误。
+
+### 历史问题闭环
+
+| Issue | Author Resolution | 本轮证据 | 状态 |
+|---|---|---|---|
+| R1-W1 | R2 已闭合独立 executor、参与资格与卡片验收 | R4 仍以内部 representation_operation_id 对应 PA 解析 source/contexts/prepare/替换/生命周期；公开来源改为可选 ID 未撤销此方案 | **closed** |
+
+R2/R3 无其他遗留 finding；本轮依据实际字段变化及消费链重新判断。
+
+### Issues
+
+无新增或遗留 CRITICAL/WARNING。
+
+### Recommendations
+
+无。当前简化已经满足确认范围，不另加身份元数据、授权解释或兼容分支。
+
+### Author Resolutions
+
+- Round 4 无 finding；作者核对共享字段、简短来源说明、内部审核/卡片身份与实际消费链，接受 Approved，0 CRITICAL / 0 WARNING。受审产物无后续实质修改；未启动服务，无新增清理项。

@@ -58,7 +58,7 @@ sequenceDiagram
 
 **D1. 新消息直接存用户主身份，实际 PA 放在服务端生成的来源记录。**
 
-`messages.sender_user_id` 为绑定用户、`sender_type=user`；只有通过 send_user_message 审核的提交能产生。拒绝只在 UI 换头像或每个消费者临时投影作者：那会继续分裂查询、未读、Agent 来源与客户端。普通发消息 API 仍不能指定他人 sender；旧行保持 Agent 身份。
+`messages.sender_user_id` 为绑定用户、`sender_type=user`；只有通过 send_user_message 审核的提交能产生。对外只增加可选 `pa_agent_id` 标识实际代发 PA，发言主体始终由 sender 表达；不再增加 delegation.kind/authorized_by 等模型可见授权结构。拒绝只在 UI 换头像或每个消费者临时投影作者：那会继续分裂查询、未读、Agent 来源与客户端。普通发消息 API 仍不能指定他人 sender；旧行保持 Agent 身份。
 
 **D2. 普通 send_message 共用，PA 代表用户另用 send_user_message。**
 
@@ -70,9 +70,9 @@ PA 向主人汇报、提供建议或以自己身份协作使用 send_message；�
 
 ComposeMessage 是所有启用交互能力的 Agent 可使用的 OpenUI 自定义动作，不是模型工具或后端 Mutation。它将点击时的文本放入明确目标会话输入框，由点击者自行发送；不绑定原消息、不推断“过期”、不依赖 PA 身份。普通 Agent 也能提供该编辑器。模型只提供有业务含义的 interactive 参数，format/catalog_version 由现有工具适配层规范化，不继续要求填写常量。
 
-**D3. 代表关系由现有审核事务签发，不能以 PA 绑定或正文自称替代。**
+**D3. 系统在发送前核验委托，接收端按普通用户消息理解。**
 
-send_user_message 在现有完整外发检查中增加一个判断：真实主人原话确实委托 PA 对此受众表达这段意思，所有限制均被保留。披露许可本身不等于代表发言许可。拒绝新增模型意图分类器、可复用授权票据或“审核通过=批准未来一切”的机制。普通接收端继续审核实际动作，不把外发 allow 当作执行 allow。
+send_user_message 在现有完整外发检查中增加一个判断：真实主人原话确实委托 PA 对此受众表达这段意思，所有限制均被保留。披露许可本身不等于代表发言许可。拒绝新增模型意图分类器、可复用授权票据或“审核通过=批准未来一切”的机制。接收端按 sender 识别用户、按正文理解意图并正常审核实际动作；pa_agent_id 仅用于标记代发和定位 PA，不是一种额外许可。审核 operation/主人证据留在服务端内部。
 
 **D4. 历史保留已有委托，不制造新许可或新触发。**
 
@@ -99,7 +99,7 @@ send_user_message({target, text, interactive?: InteractiveInput}); // 仅绑定�
 // send_message({agent_id, message}) 保留原生内部通信，不接受 interactive。
 ```
 
-两种公开发送在 dsh-integration 共用参数定义与交互规范化：系统补齐 `format='openui'`、`catalog_version='nano-1'`，完整/patch 源码仍按现有编译和替换规则校验；规范化在 publication/request digest 与审核之前完成。模型不能提供这两个常量、reply_draft、send_as、owner id、来源 receipt 或 operation id。错误反馈指出真正缺失/非法的 source、target 或动作参数，不反过来要求模型补系统字段。持久消息及跨包 wire 保留必要协议字段，conversations/Inbox 的模型投影不重复灌入协议常量；不删减交互语义、用户选择或可核验来源。
+两种公开发送在 dsh-integration 共用参数定义与交互规范化：系统补齐 `format='openui'`、`catalog_version='nano-1'`，完整/patch 源码仍按现有编译和替换规则校验；规范化在 publication/request digest 与审核之前完成。模型不能提供这两个常量、reply_draft、send_as、owner id、pa_agent_id 或 operation id。错误反馈指出真正缺失/非法的 source、target 或动作参数，不反过来要求模型补系统字段。持久消息及跨包 wire 保留必要协议字段，conversations/Inbox 的模型投影不重复灌入协议常量；不删减交互语义、用户选择或可核验来源。
 
 工具适配层将两种工具路由到明确的产品调用；PA 编排复用 prepare/review-result/commit，私有 frozen payload 增加 `representation: 'self' | 'owner'`，由可信工具分支决定，绝不从模型参数或正文推断。缺失视为 self，仅为已存在操作解码；新操作总是写明。publication/request digest、重试去重及审核 planned_action 包含真实工具/身份；同 request_key 改身份冲突。普通 Agent 与 PA 的 send_message 都在正式发送边界核验实际 Agent 的当前成员写权限，prepare/commit 再验，不以 PA 的 conversations 可读并集放行。既有外部 channel 自身发言不变。
 
@@ -113,22 +113,25 @@ owner commit 在同一事务中：插入用户消息 → 写来源关联 → 生
 
 ### 公开消息与实际执行者
 
-保留现有 `delegation`，新增仅服务端可生成的判别值：
+新代表消息统一使用普通用户 sender，加一个可选的 PA ID；API、事件、RelayInput 与模型消息投影采用同一简单含义：
 
 ```ts
-// product-contracts；仅示意增量，未列的原有消息字段保留。
-type OwnerRepresentation = {
-  kind: 'owner';
-  agent_id: string;        // 实际发送 PA
-  authorized_by: string;   // 必须等于 message.sender_user_id
-  display_name: string;    // 实际 PA 名称快照
-  label: string;           // 展示兼容；客户端按 kind 本地化“PA 代发”
-};
-// message.sender_type='user'; sender.id=绑定用户；sender 为用户资料。
-// 旧 delegation 无 kind，不能用于用户授权。
+// product-contracts；仅示意相关字段，其他消息字段保留。
+// sender_type='user'，sender.id=绑定用户；sender 为普通用户资料。
+pa_agent_id?: string; // 这条消息的实际代发 PA；用户亲发时不携带
 ```
 
-sender 名字/头像按普通用户消息规则解析；PA 实际 id/名称独立保留。不要将用户 id 当 Agent id 查询 Work，不给普通群成员暴露 PA 私人 Work 链接或运行信息。已审核的附件/Markdown/interactive 正常渲染；身份呈现与卡片执行者分开。
+```json
+{
+  "sender": {"id": "u_owner", "type": "user", "name": "陈梓健"},
+  "pa_agent_id": "pa_owner",
+  "content": "同意提交并推送，不合并、不部署。"
+}
+```
+
+`pa_agent_id` 由 IM 从已提交的受控来源记录投影，调用者不能传入；只有本次代表发送产生的新消息才有。新消息不附加 delegation 对象，也不再输出 kind、authorized_by、PA display_name/label 等重复字段。旧消息仍保留原 Agent 作者和既有 UI 标签，不从旧 delegation 反填新字段；旧代发对象不新增投影到模型上下文。数据库原有审计字段可以保留，不能因此把内部结构继续暴露给模型。
+
+sender 名字/头像沿用普通用户规则；客户端看到 pa_agent_id 就展示本地化“PA 代发”，无需服务端另发标签。实际 PA ID 留给来源追踪与现有 Agent 定位流程；用户说“直接跟我的 PA 聊”时，接收 Agent 可用它定位本条消息的代发 PA，再走已有会话寻址与权限检查，不自动创建新权限或改收件人。不要将用户 id 当 Agent id 查询 Work，不给普通成员暴露 PA 私人 Work 链接。已审核的附件/Markdown/interactive 正常渲染；卡片执行者仍由内部来源解析。
 
 **交互卡片沿用现有参与资格，不扩展为观察会话内可交互。** owner 文本/附件可以发送到主人可写且 PA 允许观察的会话；owner interactive 额外要求实际 PA 是该会话当前可用、可写的参与 Agent。prepare 与 commit 都检查，未参与时在消息落库前以明确 `owner_interactive_requires_pa_participant` 拒绝，说明可发送普通正文或由用户按原流程加入 PA；不自动加入、不静默移除卡片、不等到点击才失败。普通 user 消息 API 仍不能创建 Agent 卡片。
 
@@ -169,8 +172,8 @@ root = Stack([
 | `features/intelligent-ui.ts`、Web catalog、composition examples、`generate-interactive-ui.ts` 生成 Skill/prompt | 共享 interactive.source 写法；系统字段不让模型填写；生成动作签名/示例；区分本地采用与提交请求，删除“一次点击总会记录消息” | Feature on/off、生成物一致性、两端动作解析 |
 | `global-agent.ts` wake、task-execution/task-graphs、heartbeat | 状态汇报仍用自身 send_message；不能强制把代表用户发言塞进它；无可交付内容时不调用任一发送工具 | 唤醒/任务续跑不改已确认身份或自动代发 |
 | `personalReviewAction/Policy`、`policy/approval.ts` | 真实工具名及完整规范化公开 payload；代表委托与披露都查；Compose target、默认文本/表达式属于公开卡内容，点击不是业务授权 | CC/Codex Auto 与 PA 独立外发链，无默认放行缺口 |
-| `policy/sources.ts` instructions/humanInputs/append/restore/codexEntries 与 single-thread/Inbox/conversations 投影 | 可信代表关系、原文范围、live/历史区别；两工具真实回执均投影并随恢复/父子交接保留；仅 sent 表示交付，held/unknown/内部 accepted 不算发送 | 普通接收 Agent、PA、恢复和执行子 Agent 实际 context |
-| 实际加载的 `assets/auto/cc-2.1.267-nano-v1/security_monitor.txt` 及 Codex 审核输入 | Nano 来源/回执条款同步新工具和可信代表证据；保留硬性拒绝、撤回和实际动作审核，不笼统解除恢复历史限制 | 两种审核 provider 的真实请求材料 |
+| `policy/sources.ts` instructions/humanInputs/append/restore/codexEntries 与 single-thread/Inbox/conversations 投影 | 普通用户 sender 与可选 pa_agent_id、原文范围、live/历史区别；两工具真实回执均投影并随恢复/父子交接保留；仅 sent 表示交付，held/unknown/内部 accepted 不算发送 | 普通接收 Agent、PA、恢复和执行子 Agent 实际 context |
+| 实际加载的 `assets/auto/cc-2.1.267-nano-v1/security_monitor.txt` 及 Codex 审核输入 | Nano 来源/回执条款同步新工具及普通用户 sender/可选 PA ID；保留硬性拒绝、撤回和实际动作审核，不笼统解除恢复历史限制 | 两种审核 provider 的真实请求材料 |
 | `capabilities.ts`、agent-config 工具/Feature 组装、product bridge、tool-references | send_user_message 仅绑定根 PA 固定工具；后端校验相同；Compose 随共享交互能力提供，无单独草稿工具/开关；目标解析保留真实类型 | 模型实际可见 schema 与可调用路由一致 |
 
 短核心指导应表达：自己发言用 send_message；真实委托下 PA 用 send_user_message 代表用户；只起草时用 ComposeMessage 填入目标输入框；请求本会话 Agent 继续时用 ToAssistant。不要把整份产品权限算法塞进每个 Agent 的系统提示。工具错误与回执使用同一身份词义；不暴露本不需要的协议常量，不以裁剪原始授权证据换取短 context。
@@ -181,16 +184,24 @@ root = Stack([
 
 - owner 分支复用 messaging 用户消息 relay 排队，单次覆盖 direct/group，沿用 @、group reply policy、幂等 key 和生命周期重验；排除实际发送 PA。该分支不再同时调用旧 queueDirectAgentRelays + gateway.groupReply，避免重发或让来源再次变成 Agent。
 - 这是已审核的公开消息，不经用户输入 `/stop`、`/new` 或 settings 控制路由。文字斜杠命令作为普通正文处理，不能由代表消息清空/暂停主人会话。
-- PA 观察 feed/sourceFacts/messageEvidence 保留用户主身份和 `delegation.kind=owner`；自发排除使用实际 PA id，同时覆盖参与 relay 和观察路径。自己的代发历史可查询，不能成为自己的新请求或新原始授权。
+- PA 观察 feed/sourceFacts/messageEvidence 保留用户主身份和可选 `pa_agent_id`；自发排除使用实际 PA id，同时覆盖参与 relay 和观察路径。自己的代发历史可查询，不能成为自己的新请求或新原始授权。
 - `directOwnerMessage`、source-control 原始 evidence、authorizationGuard、last_owner_message_id 与主人抢先回复判定均排除代发，明确区分本人亲自输入和经 PA 公开表达；否则会形成自我授权、自己使自己的 permit 失效或误判主人抢先回复。一般接收 Agent 仍把公开代发理解为用户意图，这个排除仅作用于 PA 原始委托/控制证据。
 
 ### Inbox、历史与审核的同一来源
 
-1. product-contracts RelayInput.message 增加可选 delegation；IM relay、PA admission、Inbox 持久 payload 到 `inbox.read` 不丢失。分页每一片保留 id/sender/delegation/time；partial 仅表示未完整读取，不独立构成完整动作范围。
-2. IM work conversation read/search 以 `message(id)` 构造 sender 和 delegation，所有分页/长消息片段保持一致。普通搜索摘要不足以执行时读取完整原消息；只有产品 conversations 工具真实返回的结构化消息才可成为来源证据，文件/任意工具 JSON 不可。
-3. dsh-integration `policy/sources` 对成功 inbox 与 conversations read/search 结果生成可信的结构化来源段，明确工具调用 id、原 conversation/message id、完整性与 live/restored/historical；不信任正文嵌套的同名字段。`humanInputs` 与全上下文审核使用相同投影，不把代表消息简化为没有来源的文本。single-thread 输入与 DSH 子会话继承仍通过现有公开接口携带来源，不添加私有运行时字段。
-4. 固定来源规则：`sender.type=user + delegation.kind=owner` 是该用户经核验 PA 在该目标会话发表的原文；只在原文表达范围内成立，继续遵守后续用户修改/撤回及正常工具审核。PA 自身原始委托核对不能引用自己的代发来扩大权限。仅有旧 label、Agent 自述、未知来源无此效力。
-5. live Inbox 是新输入；历史和恢复提供既有原话证据而不变成新事件。保留现有 Inbox ACK、input message id、任务/工具执行结果幂等与 inherited provenance。交给子 Agent 时继承可验证的原文来源，不把父 Agent 的摘要单独视为许可。原始证据已不在有效上下文时通过正常 conversations/read 恢复；权限撤销仍拒读，不替接收方打开私人 PA 私聊。
+1. product-contracts RelayInput.message 增加可选 pa_agent_id；IM relay、PA admission、Inbox 持久 payload 到 inbox.read 不丢失。每个消息片段保留 id/sender/pa_agent_id/time；partial 仅表示未完整读取，不独立构成完整动作范围。
+2. IM work conversation read/search 从 message(id) 取得普通用户 sender 与可选 pa_agent_id；分页/长消息片段一致。普通搜索摘要不足以执行时读取完整原消息。继续采用现有应用来源与正文数据的可信边界，不因正文嵌套同名字段改变实际来源。
+3. dsh-integration policy/sources 对正式 Inbox 与 conversations read/search 结果保留原 conversation/message id、正文、完整性、时间和现有 live/restored/historical 标记；humanInputs、single-thread 输入、恢复及父子交接保留相同 sender/pa_agent_id，不把用户消息降成 Agent 转述，也不把内部审核账本注入 context。
+4. 新增给模型的字段说明仅为下面三句。接收 Agent 按已有用户消息规则理解正文并审核实际动作，PA ID 不引入独立授权等级。现有历史/撤回/来源真实性约束继续适用，不为该字段再写一套条件化 delegation 授权规则。
+
+   ```text
+   sender 是消息的发言者。
+   可选的 pa_agent_id 表示这条消息由该 PA 代发。
+   用户要求联系代发 PA 时，可用此 ID 定位对应 Agent。
+   ```
+
+   说明复用 policy/sources 的 inboxSourceInstructions：Global/PA 系统提示的 nano-inbox-source（order 801）；CC 审核请求的 system prompt 与 Codex 审核的 Nano evidence adapter 使用同一来源说明。SingleThread 和执行子 Agent 的实际系统上下文也接入该共享说明，不仅保留字段却缺少解释。每条消息结果只携带数据，不重复拼接说明；用户自定义 prompt 不覆盖。
+5. live Inbox 是新输入；历史与恢复保留原用户意思和限制而不变成新事件，后续撤回/修改仍有效。沿用 ACK、input message id、任务/工具结果幂等与 inherited provenance，父 Agent 摘要不替代原用户消息。PA 不能以自己的代发充当新的主人原始证据，该控制继续由前述产品证据路径和 PA 专属指导承担，不扩散为普通接收 Agent 的额外判断。需要原文时正常 conversations/read，权限撤销仍拒读。
 
 ## 前端原型
 
@@ -204,7 +215,7 @@ root = Stack([
 | iOS ChatMessageView | SwiftUI 原生双方头像与群聊姓名布局；本机模拟器可用 | 保留原生头像位置、气泡与底部输入栏，代发身份行本人/对方及私聊均可见；长名字可折行，标记不截断 |
 | 主人 PA 私聊 | 既有 PA 回复与草稿采用 | 普通 PA 名字/身份不变；草稿不加用户代发标记；PA 和普通 Agent 卡片均可采用到明确目标输入框，不自动发送 |
 
-本次对双方代表消息均显示用户名字与用户头像，避免 Web 本人原有省略身份行使代发来源消失。标记为次级中性文字，与名字相邻，屏幕阅读标签为“用户名字，由 PA 名字代发”；不增加必须点击才能识别来源的弹窗，不增加节点名、授权编号或隐私证据入口。
+本次对双方代表消息均显示用户名字与用户头像，避免 Web 本人原有省略身份行使代发来源消失。标记为次级中性文字，与名字相邻，屏幕阅读标签为“用户名字，由 PA 代发”；不增加必须点击才能识别来源的弹窗，不增加节点名、授权编号或隐私证据入口。
 
 ### 原型对齐契约
 
@@ -230,7 +241,7 @@ root = Stack([
 
 ## 风险与回退
 
-风险集中在事件快照早于来源、历史审核降级、PA 自回声和身份改为 user 后卡片/Work 路由失真。由事务级测试、真实 live→历史→子 Agent 旅程和双方客户端验证覆盖，不增加通用代理框架。历史 receipt 公开字段只描述来源，不能携带私人审核上下文。
+风险集中在事件快照早于来源、历史审核降级、PA 自回声和身份改为 user 后卡片/Work 路由失真。由事务级测试、真实 live→历史→子 Agent 旅程和双方客户端验证覆盖，不增加通用代理框架。可选 PA ID 只描述实际代发来源，不能携带私人审核上下文。
 
 旧节点/客户端不认识来源时会把新消息误当用户亲发；不得混合版本启用新 owner 发送。同步更新 IM、全部接收节点、Web 与在用 iOS 后开放。恢复旧程序可能丢失来源语义，出现故障停止新代发并前向修复；必要回滚见部署提示词，不自动删除新消息或重新发送。
 
@@ -256,11 +267,11 @@ root = Stack([
 1. Web 主人在 PA 私聊要求“帮我回 Q：同意在指定分支提交推送报告，不能合并或部署”；PA 用原上下文定位同一群并代表发送。Q 真实读 Inbox、经独立工具审核完成本地测试仓库提交/推送，向群回执，不要求主人再说一次。审核 trace 与真实 commit/ref 作为执行证据。
 2. 主人和 B 分别在 Web 原群/私聊查看同一消息；刷新、定位历史及已有引用/预览身份一致。iOS 登录主人/B 各看同一消息，核对自己的右侧、他人的左侧与 PA 标记；检查窄宽长名/附件/卡片不误路由 PA Work。已有原生图文/交互能力保持。在 PA 当前参与且可用的群中，用户提交 owner 卡片后，真实 PA 收到正确的交互快照；同 PA 经新一轮审核替换卡片成功，旧卡变只读。PA 未参与的观察会话中，owner 卡片发送前明确拒绝、无消息落库，普通 owner 正文仍可正常发送；PA 离群后旧卡提交按原不可用规则拒绝。
 3. PA 报告仍是 PA；普通 Agent 和 PA 分别生成带 ComposeMessage 的编辑器，用户改字后采用到另一会话，仅目标输入框变化，无消息/交互提交/模型请求；分别验证已有草稿取消/替换、同会话、目标无权限、后来有新回复仍能采用，Web 与原生 iOS 各走一次。ToAssistant 仍生成本会话请求；普通用户之后手动发送才产生用户消息。有可解指代正确使用称呼，有两个实质对象时只问对象。历史旧 PA 标签不变，普通 Agent 模仿标签不获权限。
-4. Q 从 conversations read/search 重新取同一原消息、恢复会话并委派执行子 Agent，读取原委托限制；用尚未完成的范围内子步骤验证许可仍可承接，以已完成 commit 验证不重复提交。主人后续撤回/修改后按新原话收敛。超范围合并/部署 proposal 应被正常审核挡住。
-5. 仅主人参与的群：PA send_message 被自身成员权限拒绝，有原始委托的 send_user_message 文本成功；普通 Agent/子 Agent 无代表工具，伪造产品调用仍拒绝。send_user_message 到无主人写权限/外部目标被拒；自己的代发不形成 PA 新任务、来源设置或新 owner guard。核对普通/PA/SingleThread、恢复/子 Agent、CC/Codex 审核的实际 context、schema、工具回执及加载后的 Skill：没有旧草稿参数/系统常量要求，没有所有回复强制旧工具的冲突，能沿原范围正确执行。停止本轮所有服务与模拟器，保存脱敏证据。
+4. Q 从 conversations read/search 重新取同一原消息、恢复会话并委派执行子 Agent，读取原委托限制；用尚未完成的范围内子步骤验证许可仍可承接，以已完成 commit 验证不重复提交。用户随后要求“直接跟我的 PA 聊”，Q 从该消息的 pa_agent_id 定位正确 PA，经现有寻址和权限路径联系；不靠名字猜测、不向其他 Agent 发送。主人后续撤回/修改后按新原话收敛。超范围合并/部署 proposal 应被正常审核挡住。
+5. 仅主人参与的群：PA send_message 被自身成员权限拒绝，有原始委托的 send_user_message 文本成功；普通 Agent/子 Agent 无代表工具，伪造产品调用仍拒绝。send_user_message 到无主人写权限/外部目标被拒；自己的代发不形成 PA 新任务、来源设置或新 owner guard。核对普通/PA/SingleThread、恢复/子 Agent、CC/Codex 审核的实际 context、schema、工具回执及加载后的 Skill：新消息只包含普通 sender 和可选 pa_agent_id，没有 delegation.kind/authorized_by 等重复授权结构或相应长解释；没有旧草稿参数/系统常量要求，没有所有回复强制旧工具的冲突，能沿原范围正确执行。停止本轮所有服务与模拟器，保存脱敏证据。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | 代表发送、可信承接与双方展示 | 无 | 单一顺序闭环 | product-contracts；im-server PA/messaging/interactions/work/relay/db；personal-assistant send/inbox/single-thread；dsh-integration tools/review/sources；Web 与 iOS 消息/交互 runtime/输入框；catalog/generator/Skill/审核模板；相关测试和本 unit | [reviewer] R1：V1/V2 双端双方、群/私聊身份主次可辨，正文自然且原阅读交互保持，参与会话 owner 卡片实际提交/同 PA 替换正确，未参与会话发送前拒绝卡片；[reviewer] R2：V3/V4 与 S3/S4/S6 通用草稿采用、冲突和权限、两工具选择、ToAssistant 区别、自身发言、歧义和伪造/越界正确；[reviewer] R3：S1/S5 实际执行、恢复、历史、子 Agent 承接范围且不重复，旧历史不升级；[worker] W1：消息+来源+事件+relay 原子性/幂等，过期/变更/撤回/无权限拒绝，原始证据排除代发、自回声、读片段/恢复继承和卡片 source/contexts/prepare/替换/生命周期执行归属、共享参数规范化、根 PA 限制、Compose 解析/权限/最新值且无提交窄测试通过；实际模型 context 与选择证据覆盖上表；[worker] W2：Web/iOS 构建及相关回归通过，V1–V4 原型与真实客户端对照截图和结论可复查；[worker] W3：副本迁移、旧数据/操作不升级、混合版本停发/恢复验证，runtime dependency contract 与 docs-check 通过 |
+| M1 | 代表发送、可信承接与双方展示 | 无 | 单一顺序闭环 | product-contracts；im-server PA/messaging/interactions/work/relay/db；personal-assistant send/inbox/single-thread；dsh-integration tools/review/sources；Web 与 iOS 消息/交互 runtime/输入框；catalog/generator/Skill/审核模板；相关测试和本 unit | [reviewer] R1：V1/V2 双端双方、群/私聊身份主次可辨，正文自然且原阅读交互保持，参与会话 owner 卡片实际提交/同 PA 替换正确，未参与会话发送前拒绝卡片；[reviewer] R2：V3/V4 与 S3/S4/S6 通用草稿采用、冲突和权限、两工具选择、ToAssistant 区别、自身发言、歧义和伪造/越界正确；[reviewer] R3：S1/S5 实际执行、恢复、历史、子 Agent 承接范围且不重复，可从代发 PA ID 按用户要求联系正确 PA，旧历史不升级；[worker] W1：消息+来源+事件+relay 原子性/幂等，过期/变更/撤回/无权限拒绝，原始证据排除代发、自回声、读片段/恢复继承和卡片 source/contexts/prepare/替换/生命周期执行归属、共享参数规范化、根 PA 限制、Compose 解析/权限/最新值且无提交窄测试通过；实际模型 context 与选择证据覆盖上表，确认新字段唯一、亲发无标记及旧历史不回填；[worker] W2：Web/iOS 构建及相关回归通过，V1–V4 原型与真实客户端对照截图和结论可复查；[worker] W3：副本迁移、旧数据/操作不升级、混合版本停发/恢复验证，runtime dependency contract 与 docs-check 通过 |

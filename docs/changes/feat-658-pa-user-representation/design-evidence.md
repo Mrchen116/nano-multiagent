@@ -43,3 +43,10 @@
 - [iOS 构图采用结果](/Users/czj/.codex/reports/feat-658-design-resource-check/prototype-compose-ios-adopted.png)：正常采用只导航、填稿并聚焦，发送按钮仍由用户另行操作。原生交互桥接与权限检查须在 M1 真客户端验证。
 
 原型只模拟视觉与状态，不接模型或后端；资源仍使用上节已验证的本机 daily/Xcode，新增旅程不依赖第三方账号。修订审查期间临时重新开启 63358 静态原型服务，复审完成后已停止（进程正常退出）。
+
+
+## 接收端来源字段简化（2026-10-25）
+
+基线 `f31339119`。按用户确认，新消息仅保留普通用户 sender 和可选 pa_agent_id；删除新设计的 delegation.kind/authorized_by 及重复名字标签，模型说明缩为发言者、代发 PA、按用户要求联系 PA 三句。IM 内部审核及实际卡片执行者继续复用原事务来源，不将其变成额外模型权限协议。
+
+已沿现有注入链核对：global-mode.ts:15 将 inboxSourceInstructions 放入系统 nano-inbox-source（801），classifier.ts:16 拼入 CC 审核 system，codex-context.ts:35 拼入 Nano evidence adapter。新字段与说明尚未实现；设计要求 SingleThread/子 Agent 同样实际接入共享说明。UI 主身份、PA 标记与 ComposeMessage 交互不变；既有原型走查保留，不重新启动服务或重跑不受影响的旅程。新增验收核对简化后的实际 context、旧历史不回填，以及按用户要求通过 PA ID 联系正确 Agent。
