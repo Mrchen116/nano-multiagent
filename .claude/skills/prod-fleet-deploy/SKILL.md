@@ -24,6 +24,7 @@ description: "用户明确要求部署、更新或重启个人生产公网 IM �
 - 按授权范围更新；依赖顺序为 IM → 需要更新的代理 → Gateway。涉及前端时重建未入仓的 dist。
 - 首次 DSH 迁移除节点候选外，还必须核对生产 IM 的旧待发 relay、全局主会话登记和工具配置镜像，按 [迁移操作单](../../../docs/operations/dsh-migration.md) 留档转换。候选 ready 不代表真实模型、飞书或消息交付已验收。
 - 长期保留正在使用的固定 `prod-main`；仅在首次路径迁移健康后回收干净且无进程使用的历史 `prod-main-*`，保留并报告有修改的目录，不 force、不动其他用途 worktree。签名换钥、数据清理与身份迁移不从普通部署推导授权。
+- 本轮包含 PR 合并，或接手同一任务部署时发现 PR 已合入但开发 worktree 仍在，按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)在本轮结束前清理该任务的开发现场并报告结果；这与生产 worktree 的保留/迁移规则分开。
 
 完成需核实目标 SHA、live command/state/LaunchAgent 指向目标 checkout，公网 HTTPS 页面/API、HTTP→HTTPS 跳转、Tunnel、loopback 监听、两 node online、owner 一致、代理和相关真实入口健康，MacBook Air 无 IM `:8011`。局部操作验证受影响服务及其连接即可；合并不等于部署，进程存在不等于健康。
 

@@ -28,4 +28,4 @@ description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit �
 
 完成 final sync、门禁有效性判断、delta 校正（可并入静态审查；未覆盖的校正补做 corrected-delta，无 delta 记录 no spec delta）、canonical 归并、本地 CI 和完整 archive，再创建 Ready for review PR，正常交付不得使用 `--draft`。用户明确要求提前查看时可先 Draft，交付前 `gh pr ready` 并等 required CI 全绿。
 
-每个 worktree 由创建/接管者清理；完成核对本次实际路径与进程。用户要求保留时说明路径和清理触发，阻塞时保存可恢复证据。输出 PR、head、验证与剩余事项；不自动 merge。
+PR 提交后保留开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外。输出 PR、head、验证、worktree 保留/清理状态与剩余事项；不自动 merge。

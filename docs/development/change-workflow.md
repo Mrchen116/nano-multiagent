@@ -202,6 +202,15 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 
 开放 PR 的同一交付会话可以继续处理自包含小修。会话退出后，恢复前必须核对 unit branch、PR head 和 clean worktree；需要修改 design 或新增 milestone 的反馈交由人判断，不能在 archive 中启动第二套生命周期。
 
+### PR 合入后的 worktree 清理
+
+本规则适用于常规实施、快速开发及后续合并/部署会话，以 PR 合入事件触发，不等待用户停止聊天：
+
+- PR 已创建但未合入时，保留该任务的开发 worktree 供审查和修改；CI 全绿、unit 文档归档或本轮回复结束都不触发删除。验证结束后停止自建测试服务，除非用户明确要求保留预览；停止服务不等于移除 worktree。milestone 临时现场仍按原流程在集成后由 worker 清理。
+- 获授权执行 PR 合并的 Agent 在确认远端已合入后，接手该任务的开发 worktree 清理，在本轮结束前完成；后续会话处理同一任务时若发现 PR 已合入而目录仍在，也补做清理，包括此前归档失败的遗留现场。不因本规则自行合并 PR。
+- 清理前核实具体路径与 PR 的对应关系、提交已保存且变更已合入、无其他未提交工作或活进程，并保留必要的本地测试证据。仅移除该任务的开发 worktree，保留生产 `prod-main`、研究基线和其他任务现场；运行数据与进程核对见 [worktree-runtime](worktree-runtime.md)。
+- Codex 管理的 worktree 优先使用 `archive_worktree`；普通 Git worktree 使用 `git worktree remove`。随后核实目录与 Git worktree 登记确实已移除，不以调用工具成功或聊天归档代替。用户要求继续保留、检查不满足或清理失败时，报告路径、具体原因和下次清理触发；最终回复明确本任务 worktree 已清理或仍保留。
+
 ## 角色边界
 
 | 角色 | 负责 | 不负责 |
