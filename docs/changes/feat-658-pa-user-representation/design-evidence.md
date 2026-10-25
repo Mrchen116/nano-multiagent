@@ -27,3 +27,19 @@
 - 测试普通成员 B、专项会话、虚构仓库/bare remote 都能在本轮隔离目录经正式产品入口/本地 Git 创建，无外部账号或权限依赖。生产不作为测试环境。
 
 设计审查阶段原型服务地址为 `http://127.0.0.1:63358/prototype.html`。收尾已执行 e2e-down 并终止原型静态服务；后续可直接打开 HTML 或重新用本地静态服务查看。
+
+## 方案修订与新增走查（2026-10-25）
+
+修订基线 `797b225df`。按用户确认改为共用 send_message、根 PA 专属 send_user_message、通用 ComposeMessage；去掉新调用的 reply_draft 和模型填写的协议常量。此时仍无产品代码修改。原身份展示/来源链的 R1/R2 证据保留，新增草稿旅程和 context 接线需本轮独立复审。
+
+静态审视真实 agent-config/global-mode/personal-security、交互 Feature/catalog/generator、policy/sources/approval、实际加载的 CC 模板与 iOS runtime：旧工具/schema/Skill 存在旧字段和“每次公开回复均用 send_message”“一次点击记录消息”的冲突，已在 design 上下文表逐项纳入实施。安装的 OpenUI lang-core 公开 defineAction 与 library actions 扩展能承载新动作；iOS 当前仅处理 set/reset/run/continue/open_url，需要接入自定义动作及 Swift host，不是只改 Web 示例。此为代码路径证据，不宣称新 context 已生成或真实模型已通过。
+
+修订原型通过本地 IAB 实际操作：
+
+- [普通 Agent、320 内容宽编辑器](/Users/czj/.codex/reports/feat-658-design-resource-check/prototype-compose-320.png)：普通 E 名字、明确目标、可编辑文字和两种按钮均可辨认；仅为容器宽度，非原生实现。
+- [采用后目标输入框](/Users/czj/.codex/reports/feat-658-design-resource-check/prototype-compose-adopted.png)：先把文字改为“Q，只提交报告，不推送。”再采用，目标聊天输入框准确保留修改值，未出现新发送气泡。
+- [已有草稿冲突](/Users/czj/.codex/reports/feat-658-design-resource-check/prototype-compose-conflict.png)：取消后编辑值保留；再次采用并替换后，同一修改值进入目标输入框。原型条件在演示区模拟，不宣称真实附件存储通过。
+- [iOS 构图不可写反馈](/Users/czj/.codex/reports/feat-658-design-resource-check/prototype-compose-ios-denied.png)：目标不可写时仍停留编辑器，显示原因并保留修改值。
+- [iOS 构图采用结果](/Users/czj/.codex/reports/feat-658-design-resource-check/prototype-compose-ios-adopted.png)：正常采用只导航、填稿并聚焦，发送按钮仍由用户另行操作。原生交互桥接与权限检查须在 M1 真客户端验证。
+
+原型只模拟视觉与状态，不接模型或后端；资源仍使用上节已验证的本机 daily/Xcode，新增旅程不依赖第三方账号。修订审查期间临时重新开启 63358 静态原型服务，复审完成后已停止（进程正常退出）。
