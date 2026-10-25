@@ -711,6 +711,15 @@ export default class NanoRuntime {
           const agents = ctx.agents.list().filter(agent => this.ownerOf(agent.id) === agentId);
           const stopped = agents.map(agent => ({agent, rootSessionId: boundRoot(agent.id), parentSessionId: agent.session.header.parentSession}));
           for (const agent of agents) agent.cancel({kind: 'user'});
+          // Close owned terminals before cancelling their Jobs. Cancelling a
+          // send first can race an exited foreground group and poison native
+          // terminal cleanup with ESRCH even after the process tree has exited.
+          const terminalService = terminals;
+          if (terminalService) await Promise.all(agents.flatMap(agent => terminalService.list(agent).map(async terminal => {
+            try { await terminalService.signal(agent, terminal.sessionId, 'SIGINT'); }
+            catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
+            await terminalService.kill(agent, terminal.sessionId, 'Agent disabled');
+          })));
           // Cancel background operations before their terminal/Agent scopes unwind.
           // Every lookup is owner-scoped; shared-host and B jobs are untouched.
           const jobStops = agents.flatMap(agent => ctx.jobs.list(agent.id).map(job => {
@@ -726,13 +735,6 @@ export default class NanoRuntime {
             workflow.then(owner => Promise.all(agents.map(agent => owner.stopSession(agent.id)))),
             models.then(owner => owner.cancelPersisted(id => this.ownerOf(id) === agentId)),
           ]);
-          // A completed send can leave its foreground command running. After
-          // Job cancellation settles, interrupt it before disposing the PTY.
-          const terminalService = terminals;
-          if (terminalService) await Promise.all(agents.flatMap(agent => terminalService.list(agent).map(async terminal => {
-            try { await terminalService.signal(agent, terminal.sessionId, 'SIGINT'); }
-            catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
-          })));
           disposingScopes = true;
           await cleanup.run(errors, async () => {
             await ctx.subagents.drainContinuableDescendants(agents);
