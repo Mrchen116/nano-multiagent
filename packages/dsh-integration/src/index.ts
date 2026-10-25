@@ -741,14 +741,31 @@ export default class NanoRuntime {
           await lifecycle.prepare(agentId, () => cancelPersisted(agentId));
           if (ctx.agents.list().some(agent => this.ownerOf(agent.id) === agentId)) throw new Error('Managed Agents remain after cleanup');
           if (errors.length) throw new Error(`Runtime cleanup failed: ${errors[0]}`);
-          const finalHistory = await Promise.all(stopped.flatMap(({agent, rootSessionId, parentSessionId}) => rootSessionId ? [(async () => {
+          const snapshot = async (sessionId: string, rootSessionId: string, parentSessionId: string | undefined, events: SessionEvent[], throughSeq: number) => {
+            const modelRuns = structuredClone((await models).fallback.list(sessionId));
+            return {sessionId, rootSessionId, parentSessionId,
+              events: (await toolViews(sessionId, events)).map(event => ({...event, data: {...event.data}})),
+              modelRuns, modelVersion: modelVersion(modelRuns), throughSeq};
+          };
+          const finalHistory = await Promise.all(stopped.flatMap(({agent, rootSessionId, parentSessionId}) => {
             const afterSeq = cursors[agent.id] ?? -1;
             const events = agent.session.ownEvents().filter(event => event.seq > afterSeq);
-            const modelRuns = structuredClone((await models).fallback.list(agent.id));
-            return {sessionId: agent.id, rootSessionId, parentSessionId,
-              events: (await toolViews(agent.id, events)).map(event => ({...event, data: {...event.data}})),
-              modelRuns, modelVersion: modelVersion(modelRuns), throughSeq: events.at(-1)?.seq ?? afterSeq};
-          })()] : []));
+            return rootSessionId ? [snapshot(agent.id, rootSessionId, parentSessionId, events, events.at(-1)?.seq ?? afterSeq)] : [];
+          }));
+          // An offline disable can arrive after the old host already stopped.
+          // Reconcile its durable end events without restoring disabled Agents.
+          for (const binding of this.bindings.values()) {
+            if (binding.agentId !== agentId || stopped.some(item => item.agent.id === binding.sessionId)) continue;
+            const rootId = SessionId(binding.sessionId);
+            if (!await ctx.sessionPersistence.stat(rootId)) continue;
+            using observation = await ctx.sessionQuery.observeSession(rootId);
+            const events = observation.events.slice(observation.inheritedEventCount).filter(event => event.seq > (cursors[rootId] ?? -1));
+            finalHistory.push(await snapshot(rootId, rootId, observation.header.parentSession, events, observation.cursor));
+            for (const child of await descendantReader.read(rootId, cursors, () => false)) if (child.kind === 'child') {
+              const events = (child.events ?? []).filter(event => event.seq > (cursors[child.id] ?? -1));
+              finalHistory.push(await snapshot(child.id, rootId, child.parentId, events, child.throughSeq ?? cursors[child.id] ?? -1));
+            }
+          }
           return {confirmed: true, history: finalHistory};
         })();
         disabling.set(agentId, task);

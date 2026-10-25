@@ -87,6 +87,21 @@ export function apply(ctx) {
   } catch(error) {throw new Error(String(error)+'\n'+logs,{cause:error});} finally {await supervisor.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
+it('returns durable stop history for cold disabled roots after a Node restart without activating them', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-cold-stop-'));let client:RuntimeClient|undefined;
+  try {
+    await writeFile(join(home,'hold.mjs'), `import {appendFile} from 'node:fs/promises';export const inject=['llm'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id==='root')return appendFile(process.env.DSH_HOME+'/created','root\\n');});ctx.on('llm/stream',async function*(options){await new Promise(resolve=>{if(options.signal?.aborted)resolve();else options.signal?.addEventListener('abort',resolve,{once:true});});yield {type:'finish',reason:{kind:'stop'}};});}`);
+    await prepareProfile(home,[{insert:[{id:'hold',name:join(home,'hold.mjs')}]}]);
+    client=new RuntimeClient({home,cwd:home});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)]});await client.rpc.request('session.ensure',binding(home));await client.rpc.request('session.submit',input('before-shutdown','followup'));
+    await expect.poll(async()=>await client!.rpc.request('session.observe',{sessionId:'root'})).toMatchObject({status:'running'});
+    await client.shutdown();
+    client=new RuntimeClient({home,cwd:home});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle:{a:{revision:2,disabled:true,disabledThroughRevision:2}}});
+    const result=await client.rpc.request('agent.disable',{agentId:'a',revision:2}) as {confirmed:boolean;history:{sessionId:string;events:{type:string}[]}[]};
+    expect(result).toMatchObject({confirmed:true,history:[{sessionId:'root',events:expect.arrayContaining([expect.objectContaining({type:'turn/end'})])}]});
+    expect(await readFile(join(home,'created'),'utf8')).toBe('root\n');
+  } finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
+},15000);
+
 it('retries a slow managed job after the first cleanup deadline without restarting the host', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-cleanup-retry-'));
   const supervisor=new RuntimeSupervisor({home,cwd:home,initialize:async rpc=>{await rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)]});await rpc.request('session.ensure',binding(home));},onReady:async()=>{},onError:()=>{}});
