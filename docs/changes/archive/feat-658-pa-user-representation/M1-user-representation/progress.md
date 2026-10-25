@@ -68,3 +68,21 @@
 - 独立产品 reviewer 已核普通 E Compose 最新编辑、只填稿、冲突取消/替换、同会话、无权限保留值及 ToAssistant 独立提交；最终 verdict 和剩余必验场景以其 acceptance 报告为准。
 - 相邻既有现象：B 查看普通 owner↔B 私聊时标题仍是创建者保存的 B 名字；消息本身双方身份正确。DB `c_hlsapj1c.title=独立验收成员乙`，`title_is_custom=0`，`creator_id=u_c3ibn6j3`；基线与当前 Messaging.conversation 的共享 title 投影、Web 联系人创建 title 和 header 读取逻辑均未改。不在 feat-658 扩大修改私聊标题契约；独立 reviewer 保留体验判断。
 - 同步 `origin/main=b4ea8f908` 到 `8a010ff834fe5b61919b78360698cf802608487d`。上游增量只有 feat-659 设计及审查文档三文件，无产品/测试/共享契约变化；本次既有代码测试、模型服务与 UI 构建结论 retained，实际执行版本不冒写为 merge head。最终门禁有效范围由独立报告明确。
+
+### 附件复验与最终主干同步
+
+- 产品独立 R1 保留两次附件失败：本地路径没有可用上传工具；主人真实上传后，PA 仍未识别已有原生附件引用转发方式。`cfba1fcd3` 只补固定指导，说明已有 Markdown 原生资源引用、完整披露审核、目标资源复制与不可读时拒绝；不新增工具参数或上传协议。独立 static R3 0 findings，disclosure 17 tests 通过。
+- 主 Agent 用自然语言请求 `e1f6b09c8b55406c86885ffce77cdbcd` 后，PA 经真实审核 operation `dcb44009-1f9a-4084-b8c7-58e509387496` 向双方群发布用户身份消息 `dccfb651265943058949b30fbff31a48`。主 Agent 以 B 的 Web 身份点击并下载目标附件，与原文件同为 6920 bytes / SHA-256 `0a71418241a758f20131db59191ad7601b4c50d21f90696e5bf4b7c02e9158e1`。可见标签为 review-b.md，下载默认名为 attachment.md；不声称下载文件名原样保留。独立 reviewer 核对 B target 200、source 404 和字节一致。
+- 用户已解锁 Mac；独立原生验收通过身份和 Compose 主要场景，但实际点击资源 Markdown 链接跳至 Safari 后因缺授权失败。主 Agent 修复：识别同源 conversation attachment 链接，复用既有 AttachmentView 的登录态下载与原生预览；外站链接保留普通处理。原始失败与后续通过分别记录，不以 Web 通过替代原生结果。
+- 最终 fetch 发现 `origin/main=1219d903b` 已合入 feat-657 生命周期/运行时隔离和 feat-659 Context 工程规范。合并为 `7e67ccc7e`：PersonalActions.validate 保留生命周期校验并调用本 unit 的 destination 权限检查；Submit.source 合并生命周期版本与 sender/pa_agent_id。其它相关自动合并由独立 reviewer 局部复核；不以“无冲突”或原版本产品通过替代最终集成判断。
+- 合并后首轮窄验 6 files / 54 tests 通过；完整 build/typecheck、Web 108 files / 1031 tests、Python 70 tests 通过。后端完整检查出现超时，根因仍在调查；集成版真实运行仍待完成。Web npm audit 的 critical 门禁 exit 0，现有依赖有 11 项非 critical 报告（4 low / 2 moderate / 5 high），本 unit 未改依赖版本。
+
+### 集成复验进展
+
+- 原生修复提交 `8b517546d`；XCTest 46 项与 Swift Testing 25 项通过，Markdown 3 项覆盖同源资源、外站链接及原有富文本顺序；Release archive 成功。独立产品 R4 实际以 B 打开原生报告预览、验证身份及 Compose 本地行为后关闭 G4，其余已通过项 retained。
+- 后端首轮 141 files / 756 tests 中 752 pass，4 个失败均为时间预算内未完成。首轮与构建、Web 测试并发，不作为最终全绿结论；构建全部结束后，同码、单 worker 对 4 文件串行复验，12/12 pass（160.68s），没有修改产品或放宽测试超时。首轮日志与复验均保留；只据此说未稳定复现，不宣称已证明唯一负载根因。
+- 新主干 runtime migration 的 plan 对旧日常验收数据报 workspace domain、preview/reviewer session 与 schedule 归属 blocker，未执行 apply。完整旧 runtime / IM 已备份到本地 `pre-final-sync-backup`，旧 Node 停止，旧消息库仅重启新版 IM 供原生读/采用验收。本 unit 的 PA 数据列迁移副本演练仍有效；不把新主干运行时迁移写成通过，部署包含该主干时需单独处理该迁移问题。
+- 集成执行另用官方 `--profile daily --wt .e2e-final-integration` 新实例，独立端口 49803、node identity、home、workspace 和数据库。自然请求 `7f8985ec34f84a90a17a81d306405a61` → owner 代发 `1e77adad641b4d038bda8cefaeb20c84` → Q 正常审核真实提交 `04420a5a8e42d266bb0f3a34d42fb263a58da945`，仅新增 final-integration.md，原三份模板文件未修改；Q 实际联系正确 PA，PA 核查后说明未推送。
+- 此新实例起初遗漏前一实例已保存的“仅允许本机测试 origin”配置增量，daily 默认禁推送生效，因此保留首次 partial 结果，不将其计作一次授权 push 通过；按同一获准验收范围补入 Q/PA 配置后，以自然续办要求仅推送已有提交、不改文件或重复 commit，结果另行核对。真实 Q/PA provider 请求与 Q Codex review 已保留 `final-integration-contexts/`，Q 无 send_user_message，根 PA 有该工具，收到的原用户/PA/message/限制完整。
+- 续办最终完成：Q 向正确 PA 的实收回执 `3cb1efe6ed364dd7b69bb263340bb008`；PA 核实后向主人回报 `0165f8e6401641e781001cadce2a3b8c`。主 Agent 真实 Web 查看并保存截图，独立产品 R5 以正式 API/Git/本机远端复核后最终 pass；HEAD 与 origin/main 同为 `04420a5a8e42d266bb0f3a34d42fb263a58da945`，相对初始化仅一个业务提交、仅新增 final-integration.md。
+- 最终再次 fetch，origin/main 仍为 `1219d903b`，无新增上游差异。两套本轮测试栈与专用模拟器已停止，49303/49803 无 listener，无本 worktree 遗留进程；原数据、迁移拒绝报告、备份、上下文与截图保留在本地。开发 worktree 保留供 PR 审查，不部署、不发布安装包。

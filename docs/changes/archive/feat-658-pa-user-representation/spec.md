@@ -55,11 +55,11 @@ Agent 解读：普通发送保持实际 Agent 的成员权限，不能借 PA 可
 
 1. 用户 16:33 明确表示“我同意”并要求以其口吻回复；PA 外发审核随后认可了指定报告提交/推送及 E/P 继续收尾的委托。原消息：[用户纠正与同意](https://im.nanoim.win/chat/c_kuthz6vx?message_id=9e82c60e150e4eaf8f31d5347f21d6a0)。
 2. 16:34 的[群消息](https://im.nanoim.win/chat/c_fqyj3bvq?message_id=858be663f4db46e7ba6b1328bffe131e)主头像和名字为 Personal Agent，旁边显示“Test User 的 PA · 代为发送”；正文又写“【受 J 委托，以下按 J 的口吻代发】”。
-3. Q/P 实际读取的消息只有 Agent 发送者身份、名字和正文，没有可供承接用户委托的来源语义；两者均仅因来源是 Agent 要求用户再确认。相关现状见 [Inbox 消息投影](../../../packages/personal-assistant/src/inbox.ts) 与 [来源指导](../../../packages/dsh-integration/src/policy/sources.ts)。
+3. Q/P 实际读取的消息只有 Agent 发送者身份、名字和正文，没有可供承接用户委托的来源语义；两者均仅因来源是 Agent 要求用户再确认。相关现状见 [Inbox 消息投影](../../../../packages/personal-assistant/src/inbox.ts) 与 [来源指导](../../../../packages/dsh-integration/src/policy/sources.ts)。
 4. PA 最初两次拟发送正文已明确写 Q、E/P，并非在群稿中写了含糊的“他”。审核质疑的是用户私聊原话中的指代，PA 后续没有准确解释这个区别。最初正文确实以“J 让我代回复”组织，体现的是传话者角色。不能把“群稿写了他”作为已证实的根因。
-5. PA 已获得相关交互卡片摘要，首次群稿也区分了 Q 与 E/P 的职责，不能直接归因为完全缺少任务背景。当前 [PA 指导](../../../packages/dsh-integration/src/personal-security.ts) 和 [发送工具](../../../packages/dsh-integration/src/global-mode.ts) 缺少明确的代表用户发言语义；具体上下文、工具与审核如何承载由设计阶段确定。
+5. PA 已获得相关交互卡片摘要，首次群稿也区分了 Q 与 E/P 的职责，不能直接归因为完全缺少任务背景。当前 [PA 指导](../../../../packages/dsh-integration/src/personal-security.ts) 和 [发送工具](../../../../packages/dsh-integration/src/global-mode.ts) 缺少明确的代表用户发言语义；具体上下文、工具与审核如何承载由设计阶段确定。
 
-当前权威契约见 [IM PA](../../specs/im/personal-agent.md)、[Gateway PA](../../specs/gateway/personal-agent.md)、[消息](../../specs/im/conversations-messages.md)、[Web 聊天](../../specs/im/web-chat-ux.md) 和 [iOS 客户端](../../specs/im/ios-client.md)。现行 PA 契约要求辨认实际 PA 及代发标记，但没有定义本次要求的用户主身份与接收端委托效力；本 unit 明确改变该体验，完成前不覆盖 current specs。
+当前权威契约见 [IM PA](../../../specs/im/personal-agent.md)、[Gateway PA](../../../specs/gateway/personal-agent.md)、[消息](../../../specs/im/conversations-messages.md)、[Web 聊天](../../../specs/im/web-chat-ux.md) 和 [iOS 客户端](../../../specs/im/ios-client.md)。现行 PA 契约要求辨认实际 PA 及代发标记，但没有定义本次要求的用户主身份与接收端委托效力；本 unit 明确改变该体验，完成前不覆盖 current specs。
 
 ## 用户场景
 
