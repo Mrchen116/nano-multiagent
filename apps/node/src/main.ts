@@ -492,6 +492,9 @@ agentLifecycle = new NodeAgentLifecycle({
 await updater.start();
 await managed.start();
 workSync.start();
+// Empty nodes have no execution intent to reconcile, but still expose the
+// management host while the center is unreachable.
+if (!agents.length) await runtime.start();
 void relay.start().catch(reportError);
 heartbeat.start();
 const taskWatch=setInterval(()=>{
