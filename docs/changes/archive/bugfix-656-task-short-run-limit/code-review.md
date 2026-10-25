@@ -32,4 +32,10 @@
 - Remaining findings: `[]`。Code review final result: **Passed**。
 - 此次 closure 记录提交仅更新事实文档，不修改受审源码或测试，保留审查结论。
 
-用户实际产品验收、完整本地 CI 和 canonical 归并仍待完成；unit 保留 active。Code review 通过不代表这些门禁已完成。
+## 最终集成 retained
+
+- 集成提交 `38ff00758b2bccaba90238f570f2ff96231c74ac` 同步主干 `404b5ef02b9f22537c871c8d91e6195a5f09c6b2`；main 增量仅为 feat-657 需求文档，本次源码和测试与 closure head 完全相同。
+- effective_base 更新为 `404b5ef02b9f22537c871c8d91e6195a5f09c6b2`；effective_through 更新为 `b0af4c7619f6423bc4edb8731d51d15ba67b4c4e`。该提交仅将已审查 delta 原样归并到 canonical。
+- 此后归档提交仅更新验证记录和移动 unit，不改源码、测试或契约语义，保留上述审查结论；PR 标注最终 head。
+- Node 24.22.1 下完整本地 CI 通过：后端 704、前端 1022、Python 70 个测试，构建、类型、交互资源、Ruff、文档检查通过；详见 design。
+- 用户明确要求继续完成收尾，本次以原生运行时工程验证记录验收依据并归档；不记为真人产品试用或生产验收。

@@ -44,10 +44,20 @@
 - 2026-10-25 最终验证：`pnpm --filter @nano/dsh-integration build` 通过；`pnpm exec vitest run packages/dsh-integration/tests/task-execution-limits.test.ts packages/dsh-integration/tests/task-execution.test.ts` 14/14 通过（47.63 秒）；`pytest tests/contract/test_runtime_dependency_contract.py -q` 13/13 通过。
 - 文档与 diff：`PYTHON=/Users/czj/Repos/nano-multiagent/.venv/bin/python ./scripts/docs-check` 通过（268 maintained Markdown sources、67 required routes）；`git diff --check` 通过。
 - 新回归实际经历 128 轮中的长跑清零、随后 256 次短跑触顶、触顶前短外部输入不清零、触顶后内部上下文执行不解锁、产品 Agent 跨会话共享及其他 Agent 隔离、真人短输入恢复后的再次 256 次触顶、原生 Schedule 恢复。
-- 环境：Node 25.8.2、pnpm 11.7.0；包管理器报告该 Node 不在仓库声明的 24.22.1/26.12.1 范围内。以上仅为该本地环境验证，未替代受支持 Node 版本上的 CI；未运行全仓 CI、真实 LLM 或生产验收。
-- 用户产品验收：待完成；“对的”确认的是设计，不记为运行验收。
+- 初轮窄验证环境为 Node 25.8.2、pnpm 11.7.0；最终收尾切换到仓库要求的 Node 24.22.1、pnpm 11.7.0、Python 3.12.9，补跑当前 CI 的本地等价检查。
+- 用户要求继续完成收尾（原话：“仍待完成，你为啥不完成？”）。本次后台调度行为以真实锁定 DSH、fixture provider、公开 runtime RPC 和原生事件完成工程验收；独立审查也复核了实际调用链。没有发生真人产品试用、真实 LLM 或生产验收，不将设计确认冒充这些证据。
 - 独立 full code review 确认一个 personal-state 分类问题，修复于 `f18f7ced9` 后经独立 closure 关闭，剩余 findings 为 `[]`；见 [code-review](code-review.md)。
 
 ## Canonical 文档影响
 
-仅修改 Gateway Task 恢复契约的多轮限制并新增短跑场景。当前保留 [delta-spec](specs/gateway/task-graphs.md)，待验收和独立审查后归并，未改 current spec。
+已将 [delta-spec](specs/gateway/task-graphs.md) 的完整修改条目归并到 `docs/specs/gateway/task-graphs.md`，仅修改 Task 恢复契约的多轮限制和短跑场景，没有新增 Requirement 或跨包接口。
+
+## 最终集成与交付验证
+
+- 同步 `origin/main` 的 `404b5ef02b9f22537c871c8d91e6195a5f09c6b2`，增量仅为 feat-657 的需求文档，未影响本次源代码、测试或 delta；已通过的独立 full/closure 结论 retained。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime` 均通过。
+- Python 非 E2E：70 passed、32 deselected；`ruff check .` 与 `ruff format --check .` 均通过。
+- 前端共享契约构建、交互资源一致性检查、`npm audit --audit-level=critical` 通过；前端 107 文件 / 1022 测试通过（72.37 秒）。audit 仍报告 11 项非 critical 依赖告警，未在本次修复中变更依赖。
+- iOS 原生 job 不适用：本次未涉及 iOS 源码或 CI workflow；交互运行时的 TypeScript gate 已运行。
+- 后端全量：`pnpm test --maxWorkers=2`，132 文件 / 704 测试全部通过（291.75 秒），含最终版本的短跑限制回归。
+- 文档完整性、diff whitespace、unit 唯一归档检查在归档提交前执行；远端验证见 PR #405 的最终 head checks。
