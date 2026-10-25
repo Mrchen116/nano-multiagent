@@ -133,6 +133,17 @@ it('reviews real attachment bytes and invalidates approval if the stored file ch
   writeFileSync(join(folder,'message-images','blob'),'Private budget inserted after review');
   expect(()=>service.actions.commit(principal,{...args,proposal_ref:proposal.proposal_ref,verdict_ref:verdict.verdict_ref})).toThrow('attachment_snapshot_changed');
   expect(db.prepare("SELECT count(*) n FROM messages WHERE conversation_id='peer'").get()).toEqual({n:0});
+  // Model tools forward existing native resources through the normal text field.
+  writeFileSync(join(folder,'message-images','blob'),text);
+  const linked=service.actions.prepare(principal,{...args,request_key:'native-link',representation:'owner',conversation_id:'peer',content:'[material.md](/im/v1/conversations/chat/attachments/resource)'});
+  expect(linked.evidence.payload.attachment_snapshots[0].text).toBe(text);
+  const allowed=service.actions.review(principal,{...args,proposal_ref:linked.proposal_ref,payload_digest:linked.payload_digest,evidence_digest:linked.evidence_digest,verdict:{decision:'allow'}});
+  const sent=service.actions.commit(principal,{...args,proposal_ref:linked.proposal_ref,verdict_ref:allowed.verdict_ref});
+  const message=ctx.messaging.message(sent.message_id);
+  expect(message).toMatchObject({sender_user_id:'u1',sender_type:'user',pa_agent_id:'a'});
+  expect(message.content).toMatch(/^\[material\.md\]\(\/im\/v1\/conversations\/peer\/attachments\/[^)]+\)$/);
+  const copied=db.prepare("SELECT * FROM message_images WHERE conversation_id='peer'").get();
+  expect(copied).toMatchObject({sha256:createHash('sha256').update(text).digest('hex'),storage_name:'blob'});
  }finally{rmSync(folder,{recursive:true,force:true});}
 });
 
