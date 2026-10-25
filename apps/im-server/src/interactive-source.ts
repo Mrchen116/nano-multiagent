@@ -14,9 +14,17 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
   if ((!parsed.root && !parsed.rootExpression) || parsed.meta.incomplete || parsed.meta.unresolved.length || parsed.meta.errors.length)
     throw new Error(`Invalid interactive source: ${JSON.stringify({errors: parsed.meta.errors.map(item => item.message), unresolved: parsed.meta.unresolved})}`);
   const actions: Record<string, string> = {};
-  const statements = split(tokenize(source)).map(statement => parseExpression(statement.tokens));
+  const sourceStatements = split(tokenize(source));
+  const statements = sourceStatements.map(statement => parseExpression(statement.tokens));
+  const named = new Map(sourceStatements.map((statement, index) => [statement.id, statements[index]]));
   const stringBindings = new Set<string>();
-  const context: EvaluationContext = {getState: name => parsed.stateDeclarations[name], resolveRef: () => undefined};
+  const context: EvaluationContext = {actions: interactiveCatalog.actions, getState: name => parsed.stateDeclarations[name],
+    resolveRef: name => {
+      const query = parsed.queryStatements.find(item => item.statementId === name);
+      const value = query?.defaultsAST ?? named.get(name);
+      return value ? evaluate(value, context) : undefined;
+    },
+  };
   // The native parser defers bound values. Enforce declared string types too:
   // numeric Select values render a blank label even when an option has that ID.
   const definitions = interactiveCatalog.$defs as Record<string, {properties?:Record<string,{type?:string|string[]}>}>;
@@ -44,6 +52,36 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
       actions[id.v] = label.v;
     }
   });
+  const inspectAction = (node: ASTNode, visited = new Set<string>()): Set<string> => {
+    const kinds = new Set<string>();
+    walkAST(node, child => {
+      if (child.k === 'Ref' && !visited.has(child.n) && named.has(child.n)) {
+        visited.add(child.n);
+        for (const kind of inspectAction(named.get(child.n)!, visited)) kinds.add(kind);
+      }
+      if (child.k !== 'Comp') return;
+      if (child.name === 'ComposeMessage') {
+        kinds.add('compose');
+        const target = evaluate(child.args[0], context), text = evaluate(child.args[1], context);
+        if (typeof target !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(target)) throw new Error('ComposeMessage target must be an explicit Nano IM conversation id');
+        if (typeof text !== 'string') throw new Error('ComposeMessage text must evaluate to a string');
+      }
+      if (child.name === 'ToAssistant' || child.name === 'Mutation') kinds.add('send');
+      if (child.name === 'Run' && child.args[0]?.k === 'Ref') {
+        const mutation = named.get(child.args[0].n);
+        if (mutation?.k === 'Comp' && mutation.name === 'Mutation') kinds.add('send');
+      }
+    });
+    return kinds;
+  };
+  for (const statement of statements) walkAST(statement, node => {
+    if (node.k !== 'Comp') return;
+    if (node.name === 'ComposeMessage') inspectAction(node);
+    if (node.name === 'Action') {
+      const kinds = inspectAction(node);
+      if (kinds.has('compose') && kinds.has('send')) throw new Error('ComposeMessage cannot be combined with ToAssistant or Mutation');
+    }
+  });
   for (const statement of statements) walkAST(statement, node => {
     if (node.k === 'Comp' && node.name === 'Set' && node.args[0]?.k === 'StateRef' && stringBindings.has(node.args[0].n) && node.args[1])
       checkString(evaluate(node.args[1] as ASTNode, context), `Set(${node.args[0].n})`);
@@ -66,6 +104,7 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
   const parsed = parser.parse(schema.source);
   const unwrap = (value: unknown): unknown => value && typeof value === 'object' && 'value' in value ? value.value : value;
   const ctx: EvaluationContext = {
+    actions: interactiveCatalog.actions,
     getState: name => unwrap(Object.hasOwn(state, name) ? state[name] : parsed.stateDeclarations[name]),
     resolveRef: name => { const query = parsed.queryStatements.find(item => item.statementId === name); return query?.defaultsAST ? evaluate(query.defaultsAST, ctx) : undefined; },
   };
@@ -93,9 +132,4 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
   }
   visit(root);
   return {state, fields};
-}
-
-/** Whether a draft navigation field names a declared top-level string state. */
-export function isInteractiveStringState(source:string,field:string):boolean {
-  return typeof parser.parse(source).stateDeclarations[field] === 'string';
 }

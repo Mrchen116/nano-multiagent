@@ -2791,9 +2791,19 @@ describe("MessagePane", () => {
   });
 });
 
-it('shows the server PA delegation label separately from the message body',()=>{
- const delegated:Message={...SAMPLE_MESSAGES[1],delegation:{agent_id:'a-planner',authorized_by:'owner',display_name:'Planner',label:'Owner’s PA · Sent on behalf'}};
- render(<MessagePane conversation={GROUP_CONV} messages={[delegated]} mentionCandidates={[]} onSend={()=>{}}/>);
- expect(screen.getByText('Owner’s PA · Sent on behalf')).toHaveClass('pa-delegation');
- expect(screen.getByText('Hi back')).toBeInTheDocument();
+it.each(['legacy','owner','recipient'])('preserves PA message identity and content for %s', viewer => {
+ const message:Message=viewer==='legacy'
+   ? {...SAMPLE_MESSAGES[1],delegation:{agent_id:'a-planner',authorized_by:'owner',display_name:'Planner',label:'Owner’s PA · Sent on behalf'}}
+   : {...SAMPLE_MESSAGES[0],id:'represented',sender:{id:'owner',type:'user',display_name:'Chen'},sender_user_id:'owner',sender_type:'user',pa_agent_id:'actual-pa',content:'**Agreed**\nNext step'};
+ render(<MessagePane conversation={GROUP_CONV} selfUserId={viewer} messages={[message]} mentionCandidates={[]} onSend={()=>{}}/>);
+ if(viewer==='legacy') {
+   expect(screen.getByText('Owner’s PA · Sent on behalf')).toHaveClass('pa-delegation');
+   expect(screen.getByText('Hi back')).toBeInTheDocument();
+ } else {
+   expect(screen.getByText('Chen')).toHaveClass('chat-bubble-sender');
+   expect(screen.getByText(/PA 代发|Sent by PA/)).toHaveClass('pa-delegation');
+   expect(screen.getByTestId('message-avatar-represented')).toHaveTextContent('C');
+   expect(screen.getByText('Agreed').tagName).toBe('STRONG');
+   expect(screen.getByTestId('message-bubble-represented').closest('.chat-bubble')).toHaveClass(viewer==='owner' ? 'chat-bubble--user':'chat-bubble--agent');
+ }
 });

@@ -3854,6 +3854,27 @@ export const interactiveCatalog = {
       "additionalProperties": false,
       "description": "Modal dialog. open is a reactive $boolean binding — set to true to open, X/Escape/backdrop auto-closes. Put Form with buttons inside children."
     }
+  },
+  "actions": {
+    "ComposeMessage": {
+      "description": "Place the current text in the signed-in user’s composer for an explicit Nano IM conversation id. Local adoption only: never sends a message or asks an Agent. Existing draft conflicts require the user to choose replacement.",
+      "params": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "text"
+        ],
+        "additionalProperties": false
+      }
+    }
   }
 };
 export const interactiveTools = [

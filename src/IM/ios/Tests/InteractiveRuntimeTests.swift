@@ -75,6 +75,39 @@ final class InteractiveRuntimeTests: XCTestCase {
         runtime.leave()
     }
 
+    func testComposeUsesEditedValueAndRequiresExplicitReplacementWithoutSending() async throws {
+        let source = "$draft = \"Initial\"\nroot = Stack([TextArea(\"body\", \"\", 4, null, $draft), Button(\"Adopt\", @ComposeMessage(\"chat\", $draft))])"
+        let (runtime, transport) = try await makeRuntime(source: source)
+        await runtime.load()
+        runtime.chat.drafts["chat"] = "Existing"
+        runtime.chat.attachments["chat"] = [ChatAttachment(url: "/old.png")]
+        runtime.edit(try XCTUnwrap(find("TextArea", runtime.root)), form: nil, value: .string("Edited"))
+        runtime.activate(try XCTUnwrap(find("Button", runtime.root)), form: nil)
+        for _ in 0..<100 where runtime.busy { try await Task.sleep(for: .milliseconds(10)) }
+        let request = try XCTUnwrap(runtime.pendingCompose, runtime.error ?? "Expected replacement choice")
+        XCTAssertEqual(runtime.chat.drafts["chat"], "Existing")
+        XCTAssertEqual(runtime.state["$draft"], .string("Edited"))
+        // Cancel retains both sides; a second click can explicitly replace.
+        runtime.pendingCompose = nil
+        XCTAssertEqual(runtime.chat.attachments["chat"]?.count, 1)
+        try await runtime.compose(request.target, text: request.text)
+        await runtime.replaceCompose(try XCTUnwrap(runtime.pendingCompose))
+        XCTAssertEqual(runtime.chat.drafts["chat"], "Edited")
+        XCTAssertEqual(runtime.chat.attachments["chat"], [])
+        XCTAssertEqual(runtime.chat.composeRequest?.target, "chat")
+        XCTAssertFalse(runtime.submitted)
+        let sends = await transport.sends
+        XCTAssertTrue(sends.isEmpty)
+        await transport.setCanInteract(false)
+        do { try await runtime.compose("chat", text: "Rejected"); XCTFail("Expired source accepted") } catch {}
+        XCTAssertEqual(runtime.chat.drafts["chat"], "Edited")
+        await transport.setCanInteract(true)
+        await transport.setTargetWritable(false)
+        do { try await runtime.compose("chat", text: "Denied"); XCTFail("Read-only target accepted") } catch {}
+        XCTAssertEqual(runtime.state["$draft"], .string("Edited"))
+        runtime.leave()
+    }
+
     private func find(_ kind: String, _ value: JSONValue) -> JSONValue? {
         if value["typeName"].stringValue == kind { return value }
         for child in value.arrayValue ?? Array(value.objectValue?.values ?? [:].values) {
@@ -82,7 +115,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         }
         return nil
     }
-    private func makeRuntime(readOnly: Bool = false) async throws -> (InteractiveRuntime, InteractiveTestTransport) {
+    private func makeRuntime(readOnly: Bool = false, source override: String? = nil) async throws -> (InteractiveRuntime, InteractiveTestTransport) {
         let user = AuthUser(id: "viewer", username: "viewer", display_name: "Viewer", owner_id: "viewer", locale: "zh", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let transport = InteractiveTestTransport(pair: try JSONEncoder().encode(pair))
@@ -93,7 +126,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         let client = IMClient(baseURL: session.baseURL, session: session)
         let chat = ChatStore(client: client, user: user)
         var message = try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"card","conversation_id":"chat","sender":{"type":"agent","id":"agent"},"sender_user_id":"agent","sender_type":"agent","content":"阅读安排","attachments":[],"delivery_status":"completed","created_at":"now"}"#.utf8))
-        message.interactive = MessageInteractive(format: "openui", catalog_version: "nano-1", source: source)
+        message.interactive = MessageInteractive(format: "openui", catalog_version: "nano-1", source: override ?? source)
         return (InteractiveRuntime(client: client, message: message, chat: chat, readOnly: readOnly), transport)
     }
 }
@@ -110,9 +143,13 @@ private actor InteractiveTestTransport: HTTPTransport {
     var puts = 0
     var sends: [JSONValue] = []
     private var conflict = false
+    private var canInteract = true
+    private var targetWritable = true
     private var revision = 0
     private var state: JSONValue = .object([:])
     init(pair: Data) { self.pair = pair }
+    func setCanInteract(_ value: Bool) { canInteract = value }
+    func setTargetWritable(_ value: Bool) { targetWritable = value }
     func setConflict(_ value: Bool) { conflict = value }
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url!.path
@@ -124,12 +161,13 @@ private actor InteractiveTestTransport: HTTPTransport {
                 if conflict { status = 409; data = Data(#"{"detail":{"code":"interaction_draft_conflict","message":"Draft changed"}}"#.utf8) }
                 else { revision += 1; state = try JSONDecoder().decode(JSONValue.self, from: request.httpBody!)["state"] }
             }
-            if status == 200 { data = try JSONEncoder().encode(JSONValue.object(["draft_revision": .number(Double(revision)), "state": state, "submission_message_id": .null])) }
+            if status == 200 { data = try JSONEncoder().encode(JSONValue.object(["draft_revision": .number(Double(revision)), "state": state, "submission_message_id": .null, "can_interact": .bool(canInteract)])) }
         } else if path.hasSuffix("/messages") && request.httpMethod == "POST" {
             sends.append(try JSONDecoder().decode(JSONValue.self, from: request.httpBody!))
             revision += 1
             data = Data(#"{"id":"submitted","conversation_id":"chat","sender":{"type":"user","id":"viewer"},"sender_user_id":"viewer","sender_type":"user","content":"安排阅读","attachments":[],"delivery_status":"pending","created_at":"now"}"#.utf8)
         } else if path.hasSuffix("/conversations/chat") {
+            if !targetWritable { return (Data(#"{"detail":"No write permission"}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!) }
             data = Data(#"{"id":"chat","title":"Chat","participants":[],"participant_ids":["viewer"],"type":"direct","owner_id":"viewer","creator_id":"viewer","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now","can_write":true}"#.utf8)
         } else if path.contains("message-attempts") { status = 404 }
         return (data, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)

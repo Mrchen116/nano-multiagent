@@ -1,4 +1,4 @@
-Write OpenUI inside send_message.interactive.source. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.
+Write OpenUI inside send_message.interactive.source (or send_user_message for an authorized PA representation). Provide source, not format or catalog_version; the host supplies those constants. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.
 
 ## Syntax Rules
 
@@ -23,7 +23,7 @@ Write OpenUI inside send_message.interactive.source. Keep text an independently 
 ## Component Signatures
 
 Arguments marked with ? are optional. Sub-components can be inline or referenced; prefer references for better streaming.
-Props typed `ActionExpression` accept one @step, or Action([@steps...]) for several. See the Action section for available steps (@Run, @ToAssistant, @OpenUrl, @Set, @Reset).
+Props typed `ActionExpression` accept one @step, or Action([@steps...]) for several. See the Action section for available steps (@Run, @ToAssistant, @OpenUrl, @Set, @Reset, @ComposeMessage).
 Props marked `$binding<type>` accept a `$variable` reference for two-way binding.
 
 ### Layout
@@ -252,6 +252,7 @@ Available steps:
 - @OpenUrl(url: string) — Navigate to a URL
 - @Set(variable: $variable, value: any) — Set a $variable to a specific value
 - @Reset(variable: $variable) — Reset $variables to their declared defaults; pass several to reset each (e.g. @Reset($title, $priority) restores $title="" and $priority="medium")
+- @ComposeMessage(target: string, text: string) — Place the current text in the signed-in user’s composer for an explicit Nano IM conversation id. Local adoption only: never sends a message or asks an Agent. Existing draft conflicts require the user to choose replacement.
 
 Example — mutation + refresh + reset (PREFERRED pattern):
 ```
@@ -413,6 +414,7 @@ Before finishing, walk your output and verify:
 - Before sending, check the first screen: can the reader identify the main idea and next useful interaction without reading everything? Keep essential output in the main flow, with related explanation nearby. Use Tabs only for genuinely alternate views or optional details, never to hide the only result behind a vague label. Use semantic heading hierarchy and concise labels. The examples illustrate composition, not fixed topics or mandatory templates.
 - Choose controls that materially help understanding, comparison or input. Distinguish user values, retrieved facts, calculations and explicitly labeled illustrative assumptions. Rendering is not a data source or proof of execution; do not invent live values, task progress, persistence or connected business tools.
 - Use the complete registered library and native language: local state, computations, conditions, Each, Action, Set and Reset. Fields may stand alone or belong to Forms. Local exploration must respond immediately without a new conversation turn. Build meaningful relations between controls, visual results and explanations, not decorative controls.
+- Use @ComposeMessage(target, text) to adopt editable text into an explicit Nano IM conversation input. Name the destination in the visible button label or nearby text. Get target from conversations; it is not an external target or an implicit current chat. The text expression is evaluated at click time. Adoption never submits a message or requests an Agent. Never combine ComposeMessage with ToAssistant or a Mutation in the same action. Local Set/Reset may be combined. Do not use retired reply_draft metadata.
 - Use native Button with ToAssistant only when the user explicitly requests a new Agent response. Multiple local and continuation buttons are supported; the interface remains usable after a request. ContinueButton exists for older messages; prefer native Button in new programs.
 - The only currently connected tools are conversation_messages for Query and continue_conversation for Mutation. The current conversation and user identity come from the host. No filesystem or arbitrary shell/network tool is implicitly connected. Use ToAssistant OR the continue_conversation Mutation for a request, not both for the same request.
 - OpenUrl supports http/https navigation. Declare every mutable variable with the dollar prefix. Use actual values for editable content, never placeholders as the content. Labels and units must make parameter changes understandable. Keep the main chat readable on narrow screens.

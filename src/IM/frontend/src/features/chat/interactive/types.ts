@@ -36,6 +36,9 @@ export interface InteractionContext extends InteractionContextInput {
   fields: InteractionSnapshot['fields'];
 }
 export interface InteractionDraft {
+  can_interact?: boolean;
+  read_only?: boolean;
+  superseded_by?: string | null;
   draft_revision: number;
   updated_at?: string | null;
   state: Record<string, unknown>;

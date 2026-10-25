@@ -2370,6 +2370,7 @@ body {
 }
 
 .chat-bubble--user {
+  flex-direction: row-reverse;
   align-self: flex-end;
   align-items: flex-end;
 }
@@ -2399,11 +2400,16 @@ body {
 
 .chat-bubble-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
 }
 
+.chat-bubble--user .chat-bubble-meta { justify-content: flex-end; }
+
 .chat-bubble-sender {
+  overflow-wrap: anywhere;
+  min-width: 0;
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--im-text-muted);

@@ -22,7 +22,7 @@ export interface InteractiveCardProps {
   message: Message;
   readOnly?: boolean;
   submittedMessageId?: string;
-  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
+  onComposeMessage?(target: string, text: string): Promise<void>;
   onSelect(selection: InteractiveSelection): void;
   onSend(input: InteractionReplyInput, key: string): Promise<unknown>;
 }
@@ -34,7 +34,7 @@ class RenderBoundary extends Component<{ children: React.ReactNode; fallback: Re
 }
 
 /** Render public source while keeping edits private until an explicit continuation. */
-export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend, onUseReplyDraft}: InteractiveCardProps) {
+export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend, onComposeMessage}: InteractiveCardProps) {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState(false);
   const [initial, setInitial] = useState<Record<string, unknown>>({});
@@ -42,7 +42,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [applyingDraft, setApplyingDraft] = useState(false);
-  const [replyText, setReplyText] = useState('');
+  const [composeError, setComposeError] = useState<string | null>(null);
   const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
   const state = useRef<Record<string, unknown>>({});
@@ -64,29 +64,24 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     conversationId: message.conversation_id, source_message_id: message.id,
     state: value, editedAt,
   });
-  function updateReplyText() {
-    const value = message.reply_draft ? state.current[message.reply_draft.field_name] : undefined;
-    setReplyText(typeof value === 'string' ? value : '');
-  }
-  async function useReplyDraft() {
-    if (!message.reply_draft || !onUseReplyDraft || lockedRef.current || applyingDraft) return;
-    clearTimeout(timer.current);
-    setApplyingDraft(true);
+  async function composeMessage(target: string, text: string) {
+    if (!onComposeMessage || lockedRef.current || applyingDraft) return;
+    clearTimeout(timer.current); setApplyingDraft(true); setComposeError(null);
     try {
-      // Persist the same private edits before navigation unmounts this card.
       await saveRequest.current?.catch(() => undefined);
       await save();
       if (dirty.current || saving.current) return;
-      const value = state.current[message.reply_draft.field_name];
-      if (typeof value === 'string' && value.trim()) onUseReplyDraft(message.reply_draft, value);
-    } finally { setApplyingDraft(false); }
+      const latest = await readInteractionDraft(message.conversation_id, message.id);
+      if (latest.can_interact !== true || latest.read_only || latest.superseded_by) throw new Error(t('chat.interactive.readOnly'));
+      await onComposeMessage(target, text);
+    } catch (error) { setComposeError(error instanceof Error ? error.message : t('chat.interactive.actionError')); }
+    finally { setApplyingDraft(false); }
   }
   async function load() {
     setError(null);
     try {
       const draft = await readInteractionDraft(message.conversation_id, message.id);
       state.current = draft.state; revision.current = draft.draft_revision;
-      updateReplyText();
       setInitial(draft.state); setDone(Boolean(draft.submission_message_id));
       setGeneration(value => value + 1); setLoaded(true); dirty.current = false;
       touched.current = false;
@@ -162,6 +157,11 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     },
   }), [message.id, message.conversation_id, t]);
   function onAction(action: ActionEvent) {
+    if (action.type === 'ComposeMessage') {
+      if (typeof action.params.target === 'string' && typeof action.params.text === 'string') void composeMessage(action.params.target, action.params.text);
+      else setError('action');
+      return;
+    }
     if (action.type === 'open_url') {
       try { const url=new URL(String(action.params.url)); if (!['https:','http:'].includes(url.protocol)) throw new Error('Unsupported URL'); window.open(url.href,'_blank','noopener,noreferrer'); }
       catch { setError('action'); }
@@ -194,13 +194,11 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
           initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
           onParseResult={parsed => {
             state.current = {...parsed?.stateDeclarations, ...state.current};
-            updateReplyText();
             if (!lockedRef.current) select(state.current, lastEditedAt.current);
           }}
           onError={errors => { if (errors.some(error => error.source === 'parser')) setError('render'); }}
           onStateUpdate={value => {
             state.current = value;
-            updateReplyText();
             if (lockedRef.current || pending.current) return;
             if (touched.current) lastEditedAt.current = Date.now();
             select(value, lastEditedAt.current);
@@ -213,10 +211,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
       </fieldset>
     </RenderBoundary>}
     {error === 'render' && fallback}
-    {message.reply_draft && onUseReplyDraft && loaded && error !== 'render' && <div className="interactive-card-status">
-      {message.reply_draft.possible_stale && <p role="status">{t('pa.draftStale')}</p>}
-      <button type="button" disabled={locked || busy || applyingDraft || !replyText.trim()} onClick={() => void useReplyDraft()}>{t('pa.useDraft')}</button>
-    </div>}
+    {composeError && <p role="alert">{composeError}</p>}
     {(locked || busy || done || error) && <div className="interactive-card-status" aria-live="polite">
       {locked ? t('chat.interactive.readOnly') : busy ? t('chat.interactive.sending') : done ? t('chat.interactive.submitted') : null}
       {error && error !== 'render' && <span role="alert">{t(`chat.interactive.${error}Error`)}</span>}

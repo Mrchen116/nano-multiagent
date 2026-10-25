@@ -103,8 +103,8 @@ export interface MessagePaneProps {
   /** Compatibility input for callers not yet upgraded to the typed timeline. */
   messages?: Message[];
   mentionCandidates: MentionCandidate[];
-  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
-  draftSeed?: { id: string; conversationId?: string; text: string } | null;
+  onComposeMessage?(target: string, text: string): Promise<void>;
+  draftSeed?: { id: string; conversationId?: string; text: string; replace?: boolean; focusOnly?: boolean } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
   /** feat-517: authoritative dynamic commands supplied by the active Agent runtime. */
@@ -238,7 +238,7 @@ export function MessagePane({
   messages: messagesProp,
   mentionCandidates,
   draftSeed = null,
-  onUseReplyDraft,
+  onComposeMessage,
   slashSkills = [],
   slashCommands = [],
   nodeName,
@@ -413,9 +413,12 @@ export function MessagePane({
   useEffect(() => {
     if (!draftSeed) return;
     if (draftSeed.conversationId && draftSeed.conversationId !== conversation.id) return;
-    setDraft(draftSeed.text);
-    setDraftMentions([]);
-    setSlashDismissed(false);
+    if (!draftSeed.focusOnly) {
+      setDraft(draftSeed.text);
+      if (draftSeed.replace) { setPending([]); setFailed([]); }
+      setDraftMentions([]);
+      setSlashDismissed(false);
+    }
     const el = composerRef.current;
     if (el) {
       el.focus();
@@ -1168,7 +1171,7 @@ export function MessagePane({
                   key={m.id}
                   message={m}
                   selfUserId={selfUserId}
-                  workAgentId={globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
+                  workAgentId={m.sender.type === "agent" && globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
                   nodeName={agentNodeNames[m.sender.id]}
                   conversationId={conversation.id}
                   readOnly={conversation.can_write === false}
@@ -1183,7 +1186,10 @@ export function MessagePane({
                   onSheetRequest={requestActionSheet}
                   interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
                   interactiveSubmissionId={submittedMessages.get(m.id)}
-                  onUseReplyDraft={onUseReplyDraft}
+                  onComposeMessage={async (target, text) => {
+                    writeComposerSnapshot(composerSnapshots, conversation.id, liveComposerRef.current);
+                    await onComposeMessage?.(target, text);
+                  }}
                   onInteractionSelect={chooseInteraction}
                   onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
                 />
@@ -1638,10 +1644,10 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend, onUseReplyDraft,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend, onComposeMessage,
 }: {
   message: Message;
-  onUseReplyDraft?(draft: NonNullable<Message["reply_draft"]>, text: string): void;
+  onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
   interactiveSubmissionId?: string;
   onInteractionSelect(selection: InteractiveSelection): void;
@@ -1848,7 +1854,7 @@ function MessageBubble({
       data-message-id={message.id}
       className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}
     >
-      {!isUser && (
+      {(!isUser || message.pa_agent_id) && (
         <span
           data-testid={`message-avatar-${message.id}`}
           className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
@@ -1859,13 +1865,13 @@ function MessageBubble({
         </span>
       )}
       <div className="chat-bubble-column flex flex-col min-w-0">
-        {!isUser && (
-          <div className="chat-bubble-meta">
+        {(!isUser || message.pa_agent_id) && (
+          <div className="chat-bubble-meta" aria-label={message.pa_agent_id ? t('pa.senderLabel', {name:message.sender.display_name ?? message.sender.id}) : undefined}>
             <span className="chat-bubble-sender" style={{ color: foregroundForAvatar(senderColor) }}>
               {message.sender.display_name ?? message.sender.id}
             </span>
-            {nodeName && <small>{nodeName}</small>}
-            {message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : message.sender.role==='personal' && <span className="pa-badge">{t('pa.label')}</span>}
+            {nodeName && !message.pa_agent_id && <small>{nodeName}</small>}
+            {message.pa_agent_id ? <span className="pa-delegation pa-delegation--represented">{t('pa.sentOnBehalf')}</span> : message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : message.sender.role==='personal' && <span className="pa-badge">{t('pa.label')}</span>}
           </div>
         )}
         <div
@@ -1883,15 +1889,15 @@ function MessageBubble({
           {message.content && (
             <div
               ref={bodyRef}
-              className={`chat-message-body${isHuman ? " chat-bubble-content" : ""}`}
+              className={`chat-message-body${isHuman && !message.pa_agent_id ? " chat-bubble-content" : ""}`}
             >
-              {isHuman
+              {isHuman && !message.pa_agent_id
                 ? renderInlineContent(message.content, participants)
                 : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
             </div>
           )}
           {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
-            onSelect={onInteractionSelect} onSend={onInteractionSend} onUseReplyDraft={onUseReplyDraft} /></React.Suspense>}
+            onSelect={onInteractionSelect} onSend={onInteractionSend} onComposeMessage={onComposeMessage} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>

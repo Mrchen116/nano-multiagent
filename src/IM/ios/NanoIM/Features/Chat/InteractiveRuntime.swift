@@ -11,11 +11,13 @@ final class InteractiveRuntime {
     var root: JSONValue = .null
     var state: [String: JSONValue] = [:]
     var busy = false
+    var composing = false
     var readOnly: Bool
     var error: String?
     var loaded = false
     var conflict = false
     var submitted = false
+    var pendingCompose: ChatStore.ComposeRequest?
     @ObservationIgnored private var context: JSContext?
     @ObservationIgnored private var engine: JSValue?
     @ObservationIgnored private var revision = 0
@@ -90,14 +92,15 @@ final class InteractiveRuntime {
             } else { result = try call("activate", [node["id"].stringValue ?? ""]); try receive(result) }
             if state != before { changed() }
             let events = result["events"].arrayValue ?? []
-            let business = events.contains { ["legacy", "mutation", "continue_conversation"].contains($0["type"].stringValue ?? "") }
+            let business = events.contains { ["custom_action", "legacy", "mutation", "continue_conversation"].contains($0["type"].stringValue ?? "") }
             if business && (readOnly || conflict) {
                 error = L("请先读取最新内容；历史回复不能发起新请求。", "Load the latest content first. Historical replies cannot submit requests."); return
             }
+            composing = events.contains { $0["type"].stringValue == "custom_action" }
             busy = business
             let token = generation
             Task {
-                defer { if token == generation { busy = false } }
+                defer { if token == generation { busy = false; composing = false } }
                 do {
                     if business { await flush(); guard !conflict, saved == edited, token == generation, await current() else { return } }
                     for event in events {
@@ -107,6 +110,10 @@ final class InteractiveRuntime {
                             if let value = event["url"].stringValue, let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? "") { openURL?(url) }
                             else { throw runtimeError(L("链接不可打开。", "This link cannot be opened.")) }
                         case "query": querySignatures[event["id"].stringValue ?? ""] = nil
+                        case "custom_action":
+                            guard event["name"].stringValue == "ComposeMessage",
+                                  let target = event["params"]["target"].stringValue, let text = event["params"]["text"].stringValue else { throw runtimeError("Invalid compose action") }
+                            try await compose(target, text: text)
                         case "legacy", "mutation", "continue_conversation":
                             var input = InteractionReplyInput(source_message_id: message.id, state: event["state"].objectValue ?? state)
                             let label = node["props"]["label"].stringValue ?? node["props"]["name"].stringValue ?? L("向 Agent 提问", "Ask Agent")
@@ -134,6 +141,23 @@ final class InteractiveRuntime {
                 } catch { if token == generation { self.error = error.localizedDescription } }
             }
         } catch { self.error = error.localizedDescription }
+    }
+    /// Adoption remains local; fresh source and target access are checked at the click boundary.
+    func compose(_ target: String, text: String, replacing: Bool = false) async throws {
+        guard !readOnly, !conflict else { throw runtimeError(L("此回复仅供阅读。", "This reply is read only.")) }
+        let latest = try await client.interactionDraft(message.conversation_id, messageID: message.id)
+        guard latest.can_interact == true, latest.read_only != true, latest.superseded_by == nil else {
+            throw runtimeError(L("此回复已不可交互，请查看最新内容。", "This reply is no longer interactive. Open the latest content."))
+        }
+        try await chat.checkComposeTarget(target)
+        guard await current() else { return }
+        if !replacing && chat.hasComposeConflict(target, text: text) { pendingCompose = ChatStore.ComposeRequest(target: target, text: text); return }
+        chat.adoptCompose(target, text: text)
+    }
+    func replaceCompose(_ request: ChatStore.ComposeRequest) async {
+        pendingCompose = nil
+        do { try await compose(request.target, text: request.text, replacing: true) }
+        catch { self.error = error.localizedDescription }
     }
     func retry() async {
         guard !busy, !readOnly else { return }

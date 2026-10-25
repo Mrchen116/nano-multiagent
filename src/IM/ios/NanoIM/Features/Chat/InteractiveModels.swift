@@ -24,6 +24,9 @@ struct InteractionSelection: Sendable {
 }
 
 struct InteractionDraft: Codable, Sendable {
+    var can_interact: Bool?
+    var read_only: Bool?
+    var superseded_by: String?
     let draft_revision: Int
     var updated_at: String?
     let state: [String: JSONValue]

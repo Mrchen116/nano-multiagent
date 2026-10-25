@@ -1648,9 +1648,7 @@
       "startExercise": "我想每周运动三次，帮我制定一个入门计划。",
       "findNextStep": "我有几件事总在拖延，帮我理清下一步。"
     },
-    "useDraft": "在原聊天使用",
-    "draftStale": "你已在原聊天回复过，这份草稿可能已过时。",
-    "replaceDraft": "原聊天已有未发送内容。要用这份草稿替换吗？取消将保留原内容。",
+    "replaceDraft": "替换未发送的内容？",
     "return": "← 返回个人助手",
     "create": "我的个人助手",
     "role": "个人助手 · 持续替你跟进",
@@ -1707,6 +1705,9 @@
       "notice": "查看风险记录",
       "privateSource": "你不是原聊天的成员，可查看助手已发给你的风险记录。",
       "restored": "已解除屏蔽，后续请求恢复正常检查。"
-    }
+    },
+    "senderLabel": "{{name}}，由 PA 代发",
+    "sentOnBehalf": "PA 代发",
+    "composeUnavailable": "目标聊天不可用，或你没有发送权限。"
   }
 }

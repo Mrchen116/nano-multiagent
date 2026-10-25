@@ -28,6 +28,7 @@ export function create(source: string, initial: Record<string, unknown>) {
   const nodes = new Map<string, {node: any; form?: string}>();
   const results = new Map<string, {signature: string; value: unknown}>();
   const ctx: any = {
+    actions: interactiveCatalog.actions,
     getState: (name: string) => store.get(name),
     resolveRef(name: string): unknown {
       const query = parsed.queryStatements.find(item => item.statementId === name);
@@ -130,7 +131,7 @@ export function create(source: string, initial: Record<string, unknown>) {
             events.push({type:'mutation', id:step.statementId, args:mutation?.argsAST ? evaluate(mutation.argsAST, ctx) : {}, state:store.getSnapshot(), form:item.form});
           }
         } else if (step.type === 'continue_conversation') events.push({...step, state:store.getSnapshot(), form:item.form});
-        else if (step.type === 'open_url') events.push(step);
+        else if (step.type === 'open_url' || step.type === 'custom_action') events.push(step);
         else throw new Error('This action is not connected.');
       }
       return snapshot(events);

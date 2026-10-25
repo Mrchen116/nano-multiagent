@@ -79,7 +79,7 @@ import { MessagePane } from "./components/message-pane";
 import { listContacts, contactActor, type Contact } from "./contacts-api";
 import { PublicGroupsModal } from "./components/public-groups-modal";
 import { NewChatModal } from "./components/new-chat-modal";
-import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
+import { composerStoreFor, writeComposerSnapshot, EMPTY_COMPOSER_SNAPSHOT, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { NewGroupModal } from "./components/new-group-modal";
 
 import { InteractionSubmissionError } from "./interactive/submission-error";
@@ -348,7 +348,7 @@ export function ChatWorkspacePage() {
   const [distillError, setDistillError] = useState<string | null>(null);
   const [distillNotice, setDistillNotice] = useState<string | null>(null);
   const [distillSubmitting, setDistillSubmitting] = useState(false);
-  const [draftSeed, setDraftSeed] = useState<{ id: string; conversationId: string; text: string } | null>(null);
+  const [draftSeed, setDraftSeed] = useState<{ id: string; conversationId: string; text: string; replace?: boolean; focusOnly?: boolean } | null>(null);
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
@@ -1131,13 +1131,18 @@ export function ChatWorkspacePage() {
     });
   }
 
-  function handlePersonalDraft(draft: NonNullable<Message["reply_draft"]>, text: string) {
-    const target = draft.target_conversation_id;
-    if (!target) return;
-    const existing = composerStoreFor(selfUserId).get(target)?.draft;
-    if (existing?.trim() && existing !== text && !window.confirm(t('pa.replaceDraft'))) return;
-    setDraftSeed({id:crypto.randomUUID(),conversationId:target,text});
-    navigate(`/chat/${encodeURIComponent(target)}`, {state:{personalAgentReturn:true}});
+  async function handleComposeMessage(target: string, text: string) {
+    const account = selfUserId;
+    const destination = await getConversation(target);
+    if (useAuthStore.getState().user?.id !== account) return;
+    if (destination.can_write !== true || destination.dissolved_at || destination.external_source) throw new Error(t('pa.composeUnavailable'));
+    const existing = composerStoreFor(account).get(target);
+    const hasConflict = existing && ((existing.draft !== '' && existing.draft !== text) || existing.pending.length > 0 || (existing.failed?.length ?? 0) > 0);
+    if (hasConflict && !window.confirm(t('pa.replaceDraft'))) return;
+    const focusOnly = existing?.draft === text && !hasConflict;
+    if (!focusOnly) writeComposerSnapshot(composerStoreFor(account), target, {...EMPTY_COMPOSER_SNAPSHOT,draft:text,revision:crypto.randomUUID()});
+    setDraftSeed({id:crypto.randomUUID(),conversationId:target,text,replace:true,focusOnly});
+    navigate(`/chat/${encodeURIComponent(target)}`);
   }
 
   return (
@@ -1229,7 +1234,7 @@ export function ChatWorkspacePage() {
             globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||a.owner_id===selfUserId)).map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
             draftSeed={draftSeed}
-            onUseReplyDraft={isPersonalConversation ? handlePersonalDraft : undefined}
+            onComposeMessage={handleComposeMessage}
             slashSkills={slashSkills}
             slashCommands={slashCommands}
             configLabel={isPersonalConversation ? undefined : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}

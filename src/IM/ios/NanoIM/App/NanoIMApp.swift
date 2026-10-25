@@ -128,6 +128,9 @@ private struct RootTabs: View {
             NavigationStack { MeView(client: client, user: user, onAccountUpdated: accountUpdated, onSignOut: signOut) }
                 .tabItem { Label(L("我的", "Me"), systemImage: "person.crop.circle") }.tag(3)
         }
+        .onChange(of: chat.composeRequest?.id) { _, _ in
+            if let request = chat.composeRequest { openChat(request.target) }
+        }
         .environment(\.openTaskOverview, { taskLink = nil; taskNavigationID = UUID(); selectedTab = 1 })
         .environment(\.openURL, OpenURLAction { url in
             guard ServerOrigin.same(client.baseURL, url) else {

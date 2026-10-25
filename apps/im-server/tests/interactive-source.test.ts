@@ -65,3 +65,22 @@ it('rejects mismatched native control binding types before publishing a blank se
   expect(()=>validateInteractiveSource(invalid)).toThrow(/Select.value.*string/);
   expect(()=>validateInteractiveSource(invalid.replace('$option = 0','$option = "0"')+'\nchange = @Set($option, 1)')).toThrow(/Set.*string/);
 });
+
+
+describe('ComposeMessage local action', () => {
+  const source = '$draft = "Hello"\nroot = Stack([TextArea("body", "", 4, null, $draft), Button("Adopt", @ComposeMessage("c_target", $draft))])';
+  it('accepts an explicit target and computed editable text', () => {
+    expect(() => validateInteractiveSource(source)).not.toThrow();
+    expect(() => validateInteractiveSource('reply = "Reply: " + $draft\n' + source.replace('@ComposeMessage("c_target", $draft)', '@ComposeMessage("c_target", reply)'))).not.toThrow();
+    expect(interactionState(validateInteractiveSource(source), {'$draft':'Edited'}).fields[0].value).toBe('Edited');
+  });
+  it.each([
+    '@ComposeMessage("external:lark:chat", $draft)',
+    '@ComposeMessage("", $draft)',
+    '@ComposeMessage("c_target", 42)',
+    'Action([@ComposeMessage("c_target", $draft), @ToAssistant("send")])',
+    'Action([@ComposeMessage("c_target", $draft), @Run(send)])',
+  ])('rejects invalid or implicitly sending adoption: %s', action => {
+    expect(() => validateInteractiveSource('send = Mutation("continue_conversation", {message:"send"})\n' + source.replace('@ComposeMessage("c_target", $draft)', action))).toThrow();
+  });
+});

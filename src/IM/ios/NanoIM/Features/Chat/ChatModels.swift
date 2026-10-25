@@ -102,6 +102,8 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var system_notice: JSONValue?
     var interactive: MessageInteractive?
     var interaction_reply: JSONValue?
+    var pa_agent_id: String?
+    var delegation: JSONValue?
 }
 struct TimelineItem: Codable, Sendable, Identifiable {
     var type: String

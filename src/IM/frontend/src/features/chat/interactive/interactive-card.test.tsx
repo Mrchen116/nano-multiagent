@@ -126,24 +126,27 @@ it.each(['ws-first', 'post-first'])('keeps the authoritative draft revision afte
 });
 
 
-it('preserves edits when saving a reply draft fails and adopts only after private persistence', async () => {
-  const reply_draft={target_conversation_id:'original',source_message_id:'source',field_name:'$reply',possible_stale:true};
-  const source='$reply = "Initial reply"\nroot = TextArea("body", "Reply draft", 3, null, $reply)';
-  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:2,state:{'$reply':'Saved reply'},submission_message_id:null});
+it('adopts evaluated edits only after private save and fresh source access, without submitting', async () => {
+  const source='$reply = "Initial reply"\nroot = Stack([TextArea("body", "Reply draft", 3, null, $reply), Button("Adopt", @ComposeMessage("c_target", "Reply: " + $reply))])';
+  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:2,state:{'$reply':'Saved reply'},submission_message_id:null,can_interact:true});
   vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({draft_revision:3,state:{'$reply':'Edited reply'},submission_message_id:null});
   const send=vi.fn(), adopt=vi.fn();
-  render(<InteractiveCard message={{...message,reply_draft,interactive:{...message.interactive!,source}}} onSend={send} onSelect={vi.fn()} onUseReplyDraft={adopt}/>);
+  render(<InteractiveCard message={{...message,interactive:{...message.interactive!,source}}} onSend={send} onSelect={vi.fn()} onComposeMessage={adopt}/>);
   const field=await screen.findByPlaceholderText('Reply draft');
   await waitFor(()=>expect(field).toHaveValue('Saved reply'));
   fireEvent.change(field,{target:{value:'Edited reply'}});
-  fireEvent.click(screen.getByRole('button',{name:/在原聊天使用|Use in original chat/}));
+  fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
   await screen.findByRole('alert');
   expect(field).toHaveValue('Edited reply');
   expect(adopt).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
-  expect(screen.getByText(/可能已过时|may be out of date/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button',{name:/在原聊天使用|Use in original chat/}));
-  await waitFor(()=>expect(adopt).toHaveBeenCalledWith(reply_draft,'Edited reply'));
+  fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+  await waitFor(()=>expect(adopt).toHaveBeenCalledWith('c_target','Reply: Edited reply'));
   expect(saveInteractionDraft).toHaveBeenLastCalledWith('chat','card',2,expect.objectContaining({'$reply':'Edited reply'}));
   expect(send).not.toHaveBeenCalled();
+  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:3,state:{},submission_message_id:null,can_interact:false,superseded_by:'new'});
+  fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+  await screen.findByRole('alert');
+  expect(adopt).toHaveBeenCalledTimes(1);
+  expect(field).toHaveValue('Edited reply');
 });

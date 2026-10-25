@@ -29,8 +29,14 @@ struct ChatMessageView: View {
             if mine { Spacer(minLength: 28) }
             else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
             VStack(alignment: .leading, spacing: 6) {
-                if showSenderName && !mine && message.system_notice == nil {
-                    Text(senderName).font(.caption).foregroundStyle(NanoTheme.muted).padding(.horizontal, 4)
+                if message.system_notice == nil && ((showSenderName && !mine) || message.pa_agent_id != nil || message.delegation != nil) {
+                    HStack(spacing: 6) {
+                        Text(senderName).fixedSize(horizontal: false, vertical: true)
+                        if message.pa_agent_id != nil { Text(L("PA 代发", "Sent by PA")).foregroundStyle(.secondary).fixedSize() }
+                        else if let label = message.delegation?["label"].stringValue { Text(label).foregroundStyle(.secondary) }
+                    }.font(.caption).foregroundStyle(NanoTheme.muted).padding(.horizontal, 4)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(message.pa_agent_id != nil ? senderName + L("，由 PA 代发", ", sent by PA") : senderName + (message.delegation?["label"].stringValue.map { ", " + $0 } ?? ""))
                 }
                 messageContent
                 if hasMetadata { metadata }

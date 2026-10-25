@@ -59,3 +59,12 @@ describe('packaged native interactive evaluator', () => {
     expect(JSON.parse(host.engine.activate(host.find('Button').id)).events).toEqual([expect.objectContaining({type:'mutation',args:{message:'分析消息'}})]);
   });
 });
+
+
+it('adopts the current evaluated text without a continuation or mutation event', () => {
+  const host = runtime('$draft = "Original"\nroot = Stack([TextArea("body", "", 4, null, $draft), Button("Adopt", @ComposeMessage("c_target", "Reply: " + $draft))])');
+  host.engine.edit(host.find('TextArea').id, 'value', 'Edited');
+  expect(JSON.parse(host.engine.activate(host.find('Button').id)).events).toEqual([
+    {type:'custom_action',name:'ComposeMessage',params:{target:'c_target',text:'Reply: Edited'}},
+  ]);
+});
