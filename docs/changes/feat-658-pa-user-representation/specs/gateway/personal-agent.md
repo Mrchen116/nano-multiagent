@@ -2,6 +2,13 @@
 
 ## ADDED Requirements
 
+### Requirement: PA 自身发送与代表用户发送使用明确工具边界
+#### Scenario: 只有主人参加的会话
+- **WHEN** PA 可观察主人参加、但 PA 自身未参加的会话
+- **THEN** 共用 send_message 不借主人权限发送；有真实委托时使用 PA 专属 send_user_message，在主人当前写权限及来源范围内代表发送。
+- **AND** 普通 Agent 与内部子 Agent 不获得代表发送能力；PA 自身回复、报告与协作仍使用共用普通发送。
+
+
 ### Requirement: PA 在真实委托内自然代表用户表达
 #### Scenario: 代表回复与助手发言
 - **WHEN** 主人委托 PA 向 Nano IM 的指定受众回复

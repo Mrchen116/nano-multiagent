@@ -135,3 +135,98 @@ R1-W1 的实际卡片来源解析和参与权限已形成可实施、可验收�
 
 - Round 2 无遗留 finding，作者核实并接受 Approved。受审方案与原型不再改动。
 - 交付收尾仅将 design-evidence 的临时服务状态更新为已停止；不改变方案、原型或验收前置，R2 证据 retained，无需新增设计审查。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/feat658_design_review`（继续由原独立 reviewer 审查）
+- review_mode: `full`
+- mode_reason: 用户新增 S6，变更公开发送工具、PA 自身发送权限和通用 OpenUI 动作，并扩大 M1 的客户端及上下文范围；涉及需求、核心边界与共享接口，不能只做旧 finding closure 或局部 delta。
+- started_at: `2026-10-25T18:18:50+08:00`
+- completed_at: `2026-10-25T18:23:49+08:00`
+- duration: `PT4M59S`
+- baseline: main `797b225df`，审查作者已暂存的九个 unit 文件；未修改这些文件。审查时相关 IM/PA/integration/双端实现相对 R1 基线 `e5856ec23` 无差异，现有实现仅用于判断改动落点，不作为新功能完成证据。
+- artifacts: 更新后的 spec、design、四份 delta、prototype、design-evidence、deployment-prompt，以及 R1/R2 和 Author Resolutions。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**。
+
+新版工具身份、发送权限、通用草稿采用和模型上下文方案闭合。此结论批准设计；不代表新工具、原生客户端或真实审核执行已实现，也不授予实施、发布或生产部署许可。
+
+### Coverage 与证据
+
+#### 用户约束与需求覆盖
+
+已对照本轮 spec 原话和 S1–S6：`send_message` 保留 Agent 自身身份及成员写权限；绑定根 PA 的真实委托改用 `send_user_message`；普通 Agent/子 Agent 不获得代表能力。通用 ComposeMessage 适用于普通 Agent 和 PA，采用只预填输入框，取消、权限失败保留编辑，后续目标消息不触发旧草稿过期推断。删除新调用的 reply_draft 与模型填写 format/catalog_version，未新增草稿工具或默认代表模式。
+
+S1/S3 的自然用户口吻、指代澄清、完整原始委托审核仍在；S2 的用户主头像姓名与 PA 次级标记、本人侧归属保持；S4 自身报告、草稿、伪造和越界继续区分；S5 的历史、恢复、子 Agent 继承仍保留既有范围而不新增许可或重复执行。新增工具名没有替代来源证据或正常执行审核。
+
+#### 实际组装、工具与权限
+
+再次从真实组装核对 `agent-config.ts` 的 GlobalMode / PersonalTools / Feature 安装、`capabilities.ts` 的 scope 限制与 product-contracts `fixedTools`。仅更改全局工具清单会使 PA 子会话继承新工具，设计已明确按根 PA 注册和产品边界双重验证；不以隐藏 schema 代替权限检查。
+
+`product-bridge.ts` 将执行会话与 rootSessionId 分别传给产品；`global-agent.ts:378` 起校验产品绑定、处理正式调用，再进入 `personal.send`。因此现有可信调用身份足以区分根 PA/子 Agent，无需新授权票据。设计已将 product bridge、capabilities、tool-references 与实际注册一致性纳入清单。ToolReferences 对 external target 的短引用仍保留其类型，Compose 只接受明确原生 conversation id，未扩大到外部渠道。
+
+`PersonalActions.prepare/validate/commit` 当前依赖 PA 来源可写并集，不能自然满足“PA 自身必须参与”的新限制。设计已要求两工具在正式边界及 prepare/commit 分别核验实际 Agent 或主人权限，representation 来自可信工具分支并进入冻结内容、去重和 planned_action；禁止把自身发送失败自动升级为代表发送。主人私聊、外部渠道、系统通知与 task action 的边界也明确。继续复用既有事务与独立审核，比新增代理发送服务或授权账本更简单且责任清楚。
+
+#### ComposeMessage 的公开扩展与双端执行
+
+独立核对已安装 `@openuidev/lang-core@1.0.1` 的公开声明：`defineAction`、`LibraryExtension.actions`、JSON schema 的 `actions` 和求值后的 `custom_action {name,params}` 都存在。`scripts/generate-interactive-ui.ts` 实际从 Web library 的 `toJSONSchema()` 生成共享 catalog、integration prompt 和随包 Skill，故设计的单一 catalog 源可复用，无需 fork 上游或再加模型工具。
+
+同时核对真实消费端：IM `interactive-source.ts` 自建 parser 和 value library；iOS `Runtime/interactive-runtime.ts` 自建 parser/library，并在 activate 中处理 set/reset/run/continue/open_url；Swift `InteractiveRuntime.activate` 才拥有网络与原生 UI 副作用。新设计明确共享 parser/校验、iOS action 定义与 custom_action 事件、Swift host 都须接线，避免“Web 能解析，原生点击未知动作”的断链。
+
+Web `InteractiveCard` 的 onAction、MessagePane 的每会话 composer 状态，以及 iOS `ChatStore.drafts/attachments` 提供所需现成责任边界。Compose 使用点击时求值的文本，由 host 检查源卡状态与实际登录用户的目标写权限，只导航/填稿；取消保持两处内容，替换显式清除旧附件，相同文本只聚焦。没有把该动作送入现有 continue_conversation/交互提交路径。共享校验禁止采用与 ToAssistant/Mutation 的隐藏混用，正常本地 Set/Reset 仍可用。真正发送继续经普通用户消息入口，不由卡片获得额外业务权限。
+
+R2 的 executor 方案仍保留：公开作者与卡片执行 PA 分离，source/contexts/prepare/替换/生命周期使用实际 executor，owner 卡片仅在 PA 当前参与且可写时发布。Compose 的本地行为与需要 PA 接收的明确提交分开；readonly/fork/被替换旧卡禁用新采用。旧 reply_draft 入口退役已在设计和部署提示中明示，保留历史源码与审计数据，不猜测改写旧按钮。
+
+#### prompt、回执、审核与历史
+
+核对了当前实际冲突点：global-mode 要求公开回复用 send_message；intelligent-ui Feature 与生成 Skill 仍要求旧参数；Skill 仍写“一次点击记录用户消息”；`policy/approval.ts:118` 起仅识别 send_message 的 alwaysAllow 排除、产品审核与 messageContext；CC security_monitor 仅描述 send_message_result 和旧恢复限制。新版 context 清单覆盖这些实际路径，而非只修改工具名。
+
+系统补齐协议字段在 publication/digest/审核之前完成；持久 wire 仍有必要字段，模型投影精简不裁剪交互内容、选择或可信原文。两工具的真实身份、完整标准化内容进入 planned_action，新工具不能因旧名称分支漏匹配而默认放行。固定提示、工具 schema、catalog/生成 Skill、wake/task/heartbeat、CC/Codex 与 PA 独立审核均使用相同身份与动作含义，用户 custom_prompt 保持不变。
+
+来源链仍为 IM 可信公开消息 → RelayInput/Inbox 或正式 conversations → integration 来源段 → 当前及继承审核材料。`policy/approval.ts` 的 parent history/codexEntries 和 `sources.ts` 的 append/restore 是真实父子与恢复入口；两工具回执均须保留，只有 sent 证明送达，内部 accepted、本地采用、held/unknown 均不等价。设计明确实际组装 context 与真实模型选择验证，文本搜索不能替代运行验证。
+
+#### 独立原型走查
+
+本轮 IAB 不可用，使用独立 Chrome 本地原型标签走查；未使用生产聊天或修改作者文件。先看实际渲染和操作结果，再核对 V1–V4 与作者证据：
+
+- Web 320、普通 E 编辑器：Agent 名字、目标“与 Q 的聊天”、编辑区、“采用到与 Q 的聊天”和“请继续修改”分离，窄宽下动作与编辑内容可读，普通 Agent 不被画成 PA。
+- 将内容实际改为“Q，请只提交报告，不推送。”后采用：目标聊天输入框取得相同文字并聚焦，未出现新发送气泡。随后单独点发送才出现用户消息，且没有 PA 代发标记，说明本地采用与公开发言的后果可辨。
+- 目标已有正文与附件：冲突框明确替换将只保留新文字；取消回到编辑器，修改值保留；再次采用并确认替换后进入目标输入框，仍未自动发送。
+- iOS 构图、PA 编辑器、不可写目标：采用后停留原卡，显示不可写原因，修改后的“Q，先暂缓推送，等我确认。”保留；“请继续修改”另显示向本会话发起请求的结果，与采用反馈不同。
+
+这些证明原型的内容关系与关键操作设计，不能证明真实权限、附件存储、原生键盘或 Swift action bridge 已通过。身份消息布局的 R1 独立观察仍适用；本轮没有将 iOS HTML 构图算作原生体验 pass。V4 已把新增双端采用、冲突、权限及 ToAssistant 区别映射到 M1 R2/W2。
+
+#### delta、M1、资源与部署
+
+四份 delta canonical target 正确。IM conversations-messages 的 MODIFIED 完整保留“刷新与节点离线”“分支与原会话删除”；IM personal-agent 仍保留编辑采用和真实回执。新增 Gateway agent-capabilities 承载通用交互和上下文语义，PA 专属工具边界归 personal-agent；没有把通用 Compose 仅写在 PA 契约内。
+
+单 M1 保持一个完整身份/交付闭环，范围新增输入框、双端 runtime、catalog/generator/Skill 和审核模板，R2/W1/W2 对应新增行为。Runbook 包含普通/PA 编写、编辑后采用、同会话、冲突、无权限、后续消息、手动发送与原生旅程；两工具权限对照、根 PA 限制、实际恢复/子 Agent/审核 context 也有明确验证对象，未把审核成功当作执行结果。
+
+资源可用性沿用 R1/R2 已核验的隔离 daily、模型回复及 Xcode/iOS 26.4；本轮只增加本地模拟动作，不依赖新外部账号或第三方权限。正式实现须重建独立实例，并真实验证新增模型 context 和原生桥接。作者报告的 docs-check 不替代上述门禁；本轮独立 `git diff --cached --check` 无错误。
+
+部署仍要求协调 IM/节点/Web/在用 iOS 后开放新代表工具及 Compose，旧缺失 representation 的操作按 self 解码并重新满足成员权限；保留旧历史、旧草稿审计及未发送用户内容，不回填授权、不猜测源码迁移。未新增长期双轨兼容路径或生产操作授权。
+
+### 历史问题闭环
+
+| Issue | Author Resolution | 本轮证据 | 状态 |
+|---|---|---|---|
+| R1-W1 | R2 已接受并明确独立 executor、参与资格与卡片验收 | 新版设计保留 source/contexts/prepare/替换/生命周期同一 executor，普通与代表工具仍独立审核；新增 Compose 没有把实际 PA 解析退回公开用户作者 | **closed** |
+
+R2 无其他遗留问题。R3 对需求和共享接口重新做 full 判断，不以 R2 Approved 直接放行。
+
+### Issues
+
+无新增 CRITICAL/WARNING。
+
+### Recommendations
+
+无；停止于已覆盖的实质范围，不增加无关 UI 改造或假想兼容要求。
+
+### Author Resolutions
+
+- Round 3 无 finding；作者核对真实工具权限、公开动作扩展、双端执行与上下文覆盖证据，接受 Approved，0 CRITICAL / 0 WARNING。受审 spec/design/delta/prototype/部署方案保持冻结。
+- 收尾仅把 design-evidence 的临时静态服务状态改为已停止，并追加本结论；没有实质方案变化，R3 证据 retained，无需再次复审。
