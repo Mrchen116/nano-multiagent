@@ -45,7 +45,7 @@ it('projects trusted owner identity independently from actual PA participation',
  expect(authorization.guard_messages.map((m:any)=>m.id)).toEqual([direct.id]);
  expect(authorization.owner_messages[1]).toMatchObject({conversation_id:'peer',delivery:'observer',sender:{id:'u1',is_owner:true}});
  expect(authorization.conversations.find((c:any)=>c.id==='peer').messages.map((m:any)=>m.id)).toEqual([fact.id,external.id]);
- const proposal=service.actions.prepare(principal,{...args,request_key:'context',conversation_id:'peer',content:'A concrete reply'});
+ const proposal=service.actions.prepare(principal,{...args,request_key:'context',representation:'owner',conversation_id:'peer',content:'A concrete reply'});
  expect(proposal.evidence.sources).toContainEqual({conversation_id:'peer',allowed:true});
  expect(JSON.stringify(proposal.evidence)).not.toContain(fact.content);
 });
@@ -72,26 +72,21 @@ it('accepts the bound Feishu owner DM as original authority while keeping groups
  expect(()=>service.ownerMessage(service.binding('o1'),original.id)).toThrow('direct_owner_evidence_required');
 });
 
-it('uses submitted 617 choices as authorization while keeping editable reply drafts owner-private and marked stale',async()=>{
+it('uses submitted UI choices as authorization while keeping unsubmitted edits private',async()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  const source=ctx.messaging.insertMessage('peer','u2','user','Can we meet Thursday?');
  const interactive={format:'openui',catalog_version:'nano-1',source:'$body = "Thursday works"\nroot = Stack([TextArea("body", "", 3, null, $body), ContinueButton("coordinate", "Coordinate")])'};
- const metadata={target_conversation_id:'peer',source_message_id:source.id,field_name:'$body'};
- const card=ctx.messaging.insertMessage('chat','a1','agent','Suggested reply',[],null,'completed',{interactive,reply_draft:metadata});
- expect(card.reply_draft).toEqual({...metadata,possible_stale:false});
+ const card=ctx.messaging.insertMessage('chat','a1','agent','Suggested reply',[],null,'completed',{interactive});
+ expect(card).not.toHaveProperty('reply_draft');
  const request={headers:{'x-user':'u1'},params:{conversation_id:'chat',message_id:card.id},query:{},body:{expected_draft_revision:0,state:{'$body':'Private unsubmitted wording'}}} as any;
  ctx.messaging.interactions.writeDraft(request);
  expect(JSON.stringify(service.authorization(principal,args))).not.toContain('Private unsubmitted wording');
  expect(db.prepare('SELECT count(*) n FROM messages WHERE conversation_id=?').get('peer')).toEqual({n:1});
- expect(()=>ctx.messaging.insertMessage('peer','a1','agent','Wrong location',[],null,'completed',{interactive,reply_draft:metadata})).toThrow('invalid_reply_draft');
- expect(()=>ctx.messaging.insertMessage('chat','a1','agent','Missing field',[],null,'completed',{interactive,reply_draft:{...metadata,field_name:'missing'}})).toThrow('invalid_reply_draft');
- expect(()=>ctx.messaging.insertMessage('chat','a1','agent','Input name is not state',[],null,'completed',{interactive,reply_draft:{...metadata,field_name:'body'}})).toThrow('field_name must name a declared top-level string state including $');
  const sent=await ctx.messaging.sendMessage({...request,headers:{...request.headers,'idempotency-key':'selection'},body:{sender_user_id:'u1',interaction_reply:{source_message_id:card.id,action_id:'coordinate',state:{'$body':'Coordinate Thursday only'}}}});
  const auth=service.authorization(principal,args);
  expect(auth.owner_messages).toContainEqual(expect.objectContaining({id:sent.id,interaction_reply:expect.objectContaining({source_message_id:card.id,state:{'$body':'Coordinate Thursday only'}})}));
  expect(auth.proposals).toContainEqual(expect.objectContaining({id:card.id,source:interactive.source}));
  ctx.messaging.insertMessage('peer','u1','user','Actually Friday');
- expect(ctx.messaging.message(card.id).reply_draft.possible_stale).toBe(true);
  expect(ctx.messaging.interactions.readDraft(request).state).toEqual({'$body':'Coordinate Thursday only'});
 });
 

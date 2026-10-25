@@ -329,6 +329,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           ).run(...keys.map((k) => copy[k]));
           ids.set(m.id, copy.id);
         }
+        for(const [source,target] of ids)db.prepare('INSERT INTO pa_delegated_messages(message_id,binding_id,agent_id,authorized_by,display_name,representation_operation_id) SELECT ?,binding_id,agent_id,authorized_by,display_name,representation_operation_id FROM pa_delegated_messages WHERE message_id=?').run(target,source);
         s.interactions.copy(ids);
         for (const [source, target] of ids) {
           const m = history.find((x) => x.id === source)!;

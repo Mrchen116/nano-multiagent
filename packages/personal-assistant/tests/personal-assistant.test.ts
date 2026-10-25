@@ -130,16 +130,15 @@ it('changes sources directly with owner evidence, without an independent model d
   expect(f.reviews).toHaveLength(0);
  }finally{f.inbox.close();f.store.close();}
 });
-it('freezes all interactive content and draft metadata into one publication identity',async()=>{
+it('freezes interactive content and sending identity into one publication identity',async()=>{
  const f=fixture('allow');
  const interactive={format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("Choose")])'};
- const reply_draft={target_conversation_id:'c_peer',source_message_id:'original',field_name:'draft'};
  try {
-  await f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive,reply_draft}});
-  expect(f.calls.find(c=>c.type==='agent.message')!.payload).toMatchObject({interactive,reply_draft});
+  await f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive}});
+  expect(f.calls.find(c=>c.type==='agent.message')!.payload).toMatchObject({interactive});
   expect(f.calls.some(c=>c.type.startsWith('pa.action.'))).toBe(false);
   expect(f.reviews).toHaveLength(0);
-  await expect(f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive:{...interactive,source:'changed'},reply_draft}})).rejects.toThrow('identity conflict');
+  await expect(f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive:{...interactive,source:'changed'}}})).rejects.toThrow('identity conflict');
  }finally{f.inbox.close();f.store.close();}
 });
 it('returns private tasks to the ordinary task command, and reviews full shared task operations',async()=>{
@@ -188,5 +187,19 @@ it('replaces sender-supplied risk metadata with server evidence in review and mo
   f.relay.request=original;
   await f.pa.admit(f.config,f.binding,{...input,message:{...input.message,id:'unblocked'}});
   expect(input.metadata.personal_actor_risk).toBeUndefined();
+ }finally{f.inbox.close();f.store.close();}
+});
+
+it('binds representation to the actual root tool, freezes it across retries, and rejects unsupported destinations',async()=>{
+ const f=fixture('allow');
+ try {
+  const call={...f.call,method:'send_user_message',args:{target:'c_peer',text:'Please commit the report',representation:'self'}};
+  await expect(f.pa.send(f.config,f.binding,{...call,sessionId:'child'})).rejects.toThrow('Only the bound main PA');
+  expect(f.calls).toHaveLength(0);
+  expect(await f.pa.send(f.config,f.binding,call)).toMatchObject({status:'sent',message_id:'m'});
+  expect(f.calls.find(c=>c.type==='pa.action.prepare')?.payload).toMatchObject({representation:'owner'});
+  await expect(f.pa.send(f.config,f.binding,{...call,method:'send_message'})).rejects.toThrow('Publication identity conflict');
+  for(const target of ['c_owner','external:pa:feishu:app:dm:peer'])await expect(f.pa.send(f.config,f.binding,{...call,operationId:target,args:{target,text:'Message'}})).rejects.toThrow(/Owner representation/);
+  expect(f.calls.filter(c=>c.type==='pa.action.commit')).toHaveLength(1);
  }finally{f.inbox.close();f.store.close();}
 });

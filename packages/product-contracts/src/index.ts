@@ -46,6 +46,7 @@ export interface RelayInput {
     interaction_reply?: import('./interactive.js').InteractionSnapshot;
     sender_user_id: string;
     sender_type: string;
+    pa_agent_id?: string;
     system_notice?: {kind:string}|null;
     created_at?: string;
     timezone?: string;

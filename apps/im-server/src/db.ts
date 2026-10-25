@@ -15,6 +15,9 @@ export function openDatabase(path: string): DatabaseSync {
     }
     if (db.prepare("SELECT 1 FROM task_graphs WHERE json_extract(document_json,'$.schema_version') != 2 OR conversation_id='' LIMIT 1").get()) {db.close();throw Error("Task collaboration v2 data migration required");}
   }
+  if (tables.has('pa_delegated_messages') && !db.prepare('PRAGMA table_info(pa_delegated_messages)').all().some(column => column.name === 'representation_operation_id')) {
+    db.close(); throw Error('PA representation migration required; run migrate-pa-representation dry-run/apply/verify before starting IM');
+  }
   db.exec("DROP TRIGGER IF EXISTS personal_observation_event; DROP TRIGGER IF EXISTS personal_membership_revoked");
   db.exec(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
   if (!db.prepare("PRAGMA table_info(pa_operations)").all().some(column => column.name === "result_json"))

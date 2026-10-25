@@ -69,7 +69,7 @@ export class ToolReferences {
    *   Error: A compact target/cursor is unknown or outside this scope.
    */
   arguments(agent: string, method: string, args: ObjectValue): ObjectValue {
-    if (!['inbox', 'conversations', 'send_message', 'send_message.context', 'task_graph'].includes(method)) return args;
+    if (!['inbox', 'conversations', 'send_message', 'send_user_message', 'send_message.context', 'send_user_message.context', 'task_graph'].includes(method)) return args;
     return { ...args,
       ...(typeof args.target === 'string' ? { target: this.resolveTarget(agent, args.target) } : {}),
       ...(typeof args.cursor === 'string' && args.cursor.startsWith('p_') ? { cursor: this.resolve(agent, `cursor:${method}`, args.cursor) } : {}),
@@ -109,7 +109,7 @@ export class ToolReferences {
       return result;
     }
     if (method === 'task_graph' && body.result && typeof body.result === 'object') return { ...body, result: cursor(body.result as ObjectValue) };
-    if (method === 'send_message') {
+    if ((method === 'send_message' || method === 'send_user_message')) {
       body.target = this.target(agent, body.target);
       if ('conversation_id' in body) body.conversation_id = this.target(agent, body.conversation_id);
       if (typeof body.target === 'string' && body.target.replace(/^conversation:/, '') === body.conversation_id) delete body.conversation_id;

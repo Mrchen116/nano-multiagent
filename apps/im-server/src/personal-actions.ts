@@ -4,6 +4,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { all, one, now, fail, transaction, type Row } from './context.js';
+import { agentAvailable } from './identity.js';
+import { conversationAccess } from './conversation-access.js';
 import type { PersonalAgents } from './personal-agent.js';
 
 export const PEER_NOTICE='无法提供主人的私人信息。相关请求已记录，并已通知主人。';
@@ -48,9 +50,24 @@ export class PersonalActions {
     const op=one(this.db,'SELECT * FROM pa_operations WHERE operation_id=? AND binding_id=?',id,b.binding_id);
     if(!op)fail(404,'proposal_not_found');return op;
   }
+  private destination(b:Row,cid:string,payload:Row):void {
+    if(!this.pa.sourceAllowed(b,cid,'write'))fail(403,'destination_not_accessible');
+    if(payload.representation==='owner') {
+      const chat=one(this.db,'SELECT external_source FROM conversations WHERE id=?',cid);
+      if(this.pa.ownerConversation(b,cid)||chat?.external_source||payload.transport||payload.task||payload.incident_ref)fail(422,'invalid_owner_representation');
+      if(!conversationAccess(this.db,cid,b.owner_user_id)?.can_write)fail(403,'destination_not_accessible');
+      if(payload.interactive) {
+        const agent=one(this.db,'SELECT * FROM agent_profiles WHERE agent_id=?',b.agent_id);
+        if(!agentAvailable(this.db,agent)||!conversationAccess(this.db,cid,this.pa.ctx.messaging.agentUser(b.agent_id).id)?.can_write)fail(403,'owner_interactive_requires_pa_participant');
+      }
+    } else if(!payload.task&&!payload.transport&&!conversationAccess(this.db,cid,this.pa.ctx.messaging.agentUser(b.agent_id).id)?.can_write)fail(403,'destination_not_accessible');
+  }
+  private lastOwnerMessage(b:Row,cid:string):string|null {
+    return one(this.db,"SELECT m.id FROM messages m WHERE m.conversation_id=? AND m.sender_user_id=? AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=m.id AND d.representation_operation_id IS NOT NULL) ORDER BY m.rowid DESC LIMIT 1",cid,b.owner_user_id)?.id??null;
+  }
   validate(b:Row,op:Row) {
-    if(!this.pa.sourceAllowed(b,op.conversation_id,'write'))fail(403,'destination_not_accessible');
     const frozen=JSON.parse(op.payload_json);
+    this.destination(b,op.conversation_id,frozen);
     const profile=one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id);
     if(profile?.profile_version!==JSON.parse(op.evidence_json).agent_profile_version)fail(409,'capability_policy_changed');
     const checkedAttachments=this.attachments(b,op.conversation_id,frozen.attachments,frozen.content+(frozen.interactive?.source??''));
@@ -68,12 +85,15 @@ export class PersonalActions {
     if(one(this.db,'SELECT type FROM conversations WHERE id=?',op.conversation_id)?.type !== 'group' && this.audience(op.conversation_id).some(id=>this.pa.actorRisk(b,id)))fail(403,'contact_blocked');
     for(const source of JSON.parse(op.evidence_json).sources??[])if(this.pa.sourceAllowed(b,source.conversation_id)!==source.allowed)fail(409,'source_revoked');
     // An owner reply after preparation invalidates the decision to interject.
-    const last=one(this.db,"SELECT id FROM messages WHERE conversation_id=? AND sender_user_id=? ORDER BY rowid DESC LIMIT 1",op.conversation_id,b.owner_user_id)?.id??null;
+    const last=this.lastOwnerMessage(b,op.conversation_id);
     if(last!==JSON.parse(op.evidence_json).last_owner_message_id)fail(409,'owner_already_replied');
   }
   prepare(principal:Row,args:Row) {
     const b=this.pa.authority(principal,args);
+    if(args.reply_draft!==undefined)fail(422,'reply_draft is retired; use ComposeMessage');
     if(args.network) fail(422,'unsupported_disclosure_kind');
+    if(args.representation!==undefined&&!['self','owner'].includes(args.representation))fail(422,'invalid_representation');
+    if(args.representation==='owner'&&(args.task||args.transport||args.incident_ref))fail(422,'invalid_owner_representation');
     if(args.task) {
       const command=args.task;
       if(!['create','apply','delete'].includes(command.action)||!command.arguments||typeof command.arguments!=='object')fail(422,'invalid_task_proposal');
@@ -89,20 +109,22 @@ export class PersonalActions {
     if(args.transport&&args.attachments?.length)fail(409,'external_attachment_adapter_unavailable');
     let interactive;try{interactive=interactiveResponse(args.interactive);}catch(error){fail(422,(error as Error).message);}
     if(interactive?.source_mode==='patch') {
-      const original=one(this.db,'SELECT i.source,m.conversation_id,m.sender_user_id FROM message_interactive i JOIN messages m ON m.id=i.message_id WHERE i.message_id=?',interactive.supersedes_message_id);
-      if(!original||original.conversation_id!==args.conversation_id||original.sender_user_id!==this.pa.ctx.messaging.agentUser(b.agent_id).id)fail(403,'interactive_source_not_accessible');
+      const original=this.pa.ctx.messaging.interactions.source(interactive.supersedes_message_id!,args.conversation_id);
+      if(original.executor_agent_id!==b.agent_id)fail(403,'interactive_source_not_accessible');
       const {source_mode,...publication}=interactive;
       interactive={...publication,source:mergeStatements(original.source,interactive.source)};
     }
     if(args.incident_ref&&(interactive||args.attachments?.length||args.task))fail(403,'invalid_security_notice');
     const attachments=this.attachments(b,args.conversation_id,args.attachments??[],args.content+(interactive?.source??''));
-    const replyDraft=args.reply_draft?this.pa.validateReplyDraft(args.conversation_id,this.pa.ctx.messaging.agentUser(b.agent_id).id,args.reply_draft,interactive?.source):undefined;
     const securityNotice=args.incident_ref?this.securityNotice(b,args.incident_ref,args.conversation_id,args.content):undefined;
-    const payload={content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(replyDraft?{reply_draft:replyDraft}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
+    const payload={representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
     if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
+    this.destination(b,args.conversation_id,payload);
     const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
     if(previous) {
-      if(previous.payload_digest!==hash||previous.conversation_id!==args.conversation_id)fail(409,'operation_key_content_conflict');
+      const oldPayload=JSON.parse(previous.payload_json);
+      const samePayload=previous.payload_digest===hash || oldPayload.representation===undefined && digest({representation:'self',...oldPayload})===hash;
+      if(!samePayload||previous.conversation_id!==args.conversation_id)fail(409,'operation_key_content_conflict');
       if(['confirmed','sending','unknown','deny','needs_owner'].includes(previous.state)) {
         if(['deny','needs_owner'].includes(previous.state))this.validate(b,previous);
         return {...this.project(previous),message_id:previous.message_id,result:previous.result_json?JSON.parse(previous.result_json):undefined,conversation_id:previous.conversation_id};
@@ -121,7 +143,7 @@ export class PersonalActions {
       ...(securityNotice?{security_notice:{content:PEER_NOTICE,owner_notice_message_id:securityNotice.owner_notice_message_id}}:{}),
       recipient_risks:this.audience(args.conversation_id).flatMap(id=>{const risk=this.pa.actorRisk(b,id);return risk?[risk]:[];}),
       recipient_ids:this.recipients(args.conversation_id,payload),external_destination:payload.transport?.destination??null,payload,sources,
-      last_owner_message_id:one(this.db,'SELECT id FROM messages WHERE conversation_id=? AND sender_user_id=? ORDER BY rowid DESC LIMIT 1',args.conversation_id,b.owner_user_id)?.id??null};
+      last_owner_message_id:this.lastOwnerMessage(b,args.conversation_id)};
     // Unsent operations may refresh review evidence, but never reuse a prior permit.
     // Consumed or uncertain operations above keep their original delivery identity.
     if(previous) {
@@ -180,10 +202,11 @@ export class PersonalActions {
         return {state:'sending',conversation_id:op.conversation_id,payload};
       }
       const rewrite=(value:string)=>value.replace(/\/im\/v1\/conversations\/([^/\s]+)\/(images|attachments)\/([\w-]+)/g,(url:string,source:string)=>s.copyReferences(source,op.conversation_id,url));
-      const message=s.insertMessage(op.conversation_id,s.agentUser(b.agent_id).id,'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive:payload.interactive,reply_draft:payload.reply_draft});
-      if(op.conversation_id!==b.conversation_id)this.db.prepare('INSERT INTO pa_delegated_messages VALUES(?,?,?,?,?)').run(message.id,b.binding_id,b.agent_id,b.owner_user_id,b.display_name);
-      s.queueDirectAgentRelays(s.message(message.id));
-      this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});
+      const owner=payload.representation==='owner';
+      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive:payload.interactive,
+        ...(op.conversation_id!==b.conversation_id?{personal_source:{...b,operation_id:owner?op.operation_id:null}}:{})});
+      if(owner)s.queueRepresentedRelays(message,b.agent_id);
+      else {s.queueDirectAgentRelays(message);this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});}
       this.db.prepare("UPDATE pa_operations SET state='confirmed',message_id=?,verdict_ref=NULL WHERE operation_id=?").run(message.id,op.operation_id);
       if(payload.incident_ref)this.db.prepare('UPDATE pa_incidents SET peer_notice_message_id=? WHERE id=?').run(message.id,payload.incident_ref);
       this.db.prepare('UPDATE pa_policies SET disclosure_revision=disclosure_revision+1 WHERE binding_id=?').run(b.binding_id);
