@@ -40,3 +40,12 @@
 - daily node `wt-unit-feat-658-74505`，主人 Web 原话消息 `630493e593d94f30bb970a1ef7625d4c`；审核 operation `11aa962a-1a0b-4bb3-906c-085fa41ac234` allow，代发消息 `1a1c4efc89b2466aa0603b7eebbd84c3` 确认为用户作者与实际 PA 来源。
 - 失败点：正文仅“Q，请…”；relay 的 mentioned_agent_ids 为空，mention_only 的 Q 未被唤醒。不能将“已发送”计作端到端成功。
 - 修复：在两个工具共享的 target/text schema 中明确先查实际成员 user_id、按现有正式 mention 语法点名。没有更改群注意力策略或审核门禁；本地完整证据 `/Users/czj/.codex/reports/feat658-acceptance/journey-a-first-attempt.md`。
+
+
+### 本地完整验证与独立静态 Round 1
+
+- `pnpm build` 与 `pnpm typecheck`、`pnpm check:ios-runtime` 通过；Node v24.22.1。
+- `pnpm exec vitest run --maxWorkers=2`：134 files / 717 tests 通过；`npm --prefix src/IM/frontend run test -- --maxWorkers=2`：107 files / 1025 tests 通过。
+- `pytest -m 'not e2e' -q`：70 passed / 32 deselected；`ruff check .` 与 `ruff format --check .` 通过。输出保留 `/tmp/feat658-{full-tests,full-frontend,pytest,ruff-check,ruff-format}.log`，归档前另存报告目录。
+- 独立 static reviewer 对 `3689a8b84` 完整 review，确认 historical sender.kind/type 差异和模型卡片投影保留 wire 常量两项。主 Agent 先把 fixture 改为真实 read/search shape 并加入 41 后续工具记录，两个窄测试均真实失败；修复后 approval-sources + personal-sources 23 项全过，IM/integration 重建通过。未改公开客户端 wire 协议。
+- iOS 本轮独立模拟器 `1E3643A5-F66C-46FB-818B-9A37871A7DC9`；build 成功。原生人工式 UI 验收当前受 Mac 锁屏阻断，已向用户请求解锁；不以浏览器截图代替原生截图。

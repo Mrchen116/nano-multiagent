@@ -39,7 +39,7 @@ type Row = Record<string, unknown>;
 type Entry = { row: Row; text: string; kind: 'history' | 'protected' | 'tool'; required: boolean };
 const historical = (row: Row) => 'user' in row || 'agent_instructions' in row
   || Array.isArray(((row.inbox_result ?? row.conversations_result) as Row | undefined)?.messages)
-    && (((row.inbox_result ?? row.conversations_result) as Row).messages as Row[]).some(message => (message.sender as Row | undefined)?.type === 'user');
+    && (((row.inbox_result ?? row.conversations_result) as Row).messages as Row[]).some(message => { const sender=message.sender as Row | undefined; return (sender?.type ?? sender?.kind) === 'user'; });
 
 /** Shorten only evidence bodies; source labels and both ends survive budget recovery. */
 function bounded(row: Row, limit: number, minimumBodyTokens = 0, measure = tokenCost): string {

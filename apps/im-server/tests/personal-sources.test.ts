@@ -137,3 +137,13 @@ it('uses current PA membership and existing group addressing for source control 
  expect(service.admitSource(principal,{...args,conversation_id:'peer',source_message_id:background.id})).toMatchObject({is_owner:true,delivery:'observer'});
  expect(()=>service.ownerMessage(binding,addressed.id)).toThrow('direct_owner_evidence_required');
 });
+
+
+it('keeps card source and lifecycle in model history without wire constants',()=>{
+ const {ctx,principal,args}=personalFixture();
+ const interactive={format:'openui',catalog_version:'nano-1',source:'root = TextContent("Editable proposal")'};
+ const card=ctx.messaging.insertMessage('chat','a1','agent','Proposal',[],null,'completed',{interactive});
+ const model=new Work(ctx).query(principal,{...args,action:'read',target:'chat'}).messages.find((m:any)=>m.message_id===card.id);
+ expect(model.interactive).toEqual({source:interactive.source});
+ expect(ctx.messaging.message(card.id).interactive).toEqual(interactive);
+});

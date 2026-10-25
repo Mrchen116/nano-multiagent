@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
 import { ApprovalSources, codexEntries } from '../src/policy/sources.js';
+import { reviewInput } from '../src/policy/codex-context.js';
 
 const user = (id: string, value: string, source: object) => ({ id, role: 'user', content: [{ type: 'text', text: value }], source });
 const call = (id: string, name: string, args: object) => ({ id: id + '-message', role: 'assistant', content: [{ type: 'tool-call', id, name, arguments: JSON.stringify(args) }] });
@@ -201,18 +202,23 @@ it('distinguishes attested Task stop and UI resume from automatic Task reminders
 it('retains represented user provenance across live input, history reads and recovered review evidence', async () => {
   const message = {id:'original',sender:{type:'user',id:'owner'},pa_agent_id:'pa',created_at:'2026-10-25T01:00:00Z',content:[{type:'text',text:'Push branch report; do not merge or deploy.'}]};
   const page = {target:'group',messages:[message]};
+  const historyPage={target:'group',messages:[{...message,sender:{kind:'user',id:'owner'}}]};
   const messages = [call('in','inbox',{action:'read',target:'group'}),result('in',page),
-    call('history','conversations',{action:'read',target:'group'}),result('history',page),
+    call('history','conversations',{action:'read',target:'group'}),result('history',historyPage),
     call('sent','send_user_message',{target:'group',text:'Publish report'}),result('sent',{status:'sent',message_id:'sent-owner'}),
     call('held','send_user_message',{target:'group',text:'Publish report'}),result('held',{status:'held_for_revalidation'})];
   const sources = new ApprovalSources(); sources.recordInbox('session','in');
   const events = [{seq:0,type:'turn/start'}, {seq:1,type:'tool/result',data:{message:{toolCallId:'in',content:[{type:'text',text:JSON.stringify(page)}]}}}];
   expect(sources.humanInputs(fixture(messages,events))).toEqual([{id:'original',text:'Push branch report; do not merge or deploy.',sender:message.sender,pa_agent_id:'pa'}]);
   const evidence = await sources.history(fixture(messages));
-  expect(evidence.find(row=>row.conversations_result)).toMatchObject({conversations_result:page,observation:'historical'});
+  expect(evidence.find(row=>row.conversations_result)).toMatchObject({conversations_result:historyPage,observation:'historical'});
   expect(evidence.find(row=>row.send_user_message_result)).toMatchObject({send_user_message_result:{status:'sent',message_id:'sent-owner'}});
   expect(evidence.filter(row=>row.send_user_message_result)).toHaveLength(2);
   const restored = codexEntries(sources.restoreEntries(evidence,true));
   expect(restored.find(row=>row.inbox_result)).toMatchObject({inbox_result:page,observation:'restored'});
-  expect(restored.find(row=>row.conversations_result)).toMatchObject({conversations_result:page,observation:'historical'});
+  expect(restored.find(row=>row.conversations_result)).toMatchObject({conversations_result:historyPage,observation:'historical'});
+  const history=restored.filter(row=>row.conversations_result);
+  const reviewed=reviewInput([...history,...Array.from({length:41},(_,i)=>({id:`later-${i}`,tool_result:'progress'}))],{tool:'bash',arguments:{command:'git push origin report'}},50000);
+  expect(reviewed).toContain('do not merge or deploy');
+  expect(reviewed).toContain('\"pa_agent_id\":\"pa\"');
 });
