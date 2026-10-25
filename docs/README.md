@@ -30,6 +30,7 @@
 | 提报 GitHub Issue、分诊和维护标签 | [`development/issues.md`](development/issues.md) |
 | 查已放弃或被后续架构取代的 change unit | [`changes/retired/`](changes/retired/README.md)；退役原因与当前入口以该索引为准 |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
+| 设计或审查 Agent 实际消费的 Prompt、Skill、工具、消息、Memory 与历史链路 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
 | 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [`product-tryout`](../.claude/skills/product-tryout/SKILL.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
@@ -70,6 +71,7 @@
 | 首次升级 PA workspace/global home 目录 | [`operations/pa-workspace-layout-migration.md`](operations/pa-workspace-layout-migration.md) | 两机一次性、无覆盖的人工迁移 prompt |
 | LLM provider、本地代理与交互日志如何联调 | [`development/llm-integration.md`](development/llm-integration.md) | 模型与代理入口 |
 | 仓库代码应遵守哪些编写规范 | [`development/coding-guidelines.md`](development/coding-guidelines.md) | 跨模块通用编码规范；当前包含注释与 docstring |
+| 模型可见 Context 如何设计及验证 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) | 跨 Surface 的唯一通用设计方法；审查程序在 agent-context-review，观测操作在 llm-integration |
 | Agent 开始任务前必须知道什么 | [`../AGENTS.md`](../AGENTS.md) | 仓库级指令、关键入口与运行约束 |
 | Agent-Native 仓库知识体系如何设计和维护 | [`development/documentation-system.md`](development/documentation-system.md) | 已经本仓迁移与真实 Agent 任务验证；证据来源见 research |
 | 长期 Agent 评测资产、物化方法和实验协议放在哪里 | [`../evals/`](../evals/README.md) | 与产品测试和 change unit 分离；候选仓不包含控制资产 |

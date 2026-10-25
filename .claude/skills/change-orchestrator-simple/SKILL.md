@@ -15,6 +15,7 @@ description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit �
 - 按受影响区域读取相关实现、current specs、[测试规范](../../../docs/development/testing.md)；复用带版本、命令和结果的有效证据。先稳定 fixture 并完成窄测试，再跑本地全量与 CI，不因角色交接重复全量。
 - 对可测试的新行为/bug 取得有意义的失败复现，再实现并跑最窄验证。真实用户入口、跨进程链路、前端交互及适用原型对照须有真实证据；mock 不替代它们。
 - 界面实现按 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 兑现设计，并按 [验证平台与深度](../change-design-author/references/prototype-and-runbook.md#验证平台与深度) 选择自检和验收范围，不默认双端实测。需要视觉或交互验证时走查受影响流程，平台控件与功能接通不能代替体验证据；设计缺口带证据交回 author。
+- 直接实施也按 [Context 影响规则](../../../docs/development/agent-context-engineering.md#范围与影响判断) 识别受影响链路，并按该规范验证最终模型输入与适用行为；不能仅用源码/内部 API/类型/UI/文件存在证明交付。使用 [现有观测入口](../../../docs/development/llm-integration.md#观察实际-agent-context)，向现有 code reviewer 明确交接 Implementation Review 的范围、证据和缺口；不额外派 Context reviewer。
 - 服务按 [worktree-runtime](../../../docs/development/worktree-runtime.md) 隔离。lite 回填 fix 的修复/验证；关键设计变化交回 author，需求或范围变化重新与用户对齐。
 - 需要真实产品验收时，集中用 [固定日常模板](../../../docs/development/worktree-runtime.md#固定日常验收模板) 的 `--profile daily` 起栈，交接 `.e2e-daily.json`、版本和本次场景增量。复用固定 P/E/Q + PA 基线，每个需求独立实例；专项 profile 仅作为有明确目的的补充。
 

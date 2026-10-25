@@ -23,6 +23,7 @@ orchestrator 在派发前决定是否值得交给独立实现 owner。派发给 
 - 在 milestone 目录从 [tasks](assets/tasks.md) 和 [progress](assets/progress.md) 创建这两份短记录，删除 `.gitkeep`。`tasks.md` 写实际实施块和验证；`progress.md` 只更新已完成、关键决定或 blocker、验证和 evidence。没有内容就不造条目。
 - 自主安排实现、测试和 commit。遵循确认的设计与现有架构，先跑有信息量的最窄验证；代码、命令、环境和风险未变时复用已有结果，不为流程重复 gate。适用时完成真实入口验证。
 - 界面实现按 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 兑现设计，并按 [验证平台与深度](../change-design-author/references/prototype-and-runbook.md#验证平台与深度) 选择自检和验收范围，不默认双端实测。需要视觉或交互验证时走查受影响流程，平台控件与功能接通不能代替体验证据；设计缺口带证据交回 author。
+- Context 相关实现按 [设计与验证规范](../../../docs/development/agent-context-engineering.md#设计产物与验证深度) 检查最终模型输入及适用行为，使用 [现有观测路径](../../../docs/development/llm-integration.md#观察实际-agent-context)。源码字段、内部 API、类型检查、UI 卡片或 Skill 文件存在不能替代交付证据；在原实施记录标明实际证据与未验证边界。
 - design 错误、遗漏或范围外发现时，停止受影响部分并带事实报告 orchestrator；不自行改写 design/spec。根因不明的异常、flaky 或集成失败才使用 `systematic-debugging`。
 
 ## 集成与交接

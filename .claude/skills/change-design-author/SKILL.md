@@ -16,6 +16,7 @@ description: "Full unit 首文档已定稿，需要对齐技术方案、delta-sp
 - 默认单 M1。只有可独立交付、真实无冲突并行或分阶段验证/容量需要时拆分；不按数据层/API/UI/测试横切，不用固定行数、文件数或小时数决定。
 - milestone 表包含 ID、依赖、并行组、文件范围和两轨退出标准：`[reviewer]` 用户可观察结果，`[worker]` 实现与验证证据。骨架只放 `.gitkeep`，不预填 tasks/progress。
 - 有前端变化时按 [体验设计与原型](references/prototype-and-runbook.md)，从用户目标形成完整的信息组织、视觉与交互方案，再用范围适当的 `prototype.html` 和体验契约供审查、实施与验收。对照现有产品并实际渲染走查，不能以功能覆盖或组件拼装视为设计完成；无前端变化不生成原型。
+- 先按 [Context 影响规则](../../../docs/development/agent-context-engineering.md#范围与影响判断) 判断是否改变模型信息或消费生命周期；相关设计在现有 design.md 就近说明 Consumer、Context Lifecycle、必要的 Before/After、Interactions 与 Validation，并进入 milestone 退出标准。无影响不生成冗余章节，不另建设计文件。
 - 有对外行为增量时按 [specs/CONTRIBUTING](../../../docs/specs/CONTRIBUTING.md) 写最窄 target 的 delta-spec；纯内部变化注明 `no spec delta`，不提前覆盖 current spec。
 - 设计涉及从旧状态到新状态的一次性部署迁移时，在 unit 根目录生成固定命名的 `deployment-prompt.md`，并从 design 链接；无此需要不生成。按 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词) 写清适用条件、迁移步骤与验证恢复，将迁移纳入 milestone 的副本验证；一次性历史整理交由部署 Agent 执行，不为此加入冗余的产品启动迁移或长期兼容逻辑。
 

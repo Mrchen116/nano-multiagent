@@ -94,6 +94,10 @@
 这里检查原型本身；下游 milestone 仍需验收真实产品，不能互相替代。
 -->
 
+<!-- 仅 Context 相关 unit：在接口与数据流或合适位置说明 Consumer、Context Lifecycle、
+必要的模型可见 Before/After、Interactions、Validation，并投影到 milestone 退出标准。
+按 docs/development/agent-context-engineering.md 判断影响；不强制独立章节或固定表格，无影响删除此提示。 -->
+
 ## 契约层增量 (delta-spec)
 
 <!-- §4.8：本 unit 对长青契约层 docs/specs/<包>/ 的增量状态。逐包一行。
