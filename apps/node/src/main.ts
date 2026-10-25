@@ -82,9 +82,9 @@ async function settlePartitions(tasks: Promise<unknown>[]): Promise<void> {
   for (const result of await Promise.allSettled(tasks)) if (result.status === 'rejected') reportError(result.reason);
 }
 function installPartitionConsumers(partition: RuntimePartition): void {
-  if (!product || partition.key === 'ordinary' || knowledgeByPartition.has(partition.key)) return;
+  if (!product || knowledgeByPartition.has(partition.key)) return;
   const port = runtime.scoped(partition);
-  const partitionKey = partition.key;
+  const partitionKey = partition.key === 'ordinary' ? undefined : partition.key;
   knowledgeByPartition.set(partition.key, new KnowledgeUpdates({ nodeId: config.node.node_id, agents: partition.agents,
     runtime: port, partitionKey, store, inbox, relay: external, im, onError: reportError }));
   workflowsByPartition.set(partition.key, new WorkflowResults({ agents: partition.agents, store, runtime: port, partitionKey,
