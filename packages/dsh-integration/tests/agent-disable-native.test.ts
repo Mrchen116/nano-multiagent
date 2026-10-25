@@ -87,6 +87,19 @@ export function apply(ctx) {
   } catch(error) {throw new Error(String(error)+'\n'+logs,{cause:error});} finally {await supervisor.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
+it('retries a slow managed job after the first cleanup deadline without restarting the host', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-cleanup-retry-'));
+  const supervisor=new RuntimeSupervisor({home,cwd:home,initialize:async rpc=>{await rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)]});await rpc.request('session.ensure',binding(home));},onReady:async()=>{},onError:()=>{}});
+  try {
+    await writeFile(join(home,'slow.mjs'), `export const inject=['jobs'];export function apply(ctx){ctx.jobs.attachController('slow');ctx.on('agent/created',({agent})=>{ctx.jobs.start({kind:'slow',label:'slow cancellation',owner:agent.id,run:()=>{let finish;const done=new Promise(resolve=>{finish=resolve;});return {done,cancel:()=>{setTimeout(()=>finish({status:'killed'}),5000);}};}});});}`);
+    await prepareProfile(home,[{insert:[{id:'slow-cleanup',name:join(home,'slow.mjs')}]}]);await supervisor.start();
+    const pid=supervisor.process!.pid;
+    expect(await supervisor.disableAgent('a',2)).toMatchObject({confirmed:false,errorDetail:expect.stringContaining('Managed job did not settle')});
+    expect(await supervisor.disableAgent('a',2)).toMatchObject({confirmed:true});
+    expect(supervisor.process!.pid).toBe(pid);expect(supervisor.available).toBe(true);
+  } finally {await supervisor.shutdown();await rm(home,{recursive:true,force:true});}
+},15000);
+
 it('reports unconfirmed when a managed owner cleanup throws even though Cordis disposal resolves', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-cleanup-error-'));const errors:string[]=[];
   const supervisor=new RuntimeSupervisor({home,cwd:home,initialize:async rpc=>{await rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)]});await rpc.request('session.ensure',binding(home));},onReady:async()=>{},onError:error=>errors.push(String(error))});

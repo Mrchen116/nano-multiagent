@@ -705,6 +705,7 @@ export default class NanoRuntime {
       let task = disabling.get(agentId);
       if (!task) {
         const errors: string[] = [];
+        let disposingScopes = false;
         task = (async () => {
           await this.owned.settle(agentId);
           const agents = ctx.agents.list().filter(agent => this.ownerOf(agent.id) === agentId);
@@ -732,6 +733,7 @@ export default class NanoRuntime {
             try { await terminalService.signal(agent, terminal.sessionId, 'SIGINT'); }
             catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
           })));
+          disposingScopes = true;
           await cleanup.run(errors, async () => {
             await ctx.subagents.drainContinuableDescendants(agents);
             await this.owned.disposeAgent(agentId);
@@ -750,6 +752,11 @@ export default class NanoRuntime {
           return {confirmed: true, history: finalHistory};
         })();
         disabling.set(agentId, task);
+        void task.catch(() => {
+          // A slow managed operation can settle after the first deadline. Once
+          // scope disposal begins, lost cleanup evidence must stay unconfirmed.
+          if (!disposingScopes && disabling.get(agentId) === task) disabling.delete(agentId);
+        });
       }
       return task;
     });
