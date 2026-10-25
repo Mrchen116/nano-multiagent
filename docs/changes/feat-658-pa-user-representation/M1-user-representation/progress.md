@@ -49,3 +49,14 @@
 - `pytest -m 'not e2e' -q`：70 passed / 32 deselected；`ruff check .` 与 `ruff format --check .` 通过。输出保留 `/tmp/feat658-{full-tests,full-frontend,pytest,ruff-check,ruff-format}.log`，归档前另存报告目录。
 - 独立 static reviewer 对 `3689a8b84` 完整 review，确认 historical sender.kind/type 差异和模型卡片投影保留 wire 常量两项。主 Agent 先把 fixture 改为真实 read/search shape 并加入 41 后续工具记录，两个窄测试均真实失败；修复后 approval-sources + personal-sources 23 项全过，IM/integration 重建通过。未改公开客户端 wire 协议。
 - iOS 本轮独立模拟器 `1E3643A5-F66C-46FB-818B-9A37871A7DC9`；build 成功。原生人工式 UI 验收当前受 Mac 锁屏阻断，已向用户请求解锁；不以浏览器截图代替原生截图。
+
+### 真实模型 B/C、恢复及迁移证据
+
+- 本地完整日志已保存 `/Users/czj/.codex/reports/feat658-acceptance/`。iOS `build.sh test` 完整通过，`build.sh archive` 无签名 Release 归档成功；专用模拟器与构建根 `/tmp/nano-ios-feat658-compose`。原生 UI 仍待 Mac 解锁，不将自动化测试当作原生旅程通过。
+- B：主人自然请求 `c0ae9c3ba9d847c5b2dbf5cb2475cce3` → PA 正式 @ 的用户代发 `bb1ad1d86a474674ae5e06c280179b12` → Q 经 Codex Auto 正常审核，仅新增 review-b.md，真实提交/本机 origin main `18bed6d8903a144aa6718a8637fba2901eb87f78`。无重复主人批准；Q 群回执 `40cc680c7f3d4329964c2b319d6af3c4`，PA 独立核对后回报 `09212bc6d780420883be622ebd94e969`。review-a 文件不存在，暂停有效。
+- 20:41 在保留同一 DB、workspace、node identity、会话与 Git 状态的条件下重启本次 IM/Node 至 `9c5aecd55`（产品代码 `abdf2afc7`，后者以来仅测试），Node ready/connected。后续 Q 同 session `1db9a6a4-6c94-4080-9a3b-79f8c7d47c19` 继续，B 已完成提交未重做。
+- C：主人已有历史上的自然追加 `c9309fb2de3b426db592881b6f2f74da` → 用户代发 `9c2f85cba1f74c6ea59d08b81bd409ba` → Q 仅新增 review-c.md，提交/本机 origin `c47c03e7605fd25a768e3cdfec3335c6020cb41b`；B 的 blob 与父提交一致。Q 通过 `agent:pa_8b3969af44b2` 实际发送 `524e64c69b6d4947bba19bdb0ac78ba9`，目标直聊 `c_s1q2jv7s`。PA 核对后于 `6a7ba13f33104a179eac463a1bf66d25` 回报。收件人 ID 与原始代发 PA 一致；该模型也把 PA ID 写在公开正文，因此不把这次声称为“仅凭 metadata 定位”的实验。
+- D：已发起独立自然表述 `797eddc60054403489a79df9fe76d7c6`，要求回看原群历史、由执行助手新增 review-d.md、保持 B/C 和暂停 A、Q 核对后经 PA 汇报。代发 `c2a5165e69b843ac972241c87dffe1ba`；最终结果待验证，不能计入成功次数。
+- 实际 Q model 请求、重启后请求及 Codex reviewer 输入已保存 `real-contexts/`，并移除 replayed thinking block；真实 sender/pa_agent_id/原文范围保留。`journey-b-q-work-items.json` 与 `journey-b-q-audit.json` 关联实际 commit/push call id，审核明确基于用户原授权放行。普通/PA/SingleThread/child 与 CC 的完整注入矩阵仍参考 runtime-context 的真实 DSH + synthetic provider 样本，不能将其混写成真实模型执行。
+- 文件库副本演练 `migration/results.json`：使用基线 schema 和明确标注的 synthetic 旧业务行，真实 CLI dry-run → apply → verify → apply → verify 全部 exit 0；旧库启动被 migration guard 拒绝，迁移后启动成功；messages=1 / operations=3（prepared/allowed/confirmed）/ delegation=1 / event=1 / relay=1 / draft=1 全保留，旧 provenance NULL。不是生产数据库演练，未触碰生产。
+- 新增旧 payload 缺 representation 的 confirmed 重试与身份冲突回归，迁移/representation 7 tests 通过；`docs-check` 在项目 Python 环境通过（291 sources / 67 required routes）。版本协调由部署提示词规定停流量后统一升级，未进行生产或旧客户端混跑。
