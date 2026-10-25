@@ -33,3 +33,10 @@
 - 服务端/PA 首轮 57 文件 414 测试中 411 通过，三个失败为已变更成员资格 fixture 与迁移 fixture 缺列；相关 fixture 修正后 personal-agent 17 项通过，迁移/PA/Inbox/control 合计 33 项通过。无需因此重复无关测试。
 - 新迁移 CLI 支持 dry-run/apply/verify，后者对照停流量前的数据库副本校验消息、旧操作、事件、relay 与草稿记录完整不变；自动化覆盖重复执行、旧列 NULL 和修改历史后 verify 失败。
 - 真实模型/真实 Web、iOS 连续旅程尚未执行；上述测试不替代 V1–V4 产品证据。
+
+
+### 真实旅程 A 首次失败（保留）
+
+- daily node `wt-unit-feat-658-74505`，主人 Web 原话消息 `630493e593d94f30bb970a1ef7625d4c`；审核 operation `11aa962a-1a0b-4bb3-906c-085fa41ac234` allow，代发消息 `1a1c4efc89b2466aa0603b7eebbd84c3` 确认为用户作者与实际 PA 来源。
+- 失败点：正文仅“Q，请…”；relay 的 mentioned_agent_ids 为空，mention_only 的 Q 未被唤醒。不能将“已发送”计作端到端成功。
+- 修复：在两个工具共享的 target/text schema 中明确先查实际成员 user_id、按现有正式 mention 语法点名。没有更改群注意力策略或审核门禁；本地完整证据 `/Users/czj/.codex/reports/feat658-acceptance/journey-a-first-attempt.md`。
