@@ -6,7 +6,7 @@ function fixture() {
   const states=new Map<string,AgentLifecycleSnapshot>(),proofs=new Map<string,{boot:string;processInstanceId:string|null;stopped:boolean}>(),reports:AgentLifecycleReport[]=[],started:string[]=[],cancelled:string[]=[];
   let stopped:{confirmed:boolean;processInstanceId?:string}={confirmed:true};
   const lifecycle=new NodeAgentLifecycle({nodeId:'node',boot:'boot-one',snapshot:id=>states.get(id),save:s=>states.set(s.agent_id,s),proof:id=>proofs.get(id),saveProof:(id,p)=>proofs.set(id,p),
-    host:()=>({available:false,enable:()=>{},disable:async()=>stopped}),start:async id=>{started.push(id);},cancel:id=>{cancelled.push(id);},resetHeartbeat:()=>{},report:async r=>{reports.push(r);}});
+    host:()=>({available:false,disable:async()=>stopped}),start:async id=>{started.push(id);},cancel:id=>{cancelled.push(id);},resetHeartbeat:()=>{},report:async r=>{reports.push(r);}});
   return {lifecycle,states,proofs,reports,started,cancelled,setStop:(result:typeof stopped)=>{stopped=result;}};
 }
 it('waits for the authoritative snapshot and closes admission synchronously on disable',async()=>{
@@ -30,4 +30,14 @@ it('retains unknown cleanup across Node restart and retry until machine reboot s
 it('never lets delayed disabled intent override a newer enabled generation',async()=>{
   const f=fixture();f.states.set('a',{...initial(),revision:3,disabled_through_revision:2});await f.lifecycle.synchronize([{...initial(),revision:3,disabled_through_revision:2}]);
   await f.lifecycle.apply({...initial(),desired:'disabled',revision:2});expect(f.cancelled).toEqual([]);expect(f.lifecycle.allowed('a')).toBe(true);
+});
+
+it.each([true,false])('reports the prior execution identity after a host restart (prior cleanup confirmed=%s)',async priorStopped=>{
+  const f=fixture();
+  const disabled={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,observed:'stopping' as const,process_instance_id:'prior-host'};
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'prior-host',stopped:priorStopped});
+  f.setStop({confirmed:true,processInstanceId:'new-shared-host'});
+  await f.lifecycle.synchronize([disabled]);
+  expect(f.reports.at(-1)).toMatchObject({process_instance_id:'prior-host',observed:priorStopped?'disabled':'stop_unconfirmed'});
+  expect(f.lifecycle.allowed('a')).toBe(false);
 });

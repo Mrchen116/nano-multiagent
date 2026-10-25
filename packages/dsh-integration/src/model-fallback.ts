@@ -395,10 +395,15 @@ export class ModelFallback {
     });
   }
   /** Invalidate durable unfinished attempts before any restored Agent can attach. */
-  async cancelPersisted(): Promise<void> {
+  async cancelPersisted(owns: (sessionId: string) => boolean = () => true): Promise<void> {
     await this.ready;
+    for (const {agent} of this.agents.values()) if (owns(agent.id)) this.interrupt(agent);
+    await Promise.allSettled([...this.tasks].filter(([id]) => {
+      const run = this.runs.get(id) ?? this.historical.get(id);
+      return run && owns(run.sessionId);
+    }).map(([, task]) => task));
     for (const run of new Map([...this.historical, ...this.runs]).values()) {
-      if (run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
+      if (owns(run.sessionId) && run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
     }
     await this.checkpoint();
   }

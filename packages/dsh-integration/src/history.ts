@@ -162,7 +162,7 @@ export class NativeHistory {
     messageId: string,
     operationId: string,
     desired: AgentConfiguration,
-    controller: SessionController,
+    controller: Pick<SessionController, 'fork'>,
   ) {
     const active = this.operations.get(operationId);
     if (active) return active;
@@ -181,7 +181,7 @@ export class NativeHistory {
     messageId: string,
     operationId: string,
     desired: AgentConfiguration,
-    controller: SessionController,
+    controller: Pick<SessionController, 'fork'>,
   ) {
     await this.writes;
     if (!(await this.ctx.sessions.flush(agent.session)))

@@ -17,6 +17,9 @@ export class CronOwners {
   private readonly owners = new Map<string, Promise<Owner>>();
   private paused?: string[];
   private stopped = false;
+  private readonly disabled = new Set<string>();
+  /** Close timer admission synchronously, before asynchronous owner teardown. */
+  block(agentId: string, disabled: boolean): void { if (disabled) this.disabled.add(agentId); else this.disabled.delete(agentId); }
   constructor(private readonly ctx: Context, private readonly home: string, private readonly held: (agentId: string, action: string) => boolean = () => false) {}
   private owner(agentId: string): Promise<Owner> {
     let owner = this.owners.get(agentId);
@@ -46,10 +49,10 @@ export class CronOwners {
     return owner;
   }
   async setEnabled(agentId: string, enabled: boolean): Promise<void> {
-    if (enabled && this.stopped) throw new Error('agent_disabled');
+    if (enabled && (this.stopped || this.disabled.has(agentId))) throw new Error('agent_disabled');
     const owner = await this.owner(agentId);
     const change = owner.chain.then(async () => {
-      if (enabled && this.stopped) throw new Error('agent_disabled');
+      if (enabled && (this.stopped || this.disabled.has(agentId))) throw new Error('agent_disabled');
       if (enabled && !owner.fiber) {
         owner.fiber = owner.ctx.plugin(ScheduleService, {}); await owner.fiber.await();
         owner.schedule = await new Promise<ScheduleService>(resolve => { owner.fiber!.ctx.inject(['schedule'], child => { resolve(child.schedule); }); });
@@ -62,7 +65,7 @@ export class CronOwners {
   async command(agentId: string, sessionId: string | undefined, action: string, args: Record<string, unknown>): Promise<unknown> {
     const owner = await this.owner(agentId);
     const result = owner.chain.then(async () => {
-      if (this.stopped) throw new Error('agent_disabled');
+      if (this.stopped || this.disabled.has(agentId) && !['catalog', 'history'].includes(action)) throw new Error('agent_disabled');
       if (this.held(agentId, action)) throw new Error('Capability is reserved by configuration');
       if ((action === 'catalog' || action === 'history') && !owner.fiber) {
         const domain = await owner.domain.open(scheduleDomain);
@@ -117,7 +120,7 @@ export class CronOwners {
   async resume(): Promise<void> {
     const paused = this.paused;
     if (!paused) return;
-    for (const agentId of paused) await this.setEnabled(agentId, true);
+    for (const agentId of paused) if (!this.disabled.has(agentId)) await this.setEnabled(agentId, true);
     this.paused = undefined;
   }
   /** Release a temporary catalog owner, or close a durable owner at shutdown. */

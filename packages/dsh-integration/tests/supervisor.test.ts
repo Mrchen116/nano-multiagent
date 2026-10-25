@@ -34,37 +34,7 @@ it('keeps the node port stable across a runtime crash and recovers persisted inp
   }
 }, 30_000);
 
-it('fences a pending launch synchronously and requires explicit enable for a new process identity', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'nano-disable-start-'));
-  let release!: () => void;
-  const held = new Promise<void>(resolve => { release = resolve; });
-  let initialized!: () => void;
-  const reached = new Promise<void>(resolve => { initialized = resolve; });
-  let ready = 0;
-  const supervisor = new RuntimeSupervisor({ home, cwd: home,
-    initialize: async rpc => { await rpc.request('initialize', {protocol:1,agents:[],bindings:[]}); initialized(); await held; },
-    onReady: async () => { ready++; }, onError: () => {},
-  });
-  try {
-    await prepareProfile(home);
-    const starting = supervisor.start();
-    await reached;
-    const id = supervisor.processInstanceId;
-    const stopped = supervisor.disable();
-    expect(supervisor.available).toBe(false);
-    release();
-    await starting;
-    expect(await stopped).toMatchObject({confirmed:true,processInstanceId:id});
-    expect(ready).toBe(0);
-    await expect(supervisor.start()).rejects.toThrow('disabled');
-    supervisor.enable();
-    await supervisor.start();
-    expect(supervisor.processInstanceId).not.toBe(id);
-    expect(ready).toBe(1);
-  } finally { release(); await supervisor.shutdown(); await rm(home,{recursive:true,force:true}); }
-}, 30_000);
-
-it('does not claim cleanup when the runtime event loop is blocked and preserves the failed stop across retry', async () => {
+it('reports a cleanup deadline without killing or replacing the shared host', async () => {
   const { writeFile } = await import('node:fs/promises');
   const home=await mkdtemp(join(tmpdir(),'nano-disable-deadline-'));
   const supervisor=new RuntimeSupervisor({home,cwd:home,stopTimeoutMs:200,
@@ -74,13 +44,15 @@ it('does not claim cleanup when the runtime event loop is blocked and preserves 
   try {
     await writeFile(join(home,'block.mjs'), `export function apply(ctx){setTimeout(()=>{while(true){}},1500);}`);
     await prepareProfile(home,[{insert:[{id:'block',name:join(home,'block.mjs')}]}]);
-    await supervisor.start(); supervisor.enable();
+    await supervisor.start();
+    const pid=supervisor.process!.pid,id=supervisor.processInstanceId;
     await new Promise(resolve=>setTimeout(resolve,1600));
-    const started=Date.now();const result=await supervisor.disable();
+    const started=Date.now();const result=await supervisor.disableAgent('a',2);
     expect(result.confirmed).toBe(false);
     expect(Date.now()-started).toBeLessThan(800);
-    expect(supervisor.available).toBe(false);
-    expect(await supervisor.disable()).toEqual(result);
-    await expect(supervisor.start()).rejects.toThrow('disabled');
-  } finally {supervisor.process?.kill('SIGKILL');await rm(home,{recursive:true,force:true});}
+    expect(supervisor.available).toBe(true);
+    expect(supervisor.process!.pid).toBe(pid);expect(supervisor.process!.signalCode).toBeNull();
+    expect(await supervisor.disableAgent('a',2)).toEqual(result);
+    expect(supervisor.processInstanceId).toBe(id);
+  } finally {const closing=supervisor.shutdown().catch(()=>{});supervisor.process?.kill('SIGKILL');await closing;await rm(home,{recursive:true,force:true});}
 },10000);

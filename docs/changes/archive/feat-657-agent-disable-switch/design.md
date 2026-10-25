@@ -1,5 +1,7 @@
 # feat-657: Agent 停用开关 — 技术方案
 
+> **运行分区方案已撤回。** bugfix-660 保留本 unit 的产品 UI 和持久意图，改为共享 host 内 DSH owner 清理。下文逐 Agent 进程、control host 和离线拆分迁移不再执行；当前拓扑见 [SPEC.md](../../../../SPEC.md)。
+
 > 对齐: [spec.md](spec.md)，2026-10-25；状态以 design-review.md 最后完整 Round 为准。
 
 ## Changelog
