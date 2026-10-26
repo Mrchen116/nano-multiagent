@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 9 live-fragment delta at `06d8041bf`: aligned; overall 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 10 final evidence closure at `fb792c8d2`: pre-PR pass; 0 CRITICAL, 0 WARNING, 0 SUGGESTION**. Corrected deltas remain aligned; remote required CI and final archive/docs steps are subsequent unexecuted delivery gates. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -283,3 +283,36 @@ V-01 remains pending the already-required final actual evidence package. A new f
 Independent affected tests **19/19** at `/tmp/pa665-independent-round9.log`; protocol **12/12**. Source/context coverage is reused from code-review Round 9. The runtime patch repairs the existing long-request/real-delivery contract and adds no unmatched outward product promise; prior corrected deltas remain aligned.
 
 V-01 remains pending the final actual v12 M08/P03/I02/P12 and aggregate evidence package. Old real long-input completion failure is retained; neither 19 passing mechanism tests nor proactive login renewal proves a later natural model response was delivered. This finite pass did not wait/poll those real runs, change production, rerun unrelated suites or stage caller-owned acceptance/runtime artifacts. Reports are the only modifications by the reviewer.
+
+## Round 10 — final V-01 evidence closure
+
+- verification_mode: `targeted-closure`; review_round: `10`; focus_issues: `V-01`.
+- executed_base: `85910853ebe4a7a22c5b761029cf46da2f78cd5a`.
+- validated_at: `fb792c8d22b5f75d252b58bba4949152a7806380` (includes product verdict `57fd15853`).
+- effective_base: `85910853ebe4a7a22c5b761029cf46da2f78cd5a`; effective_through: `fb792c8d22b5f75d252b58bba4949152a7806380`.
+- requires_full_verification: `false`: origin/main remains the original base; source/tests/eval tree is unchanged since the last independently reviewed source at `06d8041bf`. Later documentation and evidence additions do not invalidate the code/Context conclusions.
+- **verdict: pass for the pre-PR review/evidence gate**; critical **0**, warning **0**, suggestion **0**. `V-01: closed`. This is not remote-CI, merge, deployment or release approval.
+
+### Why V-01 is now closed
+
+The previously absent package is now available and internally consistent: [evaluation](evaluation.md) and [58-result ledger](evaluation-results.json), independent [product acceptance](acceptance.md) final Round6, [validation](validation.md), and M1/M2/M3 native-worker evidence. Acceptance reports **pass-with-issues**, all 15 Scenario groups covered according to the design's representative-product / deterministic-worker responsibility split, no open blocking/major. PA-2 minor first-draft production terminology is retained as a nonblocking product-quality observation; its later revision removes it.
+
+This closure accepts specific evidence for required behavior, not a mechanical demand to rerun every deterministic checkpoint inside every complete model case. Conversely it does not count a not_run case as passed. The explicit 58-case classification requirement is satisfied by truthful per-case records; model acceptance is supported by the relevant actual representative journeys plus worker guard/fault/persistence evidence.
+
+| Previous V-01 gap | Final evidence / independent check | Closure and limitation |
+|---|---|---|
+| Actual serialized provider input and model/tool/user outcome | 21 passed case raw/adjudication/review bindings and all 145 manifest files verified (27,615,536 bytes; zero hash/status mismatch). Read assertion-level M01/M02/M08/P03/I02/P12/D08 decisions with model_input/tool_trace/user_result. Product report separately locates erasure, child-minimal-input, quiet and revised-source upstream captures. | Closed for applicable observed tasks, not universal model correctness. No stub promoted to real-model proof. |
+| Memory use/correction/forget/subject and capacity | Actual cross-group correction/forget continuity, disabled memory and same-name/exception examples; final M08 90 independent 64-hex values, 8100 stored body characters, only 045 revision2 and 001/089 unchanged; actual fixed provider prefix with zero value injection. Native locked revision/maintenance stale write, projection/fault/restart/history/notes/migration and exact unsafe handoff checks retained. | M1 required combined proof present. Entire-case M05/M06/M07/M09/M11/M12 statuses remain as originally classified; separate representative/specialist evidence is not relabelled as those complete case passes. |
+| Proactive preparation, quiet, source and feedback/browser | Actual P01/P03/P12 preparation/conflict final outcomes; real full ten-minute source batches; quiet settings followed by 600.105-second background processing, prepared draft and zero DM/external send, then settings restoration. Actual source revoke canary, new-card dismiss/snooze/old-card/draft composer flows; host coverage/version/duplicate-key/quiet/Schedule tests retained. | M2 combined proof present; actual original failures and differing fixture inputs remain visible. |
+| Multi-work, native roles, delivery and recovery | Actual original child correction, per-item stop and independent result; complete D08-r4 owner delivery; child upstream minimum-context audit; native canonical binding/live/cold cancellation/recovery and unknown adapter persistence. Actual Web old/new file downloads and shared approved-copy/recipient/private denial/frozen hash after private edit, plus byte/version/idempotent media tests. | M3 combined proof present. Deterministic external adapter fault is not called a real live-platform fault, and unavailable external services stay blocked. |
+| All 58 adapters and honest result classification | 58 unique IDs; 21 passed, 0 current failed, 3 blocked, 34 not_run. Among not_run, five independently reviewed missing-prerequisite cases and 29 without complete-case adjudication are explicitly distinguished. Latest-case map spans recorded builds, not one claimed final-build all-green batch. | Classification exit satisfied; **not all 58 passed**. No inferred percentage coverage/success from this map. |
+| Core repeated observation and old baseline | Compared recorded M01/M02/D08 conditions: three distinct nodes each, same gpt-6-astra/medium/no fallback; M01/M02 candidate3/3; D08 baseline3/3 and original candidate1/3, repaired extra r4 pass. Tools/Features differ where old version lacks capabilities, so comparator correctly returns comparable:false. | Required repeated/core comparison evidence present with explicit inability to claim a controlled improvement. Does not claim three final-build D08 green runs or statistical robustness. |
+| Applicable local checks and retained validity | Validation preserves supported-Node full build/type/iOS-runtime, Web1031/docs283/Python70/lint and the broad suite's original792/794 with two timeouts plus affected6/6 recheck. Later source typecheck and scoped DSH/PA/IM builds plus independent19/80 and protocol12 remain bound to unchanged final source. | Local evidence sufficient at reviewed scope; no mechanical rerun, no rewriting initial failures as a flawless broad run. |
+
+### Boundaries after this closure
+
+R7 Corrected Delta Reconciliation remains **aligned** and product code has not changed since its later reviewed source fixes. Full source review and all targeted closures are retained; latest code-review.json stays `[]`. The acceptance and evaluation histories preserve the original confirmed failures and instrumentation-invalid runs; `comparable:false`, unknown metrics, blocked live accounts, incomplete full cases and the single repaired D08 model regression remain practical limits of the evidence.
+
+Under change-workflow finalization, the orchestrator still must promote corrected deltas/current specs, archive and execute applicable final docs/type checks, create the Ready PR and then observe required remote CI. Those downstream actions are not yet executed at this snapshot; their result cannot be predicted or represented as green by this report. Any later product/source/main increment must receive its own invalidation assessment and affected checks. **No pre-PR CRITICAL/WARNING remains at this validated tree.**
+
+No new source audit, full test rerun, live product operation, external send, merge or deployment was performed for this evidence-only closure. Reports are the only reviewer edits; no reviewer service is left running.

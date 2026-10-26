@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 9 complete-live-fragment patch passes at `06d8041bf`**, no surviving findings (`code-review.json=[]`). Prior source/Context closures remain; actual v12 replays and V-01 aggregation remain separately pending.
+Current code verdict: **Round 10 final evidence closure passes at `fb792c8d2`**, no surviving findings (`code-review.json=[]`). V-01 pre-PR evidence gap is closed in verification.md. Remote required CI is a subsequent unexecuted gate, not predicted green.
 
 ## Snapshot and verdict
 
@@ -235,3 +235,21 @@ Additionally called compiled ApprovalSources directly with a complete single-pag
 EvaluationClient renews authentication at the header-access boundary after five minutes using an ordinary login POST, then updates the token/time before the requested read/write is sent. It contains no response-triggered business retry or replay branch. An independent synthetic HTTP/clock probe accessed headers twice after the refresh threshold: exactly **one `/im/v1/auth/login`**, **zero mutation calls**, both headers used the new token. Credentials remain in the in-memory fixture object; no credential output was captured.
 
 Actual fresh v12 M08/P03/I02/P12 outcomes remain running/awaiting separate evidence. These tested seam fixes do not retroactively pass the earlier M08 response timeout or any preceding scenario. Prior corrected product deltas remain aligned because the change restores original complete-input provenance within the existing turn/source contract. Only reports were changed; caller's dirty acceptance.md and untracked temporary e2e script remain preserved unstaged.
+
+## Round 10 — final evidence closure / retained code and Context conclusions
+
+- Mode: evidence-focused closure; no repeated full source/Context review.
+- executed_base / effective_base: `85910853ebe4a7a22c5b761029cf46da2f78cd5a`.
+- validated_at / effective_through: `fb792c8d22b5f75d252b58bba4949152a7806380`, including independent product acceptance commit `57fd15853`.
+- Verified current fetched origin/main is still the same base. `git diff --quiet 06d8041bf HEAD -- apps packages src/IM tests evals` is empty: later changes only consolidate reports/docs. Thus prior full review, focused code fixes, Context traces and corrected-delta alignment remain valid at this tree.
+- Latest findings: `[]`. CR-01–04 and the in-round mode-name correction remain closed; historical reproductions/failures are preserved.
+
+Read final evaluation.md/evaluation-results.json, acceptance through its final Round6 verdict, validation.md and M1/M2/M3 worker evidence. The independent product reviewer now accepts all 15 required Scenario groups using actual representative journeys and the worker-owned native/file/transaction guards; no blocking/major remains. PA-2 is a retained minor first-draft terminology issue, already corrected in the later user revision, and is not a newly inferred code defect.
+
+Independently checked all **58 unique case IDs** and counts **21 passed / 0 current failed / 3 blocked / 34 not_run**. For all 21 passed rows, checked the raw execution_complete status, raw-result hash bound by independent-review, adjudication review hash, and every manifest file's exact bytes: **145 referenced files / 27,615,536 bytes**, **zero hash/status errors**. These manifests include actual model_input, tool_trace and user_result. Read the assertion-level decisions for M08/P03/I02/P12/D08/M01/M02 rather than relying only on passed labels. This integrity check reuses the independent adjudicator's semantic review; it is not a claim that this reviewer reran or regraded every model task.
+
+The previously pending real paths now have scoped final evidence: M08 has 90 independent original values and correction-only 045; actual provider prefix remains bounded. I02 preserves addressed owner work alongside a refused peer and actually delivers the public result. P03 ends with an actual private conflict message and no family disclosure to the work group. P12 and P01 persist usable private preparation with real settings/source checks. D08-r4 ends in an actual complete owner itinerary, not a child acknowledgement. The independent product report additionally records real quiet settings, a 600.105-second background wake, useful private preparation and zero new DM/external messages, then verifies settings restoration.
+
+Core comparison retains three unique nodes per condition for M01/M02/D08, the same gpt-6-astra model/medium effort/no fallback, three valid candidate M01 and M02 passes, D08's original failed/passed/failed candidate series and separately passed repaired r4. Tool/Feature differences are explicitly `comparable:false`; no percentage improvement is asserted. This is repeated observation across recorded builds, not three green repetitions of the final fixed D08 build or a robustness guarantee. Unknown model-call/duplicate/error-memory/blocking-delay metrics stay null/unknown. The 34 not_run and three absent external-account live branches remain exactly that; representative acceptance does not overwrite them.
+
+V-01 pre-PR evidence closure is supported by the combined scope above; details are in verification Round10. No new product tests or services were started. Local wide checks retain their original two timeout outcomes and the successful six-test affected recheck; final source typecheck and later affected builds/tests are explicitly versioned. Archive/current-spec promotion/docs validation and then Ready PR/remote required CI remain the orchestrator's subsequent actions under change-workflow; this review does not predict their result, authorize merge/deploy or claim a release.
