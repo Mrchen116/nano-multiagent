@@ -5,7 +5,7 @@ import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import type { ApprovalReviewRequest } from '../src/policy/types.js';
 
 function deferred<T=void>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>resolve=done);return{promise,resolve};}
-function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=>Promise<void>,reasoning?:any){
+function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=>Promise<void>,reasoning?:any,lifecycle?:{created?:()=>Promise<void>;disposing?:()=>Promise<void>}){
   const ctx=new Context();const disposed:string[]=[];const inputs:string[]=[];const optionsSeen:any[]=[];let rows:any[]=[{user:'original permission',origin:{kind:'human'}}];
   ctx.provide('llm',{resolveModelInfo:async()=>({context:{contextWindow:100000},reasoning})} as any);
   ctx.provide('tools',{schemas:()=>[{name:'edit',parameters:{type:'object'}}]} as any);
@@ -14,7 +14,8 @@ function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=
     const agent={id:options.sessionId,session:{snapshotEvents:()=>events,deriveMessages:()=>events.filter(e=>e.type==='user/message').map(e=>e.data)},
       followup(message:any){inputs.push(message.content[0].text);events.push({type:'user/message',seq:events.length,data:message});pending=run({events,input:message.content[0].text,cancelled:cancelled.promise});},
       whenIdle:()=>pending,cancel:()=>cancelled.resolve()};
-    return{agent,dispose:async()=>{cancelled.resolve();await pending;await Promise.resolve();disposed.push(agent.id);}};
+    await lifecycle?.created?.();
+    return{agent,dispose:async()=>{await lifecycle?.disposing?.();cancelled.resolve();await pending;await Promise.resolve();disposed.push(agent.id);}};
   }} as any);
   const plugin=new CodexApproval(ctx);
   const controller=new AbortController();
@@ -97,7 +98,53 @@ it.each([
   try{
     const result=await h.plugin.review(h.request);
     expect(result.decision.behavior).toBe('allow');
-    expect(h.optionsSeen[0].agentOptions).toMatchObject({provider:'fixture',model:'fixture',reasoningEffort:expected});
+    expect(h.optionsSeen[0].agentOptions).toMatchObject({provider:'fixture',model:'fixture'});
+    if(expected)expect(h.optionsSeen[0].agentOptions.reasoningEffort).toBe(expected);
+    else expect(h.optionsSeen[0].agentOptions).not.toHaveProperty('reasoningEffort');
     expect(h.inputs[0]).toContain('original permission');
   }finally{await h.close();}
+});
+
+it('quarantines late creation until the aborted handle is disposed without running a turn',async()=>{
+  vi.useFakeTimers();const creation=deferred();let creates=0;
+  const h=harness(async({events})=>verdict(events),undefined,{created:async()=>{if(++creates===1)await creation.promise;}});
+  try{
+    const first=h.plugin.review(h.request).catch(error=>error.category);
+    await vi.advanceTimersByTimeAsync(95_000);
+    expect(await first).toBe('cleanup_unavailable');expect(h.inputs).toHaveLength(0);
+    await expect(h.plugin.review(h.request)).rejects.toMatchObject({category:'cleanup_unavailable'});
+    expect(creates).toBe(1);
+    creation.resolve();await vi.advanceTimersByTimeAsync(0);
+    expect(h.disposed).toHaveLength(1);expect(h.inputs).toHaveLength(0);
+    expect((await h.plugin.review(h.request)).decision.behavior).toBe('allow');
+    expect(creates).toBe(2);expect(h.inputs).toHaveLength(1);
+  }finally{creation.resolve();vi.useRealTimers();await h.close();}
+});
+
+it('blocks successor attempts and cache reuse while failed-review disposal remains quarantined',async()=>{
+  vi.useFakeTimers();const disposal=deferred();let calls=0;
+  const h=harness(async({events})=>{if(++calls===1){events.push({type:'assistant/message',seq:events.length,data:{message:{content:[{type:'text',text:'invalid verdict'}]}}});events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'completed'}}});}else verdict(events);},undefined,{disposing:()=>disposal.promise});
+  try{
+    const first=h.plugin.review(h.request).catch(error=>error.category);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await first).toBe('cleanup_unavailable');expect(calls).toBe(1);
+    await expect(h.plugin.review(h.request)).rejects.toMatchObject({category:'cleanup_unavailable'});
+    expect(h.optionsSeen).toHaveLength(1);
+    disposal.resolve();await vi.advanceTimersByTimeAsync(0);
+    expect(h.disposed).toHaveLength(1);
+    const next=await h.plugin.review(h.request);
+    expect(next.decision.behavior).toBe('allow');expect(next.metadata?.contextMode).toBe('full');
+  }finally{disposal.resolve();vi.useRealTimers();await h.close();}
+});
+
+it('freezes the exact action before asynchronous evidence preparation',async()=>{
+  const evidence=deferred<any[]>();const h=harness(async({events})=>verdict(events));
+  (h.request.sources as any).history=()=>evidence.promise;
+  try{
+    const pending=h.plugin.review(h.request);
+    (h.request.exec.arguments as any).text='mutated after acceptance';
+    evidence.resolve([{user:'original permission'}]);
+    expect((await pending).decision.behavior).toBe('allow');
+    expect(h.inputs[0]).toContain('complete');expect(h.inputs[0]).not.toContain('mutated after acceptance');
+  }finally{evidence.resolve([]);await h.close();}
 });

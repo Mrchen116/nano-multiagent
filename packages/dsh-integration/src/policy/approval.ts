@@ -131,6 +131,8 @@ export class NanoApproval extends Service {
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
     // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
     if (config.personal && policy.enabled && ['send_message', 'send_user_message'].includes(exec.name)) return allow('product_disclosure_gate');
+    // Freeze the pending action before asynchronous evidence preparation can yield.
+    exec = { ...exec, arguments: structuredClone(exec.arguments) };
     const recovery = new ReviewRecovery(exec.signal, exec.callId);
     const actions = this.actions.get(agent.id) ?? new Set<ReviewRecovery>();
     this.actions.set(agent.id, actions); actions.add(recovery);
@@ -148,7 +150,7 @@ export class NanoApproval extends Service {
         });
         if (prepared.messageContext?.recipient.kind === 'owner') { recovery.finish('owner_message', 'fastpath'); return allow('owner_message'); }
         if (!policy.enabled) { recovery.finish('manual_required', this.route(agent, config)); return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required'); }
-        const request = { exec: { ...exec, arguments: structuredClone(exec.arguments) }, config, sources: this.sources, ...prepared, reviewer, recovery };
+        const request = { exec, config, sources: this.sources, ...prepared, reviewer, recovery };
         result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
           : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
         recovery.assertActive();

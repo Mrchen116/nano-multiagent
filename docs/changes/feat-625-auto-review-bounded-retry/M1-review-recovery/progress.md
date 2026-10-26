@@ -4,7 +4,7 @@
 
 - Approved design integrated by fast-forward at `407b6e096ec4e6b0bdc9a4a30774dd2e2bed0148`; main `d72e220f1d21827c65e046f704c13837ea39d7c2`. Gate 2 remains as recorded in the unit report, not an implementation verdict.
 - Persistent implementation branch `unit/feat-625-r2-361`; one existing isolated engineering worktree. No production/user checkout changes, merge, deployment or release.
-- This is an in-progress implementation checkpoint, **not** a frozen review/Q package or a passing milestone. Remaining obligations include transaction/owner and exact concurrent-stream regression, IM HTTP fixture/trace export, isolated daily resource handoff, independent gates and final delivery.
+- This is an engineering implementation/evidence freeze for independent static review, **not** a passing milestone, Q product acceptance or Ready PR. The exact containing commit is supplied by `git rev-parse HEAD` in the neutral handoff. Daily resource preparation runs in parallel with static gates; independent gates and final delivery remain outstanding.
 
 ## Meaningful Red → Green
 
@@ -38,4 +38,36 @@ Commands are run in the above unit worktree with Node 24.22.1, locked DSH 0.2.1-
 
 ## Limits and next steps
 
-These tests do not establish independent code/Context verification or Q product acceptance, and native HTTP is not a true IM journey. No daily services or real providers have been started at this checkpoint. Required next checks include request/backoff configuration rejected-release, persist/metadata release, true owner disable/cancel isolation, concurrent exact owner/ALS attribution, late-create/quarantine and capped usage accounting; then durable true-IM fixture/readonly export, daily preparation and neutral frozen handoff to the parent for independent reviewers/Q.
+These tests do not establish independent code/Context verification or Q product acceptance. True IM controlled-HTTP evidence below is now present, but no real-provider daily journey has been executed at this freeze. Reviewer/Q findings, final sync/delta/canonical merge, whole local CI, archive and Ready PR/remote CI remain outstanding. The parent schedules independent code review + Context Implementation Review + verification, and Q independently; the same implementation worker retains repairs and runtime/CI cleanup.
+
+## Completion delta and additional Red → Green
+
+- Freeze exact tool arguments and serialized Guardian action before asynchronous preparation; retain frozen config even when metadata revision mutates live config. A no-effort model exposed an actual native non-JSON-serializable request from explicit `undefined`: omit unsupported `reasoningEffort` entirely from route, options and agent request. Both strategies now pass actual no-effort HTTP admission.
+- Lifecycle red tests exposed stale quarantine after successful delayed disposal and a busy trunk left set after failed cleanup. Normalize only the tracked judgment completion, retain real disposal rejection as quarantine, and clear busy in nested finally. Lifecycle suite now 10/10 including late-create, delayed-dispose and frozen-action protection.
+- Recovery accounting red tests showed failed HTTP adapter all-zero usage incorrectly represented as known and capped canceled requests losing partial usage. Per-attempt private pending sinks seal all requests on revoke; unknown failed zero remains unknown, positive partial is retained beyond the 100 exported-row cap. Recovery suite now 19/19.
+
+## Additional executed evidence (engineering only)
+
+All commands use this worktree's `.venv/bin/python` 3.11.17 or locked pnpm dependencies. Owned test runtimes are under ignored `output/`; each test uses `finally` to down its stack and stop its own fixture. Raw request bodies/logs/config/DB remain ignored.
+
+| Layer / command suffix | Result / limits |
+|---|---|
+| `pnpm build`; frontend `npm run build` | Both exit 0; rerun build for final frozen SHA before daily start. Earlier build carried checkpoint SHA while source dirty, not an attested frozen build. |
+| `pnpm exec vitest run packages/dsh-integration/tests/approval-retry-configuration-native.test.ts` | 1 umbrella / 20 native HTTP controls, exit 0, 12.93s: both strategies × request/backoff × rejected prepare release, persist-failure release, metadata apply release, real cancel, owner disable. Another owner remains unaffected; allowed effects exactly once, revoked zero. |
+| `pnpm exec vitest run packages/dsh-integration/tests/approval-retry-concurrency-native.test.ts` | 1 umbrella, exit 0, 4.02s: idle I, active A/fork B, other-parent C, hand-built CC D, disclosure P, main M and auxiliary X simultaneously; cancel B only, distinct HTTP/usage/identity, reuse C on next action. |
+| `...pytest .../test_auto_review_retry_critical_path.py -k http_retry ... --basetemp=output/feat625-im-faults-r5` | True IM → Node → native DSH → HTTP, 1 umbrella / 20 dual-strategy cases passed 31.36s: 503, 429 seconds/date, socket disconnect, invalid/mixed output, 401, persistent failure, excessive Retry-After; original interactive card denied on exhaustion, exact zero/one effect, durable callId-correlated trace. |
+| Same file `-k 'stop_request or default_full' --basetemp=output/feat625-im-cancel-timeout-r1` | 3 passed, 184.01s: true IM `/stop` during request/backoff both strategies, plus actual first CC 30s and Guardian 90s timeout with complete new budgets and one final effect. No production timers shortened. |
+| Same file `-k rejected_configuration --basetemp=output/feat625-im-config-r1` | 1 umbrella / 4 controls passed, 17.90s: actual IM PATCH removes busy bash → 409 capability_in_use → PA/Node transaction release; original request/backoff continues and executes once both strategies. |
+| Same file `-k cc_stages --basetemp=output/feat625-im-stage2-r1` | 1 umbrella / 3 controls passed, 74.71s: stage-two 503 only repeats failed stage; stage-one consumes two recoveries then stage-two failure escalates without new quota; actual full 60s stage-two timeout → new full 60s → one effect. |
+| `...ruff check` four new Python files; `...pytest tests/unit/test_review_trace_export.py -q` | Exit 0, 2/2: old/recovery v1 rows, prompt/reason exclusion, exact filters and out-of-root symlink rejection. |
+| Integration typecheck; six narrow files `review-recovery`, `approval-retry`, `codex-approval-lifecycle`, `codex-approval`, `approval-sources`, `llm-attribution` | Exit 0, 54/54 on final source delta (14:40). `git diff --check` exit 0. |
+
+Fixture development failures were investigated, not counted as product failures or hidden passes: inherited bare IPv6 NO_PROXY made httpx reject URLs (sanitize only subprocess environment); stale ACK/permission WS frames needed exact case/call IDs; excessive new WS ticket creation hit 429 (reuse one socket per matrix); repo default 90s pytest timeout killed a production-budget test (file explicitly allows 1800s). The interrupted owned stack/fixture were stopped and ports checked; subsequent runs finish with normal cleanup. A Python lint failure was an unused fixture import and was removed before the successful rerun.
+
+## Neutral review map / remaining gaps
+
+- Production scope: `policy/recovery.ts`, `review-http.ts`, classifier/approval/codex/audit/types and the existing `llm-attribution.ts` dispatcher. No runtime fork/private import, no PA/Channels/IM DSH import, no new production debugging switch or attempts UI. New trace is optional in existing domain v1.
+- Context Implementation Review: frozen current visible rows/action/config/model/effort; no all-library fallback read; technical Guardian retry fresh full from same frozen source, action-scoped context rebuild; exact native identity before owner read; disclosure/main/CC/aux transparency; live/restored provenance, current parser and PA input/output protections retained. Check captured requests and existing source tests rather than treating file presence as behavior proof.
+- Verification: review all approved spec/design/delta requirements against code and evidence. Final corrected-delta/canonical spec has not yet been merged; explicitly report any unproven route, audit-failure or Context cross-regression rather than infer pass from the matrix.
+- Product Q still requires both clean daily profiles, actual default models/efforts and audit route smoke, actual Global self-created/installed plugin with two real calls yielding 180/55, Work/user delivery, plus independent assessment of controlled faults and original fallback/child/schedule routes. No real-provider journey is claimed here.
+- Same worker will supply exact daily identity/URL/PIDs/ports/build and neutral local evidence locators separately, fix findings after notifying parent of pre-fix SHA, then return a new frozen SHA. Static gates need not wait for daily readiness.

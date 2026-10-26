@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { LlmError } from '@deepseek-ai/dsh-llm';
-import { ReviewRecovery, invalidVerdict, interruptible, type ReviewAttempt } from '../src/policy/recovery.js';
+import { ReviewRecovery, publicFailure, invalidVerdict, interruptible, type ReviewAttempt } from '../src/policy/recovery.js';
 import { recoveryTrace } from '../src/policy/audit.js';
 
 const serviceFailure = () => new LlmError('temporary service failure', 'SERVER', { status: 503 });
@@ -101,4 +101,43 @@ it('bounds preparation once and does not accept late evidence or pretend unknown
   await vi.advanceTimersByTimeAsync(15_000); expect(await result).toBe('prepare_timeout'); finish('late-evidence');
   const trace = recovery.finish('prepare_timeout', 'return_to_agent');
   expect(trace.attempts).toEqual([]); expect(trace.knownUsage).toBeUndefined(); expect(trace.usageComplete).toBe(false);
+});
+
+it('does not count adapter synthetic zero usage on failed HTTP requests as known usage', async () => {
+  const recovery = action();
+  await expect(recovery.run('guardian', 90_000, async attempt => {
+    for await (const chunk of attempt.stream({ provider: 'fixture', model: 'review' }, async function* () {
+      yield { type: 'usage', usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } };
+      yield { type: 'finish', reason: { kind: 'error', failure: { code: 'AUTH', message: 'auth failed' } } };
+    })) if (chunk.type === 'finish' && chunk.reason.kind === 'error') throw publicFailure(chunk.reason.failure);
+  })).rejects.toMatchObject({ category: 'permanent' });
+  const trace = recovery.finish('permanent', 'return_to_agent');
+  expect(trace.knownUsage).toBeUndefined();
+  expect(trace.attempts[0]!.requests[0]!.usage).toBeUndefined();
+  expect(trace.usageComplete).toBe(false);
+});
+
+it('retains partial known usage at cancellation and accounts beyond the capped request summaries', async () => {
+  vi.useFakeTimers();
+  const parent = new AbortController(); const recovery = new ReviewRecovery(parent.signal);
+  const result = recovery.run('guardian', 90_000, async attempt => {
+    for (let index = 0; index < 101; index++) {
+      for await (const _chunk of attempt.stream({ provider: 'fixture', model: 'review' }, async function* () {
+        yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 2 } };
+        yield { type: 'finish', reason: { kind: 'tool-calls' } };
+      })) { /* Capture only the aggregate after the 100-row summary limit. */ }
+    }
+    for await (const _chunk of attempt.stream({ provider: 'fixture', model: 'review' }, async function* () {
+      yield { type: 'usage', usage: { inputTokens: 7, outputTokens: 11 } };
+      await interruptible(new Promise<never>(() => {}), attempt.signal);
+    })) { /* The second usage is partial when cancellation revokes this generation. */ }
+  }).catch(error => error.category);
+  await vi.advanceTimersByTimeAsync(0); parent.abort(); await vi.advanceTimersByTimeAsync(0);
+  expect(await result).toBe('cancelled');
+  const trace = recovery.finish('cancelled', 'cancel');
+  expect(trace.attempts[0]!.requests).toHaveLength(100);
+  expect(trace.attempts[0]!.requestCount).toBe(102);
+  expect(trace.requestsTruncated).toBe(true);
+  expect(trace.knownUsage).toEqual({ inputTokens: 108, outputTokens: 213 });
+  expect(trace.usageComplete).toBe(false);
 });

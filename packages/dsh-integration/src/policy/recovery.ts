@@ -49,12 +49,20 @@ export class ReviewAttempt {
   private valid = true;
   private lastHttp?: ReviewHttpFacts;
   private requestCounter = 0;
+  private readonly pending = new Map<ReviewRequestTrace, HttpFactsSink>();
   constructor(readonly signal: AbortSignal, readonly trace: ReviewAttemptTrace, private readonly owner: ReviewRecovery) {}
   get generation(): number { return this.trace.generation; }
   assertActive(): void { this.owner.assertActive(); if (!this.valid || this.signal.aborted) throw new ReviewFailure('cancelled', 'Review attempt revoked'); }
   revoke(): void {
     this.valid = false;
-    for (const request of this.trace.requests) if (request.endedAt === undefined) { request.endedAt = Date.now(); request.outcome ??= 'aborted'; }
+    for (const [request, sink] of this.pending) { request.outcome ??= 'aborted'; this.seal(request, sink); }
+    this.pending.clear();
+  }
+  private seal(request: ReviewRequestTrace, sink: HttpFactsSink): void {
+    request.endedAt = Date.now();
+    if (Object.keys(sink.facts).length) request.http = { ...sink.facts };
+    request.requestId = sink.facts.requestId; this.lastHttp = request.http;
+    this.owner.requestEnded(request);
   }
   get http(): ReviewHttpFacts | undefined { return this.lastHttp; }
   async *stream(route: { provider: string; model: string; reasoningEffort?: string }, source: () => AsyncIterable<StreamChunk>): AsyncGenerator<StreamChunk> {
@@ -62,7 +70,7 @@ export class ReviewAttempt {
     const row: ReviewRequestTrace = { requestOrdinal: ++this.requestCounter, provider: route.provider, model: route.model, resolvedEffort: route.reasoningEffort, startedAt: Date.now() };
     this.trace.requestCount++;
     const sink: HttpFactsSink = { active: () => this.valid && !this.signal.aborted && this.owner.active, facts: {} };
-    this.owner.addRequest(this.trace, row);
+    this.owner.addRequest(this.trace, row); this.pending.set(row, sink);
     try {
       for await (const chunk of withReviewHttpFacts(sink, source)) {
         this.assertActive();
@@ -81,7 +89,8 @@ export class ReviewAttempt {
       }
       throw error;
     } finally {
-      if (sink.active()) { row.endedAt = Date.now(); row.http = { ...sink.facts }; row.requestId = sink.facts.requestId; this.lastHttp = row.http; this.owner.requestEnded(row); }
+      if (sink.active()) this.seal(row, sink);
+      this.pending.delete(row);
     }
   }
 }
@@ -97,6 +106,7 @@ export class ReviewRecovery {
   private requestCount = 0;
   private completeRequests = 0;
   private readonly knownUsage: Record<string, number> = {};
+  private readonly accounted = new WeakSet<ReviewRequestTrace>();
   private readonly pendingCleanup = new Set<Promise<unknown>>();
   private closed = false;
   private readonly parentCancel: () => void;
@@ -117,7 +127,15 @@ export class ReviewRecovery {
     if (++this.requestCount <= 100) attempt.requests.push(request); else this.trace.requestsTruncated = true;
   }
   requestEnded(request: ReviewRequestTrace): void {
-    if (!this.active) return;
+    // Revocation seals partial usage before finish; late iterators cannot change it again.
+    if (this.closed || this.accounted.has(request)) return;
+    this.accounted.add(request);
+    if (request.usage && typeof request.usage === 'object'
+      && !['stop', 'tool-calls'].includes(request.outcome ?? '')
+      && !Object.values(request.usage).some(value => typeof value === 'number' && Number.isFinite(value) && value > 0)) {
+      // pi-ai emits a synthetic all-zero usage chunk even when HTTP never supplied usage.
+      delete request.usage;
+    }
     if (request.usage && typeof request.usage === 'object') {
       for (const [key, value] of Object.entries(request.usage)) if (typeof value === 'number' && Number.isFinite(value)) this.knownUsage[key] = (this.knownUsage[key] ?? 0) + value;
       if (['stop', 'tool-calls'].includes(request.outcome ?? '')) this.completeRequests++;

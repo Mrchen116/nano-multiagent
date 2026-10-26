@@ -52,7 +52,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 
 - Work位置：`GET /im/v1/agents/{agent_id}/work` → sessions → `/work/sessions/{session_id}/turns` → `/turns/{turn_id}/items`，按分页读全。保留用户消息ID、公开sent回复定位、主session/turn/callId、两次工具真实输出和副作用。
 - 每个长审核场景观察窗口至少420秒；完整插件旅程15分钟，到限显式 `/stop` 收束并报告。不能沿用120秒poll截断完整预算，亦不无限续等。
-- 当前详细attempts不新增Work界面。实际持久出口为 integration `session.observe` 的 `approvals`（`src/index.ts:466`，domain `nano_approval` v1）。工程native tests可用RuntimeClient **观察**；Q仍从真IM发任务。E须在自己的隔离runtime提供脱敏只读导出命令/产物路径，保留reviewId/callId、policy/model、attempt/request、failure category、time/budget/delay、usage completeness、终态route，并记录导出对应SHA和原数据locator。当前无625导出CLI，不把拟议脚本当可运行命令；M1交接必须落实，不要求Q从生产DB临时猜schema。
+- 当前详细attempts不新增Work界面。实际持久出口为 integration `session.observe` 的 `approvals`（`src/index.ts:466`，domain `nano_approval` v1）。工程native tests可用RuntimeClient **观察**；Q仍从真IM发任务。E须在自己的隔离runtime提供脱敏只读导出命令/产物路径，保留reviewId/callId、policy/model、attempt/request、failure category、time/budget/delay、usage completeness、终态route，并记录导出对应SHA和原数据locator。M1现提供只读 `scripts/fixtures/export_review_trace.py --runtime <本次隔离根> --sha <构建SHA> [--call-id <id>] [--session <id>]`，直接读取公开domain JSON medium并输出相对locator，不连接/restore Session；协议见 [fixture README](../../../scripts/fixtures/README.md#automatic-review-recovery-faults-and-trace-export)。SHA由调用方填写，导出器本身不证明构建版本。
 - trace不是授权凭证；不导出完整prompt、owner配置、token、原始headers或私聊全库。必要模型输入证明使用脱敏标记/摘要，由Q核对与Work同一动作。
 
 ## 4. 真实双策略插件旅程
@@ -65,14 +65,16 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 
 ## 5. 受控故障：M1应交付的长期测试
 
-下列新增文件在当前基线**不存在**，是设计约定而非已可执行事实：`tests/e2e/critical_paths/test_auto_review_retry_critical_path.py`、`scripts/fixtures/anthropic_sse_auto_review_retry.py`、`packages/dsh-integration/tests/review-recovery.test.ts`、`approval-retry-native.test.ts`。M1实现后提交可运行命令、fixture协议/参数与脱敏证据；合理等义调整须同步本runbook，不新增产品调试开关。
+M1已实现并执行 `tests/e2e/critical_paths/test_auto_review_retry_critical_path.py`、`scripts/fixtures/anthropic_sse_auto_review_retry.py`、`packages/dsh-integration/tests/review-recovery.test.ts`、`approval-retry-native.test.ts`，另有原生并发/配置事务测试。实际工程命令、失败修复记录与证据边界见 [M1 progress](M1-review-recovery/progress.md)；这是工程证据，不是独立Q通过。不新增产品调试开关。
 
 fixture基于现有recording stub，绑定空闲localhost、记录自己的进程/请求计数。main/reviewer分别用模型ID识别，真实HTTP adapter贯穿IM+Node+DSH；main按脚本产生工具，reviewer按scenario发合法CC/Guardian判定、只读tool、429/503、EOF或延迟。必须把Retry-After放真实HTTP响应，不能手捏failure证明pi-ai headers保真；不mock classifier/controller结论。provider policy=always的反证保证原生重试不叠加。故障套件使用default受控source-config（`--main-config`），不将vendor替身混入daily真实服务报告；不替代daily真实旅程。
 
-实现后预期命令（E需先核对实际文件/参数再交Q）：
+已执行的fixture命令（无需 live-provider opt-in，代理环境含裸IPv6时需避免污染本地httpx）：
 
 ```bash
-NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 .venv/bin/python -m pytest \
+env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u http_proxy -u https_proxy \
+  NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1 \
+  .venv/bin/python -m pytest \
   tests/e2e/critical_paths/test_auto_review_retry_critical_path.py -q
 pnpm exec vitest run packages/dsh-integration/tests/review-recovery.test.ts \
   packages/dsh-integration/tests/approval-retry-native.test.ts \

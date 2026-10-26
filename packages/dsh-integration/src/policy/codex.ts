@@ -102,6 +102,8 @@ export class CodexApproval extends Service {
   private async run<T>(request:ReviewRun<T>) {
     const parent=request.parent,key=`${request.purpose}:${parent.id}`;
     const recovery=request.recovery;
+    // Direct service callers need the same frozen action as the tool facade.
+    const action=structuredClone(request.action);
     if(this.quarantine.has(key))throw new ReviewFailure('cleanup_unavailable','Previous Guardian resource is quarantined');
     const deadline=recovery?.signal??AbortSignal.timeout(90_000);
     let signal=request.signal?AbortSignal.any([request.signal,deadline]):deadline;signal.throwIfAborted();
@@ -134,7 +136,6 @@ export class CodexApproval extends Service {
       const overhead=tokenCost(system)+tokenCost(JSON.stringify(schemas))+outputReserve+512;
       const limit=model.context?.contextWindow;
       if(!limit)throw new Error('Guardian reviewer model has no declared context window');
-      const action=request.action;
       let mode=fork?'fork':checkpoint?'delta':'full';
       let normalAttempts=0;
       const judge=async(currentAttempt?:ReviewAttempt)=>{
@@ -196,13 +197,15 @@ export class CodexApproval extends Service {
       let pending:Promise<Awaited<ReturnType<typeof judge>>>|undefined;
       try{return await recovery.run('guardian',90_000,attempt=>{pending=judge(attempt);return pending;});}
       catch(error){
-        if(error instanceof ReviewFailure&&error.category==='cleanup_unavailable'&&pending)this.trackQuarantine(key,pending);
+        // A drained judgment normally rejects after cancellation; only disposal rejection
+        // (tracked separately by discard) must keep the resource quarantined forever.
+        if(error instanceof ReviewFailure&&error.category==='cleanup_unavailable'&&pending)this.trackQuarantine(key,pending.then(()=>undefined,()=>undefined));
         throw error;
       }
     }finally{
       if(reviewer)reviewer.currentAttempt=undefined;
-      if(!committed&&reviewer)await this.discard(reviewer,recovery,key);
-      if(!fork){trunk.reviewer=committed?reviewer:undefined;trunk.busy=false;}
+      try{if(!committed&&reviewer)await this.discard(reviewer,recovery,key);}
+      finally{if(!fork){trunk.reviewer=committed?reviewer:undefined;trunk.busy=false;}}
     }
   }
 
@@ -224,13 +227,13 @@ export class CodexApproval extends Service {
   }
   private async create(request:Pick<ReviewRun<unknown>,'parent'|'reviewer'|'recovery'>,system:string,signal:AbortSignal,checkpoint:Checkpoint|undefined,limit:number,overhead:number,effort:ReasoningEffortId|undefined):Promise<Reviewer>{
     const reviewer={} as Reviewer;
-    reviewer.route={...request.reviewer,reasoningEffort:effort};
+    reviewer.route={...request.reviewer,...(effort?{reasoningEffort:effort}:{})};
     reviewer.signal=signal;reviewer.limit=limit;reviewer.overhead=overhead;reviewer.start=checkpoint?.events.length??0;
     const sessionId=SessionId(`nano-codex-${randomUUID()}`);
     const handle=await this.ctx.agents.create({sessionId,signal,
       meta:{cwd:request.parent.session.header.cwd,agentPreset:'nano-codex-reviewer',...(checkpoint?{parentSession:SessionId(checkpoint.sessionId),isSeeded:true}:{})},
       ...(checkpoint?{seed:checkpoint.events,inheritedEventCount:SessionLogOffset(checkpoint.events.length)}:{}),
-      agentOptions:{...request.reviewer,reasoningEffort:effort,maxTokens:outputReserve},
+      agentOptions:{...request.reviewer,...(effort?{reasoningEffort:effort}:{}),maxTokens:outputReserve},
       setup:(scope,agent)=>{
         if(request.recovery){
           if(signal.aborted)signal.throwIfAborted();
@@ -257,7 +260,7 @@ export class CodexApproval extends Service {
           const cost=tokenCost(JSON.stringify(agent.session.deriveMessages()))+(reviewer.first?tokenCost(reviewer.input):0)+overhead;
           if(cost>limit){reviewer.failure=new ReviewBudgetError('Guardian request exceeds context budget');throw reviewer.failure;}
           reviewer.first=false;
-          return{...await next(),...request.reviewer,reasoningEffort:effort,maxTokens:outputReserve};
+          return{...await next(),...request.reviewer,...(effort?{reasoningEffort:effort}:{}),maxTokens:outputReserve};
         },{prepend:true});
         scope.on('agent/request-error',async({failure})=>{reviewer.failure=publicFailure(failure);return undefined;},{prepend:true});
       },
