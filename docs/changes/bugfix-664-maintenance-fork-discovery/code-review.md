@@ -46,3 +46,5 @@ Closure validated_at=`6ee61c7cfbef3fa7eb5be882bf947c1be4cb37a4`，finding_origin
 交付实现的本机首次全量为758 passed / 1 failed：既有 Bash/PTY disable 用例出现 `kill EPERM`，独立重跑通过，原因未确认。远端CI首次全量为758 passed / 1 failed：Workflow approval 用例在已观察到 turn/end 后再次查询子历史，第二次返回没有 events 的条目却直接执行 filter。该文件单独重跑2项通过；本机完整复跑又出现相同取样失败。
 
 本机完整复跑另有知识维护用例超出默认 poll 等待：失败时落盘事实明确为首轮 error/memory_read_incomplete、第二轮仍 running 且已有 childSessionId，并非丢失第二次维护。调整为该文件已有的8秒维护等待预算。Workflow 用例改为在同一次成功观测上完成权限断言，并允许轮询期间出现没有 events 的原生诊断条目。两处仅修正回归取样和等待，不改变产品实现、不将上述失败记为全绿；修正后的窄回归、独立 patch 审查与最终全量结果写入 PR 和本机真实验收报告。
+
+独立 patch review：base=`feb6bf4091acd5af7eda35e4cfd34e28f29feb12`，validated_at=`5c4386edb30b39d8c5af57fc8224291989abf0b4`，无 dirty 范围，返回 `[]`。同一 reviewer 核对原始失败现场和2文件6项通过日志，确认全部原权限和维护断言保留，未发现掩盖产品缺陷；仅测试观测/等待变化，无 Context 内容变化，未重复运行测试。此后只有事实文档变化，保留上述受审结论。
