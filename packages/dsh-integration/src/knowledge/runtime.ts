@@ -25,7 +25,7 @@ import { PersonalMemoryStore, type PersonalMemoryChange, type PersonalMemorySour
 import { PersonalMemoryContext } from './personal-memory-context.js';
 import type {} from '../product-bridge.js';
 
-export type MemoryToolChange = (MemoryChange | PersonalMemoryChange) & { source_refs?: string[]; owner_instruction_id?: string };
+export type MemoryToolChange = (MemoryChange | PersonalMemoryChange) & { source_refs?: string[]; owner_instruction_id?: string; continuation?: string };
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
 interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; notify(): void; held?(agentId: string, kind: KnowledgeKind): boolean }
@@ -174,6 +174,9 @@ export class KnowledgeRuntime extends Service {
       }
       const sourceRefs = change.source_refs ?? [];
       if (['forget', 'migrate'].includes(change.action) && !change.owner_instruction_id) throw new Error('A direct owner instruction reference is required');
+      if (change.action === 'forget' && (typeof change.continuation !== 'string' || change.continuation.length > 2000)) {
+        throw new Error('Forget requires a continuation of at most 2000 characters: finish other requested actions first, then summarize only remaining non-erased work. Exclude the fact being forgotten and its values. Use an empty string if only the final acknowledgment remains.');
+      }
       const provenance = !read && (sourceRefs.length || change.owner_instruction_id)
         ? await this.host.nanoProduct.call('pa.memory.sources', { source_refs: sourceRefs, owner_instruction_id: change.owner_instruction_id }, exec) as { sources: PersonalMemorySource[] }
         : { sources: [] };
@@ -181,8 +184,14 @@ export class KnowledgeRuntime extends Service {
       if (change.action === 'upsert' && change.certainty === 'confirmed' && provenance.sources.some(source => source.subjectRef !== 'owner' && source.subjectRef !== subject)) {
         throw new Error('A third-party statement is reported evidence, not a confirmed preference of another subject');
       }
-      if (change.action === 'forget') { await this.cancel(this.config(agent)!.agentId, 'memory'); await this.cancel(this.config(agent)!.agentId, 'skills'); }
-      const result = await personal.execute(change as PersonalMemoryChange, { sessionId: agent.id, sources: provenance.sources,
+      if (change.action === 'forget') {
+        await this.cancel(this.config(agent)!.agentId, 'memory'); await this.cancel(this.config(agent)!.agentId, 'skills');
+        await this.memoryContext.prepareForget(this.root(agent), {requestKey: change.idempotency_key, sourceMessageId: change.owner_instruction_id!,
+          replyTarget: this.config(agent)!.personal!.conversationId, summary: change.continuation!});
+      }
+      // Transient work is a context handoff, never durable personal memory or write identity.
+      const {continuation: _continuation, ...memoryChange} = change;
+      const result = await personal.execute(memoryChange as PersonalMemoryChange, { sessionId: agent.id, sources: provenance.sources,
         expectedScopeRevision: review && !read ? review.work.reads.memoryRevision : undefined, signal: exec.signal });
       if (read) { review?.work.reads.memoryRecordsRead(result.revision); return result; }
       review?.work.reads.memoryRecordsRead(result.revision);

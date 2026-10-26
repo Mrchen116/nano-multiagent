@@ -55,6 +55,17 @@ it('commits only the frozen proposal with host verdict and preserves actual rece
     expect(f.calls.filter(x=>x.type==='pa.action.commit')).toHaveLength(1);
   }finally{f.inbox.close();f.store.close();}
 });
+it('explains a stale owner review without treating it as revoked authorization',async()=>{
+ const f=fixture('allow'),original=f.relay.request;
+ f.relay.request=async(type,payload)=>type==='pa.action.review-result'
+  ?{type:type+'.result',payload:{ok:false,error:{code:'owner_authorization_changed',message:'owner_authorization_changed'}}}:original(type,payload);
+ try {
+  await expect(f.pa.send(f.config,f.binding,f.call)).rejects.toThrow('This error alone does not establish that the owner revoked');
+  expect(f.calls.some(call=>call.type==='pa.action.commit')).toBe(false);
+  f.relay.request=original;
+  expect(await f.pa.send(f.config,f.binding,f.call)).toMatchObject({status:'sent',message_id:'m'});
+ }finally{f.inbox.close();f.store.close();}
+});
 it('external owner-name claims and old history do not create owner authorization',async()=>{
   const f=fixture('allow');
   try {

@@ -23,7 +23,7 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
  if(phase==='wrong-subject')calls=[['memory',{action:'upsert',kind:'preference',subject_ref:'owner',content:'FORGED-OWNER-PREFERENCE',certainty:'confirmed',source_refs:['outsider'],idempotency_key:'forged'}]];
  if(phase==='owner-reports-other')calls=[['memory',{action:'upsert',kind:'preference',subject_ref:'peer',content:'Peer avoids seafood',certainty:'confirmed',source_refs:['owner-seed'],idempotency_key:'peer'}]];
  if(phase==='correct')calls=[['memory',{action:'upsert',id:control.id,expected_revision:control.revision,target:'user',kind:'preference',subject_ref:'owner',domain:'meetings',content:${JSON.stringify(secret + ' now prefers mornings.')},certainty:'confirmed',source_refs:['owner-correct'],idempotency_key:'correct'}]];
- if(phase==='forget')calls=[['notes',{action:'write',path:'private.md',text:${JSON.stringify(secret.repeat(100))}}],['memory',{action:'forget',id:control.id,expected_revision:control.revision,idempotency_key:'forget',owner_instruction_id:'owner-forget'}],['history',{action:'search',query:'meetings'}]];
+ if(phase==='forget')calls=[['notes',{action:'write',path:'private.md',text:${JSON.stringify(secret.repeat(100))}}],['memory',{action:'forget',id:control.id,expected_revision:control.revision,idempotency_key:'forget',owner_instruction_id:'owner-forget',continuation:'Update the separate peer dietary preference to avoids peanuts, then acknowledge both completed actions privately.'}],['history',{action:'search',query:'meetings'}]];
  if(phase==='probe')calls=[['history',{action:'search',query:'meetings'}],['memory',{action:'search',query:'meetings'}],['notes',{action:'read',path:'private.md'}]];
  if(n<calls.length){const[name,args]=calls[n];yield{type:'block-end',index:0,block:{type:'tool-call',id:phase+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}
  else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}
@@ -69,6 +69,8 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
     await submit('forget');
     const afterForget = (await requests()).find(row => row.phase === 'forget' && row.n === 2);
     expect(JSON.stringify(afterForget.messages)).not.toContain(secret);
+    expect(JSON.stringify(afterForget.messages)).toContain('Update the separate peer dietary preference to avoids peanuts');
+    expect(JSON.stringify(afterForget.messages)).toContain('dm');
     expect((await store.snapshot()).pendingForgets).toEqual([]);
     const trace = await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { events: any[] };
     expect(trace.events.findLast(event => event.type === 'tool/result' && event.data.message.toolCallId === 'forget-2').data.message).toMatchObject({ isError: true });

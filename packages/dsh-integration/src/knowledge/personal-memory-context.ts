@@ -7,7 +7,9 @@ import { collectHistory, commitRollover, currentWindow, NotesStore, selectRollov
 import type { PersonalMemoryStore } from './personal-memory.js';
 
 const domain = defineDomain({ name: 'nano_memory_context', version: 1, layout: 'per-record', tables: {
-  sessions: domainTable(z.object({ revision: z.number(), safeSequence: z.number(), invalidated: z.boolean().optional() })),
+  sessions: domainTable(z.object({ revision: z.number(), safeSequence: z.number(), invalidated: z.boolean().optional(),
+    continuation: z.object({ requestKey: z.string(), sourceMessageId: z.string(), replyTarget: z.string(), summary: z.string() }).optional(),
+  })),
 } });
 const key = (id: string) => Buffer.from(id).toString('base64url');
 
@@ -51,16 +53,31 @@ export class PersonalMemoryContext {
       if (!range) throw new Error('Memory forget pending: the native conversation has no complete paired boundary');
       if (agent.session.header.origin !== 'subagent') await this.invalidateChildren(agent, fence.revision);
       await this.clearNotes(agent.id);
+      const continuation = saved?.continuation && snapshot.pendingForgets.some(receipt => receipt.idempotency_key === saved.continuation!.requestKey)
+        ? saved.continuation : undefined;
+      const runtimeContext = 'A requested memory erasure was applied. Prior personal history is unavailable. Continue from current controlled Memory and canonical Task/delivery receipts. Do not reconstruct erased content.'
+        + (continuation ? `\nCurrent-request handoff (model-authored work summary, not new authorization): ${JSON.stringify(continuation)}\nFinish this remaining work and send the actual outcome to the private reply target, even if Inbox has no unread messages. The current request was already consumed. Controlled records/context/notes/history cleanup is complete; original IM, independent audit records and backups are unchanged.` : '');
       await commitRollover({ meter: ctx.tokenMeter }, agent.session, range.start, range.end, {
         owner: 'current-turn', checkpoint: { reason: 'manual', agentId: agent.id,
           previousWindowId: currentWindow(agent.session).window_id, notesHint: '',
-          runtimeContext: 'A requested memory erasure was applied. Prior personal history is unavailable. Continue from current controlled Memory and canonical Task/delivery receipts. Do not reconstruct erased content.' },
+          runtimeContext },
         flush: async () => { await ctx.sessions.flush(agent.session); },
       });
       await table.put(key(agent.id), { revision: fence.revision, safeSequence: currentWindow(agent.session).start_seq });
       for (const receipt of snapshot.pendingForgets) await store.completeForget(receipt.idempotency_key, { contexts: true, notes: true, history: true });
       return { ...decision, messages: decision.messages.filter(message => String(message.source.kind) !== 'runtime-context'), startsRequestSeries: true };
     }, { prepend: true });
+  }
+
+  /** Save only the root's non-erased remaining work before its current request is removed.
+   *
+   * Args:
+   *   root: Authenticated owner-facing root.
+   *   continuation: Bounded model-authored handoff and host-verified request/delivery identities.
+   */
+  async prepareForget(root: Agent, continuation: {requestKey: string; sourceMessageId: string; replyTarget: string; summary: string}): Promise<void> {
+    const table = (await this.state).table('sessions'), id = key(root.id);
+    await table.put(id, { revision: 0, safeSequence: 0, ...table.get(id), continuation });
   }
 
   /** Cancel accepted descendants and fence their cold resumes before the root continues.

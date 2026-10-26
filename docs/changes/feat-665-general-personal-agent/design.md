@@ -69,6 +69,8 @@ After：记录检索+短投影+即时 revision，关注候选/反馈及最新来
 
 遗忘：先持久删除选定记录正文、索引项与派生内容，清除包含正文的旧回执，保存仅 source IDs/content hash/时间的防复活信息。正在用旧事实的执行先取消/失效；主上下文与相关子上下文在原生 paired safe boundary 用公开 deterministic rollover 重建，不能只追加“忽略”。已有 notes/history 的受控读取对遗忘前的可能污染内容建立 fence，相关 note 清理或置 unavailable；保留 Task/执行/投递回执，不能恢复被忘正文。重启从 fence 恢复。若某层不能重建，返回 pending/unavailable 并阻止继续消费该层；重试同一 key 继续清理。原始 IM、审计、备份保留策略不变，回执明确不在清除范围。通用 shell/plugin 不是本机制的完整数据沙箱。
 
+同一原请求的连续性：forget 前先完成其他可完成动作，并要求 root 提供不含被忘事实和值的有界 `continuation`；没有剩余工作时可为空。这个模型整理的工作摘要与已校验的 owner 原消息 ID、固定私人投递目标暂存于既有 context 状态，在 rollover 中明确作为待完成工作而非新授权。清理完成仍须回执，Inbox 已消费不代表原交办完成；handoff 不写入个人记忆，rollover 后移除临时状态。
+
 ### M2：personal_context 与 personal_attention
 
 `personal_context`：root PA 专属只读组合，输入 query、已有 conversation/Task 引用、cursor、limit；owner/role 不在参数中。integration 合并受控 memory 检索与产品源查询，返回 source_coverage、短消息引用、canonical Task 当前状态、attention 摘要、下一 cursor。默认只查相关指定来源/有限最近范围，不全库扫描；相关领域能力返回真实工具/Skill 选择，外部连接未探测标 unknown，不伪装 connected。每页持久记录查过的 message IDs/当前来源 revision 与 watermark；failed/partial 不授予完整核对收据。这个查询从不调用 inbox ack。

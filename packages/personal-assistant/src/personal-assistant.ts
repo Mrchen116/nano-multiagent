@@ -22,7 +22,12 @@ export class PersonalAssistant {
     if (!identity || identity.ownerId !== this.options.ownerId) throw new Error('Missing trusted personal binding');
     const response = await this.options.relay.request(method, { ...args, request_id: randomUUID(), node_id: this.options.nodeId,
       agent_id: config.agentId, binding_id: identity.bindingId, epoch: identity.epoch });
-    if (response.payload.ok !== true) throw new Error(JSON.stringify(response.payload.error ?? 'Personal source unavailable'));
+    if (response.payload.ok !== true) {
+      const error = response.payload.error as Data | undefined;
+      if (error?.code === 'owner_authorization_changed') throw new Error(JSON.stringify({...error,
+        message:'The prepared review snapshot is stale: original owner inputs or their accessibility changed while review was running. Read the latest owner instructions and current source restrictions, then reconsider and prepare a fresh review. This error alone does not establish that the owner revoked the requested action.'}));
+      throw new Error(JSON.stringify(error ?? 'Personal source unavailable'));
+    }
     return response.payload.result as Data;
   }
 
