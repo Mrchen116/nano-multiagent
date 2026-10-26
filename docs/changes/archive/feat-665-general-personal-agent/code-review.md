@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 10 final evidence closure passes at `fb792c8d2`**, no surviving findings (`code-review.json=[]`). V-01 pre-PR evidence gap is closed in verification.md. Remote required CI is a subsequent unexecuted gate, not predicted green.
+Current code verdict: **Round 11 minimal post-PR fixture-module review passes at `3a7da0407`**, no surviving findings (`code-review.json=[]`). V-01 stays closed; initial remote CI failure and the pending updated-head rerun are recorded separately.
 
 ## Snapshot and verdict
 
@@ -253,3 +253,19 @@ The previously pending real paths now have scoped final evidence: M08 has 90 ind
 Core comparison retains three unique nodes per condition for M01/M02/D08, the same gpt-6-astra model/medium effort/no fallback, three valid candidate M01 and M02 passes, D08's original failed/passed/failed candidate series and separately passed repaired r4. Tool/Feature differences are explicitly `comparable:false`; no percentage improvement is asserted. This is repeated observation across recorded builds, not three green repetitions of the final fixed D08 build or a robustness guarantee. Unknown model-call/duplicate/error-memory/blocking-delay metrics stay null/unknown. The 34 not_run and three absent external-account live branches remain exactly that; representative acceptance does not overwrite them.
 
 V-01 pre-PR evidence closure is supported by the combined scope above; details are in verification Round10. No new product tests or services were started. Local wide checks retain their original two timeout outcomes and the successful six-test affected recheck; final source typecheck and later affected builds/tests are explicitly versioned. Archive/current-spec promotion/docs validation and then Ready PR/remote required CI remain the orchestrator's subsequent actions under change-workflow; this review does not predict their result, authorize merge/deploy or claim a release.
+
+## Round 11 — post-PR fixture module extraction / size gate
+
+- review_mode: `patch`; PR: **#414 Ready**.
+- reviewed source range: `16cc51fad2cd0e63b7e3a937158a7aed3fca2799..3a7da0407c800a79bbc66623daf2d9ccab0308ed`.
+- executed_base / effective_base: `85910853ebe4a7a22c5b761029cf46da2f78cd5a`; validated_at / effective_through: `3a7da0407c800a79bbc66623daf2d9ccab0308ed`.
+- Scope: only EvaluationClient/request/validate_manifest extraction into fixture.py, runner/protocol imports and the validation ledger. No product/Prompt/adapter/receipt/adjudication semantic delta and no new model-visible Context change. Prior full/Context and evidence closure conclusions retained.
+- Latest findings: `[]`.
+
+The first remote CI run `40341170257` at `16cc51fad` is retained as an actual failed attempt: frontend passed and backend/native/IM 149 files /801 tests passed, while Python's new-file size gate rejected the 432-line runner. This review does not rewrite that attempt as green. The patch moves the existing three definitions to their fixture-owning module and reduces runner to **386 lines**, with fixture.py **56** and protocol **231**, all within the 400-line contract.
+
+Independent AST checks compare each relocated EvaluationClient/request/validate_manifest definition with the old runner and every retained CheckpointRequired/verified_files/Run definition with its predecessor: **all equal with source locations excluded**. Import execution confirms EvaluationClient still directly subclasses the same real `tests.e2e.critical_paths._im_client.IMClient`; runner.EvaluationClient is the exact imported fixture class. Auth renewal, authenticated request behavior, isolation validation and the Run execution body therefore retain their already-reviewed behavior at these boundaries. No fake client is introduced and no action retry/replay is added.
+
+Independent `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.py tests/contract/test_test_naming_and_size_contract.py` → **14 passed in 0.41s**. `python -m tests.e2e.general_personal_agent collect --cases all` → **58 cases /0 live actions**. Reused same-frozen-source full Python **70 passed /44 deselected** (`/tmp/pa665-ci-python-green.log`), docs **271 sources /68 routes** (`/tmp/pa665-ci-docs-green.log`), and caller's full ruff/96-file format result; no duplicate broad/native/model run.
+
+Product, frontend and eval adapter trees are unchanged from the first Ready PR head (`git diff --quiet 16cc51fad HEAD -- apps packages src/IM evals`), so previous code/Context/evaluation/product conclusions and first CI's unaffected passes remain applicable. The extracted module is a behavior-preserving evaluation harness organization change. **Updated-head remote required CI must still execute and be observed**; this static/local gate pass is not a claim that the new remote run is green. Only archived review reports were changed by this reviewer; no model task, live service or product data was created.
