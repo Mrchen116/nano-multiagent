@@ -29,7 +29,7 @@
 | [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置与独立停用/重新启用、创建工作模式、Feature依赖联动与轻提示、能力选择、公开联系人与管理入口、节点绑定、设备归属标注、Workflow tool pill、Goal 显式开启、workspace 插件管理及真实概览/关联会话 | 46 |
 | [Gateway Relay](gateway-relay.md) | 消息中继与回执、更新切换时持久等待、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 15 |
 | [Task Graphs](task-graphs.md) | 会话归属与访问、分层进度和独立加载、创建者与负责人、领取和明确删除、通知回聊、依赖与衍生、七状态与等待/真实运行分离及原生统一编辑 | 19 |
-| [Personal Agent](personal-agent.md) | 固定主人、双身份历史、消息协助、用户主身份代发、来源限制与对外披露边界、双端本人配置入口；通用能力复用 Global | 7 |
+| [Personal Agent](personal-agent.md) | 固定主人、双身份历史、消息协助、用户主身份代发、来源限制与对外披露边界、双端本人配置入口；通用能力复用 Global | 8 |
 
 ## Maintenance Rule
 

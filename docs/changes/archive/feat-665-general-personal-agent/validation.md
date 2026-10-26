@@ -1,6 +1,6 @@
 # Validation ledger
 
-独立审查与真实验收持续追加，当前还不是全量完成声明。每种证据保持自己的适用范围，不合并为一个“全通过”。
+独立审查与真实验收已完成适用的交付门禁；58 项完整模型 case 并未全部通过。每种证据保持自己的适用范围，不合并为一个“全通过”。
 
 - [M1 memory worker evidence](M1-memory/evidence.md)
 - [M2 proactivity worker evidence](M2-proactive/evidence.md)
@@ -24,3 +24,12 @@ Python辅助/架构70 passed/43 deselected，ruff check/format通过，docs283�
 - 最后source树的全workspace typecheck通过（`/tmp/pa665-final-source-typecheck.log`），DSH与PA受影响包分别build通过（`/tmp/pa665-fragments-build.log`、`/tmp/pa665-adjacent-build.log`）。其余全量构建/Web/native首次timeout及重跑证据按上表保留；不伪称某一次全量毫无失败。
 
 完整case与核心重复的实际分类见[evaluation](evaluation.md)，与产品代表验收分列。归档后的文档检查与远端required CI在最终交付补记。
+
+## Final synchronization and delivery
+
+- executed_base / effective_base: `85910853ebe4a7a22c5b761029cf46da2f78cd5a`; final fetch confirms origin/main unchanged.
+- Final source: `06d8041bfcc16870ab3af9a0f8379ffa621c305c`; final independent code/verification validated_at: `fb792c8d22b5f75d252b58bba4949152a7806380`, report commit `dc696c5a0`. Product acceptance is recorded at `57fd15853` with per-journey version receipts.
+- All applicable pre-PR gates pass; no blocking/major product issue or static finding remains. PA-2 first-draft wording is a retained minor. Corrected delta R7 remains aligned.
+- effective_through: the final archive/PR head, whose exact hash is recorded in the PR. After the validated tree, only review reports, current-spec promotion, documentation routing and whole-unit archive changed. No product, test, eval adapter or prompt changed, and no main increment exists; existing code/Context/product conclusions are retained.
+- Current specs incorporate all four corrected deltas; the entire unit is archived, including original failures and review history. Final documentation integrity passes (271 maintained Markdown sources / 68 routes, `/tmp/pa665-archive-docs.log`); the archive checker explicitly verifies `unit/feat-665-general-personal-agent` because the actual `codex/` branch prefix would skip its branch-name dispatch. Remote CI is recorded by the PR checks, not predicted here.
+- Isolated evaluation/acceptance stacks, dedicated proxy and idle task-owned tmux sessions are stopped; the temporary proxy credential file is removed. Raw evidence remains available at the paths in the reports. The feature worktree is retained for PR review. No production operation, merge, package release, live purchase or external contact was performed.

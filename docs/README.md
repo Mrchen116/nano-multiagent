@@ -14,6 +14,7 @@
 | 查看双方 Agent owner 对协作私聊的只读观察权限 | [`specs/im/auth-tenancy.md`](specs/im/auth-tenancy.md) → [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)；Web 入口见 [`specs/im/web-chat-ux.md`](specs/im/web-chat-ux.md) |
 | 理解全局 Agent 的跨聊天工作、原生轨迹与父子执行范围导航 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 理解每个人的 PA、双身份聊天访问和原聊天协助 | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
+| 理解通用 PA 的可纠正记忆、私人关注和成果交付，运行 58 项评测 | [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) → [`../evals/general-personal-agent/README.md`](../evals/general-personal-agent/README.md) |
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
