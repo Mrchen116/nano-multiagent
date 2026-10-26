@@ -13,6 +13,25 @@ from .catalog import ASSETS, digest, write_json
 from .evidence import capture, get, metrics
 
 
+class EvaluationClient(IMClient):
+    """Renew the fixture login during long real-time observations without replaying actions."""
+
+    def register_or_login(self, username, password, *, display_name=None):
+        token = super().register_or_login(username, password, display_name=display_name)
+        self._login = {"username": username, "password": password}
+        self._logged_at = time.monotonic()
+        return token
+
+    @property
+    def _auth_headers(self):
+        if time.monotonic() - self._logged_at >= 300:
+            response = self._http.post("/im/v1/auth/login", json=self._login)
+            response.raise_for_status()
+            self.token = response.json()["access_token"]
+            self._logged_at = time.monotonic()
+        return super()._auth_headers
+
+
 class CheckpointRequired(Exception):
     """An actual fault, browser interaction, or timing fixture is still required."""
 
@@ -75,7 +94,7 @@ class Run:
     ):
         self.case, self.output, self.timeout = case, output, timeout
         self.manifest = validate_manifest(manifest)
-        self.client = IMClient(self.manifest["im_url"])
+        self.client = EvaluationClient(self.manifest["im_url"])
         self.client.register_or_login(username, password)
         fixture = json.loads((ASSETS / "fixtures.synthetic.json").read_text())
         request(
@@ -179,7 +198,7 @@ class Run:
             self.save()
 
     def actor(self, name: str, password: str):
-        client = IMClient(self.manifest["im_url"])
+        client = EvaluationClient(self.manifest["im_url"])
         client.register_or_login(
             f"paeval-{self.state['run_id'][:10]}-{name}",
             password,
