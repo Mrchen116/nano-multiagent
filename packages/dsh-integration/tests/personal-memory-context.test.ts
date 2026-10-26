@@ -23,6 +23,7 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
  if(phase==='wrong-subject')calls=[['memory',{action:'upsert',kind:'preference',subject_ref:'owner',content:'FORGED-OWNER-PREFERENCE',certainty:'confirmed',source_refs:['outsider'],idempotency_key:'forged'}]];
  if(phase==='owner-reports-other')calls=[['memory',{action:'upsert',kind:'preference',subject_ref:'peer',content:'Peer avoids seafood',certainty:'confirmed',source_refs:['owner-seed'],idempotency_key:'peer'}]];
  if(phase==='correct')calls=[['memory',{action:'upsert',id:control.id,expected_revision:control.revision,target:'user',kind:'preference',subject_ref:'owner',domain:'meetings',content:${JSON.stringify(secret + ' now prefers mornings.')},certainty:'confirmed',source_refs:['owner-correct'],idempotency_key:'correct'}]];
+ if(phase.startsWith('unsafe-'))calls=[['memory',{action:'forget',id:control.id,expected_revision:control.revision,idempotency_key:phase,owner_instruction_id:'owner-forget',continuation:control.continuation}]];
  if(phase==='forget')calls=[['notes',{action:'write',path:'private.md',text:${JSON.stringify(secret.repeat(100))}}],['memory',{action:'forget',id:control.id,expected_revision:control.revision,idempotency_key:'forget',owner_instruction_id:'owner-forget',continuation:'Update the separate peer dietary preference to avoids peanuts, then acknowledge both completed actions privately.'}],['history',{action:'search',query:'meetings'}]];
  if(phase==='probe')calls=[['history',{action:'search',query:'meetings'}],['memory',{action:'search',query:'meetings'}],['notes',{action:'read',path:'private.md'}]];
  if(n<calls.length){const[name,args]=calls[n];yield{type:'block-end',index:0,block:{type:'tool-call',id:phase+'-'+n,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};}
@@ -65,6 +66,16 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
     const corrected = (await requests()).find(row => row.phase === 'correct' && row.n === 1);
     expect(JSON.stringify(corrected.messages)).toContain('now prefers mornings');
     expect(JSON.stringify(corrected.messages.findLast((message: any) => message.source?.kind === 'runtime-context'))).not.toContain('usually prefers afternoons');
+    await writeFile(join(home, 'control.json'), JSON.stringify(record));
+    for (const [phase, content] of [['unsafe-current', record.content], ['unsafe-prior', secret + ' usually prefers afternoons.']]) {
+      await writeFile(join(home, 'control.json'), JSON.stringify({...record, continuation:'Remaining work: '+content+' Then reply.'}));
+      await submit(phase!);
+      const rejected = await client!.rpc.request('session.observe', {sessionId:binding.sessionId}) as {events:any[]};
+      const result=rejected.events.findLast(event=>event.type==='tool/result'&&event.data.message.toolCallId===phase+'-0').data.message;
+      expect(result.isError).toBe(true);expect(JSON.stringify(result.content)).toContain('continuation contains erased content');
+      expect((await store.get(record.id)).records[0]?.content).toBe(record.content);
+      expect((await store.snapshot()).pendingForgets).toEqual([]);
+    }
     await writeFile(join(home, 'control.json'), JSON.stringify(record));
     await submit('forget');
     const afterForget = (await requests()).find(row => row.phase === 'forget' && row.n === 2);

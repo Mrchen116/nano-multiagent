@@ -69,7 +69,7 @@ After：记录检索+短投影+即时 revision，关注候选/反馈及最新来
 
 遗忘：先持久删除选定记录正文、索引项与派生内容，清除包含正文的旧回执，保存仅 source IDs/content hash/时间的防复活信息。正在用旧事实的执行先取消/失效；主上下文与相关子上下文在原生 paired safe boundary 用公开 deterministic rollover 重建，不能只追加“忽略”。已有 notes/history 的受控读取对遗忘前的可能污染内容建立 fence，相关 note 清理或置 unavailable；保留 Task/执行/投递回执，不能恢复被忘正文。重启从 fence 恢复。若某层不能重建，返回 pending/unavailable 并阻止继续消费该层；重试同一 key 继续清理。原始 IM、审计、备份保留策略不变，回执明确不在清除范围。通用 shell/plugin 不是本机制的完整数据沙箱。
 
-同一原请求的连续性：forget 前先完成其他可完成动作，并要求 root 提供不含被忘事实和值的有界 `continuation`；没有剩余工作时可为空。这个模型整理的工作摘要与已校验的 owner 原消息 ID、固定私人投递目标暂存于既有 context 状态，在 rollover 中明确作为待完成工作而非新授权。清理完成仍须回执，Inbox 已消费不代表原交办完成；handoff 不写入个人记忆，rollover 后移除临时状态。
+同一原请求的连续性：forget 前先完成其他可完成动作，并要求 root 提供不含被忘事实和值的有界 `continuation`；没有剩余工作时可为空。宿主在原记忆锁内拒绝包含所选当前或关联旧版确切正文的摘要；旧版仅保存规范化正文 hash/长度用于匹配，旧数据缺长度时要求先完成其他工作再用空摘要，不猜测安全。通过校验后，摘要与已校验的 owner 原消息 ID、固定私人投递目标先持久化到既有 context 状态，再发布遗忘事务；已完成回执重放不重建 handoff。在 rollover 中明确标记摘要为待完成工作而非新授权。清理完成仍须回执，Inbox 已消费不代表原交办完成；handoff 不写入个人记忆，rollover 后移除临时状态。
 
 ### M2：personal_context 与 personal_attention
 

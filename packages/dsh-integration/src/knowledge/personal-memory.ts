@@ -28,6 +28,7 @@ export type PersonalMemoryChange =
   | { action: 'search'; query?: string; subject_ref?: string; domain?: string; kind?: string; applicability?: string; cursor?: string; limit?: number };
 export interface PersonalMemoryContext {
   sessionId: string; sources?: PersonalMemorySource[]; expectedScopeRevision?: number; signal?: AbortSignal;
+  forgetContinuation?: string; prepareForget?: () => Promise<void>;
 }
 export interface PersonalMemoryReceipt {
   success: true; action: string; revision: number; record_id?: string; record_revision?: number;
@@ -43,7 +44,7 @@ export interface PersonalMemorySnapshot {
 export interface PersonalMemoryQueryResult {
   revision: number; records: PersonalMemoryRecord[]; next_cursor: string | null;
 }
-interface Tombstone { record_id: string; scope_hash: string; content_hash: string; source_ids: string[]; timestamp: string; forgotten: boolean }
+interface Tombstone { record_id: string; scope_hash: string; content_hash: string; content_length?: number; source_ids: string[]; timestamp: string; forgotten: boolean }
 interface SavedReceipt { request_hash: string; value: PersonalMemoryReceipt }
 interface MemoryState {
   schema_version: 1; binding: PersonalMemoryBinding; revision: number; records: PersonalMemoryRecord[];
@@ -52,7 +53,8 @@ interface MemoryState {
 const limits = { user: 1375, memory: 2200 };
 const delimiter = '\n§\n';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-const contentHash = (content: string) => hash(content.normalize('NFKC').trim().replace(/\s+/g, ' '));
+const normalizedContent = (content: string) => content.normalize('NFKC').trim().replace(/\s+/g, ' ');
+const contentHash = (content: string) => hash(normalizedContent(content));
 const canonical = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') return `{${Object.entries(value).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
@@ -101,12 +103,14 @@ export class PersonalMemoryStore {
     if (change.action === 'get') return this.get(change.id);
     return this.transaction(async () => {
       let state = await this.read();
+      if (change.action === 'forget' && state && context.forgetContinuation !== undefined) this.checkContinuation(state, change.id, context.forgetContinuation);
       const key = change.idempotency_key?.trim();
       if (!key) throw new Error('Memory writes require an idempotency key');
       const requestHash = hash(canonical(change));
       const saved = state?.receipts[hash(key)];
       if (saved) {
         if (saved.request_hash !== requestHash) throw new Error('Idempotency key already used with different input');
+        if (saved.value.action === 'forget' && saved.value.status === 'pending') await context.prepareForget?.();
         const projection = await this.writeProjections(this.project(state!));
         if (saved.value.projection !== projection) {
           saved.value.projection = projection; this.finishReceipt(saved.value);
@@ -126,6 +130,8 @@ export class PersonalMemoryStore {
       const receipt: PersonalMemoryReceipt = { success: true, action: change.action, revision: state.revision + 1,
         status: 'pending', projection: 'pending', idempotency_key: key };
       if (change.action !== 'migrate') this.apply(state, change, context, receipt, now);
+      // The validated handoff must be durable before the erase transaction is published.
+      if (change.action === 'forget') await context.prepareForget?.();
       state.revision++;
       state.receipts[hash(key)] = { request_hash: requestHash, value: receipt };
       await this.commit(state, context.signal);
@@ -135,6 +141,18 @@ export class PersonalMemoryStore {
       await this.commit(state);
       return receipt;
     }, context.signal);
+  }
+  private checkContinuation(state: MemoryState, recordId: string, summary: string): void {
+    if (!summary) return;
+    const text = normalizedContent(summary), record = state.records.find(item => item.id === recordId);
+    const reject = () => { throw new Error('Forget continuation contains erased content; finish other actions first or supply a handoff without the forgotten fact or values'); };
+    if (record && text.includes(normalizedContent(record.content))) reject();
+    for (const prior of state.tombstones.filter(item => item.record_id === recordId)) {
+      if (prior.content_length === undefined) throw new Error('Old memory body length is unavailable for safe handoff validation; finish other actions first and use an empty continuation');
+      for (let start = 0; start + prior.content_length <= text.length; start++) {
+        if (hash(text.slice(start, start + prior.content_length)) === prior.content_hash) reject();
+      }
+    }
   }
 
   /** Acknowledge actual host cleanup. The durable fence remains even after all layers complete. */
@@ -264,7 +282,7 @@ export class PersonalMemoryStore {
     }
   }
   private tombstone(state: MemoryState, record: PersonalMemoryRecord, now: string, forgotten: boolean) {
-    state.tombstones.push({ record_id: record.id, scope_hash: scopeHash(record), content_hash: contentHash(record.content), source_ids: record.source_refs.map(source => source.id), timestamp: now, forgotten });
+    state.tombstones.push({ record_id: record.id, scope_hash: scopeHash(record), content_hash: contentHash(record.content), content_length: normalizedContent(record.content).length, source_ids: record.source_refs.map(source => source.id), timestamp: now, forgotten });
   }
   private async migrate(state: MemoryState, legacy: { user: string; memory: string }, context: PersonalMemoryContext) {
     const now = new Date().toISOString();
