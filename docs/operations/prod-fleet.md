@@ -113,9 +113,9 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 | 本次变更 | 验收要求 |
 |---|---|
 | 纯文档，不改变运行服务 | 文档与链接检查；不重启服务、不做运行验收 |
-| 普通 IM、前端或完整舰队部署，Tunnel 出口、协议、cloudflared 版本及 supervisor 不变 | 部署前检查 QUIC/IPv6 en0 路径；完成后 `scripts/prod_tunnel.py --seconds 30`，并验证 HTTPS/API、实时连接及本次受影响功能 |
-| 只更新 Gateway 或 LLM 代理，Tunnel 不变 | 验证受影响服务、节点连接及真实调用；无需例行 Tunnel 连续采样 |
-| 修改 Tunnel 出口路由、协议/IP 家族、cloudflared 版本或 supervisor/恢复机制，或恢复已观察到的 Tunnel 故障 | 完成后 `scripts/prod_tunnel.py --seconds 600`；恢复机制变更还需受控暂停与退出演练，随后开始连续采样 |
+| 普通 IM、前端或完整舰队部署，Tunnel 出口、协议、cloudflared 版本及 supervisor 不变 | 部署前检查 QUIC/IPv6 en0 路径；完成后 `scripts/prod_tunnel.py --seconds 30`，并只读核对 HTTPS/API、实时连接及受影响页面/既有数据；遵循 [生产验证边界](../../.claude/skills/prod-fleet-deploy/references/runbook.md#生产验证范围与停止条件) |
+| 只更新 Gateway 或 LLM 代理，Tunnel 不变 | 核对受影响服务、节点连接及已有调用日志；模型调用验证在隔离环境完成，不例行发送生产探针；无需例行 Tunnel 连续采样 |
+| 修改 Tunnel 出口路由、协议/IP 家族、cloudflared 版本或 supervisor/恢复机制，或恢复已观察到的 Tunnel 故障 | 完成后 `scripts/prod_tunnel.py --seconds 600`；恢复机制演练优先在隔离环境完成，生产暂停与退出演练须有明确授权及限定窗口，随后开始连续采样 |
 
 30 秒用于发布后短时间健康核对；600 秒用于本次曾观察到间歇断连的隧道变更或故障恢复观察，两者都不是永久可用性的保证。采样窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 QUIC 断连计数增加即失败。生产 PID 必须持有 metrics listener 和四个 IPv6 UDP socket，四条 QUIC 连接有双向计数；临时 connector 不能替代生产 PID 的门禁。常规发布保留持续运行的 supervisor，不必重启 Tunnel 或注入故障。
 
