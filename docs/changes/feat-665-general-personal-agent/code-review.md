@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 6 focused patch/Context review passes through `671de6ac4`**, no surviving findings (`code-review.json=[]`). Original failures and closures remain preserved; V-01 is still an incomplete exit-evidence item.
+Current code verdict: **Round 7 finite eval patch review passes at `ee26e3674`**, no surviving findings (`code-review.json=[]`). Product source is unchanged since the prior reviewed head; corrected deltas align. V-01 remains pending final evidence aggregation.
 
 ## Snapshot and verdict
 
@@ -178,3 +178,20 @@ The independent product report's Round 4 at `085b1b896` closes the original PA-5
 Independent commands: `pnpm exec vitest run packages/dsh-integration/tests/personal-delivery-evidence.test.ts apps/im-server/tests/personal-attention.test.ts packages/personal-assistant/tests/personal-assistant.test.ts packages/dsh-integration/tests/personal-context.test.ts` → **35/35 passed**, `/tmp/pa665-independent-round6.log`; `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.py` → **12/12 passed in 0.38s**. The native tests use real subprocesses/DSH events and scripted providers; they prove the tested provenance/guard/receipt conditions, not natural model completion. Reused `/tmp/pa665-child-return-build2.log` explicitly shows integration, PA and IM builds Done.
 
 Read the new M1/M2/M3 evidence ledgers, validation.md and acceptance through its latest appended Round 5. They preserve real D08 and P01 failures; no runtime-test success overwrites those. New worker and product evidence narrows V-01, as mapped in verification Round 6. Actual repaired P01/D08 runs and complete 58-case classification/core replay comparison are still being collected. No production action or source/test/design edit by this reviewer; native fixture resources are disposed by their tests.
+
+## Round 7 — finite evaluation fixture/runner review
+
+- review_mode: `patch`; reviewed delta `a5acef430..ee26e367421d45cba0a1b3f5e7b7a20982566849`, limited to eval fixture/runner/protocol and corrected contract wording. The acceptance append is evidence, not product source.
+- Verified `git diff --quiet 671de6ac4 ee26e3674 -- apps packages src/IM` is empty. Prior full product/Context review and all finding closures remain applicable; no new product audit or native full-suite rerun.
+- Local fetched `origin/main` resolves to `85910853ebe4a7a22c5b761029cf46da2f78cd5a`, the original diff base. No upstream product delta must be incorporated into this bounded review.
+- Latest findings: `[]`.
+
+M08 now contains 90 independent opaque 64-hex synthetic values rather than a predictable RULE-n sequence. Independently parsed **90 unique values**, domain IDs 000–089 exactly once, total first-request text **7924 characters** (above the old 3575-character summary capacity). The request explicitly identifies synthetic test data and requires exact retention; it does not feed the model tool parameters or hidden identity. Follow-up still queries 001/045/089, then corrects 045 and rechecks. This removes the old fixture's easy semantic compression; actual storage/recall/prefix behavior still requires the real run and adjudication, not a fixture-size pass.
+
+Runner now enables extra Heartbeat configuration only when the adapter explicitly says so. Independently checked the only such case is **P05**. Other observe cases retain the ordinary Inbox ten-minute batch and do not create an unrelated configuration operation. Existing idle/revision settlement logic is unchanged. The protocol protects P05 opt-in and P03 absence, alongside the existing real-root/child settlement regression.
+
+Independent `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.py` → **12 passed in 0.34s**. `python -m tests.e2e.general_personal_agent collect --cases all` → **58 cases, live_actions=0**. These verify evaluation wiring only, not product outcomes. No new Context injection/selection behavior is added to the product by this patch.
+
+Corrected contracts were reconciled separately in verification.md's unique Corrected Delta Reconciliation section. Caller reports an independently passed new D08-r4 and actual P01-r2 persisted private preparation; this finite pass does not re-adjudicate those live artifacts or replace the still-arriving complete evaluation evidence package. Historical D08/P01/M08/P03 limitations and failures remain intact.
+
+Only review reports were edited. Pre-existing untracked `scripts/e2e-up-pa665-temporary.sh` was preserved and not staged; this reviewer did not run it or start any service.

@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 6 focused delta through `671de6ac4`: 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 7 corrected-delta at `ee26e3674`: aligned; overall 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -221,3 +221,33 @@ Read [M1 worker evidence](M1-memory/evidence.md), [M2 worker evidence](M2-proact
 | Evaluation exits | 58 executable mappings and truthful protocol/checkpoint/adjudication machinery, now 12 tests. Independent acceptance examines actual model/provider/tool/user evidence rather than trusting automatic labels. | Complete actual 58-case result classification, at least three independent core replays with comparable old-model/tool baseline and honest unavailable comparisons, plus the running corrected P01/D08 outcomes and aggregate evidence package are still outstanding. This does not require all 58 scenarios to run three times; the design specifically requires repeated core coverage. |
 
 **V-01 remains pending**, without reopening closed code findings or mechanically repeating unaffected suites. Real product failures, including original P01/D08, remain in the evidence history until a separately versioned fixed-path result can be attached. No active code WARNING or asserted design defect remains in this delta. Reports are the only reviewer changes; no independent production actions or persistent services were created.
+
+## Round 7 — corrected-delta and finite evaluation patch
+
+- verification_mode: `corrected-delta`; validated_at: `ee26e367421d45cba0a1b3f5e7b7a20982566849`; executed_base remains `85910853ebe4a7a22c5b761029cf46da2f78cd5a`.
+- Scope: all current unit deltas against the final product implementation using the still-valid prior full review, with focused recheck of the two corrected Scenario texts and evaluation changes since R6. Product sources under apps/packages/src/IM have zero delta from the previously reviewed `671de6ac4`.
+- outcome: **aligned**; requires_full_verification: `false`; no surviving implementation/delta mismatch. Overall V-01 remains **1 CRITICAL / 0 WARNING / 0 SUGGESTION**, awaiting the final evidence aggregation rather than this independent finite check.
+
+## Corrected Delta Reconciliation
+
+| Delta item | Implementation evidence | Test / accepted prior evidence | Outcome |
+|---|---|---|---|
+| gateway/personal-agent: scoped records/correction/forget; newly explicit clean same-request continuity | `knowledge/personal-memory.ts` lock-scoped continuation validation against current/prior exact bodies, fail-closed legacy length, callback before erase commit; `knowledge/runtime.ts` verified owner source and fixed private reply target; `personal-memory-context.ts` bounded rollover and cleanup receipt. | R4 exact unsafe-body reproduction preserved, R5 closure and native current/prior rejection/clean remaining-work/private target/restart fence; product acceptance Round4 actual correction-before-empty-forget and cross-group morning use. | aligned |
+| gateway/personal-agent: attention/query/artifact requirements | IM private coverage/attention/revision/settings receipts; independent Inbox cursor; root-only product tools and actual workspace/media-byte chain. | R1 full mapping plus subsequent feedback/source/child-return closures and versioned independent acceptance. No product source change in this delta. | aligned |
+| gateway/task-graphs: execution/correction/withdrawal; newly explicit actual child return carries original owner source | Canonical execution binding and native Task driver retained. `personal-delivery-evidence.ts` durable spawn IDs/current consumed native return/direct-child/non-aborted checks; `personal-assistant.ts` trusted owner Inbox resolution; IM ownerMessage revalidation. Cancel removes qualification and a later unrelated turn receives no return grant. | R6 independently ran return/cancel/restart/later-turn native tests and PA/IM forgery rejection; cold canonical withdrawal regression retained. Caller-reported new D08 outcome is separate actual behavior evidence still being aggregated. | aligned |
+| gateway/agent-capabilities: choices, migration/roles and modified self-evolution/PA refresh lifecycle | Prior full source review retains config/tool/Skill selection, records authority, private child scope, trusted maintenance, revision refresh and non-PA snapshot path. | Earlier independent native memory, maintenance, child role, selected-tool/cold catalog and migration tests; unchanged product sources. | aligned |
+| im/personal-agent: original chat entry, modes, missing connections, feedback and accessible attachments | Existing chat/ComposeMessage/ToAssistant flow, original settings modes, current publication versions and protected persistent resource delivery. | Earlier real browser feedback/adoption/file/recipient-frozen-copy observations and associated host tests retained; no newly changed UI contract. | aligned |
+
+### Uncovered Observable Behavior
+
+No additional unmatched **product** behavior was found in the unit diff beyond the four existing delta files and the two corrected Scenario additions. The finite M08 opaque-value fixture and P05-only Heartbeat opt-in alter evaluation inputs/control, not product contracts; they do not require a fifth product delta. Reviewed exact fixture has 90 unique 64-hex values /7924 characters, and only P05 requests extra Heartbeat configuration.
+
+Outcome: **aligned**.
+
+### Evidence limits retained for V-01
+
+The two corrected texts preserve the erasure/permission requirements; they do not relax them to fit a defect. The already-confirmed failures and closures remain historical. This round independently has protocol **12/12**, collect **58/zero live actions**, and exact fixture/Heartbeat-scope checks. It did not rerun product code tests whose implementation and prior conclusions have not changed.
+
+Caller has reported real full delivery for D08-r4 after the child-source fix and persisted P01-r2 private preparation. Product/eval reviewers are checking those results, while P03/M08 replays and the final 58-result/core-repeat/baseline aggregation are still being prepared. This corrected-delta alignment does not prematurely mark those outcomes or V-01 passed, and does not wait/poll for them. A separate evidence-focused continuation can retain this alignment once the actual final package is supplied.
+
+Local origin/main remains the same 85910853e base with no incremental upstream code to audit. Pre-existing untracked temporary e2e script was preserved, not executed/staged. Reports are the only modifications by this verifier.
