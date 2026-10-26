@@ -2,6 +2,7 @@ import {validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { NodeAgentLifecycle } from './agent-lifecycle.js';
+import { requestIm } from './im-http.js';
 import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -342,10 +343,7 @@ async function downloadImage(url: string, agentId: string) {
 }
 
 async function im(path: string, options?: RequestInit): Promise<unknown> {
-    const url = new URL(path, config.im_service.url); url.protocol = url.protocol === 'wss:' ? 'https:' : url.protocol === 'ws:' ? 'http:' : url.protocol;
-    const response = await fetch(url, { ...options, signal: AbortSignal.timeout(10000), headers: { ...options?.headers, Authorization: `Bearer ${relay.registration?.gateway_access_token ?? config.im_service.token}` } });
-    if (!response.ok) throw new Error(`IM external projection failed: ${response.status}`);
-    return response.json();
+    return requestIm(config.im_service.url, relay.registration?.gateway_access_token ?? config.im_service.token, path, options);
 }
 
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
