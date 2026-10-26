@@ -4,7 +4,7 @@
 
 ## 实现范围
 
-- Base: a16859ac489ba0cfb6762d0eec4fd2513b0f368b。
+- Base: 09eb59bd9073bfd1d071bdfc84bf75a0be99c018（实施分支 parent）。部署故障基线为 a16859ac4；两者只差生产验证范围的文档/Skill 更新，生产代码相同。
 - 生产修改：apps/node/src/main.ts、apps/node/src/im-http.ts。
 - 测试：apps/node/tests/im-http.test.ts、apps/im-server/tests/external-ingress.test.ts。
 - 首文档与测试审视属于同一变更；未修改 PA/IM 业务策略。
@@ -39,4 +39,4 @@
 
 ## 验证状态
 
-本地窄测试与 Node typecheck 已通过；其他检查及独立审查记录在 code-review.md。用户验收、PR、合并、生产部署未完成。
+本地窄测试、build/typecheck、共享 runtime、文档/Python/ruff 与独立审查通过。完整 TS 首次 755/758，通过失败项串行复跑 10/10；详见 [code-review.md](code-review.md)。用户验收、PR、合并、生产部署未完成。
