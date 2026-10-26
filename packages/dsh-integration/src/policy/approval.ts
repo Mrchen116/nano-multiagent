@@ -21,6 +21,8 @@ import { isHumanSource } from '../input-source.js';
 import { ReviewRecovery, ReviewFailure } from './recovery.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
+type DenialCounts = { consecutive: number; total: number };
+type AuditDetails = Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata' | 'recovery' | 'reviewId'>>;
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
@@ -87,7 +89,7 @@ export class NanoApproval extends Service {
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
   }
-  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata' | 'recovery' | 'reviewId'>> = {}) {
+  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: AuditDetails | ((counts: DenialCounts) => AuditDetails) = {}) {
     let reached = { consecutive: 0, total: 0 };
     await (await this.audit).table('sessions').update(exec.agent!.id, entries => {
       let consecutive = entries.at(-1)?.consecutive ?? 0;
@@ -96,7 +98,7 @@ export class NanoApproval extends Service {
       else if (source === 'classifier_block') { consecutive++; total++; }
       reached = { consecutive, total };
       if (source === 'classifier_block' && total >= config.totalDenyLimit) { consecutive = 0; total = 0; }
-      return [...entries, { time: Date.now(), callId: exec.callId, tool: exec.name, source, decision, reason, consecutive, total, rules: config.rules, ...details }];
+      return [...entries, { time: Date.now(), callId: exec.callId, tool: exec.name, source, decision, reason, consecutive, total, rules: config.rules, ...(typeof details === 'function' ? details(reached) : details) }];
     });
     return reached;
   }
@@ -165,15 +167,17 @@ export class NanoApproval extends Service {
         return this.escalate(exec, config, reason, 'classifier_unavailable', recoveryTrace.reviewId);
       }
       const verdict = result.decision;
-      // Predict the existing counter route before persisting the one cost-bearing audit row.
-      const prior = (await this.entries(agent.id)).at(-1);
-      const escalated = verdict.behavior === 'deny' && !['high', 'critical'].includes(verdict.risk ?? '')
-        && ((prior?.consecutive ?? 0) + 1 >= policy.denyLimit || (prior?.total ?? 0) + 1 >= policy.totalDenyLimit);
-      const route = escalated ? this.route(agent, config) : verdict.behavior;
       recovery.assertActive();
-      const recoveryTrace = recovery.finish(verdict.behavior, route === 'interactive' ? 'interactive_pending' : route, escalated && route === 'unattended' ? policy.unattendedFallback : undefined);
-      const counts = await this.record(exec, result.source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
-        { reviewer, metadata: result.metadata, elapsedMs: Date.now() - started, recovery: recoveryTrace, ...(result.usage ? { usage: result.usage } : {}) });
+      let recoveryTrace!: ReturnType<ReviewRecovery['finish']>;
+      // Parallel calls share denial counters: derive their trace route inside the same
+      // atomic update that decides escalation, not from an earlier entries snapshot.
+      const counts = await this.record(exec, result.source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy, counts => {
+        const escalated = verdict.behavior === 'deny' && !['high', 'critical'].includes(verdict.risk ?? '')
+          && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit);
+        const route = escalated ? this.route(agent, config) : verdict.behavior;
+        recoveryTrace = recovery.finish(verdict.behavior, route === 'interactive' ? 'interactive_pending' : route, escalated && route === 'unattended' ? policy.unattendedFallback : undefined);
+        return { reviewer, metadata: result.metadata, elapsedMs: Date.now() - started, recovery: recoveryTrace, ...(result.usage ? { usage: result.usage } : {}) };
+      });
       if (exec.signal.aborted || recovery.signal.aborted) return { kind: 'cancel' };
       if (verdict.behavior === 'allow') return { kind: 'allow' };
       if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block', recoveryTrace.reviewId);

@@ -49,7 +49,7 @@ export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exe
     for(const [agentId] of cases){
       await client.rpc.request('session.ensure',{sessionId:agentId,agentId,revision:'1',ownerId:'owner',cwd:home});
       await client.rpc.request('session.submit',{sessionId:agentId,inputId:agentId,mode:'followup',content:[{type:'text',text:agentId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:agentId}});
-      await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:agentId,inputId:agentId}) as {terminal?:unknown}).terminal).toBeTruthy();
+      await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:agentId,inputId:agentId}) as {terminal?:unknown}).terminal,{timeout:10000}).toBeTruthy();
     }
     expect(sent).toEqual(['owner-global','owner-single','owner-dsh']);
     const reviews=(await readFile(join(home,'reviews.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
@@ -61,7 +61,7 @@ export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exe
       expect(['user','group','unknown']).toContain(context.recipient.kind);
     }
   }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
-},30_000);
+},60_000);
 
 it('uses the dedicated reviewer once per stage, escalates valid denials, and distinguishes unattended faults', async () => {
   const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');

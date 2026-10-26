@@ -32,10 +32,12 @@ printf '%s\n' "${WT_ROOT:?}"
 mkdir -p "${WT_ROOT:?}"
 ./scripts/e2e-up.sh --profile daily --wt "${WT_ROOT:?}"
 source "$WT_ROOT/.e2e-ports.env"
-curl -fsS "$IM_URL/openapi.json" >/dev/null
+curl -fsS "$IM_URL/health" >/dev/null
 # 在跨tool受控tmux中持有，或将下面down放入trap EXIT INT TERM：
 ./scripts/e2e-down.sh --wt "${WT_ROOT:?}"
 ```
+
+实际4282日常IM的 `/health` 返回200，而 `/openapi.json` 返回404；404不代表服务不可达，此处仅校正准备命令，不改变设计/验收判据。
 
 只用本次随机高位端口/DB/node/workspace/owner根/DSH home，不碰生产8011或用户主仓；daily不与 `--main-config` 混用。脚本定位本checkout构建，无新常驻服务。down之后核实自己记录的进程身份已退出与端口释放，不killall/宽泛pkill，不停止共享LLM代理。
 
@@ -75,7 +77,8 @@ fixture基于现有recording stub，绑定空闲localhost、记录自己的进�
 env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u http_proxy -u https_proxy \
   NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1 \
   .venv/bin/python -m pytest \
-  tests/e2e/critical_paths/test_auto_review_retry_critical_path.py -q
+  tests/e2e/critical_paths/test_auto_review_retry_critical_path.py \
+  tests/e2e/critical_paths/test_auto_review_configuration_critical_path.py -q
 pnpm exec vitest run packages/dsh-integration/tests/review-recovery.test.ts \
   packages/dsh-integration/tests/approval-retry-native.test.ts \
   packages/dsh-integration/tests/codex-approval-lifecycle.test.ts \

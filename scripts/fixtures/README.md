@@ -44,7 +44,8 @@ Run from the unit checkout after the normal build (Python 3.11+ dev environment)
 env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u http_proxy -u https_proxy \
   NO_PROXY=localhost,127.0.0.1 no_proxy=localhost,127.0.0.1 \
   .venv/bin/python -m pytest \
-  tests/e2e/critical_paths/test_auto_review_retry_critical_path.py -q
+  tests/e2e/critical_paths/test_auto_review_retry_critical_path.py \
+  tests/e2e/critical_paths/test_auto_review_configuration_critical_path.py -q
 ```
 
 The tests use complete default 30/60/90-second review budgets and a 420-second

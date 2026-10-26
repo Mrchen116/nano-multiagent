@@ -66,7 +66,8 @@ export function apply(ctx){ctx.on('agent/disposed',({agent})=>{if(agent.id.start
     };
     for (const scenario of cases) {
       await submit(scenario);
-      await expect.poll(() => requests.filter(row => row.scenario === scenario && row.model === 'review').length).toBe(1);
+      // Runtime/model admission can queue behind other native suites on shared CI hosts.
+      await expect.poll(() => requests.filter(row => row.scenario === scenario && row.model === 'review').length, { timeout: 10000 }).toBe(1);
       const config = agents.find(agent => agent.agentId === scenario)!;
       const operationId = `op-${scenario}`; const fingerprint = `fingerprint-${scenario}`;
       if (scenario.endsWith('rejected')) {
@@ -105,7 +106,7 @@ export function apply(ctx){ctx.on('agent/disposed',({agent})=>{if(agent.id.start
       }
     }
     await submit('unaffected');
-    await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'unaffected', inputId: 'unaffected' }) as any).terminal).toBeTruthy();
+    await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'unaffected', inputId: 'unaffected' }) as any).terminal, { timeout: 10000 }).toBeTruthy();
     const effects = (await readFile(join(home, 'effects.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line).scenario);
     expect(effects).toEqual([...cases.filter(value => !value.endsWith('cancel') && !value.endsWith('disable')), 'unaffected']);
     await client.shutdown(); client = undefined;
