@@ -588,3 +588,41 @@ CREATE TRIGGER IF NOT EXISTS personal_observation_lifecycle AFTER INSERT ON pa_s
 END;
 
 CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,schedule_id TEXT NOT NULL,graph_id TEXT NOT NULL,node_id TEXT NOT NULL,PRIMARY KEY(agent_id,schedule_id));
+
+-- Private discovery state belongs to the existing PA binding, never to a Task copy.
+CREATE TABLE IF NOT EXISTS pa_attention_settings (
+ binding_id TEXT PRIMARY KEY REFERENCES personal_agent_bindings(binding_id),
+ revision INTEGER NOT NULL DEFAULT 1, settings_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pa_context_receipts (
+ id TEXT PRIMARY KEY, binding_id TEXT NOT NULL REFERENCES personal_agent_bindings(binding_id),
+ policy_revision INTEGER NOT NULL, request_json TEXT NOT NULL, coverage_json TEXT NOT NULL,
+ message_ids_json TEXT NOT NULL, cursor_row INTEGER NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pa_attention_items (
+ id TEXT PRIMARY KEY, binding_id TEXT NOT NULL REFERENCES personal_agent_bindings(binding_id),
+ dedup_key TEXT NOT NULL, revision INTEGER NOT NULL, data_json TEXT NOT NULL,
+ query_receipt_id TEXT, exploration_batch_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ UNIQUE(binding_id,dedup_key)
+);
+CREATE TABLE IF NOT EXISTS pa_attention_mutations (
+ binding_id TEXT NOT NULL, request_key TEXT NOT NULL, payload_json TEXT NOT NULL,
+ result_json TEXT NOT NULL, PRIMARY KEY(binding_id,request_key)
+);
+CREATE TABLE IF NOT EXISTS pa_attention_deliveries (
+ operation_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+ item_id TEXT, item_revision INTEGER, classification TEXT NOT NULL,
+ request_json TEXT NOT NULL, message_id TEXT UNIQUE, created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pa_attention_delivery_version
+ ON pa_attention_deliveries(item_id,item_revision) WHERE item_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS pa_attention_publications (
+ message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+ binding_id TEXT NOT NULL, item_id TEXT NOT NULL, item_revision INTEGER NOT NULL,
+ actions_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pa_attention_feedback (
+ source_message_id TEXT NOT NULL, user_id TEXT NOT NULL, action_key TEXT NOT NULL,
+ message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+ PRIMARY KEY(source_message_id,user_id,action_key)
+);

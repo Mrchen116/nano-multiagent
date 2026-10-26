@@ -465,6 +465,8 @@ export class TaskGraphService {
     if (write && this.personalRead) forbidden();
     if (!["user", "agent"].includes(actor.kind)) forbidden();
     const notices: Obj[] = [];
+    // Canonical reads may join a business transaction; its caller owns rollback.
+    if (!write && this.db.isTransaction) return this.executeTransaction(actor, action, args, false, notices);
     const hint = write ? this.changeHint(args.graph_id) : undefined;
     let result: Obj;
     this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
