@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 3 focused patch review passes at `d41425170`**, no surviving findings (`code-review.json=[]`). Round 1 findings are preserved in `code-review-r1.json` and below. Required acceptance evidence remains pending in verification.md.
+Current code verdict: **Round 4 patch review requires a fix at `085b1b896`**: one CONFIRMED / WARNING finding (CR-04). Earlier full-review findings and closures remain historical; V-01 evidence collection remains pending.
 
 ## Snapshot and verdict
 
@@ -97,3 +97,41 @@ Independent commands: `pnpm exec vitest run apps/im-server/tests/personal-attent
 Additionally invoked the real `Run.settle` function with a synthetic client and patched clock/read-only get seam (no source mutation): root idle + acknowledgement from t=0, child running until t=3, waiting_permission until t=5, then completed; root revision changes at t=7. It returns only at **t=12**, after 13 actual child-view reads, respecting both child completion and the reset stability window. A second probe keeps the child running despite an acknowledgement and gets **TimeoutError at t=4**, never a false settled return. This verifies harness control flow; it is not real product/LLM evidence.
 
 Provider capture note: the caller reports shared proxy logging became unavailable at 19:46. Capturing the actual serialized HTTP body at the isolated Node outbound boundary is a valid next observation seam when collected with version/model/session/role provenance; this review does not count a proposed capture as observed provider input, upstream receipt or successful model consumption.
+
+## Round 4 — focused source/forget/recovery delta
+
+- review_mode: `patch`; Context mode: focused **Implementation Review**.
+- executed_base: `d41425170f0f1226ce51b71d77072cee040bd9d3`; validated_at: `085b1b89611c642162e577e30dbdb268cbb7206f`.
+- Scope excludes intervening report commits. Reviewed source-access projection, the forget continuation schema/authority/persistence/rollover/receipt path, stale-owner-review error semantics, and new cold Task/combined-maintenance regression fixtures. R1 full coverage and prior closures are retained where unaffected. No source/test/design change by this reviewer.
+- Findings: **one CONFIRMED / WARNING**, CR-04 in latest `code-review.json`; no PLAUSIBLE findings. This is a deterministic interface defect, distinct from pending actual-model acceptance.
+
+| Focus | Reviewed evidence | Result |
+|---|---|---|
+| Excluded source last-preview leakage | sourceConversations returns only `{id,excluded:true}` before calling Messaging conversation projection; regression inserts a new post-revocation message and asserts the entire returned excluded row. personal_context already filters excluded entries. | Fix aligned; independent source tests pass. |
+| Cold child late message after Task withdrawal | Actual RuntimeClient is stopped/restarted, canonical snapshot has no Task, native child sendMessage reports accepted, descendant becomes non-running and child model-call count does not increase. | New regression passes; input accepted is correctly separated from permission to run. |
+| Combined maintenance vs foreground correction | Native maintenance is frozen after its actual revision-1 search; foreground changes revision to 2; releasing old write produces scope conflict, private global Skill write is denied, current record remains corrected. | New regression passes. Scripted provider proves dispatch/guards, not natural model behavior. |
+| owner_authorization_changed explanation | Original failed review still fails without commit. Tool error now describes stale snapshot/original input or access changes and asks to re-read; it does not claim revocation or grant permission. A fresh reviewed send still follows existing gates. | Aligned; affected PA tests pass. |
+| Forget mixed-request continuity | Bounded summary, original owner message ID validation and host-fixed private reply target survive rollover; continuation is excluded from records/write identity and temporary context row is removed after rollover. | Clean-summary fixture passes, but CR-04 exposes the missing erasure check. |
+
+Independent regression command: `pnpm exec vitest run apps/im-server/tests/personal-sources.test.ts packages/dsh-integration/tests/personal-memory-context.test.ts packages/dsh-integration/tests/personal-memory-maintenance.test.ts packages/dsh-integration/tests/task-native-execution.test.ts packages/personal-assistant/tests/personal-assistant.test.ts` → **33/33 passed**, `/tmp/pa665-independent-round4.log`, 2026-10-26 20:45 Asia/Shanghai. No unaffected full suite was rerun.
+
+### CR-04 — erased body can survive through the new handoff while cleanup is complete
+
+The new schema and description correctly say the handoff must omit erased facts, but the host validates only type/length (`knowledge/runtime.ts:177-178`) and accepts the string unchanged (`:189-190`). The native checkpoint then serializes it at `personal-memory-context.ts:56-63` and marks all cleanup layers complete at `:67`. An exact known erased body can therefore enter the new controlled Context.
+
+Independent reproduction used compiled frozen modules and a synthetic native subprocess, never production or repository test edits:
+
+1. Create a fresh PersonalMemoryStore bound to owner/PA and seed one record with entire body `SYNTHETIC-ERASE-865` from a verified source.
+2. Submit a valid owner request to forget the selected preference and acknowledge. Stub only the provider and product-source authority, as in the existing native fixture; the actual memory transaction, context domain and native rollover run normally.
+3. Provider calls memory forget using the actual current ID/revision and original validated owner message ID, with continuation `Acknowledge erasure; previous value was SYNTHETIC-ERASE-865` (well below 2000 characters).
+4. Capture both real `llm/stream` message assemblies and Store state after terminal completion.
+
+Actual output:
+
+```json
+{"case":"verbatim erased value in model-authored continuation","requestCount":2,"postRolloverContainsErasedValue":true,"recordCount":0,"pendingForgets":0}
+```
+
+Thus records are erased and the receipt is complete, while the post-rollover model can still consume the exact erased body. This does not rely on paraphrase detection, an adversarial owner or a hypothetical external plugin bypass; it is the new controlled handoff accepting an accidentally copied body. It does not claim a real model has naturally generated this argument.
+
+Before persisting/submitting the handoff, reject or remove known erased content and require a clean remaining-work summary; if that layer is not safely cleaned, do not mark it complete or consume it. Keep the working continuity path and avoid inventing a general semantic erasure system. The temporary workspace and runtime from this reproduction were shut down and removed.

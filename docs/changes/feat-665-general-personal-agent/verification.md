@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 3 focused delta at `d41425170`: 1 CRITICAL evidence gap, 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 4 focused delta at `085b1b896`: 1 CRITICAL evidence gap, 1 WARNING (CR-04), 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -146,3 +146,28 @@ Independent validation locators and clock-probe outputs are recorded in code-rev
 V-01 remains **pending**. The caller-owned acceptance R1 reports actual successes for draft adoption without send, private file bytes/version availability and correction to the original executor, but also the original card dismiss failure and extensive inconclusive scenario coverage. Those local successes can support their exact claims; they do not satisfy all M1/M2/M3 exits. Preserve R1's failed actual journey, then append a separately versioned real Web regression result when available. Final serialized outbound HTTP capture, model consumption/adjudication, all required checkpoint coverage, repeated/core comparable baseline evidence and applicable final CI must remain honestly classified. Proposed isolated Node capture after shared logging ceased is not yet observed evidence and is not proof of upstream provider receipt.
 
 No source/test/design/runtime was altered by this verifier. The pre-existing untracked acceptance report was preserved and not staged. No reviewer-created service requires cleanup.
+
+## Round 4 — focused delta at 085b1b896
+
+- verification_mode: `delta`; review_round: `4`; fix_delta_range: `d41425170..085b1b89611c642162e577e30dbdb268cbb7206f` (intervening reports excluded).
+- requires_full_verification: `false`; the prior full review is retained outside this finite delta. Focused Context review is reused from code-review.md Round 4.
+- verdict: **fail / incomplete**; critical **1** (existing V-01), warning **1** (new V-05/CR-04), suggestion **0**.
+
+| Focus / contract | Implementation and direct evidence | Disposition |
+|---|---|---|
+| Source withdrawal rejects future reads; spec I06/S03 | Excluded source projection returns ID/flag only before Messaging content/title/last preview is read; post-revocation sentinel regression passes. | Aligned |
+| Cold execution after canonical Task removal; W05/W06 and design Task recovery | Real restart + accepted late native input; withdrawn child does not call model, canonical empty snapshot retained. | Regression passes; natural model behavior remains separately scoped |
+| Memory maintenance correction race and private/global method boundary; M09/M11 | Frozen real native revision-1 read cannot overwrite revision-2 correction; global private Skill write denied. | Regression passes |
+| Review failure meaning/actionability; Context error semantics | owner_authorization_changed stays a blocking review failure and now explains snapshot staleness without asserting user revocation; re-read/new review remains required. | Aligned |
+| PA-5 mixed-request continuation; design.md added continuity paragraph | Clean remaining-work summary with verified owner message ID and fixed owner DM survives actual rollover; records identity excludes transient summary. | Continuity seam implemented; actual product reviewer retest pending |
+| No erased bodies in controlled active context; spec.md:42-44, design.md:70 and added continuation paragraph | Independent native probe puts exact selected record body into continuation: post-rollover messages still contain it even though recordCount=0 and pendingForgets=0. | **Implementation mismatch, V-05/CR-04** |
+
+### WARNING — V-05 / CR-04: continuation can restore erased controlled content
+
+Contract: the existing erasure requirement and new design both require a handoff without the forgotten fact/values; cleanup must report actual completed layers. At `knowledge/runtime.ts:177-190`, only summary type/length are checked before persistence. At `personal-memory-context.ts:56-67`, the unchecked string enters the new native checkpoint, followed by completeForget. Independent native assembled-input capture confirms exact body reintroduction with a complete receipt. This is a directly verified interface failure, not an assertion that a real model will necessarily make that mistake.
+
+Action: ensure the new handoff cannot carry the known erased body before it is persisted/consumed, with an actionable clean-summary retry or actual pending state when cleanup cannot complete. Preserve continuity for clean summaries and add narrow protection for this exact erasure path. Do not change spec to permit silent erased-data retention.
+
+Independent affected tests: **33/33**, `/tmp/pa665-independent-round4.log`; exact command and isolated native reproduction appear in code-review.md. The working clean-summary fixture and these tests do not refute CR-04, because they supply a summary without the erased value.
+
+V-01 remains pending. Caller-reported final build/typecheck/iOS-runtime, broad Web/docs/Python/lint checks and narrowed timeout rechecks can be retained against their actual version/commands. They do not replace the still-collected provider/actual model/product/checkpoint/core replay/comparison evidence; this focused review does not prematurely close that item or rewrite R1 real failures. No new full-suite rerun or production action was performed. Reviewer-created repro subprocess/workspace was cleaned; only review reports are modified.
