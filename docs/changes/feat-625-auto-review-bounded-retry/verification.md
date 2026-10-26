@@ -122,3 +122,68 @@ None. Default-concurrency admission timeouts are recorded as unclosed regression
 ## Handoff
 
 `validated_issues`: C-1 (required exit evidence incomplete), W-1 (confirmed actual-route mismatch), W-2 (confirmed structural contract violation). `top_concern`: fix atomic route/trace consistency and close real independent product/CI evidence before claiming the milestone or Ready PR. The two new reports are the only reviewer writes; coordinator will commit them. Existing shared worktree is intentionally retained for the same author's repairs, Q and this reviewer's follow-up; no cleanup or version checkout was performed by the reviewer.
+
+## Round 2 — delta + targeted closure W-1 / W-2
+
+> Validation snapshot: `d72e220f1d21827c65e046f704c13837ea39d7c2 → 32a45c7754463aecdc9e77aadf7dfe9f5121e483`
+
+- `verification_mode`: `delta`; supplemental `targeted-closure` focus: W-1/CR-1 and W-2.
+- `review_round`: `2`; `fix_delta_range`: `4282c0488510c4a46a81d4b5632ebaa236f619ac..32a45c7754463aecdc9e77aadf7dfe9f5121e483`.
+- Branch/worktree unchanged. Initial clean HEAD32a45, tree`b9d55267145df2ff955b90851d65b529f7b9160f`, merge-based72e and diff/check verified. R1 reports were committed separately at`255b29836` and are retained verbatim above. No design/spec/delta change occurred; design and target delta still match approved407b6e.
+- `requires_full_verification`: `false`. Only production delta is the private audit-details callback at the existing counter serialization point; remaining changes are regression/test observation/split and non-substantive runbook/progress. There is no widened shared Context/authorization/runtime interface change invalidating retained R1 coverage.
+- `report_commit`: this R2 append not committed; coordinator/original author owns report-only commit. No source/test/config/design/build/service change was made by this reviewer.
+
+### Summary
+
+| 维度 | 本轮结果 |
+|---|---|
+| Completeness | Requested fix delta fully inspected; W-1/W-2 closed. Single-M1 whole exit gate C-1 still open |
+| Correctness | Atomic actual counter/route consistency and usage linkage verified; no new delta issue |
+| Coherence | Approved route/counter semantics preserved; test behavior preserved; original production budgets unchanged |
+
+**Scoped delta/targeted-closure verdict: PASS — 0 new CRITICAL, 0 new WARNING, 0 SUGGESTION. W-1 and W-2 closed.**
+
+**Whole-unit verdict remains NOT PASS — 1 retained CRITICAL (C-1), 0 open WARNING.** This is not Q acceptance, a corrected-delta signature, a final whole-CI declaration or Ready-PR permission.
+
+### Completeness / applicable evidence
+
+The new source checkpoint's own progress explicitly separates old4282 binaries and Q stacks from the repaired source (`M1-review-recovery/progress.md:75–86`). In particular, moved true-IM configuration controls passing18.42s used old4282 lib and are **not** claimed as new-source runtime proof. That run remains useful for the semantically identical moved test/harness, while new-source native/artifact evidence below supports repair compatibility. Author-reported31/31 narrow source checks, typecheck, docs-check, non-E2E72/72 and ruff are supplemental, not a substitute for direct issue evidence or final CI.
+
+| Evidence | Version / exact command or locator | Result and limit |
+|---|---|---|
+| Independent structural contract | `NANO_TEST_BASE_REF=d72e220f1d21827c65e046f704c13837ea39d7c2 .venv/bin/python -m pytest tests/contract/test_test_naming_and_size_contract.py -q` at clean32a45 | 2passed0.33s, exit0; closes the actual size/naming failure |
+| Independent moved-test semantics | Python AST comparison via fixed `git show 4282:<retry>` and `32a45:<retry/config>`; `ast.dump(...,include_attributes=False)` for every test function/decorator | Original5 functions exactly equal4retained+1moved; no scenario/assertion/decorator loss. New files397/64lines |
+| Independent pytest collection | `.venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_retry_critical_path.py tests/e2e/critical_paths/test_auto_review_configuration_critical_path.py --collect-only -q` | 6 parameterized tests collected, exit0; no product stack started |
+| Independent public-policy/artifact probe | `node --input-type=module`, import snapshot `output/feat625-build-32a45c77/packages/dsh-integration/lib/policy/approval.js`, Cordis resolved from snapshot package; real pre-execute chain/controller + synthetic reviewer/serialized table | 10/10 route/threshold-reset/usage cases passed, exit0. Detailed matrix in code review R2. Not native storage, live model or technical-exhaustion true-IM route proof |
+| Isolated repaired integration build / loader | Read `output/feat625-build-32a45c77/build-manifest.json`, `loader-proof.json`; manifest compile command `pnpm exec tsc -p packages/dsh-integration/tsconfig.json --outDir <snapshot>/packages/dsh-integration/lib` | Worker buildexit0 reported; require-resolved integrationRoot points to snapshot lib, native initialize/shutdown reported pass. Only changed package compiled; unchanged locked deps/packages reused, not whole app/Q rebuild |
+| New artifact default-concurrent native regression | Read `output/feat625-build-32a45c77/parallel-native-r2.log:4–35` and `parallel-native-r2-receipt.json:1–30`; exact complete9-file `pnpm exec vitest run --config output/feat625-build-32a45c77/vitest.config.ts <snapshot tests…>` stored in receipt | 9files/29tests passed102.20s; collected worker job`bash-197` exit0, start15:15:20+08; no maxWorkers override. Config read: include/testTimeout15000 only, no serialization. Native configuration nano13.80s/Codex14.98s, affected owner case5.32s, Guardian case97.37s with real first90s timeout. Inspected worker evidence, not reviewer rerun |
+| Snapshot packaging failure retained | `build-manifest.json:17–26`, original `parallel-native.log` retained; corrected assets and unchanged PA/channels links | Initial isolated snapshot lacked runtime assets/peer import and failed before reviewer admission. Repaired local snapshot links only, then full native run passed; init-only success was not treated as full packaging proof |
+| Q artifact isolation | Independent `shasum -a256` | Original `packages/dsh-integration/lib/policy/approval.js` remains `b01ac3cb0e3f17117aacbe0ec3ba6d3c80d447c03aab1ddb0bdf539b74f97be4`, matching manifest; snapshot artifact differs (`562a95df…e194c`). Reviewer did not rebuild original lib or touch either Q stack |
+
+### Correctness — focused requirements / closure
+
+| Requirement / historical issue | Implementation and test evidence | Outcome |
+|---|---|---|
+| W-1: actual complete trace route must match concurrent threshold escalation (`spec.md:182`, `design.md:219–227`) | `approval.ts:92–103,169–183`: `details(reached)` runs inside the serialized counter mutation; `finish` and returned escalation use identical actual pre-reset counts. Public maintained regression `approval-retry.test.ts:31–58` covers `[deny,ask]` and B interactive_pending | **closed** |
+| W-1: correct unattended configured allow/deny and Global/child boundary, total reset, no duplicated cost | Independent10case public-chain snapshot probe: interactive, schedule allow/deny, Global and child×consecutive/total threshold. Routes/decisions matched; total-limit row counters reset0 correctly; exactly2cost/usage rows for2reviews and one no-usage fallback row where applicable, same reviewId | **closed within policy repair scope**; not a substitute for Q's missing true-IM exhausted-route coverage |
+| W-2: new test≤400 and configuration scenario coverage remains | Actual contract2pass;397/64lines; AST equality and6test collection. Moved function retains both policies×request/backoff, actual HTTP409 capability_in_use/release path, original allow trace/shared counts/exact single-effect assertions | **closed** |
+| Native admission/terminal observation must not conceal production timing or concurrency | `approval-retry-configuration-native.test.ts:69–70,109`, `approval.test.ts:52,64`: only observation10s/outer60s. Original native request count, owner cancel/disable, unaffected owner and effect assertions remain. New snapshot full9-file default-parallel run29pass | Prior demonstrated short-window regression risk addressed for this run; not an assertion of universal flake freedom |
+| New delta must not weaken audit-failure/cancellation behavior | Existing `await record()` still precedes returned permission; failed write propagates. Controller activity and post-write cancellation checks remain. Details callback adds no async IO/retry/permission check of its own | No new mismatch established |
+
+### Coherence / Context
+
+The public locked storage implementation was inspected: `@deepseek-ai/dsh-storage-domain/lib/index.js:278–286` enqueues update, invokes callback once on latest rows, persists then publishes. This supports the callback-at-counter-point repair, including reached-before-reset semantics. No new storage, public contract or runtime loop was introduced.
+
+R1 Mode B is retained for unchanged prompts/source/admission/reviewer lifecycle. R2 only corrects a diagnostic final-route value to reflect the existing decision; input/model/effort/tool schema/provenance/budget and independent PA disclosure consumer are unchanged. No implementation/design Context mismatch or reason to broaden to a full review was found. All prior real-provider/provenance-combination evidence limitations stay explicit unless independently closed by their assigned gate.
+
+Prototype / Reference: N/A, unchanged. Runbook health probe correction and adding both split-test paths do not alter approved product criteria.
+
+### Issues / remaining delivery boundary
+
+- **CRITICAL — C-1 still open.** The requested narrow repair is complete, but full M1 is not accepted here. Coordinator reports fresh Q observed4282 dual-strategy real Global self-created/install/two calls180/55 plus public delivery and deterministic stop/fault/full-timeout cases; this verifier has not converted that update into a final accepted Q report at32a45. Required true-IM Global/child/schedule exhausted-route coverage was still being added outside this freeze. Whole/final CI (including any concrete dependency-audit permission blocker already communicated by coordinator), final Q/version reconciliation and corrected-delta/current merge remain for their proper gates. Reuse newly effective evidence only within its actual version/scope; do not erase C-1 because W-1/W-2 closed or because one smoke/native run passed.
+- **WARNING — none open in this delta.** W-1/CR-1 closed; W-2 closed. No new findings.
+- **SUGGESTION — none.**
+
+### R2 handoff
+
+`validated_issues`: W-1 closed, W-2 closed, C-1 still_open. `requires_full_verification=false`. `top_concern`: continue independent product/route/CI/final-delta closure without relabeling old Q binaries as new-SHA execution. Original author remains the repair executor. Reports are the only reviewer edits and are handed to coordinator for report-only commit; no service, build or worktree cleanup action was needed. Future route-fixture or other changes need their own actual frozen delta check, not an implied approval from this R2.

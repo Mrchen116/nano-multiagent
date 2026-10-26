@@ -99,3 +99,50 @@ Existing source/admission/parser/lifecycle tests were read and applicable record
 ## Follow-up boundary
 
 CR-1 needs an author fix and regression, then independent closure at a new frozen SHA. Structural CI and the unresolved default-concurrency test run require delivery follow-through; see verifier issues. Product Q/daily, final delta/canonical reconciliation, whole CI/archive/Ready PR are not signed off by this static review. The same reviewer session can continue; this report intentionally retains the original round's fixed version.
+
+## Round 2 — patch + CR-1 closure
+
+- `review_mode`: `patch`; `review_round`: `2`; focus: `CR-1`.
+- `pre_fix_head` / `finding_origin_head`: `4282c0488510c4a46a81d4b5632ebaa236f619ac`.
+- `validated_at`: `32a45c7754463aecdc9e77aadf7dfe9f5121e483`; tree `b9d55267145df2ff955b90851d65b529f7b9160f`.
+- `executed_base`: `d72e220f1d21827c65e046f704c13837ea39d7c2` (unchanged merge-base).
+- Scope: exact `4282c048..32a45c77` repair delta, including newly committed R1 reports but not reopening unchanged full implementation. Initial HEAD/tree/clean status and fixed diff checked. Design/spec/delta are unchanged; original R1 text above is retained, not rewritten.
+
+**Patch result: 0 CRITICAL / 0 WARNING; no live new finding.**
+
+```json
+[]
+```
+
+| Focus finding | Status | Closure evidence |
+|---|---|---|
+| CR-1 concurrent counter / durable final route mismatch | **closed** | `approval.ts:92–103,169–183` computes `finish()` details inside the same `sessions.update` callback as actual `reached` counts; actual escalation uses those returned counts. The old independent `entries()` prediction is removed. Interactive/return-to-agent/unattended routes and fallback retain existing policy; cost-bearing row is not duplicated. |
+
+### Repair logic and regressions
+
+Only one production file changes. `record` now accepts either unchanged static details or a private details callback. Counts are captured **before** the existing total-limit reset, so reaching `totalDenyLimit` still triggers escalation even though stored counters reset to zero. The callback is evaluated once inside the existing serialized mutation, not by a new counter store or retry loop. Inspected locked DSH storage implementation (`@deepseek-ai/dsh-storage-domain/lib/index.js:278–286`) enqueues each update, invokes its mutation once, persists, then publishes the next rows. No callback replay assumption or async work was added inside that mutation. Existing write-failure propagation still prevents returning an allow after failed persistence.
+
+Author's new `approval-retry.test.ts:31–58` exercises the public Cordis `tools/pre-execute` chain with synthetic reviewer/atomic table: two concurrent denies return `[deny, ask]`, and B's complete durable trace is `interactive_pending`. It is a maintained regression at the policy seam, not a native/live-provider claim. Reported source recovery+retry21/21 and later narrow31/31/typecheck results are supplemental engineering evidence; closure does not rely on counts alone.
+
+Independent reviewer probe used `node --input-type=module` and **only** `output/feat625-build-32a45c77/packages/dsh-integration/lib/policy/approval.js`, resolving Cordis from that snapshot's package manifest. A public `Context.waterfall('tools/pre-execute', …)` drove two concurrent tool candidates, a synthetic low-risk-deny reviewer and a serialized asynchronous table (callback → simulated persist → publish). Synthetic model streams supplied known usage17 input/3 output per action through real `ReviewRecovery.run/ReviewAttempt.stream`. Each row below ran twice: consecutive limit2/total99, and consecutive99/total limit2 (stored reset branch).
+
+| Cases (10 total) | Actual decisions A/B | Durable review routes A/B | Required fallback |
+|---|---|---|---|
+| human interactive ×2 | deny / ask | deny / interactive_pending | absent |
+| schedule unattended allow ×2 | deny / allow | deny / unattended | allow |
+| schedule unattended deny ×2 | deny / deny | deny / unattended | deny |
+| Global human ×2 | deny / deny | deny / return_to_agent | absent |
+| child with schedule + configured allow ×2 | deny / deny | deny / return_to_agent | absent (child cannot gain unattended allow) |
+
+All ten passed (exit0). Each had exactly two complete recovery/cost rows, two usage-bearing rows and summed audit input usage34; each recovery kept knownUsage17/3 and usageComplete=true. A non-interactive escalation added exactly one existing fallback row linked by reviewId, with no duplicate usage/recovery. Total-limit cases stored reset counters0 while choosing the correct escalation. This is an independent deterministic public-policy/artifact check, **not native-loop/storage durability/model behavior**. An initial probe failed before execution because root workspace does not export Cordis; resolving the same locked package from the snapshot fixed only the probe's module location, not product code.
+
+### Other patch surfaces / evidence
+
+- True-IM configuration scenario was moved, not weakened: independent AST comparison found all five original test functions/decorators identical after the split (four retained + one moved), and pytest collected the same six parameterized cases. Files are397 and64 lines. Naming/size contract independently passed2/2 using the executed base. Both driver paths were added to runbook/fixture instructions.
+- Native changes give only demonstrated observation polls10s and the existing owner-routing test an outer60s allowance. They retain exact HTTP-count, route, owner-isolation, zero/one-effect assertions and unchanged production30/60/90/action360/cleanup5s. A longer admission observation is not permission to accept extra reviewer calls.
+- Snapshot manifest/loader proof were read. The snapshot initially lacked runtime assets and unchanged PA peer links; original failed `parallel-native.log` remains. Added local snapshot links do not change tracked source. Initialization alone was not accepted as packaging proof. Corrected snapshot run `parallel-native-r2.log:4–35` directly shows9files/29tests passed in102.20s, overlapping suites and actual Guardian90s timeout coverage. Read `parallel-native-r2-receipt.json:1–30`: complete9-file command/config, source SHA, collected worker job `bash-197` exit0, actual start/duration and default concurrency/no maxWorkers override. The snapshot config only sets test include/testTimeout, not worker serialization. This is inspected worker evidence (not a reviewer rerun) and the applicable parallel run, not the prior serial run.
+- Independent hashes confirm original Q artifact `packages/dsh-integration/lib/policy/approval.js` remains `b01ac3cb0e3f17117aacbe0ec3ba6d3c80d447c03aab1ddb0bdf539b74f97be4`; probe snapshot approval is `562a95df04e2df799fc44440f4ebd7dc37cf691907b0341074c695e7126e194c`. No original lib build or Q-service operation was performed by the reviewer.
+
+### Context impact / remaining boundary
+
+R1 Mode B coverage and its limits remain applicable: this patch changes when the already promised final audit route is derived, not prompts, source projection/admission, model/effort, schemas, reviewer identity, recovery quota or disclosure lifetime. The changed audit path was checked together with actual returned decisions and fallback linkage above. No new Context finding or need to repeat full Mode B was established. New true-IM route fixtures, later source changes, Q version reconciliation and corrected delta are outside this fixed patch. **CR-1 closed is not whole-unit/CI/Q acceptance**; retained verifier C-1 is still open. No full re-review is required by this delta.
