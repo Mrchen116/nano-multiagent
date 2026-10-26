@@ -103,7 +103,23 @@ export function apply(ctx){
 `);
     const port = (server.address() as { port: number }).port;
     await prepareProfile(home, [
-      { id: 'llm-pi-ai', config: { providers: { fixture: { api: 'anthropic-messages', baseURL: `http://127.0.0.1:${port}`, apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main', contextWindow: 200000 }, { id: 'review', contextWindow: 200000, reasoningEfforts: { low: 'low' } }], retryPolicy: { mode: 'normal', maxRetries: 0 } } } },
+      {
+        id: 'llm-pi-ai',
+        config: {
+          providers: {
+            fixture: {
+              api: 'anthropic-messages',
+              baseURL: `http://127.0.0.1:${port}`,
+              apiKeyEnv: 'NANO_TEST_KEY',
+              models: [
+                { id: 'main', contextWindow: 200000 },
+                { id: 'review', contextWindow: 200000, reasoningEfforts: { low: 'low' } },
+              ],
+              retryPolicy: { mode: 'normal', maxRetries: 0 },
+            },
+          },
+        },
+      },
       { insert: [{ id: 'maintenance-guardian-capture', name: join(home, 'fixture.mjs') }] },
     ]);
     const config = { agentId: 'a', revision: '1', provider: 'fixture', model: 'main', mode: 'global',
