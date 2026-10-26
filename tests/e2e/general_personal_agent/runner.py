@@ -196,6 +196,38 @@ class Run:
     def save(self):
         write_json(self.output / "state.json", self.state)
 
+    def idle(self, work: dict) -> bool:
+        if work.get("main_execution") != "idle":
+            return False
+        for child in work.get("other_executions", []):
+            sid = quote(child["session_id"], safe="")
+            view = get(
+                self.client,
+                f"/im/v1/agents/{self.agent}/work/sessions/{sid}/turns",
+                limit=1,
+            )
+            if any(
+                turn.get("status") in {"running", "waiting_permission"}
+                for turn in view.get("turns", [])
+            ):
+                return False
+        return True
+
+    def settle_observation(self) -> dict:
+        deadline, stable, revision = time.monotonic() + self.timeout, None, None
+        while time.monotonic() < deadline:
+            work = get(self.client, f"/im/v1/agents/{self.agent}/work")
+            if work.get("revision") != revision:
+                stable, revision = None, work.get("revision")
+            if self.idle(work):
+                stable = time.monotonic() if stable is None else stable
+                if time.monotonic() - stable >= 5:
+                    return {"at": time.time(), "work": work}
+            else:
+                stable = None
+            time.sleep(1)
+        raise TimeoutError(f"observed PA work did not settle within {self.timeout}s")
+
     def settle(self, before: dict, conversation: str, sent_id: str):
         deadline, stable = time.monotonic() + self.timeout, None
         last_revision = None
@@ -206,24 +238,7 @@ class Run:
                 for m in self.client.agent_messages(conversation, self.agent)
                 if m["id"] not in before["messages"]
             ]
-            idle = (
-                work.get("main_execution") == "idle"
-                and work.get("revision", 0) > before["revision"]
-            )
-            if idle:
-                for child in work.get("other_executions", []):
-                    sid = quote(child["session_id"], safe="")
-                    view = get(
-                        self.client,
-                        f"/im/v1/agents/{self.agent}/work/sessions/{sid}/turns",
-                        limit=1,
-                    )
-                    if any(
-                        turn.get("status") in {"running", "waiting_permission"}
-                        for turn in view.get("turns", [])
-                    ):
-                        idle = False
-                        break
+            idle = self.idle(work) and work.get("revision", 0) > before["revision"]
             if work.get("revision") != last_revision:
                 stable = None
                 last_revision = work.get("revision")
@@ -284,7 +299,7 @@ class Run:
                     }
                 )
                 time.sleep(min(10, max(0, deadline - time.monotonic())))
-            return {"op": op, "samples": samples}
+            return {"op": op, "samples": samples, "settled": self.settle_observation()}
         if op == "checkpoint":
             receipt = self.checkpoints.get(step["key"])
             if not receipt:

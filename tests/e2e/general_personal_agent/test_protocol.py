@@ -197,3 +197,32 @@ def test_comparison_rejects_reused_nodes_and_unreviewed_results(tmp_path):
     assert not row["comparable"]
     assert any("reused" in reason for reason in row["reasons"])
     assert row["counts"]["baseline"]["passed"] == 0
+
+
+def test_observation_waits_for_real_root_and_child_completion_without_requiring_a_reply(
+    monkeypatch,
+):
+    from . import runner
+
+    run = runner.Run.__new__(runner.Run)
+    run.client, run.agent, run.timeout = object(), "pa", 60
+    clock = [0]
+    monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(runner.time, "time", lambda: clock[0])
+    monkeypatch.setattr(
+        runner.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+
+    def get(_client, path, **_kwargs):
+        if path.endswith("/turns"):
+            return {"turns": [{"status": "running" if clock[0] < 26 else "completed"}]}
+        return {
+            "main_execution": "running" if clock[0] < 22 else "idle",
+            "revision": min(clock[0], 27),
+            "other_executions": [{"session_id": "child"}],
+        }
+
+    monkeypatch.setattr(runner, "get", get)
+    result = run.step({"op": "observe", "seconds": 20}, 0)
+    assert result["settled"]["at"] >= 32
+    assert result["settled"]["work"]["main_execution"] == "idle"
