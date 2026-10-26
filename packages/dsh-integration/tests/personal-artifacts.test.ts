@@ -30,5 +30,7 @@ it('publishes actual bounded workspace bytes under host PA identity and refuses 
     await writeFile(join(directory,'huge.txt'),''); await truncate(join(directory,'huge.txt'),10*1024*1024+1);
     await expect(tool.execute({path:'huge.txt',idempotency_key:'huge'},exec)).rejects.toThrow(/size|large|limit/i);
     expect(calls).toHaveLength(1);
+    // A history fork can itself be the product-bound root; the bridge owns binding validation.
+    expect(await tool.execute({path:'plan.md',idempotency_key:'fork'}, {...exec,agent:{id:'fork-root',session:{header:{origin:'fork',parentSession:'historical-root'}}}})).toEqual(receipt);
   } finally { await rm(directory,{recursive:true,force:true}); await rm(outside,{recursive:true,force:true}); }
 });

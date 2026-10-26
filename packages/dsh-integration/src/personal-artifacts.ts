@@ -24,7 +24,7 @@ export function registerTool(ctx: Context) {
       const agent = exec.agent;
       const config = agent && ctx.nanoConfiguration.forAgent(agent);
       if (!config?.personal || config.mode !== 'global' || !config.workspace) throw new Error('Publication requires a bound Personal Agent workspace');
-      if (agent!.session.header.origin === 'subagent' || agent!.session.header.parentSession) throw new Error('Only the root Personal Agent may publish artifacts');
+      if (agent!.session.header.origin === 'subagent') throw new Error('Only the root Personal Agent may publish artifacts');
       const args = value as PublishArgs;
       if (!args.path || !args.idempotency_key?.trim() || args.idempotency_key.length > 200) throw new Error('Path and a bounded idempotency key are required');
       if ((args.artifact_id !== undefined) !== (args.expected_version !== undefined) || (args.expected_version !== undefined && (!Number.isSafeInteger(args.expected_version) || args.expected_version < 1))) throw new Error('Artifact updates require artifact_id and expected_version');
