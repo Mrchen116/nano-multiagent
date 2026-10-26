@@ -669,6 +669,13 @@
       "steps": [
         {
           "op": "send",
+          "actor": "owner",
+          "chat": "work_group",
+          "text": "我负责下周的轻记评审，最近主要关注反馈材料能否按时准备。",
+          "settle": true
+        },
+        {
+          "op": "send",
           "actor": "colleague",
           "chat": "work_group",
           "text": "下周有轻记评审，还没整理反馈。",
