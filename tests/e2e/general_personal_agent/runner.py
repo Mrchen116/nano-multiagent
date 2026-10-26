@@ -6,7 +6,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from tests.e2e.critical_paths._im_client import IMClient
 from .catalog import ASSETS, digest, write_json
@@ -198,6 +198,7 @@ class Run:
 
     def settle(self, before: dict, conversation: str, sent_id: str):
         deadline, stable = time.monotonic() + self.timeout, None
+        last_revision = None
         while time.monotonic() < deadline:
             work = get(self.client, f"/im/v1/agents/{self.agent}/work")
             replies = [
@@ -209,6 +210,23 @@ class Run:
                 work.get("main_execution") == "idle"
                 and work.get("revision", 0) > before["revision"]
             )
+            if idle:
+                for child in work.get("other_executions", []):
+                    sid = quote(child["session_id"], safe="")
+                    view = get(
+                        self.client,
+                        f"/im/v1/agents/{self.agent}/work/sessions/{sid}/turns",
+                        limit=1,
+                    )
+                    if any(
+                        turn.get("status") in {"running", "waiting_permission"}
+                        for turn in view.get("turns", [])
+                    ):
+                        idle = False
+                        break
+            if work.get("revision") != last_revision:
+                stable = None
+                last_revision = work.get("revision")
             if idle and replies:
                 stable = stable or time.monotonic()
                 if time.monotonic() - stable >= 5:

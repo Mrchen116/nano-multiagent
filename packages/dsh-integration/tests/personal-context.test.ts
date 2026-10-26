@@ -28,7 +28,10 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){const agent=ct
     });
     const config={agentId:'pa',revision:'1',workspace:home,provider:'deepseek-official',model:'deepseek-flash',mode:'global',personal:{bindingId:'b',ownerId:'owner',conversationId:'dm',epoch:1},features:{intelligent_ui:false,memory_curation:false,skill_creation:false,task_graph:false,personal_proactivity:false,cron_scheduling:false},toolAllowlist:['personal_context','personal_attention'],approval:{dangerouslySkipPermissions:true}};
     const binding={agentId:'pa',sessionId:'root',ownerId:'owner',revision:'1',cwd:home};
-    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);
+    await client.rpc.request('initialize',{protocol:1,agents:[],bindings:[]});
+    const catalog=await client.rpc.request('configuration.catalog',{config,cwd:home}) as {tools:{name:string}[]};
+    expect(catalog.tools.map(tool=>tool.name)).toEqual(expect.arrayContaining(['personal_sources','personal_context','personal_attention','publish_artifact']));
+    await client.rpc.request('configuration.apply',config);await client.rpc.request('session.ensure',binding);
     const submit=async(id:string)=>{await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal).toMatchObject({kind:'completed'});};
     const rows=async()=>(await readFile(join(home,'results.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     await submit('no-cron');

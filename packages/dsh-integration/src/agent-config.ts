@@ -113,7 +113,6 @@ export class ConfigurationScopes extends Service {
     }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);
-    await this.extensions.attach(ctx, config);
     if (config.personal) {
       await ctx.plugin(PersonalTools, config).await();
       await ctx.inject(['nanoPersonalDelegations','nanoKnowledge','tools','nanoProduct'],child=>{
@@ -122,6 +121,9 @@ export class ConfigurationScopes extends Service {
         PersonalContext.registerTools(child,agentId);
       }).await();
     }
+    // Workspace HMR may yield while a cold preview is already visible. Its
+    // optional extensions must not delay the built-in PA capability catalog.
+    await this.extensions.attach(ctx, config);
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const selected = agent && this.forAgent(agent); if (!selected) return assembly;

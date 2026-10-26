@@ -210,28 +210,31 @@ export class PersonalAttention {
   return start===end||start<end?start===end||time>=start&&time<end:time>=start||time<end;
  }
  private deliveryCheck(b:Row,args:Row):Row {
+  const item=args.attention_id?this.item(b,args.attention_id):undefined;
+  if(item){
+   if(!this.pa.ownerConversation(b,args.conversation_id))fail(403,'attention_private_destination_required');
+   if(item.revision!==args.attention_revision)fail(409,'attention_revision_conflict');
+   const sent=one(this.db,'SELECT message_id FROM pa_attention_deliveries WHERE item_id=? AND item_revision=? AND message_id IS NOT NULL',item.id,item.revision);
+   if(sent)return {status:'already_sent',message_id:sent.message_id};
+  }
+  const reference=item?{item_id:item.id,item_revision:item.revision}:{};
   const evidence=args.evidence;
   if(evidence?.kind==='direct_request'){
    const message=one(this.db,'SELECT * FROM messages WHERE id=?',evidence.source_message_id);
    if(this.pa.ownerConversation(b,args.conversation_id))this.pa.ownerMessage(b,evidence.source_message_id);
    else if(!message||message.sender_type!=='user'||message.conversation_id!==args.conversation_id||!this.pa.messageAllowed(b,message)||this.pa.sourceFacts(b,message).delivery!=='participant')fail(403,'direct_request_evidence_required');
-   return {status:'allowed',classification:'direct_request'};
+   return {status:'allowed',classification:'direct_request',...reference};
   }
   if(evidence?.kind==='schedule'){
    if(evidence.owner_ui!==true)this.pa.ownerMessage(b,evidence.source_message_id);required(evidence.schedule_id,'schedule_id',200);
-   return {status:'allowed',classification:'schedule'};
+   return {status:'allowed',classification:'schedule',...reference};
   }
   if(evidence?.kind==='task'){
    const task=this.task(b,evidence);
    if(task.assignee?.type!=='agent'||task.assignee?.id!==b.agent_id||['paused','closed'].includes(task.status))fail(403,'task_delivery_evidence_required');
-   return {status:'allowed',classification:'task'};
+   return {status:'allowed',classification:'task',...reference};
   }
-  if(!args.attention_id)return {status:'requires_attention'};
-  if(!this.pa.ownerConversation(b,args.conversation_id))fail(403,'attention_private_destination_required');
-  const item=this.item(b,args.attention_id);
-  if(item.revision!==args.attention_revision)fail(409,'attention_revision_conflict');
-  const sent=one(this.db,'SELECT message_id FROM pa_attention_deliveries WHERE item_id=? AND item_revision=? AND message_id IS NOT NULL',item.id,item.revision);
-  if(sent)return {status:'already_sent',message_id:sent.message_id};
+  if(!item)return {status:'requires_attention'};
   const settings=this.settings(b);
   if(!args.feature_enabled||!this.feature(b)||settings.mode==='response_only')return {status:'held',reason:'personal_proactivity_disabled'};
   if(settings.suppressed_topics.includes(item.topic))return {status:'held',reason:'suppressed_topic'};

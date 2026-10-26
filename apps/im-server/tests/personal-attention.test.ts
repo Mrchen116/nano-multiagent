@@ -83,9 +83,9 @@ it('preserves notification revision on revalidation with no business change and 
  await expect(f.command({action:'settings',expected_revision:2,owner_instruction_id:f.source.id,settings:{suppressed_topics:['proposal']}})).rejects.toThrow('direct_owner_evidence_required');
 });
 
-it('binds original card revisions and deduplicates a logical click across caller keys',async()=>{
+it.each([false,true])('binds original card revisions and deduplicates a logical click across caller keys (direct reply %s)',async(direct)=>{
  const f=setup(),item=await f.candidate();
- await f.call('pa.attention.delivery.prepare',{operation_id:'card',conversation_id:'chat',attention_id:item.id,attention_revision:item.revision,feature_enabled:true});
+ await f.call('pa.attention.delivery.prepare',{operation_id:'card',conversation_id:'chat',attention_id:item.id,attention_revision:item.revision,feature_enabled:true,...(direct?{evidence:{kind:'direct_request',source_message_id:f.owner.id}}:{})});
  const card=f.ctx.messaging.insertMessage('chat','a1','agent','Outline ready',[],'card','completed',{personal_delivery_operation_id:'card',interactive:{format:'openui',catalog_version:'nano-1',source:'root = Stack([ContinueButton("dismiss", "Ignore this"), ContinueButton("later", "Later")])'}});
  const submit=(key:string,action='dismiss')=>f.ctx.messaging.sendMessage({headers:{'x-user':'u1','idempotency-key':key},params:{conversation_id:'chat'},query:{},body:{sender_user_id:'u1',interaction_reply:{source_message_id:card.id,action_id:action,state:{}}}} as any);
  const first=await submit('device-one'),duplicate=await submit('device-two');
