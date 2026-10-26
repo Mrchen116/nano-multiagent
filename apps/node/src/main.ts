@@ -87,7 +87,7 @@ function installPartitionConsumers(partition: RuntimePartition): void {
   const port = runtime.scoped(partition);
   const partitionKey = partition.key === 'ordinary' ? undefined : partition.key;
   knowledgeByPartition.set(partition.key, new KnowledgeUpdates({ nodeId: config.node.node_id, agents: partition.agents,
-    runtime: port, partitionKey, store, inbox, relay: external, im, onError: reportError }));
+    runtime: port, partitionKey, store, inbox, relay: external, im, onError: reportError, onWork:()=>workSync.signal() }));
   workflowsByPartition.set(partition.key, new WorkflowResults({ agents: partition.agents, store, runtime: port, partitionKey,
     receive: (sessionId, input) => product.background(sessionId, input), onError: reportError }));
 }

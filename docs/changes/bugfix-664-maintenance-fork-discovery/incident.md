@@ -25,3 +25,5 @@ Nano 的知识维护通过 `subagents.start('fork')` 启动。该委派服务在
 ## 验证
 
 原始新断言在旧实现上复现：维护会话 ID 出现在父会话 `subagent/catalog`。实现后相关知识维护和轨迹回归通过；最终命令与独立审查见 `design.md`、`code-review.md`。用户实际验收仍待确认，unit 保留 active。
+
+真实 Web 补验发现并修复了产品层遗漏：维护会话退出原生目录后，Work 身份索引未登记，页面点击维护轨迹报 `scope_not_allowed`。底层日志与 runtime 冷读均存在。修复通过既有知识维护元数据发布 Work 身份链接，保持管理目录与审计身份分开，不放宽轨迹权限。

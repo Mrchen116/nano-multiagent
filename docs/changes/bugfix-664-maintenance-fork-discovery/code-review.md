@@ -29,3 +29,10 @@
 origin/main 从 executed_base 推进到 `d72e220f1d21827c65e046f704c13837ea39d7c2`，仅改动另一 unit 的 `docs/changes/feat-625-auto-review-bounded-retry/spec.md`，没有运行代码、测试、Context 或本 unit 契约变化。同步后本 unit 的代码和测试与 validated_at 相同，因此保留独立代码/Context 审查与以上自动化结论；文档完整性在最终集成树重跑。effective_base 与 effective_through 的确切交付 Git 值写入 PR，避免用“无冲突”替代失效判断。
 
 快速开发的用户实际验收尚未确认；独立代码审查通过不代替用户验收。unit 保留 active，不宣称已经归档或生产验收。
+
+## 实际 Web 补验发现与修复
+
+- R2-001 / CONFIRMED：原版运行时轨迹可读，但 Web 入口因 Work 身份索引缺少维护会话返回 `scope_not_allowed`。首次审查及 runtime fixture 未覆盖这一产品授权边界。
+- 修复：KnowledgeUpdates 从可信 review 元数据发布既有 `session_linked` 身份链接，恢复 Work 注册及上传，不恢复模型目录发布或预读正文。
+- 窄回归：PA knowledge 与 IM trajectory 共5项通过。真实模型的后代查询仍只列1个普通助手；2个 completed combined 维护不入目录。隔离 Node/DSH 重启后，Web 可打开原维护轨迹并检查输入/工具/输出。
+- 本补丁需独立 patch code/context review，并在最终树记录其结果；之前未受影响的原生 provider 生命周期与请求前缀结论保留。
