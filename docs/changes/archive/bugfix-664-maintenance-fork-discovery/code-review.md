@@ -48,3 +48,9 @@ Closure validated_at=`6ee61c7cfbef3fa7eb5be882bf947c1be4cb37a4`，finding_origin
 本机完整复跑另有知识维护用例超出默认 poll 等待：失败时落盘事实明确为首轮 error/memory_read_incomplete、第二轮仍 running 且已有 childSessionId，并非丢失第二次维护。调整为该文件已有的8秒维护等待预算。Workflow 用例改为在同一次成功观测上完成权限断言，并允许轮询期间出现没有 events 的原生诊断条目。两处仅修正回归取样和等待，不改变产品实现、不将上述失败记为全绿；修正后的窄回归、独立 patch 审查与最终全量结果写入 PR 和本机真实验收报告。
 
 独立 patch review：base=`feb6bf4091acd5af7eda35e4cfd34e28f29feb12`，validated_at=`5c4386edb30b39d8c5af57fc8224291989abf0b4`，无 dirty 范围，返回 `[]`。同一 reviewer 核对原始失败现场和2文件6项通过日志，确认全部原权限和维护断言保留，未发现掩盖产品缺陷；仅测试观测/等待变化，无 Context 内容变化，未重复运行测试。此后只有事实文档变化，保留上述受审结论。
+
+## 合并收口
+
+用户在本轮真实模型/Web 证据与 Work→DSH 原生轨迹入口确认后明确指示“merge”，接受已报告的交付并授权合并。实际产品测试仍由 Agent 执行，没有补写用户亲自测试或虚构验收报告。
+
+最新 origin/main 仍为 d72e220f1d21827c65e046f704c13837ea39d7c2，无新增主干差异。产品及测试实现与已全绿的 e36679ee24a9b82b7ed797b3830a83b615ac65ce 完全相同；CI 40284623472 的140文件759项、Python70项、构建/类型/前端/ruff及既有独立代码/Context审查、真实模型/Web证据保持有效。收口仅机械归并两个已审 ADDED Requirement、更新对应入口计数与对齐标记，并归档整个unit；不改变模型可见内容、运行行为或验收路径。最终文档完整性与差异检查重新执行，effective_through 记录于 PR。

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-658
+> 对齐: bugfix-664
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -1039,3 +1039,19 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 #### Scenario: 实际注册与恢复一致
 - **WHEN** 上下文经历唤醒、历史恢复、执行子 Agent 交接或独立审核
 - **THEN** 工具身份、来源、已有委托范围和真实发送回执仍一致；本地采用不成为公开发送或新增业务许可；没有暴露的工具不被提示为可调用。
+
+### Requirement: 系统知识维护不进入模型的子 Agent 管理目录
+
+系统启动的 Memory、Skill、combined 和 F4 维护 SHALL 保留继承上下文与独立执行历史，但不发布为模型通过 `list_agents` 管理的子 Agent。模型正常委派的 Agent 发现、续接与取消能力保持。
+
+#### Scenario: 长期 Agent 查询受管理的执行者
+
+- **GIVEN** 同一 Agent 已完成多次系统知识维护
+- **WHEN** 模型查询直接子 Agent 或递归查询后代 Agent
+- **THEN** 新维护运行不在管理目录中，查询不进入这些维护分支；维护不会因历史积累扩大受管理 Agent 集合。
+- **AND** 正常模型委派的运行按既有规则列出。
+
+#### Scenario: 维护执行失败或取消
+
+- **WHEN** 系统维护发生模型失败、步骤上限或取消
+- **THEN** 保留真实终结状态和此前成功事实，未完成工作不推进维护周期，执行结束后释放运行资源。

@@ -27,7 +27,7 @@
 - PA `knowledge.test.ts` 保护无写入/失败/取消维护的 Work 身份链接、可信 root 过滤、重启后幂等恢复及不读取正文；IM `trajectory.test.ts` 通过真实 socket 验证链接登记的维护身份可以进入既有轨迹授权链。
 - 已有 17 项相关回归通过；扩展后的联合用例单独通过。最终全量检查结果与独立 Context/代码审查记录在 `code-review.md`。
 - 测试使用锁定 DSH 与确定性模型 fixture，证明实际模型请求装配及运行链；未把它描述为真实 provider 效果评估。
-- 用户尚未验收最终实现，因此本 unit 未归档，canonical 增量保存在 `specs/`。
+- 用户在真实模型/Web 结果与轨迹入口确认后明确指示“merge”。已审 delta 归并 canonical，并将本 unit 归档；未把 Agent 的测试记为用户亲自操作。
 
 2026-10-26 补充实际模型/Web 试用：在隔离 daily 栈中使用 `codexOAuth:gpt-6.1-sol/high`，由 Web 私聊发起核算、普通内部委派和文件交付，再通过真实模型调用原版 `list_agents(scope=descendants)`。主任务交付 64 件及核算文件；只返回 1 个普通助手，2 个已完成 combined 维护不在原生目录中。修正上述 Work 身份链接遗漏后，重启隔离 Node/DSH，再从 Web 发起行进入原维护轨迹成功，可查看继承输入、维护指令、工具读取结果及 `Nothing to save.`。真实代理入口记录了 22 次工作请求（其中5次维护请求），维护的 system/tools 与父请求匹配；未将代理入口日志当成 vendor 转换后 payload 的完整核验。原始截图、日志和只读数据核对保存在本机报告目录，不提交；实际试用未修改生产。
 
