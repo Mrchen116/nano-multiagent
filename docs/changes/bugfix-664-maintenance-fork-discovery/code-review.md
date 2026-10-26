@@ -35,6 +35,8 @@ origin/main 从 executed_base 推进到 `d72e220f1d21827c65e046f704c13837ea39d7c
 - R2-001 / CONFIRMED：原版运行时轨迹可读，但 Web 入口因 Work 身份索引缺少维护会话返回 `scope_not_allowed`。首次审查及 runtime fixture 未覆盖这一产品授权边界。
 - 修复：KnowledgeUpdates 从可信 review 元数据发布既有 `session_linked` 身份链接，恢复 Work 注册及上传，不恢复模型目录发布或预读正文。
 - 窄回归：PA knowledge 与 IM trajectory 共5项通过。真实模型的后代查询仍只列1个普通助手；2个 completed combined 维护不入目录。隔离 Node/DSH 重启后，Web 可打开原维护轨迹并检查输入/工具/输出。
-- 本补丁需独立 patch code/context review，并在最终树记录其结果；之前未受影响的原生 provider 生命周期与请求前缀结论保留。
+- 独立 patch code/context review 核实了 Work 身份与权限链；之前未受影响的原生 provider 生命周期与请求前缀结论保留。
 
-独立 patch 审查在 `9481ddf0b` 确认了同一入口问题的运行中时序：childSessionId 落盘后未立即通知，暂停且未写知识的维护仍可能到结束才登记。reviewer 的真实 DSH + KnowledgeUpdates 窄复现得到 running/hasChild=true/links=0，额外 recover 后 links=1。当前已增加身份落盘通知，并扩展既有暂停维护与产品身份回归；固定新版本的 closure 结果随后补入，不把该发现计为首次审查通过。
+独立 patch 审查在 `9481ddf0b` 确认了同一入口问题的运行中时序：childSessionId 落盘后未立即通知，暂停且未写知识的维护仍可能到结束才登记。reviewer 的真实 DSH + KnowledgeUpdates 窄复现得到 running/hasChild=true/links=0，额外 recover 后 links=1。当前已增加身份落盘通知，并扩展既有暂停维护与产品身份回归。
+
+Closure validated_at=`6ee61c7cfbef3fa7eb5be882bf947c1be4cb37a4`，finding_origin_head=`9481ddf0b9bc3e897cea4cf647a64a204a6d8d66`。同一独立 reviewer 返回 `[]`，R2-001 与运行中时序 P2 均 closed。独立重跑窄复现得到 running 状态下自动产生1条身份链接、触发1次 onWork，无需额外 recover。复用3文件10项窄回归与完成后实际 Web 冷轨迹证据，不冒充重新跑过真实模型。后续只补事实记录，没有受审实现变化。
