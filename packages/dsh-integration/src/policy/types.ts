@@ -3,6 +3,7 @@ import type { MessageApprovalContext } from '@nano/product-contracts';
 import type { AgentConfiguration } from '../index.js';
 import type { ApprovalSources } from './sources.js';
 import type { ReviewDecision } from './rules.js';
+import type { ReviewRecovery } from './recovery.js';
 
 /** Frozen inputs shared by the independently installed approval strategies. */
 export interface ApprovalReviewRequest {
@@ -12,6 +13,7 @@ export interface ApprovalReviewRequest {
   inherited: unknown[];
   messageContext?: MessageApprovalContext;
   reviewer: { provider: string; model: string };
+  recovery?: ReviewRecovery;
 }
 export interface ApprovalReviewResult {
   decision: ReviewDecision;

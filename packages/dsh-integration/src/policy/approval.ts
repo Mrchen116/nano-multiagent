@@ -11,7 +11,6 @@ import type { AgentConfiguration } from '../index.js';
 import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { ApprovalSources } from './sources.js';
-import type { ReviewDecision } from './rules.js';
 import type { ApprovalReviewResult } from './types.js';
 import { classify } from './classifier.js';
 import type {} from './cc.js';
@@ -19,6 +18,7 @@ import type {} from './codex.js';
 import { contextTools } from '../agent-context.js';
 import { normalizeMessageArguments } from '../message-arguments.js';
 import { isHumanSource } from '../input-source.js';
+import { ReviewRecovery, ReviewFailure } from './recovery.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
@@ -29,19 +29,26 @@ export class NanoApproval extends Service {
   private readonly audit: Promise<Domain<typeof approvalDomain>>;
   private readonly epoch = randomUUID();
   readonly sources = new ApprovalSources();
+  private readonly actions = new Map<string, Set<ReviewRecovery>>();
+  private readonly cleanupActions = new Set<ReviewRecovery>();
   constructor(ctx: Context, private readonly configOf: (agent: Agent) => AgentConfiguration | undefined) {
     super(ctx, 'nanoApproval');
     this.audit = ctx.storageDomain.open(approvalDomain);
-    ctx.effect(() => async () => { await (await this.audit).close(); });
+    ctx.effect(() => async () => {
+      const all = new Set([...this.cleanupActions, ...[...this.actions.values()].flatMap(actions => [...actions])]);
+      for (const action of all) action.cancel();
+      await Promise.all([...all].map(action => action.drain()));
+      await (await this.audit).close();
+    });
     ctx.permissionPresets.registerAuto(() => {});
     ctx.on('tools/pre-execute', (exec, next) => this.review(exec, next), { prepend: true });
-    ctx.on('agent/disposed', ({ agent }) => { this.sources.release(agent.id); });
+    ctx.on('agent/disposed', ({ agent }) => { this.sources.release(agent.id); for (const action of this.actions.get(agent.id) ?? []) action.cancel(); });
     ctx.on('approval/request', async (request, next) => {
       const outcome = await next();
       if (outcome === 'allowed-once' && request.callId && this.config(request.agent)?.approval) {
         await (await this.audit).table('sessions').update(request.agent.id, entries => [...entries, {
           time: Date.now(), callId: request.callId!, tool: request.toolName, source: 'human', decision: 'allow', reason: '', consecutive: 0,
-          total: entries.at(-1)?.total ?? 0,
+          total: entries.at(-1)?.total ?? 0, reviewId: entries.findLast(entry => entry.callId === request.callId && entry.recovery)?.recovery?.reviewId,
         }]);
       }
       return outcome;
@@ -80,7 +87,7 @@ export class NanoApproval extends Service {
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
   }
-  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}) {
+  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata' | 'recovery' | 'reviewId'>> = {}) {
     let reached = { consecutive: 0, total: 0 };
     await (await this.audit).table('sessions').update(exec.agent!.id, entries => {
       let consecutive = entries.at(-1)?.consecutive ?? 0;
@@ -93,16 +100,18 @@ export class NanoApproval extends Service {
     });
     return reached;
   }
-  private async escalate(exec: ToolExecution, config: AgentConfiguration, reason: string, source: string): Promise<PreToolDecision> {
+  private async escalate(exec: ToolExecution, config: AgentConfiguration, reason: string, source: string, reviewId?: string): Promise<PreToolDecision> {
     const route = this.route(exec.agent!, config);
     if (route === 'interactive') return { kind: 'ask', reason };
     const allowed = route === 'unattended' && config.approval!.unattendedFallback === 'allow';
-    await this.record(exec, route, allowed ? 'allow' : 'deny', reason, config.approval!);
+    await this.record(exec, route, allowed ? 'allow' : 'deny', reason, config.approval!, { reviewId });
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
     if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments)};
-    const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
+    const agent = exec.agent; const current = agent && this.config(agent);
+    // Metadata revisions mutate the live object; an accepted action owns an independent snapshot.
+    const config = current && structuredClone(current); const policy = config?.approval;
     if (!agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return next();
     const downstream = await next();
     if (downstream.kind !== 'allow') return downstream;
@@ -122,31 +131,58 @@ export class NanoApproval extends Service {
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
     // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
     if (config.personal && policy.enabled && ['send_message', 'send_user_message'].includes(exec.name)) return allow('product_disclosure_gate');
-    const messageContext = exec.name === 'send_message'
-      ? await this.ctx.nanoProduct.call('send_message.context', { target: (exec.arguments as { target?: unknown }).target }, exec) as MessageApprovalContext : undefined;
-    if (messageContext?.recipient.kind === 'owner') return allow('owner_message');
-    if (!policy.enabled) return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required');
+    const recovery = new ReviewRecovery(exec.signal, exec.callId);
+    const actions = this.actions.get(agent.id) ?? new Set<ReviewRecovery>();
+    this.actions.set(agent.id, actions); actions.add(recovery);
     const header = agent.session.requestHeader();
-    const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
+    const reviewer = structuredClone(policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model });
     const started = Date.now();
-    let decision: ReviewDecision | undefined; let usage: unknown; let source: string | undefined; let metadata: ApprovalReviewResult['metadata'];
+    let result: ApprovalReviewResult;
     try {
-      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
-      const result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
-        : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
-      decision = result.decision; usage = result.usage; source = result.source; metadata = result.metadata;
-    } catch (error) {
-      if (exec.signal.aborted) return { kind: 'cancel' };
-      const reason = `Automatic reviewer unavailable: ${String(error)}`;
-      await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started });
-      return this.escalate(exec, config, reason, 'classifier_unavailable');
+      try {
+        const prepared = await recovery.prepare(async signal => {
+          const messageContext = exec.name === 'send_message'
+            ? await this.ctx.nanoProduct.call('send_message.context', { target: (exec.arguments as { target?: unknown }).target }, { ...exec, signal }) as MessageApprovalContext : undefined;
+          if (messageContext?.recipient.kind === 'owner' || !policy.enabled) return { messageContext, inherited: [] };
+          return { messageContext, inherited: await this.inherited(agent.id, policy.rules === 'codex') };
+        });
+        if (prepared.messageContext?.recipient.kind === 'owner') { recovery.finish('owner_message', 'fastpath'); return allow('owner_message'); }
+        if (!policy.enabled) { recovery.finish('manual_required', this.route(agent, config)); return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required'); }
+        const request = { exec: { ...exec, arguments: structuredClone(exec.arguments) }, config, sources: this.sources, ...prepared, reviewer, recovery };
+        result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
+          : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
+        recovery.assertActive();
+      } catch (error) {
+        const cancelled = exec.signal.aborted || recovery.signal.aborted && recovery.signal.reason instanceof ReviewFailure && recovery.signal.reason.category === 'cancelled';
+        const route = cancelled ? 'cancel' : this.route(agent, config);
+        const fallback = route === 'unattended' ? policy.unattendedFallback : undefined;
+        const recoveryTrace = recovery.finish(cancelled ? 'cancelled' : error instanceof ReviewFailure ? error.category : 'unavailable_unknown', route === 'interactive' ? 'interactive_pending' : route, fallback);
+        const reason = `Automatic reviewer unavailable: ${String(error)}`;
+        await this.record(exec, cancelled ? 'classifier_cancelled' : 'classifier_unavailable', cancelled ? 'cancel' : 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started, recovery: recoveryTrace });
+        if (cancelled || exec.signal.aborted) return { kind: 'cancel' };
+        return this.escalate(exec, config, reason, 'classifier_unavailable', recoveryTrace.reviewId);
+      }
+      const verdict = result.decision;
+      // Predict the existing counter route before persisting the one cost-bearing audit row.
+      const prior = (await this.entries(agent.id)).at(-1);
+      const escalated = verdict.behavior === 'deny' && !['high', 'critical'].includes(verdict.risk ?? '')
+        && ((prior?.consecutive ?? 0) + 1 >= policy.denyLimit || (prior?.total ?? 0) + 1 >= policy.totalDenyLimit);
+      const route = escalated ? this.route(agent, config) : verdict.behavior;
+      recovery.assertActive();
+      const recoveryTrace = recovery.finish(verdict.behavior, route === 'interactive' ? 'interactive_pending' : route, escalated && route === 'unattended' ? policy.unattendedFallback : undefined);
+      const counts = await this.record(exec, result.source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
+        { reviewer, metadata: result.metadata, elapsedMs: Date.now() - started, recovery: recoveryTrace, ...(result.usage ? { usage: result.usage } : {}) });
+      if (exec.signal.aborted || recovery.signal.aborted) return { kind: 'cancel' };
+      if (verdict.behavior === 'allow') return { kind: 'allow' };
+      if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block', recoveryTrace.reviewId);
+      return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
+    } finally {
+      if (!recovery.trace.complete) recovery.finish('unavailable_unknown', 'audit_failed');
+      actions.delete(recovery); if (!actions.size) this.actions.delete(agent.id);
+      if (recovery.hasPendingCleanup) {
+        this.cleanupActions.add(recovery);
+        void recovery.drain().then(() => this.cleanupActions.delete(recovery));
+      }
     }
-    if (exec.signal.aborted) return { kind: 'cancel' };
-    const verdict = decision!;
-    const counts = await this.record(exec, source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
-      { reviewer, metadata, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
-    if (verdict.behavior === 'allow') return { kind: 'allow' };
-    if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block');
-    return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
   }
 }

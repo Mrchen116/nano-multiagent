@@ -48,17 +48,18 @@ it('replays full parent evidence after native overflow, and commits only the suc
   }finally{await h.close();}
 });
 
-it.each(['parent','deadline'] as const)('suppresses late grants on %s cancellation and drains the retry under the original deadline',async(kind)=>{
-  const deadline=new AbortController();const timeout=vi.spyOn(AbortSignal,'timeout').mockReturnValue(deadline.signal);
+it('keeps context rebuilding inside one full judgment budget and suppresses late grants after parent cancellation',async()=>{
+  vi.useFakeTimers();
   const retry=deferred();let calls=0;
   const h=harness(async({events,cancelled})=>{if(++calls===1){events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'error',error:{code:'CONTEXT_WINDOW_EXCEEDED'}}}});return;}retry.resolve();await cancelled;verdict(events);});
   try{
     const review=h.plugin.review(h.request);const rejected=expect(review).rejects.toThrow();
     await retry.promise;
-    if(kind==='parent')h.controller.abort(new Error('parent cancelled'));else deadline.abort(new Error('deadline exceeded'));
-    await rejected;
-    expect(timeout.mock.calls).toEqual([[90000]]);expect(h.disposed).toHaveLength(2);
-  }finally{timeout.mockRestore();await h.close();}
+    await vi.advanceTimersByTimeAsync(89_999);
+    expect(calls).toBe(2);
+    h.controller.abort(new Error('parent cancelled'));
+    await rejected;expect(h.disposed).toHaveLength(2);
+  }finally{vi.useRealTimers();await h.close();}
 });
 
 
