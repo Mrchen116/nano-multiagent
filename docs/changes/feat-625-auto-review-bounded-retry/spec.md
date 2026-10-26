@@ -7,7 +7,15 @@
 
 feat-615 引入逐 Agent 的 CC/Codex 审核策略；本 unit 为两种策略增加技术失败恢复，不重写其授权与判定规则。采用 Full 生命周期：这是跨两种审核策略、需要独立安全回归矩阵的 feature，不采用 Bugfix lite 或快速开发。
 
-## 原始需求
+## 本次重新交办：原始需求与授权
+
+唯一当前交办来源：2026-10-26 新群 `c_sfokibtk`，消息 `da129ae18c504f1abe77e25932c26499`；本目标 `tg_0dd3b230`，P 节点 `n2`。由父 P 提供完整原话，本作者未读取 Inbox、旧群或旧子会话。
+
+> 请在新系统、新上下文下重新交付 GitHub #361：Auto 自动审核模型请求的有界、可取消失败重试。P2 负责目标与需求、协作推进和最终交付，E2 工程实现与集成，Q2 独立产品验收。从当前 main 核实已有实现和实际缺口，按当前 change 流程至 Ready PR 和相应 CI。此前确认取舍不必再逐项问：CC/Codex 两策略均覆盖，保留各自现有判定；临时服务故障、传输错误、单次审核超时合计最多额外重试2次，每次新尝试完整正常审核预算，不挤入一次90秒窗口；空白/非法格式最多恢复1次并计入额外2次总额度、不叠加；有效最终deny、认证或配置错误不靠重试变通过；主动停止/取消结束当前请求/退避、不再发下一次；重试期间工具不得执行，获准后本次工具调用恰好执行一次；耗尽沿原人工/return_to_agent/无人值守路由，不变授权放行；轨迹区分同次审核内部attempts和主Agent重新调用工具，临时服务失败、非法判定、超时分别说明。验收含确定性故障/取消证据和真实隔离 Global Agent 自建插件、安装、两次真实调用并核实用户可见结果和Work轨迹；真实服务可用性与故障注入分开报告。Q独立验收失败由原实施者修复定向复验。干净重测使用新 workspace 和本群任务，不恢复旧任务/会话/定时复查/旧结论；现有 feat-625 文档为需求材料，要对当前main核对适用性。允许独立现场文档代码测试提交推送Ready PR和CI，不自动merge/生产部署重启/发布，不改用户主仓和生产 checkout。遇新阻塞给具体返回和需决定并继续独立部分，不沿旧审批失败结论。
+
+**Agent 解读：** 本次已重新明确全部产品取舍，无待澄清决定。继续本 active unit，不创建重复 unit；下列历史原话仅保留料源，不恢复旧任务或沿用旧验收/设计批准。已有满足项是回归不变量，不重复实现。当前设计需在本基线上重新核对并独立 Gate 2；本首文档不授权 P 写产品代码。
+
+## 历史需求材料（非本次授权）
 
 来源：2026-10-20 日常群 `c_fqyj3bvq`，消息 `630667cafbb94901a691dae0ea177fc2`，用户原话：
 
@@ -40,13 +48,17 @@ Issue #361 的原始目标摘录（问题记录，不单独作为新的授权）
 
 ## 当前事实与目标差异
 
-核对基线：远端默认分支 `main`，`5454f3140f9c92532c690db8dec80b9f77080384`。以下是源码/spec 的静态事实，不是本轮真实产品验收结果。
+本次核对基线：`origin/main = HEAD = 304c59412e8316ef3ea7df9d904a9a450ca618a2`，checkout `/Users/czj/.nanoassistant/workspaces/nano-product-r2-1026`，开始时 main 干净；远端 `refs/heads/main` 已独立核对同 SHA。issue #361 本文在本次实际重读，其 `63f04f3` 只解释历史症状，不是当前基线。以下是本轮源码/测试定义的证据，不是 Q 产品验收；旧报告均不沿用为当前通过。
 
-- [classifier.ts L17–38](https://github.com/Mrchen116/nano-multiagent/blob/5454f3140f9c92532c690db8dec80b9f77080384/packages/dsh-integration/src/policy/classifier.ts#L17-L38)：CC/Nano stage1 30秒、stage2 60秒；有效 stage1 allow 结束，其余有效判定才进入 stage2。独立模型流发生错误、超时或无有效判定时退出，没有审核请求自身的失败恢复。两阶段不是故障重试。共享 classifier 另承载 legacy DSH 单阶段路径，不能因命名推断已具备原生主循环重试。
-- [codex.ts L39–118](https://github.com/Mrchen116/nano-multiagent/blob/5454f3140f9c92532c690db8dec80b9f77080384/packages/dsh-integration/src/policy/codex.ts#L39-L118)：Nano 的 Codex Guardian 正常审核共用90秒时限，已有上下文/预算重建恢复，不能据此宣称已覆盖429/503等临时服务失败。本 unit 不把重跑整个 Guardian 预定为实现方案。
-- [approval.ts L71–98、L124–145](https://github.com/Mrchen116/nano-multiagent/blob/5454f3140f9c92532c690db8dec80b9f77080384/packages/dsh-integration/src/policy/approval.ts#L71-L145)：技术不可用进入既有有人值守、Global/child、无人值守分流；无人值守可按配置 allow。父执行取消独立处理，技术不可用不计作安全拒绝。
-- [current spec L539–542](https://github.com/Mrchen116/nano-multiagent/blob/5454f3140f9c92532c690db8dec80b9f77080384/docs/specs/gateway/agent-capabilities.md#L539-L542) 使用“已有重试后仍失败”的含混措辞；上述源码不支持据此断言独立审核流已具备本需求能力。这一漂移在本 unit 设计/归并时明确校正，不把坏现状或模糊措辞作为目标。
-- [current spec L529–579](https://github.com/Mrchen116/nano-multiagent/blob/5454f3140f9c92532c690db8dec80b9f77080384/docs/specs/gateway/agent-capabilities.md#L529-L579) 是子任务委派边界、策略选择和 Codex 风险/授权审查的回归依据，本 unit 不扩大这些权限。
+| 状态 | 当前文件/测试证据（均相对上述 SHA） | 本次处理 |
+|---|---|---|
+| 尚缺：审核服务失败恢复 | `packages/dsh-integration/src/policy/classifier.ts:13–38` 每阶段只发一条流，30/60秒；错误/无判定即抛出。`codex.ts:81–160,198` 只有同一90秒窗口内至多一次 context rebuild；503/非法 verdict 不进入该恢复。`approval.test.ts:66–150` 当前 fault 直接 no_verdict，不能充作本需求测试。 | 新增 action 级共享2次/格式1次、完整预算、可取消恢复。正常 CC 阶段和 context rebuild 不是故障重试。 |
+| 已有：授权/分流/有效拒绝及工具闸口 | `approval.ts:75–101,103–150` 原 interactive、Global/child return_to_agent、schedule/heartbeat unattended；已有 cancel 检查和不可用不增 classifier_block；只返回 pre-execute 决定。`approval.test.ts:66–150`、`workflow-approval.test.ts` 有原路由和副作用断言。 | 保留，不重建审批系统；需新取消/退避/晚到和一次执行的组合回归。无人值守既有 allow 不是新增 fail-open。 |
+| 已有：Guardian 隔离和上下文/来源保真 | `codex.ts:47–78,93–158,168–203` 已有 full/delta/fork、配置失效、只读限制，现同时服务 tool 与 disclosure，缓存命名空间分离。`codex-approval-lifecycle.test.ts:26–87` 和 `codex-approval.test.ts` 有隔离、来源、admission/parser 测试。普通工具无全库授权读取；`approval-sources.test.ts` 覆盖有效历史和来源。 | 不重复实现；技术恢复冻结真实来源，不污染另一个动作/PA disclosure，不扩大消息安全范围。 |
+| 已有：模型能力适配及 Codex 默认 | `classifier.ts:28`、`codex.ts:105,174,196` 已按原模型声明 low/default/首个effort 选取；`codex-approval-lifecycle.test.ts:90–102` 有 supported-effort 回归。current `agent-capabilities.md:502–545,1025–1030` 规定默认 Codex、原模型能力回退。 | 旧 delta 默认 Nano 和旧设计固定 low 已过时，必须校正，不能回退 current 或要求人类重选模型。 |
+| 尚缺：action 内 attempts 轨迹及可重复证据 | `policy/audit.ts:4–19` 已有 callId/model/elapsed/usage/metadata domain v1，但没有 recovery/attempts；`llm-attribution.ts` 仅加 header，不采失败 response facts。 | 复用 durable domain 与公开传输 seam；新增可检查内部 attempts，不声称已有 Work attempts UI。确定性故障/取消和当前版本真实插件旅程均须新证据。 |
+
+current `agent-capabilities.md:535` 的“已有重试”仍不能证明本能力已实现；设计/delta 将消除此漂移，并保留未修改场景、Codex 默认、模型能力与现有 PA 独立消息检查。首文档适用性：原17场景和已确认取舍继续成立；旧基线、授权来源和“已审核”状态不适用，技术设计、runbook及delta必须重新 grounding 后交独立 Gate 2。
 
 ## 用户场景
 
