@@ -4,7 +4,7 @@
 
 ## 实际实现
 
-新增 [ui-decision-gotchas.md](../../../.claude/skills/change-design-author/references/ui-decision-gotchas.md)，62 行、7,542 字节，保留四类真实纠正：
+新增 [ui-decision-gotchas.md](../../../../.claude/skills/change-design-author/references/ui-decision-gotchas.md)，62 行、7,542 字节，保留四类真实纠正：
 
 | 判断 | 历史案例 | 材料强调的边界 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 
 每类包含情境、错误判断与纠正、适用边界、观察办法和可追溯来源。文字对照标明是历史记录的概括；未伪造前后截图或将尚未验证的建议写成正确答案。历史产品架构不随案例进入当前规范。
 
-[共同体验指导](../../../.claude/skills/change-design-author/references/prototype-and-runbook.md) 增加一段 486 字节的按问题读取入口，`docs/README.md` 与开发入口补充导航。现有 design-author、design-reviewer、orchestrator、orchestrator-simple、impl-worker、reviewer 的引用链已经可达共同指导，因此没有复制六份规则、改角色元数据或新增 Skill。
+[共同体验指导](../../../../.claude/skills/change-design-author/references/prototype-and-runbook.md) 增加一段 486 字节的按问题读取入口，`docs/README.md` 与开发入口补充导航。现有 design-author、design-reviewer、orchestrator、orchestrator-simple、impl-worker、reviewer 的引用链已经可达共同指导，因此没有复制六份规则、改角色元数据或新增 Skill。
 
 ## Context 的实际变化
 
@@ -86,3 +86,22 @@ design-author 入口明确先理念再案例；案例页回链共同原则。现
 共同指导开头改为六个相互配合的设计维度：产品气质、构图与信息组织、视觉语言、控件语义、真实内容与状态、界面自身表达。先确定整体方向，再在实际决定中参考历史案例；文案精简仅为其中一项，原始八条要求仍可通过来源链接追溯。外部指南作为参考，未照搬其中特定视觉数值或其他产品类型的规则。
 
 本轮仅修订共享参考与本记录，消费者、六个角色引用、案例、宿主加载方式和原有验收范围不变。文档及 Skill 格式检查不代表设计效果验证；前述两组页面也未随指导更新。
+
+## 当前理念版本的第三组试作与使用观察
+
+用户要求用当前理念重做同一页面。C 组使用 `d2abf9433` 的共同指导和原有案例；A 为原指导，B 为加入案例。新的独立 Agent 从相同 `request.md`、`base.html`、`data.json` 开始，三个文件的 SHA-256 均与 A/B 一致。C 未读取 A/B 成品、主聊天反馈或外部设计资料；正常自检后交付，主 Agent 未修改产物，也未因视觉效果不明显重新生成。
+
+执行者报告读取共同指导与四类案例，实际查看桌面 1440×1000、手机 390×844，并操作搜索、计划暂停/恢复/修改、停止本轮、失败重试和记录往返。主 Agent 在相同画布重新截取三版初始页、目视对比，并实测 C 手机详情：暂停计划后仍运行 62%，停止本轮后计划仍保持暂停。读取范围仍为执行者记录，不是 provider payload 取证；没有获得准确 Token 用量。
+
+| 对比维度 | A：原指导 | B：加入案例 | C：当前理念与案例 |
+| --- | --- | --- | --- |
+| 运行中任务的停止入口 | 列表直接可达 | 先进入管理详情 | 紧邻列表中的运行状态；相比 B 少一步，相比 A 不是新能力 |
+| 详情组织 | 弹层 | 切换详情页 | 桌面侧栏、手机全屏面板；保留列表背景不等于已证明效率更高 |
+| 390×844 初始列表 | 完整一项，第二项底部操作未完整显示 | 完整三项，第四项部分显示 | 完整两项，第三项部分显示；标签、上次完成时间与直接动作增加了高度 |
+| 整体视觉 | 白底蓝色表格语言 | 同一风格，列表更简洁 | 同一风格，工具栏纳入表格区域，内容区更宽；未观察到明显整体提升 |
+
+原始需求要求保留导航与基本视觉语言，因此视觉变化大小本身不作为胜负标准。本次仍为单次非盲观察，存在生成差异，不能证明指导的因果效果。C 额外实现了未要求新增的“添加数据源”模拟表单，不计为设计收益；没有真实后端或真机验收。
+
+本机证据仍在前述根目录：`philosophy/index.html`、`philosophy/notes.md`、`philosophy-comparison.md`、`philosophy-comparison-inputs.json` 与 `output/playwright/compare-*`；`compare.html` 提供三版切换及相同画布。C 成品 SHA-256 为 `49754a25c8230d11967f66b596a9b9776cd313cada6bbc1f8295daa3a19f3b63`，A/B 哈希与前轮一致。临时页面和截图未提交仓库，试作与复核创建的浏览器会话和服务均已关闭。
+
+用户决定保留当前版本，在实际使用中观察。理念与案例修改已由 `a26b6da05`、`0b4085a88`、`5e463394b`、`d2abf9433` 进入 `main`；本次 PR 只补齐结果记录，不重新引入 Skill 改动。后续根据真实任务中的用户纠正判断是否有益，本轮不增加规则、评测流程或长期效果承诺。

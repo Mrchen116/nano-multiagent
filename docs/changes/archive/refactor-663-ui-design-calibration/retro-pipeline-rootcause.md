@@ -69,8 +69,8 @@ feat-573、refactor-586 是流程改进 unit，不是新增产品页被用户否
 
 最直接的原始产物证据：
 
-- [feat-645 design-review:41](../archive/feat-645-capability-dependencies/design-review.md)：首轮认为提示紧跟条目、未盖住开关、能消失，未发现需阻断的视觉问题；第二轮沿用并 Approved。用户随后指出工具被挤动，[149 行起](../archive/feat-645-capability-dependencies/design-review.md)记录撤回该体验判断。这里“没有覆盖控件”不等于“反馈不扰动布局”。
-- [feat-657 design-review:63](../archive/feat-657-agent-disable-switch/design-review.md)：第一轮将身份→设备→Toggle/状态→按钮判断为足以指导实施。第二轮 [111 行](../archive/feat-657-agent-disable-switch/design-review.md)明确承认旧卡片将 Toggle 和同义按钮拼在一起，撤回正面判断。这不是没截图，而是看过后判断不成立。
+- [feat-645 design-review:41](../feat-645-capability-dependencies/design-review.md)：首轮认为提示紧跟条目、未盖住开关、能消失，未发现需阻断的视觉问题；第二轮沿用并 Approved。用户随后指出工具被挤动，[149 行起](../feat-645-capability-dependencies/design-review.md)记录撤回该体验判断。这里“没有覆盖控件”不等于“反馈不扰动布局”。
+- [feat-657 design-review:63](../feat-657-agent-disable-switch/design-review.md)：第一轮将身份→设备→Toggle/状态→按钮判断为足以指导实施。第二轮 [111 行](../feat-657-agent-disable-switch/design-review.md)明确承认旧卡片将 Toggle 和同义按钮拼在一起，撤回正面判断。这不是没截图，而是看过后判断不成立。
 - feat-572 在用户指出整体布局后，Agent 给出“独立复验 8 项通过”，紧接着用户仍指出大刷新按钮和错位；feat-596 的功能录像和独立验收通过后，用户仍要求整页重做。
 
 因此增加审查次数或再分一个同类 reviewer，不能自然解决问题。独立身份能够减少作者自证，却不能自动补齐共同缺失的设计判断。
@@ -100,11 +100,11 @@ HTML 原型、iOS 原生页面和实际 Web 组件之间，仍可能留下“原
 | 10/13 · 2db405c0b | 先独立看界面再核清单；平台适配不能代替设计；整体问题不能拆为 minor；旧证据只能支持具体结论。 | 当次验证主要是少量冻结截图，不覆盖新任务的设计生成、实际交互、实现转译和多轮交付。 |
 | 当前版本 | 上述关键要求仍在；另有按风险选择平台、真实 daily 环境和 Context Review。 | 新增其他门禁不能自动修复 UI 判断。10/23 的 Toast、10/25 的 iOS 卡片仍获过正面结论。 |
 
-当前 [共同体验标准](../../../.claude/skills/change-design-author/references/prototype-and-runbook.md) 甚至直接写了“不要从已有字段或 API 返回形状直接推导页面”“先判断方案是否成立，再判断实现是否符合方案”。[产品 reviewer](../../../.claude/skills/change-reviewer/SKILL.md) 也要求先判断整体可交付性。这里有明显的规则执行/判断失败，不能只往 Skill 再加同义句。
+当前 [共同体验标准](../../../../.claude/skills/change-design-author/references/prototype-and-runbook.md) 甚至直接写了“不要从已有字段或 API 返回形状直接推导页面”“先判断方案是否成立，再判断实现是否符合方案”。[产品 reviewer](../../../../.claude/skills/change-reviewer/SKILL.md) 也要求先判断整体可交付性。这里有明显的规则执行/判断失败，不能只往 Skill 再加同义句。
 
 同时，现有体系规定了该做什么、不能凭什么放行，仍将具体构图、信息优先级、模式选择和质量校准留给模型临场决定。这是目前可以支持的能力与工作方法缺口；并非证明需要增加一个角色或更长的 prompt。
 
-10/13 [skill-validation.md](../archive/feat-584-task-progress-permissions/retrospectives/2026-10-13-uiux-recurrence/skill-validation.md) 已如实记录：第一次图像试用仍把整体问题拆成 minor，修改后才改善；末尾明确没有验证完整多轮交付链，也没有旧 Skill 对照组。不能把这次有限改善理解为对未来 UI 交付的保证。
+10/13 [skill-validation.md](../feat-584-task-progress-permissions/retrospectives/2026-10-13-uiux-recurrence/skill-validation.md) 已如实记录：第一次图像试用仍把整体问题拆成 minor，修改后才改善；末尾明确没有验证完整多轮交付链，也没有旧 Skill 对照组。不能把这次有限改善理解为对未来 UI 交付的保证。
 
 ## 最小改进方向（本次未实施）
 

@@ -23,7 +23,7 @@
 
 **观察办法。** 用正常数量的列表项看第一眼读到什么；进入处理任务的页面，实际找到并执行该动作。比较触发前后是否仍明确是哪个对象、现在什么状态、下一步能做什么。
 
-来源：[原始两个场景](../../../../docs/changes/archive/feat-657-agent-disable-switch/spec.md)、[design-review Round 2 的撤回与三页走查](../../../../docs/changes/archive/feat-657-agent-disable-switch/design-review.md)、[列表反馈原话](../../../../docs/changes/refactor-663-ui-design-calibration/feedback-evidence.md#2026-10-26-094358--记录-17)。这里只引用 UI 事实，历史逐 Agent 进程方案已被撤回，不作为架构依据。
+来源：[原始两个场景](../../../../docs/changes/archive/feat-657-agent-disable-switch/spec.md)、[design-review Round 2 的撤回与三页走查](../../../../docs/changes/archive/feat-657-agent-disable-switch/design-review.md)、[列表反馈原话](../../../../docs/changes/archive/refactor-663-ui-design-calibration/feedback-evidence.md#2026-10-26-094358--记录-17)。这里只引用 UI 事实，历史逐 Agent 进程方案已被撤回，不作为架构依据。
 
 ## 文字删留
 
