@@ -695,3 +695,80 @@ PA独立链确实仍存在：读取`personal-assistant.ts` L59–84的非主人p
   - runbook矩阵及§5.2要求请求中与503/backoff中经真实prepare拒绝→PA/Node事务release后，旧action保冻结配置/输入/次数/退避/发布权并最多执行工具一次；native/事务层补persist失败/metadata-only清理；idle真实生效→下一动作换cache；真正owner stop/disable作为相反对照仍撤销/drain且不伤另owner。
 - **R5-R1 — accepted（非阻断建议）。** runbook§2在全新WT_ROOT传 `--wt` 前增加打印/核对路径与 `mkdir -p`；不删除旧目录、不启动服务或创建额外worktree。
 - 本次只有design/runbook及本报告追加，spec/delta/M1空骨架不变；保留R5 reviewer原文。本author未实施产品代码，未把静态修订记成测试/产品pass。下一步正常提交推送新冻结SHA后，由父P续投同reviewer自主选择closure/delta/full；本节不代替独立门禁。
+
+## Round 6
+
+### Metadata
+
+- reviewer_target: 同 Round 5 的独立 reviewer `3f058592-de41-4487-93b5-116f6a20e871`，持续使用原审查上下文；未参与作者返修/实现，不重新派首审身份。
+- review_mode: **closure**。
+- mode_reason: 独立检查实际 Git delta 后，变化仅为 R5-W1 的事务/owner/cache 生命周期消歧及其接口提交条件、Context/Validation/M1 退出条件同步，另修可选 R5-R1 的目录准备。没有新增恢复机制、产品决定、共享 API/schema、预算/权限、milestone 范围或依赖；不是仅改名称，但修订没有扩大旧 finding 的影响面。证据足以有界复核，无须重做 Round 5 的 full 审查。
+- started_at: `2026-10-26T13:15:29+08:00`。
+- completed_at: `2026-10-26T13:16:20+08:00`（实际入口及完整 diff 核对结束，随后追加报告）。
+- duration: `PT51S`。
+- validated_at: **`b7f8269b36eddc6143559695add9559b707e0d36`**。
+- executed_base: `d72e220f1d21827c65e046f704c13837ea39d7c2`（本地 main）；closure_from / retained_from: **Round 5，`c78148c1aab7a8486341c5ba839528417a6b4fff`**。
+- effective_base: executed_base；effective_through: validated_at；仅说明事前设计门禁范围，不是实现或产品验收通过。
+- checkout/branch: `/Users/czj/.nanoassistant/workspaces/nano-product-r2-1026` / `design/feat-625-r2-361`，入场实核 HEAD 为上述 SHA、clean。远端 SHA 为父/作者交接事实，本轮未联网核实，不把尚待父 P 返回的 ls-remote 当本轮已执行。
+- 方法：继续已加载的 `agent-context-review` **Mode A — Design Review** 和 `codebase-design`，只覆盖本次生命周期消歧与必要组合。未读 Inbox/conversations、未公开发言/改任务图、未新建分支/worktree、未提交。唯一写入为追加 Round 6。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2 设计审查通过。**
+
+R5-W1 的真实入口区分、冻结对象保护、精确 cache 发布条件与正反向验收链已闭合；不是用重命名掩盖原指令。R5-R1 同时完成。本结论须与 Round 5 full coverage 一起读取，**不表示625已实现、CI通过或Q产品验收通过**。
+
+### Actual delta and retained evidence
+
+- 独立 `git diff --stat` 核实从 R5 SHA 到新 HEAD 仅 `design.md`、`reviewer-runbook.md`、`design-review.md` 三文件。完整读取 design/runbook diff 和新增 Author Resolutions；后者只是作者处理记录，不代替本轮 verdict。
+- 独立 buffer 对比确认 `spec.md`（17场景）、delta 与空 `.gitkeep` 对 R5 SHA **字节一致**；`git diff --exit-code` 确认 packages/apps/scripts/config/lock 无变化，返回 `[exit code: 0]`。故 Round 5 的当前默认/effort、source/parser/admission、公开 DSH seam/ALS 探针、完整预算/总额度/子额度、HTTP facts、取消/drain/quarantine、trace、fallback、delta 与真实 Q 前置的证据 **retained_from: Round 5**。这些未变部分不新做未经需要的 probe，也不升级为实现证据。
+- M1 改动是把旧“owner disable/release”泛称替换为本 finding 精确的正反条件，退出范围仍在同一 action 安全闭环，没有新增产品阶段或独立审批 Gate。
+- 追加前报告共 697 行，SHA-256 `4a730eacc38b3b465ac23da7d732aa12c793672c0a5b74ec9b32648532a48320`；本轮保留此前完整报告及 resolutions，不回写 R5。
+
+### Historical issue closure
+
+#### R5-W1 — closed（设计层）
+
+**Author Resolution：** 接受原 design 将 transaction release 误作 owner lifetime 的实质问题；分三类入口，并同步接口/Context/M1/runbook。
+
+**本轮直接证据与判断：**
+
+1. **实际产品调用链重读，不只检查引用：** PA `src/configuration.ts:65–78` 的 prepare 拒绝/persist 失败/apply 完成都会 release；Node `main.ts:398–419` 把 release 转到真实 `configuration.release` RPC；integration `index.ts:608` → `capability-state.ts:31–32` 只清匹配 operation reservation。后者 `prepare:58–66` 自己也会在 busy/异常释放 reservation。新 design L92–100 明确禁止该 RPC/CapabilityState.release 取消、清 currentAttempt 或失效 checkpoint，并保护规则、signal、次数、退避和发布权。这是移除错误生命周期耦合，不是换一个取消方法名。
+2. **真正撤销仍有责任人：** 重读 integration `index.ts:697–744`，agent.disable 实际关闭 admission、按 owner cancel，再 drain/dispose；新 design 仍绑定父 exec signal、真正 owner disable/disposed 与 service teardown，按 owner+parent+purpose+reviewId 精确撤销。没有为了修 W1 把用户 stop 或 service 清理变成无效，也没有波及另一 shared owner。
+3. **配置生效与缓存范围闭合：** 重读 `index.ts:622–645` 与 `agent-config.ts:56–63`：metadata-only 原地改 revision；非 metadata 的执行配置在 whenIdle 后 setConfiguration。新 design 要求独立冻结快照，明确不拿候选 fingerprint 或可变 revision 引用改变当前 action。后继 action 才按实际配置/有效历史选择 checkpoint。重读 `codex.ts:47–53` 核实显式 cache release 删除 trunk、只 dispose idle；新 design L98、195 不把它解释成活动 exec cancel，但仍禁止旧 trunk 回写。这些决定与现有共享接口语义相符，无须扩展配置服务或另建 lifecycle API。
+4. **Context Design Review：** design L209–213 现在明确非取消事务不更新当前 rows/模型/effort/租约；技术 full 恢复继续消费冻结事实，新 action 才按有效历史重投影。tool/disclosure 的 purpose namespace、严格 PA parser/原90秒不变；没有把 metadata/release 当新来源或授权。Validation 要求检查真实 captured 恢复请求，而非只断言 controller 字段，足以指导后续 Implementation Review。
+5. **反证进入退出标准：** runbook §5 矩阵及 §5.2、design L264 M1 同时要求请求中和503/backoff两种 barrier，经真实 prepare 返回 capability_in_use → PA/Node release，原 reviewId/attempt 保持冻结配置并继续、工具至多一次；native/事务层覆盖 persist失败和 metadata-only；idle实际配置生效后的新动作换 fingerprint/cache；真正 owner cancel/disable 与另一 owner 对照仍须撤销/drain。这能检出原问题，未用伪造 cancel 或只测试私有 controller 代替实际链路。
+
+**结论限制：** 以上确认的是方案与验收出口。新增反证尚未实现/执行，不能宣称已实测配置与恢复并发安全。
+
+#### R5-R1 — closed（可选建议）
+
+runbook L29–33 在现有 e2e-up --wt 前新增隔离路径打印/核对与 `mkdir -p "${WT_ROOT:?}"`，与脚本先 cd 的行为相容。不删除已有目录、不涉及生产，本轮未实际创建目录/启动栈。
+
+### Issues and Recommendations
+
+- 存活问题：**无**（0 CRITICAL / 0 WARNING）。
+- 本轮新可选建议：无。停止扩大未变部分审查，不制造额外 Gate。
+
+### Unverified scope and next handoff
+
+- 未运行产品实现、native/HTTP fixture、真实 provider smoke、真 IM/daily 插件创建→安装→两次调用、build/typecheck 或本次 CI；未查共享代理、未读生产配置/凭据、未启动服务。作者 docs-check/文本断言与 R5 窄 baseline 不替代这些结果。
+- E 工程冻结时仍须提供**实际** Q 节点、本次实施 branch/ref/SHA/构建、daily 身份/节点/URL/workspace、策略/fallback/模型/effort、PID/端口、可执行 fixture 命令和脱敏 observe 导出 locator；Q 执行前核实，不能伪造现值。恢复反证、真实服务与fixture证据分开，独立 code/Context Implementation Review、verifier、Q 和 Ready PR/CI 按原 workflow 继续。
+- 当前无待作者设计闭环项；允许进入后续实施门禁，不授权 merge、生产部署/重启、发布、恢复旧群/旧任务/旧证据。报告仅向父 Agent 返回，由父 Agent 负责对外汇总。
+
+### Author Gate 2 closure / report-only retained
+
+本author完整读取Round 6及其retained依据/限制，回查全部历史findings与recommendations：本次R5-W1和可选R5-R1均已由同一独立reviewer在R6关闭；R5已重新判真历史R1-W1/R1-W2/R3-W1的当前适用性，不沿用旧批准；R1/R3/R4无额外可选recommendation，R2无新增问题，R6无新建议。确认无实质异议、无待作者设计修改。接受R6 `Approved — 0 CRITICAL / 0 WARNING`，与R5 full coverage共同构成本次设计门禁，不表示实现/CI/Q产品通过。
+
+- **executed validated_at保持** `b7f8269b36eddc6143559695add9559b707e0d36`；executed_base保持 `d72e220f1d21827c65e046f704c13837ea39d7c2`。不把随后report-only提交写成reviewer实际执行版本。
+- **effective_through规则**：本次正常提交后的报告保存树仅可基于report-only retained延伸适用；确切提交SHA以父P收到的远端核实交接为准。追加前git status/diff核实只有本报告dirty；spec/design/delta/runbook/M1空骨架与R6受审SHA逐字无差异，report保留原R1–R6和resolutions原文。因此不需要另开review round。
+
+| 受审产物 | retained Git blob（R6受审树） |
+|---|---|
+| `spec.md` | `7d0b83f9b7e573df2b3b4994cf20a708a16b58c0` |
+| `design.md` | `1c703369ab6614604d7dbc80a3356e13cc363e4a` |
+| `specs/gateway/agent-capabilities.md` | `54bc2519aeca6b88a8e881edb155a408d10cae66` |
+| `reviewer-runbook.md` | `9525dc4f92d27b5bbcb003d65f8fc89e3a092774` |
+| `M1-review-recovery/.gitkeep` | `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391` |
+
+交E由父P正式分配，默认 `change-orchestrator-simple`、单M1，同一持续工程现场；工程冻结的Q节点/实际daily阵容、可跑fixture与脱敏trace导出、独立静态/Context Implementation Review、verifier、Q真实双策略插件与故障矩阵、Ready PR和CI仍待执行。作者仅提交推送本报告，不写产品代码/新建现场/merge/生产操作；后续同目标文档返工继续交本author。
