@@ -56,6 +56,22 @@ Full 设计阶段在作决定时使用；直接实施或 lite 的实现者在自
 
 已读取 [Impeccable 官方仓库说明](https://github.com/pbakaus/impeccable)。其提供设计指导、critique/distill 等命令，并区分产品背景与视觉方向。这里只借鉴以层级、清晰度和删减组织设计讨论的方向；未核完各命令实现，不声称已移植其方法，也不建议目前安装整套工具链。它是否比本仓方法更有效，仍需实际对照。
 
+## 补充核验：案例对照的社区依据
+
+2026-10-26，用户转来 GPT 对“哪个社区实践是给 Agent 案例对照”的修正回答。本节读取原始来源后补充。上一轮推荐是依据本仓失败机制提出的工作假设，并非从 Impeccable 得出的已验证方法；以下材料支持存在类似实践，不能补成对本仓效果的证明。
+
+| 来源 | 核验结果与边界 |
+| --- | --- |
+| [Reddit 作者原帖](https://www.reddit.com/r/ClaudeAI/comments/1t24gan/few_months_of_frontenddesign_uiuxpromaxskill/) | 作者确实称自己保存被拒绝版本、被接受的设计 token、带已交付示例的品牌表达规则，并按调用注入相关子集。这是个人实践自述，主要讨论客户品牌与跨会话偏好保持；不能证明复杂产品的信息架构或交互设计变好。本轮未取得其完整实现或对照数据，也未独立确认转述中的精确发帖日期。 |
+| [shibroUI 的 composition.md](https://github.com/sshibro/shibroui/blob/main/shibroui/references/composition.md) | 实际文件包含正反例和检查方式，例如 SU-121 比较多个同等强调的操作与明确主次的操作。它证明这种材料形式可实现；其示例主要是设计规则的教学对照，不等同于保存用户真实迭代史。 |
+| [Anthropic 的 Skill 经验文章](https://claude.dev/blog/lessons-from-building-claude-code-how-we-use-skills/) | 确实建议从反复失败中积累 Gotchas，同时建议按需读取参考文件、给模型保留适应具体场景的空间。文章未证明 UI 前后截图有效，也没有提出“5 条”这个数量。它为材料组织方式提供经验依据。 |
+
+“shibroUI 网页有 129 组交互对照”本轮没有核实。其 [README](https://github.com/sshibro/shibroui) 将组件案例来源指向 [TypeUI configurator](https://www.typeui.sh/ui-foundations/configurator)，后者页面确实有 Bad/Good 切换；不把上游展示页直接算成 shibroUI 自有网站。当前 README 的规则编号已延伸到 SU-361，也不宜用转述数量描述当前仓库规模。
+
+尤其要保留 [shibroUI 自己的评测记录](https://github.com/sshibro/shibroui/blob/main/evals/RESULTS.md)中的反证：首轮三个任务的平均通过率只由 96.1% 到 97.8%，平均用时由 155 秒到 373 秒；后来一次管理页对照中，新版工具检查更好，盲评 Agent 却偏好旧版。作者同时披露单次运行、自有工具评分等限制。本轮没有重跑这些实验；它们是作者报告。更关键的是，版本间同时改变规则、工具与工作方式，无法从中分离出案例对照的因果效果。
+
+因此对建议只作收紧：先从本仓已有四类问题中选少量真实 Gotchas，给出具体情境、错误判断、改进依据、适用边界和观察办法；不再增加泛泛的“保持一致、突出主次”原则。数字检查适合对齐、遮挡等可测问题；信息组织是否合理仍需看完整页面并操作，不能用数值达标替代。材料继续放在已有共同指导旁按需读取，不把全部案例塞进每个 Skill，也不引入检索系统。新任务试用和后续纠正次数用于检验收益；没有收益就调整或撤回。
+
 ## 本轮完成边界
 
 已创建 unit、保存复盘与反馈索引、评估参考意见并提出上述建议。没有修改 Skill、产品代码或部署，没有创建设计审查、实施或验收已发生的记录。最终改动范围待本轮讨论收口后确定。
