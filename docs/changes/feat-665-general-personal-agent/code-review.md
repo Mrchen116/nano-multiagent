@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 2 closure passes at `860eb4ecb`**, no surviving findings (`code-review.json=[]`). Round 1 findings are preserved in `code-review-r1.json` and below. Required acceptance evidence remains pending in verification.md.
+Current code verdict: **Round 3 focused patch review passes at `d41425170`**, no surviving findings (`code-review.json=[]`). Round 1 findings are preserved in `code-review-r1.json` and below. Required acceptance evidence remains pending in verification.md.
 
 ## Snapshot and verdict
 
@@ -79,3 +79,21 @@ Relevant code paths and confirmed reproductions are covered. No speculative revi
 | CR-03 | `exploration_batch_id` is removed from canonical mutation identity but remains available to count first creations against the batch. Regression replays the same pending snooze and key with a different host turn batch, receives the original pending result, then completes its Schedule receipt. | closed |
 
 Final findings: `[]`. Closure does not establish real provider-wire input, browser journeys or the incomplete milestone evidence. No source/tests/design were modified by the reviewer.
+
+## Round 3 — focused patch after real acceptance findings
+
+- review_mode: `patch`; executed_base: `4d5ef9c9c`; validated_at: `d41425170f0f1226ce51b71d77072cee040bd9d3`.
+- Scope: five-file delta for direct-reply attention publication identity, cold PA catalog registration order, and evaluation settlement. R1 full coverage and R2 closures remain applicable outside this delta. No source, test, config or design edits by the reviewer. Caller-owned untracked `acceptance.md` was read for the original failed journey and preserved unstaged.
+- Findings: `[]`; no surviving CONFIRMED or PLAUSIBLE defect in the reviewed patch. This is source/seam verification, not the pending actual Web regression verdict.
+
+| Focus | Reviewed mechanism and evidence | Result / limit |
+|---|---|---|
+| Real attention-card dismiss failure | `deliveryCheck` now resolves/validates an optional item/revision before reply classification and retains item identity in direct_request, Schedule and Task branches. The existing prepare → Messaging publication → saved message/item revision → feedback path can therefore recover the clicked item. Test now runs both exploratory and direct-request publication, including cross-key duplicate click and stale-card rejection. | Independently passed. R1's real failure remains historical evidence; repaired Web click journey still pending. |
+| First catalog on fresh empty runtime | Built-in personal registration is before optional workspace extension HMR wait. Independently exercised the updated real native test: `initialize(agents=[])` → first `configuration.catalog` must contain personal_sources/context/attention/publish_artifact → apply → actual chosen-tool calls and native snooze Schedule. Existing selection assertions remain. | Independently passed; catalog fix does not imply every workspace plugin or actual model's discovery is verified. |
+| D08 capture truncated at acknowledgement | Runner checks latest turn (`limit=1`, Work API orders seq DESC) for every visible child and rejects settlement while status is running/waiting_permission. Root revision changes reset the five-second stability window. | Deterministic probe below passes; no replacement of pending D08 actual run/adjudication. |
+
+Independent commands: `pnpm exec vitest run apps/im-server/tests/personal-attention.test.ts packages/dsh-integration/tests/personal-context.test.ts` → **11 passed** (`/tmp/pa665-independent-round3.log`); `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.py` → **11 passed in 0.35s**.
+
+Additionally invoked the real `Run.settle` function with a synthetic client and patched clock/read-only get seam (no source mutation): root idle + acknowledgement from t=0, child running until t=3, waiting_permission until t=5, then completed; root revision changes at t=7. It returns only at **t=12**, after 13 actual child-view reads, respecting both child completion and the reset stability window. A second probe keeps the child running despite an acknowledgement and gets **TimeoutError at t=4**, never a false settled return. This verifies harness control flow; it is not real product/LLM evidence.
+
+Provider capture note: the caller reports shared proxy logging became unavailable at 19:46. Capturing the actual serialized HTTP body at the isolated Node outbound boundary is a valid next observation seam when collected with version/model/session/role provenance; this review does not count a proposed capture as observed provider input, upstream receipt or successful model consumption.

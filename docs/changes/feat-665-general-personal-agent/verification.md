@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 2 targeted closure at `860eb4ecb`: 1 CRITICAL evidence gap, 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 3 focused delta at `d41425170`: 1 CRITICAL evidence gap, 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -127,3 +127,22 @@ No self-created live service/worktree requires cleanup. Reports are the only rev
 | V-01 | No new final provider/browser/adjudicated 58-case/repeated-baseline/CI package was included in this focused dispatch. It remains the required outstanding exit-evidence item from R1, not a newly inferred code failure. | pending |
 
 Validation: `pnpm exec vitest run packages/dsh-integration/tests/personal-memory.test.ts apps/im-server/tests/personal-attention.test.ts` independently **22 passed**, `/tmp/pa665-independent-closure.log`. Context findings reuse this reviewer's code closure above; no duplicate complete Context audit was run. No remaining code finding, no asserted design defect. Caller continues the already-running real acceptance collection; retain truthful results and close V-01 only against adequate version-bound evidence.
+
+## Round 3 — focused delta at d41425170
+
+- verification_mode: `delta`; review_round: `3`; fix_delta_range: `4d5ef9c9c..d41425170f0f1226ce51b71d77072cee040bd9d3`.
+- Scope: direct-reply attention identity/publication feedback; first cold runtime catalog; evaluation settlement with live children.
+- requires_full_verification: `false`. The finite delta changes these seams without replacing the prior full unit architecture/contract review. R1 and R2 source conclusions remain outside the focused changes.
+- verdict: **incomplete overall**; delta itself aligned; critical **1**, warning **0**, suggestion **0**. Latest code findings remain `[]`.
+
+| Focus / contract | Implementation and independent validation | Disposition |
+|---|---|---|
+| PA-1 original real Web dismiss failure; design.md:58,80 | Item/revision validation precedes trusted ordinary-reply exemptions, and all exemptions preserve item identity for publication. Native IM test covers direct reply card duplicate feedback and stale cards; 10 attention tests pass as part of 11-test affected run. | Implementation seam fixed; original acceptance fail preserved; actual repaired Web journey pending. |
+| New PA optional tools discoverable from first catalog; design.md:100-104 | Built-ins mount before extension HMR yield; real subprocess starts with zero Agents, first catalog asserts four personal tools, then applies config and executes tools/Schedule. | Independently passed affected native test. |
+| Real delivery capture cannot treat an early ack as completed child work; design.md:137-139 | Latest visible child turn is read before settling, active/permission wait blocks, root revision change resets stable period. Direct function probes prove no return during running and ≥5s after final revision; protocol 11/11 passes. | Harness mechanism verified; real D08 rerun/classification remains pending. |
+
+Independent validation locators and clock-probe outputs are recorded in code-review.md Round 3. Context review reused that focused patch trace; no second full Context audit or new gate was introduced.
+
+V-01 remains **pending**. The caller-owned acceptance R1 reports actual successes for draft adoption without send, private file bytes/version availability and correction to the original executor, but also the original card dismiss failure and extensive inconclusive scenario coverage. Those local successes can support their exact claims; they do not satisfy all M1/M2/M3 exits. Preserve R1's failed actual journey, then append a separately versioned real Web regression result when available. Final serialized outbound HTTP capture, model consumption/adjudication, all required checkpoint coverage, repeated/core comparable baseline evidence and applicable final CI must remain honestly classified. Proposed isolated Node capture after shared logging ceased is not yet observed evidence and is not proof of upstream provider receipt.
+
+No source/test/design/runtime was altered by this verifier. The pre-existing untracked acceptance report was preserved and not staged. No reviewer-created service requires cleanup.
