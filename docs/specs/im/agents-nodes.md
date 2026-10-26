@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-652
+> 对齐: bugfix-662
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -968,9 +968,15 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 ### Requirement: 真人管理者可以独立启用和停用 Agent
 
 #### Scenario: 从 Agent 入口停用
-- **WHEN** 有权管理该 Agent 的真人在列表、详情或工作视图停用它
+- **WHEN** 有权管理该 Agent 的真人在 Web 详情或工作视图、或原生 iOS 既有管理入口停用它
 - **THEN** 立即提交停用，不需模型回答、二次确认或先保存其他设置；空闲 Agent 同样进入停用
 - **AND** 不连带停止其他 Agent，不保存未提交的配置草稿
+
+#### Scenario: Web 列表与详情保持紧凑且停用状态可辨认
+- **WHEN** 用户浏览 Web Agent 列表、详情侧栏或详情标题
+- **THEN** 列表与侧栏不逐项展示启停按钮，正常已启用状态不额外占行；已停用以名称旁的紧凑标签显示
+- **AND** 详情页集中提供「停用 / 启用」操作；停止中、停止未确认或读取失败保留状态反馈及相应说明、重试入口
+- **AND** 设备在线与 Agent 是否启用分别表达，不能相互替代
 
 #### Scenario: 非管理者和 Agent 自身
 - **WHEN** 非管理者或 Agent 工具尝试改变开关

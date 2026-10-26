@@ -65,7 +65,7 @@ it('refreshes an enable conflict without resubmitting and shows nonowners only s
     if (init?.method === 'PUT') { writes++; return Response.json({detail:'revision_conflict'}, {status:409}); }
     return Response.json(snapshot('disabled', 'disabled', 2));
   }));
-  mount(); await userEvent.click(await screen.findByRole('button', {name:'Enable again'}));
+  mount(); await userEvent.click(await screen.findByRole('button', {name:'Enable'}));
   await screen.findByRole('alert'); expect(writes).toBe(1);
   cleanup(); mount(false);
   await screen.findByText('Disabled'); expect(screen.queryByRole('button')).toBeNull();

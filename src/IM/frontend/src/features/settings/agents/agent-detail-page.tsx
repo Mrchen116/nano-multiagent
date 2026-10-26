@@ -1313,6 +1313,12 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   }, []);
 
   const lifecycle = useAgentLifecycle(agentId);
+  const lifecycleState = lifecycle.query.data;
+  const showLifecycleNotice = lifecycle.query.isError || lifecycle.mutation.isError || (
+    lifecycleState?.desired === "disabled" && (
+      lifecycleState.observed !== "disabled" || lifecycleState.applied_revision !== lifecycleState.revision
+    )
+  );
   const self = useAuthStore(s => s.user?.id);
   const settings = useAgentSettingsState(agentId);
   const detailQuery = settings.query;
@@ -1633,7 +1639,10 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             status={displayedNodeStatus === "online" ? "online" : "offline"}
           />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 className="im-agent-panel-title">{draft.display_name || draft.agent_id}</h2>
+            <div className="im-agent-panel-title-line">
+              <h2 className="im-agent-panel-title">{draft.display_name || draft.agent_id}</h2>
+              <AgentLifecycleStatus lifecycle={lifecycle} online={displayedNodeStatus === "online"} compact />
+            </div>
             <p className="im-agent-panel-subtitle im-agent-panel-node-line">
               <span className="im-agent-panel-agent-id">{draft.agent_id}</span>
               <span
@@ -1656,7 +1665,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               {activeSection === "config" && isDirty && <span className="im-settings-save-state">{t("agents.detail.unsavedChanges")}</span>}
             </div>
         </div>
-        <AgentLifecycleStatus lifecycle={lifecycle} online={displayedNodeStatus === "online"} />
+        {showLifecycleNotice && <AgentLifecycleStatus lifecycle={lifecycle} online={displayedNodeStatus === "online"} />}
         {errorMessage ? (
           <p
             data-testid={openDirectChatMutation.isError ? "open-chat-error" : "agent-save-error"}
