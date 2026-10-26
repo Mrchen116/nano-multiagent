@@ -52,8 +52,10 @@ export class PersonalAgents {
     const ids = new Set<string>([...all(this.db,'SELECT conversation_id FROM conversation_participation_history WHERE user_id=?',b.owner_user_id).map(row=>row.conversation_id),
       ...this.ctx.messaging.conversations(agentUser.id,scope).map(row=>row.id),...policy.excluded_conversation_ids]);
     return [...ids].filter(id => this.sourceAccess(b,id)).map(id => {
+      // Keep the identifier available for re-inclusion without reading revoked content.
+      if (policy.excluded_conversation_ids.includes(id)) return {id,excluded:true};
       const viewer = conversationAccess(this.db,id,b.owner_user_id) ? b.owner_user_id : agentUser.id;
-      return {...this.ctx.messaging.conversation(id,viewer),excluded:policy.excluded_conversation_ids.includes(id)};
+      return {...this.ctx.messaging.conversation(id,viewer),excluded:false};
     });
   }
   /** Change future source access using an authenticated owner message, without erasing prior work. */

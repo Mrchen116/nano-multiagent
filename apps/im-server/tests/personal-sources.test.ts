@@ -43,7 +43,8 @@ it('queries both identities once and keeps excluded sources out of list, search 
  expect(query({action:'search',query:'launch'}).messages.map((m:any)=>m.message_id)).toEqual([ownerMessage.id]);
  expect(()=>query({action:'info',target:'agent-only'})).toThrow('target_not_accessible');
  expect(()=>query({action:'read',target:'agent-only'})).toThrow('target_not_accessible');
- expect(service.sources(principal,{...args,action:'list'}).items.find((c:any)=>c.id==='agent-only').excluded).toBe(true);
+ ctx.messaging.insertMessage('agent-only','u2','user','New private content after revocation');
+ expect(service.sources(principal,{...args,action:'list'}).items.find((c:any)=>c.id==='agent-only')).toEqual({id:'agent-only',excluded:true});
 });
 
 it('projects trusted owner identity independently from actual PA participation',()=>{
