@@ -163,3 +163,160 @@ Side finding：daily共享项目路径与workspace插件安装范围提示存在
 Q 启动的六组fault栈和一组late-cancel栈已由正常finally down；2026-10-26约15:21(+08:00)独立连接核实7个IM端口 `65327/49668/49825/49963/50416/50840/51986` 均释放，未发现本轮fixture残留进程。Q创建的浏览器session `q625-clean-9cb` / `q625-cc-9cb` 均已close。未删除原始证据；未停共享代理、生产或E daily。
 
 E仍持有两套daily/已安装测试插件和本机运行数据生命周期。parent已收到安全切换ready边界；可协调E保留4282可达refs/domain导出/必要原始证据后准备新版。本报告不自选新SHA，需新的精确版本/构建/路由包再续用同验收者、同现场定向复验，追加Round2，保留本轮全部inconclusive直至有证据关闭。报告完成不等于产品通过，也不授权merge/deploy。
+
+## Round 2 — 2026-10-26，targeted（同验收者、同现场）
+
+> Validation snapshot: `d72e220f1d21827c65e046f704c13837ea39d7c2 → fe623b4bb8227f06d720cd5b11f81dd98e5af72f`
+> validated tree: `b7b3f470d628b930c56ec594d48d952772acdaee`；approved design 仍为 `407b6e096ec4e6b0bdc9a4a30774dd2e2bed0148`。
+> Round 1 的 165 行原文完整保留；原 blob=`b81a295950845d4a63f3ab824bd1de4ac562f544`，Q 历史 ref=`evidence/feat625-q4282-r1-15bf9925`。本轮不是将 R1 的 inconclusive 静默改为 pass。
+
+### Verdict
+
+**pass — 本冻结版本的适用产品验收通过。**
+
+- 17 个必验 Scenario 的当前结论为 **17 pass / 0 fail / 0 inconclusive / 0 not-applicable**，其中明确区分本轮新执行、同冻结工程证据复用与未失效的具体前轮观察，不声称 17 项均全量重跑。
+- Q625-R1-01、Q625-R1-02 在本轮关闭；**open issues_count=0，新增已证实产品缺陷=0，blocking=0**。Highest Required Action=`pass`，needs_re_review=`no`（限此 validated_at 与已审范围；后续产品改动另判）。
+- 独立真 IM 7 行 × 双策略共 14 个耗尽路由全部通过；独立同冻结窄控制 4 文件 45 tests 通过；两套新 daily 的真实 provider 新插件自建、安装和两次原生调用均实际完成，用户收到 180/55，Q 实际操作 Chat/Work 并阅读关键图片。
+- 该结论不是 Ready PR、全仓 CI、canonical/delta 归并、dependency audit 或 merge/deploy 结论；这些仍由各 owner 独立收口，不能以本报告替代。
+
+### 复验范围与保留条件
+
+本轮中性包 `EROOT/output/feat625-Q-HANDOFF-fe623.md` 交接了新构建、真实路由与可复查原始材料。Q 核对 Git 范围文件清单：相对 R1，产品变更集中在 `policy/approval.ts` 的终态审计/并发拒绝路由，另有验证、fixture、报告及 runbook 增量；没有把审查角色改为源码静态 reviewer。由此定向重验终态路由与 audit fail-closed、同冻结此前缺失的预算/context/授权/生命周期控制，并重新跑真实插件组装旅程；不重新安装全部环境或再等待整套三次生产时长超时。
+
+R1 的 S1/3/6/11 等具体真实 HTTP/默认 30/60/90 秒等待、stop 及晚到观察仍是 **4282 的原始观察**。其预算/恢复控制与 adapter 未因本次终态修正失效，且新冻结工程完整真 IM 13 行与 native 结果交叉支持，故可按范围保留；不是把原始 trace 的 SHA 改为 fe623。R1 源码漂移后执行的 native 仍不适用，**本轮完全不采信那两份漂移测试为新版本证据**，由 R2 的同冻结材料替代。
+
+### 本轮真实环境与构建溯源
+
+| 项目 | 本轮实值 / 核对 |
+|---|---|
+| Q checkout | 同一 `QROOT`，安全切到精确 fe623，新报告分支 `qa/feat-625-r2-fe623-acceptance`；切前保留旧 ref、核原报告 blob；写报告前 working tree clean |
+| Codex daily | `http://127.0.0.1:59905`，node `wt-feat625-daily-codex-4282-37997`，owner `u_ymjyco1l`，Global daily-engineering，显式 codex |
+| CC daily | `http://127.0.0.1:59920`，node `wt-feat625-daily-cc-4282-38039`，owner `u_3xg68xqv`，Global daily-engineering，显式 cc（audit rules=nano） |
+| 身份边界 | 同两 runtime 根复用，但新的 IM DB/owner/node/main session，不是连续旧会话；目录名 `4282` 仅路径后缀。旧插件没有被迁入作为本轮成功；E 保留旧 before/after-down archives、Work/domain 与插件 payload receipt，含凭据的 archive 不公开 |
+| 实际配置 | Q 读取两套 daily manifest、IM config/在线 node/Work；P/E/Q Sol/high、PA Astra/medium，真实独立 reviewer anthropic / codexOAuth:gpt-6-luna / low；Auto 开、未 skip permissions；仅既有 plugin_manager allowlist 增量，无临场放宽 |
+| 构建与 loader | Q 独立逐个校验 131 tracked source/test 与 fe623 Git blob、487 compiled artifacts hash；两实际 profile 的 createRequire 均解析到 EROOT `packages/dsh-integration/lib/index.js`，不是旧 snapshot/lib。记录 `QROOT/output/feat625-q-fe623/independent-freeze-check.json` |
+| 末次核对 | 16:40(+08:00) 再核上述全部 131+487 均不变，实际六 PID `38021/38065/38083/38066/38120/38126` 仍为 16:00 启动进程；无重建/重启。导出器 `--sha` 仍只作标签，不当构建证明 |
+| 真入口 | Q 通过实际 IM HTTP/WS 发新用户任务；create-direct 按双方去重至本轮 smoke DM `c_6cuslf8f` / `c_z8fc3gwm`，不是声称第三个全新 DM。只读 Work 全分页到 null cursor；未直接 runtime.submit |
+| 浏览器 | Chromium 1440×1000；独立阅读两套 Chat 已投递结果，再从 View Work 展开本轮回合及第二次业务工具；无 iOS、新 attempts UI 或移动体验结论 |
+
+### R2 分层证据索引
+
+以下 `P2=QROOT/output/feat625-q-fe623`，本机 ignored 原始证据仍不提交；`E2=EROOT/output`。测试驱动、原始 HTTP 和 domain 的结论与真实供应商分列。
+
+#### R2-A — 独立真 IM 耗尽与原模式路由
+
+命令使用 E 已锁定 Python3.11 环境、冻结测试/构建，隔离 subprocess proxy 环境：`pytest tests/e2e/critical_paths/test_auto_review_routes_critical_path.py -k exhaustion_preserves_source -q --basetemp=<Q新唯一绝对目录>`。本次目录为 `P2/routes-9cb-r2`，事前核为不存在；7 passed，206.57s，exit0。未改实现、测试或 daily 受控配置。
+
+- `P2/routes-execution.log`、`P2/routes-safe-summary.json`；每行 runtime 的 `q-trace-export-fe623.json` 与 captured requests/effect 文件保留。7 行各含两策略：interactive、Global、实际 native child、schedule deny/allow、heartbeat deny/allow。Global 走真实 Inbox/read，child 真委派，schedule 用真实 timer，heartbeat 用真实 HEARTBEAT/cadence；不伪造 source.kind。
+- 14 个待审 bash 均收到 3 条 reviewer 503 请求、retriesUsed=2、formatRetriesUsed=0；CC budget 每次 30000，Guardian 每次 90000。`decision=no_verdict/source=classifier_unavailable`，拒绝计数均0；未把技术失败当有效模型 deny。
+- interactive 两策略 `interactive_pending`，原审批卡拒绝收束、effects=0；Global/child 两策略 `return_to_agent`，即使配置 fallback allow 也无子任务卡、fallbackOutcome=null、effects=0。
+- schedule/heartbeat 均 `finalRoute=unattended`；既有 deny 零 effect，既有 allow 各恰好一条 effect。配置 before/after 未扩大，allow 原因是既有技术不可用 fallback，绝不是模型有效 allow；没有手动 allow 做绿。
+- Global reviewId：Codex `b6830a5d-54da-413b-8965-1c6dec56d349`，CC `d55f0017-dd19-4687-a973-965c6981f4c4`；child reviewId：Codex `8f363f79-d501-47b8-8ba4-75caf0b2fe9e`，CC `4fc948b0-0ed2-4e53-9a17-100a6524e265`。完整其余定位在 safe-summary，统计的 http_records 包含 main/event，不误称全部是审核请求。
+
+#### R2-B — 独立同冻结 fake-clock/controller 与窄 facade
+
+`P2/narrow-controls.log`：`pnpm exec vitest run` 指定 `review-recovery-budget.test.ts`、`review-recovery.test.ts`、`codex-approval-lifecycle.test.ts`、`approval-retry.test.ts`，4 files / 45 tests passed，exit0，16:28:38。全部 source/test 输入已独立核为 fe623，而不是 R1 的漂移 source。
+
+- 完整 30/60/90 秒 × 三次连续超时、TIMEOUT→503→TIMEOUT共享额度，无第四条请求；CC 正常阶段推进不占恢复，action360秒撤销 generation、末次正常预算不截短。这些是 fake-clock，不宣称真实供应商连续等待了三次。
+- service→service→format、重复格式、EMPTY_RESPONSE 子额度；AUTH/QUOTA/CONFIGURATION/INVALID_REQUEST 与 context/abort/unclassified 不盲重试。CONFIGURATION 与503并存仍永久错误优先。Retry-After15秒不截成10秒重打，unknown/partial usage 不冒充完整零成本。
+- Guardian 同 action context rebuild 最多1次，跨503与重复 overflow不重新领取；输入/action/config 在异步准备前冻结，supported effort不擅换模型；晚到 create/dispose quarantine 与 PA disclosure namespace/预算分离。
+- 直接针对本次产品改动：有效 allow/deny/unavailable 后 **durable audit 写失败** 均 reviews/writes/effects=1/1/0，不重审、不借 unattended allow 执行；原子并发 deny 计数所选路由与 durable trace 一致。是公开 facade+受控 table 失败，不夸成实际 IM 磁盘满或进程突死 journal。
+
+#### R2-C — 可适用的同冻结工程执行材料（复用，不改称 Q 全量重跑）
+
+Q 实际读取并核适用性：`E2/feat625-native-regression-fe623.log` 15 files / 89 tests passed（16:04:02，103.35s，默认并发），`E2/feat625-codex-parser-fe623.log` 9 tests passed（16:09:36），以及 `E2/feat625-im-complete-fe623.log` / `-summary.json` / 每 root `trace-export-fe623.json`（13 rows、499.64s、51 traces）。编译/input attestation 与 Q 末次实测 hash 一致。
+
+- native 涵盖真实 DSH scope/delta/fork、实际默认 Guardian90秒 timeout/同输入恢复、并发 idle I / active A / fork B / 另一 parent C / CC D / disclosure P / main M / auxiliary X 的精确 stream归属；另一 owner 不中断。不是只按相同模型或 parent 粗分。
+- 双策略 configuration reservation 的 rejected prepare/persist-failure/metadata release 保持旧 action；真正 cancel/disable 撤销，含 request/backoff 与另 owner 反证。source14、personal-security8、child delivery、workspace/workflow、attribution 和当前 Guardian parser 独立覆盖；只读 inspection/阻塞FS与PA指导隔离有 native 证据。
+- 同冻结完整 IM 材料重新覆盖 HTTP503/429/date/socket/format/mixed/permanent、实际默认 CC30/60/Guardian90秒恢复、CC跨stage、取消与真实 PATCH 409 release。与 R1 已独立实跑的具体未失效观察相互印证，不把工程13行标为本 Q 另一次执行。
+- parent 协调的额外6文件最小资源复验属于 E 的另项执行；本报告不预报它的结果，也不依赖将来结果来给当前 pass。
+
+#### R2-D — 新 daily / 新插件 / 真实 provider 与实际投递
+
+Q 新消息 Codex `152eb9a3cd024d93aa0de84c1b638b9d`、CC `e715f87f61a2432196ef2caba6e704c7`；输入与配置见 `P2/{codex,cc}-launch.json`。完整 Work/items/聊天见 `P2/{codex,cc}-complete-journey.json`，审核域 `P2/{codex,cc}-trace-export.json`，摘要 `P2/provider-summary.json`。
+
+| 实际观察 | Codex | CC |
+|---|---|---|
+| main session / 回合 | `323dd6fb-de54-4ba6-9d83-863e8463780b` / turn2，35 tool calls，Completed | `02b33ee2-0ab7-4dca-87f4-c2c57ea42592` / turn2，36 tool calls，Completed |
+| 新源码（各新 node 的 daily-engineering 下） | `plugins/travel-reimbursement-r2-fe623` | `travel-reimbursement-r2-fe623` |
+| 真 install call | `call_122a2ad5a198430f8e850bf65043395d` | `call_21343936215b4b868bb4f5771d09e8b6` |
+| bundle / 生效 | 两者均 `travel-reimbursement-r2-fe623@1.0.0`；enabled=true、application=applied、warnings=[]、package exit0 | 同左，非等待重启状态 |
+| 原生业务工具 | `travel_reimbursement_r2_fe623` | `travel_reimbursement_r2_fe623` |
+| 第一调用 | `call_b973100dbd83429d9491afc47a4fcbe5`，amounts[80,150]/limit100 → reimbursable[80,100]，total180 | `call_0aed37a4b26240309a346c0140890d54`，amounts[80,150]/itemLimit100 → reimbursed[80,100]，total180 |
+| 第二调用 | `call_ff92d6f207ed46bda1ef619ce1e11aad`，amounts[25,40]/limit30 → reimbursable[25,30]，total55 | `call_9f06b1047ad7409f8fd771563882641e`，amounts[25,40]/itemLimit30 → reimbursed[25,30]，total55 |
+| 最终实际 sent | `9db5fc33e7d44fc2a55aeae939a4d9c6`，DM `c_6cuslf8f` | `ed1baacaad90470e9aa4f486a183b3b9`，DM `c_z8fc3gwm` |
+
+不是仅相信模型自述：安装与两次业务工具各一次，由原生输出、Work callId、audit 关联和实际聊天投递共同确认。两套均先查当前公开 Skill/API，在自己 workspace、managed profile 外创建新 bundle；未复用旧 node 业务插件，未用 bash 算结果。按本轮明确两次业务调用限制，没有对新插件再调用负数；R1 负数 pass 仍只属旧插件，不将新插件“已实现”自述当作本轮负数动态验收。
+
+额外实际有效拒绝：CC 定位时试图批量打印 DSH 环境变量，被审核阻止。bash `call_d28adf90c15e4dbe818eac3343e6fc5f` / review `d2cf67da-e7dc-4a27-be04-8907da92e8ae`，合法 CC 两阶段最终 deny、classifier_block、计数1/1、retriesUsed=0、formatRetriesUsed=0、finalRoute=deny，工具未执行。Agent 明确放弃该操作，改用 pwd/公开插件路径完成新插件，未换身份或重试泄露操作。这是实证有效安全拒绝，不是负数业务 error，也不将该安全保护列成产品失败。
+
+独立体验：Chat 中用户能核对两组输入/逐项报销/180及55，得到简短进度和最终可读安装状态；从 View Work 展开回合能区分初始不存在文件的 read 失败、成功写入、安装及两个 Completed 业务调用，第二调用展开可见 total55 等字段。未见妨碍此旅程的整体阅读/操作问题。`QROOT/output/playwright/q625-r2-{codex,cc}-delivered.png`、`q625-r2-{codex,cc}-work55.png` 四幅1440×1000图片均已实际阅读。详细 attempts 仍用 domain 导出，不冒称新 UI。Reference Artifacts Reviewed：N/A（设计无 must-match 原型，沿用 R1 范围）。
+
+### Round 1 问题处置
+
+| 问题 | 本轮处置与结论 |
+|---|---|
+| Q625-R1-01 真IM路由缺口 | **closed at fe623**：R2-A 独立实跑真实 Global/委派child/schedule/heartbeat双策略耗尽，source、原路由、卡片、effect、配置均核对；未用普通成功旅程代替 |
+| Q625-R1-02 同版适用性/安全矩阵缺口 | **closed at fe623**：131输入/487产物/真实loader及进程建立版本链；R2-B关键45项独立执行，R2-C同冻结native/parser/全IM可适用材料，R2-D真实最终deny与新插件旅程；旧漂移native仍排除，不改写历史 |
+
+### 全部必验 Scenario 的当前结论
+
+来源均为本 unit spec 同名 Scenario，S编号沿用 R1；下表的 pass 是综合范围判定，证据层次已逐行标明。
+
+#### Requirement: 临时失败在同一待审动作内有界恢复 — 组内结论：pass
+
+| Scenario | 本轮与保留证据 / 实际结论 | 结果 |
+|---|---|---|
+| S1 短暂故障后放行 | 保留R1-E2双策略503/429/date/socket成功且effect一次；R2-C同冻结原始HTTP矩阵支持。预算/adapter未因终态修正改变，R2-A耗尽也无提前执行 | pass |
+| S2 混合失败共享额外两次额度 | R2-B连续/混合TIMEOUT→503→TIMEOUT、跨stage与context组合补齐，最多2恢复/无第四次；R1 mixed与R2-C真IM仍支持 | pass |
+
+#### Requirement: 每次恢复保留正常完整判断预算 — 组内结论：pass
+
+| Scenario | 本轮与保留证据 / 实际结论 | 结果 |
+|---|---|---|
+| S3 CC 恢复后的完整阶段判断 | 保留R1实际30/60秒等待与stage2不重放s1；R2-B完整预算/共享上限，R2-C同冻结全IM复核 | pass |
+| S4 Codex 恢复后的完整审核判断 | 保留R1实际90秒后完整恢复；R2-B同action context≤1及预算，R2-C真实native scope/read-only/context/90秒补齐 | pass |
+| S5 等待可以延长但不会无限延长 | R2-B三次完整30/60/90与混合、action360s撤销、Retry-After15停止；真实默认预算仍由R1与R2-C支持，不把fakeclock说成供应商实等 | pass |
+
+#### Requirement: 空白或非法判定仅获得共享额度内的一次恢复 — 组内结论：pass
+
+| Scenario | 本轮与保留证据 / 实际结论 | 结果 |
+|---|---|---|
+| S6 首次格式失败后有效判定 | 保留R1 invalid→allow一次effect；R2-B格式子额度与R2-C当前parser/IM支持，R2-D实际最终deny不被重试 | pass |
+| S7 再次格式失败或总额度先耗尽 | R2-B service→service→format、repeatedformat/EMPTY共享上限；R1/R2-C真IM格式耗尽保持技术不可用，不混作deny | pass |
+
+#### Requirement: 技术恢复不改变授权、策略与最终拒绝 — 组内结论：pass
+
+| Scenario | 本轮与保留证据 / 实际结论 | 结果 |
+|---|---|---|
+| S8 CC 两阶段与最终拒绝 | R2-C原生两阶段/有效deny计数与原升级，R2-B并发deny原子路由/trace一致；R2-D真实最终deny两阶段、0技术重试/未执行 | pass |
+| S9 Codex 风险、授权与检查约束 | R2-C同冻结精确并发scope/source14/PA8/native只读及阻塞FS；R2-B context与冻结action/cache隔离，非宽泛parent归属；R2-D原生安装/工具实际审核 | pass |
+| S10 有效拒绝与永久错误不作故障恢复 | R2-B AUTH/QUOTA/CONFIGURATION/INVALID_REQUEST无恢复；R2-C当前parser和401 IM，R2-D真实最终deny0重试，不换模型刷allow | pass |
+
+#### Requirement: 主动取消优先于超时恢复 — 组内结论：pass
+
+| Scenario | 本轮与保留证据 / 实际结论 | 结果 |
+|---|---|---|
+| S11 请求中或退避期间停止 | 保留R1-E3真IM stop后观察100秒以上无新请求/晚到effect；R2-B撤销/quarantine，R2-C同冻结真IM取消及owner cancel/disable/另一owner反证 | pass |
+| S12 非主动取消的单次超时 | 保留真实默认30/60/90恢复；R2-B连续超时最多2、完整末次预算补齐，R2-C原生与全IM同版支持 | pass |
+
+#### Requirement: 耗尽严格沿用既有模式与配置分流 — 组内结论：pass
+
+| Scenario | 本轮与保留证据 / 实际结论 | 结果 |
+|---|---|---|
+| S13 有人值守聊天审核不可用 | R2-A两策略3次503→interactive_pending，原审批拒绝/0effect；无自动allow；R2-B写audit失败仍fail-closed | pass |
+| S14 Global 与子任务审核不可用 | R2-A真实Inbox及实际child两策略return_to_agent/无卡/0effect，即使fallback allow也不扩权；Q625-R1-01关闭 | pass |
+| S15 无人值守的 allow 与 deny 配置 | R2-A真实schedule/heartbeat×allow/deny×两策略：unattended配置allow一次/deny零次，非模型allow、配置未扩；无人工allow | pass |
+
+#### Requirement: 审核恢复可追踪并以真实旅程验证 — 组内结论：pass
+
+| Scenario | 本轮与保留证据 / 实际结论 | 结果 |
+|---|---|---|
+| S16 一次动作与再次工具调用可区分 | R2-A同reviewId三attempt/request ordinal/类别预算/unknown usage/route可查；R2-B并发deny domain一致与写失败不执行；R2-D新call/Work/实际sent相关联 | pass |
+| S17 真实全局插件旅程与受控证据分别交付 | R2-D新daily两策略真实自建/安装/两次180+55/Work/实际sent成功；故障/预算/取消/有效deny/各模式证据由R2-A/B/C及保留R1分层交付，不用正常服务成功代替 | pass |
+
+### 清理、交付与后续边界
+
+R2-A临时栈均由driver finally正常down；16:40独立连接核对7个IM端口 `64029/64088/64192/64286/64453/64570/64714` 全部释放。Q本轮浏览器 session `q625-r2-codex-9cb` / `q625-r2-cc-9cb` 已close；无仍相关未收集后台job。旧/新本地原始证据保留，没有删他人进程或旧资料。未动共享4000、生产或用户主仓；E持有两套daily及新测试bundle生命周期，Q不擅停。
+
+本轮报告只追加 acceptance.md，提交/推送自身 QA 分支，由原 E 整合到 unit 分支后保证报告可获取；不直接改 E unit。parent 已获无活跃 Q provider/fixture计时的 safe boundary。上层文档需否更新沿用R1清单，canonical/delta的实际归并与最终CI留由orchestrator验证，不以本产品pass冒充完成。若再改产品或替换构建，须重新判受影响范围，保留两轮历史证据。
