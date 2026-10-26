@@ -40,3 +40,9 @@ origin/main 从 executed_base 推进到 `d72e220f1d21827c65e046f704c13837ea39d7c
 独立 patch 审查在 `9481ddf0b` 确认了同一入口问题的运行中时序：childSessionId 落盘后未立即通知，暂停且未写知识的维护仍可能到结束才登记。reviewer 的真实 DSH + KnowledgeUpdates 窄复现得到 running/hasChild=true/links=0，额外 recover 后 links=1。当前已增加身份落盘通知，并扩展既有暂停维护与产品身份回归。
 
 Closure validated_at=`6ee61c7cfbef3fa7eb5be882bf947c1be4cb37a4`，finding_origin_head=`9481ddf0b9bc3e897cea4cf647a64a204a6d8d66`。同一独立 reviewer 返回 `[]`，R2-001 与运行中时序 P2 均 closed。独立重跑窄复现得到 running 状态下自动产生1条身份链接、触发1次 onWork，无需额外 recover。复用3文件10项窄回归与完成后实际 Web 冷轨迹证据，不冒充重新跑过真实模型。后续只补事实记录，没有受审实现变化。
+
+## 最终全量中的测试取样修正
+
+交付实现的本机首次全量为758 passed / 1 failed：既有 Bash/PTY disable 用例出现 `kill EPERM`，独立重跑通过，原因未确认。远端CI首次全量为758 passed / 1 failed：Workflow approval 用例在已观察到 turn/end 后再次查询子历史，第二次返回没有 events 的条目却直接执行 filter。该文件单独重跑2项通过；本机完整复跑又出现相同取样失败。
+
+本机完整复跑另有知识维护用例超出默认 poll 等待：失败时落盘事实明确为首轮 error/memory_read_incomplete、第二轮仍 running 且已有 childSessionId，并非丢失第二次维护。调整为该文件已有的8秒维护等待预算。Workflow 用例改为在同一次成功观测上完成权限断言，并允许轮询期间出现没有 events 的原生诊断条目。两处仅修正回归取样和等待，不改变产品实现、不将上述失败记为全绿；修正后的窄回归、独立 patch 审查与最终全量结果写入 PR 和本机真实验收报告。

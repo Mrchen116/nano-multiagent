@@ -208,7 +208,7 @@ it('keeps real writes but does not settle either interval after incomplete combi
     expect((await facts()).facts.map(f=>f.kind)).toEqual(['skills']);
     expect(await readFile(join(home,'.nanoassistant/skills/learned/SKILL.md'),'utf8')).toBe(content);
     await submit('three');
-    await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='completed')).toEqual([expect.objectContaining({kind:'combined'})]);
+    await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='completed'),{timeout:8000}).toEqual([expect.objectContaining({kind:'combined'})]);
     await submit('four');expect((await facts()).reviews).toHaveLength(2);
     await client.rpc.request('trajectory.prepare',{observerId:binding.sessionId,rootAgentId:'a',rootSessionId:binding.sessionId,sessionId:binding.sessionId,ownerId:'owner',nodeId:'node',nodeEpoch:1});
     const runs=await client.rpc.request('trajectory.call',{observerId:binding.sessionId,method:'trajectory/runs'}) as {value:{kind:string;state:string}[]};
