@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 7 finite eval patch review passes at `ee26e3674`**, no surviving findings (`code-review.json=[]`). Product source is unchanged since the prior reviewed head; corrected deltas align. V-01 remains pending final evidence aggregation.
+Current code verdict: **Round 8 adjacent-input preservation patch passes at `32255b1ee`**, no surviving findings (`code-review.json=[]`). Prior product findings/closures remain; V-01 and the running I02 actual rerun are pending their evidence package.
 
 ## Snapshot and verdict
 
@@ -195,3 +195,21 @@ Independent `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.
 Corrected contracts were reconciled separately in verification.md's unique Corrected Delta Reconciliation section. Caller reports an independently passed new D08-r4 and actual P01-r2 persisted private preparation; this finite pass does not re-adjudicate those live artifacts or replace the still-arriving complete evaluation evidence package. Historical D08/P01/M08/P03 limitations and failures remain intact.
 
 Only review reports were edited. Pre-existing untracked `scripts/e2e-up-pa665-temporary.sh` was preserved and not staged; this reviewer did not run it or start any service.
+
+## Round 8 — adjacent owner input retention and P12 relevance fixture
+
+- review_mode: `patch`; Context mode: focused **Implementation Review**.
+- Source range: `dfe29d5e5..32255b1ee38d59fc411390f27994c6bd7d990735`, specifically `a4a0f9a55` input-admission fix and `32255b1ee` fixture. No product full audit or full-suite rerun.
+- Latest findings `[]`; no surviving CONFIRMED/PLAUSIBLE defect in the reviewed delta.
+
+The observed I02 failure involved two inputs from the same allowed group: an addressed owner request and an adjacent rejected peer request. Recovery formerly used whole-source revokeSource after the peer verdict, deleting the accepted owner input as well. The provided red regression `/tmp/pa665-adjacent-red.log` directly shows `sources=[]` where one owner unread input was expected.
+
+Reviewed fix: `InboxStore.rejectInput` updates consumed only for the exact agent/message identity and closes that message's pending control obligation; it preserves the original inbox payload and relay receipt. Live admission denial and unclassified recovery now use this entry-level operation. Existing true source revocation remains in refreshPersonalSources and retains the whole-source frozen-read/fragment/snapshot removal logic. Rejected unclassified rows cannot be reclassified/woken because both unclassified() and model entries() require consumed=0. This separates a refused peer action from loss of a readable conversation and keeps the owner original/source intact for Context selection.
+
+Independent regression: the new GlobalAgent recovery test accepts owner and peer in the same group, uses a real InboxStore/NodeStore with controlled review/source seams, rejects peer, and observes unread=1, actual owner content present, rejected peer absent and no remaining unclassified input. It proves the deterministic product seam rather than assuming a successful model response.
+
+Independent commands: `pnpm exec vitest run packages/personal-assistant/tests/global-agent.test.ts packages/personal-assistant/tests/inbox.test.ts packages/personal-assistant/tests/personal-assistant.test.ts` → **80/80 passed**, `/tmp/pa665-independent-round8.log`; `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.py` → **12/12 passed in 0.34s**. No unaffected native/all-product suite was repeated.
+
+P12 now has an authentic owner message in the existing observer work group stating responsibility for the upcoming review and concern about feedback preparation before the colleague's review background. It contains no PA address, tool parameters, fabricated identity or delegated external action; runner's settle applies only to owner_pa/shared_group direct requests, so this observer send does not become a direct PA call. It establishes ordinary owner relevance for the existing observe/bounded-source behavior. README is corrected to match the previously reviewed P05-only Heartbeat setup and core-repeat terminology. Old weak-background failures remain historical and cannot be relabelled using the revised fixture.
+
+Actual new I02 rerun is still in progress and not graded here. V-01 remains pending the final actual evaluation package; no waiting/polling occurred. Only review reports were modified; the caller's independently changing acceptance.md and temporary untracked e2e script were preserved unstaged and not executed.

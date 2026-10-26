@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 7 corrected-delta at `ee26e3674`: aligned; overall 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 8 focused input-admission delta at `32255b1ee`: aligned; overall 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -251,3 +251,19 @@ The two corrected texts preserve the erasure/permission requirements; they do no
 Caller has reported real full delivery for D08-r4 after the child-source fix and persisted P01-r2 private preparation. Product/eval reviewers are checking those results, while P03/M08 replays and the final 58-result/core-repeat/baseline aggregation are still being prepared. This corrected-delta alignment does not prematurely mark those outcomes or V-01 passed, and does not wait/poll for them. A separate evidence-focused continuation can retain this alignment once the actual final package is supplied.
 
 Local origin/main remains the same 85910853e base with no incremental upstream code to audit. Pre-existing untracked temporary e2e script was preserved, not executed/staged. Reports are the only modifications by this verifier.
+
+## Round 8 — focused adjacent-input admission delta
+
+- verification_mode: `delta`; review_round: `8`; source range: `dfe29d5e5..32255b1ee38d59fc411390f27994c6bd7d990735`.
+- requires_full_verification: `false`; all prior unaffected full/source/Context closures and corrected-delta alignment remain valid.
+- verdict: **incomplete overall**; focused implementation aligned; critical **1** (V-01), warning **0**, suggestion **0**. Latest code findings `[]`.
+
+| Focus / existing contract | Implementation evidence | Validation and limit | Outcome |
+|---|---|---|---|
+| Multiple adjacent senders preserve real owner input and source; spec I01–I04/S01 | Live denial and unclassified recovery now call rejectInput on exact agent/message, not whole conversation. Original payload/receipt stays; unread owner remains selectable, peer is consumed and cannot re-wake. | Independent real InboxStore/NodeStore recovery regression reproduces one unread owner, owner body present/peer body absent; old red sources=[] retained. | aligned |
+| Real source revoke remains effective; I06/S03 | refreshPersonalSources still uses revokeSource, including saved read/fragment/snapshot removal for the revoked source. Entry-level rejection does not replace this actual source-access path. | Source inspection plus existing affected Inbox/GlobalAgent/PA suites retained and independently run. | aligned |
+| P12 first-use relevance uses authentic background | Owner states own upcoming-review responsibility in observer work_group; no @PA/direct assignment/hidden tool answer. Existing observe and independent actor identity remain. | Protocol 12/12; source runner confirms no direct-settle/wake is manufactured for observer group. Old fixture failures remain separate. | aligned |
+
+Independent affected tests: **80/80**, `/tmp/pa665-independent-round8.log`; protocol **12/12**. Code-review Round 8 supplies the focused Context selection/recovery trace and red/green evidence. The patch restores the existing source/identity contract and needs no new outward delta-spec promise; Round 7's corrected-delta outcome remains aligned.
+
+V-01 remains pending the already-required final actual evidence package. A new fresh I02 real rerun is underway; this report neither grades it early nor repeats/polls that work. Deterministic owner retention is proven at the affected seam, while final model receipt/response must be attached separately. Reports alone were staged; caller's dirty acceptance report and untracked e2e script were preserved.
