@@ -83,7 +83,7 @@ export function AgentLifecycleStatus({lifecycle, online, compact = false}: {life
   const showState = state && (state.desired !== 'enabled' || state.observed !== 'enabled');
   // Reserve the extra row for transitions, disabled state, and failures.
   if (!error && !showState) return null;
-  if (compact) return <span className={`im-agent-lifecycle-badge ${failed || stopping || error ? 'warning' : ''}`} role="status" title={error ? l('状态未确认，打开详情重试。','State not confirmed. Open details to retry.') : detail}>{error ? l('状态未确认','State unknown') : title}</span>;
+  if (compact) return <span className={`im-agent-lifecycle-badge ${failed || stopping || error ? 'warning' : ''}`} aria-live="polite" title={error ? l('状态未确认，打开详情重试。','State not confirmed. Open details to retry.') : detail}>{error ? l('状态未确认','State unknown') : title}</span>;
   return <div className={`im-agent-lifecycle-status ${failed || stopping ? 'warning' : ''}`} aria-live="polite">
     {showState && <><strong>{title}</strong>{!compact && detail && <span>{detail}</span>}{failed && !compact && state.error_detail && <span>{state.error_detail}</span>}</>}
     {error && <span role="alert">{l('状态未确认，请刷新后重试。','State not confirmed. Refresh and try again.')}</span>}
