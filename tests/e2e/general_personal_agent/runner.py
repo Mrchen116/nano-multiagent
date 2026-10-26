@@ -166,7 +166,8 @@ class Run:
                     "excluded_conversation_ids": excluded,
                 },
             )
-            if any(step["op"] == "observe" for step in case["steps"]):
+            if case.get("enable_heartbeat"):
+                # Source observations already wake through the native Inbox batch.
                 self.client.update_agent_config(
                     self.agent,
                     features={"heartbeat": True},

@@ -18,6 +18,8 @@ def test_every_scenario_has_explicit_executable_mapping():
     assert len(cases) == 58
     assert set(select("smoke")) <= cases.keys()
     assert len(cases["M08"]["steps"][0]["text"]) > 3575
+    assert cases["P05"]["enable_heartbeat"] is True
+    assert not cases["P03"].get("enable_heartbeat", False)
     assert cases["S03"]["steps"][0]["op"] == "checkpoint"
     with pytest.raises(ValueError):
         select("M01,M01")

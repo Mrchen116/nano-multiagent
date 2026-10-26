@@ -493,7 +493,8 @@
       "review": [
         "Two genuine background wakes; no user messages on unchanged candidate"
       ],
-      "external": []
+      "external": [],
+      "enable_heartbeat": true
     },
     "P06": {
       "steps": [
