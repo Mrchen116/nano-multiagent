@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 5 CR-04 closure passes at `d2a6f53d2`**, no surviving findings (`code-review.json=[]`). Earlier findings/reproductions are preserved; V-01 exit-evidence collection remains pending.
+Current code verdict: **Round 6 focused patch/Context review passes through `671de6ac4`**, no surviving findings (`code-review.json=[]`). Original failures and closures remain preserved; V-01 is still an incomplete exit-evidence item.
 
 ## Snapshot and verdict
 
@@ -157,3 +157,24 @@ The callback counter stays zero after each unsafe request; only the valid empty-
 **CR-04: closed.** No new surviving CONFIRMED/PLAUSIBLE finding in the reviewed fix. The existing clean/empty handoff path is retained; no general-purpose semantic erasure layer or speculative edge-case loop was requested.
 
 The independent product report's Round 4 at `085b1b896` closes the original PA-5 mixed-request failure using real correction-before-forget, an empty continuation, a received erasure receipt and later cross-group morning candidates. That is relevant evidence for the original successful mixed-request path; it does not retroactively remove R1/Round 3 failed evidence or settle the still-incomplete full-unit V-01 package. No source, tests, design or runtime configuration was edited by this reviewer.
+
+## Round 6 — child-result reply continuation and preparation/observation guidance
+
+- review_mode: `patch`; Context mode: focused **Implementation Review**.
+- requested source range: `e453eb019..42844df8b`; caller's `12d2f3c3c` adds product acceptance evidence only. Included the caller-authorized one-line mode-name closure at `671de6ac4224c3d73e64aae198e3c72a3b74c9b4`.
+- Scope: child delegation provenance → current consumed native return → host-only ProductCall → private reply classification; cancellation/restart; preparation guidance/settings names; observe terminal capture; forget callback type narrowing. Report/evidence additions were read for claims and version limits, not treated as product implementation. No unrelated full audit/test rerun.
+- Latest findings: `[]`; no surviving CONFIRMED or PLAUSIBLE issue. CR-01–04 closures retained.
+
+| Focus | Independent review and evidence | Conclusion / limit |
+|---|---|---|
+| Original-request source for a later child result | Successful native spawn stores actual child ID, actual parent session and the original live input IDs in a dedicated durable domain. childReturns requires a message with native agent-message/subagent-settled source actually consumed by the current parent turn, a matching direct continuable child and a non-aborted latest child turn. No model argument supplies the grant. | Scoped continuation of the original private reply, not new authority from child text. |
+| Product/IM authority boundary | Bridge injects metadata outside args. PA resolves the original Inbox row and requires owner+participant metadata; IM revalidates ownerMessage/current readable original source. The new classification enters the same private destination flow. External/shared sends retain existing independent review. | Reviewed path does not turn observer content or a child claim into owner authorization. |
+| Cancellation/restart/later unrelated turns | Explicit native interrupt removes the stored mapping; aborted turn prevents grant. A real restart preserves origin references for an actually resumed/returning child. Current-turn inputEvidence prevents unrelated later turns from reusing the result. | Independently exercised return/cancel/restart plus later unrelated input. No universal claim about untested native event interleavings. |
+| Preparation guidance | Read actual settings, then relevant source coverage; prepare/authorized_action permit useful private preparation from a concrete commitment, response_only does not explore. No external action or responsibility takeover is authorized. This addresses the observed P01 refusal without changing runtime authority. | Design-aligned guidance; actual fixed P01 behavior remains pending. |
+| Mode-name interface correction, CR-05 (closed in this round) | Initial text said `delegate`, while settings only accepts/returns response_only/prepare/authorized_action. Caller changed that single value to `authorized_action` at 671de6ac4; compared directly with personal-attention.ts validation. | Confirmed naming inconsistency closed; no real authorized_action-mode behavioral claim. The running earlier P01 prepare-mode sample cannot prove this mode branch. |
+| Observation capture | Common idle() checks root and latest visible child turns; observe now additionally waits for five seconds of actual idle/stable root revision, without requiring a public reply. New protocol test covers root then child completion and last revision reset. | Prevents collecting/stopping while known active work remains; does not grade P03 or other real behavior as passed. |
+| Forget callback TS narrowing | Capture forgetKey before callback resolves the union type without changing continuation/erase authority semantics. Three affected packages have an explicit successful build log, distinct from earlier JS emitted despite type errors. | Source/runtime boundary retained; build evidence accurately upgraded. |
+
+Independent commands: `pnpm exec vitest run packages/dsh-integration/tests/personal-delivery-evidence.test.ts apps/im-server/tests/personal-attention.test.ts packages/personal-assistant/tests/personal-assistant.test.ts packages/dsh-integration/tests/personal-context.test.ts` → **35/35 passed**, `/tmp/pa665-independent-round6.log`; `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.py` → **12/12 passed in 0.38s**. The native tests use real subprocesses/DSH events and scripted providers; they prove the tested provenance/guard/receipt conditions, not natural model completion. Reused `/tmp/pa665-child-return-build2.log` explicitly shows integration, PA and IM builds Done.
+
+Read the new M1/M2/M3 evidence ledgers, validation.md and acceptance through its latest appended Round 5. They preserve real D08 and P01 failures; no runtime-test success overwrites those. New worker and product evidence narrows V-01, as mapped in verification Round 6. Actual repaired P01/D08 runs and complete 58-case classification/core replay comparison are still being collected. No production action or source/test/design edit by this reviewer; native fixture resources are disposed by their tests.

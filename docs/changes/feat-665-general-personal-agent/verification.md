@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 5 CR-04 closure at `d2a6f53d2`: 1 CRITICAL evidence gap, 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 6 focused delta through `671de6ac4`: 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -192,3 +192,32 @@ Context evidence reuses code-review.md Round 5's exact-body Store and native req
 The independent product `acceptance.md` Round 4 supplies versioned real evidence for the original PA-5 mixed forget/correct request: correction committed before empty-continuation forget, actual private erasure receipt, and later cross-chat 10–12 candidates. This closes that original actual journey and supports retention of the successful empty-summary path. The acceptance report still has its broader fail/inconclusive/recovery and scenario evidence gaps. **V-01 remains pending** for the full-unit package already being collected; this targeted closure does not waive or expand those exits. Original real failures and all prior review rounds remain recorded.
 
 Only review reports were modified. No unrelated full-suite rerun, production action, new live service or test/source/design change was made. Synthetic Store reproduction data was cleaned.
+
+## Round 6 — focused delta and V-01 evidence mapping
+
+- verification_mode: `delta`; review_round: `6`; source range `e453eb019..42844df8b` plus the one-line mode-name closure `671de6ac4`.
+- requires_full_verification: `false`; prior complete source coverage/closed findings remain valid outside this focused delta.
+- verdict: **incomplete overall**, reviewed source delta aligned; critical **1** (V-01), warning **0**, suggestion **0**. Latest code findings `[]`; enum naming issue raised during review is fixed, not left open.
+
+| Focus / contract | Actual implementation and applicable evidence | Disposition |
+|---|---|---|
+| Original delegated work reaches private owner after child returns; W01/W03/D08 | Durable spawn/current native consumed-return provenance is host-owned, direct-child/non-aborted/current-turn checked. PA resolves original owner participant Inbox input, IM rechecks ownerMessage. Explicit cancel removes origin mapping; cold resume retains it only for the actual later return. | Independently tested source/guard seams; actual repaired D08 journey/adjudication pending |
+| Private preparation distinct from takeover; P01 and design proactivity modes | Settings read + current coverage now precedes deciding whether to privately draft; prepare/authorized_action can prepare observed commitments, response_only does not. External permission unchanged. `delegate` typo is replaced with the real settings enum. | Design/Context interface aligned; actual repaired P01 prepare-mode result pending; authorized_action natural behavior unverified |
+| Observe only captures settled runtime; design evaluation evidence truthfulness | observe uses the shared root/child idle check and five-second revision stability. New no-reply observation protocol regression passes. | Harness control flow aligned; does not itself adjudicate real P03 |
+| Callback narrowing/build | The actual forget request key is captured before the callback; no new authority/state semantic. `/tmp/pa665-child-return-build2.log` explicitly has three affected builds successful. | Prior CR-04 closure retained; do not conflate an earlier emit with a successful type check |
+
+Independent affected tests are **35/35** (`/tmp/pa665-independent-round6.log`); protocol **12/12**. Focused Context trace is reused from code-review Round 6 rather than repeating the full Context review.
+
+### V-01 — accumulated evidence and what remains
+
+Read [M1 worker evidence](M1-memory/evidence.md), [M2 worker evidence](M2-proactive/evidence.md), [M3 worker evidence](M3-delivery/evidence.md), [validation ledger](validation.md) and the independent [acceptance report](acceptance.md). These materially strengthen the exit package. They must keep the following distinct scopes:
+
+| Exit area | Evidence now usable within its stated seam | Still not established / being collected |
+|---|---|---|
+| M1 records/correction/erasure/maintenance/migration | Real file lock, revision and projection behavior; native next-request refresh/notes/history/restart; native frozen combined maintenance revision race and private-global guard; current/prior continuation rejection; migration/failure/retry receipts. Actual M03/M04/M10/M12 representative behavior and real mixed forget+correction/cross-group next use are independently described in acceptance. | Broader applicable actual-model/source/failure combinations not covered by these representatives remain classified, not inferred. M05 did not actually expose the third-party claim; M08 used one large record and cannot prove 90 independent-record pagination. |
+| M2 context/attention/delivery/feedback | Real SQLite page/cursor/revoke/coverage/version/dedup and native Schedule/source/selection tests; actual new-card feedback, snooze expiry, old-card handling and full ten-minute observer→private draft→compose adoption without send. Source preview leak actual failure and fixed canary, plus child-return tested provenance, are preserved. | Actual P01 general-commitment failure PA-6 remains historical and fixed-version rerun is pending. P03 snapshot previously ended running; the corrected settle runner and its tests do not retroactively turn it into a final result. Other source/quiet/coverage scenarios need their actual classifications. |
+| M3 execution/roles/artifact/recovery | Native live/cold canonical Task withdrawal and no-model-after-late-input guard; restricted task/observer file/tool seams; media bytes/version/idempotency; real Web file downloads, actual shared recipient access, frozen approved copy after private revision; actual stale-owner-review race re-read/review and exactly one send. | Actual repaired D08 child result delivery is pending. Required natural behavior/fault/recovery/checkpoint coverage remains bounded by the available evidence; deterministic adapter unknown-result tests are not a real external-platform fault. External live accounts remain separately blocked where absent. |
+| CI/build | Validation binds supported Node24 full build/typecheck/iOS-runtime to bd1cb8cf0; broad suite 792/794 with two original timeouts and affected 6/6 replay honestly retained. Web 1031, docs 283, Python/architecture 70, lint and later scoped three-package build/affected tests have explicit locators. | Final merged documentation/type/required remote-CI head is not yet supplied. Preserve version differences and the initial timeouts instead of claiming a single universal green run. |
+| Evaluation exits | 58 executable mappings and truthful protocol/checkpoint/adjudication machinery, now 12 tests. Independent acceptance examines actual model/provider/tool/user evidence rather than trusting automatic labels. | Complete actual 58-case result classification, at least three independent core replays with comparable old-model/tool baseline and honest unavailable comparisons, plus the running corrected P01/D08 outcomes and aggregate evidence package are still outstanding. This does not require all 58 scenarios to run three times; the design specifically requires repeated core coverage. |
+
+**V-01 remains pending**, without reopening closed code findings or mechanically repeating unaffected suites. Real product failures, including original P01/D08, remain in the evidence history until a separately versioned fixed-path result can be attached. No active code WARNING or asserted design defect remains in this delta. Reports are the only reviewer changes; no independent production actions or persistent services were created.
