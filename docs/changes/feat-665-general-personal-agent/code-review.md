@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 4 patch review requires a fix at `085b1b896`**: one CONFIRMED / WARNING finding (CR-04). Earlier full-review findings and closures remain historical; V-01 evidence collection remains pending.
+Current code verdict: **Round 5 CR-04 closure passes at `d2a6f53d2`**, no surviving findings (`code-review.json=[]`). Earlier findings/reproductions are preserved; V-01 exit-evidence collection remains pending.
 
 ## Snapshot and verdict
 
@@ -135,3 +135,25 @@ Actual output:
 Thus records are erased and the receipt is complete, while the post-rollover model can still consume the exact erased body. This does not rely on paraphrase detection, an adversarial owner or a hypothetical external plugin bypass; it is the new controlled handoff accepting an accidentally copied body. It does not claim a real model has naturally generated this argument.
 
 Before persisting/submitting the handoff, reject or remove known erased content and require a clean remaining-work summary; if that layer is not safely cleaned, do not mark it complete or consume it. Keep the working continuity path and avoid inventing a general semantic erasure system. The temporary workspace and runtime from this reproduction were shut down and removed.
+
+## Round 5 — CR-04 targeted closure
+
+- review_mode: `closure`; finding_origin_head: `085b1b89611c642162e577e30dbdb268cbb7206f`; validated_at: `d2a6f53d2c666e6c06b05c89ece6a377abd1e489`.
+- Focus: CR-04 confirmed exact-body reproduction and the modified continuation validation/persistence/idempotency path. Earlier full-review coverage and unrelated closures retained. Historical CR-04 machine-readable finding is preserved in `code-review-r4.json`; latest findings are `[]`.
+
+The existing memory lock now encloses validation against the selected current normalized body and associated prior-body hashes/lengths. A matching exact current/prior body is rejected before `prepareForget` or publishing the erase transaction. Prior tombstones retain only normalized content hash/length; missing historical length fails closed for nonempty summaries with a concrete empty-summary recovery. Safe continuation is persisted by callback only after validation/apply succeeds and before the erasure authority commits. An already-complete replay does not call prepareForget, so it does not leave a new transient handoff.
+
+Independent validation:
+
+- `pnpm exec vitest run packages/dsh-integration/tests/personal-memory.test.ts packages/dsh-integration/tests/personal-memory-context.test.ts packages/dsh-integration/tests/personal-artifacts.test.ts` → **15/15 passed**, `/tmp/pa665-independent-round5.log`, 2026-10-26 20:51 Asia/Shanghai. The modified real native context test supplies current and previous exact bodies: both return isError, current record remains, no pending forget is created. Its subsequent clean summary reaches the rollover with remaining work/private DM, the secret is absent, and the existing restart fence probe remains passing.
+- Direct compiled Store reproduction of the exact CR-04 synthetic marker `SYNTHETIC-ERASE-865`, followed by corrected historical-body and missing-length cases, produced:
+
+```json
+{"currentBodyRejected":true,"priorBodyRejected":true,"legacyMissingLengthRejected":true,"emptySummaryCompletes":true,"completeReplayDoesNotPrepare":true,"prepareCount":1,"recordCount":0}
+```
+
+The callback counter stays zero after each unsafe request; only the valid empty-summary erase prepares it once, and completeForget followed by the same complete replay does not increment it. Temporary synthetic Store data was removed. These direct boundary checks do not claim semantic paraphrase removal or natural model reliability beyond the exact reported defect.
+
+**CR-04: closed.** No new surviving CONFIRMED/PLAUSIBLE finding in the reviewed fix. The existing clean/empty handoff path is retained; no general-purpose semantic erasure layer or speculative edge-case loop was requested.
+
+The independent product report's Round 4 at `085b1b896` closes the original PA-5 mixed-request failure using real correction-before-forget, an empty continuation, a received erasure receipt and later cross-group morning candidates. That is relevant evidence for the original successful mixed-request path; it does not retroactively remove R1/Round 3 failed evidence or settle the still-incomplete full-unit V-01 package. No source, tests, design or runtime configuration was edited by this reviewer.

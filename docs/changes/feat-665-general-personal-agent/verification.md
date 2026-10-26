@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 4 focused delta at `085b1b896`: 1 CRITICAL evidence gap, 1 WARNING (CR-04), 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 5 CR-04 closure at `d2a6f53d2`: 1 CRITICAL evidence gap, 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -171,3 +171,24 @@ Action: ensure the new handoff cannot carry the known erased body before it is p
 Independent affected tests: **33/33**, `/tmp/pa665-independent-round4.log`; exact command and isolated native reproduction appear in code-review.md. The working clean-summary fixture and these tests do not refute CR-04, because they supply a summary without the erased value.
 
 V-01 remains pending. Caller-reported final build/typecheck/iOS-runtime, broad Web/docs/Python/lint checks and narrowed timeout rechecks can be retained against their actual version/commands. They do not replace the still-collected provider/actual model/product/checkpoint/core replay/comparison evidence; this focused review does not prematurely close that item or rewrite R1 real failures. No new full-suite rerun or production action was performed. Reviewer-created repro subprocess/workspace was cleaned; only review reports are modified.
+
+## Round 5 — targeted-closure of V-05 / CR-04
+
+- verification_mode: `targeted-closure`; review_round: `5`.
+- fix_delta_range: `3dca27c23..d2a6f53d2c666e6c06b05c89ece6a377abd1e489`; finding_origin_head: `085b1b89611c642162e577e30dbdb268cbb7206f`.
+- focus_issues: `V-05/CR-04`; requires_full_verification: `false`. Prior full review/source boundary conclusions remain where unaffected.
+- verdict: **incomplete overall**; focused implementation issue **closed**. critical **1** (V-01 still pending), warning **0**, suggestion **0**; latest code findings `[]`.
+
+| Focus | Independent evidence | Disposition |
+|---|---|---|
+| Current exact erased body cannot survive in continuation | Validation occurs inside the existing memory lock, before the handoff callback and erase authority commit. Direct original-marker case and updated real native unsafe-current path reject the call; record remains and no pending receipt is created. | V-05 current-body path closed |
+| Associated prior exact body cannot survive | Tombstone normalized hash/length matches substring without storing old body. Direct prior-body and native unsafe-prior paths reject; no handoff callback. | V-05 historical-body path closed |
+| Historical missing lengths and safe recovery | Nonempty summary explicitly fails closed; empty summary can finish after other actions. Direct synthetic state check passes. | Aligned with revised design, no silent unsafe fallback |
+| Persisted handoff and complete replay | Callback runs only after validated/applicable erase and before authority publication; complete replay does not prepare a new handoff. Independent callback count remains one after completed replay. | Closed at reviewed boundary |
+| Legitimate continuity and restart | Updated native test retains clean remaining-work summary and fixed DM, removes secret from assembled messages and passes restart fence. Independent affected run 15/15 (`/tmp/pa665-independent-round5.log`). | Existing good path retained |
+
+Context evidence reuses code-review.md Round 5's exact-body Store and native request/receipt checks. It proves the confirmed deterministic erasure-handoff defect is fixed, without claiming complete semantic erasure or that every real model continuation is correct.
+
+The independent product `acceptance.md` Round 4 supplies versioned real evidence for the original PA-5 mixed forget/correct request: correction committed before empty-continuation forget, actual private erasure receipt, and later cross-chat 10–12 candidates. This closes that original actual journey and supports retention of the successful empty-summary path. The acceptance report still has its broader fail/inconclusive/recovery and scenario evidence gaps. **V-01 remains pending** for the full-unit package already being collected; this targeted closure does not waive or expand those exits. Original real failures and all prior review rounds remain recorded.
+
+Only review reports were modified. No unrelated full-suite rerun, production action, new live service or test/source/design change was made. Synthetic Store reproduction data was cleaned.
