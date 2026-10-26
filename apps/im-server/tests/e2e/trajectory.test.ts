@@ -7,13 +7,14 @@ import { bind, cleanups, Frames, start } from './helpers.js';
 it('pairs a shared Work reader separately from device traffic and revokes both observer ends', async () => {
   const f = await start(), device = await bind(f);
   await device.frames.send('agent.work.append', { node_id: device.node, journal_id: 'native-work', from_seq: 1,
-    events: [{ seq: 1, event_id: 'register', root_agent_id: 'global', session_id: 'main-native', type: 'session_registered', observed_at: new Date().toISOString(), payload: { scope: 'global_main' } }] });
+    events: [{ seq: 1, event_id: 'register', root_agent_id: 'global', session_id: 'main-native', type: 'session_registered', observed_at: new Date().toISOString(), payload: { scope: 'global_main' } },
+      { seq: 2, event_id: 'maintenance-link', root_agent_id: 'global', session_id: 'main-native', type: 'session_linked', observed_at: new Date().toISOString(), payload: { parent_session_id: 'main-native', child_session_id: 'maintenance-native', title: '记忆与技能复盘' } }] });
   const ticket = await f.http('POST', '/im/v1/auth/ws-ticket', {}, f.tokens.bob);
-  const browser = new WebSocket(f.base.replace('http:', 'ws:') + `/im/ws/agent-trajectory?ticket=${ticket.body.ticket}&agent_id=global&session_id=main-native`, { origin: 'http://127.0.0.1:8011' });
+  const browser = new WebSocket(f.base.replace('http:', 'ws:') + `/im/ws/agent-trajectory?ticket=${ticket.body.ticket}&agent_id=global&session_id=maintenance-native`, { origin: 'http://127.0.0.1:8011' });
   cleanups.push(() => browser.terminate());
   const browserFrames = new Frames(browser);
   const prepare = await device.frames.next(frame => frame.type === 'trajectory.prepare');
-  expect(prepare.payload.scope).toMatchObject({ rootAgentId: 'global', sessionId: 'main-native', ownerId: 'alice' });
+  expect(prepare.payload.scope).toMatchObject({ rootAgentId: 'global', rootSessionId: 'main-native', sessionId: 'maintenance-native', ownerId: 'alice' });
   const url = f.base.replace('http:', 'ws:') + `/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`;
   const node = new WebSocket(url), nodeFrames = new Frames(node);
   cleanups.push(() => node.terminate());
