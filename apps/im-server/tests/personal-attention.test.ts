@@ -67,6 +67,7 @@ it('snoozes with an explicit pending schedule receipt, and single dismissal does
  const f=setup(),item=await f.candidate(),until=new Date(Date.now()+3600000).toISOString();
  const snoozed=await f.command({action:'snooze',id:item.id,expected_revision:1,idempotency_key:'later',owner_instruction_id:f.owner.id,snoozed_until:until});
  expect(snoozed).toMatchObject({status:'snoozed',schedule_status:'pending'});
+ expect(await f.command({action:'snooze',id:item.id,expected_revision:1,idempotency_key:'later',owner_instruction_id:f.owner.id,snoozed_until:until,exploration_batch_id:'host-session:turn-2'})).toEqual(snoozed);
  expect(await f.call('pa.attention.snooze.complete',{id:item.id,expected_revision:snoozed.revision,schedule_id:'native-1',scheduled_at:until})).toMatchObject({schedule_status:'scheduled'});
  const dismissed=await f.command({action:'dismiss',id:item.id,expected_revision:snoozed.revision,idempotency_key:'dismiss',owner_instruction_id:f.owner.id});
  expect(dismissed.status).toBe('dismissed');expect((await f.command({action:'settings'})).suppressed_topics).toEqual([]);

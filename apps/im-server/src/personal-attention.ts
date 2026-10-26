@@ -132,7 +132,7 @@ export class PersonalAttention {
   if(!['upsert','snooze','dismiss','resolve','link'].includes(args.action))fail(422,'invalid_attention_action');
   required(args.idempotency_key,'idempotency_key',200);
   if(args.action==='upsert')required(args.exploration_batch_id,'exploration_batch_id',300);
-  const {request_id:_requestId,...operation}=args;
+  const {request_id:_requestId,exploration_batch_id:_explorationBatchId,...operation}=args;
   const payload=canonicalJson(operation);
   return transaction(this.db,()=>{
    const prior=one(this.db,'SELECT * FROM pa_attention_mutations WHERE binding_id=? AND request_key=?',b.binding_id,args.idempotency_key);

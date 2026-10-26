@@ -43,6 +43,30 @@ it('serializes concurrent writes and refuses stale record or maintenance scope r
   expect((await store.snapshot()).records.find(item => item.id === record.id)?.content).toBe('Corrected');
 });
 
+it('accepts a fresh owner correction back to an earlier value while refusing stale source replay', async () => {
+  const { store } = await fixture();
+  await store.execute(add('a', 'Prefer afternoon'), context());
+  const record = (await store.snapshot()).records[0]!;
+  await store.execute({ ...add('b', 'Prefer morning', 'second'), id: record.id, expected_revision: 1 }, context('second'));
+  await expect(store.execute({ ...add('stale', 'Prefer afternoon'), id: record.id, expected_revision: 2 }, context())).rejects.toThrow('superseded');
+  await store.execute({ ...add('c', 'Prefer afternoon', 'third'), id: record.id, expected_revision: 2 }, context('third'));
+  expect((await store.get(record.id)).records[0]).toMatchObject({ revision: 3, content: 'Prefer afternoon' });
+});
+
+it('limits duplicate forgetting and replay fences to the same subject and context', async () => {
+  const { store } = await fixture();
+  const content = 'Does not eat seafood';
+  await store.execute(add('owner', content), context());
+  await store.execute({ ...add('partner', content), subject_ref: 'partner' }, context());
+  await store.execute({ ...add('other-context', content), applicability: 'during training' }, context());
+  const owner = (await store.search({ action: 'search', subject_ref: 'owner' })).records.find(record => !record.applicability)!;
+  await store.execute({ action: 'forget', id: owner.id, expected_revision: 1, idempotency_key: 'forget' }, context());
+  expect((await store.search({ action: 'search' })).records).toHaveLength(2);
+  const partner = (await store.search({ action: 'search', subject_ref: 'partner' })).records[0]!;
+  await store.execute({ ...add('partner-update', content), subject_ref: 'partner', id: partner.id, expected_revision: 1 }, context());
+  expect((await store.get(partner.id)).records[0]?.revision).toBe(2);
+});
+
 it('forgets bodies, fences old inputs durably and prevents source/content and receipt replay', async () => {
   const { store, home, root } = await fixture();
   await store.execute(add('a', 'Secret preference'), context());

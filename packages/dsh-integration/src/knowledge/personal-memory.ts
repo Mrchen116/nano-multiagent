@@ -43,7 +43,7 @@ export interface PersonalMemorySnapshot {
 export interface PersonalMemoryQueryResult {
   revision: number; records: PersonalMemoryRecord[]; next_cursor: string | null;
 }
-interface Tombstone { record_id: string; content_hash: string; source_ids: string[]; timestamp: string; forgotten: boolean }
+interface Tombstone { record_id: string; scope_hash: string; content_hash: string; source_ids: string[]; timestamp: string; forgotten: boolean }
 interface SavedReceipt { request_hash: string; value: PersonalMemoryReceipt }
 interface MemoryState {
   schema_version: 1; binding: PersonalMemoryBinding; revision: number; records: PersonalMemoryRecord[];
@@ -58,6 +58,7 @@ const canonical = (value: unknown): string => {
   if (value && typeof value === 'object') return `{${Object.entries(value).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
   return JSON.stringify(value);
 };
+const scopeHash = (record: { subject_ref: string; domain?: string; applicability?: string }) => hash(canonical([record.subject_ref, record.domain ?? '', record.applicability ?? '']));
 const current = (record: PersonalMemoryRecord, now: number) => record.status === 'active'
   && (!record.valid_from || Date.parse(record.valid_from) <= now) && (!record.valid_until || Date.parse(record.valid_until) > now);
 
@@ -233,7 +234,9 @@ export class PersonalMemoryStore {
       const sources = change.source_refs.map(id => context.sources?.find(source => source.id === id));
       if (!sources.length || sources.some(source => !source?.verified)) throw new Error('Memory upsert requires verified current sources');
       const content = change.content.trim();
-      if (state.tombstones.some(tombstone => tombstone.content_hash === contentHash(content) || tombstone.forgotten && sources.some(source => tombstone.source_ids.includes(source!.id)))) throw new Error('Memory source/content was forgotten or superseded; replay refused');
+      if (state.tombstones.some(tombstone => tombstone.scope_hash === scopeHash(change) && (tombstone.forgotten
+        ? tombstone.content_hash === contentHash(content) || sources.some(source => tombstone.source_ids.includes(source!.id))
+        : tombstone.content_hash === contentHash(content) && sources.every(source => tombstone.source_ids.includes(source!.id))))) throw new Error('Memory source/content was forgotten or superseded; replay refused');
       if (record && contentHash(record.content) !== contentHash(content)) this.tombstone(state, record, now, false);
       const next: PersonalMemoryRecord = { id: record?.id ?? randomUUID(), revision: (record?.revision ?? 0) + 1, target: change.target ?? record?.target ?? 'memory',
         kind: change.kind, subject_ref: change.subject_ref, domain: change.domain, applicability: change.applicability, content, certainty: change.certainty,
@@ -250,7 +253,7 @@ export class PersonalMemoryStore {
         // Remove every copy tied to this fact, including old revisions of corrected records.
         const related = state.tombstones.filter(tombstone => tombstone.record_id === record.id);
         for (const tombstone of related) tombstone.forgotten = true;
-        const removedIds = new Set(state.records.filter(item => item.id === record.id || related.some(tombstone => tombstone.content_hash === contentHash(item.content))).map(item => item.id));
+        const removedIds = new Set(state.records.filter(item => item.id === record.id || related.some(tombstone => tombstone.scope_hash === scopeHash(item) && tombstone.content_hash === contentHash(item.content))).map(item => item.id));
         for (const item of state.records) if (removedIds.has(item.id) && item.id !== record.id) this.tombstone(state, item, now, true);
         state.records = state.records.filter(item => !removedIds.has(item.id));
         for (const saved of Object.values(state.receipts)) if (saved.value.record_id && removedIds.has(saved.value.record_id)) saved.value.status = 'invalidated';
@@ -261,7 +264,7 @@ export class PersonalMemoryStore {
     }
   }
   private tombstone(state: MemoryState, record: PersonalMemoryRecord, now: string, forgotten: boolean) {
-    state.tombstones.push({ record_id: record.id, content_hash: contentHash(record.content), source_ids: record.source_refs.map(source => source.id), timestamp: now, forgotten });
+    state.tombstones.push({ record_id: record.id, scope_hash: scopeHash(record), content_hash: contentHash(record.content), source_ids: record.source_refs.map(source => source.id), timestamp: now, forgotten });
   }
   private async migrate(state: MemoryState, legacy: { user: string; memory: string }, context: PersonalMemoryContext) {
     const now = new Date().toISOString();
