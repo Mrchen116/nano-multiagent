@@ -177,7 +177,7 @@ export class GlobalAgent {
       if(!await this.personal.source(config,input)){await this.receipt(input,'completed');return;}
       if(input.metadata.personal_is_owner!==true||input.metadata.personal_delivery!=='participant')await this.main(config);
     }
-    if (config.personal && !await this.personal.admit(config,binding,input)) { await this.receipt(input,'completed'); return; }
+    if (config.personal && !await this.personal.admit(config,binding,input)) { this.options.inbox.rejectInput(input); await this.receipt(input,'completed'); return; }
     const ownerControl = !config.personal || input.metadata.personal_is_owner === true && input.metadata.personal_delivery === 'participant'
       && needsAttention(input,{...config,groupReplyPolicy:'mention_only'});
     const command = controlText(input);
@@ -282,7 +282,7 @@ export class GlobalAgent {
     await this.refreshPersonalSources(config);
     for (const input of this.options.inbox.unclassified(config.agentId)) {
       if (await this.personal.admit(config,await this.main(config),input)) this.options.inbox.classify(input,input.metadata.personal_delivery==='participant' && needsAttention(input,config));
-      else this.options.inbox.revokeSource(config.agentId,input.conversation_id);
+      else this.options.inbox.rejectInput(input);
     }
   }
   private async notifyBackground(config: AgentConfiguration, binding: SessionBinding): Promise<void> {

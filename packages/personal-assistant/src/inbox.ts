@@ -180,6 +180,14 @@ export class InboxStore {
       .run(watermark,Number(notified),now,agent);
     this.background(agent,now);
   }
+  /** Retire one rejected input without dropping other messages from its conversation.
+   * Args:
+   *   input: Source-authenticated message whose admission was denied.
+   */
+  rejectInput(input: RelayInput): void {
+    this.db.prepare('UPDATE inbox SET consumed=1 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);
+    this.finishControl(input);
+  }
   /** Remove a revoked source from future reads and frozen page caches. */
   revokeSource(agent: string, target: string): void {
     // Saved model projections changed shape; fragment ownership is stable across versions.

@@ -48,8 +48,9 @@ The runner creates real distinct user identities and owner/PA, work, family and
 shared conversations. Third-party text is actually sent by another user, never
 embedded in an owner instruction pretending to be third party. Same-name people
 have different real IDs. Only those conversations remain in the PA's source
-scope. Cases with observation intervals enable the existing heartbeat at ten
-minutes; no new scheduler or fake wake is introduced. `observe` waits real time
+scope. Source observation uses the existing ten-minute Inbox batch. Only the unchanged
+attention scenario P05 explicitly enables Heartbeat; no new scheduler or fake
+wake is introduced. `observe` waits real time
 and records Work samples. A wall-clock wait alone does not prove a heartbeat
 ran. Review must inspect its actual trace. Times in the source fixture are
 nominal; live timestamps and relative dates are captured from the actual run.
@@ -164,7 +165,7 @@ claims to connect an external account on its own.
 ## Repetitions and baseline comparison
 
 The smoke selection is M01/M02/M06/M09/P01–P04/I05/W01/W03/W04/W06/D08/U01/S03.
-Run at least three independent fresh stacks for each selected case and condition,
+Run at least three independent fresh stacks for each selected core case and condition,
 then supply their output directories:
 
 ```bash
