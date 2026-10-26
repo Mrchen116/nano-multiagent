@@ -146,3 +146,44 @@ All ten passed (exit0). Each had exactly two complete recovery/cost rows, two us
 ### Context impact / remaining boundary
 
 R1 Mode B coverage and its limits remain applicable: this patch changes when the already promised final audit route is derived, not prompts, source projection/admission, model/effort, schemas, reviewer identity, recovery quota or disclosure lifetime. The changed audit path was checked together with actual returned decisions and fallback linkage above. No new Context finding or need to repeat full Mode B was established. New true-IM route fixtures, later source changes, Q version reconciliation and corrected delta are outside this fixed patch. **CR-1 closed is not whole-unit/CI/Q acceptance**; retained verifier C-1 is still open. No full re-review is required by this delta.
+
+## Round 3 — test-only patch
+
+- `review_mode`: `patch`; `review_round`: `3`.
+- Exact diff: `2190fb380..fe623b4bb8227f06d720cd5b11f81dd98e5af72f`.
+- `validated_at`: `fe623b4bb8227f06d720cd5b11f81dd98e5af72f`; tree `b7b3f470d628b930c56ec594d48d952772acdaee`.
+- `executed_base`: `d72e220f1d21827c65e046f704c13837ea39d7c2`; previous implementation review remains at32a45. Initial clean HEAD/tree/merge-base and fixed delta were independently checked. Ten changed files are tests, fixture/helper and progress only; no production/src/spec/design/target-delta change. R1/R2 remain historical, unchanged; their report commit03de1a917 and Q report commit2190fb380 are not reinterpreted as implementation changes.
+
+**Result: 0 CRITICAL / 0 WARNING; no live patch finding.**
+
+```json
+[]
+```
+
+### Coverage and concrete checks
+
+| Patch surface | Independent review result / limits |
+|---|---|
+| Shared `_auto_review_retry.py` extraction | Fixed-Git AST comparison confirms all pre-existing test/journey/configuration functions/decorators and moved `_records/_trace/_login` are unchanged. Resolving new `_stack`'s default basic-profile branch and removing only its added keyword defaults produces the exact old `_stack` AST. Root resolution remains correct at the same directory depth; owned stack/fixture finally cleanup is retained. |
+| New real-IM route matrix | `test_auto_review_routes_critical_path.py:14–187`: seven profile/fallback parameter rows×two actual agent strategies, shared real IM HTTP/WS path, three pending-bash review requests, technical no_verdict with zero deny counters, exact finalRoute/retries2/transient, timer fallbackOutcome, zero effect except exactly one line under configured timer allow, no non-interactive permission card, stable config/Auto snapshot. Global/child deliberately configure allow yet assert return_to_agent/zero effect. |
+| Genuine route entry rather than forged source | Fixture Global bootstrap calls Inbox check/read to acquire the real message; child emits a native subagent call and verifies two main session IDs. Schedule emits native schedule_create/after_seconds and waits for later timer execution; heartbeat writes substantive HEARTBEAT.md then enables the real IM heartbeat config. No synthetic RuntimeClient session.submit/source injection was added. Schedule/heartbeat markers and audit route are checked together, not treated as authorization by themselves. |
+| Fixture discrimination | `_pending_tool` reads only explicit planned action/last CC action row. Ancillary route tools receive valid fixture allow; only the pending bash gets actual HTTP503 on every attempt. Per-session **main** ordinals are separated from reviewer ordinals (CC shares a native session with its parent); this prevents the prior fixture counter issue from skipping public ACK. This is a model stub, not live-model tool selection. |
+| Complete continuous/mixed budgets | `review-recovery-budget.test.ts:9–69` checks three exact30/60/90s timeouts, timeout→503→timeout with the shared two-extra ceiling/no fourth call, CC normal stage progression sharing the quota, and generation revocation at360s/no successor. Fake timers drive real controller cancellation; the near-wall test intentionally starts a low-level attempt at359999ms, not a claim that a normal production action needs that preparation time. |
+| Permanent configuration negative control | `review-recovery.test.ts:50–58` adds CONFIGURATION with status503 and requires permanent, one callback, retries0. It cannot pass merely because status503 was classified transient. |
+| Context/technical-retry combination | `codex-approval-lifecycle.test.ts:142–164`: overflow→503→503→allow uses exactly one action rebuild/two service retries; repeated overflow after503 fails with no second rebuild. Assertions cover call/attempt counts,90s budgets, unique reviewer IDs and original evidence in every input. Synthetic create/turn handles, not native HTTP/provider input evidence. |
+| Disposal harness correction | `pending.catch` in synthetic handle dispose drains an already failed judgment rather than rethrowing judgment failure as disposal failure. Explicit lifecycle disposing hook still runs before that catch, so its failure is not swallowed. Existing late-create/quarantine/blocked-disposal and cancellation tests remain; no production cleanup behavior changed. |
+| Audit-write-failure negative controls | `approval-retry.test.ts:31–48`: public Cordis pre-execute, valid allow/deny/unavailable with existing unattended allow config; mutation then controlled persistence rejection must propagate. Exactly one review/write, zero synthetic effect and no durable row. This targets facade failure propagation, not service recovery or actual IM disk outage; it does not fake a durable row on error. |
+
+### Executed evidence
+
+- Independently ran the four source files at cleanfe623: `pnpm exec vitest run packages/dsh-integration/tests/review-recovery-budget.test.ts packages/dsh-integration/tests/review-recovery.test.ts packages/dsh-integration/tests/codex-approval-lifecycle.test.ts packages/dsh-integration/tests/approval-retry.test.ts` → **45/45, four files, exit0**,15:59:53+08,948ms. These are fake-clock/in-memory tests; no native services, build or daily stack were started/touched.
+- `NANO_TEST_BASE_REF=d72e220f1d21827c65e046f704c13837ea39d7c2 .venv/bin/python -m pytest tests/contract/test_test_naming_and_size_contract.py -q` → **2passed0.25s, exit0**. Shared helper201lines, retry246, configuration64, routes187; new tests stay within400.
+- `pytest <retry/configuration/routes paths> --collect-only -q` → **13 parameterized cases**, exit0; old six remain plus seven route rows. Collection does not run a service.
+- Read-only existing `output/feat625-routes-r3/test_real_im_exhaustion_preser{0,1}/requests.jsonl` and r5`{0,1,2,3}`:12 policy/profile captures each have exactly three pending-bash review HTTP requests; child has two main session IDs, schedule/heartbeat captures contain actual wake prompts. Structural assertions passed; no raw prompts/identities copied into this report. These are **4282 compiled-runtime captures**, not fe623 execution.
+- Read worker-transcribed `output/feat625-post-q-r1-execution-receipts.json:1–38`: exact commands/env and job233/239 failures, job2414timer cases pass114.03s, job24345/source checks. Original stdout was not teed; this is an inspected transcription of native completion receipts, not independently read original stdout. The recorded fixture startup/assertion failures remain failures, not silently included in an all-green matrix. New same-SHA whole-stack/Q run remains pending.
+
+### Context and gate boundary
+
+Production consumers, prompts, source selection, effort/schema, context reconstruction and PA namespace/parser are unchanged, so R1 Mode B with R2's retained boundary remains applicable; another full Mode B would not inspect new production input behavior. The new tests' trust-sensitive route acquisition and synthetic evidence claims were specifically checked above. They add verification, not authority or a product debug switch. There is no new Context finding and no reason to widen to full code review.
+
+CR-1/W-1/W-2 stay closed at their reviewed implementation/test versions. C-1 remains open: the Q R1 report is fail/inconclusive at4282, old fixture success cannot be relabeled fe623, and coordinated new build/whole matrix/Q/current-spec/corrected-delta/CI remain outside this patch signature. Reports are the reviewer's only writes; original author retains implementation, runtime and further fixes.

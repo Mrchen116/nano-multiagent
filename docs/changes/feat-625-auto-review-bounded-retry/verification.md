@@ -187,3 +187,66 @@ Prototype / Reference: N/A, unchanged. Runbook health probe correction and addin
 ### R2 handoff
 
 `validated_issues`: W-1 closed, W-2 closed, C-1 still_open. `requires_full_verification=false`. `top_concern`: continue independent product/route/CI/final-delta closure without relabeling old Q binaries as new-SHA execution. Original author remains the repair executor. Reports are the only reviewer edits and are handed to coordinator for report-only commit; no service, build or worktree cleanup action was needed. Future route-fixture or other changes need their own actual frozen delta check, not an implied approval from this R2.
+
+## Round 3 — test-only delta
+
+> Validation snapshot: `d72e220f1d21827c65e046f704c13837ea39d7c2 → fe623b4bb8227f06d720cd5b11f81dd98e5af72f`
+
+- `verification_mode`: `delta`; `review_round`: `3`; exact `fix_delta_range`: `2190fb380..fe623b4bb8227f06d720cd5b11f81dd98e5af72f`.
+- Initial clean HEADfe623/tree`b7b3f470d628b930c56ec594d48d952772acdaee`, executed base/merge-based72e independently confirmed. Previous production fix remains exactly32a45;10-file delta contains only tests/fixture/helper/progress. No source/spec/design/target-delta changes, no reason to reopen full implementation review.
+- `requires_full_verification=false`. R1/R2 reports retained verbatim; Q R1 report from2190fb380 read but not changed or signed by this verifier. This is not corrected-delta mode.
+- `report_commit`: R3 append uncommitted, parent/original author owns report-only commit. No product/test/config/build/service changes by reviewer; no new worktree or delegated worker.
+
+### Summary
+
+| 维度 | 本轮结果 |
+|---|---|
+| Completeness | Requested test-only delta inspected; existing basic journeys preserved, route driver and missing narrow safety combinations now executable |
+| Correctness | New controls have concrete failure/route/effect assertions; independent45/45 narrow tests and structural/collection checks pass; no new mismatch |
+| Coherence | Uses actual IM/native child/timer entry, no forged runtime source or production debug knob; original budgets/permissions unchanged |
+
+**Scoped verifier delta: PASS — 0 new CRITICAL / 0 WARNING / 0 SUGGESTION. Whole-unit remains NOT PASS with retained C-1 (1C / 0W).** C-1 is not automatically closed by test availability, old-binary fixture successes or these source-seam passes.
+
+### Completeness / evidence actually inspected
+
+| Layer / locator or exact command | Result | Applicability / limit |
+|---|---|---|
+| Reviewer: four source files | `pnpm exec vitest run packages/dsh-integration/tests/review-recovery-budget.test.ts packages/dsh-integration/tests/review-recovery.test.ts packages/dsh-integration/tests/codex-approval-lifecycle.test.ts packages/dsh-integration/tests/approval-retry.test.ts` | **45passed/4files, exit0**,948ms,15:59:53+08 at cleanfe623;8budget/20recovery/12lifecycle/5approval tests. Actual source/controller/public-policy seam, fake clocks/synthetic handles/tables; no native stack |
+| Reviewer: structural contract | `NANO_TEST_BASE_REF=d72e220f1d21827c65e046f704c13837ea39d7c2 .venv/bin/python -m pytest tests/contract/test_test_naming_and_size_contract.py -q` | **2passed0.25s, exit0**. Helper201/retry246/config64/routes187lines;≤400 |
+| Reviewer: fixed-Git AST equivalence | Compared2190fb380 andfe623 functions/decorators; evaluated new helper's default basic branch | All old journey/tests/config scenario and moved records/trace/login ASTs identical. New basic `_stack`, with its profile-false block removed, `profile == schedule` resolvedFalse and added keyword defaults removed, equals original stack AST |
+| Reviewer: collection only | `.venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_retry_critical_path.py tests/e2e/critical_paths/test_auto_review_configuration_critical_path.py tests/e2e/critical_paths/test_auto_review_routes_critical_path.py --collect-only -q` | **13cases collected**, exit0. Original6 plus7route rows; each route row drives both strategies. No service started |
+| Reviewer: existing raw captures | `output/feat625-routes-r3/test_real_im_exhaustion_preser{0,1}/requests.jsonl`; r5`{0,1,2,3}` | Read-only assertions on12cases passed:3pending-bash reviews each, child2main session IDs, real timer prompt markers. Old4282 runtime plus new fixture, **not fe623 whole-stack**; trace/export `--sha` label is not attestation |
+| Worker receipt transcription read | `output/feat625-post-q-r1-execution-receipts.json:1–38` | Contains full commands/env/results from jobs233/239/241/243. Original stdout not teed: inspected transcribed native completion receipts, not original stdout/independent product replay |
+| Worker job233/r3 | `env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u all_proxy -u no_proxy .venv/bin/python -m pytest tests/e2e/critical_paths/test_auto_review_routes_critical_path.py -k 'global or child or schedule' -q --basetemp=output/feat625-routes-r3` | exit1:2passedGlobal+child (both strategies),2schedule startup failed,1deselected158.23s. Old4282lib; complete timer capability dependency set was missing in fixture, not a passing whole matrix |
+| Worker job239/r4 | Same environment prefix, `...pytest <routes> -k 'schedule or heartbeat or interactive' -q --basetemp=output/feat625-routes-r4` | exit1:2passedinteractive+schedule-deny,3failed,2deselected86.45s. Fixture confused source/classifier_unavailable with route and heartbeat lackedread. Failures retained, not accepted as product pass |
+| Worker job241/r5 | Same prefix, `...pytest <routes> -k 'schedule or heartbeat' -q --basetemp=output/feat625-routes-r5` | exit0:4timer rows passed/both strategies,3deselected114.03s. Corrected fixture, still old4282lib; not new-SHA runtime proof |
+| Worker job243 | Full chained45-test/typecheck/touched-Pythonruff/non-E2E/diffcheck command in receipt:32–35 | exit0;45passed844ms, typecheck0/ruffpass/non-E2E72passed45deselected5.14s/diffcheck0. Test tree before containingfe623commit, explicitly committed unchanged; reviewer independently reran the45 controls on actual freeze |
+
+### Correctness / required branch mapping
+
+| Required behavior / Q R1 gap | Concrete new implementation of verification | Delta assessment |
+|---|---|---|
+| Global/child exhausted reviewer cannot inherit unattendedallow or create manual card | Actual Global Inbox acquisition; native subagent tool for child; `test_auto_review_routes_critical_path.py:81–161` asserts3bashreviews, no_verdict/counters0/retries2/transient, return_to_agent/no fallbackOutcome, absent effect and no permission card. Child2main session IDs checked | Driver covers needed boundary; observed old-build captures/receipts corroborate execution. Independent Q/new-build acceptance still required |
+| Native schedule/heartbeat deny zero, configuredallow once | `fixture:272–317` emits schedule_create or heartbeat's real wake progression; helper config permits required tools, heartbeat test writes HEARTBEAT.md and patches real IM config. Timer finalRouteunattended/fallbackOutcome checked; allow exactone fileline, deny nofile; original Auto/model/tool/features/profile snapshot retained | Real entry chain, not a synthetic source.kind mutation. Static and old-capture evidence support driver correctness, not current whole-stack verdict |
+| Interactive unavailable still requires original human path | Actual permission.request matched to exactcallId/conversation; test denies via original API; finalRouteinteractive_pending and effectabsent | Preserves original path; does not use manualallow to make a green recovery |
+| Continuous full budgets / timeout+503 quota / CC shared stagequota | Newbudgettests9–55:3exact30/60/90s timeouts; timeout→503→timeout stops at3callbacks; next90s nofourth; stage1/2 share2extras and separate normal-stage ordinal | Independent source seam pass. Complements real default-timeout evidence, not a three-attempt real-wallclock provider run |
+| Absolute action safety wall | budgettest57–69 advances to359999ms then starts a pending low-level normal attempt, checks revoke at360000 and no successor | Tests guard mechanics/no late continuation, not a realistic long preparation claim or permission to shorten normal granted budgets |
+| Permanent CONFIGURATION despite503 | recoverytest50–58 asserts onecall/permanent/retries0 | Independent negative control passes; no service retry or model switch |
+| Guardian one context rebuild across technical recovery / second overflow fails | lifecycle142–164: firstoverflow+503+503+allow uses1rebuild/2retries and3full90s attempt records; repeatedoverflow stops with1service retry/2attempts. Unique reviewer IDs and original permission in every input required | Independent synthetic-handle/controller pass. No live model/full native input capture claimed |
+| Audit persistence failure cannot fall backallow | approval-retry31–48: validallow/deny/unavailable×configured unattendedallow, public pre-execute must reject controlled persistence failure, [reviews,writes,effects]=[1,1,0], no durable rows | Non-vacuous facade negative control; not a real IM disk outage or exhausted-model demonstration |
+| Test disposal must not hide actual cleanup failure | synthetic dispose awaits failedjudgment.catch only after lifecycle disposing hook; late-create/quarantine/blocked-disposal and cancel regressions retained | Corrects fixture judgment-vs-disposal distinction, not production exception suppression |
+
+### Coherence / Context
+
+No product public/private dependency boundary changed. Shared helper still owns isolated stack/config/fixture with finally teardown. Basic old harness is semantically preserved, while profile extensions make legitimate route entry executable. Test-only writes to temporary heartbeat/Auto files are within the isolated driver, not modifications to production/user checkout or extra product authority.
+
+R1 Mode B with R2 retained coverage/limits stays applicable: production source, consumer prompts, provenance/admission/model/effort/readonly/PA disclosure are unchanged. R3 context-overflow combination tests use synthetic handles and source strings; they are not substituted for native actual-input/live-model provenance evidence. New route fixture drives real Inbox/child/timer APIs rather than pretending that prompt markers alone create source authority. No new Context mismatch, no design defect and no reason to expand to full verification were established. Prototype/reference N/A.
+
+### Issues / retained boundaries
+
+- **C-1 still open (CRITICAL, unchanged class).** Q R1 at4282 is explicitly fail/inconclusive (`acceptance.md:14–20,89–94`); its successful real plugin180/55/Work/public delivery is retained as that version's observation, not a current full pass. This delta supplies previously missing executable routes and narrow controls, but engineer routes ran old4282lib while fe623wholebuild/same-root daily switch/new frozen matrix and independent Q were still pending. Whole/final CI, concrete dependency-audit blocker disposition and final corrected-delta/current-spec reconciliation remain assigned gates. Do not relabel old fixtures or commitlabels as new build proof or silently close Q's two blocking gaps.
+- **New CRITICAL/WARNING/SUGGESTION: none.** CR-1/W-1/W-2 remain closed, without rewriting R1/R2 history.
+
+### R3 handoff
+
+`verdict`: scoped-delta-pass / whole-unit-not-pass; `issues`: retainedC-1only; `validated_issues`: existingW-1/W-2closed, C-1still_open; `requires_full_verification=false`. `top_concern`: finish the coordinated new-version evidence package and independent Q before final lifecycle closure. Only append-only edits to the two authorized reports; no source/test/config/design/build/service modifications or commit by this reviewer. Same author and reviewer sessions remain available for actual subsequent delta/corrected-delta handoff.
