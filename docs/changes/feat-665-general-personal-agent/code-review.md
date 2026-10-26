@@ -1,6 +1,6 @@
 # Code Review: feat-665-general-personal-agent
 
-Current code verdict: **Round 8 adjacent-input preservation patch passes at `32255b1ee`**, no surviving findings (`code-review.json=[]`). Prior product findings/closures remain; V-01 and the running I02 actual rerun are pending their evidence package.
+Current code verdict: **Round 9 complete-live-fragment patch passes at `06d8041bf`**, no surviving findings (`code-review.json=[]`). Prior source/Context closures remain; actual v12 replays and V-01 aggregation remain separately pending.
 
 ## Snapshot and verdict
 
@@ -213,3 +213,25 @@ Independent commands: `pnpm exec vitest run packages/personal-assistant/tests/gl
 P12 now has an authentic owner message in the existing observer work group stating responsibility for the upcoming review and concern about feedback preparation before the colleague's review background. It contains no PA address, tool parameters, fabricated identity or delegated external action; runner's settle applies only to owner_pa/shared_group direct requests, so this observer send does not become a direct PA call. It establishes ordinary owner relevance for the existing observe/bounded-source behavior. README is corrected to match the previously reviewed P05-only Heartbeat setup and core-repeat terminology. Old weak-background failures remain historical and cannot be relabelled using the revised fixture.
 
 Actual new I02 rerun is still in progress and not graded here. V-01 remains pending the final actual evaluation package; no waiting/polling occurred. Only review reports were modified; the caller's independently changing acceptance.md and temporary untracked e2e script were preserved unstaged and not executed.
+
+## Round 9 — complete live Inbox fragments and long-run login renewal
+
+- review_mode: `patch`; Context mode: focused **Implementation Review**.
+- Source delta: `5e46cf874..06d8041bfcc16870ab3af9a0f8379ffa621c305c`, only policy/sources.ts, its regression and eval runner client refresh. No broader product review or full-suite rerun.
+- Latest findings: `[]`; no surviving CONFIRMED/PLAUSIBLE issue in this finite delta.
+
+The real M08 pressure case supplied a 7924-character owner request whose two host pieces were completely read in one actual Inbox result. Old humanInputs discarded every partial-marked message even when the entire original had been consumed, leaving no live source for the completion reply. The supplied red `/tmp/pa665-fragments-red.log` shows an empty HumanInput array despite both observed parts; the new test preserves that original failure as red evidence.
+
+Reviewed source boundary: humanInputs scans only events after the most recent turn/start and only successful tool results whose call ID was registered by the actual live Inbox execution in this process. Fragments are grouped by host target and original message ID, indexed by one-based part number, and emitted only when all host-reported parts are present; text is joined in part order. The host Inbox provides immutable/frozen fragment metadata from 6000-character text slicing. This restores the complete original request, not consent from a lone incomplete piece or a historical body. The existing owner/participant/source access checks after these IDs are unchanged.
+
+Independent `pnpm exec vitest run packages/dsh-integration/tests/approval-sources.test.ts packages/dsh-integration/tests/personal-delivery-evidence.test.ts` → **19/19 passed**, `/tmp/pa665-independent-round9.log`. The new regression covers incomplete first piece, complete same-turn pieces and a cross-turn incomplete pair. Existing source/history and native delivery tests remain green. Protocol: `python -m pytest -q tests/e2e/general_personal_agent/test_protocol.py` → **12/12 passed in 0.33s**.
+
+Additionally called compiled ApprovalSources directly with a complete single-page result in reversed part order, a fresh recovered ApprovalSources without live registration, mismatched targets and a split across turns. Actual output:
+
+```json
+{"sameTurnCompleteOnePageOrdered":true,"restoredNotGranted":true,"differentSourceNotMerged":true,"crossTurnIncompleteNotGranted":true}
+```
+
+EvaluationClient renews authentication at the header-access boundary after five minutes using an ordinary login POST, then updates the token/time before the requested read/write is sent. It contains no response-triggered business retry or replay branch. An independent synthetic HTTP/clock probe accessed headers twice after the refresh threshold: exactly **one `/im/v1/auth/login`**, **zero mutation calls**, both headers used the new token. Credentials remain in the in-memory fixture object; no credential output was captured.
+
+Actual fresh v12 M08/P03/I02/P12 outcomes remain running/awaiting separate evidence. These tested seam fixes do not retroactively pass the earlier M08 response timeout or any preceding scenario. Prior corrected product deltas remain aligned because the change restores original complete-input provenance within the existing turn/source contract. Only reports were changed; caller's dirty acceptance.md and untracked temporary e2e script remain preserved unstaged.

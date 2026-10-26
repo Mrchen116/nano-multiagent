@@ -1,6 +1,6 @@
 # Verification Report: feat-665-general-personal-agent
 
-Current verification: **Round 8 focused input-admission delta at `32255b1ee`: aligned; overall 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
+Current verification: **Round 9 live-fragment delta at `06d8041bf`: aligned; overall 1 CRITICAL evidence gap (V-01), 0 WARNING, 0 SUGGESTION**. R1 and its original snapshot remain below; see the final round for the current issue disposition.
 
 > Validation snapshot: `85910853e → 783ff080f4a110780d78473e95d0bc391c64c50f`
 
@@ -267,3 +267,19 @@ Local origin/main remains the same 85910853e base with no incremental upstream c
 Independent affected tests: **80/80**, `/tmp/pa665-independent-round8.log`; protocol **12/12**. Code-review Round 8 supplies the focused Context selection/recovery trace and red/green evidence. The patch restores the existing source/identity contract and needs no new outward delta-spec promise; Round 7's corrected-delta outcome remains aligned.
 
 V-01 remains pending the already-required final actual evidence package. A new fresh I02 real rerun is underway; this report neither grades it early nor repeats/polls that work. Deterministic owner retention is proven at the affected seam, while final model receipt/response must be attached separately. Reports alone were staged; caller's dirty acceptance report and untracked e2e script were preserved.
+
+## Round 9 — complete live-input fragmentation delta
+
+- verification_mode: `delta`; review_round: `9`; validated_at: `06d8041bfcc16870ab3af9a0f8379ffa621c305c`; source range: `5e46cf874..06d8041bf`.
+- requires_full_verification: `false`; prior full review/closures/corrected-delta alignment remain valid outside this limited source extraction/client refresh patch.
+- verdict: **incomplete overall**; delta aligned; critical **1** (existing V-01), warning **0**, suggestion **0**; latest findings `[]`.
+
+| Focus / existing contract | Implementation and independent evidence | Disposition |
+|---|---|---|
+| Long original owner request stays actionable after complete read | policy/sources.ts assembles only a complete target+message group from actual current-turn live Inbox tool results, in part order. Existing host source/owner checks remain. New source regression covers incomplete/current complete/cross-turn separation; direct compiled probe also checks one-page reverse order and target isolation. | aligned |
+| Incomplete/restored history does not create new live consent | Each call recomputes from last turn/start; only process-live Inbox call IDs participate. Fresh recovered ApprovalSources with the same complete events but no live registration yields no HumanInput. | aligned; no history authorization upgrade |
+| Eval long observations keep authentic session without replaying actions | Header property renews only login/token before the desired operation; direct HTTP probe has one login and zero mutations after two header accesses. | aligned at tested client seam, no business resend mechanism |
+
+Independent affected tests **19/19** at `/tmp/pa665-independent-round9.log`; protocol **12/12**. Source/context coverage is reused from code-review Round 9. The runtime patch repairs the existing long-request/real-delivery contract and adds no unmatched outward product promise; prior corrected deltas remain aligned.
+
+V-01 remains pending the final actual v12 M08/P03/I02/P12 and aggregate evidence package. Old real long-input completion failure is retained; neither 19 passing mechanism tests nor proactive login renewal proves a later natural model response was delivered. This finite pass did not wait/poll those real runs, change production, rerun unrelated suites or stage caller-owned acceptance/runtime artifacts. Reports are the only modifications by the reviewer.
