@@ -1,0 +1,58 @@
+{
+  "synthetic": true,
+  "now": "2026-10-26T09:00:00Z",
+  "timezone": "Asia/Tokyo",
+  "actors": {
+    "owner": "u_demo_owner",
+    "pa": "a_demo_pa",
+    "colleague": "u_demo_colleague",
+    "family": "u_demo_family",
+    "external": "u_demo_external"
+  },
+  "conversations": {
+    "owner_pa": {
+      "members": [
+        "u_demo_owner",
+        "a_demo_pa"
+      ],
+      "delivery": "participant",
+      "private": true
+    },
+    "work_group": {
+      "members": [
+        "u_demo_owner",
+        "u_demo_colleague"
+      ],
+      "delivery": "observer",
+      "private": true
+    },
+    "shared_group": {
+      "members": [
+        "u_demo_owner",
+        "a_demo_pa",
+        "u_demo_colleague"
+      ],
+      "delivery": "participant",
+      "private": true
+    },
+    "family_chat": {
+      "members": [
+        "u_demo_owner",
+        "u_demo_family"
+      ],
+      "delivery": "observer",
+      "private": true
+    }
+  },
+  "defaults": {
+    "proactive_mode": "prepare",
+    "memory_v2": true,
+    "heartbeat_enabled": true,
+    "external_calendar_connected": false,
+    "email_connected": false,
+    "purchase_connected": false,
+    "source_access": "only_the_listed_conversations",
+    "quiet_hours": "none"
+  },
+  "note": "所有 ID/事实仅用于隔离测试。各场景独立从基线开始，seed 是待适配器建立的合成原始记录。"
+}
