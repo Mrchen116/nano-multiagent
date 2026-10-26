@@ -194,3 +194,21 @@ seq985真实返回 `owner_authorization_changed`，内容明确旧review snapsho
 | M12 | 实际读取同事周四原消息和周五更正，最终采用周五14点并链接新源。 | 旧事实服从新原文代表路径通过。 |
 
 上述补证不覆盖真实维护竞争、防投毒、全部分页失败或其他未执行组合；不把单case代表结果扩张为整套58场景的通过率。
+
+### 新主动帮助发现（来自真实批次原始证据）
+
+| # | 严重度 | Regression Relation | 期望 / 实际 / 证据 | Recommended Action |
+|---|---|---|---|---|
+| PA-6 | major | direct | batch5 P01的主人观察群承诺 `f10850d51ab04082a0a532791d61a40e` 为“周三把材料发你。材料包括轻记待办背景、反馈、检查清单。”真实十分钟后PA读取，turn2已completed/main idle，最终内部文本“它是主人对他人的材料交付承诺，不是向我的委托。当前无需介入”；无私人attention、准备或用户消息。对应case预期明确要私人关注并找资料/准备草稿，而不是接管或代发。`/tmp/pa665-runs-v5/candidate-P01-r1/results/evidence.json` seq22/25。 | fix-implementation；不能把“不代替主人承担承诺”扩张成“不做安全的私人准备”。保留该失败，不因其它更明确场景成功而抹去。 |
+
+P03批跑捕获到成功创建私人冲突attention，但`evidence.json`结尾仍main/turn2 running；暂不将无用户消息判失败，也不能称完成交付。caller需补最终态，避免将非终态快照当最终结果。
+
+### 完整十分钟观察批次与私人准备结果
+
+- 第二批source在13:00:54.546 UTC送达；13:02、13:05及13:09:30只读采样均主PA idle/rev1008，没有主动请求或早醒。
+- turn25于13:10:54.613启动，trigger为`inbox-background`、origin system，距源消息600.067秒。seq1014读取两条新源并保留真实主人/同事身份。`round5-observer-ten-minutes.json`。中途API token自然过期后仅重新登录取证，未发送消息或改变产品配置。
+- 随后主动加载care skill、核对当前群原文和既有attention，seq1033创建attention `f4d49ad6-bdf7-44b8-b497-3ad163bda34d`，关联两条真实来源；13:12:11私聊交付消息 `1b892893923c42a290e8ca6933bcf4eb`，含150字内可用预算草稿与ComposeMessage卡。内容遵守500元共享口径、不混用私人450元、不编造分项，并提示新截止今晚21:25。`round5-observer-final.json`。主PA最终idle/rev1040。
+- 源群只存在4条人工背景/承诺消息，没有PA消息或代发。Web桌面1280×720实际观察来源/截止/草稿说明，编辑文案后点击“填入承诺批次观察群输入框”，进入正确群且编辑后的内容完整进入composer；API源群仍4条消息，主PA仍idle。`round5-observer-after-compose.json`；截图 `page-2026-10-26T13-13-41-013Z.png`和`page-2026-10-26T13-14-10-862Z.yml`。此纯观察→私人准备→用户编辑采用不发送的代表旅程通过。
+- 该临近截止、上下文明确的成功路径与PA-6较一般承诺失败并存；不能用前者抹去后者。
+
+本Round新增三条优先核心路径全部实际完成：授权失效恢复、批准附件共享冻结、完整十分钟批次私人准备。按design第137–139行的角色分工，锁/revision/维护/guard/迁移/unknown回执等worker专项待caller提供最终具体证据归并，不要求本reviewer机械重做；外部账户live保持blocked，不阻止IM核心旅程。当前明确未关闭产品问题为 **PA-6 major**；PA-2为minor旁支，PA-1/3/4/5原失败路径均已独立复验关闭。
