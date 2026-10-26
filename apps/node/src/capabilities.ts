@@ -50,7 +50,7 @@ export function projectCapabilities(
     tools: catalog.tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "create_goal", "get_goal", "update_goal"].includes(tool.name),
+      default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "create_goal", "get_goal", "update_goal", "personal_context", "personal_attention", "publish_artifact"].includes(tool.name),
       ...(tool.source_group === "workspace" ? {source_group: tool.source_group, enabled: tool.enabled} : {}),
     })),
     skills: catalog.skills.map((skill) => ({

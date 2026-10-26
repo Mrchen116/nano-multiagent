@@ -20,6 +20,7 @@ function fixture(decision = 'deny') {
     calls.push({type,payload});
     if(type==='agent.message')return {type:'ack',payload:{message_id:'owner-delivery',conversation_id:'c_owner'}};
     let result:unknown={};
+    if(type==='pa.attention.delivery.prepare')result={status:payload.evidence||payload.attention_id?'allowed':'requires_attention'};
     if(type==='pa.source.admit')result={allowed:true,is_owner:payload.conversation_id==='c_owner',delivery:'participant',conversation_type:'direct',channel:'web'};
     if(type==='pa.action.prepare')result={proposal_ref:'p',payload_digest:'frozen',evidence_digest:'evidence',evidence:{owner_text:'Coordinate timing only',payload:{content:payload.content},previous_disclosures:[]}};
     if(type==='pa.action.review-result')result={state:decision,verdict_ref:decision==='allow'?'v':null};
@@ -27,7 +28,8 @@ function fixture(decision = 'deny') {
     return {type:type+'.result',payload:{ok:true,result}};
   }};
   const pa=new PersonalAssistant({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime,relay,onError:()=>{}});
-  const call:ProductCall={method:'send_message',args:{target:'conversation:c_peer',text:'Private budget'},operationId:'op',callId:'tool',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
+  inbox.receive({agent_id:'pa',conversation_id:'c_owner',relay_task_id:'owner-seed',idempotency_key:'owner-seed',metadata:{personal_is_owner:true,personal_delivery:'participant'},message:{id:'owner-seed',content:'Please help me',sender_type:'user',sender_user_id:'owner',attachments:[]}},false);
+  const call:ProductCall={liveInputIds:['owner-seed'],method:'send_message',args:{target:'conversation:c_peer',text:'Private budget'},operationId:'op',callId:'tool',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
   return {pa,store,inbox,config,binding,calls,reviews,call,runtime,relay};
 }
 it.each(['deny','needs_owner','unavailable'])('never commits a %s disclosure and exposes no review tool',async decision=>{
@@ -80,7 +82,10 @@ it('dispatches a server-verified private owner delivery without an independent d
  const f=fixture('unavailable'),original=f.relay.request;let sent=0;
  f.relay.request=async(type,payload)=>type==='pa.action.prepare'?{type:type+'.result',payload:{ok:true,result:{owner_private:true}}}:original(type,payload);
  try {
-  expect(await f.pa.external(f.config,f.binding,{agentId:'pa',target:'external:pa:feishu:app:dm:owner',shadowId:'c_shadow',appId:'app',sourceId:'feishu:app:dm:owner',chatId:'oc_owner',text:'Reminder',operationId:'reminder',dispatch:async()=>{sent++;return 'om_reminder';}})).toBe('om_reminder');
+  const delivery={agentId:'pa',target:'external:pa:feishu:app:dm:owner',shadowId:'c_shadow',appId:'app',sourceId:'feishu:app:dm:owner',chatId:'oc_owner',text:'Reminder',operationId:'reminder',dispatch:async()=>{sent++;return 'om_reminder';}};
+  await expect(f.pa.external(f.config,f.binding,delivery)).rejects.toThrow('requires_attention');expect(sent).toBe(0);
+  expect(await f.pa.external(f.config,f.binding,{...delivery,ownerDelivery:{evidence:{kind:'schedule',schedule_id:'native-id',owner_ui:true}}})).toBe('om_reminder');
+  expect(f.calls.find(call=>call.type==='pa.attention.delivery.external-complete')?.payload).toMatchObject({provider_message_id:'om_reminder'});
   expect(sent).toBe(1);expect(f.reviews).toEqual([]);
  }finally{f.inbox.close();f.store.close();}
 });
@@ -201,5 +206,17 @@ it('binds representation to the actual root tool, freezes it across retries, and
   await expect(f.pa.send(f.config,f.binding,{...call,method:'send_message'})).rejects.toThrow('Publication identity conflict');
   for(const target of ['c_owner','external:pa:feishu:app:dm:peer'])await expect(f.pa.send(f.config,f.binding,{...call,operationId:target,args:{target,text:'Message'}})).rejects.toThrow(/Owner representation/);
   expect(f.calls.filter(c=>c.type==='pa.action.commit')).toHaveLength(1);
+ }finally{f.inbox.close();f.store.close();}
+});
+
+it('requires checked attention for owner notifications without current host input and preserves schedule creation evidence',async()=>{
+ const f=fixture('allow');
+ try {
+  const proactive={...f.call,liveInputIds:[],args:{target:'c_owner',text:'An opportunity'}};
+  expect(await f.pa.send(f.config,f.binding,proactive)).toMatchObject({status:'requires_attention'});
+  expect(f.calls.filter(c=>c.type==='agent.message')).toHaveLength(0);
+  expect(await f.pa.send(f.config,f.binding,{...proactive,operationId:'schedule',scheduleTriggers:[{scheduleId:'native-schedule',sourceMessageIds:['owner-seed']}]})).toMatchObject({status:'sent'});
+  expect(f.calls.find(c=>c.type==='pa.attention.delivery.prepare'&&c.payload.operation_id==='schedule')?.payload.evidence).toEqual({kind:'schedule',schedule_id:'native-schedule',source_message_id:'owner-seed'});
+  expect(f.calls.find(c=>c.type==='agent.message')?.payload.personal_delivery_operation_id).toBe('schedule');
  }finally{f.inbox.close();f.store.close();}
 });

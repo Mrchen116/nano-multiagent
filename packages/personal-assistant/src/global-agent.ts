@@ -1,7 +1,7 @@
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
 import { SessionControls, sessionControl } from './session-controls.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
 import { canonicalJson, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
@@ -14,6 +14,7 @@ interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
+  uploadArtifact?(input: {agentId:string;conversationId:string;fileName:string;contentType:string;bytes:Uint8Array;sha256:string;idempotencyKey:string;artifactId?:string;expectedVersion?:number}, signal:AbortSignal):Promise<unknown>;
   onError(error: unknown): void;
   onWork?(): void;
   authorityEpoch?(): number | undefined;
@@ -21,7 +22,7 @@ interface Options {
 }
 export interface ProductCall {
   method: string; args: Record<string, unknown>; operationId: string; callId: string;
-  sessionId: string; rootSessionId: string; agentId: string; ownerId: string; lifecycle_revision?:number;
+  sessionId: string; rootSessionId: string; agentId: string; ownerId: string; lifecycle_revision?:number; liveInputIds?:string[]; scheduleTriggers?:{scheduleId:string;sourceMessageIds:string[];ownerUi?:boolean}[];
 }
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */
@@ -412,6 +413,7 @@ export class GlobalAgent {
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
     if ((call.method === 'inbox' || call.method === 'conversations') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may consume Inbox or query conversation history');
     if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
+    if(['publish_artifact','personal_context','personal_attention','personal_sources','pa.attention.snooze.complete'].includes(call.method) && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Private owner tools require the bound main PA');
     const references = this.options.store.toolReferences;
     const result = await this.execute({ ...call, args: references.arguments(call.agentId, call.method, call.args) }, binding);
     // Inbox reads persist the exact model-visible body before image admission and consumption.
@@ -421,9 +423,26 @@ export class GlobalAgent {
     const controller = new AbortController(); this.calls.set(call.operationId, controller);this.callAgents.set(call.operationId,call.agentId);
     try {
       const personalConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId && agent.personal);
+      if(call.method==='publish_artifact') {
+        if(!personalConfig?.personal || !this.options.uploadArtifact)throw new Error('Private artifact publication is unavailable');
+        const a=call.args;
+        if(typeof a.data_base64!=='string'||typeof a.file_name!=='string'||typeof a.content_type!=='string'||typeof a.idempotency_key!=='string'||typeof a.sha256!=='string')throw new Error('Artifact bytes and identity are required');
+        const bytes=Buffer.from(a.data_base64,'base64');
+        if(!bytes.length||bytes.length>10*1024*1024||bytes.length!==a.byte_size||createHash('sha256').update(bytes).digest('hex')!==a.sha256)throw new Error('Artifact content does not match its receipt input');
+        return this.options.uploadArtifact({agentId:binding.agentId,conversationId:personalConfig.personal.conversationId,fileName:a.file_name,contentType:a.content_type,bytes,sha256:a.sha256,idempotencyKey:a.idempotency_key,
+          ...(typeof a.artifact_id==='string'?{artifactId:a.artifact_id,expectedVersion:a.expected_version as number}:{})},controller.signal);
+      }
+      if(call.method==='personal_context'||call.method==='personal_attention'||call.method==='pa.attention.snooze.complete') {
+        if(!personalConfig)throw new Error('Trusted personal identity required');
+        return this.personal.request(personalConfig,call.method==='personal_context'?'pa.context.query':call.method==='personal_attention'?'pa.attention':call.method,call.args);
+      }
       if(call.method==='pa.authorization') {
         if(!personalConfig)throw new Error('Trusted personal identity required');
         return this.personal.request(personalConfig,'pa.authorization');
+      }
+      if(call.method==='pa.memory.sources') {
+        if(!personalConfig)throw new Error('Trusted personal identity required');
+        return this.personal.request(personalConfig,call.method,call.args);
       }
       if (call.method === 'personal_sources') {
         if (!personalConfig) throw new Error('Trusted personal identity required');

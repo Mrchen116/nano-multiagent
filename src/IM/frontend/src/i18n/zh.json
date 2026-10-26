@@ -1202,6 +1202,10 @@
     }
   },
   "feature": {
+    "personal_proactivity": {
+      "label": "主动服务",
+      "help": "关联可读消息与当前事项，提前准备有用结果，并按静默时段和反馈控制提醒。不会自动获得对外操作权限。"
+    },
     "intelligent_ui": {
       "label": "Intelligent UI",
       "help": "引导 Agent 按需使用交互卡片。关闭后不再提供这类指导；消息工具开启时仍可发送卡片。"

@@ -119,7 +119,7 @@ export class PersonalAssistant {
     if(deliveryTarget.startsWith('external:')) {
       if(representation==='owner')throw new Error('Owner representation requires a native IM conversation');
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
-        from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
+        personal_owner_delivery:this.ownerDelivery(config,call),from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
     }
@@ -129,11 +129,16 @@ export class PersonalAssistant {
     inbox.preparePublication(call.operationId,target,publicationBody,binding.agentId);
     if (conversation === config.personal!.conversationId) {
       if(representation==='owner')throw new Error('Owner representation cannot target the owner PA conversation');
-      // Private owner replies use the ordinary publication path, including IntelligentUI.
+      const delivery=await this.request(config,'pa.attention.delivery.prepare',{conversation_id:conversation,operation_id:call.operationId,
+        ...this.ownerDelivery(config,call)});
+      if(delivery.status==='already_sent')return {status:'sent',target,message_id:delivery.message_id};
+      if(delivery.status!=='allowed')return {...delivery,target,message:'No notification was sent. Use current source evidence, an assigned Task, or a checked attention candidate.'};
+      // Classification and candidate publication commit with the actual message.
+
       inbox.settlePublication(call.operationId,'sending');
       try {
         const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
-          attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),
+          attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),personal_delivery_operation_id:call.operationId,
           from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
         if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
         const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
@@ -167,12 +172,29 @@ export class PersonalAssistant {
     } catch(error) { inbox.settlePublication(call.operationId,'unknown'); throw error; }
   }
 
+  private ownerDelivery(config:AgentConfiguration,call:ProductCall):Data {
+    const {inbox}=this.options;
+    // The owner can request work in a shared chat and receive a private clarification.
+    // The server still checks that these original words actually addressed this PA.
+    const live=(call.liveInputIds??[]).map(id=>inbox.input(config.agentId,id)).findLast(input=>input?.metadata.personal_is_owner===true&&input.metadata.personal_delivery==='participant');
+    const scheduled=(call.scheduleTriggers??[]).flatMap<Data>(trigger=>{const source=trigger.sourceMessageIds.map(id=>inbox.input(config.agentId,id)).find(input=>input?.metadata.personal_is_owner===true&&input.metadata.personal_delivery==='participant');return source?[{kind:'schedule',schedule_id:trigger.scheduleId,source_message_id:source.message.id}]:trigger.ownerUi?[{kind:'schedule',schedule_id:trigger.scheduleId,owner_ui:true}]:[];})[0];
+    return {feature_enabled:config.features?.personal_proactivity===true,attention_id:call.args.attention_id,attention_revision:call.args.attention_revision,
+      ...(live?{evidence:{kind:'direct_request',source_message_id:live.message.id}}:scheduled?{evidence:scheduled}:call.args.task_ref?{evidence:{kind:'task',...(call.args.task_ref as Data)}}:{})};
+  }
+
   /** Freeze and consume a provider permit immediately before the real channel send. */
   async external(config:AgentConfiguration,binding:SessionBinding,delivery:ExternalDelivery):Promise<string> {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
       conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
-    if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);
+    if(proposal.owner_private===true){
+      const classified=await this.request(config,'pa.attention.delivery.prepare',{...delivery.ownerDelivery,feature_enabled:config.features?.personal_proactivity===true,conversation_id:delivery.shadowId,operation_id:delivery.operationId});
+      if(classified.status==='already_sent')return String(classified.message_id).replace(/^external:/,'');
+      if(classified.status!=='allowed')throw new Error(`Owner delivery ${classified.status}: no notification was sent`);
+      const id=await delivery.dispatch(delivery.text,delivery.card);
+      await this.request(config,'pa.attention.delivery.external-complete',{operation_id:delivery.operationId,provider_message_id:id});
+      return id;
+    }
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
     const verdict=await this.review(config,'action',proposal.evidence,binding.sessionId);

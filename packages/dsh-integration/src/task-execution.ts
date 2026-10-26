@@ -1,3 +1,4 @@
+import type { NativeTaskExecutions } from './task-native-execution.js';
 import {randomUUID} from 'node:crypto';
 import type {Context} from '@deepseek-ai/cordis';
 import type {Agent} from '@deepseek-ai/dsh-agent';
@@ -16,7 +17,7 @@ const externalWake=(m:UserMessage)=>m.source.kind==='user'||m.source.kind==='sch
 const SHORT_RUN_LIMIT=256;
 const SUSTAINED_STEPS=3;
 interface State {
-  checking:boolean;requested:boolean;queued?:string;changeQueued?:string;serial:number;seenSerial:number;
+  runningChildren:Set<string>;checking:boolean;requested:boolean;queued?:string;changeQueued?:string;serial:number;seenSerial:number;
   automaticTurn:boolean;interrupted?:'error'|'cancelled'|'source'|'flush';interruptedAt?:string;recoveringTurn?:number;
   blocked:boolean;shown?:TaskExecutionSnapshot;limited?:string;
   denied:Map<string,Map<string,string>>;deniedCalls:Set<string>;
@@ -36,7 +37,7 @@ export class TaskExecutionDriver {
   stop(): void { this.stopped = true; }
   private readonly states=new Map<string,State>();
   private readonly shortRuns=new Map<string,number>();
-  constructor(private readonly ctx:Context,private readonly options:{peer:RpcPeer;bindings:Map<string,SessionBinding>;configuration:(agent:Agent)=>AgentConfiguration|undefined;lifecycleRevision?:(agentId:string)=>number;allowed?:(agentId:string)=>boolean}) {
+  constructor(private readonly ctx:Context,private readonly options:{peer:RpcPeer;bindings:Map<string,SessionBinding>;configuration:(agent:Agent)=>AgentConfiguration|undefined;nativeTasks?:NativeTaskExecutions;lifecycleRevision?:(agentId:string)=>number;allowed?:(agentId:string)=>boolean}) {
     ctx.on('session/event',(session,event)=>{
       const binding=options.bindings.get(session.id);if(!binding)return;
       const state=this.state(session.id),agentId=binding.agentId;
@@ -147,7 +148,7 @@ export class TaskExecutionDriver {
   }
   private state(id:string):State {
     let state=this.states.get(id);
-    if(!state){state={checking:false,requested:false,serial:1,seenSerial:0,automaticTurn:false,blocked:false,denied:new Map(),deniedCalls:new Set()};this.states.set(id,state);}return state;
+    if(!state){state={runningChildren:new Set(),checking:false,requested:false,serial:1,seenSerial:0,automaticTurn:false,blocked:false,denied:new Map(),deniedCalls:new Set()};this.states.set(id,state);}return state;
   }
   private exhausted(agentId:string):boolean {return (this.shortRuns.get(agentId)??0)>=SHORT_RUN_LIMIT;}
   private hold(state:State,reason:NonNullable<State['interrupted']>):void {
@@ -176,7 +177,7 @@ export class TaskExecutionDriver {
   private heldTasks(state:State):Set<string> {return new Set([...state.denied.values()].flatMap(tasks=>[...tasks.keys()]));}
   private runnable(state:State,snapshot:TaskExecutionSnapshot):boolean {
     const held=this.heldTasks(state);
-    return snapshot.kind==='continue'&&snapshot.tasks.some(task=>!held.has(taskId(task))&&(task.status==='doing'||snapshot.repair_task_ids.includes(taskId(task))));
+    return snapshot.kind==='continue'&&snapshot.tasks.some(task=>!held.has(taskId(task))&&(task.status==='doing'&&!state.runningChildren.has(taskId(task))||snapshot.repair_task_ids.includes(taskId(task))));
   }
   private enabled(agent:Agent):boolean {
     const config=this.options.configuration(agent);
@@ -184,7 +185,8 @@ export class TaskExecutionDriver {
   }
   private identity(agent:Agent){const binding=this.options.bindings.get(agent.id)!;return {sessionId:agent.id,agentId:binding.agentId,ownerId:binding.ownerId};}
   private async snapshot(agent:Agent):Promise<TaskExecutionSnapshot> {
-    try{return await this.options.peer.request('product.task_execution.snapshot',this.identity(agent)) as TaskExecutionSnapshot;}
+    try{const snapshot=await this.options.peer.request('product.task_execution.snapshot',this.identity(agent)) as TaskExecutionSnapshot;
+      this.state(agent.id).runningChildren=await this.options.nativeTasks?.running(agent,snapshot)??new Set();return snapshot;}
     catch{return {kind:'unavailable',tasks:[],repair_task_ids:[],reason:'task_source_unavailable'};}
   }
   private prompt(agent:Agent,snapshot:TaskExecutionSnapshot,state:State):string {
@@ -194,6 +196,7 @@ export class TaskExecutionDriver {
     return [
       'Continue working on your owned Tasks in this same session. The current workspace, tool results and durable Task state are authoritative: inspect them rather than relying only on earlier narration.',
       'Make concrete progress on executable work and verify the result. Read details or discussion only as needed. Ending a reply does not finish a Task; before marking completed, check the whole objective and record evidence.',
+      'A bound child that is demonstrably running owns only its Task execution; continue independent Tasks without redoing that work. Its completion, failure, unknown state or a pending correction requires coordination and actual delivery. Old results cannot reopen withdrawn responsibility.',
       'Before waiting, verify the blocker, reconsider whether it is necessary, and try authorized alternatives or independent parts. If another person or Agent is needed, confirm your request was actually delivered. Create a real future native Schedule, then record waiting with its reason and schedule_id; the next check must be within one hour. Choose the interval for the actual task, with no fixed default.',
       'At a scheduled recheck, read current Task and external facts again, including unannounced recovery. Even if the blocker is unchanged, reconsider other permitted ways forward. Resume executable work or renew a valid check within one hour. A relevant reply can resume earlier. Repair invalid waiting arrangements; continue other doing Tasks.',
       'Do not reopen paused, closed, done or in_review Tasks merely because a timer fired. This reminder grants no new human authority. Do not bypass a denied action. Unchanged automatic retries for held Task IDs are suspended; new evidence, permitted alternatives and independent work can still be handled.',

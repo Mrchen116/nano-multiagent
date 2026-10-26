@@ -9,7 +9,7 @@
 ## 顺序与最小变更
 
 1. 记录部署 commit、PA binding/owner、workspace 和当前配置 revision，仅写受保护本地部署记录。确认没有未完成的更新/维护；按原部署流程停止受影响 PA 的执行与维护后备份其 memory 目录、配置及用户 Skills，记录校验和。
-2. 对备份副本运行本 unit 的迁移入口并核对原内容和来源归属；生产执行同一已验证入口，只改该 PA memory。旧 USER/MEMORY 原文完整保存在备份，未知来源标 legacy_unverified。records 已存在且 migration source hash 一致则跳过，不生成新副本；不一致不得覆盖已有 records，报告冲突并人工按原资料核对。
+2. 对备份副本运行本 unit 的迁移入口并核对原内容和来源归属；生产执行同一已验证入口，只改该 PA memory。旧 USER/MEMORY 原文完整保存在备份，未知来源标 legacy_unverified。相同迁移幂等键直接返回已提交回执，不重复导入；备份与原文不一致且尚未提交 records 时报告冲突，不覆盖旧备份。
 3. 配置保留现有 custom_prompt（包括空串）、工具/Skill 选择、Heartbeat 计划和来源策略。新版默认仅用于新 PA；已有 PA 如用户有意采用，先展示差异，再按其已有授权更新指定配置。随包 Skill 更新不覆盖 workspace 同名用户 Skill。不得批量给已有 PA 开启主动探索。
 4. 完成受影响服务的一次正常启动。已迁移 records 成为唯一权威，旧接口不能继续独立写投影。启用/关闭自动维护仍按配置。
 
@@ -17,8 +17,20 @@
 
 生产仅做有限只读核对：指定 PA 的 owner/binding 一致、记录数/来源数及 revision、projection 可重建、一次健康检查。最多读取三条非秘密摘要核对；不发测试消息、不造卡/Task/订单、不补做功能或重启演练。超出受影响范围/出现写入失败或身份冲突即停止。
 
-中断后以 records 的已提交 revision 和迁移 source hash 判断，未提交则旧文件仍是原状，可从同一备份重做；已提交但投影未完成则从 records 重建投影，不能重复导入。任何失败保留原始备份和目标 records。回退代码前暂停已迁移 PA；旧程序不可继续写旧投影，不把超容量记录压缩塞回短文件。重新启用兼容版本后以 records 恢复；不能宣称关闭 Feature 等于安全降级到旧权威。
+中断后以 records 的已提交 revision 和迁移幂等回执判断，未提交则旧文件仍是原状，可从同一备份重做；已提交但投影未完成则从 records 重建投影，不能重复导入。任何失败保留原始备份和目标 records。回退代码前暂停已迁移 PA；旧程序不可继续写旧投影，不把超容量记录压缩塞回短文件。重新启用兼容版本后以 records 恢复；不能宣称关闭 Feature 等于安全降级到旧权威。
 
 ## 隔离验收（交付前完成）
 
 空/非空旧记忆、来源缺失、多次重复迁移、提交前故障/提交后投影失败、并发纠正、配置/Skill 保留、关闭能力、回退后保留 records；每项以原内容校验、实际工具回执、最终模型输入和不重复记录为判据。证据写到 M1-memory/evidence；生产只复核已部署状态，不再次执行这些测试。
+
+## 实际离线入口
+
+构建目标版本后，在停止的指定 PA workspace 或其完整副本上执行：
+
+```bash
+node packages/dsh-integration/lib/migrate-personal-memory.js \
+  --offline --workspace /absolute/pa-workspace \
+  --owner OWNER_ID --agent PA_AGENT_ID --binding BINDING_ID
+```
+
+三个身份值从原 binding 读取，不从目录名猜测。命令只输出回执、revision 和计数，不打印记忆正文；`--offline` 表示操作者已停止该 PA，不是自动停服。相同命令可重复执行。备份位于该 workspace 的 `.nanoassistant/memory/legacy-backup/`，原文不删除。

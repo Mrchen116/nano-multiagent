@@ -2,6 +2,23 @@ import { expect, it } from 'vitest';
 import { personalFixture } from './personal-fixture.js';
 import { Work } from '../src/work.js';
 
+it('resolves memory provenance from actual readable messages and keeps source identity separate from owner authority', async()=>{
+ const {ctx,service,principal,args}=personalFixture();
+ const owner=ctx.messaging.insertMessage('chat','u1','user','Remember that I prefer morning meetings');
+ const peer=ctx.messaging.insertMessage('peer','u2','user','I prefer evenings');
+ const read=(extra:Record<string,unknown>)=>service.handle(principal,'pa.memory.sources',{...args,...extra});
+ expect(await read({source_refs:[owner.id,peer.id]})).toMatchObject({sources:[
+  {id:owner.id,authorId:'u1',subjectRef:'owner',verified:true},
+  {id:peer.id,authorId:'u2',subjectRef:'u2',verified:true},
+ ]});
+ await expect(read({source_refs:[peer.id],owner_instruction_id:peer.id})).rejects.toThrow('direct_owner_evidence_required');
+ expect(await read({source_refs:[],owner_instruction_id:owner.id})).toHaveProperty('owner_instruction.id',owner.id);
+ service.sources(principal,{...args,action:'exclude',conversation_id:'peer',source_message_id:owner.id,expected_revision:1});
+ await expect(read({source_refs:[peer.id]})).rejects.toThrow('memory_source_not_accessible');
+ await expect(read({source_refs:['invented']})).rejects.toThrow('memory_source_not_accessible');
+ await expect(service.handle({...principal,owner_id:'o2'},'pa.memory.sources',{...args,source_refs:[owner.id]})).rejects.toThrow('personal_binding_not_authorized');
+});
+
 it('queries both identities once and keeps excluded sources out of list, search and direct reads',()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  db.prepare("INSERT INTO conversations(id,title,type,created_at) VALUES('agent-only','Agent peer','direct',datetime('now'))").run();

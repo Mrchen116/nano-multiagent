@@ -1208,6 +1208,10 @@
     }
   },
   "feature": {
+    "personal_proactivity": {
+      "label": "Proactive care",
+      "help": "Connect permitted sources and current work, prepare useful results, and respect quiet hours and feedback. Does not grant permission for external actions."
+    },
     "intelligent_ui": {
       "label": "Intelligent UI",
       "help": "Guide this Agent to use interactive cards when helpful. Turning this off removes that guidance; cards can still be sent when the message tool is enabled."

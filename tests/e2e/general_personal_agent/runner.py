@@ -77,6 +77,13 @@ class Run:
         self.manifest = validate_manifest(manifest)
         self.client = IMClient(self.manifest["im_url"])
         self.client.register_or_login(username, password)
+        fixture = json.loads((ASSETS / "fixtures.synthetic.json").read_text())
+        request(
+            self.client,
+            "PATCH",
+            "/im/v1/me/timezone",
+            {"timezone": fixture["timezone"]},
+        )
         self.clients = {"owner": self.client}
         self.agent = self.manifest["personal"]["agent_id"]
         self.checkpoints = (
@@ -177,6 +184,13 @@ class Run:
             password,
             display_name="林先生" if name in {"colleague", "family"} else name,
         )
+        request(client, "POST", "/im/v1/company/join", {})
+        request(
+            self.client,
+            "POST",
+            f"/im/v1/company/members/{client.user_id}/approve",
+            {},
+        )
         return client
 
     def save(self):
@@ -219,7 +233,12 @@ class Run:
                 ),
             }
             mid = client.send_message(
-                chat, text, idempotency_key=f"{self.state['run_id']}-{index}"
+                chat,
+                text,
+                idempotency_key=f"{self.state['run_id']}-{index}",
+                mentions=[self.agent]
+                if step["chat"] == "shared_group" and step["actor"] == "owner"
+                else None,
             )
             receipt = {
                 "op": op,

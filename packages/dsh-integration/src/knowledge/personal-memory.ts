@@ -219,7 +219,7 @@ export class PersonalMemoryStore {
       const record = existing[0];
       if (change.action === 'remove') change = { action: 'retract', id: record!.id, expected_revision: record!.revision, idempotency_key: change.idempotency_key };
       else change = { action: 'upsert', id: record?.id, expected_revision: record?.revision, idempotency_key: change.idempotency_key,
-        target: change.target, content: change.content ?? '', kind: record?.kind ?? 'fact', subject_ref: record?.subject_ref ?? this.binding.ownerId,
+        target: change.target, content: change.content ?? '', kind: record?.kind ?? 'fact', subject_ref: record?.subject_ref ?? 'owner',
         domain: record?.domain, applicability: record?.applicability, certainty: record?.certainty ?? 'reported', source_refs: context.sources?.map(source => source.id) ?? [] };
     }
     if (change.action !== 'upsert' && change.action !== 'retract' && change.action !== 'forget') throw new Error('Unknown personal memory action');
@@ -274,7 +274,7 @@ export class PersonalMemoryStore {
       for (const [index, entry] of legacy[target].split(delimiter).entries()) {
         const content = entry.replace(/\n?<!-- source:[\s\S]*?-->/g, '').trim(); if (!content) continue;
         const id = `legacy-${hash(`${target}:${index}:${entry}`).slice(0, 24)}`;
-        state.records.push({ id, revision: 1, target, kind: 'legacy', subject_ref: this.binding.ownerId, content, certainty: 'legacy_unverified',
+        state.records.push({ id, revision: 1, target, kind: 'legacy', subject_ref: 'owner', content, certainty: 'legacy_unverified',
           source_refs: [{ id, kind: 'legacy_unverified', verified: false }], status: 'active', created_at: now, updated_at: now, author_session_id: context.sessionId });
       }
     }

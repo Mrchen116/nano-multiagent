@@ -111,3 +111,16 @@ it('validates canonical Task links and checks latest Task completion before deli
  await expect(f.command({action:'link',id:item.id,expected_revision:updated.revision,idempotency_key:'bad-link',canonical_task_ref:{graph_id:'missing',node_id:'n1'}})).rejects.toThrow('not accessible');
  expect((await f.command({action:'get',id:item.id})).canonical_task_ref).toEqual(linked.canonical_task_ref);
 });
+
+it('classifies external owner notifications and records only the channel adapter receipt',async()=>{
+ const f=setup();
+ f.db.prepare("UPDATE conversations SET owner_id='o1',external_source='feishu',external_chat_id='feishu:app:dm:owner-open',config_agent_id='a' WHERE id='peer'").run();
+ f.db.prepare("INSERT INTO agent_channels VALUES('channel','o1','a','n','feishu',1,'{\"app_id\":\"app\"}','fp',1,'{\"owner_open_id\":\"owner-open\"}','{}','key',1,1,?,?)").run(new Date().toISOString(),new Date().toISOString());
+ const item=await f.candidate();
+ const args={operation_id:'external-notify',conversation_id:'peer',attention_id:item.id,attention_revision:item.revision,feature_enabled:true};
+ expect(await f.call('pa.attention.delivery.prepare',{operation_id:'unclassified',conversation_id:'peer'})).toMatchObject({status:'requires_attention'});
+ expect(await f.call('pa.attention.delivery.prepare',args)).toMatchObject({status:'allowed'});
+ await expect(f.call('pa.attention.delivery.external-complete',{operation_id:'missing',provider_message_id:'om_1'})).rejects.toThrow('not_prepared');
+ expect(await f.call('pa.attention.delivery.external-complete',{operation_id:args.operation_id,provider_message_id:'om_1'})).toMatchObject({status:'sent',provider_message_id:'om_1'});
+ expect(await f.call('pa.attention.delivery.prepare',{...args,operation_id:'duplicate-external'})).toMatchObject({status:'already_sent',message_id:'external:om_1'});
+});

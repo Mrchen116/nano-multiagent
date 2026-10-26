@@ -218,7 +218,7 @@ export class PersonalAttention {
    return {status:'allowed',classification:'direct_request'};
   }
   if(evidence?.kind==='schedule'){
-   this.pa.ownerMessage(b,evidence.source_message_id);required(evidence.schedule_id,'schedule_id',200);
+   if(evidence.owner_ui!==true)this.pa.ownerMessage(b,evidence.source_message_id);required(evidence.schedule_id,'schedule_id',200);
    return {status:'allowed',classification:'schedule'};
   }
   if(evidence?.kind==='task'){
@@ -301,6 +301,17 @@ export class PersonalAttention {
   const delivery=one(this.db,'SELECT * FROM pa_attention_deliveries WHERE operation_id=? AND binding_id=?',args.operation_id,b.binding_id);
   if(!delivery?.message_id||delivery.message_id!==args.message_id)fail(409,'attention_delivery_not_committed');
   return {status:'sent',operation_id:delivery.operation_id,message_id:delivery.message_id};
+ }
+ /** Record the authenticated channel adapter's actual provider receipt after dispatch. */
+ completeExternal(b:Row,args:Row):Row {
+  const delivery=one(this.db,'SELECT * FROM pa_attention_deliveries WHERE operation_id=? AND binding_id=?',args.operation_id,b.binding_id);
+  const chat=delivery&&one(this.db,'SELECT external_source FROM conversations WHERE id=?',delivery.conversation_id);
+  if(!delivery||!chat?.external_source||!this.pa.ownerConversation(b,delivery.conversation_id))fail(409,'external_attention_delivery_not_prepared');
+  required(args.provider_message_id,'provider_message_id',200);
+  const receipt=`external:${args.provider_message_id}`;
+  if(delivery.message_id&&delivery.message_id!==receipt)fail(409,'attention_already_delivered');
+  this.db.prepare('UPDATE pa_attention_deliveries SET message_id=? WHERE operation_id=?').run(receipt,args.operation_id);
+  return {status:'sent',operation_id:args.operation_id,provider_message_id:args.provider_message_id};
  }
  /** Attach a real native schedule receipt; this storage never runs a scheduler. */
  snoozeComplete(b:Row,args:Row):Row {

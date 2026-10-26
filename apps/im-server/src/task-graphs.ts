@@ -226,6 +226,8 @@ export function applyOperations(
     update_task: ["op", "node_id", "patch"],
     set_assignee: ["op", "node_id", "assignee"],
     claim_task: ["op", "node_id"],
+    bind_execution: ["op","node_id","child_id","root_session_id","request_revision","correction_source_ref","input_receipt","delivery_receipt"],
+    clear_execution: ["op","node_id"],
     add_dependency: ["op", "from", "to"],
     remove_dependency: ["op", "from", "to"],
     set_derivation: ["op", "node_id", "derived_from_id"],
@@ -269,6 +271,19 @@ export function applyOperations(
         refs[ref] = id;
         changed.add(id);
         changed.add(parent);
+      } else if (op.op === 'bind_execution' || op.op === 'clear_execution') {
+        const id=resolve(op.node_id),n=nodes.get(id)!;
+        if(identity.type!=='agent'||n.assignee?.type!=='agent'||n.assignee.id!==identity.id)fail('execution_owner_required','Only the assigned Agent may bind native execution');
+        if(op.op==='clear_execution')delete n.execution;
+        else {
+          if(n.status!=='doing'||op.request_revision!==document.revision)fail('execution_revision_conflict','Bind an execution to the current doing Task revision');
+          text(op.child_id,'child_id',200);text(op.root_session_id,'root_session_id',200);
+          for(const field of ['correction_source_ref','input_receipt','delivery_receipt'])if(op[field]!==undefined)text(op[field],field,200);
+          if(n.execution?.needs_coordination&&n.execution.child_id===op.child_id&&(!op.correction_source_ref||!op.input_receipt))fail('execution_correction_receipt_required','Forward the correction to this child and retain its native acceptance receipt');
+          n.execution={child_id:op.child_id,root_session_id:op.root_session_id,owner_agent_id:identity.id,request_revision:op.request_revision,bound_revision:document.revision+1,
+            ...Object.fromEntries(['correction_source_ref','input_receipt','delivery_receipt'].filter(k=>op[k]!==undefined).map(k=>[k,op[k]]))};
+        }
+        changed.add(id);
       } else if (op.op === "set_assignee" || op.op === "claim_task") {
         const id = resolve(op.node_id), n = nodes.get(id)!;
         if (op.op === "claim_task") {
@@ -294,6 +309,7 @@ export function applyOperations(
           invalid("A non-empty scope cannot change its internal mode");
         if (n.status === "done" && p.status === "doing" && !note.trim())
           invalid("Reopening completed work requires a change_note");
+        if(n.execution&&['title','description'].some(k=>k in p&&p[k]!==n[k]))n.execution.needs_coordination=true;
         Object.assign(n, p);
         changed.add(id);
       } else if (["add_dependency", "remove_dependency"].includes(op.op)) {
@@ -815,6 +831,10 @@ export class TaskGraphService {
     for (const n of doc.nodes) {
       const old = before?.nodes.find((x:Obj) => x.id === n.id);
       if (!old || !sameActor(old.assignee,n.assignee)) this.assignee(n.assignee, doc.conversation_id);
+      if(n.execution?.delivery_receipt&&n.execution.delivery_receipt!==old?.execution?.delivery_receipt) {
+        const message=this.row('SELECT conversation_id,sender_user_id FROM messages WHERE id=?',n.execution.delivery_receipt);
+        if(!message||message.conversation_id!==doc.conversation_id||message.sender_user_id!==this.messaging.agentUser(actor.id).id)fail('execution_delivery_receipt_invalid','Delivery receipt must identify an actual message by this Agent in the Task conversation');
+      }
       const frozen=this.row('SELECT 1 FROM task_lifecycle_freezes WHERE graph_id=? AND node_id=?',doc.graph_id,n.id);
       if(n.assignee?.type==='agent'&&['doing','waiting'].includes(n.status)&&(!old||old.status!==n.status||!sameActor(old.assignee,n.assignee))) {
         if(lifecycle(this.db,n.assignee.id).desired!=='enabled')fail('agent_disabled','Enable this Agent before restoring work');
@@ -1040,7 +1060,7 @@ export class TaskGraphService {
       const path: Obj[] = [];
       for (let p = d.nodes.find((x:Obj)=>x.id===n.container_id); p; p=d.nodes.find((x:Obj)=>x.id===p.container_id)) path.unshift({id:p.id,title:p.title});
       const conversation = this.projection(d,user,actor);
-      return {...summary(d), node_id:n.id,scope_id:n.container_id,title:n.title,mode:n.mode,status:n.status,wait:n.wait,resume_request:n.resume_request,
+      return {...summary(d), node_id:n.id,scope_id:n.container_id,title:n.title,mode:n.mode,status:n.status,wait:n.wait,resume_request:n.resume_request,execution:n.execution,
         updated_at:n.updated_at,created_by:this.identity(n.created_by),assignee:this.identity(n.assignee),
         direct_counts:directCounts(d,n.id),conversation,parent_path:path,
         can_edit:conversation.can_write,can_delete:conversation.can_write && this.canDelete(n,actor,user),

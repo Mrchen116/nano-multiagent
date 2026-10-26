@@ -436,7 +436,9 @@ export class Gateway {
       this.requireAgent(c,p.agent_id);
       return ack({schedule_ids:all(db,'SELECT schedule_id FROM task_lifecycle_schedules WHERE agent_id=?',p.agent_id).map(row=>row.schedule_id)});
     }
-    const effect=type==='agent.message'||type==='agent.config.boundary'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)||['pa.source.admit','pa.incident.report','pa.action.prepare','pa.action.review-result','pa.action.commit'].includes(type);
+    const effect=type==='agent.message'||type==='agent.config.boundary'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)
+      ||type==='pa.attention'&&!['list','get'].includes(p.action)&&(p.action!=='settings'||p.settings!==undefined)
+      ||['pa.source.admit','pa.incident.report','pa.action.prepare','pa.action.review-result','pa.action.commit','pa.attention.delivery.prepare','pa.attention.delivery.complete','pa.attention.delivery.external-complete','pa.attention.snooze.complete'].includes(type);
     if(effect) {
       const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
       this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);
@@ -656,7 +658,7 @@ export class Gateway {
         p.attachments ?? [],
         key,
         'completed',
-        { interactive, publish: false },
+        { interactive, publish: false, ...(p.personal_delivery_operation_id ? {personal_delivery_operation_id:p.personal_delivery_operation_id} : {}) },
       );
       if (p.background_returns)
         db.prepare("UPDATE messages SET background_returns_json=? WHERE id=?").run(

@@ -31,6 +31,9 @@ import { validateCapabilities, type CapabilityTarget } from '@nano/product-contr
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { TaskExecutionDriver } from './task-execution.js';
+import { PersonalDeliveryEvidence } from './personal-delivery-evidence.js';
+import { NativeTaskExecutions } from './task-native-execution.js';
+import { PersonalDelegations } from './personal-delegations.js';
 import { ProductBridge } from './product-bridge.js';
 import { skillCatalog } from './capabilities.js';
 import * as SelectedSkills from './capabilities.js';
@@ -223,8 +226,16 @@ export default class NanoRuntime {
       try { return await next(); } catch (error) { this.capabilities.end(key); this.capabilities.end(`${key}:skill`); throw error; }
     }, {prepend: true});
     ctx.on('tools/result', exec => { if (exec.agent) { this.capabilities.end(`${exec.agent.id}:${exec.callId}`); this.capabilities.end(`${exec.agent.id}:${exec.callId}:skill`); } });
-    ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
-    this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled});
+    const deliveryEvidence=new PersonalDeliveryEvidence(ctx,async agent=>(await approval).sources.humanInputs(agent).map(input=>input.id));
+    const nativeTasks=new NativeTaskExecutions(ctx,async sessionId=>{
+      const binding=this.bindings.get(sessionId);
+      if(!binding)return {kind:'unavailable',tasks:[],repair_task_ids:[],reason:'task_source_unavailable'};
+      return this.peer.request('product.task_execution.snapshot',{sessionId,agentId:binding.agentId,ownerId:binding.ownerId}) as Promise<import('@nano/product-contracts').TaskExecutionSnapshot>;
+    });
+    ctx.plugin(PersonalDelegations);
+    const delegations=new Promise<PersonalDelegations>(resolve=>{ctx.inject(['nanoPersonalDelegations'],child=>{resolve(child.nanoPersonalDelegations);});});
+    ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings, memoryConsumer: async (agent:Agent)=>(await knowledge).memoryConsumer(agent), liveInputIds:async(agent:Agent)=>(await approval).sources.humanInputs(agent).map(input=>input.id), nativeTasks, deliveryEvidence });
+    this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),nativeTasks,lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled});
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -241,8 +252,9 @@ export default class NanoRuntime {
       if (!desired) throw new Error(`Missing Nano configuration for ${preset}`);
       const scopes = await configuration;
       const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
-      const config = await history.configuration(agent, desired, parent ? (await workflow).childConfiguration(scopes.forAgent(parent)!) : undefined);
+      let config = await history.configuration(agent, desired, parent ? (await workflow).childConfiguration(scopes.forAgent(parent)!) : undefined);
       if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
+      config = await (await delegations).configure(agent, config);
       await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
@@ -321,6 +333,7 @@ export default class NanoRuntime {
       await workflow;
       await knowledgeFiber.await();
       await (await knowledge).recover();
+      await delegations;
       for (const agent of config.agents) await lifecycle.prepare(agent.agentId, async () => {
         await cancelPersisted(agent.agentId);
         await this.cron.skipMissed(agent.agentId, new Set(config.blockedScheduleIds ?? []));
@@ -519,6 +532,7 @@ export default class NanoRuntime {
       (await models).fallback.interrupt(agent);
       const workflowCount = await (await workflow).stopSession(sessionId);
       const wasRunning = agent.status === 'running' || workflowCount > 0;
+      await nativeTasks.stop(agent);
       agent.cancel({ kind: 'user' }, { keepInbox: true });
       await agent.whenIdle();
       await this.flush(agent);
@@ -691,7 +705,9 @@ export default class NanoRuntime {
         await this.flush(agent); return { inputId: args.inputId, ...inputEvidence(agent.session.snapshotEvents(), args.inputId) };
         } finally { this.capabilities.end(key); }
       }
-      return this.cron.command(agentId, sessionId, action, args);
+      const result=await this.cron.command(agentId, sessionId, action, args);
+      if(action==='create'&&sessionId&&typeof (result as {id?:string})?.id==='string')await deliveryEvidence.ownerCreated(sessionId,(result as {id:string}).id);
+      return result;
     });
     const disabling = new Map<string, Promise<{confirmed: boolean; history: RuntimeStopHistory[]}>>();
     this.peer.handle('agent.disable', value => {
