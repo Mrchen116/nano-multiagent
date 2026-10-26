@@ -553,3 +553,145 @@ PA独立链确实仍存在：读取`personal-assistant.ts` L59–84的非主人p
 - 默认docs-check因系统Python3.9.6缺yaml失败；在本次独立临时venv安装PyYAML/markdown-it-py后发现collection缺pytest，补pytest/httpx/websockets后仍缺pytest-timeout；直接collect诊断出不识别timeout参数，补插件后最终 `PYTHON=<本次临时文档环境>/bin/python ./scripts/docs-check` exit0：271 maintained Markdown sources / 68 required routes。此环境仅用于文档检查，不假称满足仓库Python≥3.11全栈门禁。
 - 未运行build/typecheck/全量CI、native HTTP fixture、真实provider smoke或IM插件旅程；没有产品验收结论。正式fixture/trace导出尚待M1实施，真实服务是否可用未知。
 - 下一步：父P取得设计冻结ref/SHA后创建本次独立reviewer，以此report为历史入口续写Round 5；审查可扩大范围，不能据旧R4 Approved放行。author继续承担同目标文档返修，不自己做独立审核或开始产品实施。
+
+## Round 5
+
+### Metadata
+
+- reviewer_target: **本次干净重测的新独立 delegated Gate 2 reviewer**，本会话身份 `3f058592-de41-4487-93b5-116f6a20e871`（运行时提供）。未参与本任务需求、设计或实现，不是历史 reviewer `f3bff003-49fa-40ab-b29c-e469c1a0daf4`，不以 P 的长期身份充当独立性证据。后续本任务设计复审继续交本 reviewer，不另开首审上下文。
+- review_mode: **full**。
+- mode_reason: 新人类交办、新 reviewer 与新 main 适用性审核；current 已改变默认策略/effort、共享 tool/disclosure 执行器、来源语义、可终止 inspection 与 shared-host lifecycle。旧 R4 是旧树的 closure，不能证明本次核心边界/共享接口与验收链仍正确。完整重核全部五项产物、17 场景、真实装配入口、职责/复用、Context Lifecycle、delta 和 M1，不沿用旧 Approved。
+- started_at: `2026-10-26T13:01:05+08:00`（首次显式采集的审查时钟；初始加载和阅读早于此值）。
+- completed_at: `2026-10-26T13:05:33+08:00`（事实核对结束，随后追加报告）。
+- duration: `PT4M28S`（上述可核实时钟区间，不冒称包含此前全部阅读时间）。
+- validated_at: **`c78148c1aab7a8486341c5ba839528417a6b4fff`**。
+- executed_base: **`d72e220f1d21827c65e046f704c13837ea39d7c2`**（本轮实测本地 `main` 与 `origin/main` 相同；远端同名设计 ref 的 ls-remote 由父 P 核实，本 reviewer 未另查网络）。
+- product_baseline: `304c59412e8316ef3ea7df9d904a9a450ca618a2`；独立 `git diff --exit-code` 核实至受审 HEAD 的 packages/apps/config/scripts/lock 无产品差异。main 的新增首文档不被当作已实现能力。
+- effective_base: executed_base；effective_through: validated_at，仅表示本轮设计审查适用范围，**不是 Gate 2 通过或实现有效性声明**。
+- checkout/branch: `/Users/czj/.nanoassistant/workspaces/nano-product-r2-1026` / `design/feat-625-r2-361`；开始与落盘前均 clean，HEAD 未变。
+- skills: 实际加载 `change-design-reviewer`、`agent-context-review`（**Mode A — Design Review**）、`codebase-design`、`nano-team-work`，读取 report/DEEPENING、AGENTS、TEAM/ROLE、文档地图、change-workflow、Agent Context Engineering、storage 与 canonical contributing。未读 Inbox/conversations，未公开发消息、改团队图、建 worktree/分支、提交或委派他人；唯一写入为追加本报告。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。Gate 2 未通过。**
+
+总体恢复方案可实施：action 级计数、每次完整预算、冻结来源、Guardian 失败分支隔离、精确 stream 分派和原 fallback 有明确落点。新发现 **R5-W1**：设计把 `configuration release` 列作当前 action 的撤销边界，却未区分真实产品中“配置事务释放 reservation”和“执行 owner/审核租约退役”。前者在配置被拒或持久化失败时也发生，不能据此取消正在按旧配置运行的工具审核。需原 author 按真实入口消歧并补对应反证；不需要重新询问已确认的预算、策略或授权。
+
+本结论不是因为缺少产品实现、fixture 实物或真实模型运行而阻断；这些在设计中明确属于 M1/工程冻结交接与后续门禁，不能伪造已执行。
+
+### Frozen artifacts and preservation
+
+完整读取以下受审文件以及原报告全部 555 行，旧 Round 1–4、Author Resolutions 和 2026-10-26 re-grounding 附录均保留，不把作者附录当新 review verdict：
+
+| 文件 | 受审 HEAD Git blob |
+|---|---|
+| `spec.md` | `7d0b83f9b7e573df2b3b4994cf20a708a16b58c0` |
+| `design.md` | `f15e4b0037a4ef19e819636015194199a774ee2a` |
+| `specs/gateway/agent-capabilities.md` | `54bc2519aeca6b88a8e881edb155a408d10cae66` |
+| `reviewer-runbook.md` | `7976b37c7f1507344aa750494436e5cfa9970c99` |
+| `M1-review-recovery/.gitkeep` | `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391`（空） |
+
+追加前完整报告 SHA-256 为 `1e8a7db4a5db7d8ea41367255aad75e8b662813017113fdd615af3cbe66bb01d`。本轮不回写旧结论或作者 resolutions；没有新 tasks/progress/实现记录。
+
+### Full coverage and independent evidence
+
+#### 1. 从真实产品入口核职责与复用
+
+- `apps/node/src/main.ts:19–21,100–155`：产品装配 PA/Channels，经 `@nano/dsh-integration/client` 启动普通 shared host/PA partition；实际 providerProfiles 写入公开 profile。`integration/src/client.ts:14–26,47–52` 与 `cordis.patch.yml:19–33` 确实装配官方 DSH base + NanoRuntime，非测试独有路径。`SPEC.md:26–52` 的依赖方向不变。
+- `integration/src/index.ts:137–145,208–212` 在该真实 runtime 安装唯一 attribution、CC/Codex 与 NanoApproval；`policy/approval.ts:103–150` 是 downstream/免审→真实 message context→策略→审计/原分流的实际工具闸口。`session.observe` 在 `index.ts:460–466` 返回持久 `approvals`；不是新建 IM API、Session event 或另一执行 loop。
+- 私有 `ReviewRecovery` 适合归 integration policy：集中隐藏共享额度、计时、取消、结构化失败与 trace；CC 保留 stage 语义，Codex 保留 reviewer/检查/context 生命周期，facade 保留计数和最终路由。若整个 facade 套 loop，会重做免审/来源准备/CC stage1 或原 fallback；若全局改 provider retry，则影响 main 且无法表达 format 子额度。设计不选这两者有实际安全与维护理由。
+- `policy/codex.ts:17–27,56–81,100–158` 当前泛型 run 同时服务 tool/disclosure；`reviewDisclosure` 使用独立 `purpose`、严格 `parsePersonalDecision` 和 fullEvidence profile。`index.ts:562–583` 是真实 PA action 入口，`personal-security.ts:97–126` 另有严格 parser 与独立入站审查。设计 L32、69、90、186 明确 tool 才接 recovery；保留 disclosure 原 90 秒、context rebuild、namespace、reason/needs_owner/unavailable 与宿主 commit。此共享代码不意味着扩张 PA 重试权限。
+- 只读 inspection 已是 `codex-inspection.ts:59–65` 的单次 `execFile` + `SIGKILL`。设计保留它，不重新发明进程内 FS，也没有以仅 Promise.race 声称底层终止。新增 generation/drain/quarantine 是恢复租约的必要保护，而非另一通用 Agent 管理器。
+- 实际 owner 停用入口 `index.ts:697–744` 先关闭 admission、按 owner 取消，再 drain/dispose 自己的执行；其他 shared owner 和 host 不退出。新 controller 必须连接 exec signal 与实际 owner lifetime；**配置事务释放的另一语义见 R5-W1**，不能只因出现 release 名称就视作同一生命周期。
+
+#### 2. 当前默认、继承、模型能力与公开 DSH 能力
+
+- `product-contracts/src/approval.ts:19–22` 默认 Codex；Node `approval.ts:7–24` 合并 owner/workspace，`configuration.ts:55–77` 再应用逐 Agent `cc→nano` / Codex 或 null 继承，并独立解析审核模型。设计和 delta 没有恢复旧默认 Nano，未改变 CC/DSH 已有继承或免审。
+- `classifier.ts:15–29` 与 `codex.ts:100–105,174,196` 已是 low→defaultEffort→first declared effort，未声明能力不强设。设计冻结一次 resolvedEffort，不继承主 Agent effort、不为恢复切模型。当前 lifecycle baseline 测例只显式覆盖 high/default、low 和无可调；first-only 的新增组合仍是 M1 退出条件，未声称原 31 项已覆盖全部 effort 分支。
+- 独立读锁定 `dsh-llm` export map 和 public `index.d.ts:16–26,48–71`、`types.d.ts:25–44,141–148`：根 exports 的 `LlmError.failure`、`BlockAssembler`、`isAgentLoopRequest` 和 public `LlmFailure` 足够获取结构化 facts。内部实现文件仅为阅读证据，不授权 runtime private import。
+- `dsh-llm-retry/lib/index.js:151–178` 的执行能力是 `agent/request-error` 插件，always/default policy 不等于 action 共享 2 次。原生 loop `lib/index.js:1117–1134` 使用该 waterfall 的最终 action；现 Guardian prepend owner 不调用 next 可结束该次尝试，CC hand-built stream 本来也不走该事件。因此不调用该插件执行本功能是基于真实 seam 的复用判断；provider=always 不叠加仍须 native fixture 反证，不能仅按“listener 名字正确”通过实现门禁。
+- public Agent `index.d.ts:48–103,129–145` 提供 creation-only signal、setup/commit 与 dispose；锁定 loop 打包 `1655–1708,1734–1756` 确实先 cancel/whenIdle/scope cleanup 再 detach。可实现 generation 先撤销、late create 只清理、旧资源先 drain 再恢复，无须新 loop/private API。
+- `llm/stream` public 事件 this 是 LlmRuntime，不是 Agent；loop 打包 `1269–1276` 用自身 sessionId 标记冻结原对象，public GenerateOptions `types.d.ts:520–530` 区分路由身份与 auxiliary purpose。设计先 marker+精确 reviewer ID 过滤、后访问 currentAttempt 的决定正确；main、CC、disclosure 和 auxiliary 不得被 idle tool reviewer 拦住。
+- undici `types/dispatcher.d.ts:207–231` 有 public onResponseStart/handler 生命周期；当前 `llm-attribution.ts:7–41` 已只有一个 dispatcher owner 和 iterator-local ALS。pi-ai `lib/index.js:1402–1452,1684` 的 in-band failure 常只有 code/message，且 SDK maxRetries=0；新增只观察 HTTP facts 有具体需要。设计没有许诺所有 adapter 都能取得 headers；无法取得时 unknown 与本地退避是诚实限制，真实 Anthropic/HTTP fixture 仍待实现。
+
+本 reviewer 另执行**独立、无网络、无文件写入的 public prepared-stream/ALS 探针**，不是粘贴作者输出：以公开 Context/LlmRuntime/LlmAdapter 建内存 adapter，精确 owner registry 先过滤；并发 A/B/main、同 main session 的 hand-built CC、idle auxiliary，再试 idle 自身异常流和 A 的下一 attempt。结果：
+
+```json
+{"seen":[["review-A","A1"],["review-B","B1"],["main",null],["main","CC1"],["idle",null],["review-A","A2"]],"ownerReads":["review-A","review-B","idle","review-A"],"ownedIdle":"rejected","exports":["function","function","function","function"],"nativeAgent":false,"http":false,"network":false}
+```
+
+`[exit code: 0]`；同时断言对象克隆不保留 public loop marker。该探针只证明公开 prepared-stream 能支持方案所需归属和 ALS，**没有真实 Agent/fork、HTTP header、取消或 dispose，不代替 M1/真实产品验收**。
+
+#### 3. Agent Context Review — Design Review
+
+受影响 Surface：审核模型的 system/policy、有效消息与工具结果投影、planned action、失败结果及恢复/失效；Consumer 为 CC/legacy、tool Guardian，以及需证明不受波及的 disclosure Guardian。未扩到无关 Memory/Skill 全量审查。
+
+- **来源与 owner：** `sources.ts:23–31,69–93,135–185` 以有效 deriveMessages 为输入，去掉快照/Skill 正文、只把仍有效 root 的 PTC 结果投影回来；Inbox 按 message 保留 sender/page/reply/observation，同 call generic body 去重但 distinct call 不删。`approval.ts:59–72` 保存 delegated epoch、仅跨 epoch restore=true；`codex.ts:60` 对已处理 inherited 再用 false 规范化。design L59–65、203–205 正确区分技术恢复冻结、同 epoch 委派和失去观察证明的恢复，没有新 reviewer 就一律 restored 或 live 的错误。
+- **当前身份与控制：** `input-source.ts:21–24` 依宿主 actor/channel/message 身份判断真人；`sources.ts:8–10,167–182` 与 `approval-sources.test.ts:187–224` 明确 represented user/pa_agent_id、实际 sent、Task stop/UI resume 与自动提醒不同。设计将它们作为冻结事实而非重试授权，保留“排队旧输入不因处理较晚而盖过 stop”的语义。恢复不得从全库补授权、把 PA observer 或未送达提案变成人类许可。
+- **选择与交付时点：** 首次 prepare 冻结规范化 rows、精确 action/参数/受众/schema、配置和能力；各次技术恢复重新 full 但不重读消息库或失败 reviewer 的 assistant/read 残片。新工具调用才取新有效历史；来源失效/换窗与配置 fingerprint 失效原 checkpoint。CC 正文省略/不裁超窗，Codex 既有 full/recovery 与 delta/preserve admission 各自保留。
+- **可理解输出：** current `codex-context.ts:10–26` 接受 bare/embedded verdict 与默认值；合法 bare allow 的 format=0、bare deny 是最终判定而非格式恢复。PA parser `personal-security.ts:97–103` 仍必须 decision+非空 reason；不能把 tool 默认值套到 disclosure。design/runbook 的 Before/After 例能区分这些 Consumer。
+- **预算与恢复：** `codex-context.ts:87–138` 的 User/ManualApproval 成本、ProtectedAssistant/最近 5 条工具保护、可容纳 optional 选择与 required/action 保护继续由现 admission 拥有。新 controller 只消费其结果，不新增 0.65 缩放、证据摘要器或第二 parser；全 action context rebuild≤1，不靠新 full 重置额度。
+- **Validation 闭合：** runbook §5.1/5.2 和 M1 明确 captured 实际请求、同/cross epoch 对照、tool/disclosure 并发、来源/预算/parser 与 stop 组合；请求证明实际交付，Work/副作用/实际 sent 证明消费结果。当前只有设计和窄 baseline，未观察真实模型请求或后续行为，不能从探针/类名推断 LLM 已正确消费。当前 lifecycle 语义歧义仍须 R5-W1 闭环。
+
+#### 4. 全部 17 场景、次数/预算/安全和最终路由
+
+| 首文档场景组 | 设计覆盖与独立判断 |
+|---|---|
+| 短暂失败后放行；混合失败共享两次 | design L74–84、88–100、118–130：controller 隶属同一个 ToolExecution，最多额外 2 次跨故障/CC stage 共享；只恢复判定，不调用工具体。有效最终 verdict 不进入技术分类。 |
+| CC 完整阶段；Codex 完整 90 秒；几分钟但有界 | L104–116：15 秒 prepare，CC 每次 30/60 秒、legacy 30 秒，Guardian 每次 90 秒；等待总≤20 秒，cleanup 单次≤5 秒，360 秒整体保护容纳 Codex 330/CC 265 秒估算。context rebuild 在当前 90 秒内，非所有尝试挤原 90 秒；cleanup 不可用则关闭而非扣残余启动新尝试。 |
+| 首次格式恢复；再次格式/总额耗尽 | L124–130：EMPTY_RESPONSE/空白/非法统一 format 子额度≤1，计入总 2；不接受原生通用 transient 再送一套额度。parser 先拥有有效性，不另造字段校验。 |
+| CC 两阶段和最终 deny；Codex 风险授权检查；永久错误 | L96–102、124–132：CC 有效非 allow 才正常推进，失败只恢复当前 stage；Guardian 失败 handle 退役后干净 full，另一并发成功 checkpoint 不被覆盖；auth/quota/config 永久优先，不借 429/Retry-After 刷 allow/换模型/扩 inspection 权限。 |
+| 请求/退避停止；非主动单次超时 | L92、122、193–197：父取消/owner 撤销优先于 timeout/allow，generation 先失效、iterator/handle 收束，5 秒无法 drain 则 quarantine 且不发后继，late create/allow 不能复活。**真实 configuration reservation release 不是上述 owner 撤销，见 W1。** |
+| 普通有人值守；Global/child；unattended allow/deny | 当前 `approval.ts:75–101,138–150` 的 child→return_to_agent、schedule/heartbeat→unattended、Global→return_to_agent 与原 interactive 得到保留。design L156–158、219–221 先记录 no_verdict/拟 route，技术不可用不增 classifier_block；配置 fallback allow 只在终态一次，不冒充模型 allow；cancel 不 fallback 放行。 |
+| 内部 attempts 可区分；真实双策略插件旅程 | L209–221 和 runbook §3–6 的 review/attempt/request 三层区分原 callId 与主 Agent 重调，usage partial/unknown 不补 0、不重复统计 fallback；optional domain v1 旧行可读。真实 CC/Codex 自建/安装/两次调用 180/55、用户可见结果与 Work/副作用、独立 Q 和故障证据分层均纳入退出标准。 |
+
+#### 5. Delta、milestone 与验收交接
+
+- canonical target 正确，仅 `docs/specs/gateway/agent-capabilities.md`。独立执行文本断言：MODIFIED 完整保留 **8 个 Scenario**，只把“已有重试”失败 WHEN 改为本次有界恢复语义并加 legacy 兼容 AND；归一化这两处后，与 current 对应 Requirement 逐字相等，`[exit code: 0]`。626 普通工具有效上下文、CC workspace fastpath 和 Codex 风险 Requirement 都在 replacement 之外，没有拿旧整文件覆盖新 main。
+- 无新客户端页面/按钮，详细 attempts 不冒称已有 Work UI；既有 observe/domain 导出用于维护者检查，Work 核真实工具/公开结果。没有 prototype 或生产迁移的必要性；不新增 deployment-prompt，不要求生产变更验收。
+- 单 M1 囊括同一安全闭环，范围、依赖和 test seams 合理，无按层机械并行冲突；骨架只有空 `.gitkeep`。可替换外部模型用 HTTP fixture，domain/controller fake clock 保次数与时钟，native 层保生命周期，真 IM/daily 观察用户旅程，各证据层不互相冒充。
+- 真实资源入口已独立核对 `scripts/e2e-up.sh:113–137,188–215`、current worktree-runtime 的 daily 契约及 `_im_client.py` 的真实登录/配置入口。daily 不和 --main-config 混用；两种策略在自己的隔离副本设置，Auto 开启且不跳权限。runbook 没有宣称模板 Luna 已真实可用，需实际审核 smoke，配置/能力错误与 HTTP/provider 故障分别报告。命令示例有一个低风险补全建议 R5-R1。
+- runbook L10、52、65–79 明确**当前还没有**实际 Q 节点、daily 运行身份、625 fixture 命令实物或 trace 导出 CLI。E 必须在工程冻结交接时补真实 branch/ref/SHA/构建、Q 节点、清单身份、策略/fallback/模型/effort、PID/端口、可执行 fixture 及脱敏导出定位，Q 执行前核实。它们是已明确分派的验收前置，不是要求设计 author 现在伪造实现或增加一个审批 Gate。
+
+### Historical issue reassessment
+
+| 原 issue | Author resolution / 当前内容 | 本轮独立核实与状态 |
+|---|---|---|
+| R1-W1 | 单全局 listener，精确 native reviewer ID + public loop marker；非所属流透明；attempt 快照/idle/tombstone | 重新读取 public 事件/marker、真实 loop stamped identity，执行本轮独立 prepared-stream/ALS 探针；**closed（设计层）**，但 native/HTTP lifecycle 未实现验证，旧 probe 不作本轮产品 pass。 |
+| R1-W2 | 原固定 low-only 资源要求已经过时；当前实现会选择原模型支持的 low/default/first | 重读实际 classifier/Codex/Node 选择链；新 runbook 不固定 low 或旧 Sol，不需要为旧 warning 回退新能力。**旧缺陷不适用于当前设计**；真实 daily Luna smoke 仍未知，不把静态能力当真实服务可用。 |
+| R3-W1 | 分开同 action 技术恢复、同 epoch 委派、跨 epoch/失去观察证明；冻结 actual observation | 本轮核对 approval epoch、sources restore、codexEntries/cursor 与 §5.2 双向对照；**closed（设计层）**。没有把历史 R4 Approved 当关闭依据。 |
+
+### Issues
+
+#### R5-W1 — 配置事务释放 reservation 不是执行 owner 退役；不得将 `configuration release` 一概作为取消当前审核的边界
+
+- **Severity:** WARNING；**evidence status:** CONFIRMED（设计指令与当前接口语义存在不一致/未消歧）；尚无625实现，后述运行损害是按该指令实施可成立的机制，不宣称已复现产品故障。
+- **位置：** `design.md:92` 将“当前 shared-host 中的 Agent disabled、configuration release、service 卸载”并列，要求“均撤销所拥有 action 的 generation、打断退避、cancel/drain”；相邻“配置切换排队不抢改正在执行整轮”与 L189 的配置 fingerprint/租约失效没有说明哪个 release 入口才能终止 action。
+- **真实装配证据：** `packages/personal-assistant/src/configuration.ts:65–78` 在 prepare 被拒、persist 抛错及 apply 完成时都会调用 options.release。Node `apps/node/src/main.ts:413–415` 将它转为 **`configuration.release` RPC**。integration `src/index.ts:608` 仅调用 `capabilities.release(agentId, operationId)`；`capability-state.ts:31–32` 只删除相同 operationId 的 reservation，不撤销任何执行 owner 或旧配置。真实配置切换 `index.ts:626–634` 等待该 Agent idle 后才 setConfiguration；真实停用则是 `index.ts:697–744` 的独立 admission/cancel/drain 链。当前 `CodexApproval.release(parentId)` 又是另一个用于缓存的 API，不能与上述 RPC 同名归并。
+- **Context Surface / expected：** ToolExecution 的控制/恢复生命周期与最终工具结果。Agent 已在原配置下执行的受审动作，应持续持有本次冻结规则，直到父 exec 主动 cancel、实际 owner 退役或对应审核租约确实被撤销；配置提案被拒/释放预约本身不能变成一次用户 stop。
+- **Observed design / failure scenario：** 一个 action 正在等待503恢复，用户尝试撤下当前忙碌工具/Feature，prepare 按现契约拒绝，随后正常发送 configuration.release。若工程按 L92 给此 RPC 绑定“撤销所有该 owner action”，没有配置生效、也没有用户停止指令的审核就被 cancel；同理 metadata-only/失败配置清理不能顺带终止旧 action。即便作者本意仅指内部 reviewer cache 的 release，目前也未标明该区别，且其取消含义不等于当前 release API 的全部语义。
+- **Impact：** 正常旧配置工作被无故中断，主 Agent 收到取消/失败并可能再次调用工具，破坏“进行中整轮保留原策略”和本功能减少主 Agent 技术重调的目标。错误地把 transaction reservation 当 runtime ownership，会扩大新增机制职责，不是纯命名偏好。
+- **需要 author 闭环：** 明确区分①父 exec/owner disabled/disposed/service teardown 的真正 action 撤销；②配置事务 reservation release（包括 rejected/failed/metadata-only 路径）**不取消**当前 action；③实际配置生效后的 idle cache/fingerprint 失效或内部 reviewer 租约退役的精确范围。给出连接真实入口的规则，不把 cancellation 挂到通用 configuration.release RPC。补一个设计层验收反证：503/backoff 或请求中并行配置 prepare 被拒/事务 release，原 action 继续按冻结配置完成且最多一次工具执行；真实 owner disable/cancel 仍撤销/drain 且另一 owner 不受影响。若 L92 所指是新私有方法，明确其 owner/purpose/parent 与触发条件，不能仅重命名而保留相同混用。
+
+### Recommendations
+
+- **R5-R1（可选、非阻断）— 补全新 runtime 目录创建步骤。** `reviewer-runbook.md:28–30` 给 WT_ROOT 赋全新 `.e2e-feat625-daily-${POLICY}` 后直接传 --wt；当前 `scripts/e2e-up.sh:115` 先 `cd "$2"`，不会创建该目录。E 落实可复跑交接命令时，在已核实的本次隔离路径上显式 mkdir，或说明目录已存在；避免 Q 首次复制示例就遇到目录不存在。这不改变资源隔离或产品设计，不另计 WARNING。
+
+### Validation record, limits and required follow-through
+
+- 本轮成功的 Git 核对、canonical delta/旧报告 hash 断言、public prepared-stream 探针均检查成功；探针/文本断言显式返回 `[exit code: 0]`。最初一次猜测 integration 的直接 node_modules 存在 agent-loop 路径返回不存在，已用 glob 找到锁定 pnpm 实际路径并读取；不把失败查询记作证据。
+- Author 所报 3 组 31/31 baseline 与 docs-check：本轮读取其报告及三组测试定义，覆盖 source/parser/admission/缓存 namespace 和部分 effort、当前 bounded inspection。未重复运行，未获得新的独立测试 pass；这些定义/既有结果不能证明新增重试、first-only effort、真实 SIGKILL 卡 FS、HTTP attribution 或完整并发取消矩阵已验证。docs-check 的临时环境通过只作作者文档检查记录，不作本次 CI 或合格全栈 Python 环境证明。
+- 本 reviewer 未执行 build/typecheck/全量 CI、HTTP/native fixture、真实模型/IM/daily 插件旅程，未查共享代理健康、未启动服务、未读生产配置或凭据。当前没有本次实现、真实服务可用性或 Q 产品验收结论，均为 **not verified**，不是已通过也不是因此新增设计 finding。
+- **需作者闭环：** R5-W1 的精确 lifecycle 语义、真实接口连接与反证退出条件；追加 Author Resolution，不修改本轮原文。修订冻结新 SHA 后续投本 reviewer，按实际 diff 自主选择 closure/delta/full，不重开首审。R5-R1 可在准备可运行交接时处理。
+- **工程冻结必须提供而尚未产生：** 本次实际 Q 节点/隔离 daily 阵容、实施 SHA/构建、可跑 fixture 命令与脱敏 observe 导出/locator；随后独立静态/Context Implementation Review、verifier、Q 双策略真实旅程及确定性矩阵和 Ready PR/CI 仍须按原 workflow 执行。不能用本轮静态审查、旧 R4、作者窄 baseline 或 template ready 代替。
+- 只向父 Agent 交付；本报告未提交，不授权 merge、生产部署/重启、发布或恢复旧群/任务/会话/证据。
+
+### Author Resolutions — Round 5
+
+- **R5-W1 — accepted。** 本作者重新读取PA `configuration.ts:65–78`、integration `index.ts:599–645,697–744`、`capability-state.ts:31–32`、`agent-config.ts:142–168` 和 `codex.ts:47–53,81–98`：真实事务reservation release只是释放预约，可在拒绝/失败/metadata-only发生；不是exec取消或runtime ownership。旧design把它与owner停用并列确有实质错误，不按“仅换名称”处理。
+  - `design.md` 关键决策1分成三种精确入口：父exec/真实owner disable/disposed/service teardown才撤销action；事务RPC只删匹配operation reservation，明确禁止连接新controller取消/currentAttempt/cache失效；idle实际执行配置生效后后继action才比较fingerprint/替换trunk，metadata-only原地revision不修改已冻结快照。
+  - 明确私有reviewer租约按owner+parent+purpose+reviewId/attempt定位，只在本attempt失败/timeout/context rebuild、真实取消、idle cache替换或parent/service销毁时退役/drain。原 `CodexApproval.release(parentId)` 保持cache失效：阻止旧trunk回写、只dispose idle handle，不凭同名API取消活动exec；它不是configuration.release RPC。
+  - 同步接口/成功commit条件、Context Lifecycle/Validation和M1退出标准，消除“config release不能republish”与笼统“配置变更失效”措辞。保留现有capability admission边界，不新增取消路径，不改变17用户场景/恢复额度/授权或delta。
+  - runbook矩阵及§5.2要求请求中与503/backoff中经真实prepare拒绝→PA/Node事务release后，旧action保冻结配置/输入/次数/退避/发布权并最多执行工具一次；native/事务层补persist失败/metadata-only清理；idle真实生效→下一动作换cache；真正owner stop/disable作为相反对照仍撤销/drain且不伤另owner。
+- **R5-R1 — accepted（非阻断建议）。** runbook§2在全新WT_ROOT传 `--wt` 前增加打印/核对路径与 `mkdir -p`；不删除旧目录、不启动服务或创建额外worktree。
+- 本次只有design/runbook及本报告追加，spec/delta/M1空骨架不变；保留R5 reviewer原文。本author未实施产品代码，未把静态修订记成测试/产品pass。下一步正常提交推送新冻结SHA后，由父P续投同reviewer自主选择closure/delta/full；本节不代替独立门禁。

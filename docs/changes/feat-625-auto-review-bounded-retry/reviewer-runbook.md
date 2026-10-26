@@ -27,6 +27,9 @@ pnpm build
 
 export POLICY=codex # 第二轮cc；使用全新runtime目录
 export WT_ROOT="$PWD/.e2e-feat625-daily-${POLICY}"
+# 核对是本checkout内的本次隔离路径；e2e-up --wt会直接cd，不会建目录。
+printf '%s\n' "${WT_ROOT:?}"
+mkdir -p "${WT_ROOT:?}"
 ./scripts/e2e-up.sh --profile daily --wt "${WT_ROOT:?}"
 source "$WT_ROOT/.e2e-ports.env"
 curl -fsS "$IM_URL/openapi.json" >/dev/null
@@ -91,7 +94,8 @@ pnpm exec vitest run packages/dsh-integration/tests/review-recovery.test.ts \
 | 普通interactive、Global、child、schedule/heartbeat allow/deny | 原ask/return_to_agent/child无卡/配置allow一次或deny零次；cancel不能fallback allow。 |
 | 无usage/partial usage、旧domain行、写trace失败 | knownUsage不伪零/伪完整，旧行可读；写失败不新增allow。 |
 | high/max-only、low可用、不可调模型；tool+disclosure同parent并发 | 同一配置provider/model支持的effort，不固定low；tool恢复不改disclosure严格parser/预算/namespace和host commit。 |
-| shared-host owner disable/release，另一owner持续工作；阻塞inspection FS | 撤销本owner generation、排空/kill自己的inspection，不发后继尝试；不kill共享DSH或阻断其他owner。 |
+| shared-host真实owner disable/dispose/cancel，另一owner持续工作；阻塞inspection FS | 撤销本owner generation、排空/kill自己的inspection，不发后继尝试；不kill共享DSH或阻断其他owner。 |
+| 请求中及503/backoff中，配置prepare拒绝→事务release；persist失败release；metadata-only完成release | 原action的冻结规则/模型/Context/预算/计数/退避与发布权不变，继续原审核且工具至多一次。configuration.release只删operation reservation，不是stop。另作真正owner cancel/disable反证，必须立即撤销/drain；idle实际配置生效后的新action才按新fingerprint换cache。 |
 
 ### 5.1 精确stream归属与真实生命周期
 
@@ -113,6 +117,7 @@ pnpm exec vitest run packages/dsh-integration/tests/review-recovery.test.ts \
 - 双向来源对照：同epoch父live→委派→503→full仍live，已有restored仍restored；跨epoch/失去观察证明/旧host_context→restored→503→full不提升。旧host_context_live按同epochfalse保留，不能只测试新格式。
 - `503 → {"outcome":"allow"}` 对tool的format=0；bare deny与合法embedded verdict按现parser有效，非法outcome/enum/type才计格式；PA disclosure不应用tool默认值，needs_owner/unavailable不被恢复刷成通过。
 - full默认recovery admission、checkpoint delta preserve；context rebuild→503→full不重置context额度，无0.65缩放。保留User成本、ProtectedAssistant/最近5工具、超大optional先移除、required/action保护和明确遗漏。
+- 503/backoff barrier与请求中barrier分别并行提出撤下忙碌工具/Feature的配置；必须从真实prepare返回capability_in_use并经过PA/Node事务release，不能用伪造cancel代替。观察旧reviewId/attempt继续、captured恢复请求仍原provider/model/effort/rows，工具至多一次。persist失败/metadata-only release由native/事务层确定性测试补全；metadata revision原地更新不能改已冻结config快照。实际idle生效后新动作使用新配置/fingerprint，不携旧checkpoint判定；显式cache release仅撤销精确trunk回写资格、不取消活动exec，不能挂到configuration.release RPC。
 - 当前Guardian独立system/agent-pre-step隔离、只读inspection、主Agent项目指令不直接污染reviewer，以及Task stop/UI resume/represented user来源原测试不退化。captured请求证明实际输入、Work和真实效果证明消费结果，分开记录。
 
 ## 6. 证据与清理
