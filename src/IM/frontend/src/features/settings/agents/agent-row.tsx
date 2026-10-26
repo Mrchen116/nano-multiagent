@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
 import { useAuthStore } from "../../auth/auth-store";
 import { useTranslation } from "../../../i18n";
@@ -35,6 +36,7 @@ export interface AgentRowProps {
    *  showing the node_id fallback first would flash before the real name
    *  arrives. */
   nodesPending?: boolean;
+  statusBadge?: ReactNode;
   isActive: boolean;
   isMobile: boolean;
   onSelect: (agentId: string) => void;
@@ -46,7 +48,7 @@ export interface AgentRowProps {
  * identical; the right edge carries the owning-device label instead of a
  * standalone status dot — presence lives on the avatar badge only.
  */
-export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobile, onSelect }: AgentRowProps) {
+export function AgentRow({ agent, nodes, nodesPending = false, statusBadge, isActive, isMobile, onSelect }: AgentRowProps) {
   const { t } = useTranslation();
   const self = useAuthStore(s => s.user?.id);
   const status = statusOf(agent, nodes);
@@ -85,9 +87,11 @@ export function AgentRow({ agent, nodes, nodesPending = false, isActive, isMobil
       />
       <div className="im-agent-row-copy min-w-0 flex-1">
         <p
-          className={`m-0 font-semibold truncate text-im-text ${isMobile ? "text-[15px]" : "text-[13px]"}`}
+          className={`m-0 flex items-center gap-1 min-w-0 font-semibold text-im-text ${isMobile ? "text-[15px]" : "text-[13px]"}`}
         >
-          {agent.display_name} {self && agent.owner_id === self && <small className="agent-mine">{t("agents.mine")}</small>}
+          <span className="truncate text-im-text">{agent.display_name}</span>
+          {self && agent.owner_id === self && <small className="agent-mine shrink-0">{t("agents.mine")}</small>}
+          {statusBadge}
         </p>
         <p
           className={`m-0 mt-[2px] truncate text-im-text-muted ${isMobile ? "text-[12.5px]" : "font-mono text-[11px]"}`}
