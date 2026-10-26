@@ -10,7 +10,8 @@ import pytest
 from .catalog import catalog, digest, select, write_json
 from .evidence import timeline, turns
 from .review import adjudicate, comparison
-from .runner import validate_manifest, verified_files
+from .fixture import validate_manifest
+from .runner import verified_files
 
 
 def test_every_scenario_has_explicit_executable_mapping():
