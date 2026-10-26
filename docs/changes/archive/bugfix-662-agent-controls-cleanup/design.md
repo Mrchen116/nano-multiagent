@@ -35,9 +35,11 @@
 - 既有测试：保留生命周期提交、离线停止、冲突、权限与导航覆盖；只将既有启用用例的按钮查询更新为 `Enable`，未增加布局快照或重复测试。
 - 定向验证：列表/侧栏/行/生命周期共 29 项通过；详情/生命周期共 32 项通过；最终文案改动后生命周期 5 项通过。以上套件存在交集，不能相加当作独立测试总数。
 - 前端构建与 TypeScript 检查通过。全量检查发现新增 `role=status` 与能力提示共处时使既有单状态查询产生歧义；标签恢复为既有 `aria-live=polite` 提示方式，外观不变。
+- 收尾前端全量在 Node 24.22.1、`--maxWorkers=2` 下 108 文件 / 1,031 项通过，最终构建通过，`npm audit --audit-level=critical` 通过（现有 11 个非 critical 告警，不在本次升级依赖）。
 - Python 非 E2E 检查 70 passed / 32 deselected，ruff check 与 format 通过；根 TypeScript typecheck 与 packaged iOS runtime 检查通过；文档完整性检查通过。
 - 真实 Web：使用 worktree 的隔离 daily IM + Gateway，测试主人和 P/E/Q + PA；列表及详情实际停用，验证标签后重新启用，并观察工作页正常状态消失。
 - 截图位于本 worktree 的 `output/playwright/agents-list-disabled-badge.png` 与 `output/playwright/agent-detail-disabled-inline.png`。详情截图先于最后的纯文案修改，图中按钮仍为「重新启用」；最终 `Enable` 文案由后续测试确认，未把旧截图冒充最终文案证据。
+- 后端首次全量在本机 Node 25 默认并发下 750 passed / 3 failed，三项失败均为运行时等待超时；这些后端文件与基线完全一致。以 Node 24.22.1、`--maxWorkers=1` 复核三个文件，7 项全部通过；未修改后端或放宽超时。初次失败日志与复核日志分别为本机 `/tmp/bugfix-662-backend-test.log`、`/tmp/bugfix-662-backend-recheck.log`。
 - 所有自建浏览器和服务已关闭，端口释放已确认；截图与运行数据不提交，不对线上用户 Agent 执行启停。
 - 没有事前 Gate 2、独立 verifier/product reviewer 或独立 Code Review；不补造相应通过记录。审查豁免见 [code-review.md](code-review.md)。
 
