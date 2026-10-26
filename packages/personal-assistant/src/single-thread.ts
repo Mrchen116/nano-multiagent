@@ -163,7 +163,7 @@ export class SingleThread {
       }
       await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources: content.map((_, index) => imageSources.get(index) ?? null),
-        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, contextEnvelope },
+        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender}, ...(input.message.pa_agent_id?{pa_agent_id:input.message.pa_agent_id}:{}), contextEnvelope },
       });
     }
     store.accepted(inputId);

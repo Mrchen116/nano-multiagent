@@ -608,6 +608,7 @@ export class Gateway {
         typeof p.to !== "string"
       )
         fail(400, "invalid_agent_message");
+      if(p.reply_draft!==undefined)fail(422,'reply_draft is retired; use ComposeMessage');
       const key = source[1] ? `${a.agent_id}:${source[1]}` : null;
       let interactive;
       try { interactive = interactiveResponse(p.interactive); } catch (error) { fail(422, (error as Error).message); }
@@ -619,7 +620,6 @@ export class Gateway {
         const saved = s.message(previous.message_id);
         const savedInteractive = s.interactions.publication(previous.message_id);
         if (saved.content !== p.text.trim() || canonicalJson(savedInteractive ?? null) !== canonicalJson(interactive ?? null)
-          || canonicalJson(saved.reply_draft ? {target_conversation_id:saved.reply_draft.target_conversation_id,source_message_id:saved.reply_draft.source_message_id,field_name:saved.reply_draft.field_name} : null) !== canonicalJson(p.reply_draft ?? null)
           || s.resolveTarget(a.agent_id, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
         return ack({
           conversation_id: previous.conversation_id,
@@ -656,7 +656,7 @@ export class Gateway {
         p.attachments ?? [],
         key,
         'completed',
-        { interactive, reply_draft:p.reply_draft, publish: false },
+        { interactive, publish: false },
       );
       if (p.background_returns)
         db.prepare("UPDATE messages SET background_returns_json=? WHERE id=?").run(

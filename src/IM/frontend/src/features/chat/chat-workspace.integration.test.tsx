@@ -469,44 +469,55 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('adopts the edited private reply into the original composer with explicit replacement and no send', async () => {
+  it.each(['c1','c2'])('adopts edited text into %s with access checks, explicit replacement and no send', async target => {
     const baseFetch=fetchSpy;
     let privateState: Record<string,unknown>={'$reply':'Saved reply'};
     let revision=1;
+    let writable=false;
     const card={...FIXTURES.messagesC1[0],id:'reply-card',sender:{type:'agent',id:'a-planner',display_name:'Planner'},sender_user_id:'user-uuid-planner',sender_type:'agent',content:'Suggested reply',
-      interactive:{format:'openui',catalog_version:'nano-1',source:'$reply = "Initial reply"\nroot = TextArea("body", "Reply draft", 3, null, $reply)'},
-      reply_draft:{target_conversation_id:'c2',source_message_id:'source',field_name:'$reply',possible_stale:true}};
+      interactive:{format:'openui',catalog_version:'nano-1',source:`$reply = "Initial reply"\nroot = Stack([TextArea("body", "Reply draft", 3, null, $reply), Button("Adopt", @ComposeMessage("${target}", $reply))])`}};
     const customFetch=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
       const url=String(input);
       if(url.endsWith('/im/v1/personal-agent'))return jsonResponse({binding:{binding_id:'pa',agent_id:'a-planner',owner_id:'u-self',owner_user_id:'u-self',node_id:'node-prod',node_epoch:1,conversation_id:'c1',display_name:'Planner',status:'active'},policy:{revision:1,excluded_conversation_ids:[]}});
       if(url.endsWith('/im/v1/personal-agent/incidents'))return jsonResponse({items:[]});
       if(url.endsWith('/interaction-state')){
         if(init?.method==='PUT'){privateState=JSON.parse(String(init.body)).state;revision++;}
-        return jsonResponse({draft_revision:revision,state:privateState,submission_message_id:null});
+        return jsonResponse({draft_revision:revision,state:privateState,submission_message_id:null,can_interact:true});
       }
       if(url.includes('/conversations/c1/messages')&&(!init?.method||init.method==='GET'))return jsonResponse({items:[{type:'message',message:card}],next_before_message_id:null});
+      if(url.endsWith(`/im/v1/conversations/${target}`)) return jsonResponse({...FIXTURES.conversations.find(c=>c.id===target),can_write:writable});
       return baseFetch(input,init);
     });
     vi.stubGlobal('fetch',customFetch);
-    composerStoreFor('u-self').set('c2',{...EMPTY_COMPOSER_SNAPSHOT,draft:'Existing reply'});
+    composerStoreFor('u-self').set(target,{...EMPTY_COMPOSER_SNAPSHOT,draft:'Existing reply',pending:[{url:'/old.png',file_name:'old.png'}]});
     const confirm=vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     const view=renderAtRoute('/chat/c1');
     try {
       const field=await screen.findByPlaceholderText('Reply draft', {}, {timeout:10000});
       await waitFor(()=>expect(field).toHaveValue('Saved reply'));
       fireEvent.change(field,{target:{value:'Edited reply'}});
-      fireEvent.click(screen.getByRole('button',{name:'Use in original chat'}));
+      if(target==='c1') fireEvent.change(screen.getByPlaceholderText(/^Message/),{target:{value:'Existing reply'}});
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+      await screen.findByRole('alert');
+      expect(confirm).not.toHaveBeenCalled();
+      expect(field).toHaveValue('Edited reply');
+      writable=true;
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
       await waitFor(()=>expect(confirm).toHaveBeenCalledTimes(1));
       expect(screen.getByRole('heading',{name:'Planner'})).toBeInTheDocument();
       expect(field).toHaveValue('Edited reply');
-      expect(composerStoreFor('u-self').get('c2')?.draft).toBe('Existing reply');
+      expect(composerStoreFor('u-self').get(target)?.draft).toBe('Existing reply');
       expect(privateState['$reply']).toBe('Edited reply');
-      fireEvent.click(screen.getByRole('button',{name:'Use in original chat'}));
-      await screen.findByRole('heading',{name:'Research Squad'});
-      expect(screen.getByPlaceholderText(/type @ to mention/i)).toHaveValue('Edited reply');
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+      await screen.findByRole('heading',{name:target==='c1'?'Planner':'Research Squad'});
+      await waitFor(()=>expect(screen.getByPlaceholderText(/^Message/)).toHaveValue('Edited reply'));
+      expect(composerStoreFor('u-self').get(target)?.pending).toEqual([]);
       expect(customFetch.mock.calls.filter(([input,init])=>String(input).endsWith('/messages')&&init?.method==='POST')).toEqual([]);
-      fireEvent.click(screen.getByRole('button',{name:'← Back to personal assistant'}));
+      if(target!=='c1') fireEvent.click(screen.getByRole('button',{name:/Planner.*Personal assistant/}));
       await waitFor(()=>expect(screen.getByPlaceholderText('Reply draft')).toHaveValue('Edited reply'));
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+      await waitFor(()=>expect(screen.getByPlaceholderText(/^Message/)).toHaveValue('Edited reply'));
+      expect(confirm).toHaveBeenCalledTimes(2);
     } finally {confirm.mockRestore();view.unmount();}
   }, 15000);
 

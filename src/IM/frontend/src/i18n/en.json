@@ -1656,9 +1656,7 @@
       "startExercise": "I want to exercise three times a week. Help me make a beginner plan.",
       "findNextStep": "I keep putting a few things off. Help me figure out my next step."
     },
-    "useDraft": "Use in original chat",
-    "draftStale": "You have already replied in the original chat. This draft may be out of date.",
-    "replaceDraft": "The original chat has an unsent draft. Replace it with this reply? Cancel to keep your existing draft.",
+    "replaceDraft": "Replace unsent content?",
     "return": "← Back to personal assistant",
     "create": "My personal assistant",
     "role": "Personal assistant · Following through",
@@ -1717,6 +1715,9 @@
       "notice": "View risk notice",
       "privateSource": "You are not a member of the original chat. You can view the risk notice your assistant sent you.",
       "restored": "Contact unblocked. Future requests will be checked normally."
-    }
+    },
+    "senderLabel": "{{name}}, sent by PA",
+    "sentOnBehalf": "Sent by PA",
+    "composeUnavailable": "This conversation is unavailable or you do not have permission to write."
   }
 }

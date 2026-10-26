@@ -4,7 +4,9 @@
 
 ## 前提与迁移
 
-1. 实施提供对现有 `pa_delegated_messages` 增加 nullable `representation_operation_id` 的迁移；在隔离数据库副本 dry-run/apply/verify，包含旧 PA 消息、旧 prepared/allowed/confirmed 操作与已有 relay/event。新库 schema 同步。重复执行不改旧值，不从 label/body 推断授权。
+运行时基线已随 PR #409（bugfix-660）恢复普通 Agent 共享 DSH host 和原目录，PA 保留原有 binding/epoch 分区。本次升级不执行 feat-657 的逐 Agent home 拆分迁移；下列 IM representation 列迁移仍然需要。旧版隔离验收中该拆分工具的拒绝记录仅为历史证据，不再构成当前部署前置条件。
+
+1. `apps/im-server/lib/migrate-pa-representation.js`（先完成 `pnpm build`）对现有 `pa_delegated_messages` 增加 nullable `representation_operation_id`。用 `node <script> dry-run <database>`、`node <script> apply <database>`、`node <script> verify <database> <pre-migration-backup>` 执行。先在隔离副本验证旧 PA 消息、旧 prepared/allowed/confirmed 操作与已有 relay/event；真实副本演练与计数见 M1 progress。新库 schema 同步。重复执行不改旧值，不从 label/body 推断授权；新 IM 遇到未迁移旧库会明确拒绝启动。
 2. 暂停入口流量及相关节点执行，备份数据库、部署版本和客户端可恢复产物。未消费的旧 PA 操作缺失 representation 时始终按 self 解码，且仍须通过当前实际 Agent 成员权限；过期 permit 仍按现有规则重新审核。
 3. 更新 IM、节点/DSH integration、Web 和在用原生 iOS。只有所有接收节点与在用客户端具备新来源契约后恢复入口；不在混合版本期间开放 send_user_message 与新 ComposeMessage 卡片。离线节点须先更新再接入新 relay。若在用 iOS 尚不能更新，则保持新 owner 发送未开放，不以旧客户端无标记展示冒充验收通过。
 4. 核对新增列全部旧行 NULL、旧消息仍为 Agent、无历史补发/补授权且不从旧标签回填 pa_agent_id。用部署许可允许的测试身份完成一条真实新代发，检查新用户消息仅以可选 pa_agent_id 标明代发，内部 operation 关联、持久事件和 relay 一致；两端身份正确，审核/路由不回声。生产验收消息不得替用户做真实合并/部署/发布承诺。

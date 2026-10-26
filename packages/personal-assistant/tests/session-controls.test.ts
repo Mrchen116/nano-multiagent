@@ -34,5 +34,6 @@ it('requires group addressing even under ALWAYS and preserves original command t
 it('recognizes a directed stop only after the host-resolved target Agent mention',()=>{
   const input={agent_id:'a',participants:[{type:'agent',id:'a',user_id:'agent-user',display_name:'A'}],message:{content:'<mention type="user" target_id="agent-user"/> /stop'}} as RelayInput;
   expect(controlText(input)).toBe('/stop');
+  expect(controlText({...input,message:{...input.message,pa_agent_id:'pa'}})).toBe('');
   expect(controlText({...input,message:{...input.message,content:'<mention type="user" target_id="other"/> /stop'}})).not.toBe('/stop');
 });

@@ -138,6 +138,11 @@ struct ConversationView: View {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
+        .task(id: store.composeRequest?.id) {
+            guard let request = store.composeRequest, request.target == conversationID else { return }
+            focusRequest = ComposerFocusRequest(selection: NSRange(location: (request.text as NSString).length, length: 0))
+            store.composeRequest = nil
+        }
         .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
         .onChange(of: draft.wrappedValue) { _, _ in dismissedCompletion = false }

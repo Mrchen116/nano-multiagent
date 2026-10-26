@@ -107,14 +107,17 @@ export class PersonalAssistant {
     const target = String(call.args.target ?? '');
     const text = String(call.args.text ?? '');
     if (!target || !text.trim()) throw new Error('Sending requires target and nonempty text');
+    if(call.args.reply_draft!==undefined)throw new Error('reply_draft is retired; use an interactive ComposeMessage action');
     const interactive = interactiveResponse(call.args.interactive);
-    const replyDraft = call.args.reply_draft;
-    const publicationBody = canonicalJson({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, reply_draft:replyDraft ?? null});
+    const representation=call.method==='send_user_message'?'owner':'self';
+    if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
+    const publicationBody = canonicalJson({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation});
     const previous = inbox.publication(call.operationId);
     if (previous && (previous.target !== target || previous.body !== publicationBody)) throw new Error('Publication identity conflict');
     if (previous?.result) return JSON.parse(previous.result) as unknown;
     const deliveryTarget=this.options.store.canonicalConversation(config.agentId,target.replace(/^conversation:/,''));
     if(deliveryTarget.startsWith('external:')) {
+      if(representation==='owner')throw new Error('Owner representation requires a native IM conversation');
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
         from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
@@ -125,19 +128,20 @@ export class PersonalAssistant {
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
     inbox.preparePublication(call.operationId,target,publicationBody,binding.agentId);
     if (conversation === config.personal!.conversationId) {
+      if(representation==='owner')throw new Error('Owner representation cannot target the owner PA conversation');
       // Private owner replies use the ordinary publication path, including IntelligentUI.
       inbox.settlePublication(call.operationId,'sending');
       try {
         const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
-          attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),...(replyDraft ? {reply_draft:replyDraft} : {}),
+          attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),
           from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
         if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
         const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
         inbox.settlePublication(call.operationId,'confirmed',result);return result;
       } catch(error) {inbox.settlePublication(call.operationId,'unknown');throw error;}
     }
-    const proposal = await this.request(config,'pa.action.prepare',{request_key:call.operationId,conversation_id:conversation,
-      content:text,attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),...(replyDraft ? {reply_draft:replyDraft} : {})});
+    const proposal = await this.request(config,'pa.action.prepare',{request_key:call.operationId,representation,conversation_id:conversation,
+      content:text,attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {})});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string') {
       const result={status:'sent',target,message_id:proposal.message_id,conversation_id:proposal.conversation_id};
       inbox.settlePublication(call.operationId,'confirmed',result); return result;

@@ -463,6 +463,7 @@ BEGIN
  WHERE b.status='active' AND NEW.conversation_id!=b.conversation_id
  AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
  AND NOT EXISTS(SELECT 1 FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=NEW.message_id AND u.username='agent:'||b.agent_id)
+ AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=NEW.message_id AND d.agent_id=b.agent_id AND d.representation_operation_id IS NOT NULL)
  AND NOT EXISTS(SELECT 1 FROM json_each(p.excluded_json) WHERE value=NEW.conversation_id);
 END;
 CREATE TABLE IF NOT EXISTS pa_operations (
@@ -475,7 +476,8 @@ CREATE TABLE IF NOT EXISTS pa_operations (
 );
 CREATE TABLE IF NOT EXISTS pa_delegated_messages (
  message_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, agent_id TEXT NOT NULL,
- authorized_by TEXT NOT NULL, display_name TEXT NOT NULL
+ authorized_by TEXT NOT NULL, display_name TEXT NOT NULL,
+ representation_operation_id TEXT REFERENCES pa_operations(operation_id)
 );
 CREATE TABLE IF NOT EXISTS pa_source_reads (
  binding_id TEXT NOT NULL, message_id TEXT NOT NULL, conversation_id TEXT NOT NULL,

@@ -10,6 +10,8 @@ export function needsAttention(input: RelayInput, config: AgentConfiguration): b
 
 /** Read a command after the host-resolved mention of this input's target Agent. */
 export function controlText(input:RelayInput):string {
+  // A represented message is conversation input, never a fresh human control command.
+  if(input.message.pa_agent_id)return '';
   const text=input.message.content.trim();
   const self=input.participants?.find(member=>member.type==='agent'&&member.id===input.agent_id);
   const mention=/^<mention type="user" target_id="([^"<>]+)"\s*\/>\s*/.exec(text);

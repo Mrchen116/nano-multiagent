@@ -3,16 +3,28 @@ import type { FastifyRequest } from 'fastify';
 import { canonicalJson, interactiveResponse, type InteractionSnapshot, type InteractionContext } from '@nano/product-contracts';
 import { body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
 import { agentAvailable } from './identity.js';
+import { conversationAccess } from './conversation-access.js';
 import { interactionState, validateInteractiveSource, type InteractiveSchema } from './interactive-source.js';
 
 /** Own immutable UI records, private drafts, and viewer-specific submission identity. */
 export class Interactions {
   constructor(private readonly ctx: ImContext) {}
   private get db() { return this.ctx.db; }
-  private source(id: string, cid: string): Row {
-    const source = one(this.db, 'SELECT i.*,m.content,m.sender_user_id,u.username FROM message_interactive i JOIN messages m ON m.id=i.message_id JOIN users u ON u.id=m.sender_user_id WHERE i.message_id=? AND m.conversation_id=?', id, cid);
+  /** Resolve the executor from controlled provenance independently of the public author. */
+  source(id: string, cid: string): Row {
+    const source = one(this.db, `SELECT i.*,m.content,m.sender_user_id,u.username,
+      COALESCE(e.id,CASE WHEN u.username LIKE 'agent:%' THEN u.id END) executor_user_id,
+      COALESCE(d.agent_id,CASE WHEN u.username LIKE 'agent:%' THEN substr(u.username,7) END) executor_agent_id
+      FROM message_interactive i JOIN messages m ON m.id=i.message_id JOIN users u ON u.id=m.sender_user_id
+      LEFT JOIN pa_delegated_messages d ON d.message_id=m.id AND d.representation_operation_id IS NOT NULL
+      LEFT JOIN users e ON e.username='agent:'||d.agent_id
+      WHERE i.message_id=? AND m.conversation_id=?`, id, cid);
     if (!source) fail(404, 'interactive message not found');
     return source;
+  }
+  private available(source:Row,cid:string):boolean {
+    return !source.read_only&&!source.superseded_by&&agentAvailable(this.db,one(this.db,'SELECT * FROM agent_profiles WHERE agent_id=?',source.executor_agent_id))
+      && !!conversationAccess(this.db,cid,source.executor_user_id)?.can_write;
   }
   private writable(source: Row): void {
     if (source.superseded_by || source.read_only) fail(409, { code: 'interaction_read_only', message: 'This reply has been replaced or is copied history' });
@@ -51,7 +63,7 @@ export class Interactions {
         || value.interacted_at !== undefined && (!Number.isFinite(value.interacted_at) || value.interacted_at < 0)) fail(422, 'Invalid interaction context');
       const source = this.source(value.source_message_id, cid);
       const {state, fields} = this.state(source, value.state);
-      return {source_message_id:source.message_id, source_summary:source.content.slice(0,160), agent_id:source.username.slice(6), state, fields,
+      return {source_message_id:source.message_id, source_summary:source.content.slice(0,160), agent_id:source.executor_agent_id, state, fields,
         ...(value.interacted_at !== undefined ? {interacted_at:value.interacted_at} : {})};
     });
   }
@@ -64,7 +76,7 @@ export class Interactions {
     const publication = canonicalJson(value);
     if (value.supersedes_message_id) {
       const old = this.source(value.supersedes_message_id, cid);
-      if (old.sender_user_id !== sender || old.read_only || old.superseded_by) fail(409, 'Only the same Agent can replace its current reply');
+      if (old.executor_user_id !== sender || old.read_only || old.superseded_by) fail(409, 'Only the same Agent can replace its current reply');
       if (value.source_mode === 'patch') value = {...value, source: mergeStatements(old.source, value.source)};
       this.db.prepare('UPDATE message_interactive SET superseded_by=? WHERE message_id=?').run(id, old.message_id);
     }
@@ -76,9 +88,9 @@ export class Interactions {
   readDraft(req: FastifyRequest): Row {
     const p = this.ctx.messaging.principal(req), { conversation_id: cid, message_id: mid } = params(req);
     if (p.kind === 'gateway' || p.username?.startsWith('agent:')) fail(403, 'Human viewer required');
-    this.ctx.messaging.access(p, cid); this.source(mid, cid);
+    this.ctx.messaging.access(p, cid); const source=this.source(mid, cid);
     const row = one(this.db, 'SELECT * FROM interaction_drafts WHERE source_message_id=? AND user_id=?', mid, p.id);
-    return { updated_at: row?.updated_at ?? null, draft_revision: row?.draft_revision ?? 0, state: JSON.parse(row?.state_json ?? '{}'), submission_message_id: row?.submission_message_id ?? null };
+    return { read_only:!!source.read_only, superseded_by:source.superseded_by??null, can_interact:this.available(source,cid)&&!!conversationAccess(this.db,cid,p.id)?.can_write, updated_at: row?.updated_at ?? null, draft_revision: row?.draft_revision ?? 0, state: JSON.parse(row?.state_json ?? '{}'), submission_message_id: row?.submission_message_id ?? null };
   }
   /** Compare-and-swap private local state independently of earlier requests. */
   writeDraft(req: FastifyRequest): Row {
@@ -118,15 +130,14 @@ export class Interactions {
     if (typeof content !== 'string' || !content.trim()) fail(422, 'Handwritten content required');
     const semantic = canonicalJson({source_message_id: source.message_id, action_id: input.action_id ?? null, typed_content: input.action_id || nativeEvent ? '' : content, canonical_state: state, ...(nativeEvent ? {event:nativeEvent} : {})});
     const previous = one(this.db, 'SELECT s.* FROM interaction_submissions s JOIN messages m ON m.id=s.message_id WHERE m.conversation_id=? AND m.caller_idempotency_key=?', cid, key);
-    const snapshot: InteractionSnapshot = { source_message_id: source.message_id, source_summary: source.content, agent_id: source.username.slice(6),
+    const snapshot: InteractionSnapshot = { source_message_id: source.message_id, source_summary: source.content, agent_id: source.executor_agent_id,
       ...(input.action_id ? {action_id: input.action_id, action_label: label} : {}), ...(nativeEvent ? {event:nativeEvent,action_label:content} : {}), state, fields };
     if (previous) {
       if (previous.semantic_json !== semantic) fail(409, { code: 'interaction_already_submitted', message: 'This request key was already used with different content', submission_message_id: previous.message_id });
       return { existing: previous.message_id, content, semantic, snapshot };
     }
     this.writable(source);
-    const agent = one(this.db, 'SELECT * FROM agent_profiles WHERE agent_id=?', snapshot.agent_id);
-    if (!agentAvailable(this.db, agent) || !one(this.db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', cid, source.sender_user_id)) fail(409, 'The source Agent is no longer available in this conversation');
+    if (!this.available(source,cid)) fail(409, 'The source Agent is no longer available in this conversation');
     return { content, semantic, snapshot };
   }
   /** Commit a choice identity and its private submitted state with the public message. */

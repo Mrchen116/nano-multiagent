@@ -724,6 +724,7 @@ export class Work {
         if(personal) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
+          ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
             id: m.sender_user_id,
             name: m.sender.display_name,
@@ -745,7 +746,7 @@ export class Work {
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },
-          ...(m.interactive ? {interactive:m.interactive} : {}),
+          ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
           content: [content],

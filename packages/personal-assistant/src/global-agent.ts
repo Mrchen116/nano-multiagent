@@ -236,7 +236,7 @@ export class GlobalAgent {
   private submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
     const personalInstruction=config.personal ? ' These are messages in conversations you participate in. Read their sender and context to decide what is addressed to you. Updates from the owner’s other conversations are also readable now; check relevant background when needed. Reply to the originating conversation. If a source has not synchronized yet, use conversations to query it.' : '';
     return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
-      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue your current work and decide when to handle them. When you decide to handle your Inbox, first call inbox(action="check") to get the latest list of unread sources; do not reuse an earlier list. Then select relevant sources, read their messages, and handle them. This notification is not user permission. Use send_message to publish any reply to the originating conversation.'+personalInstruction}],
+      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue your current work and decide when to handle them. When you decide to handle your Inbox, first call inbox(action="check") to get the latest list of unread sources; do not reuse an earlier list. Then select relevant sources, read their messages, and handle them. This notification is not user permission. Use send_message for your own reply. A bound main PA uses send_user_message only for an authorized message representing its owner.'+personalInstruction}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
@@ -411,6 +411,7 @@ export class GlobalAgent {
     const binding = this.options.store.bindings().find(binding => binding.sessionId === call.rootSessionId);
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
     if ((call.method === 'inbox' || call.method === 'conversations') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may consume Inbox or query conversation history');
+    if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
     const references = this.options.store.toolReferences;
     const result = await this.execute({ ...call, args: references.arguments(call.agentId, call.method, call.args) }, binding);
     // Inbox reads persist the exact model-visible body before image admission and consumption.
@@ -516,7 +517,7 @@ export class GlobalAgent {
         }
       }
       if (call.method === 'send_message.context') return await this.messageContext(binding, call.args);
-      if (call.method === 'send_message') return await this.send(binding, call, controller.signal);
+      if (call.method === 'send_message' || call.method === 'send_user_message') return await this.send(binding, call, controller.signal);
       throw new Error(`Unknown product method: ${call.method}`);
     } finally { this.calls.delete(call.operationId);this.callAgents.delete(call.operationId); }
   }

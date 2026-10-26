@@ -17,10 +17,17 @@ struct MarkdownView: View {
 }
 
 enum MarkdownContent {
-    enum Piece { case text(AttributedString), image(source: String, label: String) }
+    enum Piece { case text(AttributedString), image(source: String, label: String), attachment(ChatAttachment) }
     /// Splits at images before rendering, keeping text and nested linked images in source order.
     static func pieces(_ node: any Markup, baseURL: URL) -> [Piece] {
         if let image = node as? Markdown.Image { return image.source.map { [.image(source: $0, label: image.plainText)] } ?? [] }
+        // Conversation resources require the current login; Safari cannot carry that authorization.
+        if let link = node as? Markdown.Link, let destination = link.destination,
+           let url = URL(string: destination, relativeTo: baseURL)?.absoluteURL,
+           ServerOrigin.same(url, baseURL),
+           url.path.range(of: #"^/im/v1/conversations/[^/]+/attachments/[^/]+$"#, options: .regularExpression) != nil {
+            return [.attachment(ChatAttachment(url: url.absoluteString, file_name: link.plainText))]
+        }
         if node.childCount == 0 { return [.text(inline(node, baseURL: baseURL))] }
         var result: [Piece] = []
         for child in node.children {
@@ -130,6 +137,7 @@ private struct MarkdownBlockView: View {
                 switch piece {
                 case .text(let text): SwiftUI.Text(text).font(baseFont).tint(.teal).fixedSize(horizontal: false, vertical: true)
                 case .image(let source, let label): ProtectedImageView(client: client, source: source, label: label)
+                case .attachment(let attachment): AttachmentView(client: client, attachment: attachment)
                 }
             }
         })

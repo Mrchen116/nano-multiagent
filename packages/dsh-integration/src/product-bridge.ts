@@ -18,6 +18,7 @@ export class ProductBridge extends Service {
     }
     const binding = this.options.bindings.get(root.id);
     if (!binding) throw new Error('Agent has no product identity');
+    if (method === 'send_user_message' && (exec.agent.id !== root.id || exec.agent.session.header.origin === 'subagent')) throw new Error('Only the bound root PA can represent its owner');
     exec.signal.throwIfAborted();
     const operationId = `${exec.agent.id}:${exec.callId}`;
     const cancel = () => this.options.peer.notify('product.cancel', { operationId });

@@ -253,7 +253,7 @@ root = Stack([
 
 **Review 驱动方式**：端到端真栈。共享委托/审核/恢复在真实 Web + daily Agent 验；本人/收件人头像、标记及消息归属须在 Web 和原生 iOS 各实测一次。仅 Web 重复范围/恢复/拒绝旅程；原生不重复整套 LLM 场景。
 
-在实施 checkout 根，先设置 `WT_ROOT` 为本轮独立绝对目录；使用仓库 daily 模板，不能复用设计期临时实例或生产身份。具体日常阵容/模型/审核配置以 [固定模板](../../development/worktree-runtime.md#固定日常验收模板) 和 `.e2e-daily.json` 为准。
+在实施 checkout 根，先设置 `WT_ROOT` 为本轮独立绝对目录；使用仓库 daily 模板，不能复用设计期临时实例或生产身份。具体日常阵容/模型/审核配置以 [固定模板](../../../development/worktree-runtime.md#固定日常验收模板) 和 `.e2e-daily.json` 为准。
 
 | 服务 | 停止 | 启动/构建 | 健康检查 |
 |---|---|---|---|

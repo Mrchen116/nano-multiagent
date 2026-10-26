@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: bugfix-646
+> 对齐: feat-658
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -1028,3 +1028,14 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **WHEN** 所选审核模型声明可调推理能力
 - **THEN** 支持 low 时使用 low，否则使用该模型声明的默认档位或首个支持档位；未声明可调能力时不强设 low。
 - **AND** 保留同一审核 provider/model、完整适用证据、判定规则及失败分流，不通过换模型或删证据放行。
+
+### Requirement: 通用交互说明区分本地采用与发送请求
+
+#### Scenario: 普通 Agent、Global 与 PA 生成草稿
+- **WHEN** Agent 使用可用交互能力提供可编辑回复
+- **THEN** 可以使用通用 ComposeMessage 将当前编辑内容采用到指定聊天输入框，不需要 PA 专属字段或草稿工具；ToAssistant 继续表示向本会话提交请求，不能混淆。
+- **AND** 工具 schema、固定提示、加载的 Skill 与示例表达同一语义；系统负责补齐固定 format/catalog_version，Agent 只填写内容及适用的更新参数。
+
+#### Scenario: 实际注册与恢复一致
+- **WHEN** 上下文经历唤醒、历史恢复、执行子 Agent 交接或独立审核
+- **THEN** 工具身份、来源、已有委托范围和真实发送回执仍一致；本地采用不成为公开发送或新增业务许可；没有暴露的工具不被提示为可调用。

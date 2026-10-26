@@ -61,10 +61,11 @@ it('preserves relay sender names and timestamps in native inbox pages', () => {
   const store = new InboxStore(':memory:');
   const message = input('named', 'hello');
   message.message.sender = {display_name:'Alice'};
+  message.message.pa_agent_id='alice-pa';
   message.message.created_at = '2026-10-10T01:00:00Z';
   try {
     store.receive(message, true);
-    expect(store.read('alice','main','read',{target:'group-a'})).toMatchObject({messages:[{sender:{name:'Alice'},time:'2026-10-10T01:00:00Z'}]});
+    expect(store.read('alice','main','read',{target:'group-a'})).toMatchObject({messages:[{sender:{name:'Alice'},pa_agent_id:'alice-pa',time:'2026-10-10T01:00:00Z'}]});
   } finally {store.close();}
 });
 

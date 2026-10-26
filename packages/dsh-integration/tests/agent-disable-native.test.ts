@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import type { RuntimeStopHistory } from '../../product-contracts/src/index.js';
 import { RuntimeClient, RuntimeSupervisor, prepareProfile } from '../src/client.js';
 
@@ -22,10 +23,14 @@ it('clears cold durable inbox once per disable revision and preserves fresh post
     client!.process.kill('SIGKILL'); await client!.exited;
     await start({revision:3,disabledThroughRevision:2});
     expect(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:'old'})).toMatchObject({accepted:true,pending:false,terminal:{kind:'cancelled-before-consumption'}});
-    await client!.rpc.request('session.submit',input('new'));
+    const represented = {...input('new'),source:{...input('new').source,sender:{type:'user',id:'owner'},pa_agent_id:'pa-owner'}};
+    await client!.rpc.request('session.submit',represented);
     client!.process.kill('SIGKILL'); await client!.exited;
     await start({revision:3,disabledThroughRevision:2});
     expect(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:'new'})).toMatchObject({accepted:true,pending:true});
+    const history = await client!.rpc.request('session.observe',{sessionId:'root'}) as {events:SessionEvent[]};
+    const restoredInput = history.events.flatMap(event=>event.type==='agent/inbox/spliced'?event.data.inserted:[]).find(message=>message.id==='new');
+    expect(restoredInput?.source).toMatchObject({kind:'user',sender:{type:'user',id:'owner'},pa_agent_id:'pa-owner',lifecycle_revision:3});
   } finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
 },30_000);
 

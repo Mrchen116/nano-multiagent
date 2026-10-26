@@ -22,6 +22,7 @@
 .pa-source-list { max-height: 180px; overflow: auto; }
 .pa-source-list label { display: flex; align-items: center; gap: 8px; }
 .pa-error { color: var(--im-danger, #b42318) !important; font-size: 13px; }
+.pa-delegation--represented { white-space: nowrap; flex-shrink: 0; }
 .pa-delegation { font-size: 11px; color: var(--im-text-muted); border: 1px solid var(--im-border); border-radius: 4px; padding: 1px 5px; }
 
 

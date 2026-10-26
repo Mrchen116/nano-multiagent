@@ -73,7 +73,7 @@ export class TrajectoryRuns extends Service {
         ...(call ? { launchSeq: call.seq } : {}),
         ...(typeof args?.description === 'string' ? { label: args.description } : {}),
         delegation: typeof args?.run_in_background === 'boolean' ? args.run_in_background ? 'background' : 'foreground'
-          : exec.name === 'send_message' ? 'background' : 'unknown',
+          : ['send_message', 'send_user_message'].includes(exec.name) ? 'background' : 'unknown',
       }, next);
     }, { prepend: true });
     const self = this;

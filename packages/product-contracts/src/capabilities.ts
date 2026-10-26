@@ -53,7 +53,7 @@ export function featureClosure(features: Record<string, boolean> = {}, definitio
 /** Fixed tools belong to the runtime role, never to a user's click history. */
 export function fixedTools(mode: string = 'single_thread', role: 'root' | 'personal' | 'subagent' = 'root', contextEnabled = true): string[] {
   return [
-    ...(mode === 'global' && role !== 'subagent' ? ['inbox', 'conversations', 'send_message', 'subagent', ...(role === 'personal' ? ['personal_sources'] : [])] : []),
+    ...(mode === 'global' && role !== 'subagent' ? ['inbox', 'conversations', 'send_message', 'subagent', ...(role === 'personal' ? ['personal_sources', 'send_user_message'] : [])] : []),
     ...(contextEnabled ? ['notes', 'history', 'new_context', 'get_context_remaining'] : []),
   ];
 }

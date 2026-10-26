@@ -11,7 +11,7 @@ const home=await mkdtemp(join(tmpdir(),'pa-child-delivery-'));let client:any;con
 const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
 try{
  await writeFile(join(home,'fixture.mjs'),`import{writeFile,appendFile}from'node:fs/promises';
-export const name='child-delivery';export const inject=['agents','subagents','tools','llm'];
+export const name='child-delivery';export const inject=['agents','subagents','tools','llm','nanoProduct'];
 export function apply(ctx){const seen=new Set();
 ctx.on('agent/pre-step',async({agent,signal},next)=>{
  if(agent.id==='root'&&agent.session.deriveMessages().length&&!seen.has('root')){
@@ -25,9 +25,10 @@ ctx.on('llm/stream',async function*(o){
  const agent=o.sessionId?ctx.agents.get(o.sessionId):undefined;
  if(agent?.session.header.parentSession==='root'&&!seen.has(agent.id)){
   seen.add(agent.id);const names=ctx.tools.schemas(agent).map(t=>t.name);
+  let representation;try{await ctx.nanoProduct.call('send_user_message',{target:'c_peer',text:'Forbidden child representation'},{agent,signal:o.signal,callId:'child-owner'});}catch(error){representation=String(error);}
   const result=await ctx.tools.execute({name:'send_message',callId:'child-send',arguments:{target:'c_peer',text:'Authorized coordination'},agent,signal:o.signal});
   const task=await ctx.tools.execute({name:'task_graph',callId:'child-task',arguments:{action:'create',target:'c_peer',title:'Shared coordination',mode:'dag',request_key:'child-task'},agent,signal:o.signal});
-  await writeFile(process.env.DSH_HOME+'/result.json',JSON.stringify({child:agent.id,names,result,task}));
+  await writeFile(process.env.DSH_HOME+'/result.json',JSON.stringify({child:agent.id,names,result,task,representation}));
  }
  yield{type:'block-end',index:0,block:{type:'text',text:isReview?'{"decision":"allow","reason":"Authorized"}':'done'}};
  yield{type:'finish',reason:{kind:'stop'}};
@@ -44,6 +45,8 @@ ctx.on('llm/stream',async function*(o){
  await expect.poll(async()=>(await client.rpc.request('session.lookup',{sessionId:'root',inputId:'seed'})).terminal).toBeTruthy();
  await client.rpc.request('session.submit',{sessionId:'root',inputId:'root-work',mode:'followup',content:[{type:'text',text:'Coordinate through a child'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'root-work'}});
  let result:any;const end=Date.now()+15000;while(Date.now()<end){try{result=JSON.parse(await readFile(join(home,'result.json'),'utf8'));break;}catch{}await new Promise(r=>setTimeout(r,50));}assert(result,'child result missing');assert(result.names.includes('send_message'));
+ expect(result.names).not.toContain('send_user_message');
+ expect(result.representation).toContain('Only the bound root PA');
  const rootEvidence=await client.rpc.request('pa.evidence',{agentId:'pa',sessionId:'root'});assert(rootEvidence.contexts!==undefined);
  expect(result.result.isError).not.toBe(true);
  expect(result.task.isError).not.toBe(true);

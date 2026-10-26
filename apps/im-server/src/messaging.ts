@@ -330,7 +330,8 @@ export class Messaging {
       ...(this.ctx.updates ? {update_wait: this.ctx.updates.messageWait(id)} : {}),
     };
     const delegation = one(this.db,"SELECT * FROM pa_delegated_messages WHERE message_id=?",id);
-    if(delegation) result.delegation={agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${one(this.db,"SELECT display_name FROM users WHERE id=?",delegation.authorized_by)?.display_name??delegation.display_name}的 PA · 代为发送`};
+    if(delegation?.representation_operation_id) result.pa_agent_id=delegation.agent_id;
+    else if(delegation) result.delegation={agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${one(this.db,"SELECT display_name FROM users WHERE id=?",delegation.authorized_by)?.display_name??delegation.display_name}的 PA · 代为发送`};
     for (const key of [
       "attachments",
       "tool_calls",
@@ -347,8 +348,6 @@ export class Messaging {
       result[key] = JSON.parse(m[`${key}_json`] ?? "null");
     const interactive = this.interactions.message(id);
     if (interactive) result.interactive = interactive;
-    const replyDraft=this.ctx.personal?.replyDraft(id);
-    if(replyDraft)result.reply_draft=replyDraft;
     for (const key of Object.keys(result)) if (key.endsWith("_json")) delete result[key];
     Object.defineProperties(result, {
       awaiting_permission_at: { value: m.awaiting_permission_at },
@@ -397,7 +396,7 @@ export class Messaging {
     status = "completed",
     extra: Row = {},
   ): Row {
-    if ((extra.interactive || extra.reply_draft) && !this.db.isTransaction)
+    if ((extra.interactive || extra.personal_source) && !this.db.isTransaction)
       return transaction(this.db, () => this.insertMessage(cId, sender, type, content, attachments, key, status, extra));
     const old = key
       ? one(
@@ -439,13 +438,15 @@ export class Messaging {
       )
       .run(cId, sender);
     if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
-    if (extra.interactive) {
-      if (type !== 'agent') fail(403, 'Only Agent messages may contain interactive replies');
-      this.interactions.record(id, cId, sender, extra.interactive);
+    // Controlled provenance must exist before card validation and message.created.
+    if (extra.personal_source) {
+      const source=extra.personal_source;
+      this.db.prepare('INSERT INTO pa_delegated_messages(message_id,binding_id,agent_id,authorized_by,display_name,representation_operation_id) VALUES(?,?,?,?,?,?)')
+        .run(id,source.binding_id,source.agent_id,source.owner_user_id,source.display_name,source.operation_id ?? null);
     }
-    if (extra.reply_draft) {
-      if(!this.ctx.personal)fail(422,'invalid_reply_draft');
-      this.ctx.personal.recordReplyDraft(id,extra.reply_draft);
+    if (extra.interactive) {
+      if (type !== 'agent' && !extra.personal_source?.operation_id) fail(403, 'Only Agent messages may contain interactive replies');
+      this.interactions.record(id, cId, extra.personal_source?.operation_id ? this.agentUser(extra.personal_source.agent_id).id : sender, extra.interactive);
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     const m = this.message(id);
@@ -664,6 +665,10 @@ export class Messaging {
       relays.push({relay_task_id:id,target_node_id:a.node_id,payload_json:JSON.stringify(payload),conversation_id:c.id});
     }
     return relays;
+  }
+  /** Queue represented user input for current participants without echoing to its PA. */
+  queueRepresentedRelays(message:Row,agentId:string):void {
+    this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>agent.agent_id!==agentId));
   }
   /** Queue other direct-chat Agents in the same transaction as a reviewed PA message. */
   queueDirectAgentRelays(message:Row):void {

@@ -88,7 +88,7 @@ interface Submit {
   mode: 'followup' | 'steer' | 'inject';
   onlyIfIdle?: boolean;
   content: PromptContentPart[];
-  source: { kind: 'human' | 'system'; lifecycle_revision?: number; contextEnvelope?: string; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
+  source: { kind: 'human' | 'system'; lifecycle_revision?: number; contextEnvelope?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
 }
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {

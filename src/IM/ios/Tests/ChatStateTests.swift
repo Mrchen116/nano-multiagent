@@ -22,8 +22,10 @@ final class ChatStateTests: XCTestCase {
         let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
         let store = try await makeStore(list: list)
         await store.loadConversations()
-        func event(_ type: String, _ id: Int, sender: String = "peer", kind: String = "user") throws -> UserEvent {
-            let data: [String: Any] = ["op": "event", "event_type": type, "event_id": id, "data": ["conversation_id": "chat", "message_id": "message", "sender_user_id": sender, "sender_type": kind]]
+        func event(_ type: String, _ id: Int, sender: String = "peer", kind: String = "user", pa: String? = nil) throws -> UserEvent {
+            var payload: [String: Any] = ["conversation_id": "chat", "message_id": "message", "sender_user_id": sender, "sender_type": kind]
+            if let pa { payload["pa_agent_id"] = pa }
+            let data: [String: Any] = ["op": "event", "event_type": type, "event_id": id, "data": payload]
             return try JSONDecoder().decode(UserEvent.self, from: JSONSerialization.data(withJSONObject: data))
         }
         store.consume(try event("message.sent", 1))
@@ -45,6 +47,11 @@ final class ChatStateTests: XCTestCase {
         XCTAssertNil(store.banner)
         store.selectedID = nil
         store.consume(try event("message.sent", 7))
+        XCTAssertNil(store.banner)
+        store.consume(try event("message.created", 8, pa: "actual-pa"))
+        XCTAssertEqual(store.banner?.conversationID, "chat")
+        store.banner = nil
+        store.consume(try event("message.created", 9, sender: "user", pa: "own-pa"))
         XCTAssertNil(store.banner)
         store.clear()
     }

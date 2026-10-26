@@ -41,7 +41,10 @@ describe('capability selections', () => {
     expect(validateCapabilities({...initial, features: {...off, task_graph: true}, tool_allowlist: ['task_graph']})).toContainEqual({code: 'required_by_feature', target: {kind: 'feature', name: 'cron_scheduling'}, required_by: ['task_graph']});
   });
   it('keeps root fixed tools scoped to mode and role and protects context tools', () => {
-    expect(fixedTools('global', 'personal')).toContain('personal_sources');
+    expect(fixedTools('global', 'personal')).toEqual(expect.arrayContaining(['personal_sources','send_user_message']));
+    expect(fixedTools('global', 'root')).not.toContain('send_user_message');
+    expect(fixedTools('global', 'subagent')).not.toContain('send_user_message');
+    expect(changeCapability({...draft(),work_mode:'global',personal_agent:{}}, {kind:'tool',name:'send_user_message',enabled:false}, {}).blocks[0].code).toBe('fixed_capability');
     expect(fixedTools('global', 'subagent')).not.toContain('send_message');
     expect(fixedTools('single_thread', 'root', false)).toEqual([]);
     expect(changeCapability(draft(), {kind: 'tool', name: 'notes', enabled: false}, {fixed_tools: ['notes']}).blocks[0].code).toBe('fixed_capability');

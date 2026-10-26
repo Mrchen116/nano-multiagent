@@ -19,6 +19,12 @@ final class ChatStore {
     private var interactionConversations: [String: String] = [:]
     var sending: Set<String> = []
     var errors: [String: String] = [:]
+    struct ComposeRequest: Identifiable {
+        let id = UUID()
+        let target: String
+        let text: String
+    }
+    var composeRequest: ComposeRequest?
     var selectedID: String?
     var connectionText = ""
     var listError: String?
@@ -55,6 +61,22 @@ final class ChatStore {
         } catch { listError = error.localizedDescription }
     }
 
+    /// Check the target using the signed-in viewer before changing either local draft.
+    func checkComposeTarget(_ target: String) async throws {
+        let destination: Conversation = try await client.get("/im/v1/conversations/\(target.pathComponent)")
+        guard destination.can_write == true, destination.dissolved_at == nil, destination.external_source == nil else {
+            throw APIError(status: 403, detail: L("目标聊天不可用，或你没有发送权限。", "This conversation is unavailable or you do not have permission to write."))
+        }
+    }
+    func hasComposeConflict(_ target: String, text: String) -> Bool {
+        let draft = drafts[target] ?? ""
+        return (!draft.isEmpty && draft != text) || !(attachments[target] ?? []).isEmpty || !(uploadDrafts[target] ?? []).isEmpty
+    }
+    func adoptCompose(_ target: String, text: String) {
+        drafts[target] = text; attachments[target] = []; uploadDrafts[target] = []
+        composeRequest = ComposeRequest(target: target, text: text)
+    }
+
     func stop() {
         epoch = UUID(); refreshTask?.cancel(); refreshTask = nil
         Task { await stream.stop() }
@@ -63,7 +85,7 @@ final class ChatStore {
         sendEpoch = UUID()
         stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []; inspectedConversation = nil
         interactionPending = [:]; interactionConversations = [:]; interactionSelections = [:]; interactionSending = []; sending = []
-        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; banner = nil; listLoaded = false
+        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil; listLoaded = false
     }
     func run() async {
         restoreAttempts()
@@ -131,7 +153,7 @@ final class ChatStore {
         needsList = true
         // Human writes emit message.sent; their optional creation event must not remind twice.
         let newMessage = (event.event_type == "message.sent" && data["sender_type"].stringValue == "user")
-            || (event.event_type == "message.created" && data["sender_type"].stringValue != "user")
+            || (event.event_type == "message.created" && (data["sender_type"].stringValue != "user" || data["pa_agent_id"].stringValue != nil))
         if newMessage, eventID > notificationFloor,
            let chat, chat != selectedID, conversations.contains(where: { $0.id == chat && !$0.is_muted }),
            data["sender_user_id"].stringValue != user.id,

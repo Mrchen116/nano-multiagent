@@ -2,7 +2,6 @@ import { lifecycle, lifecycleAllows } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
 import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
-import { isInteractiveStringState } from './interactive-source.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, fail, body, params, transaction, type Row, type ImContext } from './context.js';
@@ -126,9 +125,10 @@ export class PersonalAgents {
     const reply=message.interaction_reply_json?JSON.parse(message.interaction_reply_json):message.interaction_reply;
     return [...new Set([...this.ctx.messaging.mentionedAgents(message.conversation_id,message.content),...(reply?.agent_id?[reply.agent_id]:[])])];
   }
+  private representedBy(id:string):string|undefined {return one(this.db,'SELECT agent_id FROM pa_delegated_messages WHERE message_id=? AND representation_operation_id IS NOT NULL',id)?.agent_id;}
   private directOwnerMessage(b:Row,message:Row):boolean {
     const facts=this.sourceFacts(b,message);
-    return facts.is_owner && facts.delivery==='participant' && (facts.conversation_type==='direct' && this.ownerConversation(b,message.conversation_id)
+    return !this.representedBy(message.id) && facts.is_owner && facts.delivery==='participant' && (facts.conversation_type==='direct' && this.ownerConversation(b,message.conversation_id)
       || facts.conversation_type==='group' && this.addressedAgents(message).includes(b.agent_id));
   }
   /** Project the same original facts for authorization and disclosure evidence.
@@ -144,6 +144,7 @@ export class PersonalAgents {
     return {id:message.id,conversation_id:message.conversation_id,...facts,
       sender:{id:message.sender_user_id,name:original.sender.display_name,type:message.sender_type,is_owner:facts.is_owner,
         ...(message.sender_source_id?{source_id:message.sender_source_id}:{})},
+      ...(original.pa_agent_id?{pa_agent_id:original.pa_agent_id}:{}),
       content:message.content,created_at:message.created_at,attachments:original.attachments,
       ...(original.interaction_reply?{interaction_reply:original.interaction_reply}:{}),
       ...(original.interactive?{interactive:original.interactive}:{})};
@@ -178,7 +179,7 @@ export class PersonalAgents {
   }
   admitSource(principal: Row, args: Row) {
     const b=this.authority(principal,args),m=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',args.source_message_id,args.conversation_id);
-    if(!m || !this.messageAllowed(b,m)) return {allowed:false};
+    if(!m || this.representedBy(m.id)===b.agent_id || !this.messageAllowed(b,m)) return {allowed:false};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
     return {allowed:true,...this.sourceFacts(b,m),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
@@ -249,7 +250,7 @@ export class PersonalAgents {
   authorization(principal: Row, args: Row) {
     const b = this.authority(principal,args);
     const messages = all(this.db,"SELECT * FROM messages WHERE sender_user_id=? AND sender_type='user' ORDER BY rowid",b.owner_user_id)
-      .filter(m=>this.sourceFacts(b,m).is_owner && this.messageAllowed(b,m));
+      .filter(m=>!this.representedBy(m.id) && this.sourceFacts(b,m).is_owner && this.messageAllowed(b,m));
     const conversationIds=[...new Set(messages.map(m=>m.conversation_id))];
     const conversations=conversationIds.map(id=>{
       const chat=one(this.db,'SELECT id,title,type,external_source FROM conversations WHERE id=?',id)!;
@@ -262,29 +263,6 @@ export class PersonalAgents {
       proposals:conversationIds.flatMap(id=>all(this.db,'SELECT m.id,m.conversation_id,m.content,m.created_at,i.source,i.superseded_by FROM messages m JOIN message_interactive i ON i.message_id=m.id WHERE m.conversation_id=? AND m.sender_user_id=? ORDER BY m.rowid',id,this.ctx.messaging.agentUser(b.agent_id).id))};
   }
 
-  /** Validate a draft's original chat and declared state field without treating it as send permission. */
-  validateReplyDraft(conversationId:string,senderId:string,input:Row,interactiveSource?:string):Row {
-    const b=one(this.db,"SELECT b.* FROM personal_agent_bindings b JOIN users u ON u.username='agent:'||b.agent_id WHERE u.id=? AND b.conversation_id=?",senderId,conversationId);
-    const source=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',input?.source_message_id??'',input?.target_conversation_id??'');
-    if(!b||!source||!conversationAccess(this.db,source.conversation_id,b.owner_user_id)?.can_write||!this.sourceAllowed(b,source.conversation_id))fail(422,'invalid_reply_draft');
-    if(typeof input.field_name!=='string'||!interactiveSource||!isInteractiveStringState(interactiveSource,input.field_name))
-      fail(422,'invalid_reply_draft: field_name must name a declared top-level string state including $, for example $draft, not the TextArea name');
-    return {target_conversation_id:source.conversation_id,source_message_id:source.id,field_name:input.field_name};
-  }
-  /** Bind navigation metadata only; 617 owns all editable draft content. */
-  recordReplyDraft(messageId:string,input:Row):void {
-    const m=one(this.db,'SELECT * FROM messages WHERE id=?',messageId)!;
-    const interactive=one(this.db,'SELECT source FROM message_interactive WHERE message_id=?',messageId);
-    const draft=this.validateReplyDraft(m.conversation_id,m.sender_user_id,input,interactive?.source);
-    this.db.prepare('INSERT INTO pa_reply_drafts VALUES(?,?,?,?)').run(messageId,draft.target_conversation_id,draft.source_message_id,draft.field_name);
-  }
-  replyDraft(messageId:string):Row|undefined {
-    const draft=one(this.db,'SELECT d.*,m.conversation_id FROM pa_reply_drafts d JOIN messages m ON m.id=d.message_id WHERE d.message_id=?',messageId);
-    if(!draft)return;
-    const b=one(this.db,'SELECT owner_user_id FROM personal_agent_bindings WHERE conversation_id=?',draft.conversation_id);
-    const stale=!!b&&!!one(this.db,"SELECT 1 FROM messages WHERE conversation_id=? AND sender_user_id=? AND sender_type='user' AND rowid>(SELECT rowid FROM messages WHERE id=?) LIMIT 1",draft.target_conversation_id,b.owner_user_id,draft.source_message_id);
-    return {target_conversation_id:draft.target_conversation_id,source_message_id:draft.source_message_id,field_name:draft.field_name,possible_stale:stale};
-  }
   incidents(owner:string) {
     const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
   }

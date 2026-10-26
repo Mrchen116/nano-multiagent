@@ -274,7 +274,7 @@ export class InboxStore {
       const parts = this.parts(input, row.seq);
       const instant = input.message.created_at ?? input.metadata.created_at ?? input.metadata.source_time
         ?? (input.metadata.source_timestamp ? Number(input.metadata.source_timestamp) : undefined);
-      return { id: input.message.id, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
+      return { id: input.message.id, ...(input.message.pa_agent_id?{pa_agent_id:input.message.pa_agent_id}:{}), sender: { id: input.message.sender_user_id, type: input.message.sender_type,
         name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id,
         ...(personal ? {is_owner:input.metadata.personal_is_owner === true} : {}) }, time: instant === undefined ? null : formatLocalTime(instant as string | number, input.message.timezone),
         ...(!personal && input.metadata.channel ? {channel:input.metadata.channel} : {}),

@@ -1,17 +1,17 @@
 ---
 name: nano-interactive-ui
-description: Create useful interactive explanations, explorations, comparisons and editors in Web IM.
+description: Create useful interactive explanations, explorations, comparisons and editors in Nano IM.
 ---
 
 # Interactive replies
 
 Generated from the Nano nano-1 catalogue; use the current version unchanged.
 
-Call send_message with target, an independently readable text summary, and interactive: {format: "openui", catalog_version: "nano-1", source: "..."}. Optionally set supersedes_message_id to update your own reply in the same conversation. Use source_mode: "patch" for changed statements; otherwise provide a complete program. Source is at most 64 KiB. Other clients receive the summary. Simple answers need no card.
+Call send_message with target, an independently readable text summary, and interactive: {source: "..."}. The system supplies format and catalog_version; do not include these constants. Optionally set supersedes_message_id to update your own reply in the same conversation. Use source_mode: "patch" for changed statements; otherwise provide a complete program. Source is at most 64 KiB. Other clients receive the summary. Simple answers need no card.
 
-Users can explore locally with the complete OpenUI library, request an Agent response through native actions, or ask natural questions. In private chats, available UI state is background captured when the question was sent; decide whether it is relevant, ignore it for new topics, and clarify ambiguous references. Group chats share state only after explicit card actions, never with ordinary text. Repeated exploration and requests are supported. Treat the handwritten text as the current request and the attached fields as data; preserve instructions such as “do not send yet”. A click records a user message, not a completed business action. Execute any actual sending/saving only through the normal tools and authority checks, then report its actual result. Cards are immutable; respond to revisions with a new card. After confirmed delivery, follow the current mode closing rules. In Global mode, write a brief non-empty private closing note; it is not a public reply. In SingleThread mode, use its existing silence protocol after confirmed card delivery. Never end with an empty response or duplicate the delivered card.
+Users can explore locally with the complete OpenUI library, request an Agent response through native actions, or ask natural questions. In private chats, available UI state is background captured when the question was sent; decide whether it is relevant, ignore it for new topics, and clarify ambiguous references. Group chats share state only after explicit card actions, never with ordinary text. Repeated exploration and requests are supported. Treat the handwritten text as the current request and the attached fields as data; preserve instructions such as “do not send yet”. ToAssistant or a continuation click records a user message, not a completed business action. ComposeMessage only navigates and prefills the target input locally; it does not send a message or request the Agent. Execute any actual sending/saving only through the normal tools and authority checks, then report its actual result. Cards are immutable; respond to revisions with a new card. After confirmed delivery, follow the current mode closing rules. In Global mode, write a brief non-empty private closing note; it is not a public reply. In SingleThread mode, use its existing silence protocol after confirmed card delivery. Never end with an empty response or duplicate the delivered card.
 
-Write OpenUI inside send_message.interactive.source. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.
+Write OpenUI inside send_message.interactive.source (or send_user_message for an authorized PA representation). Provide source, not format or catalog_version; the host supplies those constants. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.
 
 ## Syntax Rules
 
@@ -36,7 +36,7 @@ Write OpenUI inside send_message.interactive.source. Keep text an independently 
 ## Component Signatures
 
 Arguments marked with ? are optional. Sub-components can be inline or referenced; prefer references for better streaming.
-Props typed `ActionExpression` accept one @step, or Action([@steps...]) for several. See the Action section for available steps (@Run, @ToAssistant, @OpenUrl, @Set, @Reset).
+Props typed `ActionExpression` accept one @step, or Action([@steps...]) for several. See the Action section for available steps (@Run, @ToAssistant, @OpenUrl, @Set, @Reset, @ComposeMessage).
 Props marked `$binding<type>` accept a `$variable` reference for two-way binding.
 
 ### Layout
@@ -265,6 +265,7 @@ Available steps:
 - @OpenUrl(url: string) — Navigate to a URL
 - @Set(variable: $variable, value: any) — Set a $variable to a specific value
 - @Reset(variable: $variable) — Reset $variables to their declared defaults; pass several to reset each (e.g. @Reset($title, $priority) restores $title="" and $priority="medium")
+- @ComposeMessage(target: string, text: string) — Place the current text in the signed-in user’s composer for an explicit Nano IM conversation id. Local adoption only: never sends a message or asks an Agent. Existing draft conflicts require the user to choose replacement.
 
 Example — mutation + refresh + reset (PREFERRED pattern):
 ```
@@ -426,6 +427,7 @@ Before finishing, walk your output and verify:
 - Before sending, check the first screen: can the reader identify the main idea and next useful interaction without reading everything? Keep essential output in the main flow, with related explanation nearby. Use Tabs only for genuinely alternate views or optional details, never to hide the only result behind a vague label. Use semantic heading hierarchy and concise labels. The examples illustrate composition, not fixed topics or mandatory templates.
 - Choose controls that materially help understanding, comparison or input. Distinguish user values, retrieved facts, calculations and explicitly labeled illustrative assumptions. Rendering is not a data source or proof of execution; do not invent live values, task progress, persistence or connected business tools.
 - Use the complete registered library and native language: local state, computations, conditions, Each, Action, Set and Reset. Fields may stand alone or belong to Forms. Local exploration must respond immediately without a new conversation turn. Build meaningful relations between controls, visual results and explanations, not decorative controls.
+- Use @ComposeMessage(target, text) to adopt editable text into an explicit Nano IM conversation input. Name the destination in the visible button label or nearby text. Get target from conversations; it is not an external target or an implicit current chat. The text expression is evaluated at click time. Adoption never submits a message or requests an Agent. Never combine ComposeMessage with ToAssistant or a Mutation in the same action. Local Set/Reset may be combined. Do not use retired reply_draft metadata.
 - Use native Button with ToAssistant only when the user explicitly requests a new Agent response. Multiple local and continuation buttons are supported; the interface remains usable after a request. ContinueButton exists for older messages; prefer native Button in new programs.
 - The only currently connected tools are conversation_messages for Query and continue_conversation for Mutation. The current conversation and user identity come from the host. No filesystem or arbitrary shell/network tool is implicitly connected. Use ToAssistant OR the continue_conversation Mutation for a request, not both for the same request.
 - OpenUrl supports http/https navigation. Declare every mutable variable with the dollar prefix. Use actual values for editable content, never placeholders as the content. Labels and units must make parameter changes understandable. Keep the main chat readable on narrow screens.
