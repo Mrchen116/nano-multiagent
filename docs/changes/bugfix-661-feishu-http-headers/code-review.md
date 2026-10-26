@@ -21,6 +21,23 @@
 
 覆盖 ExternalChannels → HTTP → IM messages/attachments → observations 的交付段，既有 owner/source、生命周期与幂等约束不变。没有捕获真实 provider 输入或验证模型消费、Feishu SDK 连接及回复，不作为用户验收。
 
+以上是独立代码审查时的证据边界；后续真实收发证据见下节，不改变该审查的范围。
+
+## 专用飞书 Bot 真实收发补验
+
+2026-10-26 10:24–10:30，按用户明确要求使用专用测试 Bot，通过 `e2e-up.sh --feishu` 启动完全隔离的 IM、Gateway、owner、workspace 和 PA。验证 App/Bot identity，使用独立非 default CLI profile；普通 Agent channel 停止后才连接 PA channel。本轮未修改生产数据、生产配置或生产服务。
+
+- 普通 Agent 一轮：唯一标记 `FEISHU661_ordinary_codex_482e7e3f`，正确回复 437。
+- PA 新会话首轮：唯一标记 `FEISHU661_pa_8919b5ec`，正确回复 437。
+- PA 同会话追问：唯一标记 `FEISHU661_pa_followup_8a7fc341`，正确回复 483。
+- 三轮均核对真实飞书发送、SDK 入站、accepted=1 与 IM mirror、模型回复、confirmed 出站回执、飞书消息 API 读回和隔离 IM 浏览器可见正文。PA 两条 source event 均 processed，每轮一条入站和一条回复。
+- 首轮默认 DeepSeek 模型返回 402 InsufficientBalance，错误正确回到测试会话，但不计为业务成功。仅通过隔离配置 API 切换测试 Agent/PA 为 codexOAuth:gpt-6.1-sol 后完成上述三轮；未修改生产模型或源 fixture。
+- 本轮现场覆盖文本收发；图片与丢失回执重启去重仍以真实 HTTP 集成测试为证据。飞书侧使用平台消息 API 读回，未宣称完成原生飞书客户端交互验收。
+- 执行 e2e-down，核对 IM/Gateway/DSH 退出、端口释放、Bot listener lock 释放、tmux 结束；删除隔离 config、JWT secret 与 channel credential 文件。本地日志、截图和数据库未提交。
+- 本机证据：`/Users/czj/.codex/reports/bugfix661-feishu-live-20261026/report.md`，包括平台 message_id、IM message_id、原始读回、事件状态、截图和清理结果。
+
+本次补验由 Agent 执行，不记为用户亲自验收；未重放生产积压消息，未合并或部署修复。生产代码仍为 b3124ba10，审查结论 retained。
+
 ## Validation
 
 - Node 窄 typecheck、全仓 build/typecheck、check:ios-runtime：通过。

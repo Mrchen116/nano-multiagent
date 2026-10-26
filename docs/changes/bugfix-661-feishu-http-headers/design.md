@@ -39,4 +39,4 @@
 
 ## 验证状态
 
-本地窄测试、build/typecheck、共享 runtime、文档/Python/ruff 与独立审查通过。完整 TS 首次 755/758，通过失败项串行复跑 10/10；详见 [code-review.md](code-review.md)。用户验收、PR、合并、生产部署未完成。
+本地窄测试、build/typecheck、共享 runtime、文档/Python/ruff 与独立审查通过。完整 TS 首次 755/758，通过失败项串行复跑 10/10。后续使用专用飞书测试 Bot 完成普通 Agent 一轮、PA 连续两轮的真实文本收发、平台消息读回与隔离 IM 页面核对，详见 [code-review.md](code-review.md)。用户亲自验收、PR、合并、生产部署未完成。
