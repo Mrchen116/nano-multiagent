@@ -240,3 +240,13 @@ P03批跑捕获到成功创建私人冲突attention，但`evidence.json`结尾�
 | 控制：配置和旧资料 | M1/M3真实custom/清空/Skill关闭不回填、迁移故障保护、离线首次与重复导入一致；无自动开启旧PA主动性 | pass（该配置/迁移部分按design采用worker实际运行证据）。 |
 
 该表取代“仅因reviewer没亲手跑worker故障所以全缺”的理解，保留未完成真实行为，不宣布全量完成。当前仍因PA-6与未归并行为证据为fail/incomplete；后续Round继续追加。
+
+### W07实际waiting边界与测试任务收尾
+
+主人请求 `ffd82e0ca2cc4848890b18ed0ce80000` 创建轻记核对并设waiting，但未给真实Schedule。PA读当前Skill后创建真实Task `tg_187b8fa9`，status todo，明确说明等待必须绑定真实有效且下次检查在一小时内的Schedule；没有虚构ID或谎称waiting，未执行核对。`round5-waiting.json` seq1092/1095。该用户路径通过，与worker的契约拒绝测试互补。
+
+随后主人取消请求 `ad348abe36aa4eab9068b36e188bced7`，seq1114真实Task apply使root闭为closed/rev2，未留Schedule或子执行。`round5-waiting-closed.json`。后续新消息令确认草稿held_for_revalidation属正常并发，关闭事实已由Task回执核实。累计表“停止、等待与未知结果”现按该真实waiting路径+原stop+worker unknown组合为pass。
+
+### 受众风格代表补证
+
+主人来源 `59ea384ab5db4bbd87940320fa91fece` 实际保存同事简洁/亲友温暖的分场景偏好，record `e92e2e37-54d0-4882-baa9-0398fe08e044`。下一条请求 `cb21d0b0deb54bbe955937340b395cd9` 只说给妈妈写短消息；seq1150实际检索家人风格，13:26:14只给主人私聊草稿“妈，我今天有点忙，晚饭已经吃过啦，别担心我～”，未新增承诺或外发。`round5-style-seed.json`、`round5-style-result.json`。D06受众风格代表路径通过。
