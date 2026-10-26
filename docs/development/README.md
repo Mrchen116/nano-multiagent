@@ -11,6 +11,7 @@
 | 安装环境、运行常用命令、开发 Node 或前端 | [`local-development.md`](local-development.md) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
 | 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
+| 设计或审查前端的具体取舍 | [共同体验标准](../../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
 | 探索性试用产品，发现体验和后台运行问题并核实归因 | [`product-tryout`](../../.claude/skills/product-tryout/SKILL.md) |
 | 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md) |
 | 在 worktree 内启动隔离 IM、Gateway 或 Vite | [`worktree-runtime.md`](worktree-runtime.md) |

@@ -30,6 +30,7 @@
 | 提报 GitHub Issue、分诊和维护标签 | [`development/issues.md`](development/issues.md) |
 | 查已放弃或被后续架构取代的 change unit | [`changes/retired/`](changes/retired/README.md)；退役原因与当前入口以该索引为准 |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
+| 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
 | 设计或审查 Agent 实际消费的 Prompt、Skill、工具、消息、Memory 与历史链路 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
 | 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [`product-tryout`](../.claude/skills/product-tryout/SKILL.md) |
