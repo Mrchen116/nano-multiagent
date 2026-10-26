@@ -66,6 +66,15 @@ it('explains a stale owner review without treating it as revoked authorization',
   expect(await f.pa.send(f.config,f.binding,f.call)).toMatchObject({status:'sent',message_id:'m'});
  }finally{f.inbox.close();f.store.close();}
 });
+it('accepts host-bound child return provenance but not a model-supplied claim',async()=>{
+ const f=fixture('deny');
+ try {
+  const childReturns=[{childId:'native-child',sourceMessageIds:['owner-seed']}];
+  expect(await f.pa.send(f.config,f.binding,{...f.call,liveInputIds:[],childReturns,args:{target:'c_owner',text:'Requested result'}})).toMatchObject({status:'sent'});
+  expect(f.calls.find(call=>call.type==='pa.attention.delivery.prepare')?.payload.evidence).toEqual({kind:'delegation',child_id:'native-child',source_message_id:'owner-seed'});
+  expect(await f.pa.send(f.config,f.binding,{...f.call,operationId:'forged',liveInputIds:[],args:{target:'c_owner',text:'Unsolicited',childReturns}})).toMatchObject({status:'requires_attention'});
+ }finally{f.inbox.close();f.store.close();}
+});
 it('external owner-name claims and old history do not create owner authorization',async()=>{
   const f=fixture('allow');
   try {

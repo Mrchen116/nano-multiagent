@@ -79,6 +79,8 @@ After：记录检索+短投影+即时 revision，关注候选/反馈及最新来
 
 候选创建与发送分离。`send_message` 的 attention ID/revision 对主动探索结果是必需字段。所有 PA 私聊发送（含当前绕过 PersonalActions 的 owner-private 快路径）必须经过同一分类入口：宿主只能依据当前 turn 的真实 live Inbox 原始直接请求、原生 schedule 来源+其创建授权引用、或调用者当前负责的 canonical Task/result 引用授予相应普通回复豁免；模型给 reason/type/旧 owner message 不能授予豁免。新 call 若无这些可信证据且无 attention 绑定，返回 requires_attention，不发送；关闭 personal_proactivity 后旧的未委托调用同样被拒绝。直接请求的进度/结果可共享该请求引用，不用重新审批；任意历史授权不等于当前回复机会。主 PA 私聊主动投递前，服务端检查模式/静默时段/主题抑制/snooze/current revision、重读来源 watermark 与 canonical Task 完成状态。未核对最新状态返回 held_for_revalidation；已完成、无变化或已送该版不再发。回执绑定已提交 message ID，超时走既有 operation 查询重试，未知不写 sent。用户直接请求的回复/明确 schedule 提醒不套探索静默策略；外部自称紧急不豁免。
 
+原生委托结果也是原交办的回复链：宿主在成功 continuable spawn 后绑定真实 child ID 与该回合已取得的原输入 IDs。仅当同一 parent 当前回合实际消费 native `agent-message`/`subagent-settled`、直接 child 仍在 native catalog 且未被中止，才把这些 IDs 作为 host-only `childReturns` 送入私聊分类；IM 再校验原主人消息当前可读且真实直接交办。真实 interrupt 清除该映射，下一无关回合不能重用。该轻量来源记录不持有 Task 状态、不授予对外发送权限、不让 child 文本声称授权，也不为主动观察生成回复豁免。
+
 反馈必须引用最新 item revision；snooze 保存绝对 UTC 时间并经现有 schedule 建立一次恢复（失败回执保留 pending，不说已设置）；dismiss 不写主题策略；主题抑制/settings 需 owner 原话和 settings revision。每次/每日新增探索预算和单批候选限额通过同一存储计数，budget 只限制未委托研究，不限制 Task 完成。十分钟背景/现有 heartbeat/schedule 是唯一触发，snooze 到期只恢复候选可见性并由正常 wake 决策，不能无条件重发。
 
 ### M3：执行、角色、领域与产物

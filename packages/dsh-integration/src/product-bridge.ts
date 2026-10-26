@@ -35,7 +35,7 @@ export class ProductBridge extends Service {
       if(method==='task_graph')args=await this.options.nativeTasks.prepare(exec.agent,args as Record<string,unknown>);
       const result=await this.options.peer.request('product.call', { method, args, operationId, callId: exec.callId,
         sessionId: exec.agent.id, rootSessionId: root.id, agentId: binding.agentId, ownerId: binding.ownerId,
-        ...(method==='send_message'?{liveInputIds:await this.options.liveInputIds(exec.agent),scheduleTriggers:await this.options.deliveryEvidence.current(exec.agent)}:{}) });
+        ...(method==='send_message'?{liveInputIds:await this.options.liveInputIds(exec.agent),scheduleTriggers:await this.options.deliveryEvidence.current(exec.agent),childReturns:await this.options.deliveryEvidence.childReturns(exec.agent)}:{}) });
       if(method==='task_graph')await this.options.nativeTasks.committed(exec.agent,args as Record<string,unknown>,result);
       return result;
     } finally { exec.signal.removeEventListener('abort', cancel); }

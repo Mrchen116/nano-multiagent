@@ -22,7 +22,7 @@ interface Options {
 }
 export interface ProductCall {
   method: string; args: Record<string, unknown>; operationId: string; callId: string;
-  sessionId: string; rootSessionId: string; agentId: string; ownerId: string; lifecycle_revision?:number; liveInputIds?:string[]; scheduleTriggers?:{scheduleId:string;sourceMessageIds:string[];ownerUi?:boolean}[];
+  sessionId: string; rootSessionId: string; agentId: string; ownerId: string; lifecycle_revision?:number; liveInputIds?:string[]; scheduleTriggers?:{scheduleId:string;sourceMessageIds:string[];ownerUi?:boolean}[]; childReturns?:{childId:string;sourceMessageIds:string[]}[];
 }
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */

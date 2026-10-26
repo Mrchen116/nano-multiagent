@@ -49,6 +49,8 @@ it('requires attention without current host evidence and applies quiet/feature p
  expect(await f.call('pa.attention.delivery.prepare',{operation_id:'quiet',conversation_id:'chat',attention_id:item.id,attention_revision:item.revision,feature_enabled:true})).toMatchObject({status:'held',reason:'quiet_hours'});
  expect(await f.call('pa.attention.delivery.prepare',{operation_id:'direct',conversation_id:'chat',evidence:{kind:'direct_request',source_message_id:f.owner.id}})).toMatchObject({status:'allowed',classification:'direct_request'});
  expect(await f.call('pa.attention.delivery.prepare',{operation_id:'schedule',conversation_id:'chat',evidence:{kind:'schedule',source_message_id:f.owner.id,schedule_id:'actual-host-schedule'}})).toMatchObject({status:'allowed',classification:'schedule'});
+ expect(await f.call('pa.attention.delivery.prepare',{operation_id:'child',conversation_id:'chat',evidence:{kind:'delegation',source_message_id:f.owner.id,child_id:'actual-host-child'}})).toMatchObject({status:'allowed',classification:'delegation'});
+ await expect(f.call('pa.attention.delivery.prepare',{operation_id:'child-forged-owner',conversation_id:'chat',evidence:{kind:'delegation',source_message_id:f.source.id,child_id:'actual-host-child'}})).rejects.toThrow('direct_owner_evidence_required');
  await expect(f.call('pa.attention.delivery.prepare',{operation_id:'fake',conversation_id:'chat',evidence:{kind:'direct_request',source_message_id:f.source.id}})).rejects.toThrow('direct_owner_evidence_required');
 });
 

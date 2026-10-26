@@ -229,6 +229,10 @@ export class PersonalAttention {
    if(evidence.owner_ui!==true)this.pa.ownerMessage(b,evidence.source_message_id);required(evidence.schedule_id,'schedule_id',200);
    return {status:'allowed',classification:'schedule',...reference};
   }
+  if(evidence?.kind==='delegation'){
+   this.pa.ownerMessage(b,evidence.source_message_id);required(evidence.child_id,'child_id',200);
+   return {status:'allowed',classification:'delegation',...reference};
+  }
   if(evidence?.kind==='task'){
    const task=this.task(b,evidence);
    if(task.assignee?.type!=='agent'||task.assignee?.id!==b.agent_id||['paused','closed'].includes(task.status))fail(403,'task_delivery_evidence_required');

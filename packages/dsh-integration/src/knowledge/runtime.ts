@@ -189,10 +189,11 @@ export class KnowledgeRuntime extends Service {
       }
       // Transient work is a context handoff, never durable personal memory or write identity.
       const {continuation: _continuation, ...memoryChange} = change;
+      const forgetKey = change.action === 'forget' ? change.idempotency_key : undefined;
       const result = await personal.execute(memoryChange as PersonalMemoryChange, { sessionId: agent.id, sources: provenance.sources,
         expectedScopeRevision: review && !read ? review.work.reads.memoryRevision : undefined, signal: exec.signal,
         ...(change.action === 'forget' ? {forgetContinuation: change.continuation!, prepareForget: () => this.memoryContext.prepareForget(this.root(agent), {
-          requestKey: change.idempotency_key, sourceMessageId: change.owner_instruction_id!, replyTarget: this.config(agent)!.personal!.conversationId, summary: change.continuation!})} : {}),
+          requestKey: forgetKey!, sourceMessageId: change.owner_instruction_id!, replyTarget: this.config(agent)!.personal!.conversationId, summary: change.continuation!})} : {}),
       });
       if (read) { review?.work.reads.memoryRecordsRead(result.revision); return result; }
       review?.work.reads.memoryRecordsRead(result.revision);

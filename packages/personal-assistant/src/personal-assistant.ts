@@ -183,8 +183,9 @@ export class PersonalAssistant {
     // The server still checks that these original words actually addressed this PA.
     const live=(call.liveInputIds??[]).map(id=>inbox.input(config.agentId,id)).findLast(input=>input?.metadata.personal_is_owner===true&&input.metadata.personal_delivery==='participant');
     const scheduled=(call.scheduleTriggers??[]).flatMap<Data>(trigger=>{const source=trigger.sourceMessageIds.map(id=>inbox.input(config.agentId,id)).find(input=>input?.metadata.personal_is_owner===true&&input.metadata.personal_delivery==='participant');return source?[{kind:'schedule',schedule_id:trigger.scheduleId,source_message_id:source.message.id}]:trigger.ownerUi?[{kind:'schedule',schedule_id:trigger.scheduleId,owner_ui:true}]:[];})[0];
+    const returned=(call.childReturns??[]).flatMap<Data>(child=>{const source=child.sourceMessageIds.map(id=>inbox.input(config.agentId,id)).find(input=>input?.metadata.personal_is_owner===true&&input.metadata.personal_delivery==='participant');return source?[{kind:'delegation',child_id:child.childId,source_message_id:source.message.id}]:[];})[0];
     return {feature_enabled:config.features?.personal_proactivity===true,attention_id:call.args.attention_id,attention_revision:call.args.attention_revision,
-      ...(live?{evidence:{kind:'direct_request',source_message_id:live.message.id}}:scheduled?{evidence:scheduled}:call.args.task_ref?{evidence:{kind:'task',...(call.args.task_ref as Data)}}:{})};
+      ...(live?{evidence:{kind:'direct_request',source_message_id:live.message.id}}:scheduled?{evidence:scheduled}:returned?{evidence:returned}:call.args.task_ref?{evidence:{kind:'task',...(call.args.task_ref as Data)}}:{})};
   }
 
   /** Freeze and consume a provider permit immediately before the real channel send. */
