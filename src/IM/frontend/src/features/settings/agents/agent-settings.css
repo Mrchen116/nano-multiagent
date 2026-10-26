@@ -7,6 +7,8 @@
 .im-agent-settings .im-agent-panel-header { padding: 18px 28px 0; border-bottom: 1px solid var(--im-border); }
 .im-agent-settings .im-agent-panel-header-row { gap: 10px; }
 .im-agent-settings .im-agent-panel-title { font-size: 18px; font-weight: 650; }
+.im-agent-panel-title-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.im-agent-panel-title-line > .im-agent-panel-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .im-agent-settings .im-agent-panel-subtitle { font-size: 12px; }
 .im-agent-settings .im-agent-panel-node { max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .im-agent-settings-tabs { display: flex; gap: 24px; margin-top: 16px; overflow-x: auto; scrollbar-width: none; }
@@ -156,14 +158,13 @@
   .im-agent-directory > .im-settings-search { width: 100%; }
 }
 
-.im-agent-lifecycle-row-main { display: flex; align-items: center; gap: 4px; }
-.im-agent-lifecycle-row-main > .im-agent-row { min-width: 0; flex: 1; }
 .im-agent-lifecycle-action { flex-shrink: 0; min-height: 36px; padding: 5px 9px; border-radius: 6px; font-size: 12px; line-height: 20px; white-space: normal; }
 .im-agent-lifecycle-action.danger { color: #a43434; border-color: #e9c1bd; background: #fff3f2; }
 .im-agent-lifecycle-status { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--im-text-muted); padding: 8px 0; overflow-wrap: anywhere; }
 .im-agent-lifecycle-status strong { color: var(--im-text); }
 .im-agent-lifecycle-status.warning strong { color: #8c5b16; }
-.im-agent-lifecycle-status.compact { padding: 0 10px 8px; font-size: 11px; }
+.im-agent-lifecycle-badge { flex-shrink: 0; padding: 1px 5px; border-radius: 4px; background: var(--im-hover); color: var(--im-text-muted); font-size: 10px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.im-agent-lifecycle-badge.warning { color: #8c5b16; background: #fff5df; }
 @media (max-width: 440px) {
   .im-agent-panel-header-row { flex-wrap: wrap; }
   .im-agent-header-actions { flex-wrap: wrap; flex-basis: 100%; justify-content: flex-end; }
