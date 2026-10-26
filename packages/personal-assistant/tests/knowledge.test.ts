@@ -12,7 +12,7 @@ it('retains maintenance links without writes or history traversal and recovers t
   const store=new NodeStore(join(home,'node.db'),'owner'),inbox=new InboxStore(join(home,'inbox.db'));
   store.bind({sessionId:'main',agentId:'a',conversationId:'global:a',ownerId:'owner',cwd:home,revision:'1'});
   const agent:AgentConfiguration={agentId:'a',workspace:home,revision:'1',mode:'global',provider:'test',model:'test'};
-  const reviews=['completed','error','cancelled'].map((status,index)=>({id:`review-${index}`,status,agentId:'a',rootSessionId:'main',childSessionId:`maintenance-${index}`,kind:'combined',at:1000+index}));
+  const reviews=['running','completed','error','cancelled'].map((status,index)=>({id:`review-${index}`,status,agentId:'a',rootSessionId:'main',childSessionId:`maintenance-${index}`,kind:'combined',at:1000+index}));
   const calls:string[]=[];let signals=0;
   const options={nodeId:'node',agents:[agent],store,inbox,onError:(error:unknown)=>{throw error;},onWork:()=>{signals++;},
     runtime:{onNotification:()=>()=>{},request:async(method:string)=>{calls.push(method);if(method!=='knowledge.facts')throw new Error('History and execution must remain demand-loaded');return{facts:[],reviews:[...reviews,{...reviews[0],id:'foreign',rootSessionId:'unbound'}]};}},
@@ -24,7 +24,7 @@ it('retains maintenance links without writes or history traversal and recovers t
     expect(links.map(event=>({root:event.root_agent_id,session:event.session_id,payload:event.payload}))).toEqual(reviews.map(review=>({root:'a',session:'main',payload:expect.objectContaining({parent_session_id:'main',child_session_id:review.childSessionId,title:'记忆与技能复盘'})})));
     expect(signals).toBe(1);
     await updates.stop();updates=new KnowledgeUpdates(options);await updates.recover();
-    expect(inbox.journal(0).filter(event=>event.type==='session_linked')).toHaveLength(3);
+    expect(inbox.journal(0).filter(event=>event.type==='session_linked')).toHaveLength(4);
     expect(signals).toBe(1);expect(calls).toEqual(['knowledge.facts','knowledge.facts']);
   }finally{await updates.stop();inbox.close();store.close();await rm(home,{recursive:true,force:true});}
 });

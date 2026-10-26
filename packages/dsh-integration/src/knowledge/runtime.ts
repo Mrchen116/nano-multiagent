@@ -305,6 +305,7 @@ export class KnowledgeRuntime extends Service {
     })));
     try {
       await state.table('reviews').put(id, { ...record, childSessionId: run.id });
+      this.options.notify();
       if (batch && candidate) {
         await this.files(agent).batchAccepted(batch.root, batch.name, candidate.count);
         this.pendingBatches.delete(`${config.agentId}:${batch.root}:${batch.name}`);

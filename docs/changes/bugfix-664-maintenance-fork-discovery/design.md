@@ -12,6 +12,8 @@
 
 实际 Web 试用进一步发现，IM 的轨迹入口还要求所选会话已在 Work 身份索引中登记；只保留 runtime 的轨迹索引不足以打开页面。`KnowledgeUpdates.reconcile` 因此使用已有 review 元数据，在校验真实 root binding 与 Global Agent 归属后，向现有 Work journal 追加幂等 `session_linked` 身份链接，并通过 `onWork` 通知既有 WorkSync。它不读取维护历史正文，也不写入原生 subagent catalog。即使维护没有知识写入、失败或取消，身份链接仍可恢复，既有 IM/Node/DSH 权限检查保持不变。
 
+维护 childSessionId 持久化后立即发布 `knowledge.changed`，使运行中且尚未产生知识写入的维护也能及时登记，不等待完成事件。既有暂停维护回归核对该通知中已经存在 running 状态和真实 childSessionId。
+
 ## Context 与生命周期
 
 维护仍继承原生 provider 选择的已完成父轮次前缀。现有创建监听冻结父请求的 system prompt 和完整工具定义，执行白名单单独拦截；记忆快照、输出预算与策略继承路径不变。代表性联合维护回归在真实 DSH `llm/stream` seam 比较父请求与各次维护请求的 system message 和工具定义。

@@ -95,9 +95,15 @@ export function apply(ctx) {
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };
     await start();
+    const advertised:Promise<{reviews:{status:string;childSessionId?:string}[]}>[]=[];
+    const unwatch=client!.rpc.onNotification(method=>{
+      if(method==='knowledge.changed')advertised.push(client!.rpc.request('knowledge.facts',{}) as Promise<{reviews:{status:string;childSessionId?:string}[]}>);
+    });
     for (const [index, binding] of bindings.entries()) await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: binding.sessionId, mode: 'followup', content: [{ type: 'text', text: index ? 'skill fixture' : 'memory fixture' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: binding.sessionId } });
     const facts = async () => await client!.rpc.request('knowledge.facts', {}) as { facts: { kind: string; reviewId?: string; agentId: string }[]; reviews: { status: string; kind: string }[] };
     await expect.poll(()=>readFile(join(home,'review-started'),'utf8').catch(()=>''),{timeout:8000}).toBe('started');
+    await expect.poll(()=>advertised.length).toBeGreaterThan(0);unwatch();
+    expect((await Promise.all(advertised)).some(state=>state.reviews.some(review=>review.status==='running'&&review.childSessionId))).toBe(true);
     expect(await client!.rpc.request('update.prepare',{operationId:'background-review'})).toEqual({ready:false});
     await writeFile(join(home,'release-review'),'continue');
     await expect.poll(async () => (await facts()).reviews.filter(review => review.status === 'completed').length, { timeout: 8000 }).toBe(2);
