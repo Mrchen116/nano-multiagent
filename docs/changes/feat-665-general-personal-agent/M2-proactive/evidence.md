@@ -13,3 +13,5 @@
 | 子执行返回延续原交办 | `personal-delivery-evidence.test.ts`原生return/cancel/restart：真正子执行在后续回合返回时携带原spawn来源；取消不授予，下一无关人类回合不沿用；重启后实际native续用仍可溯源。`/tmp/pa665-child-return-cold.log`4 passed。PA桥忽略模型参数伪造claim，IM重验owner原消息。对应D08真实失败与修复后重跑不得混为一份。 |
 
 真实Web新卡dismiss、snooze实际到期、旧卡不恢复、draft采用不发送、并发409后重新审核只送一份，见acceptance。P01/P03等主动行为的失败或未采到终态按实际evaluation分类，机制测试不替代模型选择。
+
+I02相邻来源恢复补证：拒绝peer输入不再删除同会话owner委托；`global-agent.test.ts`真实SQLite恢复路径红/绿，三文件80/80，独立见`../validation.md`。长owner消息同轮完整分片恢复原来源、部分/历史不升权的source+native19项证据同见validation；对应真实M08失败及新回放分开保留。

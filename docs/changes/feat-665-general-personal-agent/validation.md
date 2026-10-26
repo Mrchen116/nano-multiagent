@@ -15,3 +15,12 @@
 Python辅助/架构70 passed/43 deselected，ruff check/format通过，docs283通过（`/tmp/pa665-final-{pytest,ruff,ruff-format,docs}.log`）。Web108 files/1031 tests通过（`/tmp/pa665-frontend-tests.log`）；`npm audit --audit-level=critical`通过，仍有非critical既有依赖报告，没有顺带升级依赖。
 
 后续forget/child-delivery改动使用对应native与实际层回归，并对三个受影响包重新build通过（`/tmp/pa665-child-return-build2.log`）。同一代码不因review交接机械重跑全量；最终归并后仍须docs/类型与远端required CI完成，届时补明确head。
+
+## 最后已观察边界的修复
+
+- `a4a0f9a55`：I02真实owner消息被相邻peer拒绝误清除。原失败`/tmp/pa665-runs-v5/candidate-I02-r1/results`；定向红测`/tmp/pa665-adjacent-red.log`，修复后Global/Inbox/PA三文件80/80，独立复验`/tmp/pa665-independent-round8.log`同为80/80。真正来源撤权仍清源，拒绝单条只退役该消息，保留邻近主人输入。
+- `06d8041bf`：M08真实7924字长输入两片均被读入，却因每片partial标志丢原交办来源，完成回执requires_attention。`/tmp/pa665-fragments-red.log`复现；同轮live同消息分片齐全才恢复，单片/跨轮/跨源/历史不授予；原生来源+delivery19/19，独立`/tmp/pa665-independent-round9.log`19/19。
+- EvaluationClient只在取headers前续fixture登录，保持实际动作不重放；独立HTTP/clock探针证实1次login/0业务mutation。12协议测试通过，`ruff check .`及95个Python文件format check通过。
+- 最后source树的全workspace typecheck通过（`/tmp/pa665-final-source-typecheck.log`），DSH与PA受影响包分别build通过（`/tmp/pa665-fragments-build.log`、`/tmp/pa665-adjacent-build.log`）。其余全量构建/Web/native首次timeout及重跑证据按上表保留；不伪称某一次全量毫无失败。
+
+完整case与核心重复的实际分类见[evaluation](evaluation.md)，与产品代表验收分列。归档后的文档检查与远端required CI在最终交付补记。
