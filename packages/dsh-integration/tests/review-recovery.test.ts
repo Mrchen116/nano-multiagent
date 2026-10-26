@@ -48,7 +48,7 @@ it('keeps complete 30/60/90 second budgets and counts normal CC stage progressio
 });
 
 it.each([
-  ['AUTH', 429, 'permanent'], ['QUOTA', 429, 'permanent'], ['INVALID_REQUEST', 503, 'permanent'],
+  ['AUTH', 429, 'permanent'], ['QUOTA', 429, 'permanent'], ['CONFIGURATION', 503, 'permanent'], ['INVALID_REQUEST', 503, 'permanent'],
   ['CONTEXT_WINDOW_EXCEEDED', undefined, 'context'], ['ABORTED', undefined, 'unavailable_unknown'],
   ['SERVER', 500, 'unavailable_unknown'], ['SERVER', 502, 'unavailable_unknown'],
 ])('does not retry permanent, context or unclassified failures: %s/%s', async (code, status, category) => {

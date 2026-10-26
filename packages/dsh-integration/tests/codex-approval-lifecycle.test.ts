@@ -1,5 +1,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { expect, it, vi } from 'vitest';
+import { LlmError } from '@deepseek-ai/dsh-llm';
+import { ReviewRecovery } from '../src/policy/recovery.js';
 import { CodexApproval } from '../src/policy/codex.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import type { ApprovalReviewRequest } from '../src/policy/types.js';
@@ -15,7 +17,7 @@ function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=
       followup(message:any){inputs.push(message.content[0].text);events.push({type:'user/message',seq:events.length,data:message});pending=run({events,input:message.content[0].text,cancelled:cancelled.promise});},
       whenIdle:()=>pending,cancel:()=>cancelled.resolve()};
     await lifecycle?.created?.();
-    return{agent,dispose:async()=>{await lifecycle?.disposing?.();cancelled.resolve();await pending;await Promise.resolve();disposed.push(agent.id);}};
+    return{agent,dispose:async()=>{await lifecycle?.disposing?.();cancelled.resolve();await pending.catch(()=>undefined);await Promise.resolve();disposed.push(agent.id);}};
   }} as any);
   const plugin=new CodexApproval(ctx);
   const controller=new AbortController();
@@ -135,6 +137,30 @@ it('blocks successor attempts and cache reuse while failed-review disposal remai
     const next=await h.plugin.review(h.request);
     expect(next.decision.behavior).toBe('allow');expect(next.metadata?.contextMode).toBe('full');
   }finally{disposal.resolve();vi.useRealTimers();await h.close();}
+});
+
+it.each([false,true])('shares one context rebuild across technical retries, repeated overflow=%s',async(repeatedOverflow)=>{
+  vi.useFakeTimers();let calls=0;
+  const h=harness(async({events})=>{
+    calls++;
+    if(calls===1||repeatedOverflow&&calls===3){events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'error',error:{code:'CONTEXT_WINDOW_EXCEEDED'}}}});return;}
+    if(calls===2||calls===3)throw new LlmError('temporary service failure','SERVER',{status:503});
+    verdict(events);
+  });
+  const recovery=new ReviewRecovery(h.controller.signal,'pending',()=>0.5);h.request.recovery=recovery;
+  try{
+    const result=h.plugin.review(h.request).then(value=>value,error=>error);
+    await vi.advanceTimersByTimeAsync(1500);
+    const actual=await result;
+    if(repeatedOverflow){expect(actual).toBeInstanceOf(Error);expect(calls).toBe(3);}
+    else{expect(actual.decision.behavior).toBe('allow');expect(calls).toBe(4);}
+    const trace=recovery.finish(repeatedOverflow?'unavailable_unknown':'allow',repeatedOverflow?'return_to_agent':'allow');
+    expect(trace.contextRebuilds).toBe(1);expect(trace.retriesUsed).toBe(repeatedOverflow?1:2);
+    expect(trace.attempts).toHaveLength(repeatedOverflow?2:3);
+    expect(trace.attempts.every(row=>row.budgetMs===90_000)).toBe(true);
+    expect(h.optionsSeen).toHaveLength(calls);expect(new Set(h.optionsSeen.map(row=>row.sessionId)).size).toBe(calls);
+    expect(h.inputs.every(input=>input.includes('original permission'))).toBe(true);
+  }finally{recovery.finish('test_cleanup','internal');vi.useRealTimers();await h.close();}
 });
 
 it('freezes the exact action before asynchronous evidence preparation',async()=>{

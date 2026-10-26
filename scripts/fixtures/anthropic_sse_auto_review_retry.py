@@ -26,7 +26,7 @@ from anthropic_sse_tool_approval_recording import (
 )
 
 
-def _tool(case: str) -> bytes:
+def _tool(case: str, name: str = "bash", arguments: dict | None = None) -> bytes:
     return _frames_bytes(
         [
             _message_start(),
@@ -37,8 +37,8 @@ def _tool(case: str) -> bytes:
                     "index": 0,
                     "content_block": {
                         "type": "tool_use",
-                        "id": f"retry-{case}",
-                        "name": "bash",
+                        "id": f"retry-{case}" if name == "bash" else f"{name}-{case}",
+                        "name": name,
                         "input": {},
                     },
                 },
@@ -51,7 +51,9 @@ def _tool(case: str) -> bytes:
                     "delta": {
                         "type": "input_json_delta",
                         "partial_json": json.dumps(
-                            {
+                            arguments
+                            if arguments is not None
+                            else {
                                 "description": "Record one isolated test effect",
                                 "command": f"printf '%s\\n' 'effect:{case}' >> retry-{case}.txt",
                             }
@@ -68,10 +70,34 @@ def _tool(case: str) -> bytes:
     )
 
 
+def _pending_tool(body: dict) -> str | None:
+    """Locate only the explicit pending action, not its historical tool catalog."""
+    text = "\n".join(
+        block.get("text", "")
+        for message in body.get("messages", [])[-1:]
+        for block in message.get("content", [])
+        if isinstance(block, dict)
+    )
+    planned = re.search(r"<planned_action>(.*?)</planned_action>", text, re.S)
+    if planned:
+        return json.loads(planned[1]).get("name")
+    for line in reversed(text.splitlines()):
+        if line.startswith("{"):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "id" in row:
+                return next((key for key in row if key != "id"), None)
+    return None
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     """Serve faults from actual HTTP without exposing credentials in records."""
 
     counts: dict[tuple[str, str], int] = {}
+    main_sessions: dict[str, str] = {}
+    session_counts: dict[tuple[str, str, str], int] = {}
     lock = threading.Lock()
     record_path = ""
 
@@ -88,8 +114,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         policy, _, kind = case.partition("-")
         reviewer = body.get("model") == "review"
         key = (case, "review" if reviewer else "main")
+        pending_tool = _pending_tool(body) if reviewer else None
+        session = self.headers.get("x-agent-session-id", "missing")
         with self.lock:
             self.counts[key] = count = self.counts.get(key, 0) + 1
+            session_key = (case, session, key[1])
+            self.session_counts[session_key] = per_session = (
+                self.session_counts.get(session_key, 0) + 1
+            )
+            if not reviewer:
+                self.main_sessions.setdefault(case, session)
             with open(self.record_path, "a", encoding="utf-8") as record:
                 record.write(
                     json.dumps(
@@ -98,7 +132,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             "kind": key[1],
                             "ordinal": count,
                             "time": time.time(),
-                            "session": self.headers.get("x-agent-session-id"),
+                            "session": session,
+                            "pending_tool": pending_tool,
                             "request": body,
                         },
                         ensure_ascii=False,
@@ -106,11 +141,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     + "\n"
                 )
         if case == "missing":
-            self.send_error(400, "missing case marker")
+            # A Global native wake must acquire the true human message through Inbox.
+            # Do not inject a human source or call RuntimeClient from the fixture.
+            if not reviewer:
+                targets = re.findall(
+                    r'"target"\s*:\s*"(c_[a-z0-9]+)"',
+                    json.dumps(body).replace('\\"', '"'),
+                )
+                args = (
+                    {"action": "read", "target": targets[-1]}
+                    if targets
+                    else {"action": "check"}
+                )
+                self.respond(_tool("bootstrap", "inbox", args))
+            else:
+                self.send_error(400, "missing case marker")
             return
         if not reviewer:
+            if kind.startswith("route-"):
+                self.respond(
+                    self.route_response(case, kind, body, session, per_session)
+                )
+                return
             response = _tool(case) if count == 1 else _sse_text(f"ACK:{case}")
         else:
+            if kind.startswith("route-") and pending_tool != "bash":
+                self.respond(
+                    _sse_text(
+                        "<block>no</block>"
+                        if policy == "nano"
+                        else '{"outcome":"allow"}'
+                    )
+                )
+                return
             if policy == "nano" and (
                 kind in {"stage2-service", "stage2-timeout"}
                 and count == 1
@@ -133,6 +196,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 time.sleep(95 if policy == "codex" else 35)
             if (
                 kind in {"auth", "persistent"}
+                or kind.startswith("route-")
                 or count == 1
                 and kind
                 in {
@@ -204,6 +268,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
             )
             response = _sse_text(verdict)
         self.respond(response)
+
+    def route_response(
+        self, case: str, kind: str, body: dict, session: str, ordinal: int
+    ) -> bytes:
+        """Request actual native child/timer tools; never synthesize their sources."""
+        target = re.findall(r"TARGET=(c_[a-z0-9]+)", json.dumps(body))[-1]
+        if kind == "route-child":
+            if session == self.main_sessions[case]:
+                return (
+                    _tool(
+                        case,
+                        "subagent",
+                        {
+                            "description": "Review a delegated effect",
+                            "prompt": f"CHILD RETRY_CASE={case} TARGET={target} Execute one test effect; never retry a blocked tool.",
+                            "run_in_background": False,
+                        },
+                    )
+                    if ordinal == 1
+                    else _sse_text(f"ACK:{case}")
+                )
+            return _tool(case) if ordinal == 1 else _sse_text(f"CHILD_ACK:{case}")
+        if kind.startswith("route-heartbeat"):
+            if ordinal == 1:
+                return _sse_text(f"READY:{case}")
+            return _tool(case) if ordinal == 2 else _sse_text(f"ACK:{case}")
+        if kind.startswith("route-schedule"):
+            if ordinal == 1:
+                return _tool(
+                    case,
+                    "schedule_create",
+                    {
+                        "title": f"Scheduled effect {case}",
+                        "prompt": f"SCHEDULE_EXEC RETRY_CASE={case} TARGET={target} Execute one test effect, no repeat.",
+                        "after_seconds": 2,
+                    },
+                )
+            if ordinal == 2:
+                return _sse_text(f"REGISTERED:{case}")
+            return _tool(case) if ordinal == 3 else _sse_text(f"ACK:{case}")
+        if ordinal == 1:
+            return _tool(case)
+        if kind == "route-global" and ordinal == 2:
+            return _tool(
+                case, "send_message", {"target": target, "text": f"ACK:{case}"}
+            )
+        return _sse_text(f"ACK:{case}")
 
     def respond(self, response: bytes) -> None:
         """Write a complete SSE response, allowing expected late cancellation."""

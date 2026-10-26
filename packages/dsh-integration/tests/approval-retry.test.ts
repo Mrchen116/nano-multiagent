@@ -28,6 +28,25 @@ it('recovers a CC stage-two service failure without replaying the valid first st
   expect(prompts[0]).not.toBe(prompts[1]);
 });
 
+it.each(['allow','deny','unavailable'] as const)('fails closed on durable audit write failure after %s, without another review or effect', async verdict => {
+  const ctx = new Context();let reviews = 0;let writes = 0;let durable: ApprovalAudit[] = [];
+  const table = { get: () => durable, async update(_id:string, mutate:(rows:ApprovalAudit[])=>ApprovalAudit[]) { writes++;mutate(durable);throw new Error('controlled audit persistence failure'); } };
+  ctx.provide('storageDomain',{open:async()=>({table:(name:string)=>name==='sessions'?table:{get:()=>undefined},close:async()=>{}})} as any);
+  ctx.provide('permissionPresets',{registerAuto:()=>{}} as any);
+  ctx.provide('codexApproval',{review:async()=>{reviews++;if(verdict==='unavailable')throw new LlmError('controlled unavailable','SERVER',{status:503});return{decision:{behavior:verdict,risk:'low',reason:'controlled'}};}} as any);
+  const config={agentId:'a',revision:'1',mode:'single_thread',provider:'fixture',model:'main',approval:{...approvalDefaults,rules:'codex',unattendedFallback:'allow'}};
+  new NanoApproval(ctx,()=>config as any);
+  const agent={id:'parent',session:{header:{},requestHeader:()=>undefined,snapshotEvents:()=>[{type:'turn/start',seq:0},{type:'user/message',seq:1,data:{source:{kind:'schedule'}}}]}};
+  try{
+    let effects=0;
+    await expect((async()=>{
+      const decision=await ctx.waterfall('tools/pre-execute',{agent,callId:'audit-failed',name:'fixture_effect',arguments:{},signal:new AbortController().signal} as any,async()=>({kind:'allow'}));
+      if(decision.kind==='allow')effects++;
+    })()).rejects.toThrow('controlled audit persistence failure');
+    expect([reviews,writes,effects]).toEqual([1,1,0]);expect(durable).toEqual([]);
+  }finally{await ctx.fiber.dispose();}
+});
+
 it('persists concurrent deny traces with the route chosen by the atomic denial count', async () => {
   const ctx = new Context();
   let rows: ApprovalAudit[] = [];

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from ._im_polling import poll_until
-from .test_auto_review_retry_critical_path import _login, _records, _stack, _trace
+from ._auto_review_retry import _login, _records, _stack, _trace
 
 pytestmark = pytest.mark.timeout(1800)
 
