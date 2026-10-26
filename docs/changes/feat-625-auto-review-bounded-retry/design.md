@@ -1,6 +1,6 @@
 # feat-625: Auto 审核失败的有界恢复 — 技术方案
 
-> 对齐: [spec.md](spec.md)，定稿 commit `80134297ddfabb08e80e83c01a20e20280de20f0`。
+> 对齐: [spec.md](spec.md)，本次重新交办首文档 commit `d72e220f1d21827c65e046f704c13837ea39d7c2`（末次历史授权措辞修正见本设计分支）。产品 grounding 为 `304c59412e8316ef3ea7df9d904a9a450ca618a2`；本稿是待独立 Gate 2 的事前设计，不是 as-built 或已验收能力。
 
 ## Changelog
 
@@ -8,31 +8,32 @@
 
 ### 涉及范围
 
-原R2受审设计基线为 `617ddaf35d33e3b8528b64bd1ec4afa0d4bfea59`（首文档来自`80134297ddfabb08e80e83c01a20e20280de20f0`，最初产品源码同`5454f3140f9c92532c690db8dec80b9f77080384`）。交接前已ff-only同步并核对最新产品基线 **`051e7d68e159814cdba1e622f760208fc6d3af68`**；其合入bugfix-626后，普通审批上下文、Guardian投影/admission和output contract已变化。以下设计按此新基线修订，保留626，不得用旧R2 Approved跳过本次实质变化复审。
+本次重新交办在新 workspace 核实 `HEAD = origin/main = 304c59412e8316ef3ea7df9d904a9a450ca618a2`，开始时 main 干净，`git ls-remote origin refs/heads/main` 核实同 SHA；此后 main 只有本次首文档提交。没有读取旧群、旧子会话、旧分支或旧运行数据。仓库自带625文档和报告只作历史材料；本稿实质更新后旧 R4 Approved 不再适用，需新的独立审查。没有新增 worktree，设计分支 `design/feat-625-r2-361` 持续复用本 checkout，不写产品代码。
 
 | 当前路径 | 实际职责与本次影响 |
 |---|---|
-| `packages/dsh-integration/src/index.ts:107,155–158,370–375` | 生产安装 LLM attribution、CC/Codex/NanoApproval；`session.observe` 已返回 durable approval entries。本次只增安装窄 HTTP facts observer，不新增运行服务。 |
-| `src/policy/approval.ts:99–145` | downstream 权限、fastpath、冻结配置和审核模型、策略派发、取消、审计、计数/fallback；当前在 try 外/内的准备无统一边界，异常字符串化丢结构化 facts。这里拥有“一次待审动作”恢复 controller。 |
-| `src/policy/classifier.ts` / `cc.ts` | CC workspace fastpath、两阶段或 legacy 单阶段；每阶段一个独立流。准备后才创建30/60秒 signal，没有失败恢复，stage1异常不会进stage2。改为 controller 驱动单阶段模型尝试，保留有效阶段结果。 |
-| `src/policy/codex.ts` / `codex-context.ts` / `codex-inspection.ts` | DSH 原生 reviewer Agent、full/delta/fork、一次 context rebuild、只读检查、90秒共享时限；错误 listener 丢结构化 facts。改为明示正常尝试生命周期与 action 级恢复额度，检查权限和上下文投影不重写。 |
-| `src/policy/types.ts` / `audit.ts` | request/result、Nano 自有 `nano_approval` domain v1。添加私有 controller 引用和向后兼容 optional trace；不把重试写进原生不可忽略的 Session events。 |
-| `src/llm-attribution.ts` | 通过公共 `llm/stream`、Node AsyncLocalStorage、undici dispatcher 为模型 POST 加关联 header。扩展这个已存在的 seam，采集审核请求必要 response facts，避免第二个全局 dispatcher owner。 |
-| `apps/node/src/approval.ts` / `configuration.ts` | owner/workspace Auto 配置解析、独立审核模型解析与下一轮配置应用。保持配置格式及生效边界；不增加可配 retry 开关，不让供应商 always policy覆盖产品上限。 |
-| `tests/{approval*,codex-approval*,llm-attribution*}.test.ts` | 已有 native profile/RuntimeClient 真 DSH 测试、生命周期 fake clock 与只读约束。复用断言面，新增恢复组合与真实 HTTP fixture 测试，不替换成纯 mock façade。 |
+| `packages/dsh-integration/src/index.ts:137–145,208–212,466,570` | 生产安装 attribution、CC/Codex/NanoApproval；`session.observe` 返回 durable approval entries；PA disclosure 使用同 Codex service 的独立入口。Node 当前 shared-host/owner lifecycle 经 integration 接入，不另建服务或切回旧装配。 |
+| `src/policy/approval.ts:103–150` | downstream/fastpath、模型选择、策略派发、取消、审计、计数/fallback；try 前 message context、try 内 inherited 准备尚无统一边界，异常 String 丢结构化 facts。这里拥有一次普通待审工具动作的恢复 controller；免审和原 fallback 不进入恢复。 |
+| `src/policy/classifier.ts:13–38` / `cc.ts` | CC workspace fastpath、30/60秒两阶段或 legacy 30秒单阶段，无失败恢复；stage1异常不进stage2。已按声明选择 effort。controller 恢复当前失败阶段，保留有效阶段结果，不重复实现已有能力。 |
+| `src/policy/codex.ts:47–203` / `codex-context.ts` / `codex-inspection.ts` | tool/disclosure 分开缓存的原生 reviewer、full/delta/fork、一次 context rebuild，共享90秒。`codex-inspection.ts:59–65` 已用单次 `execFile` + SIGKILL 杀掉阻塞FS，不退回进程内FS。625仅为 tool 路径增加 action 恢复，保留 disclosure 当前严格parser/预算/缓存隔离。 |
+| `src/policy/types.ts` / `audit.ts:4–19` | Nano `nano_approval` domain v1 已有call/model/耗时/usage，但无内部attempts；增加私有controller与可选trace，旧行仍可读，不新增不可忽略Session事件。 |
+| `src/llm-attribution.ts` | 公共 `llm/stream` + ALS + 单undici dispatcher为模型POST加归因header，未观察response。扩展既有seam获取必要failure facts，不增加第二dispatcher owner。 |
+| `apps/node/src/approval.ts` / `configuration.ts` / `runtime-partitions.ts`；integration `agent-config.ts` | 当前默认Codex、逐Agent覆盖/继承与生效、shared-host中的owner释放/disabled控制。配置格式、当前模型能力选择及lifecycle不变；不增加可配retry开关，不让供应商always覆盖上限。 |
+| `tests/{approval*,codex-approval*,llm-attribution*,personal-security*}.test.ts` | 已有native profile、source/parser/admission、context rebuild/late cancel、tool/disclosure namespace及effort回退。新测试通过窄controller接口与真实HTTP/native/IM路径补缺，不替换有意义的现有回归。 |
 
 上表 `src/` 与 `tests/` 未展开前缀时均位于 `packages/dsh-integration/`。
 
 ### 既有约束
 
 - AGENTS/SPEC：仅 integration 使用 DSH 公开 exports；不 runtime fork、private import、第二套 Agent loop或新增内核HTTP服务。PA/Channels/IM 不 import DSH。
-- current `docs/specs/gateway/agent-capabilities.md:508–579` 保留来源、独立模型、风险/授权、子任务边界与 fallback。L541“已有重试”与独立流现状含混，delta 明确修正，不作为已有实现证据。
-- 所有已确认额度/完整预算不再提问；不同模式 fallback 保持，尤其无人值守配置 allow。主动取消优先，取消不借 fallback 执行。
-- 不动客户端面；Work仍呈现真实工具和结果，不新增页面/按钮/卡片，因此无 prototype。详细审核 trace 通过既有 approval domain / `session.observe` 供诊断，不能声称现有 Work 已显示 attempts 明细。
+- current `docs/specs/gateway/agent-capabilities.md:502–608,1025–1030` 保留默认Codex/显式CC或DSH、来源、原模型effort能力、风险/授权、子任务边界与fallback。L535“已有重试”含混，不作已实现证据。delta仅在当前完整Requirement内修改失败Scenario，不恢复默认Nano或缩窄继承链。
+- 所有已确认额度/完整预算不再提问；不同模式fallback保持，尤其无人值守配置allow。主动取消、owner disabled/释放优先；不得借恢复使停止的Agent在shared host中复活或影响同host其他owner。
+- 不动客户端面；Work继续展示实际工具与用户可见结果，无新页面/按钮，故无prototype。详细attempt trace通过原approval domain / `session.observe`取证，不声称Work已有attempt明细UI。
+- `CodexApproval.reviewDisclosure`、独立PA入站检查、消息representation/转发/Task审查不是本次普通工具Auto恢复范围；共享service重构必须保留其严格parser、context与checkpoint命名空间，不让代码复用变成新增重试授权。
 
 ### 可复用能力
 
-本轮实际读取安装版本 `0.2.1-alpha.1` 的 package export map、公开 d.ts 与已打包实现；根 `LlmError`、`resolveRetryPolicy`、`BlockAssembler` 已以 Node import 只读核实为 function。版本与仓库 package.json 相同。
+本次在新workspace执行 `pnpm install --frozen-lockfile` 成功，锁定 DSH `0.2.1-alpha.1`、undici `8.11.2`；实际重读package export map、公开d.ts和下表相关打包实现，Node根import核实 `LlmError`、`resolveRetryPolicy`、`BlockAssembler`、`isAgentLoopRequest` 均为function。这是当前公共能力取证，不继承历史probe输出、不证明625实现已完成。
 
 | 能力 | 用 / 改 / 不用与证据 |
 |---|---|
@@ -51,7 +52,9 @@
 - feat-615：独立CC/Codex插件与Guardian生命周期；沿用full/delta/fork、配置失效和只读工具限制，不把Codex简化成另一段分类prompt。
 - 既有approval-sources及classifier相关测试：去重指令、来源事实与超窗处理；不得裁授权、改来源或模型以恢复失败。
 - refactor-581：DSH接入与进程边界；不恢复旧Python broker。
-- [bugfix-626](../archive/bugfix-626-approval-context-fidelity/design.md) 已合入当前产品：普通审批不再附PA全库授权包；Codex规范化消息粒度、preserve/recovery admission及assessment输出已恢复固定上游行为。本unit只在该新基线增加故障恢复，不能从旧625草案复制回已撤销的626前逻辑。
+- [bugfix-626](../archive/bugfix-626-approval-context-fidelity/design.md) 的普通工具有效上下文、来源规范化、admission/parser行为仍在当前源码，必须保留；历史报告不作本轮验收。
+- 后续current已默认Codex并加入原模型effort回退；Guardian已支持独立PA disclosure和可终止的inspection子进程；来源扩展到宿主确认的human/represented user、Task stop/UI resume，主Agent默认独立换窗而非一律摘要。新设计必须基于当前投影/killable检查/生命周期，不从旧625草案复制旧策略或旧prompt。
+- 本次实际运行 `approval-sources.test.ts`（14）、`codex-approval.test.ts`（9）、`codex-approval-lifecycle.test.ts`（8），31/31通过，exit0。证明当前source/parser/admission/缓存隔离及声明effort回归基础可复用；没有发真实模型请求、运行HTTP/IM旅程，也不证明新增重试已实现。
 
 ### 626交叉保真约束（最新基线必须保留）
 
@@ -62,6 +65,8 @@
 - 这组是保留已合入行为，不扩大首文档要求；新增恢复的格式计数必须以当前parser结果为准，不能将合法bare/embedded verdict误耗format额度。
 
 ## 架构总览
+
+Before：CC每个阶段直接调用stream；Guardian tool/disclosure共用执行器且只有context重建；独立审核错误直接进入facade失败分流。After：仅普通tool Auto路径新增一次action恢复租约，原策略提供一次正常判定，原facade保留授权/最终分流。disclosure仍使用原有单次90秒+context恢复路径，既不接收普通tool的controller，也不共享其额度或失败checkpoint。
 
 ```text
 原 tools/pre-execute → downstream 权限/既有 fastpath
@@ -82,7 +87,9 @@ controller仅恢复**判定工作**，从不调用待审工具体。CC正常阶�
 
 ### 1. **新建窄的 action 级 ReviewRecovery；策略保留其自身正常判定。**
 
-`policy/recovery.ts` 隐藏错误分类、共享2次恢复/1次格式额度、预算计时、退避/取消、trace。只有 facade 构造一个并传给选中的策略。CC在单阶段边界调用run，Guardian在一次正常审核生命周期边界调用run。模块有深度：若去掉它，安全计数/错误/取消规则会在两条策略中重复漂移；不做可供任意业务使用的通用retry库。
+`policy/recovery.ts` 隐藏结构化错误分类、共享2次恢复/1次格式额度、计时、退避/取消及trace。只有普通工具Auto facade构造一个并传给选中策略；CC在单阶段边界调用run，Guardian tool在一次正常审核生命周期边界调用run。策略提供不含service loop的一次正常工作；共享Guardian执行器保留 `purpose`，disclosure未传controller时保持当前语义，不另复制一套Agent loop。模块有深度：去掉它会让安全计数/错误/取消规则在策略间漂移；不是任意业务可用的retry库。
+
+controller必须有明确owner lifetime并链接精确exec.signal。当前shared-host中的Agent disabled、configuration release、service卸载均撤销所拥有action的generation、打断退避、cancel/drain自己创建的reviewer；仅配置切换排队不抢改正在执行整轮的冻结规则。release以purpose+parent精确归属，不按整个进程杀Agent；未知/失效owner不得提交allow或发布checkpoint。保留现有tool/disclosure缓存namespace；registry只登记持有tool controller的reviewer，不截获disclosure流。
 
 不选：整个facade外套loop（会重做CC stage1、重复准备/授权读取，并把fastpath/fallback也套进去）；也不选把供应商policy全局改成2次（会改变主Agent，且无法表达格式子额度/Guardian预算）。legacy共享classifier使用同controller，单阶段30秒，作为兼容覆盖。
 
@@ -98,7 +105,7 @@ controller仅恢复**判定工作**，从不调用待审工具体。CC正常阶�
 
 | 事项 | 本设计值与范围 |
 |---|---|
-| action准备 | 15秒，冻结来源/动作/策略材料及resolve审核模型一次，只包含当前有效执行历史、既有inherited来源及必要messageContext；**不调用pa.authorization或数据库全库授权/聊天历史**。使用父取消信号。prepare超时为技术不可用，不是已经开始的判断超时，不消耗恢复额度、不无限重做准备。 |
+| action准备 | 15秒，使用父取消和owner lifetime，冻结来源/精确动作/配置及resolve审核模型能力一次。包含必要messageContext、当前有效历史和inherited，**不调用pa.authorization或全库授权/聊天历史**。静态fastpath先返回；需context才能确认的owner_message及Auto关闭保持原路径，不启动model attempts。相关异步lookup使用同一个15秒envelope，不在try外无限等，发现无需模型时不消耗恢复额度。prepare超时为技术不可用，不是判断超时，不重试准备。 |
 | CC判断 | 每次stage1模型尝试30秒、stage2尝试60秒；重试仅当前失败阶段，保留之前有效stage结果，2次额外额度跨阶段共享；legacy每次30秒。 |
 | Guardian正常尝试 | 每次90秒，覆盖reviewer创建、上下文编排、所有模型步骤/只读检查及至多一次全action context rebuild；技术恢复的新尝试重新分配90秒。 |
 | 额外恢复 | action最多2次；其中format最多1次；不因CC stage/Guardian新session/context重建而重置。 |
@@ -132,7 +139,7 @@ prepare异步只读工作超时后不使用晚到值；它们持有被撤销toke
 
 1. Guardian owner registry只接受本service创建的**精确原生reviewer sessionId**（包含每个full/delta reviewer或并发fork各自唯一ID），不用parent/rootOf/主Agent session、模型名或字符串前缀推断归属。公开`GenerateOptions.sessionId`是loop stamped身份；另用根export `isAgentLoopRequest(options)`确认原生loop envelope。普通CC hand-built options没有该marker。
 2. `!isAgentLoopRequest(options)`、无sessionId、无精确registry entry或辅助`purpose`流：原样`yield* next()`，不读任何owner/currentAttempt、不断言active、不改signal/metadata、不新建或清空sink；因此CC调用者自己安装的ALS sink也原样保留。辅助compaction仍由现有scoped request/context检查处理，不能借它创建普通reviewer request额度。
-3. 只有精确命中本reviewer的普通loop流才读取该entry的`currentAttempt`；校验active generation与已冻结provider/model/low一致。idle entry缺currentAttempt时仅拒绝**这个reviewer自己的异常发流**，绝不能阻断main/CC/另一reviewer。成功匹配后为这一条stream分配requestOrdinal和sink，快照attempt引用，后续iterator绝不重新从可变entry读取新attempt；继续next或写facts/usage前检查所捕获generation仍有效；失效后仍须对旧iterator执行return清理，但关闭sink写入，晚到值不得写终态trace或后继attempt。
+3. 只有精确命中本tool reviewer的普通loop流才读取该entry的`currentAttempt`；校验active generation与冻结provider/model/resolvedEffort一致。resolvedEffort沿当前模型能力：有low选low，否则defaultEffort或首个声明effort，无可调能力则不强设；不得固定low、换模型或在恢复时改变档位。idle entry缺currentAttempt时仅拒绝**这个reviewer自己的异常发流**，绝不能阻断main/CC/另一reviewer。成功匹配后为这一条stream分配requestOrdinal和sink，快照attempt引用，后续iterator绝不重新从可变entry读取新attempt；继续next或写facts/usage前检查所捕获generation仍有效；失效后仍须对旧iterator执行return清理，但关闭sink写入，晚到值不得写终态trace或后继attempt。
 4. owner entry在`agents.create` setup登记（已知创建用sessionId，尚不可drive），setup失败负责释放；create完成后在followup前绑定currentAttempt。缓存idle保留身份但清空attempt；每次复用显式绑定新attempt；dispose/quarantine先使attempt失效并保留精确entry tombstone阻断该旧reviewer，直到drain完成才按entry对象相等条件删除。新full/fork使用新ID，不继承旧entry。流finally只关闭自己的sink，不清除后继attempt的绑定。
 5. CC/legacy在其调用点直接包装**本次stream**，而不向Guardian registry登记主session；同parent多个CC请求各有独立ALS/request ordinal。transport handler只捕获当前sink的模型POST response facts，全部原handler方法保持this/参数/返回值透传。
 
@@ -175,7 +182,8 @@ interface GuardianStreamOwners {
 }
 ```
 
-- Facade先跑既有downstream/免审检查；只有需模型时创建reviewId及controller。冻结exec的精确工具名/参数、模型、配置、message context、可信来源，不把后续模型建议当新授权。trace不持有敏感prompt副本。
+- Facade先跑downstream/静态免审检查，再对候选动作使用有界prepare（含必要message context和可能的owner免审判别）；只有需模型时才开始reviewId下的attempts。冻结exec工具名/完整参数、配置、provider/model、按声明选取的resolvedEffort、有效历史和真实message context；不把后续模型建议或技术恢复当新授权。模型能力/effort只解析一次，每个恢复重用，不承袭主Agent effort。trace不存敏感prompt副本。
+- `ReviewRun` 保留purpose和parse/evidence回调，tool额外传私有recovery；disclosure不传，继续原90秒/context重建及严格 `parsePersonalDecision`。tool恢复分支不可改变disclosure的context profile、reason/needs_owner/unavailable解释、宿主commit检查或缓存；同parent tool/disclosure+main并发需各自有效，reviewer registry只认带tool attempt的精确身份。
 - `ApprovalReviewRequest`增私有recovery，`ApprovalReviewResult`可返回决策/usage/metadata，trace由controller统一持有，失败同样可取得。策略为单个run回调提供“不含重试的一次正常判断”，不得自行另套service loop。
 - CC的buildPolicy/transcript/suffix/model info准备在一次15秒prepare内完成；每次stream建新BlockAssembler（不混partial），传parent关联sessionId便于现有proxy定位。有效stage1结果不会因stage2失败丢失；stage2共享总额度。legacy只用s1。
 - Guardian把trunk claim/忙闲/fork作为整个action租约，准备parent证据一次。初次能沿用committed checkpoint；恢复强制full。复用的reviewer保存可替换的`currentAttempt`引用；Agent carrier的scoped request/error监听器读取当前引用，全局llm分派仅在精确身份命中后快照它，不能依赖scope隔离llm事件或捕获上一个动作的controller/signal。action结束/idle时清空它，未绑定时只禁止这个reviewer自己发起普通请求。成功commit时必须满足：signal未取消、generation有效、仍持有原trunk对象/租约且配置fingerprint未失效。失败/cancel/config release不能republish旧cache。
@@ -188,6 +196,16 @@ interface GuardianStreamOwners {
 
 5秒内无法drain是 `cleanup_unavailable`：本action不可恢复；controller封闭、引用放入service的tracked cleanup集合，不缓存/seed/交给新调用；Guardian该parent reviewer租约quarantine，直到旧dispose真正settle才允许再次创建该parent reviewer。晚到allow和late create结果只可清理，永不能resolve旧动作allow。服务dispose继续drain tracked集合，生产runtime正常shutdown保留原生清理路径；不从这里kill共享DSH进程。测试必须验证迟返/不合作模拟的失败关闭，不能仅用Promise.race声称取消了底层工作。
 
+### Context 消费链与组合验证
+
+Consumer是CC/legacy分类模型、普通tool Guardian，以及共享执行器但不接入恢复的PA disclosure Guardian。来源链保持当前 `ApprovalSources.history/transcript/codexEntries → policy/reviewInput → public llm/stream`；CC保留当前instructions/省略工具正文规则，Codex保留当前effective evidence/admission/parser和只读host tools，不新增授权检索或来源解释器。
+
+生命周期：一次prepare冻结当前模型实际可见rows、精确动作/受众和能力；技术失败丢弃失败reviewer的assistant/检查结果，再用同一冻结rows按full规则恢复。后来的新工具动作重新读取有效上下文，按正常cursor/full/delta/fork处理；配置变更、换窗/有效历史重写或owner释放失效原checkpoint。主Agent默认独立换窗及可选压缩均以当前deriveMessages实际保留内容为准，不重放丢失正文。原有source的live/restored、represented user、Task/UI stop来源保持宿主事实，不随新reviewer身份重标。
+
+最小Before/After例：第一次输入有真实来源 `Inbox(message=m, live, sender=S)` 与完整planned_action A；reviewer做guardian_read后503。恢复输入仍有同一个m的live/sender/S、A与相同配置，不含失败read/assistant残片；跨epoch本来restored的m仍restored。已有合法bare allow仍被当前tool parser接受，format=0；PA disclosure的相同bare allow仍由其严格parser拒绝，不能借tool格式恢复转为授权。
+
+Validation：除runbook§5.2的626来源/admission/parser组合，新增represented user/实际sent/Task stop投影原测试、tool+disclosure并发/namespace、owner disable与其他shared owner隔离、killable inspection卡FS时默认90秒及主动cancel排空回归。捕获脱敏的实际组装请求对照冻结rows/动作/effort，不用类名或mock输入证明模型消费。Gate2 reviewer须执行 `agent-context-review` Design Review；实施后的独立code reviewer执行Implementation Review，仍写入原报告，不另增审批角色。
+
 ### Trace与兼容
 
 在既有approval record新增optional `recovery`，旧行无需迁移或重写，domain version/layout维持；Zod定义与读写同时接受旧行。trace上限由2次额度和Guardian90秒所界定；model request摘要最多100条，超出只累积计数/可得usage并置requestsTruncated=true，不影响执行权限。
@@ -196,7 +214,7 @@ interface GuardianStreamOwners {
 |---|---|
 | review | reviewId、callId（原工具关联）、rules/reviewer、start/end/elapsed、terminalReason、finalRoute/fallbackOutcome、retriesUsed/formatRetriesUsed、contextRebuilds、complete |
 | attempt | scope、attemptOrdinal、retryOrdinal、generation（诊断用）、开始/结束/预算、触发/最终failure category/code/status、delay与Retry-After可得性、Guardian sessionId/contextMode、outcome |
-| request | 本attempt内requestOrdinal、model/provider、可得requestId/usage、结束原因；不保存完整prompt/参数或原始headers |
+| request | 本attempt内requestOrdinal、model/provider/resolvedEffort（未声明可调时标明未设置）、可得requestId/usage、结束原因；不保存完整prompt/参数或原始headers |
 
 usage优先保留每request原生用量；partial或缺失标unknown，不补0。汇总只标`knownUsage`加`usageComplete`，不能把成功末次usage当全部成本。格式输出仅保留类别与必要脱敏原因，不记录完整响应。最终原审计行仍负责计数；详细trace附该行，fallback第二行只关联reviewId而不重复累计usage。主动取消也新增不增deny计数的取消审计；domain写入失败为不可用，不能用丢失审计为理由自动allow。
 
@@ -214,18 +232,22 @@ trace在进程内收集；facade先计算拟采用的原route/fallback outcome�
 - 不合作provider/FS teardown无法靠应用实现绝对物理消失；5秒quarantine保证无late授权/无继续重试，不以无限等待守住表面cleanup。发生真实cleanup不可用时记录具体资源并阻断，不自动重启生产。
 - 回退为撤回本unit产品commit（保留历史audit可读性、未知optional字段无害），恢复原无故障恢复行为；不修改owner配置。merge/部署仍需人类指令。
 
+## 一次性部署迁移
+
+无。optional trace旧行兼容，不做历史记录回写或一次性数据迁移；不新增部署提示词，不执行生产操作。
+
 ## Runbook for Reviewer
 
-详见 [reviewer-runbook.md](reviewer-runbook.md)：双策略真实插件旅程、API入口、故障矩阵、计时和清理。只改integration库、没有新常驻服务；实际验收依赖既有隔离IM+Node/DSH，不碰生产。fixture为测试进程而非产品服务。
+详见 [reviewer-runbook.md](reviewer-runbook.md)：当前daily标准阵容、双策略真实插件旅程、IM/Work与脱敏trace出口、故障矩阵、计时和清理。只改integration库，没有新常驻服务；实际验收使用当前隔离IM+Node/DSH，不碰生产。fixture为测试进程，不是产品服务；正式handoff实际身份、Q节点、运行命令和导出定位由E冻结实现后填写。
 
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
-| 本次隔离IM + Node管理的DSH | `./scripts/e2e-down.sh --wt "${WT_ROOT:?}"` | `./scripts/e2e-up.sh --wt "${WT_ROOT:?}" --main-config "${E2E_CFG:?}"` | `source "$WT_ROOT/.e2e-ports.env"; curl -fsS "$IM_URL/openapi.json" >/dev/null`，再通过登录后的nodes检查本次node online |
+| 本次隔离IM + Node管理的DSH | `./scripts/e2e-down.sh --wt "${WT_ROOT:?}"` | 真实产品 `./scripts/e2e-up.sh --profile daily --wt "${WT_ROOT:?}"`；受控fixture另用default/`--main-config "${E2E_CFG:?}"`，不与daily混用 | `source "$WT_ROOT/.e2e-ports.env"; curl -fsS "$IM_URL/openapi.json" >/dev/null`，再检查本次node online与daily清单身份 |
 | 本地LLM代理（仓库外依赖，不由本unit管理） | 不停止 | 不重启，沿用开发入口 | `GET http://127.0.0.1:4000/health` |
 
 **Review驱动方式**：端到端真栈，不改客户端面；允许复用客户端同一IM HTTP/WS接口代驱动（不可用RuntimeClient直接submit代替产品旅程）。Native RuntimeClient fixtures是worker工程证据，不替代Q真IM旅程。
 
-**验收前置与本轮实际检查**：隔离脚本、默认无secret config、node_modules存在；LLM_PROXY health返回200。当前P workspace没有`.venv`，系统Python3.9.6且缺yaml/httpx/pytest，不满足仓库≥3.11要求；E/Q需提供自己的≥3.11解释器并按local-development创建或复用隔离dev环境（runbook给安装命令），不是借生产主仓环境。health不证明指定模型可用。R1纠正：默认main目录`deepseek:deepseek-v4-flash`仅声明high/max，不能用作固定low审核；runbook改选已有`codexOAuth:gpt-6.1-sol`（声明low、context_window=258400），只改隔离tool_approval_model，不改产品审核effort或虚报能力。该候选尚未真实smoke，Q执行前先静态核对目录/映射，再通过专用E2E目录的真实审核smoke确认路由可用；本地声明/effort拒绝属于配置失败，不归provider故障，不读或复制生产凭据。本轮未启动栈、未花真实模型请求、未宣称验收pass。真实provider不可用时可继续确定性矩阵，但对应真实旅程必须inconclusive并报E，不用stub冒充。
+**验收前置与本轮实际检查**：本次已安装锁定依赖，31项窄baseline通过；Node24.22.1，系统Python3.9.6，不满足全栈开发Python≥3.11要求。默认docs-check因缺yaml失败后使用本次独立临时文档环境修复，结果以交接验证为准；不把文档检查环境冒充合格全栈环境。未启动栈、未查代理健康、未调用真实模型，真实可用性未知。E/Q需准备自己的≥3.11 dev环境及按daily模板生成本次实际阵容/能力；Luna是模板审核路由，不是已验证真实可用。当前原模型effort适配已存在，runbook不再硬性要求low或固定Sol来修旧配置问题。Q执行前须对本次实际审核路由smoke，失败分本地配置/HTTP/provider报告；可继续独立的确定性矩阵，不能以stub或旧结论代替真实旅程。不得读/复制生产凭据或改生产配置。
 
 ## Milestones
 
@@ -233,4 +255,4 @@ trace在进程内收集；facade先计算拟采用的原route/fallback outcome�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-review-recovery | 同一动作内完整预算的有界审核恢复 | 无 | 单M1 | integration policy recovery/transport、types/audit、classifier/cc/codex、llm-attribution/index；直接相关Vitest/HTTP fixture与IM关键路径；本unit设计/delta/验收证据及最终canonical归并 | [reviewer] 首文档17场景逐项覆盖，CC/Codex真实隔离全局插件创建→安装→两次调用有Work/实际副作用证据，原权限/最终deny/各模式fallback不变；[reviewer] 真IM受控故障矩阵显示共享2次/格式1次、完整预算、Retry-After、取消及晚到零执行，真实服务可用性与fixture证据分开；[worker] recovery接口fake-clock组合矩阵、完整公开failure/header事实/native装配，精确原生reviewer身份分派及idle+active同parent fork+另一parent+CC+main并发归因、缓存attempt切换/旧流隔离、Guardian生命周期dispose/full恢复/全action rebuild≤1/quarantine、legacy兼容和optional audit旧行读写测试通过，runbook§5.2的626有效context/零全库读取、来源规范化、admission phase及bare/embedded输出交叉回归不退化；[worker] 最窄相关Vitest后扩大typecheck/build、runtime dependency contract、docs-check及当前CI命令，独立门禁和脱敏证据齐全；[worker] runbook的受控HTTP fixture与可复跑真IM驱动进入长期测试，不改生产或增加正式运行配置。 |
+| M1-review-recovery | 同一动作内完整预算的有界审核恢复 | 无 | 单M1 | integration policy recovery/transport、types/audit、classifier/cc/codex、llm-attribution/index；直接相关Vitest/HTTP fixture与IM关键路径；本unit设计/delta/验收证据、脱敏trace导出入口及最终canonical归并 | [reviewer] 首文档17场景逐项覆盖，CC/Codex真实隔离全局插件创建→安装→两次调用有Work/实际副作用证据，原权限/最终deny/各模式fallback不变；[reviewer] 真IM受控故障矩阵显示共享2次/格式1次、完整预算、Retry-After、取消及晚到零执行，真实服务可用性与fixture证据分开；[worker] recovery接口fake-clock组合矩阵、完整公开failure/header事实/native装配，精确原生reviewer身份分派及idle+active同parent fork+另一parent+CC+main并发归因、缓存attempt切换/旧流隔离、Guardian生命周期dispose/full恢复/全action rebuild≤1/quarantine、legacy兼容和optional audit旧行读写测试通过，runbook§5.2的有效context/零全库读取、真实human/represented-user/Task/UI-stop来源、admission/parser交叉回归不退化；tool+disclosure namespace/严格PA parser/预算/host commit不串，low/default/first/不可调effort全覆盖，保留默认Codex与CC/DSH继承和现有免审；shared-host owner disable/release只收束自己action且不复活、不影响其他owner，killable inspection卡FS/取消仍SIGKILL排空；[worker] 最窄相关Vitest后扩大typecheck/build、runtime dependency contract、docs-check及当前CI命令，独立门禁和脱敏证据齐全；[worker] runbook的受控HTTP fixture与可复跑真IM驱动进入长期测试，不改生产或增加正式运行配置。 |

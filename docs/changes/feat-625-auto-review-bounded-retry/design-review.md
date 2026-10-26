@@ -525,3 +525,31 @@ PA独立链确实仍存在：读取`personal-assistant.ts` L59–84的非主人p
 | `M1-review-recovery/.gitkeep` | `e69de29bb2d1d6434b8b29ae775ad8c2e48c5391` |
 
 **交E：** 由父P正式分配，默认simple、单M1。626来源双向对照（同epoch live继承→503→full仍live、跨epoch/旧持久restored不提升）、零普通全库取数、admission/output组合回归，与完整预算/共享额度、精确stream归属及原fallback必须保留。真实low审核路由smoke与Python≥3.11仍为E/Q前置，所有实现/真实HTTP/IM旅程及Full门禁待执行，不新增pass声明。本author不实施、不发群/改图、不授权merge/部署/发布。
+
+## Author re-grounding for 2026-10-26 clean retest — awaiting independent Gate 2
+
+本节是新author对当前材料的适用性说明，**不是Round 5 reviewer报告、不是Approved，不继承以上历史验收或设计批准**。历史Round 1–4及各Author Resolutions原文保留。新目标仅来自本群 `c_sfokibtk` / `tg_0dd3b230`，P节点n2；无旧群/会话/任务/定时复查恢复，没有产品代码修改。
+
+- product_baseline: `304c59412e8316ef3ea7df9d904a9a450ca618a2`；本次新workspace main开始clean，远端同SHA。
+- first_document: `411c4a5b846c3ca632dab3e5632b78f296d5ea83`重新grounding；`d72e220f1d21827c65e046f704c13837ea39d7c2`以父P二次提供的实际消息正文替换首次压缩交接引文，二者均已正常推送main，无历史重写。末次历史授权措辞按父P反馈随设计提交修正，17场景/取舍不变。
+- author_checkout: `/Users/czj/.nanoassistant/workspaces/nano-product-r2-1026`，同一持续现场，设计branch `design/feat-625-r2-361`；没有新建worktree，未接管旧分支/dirty材料。按本次明确派发在设计分支提交，而非沿旧报告main习惯推设计。
+- skills: 实际加载change-spec-author、change-design-author、codebase-design及nano-team-work；Gate2需父P调度独立change-design-reviewer，并因冻结输入/恢复/来源生命周期影响执行agent-context-review Design Review。reviewer自行决定复审mode/范围，不由author签字。
+
+### Current evidence and material revisions
+
+| 当前核对 | 修订 / 保留 |
+|---|---|
+| classifier.ts无失败恢复；codex.ts只有原90秒内context重建；当前audit无attempts | action controller/共享2次/format1次、完整预算、结构化failure、可取消退避与drain/quarantine仍为真实新增缺口。保留原stage/Guardian流程、路由与权限。 |
+| 当前默认Codex，继承含Codex/CC/DSH | delta原默认Nano已过时；现完整MODIFIED条目以current为准，只有失败Scenario是本次行为增量，其它Scenario原样保留。 |
+| classifier/codex已按模型声明low/default/first选effort | design与runbook改为冻结resolvedEffort；不固定low、不新增选择器、不要求改模型。旧R1-W2的旧配置事实不延伸为当前限制。 |
+| Guardian现同时服务tool/disclosure，PA严格parser/上下文不同 | 普通tool才持有恢复controller/registry；disclosure原预算/parser/context/host commit/namespace保留，增加同parent并发回归，不扩成PA消息重试产品。 |
+| inspection已是可SIGKILL单次子进程；current有shared-host owner lifecycle与新来源 | 保留killable FS、独立系统/指令隔离；补owner disable/release不复活/不影响其他owner，represented user/Task/UI stop来源与冻结证据组合验证。 |
+| 现行worktree-runtime要求daily真实验收 | runbook改daily清单与实际阵容/策略回执/路由smoke；default fixture另跑，不与daily混用。Q实际节点、实例身份、实施SHA、可跑fixture与脱敏observe导出由E工程冻结交接，不伪造。 |
+
+### Actual checks and limits
+
+- `pnpm install --frozen-lockfile` exit0；重读固定公开DSH exports/d.ts及相关打包实现，根import核实LlmError/BlockAssembler/isAgentLoopRequest/resolveRetryPolicy均为function。原生retry仅agent/request-error插件，不能取代action级共享额度；没有private import/patch。
+- `pnpm exec vitest run packages/dsh-integration/tests/codex-approval.test.ts packages/dsh-integration/tests/codex-approval-lifecycle.test.ts packages/dsh-integration/tests/approval-sources.test.ts`：3文件、31/31通过，exit0。它们证明已有回归基础，不证明625恢复实现或真实产品旅程。
+- 默认docs-check因系统Python3.9.6缺yaml失败；在本次独立临时venv安装PyYAML/markdown-it-py后发现collection缺pytest，补pytest/httpx/websockets后仍缺pytest-timeout；直接collect诊断出不识别timeout参数，补插件后最终 `PYTHON=<本次临时文档环境>/bin/python ./scripts/docs-check` exit0：271 maintained Markdown sources / 68 required routes。此环境仅用于文档检查，不假称满足仓库Python≥3.11全栈门禁。
+- 未运行build/typecheck/全量CI、native HTTP fixture、真实provider smoke或IM插件旅程；没有产品验收结论。正式fixture/trace导出尚待M1实施，真实服务是否可用未知。
+- 下一步：父P取得设计冻结ref/SHA后创建本次独立reviewer，以此report为历史入口续写Round 5；审查可扩大范围，不能据旧R4 Approved放行。author继续承担同目标文档返修，不自己做独立审核或开始产品实施。
