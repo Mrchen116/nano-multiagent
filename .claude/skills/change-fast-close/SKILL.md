@@ -14,6 +14,7 @@ description: "用户明确选择快速开发或事后补 unit，已有实现且�
 - 只处理本次 diff/commits，保留其他修改；从用户原话与决定写需求，从代码和证据写实际实现，二者不能倒置。
 - 新建时使用 [编号脚本](../change-spec-author/scripts/next_unit_id.py)；按类型选择 [首文档模板](../change-spec-author/assets/TEMPLATES_README.md)、[as-built design](assets/design.md) 和 [code review](assets/code-review.md)。
 - design 明示事后形成，记录真实模块、调用链、已采用决定、兼容/失败/回滚边界和验证定位。没有发生的 milestone、tasks/progress、design review、verifier、产品 reviewer 报告不补造。
+- 实际实现需要一次性部署迁移时，按 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词) 编写或校正 `deployment-prompt.md`，从 as-built design 链接并交本次 code review；无迁移不生成。引用已有有效的隔离/副本证据，缺失时在隔离环境补齐，不将用户已经完成的功能验收改写为上线后重测要求。
 - 对外行为变化按 [CONTRIBUTING](../../../docs/specs/CONTRIBUTING.md) 写最窄 delta；纯内部改动说明无 spec delta。无关漂移单列，不顺手决定预期。
 
 ## 完成

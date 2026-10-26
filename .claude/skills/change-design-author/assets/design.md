@@ -112,7 +112,7 @@
 
 ## 一次性部署迁移
 
-<!-- 无一次性迁移时写“无”。有则链接 unit 根目录的 deployment-prompt.md，概述旧状态到新状态、执行时机和实现前提；详细操作只维护在该文件，格式见 docs/changes/README.md 的“一次性部署提示词”。将副本验证纳入 milestone 退出标准；设计阶段不执行生产迁移。 -->
+<!-- 无一次性迁移时写“无”。有则链接 unit 根目录的 deployment-prompt.md，概述旧状态到新状态、执行时机和实现前提；写作前读取 docs/changes/README.md 的“一次性部署提示词”，详细操作只维护在 prompt。将功能、幂等性与失败恢复的隔离/副本验证纳入 milestone 退出标准；生产只安排迁移必需修改和有限结果核对，不将 reviewer 旅程复制为上线后的测试清单。设计阶段不执行生产迁移。 -->
 
 ## Runbook for Reviewer
 
