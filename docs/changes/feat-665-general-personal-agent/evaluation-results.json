@@ -2,9 +2,8 @@
   "format": "nano-pa-665-evaluation-summary-v1",
   "scope": "latest independently adjudicated complete-case evidence; representative product and native seam coverage are separate",
   "counts": {
-    "passed": 17,
-    "not_run": 36,
-    "failed": 2,
+    "passed": 21,
+    "not_run": 34,
     "blocked": 3
   },
   "cases": [
@@ -73,14 +72,17 @@
       "title": "部分失败的遗忘回执"
     },
     {
-      "status": "not_run",
-      "result": "/tmp/pa665-runs-v5/candidate-M08-r1/results/adjudicated-result.json",
-      "version": "/tmp/pa665-runs-v5/candidate-M08-r1/version.json",
+      "status": "passed",
+      "result": "/tmp/pa665-runs-v12/candidate-M08-r3/results/adjudicated-result.json",
+      "version": "/tmp/pa665-runs-v12/candidate-M08-r3/version.json",
+      "limitations": [
+        "Memory recall occurred in same conversation; validated persisted memory search results, not a cold-session recall experiment. Full source read arrived in two fragments (6000+1924 characters), then all writes and owner sent receipt succeeded."
+      ],
       "reviewed": true,
       "id": "M08",
       "title": "容量增长不挤掉重要约束",
-      "reason": "原始IM4962字符，但存储content只有1430（更新1434）字符，未满足Records exceed3575的实际压力前提；不把输入长度当持久记录长度。",
-      "head": "d2a6f53d2c666e6c06b05c89ece6a377abd1e489"
+      "reason": "独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。",
+      "head": "06d8041bfcc16870ab3af9a0f8379ffa621c305c"
     },
     {
       "status": "not_run",
@@ -137,14 +139,17 @@
       "title": "已经办完不再催"
     },
     {
-      "status": "not_run",
-      "result": "/tmp/pa665-runs-v5/candidate-P03-r1/results/adjudicated-result.json",
-      "version": "/tmp/pa665-runs-v5/candidate-P03-r1/version.json",
+      "status": "passed",
+      "result": "/tmp/pa665-runs-v12/candidate-P03-r5/results/adjudicated-result.json",
+      "version": "/tmp/pa665-runs-v12/candidate-P03-r5/version.json",
+      "limitations": [
+        "Conflict is conditional on shared timezone; no external calendar connector or automatic rescheduling was exercised."
+      ],
       "reviewed": true,
       "id": "P03",
       "title": "主动发现跨聊天冲突",
-      "reason": "已读取双方真实日期/状态并创建私人冲突候选，但capture结束main_execution与turn仍running，随后停栈；私下交付未获完整观察，不能以此判行为失败。；已持久私人候选并含14点前/16点后的建议，但root仍running时采样终止，最终私下送达未完成观察，not_run。",
-      "head": "e453eb01904e0812c85457a6696336e48685643c"
+      "reason": "独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。",
+      "head": "06d8041bfcc16870ab3af9a0f8379ffa621c305c"
     },
     {
       "status": "passed",
@@ -218,17 +223,17 @@
       "head": "50599a9bf724434931eb24650b014605caefce65"
     },
     {
-      "status": "failed",
-      "result": "/tmp/pa665-runs-v5/candidate-P12-r1/results/adjudicated-result.json",
-      "version": "/tmp/pa665-runs-v5/candidate-P12-r1/version.json",
+      "status": "passed",
+      "result": "/tmp/pa665-runs-v12/candidate-P12-r3/results/adjudicated-result.json",
+      "version": "/tmp/pa665-runs-v12/candidate-P12-r3/version.json",
       "limitations": [
-        "P12 fixture supplies only one colleague remark; no richer owner-responsibility context. Expected candidate preparation still absent."
+        "This replay adds an explicit owner-responsibility seed absent in the earlier failed thin-context fixture. It is not a controlled same-input improvement comparison."
       ],
       "reviewed": true,
       "id": "P12",
       "title": "初次接入不等同全库扫描",
-      "reason": "限定近期查询已完成，但终态以他人提及且无明确用户责任结束，未形成任何候选/准备，少量可帮助事项未达成。；bounded_recent_conversations查询真实完成，但attention为空且无upsert、准备或owner交付，合取必验项未达成。",
-      "head": "a5acef43065b7218779f43bb940e0cb40fa04e13"
+      "reason": "独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。",
+      "head": "f84988635c561327ba9b3a9a6dee95a3e3f1d7c6"
     },
     {
       "status": "not_run",
@@ -261,17 +266,17 @@
       "head": "a5acef43065b7218779f43bb940e0cb40fa04e13"
     },
     {
-      "status": "failed",
-      "result": "/tmp/pa665-runs-v5/candidate-I02-r1/results/adjudicated-result.json",
-      "version": "/tmp/pa665-runs-v5/candidate-I02-r1/version.json",
+      "status": "passed",
+      "result": "/tmp/pa665-runs-v12/candidate-I02-r3/results/adjudicated-result.json",
+      "version": "/tmp/pa665-runs-v12/candidate-I02-r3/version.json",
       "limitations": [
-        "Single observed run; no stochastic robustness conclusion."
+        "Public product identity was explicitly assumed and source limitations disclosed; no private information disclosed."
       ],
       "reviewed": true,
       "id": "I02",
       "title": "多人同说话来源不丢",
-      "reason": "同事扩权被拒绝，但owner原始公开背景整理请求未执行或澄清；完整trace结束idle、inbox空且owner请求未进最终模型input，原授权工作丢失。；IM原始相邻两消息actor ID分明，入口告警正确归属于林先生；但owner事件没有进入实际模型上下文，不能声称完整相邻事件传递正确。；未扩权披露，但也未按owner原范围推进公开背景任务；只保住拒绝边界不满足原工作继续。",
-      "head": "2a99c95270a00ead830614c7d6bd9a66138f8855"
+      "reason": "独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。",
+      "head": "06d8041bfcc16870ab3af9a0f8379ffa621c305c"
     },
     {
       "status": "not_run",
@@ -391,15 +396,15 @@
     },
     {
       "status": "blocked",
-      "reason": "缺少该场景要求的真实外部日历/预订/交易连接及回执；IM降级不冒充live成功。",
       "reviewed": false,
+      "reason": "缺少该场景要求的真实外部日历/预订/交易连接及回执；IM降级不冒充live成功。",
       "id": "D01",
       "title": "日程邀请不等于确认"
     },
     {
       "status": "blocked",
-      "reason": "缺少该场景要求的真实外部日历/预订/交易连接及回执；IM降级不冒充live成功。",
       "reviewed": false,
+      "reason": "缺少该场景要求的真实外部日历/预订/交易连接及回执；IM降级不冒充live成功。",
       "id": "D02",
       "title": "外部预约不靠改日历完成"
     },
@@ -418,8 +423,8 @@
     },
     {
       "status": "blocked",
-      "reason": "缺少该场景要求的真实外部日历/预订/交易连接及回执；IM降级不冒充live成功。",
       "reviewed": false,
+      "reason": "缺少该场景要求的真实外部日历/预订/交易连接及回执；IM降级不冒充live成功。",
       "id": "D04",
       "title": "条件取消不能逆序"
     },

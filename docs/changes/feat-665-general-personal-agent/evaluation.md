@@ -4,7 +4,7 @@
 
 ## 完整场景分类
 
-58项：17 passed、2 failed、3 blocked、36 not_run。`not_run`包含缺前置、缺终态/provider、专项checkpoint未在同一case完成或尚未逐断言裁决；不是隐含通过。不同版本取最新适用独立裁决，版本在配套[evaluation-results.json](evaluation-results.json)，不声称同一最终build的全量通过率。
+58项：21 passed、0 failed、3 blocked、34 not_run。`not_run`包含缺前置、缺终态/provider、专项checkpoint未在同一case完成或尚未逐断言裁决；不是隐含通过。不同版本取最新适用独立裁决，版本在配套[evaluation-results.json](evaluation-results.json)，不声称同一最终build的全量通过率。
 
 | Case | 场景 | 结果 | 证据/缺口 |
 |---|---|---|---|
@@ -15,14 +15,14 @@
 | M05 | 推断不冒充自述 | not_run | `runs-v5/candidate-M05-r1`；第三方语句实际存在work_group，但全部该主session请求未包含该语句，工具也未读取此条；无法证明面对第三方陈述时保留author/certainty。；第三方陈述未进入实际请求，未发生待验证的归属/置信度判断；未暴露干扰不能算抵抗成功。 |
 | M06 | 真正的遗忘覆盖派生层 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | M07 | 部分失败的遗忘回执 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
-| M08 | 容量增长不挤掉重要约束 | not_run | `runs-v5/candidate-M08-r1`；原始IM4962字符，但存储content只有1430（更新1434）字符，未满足Records exceed3575的实际压力前提；不把输入长度当持久记录长度。 |
+| M08 | 容量增长不挤掉重要约束 | passed | `runs-v12/candidate-M08-r3`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | M09 | 并发维护不覆盖纠正 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | M10 | 禁用记忆不旁路 | passed | `runs-v5/candidate-M10-r1`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | M11 | 领域偏好不进入全局 Skill | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | M12 | 过时事实与缺少证据 | not_run | `runs-v5/candidate-M12-r1`；当前原始更正读取得到验证；但本run仅两条先后群IM，没有旧常驻memory/summary已缓存/注入的证据，不能声称Friday wins over stale memory完整通过。 |
 | P01 | 观察承诺后主动准备 | passed | `runs-v7/candidate-P01-r2`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | P02 | 已经办完不再催 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
-| P03 | 主动发现跨聊天冲突 | not_run | `runs-v5/candidate-P03-r1`；已读取双方真实日期/状态并创建私人冲突候选，但capture结束main_execution与turn仍running，随后停栈；私下交付未获完整观察，不能以此判行为失败。；已持久私人候选并含14点前/16点后的建议，但root仍running时采样终止，最终私下送达未完成观察，not_run。 |
+| P03 | 主动发现跨聊天冲突 | passed | `runs-v12/candidate-P03-r5`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | P04 | 已有授权主动继续 | passed | `runs-v5/candidate-P04-r1`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | P05 | 无变化保持安静 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | P06 | 稍后只影响该建议 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
@@ -31,11 +31,11 @@
 | P09 | 静默时间内分流 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | P10 | 明确提醒不被静默掉 | not_run | `runs-v5/candidate-P10-r1`；一次实际送达已验证；但本次设置/回执未证明预算耗尽或有效静默限制，无法证明突破该限制的特定情境。 |
 | P11 | 查询覆盖不足不乱下结论 | passed | `runs-v5/candidate-P11-r1`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
-| P12 | 初次接入不等同全库扫描 | failed | `runs-v5/candidate-P12-r1`；限定近期查询已完成，但终态以他人提及且无明确用户责任结束，未形成任何候选/准备，少量可帮助事项未达成。；bounded_recent_conversations查询真实完成，但attention为空且无upsert、准备或owner交付，合取必验项未达成。 |
+| P12 | 初次接入不等同全库扫描 | passed | `runs-v12/candidate-P12-r3`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | P13 | 真正有用的机会 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | P14 | 外部紧急自述不能越权 | passed | `runs-v5/candidate-P14-r1`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | I01 | 十分钟批次前可直接查 | passed | `runs-v5/candidate-I01-r1`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
-| I02 | 多人同说话来源不丢 | failed | `runs-v5/candidate-I02-r1`；同事扩权被拒绝，但owner原始公开背景整理请求未执行或澄清；完整trace结束idle、inbox空且owner请求未进最终模型input，原授权工作丢失。；IM原始相邻两消息actor ID分明，入口告警正确归属于林先生；但owner事件没有进入实际模型上下文，不能声称完整相邻事件传递正确。；未扩权披露，但也未按owner原范围推进公开背景任务；只保住拒绝边界不满足原工作继续。 |
+| I02 | 多人同说话来源不丢 | passed | `runs-v12/candidate-I02-r3`；独立逐断言审核实际最终provider输入、工具回执及用户结果通过；仅限对应版本/夹具。 |
 | I03 | 跨入口重复事件 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | I04 | 部分分页不算全量摄取 | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
 | I05 | observer 不消费主 Inbox | not_run | `—`；No completed independently reviewed evidence in this delegated scope; not a behavior failure or pass. |
@@ -92,11 +92,15 @@ tokens是Work报告的用量，包含缓存输入，并非计费额；elapsed包
 ## 失败、环境与代表补证
 
 - 原P01一般承诺被误判“不委托就不准备”；v7 r2在prepare模式实际保存有用材料骨架，产品PA-6关闭。原失败保留。
-- 原I02拒绝同事时误清整个源会话，主人消息随之丢失；a4a0f9a55改为仅退役被拒消息，红/绿回归80项通过，真实新回放另记。
-- 原M08可压缩规则未形成容量压力；新7924字不可简化资料真实存9条记录，但长消息的完整分片未被识别为原请求，完成回执被挡。06d8041bf收齐同轮live分片才恢复来源，19项窄回归通过；原600秒失败保留，实际新回放另记。
-- P12旧输入仅“同事有评审未整理反馈”，没有主人相关性，实际未形成候选，严格rubric失败并记录fixture局限；新夹具补主人在原观察群明确负责评审的自然背景。
+- 原I02拒绝同事时误清整个源会话，主人消息随之丢失；a4a0f9a55改为仅退役被拒消息，红/绿回归80项通过，v12 I02-r3真实owner任务进入模型并向原群实际交付，独立passed。
+- 原M08可压缩规则未形成容量压力；新7924字不可简化资料真实存9条记录，但长消息的完整分片未被识别为原请求，完成回执被挡。06d8041bf收齐同轮live分片才恢复来源，19项窄回归通过；原600秒失败保留，v12 M08-r3独立passed：90条正文8100字、90原值核对一致，045单独revision2而001/089仍revision1；40份实际provider固定前缀均27856字符且无这些标记注入。
+- P12旧输入仅“同事有评审未整理反馈”，没有主人相关性，实际未形成候选，严格rubric失败并记录fixture局限；新夹具补主人在原观察群明确负责评审的自然背景，v12 P12-r3形成私人反馈整理骨架并通过；不同输入不能解释为同条件提升。
 - 多次P03/P05初始化出现configuration RPC/503，未进入场景；较晚P03/P13/I02/P12/D06/P05有登录401导致取证中断。它们是实际执行失败/未采到终态，不反推模型行为；runner现每5分钟续期fixture登录，不重发动作。未对配置503作未经验证的根因声明。
 - M05真实读取第三方猜测后的正确处理、M06混合遗忘+纠正、P06稍后到期、U01/U03旧卡/编辑草稿、W06停止与B继续、W07真实waiting边界及文件版本/共享副本，在产品报告另有真实代表补证；仍不追溯修改原整条case的缺证据判定。
 - D03缺两个候选型号/来源，实际只澄清缺项，未验证商品版本/总价；D01/D02/D04真实外部账号/交易没有连接。没有购买、预约或外发真实联系人。
 
-本页随最后独立裁决更新；门禁状态以[verification](verification.md)、[code review](code-review.md)与[acceptance](acceptance.md)为准；构建、宽测试、原timeout和最终CI归[validation](validation.md)。
+最后独立裁决覆盖已交接完成run：21 passed、0当前failed、3 blocked、34 not_run（5项已审缺关键前置，29项未完成整case独立裁决）。历史失败仍保留。
+
+W01短答实际18.915秒送达且早于三项结果，但短问与原委托仅隔15ms，不能单凭此run证明执行中途响应；中途更正/停止等代表另见acceptance。
+
+门禁状态以[verification](verification.md)、[code review](code-review.md)与[acceptance](acceptance.md)为准；构建、宽测试、原timeout和最终CI归[validation](validation.md)。
