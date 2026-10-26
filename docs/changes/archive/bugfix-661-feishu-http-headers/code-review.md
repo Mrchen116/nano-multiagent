@@ -52,4 +52,13 @@
 
 ## Closure
 
-无代码 findings，无修复复审。effective_through 为同一生产代码树 b3124ba10；审查后的文档提交仅更正 Base 与补录审查/检查结果，代码和测试相对 validated_at 不变，结论 retained。用户验收未完成，unit 保持 active；不宣称归档、PR、合并或生产部署完成。
+无代码 findings，无修复复审。effective_through 为同一生产代码树 b3124ba10；审查后的文档提交仅更正 Base 与补录审查/检查结果，代码和测试相对 validated_at 不变，结论 retained。用户随后查看真实飞书补验结果并要求“合入代码”，本轮据此收口归档、创建 PR 并等待 CI 后合入；不冒充用户亲自操作测试，不含生产部署。
+
+## 最终同步与交付判断
+
+- 用户确认：2026-10-26，在专用 Bot 真实收发报告之后明确要求“合入代码”；作为结果接受与合并授权，不写成用户亲自执行验收。
+- executed_base: 09eb59bd9073bfd1d071bdfc84bf75a0be99c018；validated_at: b3124ba106634d62c5240a23d8a808afad5fac40。
+- effective_base: 18e0d73d74b3739024646e99280aaebfc35995c1；effective_through: 本文归档提交所代表的最终 PR tree（仅增加文档与归档，具体 SHA 由 PR body 记录）。
+- main 增量仅为 bugfix-662 的 Agent 设置控件/无障碍公告、相关文档和 refactor-663 的研究文档；没有 Node HTTP、ExternalChannels、IM 路由、模型交付、依赖或 CI 配置变化。本次两处生产源码、两处回归测试和被验收的飞书链路未变化，独立代码审查、Context 审查与专用 Bot 收发证据 retained。
+- 原 build/typecheck、共享 runtime、Python/ruff 证据仍适用；归档后复验 docs-check 与归档门禁，前端测试由最终集成树执行。首次 TS 全量失败及串行复跑证据保留，最终完整检查以同一 PR head 的远端 CI 为准。
+- 无 spec delta：恢复已承诺的渠道交付和幂等行为；无一次性部署迁移。整个 unit 一并归档。
