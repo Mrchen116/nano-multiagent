@@ -161,3 +161,23 @@ None remain in the assigned corrected delta. **V2 closed:** `fdcd95ab5` changes 
 ### Uncovered Observable Behavior
 
 None found within the assigned patch after V2 closure. Final whole-unit acceptance and #361 PR/CI/root delivery remain independently outstanding; this report does not infer their completion from the caller's progress update. The caller's planned service restart and real tryout after the #361 PR are subsequent product evidence, not prerequisites invented by this bounded document reconciliation.
+
+## Round 4 — corrected simple-request acknowledgment delta
+
+- Reviewer: independent `/root/pa_authorization_review`; review date: 2026-10-28.
+- verification_mode: `corrected-delta`; scope: only `d76a7c6cd..985bc6f07883a55f70e293b65b3737370f08eab7`, reusing code/Context review Round 5.
+- Outcome: **aligned / pass for this corrected delta**. CRITICAL 0, WARNING 0, SUGGESTION 0; `requires_full_verification: false`. This is implementation/contract alignment, not a new whole-unit product-acceptance verdict.
+
+### Corrected Delta Reconciliation
+
+| Delta item | Implementation and evidence | Outcome |
+| --- | --- | --- |
+| Global delta lines 22-24, simple requests directly deliver the result | `global-mode.ts:19` now limits mandatory preliminary acknowledgment to long-running tasks; ongoing-work line 73 uses the same qualifier. Existing requested-answer delivery guidance remains. Exact frozen root text appears in ordinary Global/PA native captures; pre-fix two-send behavior is recorded in `simple-request-before.json`. No post-fix real-model choice is claimed. | aligned at implementation/assembly level; behavior unverified |
+| Global delta lines 26-34, long-task acknowledgment and updates | Long-task acknowledgment still precedes deep work in the original conversation, unless no reply is requested; update cadence, status responses, concise updates and acknowledgment-versus-delivery distinctions are retained. Exact source comparison confirms only the qualifier and corresponding Skill clause changed. | aligned |
+| Design coordination decision and complete modified requirement | `design.md:39` limits the retained acknowledgment to long tasks; the complete Global modified requirement preserves internal coordination, necessary communication, stop/correction, real receipts and final delivery. No new runtime, permission, UI or scheduling behavior was added. | aligned |
+
+Evidence reused: `coordination-fix/pa667-simple-ack-build.log` (related build pass), `pa667-simple-ack-tests-final.log` (one-off existing native fixture 2/2), and `pa667-simple-ack-context-{false,true}.json` (exact final Global/PA system inputs), under `/Users/czj/.codex/reports/feat-667-pa-service-guidance-20261027/`. The model-input fixture demonstrates delivery of the changed guidance and retained native boundaries; it is not a real-model behavior test or a replay of the user's simple request. The existing Skill's unchanged discovery/installation mechanism is reused; this inspection does not establish an update to already loaded Skill text in the running PA.
+
+### Issues and Uncovered Observable Behavior
+
+None found within this small corrected delta. The user-requested implementation remains two qualifiers, without a simple-request checklist or expanded instructions. Post-fix simple-request behavior is explicitly unverified, and the running #420 executor was not restarted or interrupted for this review. Prior long-task, PR/CI and whole-unit acceptance evidence are not reopened or reconciled by this patch review.

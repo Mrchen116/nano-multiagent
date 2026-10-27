@@ -124,3 +124,23 @@ Reused the implementer's recorded relevant build and ten distinct existing check
 ### Evidence boundary
 
 No complete long-task product run under this coordination patch is supplied. Replay results establish next-step choices only; they do not establish end-to-end latency, notification counts over a full task, final duplicate-delivery absence, or an update of already loaded old Persona/Skill/explicit reporting agreements. The ongoing #361 PR/CI and root delivery remain separate completion evidence; the caller reports independent gates/archive completed and original executor preparing PR/CI, which this bounded patch review does not independently re-verify or treat as final product completion.
+
+## Round 5 — long-task acknowledgment qualifier
+
+- Reviewer: independent `/root/pa_authorization_review`; review date: 2026-10-28. Did not implement this patch.
+- review_mode: `patch`; baseline: `d76a7c6cd`; validated_at: `985bc6f07883a55f70e293b65b3737370f08eab7`; clean checkout confirmed before review.
+- Scope: only the two product wording changes and corresponding design/Global delta/coordination-fix update. `agent-context-review` Mode B applies because the root system instruction and loaded ongoing-work guidance change. Earlier unrelated conclusions are retained.
+
+No surviving CONFIRMED or PLAUSIBLE finding:
+
+```json
+[]
+```
+
+Independent text comparison confirms `global-mode.ts:19` changes only `When you receive a task from a human` to `When you receive a long-running task from a human`; ongoing-work line 73 changes only its initial acknowledgment clause to `主 Agent 对长任务先简短确认`. This removes the blanket acknowledgment requirement for simple requests without adding examples, request classes, gates or another messaging protocol. Long-task early acknowledgment, no-reply exceptions, original-conversation delivery, actual receipt handling, status questions, blockers, correction/stop and continuable/fork return guidance are unchanged. The complete corrected Global delta retains these obligations and adds the intended simple-request direct-delivery scenario.
+
+Bounded local evidence root: `/Users/czj/.codex/reports/feat-667-pa-service-guidance-20261027/coordination-fix/`. `simple-request-before.json` records session `85c9210b-1add-4d89-bd07-21b57f30f03e`, turn 4: the owner asks for a UI diagram of the existing explanation, and two public sends are confirmed, first a plain-text preview (`d179e82…`), then the interactive answer (`31d6060…`). This is an actual pre-fix counterexample, not a synthetic failure inferred from text.
+
+`pa667-simple-ack-context-{false,true}.json` contain the exact frozen Global system section in ordinary Global and PA native model inputs, respectively; each includes the new long-task condition and no old unconditional sentence, while preserving both no-reply clauses. The PA capture also contains the fixed personal-agent security guidance. `pa667-simple-ack-build.log` records successful product-contracts/integration compilation; `pa667-simple-ack-tests-final.log` records 2/2 passes from the one-off copy of the existing native Global/PA fixture. Reused these bounded results without rerunning unrelated checks or adding permanent sentence-matching tests.
+
+The fixture proves assembly and retained native execution/tool boundaries, not model interpretation. There is **no new real-model behavior validation** of simple-request direct delivery, no measured post-fix message count and no evidence that an already running PA loaded the new text. The change removes the existing instruction to pre-acknowledge every task; it does not add deterministic message suppression. No service restart, #420 interruption, product-code modification, commit or push was performed by this reviewer.
