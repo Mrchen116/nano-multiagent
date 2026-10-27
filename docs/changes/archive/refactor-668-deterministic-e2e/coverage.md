@@ -57,7 +57,7 @@
 
 本地 CI：后端 142 files / 766 tests passed（`pnpm test --maxWorkers=2`）；Python 非 E2E 70 passed；typecheck、iOS runtime、docs-check、ruff 通过。前端全量 108 files / 1031 tests 中首次 2 项在高并发运行下失败，其所在两个文件单 worker 复验 77 passed，其余 106 files 的通过证据保留；`npm audit --audit-level=critical` exit 0（仍报告 5 high、2 moderate、4 low，未修改依赖）。
 
-完整 E2E 显式开启 macOS 路径首次完成 20 passed / 7 failed：5 项是旧审批夹具漏掉 Global Agent 模型；1 项为旧重连脚本同步等待初始化；1 项为自启动驱动没有可靠等待替换进程就绪。审批定向复验 6 passed（70.47s）；重连定向复验 1 passed（17.86s）；macOS 等待修正后 1 passed（38.28s）。最终默认全量结果由 verification 汇总。
+完整 E2E 显式开启 macOS 路径首次完成 20 passed / 7 failed：5 项是旧审批夹具漏掉 Global Agent 模型；1 项为旧重连脚本同步等待初始化；1 项为自启动驱动没有可靠等待替换进程就绪。审批定向复验 6 passed（70.47s）；重连定向复验 1 passed（17.86s）；macOS 等待修正后 1 passed（38.28s）。最终默认全量 26 passed / 1 skipped（329.26s）；唯一 skip 是原有 macOS 显式开关，该项单独开启后通过。默认全量在 `c71d9dd05` 启动，26 项代码未随 `83a8f4d74` 改动，证据保留至最终代码；macOS 单项验证 `83a8f4d74`。不称单次 27 passed。
 
 ### 自启动等待修正
 
