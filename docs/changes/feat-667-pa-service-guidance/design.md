@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-10-27 (M1): 用户明确要求增加一层委派；静态确认当前默认深度为 1，将公开配置改为 2 明确为独立 B 的前置范围，A 的产品改动不扩大。
+
 ## 现状分析
 
 ### 涉及范围
@@ -23,7 +25,7 @@ DSH 只通过集成包公开接口使用；不改权限、上下文继承、执�
 - 用：Global 工具、原生子 Agent、Inbox、conversations、task_graph、现有文件与 Memory、Heartbeat/schedule、真实发送与披露检查。
 - 改：上述默认文案与 ongoing-work 方法；不把所有任务强制转换为 Task 或子 Agent。
 - 不用：#414 的 personal-delegations、records/v2、personal_context、personal_attention、执行绑定和文件发布服务。A 不增任何运行时接口。
-- 原生子 Agent 的工具继承和实际执行尚待真实能力探针确认；现有 `personal-child-delivery.test.ts` 与 `personal-security.test.ts` 只能说明现有测试覆盖，不能证明真实模型端到端成功。
+- 已核实锁定 DSH 0.2.1-alpha.1 的公开 subagent 配置默认 `maxDepth: 1`；本仓 `packages/dsh-integration/src/client.ts` 的 `prepareProfile` 未覆盖它，普通 spawn/fork 工具未另设深度上限。已有 `trajectory-runs.test.ts` 使用公开 profile patch 配置深度。工具继承和实际执行尚待真实能力探针确认；现有 `personal-child-delivery.test.ts` 与 `personal-security.test.ts` 只能说明现有测试覆盖，不能证明真实模型端到端成功。
 
 ### 相关历史
 
@@ -40,6 +42,8 @@ feat-658 奠定主人身份/来源和当前服务指导；feat-665/#414 的大�
 **只改三份产品文本，默认单 M1。** 新 Skill 通过现有目录安装与发现，不增加开关、配置页面或后端字段。测试需要的临时数据和取证脚本只服务验证，不进入产品运行时。
 
 **延续现有执行者，权限与能力不能靠文字扩大。** ongoing-work 补充：可独立处理的长事项才派工，记录实际 ID；更正回原执行者；交接只给相关目标、资料和限制；不整段转发私人历史。主 PA 接住新输入，等待事件，不以轮询代替工作。不宣称 prompt 能保证最小权限或隔离；原生缺口留给 B。
+
+**B 的最小前置明确为增加一层原生委派。** 主 Agent 深度为 0，任务执行者为 1，下级执行者为 2。独立 B 在 `prepareProfile` 的现有公开 profile patch 中配置 `{id: 'subagent', config: {maxDepth: 2}}`；不修改 DSH 源码，不新增工具，不改 `maxActiveSubagents`、工具选择、授权或来源规则。该 profile 同时服务普通与 PA 的 DSH host，因此默认深度对两者生效；不新增 PA 特例。B 必须验证第二层真实创建、执行与结果回传，第三层按深度上限拒绝，并检查代表发送等原有身份限制仍有效。A 的二级旅程在 B 未落地前仍未通过；配置改完也不能代替真实模型验收。
 
 **主动性先落在有用的私人准备。** proactive-care 根据观察原话和后续状态判断具体帮助价值，使用现有 Inbox/消息读取核对责任、时间和是否已处理；读取不全时保留覆盖限制。必要时在既有工作记录留下草稿与来源，避免重复；不要求每条观察建任务、写 Memory 或通知。外发必须沿用真实授权与披露检查，观察到的承诺本身不是外发许可。
 
@@ -70,7 +74,7 @@ feat-658 奠定主人身份/来源和当前服务指导；feat-665/#414 的大�
 
 回退三份产品文本即可撤回随包行为变化；已保存的新 PA custom_prompt 由主人按原入口修改或清空，不做全局重写。无 schema 迁移；#414 的旧数据继续隔离保存。
 
-后续最小范围：B 仅修证据证明必需的持续执行/更正/单项停止/多级协作与权限边界；C 拆领域方法且不依赖新记忆检索；D 单独完成真实文件交付。旧 memory v2 与 personal_context 暂停，不成为这些片的依赖。
+后续最小范围：B 首先落实已确认的深度 1→2；除此之外仅修证据证明必需的持续执行/更正/单项停止/多级协作与权限边界；C 拆领域方法且不依赖新记忆检索；D 单独完成真实文件交付。旧 memory v2 与 personal_context 暂停，不成为这些片的依赖。
 
 ## 一次性部署迁移
 

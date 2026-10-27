@@ -75,3 +75,60 @@
 
 - R1-R1: accepted。实施证据区分十分钟背景通知与主人来信提前触发；后者不证明定时自主唤醒。不改变受审产品范围、设计或验收要求。
 - Author 已核对报告与当前代码；无实质异议，受审文件未修改。Gate 2 R1 retained。
+
+## Round 2
+
+### Metadata
+
+- reviewer target：`/root/design_review_667`，沿用 R1 独立 reviewer。
+- review_mode：`delta`。
+- mode_reason：新增用户“再增加一层委派”的决定，以及 B 的公开深度配置落点；A 的三份产品文本范围、接口、delta-spec、M1 与验收标准未变。该变化有界，无需重做完整审查。
+- started_at：2026-10-27T14:17:18+08:00。
+- completed_at：2026-10-27T14:18:43+08:00。
+- duration：1 分 25 秒。
+- source baseline：`main`，`1e2b6dbf6d1b2590a9cee7a6d09171852814ca41`；工作区仅 `spec.md`、`design.md` 有受审修改。相对 R1 代码基线，HEAD 增量仅为本 unit 设计文档、报告与目录骨架，未修改产品代码。
+- 受审版本 SHA-256：`spec.md` = `b58d80500ff1fd60bf4fc231e62a93c3b2f9c63fb0459290946a921c704f9e62`；`design.md` = `01248a6db815027c6e6328bcc01ee94ed0f14c500d0fdd34e3c341261280ff70`。delta-spec 摘要与 R1 一致。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+增加一层的配置决定有锁定依赖与产品装配依据，归属独立 B 的边界明确。A 可按原范围实施，但当前二级旅程仍未通过；本轮没有产品实现或真实二级验证，不授予 M1 完成、Ready 或部署结论。
+
+### Coverage 与证据
+
+#### 新增决定与真实落点
+
+- `spec.md:30-35` 保留用户原话，并明确目标为主 Agent → 一级执行者 → 二级执行者；不强制所有任务分工，也不增加并发配置或权限范围。`design.md` 的新增关键决策将此配置放入 B，A 仍不修改运行时。
+- 已独立核对锁定 `@deepseek-ai/dsh-subagent@0.2.1-alpha.1` 的 `lib/index.js:2821-2823`：`maxDepth` 默认 1，`maxActiveSubagents` 为独立配置。`:110-114,400-404` 从持久 header/运行选项取得主 Agent 默认深度 0，创建 child 时加 1，并在 childDepth > maxDepth 时拒绝。因此 maxDepth=2 的含义确为允许深度 2、拒绝普通委派继续产生深度 3。
+- 同包 `lib/index.js:2863-2868` 的 `resolveMaxDepth` 在工具未显式配置时读取服务配置。锁定 `dsh-tool-subagent/lib/index.js:269,508-519` 将该值传入原生创建请求；锁定 `dsh-base/cordis.patch.yml:349-390` 注册 subagent 服务及普通 spawn/fork 工具，未另覆写 maxDepth。本结论针对这两条普通工具路径，不将其夸大为任意插件或显式 provider-managed 路径的全局安全上限。
+- `packages/dsh-integration/src/client.ts:15-26` 的 `prepareProfile` 使用 `cordis.patch.yml` 公开配置入口，目前只添加 web 与调用者 patch；没有 subagent 深度覆盖。`apps/node/src/main.ts:155` 在 partition 启动时统一调用此入口，未按普通/PA 分设深度，因此 B 的共同默认行为描述正确。
+- `packages/dsh-integration/tests/trajectory-runs.test.ts:33-45` 已通过同一公开 profile patch 注入 maxDepth=3 并编排嵌套 fixture。它是既有接入方式的源码证据；本轮未重跑，不把 fixture 编排视为真实模型二级交付成功。
+
+#### 架构、Agent Context 与退出条件
+
+- 新决定复用 integration 已有配置责任，没有 DSH fork/private import、新工具、新执行管理器或 PA 特例。深度变化与并发数量、工具选择、授权/来源规则分别处理，避免用“全部放开”实现二级委派。
+- 同轮继续采用 Agent Context Design Review：新增内容明确区分当前只有一层、B 目标两层、模型实际选择与结果返回仍需验证。默认指导及 Skill 不能把未来配置当作当前能力；A 受限时标 blocker/B 的既有要求仍有效。关于子 Agent 上下文继承与交接信息的 R1 解释保持，不新增隔离保证。
+- B 的验证要求覆盖真实二级创建、执行、回传、三级拒绝和原有代表发送身份限制。它说明本次新增决定所需的最小证据，不代表 B 的完整实施与验收已发生；其他持续执行问题仍须有证据才进入 B。
+- M1、三份产品文本范围、delta-spec 与无部署迁移决定没有改变。新增“B 未落地前 A 二级旅程未通过”与 M1 的 blocker/Draft 约束一致，不是降低验收门槛。
+
+#### 保留覆盖
+
+`retained_from: Round 1`：默认指导创建/更新/清空接线，Skill 安装/发现/禁用，固定身份/来源/披露链，观察读取及通知，七个用户场景、delta 合并目标、隔离 Runbook、回退和无前端结论。理由：本轮 diff 仅增加深度现状与 B 决定，相关产品代码及这些受审设计未改变；R1 原证据仍适用。
+
+### 历史问题闭环
+
+- R1 无 CRITICAL/WARNING，故无阻断 issue 待关闭。
+- R1-R1：Author Resolution 已接受并要求区分背景通知与主人来信提前触发。已核对该记录；本轮不改变观察入口，建议在设计层面已处理，真实验收记录留待实施。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增建议。
+
+### Author Resolutions
+
+- R2 无 CRITICAL/WARNING 或新增建议；Author 已核对普通 spawn/fork 的深度决定及 B 归属，无实质异议，受审内容未改变。
