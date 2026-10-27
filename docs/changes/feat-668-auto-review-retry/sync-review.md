@@ -81,6 +81,12 @@ First refusal: forwarding review context to shared4000 was not explicitly author
 
 At the parent's safe-pause instruction, the checkout's `e2e-down.sh` stopped only this fresh idle stack. Process identities31788/31829/31846 were verified absent and both55398/56096 had no listener. Config/profile/workspaces and original evidence remain local. No shared4000 management operation occurred. No fresh model task, proxy process, product verdict, Ready PR or remote CI success is claimed. IV-1 is closed; IV-2 alone remains open. Resume requires a supported normal authorization-scope resolution, then a new isolated daily run and the pending independent product/audit gate; do not bypass the refusal by changing executor identity.
 
+## Resumed normal-permission execution
+
+On the owner's explicit continuation (`0bc694e7c7ec4dc9bf0877502a27472c`) reporting the authorization-scope interpretation repaired and loaded, the preserved clean51e53f1ed checkout was verified. The **same** previously denied proxy command passed its normal permission check and started; health and actual listener ownership were confirmed. No Harness or shared-service change was made by this executor. The prior refusal records remain historical evidence, not a current claim that the repaired check failed.
+
+A new daily baseline was seeded at IM60392, node `wt-repository-36864`, synthetic owner `u_h4vml8qv`, PA `pa_432e9d68e4a5`, daily group `c_k69g488a`, owner DM `c_3cacbaafec19`. Only its isolated config moved Luna into a reviewer-only `review361` provider through local56096; main Sol/Astra remain on the existing model API. Runtime projection verified all four roles have Auto enabled, skip false, unattended fallback deny and the intended Luna reviewer. The original independent product reviewer received FULL GO on the same334bf622 implementation; old product results remain historical. A fresh fetch reconfirmed origin/main is stillc4ebad992, with no new main drift.
+
 ## Remaining delivery sequence
 
 Freeze completed merge and updated synthetic evidence; run full applicable independent gates on the new base/runtime. Then assess corrected delta, merge canonical contract, run current local CI, archive only this unit, create authorized Ready PR and observe required remote CI. Preserve old main unit and all original evidence. Own prior stack/proxy was stopped before sync; any new acceptance stack must use only this checkout's isolated resources and be cleaned afterward.
