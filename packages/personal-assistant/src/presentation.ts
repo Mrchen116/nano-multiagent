@@ -33,6 +33,8 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     id: data.callId, name: data.name, input: argumentsObject(data.arguments), status: 'running', output: toolSummary(data.name, argumentsObject(data.arguments), data.nanoToolView as NativeToolView | undefined), detail: {native_view: (data.nanoToolView as NativeToolView | undefined)?.call ?? {card: 'generic'}, native_call: (data.nanoToolView as NativeToolView | undefined)?.call}, ...workflowDetail(data.name,argumentsObject(data.arguments)),
   };
   if (event.type === 'tool/result') {
+    // Replacement timestamps describe context edits, not tool completion; retain append-origin facts.
+    if (typeof event.surfaceOp === 'object' && event.surfaceOp?.op === 'replace') return undefined;
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
     const call = events.find(item => item.type === 'tool/call' && item.data.callId === message.toolCallId);
     if (!call) return undefined;

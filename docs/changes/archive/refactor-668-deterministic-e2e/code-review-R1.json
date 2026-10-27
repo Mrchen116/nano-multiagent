@@ -1,0 +1,10 @@
+[
+  {
+    "file": "scripts/e2e-gateway-autostart.sh",
+    "line": 42,
+    "summary": "[P2] Reject the not-ready sentinel before probing a replacement PID",
+    "failure_scenario": "At c71d9dd058e2e497d02235dcfd09606b5bc031e1, a state with ready=false or connected=false produces candidate=0. During crash recovery old_pid is nonzero, so the numeric/different-PID checks accept 0 and bash kill -0 0 succeeds for the current process group. wait_for_new_gateway therefore returns 0 before the replacement is ready. Reproduced by extracting the frozen function and supplying {pid:123456,ready:false,connected:false}: exit 0, stdout 0. This invalidates the intended readiness barrier and can advance stop/bootstrap checks during initialization. Return an empty/non-numeric sentinel or explicitly reject PID 0; recheck the macOS journey at the fixed commit. The concurrent working-tree edit to return an empty string was observed but is outside this frozen R1 snapshot.",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]

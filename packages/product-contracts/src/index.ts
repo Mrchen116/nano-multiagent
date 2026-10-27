@@ -58,6 +58,8 @@ export interface RelayInput {
   };
 }
 export interface RuntimeEvent {
+  /** Model-context placement, not another execution of the original event. */
+  surfaceOp?: 'append' | { op: 'replace'; startSeq: number; endSeq: number };
   seq: number;
   type: string;
   time: number;

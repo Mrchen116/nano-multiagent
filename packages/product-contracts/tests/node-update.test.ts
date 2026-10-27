@@ -20,5 +20,8 @@ it('retains legacy SHA install support without inventing updater capability', ()
   const value = { ...release, version, download_url: `https://github.com/Mrchen116/nano-multiagent/releases/download/node-${version}/nano-node.tgz` };
   delete (value as Record<string, unknown>).updater_protocol;
   delete (value as Record<string, unknown>).data_epoch;
-  expect(parseReleaseManifest(value)?.updater_protocol).toBeUndefined();
+  const parsed = parseReleaseManifest(value);
+  expect(parsed).toEqual(value);
+  expect(parsed).not.toHaveProperty('updater_protocol');
+  expect(parsed).not.toHaveProperty('data_epoch');
 });

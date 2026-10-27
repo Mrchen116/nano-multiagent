@@ -39,7 +39,7 @@ wait_for_new_gateway() {
   for _ in $(seq 1 160); do
     if [[ -f "$AUTOSTART_STATE" ]]; then
       candidate=$("$AUTOSTART_PYTHON" -c \
-        'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["pid"])' \
+        'import json,sys; state=json.load(open(sys.argv[1], encoding="utf-8")); print(state["pid"] if state.get("ready") and state.get("connected") else "")' \
         "$AUTOSTART_STATE" 2>/dev/null || true)
       if [[ "$candidate" =~ ^[0-9]+$ ]] && [[ "$candidate" != "$old_pid" ]] \
         && kill -0 "$candidate" 2>/dev/null; then

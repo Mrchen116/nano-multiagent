@@ -18,12 +18,12 @@ import pytest
 import yaml
 
 from ._im_client import IMClient, restart_gateway
-from .conftest import E2EStack, _dump_logs, _parse_ports_env, _selected_llm_model
+from ._recording import _cleanup_stub_stack
+from .conftest import E2EStack, _parse_ports_env, _selected_llm_model
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _E2E_UP = _REPO_ROOT / "scripts/e2e-up.sh"
-_E2E_DOWN = _REPO_ROOT / "scripts/e2e-down.sh"
 _FREE_PORTS = _REPO_ROOT / "scripts/free-ports.sh"
 _STUB = _REPO_ROOT / "scripts/fixtures/anthropic_sse_tool_approval_recording.py"
 _E2E_CONFIG = _REPO_ROOT / "config/e2e/gateway.yaml"
@@ -45,17 +45,28 @@ def _write_config(
     tool_approval_model: str | None,
 ) -> None:
     config = yaml.safe_load(_E2E_CONFIG.read_text(encoding="utf-8"))
-    config["agents"][0]["default_model"] = "model-a"
-    config["agents"][1]["default_model"] = "model-b"
     for agent in config["agents"]:
+        agent["default_model"] = (
+            "model-b" if agent["agent_id"] == "e2e-peer" else "model-a"
+        )
         agent["tool_allowlist"] = ["write"]
+        # Exercise the current native reviewer rather than workspace auto-allow.
+        agent["approval_mode"] = "codex"
+        agent["features"] = dict.fromkeys(agent["features"], False)
     config["llm"] = {
         "default_model": "model-a",
         "providers": [
             {
                 "name": "anthropic",
                 "base_url": stub_url,
-                "models": [{"name": model} for model in _MODELS],
+                "models": [
+                    {
+                        "name": model,
+                        "context_window": 262144,
+                        "reasoning": {"default": "low", "levels": ["low"]},
+                    }
+                    for model in _MODELS
+                ],
             }
         ],
     }
@@ -123,8 +134,7 @@ def _running_stack(
         },
     )
     if up.returncode != 0:
-        stub_proc.kill()
-        _dump_logs(wt_dir)
+        _cleanup_stub_stack(wt_dir, stub_proc, preserve_logs=True)
         pytest.fail(f"e2e-up.sh failed (rc={up.returncode}):\n{up.stdout}\n{up.stderr}")
 
     values = _parse_ports_env(wt_dir / ".e2e-ports.env")
@@ -140,17 +150,7 @@ def _running_stack(
     try:
         yield stack
     finally:
-        subprocess.run(
-            ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
-            cwd=_REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        stub_proc.terminate()
-        try:
-            stub_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            stub_proc.kill()
+        _cleanup_stub_stack(wt_dir, stub_proc, preserve_logs=False)
 
 
 def _load_records(stack: ApprovalStack) -> list[dict]:
@@ -185,9 +185,14 @@ def _login(stack: ApprovalStack) -> IMClient:
 def _agent_ids(client: IMClient) -> tuple[str, str]:
     ids = {agent["agent_id"] for agent in client.list_agents()}
     assert {"e2e", "e2e-peer"} <= ids
-    client.update_agent_config("e2e", default_model="model-a", tool_allowlist=["write"])
     client.update_agent_config(
-        "e2e-peer", default_model="model-b", tool_allowlist=["write"]
+        "e2e", default_model="model-a", tool_allowlist=["write"], approval_mode="codex"
+    )
+    client.update_agent_config(
+        "e2e-peer",
+        default_model="model-b",
+        tool_allowlist=["write"],
+        approval_mode="codex",
     )
     return "e2e", "e2e-peer"
 

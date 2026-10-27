@@ -82,6 +82,39 @@ it.each([
   expect(toolPresentation(result, [call, result])).toMatchObject({output: title, detail: {content: output, native_view: native}});
 });
 
+it.each([
+  {isError: false, surfaceOp: 'append' as const},
+  {isError: true, surfaceOp: 'append' as const},
+  {isError: false, surfaceOp: undefined},
+  {isError: true, surfaceOp: undefined},
+])('keeps original tool execution facts across context replacement and replay (%j)', ({isError, surfaceOp}) => {
+  const call = {seq: 2653, time: 1793102128951, type: 'tool/call', data: {callId: 'read', name: 'read', arguments: '{"file_path":"report.md"}'}};
+  const result = {seq: 2656, time: 1793102129049, type: 'tool/result', surfaceOp, data: {
+    message: {toolCallId: 'read', isError, content: [{type: 'text', text: 'Original execution output'}]},
+    nanoToolView: {result: {card: 'read', path: 'report.md'}},
+  }};
+  const replacement = {seq: 3079, time: 1793103241282, type: 'tool/result',
+    surfaceOp: {op: 'replace' as const, startSeq: result.seq, endSeq: result.seq}, sourceEventSeqs: [result.seq],
+    data: {message: {toolCallId: 'read', isError: false, content: [{type: 'text', text: '[pruned]'}]}}};
+  const events = [call, result, {seq: 3078, time: replacement.time, type: 'compaction/prune', data: {}}, replacement];
+  const original = structuredClone(events);
+  const live = events.flatMap((event, index) => projectWorkEvent('s', event, events.slice(0, index + 1)) ?? []);
+  const store = new NodeStore(':memory:', 'o');
+  try {
+    store.bind({sessionId: 's', conversationId: 'chat', agentId: 'a', ownerId: 'o', cwd: '/tmp', revision: '1'});
+    store.recordEvents('s', events);
+    const history = store.events('s');
+    const replay = history.flatMap(event => projectWorkEvent('s', event, history) ?? []);
+    expect(replay).toEqual(live);
+    expect(live.map(event => event.type)).toEqual(['tool_start', 'tool_end']);
+    expect(live[1]?.payload).toMatchObject({duration_ms: 98, is_error: isError,
+      presentation: {detail: {content: 'Original execution output', native_view: {card: 'read', path: 'report.md'}}}});
+    // The model-context replacement remains in the durable log; only Work ignores it.
+    expect(history).toEqual(original);
+    expect(events).toEqual(original);
+  } finally { store.close(); }
+});
+
 it('bounds presenter-less summaries without losing their complete output', () => {
   const output = 'Custom tool output\n'.repeat(100);
   const call = {seq: 1, time: 1, type: 'tool/call', data: {callId: 'c', name: 'custom', arguments: '{}'}};

@@ -61,7 +61,7 @@
 
 `NANO_MULTIAGENT_E2E_MODEL` 可显式覆盖本轮全部工作模型，采用所选模型目录默认 effort，独立审核仍使用 Luna；清单显示实际值，不把覆盖后的运行冒充默认模型验证。一般验收不设置该变量。daily 不与 `--main-config` 或 `--feishu` 混合。
 
-无参数的 `default` 继续服务依赖 `e2e/e2e-peer/e2e-global` 的底层自动回归；专用 Feishu、错误上游等场景作为按需补充，不代替日常基线。
+无参数的 `default` 继续提供 `e2e/e2e-peer/e2e-global` 环境；[关键路径自动回归](e2e-critical-paths.md) 通过 `--main-config` 将所有 provider 替换为本地 recording fixture，不使用模板中的真实代理地址；专用 Feishu、错误上游等场景作为按需补充，不代替日常基线。
 
 ## 推荐路径：脚本化起停
 
