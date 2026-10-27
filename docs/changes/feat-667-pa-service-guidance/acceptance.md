@@ -69,3 +69,41 @@ N/A。无前端原型或 must-match 视觉参考；本轮不声称 Web/iOS 视�
 - [x] `docs/specs/gateway/`：需要在最终通过后归并本unit的 personal-agent、global-agent、agent-capabilities delta；当前未提前覆盖current。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## Round 2 — 授权连续性修订后的全新 PA 自然长事项
+
+> Targeted supplementary review，2026-10-27；validated_at `f0eca4c0586a53c644e02bffe9493420e6fd889a`；执行工作区 `/Users/czj/.codex/worktrees/pa-authorization-continuity/nano-multiagent`。只补本轮自然长事项，不重跑 Round 1 已通过七项，不把新版本行为倒写成旧版本证据。
+
+### 裁决与边界
+
+**本轮自然长事项 pass；unit 整体仍 fail / incomplete，#361 完整二级开发交付继续 inconclusive。** 这里的 pass 指 PA 从唯一原始需求自行组织、完成可核对的本地修复与隔离验证、向主人实际交付并准确披露未完成部分。不是成功模型回复的端到端通过，也不是用户指定 #361 的 Ready PR/CI 替代物。未发现本轮新增的 blocking/major 产品缺陷。
+
+### 输入、身份与观察方法
+
+- 新daily实例 `/tmp/pa667-natural-runtime/.e2e-daily.json`，IM `http://127.0.0.1:54088`，PA `pa_d022e21145e7`，主人私聊 `c_89ae03f315bb`。PA `codexOAuth:gpt-6-astra` / medium，审核固定 `codexOAuth:gpt-6-luna`，未换模型。
+- 12:22:37 UTC 主人消息 `a279d72cb5444fe3adce1136ca161680`：修复标准测试启动的前端构建、同源入口、Vite轨迹/HTTP/WS/Origin配套、统一清理和文档；要求一个新隔离环境走通登录、聊天连接及原生轨迹，不动其他环境。原文副本 `/tmp/pa667-natural-runtime/task-input.json`。reviewer 初次与最终真实聊天快照均确认只有这一条用户输入，内容与副本逐字一致；没有增加“请委派”“如何执行”等验收指导。
+- Work 明确返回 `main_session_id=1774d4d8-89c9-45de-9504-7d46d5650e1b`、scope `global_main`；它是真实主PA会话。原生实施执行者 `40535a7a-2568-455e-8402-3847aefe695d` 的 parent_session_id 指向该根，工具回执 `delegation_kind=continuable`。另见技能复盘会话，未把它当二级任务执行证据。
+- reviewer 通过真实产品用户WS等待新消息事件，未按时间轮询执行状态、未向产品发消息、未教执行、未修改目标代码或停止两个上层测试环境。初次快照、实际进展事件触发的证据快照、最终交付快照分别保存 `/tmp/pa667-natural-review/initial.json`、`progress-event-8-work.json`、`final.json`；事件原件 `events.jsonl`。等待时长不用于失败判定。
+
+### 实际过程与可核对交付
+
+1. 主PA通过 inbox 读取唯一原话，实际创建上述 continuable 子执行者，自己核对相关约束并内部反馈；这是被测PA自行组织，不是外部reviewer额外指导。12:25:15、12:32:37两条进展只作为进展证据，没有当成功结论。
+2. 12:39:18 UTC，主PA `send_message(target=c_89ae03f315bb, ...)` 返回 `status=sent`、消息 `104af44d9d3e4749a6153b34967e664e`，用户WS同时收到 created/completed。交付指出修改范围、验证结果、证据路径、清理情况及剩余限制。
+3. reviewer 只读核对目标 `/Users/czj/.codex/experiments/pa667-startup/repository` 的 git status，实际四个修改文件正是 `scripts/e2e-up.sh`、`scripts/e2e-down.sh`、`src/IM/frontend/vite.config.ts`、`docs/development/worktree-runtime.md`；未提交commit，与最终交付说明一致。未读取实现定位根因，也未替产品Agent完成任务。
+4. 验证产物在 `/Users/czj/.codex/experiments/pa667-startup/runtime-verification/`。独立读取 `verification-summary.md`，并核对其原始 `http-evidence.json`：IM 56518、Vite 56519两入口的 `/`、`/trajectory/`、`/trajectory/boot.js` 均200及对应HTML/JS类型；浏览器模式登录的正确Origin为200，`http://untrusted.invalid`为403。摘要明确首次up因缺backend artifacts在起服务前停止，补齐项目基础构建与依赖后才成功；没有把首次失败隐去或声称空仓无需基础依赖。
+5. reviewer 实际查看两张1280×720截图 `output/playwright/same-origin-native.png` 与 `vite-native.png`：已登录Test User、E2E Global Agent在线，Work中原生轨迹面板显示“已连接 · 实时更新 · 只读”，且有真实时间线、系统和上下文行，不是空壳/永远加载。这里只声称独立查看保存画面；没有冒充reviewer亲自点击已被被测Agent清理的临时服务。摘要的浏览器WS帧计数作为辅助记录，不单独替代画面。
+6. `execution-evidence.json` 明确节点online，实际测试会话 `becf82ce-62c1-4607-929a-3f6b00840ba1` 的执行failed，错误为上游 `402 Insufficient Balance` / `QUOTA`。主PA最终答复主动说明“没有验证成功的模型回复”，没有更换模型/凭据绕过；因此可确认登录、消息发送连接、失败执行的原生轨迹呈现，不能确认该下游测试模型成功回复。
+7. `cleanup-evidence.json` 保存本轮 IM/Gateway/DSH/Vite stopped及56518/56519 closed，和最终交付一致。本轮清理的是被测PA为修复验证新建的下层环境；reviewer没有停止 `/tmp/pa667-natural-runtime` 或 #361 上层实例。
+
+### 覆盖更新
+
+| Scenario / 子结论 | Round 2 结果 | 与既有证据关系 |
+|---|---|---|
+| 长事项持续交付并说明能力边界：全新PA自然修复启动流程 | pass | 唯一原始输入→原生实施者→本地四文件成果/隔离验证→主人sent；402未完成部分如实说明。补充f0版本真实自然行为，不能证明所有授权分支。 |
+| 任务执行者可再委派一层：指定#361完整开发 | inconclusive | 本自然测试只确认主PA→一级实施者；不把技能复盘会话或原生子创建回执冒充二级真实开发交付。 |
+| 子Agent只进行内部通信：二级完整真实链路 | inconclusive | 本轮观察到原生父子内部消息和主PA对用户sent；#361二级所需完整证据仍待最终交付。Round1一级schema证据按其旧validated_at保留。 |
+| Round1其余七项已通过场景 | 保留原结论 | 本轮未重复运行，不将旧结果宣称为f0新版本全矩阵复测。 |
+
+### #361 方法边界待最终核验
+
+caller 另行通报 #361 旧运行时出现新的审核误判，后续补充主人消息并将该Gateway切换到f0，正常主人接续消息 `0bc694e7c7ec4dc9bf0877502a27472c`。该信息在本轮仅作为待核方法边界：reviewer未轮询#361、未独立核完其最终产物，不能据通报宣布通过。最终须将旧7ddaceb阶段、人工澄清/干预、f0切换及恢复后成果分段；不能标成从头纯自主成功。新自然PA的最终聊天仍只有最初一条owner输入，与#361干预链独立。
