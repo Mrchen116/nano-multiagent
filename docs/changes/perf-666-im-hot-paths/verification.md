@@ -88,3 +88,44 @@ N/A。
 2. 完整本地测试与适用本地 CI、远端 CI：由主流程补结果和版本定位。build/typecheck 已由主流程报告通过。
 
 这些结果到齐后可就证据补齐作定向 closure；若源码改变，需按实际 delta 决定复验范围。本轮不预设未来 CI 或验收通过。
+
+## Round 2 — targeted-closure
+
+- verifier: `/root/static_review`，沿用独立身份，仅核待补证据与版本适用性。
+- verified_at: `2026-10-27T12:25:00+08:00`（分钟级）。
+- verification_mode: `targeted-closure`。
+- executed_base retained: `a78e9498560f6943e934bc29a68e0ac9918270f1`。
+- implementation validated_at retained: `25c6d866fb2423fdb0e2d941deabe48a33dd7f76`。
+- final-sync snapshot: `54b1214c8d52dc1645df3b526756b9b2d2353a2a`；effective_base: `69d01e4557bcc87a5f7194dcb947c7473ead20d9`。
+- evidence commit: `4a8734d02bf48ab1201957cd4428caaf50dad328`，仅新增本 unit 的 acceptance/validation；不是新的运行产品版本。
+- final effective_base: `1e2b6dbf6d1b2590a9cee7a6d09171852814ca41`；effective_through: `f907e2978fd53c7d0e0f6663bc51110e19629ce1`。
+- focus: Round 1 Pending delivery evidence 两项；无历史实现 finding。
+- requires_full_verification: `false`。
+
+### Verdict
+
+**Pass — 0 CRITICAL / 0 WARNING / 0 SUGGESTION。All local checks passed. Ready for PR。** M1 的实现、性能、自动回归与产品验收证据已齐。远端 CI 在 PR 后按工作流执行，仍由交付主流程跟进；本结论不表示远端 CI 已通过或已部署。
+
+### Version and retained coverage
+
+独立执行 `git diff --exit-code 25c6d866f..54b1214c8 -- apps packages src tests scripts pnpm-lock.yaml` 无差异；完整 changed paths 为 feat-665 原始外部附件失效链接说明、main 新增 feat-667 文档、本 unit code-review/verification。54b → 4a873 仅 acceptance/validation。因此 Round 1 的实现正确性、架构/权限、设计一致性、性能实验与 no-spec-delta 结论 retained；没有需要重新全量验证的产品 delta。
+
+最后同步补核：4a873 → f907 仅新增feat-667 design、design-review、delta-spec、M1骨架4份文档；再次比较25c6 → f907的产品、测试、构建路径无差异。主分支文档推进未使本unit证据失效，effective_base/through更新如上，实际validated_at/executed_base不变。
+
+### Evidence closure
+
+| Round 1 待补项 | 已核实证据 | 裁决 |
+|---|---|---|
+| 真实普通 single_thread 长回复渐进、完整、有序 | `acceptance.md` Round 3；本地原始 `responses-events.jsonl`、`responses-summary.json`、`messages-c_1dbq8zsh.json`。独立重新计算消息 `4cf11105b8ba46919c69762930dd8685` 有 270 个唯一 message.delta，接收观察跨度53.514秒，1,868字；拼接严格等于completed及HTTP历史，01–50顺序完整且各一次；最后delta先于completed | closed |
+| 群聊/显式发送、watchdog、contacts 的真实验收 | 独立 reviewer Round1 四项 pass，Round3明确 retained；普通群聊0草稿delta且最终完整，Global显式一次且无哨兵；真实timer保留正文并正确失败、活跃249秒回复不误杀；contacts静态分页50/50/16与116详情一致、Unicode110项无重漏、私人/停用对象列表隐藏且详情404 | closed |
+| 完整后端与适用本地检查 | `M1-hot-paths/evidence/validation.md`；原始 `/tmp/perf-666-tests-rerun.log` 核实142files/766tests通过、173.58s；前端日志108files/1031tests通过，Python日志70passed/32deselected；build-final日志确认构建25c6候选，typecheck日志通过；复用主流程check:ios-runtime、ruff及docs-check通过记录 | closed |
+
+Round1仅一次全文delta和Round2模型402余额不足的失败历史保留；Round3使用同Sol的既有Responses流式路径，经正常隔离产品配置入口准备，不改变产品/代理实现，也没有通过改低验收标准关闭问题。本次原始事件能证明渐进交付和最终一致性，不外推为生产RTT、吞吐或所有provider均渐进。
+
+首次默认并发后端全量出现workspace-tools90s超时（其余765tests通过），独立读取原始失败日志；同一测试未改代码/超时，单独35.31s通过，限制4workers的全量766tests通过。该证据足以收口本地测试门禁；资源竞争仍为假设，未称已证明根因，也未隐去首次失败。
+
+### Final reconciliation and handoff
+
+**no spec delta retained。** 无新增对外行为或权限/协议变化，新增证据证明原不变性；不需要 current spec 归并。唯一M1的技术与五个产品Scenario均有直接或可信独立证据，无未闭实现/设计/验收问题。
+
+本 verifier 未启动服务或另建现场；主流程报告已执行e2e-down且Node/DSH进程退出，由主流程保存清理事实。若下一步仅archive移动、对应文档链接修正、收尾记录与远端CI状态追加，本轮结论可retained；交付者应核对实际diff无产品变更。源码、权限、协议、测试或运行前置若再改动，须按其影响作定向或完整复验。

@@ -44,3 +44,20 @@
 ## Remaining delivery evidence
 
 主流程负责完整本地/远端 CI 及独立真实产品验收；本报告未以尚未完成的 CI 作为代码缺陷，也未据此宣称整个 unit 已可交付。
+
+## Round 2 — evidence closure / retained
+
+- reviewed_at: `2026-10-27T12:25:00+08:00`（分钟级）。
+- review_mode: `closure`，仅核对证据收口与版本适用性，不重复完整代码审查。
+- implementation validated_at retained: `25c6d866fb2423fdb0e2d941deabe48a33dd7f76`。
+- executed_base retained: `a78e9498560f6943e934bc29a68e0ac9918270f1`。
+- final-sync snapshot: `54b1214c8d52dc1645df3b526756b9b2d2353a2a`；effective_base: `69d01e4557bcc87a5f7194dcb947c7473ead20d9`；acceptance/validation evidence commit: `4a8734d02bf48ab1201957cd4428caaf50dad328`。
+- final effective_base: `1e2b6dbf6d1b2590a9cee7a6d09171852814ca41`；effective_through: `f907e2978fd53c7d0e0f6663bc51110e19629ce1`（经文档与证据 delta 失效判断后）。
+
+**Approved retained，findings `[]`。** 独立核对 25c6 → 54b 的 changed paths 仅为 feat-665 原始附件链接说明、feat-667 文档和本 unit 两报告；54b → 4a873 仅新增 acceptance/validation。产品源码、schema、测试、构建配置及依赖未改，Round 1 的 correctness、权限、buffer 生命周期与 Context 影响结论继续成立。
+
+核对独立 acceptance Round 3、validation record 及其原始日志；并从 `responses-events.jsonl` 重新计算 270 个唯一 delta、最终 1,868 字、增量拼接=completed=HTTP history、01–50 编号恰好一次，补齐真实渐进输出证据。后端受控全量复跑 142 files / 766 tests、前端 108 files / 1031 tests、Python 70 tests，以及 build/typecheck 等本地验证已通过。首次默认并发的 workspace-tools 90s timeout 与单独 35.31s 通过均保留；资源竞争仍只是解释假设，不作为确定归因。
+
+本地代码审查和证据收口无未闭项。远端 CI 按交付流程在 PR 后执行，不作为本轮本地审查循环的前置，也不声称已经通过。后续若仅移动本 unit 到 archive、修正移动后的相对链接及追加收尾/CI 事实，可保留本代码结论；须核对实际 diff，若引入源码、契约或验证条件变化则按真实 delta 复审。
+
+最后同步补核：4a873 → f907 仅 feat-667 的 design、design-review、delta-spec 与 M1骨架4份文档；25c6 → f907 的产品/测试/构建路径仍无差异。上述结论继续retained，actual validated_at/executed_base不变。
