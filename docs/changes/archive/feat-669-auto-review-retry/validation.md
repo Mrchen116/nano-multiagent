@@ -104,3 +104,24 @@ Original independent product reviewer issued full **PASS**,0 blocking/major/mino
 - Static and product R1 were started together on the frozen SHA. Native test evidence may be reused for its actual scope, never as a substitute for the independently observed real product journey.
 - After initial implementation handoff, all subsequent fixes belong to the main executor, not a repair worker. Findings will be batched, a new version frozen, and affected gates revalidated with explicit retained-evidence reasoning.
 - Final sync, gate invalidation assessment, corrected-delta verification, canonical merge, full local CI, archive, Ready PR and remote CI remain pending. Own test processes must be stopped at overall completion; the checkout remains for PR review.
+
+## Final integrated feature gate and retained local CI
+
+This section supersedes earlier pending-delivery checkpoints without changing their historical evidence. Latest independent product scope review and verification both PASS for #361; IV-1/IV-2 CLOSED, no in-scope critical/warning blockers. PA1 remains an unresolved ancillary major/unclear finding, not a new notification-behavior delivery requirement and not claimed fixed. See the final rounds in acceptance.md and verification.md for the explicit original-requirement mapping.
+
+| Version/evidence | Final scope |
+|---|---|
+| Production implementation / integrated executed base | `334bf62260225e5c350aafe3bc8a23af66f1fda9` / `c4ebad992ae99e75ee9c3fca88b3eab43abd9ea5` |
+| Scope correction validated_at | `5c1afb2024a5d2c0e6c96f89a2d809ce396471b2`; documentary adjudication, no new product run |
+| Final main effective_base | `8d428779b5ebe0bb0c5c277f2ca5b56c0a303b82` |
+| Main integration checkpoint | `c6f11c1cdb60fd79702c91784a96af915ae13b9f`; only unrelated change-unit docs added |
+| Original design/code/Context/product gates | retained on unchanged production and actual evidence; corrected-delta reviewed PASS |
+| Full Node regression | retained145 files/789 tests PASS, `pnpm test --maxWorkers=2`; earlier default-worker failures remain recorded, not rewritten |
+| Frontend | retained108 files/1031 tests PASS, frozen dependencies/shared-contract build/production build/critical audit PASS;11 existing noncritical audit findings |
+| Other local CI | retained build/typecheck, packaged iOS runtime, Python70/32 deselected, ruff check/88 format checks PASS |
+| Production restoration | full build after removing temporary diagnostic PASS; production still matches334bf622 |
+| Changed-document check | `PYTHON=<authorized Python> ./scripts/docs-check` PASS:305 maintained sources/68 required routes; diff-check PASS |
+
+No code/test/config/CI/lock delta was introduced by the final main update, unit renumber or contract merge. Repeating unaffected full suites would add no changed-scope coverage; only documentary/archival checks are repeated. CI.yml's independent remote default-worker check remains required and is not replaced by the bounded-worker local result.
+
+The atomic allocator reserved669 after latest main took668; the complete unit retains its evidence under `feat-669-auto-review-retry`. The two independently corrected tool-retry requirements are now in canonical gateway agent-capabilities, with index count49. All task-owned runtime processes are stopped, no temporary diagnostic remains, and the isolated checkout is retained for PR review. The original independent static reviewer subsequently verified all19 unit paths, byte-identical JSON evidence, exact canonical/delta equality and unchanged production; all applicable gates are retained. Original product reviewer independently retained its scoped PASS for the documentation-only update. The complete unit is now archived at `docs/changes/archive/feat-669-auto-review-retry`; post-move documentation integrity PASS (292 maintained sources/68 required routes), explicit `check_change_unit_archived.py --head-ref unit/feat-669` PASS and diff-check PASS. This satisfies archival independently of the legacy branch name. Effective-through is the final documentation/archival delivery commit shown in the PR; no production changes follow c6f11c1. Actual PR and remote-CI outcomes are reported from their receipts, not inferred from these checks.

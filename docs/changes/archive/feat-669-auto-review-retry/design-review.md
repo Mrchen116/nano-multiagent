@@ -1,4 +1,6 @@
-# Design Review — feat-668-auto-review-retry
+# Design Review — feat-669-auto-review-retry
+
+> 最终交付编号669；625/668为本任务先前编号。历史执行版本不变，最新范围裁定及同步有效性见本报告末节和 [sync-review.md](sync-review.md)。
 
 > 以下历史审查执行时本原创unit编号625；final sync只迁移本unit到668，详见 [sync-review.md](sync-review.md)。
 

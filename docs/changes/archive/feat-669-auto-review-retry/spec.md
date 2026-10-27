@@ -1,4 +1,6 @@
-# feat-668: Auto 审核内有界恢复
+# feat-669: Auto 审核内有界恢复
+
+> 最终交付编号669；625/668为本任务先前编号。历史执行版本不变，最新范围裁定及同步有效性见本报告末节和 [sync-review.md](sync-review.md)。
 
 > 本任务在独立基线原创时编号625；final sync发现main已有另一625设计目录，按原子分配规范迁至668。不是复用或替换main旧设计；沿革与新基线门禁见 [sync-review.md](sync-review.md)。
 

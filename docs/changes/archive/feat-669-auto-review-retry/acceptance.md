@@ -1,4 +1,6 @@
-# feat-668 — 产品验收报告
+# feat-669 — 产品验收报告
+
+> 最终交付编号669；625/668为本任务先前编号。历史执行版本不变，最新范围裁定及同步有效性见本报告末节和 [sync-review.md](sync-review.md)。
 
 > 下列Round1–4为原创unit625在旧基线的历史结果。迁至668并集成新main后，产品门禁须full复验；不能将下方PASS当作当前集成树已通过。见 [sync-review.md](sync-review.md)。
 

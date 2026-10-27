@@ -1,4 +1,6 @@
-# Verification Report: feat-668-auto-review-retry
+# Verification Report: feat-669-auto-review-retry
+
+> 最终交付编号669；625/668为本任务先前编号。历史执行版本不变，最新范围裁定及同步有效性见本报告末节和 [sync-review.md](sync-review.md)。
 
 > 以下原始验证执行时unit编号625；当前main集成后须full复验，原PASS仅作历史证据。见 [sync-review.md](sync-review.md)。
 

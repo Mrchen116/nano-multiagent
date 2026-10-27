@@ -1,4 +1,4 @@
-# gateway agent-capabilities Specification (delta for feat-668)
+# gateway agent-capabilities Specification (delta for feat-669)
 
 ## ADDED Requirements
 

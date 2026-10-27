@@ -1,4 +1,6 @@
-# Code Review — feat-668-auto-review-retry
+# Code Review — feat-669-auto-review-retry
+
+> 最终交付编号669；625/668为本任务先前编号。历史执行版本不变，最新范围裁定及同步有效性见本报告末节和 [sync-review.md](sync-review.md)。
 
 > 历史审查对应原创unit625；当前main集成后必须full复验，旧PASS不自动有效。迁移及失效矩阵见 [sync-review.md](sync-review.md)。
 
