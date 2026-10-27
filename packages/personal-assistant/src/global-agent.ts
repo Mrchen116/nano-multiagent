@@ -410,7 +410,7 @@ export class GlobalAgent {
   private async callAdmitted(call: ProductCall): Promise<unknown> {
     const binding = this.options.store.bindings().find(binding => binding.sessionId === call.rootSessionId);
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
-    if ((call.method === 'inbox' || call.method === 'conversations') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may consume Inbox or query conversation history');
+    if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
     if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
     const references = this.options.store.toolReferences;
     const result = await this.execute({ ...call, args: references.arguments(call.agentId, call.method, call.args) }, binding);

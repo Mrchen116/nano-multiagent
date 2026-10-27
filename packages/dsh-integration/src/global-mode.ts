@@ -12,7 +12,7 @@ export const name = 'nano-global-mode';
 export const inject = ['nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
 
 /** Global mode supplies root Inbox access and explicit product communication. */
-export function apply(ctx: Context, config: { mode?: string; personal?: boolean }) {
+export function apply(ctx: Context, config: { mode?: string }) {
   ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
   const nativeSend = ctx.tools.get('send_message');
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-global-mode', order: 800, text:
@@ -73,4 +73,14 @@ export function registerUserMessage(ctx: Context): void {
     parameters:{type:'object',properties:publicMessageProperties,required:['target','text'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},
     execute:(args,exec)=>ctx.nanoProduct.call('send_user_message',normalizeMessageArguments(args),exec)});
+}
+
+/** Explain internal coordination without advertising the root's product chat tools.
+ *
+ * Args:
+ *   ctx: Native child Agent scope, including resumed and forked children.
+ */
+export function registerChildGuidance(ctx: Context): void {
+  ctx.systemPrompt.section({ name: 'nano-global-child', order: 800, text:
+    'You are an internal execution agent. Your parent coordinates this work and the root Global Agent is responsible for product conversations and public delivery. Return results through native completion; continuable children can also use send_message with agent_id/message to communicate with their direct parent. Use native internal messaging to continue your own direct children. A one-shot fork returns its result on completion and is not a continuable conversation. Ask your parent for missing conversation facts or source checks; return findings, drafts and actual execution results to it. You do not have inbox, conversations or public target/text sending. Internal input acceptance is not public delivery. Keep working within the delegated task and current corrections; cancellation or late results do not grant permission to restart. The same approval and source restrictions apply to your ordinary tools.\n' + inboxSourceInstructions });
 }

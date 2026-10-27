@@ -6,7 +6,7 @@ import {RuntimeClient,prepareProfile} from '../lib/client.js';
 import {PersonalAssistant} from '../../personal-assistant/src/personal-assistant.ts';
 import {NodeStore} from '../../personal-assistant/src/store.ts';
 import {InboxStore} from '../../personal-assistant/src/inbox.ts';
-it('reviews native child delivery with verified parent and child evidence',async()=>{
+it('rejects child public messaging while reviewing Task changes with parent and child evidence',async()=>{
 const home=await mkdtemp(join(tmpdir(),'pa-child-delivery-'));let client:any;const logs:string[]=[];
 const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
 try{
@@ -48,9 +48,9 @@ ctx.on('llm/stream',async function*(o){
  expect(result.names).not.toContain('send_user_message');
  expect(result.representation).toContain('Only the bound root PA');
  const rootEvidence=await client.rpc.request('pa.evidence',{agentId:'pa',sessionId:'root'});assert(rootEvidence.contexts!==undefined);
- expect(result.result.isError).not.toBe(true);
+ expect(result.result.isError).toBe(true);
  expect(result.task.isError).not.toBe(true);
- expect(calls.filter(c=>c.m==='pa.action.commit'),JSON.stringify({calls,errors})).toHaveLength(2);
+ expect(calls.filter(c=>c.m==='pa.action.commit'),JSON.stringify({calls,errors})).toHaveLength(1);
  expect(executionEvidence[0]).toMatchObject({sessionId:result.child,kind:'action'});
  const reviewerInputs=await readFile(join(home,'reviews.jsonl'),'utf8');
  expect(reviewerInputs).toContain('Do not apply coding-tool low-risk auto-allow defaults');
