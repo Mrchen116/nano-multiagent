@@ -118,6 +118,8 @@ it.each([
     expect(sent).toBe(1);
     await expect(product.call({ ...call, agentId: 'bob' })).rejects.toThrow('identity');
     await expect(product.call({ ...call, method: 'inbox', sessionId: 'child', args: { action: 'check' } })).rejects.toThrow('main Agent');
+    await expect(product.call({ ...call, sessionId: 'child' })).rejects.toThrow('main Agent');
+    expect(sent).toBe(1);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
 

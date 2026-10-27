@@ -102,9 +102,10 @@ export class ConfigurationScopes extends Service {
     await mountExtensions(ctx, config.extensions?.workspace);
     const scope: PresetScope = { agentId, ctx, features: new Map() };
     this.presets.add(scope); ctx.effect(() => () => { this.presets.delete(scope); });
-    await ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
+    // Product chat tools must not be inherited through the shared Global preset.
+    if (config.mode !== 'global') await ctx.plugin(GlobalMode, { mode: config.mode }).await();
     await ctx.inject(['tools', 'nanoProduct', 'nanoKnowledge', 'skills'], child => {
-      TaskGraphs.registerTool(child, agent => this.forAgent(agent)?.features?.task_graph !== false); MemoryCuration.registerTool(child); SkillCreation.registerTool(child);
+      TaskGraphs.registerTool(child, agent => this.forAgent(agent)); MemoryCuration.registerTool(child); SkillCreation.registerTool(child);
     }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);
@@ -131,6 +132,10 @@ export class ConfigurationScopes extends Service {
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     if (config.systemPrompt) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
+    if (config.mode === 'global') {
+      if (agent.session.header.origin === 'subagent') GlobalMode.registerChildGuidance(agent.ctx);
+      else await agent.ctx.plugin(GlobalMode, { mode: config.mode }).await();
+    }
     if (config.personal && agent.session.header.origin !== 'subagent') await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
   }
@@ -174,7 +179,7 @@ export class ConfigurationScopes extends Service {
       const enabled = configs.some(config => (key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false));
       const existing = scope.features.get(key);
       if (!enabled && existing) { await existing.dispose(); scope.features.delete(key); }
-      if (enabled && !existing) { const fiber = scope.ctx.plugin(plugin, { agentId: scope.agentId }); await fiber.await(); scope.features.set(key, fiber); }
+      if (enabled && !existing) { const fiber = scope.ctx.plugin(plugin, { agentId: scope.agentId, mode: configs[0]?.mode }); await fiber.await(); scope.features.set(key, fiber); }
     }
   }
 }
