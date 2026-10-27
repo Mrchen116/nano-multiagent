@@ -35,7 +35,7 @@
 | [`evidence.md`](evidence.md) | 测试、CI、真栈、报告、runtime 与 LLM 日志的能力边界和归并规则 |
 | [`documentation-system.md`](documentation-system.md) | Agent-Native 仓库知识体系方法论与维护检查表；已通过本仓迁移和真实 Agent 任务验证 |
 | [`worktree-runtime.md`](worktree-runtime.md) | 临时服务的端口、config、数据、进程和清理契约 |
-| [`e2e-critical-paths.md`](e2e-critical-paths.md) | 用户旅程与长期 E2E 守护测试的对账 |
+| [`e2e-critical-paths.md`](e2e-critical-paths.md) | 用户旅程与确定性 E2E 守护测试的对账 |
 | [`coding-guidelines.md`](coding-guidelines.md) | 跨模块通用代码编写规范；当前包含 public API docstring、意图注释和 TODO/FIXME |
 | [`agent-context-engineering.md`](agent-context-engineering.md) | Agent Context 全生命周期与组合设计的唯一通用规范 |
 | [`llm-integration.md`](llm-integration.md) | 本地 LLM 代理配置、协议、日志和验证方法 |

@@ -2,6 +2,23 @@
 
 > 对齐: motivation.md
 
+## PR 内追加设计：8 组测试价值问题（2026-10-28）
+
+此增量沿用 M1 与独立 code review + verifier，零产品用户面，无 Context 改动、原型或产品 spec delta。原 E2E 的 provider 接线与运行时约束不变，旧门禁证据仅在未改范围保留。
+
+| 问题 | 最窄实施与验收 |
+|---|---|
+| manifest 可选链掩盖 null | 同一用例断言完整有效结果和省略的可选字段；拒绝旧 SHA 的坏实现必须红 |
+| 两个路由接受空壳/错误页 | 使用实际 appRoutes、HTTP 边界 fixture，断言实际列表/创建表单和 node 路由参数；移除仅搜侧栏文字或接受错误文案的断言；空壳与错误页 mutation 必须红 |
+| 默认语言被 setter 覆盖 | 默认和存储恢复用例清模块并从冷初始化观察；切换用例仍验证 setter 与持久化；默认 zh mutation 必须红 |
+| rail 错称 nodes join | fixture 改为真实 PublicAgent 字段，移除从未使用的 listNodes mock；验证设备字段接线与必要选择行为；nodeLabelOf 回退测试在 AgentRow 保留 |
+| emoji 完全重复 | 两个完全相同输入保留一个，unknown 与显式 emoji 优先级不删 |
+| rail 颜色重复 | 删除上层纯子组件 CSS 重复，保留 AgentRow 的相同保护 |
+| 自然语言整句硬编码 | 删除审计定位的两项测试；保留机械 archive 黑盒、文档链接与具有实际语义的门禁矩阵检查；不新增文本规则框架 |
+| codex 分支绕过归档 | checker 在现有 unit/* 外识别 codex/<feat/bugfix/refactor/perf>-<number>[-suffix]；使用同一 unit ID 解析与目录判定。普通 codex/docs-cleanup 等非 unit 任务仍跳过；疑似 unit 但编号格式错误应失败。参数化黑盒覆盖两个前缀的 active/retired/missing/duplicate/archived，并用 YAML 结构验证当前 PR step 的事件/命令/env，而非只搜索字符串 |
+
+实施只扩展既有用例/fixture；按已确认失败原因合并，不建通用 mutation framework。审计故障注入在独立临时副本重放，正常代码与坏实现分别验证后保留日志；不将故障注入脚本加入长期套件。先窄验证，再按变化扩大到前端全量、Python 非 E2E、产品 contracts；原 DSH/E2E 无改动，保留其有效证据。收尾更新 coverage、独立 patch/delta 报告与 PR，等待当前 head CI。
+
 ## Changelog
 
 ## 现状分析

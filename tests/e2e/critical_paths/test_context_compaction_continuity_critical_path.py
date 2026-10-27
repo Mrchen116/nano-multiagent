@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from ._im_client import IMClient, restart_gateway
-from .test_agent_config_context_continuity_critical_path import (
+from ._im_polling import poll_until
+from ._recording import (
     StubLLMStack,
     _wait_records,
     stub_llm_stack,
@@ -37,6 +38,30 @@ def test_tool_history_compacts_and_survives_gateway_restart(
     client.register_or_login("nano", "nano1234", display_name="Test User")
     agent_id = client.first_agent_id()
     client.update_agent_config(agent_id, tool_allowlist=["read"])
+    # Summary compaction is an explicit workspace opt-out from default window switching.
+    plugins = f"/im/v1/agents/{agent_id}/plugins"
+    response = client._http.post(
+        plugins,
+        headers=client._auth_headers,
+        json={"action": "set_bundle", "target": "dsh-agent-context", "enabled": False},
+    )
+    response.raise_for_status()
+
+    def plugin_state():
+        response = client._http.get(plugins, headers=client._auth_headers)
+        response.raise_for_status()
+        return response.json()
+
+    state = poll_until(
+        plugin_state,
+        lambda value: not value.get("pending"),
+        timeout=30,
+        desc="summary compaction mode enabled",
+    )
+    assert any(
+        entry["name"] == "dsh-agent-context" and not entry["enabled"]
+        for entry in state["entries"]
+    )
     workspace = Path(stub_llm_stack.wt_dir) / ".gateway-workspace" / agent_id
     workspace.mkdir(parents=True, exist_ok=True)
     (workspace / "compaction-source.txt").write_text(
@@ -46,9 +71,26 @@ def test_tool_history_compacts_and_survives_gateway_restart(
     try:
         client.send_message(
             conversation_id,
-            f"请记住目标 {_SENTINEL}，读取 compaction-source.txt 后继续这个任务。",
+            "读取 compaction-source.txt 并继续文件中的原目标。",
         )
         client.wait_for_agent_reply_with(conversation_id, "TOOL-COMPLETE", timeout=90)
+        initial = _wait_records(Path(stub_llm_stack.record_path), 2)
+        followup = next(
+            row["request"] for row in initial if row["kind"] == "tool_followup"
+        )
+        blocks = [
+            block
+            for message in followup["messages"]
+            for block in message["content"]
+            if isinstance(block, dict)
+        ]
+        results = [block for block in blocks if block.get("type") == "tool_result"]
+        assert len(results) == 1
+        assert results[0]["tool_use_id"] == "compaction-read-1"
+        assert not results[0].get("is_error")
+        assert _SENTINEL in json.dumps(results[0]["content"])
+        # The sentinel exists only in the actual file/result, not the user's request.
+        assert _SENTINEL not in json.dumps(initial[0]["request"]["messages"])
         client.send_message(conversation_id, "/compact 保留原始目标和已读取的文件")
         client.wait_for_agent_reply_with(conversation_id, "已压缩", timeout=90)
         records = _wait_records(Path(stub_llm_stack.record_path), 3)

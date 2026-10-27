@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 UNIT_BRANCH = re.compile(
-    r"^unit/(?P<unit_id>(?:feat|bugfix|refactor|perf)-\d+)(?:-.+)?$"
+    r"^(?:unit|codex)/(?P<unit_id>(?:feat|bugfix|refactor|perf)-\d+)(?:-.+)?$"
 )
 SCOPES = (
     ("active", Path("docs/changes")),
@@ -48,14 +48,20 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     """Check the current repository for the branch's archived change unit."""
     head_ref = _parse_args().head_ref
-    if not head_ref.startswith("unit/"):
+    prefix, _, name = head_ref.partition("/")
+    is_unit = prefix == "unit" or (
+        prefix == "codex"
+        and name.split("-", 1)[0] in {"feat", "bugfix", "refactor", "perf"}
+    )
+    if not is_unit:
         print(f"Skipping change-unit archive check for branch: {head_ref or '<empty>'}")
         return 0
 
     match = UNIT_BRANCH.fullmatch(head_ref)
     if match is None:
         print(
-            f"Invalid unit branch name: {head_ref}. Expected unit/<type>-<number>.",
+            f"Invalid unit branch name: {head_ref}. "
+            "Expected unit/<type>-<number> or codex/<type>-<number>.",
             file=sys.stderr,
         )
         return 1

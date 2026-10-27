@@ -70,10 +70,19 @@ kill -0 "$NODE_PID"
 echo "Scenario B: bound Node starts before IM"
 node "$REPO_ROOT/apps/node/lib/cli.js" stop --config "$CFG"
 stop_im
-node "$REPO_ROOT/apps/node/lib/cli.js" start --config "$CFG"
+# The CLI waits for runtime readiness; Agent lifecycle reconciliation needs IM.
+# Start it concurrently so the scenario can restore IM after proving Node is alive.
+node "$REPO_ROOT/apps/node/lib/cli.js" start --config "$CFG" >"$WT_ROOT/.resilience-start.log" 2>&1 &
+START_PID=$!
+for _ in $(seq 1 80); do
+  [[ -f "$WT_ROOT/.gateway-state.json" ]] && break
+  kill -0 "$START_PID" 2>/dev/null || { cat "$WT_ROOT/.resilience-start.log"; wait "$START_PID"; exit 1; }
+  sleep 0.25
+done
 node -e 'const fs=require("fs");fs.writeFileSync(process.argv[2],String(JSON.parse(fs.readFileSync(process.argv[1])).pid))' "$WT_ROOT/.gateway-state.json" "$WT_ROOT/.gateway.pid"
 sleep 2
 kill -0 "$(cat "$WT_ROOT/.gateway.pid")"
 start_im
+wait "$START_PID" || { cat "$WT_ROOT/.resilience-start.log"; exit 1; }
 online
 echo "RESILIENCE E2E PASS"

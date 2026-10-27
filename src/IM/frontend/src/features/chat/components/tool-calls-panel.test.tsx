@@ -192,16 +192,6 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     expect(nameEl?.textContent).not.toContain("🔧");
   });
 
-  it("falls back to the name table when the tool carries no emoji (historical rows)", async () => {
-    // 历史行/运行中行无 emoji 字段 → 名表兜底,内置工具不退化。
-    const calls: ToolCall[] = [
-      { id: "b1", name: "bash", status: "completed", input: {}, output: "run tests" }
-    ];
-    render(<ToolCallsPanel toolCalls={calls} />);
-    await expandPanel();
-    const nameEl = screen.getByText("bash").closest(".chat-tool-call-name");
-    expect(nameEl?.textContent).toContain("💻");
-  });
 
   it("marks a failed call with the error row modifier and a fail tag", async () => {
     // feat-409 failalign: 折叠行 summary 是干净主参数(description),失败仅由

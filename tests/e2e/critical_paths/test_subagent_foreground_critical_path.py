@@ -1,49 +1,69 @@
-"""关键路径 4:前台子 agent 可用,产出回带。
-
-spec Req「前台子 agent 可用且失败被隔离」。
-
-旅程(#117 的直接守护场景):用户的请求促使 agent 派一个**前台子 agent** 去干活,子 agent
-把哨兵 token 产出,父 agent 在回复里把它带回来。这正是 #117(子 agent 跨事件循环崩溃)曾经
-完全不可用、却无任何 e2e 拦住的那条路径——经真 Gateway 进程跑一遍,跨事件循环的崩裂当场暴露。
-
-鲁棒断言(design 决策 4):只锚定哨兵 + 协议级 ``message.completed``。哨兵要求由子 agent
-回出、父 agent 带回,确保确实走了「派子 agent → 收子 agent 产出 → 综合回复」这条链路,
-而非父 agent 自己直接答(子 agent 真崩的话父 agent 拿不到哨兵,断言即红)。
-"""
+"""Native foreground child results and failures cross the real IM/Node boundary."""
 
 from __future__ import annotations
 
-import secrets
+import json
+from pathlib import Path
 
 import pytest
 
 from ._im_client import IMClient
+from ._recording import StubLLMStack, _load_records, stub_llm_stack
 
 
-@pytest.mark.e2e
-def test_foreground_subagent_carries_back_output(im_user: IMClient) -> None:
-    """派前台子 agent,父 agent 回复带回子 agent 产出的哨兵。"""
-    agent_id = im_user.first_agent_id()
-    im_user.update_agent_config(agent_id, tool_allowlist=["subagent"])
-    conversation_id = im_user.create_direct_conversation(agent_id)
-
-    ws = im_user.connect_ws()
+@pytest.mark.parametrize(
+    "stub_llm_stack",
+    [{"script": "anthropic_sse_collaboration_recording.py"}],
+    indirect=True,
+)
+def test_foreground_child_output_and_failure_are_isolated(
+    stub_llm_stack: StubLLMStack,
+) -> None:
+    """Observe child output, an actual provider failure, and a healthy later turn."""
+    client = IMClient(stub_llm_stack.im_url)
+    client.register_or_login("nano", "nano1234")
     try:
-        sentinel = "SUB" + secrets.token_hex(4).upper()
-        # 显式要求派一个子 agent,并让子 agent 回出哨兵——强制走子 agent 链路而非父直接答。
-        im_user.send_message(
-            conversation_id,
-            "请用 subagent 工具并设置 run_in_background=false 派一个前台子 agent 去完成这件小事："
-            f"让那个子 agent 把这个 token 原样返回：{sentinel}。"
-            "等子 agent 完成后，把它返回的 token 原样转达给我。",
+        agent = client.first_agent_id()
+        client.update_agent_config(
+            agent,
+            tool_allowlist=[
+                *client.get_agent_config(agent)["tool_allowlist"],
+                "subagent",
+            ],
         )
-
-        frame = ws.wait_for_event(
-            "message.completed",
-            lambda f: sentinel in (f.data.get("content") or ""),
-        )
-        content = frame.data.get("content") or ""
-        assert sentinel in content, f"subagent output not carried back: {content!r}"
-        assert "Traceback" not in content
+        chat = client.create_direct_conversation(agent)
+        for prompt, reply in [
+            ("FOREGROUND_SUCCESS", "CHILD-OUTPUT-RECEIVED"),
+            ("FOREGROUND_FAILURE", "FAILURE-OBSERVED"),
+            ("AFTER_FAILURE", "STILL-RESPONSIVE"),
+        ]:
+            client.send_message(chat, prompt)
+            client.wait_for_agent_reply_with(chat, reply, timeout=60)
+        records = _load_records(Path(stub_llm_stack.record_path))
+        results = {
+            block["tool_use_id"]: block
+            for row in records
+            for message in row["request"]["messages"]
+            if isinstance(message["content"], list)
+            for block in message["content"]
+            if block.get("type") == "tool_result"
+        }
+        assert "CHILD-OUTPUT" in json.dumps(results["spawn-success"])
+        assert not results["spawn-success"].get("is_error")
+        assert results["spawn-failure"].get("is_error") is True
+        # A separate child request must actually reach the provider; the parent
+        # reply alone could be fabricated without executing a subagent at all.
+        child_sessions = {
+            row["session"]
+            for row in records
+            if any(
+                "CHILD_SUCCESS" in str(message["content"])
+                or "CHILD_FAILURE" in str(message["content"])
+                for message in row["request"]["messages"]
+                if message["role"] == "user"
+            )
+            and row["session"] != row["root"]
+        }
+        assert len(child_sessions) == 2
     finally:
-        ws.close()
+        client.close()
