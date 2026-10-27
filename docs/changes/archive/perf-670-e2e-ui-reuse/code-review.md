@@ -24,3 +24,14 @@
 - 本轮没有新的模型调用；原 PR 同源/Vite 的真实模型与轨迹浏览器证据继续保留，未改回复/轨迹业务链。
 
 证据目录：`/Users/czj/.codex/experiments/pa667-startup/build-reuse-review/`。日志、配置、凭据和运行数据库留本机，不提交。
+
+## Cross-worktree patch review and final validation
+
+- R2 范围：`e66e79e..4aeebb54156776e78d80e5a2f6ba2c36a5e451c3`，同一独立 reviewer 执行 patch review。检查共享缓存有界存储、可移植指纹、共享副本与恢复后完整性校验、文件锁和旧记录失效。Result: `[]`。
+- 增加 `_read_stamp` 的联合类型注解后，直接运行系统 Python 3.9 暴露导入期 TypeError；`4aeebb541` 用 future annotations 修复，独立 reviewer 确认系统 Python 导入通过。
+- 最终 helper 行为测试 16 passed，完整 Python 非 E2E 100 passed / 28 deselected，ruff check/format 通过。
+- 后端完整测试 142 files / 770 tests passed。初次生命周期测试与该套件并发时，3 个用例在 UI 构建阶段达到外层 30/60 秒超时；同代码、同超时设置单独重跑为 4 passed / 103.19 秒。未调整 timeout 或产品逻辑；并发负载为可能因素，不把重跑成功当作唯一根因证明。原失败与独立重跑日志均保留。
+- 最终共享缓存版本：UI 首次构建 17.344 秒，同 checkout 无变化 0.242 秒。新建 managed Git worktree，在准备同内容共享包导出与安装锁元数据后，真实 helper 用 0.937 秒恢复两套真实 UI，未调用构建器；主前端 1656 个文件、查看器 154 个文件逐文件 SHA-256 一致。这验证真实产物恢复，不冒充该 worktree 的完整依赖安装或全服务启动。
+- `4aeebb541` 上又在两个全新运行目录完成 `e2e-up.sh --vite`：9.101 / 8.209 秒，均两套 reuse；IM/Vite 页面、轨迹资源、精确 Origin 允许/外来 Origin 拒绝与 PID/端口清理再次通过，无新增模型调用。
+- effective_base: `39ce046cc2f228fc2be41f1418452b512df4ff75`；实现验证与审查有效到 `4aeebb54156776e78d80e5a2f6ba2c36a5e451c3`。后续只补充本报告和归档，核心构建/typecheck/770 后端/1029 前端/原浏览器证据保留；新增缓存 delta 由上述 Python、真实产物和最终入口检查覆盖。
+- 用户明确授权“测好了再更新pr”，验证由 Agent 执行；未声称用户亲自重跑，不合入、不部署。
