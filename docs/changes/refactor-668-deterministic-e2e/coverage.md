@@ -15,7 +15,7 @@
 | 5 | context_compaction_continuity | rewrite-merge | 合并 #27；真实 read 结果与 tool pairing、明确停用默认无摘要插件后的摘要请求、压缩后继续与重启恢复 |
 | 6 | create_agent_via_im | rewrite-merge | 合并 #17；保留创建前 capabilities/preview、workspace 创建、注册可聊，再比较重启后真实请求历史前缀 |
 | 7 | cron_push | rewrite-merge | 受控 schedule_create，真实一次性时钟与独立 IM 交付；实际请求包含触发内容，无模型规划判断 |
-| 8 | gateway_autostart | keep | 真 macOS LaunchAgent crash/stop/bootstrap/disable；等替换进程 ready/connected 后继续；已有平台显式开关，不调用模型；本轮发现的原有 stop 失败见下文 |
+| 8 | gateway_autostart | keep | 真 macOS LaunchAgent crash/stop/bootstrap/disable；等替换进程 ready/connected 后继续；已有平台显式开关，不调用模型；就绪等待修正与复验见下文 |
 | 9 | gateway_im_resilience | keep | 真 IM 断连重启及启动顺序；移除无关 live-model 开关；CLI 启动放后台，证明进程存活后恢复 IM，再等待初始化完成 |
 | 10 | global_agent_inbox | rewrite-merge | 真实 Inbox check/read 消费事实、同主 session、同 continuable child 修订、真实 child 轨迹与唯一原聊天 dispatch；去掉 CSV 计算能力 |
 | 11 | group_chat_directed_mention / A mentions B | rewrite-merge | 与 #12 合为 `test_group_mentions_route_to_peer_and_leave_unmentioned_peer_idle`；受控输出 mention，真实 IM 解析、B 入站与请求正文 |
@@ -57,10 +57,10 @@
 
 本地 CI：后端 142 files / 766 tests passed（`pnpm test --maxWorkers=2`）；Python 非 E2E 70 passed；typecheck、iOS runtime、docs-check、ruff 通过。前端全量 108 files / 1031 tests 中首次 2 项在高并发运行下失败，其所在两个文件单 worker 复验 77 passed，其余 106 files 的通过证据保留；`npm audit --audit-level=critical` exit 0（仍报告 5 high、2 moderate、4 low，未修改依赖）。
 
-完整 E2E 显式开启 macOS 路径首次完成 20 passed / 7 failed：5 项是旧审批夹具漏掉 Global Agent 模型；1 项为旧重连脚本同步等待初始化；1 项为以下产品侧问题。前两类修复后定向复验，最终结果由 verification 汇总。
+完整 E2E 显式开启 macOS 路径首次完成 20 passed / 7 failed：5 项是旧审批夹具漏掉 Global Agent 模型；1 项为旧重连脚本同步等待初始化；1 项为自启动驱动没有可靠等待替换进程就绪。审批定向复验 6 passed（70.47s）；重连定向复验 1 passed（17.86s）；macOS 等待修正后 1 passed（38.28s）。最终默认全量结果由 verification 汇总。
 
-### 已观察到的范围外问题：macOS LaunchAgent stop
+### 自启动等待修正
 
-`NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1 python -m pytest -q tests/e2e/critical_paths/test_gateway_autostart_critical_path.py` 在 macOS、Node 24.22.1、产品代码基线 `c4ebad992` 稳定失败：初次启动和 crash 后恢复成功，随后 `stop` 返回 `LaunchAgent remained loaded after bootout`。单独运行及补上 ready/connected 等待后均复现（37.23s / 36.68s）。生命周期实现的 unload 只等待 5 秒，而 LaunchAgent 使用的默认 ExitTimeOut 为 15 秒；是否为唯一根因尚未证明，不能据此声称已修复。
+原驱动仅等待新 PID 存活，随后 `/nodes` 可能仍显示旧连接的 online，从而在替换运行时尚未 ready 时进入 stop。首次及独立复验报 `LaunchAgent remained loaded after bootout`（37.23s）。增加真实状态文件的 ready/connected 条件后，还修正了未就绪分支返回 `0` 会被 `kill -0 0` 误判存活的问题：返回空串，由原 PID 正则拒绝。
 
-测试保留原失败断言，没有 skip/xfail、缩短关闭宽限或修改产品代码来掩盖问题。该平台路径原本即需显式开关；默认回归继续遵循原有开关。此记录是实际失败，不计为 E2E 全绿；需要独立产品修复跟进。
+最终 `NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1 python -m pytest -q --basetemp=/tmp/refactor-668-autostart-final tests/e2e/critical_paths/test_gateway_autostart_critical_path.py` 1 passed（38.28s），完整走过 crash/stop/bootstrap/disable。未修改产品代码、关闭宽限或通过重试 stop 掩盖失败，保留全部原断言。此前“产品侧 stop 缺陷”的怀疑未被最终验证支持，不作为已确认缺陷交付。
