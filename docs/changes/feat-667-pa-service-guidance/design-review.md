@@ -132,3 +132,84 @@
 ### Author Resolutions
 
 - R2 无 CRITICAL/WARNING 或新增建议；Author 已核对普通 spawn/fork 的深度决定及 B 归属，无实质异议，受审内容未改变。
+
+## Round 3
+
+### Metadata
+
+- reviewer target：`/root/design_review_667`，沿用 R1/R2 独立 reviewer；未参与本轮设计修改。
+- review_mode：`full`。
+- mode_reason：A+B 合并后产品范围、主/子工具边界、Context 消费者及 M1 退出标准均有实质变化。重新覆盖完整方案；R1/R2 的源码证据仅在当前基线仍成立时复用，不沿用旧结论直接放行。
+- started_at：2026-10-27T15:34:56+08:00。
+- completed_at：2026-10-27T15:39:34+08:00。
+- duration：约 278 秒。
+- source baseline：`/Users/czj/Repos/nano-multiagent`，`main`，`9151dcefa0d6200e8a7805e3a70df1b57852a5f1`。受审输入为未提交的 spec/design、新增 global-agent/agent-capabilities delta、原 personal-agent delta 和 M1 空骨架；两份 input 附件与历史报告作为范围与审查历史依据。
+- 受审内容 SHA-256：
+  - `spec.md`：`e03f40a04b6b338a5415324ef4e62a8da74326052b844b3586123345480e0a0a`
+  - `design.md`：`060a68d04a8b95504d079de5b3c1c70a034dab8ee15f7053a6d0eb7e77f59482`
+  - `specs/gateway/global-agent.md`：`d267cb1738c79d01e700922abb296fdfedf50a9fdca545e922d07afbdfa8e6fa`
+  - `specs/gateway/agent-capabilities.md`：`5ded016b2f68531e20a926c39038ff06d015eda7544ece64077339993c2e454d`
+  - `specs/gateway/personal-agent.md`：`fe025c8a08e22bbcbc54034c5dd0529cebd005b23944b1e6891127ab87e99c38`
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本轮认可 A+B 的完整设计：公开配置增加一层委派，Global 主实例持有产品聊天工具，子 Agent 保留原生内部通信，主 Agent 通过已有记录与控制负责停止及明确接续。该结论取代旧轮“B 另片实施”的范围判断。尚无本轮产品实现、实际 provider 请求或真实二级交付证据；M1/Ready 仍以本版退出标准为准，不能把设计通过解释为能力验收通过。
+
+### Coverage 与证据
+
+#### 需求与范围闭合
+
+- `spec.md` 的最新用户原话和整理决定明确覆盖 A+B、默认深度增加一层、普通 Global 与 PA 共用主/子边界、Task 归主 Agent、主 Agent 记录执行者并协调停止/接续、沿用恢复、不引入观察者。`design.md:18-29,33-70` 与之对应，原附件“先 A、B 后续”的顺序已被最新决定明确取代；保留 #414、不整包合并、不迁移旧 workspace 的限制继续成立。
+- 全部十个 Scenario 已对上验证：原七项 PA 服务行为保留，新增二级逐级交付、子 Agent 请求资料/内部回传、用户明确接续。设计不把 Task 页面暂停承诺成整树硬停止，也不以“允许再委派”暗示增加并发、全部权限或按事项隔离。
+- 单 M1 的范围和退出标准已经随 A+B 同步更新（`design.md:113`）。失败统一保留未通过，不能再把本次 B 的失败推到“后续 B”；后续仅 C/D。当前 `M1/` 仍只有 `.gitkeep`，没有预填实施或验收记录。
+
+#### 实际注册、身份与继承链
+
+- 正式入口 `packages/dsh-integration/src/agent-config.ts:105-111` 在 preset 上挂载 GlobalMode、Feature 与 PersonalTools。`global-mode.ts:15-43` 在这一共享作用域注册 Inbox/conversations 和同时含公开 target/text、内部 agent_id/message 的 send_message，并捕获 nativeSend。因而仅修改工具描述或只按名称去掉 send_message 都不能实现需求：前者没有收窄，后者会损害内部通信。设计明确选择主实例注册、子实例保留原生定义，命中了实际落点。
+- `agent-config.ts:126-136` 已在真实 Agent 创建后按 session origin 注册主 PA 专属 send_user_message；`index.ts:237-250` 在 agent/created 中恢复历史配置后统一调用 attachAgent。使用这条现有入口处理新建、fork 与恢复，而非建立另一套子 Agent 管理器，职责合理。仅复用模式仍需通过实际 schema 验证，设计已将其写入退出条件。
+- `capabilities.ts:59-74` 的 ToolSelection 在 Agent scope 上处理限制层；`product-contracts/src/capabilities.ts:54-59` 已区分 Global 根固定工具与子角色。设计允许必要的选择接线修正，保留当前用户选择和子 Agent 原生通信，避免把根工具的 fixed 集直接继承给后代。
+- `product-bridge.ts:13-29` 由真实执行 Agent 追溯 binding，并传递不同的 sessionId/rootSessionId；`packages/personal-assistant/src/global-agent.ts:410-418` 已据此拒绝子 Agent Inbox/conversations 与代表发送，但未同样拒绝普通公开 send_message。在此既有产品入口补公开发送身份检查，与注册收敛形成闭合链，不需要新权限服务。设计限定 Global，不扩大改变 SingleThread。
+- 主 PA 的代表发送在 `agent-config.ts:134`、`product-bridge.ts:21` 和 `global-agent.ts:414` 另有边界；设计明确保留。权限由宿主身份与入口保证，不让模型根据自称角色取得产品能力。
+
+#### 深度、Task 与恢复
+
+- R2 核对的锁定依赖深度语义及公开 profile patch 仍适用：`client.ts:15-26` 当前无深度覆盖；目标只新增 subagent maxDepth=2，保留调用方显式 patch，不改并发。普通 spawn/fork 的根 0、一级 1、二级 2、拒绝 3 属于可执行的配置设计，非 DSH 源码补丁。
+- `task-execution.ts:41-42,66-67,85-86` 仅对 bindings 中的主 session 记录自动责任并在 pre-step 处理；Task 工具的产品调用沿 root binding 使用产品 Agent ID（`global-agent.ts` 的 task_graph 分支）。当前产品 Task 与内部 child execution 本来不是同一对象。由主 Agent 记录 child ID、用现有控制接续，不需 schema 或硬绑定，符合用户决定。
+- `trajectory-runs.test.ts:33-45,105-139` 包含 fixture 嵌套、同 session ID 后续消息与 cold-wake、进程终止后 unknown 等不同事实。设计沿用这些机制但不宣称全自动重跑；真实更正/停止/接续与短问题响应仍另行验收。当前已有 fixture 不能替代本版真实模型结果，本轮未重跑这些测试。
+
+#### Agent Context — Design Review
+
+- **Surface / Consumer**：主 Global/PA 的产品 schema 与系统指导，子 Agent 的内部 schema、按需 Skill、交接消息、Task 状态和结果反馈。主要新增变化是消费者角色收窄，不能只审 Prompt 字句或工具名称。
+- **生命周期**：设计从 preset 共享贡献移到主实例注册，并要求创建、fork、恢复后按可信角色重新组装（`:58-70`）；既有历史不重写。历史里曾出现工具调用不重新授予权限，读取或发送入口仍核实身份。普通文件、Memory、fork 历史继承保持，未作新的硬隔离承诺。
+- **一致性判断**：`:62,66` 明确要求所有当前主 Agent 专用公开确认、进度、交付与 Inbox 指导不进入 Global 子 Agent，保留适用的安全规则。这项要求应按整个当前组装解释，包括 PersonalTools 和 Feature/动态反馈，不仅 `nano-global-mode` 一段。已有 `personal-security.ts:135` 含 conversations/公开发送指引，`features/task-graphs.ts:19-20,31-40` 含固定会话交付及动态 task-feedback，`features/intelligent-ui.ts:11-15` 含发送 interactive 的指引。它们是实施时必须对齐本设计结果的既有来源；详见可选定位建议 R3-R1。
+- **参数与结果**：内部 send_message 继续使用真实父/子 ID，主 Agent 持有产品目标与权限；子 Agent 需要聊天资料时请求父级，再由主 Agent 查询。内部 accepted 与公开 sent 不混淆，最后结果经主 Agent 实际发送。主/子来源识别与限制由现有机制提供，不新增模型猜测身份字段。
+- **验证**：`:70,103-107,113` 要求实际 provider schema、当前指导、Skill 消费、工具回执与用户结果；覆盖普通/PA、两层、spawn/fork、恢复及直接受限入口拒绝。同名 send_message 分支有单独检查，工程 seam 与代表性真实旅程分层，不要求全笛卡尔积。
+- **证据状态**：以上现状接线为 CONFIRMED 静态事实，目标消费行为为待实施设计；真实模型能否正确协调两项工作、二级交付、停止后原执行者接续、保持安静仍未验证。本轮没有发现需要额外隔离系统或扩大恢复范围才能满足设计的证据。
+
+#### A、delta-spec、验收与回退
+
+- A 的默认 custom_prompt 创建/配置、Skill 安装/发现/禁用路径仍为 R1 已核实路径；本轮没有把旧 PA prompt 自动改写，私人准备继续由主 PA 基于获准来源核对，既有安全规则与外发审核保持。共享 ongoing-work 方法需适配新的主/子分工，但不新建工作账本服务。
+- 三份 delta 锚定正确 canonical area：personal-agent 的 MODIFIED 完整保留旧两个 Scenario；global-agent 的 ADDED 描述角色工具边界及恢复；agent-capabilities 的 ADDED 描述默认深度及显式覆盖前提。现有 Task 负责人、状态和数据协议未改变，无需为“无硬绑定”新增 Task 协议 delta。现有 canonical 未被提前覆盖。
+- 基线从 R2 到当前包含 perf-666 的其他变更，本轮已核对实际当前入口；未把这些无关产品改动纳入 feat-667 实施范围。原有隔离 Runbook、合成账号与真实模型前置继续适用，无生产写入、部署或迁移要求。
+- 无前端变化，采用实际客户端 API 旅程足够，不要求 UI 原型。回退明确区分代码和持久化 custom_prompt；不声称回退代码会重写用户配置。没有引入一次性数据迁移，毋需 deployment-prompt。
+
+### 历史问题闭环
+
+- R1/R2 均无 CRITICAL/WARNING；没有历史阻断 issue。
+- R1-R1 的 Author Resolution 已接受区分十分钟背景通知与主人正常来信提前触发；本版仍有两条入口，该证据区分继续适用。
+- R2 的“B 独立、A 三文本”结论因新用户决定被本轮完整范围取代；深度语义、公开配置入口及未经真实验证的事实保留。不是沿用旧 Approved 豁免新范围。
+
+### Issues
+
+无。
+
+### Recommendations
+
+- **R3-R1（可选，实施证据定位）**：可在实现记录里给出一份合成后的子 Agent Context 样本，除了 global-mode 的固定段，额外标明 Task feedback、PA 固定指导及 Intelligent UI 指导的实际处理。上述现有位置说明只移动一段 Prompt 可能漏检；设计已要求所有当前指导与可调用能力一致，因此这是取证定位建议，不要求新增 Gate、改 Task 协议或引入隔离系统。
+
+### Author Resolutions
+
+- R3-R1: accepted。实施取证按本设计既有“当前指导与可调用工具一致”要求，覆盖 Task 动态反馈、PA 固定指导与交互 UI 指导，保留合成后的子 Agent Context 样本；不增加产品范围或新 Gate。
+- Author 已核对 R3 报告及本次用户决定，无实质异议。受审 spec、design、delta-spec 与骨架在审查后未修改；R3 Approved 有效。报告整理仅将原 R2 Author Resolutions 移回 R2 末尾，保留原文，不改变审查结论。

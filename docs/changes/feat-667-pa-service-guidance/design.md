@@ -1,84 +1,90 @@
-# feat-667: PA 服务指导与轻量主动准备 — 技术方案
+# feat-667: PA 服务指导与轻量主动准备（A+B）— 技术方案
 
-> 对齐: [spec.md](spec.md)
+> 对齐: [spec.md](spec.md)。后续用户确认 A+B 合并；本版本取代此前 A 仅三份文本、B 后续独立交付的约束。
 
 ## Changelog
 
-- 2026-10-27 (M1): 用户明确要求增加一层委派；静态确认当前默认深度为 1，将公开配置改为 2 明确为独立 B 的前置范围，A 的产品改动不扩大。
-
 ## 现状分析
 
-### 涉及范围
+基于 main `9151dcefa` 核对。这里只记录本次决定需要的现状，不把 #414 的新增机制当作 main 已有行为。
 
-- `apps/im-server/src/personal-agent-defaults.ts`：首次创建 PA 时写入可编辑 custom_prompt；既有配置不补写。当前指导已有来源身份、持续推进与安静通知约束。
-- `packages/personal-assistant/assets/skills/nano-ongoing-work/SKILL.md`：现有跨轮次工作方法，已有原事项记录、子 Agent ID、更正、等待和取消指引。
-- 同级新增 `nano-proactive-care/SKILL.md`：只补获准观察后的核对与私人准备方法。
-- `packages/personal-assistant/src/builtin-skills.ts` 安装随包 Skill；配置发现、禁用、用户 Skill 优先级沿用原路径，不改安装器。
-- 验证落在既有 IM PA、DSH personal-security 与 Skills 测试入口，以及本 unit 的真实旅程证据；没有客户端改动。
+- `apps/im-server/src/personal-agent-defaults.ts` 在首次创建 PA 时写入可编辑 custom_prompt；既有实例不补写。`nano-ongoing-work` 已记录持续事项、执行者 ID、更正、等待与取消；新增 `nano-proactive-care` 可由既有随包 Skill 安装与发现机制加载。
+- DSH 锁定版本的公开 subagent 配置默认 `maxDepth: 1`；`packages/dsh-integration/src/client.ts` 的 `prepareProfile` 尚未覆盖它。原生后台执行、同 ID 发消息/接续、下级执行及结果回传机制已有；`trajectory-runs.test.ts` 已使用公开 profile patch 验证嵌套与冷恢复。
+- `agent-config.ts` 在 preset 挂载 GlobalMode。`global-mode.ts` 同时注册 Inbox、conversations 与包含公开/内部两种参数的 send_message；子 Agent 也能看到。`global-agent.ts` 调用边界拒绝子 Agent 的 Inbox/conversations，却未统一禁止其公开 send_message。工具描述中的 root-only 不是注册限制。
+- `send_user_message` 已由 `attachAgent` 只向主 PA 注册，ProductBridge 与产品入口还有身份检查；保持而非重建。原生 `send_message(agent_id, message)` 负责内部通信，不能随公开发送一起删除。
+- Task 已持久保存负责人及状态；现有机制支持会话持久化、同 ID 冷恢复和主 Agent 责任恢复，不承诺所有中断执行自动重跑。当前无需新增执行绑定字段。
+- 相关入口：current `gateway/personal-agent.md`、`global-agent.md`、`agent-capabilities.md` 与 `task-graphs.md`。#414 代码和旧 workspace 仅保留为基线，不合并、不迁移、不读取旧试用数据。
 
-### 既有约束
+## 架构与范围
 
-DSH 只通过集成包公开接口使用；不改权限、上下文继承、执行生命周期、任务 schema 或消息摄取。沿用当前来源控制、披露审核和普通工具权限。#414 原分支不改不合并，不读其迁移 workspace。用户配置与生产数据不动。
+继续使用消息 → 主 Agent → 原生子 Agent/已有工具与 Skill → 主 Agent 交付的链路。单 M1 一并交付 A 的三份产品文本和 B 的最小配置/注册修正；没有新的 Agent loop、数据库、调度器或执行管理器，没有客户端改动。
 
-### 可复用能力
+| 范围 | 变更落点 |
+|---|---|
+| A 默认服务与方法 | `personal-agent-defaults.ts`、`nano-ongoing-work/SKILL.md`、新增 `nano-proactive-care/SKILL.md` |
+| B 委派深度 | integration `client.ts` 的公开 profile patch |
+| B 主/子工具与指导 | integration `global-mode.ts`、`agent-config.ts` 的注册与提示作用域；PA `global-agent.ts` 的既有产品入口身份检查；必要的既有工具选择接线 |
+| 验证与契约 | 相关既有测试、unit 真实旅程证据，以及本 unit 下 gateway delta-spec |
 
-- 用：Global 工具、原生子 Agent、Inbox、conversations、task_graph、现有文件与 Memory、Heartbeat/schedule、真实发送与披露检查。
-- 改：上述默认文案与 ongoing-work 方法；不把所有任务强制转换为 Task 或子 Agent。
-- 不用：#414 的 personal-delegations、records/v2、personal_context、personal_attention、执行绑定和文件发布服务。A 不增任何运行时接口。
-- 已核实锁定 DSH 0.2.1-alpha.1 的公开 subagent 配置默认 `maxDepth: 1`；本仓 `packages/dsh-integration/src/client.ts` 的 `prepareProfile` 未覆盖它，普通 spawn/fork 工具未另设深度上限。已有 `trajectory-runs.test.ts` 使用公开 profile patch 配置深度。工具继承和实际执行尚待真实能力探针确认；现有 `personal-child-delivery.test.ts` 与 `personal-security.test.ts` 只能说明现有测试覆盖，不能证明真实模型端到端成功。
-
-### 相关历史
-
-feat-658 奠定主人身份/来源和当前服务指导；feat-665/#414 的大型实现未合入，作为拆分来源保留。当前 main 的其他 unit 文档不在本片范围。
-
-## 架构总览
-
-保持原消息 → 主 PA → 既有工具/Skill → 实际结果链路。新增的是服务方法，不增加 PA 旁路执行器、数据库或统一检索层。
-
-默认指导简述“小事直接处理、长事持续负责、重要观察可核对并私人准备、已处理/无新价值保持安静”。复杂方法由两个按需 Skill 承担，避免把整份操作手册常驻主提示词。
+DSH 只经 integration 公开接口接入，不 fork/patch/private import；不改变并发数、Task schema、来源授权、消息摄取或现有恢复生命周期。普通 shell/文件工具、Skills 继承与其既有权限继续使用，不搬入 #414 的 personal-delegations 白名单，也不新增按事项沙箱。
 
 ## 关键决策
 
-**只改三份产品文本，默认单 M1。** 新 Skill 通过现有目录安装与发现，不增加开关、配置页面或后端字段。测试需要的临时数据和取证脚本只服务验证，不进入产品运行时。
+### A：服务指导与轻量私人准备
 
-**延续现有执行者，权限与能力不能靠文字扩大。** ongoing-work 补充：可独立处理的长事项才派工，记录实际 ID；更正回原执行者；交接只给相关目标、资料和限制；不整段转发私人历史。主 PA 接住新输入，等待事件，不以轮询代替工作。不宣称 prompt 能保证最小权限或隔离；原生缺口留给 B。
+默认指导简述“小事直接处理、长事持续负责、重要观察可核对并私人准备、已处理/无新价值保持安静”；复杂方法按需加载两个 Skill，不将手册全部常驻。
 
-**B 的最小前置明确为增加一层原生委派。** 主 Agent 深度为 0，任务执行者为 1，下级执行者为 2。独立 B 在 `prepareProfile` 的现有公开 profile patch 中配置 `{id: 'subagent', config: {maxDepth: 2}}`；不修改 DSH 源码，不新增工具，不改 `maxActiveSubagents`、工具选择、授权或来源规则。该 profile 同时服务普通与 PA 的 DSH host，因此默认深度对两者生效；不新增 PA 特例。B 必须验证第二层真实创建、执行与结果回传，第三层按深度上限拒绝，并检查代表发送等原有身份限制仍有效。A 的二级旅程在 B 未落地前仍未通过；配置改完也不能代替真实模型验收。
+ongoing-work 复用既有工作记录与 Task：记录实际执行者 ID，长事项使用可续跑的原生子 Agent；更正传给原执行者，主 PA 接住新输入。用户要求停止时，主 PA 根据记录中断对应执行者并核对状态；用户明确接续时，由主 PA 联系原执行者。Task 的负责人仍是主 Agent，不新增 bind_execution/child_id 协议。晚结果不是恢复授权；需要跟进下级时通过原执行者及现有管理工具协调，不声称暂停 Task 会自动硬停止整棵执行树。
 
-**主动性先落在有用的私人准备。** proactive-care 根据观察原话和后续状态判断具体帮助价值，使用现有 Inbox/消息读取核对责任、时间和是否已处理；读取不全时保留覆盖限制。必要时在既有工作记录留下草稿与来源，避免重复；不要求每条观察建任务、写 Memory 或通知。外发必须沿用真实授权与披露检查，观察到的承诺本身不是外发许可。
+proactive-care 由主 PA 使用获准 Inbox/conversations 核对原话、责任和后续状态，在私人范围准备实际草稿；读取不全则说明覆盖限制。已处理或无新价值不重复催办，不把观察到的承诺当成外发许可。暂不引入独立观察者角色，也不向子 Agent 开放会话查询例外。
 
-**有限验证，不制造能力结论。** 原生能力探针与 A 文案效果分开记。关键能力失败时相应旅程标 blocker/B，M1 不宣称通过、PR 保持 Draft 并交付独立 diff 与失败证据；不在 A 修运行时，也不靠放宽标准转绿。这不阻止审阅 A 的独立文本改动。
+默认值只用于新 PA；已有自定义/清空和 Skill 禁用保持。沿用安装器、同名用户 Skill 优先级与现有配置入口，不新增服务模式配置。
 
-## 接口与数据流
+### B：原生委派深度增加一层
 
-没有新增 API、数据结构、配置或存储。
+在 `prepareProfile` 的既有公开 patch 中设置 `{id: 'subagent', config: {maxDepth: 2}}`。主 Agent 深度 0、一级执行者 1、下级执行者 2；普通 spawn/fork 不得继续创建深度 3。普通与 PA 的 host 共用此默认值，不新增 PA 特例，不增加 `maxActiveSubagents`，保留调用方既有显式 profile patch 语义。
 
-主 PA 从可信来源理解请求/观察，按需加载 ongoing-work 或 proactive-care；读取当前可访问的原消息、既有工作记录与结果；能做的小事直接完成，已交办长事项沿用实际执行者，观察线索仅做有依据的私人准备。新进展或需决策时通过既有真实发送路径交付；无新价值静默。完成、取消与更正回到原事项，不另造执行状态。
+这是配置变更；已有执行、Skill 消费、后台响应和同 ID 恢复不重写。二级创建成功仍不等于真实任务交付，需验证实际执行与逐级回传。
 
-### Agent Context
+### B：产品通信与读取只提供给主 Agent
 
-- Consumer：主 PA 消费默认指导与 Skill 描述/正文；普通 Global Agent 可按需使用共用 Skill；子 Agent 只收到当前任务所需交接信息，现有运行时继承语义不变。
-- Lifecycle：首次创建存 custom_prompt → 既有 Persona 组装；Skill 由随包安装 → 既有发现/禁用过滤 → 模型选择加载。原配置更新与恢复路径不变；清空文案不回填。升级会刷新随包方法，既有自定义 prompt 和禁用选择保持。
-- Before/After：从“关注已交办新消息”扩展到“重要观察可先核对并私人准备”，明确不冒充授权、已处理不催；持续工作强调原执行者和真实结果。没有新的硬性运行时保证。
-- Interactions：固定个人安全提示仍负责身份、来源及披露；Task/Memory/Heartbeat 等保持原接口与开关；本片不得引用不存在的 records、personal_context、personal_attention、bind_execution、clear_execution、query_receipt_id 或 attention_id。
-- Validation：检查真实模型请求中实际进入的文案、Skill 发现/加载与工具回执；随后核对用户实际结果。对自定义、空 prompt 和禁用 Skill 检查配置/组装与真实消费；仅字符串断言不作为体验验收。
+| 能力 | 普通 Global 主 Agent | 主 PA | 一级/二级子 Agent |
+|---|---|---|---|
+| inbox、conversations | 按现有选择与权限 | 按现有选择与来源权限 | 不注册 |
+| send_message 的 target/text 公开发送分支 | 保持 | 保持 | 不注册此分支 |
+| send_user_message | 不提供 | 保持原有主 PA 专属 | 不注册 |
+| send_message 的 agent_id/message 内部通信 | 原生规则 | 原生规则 | 保留原生规则 |
+
+使用宿主已有 Agent/session origin 与主绑定判断角色，不能由模型文本、自称角色或工具参数提升权限。将 Global 产品工具和主 Agent 专用提示从所有后代共享的 preset 注册位置收敛到主实例作用域，复用 `attachAgent` 现有主 PA 注册模式；普通子 Agent 保留 DSH 原生内部 send_message 的定义及执行，不挂载合并后的公开 schema。实现时从实际模型请求核实 native spawn、fork 和恢复路径没有继承根工具或误删内部工具。
+
+沿现有产品入口检查补齐 Global 子 Agent 公开发送拒绝；保留已有 Inbox/conversations 与代表发送检查，避免恢复旧上下文或直接调用绕过注册边界。无需新建权限服务。非 Global 的产品通信行为不在本次扩大修改范围。
+
+同步调整主 Agent 专属的 Inbox 消费、面向用户确认/进度/交付提示，使其只进入主 Agent 的当前组装；子 Agent 只按内部任务向父级回传。保留实际适用的来源、授权及个人安全约束。既有历史不重写，恢复后重新组装当前工具和指导；旧历史内容不恢复工具权限。
+
+## Agent Context 与数据流
+
+- **Consumer**：主 PA 消费默认 Persona、两份按需 Skill 与产品工具；普通 Global 主 Agent 保持自身指导并可消费 ongoing-work；所有 Global 后代消费内部工具与实际可用的 Skill，不注入要求其对外回复/消费 Inbox 的主 Agent 指令。
+- **Lifecycle**：首次创建保存 custom_prompt → Persona 组装；随包安装 → Skill 发现/选择/禁用 → 正文加载。角色由宿主建立，新建、fork、同 ID 恢复均按当前角色提供工具；配置更新不补回清空值或禁用 Skill。文件、Memory 与 fork 历史继承机制保持，不把最小交接建议宣传为硬隔离。
+- **Before/After**：子 Agent 之前看到 send_message 的 target/text 与 agent_id/message 两分支、Inbox/conversations 及主 Agent 发言指导；之后只看到内部通信分支与适用指导。主 PA 则增加有价值的私人准备方法。没有新增观察者工具或授权来源。
+- **Interactions**：Task 状态、停止与显式恢复语义仍以现有系统为准；PA 根据当前状态协调执行者。固定安全与披露审核继续适用，内部 accepted 回执不等于外部 sent。没有 records、personal_context、personal_attention、query_receipt_id 等新协议。
+- **Validation**：检查最终 provider request 的实际 schema、系统指导、Skill 描述/正文和工具回执，再核对真实用户结果。覆盖普通 Global/PA、主/一级/二级、spawn/fork、恢复、自定义/空 prompt/禁用 Skill；不同维度用最窄工程测试验证，不机械执行完整笛卡尔积或全模型评测。
 
 ## 契约层增量 (delta-spec)
 
-- Gateway：`specs/gateway/personal-agent.md` 修改现有“默认服务指导复用普通配置和 Skill”，保留原用户选择与持续工作契约；新增轻量私人准备情形。
-- IM：创建入口和存储语义不变，no spec delta。
+- `gateway/personal-agent.md`：默认服务、持续工作、轻量私人准备，保留用户选择。
+- `gateway/global-agent.md`：主 Agent 独占产品聊天工具，子 Agent 内部回传及请求资料。
+- `gateway/agent-capabilities.md`：默认允许两层原生委派、普通第三级拒绝；明确默认深度与权限独立。
+- IM、Task 数据协议无增量，不提前改 current specs。
 
 ## 风险与回退
 
-文案效果具有模型差异；本次只报告已运行场景与实际限制，不声称完整覆盖或统计提升。main 原生子 Agent 若不支持关键链路，记录具体缺口给 B，不扩大 A。
+主要风险是主/子注册作用域误继承、误删同名内部通信、主指导仍注入后代，以及模型未正确消费方法。沿实际请求与真实旅程验证；关键失败保留未通过，不能以提示词或 fixture 通过替代结果。既有子 Agent 曾依赖公开产品工具的流程改为向主 Agent 回传，这是本次明确收窄。
 
-回退三份产品文本即可撤回随包行为变化；已保存的新 PA custom_prompt 由主人按原入口修改或清空，不做全局重写。无 schema 迁移；#414 的旧数据继续隔离保存。
-
-后续最小范围：B 首先落实已确认的深度 1→2；除此之外仅修证据证明必需的持续执行/更正/单项停止/多级协作与权限边界；C 拆领域方法且不依赖新记忆检索；D 单独完成真实文件交付。旧 memory v2 与 personal_context 暂停，不成为这些片的依赖。
+回退相关配置/注册/文本提交即可撤回代码行为；已保存的新 PA custom_prompt 仍由主人按原入口修改或清空，不全局重写。没有 schema 迁移；既有会话、Task 与恢复机制不变。
 
 ## 一次性部署迁移
 
-无。不部署生产，不接触迁移过的旧 workspace。
+无。本轮不部署生产，不接触 #414 迁移 workspace。C 领域 Skills、D 文件交付仍是后续范围。
 
 ## Runbook for Reviewer
 
@@ -94,12 +100,14 @@ feat-658 奠定主人身份/来源和当前服务指导；feat-665/#414 的大�
 
 **验证计划**：
 1. 同 runtime/模型/工具配置、新鲜 workspace，用 main 文案与候选各运行小事直答、长事更正、观察承诺准备三个有限对照；保留输入及真实结果，不从单次差异推导提升率。
-2. 单独用实际 Agent/模型核实 Skill 读取、允许范围内二级委派及结果返回。至少一次产品旅程使两项工作实际并行：更正 A 回原执行者、等待期间回答短问题、只停 A 而 B 继续交付。每项按输入→工具回执→实际结果给证据，不用提示词要求当成功证明。
+2. 单独用实际 Agent/模型核实 Skill 读取、二级委派及结果返回；工程检查普通第三级拒绝。至少一次产品旅程使两项工作实际并行：更正 A 回原执行者、等待期间回答短问题、只停 A 而 B 继续交付，再由主人明确要求接续 A，核对原执行者接续与状态。每项按输入→工具回执→实际结果给证据，不用提示词要求当成功证明。
 3. 观察承诺生成有内容的私人草稿且不对外发送；追加已处理消息后不重复催；无新价值静默；来源不完整时不宣称全覆盖。
 4. 检查新 PA 默认指令、已有自定义、清空指令和禁用 Skill 保真；正常工具/固定安全边界仍在。既有测试先窄后扩，文本修改不新增镜像实现的字符串快照测试。
+
+5. 在普通 Global 与 PA 的实际模型请求中检查：主 Agent 产品工具仍可用，一级/二级及 fork/恢复后的子 Agent 不出现 Inbox/conversations、代表发送或公开 send_message 参数，但能向父级/下级进行原生内部通信。工程测试直接调用受限产品入口应拒绝；子 Agent 请求资料和回传成果后由主 Agent 实际读取/交付。不得以仅工具名称过滤断言代替同名 send_message 分支检查。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | 服务指导与轻量准备 | 无 | 无 | 三份产品文本；相关既有测试；unit 证据与最窄 spec 归并 | [reviewer] spec 全部七个场景具有真实产品结果；小事直接完成，跨事项更正/停止不混淆，等待可响应，观察有用准备且不越权，已处理安静，用户选择保持。 [worker] 三份文本无新协议/隐藏运行时改造；相关测试与构建通过；实际模型输入、Skill/二级委派原生能力与回执、有限基线对照可追溯；固定安全/禁用仍有效。关键未支持项保留 blocker/B、不宣称 M1 完成或 Ready。 |
+| M1 | A+B 服务方法与主从协作 | 无 | 无 | 三份产品文本、integration profile/工具及提示注册、既有产品入口检查、相关测试、unit 证据与三份 gateway delta | [reviewer] spec 全部场景具有真实产品结果：小事直答、跨事项更正/停止/明确接续、等待可响应、二级执行逐级交付、子 Agent 请求资料与内部回传、私人准备与安静、用户选择保持。[worker] 最窄相关测试及构建通过；深度 2 可执行且普通深度 3 拒绝；普通 Global/PA 的主/子 schema 与当前提示、fork/恢复权限及内部通信取证；实际 Skill 消费、回执和有限基线对照可追溯。关键失败保持未通过，不宣称 M1 完成或 Ready。 |
