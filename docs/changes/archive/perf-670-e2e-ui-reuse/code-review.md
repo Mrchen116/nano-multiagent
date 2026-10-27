@@ -35,3 +35,10 @@
 - `4aeebb541` 上又在两个全新运行目录完成 `e2e-up.sh --vite`：9.101 / 8.209 秒，均两套 reuse；IM/Vite 页面、轨迹资源、精确 Origin 允许/外来 Origin 拒绝与 PID/端口清理再次通过，无新增模型调用。
 - effective_base: `39ce046cc2f228fc2be41f1418452b512df4ff75`；实现验证与审查有效到 `4aeebb54156776e78d80e5a2f6ba2c36a5e451c3`。后续只补充本报告和归档，核心构建/typecheck/770 后端/1029 前端/原浏览器证据保留；新增缓存 delta 由上述 Python、真实产物和最终入口检查覆盖。
 - 用户明确授权“测好了再更新pr”，验证由 Agent 执行；未声称用户亲自重跑，不合入、不部署。
+
+## Final main sync
+
+- 收尾时 main 合入 #422，effective_base 更新为 `4cea0166d70a604da6a7dcea9246d81e37b1e1bb`；集成树 effective_through 为 `a79a0dc48ac80f2c2ad73226b7355d683bcabdb7`。
+- main 增量为 PA/子执行指导、相关测试和文档，未修改本次构建输入集合、前端/轨迹源码、启动脚本或依赖锁；R1/R2 对 PR diff 的审查仍有效。集成后重新 build、typecheck、16 项缓存测试、docs-check 均通过，UI helper 明确两套 reuse，验证后端更新不导致无关 UI 重建。
+- 集成树再起全新 `--vite` 隔离栈，9.306 秒，两套 reuse；同源/Vite 页面、轨迹资源、Origin 与清理均通过。首次探针过快命中已有账号每秒一次登录限制（429），按实际 Retry-After 重跑通过；仅修正临时验证脚本，不修改产品限流。
+- 后续提交仅补本段事实。开发 worktree 保留供 PR 审查；用于真实产物校验的临时 managed worktree 请求归档时被应用以“当前主 checkout 不可移除”拒绝，未强制删除；该目录无自建服务，验证证据已在外部报告目录保留。
