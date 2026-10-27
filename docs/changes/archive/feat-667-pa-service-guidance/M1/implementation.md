@@ -69,3 +69,23 @@ Main advanced from `c4ebad992` to `8d428779b5ebe0bb0c5c277f2ca5b56c0a303b82` thr
 ## Long-work delivery latency analysis
 
 The user requested that the observed delivery slowdown be retained in this unit. [交付耗时分析](delivery-latency-analysis.md) records the 2026-10-27 21:29 CST snapshot and the 21:45 follow-up: phase timing, permission blocks, coordination and ledger overhead, acceptance-harness rework, the unresolved PA notice/inbox failure, and measurement limitations. Proposed efficiency improvements remain unimplemented; this analysis neither replaces independent acceptance nor establishes a direct-Codex speed comparison.
+
+
+## Final sync and user trial — 2026-10-28
+
+The owner personally tried the fresh blank PA instance and explicitly accepted the real trial, then authorized completing the remaining checks, creating/merging this unit PR and deploying it. The initial fresh instance had zero messages, no main session and no child execution; its runtime used the coordination patch. This acceptance is separate from the independent synthetic journeys. The later long-task acknowledgment qualifier (`985bc6f07`) and Workflow-child scope qualifier (`384ab2710`) were reviewed and built but not reloaded into the active personal trial; no post-fix real-model behavior is claimed for those two tiny changes. Native provider-input assembly covers the long-task qualifier; the Workflow change only names the already-filtered child type.
+
+Final sync integrated main `b45b529b1aebb68d164081b582c87114726af530` into `8294c698c56040e88b8bff8dc41bf1049b74fc25`. The main increment is PR #417's tests/fixtures, E2E/archive checks and documentation; it changes no product runtime source. Existing full backend/frontend and real-model evidence remains applicable; independently reviewed source/Context conclusions are retained. Updated local checks: four backend/native suites 14/14, four changed frontend suites 75/75, non-E2E Python 84/84, Ruff check/format, complete workspace build/typecheck and packaged iOS runtime check all pass. Logs are retained under the evidence root `checks/pa667-final-*`. No iOS client change requires native simulator/device rebuilding.
+
+The personally tested instance was stopped after read-only confirmation that no turn was running or awaiting permission. All earlier owned preview environments remain stopped; runtime data and evidence are preserved outside the development checkout. No production service was changed during these checks. Final independent completion reconciliation, canonical merge/archive, remote CI and deployment are recorded in their final closure/PR/deployment records rather than inferred from this checkpoint.
+
+
+A second external main increment, PR #421 (`39ce046cc2f228fc2be41f1418452b512df4ff75`), was integrated as `727be381aa0d4c6213f191a3da3c2a9a6b49f722`. Its runtime delta is an optional `RuntimeEvent.surfaceOp` type and skipping replacement results in product tool presentation; native execution/context, delegation, Skills and authorization are unchanged. Independent bounded source review retained the earlier feat-667 conclusions with their original version boundaries. `store.test.ts` passed 22/22 and both changed packages built successfully; exact logs are `checks/pa667-main421-*`. No assumption is made that historical tool-display durations are newly corrected in preserved evidence.
+
+
+Independent Acceptance Round 3 at `5a1e0afa6` closes the final #361 completion gap: Ready PR #419, exact-head CI success and real two-level internal return followed by root public delivery. The original coached input, owner clarifications, source-version switch and Git credential-helper intervention remain explicit. Its bounded offline indexes are additionally preserved under `issue361-final-review/` in the durable evidence root. Whole-workspace typecheck after #421 also passed.
+
+
+## Delivery closure
+
+Independent final code/Context review has no surviving finding; Verification Round 5 closes V1/V2 and aligns all three corrected deltas. The reviewed requirements were merged into current Gateway specs and their area-index counts updated. The entire unit was moved intact to archive. Documentation integrity passes (281 maintained sources / 68 routes), the explicit feat-667 archive check passes, and `git diff --check` passes. No product code changed after source `727be381a`; subsequent commits only close evidence and archive/merge the verified contract. PR creation, remote CI, authorized merge and production deployment follow this completed local gate.

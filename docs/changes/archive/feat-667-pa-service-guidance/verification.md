@@ -2,7 +2,7 @@
 
 > Validation snapshot: `c4ebad992ae99e75ee9c3fca88b3eab43abd9ea5` → `7ddaceb942423436bc656fba6707b04f131c9cb1`
 
-Latest status: Round 3 passes the corrected coordination delta after document closure at `fdcd95ab5`. Round 2's seven supported product scenarios remain retained; whole-unit #361 PR/CI and final root-delivery evidence are still pending in this report.
+Latest status: **Round 5 passes final bounded reconciliation**: V1 completion evidence is closed, V2 remains closed, and all three final gateway deltas are aligned. Earlier pending verdicts remain historical snapshots. Canonical merge/archive and this unit's PR/CI/deployment are subsequent delivery actions, not claimed completed by this report.
 
 ## Round 1
 
@@ -181,3 +181,50 @@ Evidence reused: `coordination-fix/pa667-simple-ack-build.log` (related build pa
 ### Issues and Uncovered Observable Behavior
 
 None found within this small corrected delta. The user-requested implementation remains two qualifiers, without a simple-request checklist or expanded instructions. Post-fix simple-request behavior is explicitly unverified, and the running #420 executor was not restarted or interrupted for this review. Prior long-task, PR/CI and whole-unit acceptance evidence are not reopened or reconciled by this patch review.
+
+## Round 5 — final bounded completion and corrected-delta closure
+
+- Reviewer: independent `/root/pa_authorization_review`; review date: 2026-10-28.
+- verification_mode: `targeted-closure` for V1 plus `corrected-delta` for the three final gateway deltas. Reuses the existing full engineering, code/Context and independent product reviews; does not repeat them.
+- Effective base: `39ce046cc2f228fc2be41f1418452b512df4ff75`; product source effective through `727be381aa0d4c6213f191a3da3c2a9a6b49f722`; independent final acceptance record: `5a1e0afa6a9fcc819dd289c9475529ed018b81e6`. These are integration/review bounds, not the execution versions of every historical journey.
+- Verdict: **PASS** for final unit verification, with the evidence boundaries below. CRITICAL 0, WARNING 0, SUGGESTION 0. V1 closed; V2 closed. `requires_full_verification: false`; corrected-delta outcome: **aligned**.
+
+### V1 actual completion evidence
+
+Independent `acceptance.md` Round 3 at `5a1e0afa6` closes the three #361-dependent rows with actual completed development, internal returns and public delivery. Bounded spot checks in `/tmp/pa667-361-final-review/` and the original `/tmp/pa667-issue361-runtime/provider-requests/` support reuse:
+
+| Prior gap | Verified closure evidence | Result |
+| --- | --- | --- |
+| Complete long-work outcome | [Ready PR #419](https://github.com/Mrchen116/nano-multiagent/pull/419), head `77468b4717b6e63ea4fec9fba9da9996f6cc92ed`, CI `40529144631` completed/success, independently checked by the product reviewer; retained `ci-watch.log` ends with backend/frontend success and iOS detection success, with native iOS correctly skipped. | closed |
+| Actual second-level execution and return | Root `5524e22e…` → continuable `54612f0b…` → real implementer `fecdbd2e…`; call `47fbcdc8…` starts the implementer, and `239a7eff…` sends commit `dfee3df4…`, tests and limits back to the actual parent with a delivered receipt. Independent design/product/static roles and final archived task reports are recorded, rather than substituting maintenance sessions or a depth-only probe. | closed |
+| Complete internal-result / root-public-delivery path | Call `044de914…` returns same-head green CI from first-level to root with an internal delivered receipt. Call `50805cec…` sends final PR/head/CI/result/limitations to the original owner conversation with `status=sent`, message `a9c9b221560b436a8936e0aaecb196cc`. Independently checked original WS events 131/132 confirm created/completed for that same message. | closed |
+| Actual child versus root schemas | Spot-checked requests `1793095399827258000.json` and `1793114555726795000.json`: child send has only `agent_id/message`, without inbox/conversations/representation. Root final request `1793114589133299000.json` retains product tools and `target/text`. | closed within observed real chain |
+
+The original seven ordinary scenario results and finite comparisons remain valid at their original versions. Acceptance Round 2's corrected natural trial supplies the independently verified two-input continuation, successful distinct IM/Vite Sol replies, honest retention of the earlier DeepSeek 402 failure, Luna reviewer configuration, original-worker continuation and actual owner delivery. The later natural-trial PR #416 / CI `40514929820` evidence explicitly includes the two further human PR-status/creation messages; it is not one-input autonomous PR completion. Product reviewer Round 3 retains these results and declares PASS without inventing another journey. The user's separate personal acceptance is recorded as human feedback, not a substitute for these technical records.
+
+### All final corrected deltas and canonical mapping
+
+Reviewed the final active deltas and `/tmp/pa667-canonical-merge-preview.patch`; the preview has not been applied by this reviewer. Complete `MODIFIED` entries replace their same-named current requirements while retaining unchanged obligations; `ADDED` entries introduce only the reviewed behavior.
+
+| Final delta | Implementation / retained validation | Outcome |
+| --- | --- | --- |
+| `specs/gateway/agent-capabilities.md` | `client.ts` default native depth 2 with explicit override preserved; actual native depth/schema/fork/cold-resume evidence from earlier review. `policy/sources.ts` and `codex-context.ts` preserve original human scope, parent limits and pinned risk-policy exceptions; fixed Luna before/after/control evidence retains its narrow limits. Workflow wording now names only Workflow children, matching `engine.ts` filtering without expanding ordinary child capability. Preview adds depth requirement and updates the full Codex source/outcome requirement only. | aligned |
+| `specs/gateway/global-agent.md` | Root-only product tools and product guard; internal-only child schema with working native messaging; role-sensitive Task/UI/security guidance. Complete communication requirement includes simple direct delivery, long-task acknowledgment/no-reply, useful update cadence, actionable internal messages, necessary stop/correction/status/final delivery and original receipt semantics. Earlier real journeys plus bounded coordination probes/native captures and V1 final return chain cover their stated scopes. Preview retains the complete corrected requirement; V2 does not recur. | aligned |
+| `specs/gateway/personal-agent.md` | Creation-only editable Persona, discoverable packaged ongoing-work/proactive-care, existing custom/empty/disabled choice preservation; useful private preparation and quietness without disclosure authorization; bounded permission-blocker coordination and original-executor continuation. Existing product evidence and source/approval regression evidence are retained. Preview preserves the full existing configurable-guidance requirement and adds only the reviewed observation/blocker scenarios. | aligned |
+
+No additional externally observable unit behavior was found missing from these deltas. No frontend prototype/reference contract applies. No new Task binding, ledger service, scheduler, provider/runtime fork, permission bypass or client migration was introduced.
+
+### Final-main compatibility and engineering gates
+
+`8d428779..b45b529b1` (PR #417) changes tests/fixtures, E2E/archive scripts and documentation, with no production runtime source. The merge at `8294c698c` retains prior product/Context evidence; `checks/pa667-final-*` records 14 backend/native, 75 frontend and 84 non-E2E Python checks, Ruff, workspace build/typecheck and packaged iOS-runtime check passing. The build footer names that merge head.
+
+`b45b529b1..39ce046cc` (PR #421), integrated at `727be381a`, adds optional `RuntimeEvent.surfaceOp` typing and excludes model-context replace events from new Work/SingleThread tool-completion cards. Bounded code review checked the actual callers and unchanged durable model events; the change does not touch delegated tools, model input, Skill, policy or source authorization. `checks/pa667-main421-*` records 22 store checks, affected-package build and full typecheck passing. Prior raw evidence retains its provenance; historic display-duration anomalies are not recertified as exact timing. These main increments do not require repeating the existing full suite or real task matrix.
+
+### Preserved limits and release readiness
+
+- #361 was explicitly instructed to delegate and later received external diagnosis, bounded data/API authorization clarification, f0 runtime replacement with same-worker continuation, and caller help with a target-repository Git authentication mismatch. It establishes completed instructed execution, not a fully unassisted autonomous run. Natural PA organization is supported separately, with the stated additional human inputs and model-route limits.
+- The unresolved ancillary notice-availability observation is retained and not declared fixed or proven preexisting. The independent product review explains that redesigning that propagation is outside the #361 retry acceptance scope; no surviving unit invariant violation was established by it.
+- The long-task acknowledgment qualifier `985bc6f07` and Workflow-child qualifier `384ab2710` were not reloaded into the personal-trial runtime or tested in another complete real-model journey. Their limited code/assembly evidence is recorded in code-review Rounds 5/6. User acceptance of the prior real trial does not erase that limitation.
+- Sol normal-chat success does not repair the default DeepSeek quota route. Synthetic fixtures/native assembly are not model-choice or end-to-end performance evidence; no delivery-speed improvement percentage is claimed.
+
+The required bounded verification is complete. **Canonical merge and unit archive may proceed**, followed by this unit's own PR/CI, authorized merge and deployment. This report does not assert those later actions or a package release have occurred. No product code, services or runtime data were changed by this verifier; only review reports were edited.

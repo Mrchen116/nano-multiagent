@@ -144,3 +144,27 @@ Bounded local evidence root: `/Users/czj/.codex/reports/feat-667-pa-service-guid
 `pa667-simple-ack-context-{false,true}.json` contain the exact frozen Global system section in ordinary Global and PA native model inputs, respectively; each includes the new long-task condition and no old unconditional sentence, while preserving both no-reply clauses. The PA capture also contains the fixed personal-agent security guidance. `pa667-simple-ack-build.log` records successful product-contracts/integration compilation; `pa667-simple-ack-tests-final.log` records 2/2 passes from the one-off copy of the existing native Global/PA fixture. Reused these bounded results without rerunning unrelated checks or adding permanent sentence-matching tests.
 
 The fixture proves assembly and retained native execution/tool boundaries, not model interpretation. There is **no new real-model behavior validation** of simple-request direct delivery, no measured post-fix message count and no evidence that an already running PA loaded the new text. The change removes the existing instruction to pre-acknowledge every task; it does not add deterministic message suppression. No service restart, #420 interruption, product-code modification, commit or push was performed by this reviewer.
+
+## Round 6 — Workflow-child scope clarification
+
+- Reviewer: independent `/root/pa_authorization_review`; review date: 2026-10-28; did not implement the change.
+- review_mode: `patch`; validated_at: `384ab2710f3270f7222a966bb60ab1f67a897985`; clean checkout confirmed before review. Scope is only its one-line delta from the parent: `workflow/tool.ts:40`, `A child` → `A Workflow child`. Round 5's long-task qualifier remains reviewed without reopening it.
+- Context review: `agent-context-review`, Mode B / Implementation Review, limited to the workflow tool description/system-guidance consumer and actual child tool filtering.
+
+No surviving CONFIRMED or PLAUSIBLE finding:
+
+```json
+[]
+```
+
+The restriction now names the exact child kind to which it already applies. `workflow/engine.ts:365-370` derives the Workflow child's allowed names from the parent schema and removes `workflow`, `subagent` and `subagent_fork`; the same list is passed to both child configuration `toolAllowlist` and native `toolFilter` in the Workflow `start` path. `workflow/tool.ts:110,224` uses the same instructions string for tool description and system guidance. The edit does not change that filtering, native depth, ordinary child capability, authorization, lifecycle or execution. It removes the misleading implication that all native children are barred from further delegation, consistent with the existing two-layer native-delegation delta.
+
+The existing native schema/depth/communication evidence and Round 5 assembly checks are reused; no new full test or runtime replay is needed for this scope word. Neither this Workflow qualifier nor the prior long-task qualifier is claimed as loaded or personally tried in the running user runtime. The supplied user acceptance of the preceding real trial does not retroactively establish real-model consumption of these last two qualifiers.
+
+### Final main synchronization compatibility
+
+Bounded inspection of `8d428779..b45b529b1aebb68d164081b582c87114726af530` confirms PR #417 changes only tests, deterministic fixtures, E2E/archive-check scripts and documentation. Merge `8294c698c56040e88b8bff8dc41bf1049b74fc25` therefore retains the earlier product-code/Context and real-model evidence within its original version and scenario scope. The retained `checks/pa667-final-*` logs record the updated 14 backend/native checks, 75 frontend checks, 84 non-E2E Python checks, Ruff, workspace build/typecheck and packaged iOS-runtime check passing; the build footer names `8294c698c`.
+
+The later external main `39ce046cc2f228fc2be41f1418452b512df4ff75` (PR #421) is integrated at `727be381aa0d4c6213f191a3da3c2a9a6b49f722`. Its runtime delta adds optional `RuntimeEvent.surfaceOp` typing and makes `toolPresentation` ignore model-context replacement events as new tool completions. The only callers are product Work projection and SingleThread card delivery; no provider request, native history, Skill, delegation or approval path changes. The accompanying store regression covers append/legacy success/error, live/replay equality and preservation of durable original events/content/timing. `checks/pa667-main421-{tests,build,typecheck}.log` record 22/22 store checks, changed-package build and complete typecheck passing. This is compatible with the reviewed feat-667 behavior and avoids treating context pruning as a second tool completion. Existing raw evidence keeps its actual execution provenance; historic displayed timing anomalies are not retroactively certified as accurate. No surviving code/Context finding was identified in this bounded compatibility assessment.
+
+Final effective review bounds: base `39ce046cc2f228fc2be41f1418452b512df4ff75`, source through `727be381aa0d4c6213f191a3da3c2a9a6b49f722`, product-completion evidence at `5a1e0afa6a9fcc819dd289c9475529ed018b81e6`. Prior full review and bounded rounds compose to the final source; the independent acceptance now closes its remaining delivery gap with the explicit intervention/version limits retained. Final verification Round 5 reconciles V1 and all three corrected deltas. No surviving code/Context finding or further full-review requirement remains; canonical merge/archive and subsequent delivery may proceed.

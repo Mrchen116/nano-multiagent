@@ -19,9 +19,9 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、逐消息时间与实际入口、会话控制与图文投递、后台 Agent / Workflow 原始返回、self-evolution 维护隔离与重放去重、按需原始历史导出 | 22 |
-| [Global Agent](global-agent.md) | 跨聊天主上下文、Inbox 消费、成员查询、内部委派、显式发送、目标群及私聊复核与控制命令、任务过程沟通与内部收尾 | 19 |
+| [Global Agent](global-agent.md) | 跨聊天主上下文、Inbox 消费、成员查询、内部委派、显式发送、目标群及私聊复核与控制命令、任务过程沟通与内部收尾、主 Agent 专属产品聊天工具 | 20 |
 | [Service Lifecycle](service-lifecycle.md) | 同源安装与空节点设置、主动更新和回退、节点启停、独立 Agent 停用与只读管理、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 14 |
-| [Agent Capabilities](agent-capabilities.md) | 直接真人来源语义、网页模型服务管理与验证、完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 知识归属、当前读取、联合复盘和跨会话 F4、完整Feature依赖与独立工具开关、占用保护、tool allowlist、全局固定基础工具、workspace 自建插件管理、默认无摘要换窗与按需恢复、开发指导与可选 Workflow、通用交互表达与背景理解、原生 Goal 默认关闭及显式开启 | 47 |
+| [Agent Capabilities](agent-capabilities.md) | 直接真人来源语义、网页模型服务管理与验证、完整运行配置、模型配置、推理能力、可恢复配置 operation、Skill 选择、self-evolution 知识归属、当前读取、联合复盘和跨会话 F4、完整Feature依赖与独立工具开关、占用保护、tool allowlist、全局固定基础工具、workspace 自建插件管理、默认无摘要换窗与按需恢复、开发指导与可选 Workflow、通用交互表达与背景理解、原生 Goal 默认关闭及显式开启、默认两层原生委派 | 48 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、有效责任保护、独立调度工具、调度、错过周期语义与对应原生主会话归属 | 5 |
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传、只读原生轨迹观察、断连重连持久诊断 | 22 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、运行时查询控制、权限路由与投递 | 9 |
