@@ -6,10 +6,10 @@ import Fastify from 'fastify';
 import { expect, it } from 'vitest';
 import { canonicalAgentConfiguration, agentConfigurationFingerprint } from '@nano/product-contracts';
 import { candidateFingerprint, registerControlRoutes } from '../src/control.js';
-import { fixture } from './control-fixture.js';
+import { fixture, connectFixtureGateway } from './control-fixture.js';
 
 it('saves, preserves omitted mode, clears inheritance and rejects invalid approval choices through the API', async () => {
-  const {ctx, db} = fixture();
+  const {ctx, db} = fixture(); connectFixtureGateway({ctx,db});
   const app = Fastify();
   app.setErrorHandler((error: any, _req, reply) => reply.code(error.statusCode ?? 500).send({detail: error.message}));
   registerControlRoutes(app, ctx);

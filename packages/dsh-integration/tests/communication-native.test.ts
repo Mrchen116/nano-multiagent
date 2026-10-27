@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -13,13 +13,16 @@ it('routes single-thread public send fields through the product bridge', async (
     client = new RuntimeClient({home,cwd:home});
     const calls: any[] = [];
     client.rpc.handle('product.call', value => {calls.push(value);return {status:'sent',message_id:'public-message'};});
-    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',mode:'single_thread',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['send_message'],approval:{dangerouslySkipPermissions:true}}],bindings:[]});
+    await mkdir(join(home,'skills/nano-interactive-ui'),{recursive:true});
+    await writeFile(join(home,'skills/nano-interactive-ui/SKILL.md'),'---\nname: nano-interactive-ui\ndescription: Explicit interactive contract\n---\nUse explicit cards.');
+    const config={agentId:'a',revision:'1',workspace:home,mode:'single_thread',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['send_message','skill'],features:{intelligent_ui:true,task_graph:false,memory_curation:false,skill_creation:false},skillRoots:[{path:join(home,'skills'),source:'workspace'}],approval:{dangerouslySkipPermissions:true}};
+    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'chat',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
     const prompt = async () => JSON.stringify((await client!.rpc.request('session.capabilities', {sessionId:'chat'}) as any).prompt);
     expect(await prompt()).toContain('nano-interactive-replies');
-    await client.rpc.request('configuration.features', {agentId:'a',features:{intelligent_ui:false}});
+    await client.rpc.request('configuration.apply', {...config,features:{...config.features,intelligent_ui:false}});
     expect(await prompt()).not.toContain('nano-interactive-replies');
-    await client.rpc.request('configuration.features', {agentId:'a',features:{intelligent_ui:true}});
+    await client.rpc.request('configuration.apply', config);
     expect(await prompt()).toContain('nano-interactive-replies');
     await client.rpc.request('session.submit',{sessionId:'chat',inputId:'human',mode:'followup',content:[{type:'text',text:'send the public reply'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'human'}});
     await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'chat',inputId:'human'}) as any).terminal).toBeTruthy();

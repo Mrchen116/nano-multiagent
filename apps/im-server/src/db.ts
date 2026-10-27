@@ -15,10 +15,17 @@ export function openDatabase(path: string): DatabaseSync {
     }
     if (db.prepare("SELECT 1 FROM task_graphs WHERE json_extract(document_json,'$.schema_version') != 2 OR conversation_id='' LIMIT 1").get()) {db.close();throw Error("Task collaboration v2 data migration required");}
   }
+  if (tables.has('pa_delegated_messages') && !db.prepare('PRAGMA table_info(pa_delegated_messages)').all().some(column => column.name === 'representation_operation_id')) {
+    db.close(); throw Error('PA representation migration required; run migrate-pa-representation dry-run/apply/verify before starting IM');
+  }
   db.exec("DROP TRIGGER IF EXISTS personal_observation_event; DROP TRIGGER IF EXISTS personal_membership_revoked");
   db.exec(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
   if (!db.prepare("PRAGMA table_info(pa_operations)").all().some(column => column.name === "result_json"))
     db.exec("ALTER TABLE pa_operations ADD COLUMN result_json TEXT");
+  if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'caller_payload_json'))
+    db.exec('ALTER TABLE messages ADD COLUMN caller_payload_json TEXT');
+  if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'lifecycle_revision'))
+    db.exec('ALTER TABLE messages ADD COLUMN lifecycle_revision INTEGER');
   // CREATE TABLE does not upgrade deployed databases. Keep the old company rows
   // intact; new private inserts must choose their scope explicitly.
   db.exec("BEGIN IMMEDIATE");

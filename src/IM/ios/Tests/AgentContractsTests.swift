@@ -3,6 +3,13 @@ import Testing
 @testable import NanoIM
 
 struct AgentContractsTests {
+    @Test func offlineSettingsResponseDoesNotStartVersionConflictRecovery() {
+        let offline = APIError(status: 409, detail: "The Agent computer is offline", code: "agent_node_offline")
+        #expect(!isAgentStateConflict(offline))
+        #expect(isAgentStateConflict(APIError(status: 409, detail: "profile_version conflict")))
+        #expect(!isAgentStateConflict(APIError(status: 503, detail: "Pending", code: "config_apply_pending")))
+    }
+
     @Test func configPatchPreservesEmptyExplicitSelectionsAndModelOrder() throws {
         let response = #"{"agent_id":"a","owner_id":"u","node_id":"n","display_name":"Agent","description":"","skills":[],"skills_selection_mode":"explicit_allowlist","tool_allowlist":[],"group_reply_policy":"NO_REPLY","default_model":null,"model_fallbacks":["second","third"],"reasoning_effort":null,"work_mode":"single_thread","workspace_root":"/workspace/a","workspace_is_default":false,"profile_version":8,"features":{"heartbeat":true},"custom_prompt":"Keep this","heartbeat_json":"{\"every\":\"45m\",\"active_hours\":{\"start\":\"09:00\",\"end\":\"18:00\",\"timezone\":\"Asia/Shanghai\"}}"}"#
         let config = try JSONDecoder().decode(AgentConfig.self, from: Data(response.utf8))
@@ -23,7 +30,9 @@ struct AgentContractsTests {
     }
 
     @Test func creationAndPreviewKeepGlobalToolsAndDiscoveryIntent() throws {
-        let caps = try JSONDecoder().decode(AgentCapabilities.self, from: Data(#"{"node_id":"n","models":[{"name":"m","provider":"p","reasoning":{"kind":"selectable","default":"high","levels":["low","high"]}}],"skills":[{"name":"guide","description":"Guide","default_on":true,"source_group":"global","location":"/skills/guide/SKILL.md"}],"tools":[{"name":"bash","description":"Shell","default_on":true}],"features":[],"platform_default_model":"m","default_workspace_template":"/agents/{agent_id}"}"#.utf8))
+        let caps = try JSONDecoder().decode(AgentCapabilities.self, from: Data(#"{"node_id":"n","models":[{"name":"m","provider":"p","display_name":"研究模型","provider_display_name":"团队服务","reasoning":{"kind":"selectable","default":"high","levels":["low","high"]}}],"skills":[{"name":"guide","description":"Guide","default_on":true,"source_group":"global","location":"/skills/guide/SKILL.md"}],"tools":[{"name":"bash","description":"Shell","default_on":true}],"features":[],"platform_default_model":"m","default_workspace_template":"/agents/{agent_id}"}"#.utf8))
+        #expect(caps.models.first?.displayLabel == "研究模型 · 团队服务")
+        #expect(caps.models.first?.name == "m")
         var draft = AgentDraft()
         draft.agent_id = "worker"; draft.display_name = "Worker"; draft.work_mode = "global"
         draft.skills_selection_mode = "default_discovery"; draft.workspace_root = "/repo"
@@ -32,7 +41,7 @@ struct AgentContractsTests {
         #expect(create["workspace_root"] == .string("/repo"))
         #expect(create["work_mode"] == .string("global"))
         #expect(create["skills_selection_mode"] == .string("default_discovery"))
-        #expect(create["tool_allowlist"] == .array(["agent", "conversations", "inbox", "send_message"].map(JSONValue.string)))
+        #expect(create["tool_allowlist"] == .array(["conversations", "inbox", "send_message", "subagent"].map(JSONValue.string)))
         let preview = draft.previewPayload(capabilities: caps, creating: true, customWorkspace: true)
         #expect(preview["skill_ids"] == .array([.string("guide")]))
         #expect(preview["tool_ids"] == create["tool_allowlist"])
@@ -46,23 +55,14 @@ struct AgentContractsTests {
         var draft = AgentDraft()
         draft.skills = ["blocked", "hidden"]
         #expect(draft.enabledSkills(candidates: ["blocked", "imported"]) == ["imported"])
-        draft.setSkill("imported", enabled: false, candidates: ["blocked", "imported"])
+        let capabilities = AgentCapabilities(node_id: "n", models: [], skills: [AgentOption(name: "blocked"), AgentOption(name: "imported")], tools: [], features: [])
+        _ = draft.changeCapability(.init(kind: "skill", name: "imported", enabled: false), capabilities: capabilities)
         #expect(draft.skills == ["blocked", "hidden", "imported"])
-        draft.setSkill("blocked", enabled: true, candidates: ["blocked", "imported"])
+        _ = draft.changeCapability(.init(kind: "skill", name: "blocked", enabled: true), capabilities: capabilities)
         #expect(draft.skills == ["hidden", "imported"])
         let preview = draft.previewPayload(capabilities: nil, creating: false, customWorkspace: false)
         #expect(preview["skill_ids"] == .array([.string("hidden"), .string("imported")]))
         #expect(preview["skills_selection_mode"] == .string("explicit_denylist"))
-    }
-
-    @Test func enablingFeatureAddsOnlyItsRequiredToolAndDisablingPreservesTool() {
-        var draft = AgentDraft()
-        let feature = AgentFeature(key: "memory_curation", label_i18n: "feature.memory_curation.label", help_i18n: "feature.memory_curation.help", default_on: true, available: false, requires_tool: "memory")
-        draft.setFeature(feature, enabled: true)
-        #expect(draft.payload()["tool_allowlist"] == .array([.string("memory")]))
-        draft.setFeature(feature, enabled: false)
-        #expect(draft.payload()["features"] == .object(["memory_curation": .bool(false)]))
-        #expect(draft.payload()["tool_allowlist"] == .array([.string("memory")]))
     }
 
     @Test func channelRemovalDoesNotRequireLiveChannelOrSecretFields() throws {
@@ -73,6 +73,17 @@ struct AgentContractsTests {
         #expect(receipt.deletion_manifest_revision == 7)
         #expect(receipt.channel_revision == nil)
         #expect(receipt.observed == nil)
+    }
+
+    @Test func workRecordCompletenessIsOptionalAndSeparateFromExecution() throws {
+        for state in ["current", "catching_up", "unknown"] {
+            let response = "{\"record_sync_state\":\"\(state)\",\"node_connection_state\":\"online\",\"main_execution\":\"running\",\"turns\":[],\"next_cursor\":null}"
+            let page = try JSONDecoder().decode(AgentWorkPage.self, from: Data(response.utf8))
+            #expect(page.record_sync_state == state)
+            #expect(page.main_execution == "running")
+        }
+        let previous = try JSONDecoder().decode(AgentWorkPage.self, from: Data(#"{"turns":[],"next_cursor":null}"#.utf8))
+        #expect(previous.record_sync_state == nil)
     }
 
     @Test func workChildPagePreservesProcessAndMissingUsageWithoutInventingRootState() throws {
@@ -106,4 +117,23 @@ struct AgentContractsTests {
     let preview = draft.previewPayload(capabilities: nil, creating: false, customWorkspace: false)
     #expect(preview["heartbeat_enabled"] == .bool(false))
     #expect(preview["cron_enabled"] == .bool(true))
+}
+
+@Test func lifecycleRequiresConfirmedCurrentRevisionBeforeEnabling() throws {
+    for observed in ["stopping", "stop_unconfirmed", "disabled"] {
+        let response = "{\"agent_id\":\"a\",\"desired\":\"disabled\",\"revision\":3,\"applied_revision\":2,\"observed\":\"\(observed)\",\"error_code\":null,\"error_detail\":null}"
+        var state = try JSONDecoder().decode(AgentLifecycleSnapshot.self, from: Data(response.utf8))
+        #expect(!state.canEnable)
+        #expect(state.action != .enable)
+        #expect(state.action == (observed == "stop_unconfirmed" ? .retry : nil))
+        state.applied_revision = 3
+        #expect(state.canEnable == (observed == "disabled"))
+    }
+    let enabled = try JSONDecoder().decode(AgentLifecycleSnapshot.self, from: Data(#"{"agent_id":"a","desired":"enabled","revision":4,"applied_revision":3,"observed":"enabling"}"#.utf8))
+    #expect(enabled.action == .disable)
+    let data = try JSONEncoder().encode(AgentLifecycleChange(enabled: false, request_id: "request", expected_revision: 4))
+    let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(body["enabled"] as? Bool == false)
+    #expect(body["expected_revision"] as? Int == 4)
+    #expect(body["request_id"] as? String == "request")
 }

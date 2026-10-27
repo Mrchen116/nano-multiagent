@@ -99,7 +99,7 @@ it('retains CC 30/60 stage limits inside fresh complete attempts and snapshots a
   let calls = 0; let snapshots = 0; const requests: any[] = [];
   const parent = new AbortController();
   const request: any = { exec: { agent: { session: { header: { cwd: '/workspace' } } }, signal: parent.signal },
-    config: { approval: { ...approvalDefaults, globalRoot: '/owner' } }, inherited: [], reviewer, snapshot: {},
+    config: { approval: { ...approvalDefaults, rules: 'nano', globalRoot: '/owner' } }, inherited: [], reviewer, snapshot: {},
     sources: { transcript: async () => { snapshots++; return 'original owner evidence and exact action'; } } };
   const ctx: any = { llm: { resolveModelInfo: async () => ({ context: { contextWindow: 100000 } }), stream: async function* (options: any) {
     const n = calls++; requests.push(options); started();

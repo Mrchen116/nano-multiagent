@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-617
+> 对齐: bugfix-664
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -10,6 +10,32 @@
 网页模型接入与真实验证、agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口和内置 skills 自举的 Gateway 契约。
 
 ## Requirements
+
+### Requirement: 直接真人输入保留原生执行语义与可信来源
+
+直接真人请求保留宿主确认的身份与入口，在原生执行中作为真人输入处理。来源资格只决定哪些机制可使用该输入，具体目标、操作范围和安全审批仍遵循用户意图及既有规则。历史真人记录继续可读，升级不改写已有记录。
+
+#### Scenario: 先执行工具再创建目标
+- **GIVEN** 真人已提出需要持续执行的目标
+- **WHEN** Agent 在同一轮先读取资料或调用其他工具，再建立目标
+- **THEN** 该轮仍保留直接真人来源资格，不因已经执行过工具而被错误拒绝
+- **AND** 该资格不构成对无关目标或副作用的同意
+
+#### Scenario: 新真人输入重置重复调用提醒
+- **WHEN** 连续重复工具调用之间出现新的直接真人输入
+- **THEN** 新输入后的重复计数重新开始，不把新要求前后的调用合成同一段循环
+
+#### Scenario: 系统和委派来源不成为真人同意
+- **WHEN** 输入来自系统提醒、定时任务、其他 Agent 或子 Agent 的父任务
+- **THEN** 不获得直接真人资格，子 Agent 审批仍返回父 Agent，不向真人弹出子任务审批
+- **AND** 真人请求在审批、Workflow、任务关联和工作历史中保留其真实来源；已有历史真人来源继续识别
+- **AND** Inbox 的系统唤醒继续保留系统来源，已有 Inbox 来源规则不变
+
+#### Scenario: 原生与兼容 Skill 入口只加载一次
+- **WHEN** 真人使用 `/name`、兼容的 `/skill:name` 或标签前缀入口显式调用已启用的 Skill
+- **THEN** 同一输入提及同一 Skill 的原生与兼容语法时只加载一次，普通 `/name` 使用原生识别
+- **AND** 未启用的 Skill 不因显式调用而重新获得访问权，重启或重复提交已消费输入不重复加载
+
 
 ### Requirement: 主模型因可用性失败时按有序备用链换模型，本轮继续回复
 
@@ -108,7 +134,9 @@ Gateway 在每次新回复开始时先组链再 admit：有该 Kernel session �
 
 ### Requirement: Agent 运行能力更新在下一轮新回复整体生效
 
-Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。公开 Agent profile 提供的提示词文本仅为可见的 Custom Instructions：它作为产品规则后的 `PromptSlots` 追加段出现，不能覆盖公共 PA 提示词，也不走 Kernel 内部完整 override。配置保存不打断正在进行的回复，也不重建既有聊天；某聊天下一次开始新回复时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开始时的最终配置。
+Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。公开 Agent profile 提供的提示词文本仅为可见的 Custom Instructions：它作为产品规则后的 `PromptSlots` 追加段出现，不能覆盖公共 PA 提示词，也不走 Kernel 内部完整 override。配置保存不打断正在进行的回复，也不重建既有聊天；某聊天下一次开始新回复时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开始时的最终配置。可调用工具的取消选择先立即收缩，后续 dispatch 不再允许该工具，但不中断已开始的调用；新增工具等待当前执行空闲后的完整配置应用。收缩从当前有效选择计算，未配置白名单时默认未选的工具不会因候选名单包含而提前启用。
+
+本次取消选择若会撤销仍被开启 Feature、有效业务责任或正在执行的工具调用需要的能力，保存先被拒绝；只有通过依赖与占用校验的变更才进入上述生效流程。普通运行中不因此阻止无关配置更新。
 
 #### Scenario: 增加工具后继续既有聊天
 - **GIVEN** Agent 因未配置某工具而无法完成既有聊天中的任务
@@ -219,40 +247,6 @@ Gateway 对 `agent.create` 与 `agent.config.apply` 接收稳定 operation id �
 - **THEN** 当前进程继续使用 C
 - **WHEN** 运维者重启 Gateway
 - **THEN** 后续自动分类使用 D
-
-### Requirement: Agent 工具集由 tool_allowlist 真白名单决定并在执行层强制，能力特性按 requires_tool 联动其工具
-
-本条的静态工具选择规则适用于 `single_thread`。主 Agent 启用 `plugin_manager` 时，不与既有工具名冲突的 workspace 自建工具按本 area 的“Agent 可在 workspace 自助安装原生工具”有限并入有效集合；不扩大静态默认工具、显式空集或子任务限制。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
-
-任务图特性被显式关闭时，`task_graph` 从该 Agent 的有效工具集排除；这一有限例外及预览、下一轮生效规则见 [任务图规范](task-graphs.md)。
-
-Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：除上述 workspace 自建工具的有限增量外，非空时 Agent 静态工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式为空时该 Agent 没有任何工具**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的 `tool_allowlist` 一致，无分裂。
-
-#### Scenario: 用户禁用某默认工具后该工具不再提供
-- **GIVEN** 某 Agent 的 `tool_allowlist` 被设为不含某默认工具（如不含 `read`）的非空显式集
-- **WHEN** Gateway 为该 Agent 构建会话
-- **THEN** 该 Agent 工具集不含被禁的默认工具（下发给模型的工具列表里没有它）
-
-#### Scenario: 显式空名单的 Agent 会话拒绝一切工具调用
-- **GIVEN** 某 Agent 的 `tool_allowlist` 显式为空
-- **WHEN** 用户与该 Agent 会话，模型尝试调用工具
-- **THEN** 工具不执行，用户在会话中看到含工具名与未启用语义的明确反馈
-
-#### Scenario: 显式工具白名单不被默认集合自动扩宽
-- **GIVEN** PA agent 已持久化非空 `tool_allowlist`
-- **WHEN** Gateway 为该 agent 创建新 session
-- **THEN** session 的静态工具只启用该白名单列出的工具；仅在启用 `plugin_manager` 时按已安装 workspace 工具集合增加独立工具名
-- **AND** 若白名单不含 `skill`,session 不启用 `skill`
-
-#### Scenario: 启用 Cron 能力提供允许的原生调度工具
-- **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="schedule_create"` 已联动进 `tool_allowlist`）
-- **WHEN** Gateway 为该 Agent 构建会话
-- **THEN** 该 Agent 工具集包含 `schedule_create`；其他原生 `schedule_*` 工具仍需在有效白名单内。停用 Cron 能力后，其调度工具不再可调用
-
-#### Scenario: Gateway 上报能力时标记 skill 默认开启
-- **WHEN** Gateway 向 IM 上报当前节点可配置工具
-- **THEN** 工具列表包含 `skill`
-- **AND** `skill` 的 `default_on` 为 true
 
 ### Requirement: PA 产品说明书按需回答产品问题
 
@@ -464,8 +458,8 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 #### Scenario: 固定基础工具与可配置工具区分
 - **GIVEN** 用户创建或编辑全局 Agent
 - **WHEN** 查看和调整工具配置
-- **THEN** `inbox`、`conversations`、`send_message`、`agent` 作为固定基础工具，不可关闭
-- **AND** 其他工具继续按现有规则默认选择及配置，单 Thread 模式不因此改变
+- **THEN** `inbox`、`conversations`、`send_message`、`subagent` 作为固定基础工具，不可关闭
+- **AND** Personal Global 另外固定 personal_sources；其他工具继续按默认选择及依赖规则配置，single_thread 和子 Agent 不继承 Global 根会话固定项
 
 ### Requirement: 自进化技能自动启用不打断既有会话提示词
 
@@ -505,11 +499,11 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 - **WHEN** 同一workspace建立多个会话或服务重启
 - **THEN** 按该workspace的同一份持久扩展声明装配，局部工具不因为包已安装而自动全局启用。
 
-### Requirement: Auto默认沿用Nano规则且可配置为DSH规则
+### Requirement: Auto默认采用Codex规则且可配置为CC或DSH规则
 
 #### Scenario: 默认审核规则
 - **WHEN** 用户未选择其他Auto规则
-- **THEN** 工具权限审核沿用Nano当前判定规则，保留可信来源、短确认、拒绝计数、人工审批和无人值守分流。
+- **THEN** 工具权限审核采用 Codex 规则，保留可信来源、拒绝计数、人工审批和无人值守分流；已有显式 CC 或 DSH 配置保持有效。
 
 #### Scenario: CC与DSH审核使用去重后的指令和来源明确的历史
 - **GIVEN** 当前使用 CC 或 DSH 审核规则
@@ -543,7 +537,7 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 
 #### Scenario: 逐Agent选择与节点继承
 - **WHEN** 用户为 Agent 明确选择 CC 或 Codex，或清空选择回到节点继承
-- **THEN** 明确选择优先于节点规则；空值沿用节点既有 CC/DSH 规则，不改变 Auto 开关、工具权限、审核模型或其他 Agent。
+- **THEN** 明确选择优先于节点规则；空值沿用节点既有 Codex/CC/DSH 规则，节点未配置时采用 Codex，不改变 Auto 开关、工具权限、审核模型或其他 Agent。
 - **AND** Codex 的证据保留和预算恢复遵循“Codex Auto 按风险与授权进行独立、有界的审查”，不沿用 CC/DSH 的不裁剪超窗处理。
 
 #### Scenario: 下一轮切换保持进行中请求
@@ -561,6 +555,23 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 #### Scenario: 越界与受保护路径
 - **WHEN** 路径在工作区外、真实目标越界、目标受保护或不能确认归属
 - **THEN** 不获得工作区文件免审；目录外或符号链接不会绕过权限约束。
+
+### Requirement: 普通工具审批遵守当前有效执行上下文
+
+#### Scenario: PA 长期跨聊天历史
+- **GIVEN** PA 的消息库含长期、跨聊天历史，当前有效执行上下文和待审动作能够容纳在审核窗口内
+- **WHEN** PA 请求执行需自动审核的普通工具动作
+- **THEN** 审核不另行读取全库授权或聊天历史，不因库内记录规模使该动作审核输入膨胀。
+- **AND** 真实身份、Inbox 原话和实际发送回执按所选策略投影；用户选择的规则、模型和工具约束继续生效。
+
+#### Scenario: 主会话压缩后延续
+- **WHEN** 主会话压缩后继续发起工具动作
+- **THEN** 审核依据当前有效历史及必要宿主事实，不从消息库重放已被压缩移除的原文。
+- **AND** CC 保持既有省略普通工具正文和超窗分流；Codex 按固定策略保留与选择证据，并明确遗漏；证据不足不伪造授权。
+
+#### Scenario: PA 消息安全保持独立
+- **WHEN** PA 接收外部直接请求或向非主人私聊受众发送内容
+- **THEN** 继续执行各自的独立消息检查；普通工具审批结果不替代它们，也不因此附加其全量消息证据。
 
 ### Requirement: Codex Auto 按风险与授权进行独立、有界的审查
 
@@ -599,13 +610,13 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 ### Requirement: Feature可独立启停并撤销其后续影响
 
 #### Scenario: 关闭和重新开启单项能力
-- **WHEN** 用户对某Agent关闭再开启Task Graphs、Memory Curation、Skill Creation、Cron或Heartbeat
-- **THEN** 该Feature的工具、提示、命令和未来触发按有效配置撤销或恢复，其他Feature及其他Agent不受影响；重新开启不累积重复监听或任务。
+- **WHEN** 用户对无开启 Feature 依赖、有效业务责任或相关在途工作需要的某 Agent 合法关闭再开启Task Graphs、Memory Curation、Skill Creation、Cron或Heartbeat
+- **THEN** 该 Feature 的额外提示与未来主动触发按配置撤销或恢复，工具及必要服务按最终工具选择和有效安排提供，其他Feature及其他Agent不受影响；重新开启不累积重复监听或任务。
 - **AND** 已有任务/记忆/Skill保留，Skill Creation关闭不等于禁用已有Skill加载。
 
 #### Scenario: 关闭期间重启与在途工作
-- **WHEN** 关闭的Feature经历节点重启，或关闭时已有工作被接收
-- **THEN** 重启不擅自重新启用；在途工作依原产品契约收口；未完成卸载显示pending，不伪报effective或回滚已发生副作用。
+- **WHEN** 关闭的 Feature 经历节点重启，或用户在相关工作已接受后尝试关闭
+- **THEN** 重启不擅自重新启用；存在相关已接受工作时关闭被拒，配置、订阅与工作保持，不以取消工作来完成关闭。合法配置操作在持久化后因断联尚未确认时仍显示 pending，不伪报 effective 或回滚已发生副作用。
 
 ### Requirement: 由节点验证并持久化模型连接
 
@@ -648,7 +659,7 @@ Agent 使用 `skills_selection_mode=explicit_denylist`，`skills` 保存禁用�
 - **AND** 其他 Workspace 的私有 Skill 不泄漏；同名覆盖仍按已有 roots 优先级
 
 #### Scenario: 明确禁用在所有消费者一致生效
-- **WHEN** 用户取消勾选某 Skill 并保存
+- **WHEN** 用户合法取消勾选不再被开启 Feature 需要的 Skill 并保存
 - **THEN** 后续回复的目录、按名加载、显式命令、preview、distillation readiness 和 SlashPicker 一致排除该名称
 - **AND** 重启、重新扫描或同名技能重新创建不会自动启用；旧回复沿配置安全边界收口
 
@@ -752,8 +763,14 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 
 #### Scenario: 默认启用和显式关闭
 - Agent 配置页 Features 提供 `intelligent_ui`，默认勾选，缺失值按开启解释。
-- 取消勾选并保存后，运行时移除交互生成指导且发布接口拒绝新卡片；文字交付保留。重新勾选恢复。
+- 合法取消勾选并保存后，运行时移除交互生成指导，按共享依赖规则默认取消关联工具/Skill；有效 send_message 的显式合法 interactive 参数仍能发布新卡片，文字交付保留。重新勾选恢复完整依赖及指导。
 - 关闭不删除已发布卡片、个人草稿或选择，历史卡片继续按原消息权限读取与提交。
+
+#### Scenario: Feature 关闭但工具独立可用
+- **GIVEN** Intelligent UI Feature 关闭，send_message 仍为固定或独立启用
+- **WHEN** 普通、Global 或 Personal Agent 使用显式合法 interactive 参数发布
+- **THEN** 不因 Feature 关闭而拒绝新卡片，仍执行既有 schema、身份权限、审批和交付检查；不反向恢复额外交互生成指导
+- **AND** 不支持交互的渠道保留文字摘要降级，历史卡片权限与提交行为不变
 
 ### Requirement: 普通提问能主动获得适用交互表达
 
@@ -775,3 +792,266 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 #### Scenario: 群聊不读取私人操作
 - **WHEN** 用户在群聊操作卡片后正常发言
 - **THEN** 所有Agent均不取得未提交状态；明确提交后按公开消息读取已提交快照。
+
+### Requirement: 所有 Agent 默认使用无摘要换窗并支持显式回退
+
+#### Scenario: 新建与既有 Agent 默认生效
+- **WHEN** 新建或升级前已存在的普通、Global、Personal 或子 Agent 开始工作，用户未显式停用该能力
+- **THEN** 默认使用无摘要换窗及配套恢复工具，无需逐 workspace 安装或修改业务工具 allowlist
+- **AND** 不扩大业务操作权限
+
+#### Scenario: 用户显式停用后重启
+- **GIVEN** 用户通过现有 workspace 插件入口停用了该能力
+- **WHEN** 节点重启或该 workspace 创建新 Agent
+- **THEN** 保持停用并使用原摘要压缩，直至用户重新启用；其他 workspace 的选择不改变
+
+### Requirement: 无摘要换窗的 workspace 支持持续任务与按需恢复
+
+#### Scenario: 多次换窗后继续任务
+- **GIVEN** 用户在已启用该能力的 workspace 提供了目标、限制并在后续纠正过要求
+- **WHEN** 同一个未完成任务经历多次上下文换窗
+- **THEN** Agent 能利用已保存记录与原始历史继续工作，按最新有效要求交付，不要求用户重复提供仍可恢复的信息
+- **AND** 不因换窗重复已经完成的外部副作用，不把未完成事项报告为完成
+
+#### Scenario: 恢复原始细节或说明缺口
+- **WHEN** 换窗后的任务需要早先消息或较长工具结果中的细节
+- **THEN** Agent 可以按需恢复已离开活动上下文的原始记录及来源，并据此继续工作
+- **AND** 缺失记录时如实说明具体缺口，不编造已经恢复的信息
+
+#### Scenario: 新任务已读后大批工具结果造成上下文压力
+- **GIVEN** 旧笔记记录旧事项已完成，而 Agent 已读到新的直接或 Inbox 请求且尚未完成
+- **WHEN** 在保存新笔记前，大批工具结果使活动上下文达到工作预算
+- **THEN** 系统先复用 DSH 原生工具结果裁剪并重新测量；压力已解除时保留当前窗口和新任务，继续处理与交付
+- **AND** 原始工具记录及其来源仍可按需恢复，不以裁剪后的预览冒充完整资料
+- **AND** 裁剪后仍超硬阈值时沿用既有无摘要换窗；不新增自动任务正文或用户未批准的恢复提示
+
+#### Scenario: 长任务按需恢复 Skill
+- **GIVEN** 会话曾使用多个 Skill 并已发生换窗
+- **WHEN** Agent 继续工作或需要此前使用的操作指导
+- **THEN** 新窗口根据当前能力重建可用 Skill 目录，不自动重放此前加载的正文或整个会话的已用 Skill 索引
+- **AND** Agent 按需通过已获准的 Skill/文件工具读取，或从当前会话 History 恢复此前原始加载记录；无 `skill/read` 工具时也不回退自动正文、不扩大权限
+- **AND** 普通工具进展与历史导航不会让未变化的 Skill 正文每步重复进入上下文
+- **AND** 显式停用新模式后，旧摘要模式的 Skill 恢复行为保持
+
+#### Scenario: Explicit Skill gestures survive later tool-history pruning
+- **GIVEN** a complete successful host-observed live Inbox result contains an explicit Skill gesture from a human non-partial message
+- **WHEN** native pressure pruning later shortens that tool result's active text
+- **THEN** the permitted selected Skill has been recognized once from the original source; subsequent steps neither reparse the pruned text and fail nor inject the Skill again
+- **AND** agent/system, partial, failed and restored results do not become new human Skill gestures
+
+### Requirement: 换窗记录在同一会话重启后保留且不扩大访问授权
+
+#### Scenario: 正常重启与重新启用
+- **GIVEN** 当前会话已保存工作记录
+- **WHEN** 节点正常重启，或能力停用后重新启用
+- **THEN** 同一会话可继续访问其已保存记录；停用不删除记录，停用期间的未来工作恢复原摘要压缩行为，重新启用后使用该换窗能力
+
+#### Scenario: 请求其他归属的记录
+- **WHEN** 当前任务尝试读取既有权限之外的其他 Agent 或 workspace 记录
+- **THEN** 不获得记录，恢复出的内容也不形成新的外部操作授权
+
+### Requirement: DSH Goal 工具 SHALL 默认不选并可逐项配置
+
+#### Scenario: 现有及新建 Agent
+- **WHEN** Agent 使用默认工具集合
+- **THEN** create_goal、get_goal、update_goal 默认不选，无 Goal 工具时不注入其专属引导；显式白名单包含的 Goal 工具按用户选择生效，不另设 Feature 总开关。
+- **AND** Task 持续执行独立生效，不转换、双写或同步两套状态，不进行历史 Goal 迁移或清理。
+
+#### Scenario: 用户显式开启和关闭
+- **WHEN** 用户在配置页工具列表选择或取消某个 Goal 工具
+- **THEN** 仅该工具的选择改变，不联动其他 Goal 工具；沿用普通工具配置的生效规则及原生语义与授权，不额外改变 Goal 生命周期，不影响 Task 的执行责任。
+
+### Requirement: 知识维护按长期价值与明确归属保存内容
+
+Gateway 的前台和后台知识维护 SHALL 使用一致的归属规则。用户画像和跨任务偏好归入用户记忆，环境事实归入环境记忆，任务流程和任务特定偏好归入相应 Skill。完整规则仅保存一处；明确纠正替换旧内容。没有有依据的长期增量时，维护可以不产生写入。
+
+#### Scenario: 重复信息及明确纠正
+- **GIVEN** 用户已保存一项事实或偏好
+- **WHEN** 用户重复表达或明确纠正该内容，相关维护完成后开始新会话
+- **THEN** 持久知识没有同义副本或并存的冲突版本，新会话使用仍有效的信息。
+
+#### Scenario: 经验证的方法与临时应对
+- **WHEN** 一次任务产生可复用的方法、失败尝试或临时应对方式
+- **THEN** 维护依据真实结果提炼步骤、适用条件和必要原因，不把失败尝试写成可靠方法
+- **AND** 临时资源的使用规则保留适用条件与退出责任，Agent 的选择不被写成用户要求。
+
+#### Scenario: 单项和联合维护的知识归属一致
+- **WHEN** 同一纠正进入 Memory、Skill 或联合维护
+- **THEN** 完整规则保存在正确位置，不因某条链路缺少另一种工具而重复保存或改写归属。
+
+#### Scenario: 后台维护读取当前持久知识
+- **GIVEN** 同一父会话的冻结记忆尚未刷新，前次后台维护已保存新内容
+- **WHEN** 后续 Memory review 准备再次保存或纠正该内容
+- **THEN** review 通过父 Agent 已启用的读取工具取得当前持久内容，再判断是否写入
+- **AND** 父 Agent 禁用的工具不会在后台恢复；无法取得当前完整内容时不执行依赖该内容的写入。
+
+#### Scenario: Memory 读取未完成但模型正常停止
+- **WHEN** review 开始读取当前 Memory，但读取被拒绝、失败或未读完整，随后模型正常停止
+- **THEN** 系统将该次维护记为未完成，不推进本轮任何参与类别的后台周期
+- **AND** 联合复盘中已成功的 Skill 写入和真实通知保留；模型正常结束不被误报为两类维护均已完成。
+
+### Requirement: Skill 维护工具按单次操作报告实际结果
+
+Skill 维护 SHALL 保留受控的 agent/global 写入范围。局部 patch 只修改唯一匹配的主文档文本，edit 替换完整主文档。多个调用不构成共同事务，后续失败不表示前序成功操作被撤销。
+
+#### Scenario: 多步维护部分成功
+- **WHEN** 一次维护的前序写入成功，后续调用失败
+- **THEN** 用户收到与实际文件状态一致的结果，能区分已完成和未完成部分，不会被告知全部自动回滚或全部成功。
+
+#### Scenario: 后台修改已有 Skill 文件
+- **WHEN** 后台 review 尝试修改或移除已有 Skill 文件
+- **THEN** 本轮必须通过获准的文件读取工具完整读取同一目标原文件；Skill 指令加载、父历史、搜索片段和目录列表不能代替原文件内容
+- **AND** 未读完整、路径不符或当前文件与本轮已知内容不一致时，系统拒绝该写入，不发布成功结果。
+
+### Requirement: F4 仅在非 Global 模式下依据跨会话证据修补目标自动技能
+
+F4 SHALL 只适用于非 Global 运行模式。至少两个不同的已结束会话须提供同一问题的有效证据。未结束、无法读取和已处理的证据不计入门槛。F4 只允许 patch 本次绑定的现有自动技能；手工或来源不明的技能受保护。同一目标不得同时有两个排队或运行中的 F4，后续使用记录须保留。
+
+#### Scenario: Global 模式达到使用门槛
+- **WHEN** Global Agent 使用 Skill 达到 F4 使用次数门槛
+- **THEN** 系统不启动 F4，正常使用记录及其他已启用的知识维护保持可用。
+
+#### Scenario: 非 Global 证据不足或目标越界
+- **WHEN** 非 Global Agent 的目标技能没有两份合格会话证据，或复盘尝试修改其他技能、手工技能或使用非 patch 操作
+- **THEN** F4 不执行该修改，也不发布该修改的成功结果。
+
+#### Scenario: 非 Global 复盘具备有效证据
+- **GIVEN** 两个不同会话反复出现同一问题，目标是可维护的自动技能
+- **WHEN** F4 完成复盘并修正该问题
+- **THEN** 仅目标技能的相应内容被修补，有效内容保留，实际结果可追溯
+- **AND** 已处理证据不重复支持修改，同一目标在复盘期间新增的使用记录不丢失。
+
+### Requirement: Memory 与 Skill 同时到期时使用一次联合复盘
+
+后台维护 SHALL 保留 Memory、Skill 单项及 combined 三种复盘。两项已启用、工具可用且同时到期时，使用一个联合复盘处理两类知识。仅一项满足条件时运行单项复盘。开关、计数和知识归属保持独立。普通及 Global 模式均适用；F4 不并入联合复盘。
+
+#### Scenario: 两类维护同时到期
+- **WHEN** 同一前台轮次结束时两项均满足维护条件
+- **THEN** 只启动一次联合复盘，两类知识均可按合法范围维护，不再为同一批条件重复启动单项复盘
+- **AND** 只按实际写入报告更新，不要求两类知识都产生修改。
+
+#### Scenario: 一项不可用或尚未到期
+- **WHEN** 只有一项满足本次维护条件
+- **THEN** 该项运行单项复盘，不等待另一项，也不重置未参与类别的计数。
+
+#### Scenario: 联合复盘取消或部分成功
+- **WHEN** 联合复盘失败、被显式取消，或因进程停止而中断
+- **THEN** 已成功的修改和真实通知保留，未完成复盘不推进后台维护周期
+- **AND** 取消或停止后的工作不再接受后续写入；仍启用能力可在后续正常触发时继续维护，不重放已成功修改。
+
+#### Scenario: 在途联合复盘期间尝试关闭单项能力
+- **GIVEN** 联合复盘已被接受且尚未终结
+- **WHEN** 用户通过配置入口关闭其中一项参与维护的 Feature
+- **THEN** 本次关闭被拒，原配置与联合工作保持，不触发取消，不因关闭尝试改变已成功事实或维护计数
+- **AND** 复盘结束后可重新尝试合法关闭；不取消未完成工作来消除关闭阻碍
+
+### Requirement: Agent 工具集 SHALL 按工具选择兑现，Feature 保证完整依赖
+
+本条的静态工具选择规则适用于 `single_thread`。主 Agent 启用 `plugin_manager` 时，不与既有工具名冲突的 workspace 自建工具按本 area 的“Agent 可在 workspace 自助安装原生工具”有限并入有效集合；不扩大业务工具或子任务的数据权限。默认上下文机制启用时，所有 Agent（含子 Agent）固定保留 `notes/history/new_context/get_context_remaining` 四个仅管理当前执行会话的工具；停用机制即撤销其注册。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
+
+Feature 关闭不额外否决已选择工具，任务图、记忆、Skill 管理和定时工具均遵守同一规则。工具自己的操作、授权与必要服务保留；Feature 专属指导、主动注入、后台复盘或自动续跑不随单工具启用。
+
+Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：除上述四个上下文内部工具和 workspace 自建工具的有限增量外，非空时 Agent 静态业务工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式为空时该 Agent 没有可选业务工具，但启用中的上下文内部工具仍可用**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性启用时，完整 `requires` 中的工具经界面依赖展开已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——业务工具集按配置侧存储的 `tool_allowlist` 兑现；四个上下文内部工具按机制启停，预览、下发和实际执行保持一致。
+
+#### Scenario: 用户禁用某默认工具后该工具不再提供
+- **GIVEN** 某 Agent 的合法 `tool_allowlist` 被设为不含某默认工具的非空显式集，且没有开启的 Feature 需要该工具
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集不含被禁的默认工具（下发给模型的工具列表里没有它）
+
+#### Scenario: 显式空名单拒绝业务工具但保留上下文内部操作
+- **GIVEN** single_thread Agent 的 `tool_allowlist` 显式为空，所有依赖业务工具的 Feature 均关闭
+- **WHEN** 用户与该 Agent 会话，模型尝试调用业务工具
+- **THEN** 业务工具不执行，用户在会话中看到含工具名与未启用语义的明确反馈
+- **AND** 已启用的上下文机制仍可调用四个内部工具；停用后它们也不可调用
+
+#### Scenario: 显式工具白名单不被默认集合自动扩宽
+- **GIVEN** single_thread PA agent 已持久化合法非空 `tool_allowlist`
+- **WHEN** Gateway 为该 agent 创建新 session
+- **THEN** session 的静态业务工具只启用该白名单列出的工具；除四个上下文内部工具外，仅在启用 `plugin_manager` 时按已安装 workspace 工具集合增加独立工具名
+- **AND** 若白名单不含 `skill`,session 不启用 `skill`
+
+#### Scenario: 启用 Cron 能力提供允许的原生调度工具
+- **GIVEN** 某 Agent 启用了 Cron Feature 并已将其全部依赖工具保存到 `tool_allowlist`
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集包含 schedule_create/list/update/delete/run/history 六项；合法关闭 Cron 后按最终工具选择提供，用户单独重新启用的工具不因 Feature 关闭而拒用
+
+#### Scenario: Gateway 上报能力时标记 skill 默认开启
+- **WHEN** Gateway 向 IM 上报当前节点可配置工具
+- **THEN** 工具列表包含 `skill`
+- **AND** `skill` 的 `default_on` 为 true
+
+
+#### Scenario: Auto 关闭不阻断会话内部上下文管理
+- **GIVEN** 当前 Agent 启用了默认上下文机制，自动审批关闭
+- **WHEN** 普通、Global、Personal 或子 Agent 保存笔记、恢复历史、查询预算或请求换窗
+- **THEN** 仅作用当前执行会话的四工具无需额外审批即可执行，明确的底层拒绝仍保留
+- **AND** 其他业务工具继续遵守原审批、选择与发送重验规则；恢复内容不生成新的授权
+
+### Requirement: Feature SHALL 保证完整依赖并与独立工具行为分离
+
+#### Scenario: 开启 Feature 展开完整依赖
+- **WHEN** 用户开启 Feature 或创建采用默认 Feature 的 Agent
+- **THEN** 交互式回复需要 send_message、skill 和 nano-interactive-ui；Task 需要 task_graph 与 Cron Feature；Memory 需要 memory、read；Skill 创建需要 skill_manage、skill、read；Cron 需要 schedule_create/list/update/delete/run/history；Heartbeat 需要 read
+- **AND** 默认开启 Task 的初始配置同时开启 Cron；依赖资源缺失时整个动作失败，已关闭的 Skill 不能冒充可加载
+
+#### Scenario: 合法关闭与共享依赖
+- **WHEN** 用户关闭没有需要者的 Feature
+- **THEN** 默认取消其直接关联工具与 Skill，仍被其他开启 Feature 需要或属于基础固定的能力保持开启
+- **AND** 不级联关闭依赖 Feature，关闭 Task 后 Cron 保持开启；随后单独打开工具或 Skill 不反向打开 Feature
+
+#### Scenario: 独立工具不恢复 Feature 行为
+- **GIVEN** 对应 Feature 关闭且工具已单独选中
+- **WHEN** Agent 调用 task_graph、memory、skill_manage 或某个 schedule 工具
+- **THEN** 合法调用实际可用；不附加该 Feature 的额外提示词、后台复盘、主动注入或自动续跑，操作仍受原授权及业务前置条件约束
+
+### Requirement: 能力配置 SHALL 在保存边界保护真实需要者
+
+#### Scenario: 静态依赖不能被任意配置入口绕过
+- **WHEN** 完整候选配置缺少开启 Feature 的必需依赖，或移除基础固定能力
+- **THEN** 配置 API、预览与运行入口明确拒绝，不静默猜测点击顺序、不写入半套能力配置
+- **AND** Feature 关闭而工具单独开启的完整配置合法
+
+#### Scenario: 在途工作保护最小能力范围
+- **GIVEN** 本 Agent 已接受相应 Memory/Skills 维护或 Heartbeat 工作，或待撤销工具正在调用
+- **WHEN** 用户尝试关闭仍被该工作需要的能力
+- **THEN** 关闭被拒，原配置和业务工作不被本次操作改变；其他无关配置可修改
+- **AND** 普通 Agent running、已完成记录和未来未接收的维护机会不构成此类阻碍
+
+#### Scenario: 检查后出现的新责任不能绕过关闭保护
+- **WHEN** 配置关闭与新 Task 责任或新定时安排并发到达
+- **THEN** 先建立的有效责任使关闭被拒；先被接受的关闭使冲突的新责任或安排被拒，不出现双方都成功而能力缺失
+- **AND** 使用状态不可确认时明确失败，不把读取失败当作空闲；重试和断联恢复沿既有配置 operation 保持一致
+
+### Requirement: 审核请求 SHALL 使用原审核模型声明的推理能力
+
+#### Scenario: 原模型不支持 low
+- **WHEN** 所选审核模型声明可调推理能力
+- **THEN** 支持 low 时使用 low，否则使用该模型声明的默认档位或首个支持档位；未声明可调能力时不强设 low。
+- **AND** 保留同一审核 provider/model、完整适用证据、判定规则及失败分流，不通过换模型或删证据放行。
+
+### Requirement: 通用交互说明区分本地采用与发送请求
+
+#### Scenario: 普通 Agent、Global 与 PA 生成草稿
+- **WHEN** Agent 使用可用交互能力提供可编辑回复
+- **THEN** 可以使用通用 ComposeMessage 将当前编辑内容采用到指定聊天输入框，不需要 PA 专属字段或草稿工具；ToAssistant 继续表示向本会话提交请求，不能混淆。
+- **AND** 工具 schema、固定提示、加载的 Skill 与示例表达同一语义；系统负责补齐固定 format/catalog_version，Agent 只填写内容及适用的更新参数。
+
+#### Scenario: 实际注册与恢复一致
+- **WHEN** 上下文经历唤醒、历史恢复、执行子 Agent 交接或独立审核
+- **THEN** 工具身份、来源、已有委托范围和真实发送回执仍一致；本地采用不成为公开发送或新增业务许可；没有暴露的工具不被提示为可调用。
+
+### Requirement: 系统知识维护不进入模型的子 Agent 管理目录
+
+系统启动的 Memory、Skill、combined 和 F4 维护 SHALL 保留继承上下文与独立执行历史，但不发布为模型通过 `list_agents` 管理的子 Agent。模型正常委派的 Agent 发现、续接与取消能力保持。
+
+#### Scenario: 长期 Agent 查询受管理的执行者
+
+- **GIVEN** 同一 Agent 已完成多次系统知识维护
+- **WHEN** 模型查询直接子 Agent 或递归查询后代 Agent
+- **THEN** 新维护运行不在管理目录中，查询不进入这些维护分支；维护不会因历史积累扩大受管理 Agent 集合。
+- **AND** 正常模型委派的运行按既有规则列出。
+
+#### Scenario: 维护执行失败或取消
+
+- **WHEN** 系统维护发生模型失败、步骤上限或取消
+- **THEN** 保留真实终结状态和此前成功事实，未完成工作不推进维护周期，执行结束后释放运行资源。

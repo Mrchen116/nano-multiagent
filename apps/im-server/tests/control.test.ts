@@ -18,6 +18,51 @@ function taskMessaging(db: any) {
   return new Messaging(ctx);
 }
 const actor = { kind: "agent" as const, id: "a", node_id: "n" };
+describe('capability configuration responsibility guards', () => {
+  it('returns only authorized usage counts and fails closed when the runtime cannot confirm', async () => {
+    const {db,ctx}=fixture();
+    const service=new TaskGraphService(db,taskMessaging(db));
+    service.execute({kind:'user',id:'u1'},'create',{title:'Private task contents',mode:'dag',conversation_id:'chat',request_key:'usage',status:'doing',assignee:{type:'agent',id:'a'}});
+    ctx.gateway.request=async()=>({usage:{checked_at:'now',active_schedules:2,busy:[{kind:'feature',name:'heartbeat'}],internal:'not public'}});
+    const app=Fastify();
+    app.setErrorHandler((error:any,_req,reply)=>reply.code(error.statusCode??500).send({detail:error.detail??error.message}));
+    registerControlRoutes(app,ctx);
+    try {
+      const response=await app.inject({method:'GET',url:'/im/v1/agents/a/capability-usage'});
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({checked_at:'now',active_tasks:1,active_schedules:2,busy:[{kind:'feature',name:'heartbeat'}]});
+      expect((await app.inject({method:'GET',url:'/im/v1/agents/a/capability-usage',headers:{'x-user':'u2'}})).statusCode).toBe(404);
+      ctx.gateway.request=async()=>null as any;
+      expect((await app.inject({method:'GET',url:'/im/v1/agents/a/capability-usage'})).json()).toMatchObject({detail:{code:'capability_usage_unavailable'}});
+    } finally {await app.close();}
+  });
+  it('rejects Task withdrawal before sending or saving while any owned task is doing', async () => {
+    const {db,ctx}=fixture();
+    const service=new TaskGraphService(db,taskMessaging(db));
+    service.execute({kind:'user',id:'u1'},'create',{title:'Still working',mode:'dag',conversation_id:'chat',request_key:'guard',status:'doing',assignee:{type:'agent',id:'a'}});
+    let sent=false;ctx.gateway.request=async()=>{sent=true;return null as any;};
+    const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
+    await expect(new ConfigOperations(ctx).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toMatchObject({statusCode:409,detail:{code:'capability_in_use',blocks:[{code:'active_tasks',target:{kind:'feature',name:'task_graph'}}]}});
+    expect(sent).toBe(false);
+    expect(one(db,'SELECT 1 FROM agent_config_operations')).toBeUndefined();
+    expect(one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")).toEqual(previous);
+  });
+  it('fences new doing responsibility while withdrawal is pending and allows non-running work', async () => {
+    const {db,ctx}=fixture();
+    ctx.gateway.request=async()=>null as any;
+    const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
+    await expect(new ConfigOperations(ctx).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toThrow();
+    const service=new TaskGraphService(db,taskMessaging(db));
+    const args={title:'New work',mode:'dag',conversation_id:'chat',request_key:'new',assignee:{type:'agent',id:'a'}};
+    expect(()=>service.execute({kind:'user',id:'u1'},'create',{...args,status:'doing'})).toThrow('configuration');
+    expect(service.execute({kind:'user',id:'u1'},'create',{...args,status:'todo'}).graph_id).toBeTruthy();
+  });
+  it('rejects a final snapshot with incomplete dependencies', async () => {
+    const {db,ctx}=fixture(),p=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
+    await expect(new ConfigOperations(ctx).update(p,{...profileResponse(p,true),features:{task_graph:true,cron_scheduling:false}},'o1')).rejects.toMatchObject({statusCode:422,detail:{code:'invalid_capability_dependencies'}});
+    expect(one(db,'SELECT 1 FROM agent_config_operations')).toBeUndefined();
+  });
+});
 describe("company task graph atomic storage", () => {
   it("rolls back invalid DAG mutations and replays receipts after graph deletion", () => {
     const { db } = fixture(),
@@ -250,6 +295,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         display_name: "New",
         skills: [],
         tool_allowlist: [],
+        features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
         group_reply_policy: "manual",
       },
       "o1",
@@ -302,7 +348,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         approval_mode: "codex",
         work_mode: "single_thread",
         workspace_root: "/agent",
-        features: {},
+        features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
         custom_prompt: null,
         heartbeat_json: null,
       };
@@ -338,11 +384,12 @@ describe("recoverable config operations and HTTP boundary", () => {
       ops.update(
         p,
         {
+          ...profileResponse(p,true),
           agent_id: "a",
           display_name: "Candidate",
           approval_mode: "codex",
           workspace_root: "/agent",
-          tool_allowlist: ["task_graph"],
+          tool_allowlist: JSON.parse(p.tool_allowlist_json),
         },
         "o1",
       ),

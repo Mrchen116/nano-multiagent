@@ -1,0 +1,60 @@
+{
+  "before": {
+    "features": {
+      "cron_scheduling": false,
+      "heartbeat": false,
+      "intelligent_ui": false,
+      "memory_curation": false,
+      "skill_creation": false,
+      "task_graph": false
+    },
+    "skills": [
+      "nano-interactive-ui"
+    ],
+    "skills_selection_mode": "explicit_denylist",
+    "tool_allowlist": [
+      "write",
+      "edit",
+      "bash",
+      "web_search",
+      "web_fetch",
+      "inbox",
+      "conversations",
+      "schedule_create",
+      "memory",
+      "skill_manage",
+      "task_graph",
+      "send_message"
+    ]
+  },
+  "after": {
+    "features": {
+      "intelligent_ui": false,
+      "task_graph": false,
+      "memory_curation": false,
+      "skill_creation": false,
+      "cron_scheduling": false,
+      "heartbeat": false
+    },
+    "skills": [
+      "nano-interactive-ui"
+    ],
+    "skills_selection_mode": "explicit_denylist",
+    "tool_allowlist": [
+      "write",
+      "edit",
+      "bash",
+      "web_search",
+      "web_fetch",
+      "inbox",
+      "conversations",
+      "schedule_create",
+      "memory",
+      "skill_manage",
+      "task_graph",
+      "send_message"
+    ]
+  },
+  "equal": true,
+  "head": "1ce3925a3"
+}

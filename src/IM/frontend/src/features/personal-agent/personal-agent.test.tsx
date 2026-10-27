@@ -23,6 +23,8 @@ beforeEach(async()=>{
  vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[]});
  vi.mocked(api.getBlockedPersonalContacts).mockResolvedValue({items:[]});
  vi.mocked(api.getPersonalAgent).mockResolvedValue(state);
+ vi.mocked(api.getPersonalAgentSettings).mockImplementation(() => api.getPersonalAgent());
+ vi.mocked(api.getBlockedPersonalContactSettings).mockImplementation(() => api.getBlockedPersonalContacts());
  vi.mocked(listConversations).mockResolvedValue([{id:'private',title:'Private group'} as Conversation]);
 });
 afterEach(()=>{clients.splice(0).forEach(c=>c.clear());});
@@ -111,5 +113,16 @@ it('shows active blocked people, opens evidence and keeps a failed unblock retry
  expect(screen.getByText('Lin')).toBeInTheDocument();
  await userEvent.click(screen.getByRole('button',{name:'Unblock'}));
  await screen.findByText('No blocked contacts');
- expect(api.unblockPersonalContact).toHaveBeenLastCalledWith('peer',expect.anything());
+ expect(api.unblockPersonalContact).toHaveBeenLastCalledWith('peer');
+});
+
+it('keeps PA source search and evidence readable while offline mutations are disabled',async()=>{
+ vi.mocked(api.getBlockedPersonalContacts).mockResolvedValue({items:[{actor_id:'peer',actor_name:'Peer',reason:'Requests blocked',evidence:[]}]});
+ mount(<PersonalAgentSettings agentId="a1" readOnly/>);
+ await screen.findByRole('button',{name:'Unblock'});
+ expect(screen.getByRole('button',{name:'Unblock'})).toBeDisabled();
+ expect(screen.getByRole('checkbox',{name:'Private group',hidden:true})).toBeDisabled();
+ expect(screen.getByRole('searchbox',{hidden:true})).toBeEnabled();
+ expect(api.updatePersonalAgentPolicy).not.toHaveBeenCalled();
+ expect(api.unblockPersonalContact).not.toHaveBeenCalled();
 });

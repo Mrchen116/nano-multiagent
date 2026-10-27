@@ -29,7 +29,7 @@ export interface TrajectoryRun {
   sessionId: string;
   provider: string;
   label?: string;
-  kind: 'tool' | 'memory' | 'skills' | 'unknown';
+  kind: 'tool' | 'memory' | 'skills' | 'combined' | 'unknown';
   delegation: 'foreground' | 'background' | 'unknown';
   launchSeq?: number;
   callId?: string;

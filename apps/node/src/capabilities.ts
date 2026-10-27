@@ -1,3 +1,4 @@
+import {featureDependencies, featureClosure, fixedTools} from '@nano/product-contracts/capabilities';
 import type { AgentConfiguration } from "@nano/product-contracts";
 import type { NodeConfigurationFile } from "./configuration.js";
 
@@ -11,18 +12,6 @@ interface Catalog {
     source?: string;
   }[];
 }
-const features = [
-  { key: "intelligent_ui", requires_tool: "send_message", default_on: true },
-  { key: "task_graph", requires_tool: "task_graph", default_on: true },
-  { key: "memory_curation", requires_tool: "memory", default_on: true },
-  { key: "skill_creation", requires_tool: "skill_manage", default_on: true },
-  {
-    key: "cron_scheduling",
-    requires_tool: "schedule_create",
-    default_on: false,
-  },
-  { key: "heartbeat", requires_tool: null, default_on: false },
-];
 /** Existing IM capability payload, populated from native names and node-owned models. */
 export function projectCapabilities(
   catalog: Catalog,
@@ -61,7 +50,7 @@ export function projectCapabilities(
     tools: catalog.tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      default_on: tool.source_group !== "workspace" && !["send_message", "run_code"].includes(tool.name),
+      default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "create_goal", "get_goal", "update_goal"].includes(tool.name),
       ...(tool.source_group === "workspace" ? {source_group: tool.source_group, enabled: tool.enabled} : {}),
     })),
     skills: catalog.skills.map((skill) => ({
@@ -71,16 +60,17 @@ export function projectCapabilities(
       source_group: skill.source === "compat" ? "compatibility" : skill.source,
       default_on: skill.source === "global",
     })),
-    features: features.map((feature) => ({
+    fixed_tools: fixedTools(agent?.mode, agent?.personal ? 'personal' : 'root', catalog.tools.some(tool => tool.name === 'new_context')),
+    features: featureDependencies.map((feature) => {
+      const closure = featureClosure(Object.fromEntries(featureDependencies.map(item => [item.key, item.key === feature.key])));
+      const available = featureDependencies.filter(item => closure[item.key]).every(item =>
+        item.requires.tools.every(name => catalog.tools.some(tool => tool.name === name)) && item.requires.skills.every(name => catalog.skills.some(skill => skill.name === name)));
+      return {
       ...feature,
       label_i18n: `feature.${feature.key}.label`,
       help_i18n: `feature.${feature.key}.help`,
-      available:
-        !agent ||
-        agent.toolAllowlist === undefined ||
-        !feature.requires_tool ||
-        agent.toolAllowlist.includes(feature.requires_tool),
-    })),
+      available,
+    }; }),
     commands: [
       { name: "new", description: "Start a new conversation context" },
       { name: "stop", description: "Stop the active response" },

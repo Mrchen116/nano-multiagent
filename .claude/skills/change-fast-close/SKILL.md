@@ -14,6 +14,7 @@ description: "用户明确选择快速开发或事后补 unit，已有实现且�
 - 只处理本次 diff/commits，保留其他修改；从用户原话与决定写需求，从代码和证据写实际实现，二者不能倒置。
 - 新建时使用 [编号脚本](../change-spec-author/scripts/next_unit_id.py)；按类型选择 [首文档模板](../change-spec-author/assets/TEMPLATES_README.md)、[as-built design](assets/design.md) 和 [code review](assets/code-review.md)。
 - design 明示事后形成，记录真实模块、调用链、已采用决定、兼容/失败/回滚边界和验证定位。没有发生的 milestone、tasks/progress、design review、verifier、产品 reviewer 报告不补造。
+- 实际实现需要一次性部署迁移时，按 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词) 编写或校正 `deployment-prompt.md`，从 as-built design 链接并交本次 code review；无迁移不生成。引用已有有效的隔离/副本证据，缺失时在隔离环境补齐，不将用户已经完成的功能验收改写为上线后重测要求。
 - 对外行为变化按 [CONTRIBUTING](../../../docs/specs/CONTRIBUTING.md) 写最窄 delta；纯内部改动说明无 spec delta。无关漂移单列，不顺手决定预期。
 
 ## 完成
@@ -21,3 +22,5 @@ description: "用户明确选择快速开发或事后补 unit，已有实现且�
 主会话调用 change-code-review，对完整本次 diff 做独立 review；将 base/head、dirty 范围、findings 与 resolutions 记入 code-review.md。修复成立的阻塞项，运行适当验证，按实际 delta 做 patch/closure。改变用户可观察结果时重新取得受影响旅程的用户确认。
 
 用户验收、首文档/as-built design、code review、适用测试/本地 CI 和 canonical 归并均完成后，按 [change-workflow](../../../docs/development/change-workflow.md) 完整归档。提交、push、PR 做到当前授权范围；阻塞时留下事实、未完成项与恢复入口。
+
+PR 提交后保留开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外。最终回复说明 worktree 保留/清理状态。

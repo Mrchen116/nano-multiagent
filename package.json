@@ -5,9 +5,10 @@
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
-    "node": "^22.19.0 || >=24"
+    "node": "^24.22.1 || ^26.12.1"
   },
   "scripts": {
+    "check:ios-runtime": "tsx scripts/generate-ios-interactive.ts --check && tsc -p src/IM/ios/Runtime/tsconfig.json",
     "build": "pnpm -r --if-present build && node scripts/build-node-release.mjs",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present typecheck",
@@ -15,11 +16,15 @@
     "im": "node apps/im-server/lib/main.js"
   },
   "devDependencies": {
-    "@types/node": "24.10.0",
+    "@openuidev/lang-core": "1.0.1",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
     "jsdom": "27.4.0",
     "tsx": "4.22.4",
     "typescript": "6.0.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.11",
+    "zod": "4.6.5",
+    "@nano/dsh-integration": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.2.1-alpha.1"

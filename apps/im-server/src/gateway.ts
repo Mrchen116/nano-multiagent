@@ -1,3 +1,4 @@
+import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
 import { withHumanApproval } from "./messaging.js";
@@ -16,6 +17,7 @@ export type Connection = {
   node_epoch: number;
   token: string;
   lastSeen: number;
+  agent_lifecycle_v1?: boolean;
 };
 type Browser = {
   socket: WebSocket;
@@ -45,7 +47,27 @@ export class Gateway {
   constructor(readonly ctx: ImContext) {
     this.work = new Work(ctx);
     this.trajectory = new TrajectoryObservers(ctx);
-    this.tasks = new TaskGraphService(ctx.db,ctx.messaging);
+    this.tasks = new TaskGraphService(ctx.db,ctx.messaging,undefined,{
+      runtime:async agentId=>{
+        const agent=one(ctx.db,'SELECT node_id FROM agent_profiles WHERE agent_id=? AND is_stale=0',agentId);
+        const connection=agent&&this.nodes.get(agent.node_id);
+        if(!connection||!this.valid(connection))return {state:'offline'};
+        const result=await this.request(agent.node_id,'task.execution.state',{agent_id:agentId});
+        return {state:result.state==='running'||result.state==='idle'?result.state:'unknown'};
+      },
+      inspect:async input=>{
+        const agent=one(ctx.db,'SELECT node_id FROM agent_profiles WHERE agent_id=? AND is_stale=0',input.agent_id);
+        if(!agent)throw new Error('Task owner is unavailable');
+        const proof=await this.request(agent.node_id,'task.wait.validate',input);
+        if(proof.error)throw new Error(proof.error);
+        return proof as unknown as import('@nano/product-contracts').TaskWaitInspection;
+      },
+      changed:change=>{
+        for(const row of all(ctx.db,'SELECT agent_id,node_id FROM agent_profiles WHERE is_stale=0')) if(change.agent_ids.includes(row.agent_id))
+          this.send(row.node_id,{type:'task.execution.changed',payload:{...change,agent_id:row.agent_id}});
+      },
+    });
+    for(const state of all(ctx.db,"SELECT * FROM agent_lifecycle WHERE desired='disabled'"))this.tasks.freezeAgent(state.agent_id,state.actor_user_id,state.revision,false);
   }
   isOnline(id: string) {
     return this.nodes.has(id);
@@ -84,18 +106,20 @@ export class Gateway {
   }
   send(nodeId: string, frame: Row): boolean {
     const c = this.nodes.get(nodeId);
+    if(frame.type==='agent.work.permission'&&!lifecycleAllows(this.ctx.db,frame.payload.root_agent_id,frame.payload.lifecycle_revision))return false;
     if (frame.type === "relay.message") {
       if (this.ctx.updates?.gate(nodeId)) return false;
       const p = frame.payload;
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", p.agent_id, nodeId);
       const conversation = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", p.conversation_id);
+      if(!profile||!lifecycleAllows(this.ctx.db,profile.agent_id,p.lifecycle_revision))return false;
       if (!agentAvailable(this.ctx.db, profile) || !conversation || !canActorAccess(this.ctx.db,this.ctx.messaging.agentUser(profile!.agent_id).id,conversation.space_id)) return false;
     }
     if (frame.type === "node.streaming_delta" && frame.payload?.kind === "permission_response") {
       const message = one(this.ctx.db, "SELECT m.conversation_id,u.username FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", frame.payload.message_id);
       const profile = message?.username?.startsWith("agent:") ? one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", message.username.slice(6), nodeId) : undefined;
       const conversation = message ? one(this.ctx.db, "SELECT space_id FROM conversations WHERE id=?", message.conversation_id) : undefined;
-      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id) return false;
+      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id || !lifecycleAllows(this.ctx.db,profile!.agent_id,frame.payload.lifecycle_revision)) return false;
     }
     return !!c && this.valid(c) && this.write(c.socket, frame);
   }
@@ -161,6 +185,7 @@ export class Gateway {
     this.trajectory.closeDevice(connection);
     if (this.nodes.get(connection.node_id) !== connection) return;
     this.nodes.delete(connection.node_id);
+    this.ctx.messaging.delivery.disconnect(connection.node_id);
     this.ctx.db.prepare("UPDATE nodes SET status='offline',last_error=? WHERE node_id=?")
       .run(reason, connection.node_id);
     this.publishNodeStatus(connection, "offline", { last_error: reason });
@@ -304,6 +329,7 @@ export class Gateway {
     }
     const old = this.nodes.get(c.node_id);
     if (old && old.socket !== c.socket) old.socket.close(1008, "connection replaced");
+    c.agent_lifecycle_v1=p.capabilities?.agent_lifecycle_v1===true;
     this.nodes.set(c.node_id, c);
     db.prepare(
       `INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES(?,?,?,'online',?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_name=excluded.node_name,status='online',last_error=NULL,last_heartbeat_at=excluded.last_heartbeat_at,agent_count=excluded.agent_count,version=excluded.version`,
@@ -358,11 +384,14 @@ export class Gateway {
           id,
         );
       }
+      if(!c.agent_lifecycle_v1&&lifecycle(db,id).desired==='disabled')db.prepare("UPDATE agent_lifecycle SET observed='stop_unconfirmed',error_code='node_upgrade_required',error_detail='Update this node to confirm all managed execution has stopped' WHERE agent_id=?").run(id);
       this.ctx.messaging.agentUser(id);
     }
     this.publishNodeStatus(c, "online", { last_heartbeat_at: now(), last_error: null });
     return {
       message_type: "node.register",
+      relay_request_ids:1, work_sync_http:1,
+      agent_lifecycle_v1:1, agent_lifecycles:p.agents.map((id:string)=>lifecycle(db,id)),
       im_user_url: this.ctx.publicUrl,
       node_id: c.node_id,
       node_epoch: c.node_epoch,
@@ -371,12 +400,25 @@ export class Gateway {
       personal_agents:all(db,"SELECT * FROM personal_agent_bindings WHERE owner_id=? AND node_id=? AND node_epoch=?",c.owner_id,c.node_id,c.node_epoch),
     };
   }
-  async handle(c: Connection, type: string, p: Row): Promise<Row> {
+  private readonly taskWrites=new Map<string,Set<Promise<Row>>>();
+  async handle(c:Connection,type:string,p:Row):Promise<Row> {
+    const key=`${c.node_id}:${p.agent_id}`;
+    // A timed-out client does not cancel its server-side write. Stop waits for that
+    // outcome before its atomic pause, including PA-reviewed commits.
+    if(type==='task.execution.pause')await Promise.allSettled([...(this.taskWrites.get(key)??[])]);
+    const work=this.handleFrame(c,type,p);
+    if(type==='pa.action.commit'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)) {
+      const writes=this.taskWrites.get(key)??new Set<Promise<Row>>();this.taskWrites.set(key,writes);writes.add(work);
+      void work.finally(()=>{writes.delete(work);if(!writes.size)this.taskWrites.delete(key);}).catch(()=>{});
+    }
+    return work;
+  }
+  private async handleFrame(c: Connection, type: string, p: Row): Promise<Row> {
     const db = this.ctx.db,
       s = this.ctx.messaging;
     const ack = (extra: Row = {}) => ({
       type: "ack",
-      payload: { message_type: type, ...extra },
+      payload: { message_type: type, request_id:p.request_id, ...extra },
     });
     if (type === "node.register") {
       const result = this.register(c, p);
@@ -385,6 +427,20 @@ export class Gateway {
     if (this.nodes.get(c.node_id) !== c || !this.valid(c) || p.node_id !== c.node_id)
       fail(403, "node_not_registered");
     c.lastSeen = Date.now();
+    if(type==='agent.lifecycle.report') {
+      this.requireAgent(c,p.agent_id);
+      if(!c.agent_lifecycle_v1)fail(409,'node_upgrade_required');
+      new AgentLifecycles(this.ctx).report(p.agent_id,p);return ack();
+    }
+    if(type==='task.execution.frozen_schedules') {
+      this.requireAgent(c,p.agent_id);
+      return ack({schedule_ids:all(db,'SELECT schedule_id FROM task_lifecycle_schedules WHERE agent_id=?',p.agent_id).map(row=>row.schedule_id)});
+    }
+    const effect=type==='agent.message'||type==='agent.config.boundary'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)||['pa.source.admit','pa.incident.report','pa.action.prepare','pa.action.review-result','pa.action.commit'].includes(type);
+    if(effect) {
+      const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
+      this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);
+    }
     const waiter = p.request_id ? this.pending.get(p.request_id) : undefined;
     if (waiter && waiter.connection === c && waiter.responseType === type) {
       clearTimeout(waiter.timer);
@@ -411,6 +467,15 @@ export class Gateway {
         type: "agent.work.ack",
         payload: this.work.append(c.node_id, p),
       };
+    if(['task.execution.snapshot','task.execution.pause','task.execution.scopes'].includes(type)) {
+      try {
+        const actor={kind:'agent' as const,id:p.agent_id,node_id:c.node_id};
+        const binding=one(db,'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?',p.agent_id)?this.ctx.personal!.authority(c,{agent_id:p.agent_id}):undefined;
+        const policy=binding?{ownerUserId:binding.owner_user_id,sourceAllowed:(id:string)=>this.ctx.personal!.sourceAllowed(binding,id)}:undefined;
+        const result=type==='task.execution.scopes'?this.tasks.executionScopes(actor,policy):type==='task.execution.snapshot'?this.tasks.executionSnapshot(actor,p.conversation_id,policy):this.tasks.pauseExecution(actor,p.conversation_id,p.request_key,policy);
+        return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result}};
+      } catch(error) {return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:error instanceof TaskGraphError?error.asDict():{code:'source_unavailable',message:String(error)}}};}
+    }
     if (type === "task_graph.command") {
       try {
         const personal=one(db,"SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
@@ -433,12 +498,13 @@ export class Gateway {
           payload: {
             request_id: p.request_id,
             ok: true,
-            result: this.tasks.execute(
+            result: await this.tasks.executeChecked(
               {
                 kind: "agent",
                 id: p.agent_id,
                 node_id: c.node_id,
                 source_message_id: p.source_message_id,
+                lifecycle_revision:p.lifecycle_revision,
               },
               p.action,
               p.args ?? {},
@@ -497,6 +563,8 @@ export class Gateway {
       if (!relay) fail(404, "relay task not found");
       const targetAgent = this.requireAgent(c, JSON.parse(relay.payload_json).agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
+      if (!['sent','accepted','completed','failed'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
+      if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='accepted' && p.delivery_status==='sent')) return ack({relay_task_id:p.relay_task_id});
       if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});
       db.prepare(
         "UPDATE relay_tasks SET status=?,receipt_status=?,receipt_detail=?,updated_at=? WHERE relay_task_id=?",
@@ -512,9 +580,23 @@ export class Gateway {
         p,
         p.delivery_status,
       );
+      s.delivery.receipt(c.node_id,p.relay_task_id);
       return ack({ relay_task_id: p.relay_task_id });
     }
     if (type === "node.streaming_delta") return ack(this.streaming(c, p));
+    if (type === 'agent.session.ensure') {
+      const agent=this.requireAgent(c,String(p.agent_id));
+      if(agent.work_mode!=='global' || typeof p.session_id!=='string' || !p.session_id)fail(400,'invalid_scope');
+      this.work.register(agent.agent_id,p.session_id,c.node_id,{scope:'global_main',title:agent.display_name});
+      return ack({session_id:p.session_id});
+    }
+    if (type === 'agent.message.status') {
+      const agent=this.requireAgent(c,String(p.agent_id));
+      const previous=one(db,'SELECT * FROM agent_message_dispatch_log WHERE dispatch_request_key=? AND source_agent_id=?',`${agent.agent_id}:${String(p.operation_id)}`,agent.agent_id);
+      if(!previous)return ack({found:false});
+      s.access({...c,kind:'gateway'},previous.conversation_id,agent.agent_id);
+      return ack({found:true,conversation_id:previous.conversation_id,message_id:previous.message_id,target_kind:previous.target_kind,target_id:previous.target_id,source_agent_id:agent.agent_id});
+    }
     if (type === "agent.message") {
       const source = String(p.from_session_id ?? "")
         .replace(/^agent:/, "")
@@ -526,6 +608,7 @@ export class Gateway {
         typeof p.to !== "string"
       )
         fail(400, "invalid_agent_message");
+      if(p.reply_draft!==undefined)fail(422,'reply_draft is retired; use ComposeMessage');
       const key = source[1] ? `${a.agent_id}:${source[1]}` : null;
       let interactive;
       try { interactive = interactiveResponse(p.interactive); } catch (error) { fail(422, (error as Error).message); }
@@ -537,7 +620,6 @@ export class Gateway {
         const saved = s.message(previous.message_id);
         const savedInteractive = s.interactions.publication(previous.message_id);
         if (saved.content !== p.text.trim() || canonicalJson(savedInteractive ?? null) !== canonicalJson(interactive ?? null)
-          || canonicalJson(saved.reply_draft ? {target_conversation_id:saved.reply_draft.target_conversation_id,source_message_id:saved.reply_draft.source_message_id,field_name:saved.reply_draft.field_name} : null) !== canonicalJson(p.reply_draft ?? null)
           || s.resolveTarget(a.agent_id, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
         return ack({
           conversation_id: previous.conversation_id,
@@ -574,7 +656,7 @@ export class Gateway {
         p.attachments ?? [],
         key,
         'completed',
-        { interactive, reply_draft:p.reply_draft, publish: false },
+        { interactive, publish: false },
       );
       if (p.background_returns)
         db.prepare("UPDATE messages SET background_returns_json=? WHERE id=?").run(
@@ -632,6 +714,7 @@ export class Gateway {
           )
           ?.username.slice(6);
       const a = this.requireAgent(c, source);
+      requireLifecycle(db,a.agent_id,p.lifecycle_revision);
       const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
       if(personal && !this.ctx.personal!.ownerConversation(personal,p.conversation_id))fail(403,"personal_reviewed_delivery_required");
       s.access({ ...c, kind: "gateway" }, p.conversation_id, a.agent_id, "write");
@@ -700,24 +783,6 @@ export class Gateway {
       }
       return ack({ request_id: p.request_id, boundary_id: b.boundary_id });
     }
-    if (type === "node.report") {
-      this.requireAgent(c, p.agent_id);
-      const conversation = p.conversation_id ?? (p.message_id ? s.message(p.message_id).conversation_id : undefined);
-      if (conversation) s.access({ ...c, kind: "gateway" }, conversation, p.agent_id);
-      if (p.usage) {
-        if (!p.run_id) fail(400, "run_id_required");
-        transaction(db, () => {
-          const inserted = db.prepare("INSERT OR IGNORE INTO usage_receipts VALUES(?,?)").run(c.node_id, p.run_id);
-          if (!inserted.changes) return;
-          const scopes = [[null, null], ...(conversation ? [[conversation, null]] : []), [conversation ?? null, p.agent_id]];
-          for (const [conversationId, agentId] of scopes) db.prepare(
-            "INSERT INTO usage_metrics(owner_id,conversation_id,agent_id,prompt_tokens,completion_tokens,total_tokens,turns,created_at) VALUES(?,?,?,?,?,?,?,?)",
-          ).run(c.owner_id, conversationId, agentId, p.usage.prompt_tokens ?? 0, p.usage.completion_tokens ?? 0,
-            p.usage.total_tokens ?? 0, 1, p.completed_at ?? now());
-        });
-      }
-      return ack({ run_id: p.run_id });
-    }
     fail(400, "unsupported_message_type");
   }
   requireAgent(c: Connection, id: string): Row {
@@ -737,6 +802,7 @@ export class Gateway {
       s = this.ctx.messaging;
     if (p.kind === "turn_start") {
       const a = this.requireAgent(c, p.agent_id);
+      requireLifecycle(db,a.agent_id,p.lifecycle_revision);
       if (p.agent_user_id && p.agent_user_id !== s.agentUser(a.agent_id).id)
         fail(403, "agent_user_id does not match source Agent");
       const id = p.conversation_id ?? s.resolveTarget(a.agent_id, p.to_user_id);
@@ -768,6 +834,7 @@ export class Gateway {
         if (t.predecessor_message_id) {
           if (t.include_handoff)
             this.streaming(c, {
+              lifecycle_revision:p.lifecycle_revision,
               kind: "reply_process",
               message_id: t.predecessor_message_id,
               item: {
@@ -779,6 +846,7 @@ export class Gateway {
             });
         }
         this.streaming(c, {
+          lifecycle_revision:p.lifecycle_revision,
           kind: "reply_process",
           message_id: m.id,
           item: {
@@ -799,9 +867,17 @@ export class Gateway {
       };
     }
     if (p.kind === "run_terminal_reconcile") return { kind: p.kind, run_id: p.run_id };
-    const m = s.message(p.message_id);
+    // Text deltas need identity and authorization, not the growing tool/thinking/message projection.
+    const m = p.kind === "message_delta"
+      ? one(db, `SELECT m.id,m.conversation_id,m.sender_user_id,m.sender_type,m.lifecycle_revision,m.delivery_status,u.username
+          FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?`, p.message_id)
+      : s.message(p.message_id);
+    if (!m) fail(404, "message not found");
+    if (p.kind === "message_delta") m.sender = { id: m.username.startsWith("agent:") ? m.username.slice(6) : m.sender_user_id };
     if (m.sender_type !== "agent") fail(403, "streaming message must belong to an Agent");
     this.requireAgent(c, m.sender.id);
+    requireLifecycle(db,m.sender.id,p.lifecycle_revision);
+    requireLifecycle(db,m.sender.id,m.lifecycle_revision);
     const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",m.sender.id);
     if(personal && !this.ctx.personal!.ownerConversation(personal,m.conversation_id))fail(403,"personal_reviewed_delivery_required");
     s.access({ ...c, kind: "gateway" }, m.conversation_id, m.sender.id, "write");
@@ -888,6 +964,7 @@ export class Gateway {
           agent_id: agent.agent_id,
           node_id: c.node_id,
           node_epoch: c.node_epoch,
+          lifecycle_revision:lifecycle(db,agent.agent_id).revision,
           run_id: p.run_id,
         });
       } else Object.assign(entry, { status: "resolved", decision: p.decision });
@@ -923,17 +1000,19 @@ export class Gateway {
     if (p.kind === "message_completed") this.groupReply(m.id);
     return { kind: p.kind, run_id: p.run_id, message_id: m.id };
   }
-  relayMessage(m: Row, a: Row, key: string, extra: Row = {}) {
+  relayMessage(m: Row, a: Row, key: string, extra: Row = {}, options: {deferDelivery?: boolean} = {}) {
     const db = this.ctx.db,
       s = this.ctx.messaging;
     const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", m.conversation_id);
-    if (!conversation || !agentAvailable(db, a) || !canActorAccess(db,s.agentUser(a.agent_id).id,conversation.space_id)) return;
+    if (!conversation || lifecycle(db,a.agent_id).desired!=='enabled' || !agentAvailable(db, a) || !canActorAccess(db,s.agentUser(a.agent_id).id,conversation.space_id)) return;
     const personal=one(db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',a.agent_id);
     if(personal && !this.ctx.personal!.messageAllowed(personal,m)) return;
     if (one(db, "SELECT 1 FROM relay_tasks WHERE idempotency_key=?", key)) return;
-    const c = s.conversation(m.conversation_id, m.sender_user_id);
+    // Delegated PA sends preserve their author even when only the recipient is a member.
+    const c = s.conversation(m.conversation_id, s.agentUser(a.agent_id).id);
     const relay = randomUUID(),
       payload = {
+        lifecycle_revision:lifecycle(db,a.agent_id).revision,
         relay_task_id: relay,
         idempotency_key: key,
         conversation_id: c.id,
@@ -966,10 +1045,10 @@ export class Gateway {
       now(),
       now(),
     );
-    if (this.send(a.node_id, { type: "relay.message", payload }))
-      db.prepare("UPDATE relay_tasks SET status='sent' WHERE relay_task_id=?").run(relay);
+    if (!options.deferDelivery) s.delivery.drain(a.node_id);
   }
-  groupReply(messageId: string) {
+  /** Persist group recipients inside the caller transaction when delivery is deferred. */
+  groupReply(messageId: string, options: {deferDelivery?: boolean} = {}) {
     const s = this.ctx.messaging,
       m = s.message(messageId),
       c = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", m.conversation_id);
@@ -992,11 +1071,12 @@ export class Gateway {
         this.relayMessage(m, a, `agent-reply:${m.id}:${a.agent_id}`, {
           source_agent_id: m.sender.id,
           sender_display_name: m.sender.display_name,
-        });
+        }, options);
     }
   }
   shutdown() {
     this.trajectory.shutdown();
+    this.ctx.messaging.delivery.stop();
     for (const c of this.nodes.values()) {
       this.disconnect(c, "server_shutdown");
       c.socket.close(1001, "server_shutdown");
@@ -1024,7 +1104,8 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
       token: randomBytes(32).toString("base64url"),
       lastSeen: Date.now(),
     };
-    let processing = Promise.resolve();
+    let registration = Promise.resolve();
+    let inFlight=0;
     let queued = 0,
       windowAt = Date.now(),
       framesInWindow = 0;
@@ -1043,12 +1124,14 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
         return;
       }
       queued += bytes;
-      processing = processing.then(async () => {
+      if (++inFlight>16) {socket.close(1013);return;}
+      const process = async () => {
         let frame: Row = {};
         try {
           frame = JSON.parse(raw.toString());
+          if(frame.type!=='node.register')await registration;
           const result = await g.handle(c, frame.type, frame.payload ?? {});
-          g.write(socket, result);
+          g.write(socket, {...result,payload:{...result.payload,request_id:frame.payload?.request_id}});
           if (frame.type === "node.register" && result.type === "ack") {
             ctx.updates?.reconnect(c);
             g.channelInitialize?.(c.node_id);
@@ -1065,6 +1148,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
                   g.send(c.node_id, {
                     type: "node.streaming_delta",
                     payload: {
+                      lifecycle_revision:permission.lifecycle_revision,
                       kind: "permission_response",
                       message_id: row.id,
                       request_id: permission.request_id,
@@ -1074,8 +1158,7 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
                   });
               }
             }
-            ctx.messaging.deliverRelays(all(ctx.db,
-              "SELECT * FROM relay_tasks WHERE target_node_id=? AND status IN ('queued','sent','accepted')",c.node_id));
+            ctx.messaging.delivery.drain(c.node_id);
           }
         } catch (e) {
           g.write(socket, {
@@ -1089,9 +1172,12 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
           });
           if ((e as any).statusCode === 403 && !g.valid(c)) socket.close(1008);
         } finally {
-          queued -= bytes;
+          queued -= bytes; inFlight--;
         }
-      });
+      };
+      const task=process();
+      if (!g.nodes.has(c.node_id)) registration=task;
+      void task;
     });
     socket.on("close", () => g.disconnect(c));
   });

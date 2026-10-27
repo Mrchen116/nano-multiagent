@@ -97,18 +97,6 @@ CREATE TABLE IF NOT EXISTS nodes (
     alias TEXT,
     last_error TEXT
 );
-CREATE TABLE IF NOT EXISTS usage_receipts (node_id TEXT NOT NULL,run_id TEXT NOT NULL,PRIMARY KEY(node_id,run_id));
-CREATE TABLE IF NOT EXISTS usage_metrics (
-    metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id TEXT,
-    conversation_id TEXT,
-    agent_id TEXT,
-    prompt_tokens INTEGER NOT NULL DEFAULT 0,
-    completion_tokens INTEGER NOT NULL DEFAULT 0,
-    total_tokens INTEGER NOT NULL DEFAULT 0,
-    turns INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS bind_requests (
     bind_id TEXT PRIMARY KEY,
     node_id TEXT NOT NULL,
@@ -135,6 +123,7 @@ CREATE TABLE IF NOT EXISTS messages (
     conversation_id TEXT NOT NULL,
     sender_user_id TEXT NOT NULL,
     sender_type TEXT NOT NULL DEFAULT 'user',
+    lifecycle_revision INTEGER,
     content TEXT NOT NULL,
     attachments_json TEXT NOT NULL DEFAULT '[]',
     delivery_status TEXT NOT NULL,
@@ -418,7 +407,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_pending_removal_per_provider
 ON agent_channel_removals(owner_id, agent_id, provider)
 WHERE apply_state != 'applied';
 CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS users_owner ON users(owner_id);
 CREATE INDEX IF NOT EXISTS auth_rate_expiry ON auth_rate_limits(expires_at);
+-- Replay scans only outstanding tasks for one node, regardless of saved history.
+CREATE INDEX IF NOT EXISTS relay_tasks_pending_node
+ON relay_tasks(target_node_id,updated_at,created_at)
+WHERE receipt_status IS NULL AND status IN ('queued','sent','accepted');
+CREATE INDEX IF NOT EXISTS relay_tasks_message ON relay_tasks(message_id,status);
+CREATE INDEX IF NOT EXISTS conversation_events_message ON conversation_events(message_id,event_type);
+CREATE INDEX IF NOT EXISTS conversation_events_latest ON conversation_events(message_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS messages_running ON messages(id,conversation_id,created_at) WHERE delivery_status='running';
 CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
         ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
         ;
@@ -468,6 +466,7 @@ BEGIN
  WHERE b.status='active' AND NEW.conversation_id!=b.conversation_id
  AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
  AND NOT EXISTS(SELECT 1 FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=NEW.message_id AND u.username='agent:'||b.agent_id)
+ AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=NEW.message_id AND d.agent_id=b.agent_id AND d.representation_operation_id IS NOT NULL)
  AND NOT EXISTS(SELECT 1 FROM json_each(p.excluded_json) WHERE value=NEW.conversation_id);
 END;
 CREATE TABLE IF NOT EXISTS pa_operations (
@@ -480,7 +479,8 @@ CREATE TABLE IF NOT EXISTS pa_operations (
 );
 CREATE TABLE IF NOT EXISTS pa_delegated_messages (
  message_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, agent_id TEXT NOT NULL,
- authorized_by TEXT NOT NULL, display_name TEXT NOT NULL
+ authorized_by TEXT NOT NULL, display_name TEXT NOT NULL,
+ representation_operation_id TEXT REFERENCES pa_operations(operation_id)
 );
 CREATE TABLE IF NOT EXISTS pa_source_reads (
  binding_id TEXT NOT NULL, message_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
@@ -549,3 +549,45 @@ CREATE TABLE IF NOT EXISTS pa_reply_drafts (
  target_conversation_id TEXT NOT NULL, source_message_id TEXT NOT NULL,
  field_name TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS task_execution_stops (agent_id TEXT NOT NULL, request_key TEXT NOT NULL, conversation_id TEXT NOT NULL, result_json TEXT NOT NULL, PRIMARY KEY(agent_id,request_key));
+
+CREATE TABLE IF NOT EXISTS agent_settings_snapshots (
+  agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+  section TEXT NOT NULL CHECK(section IN ('configuration','plugins','cron','usage')),
+  owner_id TEXT NOT NULL, node_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
+  workspace_root TEXT, profile_version INTEGER NOT NULL, captured_at TEXT NOT NULL,
+  data_json TEXT NOT NULL, PRIMARY KEY(agent_id,section)
+);
+
+-- Human lifecycle intent is independent of registration and profile configuration.
+CREATE TABLE IF NOT EXISTS agent_lifecycle (
+  agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+  desired TEXT NOT NULL DEFAULT 'enabled', revision INTEGER NOT NULL DEFAULT 1,
+  disabled_through_revision INTEGER NOT NULL DEFAULT 0,
+  request_id TEXT, actor_user_id TEXT, requested_at TEXT NOT NULL,
+  applied_revision INTEGER NOT NULL DEFAULT 0, observed TEXT NOT NULL DEFAULT 'enabling',
+  process_instance_id TEXT, confirmed_at TEXT, error_code TEXT, error_detail TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_lifecycle_requests (
+  agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL, intent TEXT NOT NULL, revision INTEGER NOT NULL,
+  PRIMARY KEY(agent_id,request_id)
+);
+CREATE TABLE IF NOT EXISTS task_lifecycle_freezes (
+  graph_id TEXT NOT NULL REFERENCES task_graphs(graph_id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL, agent_id TEXT NOT NULL, revision INTEGER NOT NULL,
+  PRIMARY KEY(graph_id,node_id)
+);
+CREATE TRIGGER IF NOT EXISTS agent_lifecycle_created AFTER INSERT ON agent_profiles BEGIN
+  INSERT OR IGNORE INTO agent_lifecycle(agent_id,requested_at) VALUES(NEW.agent_id,NEW.created_at);
+END;
+INSERT OR IGNORE INTO agent_lifecycle(agent_id,requested_at) SELECT agent_id,created_at FROM agent_profiles;
+
+CREATE TRIGGER IF NOT EXISTS personal_observation_lifecycle AFTER INSERT ON pa_source_events BEGIN
+  UPDATE pa_source_events SET payload_json=json_set(payload_json,'$.lifecycle_revision',
+    (SELECT l.revision FROM agent_lifecycle l JOIN personal_agent_bindings b ON b.agent_id=l.agent_id WHERE b.binding_id=NEW.binding_id))
+  WHERE event_id=NEW.event_id;
+END;
+
+CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,schedule_id TEXT NOT NULL,graph_id TEXT NOT NULL,node_id TEXT NOT NULL,PRIMARY KEY(agent_id,schedule_id));

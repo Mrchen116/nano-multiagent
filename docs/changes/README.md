@@ -91,6 +91,7 @@ docs/changes/<unit-dir>/
 ├── spec.md | incident.md | motivation.md
 ├── spec-review.md                    # 可选；spec review 发现问题时留痕
 ├── design.md
+├── deployment-prompt.md              # 可选；一次性部署迁移提示词
 ├── design-review.md                  # Gate 2 的全部 Round 与 Author Resolutions
 ├── prototype.html                    # 仅前端相关
 ├── specs/                            # 对 canonical specs 的 delta
@@ -145,6 +146,7 @@ docs/changes/<unit-dir>/
 | `spec.md` / `incident.md` / `motivation.md` / `fix.md` 前两部分 | `change-spec-author`；快速开发为 `change-fast-close` | 做什么、为什么、验收标准或 RCA |
 | `spec-review.md`（可选） | `change-spec-reviewer` | 按需复核发现问题时留下的台账 |
 | `design.md`、`prototype.html`、`specs/**`、milestone 空骨架 | `change-design-author`；快速开发的 as-built design 与 delta 为 `change-fast-close` | 怎么做、实际怎么实现、契约增量和实施切片 |
+| `deployment-prompt.md`（可选） | Full 为 `change-design-author`；lite/快速开发由当前实施或收尾角色维护 | 一次性部署迁移要求，由 `prod-fleet-deploy` 在授权部署时执行 |
 | `design-review.md` | `change-design-reviewer` + `change-design-author` | reviewer 逐轮追加审查，author 追加 resolutions |
 | `tasks.md`、`progress.md`、`evidence/**`、`fix.md` 后两部分 | 原流程为 `change-impl-worker`；简化流程为 `change-orchestrator-simple` | 原流程 worker 固定留下的简短计划/进展，以及按需 evidence；简化流程只记录实际发生的过程 |
 | 快速开发 `analysis.md`（可选） | `change-fast-close` / 当前实施会话 | 实现前后的取证、样本口径、观察与推论；不替代首文档或 as-built design |
@@ -153,6 +155,21 @@ docs/changes/<unit-dir>/
 | `code-review.md` | `change-code-review`；快速开发由 `change-fast-close` 归集 | diff 的 review 范围、findings、修复和最终结论；可与 verification 同次产出 |
 
 模板由各 skill 的 `assets/` 提供，本文不复制模板正文。
+
+## 一次性部署提示词
+
+需要由部署 Agent 将旧数据、配置或目录状态一次性迁移到新设计时，固定使用 unit 根目录的 `deployment-prompt.md`，从 `design.md`（lite 为 `fix.md`）链接。无迁移需要不创建空文件；归档时随整个 unit 保留，不因进入 archive 而失效。
+
+提示词须写清：
+
+- 旧状态、目标状态、适用版本/环境/对象范围，以及目标实现已具备的前提；仅有设计或提示词不代表可执行。
+- 执行时机与服务停启、配置写回的先后关系；必要备份、最小修改步骤、必须保留的数据和无关配置。
+- 完成判据与验证方法、中断后的继续方式、失败恢复方式，以及如何依据部署记录和现场状态避免重复执行。
+- 区分隔离环境中的功能/幂等性/失败恢复验证与正式环境的有限迁移结果核对；生产默认只读，不把发送消息、生成卡片或完整功能回归列为例行部署要求。确有不可替代的生产验证时写明必要性、对象、次数与停止条件，并遵循 [生产验证边界](../../.claude/skills/prod-fleet-deploy/references/runbook.md#生产验证范围与停止条件)。
+
+每项验证注明执行环境和直接完成判据；隔离验证引用目标版本的证据或写入交付前的验收安排，生产核对限定所需计数、不变量或小样本及观察截止条件。生产例外验证须单列必要性、对象、最多次数、停止条件与明确授权状态，不能仅写“按部署授权完成真实验收”。没有写入式生产测试不应成为迁移完成的缺项；迁移本身的数据完整性和健康条件仍须满足。
+
+这份文件保存部署要求，不单独授权操作生产；在用户授权部署包含该实现的版本时，由 [prod-fleet-deploy](../../.claude/skills/prod-fleet-deploy/SKILL.md) 发现并遵循。一次性历史整理不转化为冗余的产品启动迁移或长期兼容代码；正常产品行为仍由实现负责。执行环境、版本、对象范围、备份位置和结果写入受保护的本地部署记录，不把秘密或原始生产数据写回 unit。
 
 ## 内容边界
 
@@ -233,7 +250,7 @@ fi
 unit_path=$unit_matches
 ```
 
-禁止用 `head -1` 吞掉歧义。执行型 skill 只能接手 active unit；archive 只允许开放 PR 的受限小修，retired 一律拒绝启动。
+禁止用 `head -1` 吞掉歧义。change 实施型 skill 只能接手 active unit；archive 只允许开放 PR 的受限小修，retired 一律拒绝启动。正式部署读取并执行已实现 unit 的 `deployment-prompt.md` 不属于恢复 unit，适用于 active 与 archive。
 
 ## Evidence 与本地产物
 

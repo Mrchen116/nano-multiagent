@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
+import type { UserMessage } from '@deepseek-ai/dsh-llm';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
@@ -15,6 +16,9 @@ import { boundedReview, retryReview } from './retry.js';
 import { classify } from './classifier.js';
 import type {} from './cc.js';
 import type {} from './codex.js';
+import { contextTools } from '../agent-context.js';
+import { normalizeMessageArguments } from '../message-arguments.js';
+import { isHumanSource } from '../input-source.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
@@ -71,10 +75,10 @@ export class NanoApproval extends Service {
   private route(agent: Agent, config: AgentConfiguration): 'interactive' | 'unattended' | 'return_to_agent' {
     if (agent.session.header.origin === 'subagent') return 'return_to_agent';
     const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
-    const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as { source?: { kind?: string; channel?: string } });
+    const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as UserMessage);
     if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
     if (config.mode === 'global') return 'return_to_agent';
-    return inputs.some(input => input.source?.kind === 'nano-human') ? 'interactive' : 'unattended';
+    return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
   }
   private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata' | 'retry'>> = {}) {
     let reached = { consecutive: 0, total: 0 };
@@ -106,11 +110,14 @@ export class NanoApproval extends Service {
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
+    if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments)};
     const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
     if (!agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return next();
     const downstream = await next();
     if (downstream.kind !== 'allow') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
+    // Session-local continuation must work with Auto off; downstream denials still win.
+    if (contextTools.has(exec.name)) return allow('internal_context');
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
     // Source preferences use the original owner message and revision checked by the product host.
     if (config.personal && exec.name === 'personal_sources') return allow('owner_source_control');
@@ -120,10 +127,10 @@ export class NanoApproval extends Service {
         || exec.name === 'skill_manage' && (exec.arguments as { action?: unknown }).action === 'list'
         || exec.name === 'task_graph' && ['list', 'get'].includes((exec.arguments as { action: string }).action)
         || exec.name === 'workflow' && ['list', 'read'].includes((exec.arguments as { action: string }).action))
-      || !['bash', 'send_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
+      || !['bash', 'send_message', 'send_user_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
       || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
     // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
-    if (config.personal && policy.enabled && exec.name === 'send_message') return allow('product_disclosure_gate');
+    if (config.personal && policy.enabled && ['send_message', 'send_user_message'].includes(exec.name)) return allow('product_disclosure_gate');
     const messageContext = exec.name === 'send_message'
       ? await this.ctx.nanoProduct.call('send_message.context', { target: (exec.arguments as { target?: unknown }).target }, exec) as MessageApprovalContext : undefined;
     if (messageContext?.recipient.kind === 'owner') return allow('owner_message');
@@ -138,7 +145,6 @@ export class NanoApproval extends Service {
     const outcome = await retryReview(async (attemptSignal, children) => {
       prepared ??= (async () => ({ exec: frozenExec, config: frozenConfig, sources: this.sources,
         inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext: structuredClone(messageContext),
-        personalAuthorization: config.personal ? await this.ctx.nanoProduct.call('pa.authorization', {}, exec) : undefined,
         reviewer: { ...reviewer }, snapshot: {} }))();
       const frozen = await prepared;
       attemptSignal.throwIfAborted();
@@ -150,7 +156,7 @@ export class NanoApproval extends Service {
     const cancel = () => {
       // A parent may stop after the strategy committed but before audit returned.
       // Invalidate its cache synchronously; disposal remains off the cancel path.
-      if (policy.rules === 'codex') void this.ctx.codexApproval.release(agent.id).catch(error => this.ctx.logger.warn('Canceled reviewer cleanup unavailable: %s', String(error)));
+      if (policy.rules === 'codex') void this.ctx.codexApproval.release(agent.id, 'tool').catch(error => this.ctx.logger.warn('Canceled reviewer cleanup unavailable: %s', String(error)));
       // Audit cannot hold the execution cancellation boundary hostage to storage I/O.
       const retry: ReviewRetry = { ...outcome.retry, finalCategory: 'cancel' };
       void this.record(exec, 'classifier_cancel', 'cancel', 'Automatic review canceled', policy, { ...details, retry }).catch(error => this.ctx.logger.warn('Canceled review audit unavailable: %s', String(error)));

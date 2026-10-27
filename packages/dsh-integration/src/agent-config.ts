@@ -103,6 +103,9 @@ export class ConfigurationScopes extends Service {
     const scope: PresetScope = { agentId, ctx, features: new Map() };
     this.presets.add(scope); ctx.effect(() => () => { this.presets.delete(scope); });
     await ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
+    await ctx.inject(['tools', 'nanoProduct', 'nanoKnowledge', 'skills'], child => {
+      TaskGraphs.registerTool(child, agent => this.forAgent(agent)?.features?.task_graph !== false); MemoryCuration.registerTool(child); SkillCreation.registerTool(child);
+    }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);
     await this.extensions.attach(ctx, config);
@@ -112,7 +115,9 @@ export class ConfigurationScopes extends Service {
       const selected = agent && this.forAgent(agent); if (!selected) return assembly;
       const disabled = new Set<string>();
       for (const [feature, section] of [['intelligent_ui', 'nano-interactive-replies'], ['task_graph', 'nano-task-graphs'], ['memory_curation', 'nano-memory'], ['skill_creation', 'nano-skill-creation']] as const) if (selected.features?.[feature] === false) disabled.add(section);
+      if (!selected.features?.cron_scheduling) disabled.add('nano-cron');
       if (!selected.features?.heartbeat) disabled.add('nano-heartbeat');
+      if (!this.tools.selection(selected, Skills.goalTools).length) disabled.add('tool:goal');
       assembly.sections = assembly.sections.filter(section => !disabled.has(section.name));
       assembly.contexts = assembly.contexts.filter(section => !disabled.has(section.name));
       return assembly;
@@ -126,6 +131,7 @@ export class ConfigurationScopes extends Service {
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     if (config.systemPrompt) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
+    if (config.personal && agent.session.header.origin !== 'subagent') await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
   }
   async setFeatures(agentId: string, features: Record<string, boolean>): Promise<void> {
@@ -136,7 +142,7 @@ export class ConfigurationScopes extends Service {
   /** Withdraw choices now; additions and the rest of the configuration wait for idle. */
   restrictSelection(next: AgentConfiguration): void {
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
-      if (next.toolAllowlist !== undefined) config.toolAllowlist = config.toolAllowlist === undefined ? [...next.toolAllowlist] : config.toolAllowlist.filter(name => next.toolAllowlist!.includes(name));
+      if (next.toolAllowlist !== undefined) config.toolAllowlist = this.tools.selection(config, next.toolAllowlist);
       if (next.skillSelection?.mode === 'explicit_allowlist') config.skillSelection = { mode: 'explicit_allowlist', names: config.skillSelection?.mode === 'explicit_allowlist' ? config.skillSelection.names.filter(name => next.skillSelection!.names.includes(name)) : [...next.skillSelection.names] };
       else if (next.skillSelection?.mode === 'explicit_denylist') {
         if (config.skillSelection?.mode === 'explicit_allowlist') config.skillSelection.names = config.skillSelection.names.filter(name => !next.skillSelection!.names.includes(name));

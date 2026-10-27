@@ -9,7 +9,7 @@ it('preserves native presenter output and actual child identity across configura
   let client: RuntimeClient | undefined;
   let logs = '';
   const binding = {sessionId:'view', agentId:'a', revision:'1', ownerId:'owner', cwd:home};
-  let config = {agentId:'a', revision:'1', provider:'deepseek-official', model:'deepseek-flash', toolAllowlist:['read','subagent']};
+  let config = {features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false},agentId:'a', revision:'1', provider:'deepseek-official', model:'deepseek-flash', toolAllowlist:['read','subagent']};
   try {
     await writeFile(join(home, 'sample.txt'), 'PERSISTED_CONTENT');
     await writeFile(join(home, 'fixture.mjs'), `export const name='presenter-fixture';export const inject=['llm'];export function apply(ctx){
@@ -42,11 +42,19 @@ it('preserves native presenter output and actual child identity across configura
     const detail=children.find(item=>item.id===child);
     expect(detail).toBeTruthy();
     expect(JSON.stringify(detail)).toContain('CHILD_VIEW');
+    const unchanged=await client!.rpc.request('session.descendants',{sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:detail.modelVersion}}) as any[];
+    expect(unchanged.find(item=>item.id===child)?.events).toEqual([]);
+    const modelChanged=await client!.rpc.request('session.descendants',{sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:'earlier-model-state'}}) as any[];
+    expect(modelChanged.find(item=>item.id===child)?.events).toEqual(detail.events);
     config={...config,revision:'2',toolAllowlist:[]};
     await client!.rpc.request('configuration.apply',config);
     await client!.shutdown();client=undefined;
     await start();
     expect((await observe()).filter(e=>e.data.nanoToolView).map(e=>e.data.nanoToolView)).toEqual(views);
+    const restored=await client!.rpc.request('session.descendants',{sessionId:'view'}) as any[];
+    const restoredDetail=restored.find(item=>item.id===child);
+    expect(restoredDetail).toMatchObject({id:detail.id,throughSeq:detail.throughSeq,events:detail.events});
+    expect(await client!.rpc.request('session.descendants',{sessionId:'view'})).toEqual(restored);
     await client!.shutdown();client=undefined;
   }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}

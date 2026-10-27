@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TrajectoryRun } from '@nano/product-contracts';
 import type { TrajectorySnapshot } from '../src/client/trajectory-contract';
-import { withLaunches, executionFocus, verifiedRun } from '../src/client/navigation-model';
+import { withLaunches, executionFocus, verifiedRun, runTitle } from '../src/client/navigation-model';
 
 const run = { runId: 'epoch-old', sessionId: 'child', parentSessionId: 'parent', kind: 'tool', provider: 'fork', state: 'completed', startSeq: 40, endSeq: 60, startedAt: 1000 } as TrajectoryRun;
 const node = (seq: number) => ({ kind: 'user', seq, time: seq, turn: seq, content: [{type:'text', text:String(seq)}] });
@@ -39,4 +39,8 @@ it('keeps native tool and live assistant coordinates tied to their request epoch
   const turns=[{turn:2,groups:[{title:'step',cells:[{index:1,recordId:'assistant\u00002\u00001',sourceSeq:Number.MAX_SAFE_INTEGER,kind:'message' as const,text:'live',timeSeconds:null},{index:2,callId:'new',kind:'tool' as const,text:'tool',timeSeconds:null}]}]}];
   const cells=coordinateLayout(turns,snapshot).flatMap(t=>t.groups.flatMap(g=>g.cells));
   expect(cells.map(c=>c.sourceSeq)).toEqual([82,82]);
+});
+
+it('labels a combined review as one Memory and Skill execution', () => {
+  expect(runTitle({...run,kind:'combined'})).toBe('记忆与技能复盘');
 });

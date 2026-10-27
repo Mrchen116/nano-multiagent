@@ -1,3 +1,4 @@
+import { isHumanSource } from "../input-source.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import {
@@ -108,7 +109,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     for (const [, budget] of storage.table("budgets").entries())
       this.budgets.set(budget.id, budget);
     for (const [, record] of storage.table("runs").entries())
-      { this.recoveredRecords.set(record.id, record); if (record.result && !record.delivered) this.undelivered.add(record.id); }
+      { this.recoveredRecords.set(record.id, record); if (record.result && !record.delivered && !record.cancelledByDisable) this.undelivered.add(record.id); }
     for (const [id, record] of storage.table("runs").entries())
       if (record.state === "running" || record.state === "paused") {
         await storage.table("runs").put(id, {
@@ -120,7 +121,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
       }
   }
   private save(record: WorkflowRecord) {
-    if (record.result && !record.delivered) this.undelivered.add(record.id);
+    if (record.result && !record.delivered && !record.cancelledByDisable) this.undelivered.add(record.id);
     record.revision++;
     const snapshot = structuredClone(record);
     return this.enqueue(async () => {
@@ -179,6 +180,13 @@ export class NanoWorkflowEngine extends WorkflowEngine {
   private async remaining(budget: BudgetRecord) {
     const spent = await this.spent(budget);
     return budget.target === null ? null : Math.max(0, budget.target - spent);
+  }
+  /** Read child ownership without executing the budget's native history reads. */
+  async relationships(parentSessionId: string) {
+    await this.ready;
+    return [...(await this.storage).table('runs').entries()]
+      .map(([, record]) => record).filter(record => record.parentSessionId === parentSessionId)
+      .map(record => ({id:record.id,calls:record.calls}));
   }
   async read(parent: Agent, id?: string) {
     await this.ready;
@@ -325,7 +333,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
               (event) =>
                 event.type === "user/message" &&
                 event.seq > (turn?.seq ?? -1) &&
-                ["nano-human", "nano-system"].includes(event.data.source.kind),
+                (isHumanSource(event.data.source) || event.data.source.kind === "nano-system"),
             )
             .map((event) => (event.data as { id: string }).id),
         ]),
@@ -745,7 +753,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     await this.ready;
     return [...(await this.storage).table("runs").entries()]
       .map(([, record]) => record)
-      .filter((record) => record.result && !record.delivered)
+      .filter((record) => record.result && !record.delivered && !record.cancelledByDisable)
       .map((record) => this.project(record));
   }
   async acknowledge(id: string) {
@@ -796,6 +804,20 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     }
     await table.put(key(id), { sessionId: parent.id, argument, text });
     return { text };
+  }
+  /** Retain interrupted execution evidence without making old results deliverable. */
+  async cancelPersisted(owns: (sessionId: string) => boolean = () => true): Promise<void> {
+    await this.ready;
+    const table = (await this.storage).table('runs');
+    for (const [id, record] of table.entries()) {
+      if (!owns(record.parentSessionId)) continue;
+      this.undelivered.delete(record.id);
+      const next: WorkflowRecord = { ...record, cancelledByDisable: true,
+        ...(['running', 'paused', 'interrupted'].includes(record.state) ? {state: 'cancelled' as const, endedAt: Date.now()} : {}),
+        revision: record.revision + 1 };
+      await table.put(id, next);
+      this.recoveredRecords.set(record.id, next);
+    }
   }
   async stopSession(sessionId: string) {
     const active = [...this.live.values()].filter(

@@ -4,13 +4,13 @@ import { GlobalAgent } from '../src/global-agent.js';
 import { InboxStore } from '../src/inbox.js';
 import { NodeStore } from '../src/store.js';
 
-function fixture() {
+function fixture(onObserve?: () => void) {
   const store=new NodeStore(':memory:','owner'), inbox=new InboxStore(':memory:');
   const config:AgentConfiguration={agentId:'pa',mode:'global',workspace:'/tmp/pa',revision:'1',provider:'p',model:'m',groupReplyPolicy:'mention_only',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}};
   const submitted:Record<string,any>[]=[];const methods:string[]=[];const seen=new Set<string>();
-  const observations:Record<string,any>[]=[];const errors:unknown[]=[];const excluded=new Set<string>();let loseAck=false;
+  const observations:Record<string,any>[]=[];const errors:unknown[]=[];const excluded=new Set<string>(),foreign=new Set<string>();let loseAck=false;
   let running=false, race=false;let listener:(method:string,data:any)=>void=()=>{};
-  const source=(target:unknown)=>({allowed:true,is_owner:true,delivery:target==='background'?'observer':'participant',conversation_type:target==='group'?'group':'direct',channel:'web'});
+  const source=(target:unknown)=>({allowed:true,is_owner:!foreign.has(String(target)),delivery:target==='background'?'observer':'participant',conversation_type:target==='group'?'group':'direct',channel:'web'});
   const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:error=>{errors.push(error);},
     runtime:{onNotification:fn=>{listener=fn;return()=>{};},request:async(method,args:any)=>{
       methods.push(method);
@@ -23,6 +23,7 @@ function fixture() {
       }
       if(method==='session.lookup')return {accepted:seen.has(args.inputId)};
       if(method==='session.descendants')return [];
+      if(method==='session.observe')onObserve?.();
       return {events:[],status:running?'running':'idle',durable:true};
     }},
     relay:{ready:true,request:async(type,args:any)=>{
@@ -33,7 +34,7 @@ function fixture() {
   const input=(id:string,target='background',metadata:Record<string,unknown>={}):RelayInput=>({agent_id:'pa',conversation_id:target,relay_task_id:id,idempotency_key:id,metadata,
     message:{id,content:id,sender_type:'user',sender_user_id:'owner',attachments:[]}});
   const idle=()=>{running=false;listener('session.status',{sessionId:store.bindingFor('pa','global:pa')!.sessionId,status:'idle'});};
-  return {product,inbox,store,submitted,methods,input,idle,observations,errors,excluded,loseAck:()=>{loseAck=true;},busy:()=>{running=true;},race:()=>{race=true;},close:async()=>{await product.stop();inbox.close();store.close();}};
+  return {product,inbox,store,submitted,methods,input,idle,observations,errors,excluded,foreign,loseAck:()=>{loseAck=true;},busy:()=>{running=true;},race:()=>{race=true;},close:async()=>{await product.stop();inbox.close();store.close();}};
 }
 it('notifies one observer batch at a fixed deadline without another message and never checks it as a direct request',async()=>{
   vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
@@ -65,17 +66,27 @@ it('defers busy background, including an admission race, while a direct correcti
     expect(f.submitted).toHaveLength(2);expect(f.submitted[1].source.channel).toBe('inbox-background');
   } finally {await f.close();vi.useRealTimers();}
 });
-it('makes background readable before its deadline and cancels an already consumed batch',async()=>{
-  vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
+it.each(['before deadline','during idle observation'])('does not wake for background consumed %s',async timing=>{
+  vi.useFakeTimers();vi.setSystemTime(0);let consumeOnObserve=false;
+  const f=fixture(()=>{if(consumeOnObserve){consumeOnObserve=false;consume();}});
+  function consume() {
+    const body=f.inbox.read('pa','main','read',{target:'background'});
+    expect(body).toMatchObject({delivery:'observer',messages:[{content:[{text:'new budget'}]}]});
+    f.inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(body)}],false);
+  }
   try {
     await f.product.receive(f.input('new budget'));
     await f.product.receive(f.input('use that budget','own'));
     expect(f.submitted).toHaveLength(1);
-    const body=f.inbox.read('pa','main','read',{target:'background'});
-    expect(body).toMatchObject({delivery:'observer',messages:[{content:[{text:'new budget'}]}]});
-    f.inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(body)}],false);
+    if(timing==='before deadline')consume();else consumeOnObserve=true;
     await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(1);
+    expect(f.inbox.check('pa',true).sources.map(source=>source.target)).toEqual(['own']);
+    await f.product.receive(f.input('later update'));
+    await vi.advanceTimersByTimeAsync(600000);
+    expect(f.submitted).toHaveLength(2);
+    expect(f.submitted[1].source.channel).toBe('inbox-background');
+    expect(f.errors).toEqual([]);
   } finally {await f.close();vi.useRealTimers();}
 });
 it('keeps observed slash commands as background and applies the existing participant group trigger',async()=>{
@@ -131,4 +142,13 @@ it('stops the deadline timer without consuming stored background',async()=>{
     await f.product.stop();await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(0);expect(f.inbox.check('pa',true).sources[0].unread).toBe(1);
   } finally {await f.close();vi.useRealTimers();}
+});
+
+it('treats a non-owner participant stop as ordinary input without reserving a blocking owner control',async()=>{
+ const f=fixture();f.foreign.add('group');
+ try {
+  const input=f.input('peer-stop','group',{mentioned_agent_ids:['pa']});input.message.content='/stop';input.message.sender_user_id='peer';
+  await Promise.race([f.product.receive(input),new Promise((_,reject)=>setTimeout(()=>reject(Error('peer control blocked Inbox')),300))]);
+  expect(f.methods).not.toContain('session.cancel');expect(f.inbox.pendingControls()).toEqual([]);expect(f.submitted).toHaveLength(1);expect(f.inbox.check('pa',true).sources[0]?.unread).toBe(1);
+ }finally{await f.close();}
 });

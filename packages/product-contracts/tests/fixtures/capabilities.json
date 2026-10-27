@@ -1,0 +1,967 @@
+{
+  "definitions": [
+    {
+      "key": "intelligent_ui",
+      "default_on": true,
+      "requires": {
+        "features": [],
+        "tools": [
+          "send_message",
+          "skill"
+        ],
+        "skills": [
+          "nano-interactive-ui"
+        ]
+      }
+    },
+    {
+      "key": "task_graph",
+      "default_on": true,
+      "requires": {
+        "features": [
+          "cron_scheduling"
+        ],
+        "tools": [
+          "task_graph"
+        ],
+        "skills": []
+      }
+    },
+    {
+      "key": "memory_curation",
+      "default_on": true,
+      "requires": {
+        "features": [],
+        "tools": [
+          "memory",
+          "read"
+        ],
+        "skills": []
+      }
+    },
+    {
+      "key": "skill_creation",
+      "default_on": true,
+      "requires": {
+        "features": [],
+        "tools": [
+          "skill_manage",
+          "skill",
+          "read"
+        ],
+        "skills": []
+      }
+    },
+    {
+      "key": "cron_scheduling",
+      "default_on": false,
+      "requires": {
+        "features": [],
+        "tools": [
+          "schedule_create",
+          "schedule_list",
+          "schedule_update",
+          "schedule_delete",
+          "schedule_run",
+          "schedule_history"
+        ],
+        "skills": []
+      }
+    },
+    {
+      "key": "heartbeat",
+      "default_on": false,
+      "requires": {
+        "features": [],
+        "tools": [
+          "read"
+        ],
+        "skills": []
+      }
+    }
+  ],
+  "cases": [
+    {
+      "name": "enable_intelligent_ui",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "intelligent_ui",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": true,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "send_message",
+            "skill"
+          ],
+          "skills": [
+            "nano-interactive-ui"
+          ],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "enable_task_graph",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "task_graph",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": true,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": true,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "task_graph",
+            "schedule_create",
+            "schedule_list",
+            "schedule_update",
+            "schedule_delete",
+            "schedule_run",
+            "schedule_history"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "enable_memory_curation",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "memory_curation",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": true,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "memory",
+            "read"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "enable_skill_creation",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "skill_creation",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": true,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "skill_manage",
+            "skill",
+            "read"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "enable_cron_scheduling",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "cron_scheduling",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": true,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "schedule_create",
+            "schedule_list",
+            "schedule_update",
+            "schedule_delete",
+            "schedule_run",
+            "schedule_history"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "enable_heartbeat",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "heartbeat",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": true
+          },
+          "tool_allowlist": [
+            "read"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "task_then_cron_blocked",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "task_graph",
+          "enabled": true
+        },
+        {
+          "kind": "feature",
+          "name": "cron_scheduling",
+          "enabled": false
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": true,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": true,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "task_graph",
+            "schedule_create",
+            "schedule_list",
+            "schedule_update",
+            "schedule_delete",
+            "schedule_run",
+            "schedule_history"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": [
+          {
+            "code": "required_by_feature",
+            "target": {
+              "kind": "feature",
+              "name": "cron_scheduling"
+            },
+            "required_by": [
+              "task_graph"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "shared_read_then_memory_tool_only",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "memory_curation",
+          "enabled": true
+        },
+        {
+          "kind": "feature",
+          "name": "skill_creation",
+          "enabled": true
+        },
+        {
+          "kind": "feature",
+          "name": "memory_curation",
+          "enabled": false
+        },
+        {
+          "kind": "tool",
+          "name": "memory",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": true,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "read",
+            "skill_manage",
+            "skill",
+            "memory"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "discovery_to_denylist",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "default_discovery"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "intelligent_ui",
+          "enabled": true
+        },
+        {
+          "kind": "feature",
+          "name": "intelligent_ui",
+          "enabled": false
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [],
+          "skills": [
+            "nano-interactive-ui"
+          ],
+          "skills_selection_mode": "explicit_denylist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "enable_denied_skill",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [
+          "nano-interactive-ui",
+          "other"
+        ],
+        "skills_selection_mode": "explicit_denylist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "intelligent_ui",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": true,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "send_message",
+            "skill"
+          ],
+          "skills": [
+            "other"
+          ],
+          "skills_selection_mode": "explicit_denylist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "missing_read",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {
+        "tools": [
+          "memory"
+        ]
+      },
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "memory_curation",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": [
+          {
+            "code": "capability_unavailable",
+            "target": {
+              "kind": "tool",
+              "name": "read"
+            },
+            "required_by": [
+              "memory_curation"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "fixed_context",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {
+        "fixed_tools": [
+          "notes",
+          "history",
+          "new_context",
+          "get_context_remaining"
+        ]
+      },
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "notes",
+          "enabled": false
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": [
+          {
+            "code": "fixed_capability",
+            "target": {
+              "kind": "tool",
+              "name": "notes"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "close_task_retains_cron",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "task_graph",
+          "enabled": true
+        },
+        {
+          "kind": "feature",
+          "name": "task_graph",
+          "enabled": false
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": true,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "schedule_create",
+            "schedule_list",
+            "schedule_update",
+            "schedule_delete",
+            "schedule_run",
+            "schedule_history"
+          ],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    },
+    {
+      "name": "required_skill",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "intelligent_ui",
+          "enabled": true
+        },
+        {
+          "kind": "skill",
+          "name": "nano-interactive-ui",
+          "enabled": false
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": true,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "send_message",
+            "skill"
+          ],
+          "skills": [
+            "nano-interactive-ui"
+          ],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": [
+          {
+            "code": "required_by_feature",
+            "target": {
+              "kind": "skill",
+              "name": "nano-interactive-ui"
+            },
+            "required_by": [
+              "intelligent_ui"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "global_fixed_subagent",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist",
+        "work_mode": "global"
+      },
+      "catalog": {
+        "fixed_tools": [
+          "inbox",
+          "conversations",
+          "send_message",
+          "subagent",
+          "notes",
+          "history",
+          "new_context",
+          "get_context_remaining"
+        ]
+      },
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "subagent",
+          "enabled": false
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist",
+          "work_mode": "global"
+        },
+        "blocks": [
+          {
+            "code": "fixed_capability",
+            "target": {
+              "kind": "tool",
+              "name": "subagent"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "personal_fixed_sources",
+      "draft": {
+        "features": {
+          "intelligent_ui": false,
+          "task_graph": false,
+          "memory_curation": false,
+          "skill_creation": false,
+          "cron_scheduling": false,
+          "heartbeat": false
+        },
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist",
+        "work_mode": "global"
+      },
+      "catalog": {
+        "fixed_tools": [
+          "inbox",
+          "conversations",
+          "send_message",
+          "subagent",
+          "personal_sources",
+          "notes",
+          "history",
+          "new_context",
+          "get_context_remaining"
+        ]
+      },
+      "actions": [
+        {
+          "kind": "tool",
+          "name": "personal_sources",
+          "enabled": false
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": false,
+            "task_graph": false,
+            "memory_curation": false,
+            "skill_creation": false,
+            "cron_scheduling": false,
+            "heartbeat": false
+          },
+          "tool_allowlist": [],
+          "skills": [],
+          "skills_selection_mode": "explicit_allowlist",
+          "work_mode": "global"
+        },
+        "blocks": [
+          {
+            "code": "fixed_capability",
+            "target": {
+              "kind": "tool",
+              "name": "personal_sources"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "default_feature_closure",
+      "draft": {
+        "features": {},
+        "tool_allowlist": [],
+        "skills": [],
+        "skills_selection_mode": "explicit_allowlist"
+      },
+      "catalog": {},
+      "actions": [
+        {
+          "kind": "feature",
+          "name": "task_graph",
+          "enabled": true
+        }
+      ],
+      "expected": {
+        "draft": {
+          "features": {
+            "intelligent_ui": true,
+            "task_graph": true,
+            "memory_curation": true,
+            "skill_creation": true,
+            "cron_scheduling": true,
+            "heartbeat": false
+          },
+          "tool_allowlist": [
+            "send_message",
+            "skill",
+            "task_graph",
+            "memory",
+            "read",
+            "skill_manage",
+            "schedule_create",
+            "schedule_list",
+            "schedule_update",
+            "schedule_delete",
+            "schedule_run",
+            "schedule_history"
+          ],
+          "skills": [
+            "nano-interactive-ui"
+          ],
+          "skills_selection_mode": "explicit_allowlist"
+        },
+        "blocks": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "file": "apps/node/src/runtime-partitions.ts",
+    "line": 209,
+    "summary": "[P1] prepare 不能提前替换分区的已确认配置快照",
+    "failure_scenario": "现有 Agent 因 active Schedule 或在途工具而拒绝关闭时，configuration.prepare 在收到 ready:false 之前已经调用 assign(candidate)，后者无条件替换 partition.agents 中的配置。最窄 RuntimePartitions mock 复现确认：prepare 返回 capability_in_use，partition.agents 却保留被拒绝的 revision、features 和 toolAllowlist，而 Node 原配置仍为旧值。apps/node/src/main.ts 的 runtime initialize 从 partition.agents 读取 agents；DSH 子进程随后重启会直接加载这个未落盘、已被拒绝的候选，关闭仍受责任保护的能力。对于已有分区，prepare 应只解析目标分区，不能更新其已确认启动快照；新分区准备也必须避免把被拒绝候选保留成已确认配置。本项针对固定受审版本 1ce3925a3。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  },
+  {
+    "file": "src/IM/frontend/src/features/settings/agents/capability-editor.tsx",
+    "line": 99,
+    "summary": "[P2] 关闭预检应包括正在加载的命名 Skill",
+    "failure_scenario": "Agent 正在通过 skill 工具加载不受开启 Feature 静态依赖保护的普通 Skill 时，单独取消该 Skill 只改变 skills；这里的 removed 只计算 feature/tool，结果为空，页面跳过 capability-usage 并立即显示关闭且无占用 Toast。保存期间相同候选会被 runtime CapabilityState.prepare 的命名 Skill reservation 检查拒绝，开关才回弹，违反既定的关闭受阻时保持原态、不闪动和局部提示语义。最窄复现得到 UI removed=[]，同一 Skill 正在加载时后端返回 capability_busy target={kind:'skill',name:'ordinary-method'}。Swift CapabilitySelection.swift:45-47 的 removingCapabilities 同样遗漏 Skill，两端需共同计算有效 Skill 选择差集；Web usage busy 类型也需要允许 kind:'skill'。本项针对固定受审版本 1ce3925a3。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]

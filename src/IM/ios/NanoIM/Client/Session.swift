@@ -3,6 +3,7 @@ import Foundation
 /// Owns token rotation and prevents an old account's suspended requests from publishing.
 actor Session {
     nonisolated let baseURL: URL
+    nonisolated let sendAttempts: SendAttemptStore
     private let transport: any HTTPTransport
     private let credentials: any CredentialStore
     private var stored: StoredSession?
@@ -12,10 +13,11 @@ actor Session {
     private var requests: [UUID: Task<(Data, HTTPURLResponse), Error>] = [:]
     private var observers: [UUID: AsyncStream<AuthUser?>.Continuation] = [:]
 
-    init(baseURL: URL, transport: any HTTPTransport = LiveTransport(), credentials: (any CredentialStore)? = nil) {
+    init(baseURL: URL, transport: any HTTPTransport = LiveTransport(), credentials: (any CredentialStore)? = nil, sendAttempts: SendAttemptStore = SendAttemptStore()) {
         self.baseURL = baseURL
         self.transport = transport
         self.credentials = credentials ?? KeychainCredentials(origin: baseURL)
+        self.sendAttempts = sendAttempts
     }
 
     func updates() -> AsyncStream<AuthUser?> {
@@ -35,8 +37,29 @@ actor Session {
     }
     func currentUser() -> AuthUser? { stored?.user }
     func revision() -> Int { generation }
+    func assertOwner(_ userID: String, revision: Int) throws {
+        guard revision == generation, stored?.user.id == userID, stored?.user.accountEnabled == true else { throw CancellationError() }
+    }
+    func saveSendAttempt(_ attempt: SendAttempt, userID: String, revision: Int) throws {
+        try assertOwner(userID, revision: revision)
+        try sendAttempts.save(attempt, origin: baseURL, userID: userID)
+    }
+    func removeSendAttempt(_ attempt: SendAttempt, userID: String, revision: Int) throws {
+        try assertOwner(userID, revision: revision)
+        try sendAttempts.remove(attempt, origin: baseURL, userID: userID)
+    }
+    func removeConversationAttempts(_ conversationID: String, userID: String, revision: Int) throws {
+        try assertOwner(userID, revision: revision)
+        try sendAttempts.remove(origin: baseURL, userID: userID, conversationID: conversationID)
+    }
+    private func clearSendAttempts() {
+        if let user = stored?.user ?? (try? credentials.load())?.user {
+            try? sendAttempts.remove(origin: baseURL, userID: user.id)
+        }
+    }
 
     func login(username: String, password: String, displayName: String? = nil, locale: String = "zh") async throws -> AuthUser {
+        clearSendAttempts()
         invalidateRequests()
         let expected = generation
         stored = nil; access = nil
@@ -56,7 +79,7 @@ actor Session {
     func signOut() async -> Bool {
         let old = stored?.refresh_token
         let flight = refreshFlight?.task
-        invalidateRequests()
+        invalidateRequests(); clearSendAttempts()
         stored = nil; access = nil; refreshFlight = nil
         let removed = (try? credentials.remove()) != nil
         publish(nil)
@@ -75,6 +98,7 @@ actor Session {
         let user = try JSONDecoder().decode(AuthUser.self, from: data)
         guard expected == generation, let previous = stored, user.id == previous.user.id else { throw CancellationError() }
         let next = StoredSession(refresh_token: previous.refresh_token, user: user)
+        if !user.accountEnabled { clearSendAttempts(); invalidateRequests() }
         try credentials.save(next); stored = next; publish(user)
         return user
     }
@@ -120,7 +144,7 @@ actor Session {
         } catch {
             if generation != expected { throw CancellationError() }
             if (error as? APIError)?.status == 401 {
-                invalidateRequests(); self.stored = nil; access = nil
+                invalidateRequests(); clearSendAttempts(); self.stored = nil; access = nil
                 try? credentials.remove(); publish(nil)
             }
             throw error
@@ -129,6 +153,7 @@ actor Session {
 
     private func install(_ pair: TokenPair, expected: Int) throws {
         guard generation == expected else { throw CancellationError() }
+        if stored?.user.id != pair.user.id || !pair.user.accountEnabled { clearSendAttempts() }
         let next = StoredSession(refresh_token: pair.refresh_token, user: pair.user)
         try credentials.save(next)
         stored = next; access = pair.access_token; publish(pair.user)
@@ -169,8 +194,11 @@ actor Session {
                 ?? HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
             throw APIError(status: response.statusCode, detail: detail,
                            retryAfter: Double(response.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 0,
-                           code: payload?["code"].stringValue ?? payload?["detail"]["code"].stringValue)
+                           code: payload?["code"].stringValue ?? payload?["detail"]["code"].stringValue,
+                           blocks: (try? JSONDecoder().decode(CapabilityErrorEnvelope.self, from: data))?.detail.blocks ?? [])
         }
         return (data, response)
     }
 }
+
+private struct CapabilityErrorEnvelope: Decodable { struct Detail: Decodable { var blocks: [CapabilityBlock]? }; var detail: Detail }

@@ -1,3 +1,4 @@
+import {fixedTools} from '@nano/product-contracts/capabilities';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
 import type {} from '@deepseek-ai/dsh-tool-skill';
@@ -7,6 +8,10 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import { FileSystemSkillProvider } from '@deepseek-ai/dsh-skill-filesystem';
 import type { SkillCandidate, SkillProviderControl } from '@deepseek-ai/dsh-skill';
 import type { AgentConfiguration } from './index.js';
+import { contextTools } from './agent-context.js';
+import { isHumanSource } from './input-source.js';
+
+export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
 
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
@@ -23,9 +28,9 @@ export class ToolSelection {
   /** Resolve the same configured and workspace-installed collection for dispatch and selection previews. */
   selection(config: AgentConfiguration, names: string[]): string[] {
     const allow = config.toolAllowlist;
-    if (allow === undefined) return names;
+    if (allow === undefined) return names.filter(name => !goalTools.includes(name));
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
-    const selected = new Set([...allow, ...installed]);
+    const selected = new Set([...allow, ...installed, ...contextTools]);
     return names.filter(name => selected.has(name));
   }
   attach(agent: Agent, config: AgentConfiguration) {
@@ -52,18 +57,22 @@ export class ToolSelection {
     finally { this.changing = false; }
   }
   private refresh(agent: Agent, state: { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }) {
+    // Provider teardown publishes tools/change while sibling Agent scopes are
+    // already unloading; rebuilding their restrictions would register new effects.
+    if (agent.ctx.fiber.uid === null) return;
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
-    const disabled = Object.entries({ task_graph: 'task_graph', memory: 'memory_curation', skill_manage: 'skill_creation' }).filter(([, feature]) => state.config.features?.[feature] === false).map(([tool]) => tool);
+    const disabled: string[] = [];
+    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools);
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
     if (state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
-    const fixed = state.config.mode === 'global' && agent.session.header.origin !== 'subagent'
-      ? ['inbox', 'conversations', 'send_message', 'subagent', ...(state.config.personal ? ['personal_sources'] : [])] : [];
-    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && !disabled.includes(name)) });
+    const fixed = fixedTools(state.config.mode, agent.session.header.origin === 'subagent' ? 'subagent' : state.config.personal ? 'personal' : 'root');
+    // Root PA representation is scope-local; DSH excludes local tools from inherited masks.
+    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !disabled.includes(name)) });
   }
 }
 
@@ -81,34 +90,48 @@ export async function skillCatalog(config: AgentConfiguration, cwd: string) {
   }
   return [...found.values()];
 }
+type SkillGesture = { id: string; name: string };
+function skillGestures(inputs: { id: string; content: UserMessage['content'] }[]): SkillGesture[] {
+  return inputs.flatMap(input => input.content.flatMap(block => {
+    if (block.type !== 'text') return [];
+    const name = /^(?:\[[^\]]*\]\s*)*\/(?:skill:)?([a-z0-9][a-z0-9-]*)(?:\s|$)/.exec(block.text)?.[1];
+    return name ? [{ id: `nano-skill:${input.id}:${name}`, name }] : [];
+  }));
+}
 /** Native file parsing and resource loading with one selected provider surface. */
 export function apply(ctx: Context, config: AgentConfiguration) {
-  // Native explicit invocation only scans its own user source. Preserve Nano's
-  // human attribution and adapt the gesture through the same selected registry.
+  const pending = new WeakMap<Agent, SkillGesture[]>();
+  // Consume the complete host value once; later pruning may make its rendered JSON incomplete.
+  ctx.on('tools/result', (exec, result) => {
+    const agent = exec.agent;
+    if (exec.name !== 'inbox' || !agent || result.isError || !ctx.nanoApproval.sources.isLiveInbox(agent.id, exec.callId)) return;
+    const body = (result.value as unknown as { body: {
+      messages?: { id: string; sender: { type: string }; partial?: boolean; content: UserMessage['content'] }[];
+    } }).body;
+    const gestures = skillGestures((body.messages ?? []).filter(input => input.sender.type === 'user' && !input.partial));
+    if (gestures.length) pending.set(agent, [...(pending.get(agent) ?? []), ...gestures]);
+  });
+  // Native /name owns direct user gestures. Only bridge Nano's older syntax
+  // (/skill:name or an attached [label]) and pending legacy nano-human inputs.
   ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
     const decision = await next(); if (decision.kind === 'reject') return decision;
     const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
-    const inputs = messages.filter(message => message.source.kind === 'nano-human').map(message => ({ id: message.id as string, content: message.content }));
-    // Only successful, host-observed live Inbox reads can supply explicit gestures.
-    // Historical conversations and quoted commands never become fresh invocations.
-    for (const message of agent.session.deriveMessages()) {
-      if (message.role !== 'tool' || message.isError || !ctx.nanoApproval.sources.isLiveInbox(agent.id, message.toolCallId)) continue;
-      const body = JSON.parse(message.content.filter(block => block.type === 'text').map(block => block.text).join('')) as {
-        messages?: { id: string; sender: { type: string }; partial?: boolean; content: { type: string; text?: string }[] }[];
-      };
-      for (const input of body.messages ?? []) if (input.sender.type === 'user' && !input.partial) inputs.push({ id: input.id, content: input.content as UserMessage['content'] });
-    }
+    // The native middleware may append its injections after this scope returns.
+    // Detect its /name syntax here solely to suppress the compatibility copy.
+    const nativeNames = new Set(messages.filter(message => message.source.kind === 'user').flatMap(message => message.content.flatMap(block =>
+      block.type === 'text' ? [...block.text.matchAll(/(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g)].map(match => match[2]) : [])));
+    const compatibility = messages.filter(message => isHumanSource(message.source) && (message.source.kind === 'nano-human'
+      || message.content.some(block => block.type === 'text' && /^(?:\[[^\]]*\]\s*)*\/skill:|^(?:\[[^\]]*\]\s*)+\//.test(block.text))));
+    const gestures = [...skillGestures(compatibility).filter(gesture => !nativeNames.has(gesture.name)), ...(pending.get(agent) ?? [])];
     const additions: UserMessage[] = [];
-    for (const input of inputs) for (const block of input.content) {
-      if (block.type !== 'text') continue;
-      const name = /^(?:\[[^\]]*\]\s*)*\/(?:skill:)?([a-z0-9][a-z0-9-]*)(?:\s|$)/.exec(block.text)?.[1];
-      if (!name) continue;
-      const id = `nano-skill:${input.id}:${name}`; if (invoked.has(id)) continue;
+    for (const { id, name } of gestures) {
+      if (invoked.has(id)) continue;
       const skill = await ctx.skills.get(name, { scope: agent, cwd: agent.session.header.cwd, signal });
       if (skill && isUserInvocable(skill)) {
         invoked.add(id); additions.push(freezeMessage({ id: MessageId(id), role: 'user', content: [{ type: 'text', text: renderSkillContent(skill) }], source: { kind: 'skill-invocation', name, form: 'instructions' } }));
       }
     }
+    pending.delete(agent);
     return additions.length ? { ...decision, messages: [...decision.messages, ...additions] } : decision;
   });
   const allowed = (name: string) => config.skillSelection?.mode === 'explicit_denylist'

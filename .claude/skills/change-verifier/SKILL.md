@@ -18,6 +18,8 @@ description: "被派发核对 change unit 的实现与 spec/design/milestone 一
 
 原流程 worker 的 tasks/progress 是补充交接记录；简化流程不强制。退出标准的实现与直接证据必须成立。前端 must-match 要有可复查的真实对照，不代替产品 reviewer 判断美术质量。
 
+涉及 Agent Context 时，按 [通用规范](../../../docs/development/agent-context-engineering.md#设计产物与验证深度) 核对实现与 design、current specs、milestone 及真实交付/适用模型行为证据。分别记录实现偏离设计、设计本身不合理和模型行为尚未验证；设计缺陷交回 owner，不能改 spec 迎合实现。复用 code reviewer 已完成且仍有效的检查，不另做一轮完整 Context Review。
+
 ## 结论与完成
 
 缺实现、未完成退出标准、架构边界违反为 CRITICAL；实质偏离 spec/design 或按测试规范缺回归保护为 WARNING；可选维护改进为 SUGGESTION。不要建议静默改 spec 适配错误实现。CRITICAL/WARNING 都为 0 才 pass。

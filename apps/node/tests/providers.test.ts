@@ -71,8 +71,11 @@ it("keeps the remaining legacy service credential in the same live session after
       request: (method, params) => client!.rpc.request(method, params),
       onNotification: listener => client!.rpc.onNotification(listener),
     });
-    const agent = config.runtime({ agent_id: "fixture", workspace_root: home, tool_allowlist: [] });
-    await client.rpc.request("configuration.apply", agent);
+    const agent = config.runtime({
+      agent_id: "fixture", workspace_root: home, tool_allowlist: [],
+      features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, heartbeat: false, cron_scheduling: false },
+    });
+    expect(await client.rpc.request("configuration.apply", agent)).toMatchObject({ effective: true });
     await client.rpc.request("session.ensure", {
       sessionId: "fixture", agentId: agent.agentId, revision: agent.revision, ownerId: "fixture", cwd: home,
     });

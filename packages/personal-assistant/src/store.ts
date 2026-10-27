@@ -2,19 +2,21 @@ import type { ControlIntent } from './session-controls.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { DeliveryState, RelayInput, RuntimeEvent, SessionBinding } from '@nano/product-contracts';
 import { ToolReferences } from './tool-references.js';
+import { AgentLifecycleAuthority } from './agent-lifecycle.js';
 
 /** Node-owned durable handoff and delivery facts, independent of DSH storage. */
 export class NodeStore {
   private readonly db: DatabaseSync;
   readonly toolReferences: ToolReferences;
+  readonly lifecycle: AgentLifecycleAuthority;
   constructor(path: string, readonly ownerId: string) {
     this.db = new DatabaseSync(path);
+    const migrateInputs=!this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='input_lifecycles'").get();
     this.db.exec(`
       PRAGMA journal_mode=WAL;
       PRAGMA synchronous=FULL;
       PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS migration_relay_keys(idempotency_key TEXT PRIMARY KEY,expires_at REAL,seen_at REAL);
-      CREATE TABLE IF NOT EXISTS usage_reports(run_id TEXT PRIMARY KEY,payload TEXT NOT NULL,acknowledged INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS node_owner (owner_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS owner_timezone (owner_id TEXT PRIMARY KEY, timezone TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (
@@ -23,13 +25,15 @@ export class NodeStore {
         UNIQUE(agent_id, conversation_id)
       );
       CREATE TABLE IF NOT EXISTS conversation_aliases(agent_id TEXT NOT NULL,alias TEXT NOT NULL,canonical TEXT NOT NULL,PRIMARY KEY(agent_id,alias));
+      CREATE TABLE IF NOT EXISTS input_lifecycles(agent_id TEXT,message_id TEXT,revision INTEGER NOT NULL,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS group_background (input_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, conversation_id TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS schedule_runs (input_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, schedule_id TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES sessions(session_id), requested_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS canonical_sessions (agent_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id));
       CREATE TABLE IF NOT EXISTS inputs (
         input_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id),
         relay_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL,
-        accepted INTEGER NOT NULL DEFAULT 0, turn INTEGER, terminal TEXT
+        accepted INTEGER NOT NULL DEFAULT 0, turn INTEGER, terminal TEXT,
+        evidence_final INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS runtime_events (
         session_id TEXT NOT NULL REFERENCES sessions(session_id), seq INTEGER NOT NULL,
@@ -51,7 +55,45 @@ export class NodeStore {
     this.db.prepare('INSERT INTO node_owner(owner_id) SELECT ? WHERE NOT EXISTS(SELECT 1 FROM node_owner)').run(ownerId);
     const owner = this.db.prepare('SELECT owner_id FROM node_owner').get() as { owner_id: string };
     if (owner.owner_id !== ownerId) { this.db.close(); throw new Error('Node state belongs to a different owner'); }
+    // Historical terminal values include physical attempt ends, so upgrades must
+    // leave every old input eligible for an authoritative lookup.
+    if (!(this.db.prepare('PRAGMA table_info(inputs)').all() as { name: string }[]).some(column => column.name === 'evidence_final')) {
+      this.db.exec('ALTER TABLE inputs ADD COLUMN evidence_final INTEGER NOT NULL DEFAULT 0');
+    }
+    this.db.exec('CREATE INDEX IF NOT EXISTS inputs_evidence_pending ON inputs(session_id,evidence_final)');
     this.toolReferences = new ToolReferences(this.db);
+    this.lifecycle = new AgentLifecycleAuthority(this.db);
+    if(!(this.db.prepare('PRAGMA table_info(group_background)').all() as {name:string}[]).some(c=>c.name==='cancelled'))this.db.exec('ALTER TABLE group_background ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0');
+    if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles SELECT s.agent_id,json_extract(i.payload,'$.message.id'),coalesce(json_extract(i.payload,'$.lifecycle_revision'),1) FROM inputs i JOIN sessions s USING(session_id)");
+    if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles SELECT agent_id,json_extract(payload,'$.message.id'),coalesce(json_extract(payload,'$.lifecycle_revision'),1) FROM group_background");
+  }
+
+  /** Preserve the original epoch even when transport retries omit their admission metadata. */
+  admitInput(input: RelayInput): RelayInput {
+    const previous=this.db.prepare('SELECT revision FROM input_lifecycles WHERE agent_id=? AND message_id=?').get(input.agent_id,input.message.id) as {revision:number}|undefined;
+    const revision=previous?.revision ?? input.lifecycle_revision ?? this.lifecycle.assert(input.agent_id);
+    this.lifecycle.assert(input.agent_id,revision);
+    this.db.prepare('INSERT OR IGNORE INTO input_lifecycles VALUES(?,?,?)').run(input.agent_id,input.message.id,revision);
+    return {...input,lifecycle_revision:revision};
+  }
+  /** Stamp outgoing requests at their actual dispatch boundary using the admitted epoch. */
+  executionPayload(payload: Record<string,unknown>): Record<string,unknown> {
+    const context=this.lifecycle.current();
+    if(!context)return payload;
+    const revision=this.lifecycle.assert(context.agentId,typeof payload.lifecycle_revision==='number'?payload.lifecycle_revision:context.revision);
+    return {...payload,agent_id:payload.agent_id??context.agentId,lifecycle_revision:revision};
+  }
+  /** Cancel execution obligations while retaining raw input and delivery evidence. */
+  cancelAgent(agentId: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare("UPDATE inputs SET terminal=?,evidence_final=1 WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?) AND evidence_final=0")
+        .run(JSON.stringify({kind:'cancelled_by_disable'}),agentId);
+      this.db.prepare("UPDATE deliveries SET state=CASE WHEN state IN ('sending','completing') THEN 'unknown' ELSE 'cancelled_by_disable' END WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?) AND state IN ('prepared','sending','completing')").run(agentId);
+      this.db.prepare('UPDATE group_background SET cancelled=1 WHERE agent_id=?').run(agentId);
+      this.db.prepare("UPDATE control_intents SET intent=json_set(intent,'$.delivered',json('true'),'$.text','cancelled_by_disable') WHERE json_extract(intent,'$.binding.agentId')=? AND coalesce(json_extract(intent,'$.delivered'),0)=0").run(agentId);
+      this.db.exec('COMMIT');
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
 
   /** Read the account timezone cached for offline external input and Heartbeat. */
@@ -150,34 +192,53 @@ export class NodeStore {
   }
 
   bufferGroup(input: RelayInput): void {
+    input=this.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
-    this.db.prepare('INSERT OR IGNORE INTO group_background SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM inputs WHERE input_id=?)').run(id, input.agent_id, input.conversation_id, JSON.stringify(input), id);
+    this.db.prepare('INSERT OR IGNORE INTO group_background(input_id,agent_id,conversation_id,payload) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM inputs WHERE input_id=?)').run(id, input.agent_id, input.conversation_id, JSON.stringify(input), id);
   }
   /** Transfer parked context into the durable handoff before dropping its buffer row. */
   takeGroup(binding: SessionBinding): void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      const rows = this.db.prepare('SELECT payload FROM group_background WHERE agent_id=? AND conversation_id=? ORDER BY rowid').all(binding.agentId, binding.conversationId) as { payload: string }[];
+      const rows = this.db.prepare('SELECT payload FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0 ORDER BY rowid').all(binding.agentId, binding.conversationId) as { payload: string }[];
       for (const row of rows) {
         const input = JSON.parse(row.payload) as RelayInput;
         this.receive(binding.sessionId, { ...input, metadata: { ...input.metadata, context_only: true } });
       }
-      this.db.prepare('DELETE FROM group_background WHERE agent_id=? AND conversation_id=?').run(binding.agentId, binding.conversationId);
+      this.db.prepare('DELETE FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0').run(binding.agentId, binding.conversationId);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
   /** Persist before runtime submission; duplicate transport messages share one input. */
   receive(sessionId: string, input: RelayInput): string {
+    input=this.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
     this.db.prepare('INSERT OR IGNORE INTO inputs(input_id,session_id,relay_id,payload) VALUES(?,?,?,?)').run(id, sessionId, input.relay_task_id, JSON.stringify(input));
     return id;
   }
   accepted(inputId: string): void { this.db.prepare('UPDATE inputs SET accepted=1 WHERE input_id=?').run(inputId); }
-  inputEvidence(inputId: string, evidence: { accepted: boolean; turn?: number; terminal?: unknown }): void {
-    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=? WHERE input_id=?').run(
-      Number(evidence.accepted), evidence.turn ?? null, evidence.terminal === undefined ? null : JSON.stringify(evidence.terminal), inputId,
+  /** Persist lookup evidence atomically with its logical finality.
+   *
+   * Args:
+   *   inputId: Durable runtime input identity.
+   *   evidence: Authoritative session.lookup result.
+   *   final: Whether logical completion was established; defaults to unresolved.
+   */
+  inputEvidence(inputId: string, evidence: { accepted: boolean; turn?: number; terminal?: unknown }, final = false): void {
+    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=?,evidence_final=? WHERE input_id=? AND terminal IS NOT ?').run(
+      Number(evidence.accepted), evidence.turn ?? null, evidence.terminal === undefined ? null : JSON.stringify(evidence.terminal), Number(final), inputId, JSON.stringify({kind:'cancelled_by_disable'}),
     );
+  }
+  /** Select unresolved input identities without loading completed history payloads.
+   *
+   * Args:
+   *   sessionId: Session whose durable evidence needs reconciliation.
+   * Returns:
+   *   Input IDs in admission order, including legacy rows not yet verified.
+   */
+  lookupInputIds(sessionId: string): string[] {
+    return (this.db.prepare('SELECT input_id FROM inputs WHERE session_id=? AND evidence_final=0 ORDER BY rowid').all(sessionId) as { input_id: string }[]).map(row => row.input_id);
   }
   inputs(sessionId: string) {
     return (this.db.prepare('SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? ORDER BY rowid').all(sessionId) as {
@@ -201,21 +262,26 @@ export class NodeStore {
         this.db.prepare('INSERT OR IGNORE INTO runtime_events VALUES(?,?,?)').run(sessionId, event.seq, JSON.stringify(event));
         const messages = event.type === 'agent/inbox/spliced' ? event.data.inserted as RuntimeInput[]
           : event.type === 'user/message' ? [event.data as unknown as RuntimeInput] : [];
-        for (const message of messages) this.runtimeInput(sessionId, message);
-        if (event.type === 'turn/end') this.db.prepare('UPDATE inputs SET terminal=? WHERE session_id=? AND turn=?').run(JSON.stringify(event.data.reason), sessionId, Number(event.data.turn));
+        for (const message of messages) this.runtimeInput(sessionId, message, event.type === 'agent/inbox/spliced');
+        // A delayed physical attempt end cannot replace a final logical lookup.
+        if (event.type === 'turn/end') this.db.prepare('UPDATE inputs SET terminal=? WHERE session_id=? AND turn=? AND evidence_final=0').run(JSON.stringify(event.data.reason), sessionId, Number(event.data.turn));
       }
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   /** Native scheduled messages already exist in DSH; never submit them a second time. */
-  private runtimeInput(sessionId: string, message: RuntimeInput): void {
+  private runtimeInput(sessionId: string, message: RuntimeInput, inserted: boolean): void {
     const source = message.source;
-    if (source?.kind !== 'schedule' && !(source?.kind === 'nano-system' && source.channel === 'heartbeat')) return;
+    if (source?.kind !== 'schedule' && !(source?.kind === 'nano-system' && ['heartbeat','task-execution','task-change'].includes(String(source.channel)))) return;
     const binding = this.bindings().find(binding => binding.sessionId === sessionId)!;
+    // Schedule publishes its native insertion before the integration can stamp
+    // the same message through public Inbox.replace. Do not bind that transient
+    // unversioned representation to epoch 1 after a stop/enable transition.
+    if (inserted && source.kind === 'schedule' && source.lifecycle_revision === undefined && (this.lifecycle.snapshot(binding.agentId)?.revision ?? 1) > 1) return;
     const input: RelayInput = {
       relay_task_id: `runtime:${sessionId}:${message.id}`, idempotency_key: message.id,
-      agent_id: binding.agentId, conversation_id: binding.conversationId,
-      metadata: { runtime_input_id: message.id, origin: source.kind === 'schedule' ? 'schedule' : 'heartbeat',
+      agent_id: binding.agentId, conversation_id: binding.conversationId,lifecycle_revision:source.lifecycle_revision??1,
+      metadata: { runtime_input_id: message.id, ...(source.kind==='nano-system'&&source.channel==='task-change'?{context_only:true}:{}), origin: source.kind === 'schedule' ? 'schedule' : ['task-execution','task-change'].includes(String(source.channel))?'task_execution':'heartbeat',
         ...(binding.conversationId.startsWith('external:') ? { external_reply: `runtime:${message.id}`, channel: 'feishu' } : {}),
       },
       message: { id: message.id, content: message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join(''),
@@ -223,8 +289,8 @@ export class NodeStore {
     };
     this.db.prepare('INSERT OR IGNORE INTO inputs(input_id,session_id,relay_id,payload,accepted) VALUES(?,?,?,?,1)').run(message.id, sessionId, input.relay_task_id, JSON.stringify(input));
   }
-  events(sessionId: string): RuntimeEvent[] {
-    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? ORDER BY seq').all(sessionId) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
+  events(sessionId: string, afterSeq = -1): RuntimeEvent[] {
+    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? AND seq>? ORDER BY seq').all(sessionId,afterSeq) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
   }
   cursor(sessionId: string): number {
     return (this.db.prepare('SELECT coalesce(max(seq),-1) AS seq FROM runtime_events WHERE session_id=?').get(sessionId) as { seq: number }).seq;
@@ -264,16 +330,8 @@ export class NodeStore {
   confirmReceipt(inputId: string, status: string): void {
     this.db.prepare('INSERT INTO input_receipts VALUES(?,?) ON CONFLICT(input_id) DO UPDATE SET status=excluded.status').run(inputId, status);
   }
-  saveUsage(runId: string, payload: Record<string, unknown>): void {
-    this.db.prepare('INSERT OR IGNORE INTO usage_reports(run_id,payload) VALUES(?,?)').run(runId, JSON.stringify(payload));
-  }
-  pendingUsage(): {runId: string; payload: Record<string, unknown>}[] {
-    return (this.db.prepare('SELECT run_id,payload FROM usage_reports WHERE acknowledged=0 ORDER BY rowid').all() as {run_id: string;payload: string}[])
-      .map(row => ({runId: row.run_id, payload: JSON.parse(row.payload)}));
-  }
-  confirmUsage(runId: string): void { this.db.prepare('UPDATE usage_reports SET acknowledged=1 WHERE run_id=?').run(runId); }
   close(): void { this.db.close(); }
 }
 export interface Delivery { operationId: string; state: DeliveryState; messageId: string | null; content: string }
 
-interface RuntimeInput { id: string; content: { type: string; text?: string }[]; source?: { kind: string; channel?: string } }
+interface RuntimeInput { id: string; content: { type: string; text?: string }[]; source?: { kind: string; channel?: string; lifecycle_revision?:number } }

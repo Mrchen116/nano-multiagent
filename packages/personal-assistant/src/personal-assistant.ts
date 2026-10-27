@@ -26,15 +26,9 @@ export class PersonalAssistant {
     return response.payload.result as Data;
   }
 
-  private async review(config: AgentConfiguration, kind: 'input'|'action', evidence: unknown): Promise<Verdict> {
-    const action = evidence as Data;
-    // The server validates this fixed refusal and its owner-notice receipt; unrelated history is not the proposed disclosure.
-    if (kind === 'action' && action.security_notice) evidence = {
-      security_notice:action.security_notice,recipient_ids:action.recipient_ids,
-      external_destination:action.external_destination,payload:action.payload,policy:action.policy,
-    };
+  private async review(config: AgentConfiguration, kind: 'input'|'action', evidence: unknown, sessionId?:string, callId?:string): Promise<Verdict> {
     try {
-      const result = await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence}) as Verdict;
+      const result = await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence,sessionId,callId}) as Verdict;
       if (!result || !['allow','deny','needs_owner','unavailable'].includes(result.decision) || typeof result.reason !== 'string') throw new Error('Invalid independent verdict');
       return result;
     } catch (error) { this.options.onError(error); return {decision:'unavailable',reason:'Independent review is temporarily unavailable'}; }
@@ -70,10 +64,9 @@ export class PersonalAssistant {
           if(target.startsWith('external:')) await this.options.relay.request('agent.message',{
             node_id:this.options.nodeId,to:`conversation:${target}`,text:notice.peer_notice_content,pa_incident_ref:notice.id,from_session_id:`${config.agentId}|incident:${notice.id}`});
           else {
-          const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});
           // A revised fixed notice is a new frozen operation; never mutate an old proposal on retry.
           const digest=createHash('sha256').update(String(notice.peer_notice_content)).digest('hex');
-          const result=await this.executeReviewed(config,{request_key:`pa-incident:${notice.id}:${digest}`,incident_ref:notice.id,conversation_id:input.conversation_id,content:notice.peer_notice_content},evidence);
+          const result=await this.executeReviewed(config,{request_key:`pa-incident:${notice.id}:${digest}`,incident_ref:notice.id,conversation_id:input.conversation_id,content:notice.peer_notice_content},binding.sessionId);
           if(result.state==='unavailable')throw new Error(String(result.reason??'Privacy notice review is temporarily unavailable'));
           }
         }
@@ -95,15 +88,14 @@ export class PersonalAssistant {
   async task(config:AgentConfiguration,call:ProductCall,task:Data):Promise<unknown> {
     const proposal=await this.request(config,'pa.action.prepare',{request_key:call.operationId,task});
     if(proposal.owner_private === true) return undefined;
-    const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:call.sessionId});
-    const result=await this.executeReviewed(config,{},evidence,proposal);
+    const result=await this.executeReviewed(config,{},call.sessionId,proposal,call.callId);
     return result.state==='confirmed'?{ok:true,result:result.result}:{ok:false,error:result};
   }
 
-  private async executeReviewed(config:AgentConfiguration,args:Data,evidence:unknown,prepared?:Data):Promise<Data> {
+  private async executeReviewed(config:AgentConfiguration,args:Data,sessionId:string,prepared?:Data,callId?:string):Promise<Data> {
     const proposal=prepared ?? await this.request(config,'pa.action.prepare',args);
     if(['confirmed','sending','unknown'].includes(String(proposal.state))) return proposal.state==='sending'?{state:'unknown'}:proposal;
-    const verdict=await this.review(config,'action',{...proposal.evidence as Data,executionEvidence:evidence});
+    const verdict=await this.review(config,'action',proposal.evidence,sessionId,callId);
     const receipt=await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
     if(verdict.decision!=='allow'||!receipt.verdict_ref)return {...verdict,state:verdict.decision};
     return {...await this.request(config,'pa.action.commit',{proposal_ref:proposal.proposal_ref,verdict_ref:receipt.verdict_ref}),proposal_ref:proposal.proposal_ref};
@@ -115,15 +107,17 @@ export class PersonalAssistant {
     const target = String(call.args.target ?? '');
     const text = String(call.args.text ?? '');
     if (!target || !text.trim()) throw new Error('Sending requires target and nonempty text');
+    if(call.args.reply_draft!==undefined)throw new Error('reply_draft is retired; use an interactive ComposeMessage action');
     const interactive = interactiveResponse(call.args.interactive);
-    if (interactive && config.features?.intelligent_ui === false) throw new Error('Intelligent UI Feature is disabled; send a plain-text reply instead');
-    const replyDraft = call.args.reply_draft;
-    const publicationBody = canonicalJson({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, reply_draft:replyDraft ?? null});
+    const representation=call.method==='send_user_message'?'owner':'self';
+    if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
+    const publicationBody = canonicalJson({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation});
     const previous = inbox.publication(call.operationId);
     if (previous && (previous.target !== target || previous.body !== publicationBody)) throw new Error('Publication identity conflict');
     if (previous?.result) return JSON.parse(previous.result) as unknown;
     const deliveryTarget=this.options.store.canonicalConversation(config.agentId,target.replace(/^conversation:/,''));
     if(deliveryTarget.startsWith('external:')) {
+      if(representation==='owner')throw new Error('Owner representation requires a native IM conversation');
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
         from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
@@ -132,28 +126,28 @@ export class PersonalAssistant {
     const conversation = await this.resolve(config,target);
     if (inbox.blocking(config.agentId,conversation)) return {status:'held_for_revalidation',target,
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
-    inbox.preparePublication(call.operationId,target,publicationBody);
+    inbox.preparePublication(call.operationId,target,publicationBody,binding.agentId);
     if (conversation === config.personal!.conversationId) {
+      if(representation==='owner')throw new Error('Owner representation cannot target the owner PA conversation');
       // Private owner replies use the ordinary publication path, including IntelligentUI.
       inbox.settlePublication(call.operationId,'sending');
       try {
         const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
-          attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),...(replyDraft ? {reply_draft:replyDraft} : {}),
+          attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),
           from_session_id:`${config.agentId}|tool_call:${call.operationId}`});
         if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
         const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
         inbox.settlePublication(call.operationId,'confirmed',result);return result;
       } catch(error) {inbox.settlePublication(call.operationId,'unknown');throw error;}
     }
-    const proposal = await this.request(config,'pa.action.prepare',{request_key:call.operationId,conversation_id:conversation,
-      content:text,attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {}),...(replyDraft ? {reply_draft:replyDraft} : {})});
+    const proposal = await this.request(config,'pa.action.prepare',{request_key:call.operationId,representation,conversation_id:conversation,
+      content:text,attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {})});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string') {
       const result={status:'sent',target,message_id:proposal.message_id,conversation_id:proposal.conversation_id};
       inbox.settlePublication(call.operationId,'confirmed',result); return result;
     }
-    // All used source data is collected by the runtime host; the main model cannot choose it.
-    const executionEvidence = await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:call.sessionId});
-    const verdict: Verdict = await this.review(config,'action',{...proposal.evidence as Data,executionEvidence});
+    // The runtime reads the host-bound scope directly; the model cannot choose review evidence.
+    const verdict: Verdict = await this.review(config,'action',proposal.evidence,call.sessionId,call.callId);
     const receipt = await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,
       payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
     if (verdict.decision !== 'allow' || !receipt.verdict_ref) {
@@ -181,8 +175,7 @@ export class PersonalAssistant {
     if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
-    const evidence=await this.options.runtime.request('pa.evidence',{agentId:config.agentId,sessionId:binding.sessionId});
-    const verdict=await this.review(config,'action',{...proposal.evidence as Data,executionEvidence:evidence});
+    const verdict=await this.review(config,'action',proposal.evidence,binding.sessionId);
     const checked=await this.request(config,'pa.action.review-result',{proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict});
     if(verdict.decision!=='allow'||!checked.verdict_ref)throw new Error(`Personal delivery ${verdict.decision}: ${verdict.reason}`);
     const claim=await this.request(config,'pa.action.commit',{proposal_ref:proposal.proposal_ref,verdict_ref:checked.verdict_ref});

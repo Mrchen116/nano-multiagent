@@ -116,6 +116,58 @@ describe("chat-api", () => {
     });
   });
 
+  it("finds the committed message when its POST response is lost", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    const message = { id: "saved-message", conversation_id: "c1", content: "hello" };
+    f.mockRejectedValueOnce(new TypeError("connection closed"));
+    f.mockResolvedValueOnce(jsonResponse(message));
+
+    expect(await createMessage({ conversationId: "c1", content: "hello", idempotencyKey: "attempt-1" })).toEqual(message);
+    expect(f.mock.calls.map(call => call[0])).toEqual([
+      "/im/v1/conversations/c1/messages",
+      "/im/v1/conversations/c1/message-attempts/attempt-1"
+    ]);
+  });
+
+  it("reposts the same immutable request after an unknown result and a 404 lookup", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse({ detail: "unknown" }, 503));
+    f.mockResolvedValueOnce(jsonResponse({ detail: "not found" }, 404));
+    f.mockResolvedValueOnce(jsonResponse({ id: "saved-message" }, 201));
+    await createMessage({ conversationId: "c1", content: "hello", idempotencyKey: "attempt-1" });
+
+    const posts = f.mock.calls.filter(call => (call[1] as RequestInit)?.method === "POST");
+    expect(posts).toHaveLength(2);
+    expect((posts[1]![1] as RequestInit).body).toBe((posts[0]![1] as RequestInit).body);
+    expect(new Headers((posts[1]![1] as RequestInit).headers).get("Idempotency-Key")).toBe("attempt-1");
+  });
+
+  it("bounds automatic recovery to one lookup and one same-key resend", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse({}, 503));
+    f.mockResolvedValueOnce(jsonResponse({}, 404));
+    f.mockResolvedValueOnce(jsonResponse({}, 503));
+    await expect(createMessage({ conversationId: "c1", content: "hello", idempotencyKey: "attempt-1" })).rejects.toThrow("503");
+    expect(f.mock.calls.map(call => (call[1] as RequestInit)?.method ?? "GET")).toEqual(["POST", "GET", "POST"]);
+  });
+
+  it("does not recover an old account's send using a replacement session", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockImplementationOnce(async () => {
+      useAuthStore.getState().clear();
+      seedAuth();
+      throw new TypeError("response lost after session changed");
+    });
+    await expect(createMessage({conversationId:"c1",content:"hello",idempotencyKey:"old-account"})).rejects.toThrow("session changed");
+    expect(f.mock.calls).toHaveLength(1);
+  });
+
+  it("accepts a token refresh for the same continuously signed-in sender", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockImplementationOnce(async () => { seedAuth(); return jsonResponse({id:"saved-message"}); });
+    await expect(createMessage({conversationId:"c1",content:"hello",idempotencyKey:"refresh"})).resolves.toEqual({id:"saved-message"});
+  });
+
   it("createConversation builds participants with agent and user actors", async () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(jsonResponse({

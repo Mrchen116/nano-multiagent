@@ -2,32 +2,35 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "../../i18n";
+import { TaskWaitInfo } from "./task-wait";
 import { listContacts } from "../chat/contacts-api";
 import { taskGraphUrl, useTaskGraphColumn, type DirectCounts, type TaskActor, type TaskGraphSummary, type TaskNode, type TaskStatus, type TaskListOptions } from "./task-graphs-api";
 
-export const taskStatuses: TaskStatus[] = ["todo", "doing", "in_review", "done", "paused", "closed"];
+export const taskStatuses: TaskStatus[] = ["todo", "doing", "waiting", "in_review", "done", "paused", "closed"];
+export const editableTaskStatuses = (current?: TaskStatus) => taskStatuses.filter(status => status !== "waiting" || current === "waiting");
 const columns: TaskStatus[] = ["todo", "doing", "in_review", "done", "closed"];
 export const actorName = (actor?: TaskActor | null) => actor?.display_name || actor?.id;
 export function TaskCounts({ counts }: { counts?: DirectCounts }) {
   const { t } = useTranslation();
   return <small>{t("tasks.directCount", { done: counts?.done ?? 0, total: counts?.total ?? 0 })}</small>;
 }
-type Card = Pick<TaskNode, "id" | "title" | "status" | "mode" | "assignee" | "direct_counts"> & { context?: string; selected?: boolean };
+type Card = Pick<TaskNode, "id" | "title" | "status" | "mode" | "assignee" | "direct_counts" | "wait" | "wait_health"> & { context?: string; selected?: boolean };
 type CardActions = { onSelect(node: Card): void; onEnter(node: Card): void };
 function TaskColumn({ status, nodes, total, pending = false, bodyRef, children, onSelect, onEnter }: CardActions & {
   status: TaskStatus; nodes: Card[]; total?: number; pending?: boolean;
   bodyRef?: RefObject<HTMLDivElement | null>; children?: ReactNode;
 }) {
   const { t } = useTranslation();
-  return <section className={`tasks-column tasks-column--${status}`} data-testid="task-status-column" aria-label={t(`tasks.status.${status}`)}>
-    <header><h2>{t(`tasks.status.${status}`)}</h2><span>{total ?? "—"}</span></header>
+  return <section className={`tasks-column tasks-column--${status}`} data-testid="task-status-column" aria-label={t(status === "doing" ? "tasks.ongoing" : `tasks.status.${status}`)}>
+    <header><h2>{t(status === "doing" ? "tasks.ongoing" : `tasks.status.${status}`)}</h2><span>{total ?? "—"}</span></header>
     <div className="tasks-column-body" ref={bodyRef} aria-busy={pending}>
       {nodes.map(node => <article className="tasks-progress-card" key={node.id}>
         <button className="tasks-progress-card-main" data-node-id={node.id} aria-label={t("tasks.viewNode", { title: node.title })} onClick={() => onSelect(node)}>
-          <h3>{node.title}</h3>{node.status === "paused" && <span className="tasks-status tasks-status--paused">{t("tasks.status.paused")}</span>}
+          <h3>{node.title}</h3>{["paused", "doing", "waiting"].includes(node.status) && <span className={`tasks-status tasks-status--${node.status}`}>{t(`tasks.status.${node.status}`)}</span>}
           {node.selected && <span className="tasks-picked">{t("tasks.picked")}</span>}
           <span>{actorName(node.assignee) || t("tasks.unassigned")}</span>{node.context && <small>{node.context}</small>}
           <TaskCounts counts={node.direct_counts} />
+          {node.status === "waiting" && <TaskWaitInfo wait={node.wait} health={node.wait_health} compact />}
         </button>
         <button className="tasks-child-entry" onClick={() => onEnter(node)} aria-label={t("tasks.enterNode", { title: node.title })}>{t("tasks.children")} →</button>
       </article>)}
@@ -38,7 +41,7 @@ function TaskColumn({ status, nodes, total, pending = false, bodyRef, children, 
 }
 export function TaskBoard({ nodes, onSelect, onEnter }: CardActions & { nodes: Card[] }) {
   return <div className="tasks-board">{columns.map(status => {
-    const group = nodes.filter(node => node.status === status || status === "todo" && node.status === "paused");
+    const group = nodes.filter(node => node.status === status || status === "todo" && node.status === "paused" || status === "doing" && node.status === "waiting");
     return <TaskColumn key={status} status={status} nodes={group} total={group.length} onSelect={onSelect} onEnter={onEnter} />;
   })}</div>;
 }
@@ -47,7 +50,7 @@ function TaskOverviewColumn({ status, options, byOwner, onSelect }: {
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const query = useTaskGraphColumn({ ...options, statuses: status === "todo" ? ["todo", "paused"] : [status] });
+  const query = useTaskGraphColumn({ ...options, statuses: status === "todo" ? ["todo", "paused"] : status === "doing" ? ["doing", "waiting"] : [status] });
   const body = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const pages = query.data?.pages ?? [];

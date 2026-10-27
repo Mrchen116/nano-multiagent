@@ -2,9 +2,11 @@ import SwiftUI
 
 struct ChatMessageView: View {
     let client: IMClient
+    let chat: ChatStore
     let message: ChatMessage
     let selfID: String
     var participants: [ActorRef] = []
+    var showSenderName = false
     var readOnly = false
     let refreshed: () -> Void
     @State private var showProcess = false
@@ -26,19 +28,36 @@ struct ChatMessageView: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
             else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
-            VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(senderName).font(.caption.bold()).foregroundStyle(.secondary)
-                NanoTimestamp(value: message.created_at)
-                Spacer()
-                Text(status).font(.caption2).foregroundStyle(message.delivery_status == "failed" ? .red : .secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                if message.system_notice == nil && ((showSenderName && !mine) || message.pa_agent_id != nil || message.delegation != nil) {
+                    HStack(spacing: 6) {
+                        Text(senderName).fixedSize(horizontal: false, vertical: true)
+                        if message.pa_agent_id != nil { Text(L("PA 代发", "Sent by PA")).foregroundStyle(.secondary).fixedSize() }
+                        else if let label = message.delegation?["label"].stringValue { Text(label).foregroundStyle(.secondary) }
+                    }.font(.caption).foregroundStyle(NanoTheme.muted).padding(.horizontal, 4)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(message.pa_agent_id != nil ? senderName + L("，由 PA 代发", ", sent by PA") : senderName + (message.delegation?["label"].stringValue.map { ", " + $0 } ?? ""))
+                }
+                messageContent
+                if hasMetadata { metadata }
             }
+            if !mine { Spacer(minLength: 14) }
+            else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
+        }
+    }
+    private var messageContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if let notice = message.system_notice {
                 Label(notice["kind"].stringValue ?? L("系统通知", "System notice"), systemImage: "info.circle").font(.callout)
                 if let name = notice["source_agent_display_name"].stringValue { Text(name).font(.caption).foregroundStyle(.secondary) }
                 if let targets = notice["updated_targets"].arrayValue { Text(targets.compactMap(\.stringValue).joined(separator: ", ")).font(.caption) }
             }
             if !message.content.isEmpty { MarkdownView(text: ChatText.display(message.content, participants: participants), client: client) }
+            if message.interactive != nil {
+                InteractiveCardView(client: client, message: message, chat: chat,
+                    readOnly: readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil)
+                    .textSelection(.disabled)
+            }
             ForEach(message.attachments) { AttachmentView(client: client, attachment: $0) }
             if hasProcess {
                 DisclosureGroup(isExpanded: $showProcess) {
@@ -50,7 +69,7 @@ struct ChatMessageView: View {
                             case .other(let label, let value): DisclosureGroup(label) {
                                 if let text = value["text"].stringValue ?? value["result"].stringValue { MarkdownView(text: text, client: client) }
                                 if let error = value["error"].stringValue { ErrorNotice(message: error) }
-                                NavigationLink(L("全部详情", "All details")) { JSONDetailView(value: value) }
+                                NavigationLink(L("全部详情", "All details")) { JSONDetailPage(value: value) }
                             }
                             }
                         }
@@ -60,32 +79,27 @@ struct ChatMessageView: View {
             ForEach(message.permission_requests ?? []) { permission in
                 ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, readOnly: readOnly, refreshed: refreshed)
             }
-            if message.sender_type == "agent" {
-                HStack {
-                    if let usage = message.token_usage { ChatUsageView(usage: usage) }
-                    Spacer()
-                    if let ms = message.elapsed_ms { Text(String(format: "%.1fs", ms / 1000)) }
-                    else if message.delivery_status == "running", let start = startedAt {
-                        Text(start, style: .timer).monospacedDigit().accessibilityLabel(L("本轮耗时", "Turn duration"))
-                    }
-                }.font(.caption2).foregroundStyle(.secondary)
-            }
             }.padding(14).background(mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine ? Color.clear : NanoTheme.border, lineWidth: 1))
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
-            if !mine { Spacer(minLength: 14) }
-            else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
-        }
     }
-    private var status: String {
-        switch message.delivery_status { case "running": return L("进行中", "Running"); case "failed": return L("失败", "Failed"); case "completed": return message.sender_type == "agent" ? L("已完成", "Completed") : L("已发送", "Sent"); default: return L("已发送", "Sent") }
+    private var hasMetadata: Bool {
+        ["running", "failed"].contains(message.delivery_status) || (message.sender_type == "agent" && (message.token_usage != nil || message.elapsed_ms != nil))
     }
-    private var startedAt: Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: message.created_at) { return date }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: message.created_at)
+    private var metadata: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if mine { Spacer(minLength: 0) }
+            if message.delivery_status == "failed" { Label(mine ? L("发送失败", "Send failed") : L("失败", "Failed"), systemImage: "exclamationmark.circle").foregroundStyle(.red) }
+            else if message.delivery_status == "running" { Text(L("进行中", "Running")) }
+            if message.sender_type == "agent" {
+                if let usage = message.token_usage { ChatUsageView(usage: usage) }
+                if !mine { Spacer(minLength: 0) }
+                if let ms = message.elapsed_ms { Text(String(format: "%.1fs", ms / 1000)) }
+                else if message.delivery_status == "running", let start = nanoDate(message.created_at) {
+                    Text(start, style: .timer).monospacedDigit().accessibilityLabel(L("本轮耗时", "Turn duration"))
+                }
+            }
+        }.font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 4)
     }
     private var hasProcess: Bool { !(message.tool_calls ?? []).isEmpty || !(message.thinking ?? []).isEmpty || !(message.background_returns ?? []).isEmpty || !(message.reply_process ?? []).isEmpty }
     private struct ProcessItem: Identifiable {
@@ -105,8 +119,8 @@ struct ChatMessageView: View {
                 if let approval = tool.approval { Label(approval == "user_allow" ? L("已授权", "Authorized") : L("已拒绝", "Denied"), systemImage: "hand.raised") }
                 if let reason = tool.reason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                 if let output = tool.output { Text(output).font(.callout).textSelection(.enabled) }
-                if let input = tool.input { NavigationLink(L("输入", "Input")) { JSONDetailView(value: input) } }
-                if let detail = tool.detail { NavigationLink(L("结果详情", "Result details")) { JSONDetailView(value: detail) } }
+                if let input = tool.input { NavigationLink(L("输入", "Input")) { JSONDetailPage(value: input) } }
+                if let detail = tool.detail { NavigationLink(L("结果详情", "Result details")) { JSONDetailPage(value: detail) } }
             }
         } label: { HStack { Text((tool.emoji ?? "🔧") + " " + tool.name); Spacer(); Text(tool.status).font(.caption); if let ms = tool.duration_ms { Text(String(format: "%.1fs", ms / 1000)).font(.caption) } } }
     }
@@ -155,7 +169,7 @@ struct ChatPermissionCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Label(permission.tool_name, systemImage: "hand.raised.fill").font(.headline)
             Text(permission.question)
-            NavigationLink(L("查看操作输入", "Inspect action input")) { JSONDetailView(value: permission.tool_input) }
+            NavigationLink(L("查看操作输入", "Inspect action input")) { JSONDetailPage(value: permission.tool_input) }
             if permission.status == "resolved" { Text(L("已处理：", "Resolved: ") + (permission.decision ?? "")).foregroundStyle(.secondary) }
             else if permission.status == "submitted" || submitted { Label(L("已提交，等待确认", "Submitted, awaiting confirmation"), systemImage: "clock") }
             else if !readOnly { ForEach(permission.options) { option in

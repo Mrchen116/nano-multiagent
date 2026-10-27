@@ -1,5 +1,6 @@
 import type { PersonalAgentIdentity } from './personal-agent.js';
 export * from './personal-agent.js';
+export * from './agent-lifecycle.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
   agentId: string;
@@ -33,6 +34,8 @@ export interface SessionBinding {
   revision: string;
 }
 export interface RelayInput {
+  /** Execution epoch captured at first admission, retained on redelivery. */
+  lifecycle_revision?: number;
   relay_task_id: string;
   agent_id: string;
   conversation_id: string;
@@ -46,6 +49,8 @@ export interface RelayInput {
     interaction_reply?: import('./interactive.js').InteractionSnapshot;
     sender_user_id: string;
     sender_type: string;
+    pa_agent_id?: string;
+    system_notice?: {kind:string}|null;
     created_at?: string;
     timezone?: string;
     sender?: {display_name?: string};
@@ -64,7 +69,7 @@ export interface RuntimePort {
   /** Capture the current host generation for one asynchronous reconciliation. */
   capture?(): RuntimePort;
 }
-export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld';
+export type DeliveryState = 'prepared' | 'sending' | 'completing' | 'confirmed' | 'unknown' | 'failed' | 'withheld' | 'cancelled_by_disable';
 
 /** Host-resolved public messaging identity; never supplied by model arguments. */
 export interface MessageApprovalContext {
@@ -88,13 +93,20 @@ export interface ModelRunProjection {
   attempts: { turn: number; route: { provider: string; model: string }; error?: { message: string; code: string } }[];
 }
 
-/** One durable native turn, excluding any inherited fork history. */
-export interface UsageReport {
-  sessionId: string;
-  turn: number;
-  time: number;
-  usage: {prompt_tokens: number; completion_tokens: number; total_tokens: number};
-}
 export { encodeTrajectoryValue, TrajectoryValueDecoder } from './trajectory-wire.js';
 export * from './interactive.js';
 export { interactiveCatalog, interactiveTools } from './interactive-catalog.js';
+
+export * from './work-sync.js';
+export * from './task-execution.js';
+
+/** Final durable incremental history returned by a stopped execution host. */
+export interface RuntimeStopHistory {
+  sessionId: string;
+  rootSessionId: string;
+  parentSessionId?: string;
+  events: RuntimeEvent[];
+  modelRuns: ModelRunProjection[];
+  modelVersion?: string;
+  throughSeq: number;
+}

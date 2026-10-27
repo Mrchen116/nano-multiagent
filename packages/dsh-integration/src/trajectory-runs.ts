@@ -1,17 +1,18 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { carrierKeyOf } from '@deepseek-ai/dsh-scope';
 import { defineDomain, domainTable, type DomainSpec, type DomainTableSpec } from '@deepseek-ai/dsh-storage-domain';
-import type {} from '@deepseek-ai/dsh-subagent';
+import type { SubagentRun } from '@deepseek-ai/dsh-subagent';
 import type { TrajectoryRun } from '@nano/product-contracts';
 import { z } from 'zod';
 
 interface RunDomain extends DomainSpec { tables: { runs: DomainTableSpec<string, TrajectoryRun> } }
-const runDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', version: 1, layout: 'per-record', tables: {
+export const trajectoryRunsDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', version: 1, layout: 'per-record', tables: {
   runs: domainTable(z.object({
     runId: z.string(), parentSessionId: z.string(), sessionId: z.string(), provider: z.string(), label: z.string().optional(),
-    kind: z.enum(['tool', 'memory', 'skills', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
+    kind: z.enum(['tool', 'memory', 'skills', 'combined', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
     launchSeq: z.number().optional(), callId: z.string().optional(), startSeq: z.number().optional(), endSeq: z.number().optional(),
     startedAt: z.number(), endedAt: z.number().optional(), stopReason: z.string().optional(),
     state: z.enum(['running', 'completed', 'failed', 'cancelled', 'unknown']),
@@ -20,17 +21,21 @@ const runDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', versio
 interface Launch { toolName?: string; parentSessionId: string; kind: TrajectoryRun['kind']; delegation: TrajectoryRun['delegation']; launchSeq?: number; callId?: string; label?: string }
 const launchContext = new AsyncLocalStorage<Launch>();
 
-/** Attach explicit maintenance provenance to the actual subagent start operation.
+/** Observe host-owned maintenance without publishing a model-managed child.
  *
  * Args:
+ *   ctx: Host context with the trajectory service injected.
  *   agent: Live parent whose last accepted event anchors the launch.
  *   kind: Maintenance purpose supplied by its owner, never decoded from labels.
- *   start: Actual native start operation to run inside this asynchronous context.
+ *   label: Display label for the maintenance execution.
+ *   start: Native provider operation owned by the maintenance subsystem.
  * Returns:
- *   The unchanged start result; errors propagate to the original caller.
+ *   Native run with its settled result recorded in the trajectory index.
  */
-export function withKnowledgeRun<T>(agent: Agent, kind: 'memory' | 'skills', start: () => T): T {
-  return launchContext.run({ parentSessionId: agent.id, kind, delegation: 'background', launchSeq: agent.session.seq - 1 }, start);
+export async function withKnowledgeRun(ctx: Context, agent: Agent, kind: 'memory' | 'skills' | 'combined', label: string, start: () => Promise<SubagentRun>): Promise<SubagentRun> {
+  const launchSeq = agent.session.seq - 1;
+  const run = await start();
+  return ctx.nanoTrajectoryRuns.knowledge(agent, kind, label, launchSeq, run);
 }
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoTrajectoryRuns: TrajectoryRuns } }
@@ -46,7 +51,7 @@ export class TrajectoryRuns extends Service {
 
   constructor(ctx: Context) {
     super(ctx, 'nanoTrajectoryRuns');
-    this.domain = ctx.storageDomain.open(runDomain);
+    this.domain = ctx.storageDomain.open(trajectoryRunsDomain);
     ctx.effect(() => async () => { try { await this.writes; } finally { await (await this.domain).close(); } });
     ctx.on('agent/created', ({ agent }) => {
       if (!agent.session.header.parentSession) return;
@@ -73,7 +78,7 @@ export class TrajectoryRuns extends Service {
         ...(call ? { launchSeq: call.seq } : {}),
         ...(typeof args?.description === 'string' ? { label: args.description } : {}),
         delegation: typeof args?.run_in_background === 'boolean' ? args.run_in_background ? 'background' : 'foreground'
-          : exec.name === 'send_message' ? 'background' : 'unknown',
+          : ['send_message', 'send_user_message'].includes(exec.name) ? 'background' : 'unknown',
       }, next);
     }, { prepend: true });
     const self = this;
@@ -109,6 +114,31 @@ export class TrajectoryRuns extends Service {
         endedAt: Date.now(), stopReason: info.stopReason,
         state: info.stopReason === 'completed' ? 'completed' : info.stopReason === 'aborted' ? 'cancelled' : 'failed' });
     });
+  }
+
+  /** Record one host-owned fork while retaining its native execution and disposal.
+   *
+   * Args:
+   *   parent: Product Agent whose history the maintenance inherits.
+   *   kind: Explicit maintenance purpose.
+   *   label: Human-readable execution label.
+   *   launchSeq: Parent event anchoring the accepted launch.
+   *   run: Published native provider run held by the maintenance owner.
+   * Returns:
+   *   The same execution capability with an observed result promise.
+   */
+  knowledge(parent: Agent, kind: 'memory' | 'skills' | 'combined', label: string, launchSeq: number, run: SubagentRun): SubagentRun {
+    const startSeq = run.localAgent && this.bounds.get(run.localAgent);
+    const record: TrajectoryRun = { runId: randomUUID(), parentSessionId: parent.id, sessionId: run.id, provider: 'fork',
+      kind, label, delegation: 'background', launchSeq, ...(startSeq !== undefined ? { startSeq } : {}), startedAt: Date.now(), state: 'running' };
+    this.active.set(record.runId, record); this.persist(record);
+    const finish = (stopReason: string) => {
+      const endSeq = this.tails.get(run.id);
+      this.active.delete(record.runId);
+      this.persist({ ...record, ...(endSeq !== undefined && (startSeq === undefined || endSeq >= startSeq) ? { endSeq } : {}),
+        endedAt: Date.now(), stopReason, state: stopReason === 'completed' ? 'completed' : stopReason === 'aborted' ? 'cancelled' : 'failed' });
+    };
+    return { ...run, result: run.result.then(result => { finish(result.stopReason); return result; }, error => { finish('error'); throw error; }) };
   }
 
   private persist(run: TrajectoryRun): void {

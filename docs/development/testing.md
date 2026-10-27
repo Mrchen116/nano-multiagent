@@ -2,6 +2,8 @@
 
 目标：让 worker 写出**保护真实回归风险、且不腐烂**的测试。测试的价值在“每次改动被它挡一次”，不在数量。写之前先问“它要防什么失败、能从哪里观察、谁已经在保护”，而不是想到什么测什么。
 
+Context 相关验证按 [Agent Context Engineering](agent-context-engineering.md#设计产物与验证深度) 选择交付与消费的观察点；实际请求捕获见 [LLM 联调](llm-integration.md#观察实际-agent-context)。复用现有 seam，不为规范的每句文字新增静态断言。
+
 > 适用面：本指南适用于本仓所有新增、修改、删除的自动化测试与测试门禁。
 
 ## 1) 永久测试的准入与停止条件（核心）
@@ -53,7 +55,7 @@
 
 **TypeScript 后端**：行为测试与各自 package/app 放在 `tests/*.test.ts`，由根 `pnpm test` 运行；native profile 测试使用真实锁定 DSH，跨进程控制在可重复 fixture 中验证。Web Vitest 保留在前端项目；原生 iOS 按其 Xcode gate 验证。
 
-**iOS CI 触发范围**：PR 的完整差异涉及 `src/IM/ios/` 下除 `.md` 和 `.gitignore` 外的文件，或 `.github/workflows/ci.yml` 时，运行模拟器测试与 Release 归档；其余 PR 跳过 iOS job，前后端检查照常运行。主干 push 始终运行 iOS gate；路径检测失败时仍运行 iOS，避免误跳过必需检查。当前 iOS 测试使用模拟响应，不承担真实服务端 API 兼容性验收。
+**iOS CI 触发范围**：PR 的完整分支差异、主干 push 的整个更新范围（before → head）涉及 `src/IM/ios/` 下除 `.md` 和 `.gitignore` 外的文件，或 `.github/workflows/ci.yml` 时，运行模拟器测试与 Release 归档；其余变更跳过 iOS job，前后端检查照常运行。路径检测失败时仍运行 iOS，避免误跳过必需检查。当前 iOS 测试使用模拟响应，不承担真实服务端 API 兼容性验收。
 
 **Python 工具与跨系统黑盒回归**：目录即分层，按“能暴露该失败原因的最低层”选：
 

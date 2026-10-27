@@ -4,20 +4,22 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it('keeps explicit empty tools and Skills empty, restores a subset, and preserves another Agent', async () => {
+const contextTools = ['get_context_remaining', 'history', 'new_context', 'notes'];
+
+it('keeps empty business tools and Skills empty while retaining context management, and restores a subset', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-capabilities-')); let client: RuntimeClient | undefined; let logs = '';
   const root = join(home, 'skills'); await mkdir(join(root, 'local-skill'), { recursive: true });
   await writeFile(join(root, 'local-skill', 'SKILL.md'), '---\nname: local-skill\ndescription: Selected test guidance\n---\nLOCAL_SKILL_BODY');
   const config = { agentId: 'a', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] as string[],
-    skillSelection: { mode: 'explicit_allowlist', names: [] as string[] }, skillRoots: [{ path: root, source: 'workspace' }], features: { task_graph: true, cron_scheduling: true } };
+    skillSelection: { mode: 'explicit_allowlist', names: [] as string[] }, skillRoots: [{ path: root, source: 'workspace' }], features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false } };
   try {
     await writeFile(join(home, 'hang.mjs'), `export const name = 'hang'; export const inject = ['llm']; export function apply(ctx) { ctx.on('llm/stream', async function* (options) { if (options.signal.aborted) return; await new Promise(resolve => options.signal.addEventListener('abort', resolve, { once: true })); }); }`);
     await prepareProfile(home, [{ insert: [{ id: 'hang', name: join(home, 'hang.mjs') }] }]); client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
     await client.rpc.request('initialize', { protocol: 1, agents: [config, { ...config, agentId: 'g', mode: 'global' }, { ...config, agentId: 'b', toolAllowlist: undefined, skillSelection: { mode: 'default_discovery', names: [] } }], bindings: [] });
     for (const agentId of ['a', 'b', 'g']) await client.rpc.request('session.ensure', { sessionId: `session-${agentId}`, agentId, revision: '1', ownerId: 'owner', cwd: home });
     const read = (id: string) => client!.rpc.request('session.capabilities', { sessionId: `session-${id}` }) as Promise<{ tools: string[]; skills: { name: string }[]; prompt: unknown }>;
-    expect((await read('a')).tools).toEqual([]);
-    expect((await read('g')).tools.sort()).toEqual(['conversations', 'inbox', 'send_message', 'subagent']);
+    expect((await read('a')).tools.sort()).toEqual(contextTools);
+    expect((await read('g')).tools.sort()).toEqual([...contextTools, 'conversations', 'inbox', 'send_message', 'subagent'].sort());
     expect((await read('a')).skills).toEqual([]);
     const catalog = await client.rpc.request('configuration.catalog', { agentId: 'a', cwd: home }) as { tools: { name: string }[]; skills: { name: string }[] };
     expect(catalog.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['read', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history']));
@@ -26,13 +28,13 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
     expect(catalog.skills.map(skill => skill.name)).toContain('local-skill');
     const preview = await client.rpc.request('configuration.preview', { config: { ...config, systemPrompt: 'PREVIEW_ONLY_581' }, cwd: home }) as { prompt: string; tools: string[]; skills: unknown[] };
     expect(preview.prompt).toContain('PREVIEW_ONLY_581');
-    expect(preview.tools).toEqual([]);
+    expect(preview.tools.sort()).toEqual(contextTools);
     expect(preview.skills).toEqual([]);
     expect(JSON.stringify((await read('a')).prompt)).not.toContain('PREVIEW_ONLY_581');
     expect((await read('b')).tools).toContain('task_graph');
     expect((await read('b')).skills.map(skill => skill.name)).toContain('local-skill');
     await client.rpc.request('configuration.apply', { ...config, revision: '2', toolAllowlist: ['read', 'skill'], skillSelection: { mode: 'explicit_allowlist', names: ['local-skill'] } });
-    expect((await read('a')).tools).toEqual(['read', 'skill']);
+    expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     expect((await read('a')).skills.map(skill => skill.name)).toEqual(['local-skill']);
     expect((await read('b')).tools).toContain('task_graph');
     await client.rpc.request('session.submit', { sessionId: 'session-a', inputId: 'busy', mode: 'followup', content: [{ type: 'text', text: 'wait' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'busy' } });
@@ -43,15 +45,15 @@ it('keeps explicit empty tools and Skills empty, restores a subset, and preserve
     await expect.poll(() => renamed, {timeout: 1500}).toBe(true);
     await rename;
     expect((await client.rpc.request('session.observe', {sessionId:'session-a'}) as {status:string}).status).toBe('running');
-    expect((await read('a')).tools).toEqual(['read', 'skill']);
+    expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     let applied = false;
     const pending = client.rpc.request('configuration.apply', { ...config, revision: '3', toolAllowlist: ['write'], systemPrompt: 'AFTER_IDLE_581' }).then(() => { applied = true; });
-    await expect.poll(async () => (await read('a')).tools).toEqual([]);
+    await expect.poll(async () => (await read('a')).tools.sort()).toEqual(contextTools);
     expect((await read('a')).skills).toEqual([]);
     expect(JSON.stringify((await read('a')).prompt)).not.toContain('AFTER_IDLE_581');
     expect(applied).toBe(false);
     await client.rpc.request('session.cancel', { sessionId: 'session-a' }); await pending;
-    expect((await read('a')).tools).toEqual(['write']);
+    expect((await read('a')).tools.sort()).toEqual([...contextTools, 'write'].sort());
     expect(JSON.stringify((await read('a')).prompt)).toContain('AFTER_IDLE_581');
     await client.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
@@ -79,7 +81,7 @@ export function apply(ctx) {
   }, 0); });
   const seen = new Set();
   ctx.on('llm/stream', async function* (options) {
-    const last = options.messages.findLast(message => message.role === 'user');
+    const last = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'user' && 'actorId' in message.source);
     if (seen.has(last.id)) { yield { type: 'block-end', index: 0, block: { type: 'text', text: 'done' } }; yield { type: 'finish', reason: { kind: 'stop' } }; return; }
     seen.add(last.id);
     yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: last.id + '-call', name: 'run_code', arguments: JSON.stringify({ description: 'Check selected SDK', code: 'return { echo: await tools.fixture_echo({}), missing: typeof tools.read };' }) } };
@@ -154,3 +156,33 @@ export function apply(ctx) {
   } catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
 },30000);
+
+it('rejects withdrawal during a native tool execution without blocking unrelated capabilities', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-capability-busy-'));
+  let client: RuntimeClient | undefined;
+  const config = {agentId: 'busy', revision: '1', workspace: home, provider: 'deepseek-official', model: 'deepseek-flash',
+    features: {intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false}, toolAllowlist: ['fixture_hold', 'read']};
+  try {
+    await writeFile(join(home, 'fixture.mjs'), `import {writeFile,access} from 'node:fs/promises';
+export const name='capability-busy'; export const inject=['tools','llm']; export function apply(ctx) {
+ ctx.tools.register({name:'fixture_hold',description:'Held operation',parameters:{type:'object',properties:{}},output:{schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]},execute:async(_args,exec)=>{
+  await writeFile(process.env.DSH_HOME+'/entered','yes');
+  while(!exec.signal.aborted){if(await access(process.env.DSH_HOME+'/release').then(()=>true,()=>false))break;await new Promise(resolve=>setTimeout(resolve,20));}
+  return 'done';
+ }});
+ let called=false;ctx.on('llm/stream',async function*(){if(!called){called=true;yield{type:'block-end',index:0,block:{type:'tool-call',id:'hold',name:'fixture_hold',arguments:'{}'}};yield{type:'finish',reason:{kind:'tool-calls'}};}else{yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};}});
+}`);
+    await prepareProfile(home, [{insert: [{id: 'capability-busy', name: join(home, 'fixture.mjs')}]}]);
+    client = new RuntimeClient({home, cwd: home});
+    await client.rpc.request('initialize', {protocol: 1, agents: [config], bindings: []});
+    await client.rpc.request('session.ensure', {agentId: 'busy', revision: '1', sessionId: 'busy-session', ownerId: 'owner', cwd: home});
+    await client.rpc.request('session.submit', {sessionId: 'busy-session', inputId: 'work', mode: 'followup', content: [{type:'text',text:'Execute the selected tool'}], source:{kind:'human',actorId:'owner',channel:'test',messageId:'work'}});
+    await expect.poll(async () => (await client!.rpc.request('configuration.usage', {agentId:'busy'}) as {busy: unknown[]}).busy).toContainEqual({kind:'tool', name:'fixture_hold'});
+    expect(await client.rpc.request('configuration.prepare', {operationId:'withdraw',fingerprint:'2',config:{...config,revision:'2',toolAllowlist:['read']}})).toMatchObject({ready:false,blocks:[{code:'capability_busy',target:{kind:'tool',name:'fixture_hold'}}]});
+    expect(await client.rpc.request('configuration.prepare', {operationId:'other',fingerprint:'3',config:{...config,revision:'3',toolAllowlist:['fixture_hold']}})).toMatchObject({ready:true});
+    await client.rpc.request('configuration.release', {agentId:'busy',operationId:'other'});
+    await writeFile(join(home,'release'),'yes');
+    await expect.poll(async () => (await client!.rpc.request('configuration.usage', {agentId:'busy'}) as {busy: unknown[]}).busy).toEqual([]);
+    await client.shutdown(); client = undefined;
+  } finally { if (client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home, {recursive:true,force:true}); }
+}, 30_000);

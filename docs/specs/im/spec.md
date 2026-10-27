@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: bugfix-618
+> 对齐: bugfix-664
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、原生 iPhone 客户端、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -19,17 +19,17 @@
 | Area | Covers | Requirements |
 |---|---|---|
 | [Auth and Tenancy](auth-tenancy.md) | 持久 JWT 会话、公司准入与停用、认证限流、成员可见性、资源管理归属、账号设置与系统策略预设 | 15 |
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口、私聊交互背景与群聊明确提交 | 30 |
-| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 正文换行与内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示、自进化提示及摘要本地化、页面入口缓存、连续交互探索、面板自适应消息布局与统一视觉层级 | 29 |
-| [iOS Client](ios-client.md) | 原生业务与权限、会话恢复与退出隔离、媒体选择与分享、前后台提醒边界、免费个人安装说明 | 6 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、受保护附件与累计容量、配置边界、outbox、群聊、分页、fork、限定公网入口、私聊交互背景与群聊明确提交、通用草稿仅填入输入框 | 32 |
+| [Web Chat UX](web-chat-ux.md) | 历史加载、配置边界、滚动、输入、未发送内容按会话隔离、slash 控制命令、消息操作、Agent 正文换行与内联图片、图片 attachment 预览、conversation skill 蒸馏入口、响应式体验、身份展示、自进化提示及摘要本地化、页面入口缓存、连续交互探索、面板自适应消息布局与统一视觉层级 | 30 |
+| [iOS Client](ios-client.md) | 原生业务与权限、通用交互与私人状态、持久发送恢复与退出隔离、媒体选择与分享、前后台提醒边界、免费个人安装说明、日常页面与聊天阅读层级、原生 Agent 停用控制 | 11 |
 | [Tool Timeline](tool-timeline.md) | single_thread 消息内过程、真实后台返回、群回复复核与两种模式共享展示边界 | 9 |
-| [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、只读原生轨迹及父子执行范围导航 | 8 |
+| [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、增量恢复及补齐状态、只读原生轨迹及父子执行范围导航、联合知识复盘用途 | 11 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
-| [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置、创建工作模式、能力选择、公开联系人与管理入口、节点绑定、设备归属标注、Workflow tool pill 与 workspace 插件管理 | 39 |
-| [Gateway Relay](gateway-relay.md) | 消息中继与回执、更新切换时持久等待、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 13 |
-| [Task Graphs](task-graphs.md) | 会话归属与访问、分层进度和独立加载、创建者与负责人、领取和明确删除、通知回聊、依赖与衍生及原生统一编辑 | 18 |
-| [Personal Agent](personal-agent.md) | 固定主人、双身份历史、消息协助、来源限制与对外披露边界；通用能力复用 Global | 5 |
+| [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置与独立停用/重新启用、创建工作模式、Feature依赖联动与轻提示、能力选择、公开联系人与管理入口、节点绑定、设备归属标注、Workflow tool pill、Goal 显式开启、workspace 插件管理及真实概览/关联会话 | 46 |
+| [Gateway Relay](gateway-relay.md) | 消息中继与回执、更新切换时持久等待、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 15 |
+| [Task Graphs](task-graphs.md) | 会话归属与访问、分层进度和独立加载、创建者与负责人、领取和明确删除、通知回聊、依赖与衍生、七状态与等待/真实运行分离及原生统一编辑 | 19 |
+| [Personal Agent](personal-agent.md) | 固定主人、双身份历史、消息协助、用户主身份代发、来源限制与对外披露边界、双端本人配置入口；通用能力复用 Global | 7 |
 
 ## Maintenance Rule
 

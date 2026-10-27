@@ -12,7 +12,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { z } from 'zod';
 import type { AgentConfiguration } from './index.js';
 import type { ModelRoute } from './model-policy.js';
-import { inputEvidence } from './input-evidence.js';
+import { inputEvidence, inputIdsForTurn } from './input-evidence.js';
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -47,7 +47,7 @@ const route = z.object({
   reasoningEffort: z.string().optional(),
   maxTokens: z.number().optional(),
 });
-const domain: RunDomain = defineDomain({
+export const modelRunsDomain: RunDomain = defineDomain({
   name: 'nano_model_runs',
   version: 1,
   layout: 'per-record',
@@ -109,6 +109,8 @@ interface Host {
 export class ModelFallback {
   private readonly storage: Promise<Domain<RunDomain>>;
   private readonly runs = new Map<string, ModelRun>();
+  private readonly historical = new Map<string, ModelRun>();
+  readonly ready: Promise<void>;
   private readonly agents = new Map<string, { agent: Agent; config: AgentConfiguration }>();
   private readonly tasks = new Map<string, Promise<void>>();
   private readonly epochs = new Map<string, number>();
@@ -120,7 +122,8 @@ export class ModelFallback {
     private readonly ctx: Context,
     private readonly host: Host,
   ) {
-    this.storage = ctx.storageDomain.open(domain);
+    this.storage = ctx.storageDomain.open(modelRunsDomain);
+    this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.historical.set(run.id,run); });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
       if (item) this.observe(item.agent, item.config, event);
@@ -164,7 +167,7 @@ export class ModelFallback {
     });
   }
   list(sessionId: string) {
-    return [...this.runs.values()].filter((run) => run.sessionId === sessionId);
+    return [...new Map([...this.historical,...this.runs]).values()].filter((run) => run.sessionId === sessionId);
   }
   evidence(agent: Agent, inputId: string) {
     const evidence = inputEvidence(agent.session.snapshotEvents(), inputId);
@@ -257,16 +260,8 @@ export class ModelFallback {
     const run = this.list(agent.id).findLast((run) => run.attempts.some((attempt) => attempt.turn === event.data.turn));
     if (!run || run.state === 'completed') return;
     const history = agent.session.snapshotEvents();
-    const ids = history.flatMap((event) =>
-      event.type === 'agent/inbox/spliced' ? event.data.inserted.map((message) => message.id) : [],
-    );
-    for (const id of ids)
-      if (
-        inputEvidence(history, id).turn === event.data.turn &&
-        !id.startsWith('nano-fallback:') &&
-        !run.inputs.includes(id)
-      )
-        run.inputs.push(id);
+    for (const id of inputIdsForTurn(history, event.data.turn))
+      if (!id.startsWith('nano-fallback:') && !run.inputs.includes(id)) run.inputs.push(id);
     const attempt = run.attempts.at(-1)!;
     const reason = event.data.reason;
     if (reason.kind === 'error') attempt.error = reason.error;
@@ -398,6 +393,19 @@ export class ModelFallback {
       this.host.notify(agent.id);
       if (run.state === 'switching' && !run.pending) this.schedule(agent, config, run);
     });
+  }
+  /** Invalidate durable unfinished attempts before any restored Agent can attach. */
+  async cancelPersisted(owns: (sessionId: string) => boolean = () => true): Promise<void> {
+    await this.ready;
+    for (const {agent} of this.agents.values()) if (owns(agent.id)) this.interrupt(agent);
+    await Promise.allSettled([...this.tasks].filter(([id]) => {
+      const run = this.runs.get(id) ?? this.historical.get(id);
+      return run && owns(run.sessionId);
+    }).map(([, task]) => task));
+    for (const run of new Map([...this.historical, ...this.runs]).values()) {
+      if (owns(run.sessionId) && run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
+    }
+    await this.checkpoint();
   }
   async stop() {
     this.stopped = true;

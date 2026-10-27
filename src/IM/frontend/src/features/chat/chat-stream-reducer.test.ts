@@ -886,13 +886,12 @@ it('preserves authenticated PA delegation across realtime creation, reconciliati
 });
 
 
-it.each(['message.created', 'message.reconciled'] as const)('retains reply draft routing in %s events', type => {
-  const reply_draft = {target_conversation_id:'original', source_message_id:'source', field_name:'$reply', possible_stale:true};
+it.each(['message.created', 'message.reconciled'] as const)('preserves user identity and PA provenance in %s events', type => {
   const event = toChatWsEvent(type, {
-    conversation_id:'c1',message_id:'card',sender_user_id:'agent:a1',sender_type:'agent',content:'Reply draft',
+    conversation_id:'c1',message_id:'card',sender_user_id:'owner',sender_type:'user',sender:{id:'owner',type:'user',display_name:'Owner'},content:'Agreed',
     attachments:[],tool_calls:[],thinking:[],token_usage:null,delivery_status:'completed',created_at:'2026-10-19T08:00:00Z',
-    elapsed_ms:null,kernel_message_id:null,reply_draft,
+    elapsed_ms:null,kernel_message_id:null,pa_agent_id:'pa_actual',
   });
   const next = applyWsEvent({...emptyConversationState,conversation_id:'c1'},event!);
-  expect(next.messages[0].reply_draft).toEqual(reply_draft);
+  expect(next.messages[0]).toMatchObject({sender:{id:'owner',type:'user'},pa_agent_id:'pa_actual'});
 });

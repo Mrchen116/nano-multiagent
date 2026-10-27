@@ -33,3 +33,26 @@ it('keeps the node port stable across a runtime crash and recovers persisted inp
     await rm(home, { recursive: true, force: true });
   }
 }, 30_000);
+
+it('reports a cleanup deadline without killing or replacing the shared host', async () => {
+  const { writeFile } = await import('node:fs/promises');
+  const home=await mkdtemp(join(tmpdir(),'nano-disable-deadline-'));
+  const supervisor=new RuntimeSupervisor({home,cwd:home,stopTimeoutMs:200,
+    initialize:async rpc=>{await rpc.request('initialize',{protocol:1,agents:[],bindings:[]});},
+    onReady:async()=>{},onError:()=>{},
+  });
+  try {
+    await writeFile(join(home,'block.mjs'), `export function apply(ctx){setTimeout(()=>{while(true){}},1500);}`);
+    await prepareProfile(home,[{insert:[{id:'block',name:join(home,'block.mjs')}]}]);
+    await supervisor.start();
+    const pid=supervisor.process!.pid,id=supervisor.processInstanceId;
+    await new Promise(resolve=>setTimeout(resolve,1600));
+    const started=Date.now();const result=await supervisor.disableAgent('a',2);
+    expect(result.confirmed).toBe(false);
+    expect(Date.now()-started).toBeLessThan(800);
+    expect(supervisor.available).toBe(true);
+    expect(supervisor.process!.pid).toBe(pid);expect(supervisor.process!.signalCode).toBeNull();
+    expect(await supervisor.disableAgent('a',2)).toEqual(result);
+    expect(supervisor.processInstanceId).toBe(id);
+  } finally {const closing=supervisor.shutdown().catch(()=>{});supervisor.process?.kill('SIGKILL');await closing;await rm(home,{recursive:true,force:true});}
+},10000);

@@ -51,15 +51,36 @@ it('recovers an uncertain heartbeat admission by its original identity and does 
     heartbeat.subscription('a', true);
     await expect(heartbeat.tick(undefined, false, 1200000)).rejects.toThrow('lost acceptance');
     expect(heartbeat.busy).toBe(true);
+    expect(heartbeat.hold('a', 'change')).toBe(false);
+    heartbeat.release('a', 'change');
     await heartbeat.stop(); fail = false;
     heartbeat = new Heartbeat(join(directory, 'hb.sqlite3'), options); heartbeat.subscription('a', true);
     expect(heartbeat.busy).toBe(true);
     await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(1);
     expect(heartbeat.busy).toBe(false);
+    expect(heartbeat.hold('a', 'change')).toBe(true);
+    await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(1);
+    heartbeat.release('a', 'wrong');
+    await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(1);
+    heartbeat.release('a', 'change');
     await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(2);
     await heartbeat.tick(undefined, false, 6000000); expect(submissions).toBe(2);
     heartbeat.subscription('a', false);
     await heartbeat.tick(undefined, false, 12000000); expect(submissions).toBe(2);
     await expect(heartbeat.tick('a', true, 12000000)).rejects.toThrow('disabled');
   } finally { await heartbeat.stop(); await rm(directory, { recursive: true, force: true }); }
+});
+
+it('resets cadence and prevents a tick waiting for binding from reviving after disable and enable',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'nano-heartbeat-reset-'));await mkdir(join(directory,'.nanoassistant'));await writeFile(join(directory,'.nanoassistant/HEARTBEAT.md'),'Check inbox');
+ let release!:()=>void,started!:()=>void;const ready=new Promise<void>(r=>started=r),gate=new Promise<void>(r=>release=r);let first=true,submits=0;
+ const heartbeat=new Heartbeat(join(directory,'heartbeat.sqlite3'),{agents:[{agentId:'a',revision:'1',workspace:directory,mode:'single_thread',provider:'p',model:'m',features:{heartbeat:true}}],
+  settings:()=>({every:'10m'}),available:()=>true,onError:()=>{},binding:async()=>{if(first){first=false;started();await gate;}return {agentId:'a',sessionId:'s',conversationId:'c',ownerId:'o',cwd:directory,revision:'1'};},
+  runtime:{onNotification:()=>()=>{},request:async(method)=>{if(method==='session.submit')submits++;return {accepted:false};}}});
+ try {
+  heartbeat.subscription('a',true);const pending=heartbeat.tick(undefined,false,1200000);await ready;
+  heartbeat.resetAgent('a',1200000);heartbeat.resetAgent('a',1300000);release();await pending;expect(submits).toBe(0);
+  await heartbeat.tick(undefined,false,1300000);expect(submits).toBe(0);
+  await heartbeat.tick(undefined,false,1900000);expect(submits).toBe(1);
+ }finally{release();await heartbeat.stop();await rm(directory,{recursive:true,force:true});}
 });

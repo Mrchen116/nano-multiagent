@@ -1,5 +1,5 @@
 import React from 'react';
-import { defineComponent, useFormName, useFormValidation, useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
+import { defineAction, defineComponent, useFormName, useFormValidation, useIsStreaming, useTriggerAction } from '@openuidev/react-lang';
 import { openuiLibrary, Button } from '@openuidev/react-ui';
 import { z } from 'zod';
 import { compositionExamples } from './composition-examples';
@@ -34,7 +34,13 @@ const Stack = defineComponent({
     ? <div className="nano-ui-card-row" style={{ display: 'contents' }}><UpstreamStack {...args} /></div>
     : <UpstreamStack {...args} />,
 });
+export const ComposeMessage = defineAction({
+  name: 'ComposeMessage',
+  description: 'Place the current text in the signed-in user’s composer for an explicit Nano IM conversation id. Local adoption only: never sends a message or asks an Agent. Existing draft conflicts require the user to choose replacement.',
+  params: z.object({target: z.string(), text: z.string()}),
+});
 export const interactiveLibrary = openuiLibrary.extend({
+  actions: { add: [ComposeMessage] },
   components: { add: [{ component: ContinueButton, slots: ['Card.children'] }], override: [Form, Stack] },
 });
 
@@ -44,7 +50,7 @@ export const interactiveTools = [
 ] as const;
 
 const libraryPrompt = interactiveLibrary.prompt({
-  preamble: 'Write OpenUI inside send_message.interactive.source. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.',
+  preamble: 'Write OpenUI inside send_message.interactive.source (or send_user_message for an authorized PA representation). Provide source, not format or catalog_version; the host supplies those constants. Keep text an independently readable summary. Choose useful interactive explanations, explorations, comparisons or editors when these help the user understand or work with the subject.',
   bindings: true, builtinFunctions: true, toolCalls: true, editMode: true,
   tools: interactiveTools.map(tool => ({name:tool.name, description:tool.description, inputSchema:{...tool.parameters},outputSchema:{}})),
   additionalRules: [
@@ -56,12 +62,13 @@ const libraryPrompt = interactiveLibrary.prompt({
 
     'Choose controls that materially help understanding, comparison or input. Distinguish user values, retrieved facts, calculations and explicitly labeled illustrative assumptions. Rendering is not a data source or proof of execution; do not invent live values, task progress, persistence or connected business tools.',
     'Use the complete registered library and native language: local state, computations, conditions, Each, Action, Set and Reset. Fields may stand alone or belong to Forms. Local exploration must respond immediately without a new conversation turn. Build meaningful relations between controls, visual results and explanations, not decorative controls.',
+    'Use @ComposeMessage(target, text) to adopt editable text into an explicit Nano IM conversation input. Name the destination in the visible button label or nearby text. Get target from conversations; it is not an external target or an implicit current chat. The text expression is evaluated at click time. Adoption never submits a message or requests an Agent. Never combine ComposeMessage with ToAssistant or a Mutation in the same action. Local Set/Reset may be combined. Do not use retired reply_draft metadata.',
     'Use native Button with ToAssistant only when the user explicitly requests a new Agent response. Multiple local and continuation buttons are supported; the interface remains usable after a request. ContinueButton exists for older messages; prefer native Button in new programs.',
     'The only currently connected tools are conversation_messages for Query and continue_conversation for Mutation. The current conversation and user identity come from the host. No filesystem or arbitrary shell/network tool is implicitly connected. Use ToAssistant OR the continue_conversation Mutation for a request, not both for the same request.',
     'OpenUrl supports http/https navigation. Declare every mutable variable with the dollar prefix. Use actual values for editable content, never placeholders as the content. Labels and units must make parameter changes understandable. Keep the main chat readable on narrow screens.',
     'Match control binding types exactly: Input/TextArea/Select/RadioGroup values are strings, including numeric-looking option IDs; Slider values are number arrays. Set must preserve the bound type. Convert an arithmetic result to a string with empty-string concatenation when storing it in a string-bound variable; use numeric coercion only for calculations.',
     'For edits, send interactive.source_mode="patch" with supersedes_message_id and changed statements, or send a full new source. New versions retain the original publicly readable history.',
-    'After send_message confirms delivery, end with the exact non-empty final text NO_REPLY; the host suppresses it because the interactive reply is already delivered. Never end with an empty response.',
+    'After confirmed delivery, follow the current mode closing rules. In Global mode, write a brief non-empty private closing note; it is not a public reply. In SingleThread mode, use its existing silence protocol after confirmed card delivery. Never end with an empty response or duplicate the delivered card.',
   ],
 }).replace('as the third Form argument', 'as the second Form argument'); // Match the published Form schema; upstream prose has the wrong position.
 

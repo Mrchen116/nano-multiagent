@@ -83,6 +83,14 @@ Bugfix lite
 
 `change-fast-close` 负责锁定现有 diff、建立事后 unit、回填文档、执行 code review、归并 canonical spec 并按用户授权交付。
 
+## Agent Context 的条件接入
+
+按 [Agent Context Engineering](agent-context-engineering.md#范围与影响判断) 判断模型可见信息及其选择、注入、加载、更新和恢复是否受影响；包括间接影响，不按文件名触发。纯 UI 样式和无 Context 影响的内部变化不触发完整审查。
+
+相关 Full 设计在原 design/milestone 中说明消费链与验证，原 design-reviewer 执行 [agent-context-review](../../.claude/skills/agent-context-review/SKILL.md) 的 Design Review；原 code reviewer 执行 Implementation Review，结果仍在原报告/输出。两个编排路径及 impl-worker 都需验证实际交付与适用行为，verifier 核一致性和证据并复用有效审查。lite 不补 design Gate；快速开发在既有 as-built design/code review 中承接。无 unit 的直接小修若实际影响 Context，也按相同原则自检，不因此强制新 Gate。
+
+新 Skill 是现有角色的审查方法，不是新角色或审批。只覆盖受影响链路及必要交互；证据不足如实说明，是否阻断仍按现有退出标准和严重度判断。模式、取证及 finding 内容由 Skill 和规范维护，本流程不复制细则。
+
 ## 阶段 1：首文档
 
 `change-spec-author` 与用户收口“做什么”或“出了什么问题”，产出 `spec.md`、`motivation.md`、`incident.md`，或 lite 路径的 `fix.md`。
@@ -201,6 +209,15 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 快速开发由 `change-fast-close` 收尾，继续使用已经记录的用户验收，不补 verifier 或产品 reviewer。若交付时需要在 code review 或用户确认后同步 main，同样必须判断 main 增量是否使 code review 或用户验收失效；内部变化重跑 code review，用户可观察行为可能变化时交回用户确认。
 
 开放 PR 的同一交付会话可以继续处理自包含小修。会话退出后，恢复前必须核对 unit branch、PR head 和 clean worktree；需要修改 design 或新增 milestone 的反馈交由人判断，不能在 archive 中启动第二套生命周期。
+
+### PR 合入后的 worktree 清理
+
+本规则适用于常规实施、快速开发及后续合并/部署会话，以 PR 合入事件触发，不等待用户停止聊天：
+
+- PR 已创建但未合入时，保留该任务的开发 worktree 供审查和修改；CI 全绿、unit 文档归档或本轮回复结束都不触发删除。验证结束后停止自建测试服务，除非用户明确要求保留预览；停止服务不等于移除 worktree。milestone 临时现场仍按原流程在集成后由 worker 清理。
+- 获授权执行 PR 合并的 Agent 在确认远端已合入后，接手该任务的开发 worktree 清理，在本轮结束前完成；后续会话处理同一任务时若发现 PR 已合入而目录仍在，也补做清理，包括此前归档失败的遗留现场。不因本规则自行合并 PR。
+- 清理前核实具体路径与 PR 的对应关系、提交已保存且变更已合入、无其他未提交工作或活进程，并保留必要的本地测试证据。仅移除该任务的开发 worktree，保留生产 `prod-main`、研究基线和其他任务现场；运行数据与进程核对见 [worktree-runtime](worktree-runtime.md)。
+- Codex 管理的 worktree 优先使用 `archive_worktree`；普通 Git worktree 使用 `git worktree remove`。随后核实目录与 Git worktree 登记确实已移除，不以调用工具成功或聊天归档代替。用户要求继续保留、检查不满足或清理失败时，报告路径、具体原因和下次清理触发；最终回复明确本任务 worktree 已清理或仍保留。
 
 ## 角色边界
 

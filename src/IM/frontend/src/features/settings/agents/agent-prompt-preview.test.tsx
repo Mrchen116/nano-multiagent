@@ -1,3 +1,4 @@
+vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: () => () => undefined}));
 /**
  * Prompt preview reflects features-based heartbeat/cron state.
  *
@@ -41,6 +42,7 @@ vi.mock("../../../hooks/use-is-mobile", () => ({
 }));
 
 vi.mock("./im-agent-config-api", () => ({
+  getAgentCapabilityUsage: vi.fn().mockResolvedValue({ checked_at: "now", active_tasks: 0, active_schedules: 0, busy: [] }),
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
@@ -68,7 +70,7 @@ const HB_CAP_FEATURE = {
   help_i18n: "agents.features.heartbeat.help",
   default_on: false,
   available: true,
-  requires_tool: null,
+  requires: { features: [], tools: [], skills: [] },
 };
 
 const CRON_CAP_FEATURE = {
@@ -77,7 +79,7 @@ const CRON_CAP_FEATURE = {
   help_i18n: "agents.features.cron_scheduling.help",
   default_on: false,
   available: true,
-  requires_tool: "cron",
+  requires: { features: [], tools: ["cron"], skills: [] },
 };
 
 const TOOL_DEFAULT = { name: "read", description: "Read files", default_on: true };
@@ -121,6 +123,8 @@ function makeAgentState(opts: {
       platform_default_model: null,
       features: opts.capFeatures ?? [HB_CAP_FEATURE, CRON_CAP_FEATURE],
     },
+    ready: true, liveCapabilities: true, pendingOperation: null,
+    display: {source: "current", captured_at: null, data: null, error: null},
     owningNode: null,
   };
 }

@@ -8,9 +8,17 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./capabilities": {
+      "types": "./lib/capabilities.d.ts",
+      "default": "./lib/capabilities.js"
+    },
     "./trajectory-wire": {
       "types": "./lib/trajectory-wire.d.ts",
       "default": "./lib/trajectory-wire.js"
+    },
+    "./agent-lifecycle": {
+      "types": "./lib/agent-lifecycle.d.ts",
+      "default": "./lib/agent-lifecycle.js"
     }
   },
   "scripts": {

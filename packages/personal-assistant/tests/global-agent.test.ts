@@ -4,6 +4,50 @@ import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
+it.each([true,false])('reconciles a cold uncertain publication by status without resending (found=%s)',async found=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ inbox.preparePublication('main:call','c','already reviewed reply');inbox.settlePublication('main:call','sending');
+ const requests:string[]=[];
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+  runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+  relay:{request:async(type,payload)=>{requests.push(type);return {type:'ack',payload:type==='agent.message.status'?{found,message_id:'original',conversation_id:'c'}:{}};}},image:async()=>'',onError:e=>{throw e;}});
+ try{
+  await product.recover();await product.recover();
+  expect(inbox.publication('main:call')?.state).toBe(found?'confirmed':'sending');
+  expect(requests.filter(type=>type==='agent.message.status')).toHaveLength(found?1:2);
+  expect(requests).not.toContain('agent.message');
+  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toHaveLength(found?1:0);
+ }finally{await product.stop();inbox.close();store.close();}
+});
+
+it.each(['interrupted','user','completed','consumed','partially-consumed'])('recovers a cold Inbox wake only for unread interrupted work (%s)',async kind=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ const input:RelayInput={agent_id:'a',conversation_id:'c',relay_task_id:'r',idempotency_key:'k',metadata:{conversation_type:'direct'},message:{id:'m',content:'do work',sender_type:'user',sender_user_id:'owner',attachments:[]}};
+ inbox.acceptRelay(input,true);
+ if(kind==='partially-consumed')inbox.acceptRelay({...input,conversation_id:'b',relay_task_id:'r2',idempotency_key:'k2',message:{...input.message,id:'m2'}},true);
+ const boundary=kind==='partially-consumed'?2:1,base=`inbox-wake:a:${boundary}`,recover=kind==='interrupted'||kind==='partially-consumed';inbox.admitWake('a',boundary);
+ if(kind==='partially-consumed'){const page=inbox.read('a','main','read-b',{target:'b'});inbox.commitRead('main','read-b',[{type:'text',text:JSON.stringify(page)}],false,1);}
+ if(kind==='consumed'){const page=inbox.read('a','main','read',{target:'c'});inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(page)}],false,1);}
+ const submitted:string[]=[],evidence=new Map<string,any>([[base,{accepted:true,acceptedSeq:10,terminal:{kind:recover||kind==='consumed'?'interrupted':kind}}]]);
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
+   if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
+   if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
+   return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};
+  }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:e=>{throw e;}});
+ try {
+  await product.recover();await product.recover();
+  expect(submitted).toEqual(recover?[`${base}:recovery:10`]:[]);
+  if(recover){
+   evidence.set(submitted[0]!,{accepted:true,acceptedSeq:21,terminal:{kind:'interrupted'}});
+   await product.recover();await product.recover();
+   expect(submitted).toEqual([`${base}:recovery:10`,`${base}:recovery:21`]);
+  }
+ }finally{await product.stop();inbox.close();store.close();}
+});
+
 it.each([
   ['owner-id', 'user:owner', undefined, 'owner'],
   ['owner-web', 'conversation:c_owner', {type:'direct',channel:'web',members:[{type:'user',user_id:'owner'},{type:'agent',user_id:'agent-account'}]}, 'owner'],
@@ -114,6 +158,7 @@ it('holds a single-thread same-group tool send until the accepted correction is 
       if(method==='session.lookup')return {accepted:true,...((value as any).inputId==='a:original'?{turn:1}:corrected?{turn:2}:{})};
       return {durable:true,events:[{seq:corrected?2:1,time:1,type:'tool/call',data:{turn:corrected?2:1,callId:corrected?'new':'old'}}],status:'running'};
     }},relay:{async request(type,payload){
+      if(type==='agent.session.ensure')throw new Error('invalid_scope');
       if(type==='conversation.query'){if(!corrected)store.receive('chat',input('correction'));return {type:'conversation.query.result',payload:{ok:true,result:{type:'group',channel:'web'}}};}
       if(type==='agent.work.append')return {type:'agent.work.ack',payload:{through_seq:(payload.events as any[]).at(-1).seq}};
       if(type==='agent.message'){sends++;expect(payload.to).toBe('conversation:c_group');}
@@ -179,7 +224,7 @@ it('forwards conversation discovery and membership actions with the registered i
   const sent: Record<string, unknown>[] = [];
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [], store, inbox,
     runtime: { onNotification: () => () => {}, request: async () => ({}) },
-    relay: { request: async (_type, payload) => { sent.push(payload); return { type: 'conversation.query.result', payload: { ok: true, result: { id: 'c_group' } } }; } }, image: async () => '', onError: error => { throw error; } });
+    relay: { request: async (_type, payload) => { if(_type==='agent.session.ensure')return {type:'ack',payload:{}};sent.push(payload); return { type: 'conversation.query.result', payload: { ok: true, result: { id: 'c_group' } } }; } }, image: async () => '', onError: error => { throw error; } });
   const call: ProductCall = { method: 'conversations', args: {}, operationId: 'main:query', callId: 'query', sessionId: 'main', rootSessionId: 'main', agentId: 'a', ownerId: 'owner' };
   try {
     for (const args of [{ action: 'create', type: 'group', title: 'Team', visibility: 'public', participant_ids: ['user'] }, { action: 'join', target: 'c_group' }, { action: 'list', scope: 'public' }]) {
@@ -217,7 +262,7 @@ it.each([
     status = 'idle'; await product.recover(); await product.receive(input);
     expect(submitted).toHaveLength(attention ? 1 : 0);
     if (attention) expect(submitted[0]).toMatchObject({ mode: 'steer', source: { kind: 'system' }, inputId: expect.stringMatching(/^inbox-wake:a:/) });
-    await product.receive({ ...input, message: { ...input.message, id: 'stop', content: '/stop', sender_type: 'user' } });
+    await product.receive({ ...input, relay_task_id:'stop',idempotency_key:'stop', participants:[{type:'agent',id:'a',user_id:'agent-a',display_name:'A'}], message: { ...input.message, id: 'stop', content: '<mention type="user" target_id="agent-a"/> /stop', sender_type: 'user' } });
     expect(cancellations).toBe(1);
     await product.receive({ ...input, idempotency_key: 'after-stop', relay_task_id: 'after-stop', message: { ...input.message, id: 'after-stop' } });
     expect(submitted).toHaveLength(attention ? 2 : 0);
@@ -251,7 +296,8 @@ it('retains completed Web receipts offline while reconciling external inputs, th
   try {
     await product.recover();
     expect(receipts).toEqual(['external:feishu']);
-    expect(inbox.completedInputs('main', 1).map(row => row.input.relay_task_id)).toEqual(['web']);
+    expect(inbox.pendingRelays().map(row => [row.input.relay_task_id,row.status])).toEqual([['web','completed']]);
+    expect(inbox.completedInputs('main', 1)).toEqual([]);
     ready = true;
     await product.recover(); await product.recover();
     expect(receipts).toEqual(['external:feishu', 'web']);
@@ -356,4 +402,69 @@ it('replays a Feishu owner observation once with its original sender, channel an
   expect(calls.filter(method=>method==='session.submit')).toHaveLength(1);
   expect(calls).not.toContain('pa.review');
  }finally{await product.stop();inbox.close();store.close();}
+});
+
+it.each(['task_graph', 'send_message'])('keeps %s source checks independent of pending child trajectory reads', async method => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let started!: () => void, release!: () => void;
+  const childStarted = new Promise<void>(resolve => { started = resolve; });
+  const held = new Promise<any[]>(resolve => { release = () => resolve([]); });
+  let durable = true;
+  const deliveries: string[] = [];
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+    runtime:{onNotification:()=>()=>{},request:async name=>{
+      if(name==='session.descendants'){started();return held;}
+      return {events:[],durable,status:'idle'};
+    }},relay:{request:async type=>{
+      deliveries.push(type);
+      return {type:'ack',payload:type==='conversation.query'?{ok:true,result:{type:'direct',channel:'web'}}:{ok:true,result:{id:'graph'},message_id:'sent',conversation_id:'c'}};
+    }},image:async()=>'',onError:()=>{}});
+  const recovery = product.recover();
+  const call: ProductCall = {method,args:method==='send_message'?{target:'c_target',text:'reply'}:{action:'list'},operationId:'main:call',callId:'call',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
+  try {
+    await childStarted;
+    const result = await Promise.race([product.call(call),new Promise(resolve=>setTimeout(()=>resolve('blocked by child history'),250))]);
+    expect(result).not.toBe('blocked by child history');
+    expect(deliveries).toContain(method==='send_message'?'agent.message':'task_graph.command');
+    durable = false;
+    await expect(product.call({...call,operationId:'main:second',callId:'second'})).rejects.toThrow('durable');
+  } finally { release(); await recovery; await product.stop(); inbox.close(); store.close(); }
+});
+
+it('replays a child terminal when model fallback completes at the already acknowledged native cursor', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let complete = false;
+  const acknowledgements: any[] = [];
+  const events = [
+    {seq:0,time:0,type:'turn/start',data:{turn:1}},
+    {seq:1,time:1,type:'user/message',data:{turn:1,source:{kind:'user'},content:[]}},
+    {seq:2,time:2,type:'turn/end',data:{turn:1,reason:{kind:'error'}}},
+    {seq:3,time:3,type:'turn/start',data:{turn:2}},
+    {seq:4,time:4,type:'tool/call',data:{turn:2,callId:'read',name:'read',arguments:'{}'}},
+    {seq:5,time:5,type:'tool/result',data:{turn:2,message:{toolCallId:'read',content:[{type:'text',text:'result'}],isError:false}}},
+    {seq:6,time:6,type:'turn/end',data:{turn:2,reason:{kind:'completed'}}},
+  ];
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+    runtime:{onNotification:()=>()=>{},request:async (method,args:any)=>{
+      if(method!=='session.descendants')return {events:[],durable:true,status:'idle'};
+      acknowledgements.push(structuredClone(args));
+      const modelVersion = complete?'completed':'switching';
+      const runs = [{id:'run',sessionId:'child',turn:1,state:complete?'completed':'switching',attempts:[{turn:1,route:{model:'primary'}},{turn:2,route:{model:'backup'}}],terminal:{kind:complete?'completed':'error'}}];
+      return [{kind:'child',id:'child',parentId:'main',throughSeq:6,modelVersion,modelRuns:runs,
+        events:args.cursors.child===6 && args.modelVersions?.child===modelVersion?[]:events}];
+    }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:()=>{}});
+  try {
+    await product.recover();
+    expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toEqual([]);
+    complete = true;
+    await product.recover();
+    expect(acknowledgements.at(-1)).toMatchObject({cursors:{child:6},modelVersions:{child:'switching'}});
+    expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toMatchObject([{turn_id:'1',payload:{status:'completed',elapsed_ms:6}}]);
+    expect(inbox.journal(0).find(e=>e.type==='tool_end')).toMatchObject({payload:{tool_name:'read',duration_ms:1}});
+    await product.recover();
+    expect(acknowledgements.at(-1)).toMatchObject({cursors:{child:6},modelVersions:{child:'completed'}});
+    expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toHaveLength(1);
+  } finally { await product.stop(); inbox.close(); store.close(); }
 });

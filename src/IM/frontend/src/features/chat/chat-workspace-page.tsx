@@ -1,3 +1,4 @@
+import { AgentLifecycleChatNotice } from '../settings/agents/agent-lifecycle';
 import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
 import { PersonalAgentCollaboration } from '../personal-agent/personal-agent-collaboration';
 import { getPersonalAgent, renamePersonalAgent } from '../personal-agent/personal-agent-api';
@@ -79,7 +80,7 @@ import { MessagePane } from "./components/message-pane";
 import { listContacts, contactActor, type Contact } from "./contacts-api";
 import { PublicGroupsModal } from "./components/public-groups-modal";
 import { NewChatModal } from "./components/new-chat-modal";
-import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
+import { composerStoreFor, writeComposerSnapshot, EMPTY_COMPOSER_SNAPSHOT, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { NewGroupModal } from "./components/new-group-modal";
 
 import { InteractionSubmissionError } from "./interactive/submission-error";
@@ -348,7 +349,7 @@ export function ChatWorkspacePage() {
   const [distillError, setDistillError] = useState<string | null>(null);
   const [distillNotice, setDistillNotice] = useState<string | null>(null);
   const [distillSubmitting, setDistillSubmitting] = useState(false);
-  const [draftSeed, setDraftSeed] = useState<{ id: string; conversationId: string; text: string } | null>(null);
+  const [draftSeed, setDraftSeed] = useState<{ id: string; conversationId: string; text: string; replace?: boolean; focusOnly?: boolean } | null>(null);
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
@@ -864,6 +865,18 @@ export function ChatWorkspacePage() {
     );
   }
 
+  function acceptCreatedMessage(created: Message) {
+    clearSendError(created.conversation_id);
+    // HTTP success and attempt recovery share the message-id merge so either may
+    // arrive before or after the WS echo and an in-flight history response.
+    if (messagesQueryFetchingRef.current) {
+      pendingDiscardedMessageIdsRef.current.delete(created.id);
+      pendingLiveMessageIdsRef.current.add(created.id);
+    }
+    dispatch({ type: "append_optimistic", message: created });
+    void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+  }
+
   const sendMutation = useMutation({
     mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
       createMessage({
@@ -874,21 +887,7 @@ export function ChatWorkspacePage() {
         idempotencyKey: payload.idempotencyKey,
         interactionContexts: payload.interactionContexts
       }),
-    onSuccess: (created, payload) => {
-      clearSendError(payload.conversationId);
-      // feat-340-M18 R9-3: optimistically render the user's own message immediately
-      // after the POST resolves. The WS message.created echo path is reliable for
-      // agent replies but not always for self-authored bubbles, so previously the
-      // user saw their text vanish into the void until a refetch. Reducer dedupes
-      // by id so the later WS event (if any) does not double-print.
-      if (messagesQueryFetchingRef.current) {
-        pendingDiscardedMessageIdsRef.current.delete(created.id);
-        pendingLiveMessageIdsRef.current.add(created.id);
-      }
-      dispatch({ type: "append_optimistic", message: created });
-      // Bump conversation list ordering on next refetch.
-      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-    },
+    onSuccess: acceptCreatedMessage,
     onError: (err, payload) => {
       if (conversationIdRef.current !== payload.conversationId) return;
       setWorkspaceError({
@@ -1133,13 +1132,18 @@ export function ChatWorkspacePage() {
     });
   }
 
-  function handlePersonalDraft(draft: NonNullable<Message["reply_draft"]>, text: string) {
-    const target = draft.target_conversation_id;
-    if (!target) return;
-    const existing = composerStoreFor(selfUserId).get(target)?.draft;
-    if (existing?.trim() && existing !== text && !window.confirm(t('pa.replaceDraft'))) return;
-    setDraftSeed({id:crypto.randomUUID(),conversationId:target,text});
-    navigate(`/chat/${encodeURIComponent(target)}`, {state:{personalAgentReturn:true}});
+  async function handleComposeMessage(target: string, text: string) {
+    const account = selfUserId;
+    const destination = await getConversation(target);
+    if (useAuthStore.getState().user?.id !== account) return;
+    if (destination.can_write !== true || destination.dissolved_at || destination.external_source) throw new Error(t('pa.composeUnavailable'));
+    const existing = composerStoreFor(account).get(target);
+    const hasConflict = existing && ((existing.draft !== '' && existing.draft !== text) || existing.pending.length > 0 || (existing.failed?.length ?? 0) > 0);
+    if (hasConflict && !window.confirm(t('pa.replaceDraft'))) return;
+    const focusOnly = existing?.draft === text && !hasConflict;
+    if (!focusOnly) writeComposerSnapshot(composerStoreFor(account), target, {...EMPTY_COMPOSER_SNAPSHOT,draft:text,revision:crypto.randomUUID()});
+    setDraftSeed({id:crypto.randomUUID(),conversationId:target,text,replace:true,focusOnly});
+    navigate(`/chat/${encodeURIComponent(target)}`);
   }
 
   return (
@@ -1209,6 +1213,7 @@ export function ChatWorkspacePage() {
       {showDetail && (
         activeConversation ? (
           <MessagePane
+            lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} />)}
             onJoin={async () => { await joinConversation(activeConversation.id); await queryClient.invalidateQueries({ queryKey: ["chat"] }); }}
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}
@@ -1231,7 +1236,7 @@ export function ChatWorkspacePage() {
             globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||a.owner_id===selfUserId)).map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
             draftSeed={draftSeed}
-            onUseReplyDraft={isPersonalConversation ? handlePersonalDraft : undefined}
+            onComposeMessage={handleComposeMessage}
             slashSkills={slashSkills}
             slashCommands={slashCommands}
             configLabel={isPersonalConversation ? undefined : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
@@ -1245,6 +1250,12 @@ export function ChatWorkspacePage() {
               conversationId: activeConversation.id,
               text,
               attachments, interactionReply, idempotencyKey, interactionContexts
+            })}
+            onRecovered={acceptCreatedMessage}
+            onSendFailure={() => setWorkspaceError({
+              conversationId: activeConversation.id,
+              kind: "send",
+              message: t("chat.messagePane.sendError")
             })}
             sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
             onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}

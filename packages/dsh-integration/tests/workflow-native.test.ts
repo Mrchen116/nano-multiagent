@@ -22,8 +22,11 @@ it("executes native JavaScript and children, recovers durable prefixes, and keep
     await writeFile(
       join(home, "fixture.mjs"),
       `import {appendFile} from 'node:fs/promises';
-export const name='workflow-fixture'; export const inject=['llm'];
-export function apply(ctx) {
+export const name='workflow-fixture'; export const inject=['llm','sessionPersistence'];
+export async function apply(ctx) {
+ const open=ctx.sessionPersistence.open.bind(ctx.sessionPersistence);
+ ctx.sessionPersistence.open=async(...args)=>{const handle=await open(...args);if(!handle)return handle;const read=handle.read.bind(handle);handle.read=async(...range)=>{const result=await read(...range);await appendFile(process.env.DSH_HOME+'/body-reads.jsonl',JSON.stringify({id:handle.id,offset:range[0]??0,events:result.events.length})+'\\n');return result;};return handle;};
+ if(process.env.NANO_FIXTURE_APPEND_CHILD){const h=await ctx.sessionPersistence.open(process.env.NANO_FIXTURE_APPEND_CHILD,'write');const r=await h.read();await h.append([{seq:r.events.length,time:Date.now(),type:'fixture/work-gap',ignorable:true,data:{}}]);await h.flush();await h.close();}
  const seen=new Set();
  ctx.on('llm/stream',async function*(o) {
    const input=o.messages.findLast(m=>m.role==='user'&&m.content.some(c=>c.type==='text'&&(c.text.startsWith('WF_CHILD_')||c.text==='launch')));
@@ -52,11 +55,11 @@ export function apply(ctx) {
       ownerId: "owner",
       cwd: home,
     };
-    const initialize = async (bindings: unknown[]) => {
+    const initialize = async (bindings: unknown[], appendChild?:string) => {
       client = new RuntimeClient({
         home,
         cwd: home,
-        env: { NANO_OWNER_CONFIG_ROOT: join(home, "owner") },
+        env: { NANO_OWNER_CONFIG_ROOT: join(home, "owner"), ...(appendChild?{NANO_FIXTURE_APPEND_CHILD:appendChild}:{}) },
         onLog: (text) => (logs += text),
       });
       await client.rpc.request("initialize", {
@@ -121,9 +124,6 @@ export function apply(ctx) {
         ),
       )?.outputTokens,
     ).toBe(outputTokens(parentObservation.events));
-    const usage = await client!.rpc.request('usage.read', {sessionId: 'workflow'}) as {sessionId: string;turn: number;usage: {total_tokens: number}}[];
-    expect(new Set(usage.map(item => item.sessionId)).size).toBe(5);
-    expect(usage.reduce((sum, item) => sum + item.usage.total_tokens, 0)).toBe(15);
     const first = (await read())[0]!;
     expect(first.result.value.values).toEqual(["A_next", "B_next"]);
     expect(first.calls).toHaveLength(4);
@@ -137,10 +137,31 @@ export function apply(ctx) {
       expect(child.model).toBe("deepseek-flash");
       expect(child.tools).not.toContain("workflow");
     }
+    await until(async () => (await client!.rpc.request('session.observe',{sessionId:'workflow'})).status).toBe('idle');
+    const rootCut=await client!.rpc.request('session.observe',{sessionId:'workflow'});
+    const descendantCuts=await client!.rpc.request('session.descendants',{sessionId:'workflow'}) as any[];
+    expect(descendantCuts.filter(item=>item.kind==='child')).toHaveLength(4);
+    const cuts=[{id:'workflow',...rootCut},...descendantCuts.filter(item=>item.kind==='child')];
+    const positions={sessionId:'workflow',cursors:Object.fromEntries(cuts.map(item=>[item.id,item.throughSeq])),modelVersions:Object.fromEntries(cuts.map(item=>[item.id,item.modelVersion]))};
     await client!.shutdown();
     client = undefined;
+    await writeFile(join(home,'body-reads.jsonl'),'');
     await initialize([binding]);
-    expect(await client!.rpc.request('usage.read', {sessionId: 'workflow'})).toEqual(usage);
+    expect(await client!.rpc.request('session.work.check',positions)).toEqual({settled:true,rootSettled:true});
+    const unchanged=await client!.rpc.request('session.descendants',positions) as any[];
+    expect(unchanged.filter(item=>item.kind==='child').every(item=>item.events.length===0)).toBe(true);
+    expect(await readFile(join(home,'body-reads.jsonl'),'utf8')).toBe('');
+    await client!.shutdown();client=undefined;
+    const changedChild=descendantCuts.find(item=>item.kind==='child')!.id;
+    await initialize([binding],changedChild);
+    // The fixture appended through the public write handle before measurement.
+    await writeFile(join(home,'body-reads.jsonl'),'');
+    expect(await client!.rpc.request('session.work.check',positions)).toEqual({settled:false,rootSettled:true});
+    const changed=await client!.rpc.request('session.descendants',positions) as any[];
+    expect(changed.filter(item=>item.events?.length).map(item=>item.id)).toEqual([changedChild]);
+    const bodyReads=(await readFile(join(home,'body-reads.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+    expect(bodyReads.map(item=>item.id)).toEqual([changedChild]);
+    expect(bodyReads[0].events).toBeGreaterThan(1);
     const replay = (await client!.rpc.request("workflow.control", {
       sessionId: "workflow",
       runId: first.id,
@@ -187,6 +208,18 @@ export function apply(ctx) {
     );
     expect(invoked).toHaveLength(1);
     expect(invoked[0].args).toEqual({ topic: "from slash" });
+    await until(async () => (await client!.rpc.request('session.observe',{sessionId:'workflow'})).status).toBe('idle');
+    const grownRoot=await client!.rpc.request('session.observe',{sessionId:'workflow'});
+    const grownChildren=(await client!.rpc.request('session.descendants',{sessionId:'workflow'}) as any[]).filter(item=>item.kind==='child');
+    expect(grownChildren.length).toBeGreaterThan(descendantCuts.length);
+    const grown=[{id:'workflow',...grownRoot},...grownChildren];
+    await client!.shutdown();client=undefined;
+    await writeFile(join(home,'body-reads.jsonl'),'');
+    await initialize([binding]);
+    const grownPositions={sessionId:'workflow',cursors:Object.fromEntries(grown.map(item=>[item.id,item.throughSeq])),modelVersions:Object.fromEntries(grown.map(item=>[item.id,item.modelVersion]))};
+    expect(await client!.rpc.request('session.work.check',grownPositions)).toEqual({settled:true,rootSettled:true});
+    await client!.rpc.request('session.descendants',grownPositions);
+    expect(await readFile(join(home,'body-reads.jsonl'),'utf8')).toBe('');
     await client!.shutdown();
     client = undefined;
   } catch (error) {

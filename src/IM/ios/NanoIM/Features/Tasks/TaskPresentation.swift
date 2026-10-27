@@ -1,7 +1,62 @@
 import SwiftUI
 
+struct TaskWaitView: View {
+    let wait: TaskWait?
+    let health: TaskWaitHealth?
+    var compact = false
+    private var state: String { health?.state ?? "unknown" }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !compact { Text(L("等待原因与恢复条件", "Waiting reason and resume condition")).font(.headline) }
+            Text(wait?.reason ?? L("等待原因暂不可用", "Waiting reason unavailable"))
+                .lineLimit(compact ? 3 : nil).fixedSize(horizontal: false, vertical: true)
+            if state == "invalid" {
+                Text(L("安排需要处理：负责人需重新核对并安排跟进。", "Schedule needs attention. The assignee must check and arrange follow-up.")).foregroundStyle(.orange)
+                Text(L("下次检查 · 暂无有效安排", "Next check · No valid schedule"))
+            } else {
+                if state != "valid" && (!compact || health != nil) { Text(L("暂无法核实安排，请稍后重试。", "Schedule could not be verified. Check again later.")).foregroundStyle(.orange) }
+                if let wait {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(state == "valid" ? L("下次检查", "Next check") : L("已保存的安排时间", "Saved schedule time"))
+                        NanoDateTime(value: wait.next_check_at)
+                    }
+                }
+            }
+            if !compact { Text(L("安排时间不是执行回执；以实际检查结果为准。", "A scheduled time is not an execution receipt. Check the actual outcome.")).font(.footnote).foregroundStyle(NanoTheme.muted) }
+        }.font(compact ? .caption : .subheadline).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(compact ? 0 : 14)
+            .background(compact ? Color.clear : NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct TaskRuntimeState: Decodable { let state: String }
+
+struct TaskAgentRuntimeView: View {
+    let client: IMClient
+    let agentID: String
+    let graphID: String
+    let nodeID: String
+    @State private var state = "unknown"
+    var body: some View {
+        Text(L("负责人执行状态", "Assignee execution") + " · " + (state == "offline" ? L("节点离线", "Node offline") : state == "unknown" ? L("暂无法核实", "Could not be verified") : agentWorkStatus(state)))
+            .font(.footnote).foregroundStyle(NanoTheme.muted)
+            .task(id: "\(graphID)/\(nodeID)/\(agentID)") {
+                state = "unknown"
+                while !Task.isCancelled {
+                    do {
+                        let observed: TaskRuntimeState = try await client.get("/im/v1/task-graphs/\(graphID.pathComponent)/runtime?node_id=\(nodeID.pathComponent)")
+                        guard !Task.isCancelled else { return }
+                        state = ["running", "idle", "offline"].contains(observed.state) ? observed.state : "unknown"
+                    } catch { state = "unknown" }
+                    try? await Task.sleep(for: .seconds(3))
+                }
+            }
+    }
+}
+
 func taskStatusIcon(_ status: String) -> String {
     switch status {
+    case "waiting": return "clock"
     case "doing": return "circle.lefthalf.filled"
     case "in_review": return "questionmark.circle"
     case "done": return "checkmark.circle.fill"
@@ -26,8 +81,9 @@ struct TaskActorLabel: View {
     let actor: ActorRef?
     var size: CGFloat = 24
     var showKind = false
+    var compact = false
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: compact ? 5 : 8) {
             if let actor, actor.type == "user" {
                 AvatarView(name: actor.taskName, size: size)
             } else {
@@ -45,7 +101,7 @@ struct TaskActorLabel: View {
                 }
             }
             if !showKind, actor?.type == "agent" { Text("Agent").font(.caption).foregroundStyle(NanoTheme.muted) }
-        }.font(.subheadline).fixedSize(horizontal: false, vertical: true)
+        }.font(compact ? .caption : .subheadline).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -108,12 +164,13 @@ struct TaskActorPicker: View {
 
 struct TaskStatusPicker: View {
     @Binding var status: String
+    var originalStatus: String?
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 6) {
-                    ForEach(taskStatuses, id: \.self) { value in
+                    ForEach(taskEditableStatuses(originalStatus), id: \.self) { value in
                         Button {
                             status = value; dismiss()
                         } label: {
@@ -191,5 +248,110 @@ struct TaskConflictView: View {
                 }
             }
         }
+    }
+}
+
+struct TaskStatusSummary: View {
+    let counts: [String: Int]
+    var partial = false
+    let locate: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(taskStatuses, id: \.self) { status in
+                    let count = counts[status, default: 0]
+                    Button { locate(status == "paused" ? "todo" : status == "waiting" ? "doing" : status) } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: taskStatusIcon(status))
+                            Text(taskStatus(status))
+                            Text("\(count)").monospacedDigit().fontWeight(.semibold)
+                        }.font(.caption).padding(.horizontal, 10).padding(.vertical, 9)
+                            .background(NanoTheme.surface, in: Capsule())
+                    }.buttonStyle(.plain).foregroundStyle(count > 0 ? NanoTheme.accent : NanoTheme.muted)
+                        .disabled(count == 0)
+                        .accessibilityLabel(taskStatus(status) + (partial ? L("，已加载 \(count) 项", ", \(count) loaded") : L("，\(count) 项", ", \(count) tasks")))
+                        .accessibilityHint(status == "paused" ? L("定位到包含暂缓任务的待办组", "Go to the To do group, which includes paused tasks") : L("定位到对应分组", "Go to this status group"))
+                }
+            }
+        }
+    }
+}
+
+struct TaskCompactCard<Actions: View>: View {
+    let title: String
+    let status: String
+    let assignee: ActorRef?
+    var source: String? = nil
+    var parentPath: String? = nil
+    var wait: TaskWait? = nil
+    var waitHealth: TaskWaitHealth? = nil
+    var selectedCandidate = false
+    let open: () -> Void
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: open) {
+                HStack(alignment: .top, spacing: 10) {
+                    Text(title).font(.headline).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    Label(taskStatus(status), systemImage: taskStatusIcon(status))
+                        .font(.caption).foregroundStyle(status == "paused" ? .orange : NanoTheme.accent)
+                        .fixedSize(horizontal: true, vertical: true).padding(.top, 2)
+                }.foregroundStyle(NanoTheme.ink).contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityLabel(title + ", " + taskStatus(status))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    metadata.fixedSize(horizontal: true, vertical: true)
+                    Spacer(minLength: 0)
+                    actions().fixedSize(horizontal: true, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 7) {
+                    metadata
+                    actions()
+                }
+            }
+            if let parentPath, !parentPath.isEmpty {
+                Text(parentPath).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            if status == "waiting" { TaskWaitView(wait: wait, health: waitHealth, compact: true) }
+            if selectedCandidate {
+                Label(L("已选方案", "Selected candidate"), systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(NanoTheme.accent)
+            }
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+    }
+    private var metadata: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 7) {
+                TaskActorLabel(actor: assignee, size: 20, compact: true)
+                if let source { Text("·").accessibilityHidden(true); Text(source).font(.caption) }
+            }.fixedSize(horizontal: true, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                TaskActorLabel(actor: assignee, size: 20, compact: true)
+                if let source { Text(source).font(.caption).fixedSize(horizontal: false, vertical: true) }
+            }
+        }.foregroundStyle(NanoTheme.muted)
+    }
+}
+
+struct TaskSubtaskLabel: View {
+    let counts: TaskCounts?
+    var body: some View {
+        HStack(spacing: 5) {
+            if let counts, counts.total > 0 {
+                Text(L("子任务 \(counts.done)/\(counts.total) 完成", "Subtasks \(counts.done)/\(counts.total) done"))
+            } else { Text(L("子任务", "Subtasks")) }
+            Image(systemName: "chevron.right").font(.caption2)
+        }.font(.caption).foregroundStyle(NanoTheme.accent).padding(.vertical, 4)
+            .accessibilityLabel(counts.map { $0.total > 0 ? $0.summary : L("查看子任务", "View subtasks") } ?? L("查看子任务", "View subtasks"))
+    }
+}
+
+struct TaskNodeHeightKey: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: max)
     }
 }

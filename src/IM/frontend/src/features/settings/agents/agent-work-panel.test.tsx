@@ -218,3 +218,20 @@ it("keeps new reasoning and identical wording from different model outputs", asy
   expect(screen.getAllByText("Check budget.")).toHaveLength(2);
   expect(screen.getByText("Then ask the planner.")).toBeInTheDocument();
 });
+
+
+it.each([
+  ['online', 'catching_up', '工作记录正在补齐，当前显示已保存内容。'],
+  ['online', undefined, '当前显示已保存记录，最新进度尚未确认。'],
+  ['online', 'unknown', '当前显示已保存记录，最新进度尚未确认。'],
+  ['online', 'current', undefined],
+  ['offline', 'catching_up', '节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。'],
+] as const)('shows saved-record completeness for %s / %s without changing reported usage', async (connection, state, text) => {
+  view={...view,node_connection_state:connection,record_sync_state:state,latest_main_usage:{turn_id:'turn',context_used:42,output:7}};
+  const result=renderWork();
+  await screen.findByText('最近已报告的主上下文');
+  const callouts=result.container.querySelectorAll('.im-work-callout');
+  expect(callouts).toHaveLength(text?1:0);
+  if(text)expect(callouts[0]).toHaveTextContent(text);
+  expect(result.container.querySelector('.im-work-latest')).toHaveTextContent('42');
+});

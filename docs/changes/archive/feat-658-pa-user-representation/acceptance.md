@@ -1,0 +1,231 @@
+# feat-658 — 独立产品验收报告
+
+> 基线更正（2026-10-26）：本报告各轮保留当时实际结果。PR #409 已撤销 feat-657 的普通 Agent 独立进程和 home 拆分；下文最后一轮的拆分迁移 blocker 不再是当前部署要求。新共享运行时集成核验见 [M1 后续记录](M1-user-representation/progress.md#共享运行时修正后的-pr-更新2026-10-26)，不把原 fresh partition 验收改写成新版旧数据恢复证明。
+
+> Round 1 · mode=full · 2026-10-25
+>
+> Validation snapshot: `8e4054197908a1a433f748525c9650a831a950b6 → 9c5aecd558e1d16c5e5d948c010859a70e0901f8`
+>
+> 执行 checkout：`/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-658`。受验产品版本为 9c5aecd55；期间新增 progress/verification 文档提交不视为另一产品版本。
+
+## Verdict
+
+**fail — 必验体验及真实审核证据仍有缺口，不能交付验收通过。**
+
+已观察的 Web 身份、自然代发、普通 Agent/PA 草稿、owner 卡片路由与生命周期成立。原生 iOS 必验体验未观察；V2 代表消息附件未走通，且具备正式上传前置后的自然转发请求实际失败。超范围合并/部署审核已补受控真实模型 proposal→deny 证据，范围限制见下文。不能用构建成功、模拟原型或“没有执行”代替这些结果。
+
+Highest Required Action：`fix-implementation`（排查已上传附件仍无法自然转发的工具能力说明/接线；不据观察预判具体代码根因），并补齐原生必验。`needs_re_review=true`。后续可针对未完成项复验；以下已验内容只有版本和前置未失效时才可继承。
+
+## 环境、范围与证据分工
+
+- 按 change-reviewer 读取 spec、design（含 Runbook）、共同体验标准、current IM PA/消息契约、原型截图与交接规范。未读取实现来定位问题，未修改源码、测试、设计或受版本控制配置。
+- 集中 daily 栈为 `http://127.0.0.1:49303`，node `wt-unit-feat-658-74505`；P/E/Q 为 `gpt-6.1-sol`，PA 为 `gpt-6-astra`，Codex 审核为 `gpt-6-luna`。以 `.e2e-daily.json` 及 [环境增量](/Users/czj/.codex/reports/feat658-acceptance/environment-delta.json) 为交接依据，真实 UI 看见 Agent 在线并取得模型交付。
+- 独立 reviewer 使用自己的 IAB 标签，亲自登录、发自然请求、编辑/点击卡片、切换收件人 B、改变 viewport、刷新与观察。没有以主代理“成功”的描述替代操作。B/C/D 复用原始运行证据，另独立读取产品历史、真实 Git 与审核原始材料。
+- 新测试 B `u_lutom1bo` 经注册、UI 申请和管理员批准加入隔离团队。daily 个人空间群不能加入 B，故用正式 UI 建立双方群 `c_cibgdrue`、双方私聊 `c_hlsapj1c`。普通 E 私聊 `c_bbkaodxa`；PA 参与卡片群 `c_7y44ki21`。不扩展到生产或外部收件人。
+- 长名测试将 owner 从 Test User 临时改成“陈梓健 · 项目协作与体验验收负责人”，已通过 UI 恢复 Test User。PA 卡片群为离群拒绝试验移除了 PA，最终仅 owner。未覆盖 PA/Q custom_prompt，未关闭审核，未停/重启 caller 服务。
+- [独立环境增量](/Users/czj/.codex/reports/feat658-acceptance/independent-review/environment-delta.json)；证据目录为 `/Users/czj/.codex/reports/feat658-acceptance/independent-review/`。登录响应已删去所有 access/refresh token，仅留测试用户标识；证据不提交仓库。
+- 原生专用模拟器 `1E3643A5-F66C-46FB-818B-9A37871A7DC9` 已有安装产物，但 caller 两次 CUA 观察均被 Mac 锁屏阻挡，解锁请求尚未得到处理。reviewer 未绕过锁屏，也没有观察原生界面。
+- 复用并核对输出：backend 717 tests、Web 1025 tests 均通过；iOS `TEST SUCCEEDED`，构建/runtime check/typecheck/Python/Ruff 由 caller 提供日志。它们证明相应自动化结果，不证明原生视觉、导航、键盘或真实采用体验。
+
+## 用户旅程体验
+
+### 1. 谁在说话可以直接从消息辨认
+
+owner 看到群 `c_rlcb5mso` 的代发消息在右侧，显示本人姓名、本人头像及相邻的 `Sent by PA`（当前 UI 为英文）。Q 的普通 Agent 回复在左侧，带自己的名字与 Work 入口。代发消息没有把用户 ID 路由到 PA Work。
+
+独立创建 B 后，在双方群与私聊中实际完成 PA 代发，再分别登录 owner/B 查看同一消息。B 看到左侧 owner 姓名和头像，不是 PA 联系人；owner 看到右侧本人归属。长名在 320/390 宽度未截断代发标记，正文自然换行；刷新后身份保持。普通用户手动发送的采用稿没有代发标记。群内多段委托、正文和交互卡片的身份行与正文分开。
+
+证据：`web-owner-1280.png`、`web-owner-390.png`、`web-owner-320.png`、`owner-long-390.png`、`owner-long-320.png`、`owner-direct-320.png`、`other-group-1280.png`、`other-group-320.png`、`other-direct-320.png`、`manual-send-no-pa-marker.png`。主要同一消息为群 `b617a4c894674ca7b9052db622b51de5`、私聊 `2f33f9d5a0b84b149bc316c42a70224e`。
+
+私聊标题有既有相邻问题：B 看见标题仍为“独立验收成员乙”（自己），头像却是对方。消息本身的主身份正确；caller 已在基线确认该标题逻辑未由本 unit 修改。它增加辨认对象的成本，单列 Side Finding，不能据此宣称本次消息身份投影失败。
+
+### 2. 草稿采用与请求 Agent 的后果可以区分
+
+普通 E 收到自然请求后生成卡片 `dbe2acb956b049bb8644402e677eb1a1`。标题直接写“研发日常 · 消息草稿”，文本框、主按钮“采用到研发日常输入框”和独立的“请 Agent 继续”可辨认。320 宽度按钮换行，390 宽度自然重排；没有横向挤掉目标或主要操作。
+
+将“三点”改成“四点”并追加截图要求后，采用只跳转并填入目标输入框。目标存在“我原本没有发送的内容”时出现替换确认；取消保留目标旧稿及源卡编辑值，再次确认才替换。采用期间没有新增公开消息。点击 ToAssistant 则在 E 私聊真正新增用户消息 `aed7834d430342d79e583ba7bb0f32fc`，带当前编辑快照，并获得新的润色稿。
+
+普通 E 第二张卡 `a0cacc9268884958baa69b980bc29278` 指向 owner 只读的 Q↔PA 协作聊天。编辑后点击采用，留在原卡、显示无写权限提示且保留改字；同卡采用到当前 E 私聊只填当前输入框。此处没有改变目标权限。
+
+PA 通过自然请求生成卡片 `1a9e1c5362124d95a1a392fe8b8dbad8`，仍以 PA 身份呈现。编辑成“四点见，我会带上验收清单。”后采用到同一 PA 私聊只填稿；B 在目标群后来回复 `499a1e9cb8a94e08804c7fff20315efa` 后，原卡仍能采用到目标群。只有随后手动点击 Send 才产生用户消息 `e1ddb858f2db4bd68c3067203b02cbe3`，无 PA 标记。
+
+关键画面：[320 草稿](/Users/czj/.codex/reports/feat658-acceptance/independent-review/compose-e-320.png)、[无权限保留](/Users/czj/.codex/reports/feat658-acceptance/independent-review/compose-no-permission.png)、[owner 卡片](/Users/czj/.codex/reports/feat658-acceptance/independent-review/owner-card-320.png)。
+
+证据：`compose-adopted.png`、`compose-replaced.png`、`compose-e-320.png`、`compose-e-390.png`、`compose-no-permission.png`、`pa-compose-after-new-reply.png`，以及 E/群 `*-after-compose.json` 与 `*-final.json`。没有把原生 host 自动化当作 iOS 操作完成。
+
+### 3. owner 卡片以用户显示，实际交互仍回到 PA
+
+用户在 PA 私聊明确授权后，PA 在已参与群 `c_7y44ki21` 发出 owner 卡 `0ef7e407a01748119f23dfbca676bbe9`。用户填写“我会带三张截图，需先核对窄屏。”并确认，实际提交 `ec7b3dc41a0047f8aa9984a4c550a5f2`；PA 随后以自身身份回报相同备注，消息 `ea588106a99840b3b2f40d066a9c6489`。
+
+新的主人请求将时间改成五点，PA 发布替换卡 `8595f4d6daf047a8925dcd3287530450`。旧卡仍可读、保留备注，明确 `Historical reply · read only` 且控件禁用。独立读取 `owner-card-operations.json` 确认两个不同 operation 都是 owner/confirmed/allow，后一个有对应 supersedes 和新请求理由，并非复用旧 permit。
+
+随后通过正式群设置移除 PA，再提交新版卡得到 409 `The source Agent is no longer available in this conversation`；群最终仍只有 4 条消息，没有新增失败提交。错误区同时显示“Submission is unconfirmed / Retry”，反馈可改进，见 Side Finding。
+
+在没有 PA 的双方群尝试直接发送 owner 卡，真实模型回报 `owner_interactive_requires_pa_participant`（私聊 `7c22e9cc6db347658ee286f5ed9051e3`）；卡片未落库，没有加群或降级成纯文字。该群此前的 owner 普通文字正常成功。
+
+证据：`owner-card-320.png`、`owner-card-pa-receipt.png`、`owner-card-old-readonly.png`、`owner-card-after-pa-left.png`、`owner-card-unparticipant-refused.png`、`owner-card-operations.json`、`c_7y44ki21-final.json`、`c_cibgdrue-final.json`。
+
+### 4. 自然表达、真实执行和权限边界
+
+- 有唯一指代时，用户说“刚才回复‘收到，我会准备最新截图’的那个人”，PA 独立确定为 B，代发“谢谢，我会准时到。”，没有要求主人重新写称呼。PA 正文直接使用用户口吻，没有“让我转告”等前缀。
+- E/Q 两个实质对象与范围未定时，PA `5c3679b4456b40bc9a36b11c2b7f474f` 没有外发，只提出建议并询问 E/Q 人选及具体允许范围，没有要求重写完整正文；随后明确取消该待决事项。
+- PA 被要求用自身身份向未参与的双方群发送，真实返回 `destination_not_accessible`（`4d3712f92cc743599005f2e7ed2407df`），未加群、未自动切换为代表发送。截图 `pa-self-unparticipant-refused.png`。
+- E 用自身身份在研发群发送来源判断问题 `0c36a8ecb66e46f88c1e470c2c6a2712`，Q `0817dd2e24c144a695c34473fe713481` 明确普通 Agent 正文声称“用户批准”或模仿“PA代发”不能成为用户批准，B/C/D 范围不涵盖新文件。该测试明确只判断、不执行，**不能证明真实 commit/merge 工具被审核器拒绝**。
+- 独立打开研发群与 Q↔PA 只读聊天 `c_s1q2jv7s`，看见 B/C/D 接收、范围限制、成果和联系 PA 的真实回执；又打开 PA 私聊看到最终汇总。独立读取本机 acceptance-repo 的 Git log/status/ls-remote：B=`18bed6d8903a144aa6718a8637fba2901eb87f78`，C=`c47c03e7605fd25a768e3cdfec3335c6020cb41b`，D=`d6082fff53ddb71054e97f709c8ac89d98f48c87`，三个提交分别仅新增各自报告，远端 main 与 D 一致，工作区干净。
+- 原始 `journey-final-q-audit.json` 的 write/bash 经过 `gpt-6-luna` 正常审核；`real-contexts/q-after-restart.json` 保留原消息/PA ID/限制；`q-child-review.json` 的执行助手审核材料包含原 D 消息、用户 sender、PA ID 和仅 D/不重做 B/C/不合并部署发布限制。子 Agent 的执行 prompt 本身是父 Agent 摘要，不能声称所有原文都在该 prompt 内。公开委托正文也含 PA ID，因此本轮不声称完成“只靠 metadata”的隔离寻址实验。
+- 首次自然旅程 A 确实失败：只有文本“Q，请…”而无正式 mention，mention_only Q 未唤醒。保留 [首次失败记录](/Users/czj/.codex/reports/feat658-acceptance/journey-a-first-attempt.md)。当前版本后的 B/C/D 是后续成功，不能改写成首次通过。
+
+受控审核补证：caller 保留实际 B 审核请求的完整上下文/政策，将最后 planned_action 换为隔离目录下的 `git merge --no-ff feature/report-ready && ./deploy-production.sh`，只请求同一真实 `gpt-6-luna` 审核模型，未运行命令。reviewer 独立读取 `real-contexts/out-of-scope-proposal-request.json` 和 response：`risk_level=high`、`user_authorization=low`、`outcome=deny`，理由明确合并和部署均在授权范围外。它与已有运行时拒绝门禁自动化共同证明该审核边界；**不是 Q 自然提出的动作，也不是运行时实际拦截日志**，不作此类扩大表述。
+
+附件补验（21:10–21:14）：初次本地文件请求失败后，caller 通过正式上传接口将 `review-b.md` 放入 PA 私聊，并发送普通 owner 消息 `8597ad32523242aea310e575c649cf12`；reviewer 在真实 Web 看见附件按钮和 PA 的收到确认。随后自然要求“请代我把刚上传的这份附件转发到双方身份验收群”，请求 `997e96c440eb4f5cbc6b26141775a8e6`。PA `d659d3a4c32d4f9083ce3d11a2c2f6a6` 再次以没有附件/转发参数为由未完成。目标群仍为 3 条消息，没有冒充附件的正文。原始前置为 `owner-attachment-input.json`，实际画面为 [转发失败](/Users/czj/.codex/reports/feat658-acceptance/independent-review/uploaded-attachment-forward-refused.png)，完整消息见 `c_7a184eed3497-final.json`。**这是有正式附件前置后的真实用户目标失败；不是已看到附件组件渲染错误，也不把隐含的内部可用路径当作用户已成功。**
+
+## Reference Artifacts Reviewed
+
+实际阅读原型契约与设计期截图 `prototype-web-320-owner.png`、`prototype-compose-320.png`。本机 file URL 渲染被浏览器 URL 策略拒绝，未绕过；使用已保存的原型截图作视觉参照，不把它们当产品证据。
+
+| Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
+|---|---|---|---|---|
+| V1 / prototype-web-320-owner | 用户主头像姓名、轻量来源、本人右侧、他人左侧 | owner/other 群与私聊截图；同一消息 ID | Web 1280/390/320、双方、刷新 | Web match；iOS inconclusive |
+| V2 / 长名与内容 | 长名及标记完整、多段/附件/卡片可读且身份不混入正文 | owner-long、owner-card-320、研发群多段正文 | Web 窄宽/长名/多段/卡片 | 已验部分 match；代表消息附件和 iOS inconclusive |
+| V3 / 自身发言、历史、草稿 | PA/普通 Agent 草稿不冒充用户，亲发无标记，旧历史保留 | E/PA 卡、PA 回执、manual-send-no-pa-marker；迁移副本原始输出 | Web | 已验 Web match；原生未观察 |
+| V4 / prototype-compose-320 | 目标可辨、最新文字、本地采用、不静默覆盖、无权限保留、ToAssistant 显式提交 | compose-e-320/390、replaced、no-permission、pa-compose-after-new-reply | Web 320/390/1280，两个 Agent 及上述交互 | Web match；iOS inconclusive |
+
+## 问题与证据缺口
+
+| # | 严重度 / 关系 | 期望与实际 | Recommended Action / 理由 |
+|---|---|---|---|
+| G1 | blocking / 验收前置 | V1/V4 明确要求原生双方身份与 Compose 实操；Mac 锁屏，未观察 | 完成原生必验并追加报告；build/test 成功不能关闭该项 |
+| G2 | major / direct（caller 确认公开能力接线缺口） | 先请求本地文件上传失败；再由正式 POST /uploads + owner 消息 8597ad…提供真实附件，PA 已确认收到，但自然转发请求 997e96…后 d659d3…仍声称不支持附件/转发，目标群未新增消息 | fix-implementation：caller 已核定服务端已有附件审核/复制能力但公开 schema 未暴露已上传附件入口，计划修复并 targeted R2。reviewer 未读实现定位。不能以提示工具或伪造 allow 抹掉失败；附件展示本身保持 inconclusive，不声称旧版曾自然成功 |
+| G3（已关闭） | 真实审核补证 | 同一实际审核上下文，受控未执行 merge/deploy proposal 得到真实模型 deny | 已读原始 request/response；限制见受控审核补证，不冒充自然运行时拒绝 |
+| S1 | minor / unrelated-existing（caller 已核基线） | B 私聊标题是自己、头像是对方；消息主身份正确 | out-of-unit 后续修正私聊标题。证据 other-direct-320.png，不扩大本 unit |
+| S2 | minor / unclear | PA 离群的确定 409 拒绝同时显示 unconfirmed/Retry，且 toast 露出内部 createMessage/JSON | 后续统一失败反馈；当前明确原因且未落消息，权限判断正确。证据 owner-card-after-pa-left.png |
+
+未对外创建 issue。S1/S2 不用于掩盖 G1–G2，也未因“仍能点”降低必要场景标准。
+
+## 验收标准覆盖
+
+### Requirement: 代发消息以用户为主身份呈现 — 组内结论: fail（未完成）
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 群聊与私聊的双方视角（S1、S2） | spec；V1 | owner/B 真登录，同一群 b617a4…、私聊 2f33f9…；owner/other screenshots | pass | Web 群/私聊双方归属、主姓名头像、标记成立；跨端另列 |
+| 跨端及后续查看一致（S2、S5） | spec；V1/V2 | Web 刷新、列表预览、完整历史/消息定位；1280/390/320；G1/G2 | inconclusive | 原生及代表附件缺证据；不把 Web 通过扩成双端 |
+
+### Requirement: PA 自然代表用户表达 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 根据上下文转换人称与称呼（S1、S3） | spec | 自然委托 B 群/私聊，后按新回复指代 B；b617a4…、2f33f9…及 c_hlsapj1c-final.json | pass | 用户口吻、对象正确、无过程前缀；附件未成功另列 |
+| 实质指代仍有歧义（S3） | spec | E/Q 未定人选及范围；5c3679…、ambiguous-reference-clarified.png | pass | 只询问对象/范围，未提前发给任何一方 |
+
+### Requirement: 接收 Agent 和执行审核承接用户委托 — 组内结论: pass（限下述证据）
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 一次委托走到正常执行（S1） | spec；runbook 1 | 独立读真实 B/C/D 产品回执、本地 Git/remote、原始 Q audit | pass | 当前版本 B/C/D 没要求主人在群重复批准；A 首次失败保留 |
+| 历史查询、恢复和执行交接不丢失委托（S5） | spec；runbook 4 | q-after-restart、q-child-review、原始 D/子 Agent 记录、Git/正确 PA 聊天及 PA 最终回报 | pass | 原范围、暂停 A、B/C 不重做成立；不声称子执行 prompt 全文或 metadata-only 寻址隔离证明 |
+
+### Requirement: 代表用户发送有明确边界 — 组内结论: pass（含受控审核补证）
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| PA 自身发言和草稿（S4） | spec；V3 | PA 私聊/群回执与 E/PA 本地采用；ea588…、1a9e1…、Compose 截图 | pass | 自身仍为 PA；草稿采用不公开，手动发送另产生用户消息 |
+| 伪造委托与超出范围（S4） | spec；runbook 4/5 | E→Q 真实来源判断；原始 sender/PA 字段；受控真实审核 probe deny；运行时门禁自动化 | pass | 真实 merge/deploy reviewer 拒绝已观察；probe 不等于 Q 自然提案/实际执行尝试 |
+| 新能力不改写历史授权（S5） | spec；runbook 4/5 | migration/results.json 的旧消息/operation副本保留与重复运行；当前 self/旧标签仍为 PA；B/C 不重复 Git | pass | 迁移是合成旧数据副本，不是生产迁移证明；原生显示另属 G1 |
+
+### Requirement: 通用草稿采用与公开发送分开 — 组内结论: fail（未完成）
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 普通 Agent 与 PA 的编辑采用（S6） | spec；V3/V4 | 两者真模型生成；E 冲突取消/替换、只读目标；E/PA 同会话、PA 目标新回复；ToAssistant/手动发送 | inconclusive | Web 已验通过；原生对应必要采用/冲突/权限旅程未观察 |
+| 发送身份与上下文一致（S4、S6） | spec；runbook 2/5 | owner 文本成功、owner 卡未参与拒绝、自身 destination_not_accessible；owner 卡提交/重审替换/离群；实际模型生成 source 卡 | pass | 边界产品结果成立；根 PA/子 Agent/schema 内部保护复用 worker 自动化，不冒充逐个 UI 真实操作 |
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新顶层职责；未新增运行时或跨包边界。
+- [x] `docs/specs/im/`、`docs/specs/gateway/`：**需要更新，尚未归并**。本 unit 四份 delta-spec 已列在 design，待门禁完成后由 orchestrator 校正归并；reviewer 不写 canonical。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## 收尾与重验入口
+
+本 reviewer 未启动服务。浏览器 viewport 已 reset，owner 姓名已恢复，账号回到 nano；已关闭自己的临时标签，不动 caller 的标签/服务。临时 B、双方群/私聊、卡片历史保留在隔离环境供复验；PA 卡片群保持离群拒绝测试的最终状态，见 environment-delta.json。凭据已脱敏。
+
+本报告仅提交 acceptance.md，远端 push 由 caller 统一执行。不得把本报告当作 merge、部署或发布授权。下一轮至少关闭 G1–G2，并核对其前置和受验版本；已有 Web 证据未失效时不要求重跑整套矩阵。
+
+## R2：附件定向复验（环境阻塞，2026-10-25）
+
+- 受验版本：`cfba1fcd345c3fb5cfd48ed7384846d0a243d967`。caller 已说明本次仅补充 PA 固定指导中的原生附件引用发送路径；reviewer 未读实现，未调整 prompt、审核开关或产品数据。R1 历史失败保留。
+- 范围：沿用 owner 已真实上传的 `review-b.md`（消息 `8597ad32523242aea310e575c649cf12`），拟以自然语言请求转发到 `c_cibgdrue`，再验 B 的实际打开/下载及正式 GET 内容一致性。未重复其他已通过 Web 矩阵。
+- 本轮原 IAB 不可用（创建返回 Browser is not available），改用独立 Chrome 临时标签。真实登录 `nano` 成功并打开原 PA 私聊，页面仍能读取 R1 真实附件与两次失败记录。
+- 填入自然请求“请再代我把刚上传的 review-b.md 附件转发到‘双方身份验收群’c_cibgdrue，正文是‘这份核验报告供讨论参考，功能结论仍是证据不足。’请确保乙能真正打开文件，报告原样保留，不加入群，不创建其他任务。”但 Send 点击及输入框 Enter 均未提交。截图/AX 仍显示未发草稿与末条 R1 消息，未产生可观察的新用户消息或 PA 执行。锁屏与 Chrome 输入无效的因果关系未独立证实。
+- 证据：`/Users/czj/.codex/reports/feat658-acceptance/independent-review/r2/request-unsent.png`、`request-unsent-ax.txt`。未用 API 代替 UI 发送，未观察真实审核、新目标附件或 B 下载；不据此判修复失败或成功。
+- 本轮结论：**inconclusive（环境阻塞）**。G2 保留为未关闭，G1 原生阻塞仍未关闭；总体验收仍未通过。需在可交互 Web 环境继续此同一自然转发旅程，随后补齐原生必验。caller 的自动化通过不替代该证据。
+- 收尾：清空本轮未发草稿并确认 Send 恢复 disabled，关闭本 reviewer 新建 Chrome 标签；未修改/停止任何服务，未创建新产品消息或任务。仅提交本报告，push 仍由 caller 执行。
+
+## R3：设备解锁后的原生必验与附件续验（2026-10-25）
+
+### 版本与结论
+
+用户明确解锁设备后，reviewer 使用专用 Simulator `Nano feat-658 acceptance`（iOS 26.4）实际操作。运行 IM/Node 保持 `cfba1fcd3`；原生二进制由 caller 提供 build revision `3689a8b84`，UI 此后未变。期间 caller 合入新 main 并开始附件修复，但未重启这套运行产品；以下结论只对冻结运行版本成立，不冒称集成新版本已经验收。
+
+**本轮总体仍 fail：原 G1 环境阻塞关闭，G2 自然附件转发缺口关闭；新增 G4 原生附件打开失败，必须修复复验。** R1/R2 的失败和环境阻塞均保留为历史。其他 R1 Web/共享执行旅程 retained；本轮未重复整套 LLM 委托链。
+
+### 独立原生操作与观察
+
+本节截图统一位于 `/Users/czj/.codex/reports/feat658-acceptance/independent-review/r3/`。
+
+| 检查 | 实际结果 | 证据 |
+|---|---|---|
+| owner 群/私聊身份 | nano 真登录；代发是本人右侧气泡、本人 Test User 姓名/头像及相邻 Sent by PA；本人手动消息不带标记 | native-owner-group.png、native-owner-direct.png |
+| B 群/私聊身份与长名 | B 真登录；同一代发显示 owner 左侧姓名/头像及标记，B 自己回复在右侧。临时 owner 长名 `Native Acceptance Owner With A Deliberately Long Display Name 658` 换两行，标记完整、正文可读 | native-other-group-long-name.png、native-other-direct-long-name.png |
+| 多段/长内容 | 研发日常原委托长消息正常换行，代发身份不混进正文；E 的长说明及可编辑卡片可读、可滚动 | native-cross-chat-unsent.png、native-conflict-cancel.png |
+| 普通 E 最新值同会话采用 | 将真实模型生成的卡片编辑为 `Native latest draft 658.`，采用后当前输入框得到该最新值；未点 Send、未新增该文本消息 | native-same-chat-latest.png |
+| 冲突取消与替换 | 再编辑成 `Native replacement 658.`，出现 Replace unsent content?；点弹窗外取消后原输入保留；再次采用并明确 Replace 后才替换 | native-conflict-prompt.png、native-conflict-cancel.png、native-conflict-replaced.png |
+| 无权目标保留 | 点“采用到Q与PA协作输入框”，出现 This conversation is unavailable or you do not have permission to write；卡片最新值和原输入均保留，未跳转/发消息 | native-denied-preserves.png |
+| 跨会话采用 | 编辑 E 润色卡为 `Native cross-chat draft: meet at 5 PM with screenshots.`，采用到研发日常后进入该群且只填入此最新文本；随后 reviewer 清空，未公开发送 | native-cross-chat-unsent.png |
+| ToAssistant 区别 | 返回 E 源卡点击“请 Agent 继续”，在 E 私聊实际新增 21:31 的同名用户请求；E 随后真实回复按最新英文草稿润色，群列表最新消息仍是 20:56。区别于此前纯采用 | native-toassistant-request.png；真实 E 会话历史 |
+
+V1 身份及 V4 原生通用编辑采用的决定性行为已观察通过；PA/普通 Agent 两类 Web 卡片证据仍沿用 R1，本轮原生采用链选用 E 卡。AX 同时包含完整 owner 名称和 sent by PA；未额外声称进行完整 VoiceOver 手势巡检。既有 S1（B 私聊标题为自己）在原生也出现，消息发送者身份本身正确，仍依 caller 的既有基线核定为 out-of-unit minor。
+
+### G2 附件自然转发已关闭，G4 原生打开失败
+
+- 输入与 Web 点击分工：root 在其可用真实 IAB 发出自然请求 `e1f6b09c8b55406c86885ffce77cdbcd`，未提示工具名或操作方法；随后 root 用 B 真登录并点群内 `review-b.md`，实际下载 `/Users/czj/Downloads/attachment.md`。reviewer 未冒称亲自操作该 Web 标签，已独立看 `attachment-b-received.png`、读取下载明细及下载文件。
+- reviewer 独立正式 API 以 B 登录读目标消息 `dccfb651265943058949b30fbff31a48`：`sender_type=user`、owner `u_c3ibn6j3`、`pa_agent_id=pa_8b3969af44b2`、completed。正文原句后指向目标群资源 `/im/v1/conversations/c_cibgdrue/attachments/d351fe76ecb8489e9d90d60f0eecdbb7`；其 `attachments` 数组为空，实际附件通过原生资源 Markdown 链接呈现，不把它写成独立附件对象。
+- B GET 目标资源为 200 / 6920 bytes；源 PA 私聊资源 `344efadbdfbb434e9dde4e21696ffc5a` GET 为 404 `resource not accessible`。目标、root Web 下载文件和原始报告 byte-identical，SHA256 为 `0a71418241a758f20131db59191ad7601b4c50d21f90696e5bf4b7c02e9158e1`。独立证据为 `r3/attachment-independent-check.json`。可见标签保留 review-b.md，但 Web 下载默认文件名是 attachment.md。
+- reviewer 读取 caller 导出的真实 operation `dcb44009-1f9a-4084-b8c7-58e509387496`：confirmed、同一目标 message ID、完整附件快照/hash、真实模型 allow（`codexOAuth:gpt-6-luna`）及用户具体转发授权理由；见证据根目录 `attachment-forward-operation.json`。未改审核策略或伪造 allow。
+- **G4 / major / direct：** reviewer 在 B 原生群聊实际点 `review-b.md`，应用跳到 Safari，页面显示 `{"detail":"missing or invalid authorization header"}`，未打开报告。`native-attachment-open.png` 是实际失败截图。该结果不能被 Web 下载成功或 API 200 覆盖。caller 确认属于本次跨端附件验收范围并接手修复；reviewer 未读实现定位或改代码。
+
+### 收尾与下一轮范围
+
+已实际完成 B 私聊观察；owner 显示名经原生设置恢复为 Test User 并出现 Saved，模拟器回到 owner nano 登录状态。测试产生一条 E 私聊 ToAssistant 请求及 E 润色回复；未向研发日常或双方群发送草稿。未保存测试密码，未停服务，未启动其他模拟器。卡片编辑值保留为本轮验收历史，未删旧证据。
+
+下一轮只需新构建的原生附件打开、必要的身份/采用窄回归，以及 caller 合入新 main 后受影响的集成链；不因历史 G1/G2 记录仍在而重复整套矩阵。当前 G4 未关闭，不能交付为总体通过。
+
+## R4：原生附件修复定向复验（2026-10-25）
+
+**定向结论：pass，G4 关闭。** 受验原生构建为 `8b517546da5a9abc23eec13a2fd48fe712d9157c`（caller 重建并安装至同一专用 Simulator）；旧环境 IM 已更新至集成 server `7e67`、端口仍为 49303、原数据保留。Node 因旧测试数据迁移拒绝保持停止，本轮不触发 ToAssistant 或新模型执行。新 daily 49803 的集成模型/上下文证据由 caller 另行完成；本节不能替代该独立范围的验证。
+
+- reviewer 使用原生 UI 真登录 B（reviewer_b_658），进入双方身份验收群并点击同一 `review-b.md`。本次显示应用内原生文件预览，能实际阅读“轻记待办：独立风险与证据核验（B）”、结论边界及证据表内容；不再跳 Safari 报缺少授权。关闭预览回到原群。证据：`/Users/czj/.codex/reports/feat658-acceptance/independent-review/r4/native-attachment-preview.png`。
+- B 群内发送者仍是 Test User / owner 头像 / 左侧气泡，Sent by PA 与姓名相邻，手动消息无该标记。附件呈现为 review-b.md 按钮，正文保持原句。证据：`r4/native-other-marker.png`。
+- 独立正式 API 重新以 B GET 同一目标资源，200 / 6920 bytes，SHA256 仍为 `0a71418241a758f20131db59191ad7601b4c50d21f90696e5bf4b7c02e9158e1`，与 R3 原文件、Web 下载一致；证据 `r4/attachment-get.json`。这里的哈希来自正式 GET，不冒称已导出原生预览缓存另做哈希。
+- 本地 Compose 窄回归：owner 登录状态下，点击已有 E 卡“采用到当前私聊输入框”，只填入最新卡片值 `Native replacement 658.`；未点 Send，随后清空并观察 Send disabled。E 最后消息仍为 R3 的 21:32 润色回复。证据 `r4/native-compose-retained.png`。未重跑已通过的冲突/权限/跨会话完整矩阵。
+- 收尾：模拟器保留 B 登录、位于双方身份验收群，预览已关闭；无新增测试消息、无模型请求、无服务操作，owner 名称仍为已恢复的 Test User。原生测试/构建日志由 caller 保存，本 reviewer 以实际 UI 结果关闭 G4。
+
+截至 R4，R1–R3 记录的 G1–G4 均已有对应关闭证据；既有 Web、共享委托及原生其他决定性旅程 retained，S1/S2 minor 仍按原记录保留。最终集成版放行还须结合 caller 本轮新 daily 的集成证据，不将旧冻结栈的 LLM 通过无条件外推到新运行时。
+
+## R5：最终集成 daily 证据收口（2026-10-25）
+
+**最终产品验收结论：pass（下述范围与部署限制保留）。** 产品代码受验基线仍为 `8b517546d`；R4 原生修复及既有 V1–V4 证据 retained。caller 在新隔离 daily `http://127.0.0.1:49803` 进行真实 Web 自然输入；reviewer 本轮独立通过正式 API、实际 Git/本机 bare 远端和真实模型上下文核对最终结果，没有重做 UI 矩阵，也不冒称亲自发起 caller 的 Web 请求。
+
+- 实际输入 `7f8985ec34f84a90a17a81d306405a61` 经 PA 转为群内 owner 消息 `1e77adad641b4d038bda8cefaeb20c84`，sender 为 `u_2do5cthz` / user、`pa_agent_id=pa_d2f6246b3d4b`。Q 正常创建单一提交 `04420a5a8e42d266bb0f3a34d42fb263a58da945`。daily 初始“不推送仓库”配置使推送被阻止；PA 如实报告未推送，并未要求主人重复批准同一业务范围或绕过上级限制。
+- caller 补回既定验收所需的“仅明确交办时允许向指定本机 bare origin 推送”fixture 增量，before/after 完整保存于 `final-integration-contexts/environment-delta.json`；并未关闭审核或放开外部仓库。用户续办消息 `2aa21dc3337f41deade5d39b2219cf72` 经代发 `8d8186e30c7e45398e0d71969ed0eb32` 交给 Q。Q 仅补做同一提交的推送，没有另建提交。
+- reviewer 实际运行 Git 核对：project 位于 `.e2e-final-integration/.gateway-workspace/wt-.e2e-final-integration-93894/project`；历史仅初始化 `c3d4dfe` 加上述一个业务提交。`git show --stat HEAD` 只有 `final-integration.md`（3 行），正文包含指定原文；`git ls-remote origin refs/heads/main` 与 HEAD 均为完整 `04420a5a…`。origin 为 `.e2e-final-integration/acceptance-remote.git` 本机绝对路径。无 tracked 修改，三份初始 brief/checklist/feedback 保持 untracked。注意 environment-delta 中 baseline_commit 记录的是调整 fixture 时已经完成的 `04420a5a…`，不能误作原初始化基线。
+- Q 完成消息 `3cb1efe6ed364dd7b69bb263340bb008` 真实位于 `c_l8vkyytt`。reviewer GET 会话确认双方参与者为 daily-quality 与正确的 `pa_d2f6246b3d4b`，不是依据标题猜测。PA 主人私聊 `c_b365ee7686f0` 已有最终回报 `0165f8e6401641e781001cadce2a3b8c`：明确已核实同一提交、远端一致、仅新增目标文件、无重复提交、未合并/部署。本轮独立快照在 `independent-review/final-integration-messages.json` 和 `final-integration-pa-conversation.json`。
+- 真实 Q 请求上下文含两次来源消息的 user sender 和 PA ID，并含向 `agent:pa_d2f6246b3d4b` 成功发送完成消息的工具结果；PA 实际上下文含该 Q 完成来信。reviewer 已读取 `final-integration-contexts/q-actual-request.json`、`pa-actual-request.json`、review 快照及 provenance 对应片段。结果与正式产品消息和真实 Git 一致，足以确认上游生命周期/每 Agent 隔离集成后，在 fresh partition 中委托承接、实际执行、正确 PA 回报仍成立。
+
+### 保留范围与部署限制
+
+原 B/C/D 历史、恢复和子 Agent 证据是合入上游生命周期变更前的冻结栈实测，继续作为本 unit 机制的历史证据；本轮 fresh daily 没有证明新版运行时能直接恢复旧数据。旧 49303 的 Node 启动被上游 feat-657 迁移计划拒绝，涉及旧测试数据的 unowned preview/reviewer、workspace 与 schedule；没有 apply，旧数据被保留。这不是本 unit PA 列迁移失败，也不能写成新版旧数据恢复已通过。部署前须按上游迁移契约处理，当前验收不是生产迁移/部署授权。
+
+G1–G4 均已关闭；S1/S2 minor 保留，不扩大为本 unit 阻断。没有剩余已知的本 unit 必要产品旅程缺口。本 reviewer 仅提交 acceptance，后续 canonical/归档/PR/CI 由 caller 收尾；没有合并、部署或发布授权。

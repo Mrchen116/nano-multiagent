@@ -63,7 +63,7 @@ it('keeps external execution and confirmed sends available offline and does not 
     expect(mirrored.filter(frame => frame.system_notice)).toHaveLength(1);
     expect(store.bindingFor('a', 'shadow-chat')?.sessionId).toBe('session');
     await external.request('task_graph.command', task);
-    expect(mirrored).toContainEqual({ ...task, source_message_id: 'shadow-input' });
+    expect(mirrored).toContainEqual({ ...task, source_message_id: 'shadow-input',lifecycle_revision:1 });
     expect(await external.request('task_graph.command', { ...task, agent_id: 'other' })).toMatchObject({ payload: { ok: false, error: { code: 'source_unavailable' } } });
     expect(mirrored.filter(frame => frame.kind === 'turn_start')).toHaveLength(2);
     expect(mirrored.filter(frame => frame.kind === 'message_completed')).toHaveLength(2);
@@ -100,12 +100,12 @@ it('gives Feishu Inbox the original occurrence and the owner timezone captured a
 });
 
 it('keeps group approval values private and accepts only the bound owner on the actual card', async () => {
-  const store = new NodeStore(':memory:', 'owner'); const inputs: RelayInput[] = []; let decisions = 0; let card: unknown;
+  const store = new NodeStore(':memory:', 'owner'); const inputs: RelayInput[] = []; let decisions = 0,updates=0; let card: unknown;
   const external = new ExternalChannels(':memory:', { nodeId: 'node', ownerId: 'owner', store,
     relay: { ready: false, async request() { throw new Error('offline'); } }, im: async () => { throw new Error('offline'); },
     receive: async input => { inputs.push(input); }, permission: async () => { decisions++; }, onError: () => {},
   });
-  external.add('a', { config: { appId: 'app', botOpenId: 'bot', ownerOpenId: 'owner-openid' }, async send(_chat, _text, _key, payload) { card = payload; return 'card'; }, async thinking() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} });
+  external.add('a', { config: { appId: 'app', botOpenId: 'bot', ownerOpenId: 'owner-openid' }, async send(_chat, _text, _key, payload) { card = payload; return 'card'; }, async thinking() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {updates++;} });
   try {
     await external.receive('a', { messageId: 'group-input', chatId: 'group', senderId: 'member', isGroup: true, mentioned: true, time: '1000', parts: [{ type: 'text', text: 'request' }] });
     const input = inputs[0]!;
@@ -116,6 +116,8 @@ it('keeps group approval values private and accepts only the bound owner on the 
     await external.card('a', { ...action, operator: { open_id: 'member' } }); expect(decisions).toBe(0);
     await external.card('a', { ...action, operator: { open_id: 'owner-openid' } }); expect(decisions).toBe(1);
     await external.card('a', { ...action, operator: { open_id: 'owner-openid' } }); expect(decisions).toBe(1);
+    await expect(external.request('node.streaming_delta',{kind:'permission_resolved',message_id:start.payload.message_id,permission_request:{request_id:'request'},decision:'allow_once'})).resolves.toMatchObject({type:'ack'});
+    expect(updates).toBe(1);
   } finally { await external.stop(); store.close(); }
 });
 
@@ -165,7 +167,7 @@ it('mirrors personal inputs once for observation without blocking them on failed
   expect(mirrors).toEqual(['first','next']);expect(received).toBe(0);expect(sent).toBe(1);
   expect(errors.some(error=>String(error).includes('old output projection failed'))).toBe(true);
   await external.request('pa.source.admit',{agent_id:'pa',source_message_id:'external:pa:app:m',conversation_id:'external:pa:feishu:app:dm:peer'});
-  expect(calls).toContainEqual({type:'pa.source.admit',payload:{agent_id:'pa',source_message_id:'shadow-first',conversation_id:'shadow-chat'}});
+  expect(calls).toContainEqual({type:'pa.source.admit',payload:{agent_id:'pa',source_message_id:'shadow-first',conversation_id:'shadow-chat',lifecycle_revision:1}});
   await external.request('node.delivery_receipt',{agent_id:'pa',external_source_message_id:'shadow-first',delivery_status:'completed'});
   expect(removed).toBe(1);
  }finally{await external.stop();store.close();}

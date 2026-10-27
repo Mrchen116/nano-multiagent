@@ -1,3 +1,6 @@
+import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
+import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
+import { effectiveFeatures } from '@nano/product-contracts/capabilities';
 import { canAccessSpace, canActorAccess } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -8,11 +11,23 @@ import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { taskNotices } from "./task-notifications.js";
 
 type Obj = Record<string, any>;
+/** Count an Agent's durable responsibility across all conversations. */
+export function activeTaskCount(db: DatabaseSync, agentId: string): number {
+  return Number(db.prepare("SELECT count(*) AS count FROM task_graphs g, json_each(g.document_json,'$.nodes') n WHERE json_extract(n.value,'$.assignee.type')='agent' AND json_extract(n.value,'$.assignee.id')=? AND json_extract(n.value,'$.status') IN ('doing','waiting')").get(agentId)!.count);
+}
+
+/** A pending configuration may withdraw Task behavior, its tool, or both. */
+export function withdrawsTask(previous: Obj, candidate: Obj): boolean {
+  return effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph
+    || (previous.tool_allowlist === undefined || previous.tool_allowlist.includes('task_graph'))
+      && candidate.tool_allowlist !== undefined && !candidate.tool_allowlist.includes('task_graph');
+}
 export interface TaskGraphActor {
   kind: "user" | "agent";
   id: string;
   node_id?: string;
   source_message_id?: string;
+  lifecycle_revision?: number;
 }
 export class TaskGraphError extends Error {
   constructor(
@@ -126,9 +141,14 @@ export function validateDocument(doc: Obj) {
     text(n.selection_reason, "selection_reason", 8000, true);
     if (
       !["none", "dag", "explore"].includes(n.mode) ||
-      !["todo", "doing", "in_review", "done", "paused", "closed"].includes(n.status)
+      !["todo", "doing", "waiting", "in_review", "done", "paused", "closed"].includes(n.status)
     )
       invalid("Unknown node mode or record status");
+    if (n.status === 'waiting') {
+      if (!n.wait || typeof n.wait !== 'object') invalid('Waiting requires a schedule and reason');
+      text(n.wait.reason, 'wait.reason', 8000);
+      text(n.wait.schedule_id, 'wait.schedule_id', 256);
+    }
     if (!Number.isInteger(n.order)) invalid("order must be an integer");
     if (!Array.isArray(n.links) || n.links.length > 20)
       invalid("links must contain at most 20 URLs");
@@ -186,7 +206,7 @@ export function validateDocument(doc: Obj) {
   acyclic([...by.keys()], doc.dependencies);
   acyclic([...by.keys()], derivations);
 }
-const editable = ["title", "description", "mode", "status", "result", "links", "order"];
+const editable = ["title", "description", "mode", "status", "result", "links", "order", "wait"];
 export function applyOperations(
   document: Obj,
   operations: any,
@@ -307,6 +327,7 @@ export function applyOperations(
       throw e;
     }
   }
+  for (const n of doc.nodes) if (n.status !== "waiting") delete n.wait;
   validateDocument(doc);
   for (const id of changed)
     Object.assign(nodes.get(id)!, {
@@ -331,7 +352,7 @@ function sameActor(a: Obj | null, b: Obj | null): boolean {
   return a?.type === b?.type && a?.id === b?.id;
 }
 function directCounts(doc: Obj, id: string): Obj {
-  const counts: Obj = {todo:0,doing:0,in_review:0,done:0,paused:0,closed:0,total:0};
+  const counts: Obj = {todo:0,doing:0,waiting:0,in_review:0,done:0,paused:0,closed:0,total:0};
   for (const n of doc.nodes) if (n.container_id === id) { counts[n.status]++; counts.total++; }
   return counts;
 }
@@ -346,6 +367,7 @@ function summary(d: Obj): Obj {
     title: root.title,
     mode: root.mode,
     status: root.status,
+    ...(root.wait ? {wait:root.wait} : {}),
     created_by: root.created_by,
     assignee: root.assignee,
     direct_counts: directCounts(d, root.id),
@@ -367,10 +389,17 @@ const fields: Obj = {
   ],
   delete: ["graph_id", "node_id", "base_revision", "request_key", "conversation_id"],
 };
+interface TaskExecutionHooks {
+  runtime?(agentId:string): Promise<TaskExecutionState>;
+  inspect(input: {agent_id:string;conversation_id:string;graph_id:string;node_id:string;schedule_id:string}): Promise<TaskWaitInspection>;
+  changed(change:TaskExecutionChange): void;
+}
+type CheckedWait = {node_id:string; wait:Obj};
+
 /** Persist graph documents and replay receipts in the same synchronous transaction. */
 export class TaskGraphService {
   constructor(private db: DatabaseSync, private messaging: Messaging,
-    private personalRead?: {ownerUserId:string; agentUserId:string; sourceAllowed:(conversationId:string)=>boolean}) {}
+    private personalRead?: {ownerUserId:string; agentUserId:string; sourceAllowed:(conversationId:string)=>boolean}, private execution?:TaskExecutionHooks) {}
   private row(sql: string, ...args: any[]): Obj | undefined {
     return this.db.prepare(sql).get(...args) as Obj | undefined;
   }
@@ -430,16 +459,17 @@ export class TaskGraphService {
     if (Buffer.byteLength(JSON.stringify(args)) > 2 * 1024 * 1024)
       fail("invalid_arguments", "Request exceeds 2 MiB");
   }
-  execute(actor: TaskGraphActor, action: string, args: Obj): Obj {
+  execute(actor: TaskGraphActor, action: string, args: Obj, waits:CheckedWait[] = []): Obj {
     this.validateCommand(action,args);
     const write = ["create", "apply", "delete"].includes(action);
     if (write && this.personalRead) forbidden();
     if (!["user", "agent"].includes(actor.kind)) forbidden();
     const notices: Obj[] = [];
+    const hint = write ? this.changeHint(args.graph_id) : undefined;
     let result: Obj;
     this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
     try {
-      result = this.executeTransaction(actor, action, args, write, notices);
+      result = this.executeTransaction(actor, action, args, write, notices, undefined, undefined, waits);
       this.db.exec("COMMIT");
     } catch (e) {
       this.db.exec("ROLLBACK");
@@ -447,7 +477,67 @@ export class TaskGraphService {
     }
     // Delivery is after COMMIT: a disconnected node cannot turn a saved mutation into failure.
     try { this.messaging.publishMessages(notices); } catch { /* Durable events and relay are replayed. */ }
+    if (write) this.notifyChange(hint, result!.graph_id);
     return result!;
+  }
+  /** Read only the current assignee's execution state under the Task read ACL.
+   *
+   * Args:
+   *   actor: Authenticated Task reader.
+   *   args: Graph and node identity; assignee identity is resolved from storage.
+   * Returns:
+   *   Native execution observation without private session content.
+   */
+  async runtimeState(actor:TaskGraphActor,args:Obj):Promise<TaskExecutionState> {
+    const graph=this.execute(actor,'get',{graph_id:args.graph_id,view:'all'});
+    const node=graph.nodes.find((node:Obj)=>node.id===args.node_id);
+    if(!node)forbidden();
+    if(node.assignee?.type!=='agent')return {state:'unknown'};
+    try{return await this.execution?.runtime?.(node.assignee.id)??{state:'unknown'};}
+    catch{return {state:'unknown'};}
+  }
+  /** Validate native waiting arrangements before the synchronous mutation transaction.
+   *
+   * Args:
+   *   actor: Authenticated caller; evidence is resolved from the actual assignee node.
+   *   action: Original task action, unchanged for idempotency.
+   *   args: Original task arguments; no caller supplied validation evidence is accepted.
+   * Returns:
+   *   A confirmed task result; stale revisions and unavailable schedules leave the graph unchanged.
+   */
+  async executeChecked(actor:TaskGraphActor, action:string, args:Obj):Promise<Obj> {
+    const result=this.execute(actor, action, args, await this.prepareWaits(actor,action,args));
+    if(action==='get') await this.waitHealth(result);
+    return result;
+  }
+  /** Prepare short-lived schedule evidence for an original, optionally PA-reviewed command. */
+  async prepareWaits(actor:TaskGraphActor,action:string,args:Obj,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean}):Promise<CheckedWait[]> {
+    this.validateCommand(action,args);
+    if (action!=='apply') return [];
+    // The transaction remains responsible for receipt identity and authorization checks.
+    if (this.row('SELECT 1 FROM task_graph_mutation_receipts WHERE actor_key=? AND request_key=?',`${actor.kind}:${actor.id}`,args.request_key)) return [];
+    if (personal) this.readPersonal(actor,personal.ownerUserId,'get',{graph_id:args.graph_id,view:'all'},personal.sourceAllowed);
+    else this.execute(actor,'get',{graph_id:args.graph_id,view:'all'});
+    const before=JSON.parse(this.row('SELECT document_json FROM task_graphs WHERE graph_id=?',args.graph_id)!.document_json);
+    if (before.revision!==args.base_revision) throw new TaskGraphError('version_conflict','Read the current graph before adjusting this change',{current_revision:before.revision});
+    const next=applyOperations(before,args.operations,actor.id,new Date().toISOString(),text(args.change_note,'change_note',8000,true),{type:actor.kind,id:actor.id}).document;
+    const checked:CheckedWait[]=[];
+    for (const n of next.nodes) {
+      const old=before.nodes.find((x:Obj)=>x.id===n.id);
+      if (n.status!=='waiting' || (old?.status==='waiting' && canonicalJson(old.wait)===canonicalJson(n.wait))) continue;
+      if (Object.keys(n.wait).some(k=>!['reason','schedule_id'].includes(k)) || n.assignee?.type!=='agent')
+        fail('task_wait_schedule_invalid','Waiting requires an Agent assignee and a schedule reference');
+      if (!this.execution) fail('task_wait_schedule_unavailable','Native schedule verification is unavailable');
+      let proof:TaskWaitInspection;
+      try { proof=await this.execution.inspect({agent_id:n.assignee.id,conversation_id:before.conversation_id,graph_id:before.graph_id,node_id:n.id,schedule_id:n.wait.schedule_id}); }
+      catch { fail('task_wait_schedule_unavailable','Native schedule verification is unavailable'); }
+      if (!proof!.valid || proof!.owner_agent_id!==n.assignee.id || !proof!.session_id || !proof!.next_check_at || !(Date.parse(proof!.next_check_at)>Date.now()))
+        fail('task_wait_schedule_invalid','Waiting requires an active future schedule for this task owner');
+      if (Date.parse(proof!.next_check_at!) > Date.now() + 3_600_000)
+        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
+      checked.push({node_id:n.id,wait:{reason:n.wait.reason,schedule_id:n.wait.schedule_id,owner_agent_id:proof!.owner_agent_id,session_id:proof!.session_id,next_check_at:proof!.next_check_at}});
+    }
+    return checked;
   }
   /** Read as the authenticated owner, filtering sources before projection and pagination.
    *
@@ -460,7 +550,7 @@ export class TaskGraphService {
    */
   readPersonal(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,sourceAllowed:(id:string)=>boolean):Obj {
     if(!['get','list','activity'].includes(action)) forbidden();
-    return new TaskGraphService(this.db,this.messaging,{ownerUserId,agentUserId:this.messaging.agentUser(actor.id).id,sourceAllowed}).execute(actor,action,args);
+    return new TaskGraphService(this.db,this.messaging,{ownerUserId,agentUserId:this.messaging.agentUser(actor.id).id,sourceAllowed},this.execution).execute(actor,action,args);
   }
   /** Execute the original reviewed task command, preserving native validation and PA attribution.
    *
@@ -471,14 +561,14 @@ export class TaskGraphService {
    *   args: Entire frozen native argument object.
    *   notices: Durable notices published after the caller's transaction commits.
    */
-  executeDelegated(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,notices:Obj[]):Obj {
+  executeDelegated(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,notices:Obj[],waits:CheckedWait[]=[]):Obj {
     const binding=this.row("SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id WHERE b.agent_id=? AND b.node_id=? AND b.owner_user_id=? AND b.status='active' AND n.node_epoch=b.node_epoch AND n.owner_id=b.owner_id",actor.id,actor.node_id??null,ownerUserId);
     if(!binding||actor.kind!=='agent'||!['create','apply','delete'].includes(action))forbidden();
     this.validateCommand(action,args);
     const conversation=action==='create'?args.conversation_id:this.row('SELECT conversation_id FROM task_graphs WHERE graph_id=?',args.graph_id)?.conversation_id;
     const agentUser=this.row("SELECT id FROM users WHERE username=?",`agent:${actor.id}`)?.id;
     const accessUser=conversationAccess(this.db,conversation,ownerUserId)?.can_write?ownerUserId:agentUser;
-    return this.executeTransaction(actor,action,args,true,notices,ownerUserId,accessUser);
+    return this.executeTransaction(actor,action,args,true,notices,ownerUserId,accessUser,waits);
   }
   private executeTransaction(
     actor: TaskGraphActor,
@@ -488,6 +578,7 @@ export class TaskGraphService {
     notices: Obj[],
     delegatedOwner?: string,
     delegatedAccessUser?: string,
+    waits:CheckedWait[] = [],
   ): Obj {
     const p =
       actor.kind === "user"
@@ -496,14 +587,25 @@ export class TaskGraphService {
             actor.id,
           )
         : this.row(
-            "SELECT u.id,p.owner_id,p.display_name,p.space_id,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1 AND EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph')",
+            "SELECT u.id,p.owner_id,p.display_name,p.space_id,p.work_mode,owner.membership_status,owner.personal_space_enabled FROM agent_profiles p JOIN users u ON u.username='agent:'||p.agent_id JOIN nodes n ON n.node_id=p.node_id AND n.owner_id=p.owner_id JOIN users owner ON owner.owner_id=p.owner_id AND owner.username NOT LIKE 'agent:%' WHERE p.agent_id=? AND p.node_id=? AND p.is_stale=0 AND (owner.personal_space_enabled=1 OR owner.membership_status='active') AND n.status='online' AND (?=1 OR (EXISTS(SELECT 1 FROM json_each(p.tool_allowlist_json) WHERE value='task_graph') AND (?=0 OR COALESCE(json_extract(p.features_json,'$.task_graph'),1)=1)))",
             actor.id,
-            actor.node_id ?? null,
+            actor.node_id ?? null, action==='execution_pause'?1:0, ['execution','execution_scopes'].includes(action)?1:0,
           );
     if (!p || (actor.kind === "agent" && !canAccessSpace(p, p.space_id))) forbidden();
+    if(write&&actor.kind==='agent')requireLifecycle(this.db,actor.id,actor.lifecycle_revision);
     const user = this.personalRead?.ownerUserId ?? delegatedAccessUser ?? delegatedOwner ?? p.id,
       actorName = `${p.display_name} (${actor.id})`;
     const identity = {type:actor.kind,id:actor.id};
+    if(['execution','execution_scopes','execution_pause'].includes(action)) {
+      if(actor.kind!=='agent') forbidden();
+      if(action==='execution'&&p.work_mode!=='global' && !args.conversation_id) fail('conversation_required','SingleThread execution requires its bound conversation');
+      if(action!=='execution_pause'&&lifecycle(this.db,actor.id).desired!=='enabled')return action==='execution_scopes'?{conversation_ids:[]}:{items:[]};
+      const result=this.list(user,identity,{assignee_type:'agent',assignee_id:actor.id,statuses:'doing,waiting'},true);
+      result.items=result.items.filter((n:Obj)=>!this.row('SELECT 1 FROM task_lifecycle_freezes WHERE graph_id=? AND node_id=?',n.graph_id,n.node_id));
+      const items=result.items.filter((n:Obj)=>(action==='execution_scopes'||p.work_mode==='global'||n.conversation.id===args.conversation_id) && n.conversation.can_write);
+      if(action==='execution_scopes')return {conversation_ids:[...new Set(items.map((n:Obj)=>n.conversation.id))]};
+      return {items};
+    }
     if (action === "list") return this.list(user, identity, args);
     if (action === "activity") {
       const chat = text(args.conversation_id, "conversation_id");
@@ -711,6 +813,37 @@ export class TaskGraphService {
     for (const n of doc.nodes) {
       const old = before?.nodes.find((x:Obj) => x.id === n.id);
       if (!old || !sameActor(old.assignee,n.assignee)) this.assignee(n.assignee, doc.conversation_id);
+      const frozen=this.row('SELECT 1 FROM task_lifecycle_freezes WHERE graph_id=? AND node_id=?',doc.graph_id,n.id);
+      if(n.assignee?.type==='agent'&&['doing','waiting'].includes(n.status)&&(!old||old.status!==n.status||!sameActor(old.assignee,n.assignee))) {
+        if(lifecycle(this.db,n.assignee.id).desired!=='enabled')fail('agent_disabled','Enable this Agent before restoring work');
+        if(frozen&&(actor.kind!=='user'||n.status!=='doing'))fail('task_requires_human_resume','Only a human can explicitly restore this frozen task');
+      }
+      if(frozen&&actor.kind==='user'&&n.status==='doing'&&old?.status!=='doing') {
+        this.db.prepare('DELETE FROM task_lifecycle_freezes WHERE graph_id=? AND node_id=?').run(doc.graph_id,n.id);
+        this.db.prepare('DELETE FROM task_lifecycle_schedules WHERE graph_id=? AND node_id=?').run(doc.graph_id,n.id);
+      }
+      // Only the authenticated human mutation records resume intent. Agent prose,
+      // delegated writes and later metadata edits cannot manufacture this fact.
+      if(actor.kind==='user'&&(old?.status==='paused'||frozen)&&n.status==='doing')n.resume_request={actor_id:actor.id,at:now,revision:doc.revision};
+      else if(!['doing','waiting'].includes(n.status)||old&&!sameActor(old.assignee,n.assignee))delete n.resume_request;
+    }
+    for (const n of doc.nodes) if (n.status === 'waiting') {
+      const old = before?.nodes.find((x:Obj)=>x.id===n.id);
+      if (old?.status === 'waiting' && canonicalJson(old.wait) === canonicalJson(n.wait)) continue;
+      const checked = waits.find(item=>item.node_id===n.id);
+      if (!checked || checked.wait.schedule_id!==n.wait.schedule_id || checked.wait.owner_agent_id!==n.assignee?.id || !(Date.parse(checked.wait.next_check_at)>Date.now()))
+        fail('task_wait_schedule_invalid','Waiting requires a verified active schedule for the assignee');
+      if (Date.parse(checked.wait.next_check_at) > Date.now() + 3_600_000)
+        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
+      n.wait={...n.wait,...checked.wait};
+    }
+    result={...result,...summary(doc)};
+    if (action==='apply') {
+      // Keep feedback tied to this committed revision, including on receipt replay.
+      // A later read may fail or observe a different state or conversation access.
+      const feedback=doc.nodes.filter((n:Obj)=>changed.includes(n.id)&&['waiting','in_review','done'].includes(n.status))
+        .map((n:Obj)=>({node_id:n.id,title:n.title,status:n.status,...(n.wait?{wait:n.wait}:{}),result:n.result}));
+      if(feedback.length)result.feedback={conversation_id:doc.conversation_id,tasks:feedback};
     }
     this.save(doc);
     for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
@@ -725,7 +858,124 @@ export class TaskGraphService {
           .run(doc.graph_id, id, chat, now);
     return result;
   }
+  /** Read every owned doing/waiting node under the caller's current access policy. */
+  executionSnapshot(actor:TaskGraphActor,conversationId?:string,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean}):Obj {
+    if(personal) return new TaskGraphService(this.db,this.messaging,{...personal,agentUserId:this.messaging.agentUser(actor.id).id},this.execution).executionSnapshot(actor,conversationId);
+    return this.executeTransaction(actor,'execution',{conversation_id:conversationId},false,[]);
+  }
+  /** Discover only scope IDs with active owned responsibility on reconnect. */
+  executionScopes(actor:TaskGraphActor,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean}):Obj {
+    if(personal)return new TaskGraphService(this.db,this.messaging,{...personal,agentUserId:this.messaging.agentUser(actor.id).id},this.execution).executionScopes(actor);
+    return this.executeTransaction(actor,'execution_scopes',{},false,[]);
+  }
+  /** Atomically pause the authenticated host's stop scope, replaying the original result. */
+  pauseExecution(actor:TaskGraphActor,conversationId:string|undefined,requestKey:string,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean}):Obj {
+    if(personal) return new TaskGraphService(this.db,this.messaging,{...personal,agentUserId:this.messaging.agentUser(actor.id).id},this.execution).pauseExecution(actor,conversationId,requestKey);
+    text(requestKey,'request_key');
+    const notices:Obj[]=[]; let result:Obj;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const items=this.executeTransaction(actor,'execution_pause',{conversation_id:conversationId},false,[]).items as Obj[];
+      const previous=this.row('SELECT * FROM task_execution_stops WHERE agent_id=? AND request_key=?',actor.id,requestKey);
+      if(previous) {
+        if(previous.conversation_id!==(conversationId??'')) fail('request_key_reused','Stop scope changed');
+        result=JSON.parse(previous.result_json);
+      } else {
+        const graphs=new Map<string,Obj[]>();
+        for(const item of items) graphs.set(item.graph_id,[...(graphs.get(item.graph_id)??[]),item]);
+        for(const [id,nodes] of graphs) {
+          const row=this.row('SELECT * FROM task_graphs WHERE graph_id=?',id)!;
+          const before=JSON.parse(row.document_json);
+          const now=new Date().toISOString(),ids=new Set(nodes.map(n=>n.node_id));
+          const next={...structuredClone(before),revision:before.revision+1,updated_at:now,updated_by:actor.id};
+          for(const node of next.nodes)if(ids.has(node.id)) {
+            this.pauseNode(node,{type:'agent',id:actor.id},now);
+          }
+          this.save({...next,owner_id:row.owner_id});
+          for(const notice of taskNotices(next,before,actor.id,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
+            notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,notice.metadata,actor.id));
+        }
+        result={paused:items.length};
+        this.db.prepare('INSERT INTO task_execution_stops VALUES(?,?,?,?)').run(actor.id,requestKey,conversationId??'',JSON.stringify(result));
+      }
+      this.db.exec('COMMIT');
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
+    try {this.messaging.publishMessages(notices);this.execution?.changed({agent_ids:[actor.id],conversation_ids:conversationId?[conversationId]:[]});} catch { /* Reconnect reconciles durable state. */ }
+    return result!;
+  }
+  private pauseNode(node:Obj,actor:Obj,at:string):void {
+    node.status='paused';delete node.wait;delete node.resume_request;
+    node.updated_at=at;node.updated_by=actor.id;node.updated_by_actor=actor;
+  }
+  /** Project an already committed Agent barrier across all old unfinished work.
+   *
+   * Args:
+   *   agentId: Agent selected by the authenticated lifecycle owner.
+   *   userId: Human control actor, never impersonated as an Agent.
+   *   revision: Persistent disable generation; repeated projection is idempotent.
+   *   publish: False during startup recovery before the transport is initialized.
+   */
+  freezeAgent(agentId:string,userId:string,revision:number,publish=true):void {
+    const notices:Obj[]=[];
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for(const row of this.rows("SELECT DISTINCT g.* FROM task_graphs g JOIN json_each(g.document_json,'$.nodes') n WHERE json_extract(n.value,'$.assignee.type')='agent' AND json_extract(n.value,'$.assignee.id')=? AND json_extract(n.value,'$.status') NOT IN ('done','closed')",agentId)) {
+        const doc=JSON.parse(row.document_json),at=new Date().toISOString();let changed=false;
+        for(const node of doc.nodes)if(node.assignee?.type==='agent'&&node.assignee.id===agentId&&!['done','closed'].includes(node.status)) {
+          this.db.prepare('INSERT INTO task_lifecycle_freezes VALUES(?,?,?,?) ON CONFLICT(graph_id,node_id) DO UPDATE SET agent_id=excluded.agent_id,revision=excluded.revision').run(doc.graph_id,node.id,agentId,revision);
+          if(node.wait?.schedule_id)this.db.prepare('INSERT OR IGNORE INTO task_lifecycle_schedules VALUES(?,?,?,?)').run(agentId,node.wait.schedule_id,doc.graph_id,node.id);
+          if(['doing','waiting'].includes(node.status)) {this.pauseNode(node,{type:'user',id:userId},at);changed=true;}
+        }
+        if(changed) {
+          const next={...doc,owner_id:row.owner_id,revision:doc.revision+1,updated_at:at,updated_by:userId};this.save(next);
+          for(const notice of taskNotices(next,JSON.parse(row.document_json),userId,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',doc.conversation_id,uid)))
+            notices.push(this.messaging.persistTaskNotice(doc.conversation_id,userId,notice.content,notice.metadata));
+        }
+      }
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+    if(publish) {this.messaging.publishMessages(notices);this.execution?.changed({agent_ids:[agentId],conversation_ids:[]});}
+  }
+  /** Capture former assignees so reassignment invalidates both execution owners. */
+  changeHint(graphId?:string):TaskExecutionChange {
+    const row=graphId?this.row('SELECT document_json FROM task_graphs WHERE graph_id=?',graphId):undefined;
+    if(!row)return {agent_ids:[],conversation_ids:[]};
+    const doc=JSON.parse(row.document_json);
+    return {agent_ids:[...new Set<string>(doc.nodes.filter((n:Obj)=>n.assignee?.type==='agent').map((n:Obj)=>n.assignee.id))],conversation_ids:[doc.conversation_id]};
+  }
+  /** Publish an invalidation only after the enclosing transaction has committed. */
+  notifyChange(before:TaskExecutionChange|undefined,graphId?:string):void {
+    const after=this.changeHint(graphId);
+    try {this.execution?.changed({agent_ids:[...new Set([...(before?.agent_ids??[]),...after.agent_ids])],conversation_ids:[...new Set([...(before?.conversation_ids??[]),...after.conversation_ids])]});} catch { /* Reconnect performs a fresh read. */ }
+  }
+  private async waitHealth(result:Obj):Promise<void> {
+    const nodes:Obj[]=result.nodes??[result.root,result.scope,...(result.children??[])].filter(Boolean);
+    const checks=new Map<string,Promise<Obj>>();
+    for(const node of nodes) if(node.status==='waiting') {
+      let check=checks.get(node.id);
+      if(!check) {
+        check=(async()=>{
+          try {
+            if(!this.execution)throw Error();
+            const proof=await this.execution.inspect({agent_id:node.assignee.id,conversation_id:result.conversation.id,graph_id:result.graph_id,node_id:node.id,schedule_id:node.wait.schedule_id});
+            return {state:proof.valid&&proof.owner_agent_id===node.assignee.id&&proof.session_id===node.wait.session_id?'valid':'invalid',checked_at:proof.checked_at,reason_code:proof.reason_code};
+          } catch {return {state:'unknown',checked_at:new Date().toISOString(),reason_code:'runtime_unavailable'};}
+        })(); checks.set(node.id,check);
+      }
+      node.wait_health=await check;
+    }
+  }
   private save(doc: Obj) {
+    const previous = this.row('SELECT document_json FROM task_graphs WHERE graph_id=?', doc.graph_id);
+    const active = (node: Obj) => node.assignee?.type === 'agent' && ['doing','waiting'].includes(node.status);
+    const existing = new Set((previous ? JSON.parse(previous.document_json).nodes : []).filter(active).map((node: Obj) => `${node.id}:${node.assignee.id}`));
+    for (const node of doc.nodes.filter(active)) {
+      if (existing.has(`${node.id}:${node.assignee.id}`)) continue;
+      const operation = this.row("SELECT candidate_json,previous_candidate_json FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')", node.assignee.id);
+      if (operation && operation.previous_candidate_json && withdrawsTask(JSON.parse(operation.previous_candidate_json), JSON.parse(operation.candidate_json))) {
+        fail('capability_in_use', 'Agent configuration is withdrawing Task capability; retry after configuration completes');
+      }
+    }
     const { owner_id, ...body } = doc;
     const space = this.row("SELECT space_id FROM conversations WHERE id=?", doc.conversation_id)!.space_id;
     this.db
@@ -744,13 +994,17 @@ export class TaskGraphService {
         doc.conversation_id,
         space,
       );
+    for(const node of doc.nodes)if(node.assignee?.type==='agent'&&!['done','closed'].includes(node.status)) {
+      const state=lifecycle(this.db,node.assignee.id);
+      if(state.desired==='disabled')this.db.prepare('INSERT OR IGNORE INTO task_lifecycle_freezes VALUES(?,?,?,?)').run(doc.graph_id,node.id,node.assignee.id,state.revision);
+    }
   }
   private receipt(actor: string, key: string, hash: string, doc: Obj, result: Obj) {
     this.db
       .prepare("INSERT INTO task_graph_mutation_receipts(actor_key,request_key,operation_hash,graph_id,result_json,created_at,conversation_id,space_id) VALUES(?,?,?,?,?,?,?,?)")
       .run(actor, key, hash, doc.graph_id, JSON.stringify(result), doc.updated_at, doc.conversation_id, this.row("SELECT space_id FROM conversations WHERE id=?", doc.conversation_id)!.space_id);
   }
-  private list(user: string, actor: Obj, args: Obj) {
+  private list(user: string, actor: Obj, args: Obj, all=false) {
     const account = this.row("SELECT * FROM users WHERE id=?", user)!;
     const spaces = (actor.type === "agent" && !this.personalRead
       ? [this.row("SELECT space_id FROM agent_profiles WHERE agent_id=?", actor.id)!.space_id]
@@ -761,7 +1015,7 @@ export class TaskGraphService {
     const filtered = args.assignee_type !== undefined || args.assignee_id !== undefined;
     const assignee = filtered ? actorRef({type:args.assignee_type,id:args.assignee_id}) : null;
     const statuses = args.statuses === undefined ? null : [...new Set(text(args.statuses,"statuses",128).split(",").map(value=>value.trim()))].sort();
-    if (statuses?.some(status=>!["todo","doing","in_review","done","paused","closed"].includes(status))) fail("invalid_arguments","statuses must contain task status values separated by commas");
+    if (statuses?.some(status=>!["todo","doing","waiting","in_review","done","paused","closed"].includes(status))) fail("invalid_arguments","statuses must contain task status values separated by commas");
     const identity = {user,query,assignee,...(statuses ? {statuses} : {})};
     let after: Obj | undefined;
     if (args.cursor != null) {
@@ -784,13 +1038,14 @@ export class TaskGraphService {
       const path: Obj[] = [];
       for (let p = d.nodes.find((x:Obj)=>x.id===n.container_id); p; p=d.nodes.find((x:Obj)=>x.id===p.container_id)) path.unshift({id:p.id,title:p.title});
       const conversation = this.projection(d,user,actor);
-      return {...summary(d), node_id:n.id,scope_id:n.container_id,title:n.title,mode:n.mode,status:n.status,
+      return {...summary(d), node_id:n.id,scope_id:n.container_id,title:n.title,mode:n.mode,status:n.status,wait:n.wait,resume_request:n.resume_request,
         updated_at:n.updated_at,created_by:this.identity(n.created_by),assignee:this.identity(n.assignee),
         direct_counts:directCounts(d,n.id),conversation,parent_path:path,
         can_edit:conversation.can_write,can_delete:conversation.can_write && this.canDelete(n,actor,user),
         can_claim:conversation.can_write && (!n.assignee || sameActor(n.assignee,actor)),
         relative_url:`/tasks/${d.graph_id}?scope=${n.container_id ?? d.root_node_id}&node=${n.id}`};
     }).sort((a,b)=> b.updated_at.localeCompare(a.updated_at) || b.graph_id.localeCompare(a.graph_id) || b.node_id.localeCompare(a.node_id));
+    if(all) return {items,total:items.length,next_cursor:null};
     const eligible = after ? items.filter(n => n.updated_at < after!.updated_at || (n.updated_at===after!.updated_at && (n.graph_id<after!.graph_id || (n.graph_id===after!.graph_id && n.node_id<after!.node_id)))) : items;
     const page = eligible.slice(0,limit), last = page.at(-1);
     return {items:page,total:items.length,next_cursor:eligible.length>limit ? Buffer.from(JSON.stringify({identity,after:{updated_at:last!.updated_at,graph_id:last!.graph_id,node_id:last!.node_id}})).toString('base64url') : null};
@@ -856,8 +1111,9 @@ export class TaskGraphService {
   }
 }
 export function registerTaskGraphRoutes(app: FastifyInstance, ctx: ImContext) {
-  const service = new TaskGraphService(ctx.db,ctx.messaging);
+  const service = ctx.gateway.tasks ?? new TaskGraphService(ctx.db,ctx.messaging);
   for (const [method,path,action] of [
+    ["GET","/im/v1/task-graphs/:graph_id/runtime","runtime"],
     ["GET","/im/v1/task-graphs","list"], ["GET","/im/v1/task-graphs/:graph_id","get"],
     ["GET","/im/v1/conversations/:conversation_id/task-activity","activity"],
     ["POST","/im/v1/task-graphs","create"], ["POST","/im/v1/task-graphs/:graph_id/apply","apply"],
@@ -868,7 +1124,8 @@ export function registerTaskGraphRoutes(app: FastifyInstance, ctx: ImContext) {
       try {
         const args: Obj = { ...(req.query as Obj), ...(req.body as Obj), ...(req.params as Obj) };
         if (args.limit !== undefined) args.limit = Number(args.limit);
-        return service.execute({ kind: "user", id: principal.id }, action!, args);
+        if(action==="runtime")return await service.runtimeState({kind:"user",id:principal.id},args);
+        return await service.executeChecked({ kind: "user", id: principal.id }, action!, args);
       } catch (e) {
         if (e instanceof TaskGraphError)
           return reply

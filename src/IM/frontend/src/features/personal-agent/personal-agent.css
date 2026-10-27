@@ -22,6 +22,7 @@
 .pa-source-list { max-height: 180px; overflow: auto; }
 .pa-source-list label { display: flex; align-items: center; gap: 8px; }
 .pa-error { color: var(--im-danger, #b42318) !important; font-size: 13px; }
+.pa-delegation--represented { white-space: nowrap; flex-shrink: 0; }
 .pa-delegation { font-size: 11px; color: var(--im-text-muted); border: 1px solid var(--im-border); border-radius: 4px; padding: 1px 5px; }
 
 
@@ -79,3 +80,8 @@
 .pa-blocked-heading button { flex-shrink:0; }
 .pa-blocked-person .pa-privacy-reason { margin-left:37px; }
 .pa-blocked-person .pa-privacy-evidence { margin-left:37px; }
+
+.pa-dialog { padding: 20px; border-radius: 10px; }
+.pa-dialog h2 { font-size: 17px; font-weight: 650; }
+.pa-dialog .im-btn, .pa-dialog .pa-secondary { min-height: 34px; padding: 6px 11px; border-radius: 6px; font-size: 13px; }
+@media(max-width:767px) { .pa-dialog .im-btn, .pa-dialog .pa-secondary { min-height: 42px; } }

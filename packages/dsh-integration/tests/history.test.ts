@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -20,7 +20,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     provider: "fixture",
     model: "test",
     systemPrompt: "ORIGINAL_PERSONA",
-    features: { memory_curation: false, skill_creation: false },
+    features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false },
     toolAllowlist: ["read"],
   };
   const binding = {
@@ -160,7 +160,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     const capabilities = async (id: string) =>
       client!.rpc.request("session.capabilities", { sessionId: id });
     expect(await capabilities(fork.sessionId)).toMatchObject({
-      tools: ["read"],
+      tools: ["get_context_remaining", "history", "new_context", "notes", "read"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
       "ORIGINAL_PERSONA",
@@ -180,7 +180,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     expect(JSON.stringify(childRequest)).toContain("ORIGINAL_PERSONA");
     expect(requests.at(-1).model).toBe("test");
     expect(JSON.stringify(requests.at(-1).messages)).toContain(
-      "HISTORY_SUMMARY",
+      "Context reset reason: manual",
     );
     expect(JSON.stringify(requests.at(-1).messages)).not.toContain(
       "after-point",
@@ -188,29 +188,34 @@ it("forks a native message with its configuration and compacted prefix, independ
     const exportResult = (await client!.rpc.request("session.export", {
       sessionId: fork.sessionId,
     })) as { path: string };
-    expect(await readFile(exportResult.path, "utf8")).toContain("fork-only");
-    const readable = await readFile(
-      join(home, ".nanoassistant/chat_history", `${fork.sessionId}.jsonl`),
-      "utf8",
-    );
-    expect(readable).toContain("fork-only");
-    expect(readable).not.toContain("after-point");
-    expect(readable).not.toContain("Message time:");
+    const raw = await readFile(exportResult.path, "utf8");
+    expect(raw).toContain("fork-only");
+    expect(raw).toContain("one Remember these facts");
+    expect(raw).not.toContain("after-point");
+    const copyDirectory = join(home, ".nanoassistant/chat_history");
+    await expect(readFile(join(copyDirectory, `${fork.sessionId}.jsonl`))).rejects.toMatchObject({ code: "ENOENT" });
+    await mkdir(copyDirectory, { recursive: true });
+    const legacy = join(copyDirectory, `${binding.sessionId}.jsonl`);
+    await writeFile(legacy, "legacy copy must stay untouched");
     await client!.shutdown();
     client = undefined;
     await start();
     expect(await capabilities(fork.sessionId)).toMatchObject({
-      tools: ["read"],
+      tools: ["get_context_remaining", "history", "new_context", "notes", "read"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
       "ORIGINAL_PERSONA",
     );
+    expect(await readFile(legacy, "utf8")).toBe("legacy copy must stay untouched");
     await submit(fork.sessionId, "cold-fork");
+    await submit(binding.sessionId, "cold-source");
+    expect(await readFile(legacy, "utf8")).toBe("legacy copy must stay untouched");
+    await expect(readFile(join(copyDirectory, `${fork.sessionId}.jsonl`))).rejects.toMatchObject({ code: "ENOENT" });
     expect(await client!.rpc.request("session.fork", request)).toEqual(fork);
     config = { ...config, revision: "3" };
     await client!.rpc.request("configuration.apply", config);
     expect(await capabilities(fork.sessionId)).toMatchObject({
-      tools: ["write"],
+      tools: ["get_context_remaining", "history", "new_context", "notes", "write"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
       "NEW_PERSONA",

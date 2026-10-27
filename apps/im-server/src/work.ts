@@ -1,3 +1,4 @@
+import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -15,7 +16,32 @@ import {
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { formatLocalTime } from "@nano/product-contracts";
+import type { Connection } from './gateway.js';
 export class Work {
+  private readonly progress = new WeakMap<Connection, { journal: string; produced: number; pending: boolean }>();
+
+  /** Accept a completeness declaration only for the connection that received it.
+   *
+   * Args:
+   *   connection: Registration active when the authenticated HTTP request began.
+   *   journal: Durable source journal identity.
+   *   produced: Highest locally committed product event sequence.
+   *   pending: Whether product projection still has unprocessed source facts.
+   */
+  reportProgress(connection: Connection, journal: string, produced: number, pending: boolean): void {
+    if (this.ctx.gateway.nodes.get(connection.node_id) === connection && this.ctx.gateway.valid(connection))
+      this.progress.set(connection, { journal, produced, pending });
+  }
+
+  private recordSyncState(node: string): 'current' | 'catching_up' | 'unknown' {
+    const connection = this.ctx.gateway.nodes.get(node);
+    const report = connection && this.ctx.gateway.valid(connection) && this.progress.get(connection);
+    if (!report) return 'unknown';
+    const through = one(this.db, 'SELECT through_seq FROM agent_work_journals WHERE node_id=? AND journal_id=?', node, report.journal)?.through_seq ?? 0;
+    if (through > report.produced) return 'unknown';
+    return report.pending || through < report.produced ? 'catching_up' : 'current';
+  }
+
   constructor(readonly ctx: ImContext) {
     for (const r of all(ctx.db, "SELECT session_id,turn_id,payload FROM agent_work_turns")) {
       const p = JSON.parse(r.payload);
@@ -52,7 +78,7 @@ export class Work {
     )
       fail(409, "session_identity_conflict");
     if (p.scope === "global_main") {
-      if(old && JSON.parse(old.payload).retired)fail(409,"retired_main_session");
+      if(old && JSON.parse(old.payload).retired && !JSON.parse(old.payload).historical_only)fail(409,"retired_main_session");
       const other = one(
         this.db,
         "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0",
@@ -73,7 +99,7 @@ export class Work {
         ? old?.payload ?? JSON.stringify({ scope: p.scope, parent_session_id: p.parent_session_id ?? null })
         : JSON.stringify(p));
   }
-  append(node: string, p: Row): Row {
+  append(node: string, p: Row, historical = false): Row {
     let through =
       one(
         this.db,
@@ -119,7 +145,8 @@ export class Work {
             old.event_id !== e.event_id ||
             old.root_agent_id !== e.root_agent_id ||
             old.session_id !== e.session_id ||
-            old.payload !== JSON.stringify(e.payload)
+            old.type !== e.type || old.turn_id !== (e.turn_id ?? null) ||
+            (e.observed_at !== undefined && old.observed_at !== e.observed_at) || old.payload !== JSON.stringify(e.payload)
           )
             fail(409, "event_identity_conflict");
           continue;
@@ -129,8 +156,14 @@ export class Work {
         if (e.seq <= through) continue;
         if (e.seq !== through + 1) fail(400, "invalid_sequence");
         const available = agentAvailable(this.db, profile);
-        if (e.type === "session_registered")
-          this.register(e.root_agent_id, e.session_id, node, e.payload, !available);
+        if (e.type === "session_registered") {
+          if (historical && e.payload.scope === 'global_main') {
+            const existing = one(this.db,'SELECT * FROM agent_work_sessions WHERE session_id=?',e.session_id);
+            if (existing) {
+              if (existing.root_agent_id!==e.root_agent_id || existing.node_id!==node || existing.scope!=='global_main') fail(409,'session_identity_conflict');
+            } else this.db.prepare('INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?)').run(e.session_id,e.root_agent_id,node,'global_main',null,JSON.stringify({...e.payload,retired:true,historical_only:true}));
+          } else this.register(e.root_agent_id, e.session_id, node, e.payload, !available);
+        }
         else if (available || e.type === "session_linked") this.session(e.root_agent_id, e.session_id);
         if (e.type === "session_linked") {
           if (e.payload.parent_session_id !== e.session_id) fail(403, "scope_not_allowed");
@@ -344,6 +377,7 @@ export class Work {
       } else (payload.work_facts ??= []).push({ type: kind, ...p });
     } else if (itemKind === "permission") {
       Object.assign(payload, p.permission_request ?? p, {
+        lifecycle_revision:p.lifecycle_revision??p.permission_request?.lifecycle_revision,
         node_epoch:
           one(
             this.db,
@@ -467,6 +501,7 @@ export class Work {
       latest_main_usage: latest,
       main_execution: state,
       node_connection_state: online ? "online" : "offline",
+      record_sync_state: this.recordSyncState(agent.node_id),
       control_items: main ? this.items(root, main, "").items : [],
       other_executions: sessions
         .filter((s) => s.scope !== "global_main" || JSON.parse(s.payload).retired)
@@ -689,6 +724,7 @@ export class Work {
         if(personal) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
+          ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
             id: m.sender_user_id,
             name: m.sender.display_name,
@@ -710,7 +746,7 @@ export class Work {
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },
-          ...(m.interactive ? {interactive:m.interactive} : {}),
+          ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
           content: [content],
@@ -805,36 +841,18 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       );
     });
     if (!item) fail(409, "request_ended");
+    requireLifecycle(db,a.agent_id,JSON.parse(item.payload).lifecycle_revision);
     if (!JSON.parse(item.payload).options?.some((o: Row) => o.id === b.decision))
       fail(409, "invalid_decision");
     const result = await ctx.gateway.request(a.node_id, "agent.work.permission", {
       request_id: id,
       root_agent_id: a.agent_id,
+      lifecycle_revision:JSON.parse(item.payload).lifecycle_revision,
       session_id: item.session_id,
       decision: b.decision,
       reason: b.reason ?? "",
     });
     if (!result.ok) fail(409, result.error ?? "request_ended");
     return { ok: true, request_id: id };
-  });
-  app.get("/im/v1/metrics/usage", (req) => {
-    const p = ctx.identity.authenticateRequest(req),
-      q = query(req),
-      clauses = ["owner_id=?"],
-      args = [p.owner_id];
-    for (const key of ["conversation_id", "agent_id"])
-      if (q[key]) {
-        clauses.push(`${key}=?`);
-        args.push(q[key]);
-      }
-    return all(
-      db,
-      `SELECT owner_id,conversation_id,agent_id,SUM(turns) turns,SUM(prompt_tokens) prompt_tokens,SUM(completion_tokens) completion_tokens,SUM(total_tokens) total_tokens,MAX(created_at) last_used_at FROM usage_metrics WHERE ${clauses.join(" AND ")} GROUP BY owner_id,conversation_id,agent_id ORDER BY last_used_at DESC`,
-      ...args,
-    ).map((r) => ({
-      ...r,
-      scope: r.agent_id ? "agent" : r.conversation_id ? "conversation" : "owner",
-      scope_id: r.agent_id ?? r.conversation_id ?? r.owner_id,
-    }));
   });
 }

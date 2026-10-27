@@ -11,7 +11,7 @@ it('parses only valid verdicts and keeps malformed reviews distinct from denials
 });
 
 it('uses one selected rule set and inserts configured rule text without interpreting it', async () => {
-  const config = { ...approvalDefaults, globalRoot: '/owner/.nanoassistant', allow: ['$defaults', 'Keep <nano_workspace_root> literal in this custom rule'] };
+  const config = { ...approvalDefaults, rules: 'nano' as const, globalRoot: '/owner/.nanoassistant', allow: ['$defaults', 'Keep <nano_workspace_root> literal in this custom rule'] };
   const nano = await buildPolicy(config, '/workspace');
   expect(nano).toContain('Keep <nano_workspace_root> literal in this custom rule');
   expect(nano).toContain('/workspace/.nanoassistant');
@@ -30,7 +30,7 @@ it('skips the reviewer only for verified owner messages and reviews other public
 export const name='message-approval-fixture';export const inject=['llm'];
 export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exec,next)=>exec.name==='send_message'&&exec.arguments.target==='owner-blocked'?{kind:'deny',reason:'Explicit tool restriction'}:next());ctx.on('llm/stream',async function*(options){
  if(options.system){await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({system:options.system,prompt:options.messages[0].content[0].text})+'\\n');yield{type:'block-end',index:0,block:{type:'text',text:options.system.startsWith('REVIEW_POLICY')?'{"risk":"high","decision":"deny","reason":"not authorized"}':'<block>yes</block><reason>not authorized</reason>'}};yield{type:'finish',reason:{kind:'stop'}};return;}
- const human=options.messages.findLast(m=>m.role==='user'&&m.source?.kind==='nano-human');
+ const human=options.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
  if(!steps.has(human.id)){steps.add(human.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:'send-'+human.id,name:'send_message',arguments:JSON.stringify({target:human.content[0].text,text:'This is a reply to myself'})}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
  yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
@@ -83,7 +83,7 @@ export function apply(ctx) {
       content = scenario === 'fault' ? 'no valid verdict' : scenario === 'allow' ? '<block>no</block>' : '<block>yes</block><reason>scope missing</reason>';
       if (options.system.startsWith('REVIEW_POLICY')) content = '{"risk":"high","decision":"deny","reason":"sensitive exfiltration"}';
     } else {
-      const last = options.messages.findLast(message => message.role === 'user' && message.source?.kind?.startsWith('nano-')); const scenario = last.content[0].text;
+      const last = options.messages.findLast(message => message.role === 'user' && ['user', 'nano-system'].includes(message.source?.kind)); const scenario = last.content[0].text;
       const step = steps.get(last.id) ?? 0; steps.set(last.id, step + 1);
       if (step < (scenario === 'threshold' ? 3 : 1)) {
         yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: last.id + '-' + step, name: 'fixture_effect', arguments: JSON.stringify({ scenario }) } };
@@ -94,10 +94,10 @@ export function apply(ctx) {
     yield { type: 'block-end', index: 0, block: { type: 'text', text: content } }; yield { type: 'finish', reason: { kind: 'stop' } };
   });
 }`);
-  const agents = ['allow', 'threshold', 'fault', 'global', 'system', 'dsh', 'reject', 'cancel', 'timeout'].map(agentId => ({ agentId, revision: '1', provider: 'fixture', model: 'main-model', mode: agentId === 'global' ? 'global' : 'single_thread',
+  const agents = ['allow', 'threshold', 'fault', 'global', 'system', 'dsh', 'reject', 'cancel', 'timeout'].map(agentId => ({ agentId, revision: '1', provider: 'fixture', model: 'main-model', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, mode: agentId === 'global' ? 'global' : 'single_thread',
     approval: { ...approvalDefaults, globalRoot: home, askTimeoutSec: agentId === 'timeout' ? 0.05 : 600, rules: agentId === 'dsh' ? 'dsh' : 'nano', denyLimit: agentId === 'dsh' ? 1 : 3, reviewer: { provider: 'fixture', model: 'review-model' } } }));
   try {
-    await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main-model' }, { id: 'review-model' }] } } } }, { insert: [{ id: 'approval-fixture', name: join(home, 'fixture.mjs') }] }]);
+    await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main-model' }, { id: 'review-model', reasoningEfforts: { low: 'low' } }] } } } }, { insert: [{ id: 'approval-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     const requests: Record<string, unknown>[] = [];
     client.rpc.onNotification((method, value) => { if (method === 'approval.request') { requests.push(value as Record<string, unknown>); const request = value as { requestId: string; sessionId: string };
@@ -178,7 +178,7 @@ it('bypasses the classifier for selected Nano Auto queries while retaining write
     { name: 'create_goal', args: { objective: 'A persistent objective' } },
     { name: 'update_goal', args: { action: 'resume' } },
     { name: 'bash', args: { command: 'pwd' } },
-    { name: 'send_message', args: { target: 'group', text: 'A synthetic reply' } },
+    { name: 'send_message', args: { target: 'group', text: 'A synthetic reply', interactive: {source:'root = TextContent("Public card text")'} } },
   ];
   const home = await mkdtemp(join(tmpdir(), 'nano-query-approval-'));
   let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
@@ -194,11 +194,11 @@ export function apply(ctx) {
    const row=JSON.parse(prompt.split('\\n').findLast(line=>line.startsWith('{')));
    const [name,args]=Object.entries(row).find(([key])=>key!=='id');
    const pending={name,arguments:args};
-   await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({name:pending.name,action:pending.arguments.action??null})+'\\n');
+   await appendFile(process.env.DSH_HOME+'/reviews.jsonl',JSON.stringify({name:pending.name,action:pending.arguments.action??null,arguments:pending.arguments})+'\\n');
    yield {type:'block-end',index:0,block:{type:'text',text:options.system.startsWith('REVIEW_POLICY')?'{"risk":"high","decision":"deny","reason":"Synthetic denial"}':'<block>yes</block><reason>Synthetic denial</reason>'}};
    yield {type:'finish',reason:{kind:'stop'}};return;
   }
-  const human=options.messages.findLast(message=>message.role==='user'&&message.source?.kind==='nano-human');
+  const human=options.messages.findLast(message=>message.role==='user'&&message.source?.kind==='user'&&'actorId'in message.source);
   if(!seen.has(human.id)) {
    seen.add(human.id);
    for(const [index,call] of JSON.parse(human.content[0].text).entries())yield {type:'block-end',index,block:{type:'tool-call',id:human.id+'-'+index,name:call.name,arguments:JSON.stringify(call.args)}};
@@ -227,7 +227,7 @@ export function apply(ctx) {
       effects.push(call); return { ok: true };
     });
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
-    const reviewLog = async () => readFile(join(home, 'reviews.jsonl'), 'utf8').then(text => text.trim().split('\n').map(line => JSON.parse(line) as { name: string; action: string | null }), error => {
+    const reviewLog = async () => readFile(join(home, 'reviews.jsonl'), 'utf8').then(text => text.trim().split('\n').map(line => JSON.parse(line) as { name: string; action: string | null; arguments: any }), error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
     });
@@ -242,6 +242,7 @@ export function apply(ctx) {
       const observed = await client.rpc.request('session.observe', { sessionId: config.agentId }) as { events: { type: string; data: any }[]; approvals: { source: string }[] };
       const results = observed.events.filter(event => event.type === 'tool/result');
       expect(results).toHaveLength(calls.length);
+      if (config.agentId === 'writes') expect(reviews.find(review=>review.name==='send_message')?.arguments.interactive).toEqual({source:'root = TextContent("Public card text")',format:'openui',catalog_version:'nano-1'});
       if (['writes', 'dsh'].includes(config.agentId)) {
         expect(new Set(reviews.map(review => `${review.name}:${review.action}`))).toEqual(new Set(calls.map(call => `${call.name}:${'action' in call.args ? call.args.action : null}`)));
         expect(results.every(event => event.data.message.isError)).toBe(true);
@@ -303,7 +304,7 @@ export function apply(ctx){
       throw new Error('Unexpected product call: ' + call.method);
     });
     const agents = ['normal', 'overflow'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'main', toolAllowlist: ['inbox', 'send_message', 'fixture_effect'],
-      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
+      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, rules: 'nano', globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
     for (const config of agents) {
       await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });
@@ -328,3 +329,20 @@ export function apply(ctx){
     expect(observed.approvals.at(-1)).toMatchObject({ source: 'return_to_agent', decision: 'deny' });
   } finally { if (client) await client.shutdown(); await rm(home, { recursive: true, force: true }); }
 }, 30_000);
+
+it.each([
+  [{efforts:[{id:'high'},{id:'max'}],defaultEffort:'high'},'high'],
+  [{efforts:[{id:'low'},{id:'high'}],defaultEffort:'high'},'low'],
+  [undefined,undefined],
+])('preserves Nano review stages and evidence with supported model effort: %j',async(reasoning,expected)=>{
+  const {classify}=await import('../src/policy/classifier.js');
+  const calls:any[]=[];
+  const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:100000},reasoning}),stream:async function*(options:any){calls.push(options);yield {type:'block-end',index:0,block:{type:'text',text:'<block>yes</block><reason>missing authority</reason>'}};yield {type:'finish',reason:{kind:'stop'}};}}};
+  const result=await classify(ctx as any,{exec:{agent:{session:{header:{cwd:'/tmp'}}},signal:new AbortController().signal},config:{mode:'global',approval:{...approvalDefaults,rules:'nano',globalRoot:'/tmp'}},sources:{transcript:async()=>'COMPLETE_HUMAN_EVIDENCE'},inherited:[],reviewer:{provider:'unchanged-provider',model:'unchanged-reviewer'}} as any);
+  expect(result.decision.behavior).toBe('deny');
+  expect(calls).toHaveLength(2);
+  for(const call of calls){
+    expect(call).toMatchObject({provider:'unchanged-provider',model:'unchanged-reviewer',reasoningEffort:expected});
+    expect(call.messages[0].content[0].text).toContain('COMPLETE_HUMAN_EVIDENCE');
+  }
+});

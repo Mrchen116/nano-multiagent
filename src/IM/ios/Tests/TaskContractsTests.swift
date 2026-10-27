@@ -3,14 +3,21 @@ import Testing
 @testable import NanoIM
 
 struct TaskContractsTests {
-    @Test func sixStatesKeepPausedAndClosedDistinctFromCompletion() throws {
+    @Test func sevenStatesKeepWaitingOngoingAndClosedDistinctFromCompletion() throws {
         #expect(taskStatus("in_review") != "in_review")
         #expect(taskStatus("closed") != "closed")
         #expect(taskGroupContains("todo", status: "paused"))
+        #expect(taskGroupContains("doing", status: "waiting"))
+        #expect(taskStatus("waiting") != "waiting")
         #expect(!taskGroupContains("done", status: "closed"))
         let graph = try fixture()
         let root = try #require(graph.nodes.first)
-        #expect(root.status == "doing")
+        #expect(root.status == "waiting")
+        #expect(root.wait?.reason == "Await approval, then resume purchase")
+        #expect(root.wait_health?.state == "unknown")
+        let patch = TaskDraft(node: root).operations(node: root, parentID: nil)[0]["patch"]
+        #expect(patch["status"] == .string("waiting"))
+        #expect(patch["wait"] == .null)
         #expect(root.direct_counts?.done == 1)
         #expect(root.direct_counts?.closed == 1)
         #expect(root.direct_counts?.total == 3)
@@ -103,7 +110,7 @@ struct TaskContractsTests {
     }
 
     private func fixture() throws -> TaskGraph {
-        let json = #"{"schema_version":2,"graph_id":"tg_one","root_node_id":"n1","revision":3,"created_at":"now","updated_at":"now","updated_by":"User","relative_url":"/tasks/tg_one","dependencies":[],"conversation":{"id":"chat","title":"Group","visibility":"public","is_member":false,"can_write":false},"nodes":[{"id":"n1","container_id":null,"title":"Root","description":"","mode":"dag","status":"doing","result":"","selection_reason":"","links":[],"order":0,"created_at":"now","updated_at":"now","updated_by":"User","created_by":{"type":"user","id":"creator"},"assignee":{"type":"agent","id":"worker","display_name":"Worker","user_id":"agent-user"},"can_edit":false,"can_claim":false,"can_delete":false,"direct_counts":{"todo":0,"doing":0,"in_review":0,"done":1,"paused":1,"closed":1,"total":3}}]}"#
+        let json = #"{"schema_version":2,"graph_id":"tg_one","root_node_id":"n1","revision":3,"created_at":"now","updated_at":"now","updated_by":"User","relative_url":"/tasks/tg_one","dependencies":[],"conversation":{"id":"chat","title":"Group","visibility":"public","is_member":false,"can_write":false},"nodes":[{"id":"n1","container_id":null,"title":"Root","description":"","mode":"dag","status":"waiting","wait":{"reason":"Await approval, then resume purchase","schedule_id":"schedule","owner_agent_id":"worker","session_id":"session","next_check_at":"2026-10-22T12:00:00Z"},"wait_health":{"state":"unknown","checked_at":"2026-10-22T11:00:00Z","reason_code":"node_unavailable"},"result":"","selection_reason":"","links":[],"order":0,"created_at":"now","updated_at":"now","updated_by":"User","created_by":{"type":"user","id":"creator"},"assignee":{"type":"agent","id":"worker","display_name":"Worker","user_id":"agent-user"},"can_edit":false,"can_claim":false,"can_delete":false,"direct_counts":{"todo":0,"doing":0,"waiting":0,"in_review":0,"done":1,"paused":1,"closed":1,"total":3}}]}"#
         return try JSONDecoder().decode(TaskGraph.self, from: Data(json.utf8))
     }
 }

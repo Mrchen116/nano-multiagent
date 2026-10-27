@@ -17,20 +17,31 @@
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
+| 理解 Feature 完整依赖、独立工具开关和关闭保护 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md) → [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
+| 理解 Memory/Skill 知识归属、联合复盘与非 Global 跨会话 F4 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；复盘展示见 [`specs/im/agent-work.md`](specs/im/agent-work.md) |
+| 理解所有 Agent 默认无摘要换窗、历史恢复与显式回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；插件操作见 [compaction 指导](../packages/personal-assistant/assets/skills/nano-plugin-development/references/compaction.md) |
 | 让 Agent 开发 workspace 插件、查询当前 API 与验证实际效果 | [随包插件开发 Skill](../packages/personal-assistant/assets/skills/nano-plugin-development/SKILL.md)；产品边界见 [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md) |
 | 更新已安装的电脑端、处理一次性旧版过渡或失败恢复 | [`operations/gateway.md`](operations/gateway.md#更新已安装的电脑端) |
-| 查看讨论后保存的任务图及 Agent 工具契约 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
+| 查看任务图、持续推进、一小时内等待复查与固定聊天反馈 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择生命周期或实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
+| 编写或执行 unit 的一次性部署迁移提示词 | [`deployment-prompt.md` 约定](changes/README.md#一次性部署提示词) → [部署检查与执行](../.claude/skills/prod-fleet-deploy/references/runbook.md#unit-部署提示词) |
 | 提报 GitHub Issue、分诊和维护标签 | [`development/issues.md`](development/issues.md) |
+| 查已放弃或被后续架构取代的 change unit | [`changes/retired/`](changes/retired/README.md)；退役原因与当前入口以该索引为准 |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
+| 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
+| 设计或审查 Agent 实际消费的 Prompt、Skill、工具、消息、Memory 与历史链路 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
+| 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [`product-tryout`](../.claude/skills/product-tryout/SKILL.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
+| 生产 Tunnel QUIC/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
+| 配置两机普通公网代理与本地直连 | [生产出口](operations/prod-fleet.md#公网代理出口)；执行 [部署操作单](../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理) |
 | 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
+| 复用固定 P/E/Q + PA 阵容、模型与审核规则验收新需求 | [固定日常验收模板](development/worktree-runtime.md#固定日常验收模板) |
 | 旧 Python 节点迁移到 DSH | [`operations/dsh-migration.md`](operations/dsh-migration.md) |
 | 首次升级会话归属与任务协作数据 | [feat-584 迁移 guidance](changes/archive/feat-584-task-progress-permissions/migration-guidance.md)；备份后显式映射旧任务 |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
@@ -61,6 +72,7 @@
 | 首次升级 PA workspace/global home 目录 | [`operations/pa-workspace-layout-migration.md`](operations/pa-workspace-layout-migration.md) | 两机一次性、无覆盖的人工迁移 prompt |
 | LLM provider、本地代理与交互日志如何联调 | [`development/llm-integration.md`](development/llm-integration.md) | 模型与代理入口 |
 | 仓库代码应遵守哪些编写规范 | [`development/coding-guidelines.md`](development/coding-guidelines.md) | 跨模块通用编码规范；当前包含注释与 docstring |
+| 模型可见 Context 如何设计及验证 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) | 跨 Surface 的唯一通用设计方法；审查程序在 agent-context-review，观测操作在 llm-integration |
 | Agent 开始任务前必须知道什么 | [`../AGENTS.md`](../AGENTS.md) | 仓库级指令、关键入口与运行约束 |
 | Agent-Native 仓库知识体系如何设计和维护 | [`development/documentation-system.md`](development/documentation-system.md) | 已经本仓迁移与真实 Agent 任务验证；证据来源见 research |
 | 长期 Agent 评测资产、物化方法和实验协议放在哪里 | [`../evals/`](../evals/README.md) | 与产品测试和 change unit 分离；候选仓不包含控制资产 |

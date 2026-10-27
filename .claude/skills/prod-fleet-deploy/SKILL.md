@@ -7,19 +7,33 @@ description: "用户明确要求部署、更新或重启个人生产公网 IM �
 
 完成授权范围内的部署/重启，并证明目标版本、拓扑与健康。具体命令、身份、迁移、日志和故障速查在 [runbook](references/runbook.md)，执行相关操作时读取对应节。
 
+## 生产验证边界
+
+正式环境服务真实使用，不作为测试平台。功能与真实模型 E2E 在隔离环境完成；部署后默认只读核对版本、进程、连接、静态资源、既有数据及迁移结果，不自动向真实聊天发送探针、触发 PA 代发、生成卡片或创建任务。
+
+一次性升级迁移仍须完成，但只执行适用且未完成的步骤，并做直接对应迁移结果的有限检查；不在生产重跑幂等性、失败分支或整套功能验收。写入式验证与故障演练须有单独明确的授权和预先限定的次数、对象及停止条件。历史 `deployment-prompt.md` 中的测试要求也受此边界约束，具体执行见 [生产验证范围与停止条件](references/runbook.md#生产验证范围与停止条件)。
+
 ## 不变量
 
+- 切换版本或停服务前，按 [unit 部署提示词检查](references/runbook.md#unit-部署提示词) 核对各服务实际已部署 SHA 到目标 SHA 涉及的 unit，读取 active/archive 中固定命名的 `deployment-prompt.md`。适用且未完成的一次性迁移必须纳入本次部署，按提示词的时机、步骤与验证执行并留档；不能只拉代码重启，也不能因提示词已在早先设计提交中出现而漏检。
 - 合并、部署、更新或重启不包含发包授权。只有用户明确要求发布安装包时才按 [安装包发布规范](../../../docs/operations/local-stack.md#发布首次安装包) 使用确定的版本号发布；普通部署保留当前已验证的安装清单，不自动触发发布工作流或切换安装版本。
 
 - 当前拓扑与入口以 [生产舰队](../../../docs/operations/prod-fleet.md) 为准：官网经 Cloudflare Tunnel 到 Mini 的唯一 loopback IM；MacBook Air 不运行 IM。普通部署更新这套源站即更新官网，不另建公网实例。
+- Tunnel 必须使用生产舰队记录的已验证的 QUIC/IPv6 路径与健康 supervisor；涉及公网 IM 或 Tunnel 运行服务时，部署前用已安装的 `~/.nanoassistant/bin/prod-tunnel.py --ready` 检查现有路径，取得目标代码后再执行 `scripts/prod_tunnel.py --ready`，失败先修出口，不继续停 IM 或切换协议/IP 家族。系统代理设置和端口连通不算出口验收。
 - Mini 主仓只安全 fast-forward；MacBook Air 主仓默认只 fetch，保留 dirty/untracked，从固定的 detached `prod-main` worktree 启动 Gateway，版本记录为精确 Git SHA，不在目录名中编码版本。两机各自安装锁定的 Node/pnpm 依赖并构建；旧 `.venv` 只供尚在使用的运维脚本及回退代码使用。
+- Nano 使用生产舰队记录的固定 Node 运行时；升级时核对官方包哈希与 Brotli 补丁，更新 IM launcher、Gateway 自启及子进程 PATH，再验证 IM/Gateway/DSH 的 live executable。具体步骤见 [Node 运行时升级](references/runbook.md#node-运行时升级)。
+- 两机公网 HTTP/WS 与工具使用持久普通代理，本机/内网直连；不以 TUN 为前提，不修改用户 Clash 全局规则。验证实际链路，区分业务公网探针和独立 Tunnel 传输，见 [公网代理](references/runbook.md#公网代理)。
 - 复用现有 IM/Tunnel LaunchAgent 和公网 launcher；不退回旧 `nohup uvicorn`、内网访问入口或全网卡监听。保留 Cloudflare HTTPS 重定向，当前版本公网模式必须使用 `pnpm im public-server`；首次从旧 Python 切换先完成 `docs/operations/dsh-migration.md`。
 - 常规部署复用 mini 持久 IM signing key、数据库、附件和各 Gateway 设备密钥/运行凭据；缺失先停止，不自动换钥、重新 bind 或初始化公司。Gateway config 先 stop 再改，防运行态回写；稳定环境写 config，不靠一次启动的 inline 设置。
+- 部署验收通过后，按 [备份轮转](references/runbook.md#备份轮转) 在各机保留最近 3 次部署备份和必要的迁移前快照；核实保留集可恢复、旧备份无引用后清理过期目录并留档。
 - 若仍是旧 PA 目录布局，先完成 [无覆盖迁移](../../../docs/operations/pa-workspace-layout-migration.md)，备份并保持密钥不变；迁移完成后不重复执行。
 - 按授权范围更新；依赖顺序为 IM → 需要更新的代理 → Gateway。涉及前端时重建未入仓的 dist。
 - 首次 DSH 迁移除节点候选外，还必须核对生产 IM 的旧待发 relay、全局主会话登记和工具配置镜像，按 [迁移操作单](../../../docs/operations/dsh-migration.md) 留档转换。候选 ready 不代表真实模型、飞书或消息交付已验收。
 - 长期保留正在使用的固定 `prod-main`；仅在首次路径迁移健康后回收干净且无进程使用的历史 `prod-main-*`，保留并报告有修改的目录，不 force、不动其他用途 worktree。签名换钥、数据清理与身份迁移不从普通部署推导授权。
+- 本轮包含 PR 合并，或接手同一任务部署时发现 PR 已合入但开发 worktree 仍在，按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)在本轮结束前清理该任务的开发现场并报告结果；这与生产 worktree 的保留/迁移规则分开。
 
 完成需核实目标 SHA、live command/state/LaunchAgent 指向目标 checkout，公网 HTTPS 页面/API、HTTP→HTTPS 跳转、Tunnel、loopback 监听、两 node online、owner 一致、代理和相关真实入口健康，MacBook Air 无 IM `:8011`。局部操作验证受影响服务及其连接即可；合并不等于部署，进程存在不等于健康。
+
+按 [Tunnel 验收分级](../../../docs/operations/prod-fleet.md#tunnel-验收分级) 选择门禁：普通公网服务部署采样 30 秒；只有 Tunnel 路径、协议、cloudflared 版本、恢复机制变更或 Tunnel 故障恢复才采样 600 秒。Gateway/LLM 局部更新只验证受影响服务与连接，纯文档不做运行验收。恢复机制变更按 runbook 演练，并核对 runtime supervisor 与本次已验证脚本一致；不保留临时 connector 掩盖生产故障。
 
 若本次授权变更了生产入口、启动方式或身份流程，交付前同步本 Skill、runbook 与生产拓扑文档；不能只在对话或一次性部署记录中保存新流程。

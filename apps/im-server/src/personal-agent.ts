@@ -1,6 +1,8 @@
+import { lifecycle, lifecycleAllows } from './agent-lifecycle.js';
+import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
-import { isInteractiveStringState } from './interactive-source.js';
-import { randomUUID } from 'node:crypto';
+import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
+import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, fail, body, params, transaction, type Row, type ImContext } from './context.js';
 import { conversationAccess } from './conversation-access.js';
@@ -123,9 +125,10 @@ export class PersonalAgents {
     const reply=message.interaction_reply_json?JSON.parse(message.interaction_reply_json):message.interaction_reply;
     return [...new Set([...this.ctx.messaging.mentionedAgents(message.conversation_id,message.content),...(reply?.agent_id?[reply.agent_id]:[])])];
   }
+  private representedBy(id:string):string|undefined {return one(this.db,'SELECT agent_id FROM pa_delegated_messages WHERE message_id=? AND representation_operation_id IS NOT NULL',id)?.agent_id;}
   private directOwnerMessage(b:Row,message:Row):boolean {
     const facts=this.sourceFacts(b,message);
-    return facts.is_owner && facts.delivery==='participant' && (facts.conversation_type==='direct' && this.ownerConversation(b,message.conversation_id)
+    return !this.representedBy(message.id) && facts.is_owner && facts.delivery==='participant' && (facts.conversation_type==='direct' && this.ownerConversation(b,message.conversation_id)
       || facts.conversation_type==='group' && this.addressedAgents(message).includes(b.agent_id));
   }
   /** Project the same original facts for authorization and disclosure evidence.
@@ -141,6 +144,7 @@ export class PersonalAgents {
     return {id:message.id,conversation_id:message.conversation_id,...facts,
       sender:{id:message.sender_user_id,name:original.sender.display_name,type:message.sender_type,is_owner:facts.is_owner,
         ...(message.sender_source_id?{source_id:message.sender_source_id}:{})},
+      ...(original.pa_agent_id?{pa_agent_id:original.pa_agent_id}:{}),
       content:message.content,created_at:message.created_at,attachments:original.attachments,
       ...(original.interaction_reply?{interaction_reply:original.interaction_reply}:{}),
       ...(original.interactive?{interactive:original.interactive}:{})};
@@ -175,7 +179,7 @@ export class PersonalAgents {
   }
   admitSource(principal: Row, args: Row) {
     const b=this.authority(principal,args),m=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',args.source_message_id,args.conversation_id);
-    if(!m || !this.messageAllowed(b,m)) return {allowed:false};
+    if(!m || this.representedBy(m.id)===b.agent_id || !this.messageAllowed(b,m)) return {allowed:false};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
     return {allowed:true,...this.sourceFacts(b,m),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
@@ -195,16 +199,17 @@ export class PersonalAgents {
     this.wake(b);
     return this.policy(b.binding_id);
   }
-  wake(b: Row) { this.ctx.gateway.send(b.node_id,{type:'pa.observations.available',payload:{agent_id:b.agent_id,binding_id:b.binding_id,epoch:b.node_epoch}}); }
+  wake(b: Row) { const state=lifecycle(this.db,b.agent_id);if(state.desired==='enabled')this.ctx.gateway.send(b.node_id,{type:'pa.observations.available',payload:{agent_id:b.agent_id,binding_id:b.binding_id,epoch:b.node_epoch,lifecycle_revision:state.revision}}); }
   observations(principal: Row,args:Row) {
     const b=this.authority(principal,args), policy=this.policy(b.binding_id);
     const items:Row[]=all(this.db,"SELECT * FROM pa_source_events WHERE binding_id=? AND state IN ('pending','received') ORDER BY event_id",b.binding_id)
+      .filter(e=>lifecycleAllows(this.db,b.agent_id,JSON.parse(e.payload_json).lifecycle_revision))
       .filter(e=>!e.conversation_id || this.sourceAllowed(b,e.conversation_id))
       .filter(e=>!e.message_id || this.messageAllowed(b,one(this.db,'SELECT * FROM messages WHERE id=?',e.message_id)!))
       .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>{
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
-        return {...e,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
+        return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
           ...(message?{mentioned_agent_ids:this.addressedAgents(message)}:{}),payload:JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
@@ -226,11 +231,26 @@ export class PersonalAgents {
     if(!m || !this.directOwnerMessage(b,m) || !this.messageAllowed(b,m)) fail(403,'direct_owner_evidence_required');
     return this.messageEvidence(b,m);
   }
+  /** Detect changes to original owner constraints without exporting their history.
+   *
+   * Args:
+   *   b: Authenticated personal binding.
+   * Returns:
+   *   Fingerprint of currently accessible direct owner messages, not authorization.
+   */
+  authorizationGuard(b:Row):string {
+    const hash=createHash('sha256');
+    for(const row of this.db.prepare("SELECT * FROM messages WHERE sender_user_id=? AND sender_type='user' ORDER BY rowid").iterate(b.owner_user_id)) {
+      const message=row as Row;
+      if(this.directOwnerMessage(b,message)&&this.messageAllowed(b,message))hash.update(JSON.stringify(this.messageEvidence(b,message))+'\n');
+    }
+    return hash.digest('hex');
+  }
   /** Return original owner inputs and their published UI context; private drafts are not authorization. */
   authorization(principal: Row, args: Row) {
     const b = this.authority(principal,args);
     const messages = all(this.db,"SELECT * FROM messages WHERE sender_user_id=? AND sender_type='user' ORDER BY rowid",b.owner_user_id)
-      .filter(m=>this.sourceFacts(b,m).is_owner && this.messageAllowed(b,m));
+      .filter(m=>!this.representedBy(m.id) && this.sourceFacts(b,m).is_owner && this.messageAllowed(b,m));
     const conversationIds=[...new Set(messages.map(m=>m.conversation_id))];
     const conversations=conversationIds.map(id=>{
       const chat=one(this.db,'SELECT id,title,type,external_source FROM conversations WHERE id=?',id)!;
@@ -243,29 +263,6 @@ export class PersonalAgents {
       proposals:conversationIds.flatMap(id=>all(this.db,'SELECT m.id,m.conversation_id,m.content,m.created_at,i.source,i.superseded_by FROM messages m JOIN message_interactive i ON i.message_id=m.id WHERE m.conversation_id=? AND m.sender_user_id=? ORDER BY m.rowid',id,this.ctx.messaging.agentUser(b.agent_id).id))};
   }
 
-  /** Validate a draft's original chat and declared state field without treating it as send permission. */
-  validateReplyDraft(conversationId:string,senderId:string,input:Row,interactiveSource?:string):Row {
-    const b=one(this.db,"SELECT b.* FROM personal_agent_bindings b JOIN users u ON u.username='agent:'||b.agent_id WHERE u.id=? AND b.conversation_id=?",senderId,conversationId);
-    const source=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',input?.source_message_id??'',input?.target_conversation_id??'');
-    if(!b||!source||!conversationAccess(this.db,source.conversation_id,b.owner_user_id)?.can_write||!this.sourceAllowed(b,source.conversation_id))fail(422,'invalid_reply_draft');
-    if(typeof input.field_name!=='string'||!interactiveSource||!isInteractiveStringState(interactiveSource,input.field_name))
-      fail(422,'invalid_reply_draft: field_name must name a declared top-level string state including $, for example $draft, not the TextArea name');
-    return {target_conversation_id:source.conversation_id,source_message_id:source.id,field_name:input.field_name};
-  }
-  /** Bind navigation metadata only; 617 owns all editable draft content. */
-  recordReplyDraft(messageId:string,input:Row):void {
-    const m=one(this.db,'SELECT * FROM messages WHERE id=?',messageId)!;
-    const interactive=one(this.db,'SELECT source FROM message_interactive WHERE message_id=?',messageId);
-    const draft=this.validateReplyDraft(m.conversation_id,m.sender_user_id,input,interactive?.source);
-    this.db.prepare('INSERT INTO pa_reply_drafts VALUES(?,?,?,?)').run(messageId,draft.target_conversation_id,draft.source_message_id,draft.field_name);
-  }
-  replyDraft(messageId:string):Row|undefined {
-    const draft=one(this.db,'SELECT d.*,m.conversation_id FROM pa_reply_drafts d JOIN messages m ON m.id=d.message_id WHERE d.message_id=?',messageId);
-    if(!draft)return;
-    const b=one(this.db,'SELECT owner_user_id FROM personal_agent_bindings WHERE conversation_id=?',draft.conversation_id);
-    const stale=!!b&&!!one(this.db,"SELECT 1 FROM messages WHERE conversation_id=? AND sender_user_id=? AND sender_type='user' AND rowid>(SELECT rowid FROM messages WHERE id=?) LIMIT 1",draft.target_conversation_id,b.owner_user_id,draft.source_message_id);
-    return {target_conversation_id:draft.target_conversation_id,source_message_id:draft.source_message_id,field_name:draft.field_name,possible_stale:stale};
-  }
   incidents(owner:string) {
     const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
   }
@@ -305,7 +302,7 @@ export class PersonalAgents {
       case 'pa.incident.report': return this.incident(principal,args);
       case 'pa.action.prepare': return this.actions.prepare(principal,args);
       case 'pa.action.review-result': return this.actions.review(principal,args);
-      case 'pa.action.commit': return this.actions.commit(principal,args);
+      case 'pa.action.commit': return this.actions.commitChecked(principal,args);
       case 'pa.action.complete': return this.actions.complete(principal,args);
       default: fail(400,'unsupported_personal_operation');
     }
@@ -343,7 +340,9 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
         const tools=[...new Set([...catalog.tools.filter((tool:Row)=>tool.default_on||tool.name==='send_message').map((tool:Row)=>tool.name),'personal_sources'])];
-        await ops.create({agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,custom_prompt:personalAgentDefaultInstructions,features:{cron_scheduling:true,task_graph:true,memory_curation:true,heartbeat:true,skill_creation:true},skills:[],tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null},u.owner_id,b.node_id);
+        let candidate={agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,custom_prompt:personalAgentDefaultInstructions,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
+        for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
+        await ops.create(candidate,u.owner_id,b.node_id);
       }
       transaction(ctx.db,()=>{
         const agentUser=ctx.messaging.agentUser(b!.agent_id);
@@ -362,14 +361,26 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
     await ops.serialized(b.agent_id,async()=>{
       await ops.recover(b.agent_id,u.owner_id);
       const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',b.agent_id)!;
+      requireSettingsNodeOnline(ctx,profile);
       await ops.update(profile,{...profileResponse(profile,true),display_name:name.trim()},u.owner_id);
     });
     return pa.state(u.owner_id);
   });
-  app.patch('/im/v1/personal-agent/policy',req=>pa.updatePolicy(user(req).owner_id,body(req)));
+  const settingsOwner = (req: import('fastify').FastifyRequest) => {
+    const u=user(req), binding=pa.binding(u.owner_id);
+    if (!binding) fail(404,'personal_agent_not_found');
+    const profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=? AND owner_id=? AND node_id=? AND is_stale=0',binding.agent_id,u.owner_id,binding.node_id);
+    if (!profile) fail(404,'personal_agent_not_found');
+    ctx.identity.requireSpace(u,profile.space_id);
+    const current=one(ctx.db,'SELECT owner_id,node_epoch FROM node_binding_state WHERE node_id=?',binding.node_id);
+    if (current?.owner_id !== u.owner_id || current.node_epoch !== binding.node_epoch) fail(404,'personal_agent_not_found');
+    requireSettingsNodeOnline(ctx,profile);
+    return u.owner_id;
+  };
+  app.patch('/im/v1/personal-agent/policy',req=>pa.updatePolicy(settingsOwner(req),body(req)));
   app.get('/im/v1/personal-agent/sources',req=>{const b=pa.binding(user(req).owner_id);return {policy:b?pa.policy(b.binding_id):null,items:b?pa.sourceConversations(b):[]};});
   app.get('/im/v1/personal-agent/blocked-contacts',req=>pa.blockedContacts(user(req).owner_id));
-  app.delete('/im/v1/personal-agent/blocked-contacts/:actorId',req=>pa.unblockContact(user(req).owner_id,params(req).actorId));
+  app.delete('/im/v1/personal-agent/blocked-contacts/:actorId',req=>pa.unblockContact(settingsOwner(req),params(req).actorId));
   app.get('/im/v1/personal-agent/incidents',req=>pa.incidents(user(req).owner_id));
   app.post('/im/v1/personal-agent/incidents/:id',req=>{
     const b=pa.binding(user(req).owner_id);if(!b)fail(404,'personal_agent_not_found');

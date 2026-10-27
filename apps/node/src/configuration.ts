@@ -1,3 +1,4 @@
+import {validateCapabilities} from '@nano/product-contracts/capabilities';
 import { readFileSync } from 'node:fs';
 import { readFile, open, rename, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -45,6 +46,16 @@ export class NodeConfiguration {
     return agent ? canonicalAgentConfiguration({ ...agent, display_name: agent.title ?? agent.display_name ?? agent.agent_id,
       skills: agent.skills ?? [], heartbeat_json: agent.heartbeat ? JSON.stringify(agent.heartbeat) : null }) : undefined;
   }
+  /** Return the cached policy inherited by this workspace before Agent overrides.
+   * Args:
+   *   workspace: Agent workspace used by runtime configuration.
+   * Returns:
+   *   A copy of the inherited approval configuration.
+   */
+  inheritedApproval(workspace: string) {
+    if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(this.ownerRoot, workspace));
+    return { ...this.policies.get(workspace)! };
+  }
   runtime(agent: LocalAgent | CanonicalAgentConfiguration): AgentConfiguration {
     const model = agent.default_model || this.value.llm.default_model;
     const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
@@ -55,8 +66,7 @@ export class NodeConfiguration {
     const policy = String(agent.group_reply_policy ?? 'manual').toLowerCase();
     const canonical = canonicalAgentConfiguration(agent);
     const workspace = agent.workspace_root!;
-    if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(this.ownerRoot, workspace));
-    const approval = { ...this.policies.get(workspace)! };
+    const approval = this.inheritedApproval(workspace);
     if (canonical.approval_mode !== null) approval.rules = canonical.approval_mode === 'cc' ? 'nano' : 'codex';
     let evolution: Record<string, unknown> = {};
     try { evolution = (load(readFileSync(join(workspace, '.nanoassistant', 'config.yaml'), 'utf8')) as { self_evolution?: Record<string, unknown> })?.self_evolution ?? {}; }
@@ -103,8 +113,12 @@ export class NodeConfiguration {
     if (previous && previous.work_mode !== candidate.work_mode) throw new Error('Work mode is immutable');
     const workspace = candidate.workspace_root || previous?.workspace_root || this.defaultWorkspace(candidate.agent_id);
     if (previous?.work_mode === 'global' && resolve(workspace) !== resolve(previous.workspace_root!)) throw new Error('Global Agent workspace is immutable');
+    const invalid = validateCapabilities(candidate);
+    if (invalid.length) throw Object.assign(new Error('Invalid capability dependencies'), {error_code: 'invalid_capability_dependencies', blocks: invalid});
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);
+    // Runtime preparation mounts this directory before the configuration is committed.
+    await mkdir(resolved.workspace_root, { recursive: true });
     return resolved;
   }
   persist(candidate: CanonicalAgentConfiguration): Promise<void> {

@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RelayInput } from '@nano/product-contracts';
-import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
+import { canonicalJson, formatLocalTime, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
 interface Background { last_notified_at: number | null; due_at: number | null; notified_through_seq: number; submitting_through_seq: number | null }
@@ -24,15 +25,39 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS wakes(agent_id TEXT PRIMARY KEY,watermark INTEGER);
       CREATE TABLE IF NOT EXISTS background_wakes(agent_id TEXT PRIMARY KEY,last_notified_at INTEGER,due_at INTEGER,notified_through_seq INTEGER DEFAULT 0,submitting_through_seq INTEGER);
       CREATE TABLE IF NOT EXISTS journal(seq INTEGER PRIMARY KEY,event_id TEXT UNIQUE,event TEXT);
+      CREATE TABLE IF NOT EXISTS work_checkpoints(session_id TEXT PRIMARY KEY,root_session_id TEXT NOT NULL,checkpoint TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS work_checkpoint_roots ON work_checkpoints(root_session_id);
+      CREATE TABLE IF NOT EXISTS work_recovery(root_session_id TEXT PRIMARY KEY,pending INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
       CREATE TABLE IF NOT EXISTS read_content(session_id TEXT,call_id TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
       CREATE TABLE IF NOT EXISTS targets(agent_id TEXT,target TEXT,name TEXT,PRIMARY KEY(agent_id,target));
       CREATE TABLE IF NOT EXISTS ingestions(seq INTEGER PRIMARY KEY,session_id TEXT,turn INTEGER);
       CREATE TABLE IF NOT EXISTS receipts(seq INTEGER PRIMARY KEY,status TEXT);
+      CREATE TABLE IF NOT EXISTS relay_receipts(id TEXT PRIMARY KEY,agent_id TEXT,message_id TEXT,input TEXT,status TEXT,confirmed INTEGER DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS relay_controls(agent_id TEXT,message_id TEXT,input TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
     `);
+    if(!(this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).some(c=>c.name==='agent_id'))this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
     this.db.prepare('INSERT OR IGNORE INTO metadata VALUES(?,?)').run('journal', randomUUID());
     this.journalId = (this.db.prepare('SELECT value FROM metadata WHERE key=?').get('journal') as { value: string }).value;
+  }
+  /** Read immutable admission data before deciding whether a transport duplicate is current. */
+  input(agentId:string,messageId:string):RelayInput|undefined {
+    const row=this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND message_id=?').get(agentId,messageId) as {payload:string}|undefined;
+    return row?JSON.parse(row.payload) as RelayInput:undefined;
+  }
+  /** Retire pending execution without deleting raw inbox, journal, receipts or ACK cursors. */
+  cancelAgent(agentId: string, sessionIds: string[] = []): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE inbox SET consumed=1 WHERE agent_id=?').run(agentId);
+      this.admitWake(agentId,this.watermark(agentId));
+      this.db.prepare('DELETE FROM background_wakes WHERE agent_id=?').run(agentId);
+      this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=?').run(agentId);
+      this.db.prepare("UPDATE publications SET state=CASE WHEN state='sending' THEN 'unknown' ELSE 'cancelled_by_disable' END WHERE agent_id=? AND state IN ('prepared','sending')").run(agentId);
+      for(const session of sessionIds)this.db.prepare("UPDATE publications SET state=CASE WHEN state='sending' THEN 'unknown' ELSE 'cancelled_by_disable' END WHERE agent_id IS NULL AND substr(id,1,?)=? AND state IN ('prepared','sending')").run(session.length+1,`${session}:`);
+      this.db.exec('COMMIT');
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
   /** Persist an input and its first background deadline together.
    * Args:
@@ -50,6 +75,59 @@ export class InboxStore {
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
+  /** Atomically accept an input, its receipt obligation, and any control intent.
+   * Args:
+   *   input: Authenticated relay envelope from the current node connection.
+   *   attention: Whether this already classified input needs a model notification.
+   *   control: Keep commands out of the model Inbox and recover them separately.
+   */
+  acceptRelay(input: RelayInput, attention: boolean, control = false): void {
+    const identity = (value: RelayInput) => canonicalJson({agent:value.agent_id,target:value.conversation_id,message:value.message});
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const previous = this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND message_id=?').get(input.agent_id,input.message.id) as {payload:string}|undefined;
+      if (previous && identity(JSON.parse(previous.payload)) !== identity(input)) throw new Error('Relay input identity conflict');
+      const receipt = this.db.prepare('SELECT input FROM relay_receipts WHERE id=?').get(input.relay_task_id) as {input:string}|undefined;
+      if (receipt && identity(JSON.parse(receipt.input)) !== identity(input)) throw new Error('Relay receipt identity conflict');
+      if (!previous) {
+        this.db.prepare(`INSERT INTO inbox(seq,agent_id,target,message_id,payload,attention,consumed) VALUES((SELECT max(
+          coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0),
+          coalesce((SELECT max(notified_through_seq) FROM background_wakes),0),coalesce((SELECT max(submitting_through_seq) FROM background_wakes),0))+1),?,?,?,?,?,?)`)
+          .run(input.agent_id,input.conversation_id,input.message.id,JSON.stringify(input),Number(attention),Number(control));
+        if (input.metadata.personal_delivery === 'observer') this.trackBackground(input.agent_id,Date.now());
+      }
+      this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status) VALUES(?,?,?,?,?)')
+        .run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),'sent');
+      // An identical redelivery requests the last durable receipt again.
+      this.db.prepare('UPDATE relay_receipts SET confirmed=0 WHERE id=?').run(input.relay_task_id);
+      if (control) this.db.prepare('INSERT OR IGNORE INTO relay_controls(agent_id,message_id,input) VALUES(?,?,?)').run(input.agent_id,input.message.id,JSON.stringify(input));
+      this.db.exec('COMMIT');
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
+  }
+  /** Return bounded receipt obligations without depending on runtime availability. */
+  pendingRelays(): {input:RelayInput;status:string}[] {
+    return (this.db.prepare('SELECT input,status FROM relay_receipts WHERE confirmed=0 ORDER BY rowid LIMIT 100').all() as {input:string;status:string}[])
+      .map(row=>({input:JSON.parse(row.input) as RelayInput,status:row.status}));
+  }
+  /** Advance all relay identities for a message without regressing a terminal receipt. */
+  settleRelay(input: RelayInput, status: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status) VALUES(?,?,?,?,?)').run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),status);
+    this.db.prepare("UPDATE relay_receipts SET status=?,confirmed=0 WHERE agent_id=? AND message_id=? AND status NOT IN ('completed','failed')")
+      .run(status,input.agent_id,input.message.id);
+  }
+  /** Close a revoked obligation without recording a remote acceptance. */
+  rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
+  confirmRelay(id: string, status: string): void {this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);}
+  pendingControls(): RelayInput[] {return (this.db.prepare('SELECT input FROM relay_controls WHERE done=0 ORDER BY rowid').all() as {input:string}[]).map(row=>JSON.parse(row.input) as RelayInput);}
+  /** Return a source-authorized ordinary PA message to the Inbox after command classification. */
+  demoteControl(input:RelayInput):void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('UPDATE inbox SET consumed=0 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);
+      this.finishControl(input);this.db.exec('COMMIT');
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
+  }
+  finishControl(input:RelayInput):void {this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);}
   private trackBackground(agent: string, now: number): void {
     // Old, already notified inputs must not become new background wakes after upgrade.
     this.db.prepare('INSERT OR IGNORE INTO background_wakes(agent_id,notified_through_seq) VALUES(?,coalesce((SELECT watermark FROM wakes WHERE agent_id=?),0))').run(agent,agent);
@@ -57,10 +135,11 @@ export class InboxStore {
   }
   /** Return unread legacy PA inputs that still require authenticated source facts. */
   unclassified(agent: string): RelayInput[] {
-    return this.entries(agent).map(row => JSON.parse(row.payload) as RelayInput).filter(input => input.metadata.personal_delivery === undefined);
+    return (this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND consumed=0').all(agent) as {payload:string}[]).map(row => JSON.parse(row.payload) as RelayInput).filter(input => input.metadata.personal_unclassified === true || input.metadata.personal_delivery === undefined);
   }
   /** Replace legacy admission facts without changing saved tool results or consumption. */
   classify(input: RelayInput, attention: boolean): void {
+    delete input.metadata.personal_unclassified;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('UPDATE inbox SET payload=?,attention=? WHERE agent_id=? AND message_id=?').run(JSON.stringify(input),Number(attention),input.agent_id,input.message.id);
@@ -117,7 +196,7 @@ export class InboxStore {
     this.db.prepare('DELETE FROM targets WHERE agent_id=? AND target=?').run(agent,target);
   }
   private entries(agent: string, target?: string): Entry[] {
-    return this.db.prepare('SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND (? IS NULL OR target=?) ORDER BY seq').all(agent, target ?? null, target ?? null) as unknown as Entry[];
+    return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
   }
   /** List unread sources; personal projection omits host scheduling state. */
   check(agent: string, personal = false) {
@@ -135,9 +214,13 @@ export class InboxStore {
   }
   blocking(agent: string, target: string): boolean { return this.entries(agent, target).some(row => !!row.attention); }
   watermark(agent: string): number { return Number((this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM inbox WHERE agent_id=? AND attention=1').get(agent) as { seq: number }).seq); }
+  /** Return only admitted unread work; consumed or unclassified inputs cannot restart a turn. */
+  unreadAttention(agent: string): number | undefined { return this.entries(agent).filter(row=>row.attention).at(-1)?.seq; }
+  /** Preserve the actual notification boundary even after some of its inputs were consumed or revoked. */
+  admittedWake(agent: string): number { return (this.db.prepare('SELECT watermark FROM wakes WHERE agent_id=?').get(agent) as {watermark:number}|undefined)?.watermark??0; }
   wakePending(agent: string): number | undefined {
     const latest = this.watermark(agent);
-    const admitted = (this.db.prepare('SELECT watermark FROM wakes WHERE agent_id=?').get(agent) as { watermark: number } | undefined)?.watermark ?? 0;
+    const admitted = this.admittedWake(agent);
     return latest > admitted ? latest : undefined;
   }
   admitWake(agent: string, watermark: number): void { this.db.prepare('INSERT INTO wakes VALUES(?,?) ON CONFLICT(agent_id) DO UPDATE SET watermark=max(watermark,excluded.watermark)').run(agent, watermark); }
@@ -191,7 +274,7 @@ export class InboxStore {
       const parts = this.parts(input, row.seq);
       const instant = input.message.created_at ?? input.metadata.created_at ?? input.metadata.source_time
         ?? (input.metadata.source_timestamp ? Number(input.metadata.source_timestamp) : undefined);
-      return { id: input.message.id, sender: { id: input.message.sender_user_id, type: input.message.sender_type,
+      return { id: input.message.id, ...(input.message.pa_agent_id?{pa_agent_id:input.message.pa_agent_id}:{}), sender: { id: input.message.sender_user_id, type: input.message.sender_type,
         name: input.message.sender?.display_name ?? input.metadata.sender_display_name ?? input.metadata.sender_name ?? input.message.sender_user_id,
         ...(personal ? {is_owner:input.metadata.personal_is_owner === true} : {}) }, time: instant === undefined ? null : formatLocalTime(instant as string | number, input.message.timezone),
         ...(!personal && input.metadata.channel ? {channel:input.metadata.channel} : {}),
@@ -278,16 +361,45 @@ export class InboxStore {
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return true;
   }
+  /** Read durable product processing positions for one root and its children. */
+  workCheckpoints(rootSessionId:string):Record<string,WorkCheckpoint> {
+    return Object.fromEntries((this.db.prepare('SELECT session_id,checkpoint FROM work_checkpoints WHERE root_session_id=?').all(rootSessionId) as {session_id:string;checkpoint:string}[])
+      .map(row=>[row.session_id,JSON.parse(row.checkpoint) as WorkCheckpoint]));
+  }
+  /** Commit display facts and their processing cut in one local transaction.
+   *
+   * Args:
+   *   sessionId: Execution whose own events were processed.
+   *   checkpoint: Position covered by the supplied projection facts.
+   *   events: Product facts carrying their stable source identities.
+   */
+  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:(Record<string,unknown>&{event_id:string})[]):void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for(const event of events)this.append(event);
+      this.db.prepare('INSERT INTO work_checkpoints VALUES(?,?,?) ON CONFLICT(session_id) DO UPDATE SET root_session_id=excluded.root_session_id,checkpoint=excluded.checkpoint WHERE checkpoint!=excluded.checkpoint')
+        .run(sessionId,checkpoint.rootSessionId,JSON.stringify(checkpoint));
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  /** Keep incomplete reconciliation visible across a Node crash. */
+  workPending(rootSessionId:string,pending:boolean):void {
+    this.db.prepare('INSERT INTO work_recovery VALUES(?,?) ON CONFLICT(root_session_id) DO UPDATE SET pending=excluded.pending WHERE pending!=excluded.pending').run(rootSessionId,Number(pending));
+  }
+  get workProcessingPending():boolean {return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 LIMIT 1').get();}
   append(event: Record<string, unknown> & { event_id: string }): void {
     if (this.db.prepare('SELECT 1 FROM journal WHERE event_id=?').get(event.event_id)) return;
     const seq = (this.db.prepare('SELECT coalesce(max(seq),0)+1 AS seq FROM journal').get() as { seq: number }).seq;
     this.db.prepare('INSERT INTO journal VALUES(?,?,?)').run(seq, event.event_id, JSON.stringify({ ...event, seq }));
   }
-  journal(after: number): Record<string, unknown>[] { return (this.db.prepare('SELECT event FROM journal WHERE seq>? ORDER BY seq LIMIT 100').all(after) as { event: string }[]).map(row => JSON.parse(row.event) as Record<string, unknown>); }
+  journal(after: number, limit = 100): Record<string, unknown>[] { return (this.db.prepare('SELECT event FROM journal WHERE seq>? ORDER BY seq LIMIT ?').all(after,limit) as { event: string }[]).map(row => JSON.parse(row.event) as Record<string, unknown>); }
+  get journalSeq(): number {return Number((this.db.prepare('SELECT coalesce(max(seq),0) seq FROM journal').get() as {seq:number}).seq);}
   get throughSeq(): number { return Number((this.db.prepare('SELECT value FROM metadata WHERE key=?').get('through') as { value: string } | undefined)?.value ?? 0); }
   acknowledge(seq: number): void { this.db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('through', String(seq)); }
   publication(id: string): { target: string; body: string; state: string; result: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null } | undefined; }
-  preparePublication(id: string, target: string, body: string): void { this.db.prepare("INSERT OR IGNORE INTO publications VALUES(?,?,?,'prepared',NULL)").run(id, target, body); }
+  /** Read uncertain sends owned by this execution session without replaying them. */
+  pendingPublications(session: string): {id:string;target:string;body:string}[] { return this.db.prepare("SELECT id,target,body FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string}[]; }
+  preparePublication(id: string, target: string, body: string, agentId?: string): void { this.db.prepare("INSERT OR IGNORE INTO publications(id,target,body,state,result,agent_id) VALUES(?,?,?,'prepared',NULL,?)").run(id, target, body, agentId??null); }
   settlePublication(id: string, state: string, result?: unknown): void { this.db.prepare('UPDATE publications SET state=?,result=? WHERE id=?').run(state, result === undefined ? null : JSON.stringify(result), id); }
   close(): void { this.db.close(); }
 }

@@ -27,6 +27,8 @@ export interface CreatePersonalAgent {
 }
 const base = '/im/v1/personal-agent';
 export const getPersonalAgent = () => authFetchJson<PersonalAgentState>(base);
+/** Read PA settings with cancellation when the settings connection changes. */
+export const getPersonalAgentSettings = (signal?: AbortSignal) => authFetchJson<PersonalAgentState>(base, {signal});
 export const createPersonalAgent = (input: CreatePersonalAgent) => authFetchJson<PersonalAgentState>(base, {method: 'POST', body: JSON.stringify(input)});
 export const updatePersonalAgentPolicy = (input: Partial<Omit<PersonalAgentPolicy, 'revision'>> & {expected_revision: number}) => authFetchJson<PersonalAgentPolicy>(`${base}/policy`, {method: 'PATCH', body: JSON.stringify(input)});
 export const renamePersonalAgent = (display_name: string) => authFetchJson<PersonalAgentState>(base, {method:'PATCH',body:JSON.stringify({display_name})});
@@ -43,4 +45,6 @@ export interface BlockedPersonalContact {
   evidence: {id: string; reason: string; original: boolean; conversation_id: string; message_id: string | null}[];
 }
 export const getBlockedPersonalContacts = () => authFetchJson<{items: BlockedPersonalContact[]}>(`${base}/blocked-contacts`);
+/** Read settings contact restrictions with cancellation. */
+export const getBlockedPersonalContactSettings = (signal?: AbortSignal) => authFetchJson<{items: BlockedPersonalContact[]}>(`${base}/blocked-contacts`, {signal});
 export const unblockPersonalContact = (actorId: string) => authFetchJson<{ok: boolean}>(`${base}/blocked-contacts/${encodeURIComponent(actorId)}`, {method:'DELETE'});

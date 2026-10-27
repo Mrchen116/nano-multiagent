@@ -11,7 +11,6 @@ export interface ApprovalReviewRequest {
   sources: ApprovalSources;
   inherited: unknown[];
   messageContext?: MessageApprovalContext;
-  personalAuthorization?: unknown;
   reviewer: { provider: string; model: string };
   attemptSignal?: AbortSignal;
   children?: ReviewChild[];

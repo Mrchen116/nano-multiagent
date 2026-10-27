@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import type { AgentConfiguration, RelayInput, SessionBinding } from '@nano/product-contracts';
 import { NodeStore } from '../src/store.js';
+import { controlText } from '../src/attention.js';
 import { SessionControls, sessionControl } from '../src/session-controls.js';
 
 it('reserves command order and recovers the same result after delivery failed', async () => {
@@ -28,4 +29,11 @@ it('requires group addressing even under ALWAYS and preserves original command t
   expect(sessionControl(input,config)).toBeUndefined();
   input.metadata.mentioned_agent_ids=['a'];expect(sessionControl(input,config)).toEqual({action:'compact',argument:'保留认证方案'});
   input.message.sender_type='agent';expect(sessionControl(input,config)).toBeUndefined();
+});
+
+it('recognizes a directed stop only after the host-resolved target Agent mention',()=>{
+  const input={agent_id:'a',participants:[{type:'agent',id:'a',user_id:'agent-user',display_name:'A'}],message:{content:'<mention type="user" target_id="agent-user"/> /stop'}} as RelayInput;
+  expect(controlText(input)).toBe('/stop');
+  expect(controlText({...input,message:{...input.message,pa_agent_id:'pa'}})).toBe('');
+  expect(controlText({...input,message:{...input.message,content:'<mention type="user" target_id="other"/> /stop'}})).not.toBe('/stop');
 });

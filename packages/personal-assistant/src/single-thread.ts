@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
-import { needsAttention } from './attention.js';
+import { needsAttention, controlText } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
 import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
-interface RelayPort { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
-interface InputEvidence { accepted: boolean; turn?: number; terminal?: unknown }
+interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
+interface InputEvidence { accepted: boolean; pending?: boolean; turn?: number; terminal?: unknown }
 interface Options {
   nodeId: string;
   ownerId: string;
@@ -19,6 +19,7 @@ interface Options {
   relay: RelayPort;
   image: (url: string, agentId: string) => Promise<string>;
   onError: (error: unknown) => void;
+  taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
 
 /** Single-thread product routing; DSH remains the only model/turn scheduler. */
@@ -27,10 +28,14 @@ export class SingleThread {
   private readonly controls: SessionControls;
   private readonly draining = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
-  private readonly pendingApprovals = new Map<string, { sessionId: string; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
+  private readonly pendingApprovals = new Map<string, { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
-  private readonly streams = new Map<string, { sessionId: string; turn: number; chain: Promise<unknown> }>();
+  private readonly streams = new Map<string, BufferedStream>();
   constructor(private readonly options: Options) {
+    const relay=options.relay,runtime=options.runtime;
+    options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
+      runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
+    this.options=options;
     this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, value) => {
       const data = value as { sessionId: string; event?: RuntimeEvent };
@@ -44,6 +49,16 @@ export class SingleThread {
     });
   }
 
+  /** Discard local streaming and permission obligations for a disabled Agent. */
+  cancelAgent(agentId:string):void {
+    for(const [id,pending] of this.pendingApprovals)if(this.binding(pending.sessionId).agentId===agentId)this.pendingApprovals.delete(id);
+    for (const [id, stream] of this.streams) if (this.binding(stream.sessionId).agentId === agentId) {
+      clearTimeout(stream.timer);
+      stream.text = '';
+      this.streams.delete(id);
+    }
+    for(const sessionId of this.dirty)if(this.binding(sessionId).agentId===agentId)this.dirty.delete(sessionId);
+  }
   /** Covers reconciliation, output delivery and durable inputs still awaiting completion. */
   get busy(): boolean {
     return this.controls.busy || this.draining.size > 0 || this.dirty.size > 0 || this.streams.size > 0 || this.pendingApprovals.size > 0 ||
@@ -53,12 +68,16 @@ export class SingleThread {
 
   /** Store inbound content before acknowledging its durable runtime handoff. */
   async receive(input: RelayInput): Promise<void> {
+    input=this.options.store.admitInput(input);
+    return this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.receiveAdmitted(input));
+  }
+  private async receiveAdmitted(input: RelayInput): Promise<void> {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
     const control = sessionControl(input, config);
-    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(input.message.content.trim()) && !control;
-    if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(input.message.content.trim())) {
+    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(controlText(input)) && !control;
+    if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(controlText(input))) {
       store.bufferGroup(input);
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
       return;
@@ -71,18 +90,19 @@ export class SingleThread {
       ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision,
     });
     if (ownerDirect) store.markCanonical(binding);
-    if (input.message.sender_type === 'user' && ['/stop', '/new'].includes(input.message.content.trim())) {
+    if (input.message.sender_type === 'user' && ['/stop', '/new'].includes(controlText(input))) {
       const commandId = `${input.agent_id}:${input.message.id}`;
       let text = store.command(commandId);
       if (!text) {
-        await runtime.request('session.ensure', runtimeBinding(binding));
-        const result = await runtime.request('session.cancel', { sessionId: binding.sessionId }) as { wasRunning: boolean };
+        let result:{wasRunning:boolean;paused?:number};
+        if(controlText(input)==='/stop'&&this.options.taskStop)result=await this.options.taskStop(binding,input);
+        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean};}
         await this.reconcile(binding.sessionId);
-        if (input.message.content.trim() === '/new') {
+        if (controlText(input) === '/new') {
           store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);
           text = store.command(commandId)!;
         } else {
-          text = result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。';
+          text = result.paused ? `已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。` : result.wasRunning ? '已停止当前操作。' : '当前没有正在执行的操作。';
           store.saveCommand(commandId, text);
         }
       }
@@ -98,11 +118,15 @@ export class SingleThread {
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
     await runtime.request('session.ensure', runtimeBinding(binding));
-    for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted) await this.submit(binding, pending.input);
+    for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted && !pending.terminal) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
   }
 
   async background(sessionId: string, input: RelayInput): Promise<void> {
+    input=this.options.store.admitInput(input);
+    return this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.backgroundAdmitted(sessionId,input));
+  }
+  private async backgroundAdmitted(sessionId: string, input: RelayInput): Promise<void> {
     const binding=this.binding(sessionId);
     if(binding.agentId!==input.agent_id||binding.conversationId!==input.conversation_id)throw new Error('Background result belongs to another conversation');
     this.options.store.receive(sessionId,input);await this.options.runtime.request('session.ensure',runtimeBinding(binding));
@@ -110,6 +134,10 @@ export class SingleThread {
   }
 
   private async submit(binding: SessionBinding, input: RelayInput) {
+    if(!this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
+    return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision??1,()=>this.submitAdmitted(binding,input));
+  }
+  private async submitAdmitted(binding: SessionBinding, input: RelayInput) {
     const { store, runtime } = this.options;
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
@@ -139,7 +167,7 @@ export class SingleThread {
       }
       await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources: content.map((_, index) => imageSources.get(index) ?? null),
-        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, contextEnvelope },
+        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender}, ...(input.message.pa_agent_id?{pa_agent_id:input.message.pa_agent_id}:{}), contextEnvelope },
       });
     }
     store.accepted(inputId);
@@ -149,6 +177,7 @@ export class SingleThread {
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
   async heartbeatBinding(config: AgentConfiguration): Promise<SessionBinding> {
     const { store, runtime } = this.options;
+    store.lifecycle.assert(config.agentId);
     const binding = store.canonical(config.agentId) ?? store.bind({ sessionId: randomUUID(), agentId: config.agentId,
       conversationId: `owner:${this.options.ownerId}`, ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision });
     store.markCanonical(binding);
@@ -159,12 +188,15 @@ export class SingleThread {
   /** Durable history is replayed on reconnect; display notifications are just hints. */
   async recover(externalOnly = false): Promise<void> {
     for (const binding of this.options.store.bindings()) {
+      if(!this.options.store.lifecycle.allowed(binding.agentId))continue;
       if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
       if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
+      await this.options.store.lifecycle.run(binding.agentId,undefined,async()=>{
       await this.options.runtime.request('session.ensure', runtimeBinding(binding));
       await this.controls.recover(binding.agentId);
-      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted) await this.submit(binding, input.input);
+      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted && !input.terminal) await this.submit(binding, input.input);
       await this.reconcile(binding.sessionId);
+      });
     }
   }
 
@@ -173,12 +205,18 @@ export class SingleThread {
     const requestId = String(payload.request_id);
     const pending = this.pendingApprovals.get(requestId);
     if (!pending) throw new Error('Permission is no longer pending');
+    this.options.store.lifecycle.assert(this.binding(pending.sessionId).agentId,pending.revision);
     pending.decision = String(payload.decision);
     const decision = payload.decision === 'allow' || payload.decision === 'allow_once' ? 'allowed-once' : 'rejected';
     await this.options.runtime.request('approval.answer', { requestId, decision, ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}) });
   }
 
   private reconcile(sessionId: string): Promise<void> {
+    const agent=this.binding(sessionId).agentId;
+    if(!this.options.store.lifecycle.allowed(agent))return Promise.resolve();
+    return this.options.store.lifecycle.run(agent,undefined,()=>this.reconcileAdmitted(sessionId));
+  }
+  private reconcileAdmitted(sessionId: string): Promise<void> {
     this.dirty.add(sessionId);
     const active = this.draining.get(sessionId);
     if (active) return active;
@@ -197,12 +235,17 @@ export class SingleThread {
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
     store.recordEvents(sessionId, read.events);
     this.modelRuns.set(sessionId, read.modelRuns ?? []);
-    for (const input of store.inputs(sessionId)) {
-      const evidence = await runtime.request('session.lookup', { sessionId, inputId: input.id }) as InputEvidence;
-      store.inputEvidence(input.id, evidence);
+    for (const inputId of store.lookupInputIds(sessionId)) {
+      const evidence = await runtime.request('session.lookup', { sessionId, inputId }) as InputEvidence;
+      const run = read.modelRuns?.find(run => run.turn === evidence.turn || run.attempts.some(attempt => attempt.turn === evidence.turn));
+      // Only fresh logical evidence can settle an input. Receipt recovery below
+      // remains independent, and an older running observation delays finality.
+      const final = evidence.accepted && evidence.pending === false && evidence.terminal != null && (!run || run.state === 'completed');
+      store.inputEvidence(inputId, evidence, final);
     }
     const events = logicalEvents(store.events(sessionId), read.modelRuns ?? []);
     for (const input of store.inputs(sessionId)) {
+      if(!store.lifecycle.allowed(binding.agentId,input.input.lifecycle_revision??1) || input.terminal?.includes('cancelled_by_disable'))continue;
       if (input.turn === null) continue;
       const turn = input.turn;
       const run = read.modelRuns?.find(run => run.turn === turn);
@@ -218,21 +261,25 @@ export class SingleThread {
       if (run?.state === 'completed' && (run.terminal as { kind: string })?.kind !== 'completed' && !delivery.messageId && run.attempts.some(attempt => attempt.error)) {
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
-      const interactiveDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
-      if (end && interactiveDelivered) {
+      const explicitDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
+      const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
+      if (end && explicitDelivered && !approvalVisible) {
         const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as {content: {type: string; text?: string}[]} | undefined;
         if (last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim() === 'NO_REPLY') {
-          if (delivery.messageId) await this.delta({kind: 'message_discarded', message_id: delivery.messageId, reason: 'interactive_reply_delivered'});
+          if (delivery.messageId) await this.delta({kind: 'message_discarded', message_id: delivery.messageId, reason: 'explicit_reply_delivered'});
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
       const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
-      const heartbeatOnly = store.inputs(sessionId).filter(item => item.turn === turn).every(item => item.input.metadata.origin === 'heartbeat');
-      if (heartbeatOnly || group) {
-        if (!end && heartbeatOnly) continue;
+      const turnInputs=store.inputs(sessionId).filter(item=>item.turn===turn);
+      const automaticOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin))
+        || item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
+      const approvalPending=[...this.pendingApprovals.values()].some(p=>p.sessionId===sessionId&&!p.posted);
+      if (automaticOnly || group) {
+        if (!end && automaticOnly && !approvalPending && !approvalVisible) continue;
         const last = events.filter(event => event.type === 'assistant/message' && event.data.turn === turn).at(-1)?.data.message as { content: { type: string; text?: string }[] } | undefined;
         const text = last?.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('').trim();
-        if (end && ((heartbeatOnly && !text) || text === 'HEARTBEAT_OK' || text === 'NO_REPLY')) {
+        if (end && !approvalVisible && ((automaticOnly && !text) || text === 'HEARTBEAT_OK' || text === 'NO_REPLY')) {
           if (delivery.messageId) await this.delta({ kind: 'message_discarded', message_id: delivery.messageId, reason: 'silent_reply' });
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
@@ -269,7 +316,8 @@ export class SingleThread {
       const final = answers.at(-1);
       const message = final?.data.message as { id: string; content: { type: string; text?: string }[] } | undefined;
       const publication = this.publication(sessionId, turn);
-      const text = message?.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('') || publication?.confirmed || '';
+      const finalText = message?.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('') || publication?.confirmed || '';
+      const text=approvalVisible&&['NO_REPLY','HEARTBEAT_OK'].includes(finalText.trim())?'':finalText;
       const reason = end.data.reason as { kind: string };
       const completed = reason.kind === 'completed';
       if (!completed && !text && !publication && run?.attempts.some(attempt => attempt.error) && !events.some(event => event.type === 'tool/call' && event.data.turn === turn)) {
@@ -309,7 +357,7 @@ export class SingleThread {
   }
   /** Drain in-flight publication before the runtime chooses another model. */
   async modelCheck(request: { sessionId: string; turn: number }): Promise<{ published: boolean }> {
-    await Promise.all([...this.streams.values()].filter(stream => stream.sessionId === request.sessionId).map(stream => stream.chain));
+    await Promise.all([...this.streams.values()].filter(stream => stream.sessionId === request.sessionId).map(stream => this.flushStream(stream)));
     await this.reconcile(request.sessionId);
     // A lost publication acknowledgement is also ineligible for replay.
     return { published: !!this.options.store.command(`published:${request.sessionId}:${request.turn}`) };
@@ -336,8 +384,12 @@ export class SingleThread {
     }
   }
   private async approval(request: Approval) {
-    const pending: { sessionId: string; messageId: string; posted: boolean; decision?: string; outcome?: string } = {
-      sessionId: request.sessionId, messageId: '', posted: false,
+    const agentId=this.binding(request.sessionId).agentId;
+    return this.options.store.lifecycle.run(agentId,request.lifecycle_revision,()=>this.approvalAdmitted(request));
+  }
+  private async approvalAdmitted(request:Approval) {
+    const pending: { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string } = {
+      sessionId: request.sessionId, revision:this.options.store.lifecycle.assert(this.binding(request.sessionId).agentId), messageId: '', posted: false,
     };
     this.pendingApprovals.set(request.requestId, pending);
     await this.reconcile(request.sessionId);
@@ -346,6 +398,7 @@ export class SingleThread {
     const delivery = input?.turn === undefined || input.turn === null ? undefined : this.options.store.delivery(request.sessionId, input.turn);
     if (!delivery?.messageId) throw new Error('Approval has no product output binding');
     pending.messageId = delivery.messageId;
+    this.options.store.saveCommand(`task-approval-visible:${request.sessionId}:${input!.turn}`,'visible');
     const call = this.options.store.events(request.sessionId).find(event => event.type === 'tool/call' && event.data.callId === request.callId);
     await this.delta({ kind: 'permission_request', message_id: delivery.messageId, session_id: request.sessionId,
       agent_id: this.binding(request.sessionId).agentId, run_id: request.sessionId,
@@ -362,7 +415,7 @@ export class SingleThread {
     if (!pending) return;
     pending.outcome = result.outcome;
     if (!pending.posted) return;
-    await this.delta({ kind: 'permission_resolved', message_id: pending.messageId, request_id: result.requestId,
+    await this.delta({ kind: 'permission_resolved', message_id: pending.messageId, permission_request: {request_id:result.requestId},
       decision: pending.decision ?? (result.outcome === 'allowed-once' ? 'allow_once' : result.outcome === 'rejected' ? 'deny' : result.outcome),
       session_id: pending.sessionId, run_id: pending.sessionId, agent_id: this.binding(pending.sessionId).agentId });
     this.pendingApprovals.delete(result.requestId);
@@ -378,37 +431,83 @@ export class SingleThread {
     if (this.options.store.receipt(inputId) === status) return;
     if (!input.metadata.runtime_input_id) await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
     // /stop has no model input, so it has no input receipt row.
-    if (input.message.content.trim() !== '/stop') this.options.store.confirmReceipt(inputId, status);
+    if (controlText(input) !== '/stop') this.options.store.confirmReceipt(inputId, status);
   }
   private stream({ sessionId, frame }: Stream) {
     if (this.options.store.inputs(sessionId).some(input => input.input.metadata.conversation_type === 'group')) return;
     if (frame.type === 'start') {
-      this.streams.set(frame.attemptId, { sessionId, turn: frame.turn!, chain: this.reconcile(sessionId) });
+      this.streams.set(frame.attemptId, { sessionId, attemptId: frame.attemptId, turn: frame.turn!,
+        chain: this.reconcile(sessionId), text: '', flushing: false });
       return;
     }
     const stream = this.streams.get(frame.attemptId);
     if (!stream) return;
-    if (frame.type === 'end') { void stream.chain.finally(() => { this.streams.delete(frame.attemptId); void this.reconcile(sessionId).catch(this.options.onError); }); return; }
-    if (frame.chunk?.type !== 'text-delta') return;
-    stream.chain = stream.chain.then(async () => {
-      const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
-      const delivery = this.options.store.delivery(sessionId, turn);
-      if (!delivery?.messageId || delivery.state !== 'sending') return;
-      if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) return;
-      if (!frame.chunk!.text) return;
-      // A confirmed card owns the reply. Wait for the final message to distinguish
-      // its non-empty closing sentinel from an additional meaningful answer.
-      if (this.options.store.command(`interactive-delivered:${sessionId}:${turn}`)) return;
-      const published = this.publication(sessionId, turn) ?? { confirmed: '' };
-      this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ ...published, pending: frame.chunk!.text }));
-      await this.delta({ kind: 'message_delta', message_id: delivery.messageId, delta_text: frame.chunk!.text,
-        idempotency_key: `${frame.attemptId}:${frame.index}` });
-      this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ confirmed: published.confirmed + frame.chunk!.text }));
-    }).catch(this.options.onError);
+    if (frame.type === 'end') {
+      void this.flushStream(stream).finally(() => {
+        this.streams.delete(frame.attemptId);
+        void this.reconcile(sessionId).catch(this.options.onError);
+      });
+      return;
+    }
+    if (frame.chunk?.type !== 'text-delta' || !frame.chunk.text) return;
+    if (!stream.text) stream.firstIndex = frame.index;
+    stream.lastIndex = frame.index;
+    stream.text += frame.chunk.text;
+    if (stream.flushing) return;
+    if (stream.text.length >= 4096) void this.flushStream(stream);
+    else stream.timer ??= setTimeout(() => { void this.flushStream(stream); }, 50);
   }
-  async stop(): Promise<void> { this.unsubscribe(); await this.controls.stop(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
+
+  private flushStream(stream: BufferedStream): Promise<unknown> {
+    clearTimeout(stream.timer);
+    stream.timer = undefined;
+    if (stream.flushing) return stream.chain;
+    stream.flushing = true;
+    stream.chain = stream.chain.then(async () => {
+      try {
+        // Read the next batch after the ACK, so a slow relay accumulates text, not requests.
+        while (stream.text) {
+          const text = stream.text, key = `${stream.attemptId}:batch:${stream.firstIndex}:${stream.lastIndex}`;
+          stream.text = '';
+          const { sessionId } = stream;
+          const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
+          const turnInputs = this.options.store.inputs(sessionId).filter(input => input.turn === turn);
+          if (!turnInputs.length || turnInputs.every(input => input.input.metadata.origin === 'task_execution' || input.input.message.sender_type === 'system' && input.input.message.system_notice?.kind === 'task_graph')) continue;
+          const delivery = this.options.store.delivery(sessionId, turn);
+          if (!delivery?.messageId || delivery.state !== 'sending') continue;
+          if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) continue;
+          // Explicit delivery owns the reply; final reconciliation decides whether the closing text is meaningful.
+          if (this.options.store.command(`interactive-delivered:${sessionId}:${turn}`)) continue;
+          const published = this.publication(sessionId, turn) ?? { confirmed: '' };
+          this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ ...published, pending: text }));
+          try {
+            await this.delta({ kind: 'message_delta', message_id: delivery.messageId, delta_text: text, idempotency_key: key });
+            this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ confirmed: published.confirmed + text }));
+          } catch (error) { this.options.onError(error); }
+        }
+      } finally { stream.flushing = false; }
+    }).catch(error => { stream.flushing = false; this.options.onError(error); });
+    return stream.chain;
+  }
+  async stop(): Promise<void> {
+    this.unsubscribe();
+    await this.controls.stop();
+    await Promise.allSettled([...this.streams.values()].map(stream => this.flushStream(stream)));
+    await Promise.allSettled([...this.draining.values()]);
+  }
 }
-interface Approval { toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
+interface BufferedStream {
+  sessionId: string;
+  attemptId: string;
+  turn: number;
+  chain: Promise<unknown>;
+  text: string;
+  flushing: boolean;
+  firstIndex?: number;
+  lastIndex?: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
+interface Approval { lifecycle_revision?:number; toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
 interface Stream { sessionId: string; frame: { type: string; attemptId: string; turn?: number; index?: number; chunk?: { type: string; text?: string } } }
 function runtimeBinding(binding: SessionBinding) {
   const { conversationId: _conversation, ...runtime } = binding;

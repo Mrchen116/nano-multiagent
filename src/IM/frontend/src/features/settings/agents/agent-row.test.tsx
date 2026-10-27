@@ -68,7 +68,7 @@ describe("statusOf", () => {
 });
 
 describe("AgentRow on desktop", () => {
-  it("shows display name, agent id, and the owning device label at the trailing edge", () => {
+  it("shows display name, agent id, and the owning device label on the second line", () => {
     renderRow();
 
     const row = screen.getByRole("button", { name: "Planner" });
@@ -77,7 +77,7 @@ describe("AgentRow on desktop", () => {
     expect(within(row).getByText("mac-mini")).toBeInTheDocument();
   });
 
-  it("exposes presence only on the avatar badge — no standalone status dot at the trailing edge", () => {
+  it("exposes presence only on the avatar badge — no standalone status dot on the second line", () => {
     renderRow();
 
     const row = screen.getByRole("button", { name: "Planner" });
@@ -131,11 +131,11 @@ describe("AgentRow on desktop", () => {
     );
   });
 
-  it("truncates only the device label itself, never the identity lines", () => {
+  it("keeps the full device name available when its secondary line is truncated", () => {
     renderRow();
 
     const row = screen.getByRole("button", { name: "Planner" });
-    expect(within(row).getByText("mac-mini")).toHaveClass("truncate", "max-w-[92px]", "shrink-0");
+    expect(within(row).getByText("mac-mini")).toHaveAttribute("title", "mac-mini");
   });
 
   it("keeps the device label slot empty while the nodes query is pending", () => {

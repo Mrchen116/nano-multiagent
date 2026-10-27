@@ -100,6 +100,10 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var elapsed_ms: Double?
     var kernel_message_id: String?
     var system_notice: JSONValue?
+    var interactive: MessageInteractive?
+    var interaction_reply: JSONValue?
+    var pa_agent_id: String?
+    var delegation: JSONValue?
 }
 struct TimelineItem: Codable, Sendable, Identifiable {
     var type: String
@@ -124,10 +128,30 @@ struct ChatCommandSet: Codable, Sendable, Identifiable {
     struct Skill: Codable, Sendable, Identifiable { var skill_key: String; var name: String; var description: String; var id: String { skill_key } }
     struct Command: Codable, Sendable, Identifiable { var name: String; var description: String; var id: String { name } }
 }
-struct PendingSend: Sendable {
+struct PendingSend: Codable, Sendable {
     var key = UUID().uuidString
     let content: String
     let attachments: [ChatAttachment]
+    var requestBody: Data?
+}
+
+enum ChatTimelinePresentation {
+    /// Group nearby messages, retaining a time marker when the local date changes.
+    static func timestampMessageIDs(in items: [TimelineItem], calendar: Calendar = .current) -> Set<String> {
+        var result = Set<String>()
+        var previous: Date?
+        for item in items {
+            guard let message = item.message, message.system_notice == nil,
+                  let date = nanoDate(message.created_at) else { continue }
+            if let previous {
+                if !calendar.isDate(date, inSameDayAs: previous) || date.timeIntervalSince(previous) >= 300 { result.insert(message.id) }
+            } else {
+                result.insert(message.id)
+            }
+            previous = date
+        }
+        return result
+    }
 }
 
 /// Merge authoritative pages by stable identity; replay never appends a delta twice.

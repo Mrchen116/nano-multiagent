@@ -18,17 +18,19 @@ import type { UserStreamEvent } from "../../realtime/user-stream";
 // 直接注入事件，通过 capturedResyncHandler 断言 onResyncRequired 已注册。
 let capturedStatusHandler: ((ev: UserStreamEvent) => void) | null = null;
 let capturedResyncHandler: (() => Promise<void>) | null = null;
+const streamSubscribers = new Set<{onEvent:(ev:UserStreamEvent)=>void;onRecovery?:()=>Promise<void>}>();
 
 vi.mock("../../realtime/user-stream", () => ({
     subscribeUserStream: (input: {
       onEvent: (ev: UserStreamEvent) => void;
       onRecovery?: () => Promise<void>;
     }) => {
-      capturedStatusHandler = input.onEvent;
-      capturedResyncHandler = input.onRecovery ?? null;
+      streamSubscribers.add(input);
+      capturedStatusHandler = event => { for (const subscriber of streamSubscribers) subscriber.onEvent(event); };
+      capturedResyncHandler = async () => { await Promise.all([...streamSubscribers].map(subscriber=>subscriber.onRecovery?.())); };
       return () => {
-        capturedStatusHandler = null;
-        capturedResyncHandler = null;
+        streamSubscribers.delete(input);
+        if (!streamSubscribers.size) { capturedStatusHandler = null; capturedResyncHandler = null; }
       };
     }
 }));
@@ -194,7 +196,7 @@ function mockFetch(opts: {
   const uploadOutcomes = [...(opts.uploadOutcomes ?? [])];
   const sent: { url: string; init?: RequestInit }[] = [];
   const conversations: Conversation[] = [...FIXTURES.conversations];
-  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     sent.push({ url, init });
     if (url.includes("/im/v1/contacts?")) return jsonResponse({ items: FIXTURES.agents.map(a => ({ kind:"agent", user_id:a.user_id, agent_id:a.agent_id, display_name:a.display_name, owner_id:"u-self", owner_display_name:"You", node_name:"laptop-prod", status:"online", work_mode:"single_thread" })), next_cursor:null });
@@ -296,6 +298,14 @@ function mockFetch(opts: {
           last_error: null
         }
       ]);
+    }
+    if (/\/im\/v1\/agents\/[^/]+\/settings$/.test(url)) {
+      const base = url.slice(0, -"/settings".length);
+      const config = await (await fn(`${base}/config?source=live`)).json();
+      const capabilities = await (await fn(`${base}/capabilities`)).json();
+      return jsonResponse({config, node: {node_id: config.node_id, state: "online"},
+        display: {source: "current", captured_at: "2026-05-01T00:00:00Z", data: null, error: null},
+        live_capabilities: capabilities, pending_operation: null, ready: true});
     }
     if (/\/im\/v1\/agents\/[^/]+\/config\?source=live$/.test(url)) {
       const agentId = decodeURIComponent(url.match(/\/im\/v1\/agents\/([^/]+)\//)![1]!);
@@ -411,6 +421,7 @@ describe("ChatWorkspacePage — integration", () => {
   let fetchSpy: ReturnType<typeof mockFetch>;
 
   beforeEach(() => {
+    streamSubscribers.clear();
     setLanguage("en");
     capturedStatusHandler = null;
     capturedResyncHandler = null;
@@ -458,44 +469,55 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('adopts the edited private reply into the original composer with explicit replacement and no send', async () => {
+  it.each(['c1','c2'])('adopts edited text into %s with access checks, explicit replacement and no send', async target => {
     const baseFetch=fetchSpy;
     let privateState: Record<string,unknown>={'$reply':'Saved reply'};
     let revision=1;
+    let writable=false;
     const card={...FIXTURES.messagesC1[0],id:'reply-card',sender:{type:'agent',id:'a-planner',display_name:'Planner'},sender_user_id:'user-uuid-planner',sender_type:'agent',content:'Suggested reply',
-      interactive:{format:'openui',catalog_version:'nano-1',source:'$reply = "Initial reply"\nroot = TextArea("body", "Reply draft", 3, null, $reply)'},
-      reply_draft:{target_conversation_id:'c2',source_message_id:'source',field_name:'$reply',possible_stale:true}};
+      interactive:{format:'openui',catalog_version:'nano-1',source:`$reply = "Initial reply"\nroot = Stack([TextArea("body", "Reply draft", 3, null, $reply), Button("Adopt", @ComposeMessage("${target}", $reply))])`}};
     const customFetch=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
       const url=String(input);
       if(url.endsWith('/im/v1/personal-agent'))return jsonResponse({binding:{binding_id:'pa',agent_id:'a-planner',owner_id:'u-self',owner_user_id:'u-self',node_id:'node-prod',node_epoch:1,conversation_id:'c1',display_name:'Planner',status:'active'},policy:{revision:1,excluded_conversation_ids:[]}});
       if(url.endsWith('/im/v1/personal-agent/incidents'))return jsonResponse({items:[]});
       if(url.endsWith('/interaction-state')){
         if(init?.method==='PUT'){privateState=JSON.parse(String(init.body)).state;revision++;}
-        return jsonResponse({draft_revision:revision,state:privateState,submission_message_id:null});
+        return jsonResponse({draft_revision:revision,state:privateState,submission_message_id:null,can_interact:true});
       }
       if(url.includes('/conversations/c1/messages')&&(!init?.method||init.method==='GET'))return jsonResponse({items:[{type:'message',message:card}],next_before_message_id:null});
+      if(url.endsWith(`/im/v1/conversations/${target}`)) return jsonResponse({...FIXTURES.conversations.find(c=>c.id===target),can_write:writable});
       return baseFetch(input,init);
     });
     vi.stubGlobal('fetch',customFetch);
-    composerStoreFor('u-self').set('c2',{...EMPTY_COMPOSER_SNAPSHOT,draft:'Existing reply'});
+    composerStoreFor('u-self').set(target,{...EMPTY_COMPOSER_SNAPSHOT,draft:'Existing reply',pending:[{url:'/old.png',file_name:'old.png'}]});
     const confirm=vi.spyOn(window,'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
     const view=renderAtRoute('/chat/c1');
     try {
       const field=await screen.findByPlaceholderText('Reply draft', {}, {timeout:10000});
       await waitFor(()=>expect(field).toHaveValue('Saved reply'));
       fireEvent.change(field,{target:{value:'Edited reply'}});
-      fireEvent.click(screen.getByRole('button',{name:'Use in original chat'}));
+      if(target==='c1') fireEvent.change(screen.getByPlaceholderText(/^Message/),{target:{value:'Existing reply'}});
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+      await screen.findByRole('alert');
+      expect(confirm).not.toHaveBeenCalled();
+      expect(field).toHaveValue('Edited reply');
+      writable=true;
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
       await waitFor(()=>expect(confirm).toHaveBeenCalledTimes(1));
       expect(screen.getByRole('heading',{name:'Planner'})).toBeInTheDocument();
       expect(field).toHaveValue('Edited reply');
-      expect(composerStoreFor('u-self').get('c2')?.draft).toBe('Existing reply');
+      expect(composerStoreFor('u-self').get(target)?.draft).toBe('Existing reply');
       expect(privateState['$reply']).toBe('Edited reply');
-      fireEvent.click(screen.getByRole('button',{name:'Use in original chat'}));
-      await screen.findByRole('heading',{name:'Research Squad'});
-      expect(screen.getByPlaceholderText(/type @ to mention/i)).toHaveValue('Edited reply');
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+      await screen.findByRole('heading',{name:target==='c1'?'Planner':'Research Squad'});
+      await waitFor(()=>expect(screen.getByPlaceholderText(/^Message/)).toHaveValue('Edited reply'));
+      expect(composerStoreFor('u-self').get(target)?.pending).toEqual([]);
       expect(customFetch.mock.calls.filter(([input,init])=>String(input).endsWith('/messages')&&init?.method==='POST')).toEqual([]);
-      fireEvent.click(screen.getByRole('button',{name:'← Back to personal assistant'}));
+      if(target!=='c1') fireEvent.click(screen.getByRole('button',{name:/Planner.*Personal assistant/}));
       await waitFor(()=>expect(screen.getByPlaceholderText('Reply draft')).toHaveValue('Edited reply'));
+      fireEvent.click(screen.getByRole('button',{name:'Adopt'}));
+      await waitFor(()=>expect(screen.getByPlaceholderText(/^Message/)).toHaveValue('Edited reply'));
+      expect(confirm).toHaveBeenCalledTimes(2);
     } finally {confirm.mockRestore();view.unmount();}
   }, 15000);
 
@@ -1312,14 +1334,14 @@ describe("ChatWorkspacePage — integration", () => {
     const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
     await user.type(composer, "optimistic survives stale history");
     await user.click(screen.getByRole("button", { name: /Send/i }));
-    expect(await screen.findByText("optimistic survives stale history")).toBeInTheDocument();
+    expect(await screen.findByText("optimistic survives stale history",{selector:"span"})).toBeInTheDocument();
 
     await act(async () => {
       resolveRaced(jsonResponse({ items: staleItems, next_before_message_id: null }));
       await Promise.resolve();
     });
     await screen.findByText("optimistic race reset marker");
-    expect(screen.getByText("optimistic survives stale history")).toBeInTheDocument();
+    expect(screen.getByText("optimistic survives stale history",{selector:"span"})).toBeInTheDocument();
   });
 
   it("converges active messages, conversations, agents, and nodes after recovery", async () => {
@@ -1491,7 +1513,7 @@ describe("ChatWorkspacePage — integration", () => {
       const posted = sent.find((r) => /messages$/.test(r.url) && r.init?.method === "POST");
       expect(posted).toBeDefined();
     });
-    expect(composer.value).toBe("");
+    await waitFor(()=>expect(composer.value).toBe(""));
   });
 
   it("drops an image into the composer, uploads it, and sends with attachments in the payload", async () => {
@@ -1535,7 +1557,7 @@ describe("ChatWorkspacePage — integration", () => {
     // composer + chip strip both reset after send. (M18 R9-3: the user's bubble
     // is now rendered optimistically with its attachments, so we scope this
     // assertion to the composer chip strip rather than the whole document.)
-    expect(composer.value).toBe("");
+    await waitFor(()=>expect(composer.value).toBe(""));
     const composerChipStrip = composer.closest("form")?.querySelector(".chat-composer-chip-strip");
     expect(composerChipStrip?.querySelector("img[alt='dropped.png']")).toBeFalsy();
   });
@@ -1773,9 +1795,11 @@ describe("ChatWorkspacePage — integration", () => {
       delivery_status: "sent", tool_calls: [], token_usage: null, created_at: message.created_at
     }));
     await screen.findByText(message.content, { selector: "span" });
+    await waitFor(()=>expect(finishPost).toBeTypeOf('function'));
     await act(async () => { finishPost(jsonResponse(message)); });
     expect(await screen.findByText("Waiting for computer update")).toBeInTheDocument();
-    expect(screen.getAllByText(message.content)).toHaveLength(1);
+    await waitFor(()=>expect(screen.getByRole("textbox")).toHaveValue(""));
+    expect(screen.getAllByText(message.content,{selector:"span"})).toHaveLength(1);
   });
 
   it("R7-5: header shows the agent's Node chip and a conversation menu that links to /settings/agents/<id>", async () => {

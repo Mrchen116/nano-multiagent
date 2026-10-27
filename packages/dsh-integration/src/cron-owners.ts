@@ -5,7 +5,7 @@ import { Context } from '@deepseek-ai/cordis';
 import { Storage } from '@deepseek-ai/dsh-storage';
 import * as StorageJson from '@deepseek-ai/dsh-storage-json';
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain';
-import { ScheduleService, scheduleDomain, ScheduleId, type ScheduleCreateRequest, type ScheduleUpdateRequest } from '@deepseek-ai/dsh-schedule';
+import { ScheduleService, scheduleDomain, isRecurringScheduleRecord, resolveRecurringOccurrence, ScheduleId, type ScheduleCreateRequest, type ScheduleUpdateRequest } from '@deepseek-ai/dsh-schedule';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { scheduleRealm } from './features/cron.js';
 
@@ -16,7 +16,11 @@ interface Owner { ctx: Context; domain: StorageDomain.DomainFacility; fiber?: Fi
 export class CronOwners {
   private readonly owners = new Map<string, Promise<Owner>>();
   private paused?: string[];
-  constructor(private readonly ctx: Context, private readonly home: string) {}
+  private stopped = false;
+  private readonly disabled = new Set<string>();
+  /** Close timer admission synchronously, before asynchronous owner teardown. */
+  block(agentId: string, disabled: boolean): void { if (disabled) this.disabled.add(agentId); else this.disabled.delete(agentId); }
+  constructor(private readonly ctx: Context, private readonly home: string, private readonly held: (agentId: string, action: string) => boolean = () => false) {}
   private owner(agentId: string): Promise<Owner> {
     let owner = this.owners.get(agentId);
     if (!owner) {
@@ -45,8 +49,10 @@ export class CronOwners {
     return owner;
   }
   async setEnabled(agentId: string, enabled: boolean): Promise<void> {
+    if (enabled && (this.stopped || this.disabled.has(agentId))) throw new Error('agent_disabled');
     const owner = await this.owner(agentId);
     const change = owner.chain.then(async () => {
+      if (enabled && (this.stopped || this.disabled.has(agentId))) throw new Error('agent_disabled');
       if (enabled && !owner.fiber) {
         owner.fiber = owner.ctx.plugin(ScheduleService, {}); await owner.fiber.await();
         owner.schedule = await new Promise<ScheduleService>(resolve => { owner.fiber!.ctx.inject(['schedule'], child => { resolve(child.schedule); }); });
@@ -59,6 +65,8 @@ export class CronOwners {
   async command(agentId: string, sessionId: string | undefined, action: string, args: Record<string, unknown>): Promise<unknown> {
     const owner = await this.owner(agentId);
     const result = owner.chain.then(async () => {
+      if (this.stopped || this.disabled.has(agentId) && !['catalog', 'history'].includes(action)) throw new Error('agent_disabled');
+      if (this.held(agentId, action)) throw new Error('Capability is reserved by configuration');
       if ((action === 'catalog' || action === 'history') && !owner.fiber) {
         const domain = await owner.domain.open(scheduleDomain);
         try {
@@ -70,7 +78,7 @@ export class CronOwners {
           return [...domain.table('tasks').entries()].map(([, task]) => ({ ...task.record, sessionId: task.sessionId, status: task.status, ...(task.lastDelivery ? { lastDelivery: task.lastDelivery } : {}) })); }
         finally { await domain.close(); }
       }
-      if (!owner.fiber) throw new Error('Cron Feature is disabled');
+      if (!owner.fiber) throw new Error('Schedule service is unavailable');
       if (action === 'catalog') return owner.schedule!.catalog();
       if (!sessionId) throw new Error('Schedule command requires a bound Session');
       const session = SessionId(sessionId);
@@ -82,6 +90,21 @@ export class CronOwners {
       throw new Error('Unknown schedule command');
     });
     owner.chain = result.catch(() => {}); return result;
+  }
+  /** Advance saved independent schedules before mounting timers; never replay missed occurrences. */
+  async skipMissed(agentId: string, blockedSchedules: Set<string>, now = Date.now()): Promise<void> {
+    const owner = await this.owner(agentId);
+    const domain = await owner.domain.open(scheduleDomain);
+    try {
+      const tasks = domain.table('tasks');
+      for (const [id, task] of tasks.entries()) {
+        if (task.status !== 'active') continue;
+        if (blockedSchedules.has(id)) { await tasks.put(id, {...task, status: 'inactive'}); continue; }
+        if (Date.parse(task.record.scheduledAt) > now) continue;
+        const next = isRecurringScheduleRecord(task.record) ? resolveRecurringOccurrence(task.record, now).nextScheduledAt : undefined;
+        await tasks.put(id, next ? {...task, record: {...task.record, scheduledAt: next}} : {...task, status: 'inactive'});
+      }
+    } finally { await domain.close(); }
   }
   /** Suspend timers without changing saved jobs or the user's Feature setting. */
   async pause(): Promise<void> {
@@ -97,7 +120,7 @@ export class CronOwners {
   async resume(): Promise<void> {
     const paused = this.paused;
     if (!paused) return;
-    for (const agentId of paused) await this.setEnabled(agentId, true);
+    for (const agentId of paused) if (!this.disabled.has(agentId)) await this.setEnabled(agentId, true);
     this.paused = undefined;
   }
   /** Release a temporary catalog owner, or close a durable owner at shutdown. */
@@ -110,6 +133,7 @@ export class CronOwners {
     if (removeData) await rm(join(this.home, 'schedules', createHash('sha256').update(agentId).digest('hex')), { recursive: true, force: true });
   }
   async dispose(): Promise<void> {
+    this.stopped = true;
     for (const agentId of this.owners.keys()) await this.disposeAgent(agentId);
   }
 }

@@ -18,17 +18,33 @@ struct AgentWorkView: View {
     private var online: Bool { root?.node_connection_state == "online" }
     var body: some View {
         List {
+            Section {
+                Text(agentID).font(.headline)
+                if let root {
+                    HStack(spacing: 8) {
+                        Circle().fill(online ? NanoTheme.accent : NanoTheme.muted).frame(width: 7, height: 7)
+                        Text(online ? L("在线", "Online") : L("离线 · 活动状态未知", "Offline · activity unknown"))
+                        Text("·").foregroundStyle(.secondary)
+                        Text(agentWorkStatus(root.main_execution ?? "unknown"))
+                    }.font(.subheadline)
+                    if !online { Text(L("显示已保存的记录，授权暂不可处理。", "Showing saved records. Permissions are unavailable while offline.")).font(.caption).foregroundStyle(.secondary) }
+                    if online && root.record_sync_state != "current" {
+                        Text(root.record_sync_state == "catching_up"
+                            ? L("工作记录正在补齐，当前显示已保存内容。", "Work records are catching up. Showing saved content.")
+                            : L("当前显示已保存记录，最新进度尚未确认。", "Showing saved records. The latest progress has not been confirmed."))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    DisclosureGroup(L("执行信息与上下文", "Execution details and context")) {
+                        LabeledContent("Agent", value: agentID).textSelection(.enabled)
+                        if let sessionID { Text(sessionID).font(.caption).textSelection(.enabled) }
+                        if sessionID == nil { AgentWorkUsage(value: root.latest_main_usage, title: L("最近上下文", "Latest context")) }
+                    }.font(.subheadline)
+                }
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online)
+            }
             if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
             if !loaded { ProgressView() }
             if let root {
-                Section(L("执行归属", "Execution ownership")) {
-                    LabeledContent("Agent", value: agentID)
-                    if let sessionID { DisclosureGroup(L("执行信息", "Execution information")) { Text(sessionID).font(.caption).textSelection(.enabled) } }
-                    LabeledContent(L("节点", "Node"), value: online ? L("在线", "Online") : L("离线 · 活动状态未知", "Offline · active status unknown"))
-                    LabeledContent(L("主执行", "Main execution"), value: agentWorkStatus(root.main_execution ?? "unknown"))
-                    if !online { Text(L("显示已保存的记录，授权暂不可处理。", "Showing saved records. Permissions cannot be processed while offline.")).font(.caption) }
-                    if sessionID == nil { AgentWorkUsage(value: root.latest_main_usage, title: L("最近已报告的主上下文", "Latest reported main context")) }
-                }
                 if !(root.other_executions ?? []).isEmpty {
                     Section(L("关联执行", "Related executions")) {
                         ForEach(root.other_executions ?? []) { session in
@@ -101,6 +117,16 @@ struct AgentWorkTurnView: View {
         return agentVisibleWorkItems(Array(map.values))
     }
     private var state: String { !online && ["running", "waiting_permission"].contains(turn.status) ? "unknown" : turn.status }
+    private var recentSummary: String? {
+        for item in items.reversed() {
+            let keys = item.kind == "tool" ? ["output", "summary"] : ["text", "content"]
+            for key in keys {
+                if case .string(let text)? = item.payload[key], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return text }
+            }
+        }
+        return nil
+    }
+
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 12) {
@@ -125,7 +151,7 @@ struct AgentWorkTurnView: View {
             VStack(alignment: .leading) {
                 Text(turn.title).font(.headline)
                 HStack { Text(agentWorkStatus(state)).font(.caption).foregroundStyle(.secondary); if let start = turn.started_at { NanoDateTime(value: start).font(.caption2) } }
-                if let finish = turn.finished_at { HStack { Text(L("结束", "Finished")).font(.caption).foregroundStyle(.secondary); NanoDateTime(value: finish).font(.caption2) } }
+                if let summary = recentSummary { Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
             }
         }.onChange(of: state, initial: true) { _, value in if value == "waiting_permission" { expanded = true } }
     }
@@ -157,14 +183,17 @@ struct AgentWorkItemView: View {
                 AgentWorkPermissionView(client: client, agentID: agentID, payload: p, enabled: online && canManage)
             } else if item.kind == "tool" {
                 DisclosureGroup {
-                    if let input = p["input"] ?? p["arguments"] { Text(L("参数", "Arguments")).font(.caption); JSONDetailView(value: input) }
+
                     if let output = p["output"] ?? p["summary"] { Text(L("结果", "Result")).font(.caption); JSONDetailView(value: output) }
-                    if let detail = p["detail"] { DisclosureGroup(L("详细过程", "Process details")) { JSONDetailView(value: detail) } }
+                    DisclosureGroup(L("技术详情", "Technical details")) {
+                        if let input = p["input"] ?? p["arguments"] { Text(L("参数", "Arguments")).font(.caption); JSONDetailView(value: input) }
+                        if let detail = p["detail"] { JSONDetailView(value: detail) }
+                    }.font(.subheadline)
                     if let approval = p["approval"] { DisclosureGroup(L("授权结果", "Approval result")) { JSONDetailView(value: approval) } }
                     if let duration = p["duration_ms"] ?? p["elapsed_ms"] { LabeledContent(L("耗时（毫秒）", "Duration (ms)"), value: duration.prettyPrinted) }
                     let business = p["detail"]?.agentObject["status"]?.agentString ?? ""
                     if !business.isEmpty { Text(agentBusinessStatus(business)).font(.caption) }
-                    Text(L("工具调用完成不代表子执行完成，也不代表已向聊天发送。", "A completed tool call does not mean its child execution completed or a chat message was delivered.")).font(.caption).foregroundStyle(.secondary)
+                    Text(L("工具结果与聊天发送分别记录。", "Tool results and chat deliveries are recorded separately.")).font(.caption).foregroundStyle(.secondary)
                     ForEach(children) { child in childLink(child) }
                     workFacts
                 } label: { Text((text("name").isEmpty ? text("tool_name") : text("name")) + " · " + (text("status") == "completed" ? L("调用完成", "Call completed") : agentWorkStatus(text("status").isEmpty ? "unknown" : text("status")))) }

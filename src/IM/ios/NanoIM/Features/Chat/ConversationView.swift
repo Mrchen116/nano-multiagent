@@ -35,7 +35,11 @@ struct ConversationView: View {
     private var uploading: Bool { uploads.contains(where: \.uploading) }
     private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
     var body: some View {
+        let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
+            ForEach((conversation?.participants ?? []).filter { $0.type == "agent" }, id: \.id) { agent in
+                AgentLifecycleChatNotice(client: store.client, agent: agent)
+            }
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary).padding(6) }
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
             ScrollViewReader { scroll in
@@ -51,7 +55,13 @@ struct ConversationView: View {
                         }
                         ForEach(items) { item in
                             if let message = item.message {
-                                ChatMessageView(client: store.client, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
+                                VStack(spacing: 12) {
+                                    if timestampIDs.contains(message.id), let date = nanoDate(message.created_at) {
+                                        Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.year().month().day().hour().minute())
+                                            .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
+                                    }
+                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
+                                }
                                     .id(item.id).contextMenu { messageActions(message) }
                                     .accessibilityElement(children: .contain)
                                     .accessibilityActions { messageActions(message) }
@@ -128,6 +138,11 @@ struct ConversationView: View {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
+        .task(id: store.composeRequest?.id) {
+            guard let request = store.composeRequest, request.target == conversationID else { return }
+            focusRequest = ComposerFocusRequest(selection: NSRange(location: (request.text as NSString).length, length: 0))
+            store.composeRequest = nil
+        }
         .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
         .onChange(of: draft.wrappedValue) { _, _ in dismissedCompletion = false }
@@ -141,7 +156,7 @@ struct ConversationView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let pending = store.pending[conversationID], !store.sending.contains(conversationID) {
                 HStack { Text(L("等待核对发送结果", "Awaiting delivery confirmation")).font(.caption); Spacer(); Button(L("重试核对", "Retry")) { Task { await store.send(conversationID, retry: true) } } }
-                    .accessibilityLabel(pending.content)
+                    .accessibilityHint(pending.content)
             }
             if !(store.attachments[conversationID] ?? []).isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(store.attachments[conversationID] ?? []) { item in

@@ -97,6 +97,8 @@ Coding Agent 工作在整个代码仓提供的 **Repository Harness** 中，而�
 
 ## 上下文交付
 
+本节负责仓库知识的组织与交付；产品中模型可见 Prompt、Skill、工具、消息及记忆/历史的通用设计方法由 [Agent Context Engineering](agent-context-engineering.md) 维护。
+
 Agent context 是知识系统的 delivery path，不是新的 source of truth。下面描述的是逐步披露关系，不是要求 Agent 按固定顺序读取文件：
 
 ```mermaid

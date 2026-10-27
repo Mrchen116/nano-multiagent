@@ -314,10 +314,22 @@
     }
   },
   "agents": {
+    "capabilityFeedback": {
+      "requiredByOne": "Turn off “{{feature}}” first",
+      "requiredByMany": "Turn off the features using this capability first",
+      "retained": "Required capabilities were kept; other selections were cleared",
+      "activeTasks": "Pause or finish active and waiting tasks before turning off Task",
+      "activeSchedules": "Disable or delete active schedules before turning off Cron",
+      "fixed": "This capability is required by the current mode",
+      "busy": "This capability is in use. Try again shortly",
+      "unavailable": "Capability status is unavailable. Try again shortly"
+    },
+    "configure": "Configure",
+    "paSettingUp": "Assistant setup in progress",
     "selectTitle": "Select an Agent",
     "selectBody": "Choose an Agent from the sidebar to view and edit its configuration.",
     "title": "Agents",
-    "newButton": "+ New",
+    "newButton": "Create agent",
     "loadError": "Could not load agents.",
     "retry": "Retry",
     "openNodes": "Open Nodes",
@@ -332,17 +344,17 @@
     "detail": {
       "selectPrompt": "Select an agent",
       "selectHint": "Choose an agent to view or edit its configuration.",
-      "openChat": "Open chat ↗",
+      "openChat": "Open chat",
       "openChatPending": "Opening direct chat…",
       "saveAgent": "Save Agent",
       "save": "Save",
       "saving": "Saving…",
-      "saved": "✓ Saved",
+      "saved": "Saved",
       "noChanges": "No changes",
-      "unsavedChanges": "● Unsaved changes",
-      "discard": "Discard",
+      "unsavedChanges": "Unsaved changes",
+      "discard": "Discard changes",
       "version": "v{{version}}",
-      "loading": "Loading agent profile...",
+      "loading": "Loading agent…",
       "sections": {
         "navLabel": "Agent detail sections",
         "work": "Work",
@@ -415,7 +427,7 @@
         "appSecret": "Enter an App Secret"
       },
       "actions": {
-        "add": "Add channel",
+        "add": "Connect channel",
         "edit": "Edit",
         "close": "Close",
         "cancel": "Cancel",
@@ -430,7 +442,7 @@
       },
       "offline": {
         "title": "Node is offline",
-        "detail": "Changes are saved securely and apply automatically when the node returns."
+        "detail": "Settings are read-only until the connection is restored and refreshed."
       },
       "confirm": {
         "disableTitle": "Disable the Feishu channel?",
@@ -502,11 +514,11 @@
         "owningNodeSelect": "— Select a node —"
       },
       "behavior": {
-        "title": "Behavior",
+        "title": "Instructions & behavior",
         "sub": "Tune how this agent talks and what it does.",
         "customInstructions": "Custom Instructions",
         "customInstructionsHelp": "Layered on top of the standard prompt. Leave blank to use the standard prompt.",
-        "customInstructionsPlaceholder": "You are my personal legal advisor, answer with relevant clauses…",
+        "customInstructionsPlaceholder": "",
         "features": "Features",
         "featuresHelp": "Toggle optional agent capabilities.",
         "featureDisabledTooltip": "Requires {{tool}} tool to be enabled first",
@@ -516,25 +528,26 @@
         "previewError": "Could not load preview.",
         "policy": "Group Reply Policy",
         "policyHelp": "When this agent replies in group conversations (always active, not a toggle).",
-        "policyOptionMention": "MENTION — Reply only when @-mentioned",
-        "policyOptionAlways": "ALWAYS — Reply to every group message",
-        "policyOptionNoReply": "NO_REPLY — Stay silent in groups",
+        "policyOptionMention": "Only when mentioned",
+        "policyOptionAlways": "Every group message",
+        "policyOptionNoReply": "No group replies",
         "approvalMode": "Approval strategy",
-        "approvalInherit": "Follow node",
+        "approvalInherit": "Follow node ({{strategy}})",
+        "approvalUnknown": "strategy unconfirmed",
         "approvalDescription": {
           "inherit": "Use the node’s existing approval settings.",
           "cc": "Ordinary workspace file edits pass directly; other actions use the CC policy.",
           "codex": "Review risk and authorization with tool evidence, inspecting files when needed."
         },
-        "approvalTiming": "After saving, applies from the next task. Auto approval follows the node settings."
+        "approvalTiming": "Applies to the next task. Auto approval follows node settings."
       },
       "access": {
-        "title": "Access & Model",
+        "title": "Capabilities",
         "sub": "Keep allowlists minimal.",
         "skills": "Skills",
         "skillsGlobal": "Global",
         "skillsLocal": "Workspace",
-        "skillsDefaultDiscovery": "Using all currently discoverable skills",
+        "skillsDefaultDiscovery": "All discovered skills",
         "skillsNewDefault": "New skills are enabled by default. Unchecked skills stay disabled.",
         "skillsExplicitCount": "{{count}} selected",
         "skillsGroupSelect": "Select group",
@@ -550,9 +563,9 @@
         "fallbackAdd": "+ Add fallback",
         "fallbackRemove": "Remove",
         "fallbackRow": "Fallback {{index}}",
-        "fallbackHelpEmpty": "If the primary model is unavailable, these are tried in order. Leave empty to keep today's failure behavior.",
-        "fallbackHelpPartial": "Tried top to bottom. Cannot match the primary model.",
-        "fallbackHelpFull": "All other models on this node are listed. Tried top to bottom.",
+        "fallbackHelpEmpty": "Used in order when the primary model is unavailable.",
+        "fallbackHelpPartial": "Priority: top to bottom",
+        "fallbackHelpFull": "All available alternatives added",
         "modelPlatformDefault": "Platform default ({{model}})",
         "modelPlatformDefaultPlain": "Platform default",
         "modelDefaultSuffix": "(default)",
@@ -561,16 +574,16 @@
           "shortLabel": "Reasoning",
           "selectModelFirst": "Select a model before configuring reasoning effort",
           "platformDefaultHelp": "When the platform default is used, the Gateway applies that model's recommended effort.",
-          "fixedState": "Reasoning is always on and controlled by the model",
+          "fixedState": "Always on · Model managed",
           "fixedHelp": "This model does not provide configurable reasoning effort.",
-          "unavailableState": "This model does not expose configurable reasoning settings",
+          "unavailableState": "Not configurable",
           "unavailableHelp": "The node has not declared a reasoning control for this model.",
-          "selectableHelp": "Recommended for this model: {{level}}. Switching models keeps the effort only when the new model also supports it.",
+          "selectableHelp": "Recommended: {{level}}",
           "staleError": "This model's available efforts changed. Refresh the configuration and select an available effort before saving.",
           "staleUnavailableError": "This model no longer accepts the saved reasoning effort. Remove it before saving.",
           "clearUnavailable": "Remove unavailable reasoning setting",
           "saveConflict": "The configuration changed before it could be saved. Refresh it, choose again, and retry. Details: {{detail}}",
-          "applyPending": "Confirming the previous save. Do not submit another edit yet; your draft is preserved.",
+          "applyPending": "Confirming save · Draft retained",
           "levels": {
             "none": "None",
             "low": "Low",
@@ -588,6 +601,12 @@
         "enabledHelp": "Agent will wake periodically and check its HEARTBEAT.md task list.",
         "everyLabel": "Cadence",
         "everyHelp": "How often the agent wakes up.",
+        "activeHoursLabel": "Active hours (optional)",
+        "activeHoursStart": "Active hours start",
+        "activeHoursEnd": "Active hours end",
+        "heartbeatMdToggle": "View scheduled checklist",
+        "heartbeatMdLoading": "Loading…",
+        "heartbeatMdEmpty": "No scheduled checklist yet",
         "activeHoursHelp": "Uses your local time; leave blank for always-on",
         "everyUnitLabel": "Cadence unit",
         "unit": {
@@ -603,7 +622,7 @@
         "enabledLabel": "Enable cron",
         "enabledHelp": "Agent can register and manage scheduled tasks (add/list/remove via conversation).",
         "loadError": "Could not load scheduled tasks.",
-        "noJobs": "No scheduled tasks yet. Ask the agent to add some.",
+        "noJobs": "No scheduled tasks",
         "jobsListLabel": "Scheduled tasks",
         "deleteJob": "Delete"
       },
@@ -641,6 +660,8 @@
         "confirmRequired": "Confirm that you understand this is an existing directory."
       },
       "errors": {
+        "agentIdRequired": "Agent ID is required.",
+        "displayNameRequired": "Display name is required.",
         "required": "Required",
         "agentIdInvalid": "Lowercase letters, numbers, _ and - only"
       }
@@ -664,7 +685,7 @@
     "work": {
       "暂不可定位": "Location unavailable",
       "工作": "Work",
-      "全局 · 实验": "Global · Experimental",
+      "全局": "Global mode",
       "跨聊天的主工作轨迹及关联执行": "Main work across chats and linked executions",
       "主 Agent": "Main Agent",
       "节点在线": "Node online",
@@ -677,6 +698,7 @@
       "状态未知": "Unknown",
       "空闲": "Idle",
       "Inbox 唤醒": "Inbox wake-up",
+      "近况同步": "Catch up on recent conversations",
       "收到子 Agent 结果": "Subagent result received",
       "收到后台 Bash 结果": "Background Bash result received",
       "收到 Workflow 结果": "Workflow result received",
@@ -700,6 +722,8 @@
       "重试": "Retry",
       "节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。": "Node offline. Showing saved records. Active execution status is unknown; permissions are unavailable.",
       "最近已报告的主上下文": "Latest reported main context",
+      "工作记录正在补齐，当前显示已保存内容。": "Work records are catching up. Showing saved content.",
+      "当前显示已保存记录，最新进度尚未确认。": "Showing saved records. The latest progress has not been confirmed.",
       "新统计尚未报告时沿用最近轮次": "Showing the latest reported turn until new statistics arrive",
       "最新轮次在前 · 轮次内部按实际顺序": "Latest turns first · Events in execution order",
       "暂无工作记录。符合配置的新消息会进入收件箱。": "No work records yet. Eligible new messages will enter the inbox.",
@@ -776,7 +800,7 @@
       "历史读取失败，请重新打开链接重试": "Unable to load history. Reopen the link to retry.",
       "聊天已打开，但原消息已不可定位": "Chat opened, but the original message is unavailable",
       "工作模式": "Work mode",
-      "全局模式 · 实验": "Global · Experimental",
+      "全局模式": "Global mode",
       "单 Thread": "Single thread",
       "一个持续上下文统筹各聊天，按需读取收件箱和委派。": "Coordinate across chats in one continuous context, reading the inbox and delegating as needed.",
       "每个聊天独立上下文，保持现有工作方式。": "Keep an independent context for each chat.",
@@ -784,7 +808,35 @@
       "创建后固定": "Fixed after creation",
       "固定": "Required",
       "已停止": "Stopped",
-      "已终止": "Killed"
+      "已终止": "Killed",
+      "全部 Skill": "All skills",
+      "当前过滤条件下没有 skill": "No skills match this filter",
+      "名字": "Name",
+      "来源": "Source",
+      "状态": "Status",
+      "使用次数": "Uses",
+      "最近使用": "Last used",
+      "趋势": "Trend",
+      "使用热力图": "Usage activity",
+      "自动创建的 Skill": "Agent-created skills",
+      "暂无自动创建的 skill": "No agent-created skills",
+      "自进化存活率": "Skill retention",
+      "生命周期时间线": "Lifecycle",
+      "创建时间": "Created",
+      "首次使用": "First used",
+      "最后使用": "Last used",
+      "自动创建总数": "Created",
+      "still active": "Active",
+      "use_count > 0": "Used",
+      "存活率": "Retention",
+      "隐藏 archived": "Hide archived",
+      "显示 archived": "Show archived",
+      "Skill 列表": "Skill list",
+      "Agent 维度": "Agent activity",
+      "自进化健康度": "Skill health",
+      "Loading skill usage...": "Loading skill activity…",
+      "No skill usage yet": "No skill usage yet",
+      "最近 30 天": "uses · last 30 days"
     },
     "publicProfile": "Profile",
     "managedBy": "Managed by",
@@ -797,7 +849,7 @@
     "plugins": {
       "title": "Plugins",
       "description": "Enable or disable plugins installed by your assistant.",
-      "refresh": "Refresh",
+      "refresh": "Refresh plugins",
       "scope": "Shared with Agents in this workspace",
       "scopeHelp": "Plugins are shared by Agents in this workspace. Disabling keeps the package installed; tool permissions are managed separately in Config.",
       "loading": "Loading plugins…",
@@ -811,7 +863,7 @@
       "failed": "Needs attention",
       "waiting": "Waiting for this workspace to become idle. Current work continues.",
       "applying": "Applying the change and releasing plugin resources…",
-      "details": "Details",
+      "details": "Plugin details",
       "entries": "Plugin entries",
       "confirmTitle": "Uninstall {{name}}?",
       "confirmHelp": "This removes the installed package for all Agents sharing this workspace. Your source files are kept.",
@@ -819,6 +871,44 @@
       "cancel": "Cancel",
       "uninstall": "Uninstall",
       "manage": "Manage plugins"
+    },
+    "settings": {
+      "offline": "Computer offline · Read-only",
+      "unknown": "Connection unconfirmed · Read-only",
+      "refreshing": "Refreshing · Read-only",
+      "failed": "Refresh failed",
+      "pending": "Save awaiting confirmation",
+      "retry": "Refresh status",
+      "lastKnown": "Last confirmed {{time}}",
+      "unavailable": "No confirmed information",
+      "skillsUnknown": "Discovered skills unconfirmed",
+      "inheritedUnknown": "Follow node; current value unavailable",
+      "inheritedLastKnown": "Follow node · Last confirmed value",
+      "conflict": "Settings changed elsewhere. Discard this draft to load the latest version.",
+      "catalogUnavailable": "No longer available: {{names}}. Update these selections before saving.",
+      "featureUnknown": "State unconfirmed"
+    },
+    "redesign": {
+      "workMode": "Work mode",
+      "mode": {"single_thread": "Single thread", "global": "Global mode"},
+      "modeHelp": {"single_thread": "A separate context for each chat.", "global": "One ongoing context coordinates work across chats."},
+      "modeFixed": "Work mode cannot be changed after creation.",
+      "createIdHelp": "Lowercase letters, numbers, _ and -. Cannot be changed after creation.",
+      "creating": "Creating…",
+      "model": "Model",
+      "savedModel": "Saved model",
+      "modelDefault": "Model default",
+      "online": "Online",
+      "offline": "Offline",
+      "editSettings": "Edit settings",
+      "conversations": "Conversations",
+      "searchSessions": "Search conversations",
+      "sessionsFailed": "Could not load conversations.",
+      "noAgents": "No matching agents",
+      "noResults": "No matching conversations",
+      "noSessions": "No conversations yet",
+      "viewSkillStats": "View skill activity",
+      "unknown": "Connection unconfirmed"
     }
   },
   "chat": {
@@ -1120,7 +1210,7 @@
   "feature": {
     "intelligent_ui": {
       "label": "Intelligent UI",
-      "help": "Let this Agent create interactive cards with editable fields and choices when useful. Turn off to use text replies; existing cards remain available."
+      "help": "Guide this Agent to use interactive cards when helpful. Turning this off removes that guidance; cards can still be sent when the message tool is enabled."
     },
     "task_graph": {
       "label": "Task Graphs",
@@ -1128,19 +1218,19 @@
     },
     "memory_curation": {
       "label": "Memory Curation",
-      "help": "Maintain a persistent MEMORY.md that the agent reads and updates across sessions."
+      "help": "Organize and retain important information across conversations for future tasks."
     },
     "skill_creation": {
       "label": "Skill Creation",
-      "help": "Allow the agent to create and manage skills in its workspace."
+      "help": "Let the Agent save reusable methods as skills in its workspace and maintain them."
     },
     "heartbeat": {
       "label": "Scheduled Check-in (Heartbeat)",
-      "help": "Proactively report on a schedule without waiting for user messages. Configure cadence and active hours."
+      "help": "Send proactive updates on a schedule, with a configurable frequency and active hours."
     },
     "cron_scheduling": {
       "label": "Scheduled Tasks (Cron)",
-      "help": "Run tasks on a cron schedule; due jobs are executed automatically."
+      "help": "Run scheduled tasks automatically when they are due."
     }
   },
   "tasks": {
@@ -1219,12 +1309,35 @@
     },
     "status": {
       "todo": "To do",
-      "doing": "In progress",
+      "doing": "Advancing",
+      "waiting": "Waiting",
       "done": "Done",
       "paused": "Paused",
       "dropped": "Dropped",
       "in_review": "In review",
       "closed": "Closed"
+    },
+    "ongoing": "In progress",
+    "resume": "Resume progress",
+    "wait": {
+      "reason": "Waiting reason and resume condition",
+      "reasonUnavailable": "Waiting reason unavailable",
+      "invalid": "Schedule needs attention. The assignee must check and arrange follow-up.",
+      "unknown": "Schedule could not be verified. Check again later.",
+      "noSchedule": "Next check · No valid schedule",
+      "nextCheck": "Next check",
+      "savedTime": "Saved schedule time",
+      "notReceipt": "A scheduled time is not an execution receipt. Check the actual outcome."
+    },
+    "runtime": {
+      "label": "Assignee execution",
+      "running": "Running",
+      "idle": "Idle",
+      "waiting_permission": "Awaiting permission",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "offline": "Node offline",
+      "unknown": "Could not be verified"
     },
     "overview": "Root overview",
     "byAssignee": "By assignee",
@@ -1543,9 +1656,7 @@
       "startExercise": "I want to exercise three times a week. Help me make a beginner plan.",
       "findNextStep": "I keep putting a few things off. Help me figure out my next step."
     },
-    "useDraft": "Use in original chat",
-    "draftStale": "You have already replied in the original chat. This draft may be out of date.",
-    "replaceDraft": "The original chat has an unsent draft. Replace it with this reply? Cancel to keep your existing draft.",
+    "replaceDraft": "Replace unsent content?",
     "return": "← Back to personal assistant",
     "create": "My personal assistant",
     "role": "Personal assistant · Following through",
@@ -1604,6 +1715,9 @@
       "notice": "View risk notice",
       "privateSource": "You are not a member of the original chat. You can view the risk notice your assistant sent you.",
       "restored": "Contact unblocked. Future requests will be checked normally."
-    }
+    },
+    "senderLabel": "{{name}}, sent by PA",
+    "sentOnBehalf": "Sent by PA",
+    "composeUnavailable": "This conversation is unavailable or you do not have permission to write."
   }
 }

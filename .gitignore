@@ -4,6 +4,19 @@ CLAUDE.local.md
 .codex/
 *.sqlite3
 
+# Local agent credentials, usage records, and machine inventory
+/.codex_oauth.json
+/.claude/skills/.usage.json
+/LOCAL_INFRA.md
+/lark-auth-qr.png
+
+# Local worktrees and disposable verification output; source/docs stay visible
+/.worktrees/
+/output/
+
+# The repository root uses pnpm; keep the frontend's npm lockfile tracked
+/package-lock.json
+
 .nanoassistant
 .nanocode
 

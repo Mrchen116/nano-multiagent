@@ -14,8 +14,11 @@ description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit �
 - 默认主 Agent 端到端实施与集成，首轮仅将可独立交付且收益足够的具体任务派给 subagent，不按层机械拆 worker。微小修复、环境命令和格式收尾直接完成。派发/复用遵循 workflow 的职责边界与下述派发适配；Codex 派发前读取 [适配表](../change-orchestrator/references/codex-execution-notes.md)；每个 milestone 退出标准须可从代码、测试、commits 和证据复核。
 - 按受影响区域读取相关实现、current specs、[测试规范](../../../docs/development/testing.md)；复用带版本、命令和结果的有效证据。先稳定 fixture 并完成窄测试，再跑本地全量与 CI，不因角色交接重复全量。
 - 对可测试的新行为/bug 取得有意义的失败复现，再实现并跑最窄验证。真实用户入口、跨进程链路、前端交互及适用原型对照须有真实证据；mock 不替代它们。
-- 界面实现按 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 兑现设计，在真实客户端先走查整体体验再交付验收；平台控件与功能接通不能代替视觉和交互设计。设计缺口带证据交回 author，不留给用户逐项发现。
+- 界面实现按 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 兑现设计，并按 [验证平台与深度](../change-design-author/references/prototype-and-runbook.md#验证平台与深度) 选择自检和验收范围，不默认双端实测。需要视觉或交互验证时走查受影响流程，平台控件与功能接通不能代替体验证据；设计缺口带证据交回 author。
+- 直接实施也按 [Context 影响规则](../../../docs/development/agent-context-engineering.md#范围与影响判断) 识别受影响链路，并按该规范验证最终模型输入与适用行为；不能仅用源码/内部 API/类型/UI/文件存在证明交付。使用 [现有观测入口](../../../docs/development/llm-integration.md#观察实际-agent-context)，向现有 code reviewer 明确交接 Implementation Review 的范围、证据和缺口；不额外派 Context reviewer。
 - 服务按 [worktree-runtime](../../../docs/development/worktree-runtime.md) 隔离。lite 回填 fix 的修复/验证；关键设计变化交回 author，需求或范围变化重新与用户对齐。
+- 涉及一次性部署迁移时，按 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词) 核对 `deployment-prompt.md` 与最终实现；lite 由主 Agent 编写并从 fix 链接，Full 设计变化交回 author。隔离迁移验证在交付前完成，不把功能回归留给生产部署；提示词随最终 diff 交现有 code review，无迁移不生成。
+- 需要真实产品验收时，集中用 [固定日常模板](../../../docs/development/worktree-runtime.md#固定日常验收模板) 的 `--profile daily` 起栈，交接 `.e2e-daily.json`、版本和本次场景增量。复用固定 P/E/Q + PA 基线，每个需求独立实例；专项 profile 仅作为有明确目的的补充。
 
 ## 门禁与交付
 
@@ -27,4 +30,4 @@ description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit �
 
 完成 final sync、门禁有效性判断、delta 校正（可并入静态审查；未覆盖的校正补做 corrected-delta，无 delta 记录 no spec delta）、canonical 归并、本地 CI 和完整 archive，再创建 Ready for review PR，正常交付不得使用 `--draft`。用户明确要求提前查看时可先 Draft，交付前 `gh pr ready` 并等 required CI 全绿。
 
-每个 worktree 由创建/接管者清理；完成核对本次实际路径与进程。用户要求保留时说明路径和清理触发，阻塞时保存可恢复证据。输出 PR、head、验证与剩余事项；不自动 merge。
+PR 提交后保留开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外。输出 PR、head、验证、worktree 保留/清理状态与剩余事项；不自动 merge。

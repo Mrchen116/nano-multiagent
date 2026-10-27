@@ -1,0 +1,649 @@
+# feat-637 独立设计审查
+
+## Round 1
+
+### Metadata
+
+- reviewer_target: Codex `/root`，独立 Gate 2 reviewer。未参与本 unit 的需求或设计编写。未派发 subagent。
+- review_mode: `full`
+- mode_reason: 无历史报告。本轮是首次独立审查，覆盖全部受审材料、实际接线、公开 API、测试及相关历史。
+- started_at: `2026-10-23T10:39:15+08:00`
+- completed_at: `2026-10-23T10:47:56+08:00`
+- duration: `8m41s`
+- executed_base: `0404656449cb5c2bab8efbdda9903025bacbafe3`
+- validated_at: 下表所列工作区文件的 SHA-256。文件尚未跟踪，不能用 HEAD 代表受审内容。
+- effective_base: 与 executed_base 相同。
+- effective_through: 下表内容版本。后续实质修改需按 workflow 判断复审范围。
+- checkout: `/Users/czj/Repos/nano-multiagent`，`main`。已有大量无关 dirty/untracked 内容。本轮只新增本报告，未修改其他文件，未创建分支或 worktree，未提交、推送或实施。
+
+| 受审文件 | SHA-256 |
+|---|---|
+| `spec.md` | `21975c6c81d05c6686fea3b3dff95ca2085ec6ac758e6a4fbbf49839b9f69366` |
+| `design.md` | `d6f5f3b1ae1c55baebab3a4226b535474f5826982abf8f7963f64b0ef417276d` |
+| `prompt-map.md` | `6ece20f1c9d47a24b5ecc16e2d878fbd79bf3dec4c14f0af48502850b044938f` |
+| `specs/gateway/agent-capabilities.md` | `27ed567e5422cf9ba8eb1e2e15c42c222d2439123466b2a582c70331ea8ddb35` |
+| `M1-evolution-prompts/.gitkeep` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。Gate 2 未通过。**
+
+主体方案符合已确认范围。Memory review 的最新持久内容输入尚未闭合。修复 R1-W1 后再复审；本轮不启动修改或实施。
+
+### Coverage 与证据
+
+#### 1. 当前契约及真实产品接线
+
+核对了 [仓库架构](../../../../SPEC.md)、[current agent-capabilities](../../../specs/gateway/agent-capabilities.md)、[Global 契约](../../../specs/gateway/global-agent.md) 及 [change workflow](../../../development/change-workflow.md)。current 的 Memory 快照、fork 前缀、独立工具白名单和成功事实调和继续适用。active delta 尚未归并。
+
+实际产品路径为：
+
+```text
+Node Configuration.runtime
+  → 普通运行分区的 RuntimeSupervisor / DSH initialize
+  → ConfigurationScopes / MemoryCuration / SkillCreation
+  → KnowledgeRuntime
+  → KnowledgeFiles
+  → knowledge.changed / knowledge.facts
+  → PA KnowledgeUpdates / IM 系统通知
+```
+
+- [apps/node/src/configuration.ts](../../../../apps/node/src/configuration.ts):69-92 将 `work_mode`、feature、维护周期和 owner Skill root 传给 integration。运行模式与 Skill 存储范围确实是两个字段。
+- [apps/node/src/main.ts](../../../../apps/node/src/main.ts):87-115 按实际运行分区装配 supervisor、Agent 配置和 binding。
+- [integration 组装入口](../../../../packages/dsh-integration/src/index.ts):128-129、255-268 安装唯一 `KnowledgeRuntime` 并登记产品 binding。[agent-config.ts](../../../../packages/dsh-integration/src/agent-config.ts):94-109、164-172 挂载 feature。
+- [KnowledgeRuntime](../../../../packages/dsh-integration/src/knowledge/runtime.ts):170-237 确认当前 F4 复用通用 Skill 指令，按 session/kind 去重，未设两个合格 session 的前置门槛。设计对当前缺口的描述成立。
+- [KnowledgeUpdates](../../../../packages/personal-assistant/src/knowledge.ts):41-69 按真实 fact 调和，并等待运行中的 review 结束。没有写入时不产生成功 fact；单次写入成功后整轮失败，仍可有真实写入事实。设计没有把复盘完成、知识写入和通知送达混为一件事。
+
+#### 2. Hermes 来源与复用
+
+本轮直接读取固定 SHA `3ba2b0787ed3a73ec3b08085ed0137f235209cf4` 的四份远端文件，并重算 SHA-256。四项结果均与 `prompt-map.md`:11-14 一致。
+
+- [background_review.py](https://github.com/NousResearch/hermes-agent/blob/3ba2b0787ed3a73ec3b08085ed0137f235209cf4/agent/background_review.py)：核对两类 Memory 路由、规则提炼、禁止捕获、Skill 优先级和 combined review 的单一归属规则。
+- [prompt_builder.py](https://github.com/NousResearch/hermes-agent/blob/3ba2b0787ed3a73ec3b08085ed0137f235209cf4/agent/prompt_builder.py)：核对事实型 Memory 指引及 Skill 不可写时仍不改变知识归属的规则。
+- [skill_manager_tool.py](https://github.com/NousResearch/hermes-agent/blob/3ba2b0787ed3a73ec3b08085ed0137f235209cf4/tools/skill_manager_tool.py)：核对工具说明和参数。上游的批量事务、整个 Skill 删除及支持文件 patch 不适合直接复制。
+- [curator.py](https://github.com/NousResearch/hermes-agent/blob/3ba2b0787ed3a73ec3b08085ed0137f235209cf4/agent/curator.py)：核对其内容整理与本次 F4 的职责区别。
+
+具名文本块和逐项适配可以指导实施。移除更新压力、收紧未经验证的方法、按 Nano 能力替换读取指令，均有需求依据。支持文件无法读取时跳过替换，符合当前工具能力。上游的 fresh-read 强制检查和 curator 后续整理承诺没有被误写成 Nano 已有能力。
+
+本轮核实的是固定来源及内容。没有把该 SHA 声称为审查结束时仍然最新的远端 HEAD。
+
+#### 3. 用户约束与需求覆盖
+
+已逐项对照首文档的 18 个 Scenario：
+
+| 范围 | 设计判断 |
+|---|---|
+| Memory 分类、去重、纠正、无学习信号 | 路由及质量规则覆盖；最新持久内容输入缺口见 R1-W1 |
+| Skill 提炼、失败方法排除、workaround 条件及清理责任 | `prompt-map.md`:40-82 覆盖；无更新配额，也没有把 Agent 自选方法升级为用户授权 |
+| Memory/Skill 单一归属及能力关闭 | 两条 review 不互相代写；保留独立开关和执行白名单 |
+| 主 Agent 直接维护及部分失败 | 描述保留单操作、整文件 edit、局部 patch、scope 和部分成功的真实结果 |
+| 非 Global F4 的正向、证据不足、手工来源保护及同目标并发 | 专用指令、运行槽、证据筛选、guard 与文件锁构成完整的目标路径 |
+| Global | 记录使用后退出 F4；普通 Skill 学习和 Memory 维护仍运行 |
+
+`feat-638` 仍只有需求登记；本设计没有安排跨 Skill 合并、迁移工具协议或整个 Skill 删除。范围无冲突。
+
+#### 4. F4 的完成状态映射与公开 API
+
+**设计解释可接受。它不是额外获得用户批准的决定。** 本轮接受的含义是：读取时冻结两个不同产品 session 的历史；每份历史含有本 session 自有、正常完成的使用过程；读取时没有正在执行的工作或待执行输入。同一 session 的后续轮次仍不增加独立证据数量。这个条件没有将两轮、换窗或两个内部子会话替代为两份证据。
+
+依据如下：
+
+- 锁定的 `@deepseek-ai/dsh-session-query` 公开入口导出 `observeSession`。其 `SessionObservation` 提供不可变 `events`、`cursor`、`inheritedEventCount` 和 header。可以按继承事件数剔除父历史；本仓 [usage.ts](../../../../packages/dsh-integration/src/usage.ts):14-15 已使用这一公开能力。
+- 锁定的 `@deepseek-ai/dsh-agent` 公开类型提供 `Agent.status`、`Agent.inbox` 及 Inbox 的两个待执行列表。`idle` 本身只表示没有 driver，不能单独当作完成证据。
+- 锁定的 `@deepseek-ai/dsh-session` 公开 `turn/end.reason` 区分 `completed`、`aborted`、`error`、`interrupted` 和 `forked`。只有正常完成的实际使用过程符合本设计；冷读取补出的 `interrupted` 和 fork seed 的 `forked` 不能充数。
+- 产品 binding 提供 owner、Agent 和 cwd，见 [index.ts](../../../../packages/dsh-integration/src/index.ts):68-74。设计已要求核对这些事实，不能因为共享 Skill root 就扩大历史访问范围。
+- [feat-446 原需求](../feat-446-skill-view-tool/spec.md):163-168、498-526 要求跨 session、正常可用历史、目标自动 Skill 和不并发。Git 历史 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52^:src/agent/platform/background/skill_batch_review.py`:76-106、165-190 确认旧版两份历史门槛及目标专用提示词。旧加载器只检查文件存在和非空，不能以旧代码本身证明它已正确排除所有未结束会话。
+
+未发现必须新增 DSH API、私有 import 或第二套执行运行时的理由。实施仍须用真实锁定 DSH 验证冷历史、继承事件、待执行 Inbox 和异常结束分支；类型存在不能代替这些验证。
+
+#### 5. 架构、状态与并发
+
+职责分配合适：integration 的 `KnowledgeRuntime` 拥有调度、历史资格和受控运行身份；`KnowledgeFiles` 拥有路径、来源和落盘检查；PA 继续消费成功事实并投递通知。Node/PA 不直接调用 DSH。
+
+复用现有 fork、root 锁、原子替换、usage 及 curator 状态，比新增维护服务更适合本次范围。设计将同目标去重从 session/kind 改为规范化 root/name，避免两个普通会话同时复盘同一 Skill。计数按冻结快照扣除，保留运行期间的新使用。F4 与 F3 的提醒周期分开。guard 在 child 创建时绑定目标，文件锁内再次核对目标和自动来源。以上边界能够指导实施。
+
+`reviewed_session_ids` 的 root 级集合及最近 200 项保留策略来自历史机制；本轮没有要求另建账本。部分写入后失败保留真实 fact，符合当前通知路径。
+
+#### 6. Delta、milestone 与验收
+
+delta 的 canonical target 正确。三个条目均为 ADDED，没有删除或改写 current 的既有 Scenario。知识归属、实际结果和 F4 限制以消费者可观察结果表达。R1-W1 修订后，应继续保证 delta 的去重与纠错承诺有可执行的数据输入。
+
+单 M1 覆盖本次完整交付，未按代码层次机械拆分。目录仅有 `.gitkeep`；未预填任务或进度。无客户端内容或交互改动，不需要 UI 原型及 iOS 专项验收。现有通知结果仍须经真实产品链路观察。
+
+Runbook 使用仓库 E2E 脚本和独立临时目录。`e2e-up.sh`:28-32、113、178-197、225-269 支持从当前 checkout 的构建产物启动临时目录内的隔离栈。配置副本需启用 `memory`、`skill_manage` 和对应 feature，设计已说明。HTTP 消息入口足以驱动本次知识维护旅程。
+
+[knowledge.test.ts](../../../../packages/dsh-integration/tests/knowledge.test.ts):80-81、133-137 当前仍在 Global、单 session 下预设 F4 合法 patch。它只能证明既有接线，必须随实施改为非 Global 两个合格 session 的正向路径，并保留 Global 不触发的反向覆盖。设计的验证矩阵已要求这两项。
+
+[knowledge-policy.test.ts](../../../../packages/dsh-integration/tests/knowledge-policy.test.ts):11-45 保护 Memory 快照及 fork 继承；67-98 保护失败 review 不消耗普通提醒周期。设计保留这些回归有依据。真实模型正反例、输入、持久化产物和通知记录也已纳入退出标准；fixture 结果不能代替内容质量验收。
+
+### 历史问题闭环
+
+无历史 Round，无 Author Resolution 可核实。本轮首次建立稳定问题 ID。
+
+### Issues
+
+#### R1-W1 — Memory review 没有取得最新持久内容，去重与纠错的数据输入未闭合
+
+- 级别：WARNING，阻断 Gate 2。
+- 位置：`design.md`:28-29、96-100、133-134；`prompt-map.md`:58-65。
+- 需求：`spec.md`:82-93、123-126；delta 的“知识维护按长期价值与明确归属保存内容”。
+
+设计要求 review 利用上下文中的现有 notes 去重和原位纠正，同时保留父会话的冻结 Memory 快照。它没有在维护指令后附加最新持久 Memory，也没有定义 review 的读取能力。因此，“上下文中的 notes”可能早于最近一次成功的后台写入。
+
+证据链：
+
+1. [memory-curation.ts](../../../../packages/dsh-integration/src/features/memory-curation.ts):12-15、25-32 让 fork 继承父快照；没有压缩时不重读文件。[对应回归](../../../../packages/dsh-integration/tests/knowledge-policy.test.ts):29-37 明确验证这一行为。
+2. [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):211-218 只附加维护指令；Memory 路径不读取最新持久内容。[memory 工具](../../../../packages/dsh-integration/src/features/memory-curation.ts):17-20 只有 add/replace/remove，没有读取操作。
+3. [files.ts](../../../../packages/dsh-integration/src/knowledge/files.ts):53-67 在写入时读取当前文件，但不把条目返回给 review；add 直接追加，也不做语义去重。
+
+具体影响：同一长会话内，review A 保存事实 P；父会话未压缩；review B 再处理 P 或用户对 P 的纠正。B 继承的 notes 仍不含 A 的产物。B 无法确认该事实是否已落盘，也无法检查当前完整条目是否已被另一条维护改正。只增加“检查重复”的文字，无法提供缺失的当前状态。Global 长期主会话仍保留 Memory 自进化，因此这不是被 F4 的 Global 禁用规则排除的路径。
+
+必要修改：明确后台 Memory review 如何获得本次维护时的最新 `USER.md` 和 `MEMORY.md`。可在继承历史后的维护输入中附加受控读取结果，保留前台冻结快照与原请求前缀。说明这些内容是当前存储状态，不能作为新授权。无需新增通用文件工具或知识平台。
+
+验证要求：在同一主 session、没有 compaction 的情况下，连续完成两次 Memory review。第二次 review 的真实模型输入须能看到第一次的持久产物。分别覆盖重复事实和明确纠正，核对持久文件没有同义副本或并存的旧事实。前台快照与 fork 前缀的既有回归仍须保持。
+
+未修后果：实施者可能仅替换 assets，保留缺少最新状态的输入路径，却据新提示词或单次样例宣称完成了去重与纠错。
+
+### Recommendations
+
+#### R1-R1 — 用当前配置契约表述运行模式限制
+
+`design.md`:113 提到运行中切为 Global。当前 [configuration.apply](../../../../packages/dsh-integration/src/index.ts):477-478 拒绝改变 work mode。建议写清这是 F4 入口及写入时核对的模式条件；本 unit 不需要增加运行模式切换能力。该措辞不阻断本轮，也不要求扩展配置 API。
+
+### 本轮验证与边界
+
+- 已完成全范围静态审查、实际装配入口追踪、公开 exports/type 核对、历史源码核对，以及四份远端来源散列复算。
+- 独立检查受审 Markdown 的本地链接和行尾空白，结果通过。单 M1 目录仅含 `.gitkeep`。
+- 未运行产品测试、未起服务、未调用真实模型，未声称有产品验收结果。
+- 作者记录的全仓 docs_check 六项无关失败保持为已知前提；本轮未重跑，也未修复无关索引，不能记为全仓通过。
+- LLM_PROXY `/health=200` 是作者提供的已有检查。当前模型鉴权及真实生成仍未验证，须在实施验收时落实。
+- R1-W1 是缺少当前状态输入的设计问题，不是本轮已观察到生产 Memory 重复或错误的事故结论。
+
+### Author Resolutions
+
+作者已核对以下证据并修订设计。此段不改变 reviewer 的 Round 1 结论，也不代表复审通过。
+
+| ID | 处置 | 核对证据 | 修改及验证要求 |
+|---|---|---|---|
+| R1-W1 | accepted | `memory-curation.ts` 让 fork 继承冻结快照；`runtime.ts` 原维护输入没有最新持久记忆；`files.ts` 只在写入时内部读取。这些路径证实当前输入缺口。 | `design.md` 新增“Memory review 的当前存储输入”：在启动前通过既有 memory root 锁读取当前两份完整文件，作为受控数据追加到继承历史之后；保留原前缀及前台快照，明确禁用、空文件和读取失败语义。`prompt-map.md` 改为使用该数据块去重纠错。验证矩阵新增普通及 Global 主会话无压缩的连续两次 review，检查实际模型输入及最终持久产物。 |
+| R1-R1 | accepted | `index.ts` 的 `configuration.apply` 明确拒绝改变 work mode。 | `design.md` F4 流程第 10 步改为调度和写入时核对当前模式；取消及 feature 关闭阻止后续写入。明确本 unit 不新增模式切换能力。 |
+
+本次只改 `design.md`、`prompt-map.md` 并追加本处置记录。首文档、delta 和 M1 骨架保持受审版本。R1-W1 属于实质设计变化，需要独立 reviewer 复审；复审模式由 reviewer 判断。尚未实施或验证产品行为。
+
+### Author Resolution 修订：采用读取工具
+
+2026-10-23，用户要求对照 Hermes 完整机制并修改设计。以下记录取代上表 R1-W1 的修复方案，不改写 reviewer 原判断，也不代表独立复审通过。
+
+- **R1-W1：accepted，方案已替换。** 撤下宿主自动读取并追加 `Current persisted memory` 的方案。Memory review 继承父 Agent 已启用的 `read`，在写入前读取当前两份 Memory 文件。宿主仅提供准确路径。缺少读取工具时不启动；读取失败或不完整时不写入。连续 review 验收检查实际工具结果进入模型输入，不以工具可用替代实际读取。
+- **关联设计补齐。** F3 继承读取和搜索工具。已有 Skill 文件的修改增加本轮完整读取检查。F4 仍仅读取及 patch 绑定目标；不通过搜索扩大证据范围。父权限、独立写入链路、前台快照和可见工具前缀保持既定边界。
+- **上游适配明确。** 新核对来源固定在 Hermes `bf0203a794a07aac3ff764972ab9087baa4e4f4e`。上游无人值守 Memory patch/remove 会暂存审批；Nano 按已确认需求保留自动纠错，不迁移审批队列。单操作协议、F4 的非 Global 限制和 feat-638 登记范围不变。
+- **R1-R1：保留先前修订。** 入口和写入时检查模式，不新增运行模式切换能力。
+
+本轮修改 `design.md`、`prompt-map.md`、本 unit delta，并追加本记录。首文档及 M1 骨架保持原受审内容。这是实质设计变化，Gate 2 仍未通过，须独立复审。尚未修改产品代码或验证产品行为。
+
+### Author 范围修订：恢复 combined review
+
+用户明确要求：“本需求内要补回来”。本条纳入 feat-637，不另建需求，也不改变原 Round 1 的结论。
+
+历史依据：feat-349 设计明确列出三种 review；M6 记录同次复盘调用 Memory 和 Skill 工具。迁移提交 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52` 的父版本仍有两项同时到期时选择 combined 的代码，新 DSH 版本按 kind 分别调度。已查迁移材料未找到明确取消联合复盘的决定。此前作者将两条独立 review 写成保留约束，依据不足，现已修正。
+
+- 首文档新增联合复盘 Requirement 和三个 Scenario，现为 8 个 Requirement、21 个 Scenario。
+- 设计恢复统一到期判断、单项／combined 选择及普通复盘运行槽。各自开关、读数和写入权限保留；F4 仍单独运行。
+- 提示词映射新增联合指令，去除“combined 不在范围”的表述。delta 与验证矩阵补充同时到期、单项可用、部分成功和取消。
+- 审查须覆盖复盘类型记录、Feature 关闭、计数重置、来源事实和 PA 通知；原有单项回归继续适用。
+
+本轮仅修改本 unit 的首文档和设计产物。未改产品代码，未运行产品验收。范围变化及此前实质设计修改均待独立复审，Gate 2 未通过。
+
+
+## Round 2
+
+### Metadata
+
+- reviewer_target: Codex `/root`，原 R1 独立 reviewer。未参与受审设计编写，未派发 subagent。
+- review_mode: `full`
+- mode_reason: R1 后恢复 combined，改变普通维护调度、review 类型和生命周期；读取白名单与 Skill 写入检查也有实质变化。首文档、delta 和 M1 范围均已改变，不能仅做 closure。
+- started_at: `2026-10-23T11:51:50+08:00`
+- completed_at: `2026-10-23T12:00:22+08:00`
+- duration: `8m32s`
+- executed_base: `0404656449cb5c2bab8efbdda9903025bacbafe3`
+- effective_base: 与 executed_base 相同。
+- validated_at / effective_through: 下表工作区文件的 SHA-256。受审材料尚未跟踪，不以 HEAD 代替内容版本。
+- checkout: `/Users/czj/Repos/nano-multiagent`，`main`。已有无关 dirty/untracked 内容。本轮仅追加本报告，未修改设计或产品代码，未创建分支或 worktree，未提交、推送或实施。
+- 历史保全: 追加前报告 SHA-256 为 `7f226c2b88db2d29f878ffb612832fc5b752398e62152ee0e9c88a7f3d66e4d0`。保留 R1 原文及全部作者处置记录。
+
+| 受审文件 | SHA-256 |
+|---|---|
+| `spec.md` | `69b3f765a1a26ed4a316e758595abc8c186362215e560725af23bd40ebf14710` |
+| `design.md` | `cb9aaf4ffa8f13003a98863452114ac1c701014b9fe24fe8a05f182202a6dc29` |
+| `prompt-map.md` | `25144f1125e17d442b4ddf74110dd5ee7bf723947cfda8e72507b95be9d73702` |
+| `specs/gateway/agent-capabilities.md` | `0856cb6e6d6ad49842e005034a24e5effce9a7dd0bea5edf87f4f08815f0dbcc` |
+| `M1-evolution-prompts/.gitkeep` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 3 WARNING。Gate 2 未通过。**
+
+R1 的两个条目在设计层关闭。新方案仍有三个会使实施走偏的缺口：原生 `skill` 的完整文件读取假设不成立；Memory 读取未完成与计数结算未闭合；combined 没有接入现有轨迹用途契约。本轮不启动修订或实施。
+
+### 历史问题闭环
+
+| 原 ID | Author Resolution | 本轮核对及结论 |
+|---|---|---|
+| R1-W1 | accepted；最初的宿主附加内容方案已撤下，改为 review 使用继承的读取工具 | **closed，限设计层。** `design.md`:138-148 和 `prompt-map.md`:74-88 已提供真实文件路径、当轮完整读取、缺失与失败区分，以及普通/Global 长会话连续 review 的真实模型输入验收。此方案能提供 R1 所缺的当前内容；不刷新父快照，也不扩大父权限。读取失败的生命周期另见 R2-W2。尚无实现或真实模型结果。 |
+| R1-R1 | accepted；不新增运行模式切换能力 | **closed。** `design.md`:173 改为 F4 入口及写入时检查模式，并明确当前配置不允许切换。与 `index.ts`:477-478 一致。 |
+
+### Coverage 与证据
+
+#### 1. 需求、历史与范围
+
+本轮逐项核对 8 个 Requirement、21 个 Scenario。Memory 分类、去重和纠错，Skill 提炼，失败方法排除，workaround 条件及清理责任，知识单一归属，前台部分成功，以及非 Global F4 均继续在范围内。combined 是用户明确新增的范围，不能按旧版“只保留分离 review”的判断排除。
+
+历史依据成立：[feat-349 design](../feat-349-self-evolving-skills-memory/design.md):192、282 明确列出三种复盘；[M6 progress](../feat-349-self-evolving-skills-memory/M6-wire-default-session-metadata/progress.md):65-70 保存同次复盘调用两类工具的记录。迁移父版本 `ef4d3dd2be0e14e00f6225c1a0f176513b771b52^:src/agent/platform/hooks/builtins/self_improvement.py`:245-274 有两项同时到期时选择 combined 的代码。当前 [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):148-168、186-218 按 kind 分开调度，确实没有该分支。历史记录证明曾有接线，不代替本次产品验收。
+
+Nano 的单操作协议、自动 Memory 纠错和成功后结算周期是已确认的产品选择。Hermes 的批量事务、整个 Skill 删除、无人值守 Memory 审批未被纳入。feat-638 仍仅登记，不与本次实施混合。
+
+#### 2. Hermes 固定来源
+
+本轮直接读取 `bf0203a794a07aac3ff764972ab9087baa4e4f4e` 下的七个实现文件并复算 SHA-256。结果均与 `prompt-map.md`:20-26 一致。重点核对：
+
+- [background_review.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/agent/background_review.py) 的父工具继承与读取白名单。
+- [skill_manager_guards.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/skill_manager_guards.py) 的本轮路径读取标记及写入检查。
+- [file_tools.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/file_tools.py) 的完整读取和分页覆盖登记。
+- [memory_tool.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/memory_tool.py)、[memory_tool_store.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/memory_tool_store.py)、[skill_manager_tool.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/skill_manager_tool.py) 和 [skill_manager_batch.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/skill_manager_batch.py) 的写入与协议边界。
+
+`prompt_builder.py`、`curator.py` 保留 R1 的固定来源判断。本轮没有把它们声称为新 SHA 下已重查的文件，也未将新 SHA 声称为审查结束时仍最新的 HEAD。
+
+新增读取权限与先读后改规则有上游依据。锁内内容一致性和成功写入后读取资格失效是 Nano 自行增加的策略。上游本轮路径标记本身不证明这两项是必要协议适配。独立复杂度判断见下文及 R2-R1。
+
+#### 3. 当前产品装配与权限
+
+重新核对实际组装入口：[Node Configuration.runtime](../../../../apps/node/src/configuration.ts):69-92 → [Node 普通运行分区](../../../../apps/node/src/main.ts):87-115 → [integration KnowledgeRuntime](../../../../packages/dsh-integration/src/index.ts):128-129 → [feature 挂载](../../../../packages/dsh-integration/src/agent-config.ts):94-109、164-172 → 知识工具、文件及 PA 事实调和。产品路径不是测试专用实现。
+
+读取工具应复用原生工具及现有 [ToolSelection](../../../../packages/dsh-integration/src/capabilities.ts):15-77。设计按“父有效权限与 review 白名单的交集”执行，保留原工具 schema 前缀，并不恢复父 Agent 禁用的 read/glob/grep。这个选择符合架构与授权边界。读取资料不能改变 scope、目标或授权。F4 继续只读取绑定主文档及使用宿主筛选历史。
+
+锁定 DSH 的公开 `tools/result` 提供执行期 canonical `value` 和最终 `content`，可以观察真正返回的结果；不能只按参数或调用成功登记完整读取。原生 read 返回路径、offset、编号行和 totalLines，可以支持分页完整性检查。长行会截断，因此行数齐全也不等于内容完整。设计对此已有要求。原生 skill 的结果与原始主文档存在差异，见 R2-W1。
+
+#### 4. 当前 Memory 与连续 review
+
+`design.md`:140-148 已明确宿主只提供路径，review 自行读取两份当前文件。读取失败不回退到冻结 notes。普通与 Global 都覆盖不压缩的连续两次维护，检查第二次真实请求是否含第一次持久产物。这能验收 R1 的具体风险。
+
+当前 [memory-curation.ts](../../../../packages/dsh-integration/src/features/memory-curation.ts):11-15、25-32 和 [knowledge-policy.test.ts](../../../../packages/dsh-integration/tests/knowledge-policy.test.ts):11-45 仍保护父快照与 fork 继承。新方案没有要求破坏该行为。Memory 写入仍使用既有锁及原子替换，不声称读取与写入跨模型请求构成事务，也不引入语义去重引擎。
+
+读取失败、不完整及明确不存在已区分，但“未完成”如何参与复盘终态和计数还未定义，见 R2-W2。
+
+#### 5. Combined 调度、取消、计数和来源
+
+以下决策足以指导相应实施：
+
+- 以一次正常前台 `turn/end` 统一计算两项资格。两项均到期且可用时只选一个 combined fork；只满足一项时运行单项。按主 session 的普通运行槽去重，并在启动前重查资格。
+- F4 使用独立目标槽，不进入 combined，也不推进普通维护计数。运行中的单项不临时升级。
+- 参与类别和启动读数冻结。正常完成后只推进参与类别，保留运行期间的新读数及前台较新的维护点。失败或取消不推进。
+- 任一参与 Feature 关闭时取消整个联合 fork，保留已成功写入；另一项后续可单独维护。不增加部分 fork 恢复系统。
+- `KnowledgeReview.kind` 可增加 combined；`KnowledgeFact.kind` 保持 memory/skills；联合创建 Skill 的来源仍为 F3。普通写入来源不能因新 review 类型误落为 F1。
+
+[review-readings.ts](../../../../packages/dsh-integration/src/knowledge/review-readings.ts):5-13 目前按 Memory 的 turn/start、Skill 的 step/start 读数，并以对应工具的成功结果作为前台维护点。默认周期在 [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):203-208 为各 10。用户已接受的“后台正常完成才推进、前台工具成功才重置”继续适用，不要求改为 Hermes 的更早重置时机。
+
+当前取消按 kind 精确匹配，来源也按 kind=skills 判断，见 `runtime.ts`:111-115、239-242。设计已明确改为参与类别和 F3 来源，须由实施验证新的分支，不能仅扩 enum。轨迹记录是另一个真实消费者，现有设计遗漏它，见 R2-W3。
+
+[PA KnowledgeUpdates](../../../../packages/personal-assistant/src/knowledge.ts):41-69 按 review ID 合并真实 facts，只检查 review 是否 running，不依赖 review.kind。它能够沿用一份 combined review 的两类更新，并仅通知真正写入的类别。无写入完成不产生成功通知；部分写入后失败仍保留事实。该方向与现有产品通知相容。
+
+#### 6. F4、职责及复杂度
+
+重新对照 F4 目标、模式、证据、去重和写入章节。R1 对两个不同产品 session、当前无运行/待执行输入、正常完成的自有事件的接受仍成立。两轮、继承历史或内部 child 不能充当两个独立 session。Global 不启动 F4，但保留普通和 combined 维护。
+
+目标槽、冻结计数扣除、已处理证据集合、root 锁与真实写入 fact 均沿用原方案。新增 Skill 读取检查不能放宽 F4 绑定 root/name、自动来源和仅 patch 的限制。F4 当前资格仍受 R2-W1 的读取假设影响。
+
+职责仍应集中在 integration：KnowledgeRuntime 管调度、读结果及受控运行身份；KnowledgeFiles 管真实目标、锁和落盘；PA 管事实调和与交付。无需另建审批、通用读取服务或持久读取账本。
+
+锁内一致性有具体使用场景：普通复盘、F4 及其他会话可能修改同一可写 root；整文件 edit/write_file 会覆盖并发变更。但应只实现必要范围，不能将成功写入后无条件重读归因于单操作协议。后者的成本及可选简化见 R2-R1。
+
+#### 7. Delta、M1 和验收
+
+delta 的 canonical target 仍正确。四个 ADDED Requirement 覆盖知识质量、单操作结果、F4 以及 combined；未删除 current 的已有 Scenario。新增后台当前内容和 Skill 读取检查已经投影到消费者行为。三个发现修订后，应同步真实读取资格、计数结算及轨迹影响，不能只改设计正文。
+
+单 M1 仍可覆盖完整交付，目录只含 `.gitkeep`。21 个 Scenario 的数量正确，未预填任务或进度。Runbook 提供隔离目录、受控配置及 IM→Node→DSH→模型→落盘→通知的路径。当前客户端无需重做交互，但“完全不影响轨迹展示”的判断尚不能成立，须由 R2-W3 的接口选择明确。
+
+验证矩阵已覆盖：连续 Memory、父权限、读取失败、Skill 不完整读取、combined 去重/单项回退、取消/部分成功、新活动、F4 正反向和继承约束。还需补充三个发现要求的具体分支。当前 [knowledge.test.ts](../../../../packages/dsh-integration/tests/knowledge.test.ts):99-107 已通过真实轨迹 API 验证维护用途与边界坐标，是新增 combined 投影的合适回归位置。
+
+### Issues
+
+#### R2-W1 — 原生 skill 不返回完整 SKILL.md，不能按设计直接取得完整文件读取资格
+
+- 级别：WARNING，阻断 Gate 2。
+- 位置：`design.md`:134、152-156；`prompt-map.md`:95-101、119、158；delta:37-40。
+
+设计将 `skill` 的成功结果视为完整主文档，并据此允许 edit/patch、比较读取后的文件版本。它还允许没有 read 的 F3/F4 使用 skill 取得主文档读取资格。锁定 DSH 实际返回的是解析后的 Skill 正文。
+
+证据：
+
+1. `@deepseek-ai/dsh-skill-filesystem@0.2.1-alpha.1` 的 `lib/index.js`:665-703 先解析 YAML frontmatter，再令 `content = parsed.body.trim()`。
+2. `@deepseek-ai/dsh-tool-skill@0.2.1-alpha.1` 的 `lib/index.js`:787-792 返回 name、provider、resourceBase 和上述 content。它不返回原始 YAML 头或原文件字节。
+3. `@deepseek-ai/dsh-skill` 的 `renderSkillContent` 包装正文及资源目录，不补回 YAML 头。
+4. [KnowledgeFiles.skill](../../../../packages/dsh-integration/src/knowledge/files.ts):76-92 读取并修改包含 YAML 头的原始 `SKILL.md`；edit 要求完整文档。两种内容不是同一个比较对象。
+
+未修后果：实施若直接比较正文与原文件，合法写入会一直被拒绝；若只凭 skill 成功就登记完整文件读取，则模型没看见的 frontmatter 也能被整文件覆盖。两种结果都不满足 delta 的完整当前文件约束。
+
+必要修改：区分“加载完整 Skill 指令”与“读取完整原始文件”。不要把原生 skill 的正文认作原文件内容。原文件整体验证和改写应取得原生 read 的完整结果；父 Agent 没有该权限时按真实能力跳过对应修改，不自动增加权限。同步 F3/F4 资格、提示词及测试前提。若保留正文级 patch 路径，须明确其可修改范围，不能让正文读取解锁整个文件 edit。
+
+验证：使用带 YAML 头的真实 filesystem Skill，经原生 skill 和 read 分别获取结果，检查写入资格。覆盖无 read 的路径、仅 frontmatter 变化、正文 patch 和整文件 edit；不能用手写“skill 返回原始文件”的 fixture 代替。
+
+#### R2-W2 — Memory 读取未完成没有接入复盘终态，正常结束的 fork 可能错误消耗维护周期
+
+- 级别：WARNING，阻断 Gate 2。
+- 位置：`design.md`:113、140-146、228-229；`prompt-map.md`:79、117；current 维护周期契约。
+
+设计规定读取拒绝、失败或无法取得完整内容时不写 Memory，并报告维护未完成。但结算仍按 fork 正常完成推进参与类别。没有定义“工具失败后模型报告未完成并正常停止”如何成为维护失败。
+
+具体路径：combined 已启动，Skill 写入成功；Memory 的 read 被拒绝；模型按 prompt 不写 Memory，并用普通文本报告未完成后结束。原生 fork 可以正常 completed，工具失败本身不等于整轮异常退出。当前 [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):222-224 仅按 `result.stopReason === 'completed'` 推进计数；设计新增的运行状态没有补充读取未完成的结算事实。按现方案延续该路径，就会推进两项冻结读数，尽管 Memory 维护未完成。
+
+必要修改：定义并记录读取未完成如何参与本轮 review 的终态和计数结算。不要依靠模型回复中的“未完成”几个字，也不要将原生正常 stop 自动等同于知识维护完成。明确 combined 在上述路径是否整轮未完成，并保留已成功 Skill 写入及其真实通知。无知识增量的正常完成仍可结算；无需强制所有无修改 review 都先读文件。
+
+验证：让真实 DSH fork 接收失败或不完整 read 的工具结果，再正常输出结束。分别覆盖 Memory 单项和 combined 中 Skill 已成功的情况。检查 review 状态、下次到期判断、保留的文件和实际通知。现有“provider 抛错”的失败 fixture 不覆盖这个分支。
+
+#### R2-W3 — Combined 遗漏现有轨迹用途接口，实际装配路径与“不改客户端”范围尚未闭合
+
+- 级别：WARNING，阻断 Gate 2。
+- 位置：`design.md`:11-18、117、201、240；现有 trajectory 链路。
+
+设计只扩展 KnowledgeReview.kind 并讨论 PA 的等待路径，却没有处理同一次 fork 的轨迹用途记录。当前每次维护都通过 `withKnowledgeRun` 进入该路径。
+
+证据：
+
+- [runtime.ts](../../../../packages/dsh-integration/src/knowledge/runtime.ts):215 将维护 kind 传给 `withKnowledgeRun`。
+- [trajectory-runs.ts](../../../../packages/dsh-integration/src/trajectory-runs.ts):14、32 将参数与持久 kind 限制为现有类型，没有 combined。
+- [product-contracts/trajectory.ts](../../../../packages/product-contracts/src/trajectory.ts):26-33 的 `TrajectoryRun.kind` 同样没有 combined。
+- [navigation-model.ts](../../../../packages/trajectory-ui/src/client/navigation-model.ts):18-19 及 [查看器 boot.jsx](../../../../packages/dsh-trajectory-viewer/src/boot.jsx):130 只识别 memory/skills，其余回退到内部 label 或普通执行名称。
+- [current agent-work](../../../specs/im/agent-work.md) 的“从真实发起位置进入子 Agent 的本次执行”要求从真实发起事实辨认后台用途，不从内部标签或 UUID 猜测。
+
+未修后果：直接传 combined 会遇到类型或持久 schema 不匹配；用某个单项或 unknown 隐式替代，会丢失联合用途，或把 `nano-review:<id>` 暴露为名称。维护可执行并不能证明现有轨迹导航及用途展示正确。
+
+必要修改：在设计中选定 combined 的真实用途投影，列出相应的 producer、持久 schema、公开契约和展示消费者。可以选择最小兼容表达，但不能伪装成单项或依赖不透明 label。按所选方案修正文件范围、必要 delta 和验收；不要求重做页面布局。
+
+验证：经真实 `trajectory/runs` 读到一个 combined fork 的用途、background/fork 状态、发起坐标及本次执行范围；持久恢复后保持。用户看到的用途应准确，不能仅检查 knowledge.facts。
+
+### Recommendations
+
+#### R2-R1 — 缩小成功写入后强制重读的范围
+
+这是可选简化，不计入 WARNING。`design.md`:156-158 要求每次成功写入后清除读取资格。对同一次 review 连续执行两个合法 patch，它会增加一次完整 read，也会消耗当前 16 步限制。Hermes 本轮路径标记没有规定这一失效步骤；Nano 的单操作协议也不要求它。
+
+锁内内容一致性对整文件覆盖有实际价值。建议按动作保留必要检查，或用已成功写入的已知内容更新本轮基线，减少无条件重读。若保留现策略，应将它作为 Nano 的明确取舍说明成本，不能以“复用 Hermes”或“单操作适配”代替理由。此建议不要求新增版本服务或复杂缓存。
+
+### 本轮验证与边界
+
+- 已完成 full 静态审查，含实际装配、公开工具结果、持久 schema、轨迹消费者、历史 combined 分支及七份上游散列。
+- 五份受审材料散列与本轮开头一致。独立本地链接、行尾空白检查通过；首文档为 8/21，单 M1 仅含 `.gitkeep`。
+- 本轮未运行产品测试、未起服务、未调用真实模型。代码与类型检查是设计可行性证据，不是产品行为通过结果。
+- 全仓 docs_check 六项无关失败仍为作者已记录的前提。本轮未重跑或修复，不能声称全仓通过。
+- LLM_PROXY 健康检查是已有检查；模型鉴权、真实生成及内容质量仍须在实施验收时验证。
+
+### Author Resolutions — Round 2
+
+作者已逐项核对锁定 DSH 的真实返回值、维护计数路径和轨迹消费者。以下记录仅说明修订，不改变 Round 2 的 Issues Found 结论，也不表示独立复审通过。
+
+| ID | 处置 | 核对证据及修改 |
+|---|---|---|
+| R2-W1 | accepted | filesystem provider 返回 `parsed.body.trim()`，原生 skill 不含完整 YAML 头。设计和 prompt 改为仅 read 的完整原文件结果授予已有文件修改资格，正文 patch 同样先读原文件；无 read 的 F3 只保留理解及新增能力，F4 不启动。验证补充带 YAML 头的真实 filesystem Skill、无 read、头变化、正文 patch 和整文件 edit。 |
+| R2-W2 | accepted | 当前代码仅按原生 stopReason=completed 推进计数；工具失败后正常停机不代表维护完成。新增宿主读取状态结算：Memory 读取已开始或已调用写入时，两份文件须完整或明确不存在，否则 review=error、diagnostic=memory_read_incomplete，单项和 combined 均不推进后台周期。真实成功写入仍通知。无增量且未尝试读取可正常完成。验证包含工具读取失败后正常结束，而非仅 provider 抛错。 |
+| R2-W3 | accepted | withKnowledgeRun、轨迹持久 schema、公开 TrajectoryRun.kind 和两个名称消费者均只有原类型。设计同步增加 combined 的 producer/contract/storage/consumer 接线，名称为“记忆与技能复盘”，保留真实发起点、范围及原生状态；增加 IM delta 和 Web 入口／冷恢复验收。产品原生执行状态与知识维护终态分别表达，不伪造原生失败。 |
+| R2-R1 | accepted | 额外强制重读并非单操作协议要求。移除无条件失效；本轮以实际成功写入内容更新基线，连续 patch 无须重读。保留锁内比较以发现其他写入；失败不使用未提交内容，结果不确定时重读。不新增持久账本。 |
+
+已同步首文档的联合轨迹可观察结果、design、prompt-map、Gateway delta，并新增 IM delta；M1 仍为一个，骨架不变。首文档仍为 8 个 Requirement、21 个 Scenario。本轮未改产品代码、未运行产品测试或真实界面验收。局部文档检查单独执行，所有实质修订待独立复审。
+
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: Codex `/root/design_review`，独立设计 reviewer；未参与设计编写或实现，不兼任代码审查、一致性核验或产品验收，未派发 subagent。
+- reviewer_handoff: 原 reviewer thread `01a166a0-1151-7551-8024-3df2fe7e2a74` → 本 reviewer。原因是正式交付 thread 接力，需要独立复核当前修订；已读取 R1、R2、全部 Author Resolutions 和当前受审文件，不以作者 accepted 代替关闭结论。
+- review_mode: `full`
+- mode_reason: R2 后除历史问题关闭外，新增公开轨迹 kind、持久 schema、IM delta 和 M1 的展示消费者范围，属于共享接口及 milestone 的实质变化；不能仅做 closure。未变化的固定来源细节可引用 R1/R2 证据，关键当前设计和组装重新核对。
+- started_at: `2026-10-23T13:07:37+08:00`（首次显式记录计时；此前的前置阅读、历史核对与截图查看不计入下述 duration）。
+- completed_at: `2026-10-23T13:11:20+08:00`
+- duration: `223s`（上述记录区间，不冒充全部前置工作耗时）。
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-637`；branch `unit/feat-637`。开始时工作区 clean。本轮只追加本报告，不修改设计或代码，不建 worktree，不提交。
+- executed_base / effective_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`。
+- validated_at / effective_through: `d617906aed41fa14a34f4b3f1b5e49f179ed4129` 的下列设计内容；本轮批准不代表该实现版本通过其他门禁。
+- 历史保全: 追加前报告 SHA-256 `c703b1a7dafac298307b5c545f68ea2b773f91aaed5e2cea68767a5e77bf52ad`；保留原文。R1/R2 的 Issues Found 继续是其当时结论。
+- 授权与时间边界: 用户已明确授权 Gate 2 未复审时实施。本轮只补当前设计闭环，不追溯伪造实施前 Approved。
+
+| 受审文件 | SHA-256 |
+|---|---|
+| `spec.md` | `0cf12c3404cd275ac80e2fdea0b91a41c6285f060356eed0f974cf600b9e68cd` |
+| `design.md` | `7c460d27e6f006bdc7a36d4dd4d4eb210f77ea8246ed406c8ceef7bceaab1419` |
+| `prompt-map.md` | `2b33586a03903ff3657b21057d702298c6b9a14eb3af5bc0199e1fede102cbf3` |
+| `specs/gateway/agent-capabilities.md` | `7c1d7070625c370d1a59e5eab66972e57db10239b412490a16501a5b9b408401` |
+| `specs/im/agent-work.md` | `81e3f8307bf3641b6f118761dfd790999e2edba60d4f1d4a765c169f155ac945` |
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。当前修订的 Gate 2 通过。**
+
+R2 三个阻断项均在设计层关闭，重复读取成本建议也已落实。设计足以指导既定范围的实施与验收；实现正确性、21 场景真实产品结果和交付状态仍由各自门禁判断。
+
+### Coverage 与证据
+
+#### 1. 当前事实、实际组装及职责
+
+重新读取 [SPEC](../../../../SPEC.md)、[current agent-capabilities](../../../specs/gateway/agent-capabilities.md):432-438 和 [current agent-work](../../../specs/im/agent-work.md) 的发起入口、执行范围及父子导航要求。以 base 版本 `knowledge/runtime.ts`:204-224 核对原来分开运行单项、只按原生 completed 结算、F4 追加通用提示的现状；当前 HEAD 已含实现，不能把设计中的旧现状叙述当作 HEAD 的运行实况。
+
+实际组装仍是 `apps/node/src/configuration.ts`:69-92 提供配置 → `apps/node/src/main.ts`:87-115 的运行分区与 supervisor → `packages/dsh-integration/src/index.ts`:128-129 安装 KnowledgeRuntime → features 挂载维护能力 → KnowledgeFiles 落盘 → `packages/personal-assistant/src/knowledge.ts`:41-69 消费真实 facts。轨迹经 withKnowledgeRun → TrajectoryRuns → product-contracts → 两个浏览器用途消费者；不是仅测试中存在的路径。
+
+职责划分合理：integration 持有 DSH 调度、读取结果、目标身份和存储检查；KnowledgeFiles 复用 root 锁与原子写入；PA 只调和并投递真实事实，Node 只管理进程。读取记录只活在本次 review，不需新增公开工具、版本服务、审批系统或第二套运行时。完整文件比较有阻止并发覆盖的具体用途；自己的确定成功写入更新基线，避免每次 patch 都完整重读的成本。
+
+#### 2. 用户约束及全部需求覆盖
+
+首文档仍为 8 个 Requirement、21 个 Scenario，本轮重新对照以下组别及 `design.md`:253-280 验证矩阵与单 M1：
+
+| 需求组 | 设计及验收判断 |
+|---|---|
+| Memory 分类、去重、纠错、无信号 | prompt-map 的归属规则和当前双文件读取闭合；连续普通/Global review 要检查真实模型输入及最终文件，不能仅检查工具存在。无增量允许不写。 |
+| Skill 学习、成功证据、临时 workaround、用户约束 | 保留具名上游段落；排除未经验证方法，保留复用条件、临时资源退出责任；Agent 自选方法不成为用户要求。 |
+| Memory/Skill 单一归属和开关 | 单项不互相代写；combined 使用独立完整指令；执行白名单与父有效权限取交集，不扩写入 scope。 |
+| Combined 正向、单项回退、取消和部分成功 | 一个普通运行槽、同组到期判断、启动冻结读数、保留新活动和前台较新维护点；任一参与项关闭取消联合 fork，已有事实保留，后续可单项运行。 |
+| 主 Agent 直接维护及部分失败 | 单操作协议、edit 整文件/patch 唯一匹配、支持文件动作和来源说明一致；多调用没有事务回滚，前台不虚称后台读取硬检查。 |
+| 非 Global F4 正向、证据不足、无效/已处理、手工来源和并发 | 绑定目标、自动来源、至少两个不同产品 session、只用自有正常完成历史、无在途/待执行输入、同目标槽和锁内 patch 均已决定；Global 仅禁 F4，不禁普通学习。 |
+
+F4 的完成解释保留 R1/R2 的裁决：以读取时冻结的两个不同产品 session 正常完成过程为证据，同 session 后续轮次不增加证据数，内部 child 或继承历史不充数。F4 与普通维护的计数、失败策略独立，模型决定是否存在重复问题，代码只执行证据资格和写入边界。没有要求替 Global 发明证据单位，也没有把 feat-638 的跨 Skill 整理纳入本次。
+
+#### 3. 固定来源与公开能力
+
+来源固定在 Hermes `bf0203a794a07aac3ff764972ab9087baa4e4f4e`。本轮直接复读 [background_review.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/agent/background_review.py) 的联合归属/三分支和 [skill_manager_guards.py](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/tools/skill_manager_guards.py):32-67、196-206 的本轮路径标记。其余固定文件的散列核对 retained_from: Round 2，prompt_builder/curator retained_from: Round 1；本轮未重复计算七份散列，不声称该 SHA 仍是远端最新 HEAD。
+
+重新检查安装的 DSH 公开包：`dsh-skill-filesystem/lib/index.js`:703 为 `parsed.body.trim()`，`dsh-tool-skill/lib/index.js`:790-791 返回 resourceBase 和正文；`dsh-tools/lib/types/index.d.ts`:92 提供 `tools/result` observer，结果可带 canonical value 及模型可见内容。因此区分正文理解和原文件修改有实际依据，公开事件能支持设计中的本轮结果登记。没有要求 private import 或修改上游安装包。
+
+Hermes 原始机制没有要求自己的每次成功 patch 后失效。Nano 的锁内一致性和成功后更新基线被明确标为本仓策略；Memory 自动纠错、单操作协议、F4 非 Global 和无更新配额是已确认的适配，不再被包装成完整照搬上游。
+
+#### 4. Combined 轨迹与局部体验
+
+`design.md`:207-223 已把 producer、持久 schema、公开 `TrajectoryRun.kind`、`navigation-model.ts` 和 `boot.jsx` 列为同一交付范围。用途值为 combined，名称为“记忆与技能复盘”，fork/background、原生执行状态、发起坐标和本次范围沿用原模型。没有用两条单项假记录或内部 label 代替真实联合用途。当前代码入口 `trajectory-runs.ts`:14、32 与两个用途消费者位置可承载这一决定。
+
+本轮独立查看作者的实际渲染截图 `/tmp/feat637-combined-trajectory.png`（SHA-256 `250ec8c58616a58b471851c30829bf159d3e436c4bd01dfb2b7b45d63d8f1f22`）：1280×720 页面内，“Main Agent › 记忆与技能复盘”、返回发起点、已完成/fork、#43→#77 和原生明细同时可见。名称表达用途、状态和范围另列，用户不必由 UUID 或工具正文猜测归属；八字名称没有遮住相邻操作。对本次仅增加用途文案映射的设计，这份实际容器对照足以判断内容关系，不需要新页面原型。
+
+另在本轮隔离 IM `http://127.0.0.1:65441` 用独立标签只读走到 Agents → E2E Global Agent → Work，确认现有工作记录/原生轨迹切换入口。该时点没有工作记录，本轮没有独立重放 combined 进入/返回/刷新操作，不冒称产品验收通过。旧作者环境 59794 已关闭，未重启它。真实全旅程和窄屏仍由独立产品 reviewer 验收。
+
+刷新契约以 IM delta:11-20 和设计验证矩阵:262 为准：**刷新后可从持久发起入口重新进入同一次执行**。它不要求浏览器自动保持在 child 视图。作者 progress:42 明确记录刷新回父轨迹后重入相同范围，与契约相容；不能把该结果扩大成自动恢复子执行。维护 error 与原生 completed 分开表达也合理：用途或原生停止状态不表示两类知识都已写入。
+
+#### 5. Delta、M1 与前置资源
+
+Gateway delta 的四个 ADDED Requirement 锚定 agent-capabilities；IM delta 修改“从真实发起位置进入子 Agent 的本次执行”，保留 current 的主动委派及并行/嵌套场景，并增加 combined 用途场景，没有丢失未变要求。读取未完成、真实文件资格、单项回退和部分成功均已投影到消费者行为。
+
+单 M1 覆盖 assets/features/knowledge、轨迹 producer/contract/consumer 与验证，退出条件仍要求 21 场景、真实输入与可复查结果。原设计表的 Gate 2 依赖是默认门禁要求；用户授权提前实施的例外已有明确记录，本轮不改写历史顺序。
+
+Runbook 指向现有隔离启停脚本、受控账号、真实 IM 消息入口和 Web 轨迹入口。已能打开本轮隔离 IM；作者 M1 progress 有真实 provider 回复与知识产物定位，模型资源已不只是 /health 推断。但这些既有案例不代替本轮独立产品验收，F4 实际模型质量等仍需各自证据。
+
+### 历史问题闭环
+
+| 原 issue ID | Author Resolution | 本轮证据与结论 |
+|---|---|---|
+| R1-W1 | 改为继承获准 read，宿主只提供准确路径 | **closed，设计层保留。** design:138-148、prompt-map 的 Memory 段要求本轮完整双文件结果；连续普通/Global review 保留真实输入验收，父快照不刷新。 |
+| R1-R1 | 不新增运行模式切换 | **closed，保留。** design:193 仍明确 configuration.apply 不允许修改 work mode，入口及写入时核对模式。 |
+| R2-W1 | 仅完整原文件 read 授予修改资格 | **closed，设计层。** design:134、167-180 和 prompt-map 区分原生正文与 YAML 原文件；无 read 时 F3 只新增、不覆盖，F4 不启动；正文 patch 不另开权限旁路。验证矩阵:260 包含真实 filesystem Skill、头变化、无 read、整文件及正文修改。 |
+| R2-W2 | 宿主记录读取状态，未完成不结算 | **closed，设计层。** design:150-165 把一次 Memory read/写入尝试接入双文件完整状态；正常 stop 但未读全记 error/memory_read_incomplete，combined 全轮不推进，保留成功 Skill facts。完全无增量且未读可正常结算；验证矩阵:261 覆盖工具失败后正常停止，而非只测 provider 抛错。 |
+| R2-W3 | 增加真实 combined 用途及全部消费者 | **closed，设计层。** design:207-223、IM delta 和 M1 明确同次执行、背景 fork、持久记录和两处名称；刷新是重新进入同次执行，不伪装自动恢复子视图。 |
+| R2-R1 | 用实际成功写入内容更新本轮基线 | **closed，建议已采纳。** design:177-180 明确连续 patch 无须无条件重读，失败不推进基线，不确定才清除；保留必要并发比较，不新增持久缓存服务。 |
+
+### Issues
+
+无。0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+- **R3-R1（可选文档消歧）**：design:223、239 的“刷新后的范围保留／刷新恢复”可统一写为“刷新回父轨迹后，仍可由持久入口重入相同执行范围”，与 IM delta 和 progress:42 一致。这是措辞明确化，不新增自动恢复 child URL 的功能要求，也不阻断本轮。
+- **R3-R2（可选引用整理）**：design 的 feat-638 链接在当前隔离 checkout 中不存在。补充可访问的需求登记引用或明确其位于未纳入本分支的需求记录即可；非目标边界已在本 unit 独立写清，不需为此扩大本次范围。
+- **R3-R3（runbook 引用校正）**：审查收尾时 orchestrator 传来产品 reviewer 的观察：当前 TS IM 的 `/openapi.json` 与 `/im/openapi.json` 均为 404，故 design:249 不能继续指向该资源。改为现有 `tests/e2e/critical_paths/_im_client.py` 的认证、会话与消息请求即可；本轮已核对该客户端文件存在并包含实际 `/im/v1` 调用。产品验收已有这一有效入口并在继续，此引用错误不造成待决接口或不可用验收资源，不阻断设计。该 HTTP 404 是交接证据，本轮未重复请求。
+
+### 本轮验证与边界
+
+- 独立完成 full 设计复核、历史闭环、当前产品组装/API核对、局部真实截图判断及现有 Work 入口只读走查；不承担代码质量/实现一致性或产品验收结论。
+- 五份受审 Markdown 无行尾空白，首文档数量为 8/21。本地链接检查仅发现 design 指向当前 checkout 缺失的 feat-638 登记；不声称全部链接或全仓 docs_check 通过。
+- 未运行产品测试、真实模型或全仓测试；未改变服务、配置及业务数据。没有把作者通过案例等同于全部场景通过。
+- 原 R1/R2 与作者处置原样保留；本轮 Approved 仅从本次完成时间开始对上述设计内容有效。
+
+### Author Resolutions — Round 3
+
+已核对本轮全部覆盖与建议，未发现实质设计问题。R3-R1 统一为刷新后从持久入口重入同次范围；R3-R2 去掉本分支不存在的 feat-638 链接并明确分支边界；R3-R3 改用已有 IM 黑盒客户端作为请求契约入口，记录 TS IM 无 OpenAPI 路由。仅文档消歧与运行入口纠错，未改首文档、delta、公共接口或 milestone；Round 3 Approved retained，不新建审查轮。
+
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: Codex `/root/design_review`，沿用 R3 独立设计 reviewer；未参与设计或实现，不兼任实现一致性、代码审查及产品验收。
+- review_mode: `delta`
+- mode_reason: R3 建议的文案、引用和 runbook 校正可 retained；但 prompt-map 新增明确的临时状态排除规则，并适配上游 Memory 定义，属于有界的提示词语义变化，需要复审。其影响限于知识归属及无长期价值信息的处理；需求、公共协议、调度、轨迹和 milestone 未变，不需要 full。F4 目录过滤及维护终态修复只核对其是否改变设计决定，不审代码质量。
+- started_at: `2026-10-23T13:25:10+08:00`
+- completed_at: `2026-10-23T13:26:33+08:00`
+- duration: `83s`
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-637`，branch `unit/feat-637`，开始时 clean。
+- executed_base / effective_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`。
+- reviewed_delta: `d617906aed41fa14a34f4b3f1b5e49f179ed4129..fc101f8532e638324ebcf8bf60e51044af68c377`。
+- validated_at / effective_through: `fc101f8532e638324ebcf8bf60e51044af68c377` 的当前设计内容。
+- 受审设计散列: `design.md` = `2c122ae7af6138734acfa5c50c24e5a29d7945c88a5c48b760515584eaa8c5c3`；`prompt-map.md` = `f854450bccacf6ace2c836564bf001991146952659be4bff32b3d3bf27c52ec2`。
+- 历史保全: 追加前报告 SHA-256 `9cf22894c367a4a2d4cc722c21861d00bc53c3f3b75d50074f49f56a4fe63ee4`；保留 R3 及 Author Resolutions 原文。本轮只追加报告，不修改设计或代码、不建 worktree、不提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。Gate 2 对当前修订继续成立。**
+
+知识归属修订是既定需求内的必要适配，F4 过滤不放宽证据资格。真实模型是否遵守修订、F4 是否完成正向产品路径，仍须各自验收，不由本设计结论代替。
+
+### Coverage 与证据
+
+#### 1. 临时状态与延后 Skill 修改的知识归属
+
+`prompt-map.md`:77、169-173 新增明确规则：不把临时任务状态、待审批事项或延后的 Skill 编辑队列写进 Memory；Skill 修改不可用或用户暂缓时跳过该修改，不将完整步骤及待办状态转存另一知识类别。上游 Memory 定义中的 current situation/state of operations 收紧为人物信息和长期环境事实，理由与差异已保存在适配记录中，不再声称此句完全原样复用。
+
+该变化与 `spec.md`:66、82-85 的临时进度不形成长期事实，以及 :128-132 的完整规则单一归属一致。它不禁止保存跨任务的长期个人偏好或稳定环境事实，不把一次暂缓推断为永久用户偏好，也不提供新的审批授权或待办执行机制。暂缓的修改不因后台学习转入 Memory，符合保留用户约束的原决定。
+
+波及范围已明确到 Memory 单项、combined 和前台 memory 说明；Skill 单项关于 Memory 的定义同步收紧。核对当前 assets 的入口与描述，未发现同一用途仍保留宽泛 state of operations 定义的冲突。这里只将这些位置作为设计适配的落点证据，不对提示词效果或实现覆盖作门禁结论。未增加工具参数、分类器、持久状态或新的跨包职责。
+
+触发该修订的 Global review `44fa9fd6-bb4a-46e5-8b8c-989f8c0b4a1d` 来自独立产品 reviewer 的交接及 `M1-evolution-prompts/progress.md`:60；本轮没有重放该真实模型过程。其观察支持为何需要消歧，但设计可接受性的依据仍是原需求和当前完整规则之间的相容性。
+
+#### 2. F4 证据预算与维护终态
+
+`design.md`:187-195 仍要求两个不同合格产品 session、自有正常完成的使用过程和工具结果，保留单 session 20,000 字符、总计 100,000 字符限制及目标/来源/patch 约束。runtime 的本次 delta 仅从候选对话中排除 source.kind=`skill-catalog` 的自动目录消息；实际 `skill-invocation`、用户消息、工具调用/结果和完成边界仍在证据选择中，自动目录不能独立证明一次技能使用或一个重复问题。
+
+将目录元数据排除在“使用过程”预算之外，与原设计按有效事件筛选证据相容。它不提高限额、不把同 session 的多轮算为两份、不添加无关会话，也不把未完成输入转成完成证据。`progress.md`:61 的三份字符计数及 fixture 结果是实施方记录，本轮只核对这一变化的设计性质，不重新计数或宣称真实 F4 产品通过。
+
+同时核对到 runtime 仅在原生 completed 时叠加 Memory 读取未完成判断。这落实 `design.md`:163“原生失败或取消保留相应终态”，未改变 R2-W2 已关闭的规则：正常停止但未读全时整轮不结算，部分成功 facts 保留。
+
+#### 3. R3 文档消歧与保留范围
+
+刷新措辞现已明确为刷新回父轨迹后从持久入口重入相同范围；未新增自动恢复 child URL 的能力。feat-638 改为分支外需求登记说明，仍排除内容整理。runbook 改指实际 IM 黑盒客户端，未改变驱动用户旅程的 API 范围。历史交付状态单独标为历史，并保留 Gate 2 未闭环即获用户授权实施的顺序。
+
+**retained_from: Round 3。** 首文档、Gateway/IM delta、公共接口与单 M1 在该 diff 内无变化。R3 对产品组装、DSH 公开能力、职责和依赖、普通/combined 调度、当前文件读取、并发保护、真实 facts 调和、轨迹名称及刷新契约的证据不受影响，继续有效。固定 Hermes SHA 不变，本轮不重新核查远端 HEAD 或文件散列。
+
+### 历史问题闭环
+
+| 原 ID | Author Resolution | 本轮证据与结论 |
+|---|---|---|
+| R3-R1 | 统一刷新后重入措辞 | **closed。** design:223、239 已与 IM delta 的持久入口及同次执行范围一致。 |
+| R3-R2 | 明确 feat-638 未纳入本分支 | **closed。** design:51 去除不存在的本地链接；非目标不变。 |
+| R3-R3 | 改用已有 IM 黑盒客户端 | **closed。** design:249 链接 `tests/e2e/critical_paths/_im_client.py`，该文件存在，不再依赖未提供的 OpenAPI 路由。 |
+| R1-W1、R2-W1/W2/W3、R2-R1 | R3 已关闭 | **closed，retained_from: Round 3。** 本次不改变当前 Memory 输入、Skill 原文件读取资格、联合终态/周期、轨迹用途及连续成功 patch 基线；原生异常终态修复与现有设计一致。 |
+
+### Issues
+
+无。0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+无新增建议。
+
+### 本轮验证与边界
+
+- 已核对冻结版本、完整设计 delta、受影响提示词落点和 F4 过滤的设计性质；未重做 full 或扩大需求。
+- `spec.md` 与两个 delta-spec 未改，21 场景的产品验收要求仍成立。原始失败案例及修订后真实结果应由产品记录保存，不能因本轮 Approved 覆盖失败历史。
+- 本轮未运行测试、真实模型、服务或浏览器；未复验行为质量。代码/一致性和独立产品门禁仍各自负责相应判断。
+
+
+## Round 5
+
+### Metadata
+
+- reviewer_target: Codex `/root/design_review`，沿用 R3/R4 独立设计 reviewer；未参与设计或实现，不兼任代码、一致性或产品验收。
+- review_mode: `delta`
+- mode_reason: 新增前台 Memory 的当前文件读取指引及回复后维护身份边界，有界改变模型指令，不能仅 retained；需求、协议、快照、调度和 UI 未变，只审受影响的去重、用户约束和首次写入路径，不重做 full。
+- started_at: `2026-10-23T13:34:43+08:00`
+- completed_at: `2026-10-23T13:36:54+08:00`
+- duration: `131s`
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-637`，branch `unit/feat-637`。开始时已有未跟踪 acceptance.md，收尾时另有其他 reviewer 的报告修改；本轮仅追加本文件，不触碰这些内容。
+- executed_base / effective_base: `5462b7217421a2c27871c1c5951c1e48644e54ba`。
+- reviewed_delta: 从 R4 的 `fc101f8532e638324ebcf8bf60e51044af68c377` 起；初始冻结 `ff30a6ea8adf82404f4bf998092c5d24f7ea5f0f`，同轮发现后作者最小修订并冻结 `1bc6219356186ebc0a3f255cf4a441936495d8e3`。
+- validated_at / effective_through: `1bc6219356186ebc0a3f255cf4a441936495d8e3` 的当前设计内容；不是追溯批准初始缺口版本。
+- 受审设计散列: `design.md` = `43e376b1a4a2f9d2d4994864fdc1c4f3e9867656ee18c17bcfc6a3fccda09c8f`；`prompt-map.md` = `2b4f066381537447185ab925442c8226c2a8e81dc89aeece4ae1b8a5af4a6b01`。
+- 历史保全: 追加前报告 SHA-256 `3d84557b33c381a6adaca556471e363daa474a742ad3ae281ddf7c6e938aabbf`，保留所有既有轮次。未修改设计或代码、未创建 worktree、未提交。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING（未解决）。Gate 2 对同轮修订后的设计继续成立。**
+
+本轮发现的首次缺失文件语义已由作者在 `1bc621935` 修正并核实关闭；过程和版本保留如下。当前内容读取及前后台身份说明符合既定去重与尊重用户约束要求，不代表模型行为已经验收通过。
+
+### Coverage 与证据
+
+#### 1. 前台当前内容输入及项目身份
+
+`design.md`:140 和 `prompt-map.md` 末段把前台 Memory 操作指引补齐到当前 workspace 的 `.nanoassistant/memory/USER.md`、`MEMORY.md` 全文。路径与 `KnowledgeFiles` 构造器 :49 的 memoryRoot、runtime.files(agent) 使用 session cwd 的现有接线一致。冻结 snapshot 仍是历史输入，后台写入后可能过时；通过已有且获准的 read 获取当前文件能为前台去重提供真实数据，不需刷新父快照或宿主另行注入内容。
+
+当前指引同时要求原位纠正、不新增同义副本，并保留不同项目的身份。它限制将两个项目的运行环境或路径合并为一个事实，不改变 USER/MEMORY/Skill 的分类。与既有“重复表达不产生重复记忆”“明确纠正替代旧事实”及准确环境事实要求一致，不新增项目实体库、语义去重器或工具协议。
+
+本轮最小修订明确：仅 read 确认不存在才视为空；权限拒绝、其他失败、未读完整均跳过。读取权限不因工具说明恢复，被禁用的 read 不能由 shell 或宿主注入替代。本规则仍是前台操作指引，不声称已有与后台同等的强制读取 guard，也不承诺跨调用事务。
+
+#### 2. 回复消息与后台维护的身份
+
+Memory 说明和 Skill 前台指引明确：发送回复并不结束当前执行或创建后台 review，同执行中随后调用的维护工具仍属前台。对于此次原始条件“本轮只口头确认，允许后续维护”，前台应停止知识写入，后续由原有独立维护调度处理；这与已有工具作用域和调度身份一致。
+
+“交给独立 review”不产生新的用户授权，也不取消原有 feature、到期、工具权限或用户条件。泛化的暂缓要求仍须按上下文尊重，不能解释为允许后台立即执行被禁止的修改。现有 prompt 保留显式用户约束和不绕过禁用能力，design 以“用户只允许后续维护时”限定该路径；本次不引入授权引擎或新的自动触发条件。
+
+触发修订的输入 `96db63dddaec4425bbc0bcfcf3fe2c09` 及前台写入行为，已在产品 reviewer 的 acceptance.md R2-P1 与 prompt-map 记录。本轮读取该交接证据以核对设计问题，未重复运行模型；产品失败不会因新指引或本轮 Approved 被改写为已通过。
+
+#### 3. 同轮发现与关闭：R5-W1
+
+- 初始位置：`ff30a6ea8` 的 design:140、memory 工具说明。“两份文件完整读取；不能读取则跳过”没有区分文件尚不存在与真实读取失败。
+- 具体影响：新 workspace 首次写入，或 USER/MEMORY 仅有一类已建立时，另一文件不存在。`knowledge/files.ts`:18-20 的 readText 明确把 ENOENT 视为空，文件由成功写入建立；初始化 snapshot 不预先创建两份文件。按初始新文案，前台可能因另一文件缺失而跳过合法首次记忆，和既有创建能力及后台缺失语义不一致。这不是假设另加一个异常系统。
+- Author Resolution：同轮收到发现后，在 `1bc621935` 同步 design、prompt-map、Memory 工具说明，增加“read 明确确认不存在才按空内容；拒绝、其他失败或不完整跳过”。没有新增 fallback、权限或协议。
+- 本轮核实：直接比较 `ff30a6ea8..1bc621935`，三处语义一致，并与后台 memory/combined 已有缺失规则相同。**closed，设计层。** 未报告初始版本 Approved，也未另开形式化审查轮。
+
+#### 4. 保留范围
+
+**retained_from: Round 4（其未变化的基础覆盖 retained_from: Round 3）。** 首文档、Gateway/IM delta、单 M1、后台当前读取与结算、Skill 原文件资格、F4 证据预算/门槛/目标、combined 调度/取消/facts、轨迹用途及刷新后重入均未改变。没有新 UI 决定或新的真实服务前置，无需重复渲染、上游来源核对或全范围设计检查。
+
+### 历史问题闭环
+
+R1/R2 设计问题、R3 非阻断建议和 R4 语义范围继续保持关闭。本次没有重新打开这些契约；R5-W1 的发现、作者修订和关闭证据见上节。
+
+### Issues
+
+无未解决项。0 CRITICAL / 0 WARNING；本轮过程发现 R5-W1 已在最终受审版本关闭。
+
+### Recommendations
+
+无新增建议。
+
+### 本轮验证与边界
+
+- 核对初始及修订冻结版本、设计和提示词差异、当前双文件路径、首次缺失处理及前台/后台身份契约。只追加本报告，保留原轮次及实际失败记录。
+- 未运行测试、模型或浏览器；没有以提示词文字或设计可行性宣称去重、项目身份和用户暂缓行为实际通过。修订后的同条件产品复验仍由独立产品 reviewer 完成。

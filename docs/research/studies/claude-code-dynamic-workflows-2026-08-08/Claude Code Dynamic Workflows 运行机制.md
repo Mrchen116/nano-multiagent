@@ -210,9 +210,11 @@ Do NOT output confirmations like "Done." or "Sent."
 
 主请求中的总输入也远大于“base system 字符数”：实验里 base system 约 8,970 字符，但首次调用输入为 30,712 tokens，因为 tool schemas、skills、agent listing、repository context 和 messages 都计入。做提示词复刻时必须分别统计，不能把 API input tokens 全部称作 system prompt。
 
+更重要的是，LLM Proxy 已经保存了该请求的完整 `system + tools + messages`，所以对这次 2.1.226 capture，provider-facing prompt 可以逐字提取，并不是“隐藏且拿不到”。主请求三个 system block 是 70、57、8,841 chars；`Workflow` tool object 的 canonical serialization 是 21,259 chars，其中 description 19,214 chars、input schema 1,775 chars。逐块哈希和原始 locator 见 [`research.md`](research.md#e1-prompt-capture-manifest)。
+
 ### 可用于兼容实现的 surrogate prompt
 
-下面是基于可观察契约编写的替代指令，不是 Anthropic 未公开 prompt 的逐字副本：
+下面仍提供一份便于移植的替代指令。使用 surrogate 的原因是复刻时需要更短、更稳定的自有契约，不是因为原始 prompt 无法观察；已捕获分支的逐字 prompt 应先从 LLM Proxy 独立分析：
 
 ```text
 Call Workflow only after explicit workflow opt-in from an eligible human input,
@@ -408,9 +410,10 @@ await returned Promise
 
 ## 12. 当前认知边界
 
-我们已经能复现对外运行模型、提示词分层、tool 输入、脚本语言、异步生命周期、子 agent 返回值语义、artifact 形状、通知与 resume 的兼容契约。尚不能声称知道：
+我们已经能复现对外运行模型、已捕获分支的完整 provider-facing `system + tools + messages`、提示词分层、tool 输入、脚本语言、异步生命周期、子 agent 返回值语义、artifact 形状、通知与 resume 的兼容契约。尚不能声称知道：
 
-- 完整未公开 system/tool prompt 的逐字内容；
+- 未捕获 activation、permission、saved/remote workflow 与错误分支是否注入不同 prompt 变体；
+- provider 在 LLM Proxy 之后可能追加的 server-side instructions；它们不属于 Claude Code 发出的 request payload；
 - journal 的 crash consistency、并发 effect ordinal 和跨版本迁移；
 - VM bridge、value sanitization 与 hostile-script hardening 的全部安全性质；
 - 普通 permission 模式下所有 UI 状态；

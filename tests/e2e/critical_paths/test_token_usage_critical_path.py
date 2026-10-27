@@ -1,4 +1,4 @@
-"""Provider accounting reaches public chat bubbles and owner-scoped usage metrics."""
+"""Provider accounting reaches public chat bubbles and persisted Global Work records."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from .test_agent_config_context_continuity_critical_path import (
     ),
     indirect=True,
 )
-def test_native_token_usage_reaches_bubble_and_metrics(
+def test_native_token_usage_reaches_bubble_and_work(
     stub_llm_stack: StubLLMStack,
 ) -> None:
     """Disjoint input, cached input and output retain their meaning through the complete stack."""
@@ -46,23 +46,32 @@ def test_native_token_usage_reaches_bubble_and_metrics(
             headers={"Authorization": f"Bearer {client.token}"},
             timeout=30,
         ) as http:
+            # The retired cumulative API has no product consumer. Global Work
+            # retains its independent native -> journal -> HTTP projection path.
+            assert http.get("/im/v1/metrics/usage").status_code == 404
+            agents = http.get("/im/v1/agents").json()
+            global_id = next(
+                agent["agent_id"]
+                for agent in agents
+                if client.get_agent_config(agent["agent_id"])["work_mode"] == "global"
+            )
+            global_chat = client.create_direct_conversation(global_id)
+            client.send_message(global_chat, "WORK-USAGE-PROBE")
 
-            def metrics() -> list[dict]:
-                response = http.get(
-                    "/im/v1/metrics/usage", params={"agent_id": agent_id}
-                )
+            def work() -> dict:
+                response = http.get(f"/im/v1/agents/{global_id}/work")
                 response.raise_for_status()
                 return response.json()
 
-            rows = poll_until(
-                metrics,
-                lambda values: bool(values),
+            view = poll_until(
+                work,
+                lambda value: bool(value.get("latest_main_usage")),
                 timeout=30,
                 interval=0.2,
-                desc="native usage metrics",
+                desc="persisted Work token usage",
             )
-            assert rows[0]["prompt_tokens"] == 31_001
-            assert rows[0]["completion_tokens"] == 1
-            assert rows[0]["total_tokens"] == 31_002
+            assert view["latest_main_usage"]["context_used"] == 31_001
+            assert view["latest_main_usage"]["output"] == 1
+            assert view["latest_main_usage"]["cache_read_tokens"] == 1_000
     finally:
         client.close()

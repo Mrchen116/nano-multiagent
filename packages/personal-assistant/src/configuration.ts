@@ -2,12 +2,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { agentConfigurationFingerprint, canonicalAgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
 
 interface Intent { operation_id: string; candidate_fingerprint: string; expected_previous_fingerprint: string | null; agent: Record<string, unknown> }
-interface Receipt { kind: string; intent: Intent; candidate: CanonicalAgentConfiguration; status: 'pending' | 'applied' | 'rejected'; error_code?: string; message?: string }
+export interface ConfigurationPreparation { ready: boolean; error_code?: string; message?: string; blocks?: unknown[] }
+interface Receipt { kind: string; intent: Intent; candidate: CanonicalAgentConfiguration; status: 'pending' | 'applied' | 'rejected'; error_code?: string; message?: string; blocks?: unknown[] }
 interface Options {
   current(agentId: string): Record<string, unknown> | undefined;
   resolve(candidate: CanonicalAgentConfiguration, creating: boolean): Promise<CanonicalAgentConfiguration>;
   persist(candidate: CanonicalAgentConfiguration): Promise<void>;
-  apply(candidate: CanonicalAgentConfiguration): Promise<void>;
+  prepare?(candidate: CanonicalAgentConfiguration, intent: Intent): Promise<ConfigurationPreparation>;
+  release?(candidate: CanonicalAgentConfiguration, intent: Intent): Promise<void>;
+  apply(candidate: CanonicalAgentConfiguration, intent: Intent): Promise<void>;
 }
 /** Write-ahead operation receipts reconcile durable node configuration with runtime scopes. */
 export class ConfigurationOperations {
@@ -27,7 +30,7 @@ export class ConfigurationOperations {
   private result(receipt: Receipt): Record<string, unknown> {
     return { operation_id: receipt.intent.operation_id, candidate_fingerprint: receipt.intent.candidate_fingerprint, status: receipt.status,
       ...(receipt.status === 'applied' ? { agent: receipt.candidate } : {}),
-      ...(receipt.error_code ? { error_code: receipt.error_code, message: receipt.message } : {}) };
+      ...(receipt.error_code ? { error_code: receipt.error_code, message: receipt.message, ...(receipt.blocks ? {blocks: receipt.blocks} : {}) } : {}) };
   }
   status(id: string): Record<string, unknown> { const receipt = this.get(id); return receipt ? this.result(receipt) : { operation_id: id, status: 'pending' }; }
   handle(kind: 'create' | 'apply', intent: Intent): Promise<Record<string, unknown>> {
@@ -51,7 +54,7 @@ export class ConfigurationOperations {
         const candidate = await this.options.resolve(canonicalAgentConfiguration(intent.agent), kind === 'create');
         receipt = { kind, intent: { ...intent, agent: canonicalAgentConfiguration(intent.agent) }, candidate, status: 'pending' };
         this.save(receipt);
-      } catch (error) { return reject('invalid_agent_config', String(error)); }
+      } catch (error) { const failure = error as {error_code?: string; blocks?: unknown[]}; return {...reject(failure.error_code ?? 'invalid_agent_config', String(error)), ...(failure.blocks ? {blocks: failure.blocks} : {})}; }
     }
     const current = this.options.current(receipt.candidate.agent_id);
     const fingerprint = current ? agentConfigurationFingerprint(current) : null;
@@ -59,10 +62,27 @@ export class ConfigurationOperations {
     if (fingerprint !== desired && fingerprint !== receipt.intent.expected_previous_fingerprint) {
       receipt.status = 'rejected'; receipt.error_code = 'operation_conflict'; receipt.message = 'Node configuration no longer matches the expected previous state'; this.save(receipt); return this.result(receipt);
     }
-    if (fingerprint !== desired) await this.options.persist(receipt.candidate);
+    const preparation = await this.options.prepare?.(receipt.candidate, receipt.intent);
+    if (preparation && !preparation.ready) {
+      // A persisted candidate still needs runtime reconciliation; never claim it was rolled back.
+      if (fingerprint === desired && receipt.intent.expected_previous_fingerprint !== desired) throw new Error(preparation.message ?? 'Configuration recovery is unavailable');
+      receipt.status = 'rejected'; receipt.error_code = preparation.error_code ?? 'capability_in_use';
+      receipt.message = preparation.message; receipt.blocks = preparation.blocks; this.save(receipt);
+      await this.options.release?.(receipt.candidate, receipt.intent);
+      return this.result(receipt);
+    }
+    try { if (fingerprint !== desired) await this.options.persist(receipt.candidate); }
+    catch (error) { await this.options.release?.(receipt.candidate, receipt.intent); throw error; }
     // A crash or disconnected runtime keeps a pending receipt, recoverable by the same intent.
-    await this.options.apply(receipt.candidate);
+    await this.options.apply(receipt.candidate, receipt.intent);
+    await this.options.release?.(receipt.candidate, receipt.intent);
     receipt.status = 'applied'; this.save(receipt); return this.result(receipt);
+  }
+  /** Restore admission holds from the existing receipt before automatic work resumes. */
+  pending(): {intent: Intent; candidate: CanonicalAgentConfiguration}[] {
+    return (this.db.prepare("SELECT receipt FROM operations WHERE json_extract(receipt,'$.status')='pending'").all() as {receipt: string}[]).map(row => {
+      const receipt = JSON.parse(row.receipt) as Receipt; return {intent: receipt.intent, candidate: receipt.candidate};
+    });
   }
   async recover(): Promise<void> {
     for (const row of this.db.prepare('SELECT receipt FROM operations').all() as { receipt: string }[]) {

@@ -1,13 +1,13 @@
 import type { RelayInput, RuntimePort, SessionBinding, AgentConfiguration } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { NodeStore } from './store.js';
-import { needsAttention } from './attention.js';
+import { needsAttention, controlText } from './attention.js';
 
 export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: string; argument: string; text?: string; delivered?: boolean }
 interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; relay: { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> } }
 export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;
-  const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(input.message.content.trim());
+  const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(controlText(input));
   if (!match || !needsAttention(input, { ...config, groupReplyPolicy: 'mention_only' })) return;
   return { action: match[1]!, argument: match[2]?.trim() ?? '' };
 }
@@ -20,18 +20,19 @@ export class SessionControls {
   /** Unfinished controls remain busy even after a failed delivery or reconnect. */
   get busy(): boolean { return this.active.size > 0 || this.options.store.controls().some(intent => !intent.delivered); }
   run(binding: SessionBinding, input: RelayInput, action: string, argument: string): Promise<void> {
+    input=this.options.store.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
     const existing = this.active.get(id); if (existing) return existing;
     const intent = this.options.store.control(id) ?? { id, binding, input, action, argument };
     this.options.store.saveControl(intent);
-    const task = (this.tails.get(binding.sessionId) ?? Promise.resolve()).then(() => this.perform(intent));
+    const task = (this.tails.get(binding.sessionId) ?? Promise.resolve()).then(() => this.options.store.lifecycle.run(binding.agentId,intent.input.lifecycle_revision??1,()=>this.perform(intent)));
     const settled = task.catch(() => {}); this.tails.set(binding.sessionId, settled); this.active.set(id, task);
     void settled.then(() => { this.active.delete(id); if (this.tails.get(binding.sessionId) === settled) this.tails.delete(binding.sessionId); });
     return task;
   }
   async wait(sessionId: string) { await this.tails.get(sessionId); }
   async recover(agentId: string) {
-    for (const intent of this.options.store.controls()) if (intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
+    for (const intent of this.options.store.controls()) if (this.options.store.lifecycle.allowed(agentId,intent.input.lifecycle_revision??1) && intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
   }
   private async perform(intent: ControlIntent) {
     const { store, runtime, relay, nodeId } = this.options; const { binding, input } = intent;

@@ -60,7 +60,7 @@ export function apply(ctx){
    const text=code==='invalid'?'malformed':code==='stage-deny'?'<block>yes</block><reason>need full review</reason>':active.rules==='nano'?'<block>no</block>':JSON.stringify({outcome:'allow',risk_level:'low',user_authorization:'high',rationale:'authorized exact action'});
    yield{type:'block-end',index:0,block:{type:'text',text}};yield{type:'finish',reason:{kind:'stop'}};return;
   }
-  const human=o.messages.findLast(m=>m.role==='user'&&m.source?.kind?.startsWith('nano-'));
+  const human=o.messages.findLast(m=>m.role==='user'&&(m.source?.kind==='user'&&'actorId'in m.source||m.source?.kind==='nano-system'&&m.source.channel==='heartbeat'));
   if(!steps.has(human.id)){
    steps.add(human.id);active=cases.find(c=>c.id===human.content[0].text);reviewerSession=undefined;
    yield{type:'block-end',index:0,block:{type:'tool-call',id:active.id+'-tool',name:'fixture_effect',arguments:JSON.stringify({scenario:active.id})}};

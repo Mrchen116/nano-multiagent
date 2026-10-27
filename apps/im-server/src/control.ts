@@ -1,4 +1,6 @@
+import { AgentLifecycles, lifecycle, registerAgentLifecycleRoutes } from './agent-lifecycle.js';
 import { createHash, randomUUID } from "node:crypto";
+import { changeCapability, effectiveFeatures, featureDependencies, validateCapabilities } from '@nano/product-contracts/capabilities';
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   all,
@@ -13,9 +15,11 @@ import {
   type Row,
 } from "./context.js";
 import { bearer, defaultSpace, accountEnabled, canAccessSpace, ownerAccount, requireCompanyAdmin } from "./identity.js";
-import { canonicalJson } from "./task-graphs.js";
+import { canonicalJson, activeTaskCount, withdrawsTask } from "./task-graphs.js";
 import { registerTaskGraphRoutes } from "./task-graphs.js";
 import { registerChannelRoutes } from "./channels.js";
+import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
+  settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
 async function gatewayRequest(
   ctx: ImContext,
   node: string,
@@ -147,6 +151,7 @@ function pending(): never {
   });
 }
 const safeRejections = new Set([
+  'capability_in_use', 'invalid_capability_dependencies', 'capability_unavailable', 'capability_usage_unavailable',
   "agent_id_already_exists",
   "invalid_agent_config",
   "operation_conflict",
@@ -202,6 +207,12 @@ export class ConfigOperations {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
       if(previous)previous={...previous,personal_agent:candidate.personal_agent};
     } else {candidate={...candidate};delete candidate.personal_agent;}
+    const blocks = validateCapabilities(candidate);
+    if (blocks.length) fail(422, {code:'invalid_capability_dependencies', message:'Configuration is missing required capabilities', blocks});
+    if (previous && withdrawsTask(previous, candidate) && activeTaskCount(this.ctx.db, candidate.agent_id)) {
+      const kind = effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph ? 'feature' : 'tool';
+      fail(409, {code:'capability_in_use', message:'Pause or finish active tasks before withdrawing Task capability', blocks:[{code:'active_tasks',target:{kind,name:'task_graph'}}]});
+    }
     const id = randomUUID().replaceAll("-", ""),
       hash = candidateFingerprint(candidate);
     if (
@@ -284,11 +295,11 @@ export class ConfigOperations {
         )
         .run(JSON.stringify(result), code, result.message ?? null, now(), op.operation_id);
       fail(
-        code.startsWith("workspace_") &&
+        code === 'capability_usage_unavailable' ? 503 : ['invalid_capability_dependencies','capability_unavailable'].includes(code) ? 422 : code.startsWith("workspace_") &&
           !["workspace_already_assigned", "workspace_confirmation_required"].includes(code)
           ? 422
           : 409,
-        { code, message: result.message ?? code },
+        { code, message: result.message ?? code, ...(Array.isArray(result.blocks) ? {blocks:result.blocks} : {}) },
       );
     }
     this.ctx.db
@@ -306,18 +317,18 @@ export class ConfigOperations {
   async create(candidate: Row, owner: string, node: string) {
     if (one(this.ctx.db, "SELECT 1 FROM agent_profiles WHERE agent_id=?", candidate.agent_id))
       fail(409, "agent_id already exists");
-    const op = this.insert(candidate, owner, node, "create", null, null);
+    const op = transaction(this.ctx.db, () => this.insert(candidate, owner, node, "create", null, null));
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
   async update(profile: Row, candidate: Row, owner: string) {
-    const op = this.insert(
+    const op = transaction(this.ctx.db, () => this.insert(
       candidate,
       owner,
       profile.node_id,
       "apply",
       fromProfile(profile),
       profile.profile_version,
-    );
+    ));
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
   private async commit(op: Row, result: Row): Promise<Row> {
@@ -459,6 +470,7 @@ export class ConfigOperations {
         "UPDATE agent_config_operations SET status='committed',updated_at=? WHERE operation_id=?",
       ).run(now(), op.operation_id);
     });
+    new AgentLifecycles(this.ctx).deliver(lifecycle(db,op.agent_id));
     return profileResponse(one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", op.agent_id)!);
   }
 }
@@ -563,8 +575,19 @@ function featureOptions(value: unknown): Row[] {
       help_i18n: typeof x.help_i18n === "string" ? x.help_i18n : "",
       default_on: !!x.default_on,
       available: x.available !== false,
-      requires_tool: typeof x.requires_tool === "string" ? x.requires_tool : null,
+      requires: {features:stringList(x.requires?.features),tools:stringList(x.requires?.tools),skills:stringList(x.requires?.skills)},
     }));
+}
+function agentCapabilities(profile: Row, capabilities: Row): Row {
+  if (!capabilities || !['models','skills','tools'].every(key => Array.isArray(capabilities[key])))
+    fail(502, 'Agent capabilities are unavailable');
+  return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
+    models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),
+    inherited_approval_rules:capabilities.inherited_approval_rules ?? null,
+    commands:capabilities.commands ?? [],features:featureOptions(capabilities.features),fixed_tools:stringList(capabilities.fixed_tools),platform_default_model:capabilities.platform_default_model ?? null};
+}
+function settingsError(code: string) {
+  return {code,message:code === 'offline' ? 'The Agent computer is offline.' : code === 'timeout' ? 'The computer did not respond in time.' : 'Settings could not be confirmed. Refresh to try again.'};
 }
 function previewInput(b: Row): Row {
   return {
@@ -587,6 +610,11 @@ function requiredWorkspace(p: Row) {
   return p.workspace_root;
 }
 export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
+  registerAgentLifecycleRoutes(app,ctx);
+  app.addHook('onRequest', async (req, reply) => {
+    if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
+      reply.header('Cache-Control','private, no-store');
+  });
   const ops = new ConfigOperations(ctx);
   const user = (req: FastifyRequest) => {
     const u = ctx.identity.authenticateRequest(req);
@@ -629,6 +657,14 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     });
     return updated;
   });
+  app.get("/im/v1/nodes/:node_id/approval", async (req) => {
+    const u = await user(req), id = params(req).node_id;
+    requireNode(ctx, id, u.owner_id);
+    const workspace = optionalText(query(req).workspace_root);
+    if (!workspace) fail(422, "workspace_root is required");
+    const result = await rpc(id, "node.approval.resolve", {workspace_root: workspace});
+    return {inherited_approval_rules: result.inherited_approval_rules ?? null};
+  });
   app.get("/im/v1/nodes/:node_id/capabilities", async (req) => {
     const u = await user(req),
       id = params(req).node_id;
@@ -640,6 +676,8 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       skills: allowlistOptions(r.skills),
       tools: allowlistOptions(r.tools),
       features: featureOptions(r.features),
+      fixed_tools: stringList(r.fixed_tools),
+      inherited_approval_rules: r.inherited_approval_rules ?? null,
       platform_default_model: r.platform_default_model ?? null,
       default_workspace_template: r.default_workspace_template ?? null,
     };
@@ -709,6 +747,11 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         c.skills = skills;
         c.skills_selection_mode = b.skills_selection_mode ?? null;
       }
+      if (b.features === undefined) {
+        const desired = effectiveFeatures();
+        c.features = Object.fromEntries(featureDependencies.map(feature => [feature.key,false]));
+        for (const feature of featureDependencies) if (desired[feature.key]) Object.assign(c, changeCapability(c,{kind:'feature',name:feature.key,enabled:true},{}).draft);
+      }
       return ops.create(c, u.owner_id, id);
     });
     return reply.code(201).send(result);
@@ -739,6 +782,75 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       ),
       workspace_is_default: p.workspace_is_default == null ? null : !!p.workspace_is_default,
     }));
+  });
+  const settingsProfile = (req: FastifyRequest) => {
+    const identity = user(req);
+    return requireProfile(ctx, params(req).agent_id, identity.owner_id);
+  };
+  const activeOperation = (profile: Row) => one(ctx.db,
+    "SELECT operation_id,status FROM agent_config_operations WHERE agent_id=? AND owner_id=? AND status IN ('pending','gateway_applied') ORDER BY rowid DESC LIMIT 1",
+    profile.agent_id, profile.owner_id) ?? null;
+  app.get('/im/v1/agents/:agent_id/settings', async (req, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    settingsProfile(req);
+    return ops.serialized(params(req).agent_id, async () => {
+      let profile = settingsProfile(req);
+      let connection = settingsConnection(ctx, profile);
+      let error: SettingsRead['error'] = connection ? null : settingsError('offline');
+      if (connection && activeOperation(profile)) {
+        try { await ops.recover(profile.agent_id, profile.owner_id); }
+        catch (failure) {
+          if ((failure as Row).detail?.code !== 'config_apply_pending') throw failure;
+        }
+        profile = settingsProfile(req);
+        if (settingsConnection(ctx, profile) !== connection) { connection = undefined; error = settingsError('read_failed'); }
+      }
+      let live: Row | null = null;
+      let display = readSettingsSnapshot(ctx, profile, 'configuration');
+      const pendingOperation = activeOperation(profile);
+      if (connection && !pendingOperation) {
+        const before = profile;
+        try {
+          const response = await ctx.gateway.request(profile.node_id, 'agent.capabilities.resolve', {agent_id:profile.agent_id,workspace_root:requiredWorkspace(profile)});
+          live = agentCapabilities(profile, response?.capabilities);
+        } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
+        // Re-authenticate the HTTP identity after RPC; permission loss never falls back to a snapshot.
+        profile = settingsProfile(req);
+        if (!settingsReadCurrent(ctx, before, profile, connection)) { live = null; error = settingsError('read_failed'); }
+        if (live) {
+          const capturedAt = now(), data = configurationDisplay(profile, live);
+          writeSettingsSnapshot(ctx, profile, 'configuration', data, capturedAt);
+          display = {source:'current',captured_at:capturedAt,data,error:null};
+        } else display = readSettingsSnapshot(ctx, profile, 'configuration');
+      }
+      if (error) display.error = error;
+      return {config:profileResponse(profile,true),node:{node_id:profile.node_id,state:!profile.node_id?'unknown':settingsConnection(ctx,profile)?'online':'offline'},
+        display,live_capabilities:live,pending_operation:activeOperation(profile),ready:!!live && !activeOperation(profile)};
+    });
+  });
+  app.get('/im/v1/agents/:agent_id/settings/sections/:section', async (req, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    let profile = settingsProfile(req);
+    const section = params(req).section as Exclude<SettingsSection,'configuration'>;
+    if (!['plugins','cron','usage'].includes(section)) fail(404, 'Settings section not found');
+    const connection = settingsConnection(ctx, profile);
+    if (!connection) return {...readSettingsSnapshot(ctx,profile,section),error:settingsError('offline')};
+    const before = profile;
+    let data: Row | Row[] | null = null, error: SettingsRead['error'] = null;
+    try {
+      const action = {plugins:'node.plugins.request',cron:'node.cron.jobs.request',usage:'node.skills.usage.request'}[section];
+      const response = await ctx.gateway.request(profile.node_id,action,{agent_id:profile.agent_id,
+        ...(section === 'plugins' ? {action:'list_bundles'} : {workspace_root:requiredWorkspace(profile)})});
+      if (response?.error) fail(502, 'Settings read failed');
+      data = settingsSectionDisplay(section,profile,response);
+    } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
+    profile = settingsProfile(req);
+    if (!settingsReadCurrent(ctx,before,profile,connection)) { data = null; error = settingsError('read_failed'); }
+    if (data !== null) {
+      const capturedAt = now(); writeSettingsSnapshot(ctx,profile,section,data,capturedAt);
+      return {source:'current',captured_at:capturedAt,data,error:null};
+    }
+    return {...readSettingsSnapshot(ctx,profile,section),error};
   });
   app.get("/im/v1/agents/:agent_id/config", async (req) => {
     const id = params(req).agent_id,
@@ -793,17 +905,18 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         });
       if (b.work_mode != null && b.work_mode !== p.work_mode) fail(409, "work_mode is immutable");
       if (b.profile_version !== p.profile_version) fail(409, "profile_version conflict");
+      requireSettingsNodeOnline(ctx, p);
       const c: Row = {
         ...fromProfile(p),
         display_name: b.display_name,
         description: b.description ?? "",
-        skills: b.skills ?? [],
+        skills: b.skills ?? JSON.parse(p.skills_json),
         skills_selection_mode: b.skills_selection_mode ?? p.skills_selection_mode,
-        tool_allowlist: b.tool_allowlist ?? [],
+        tool_allowlist: b.tool_allowlist ?? JSON.parse(p.tool_allowlist_json),
         group_reply_policy: b.group_reply_policy,
         default_model: b.default_model ?? null,
         model_fallbacks: b.model_fallbacks ?? [],
-        features: b.features ?? {},
+        features: b.features ?? JSON.parse(p.features_json),
       };
       if ("approval_mode" in b) c.approval_mode = b.approval_mode;
       for (const k of ["reasoning_effort", "custom_prompt", "heartbeat_json"])
@@ -848,6 +961,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       || !['set_bundle', 'remove_bundle'].includes(b.action) || typeof b.target !== 'string' || !b.target.trim()
       || b.action === 'set_bundle' && typeof b.enabled !== 'boolean'
       || b.action === 'remove_bundle' && b.enabled !== undefined)) fail(422, 'Invalid plugin command');
+    if (method === 'POST') requireSettingsNodeOnline(ctx,p);
     const result = await rpc(p.node_id, 'node.plugins.request', {agent_id: p.agent_id, ...b});
     if (result.error) fail(409, result.error);
     return result.plugins;
@@ -868,8 +982,21 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       tools: allowlistOptions(r.tools),
       commands: r.commands ?? [],
       features: featureOptions(r.features),
+      fixed_tools: stringList(r.fixed_tools),
+      inherited_approval_rules: r.inherited_approval_rules ?? null,
       platform_default_model: r.platform_default_model ?? null,
     };
+  });
+  app.get('/im/v1/agents/:agent_id/capability-usage', async req => {
+    const u = await user(req), p = requireProfile(ctx, params(req).agent_id, u.owner_id);
+    let response: Row | null;
+    try { response = await gatewayRequest(ctx,p.node_id,'agent.capability-usage.request',{agent_id:p.agent_id}); }
+    catch { response = null; }
+    const usage = response?.usage;
+    if (!usage || !Number.isInteger(usage.active_schedules) || !Array.isArray(usage.busy)) {
+      fail(503,{code:'capability_usage_unavailable',message:'Cannot confirm capability usage right now'});
+    }
+    return {checked_at:usage.checked_at,active_schedules:usage.active_schedules,busy:usage.busy,active_tasks:activeTaskCount(ctx.db,p.agent_id)};
   });
   app.post("/im/v1/agents/:agent_id/prompt-preview", async (req) => {
     const u = await user(req),
@@ -899,24 +1026,25 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   app.get("/im/v1/agents/:agent_id/cron/jobs", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    if (!p.node_id) return [];
-    const r = await gatewayRequest(ctx, p.node_id, "node.cron.jobs.request", {
+    if (!settingsConnection(ctx,p)) fail(503, {code:'agent_node_offline',message:'The Agent computer is offline.'});
+    const r = await ctx.gateway.request(p.node_id, "node.cron.jobs.request", {
       agent_id: p.agent_id,
       workspace_root: requiredWorkspace(p),
     });
-    return r?.jobs ?? [];
+    if (!Array.isArray(r?.jobs)) fail(502, "Cron result is unavailable");
+    return r.jobs;
   });
   app.delete("/im/v1/agents/:agent_id/cron/jobs/:job_id", async (req, reply) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    const r = p.node_id
-      ? await gatewayRequest(ctx, p.node_id, "node.cron.delete.request", {
+    requireSettingsNodeOnline(ctx,p);
+    const r = await ctx.gateway.request(p.node_id, "node.cron.delete.request", {
           agent_id: p.agent_id,
           workspace_root: requiredWorkspace(p),
           job_id: params(req).job_id,
-        })
-      : null;
-    if (!r?.deleted) fail(404, "job_id not found");
+        });
+    if (!r || typeof r.deleted !== "boolean") fail(502, "Cron deletion result is unavailable");
+    if (!r.deleted) fail(404, "job_id not found");
     return reply.code(204).send();
   });
   app.get("/im/v1/agents/:agent_id/skills/usage", async (req) => {

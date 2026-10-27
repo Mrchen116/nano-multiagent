@@ -7,7 +7,7 @@ class Host implements PartitionRuntime {
   calls: {method:string;params:unknown}[] = [];
   listeners = new Set<(method:string,value:unknown)=>void>();
   handlers = new Map<string,(params:unknown)=>unknown>();
-  result: Record<string, unknown> = {};
+  result: Record<string, unknown> = {'configuration.apply': {effective:true}};
   async start() {this.available=true;}
   async shutdown(){this.available=false;}
   async request(method:string,params:unknown){if(!this.available)throw new Error('offline');this.calls.push({method,params});return this.result[method] ?? {};}
@@ -70,6 +70,29 @@ it('creates a new personal host before applying its configuration without exposi
   expect(ordinary.calls).toEqual([]);
 });
 
+it('keeps only applied configurations in the restart snapshot',async()=>{
+  const {runtime,ordinary,hosts}=fixture();
+  const partition=runtime.forAgent('ordinary'),previous=partition.agents[0];
+  const candidate={...config('ordinary'),revision:'rejected',features:{cron_scheduling:false}};
+  ordinary.result['configuration.prepare']={ready:false,error_code:'capability_in_use'};
+  expect(await runtime.request('configuration.prepare',{operationId:'close',fingerprint:'next',config:candidate})).toMatchObject({ready:false});
+  expect(partition.agents[0]).toBe(previous);
+  ordinary.result['configuration.prepare']={ready:true};
+  await runtime.request('configuration.prepare',{operationId:'close',fingerprint:'next',config:candidate});
+  expect(partition.agents[0]).toBe(previous);
+  ordinary.result['configuration.apply']={effective:false};
+  await runtime.request('configuration.apply',candidate);
+  expect(partition.agents[0]).toBe(previous);
+  ordinary.result['configuration.apply']={effective:true};
+  await runtime.request('configuration.apply',candidate);
+  expect(partition.agents[0]).toEqual(candidate);
+  const fresh=config('new-pa',true);
+  await runtime.request('configuration.prepare',{operationId:'new',fingerprint:'new',config:fresh});
+  expect(runtime.forAgent('new-pa').agents).toEqual([]);
+  await runtime.request('configuration.release',{agentId:'new-pa',operationId:'new'});
+  expect(hosts.get('personal:new-pa:1')?.calls.at(-1)?.method).toBe('configuration.release');
+});
+
 it('drops unbound preview status without weakening trusted product calls',async()=>{
   const {runtime,pa,errors}=fixture();const received:unknown[]=[];
   runtime.onNotification((_method,value)=>received.push(value));
@@ -99,4 +122,51 @@ it('does not acknowledge a new host fact when an old generation delivery complet
     await updates.recover();
     expect(pa.calls.filter(call=>call.method==='knowledge.acknowledge')).toEqual([{method:'knowledge.acknowledge',params:{id:'same-fact'}}]);
   } finally {release();await updates.stop();inbox.close();store.close();}
+});
+
+it('shares the ordinary host while retaining the personal Agent boundary',async()=>{
+  const agents=[config('a'),config('b'),config('pa',true)];
+  const runtime=new RuntimePartitions({agents,bindings:()=>[],create:()=>new Host(),onError:()=>{}});
+  expect(runtime.forAgent('a')).toBe(runtime.forAgent('b'));
+  expect(runtime.forAgent('a')).not.toBe(runtime.forAgent('pa'));
+  expect(runtime.forAgent('a').key).toBe('ordinary');
+  expect(runtime.partitions.has('control')).toBe(false);
+});
+
+it('keeps disabled configuration, previews, model settings and history on the shared host',async()=>{
+  const hosts=new Map<string,Host>(),binding={agentId:'a',sessionId:'root-a',ownerId:'owner',cwd:'/private/work',revision:'1'} as SessionBinding;
+  const runtime=new RuntimePartitions({agents:[config('a')],bindings:()=>[binding],allowed:()=>false,
+    create:p=>{const host=new Host();hosts.set(p.key,host);return host;},onError:()=>{}});
+  await runtime.start();
+  expect(runtime.available).toBe(true);expect(runtime.availableFor('a')).toBe(false);
+  await runtime.request('configuration.prepare',{config:config('a')});
+  expect(await runtime.request('configuration.apply',{...config('a'),revision:'2'})).toEqual({effective:true});
+  await runtime.request('configuration.preview',{config:config('a')});
+  await runtime.request('model.setup.snapshot',{});
+  const scope={observerId:'cold',rootAgentId:'a',rootSessionId:'root-a',sessionId:'root-a'};
+  await runtime.request('trajectory.prepare',scope);
+  await runtime.request('trajectory.call',{observerId:'cold',method:'session/read'});
+  await runtime.request('session.export',{sessionId:'root-a'});
+  expect(hosts.size).toBe(1);
+  expect(hosts.get('ordinary')!.calls.map(call=>call.method)).toEqual(['configuration.prepare','configuration.apply','configuration.preview','model.setup.snapshot','trajectory.prepare','trajectory.call','session.export']);
+  await expect(runtime.request('session.submit',{agentId:'a',sessionId:'root-a'})).rejects.toThrow('agent_disabled');
+});
+
+it('fences A callbacks and collections without blocking B in their shared host',async()=>{
+  const host=new Host(),errors:unknown[]=[],received:unknown[]=[];
+  const bindings=['a','b'].map(agentId=>({agentId,sessionId:'root-'+agentId,ownerId:'owner',cwd:'/tmp',revision:'1'} as SessionBinding));
+  const runtime=new RuntimePartitions({agents:[config('a'),config('b')],bindings:()=>bindings,allowed:id=>id!=='a',create:()=>host,onError:error=>errors.push(error)});
+  runtime.onNotification((_method,params)=>received.push(params));
+  host.emit('session.event',{sessionId:'a-child',rootSessionId:'root-a'});
+  host.emit('session.event',{sessionId:'b-child',rootSessionId:'root-b'});
+  expect(received).toEqual([{sessionId:'b-child',rootSessionId:'root-b'}]);
+  await expect(runtime.request('session.submit',{sessionId:'a-child'})).rejects.toThrow('agent_disabled');
+  await runtime.request('session.submit',{sessionId:'b-child'});
+  await expect(runtime.request('session.submit',{agentId:'b',sessionId:'root-a'})).rejects.toThrow('conflicting');
+  const port=runtime.scoped(runtime.forAgent('a'));
+  host.result['knowledge.facts']={facts:bindings.map(binding=>({id:binding.agentId,agentId:binding.agentId,rootSessionId:binding.sessionId}))};
+  expect(await port.request('knowledge.facts',{})).toMatchObject({facts:[{id:'b'}]});
+  host.result['workflow.pending']=bindings.map(binding=>({id:binding.agentId,parentSessionId:binding.sessionId}));
+  expect(await port.request('workflow.pending',{})).toEqual([{id:'b',parentSessionId:'root-b'}]);
+  expect(errors).toHaveLength(1);
 });

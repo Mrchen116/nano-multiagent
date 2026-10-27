@@ -11,7 +11,6 @@ on:
 jobs:
   ios_changes:
     name: Detect iOS changes
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       required: ${{ steps.filter.outputs.required }}
@@ -19,19 +18,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Check the full PR diff
+      - name: Check changed paths
         id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 - <<'PY'
           import os
           import subprocess
 
+          base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
+          # PRs compare their full branch diff; pushes compare the entire update.
+          revisions = [f"{base}...{head}"] if os.environ['EVENT_NAME'] == 'pull_request' else [base, head]
           diff = subprocess.check_output([
               "git", "diff", "--name-only", "--no-renames", "-z",
-              f"{os.environ['BASE_SHA']}...{os.environ['HEAD_SHA']}",
+              *revisions,
           ])
           paths = [os.fsdecode(path) for path in diff.split(b"\0") if path]
           required = any(
@@ -80,12 +83,6 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Change unit is archived
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-        run: python scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
-
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
@@ -94,7 +91,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "24.22.1"
       - uses: pnpm/action-setup@v4
         with:
           version: 11.7.0
@@ -102,6 +99,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build and typecheck
         run: pnpm build && pnpm typecheck
+      - name: Check packaged native interactive runtime
+        run: pnpm check:ios-runtime
       - name: Native runtime and IM regressions
         run: pnpm test
 
@@ -114,6 +113,12 @@ jobs:
       - name: ruff format check
         run: ruff format --check .
 
+      - name: Change unit is archived
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: python scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
@@ -125,13 +130,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # Vitest 4 + jsdom 27 run on Node 20
-          node-version: "20"
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: src/IM/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Build shared browser contracts
+        run: npx tsc -p ../../../packages/product-contracts/tsconfig.json --typeRoots ./node_modules/@types
 
       - name: Dependency audit (critical)
         run: npm audit --audit-level=critical

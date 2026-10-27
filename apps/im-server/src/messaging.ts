@@ -1,3 +1,7 @@
+import { contactDetail, contactPage } from './contacts.js';
+import { lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
+import {RelayDelivery} from './relay-delivery.js';
+import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
 import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -26,7 +30,8 @@ export function withHumanApproval(call: Row, permissions: Row[]): Row {
 
 export class Messaging {
   readonly interactions: Interactions;
-  constructor(readonly ctx: ImContext) { this.interactions = new Interactions(ctx); }
+  readonly delivery:RelayDelivery;
+  constructor(readonly ctx: ImContext) { this.interactions = new Interactions(ctx); this.delivery=new RelayDelivery(ctx); }
   get db() {
     return this.ctx.db;
   }
@@ -108,6 +113,17 @@ export class Messaging {
     const access = conversationAccess(this.db,id,userId);
     if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
+    const lastMessage = c.last_message_at ? one(this.db,
+      "SELECT content, system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
+      id, c.last_message_at,
+    ) : undefined;
+    const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
+    // Stored previews can end inside a mention tag. Resolve from the full message
+    // before truncating so existing conversations also recover on refresh.
+    const preview = lastMessage?.content.trim()
+      .replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
+        (_tag: string, targetId: string) => `@${names.get(targetId) || "unknown"}`)
+      .slice(0, 120) || c.last_message_preview;
     const prefs =
       one(
         this.db,
@@ -150,10 +166,8 @@ export class Messaging {
       is_pinned: !!prefs.is_pinned,
       is_muted: !!prefs.is_muted,
       unread_count: prefs.unread_count ?? 0,
-      last_message_system_notice: c.last_message_at ? JSON.parse(one(this.db,
-        "SELECT system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
-        id, c.last_message_at,
-      )?.system_notice_json ?? "null") : null,
+      last_message_preview: preview,
+      last_message_system_notice: JSON.parse(lastMessage?.system_notice_json ?? "null"),
       run_state: one(
         this.db,
         "SELECT 1 FROM messages WHERE conversation_id=? AND delivery_status='running'",
@@ -300,6 +314,7 @@ export class Messaging {
           "conversation_id",
           "sender_user_id",
           "sender_type",
+          "lifecycle_revision",
           "content",
           "delivery_status",
           "created_at",
@@ -316,7 +331,8 @@ export class Messaging {
       ...(this.ctx.updates ? {update_wait: this.ctx.updates.messageWait(id)} : {}),
     };
     const delegation = one(this.db,"SELECT * FROM pa_delegated_messages WHERE message_id=?",id);
-    if(delegation) result.delegation={agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${one(this.db,"SELECT display_name FROM users WHERE id=?",delegation.authorized_by)?.display_name??delegation.display_name}的 PA · 代为发送`};
+    if(delegation?.representation_operation_id) result.pa_agent_id=delegation.agent_id;
+    else if(delegation) result.delegation={agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${one(this.db,"SELECT display_name FROM users WHERE id=?",delegation.authorized_by)?.display_name??delegation.display_name}的 PA · 代为发送`};
     for (const key of [
       "attachments",
       "tool_calls",
@@ -333,8 +349,6 @@ export class Messaging {
       result[key] = JSON.parse(m[`${key}_json`] ?? "null");
     const interactive = this.interactions.message(id);
     if (interactive) result.interactive = interactive;
-    const replyDraft=this.ctx.personal?.replyDraft(id);
-    if(replyDraft)result.reply_draft=replyDraft;
     for (const key of Object.keys(result)) if (key.endsWith("_json")) delete result[key];
     Object.defineProperties(result, {
       awaiting_permission_at: { value: m.awaiting_permission_at },
@@ -383,7 +397,7 @@ export class Messaging {
     status = "completed",
     extra: Row = {},
   ): Row {
-    if ((extra.interactive || extra.reply_draft) && !this.db.isTransaction)
+    if ((extra.interactive || extra.personal_source) && !this.db.isTransaction)
       return transaction(this.db, () => this.insertMessage(cId, sender, type, content, attachments, key, status, extra));
     const old = key
       ? one(
@@ -396,9 +410,10 @@ export class Messaging {
     if (old) return this.message(old.id);
     const id = randomUUID().replaceAll("-", "");
     const at = extra.created_at ?? now();
+    const sourceAgent=type==='agent'?one(this.db,"SELECT agent_id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE u.id=?",sender):undefined;
     this.db
       .prepare(
-        `INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,caller_idempotency_key,sender_display_name,sender_source_id,timezone) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,caller_idempotency_key,sender_display_name,sender_source_id,timezone,lifecycle_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         id,
@@ -413,6 +428,7 @@ export class Messaging {
         extra.sender_display_name ?? null,
         extra.sender_source_id ?? null,
         extra.timezone ?? null,
+        sourceAgent?lifecycle(this.db,sourceAgent.agent_id).revision:null,
       );
     this.db
       .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
@@ -423,13 +439,15 @@ export class Messaging {
       )
       .run(cId, sender);
     if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
-    if (extra.interactive) {
-      if (type !== 'agent') fail(403, 'Only Agent messages may contain interactive replies');
-      this.interactions.record(id, cId, sender, extra.interactive);
+    // Controlled provenance must exist before card validation and message.created.
+    if (extra.personal_source) {
+      const source=extra.personal_source;
+      this.db.prepare('INSERT INTO pa_delegated_messages(message_id,binding_id,agent_id,authorized_by,display_name,representation_operation_id) VALUES(?,?,?,?,?,?)')
+        .run(id,source.binding_id,source.agent_id,source.owner_user_id,source.display_name,source.operation_id ?? null);
     }
-    if (extra.reply_draft) {
-      if(!this.ctx.personal)fail(422,'invalid_reply_draft');
-      this.ctx.personal.recordReplyDraft(id,extra.reply_draft);
+    if (extra.interactive) {
+      if (type !== 'agent' && !extra.personal_source?.operation_id) fail(403, 'Only Agent messages may contain interactive replies');
+      this.interactions.record(id, cId, extra.personal_source?.operation_id ? this.agentUser(extra.personal_source.agent_id).id : sender, extra.interactive);
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     const m = this.message(id);
@@ -529,6 +547,7 @@ export class Messaging {
     let sender = p.id,
       type = "user";
     if (p.kind === "gateway") {
+      requireLifecycle(this.db,q.agent_id,b.lifecycle_revision);
       if(one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",q.agent_id) && (b.sender?.type??b.sender_type)!=="agent")fail(403,"owner_identity_cannot_be_delegated");
       sender =
         b.sender?.type === "agent" || b.sender_type === "agent"
@@ -556,12 +575,12 @@ export class Messaging {
     const old = key
       ? one(
           this.db,
-          "SELECT id FROM messages WHERE conversation_id=? AND caller_idempotency_key=?",
+          "SELECT * FROM messages WHERE conversation_id=? AND caller_idempotency_key=?",
           id,
           key,
         )
       : undefined;
-    if (old) return this.message(old.id);
+    if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
     if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
     const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
     // Retries and history retain the timezone captured by the original send.
@@ -570,14 +589,14 @@ export class Messaging {
       : this.updateUserTimezone(p.id, b.timezone);
     const agents = b.suppress_relay ? [] : this.relayAgents(id);
     // Freeze private background with its message; publish only after both are durable.
-    const {m,relays} = transaction(this.db, () => {
+    const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
         agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? b : {}), timezone, publish:false });
+      this.db.prepare('UPDATE messages SET caller_payload_json=? WHERE id=?').run(messageAttemptPayload(b),m.id);
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
-    const delivered = this.publishMessages([m]);
+    this.publishMessages([m]);
     if (!b.suppress_relay) {
-      if (relays.length && !delivered) fail(503,"target_node_id is not connected");
       const wait = this.ctx.updates?.messageWait(m.id);
       if (wait) this.event(m.conversation_id, m.id, 'node.update_wait_changed', {update_wait: wait}, 'pending');
     }
@@ -621,31 +640,36 @@ export class Messaging {
     return timezone;
   }
   /** Persist a task event inside the caller's graph transaction; never publish early. */
-  persistTaskNotice(id: string, sender: string, content: string, metadata: Row): Row {
+  persistTaskNotice(id: string, sender: string, content: string, metadata: Row, contextOnlyAgentId?: string): Row {
     const m = this.insertMessage(id,sender,"system",content,[],null,"completed",{system_notice:metadata,publish:false});
-    this.enqueueRelays(m);
+    this.enqueueRelays(m,null,this.relayAgents(id),[],contextOnlyAgentId);
     return m;
   }
   private relayAgents(id: string): Row[] {
     return this.members(id).filter(u=>u.username.startsWith("agent:") && conversationAccess(this.db,id,u.id)?.can_write)
-      .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean) as Row[];
+      .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean).filter(a=>lifecycle(this.db,a!.agent_id).desired==='enabled') as Row[];
   }
-  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = []): Row[] {
+  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = [], contextOnlyAgentId?: string): Row[] {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
     const relays: Row[] = [];
     for (const a of agents) {
       const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
-      const payload = {relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
+      const payload = {lifecycle_revision:lifecycle(this.db,a.agent_id).revision,relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
           conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
+          ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),
           ...(c.external_source ? {external_source:c.external_source,external_chat_id:c.external_chat_id,trigger_source:"im"} : {})}};
       this.db.prepare("INSERT INTO relay_tasks VALUES(?,?,?,?,?,?,?,?,?,?,?)").run(id,m.id,c.id,a.node_id,JSON.stringify(payload),relayKey,"queued",null,null,now(),now());
       relays.push({relay_task_id:id,target_node_id:a.node_id,payload_json:JSON.stringify(payload),conversation_id:c.id});
     }
     return relays;
+  }
+  /** Queue represented user input for current participants without echoing to its PA. */
+  queueRepresentedRelays(message:Row,agentId:string):void {
+    this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>agent.agent_id!==agentId));
   }
   /** Queue other direct-chat Agents in the same transaction as a reviewed PA message. */
   queueDirectAgentRelays(message:Row):void {
@@ -655,36 +679,24 @@ export class Messaging {
   /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
   relayEligible(task: Row): boolean {
     const payload = JSON.parse(task.payload_json), agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
+    if(!lifecycleAllows(this.db,payload.agent_id,payload.lifecycle_revision))return false;
     const epoch = one(this.db, 'SELECT node_epoch FROM node_binding_state WHERE node_id=?', task.target_node_id)?.node_epoch ?? 0;
     if (payload.metadata?.node_epoch !== undefined && payload.metadata.node_epoch !== epoch) return false;
     return !!agent && agent.node_id===task.target_node_id && !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
   }
   deliverRelays(relays: Row[]): boolean {
-    let sent = false;
-    for (const task of relays) {
-      if (!this.relayEligible(task)) {
-        this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
-        continue;
-      }
-      if (this.ctx.updates?.acceptingQueue(task.target_node_id)) {
-        sent = true;
-        continue;
-      }
-      if (this.ctx.gateway.send(task.target_node_id,{type:"relay.message",payload:JSON.parse(task.payload_json)})) {
-        this.db.prepare("UPDATE relay_tasks SET status='sent',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
-        sent = true;
-      }
-    }
+    let sent=false;
+    for (const node of new Set(relays.map(task=>String(task.target_node_id)))) sent=this.delivery.drain(node)||sent;
     return sent;
   }
   /** Publish committed system messages and attempt their already durable relay rows. */
-  publishMessages(messages: Row[]) {
+  publishMessages(messages: Row[], options: {deferDelivery?: boolean} = {}) {
     let delivered = false;
     for (const m of messages) {
       const e = one(this.db,"SELECT * FROM conversation_events WHERE message_id=? AND event_type='message.created'",m.id)!;
       const data = JSON.parse(e.payload_json);
       this.ctx.gateway.broadcast(conversationReaderIds(this.db,m.conversation_id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
-      delivered = this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id)) || delivered;
+      if (!options.deferDelivery) delivered = this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id)) || delivered;
     }
     return delivered;
   }
@@ -716,6 +728,8 @@ export class Messaging {
       }
       this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE conversation_id=? AND status IN ('queued','sent','accepted')").run(at,id);
     });
+    for (const row of all(this.db,'SELECT graph_id FROM task_graphs WHERE conversation_id=?',id))
+      this.ctx.gateway.tasks.notifyChange(undefined,row.graph_id);
     this.membership(id,this.members(id).map(u=>u.id));
   }
   /** Resolve an authorized send target.
@@ -780,43 +794,16 @@ export class Messaging {
 export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   const s = ctx.messaging,
     db = ctx.db;
-  const contactRows = (viewer: Row) =>
-    all(
-      db,
-      "SELECT u.id AS user_id,CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,COALESCE(ap.display_name,u.display_name) AS display_name,ap.agent_id,ap.owner_id,ap.space_id,owner.display_name AS owner_display_name,COALESCE(NULLIF(n.alias,''),n.node_name) AS node_name,COALESCE(n.status,'offline') AS status,ap.work_mode FROM users u LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id LEFT JOIN users owner ON owner.id=ap.owner_id LEFT JOIN nodes n ON n.node_id=ap.node_id WHERE (u.password_hash IS NOT NULL AND u.password_hash!='' AND ap.agent_id IS NULL) OR (ap.agent_id IS NOT NULL AND ap.is_stale=0) ORDER BY u.id",
-    ).filter(r => {
-      if (r.kind === "human") {
-        const target = one(db, "SELECT * FROM users WHERE id=?", r.user_id)!;
-        return target.id === viewer.id || (viewer.membership_status === "active" && target.membership_status === "active");
-      }
-      const profile = one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", r.agent_id)!;
-      return (canAccessSpace(viewer, profile.space_id)||canContactPersonalAgent(db,viewer,profile)) && agentAvailable(db, profile);
-    }).map((r) =>
-      r.kind === "human" ? { user_id: r.user_id, kind: r.kind, display_name: r.display_name } : one(db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",r.agent_id) ? {user_id:r.user_id,kind:r.kind,display_name:r.display_name,agent_id:r.agent_id,owner_id:r.owner_id,owner_display_name:r.owner_display_name,role:"personal",status:r.status} : r,
-    );
   app.get("/im/v1/contacts", (req) => {
-    const viewer = ctx.identity.authenticateRequest(req);
-    const q = query(req);
+    const viewer = ctx.identity.authenticateRequest(req), q = query(req);
     if (q.kind && !["human", "agent"].includes(q.kind)) fail(400, "invalid kind");
-    const rows = contactRows(viewer).filter(
-      (r) =>
-        (!q.cursor || r.user_id > q.cursor) &&
-        (!q.kind || r.kind === q.kind) &&
-        (!q.q ||
-          [r.display_name, r.user_id, r.agent_id ?? ""].some((x) =>
-            x.toLowerCase().includes(q.q.trim().toLowerCase()),
-          )),
-    );
-    return {
-      items: rows.slice(0, 50),
-      next_cursor: rows.length > 50 ? rows[49]!.user_id : null,
-    };
+    return contactPage(db, viewer, q);
   });
   app.get("/im/v1/contacts/:user_id", (req) => {
     const viewer = ctx.identity.authenticateRequest(req);
-    const r = contactRows(viewer).find((r) => r.user_id === params(req).user_id);
-    if (!r) fail(404, "contact not found");
-    return r;
+    const contact = contactDetail(db, viewer, params(req).user_id);
+    if (!contact) fail(404, "contact not found");
+    return contact;
   });
   app.post("/im/v1/conversations", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req);

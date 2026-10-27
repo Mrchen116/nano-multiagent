@@ -94,6 +94,10 @@
 这里检查原型本身；下游 milestone 仍需验收真实产品，不能互相替代。
 -->
 
+<!-- 仅 Context 相关 unit：在接口与数据流或合适位置说明 Consumer、Context Lifecycle、
+必要的模型可见 Before/After、Interactions、Validation，并投影到 milestone 退出标准。
+按 docs/development/agent-context-engineering.md 判断影响；不强制独立章节或固定表格，无影响删除此提示。 -->
+
 ## 契约层增量 (delta-spec)
 
 <!-- §4.8：本 unit 对长青契约层 docs/specs/<包>/ 的增量状态。逐包一行。
@@ -105,6 +109,10 @@
 ## 风险与回退
 
 <!-- 已知风险、降级路径、回滚方案。 -->
+
+## 一次性部署迁移
+
+<!-- 无一次性迁移时写“无”。有则链接 unit 根目录的 deployment-prompt.md，概述旧状态到新状态、执行时机和实现前提；写作前读取 docs/changes/README.md 的“一次性部署提示词”，详细操作只维护在 prompt。将功能、幂等性与失败恢复的隔离/副本验证纳入 milestone 退出标准；生产只安排迁移必需修改和有限结果核对，不将 reviewer 旅程复制为上线后的测试清单。设计阶段不执行生产迁移。 -->
 
 ## Runbook for Reviewer
 

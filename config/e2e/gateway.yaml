@@ -32,6 +32,15 @@ agents:
       - web_search
       - web_fetch
       - skill
+      - task_graph
+      - memory
+      - skill_manage
+      - schedule_create
+      - schedule_list
+      - schedule_update
+      - schedule_delete
+      - schedule_run
+      - schedule_history
       - send_message
       - inbox
       - conversations
@@ -39,7 +48,11 @@ agents:
     skills_selection_mode: explicit_denylist
     features:
       heartbeat: false
-      cron_scheduling: false
+      cron_scheduling: true
+      task_graph: true
+      intelligent_ui: true
+      memory_curation: true
+      skill_creation: true
   - agent_id: e2e-peer
     title: E2E Peer Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e-peer
@@ -52,7 +65,11 @@ agents:
     skills_selection_mode: explicit_denylist
     features:
       heartbeat: false
-      cron_scheduling: false
+      cron_scheduling: true
+      task_graph: true
+      intelligent_ui: true
+      memory_curation: true
+      skill_creation: true
   - agent_id: e2e-global
     title: E2E Global Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e-global
@@ -65,7 +82,11 @@ agents:
     skills_selection_mode: explicit_denylist
     features:
       heartbeat: false
-      cron_scheduling: false
+      cron_scheduling: true
+      task_graph: true
+      intelligent_ui: true
+      memory_curation: true
+      skill_creation: true
 
 channels:
   - name: web_relay

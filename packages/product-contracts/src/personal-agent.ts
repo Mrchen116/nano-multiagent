@@ -17,11 +17,6 @@ export interface PersonalAgentState {
   binding: PersonalAgentBinding | null; policy: PersonalAgentPolicy | null;
   creation?: {request_key:string}|null;
 }
-/** Navigation metadata only; edited text belongs to the ordinary interaction draft. */
-export interface PersonalReplyDraft {
-  target_conversation_id: string; source_message_id: string; field_name: string;
-  possible_stale?: boolean;
-}
 export interface PersonalDelegation {
   agent_id: string; authorized_by: string; display_name: string; label: string;
 }

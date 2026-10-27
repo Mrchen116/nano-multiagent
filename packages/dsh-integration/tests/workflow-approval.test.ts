@@ -59,7 +59,7 @@ export function apply(ctx) {
     await client.rpc.request('initialize', { protocol: 1, agents: [{
       agentId: 'a', revision: '1', mode: 'single_thread', provider: 'deepseek-official', model: 'deepseek-flash',
       toolAllowlist: [kind, 'fixture_effect', 'fixture_native_ask'],
-      approval: { ...approvalDefaults, globalRoot: home, denyLimit: 1, unattendedFallback: 'allow', alwaysAllowTools: [kind] },
+      approval: { ...approvalDefaults, rules: 'nano', globalRoot: home, denyLimit: 1, unattendedFallback: 'allow', alwaysAllowTools: [kind] },
     }], bindings: [] });
     for (const scenario of ['deny', 'fault', 'ask', 'allow']) {
       const sessionId = 'root-' + scenario;
@@ -68,8 +68,12 @@ export function apply(ctx) {
         source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: scenario } });
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId, inputId: scenario }) as any).terminal, { timeout: 10000 }).toBeTruthy();
       const descendants = async () => await client!.rpc.request('session.descendants', { sessionId }) as any[];
-      await expect.poll(async () => (await descendants())[0]?.events.some((event: any) => event.type === 'turn/end'), { timeout: 10000 }).toBe(true);
-      const child = (await descendants())[0];
+      let child: any;
+      // Assert against the completed observation, before a later cold read can race disposal.
+      await expect.poll(async () => {
+        child = (await descendants())[0];
+        return child?.events?.some((event: any) => event.type === 'turn/end');
+      }, { timeout: 10000 }).toBe(true);
       expect(requests, `${kind}/${scenario} must not emit approval cards`).toEqual([]);
       expect(child.events.filter((event: any) => event.type === 'approval/policy').at(-1)?.data.policy).toBe('never');
       const effect = child.events.find((event: any) => event.type === 'tool/result');

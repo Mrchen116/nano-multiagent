@@ -14,10 +14,11 @@ it.each(['audit', 'preparation'] as const)('cancels without waiting for uncooper
   } };
   ctx.provide('storageDomain', { open: async () => ({ table: (name: string) => name === 'sessions' ? table : { get: () => undefined }, close: async () => {} }) } as any);
   ctx.provide('permissionPresets', { registerAuto: () => {} } as any);
-  ctx.provide('nanoProduct', { call: async () => { entered.resolve(); await release.promise; return { original: 'owner evidence' }; } } as any);
   ctx.provide('ccApproval', { review: async () => { reviews++; return { decision: { behavior: 'allow', reason: 'authorized' } }; } } as any);
-  const config: any = { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'review', personal: phase === 'preparation', approval: { ...approvalDefaults } };
+  const config: any = { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'review', approval: { ...approvalDefaults, rules: 'nano' } };
   const service = new NanoApproval(ctx, () => config);
+  // Current main's preparation reads only effective inherited evidence, never pa.authorization.
+  if (phase === 'preparation') (service as any).inherited = async () => { entered.resolve(); await release.promise; return []; };
   const agent: any = { id: 'parent', session: { requestHeader: () => undefined, header: { origin: 'main' }, snapshotEvents: () => [] } };
   const exec: any = { agent, name: 'fixture_effect', arguments: { exact: 'action' }, callId: 'original-call', signal: controller.signal };
   try {

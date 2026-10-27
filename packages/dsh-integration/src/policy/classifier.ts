@@ -1,8 +1,8 @@
-import { BlockAssembler, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import { BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm';
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { Context } from '@deepseek-ai/cordis';
 import { buildPolicy, parseNanoDecision, parseDshDecision, policyAsset, type ReviewDecision } from './rules.js';
-import { inboxSourceInstructions, reviewSourceInstructions, messageReviewInstructions, personalAuthorizationInstructions } from './sources.js';
+import { inboxSourceInstructions, reviewSourceInstructions, messageReviewInstructions } from './sources.js';
 import type { ApprovalReviewRequest, ApprovalReviewResult } from './types.js';
 import { boundedReview, ReviewFailure } from './retry.js';
 
@@ -20,8 +20,8 @@ export async function classify(ctx: Context, request: ApprovalReviewRequest): Pr
   const snapshot = request.snapshot ?? {};
   snapshot.classifier ??= (async () => {
     const prompt = await buildPolicy(policy, agent.session.header.cwd!);
-    const transcript = await sources.transcript(agent, exec, inherited, messageContext, config.mode !== 'global', request.personalAuthorization);
-    const system = `${prompt}\n\n${reviewSourceInstructions}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}${request.personalAuthorization ? `\n\n${personalAuthorizationInstructions}` : ''}`;
+    const transcript = await sources.transcript(agent, exec, inherited, messageContext, config.mode !== 'global');
+    const system = `${prompt}\n\n${reviewSourceInstructions}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}`;
     return { system, transcript };
   })();
   const { system, transcript } = await snapshot.classifier;
@@ -43,7 +43,7 @@ export async function classify(ctx: Context, request: ApprovalReviewRequest): Pr
       const estimatedInput = estimateContent([{ type: 'text', text: system }, { type: 'text', text: userText }]) + 8;
       if (model.context && estimatedInput + maxTokens > model.context.contextWindow) throw new ReviewFailure('config');
       await boundedReview(async () => {
-        for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: ReasoningEffortId('low'),
+        for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: model.reasoning?.efforts.find(value => value.id === 'low')?.id ?? model.reasoning?.defaultEffort ?? model.reasoning?.efforts[0]?.id,
           messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal })) {
           signal.throwIfAborted(); assembly.push(chunk);
         }

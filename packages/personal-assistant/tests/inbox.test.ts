@@ -61,10 +61,11 @@ it('preserves relay sender names and timestamps in native inbox pages', () => {
   const store = new InboxStore(':memory:');
   const message = input('named', 'hello');
   message.message.sender = {display_name:'Alice'};
+  message.message.pa_agent_id='alice-pa';
   message.message.created_at = '2026-10-10T01:00:00Z';
   try {
     store.receive(message, true);
-    expect(store.read('alice','main','read',{target:'group-a'})).toMatchObject({messages:[{sender:{name:'Alice'},time:'2026-10-10T01:00:00Z'}]});
+    expect(store.read('alice','main','read',{target:'group-a'})).toMatchObject({messages:[{sender:{name:'Alice'},pa_agent_id:'alice-pa',time:'2026-10-10T01:00:00Z'}]});
   } finally {store.close();}
 });
 
@@ -195,4 +196,24 @@ it('rejects already orphaned durable reads atomically and lets valid unread mess
     expect(store.commitRead('main', 'new-read', [{ type: 'text', text: JSON.stringify(remaining) }], false, 2)).toBe(true);
     expect(store.check('alice').sources).toEqual([]);
   } finally { store.close(); rmSync(dir, { recursive: true }); }
+});
+
+it('commits product projection and its processing position together, independently of the transport ACK', () => {
+  const dir=mkdtempSync(join(tmpdir(),'nano-work-checkpoint-')),path=join(dir,'inbox.db');
+  let inbox=new InboxStore(path);
+  const checkpoint={rootSessionId:'main',throughSeq:8,replayFrom:9,modelVersion:'finished',model:'m',contextWindow:100000};
+  try {
+    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',type:'turn_end',payload:{usage:{output:7}}}]);
+    const through=inbox.journalSeq;
+    expect(inbox.throughSeq).toBe(0);
+    inbox.close();inbox=new InboxStore(path);
+    expect(inbox.workCheckpoints('main')).toEqual({child:checkpoint});
+    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',type:'turn_end',payload:{usage:{output:7}}}]);
+    expect(inbox.journalSeq).toBe(through);
+    inbox.acknowledge(through);
+    expect(inbox.workCheckpoints('main').child).toEqual(checkpoint);
+    expect(()=>inbox.commitWork('child',{...checkpoint,throughSeq:9},[{event_id:'invalid',bad:1n}])).toThrow();
+    expect(inbox.workCheckpoints('main').child.throughSeq).toBe(8);
+    expect(inbox.journalSeq).toBe(through);
+  } finally {inbox.close();rmSync(dir,{recursive:true,force:true});}
 });

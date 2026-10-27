@@ -59,6 +59,8 @@
 
 > 好，独立unit，并把我们对齐的内容写到spec中
 
+> Candidate 内部会关闭 subagent/Agent Team。你这个不是多余的吗？没必要啊，他想自己开subagent也可以啊，只是我们没有任何约束而已啊。
+
 ## 澄清记录
 
 - Q1: 为避免历史评测 case 的答案进入 Memory，是否对每个 case 采用 `leave-one-lineage-out`，分别排除目标 unit 及直接延续、修正或复盘该需求的后续 unit？
@@ -75,7 +77,8 @@
 
 - Q4: 首阶段是否引入 feat-397 Agent Team；Treatment 是否要求与原版 `change-spec-author` 完全相同？
   A(原话): Q3: 完全不引入 Agent Team。完全相同的 change-spec-author❌，完全一样的话，咋消费memory？
-  Agent 解读: 首阶段只评当前 spec author 的 Memory 增益，不引入 Agent Team。Baseline 使用当前原版 `change-spec-author`；Treatment 以它为 backbone，允许增加候选方案所需的 Memory 存放、检索、消费、上下文和溯源能力。
+  A(补充原话): Candidate 内部会关闭 subagent/Agent Team。你这个不是多余的吗？没必要啊，他想自己开subagent也可以啊，只是我们没有任何约束而已啊。
+  Agent 解读: 首阶段不把 feat-397 那套预设 Agent Team 工作流作为 Treatment，也不要求 Candidate 组队；这不是禁止被测 `change-spec-author` 在正常执行中自行使用 Codex subagent。Runner 对其是否使用 subagent 不增加约束。Baseline 使用当前原版 `change-spec-author`；Treatment 以它为 backbone，允许增加候选方案所需的 Memory 存放、检索、消费、上下文和溯源能力。
 
 - Q5: 候选方案能否顺手改变与 Memory 无关的 grounding、澄清策略、首文档结构或其他 spec 工作流规则？
   A(原话): 对的，
@@ -95,7 +98,7 @@
 
 - Q9: 评测运行中 spec author 提问时，应重放历史旧回答还是 latest-main 校对后的当前回答？
   A(原话): 使用你校对确认后的 current owner-answer bank
-  Agent 解读: 每例在运行前冻结 owner 确认的中性回答库；只有 run 实际提出等价问题时才返回答案。Baseline 与所有 Treatment 共用同一回答库，未提问的答案不主动暴露。
+  Agent 解读: 每例在运行前冻结 owner 确认的中性回答库；只有 run 实际提出问题时，才按当前问题所需披露可直接回答或共同蕴含答案的相关依据。Baseline 与所有 Treatment 共用同一回答库，未提问的答案不主动暴露。
 
 - Q10: 首期 spec 评测是否运行可选的 `change-spec-reviewer → author 修订` 循环？
   A(原话): 不走change-spec-reviewer，就一把
@@ -108,9 +111,21 @@
   A(原话): 方案是迭代出来的，肯定要迭代出一版，方案至少和baseline一样好，但是对齐负担明显下降的。这是我们的目标。
   Agent 解读: 不以折中方案作为完成。Loop 继续迭代，直到候选方案同时满足“最终 spec 至少不劣于 baseline”和“对齐负担明显下降”两道门禁。
 
-- Q12: 本工作继续放在 feat-397 内，还是建立独立 change unit？
+- Q12: Owner Simulator 是否可以假设所有发散问题都能投影到某个预设 decision？
+  A(原话): 这有问题吧？问问题是一个很发散的过程呀，你怎么能说任何问题都能投影到某一个Decision呢？那万一没有找到任何你预设的Decision怎么办？
+  Agent 解读: 不可以。`decision_id` 只是已确认依据的引用，不是问题全集。Owner Simulator 先判断现有 owner context 是否足以直接或组合回答；无需新产品判断的问题按通用互动规则处理。只有确实影响 spec、且现有依据无法回答或可靠推出的新 owner 判断，才标记 benchmark gap，交真实 owner 中性确认并升版重跑。
+
+- Q13: 本工作继续放在 feat-397 内，还是建立独立 change unit？
   A(原话): 好，独立unit，并把我们对齐的内容写到spec中
   Agent 解读: 建立独立 unit；复用 feat-397 的评测数据与 clean-room 基础设施，但不把当前 spec skill 的 Memory treatment 混入 Agent Team treatment。
+
+- Q14: Owner Simulator 首版是否需要预先拆成问题路由、答案裁切、回复生成和 verifier 多个角色？
+  A(原话): 这是之前的study得到的结论吗？我咋感觉你这把问题复杂化了呢？一个最native的想法就是，我把足够的信息给到这个模拟用户的Agent，然后他拿到一个问题之后，在他这些信息里面找，然后模拟用户那样给他一个简短的回复。然后你去做study，研究出来是你这种方式会比我说这种非常native的更好，是吗？还是说你压根就没有参考之前的study？
+  Agent 解读: 现有 study 只证明模拟用户存在过度配合、提前披露和编造未知信息等风险，没有证明多角色控制管道优于 native simulator。对话热路径采用一个持有完整 current owner context 的独立、持久 Codex Agent，直接根据当前问题简短回答并返回使用的 context refs；不预设所有问题都能映射到 decision。
+
+- Q15: 是否因此只采用未经额外控制的 native 方案？
+  A(原话): 所以你研究了半天，你又只采取我原本的native的方案吗？你研究，你要以第一性原理去思考呀，就是Native的方案它不好在哪？然后有什么解决方法？然后综合去考虑然后出最合理的方案。
+  Agent 解读: 不采用“纯 Native”或“多层热路径控制器”任一极端。Native 保留开放、复合问题的自然理解能力，但完整 context 会带来主动泄漏、无依据补全、推荐锚定、过度配合和引用错报。正式方案是 `native conversational core + non-intervening post-run audit + observed-failure escalation`：独立 auditor 只在整段对话结束后检查模拟回复是否有实质失真，不向 Candidate 发言、不修改回复或 spec；critical error 使该 run 作废。只有 qualification 实际证明 full-context Native 不可靠时，才依次比较按需检索与选择性披露等更强控制。
 
 ## 用户场景
 
@@ -120,7 +135,7 @@
 
 历史 case 不能机械地拿当年的最终 spec 当标准答案。正式运行之前，系统逐例检查最新 `main` 的代码和 current docs，并追踪后来修正、替代或澄清原决定的 unit。发现历史 gold 与当前证据不一致时，先向用户提交 truth delta，说明原结论、当前证据、建议变化和理由；只有用户确认后的 private truth 与 current owner-answer bank 才能用于评价和交互重放。
 
-为了区分“有 Memory”与“整体换了一套更强 Skill”，Baseline 保持当前原版 `change-spec-author`；每个 Treatment 仍以当前 Skill 为主体，只允许加入该候选 Memory 方案实际需要的存放、检索、消费和溯源行为。每个 run 只走一次 author，不使用 Agent Team，也不调用 `change-spec-reviewer` 修正结果。
+为了区分“有 Memory”与“整体换了一套更强 Skill”，Baseline 保持当前原版 `change-spec-author`；每个 Treatment 仍以当前 Skill 为主体，只允许加入该候选 Memory 方案实际需要的存放、检索、消费和溯源行为。每个 run 只走一次 author，不额外套用 feat-397 的预设 Agent Team workflow，也不调用 `change-spec-reviewer` 修正结果；Author 在正常执行中是否自行使用 Codex subagent 不受额外约束。
 
 当前数据量较小，八个 case 暂时全部用于循环探索，不另切最终 holdout。用户接受这意味着当前结论是 exploratory benchmark 结论；未来扩充数据或发现过拟合后再调整分层。
 
@@ -182,7 +197,8 @@
 #### Scenario: Author 完成必要对齐
 - **WHEN** `change-spec-author` 根据 brief、仓库事实、Memory（Treatment 适用时）和按需返回的 current owner answers 完成首文档
 - **THEN** Author 自认达到 Gate 1 后产物立即冻结并交给独立 blind judge
-- **AND** 运行不引入 Agent Team 或 `change-spec-reviewer → author` 修订循环
+- **AND** 运行不额外套用 feat-397 Agent Team workflow 或 `change-spec-reviewer → author` 修订循环
+- **AND** Runner 不限制 Author 在本次正常执行中是否自行使用 Codex subagent
 
 #### Scenario: Agent 没有询问某项 owner 判断
 - **WHEN** current owner-answer bank 中存在一项相关判断，但 spec author 没有询问
@@ -215,6 +231,26 @@
 - **WHEN** Baseline 或 Treatment 实际提出与回答库中某项等价的问题
 - **THEN** runner 只向该 run 返回同一份 owner 已确认的当前答案
 - **AND** 不再机械重放后来被证明不合理的历史旧回答
+
+#### Scenario: Run 提出没有单项答案匹配的发散问题
+- **WHEN** 当前问题不等价于回答库中的某一个预设 decision
+- **THEN** Native Owner Simulator 直接在完整、冻结的 current owner context 与当前对话中寻找和组合依据
+- **AND** 可以回答时给出简短回复并记录使用的 context refs，不要求一对一命中 decision
+- **AND** 不需要新产品判断时按冻结互动规则追问、重定向、拒答或要求 Author 提出有依据的推荐
+- **AND** 确实缺少影响 spec 的新 owner 判断时标记 benchmark gap，由真实 owner 中性确认后更新 seal，并重跑受影响的 Baseline 与 Treatment
+
+#### Scenario: Native Owner Simulator 的一次对话结束
+- **WHEN** Candidate 宣布 Gate 1 完成，或该 run 因其他正常终点结束
+- **THEN** 独立 auditor 只读冻结的 current owner context 与完整 Owner transcript
+- **AND** 检查无依据的实质判断、未被当前问题触发的主动披露、当前 transcript 前后冲突，以及错误的 context 引用
+- **AND** auditor 不向 Candidate 发言、不修改历史回复，也不 review 或修复最终 spec
+- **AND** 发现 critical simulator error 时整次 run 作废，不进入 Baseline/Treatment 比较
+
+#### Scenario: 同 case 的模拟对话形成完整比较批次
+- **WHEN** 该 case 的 Baseline 与 Treatment repetitions 全部结束
+- **THEN** 系统将 owner transcripts 去除 arm、Memory 与质量结果并随机排序，执行批次一致性审计
+- **AND** 相同 owner context 对实质等价问题给出冲突产品判断时，作废该 case 的整批比较并按预注册政策重跑
+- **AND** 不允许只删除对某个 arm 不利的矛盾 run
 
 ### Requirement: Loop 只在质量不降且对齐负担明显下降时成功
 

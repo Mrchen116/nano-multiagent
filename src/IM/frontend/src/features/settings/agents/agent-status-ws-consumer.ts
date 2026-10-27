@@ -9,6 +9,8 @@ type AgentStatus = "online" | "offline";
 
 interface AgentDetailStateCacheShape {
   config: AgentConfig;
+  ready?: boolean;
+  liveCapabilities?: boolean;
   capabilities: unknown;
   owningNode: unknown;
 }
@@ -28,7 +30,6 @@ export function applyAgentStatusEvent(client: QueryClient, event: UserStreamEven
     if (!agentId || !channelId) return;
     void client.invalidateQueries({
       queryKey: ["settings", "agents", agentId, "channels"],
-      exact: true
     });
     return;
   }
@@ -51,17 +52,21 @@ export function applyAgentStatusEvent(client: QueryClient, event: UserStreamEven
     return changed ? next : current;
   });
 
+  // Cancel the old connection's reads before marking any settings region stale.
+  void client.cancelQueries({queryKey: ["settings", "agents", agentId]});
   client.setQueryData<AgentDetailStateCacheShape | undefined>(
     ["settings", "agents", agentId, "detail-state"],
     (current) => {
       if (!current) return current;
-      if (current.config.node_status === status) return current;
       return {
         ...current,
+        ready: false,
+        liveCapabilities: false,
         config: { ...current.config, node_status: status }
       };
     }
   );
+  void client.invalidateQueries({queryKey: ["settings", "agents", agentId]});
 }
 
 /**
