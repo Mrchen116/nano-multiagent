@@ -1,5 +1,7 @@
 """Build only stale E2E browser assets, keeping successful build provenance local."""
 
+from __future__ import annotations
+
 import fcntl
 import hashlib
 import json
