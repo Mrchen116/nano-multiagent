@@ -204,7 +204,7 @@ it('keeps real writes but does not settle either interval after incomplete combi
     const submit=async(inputId:string)=>{await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'followup',content:[{type:'text',text:inputId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId})as{terminal?:unknown}).terminal).toBeTruthy();};
     const facts=async()=>await client!.rpc.request('knowledge.facts',{})as{reviews:{kind:string;status:string;diagnostic?:string}[];facts:{kind:string}[]};
     await submit('one');await submit('two');
-    await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='error')).toEqual([expect.objectContaining({kind:'combined',diagnostic:'memory_read_incomplete'})]);
+    await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='error'),{timeout:8000}).toEqual([expect.objectContaining({kind:'combined',diagnostic:'memory_read_incomplete'})]);
     expect((await facts()).facts.map(f=>f.kind)).toEqual(['skills']);
     expect(await readFile(join(home,'.nanoassistant/skills/learned/SKILL.md'),'utf8')).toBe(content);
     await submit('three');

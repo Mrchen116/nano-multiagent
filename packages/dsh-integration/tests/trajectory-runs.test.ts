@@ -19,7 +19,7 @@ async function fixture() {
     const seen=new Set();
     ctx.on('llm/stream',async function*(o){
       const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind!=='runtime-context');
-      const text=user?.content.filter(b=>b.type==='text').map(b=>b.text).join('')??'';
+      const text=user?.content.find(b=>b.type==='text')?.text??'';
       const key=o.sessionId+':'+user?.id;
       if(['nested','fork-leaf'].includes(text)&&!seen.has(key))await new Promise(resolve=>{concurrent.set(text,resolve);if(concurrent.size===2)for(const ready of concurrent.values())ready();});
       if(text==='child-fail')throw new Error('controlled child failure');
@@ -32,6 +32,7 @@ async function fixture() {
         seen.add(key);
         if(text==='parallel')calls=[call('spawn-call','subagent',{prompt:'nested',description:'Ordinary work',run_in_background:false}),call('fork-call','subagent_fork',{prompt:'fork-leaf',description:'Fork work'})];
         if(text==='nested')calls=[call('nested-call','subagent',{prompt:'leaf',description:'Nested work',run_in_background:false})];
+        if(text==='leaf')calls=[call('too-deep','subagent',{prompt:'unreachable',description:'Third level',run_in_background:false})];
         if(text==='background')calls=[call('background-call','subagent',{prompt:'resident',description:'Resident work'})];
         if(text.startsWith('wake:'))calls=[call(user.id+'-wake','send_message',{agent_id:text.slice(5),message:'resident-again'})];
         if(text==='release')calls=[call(user.id+'-release','fixture_release',{})];
@@ -42,7 +43,7 @@ async function fixture() {
       yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
     });
   }`);
-  await prepareProfile(home, [{ id: 'subagent', config: { maxDepth: 3 } }, { id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'test' }], retryPolicy: { mode: 'normal', maxRetries: 0 } } } } },
+  await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'test' }], retryPolicy: { mode: 'normal', maxRetries: 0 } } } } },
     { insert: [{ id: 'run-facts-fixture', name: join(home, 'fixture.mjs') }] }]);
   const start = async (ensure = true) => {
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
@@ -95,6 +96,9 @@ it('records exact ordinary/fork bounds and parallel/nested causal links, then re
     expect(nested).toMatchObject({ parentSessionId: spawn.sessionId, callId: 'nested-call', state: 'completed' });
     await f.prepare(nested.sessionId);
     expect(await f.runs(nested.sessionId)).toEqual([nested]);
+    const depthLimit = (await f.events(nested.sessionId)).find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'too-deep');
+    expect(depthLimit.data.message.isError).toBe(true);
+    expect(JSON.stringify(depthLimit.data.message)).toMatch(/depth/i);
     await f.client().shutdown(); await f.start(false); await f.prepare();
     expect(await f.runs()).toEqual(runs);
     await f.prepare(spawn.sessionId); expect(await f.runs(spawn.sessionId)).toEqual(childRuns);
