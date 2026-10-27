@@ -321,3 +321,42 @@ The narrow prospective closure evidence is the notice-unavailable boundary: exte
 This verifier independently confirmed HEAD `f1ba28fa7e7abefced5d768fc8dd4415d8e35952`, a clean working tree at the removal check, and no differences in packages/apps/tests/src/config versus HEAD or frozen334bf622. The production file contains none of the temporary diagnostic flag/events/fields; no production behavior change remains. Executor's sync-review records removal of the ignored proxy probe and environment flag, shutdown of owned processes and closed60566/56096 ports, and full production build exit0 after removal. Those process/proxy/build facts are attributed to the executor; this verifier did not operate or rerun them.
 
 Only this verification report was appended for final documentary handoff. No canonical merge, archive, Ready PR, remote-CI success or complete delivery is claimed. The remaining blocker is the explicit PA1 product disposition and its narrowly scoped evidence, not missing core retry audit or unfinished diagnostic execution.
+
+## Integrated round 5 — independent scope correction and corrected-delta review
+
+### Verdict and scope
+
+**Verification PASS for this feature's established applicable scope. IV-1 and IV-2 CLOSED. Open in-scope verification blockers:0 CRITICAL/0 WARNING.** PA1 remains a separately recorded unresolved major product finding, regression relation **unclear**; it is not fixed, proven pre-existing or proven unrelated. This section supersedes the preceding scope-based NOT PASS conclusions, without erasing the failed observation, unsuccessful default-worker runs or earlier judgments.
+
+Read the original independent product reviewer's formal scope correction at acceptance.md:561–594, and independently reassessed spec.md:48–90, design.md:142,150,154–160, change-workflow.md:173–200, and the current product-reviewer criteria/handoff rules. Caller explicitly confirms the acceptance bar is the original seven spec Scenarios, W1–W7 and synchronization compatibility boundaries—not a new requirement that owner message consumption continue whenever an independent notice review is unavailable. The user's restatement prompted the check; it is not a waiver or permission to lower safety requirements.
+
+**Why PASS rather than pass-with-issues:** no failed mandatory #361 result is being accepted as good enough. The seven applicable product Scenarios, installation matrix, native invariants, code/Context checks and actual selected audit are complete. The independent product reviewer has formally corrected the additional notice-failure redesign from a required delivery dependency to an ancillary unresolved finding. The rule that major normally blocks an affected required journey still applies; we are not downgrading the severity of PA1 or waiving that rule. A pass-with-issues verdict would suggest retaining an in-scope failed acceptance item under an exception, which is not this adjudication. PASS is explicitly limited to this feature, not a blanket PA reliability verdict.
+
+### Independent basis for closing IV-2
+
+1. IV-2's original missing integrated journeys/audit requirements are met by R5's dual-strategy real plugin journeys, representative failure/stop cases, six explicit installation outcomes and36 calls→36 reviews→62 attempts, already independently checked in round3. Existing native coverage supplies the specified complete-budget, cache/race, configuration and routing combinations; no evidence substitution is introduced.
+2. Original scope requires authorization, precise action, cancellation, cache and disclosure-purpose compatibility. Those remain covered by static/native/Context checks and real purpose observations. PA1 has no established evidence of a retry-limit violation, failed-attempt authority pollution, cross-purpose cancellation/cache interference or changed disclosure permission. Shared Codex execution code justified the bounded investigation; sharing a file or class alone does not establish violation of an invariant.
+3. The failed notice path is real, but requiring owner consumption to proceed despite notice unavailability changes failure propagation and is absent from the original seven Scenarios and milestone criteria. The previous verifier statement that retaining existing behavior must keep this feature's gate failed was an overextension and is withdrawn as a delivery condition. No such implementation change or new product authorization is required to deliver #361.
+4. Neither a single successful main comparison nor the later successful diagnostic proves causality or resolves PA1; neither is the basis for PASS. Original failed internal notice state remains unknown. The historical risk is retained, and concrete future evidence tying it to changed retry/authority/cache behavior would reopen the affected gate. No broader causal assurance is claimed.
+
+The original product reviewer now formally reaches the same scoped PASS. This verifier independently accepts that corrected scope/evidence mapping, rather than merely overriding a still-failing product gate or declaring user dissatisfaction an exemption. No further product request, test, source change or model call was made for this adjudication.
+
+### Corrected-delta: PASS
+
+Read the updated37-line `specs/gateway/agent-capabilities.md` after caller applied the two tool-action-specific Requirement titles and the common scope paragraph. The actual text matches the reviewed implementation and existing evidence:
+
+| Corrected contract | Implementation and retained evidence |
+|---|---|
+| Ordinary CC/Codex/DSH tool-action recovery only | approval.ts wraps tool strategy in retryReview; classifier/CC/DSH and Guardian behavior inspected in integrated full review. Shared caps, invalid allowance, permanent failures and native provider suppression already covered. |
+| PA disclosure gets no newly granted retry allowance | reviewDisclosure bypasses the tool retry wrapper; real disclosure503 had one target request, unavailable/zero delivery; subsequent explicit request was a new operation. The wording does not falsely prohibit every existing internal evidence-rebuild behavior. |
+| Independent disclosure policy/parser/cache purpose and existing90s deadline retained | codex purpose keys, separate parser/policy and native AbortSignal deadline reviewed; lifecycle regression checks tool cancellation preserves disclosure cache. No new timeout or failure-propagation promise is added. |
+| Dispatch approval is neither disclosure approval nor delivery | Actual product_disclosure_gate audit versus unavailable and later sent outcomes checked independently; unknown internal disclosure audit is not fabricated. |
+| Existing tool budgets, fallback, cancellation and audit requirements unchanged | Fresh complete90s attempts retain CC30/60 stage limits; final deny is not retried; prior fallback remains explicit; schema/reopen/native and actual36/62 records support the rest of the unchanged delta. |
+
+The correction narrows ambiguous wording to the implemented scope; it neither changes production semantics nor weakens an original acceptance requirement. No additional test is needed for these already-covered textual clarifications. Canonical integration itself has not been performed by this verifier.
+
+### Version and remaining workflow boundary
+
+Scope reassessment is based on clean report HEAD `5c1afb2024a5d2c0e6c96f89a2d809ce396471b2`; product/code execution remains frozen implementation334bf622 against integrated mainc4ebad992. New acceptance/delta/report edits are documentary. Earlier independently checked production restoration and attributed build results retain their original provenance. This PASS does not pre-approve a future main update: executor must fetch/synchronize as authorized, evaluate the actual delta and record retained/recheck decisions before canonical merge/archive/Ready PR and required remote CI. Those delivery steps are not claimed complete here.
+
+Only verification.md was appended in this round; no production or safety rule changed. PA1's factual record and all prior reports remain available, without imposing its unrelated new product-semantics proposal as this feature's delivery prerequisite.

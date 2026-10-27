@@ -557,3 +557,38 @@ caller集中提取并报告exit0，唯一incident **`167ceec8-9577-4e16-ad84-823
 **最小关闭证据**可围绕这一单边界，而非要求补出不可得的原始raw：对notice返回unavailable这一输入，给出可检查的失败处理证据，证明原外发/私人内容均零投递、主人合法只读仍能消费，且notice失败状态不伪装为sent/confirmed；正常allow路径不受破坏。若实施修复，再冻结并仅核验该受影响路径及必要回归。原失败内部notice的完整关联若无法从现有授权记录取得，应明确保留未知，不以假设填补，也不为此无限重跑。
 
 本reviewer已交全部最小定位与判断，不再执行产品请求。临时诊断移除、own栈关闭及sync-review更新由caller负责；截至本追加不把其计划写成已完成，也不提交代码或报告。
+
+## 正式范围复核更正 — #361适用产品验收PASS
+
+**最新正式结论：本feature既定适用范围的产品验收PASS。** 本节取代前文将R5-PA1作为#361交付阻塞的判断；保留此前所有失败观测、当时判断及调查结果，不把它们改写成成功。这是原验收范围的纠正，**不是故障修复、用户批准豁免、降低验收标准或“带问题放行”**。
+
+只读复核基点为clean `5c1afb2024a5d2c0e6c96f89a2d809ce396471b2`；没有新增模型调用、实验、源码或安全规则变更。适用产品执行与审计仍归属前文冻结的集成实现 `334bf622`，没有把报告提交SHA冒充新的产品执行。主人对原需求的再次说明促使reviewer核对范围，但不是豁免某条要求的授权；改判依据是下列既定条款与已经完成的证据。
+
+### 逐项条款与证据映射
+
+| 既定条款 | 已完成证据与适用判断 |
+|---|---|
+| spec.md48–58：同审核内恢复、共享最多2额外attempt、耗尽及既有分流 | 双策略真实503恢复/耗尽、429/transport混合、timeout；新树审计关联同call→review→attempt，恢复恰1业务结果、耗尽零成功执行，既有return_to_agent与native配置分流覆盖。PASS。 |
+| spec.md60–69：invalid最多1次且共享总额度，deny/auth不误重试、CC两阶段保留 | invalid/empty和两种混合实际预算，deny/auth各1attempt；CC deny的stage1/2仍1attempt。配置错误边界沿用指定native层核验。PASS。 |
+| spec.md71–75：请求中/退避停止，零后续attempt/副作用 | 四业务stop及两安装stop，真实IM终态、实际500ms退避内57/27ms取消、正式安装清单0；late/cache组合由本轮native层核验。PASS。 |
+| spec.md77–85：区分新call与内部attempt、真实模型/耗时/可得usage、自建插件旅程 | 全新双策略自建→applied安装→真实480/370；36主call→36unique reviews→62 attempts，缺失0；未知usage与披露内部审计没有伪造。PASS。 |
+| design.md142、150：两策略六项安装副作用、spec全部Scenario真实旅程及Work/审核证据 | 六独立包先正式确认未安装；recover后恰1 installed/enabled，auth/stop后0；前述七个spec Scenario全部通过。不是用旧R4或纯fixture代替新树产品结果。 |
+| design.md112、123、157、160：来源/exact action不漂移、失败/取消不污染checkpoint、权限与生命周期兼容 | 本轮独立Context/native验证与实际purpose正负例均保留。PA1目前没有已确认的失败attempt污染、工具取消串扰、来源漂移或权限扩大证据；若以后建立此类关联，则应重开相关门禁。现在不能把“共享类可能相关”直接视为已违反条款。 |
+| sync-review.md19–21：披露不获得tool重试额度、tool/disclosure缓存分离、保留原deadline | 实际PA私人write503在同call恢复；独立disclosure503仅1目标请求、unavailable且投递0；新的明确委托才sent/投递1。native层隔离覆盖保留。PA1三inbox为safe_tool allow后产品notice失败，并非已证实tool retry导致的披露边界退化。 |
+| sync-review.md39–42、spec.md89：新基线完整适用复验及共享路径兼容 | 新树真实旅程、故障/停止/安装矩阵、审计、PA普通授权/来源限制/purpose边界已完成。该条款要求对发现的问题调查并报告，不等于要求在#361内修复所有PA可用性问题，也没有新增“任何notice失败不得阻断owner消费”的交付条件。 |
+
+verification.md250原IV-2列明的新树旅程、代表性故障、六安装及真实审计缺口，已经在其283–287及本报告R5中获得对应证据。后续保持IV-2为PA1阻塞沿用了本reviewer的full FAIL范围判断；本次正式更正提交原独立verifier复核，由其决定更新IV-2，不由产品reviewer代写验证结论。PASS仅表示本feature适用产品门禁完成，不等于Ready PR、归档、全部CI或对外交付已完成。
+
+### PA1仍是真实附带问题，但不是已证明的本feature回归
+
+PA1实际观测不变：风险notice路径曾使合法owner DM读取失败，无私标记泄露；原失败内部证据仍unknown。原main一次成功与带观测诊断的集成树一次成功，都不能证明原因，也不能证明问题已修复或确定为main既有。本节不以这两个随机成功样本作归因或放行依据。
+
+**问题状态：仍未解决；regression relation=unclear；不再作为#361交付依赖。** 理由不是它不重要，而是现有证据未将它关联到本feature的恢复/取消/额度/审计或权限兼容不变量，且既定条款本身已通过。额外发现应如实保留，不把“未知关联”自动升级成“已证明回归”，也不把“无已确认关联”写成“已证明绝无关联”。本次不要求用户为该问题追加新需求或批准无关产品语义。
+
+### 撤回超出原需求的交付前提
+
+前文提出“notice审核unavailable时仍必须保证owner DM独立消费”，并要求改变失败传播作为full gate关闭条件，是reviewer把附带可用性问题扩成新交付标准。**现明确撤回它作为#361交付前提，以及据此继续阻塞本feature的建议。** 原需求是对特定审核服务失败做有界恢复，保持原授权、披露及fallback规则；并未要求重设计通知失败的传播方式。
+
+本次不批准、实施或建议用户批准这项新语义，不改变安全拒绝、不增加disclosure重试、不注入allow，也不要求原失败notice被强制发送。仅纠正验收范围：#361七项核心Scenario及适用兼容性证据维持PASS，PA1事实独立保留。如后续出现其与本feature的具体因果或不变量破坏证据，再按受影响范围处理，不能预先宣称不存在风险。
+
+本节为报告限定追加，无源码修改、无新增产品动作、无新实验或commit；保留原36/62、789/1031及所有未影响证据，交caller集中提交、原verifier独立复核IV-2。

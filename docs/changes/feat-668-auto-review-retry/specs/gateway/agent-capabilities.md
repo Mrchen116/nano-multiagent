@@ -2,7 +2,9 @@
 
 ## ADDED Requirements
 
-### Requirement: Auto 技术失败 SHALL 在同一审核内有界恢复且不扩大授权
+### Requirement: 工具动作的 Auto 技术失败 SHALL 在同一审核内有界恢复且不扩大授权
+
+本要求适用于 CC、Codex 和 DSH 的普通工具动作 Auto 审核。PA 独立披露审核不获得本要求新增的技术失败重试额度；其独立策略、判定解析、缓存目的、既有 90 秒审核期限及实际送达边界保持不变。工具分派获准不代表披露获准或消息已送达。
 
 #### Scenario: 临时服务、传输与超时恢复
 - **GIVEN** CC、Codex 或 DSH Auto 对同一工具动作进行审核
@@ -27,7 +29,7 @@
 - **WHEN** 工具调用在活动审核或退避等待时取消
 - **THEN** 中断活动请求与等待，不启动后续尝试，不执行工具，不因迟到结果再放行或发起审批。
 
-### Requirement: Auto 审核记录 SHALL 区分内部尝试与新工具调用
+### Requirement: 工具动作的 Auto 审核记录 SHALL 区分内部尝试与新工具调用
 
 #### Scenario: 可检查的故障归因
 - **WHEN** 运营消费者检查某工具调用的审核记录
