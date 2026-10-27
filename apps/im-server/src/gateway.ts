@@ -867,7 +867,13 @@ export class Gateway {
       };
     }
     if (p.kind === "run_terminal_reconcile") return { kind: p.kind, run_id: p.run_id };
-    const m = s.message(p.message_id);
+    // Text deltas need identity and authorization, not the growing tool/thinking/message projection.
+    const m = p.kind === "message_delta"
+      ? one(db, `SELECT m.id,m.conversation_id,m.sender_user_id,m.sender_type,m.lifecycle_revision,m.delivery_status,u.username
+          FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?`, p.message_id)
+      : s.message(p.message_id);
+    if (!m) fail(404, "message not found");
+    if (p.kind === "message_delta") m.sender = { id: m.username.startsWith("agent:") ? m.username.slice(6) : m.sender_user_id };
     if (m.sender_type !== "agent") fail(403, "streaming message must belong to an Agent");
     this.requireAgent(c, m.sender.id);
     requireLifecycle(db,m.sender.id,p.lifecycle_revision);

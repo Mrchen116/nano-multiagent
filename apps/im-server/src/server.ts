@@ -319,7 +319,7 @@ export async function createServer(options: ServerOptions = {}) {
       ).toISOString();
       for (const m of all(
         db,
-        "SELECT m.id,m.conversation_id FROM messages m LEFT JOIN (SELECT message_id,MAX(created_at) last_evt FROM conversation_events GROUP BY message_id) e ON e.message_id=m.id WHERE m.delivery_status='running' AND COALESCE(e.last_evt,m.created_at)<?",
+        "SELECT m.id,m.conversation_id FROM messages m WHERE m.delivery_status='running' AND COALESCE((SELECT created_at FROM conversation_events e WHERE e.message_id=m.id ORDER BY created_at DESC LIMIT 1),m.created_at)<?",
         cutoff,
       )) {
         const detail = `relay idle for ${process.env.IM_RELAY_WATCHDOG_TIMEOUT_SECONDS ?? 120}s with no new event`;

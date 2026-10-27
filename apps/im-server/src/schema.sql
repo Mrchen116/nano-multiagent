@@ -407,6 +407,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_pending_removal_per_provider
 ON agent_channel_removals(owner_id, agent_id, provider)
 WHERE apply_state != 'applied';
 CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS users_owner ON users(owner_id);
 CREATE INDEX IF NOT EXISTS auth_rate_expiry ON auth_rate_limits(expires_at);
 -- Replay scans only outstanding tasks for one node, regardless of saved history.
 CREATE INDEX IF NOT EXISTS relay_tasks_pending_node
@@ -414,6 +415,8 @@ ON relay_tasks(target_node_id,updated_at,created_at)
 WHERE receipt_status IS NULL AND status IN ('queued','sent','accepted');
 CREATE INDEX IF NOT EXISTS relay_tasks_message ON relay_tasks(message_id,status);
 CREATE INDEX IF NOT EXISTS conversation_events_message ON conversation_events(message_id,event_type);
+CREATE INDEX IF NOT EXISTS conversation_events_latest ON conversation_events(message_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS messages_running ON messages(id,conversation_id,created_at) WHERE delivery_status='running';
 CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
         ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
         ;
