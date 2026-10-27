@@ -22,7 +22,7 @@
 
 ## 前置条件
 
-- 已执行 `pnpm install --frozen-lockfile`、`pnpm build`。主前端依赖另需 `npm --prefix src/IM/frontend ci`；up 自动构建当前主前端与原生轨迹查看器，不要求手工构建 Web。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
+- 已执行 `pnpm install --frozen-lockfile`、`pnpm build`。主前端依赖另需 `npm --prefix src/IM/frontend ci`；up 自动校验主前端与原生轨迹查看器，按需构建，不要求手工构建 Web。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
 - 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是默认的、无密钥 E2E 配置，包含两个普通 Agent（`e2e`、`e2e-peer`）、一个 Global Agent（`e2e-global`）、Web IM channel 和可选模型目录。预设显式配置文件、命令、搜索、Skill 与消息工具，避免缺省工具名单在配置同步后变为空集；Skills 使用空禁用名单，保留正常发现。需要另一个受控 config 时，才通过 `--main-config` 显式指定。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
@@ -161,9 +161,18 @@ tail -n 50 "$WT_ROOT/gateway.log"
 
 ## 默认同源 UI 与可选 Vite
 
-所有 profile 均构建主前端与原生轨迹查看器，并通过绝对 `IM_FRONTEND_DIST_DIR` /
+所有 profile 均准备主前端与原生轨迹查看器，并通过绝对 `IM_FRONTEND_DIST_DIR` /
 `IM_TRAJECTORY_DIST_DIR` 交给 IM；临时 `--wt` 目录不必含源码。默认直接打开 `IM_URL`，
 登录、聊天 WebSocket 和 `/trajectory/` 资源同源，无需 Vite。
+
+up 调用 `scripts/e2e_ui.py`，按内容指纹分别判断两套产物是否仍有效，不依赖 Git 提交或文件修改时间：
+
+- 首次启动、源码增删改、构建配置或依赖锁文件变化，自动构建受影响的前端；对应的 `product-contracts`、`trajectory-ui` 源码和实际导出也纳入判断，重建时先构建这些共享包。
+- 输入与上次成功产物均一致时直接复用；只改后端源码无需重建 UI。根依赖锁文件变化保守地使两套构建失效。
+- 产物缺失或被其他手动构建覆盖时重建；构建失败或构建过程中输入变化会停止启动，不使用旧产物继续报 ready。
+- 构建时固定 API 为同源；检查 Node 版本、相关构建环境与 `.env*` 内容。运行时 IM/Vite 端口不影响复用。
+
+构建记录和同 checkout 构建锁位于 `.cache/e2e-ui/`，不提交；需要强制重新验证构建时删除该目录内的 `frontend.json` / `trajectory.json`，保留运行中的 `build.lock`。每次 up 会输出 `E2E UI: build ...` 或 `E2E UI: reuse ...`。新 worktree 没有自己的有效构建记录时仍会构建，不跨 worktree 复用产物。此机制只节省 UI 构建，不跳过测试或隔离栈的健康检查。
 
 需要 HMR 时使用同一入口，不另建启动流程：
 

@@ -255,12 +255,10 @@ if [[ ! -f "$REPO_ROOT/apps/im-server/lib/main.js" || ! -f "$REPO_ROOT/apps/node
   exit 1
 fi
 
-# Build current sources, not merely a possibly stale index.html. Both entrypoints
-# remain available on IM even when an optional HMR server is requested.
-# Pin browser HTTP/WS to its own origin, overriding inherited Vite/dotenv targets.
+# Verify both UI builds against their sources, dependencies and output contents.
+# Keep the same-origin base for both built assets and optional Vite.
 export VITE_IM_API_BASE_URL=""
-npm --prefix "$REPO_ROOT/src/IM/frontend" run build
-pnpm --dir "$REPO_ROOT/packages/dsh-trajectory-viewer" run build
+python3 "$SCRIPT_DIR/e2e_ui.py"
 export IM_FRONTEND_DIST_DIR="$REPO_ROOT/src/IM/frontend/dist"
 export IM_TRAJECTORY_DIST_DIR="$REPO_ROOT/packages/dsh-trajectory-viewer/dist"
 cd "$WT_ROOT"
