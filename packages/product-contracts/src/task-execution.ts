@@ -1,3 +1,9 @@
+/** A native execution reference stored in the canonical Task, never another Task status. */
+export interface TaskExecutionBinding {
+  child_id:string; root_session_id:string; owner_agent_id:string;
+  request_revision:number; bound_revision:number; needs_coordination?:boolean;
+  correction_source_ref?:string; input_receipt?:string; delivery_receipt?:string;
+}
 /** Persisted Task waiting facts; Schedule remains the timer authority. */
 export interface TaskWait {
   reason: string;
@@ -26,6 +32,7 @@ export interface TaskResponsibility {
   conversation: {id: string};
   relative_url: string;
   wait?: TaskWait;
+  execution?: TaskExecutionBinding;
   resume_request?: { actor_id: string; at: string; revision: number };
 }
 /** Current responsibility projection, never a second persisted Task state. */

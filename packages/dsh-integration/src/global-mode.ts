@@ -5,7 +5,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 import type {} from './product-bridge.js';
 import type {} from './policy/approval.js';
 import { inboxSourceInstructions } from './policy/sources.js';
-import { normalizeMessageArguments, publicMessageProperties } from './message-arguments.js';
+import { normalizeMessageArguments, publicMessageProperties, personalDeliveryProperties } from './message-arguments.js';
 import type { AttachmentSource } from './trajectory-attachments.js';
 
 export const name = 'nano-global-mode';
@@ -26,7 +26,7 @@ export function apply(ctx: Context, config: { mode?: string; personal?: boolean 
       type: 'object', properties: { action: { type: 'string', enum: ['list', 'info', 'read', 'search', 'create', 'join'] }, scope: { type: 'string', enum: ['joined', 'public'] }, title: { type: 'string' }, type: { type: 'string', enum: ['group'] }, visibility: { type: 'string', enum: ['public', 'private'], description: 'New groups default to public.' }, participant_ids: { type: 'array', items: { type: 'string' }, description: 'User IDs or agent:IDs under ordinary invitation rules; the actual Agent creator is automatically a member.' }, target: { type: 'string' }, query: { type: 'string' }, keyword: { type: 'string' }, participant_id: { type: 'string' }, before: { type: 'string' }, after: { type: 'string' }, message_id: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['action'], additionalProperties: false,
     } },
     { name: 'send_message', description: 'Use target/text for a public message as yourself to a writable conversation, user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
-      type: 'object', properties: { ...publicMessageProperties, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'], not: { required: ['interactive'] } }], additionalProperties: false,
+      type: 'object', properties: { ...publicMessageProperties, ...(config.personal?personalDeliveryProperties:{}), agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target', 'text'] }, { required: ['agent_id', 'message'], not: { required: ['interactive'] } }], additionalProperties: false,
     } },
   ];
   for (const tool of tools.filter(tool => config.mode === 'global' || tool.name !== 'inbox')) ctx.tools.register({ ...tool,
@@ -38,7 +38,7 @@ export function apply(ctx: Context, config: { mode?: string; personal?: boolean 
         if (!nativeSend) throw new Error('Native child communication is unavailable');
         return nativeSend.execute(args, exec);
       }
-      const result = await ctx.nanoProduct.call(tool.name, tool.name === 'send_message' ? normalizeMessageArguments(args) : args, exec);
+      const result = await ctx.nanoProduct.call(tool.name, tool.name === 'send_message' ? normalizeMessageArguments(args,!!config.personal) : args, exec);
       if (tool.name !== 'inbox') return result;
       const content: PromptContentPart[] = [{ type: 'text', text: JSON.stringify(result) }];
       const sources: (AttachmentSource | null)[] = [null];

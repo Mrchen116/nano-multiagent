@@ -8,11 +8,13 @@ import { all, one, now, fail, body, params, transaction, type Row, type ImContex
 import { conversationAccess } from './conversation-access.js';
 import { ConfigOperations, profileResponse } from './control.js';
 import { PersonalActions, PEER_NOTICE } from './personal-actions.js';
+import { PersonalAttention } from './personal-attention.js';
 
 /** Personal authority and source access are resolved from the authenticated node. */
 export class PersonalAgents {
   readonly actions: PersonalActions;
-  constructor(readonly ctx: ImContext) { this.actions = new PersonalActions(this); }
+  readonly attention: PersonalAttention;
+  constructor(readonly ctx: ImContext) { this.actions = new PersonalActions(this); this.attention = new PersonalAttention(this); }
   get db() { return this.ctx.db; }
   binding(owner: string) { return one(this.db, 'SELECT * FROM personal_agent_bindings WHERE owner_id=?', owner); }
   policy(bindingId: string): Row {
@@ -50,8 +52,10 @@ export class PersonalAgents {
     const ids = new Set<string>([...all(this.db,'SELECT conversation_id FROM conversation_participation_history WHERE user_id=?',b.owner_user_id).map(row=>row.conversation_id),
       ...this.ctx.messaging.conversations(agentUser.id,scope).map(row=>row.id),...policy.excluded_conversation_ids]);
     return [...ids].filter(id => this.sourceAccess(b,id)).map(id => {
+      // Keep the identifier available for re-inclusion without reading revoked content.
+      if (policy.excluded_conversation_ids.includes(id)) return {id,excluded:true};
       const viewer = conversationAccess(this.db,id,b.owner_user_id) ? b.owner_user_id : agentUser.id;
-      return {...this.ctx.messaging.conversation(id,viewer),excluded:policy.excluded_conversation_ids.includes(id)};
+      return {...this.ctx.messaging.conversation(id,viewer),excluded:false};
     });
   }
   /** Change future source access using an authenticated owner message, without erasing prior work. */
@@ -231,6 +235,27 @@ export class PersonalAgents {
     if(!m || !this.directOwnerMessage(b,m) || !this.messageAllowed(b,m)) fail(403,'direct_owner_evidence_required');
     return this.messageEvidence(b,m);
   }
+  /** Resolve memory citations from the current binding's readable original messages.
+   *
+   * Args:
+   *   principal: Authenticated node identity.
+   *   args: Message references and an optional direct owner instruction reference.
+   * Returns:
+   *   Provenance facts. A citation never grants permission to act for its author.
+   */
+  memorySources(principal: Row, args: Row) {
+    const b=this.authority(principal,args);
+    if(!Array.isArray(args.source_refs)||args.source_refs.length>50||args.source_refs.some((id:unknown)=>typeof id!=='string'))fail(422,'invalid_memory_source_refs');
+    const sources=[...new Set<string>(args.source_refs)].map(id=>{
+      const message=one(this.db,'SELECT * FROM messages WHERE id=?',id);
+      if(!message||!this.messageAllowed(b,message))fail(403,'memory_source_not_accessible');
+      const facts=this.sourceFacts(b,message);
+      return {id,kind:'im_message',authorId:this.sourceActor(message),subjectRef:facts.is_owner?'owner':this.sourceActor(message),
+        verified:true,conversationId:message.conversation_id,createdAt:message.created_at};
+    });
+    return {sources,policy_revision:this.policy(b.binding_id).revision,
+      ...(args.owner_instruction_id?{owner_instruction:this.ownerMessage(b,args.owner_instruction_id)}:{})};
+  }
   /** Detect changes to original owner constraints without exporting their history.
    *
    * Args:
@@ -293,6 +318,13 @@ export class PersonalAgents {
       case 'pa.state': return this.state(b.owner_id);
       case 'pa.sources': return this.sources(principal,args);
       case 'pa.authorization': return this.authorization(principal,args);
+      case 'pa.memory.sources': return this.memorySources(principal,args);
+      case 'pa.context.query': return this.attention.query(b,args);
+      case 'pa.attention': return this.attention.command(b,args);
+      case 'pa.attention.delivery.prepare': return this.attention.prepare(b,args);
+      case 'pa.attention.delivery.complete': return this.attention.complete(b,args);
+      case 'pa.attention.delivery.external-complete': return this.attention.completeExternal(b,args);
+      case 'pa.attention.snooze.complete': return this.attention.snoozeComplete(b,args);
       case 'pa.runtime.status':
         if(typeof args.available!=='boolean')fail(422,'runtime_availability_required');
         this.db.prepare('INSERT OR REPLACE INTO pa_runtime_status VALUES(?,?,?)').run(b.binding_id,b.node_epoch,Number(args.available));return {recorded:true};
@@ -339,7 +371,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const resolved=await ctx.gateway.request(b.node_id,'node.capabilities.resolve',{});
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
-        const tools=[...new Set([...catalog.tools.filter((tool:Row)=>tool.default_on||tool.name==='send_message').map((tool:Row)=>tool.name),'personal_sources'])];
+        const tools=[...new Set([...catalog.tools.filter((tool:Row)=>tool.default_on||tool.name==='send_message').map((tool:Row)=>tool.name),'personal_sources','publish_artifact'])];
         let candidate={agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,custom_prompt:personalAgentDefaultInstructions,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         await ops.create(candidate,u.owner_id,b.node_id);

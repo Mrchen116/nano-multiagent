@@ -92,7 +92,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
       "type": "array",
       "minItems": 1,
       "maxItems": 100,
-      "description": "Only for action=apply. Execute 1-100 operations in order as one atomic mutation. Use stable node IDs (for example n1) for existing nodes. To reference a node added earlier in this batch, use @client_ref (for example @A); bare A is not a batch reference and forward references are not allowed. add_task: container_id,title,client_ref plus optional description/mode/status/result/links/order/derived_from_id/assignee. update_task: node_id,patch (title/description/mode/status/wait/result/links/order only). add_dependency/remove_dependency: from,to (prerequisite -> successor; direct siblings in the same dag scope). set_derivation: node_id,derived_from_id (sibling in explore, or null). select_candidate: scope_id,node_id (direct child or null),reason. set_assignee: node_id,assignee ({type:user|agent,id} or null), without changing status. claim_task: node_id, claims for the actual caller and sets doing; cannot take another assignee. Creator is always the real caller, never supplied in arguments. Modes none/dag/explore; statuses todo/doing/waiting/in_review/done/paused/closed. Links are http(s) URLs or protected IM attachment paths. For an existing dag root n1, example: [{\"op\":\"add_task\",\"client_ref\":\"A\",\"container_id\":\"n1\",\"title\":\"Choose a plan\"},{\"op\":\"add_task\",\"client_ref\":\"B\",\"container_id\":\"n1\",\"title\":\"Confirm attendees\"},{\"op\":\"add_dependency\",\"from\":\"@A\",\"to\":\"@B\"}].",
+      "description": "Only for action=apply. Execute 1-100 operations in order as one atomic mutation. Use stable node IDs (for example n1) for existing nodes. To reference a node added earlier in this batch, use @client_ref (for example @A); bare A is not a batch reference and forward references are not allowed. add_task: container_id,title,client_ref plus optional description/mode/status/result/links/order/derived_from_id/assignee. update_task: node_id,patch (title/description/mode/status/wait/result/links/order only). add_dependency/remove_dependency: from,to (prerequisite -> successor; direct siblings in the same dag scope). set_derivation: node_id,derived_from_id (sibling in explore, or null). select_candidate: scope_id,node_id (direct child or null),reason. set_assignee: node_id,assignee ({type:user|agent,id} or null), without changing status. claim_task: node_id, claims for the actual caller and sets doing; cannot take another assignee. bind_execution: node_id,child_id,request_revision (current graph revision), optional correction_source_ref,input_receipt (actual native send_message messageId),delivery_receipt (actual sent message ID in the Task conversation). Only bind your own doing Task to your direct continuable child. After a correction forward it to the existing child, then rebind with the current revision and receipt. clear_execution: node_id. Creator is always the real caller, never supplied in arguments. Modes none/dag/explore; statuses todo/doing/waiting/in_review/done/paused/closed. Links are http(s) URLs or protected IM attachment paths. For an existing dag root n1, example: [{\"op\":\"add_task\",\"client_ref\":\"A\",\"container_id\":\"n1\",\"title\":\"Choose a plan\"},{\"op\":\"add_task\",\"client_ref\":\"B\",\"container_id\":\"n1\",\"title\":\"Confirm attendees\"},{\"op\":\"add_dependency\",\"from\":\"@A\",\"to\":\"@B\"}].",
       "items": {
         "type": "object",
         "properties": {
@@ -103,12 +103,19 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
               "update_task",
               "set_assignee",
               "claim_task",
+              "bind_execution",
+              "clear_execution",
               "add_dependency",
               "remove_dependency",
               "set_derivation",
               "select_candidate"
             ]
           },
+          "child_id": {"type":"string"},
+          "request_revision": {"type":"integer"},
+          "correction_source_ref": {"type":"string"},
+          "input_receipt": {"type":"string"},
+          "delivery_receipt": {"type":"string"},
           "assignee": assignee,
           "client_ref": {
             "description": "Required for add_task. Define a unique local name without @, for example A. Later operations in this batch must reference the new node as @A, not A. The returned client_refs maps this name to the stable node ID for future calls.",

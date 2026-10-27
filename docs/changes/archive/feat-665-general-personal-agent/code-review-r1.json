@@ -1,0 +1,68 @@
+[
+  {
+    "id": "CR-01",
+    "file": "packages/dsh-integration/src/knowledge/personal-memory.ts",
+    "line": 236,
+    "summary": "[P2] 新的主人纠正不能恢复曾被纠正过的偏好",
+    "failure_scenario": "主人先用 source-1 保存 A，再以 source-2 改成 B，随后以全新已验证 source-3、正确当前 record id/revision 改回 A。所有未遗忘的 superseded tombstone 也按正文 hash 无条件拒绝，第三次写入失败，当前记忆仍为 B。",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "Memory write/revision/tombstone → next model memory context",
+    "expected": "新主人原话可纠正当前偏好；旧后台维护与旧来源不能复活被取代版本。",
+    "observed": "tombstone.content_hash 相同即拒绝，不区分真正遗忘、陈旧来源重放与新的 owner correction。",
+    "impact": "合法偏好反复变化后无法更新，下一次回答继续采用已过时的 B。",
+    "recommendation": "分别处理遗忘 fence 和 superseded 旧写入；用来源/版本约束阻止旧维护重放，同时允许新已验证来源在当前版本上显式纠正。",
+    "evidence": {
+      "version": "783ff080f4a110780d78473e95d0bc391c64c50f",
+      "locator": "code-review.md § 独立复现 R1",
+      "method": "compiled PersonalMemoryStore, isolated temporary workspace; three distinct verified owner sources",
+      "result": "Memory source/content was forgotten or superseded; replay refused; current=[I prefer flights]",
+      "limit": "确定性 Store 接口缺陷；未宣称真实模型已经触发。"
+    }
+  },
+  {
+    "id": "CR-02",
+    "file": "packages/dsh-integration/src/knowledge/personal-memory.ts",
+    "line": 253,
+    "summary": "[P2] 遗忘按正文误删其他主体或情境的独立事实",
+    "failure_scenario": "分别保存 owner 和 partner 的相同正文 Does not eat seafood，各有独立 source/id。仅 forget owner 的明确 record id 后，partner 记录也被删除并留下防复活 tombstone。删除判断只用正文 hash，未使用 subject_ref/domain/applicability。",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "Memory forget identity → controlled records/projection/search",
+    "expected": "忘记一个明确事项，并保留其他人物/情境的独立事实。",
+    "observed": "removedIds 包含全部与被选记录历史正文 hash 相同的记录。",
+    "impact": "超出用户指定遗忘范围删除资料，并阻止后续合法重建相同正文的事实。",
+    "recommendation": "副本关联保留事实身份、主体及适用范围；不能仅按正文相同跨主体删除。保持对所选事实旧版本与真实副本的清理。",
+    "evidence": {
+      "version": "783ff080f4a110780d78473e95d0bc391c64c50f",
+      "locator": "code-review.md § 独立复现 R2",
+      "method": "compiled PersonalMemoryStore, isolated temporary workspace; owner/partner records with distinct verified sources",
+      "result": "remaining=[] after forget(owner_record_id)",
+      "limit": "确定性 Store 接口缺陷；不涉及真实私人资料。"
+    }
+  },
+  {
+    "id": "CR-03",
+    "file": "packages/dsh-integration/src/personal-context.ts",
+    "line": 26,
+    "summary": "[P2] 跨轮次重试关注反馈会改变宿主幂等载荷",
+    "failure_scenario": "第一轮 snooze 已持久化 pending，但原生 Schedule 创建失败。下一轮以同一 idempotency_key 和相同业务参数重试时，宿主重新注入的 exploration_batch_id 含新的 turn seq；server 将该字段纳入 payload，返回 attention_idempotency_conflict，不能继续完成 Schedule。upsert 等动作也受影响。",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "personal_attention callable retry contract → host turn metadata → server receipt",
+    "expected": "稳定 key 可核实/继续已提交的同一动作；pending 不能要求重复制造业务变更。",
+    "observed": "personal-context.ts:26 每次注入 session:turn seq；personal-attention.ts:135-139 对包含该字段的整份 args 比较幂等身份。",
+    "impact": "跨轮次/恢复后的安全重试失效，稍后提醒可能持续 pending，迫使模型换 key 或重复修改 revision。",
+    "recommendation": "探索批次只用于预算记账，不加入同一业务动作的重试身份，或在首次请求后持久沿用原批次。对跨 turn 相同 key 的 pending snooze 重试增加保护。",
+    "evidence": {
+      "version": "783ff080f4a110780d78473e95d0bc391c64c50f",
+      "locator": "apps/im-server/src/personal-attention.ts:135-139; code-review.md § 独立复现 R3",
+      "method": "compiled PersonalAttention with real in-memory node:sqlite; persisted first payload replayed with only host batch changed",
+      "result": "attention_idempotency_conflict for root:10 → root:20",
+      "limit": "原生 Schedule 故障后的组合机制由源码直接确认；独立复现验证服务端拒绝，无真实模型运行。"
+    }
+  }
+]

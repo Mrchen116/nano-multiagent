@@ -396,7 +396,7 @@ export class Messaging {
     status = "completed",
     extra: Row = {},
   ): Row {
-    if ((extra.interactive || extra.personal_source) && !this.db.isTransaction)
+    if ((extra.interactive || extra.personal_source || extra.personal_delivery_operation_id) && !this.db.isTransaction)
       return transaction(this.db, () => this.insertMessage(cId, sender, type, content, attachments, key, status, extra));
     const old = key
       ? one(
@@ -407,6 +407,7 @@ export class Messaging {
         )
       : undefined;
     if (old) return this.message(old.id);
+    if (extra.personal_delivery_operation_id) this.ctx.personal!.attention.beforePublication(extra.personal_delivery_operation_id);
     const id = randomUUID().replaceAll("-", "");
     const at = extra.created_at ?? now();
     const sourceAgent=type==='agent'?one(this.db,"SELECT agent_id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE u.id=?",sender):undefined;
@@ -448,6 +449,7 @@ export class Messaging {
       if (type !== 'agent' && !extra.personal_source?.operation_id) fail(403, 'Only Agent messages may contain interactive replies');
       this.interactions.record(id, cId, extra.personal_source?.operation_id ? this.agentUser(extra.personal_source.agent_id).id : sender, extra.interactive);
     }
+    if (extra.personal_delivery_operation_id) this.ctx.personal!.attention.recordPublication(extra.personal_delivery_operation_id,id);
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     const m = this.message(id);
     this.event(cId, id, "message.created", { ...m, message_id: id }, status, extra.publish !== false);

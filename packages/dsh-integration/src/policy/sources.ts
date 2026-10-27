@@ -40,14 +40,28 @@ export class ApprovalSources {
   humanText(agent: Agent): string { return this.humanInputs(agent).map(input=>input.text).join('\n'); }
   humanInputs(agent: Agent): HumanInput[] {
     const events=agent.session.snapshotEvents();const start=events.findLast(event=>event.type==='turn/start')?.seq??-1;const content:HumanInput[]=[];
+    const fragments=new Map<string,{input:HumanInput;count:number;parts:Map<number,string>}>();
     for(const event of events){
       if(event.seq<=start)continue;
       if(event.type==='user/message'&&isHumanSource(event.data.source))content.push({id:event.data.id,text:text(event.data.content),...(event.data.source.sender?{sender:event.data.source.sender}:{}),...(event.data.source.pa_agent_id?{pa_agent_id:event.data.source.pa_agent_id}:{})});
       if(event.type==='tool/result'&&!event.data.message.isError&&this.isLiveInbox(agent.id,event.data.message.toolCallId)){
         const body=event.data.message.content.filter(block=>block.type==='text').map(block=>block.text).join('\n');
-        try {for(const message of (JSON.parse(body) as {messages?:{id:string;sender?:{type?:string};pa_agent_id?:string;partial?:boolean;content?:{type:string;text?:string}[]}[]}).messages??[])if(message.sender?.type==='user'&&!message.partial)content.push({id:message.id,text:(message.content??[]).filter(part=>part.type==='text').map(part=>part.text??'').join('\n'),sender:message.sender,...(message.pa_agent_id?{pa_agent_id:message.pa_agent_id}:{})});}catch{ /* Only a structured, observed Inbox result contributes human text. */ }
+        try {
+          const page=JSON.parse(body) as {target:string;messages?:{id:string;sender?:{type?:string};pa_agent_id?:string;partial?:boolean;part?:number;parts?:number;content?:{type:string;text?:string}[]}[]};
+          for(const message of page.messages??[]){
+            if(message.sender?.type!=='user')continue;
+            const input={id:message.id,text:(message.content??[]).filter(part=>part.type==='text').map(part=>part.text??'').join('\n'),sender:message.sender,...(message.pa_agent_id?{pa_agent_id:message.pa_agent_id}:{})};
+            if(!message.partial){content.push(input);continue;}
+            // Complete host-split messages retain their original consent; a partial page alone does not.
+            if(!Number.isInteger(message.part)||!Number.isInteger(message.parts)||message.part!<1||message.part!>message.parts!)continue;
+            const key=JSON.stringify([page.target,message.id]);
+            const record=fragments.get(key)??{input,count:message.parts!,parts:new Map<number,string>()};
+            record.parts.set(message.part!,input.text);fragments.set(key,record);
+          }
+        }catch{ /* Only a structured, observed Inbox result contributes human text. */ }
       }
     }
+    for(const record of fragments.values())if(record.parts.size===record.count)content.push({...record.input,text:Array.from({length:record.count},(_,i)=>record.parts.get(i+1)??'').join('')});
     return content;
   }
   async transcript(agent: Agent, exec: ToolExecution, inherited: unknown[], messageContext?: MessageApprovalContext, includeAssistant = false) {

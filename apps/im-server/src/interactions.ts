@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mergeStatements } from '@openuidev/lang-core';
 import type { FastifyRequest } from 'fastify';
 import { canonicalJson, interactiveResponse, type InteractionSnapshot, type InteractionContext } from '@nano/product-contracts';
@@ -109,7 +110,7 @@ export class Interactions {
     return this.readDraft(req);
   }
   /** Resolve a browser choice using saved source and identity, before creating its message. */
-  prepare(user: Row, cid: string, request: Row, key: string | null): { existing?: string; content: string; semantic: string; snapshot: InteractionSnapshot } {
+  prepare(user: Row, cid: string, request: Row, key: string | null): { existing?: string; content: string; semantic: string; snapshot: InteractionSnapshot; attention_action_key?: string } {
     const input = request.interaction_reply;
     if (!input || typeof input !== 'object' || typeof input.source_message_id !== 'string' || input.action_id !== undefined && typeof input.action_id !== 'string') fail(422, 'Invalid interaction reply');
     if (user.kind === 'gateway' || user.username?.startsWith('agent:')) fail(403, 'Human viewer required');
@@ -136,13 +137,24 @@ export class Interactions {
       if (previous.semantic_json !== semantic) fail(409, { code: 'interaction_already_submitted', message: 'This request key was already used with different content', submission_message_id: previous.message_id });
       return { existing: previous.message_id, content, semantic, snapshot };
     }
+    // The saved publication fixes business revision independently of mutable UI drafts.
+    const publication=one(this.db,'SELECT p.*,b.owner_user_id,i.revision current_revision FROM pa_attention_publications p JOIN personal_agent_bindings b ON b.binding_id=p.binding_id JOIN pa_attention_items i ON i.id=p.item_id WHERE p.message_id=?',source.message_id);
+    let attention_action_key:string|undefined;
+    if(publication){
+      if(user.id!==publication.owner_user_id)fail(403,'attention_feedback_owner_required');
+      attention_action_key=input.action_id??createHash('sha256').update(canonicalJson(nativeEvent??{content})).digest('hex');
+      const priorAction=one(this.db,'SELECT message_id FROM pa_attention_feedback WHERE source_message_id=? AND user_id=? AND action_key=?',source.message_id,user.id,attention_action_key);
+      if(priorAction)return {existing:priorAction.message_id,content,semantic,snapshot,attention_action_key};
+      if(publication.item_revision!==publication.current_revision)fail(409,'attention_revision_conflict');
+    }
     this.writable(source);
     if (!this.available(source,cid)) fail(409, 'The source Agent is no longer available in this conversation');
-    return { content, semantic, snapshot };
+    return { content, semantic, snapshot, attention_action_key };
   }
   /** Commit a choice identity and its private submitted state with the public message. */
   submit(user: string, message: string, prepared: ReturnType<Interactions['prepare']>): void {
     const source = prepared.snapshot.source_message_id;
+    if(prepared.attention_action_key)this.db.prepare('INSERT INTO pa_attention_feedback VALUES(?,?,?,?)').run(source,user,prepared.attention_action_key,message);
     this.db.prepare('INSERT INTO interaction_submissions VALUES(?,?,?,?)').run(source, user, message, prepared.semantic);
     this.db.prepare('INSERT INTO interaction_drafts(source_message_id,user_id,draft_revision,state_json,submission_message_id) VALUES(?,?,1,?,?) ON CONFLICT(source_message_id,user_id) DO UPDATE SET draft_revision=draft_revision+1,state_json=excluded.state_json,submission_message_id=excluded.submission_message_id')
       .run(source, user, canonicalJson(prepared.snapshot.state), message);

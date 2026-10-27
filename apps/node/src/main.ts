@@ -380,7 +380,14 @@ product = new SingleThread({
 });
 let workAvailable=false;
 const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_service.url,credentials:()=>config.im_service.token,available:()=>workAvailable,onError:reportError});
-globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
+globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input),
+  uploadArtifact: async (input,signal) => {
+    const query=new URLSearchParams({conversation_id:input.conversationId,agent_id:input.agentId,file_name:input.fileName,
+      lifecycle_revision:String(store.lifecycle.assert(input.agentId,store.lifecycle.current()?.revision))});
+    if(input.artifactId){query.set('artifact_id',input.artifactId);query.set('expected_version',String(input.expectedVersion));}
+    return im(`/im/v1/uploads?${query}`,{method:'POST',headers:{'Content-Type':input.contentType,'Idempotency-Key':input.idempotencyKey,'X-Content-SHA256':input.sha256},body:new Uint8Array(input.bytes),signal});
+  },
+});
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};
   const next = await configuration.setWorkflowGuideline(agentId, guideline);

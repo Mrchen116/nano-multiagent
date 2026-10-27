@@ -4,6 +4,7 @@
 
 | Suite | 用途 | 入口 |
 |---|---|---|
+| General personal agent | 58 个合成真实 IM 场景、证据收集、独立审定与多次基线比较 | [general-personal-agent/](general-personal-agent/README.md) |
 | Spec/design alignment | 比较需求对齐工作流的用户对齐负担与最终产物质量；当前包含 8 个历史回归和前瞻 pilot case | [spec_design_alignment/](spec_design_alignment/README.md) |
 
 每个 suite 负责维护共享的 case、schema、materializer、validator 与稳定收据；具体待比较方案的协议和 seal 放在 suite 的 `experiments/<experiment-id>/` 下。候选仓由 materializer 生成，不提交物化输出，也不得把 `evals/` 控制资产暴露给候选 Agent。

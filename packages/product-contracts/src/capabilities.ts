@@ -32,6 +32,7 @@ export const featureDependencies: FeatureDependency[] = [
   {key: 'skill_creation', default_on: true, requires: {features: [], tools: ['skill_manage', 'skill', 'read'], skills: []}},
   {key: 'cron_scheduling', default_on: false, requires: {features: [], tools: ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'], skills: []}},
   {key: 'heartbeat', default_on: false, requires: {features: [], tools: ['read'], skills: []}},
+  {key: 'personal_proactivity', default_on: false, requires: {features: [], tools: ['personal_context','personal_attention'], skills: []}},
 ];
 
 /** Resolve declared defaults without repairing the submitted dependency graph. */

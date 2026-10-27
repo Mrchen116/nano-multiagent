@@ -201,3 +201,19 @@ it('notifies former and current assignees after human and Agent edits, reassignm
   tasks.execute(human,'delete',{graph_id:graph.graph_id,base_revision:revision,request_key:'delete'});
   expect(observations.at(-1)).toMatchObject({hint:{agent_ids:['a']},a:[],b:[]});
 });
+
+it('stores execution against the current assigned Task revision and marks changed requirements for coordination',()=>{
+ const {tasks,graph}=setup();
+ const bind={graph_id:graph.graph_id,base_revision:1,request_key:'bind',change_note:'Use actual child',operations:[{op:'bind_execution',node_id:'n1',child_id:'native-child',root_session_id:'native-root',request_revision:1}]};
+ expect(()=>tasks.execute(human,'apply',bind)).toThrow('Only the assigned Agent');
+ tasks.execute(actor,'apply',bind);
+ expect(tasks.executionSnapshot(actor,'chat').items[0].execution).toMatchObject({child_id:'native-child',request_revision:1,bound_revision:2});
+ tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:2,request_key:'correction',change_note:'New requirement',operations:[{op:'update_task',node_id:'n1',patch:{description:'Use the corrected date'}}]});
+ expect(tasks.execute(actor,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0].execution.needs_coordination).toBe(true);
+ expect(()=>tasks.execute(actor,'apply',{...bind,base_revision:3,request_key:'missing-receipt',operations:[{...bind.operations[0],request_revision:3}]})).toThrow('Forward the correction');
+ tasks.execute(actor,'apply',{...bind,base_revision:3,request_key:'corrected',operations:[{...bind.operations[0],request_revision:3,correction_source_ref:'owner-correction',input_receipt:'native-message'}]});
+ expect(tasks.execute(actor,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0].execution).toMatchObject({request_revision:3,input_receipt:'native-message'});
+ tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:4,request_key:'pause-bound',change_note:'Pause',operations:[{op:'update_task',node_id:'n1',patch:{status:'paused'}}]});
+ expect(tasks.executionSnapshot(actor,'chat').items).toEqual([]);
+ expect(()=>tasks.execute(actor,'apply',{...bind,base_revision:5,request_key:'late',operations:[{...bind.operations[0],request_revision:5}]})).toThrow('current doing Task');
+});

@@ -8,7 +8,8 @@ export class ReviewFiles {
   private readonly readings = new Map<string, Reading>();
   private readonly memory = new Map<string, boolean>();
   private memoryAttempted = false;
-  constructor(private readonly cwd: string, readonly memoryPaths: string[], private readonly skillRoots: string[]) {
+  private recordRevision?: number;
+  constructor(private readonly cwd: string, readonly memoryPaths: string[], private readonly skillRoots: string[], private readonly structuredMemory = false) {
     this.memoryPaths = memoryPaths.map(path => this.key(path));
   }
   private key(path: string): string {
@@ -64,7 +65,10 @@ export class ReviewFiles {
   }
   /** Count a Memory write attempt even if the model omitted its required reads. */
   memoryWrite(): void { this.memoryAttempted = true; }
-  get memoryIncomplete(): boolean { return this.memoryAttempted && this.memoryPaths.some(path => !this.memory.get(path)); }
+  /** A structured tool read carries the authority revision used by the write transaction. */
+  memoryRecordsRead(revision: number): void { this.recordRevision = revision; }
+  get memoryRevision(): number | undefined { return this.recordRevision; }
+  get memoryIncomplete(): boolean { return this.memoryAttempted && (this.structuredMemory ? this.recordRevision === undefined : this.memoryPaths.some(path => !this.memory.get(path))); }
   /** Check the raw target while its existing write lock is held. */
   require(path: string, current: string): void {
     const reading = this.readings.get(this.key(path));

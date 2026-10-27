@@ -43,7 +43,7 @@ export class TaskExecution {
       this.options.store.lifecycle.assert(binding.agentId);
       if(!frame.payload.ok)throw new Error('Task source unavailable');
       const items=(frame.payload.result as {items:TaskResponsibility[]}).items;
-      const tasks=items.map(({graph_id,node_id,title,status,revision,updated_at,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,updated_at,conversation:{id:conversation.id},relative_url,wait,resume_request}));
+      const tasks=items.map(({graph_id,node_id,title,status,revision,updated_at,conversation,relative_url,wait,resume_request,execution})=>({graph_id,node_id,title,status,revision,updated_at,conversation:{id:conversation.id},relative_url,wait,resume_request,execution}));
       if(tasks.some(t=>t.status==='waiting'))this.waitingAgents.add(binding.agentId);else this.waitingAgents.delete(binding.agentId);
       const repair:string[]=[];let unavailable=false;
       for(const task of tasks)if(task.status==='waiting') {

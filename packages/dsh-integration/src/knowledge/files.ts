@@ -25,12 +25,14 @@ export async function atomicWrite(path: string, text: string, signal?: AbortSign
   try { await writeFile(temporary, text); signal?.throwIfAborted(); await rename(temporary, path); }
   finally { await rm(temporary, { force: true }); }
 }
-async function locked<T>(root: string, action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+/** Serialize writes to one knowledge root, including PA records and derived projections. */
+export async function locked<T>(root: string, action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   await mkdir(root, { recursive: true });
   const release = await lockfile.lock(root, { retries: { retries: 30, minTimeout: 20, maxTimeout: 200, factor: 1.2 } });
   try { signal?.throwIfAborted(); return await action(); } finally { await release(); }
 }
-async function safePath(root: string, path: string) {
+/** Reject controlled knowledge paths that escape the root or traverse symlinks. */
+export async function safePath(root: string, path: string) {
   const rel = relative(resolve(root), resolve(path));
   if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Path leaves the controlled root');
   let current = resolve(root);

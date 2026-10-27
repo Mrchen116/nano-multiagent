@@ -13,7 +13,7 @@ import { basename, dirname, join } from "node:path";
 import { once } from "node:events";
 import type { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { all, one, fail, params, query, body, type Row, type ImContext } from "./context.js";
+import { all, one, fail, params, query, body, transaction, type Row, type ImContext } from "./context.js";
 const MAX_BYTES = 10 * 1024 * 1024,
   OWNER_LIMIT = 1024 ** 3,
   SERVICE_LIMIT = 10 * 1024 ** 3;
@@ -38,6 +38,22 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
   const db = ctx.db,
     directory = join(dirname(ctx.dbPath), "message-images");
   mkdirSync(directory, { recursive: true });
+  db.exec(`CREATE TABLE IF NOT EXISTS attachment_versions (
+    resource_id TEXT PRIMARY KEY REFERENCES message_images(image_id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    artifact_id TEXT NOT NULL, version INTEGER NOT NULL, previous_resource_id TEXT,
+    UNIQUE(conversation_id, artifact_id, version)
+  )`);
+  const receipt = (resource: Row, isImage: boolean) => {
+    const version = one(db, "SELECT * FROM attachment_versions WHERE resource_id=?", resource.image_id);
+    return {
+      url: `/im/v1/conversations/${resource.conversation_id}/${isImage ? "images" : "attachments"}/${resource.image_id}`,
+      content_type: resource.content_type, file_name: resource.file_name,
+      resource_id: resource.image_id, sha256: resource.sha256, byte_size: resource.byte_size,
+      ...(version ? {artifact_id:version.artifact_id,version:version.version,...(version.previous_resource_id ? {previous_resource_id:version.previous_resource_id} : {})} : {}),
+      receipt: {status: 'stored', resource_id: resource.image_id},
+    };
+  };
   const slots = new Map<string, number>();
   // Interrupted reservations never become committed resources after a process restart.
   for (const r of all(db, "SELECT storage_name FROM attachment_storage WHERE state='reserved'")) {
@@ -129,10 +145,14 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(p,cId,q.agent_id);
       else {ctx.messaging.access(p, cId, q.agent_id, "write");if(p.kind==='gateway')requireLifecycle(db,q.agent_id,q.lifecycle_revision==null?undefined:Number(q.lifecycle_revision));}
       const fileName = basename(String(q.file_name ?? "").trim()),
-        key = isImage
-          ? String(req.headers["idempotency-key"] ?? "").trim()
-          : `upload:${randomUUID()}`;
-      if (!fileName || !key) fail(400, "file_name and Idempotency-Key required");
+        key = String(req.headers["idempotency-key"] ?? (isImage ? "" : `upload:${randomUUID()}`)).trim();
+      if (!fileName || !key || key.length > 200) fail(400, "file_name and bounded Idempotency-Key required");
+      const artifactId = q.artifact_id === undefined ? undefined : String(q.artifact_id),
+        expectedVersion = q.expected_version === undefined ? undefined : Number(q.expected_version),
+        expectedHash = req.headers["x-content-sha256"];
+      if ((artifactId !== undefined) !== (expectedVersion !== undefined) || (expectedVersion !== undefined && (!artifactId || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1)) || (isImage && artifactId !== undefined))
+        fail(400, "artifact updates require artifact_id and a positive expected_version on ordinary uploads");
+      if (expectedHash !== undefined && (typeof expectedHash !== "string" || !/^[a-f0-9]{64}$/.test(expectedHash))) fail(400, "invalid X-Content-SHA256");
       const mime = (req.headers["content-type"] ?? "application/octet-stream")
         .split(";")[0]!
         .trim()
@@ -196,38 +216,29 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
             cId,
             key,
           );
+        if (expectedHash !== undefined && expectedHash !== digest) fail(409, "content hash does not match uploaded bytes");
         if (old) {
-          if (old.sha256 !== digest || old.content_type !== mime)
-            fail(409, "idempotency key conflicts with existing image");
+          const version = one(db, "SELECT * FROM attachment_versions WHERE resource_id=?", old.image_id);
+          if (old.sha256 !== digest || old.content_type !== mime || old.file_name !== fileName ||
+              (artifactId !== undefined ? version?.artifact_id !== artifactId || version?.version !== expectedVersion! + 1 : version && version.version !== 1))
+            fail(409, "idempotency key conflicts with existing attachment");
           reply.code(200);
-          return {
-            url: `/im/v1/conversations/${cId}/${isImage ? "images" : "attachments"}/${old.image_id}`,
-            content_type: old.content_type,
-            file_name: old.file_name,
-          };
+          return receipt(old, isImage);
         }
         const id = randomUUID().replaceAll("-", "");
-        renameSync(temporary, destination);
-        db.prepare("INSERT INTO message_images VALUES(?,?,?,?,?,?,?,?)").run(
-          id,
-          cId,
-          key,
-          digest,
-          mime,
-          fileName,
-          size,
-          storage,
-        );
-        db.prepare("UPDATE attachment_storage SET state='stored' WHERE storage_name=?").run(
-          storage,
-        );
+        transaction(db, () => {
+          const previous = artifactId === undefined ? undefined : one(db,
+            "SELECT * FROM attachment_versions WHERE conversation_id=? AND artifact_id=? ORDER BY version DESC LIMIT 1", cId, artifactId);
+          if (artifactId !== undefined && !previous) fail(404, "artifact not found in conversation");
+          if (previous && previous.version !== expectedVersion) fail(409, "artifact version conflict");
+          renameSync(temporary, destination);
+          db.prepare("INSERT INTO message_images VALUES(?,?,?,?,?,?,?,?)").run(id,cId,key,digest,mime,fileName,size,storage);
+          if (!isImage) db.prepare("INSERT INTO attachment_versions VALUES(?,?,?,?,?)").run(id,cId,artifactId ?? id,(previous?.version ?? 0)+1,previous?.resource_id ?? null);
+          db.prepare("UPDATE attachment_storage SET state='stored' WHERE storage_name=?").run(storage);
+        });
         committed = true;
         reply.code(201);
-        return {
-          url: `/im/v1/conversations/${cId}/${isImage ? "images" : "attachments"}/${id}`,
-          content_type: mime,
-          file_name: fileName,
-        };
+        return receipt({image_id:id,conversation_id:cId,content_type:mime,file_name:fileName,sha256:digest,byte_size:size},isImage);
       } finally {
         slots.set(owner, (slots.get(owner) ?? 1) - 1);
         if (!committed) {

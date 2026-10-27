@@ -12,6 +12,7 @@ import { contextTools } from './agent-context.js';
 import { isHumanSource } from './input-source.js';
 
 export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
+const optionalPersonalTools = ['personal_context', 'personal_attention', 'publish_artifact'];
 
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
@@ -28,7 +29,7 @@ export class ToolSelection {
   /** Resolve the same configured and workspace-installed collection for dispatch and selection previews. */
   selection(config: AgentConfiguration, names: string[]): string[] {
     const allow = config.toolAllowlist;
-    if (allow === undefined) return names.filter(name => !goalTools.includes(name));
+    if (allow === undefined) return names.filter(name => !goalTools.includes(name) && !optionalPersonalTools.includes(name));
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
     const selected = new Set([...allow, ...installed, ...contextTools]);
     return names.filter(name => selected.has(name));
@@ -63,7 +64,7 @@ export class ToolSelection {
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
     const disabled: string[] = [];
-    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools);
+    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, ...optionalPersonalTools);
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.

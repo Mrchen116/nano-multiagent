@@ -21,6 +21,11 @@ import { ReviewFiles } from './review-files.js';
 import { reviewReadings } from './review-readings.js';
 import { withKnowledgeRun } from '../trajectory-runs.js';
 import { policyAsset } from '../policy/rules.js';
+import { PersonalMemoryStore, type PersonalMemoryChange, type PersonalMemorySource } from './personal-memory.js';
+import { PersonalMemoryContext } from './personal-memory-context.js';
+import type {} from '../product-bridge.js';
+
+export type MemoryToolChange = (MemoryChange | PersonalMemoryChange) & { source_refs?: string[]; owner_instruction_id?: string; continuation?: string };
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
 interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; notify(): void; held?(agentId: string, kind: KnowledgeKind): boolean }
@@ -32,7 +37,7 @@ interface ReviewContext { id: string; work: Active; allow: string[]; parent: Age
 
 /** Owns accepted native review runs and durable success facts across Feature disposal. */
 export class KnowledgeRuntime extends Service {
-  static inject = ['subagents', 'tools', 'skills', 'agents', 'storageDomain', 'systemPrompt', 'sessionQuery', 'nanoTrajectoryRuns'];
+  static inject = ['subagents', 'tools', 'skills', 'agents', 'storageDomain', 'systemPrompt', 'sessionQuery', 'nanoTrajectoryRuns', 'nanoProduct', 'tokenMeter', 'sessions'];
   private readonly state: Promise<Domain<KnowledgeDomain>>;
   private readonly scans = new Map<string, number>();
   private readonly active = new Map<string, Active>();
@@ -45,8 +50,10 @@ export class KnowledgeRuntime extends Service {
   private readonly children = new WeakMap<Agent, ReviewContext>();
   private readonly pendingBatches = new Map<string, { agentId: string; batch: Batch }>();
   private readonly reviewStart = new AsyncLocalStorage<ReviewContext & { parentId: string; system: string; tools: ToolSchema[] }>();
+  private readonly memoryContext: PersonalMemoryContext;
   constructor(ctx: Context, private readonly options: Options) {
     super(ctx, 'nanoKnowledge'); this.host = ctx; this.state = ctx.storageDomain.open(knowledgeDomain);
+    this.memoryContext = new PersonalMemoryContext(ctx, agent => this.personalMemory(agent), agent => this.children.has(agent));
     ctx.effect(() => async () => { await this.stop(); await (await this.state).close(); });
     ctx.on('agent/created', ({ agent }) => {
       const frozen = this.reviewStart.getStore();
@@ -113,6 +120,17 @@ export class KnowledgeRuntime extends Service {
   }
   config(agent: Agent) { return this.options.configOf(agent); }
   files(agent: Agent) { return new KnowledgeFiles(agent.session.header.cwd!, this.config(agent)?.knowledge?.globalSkillRoot); }
+  /** Resolve the private store only from the configured PA binding. */
+  personalMemory(agent: Agent): PersonalMemoryStore | undefined {
+    const config = this.config(agent);
+    if (!config?.personal) return;
+    return new PersonalMemoryStore(config.workspace ?? agent.session.header.cwd!, {
+      ownerId: config.personal.ownerId, bindingId: config.personal.bindingId, agentId: config.agentId,
+    });
+  }
+  /** Trusted native maintenance is distinct from model-created task children. */
+  isReview(agent: Agent): boolean { return this.children.has(agent) || this.reviewStart.getStore()?.parentId === agent.session.header.parentSession; }
+  memoryConsumer(agent: Agent): boolean { return this.options.bindings.has(agent.id) || this.children.has(agent); }
   private root(agent: Agent) {
     let current = agent;
     while (!this.options.bindings.has(current.id) && current.session.header.parentSession) {
@@ -137,18 +155,65 @@ export class KnowledgeRuntime extends Service {
     if (!review.work.kinds.includes(kind) || config?.knowledge?.enabled === false || config?.features?.[kind === 'memory' ? 'memory_curation' : 'skill_creation'] === false) throw new Error('Knowledge maintenance is disabled.');
     if (review.work.batch && config?.mode === 'global') throw new Error('Global mode cannot run F4.');
   }
-  async memory(exec: ToolExecution, change: MemoryChange) {
+  async memory(exec: ToolExecution, change: MemoryToolChange) {
     const agent = exec.agent!;
     const review = this.children.get(agent);
     this.checkReview(agent, 'memory');
+    const personal = this.personalMemory(agent);
+    if (personal) {
+      if (!this.memoryConsumer(agent)) throw new Error('Private memory is available only to the bound root PA and trusted memory maintenance');
+      if (review && ['forget', 'migrate'].includes(change.action)) throw new Error('Only the owner-facing root may forget or migrate personal memory');
+      if (['add','replace','remove'].includes(change.action)) change = { ...change,
+        idempotency_key: ('idempotency_key' in change && change.idempotency_key) || `${agent.id}:${exec.callId}`,
+        source_refs: change.source_refs ?? await this.host.nanoProduct.humanInputs(review?.parent ?? agent),
+      } as MemoryToolChange;
+      const read = change.action === 'search' || change.action === 'get';
+      if (review && !read) {
+        review.work.reads.memoryWrite();
+        if (review.work.reads.memoryIncomplete) throw new Error('Search or get the current structured Memory before writing');
+      }
+      const sourceRefs = change.source_refs ?? [];
+      if (['forget', 'migrate'].includes(change.action) && !change.owner_instruction_id) throw new Error('A direct owner instruction reference is required');
+      if (change.action === 'forget' && (typeof change.continuation !== 'string' || change.continuation.length > 2000)) {
+        throw new Error('Forget requires a continuation of at most 2000 characters: finish other requested actions first, then summarize only remaining non-erased work. Exclude the fact being forgotten and its values. Use an empty string if only the final acknowledgment remains.');
+      }
+      const provenance = !read && (sourceRefs.length || change.owner_instruction_id)
+        ? await this.host.nanoProduct.call('pa.memory.sources', { source_refs: sourceRefs, owner_instruction_id: change.owner_instruction_id }, exec) as { sources: PersonalMemorySource[] }
+        : { sources: [] };
+      const subject = change.action === 'upsert' ? change.subject_ref : undefined;
+      if (change.action === 'upsert' && change.certainty === 'confirmed' && provenance.sources.some(source => source.subjectRef !== 'owner' && source.subjectRef !== subject)) {
+        throw new Error('A third-party statement is reported evidence, not a confirmed preference of another subject');
+      }
+      if (change.action === 'forget') {
+        await this.cancel(this.config(agent)!.agentId, 'memory'); await this.cancel(this.config(agent)!.agentId, 'skills');
+      }
+      // Transient work is a context handoff, never durable personal memory or write identity.
+      const {continuation: _continuation, ...memoryChange} = change;
+      const forgetKey = change.action === 'forget' ? change.idempotency_key : undefined;
+      const result = await personal.execute(memoryChange as PersonalMemoryChange, { sessionId: agent.id, sources: provenance.sources,
+        expectedScopeRevision: review && !read ? review.work.reads.memoryRevision : undefined, signal: exec.signal,
+        ...(change.action === 'forget' ? {forgetContinuation: change.continuation!, prepareForget: () => this.memoryContext.prepareForget(this.root(agent), {
+          requestKey: forgetKey!, sourceMessageId: change.owner_instruction_id!, replyTarget: this.config(agent)!.personal!.conversationId, summary: change.continuation!})} : {}),
+      });
+      if (read) { review?.work.reads.memoryRecordsRead(result.revision); return result; }
+      review?.work.reads.memoryRecordsRead(result.revision);
+      if (change.action === 'forget') {
+        const fence = (await personal.snapshot()).forgetFence!;
+        await this.memoryContext.invalidateChildren(this.root(agent), fence.revision);
+      }
+      await this.changed(exec, { kind: 'memory', action: change.action, path: personal.recordsPath });
+      return result;
+    }
+    if (!['add', 'replace', 'remove'].includes(change.action)) throw new Error('Structured memory requires a Personal Agent');
     if (review) { review.work.reads.memoryWrite(); if (review.work.reads.memoryIncomplete) throw new Error('Read both current Memory files before writing.'); }
-    const result = await this.files(agent).memory(change, agent.id, exec.signal);
+    const result = await this.files(agent).memory(change as MemoryChange, agent.id, exec.signal);
     await this.changed(exec, { ...result, kind: 'memory' }); return result;
   }
   async skill(exec: ToolExecution, change: SkillChange) {
     const review = this.children.get(exec.agent!);
     const source = review ? review.work.source : 'F1';
     this.checkReview(exec.agent!, 'skills');
+    if (this.config(exec.agent!)?.personal && change.scope === 'global') throw new Error('PA maintenance cannot publish private knowledge to shared Skills; use the agent scope for reusable nonpersonal methods');
     const result = await this.files(exec.agent!).skill(change, source, exec.signal, review ? {
       reads: review.work.reads, check: () => this.checkReview(exec.agent!, 'skills'), target: review.work.batch,
     } : undefined);
@@ -247,7 +312,7 @@ export class KnowledgeRuntime extends Service {
     if ((batch ? ['skills'] as const : ['memory', 'skills'] as const).some(kind => this.options.held?.(config.agentId, kind))) return;
     const id = randomUUID(); const controller = new AbortController();
     const files = this.files(agent);
-    const reads = new ReviewFiles(agent.session.header.cwd!, [join(files.memoryRoot, 'USER.md'), join(files.memoryRoot, 'MEMORY.md')], [files.skillRoot, ...(config.knowledge?.globalSkillRoot ? [config.knowledge.globalSkillRoot] : [])]);
+    const reads = new ReviewFiles(agent.session.header.cwd!, [join(files.memoryRoot, 'USER.md'), join(files.memoryRoot, 'MEMORY.md')], [files.skillRoot, ...(config.knowledge?.globalSkillRoot ? [config.knowledge.globalSkillRoot] : [])], !!config.personal);
     const task = Promise.resolve().then(() => this.review(agent, id, controller.signal, batch)).catch(async error => {
       const state = await this.state; const record = state.table('reviews').get(id);
       if (record) await state.table('reviews').put(id, { ...record, status: controller.signal.aborted ? 'cancelled' : 'error', diagnostic: String(error).slice(0, 4096) });
@@ -290,7 +355,7 @@ export class KnowledgeRuntime extends Service {
     const tools = (batch ? ['read', 'skill_manage'] : ['read', 'glob', 'grep', ...(work.kinds.includes('memory') ? ['memory'] : []), ...(work.kinds.includes('skills') ? ['skill_manage', 'skill'] : [])]).filter(name => names.has(name) && !!agent.ctx.tools.get(name, agent));
     if (work.kinds.some(k => !tools.includes(k === 'memory' ? 'memory' : 'skill_manage')) || (batch || work.kinds.includes('memory')) && !tools.includes('read')) return;
     await state.table('reviews').put(id, record);
-    const prompt = await policyAsset(`../knowledge/${batch ? 'skill-batch' : kind}.txt`); signal.throwIfAborted();
+    const prompt = await policyAsset(`../knowledge/${!batch && config.personal && work.kinds.includes('memory') ? `personal-${kind}` : batch ? 'skill-batch' : kind}.txt`); signal.throwIfAborted();
     const context = { ...(work.kinds.includes('memory') ? { memoryPaths: work.reads.memoryPaths } : {}), ...(batch ? { target: { ...batch, path: join(batch.root, batch.name, 'SKILL.md'), scope: await realpath(batch.root) === await realpath(this.files(agent).skillRoot).catch(() => this.files(agent).skillRoot) ? 'agent' : 'global' }, evidence } : {}) };
     const system = agent.session.deriveMessages().findLast(message => message.role === 'system' && message.content.length > 0);
     const frozen = { id, work, parent: agent, parentId: agent.id, system: system?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? '', tools: schema, allow: tools };

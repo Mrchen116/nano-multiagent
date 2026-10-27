@@ -222,3 +222,14 @@ it('retains represented user provenance across live input, history reads and rec
   expect(reviewed).toContain('do not merge or deploy');
   expect(reviewed).toContain('\"pa_agent_id\":\"pa\"');
 });
+
+it('recognizes a long live owner message only after all its Inbox parts are observed in this turn',()=>{
+ const sources=new ApprovalSources();sources.recordInbox('session','first');sources.recordInbox('session','last');
+ const part=(number:number,value:string)=>({id:'long-owner',sender:{type:'user',id:'owner'},partial:true,part:number,parts:2,content:[{type:'text',text:value}]});
+ const event=(seq:number,id:string,messages:unknown[])=>({seq,type:'tool/result',data:{message:{toolCallId:id,content:[{type:'text',text:JSON.stringify({target:'owner-chat',messages})}]}}});
+ const start={seq:0,type:'turn/start'};
+ const first=event(1,'first',[part(1,'Prepare the report. ')]),last=event(2,'last',[part(2,'Do not send it externally.')]);
+ expect(sources.humanInputs(fixture([],[start,first]))).toEqual([]);
+ expect(sources.humanInputs(fixture([],[start,first,last]))).toEqual([{id:'long-owner',sender:{type:'user',id:'owner'},text:'Prepare the report. Do not send it externally.'}]);
+ expect(sources.humanInputs(fixture([],[start,first,{seq:2,type:'turn/start'},event(3,'last',[part(2,'Do not send it externally.')])]))).toEqual([]);
+});
