@@ -1,6 +1,6 @@
 # feat-625: Auto 审核内有界恢复 — 技术方案
 
-> 对齐: [spec.md](spec.md)。基线 `5454f3140f9c92532c690db8dec80b9f77080384`；仅指定 checkout `repository`，分支 `codex/feat-625-ab-e2e`。设计待独立 R1 审查，不代表 Gate 2 通过。
+> 对齐: [spec.md](spec.md)。基线 `5454f3140f9c92532c690db8dec80b9f77080384`；仅指定 checkout `repository`，分支 `codex/feat-625-ab-e2e`。独立 R1 已 Approved（0 CRITICAL / 0 WARNING），author 已核实并闭环；见 [design-review.md](design-review.md)。这不代表实现或产品验收通过。
 
 ## Changelog
 
