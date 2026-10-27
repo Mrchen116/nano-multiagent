@@ -86,6 +86,14 @@ Executor changed only the ignored proxy to route using the parsed pathname, rest
 - Executor additionally reran the full Node regression on this corrected-evidence freeze: `env -u NANO_OWNER_CONFIG_ROOT pnpm test`, **109 files / 494 tests PASS**, 57.39s, exit0. Log: `/tmp/pa667-issue361-1862-tests.log`. This supplements, rather than relabels, the independent reviewer's explicitly reused narrow evidence.
 - Real product R2 is still in progress; preliminary successful business results do not close its fault/cancellation/audit requirements. No fetch, archive, push or PR is implied by the static closure.
 
+## Product R2/R3 completion and authorized audit correlation
+
+- Independent product reviewer completed both real plugin journeys,24 business-tool fault/cancellation cases and6 installation-step recovery/auth/stop cases. The latter uses separate absent-before packages and formal post-install lists: recovery has one installed entry; auth/stop have zero. See [acceptance](acceptance.md); no implementation bug was found in these observed results.
+- After new explicit owner authorization for this run's selected synthetic metrics, the original minimal consumer edit and its later execution both succeeded through normal permission checks. No raw snapshot retry, private database substitution or approval/Harness modification occurred. [Product audit metrics](product-audit-metrics.md) contains the necessary derived association only:36 selected calls,36 distinct reviewIds,62 actual attempts (18 calls/31 attempts per strategy), missing0.
+- Backoff evidence was corrected in the original acceptance paragraphs/table, not only appended: injected Retry-After10s did not reach providerRetryAfterMs; actual delayAfterMs500ms. Actual failure-end/cancel timestamps establish cancellation before the500ms retry boundary. Independent reviewer closure remains required.
+- Owned services were stopped only after the reviewer confirmed both sessions idle and injection/holds cleared: Node3657, DSH3660, IM95854, proxy7499. Verified all four absent and own ports53939/56096 closed before public RuntimeClient initialize. The consumer rejected business calls and shut down normally after read-only observe. Original isolated configuration/profile/state remain for reproducibility; shared4000 and Harness were untouched.
+- This evidence-only batch still requires original independent product and static reviewers to close their prior verdicts. Earlier failures remain in the reports. No final sync, archive or PR before formal closure.
+
 ## Independence and pending work
 
 - Original requirements/design author, design reviewer, implementation worker, independent static reviewer and independent product reviewer are distinct native Agents. Static review explicitly combines code-review and verification responsibilities with separate outputs; it is independent of implementation and product acceptance.
