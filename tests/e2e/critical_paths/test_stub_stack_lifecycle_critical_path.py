@@ -9,7 +9,7 @@ import sys
 
 import yaml
 
-from .test_agent_config_context_continuity_critical_path import (
+from ._recording import (
     _E2E_CONFIG,
     _E2E_DOWN,
     _E2E_UP,

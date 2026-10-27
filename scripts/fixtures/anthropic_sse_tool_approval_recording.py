@@ -119,7 +119,7 @@ def _sse_tool_call(sequence: int) -> bytes:
 
 
 def _is_classifier(body: dict[str, Any]) -> bool:
-    return not body.get("tools")
+    return any(tool["name"].startswith("guardian_") for tool in body.get("tools", []))
 
 
 def _last_message_has_tool_result(body: dict[str, Any]) -> bool:
@@ -159,7 +159,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             response = _sse_text(
                 "unparseable classifier response"
                 if body.get("model") == self.failing_model
-                else "<block>no</block>"
+                else '{"outcome":"allow"}'
             )
         elif _last_message_has_tool_result(body):
             response = _sse_text(f"ACK-{sequence}")

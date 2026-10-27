@@ -59,6 +59,8 @@ def _cleanup_autostart_runtime(tmp_path: Path, env: dict[str, str]) -> None:
         )
 
 
+# Allow the driver deadline and its cleanup to finish before pytest exits.
+@pytest.mark.timeout(260)
 @pytest.mark.e2e
 def test_macos_gateway_autostart_crash_stop_login_and_disable(
     tmp_path: Path,
