@@ -213,3 +213,7 @@
 
 - R3-R1: accepted。实施取证按本设计既有“当前指导与可调用工具一致”要求，覆盖 Task 动态反馈、PA 固定指导与交互 UI 指导，保留合成后的子 Agent Context 样本；不增加产品范围或新 Gate。
 - Author 已核对 R3 报告及本次用户决定，无实质异议。受审 spec、design、delta-spec 与骨架在审查后未修改；R3 Approved 有效。报告整理仅将原 R2 Author Resolutions 移回 R2 末尾，保留原文，不改变审查结论。
+
+### 实施期修正后的有效性说明
+
+2026-10-27 的实际验收发现权限范围被误解，用户明确要求固定 Luna 修复，并将全新 PA 的自然需求测试改为与 #361 并行。[修复记录](M1/authorization-fix.md)保留现象、原始输入回放和证据局限；[代码审查 Round 3](M1/code-review.md#round-3--authorization-continuity-delta)独立核对该 delta。修复仅在原 Persona、ongoing-work 和现有来源适配文本中澄清原授权延续、父级限制及既有风险策略，不改变信任来源、权限主体、核心策略、运行时接口或执行门禁。两份 delta-spec 据此补足已有行为的明确表述，待最终 corrected-delta 核对后归并。该补充不引入新的架构决策，原 Gate 2 保留；真实 PA 行为仍以本次新验收证据为准，不能沿用旧 PASS 代替。
