@@ -36,6 +36,10 @@ external-channel evidence is recorded in the change acceptance record.
   independently of the fixture's final text.
 - `anthropic_sse_group_recording.py`: fixed A-to-B mention and a non-mention reply;
   real IM/Node admission determines which Agent actually calls the provider.
+- `anthropic_sse_send_revalidation_recording.py`: concurrent model-response gates
+  hold stale group sends while actual peer messages arrive. Counts are derived
+  only from real Inbox tool results; the test checks held/sent results, message
+  IDs and bodies in subsequent provider requests, including repeated invalidation.
 - `anthropic_sse_events_recording.py`: real shell jobs, cancellation, one-shot
   schedule and heartbeat delivery. Only provider responses are scripted.
 - `anthropic_sse_collaboration_recording.py`: real child execution/failure and

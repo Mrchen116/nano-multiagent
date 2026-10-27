@@ -24,7 +24,7 @@ scripts/e2e-self-evolution.sh
 
 ## v1 必保活路径
 
-> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数。当前必保活为 18 条用户旅程；多个旅程可由同一连贯测试保护，路径数不等于 pytest 用例数。全部使用本地受控模型或无需模型。
+> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数。当前必保活为 19 条用户旅程；多个旅程可由同一连贯测试保护，路径数不等于 pytest 用例数。全部使用本地受控模型或无需模型。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
@@ -46,6 +46,7 @@ scripts/e2e-self-evolution.sh
 | 16 | **含工具历史的压缩与重启连续**——真实执行 read 后，显式停用默认无摘要换窗插件后，经公开 `/compact <focus>` 生成摘要；随后追问与进程重启均保留原目标。recording fixture 核对配对工具和摘要后的实际请求。**fake LLM** | `test_context_compaction_continuity_critical_path.py::test_tool_history_compacts_and_survives_gateway_restart` | runtime + gateway + im | refactor-581 |
 | 18 | **macOS Gateway 常驻**——默认启动安装用户 LaunchAgent；crash 后 PID 更新并重新 online；人工 stop 本登录不重拉但稳定定义可再次 bootstrap；配置关闭后只运行 detached 且定义消失。**不调用真 LLM**，使用隔离 IM/config，显式开关 `NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1` | `test_gateway_autostart_critical_path.py::test_macos_gateway_autostart_crash_stop_login_and_disable`（驱动 `scripts/e2e-gateway-autostart.sh`；仅 macOS） | gateway（`docs/specs/gateway/service-lifecycle.md`） | feat-542 |
 | 19 | **Global Agent 跨聊天持续统筹（J2）**——A 的任务真实委派后台子 Agent；B 修订正文经 Inbox 摄取后跟进同一子 Agent；工作区标记释放后仅显式投递修订结果到 A，主 Session 不变且内部过程不进入聊天。**recording provider**：驱动真实 Inbox/child/send_message，核对请求正文、同一子 Agent 跟进及实际投递，不评估模型自主规划和计算能力 | `test_global_agent_inbox_critical_path.py::test_global_agent_reads_cross_chat_amendment_and_follows_same_child` | gateway + DSH integration + im | feat-546 |
+| 20 | **群聊发送前摄取新消息**——4 个 Global Agent 同时开始生成旧“1”，通过 provider 等待点制造真实时延；先发出的消息使其他旧发送被拦截，正文经 Inbox 进入实际模型请求后才重发，最终为 1、2、3、4；含读取后再次来消息、再次拦截 | `test_group_send_revalidation_critical_path.py::test_delayed_group_sends_reread_new_messages_before_counting` | gateway + DSH integration + im（`docs/specs/gateway/global-agent.md`） | refactor-668 |
 
 ## 已知缺口 / backlog（暂无 e2e 兜底）
 

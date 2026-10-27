@@ -1,6 +1,6 @@
 # E2E 覆盖处置
 
-基线：`8d428779b5ebe0bb0c5c277f2ca5b56c0a303b82`（产品代码基线 `c4ebad992`）。修改前实际收集 32 项（27 critical + 5 environment），14 项依赖 live proxy。修改后收集 27 项（22 critical + 5 environment），全部使用本地 recording provider 或不需要模型。参数化算独立 pytest item。
+基线：`8d428779b5ebe0bb0c5c277f2ca5b56c0a303b82`（产品代码基线 `c4ebad992`）。修改前实际收集 32 项（27 critical + 5 environment），14 项依赖 live proxy。首轮修改后收集 27 项（22 critical + 5 environment）；同一 PR 追加发送前摄取新消息旅程后为 28 项（23 critical + 5 environment），全部使用本地 recording provider 或不需要模型。参数化算独立 pytest item。
 
 ## 逐项处置
 
@@ -64,3 +64,11 @@
 原驱动仅等待新 PID 存活，随后 `/nodes` 可能仍显示旧连接的 online，从而在替换运行时尚未 ready 时进入 stop。首次及独立复验报 `LaunchAgent remained loaded after bootout`（37.23s）。增加真实状态文件的 ready/connected 条件后，还修正了未就绪分支返回 `0` 会被 `kill -0 0` 误判存活的问题：返回空串，由原 PID 正则拒绝。
 
 最终 `NANO_MULTIAGENT_RUN_LAUNCH_AGENT_E2E=1 python -m pytest -q --basetemp=/tmp/refactor-668-autostart-final tests/e2e/critical_paths/test_gateway_autostart_critical_path.py` 1 passed（38.28s），完整走过 crash/stop/bootstrap/disable。未修改产品代码、关闭宽限或通过重试 stop 掩盖失败，保留全部原断言。此前“产品侧 stop 缺陷”的怀疑未被最终验证支持，不作为已确认缺陷交付。
+
+## PR 内追加：有生成时延的群聊发送复验
+
+用户确认要验证的是发送前消息摄取机制。原 27 项没有这一完整交错时序；低层 `global-agent.test.ts` 的 held-draft 测试不能替代真实 IM/Node/DSH/provider 链路。新增独立 `test_delayed_group_sends_reread_new_messages_before_counting`，不合并到群聊 mention 路由旅程，两者失败原因不同。
+
+四个 Global Agent 的第一次生成请求均已读取原消息，provider 暂停返回 send_message，使四个旧草稿都为“1”。放行 A 后，D 的旧“1”被真实工具拦住；D 读取 A 的正文后在准备“2”时再次暂停。随后 B/C 的旧“1”分别被拦、读取新消息后发送“2”/“3”；最后放行 D 的旧“2”，再次被拦并读取 B/C 正文后发送“4”。断言包括每次 held/sent、实际工具参数、真实消息 ID/正文进入下一次 provider 请求、唯一公开消息序列 1/2/3/4。模型只提供受控响应，Inbox、发送复验与群消息投递均走真实产品代码；未修改产品源码。
+
+首轮夹具漏识别原生 Guardian 的工具签名，未产生第一条发送；按现有 events fixture 的 guardian_* 工具识别修正后，新增用例 1 passed（13.36s）。这是夹具问题，没有判为产品故障。最终窄验证命令 `PYTHONPATH=src python -m pytest -q tests/e2e/critical_paths/test_group_send_revalidation_critical_path.py tests/e2e/critical_paths/test_group_chat_directed_mention_critical_path.py tests/e2e/critical_paths/test_global_agent_inbox_critical_path.py`：3 passed（43.29s），本地日志 `/tmp/refactor-668-send-final.log`；ruff、docs-check 通过，collect-only 28 items。独立 delta 检查见 verification。原 27 项的有效证据保留，新增用例使总数为 28，真实付费模型调用仍为 0。
