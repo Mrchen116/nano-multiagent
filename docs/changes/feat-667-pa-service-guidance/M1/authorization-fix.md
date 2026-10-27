@@ -22,3 +22,13 @@ The correction clarifies the existing permission/source semantics in the Nano ev
 - Local private evidence: `/Users/czj/.codex/reports/feat-667-pa-service-guidance-20261027/authorization-fix/`. Captures are not committed. The fresh-PA end-to-end behavior remains pending and must be reported separately.
 
 The source adapter delta and these evidence limits require the existing independent code/context review. Prior source-review conclusions do not automatically cover this delta. Existing unaffected B tool/schema/depth checks remain applicable.
+
+## Later observed blocker and actual continuation
+
+The unchanged #361 runtime later denied a local acceptance proxy because it treated the original prohibition on stopping/restarting/modifying shared port 4000 as a prohibition on normal model API calls. The owner clarified the existing scope in message `813abb0964aa4b8a9ba43a9b9e8adb91`; the child then received that clarification as a correctly labelled direct-parent message, and the old reviewer denied it again as relayed permission. The original owner grant was still present; the later clarification was not mislabelled as direct human input.
+
+The two exact new requests (`1793103961263920000.json` and `1793104285937181000.json`) were replayed with the same fixed Luna configuration and only the candidate adapter replacement. Both allowed the isolated proxy within the original test scope. No further product patch was made for these examples.
+
+At the blocked checkpoint, the caller restarted only the #361 Gateway using the already built candidate source. IM, viewer, capture proxy and the new natural-test instance were left running. Public Work before/after confirmed the same root `5524e22e-d1af-44f3-bd49-93350fa059e9` and original executor `54612f0b-8c6a-41bd-a908-0427784264c0`. Owner message `0bc694e7c7ec4dc9bf0877502a27472c` explicitly requested continuation. The actual next review used the new adapter, Luna low/2048, and allowed the same command (`call_315648bbae9f4ad3af25979e8805b4ba`, reviewer `nano-codex-be4c8730-9c29-473a-8ded-9ad6c9824b58`); the PA reported successful execution at 12:41:08 UTC. Exact request/audit linkage is retained in local `authorization-fix/actual-361-resume.json`.
+
+This actual continuation also includes a restart, cold reviewer history and owner intervention; it is not an isolated causal experiment or a pure autonomous #361 pass. The fixed-input replays provide the narrower comparison. #361's final product gates/Ready PR/CI remain pending. The separate natural trial completed with one owner input; [acceptance Round 2](../acceptance.md#round-2--授权连续性修订后的全新-pa-自然长事项) records its real result and downstream 402 limitation.
