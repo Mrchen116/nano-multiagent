@@ -8,7 +8,7 @@ spec Req「断线后自动重连(含宿主级瞬态故障)」「启动顺序对 
 
 真栈由 ``scripts/e2e-resilience.sh`` 驱动(它自取 ephemeral 端口、隔离 config、kill/restart
 IM、轮询节点状态)。本测试只是把脚本接入 pytest 套件做登记与门控。连接韧性纯走 WS
-register/heartbeat,不调模型,故**不门控 LLM proxy**——只门控 live 开关；Gateway 配置来自
+register/heartbeat,不调模型,故不需要 LLM proxy 或 live 模型开关；Gateway 配置来自
 仓库 E2E profile。
 
 机器「休眠」无法在 CI 直接模拟,用 kill IM 进程(socket 死、需重连)作等价故障(design 决策 5)。
@@ -27,14 +27,6 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SCRIPT = _REPO_ROOT / "scripts" / "e2e-resilience.sh"
-
-
-def _gate_or_skip() -> None:
-    if os.getenv("NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E") != "1":
-        pytest.skip(
-            "set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 to run the resilience critical path "
-            "(scripts/e2e-resilience.sh)"
-        )
 
 
 def _run_resilience_script(
@@ -80,13 +72,13 @@ def _run_resilience_script(
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
+# Allow the driver deadline and its cleanup to finish before pytest exits.
+@pytest.mark.timeout(450)
 @pytest.mark.e2e
 def test_gateway_recovers_node_online_after_transient_faults(
     tmp_path: Path,
 ) -> None:
     """真栈跑两场景到「节点回 online」可见结果,脚本 rc=0 即通过。"""
-    _gate_or_skip()
-
     result = _run_resilience_script(
         [
             "bash",

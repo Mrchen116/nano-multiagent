@@ -74,6 +74,12 @@ Context 相关验证按 [Agent Context Engineering](agent-context-engineering.md
 - unit 已覆盖的逻辑，integration 只验证接线、跨边界、真实配置或进程协作等 unit 测不到的风险；e2e 只验证真实入口和用户旅程特有的风险。
 - 不要为同一个 milestone 在 unit + integration + e2e 各写一遍同样的断言；高层测试若保留，必须能说清它与低层测试不同的失败原因。
 
+### 确定性机制与模型能力分开验证
+
+历史恢复、分叉、路由、权限、工具执行、停止和调度等系统机制，用最低有效 seam 的受控输入验证。需要真实进程时仍运行真 IM/Node/DSH，只在 provider 边界提供确定性响应；检查实际出站 messages/system/tools、工具结果、产品交付或持久事实，不能以“模型复述正确”代替 Context 完整性，也不能以 fixture 固定回复代替真实执行。
+
+只有验证模型理解、选择工具、规划或 provider 兼容性本身时才使用真实模型任务，按需限定场景并单独记录模型行为证据；不将其放入默认机制回归。已有同因覆盖应合并，测试名称相似但接线 seam 不同不能直接删除。当前确定性全栈入口见 [关键路径目录](e2e-critical-paths.md)。
+
 ## 5) 可选/重依赖必须优雅跳过
 
 外部或可选依赖(playwright、需要起服务的库等)**MUST NOT 在模块顶层裸 import**——否则缺依赖时整个 `pytest --co` 收集中断，全套测试一个都跑不了。

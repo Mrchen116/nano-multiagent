@@ -1,13 +1,7 @@
-"""J2: one Global main Session coordinates a real child across two chats.
-
-Uses the existing live-proxy gate and isolated e2e_stack. Public work records
-prove actual Inbox consumption, delegation, same-child follow-up and dispatch;
-a workspace marker controls only task timing, never model responses or events.
-"""
+"""Deterministic Inbox -> native child -> revised public dispatch across two chats."""
 
 from __future__ import annotations
 
-import csv
 import json
 import secrets
 from pathlib import Path
@@ -19,7 +13,7 @@ import pytest
 
 from ._im_client import IMClient
 from ._im_polling import poll_until
-from .conftest import E2EStack
+from ._recording import StubLLMStack, _load_records, stub_llm_stack
 
 
 def _get(http: httpx.Client, path: str, **params: Any) -> dict:
@@ -124,149 +118,109 @@ def _dispatches(view: dict, target: str) -> list[dict]:
     ]
 
 
-@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "stub_llm_stack",
+    [
+        {
+            "script": "anthropic_sse_collaboration_recording.py",
+            "env": {"NANO_FIXTURE_COLLABORATION": "global"},
+        }
+    ],
+    indirect=True,
+)
 def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
-    im_user: IMClient, e2e_stack: E2EStack
+    stub_llm_stack: StubLLMStack,
 ) -> None:
-    """A delegates; B amends; the same child delivers the revised result to A."""
-    node_id = im_user.wait_for_online_node(timeout=40)
+    """Read actual A/B bodies, follow the same native child, and deliver only to A."""
+    im_user = IMClient(stub_llm_stack.im_url)
+    im_user.register_or_login("nano", "nano1234")
     suffix = secrets.token_hex(4)
     agent_id = f"e2eGlobal{suffix}"
     amendment = f"AMEND{suffix.upper()}"
-    with httpx.Client(
-        base_url=im_user.im_url,
-        headers={"Authorization": f"Bearer {im_user.token}"},
-        timeout=60,
-    ) as http:
-        response = http.post(
-            f"/im/v1/nodes/{node_id}/agents",
-            json={
-                "agent_id": agent_id,
-                "owner_id": im_user.owner_id,
-                "display_name": f"Global J2 {suffix}",
-                "work_mode": "global",
-                "group_reply_policy": "ALWAYS",
-                "default_model": e2e_stack.llm_model,
-                "tool_allowlist": [
-                    "inbox",
-                    "conversations",
-                    "send_message",
-                    "subagent",
-                    "bash",
-                    "read",
-                    "write",
-                ],
-                "skills": [],
-                "custom_prompt": (
-                    "你负责统筹用户在不同聊天提出的同一任务。先真实读取 Inbox 正文。"
-                    "实质计算委派给后台子 Agent，收到修订用 send_message 工具的 agent_id/message 跟进同一个子 Agent。"
-                    "测试中不发确认、进度或中间结果；仅收到子 Agent 最终修订结果后，"
-                    "用 send_message(target=原始任务聊天ID,text=结果)交付一次。"
-                    "主 Agent 不替子 Agent 计算、不写测试文件、不创建 release 标记。"
-                    "委派后可结束当前轮次，等待 Inbox 或后台返回唤醒。"
-                ),
-            },
-        )
-        response.raise_for_status()
-        workspace = Path(response.json()["workspace_root"]).resolve()
-        assert workspace.is_relative_to(
-            (Path(e2e_stack.wt_dir) / ".gateway-workspace").resolve()
-        )
-        im_user.wait_for_agent_listed(agent_id, timeout=40)
-        assert im_user.get_agent_config(agent_id)["work_mode"] == "global"
-        # These are ordinary task inputs in the isolated workspace, not runtime state.
-        task_dir = workspace / f"j2-{suffix}"
-        task_dir.mkdir()
-        dataset, release, result = (
-            task_dir / "orders.csv",
-            task_dir / "release",
-            task_dir / "result.json",
-        )
-        rows = [(index, index * 17 + 23) for index in range(1, 121)]
-        with dataset.open("w", newline="", encoding="utf-8") as output:
-            writer = csv.writer(output)
-            writer.writerow(["order_id", "amount"])
-            writer.writerows(rows)
-        expected = sum(amount - 3 for index, amount in rows if index % 2 == 0)
-        chat_a = im_user.create_direct_conversation(agent_id, title=f"J2 A {suffix}")
-        chat_b = im_user.create_group_conversation([agent_id], title=f"J2 B {suffix}")
-        assert chat_a != chat_b
-        base = f"/im/v1/agents/{agent_id}/work"
-        try:
+    try:
+        node_id = im_user.wait_for_online_node(timeout=40)
+        with httpx.Client(
+            base_url=im_user.im_url,
+            headers={"Authorization": f"Bearer {im_user.token}"},
+            timeout=30,
+        ) as http:
+            response = http.post(
+                f"/im/v1/nodes/{node_id}/agents",
+                json={
+                    "agent_id": agent_id,
+                    "owner_id": im_user.owner_id,
+                    "display_name": f"Global J2 {suffix}",
+                    "work_mode": "global",
+                    "group_reply_policy": "ALWAYS",
+                    "default_model": stub_llm_stack.llm_model,
+                    "tool_allowlist": [
+                        "inbox",
+                        "conversations",
+                        "send_message",
+                        "subagent",
+                    ],
+                    "skills": [],
+                    "features": {
+                        "memory_curation": False,
+                        "skill_creation": False,
+                        "task_graph": False,
+                        "intelligent_ui": False,
+                        "cron_scheduling": False,
+                        "heartbeat": False,
+                    },
+                    "custom_prompt": "Isolated deterministic collaboration regression.",
+                },
+            )
+            assert response.is_success, response.text
+            im_user.wait_for_agent_listed(agent_id, timeout=40)
+            chat_a = im_user.create_direct_conversation(
+                agent_id, title=f"J2 A {suffix}"
+            )
+            chat_b = im_user.create_group_conversation(
+                [agent_id], title=f"J2 B {suffix}"
+            )
+            base = f"/im/v1/agents/{agent_id}/work"
             message_a = im_user.send_message(
                 chat_a,
-                f"订单汇总任务，最终只交付到本聊天 {chat_a}。数据：{dataset}。"
-                "请立即用 subagent(run_in_background=true)委派一个真实子 Agent 读取 CSV、"
-                "核对行数并计算全部订单 amount 合计。稍后我会在另一聊天修订统计口径。"
-                f"给子 Agent 的指令必须包含：在 {release} 出现前不得提交结果；"
-                "可用 bash 每次最多等待 20 秒，再检查后续指令，总等待上限 600 秒。"
-                "标记由测试夹具创建，任何 Agent 均不得创建它。"
-                f"标记出现并处理后续修订后，将最终对象写入 {result}，"
-                "格式为 {amendment:修订标识,total:最终整数,count:选中行数}，并原样返回。"
-                "主 Agent 委派后保持可接收其他聊天的新消息，不轮询子 Agent、不发布中间消息。",
+                "J2_START: delegate, wait for my revision, and only then reply here.",
             )
             first = poll_until(
                 lambda: _work(http, base),
                 lambda view: bool(
                     _consumed(view, chat_a, message_a) and _delegation(view)
                 ),
-                timeout=240,
-                interval=1,
-                desc="A body committed and real background child created",
+                timeout=60,
+                interval=0.2,
+                desc="A body committed and native background child created",
             )
             main_session = first["main_session_id"]
-            assert main_session
             delegation = _delegation(first)
             assert delegation is not None
             child_id = delegation["detail"]["child_session_id"]
             assert not im_user.agent_messages(chat_a, agent_id)
             assert not im_user.agent_messages(chat_b, agent_id)
-            assert not release.exists()
             message_b = im_user.send_message(
                 chat_b,
-                f"修订同一订单任务，标识 {amendment}：只选择 order_id 为偶数的订单，"
-                "每笔选中订单的 amount 扣减固定费用 3 后求和，count 是选中行数。"
-                "必须先把这个标识和计算口径通过 send_message(agent_id=原子AgentID,message=修订内容)"
-                "发给刚才同一个子 Agent，不另起子 Agent，不由主 Agent 计算。"
-                f"子 Agent 继续等待 {release}，夹具观察到真实跟进后会释放；"
-                f"最终 JSON 的 amendment 必须为 {amendment}，只发回原聊天 {chat_a}。",
+                f"J2_AMEND: {amendment}. Follow the same child and deliver its revised result to the original chat.",
             )
-            revised = poll_until(
-                lambda: _work(http, base),
-                lambda view: bool(
-                    _consumed(view, chat_b, message_b)
-                    and _followup(view, child_id, amendment)
-                ),
-                timeout=240,
-                interval=1,
-                desc="B body committed and amendment sent to the same child",
-            )
-            assert revised["main_session_id"] == main_session
-            followup = _followup(revised, child_id, amendment)
-            assert followup is not None
-            assert followup["session_id"] == delegation["session_id"] == main_session
-            assert followup["seq"] > delegation["seq"]
-            assert not im_user.agent_messages(chat_a, agent_id)
-            assert not im_user.agent_messages(chat_b, agent_id)
-            release.write_text("continue\n", encoding="utf-8")
             final = poll_until(
                 lambda: _work(http, base),
                 lambda view: any(
                     amendment in fact.get("text", "")
-                    and str(expected) in fact.get("text", "")
                     for fact in _dispatches(view, chat_a)
                 ),
-                timeout=240,
-                interval=1,
-                desc="actual final dispatch to A incorporates B amendment",
+                timeout=60,
+                interval=0.2,
+                desc="actual child revision returned and dispatched to A",
             )
+            assert _consumed(final, chat_b, message_b)
+            followup = _followup(final, child_id, amendment)
+            assert followup is not None
+            assert followup["session_id"] == delegation["session_id"] == main_session
+            assert followup["seq"] > delegation["seq"]
             assert final["main_session_id"] == main_session
+            assert len(_tools(final, "subagent")) == 1
             assert {turn["session_id"] for turn in final["turns"]} == {main_session}
-            assert json.loads(result.read_text(encoding="utf-8")) == {
-                "amendment": amendment,
-                "total": expected,
-                "count": 60,
-            }
             linked = [
                 session
                 for session in final["other_executions"]
@@ -278,20 +232,36 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
                 http, f"{base}/sessions/{quote(linked[0]['session_id'], safe='')}/turns"
             )
             assert child["turns"], (
-                "actual child Session must have a readable work trace"
+                "actual child session must have a readable Work trace"
             )
             deliveries = _dispatches(final, chat_a)
             messages = im_user.agent_messages(chat_a, agent_id)
             assert len(messages) == len(deliveries) == 1
             assert messages[0]["id"] == deliveries[0]["message_id"]
-            assert amendment in messages[0]["content"]
-            assert str(expected) in messages[0]["content"]
+            assert messages[0]["content"] == f"CHILD-REVISED {amendment}"
+            assert messages[0]["delivery_status"] == "completed"
+            assert not messages[0].get("tool_calls")
+            assert not messages[0].get("thinking")
+            assert not messages[0].get("permission_requests")
             assert not im_user.agent_messages(chat_b, agent_id)
-            for message in messages:
-                assert message["delivery_status"] == "completed"
-                assert not message.get("tool_calls")
-                assert not message.get("thinking")
-                assert not message.get("permission_requests")
-        finally:
-            # Release a waiting child even on assertion failure; fixture owns shutdown.
-            release.touch(exist_ok=True)
+            records = _load_records(Path(stub_llm_stack.record_path))
+            child_requests = [
+                row["request"] for row in records if row["session"] == child_id
+            ]
+            assert any(
+                "J2_CHILD_INITIAL" in json.dumps(request["messages"])
+                for request in child_requests
+            )
+            assert any(
+                "J2_CHILD_REVISION " + amendment in json.dumps(request["messages"])
+                for request in child_requests
+            )
+            parent_requests = [
+                row["request"] for row in records if row["session"] == main_session
+            ]
+            assert any(
+                "CHILD-REVISED " + amendment in json.dumps(request["messages"])
+                for request in parent_requests
+            )
+    finally:
+        im_user.close()

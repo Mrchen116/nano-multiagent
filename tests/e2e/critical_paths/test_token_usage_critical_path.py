@@ -7,7 +7,7 @@ import pytest
 
 from ._im_client import IMClient
 from ._im_polling import poll_until
-from .test_agent_config_context_continuity_critical_path import (
+from ._recording import (
     StubLLMStack,
     stub_llm_stack,
 )

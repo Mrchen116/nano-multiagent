@@ -1,83 +1,50 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
-const apiMocks = vi.hoisted(() => ({
-  listAgentSummaries: vi.fn(),
-  listNodes: vi.fn()
-}));
-
-vi.mock("./public-agents", () => ({
-  listPublicAgents: apiMocks.listAgentSummaries,
-  listNodes: apiMocks.listNodes
-}));
+const apiMocks = vi.hoisted(() => ({ listPublicAgents: vi.fn() }));
+vi.mock("./public-agents", () => apiMocks);
 
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 
 const SAMPLE_AGENTS = [
-  { agent_id: "agent-one", display_name: "Planner", node_name: "mac-mini", node_status: "online" },
-  { agent_id: "agent-two", display_name: "Researcher", node_name: "mac-mini", node_status: "offline" }
+  { agent_id: "agent-one", user_id: "user-one", owner_id: "owner-1", display_name: "Planner", description: "Planning", node_name: "Mini", node_status: "online", work_mode: "single_thread" },
+  { agent_id: "agent-two", user_id: "user-two", owner_id: "owner-2", display_name: "Researcher", description: "Research", node_name: "Laptop", node_status: "offline", work_mode: "global" }
 ];
 
-const SAMPLE_NODES = [
-  {
-    node_id: "node-1",
-    owner_id: "owner-1",
-    node_name: "mac-mini",
-    status: "online",
-    last_heartbeat_at: "2026-08-18T00:00:00Z",
-    agent_count: 2,
-    version: "1.0.0"
-  }
-];
-
-function renderRail() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } }
-  });
+function renderRail(onSelectAgent = vi.fn()) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <AgentsRailDesktop activeId="agent-one" />
+        <AgentsRailDesktop activeId="agent-one" onSelectAgent={onSelectAgent} />
       </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-afterEach(() => {
-  apiMocks.listAgentSummaries.mockReset();
-  apiMocks.listNodes.mockReset();
-});
+afterEach(() => apiMocks.listPublicAgents.mockReset());
 
-it("uses readable normal and active identity colors on the light desktop rail", async () => {
-  apiMocks.listAgentSummaries.mockResolvedValue(SAMPLE_AGENTS);
-  apiMocks.listNodes.mockResolvedValue(SAMPLE_NODES);
+it("pairs public Agent device fields with their rows and selects the clicked Agent", async () => {
+  apiMocks.listPublicAgents.mockResolvedValue(SAMPLE_AGENTS);
+  const onSelect = vi.fn();
+  renderRail(onSelect);
 
-  renderRail();
-
-  const activeRow = await screen.findByRole("button", { name: /Planner/i });
-  const normalRow = screen.getByRole("button", { name: /Researcher/i });
-  expect(within(activeRow).getByText("Planner")).toHaveClass("text-im-text");
-  expect(within(normalRow).getByText("Researcher")).toHaveClass("text-im-text");
-  expect(within(normalRow).getByText("agent-two")).toHaveClass("text-im-text-muted");
-});
-
-it("labels each row with the owning device name resolved from the nodes table", async () => {
-  apiMocks.listAgentSummaries.mockResolvedValue(SAMPLE_AGENTS);
-  apiMocks.listNodes.mockResolvedValue(SAMPLE_NODES);
-
-  renderRail();
-
-  const row = await screen.findByRole("button", { name: /Planner/i });
-  expect(within(row).getByText("mac-mini")).toBeInTheDocument();
+  const planner = await screen.findByRole("button", { name: "Planner" });
+  const researcher = screen.getByRole("button", { name: "Researcher" });
+  expect(within(planner).getByText("Mini")).toBeVisible();
+  expect(within(planner).queryByText("Laptop")).not.toBeInTheDocument();
+  expect(within(researcher).getByText("Laptop")).toBeVisible();
+  expect(planner).toHaveAttribute("aria-current", "page");
+  expect(researcher).not.toHaveAttribute("aria-current");
+  await userEvent.click(researcher);
+  expect(onSelect).toHaveBeenCalledExactlyOnceWith("agent-two");
 });
 
 it("remains a desktop-only rail", async () => {
-  apiMocks.listAgentSummaries.mockResolvedValue([]);
-  apiMocks.listNodes.mockResolvedValue([]);
-
+  apiMocks.listPublicAgents.mockResolvedValue([]);
   renderRail();
-
   expect(await screen.findByTestId("agents-rail-desktop")).toHaveClass("hidden", "lg:flex");
 });

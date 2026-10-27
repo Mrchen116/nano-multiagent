@@ -1,15 +1,4 @@
-"""关键路径 11:经 IM 创建 agent 并落地可聊。
-
-spec Req「经 IM 创建的 agent 落地后可聊」。
-
-旅程:已有一个在线节点 → 用户经 IM 配置中心(``POST /nodes/{node_id}/agents``)新建一个
-agent → 它在节点落地 workspace 并上线(出现在 ``GET /agents`` 列表) → 用户给它建直聊、
-发消息,收到回复。
-
-鲁棒断言(design 决策 4):新 agent 带一个随机后缀的 agent_id(避免跨 run 撞);落地以「它
-出现在 IM agent 列表」为准;可聊以「直聊里收到一条含哨兵的 agent 回复」为准。哨兵注入进
-prompt 让 agent 原样回出,只锚哨兵 + 协议级 ``message.completed``,不锁 LLM 措辞。
-"""
+"""IM creation and cold session recovery, observed at the provider boundary."""
 
 from __future__ import annotations
 
@@ -19,15 +8,44 @@ from pathlib import Path
 import httpx
 import pytest
 
-from ._im_client import IMClient
-from .conftest import E2EStack
+from ._im_client import IMClient, restart_gateway
+from ._recording import (
+    StubLLMStack,
+    _wait_records,
+    _message_blob,
+    _system_blob,
+    stub_im_user,
+    stub_llm_stack,
+)
+
+
+def _history_messages(request: dict) -> list[dict]:
+    """Normalize only provider cache hints and equivalent text encodings."""
+
+    def without_cache(value):
+        if isinstance(value, dict):
+            return {
+                key: without_cache(item)
+                for key, item in value.items()
+                if key != "cache_control"
+            }
+        if isinstance(value, list):
+            return [without_cache(item) for item in value]
+        return value
+
+    messages = without_cache(request["messages"])
+    for message in messages:
+        if isinstance(message["content"], str):
+            message["content"] = [{"type": "text", "text": message["content"]}]
+    return messages
 
 
 @pytest.mark.e2e
-def test_agent_created_via_im_lands_and_replies(
-    im_user: IMClient, e2e_stack: E2EStack
+def test_agent_created_via_im_preserves_context_across_restart(
+    stub_im_user: IMClient, stub_llm_stack: StubLLMStack
 ) -> None:
-    """经 IM 建 agent → 落地上线 → 建直聊发消息收到含哨兵回复。"""
+    """Creation/preview, real replies and cold recovery preserve the wire history."""
+    im_user, e2e_stack = stub_im_user, stub_llm_stack
     node_id = im_user.wait_for_online_node(timeout=40)
 
     new_agent_id = "e2eNew" + secrets.token_hex(3)
@@ -51,6 +69,17 @@ def test_agent_created_via_im_lands_and_replies(
             json={
                 "agent_id_hint": new_agent_id,
                 "custom_prompt": "PREVIEW_WORKSPACE_SENTINEL",
+                "features": dict.fromkeys(
+                    [
+                        "heartbeat",
+                        "cron_scheduling",
+                        "task_graph",
+                        "intelligent_ui",
+                        "memory_curation",
+                        "skill_creation",
+                    ],
+                    False,
+                ),
             },
         )
         preview.raise_for_status()
@@ -64,7 +93,7 @@ def test_agent_created_via_im_lands_and_replies(
         node_id,
         new_agent_id,
         display_name=f"E2E New {new_agent_id}",
-        custom_prompt="你是一个测试助手。用户让你原样回复某个 token 时，只回复那个 token 本身。",
+        custom_prompt="CREATED_AGENT_INSTRUCTIONS",
         default_model=e2e_stack.llm_model,
     )
     workspace_root = Path(created["workspace_root"]).resolve()
@@ -79,16 +108,29 @@ def test_agent_created_via_im_lands_and_replies(
     conversation_id = im_user.create_direct_conversation(new_agent_id)
     sentinel = "NEW" + secrets.token_hex(4).upper()
 
-    ws = im_user.connect_ws()
-    try:
-        im_user.send_message(
-            conversation_id,
-            f"请把这个 token 原样回复给我，只回 token 本身：{sentinel}",
-        )
-        frame = ws.wait_for_event(
-            "message.completed",
-            lambda f: sentinel in (f.data.get("content") or ""),
-        )
-        assert sentinel in (frame.data.get("content") or "")
-    finally:
-        ws.close()
+    record = Path(e2e_stack.record_path)
+    im_user.send_message(conversation_id, sentinel)
+    im_user.wait_for_agent_reply_with(conversation_id, "ACK-1")
+    second = "SECOND" + secrets.token_hex(4).upper()
+    im_user.send_message(conversation_id, second)
+    im_user.wait_for_agent_reply_with(conversation_id, "ACK-2")
+    before = _wait_records(record, 2)[-1]
+    restarted_at = restart_gateway(e2e_stack.wt_dir, e2e_stack.im_port)
+    im_user.wait_for_node_reconnect(
+        node_id=node_id,
+        replacement_started_after=restarted_at,
+        timeout=40,
+    )
+    third = "AFTERRESTART" + secrets.token_hex(4).upper()
+    im_user.send_message(conversation_id, third)
+    im_user.wait_for_agent_reply_with(conversation_id, "ACK-3")
+    after = _wait_records(record, 3)[-1]
+    # Compare actual historical message structure, not whether a model recalls a token.
+    assert _history_messages(after)[: len(before["messages"])] == _history_messages(
+        before
+    )
+    blob = _message_blob(after)
+    assert blob.index(sentinel) < blob.index(second) < blob.index(third)
+    assert "ACK-1" in blob and "ACK-2" in blob
+    assert "CREATED_AGENT_INSTRUCTIONS" in _system_blob(after)
+    assert after.get("tools") == before.get("tools")
