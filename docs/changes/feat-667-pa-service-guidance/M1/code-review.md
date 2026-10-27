@@ -37,3 +37,17 @@ This is a code-review conclusion, not M1 completion or product acceptance. The r
 The runtime tests intercept `llm/stream` after actual Agent/tool/prompt assembly and supply controlled responses. They prove runtime delivery/schema/enforcement and native tool execution; they are not real provider network traces or real-model selection/understanding evidence. The reviewer probe used the same locked runtime and isolated temporary home, then shut it down and removed its runtime data. Its retained local log records the successful explicit-depth override and the actual deferred Task feedback text; the temporary probe is not a permanent regression test.
 
 The code review checked root/child Global policy, Task feedback, personal security, Intelligent UI and Skill interactions together. It does not claim that the candidate's real model has completed the required #361 two-level development journey, parallel correction/stop/resume, proactive private preparation/quietness, or actual Skill discovery/loading. Those missing completion proofs are tracked as verification evidence work, not speculative code findings. Further review should be bounded to supplied evidence or an actual fix delta.
+
+## Round 2 — bounded patch and evidence reconciliation
+
+- review_mode: `patch`; prior reviewed head: `7ddaceb942423436bc656fba6707b04f131c9cb1`; validated_at: `32e2fd74c0262e286ab8807dcb259c5572446a87`.
+- Scope: only `7ddaceb..32e2fd74c` source/test delta and newly available verification evidence. Confirmed the sole application/package change is `packages/dsh-integration/tests/knowledge-review.test.ts:207`, which sets the existing cross-process error-state poll to `timeout:8000`. Product source is unchanged; Round 1's full code/Context review remains applicable. No second full review or real-product rerun was performed.
+- Patch conclusion: no surviving CONFIRMED or PLAUSIBLE finding. The same error review, diagnostic, persisted writes, interval settlement and subsequent recovery assertions remain. Eight seconds matches the neighboring completion-state poll and remains within the 20-second test deadline; the change allows the actual maintenance completion to be observed without altering expected behavior.
+
+```json
+[]
+```
+
+New evidence reviewed: `implementation.md` records both prior full-suite timeouts and the constrained-concurrency retry. `/tmp/pa667-alltests-serialbudget.log` completes 143 files / 768 tests with `--maxWorkers=2`; `/tmp/pa667-frontend2.log` completes 108 files / 1,031 tests. The preserved Python, typecheck/build, docs, Ruff and native interactive asset/typecheck logs support their reported successful gates. Repeating these already-successful checks is unnecessary for this test-only patch.
+
+`../acceptance.md` at `f37ce20c0` now supplies independent real-model product evidence on runtime `7ddaceb`: seven normal scenarios pass, with finite main-text/candidate comparisons and actual Skill consumption. Bounded original-evidence spot checks confirmed original-worker correction/stop/resume calls, real ongoing-work/proactive-care loads, actual root/child schemas, and custom/empty Persona provider inputs in `/Users/czj/.codex/reports/feat-667-pa-service-guidance-20261027/`. These narrow the earlier evidence limits; they do not complete the user-required #361 independent Ready PR/CI and two-level progressive delivery. The three dependent acceptance rows remain inconclusive, and M1 remains incomplete. See `../verification.md`, Round 2, for the remaining bounded gap.

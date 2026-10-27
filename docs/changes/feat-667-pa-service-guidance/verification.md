@@ -2,11 +2,13 @@
 
 > Validation snapshot: `c4ebad992ae99e75ee9c3fca88b3eab43abd9ea5` → `7ddaceb942423436bc656fba6707b04f131c9cb1`
 
+Latest status: Round 2 below supersedes Round 1's broad evidence gap; seven product scenarios are now supported, while the user-required #361 completion remains pending.
+
 ## Round 1
 
 - Reviewer: independent `/root/pa667_static_review`.
 - verification_mode: `full`; review_round: `1`.
-- Scope: all M1 exit criteria, all unit Requirements/Scenarios, design decisions, gateway delta-specs, and currently available implementation/test evidence. Reuses the full Context Implementation Review in `code-review.md`.
+- Scope: all M1 exit criteria, all unit Requirements/Scenarios, design decisions, gateway delta-specs, and currently available implementation/test evidence. Reuses the full Context Implementation Review in `M1/code-review.md`.
 - verdict: **pending evidence / not pass**. One CRITICAL completion-evidence issue, zero WARNING, zero SUGGESTION. No confirmed implementation defect or implementation/design mismatch was found.
 - requires_full_verification: `false`; remaining work is bounded completion-evidence reconciliation for the existing M1 criteria, not another full code review.
 
@@ -84,3 +86,49 @@ None.
 The three active gateway delta-specs match the intended implemented changes: PA service guidance/private preparation, Global root-only product tools and lifecycle consistency, and default two-layer delegation with native refusal at the third layer. No additional externally observable behavior in the unit diff was found missing from those deltas. Task data and IM protocols remain unchanged. This is implementation alignment, not confirmation of the pending model behavior outcomes.
 
 Outcome: implementation aligned; final M1 verdict awaits V1 evidence closure.
+
+## Round 2 — bounded completion-evidence reconciliation
+
+- verification_mode: `targeted-closure`; review_round: `2`; focus: V1 and the single test-timeout patch.
+- Prior implementation snapshot: `7ddaceb942423436bc656fba6707b04f131c9cb1`; current validated head: `32e2fd74c0262e286ab8807dcb259c5572446a87`. Product source has not changed between these heads, so the independent product report's runtime snapshot and Round 1 implementation mapping remain valid.
+- verdict: **pending / not pass**. CRITICAL: 1 narrowed completion-evidence gap; WARNING: 0; SUGGESTION: 0. No confirmed implementation defect.
+- requires_full_verification: `false`. Do not repeat the completed scenarios or full source review; the next review is limited to new #361 completion evidence and any actual fix delta.
+
+### Newly verified engineering evidence
+
+| Evidence | Reviewed result and applicability |
+|---|---|
+| `/tmp/pa667-alltests-serialbudget.log` | 143 backend files / 768 tests pass in 294.09s. `M1/implementation.md` records `--maxWorkers=2` and prior default-poll/resource-contention timeouts, so the final pass is not represented as an unconditional timing guarantee. |
+| `/tmp/pa667-frontend2.log` | 108 frontend files / 1,031 tests pass. |
+| Durable `checks/pa667-pytest.log` | 70 pass, 32 deselected. |
+| Durable `checks/pa667-typecheck.log`, `pa667-build.log` | Typecheck and workspace build pass; original build footer provenance limitation from Round 1 remains. |
+| Durable `checks/pa667-docscheck.log`, `pa667-ruff.log`, `pa667-ruff-format.log`, `pa667-iosruntime.log` | Docs integrity, Ruff check/format and native interactive generated-asset/typecheck gates pass. |
+| `knowledge-review.test.ts:207` patch | Only explicit poll deadline added; expected error/completion, facts, stored content, retry and interval assertions unchanged. Adjacent completion poll already uses 8 seconds. No product implementation or 20-second outer deadline change. Code review Round 2 returns `[]`. |
+
+Durable evidence root: `/Users/czj/.codex/reports/feat-667-pa-service-guidance-20261027/`. Its README maps the original temporary locators to preserved files and identifies runtime `7ddaceb`; no incomplete #361 implementation was inspected. Both completed ordinary acceptance stacks were reported stopped; this reviewer started no service or replacement experiment.
+
+### V1 reconciliation against independent product evidence
+
+Reviewed independent `acceptance.md` committed at `f37ce20c0`, including model/configuration, ordinary user inputs, actual tool receipts, user-visible messages, explicit limitations, and the retained provider/source evidence. The candidate uses `codexOAuth:gpt-6-astra` / medium; the same-runtime main-text comparison uses the same model, tools and fresh isolated workspace. The finite comparison supports only the three observed cases and does not establish an improvement percentage or lower latency.
+
+| Criterion / scenario | New evidence and result | Closure |
+|---|---|---|
+| 小事直接完成 | Actual useful recipe `61605d…`; direct answer without requiring Task/team management. | Closed / pass |
+| 长事项持续交付并说明能力边界 | A's full 45-minute training draft `11996cc…` and B's full 102-yuan dinner/purchase result `7cdc157…` delivered. User-designated #361 complete development remains outstanding. | Ordinary work supported; #361-dependent row remains inconclusive |
+| 更正与短问题 | A/B have distinct continuable IDs; correction reaches original A and short question receives actual reply `230e176…`. | Closed / pass |
+| 单项停止 | Actual interrupt of original A and inactive observation, while B continues and delivers after fresh-message revalidation. | Closed / pass |
+| 承诺后的实际准备 | Independent observed book-exchange commitment, original-message/source checks, loaded proactive-care, useful private draft `581ec5…`, observed-group audit with no PA public send. | Closed / pass |
+| 已处理、无新价值和覆盖不足 | Handled update and unchanged recheck are quiet; unavailable-source reply `68bf7…` preserves unknown coverage. | Closed / pass |
+| 自定义、清空和禁用保持 | Same binding on retry; custom/empty configuration and actual provider requests show chosen Persona and Skill discoverability. New PA default captured separately. | Closed / pass |
+| 任务执行者可再委派一层 | Engineering depth-2/depth-3 boundary already verified; required #361 independent Ready PR/CI and completed progressive delivery not yet supplied. | Still open / inconclusive |
+| 子 Agent 只进行内部通信 | Actual candidate first-level and original-A resumed provider schemas lack root product tools/public send parameters. Only the #361 second-level real task and progressive result path remain for this acceptance row. | First-level/resume supported; #361-dependent row remains inconclusive |
+| 主人要求接续已停止事项 | Explicit owner resume → same original A → verified full final draft sent; B not duplicated. | Closed / pass |
+| Actual Skill consumption and three finite comparisons | Original ledgers record ongoing-work and proactive-care calls. Main/candidate short tasks both complete; both correct original long workers; private-preparation difference is limited to this single observed case. | Closed within stated finite scope |
+
+Bounded spot checks of preserved raw artifacts support reuse of the independent report: `tool-ledger.json` contains the exact original A correction, interrupt and explicit resume IDs and the two Skill loads; `schema-ledger.json` records root product and internal-only rows; baseline provider inputs `1793091409207171000.json` and `1793091430140627000.json` contain, respectively, the chosen custom Persona and no custom/main/candidate default Persona. This verification does not redo product acceptance or generalize from one trace.
+
+### Remaining issue and next action
+
+**V1 remains open only for the user-required #361 independent Ready PR/CI plus completed two-level execution and progressive root delivery** (`design.md:103,107,113`; acceptance A1). This affects three dependent acceptance rows: the complete long-work requirement, executor re-delegation and the second-level internal-result/delivery path. The independent report has not observed failure; it correctly leaves them inconclusive. Existing native depth/schema/internal communication tests and execution IDs cannot replace that completed development outcome.
+
+Action: keep M1 incomplete and do not declare acceptance pass/Ready. Once the ongoing original #361 chain supplies its final independent PR, CI and versioned root → first-level → second-level → parent/root result/delivery evidence, reconcile only those items and any actual code fix. All seven ordinary scenario results, choice checks, Skill-consumption evidence, finite comparison and successful engineering gates remain retained. No new full review or ordinary scenario rerun is required solely because #361 is still running.
