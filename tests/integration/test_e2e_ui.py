@@ -40,6 +40,8 @@ def repository(tmp_path: Path) -> Repository:
     (repo / FRONTEND / "index.html").write_text("<main></main>")
     (repo / VIEWER / "build.mjs").write_text("// build viewer")
     (repo / VIEWER / "index.html").write_text("<main></main>")
+    (repo / ".gitignore").write_text("dist/\nlib/\n.cache/\nbuilds.log\n")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     builder = bin_dir / "builder"
@@ -137,7 +139,7 @@ def test_rebuilds_affected_outputs_for_changed_or_new_inputs(
 
 
 @pytest.mark.parametrize("target", [FRONTEND, VIEWER])
-def test_rebuilds_after_source_deletion_and_missing_or_overwritten_assets(
+def test_rebuilds_after_source_deletion_and_restores_missing_or_overwritten_assets(
     repository, target
 ):
     repo = repository.root
@@ -145,15 +147,21 @@ def test_rebuilds_after_source_deletion_and_missing_or_overwritten_assets(
     (repo / target / "src/main.ts").unlink()
     assert prepare(repository).returncode == 0
     (repo / target / "dist/asset.js").unlink()
-    assert prepare(repository).returncode == 0
+    restored = prepare(repository)
+    assert restored.returncode == 0 and "restore" in restored.stdout
     (repo / target / "dist/index.html").write_text(
         "manually rebuilt for another environment"
     )
-    assert prepare(repository).returncode == 0
-    assert ui_builds(repo) == [FRONTEND, VIEWER, target, target, target]
+    restored = prepare(repository)
+    assert restored.returncode == 0 and "restore" in restored.stdout
+    assert ui_builds(repo) == [FRONTEND, VIEWER, target]
+    assert (repo / target / "dist/index.html").read_text() == ""
 
 
-def test_failed_build_cannot_be_reused_even_after_source_revert(repository):
+@pytest.mark.parametrize("revert", [False, True])
+def test_failed_build_is_rebuilt_or_replaced_by_a_matching_verified_cache(
+    repository, revert
+):
     repo = repository.root
     assert prepare(repository).returncode == 0
     source = repo / FRONTEND / "src/main.ts"
@@ -163,12 +171,20 @@ def test_failed_build_cannot_be_reused_even_after_source_revert(repository):
     failure.touch()
     failed = prepare(repository)
     assert failed.returncode != 0
-    source.write_text(original)
+    if revert:
+        source.write_text(original)
     failure.unlink()
     retried = prepare(repository)
     assert retried.returncode == 0, retried.stderr
-    assert ui_builds(repo) == [FRONTEND, VIEWER, FRONTEND, FRONTEND]
-    assert (repo / FRONTEND / "dist/index.html").read_text() == original
+    assert ui_builds(repo) == [
+        FRONTEND,
+        VIEWER,
+        FRONTEND,
+        *([] if revert else [FRONTEND]),
+    ]
+    assert (repo / FRONTEND / "dist/index.html").read_text() == (
+        original if revert else "changed"
+    )
 
 
 def test_build_environment_changes_invalidate_but_runtime_proxy_port_does_not(
@@ -182,3 +198,46 @@ def test_build_environment_changes_invalidate_but_runtime_proxy_port_does_not(
     env["VITE_TEST_OPTION"] = "changed"
     assert prepare(repository).returncode == 0
     assert ui_builds(repo) == [FRONTEND, VIEWER, FRONTEND, VIEWER]
+
+
+@pytest.mark.parametrize("corrupt_shared", [False, True])
+def test_another_worktree_restores_only_verified_shared_builds(
+    repository, corrupt_shared
+):
+    repo, env = repository.root, repository.env
+    assert prepare(repository).returncode == 0
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    other = repo.parent / "other-worktree"
+    subprocess.run(
+        ["git", "worktree", "add", "--detach", "-q", str(other)], cwd=repo, check=True
+    )
+    # e2e-up requires pnpm build; represent its identical shared exports in the new checkout.
+    for package in (CONTRACTS, TRAJECTORY):
+        shutil.copytree(repo / package / "lib", other / package / "lib")
+    if corrupt_shared:
+        (repo / ".git/nano-e2e-ui-cache/frontend/dist/asset.js").write_text("damaged")
+    second = Repository(other, {**env, "FIXTURE_REPO": str(other)})
+    result = prepare(second)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.count("restore") == (1 if corrupt_shared else 2)
+    assert (other / FRONTEND / "dist/asset.js").read_bytes() == (
+        repo / FRONTEND / "dist/asset.js"
+    ).read_bytes()
+    if corrupt_shared:
+        assert ui_builds(other) == [FRONTEND]
+    else:
+        assert not (other / "builds.log").exists()

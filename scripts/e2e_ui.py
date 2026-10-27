@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 
@@ -24,7 +25,6 @@ def _inputs(repo: Path, packages: list[str], *, libraries: bool = True) -> list[
             "pnpm-workspace.yaml",
             "tsconfig.base.json",
             ".npmrc",
-            "node_modules/.modules.yaml",
             "node_modules/.pnpm/lock.yaml",
         )
     ]
@@ -75,6 +75,19 @@ def _build(repo: Path, package: str, env: dict[str, str]) -> None:
     )
 
 
+def _read_stamp(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _copy_assets(source: Path, destination: Path) -> None:
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination)
+
+
 def prepare_ui(repo: Path) -> None:
     """Prepare the same-origin frontend and trajectory viewer for E2E startup.
 
@@ -97,8 +110,17 @@ def prepare_ui(repo: Path) -> None:
     }
     cache = repo / ".cache/e2e-ui"
     cache.mkdir(parents=True, exist_ok=True)
-    # Different runtime roots can share a checkout; never publish overlapping builds.
-    with (cache / "build.lock").open("a") as lock:
+    common = Path(
+        subprocess.check_output(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=repo,
+            text=True,
+        ).strip()
+    )
+    shared = common / "nano-e2e-ui-cache"
+    shared.mkdir(parents=True, exist_ok=True)
+    # Serialize preparation across worktrees, keeping only the latest build per UI.
+    with (shared / "build.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         contracts_built = False
         for name, package, dependencies in (
@@ -110,14 +132,34 @@ def prepare_ui(repo: Path) -> None:
             dist = repo / package / "dist"
             current = {
                 "inputs": _digest(repo, _inputs(repo, packages), context),
-                "outputs": _digest(repo, [dist], {}),
+                "outputs": _digest(dist, [dist], {}),
             }
-            try:
-                previous = json.loads(stamp.read_text())
-            except (FileNotFoundError, json.JSONDecodeError):
-                previous = None
+            previous = _read_stamp(stamp)
             if previous == current and (dist / "index.html").is_file():
                 print(f"E2E UI: reuse {name}", flush=True)
+                continue
+            entry = shared / name
+            stored = _read_stamp(entry / "build.json")
+            cached_dist = entry / "dist"
+            if (
+                stored is not None
+                and stored.get("inputs") == current["inputs"]
+                and (cached_dist / "index.html").is_file()
+                and stored.get("outputs") == _digest(cached_dist, [cached_dist], {})
+            ):
+                stamp.unlink(missing_ok=True)
+                _copy_assets(cached_dist, dist)
+                if stored != {
+                    "inputs": _digest(repo, _inputs(repo, packages), context),
+                    "outputs": _digest(dist, [dist], {}),
+                }:
+                    raise RuntimeError(
+                        f"{name} changed during cache restore; run startup again"
+                    )
+                stamp.write_text(json.dumps(stored))
+                print(
+                    f"E2E UI: restore {name} from verified repository cache", flush=True
+                )
                 continue
             print(
                 f"E2E UI: build {name} (inputs or assets changed; or no verified build)",
@@ -140,14 +182,15 @@ def prepare_ui(repo: Path) -> None:
                 raise RuntimeError(
                     f"{name} inputs changed during build; run startup again"
                 )
-            stamp.write_text(
-                json.dumps(
-                    {
-                        "inputs": _digest(repo, _inputs(repo, packages), context),
-                        "outputs": _digest(repo, [dist], {}),
-                    }
-                )
-            )
+            record = {
+                "inputs": _digest(repo, _inputs(repo, packages), context),
+                "outputs": _digest(dist, [dist], {}),
+            }
+            entry.mkdir(exist_ok=True)
+            (entry / "build.json").unlink(missing_ok=True)
+            _copy_assets(dist, cached_dist)
+            (entry / "build.json").write_text(json.dumps(record))
+            stamp.write_text(json.dumps(record))
 
 
 if __name__ == "__main__":
