@@ -107,3 +107,34 @@ N/A。无前端原型或 must-match 视觉参考；本轮不声称 Web/iOS 视�
 ### #361 方法边界待最终核验
 
 caller 另行通报 #361 旧运行时出现新的审核误判，后续补充主人消息并将该Gateway切换到f0，正常主人接续消息 `0bc694e7c7ec4dc9bf0877502a27472c`。该信息在本轮仅作为待核方法边界：reviewer未轮询#361、未独立核完其最终产物，不能据通报宣布通过。最终须将旧7ddaceb阶段、人工澄清/干预、f0切换及恢复后成果分段；不能标成从头纯自主成功。新自然PA的最终聊天仍只有最初一条owner输入，与#361干预链独立。
+
+### Round 2 裁决更正 — 正常聊天回复是完整验收的一部分
+
+**最新状态：partial / pending（完整验收未通过）。** 上述“本轮自然长事项 pass”及覆盖表中的pass裁决范围过宽，现明确撤回该完整通过表述；保留此前实际观察、四文件成果、连接/轨迹画面与402诚实披露事实。用户明确指出实际验收意图包含正常聊天成功，不能将连接成功及失败执行可见等同于完整聊天验收，也不能因PA如实报告阻塞就宣布任务完成。原402必须继续保留，成功模型回复尚未验证是实质缺口。
+
+主人已追加第二条真实消息 `c4d644ffb96843dbba1073c7e0b0672f`：要求继续跑通同源与可选Vite入口的正常聊天回复、保留402并解释原因、审核仍用Luna，不修改其他环境/共享服务/凭据、不充值。此为结果标准澄清，没有给出分工、工具或模型切换路径。故后续完整旅程应记为**两条主人输入**；第一条阶段的自然组织仍成立，但不得再声称一条输入完成全部正常聊天验收。
+
+后续仅补原执行者接续、真实成功聊天回复、主/审核模型来源、消息回执和原生轨迹。不重跑已通过的连接/清理大矩阵。reviewer保持只读，不向被测PA发消息或修改实现，沿产品WS等待新结果；#361仍独立待最终证据。
+
+### Round 2 续验闭环 — 两条主人输入后正常聊天成功
+
+**最新结论：第二个PA测试的正常聊天缺口已关闭，补验 pass；#361 仍未完成，因此unit整体未通过。** 这次通过建立在新增的实际成功模型回复证据上，不追认此前402阶段为完整通过。完整旅程有两条主人输入，不能表述为单条输入自主完成全部验收。运行时仍按f0代码行为验证；报告当前checkout `ed020d6bb8939b3a72c5341a1bf91e6288d44ebb` 的后续文档提交不改变被测运行时归属。
+
+**接续与自主安排。** `/tmp/pa667-natural-review/followup-initial.json` 及 `followup-final.json` 独立确认真实主会话仍为 `1774d4d8-89c9-45de-9504-7d46d5650e1b`，用户消息恰为 `a279d72cb5444fe3adce1136ca161680`、`c4d644ffb96843dbba1073c7e0b0672f`。PA将澄清要求发送给原执行者 `40535a7a-2568-455e-8402-3847aefe695d`，原生回执 `22875532-1d82-4cbb-9c7e-0161366efd8f`，没有重新派同一工作。PA自行检查已有工作路由、选择在新隔离副本用已登记的Sol；这项方案没有预先塞进用户测试消息，reviewer没有发送指导。
+
+**模型来源须区分三个层次。** 外层被测PA的工作模型仍为 `codexOAuth:gpt-6-astra` / medium；其隔离Gateway配置 `llm.tool_approval_model=codexOAuth:gpt-6-luna`。第一次下层default测试环境的 `.gateway-config.yaml` 中三位测试Agent及llm.default_model均为 `deepseek:deepseek-v4-flash`，实际执行返回402/QUOTA；不是Luna工作模型失败。续验下层环境通过已有 `NANO_MULTIAGENT_E2E_MODEL=codexOAuth:gpt-6.1-sol` 配置入口选Sol，审核模型不变更。reviewer独立读取两次原生 `nano_history/snapshots/` 的 `record.config`，不是只引用验证者摘要：两轮均 model=Sol、reasoningEffort=medium、modelFallbacks=[]，approval.enabled=true、rules=codex、dangerouslySkipPermissions=false、reviewer.model=Luna；无临时alwaysAllow/allow条目。摘录保存 `/tmp/pa667-natural-review/effective-config-independent.json`。这些证据证明实际执行配置，不能据此宣称每个不需要审核的聊天动作都额外调用了Luna。
+
+**实际回复与轨迹。** 续验产物根 `/Users/czj/.codex/experiments/pa667-startup/runtime-verification-sol/`；浏览器入口IM `http://127.0.0.1:51677`、Vite `http://127.0.0.1:51678`。独立读取 `successful-execution-evidence.json` 并查看全部四张1280×720截图。实际下层会话 `c_19bd06804afc`，测试PA `pa_1acf499f73bb`，执行会话 `2e091293-65bc-4370-ad70-9a1eed72fa16`：
+
+| 入口 | 用户请求ID | 实际Agent消息ID与内容 | 执行 / 画面 |
+|---|---|---|---|
+| IM同源 | `6c9648e92ebe4012a9fa4a03d97cf44d` | `96df195338784445bd4c8a5345dfe9b4`：`IM_SAME_ORIGIN_OK`及“我已收到这条消息。” | turn1 completed，error=null，Sol；`same-origin-successful-reply.png`有请求和回复，`same-origin-successful-trajectory.png`有inbox读信与对应send_message sent。 |
+| 可选Vite | `1729b689d81c44dfa0153e04c10a4d93` | `dfce4e33a9ad4aa492ff931e36539936`：`VITE_PROXY_OK`及“我已收到第二条消息。” | turn2 completed，error=null，Sol；`vite-successful-reply.png`有不同的第二条请求与回复，`vite-successful-trajectory.png`有第二轮读信及对应send_message sent。 |
+
+四图均在该证据根 `output/playwright/`；两张轨迹画面显示“已连接 · 实时更新 · 只读”，真实工具结果的消息ID前缀与JSON中的消息一致，不是只检查iframe或socket存在。reviewer独立查看的是被测Agent保留的真实画面与产品结果记录，没有重启已清理下层服务冒充重新点击复测。两次消息delivery_status均completed，不能用第一次请求在第二个入口可见替代第二次独立成功请求；这里确有两条不同请求与两次成功执行。
+
+**外层实际交付。** 13:18:26 UTC，主PA向主人发送消息 `8a51619b509c4956b0946ff9c8623527`，Work真实回执status=sent，WS created/completed原件保存在 `followup-events.jsonl`。说明两个入口的实际回复、Sol工作模型、Luna审核、旧DeepSeek问题未修及证据路径，不再将402当成功回复。
+
+**保留与清理。** reviewer在续验前后计算原 `runtime-verification/` 的执行记录、HTTP记录、清理记录和两张旧轨迹截图SHA-256，五项均一致（`prior-evidence-sha256.json`、`prior-evidence-preserved.json`），旧402没有被覆盖。新目录 `cleanup-evidence.json` 记录IM/Gateway/Vite及两DSH子进程均stopped、51677/51678 closed。目标仓git status仍仅此前四个文件，未因续验增加文件改动。reviewer只结束自建只读WS监听，不停止上层自然测试或#361环境。
+
+本轮正常回复验收仅覆盖已配置且可用的Sol工作路由；**原默认DeepSeek路由余额问题仍存在，未充值、未修改共享服务或凭据，不宣称默认DeepSeek已恢复。** 先前大矩阵连接/安全/清理证据沿用，不重新运行。用户对成功聊天的缺口已由两条真实成功回复关闭；#361完整二级交付及其版本/人工干预边界仍独立待核。
