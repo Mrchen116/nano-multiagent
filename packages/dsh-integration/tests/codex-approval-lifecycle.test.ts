@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { expect, it, vi } from 'vitest';
 import { CodexApproval } from '../src/policy/codex.js';
+import { retryReview } from '../src/policy/retry.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import type { ApprovalReviewRequest } from '../src/policy/types.js';
 
@@ -21,7 +22,7 @@ function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=
   const request={exec:{agent:{id:'parent',session:{header:{cwd:'/tmp'}}},callId:'pending',name:'edit',arguments:{path:'a',text:'complete'},signal:controller.signal},config:{agentId:'a',revision:'1',approval:{...approvalDefaults,rules:'codex'}},reviewer:{provider:'fixture',model:'fixture'},sources:{history:async()=>rows,restoreEntries:(r:any)=>r},inherited:[]} as unknown as ApprovalReviewRequest;
   return{plugin,request,controller,disposed,inputs,setRows:(next:any[])=>rows=next,close:()=>ctx.fiber.dispose()};
 }
-function verdict(events:any[]){events.push({type:'assistant/message',seq:events.length,data:{message:{content:[{type:'text',text:JSON.stringify({outcome:'allow',risk_level:'low',user_authorization:'high',rationale:'authorized'})}]}}});events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'completed'}}});}
+function verdict(events:any[]){events.push({type:'assistant/message',seq:events.length,data:{stream:[],message:{content:[{type:'text',text:JSON.stringify({outcome:'allow',risk_level:'low',user_authorization:'high',rationale:'authorized'})}]}}});events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'completed'}}});}
 
 it('rebuilds rewritten parent evidence and changed frozen configuration, without retaining old authorization',async()=>{
   const h=harness(async({events})=>verdict(events));
@@ -48,15 +49,35 @@ it('replays full parent evidence after native overflow, and commits only the suc
   }finally{await h.close();}
 });
 
+it('quarantines an uncooperative Guardian until late completion and never reuses its failed cache', async () => {
+  vi.useFakeTimers(); const entered=deferred(); const release=deferred(); let calls=0;
+  const h=harness(async({events})=>{if(++calls===1){entered.resolve();await release.promise;}verdict(events);});
+  try {
+    const pending=retryReview((attemptSignal,children)=>h.plugin.review({...h.request,attemptSignal,children}),h.controller.signal,h.request.reviewer);
+    await entered.promise;
+    await vi.advanceTimersByTimeAsync(90050);
+    const failed=await pending;
+    expect(failed.error).toMatchObject({category:'timeout',cleanupConfirmed:false});
+    expect(calls).toBe(1);expect(h.disposed).toHaveLength(0);
+    release.resolve();await vi.advanceTimersByTimeAsync(0);
+    expect(h.disposed).toHaveLength(1);
+    const recovered=await h.plugin.review(h.request);
+    expect(recovered.metadata?.contextMode).toBe('full');
+    expect(recovered.metadata?.sessionId).not.toBe(h.disposed[0]);
+    expect(failed.result).toBeUndefined();
+  } finally {release.resolve();vi.useRealTimers();await h.close();}
+});
+
 it.each(['parent','deadline'] as const)('suppresses late grants on %s cancellation and drains the retry under the original deadline',async(kind)=>{
-  const deadline=new AbortController();const timeout=vi.spyOn(AbortSignal,'timeout').mockReturnValue(deadline.signal);
+  vi.useFakeTimers();
   const retry=deferred();let calls=0;
   const h=harness(async({events,cancelled})=>{if(++calls===1){events.push({type:'turn/end',seq:events.length,data:{reason:{kind:'error',error:{code:'CONTEXT_WINDOW_EXCEEDED'}}}});return;}retry.resolve();await cancelled;verdict(events);});
   try{
     const review=h.plugin.review(h.request);const rejected=expect(review).rejects.toThrow();
     await retry.promise;
-    if(kind==='parent')h.controller.abort(new Error('parent cancelled'));else deadline.abort(new Error('deadline exceeded'));
+    if(kind==='parent')h.controller.abort(new Error('parent cancelled'));
+    else { await vi.advanceTimersByTimeAsync(89999); expect(h.disposed).toHaveLength(1); await vi.advanceTimersByTimeAsync(1); }
     await rejected;
-    expect(timeout.mock.calls).toEqual([[90000]]);expect(h.disposed).toHaveLength(2);
-  }finally{timeout.mockRestore();await h.close();}
+    expect(h.disposed).toHaveLength(2);
+  }finally{vi.useRealTimers();await h.close();}
 });

@@ -11,10 +11,13 @@ it('runs Guardian in native isolated scopes, reuses deltas, forks concurrent che
     await writeFile(join(home,'evidence.txt'),'LOCAL_EVIDENCE');
     await writeFile(join(home,'fixture.mjs'),`
 import {appendFile} from 'node:fs/promises';
+import {LlmError} from '${import.meta.resolve('@deepseek-ai/dsh-llm')}';
 export const name='guardian-fixture';export const inject=['llm','tools','agents','nanoApproval','codexApproval'];
 export function apply(ctx){
- const steps=new Set();const inspections=new Set();let overflowed=false;
+ const steps=new Set();const inspections=new Set();let overflowed=false;let deadlineActive=false;
  const log=(file,value)=>appendFile(process.env.DSH_HOME+'/'+file,JSON.stringify(value)+'\\n');
+ const realTimeout=globalThis.setTimeout;
+ globalThis.setTimeout=(fn,ms,...args)=>{if(deadlineActive&&ms===90000){void log('budgets.jsonl',{ms});return realTimeout(fn,100,...args);}return realTimeout(fn,ms,...args);};
  ctx.on('agent/created',({agent})=>{if(agent.id.startsWith('nano-codex-'))return log('agents.jsonl',{id:agent.id,parent:agent.session.header.parentSession,seeded:agent.session.header.isSeeded});});
  ctx.on('agent/disposed',({agent})=>{if(agent.id.startsWith('nano-codex-'))return log('disposed.jsonl',{id:agent.id});});
  ctx.tools.register({name:'fixture_effect',description:'record effect',parameters:{type:'object',properties:{scenario:{type:'string'}},required:['scenario']},isConcurrencySafe:()=>true,output:{schema:{},render:(_a,v)=>[{type:'text',text:v}]},async execute(args,exec){if(args.scenario==='parallel'){const request={exec:{...exec,name:'fixture_effect',arguments:{scenario:'parallel-inner'}},config:{agentId:'a',revision:'1',provider:'fixture',model:'main',mode:'global',approval:${JSON.stringify({...approvalDefaults,globalRoot:home,rules:'codex',reviewer:{provider:'fixture',model:'review'}})}},sources:ctx.nanoApproval.sources,inherited:[],reviewer:{provider:'fixture',model:'review'}};await log('parallel.jsonl',await Promise.all(['parallel-a','parallel-b'].map(scenario=>ctx.codexApproval.review({...request,exec:{...request.exec,callId:scenario,arguments:{scenario}}}))));}await log('effects.jsonl',args);return 'done';}});
@@ -25,7 +28,7 @@ export function apply(ctx){
    const input=pending.content.find(c=>c.type==='text'&&c.text.includes('<planned_action>')).text;
    const action=JSON.parse(input.match(/<planned_action>([\\s\\S]*)<\\/planned_action>/)[1]);
    await log('reviews.jsonl',{action,input,tools:o.tools?.map(t=>t.name),messages:o.messages,effort:o.reasoningEffort});
-   if(action.arguments.scenario==='overflow'&&!overflowed){overflowed=true;throw new Error('CONTEXT_WINDOW_EXCEEDED');}
+   if(action.arguments.scenario==='overflow'&&!overflowed){overflowed=true;throw new LlmError('Context window exceeded','CONTEXT_WINDOW_EXCEEDED');}
    if(action.arguments.scenario==='deadline'&&!inspections.has(pending.id)){inspections.add(pending.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:pending.id+'-read',name:'guardian_read',arguments:JSON.stringify({path:'evidence.txt'})}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
    if(['cancel','deadline'].includes(action.arguments.scenario)){await log('waiting.jsonl',{});await new Promise(resolve=>{if(o.signal.aborted)resolve();else o.signal.addEventListener('abort',resolve,{once:true});});}
    if(action.arguments.scenario==='inspect'&&!inspections.has(pending.id)){
@@ -39,7 +42,7 @@ export function apply(ctx){
   }
   const human=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='nano-human');
   if(!steps.has(human.id)){
-   steps.add(human.id);const scenario=human.content[0].text;
+   steps.add(human.id);const scenario=human.content[0].text;deadlineActive=scenario==='deadline';
    for(let index=0;index<1;index++)yield{type:'block-end',index,block:{type:'tool-call',id:human.id+'-'+index,name:'fixture_effect',arguments:JSON.stringify({scenario})}};
    yield{type:'finish',reason:{kind:'tool-calls'}};return;
   }
@@ -59,12 +62,13 @@ export function apply(ctx){
     await expect.poll(()=>readFile(join(home,'waiting.jsonl'),'utf8').catch(()=>''),{timeout:10000}).not.toBe('');
     await client.rpc.request('session.cancel',{sessionId:'parent'});
     await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:'cancel'}) as any).terminal,{timeout:10000}).toBeTruthy();
-    const deadlineStart=Date.now();
+    // Only the fixture's wall-clock scheduler is accelerated; product budgets stay 90s.
+    // Full elapsed-budget behavior is independently protected with fake timers.
     await client.rpc.request('session.submit',{sessionId:'parent',inputId:'deadline',mode:'followup',content:[{type:'text',text:'deadline'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'deadline'}});
-    await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:'deadline'}) as any).terminal,{timeout:100000}).toBeTruthy();
-    expect(Date.now()-deadlineStart).toBeGreaterThanOrEqual(89000);
+    await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:'deadline'}) as any).terminal,{timeout:10000}).toBeTruthy();
+    expect((await readFile(join(home,'budgets.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line).ms)).toEqual([90000,90000,90000,90000,90000,90000]);
     const observation:any=await client.rpc.request('session.observe',{sessionId:'parent'});
-    expect(observation.approvals.find((row:any)=>row.callId==='deadline-0')).toMatchObject({source:'classifier_unavailable',decision:'no_verdict'});
+    expect(observation.approvals.find((row:any)=>row.callId==='deadline-0')).toMatchObject({source:'classifier_unavailable',decision:'no_verdict',retry:{extraUsed:2,finalCategory:'timeout',attempts:[expect.objectContaining({category:'timeout',cleanupConfirmed:true}),expect.objectContaining({category:'timeout',cleanupConfirmed:true}),expect.objectContaining({category:'timeout',cleanupConfirmed:true})]}});
     expect(observation.approvals.some((row:any)=>row.callId==='deadline-0'&&row.decision==='allow')).toBe(false);
     expect(observation.approvals.find((row:any)=>row.callId==='first-0')?.usage).toMatchObject({uncachedInputTokens:10,outputTokens:5});
     expect(observation.approvals.find((row:any)=>row.callId==='overflow-0')?.metadata.contextMode).toBe('rebuild');
@@ -78,8 +82,8 @@ export function apply(ctx){
     expect(reviews.find(r=>r.action.arguments.scenario==='inspect').input).not.toContain('"user":"first"');
     expect(JSON.stringify(reviews.filter(r=>r.action.arguments.scenario==='inspect').at(-1).messages)).toContain('LOCAL_EVIDENCE');
     const parallel=(await lines('parallel.jsonl'))[0];expect(parallel.map((r:any)=>[r.decision.behavior,r.decision.reason])).toEqual([['allow','parallel-a'],['deny','parallel-b']]);expect(parallel.map((r:any)=>r.metadata.contextMode).sort()).toEqual(['delta','fork']);expect(new Set(parallel.map((r:any)=>r.metadata.sessionId)).size).toBe(2);
-    const created=await lines('agents.jsonl');expect(created).toHaveLength(5);expect(created.filter(row=>row.seeded)).toHaveLength(3);
-    const disposed=await lines('disposed.jsonl');expect(disposed).toHaveLength(5);
+    const created=await lines('agents.jsonl');expect(created).toHaveLength(8);expect(created.filter(row=>row.seeded)).toHaveLength(3);
+    const disposed=await lines('disposed.jsonl');expect(disposed).toHaveLength(8);
   }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;throw new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },140000);

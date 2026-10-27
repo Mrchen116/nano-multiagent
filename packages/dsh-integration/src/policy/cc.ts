@@ -10,7 +10,9 @@ export class CcApproval extends Service {
   constructor(ctx: Context) { super(ctx, 'ccApproval'); }
   async review(request: ApprovalReviewRequest): Promise<ApprovalReviewResult> {
     const { exec, config } = request;
-    if (await workspaceFileAllowed(exec.agent!.session.header.cwd!, exec.name, exec.arguments, config.approval!)) {
+    const allowed = await workspaceFileAllowed(exec.agent!.session.header.cwd!, exec.name, exec.arguments, config.approval!);
+    (request.attemptSignal ?? exec.signal).throwIfAborted();
+    if (allowed) {
       return { decision: { behavior: 'allow', reason: 'Ordinary workspace file operation' }, source: 'workspace_file' };
     }
     return classify(this.ctx, request);

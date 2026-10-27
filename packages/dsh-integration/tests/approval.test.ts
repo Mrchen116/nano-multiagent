@@ -140,7 +140,8 @@ export function apply(ctx) {
     expect(reviews.every(review => !('stop' in review))).toBe(true);
     expect(reviews.filter(review => review.scenario === 'threshold')).toHaveLength(6);
     const fault = await client.rpc.request('session.observe', { sessionId: 'approval-fault' }) as { approvals: Record<string, unknown>[] };
-    expect(fault.approvals.filter(event => event.source === 'classifier_unavailable')).toEqual([expect.objectContaining({ decision: 'no_verdict', consecutive: 0, total: 0 })]);
+    expect(fault.approvals.filter(event => event.source === 'classifier_unavailable')).toEqual([expect.objectContaining({ decision: 'no_verdict', consecutive: 0, total: 0,
+      retry: expect.objectContaining({ extraUsed: 1, invalidRecoveryUsed: 1, finalCategory: 'invalid', attempts: [expect.objectContaining({ ordinal: 1, category: 'invalid' }), expect.objectContaining({ ordinal: 2, category: 'invalid' })] }) })]);
     await client.shutdown(); client = undefined;
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     const bindings = agents.map(config => ({ sessionId: `approval-${config.agentId}`, agentId: config.agentId, revision: config.revision, ownerId: 'owner', cwd: home }));
@@ -323,6 +324,7 @@ export function apply(ctx){
     expect(rows.find(row => row.send_message_result)?.send_message_result).toMatchObject({ status: 'sent', message_id: 'sent-1' });
     expect(rows.at(-1)).toMatchObject({ fixture_effect: {}, id: 'call-3' });
     const observed = await client.rpc.request('session.observe', { sessionId: 'overflow' }) as { approvals: { source: string; decision: string; reason: string }[] };
-    expect(observed.approvals.find(row => row.source === 'classifier_unavailable')).toMatchObject({ decision: 'no_verdict', reason: expect.stringContaining('Review context exceeds configured window') });
+    expect(observed.approvals.find(row => row.source === 'classifier_unavailable')).toMatchObject({ decision: 'no_verdict', retry: expect.objectContaining({ finalCategory: 'config', extraUsed: 0, attempts: [expect.objectContaining({ category: 'config' })] }) });
+    expect(observed.approvals.at(-1)).toMatchObject({ source: 'return_to_agent', decision: 'deny' });
   } finally { if (client) await client.shutdown(); await rm(home, { recursive: true, force: true }); }
 }, 30_000);

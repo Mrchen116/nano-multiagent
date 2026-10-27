@@ -10,8 +10,8 @@ import type { AgentConfiguration } from '../index.js';
 import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { ApprovalSources } from './sources.js';
-import type { ReviewDecision } from './rules.js';
-import type { ApprovalReviewResult } from './types.js';
+import type { ApprovalReviewRequest, ReviewRetry } from './types.js';
+import { boundedReview, retryReview } from './retry.js';
 import { classify } from './classifier.js';
 import type {} from './cc.js';
 import type {} from './codex.js';
@@ -76,9 +76,18 @@ export class NanoApproval extends Service {
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => input.source?.kind === 'nano-human') ? 'interactive' : 'unattended';
   }
-  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}) {
+  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata' | 'retry'>> = {}) {
     let reached = { consecutive: 0, total: 0 };
     await (await this.audit).table('sessions').update(exec.agent!.id, entries => {
+      // A cancellation racing durable publication replaces, rather than duplicates,
+      // the same automatic review and must not increment policy-denial counters.
+      if (details.retry) {
+        entries = entries.filter(entry => entry.retry?.reviewId !== details.retry!.reviewId);
+        if (exec.signal.aborted) {
+          source = 'classifier_cancel'; decision = 'cancel'; reason = 'Automatic review canceled';
+          details = { ...details, retry: { ...details.retry, finalCategory: 'cancel' } };
+        }
+      }
       let consecutive = entries.at(-1)?.consecutive ?? 0;
       let total = entries.at(-1)?.total ?? 0;
       if (decision === 'allow') consecutive = 0;
@@ -120,28 +129,51 @@ export class NanoApproval extends Service {
     if (messageContext?.recipient.kind === 'owner') return allow('owner_message');
     if (!policy.enabled) return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required');
     const header = agent.session.requestHeader();
-    const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
+    const reviewer = { ...(policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model }) };
     const started = Date.now();
-    let decision: ReviewDecision | undefined; let usage: unknown; let source: string | undefined; let metadata: ApprovalReviewResult['metadata'];
+    // Snapshot once, inside the first attempt's budget. Recovery never asks for new authorization.
+    const frozenExec = { ...exec, arguments: structuredClone(exec.arguments) };
+    const frozenConfig = structuredClone(config);
+    let prepared: Promise<ApprovalReviewRequest> | undefined;
+    const outcome = await retryReview(async (attemptSignal, children) => {
+      prepared ??= (async () => ({ exec: frozenExec, config: frozenConfig, sources: this.sources,
+        inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext: structuredClone(messageContext),
+        personalAuthorization: config.personal ? await this.ctx.nanoProduct.call('pa.authorization', {}, exec) : undefined,
+        reviewer: { ...reviewer }, snapshot: {} }))();
+      const frozen = await prepared;
+      attemptSignal.throwIfAborted();
+      const request = { ...frozen, attemptSignal, children };
+      return policy.rules === 'codex' ? this.ctx.codexApproval.review(request)
+        : policy.rules === 'nano' ? this.ctx.ccApproval.review(request) : classify(this.ctx, request);
+    }, exec.signal, reviewer);
+    const details = { reviewer, retry: outcome.retry, elapsedMs: Date.now() - started };
+    const cancel = () => {
+      // A parent may stop after the strategy committed but before audit returned.
+      // Invalidate its cache synchronously; disposal remains off the cancel path.
+      if (policy.rules === 'codex') void this.ctx.codexApproval.release(agent.id).catch(error => this.ctx.logger.warn('Canceled reviewer cleanup unavailable: %s', String(error)));
+      // Audit cannot hold the execution cancellation boundary hostage to storage I/O.
+      const retry: ReviewRetry = { ...outcome.retry, finalCategory: 'cancel' };
+      void this.record(exec, 'classifier_cancel', 'cancel', 'Automatic review canceled', policy, { ...details, retry }).catch(error => this.ctx.logger.warn('Canceled review audit unavailable: %s', String(error)));
+      return { kind: 'cancel' } as const;
+    };
+    if (exec.signal.aborted || outcome.error?.category === 'cancel') return cancel();
     try {
-      // Original owner messages and submitted UI choices remain evidence after recovery.
-      const personalAuthorization=config.personal ? await this.ctx.nanoProduct.call('pa.authorization',{},exec) : undefined;
-      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, personalAuthorization, reviewer };
-      const result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
-        : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
-      decision = result.decision; usage = result.usage; source = result.source; metadata = result.metadata;
+      if (outcome.error) {
+        const reason = `Automatic reviewer unavailable: ${outcome.error.message}`;
+        await boundedReview(() => this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, details), exec.signal);
+        if (exec.signal.aborted) return cancel();
+        return await boundedReview(() => this.escalate(exec, config, reason, 'classifier_unavailable'), exec.signal);
+      }
+      const { decision: verdict, usage, source, metadata } = outcome.result!;
+      const counts = await boundedReview(() => this.record(exec, source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
+        { ...details, ...(source === 'workspace_file' ? { retry: undefined } : {}), metadata, ...(usage !== undefined ? { usage } : {}) }), exec.signal);
+      if (exec.signal.aborted) return cancel();
+      if (verdict.behavior === 'allow') return { kind: 'allow' };
+      if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return await boundedReview(() => this.escalate(exec, config, verdict.reason, 'classifier_block'), exec.signal);
+      return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
     } catch (error) {
-      if (exec.signal.aborted) return { kind: 'cancel' };
-      const reason = `Automatic reviewer unavailable: ${String(error)}`;
-      await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started });
-      return this.escalate(exec, config, reason, 'classifier_unavailable');
+      if (exec.signal.aborted) return cancel();
+      throw error;
     }
-    if (exec.signal.aborted) return { kind: 'cancel' };
-    const verdict = decision!;
-    const counts = await this.record(exec, source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
-      { reviewer, metadata, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
-    if (verdict.behavior === 'allow') return { kind: 'allow' };
-    if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block');
-    return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
   }
 }
