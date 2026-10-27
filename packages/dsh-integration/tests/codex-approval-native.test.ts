@@ -2,8 +2,10 @@ import { expect, it } from 'vitest';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { writeSyntheticContextEvidence } from './synthetic-context-evidence.js';
 
 it('runs Guardian in native isolated scopes, reuses deltas, forks concurrent checks and recovers invalid verdicts', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-guardian-native-'));let client:RuntimeClient|undefined;let logs='';
@@ -27,7 +29,7 @@ export function apply(ctx){
    const pending=o.messages.findLast(m=>m.role==='user'&&m.content.some(c=>c.type==='text'&&c.text.includes('<planned_action>')));
    const input=pending.content.find(c=>c.type==='text'&&c.text.includes('<planned_action>')).text;
    const action=JSON.parse(input.match(/<planned_action>([\\s\\S]*)<\\/planned_action>/)[1]);
-   await log('reviews.jsonl',{action,input,tools:o.tools?.map(t=>t.name),messages:o.messages,effort:o.reasoningEffort});
+   await log('reviews.jsonl',{action,input,system:o.system??null,tools:o.tools?.map(t=>t.name),schemas:o.tools,messages:o.messages,effort:o.reasoningEffort,options:{maxTokens:o.maxTokens,temperature:o.temperature,toolChoice:o.toolChoice}});
    if(action.arguments.scenario==='overflow'&&!overflowed){overflowed=true;throw new LlmError('Context window exceeded','CONTEXT_WINDOW_EXCEEDED');}
    if(action.arguments.scenario==='deadline'&&!inspections.has(pending.id)){inspections.add(pending.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:pending.id+'-read',name:'guardian_read',arguments:JSON.stringify({path:'evidence.txt'})}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
    if(['cancel','deadline'].includes(action.arguments.scenario)){await log('waiting.jsonl',{});await new Promise(resolve=>{if(o.signal.aborted)resolve();else o.signal.addEventListener('abort',resolve,{once:true});});}
@@ -46,7 +48,8 @@ export function apply(ctx){
    for(let index=0;index<1;index++)yield{type:'block-end',index,block:{type:'tool-call',id:human.id+'-'+index,name:'fixture_effect',arguments:JSON.stringify({scenario})}};
    yield{type:'finish',reason:{kind:'tool-calls'}};return;
   }
-  yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
+  await log('main-results.jsonl',{scenario:human.content[0].text,messages:o.messages});
+   yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
  });
 }`);
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'main',contextWindow:100000},{id:'review',contextWindow:100000,reasoningEfforts:{low:'low'}}]}}}},{insert:[{id:'guardian-fixture',name:join(home,'fixture.mjs')}]}]);
@@ -78,12 +81,20 @@ export function apply(ctx){
     expect(effects.map(e=>e.scenario)).toEqual(['first','inspect','parallel','after-failure','overflow']);
     await expect(readFile(join(home,'escaped.jsonl'),'utf8')).rejects.toThrow();
     const reviews=await lines('reviews.jsonl');
-    for(const review of reviews){expect(review.tools.sort()).toEqual(['guardian_list','guardian_read','guardian_stat']);expect(review.effort).toBe('low');}
+    for(const review of reviews){expect(review.tools.sort()).toEqual(['guardian_list','guardian_read','guardian_stat']);expect(review.effort).toBe('low');expect(review.schemas).toEqual(expect.arrayContaining([expect.objectContaining({name:'guardian_read',parameters:expect.objectContaining({required:['path']})})]));}
     expect(reviews.find(r=>r.action.arguments.scenario==='inspect').input).not.toContain('"user":"first"');
     expect(JSON.stringify(reviews.filter(r=>r.action.arguments.scenario==='inspect').at(-1).messages)).toContain('LOCAL_EVIDENCE');
     const parallel=(await lines('parallel.jsonl'))[0];expect(parallel.map((r:any)=>[r.decision.behavior,r.decision.reason])).toEqual([['allow','parallel-a'],['deny','parallel-b']]);expect(parallel.map((r:any)=>r.metadata.contextMode).sort()).toEqual(['delta','fork']);expect(new Set(parallel.map((r:any)=>r.metadata.sessionId)).size).toBe(2);
     const created=await lines('agents.jsonl');expect(created).toHaveLength(8);expect(created.filter(row=>row.seeded)).toHaveLength(3);
     const disposed=await lines('disposed.jsonl');expect(disposed).toHaveLength(8);
+    // All content originates in this temporary synthetic fixture; never live Work/history.
+    if(process.env.NANO_GUARDIAN_CONTEXT_EVIDENCE_PATH)await writeSyntheticContextEvidence(process.env.NANO_GUARDIAN_CONTEXT_EVIDENCE_PATH,{
+      syntheticOnly:true,schemaVersion:1,seam:'native Guardian llm/stream composition; NOT provider wire or live product data',
+      fixtureSourceSha256:createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex'),
+      productImplementation:process.env.NANO_REVIEW_IMPLEMENTATION_VERSION??'unrecorded',parentSessionId:'parent',
+      reviews,parallelResults:parallel,approvals:observation.approvals,effects,created,disposed,
+      mainFinalToolResults:(await lines('main-results.jsonl')).map(row=>({scenario:row.scenario,message:row.messages.findLast((message:any)=>message.role==='tool')})),
+    });
   }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;throw new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },140000);
