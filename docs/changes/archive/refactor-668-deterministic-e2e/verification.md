@@ -119,3 +119,66 @@ None。无产品用户面变化；平台显式 gate 沿用原约定，未新增 
 Outcome: aligned（no spec delta）。
 
 All checks passed. Ready for PR.
+
+## Round R3 — Send Revalidation Delta
+
+> verification_mode: delta; code_review_mode: patch; review_round: R3
+>
+> executed_base / patch base: `ab88005d93c134442c879dfdd5c27ea2868b441c`
+>
+> validated_at: `01d238d41c9631e04584b9e1a7d4a4ec0c080471`
+>
+> branch: `codex/refactor-668-deterministic-e2e`; requires_full_verification: false.
+
+**R3 verdict: pass — 0 CRITICAL、0 WARNING、0 SUGGESTION；code review 无存活问题（`code-review-R3.json` 为 `[]`）。** R1/R2 历史及其有效证据保留。新增一项独立确定性 E2E 后当前为 28 items（23 critical + 5 environment）；没有在本轮重新运行或声称一次完整 28 项全绿。
+
+### Scope and Retained Evidence
+
+用户追加要求：若原 27 项尚未覆盖发送前收到最新消息，就补确定性 E2E，并考虑模型生成时延。完整检查 `ab88005d93c134442c879dfdd5c27ea2868b441c..01d238d41c9631e04584b9e1a7d4a4ec0c080471` 的 5 个文件：独立 provider、独立 test、catalog、coverage 与 fixtures README。没有产品代码、配置或共享 fixture 改动；未扩大到产品修复或真实模型任务。
+
+原 mention 用例保护定向路由，原 Global J2 保护 Inbox 跨聊天与 child/dispatch，二者均没有“多个已开始的模型请求被后来消息作废、读取后再次作废”的交错，因此新建独立用例有不同的失败原因，不是按测试名称增加重复保护。低层 `packages/personal-assistant/tests/global-agent.test.ts:108` 的 held-draft 保护使用产品模块替身，保留它以验证其他目标/背景等分支，不把它当 IM/Node/DSH 全栈接线证明。
+
+原 27 项测试、共享 provider fixture 和产品代码在本 delta 中未改变，因此 R2 的默认 26 passed / 1 skipped + 显式 macOS 1 passed 及既有 CI 结论保持适用。新的受影响全栈 seam 用新增 test、既有 mention 和 Global J2 三项窄验证补齐；不机械重复无变化的全量。
+
+### Completeness / Correctness
+
+| 追加需求或 current 契约 | 实现与直接证据 | 结论 |
+|---|---|---|
+| 模型生成有真实时延，旧草稿已开始生成后才收到新消息 | `scripts/fixtures/anthropic_sse_send_revalidation_recording.py:87` 在从实际 read tool_result 计算 numbers 后登记 pending 并阻塞 HTTP 响应；`tests/e2e/critical_paths/test_group_send_revalidation_critical_path.py:119` 等 A/B/C/D 四个初次生成都 pending、公开消息为空，并断言各自 read-0 只有实际初始消息 ID，才放行 A | covered；不是通过固定 sleep 猜测生成已开始 |
+| 无新消息时正常发送 | current `docs/specs/gateway/global-agent.md:67`；先仅释放 A，实际公开第一条为 1，后续实际 provider 请求中 draft-0 status=sent，A 的实际 tool_use 文本仅 `[1]` | covered |
+| 新消息到达后，旧稿不能先公开，需读取再重新发送 | current `docs/specs/gateway/global-agent.md:72`；D/B/C 初次发送参数均为 1，实际 tool_result 为 held_for_revalidation；下一次请求带实际 Inbox read 结果；B/C 随后实际参数分别为 `[1,2]`、`[1,3]`；公开正文为 1/2/3/4 且发言者 A/B/C/D，无旧 1 泄漏 | covered |
+| 读取后再次收到消息，发送须再次复核 | current `docs/specs/gateway/global-agent.md:78`；test `:128` 放行 D 的旧 1，等待 D:1，断言旧发送 held 且 read-1 仅 A 的实际消息 ID，此时 D 已从该 read 结果算出 2 并暂停；之后才放行 B/C 并等其公开 2/3，最后释放 D:1；D 实际草稿参数 `[1,2,4]`、前两次 held、最后 sent | covered；第二次作废跨过另一个实际进行中的模型请求 |
+| 不能只以 fixture 固定最终答案证明摄取完整性 | test `:144` 检查实际请求中的所有 send_message tool_use 文本、held/sent 工具结果；`:170` 从实际 read tool_result 中按真实消息 ID 查正文，逐项对照先前公开消息；fixture `:88` 仅从 Inbox tool_result 正文取数算下一值 | covered；不存在独立按角色硬编码最终数字后跳过产品的写入 |
+| 唯一公开交付与不泄漏 held 草稿 | test `:138` 断言唯一 4 个公开消息 ID、精确正文顺序和发言者，再等待各角色实际 sent 结果，最后再次断言仍为 4 条；固定响应的 Done 为 Global 内部 prose，不作为公开交付证据 | covered |
+
+同时核对实际产品 owner：`packages/personal-assistant/src/global-agent.ts:600` 起以 Inbox blocking 判断适用新消息，真实返回 held_for_revalidation、保留 draft 并阻止 relay；无 blocking 时才请求实际 agent.message 并返回 sent。新 fixture 没有伪造这些结果，没有直接写 DB、Work 或产品状态；release HTTP 只控制本地 provider 何时返回工具调用。
+
+### Coherence / Limits
+
+- 仅 provider HTTP seam 控制响应，复用现有 `_recording.py` 真 IM/Node/DSH 栈。四 Agent 创建、初始消息、Inbox、审批、发送复核与公开消息均走现有产品入口。
+- Guardian 请求按实际 guardian_* 工具识别并单独记录，断言读取的生成请求排除 Guardian；不会把审核请求当作 Agent 的生成或读取证据。初次 fixture Guardian 漏识别失败已修，其失败不作为产品 bug。
+- 有界等待用于真实 gate 或可观察结果，初次四 gate 及 D 第二 gate 均由本地 provider 的 pending 证明；没有依赖任意固定时长来建立关键先后关系。共享 fixture 拥有原有进程回收，新 test 不启动另一套产品进程。
+- 新测试证明 Global Web 群聊、ALWAYS 策略下的机制和双次失效，不声称评估模型理解/规划/自主选工具的概率，也不声称新增覆盖私聊、Feishu、其他群及仅背景消息的全部分支。这些界限不影响本次明确追加场景的完成度。
+- 本 delta 不改变产品 Context 的选择、注入、加载或恢复；只补验证输入与实际请求观察，因此无需新增完整 Implementation Context Review。
+
+### R3 Evidence
+
+| Evidence | Result / version applicability |
+|---|---|
+| caller 的 `PYTHONPATH=src python -m pytest -q tests/e2e/critical_paths/test_group_send_revalidation_critical_path.py tests/e2e/critical_paths/test_group_chat_directed_mention_critical_path.py tests/e2e/critical_paths/test_global_agent_inbox_critical_path.py` | 直接读取 `/tmp/refactor-668-send-final.log`：3 passed / 43.29s；适用于冻结 HEAD 的新增 test 与两个受影响接线相邻场景 |
+| 先前新增单项 | caller 交接 1 passed / 13.36s；非唯一通过依据 |
+| reviewer 独立 `python -m pytest --collect-only -q tests/e2e`（主仓 venv） | 28 tests collected / 0.14s；仅证明登记和收集，不冒充执行通过 |
+| reviewer `git diff --check ab88005d93c134442c879dfdd5c27ea2868b441c..01d238d41c9631e04584b9e1a7d4a4ec0c080471` | 通过 |
+| ruff / docs-check | caller 交接通过；未重复已有有效检查 |
+
+本 reviewer 未启动额外服务或调用真实模型，无新增现场需要清理。
+
+### R3 Issues
+
+CRITICAL: none。WARNING: none。SUGGESTION: none。
+
+### R3 Spec Reconciliation
+
+**no spec delta**。新增测试验证 existing current `docs/specs/gateway/global-agent.md:65` 的发送前复核契约；5 文件 delta 没有产品用户面变化，没有遗漏需要新增或归并的产品行为。catalog/coverage/fixtures README 已准确描述新增能力和时延控制。Outcome: aligned。R2 的 no spec delta 结论保留。
+
+R3 delta verification passed. Ready for PR update.
