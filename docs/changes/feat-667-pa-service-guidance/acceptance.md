@@ -4,6 +4,8 @@
 
 ## Verdict
 
+**最新裁决见 Round 3：PASS。** 以下Round 1的fail及后续更正按原时间保留，不代表当前仍缺交付证据。
+
 **fail（阶段报告，必验 #361 二级开发交付证据尚未完成）。** 已完成的常规旅程均 pass；不得据此宣布 M1 通过。后续仅针对 #361 真实 Ready PR、CI、二级执行与逐级回传补验，保留本轮其他结果。
 
 Highest Required Action：补齐未完验收证据后 targeted re-review；当前不据缺证据推断实现错误。issues_count：1项必验缺口，0项已确认实现缺陷；gh_issues_filed：0；needs_re_review：true。
@@ -138,3 +140,58 @@ caller 另行通报 #361 旧运行时出现新的审核误判，后续补充主�
 **保留与清理。** reviewer在续验前后计算原 `runtime-verification/` 的执行记录、HTTP记录、清理记录和两张旧轨迹截图SHA-256，五项均一致（`prior-evidence-sha256.json`、`prior-evidence-preserved.json`），旧402没有被覆盖。新目录 `cleanup-evidence.json` 记录IM/Gateway/Vite及两DSH子进程均stopped、51677/51678 closed。目标仓git status仍仅此前四个文件，未因续验增加文件改动。reviewer只结束自建只读WS监听，不停止上层自然测试或#361环境。
 
 本轮正常回复验收仅覆盖已配置且可用的Sol工作路由；**原默认DeepSeek路由余额问题仍存在，未充值、未修改共享服务或凭据，不宣称默认DeepSeek已恢复。** 先前大矩阵连接/安全/清理证据沿用，不重新运行。用户对成功聊天的缺口已由两条真实成功回复关闭；#361完整二级交付及其版本/人工干预边界仍独立待核。
+
+## Round 3 — #361 完成交付证据闭环与最终有界裁决
+
+> 2026-10-28，targeted completion reconciliation；报告checkout `727be381aa0d4c6213f191a3da3c2a9a6b49f722`。本轮只读保留证据和GitHub状态，不启动服务、不发送产品消息、不重跑七项普通场景、自然PA测试或完整代码审查。该checkout不是所有历史旅程的执行版本；各段版本如下。
+
+### 最新 Verdict
+
+**PASS（在下述明确版本与方法边界内）。** Round 1 A1“#361实际Ready PR、CI及二级逐级交付未完”已关闭；原七项有效结果、Round 2正常聊天续验结论保留。没有剩余已确认的本unit产品阻塞，highest_required_action=pass，needs_re_review=false，gh_issues_filed=0。此前各轮fail/inconclusive/过宽裁决与更正保留为历史，不抹去失败记录，也不据最终完成宣称全过程无人工协助。合入、部署的实际执行仍由相应交付记录证明，本报告不提前宣称已执行。
+
+### 最终可交付成果
+
+- 独立GitHub查询确认 [PR #419](https://github.com/Mrchen116/nano-multiagent/pull/419) 为open、非draft、未合入，head **`77468b4717b6e63ea4fec9fba9da9996f6cc92ed`**。目标独立checkout `/Users/czj/.codex/experiments/pa667-issue361/repository` 的HEAD与之相同，git status为空。
+- 同一head关联的 [CI 40529144631](https://github.com/Mrchen116/nano-multiagent/actions/runs/40529144631) 已由GitHub工具独立核为 **completed / success**。后端、前端及iOS变更检测成功，条件跳过的iOS构建不算实际编译成功。此前启动的单次阻塞watch结果也保存在 `/tmp/pa667-361-final-review/ci-watch.log`；没有通过不断查询产品状态推断完成。
+- 归档成果为 `docs/changes/archive/feat-669-auto-review-retry/`，原625/668因编号碰撞更名，未换需求。独立读取其validation、acceptance最终范围复核、审计指标及PR说明，确认七个原重试场景、双策略真实插件旅程和36主调用→36审核→62内部尝试有明确报告与版本归属。此处核对的是委派成果及独立门禁交付，不冒充本reviewer再次执行整个#361产品矩阵。实现执行基点为 `334bf622`，最终head包含同步、编号及归档等后续变更。
+- 额外通知可用性问题仍未解决、关联不明。归档报告保留了失败观测、调查及范围更正；最终通过不是通知bug已修或证明其必为既有问题。#361原需求不要求重设计通知失败传播，不把该附带问题或另案修复再加入本unit交付前提；出现具体不变量破坏的新证据时再按影响处理。
+
+### 真实两层执行、内部回传与主PA交付
+
+证据源是 `/tmp/pa667-issue361-runtime/provider-requests/` 的实际请求、已保存Work，以及 `message-events.jsonl`；本轮索引在 `/tmp/pa667-361-final-review/{tool-index,schema-index,main-work-messages}.json`。不是仅从标题或报告自述推断父子关系。
+
+| 链路 | 实际调用 / 回执与结果 |
+|---|---|
+| 主PA→一级事项执行者 | Work root `5524e22e-d1af-44f3-bd49-93350fa059e9`；`call_4e263678d47849e99675dadf5bb35f50`（请求1793090630640623000）使用后台原生subagent，返回 `54612f0b-8c6a-41bd-a908-0427784264c0`，Work父子映射一致。 |
+| 一级→二级实际实施 | `call_47fbcdc8aa4e455cb532ce1f69411390`（1793092203632889000）返回 `fecdbd2e-082f-4c07-a754-76d4f9aec05c`；其parent_session_id为一级54612…。另有真实原生设计作者478c29…、独立设计审查ca8c10…、产品验收eaf3a6…、静态审查ea1605…；维护复盘会话不计为二级开发证据。 |
+| 二级实施成果→一级 | `call_239a7effeef14d37b4793f420eb003be`（1793095399827258000）把实际实施提交 `dfee3df40116757346ef6a7edcaa5d10734c9a61`、测试、产物及限制发给54612…，工具回执为message delivered。后续独立静态结果如 `call_59a615a1a1ca4bda94b91f3bb4d0fdd2`（1793113555431575000）同样回传一级，保留尚未归档/CI未完时的准确边界。 |
+| 一级最终结果→主PA | `call_4a1614dd874745ed9525fb65f1ed8343`（1793114127597933000）回传真实PR419；`call_044de914efc445b185fe1b01c28deb13`（1793114555726795000）回传同head的CI success，均有投递到5524…的原生回执。 |
+| 主PA→主人 | `call_50805cec10674f2a8a180e6bd5907dd0`（1793114589133299000）向原私聊 `c_67e42eb84bd8` 发送最终交付，回执status=sent、消息 **`a9c9b221560b436a8936e0aaecb196cc`**。WS事件131/132为同消息created/completed，时间2026-10-27 15:23:09 UTC；正文给出PR、精确head、green CI、行为成果及未解决附带问题。先前928d23…只报PR已建、CI运行中，没有被替代成“当时CI已通过”。 |
+
+实际schema也独立核对：一级创建下级的请求、二级实施/静态回传请求及一级最终回传请求均没有inbox/conversations/send_user_message，send_message只有 `agent_id/message`；主PA最终交付请求仍有产品工具和 `target/text` 分支。相应内部结果真实回传，主PA才向主人发送。实际Skill工具调用也有nano-ongoing-work正文消费。结合Round 1与既有工程覆盖，可关闭本次两层实际执行和内部通信产品缺口；不将这些真实spawn样例冒充所有fork/冷恢复组合的新实模重测。
+
+### 不能省略的人工介入与版本边界
+
+1. #361原始消息 `e93e35503d984b0cbe38a06bf06a431a` 已明确要求后台原生执行者、下级角色和内部通信；它证明能力可用及实际完成，**不证明PA自然自主选择该组织方法**。原输入和介入原文在长期证据目录 `issue361-input-and-interventions/`。
+2. 旧 `7ddaceb` 阶段发生数据取证/授权解释阻塞，外部观察者提供诊断 `e98f9ffc…`，主人补充自生成测试数据授权 `ab511d6e…`，并有范围收口和有界诊断要求。模型API授权澄清 `813abb09…` 也是真实干预。不能将这些帮助从完成过程删去，或把所有拒绝都称为自行恢复。
+3. 之后只切换#361 Gateway到f0授权连续性修订，保留root5524…与执行者54612…；主人接续 `0bc694e7c7ec4dc9bf0877502a27472c` 明确从阻塞点继续。后半段完成是**版本切换后的原执行者接续**，不是从头在最终版本单次运行。
+4. 最后push因Git helper采用coding-kuku而gh为Mrchen116受阻。caller只修目标仓本地helper并dry-run核验，正常owner告知 `cff4f85cd42e4d069c63216620c289f2` 后原执行者推送/建PR。这是环境协助，不能把最终PR称完全无人介入或未经帮助自主解决凭据问题。
+5. #361旧旅程没有使用后来的协调指导003c09589，重启过服务或磁盘Skill更新不能追认历史请求。协调修订的限定模型回放与原生装配证据按 `M1/coordination-fix.md` 自身边界记录，不伪装成新全长开发实测。
+
+### 真人亲测与最终限定delta
+
+caller传达真人明确反馈“真实测试没问题了，可以完成其他测试后提PR并合入，并部署”，作为独立于合成旅程的**用户接受证据**纳入收尾。用户亲测的是新建空白PA，而非旧#361历史；当时使用003协调产品版本。这是用户反馈，不声称reviewer观察了其全部操作，也不将真人接受当成上文技术证据的替代品。
+
+最后长任务确认限定 `985bc6f07` 与Workflow child限定 `384ab2710` 已有独立审查与相关装配/工程证据，但没有重载到当时真人试用实例、没有新的完整真实模型旅程；本报告明确保留此限制。它们不改变本轮已证实的委派、结果回传、授权及交付能力，不以其为由强加新全长任务。最终main同步的测试/文档增量及surfaceOp显示限定由既有独立静态/验证角色按delta保留结论，本reviewer不声称在727be381重跑全部历史旅程。
+
+### 覆盖与问题状态最终对账
+
+| 先前未完成项 | 最新结果 | 关闭依据 |
+|---|---|---|
+| 长事项持续交付并说明能力边界：#361完整范围 | pass | 独立Ready PR419、相同head CIgreen、归档成果、主PA真实sent；保留人工介入和附带限制。 |
+| 任务执行者可再委派一层 | pass | 真实root→54612…→fecdb…等二级角色，实际代码/审查产物及逐级回传，不是算术探针。 |
+| 子Agent只进行内部通信：完整二级链路 | pass | 两层实际schema只有内部send分支，无产品聊天读取/代表发送；结果逐级回传，最终对用户发送由主PA完成。 |
+| Round1其余七项与Round2正常聊天续验 | retained pass | 保留各自实际执行版本、两条输入以及402→成功续验的更正历史，不重跑或夸大覆盖。 |
+| A1缺交付证据 | closed | 本节Ready PR、green CI、内部和外部回执全部齐备。 |
+
+当前无需新增产品旅程或要求用户再确认。全部旧环境按用户要求停止、离线证据保留；本轮未操作服务。合入与部署授权已由真人给出，仍须由caller完成其余工程/发布职责并按真实结果记录。
