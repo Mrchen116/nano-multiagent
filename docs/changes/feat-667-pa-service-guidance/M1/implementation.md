@@ -27,9 +27,9 @@ Local logs are evidence locators, not committed runtime data. Node `24.22.1`, pn
 - `pnpm typecheck`: pass (`/tmp/pa667-typecheck.log`).
 - New child scope test: 2/2 pass (`/tmp/pa667-child-green6.log`); default nesting/third-depth rejection/trajectory: 3/3 pass (`/tmp/pa667-depth-green2.log`).
 - Affected regression batch: 82 passed with one old child-public-send expectation, corrected and passed (`/tmp/pa667-affected.log`, `/tmp/pa667-depth-green.log`).
-- First full backend run: 767 passed, one maintenance observation poll timeout; isolated 4/4 rerun passed (`/tmp/pa667-alltests.log`, `/tmp/pa667-knowledge-focused.log`). Full rerun after the bounded test wait correction pending.
+- First full backend run: 767 passed, one maintenance observation poll timeout; isolated 4/4 rerun passed (`/tmp/pa667-alltests.log`, `/tmp/pa667-knowledge-focused.log`). A second unconstrained run overlapped frontend checks and hit the existing 45s Task-loop and 90s workspace-tools deadlines (766/768 passed; `/tmp/pa667-alltests2.log`). The complete suite with `--maxWorkers=2` then passed 143 files / 768 tests in 294s (`/tmp/pa667-alltests-serialbudget.log`); neither affected product implementation nor their timeout limits changed.
 - Python non-E2E: 70 passed, 32 deselected (`/tmp/pa667-pytest.log`). Ruff check and format pass. Docs integrity pass, 289 maintained sources and 68 required routes (`/tmp/pa667-docscheck.log`).
-- Native interactive runtime generated-asset check and typecheck pass (`/tmp/pa667-iosruntime.log`). Full frontend gate pending after installing its locked dependencies.
+- Native interactive runtime generated-asset check and typecheck pass (`/tmp/pa667-iosruntime.log`). Frontend locked-dependency install, generated-asset check, 108 files / 1,031 tests and the critical-severity audit gate passed (`/tmp/pa667-frontend2.log`, `/tmp/pa667-frontend-audit.log`); the audit reports 11 existing noncritical advisories, with no dependency changes.
 
 ## Real-model isolation and pending gates
 
@@ -38,3 +38,9 @@ Local logs are evidence locators, not committed runtime data. Node `24.22.1`, pn
 - Transparent local capture for each isolated stack forwards to the existing port 4000 service and stores only request bodies in that stack's `provider-requests/`. Shared proxy configuration is untouched. Capture is test-only and does not modify tool results or model responses.
 - Native #361 root `5524e22e-d1af-44f3-bd49-93350fa059e9` started continuable executor `54612f0b-8c6a-41bd-a908-0427784264c0`, which started second-level author `478c29d9-b9f6-4866-81d7-a02c31132d78`. These are observed execution IDs, not proof of completed delivery.
 - Product acceptance, verifier evidence closure, final sync, canonical merge, archive, Ready PR and CI remain pending. No production changes, merge or package release.
+
+## Completed ordinary acceptance and environment cleanup
+
+Independent product report `../acceptance.md` at `f37ce20c0` records seven passed scenarios, zero confirmed implementation defects, and the single remaining #361 completion gap (which keeps three dependent scenario rows inconclusive). The candidate and main-text comparison stacks and their capture proxies were stopped after this stage; ports 60038/50445/60394/50784 no longer listen. Runtime data and exact provider requests remain available for audit. The separate #361 runtime and its capture remain active until its task completes.
+
+A fetch of origin/main after these checks found no new commits beyond the reviewed base. Final delivery must recheck before canonical merge/archive.
