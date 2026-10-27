@@ -18,7 +18,7 @@ PA 的主线不是开发，也不是分派任务，而是持续了解并帮助�
 | 没有日历或预订账号 | 先给核验过的方案，再指出最小接入缺口 | Skill 名里有“出行”便谎称订好了 |
 
 ## 现有基础不重造
-保留现有 Global 主上下文、IM 来源模型、Task、原生子执行、Heartbeat/schedule、KnowledgeRuntime、技能选择、独立披露审核及 Work 可观测性。核对证据见 [现状与缺口](design/01-current-state-and-gaps.md) 和 [来源](SOURCES.md)。
+保留现有 Global 主上下文、IM 来源模型、Task、原生子执行、Heartbeat/schedule、KnowledgeRuntime、技能选择、独立披露审核及 Work 可观测性。核对证据见原始升级包中的「现状与缺口」（`design/01-current-state-and-gaps.md`）和「来源」（`SOURCES.md`）；这两份附件未随本仓输入摘录收录。
 
 具体补齐：
 
