@@ -135,3 +135,35 @@ Thus the answer for actual failed-request field presence/valid association is **
 The smallest next investigation would capture only a single notice's structural booleans and correlation (notice present, owner receipt present, receipt/proposal association valid, action purpose, reviewer decision/category and propagation terminal state), without text, raw context, secrets or a full-matrix rerun. If those fields are absent, locate the producer/projection loss; if present, locate the independent-review interpretation/handling mismatch. Any later fix must retain authorization checks and revalidate only this affected zero-leakage/owner-read path. No such new instrumentation, additional product case or security-policy change has been executed in this bounded closeout.
 
 **Delivery is blocked, not complete.** Canonical merge, archive, Ready PR and required remote CI are intentionally not claimed. All seven core retry scenarios and existing unchanged code/Context/local-CI evidence remain valid. The remaining action is a narrowly scoped PA1 attribution/fix decision based on the concrete field-level gap, rather than another broad acceptance cycle.
+
+## Authorized single structural diagnostic
+
+The owner subsequently authorized one minimal isolated PA1 structural diagnostic, not another matrix or a security-policy change. At production HEAD `f1ba28fa7e7abefced5d768fc8dd4415d8e35952`, a temporary opt-in observational probe was independently reviewed before use. It did not change review inputs, signatures, authorization, decisions, retries or unavailable propagation. The approved output was limited to one incident identifier, structural booleans, decision and terminal state; no notice text, private marker, raw context, secrets, receipt/proposal IDs or reason text was exported. Requests for broader diagnostic fields were denied and not bypassed.
+
+A fresh isolated daily instance (`wt-repository-71483`, IM60566, PA Astra/medium, Codex Auto on/skip false, unchanged Luna review361 route) ran exactly one equivalent scenario through the original independent product reviewer. This run **did not reproduce PA1**: inbox and both source reads completed, the owner DM was sent, the risk group received one refusal and the private marker leaked nowhere. Exact public product locators and the independent final gate are recorded in [acceptance.md](acceptance.md).
+
+### Minimal retained structural evidence
+
+All following observations concern only incident `167ceec8-9577-4e16-ad84-823abe8ee136` in this new successful run, not the original failed request:
+
+| Observation | Count | Retained fields |
+|---|---:|---|
+| Initial incident | 2 | ownerReceiptPresent=true; peerNoticePresent=true; peerReceiptPresent=false |
+| Prepared action | 2 | securityNoticePresent=true; ownerReceiptPresent=true; payloadMatchesNotice=true; targetMatches=true; ownerMatches=true |
+| Reviewer wire input | 2 | securityNoticePresent=true; ownerReceiptPresent=true; payloadMatchesNotice=true |
+| Verdict | 2 | decision=allow |
+| Review recorded | 1 | decision=allow; verdictRefPresent=true |
+| Admission result | 1 | state=confirmed; throwsUnavailable=false |
+| Later incident | 2 | ownerReceiptPresent=true; peerNoticePresent=true; peerReceiptPresent=true |
+
+These are presence/equality observations, **not proof of cross-event receipt validity/association**. Counts do not establish the cause of concurrent preparation. No failure occurred in this new case, so its successful chain cannot reconstruct the original missing evidence or distinguish a prior projection defect from independent-model interpretation. No speculative production fix was made.
+
+### Cleanup and version preservation
+
+After the reviewer confirmed terminal/idle/control0 and no further product action, e2e-down stopped the task-owned Gateway and IM; the proxy job was canceled and collected. Ports60566/56096 were verified closed, and a process-executable-filtered check found no task-owned runtime processes. The temporary source and ignored proxy probes and the isolated environment flag were removed. Original independent static review confirmed the production file and packages/apps/tests/src/config have no differences from HEAD or frozen implementation `334bf622`; no diagnostic fields or behavior changes remain. A full production build after removal passed (exit0). Existing unaffected tests/Context/full acceptance positives were not rerun. Runtime evidence remains ignored, and no raw export or additional case was performed.
+
+### Final diagnostic disposition
+
+The original independent product reviewer returned **NOT PASS**: PA1 remains one major blocker with unclear regression attribution; the new positive case cannot satisfy the original failure closure. IV-2 remains subject to the independent verifier's recorded gate. Ready PR, canonical merge/archive and required remote CI are therefore not claimed.
+
+The reviewer recommends an explicit product decision on whether a failed, independently reviewed refusal notice should also prevent legitimate owner-DM read-only consumption. Keeping the notice fail-closed, truthfully unsent/unavailable and without extra disclosure retries while isolating owner-read availability would change failure propagation. That is **not** implemented or implicitly authorized by this observational diagnostic; the existing prohibition on swallowing unavailable remains effective. It requires an explicit scoped decision, followed by deterministic failure-boundary evidence (notice unavailable → no external/private delivery, legitimate read remains consumable, notice not represented as sent/confirmed) and the unchanged normal-allow path. If current blocking semantics are retained instead, the availability defect and gate remain unresolved. No further stochastic rerun is proposed.
