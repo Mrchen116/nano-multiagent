@@ -12,6 +12,7 @@
 # Usage:
 #   ./scripts/e2e-up.sh                                  # repository default profile
 #   ./scripts/e2e-up.sh --profile daily                 # fixed P/E/Q + real PA
+#   ./scripts/e2e-up.sh --vite                           # optional frontend HMR
 #   ./scripts/e2e-up.sh --feishu                         # dedicated test Bot profile
 #   ./scripts/e2e-up.sh --main-config /path/to/cfg.yaml  # alt source config
 #   ./scripts/e2e-up.sh --wt /custom/worktree/path       # alt target worktree
@@ -21,8 +22,8 @@
 #   .e2e-jwt-secret           (random IM JWT secret for this run)
 #   .gateway-config.yaml      (isolated copy of main config)
 #   .gateway-workspace/       (per-agent workspaces isolated from the user home)
-#   .im.pid / .gateway.pid
-#   .im.log / .api.log / .gateway.log
+#   .im.pid / .gateway.pid / optional .vite.pid (+ process-start guards)
+#   .im.log / gateway.log / optional .vite.log
 
 set -euo pipefail
 
@@ -39,6 +40,7 @@ DEFAULT_FEISHU_LOCK_ROOT="${XDG_RUNTIME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/n
 WT_ROOT="${PWD}"
 MAIN_CFG="$DEFAULT_E2E_CONFIG"
 E2E_PROFILE="default"
+START_VITE=0
 PROFILE_FLAGS=0
 FEISHU_ENV="$DEFAULT_FEISHU_ENV"
 MAIN_CONFIG_EXPLICIT=0
@@ -116,6 +118,7 @@ while [[ $# -gt 0 ]]; do
     --main-config) MAIN_CFG="$2"; MAIN_CONFIG_EXPLICIT=1; shift 2 ;;
     --profile) E2E_PROFILE="$2"; PROFILE_FLAGS=$((PROFILE_FLAGS + 1)); shift 2 ;;
     --feishu) E2E_PROFILE="feishu"; PROFILE_FLAGS=$((PROFILE_FLAGS + 1)); shift ;;
+    --vite) START_VITE=1; shift ;;
     --feishu-env) FEISHU_ENV="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -150,7 +153,7 @@ fi
 
 # ─── liveness check (refuse to clobber) ──────────────────────────────────────
 
-for pidfile in "$WT_ROOT/.im.pid" "$WT_ROOT/.gateway.pid"; do
+for pidfile in "$WT_ROOT/.im.pid" "$WT_ROOT/.gateway.pid" "$WT_ROOT/.vite.pid"; do
   if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
     echo "service still running: $pidfile (pid=$(cat "$pidfile"))" >&2
     echo "run ./scripts/e2e-down.sh first" >&2
@@ -167,8 +170,21 @@ rm -f "$WT_ROOT/.e2e-daily.json" "$WT_ROOT/.e2e-ports.env"
 # not follow $WT_ROOT because test fixtures commonly use a non-git temp path.
 FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 [[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
-# Only the IM center listens on a port; DSH is a managed stdio child.
-read -r IM_PORT < <("$FREE_PORTS_SH" 1)
+# IM and optional Vite listen on isolated ports; DSH is a managed stdio child.
+VITE_PORT=""
+if [[ $START_VITE -eq 1 ]]; then
+  read -r IM_PORT VITE_PORT < <("$FREE_PORTS_SH" 2)
+else
+  read -r IM_PORT < <("$FREE_PORTS_SH" 1)
+fi
+IM_URL="http://127.0.0.1:$IM_PORT"
+UI_URL="$IM_URL"
+# Never inherit a different environment's browser-origin allowance.
+export IM_BROWSER_ORIGINS=""
+if [[ $START_VITE -eq 1 ]]; then
+  UI_URL="http://127.0.0.1:$VITE_PORT"
+  export IM_BROWSER_ORIGINS="$UI_URL"
+fi
 
 JWT_SECRET="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 32 || echo "e2e-$$-$(date +%s)")"
 echo "$JWT_SECRET" > "$WT_ROOT/.e2e-jwt-secret"
@@ -239,11 +255,15 @@ if [[ ! -f "$REPO_ROOT/apps/im-server/lib/main.js" || ! -f "$REPO_ROOT/apps/node
   exit 1
 fi
 
+# Build current sources, not merely a possibly stale index.html. Both entrypoints
+# remain available on IM even when an optional HMR server is requested.
+# Pin browser HTTP/WS to its own origin, overriding inherited Vite/dotenv targets.
+export VITE_IM_API_BASE_URL=""
+npm --prefix "$REPO_ROOT/src/IM/frontend" run build
+pnpm --dir "$REPO_ROOT/packages/dsh-trajectory-viewer" run build
+export IM_FRONTEND_DIST_DIR="$REPO_ROOT/src/IM/frontend/dist"
+export IM_TRAJECTORY_DIST_DIR="$REPO_ROOT/packages/dsh-trajectory-viewer/dist"
 cd "$WT_ROOT"
-if [[ "$E2E_PROFILE" == "daily" ]]; then
-  export IM_FRONTEND_DIST_DIR="$REPO_ROOT/src/IM/frontend/dist"
-  export IM_TRAJECTORY_DIST_DIR="$REPO_ROOT/packages/dsh-trajectory-viewer/dist"
-fi
 IM_PUBLIC_URL="http://127.0.0.1:$IM_PORT" IM_JWT_SECRET="$JWT_SECRET" IM_DB_PATH="$WT_ROOT/data/im_service.sqlite3" IM_UPLOAD_DIR="$WT_ROOT/data/uploads" IM_PUBLIC_MODE=0 \
   node --input-type=module - "$REPO_ROOT/apps/im-server/lib/main.js" "$IM_PORT" "$WT_ROOT" <<'JS'
 import {spawn,execFileSync} from 'node:child_process';
@@ -319,6 +339,27 @@ if [[ $FEISHU_LOCK_HELD -eq 1 ]]; then
   trap - EXIT
 fi
 
+# Optional Vite is owned by this stack, with the same process-birth guard as IM.
+if [[ $START_VITE -eq 1 ]]; then
+  VITE_IM_PROXY_TARGET="$IM_URL" node --input-type=module - "$REPO_ROOT/src/IM/frontend" "$VITE_PORT" "$WT_ROOT" <<'JS'
+import {spawn,execFileSync} from 'node:child_process';
+import {openSync,closeSync,writeFileSync} from 'node:fs';
+const [frontend,port,root]=process.argv.slice(2),log=openSync(root+'/.vite.log','a');
+const child=spawn(process.execPath,[frontend+'/node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',port,'--strictPort'],{cwd:frontend,env:process.env,detached:true,stdio:['ignore',log,log]});
+writeFileSync(root+'/.vite.pid',String(child.pid));
+writeFileSync(root+'/.vite.process-start',execFileSync('ps',['-p',String(child.pid),'-o','lstart=']));
+closeSync(log);child.unref();
+JS
+  VITE_READINESS_STARTED_SECONDS=$SECONDS
+  until curl -sf "$UI_URL/" >/dev/null; do
+    if ! kill -0 "$(cat "$WT_ROOT/.vite.pid")" 2>/dev/null || (( SECONDS - VITE_READINESS_STARTED_SECONDS >= 30 )); then
+      echo "Vite failed readiness; see $WT_ROOT/.vite.log; run e2e-down.sh --wt $WT_ROOT" >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+fi
+
 # ─── persist port map for follow-up curl / tests ─────────────────────────────
 
 FEISHU_LOCK_ENV_LINE=""
@@ -330,7 +371,9 @@ cat > "$WT_ROOT/.e2e-ports.env" <<EOF
 # DSH uses a private stdio link; no runtime HTTP port.
 # source this file in your shell, then curl with \$IM_URL.
 export IM_PORT=$IM_PORT
-export IM_URL=http://127.0.0.1:$IM_PORT
+export IM_URL=$IM_URL
+export UI_URL=$UI_URL
+export VITE_PORT=$VITE_PORT
 export IM_JWT_SECRET=$JWT_SECRET
 export NODE_ID=$NODE_ID
 export VITE_IM_PROXY_TARGET=http://127.0.0.1:$IM_PORT
@@ -342,6 +385,9 @@ echo "e2e stack ready in $WT_ROOT"
 echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
 echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/gateway.log)"
 echo "  profile $E2E_PROFILE"
+echo "  Browser $UI_URL (same-origin IM: $IM_URL)"
+echo "  Test account: nano / nano1234"
+if [[ $START_VITE -eq 1 ]]; then echo "  Vite $VITE_PORT ($WT_ROOT/.vite.log)"; fi
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
 echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nanoassistant"
 echo "      product acceptance uses --profile daily (handoff: .e2e-daily.json)"

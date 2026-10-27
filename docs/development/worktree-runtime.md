@@ -22,7 +22,7 @@
 
 ## 前置条件
 
-- 已执行 `pnpm install --frozen-lockfile`、`pnpm build` 与 Web 构建。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
+- 已执行 `pnpm install --frozen-lockfile`、`pnpm build`。主前端依赖另需 `npm --prefix src/IM/frontend ci`；up 自动构建当前主前端与原生轨迹查看器，不要求手工构建 Web。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
 - 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是默认的、无密钥 E2E 配置，包含两个普通 Agent（`e2e`、`e2e-peer`）、一个 Global Agent（`e2e-global`）、Web IM channel 和可选模型目录。预设显式配置文件、命令、搜索、Skill 与消息工具，避免缺省工具名单在配置同步后变为空集；Skills 使用空禁用名单，保留正常发现。需要另一个受控 config 时，才通过 `--main-config` 显式指定。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
@@ -71,7 +71,7 @@
 
 ```bash
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-WT_ROOT="$REPO_ROOT"
+WT_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/nano-e2e.XXXXXX")"
 NANO_MAIN_ROOT="/absolute/path/to/main-checkout"
 E2E_UP="$REPO_ROOT/scripts/e2e-up.sh"
 E2E_DOWN="$REPO_ROOT/scripts/e2e-down.sh"
@@ -107,7 +107,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 
 | 方面 | 脚本行为 |
 |---|---|
-| 端口 | 通过 `scripts/free-ports.sh` 为 IM 分配空闲端口；DSH 和 Gateway 不监听业务端口 |
+| 端口 | 通过 `scripts/free-ports.sh` 为 IM 和可选 Vite 分配空闲端口；DSH 和 Gateway 不监听业务端口 |
 | IM identity | 为本次运行生成随机 `IM_JWT_SECRET`，在全新 IM 中显式初始化隔离测试用户 |
 | IM 数据 | 以 `WT_ROOT` 为 cwd，使用其中的 `data/im_service.sqlite3`，启动前清理本目录的旧 E2E 状态 |
 | Gateway config | 默认从 `config/e2e/gateway.yaml` 复制 `.gateway-config.yaml`，不修改源文件；`--feishu` 仅向该副本注入私有测试 App 凭据 |
@@ -117,7 +117,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 | Binding | Gateway 使用 `--auto-bind`，避免自动化流程停在浏览器确认页 |
 | 进程 | IM 和 Gateway 的 PID 分别写入 `.im.pid`、`.gateway.pid`；Gateway 由当前 Node CLI 管理，状态文件记录 Node 与 DSH PID |
 | Readiness | 等待 IM health、Node/DSH 完成恢复，再验证目标 owner 的节点 online |
-| 后续入口 | 写出 `.e2e-ports.env`，提供 `IM_PORT`、`IM_URL`、`IM_JWT_SECRET`、`NODE_ID` 和 `VITE_IM_PROXY_TARGET` |
+| 后续入口 | 写出 `.e2e-ports.env`，提供 `IM_PORT`、`IM_URL`、`IM_JWT_SECRET`、`NODE_ID`、`UI_URL`、可选 `VITE_PORT` 和 `VITE_IM_PROXY_TARGET` |
 
 源 config 必须包含可解析的 `llm:` 段。本文不复制完整模型配置；模型、provider 和凭据变化时只维护其 canonical 配置说明。
 
@@ -125,11 +125,11 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 
 | 路径 | 作用 | `e2e-down.sh` 后 |
 |---|---|---|
-| `.e2e-ports.env` | 本次端口和 URL | 删除 |
-| `.e2e-jwt-secret` | 本次 IM JWT secret | 删除 |
-| `.gateway-config.yaml` | 隔离 Gateway config，可能含凭据 | 删除 |
-| `.im.pid`、`.gateway.pid` | 外部进程身份 | 删除 |
-| `channel-credentials-v1.pem`、`channel-manifest-v1.json` | 本次 channel 凭据与 manifest | 删除 |
+| `.e2e-ports.env` | 本次端口和 URL（停止后不代表服务在线） | 保留用于排障 |
+| `.e2e-jwt-secret` | 本次 IM JWT secret | 保留，与状态配套 |
+| `.gateway-config.yaml` | 隔离 Gateway config，可能含凭据 | 保留，与状态配套 |
+| `.im.pid`、`.gateway.pid`、可选 `.vite.pid` 及 birth 文件 | 外部进程身份 | 删除 |
+| `channel-credentials-v1.pem`、`channel-manifest-v1.json` | 本次 channel 凭据与 manifest | 保留，与状态配套 |
 | `.im.log`、`gateway.log` | 本次运行日志 | 保留用于排障 |
 | `.gateway-workspace/` | 本次 agent workspace | 保留用于排障 |
 | `data/im_service.sqlite3` 及 Gateway SQLite state | 本次运行数据 | 保留或由下次 E2E 启动重建 |
@@ -155,25 +155,31 @@ tail -n 50 "$WT_ROOT/gateway.log"
 
 ### 浏览器验收身份
 
-脚本会按源 Gateway config 的 `im_service.username` 和 `im_service.password` 注册并绑定隔离用户；
-浏览器验收必须以这一账号登录，不能临时注册另一个用户（新用户不会拥有这次 Gateway node）。仓库默认
-`config/e2e/gateway.yaml` 使用 `nano` / `nano1234`；受控替代 config 则以其自身的 `im_service` 字段为准。
+所有 profile 都显式初始化并绑定测试账号 `nano` / `nano1234`（包括 `--main-config`）。
+浏览器使用启动输出中的 `UI_URL`；不能临时注册另一个用户来验收本次 Gateway。
 这只是隔离栈的测试身份，不得用于生产服务。
 
-## 可选：启动 Vite
+## 默认同源 UI 与可选 Vite
 
-`e2e-up.sh` 只启动 IM 和 Gateway，不启动 Vite。需要前端 dev server 时，先加载它生成的代理目标，再单独分配端口：
+所有 profile 均构建主前端与原生轨迹查看器，并通过绝对 `IM_FRONTEND_DIST_DIR` /
+`IM_TRAJECTORY_DIST_DIR` 交给 IM；临时 `--wt` 目录不必含源码。默认直接打开 `IM_URL`，
+登录、聊天 WebSocket 和 `/trajectory/` 资源同源，无需 Vite。
+
+需要 HMR 时使用同一入口，不另建启动流程：
 
 ```bash
-source "$WT_ROOT/.e2e-ports.env"
-VITE_PORT="$("$REPO_ROOT/scripts/free-ports.sh" 1)"
-
-cd "$REPO_ROOT/src/IM/frontend"
-VITE_IM_PROXY_TARGET="$IM_URL" \
-  npm run dev -- --host 127.0.0.1 --port "$VITE_PORT" --strictPort
+./scripts/e2e-up.sh --vite --wt /absolute/isolated/path
+source /absolute/isolated/path/.e2e-ports.env
+# 打开 $UI_URL；$IM_URL 仍提供完整的构建版 UI。
+./scripts/e2e-down.sh --wt /absolute/isolated/path
 ```
 
-推荐让 Vite 在受控终端前台运行。若把它放到后台，调用者必须单独记录并停止其 PID；`e2e-down.sh` 当前只管理 IM 和 Gateway。
+Vite 绑定 loopback 的独立空闲端口并使用 `--strictPort`。`/im` 的 HTTP/WS 和
+`/trajectory` 资源均代理到本轮 IM；保留浏览器 Origin，仅将本轮 Vite 精确 origin
+加入 IM 的 `IM_BROWSER_ORIGINS`，不使用通配符或关闭安全校验。up 清除继承的其他
+origin 白名单。`.vite.pid`、`.vite.process-start` 和 `.vite.log` 属于本轮目录；down
+核对进程出生时间后仅停止该实例，不扫描端口杀进程，也不停止调用者手工启动的 Vite。
+若启动失败，仍须对同一目录运行 down；日志、配置及数据库作为证据保留。
 
 ## 手工调试时必须保持的契约
 
@@ -181,8 +187,8 @@ VITE_IM_PROXY_TARGET="$IM_URL" \
 
 | 服务 | 启动方式 | 生命周期所有者 |
 |---|---|---|
-| IM | `python -m uvicorn IM.app:app --host 127.0.0.1 --port <free-port>`，设置随机 `IM_JWT_SECRET`，cwd 指向隔离目录 | 外部 shell/PID 文件 |
-| Gateway | 显式传隔离 `--config`、本次 `--im-service-url`、`--foreground`、`--auto-bind` | 外部 shell/PID 文件 |
+| IM | `node apps/im-server/lib/main.js serve --host 127.0.0.1 --port <free-port>`，设置随机 `IM_JWT_SECRET`，cwd 指向隔离目录 | 外部 shell/PID 文件 |
+| Gateway | 使用 Node CLI `bind --auto-bind` 和 `start --config <隔离配置>` | Node CLI 状态文件 |
 | Vite | 显式传空闲 `--port`、`--strictPort` 和本次 `VITE_IM_PROXY_TARGET` | 前台终端或调用者自己的 PID 文件 |
 
 手工派生 Gateway config 时至少改写：
@@ -195,7 +201,7 @@ VITE_IM_PROXY_TARGET="$IM_URL" \
 
 Gateway 的两种生命周期不能混用：
 
-- worktree 验证使用 `--foreground`，`.gateway.pid` 是外部 shell 记录的进程身份。
+- worktree 验证复用 Node CLI start/stop，配置同目录 `.gateway-state.json` 记录身份；`.gateway.pid` 是便于检查的副本。
 - 主仓持久实例使用 Gateway wrapper 的 start/stop/restart 和 config 同目录的 `.gateway-state.json`，详见 [`../operations/gateway.md`](../operations/gateway.md)。
 
 ## 退出与完成证明
@@ -222,7 +228,7 @@ unit 完成或 worktree 删除前，还要确认：
 
 - 没有本次 IM、Gateway、Vite 监听端口。
 - 没有本次 PID 对应的存活进程或相关 `tmux` session。
-- `.gateway-config.yaml`、secret 和 channel 凭据已经删除。
+- 配置、secret 和 channel 凭据仅保留在本轮隔离目录，不能提交或当作新一轮运行状态。
 - 保留的日志、数据库和 workspace 没有被暂存或提交。
 
 ## 常见失败
