@@ -94,6 +94,10 @@ Executor changed only the ignored proxy to route using the parsed pathname, rest
 - Owned services were stopped only after the reviewer confirmed both sessions idle and injection/holds cleared: Node3657, DSH3660, IM95854, proxy7499. Verified all four absent and own ports53939/56096 closed before public RuntimeClient initialize. The consumer rejected business calls and shut down normally after read-only observe. Original isolated configuration/profile/state remain for reproducibility; shared4000 and Harness were untouched.
 - This evidence-only batch still requires original independent product and static reviewers to close their prior verdicts. Earlier failures remain in the reports. No final sync, archive or PR before formal closure.
 
+## R4 independent product closure
+
+Original independent product reviewer issued full **PASS**,0 blocking/major/minor, on evidence freeze `86591326fb439a4cc68a651080980df8c1650df8`. It independently matched all36 call/review pairs to its observed Work and formal plugin lists, recounted62 attempts, confirmed500ms cancellation timing and the stage/usage distinctions, and accepted the design's native/fake-clock allocation without labeling it live testing. All seven product scenarios are closed in acceptance Round4. Original static reviewer then formally closed V-R1-1 and retained V-R1-2 closure: full verification **PASS,0 CRITICAL /0 WARNING /0 SUGGESTION**, on the same evidence freeze. Code findings remain `[]`. All initial applicable gates are now passed; final synchronization still requires separate invalidation assessment.
+
 ## Independence and pending work
 
 - Original requirements/design author, design reviewer, implementation worker, independent static reviewer and independent product reviewer are distinct native Agents. Static review explicitly combines code-review and verification responsibilities with separate outputs; it is independent of implementation and product acceptance.

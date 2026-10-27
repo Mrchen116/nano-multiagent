@@ -1,5 +1,7 @@
 # feat-625 — 产品验收报告
 
+> 最新正式结论：**Round 4 full产品验收 pass**，冻结证据树 `86591326fb439a4cc68a651080980df8c1650df8`；实际业务执行树 `1862af639681defdb91651f50cc6e01459e63e0b`。下方保留R1/R2未通过历史及R3补验，最新Scenario覆盖与边界见Round 4。
+
 ## Round 1 — 中间报告，门禁尚未通过
 
 - Validation snapshot: `5454f3140f9c92532c690db8dec80b9f77080384 → dfee3df40116757346ef6a7edcaa5d10734c9a61`。
@@ -221,3 +223,83 @@ caller 通知已取得原主人对本轮选定合成 sessions/callIds 必要审�
 **design:140 六项安装外部结果均 pass**：新包安装前不存在；恢复后仅一次applied并在正式清单中恰1项；永久认证失败与活动请求停止后均正式清单0项，没有安装副作用。两策略全部真实安装/核对由产品Global Agent执行，reviewer未直接安装。该结论不以HTTP请求数替代审批attempt审计。
 
 最终公开核对：两Sol主session均idle，最新turn22 completed，control_items=0；代理responses=[]、holds=0。R3 probe后台工作已结束，未自行停caller的Node/DSH/IM/proxy。caller可在确认ownership后执行集中停栈及获准最小审计消费；本报告收到实际结果前仍保留审计场景inconclusive，未宣告full pass。
+
+## Round 4 — 独立产品验收证据闭合
+
+### 本轮正式结论
+
+**Verdict: pass。Highest required action: pass。当前未关闭的产品验收问题：0 blocking / 0 major / 0 minor；needs_re_review=false（仅限本轮冻结产品及已批准环境范围）。**
+
+本轮闭合 R1/R2 历史 fail/inconclusive，不覆盖或改写当时事实。真实服务旅程、确定性产品故障、六项安装副作用及获准公开消费面的实际逐 attempt 审计现可相互核对，已足以完成本 unit 的 full 产品验收。独立 verifier 的最终闭合、final sync、canonical 归并、archive、PR 均不由本 verdict 代为宣布。
+
+- `review_round`: 4；模式：在原 full 范围上的 evidence closure，不重新发业务任务。
+- `validated_at`: `86591326fb439a4cc68a651080980df8c1650df8`（本轮独立核对的证据冻结 HEAD，核对时 clean）。
+- `executed_base`: `5454f3140f9c92532c690db8dec80b9f77080384`，仍为授权 baseline，不称最新 main。
+- 实际 R2/R3 产品执行树：`1862af639681defdb91651f50cc6e01459e63e0b`；runtime 产品代码沿用 `dfee3df40116757346ef6a7edcaa5d10734c9a61`。本轮独立执行 git diff --quiet，仅核实版本等同性，不读取实现定位问题：从1862到8659的 packages/apps/tests/src/config 无差异，exit0。因此保留原真实旅程，不将报告提交冒充重跑。
+- 本轮新增读取仅为 [product-audit-metrics.md](product-audit-metrics.md) 的获准最小派生指标、独立 [verification.md](verification.md) 的证据分层结论和本报告；没有读取 raw observation、重新运行 consumer、启动服务或采集其他会话。
+
+### 实际审计来源及独立关联
+
+最小指标由 executor 在新的明确 owner 授权且正常工具权限检查通过后，于 `2026-10-27T11:38:23.258Z` 使用公开 RuntimeClient initialize/session.observe 从原 profiles/bindings 取得；product.call 全拒绝、原始 observation 仅内存处理后丢弃、仅输出选定字段，consumer shutdown/exit0。该采集不是 reviewer 亲自执行；reviewer 的独立工作是将其选定 session/callId、分类、时间和结果与先前亲自观察的真实 Work、/stop 和正式插件清单逐项关联。未以 synthetic native 数据冒充真实产品审计，也未重试原 raw 落盘方法。
+
+选定集合为两策略各18项：真实安装及A/B三项、R2故障/停止十二项、R3安装三项，共36个已在本报告记录的主工具 callId。逐项匹配最小指标中的 callId，缺失0；每个恰1个含 retry 的审批聚合、各有不同 reviewId，合计 **36 reviews / 62 actual attempts**，每策略18 reviews / 31 attempts。独立按表中 ordinal 序列重新计算31+31=62；additional return_to_agent 行是同一调用的最终路由，不算额外模型 attempt 或主工具调用。
+
+| 独立交叉核对项 | 实际审批证据 | 与已观察产品结果的关联 |
+|---|---|---|
+| 原操作恢复而非主Agent重发 | 两策略503-live均 service→allow、E/I=1/0；429/transport/live均 service→transport→allow、E/I=2/0。 | 各仅1主call、1次业务成功48000分，reviewId与其他新业务请求不同。 |
+| 持续服务故障 | 两策略503-exhaust均3个service attempts、E/I=2/0、finalCategory=service，no_verdict后同call return_to_agent。 | Work技术不可用、成功业务执行0；不把故障计作有效deny。 |
+| invalid共享额度 | invalid/empty均2 attempts、E/I=1/1；invalid→service→allow和service→invalid→invalid均3 attempts、E/I=2/1。 | 与R2真实操作成功/失败结果相符；现在由实际审批字段而非HTTP数确认恢复额度。 |
+| deny/auth与CC阶段 | auth和安装auth均1 attempt、E/I=0/0；valid deny亦1 attempt、0/0。CC有效deny包含stage1和stage2，仍是同一attempt。 | Work分别classifier_unavailable/auth与classifier_block；R3 auth正式清单0项。CC两次HTTP不是失败重试。 |
+| 安装恢复 | CC `call_cfce86d2722d4733943c223c8e565af9` 对应review `7f973bba-3620-44be-92a0-05372d0d601f`；Codex `call_7d1047d76a104a178894e522f72c217c` 对应 `d162f3b1-0758-431a-a391-01d05ea0dd1c`。均service→allow、E/I=1/0。 | 原来未安装的新包，仅1次主install/applied，正式清单各恰1项；不是主Agent重新安装恢复。 |
+| 活动请求与安装取消 | 四个active/installation stop对应实际cancel attempt，E/I=0/0、classifier_cancel/cancel。 | 与Work ABORTED_BEFORE_DISPATCH、连接断开、业务执行0或正式清单未安装一致；无fallback放行。 |
+| 退避取消 | 两个backoff取消各仅1个service attempt，随后finalCategory=cancel，E/I=0/0。 | 与Work interrupted、stop后无下一目标HTTP和工具执行一致；实际退避时间独立计算见下。 |
+| 超时后恢复 | CC timeout:30006ms→allow:7678ms，E/I=1/0；Codex timeout:90042ms→allow:2703ms，E/I=1/0；均final allow。 | 与工具总耗时38203ms/93262ms及单次48000分业务结果一致；明确timeout归因，不混为invalid。 |
+
+全部选定attempt实际记录 reviewer provider=`issue361-review-proxy`、model=`codexOAuth:gpt-6-luna`，并保留实际耗时及可得usage，不从配置或HTTP数量猜测。失败/取消所输出的cleanupConfirmed均true；仅用于确认本地已记录清理，不扩张为远端物理计算终止证明。
+
+### 退避与超时的独立复核及更正
+
+R2原先以注入 Retry-After=10秒推断实际等待10秒不成立；本轮已独立核对并确认当前报告138/143/145的更正：实际审计未呈现providerRetryAfterMs，delayAfterMs=500ms。注入的HTTP头不能直接作为策略实际消费hint的证明。
+
+- CC backoff call `call_c1883ae2bb4c4b4285bdfccad16eeb9b`，review `f2062a07-c7fd-424b-87ca-88260752db15`：失败结束1793099548817，取消审计1793099549013，差 **196ms < 500ms**；下一次计划边界1793099549317尚未到达。唯一service attempt，extraUsed=0。
+- Codex backoff call `call_95ba898d0f9449929843f8100c82e1a8`，review `d2fbc167-8c97-4a91-93af-7279c0bc5b9f`：失败结束1793099612629，取消审计1793099612739，差 **110ms < 500ms**；计划边界1793099613129尚未到达。唯一service attempt，extraUsed=0。
+- 与原先亲自观察的Work调用耗时210/222ms、running后/stop、12秒无后续请求相容，足以证明确实在本次实际退避中取消，而不是仅收到错误后某个不明阶段停止。12秒观察仍有效，但不再称实际退避10秒。
+- CC timeout起止1793099713422→1793099743428，下一attempt起点1793099743929：实际30006ms与501ms间隔。Codex1793099816700→1793099906742，下一起点1793099907243：实际90042ms与501ms间隔。计算与最小指标相符；不是统一90秒总截止。
+
+### usage 的实际可查性与边界
+
+最小指标提供真实成功请求的child usage，可与对应主call/review关联。例如CC真实安装38172/11、A38459/11、B38546/11（input/output tokens）；Codex真实安装1210/70且cacheRead38400、A1311/60且cacheRead39424、B815/58且cacheRead40576。只按所给字段解释，不将不同缓存口径相加为账单总量。
+
+失败attempt聚合usage为absent/unknown；取消/timeout child亦unknown。HTTP错误child的0/0为SDK提供字段，不能说成真实模型测量了零token；invalid/empty/deny child的1/1为fixture合成字段，不能计为live用量。CC deny的聚合usage缺失，仍可检查两个synthetic child。Codex成功聚合在选定inputTokens标量键下缺失，但per-request child有可得值；不补0、不重复合计。这满足“可得usage可查、缺失不得伪装零”的产品审计要求，而非承诺所有供应商都提供同口径精确账单。
+
+### full验收的分层判断
+
+独立阅读verification的R2 supplement后，本reviewer接受其分层：每个spec Scenario仍需本轮实际代表性产品结果及可检查证据，但不把design明确归W2–W5的完整时钟、竞态和路由笛卡尔积全部追加为真实慢跑。不是按轮次降标准，也不是拿worker叙述替代旅程。
+
+- 完整三次90秒预算、290秒上界、hint cap：复用独立静态核验的fake-clock/native证据；本产品层只声明亲测CC30秒阶段、Codex90秒后恢复及实际审批时间。
+- 非合作iterator、late allow/checkpoint、准备/审计竞态：复用独立静态核验的native/生命周期证据；产品层亲测活动请求、退避、安装停止和实际cancel审计，不声称物理终止远端计算。
+- interactive与scheduled fallback：复用已独立核验的原生路由/effect机制，本轮实际Global return_to_agent及其审计补齐代表性产品结果；没有把system-origin native输入称为真实Schedule执行，显式unattended allow仍是旧配置fallback，不是模型allow。
+- deny/auth/config：本轮真实有效deny、401及401安装副作用为代表性产品路径；独立native配置/context-budget失败的一次config attempt、extraUsed0与零effect补齐机制。spec没有要求每个永久错误枚举都另建真实配置旅程，因此不再将未真实重演config列为独立产品阻塞。
+- design:140明确要求的安装六项不能由动态业务工具替代，已由R3全部独立实测闭合。
+
+### 最新Scenario覆盖（覆盖旧轮未闭合项）
+
+| spec Scenario | 本轮最终依据 | 结论 |
+|---|---|---|
+| 服务恢复后继续原操作 | 双策略业务调用和安装503→真实allow，原call只执行一次；实际reviewId及attempt/E字段对应，无主Agent重发；native effect边界补充。 | pass |
+| 持续故障耗尽 | 双策略实际3次service attempts、extraUsed2、业务执行0与技术不可用/return_to_agent；独立预算与原fallback机制按指定层复用。 | pass |
+| 空白或非法判定 | 双策略empty/invalid及混合序列真实审计确认invalidRecoveryUsed1、总extra≤2，业务副作用与终态匹配。 | pass |
+| 明确拒绝或认证配置错误 | 真实deny/auth均0extra、CC两stage属于同attempt；auth安装0副作用；配置机制复用独立native核验。 | pass |
+| 请求中或退避时停止 | 真实IM停止业务及安装、正式清单0副作用；500ms退避内取消的时间戳与0extra/无下一attempt确认；late边界按native层核验。 | pass |
+| 分清恢复与新调用 | 36个选定call对应36个distinct reviewId和62个真实attempts，模型/类别/耗时/路由/可得usage可查，内部恢复与新主调用分离。 | pass |
+| 全局 Agent 插件真实旅程 | 两Global角色自主创建、各1次applied安装、各两次真实业务调用480/370，Work与对应真实审核/usage可关联；真实及注入结果分开。 | pass |
+
+### 旧问题处置、环境限制与交付边界
+
+- R1-E1：DeepSeek默认模型当时402/QUOTA事实保留，不声称恢复。caller批准的Sol替代真实成功；本次模型可用性结论只限Sol/high＋Luna及该隔离栈。
+- R1-E2：自建proxy的先前连接前置问题由caller修复；R2/R3真实成功已独立证实受阻产品路径恢复，不归为产品实现缺陷。
+- R1-E3 / R2-E1：新的明确授权后，正常权限检查通过的最小实际消费者已取得必要数据；本轮独立关联完成，关闭具体取证缺口。原raw拒绝并未被撤销或绕过。
+- R2-E2：安装必验由R3补齐；其他指定worker/native边界依据独立verification完成合理分层，不再重复要求所有真实慢跑。无未关闭的必验Scenario。
+- 继续保留批准的default替代daily、默认DeepSeek失败后新建Sol角色、无浏览器/iOS视觉覆盖、无生产/外部IM访问等实际范围说明；本unit无视觉must-match，API入口符合runbook。
+- caller报告取证前已确认own Node3657/DSH3660/IM95854/proxy7499退出、53939/56096关闭，consumer已shutdown；本reviewer未重新启动或独立停服务。该清理事实按caller来源记录。
+- report_path为本文件；reviewer未commit，report_commit由caller统一提交后填写。gh_issues_filed=0。若后续产品或有效base有实质变化，应重新做失效判断；本结论不表示已sync、已archive或已创建/准备好PR。
