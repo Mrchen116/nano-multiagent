@@ -72,3 +72,23 @@
 四个 Global Agent 的第一次生成请求均已读取原消息，provider 暂停返回 send_message，使四个旧草稿都为“1”。放行 A 后，D 的旧“1”被真实工具拦住；D 读取 A 的正文后在准备“2”时再次暂停。随后 B/C 的旧“1”分别被拦、读取新消息后发送“2”/“3”；最后放行 D 的旧“2”，再次被拦并读取 B/C 正文后发送“4”。断言包括每次 held/sent、实际工具参数、真实消息 ID/正文进入下一次 provider 请求、唯一公开消息序列 1/2/3/4。模型只提供受控响应，Inbox、发送复验与群消息投递均走真实产品代码；未修改产品源码。
 
 首轮夹具漏识别原生 Guardian 的工具签名，未产生第一条发送；按现有 events fixture 的 guardian_* 工具识别修正后，新增用例 1 passed（13.36s）。这是夹具问题，没有判为产品故障。最终窄验证命令 `PYTHONPATH=src python -m pytest -q tests/e2e/critical_paths/test_group_send_revalidation_critical_path.py tests/e2e/critical_paths/test_group_chat_directed_mention_critical_path.py tests/e2e/critical_paths/test_global_agent_inbox_critical_path.py`：3 passed（43.29s），本地日志 `/tmp/refactor-668-send-final.log`；ruff、docs-check 通过，collect-only 28 items。独立 delta 检查见 verification。原 27 项的有效证据保留，新增用例使总数为 28，真实付费模型调用仍为 0。
+
+
+## PR 内追加：8 组测试价值问题
+
+| 审计组 | 最终处理 | 有效保护与证据 |
+|---|---|---|
+| 1. legacy manifest 可空断言 | 加强 | 对完整解析结果断言相等，并检查未凭空增加 updater/data epoch；拒绝所有 SHA 版本的 mutation 从旧测试通过变为 1 failed / 7 passed。 |
+| 2. 路由用导航或错误页冒充成功 | 加强 | HTTP 边界提供确定数据；列表路由必须渲染实际 Agent 和设备，创建路由必须出现可用表单并选择 URL 指定的 node-2（默认节点为 node-1）。空列表页面和纯错误创建页的 mutation 均失败（2 failed / 2 passed）。 |
+| 3. i18n setter 掩盖默认值 | 加强 | 每项清存储与模块缓存，冷初始化观察默认 en；设置 zh 后重新初始化验证恢复。默认值改 zh 的 mutation 1 failed / 1 passed。 |
+| 4. rail 声称覆盖未使用的 nodes join | 修正并加强 | 删除未消费的 listNodes mock；按实际 PublicAgent 数据验证两行设备匹配、active 和点击回调。删除传入的 node_name 后 1 failed / 1 passed；nodes lookup 仍由原 AgentRow 测试承担，禁用 lookup 后 6 failed / 8 passed。 |
+| 5. tool emoji 同输入同断言重复 | 合并删除 | 删除一项完全重复的 bash fallback 用例，保留另一个及 unknown / 显式 emoji 优先级分支。 |
+| 6. rail 重复检查子组件颜色 | 合并删除 | 删除上层颜色用例，保留 AgentRow 的 normal/active 颜色保护；rail 保留数据和选择接线。 |
+| 7. 两项自然语言政策整句匹配 | 删除 | 删除 simplified-flow 与 ready-PR 整句匹配用例；保留语义门禁矩阵、稳定链接与实际 archive 黑盒检查。 |
+| 8. codex unit 分支跳过归档门禁 | 修复脚本及黑盒覆盖 | unit/codex 两前缀执行归档、active、retired、缺失、重复和四类带后缀分支检查；明确的 malformed unit 失败，普通 codex/docs-cleanup 仍跳过。CI wiring 检查实际 YAML step 的 PR 条件、命令、head_ref env 和非忽略失败。 |
+
+负向验证在仓库外的隔离源码副本中进行，逐项恢复，不修改工作树产品源码。正常基线前端 4 files / 75 passed、manifest 8 passed；上述 5 次 mutation 均以预期断言失败，既有 AgentRow 负责 nodes 回退，未把它冒充为 rail 的责任。复现脚本与日志保存在 `/Users/czj/.codex/reports/test-value-audit-fixes-20261028/`。归档扩展先在旧脚本上得到 11 failed / 14 passed，修复后 archive + workflow 27 passed。
+
+增量本地回归：前端相关 5 files / 89 passed；product-contracts 3 files / 16 passed；Python 非 E2E 84 passed / 28 deselected；docs-check、ruff check/format 通过。当前 codex/refactor-668 分支实际调用归档脚本输出 is archived。产品 runtime、28 项 E2E 及 provider fixture 未改，保留前述有效执行证据，不把本轮非 E2E 回归计作重跑 E2E。
+
+前端本轮全量 `vitest run --maxWorkers=2`：108 files / 1029 passed；`tsc -b` 通过。日志 `/tmp/refactor-668-audit-frontend-full.log` 与 `/tmp/refactor-668-audit-frontend-types.log`。
