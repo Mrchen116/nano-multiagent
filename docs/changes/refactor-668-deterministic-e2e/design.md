@@ -16,7 +16,7 @@ critical_paths 的 live fixture 在 conftest.py 中启动共享真 IM/Node，默
 
 ### 可复用能力
 
-复用 test_agent_config_context_continuity_critical_path.py 的 stub_llm_stack、请求记录和真实进程生命周期；必要时提取为共享 helper，避免新增测试继续扩大其 400 行以上文件。复用 anthropic_sse_ok_recording.py、compaction 和 approval recording fixture。TS 原生 profile 已覆盖 history、cron、workflow-lifecycle、communication、heartbeat 和路由；只在覆盖同一失败原因且验证通过后合并删除，不根据名称推断覆盖。
+复用 test_agent_config_context_continuity_critical_path.py 的 stub_llm_stack、请求记录和真实进程生命周期；必要时提取为共享 helper，避免新增测试继续扩大其 400 行以上文件。复用 anthropic_sse_ok_recording.py、compaction 和 approval recording fixture。已有 TS 原生运行时及产品模块测试覆盖 history、cron、workflow-lifecycle、communication、heartbeat 和路由（各 seam 不同，模块替身不证明 IM 接线）；只在覆盖同一失败原因且验证通过后合并删除，不根据名称推断覆盖。
 
 ### 相关历史
 
