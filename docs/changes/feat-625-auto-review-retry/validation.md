@@ -80,6 +80,12 @@ A new temporary, literal-only `READY` probe used the configured reviewer provide
 
 Executor changed only the ignored proxy to route using the parsed pathname, restarted only that owned proxy on56096, and reran the same new literal probe. It completed; the minimal infrastructure log confirms `/v1/messages`, query present, live HTTP200. Shared4000 and the Node/DSH processes were not modified for this repair. This establishes the local fixture's corrected SDK route, not a successful plugin journey. The raw/derived product-consumer refusals remain unchanged.
 
+## R2 static closure and executor full regression
+
+- Independent R2 static reports target `1862af639681defdb91651f50cc6e01459e63e0b`, retaining the original executed baseline. Code findings remain `[]`; V-R1-2 is closed after reconstruction and semantic inspection of the full synthetic Context. V-R1-1 remains open: overall verification is **NOT PASS, 1 CRITICAL / 0 WARNING** until independent product evidence is complete.
+- Executor additionally reran the full Node regression on this corrected-evidence freeze: `env -u NANO_OWNER_CONFIG_ROOT pnpm test`, **109 files / 494 tests PASS**, 57.39s, exit0. Log: `/tmp/pa667-issue361-1862-tests.log`. This supplements, rather than relabels, the independent reviewer's explicitly reused narrow evidence.
+- Real product R2 is still in progress; preliminary successful business results do not close its fault/cancellation/audit requirements. No fetch, archive, push or PR is implied by the static closure.
+
 ## Independence and pending work
 
 - Original requirements/design author, design reviewer, implementation worker, independent static reviewer and independent product reviewer are distinct native Agents. Static review explicitly combines code-review and verification responsibilities with separate outputs; it is independent of implementation and product acceptance.

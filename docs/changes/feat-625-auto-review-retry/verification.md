@@ -134,3 +134,29 @@ Not a separate `corrected-delta` run. The current original delta was included in
 - All relevant reviewer-started test jobs collected, exit0; no continuing background job. No reviewer-owned product service/worktree created.
 - Next action: executor handles any implementation/test/evidence changes, supplies new frozen SHA if files affecting validation change; independent reviewer completes V-R1-1/V-R1-2 closure from permitted evidence. Existing full/static/native conclusions may be retained only after explicit delta assessment.
 - Top concern: evidence completeness, not a found retry-code defect. Full verification remains **NOT PASS** until required exits and evidence are satisfied.
+
+## Round 2 — targeted closure / evidence patch delta
+
+- `verification_mode`: targeted continuation of R1 full verification; `review_round`: `2`; same independent reviewer.
+- `validated_at`: `1862af639681defdb91651f50cc6e01459e63e0b`; `executed_base`: `5454f3140f9c92532c690db8dec80b9f77080384`; `pre_fix_head`: `af0f2c3324aa924b2d1fa27ef87a795bd83d24c8`; fix range `af0f2c3..1862af6`.
+- Independently checked exact HEAD, clean pre-review tree, diff-check and no production-source delta from R1 dfee3df. Reviewed both modified native fixtures, synthetic-only encoder, new artifacts and validation provenance. R1 static/native/full-suite/build/typecheck conclusions retained only within that unchanged-production boundary. Executor's narrow final run is **2 files / 2 tests PASS, 17.24s**, shared evidence, not an independent rerun. No product acceptance access or redundant full suite performed.
+- `requires_full_verification`: `false` for continuation on unchanged implementation; assess any later code/design or final-main-sync delta before reusing this conclusion.
+- **Verdict: NOT PASS — 1 CRITICAL completeness blocker, 0 WARNING, 0 SUGGESTION.** No confirmed implementation defect. This appended status supersedes R1's issue totals, not its history.
+
+### V-R1-2 — CLOSED
+
+The requested minimal remedy was supplied as `M1-auto-review-retry/native-context-evidence.json` and `guardian-context-evidence.json`. These contain full reconstructible synthetic payloads, not merely hashes: native matrix 14 scenarios / 28 stream compositions plus four pre-stream preparation observations; Guardian 18 compositions covering full/delta/fork/inspection/rebuild/cancel/deadline. The independent Mode B semantic review is recorded in `code-review.md` Round 2 and reused here.
+
+Independently decoded the text pool, recomputed pooled-string/payload/source hashes and matched current fixtures. Inspected combined system-bearing messages, schemas, actual history, exact action/source preservation, unavailable final main-Agent messages and failed-cache boundaries. Guardian's standalone null system does not omit policy: actual system-role message carries it. Allowed reviewer schemas are only the three bounded guardian read-only tools. Human origins, private assistant prose and untrusted prior tool failures remain differentiated. CC stages and their options survive retry; no technical failure is promoted to human intent. Full rebuild restores evidence rather than a failed verdict. Encoder is restricted to explicit synthetic data and checks lossless round-trip.
+
+Thus W7 and Coherence's **synthetic composed Context inspection** portions are now covered. This closes exactly the missing native-assembly evidence warning. It does not prove provider-wire contents, real model interpretation, real-product stop behavior, or the independent product journey; those stay with V-R1-1. R1 E1–E4 remain attributed evidence, and the new compositions are **E6 — independently inspected synthetic artifacts / executor-generated narrow PASS**.
+
+### V-R1-1 — OPEN, unchanged completeness requirement
+
+No independent product acceptance report was supplied to this reviewer for this R2 closure. Executor reports the isolated proxy SDK query URL404 prerequisite repaired; that is not product success. The required Global Agent plugin-create/install/two-real-calls journey and associated permitted product recovery/failure/stop and observe evidence remain **not verified**. Do not mark M1 exit complete, all gates passed, or archive on the strength of E6.
+
+Scope correction to R1 E5/permission wording: executor clarifies the first denial specifically concerned raw evidence persistence; a later consumer-script edit was blocked before RuntimeClient execution. Neither establishes that all previously authorized necessary read-only observations are forbidden. The denied methods remain stopped; this reviewer did not collect real product data or attempt an alternate capture. Executor/product reviewer owns completion through a permitted route and truthful reporting of any remaining concrete blocker.
+
+### R2 handoff
+
+Only `code-review.md` and `verification.md` appended; R1 preserved. No implementation/test/design changes, commit, fetch, other checkout, archive, product service or IM access. No reviewer background jobs remain. Next evidence-only continuation can focus on V-R1-1; final main synchronization still needs actual effective-base/through and invalidation assessment. Current code findings `[]` and closed V-R1-2 are not a final full verification PASS.
