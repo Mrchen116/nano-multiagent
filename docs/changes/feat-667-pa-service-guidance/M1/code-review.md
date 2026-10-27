@@ -87,3 +87,40 @@ The caller's recorded three-suite / 26-test pass and successful build in `author
 This delta is reviewable without a policy expansion or an execution-layer bypass. The evidence supports the narrow adapter correction; it does not prove the adapter imbalance was the sole cause, guarantee deterministic Luna judgments, or demonstrate PA behavior after loading the new Persona/Skill. `reviewSourceInstructions` is also shared with the CC/DSH classifier; its new source semantics were checked against those unchanged policy boundaries in source, while the supplied real-model replays cover Codex policy only.
 
 The fresh-PA second natural test is still pending at this review snapshot. It must use the user's original requirement, without execution coaching, alongside the existing #361 run. Autonomous completion, handling of an actual future refusal, and absence of repeat authorization requests must be established by that journey's own evidence. This review does not complete M1 or convert #361's previously guided run into an autonomous pass.
+
+## Round 4 — bounded coordination patch
+
+- Reviewer: independent `/root/pa_authorization_review`, reusing the existing review role; did not implement this patch. Review date: 2026-10-27.
+- review_mode: `patch`; baseline: `87bcbe387`; product validated_at: `003c09589b540d012f1a284623b2886be9f7b0f7`; final document closure: `fdcd95ab5f246bccd2c6fd0e615096ac97718da8`. Clean checkout confirmed before review; the closure changes only the corrected delta document.
+- Scope: three product guidance changes in `global-mode.ts`, `features/task-graphs.ts` and `nano-ongoing-work/SKILL.md`, plus their design/delta/`coordination-fix.md` explanation. Prior authorization and unaffected A+B conclusions remain unchanged.
+- Context review: `agent-context-review`, Mode B / Implementation Review. Checked root/child system guidance, loaded ongoing-work text, Task static/dynamic feedback, native return modes, recovery-note updates and retained public-delivery/source constraints together.
+
+No surviving CONFIRMED or PLAUSIBLE **code/Context implementation** defect:
+
+```json
+[]
+```
+
+The corrected-delta review's incomplete `MODIFIED` entry (V2) was closed by `fdcd95ab5`: the full initial-human-task and long-task scenarios retain no-reply, early acknowledgment and delivery semantics while expressing the new update cadence. The document-only closure was independently checked against the current contract and unchanged implementation; no new full review was performed. This is not acceptance of the whole unit.
+
+### Implementation and consumer evidence
+
+| Surface | Reviewed result |
+| --- | --- |
+| Root coordination and public updates | `global-mode.ts:19` gates interim child replies on new information/decisions/corrections that change the next action, and gates public updates on user-relevant results, material outcome changes, actionable blockers or agreed checkpoints. It retains first human acknowledgment before deep work, explicit status replies/update timing, original-conversation final delivery, actual sent/held/unknown handling, permission-denial follow-through and private-only closing notes. There is no hard rate limit or message-dropping code. |
+| Child return and actionable exceptions | `global-mode.ts:85` and ongoing-work lines 13-20 preserve missing-fact/decision requests, material changes and agreed checkpoints, while allowing routine work/recovery without parent acknowledgment. Continuable children send a self-contained result before closing; one-shot forks return through completion. The locked `@deepseek-ai/dsh-subagent/lib/index.js:603` actually injects the continuable send-before-finish instruction, so this distinction aligns with native behavior. The Skill explicitly prevents a subsequent completion notification from duplicating an already handled result, while retaining genuinely new blockers/corrections/results. |
+| Task and recovery notes | `task-graphs.ts:21` still requires confirmed waiting and finished results, including the fixed conversation. Its unchanged deferred feedback keeps waiting explanation, alternatives, next check, results, actual delivery and replay dedupe; narrowing routine progress does not suppress those transitions. Ongoing-work lines 26,31-33 preserve executor/source/result recovery when needed and change only redundant reads/writes when current context is sufficient. Stop, explicit continuation, permission limits and unknown-result checks remain. |
+
+Evidence root: `/Users/czj/.codex/reports/feat-667-pa-service-guidance-20261027/coordination-fix/`.
+
+Independent inspection of `native-context-final-{false,true}.jsonl` confirmed exact frozen root and child guidance, narrowed child Task guidance, and unchanged internal-only child tool schemas in the actual native-runtime model-input snapshots. The files contain 6/7 root requests and 8 child requests each; SHA-256 values match `native-context-final-summary.json`. This is locked runtime plus controlled-provider assembly evidence, including the fixture's cold-resume path, not real-model autonomous behavior.
+
+The real-model replay inputs use `codexOAuth:gpt-6-astra`, medium effort, 32768 output tokens; responses return `gpt-6-astra`. Comparison against the bounded original captures confirms unchanged tools/configuration and unchanged history except loaded ongoing-work text; child-recovered intentionally truncates the captured history immediately before its historical send. `baseline-progress-before` sends the parent a receipt/continue message; `baseline-progress-after` and `environment-progress-after` end privately without tools. `child-recovered-after-final` contains the exact final child guidance and selects a next-step Bash check instead of reporting the already recovered problem. The command was not executed. `real-blocker-after` still proposes a concrete user decision request; `synthetic-status-after` proposes a status answer. Neither message was actually sent by the probe.
+
+The two root quiet cases and communication controls used the first candidate; the final additional root text only refines delegation expectations, while the receipt/update decisions being probed remain the same. The final native captures cover delivery of the exact frozen text. These are bounded, reusable observations rather than a final-version long-task rerun. The first child candidate still sent routine recovered progress; that counterexample is retained. `child-recovered-before-extra` is explicitly a mislabeled extra baseline, not a candidate pass. The other child-progress case retains an explicit historical milestone-report agreement and still reports its plan difference; it is not claimed as a silent pass.
+
+Reused the implementer's recorded relevant build and ten distinct existing checks (`global-child-tools`, `task-feedback`, `personal-child-delivery`, `communication-native`, `builtin-skills`); no unrelated full suite or security-review matrix was rerun. This reviewer executed no service or replay tool action and changed only review reports.
+
+### Evidence boundary
+
+No complete long-task product run under this coordination patch is supplied. Replay results establish next-step choices only; they do not establish end-to-end latency, notification counts over a full task, final duplicate-delivery absence, or an update of already loaded old Persona/Skill/explicit reporting agreements. The ongoing #361 PR/CI and root delivery remain separate completion evidence; the caller reports independent gates/archive completed and original executor preparing PR/CI, which this bounded patch review does not independently re-verify or treat as final product completion.

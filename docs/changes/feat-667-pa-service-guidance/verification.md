@@ -2,7 +2,7 @@
 
 > Validation snapshot: `c4ebad992ae99e75ee9c3fca88b3eab43abd9ea5` → `7ddaceb942423436bc656fba6707b04f131c9cb1`
 
-Latest status: Round 2 below supersedes Round 1's broad evidence gap; seven product scenarios are now supported, while the user-required #361 completion remains pending.
+Latest status: Round 3 passes the corrected coordination delta after document closure at `fdcd95ab5`. Round 2's seven supported product scenarios remain retained; whole-unit #361 PR/CI and final root-delivery evidence are still pending in this report.
 
 ## Round 1
 
@@ -132,3 +132,32 @@ Bounded spot checks of preserved raw artifacts support reuse of the independent 
 **V1 remains open only for the user-required #361 independent Ready PR/CI plus completed two-level execution and progressive root delivery** (`design.md:103,107,113`; acceptance A1). This affects three dependent acceptance rows: the complete long-work requirement, executor re-delegation and the second-level internal-result/delivery path. The independent report has not observed failure; it correctly leaves them inconclusive. Existing native depth/schema/internal communication tests and execution IDs cannot replace that completed development outcome.
 
 Action: keep M1 incomplete and do not declare acceptance pass/Ready. Once the ongoing original #361 chain supplies its final independent PR, CI and versioned root → first-level → second-level → parent/root result/delivery evidence, reconcile only those items and any actual code fix. All seven ordinary scenario results, choice checks, Skill-consumption evidence, finite comparison and successful engineering gates remain retained. No new full review or ordinary scenario rerun is required solely because #361 is still running.
+
+## Round 3 — corrected coordination delta
+
+- Reviewer: independent `/root/pa_authorization_review`; review date: 2026-10-27.
+- verification_mode: `corrected-delta`; scope: only the coordination correction in `87bcbe387..003c09589b540d012f1a284623b2886be9f7b0f7`, plus document-only closure `fdcd95ab5f246bccd2c6fd0e615096ac97718da8`, including the corrected Global delta, design addition and three affected product-guidance locations. Reuses code/Context review Round 4; unaffected prior conclusions are retained.
+- Outcome: **aligned / pass for this corrected delta**. CRITICAL 0, WARNING 0, SUGGESTION 0. No implementation mismatch or architecture violation found. `requires_full_verification: false`.
+- The whole-unit verdict is still pending: prior #361 PR/CI and final root-delivery evidence is outside this patch reconciliation and is not closed by a next-step probe.
+
+### Corrected Delta Reconciliation
+
+| Delta item | Implementation evidence | Validation evidence | Outcome |
+| --- | --- | --- | --- |
+| `specs/gateway/global-agent.md:32-36`, internal progress without parent intervention | `global-mode.ts:19,85`; ongoing-work lines 13-20,26,31-32: no receipt/continue loop or automatic progress forwarding/note rewrite; routine work continues; meaningful final result retained | Exact final root/child native context captures; two quiet root probes; final recovered-child probe chooses a next check. Replay tools are not executed. | aligned |
+| `specs/gateway/global-agent.md:38-41`, necessary communication and final delivery | Same root/child guidance; ongoing-work lines 33,38-48,62-73; `task-graphs.ts:21` and unchanged deferred-feedback path retain actual waiting/results and fixed conversation | Real-blocker decision probe and synthetic status-question probe; reused native internal communication/Task/child delivery checks; no full final-delivery product rerun | aligned within the stated probe/engineering scope |
+| Complete replacement of current Requirement `全局 Agent 在任务执行期间主动沟通` | `global-mode.ts:19` still requires initial acknowledgment before deep work, respects no-reply, and distinguishes acknowledgment/private prose from actual final delivery | Current `docs/specs/gateway/global-agent.md:266-276`; corrected delta lines 20-41 at `fdcd95ab5`; complete initial and long-task scenarios retained in accordance with `docs/specs/CONTRIBUTING.md:134,143,154` | aligned; V2 closed |
+
+### Coherence and validation limits
+
+The implementation follows `design.md:39`'s coordination decision and repository boundaries: the changes are guidance only, with no new message filter, scheduler, Task protocol, persistence mechanism, permission bypass or runtime fork. Continuable/fork return modes agree with the locked runtime, and root-only public delivery/source checks remain. No frontend reference applies.
+
+Evidence is reused from `M1/coordination-fix.md` and `/Users/czj/.codex/reports/feat-667-pa-service-guidance-20261027/coordination-fix/`, independently inspected in code review Round 4. Native snapshots prove the exact final guidance reaches ordinary Global/PA roots, children and the existing cold-resume fixture. Astra medium replay results prove bounded next-step choices with retained tools/history and disclosed loaded-Skill substitutions. The earlier child counterexample, mislabeled extra baseline, retained explicit milestone-report case, synthetic status input and first-candidate root-probe scope remain limitations rather than hidden successes. Relevant build and ten distinct existing checks are reused; no full regression or new long task was run by this reviewer.
+
+### Issues and closure
+
+None remain in the assigned corrected delta. **V2 closed:** `fdcd95ab5` changes only the delta document and restores the complete `接到真人任务` scenario plus the long-task scenario's no-reply and delivery distinctions, replacing only the update-cadence clause. Direct comparison confirms early acknowledgment to the original conversation and the distinction between acknowledgments/private drafts and real result delivery are preserved. No product change or full-suite rerun was required for this document closure.
+
+### Uncovered Observable Behavior
+
+None found within the assigned patch after V2 closure. Final whole-unit acceptance and #361 PR/CI/root delivery remain independently outstanding; this report does not infer their completion from the caller's progress update. The caller's planned service restart and real tryout after the #361 PR are subsequent product evidence, not prerequisites invented by this bounded document reconciliation.
