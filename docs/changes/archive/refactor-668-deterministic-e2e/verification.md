@@ -182,3 +182,80 @@ CRITICAL: none。WARNING: none。SUGGESTION: none。
 **no spec delta**。新增测试验证 existing current `docs/specs/gateway/global-agent.md:65` 的发送前复核契约；5 文件 delta 没有产品用户面变化，没有遗漏需要新增或归并的产品行为。catalog/coverage/fixtures README 已准确描述新增能力和时延控制。Outcome: aligned。R2 的 no spec delta 结论保留。
 
 R3 delta verification passed. Ready for PR update.
+
+## Round R4 — Eight Test-Value Audit Groups
+
+> verification_mode: delta; code_review_mode: patch; review_round: R4
+>
+> patch base: `7566971e736f2f07cb18302f8690218a7b13f3f7`
+>
+> validated_at: `a3ee25dc1d133e0f583306d659441c7613604534`
+>
+> executed_base / effective_base: `8d428779b5ebe0bb0c5c277f2ca5b56c0a303b82`
+>
+> branch: `codex/refactor-668-deterministic-e2e`; requires_full_verification: false.
+
+**R4 verdict: pass — 0 CRITICAL、0 WARNING、0 SUGGESTION。Code review findings: `[]`（`code-review-R4.json`）。** 已独立检查全部 12 文件 delta 与 8 组审计问题；没有未闭合项。R1–R3 历史及其有效结论保留。本轮结论针对固定版本的增量，不代替随后 PR 当前 head 的远端 CI，也不表示已合并。
+
+### Scope / Retained Evidence
+
+用户授权在同一 PR 处理审计确认的 8 组问题，增量设计已在 `design-review.md` Round 2 独立 APPROVED。审查读取原审计 `/Users/czj/.codex/reports/test-value-audit-20261028/report.md`、隔离强化证据目录 `/Users/czj/.codex/reports/test-value-audit-fixes-20261028/` 的 `mutations.py`、`mutation-results.json`、正常与各 mutant 日志，并回到当前实际源码核实。
+
+本 delta 仅有 4 个 unit 文档、6 个测试文件、1 个 product-contracts 测试和归档辅助脚本的修改（共 12 文件；测试文件按实际路径计共 7 个）。没有产品 runtime、前端产品组件、生产配置、E2E/provider 或共享 E2E fixture 修改。原 28 项 E2E 与旧后端有效门禁保留；前端和 Python 本轮另有适用全量结果，不把 non-E2E 84 passed 计作重新执行 E2E。
+
+### Completeness / Correctness — Eight Groups
+
+| 组 | 实施、保留保护与直接证据 | 结论 |
+|---|---|---|
+| 1. legacy SHA manifest 可选链允许 null | `packages/product-contracts/tests/node-update.test.ts:23` 先完整断言 parsed 等于输入，再断言未增 updater_protocol/data_epoch；原非法输入参数化保留。正常 8 passed；相同测试的隔离“40 位 SHA 全返回 null” mutant 在 `mutant-manifest-reject-legacy.log` 精确失败于 `expected null to deeply equal`，1 failed / 7 passed | closed |
+| 2. 两个路由接受侧栏/错误页 | `src/IM/frontend/src/app/router.test.tsx:24` 提供 HTTP 数据，真实 appRoutes/页面/API adapter 仍被执行；`:81` 要实际 Agent 行和设备，`:88` 要可用创建表单及 URL 指定 node-2；fixture 的首个默认节点是 node-1，因此不能靠默认选择冒充路由参数。隔离替换为空列表页和固定错误创建页后，两项分别在页面内容断言失败，2 failed / 2 passed；不是 import/构建失败 | closed |
+| 3. i18n setter 掩盖默认值 | `src/IM/frontend/src/i18n/i18n.test.ts:4` 清 localStorage/模块缓存后动态 import，不先调用 setter；第二项保持 setter、翻译与存储检查，并重新冷初始化恢复 zh。实际 owner `i18n/index.ts` 使用 createInstance + readPersistedLocale，模块 reset 会重走该入口。默认改 zh 的 mutant 精确失败 `expected 'zh' to be 'en'`，1 failed / 1 passed | closed |
+| 4. rail 错称 nodes join | `src/IM/frontend/src/features/settings/agents/agents-rail-desktop.test.tsx:7` 仅 mock 实际 listPublicAgents；两行采用不同 PublicAgent.node_name，按各自行验证设备、active 与点击 agent-two 回调。实际 rail 的 nodes 固定空数组，已删除从未消费的 listNodes mock。丢 node_name 的 mutant 使新接线用例失败，1 failed / 1 passed；既有 AgentRow 的 nodes lookup mutant 6 failed / 8 passed，证明回退/alias 分支由原 owner 保护，未把它误算为 rail 覆盖 | closed |
+| 5. emoji 完全重复 | 删除的 bash historical-fallback 用例与保留的 `tool-calls-panel.test.tsx` known-name emoji 用例具有相同输入、expandPanel 与 💻 断言。unknown 通用图标、真实 tool name、显式 emoji 优先级均保留 | closed；无独有分支损失 |
+| 6. rail 颜色重复 | 删除上层 CSS 颜色用例，保留 `agent-row.test.tsx` normal/active 的名称、ID、设备颜色保护；真实 rail 仍经 AgentLifecycleRow 使用同一 AgentRow，新增 active 与点击接线断言归属正确 | closed；同因最低层保护保留 |
+| 7. 两项整句自然语言政策 | 删除 simplified-flow 和 Ready-PR 三片段匹配，不再将自然语言措辞当机器协议；`test_change_workflow_documentation_contract.py` 的实际门禁矩阵解析仍在，archive 黑盒与稳定 PR 链接检查仍在。删除范围与审计/设计相符，未顺带移除其他有效架构或行为契约 | closed；不需要用新的文本解析框架替代 |
+| 8. codex unit 分支绕过归档 | `scripts/check_change_unit_archived.py:13` 同一 regex 提取 unit/codex 两前缀的 ID；`:51` 将已知四类 codex unit 候选送入校验，疑似 unit 的无效编号失败，普通 codex/docs-cleanup 跳过。黑盒参数化两个前缀的 archived/active/retired/missing/duplicate，并覆盖四类 suffix 与 malformed 分支。旧脚本 11 failed / 14 passed，修复后 archive+workflow 27 passed；reviewer 在冻结 HEAD 独立重跑也是 27 passed | closed |
+
+### Archive / CI Wiring
+
+独立读取 `.github/workflows/ci.yml:116` 的实际 backend step：PR 事件条件、head_ref env 和命令真实存在，且没有 continue-on-error。新测试使用 BaseLoader 保留 YAML `on`，查 backend 中具体 step，而非全文件字符串存在；检查 pull_request 触发、step 的 PR 条件、shlex 解析后的完整调用参数、`GITHUB_HEAD_REF=${{ github.head_ref }}` 和非忽略失败。该断言保护当前实际接线，不声称通过 YAML 解析执行了 GitHub Actions。
+
+reviewer 另直接运行：
+
+```bash
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract/test_change_skill_archive_contract.py tests/contract/test_change_workflow_documentation_contract.py
+/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/check_change_unit_archived.py --head-ref codex/refactor-668-deterministic-e2e
+```
+
+结果 **27 passed / 0.56s**；当前 codex/refactor-668 分支输出 `Change unit refactor-668 is archived at docs/changes/archive/refactor-668-deterministic-e2e.`。这确认实际 CLI 执行归档判断，并非仅被测试名称或输出 substring 冒充。
+
+### Mutation Evidence / Reliability
+
+隔离脚本逐项保存和恢复产品源码，只在仓库外副本执行 Vitest；正常前端基线 4 files / 75 passed、manifest 8 passed。reviewer 比较了隔离副本中的六份相关/保留测试（router、i18n、rail、AgentRow、tool panel、manifest）与冻结工作树字节，均相同；读取真实失败日志确认是预期行为断言失败，没有把未收集、构建失败或不相关 crash 当作 mutation 成功。
+
+本轮五种 mutation 包括错误默认、两条错误路由、拒 legacy、rail 丢设备字段和已有 AgentRow 丢 nodes lookup。它们证明审计中的特定坏实现被拦截，不声称穷尽全部可能缺陷。隔离脚本不进长期测试套件，不引入通用 mutation 框架；没有扩大到慢测试、超长文件或 E2E CI 接入等未授权工作。
+
+### R4 Validation Evidence
+
+| Evidence / command | Result / applicability |
+|---|---|
+| 前端相关 5 files | caller 交接 89 passed；测试范围含保留 AgentRow 保护 |
+| 前端完整 `vitest run --maxWorkers=2` | 直接读取 `/tmp/refactor-668-audit-frontend-full.log`：108 files / 1029 passed / 55.03s |
+| 前端 `tsc -b` | caller 报告通过；`/tmp/refactor-668-audit-frontend-types.log` 为空输出，本 reviewer 不将空日志单独视为退出码证明 |
+| product-contracts | `/tmp/refactor-668-audit-contracts.log`：3 files / 16 passed |
+| Python non-E2E | `/tmp/refactor-668-audit-python-full.log`：84 passed / 28 deselected / 6.21s |
+| archive red/green | `/tmp/refactor-668-audit-archive-red.log`：旧脚本 11 failed / 14 passed；`archive-green.log`：修复后 archive+workflow 27 passed；reviewer 独立复验同样通过 |
+| docs-check / ruff check + format | caller 交接通过；未机械重跑有效全量检查 |
+| `git diff --check 7566971e..a3ee25dc` | reviewer 独立通过 |
+
+### Coherence / Spec Reconciliation
+
+实现与新增 design 的全部八行及验证计划一致；新增保护留在现有 parser、路由、i18n、rail/row 和 archive 黑盒 owner，删除范围小且可审，没有产品 UI 改动、原型或美术 must-match。没有影响模型可见 Context 的选择、注入、加载、更新或恢复，无需完整 Agent Context Implementation Review。
+
+**no spec delta**。产品组件、runtime、公开 product-contracts parser 实现与 `docs/specs/` 均未变化；归档辅助 CLI 对 codex unit 分支新增强制检查属于本次明确授权的开发门禁修复，已由 unit design/coverage 和当前 CI 黑盒保护说明，不应误写成产品行为 delta。没有遗漏的产品用户面变化需要归并。Outcome: aligned。
+
+### R4 Issues / Completion
+
+CRITICAL: none。WARNING: none。SUGGESTION: none。八组均 closed；未发现需要扩大 full verification 的共享边界变化。仅写本 R4 节与 `code-review-R4.json`，未修改实现、测试、设计或提交；没有启动服务、真实模型或新增需清理的现场。
+
+R4 patch code review and delta verification passed. Ready for PR update and current-head CI.
