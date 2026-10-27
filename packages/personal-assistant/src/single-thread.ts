@@ -30,7 +30,7 @@ export class SingleThread {
   private readonly dirty = new Set<string>();
   private readonly pendingApprovals = new Map<string, { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
-  private readonly streams = new Map<string, { sessionId: string; turn: number; chain: Promise<unknown> }>();
+  private readonly streams = new Map<string, BufferedStream>();
   constructor(private readonly options: Options) {
     const relay=options.relay,runtime=options.runtime;
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
@@ -52,7 +52,11 @@ export class SingleThread {
   /** Discard local streaming and permission obligations for a disabled Agent. */
   cancelAgent(agentId:string):void {
     for(const [id,pending] of this.pendingApprovals)if(this.binding(pending.sessionId).agentId===agentId)this.pendingApprovals.delete(id);
-    for(const [id,stream] of this.streams)if(this.binding(stream.sessionId).agentId===agentId)this.streams.delete(id);
+    for (const [id, stream] of this.streams) if (this.binding(stream.sessionId).agentId === agentId) {
+      clearTimeout(stream.timer);
+      stream.text = '';
+      this.streams.delete(id);
+    }
     for(const sessionId of this.dirty)if(this.binding(sessionId).agentId===agentId)this.dirty.delete(sessionId);
   }
   /** Covers reconciliation, output delivery and durable inputs still awaiting completion. */
@@ -353,7 +357,7 @@ export class SingleThread {
   }
   /** Drain in-flight publication before the runtime chooses another model. */
   async modelCheck(request: { sessionId: string; turn: number }): Promise<{ published: boolean }> {
-    await Promise.all([...this.streams.values()].filter(stream => stream.sessionId === request.sessionId).map(stream => stream.chain));
+    await Promise.all([...this.streams.values()].filter(stream => stream.sessionId === request.sessionId).map(stream => this.flushStream(stream)));
     await this.reconcile(request.sessionId);
     // A lost publication acknowledgement is also ineligible for replay.
     return { published: !!this.options.store.command(`published:${request.sessionId}:${request.turn}`) };
@@ -432,32 +436,76 @@ export class SingleThread {
   private stream({ sessionId, frame }: Stream) {
     if (this.options.store.inputs(sessionId).some(input => input.input.metadata.conversation_type === 'group')) return;
     if (frame.type === 'start') {
-      this.streams.set(frame.attemptId, { sessionId, turn: frame.turn!, chain: this.reconcile(sessionId) });
+      this.streams.set(frame.attemptId, { sessionId, attemptId: frame.attemptId, turn: frame.turn!,
+        chain: this.reconcile(sessionId), text: '', flushing: false });
       return;
     }
     const stream = this.streams.get(frame.attemptId);
     if (!stream) return;
-    if (frame.type === 'end') { void stream.chain.finally(() => { this.streams.delete(frame.attemptId); void this.reconcile(sessionId).catch(this.options.onError); }); return; }
-    if (frame.chunk?.type !== 'text-delta') return;
-    stream.chain = stream.chain.then(async () => {
-      const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
-      const turnInputs=this.options.store.inputs(sessionId).filter(input=>input.turn===turn);
-      if(!turnInputs.length||turnInputs.every(input=>input.input.metadata.origin==='task_execution'||input.input.message.sender_type==='system'&&input.input.message.system_notice?.kind==='task_graph'))return;
-      const delivery = this.options.store.delivery(sessionId, turn);
-      if (!delivery?.messageId || delivery.state !== 'sending') return;
-      if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) return;
-      if (!frame.chunk!.text) return;
-      // A confirmed explicit send owns the reply. Wait for the final message to distinguish
-      // its non-empty closing sentinel from an additional meaningful answer.
-      if (this.options.store.command(`interactive-delivered:${sessionId}:${turn}`)) return;
-      const published = this.publication(sessionId, turn) ?? { confirmed: '' };
-      this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ ...published, pending: frame.chunk!.text }));
-      await this.delta({ kind: 'message_delta', message_id: delivery.messageId, delta_text: frame.chunk!.text,
-        idempotency_key: `${frame.attemptId}:${frame.index}` });
-      this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ confirmed: published.confirmed + frame.chunk!.text }));
-    }).catch(this.options.onError);
+    if (frame.type === 'end') {
+      void this.flushStream(stream).finally(() => {
+        this.streams.delete(frame.attemptId);
+        void this.reconcile(sessionId).catch(this.options.onError);
+      });
+      return;
+    }
+    if (frame.chunk?.type !== 'text-delta' || !frame.chunk.text) return;
+    if (!stream.text) stream.firstIndex = frame.index;
+    stream.lastIndex = frame.index;
+    stream.text += frame.chunk.text;
+    if (stream.flushing) return;
+    if (stream.text.length >= 4096) void this.flushStream(stream);
+    else stream.timer ??= setTimeout(() => { void this.flushStream(stream); }, 50);
   }
-  async stop(): Promise<void> { this.unsubscribe(); await this.controls.stop(); await Promise.allSettled([...this.draining.values(), ...[...this.streams.values()].map(stream => stream.chain)]); }
+
+  private flushStream(stream: BufferedStream): Promise<unknown> {
+    clearTimeout(stream.timer);
+    stream.timer = undefined;
+    if (stream.flushing) return stream.chain;
+    stream.flushing = true;
+    stream.chain = stream.chain.then(async () => {
+      try {
+        // Read the next batch after the ACK, so a slow relay accumulates text, not requests.
+        while (stream.text) {
+          const text = stream.text, key = `${stream.attemptId}:batch:${stream.firstIndex}:${stream.lastIndex}`;
+          stream.text = '';
+          const { sessionId } = stream;
+          const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
+          const turnInputs = this.options.store.inputs(sessionId).filter(input => input.turn === turn);
+          if (!turnInputs.length || turnInputs.every(input => input.input.metadata.origin === 'task_execution' || input.input.message.sender_type === 'system' && input.input.message.system_notice?.kind === 'task_graph')) continue;
+          const delivery = this.options.store.delivery(sessionId, turn);
+          if (!delivery?.messageId || delivery.state !== 'sending') continue;
+          if ((this.modelRuns.get(sessionId)?.find(run => run.turn === turn)?.attempts.length ?? 0) > 1) continue;
+          // Explicit delivery owns the reply; final reconciliation decides whether the closing text is meaningful.
+          if (this.options.store.command(`interactive-delivered:${sessionId}:${turn}`)) continue;
+          const published = this.publication(sessionId, turn) ?? { confirmed: '' };
+          this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ ...published, pending: text }));
+          try {
+            await this.delta({ kind: 'message_delta', message_id: delivery.messageId, delta_text: text, idempotency_key: key });
+            this.options.store.saveCommand(`published:${sessionId}:${turn}`, JSON.stringify({ confirmed: published.confirmed + text }));
+          } catch (error) { this.options.onError(error); }
+        }
+      } finally { stream.flushing = false; }
+    }).catch(error => { stream.flushing = false; this.options.onError(error); });
+    return stream.chain;
+  }
+  async stop(): Promise<void> {
+    this.unsubscribe();
+    await this.controls.stop();
+    await Promise.allSettled([...this.streams.values()].map(stream => this.flushStream(stream)));
+    await Promise.allSettled([...this.draining.values()]);
+  }
+}
+interface BufferedStream {
+  sessionId: string;
+  attemptId: string;
+  turn: number;
+  chain: Promise<unknown>;
+  text: string;
+  flushing: boolean;
+  firstIndex?: number;
+  lastIndex?: number;
+  timer?: ReturnType<typeof setTimeout>;
 }
 interface Approval { lifecycle_revision?:number; toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
 interface Stream { sessionId: string; frame: { type: string; attemptId: string; turn?: number; index?: number; chunk?: { type: string; text?: string } } }

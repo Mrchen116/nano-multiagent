@@ -1,3 +1,4 @@
+import { contactDetail, contactPage } from './contacts.js';
 import { lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import {RelayDelivery} from './relay-delivery.js';
 import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
@@ -793,43 +794,16 @@ export class Messaging {
 export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   const s = ctx.messaging,
     db = ctx.db;
-  const contactRows = (viewer: Row) =>
-    all(
-      db,
-      "SELECT u.id AS user_id,CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,COALESCE(ap.display_name,u.display_name) AS display_name,ap.agent_id,ap.owner_id,ap.space_id,owner.display_name AS owner_display_name,COALESCE(NULLIF(n.alias,''),n.node_name) AS node_name,COALESCE(n.status,'offline') AS status,ap.work_mode FROM users u LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id LEFT JOIN users owner ON owner.id=ap.owner_id LEFT JOIN nodes n ON n.node_id=ap.node_id WHERE (u.password_hash IS NOT NULL AND u.password_hash!='' AND ap.agent_id IS NULL) OR (ap.agent_id IS NOT NULL AND ap.is_stale=0) ORDER BY u.id",
-    ).filter(r => {
-      if (r.kind === "human") {
-        const target = one(db, "SELECT * FROM users WHERE id=?", r.user_id)!;
-        return target.id === viewer.id || (viewer.membership_status === "active" && target.membership_status === "active");
-      }
-      const profile = one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", r.agent_id)!;
-      return (canAccessSpace(viewer, profile.space_id)||canContactPersonalAgent(db,viewer,profile)) && agentAvailable(db, profile);
-    }).map((r) =>
-      r.kind === "human" ? { user_id: r.user_id, kind: r.kind, display_name: r.display_name } : one(db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",r.agent_id) ? {user_id:r.user_id,kind:r.kind,display_name:r.display_name,agent_id:r.agent_id,owner_id:r.owner_id,owner_display_name:r.owner_display_name,role:"personal",status:r.status} : r,
-    );
   app.get("/im/v1/contacts", (req) => {
-    const viewer = ctx.identity.authenticateRequest(req);
-    const q = query(req);
+    const viewer = ctx.identity.authenticateRequest(req), q = query(req);
     if (q.kind && !["human", "agent"].includes(q.kind)) fail(400, "invalid kind");
-    const rows = contactRows(viewer).filter(
-      (r) =>
-        (!q.cursor || r.user_id > q.cursor) &&
-        (!q.kind || r.kind === q.kind) &&
-        (!q.q ||
-          [r.display_name, r.user_id, r.agent_id ?? ""].some((x) =>
-            x.toLowerCase().includes(q.q.trim().toLowerCase()),
-          )),
-    );
-    return {
-      items: rows.slice(0, 50),
-      next_cursor: rows.length > 50 ? rows[49]!.user_id : null,
-    };
+    return contactPage(db, viewer, q);
   });
   app.get("/im/v1/contacts/:user_id", (req) => {
     const viewer = ctx.identity.authenticateRequest(req);
-    const r = contactRows(viewer).find((r) => r.user_id === params(req).user_id);
-    if (!r) fail(404, "contact not found");
-    return r;
+    const contact = contactDetail(db, viewer, params(req).user_id);
+    if (!contact) fail(404, "contact not found");
+    return contact;
   });
   app.post("/im/v1/conversations", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req);
