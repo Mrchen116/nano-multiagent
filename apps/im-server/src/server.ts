@@ -18,7 +18,7 @@ import { Messaging, registerMessagingRoutes } from "./messaging.js";
 import { registerConversationActions } from "./conversation-actions.js";
 import { registerWorkRoutes } from "./work.js";
 import { registerMediaRoutes } from "./media.js";
-import { registerControlRoutes } from "./control.js";
+import { registerControlRoutes } from "./control-routes.js";
 import { ChannelService, registerChannelRoutes } from "./channels.js";
 import { fail, one, all, type Row, type ImContext } from "./context.js";
 export interface ServerOptions {

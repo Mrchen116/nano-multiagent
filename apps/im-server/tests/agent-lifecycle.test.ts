@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { afterEach, expect, it, vi } from 'vitest';
 import { fixture, connectFixtureGateway } from './control-fixture.js';
-import { registerControlRoutes } from '../src/control.js';
+import {registerControlRoutes} from '../src/control-routes.js';
 import { Gateway } from '../src/gateway.js';
 import { Messaging, registerMessagingRoutes } from '../src/messaging.js';
 import { registerConversationActions } from '../src/conversation-actions.js';

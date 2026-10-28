@@ -114,3 +114,4 @@ export interface RuntimeStopHistory {
 }
 
 export type { AgentConfigurationFields, ConfigurationIntent, ConfigurationResult } from './configuration-rpc.js';
+export {parseAgentConfigurationFields} from './configuration-rpc.js';

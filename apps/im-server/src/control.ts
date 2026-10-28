@@ -1,53 +1,34 @@
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
-import type {AgentConfigurationFields} from '@nano/product-contracts';
-import type {NodeCommand, NodeInput, NodeOutput, NodeCapabilities} from './node-rpc-contracts.js';
-import {isRecord} from './node-rpc-values.js';
-import { AgentLifecycles, lifecycle, registerAgentLifecycleRoutes } from './agent-lifecycle.js';
-import { createHash, randomUUID } from "node:crypto";
-import { changeCapability, effectiveFeatures, featureDependencies, validateCapabilities } from '@nano/product-contracts/capabilities';
-import type { FastifyInstance, FastifyRequest } from "fastify";
-import {
-  all,
-  one,
-  transaction,
-  fail,
-  now,
-  body,
-  params,
-  query,
-  type ImContext,
-  type Row,
-} from "./context.js";
-import { bearer, defaultSpace, accountEnabled, canAccessSpace, ownerAccount, requireCompanyAdmin } from "./identity.js";
-import { activeTaskCount, withdrawsTask } from "./task-graphs.js";
-import { registerTaskGraphRoutes } from "./task-graphs.js";
-import { registerChannelRoutes } from "./channels.js";
-import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
-  settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
-async function gatewayRequest<K extends NodeCommand>(
-  ctx: ImContext,
-  node: string,
-  action: K,
-  payload: NodeInput<NoInfer<K>>,
-): Promise<NodeOutput<K> | null> {
-  try {
-    return await ctx.gateway.request(node, action, payload);
-  } catch (e) {
-    if ([503, 504].includes((e as Row).statusCode)) return null;
-    throw e;
-  }
+import {createHash, randomUUID} from 'node:crypto';
+import type {DatabaseSync} from 'node:sqlite';
+import {parseAgentConfigurationFields, type AgentConfigurationFields, type ConfigurationResult} from '@nano/product-contracts';
+import {effectiveFeatures, validateCapabilities} from '@nano/product-contracts/capabilities';
+import {fail, now, transaction} from './context.js';
+import {defaultSpace, accountEnabled, canAccessSpace, ownerAccount} from './identity.js';
+import {activeTaskCount, withdrawsTask} from './task-graphs.js';
+import type {ConfigurationRequest} from './node-rpc-contracts.js';
+import {decodeNodeResult} from './node-rpc-values.js';
+import {requestConfiguration} from './node-rpc-request.js';
+import {readAgentProfile, activeConfigOperation, readConfigOperation, configurationPersonalBinding,
+  type AgentProfileRecord, type ConfigOperationRecord} from './configuration-records.js';
+import {storedConfigurationCandidate, type ConfigurationCandidate} from './configuration-input.js';
+
+export interface ConfigurationDependencies {
+  db: DatabaseSync;
+  request: ConfigurationRequest;
+  deliverLifecycle(agentId: string): void;
 }
-const optionalText = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
-const stringList = (v: unknown) =>
-  Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()) : [];
+export const optionalText = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+export const stringList = (v: unknown) =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()) : [];
 // Candidate receipts historically escape DEL as well as non-ASCII characters.
 const serializeCandidateJson = (v: unknown) =>
   sortedJsonUtf8(v).replace(
     /[\u007f-\uffff]/g,
     (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
-const selection = (mode: string | null, skills: string[]) =>
-  mode ?? (skills.length ? "explicit_allowlist" : "default_discovery");
+export const selection = (mode: string | null, skills: string[] | null) =>
+  mode ?? (skills?.length ? "explicit_allowlist" : "default_discovery");
 function heartbeat(v: unknown): string | null {
   if (typeof v !== "string" || !v.trim()) return null;
   try {
@@ -56,7 +37,7 @@ function heartbeat(v: unknown): string | null {
     return v.trim();
   }
 }
-const gatewayKeys: (keyof AgentConfigurationFields)[] = [
+export const gatewayKeys: (keyof AgentConfigurationFields)[] = [
   "agent_id",
   "display_name",
   "skills",
@@ -73,7 +54,11 @@ const gatewayKeys: (keyof AgentConfigurationFields)[] = [
   "custom_prompt",
   "heartbeat_json",
 ];
-export function gatewayCandidate(c: Row): AgentConfigurationFields & {agent_id: string} {
+/** Copy a present public field while retaining key/value correlation and omission. */
+export function copyConfigurationField<K extends keyof AgentConfigurationFields>(target: AgentConfigurationFields, source: AgentConfigurationFields, key: K): void {
+  if (key in source) target[key] = source[key];
+}
+export function gatewayCandidate(c: AgentConfigurationFields): AgentConfigurationFields & {agent_id: string} {
   const p: AgentConfigurationFields & {agent_id: string} = {
     agent_id: optionalText(c.agent_id) ?? "",
     display_name: optionalText(c.display_name) ?? c.agent_id,
@@ -95,13 +80,13 @@ export function gatewayCandidate(c: Row): AgentConfigurationFields & {agent_id: 
   if ("skills" in c) p.skills = Array.isArray(c.skills) ? stringList(c.skills) : null;
   if ("skills" in c || "skills_selection_mode" in c)
     p.skills_selection_mode = Array.isArray(p.skills)
-      ? selection(c.skills_selection_mode, p.skills)
+      ? selection(c.skills_selection_mode ?? null, p.skills)
       : (c.skills_selection_mode ?? null);
   if ("confirm_existing_workspace" in c)
     p.confirm_existing_workspace = c.confirm_existing_workspace === true;
   return p;
 }
-export function candidateFingerprint(c: Row): string {
+export function candidateFingerprint(c: AgentConfigurationFields): string {
   const p = gatewayCandidate(c);
   if (p.heartbeat_json === "{}") p.heartbeat_json = null;
   // Null keeps pre-strategy operation receipts valid during upgrade/recovery.
@@ -111,43 +96,59 @@ export function candidateFingerprint(c: Row): string {
     .update(serializeCandidateJson(Object.fromEntries(keys.map((k) => [k, p[k] ?? null]))))
     .digest("hex");
 }
-export function profileResponse(p: Row, mirror = false): Row {
+export interface AgentProfileView extends ConfigurationCandidate {
+  owner_id: string;
+  space_id: string;
+  node_id: string | null;
+  display_name: string;
+  description: string;
+  group_reply_policy: string;
+  default_model: string | null;
+  reasoning_effort: string | null;
+  approval_mode: 'cc' | 'codex' | null;
+  work_mode: string;
+  workspace_root: string | null;
+  profile_version: number;
+  updated_at: string;
+  custom_prompt: string | null;
+  heartbeat_json: string | null;
+  skills: string[] | null;
+  skills_selection_mode: string | null;
+  tool_allowlist: string[];
+  model_fallbacks: string[];
+  features: Record<string, boolean>;
+  workspace_is_default: boolean | null;
+}
+function storedStrings(json: string): string[] {
+  const value: unknown = JSON.parse(json);
+  if (!Array.isArray(value) || !value.every((item): item is string => typeof item === 'string')) throw new Error('Invalid stored configuration list');
+  return value;
+}
+function storedFeatures(json: string): Record<string, boolean> {
+  const fields = parseAgentConfigurationFields({features: JSON.parse(json)});
+  return fields.features!;
+}
+/** Project public fields once; callers never expose the SQLite JSON columns. */
+export function profileResponse(p: AgentProfileRecord, mirror = false): AgentProfileView {
+  const rawSkills: unknown = JSON.parse(p.skills_json);
+  const skills = rawSkills === null ? null : storedStrings(p.skills_json);
   return {
-    ...Object.fromEntries(
-      [
-        "agent_id",
-        "owner_id",
-        "space_id",
-        "node_id",
-        "display_name",
-        "description",
-        "group_reply_policy",
-        "default_model",
-        "reasoning_effort",
-        "approval_mode",
-        "work_mode",
-        "workspace_root",
-        "profile_version",
-        "updated_at",
-        "custom_prompt",
-        "heartbeat_json",
-      ].map((k) => [k, p[k] ?? null]),
-    ),
-    skills: JSON.parse(p.skills_json),
-    skills_selection_mode: mirror
-      ? p.skills_selection_mode
-      : selection(p.skills_selection_mode, JSON.parse(p.skills_json)),
-    tool_allowlist: JSON.parse(p.tool_allowlist_json),
-    model_fallbacks: JSON.parse(p.model_fallbacks_json),
-    features: JSON.parse(p.features_json),
-    workspace_is_default: p.workspace_is_default == null ? null : !!p.workspace_is_default,
+    agent_id:p.agent_id, owner_id:p.owner_id, space_id:p.space_id, node_id:p.node_id,
+    display_name:p.display_name, description:p.description, group_reply_policy:p.group_reply_policy,
+    default_model:p.default_model, reasoning_effort:p.reasoning_effort, approval_mode:p.approval_mode,
+    work_mode:p.work_mode, workspace_root:p.workspace_root, profile_version:p.profile_version,
+    updated_at:p.updated_at, custom_prompt:p.custom_prompt, heartbeat_json:p.heartbeat_json,
+    skills, skills_selection_mode:mirror ? p.skills_selection_mode : selection(p.skills_selection_mode, skills),
+    tool_allowlist:storedStrings(p.tool_allowlist_json), model_fallbacks:storedStrings(p.model_fallbacks_json),
+    features:storedFeatures(p.features_json),
+    workspace_is_default:p.workspace_is_default == null ? null : !!p.workspace_is_default,
   };
 }
-function fromProfile(p: Row) {
-  const c = profileResponse(p, true);
-  for (const k of ["node_id", "workspace_is_default", "profile_version", "updated_at"]) delete c[k];
-  c.heartbeat_json = heartbeat(c.heartbeat_json);
-  return c;
+/** Reconstruct the existing complete candidate without carrying display freshness into intent. */
+export function fromProfile(p: AgentProfileRecord): Omit<AgentProfileView, 'node_id' | 'workspace_is_default' | 'profile_version' | 'updated_at'> {
+  const {node_id,workspace_is_default,profile_version,updated_at,...candidate} = profileResponse(p, true);
+  candidate.heartbeat_json = heartbeat(candidate.heartbeat_json);
+  return candidate;
 }
 function pending(): never {
   fail(503, {
@@ -171,7 +172,7 @@ const safeRejections = new Set([
 /** Recover durable Gateway apply receipts before exposing a committed profile. */
 export class ConfigOperations {
   private locks = new Map<string, Promise<unknown>>();
-  constructor(private ctx: ImContext) {}
+  constructor(private readonly dependencies: ConfigurationDependencies) {}
   async serialized<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(id) ?? Promise.resolve();
     const next = previous.catch(() => undefined).then(fn);
@@ -183,52 +184,43 @@ export class ConfigOperations {
     }
   }
   private authorize(owner: string, node: string, agent: string): void {
-    const user = ownerAccount(this.ctx.db, owner);
-    const device = one(this.ctx.db, "SELECT owner_id FROM nodes WHERE node_id=?", node);
-    const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", agent);
+    const user = ownerAccount(this.dependencies.db, owner);
+    const device = this.dependencies.db.prepare("SELECT owner_id FROM nodes WHERE node_id=?").get(node);
+    const profile = readAgentProfile(this.dependencies.db, agent);
     if (!accountEnabled(user) || device?.owner_id !== owner || (profile && (profile.owner_id !== owner || !canAccessSpace(user, profile.space_id)))) fail(404, "agent_id not found");
   }
   private active(agent: string, owner: string) {
-    return one(
-      this.ctx.db,
-      "SELECT * FROM agent_config_operations WHERE agent_id=? AND owner_id=? AND status IN ('pending','gateway_applied') ORDER BY rowid DESC LIMIT 1",
-      agent,
-      owner,
-    );
+    return activeConfigOperation(this.dependencies.db, agent, owner);
   }
   private insert(
-    candidate: Row,
+    candidate: ConfigurationCandidate,
     owner: string,
     node: string,
-    kind: string,
-    previous: Row | null,
+    kind: ConfigOperationRecord['operation_kind'],
+    previous: ConfigurationCandidate | null,
     expectedVersion: number | null,
     root: string | null = null,
     previousHash?: string,
-  ): Row {
+  ): ConfigOperationRecord {
     this.authorize(owner, node, candidate.agent_id);
-    const binding=one(this.ctx.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=? AND owner_id=? AND node_id=?",candidate.agent_id,owner,node);
+    const binding=configurationPersonalBinding(this.dependencies.db,candidate.agent_id,owner,node);
     if(binding) {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
       if(previous)previous={...previous,personal_agent:candidate.personal_agent};
     } else {candidate={...candidate};delete candidate.personal_agent;}
     const blocks = validateCapabilities(candidate);
     if (blocks.length) fail(422, {code:'invalid_capability_dependencies', message:'Configuration is missing required capabilities', blocks});
-    if (previous && withdrawsTask(previous, candidate) && activeTaskCount(this.ctx.db, candidate.agent_id)) {
+    if (previous && withdrawsTask(previous, candidate) && activeTaskCount(this.dependencies.db, candidate.agent_id)) {
       const kind = effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph ? 'feature' : 'tool';
       fail(409, {code:'capability_in_use', message:'Pause or finish active tasks before withdrawing Task capability', blocks:[{code:'active_tasks',target:{kind,name:'task_graph'}}]});
     }
     const id = randomUUID().replaceAll("-", ""),
       hash = candidateFingerprint(candidate);
     if (
-      one(
-        this.ctx.db,
-        "SELECT 1 FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')",
-        candidate.agent_id,
-      )
+      this.dependencies.db.prepare("SELECT 1 FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')").get(candidate.agent_id)
     )
       pending();
-    this.ctx.db
+    this.dependencies.db
       .prepare(
         "INSERT INTO agent_config_operations(operation_id,root_operation_id,agent_id,owner_id,node_id,operation_kind,status,candidate_json,candidate_fingerprint,previous_candidate_json,expected_previous_fingerprint,expected_profile_version,created_at,updated_at) VALUES(?,?,?,?,?,?,'pending',?,?,?,?,?,?,?)",
       )
@@ -247,17 +239,17 @@ export class ConfigOperations {
         now(),
         now(),
       );
-    return one(this.ctx.db, "SELECT * FROM agent_config_operations WHERE operation_id=?", id)!;
+    return readConfigOperation(this.dependencies.db, id)!;
   }
-  private async request(op: Row) {
+  private async request(op: ConfigOperationRecord) {
     this.authorize(op.owner_id, op.node_id, op.agent_id);
-    const c = gatewayCandidate(JSON.parse(op.candidate_json));
-    const binding = one(this.ctx.db, "SELECT * FROM personal_agent_bindings WHERE agent_id=? AND owner_id=? AND node_id=?",op.agent_id,op.owner_id,op.node_id);
+    const c = gatewayCandidate(storedConfigurationCandidate(op.candidate_json));
+    const binding = configurationPersonalBinding(this.dependencies.db,op.agent_id,op.owner_id,op.node_id);
     if(binding) c.personal_agent={bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch};
     else delete c.personal_agent;
     if (["create","restore"].includes(op.operation_kind)) c.create_operation_id = op.operation_id;
-    return gatewayRequest(
-      this.ctx,
+    return requestConfiguration(
+      this.dependencies.request,
       op.node_id,
       ["create","restore"].includes(op.operation_kind) ? "agent.create" : "agent.config.apply",
       {
@@ -268,17 +260,17 @@ export class ConfigOperations {
       },
     );
   }
-  private async resolve(op: Row, initial?: Row | null): Promise<Row> {
+  private async resolve(op: ConfigOperationRecord, initial?: ConfigurationResult | null): Promise<ConfigurationResult> {
     let result = initial;
-    if (op.status === "gateway_applied") result = JSON.parse(op.gateway_result_json);
+    if (op.status === "gateway_applied") result = decodeNodeResult('agent.config.operation.status', JSON.parse(op.gateway_result_json!));
     else if (!result || result.status === "pending") {
-      result = await gatewayRequest(this.ctx, op.node_id, "agent.config.operation.status", {
+      result = await requestConfiguration(this.dependencies.request, op.node_id, "agent.config.operation.status", {
         operation_id: op.operation_id,
       });
       if (result?.status === "pending") result = await this.request(op);
     }
     this.authorize(op.owner_id, op.node_id, op.agent_id);
-    if (!result || !["applied", "rejected"].includes(result.status)) pending();
+    if (!result || (result.status !== "applied" && result.status !== "rejected")) pending();
     if (
       result.operation_id !== op.operation_id ||
       result.candidate_fingerprint !== op.candidate_fingerprint
@@ -291,10 +283,10 @@ export class ConfigOperations {
       pending();
     if (result.status === "rejected") {
       if (op.operation_kind === "compensation") pending();
-      const code = safeRejections.has(result.error_code)
+      const code = result.error_code && safeRejections.has(result.error_code)
         ? result.error_code
         : "invalid_agent_config";
-      this.ctx.db
+      this.dependencies.db
         .prepare(
           "UPDATE agent_config_operations SET status='rejected',gateway_result_json=?,error_code=?,error_message=?,updated_at=? WHERE operation_id=?",
         )
@@ -307,7 +299,7 @@ export class ConfigOperations {
         { code, message: result.message ?? code, ...(Array.isArray(result.blocks) ? {blocks:result.blocks} : {}) },
       );
     }
-    this.ctx.db
+    this.dependencies.db
       .prepare(
         "UPDATE agent_config_operations SET status='gateway_applied',gateway_result_json=?,updated_at=? WHERE operation_id=?",
       )
@@ -319,26 +311,28 @@ export class ConfigOperations {
     if (!op) return null;
     return this.commit(op, await this.resolve(op));
   }
-  async create(candidate: Row, owner: string, node: string) {
-    if (one(this.ctx.db, "SELECT 1 FROM agent_profiles WHERE agent_id=?", candidate.agent_id))
+  async create(candidate: ConfigurationCandidate, owner: string, node: string) {
+    if (readAgentProfile(this.dependencies.db, candidate.agent_id))
       fail(409, "agent_id already exists");
-    const op = transaction(this.ctx.db, () => this.insert(candidate, owner, node, "create", null, null));
+    const op = transaction(this.dependencies.db, () => this.insert(candidate, owner, node, "create", null, null));
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
-  async update(profile: Row, candidate: Row, owner: string) {
-    const op = transaction(this.ctx.db, () => this.insert(
+  async update(profile: AgentProfileRecord, candidate: ConfigurationCandidate, owner: string) {
+    if (!profile.node_id) fail(404, "agent_id not found");
+    const node = profile.node_id;
+    const op = transaction(this.dependencies.db, () => this.insert(
       candidate,
       owner,
-      profile.node_id,
+      node,
       "apply",
       fromProfile(profile),
       profile.profile_version,
     ));
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
-  private async commit(op: Row, result: Row): Promise<Row> {
+  private async commit(op: ConfigOperationRecord, result: ConfigurationResult): Promise<AgentProfileView> {
     this.authorize(op.owner_id, op.node_id, op.agent_id);
-    const db = this.ctx.db;
+    const db = this.dependencies.db;
     if (op.operation_kind === "compensation") {
       transaction(db, () => {
         db.prepare(
@@ -350,20 +344,17 @@ export class ConfigOperations {
       });
       fail(409, "profile_version conflict");
     }
-    const candidate = JSON.parse(op.candidate_json),
-      canonical = result.agent ?? {},
-      c = {
-        ...candidate,
-        ...Object.fromEntries(
-          gatewayKeys.filter((k) => k in canonical).map((k) => [k, canonical[k]]),
-        ),
-        workspace_is_default:
-          canonical.workspace_is_default ?? candidate.workspace_is_default ?? null,
-      };
+    const candidate = storedConfigurationCandidate(op.candidate_json);
+    const canonical = result.agent ?? {};
+    const c: ConfigurationCandidate = {
+      ...candidate,
+      workspace_is_default:canonical.workspace_is_default ?? candidate.workspace_is_default ?? null,
+    };
+    for (const key of gatewayKeys) copyConfigurationField(c, canonical, key);
     c.description = candidate.description ?? "";
     c.owner_id = op.owner_id;
     c.node_id = op.node_id;
-    const existing = one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", op.agent_id);
+    const existing = readAgentProfile(db, op.agent_id);
     if (op.operation_kind === "apply" && existing) {
       c.workspace_root = existing.workspace_root;
       c.workspace_is_default =
@@ -377,7 +368,7 @@ export class ConfigOperations {
     ) {
       if (
         existing &&
-        existing.profile_version === op.expected_profile_version + 1 &&
+        op.expected_profile_version !== null && existing.profile_version === op.expected_profile_version + 1 &&
         candidateFingerprint(fromProfile(existing)) === candidateFingerprint(c) &&
         existing.description === c.description
       ) {
@@ -434,7 +425,7 @@ export class ConfigOperations {
       }
       const vals = [
         c.display_name || op.agent_id,
-        c.description,
+        c.description ?? "",
         JSON.stringify(c.skills ?? []),
         c.skills_selection_mode ?? null,
         JSON.stringify(c.tool_allowlist ?? []),
@@ -475,642 +466,7 @@ export class ConfigOperations {
         "UPDATE agent_config_operations SET status='committed',updated_at=? WHERE operation_id=?",
       ).run(now(), op.operation_id);
     });
-    new AgentLifecycles(this.ctx).deliver(lifecycle(db,op.agent_id));
-    return profileResponse(one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", op.agent_id)!);
+    this.dependencies.deliverLifecycle(op.agent_id);
+    return profileResponse(readAgentProfile(db, op.agent_id)!);
   }
-}
-function requireProfile(ctx: ImContext, agent: string, owner: string): Row {
-  const p = one(
-    ctx.db,
-    "SELECT * FROM agent_profiles WHERE agent_id=? AND owner_id=? AND is_stale=0",
-    agent,
-    owner,
-  );
-  if (!p || !canAccessSpace(ownerAccount(ctx.db, owner), p.space_id)) fail(404, "agent_id not found");
-  return p;
-}
-function requireNode(ctx: ImContext, node: string, owner: string) {
-  const n = one(
-    ctx.db,
-    "SELECT * FROM nodes WHERE node_id=? AND owner_id=?",
-    node,
-    owner,
-  );
-  if (!n) fail(404, "node_id not found");
-  return n;
-}
-function nodeResponse(n: Row) {
-  return {
-    ...n,
-    owner_id: n.owner_id ?? "",
-    relay_enabled: !!n.relay_enabled,
-    reporting_enabled: !!n.reporting_enabled,
-  };
-}
-function validateCandidate(input: Row, create = false) {
-  for (const key of create
-    ? ["agent_id", "display_name", "group_reply_policy"]
-    : ["display_name", "group_reply_policy"])
-    if (!optionalText(input[key])) fail(422, `${key} is required`);
-  for (const key of ["skills", "tool_allowlist", "model_fallbacks"])
-    if (
-      key in input &&
-      (!Array.isArray(input[key]) || input[key].some((s: unknown) => typeof s !== "string"))
-    )
-      fail(422, `${key} must be a string list`);
-  if (input.approval_mode != null && !["cc", "codex"].includes(input.approval_mode))
-    fail(422, "invalid approval_mode");
-  if (input.work_mode != null && !["single_thread", "global"].includes(input.work_mode))
-    fail(422, "invalid work_mode");
-  if (
-    input.skills_selection_mode != null &&
-    !["default_discovery", "explicit_allowlist", "explicit_denylist"].includes(input.skills_selection_mode)
-  )
-    fail(422, "invalid skills_selection_mode");
-  if (!create && (!Number.isInteger(input.profile_version) || input.profile_version < 1))
-    fail(422, "invalid profile_version");
-}
-function allowlistOptions(value: unknown): Row[] {
-  return (Array.isArray(value) ? value : []).flatMap((item) => {
-    const entry = typeof item === "string" ? { name: item } : item;
-    if (!entry || !optionalText(entry.name)) return [];
-    return [
-      {
-        name: entry.name.trim(),
-        description: typeof entry.description === "string" ? entry.description.trim() : "",
-        default_on: !!entry.default_on,
-        ...(typeof entry.enabled === "boolean" ? {enabled: entry.enabled} : {}),
-        location: optionalText(entry.location),
-        source_group: ["workspace", "global", "compatibility"].includes(entry.source_group)
-          ? entry.source_group
-          : null,
-      },
-    ];
-  });
-}
-function modelOptions(value: unknown): Row[] {
-  return (Array.isArray(value) ? value : []).flatMap((item) => {
-    const entry = typeof item === "string" ? { name: item } : item;
-    if (!entry || !optionalText(entry.name)) return [];
-    const r = entry.reasoning;
-    let reasoning: Row | null = null;
-    if (r?.kind === "fixed") reasoning = { kind: "fixed" };
-    else if (r?.kind === "selectable") {
-      const levels = [...new Set(stringList(r.levels))];
-      if (levels.length && levels.includes(r.default))
-        reasoning = { kind: "selectable", levels, default: r.default };
-    }
-    return [
-      {
-        name: entry.name.trim(),
-        provider: typeof entry.provider === "string" ? entry.provider : "",
-        ...(optionalText(entry.display_name) ? {display_name: entry.display_name.trim()} : {}),
-        ...(optionalText(entry.provider_display_name) ? {provider_display_name: entry.provider_display_name.trim()} : {}),
-        reasoning,
-      },
-    ];
-  });
-}
-function featureOptions(value: unknown): Row[] {
-  return (Array.isArray(value) ? value : [])
-    .filter((x) => x && typeof x.key === "string" && x.key)
-    .map((x) => ({
-      key: x.key,
-      label_i18n: typeof x.label_i18n === "string" ? x.label_i18n : "",
-      help_i18n: typeof x.help_i18n === "string" ? x.help_i18n : "",
-      default_on: !!x.default_on,
-      available: x.available !== false,
-      requires: {features:stringList(x.requires?.features),tools:stringList(x.requires?.tools),skills:stringList(x.requires?.skills)},
-    }));
-}
-function agentCapabilities(profile: Row, capabilities: NodeCapabilities | undefined): Row {
-  if (!capabilities || !(['models','skills','tools'] as const).every(key => Array.isArray(capabilities[key])))
-    fail(502, 'Agent capabilities are unavailable');
-  return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
-    models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),
-    inherited_approval_rules:capabilities.inherited_approval_rules ?? null,
-    commands:capabilities.commands ?? [],features:featureOptions(capabilities.features),fixed_tools:stringList(capabilities.fixed_tools),platform_default_model:capabilities.platform_default_model ?? null};
-}
-function settingsError(code: string) {
-  return {code,message:code === 'offline' ? 'The Agent computer is offline.' : code === 'timeout' ? 'The computer did not respond in time.' : 'Settings could not be confirmed. Refresh to try again.'};
-}
-function previewInput(b: Row): NodeInput<'node.prompt.preview.request'> {
-  return {
-    features: b.features ?? {},
-    custom_prompt: b.custom_prompt ?? null,
-    tool_ids: b.tool_ids ?? [],
-    scenario: b.scenario ?? "direct",
-    skill_ids: b.skill_ids ?? [],
-    skills_selection_mode: b.skills_selection_mode ?? "explicit_allowlist",
-  };
-}
-function previewResponse(r: {prompt?: string; section_count?: number} = {}): Row {
-  return {
-    prompt: typeof r.prompt === "string" ? r.prompt : "",
-    section_count: Number.isInteger(r.section_count) ? r.section_count : 0,
-  };
-}
-function requiredWorkspace(p: Row) {
-  if (!p.workspace_root) fail(409, "workspace_root is pending gateway registration");
-  return p.workspace_root;
-}
-export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
-  registerAgentLifecycleRoutes(app,ctx);
-  app.addHook('onRequest', async (req, reply) => {
-    if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
-      reply.header('Cache-Control','private, no-store');
-  });
-  const ops = new ConfigOperations(ctx);
-  const user = (req: FastifyRequest) => {
-    const u = ctx.identity.authenticateRequest(req);
-    const id = params(req)?.agent_id;
-    if (id) {
-      const profile = one(ctx.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", id);
-      if (profile) ctx.identity.requireSpace(u, profile.space_id);
-    }
-    return u;
-  };
-  const rpc = async <K extends NodeCommand>(node: string, action: K, payload: NodeInput<NoInfer<K>>) => {
-    const response = await gatewayRequest(ctx, node, action, payload);
-    if (!response) fail(503, "target_node_id is not connected");
-    return response;
-  };
-  app.get("/im/v1/nodes", async (req) =>
-    all(
-      ctx.db,
-      "SELECT * FROM nodes WHERE owner_id=? ORDER BY node_id",
-      (await user(req)).owner_id,
-    ).map(node => ({...nodeResponse(node), ...(ctx.updates ? {update: ctx.updates.view(node)} : {})})),
-  );
-  app.patch("/im/v1/nodes/:node_id/config", async (req) => {
-    const u = await user(req),
-      p = params(req),
-      b = body(req);
-    const n = requireNode(ctx, p.node_id, u.owner_id);
-    ctx.db
-      .prepare("UPDATE nodes SET alias=?,relay_enabled=?,reporting_enabled=? WHERE node_id=?")
-      .run(
-        b.alias ?? n.alias,
-        b.relay_enabled == null ? n.relay_enabled : +b.relay_enabled,
-        b.reporting_enabled == null ? n.reporting_enabled : +b.reporting_enabled,
-        p.node_id,
-      );
-    const updated = nodeResponse(requireNode(ctx, p.node_id, u.owner_id));
-    ctx.gateway.send(p.node_id, {
-      type: "config.sync",
-      payload: { node: updated },
-    });
-    return updated;
-  });
-  app.get("/im/v1/nodes/:node_id/approval", async (req) => {
-    const u = await user(req), id = params(req).node_id;
-    requireNode(ctx, id, u.owner_id);
-    const workspace = optionalText(query(req).workspace_root);
-    if (!workspace) fail(422, "workspace_root is required");
-    const result = await rpc(id, "node.approval.resolve", {workspace_root: workspace});
-    return {inherited_approval_rules: result.inherited_approval_rules ?? null};
-  });
-  app.get("/im/v1/nodes/:node_id/capabilities", async (req) => {
-    const u = await user(req),
-      id = params(req).node_id;
-    requireNode(ctx, id, u.owner_id);
-    const {capabilities} = await rpc(id, "node.capabilities.resolve", {});
-    if (!capabilities) fail(502, 'Node capabilities are unavailable');
-    const r = capabilities;
-    return {
-      node_id: id,
-      models: modelOptions(r.models),
-      skills: allowlistOptions(r.skills),
-      tools: allowlistOptions(r.tools),
-      features: featureOptions(r.features),
-      fixed_tools: stringList(r.fixed_tools),
-      inherited_approval_rules: r.inherited_approval_rules ?? null,
-      platform_default_model: r.platform_default_model ?? null,
-      default_workspace_template: r.default_workspace_template ?? null,
-    };
-  });
-  app.post("/im/v1/nodes/:node_id/prompt-preview", async (req) => {
-    const u = await user(req),
-      id = params(req).node_id;
-    requireNode(ctx, id, u.owner_id);
-    const b = body(req);
-    const r = await rpc(id, "node.prompt.preview.request", {
-      ...previewInput(b),
-      work_mode: b.work_mode ?? "single_thread",
-      workspace_mode: b.workspace_mode ?? "default",
-      agent_id_hint: b.agent_id_hint ?? null,
-      workspace_root: b.workspace_root ?? null,
-    });
-    if (r.error) {
-      const code = r.error.code;
-      fail(
-        [
-          "workspace_confirmation_required",
-          "workspace_already_assigned",
-          "agent_id_already_exists",
-        ].includes(code)
-          ? 409
-          : 422,
-        { code, message: r.error.detail },
-      );
-    }
-    return previewResponse(r.preview);
-  });
-  app.post("/im/v1/nodes/:node_id/agents", async (req, reply) => {
-    const u = await user(req),
-      id = params(req).node_id,
-      b = body(req);
-    requireNode(ctx, id, u.owner_id);
-    validateCandidate(b, true);
-    const result = await ops.serialized(b.agent_id, async () => {
-      const recovered = await ops.recover(b.agent_id, u.owner_id);
-      if (recovered) return recovered;
-      let skills = b.skills;
-      if (skills === undefined) {
-        const capabilities = await gatewayRequest(ctx, id, "node.capabilities.resolve", {});
-        skills = capabilities
-          ? (capabilities.skills ?? []).filter(isRecord).filter((s: Row) => s.default_on).map((s: Row) => s.name)
-          : undefined;
-      }
-      const c: Row = {
-        agent_id: b.agent_id,
-        owner_id: u.owner_id,
-        display_name: b.display_name,
-        description: b.description ?? "",
-        features: b.features ?? {},
-        custom_prompt: b.custom_prompt ?? null,
-        tool_allowlist: b.tool_allowlist ?? [],
-        group_reply_policy: b.group_reply_policy,
-        default_model: b.default_model ?? null,
-        model_fallbacks: b.model_fallbacks ?? [],
-        reasoning_effort: b.reasoning_effort ?? null,
-        approval_mode: b.approval_mode ?? null,
-        work_mode: b.work_mode ?? "single_thread",
-        workspace_root: b.workspace_root ?? null,
-        heartbeat_json: null,
-        confirm_existing_workspace: b.confirm_existing_workspace === true,
-      };
-      if (skills !== undefined) {
-        c.skills = skills;
-        c.skills_selection_mode = b.skills_selection_mode ?? null;
-      }
-      if (b.features === undefined) {
-        const desired = effectiveFeatures();
-        c.features = Object.fromEntries(featureDependencies.map(feature => [feature.key,false]));
-        for (const feature of featureDependencies) if (desired[feature.key]) Object.assign(c, changeCapability(c,{kind:'feature',name:feature.key,enabled:true},{}).draft);
-      }
-      return ops.create(c, u.owner_id, id);
-    });
-    return reply.code(201).send(result);
-  });
-  app.get("/im/v1/agents", async (req) => {
-    const u = await user(req);
-    return all(
-      ctx.db,
-      "SELECT p.*,n.status AS node_status,u.id AS user_id FROM agent_profiles p LEFT JOIN nodes n ON n.node_id=p.node_id LEFT JOIN users u ON u.username='agent:'||p.agent_id WHERE p.is_stale=0 AND p.node_id IS NOT NULL AND p.owner_id=? AND n.owner_id=? ORDER BY p.created_at,p.rowid",
-      u.owner_id,
-      u.owner_id,
-    ).filter(p => canAccessSpace(u, p.space_id)).map((p) => ({
-      ...Object.fromEntries(
-        [
-          "agent_id",
-          "owner_id",
-          "space_id",
-          "node_id",
-          "display_name",
-          "description",
-          "profile_version",
-          "default_model",
-          "workspace_root",
-          "updated_at",
-          "user_id",
-          "node_status",
-        ].map((k) => [k, p[k] ?? null]),
-      ),
-      workspace_is_default: p.workspace_is_default == null ? null : !!p.workspace_is_default,
-    }));
-  });
-  const settingsProfile = (req: FastifyRequest) => {
-    const identity = user(req);
-    return requireProfile(ctx, params(req).agent_id, identity.owner_id);
-  };
-  const activeOperation = (profile: Row) => one(ctx.db,
-    "SELECT operation_id,status FROM agent_config_operations WHERE agent_id=? AND owner_id=? AND status IN ('pending','gateway_applied') ORDER BY rowid DESC LIMIT 1",
-    profile.agent_id, profile.owner_id) ?? null;
-  app.get('/im/v1/agents/:agent_id/settings', async (req, reply) => {
-    reply.header('Cache-Control', 'private, no-store');
-    settingsProfile(req);
-    return ops.serialized(params(req).agent_id, async () => {
-      let profile = settingsProfile(req);
-      let connection = settingsConnection(ctx, profile);
-      let error: SettingsRead['error'] = connection ? null : settingsError('offline');
-      if (connection && activeOperation(profile)) {
-        try { await ops.recover(profile.agent_id, profile.owner_id); }
-        catch (failure) {
-          if ((failure as Row).detail?.code !== 'config_apply_pending') throw failure;
-        }
-        profile = settingsProfile(req);
-        if (settingsConnection(ctx, profile) !== connection) { connection = undefined; error = settingsError('read_failed'); }
-      }
-      let live: Row | null = null;
-      let display = readSettingsSnapshot(ctx, profile, 'configuration');
-      const pendingOperation = activeOperation(profile);
-      if (connection && !pendingOperation) {
-        const before = profile;
-        try {
-          const response = await ctx.gateway.request(profile.node_id, 'agent.capabilities.resolve', {agent_id:profile.agent_id,workspace_root:requiredWorkspace(profile)});
-          live = agentCapabilities(profile, response?.capabilities);
-        } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
-        // Re-authenticate the HTTP identity after RPC; permission loss never falls back to a snapshot.
-        profile = settingsProfile(req);
-        if (!settingsReadCurrent(ctx, before, profile, connection)) { live = null; error = settingsError('read_failed'); }
-        if (live) {
-          const capturedAt = now(), data = configurationDisplay(profile, live);
-          writeSettingsSnapshot(ctx, profile, 'configuration', data, capturedAt);
-          display = {source:'current',captured_at:capturedAt,data,error:null};
-        } else display = readSettingsSnapshot(ctx, profile, 'configuration');
-      }
-      if (error) display.error = error;
-      return {config:profileResponse(profile,true),node:{node_id:profile.node_id,state:!profile.node_id?'unknown':settingsConnection(ctx,profile)?'online':'offline'},
-        display,live_capabilities:live,pending_operation:activeOperation(profile),ready:!!live && !activeOperation(profile)};
-    });
-  });
-  app.get('/im/v1/agents/:agent_id/settings/sections/:section', async (req, reply) => {
-    reply.header('Cache-Control', 'private, no-store');
-    let profile = settingsProfile(req);
-    const section = params(req).section as Exclude<SettingsSection,'configuration'>;
-    if (!['plugins','cron','usage'].includes(section)) fail(404, 'Settings section not found');
-    const connection = settingsConnection(ctx, profile);
-    if (!connection) return {...readSettingsSnapshot(ctx,profile,section),error:settingsError('offline')};
-    const before = profile;
-    let data: Row | Row[] | null = null, error: SettingsRead['error'] = null;
-    try {
-      const response = section === 'plugins'
-        ? await ctx.gateway.request(profile.node_id, 'node.plugins.request', {agent_id:profile.agent_id,action:'list_bundles'})
-        : await ctx.gateway.request(profile.node_id, section === 'cron' ? 'node.cron.jobs.request' : 'node.skills.usage.request', {agent_id:profile.agent_id,workspace_root:requiredWorkspace(profile)});
-      if (response?.error) fail(502, 'Settings read failed');
-      data = settingsSectionDisplay(section,profile,response);
-    } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
-    profile = settingsProfile(req);
-    if (!settingsReadCurrent(ctx,before,profile,connection)) { data = null; error = settingsError('read_failed'); }
-    if (data !== null) {
-      const capturedAt = now(); writeSettingsSnapshot(ctx,profile,section,data,capturedAt);
-      return {source:'current',captured_at:capturedAt,data,error:null};
-    }
-    return {...readSettingsSnapshot(ctx,profile,section),error};
-  });
-  app.get("/im/v1/agents/:agent_id/config", async (req) => {
-    const id = params(req).agent_id,
-      source = query(req).source ?? "live";
-    const runtime = ctx.gateway.authenticate(bearer(req));
-    if (runtime) {
-      if (source !== "mirror") fail(401, "human identity required");
-      const p = requireProfile(ctx, id, runtime.owner_id);
-      if (p.node_id !== runtime.node_id) fail(404, "agent_id not found");
-      return profileResponse(p, true);
-    }
-    const u = await user(req);
-    if (!["live", "mirror"].includes(source)) fail(422, "source must be live or mirror");
-    return ops.serialized(id, async () => {
-      await ops.recover(id, u.owner_id);
-      const p = requireProfile(ctx, id, u.owner_id),
-        r = profileResponse(p, source === "mirror");
-      if (source === "live" && p.node_id) {
-        const response = await gatewayRequest(ctx, p.node_id, "agent.config.get", { agent_id: id });
-        const live = response?.agent ?? response;
-        if (live && (!live.agent_id || live.agent_id === id))
-          for (const k of gatewayKeys)
-            if (
-              k in live &&
-              ![
-                "agent_id",
-                "workspace_root",
-                "features",
-                "custom_prompt",
-                "heartbeat_json",
-                "work_mode",
-              ].includes(k)
-            )
-              r[k] = live[k];
-      }
-      return r;
-    });
-  });
-  app.patch("/im/v1/agents/:agent_id/config", async (req) => {
-    const u = await user(req),
-      id = params(req).agent_id,
-      b = body(req);
-    validateCandidate(b);
-    return ops.serialized(id, async () => {
-      const recovered = await ops.recover(id, u.owner_id);
-      if (recovered) return recovered;
-      const p = requireProfile(ctx, id, u.owner_id);
-      if (!p.node_id)
-        fail(422, {
-          code: "agent_not_bound",
-          message: "The Agent is not bound to a Gateway node.",
-        });
-      if (b.work_mode != null && b.work_mode !== p.work_mode) fail(409, "work_mode is immutable");
-      if (b.profile_version !== p.profile_version) fail(409, "profile_version conflict");
-      requireSettingsNodeOnline(ctx, p);
-      const c: Row = {
-        ...fromProfile(p),
-        display_name: b.display_name,
-        description: b.description ?? "",
-        skills: b.skills ?? JSON.parse(p.skills_json),
-        skills_selection_mode: b.skills_selection_mode ?? p.skills_selection_mode,
-        tool_allowlist: b.tool_allowlist ?? JSON.parse(p.tool_allowlist_json),
-        group_reply_policy: b.group_reply_policy,
-        default_model: b.default_model ?? null,
-        model_fallbacks: b.model_fallbacks ?? [],
-        features: b.features ?? JSON.parse(p.features_json),
-      };
-      if ("approval_mode" in b) c.approval_mode = b.approval_mode;
-      for (const k of ["reasoning_effort", "custom_prompt", "heartbeat_json"])
-        if (k in b && (k === "reasoning_effort" || b[k] !== null)) c[k] = b[k];
-      if (b.heartbeat != null && !("heartbeat_json" in b))
-        c.heartbeat_json = JSON.stringify(b.heartbeat);
-      return ops.update(p, c, u.owner_id);
-    });
-  });
-  app.post("/im/v1/agents/:agent_id/skills/migrate", async (req) => {
-    const runtime = ctx.gateway.authenticate(bearer(req));
-    if (!runtime) fail(401, "gateway identity required");
-    const id = params(req).agent_id,
-      b = body(req);
-    if (
-      Object.keys(b).some((k) => k !== "profile_version") ||
-      !Number.isInteger(b.profile_version)
-    )
-      fail(422, "Invalid skills");
-    return ops.serialized(id, async () => {
-      let p = requireProfile(ctx, id, runtime.owner_id);
-      if (p.node_id !== runtime.node_id) fail(404, "agent_id not found");
-      const recovered = await ops.recover(id, runtime.owner_id);
-      if (recovered) p = requireProfile(ctx, id, runtime.owner_id);
-      if (p.skills_selection_mode === "explicit_denylist") return profileResponse(p);
-      if (!recovered && p.profile_version !== b.profile_version) fail(409, "profile_version conflict");
-      const c = fromProfile(p);
-      const response = await ctx.gateway.request(runtime.node_id, "agent.capabilities.resolve", { agent_id: id, workspace_root: p.workspace_root });
-      const catalog = response.capabilities?.skills ?? response.skills;
-      if (!Array.isArray(catalog)) fail(503, "Skill catalog is unavailable");
-      c.skills = selection(c.skills_selection_mode, c.skills) === "explicit_allowlist"
-        ? catalog.filter(isRecord).map((skill: Row) => skill.name).filter((name: string) => !c.skills.includes(name))
-        : [];
-      c.skills_selection_mode = "explicit_denylist";
-      return ops.update(p, c, runtime.owner_id);
-    });
-  });
-  for (const method of ['GET', 'POST'] as const) app.route({method, url: '/im/v1/agents/:agent_id/plugins', handler: async req => {
-    const u = await user(req), p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    const b = method === 'GET' ? {action: 'list_bundles'} : body(req);
-    if (method === 'POST' && (Object.keys(b).some(key => !['action', 'target', 'enabled'].includes(key))
-      || !['set_bundle', 'remove_bundle'].includes(b.action) || typeof b.target !== 'string' || !b.target.trim()
-      || b.action === 'set_bundle' && typeof b.enabled !== 'boolean'
-      || b.action === 'remove_bundle' && b.enabled !== undefined)) fail(422, 'Invalid plugin command');
-    if (method === 'POST') requireSettingsNodeOnline(ctx,p);
-    const result = await rpc(p.node_id, 'node.plugins.request', {...b,agent_id: p.agent_id,action:b.action});
-    if (result.error) fail(409, result.error);
-    return result.plugins;
-  }});
-  app.get("/im/v1/agents/:agent_id/capabilities", async (req) => {
-    const u = await user(req),
-      p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    const {capabilities} = await rpc(p.node_id, "agent.capabilities.resolve", {
-      agent_id: p.agent_id,
-      workspace_root: requiredWorkspace(p),
-    });
-    if (!capabilities) fail(502, 'Node capabilities are unavailable');
-    const r = capabilities;
-    return {
-      agent_id: p.agent_id,
-      node_id: p.node_id,
-      workspace_root: p.workspace_root,
-      models: modelOptions(r.models),
-      skills: allowlistOptions(r.skills),
-      tools: allowlistOptions(r.tools),
-      commands: r.commands ?? [],
-      features: featureOptions(r.features),
-      fixed_tools: stringList(r.fixed_tools),
-      inherited_approval_rules: r.inherited_approval_rules ?? null,
-      platform_default_model: r.platform_default_model ?? null,
-    };
-  });
-  app.get('/im/v1/agents/:agent_id/capability-usage', async req => {
-    const u = await user(req), p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    let response: Row | null;
-    try { response = await gatewayRequest(ctx,p.node_id,'agent.capability-usage.request',{agent_id:p.agent_id}); }
-    catch { response = null; }
-    const usage = response?.usage;
-    if (!usage || !Number.isInteger(usage.active_schedules) || !Array.isArray(usage.busy)) {
-      fail(503,{code:'capability_usage_unavailable',message:'Cannot confirm capability usage right now'});
-    }
-    return {checked_at:usage.checked_at,active_schedules:usage.active_schedules,busy:usage.busy,active_tasks:activeTaskCount(ctx.db,p.agent_id)};
-  });
-  app.post("/im/v1/agents/:agent_id/prompt-preview", async (req) => {
-    const u = await user(req),
-      p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    const b = body(req),
-      features = JSON.parse(p.features_json);
-    const r = await rpc(p.node_id, "agent.prompt.preview.request", {
-      ...previewInput(b),
-      agent_id: p.agent_id,
-      workspace_root: requiredWorkspace(p),
-      work_mode: p.work_mode,
-      heartbeat_enabled: b.heartbeat_enabled ?? !!features.heartbeat,
-      cron_enabled: b.cron_enabled ?? !!features.cron_scheduling,
-    });
-    return previewResponse(r.preview);
-  });
-  app.get("/im/v1/agents/:agent_id/heartbeat-md", async (req) => {
-    const u = await user(req),
-      p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    if (!p.node_id) return { content: "", node_online: false };
-    const r = await gatewayRequest(ctx, p.node_id, "node.heartbeat.md.request", {
-      agent_id: p.agent_id,
-      workspace_root: requiredWorkspace(p),
-    });
-    return { content: r?.content ?? "", node_online: !!r };
-  });
-  app.get("/im/v1/agents/:agent_id/cron/jobs", async (req) => {
-    const u = await user(req),
-      p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    if (!settingsConnection(ctx,p)) fail(503, {code:'agent_node_offline',message:'The Agent computer is offline.'});
-    const r = await ctx.gateway.request(p.node_id, "node.cron.jobs.request", {
-      agent_id: p.agent_id,
-      workspace_root: requiredWorkspace(p),
-    });
-    if (!Array.isArray(r?.jobs)) fail(502, "Cron result is unavailable");
-    return r.jobs;
-  });
-  app.delete("/im/v1/agents/:agent_id/cron/jobs/:job_id", async (req, reply) => {
-    const u = await user(req),
-      p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    requireSettingsNodeOnline(ctx,p);
-    const r = await ctx.gateway.request(p.node_id, "node.cron.delete.request", {
-          agent_id: p.agent_id,
-          workspace_root: requiredWorkspace(p),
-          job_id: params(req).job_id,
-        });
-    if (!r || typeof r.deleted !== "boolean") fail(502, "Cron deletion result is unavailable");
-    if (!r.deleted) fail(404, "job_id not found");
-    return reply.code(204).send();
-  });
-  app.get("/im/v1/agents/:agent_id/skills/usage", async (req) => {
-    const u = await user(req),
-      p = requireProfile(ctx, params(req).agent_id, u.owner_id),
-      { usage: r } = await rpc(p.node_id, "node.skills.usage.request", {
-        agent_id: p.agent_id,
-        workspace_root: requiredWorkspace(p),
-      });
-    return {
-      agent_id: p.agent_id,
-      node_id: p.node_id,
-      node_online: true,
-      skills: r?.skills ?? [],
-      heatmap_data: r?.heatmap_data ?? Array(30).fill(0),
-      health: r?.health ?? {
-        created_auto_total: 0,
-        active_auto_total: 0,
-        used_auto_total: 0,
-      },
-    };
-  });
-  app.get("/im/v1/policies", async (req) => {
-    const u = await user(req);
-    ctx.identity.requireSpace(u, "company:default");
-    const { singleton_key: _key, ...result } = one(
-      ctx.db,
-      "SELECT * FROM settings_policies LIMIT 1",
-    )!;
-    return result;
-  });
-  app.patch("/im/v1/policies", async (req) => {
-    const u = await user(req);
-    requireCompanyAdmin(u);
-    ctx.identity.requireSpace(u, "company:default");
-    const b = body(req),
-      fields = [
-        "default_model",
-        "max_turn_per_run",
-        "max_attachment_size_mb",
-        "retention_days",
-        "audit_level",
-        "rate_limit_per_min",
-      ];
-    if (
-      !optionalText(b.default_model) ||
-      !["off", "basic", "strict"].includes(b.audit_level) ||
-      fields
-        .filter((k) => !["default_model", "audit_level"].includes(k))
-        .some((k) => !Number.isInteger(b[k]) || b[k] < 1)
-    )
-      fail(422, "Invalid settings policy");
-    ctx.db
-      .prepare(`UPDATE settings_policies SET ${fields.map((k) => `${k}=?`).join(",")}`)
-      .run(...fields.map((k) => b[k]));
-    return Object.fromEntries(fields.map((k) => [k, b[k]]));
-  });
-  registerTaskGraphRoutes(app, ctx);
-  registerChannelRoutes(app, ctx);
 }

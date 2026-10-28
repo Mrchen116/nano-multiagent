@@ -20,3 +20,20 @@ async function commandContracts(request: NodeRequest) {
   return name;
 }
 void commandContracts;
+
+import {ConfigOperations, type ConfigurationDependencies, type AgentProfileView} from '../src/control.js';
+import type {AgentProfileRecord} from '../src/configuration-records.js';
+import type {ConfigurationCandidate} from '../src/configuration-input.js';
+function configurationContracts(dependencies: ConfigurationDependencies, record: AgentProfileRecord, view: AgentProfileView) {
+  new ConfigOperations(dependencies);
+  // @ts-expect-error Configuration business has no access to unrelated node setup.
+  dependencies.request('node','node.setup.request',{action:'status'});
+  // @ts-expect-error SQL JSON columns are not public configuration fields.
+  view.skills_json;
+  // @ts-expect-error SQLite flags cannot be sent as public boolean configuration.
+  const candidate: ConfigurationCandidate = record;
+  // @ts-expect-error A public view is not a persistent profile record for optimistic update.
+  new ConfigOperations(dependencies).update(view, {agent_id:'agent'}, 'owner');
+  return candidate;
+}
+void configurationContracts;

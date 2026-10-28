@@ -1,4 +1,4 @@
-import type { AgentConfigurationFields } from '@nano/product-contracts';
+import {parseAgentConfigurationFields} from '@nano/product-contracts';
 import type { NodeCommand, NodeOutput } from './node-rpc-contracts.js';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -20,23 +20,6 @@ function record(value: unknown): Record<string, unknown> {
   return value;
 }
 
-/** Validate consumed configuration fields without normalizing or dropping wire metadata. */
-export function configurationFields(value: unknown): AgentConfigurationFields {
-  const p = record(value);
-  for (const key of ['agent_id','work_mode','create_operation_id']) field(p, key, text);
-  for (const key of ['display_name','skills_selection_mode','group_reply_policy','default_model','reasoning_effort','workspace_root','custom_prompt','heartbeat_json']) field(p, key, nullableText);
-  for (const key of ['tool_allowlist','model_fallbacks']) field(p, key, strings);
-  field(p, 'skills', value => value === null || strings(value));
-  field(p, 'approval_mode', value => value === null || value === 'cc' || value === 'codex');
-  field(p, 'features', value => isRecord(value) && Object.values(value).every(boolean));
-  field(p, 'workspace_is_default', value => value === null || boolean(value));
-  field(p, 'confirm_existing_workspace', boolean);
-  field(p, 'personal_agent', value => isRecord(value) && text(value.bindingId) && text(value.ownerId)
-    && text(value.conversationId) && Number.isSafeInteger(value.epoch) && Number(value.epoch) > 0);
-  // The assertion follows checks for every field in the public projection. Extra
-  // node metadata remains on the original object for durable receipt fidelity.
-  return p as AgentConfigurationFields;
-}
 function capabilities(value: unknown): void {
   const p = record(value);
   for (const key of ['models','skills','tools','commands','features']) field(p, key, Array.isArray);
@@ -61,6 +44,10 @@ function usage(value: unknown): void {
  *   Error: 502 when the peer supplied a malformed consumed field.
  */
 export function decodeNodeResult<K extends NodeCommand>(command: K, value: unknown): NodeOutput<K> {
+  try { return decode(command, value); }
+  catch { invalid(); }
+}
+function decode<K extends NodeCommand>(command: K, value: unknown): NodeOutput<K> {
   const p = record(value);
   switch (command) {
     case 'agent.create':
@@ -68,11 +55,11 @@ export function decodeNodeResult<K extends NodeCommand>(command: K, value: unkno
     case 'agent.config.operation.status':
       for (const key of ['operation_id','candidate_fingerprint','status','error_code','message']) field(p, key, text);
       field(p, 'blocks', Array.isArray);
-      if (p.agent != null) configurationFields(p.agent);
+      if (p.agent != null) parseAgentConfigurationFields(p.agent);
       break;
     case 'agent.config.get':
-      configurationFields(p);
-      if (p.agent != null) configurationFields(p.agent);
+      parseAgentConfigurationFields(p);
+      if (p.agent != null) parseAgentConfigurationFields(p.agent);
       break;
     case 'agent.capabilities.resolve':
     case 'node.capabilities.resolve':
