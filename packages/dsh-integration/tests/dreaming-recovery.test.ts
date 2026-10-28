@@ -34,3 +34,57 @@ it.each(['generation','third-version'])('retires a stale %s plan and processes t
     await d.recover();expect(owners.get('YQ')!.streams.s.cursor).toBe(1);expect(model).toHaveBeenCalledOnce();
   } finally {for(const fn of cleanup)fn();await library.close();await rm(workspace,{recursive:true,force:true});}
 });
+
+it.each(['before-first-file','after-body','after-entry'])('resumes the frozen plan after interruption %s without rewriting saved bytes',async phase=>{
+  const workspace=await mkdtemp(join(tmpdir(),'dreaming-apply-recovery-'));
+  const library=await MemoryDocuments.open(workspace,'expert',new LocalFileSystem(new Context(),{cwd:workspace,diffBasisMaxBytes:10485760}));
+  const owner={activationAt:0,streams:{s:{baseline:-1,cursor:-1}},seen:[],rotation:0,failures:0};
+  const owners=new Map<string,any>([['YQ',owner]]),runs=new Map<string,any>();const cleanup:Array<()=>void>=[];
+  const ctx={storageDomain:{open:async()=>({table:(name:string)=>{const rows=name==='owners'?owners:runs;return {get:(id:string)=>rows.get(id),put:async(id:string,value:any)=>{rows.set(id,structuredClone(value));},entries:()=>rows.entries()};}})},on:()=>{},effect:(f:()=>()=>void)=>cleanup.push(f()),nanoTrajectoryRuns:{finishMaintenance:async()=>{}}};
+  const config={agentId:'a',revision:'1',workspace,provider:'fixture',model:'test'};
+  const make=()=>new Dreaming(ctx as never,{forConfig:async()=>library} as never,{configOf:()=>config,configs:new Map([['a',config]]),bindings:new Map(),notify:()=>{}});
+  const d=make();const internals=d as any;
+  vi.spyOn(internals.sources,'baseline').mockResolvedValue({});
+  vi.spyOn(internals.sources,'freeze').mockResolvedValue({id:'frozen',units:[{id:'unit',sessionId:'s',start:-1,through:1,events:[],fingerprints:['source:revision']}],ranges:[{sessionId:'s',start:-1,through:1,observed:1}],blocked:[],filtered:0,inputTokens:0});
+  const {createHash}=await import('node:crypto');const {writeFile,mkdir}=await import('node:fs/promises');
+  const model=vi.spyOn(internals,'model').mockImplementation(async(_p,_c,_w,run:any)=>{
+    const versions=await library.versions();
+    const output={'knowledge/lesson.md':'One verified lesson, recorded once.','MEMORY.md':'# Memory\n[Lesson](knowledge/lesson.md)'};
+    await mkdir(join(run.directory,'staging/knowledge'),{recursive:true});
+    run.plan=[];run.reviewed=['unit'];
+    for(const [path,content] of Object.entries(output)){
+      await writeFile(join(run.directory,'staging',path),content);
+      run.plan.push({operationId:'frozen:'+path,path,beforeHash:versions[path]??null,afterHash:createHash('sha256').update(content).digest('hex')});
+    }
+  });
+  const apply=library.apply.bind(library);let calls=0;let fired=false;
+  const fault=vi.spyOn(library,'apply').mockImplementation(async(...args)=>{
+    calls++;
+    if(phase==='before-first-file'&&!fired){fired=true;throw new Error('Interrupted before first application');}
+    const receipt=await apply(...args);
+    if(phase==='after-body'&&calls===1){fired=true;throw new Error('Interrupted after saved body, before run receipt');}
+    return receipt;
+  });
+  const checkpoint=library.checkpoint.bind(library);
+  const checkpointFault=vi.spyOn(library,'checkpoint').mockImplementation(async(...args)=>{
+    if(phase==='after-entry'&&!fired){fired=true;throw new Error('Interrupted after entry, before checkpoint');}
+    return checkpoint(...args);
+  });
+  const parent={ctx:{tools:{get:()=>true}}} as never;
+  try{
+    expect(await d.start(parent,false)).toMatchObject({state:'partial'});expect(owners.get('YQ').streams.s.cursor).toBe(-1);
+    const savedBefore=(await library.status()).receipts.filter(receipt=>receipt.saved);
+    const restarted=make();const noModel=vi.spyOn(restarted as any,'model');
+    await restarted.recover();
+    expect(await restarted.start(parent,false)).toMatchObject({state:'completed'});
+    expect(model).toHaveBeenCalledOnce();expect(noModel).not.toHaveBeenCalled();
+    expect(owners.get('YQ').streams.s.cursor).toBe(1);expect(owners.get('YQ').seen).toEqual(['source:revision']);
+    expect(await readFile(join(library.root,'knowledge/lesson.md'),'utf8')).toBe('One verified lesson, recorded once.');
+    for(const receipt of savedBefore)expect((await library.status()).receipts.find(item=>item.operationId===receipt.operationId)).toEqual(receipt);
+    const beforeNoIncrement=calls;
+    vi.spyOn((restarted as any).sources,'baseline').mockResolvedValue({});
+    vi.spyOn((restarted as any).sources,'freeze').mockResolvedValue({id:'empty',units:[],ranges:[],blocked:[],filtered:0,inputTokens:0});
+    expect(await restarted.start(parent,false)).toEqual({completed:false,reason:'no_eligible_increment',blocked:[]});
+    expect(calls).toBe(beforeNoIncrement);expect(noModel).not.toHaveBeenCalled();
+  }finally{fault.mockRestore();checkpointFault.mockRestore();for(const fn of cleanup)fn();await library.close();await rm(workspace,{recursive:true,force:true});}
+});
