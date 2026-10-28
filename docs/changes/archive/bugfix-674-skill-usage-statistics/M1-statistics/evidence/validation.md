@@ -33,3 +33,11 @@
 - final sync 检查：2026-10-28 fetch 后 origin/main 仍为 `ff326c351d104447028f4b185740ab6d6be55de6`，无 main 增量。已审代码未变化，仅 E2E fixture 与运行证据补齐，待独立审查者核对增量。
 
 - Web `npm test -- --maxWorkers=2`：108 files / 1029 tests 全通过；`npm audit --audit-level=critical` 退出 0（0 critical，现有 11 项非 critical，无依赖变更）。所有适用本地测试文件已获得通过结果；首轮资源并发失败及 PTY 复验保留如上。
+
+## 最终集成与门禁
+
+- `origin/main` 在最终收尾推进至 `b8fc5edefcb74ec8a8888aeb7fa245779e644253`，合并树 `6a16e72d2009adea95f1f1624a13dbf74d9a67fa`。独立静态审查核对主干序列化和 TaskGraph 增量：usage/knowledge/Web/iOS无改变，control共享模块需局部验证；其余门禁保留，详见 unit verification。
+- 合并后 `pnpm build && pnpm typecheck` 通过；IM settings/control-work/control 与 serialization 共4 files / 47 tests通过；架构contract 13 tests通过。日志分别为 `/tmp/skill674-sync-build.log`、`/tmp/skill674-sync-tests.log`、`/tmp/skill674-sync-contract.log`。
+- 独立产品验收 pass，真实UI关闭自进化并调用本地确定性 provider：累计75→76、30天1→2，旧记录0/暂无新调用，桌面/390px/空态对照通过。完整观察与截图位置见 unit review。
+- 独立 code review findings=[]、full verification=pass、corrected delta=aligned。canonical只归并已核对的同一delta文字；归档与证据提交不改运行代码，门禁 retained through 最终交付提交。
+- `e2e-down.sh` 已完成；本任务本地 provider已停止，53171/60675均无监听；专用iOS模拟器已删除，构建和测试日志保留于 `/tmp/nano-ios-skill674`。开发worktree保留待PR审查。

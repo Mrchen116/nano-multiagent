@@ -4,7 +4,7 @@
 
 - 架构审查基线：`a89b778de4dda56da933a12e5b59bcf81c207cb1`；审查报告提交 `a34af8473` 中第 01 项。
 - 实施准备基线：`ff326c351d104447028f4b185740ab6d6be55de6`。
-- Current：[Skill 使用统计 API](../../specs/im/agents-nodes.md)、[知识维护能力](../../specs/gateway/agent-capabilities.md)。
+- Current：[Skill 使用统计 API](../../../specs/im/agents-nodes.md)、[知识维护能力](../../../specs/gateway/agent-capabilities.md)。
 
 ## 原始报告与澄清
 
