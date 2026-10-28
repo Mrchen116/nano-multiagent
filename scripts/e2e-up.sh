@@ -145,6 +145,11 @@ case "$E2E_PROFILE" in
     ;;
 esac
 
+python3 "$SCRIPT_DIR/dev_host.py" guard --repo "$REPO_ROOT" --runtime "$WT_ROOT" --profile "$E2E_PROFILE"
+if [[ $MAIN_CONFIG_EXPLICIT -eq 0 ]]; then
+  MAIN_CFG="$(python3 "$SCRIPT_DIR/dev_host.py" e2e-config --repo "$REPO_ROOT")"
+fi
+
 if [[ ! -f "$MAIN_CFG" ]]; then
   echo "E2E config not found: $MAIN_CFG" >&2
   echo "restore the repository E2E config or pass --main-config" >&2
@@ -387,6 +392,6 @@ echo "  Browser $UI_URL (same-origin IM: $IM_URL)"
 echo "  Test account: nano / nano1234"
 if [[ $START_VITE -eq 1 ]]; then echo "  Vite $VITE_PORT ($WT_ROOT/.vite.log)"; fi
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
-echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nanoassistant"
+echo "hint: source config $MAIN_CFG (copied into this isolated stack)"
 echo "      product acceptance uses --profile daily (handoff: .e2e-daily.json)"
 echo "      Feishu requires --feishu and the private profile documented in worktree-runtime.md"

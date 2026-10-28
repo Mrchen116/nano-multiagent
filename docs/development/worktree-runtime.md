@@ -1,6 +1,6 @@
 # Worktree Runtime Isolation
 
-本文负责在 worktree 或临时目录中运行真实 IM、Gateway 和可选 Vite 时的隔离、观察与清理。这里的服务用于开发和 E2E 验证，生命周期随本次任务结束；主仓日常使用的持久服务见 [`../operations/`](../operations/README.md)。
+本文负责在 worktree 或临时目录中运行真实 IM、Gateway 和可选 Vite 时的隔离、观察与清理。这里的服务用于开发和 E2E 验证，生命周期随本次任务结束；独立生产 checkout 中的持久服务见 [`../operations/`](../operations/README.md)。
 
 ## 适用场景
 
@@ -19,17 +19,19 @@
 4. 谁启动进程，谁负责记录进程身份、停止进程并确认端口已经释放。
 5. config 副本、secret、PID、日志、数据库、凭据和 workspace 都是本地运行数据，不提交。
 6. Node 管理独立 DSH 子进程，只经 stdio 通信；两者都不监听独立业务端口。DSH home 与 owner 配置根也必须隔离。
+7. up/down 在任何文件修改或进程停止前检查生产保护路径与 `.nano-production` 标记；拒绝时另选独立目录，不删除标记绕过。配置与判定规则见 [本机开发配置](local-development.md#本机开发配置)。
 
 ## 前置条件
 
 - 已执行 `pnpm install --frozen-lockfile`、`pnpm build`。主前端依赖另需 `npm --prefix src/IM/frontend ci`；up 自动校验主前端与原生轨迹查看器，按需构建，不要求手工构建 Web。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
-- 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是默认的、无密钥 E2E 配置，包含两个普通 Agent（`e2e`、`e2e-peer`）、一个 Global Agent（`e2e-global`）、Web IM channel 和可选模型目录。预设显式配置文件、命令、搜索、Skill 与消息工具，避免缺省工具名单在配置同步后变为空集；Skills 使用空禁用名单，保留正常发现。需要另一个受控 config 时，才通过 `--main-config` 显式指定。
+- 先按 [本机开发配置](local-development.md#本机开发配置) 执行 `python3 scripts/dev_host.py check`，确认当前机器的测试源配置和能力；此报告不证明真实 E2E 可用。
+- 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是未配置本机覆盖时的无密钥 E2E 配置，包含两个普通 Agent（`e2e`、`e2e-peer`）、一个 Global Agent（`e2e-global`）、Web IM channel 和可选模型目录。预设显式配置文件、命令、搜索、Skill 与消息工具，避免缺省工具名单在配置同步后变为空集；Skills 使用空禁用名单，保留正常发现。default 可通过 `--main-config` 显式指定另一个受控 config；配置优先级见本机开发配置。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
 
 ### 专用 Feishu E2E profile
 
-真实 Feishu 验收只使用仓库 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 中固定的 `e2e`、`e2e-peer` agents 和默认禁用的 `feishu:e2e` channel；`--feishu` 只在 worktree 副本中启用该 channel。`e2e-peer` 用于内部 IM 双 Agent 群聊；外部 Feishu 群聊用测试用户与当前测试 Bot 验证。它绝不从个人 Gateway config 或根目录 `.env` 继承 channel，且需要两项**本机私有**准备：
+真实 Feishu 验收使用仓库测试模板或其本机副本中固定的 `e2e`、`e2e-peer` agents 和默认禁用的 `feishu:e2e` channel；`--feishu` 只在 worktree 副本中启用该 channel。`e2e-peer` 用于内部 IM 双 Agent 群聊；外部 Feishu 群聊用测试用户与当前测试 Bot 验证。它绝不从个人 Gateway config 或根目录 `.env` 继承 channel，当前测试 Bot 只在 Air 使用；Mini 的本机能力设置会提前拒绝起栈，验收交接同一代码 SHA 到 Air。Air 需要两项**本机私有**准备：
 
 1. 创建权限为 `0600` 的 `${XDG_CONFIG_HOME:-~/.config}/nano-multiagent/feishu-e2e.env`，包含 `NANO_MULTIAGENT_E2E_FEISHU_APP_ID`、`NANO_MULTIAGENT_E2E_FEISHU_APP_SECRET`、`NANO_MULTIAGENT_E2E_FEISHU_BOT_OPEN_ID` 和 `NANO_MULTIAGENT_E2E_FEISHU_LARK_PROFILE`。这些值不得提交、打印或放进仓库 `.env`。
 2. 以该文件声明的**非 default** `lark-cli` profile 完成一次用户身份登录。开始前执行 `lark-cli --profile <profile> auth status --json --verify`；profile 必须同时验证测试 App、测试 Bot 和测试用户。
@@ -38,7 +40,7 @@
 
 ## 固定日常验收模板
 
-正常开发流程的真实产品验收使用 `scripts/e2e-up.sh --profile daily --wt <绝对目录>`，每个需求独立实例。角色和初始资料由仓库 [daily 模板](../../config/e2e/daily/team.yaml) 固定维护，初始化复用默认模型目录，不读取个人 Gateway 配置或生产聊天。
+正常开发流程的真实产品验收使用 `scripts/e2e-up.sh --profile daily --wt <绝对目录>`，每个需求独立实例。角色和初始资料由仓库 [daily 模板](../../config/e2e/daily/team.yaml) 固定维护，初始化使用按本机配置选出的测试模型目录，不读取个人 Gateway 配置或生产聊天。
 
 | 固定角色 | 职责 | 主模型 / 推理档位 |
 |---|---|---|
@@ -110,7 +112,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 | 端口 | 通过 `scripts/free-ports.sh` 为 IM 和可选 Vite 分配空闲端口；DSH 和 Gateway 不监听业务端口 |
 | IM identity | 为本次运行生成随机 `IM_JWT_SECRET`，在全新 IM 中显式初始化隔离测试用户 |
 | IM 数据 | 以 `WT_ROOT` 为 cwd，使用其中的 `data/im_service.sqlite3`，启动前清理本目录的旧 E2E 状态 |
-| Gateway config | 默认从 `config/e2e/gateway.yaml` 复制 `.gateway-config.yaml`，不修改源文件；`--feishu` 仅向该副本注入私有测试 App 凭据 |
+| Gateway config | 从选定的本机或仓库测试 YAML 复制 `.gateway-config.yaml`，不修改源文件；`--feishu` 仅向该副本注入私有测试 App 凭据 |
 | Gateway identity | 生成唯一 `node_id`，把 `im_service.url` 指向本次 IM，并同步本次测试用户的 `node.user_id` |
 | Runtime 根 | 本次 owner 根、Node SQLite 和 DSH home 均在 worktree 隔离目录 |
 | Agent workspace | 将 `node.workspace_base` 和所有预置 agent 的 `workspace_root` 改到 `.gateway-workspace/` |
@@ -247,7 +249,7 @@ unit 完成或 worktree 删除前，还要确认：
 | 症状 | 优先检查 |
 |---|---|
 | `ModuleNotFoundError: yaml` | 当前 `python` 不属于项目环境；激活 `.venv` 或把主 checkout 的 `.venv/bin` 放到 `PATH` 前部 |
-| `E2E config not found` | 恢复仓库 `config/e2e/gateway.yaml`，或显式传 `--main-config` |
+| `E2E config not found` | 用 `dev_host.py check` / `e2e-config --repo <源码目录>` 核对本机源文件；default 也可显式传 `--main-config` |
 | config 缺少 `llm:` | 修正仓库 E2E config；不要在生成后的临时副本里维护第二份长期配置 |
 | Feishu identity 校验失败 | 检查私有 `feishu-e2e.env` 是否仍指向专用测试 App/Bot；不要复用生产 App 凭据 |
 | probe 拒绝 CLI profile | 执行文档中的 `auth status --verify`，并使用 env 文件指定的非 default profile |

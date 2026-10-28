@@ -30,6 +30,7 @@
 | 提报 GitHub Issue、分诊和维护标签 | [`development/issues.md`](development/issues.md) |
 | 查已放弃或被后续架构取代的 change unit | [`changes/retired/`](changes/retired/README.md)；退役原因与当前入口以该索引为准 |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
+| 在 Air/Mini 切换开发、定位本机模型入口与能力 | [本机开发配置](development/local-development.md#本机开发配置) |
 | 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
 | 设计或审查 Agent 实际消费的 Prompt、Skill、工具、消息、Memory 与历史链路 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
@@ -45,7 +46,7 @@
 | 旧 Python 节点迁移到 DSH | [`operations/dsh-migration.md`](operations/dsh-migration.md) |
 | 首次升级会话归属与任务协作数据 | [feat-584 迁移 guidance](changes/archive/feat-584-task-progress-permissions/migration-guidance.md)；备份后显式映射旧任务 |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
-| 查 LLM 交互日志或本地参考项目 | [`../AGENTS.md`](../AGENTS.md#调研与联调入口) |
+| 查 LLM 交互日志或本地参考项目 | [本机开发配置](development/local-development.md#本机开发配置) → [LLM 联调](development/llm-integration.md) / [参考项目](../AGENTS.md#调研参考项目) |
 | 查外部项目比较、脑暴或阶段性审查 | [`research/`](research/README.md)；先核对日期、代码基线和当前权威 |
 | 构建或运行 Agent 评测集 | [`../evals/`](../evals/README.md) |
 
@@ -63,7 +64,7 @@
 | change unit 如何选择、推进，如何选择实施方式，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
 | change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/README.md`](changes/README.md) | unit 存储与文件归属 |
 | 开发流程、环境、测试和联调文档如何进入 | [`development/`](development/README.md) | 开发任务地图 |
-| 本地环境如何安装、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |
+| 本地环境、本机路径/能力、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |
 | worktree 内如何隔离启动真实服务并完成清理 | [`development/worktree-runtime.md`](development/worktree-runtime.md) | 临时端口、config、进程、数据和绑定隔离 |
 | 测试如何分层、什么值得进入长期测试 | [`development/testing.md`](development/testing.md) | 测试规范 |
 | 一次验证如何形成可复查证据、结果保存和归并到哪里 | [`development/evidence.md`](development/evidence.md) | Evidence 能力边界与流转 |
