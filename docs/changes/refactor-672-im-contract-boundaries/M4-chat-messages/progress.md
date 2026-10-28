@@ -15,3 +15,5 @@ Node 24.22.1，本地日志 `.e2e-refactor-672/m4-*.log`（不提交）：
 - build、全包 typecheck（包括 SQL/View 与生产配对负例）、check:ios-runtime 通过。
 
 真实模型不在本次类型/归属重构验证范围；贯通测试仅将 native RuntimePort 作为确定性事实源，真实 PA、协议和 IM 均执行。provisional discard 原子投影回滚的既有 spec/code drift 不计为本次修复或通过；no spec delta，无 schema/部署迁移。
+
+独立 Round 5 静态与验收发现同一权限身份漏检，修复于 `21b09d3e4`；现有 WS 边界测试增补五类执行身份的 flat/nested 非法值。修复前红、修复后 6 文件/34 passed，禁止 SQL/事件/幂等副作用；其余覆盖不重跑全量。39f 冻结版本完整后端 150 文件/800 passed，前端 108 文件/1029 passed，Python 100 passed，Ruff/docs 通过。

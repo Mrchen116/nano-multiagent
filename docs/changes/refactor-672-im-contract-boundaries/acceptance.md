@@ -123,3 +123,56 @@ N/A。无原型、视觉或 must-match 契约；读取 motivation.md、design.md
 本轮仅选择原问题的真实HTTP接收入口和完整Work回看闭环，不重跑未受影响WS/分段矩阵。证据为 `.e2e-refactor-672/m3-acceptance/reviewer-round4-evidence.json`、`reviewer-round4-db-evidence.json`，驱动 `.e2e-refactor-672/reviewer-m3-round4.mts`。Round 3 的畸形历史记录仍保留用于证据；本轮证明新输入被拒，不声称执行历史数据迁移。
 
 全部本轮客户端已退出。PID7760为验收者重启的专用IM服务，已交caller最终清理，environment.json更新为该地址/PID。报告未提交；未修改产品源码、测试或设计。无UI/模型新增结论，no spec delta，上层文档无需更新。
+
+## Round 5 — M4 聊天发送与流式链独立验收
+
+> validated_at: `39f159d9f0a9089023939fa2f9e2569542f8037e`（本轮开始核对HEAD及clean status）；此前M3通过版本为Round 4的`197da048`。
+
+**Verdict: fail**。M4新增三条Scenario中两条pass、一条fail；1个新增major阻塞 M4-AC-1。既有provisional discard drift另列，不冒充本次实现通过或修复。
+
+### 真实旅程与范围
+
+读取motivation/design M4、current conversations-messages/gateway-relay相关契约，以专用IM真实HTTP、Gateway WS、用户stream、历史API及只读SQLite独立验收。使用真实SingleThread/NodeStore，将HTTP生成的relay输入送入RuntimePort，再以独立确定性原生fixture生成工具、思考、正文及终态；未运行测试runner、不使用真实模型或外部平台。附件保存/发送由真实上传与消息API验证，生产链输入另用纯文本：初始驱动把text/plain附件交给SingleThread的图片输入路径，被拒后改用单独纯文本消息，该驱动前置错误不作产品能力通过证据。所有场景均在专用身份/数据内，未做UI视觉评价。
+
+| Requirement / Scenario | 独立实际证据 | 结果 |
+|---|---|---|
+| 发送重试仍对应同一真实消息 / 用户与Agent发送及重试 | 真人正文+上传附件使用同一Idempotency-Key重试返回同一消息id；更改正文409，attempt lookup200且原身份/附件保留；outsider发送404，alice冒充bob403。真实relay输入含用户原文，SingleThread runtime submit收到该原文。Agent显式发送相同from_session_id重复返回同一id，更改文本返回Agent publication identity conflict，历史仅一个该Agent消息。证据J。 | pass |
+| 实时过程与持久回看保持一致 / 流式正文、工具、审批与结束 | SingleThread输出正文“核对完成。”、thinking“独立思考事实”、工具原始嵌套input和含中文emoji/换行引号output；工具duration=9，context_used=22/output=5，无虚构total。再次recover/刷新items完全一致。手工流同key重复正文仅“保留增量😀”一次；合法审批提交/解决，工具approval=user_allow、动态output对象/null数组、seq10/duration12保存；completed后晚增量不改正文或状态。用户stream有一次live delta和completed，重连resume重放event20携带同一完整消息及审批/工具/统计。证据J。 | pass |
+| 边界拒绝不破坏消息与投递事实 / 畸形流事件及失效身份 | 对象delta_text、非字符串tool id、options:[null]、对象reply_process.item_id均error，消息JSON、conversation_events计数13与幂等键计数0完全不变；随后相同key合法delta成功一次。错node被node_not_registered拒绝，停用后旧revision终态/Agent发送均agent_lifecycle_revoked且不能覆盖历史。external shadow含完整嵌套动态工具的terminal快照200，重复同一来源id不重复消息。**但首次permission_resolved的嵌套身份字段未拒绝，见M4-AC-1**。证据J/K/L。 | **fail** |
+
+### 问题与既有漂移
+
+| ID | 严重度 / 归属 | 观察与裁决 |
+|---|---|---|
+| M4-AC-1 | major / 本轮阻塞 | 消息`015f5fbdbf0848ef9879086bd9c3efe8`尚无既有审批记录时，发送permission_resolved，嵌套permission_request={request_id:"meta-fresh",agent_id:{bad:true},node_id:["bad"],node_epoch:"bad",lifecycle_revision:[],run_id:5}。服务ACK，SQLite permission_request_json原样保存畸形字段并标resolved；用户stream event36广播同样的permission.resolved。违反稳定消费字段形状错误不得落盘/发布成功的必验标准。静态审查提示后由验收者独立请求复现；不是引用审查结论当验收。 |
+| M4-BASELINE-1 | 既有spec/code drift；按已审M4设计单列 | provisional discard后该消息和其过程事件从历史删除，保留message.discarded事件；但本次观察会话unread_count由0变1，last_message_at仍为占位消息时间，未恢复到原真人消息时间。与current gateway-relay原子恢复preview/time/unread契约不一致。设计已明确本轮保持既有行为且不能借重构隐式修复；本报告不将该契约标pass，不认定为本轮新增回归，也不把M4新增三Scenario替换为更宽的全聊天契约通过。证据K。 |
+
+### Retained 与证据
+
+M1/M2保留Round 2逐Scenario结论：配置保存/恢复、身份及RPC关联不因消息record/stream纵切变化而失效。M3保留Round 4逐Scenario结论及其Round 3生产/重启证据：Work事件decoder/持久同步未受本轮聊天事件契约影响。新增M4-AC-1只允许后续固定修复版本定向关闭，Round 5失败记录保留。
+
+证据位于`.e2e-refactor-672/m4-acceptance/`，不提交运行数据：J `reviewer-evidence.json`含HTTP/WS/用户流及SQLite前后快照（驱动`reviewer-m4.mts`）；K `reviewer-external-discard-evidence.json`含shadow兼容和discard基线；L `reviewer-malformed-permission-evidence.json`含畸形嵌套权限元数据落盘/广播。驱动位于`.e2e-refactor-672/`。
+
+初始专用服务PID14882/http://127.0.0.1:59921保持运行，未重启；所有验收客户端、SingleThread、NodeStore及只读DB连接已关闭，由caller清理服务。未改源码、测试、配置或设计；仅追加此报告，未提交。无真实外发、模型或视觉结论。
+
+上层文档：本轮目标no spec delta；新增问题应修实现，无需改current标准。既有discard drift需caller独立跟踪契约/行为差异，不能以本报告声明current规范全部兑现。SPEC/AGENTS/文档规范无需更新。
+
+## Round 6 — M4-AC-1 targeted closure
+
+> Validation snapshot: `39f159d9f0a9089023939fa2f9e2569542f8037e → 21b09d3e4892806d77829d6e9c2af1cdec6f6087`，2026-10-28。
+
+**Verdict: pass（本unit已审范围）**。M4-AC-1关闭，本轮新增范围无未解决产品问题。Round 5的失败和M4-BASELINE-1既有discard漂移继续保留；本结论不声称该既有current-spec缺口已修复。
+
+核对固定HEAD，使用caller重启的同DB隔离服务PID20870/http://127.0.0.1:61786及更新runtime凭据，独立通过真实Gateway WS、审批HTTP、历史API、用户stream和只读SQLite观察。
+
+| Scenario / 问题 | 本轮结果与retained依据 | 结论 |
+|---|---|---|
+| 畸形流事件及失效身份 / M4-AC-1 | 对无既有审批的新消息分别提交flat身份字段错误（agent_id对象、run_id数值、node_epoch字符串）和nested permission_request身份字段错误（agent_id对象、node_id数组、node_epoch字符串、lifecycle_revision数组、run_id数值）。两次均error，分别invalid chat run_id / invalid chat agent_id；消息content/status/permission JSON及conversation_events计数逐次与提交前相同，无成功权限事件。合法权限请求随后可由alice提交allow_once，含合法身份及lifecycle_revision:null的resolved帧获接受，最后消息completed且正文“Round6合法权限完成😀”；历史/SQLite保留resolved、真实决定者、动态option extra数组/null，用户流依次发布request/submitted/resolved/completed。 | pass，M4-AC-1 closed |
+| 用户与Agent发送及重试 | retained Round 5 J：真人正文附件幂等、冲突、冒充拒绝，Agent明确发送原身份重试与冲突。补充权限元数据校验不改变发送/dispatch身份规则。 | pass |
+| 流式正文、工具、审批与结束 | retained Round 5 J：真实SingleThread生产链、工具/思考/统计、重复增量、终态保护、重连重放；本轮重新走合法审批与消息结束闭环。 | pass |
+| 畸形流事件及失效身份的其余分支 | retained Round 5 J/K：其他稳定字段无副作用拒绝、错node/失效lifecycle拒绝、合法外部shadow同来源幂等。共享修复只收紧所消费的权限身份字段。 | pass |
+| M1–M3全部Scenario | retained Round 4及其逐项引用的Round 1–3证据；消息权限decoder修复不改配置/RPC/Work持久链。 | pass |
+
+本轮最窄完整闭环证据：`.e2e-refactor-672/m4-acceptance/reviewer-round6-evidence.json`；驱动`.e2e-refactor-672/reviewer-m4-round6.mts`。没有重跑无关全旅程；Round 5旧畸形记录保留作证据，不声称迁移历史。
+
+所有本轮WS/HTTP客户端和只读数据库连接已关闭，服务PID20870保留由caller清理。未改源码/测试/设计，报告仅追加未提交。无新UI/模型/外发结论；上层文档无需增量，既有discard drift继续独立跟踪，不能据此宣称current聊天契约全部兑现。

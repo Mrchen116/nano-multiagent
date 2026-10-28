@@ -148,3 +148,89 @@ M3 有 1 项 CONFIRMED / P2 finding，需修正后 patch/closure。其它已核�
 - reviewer 独立直接调用本次源 decoder：flat `[null]`、nested 非数组、flat 缺 id、nested 数字 id 共 4 例拒绝；flat/nested null 与含扩展内容的合法对象共 4 例返回原 event/fact 引用。没有写测试或运行全量。
 - `git diff --check 94b06908d..197da048e` 独立通过。前端 `m3-frontend.log` 已完成 108 文件/1029 passed；后端全量仍由 caller 收尾，不声称已全绿。
 - 结论：无存活 finding；权限校验缺口已关闭。原 full/同步结论及本次 closure 有效至固定修复 HEAD，仍为 no spec delta；无新增 Context 影响。仅追加报告，未提交。
+
+
+## Round 5 — M4 Chat Full Review
+
+- reviewer: 独立 reviewer `/root/chat_static_review`；未参与受审实现。
+- review_mode: `full`，完整覆盖 M4 `c90f5e968c2a28f31669fb5acb78567681fc5949..39f159d9f0a9089023939fa2f9e2569542f8037e`。
+- executed_base / effective_base: `c90f5e968c2a28f31669fb5acb78567681fc5949`。
+- validated_at / effective_through: `39f159d9f0a9089023939fa2f9e2569542f8037e`。
+- completed_at: `2026-10-28T14:44:15+08:00`。
+- 输入：扩展 motivation/design M4、design-review Round 3 Approved、M4 progress；current IM conversations-messages / gateway-relay、SPEC、Context 与测试规范。M1–M3 按实际共享影响核查并保留有效结论。
+
+### Findings
+
+```json
+[
+  {
+    "file": "packages/product-contracts/src/chat-codec.ts",
+    "line": 28,
+    "summary": "[P2] 校验嵌套权限对象中实际消费的执行身份字段",
+    "failure_scenario": "permission() 漏检 ChatPermission 的 agent_id/node_id/node_epoch/lifecycle_revision/run_id 等稳定执行身份，顶层 common 检查不能覆盖 permission_request 内嵌对象。以 permission_resolved {message_id, decision:'deny', permission_request:{request_id:'bad',agent_id:{invalid:true},node_id:'node',lifecycle_revision:1}} 调用真实 ChatStreaming→MessageRecords，收到成功 ACK，错误对象被保存并发布 permission.resolved；conversation-actions.ts:409 随后用同一 card.agent_id 调用 requireLifecycle 时抛 SQLite Error: Unknown named parameter 'invalid'。这使本轮“畸形稳定消费字段不写入、不广播”的退出标准未完成。请在共用 permission decoder 检查 flat/nested 稳定身份字段，保持允许的省略/生命周期 null 和原扩展对象，并扩展既有边界用例证明拒绝发生于 SQL/事件之前。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+### 覆盖与有效性
+
+- 逐段对照旧 Gateway.streaming 与新 ChatStreaming / MessageRecords：turn_start 的来源 Agent、PA ownerConversation、访问与 lifecycle 校验先于写入；旧消息 lifecycle 继续复验；message_delta 只读取固定身份/状态列，不加载完整工具或过程 JSON；普通增量 key、终态后增量、完成、思考、工具 merge、审批状态、heartbeat 与 groupReply 顺序保留。run_terminal_reconcile 仍是独立 no-op。选中 ChatEvent 联合进入 records.chatEvent 后才由原发布策略投递。
+- MessageRecords 不持有 ImContext/Gateway/Messaging；其 DB、交互 read/record、agent user、只读 messageWait 与 publish 回调均为具名窄依赖。固定 MessageRecord/EventRecord/RelayRecord 与 ChatMessage 分开，SQL JSON 保持在 owner 内解码；旧字段顺序、非枚举内部详情、PA provenance 和工具人审 badge 逐段保留。Messaging 保留授权与消息/交互背景/relay 同一事务，commit 后 publishMessages 仍重新检查 relay eligibility。Interations 仍唯一拥有 UI schema、private state、提交与指纹。
+- HTTP unknown→MessageInput→SendMessageCommand 与 controlled MessageMetadata 分开；sendPrincipal 返回原认证对象，server onSend 的身份撤销复验未改变。内容/引用规范化、普通 attempt 的 content/attachments/interaction_contexts 指纹与旧行回退没有与 Agent dispatch log 混为一套。显式 publication 的权限、目标解析、dispatch key、interactive 比较、事务与投递从 Gateway 移到 Messaging，原决定和成功回执保留。
+- SingleThread.delta、GlobalAgent.publishMessage、External forwardStream/frame/pendingFrames 实际消费有限 ChatStreamFact/AgentPublication，不存在生产 string overload。原生工具 presentation、可省略统计和 provider 动态内容未被重新格式化；External 仍使用原 operation identity、原 JSON.stringify frame hash、unknown platform result 与 IM mirror 分离，system_notice 仍独立处理。合法数据的共享 decoder 返回原对象，未知附加字段不裁剪。上述权限身份漏检是目标内已确认缺口，不由其他合法测试替代。
+- M1/M2 的 ConfigOperations/NodeRpc 文件与接口未动；M3 Work decoder、WorkRecords、Inbox journal/WorkSync 未动。共享 product-contracts index 仅追加 chat exports，现有配置/Work exports 保留。Task/PA 调用适配为 ChatMessage，原 transaction、notice/provenance 与 relay 接线保持；未发现要求扩大到 M1–M3 full 重审的共享行为变化。
+
+### Agent Context Implementation Review
+
+- 模式：agent-context-review Mode B，限定消息/relay 投影、交互私有背景及实际 PA 消费链。
+- 检查实际 Messaging.enqueueRelays 的 message/sender/participants/interaction_contexts/context_only，SingleThread.submitAdmitted 的 withInteractionContext、时间/来源 envelope、群 roster、图文 parts、attachmentSources、session.submit source，以及 GlobalAgent Inbox admission / publication status 恢复。受审 diff 没有改这些最终组装表达式；MessageRecords 的公开投影按原顺序和原数据返回，Interactions.prepare 的私有状态边界保持。
+- 新贯通测试在真实 HTTP 用户发送→WS relay→真实 SingleThread→RuntimePort session.submit 观察到原输入正文；输出原生工具/正文/统计经 WS→IM→history，重复 recover 不增加事实。RuntimePort 是确定性事实 fixture，只证明此 seam 的交付与装配，未捕获 provider 请求、未运行真实模型，不能证明模型理解或选择工具能力。本轮没有新的模型输入语义，故未追加模型任务。
+- 无独立 Context finding。权限 finding 是确定性产品接收边界漏检，未声称模型一定产生该畸形字段。
+
+### Evidence 与基线 drift
+
+- 复用实施者交接的 `.e2e-refactor-672/m4-second.log`（10 文件/110 passed）、`m4-third.log`（11 文件/52 passed）、`m4-typecheck.log`（全包 Done，含编译负例）、`m4-ios-runtime.log`。`m4-boundary-red.log` 证明新增畸形字段用例在旧接收路径收 ACK 而红；合法链与修复后接收保护通过。没有把测试数量当完整覆盖证明。
+- `m4-build.log` 构建完成；installer candidate 元数据仍标记实施提交前的 base `c90f5e968...`。该日志按 caller 的 M4 working-tree 证据复用，不称日志自身绑定了最终提交 SHA。`m4-backend-full.log` 本轮检查时仅见启动，未当作已完成全绿。
+- 独立 Node 24.22.1 / tsx、openDatabase(':memory:')→ChatStreaming→MessageRecords 最窄复现：上述畸形嵌套权限获 ACK，保存 `{agent_id:{invalid:true},node_id:'node',lifecycle_revision:1,status:'resolved',decision:'deny'}`，发布 1 个 permission.resolved；执行 route 相同 requireLifecycle 语句得到 `Unknown named parameter 'invalid'`。数据库 finally 关闭，无源码/测试修改，无生产访问或服务遗留。
+- 独立 `git diff --check c90f5e968..39f159d9f` 通过。
+- current gateway-relay 的 provisional discard 原子清理过程事件/会话投影/重复幂等强于旧 Gateway 的 DELETE message + event。新 records.discard / ChatStreaming 保留同一简单分支，未把这一既有 drift 写成本轮实现或通过；需要另行确定修复范围。
+
+### 结论
+
+1 项 CONFIRMED / P2，M4 须完成稳定权限身份解码后限定 closure；其余 M4 full 覆盖和 M1–M3 retained 结论保留。目标仍为 no spec delta，不能通过改 current spec 接受该漏检来关闭。本轮仅追加本报告及 verification，未提交。
+
+
+## Round 6 — M4 Permission Identity Closure
+
+- reviewer: 同一独立 reviewer `/root/chat_static_review`。
+- review_mode: `closure`；focus: Round 5 P2（V5-1）权限嵌套执行身份漏检。
+- finding_origin_head / pre_fix_head: `39f159d9f0a9089023939fa2f9e2569542f8037e`。
+- fix_delta_range: `39f159d9f..21b09d3e4892806d77829d6e9c2af1cdec6f6087`。
+- executed_base / effective_base: `c90f5e968c2a28f31669fb5acb78567681fc5949`。
+- validated_at / effective_through: `21b09d3e4892806d77829d6e9c2af1cdec6f6087`。
+- completed_at: `2026-10-28T14:51:16+08:00`。
+
+### Findings
+
+```json
+[]
+```
+
+### Focus Finding
+
+**Round 5 P2 / V5-1：closed。** permission() 共用验证 agent_id/node_id/run_id 字符串、node_epoch 有限数字、lifecycle_revision 有限数字或既有安全 null；decodeChatStream 对 flat/nested 均调用该检查。ChatPermission 的 revision 声明与原有 lifecycleAllows(null) 兼容规则对齐。修复发生在 ChatStreaming.apply 前，故原恶意对象不能进入 MessageRecords 或成功事件。
+
+修复 diff 仅三个文件，7 行增加/2 行删除：共享类型/decoder 和已有真实 WS 边界用例。未改授权、投影、事务、relay、流式幂等/状态或模型输入。Round 5 的其余 M4 full 覆盖与 M1–M3 retained 结论继续有效，不扩为 full 重审。
+
+### Evidence 与限制补充
+
+- `.e2e-refactor-672/m4-permission-e2e-red.log`：修复前真实 WS 收到 ACK、期望 error，新增用例确实失败；`m4-permission-green.log`：6 文件/34 passed，参数化 flat/nested 五字段均被拒绝，原同测试的消息/事件/delta key 无副作用检查与合法增量恢复断言保留。IM/PA typecheck 通过由 caller 交接并定位 `m4-fix-types.log`。
+- reviewer 独立直接调用固定修复源 decoder：permission_request / permission_resolved × flat/nested × 五字段共 20 个畸形对象均拒绝；3 个合法场景（flat null、nested null/原生扩展对象、完整合法 request/options）返回原引用且 JSON 字节不变。独立 `git diff --check 39f159d9f..21b09d3e` 通过；无源码/测试修改、服务或数据库遗留。
+- 补充 Round 5 当时尚未完成的证据：冻结初始 M4 HEAD 的 `m4-backend-full.log` 最终为 150 文件/800 passed；`m4-frontend.log` 108 文件/1029 passed；`m4-pytest.log` 100 passed/28 deselected。修复后用上述定向测试与 typecheck 承接，不把它们冒称修复 HEAD 的一次全量运行。final build 由 caller 单独执行，不复用旧 installer base metadata 冒称当前构建。
+- motivation/design 当前未提交变化仅澄清最终 M1–M4 范围、标题和早期排除语句；已核不改接口、场景或退出标准，不构成 spec 迎合实现。保持其他并行文档修改原样。
+
+### 结论
+
+无存活 finding，M4 静态门禁对固定修复 HEAD 通过；**aligned / no spec delta**。provisional discard 的原有 canonical/code drift 仍按 Round 5 单列，未因本次 closure 声称已修复或已通过。无新增 Context 影响，保留 Round 5 Mode B 的实际装配与证据限制。仅追加两报告，未提交。

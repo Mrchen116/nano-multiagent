@@ -4,7 +4,9 @@
 
 中心全部 21 个主动节点 RPC 通过有限命令表关联输入、输出与响应名，NodeRpc 独立拥有请求关联、连接引用、定时器和关闭。配置路径的 HTTP 输入、业务候选、固定 SQLite 记录、wire 回执与公开 View 分别具名；ConfigOperations 仅依赖数据库、三个配置 RPC 和事务提交后的生命周期投递，完整保留恢复、CAS 补偿及 PA restore。
 
-本 PR 按用户追加授权增加 M3：Work 的已知事实、日志身份与同步输入形成共享契约，PA 生产方法保持 type/payload 关联；中心 WorkRecords 独立拥有事务日志、投影、水位及固定记录/公开页，批量、分段和 WS 入口共用 decoder。工具参数/结果及未知扩展事件保留原值。聊天、Channel 上行业务与 Work 的聊天查询/命令路由仍未全面迁移，本 unit 不宣称全 IM 类型迁移完成。动态插件/provider/工具目录保留扩展载荷。无 schema、协议版本、模型上下文语义或序列化算法变化，无部署迁移；no spec delta，经独立 verifier 确认无需改 current specs。
+本 PR 按用户追加授权增加 M3：Work 的已知事实、日志身份与同步输入形成共享契约，PA 生产方法保持 type/payload 关联；中心 WorkRecords 独立拥有事务日志、投影、水位及固定记录/公开页，批量、分段和 WS 入口共用 decoder。工具参数/结果及未知扩展事件保留原值。会话/联系人/Channel 管理与 Work 的聊天查询/命令路由仍未全面迁移，本 unit 不宣称全 IM 类型迁移完成。动态插件/provider/工具目录保留扩展载荷。无 schema、协议版本、模型上下文语义或序列化算法变化，无部署迁移；no spec delta，经独立 verifier 确认无需改 current specs。
+
+M4 将聊天发送和流式完整链纳入本 PR：PA SingleThread/GlobalAgent 的有限生产契约贯通 External 转发/outbox、IM 输入解码、发送事务、MessageRecords 和 ChatStreaming。普通发送与 Agent publication 保留各自幂等规则；公开消息、SQL JSON 列与内部元数据分离；固定事件类型关联载荷，正文增量保持窄查询。既有 UI schema、交互指纹、投递队列、模型输入组装及序列化 owner 继续复用。
 
 并行序列化 refactor-671 已合入主干。本任务已集成其 `sortedJsonUtf8` / `sortedJsonAscii` 子路径导出及 `serializeCandidateJson` 命名，保留本任务配置服务拆分与类型约束，不重复迁移算法。交叉点 `control.ts`、Gateway、control/approval 测试 import 与 contracts index 已核对。原报告未改，派发基线的两笔本地文档提交未带入 PR；报告副本保留在本 worktree 忽略的 `.e2e-refactor-672/architecture-review-baseline.html`。
 
@@ -57,3 +59,13 @@ Round 1 专用 IM PID 69336 已停止；Round 2 专用 IM PID 84625 也已停止
 ### M3 现场与最终限制
 
 验收初始专用 PID 4739、恢复用 PID 6509 和修复复验用 PID 7760 均已停止，最后 PID 7760 已核实退出。验收客户端、GlobalAgent、WorkSync 和本地 stores 全部关闭。原始日志、SQLite 和协议证据留在忽略目录，不提交；worktree 在 PR 未合入前保留。无模型语义/客户端视觉新结论，无生产操作、合并或发布。
+
+## M4 实施与修复验证
+
+- Full validated_at：`39f159d9f0a9089023939fa2f9e2569542f8037e`，范围 `c90f5e968..39f159d9f`；M1–M3 未改实现按共享影响 retained。
+- 独立静态审查/产品验收 Round 5 确认同一缺口：首次 permission_resolved 的 nested 执行身份未校验，会落盘广播。修复 `21b09d3e4892806d77829d6e9c2af1cdec6f6087` 共用 flat/nested 身份检查，保留 lifecycle null 与动态字段；未扩大方案或修改 current spec。
+- 修复前真实 WS 反例得到 ACK 而失败（m4-permission-e2e-red.log）；修复后相关 6 文件/34 passed（m4-permission-green.log），IM/PA 类型检查通过。
+- 39f 冻结版本本地后端全量：150 文件/800 passed，未跨越修复修改；前端 108 文件/1029 passed；Python 100 passed/28 deselected；Ruff 与文档检查通过。最终修复版本复验受影响完整文件，其余证据保留，远端 CI 运行最终固定提交。
+- 真实 SingleThread→WS→IM SQLite→HTTP/history/user-stream 及独立验收验证运行链；RuntimePort 仅为确定性 native 事实 fixture，无真实模型行为结论。current spec 中 provisional discard 的原子投影回滚存在既有 drift，本轮明确不将其记为实现或通过；本次无 schema/协议版本/部署迁移。
+
+M4 closure：code-review / verification Round 6 pass，findings []，0 CRITICAL/WARNING，aligned/no spec delta；产品验收 Round 6 pass，M4-AC-1 closed。validated_at 为 `21b09d3e4892806d77829d6e9c2af1cdec6f6087`。独立 source decoder 的 20 个两分支/flat/nested/五字段反例均拒绝，合法 null/动态扩展保留原引用及字节。最终 `m4-build-final.log` 的构建 metadata 绑定 21b；全包 typecheck、iOS runtime 包装和 critical audit 门槛通过（现有依赖审计仍有 5 high，未改变依赖）。测试服务 14882 和 20870、验收客户端均已停止；运行数据仅存忽略目录。

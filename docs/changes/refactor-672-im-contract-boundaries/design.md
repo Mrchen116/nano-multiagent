@@ -1,4 +1,4 @@
-# refactor-672: IM 配置、节点 RPC 与 Work 完整事件链 — 技术方案
+# refactor-672: IM 配置、节点 RPC、Work 与聊天完整链路 — 技术方案
 
 > 对齐 motivation.md
 
@@ -31,11 +31,11 @@ feat-652/近期 Agent settings 路径保留 snapshot freshness 和离线新写�
 
 HTTP unknown → 配置入口解析 → 配置候选 → ConfigOperations（SQLite 记录/恢复/事务）→ NodeRequest port → NodeRpc（关联/定时器/回包）→ Gateway 的已授权 socket；结果经配置投影返回 HTTP。
 
-Gateway 保留连接注册/鉴权、业务消息分派、Task 写入屏障和流式交付。NodeRpc 只拥有出站请求和匹配响应，不能访问数据库或业务对象。配置服务只拥有 db、节点 request、commit 后 lifecycle 投递三项依赖；路由与 PA 在装配处提供 adapter。
+Gateway 保留连接注册/鉴权、业务消息分派与 Task 写入屏障；M4 后流式业务由 ChatStreaming 承担，Gateway 只接线。NodeRpc 只拥有出站请求和匹配响应，不能访问数据库或业务对象。配置服务只拥有 db、节点 request、commit 后 lifecycle 投递三项依赖；路由与 PA 在装配处提供 adapter。
 
 ## 关键决策
 
-**按完整配置纵切深化，而非全仓去 any。** 配置请求、候选、profile 行、operation 行、回执、公开投影分别命名；不能用同一个 Record 的别名冒充类型。未迁移的聊天/Work/Channel 行保留现状，并在交付明确剩余范围。
+**按完整配置纵切深化，而非全仓去 any。** 配置请求、候选、profile 行、operation 行、回执、公开投影分别命名；不能用同一个 Record 的别名冒充类型。后续 M3/M4 分别扩展 Work 和聊天完整链；会话/联系人/Channel 管理及 Work 查询/命令等未选中业务保留现状，交付明确剩余范围。
 
 **所有中心主动 RPC 使用有限命令表。** 表按实际调用者/Node handler 建立 input/output/response 名关联；配置 operation、配置读取、Task 状态等稳定字段明确建模。插件/provider/工具等扩展数据在所属字段使用 unknown 或 Record<string, unknown>，调用者消费前按现有投影检查，不把任意索引签名加到稳定类型上。不存在公开 string→Row fallback。共享的配置 wire 类型放 product-contracts；仅中心用的命令映射留 IM。
 
@@ -107,7 +107,7 @@ IM：no spec delta。行为兼容重构，无客户端变化。非法输入继�
 - 保留既有 work-sync、global-work-recovery、inbox、global-agent、Work 真 HTTP/WS 测试。新增一个贯通真实 PA projection→InboxStore→WorkSync→IM→公开页的隔离链，含主子执行、完整工具结果与结束统计、重启/重放；不以手造中心 fixture 代替生产接线。
 - 畸形稳定字段经批量/分段/WS 入口均不推进水位；合法省略/null、未知事件、旧别名、扩展内容及已保存字节得到必要回归保护，不为每个字段制造重复测试。
 - 独立设计复审先于实施；完成后执行 M3 的产品验收与静态 code review/verification，M1/M2 按未改变的实现与同步影响 retained。无 UI 改动，产品验收以相同真实 HTTP/WS 接口读取结果；无新模型 Context 语义，保真与原生替换事实不重新执行的保护继续保留。
-- 数据库 schema、序列化算法、16 MiB 上限、分段协议与恢复水位不变；no spec delta，无部署迁移。Work 的聊天查询/指令/审批路由不做无关全面重写，聊天和 Channel 事件链仍明确不在此轮。
+- 数据库 schema、序列化算法、16 MiB 上限、分段协议与恢复水位不变；no spec delta，无部署迁移。Work 的聊天查询/指令/审批路由不做无关全面重写，M3 不覆盖聊天和 Channel；聊天在下方 M4 单独设计，Channel 管理仍不扩大。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
