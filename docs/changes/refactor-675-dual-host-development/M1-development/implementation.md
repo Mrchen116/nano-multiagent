@@ -42,3 +42,12 @@
 - 第二次默认并发为 780 passed/2 failed，失败换为 knowledge-policy 与 task-execution-limits；首轮两项此轮通过。尚不能以窄复跑证明默认并发稳定，也没有证据归因本 unit 的脚本改动。改用 `pnpm exec vitest run --maxWorkers=2` 做完整套件验证，未修改业务代码/测试或隐藏失败。
 
 - 完整低并发运行：`pnpm exec vitest run --maxWorkers=2`，144 files / 782 tests 全通过，285.15 秒（2026-10-28 12:07:47 Asia/Shanghai 开始）。支持并发敏感性的判断，但不宣称已确定默认并发失败的内部根因；本 unit 未触及这些 native 用例或运行时实现。
+
+## 最终迁移与保留范围
+
+- 2026-10-28 12:11:33–12:21:33 +0800，600 秒 Tunnel gate 成功，所有样本为 PID 84441、IPv6 QUIC HA=4、en0、closed_connections=0、HTTPS=200。本机完整日志：Mini `~/.nanoassistant/deploy-backups/refactor-675-path-migration-20261028/tunnel-gate.log`；首次启动过早的失败另留 `tunnel-gate-startup.log`，没有删改。
+- 随后确认旧数据库无打开引用，将整个旧 `~/Repos/nano-multiagent/data` 移至上述备份的 `original-data/`，未删除历史备份或不明文件。SQLite/附件原件与元数据随目录保留；迁移记录 phase=completed。
+- Mini 最终 protected_paths 为 `~/.nanoassistant`，覆盖生产 checkout、数据、Python、安装清单和回退材料。Air 为该根与原 `.codex/worktrees/prod-main/nano-multiagent`。Mini 最终 check 成功，针对开发主仓的 guard 放行，针对生产 checkout 的 guard 拒绝；迁移后源站 `/health` 仍成功。
+- 本次仅新增单独标记的迁移前快照（retention.json 写明解除条件），没有新增普通版本部署备份；既有备份保留集未删除。固定生产 worktree 长期保留。
+- Air/Mini 的本次 E2E PID 文件均已清理，真实测试服务已 down；运行证据保留本机。Mini 没有 `feishu-e2e.env`。
+- Air 主仓两条原有本地独有提交 `a34af8473`、`a89b778de` 未移动、重排或提交到远端。两机主仓源码未因本次生产迁移切版本；新开发工具与共享入口由本 PR 提供。Mini 验证 checkout 在 `.worktrees/refactor-675-dev`，Air 使用本任务 worktree；开放 PR 期间均保留。
