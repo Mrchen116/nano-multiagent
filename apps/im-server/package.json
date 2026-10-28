@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json && cp src/schema.sql lib/schema.sql",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.contracts.json",
     "start": "node lib/main.js",
     "test": "vitest run tests"
   },

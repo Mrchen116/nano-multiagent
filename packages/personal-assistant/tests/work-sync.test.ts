@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { InboxStore } from '../src/inbox.js';
+import type { WorkDraft } from '@nano/product-contracts';
 import { WorkSync } from '../src/work-sync.js';
 
 interface Call { method: string; path: string; body: any; bytes: number; authorization?: string; produced?: string; processing?: string }
@@ -13,7 +14,7 @@ const cleanups: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const json = (response: ServerResponse, data: unknown) => { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(data)); };
-const event = (index: number, text = 'small') => ({ event_id: `event-${index}`, root_agent_id: 'root', session_id: 'session', type: 'recording_degraded', payload: { text } });
+const event = (index: number, text = 'small'): WorkDraft => ({ event_id: `event-${index}`, root_agent_id: 'root', session_id: 'session', type: 'recording_degraded', payload: { text } });
 
 async function fixture(handler: (call: Call, response: ServerResponse) => void | Promise<void>, options: { available?: () => boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'work-uploader-')), path = join(dir, 'inbox.db');

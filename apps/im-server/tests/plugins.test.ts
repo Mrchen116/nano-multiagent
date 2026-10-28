@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { expect, it, vi } from 'vitest';
-import { registerControlRoutes } from '../src/control.js';
+import {registerControlRoutes} from '../src/control-routes.js';
 import { fixture, connectFixtureGateway } from './control-fixture.js';
 
 it('routes plugin management only for the owner and rejects client supplied scope', async () => {

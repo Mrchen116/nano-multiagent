@@ -1,3 +1,4 @@
+import type { ChatMessage } from '@nano/product-contracts';
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
@@ -454,7 +455,7 @@ export class TaskGraphService {
     const write = ["create", "apply", "delete"].includes(action);
     if (write && this.personalRead) forbidden();
     if (!["user", "agent"].includes(actor.kind)) forbidden();
-    const notices: Obj[] = [];
+    const notices: ChatMessage[] = [];
     const hint = write ? this.changeHint(args.graph_id) : undefined;
     let result: Obj;
     this.db.exec(write ? "BEGIN IMMEDIATE" : "BEGIN");
@@ -551,7 +552,7 @@ export class TaskGraphService {
    *   args: Entire frozen native argument object.
    *   notices: Durable notices published after the caller's transaction commits.
    */
-  executeDelegated(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,notices:Obj[],waits:CheckedWait[]=[]):Obj {
+  executeDelegated(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,notices:ChatMessage[],waits:CheckedWait[]=[]):Obj {
     const binding=this.row("SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id WHERE b.agent_id=? AND b.node_id=? AND b.owner_user_id=? AND b.status='active' AND n.node_epoch=b.node_epoch AND n.owner_id=b.owner_id",actor.id,actor.node_id??null,ownerUserId);
     if(!binding||actor.kind!=='agent'||!['create','apply','delete'].includes(action))forbidden();
     this.validateCommand(action,args);
@@ -565,7 +566,7 @@ export class TaskGraphService {
     action: string,
     args: Obj,
     write: boolean,
-    notices: Obj[],
+    notices: ChatMessage[],
     delegatedOwner?: string,
     delegatedAccessUser?: string,
     waits:CheckedWait[] = [],
@@ -862,7 +863,7 @@ export class TaskGraphService {
   pauseExecution(actor:TaskGraphActor,conversationId:string|undefined,requestKey:string,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean}):Obj {
     if(personal) return new TaskGraphService(this.db,this.messaging,{...personal,agentUserId:this.messaging.agentUser(actor.id).id},this.execution).pauseExecution(actor,conversationId,requestKey);
     text(requestKey,'request_key');
-    const notices:Obj[]=[]; let result:Obj;
+    const notices:ChatMessage[]=[]; let result:Obj;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const items=this.executeTransaction(actor,'execution_pause',{conversation_id:conversationId},false,[]).items as Obj[];
@@ -944,7 +945,7 @@ export class TaskGraphService {
    *   publish: False during startup recovery before the transport is initialized.
    */
   freezeAgent(agentId:string,userId:string,revision:number,publish=true):void {
-    const notices:Obj[]=[];
+    const notices:ChatMessage[]=[];
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for(const row of this.rows("SELECT DISTINCT g.* FROM task_graphs g JOIN json_each(g.document_json,'$.nodes') n WHERE json_extract(n.value,'$.assignee.type')='agent' AND json_extract(n.value,'$.assignee.id')=? AND json_extract(n.value,'$.status') NOT IN ('done','closed')",agentId)) {

@@ -1,3 +1,8 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
+import { interactiveResponse, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
+import { messageInput, messageMetadata, sendPrincipal, type MessageInput, type SendPrincipal, type SendMessageCommand } from './message-input.js';
+import { MessageRecords, type MessageMetadata, type MessageEventFrame, type MessageRelayRecord } from './message-records.js';
+import type { ChatAttachment, ChatMessage } from '@nano/product-contracts';
 import { contactDetail, contactPage } from './contacts.js';
 import { lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import {RelayDelivery} from './relay-delivery.js';
@@ -21,17 +26,19 @@ import {
 import { conversationAccess, conversationReaderIds, qualifiedUser } from "./conversation-access.js";
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
-/** Derive human approval badges from the durable request/decision identity. */
-export function withHumanApproval(call: Row, permissions: Row[]): Row {
-  const decision = permissions.findLast(item => item.call_id === call.id && item.status === "resolved" && item.decided_by)?.decision;
-  if (!["allow_once", "deny"].includes(decision)) return call;
-  return {...call, approval: decision === "allow_once" ? "user_allow" : "user_deny", ...(decision === "deny" ? {reason: "denied"} : {})};
-}
-
 export class Messaging {
+  readonly records: MessageRecords;
   readonly interactions: Interactions;
   readonly delivery:RelayDelivery;
-  constructor(readonly ctx: ImContext) { this.interactions = new Interactions(ctx); this.delivery=new RelayDelivery(ctx); }
+  constructor(readonly ctx: ImContext) {
+    this.interactions=new Interactions(ctx);this.delivery=new RelayDelivery(ctx);
+    this.records=new MessageRecords(ctx.db,{interactions:this.interactions,agentUserId:id=>this.agentUser(id).id,
+      messageWait:id=>this.ctx.updates?.messageWait(id),publish:(frame,enabled)=>this.publishEvent(frame,enabled)});
+  }
+  private publishEvent(frame:MessageEventFrame,publish:boolean):void {
+    if(publish)this.ctx.gateway.broadcast(conversationReaderIds(this.db,frame.conversation_id),frame);
+    for(const binding of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=?",frame.event_id))this.ctx.personal?.wake(binding);
+  }
   get db() {
     return this.ctx.db;
   }
@@ -55,16 +62,7 @@ export class Messaging {
     }
     return { ...u!, owner_id: a.owner_id, space_id: a.space_id };
   }
-  actor(u: Row): Row {
-    return {
-      type: u.username.startsWith("agent:") ? "agent" : "user",
-      id: u.username.startsWith("agent:") ? u.username.slice(6) : u.id,
-      display_name: u.display_name,
-      user_id: u.id,
-      is_stale: u.is_stale ? true : null,
-      ...(u.username.startsWith("agent:") && one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",u.username.slice(6)) ? {role:"personal"} : {}),
-    };
-  }
+  actor(u:Row) {return this.records.actor({id:u.id,username:u.username,display_name:u.display_name,is_stale:u.is_stale});}
   members(id: string): Row[] {
     return all(
       this.db,
@@ -303,156 +301,13 @@ export class Messaging {
       data: { conversation_id: id },
     });
   }
-  message(id: string): Row {
-    const m = one(this.db, "SELECT * FROM messages WHERE id=?", id);
-    if (!m) fail(404, "message not found");
-    const u = one(this.db, "SELECT * FROM users WHERE id=?", m.sender_user_id)!;
-    const result: Row = {
-      ...Object.fromEntries(
-        [
-          "id",
-          "conversation_id",
-          "sender_user_id",
-          "sender_type",
-          "lifecycle_revision",
-          "content",
-          "delivery_status",
-          "created_at",
-          "timezone",
-          "elapsed_ms",
-          "kernel_message_id",
-        ].map((key) => [key, m[key]]),
-      ),
-      sender: {
-        ...this.actor(u),
-        type: m.sender_type,
-        display_name: m.sender_display_name ?? u.display_name,
-      },
-      ...(this.ctx.updates ? {update_wait: this.ctx.updates.messageWait(id)} : {}),
-    };
-    const delegation = one(this.db,"SELECT * FROM pa_delegated_messages WHERE message_id=?",id);
-    if(delegation?.representation_operation_id) result.pa_agent_id=delegation.agent_id;
-    else if(delegation) result.delegation={agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${one(this.db,"SELECT display_name FROM users WHERE id=?",delegation.authorized_by)?.display_name??delegation.display_name}的 PA · 代为发送`};
-    for (const key of [
-      "attachments",
-      "tool_calls",
-      "thinking",
-      "background_returns",
-      "reply_process",
-      "permission_requests",
-    ])
-      result[key] = JSON.parse(
-        m[key === "permission_requests" ? "permission_request_json" : `${key}_json`] ?? "[]",
-      );
-    result.tool_calls = result.tool_calls.map((call: Row) => withHumanApproval(call, result.permission_requests));
-    for (const key of ["token_usage", "system_notice", "interaction_reply"])
-      result[key] = JSON.parse(m[`${key}_json`] ?? "null");
-    const interactive = this.interactions.message(id);
-    if (interactive) result.interactive = interactive;
-    for (const key of Object.keys(result)) if (key.endsWith("_json")) delete result[key];
-    Object.defineProperties(result, {
-      awaiting_permission_at: { value: m.awaiting_permission_at },
-      sender_source_id: { value: m.sender_source_id },
-    });
-    return result;
-  }
-  event(id: string, messageId: string | null, type: string, data: Row, status = "completed", publish = true): Row {
-    const at = now();
-    const payload = {
-      created_at: at,
-      delivery_status: status,
-      conversation_id: id,
-      ...(messageId ? { message_id: messageId } : {}),
-      ...data,
-    };
-    const result = this.db
-      .prepare(
-        "INSERT INTO conversation_events(conversation_id,message_id,event_type,delivery_status,payload_json,created_at) VALUES(?,?,?,?,?,?)",
-      )
-      .run(id, messageId, type, status, JSON.stringify(payload), at);
-    const frame = {
-      op: "event",
-      event_id: Number(result.lastInsertRowid),
-      conversation_id: id,
-      message_id: messageId,
-      event_type: type,
-      delivery_status: status,
-      created_at: at,
-      data: { ...payload, event_id: Number(result.lastInsertRowid) },
-    };
-    if (publish) this.ctx.gateway.broadcast(
-      conversationReaderIds(this.db,id),
-      frame,
-    );
-    for(const b of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=?",frame.event_id)) this.ctx.personal?.wake(b);
-    return frame;
-  }
-  insertMessage(
-    cId: string,
-    sender: string,
-    type: string,
-    content: string,
-    attachments: Row[] = [],
-    key: string | null = null,
-    status = "completed",
-    extra: Row = {},
-  ): Row {
-    if ((extra.interactive || extra.personal_source) && !this.db.isTransaction)
-      return transaction(this.db, () => this.insertMessage(cId, sender, type, content, attachments, key, status, extra));
-    const old = key
-      ? one(
-          this.db,
-          "SELECT id FROM messages WHERE conversation_id=? AND caller_idempotency_key=?",
-          cId,
-          key,
-        )
-      : undefined;
-    if (old) return this.message(old.id);
-    const id = randomUUID().replaceAll("-", "");
-    const at = extra.created_at ?? now();
-    const sourceAgent=type==='agent'?one(this.db,"SELECT agent_id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE u.id=?",sender):undefined;
-    this.db
-      .prepare(
-        `INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,caller_idempotency_key,sender_display_name,sender_source_id,timezone,lifecycle_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      )
-      .run(
-        id,
-        cId,
-        sender,
-        type,
-        content,
-        JSON.stringify(attachments),
-        status,
-        at,
-        key,
-        extra.sender_display_name ?? null,
-        extra.sender_source_id ?? null,
-        extra.timezone ?? null,
-        sourceAgent?lifecycle(this.db,sourceAgent.agent_id).revision:null,
-      );
-    this.db
-      .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
-      .run(content.trim().slice(0, 120) || attachments[0]?.file_name || "", at, cId);
-    this.db
-      .prepare(
-        "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?",
-      )
-      .run(cId, sender);
-    if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
-    // Controlled provenance must exist before card validation and message.created.
-    if (extra.personal_source) {
-      const source=extra.personal_source;
-      this.db.prepare('INSERT INTO pa_delegated_messages(message_id,binding_id,agent_id,authorized_by,display_name,representation_operation_id) VALUES(?,?,?,?,?,?)')
-        .run(id,source.binding_id,source.agent_id,source.owner_user_id,source.display_name,source.operation_id ?? null);
-    }
-    if (extra.interactive) {
-      if (type !== 'agent' && !extra.personal_source?.operation_id) fail(403, 'Only Agent messages may contain interactive replies');
-      this.interactions.record(id, cId, extra.personal_source?.operation_id ? this.agentUser(extra.personal_source.agent_id).id : sender, extra.interactive);
-    }
-    if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
-    const m = this.message(id);
-    this.event(cId, id, "message.created", { ...m, message_id: id }, status, extra.publish !== false);
-    return m;
+  /** Read the public projection through its persistence owner. */
+  message(id:string):ChatMessage {return this.records.message(id);}
+  /** Persist and publish an event using the established recipient/wake policy. */
+  event(id:string,messageId:string|null,type:string,data:object,status='completed',publish=true):MessageEventFrame {return this.records.event(id,messageId,type,data,status,publish);}
+  /** Insert controlled message metadata after the caller has authorized the sender. */
+  insertMessage(cId:string,sender:string,type:string,content:string,attachments:ChatAttachment[]=[],key:string|null=null,status='completed',extra:MessageMetadata={}):ChatMessage {
+    return this.records.insert(cId,sender,type,content,attachments,key,status,extra);
   }
   copyReferences(source: string, target: string, value: string): string {
     return value.replace(
@@ -523,8 +378,8 @@ export class Messaging {
     return {...c,owner_user_id:binding.owner_user_id};
   }
   /** Mirror authenticated provider input only into its private owner/Agent shadow. */
-  incomingExternal(req:FastifyRequest):Row {
-    const p=this.principal(req),id=params(req).conversation_id,b=body(req),agentId=query(req).agent_id;
+  incomingExternal(req:FastifyRequest):ChatMessage {
+    const p=this.principal(req),id=params(req).conversation_id,b=messageInput(req.body),agentId=query(req).agent_id;
     const c=this.incomingExternalSource(p,id,agentId);
     if(typeof b.sender_source_id!=='string'||!b.sender_source_id||typeof b.content!=='string')fail(422,'incoming_source_required');
     if(c.type==='direct'&&!c.external_chat_id.endsWith(`:dm:${b.sender_source_id}`))fail(403,'incoming_actor_mismatch');
@@ -533,25 +388,101 @@ export class Messaging {
     const key=req.headers['idempotency-key'];if(typeof key!=='string'||!key.startsWith('shadow:'))fail(422,'incoming_receipt_required');
     const old=one(this.db,'SELECT id FROM messages WHERE conversation_id=? AND caller_idempotency_key=?',id,key);if(old)return this.message(old.id);
     const content=this.validateReferences(p,id,b.content,agentId);
-    const safeAttachments=attachments.map((a:Row)=>({url:this.validateReferences(p,id,a.url,agentId),content_type:a.content_type,file_name:a.file_name}));
+    const safeAttachments=attachments.map(a=>({url:this.validateReferences(p,id,a.url!,agentId),content_type:a.content_type,file_name:a.file_name}));
     return this.insertMessage(id,c.owner_user_id,'user',content,safeAttachments,key,'completed',{
       sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,
     });
   }
-  async sendMessage(req: FastifyRequest): Promise<Row> {
-    const p = this.principal(req),
-      b = body(req),
-      q = query(req),
-      id = params(req).conversation_id,
-      c = this.access(p, id, q.agent_id, "write");
-    let sender = p.id,
+  /** Commit a validated explicit publication under its existing dispatch identity. */
+  publishAgent(principal:Extract<SendPrincipal,{kind:'gateway'}>,agentId:string,operationId:string|undefined,p:AgentPublication):ChatPublicationReceipt {
+    const db=this.db;
+    const key = operationId ? `${agentId}:${operationId}` : null;
+    let interactive;
+    try { interactive = interactiveResponse(p.interactive); } catch (error) { fail(422, (error as Error).message); }
+    const previous = key
+      ? this.records.publication(key)
+      : undefined;
+    if (previous) {
+      this.access(principal, previous.conversation_id, agentId);
+      const saved = this.message(previous.message_id);
+      const savedInteractive = this.interactions.publication(previous.message_id);
+      if (saved.content !== p.text.trim() || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
+        || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
+      return {
+        conversation_id: previous.conversation_id,
+        message_id: previous.message_id,
+        target_kind: previous.target_kind,
+        target_id: previous.target_id,
+        source_agent_id: agentId,
+      };
+    }
+    const id = this.resolveTarget(agentId, p.to);
+    const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",agentId);
+    if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
+    this.access(principal, id, agentId, "write");
+    const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
+    const targetUser = one(
+      db,
+      "SELECT * FROM users WHERE id=? OR username=?",
+      rawTarget,
+      `agent:${rawTarget}`,
+    );
+    const targetKind =
+      p.to.startsWith("conversation:") || rawTarget === id
+        ? "conversation_id"
+        : targetUser?.username.startsWith("agent:")
+        ? "agent_id"
+        : "user_id";
+    const targetId = targetKind === "agent_id" ? targetUser!.username.slice(6) : rawTarget;
+    const m = transaction(db, () => {
+    const created = this.insertMessage(
+      id,
+      this.agentUser(agentId).id,
+      "agent",
+      p.text.trim(),
+      p.attachments ?? [],
+      key,
+      'completed',
+      { interactive, publish: false },
+    );
+    if (p.background_returns)
+      this.records.background(created.id,p.background_returns);
+    if(key)this.records.savePublication({dispatch_request_key:key,source_agent_id:agentId,target_kind:targetKind,target_id:targetId,conversation_id:id,message_id:created.id,created_at:now()});
+    return created;
+    });
+    this.publishMessages([m]);
+    this.records.chatEvent(id,m.id,{type:'message.completed',data:{content:m.content,token_usage:null}},'completed');
+    if (targetKind === "agent_id") {
+      const target = one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", targetId);
+      if (target) this.ctx.gateway.relayMessage(m, target, `agent-dm:${m.id}:${targetId}`);
+    }
+    this.ctx.gateway.groupReply(m.id);
+    return {
+      conversation_id: id,
+      message_id: m.id,
+      target_kind: targetKind,
+      target_id: targetId,
+      source_agent_id: agentId,
+    };
+  }
+  /** Decode an authenticated HTTP send and run its transactional business command. */
+  async sendMessage(req:FastifyRequest):Promise<ChatMessage> {
+    const actor=this.principal(req),q=query(req),id=params(req).conversation_id;
+    const principal=sendPrincipal(actor);
+    const key=req.headers['idempotency-key'];
+    if(typeof id!=='string'||q.agent_id!==undefined&&typeof q.agent_id!=='string'||key!==undefined&&typeof key!=='string')fail(422,'invalid message route');
+    return this.send({principal,conversationId:id,agentId:q.agent_id,key:key??null,input:messageInput(req.body)});
+  }
+  private send(command:SendMessageCommand):ChatMessage {
+    const {principal:p,conversationId:id,agentId,key,input:b}=command,c=this.access(p,id,agentId,'write');
+    let sender = p.kind!=='gateway'?p.id:p.owner_id,
       type = "user";
     if (p.kind === "gateway") {
-      requireLifecycle(this.db,q.agent_id,b.lifecycle_revision);
-      if(one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",q.agent_id) && (b.sender?.type??b.sender_type)!=="agent")fail(403,"owner_identity_cannot_be_delegated");
+      requireLifecycle(this.db,agentId!,b.lifecycle_revision);
+      if(one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=?",agentId) && (b.sender?.type??b.sender_type)!=="agent")fail(403,"owner_identity_cannot_be_delegated");
       sender =
         b.sender?.type === "agent" || b.sender_type === "agent"
-          ? this.agentUser(q.agent_id).id
+          ? this.agentUser(agentId!).id
           : p.owner_id;
       type = b.sender?.type ?? b.sender_type ?? "user";
     } else if (
@@ -563,23 +494,15 @@ export class Messaging {
     if (b.interaction_contexts !== undefined && c.type !== 'direct') fail(422, 'Private interaction background is only supported in direct chats');
     if (c.type === 'group' && b.interaction_reply && !b.interaction_reply.action_id && !b.interaction_reply.event)
       fail(422, 'Group interaction state requires an explicit card action');
-    if (b.interaction_reply !== undefined) return this.sendInteraction(p, id, b, req);
+    if (b.interaction_reply !== undefined) return this.sendInteraction(p, id, b, key);
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
     if (attachments.length > 5) fail(400, "too many attachments");
     if (!b.content?.trim() && !attachments.length)
       fail(400, "message content or attachments required");
-    b.content = this.validateReferences(p, id, b.content ?? "", q.agent_id);
-    for (const a of attachments) a.url = this.validateReferences(p, id, a.url, q.agent_id);
-    const key = (req.headers["idempotency-key"] as string) ?? null;
-    const old = key
-      ? one(
-          this.db,
-          "SELECT * FROM messages WHERE conversation_id=? AND caller_idempotency_key=?",
-          id,
-          key,
-        )
-      : undefined;
+    b.content = this.validateReferences(p, id, b.content ?? "", agentId);
+    for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
+    const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
     if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
     const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
@@ -591,8 +514,8 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? b : {}), timezone, publish:false });
-      this.db.prepare('UPDATE messages SET caller_payload_json=? WHERE id=?').run(messageAttemptPayload(b),m.id);
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, publish:false });
+      this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
     this.publishMessages([m]);
@@ -602,9 +525,9 @@ export class Messaging {
     }
     return this.message(m.id);
   }
-  private sendInteraction(p: Row, id: string, b: Row, req: FastifyRequest): Row {
+  private sendInteraction(p:SendPrincipal,id:string,b:MessageInput,rawKey:string|null):ChatMessage {
+    if(p.kind==='gateway')fail(403,'Human viewer required');
     if (b.attachments?.length) fail(422, 'Send attachments in a separate message');
-    const rawKey = req.headers['idempotency-key'];
     const key = rawKey ? `interaction:${p.id}:${String(rawKey)}` : null;
     const prepared = this.interactions.prepare(p, id, b, key);
     if (prepared.existing) return this.message(prepared.existing);
@@ -640,7 +563,7 @@ export class Messaging {
     return timezone;
   }
   /** Persist a task event inside the caller's graph transaction; never publish early. */
-  persistTaskNotice(id: string, sender: string, content: string, metadata: Row, contextOnlyAgentId?: string): Row {
+  persistTaskNotice(id: string, sender: string, content: string, metadata: Row, contextOnlyAgentId?: string): ChatMessage {
     const m = this.insertMessage(id,sender,"system",content,[],null,"completed",{system_notice:metadata,publish:false});
     this.enqueueRelays(m,null,this.relayAgents(id),[],contextOnlyAgentId);
     return m;
@@ -649,9 +572,9 @@ export class Messaging {
     return this.members(id).filter(u=>u.username.startsWith("agent:") && conversationAccess(this.db,id,u.id)?.can_write)
       .map(u=>one(this.db,"SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",u.username.slice(6))).filter(Boolean).filter(a=>lifecycle(this.db,a!.agent_id).desired==='enabled') as Row[];
   }
-  private enqueueRelays(m: Row, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = [], contextOnlyAgentId?: string): Row[] {
+  private enqueueRelays(m: ChatMessage, key: string | null = null, agents = this.relayAgents(m.conversation_id), contexts: InteractionContext[] = [], contextOnlyAgentId?: string): Pick<MessageRelayRecord,'relay_task_id'|'target_node_id'|'payload_json'|'conversation_id'>[] {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
-    const relays: Row[] = [];
+    const relays: Pick<MessageRelayRecord,'relay_task_id'|'target_node_id'|'payload_json'|'conversation_id'>[] = [];
     for (const a of agents) {
       const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
@@ -668,11 +591,11 @@ export class Messaging {
     return relays;
   }
   /** Queue represented user input for current participants without echoing to its PA. */
-  queueRepresentedRelays(message:Row,agentId:string):void {
+  queueRepresentedRelays(message:ChatMessage,agentId:string):void {
     this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>agent.agent_id!==agentId));
   }
   /** Queue other direct-chat Agents in the same transaction as a reviewed PA message. */
-  queueDirectAgentRelays(message:Row):void {
+  queueDirectAgentRelays(message:ChatMessage):void {
     if(one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)?.type!=='direct')return;
     this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>`agent:${agent.agent_id}`!==one(this.db,'SELECT username FROM users WHERE id=?',message.sender_user_id)?.username));
   }
@@ -690,13 +613,13 @@ export class Messaging {
     return sent;
   }
   /** Publish committed system messages and attempt their already durable relay rows. */
-  publishMessages(messages: Row[], options: {deferDelivery?: boolean} = {}) {
+  publishMessages(messages: ChatMessage[], options: {deferDelivery?: boolean} = {}) {
     let delivered = false;
     for (const m of messages) {
-      const e = one(this.db,"SELECT * FROM conversation_events WHERE message_id=? AND event_type='message.created'",m.id)!;
+      const e = this.records.createdEvent(m.id);
       const data = JSON.parse(e.payload_json);
       this.ctx.gateway.broadcast(conversationReaderIds(this.db,m.conversation_id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
-      if (!options.deferDelivery) delivered = this.deliverRelays(all(this.db,"SELECT * FROM relay_tasks WHERE message_id=? AND status='queued'",m.id)) || delivered;
+      if (!options.deferDelivery) delivered = this.deliverRelays(this.records.queuedRelays(m.id)) || delivered;
     }
     return delivered;
   }

@@ -320,3 +320,31 @@ it('deletes an approved task over authenticated WS without a second source-messa
   expect((await command('retry','delete',args)).payload.result).toEqual(deleted.payload.result);
   expect((await f.http('GET',`/im/v1/task-graphs/${id}`,undefined,f.tokens.alice)).status).toBe(404);
 });
+
+it('keeps malformed configuration receipts unconfirmed and recovers the original operation', async () => {
+  const f = await start(), g = await bind(f, 'receipt-node', {assistant:{skills:[],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false}}});
+  const before = await f.http('GET','/im/v1/agents/assistant/config?source=mirror',undefined,f.tokens.alice);
+  expect(before.status,before.body).toBe(200);
+  const saving = f.http('PATCH','/im/v1/agents/assistant/config',{...before.body,display_name:'Recovered config',custom_prompt:'保留来源和正文',model_fallbacks:['fallback-a','fallback-b']},f.tokens.alice);
+  const apply = await Promise.race([g.frames.next(frame => frame.type === 'agent.config.apply'),saving.then(response=>{throw new Error('save returned before apply: '+JSON.stringify(response));})]);
+  const malformed = {node_id:g.node,request_id:apply.payload.request_id,operation_id:apply.payload.operation_id,candidate_fingerprint:apply.payload.candidate_fingerprint,status:'applied',agent:{...apply.payload.agent,skills:42}};
+  await g.frames.send('agent.config.apply.result',malformed);
+  const status = await Promise.race([g.frames.next(frame => frame.type === 'agent.config.operation.status'),saving.then(response=>{throw new Error('save returned before status: '+JSON.stringify(response));})]);
+  expect(status.payload.operation_id).toBe(apply.payload.operation_id);
+  await g.frames.send('agent.config.operation.status.result',{node_id:g.node,request_id:status.payload.request_id,status:'unconfirmed'});
+  const pending = await saving;
+  expect(pending.status,pending.body).toBe(503);
+  expect(pending.body.detail.code).toBe('config_apply_pending');
+  // The mirror is a read-only authority query and does not recover for a device.
+  const unchanged = await f.http('GET','/im/v1/agents/assistant/config?source=mirror',undefined,g.token);
+  expect(unchanged.body.display_name).toBe(before.body.display_name);
+  expect(unchanged.body.profile_version).toBe(before.body.profile_version);
+  const recovering = f.http('GET','/im/v1/agents/assistant/config?source=mirror',undefined,f.tokens.alice);
+  const retry = await Promise.race([g.frames.next(frame => frame.type === 'agent.config.operation.status'),recovering.then(response=>{throw new Error('recovery returned before status: '+JSON.stringify(response));})]);
+  expect(retry.payload.operation_id).toBe(apply.payload.operation_id);
+  await g.frames.send('agent.config.operation.status.result',{node_id:g.node,request_id:retry.payload.request_id,operation_id:apply.payload.operation_id,candidate_fingerprint:apply.payload.candidate_fingerprint,status:'applied',agent:apply.payload.agent,peer_metadata:{future:'preserved'}});
+  const recovered = await recovering;
+  expect(recovered.status,recovered.body).toBe(200);
+  expect(recovered.body).toMatchObject({display_name:'Recovered config',profile_version:before.body.profile_version+1,custom_prompt:'保留来源和正文',model_fallbacks:['fallback-a','fallback-b']});
+  expect(g.frames.queue.some(frame=>frame.type==='agent.config.apply')).toBe(false);
+});

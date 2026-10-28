@@ -1,8 +1,8 @@
-import type { RuntimeEvent } from '@nano/product-contracts';
+import type { RuntimeEvent, WorkFact } from '@nano/product-contracts';
 import { tokenUsage, toolPresentation, modelAt } from './presentation.js';
 
 /** The same native facts render main and child execution without treating drafts as public replies. */
-export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events: RuntimeEvent[], child = false): { type: string; payload: Record<string, unknown>; turn?: number } | undefined {
+export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events: RuntimeEvent[], child = false): (WorkFact & { turn?: number }) | undefined {
   const turn = typeof event.data.turn === 'number' ? event.data.turn : events.findLast(candidate => candidate.seq < event.seq && candidate.type === 'turn/start')?.data.turn as number | undefined;
   if (event.type === 'turn/start') {
     const nextEnd = events.find(candidate => candidate.seq > event.seq && candidate.type === 'turn/end')?.seq ?? Infinity;
@@ -29,7 +29,7 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     if (source?.background_returns?.length) return {type: 'injection_consumed', turn, payload: {background_returns: source.background_returns}};
     if (source && ['agent-message', 'subagent-settled'].includes(source.kind ?? '')) {
       const content = event.data.content as {type: string; text?: string}[];
-      return {type: 'message', turn, payload: {message_id: event.data.id, role: 'system', source_kind: source.kind, source_session_id: source.senderSessionId, text: content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')}};
+      return {type: 'message', turn, payload: {message_id: typeof event.data.id === 'string' ? event.data.id : undefined, role: 'system', source_kind: source.kind, source_session_id: source.senderSessionId, text: content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')}};
     }
   }
   if (event.type === 'turn/end') {

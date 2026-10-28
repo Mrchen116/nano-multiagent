@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChannelKey, type CredentialEnvelope } from '../../../packages/channels/src/channel-credentials.js';
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
+import {configurationDependencies} from '../src/configuration-assembly.js';
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import {
@@ -16,7 +17,8 @@ import {
 import { Messaging } from "../src/messaging.js";
 import { TaskGraphService } from "../src/task-graphs.js";
 import { ChannelService, sealChannelSecret } from "../src/channels.js";
-import { ConfigOperations, candidateFingerprint, profileResponse, registerControlRoutes } from "../src/control.js";
+import {ConfigOperations, candidateFingerprint, profileResponse} from "../src/control.js";
+import {registerControlRoutes} from '../src/control-routes.js';
 import { one, type ImContext, type Row } from "../src/context.js";
 import { fixture } from "./control-fixture.js";
 function taskMessaging(db: any) {
@@ -48,7 +50,7 @@ describe('capability configuration responsibility guards', () => {
     service.execute({kind:'user',id:'u1'},'create',{title:'Still working',mode:'dag',conversation_id:'chat',request_key:'guard',status:'doing',assignee:{type:'agent',id:'a'}});
     let sent=false;ctx.gateway.request=async()=>{sent=true;return null as any;};
     const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
-    await expect(new ConfigOperations(ctx).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toMatchObject({statusCode:409,detail:{code:'capability_in_use',blocks:[{code:'active_tasks',target:{kind:'feature',name:'task_graph'}}]}});
+    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toMatchObject({statusCode:409,detail:{code:'capability_in_use',blocks:[{code:'active_tasks',target:{kind:'feature',name:'task_graph'}}]}});
     expect(sent).toBe(false);
     expect(one(db,'SELECT 1 FROM agent_config_operations')).toBeUndefined();
     expect(one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")).toEqual(previous);
@@ -57,7 +59,7 @@ describe('capability configuration responsibility guards', () => {
     const {db,ctx}=fixture();
     ctx.gateway.request=async()=>null as any;
     const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
-    await expect(new ConfigOperations(ctx).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toThrow();
+    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toThrow();
     const service=new TaskGraphService(db,taskMessaging(db));
     const args={title:'New work',mode:'dag',conversation_id:'chat',request_key:'new',assignee:{type:'agent',id:'a'}};
     expect(()=>service.execute({kind:'user',id:'u1'},'create',{...args,status:'doing'})).toThrow('configuration');
@@ -65,7 +67,7 @@ describe('capability configuration responsibility guards', () => {
   });
   it('rejects a final snapshot with incomplete dependencies', async () => {
     const {db,ctx}=fixture(),p=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
-    await expect(new ConfigOperations(ctx).update(p,{...profileResponse(p,true),features:{task_graph:true,cron_scheduling:false}},'o1')).rejects.toMatchObject({statusCode:422,detail:{code:'invalid_capability_dependencies'}});
+    await expect(new ConfigOperations(configurationDependencies(ctx)).update(p,{...profileResponse(p,true),features:{task_graph:true,cron_scheduling:false}},'o1')).rejects.toMatchObject({statusCode:422,detail:{code:'invalid_capability_dependencies'}});
     expect(one(db,'SELECT 1 FROM agent_config_operations')).toBeUndefined();
   });
 });
@@ -280,7 +282,7 @@ describe("recoverable config operations and HTTP boundary", () => {
   });
   it("creates canonical agent identity once and persists applied receipt recovery", async () => {
     const { db, ctx } = fixture(),
-      ops = new ConfigOperations(ctx);
+      ops = new ConfigOperations(configurationDependencies(ctx));
     let creates = 0;
     ctx.gateway.request = async (_n, action, p) => {
       if (action === "agent.create") creates++;
@@ -327,7 +329,7 @@ describe("recoverable config operations and HTTP boundary", () => {
   });
   it("keeps pending durable after lost ACK and commits canonical result on recovery", async () => {
     const { db, ctx } = fixture(),
-      ops = new ConfigOperations(ctx);
+      ops = new ConfigOperations(configurationDependencies(ctx));
     let saved: Row | undefined;
     ctx.gateway.request = async (_node, action, payload) => {
       if (action === "agent.config.apply")
@@ -364,7 +366,7 @@ describe("recoverable config operations and HTTP boundary", () => {
     expect(one(db, "SELECT display_name FROM agent_profiles")?.display_name).toBe("Agent");
     expect(one(db, "SELECT status FROM agent_config_operations")?.status).toBe("pending");
     ctx.gateway.request = async () => saved!;
-    const result = await new ConfigOperations(ctx).recover("a", "o1");
+    const result = await new ConfigOperations(configurationDependencies(ctx)).recover("a", "o1");
     expect(result?.display_name).toBe("修改");
     expect(result?.profile_version).toBe(2);
     expect(result?.approval_mode).toBe("codex");
@@ -372,7 +374,7 @@ describe("recoverable config operations and HTTP boundary", () => {
   });
   it("compensates Gateway after profile CAS loses while preserving concurrent values", async () => {
     const { db, ctx } = fixture(),
-      ops = new ConfigOperations(ctx);
+      ops = new ConfigOperations(configurationDependencies(ctx));
     const calls: Row[] = [];
     ctx.gateway.request = async (_n, action, p) => {
       calls.push(p);
@@ -491,7 +493,7 @@ it('finishes migration after recovering a pending legacy configuration operation
     return {status:'applied',operation_id:op.operation_id,candidate_fingerprint:op.candidate_fingerprint,agent:JSON.parse(op.candidate_json)};
   };
   const p = one(db,'SELECT * FROM agent_profiles')!;
-  await expect(new ConfigOperations(ctx).update(p,{...profileResponse(p,true),display_name:'Recovered edit'},'o1')).rejects.toMatchObject({statusCode:503});
+  await expect(new ConfigOperations(configurationDependencies(ctx)).update(p,{...profileResponse(p,true),display_name:'Recovered edit'},'o1')).rejects.toMatchObject({statusCode:503});
   recover = true; calls.length = 0; registerControlRoutes(app,ctx);
   try {
     const result = await app.inject({method:'POST',url:'/im/v1/agents/a/skills/migrate',headers:{authorization:'Bearer runtime'},payload:{profile_version:1}});

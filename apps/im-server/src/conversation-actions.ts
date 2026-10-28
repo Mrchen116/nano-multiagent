@@ -1,3 +1,4 @@
+import {isRecord} from './node-rpc-values.js';
 import { requireLifecycle } from './agent-lifecycle.js';
 import { agentAvailable } from "./identity.js";
 import { createHmac, randomUUID } from "node:crypto";
@@ -161,7 +162,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
               config.skills_selection_mode ??
               a.skills_selection_mode ??
               (allowed.length ? "explicit_allowlist" : "default_discovery");
-          result.skills = (cap.capabilities?.skills ?? cap.skills ?? [])
+          result.skills = (cap.capabilities?.skills ?? cap.skills ?? []).filter(isRecord)
             .filter((x: Row) => mode === "explicit_denylist" ? !allowed.includes(x.name) : mode === "default_discovery" || allowed.includes(x.name))
             .map((x: Row) => ({
               skill_key: createHmac("sha256", ctx.jwtSecret)
@@ -177,7 +178,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
               name: x.name,
               description: x.description ?? "",
             }));
-          result.commands = (cap.capabilities?.commands ?? cap.commands ?? [])
+          result.commands = (cap.capabilities?.commands ?? cap.commands ?? []).filter(isRecord)
             .filter((x: Row) => typeof x.name === "string" && x.name.trim())
             .map((x: Row) => ({
               name: x.name.trim(),
@@ -404,13 +405,14 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     if (m.conversation_id !== r.conversation_id) fail(409, "message_id not found");
     const card = m.permission_requests.find((x: Row) => x.request_id === r.request_id);
     if (!card) fail(409, "request_id not found");
+    if(!card.agent_id||!card.node_id)fail(409,'permission execution unavailable');
     requireLifecycle(db,card.agent_id,card.lifecycle_revision);
     const epoch =
       one(db, "SELECT node_epoch FROM node_binding_state WHERE node_id=?", card.node_id)
         ?.node_epoch ?? 0;
     if ((card.node_epoch ?? 0) !== epoch)
       fail(409, "permission execution belongs to a revoked device session");
-    if (["submitted", "resolved"].includes(card.status))
+    if (["submitted", "resolved"].includes(card.status ?? ""))
       return {
         status: card.status,
         request_id: r.request_id,

@@ -1,6 +1,8 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { FastifyInstance } from 'fastify';
 
+import type { MessageInput } from './message-input.js';
+import type { MessageRecord } from './message-records.js';
 import { fail, one, params, type ImContext, type Row } from './context.js';
 
 /** Freeze the normalized ordinary-send payload independently of transient delivery state.
@@ -10,7 +12,7 @@ import { fail, one, params, type ImContext, type Row } from './context.js';
  * Returns:
  *   Canonical JSON used by the message creation transaction and retry comparison.
  */
-export function messageAttemptPayload(input: Row): string {
+export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attachments'|'interaction_contexts'>): string {
   return sortedJsonAscii({content:input.content ?? '', attachments:input.attachments ?? [], interaction_contexts:input.interaction_contexts ?? []});
 }
 
@@ -24,7 +26,7 @@ export function messageAttemptPayload(input: Row): string {
  * Raises:
  *   Error: HTTP 409 when the key identifies a different sender or payload.
  */
-export function assertMessageAttempt(existing: Row, senderId: string, senderType: string, payload: string): void {
+export function assertMessageAttempt(existing: MessageRecord, senderId: string, senderType: string, payload: string): void {
   const saved = existing.caller_payload_json ?? messageAttemptPayload({content:existing.content,attachments:JSON.parse(existing.attachments_json ?? '[]')});
   if (existing.sender_user_id !== senderId || existing.sender_type !== senderType || saved !== payload) {
     fail(409, {code:'message_attempt_conflict', message:'This request key was already used with different message data'});

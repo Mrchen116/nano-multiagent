@@ -3,7 +3,7 @@ import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
-import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
+import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
 import { interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
@@ -100,7 +100,7 @@ export class GlobalAgent {
     const { runtime } = this.options; const binding = this.binding(config);
     const { conversationId: _, ...runtimeBinding } = binding;
     await runtime.request('session.ensure', runtimeBinding);
-    this.append(binding, 'registered', 'session_registered', { scope: 'global_main', title: config.agentId });
+    this.append(binding, 'registered', {type: 'session_registered', payload: { scope: 'global_main', title: config.agentId }});
     await this.ensureAuthority(binding);
     return binding;
   }
@@ -191,7 +191,7 @@ export class GlobalAgent {
         const result=this.options.taskStop?await this.options.taskStop(binding,input):await this.options.runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean;paused?:number};
         text=result.paused?`已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。`:result.wasRunning?'已停止当前操作。':'当前没有正在执行的操作。';
       }
-      await this.options.relay.request('agent.message', { node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
+      await this.publishMessage({ node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
         from_session_id: `${config.agentId}|tool_call:command:${input.message.id}` });
       await this.receipt(input, 'completed'); return;
     }
@@ -608,12 +608,12 @@ export class GlobalAgent {
         ? 'Nothing was sent. Read the new messages from inbox_targets and reconsider before sending with a new call.'
         : 'Read the new messages in this conversation and reconsider before sending.' };
       inbox.settlePublication(call.operationId, 'held', result);
-      if (global) this.append(binding, `publication:${call.operationId}`, 'draft_withheld', { call_id: call.callId, target, text }, turn);
+      if (global) this.append(binding, `publication:${call.operationId}`, {type: 'draft_withheld', payload: { call_id: call.callId, target, text }}, turn);
       return result;
     }
     inbox.settlePublication(call.operationId, 'sending');
     try {
-      const response = await this.options.relay.request('agent.message', { node_id: this.options.nodeId, text,
+      const response = await this.publishMessage({ node_id: this.options.nodeId, text,
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload);
@@ -634,6 +634,11 @@ export class GlobalAgent {
       throw error;
     }
   }
+  private async publishMessage(publication: AgentPublication): Promise<ProtocolFrame & {payload: {message_id: string}}> {
+    const response = await this.options.relay.request('agent.message', {...publication});
+    if (typeof response.payload.message_id !== 'string' || !response.payload.message_id) throw new Error('Agent publication has no message identity');
+    return {...response, payload: {...response.payload, message_id: response.payload.message_id}};
+  }
   private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'|'sessionId'>,target:string,text:string,payload:Record<string,unknown>) {
     const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
     this.options.inbox.settlePublication(call.operationId,'confirmed',result);
@@ -641,7 +646,7 @@ export class GlobalAgent {
     const turn=this.options.store.events(call.sessionId).find(event=>event.type==='tool/call'&&event.data.callId===call.callId)?.data.turn as number|undefined;
     const sameConversation=payload.conversation_id===binding.conversationId||payload.conversation_id===this.options.store.imConversation(binding.agentId,binding.conversationId);
     if(!global&&turn!==undefined&&typeof payload.conversation_id==='string'&&sameConversation)this.options.store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
-    if(global)this.append(binding,`publication:${call.operationId}`,'message_sent',{call_id:call.callId,text,...result},turn);
+    if(global)this.append(binding,`publication:${call.operationId}`,{type:'message_sent',payload:{call_id:call.callId,text,...result}},turn);
     return result;
   }
   private async recoverPublications(binding: SessionBinding): Promise<void> {
@@ -688,10 +693,10 @@ export class GlobalAgent {
             const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
             if (inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) {
               const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
-              this.append(binding, `inbox-read:${message.toolCallId}`, 'inbox_read_committed', {
+              this.append(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
                 call_id: message.toolCallId,
                 source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
-              }, turn, event.time);
+              }}, turn, event.time);
             }
           }
           const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
@@ -701,7 +706,10 @@ export class GlobalAgent {
             await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
           }
           const projected = projectWorkEvent(binding.sessionId, event, events);
-          if (projected) facts.push(this.workEvent(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time));
+          if (projected) {
+            const {turn, ...fact} = projected;
+            facts.push(this.workEvent(binding, `runtime:${event.seq}`, fact, turn, event.time));
+          }
         }
         inbox.commitWork(binding.sessionId,workCheckpoint(binding.sessionId,result.throughSeq??store.cursor(binding.sessionId),events,result.modelVersion),facts);
         this.options.onWork?.();
@@ -720,10 +728,10 @@ export class GlobalAgent {
   private modelNotices(binding: SessionBinding, runs: ModelRunProjection[]) {
     const facts:ReturnType<GlobalAgent['workEvent']>[]=[];
     for (const run of runs) {
-      for (const attempt of run.attempts) if (attempt.error) facts.push(this.workEvent(binding, `model-failure:${run.id}:${attempt.turn}`, 'message', {
+      for (const attempt of run.attempts) if (attempt.error) facts.push(this.workEvent(binding, `model-failure:${run.id}:${attempt.turn}`, {type: 'message', payload: {
         role: 'system', text: `${attempt.route.model} 暂时无法完成：${attempt.error.message}`, native_turn: attempt.turn,
-      }, run.turn));
-      if (run.switched) facts.push(this.workEvent(binding, `model-switched:${run.id}`, 'message', { role: 'system', text: `已改用 ${run.switched}，因为主模型不可用。` }, run.turn));
+      }}, run.turn));
+      if (run.switched) facts.push(this.workEvent(binding, `model-switched:${run.id}`, {type: 'message', payload: { role: 'system', text: `已改用 ${run.switched}，因为主模型不可用。` }}, run.turn));
     }
     return facts;
   }
@@ -734,12 +742,15 @@ export class GlobalAgent {
     for (const child of children) {
       if (child.kind !== 'child') {if(child.reason!=='unsupported')incomplete=true;continue;}
       const binding = { ...root, sessionId: child.id },prior=checkpoints[child.id];
-      const facts=[this.workEvent(binding, 'registered', 'session_registered', { scope: child.workflowRunId?'workflow':'subagent', workflow_run_id:child.workflowRunId, parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label }),
+      const facts=[this.workEvent(binding, 'registered', {type: 'session_registered', payload: { scope: child.workflowRunId?'workflow':'subagent', workflow_run_id:child.workflowRunId, parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label }}),
         ...this.modelNotices(binding, child.modelRuns ?? [])];
       const events = logicalEvents(workSuffix(child.events ?? [],prior), child.modelRuns ?? []);
       for (const event of events) {
         const projected = projectWorkEvent(child.id, event, events, true);
-        if (projected) facts.push(this.workEvent(binding, `runtime:${event.seq}`, projected.type, projected.payload, projected.turn, event.time));
+        if (projected) {
+          const {turn, ...fact} = projected;
+          facts.push(this.workEvent(binding, `runtime:${event.seq}`, fact, turn, event.time));
+        }
       }
       if(child.throughSeq!==undefined) {
         const cut=prior && !child.events?.length && prior.throughSeq===child.throughSeq ? {...prior,modelVersion:child.modelVersion??prior.modelVersion}
@@ -762,10 +773,13 @@ export class GlobalAgent {
       const binding={...root,sessionId:snapshot.sessionId};
       const prior=inbox.workCheckpoints(root.sessionId)[snapshot.sessionId];
       const events=logicalEvents(workSuffix(child?snapshot.events:store.events(root.sessionId,(prior?.replayFrom??0)-1),prior),snapshot.modelRuns);
-      const facts=child?[this.workEvent(binding,'registered','session_registered',{scope:'subagent',parent_session_id:snapshot.parentSessionId??root.sessionId,child_agent_id:snapshot.sessionId,title:snapshot.sessionId})]:[];
+      const facts=child?[this.workEvent(binding,'registered',{type:'session_registered',payload:{scope:'subagent',parent_session_id:snapshot.parentSessionId??root.sessionId,child_agent_id:snapshot.sessionId,title:snapshot.sessionId}})]:[];
       for(const event of events) {
         const projected=projectWorkEvent(snapshot.sessionId,event,events,child);
-        if(projected)facts.push(this.workEvent(binding,`runtime:${event.seq}`,projected.type,projected.payload,projected.turn,event.time));
+        if(projected) {
+          const {turn, ...fact} = projected;
+          facts.push(this.workEvent(binding,`runtime:${event.seq}`,fact,turn,event.time));
+        }
       }
       inbox.commitWork(snapshot.sessionId,workCheckpoint(root.sessionId,snapshot.throughSeq,events,snapshot.modelVersion),facts);
       inbox.workPending(root.sessionId,false);
@@ -773,12 +787,12 @@ export class GlobalAgent {
     this.options.onWork?.();
   }
 
-  private workEvent(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()) {
+  private workEvent(binding: SessionBinding, key: string, fact: WorkFact, turn?: number, time = Date.now()): WorkDraft {
     return { event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
-      session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), type, payload, observed_at: new Date(time).toISOString() };
+      session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), ...fact, observed_at: new Date(time).toISOString() };
   }
-  private append(binding: SessionBinding, key: string, type: string, payload: Record<string, unknown>, turn?: number, time = Date.now()): void {
-    this.options.inbox.append(this.workEvent(binding,key,type,payload,turn,time));
+  private append(binding: SessionBinding, key: string, fact: WorkFact, turn?: number, time = Date.now()): void {
+    this.options.inbox.append(this.workEvent(binding,key,fact,turn,time));
     this.options.onWork?.();
   }
   private async receipt(input: RelayInput, status: string) {

@@ -5,7 +5,8 @@ import { openDatabase } from '../src/db.js';
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
 import { canonicalAgentConfiguration, agentConfigurationFingerprint } from '@nano/product-contracts';
-import { candidateFingerprint, gatewayCandidate, registerControlRoutes } from '../src/control.js';
+import {candidateFingerprint, gatewayCandidate} from '../src/control.js';
+import {registerControlRoutes} from '../src/control-routes.js';
 import { fixture, connectFixtureGateway } from './control-fixture.js';
 
 it('saves, preserves omitted mode, clears inheritance and rejects invalid approval choices through the API', async () => {

@@ -1,3 +1,4 @@
+import {configurationDependencies} from '../src/configuration-assembly.js';
 import { expect, it, vi } from 'vitest';
 import { fixture, connectFixtureGateway } from './control-fixture.js';
 import { personalFixture } from './personal-fixture.js';
@@ -96,7 +97,7 @@ it('creates one private PA through the existing configuration operation and reco
 it('recovers a delayed PA configuration rename across profile, binding and canonical chat',async()=>{
  const {ConfigOperations,profileResponse}=await import('../src/control.js');
  const {ctx,db}=personalFixture();
- const ops=new ConfigOperations(ctx);
+ const ops=new ConfigOperations(configurationDependencies(ctx));
  const profile=db.prepare("SELECT * FROM agent_profiles WHERE agent_id='a'").get()!;
  let applied:any;
  ctx.gateway.request=async(_node,method,payload)=>{

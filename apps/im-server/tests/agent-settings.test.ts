@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import {expect, it, vi} from 'vitest';
-import {registerControlRoutes} from '../src/control.js';
+import {registerControlRoutes} from '../src/control-routes.js';
 import {fixture, connectFixtureGateway} from './control-fixture.js';
 import {one} from '../src/context.js';
 

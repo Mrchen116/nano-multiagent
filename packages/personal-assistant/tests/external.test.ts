@@ -48,6 +48,10 @@ it('keeps external execution and confirmed sends available offline and does not 
     expect(await external.request('task_graph.command', task)).toMatchObject({ payload: { ok: false, error: { code: 'source_unavailable' } } });
     expect(mirrored).toEqual([]);
     const start = await external.request('node.streaming_delta', { node_id: 'node', kind: 'turn_start', agent_id: 'a', conversation_id: input.conversation_id, idempotency_key: 'turn', external_reply: input.metadata.external_reply });
+    const tool = {id: 'native-tool', input: ['dynamic', {nested: null}], output: false, detail: {vendor: ['full', 'result']}};
+    const toolFrame = {kind: 'tool_call_completed', message_id: start.payload.message_id, tool_call: tool};
+    await external.request('node.streaming_delta', toolFrame); await external.request('node.streaming_delta', toolFrame);
+    await expect(external.request('node.streaming_delta', {...toolFrame, tool_call: {...tool, id: 42}})).rejects.toThrow('id required');
     const complete = { kind: 'message_completed', message_id: start.payload.message_id, final_content: 'answer', delivery_status: 'completed' };
     await external.request('node.streaming_delta', complete); await external.request('node.streaming_delta', complete);
     expect(sends).toBe(1);
@@ -67,6 +71,7 @@ it('keeps external execution and confirmed sends available offline and does not 
     expect(await external.request('task_graph.command', { ...task, agent_id: 'other' })).toMatchObject({ payload: { ok: false, error: { code: 'source_unavailable' } } });
     expect(mirrored.filter(frame => frame.kind === 'turn_start')).toHaveLength(2);
     expect(mirrored.filter(frame => frame.kind === 'message_completed')).toHaveLength(2);
+    expect(mirrored.filter(frame => frame.kind === 'tool_call_completed')).toEqual([expect.objectContaining({tool_call: tool, message_id: 'im-bubble'})]);
     await external.request('node.system_message', { ...notice, conversation_id: 'shadow-chat', idempotency_key: 'internal-review' });
     expect(sends).toBe(2);
     expect(requests).toContainEqual(expect.objectContaining({ sender_source_id: 'human', suppress_relay: true }));
@@ -110,7 +115,7 @@ it('keeps group approval values private and accepts only the bound owner on the 
     await external.receive('a', { messageId: 'group-input', chatId: 'group', senderId: 'member', isGroup: true, mentioned: true, time: '1000', parts: [{ type: 'text', text: 'request' }] });
     const input = inputs[0]!;
     const start = await external.request('node.streaming_delta', { kind: 'turn_start', agent_id: 'a', conversation_id: input.conversation_id, idempotency_key: 'turn', external_reply: input.metadata.external_reply });
-    await external.request('node.streaming_delta', { kind: 'permission_request', message_id: start.payload.message_id, permission_request: { request_id: 'request', tool_name: 'bash', reason: 'private-owner-data', tool_input: { command: 'private-owner-data' } } });
+    await external.request('node.streaming_delta', { kind: 'permission_request', run_id: 'session', message_id: start.payload.message_id, permission_request: { request_id: 'request', tool_name: 'bash', reason: 'private-owner-data', tool_input: { command: 'private-owner-data' } } });
     expect(JSON.stringify(card)).not.toContain('private-owner-data');
     const action = { context: { open_message_id: 'card' }, action: { value: { request_id: 'request', decision: 'allow_once' } } };
     await external.card('a', { ...action, operator: { open_id: 'member' } }); expect(decisions).toBe(0);
@@ -136,6 +141,10 @@ it('never reports completed before the platform response and preserves unknown o
     await external.receive('a', { messageId: 'source', chatId: 'chat', senderId: 'human', isGroup: false, mentioned: false, time: '1000', parts: [{ type: 'text', text: 'hello' }] });
     const input = accepted[0]!;
     const start = await external.request('node.streaming_delta', { kind: 'turn_start', agent_id: 'a', conversation_id: input.conversation_id, idempotency_key: 'turn', external_reply: input.metadata.external_reply });
+    const tool = {id: 'native-tool', input: ['dynamic', {nested: null}], output: false, detail: {vendor: ['full', 'result']}};
+    const toolFrame = {kind: 'tool_call_completed', message_id: start.payload.message_id, tool_call: tool};
+    await external.request('node.streaming_delta', toolFrame); await external.request('node.streaming_delta', toolFrame);
+    await expect(external.request('node.streaming_delta', {...toolFrame, tool_call: {...tool, id: 42}})).rejects.toThrow('id required');
     const complete = { kind: 'message_completed', message_id: start.payload.message_id, final_content: 'answer', delivery_status: 'completed' };
     const pending = external.request('node.streaming_delta', complete); const rejected = expect(pending).rejects.toMatchObject({ delivery: 'unknown' });
     await external.recover(); expect(frames.some(frame => frame.kind === 'message_completed')).toBe(false);

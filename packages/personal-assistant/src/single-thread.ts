@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
+import type { ChatStreamFact, ChatStreamReceipt, ChatTurnStart, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
@@ -44,7 +44,7 @@ export class SingleThread {
       if ((method === 'session.event' && data.event) || method === 'model.changed') this.reconcile(data.sessionId).catch(options.onError);
       if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
       if (method === 'approval.resolved') this.resolveApproval(value as { requestId: string; outcome: string }).catch(options.onError);
-      if (method === 'session.liveness') Promise.all(options.store.activeDeliveries(data.sessionId).map(delivery => this.delta({kind: 'run_heartbeat', message_id: delivery.messageId, source: 'dsh-agent'}))).catch(options.onError);
+      if (method === 'session.liveness') Promise.all(options.store.activeDeliveries(data.sessionId).flatMap(delivery => delivery.messageId ? [this.delta({kind: 'run_heartbeat', message_id: delivery.messageId, source: 'dsh-agent'})] : [])).catch(options.onError);
       if (method === 'session.stream') this.stream(value as Stream);
     });
   }
@@ -107,7 +107,7 @@ export class SingleThread {
         }
       }
       const ack = await this.delta({ kind: 'turn_start', conversation_id: binding.conversationId, agent_id: binding.agentId,
-        idempotency_key: `command:${input.message.id}`, external_reply: input.metadata.external_reply });
+        idempotency_key: `command:${input.message.id}`, external_reply: typeof input.metadata.external_reply === 'string' ? input.metadata.external_reply : undefined });
       await this.delta({ kind: 'message_completed', message_id: ack.payload.message_id,
         final_content: text, delivery_status: 'completed' });
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'completed' });
@@ -286,26 +286,31 @@ export class SingleThread {
       }
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
+        const externalReply = store.inputs(sessionId).find(item => item.turn === turn && !item.input.metadata.context_only)?.input.metadata.external_reply;
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
           agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
-          background_returns: input.input.metadata.background_returns,
-          external_reply: store.inputs(sessionId).find(item => item.turn === turn && !item.input.metadata.context_only)?.input.metadata.external_reply });
+          background_returns: Array.isArray(input.input.metadata.background_returns) ? input.input.metadata.background_returns : undefined,
+          external_reply: typeof externalReply === 'string' ? externalReply : undefined });
         const messageId = ack.payload.message_id;
-        if (typeof messageId !== 'string') throw new Error('IM did not acknowledge the output message identity');
         if (binding.conversationId.startsWith('owner:') && typeof ack.payload.conversation_id === 'string') Object.assign(binding, store.adoptConversation(binding, ack.payload.conversation_id));
         store.updateDelivery(delivery.operationId, 'sending', messageId, delivery.content);
         delivery = store.delivery(sessionId, turn)!;
       }
+      const messageId = delivery.messageId;
+      if (!messageId) throw new Error('Output delivery has no message identity');
       for (const event of events.filter(event => event.data.turn === turn)) {
         if (store.eventDelivered(delivery.operationId, event.seq)) continue;
         const tool = toolPresentation(event, events);
-        if (tool) await this.delta({ kind: event.type === 'tool/call' ? 'tool_call_upserted' : 'tool_call_completed',
-          message_id: delivery.messageId, tool_call: tool, process_seq: event.seq });
+        if (tool) {
+          if (!tool.id) throw new Error('Native tool event has no call identity');
+          await this.delta({ kind: event.type === 'tool/call' ? 'tool_call_upserted' : 'tool_call_completed',
+            message_id: messageId, tool_call: {...tool, id: tool.id}, process_seq: event.seq });
+        }
         if (event.type === 'assistant/message') {
           const message = event.data.message as { content: { type: string; text?: string }[] };
           const reasoning = message.content.filter(block => block.type === 'reasoning').map(block => block.text ?? '').join('');
-          if (reasoning) await this.delta({ kind: 'thinking_segment', message_id: delivery.messageId, text: reasoning, process_seq: event.seq });
+          if (reasoning) await this.delta({ kind: 'thinking_segment', message_id: messageId, text: reasoning, process_seq: event.seq });
         }
         store.confirmEvent(delivery.operationId, event.seq);
       }
@@ -321,7 +326,7 @@ export class SingleThread {
       const reason = end.data.reason as { kind: string };
       const completed = reason.kind === 'completed';
       if (!completed && !text && !publication && run?.attempts.some(attempt => attempt.error) && !events.some(event => event.type === 'tool/call' && event.data.turn === turn)) {
-        await this.delta({ kind: 'message_discarded', message_id: delivery.messageId, reason: 'model_failure_notice' });
+        await this.delta({ kind: 'message_discarded', message_id: messageId, reason: 'model_failure_notice' });
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
       const inputs = store.inputs(sessionId);
@@ -330,12 +335,12 @@ export class SingleThread {
       if (completed && correction && text && delivery.state !== 'completing') {
         const identity = `revalidation:${delivery.operationId}`;
         await runtime.request('session.submit', { sessionId, inputId: identity, mode: 'inject', content: [{ type: 'text', text: 'Your previous draft has NOT been sent because newer messages were accepted in this group. Consider the newer messages before publishing the revised answer.' }], source: { kind: 'system', actorId: binding.agentId, channel: 'revalidation', messageId: identity } });
-        await this.delta({ kind: 'reply_process', message_id: delivery.messageId, item: { item_id: identity, kind: 'draft', run_id: delivery.operationId, draft_id: identity, text, source: 'assistant' } });
-        await this.delta({ kind: 'message_completed', message_id: delivery.messageId, final_content: '', delivery_status: 'completed' });
+        await this.delta({ kind: 'reply_process', message_id: messageId, item: { item_id: identity, kind: 'draft', run_id: delivery.operationId, draft_id: identity, text, source: 'assistant' } });
+        await this.delta({ kind: 'message_completed', message_id: messageId, final_content: '', delivery_status: 'completed' });
         store.updateDelivery(delivery.operationId, 'withheld', delivery.messageId, text); await this.receipt(input.input, 'completed'); continue;
       }
       store.updateDelivery(delivery.operationId, 'completing', delivery.messageId, text);
-      try { await this.delta({ kind: 'message_completed', message_id: delivery.messageId,
+      try { await this.delta({ kind: 'message_completed', message_id: messageId,
         final_content: publication?.pending && !message?.content.some(block => block.type === 'text' && block.text) ? undefined : text, delivery_status: completed ? 'completed' : 'failed',
         kernel_message_id: message?.id, idempotency_key: `${delivery.operationId}:complete`,
         token_usage: tokenUsage(events, turn),
@@ -377,7 +382,7 @@ export class SingleThread {
     for (const notice of notices) {
       if (this.options.store.command(notice.id)) continue;
       const start = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }), agent_id: binding.agentId,
-        idempotency_key: notice.id, external_reply: input.metadata.external_reply });
+        idempotency_key: notice.id, external_reply: typeof input.metadata.external_reply === 'string' ? input.metadata.external_reply : undefined });
       if (binding.conversationId.startsWith('owner:') && typeof start.payload.conversation_id === 'string') Object.assign(binding, this.options.store.adoptConversation(binding, start.payload.conversation_id));
       await this.delta({ kind: 'message_completed', message_id: start.payload.message_id, final_content: notice.text, delivery_status: notice.failed ? 'failed' : 'completed' });
       this.options.store.saveCommand(notice.id, 'delivered');
@@ -425,7 +430,16 @@ export class SingleThread {
     if (!binding) throw new Error('Unknown session');
     return binding;
   }
-  private delta(payload: Record<string, unknown>) { return this.options.relay.request('node.streaming_delta', { node_id: this.options.nodeId, ...payload }); }
+  private delta(payload: ChatTurnStart): Promise<{payload: ChatStreamReceipt & {message_id: string}}>;
+  private delta(payload: ChatStreamFact): Promise<{payload: ChatStreamReceipt}>;
+  private async delta(payload: ChatStreamFact): Promise<{payload: ChatStreamReceipt}> {
+    const response = await this.options.relay.request('node.streaming_delta', { node_id: this.options.nodeId, ...payload });
+    const messageId = response.payload.message_id, conversationId = response.payload.conversation_id;
+    if (messageId !== undefined && typeof messageId !== 'string' || payload.kind === 'turn_start' && !messageId)
+      throw new Error('IM did not acknowledge the output message identity');
+    if (conversationId !== undefined && typeof conversationId !== 'string') throw new Error('IM returned an invalid conversation identity');
+    return {payload: {message_id: messageId, conversation_id: conversationId}};
+  }
   private async receipt(input: RelayInput, status: string) {
     const inputId = String(input.metadata.runtime_input_id ?? `${input.agent_id}:${input.message.id}`);
     if (this.options.store.receipt(inputId) === status) return;

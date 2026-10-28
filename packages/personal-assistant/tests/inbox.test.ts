@@ -203,16 +203,16 @@ it('commits product projection and its processing position together, independent
   let inbox=new InboxStore(path);
   const checkpoint={rootSessionId:'main',throughSeq:8,replayFrom:9,modelVersion:'finished',model:'m',contextWindow:100000};
   try {
-    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',type:'turn_end',payload:{usage:{output:7}}}]);
+    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',root_agent_id:'agent',session_id:'child',type:'turn_end',payload:{usage:{output:7}}}]);
     const through=inbox.journalSeq;
     expect(inbox.throughSeq).toBe(0);
     inbox.close();inbox=new InboxStore(path);
     expect(inbox.workCheckpoints('main')).toEqual({child:checkpoint});
-    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',type:'turn_end',payload:{usage:{output:7}}}]);
+    inbox.commitWork('child',checkpoint,[{event_id:'child:runtime:8',root_agent_id:'agent',session_id:'child',type:'turn_end',payload:{usage:{output:7}}}]);
     expect(inbox.journalSeq).toBe(through);
     inbox.acknowledge(through);
     expect(inbox.workCheckpoints('main').child).toEqual(checkpoint);
-    expect(()=>inbox.commitWork('child',{...checkpoint,throughSeq:9},[{event_id:'invalid',bad:1n}])).toThrow();
+    expect(()=>inbox.commitWork('child',{...checkpoint,throughSeq:9},[{event_id:'invalid',root_agent_id:'agent',session_id:'child',type:'tool_end',payload:{arguments:1n}}])).toThrow();
     expect(inbox.workCheckpoints('main').child.throughSeq).toBe(8);
     expect(inbox.journalSeq).toBe(through);
   } finally {inbox.close();rmSync(dir,{recursive:true,force:true});}

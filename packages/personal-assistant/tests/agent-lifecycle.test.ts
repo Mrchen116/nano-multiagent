@@ -60,7 +60,7 @@ it('retains cancelled input and journal evidence while retiring only the disable
     store.bufferGroup(input('parked'));store.prepareDelivery('a',1);
     inbox.acceptRelay(input('old'),true);inbox.acceptRelay(input('control'),false,true);
     inbox.acceptRelay(input('other','b'),true);inbox.preparePublication('a:call','chat','draft','a');
-    inbox.append({event_id:'history',type:'message',payload:{text:'kept'}});inbox.acknowledge(1);
+    inbox.append({event_id:'history',root_agent_id:'a',session_id:'main',type:'message',payload:{text:'kept'}});inbox.acknowledge(1);
     disableEnable(store);inbox.cancelAgent('a');
     store.inputEvidence('a:old',{accepted:true,turn:1,terminal:{kind:'completed'}},true);
     expect(store.inputs('a')[0]).toMatchObject({input:{message:{content:'hello'}},terminal:'{"kind":"cancelled_by_disable"}'});

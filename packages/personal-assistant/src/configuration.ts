@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
-import { agentConfigurationFingerprint, canonicalAgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
+import { agentConfigurationFingerprint, canonicalAgentConfiguration, type CanonicalAgentConfiguration, type ConfigurationIntent, type ConfigurationResult } from '@nano/product-contracts';
 
-interface Intent { operation_id: string; candidate_fingerprint: string; expected_previous_fingerprint: string | null; agent: Record<string, unknown> }
+type Intent = ConfigurationIntent;
 export interface ConfigurationPreparation { ready: boolean; error_code?: string; message?: string; blocks?: unknown[] }
 interface Receipt { kind: string; intent: Intent; candidate: CanonicalAgentConfiguration; status: 'pending' | 'applied' | 'rejected'; error_code?: string; message?: string; blocks?: unknown[] }
 interface Options {
@@ -27,20 +27,20 @@ export class ConfigurationOperations {
     return row ? JSON.parse(row.receipt) as Receipt : undefined;
   }
   private save(receipt: Receipt): void { this.db.prepare('INSERT INTO operations VALUES(?,?) ON CONFLICT(id) DO UPDATE SET receipt=excluded.receipt').run(receipt.intent.operation_id, JSON.stringify(receipt)); }
-  private result(receipt: Receipt): Record<string, unknown> {
+  private result(receipt: Receipt): ConfigurationResult {
     return { operation_id: receipt.intent.operation_id, candidate_fingerprint: receipt.intent.candidate_fingerprint, status: receipt.status,
       ...(receipt.status === 'applied' ? { agent: receipt.candidate } : {}),
       ...(receipt.error_code ? { error_code: receipt.error_code, message: receipt.message, ...(receipt.blocks ? {blocks: receipt.blocks} : {}) } : {}) };
   }
-  status(id: string): Record<string, unknown> { const receipt = this.get(id); return receipt ? this.result(receipt) : { operation_id: id, status: 'pending' }; }
-  handle(kind: 'create' | 'apply', intent: Intent): Promise<Record<string, unknown>> {
+  status(id: string): ConfigurationResult { const receipt = this.get(id); return receipt ? this.result(receipt) : { operation_id: id, status: 'pending' }; }
+  handle(kind: 'create' | 'apply', intent: Intent): Promise<ConfigurationResult> {
     const key = String(intent.agent?.agent_id ?? intent.operation_id);
     const task = (this.chains.get(key) ?? Promise.resolve()).then(() => this.perform(kind, intent));
     const settled = task.catch(() => {}); this.chains.set(key, settled);
     void settled.then(() => { if (this.chains.get(key) === settled) this.chains.delete(key); });
     return task;
   }
-  private async perform(kind: string, intent: Intent): Promise<Record<string, unknown>> {
+  private async perform(kind: string, intent: Intent): Promise<ConfigurationResult> {
     const reject = (code: string, message: string) => ({ operation_id: intent.operation_id, candidate_fingerprint: intent.candidate_fingerprint, status: 'rejected', error_code: code, message });
     if (!intent.operation_id || !intent.candidate_fingerprint || !intent.agent) return reject('invalid_agent_config', 'Missing operation identity or candidate');
     let receipt = this.get(intent.operation_id);
