@@ -36,14 +36,14 @@ export class ChannelKey {
     const shared=diffieHellman({privateKey:this.key,publicKey:remote});
     const key=Buffer.from(hkdfSync('sha256',shared,Buffer.from(envelope.salt,'base64'),'nano-multiagent/device-binding-v1',32));
     const ciphertext=Buffer.from(envelope.ciphertext,'base64');const decipher=createDecipheriv('aes-256-gcm',key,Buffer.from(envelope.nonce,'base64'));
-    decipher.setAAD(canonical(envelope.aad));decipher.setAuthTag(ciphertext.subarray(-16));
+    decipher.setAAD(encodeCredentialRecord(envelope.aad));decipher.setAuthTag(ciphertext.subarray(-16));
     return Buffer.concat([decipher.update(ciphertext.subarray(0,-16)),decipher.final()]).toString('utf8');
   }
   seal(secret: Record<string, string>, aad: ChannelAad): CredentialEnvelope {
     const ephemeral = generateKeyPairSync('x25519'); const salt = randomBytes(32); const nonce = randomBytes(12);
     const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: createPublicKey(this.key) });
     const key = Buffer.from(hkdfSync('sha256', shared, salt, context, 32)); const cipher = createCipheriv('aes-256-gcm', key, nonce);
-    cipher.setAAD(canonical(aad)); const encrypted = Buffer.concat([cipher.update(canonical(secret)), cipher.final(), cipher.getAuthTag()]);
+    cipher.setAAD(encodeCredentialRecord(aad)); const encrypted = Buffer.concat([cipher.update(encodeCredentialRecord(secret)), cipher.final(), cipher.getAuthTag()]);
     return { version: 1, algorithm, ephemeral_public_key: publicBytes(ephemeral.privateKey).toString('base64'), salt: salt.toString('base64'), nonce: nonce.toString('base64'), ciphertext: encrypted.toString('base64') };
   }
   open(envelope: CredentialEnvelope, aad: ChannelAad): Record<string, string> {
@@ -53,7 +53,7 @@ export class ChannelKey {
       const shared = diffieHellman({ privateKey: this.key, publicKey: remote });
       const key = Buffer.from(hkdfSync('sha256', shared, Buffer.from(envelope.salt, 'base64'), context, 32));
       const encrypted = Buffer.from(envelope.ciphertext, 'base64'); const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.nonce, 'base64'));
-      decipher.setAAD(canonical(aad)); decipher.setAuthTag(encrypted.subarray(-16));
+      decipher.setAAD(encodeCredentialRecord(aad)); decipher.setAuthTag(encrypted.subarray(-16));
       const decoded: unknown = JSON.parse(Buffer.concat([decipher.update(encrypted.subarray(0, -16)), decipher.final()]).toString('utf8'));
       if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded) || !Object.values(decoded).every(value => typeof value === 'string')) throw new Error('Invalid credentials');
       return decoded as Record<string, string>;
@@ -61,4 +61,5 @@ export class ChannelKey {
   }
 }
 function publicBytes(privateKey: KeyObject): Buffer { return Buffer.from(createPublicKey(privateKey).export({ format: 'jwk' }).x!, 'base64url'); }
-function canonical(value: object): Buffer { return Buffer.from(JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)))); }
+// Keep the v1 flat-record encoding: sorting nested extension data would change AAD.
+function encodeCredentialRecord(value: object): Buffer { return Buffer.from(JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)))); }

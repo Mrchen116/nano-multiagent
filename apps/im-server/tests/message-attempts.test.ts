@@ -53,3 +53,11 @@ describe('message creation key reuse', () => {
     expect(() => assertMessageAttempt(saved, sender, 'user', changed)).toThrowError(expect.objectContaining({statusCode:409}));
   });
 });
+
+// Persisted before the serializer move at a34af8473; retry must keep the same identity.
+it('recognizes a historical message attempt with Unicode attachment and nested choice data', () => {
+  const payload = messageAttemptPayload({"content":"\u4e2d\u6587\ud83d\ude00\u007f\u0080","attachments":[{"file_name":"\u9644\u4ef6.txt","url":"/im/uploads/a"}],"interaction_contexts":[{"source_message_id":"card","state":{"z":"\u9009\u9879\ud83d\ude00","a":{"b":2,"a":1}}}]});
+  const previous = "{\"attachments\":[{\"file_name\":\"\\u9644\\u4ef6.txt\",\"url\":\"/im/uploads/a\"}],\"content\":\"\\u4e2d\\u6587\\ud83d\\ude00\u007f\\u0080\",\"interaction_contexts\":[{\"source_message_id\":\"card\",\"state\":{\"a\":{\"a\":1,\"b\":2},\"z\":\"\\u9009\\u9879\\ud83d\\ude00\"}}]}";
+  expect(payload).toBe(previous);
+  expect(() => assertMessageAttempt({sender_user_id:'u1',sender_type:'user',caller_payload_json:previous}, 'u1', 'user', payload)).not.toThrow();
+});

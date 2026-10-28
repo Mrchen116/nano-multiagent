@@ -1,3 +1,4 @@
+import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
 import { effectiveFeatures } from '@nano/product-contracts/capabilities';
@@ -40,17 +41,6 @@ export class TaskGraphError extends Error {
   asDict() {
     return { code: this.code, message: this.message, ...this.details };
   }
-}
-export function canonicalJson(value: any): string {
-  return JSON.stringify(value, (_key, item) =>
-    item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(
-          Object.keys(item)
-            .sort()
-            .map((k) => [k, item[k]]),
-        )
-      : item,
-  );
 }
 function fail(code: string, message: string): never {
   throw new TaskGraphError(code, message);
@@ -524,7 +514,7 @@ export class TaskGraphService {
     const checked:CheckedWait[]=[];
     for (const n of next.nodes) {
       const old=before.nodes.find((x:Obj)=>x.id===n.id);
-      if (n.status!=='waiting' || (old?.status==='waiting' && canonicalJson(old.wait)===canonicalJson(n.wait))) continue;
+      if (n.status!=='waiting' || (old?.status==='waiting' && sortedJsonUtf8(old.wait)===sortedJsonUtf8(n.wait))) continue;
       if (Object.keys(n.wait).some(k=>!['reason','schedule_id'].includes(k)) || n.assignee?.type!=='agent')
         fail('task_wait_schedule_invalid','Waiting requires an Agent assignee and a schedule reference');
       if (!this.execution) fail('task_wait_schedule_unavailable','Native schedule verification is unavailable');
@@ -637,7 +627,7 @@ export class TaskGraphService {
       key = text(args.request_key, "request_key");
       hash = createHash("sha256")
         .update(
-          canonicalJson({
+          sortedJsonUtf8({
             action,
             args: Object.fromEntries(Object.entries(args).filter(([k]) => action === "create" || k !== "conversation_id")),
           }),
@@ -829,7 +819,7 @@ export class TaskGraphService {
     }
     for (const n of doc.nodes) if (n.status === 'waiting') {
       const old = before?.nodes.find((x:Obj)=>x.id===n.id);
-      if (old?.status === 'waiting' && canonicalJson(old.wait) === canonicalJson(n.wait)) continue;
+      if (old?.status === 'waiting' && sortedJsonUtf8(old.wait) === sortedJsonUtf8(n.wait)) continue;
       const checked = waits.find(item=>item.node_id===n.id);
       if (!checked || checked.wait.schedule_id!==n.wait.schedule_id || checked.wait.owner_agent_id!==n.assignee?.id || !(Date.parse(checked.wait.next_check_at)>Date.now()))
         fail('task_wait_schedule_invalid','Waiting requires a verified active schedule for the assignee');
@@ -902,6 +892,44 @@ export class TaskGraphService {
     } catch(error) {this.db.exec('ROLLBACK');throw error;}
     try {this.messaging.publishMessages(notices);this.execution?.changed({agent_ids:[actor.id],conversation_ids:conversationId?[conversationId]:[]});} catch { /* Reconnect reconciles durable state. */ }
     return result!;
+  }
+  /** Close a dissolved conversation's tasks inside its existing transaction.
+   *
+   * Args:
+   *   conversationId: Conversation already authorized for dissolution by Messaging.
+   *   userId: Authenticated human creator performing the dissolution.
+   *   at: Timestamp shared with the enclosing dissolution transaction.
+   *
+   * Returns:
+   *   Graph IDs to invalidate after the caller commits. This method neither opens
+   *   a transaction nor generates task notices or publishes execution changes.
+   */
+  closeForConversationDissolution(conversationId:string,userId:string,at:string):string[] {
+    const identity = {type:'user',id:userId};
+    const actorName = `${this.identity(identity)!.display_name} (${userId})`;
+    const graphIds:string[] = [];
+    for (const row of this.rows('SELECT * FROM task_graphs WHERE conversation_id=?',conversationId)) {
+      const doc = JSON.parse(row.document_json), changed = new Set<string>();
+      for (const node of doc.nodes) if (!['done','closed'].includes(node.status)) {
+        node.status='closed'; delete node.wait; delete node.resume_request;
+        changed.add(node.id);
+      }
+      const closed = new Set(doc.nodes.filter((node:Obj)=>node.status==='closed').map((node:Obj)=>node.id));
+      for (const node of doc.nodes) {
+        if (node.selected_candidate_id && closed.has(node.selected_candidate_id)) {
+          node.selected_candidate_id=null;
+          changed.add(node.id);
+        }
+        if (changed.has(node.id)) Object.assign(node,{
+          updated_at:at,updated_by:actorName,updated_by_actor:identity,
+          change_note:'Conversation dissolved',
+          provenance:{agent_id:null,source_message_id:null,initiator_id:null,channel:null,source_chat_id:null},
+        });
+      }
+      this.save({...doc,owner_id:row.owner_id,revision:doc.revision+1,updated_at:at,updated_by:actorName});
+      graphIds.push(doc.graph_id);
+    }
+    return graphIds;
   }
   private pauseNode(node:Obj,actor:Obj,at:string):void {
     node.status='paused';delete node.wait;delete node.resume_request;
@@ -1021,7 +1049,7 @@ export class TaskGraphService {
     if (args.cursor != null) {
       try {
         const saved = JSON.parse(Buffer.from(text(args.cursor,"cursor",2048),"base64url").toString());
-        if (canonicalJson(saved.identity) !== canonicalJson(identity)) throw Error();
+        if (sortedJsonUtf8(saved.identity) !== sortedJsonUtf8(identity)) throw Error();
         after = saved.after;
         text(after!.updated_at,"cursor time"); text(after!.graph_id,"cursor graph"); text(after!.node_id,"cursor node");
       } catch { fail("invalid_arguments","Invalid cursor for this query"); }

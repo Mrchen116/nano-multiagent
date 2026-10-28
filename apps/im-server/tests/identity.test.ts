@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db.js";
-import { canonical, createIdentity, digest, canActorAccess, canAccessSpace, type Identity } from "../src/identity.js";
+import { serializeIdentityJson, createIdentity, digest, canActorAccess, canAccessSpace, type Identity } from "../src/identity.js";
 import { registerIdentityRoutes } from "../src/identity-routes.js";
 import type { ImContext } from "../src/context.js";
 
@@ -269,7 +269,7 @@ describe("device possession and ownership transfer", () => {
     );
     const ciphertext = Buffer.from(envelope.ciphertext, "base64");
     decipher.setAuthTag(ciphertext.subarray(-16));
-    decipher.setAAD(Buffer.from(canonical(envelope.aad)));
+    decipher.setAAD(Buffer.from(serializeIdentityJson(envelope.aad)));
     return Buffer.concat([
       decipher.update(ciphertext.subarray(0, -16)),
       decipher.final(),
@@ -277,7 +277,7 @@ describe("device possession and ownership transfer", () => {
   }
   const proof = (challenge: string, confirmation: any) =>
     createHmac("sha256", createHash("sha256").update(challenge).digest())
-      .update(canonical(confirmation))
+      .update(serializeIdentityJson(confirmation))
       .digest("hex");
 
   it("completes encrypted proof and local commit, rejects stale snapshots, and recovers with a new node epoch", async () => {
@@ -443,4 +443,9 @@ describe("device possession and ownership transfer", () => {
     expect(() => openChallenge(other, start.challenge)).toThrow();
     expect(openChallenge(key, start.challenge)).toBeTypeOf("string");
   });
+});
+
+// Fixed snapshot/proof bytes from a34af8473, including DEL and nested Unicode.
+it('preserves identity snapshot bytes across serializer ownership changes', () => {
+  expect(serializeIdentityJson({"z":"\u4e2d\u6587\ud83d\ude00\u007f\u0080\u2028\ud800","a":{"b":2,"a":1},"arr":[{"z":"e\u0301","a":null},false,0],"keys":{"2":2,"10":10,"\u00e9":1,"e":2,"\u4e2d":3,"\ud83d\ude00":4,"\ue000":5}})).toBe("{\"a\":{\"a\":1,\"b\":2},\"arr\":[{\"a\":null,\"z\":\"e\\u0301\"},false,0],\"keys\":{\"2\":2,\"10\":10,\"e\":2,\"\\u00e9\":1,\"\\u4e2d\":3,\"\\ud83d\\ude00\":4,\"\\ue000\":5},\"z\":\"\\u4e2d\\u6587\\ud83d\\ude00\\u007f\\u0080\\u2028\\ud800\"}");
 });

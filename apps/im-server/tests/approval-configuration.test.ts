@@ -5,7 +5,7 @@ import { openDatabase } from '../src/db.js';
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
 import { canonicalAgentConfiguration, agentConfigurationFingerprint } from '@nano/product-contracts';
-import { candidateFingerprint, registerControlRoutes } from '../src/control.js';
+import { candidateFingerprint, gatewayCandidate, registerControlRoutes } from '../src/control.js';
 import { fixture, connectFixtureGateway } from './control-fixture.js';
 
 it('saves, preserves omitted mode, clears inheritance and rejects invalid approval choices through the API', async () => {
@@ -61,4 +61,12 @@ it('upgrades existing profiles to inherited mode without rewriting their saved s
     db = openDatabase(path);
     expect(db.prepare("SELECT approval_mode FROM agent_profiles WHERE agent_id='legacy'").get()?.approval_mode).toBe('codex');
   } finally { db.close(); rmSync(directory, {recursive: true, force: true}); }
+});
+
+// Baseline a34af8473: DEL differs between the two persisted fingerprint formats.
+it('retains historical Unicode configuration receipts without normalizing their DEL difference', () => {
+  const configuration = {"agent_id":"agent","display_name":"\u4e2d\u6587\ud83d\ude00","custom_prompt":"\u63d0\u793a\u007f\u0080\u2028\ud800","heartbeat_json":"{\"z\":\"\u7b49\u5019\ud83d\ude00\u007f\",\"a\":{\"b\":2,\"a\":1}}","skills":[],"skills_selection_mode":"explicit_allowlist"};
+  expect(agentConfigurationFingerprint(configuration)).toBe("641c5f675dc5df748d30d90b2f48419b547f67137b915ec93329bb6f85f74c10");
+  expect(candidateFingerprint(configuration)).toBe("0579b27719ef2e8de51f2f88fe8cdb2ec3167b2e3bbf166c3eddc9d4ad6ddc34");
+  expect(gatewayCandidate(configuration).heartbeat_json).toBe("{\"a\":{\"a\":1,\"b\":2},\"z\":\"\\u7b49\\u5019\\ud83d\\ude00\\u007f\"}");
 });

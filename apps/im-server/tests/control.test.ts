@@ -1,14 +1,20 @@
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ChannelKey, type CredentialEnvelope } from '../../../packages/channels/src/channel-credentials.js';
+import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import {
   createDecipheriv,
+  createPrivateKey,
   createPublicKey,
   diffieHellman,
   generateKeyPairSync,
   hkdfSync,
 } from "node:crypto";
 import { Messaging } from "../src/messaging.js";
-import { TaskGraphService, canonicalJson } from "../src/task-graphs.js";
+import { TaskGraphService } from "../src/task-graphs.js";
 import { ChannelService, sealChannelSecret } from "../src/channels.js";
 import { ConfigOperations, candidateFingerprint, profileResponse, registerControlRoutes } from "../src/control.js";
 import { one, type ImContext, type Row } from "../src/context.js";
@@ -199,7 +205,7 @@ describe("encrypted channel control", () => {
     decipher.setAuthTag(bytes.subarray(-16));
     decipher.setAAD(
       Buffer.from(
-        canonicalJson({
+        sortedJsonUtf8({
           owner_id: "o1",
           node_id: "n",
           agent_id: "a",
@@ -505,4 +511,24 @@ it("preserves workspace tool availability in the Agent capabilities response", a
     expect(response.statusCode).toBe(200);
     expect(response.json().tools).toContainEqual(expect.objectContaining({name:"expense_summary",source_group:"workspace",enabled:true,default_on:false}));
   } finally {await app.close();}
+});
+
+it('seals Unicode credentials for the real ChannelKey consumer with unchanged AAD and plaintext bytes', async () => {
+  const legacy = JSON.parse(await readFile(new URL('../../../packages/channels/tests/fixtures/credential-envelopes-v1.json', import.meta.url), 'utf8'));
+  const directory = await mkdtemp(join(tmpdir(), 'nano-channel-interop-'));
+  try {
+    await writeFile(join(directory, 'key.pem'), legacy.privateKey, {mode: 0o600});
+    const recipient = await ChannelKey.load(join(directory, 'key.pem'));
+    const envelope = sealChannelSecret(recipient.registration.credential_public_key, legacy.secret, legacy.aad) as CredentialEnvelope;
+    expect(recipient.open(envelope, legacy.aad)).toEqual(legacy.secret);
+    // Independent decryption pins bytes, so JSON.parse cannot hide changed escapes.
+    const remote = createPublicKey({key:{kty:'OKP',crv:'X25519',x:Buffer.from(envelope.ephemeral_public_key,'base64').toString('base64url')},format:'jwk'});
+    const shared = diffieHellman({privateKey:createPrivateKey(legacy.privateKey),publicKey:remote});
+    const key = hkdfSync('sha256',shared,Buffer.from(envelope.salt,'base64'),'nano-multiagent/channel-envelope-v1',32);
+    const decipher = createDecipheriv('aes-256-gcm',Buffer.from(key),Buffer.from(envelope.nonce,'base64'));
+    const bytes = Buffer.from(envelope.ciphertext,'base64');
+    decipher.setAAD(Buffer.from(legacy.aadBytes));
+    decipher.setAuthTag(bytes.subarray(-16));
+    expect(Buffer.concat([decipher.update(bytes.subarray(0,-16)),decipher.final()]).toString('utf8')).toBe(legacy.secretBytes);
+  } finally { await rm(directory,{recursive:true,force:true}); }
 });

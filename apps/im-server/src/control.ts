@@ -1,3 +1,4 @@
+import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { AgentLifecycles, lifecycle, registerAgentLifecycleRoutes } from './agent-lifecycle.js';
 import { createHash, randomUUID } from "node:crypto";
 import { changeCapability, effectiveFeatures, featureDependencies, validateCapabilities } from '@nano/product-contracts/capabilities';
@@ -15,7 +16,7 @@ import {
   type Row,
 } from "./context.js";
 import { bearer, defaultSpace, accountEnabled, canAccessSpace, ownerAccount, requireCompanyAdmin } from "./identity.js";
-import { canonicalJson, activeTaskCount, withdrawsTask } from "./task-graphs.js";
+import { activeTaskCount, withdrawsTask } from "./task-graphs.js";
 import { registerTaskGraphRoutes } from "./task-graphs.js";
 import { registerChannelRoutes } from "./channels.js";
 import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
@@ -36,8 +37,9 @@ async function gatewayRequest(
 const optionalText = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 const stringList = (v: unknown) =>
   Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()) : [];
-const asciiJson = (v: unknown) =>
-  canonicalJson(v).replace(
+// Candidate receipts historically escape DEL as well as non-ASCII characters.
+const serializeCandidateJson = (v: unknown) =>
+  sortedJsonUtf8(v).replace(
     /[\u007f-\uffff]/g,
     (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
   );
@@ -46,7 +48,7 @@ const selection = (mode: string | null, skills: string[]) =>
 function heartbeat(v: unknown): string | null {
   if (typeof v !== "string" || !v.trim()) return null;
   try {
-    return asciiJson(JSON.parse(v));
+    return serializeCandidateJson(JSON.parse(v));
   } catch {
     return v.trim();
   }
@@ -103,7 +105,7 @@ export function candidateFingerprint(c: Row): string {
   const keys = gatewayKeys.filter(k => k !== "approval_mode" || p.approval_mode !== null);
   if(p.personal_agent) keys.push("personal_agent");
   return createHash("sha256")
-    .update(asciiJson(Object.fromEntries(keys.map((k) => [k, p[k] ?? null]))))
+    .update(serializeCandidateJson(Object.fromEntries(keys.map((k) => [k, p[k] ?? null]))))
     .digest("hex");
 }
 export function profileResponse(p: Row, mirror = false): Row {

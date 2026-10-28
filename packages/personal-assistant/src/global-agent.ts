@@ -1,9 +1,10 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
-import { canonicalJson, interactiveResponse } from '@nano/product-contracts';
+import { interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
@@ -556,7 +557,7 @@ export class GlobalAgent {
     if(config?.personal) return this.personal.send(config,binding,call);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
-    const publicationBody = interactive ? canonicalJson({text, interactive}) : text;
+    const publicationBody = interactive ? sortedJsonAscii({text, interactive}) : text;
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);

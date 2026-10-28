@@ -116,3 +116,14 @@ it("shares an exhausted budget across queued work and counts restarted attempts 
   await expect(control.call("B", {})).rejects.toThrow("budget");
   expect(starts).toBe(1);
 });
+
+// Captured from a34af8473: historical key must still select the saved completion.
+it('replays a historical Unicode call with nested schema without starting another child', async () => {
+  const prompt = "\u4e2d\u6587\ud83d\ude00\u007f\u0080";
+  const options = {"model":"\u6a21\u578b","schema":{"type":"object","properties":{"z":{"type":"string"},"a":{"type":"object","properties":{"b":{"type":"number"},"a":{"type":"string"}}}}}} as const;
+  const replay = fixture([{ordinal: 1, key: "1eb5c3ecce73fd0725c41e4d87e08168cedeb7be110fc8e7741e9b30743f326c", prompt,
+    options, state: 'completed', attempts: [], completion: 1, value: 'saved'}]);
+  expect(await replay.control.call(prompt, options)).toBe('saved');
+  expect(replay.starts).toHaveLength(0);
+  expect(replay.control.calls[0]!.key).toBe("1eb5c3ecce73fd0725c41e4d87e08168cedeb7be110fc8e7741e9b30743f326c");
+});

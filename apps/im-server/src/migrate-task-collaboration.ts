@@ -1,14 +1,15 @@
+import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { canonicalJson, validateDocument } from './task-graphs.js';
+import { validateDocument } from './task-graphs.js';
 import { all, one, transaction, type Row } from './context.js';
 import { canAccessSpace, ownerAccount } from './identity.js';
 
 function fingerprint(db:DatabaseSync): string {
-  return createHash('sha256').update(canonicalJson({
+  return createHash('sha256').update(sortedJsonUtf8({
     graphs:all(db,'SELECT graph_id,document_json FROM task_graphs ORDER BY graph_id'),
     conversations:all(db,'SELECT * FROM conversations ORDER BY id'),
     members:all(db,'SELECT * FROM conversation_participants ORDER BY conversation_id,user_id'),
@@ -95,17 +96,17 @@ export function verifyMigration(db:DatabaseSync,before:DatabaseSync):Row {
     if(!one(db,'SELECT 1 FROM conversations WHERE id=?',after[i]!.conversation_id)) throw Error('Missing fixed conversation');
     const original=structuredClone(a);delete original.conversation_id;original.schema_version=1;
     for(const n of original.nodes) {delete n.created_by;delete n.assignee;if(n.status==='closed') n.status='dropped';}
-    if(canonicalJson(original)!==canonicalJson(b)) throw Error(`Preserved graph facts changed: ${row.graph_id}`);
+    if(sortedJsonUtf8(original)!==sortedJsonUtf8(b)) throw Error(`Preserved graph facts changed: ${row.graph_id}`);
     const metadata={...after[i]};delete metadata.conversation_id;metadata.document_json=row.document_json;
-    if(canonicalJson(metadata)!==canonicalJson(row)) throw Error(`Graph metadata changed: ${row.graph_id}`);
+    if(sortedJsonUtf8(metadata)!==sortedJsonUtf8(row)) throw Error(`Graph metadata changed: ${row.graph_id}`);
   }
   for(const table of ['messages','conversation_participants','task_node_chat_activity','relay_tasks']) {
-    if(canonicalJson(all(db,`SELECT * FROM ${table} ORDER BY rowid`))!==canonicalJson(all(before,`SELECT * FROM ${table} ORDER BY rowid`))) throw Error(`History changed: ${table}`);
+    if(sortedJsonUtf8(all(db,`SELECT * FROM ${table} ORDER BY rowid`))!==sortedJsonUtf8(all(before,`SELECT * FROM ${table} ORDER BY rowid`))) throw Error(`History changed: ${table}`);
   }
   for(const c of all(db,'SELECT * FROM conversations')) if(c.visibility!=='private' || c.dissolved_at) throw Error('Old conversations must remain private and undissolved');
   for(const [table,added] of [['conversations',['visibility','dissolved_at']],['task_graph_mutation_receipts',['conversation_id']]] as const) {
     const restored=all(db,`SELECT * FROM ${table} ORDER BY rowid`).map(row=>{for(const key of added) delete row[key];return row;});
-    if(canonicalJson(restored)!==canonicalJson(all(before,`SELECT * FROM ${table} ORDER BY rowid`))) throw Error(`Preserved facts changed: ${table}`);
+    if(sortedJsonUtf8(restored)!==sortedJsonUtf8(all(before,`SELECT * FROM ${table} ORDER BY rowid`))) throw Error(`Preserved facts changed: ${table}`);
   }
   return {state:'verified',graphs:after.length,nodes:after.reduce((n,r)=>n+JSON.parse(r.document_json).nodes.length,0),messages:one(db,'SELECT COUNT(*) n FROM messages')!.n};
 }
