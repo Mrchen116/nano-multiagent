@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: bugfix-664
+> 对齐: feat-676
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -391,25 +391,17 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 
 ### Requirement: self-evolution 创建的 Skill 跨前台 terminal 仍完成配置调和
 
-Gateway 对 self-evolution review 成功产生的知识更新事实保持 session 级消费，不依赖已经结束的前台 run context。事件无论在前台 terminal 前后到达或经可恢复 stream 重连重放，都保留真实来源与通知，不为新技能修改禁用名单。
-
-后台 Memory/Skill review fork 保留父会话历史，逐字节继承父请求已渲染的 system prompt 和完整工具定义，维护指令追加在继承历史之后；不因后台工具白名单重建请求前缀。白名单在工具执行前独立拦截，工具可见不代表获准执行。这样保留上游前缀缓存的复用条件；实际命中仍以 provider usage 为准，不承诺每次命中。
-
-Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 fork 继承快照，压缩完成后再读取最新内容；禁用 memory_curation 时不读取。后台反思分别按主会话轮次和模型迭代累计，单轮并行工具不放大计数；前台对应维护工具的成功结果重置提醒读数，失败不重置。后台 review 仅完成后推进重置点，失败或取消不消耗提醒周期。
+历史已成功的知识更新事实保持 session 级消费，重放不重复调和、不修改禁用选择。后台 Skill 自进化及 combined 触发暂停，历史成功事实不被抹掉。显式文件 legacy 回退中的 Memory review 继续父前缀/快照和完成后计数规则；默认 document 使用当前入口和版本失效机制，Dreaming 用独立受限会话、持久源流进度，不继承父 prompt。
 
 #### Scenario: fast review 与 slow review 使用同一调和结果
-
-- **GIVEN** Agent 的 self-evolution review 成功创建 agent-scope 或 global-scope Skill
-- **WHEN** 创建事件发生在前台回答 terminal 之前或之后
-- **THEN** 新 Skill 由原生发现变为可用，前后台通知按真实结果投递
-- **AND** 已存在的同名禁用选择保持，不因创建事实被覆盖
+- **GIVEN** 已有 self-evolution review 成功创建 agent-scope 或 global-scope Skill 的持久事实
+- **WHEN** 事实在前台 terminal 之前或之后完成调和
+- **THEN** 按真实结果保留历史事件和可发现资产，已存在的同名禁用选择不被覆盖；不因此恢复后台 Skill fork。
 
 #### Scenario: 后续前台轮次与 stream 重连不重复调和
-
-- **GIVEN** 同一 session 的持久后台事件消费已建立，随后又完成前台轮次或发生可恢复 stream 重连
-- **WHEN** self-evolution 创建事件被实时接收或重放
-- **THEN** 同一创建结果不会被前台与后台两条路径重复处理
-- **AND** 未禁用的新 Skill 在相关 Agent 的后续 session 中保持可用
+- **GIVEN** 同一 session 的持久事件消费已建立
+- **WHEN** 历史创建事件被实时接收或重放
+- **THEN** 同一结果不重复处理，未禁用的新 Skill 在后续 session 可用。
 
 ### Requirement: 模型可在配置中声明各自的上下文窗口
 
@@ -464,13 +456,13 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 ### Requirement: 自进化技能自动启用不打断既有会话提示词
 
 #### Scenario: 后台新增技能保持当前上下文缓存前缀
-- **GIVEN** Agent 的后台自进化成功创建技能
+- **GIVEN** Agent 的历史后台自进化已成功创建技能
 - **WHEN** Gateway 保存该技能且原生发现刷新，既有会话开始下一轮
 - **THEN** 技能可由工具读取，但不因该自动增量重建提示词目录或生成配置分界线
 - **AND** 新会话及压缩等既有重建边界可吸收新目录；该保护以当前进程内会话快照为界，重启不保留旧快照
 
 #### Scenario: 手动取消及重新启用技能仍立即生效
-- **GIVEN** 技能由后台自动新增并启用
+- **GIVEN** 技能曾由后台自动新增并启用
 - **WHEN** 用户手动取消，或取消后重新启用该技能
 - **THEN** 下一轮按显式配置更新目录并保留既有配置分界行为
 
@@ -610,13 +602,14 @@ Memory 注入在首次请求惰性读取，当前会话内保持快照，原生 
 ### Requirement: Feature可独立启停并撤销其后续影响
 
 #### Scenario: 关闭和重新开启单项能力
-- **WHEN** 用户对无开启 Feature 依赖、有效业务责任或相关在途工作需要的某 Agent 合法关闭再开启Task Graphs、Memory Curation、Skill Creation、Cron或Heartbeat
-- **THEN** 该 Feature 的额外提示与未来主动触发按配置撤销或恢复，工具及必要服务按最终工具选择和有效安排提供，其他Feature及其他Agent不受影响；重新开启不累积重复监听或任务。
-- **AND** 已有任务/记忆/Skill保留，Skill Creation关闭不等于禁用已有Skill加载。
+- **WHEN** 用户合法关闭再开启 Task Graphs、Cron 或 Heartbeat
+- **THEN** 原有依赖、工作保护和工具选择规则保持，其他 Feature/Agent 不受影响，不累积重复监听；不恢复后台 Skill 自进化。
+- **AND** 记忆是内置能力，旧 Memory Curation 和 Skill Creation 开关不出现在客户端；skill-creator 固定内置，无需选择；document 的 Dreaming 独立控制自动整理，关闭不关闭正常记忆操作。
 
 #### Scenario: 关闭期间重启与在途工作
-- **WHEN** 关闭的 Feature 经历节点重启，或用户在相关工作已接受后尝试关闭
-- **THEN** 重启不擅自重新启用；存在相关已接受工作时关闭被拒，配置、订阅与工作保持，不以取消工作来完成关闭。合法配置操作在持久化后因断联尚未确认时仍显示 pending，不伪报 effective 或回滚已发生副作用。
+- **WHEN** 已关闭的 Feature 经历节点重启，或在工作已接受后尝试关闭
+- **THEN** 不擅自重新启用；业务 Feature 仍按既有在途责任拒绝不合法关闭。Dreaming 允许停用新自动准入并取消未应用的自动部分，保留实际已保存结果及未完成范围。
+- **AND** 配置持久化但应用尚未确认时显示 pending，不伪报 effective 或回滚。
 
 ### Requirement: 由节点验证并持久化模型连接
 
@@ -863,32 +856,31 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 
 ### Requirement: 知识维护按长期价值与明确归属保存内容
 
-Gateway 的前台和后台知识维护 SHALL 使用一致的归属规则。用户画像和跨任务偏好归入用户记忆，环境事实归入环境记忆，任务流程和任务特定偏好归入相应 Skill。完整规则仅保存一处；明确纠正替换旧内容。没有有依据的长期增量时，维护可以不产生写入。
+Gateway 的文档记忆保存长期理解，Skill 保存成熟可复用方法；个人偏好、专业经验、环境与项目背景按主体角色归入当前文档，保留来源、条件、反例与未知部分。完整知识只在一处维护。默认暂停旧条目记忆及其复盘，仅文件显式 legacy 回退时保留旧规则，不与新文档模式同时写入。
 
 #### Scenario: 重复信息及明确纠正
 - **GIVEN** 用户已保存一项事实或偏好
-- **WHEN** 用户重复表达或明确纠正该内容，相关维护完成后开始新会话
-- **THEN** 持久知识没有同义副本或并存的冲突版本，新会话使用仍有效的信息。
+- **WHEN** 用户重复表达或明确纠正该内容
+- **THEN** 文档模式当轮修正相关正文和入口；当前会话下一次相关判断及受影响的原执行者采用新内容，不生成同义副本；legacy 保留原新会话消费保证。
 
 #### Scenario: 经验证的方法与临时应对
 - **WHEN** 一次任务产生可复用的方法、失败尝试或临时应对方式
-- **THEN** 维护依据真实结果提炼步骤、适用条件和必要原因，不把失败尝试写成可靠方法
-- **AND** 临时资源的使用规则保留适用条件与退出责任，Agent 的选择不被写成用户要求。
+- **THEN** 知识保留真实结果、条件和必要原因，不把失败尝试写成可靠方法；成熟方法可以在任务中通过 skill-creator 保存为 Skill。
+- **AND** 临时资源规则保留条件与退出责任，Agent 选择不冒充用户要求，普通经验不强制发布 Skill。
 
 #### Scenario: 单项和联合维护的知识归属一致
-- **WHEN** 同一纠正进入 Memory、Skill 或联合维护
-- **THEN** 完整规则保存在正确位置，不因某条链路缺少另一种工具而重复保存或改写归属。
+- **WHEN** 同一纠正涉及 Memory 和 Skill
+- **THEN** 完整规则保存在正确位置，不因某链路缺少另一种工具而重复保存或改变归属。
+- **AND** 自动 Skill 复盘及联合复盘中的 Skill 部分暂停；普通前台维护仍遵守工具权限与真实结果要求。
 
 #### Scenario: 后台维护读取当前持久知识
-- **GIVEN** 同一父会话的冻结记忆尚未刷新，前次后台维护已保存新内容
-- **WHEN** 后续 Memory review 准备再次保存或纠正该内容
-- **THEN** review 通过父 Agent 已启用的读取工具取得当前持久内容，再判断是否写入
-- **AND** 父 Agent 禁用的工具不会在后台恢复；无法取得当前完整内容时不执行依赖该内容的写入。
+- **GIVEN** 前台或前次维护已保存新内容
+- **WHEN** 后台准备修改该知识
+- **THEN** 通过获准读取取得当前完整内容并核对版本，不能依赖父快照覆盖较新的文件；读取失败或未完成不写依赖该内容的修改。
 
 #### Scenario: Memory 读取未完成但模型正常停止
-- **WHEN** review 开始读取当前 Memory，但读取被拒绝、失败或未读完整，随后模型正常停止
-- **THEN** 系统将该次维护记为未完成，不推进本轮任何参与类别的后台周期
-- **AND** 联合复盘中已成功的 Skill 写入和真实通知保留；模型正常结束不被误报为两类维护均已完成。
+- **WHEN** 后台读取被拒绝、失败或未读完整，随后模型正常停止
+- **THEN** 该部分仍为未完成，不推进对应处理位置或旧维护周期；实际已保存内容与历史回执保留，不误报整体成功。
 
 ### Requirement: Skill 维护工具按单次操作报告实际结果
 
@@ -902,48 +894,6 @@ Skill 维护 SHALL 保留受控的 agent/global 写入范围。局部 patch 只�
 - **WHEN** 后台 review 尝试修改或移除已有 Skill 文件
 - **THEN** 本轮必须通过获准的文件读取工具完整读取同一目标原文件；Skill 指令加载、父历史、搜索片段和目录列表不能代替原文件内容
 - **AND** 未读完整、路径不符或当前文件与本轮已知内容不一致时，系统拒绝该写入，不发布成功结果。
-
-### Requirement: F4 仅在非 Global 模式下依据跨会话证据修补目标自动技能
-
-F4 SHALL 只适用于非 Global 运行模式。至少两个不同的已结束会话须提供同一问题的有效证据。未结束、无法读取和已处理的证据不计入门槛。F4 只允许 patch 本次绑定的现有自动技能；手工或来源不明的技能受保护。同一目标不得同时有两个排队或运行中的 F4，后续使用记录须保留。
-
-#### Scenario: Global 模式达到使用门槛
-- **WHEN** Global Agent 使用 Skill 达到 F4 使用次数门槛
-- **THEN** 系统不启动 F4，正常使用记录及其他已启用的知识维护保持可用。
-
-#### Scenario: 非 Global 证据不足或目标越界
-- **WHEN** 非 Global Agent 的目标技能没有两份合格会话证据，或复盘尝试修改其他技能、手工技能或使用非 patch 操作
-- **THEN** F4 不执行该修改，也不发布该修改的成功结果。
-
-#### Scenario: 非 Global 复盘具备有效证据
-- **GIVEN** 两个不同会话反复出现同一问题，目标是可维护的自动技能
-- **WHEN** F4 完成复盘并修正该问题
-- **THEN** 仅目标技能的相应内容被修补，有效内容保留，实际结果可追溯
-- **AND** 已处理证据不重复支持修改，同一目标在复盘期间新增的使用记录不丢失。
-
-### Requirement: Memory 与 Skill 同时到期时使用一次联合复盘
-
-后台维护 SHALL 保留 Memory、Skill 单项及 combined 三种复盘。两项已启用、工具可用且同时到期时，使用一个联合复盘处理两类知识。仅一项满足条件时运行单项复盘。开关、计数和知识归属保持独立。普通及 Global 模式均适用；F4 不并入联合复盘。
-
-#### Scenario: 两类维护同时到期
-- **WHEN** 同一前台轮次结束时两项均满足维护条件
-- **THEN** 只启动一次联合复盘，两类知识均可按合法范围维护，不再为同一批条件重复启动单项复盘
-- **AND** 只按实际写入报告更新，不要求两类知识都产生修改。
-
-#### Scenario: 一项不可用或尚未到期
-- **WHEN** 只有一项满足本次维护条件
-- **THEN** 该项运行单项复盘，不等待另一项，也不重置未参与类别的计数。
-
-#### Scenario: 联合复盘取消或部分成功
-- **WHEN** 联合复盘失败、被显式取消，或因进程停止而中断
-- **THEN** 已成功的修改和真实通知保留，未完成复盘不推进后台维护周期
-- **AND** 取消或停止后的工作不再接受后续写入；仍启用能力可在后续正常触发时继续维护，不重放已成功修改。
-
-#### Scenario: 在途联合复盘期间尝试关闭单项能力
-- **GIVEN** 联合复盘已被接受且尚未终结
-- **WHEN** 用户通过配置入口关闭其中一项参与维护的 Feature
-- **THEN** 本次关闭被拒，原配置与联合工作保持，不触发取消，不因关闭尝试改变已成功事实或维护计数
-- **AND** 复盘结束后可重新尝试合法关闭；不取消未完成工作来消除关闭阻碍
 
 ### Requirement: Agent 工具集 SHALL 按工具选择兑现，Feature 保证完整依赖
 
@@ -991,18 +941,19 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 
 #### Scenario: 开启 Feature 展开完整依赖
 - **WHEN** 用户开启 Feature 或创建采用默认 Feature 的 Agent
-- **THEN** 交互式回复需要 send_message、skill 和 nano-interactive-ui；Task 需要 task_graph 与 Cron Feature；Memory 需要 memory、read；Skill 创建需要 skill_manage、skill、read；Cron 需要 schedule_create/list/update/delete/run/history；Heartbeat 需要 read
-- **AND** 默认开启 Task 的初始配置同时开启 Cron；依赖资源缺失时整个动作失败，已关闭的 Skill 不能冒充可加载
+- **THEN** 交互式回复需要 send_message、skill 和 nano-interactive-ui；Task 需要 task_graph 与 Cron Feature；skill-creator 是固定内置指导，不再属于可选 Feature 或 Skill 名单，其实际操作遵守工具权限；Cron 需要 schedule_create/list/update/delete/run/history；Heartbeat 需要 read。
+- **AND** 内置 document 消费不依赖旧 memory 条目工具；普通记忆写入继续遵守已选文件工具。Dreaming 使用自己的受限维护工具集，不暗中开启父业务工具；缺少可运行所需资源须显示不可用，不能假报运行。
+- **AND** 默认开启 Task 的初始配置同时开启 Cron；依赖缺失时显式启用动作失败，已关闭 Skill 不冒充可加载。
 
 #### Scenario: 合法关闭与共享依赖
 - **WHEN** 用户关闭没有需要者的 Feature
-- **THEN** 默认取消其直接关联工具与 Skill，仍被其他开启 Feature 需要或属于基础固定的能力保持开启
-- **AND** 不级联关闭依赖 Feature，关闭 Task 后 Cron 保持开启；随后单独打开工具或 Skill 不反向打开 Feature
+- **THEN** 取消其直接关联资源，仍被其他 Feature 需要或属于基础固定的能力保留；Dreaming 停用不撤销普通文件工具/内置记忆。
+- **AND** 不级联关闭依赖 Feature，关闭 Task 后 Cron 保持开启；随后单独打开工具或 Skill 不反向打开 Feature。
 
 #### Scenario: 独立工具不恢复 Feature 行为
-- **GIVEN** 对应 Feature 关闭且工具已单独选中
-- **WHEN** Agent 调用 task_graph、memory、skill_manage 或某个 schedule 工具
-- **THEN** 合法调用实际可用；不附加该 Feature 的额外提示词、后台复盘、主动注入或自动续跑，操作仍受原授权及业务前置条件约束
+- **GIVEN** Feature 关闭而工具仍被合法独立选中
+- **WHEN** Agent 调用 task_graph、skill_manage、schedule 工具，或 legacy 模式下可用的 memory
+- **THEN** 操作按原授权与业务前置条件执行，不恢复 Feature 额外行为；document 不提供旧 memory 条目工具，Skill 工具不恢复自动 fork。
 
 ### Requirement: 能力配置 SHALL 在保存边界保护真实需要者
 
@@ -1012,10 +963,10 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **AND** Feature 关闭而工具单独开启的完整配置合法
 
 #### Scenario: 在途工作保护最小能力范围
-- **GIVEN** 本 Agent 已接受相应 Memory/Skills 维护或 Heartbeat 工作，或待撤销工具正在调用
+- **GIVEN** 本 Agent 已接受 legacy Memory 维护或 Heartbeat 工作，或待撤销业务工具正在调用
 - **WHEN** 用户尝试关闭仍被该工作需要的能力
 - **THEN** 关闭被拒，原配置和业务工作不被本次操作改变；其他无关配置可修改
-- **AND** 普通 Agent running、已完成记录和未来未接收的维护机会不构成此类阻碍
+- **AND** 普通 Agent running、已完成记录和未来未接收的维护机会不构成此类阻碍；Dreaming 自动停用按独立取消规则保留已保存结果，后台 Skill 维护暂停
 
 #### Scenario: 检查后出现的新责任不能绕过关闭保护
 - **WHEN** 配置关闭与新 Task 责任或新定时安排并发到达
@@ -1042,7 +993,7 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 
 ### Requirement: 系统知识维护不进入模型的子 Agent 管理目录
 
-系统启动的 Memory、Skill、combined 和 F4 维护 SHALL 保留继承上下文与独立执行历史，但不发布为模型通过 `list_agents` 管理的子 Agent。模型正常委派的 Agent 发现、续接与取消能力保持。
+系统启动的 legacy Memory 以及历史 Skill、combined、F4 维护保留当时的继承上下文与独立执行历史；新 Dreaming 使用显式输入和独立受限会话。这些维护均不发布为模型通过 `list_agents` 管理的子 Agent。模型正常委派的 Agent 发现、续接与取消能力保持。
 
 #### Scenario: 长期 Agent 查询受管理的执行者
 
@@ -1067,3 +1018,58 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **GIVEN** 使用默认深度且未显式覆盖普通 spawn/fork 的深度配置
 - **WHEN** 深度为 2 的执行者继续尝试创建第三级
 - **THEN** 按原生深度上限拒绝；增加一层不改变并发上限、工具选择或授权范围。
+
+### Requirement: 角色化文档记忆可及时消费且不扩大权限
+
+#### Scenario: PA 与独立专家
+- **WHEN** 长期 Agent 处理跨聊天相关事项
+- **THEN** PA 使用主人相关背景，独立专家按实际人物、项目和专业职责使用知识，内部执行者仍属于原长期主体；不串用不同人的偏好。
+- **AND** 当前信息充分时可直接回答，检索不足、部分读取和未知项如实说明；旧记忆、观察和第三方材料不增加业务授权。
+
+#### Scenario: 人工保存与入口滞后
+- **WHEN** 当前记忆正文已被保存但尚未提交 Git 或入口仍旧
+- **THEN** 保存后的正文立即可用，后续相关判断重读变化部分，旧入口概括不继续作为当前知识；明确区分正文保存、入口同步和版本记录结果。
+
+### Requirement: Dreaming 处理持续历史的合格增量并保持安静
+
+#### Scenario: 跨窗口且主体仍持续工作
+- **WHEN** 自动 Dreaming 已开启、到期且存在合格增量
+- **THEN** 可整理当前和旧窗口已完整保存的经历，不要求根会话结束、不截断正在进行的模型/工具；无增量不调用模型，资源不足保留积压。
+- **AND** 去重重复消息、继承历史与报告，区分观察、自述与实际结果；不消费主 Inbox、不扫描未授权源、不执行业务动作或发布 Skill。
+
+#### Scenario: 失败、冲突、预算不足与重启
+- **WHEN** 整理只完成部分材料或部分保存，或保存期间发生较新更正/来源撤销
+- **THEN** 保留真实成功结果，不覆盖较新内容；仅确认已完整核对并应用的连续范围，剩余材料可继续，恢复不重复追加同一记录。
+- **AND** 已有工作视图显示实际处理范围、变更、延期和未完成结果；普通成功不发聊天通知，模型正常停止不等于全部完成。
+
+#### Scenario: 关闭与手动整理
+- **WHEN** 用户关闭 Dreaming 或明确请求手动整理
+- **THEN** 关闭阻止自动运行但不关闭内置记忆；手动整理不等自动周期，仍遵守主体停用、权限、预算与并发限制。
+
+### Requirement: 旧记忆可备份导入，临时旧模式仅经文件选择
+
+#### Scenario: 升级、导入和回切
+- **WHEN** 已有 Agent 升级或用户要求整理旧记忆
+- **THEN** 默认采用文档记忆并开启 Dreaming，逐字保留旧备份；收到明确导入请求后才把备份整理进角色文档，保留原义与来源，重复执行不产生同义副本。
+- **AND** 文件可选 legacy，切换时仅所选机制运行，两库独立保存而不双向自动转换；默认历史处理从启用点开始，不暗中扫描全部旧聊天。
+
+### Requirement: 停止使用和撤销来源不得被后台复活
+
+#### Scenario: 排除已有知识或来源
+- **WHEN** 用户明确停止使用知识或来源资格被撤销
+- **THEN** 当前知识与入口不继续采用被排除内容，后台从源资格和当前排除范围核对，不能从旧材料重新引入。
+- **AND** 对未完成的派生清理如实报告，不把当前文件删除称为清除 Git、备份、原始消息和所有系统副本。
+
+### Requirement: 后台 Skill 自进化暂停，任务中创建能力保留
+
+#### Scenario: 自动 Skill 维护暂停期间
+- **WHEN** 任一运行模式积累 Skill 使用记录、达到旧 F3/F4/combined 门槛或节点重启
+- **THEN** 不启动后台 Skill fork 或自动归档，不消费待维护证据冒充已完成；保留已有 Skill、使用统计与历史结果。
+- **AND** 普通 Agent 按任务需要使用迁移适配的 Codex skill-creator 创建/维护 Skill，仍遵守现有范围、权限和真实操作回执；Dreaming 不发布 Skill。
+
+### Requirement: skill-creator 内置默认可用，无需用户选择
+
+#### Scenario: 新建、已有和旧配置升级
+- **WHEN** 普通长期 Agent 开始任务、恢复或升级配置
+- **THEN** 固定获得 skill-creator 的发现入口与短创建指导，按需加载全文；旧 skill_creation=false 或 allowlist/denylist 不关闭这一个产品资产，不使旧合法配置无法启动。
+- **AND** 其他 Skill 选择和底层工具权限保留；禁用真实操作工具时如实说明限制，Dreaming 不获得创建能力。

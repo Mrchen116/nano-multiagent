@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: bugfix-662
+> 对齐: feat-676
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -1029,3 +1029,22 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 - **THEN** 可以处理新工作，历史、会话、文件和任务仍可访问
 - **AND** 旧任务、子 Agent、Bash、审批、积压输出不自动恢复，错过的定时触发不补跑
 - **AND** 旧任务只在新的真人明确恢复后继续，独立周期计划仅从未来触发点运行
+
+### Requirement: 记忆是内置能力，客户端只控制自动 Dreaming
+
+#### Scenario: 新建和已有 Agent 的文档记忆模式
+- **WHEN** 用户在 Web 或 iOS 创建、配置 Agent
+- **THEN** 不提供记忆总开关或技能创建开关，文档记忆模式的 Dreaming 默认开启并可单独关闭；关闭不关闭记忆读取、即时更新、更正或明确请求的整理。
+- **AND** 保存与实际应用状态沿用已有配置反馈，失败保留草稿，不宣称已经生效。
+
+#### Scenario: 临时旧模式
+- **GIVEN** 节点文件选择旧记忆模式
+- **WHEN** 用户查看或保存网页配置
+- **THEN** 页面不呈现旧机制、模式切换、旧自进化说明或开关；无效的 Dreaming 控件不显示，保存其他设置不改变文件专属配置。
+
+### Requirement: Skill 创建与后台自动自进化分离
+
+#### Scenario: 在任务中保存成熟方法
+- **WHEN** 普通 Agent 在任务中需要创建可复用方法
+- **THEN** skill-creator 默认内置，无需通过 Feature 或 Skill 列表选择；受控写入仍按真实工具权限执行，其他 Skill 继续遵守原有选择。
+- **AND** 页面不显示技能创建开关、skill-creator 复选框或替代的固定开启状态卡，用户不被告知普通任务结果已自动发布为 Skill；后台自动复盘保持暂停且不暴露 UI 控制/介绍。

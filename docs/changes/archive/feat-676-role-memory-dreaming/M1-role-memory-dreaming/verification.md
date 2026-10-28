@@ -212,3 +212,9 @@ Independent acceptance `8b28b00dd` completes the final reference requirement wit
 Final `verification_mode`: targeted-closure/delta with retained full coverage; `verdict`: **pass**; `issues`: []; `validated_issues`: F1/F2/F3/F4/C1 closed; `requires_full_verification`: false; corrected-delta `outcome`: **aligned**. The validated/effective implementation range remains the fields at the top; subsequent report/canonical/archive-only changes are caller-owned retained documentation deltas.
 
 All checks passed. Ready for PR.
+
+## Delivery retention — caller closeout
+
+Final fetch retains `origin/main=6b4213c205db04adcebc950fe539a5a759e57391`; no upstream delta invalidates the gates. The range `5a123bae760d429c84bc2a3f72814009a69836f0..1681feb40251451c4f8a276003d5fc78b94d3ad2` contains only the three independent reports. Subsequent delivery changes merge the reviewed four delta-specs into canonical requirements, update their indexes and move this complete unit to archive; product code and tests remain identical to the validated implementation. All three gate conclusions are retained for that documentation-only delivery suffix; the PR records its exact effective-through head.
+
+The final implementation has a complete 159-file / 840-test TypeScript pass, 1031 Web tests, 124 Python tests, native iOS tests and Release archive, build/typecheck, packaged iOS runtime check and Ruff passes. Canonical and archive integrity are checked separately after the move. Local test processes, IM listener, gateway/runtime and temporary configuration-delay proxy have been stopped; ports 65225/62264 and the owned tmux session are released. Runtime data and evidence remain local for audit, and the development worktree is retained for the unmerged PR. No production deployment or merge was performed.
