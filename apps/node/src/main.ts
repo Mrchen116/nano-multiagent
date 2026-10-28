@@ -1,4 +1,4 @@
-import {validateCapabilities} from '@nano/product-contracts/capabilities';
+import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { NodeAgentLifecycle } from './agent-lifecycle.js';
@@ -49,7 +49,8 @@ Object.assign(env, parseEnv(modelEnvironment));
 const machineBoot = process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 for (const agent of config.agents) {
-  const invalid = validateCapabilities(agent);
+  // Persisted explicit tool restrictions may leave new Dreaming unavailable after upgrade.
+  const invalid = validateCapabilities(agent, {features:featureDependencies.filter(feature => feature.key !== 'dreaming')});
   if (invalid.length) throw new Error(`Invalid capability dependencies for ${agent.agent_id}: ${JSON.stringify(invalid)}`);
 }
 const agents: AgentConfiguration[] = config.agents.map(agent => configuration.runtime(agent));
