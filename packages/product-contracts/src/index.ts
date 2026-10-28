@@ -112,3 +112,5 @@ export interface RuntimeStopHistory {
   modelVersion?: string;
   throughSeq: number;
 }
+
+export type { AgentConfigurationFields, ConfigurationIntent, ConfigurationResult } from './configuration-rpc.js';

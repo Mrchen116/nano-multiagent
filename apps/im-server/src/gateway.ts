@@ -1,4 +1,6 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
+import { NodeRpc } from './node-rpc.js';
+import { isRecord } from './node-rpc-values.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
@@ -30,16 +32,12 @@ type Browser = {
 export class Gateway {
   readonly nodes = new Map<string, Connection>();
   readonly browsers = new Set<Browser>();
-  readonly pending = new Map<
-    string,
-    {
-      connection: Connection | undefined;
-      responseType: string;
-      resolve: (value: Row) => void;
-      reject: (err: Error) => void;
-      timer: NodeJS.Timeout;
-    }
-  >();
+  private readonly rpc = new NodeRpc<Connection>({
+    current: nodeId => this.nodes.get(nodeId),
+    send: (nodeId, frame) => this.send(nodeId, frame),
+    updating: nodeId => !!this.ctx.updates?.gate(nodeId),
+  });
+  readonly request = this.rpc.request;
   readonly work: Work;
   readonly trajectory: TrajectoryObservers;
   readonly tasks: TaskGraphService;
@@ -61,7 +59,8 @@ export class Gateway {
         if(!agent)throw new Error('Task owner is unavailable');
         const proof=await this.request(agent.node_id,'task.wait.validate',input);
         if(proof.error)throw new Error(proof.error);
-        return proof as unknown as import('@nano/product-contracts').TaskWaitInspection;
+        if (typeof proof.valid !== 'boolean' || typeof proof.checked_at !== 'string') throw new Error('Invalid task wait inspection');
+        return {...proof, valid:proof.valid, checked_at:proof.checked_at};
       },
       changed:change=>{
         for(const row of all(ctx.db,'SELECT agent_id,node_id FROM agent_profiles WHERE is_stale=0')) if(change.agent_ids.includes(row.agent_id))
@@ -123,50 +122,6 @@ export class Gateway {
       if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id || !lifecycleAllows(this.ctx.db,profile!.agent_id,frame.payload.lifecycle_revision)) return false;
     }
     return !!c && this.valid(c) && this.write(c.socket, frame);
-  }
-  request(nodeId: string, type: string, payload: Row): Promise<Row> {
-    if (this.ctx.updates?.gate(nodeId)) return Promise.reject(Object.assign(new Error('Computer is updating; try again when it reconnects'), {statusCode:409}));
-    const requestId = payload.request_id ?? randomUUID();
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(requestId);
-        reject(
-          Object.assign(new Error("node response timeout"), {
-            statusCode: 504,
-          }),
-        );
-      }, 10000);
-      const responseTypes: Record<string, string> = {
-        "agent.config.get": "agent.config",
-        "agent.create": "agent.created",
-        "agent.capabilities.resolve": "agent.capabilities",
-        "node.capabilities.resolve": "node.capabilities",
-      };
-      const responseType =
-        responseTypes[type] ??
-        (type.endsWith(".request")
-          ? type === "session.fork.request"
-            ? "session.fork.result"
-            : type.slice(0, -8)
-          : `${type}.result`);
-      this.pending.set(requestId, {
-        connection: this.nodes.get(nodeId),
-        responseType,
-        resolve,
-        reject,
-        timer,
-      });
-      if (
-        !this.send(nodeId, {
-          type,
-          payload: { ...payload, request_id: requestId },
-        })
-      ) {
-        clearTimeout(timer);
-        this.pending.delete(requestId);
-        reject(Object.assign(new Error("node offline"), { statusCode: 503 }));
-      }
-    });
   }
   closeUser(id: string) {
     this.trajectory.closeUser(id);
@@ -442,13 +397,7 @@ export class Gateway {
       const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
       this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);
     }
-    const waiter = p.request_id ? this.pending.get(p.request_id) : undefined;
-    if (waiter && waiter.connection === c && waiter.responseType === type) {
-      clearTimeout(waiter.timer);
-      this.pending.delete(p.request_id);
-      waiter.resolve(p);
-      return ack({ request_id: p.request_id });
-    }
+    if (this.rpc.accept(c, type, p)) return ack({request_id:p.request_id});
     if (type.startsWith("pa.")) {
       try { return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result:await this.ctx.personal!.handle(c,type,p)}}; }
       catch(error) { const e=error as any;return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:{code:e.detail??"personal_operation_failed",message:e.message}}}; }
@@ -1083,11 +1032,7 @@ export class Gateway {
       c.socket.close(1001, "server_shutdown");
     }
     for (const b of this.browsers) b.socket.close(1001);
-    for (const p of this.pending.values()) {
-      clearTimeout(p.timer);
-      p.reject(new Error("server stopped"));
-    }
-    this.pending.clear();
+    this.rpc.close();
   }
 }
 export function registerSockets(app: FastifyInstance, ctx: ImContext) {
@@ -1129,7 +1074,10 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
       const process = async () => {
         let frame: Row = {};
         try {
-          frame = JSON.parse(raw.toString());
+          const decoded: unknown = JSON.parse(raw.toString());
+          if (!isRecord(decoded) || typeof decoded.type !== 'string'
+            || decoded.payload != null && !isRecord(decoded.payload)) fail(400, 'invalid_message');
+          frame = decoded;
           if(frame.type!=='node.register')await registration;
           const result = await g.handle(c, frame.type, frame.payload ?? {});
           g.write(socket, {...result,payload:{...result.payload,request_id:frame.payload?.request_id}});

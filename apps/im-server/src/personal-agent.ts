@@ -1,3 +1,4 @@
+import {isRecord} from './node-rpc-values.js';
 import { lifecycle, lifecycleAllows } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
@@ -339,7 +340,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const resolved=await ctx.gateway.request(b.node_id,'node.capabilities.resolve',{});
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
-        const tools=[...new Set([...catalog.tools.filter((tool:Row)=>tool.default_on||tool.name==='send_message').map((tool:Row)=>tool.name),'personal_sources'])];
+        const tools=[...new Set([...catalog.tools.filter(isRecord).filter((tool:Row)=>tool.default_on||tool.name==='send_message').map((tool:Row)=>tool.name),'personal_sources'])];
         let candidate={agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,custom_prompt:personalAgentDefaultInstructions,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         await ops.create(candidate,u.owner_id,b.node_id);

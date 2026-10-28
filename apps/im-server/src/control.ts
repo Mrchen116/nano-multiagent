@@ -1,4 +1,7 @@
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
+import type {AgentConfigurationFields} from '@nano/product-contracts';
+import type {NodeCommand, NodeInput, NodeOutput, NodeCapabilities} from './node-rpc-contracts.js';
+import {isRecord} from './node-rpc-values.js';
 import { AgentLifecycles, lifecycle, registerAgentLifecycleRoutes } from './agent-lifecycle.js';
 import { createHash, randomUUID } from "node:crypto";
 import { changeCapability, effectiveFeatures, featureDependencies, validateCapabilities } from '@nano/product-contracts/capabilities';
@@ -21,12 +24,12 @@ import { registerTaskGraphRoutes } from "./task-graphs.js";
 import { registerChannelRoutes } from "./channels.js";
 import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
   settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
-async function gatewayRequest(
+async function gatewayRequest<K extends NodeCommand>(
   ctx: ImContext,
   node: string,
-  action: string,
-  payload: Row,
-): Promise<Row | null> {
+  action: K,
+  payload: NodeInput<NoInfer<K>>,
+): Promise<NodeOutput<K> | null> {
   try {
     return await ctx.gateway.request(node, action, payload);
   } catch (e) {
@@ -53,7 +56,7 @@ function heartbeat(v: unknown): string | null {
     return v.trim();
   }
 }
-const gatewayKeys = [
+const gatewayKeys: (keyof AgentConfigurationFields)[] = [
   "agent_id",
   "display_name",
   "skills",
@@ -70,8 +73,8 @@ const gatewayKeys = [
   "custom_prompt",
   "heartbeat_json",
 ];
-export function gatewayCandidate(c: Row): Row {
-  const p: Row = {
+export function gatewayCandidate(c: Row): AgentConfigurationFields & {agent_id: string} {
+  const p: AgentConfigurationFields & {agent_id: string} = {
     agent_id: optionalText(c.agent_id) ?? "",
     display_name: optionalText(c.display_name) ?? c.agent_id,
     tool_allowlist: stringList(c.tool_allowlist),
@@ -83,7 +86,7 @@ export function gatewayCandidate(c: Row): Row {
     work_mode: c.work_mode || "single_thread",
     workspace_root: optionalText(c.workspace_root),
     features: Object.fromEntries(
-      Object.entries(c.features ?? {}).filter(([, v]) => typeof v === "boolean"),
+      Object.entries(c.features ?? {}).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
     ),
     custom_prompt: optionalText(c.custom_prompt),
     heartbeat_json: heartbeat(c.heartbeat_json),
@@ -580,8 +583,8 @@ function featureOptions(value: unknown): Row[] {
       requires: {features:stringList(x.requires?.features),tools:stringList(x.requires?.tools),skills:stringList(x.requires?.skills)},
     }));
 }
-function agentCapabilities(profile: Row, capabilities: Row): Row {
-  if (!capabilities || !['models','skills','tools'].every(key => Array.isArray(capabilities[key])))
+function agentCapabilities(profile: Row, capabilities: NodeCapabilities | undefined): Row {
+  if (!capabilities || !(['models','skills','tools'] as const).every(key => Array.isArray(capabilities[key])))
     fail(502, 'Agent capabilities are unavailable');
   return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
     models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),
@@ -591,7 +594,7 @@ function agentCapabilities(profile: Row, capabilities: Row): Row {
 function settingsError(code: string) {
   return {code,message:code === 'offline' ? 'The Agent computer is offline.' : code === 'timeout' ? 'The computer did not respond in time.' : 'Settings could not be confirmed. Refresh to try again.'};
 }
-function previewInput(b: Row): Row {
+function previewInput(b: Row): NodeInput<'node.prompt.preview.request'> {
   return {
     features: b.features ?? {},
     custom_prompt: b.custom_prompt ?? null,
@@ -601,7 +604,7 @@ function previewInput(b: Row): Row {
     skills_selection_mode: b.skills_selection_mode ?? "explicit_allowlist",
   };
 }
-function previewResponse(r: Row): Row {
+function previewResponse(r: {prompt?: string; section_count?: number} = {}): Row {
   return {
     prompt: typeof r.prompt === "string" ? r.prompt : "",
     section_count: Number.isInteger(r.section_count) ? r.section_count : 0,
@@ -627,7 +630,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     }
     return u;
   };
-  const rpc = async (node: string, action: string, payload: Row) => {
+  const rpc = async <K extends NodeCommand>(node: string, action: K, payload: NodeInput<NoInfer<K>>) => {
     const response = await gatewayRequest(ctx, node, action, payload);
     if (!response) fail(503, "target_node_id is not connected");
     return response;
@@ -671,7 +674,9 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const u = await user(req),
       id = params(req).node_id;
     requireNode(ctx, id, u.owner_id);
-    const {capabilities: r} = await rpc(id, "node.capabilities.resolve", {});
+    const {capabilities} = await rpc(id, "node.capabilities.resolve", {});
+    if (!capabilities) fail(502, 'Node capabilities are unavailable');
+    const r = capabilities;
     return {
       node_id: id,
       models: modelOptions(r.models),
@@ -724,7 +729,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       if (skills === undefined) {
         const capabilities = await gatewayRequest(ctx, id, "node.capabilities.resolve", {});
         skills = capabilities
-          ? (capabilities.skills ?? []).filter((s: Row) => s.default_on).map((s: Row) => s.name)
+          ? (capabilities.skills ?? []).filter(isRecord).filter((s: Row) => s.default_on).map((s: Row) => s.name)
           : undefined;
       }
       const c: Row = {
@@ -840,9 +845,9 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const before = profile;
     let data: Row | Row[] | null = null, error: SettingsRead['error'] = null;
     try {
-      const action = {plugins:'node.plugins.request',cron:'node.cron.jobs.request',usage:'node.skills.usage.request'}[section];
-      const response = await ctx.gateway.request(profile.node_id,action,{agent_id:profile.agent_id,
-        ...(section === 'plugins' ? {action:'list_bundles'} : {workspace_root:requiredWorkspace(profile)})});
+      const response = section === 'plugins'
+        ? await ctx.gateway.request(profile.node_id, 'node.plugins.request', {agent_id:profile.agent_id,action:'list_bundles'})
+        : await ctx.gateway.request(profile.node_id, section === 'cron' ? 'node.cron.jobs.request' : 'node.skills.usage.request', {agent_id:profile.agent_id,workspace_root:requiredWorkspace(profile)});
       if (response?.error) fail(502, 'Settings read failed');
       data = settingsSectionDisplay(section,profile,response);
     } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
@@ -950,7 +955,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       const catalog = response.capabilities?.skills ?? response.skills;
       if (!Array.isArray(catalog)) fail(503, "Skill catalog is unavailable");
       c.skills = selection(c.skills_selection_mode, c.skills) === "explicit_allowlist"
-        ? catalog.map((skill: Row) => skill.name).filter((name: string) => !c.skills.includes(name))
+        ? catalog.filter(isRecord).map((skill: Row) => skill.name).filter((name: string) => !c.skills.includes(name))
         : [];
       c.skills_selection_mode = "explicit_denylist";
       return ops.update(p, c, runtime.owner_id);
@@ -964,17 +969,19 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       || b.action === 'set_bundle' && typeof b.enabled !== 'boolean'
       || b.action === 'remove_bundle' && b.enabled !== undefined)) fail(422, 'Invalid plugin command');
     if (method === 'POST') requireSettingsNodeOnline(ctx,p);
-    const result = await rpc(p.node_id, 'node.plugins.request', {agent_id: p.agent_id, ...b});
+    const result = await rpc(p.node_id, 'node.plugins.request', {...b,agent_id: p.agent_id,action:b.action});
     if (result.error) fail(409, result.error);
     return result.plugins;
   }});
   app.get("/im/v1/agents/:agent_id/capabilities", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, params(req).agent_id, u.owner_id);
-    const {capabilities: r} = await rpc(p.node_id, "agent.capabilities.resolve", {
+    const {capabilities} = await rpc(p.node_id, "agent.capabilities.resolve", {
       agent_id: p.agent_id,
       workspace_root: requiredWorkspace(p),
     });
+    if (!capabilities) fail(502, 'Node capabilities are unavailable');
+    const r = capabilities;
     return {
       agent_id: p.agent_id,
       node_id: p.node_id,
@@ -1060,9 +1067,9 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       agent_id: p.agent_id,
       node_id: p.node_id,
       node_online: true,
-      skills: r.skills ?? [],
-      heatmap_data: r.heatmap_data ?? Array(30).fill(0),
-      health: r.health ?? {
+      skills: r?.skills ?? [],
+      heatmap_data: r?.heatmap_data ?? Array(30).fill(0),
+      health: r?.health ?? {
         created_auto_total: 0,
         active_auto_total: 0,
         used_auto_total: 0,

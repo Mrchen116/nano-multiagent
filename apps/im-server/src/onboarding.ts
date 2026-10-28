@@ -48,7 +48,7 @@ export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, r
         return item;
       });
     }
-    const result = await ctx.gateway.request(nodeId, 'node.setup.request', payload);
+    const result = await ctx.gateway.request(nodeId, 'node.setup.request', {...payload, action:input.action});
     owned();
     if (result.error_code) fail(503, 'Computer setup is unavailable. Reconnect your computer and retry.');
     return setupStatus(result);
