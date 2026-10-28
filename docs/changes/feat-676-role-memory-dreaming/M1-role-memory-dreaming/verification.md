@@ -1,5 +1,13 @@
 # Verification Report: feat-676-role-memory-dreaming
 
+> **Final verdict: pass.** Validated implementation `5a123bae760d429c84bc2a3f72814009a69836f0`; independent product acceptance `8b28b00dd` passes S01-S20, including real persisted-pending→applied UI state. All implementation findings and C1 are closed. Corrected delta: **aligned**. Current counts: **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. Earlier verdicts below are retained as history.
+
+- `validated_at`: `5a123bae760d429c84bc2a3f72814009a69836f0`
+- `executed_base`: `6b4213c205db04adcebc950fe539a5a759e57391`
+- `effective_base`: `6b4213c205db04adcebc950fe539a5a759e57391`
+- `effective_through`: `5a123bae760d429c84bc2a3f72814009a69836f0`
+- Final origin/main fetch remains effective_base, with no new upstream implementation delta. Caller-owned subsequent report/canonical/archive-only changes can retain this snapshot with their actual range recorded.
+
 > Validation snapshot: `6b4213c20 → be1fec6c9075ffafe402c7387f3cde25546ae95d`
 
 - Round: 1. Mode: full, including corrected-delta reconciliation.
@@ -85,17 +93,122 @@ None. Stop after the confirmed findings and required exit evidence are handled.
 
 | Delta item | Implementation / test evidence | Outcome |
 |---|---|---|
-| gateway/agent-capabilities: document memory, immediate edits, scoped consumer refresh | document-memory + memory-documents; current-root request capture | implementation-mismatch (F3); child/model evidence pending |
-| gateway/agent-capabilities: persistent bounded Dreaming, conflict/restart/Git progress | source adapter + Dreaming + atomic tests | implementation-mismatch (F1/F2) |
-| gateway/agent-capabilities: fixed skill-creator, paused Skill automation, modes/defaults/migration | configuration normalization, native fixed-Skill test, Memory-only legacy review, offline migration tests | aligned at inspected mechanism level; actual creation/mode journeys pending |
-| gateway/personal-agent: current source eligibility and derived knowledge invalidation | serialized authority sync, pending/generation, restart test, follow-up instructions | aligned at inspected mechanism level; full S20/child evidence pending |
-| im/agents-nodes: only Dreaming UI, no retired control, file-only mode | projections/filtering and config tests | implementation-mismatch (F4) |
-| im/agent-work: separate native maintenance, host partial results, quiet success, reopen | trajectory registration and host Work projection | aligned at inspected mechanism level; full-stack Work/no-notification evidence pending |
+| gateway/agent-capabilities: document memory, immediate edits, scoped consumer refresh | same-generation unchanged hashes reused; native root capture with unread unrelated verified page; same-child three-request capture (`671954c74`) | aligned; actual model judgment belongs to acceptance |
+| gateway/agent-capabilities: persistent bounded Dreaming, conflict/restart/Git progress | inapplicable plan retirement; persisted page offsets/last-page cursor; actual file/entry interruption recovery (`01c5088b7`) | aligned |
+| gateway/agent-capabilities: fixed skill-creator, paused Skill automation, modes/defaults/migration | prior native/config/migration evidence retained; migration script/test AST unchanged in fix delta | aligned; actual creation/mode journeys belong to acceptance |
+| gateway/personal-agent: current source eligibility and derived knowledge invalidation | prior serialized sync and generation protection; actual child pending/revoked-generation requests; native PA Dreaming refresh before freeze/apply | aligned; completed semantic cleanup belongs to S20 acceptance |
+| im/agents-nodes: only Dreaming UI, no retired control, file-only mode | mode/Skill filtering plus old memory catalog/display filtering in Node/Web/iOS; existing selection preserved | aligned |
+| im/agent-work: separate native maintenance, host partial results, quiet success, reopen | prior trajectory/host projection; summary distinguishes processed pages from final logical cursor | aligned; real Work journey belongs to acceptance |
+| gateway/agent-capabilities: historical automatic Skill discovery/cache-prefix preservation | existing session-level knowledge fact reconciliation and native Skill snapshot behavior retained; auto Skill subscription disabled in both modes | aligned; wording now explicitly limits the automatic-success premise to historical results |
+| gateway/agent-capabilities: real consumers protected during capability updates | legacy Memory cancellation-protection test, capability reservation and Dreaming configurationChanging/stopAgent | aligned; wording separates legacy Memory/Heartbeat/business dependencies from cancellable automatic Dreaming |
+| gateway/agent-capabilities: model child catalog versus maintenance history | original legacy fork tests plus independent Dreaming assembly/trajectory registration | aligned; inheritance is limited to legacy/historical forks and Dreaming is explicitly an empty-context restricted execution |
+| gateway/agent-capabilities: incomplete input and normal model stop are not completion | `dreaming-incomplete-runtime.test.ts` four real native failure modes; actual before/after status stream comparison and unchanged bytes | aligned; optional expert source snapshot is absent rather than an undefined JSON field |
+| gateway/agent-capabilities: actual backlog and complete bounded input | read-only certified next-batch preview with explicit unavailable/blocked semantics; native PA/expert long-source tail and exact string reconstruction | aligned; status queries leave progress unchanged and long input is readable through ordinary native tools |
 
 ### Uncovered Observable Behavior
 
-No additional deliberate external behavior change was identified outside the four delta files. The catalog/display residual and checkpoint behavior are implementation deviations already listed. Delta itself is not rewritten to accommodate them.
+No additional deliberate external behavior change was identified outside the four delta files. The four prior deviations were corrected in implementation without changing the contract. The new pagination metadata and page-completion summary implement the existing bounded-input/partial-result requirements.
 
-Outcome: **implementation-mismatch**.
+Outcome: **aligned** at the reviewed implementation and deterministic evidence layer. This does not turn pending product scenarios into passed journeys.
 
 1 critical issue (incomplete exit evidence), 4 warnings. Fix and finish the listed evidence before PR approval.
+
+## Round 2 — targeted closure and evidence reconciliation
+
+- `verification_mode`: targeted-closure, including the corrected-delta reconciliation above.
+- `validated_at`: `c80a9337f3e1c6bd485723a093b6931bd0af0939`; `finding_origin_head`: `be1fec6c9075ffafe402c7387f3cde25546ae95d`; fix delta `7c1f71cd4..c80a9337f`.
+- Additional test-only evidence at `671954c74` and `01c5088b7` was reviewed without expanding the frozen implementation range.
+- `requires_full_verification`: false. All relevant Round 1 conclusions were retained and the actual shared-boundary fix effects were inspected.
+- Code findings F1/F2/F3/F4: **closed**. Current implementation findings: **0 CRITICAL, 0 WARNING, 0 SUGGESTION**. Remaining C1 is an acceptance/complete-CI evidence hold, not a newly inferred implementation defect.
+
+### Updated direct evidence
+
+| Evidence | Result and what it proves |
+|---|---|
+| `/tmp/feat676-review-fixes.log` | 19/19 passed: stale-plan generation/file retirement, bounded source pages and scoped confirmation, Node hidden-tool selection preservation |
+| `/tmp/feat676-ci-fixture-fixes.log` | 47/47 passed: affected control/config fixtures use the new default capability contract |
+| `/tmp/feat676-provider-fix.log` | 3/3 passed: previously affected provider fixture |
+| `/tmp/feat676-pa-dream-test2.log` | 2/2 passed: real native expert and PA Dreaming, PA authority refresh twice, staged writes, restricted actual request/tool set and host receipt; missing product bridge injection repaired |
+| `/tmp/feat676-child-context3.log`, `671954c74` | 1/1 passed: one original native fork, three real requests, current bytes after manual correction, source pending notice, then generation-1 stale basis without current-entry injection |
+| `/tmp/feat676-full-apply-recovery.log`, `01c5088b7` | 5/5 passed: original plan resumed from before-first-file, saved-body-before-run-receipt and saved-entry-before-checkpoint; no early cursor commit, same saved receipts/commits, no duplicate body or model rerun; no-increment follow-up does not call model |
+| `/tmp/feat676-frontend-tests.log` | 1031/1031 passed; actual prototype screenshots and journeys remain product review evidence |
+| `/tmp/feat676-ios-test.log`, `/tmp/feat676-ios-archive.log` | Native simulator test succeeded and Release archive succeeded; runtime TS compile is separately recorded |
+| `/tmp/feat676-typecheck2.log` | Typecheck passed; caller reports c80 build passed. Precommit review-build installer SHA names its parent and is not substituted for the frozen implementation SHA |
+| `/tmp/feat676-docs-check2.log` | Documentation integrity passed: 315 sources, 68 required routes |
+| `/tmp/feat676-ruff2.log`, `/tmp/feat676-ruff-format2.log` | Ruff passed, all 95 checked Python files already formatted; independent AST comparison confirms both migration changes are formatting only |
+| `/tmp/feat676-root-ci-final.log`, test-only descendant `b36053016` | Complete `pnpm exec vitest run --maxWorkers=2`: 158 files / 836 tests passed, 305.70 seconds; c80 product implementation unchanged |
+
+The earlier root CI run included the unfinished child-test assertion reading nonexistent `request.system`; that assertion was corrected to actual request messages in `671954c74` and the narrow test passed. The subsequent complete root suite is green as recorded above; the earlier partial/failing run is not relabeled as a pass.
+
+### Updated M1 coverage
+
+- W1/F2: a large certified unit is exported in bounded pages, progress survives JSON serialization/restart state, complete-step cursor stays until the last page, exact joined source bytes match, and the later correction is reached. Existing live/cold/second-flush/pairing/revision/inherited-prefix evidence remains valid.
+- W2/F1/F3: actual atomic library receipts are combined with reconstructed Dreaming/run/owner state at the three application boundaries. The completed-record replay protects cursor updates; the separate lost-atomic-receipt test still covers publication preceding receipt. Source invalidation remains conservative while ordinary edits reuse only same-generation unchanged versions. Actual original-child request delivery is now directly established.
+- W3: targeted admission/cancellation evidence remains valid; no-increment provider/model non-call is now directly covered by the added recovery test. PA and expert native Dreaming both work after declaring product bridge injection. Other Skill/tool permissions remain unchanged.
+- W4: actual root, original-child and maintenance requests are covered. These deterministic provider fixtures prove delivery and guards, not the model's understanding or every possible large-fragment extraction outcome. Product judgment remains with the independent product reviewer.
+- W5: prior actual host receipt/native trajectory and PA Work projection evidence remains valid; no public-success notification is added by the fix delta. Real authorized Work/reopen validation remains a product journey.
+- W6/F4: Node/UI retired-tool filtering is corrected, Web's full test gate and native iOS test/archive pass. Actual1280/390 prototype and pending/failure/effective comparison evidence is awaited from product review.
+- W7: prior migration/dependency/Python evidence is unchanged, formatting/docs pass, and complete root CI is green. The final S01-S20 outcome matrix and any later test-only acceptance additions still control overall closure.
+
+The final delta wording was also checked for the three current-spec contradictions identified during canonical preparation: historical Skill successes still retain reconciliation/cache-prefix semantics, in-flight protection no longer implies uncancellable Dreaming or active Skill maintenance, and inheritance no longer describes the new empty-context Dreaming execution. These are corrections to omitted same-scope contract text and match the existing design/implementation. Canonical incorporation is owned by the caller; the reviewer has not modified the delta or current specs.
+
+### Current verdict
+
+Targeted implementation verification: **pass**, all four focus findings closed and corrected delta **aligned**. Overall M1 verification remains **pending** solely for final independent product acceptance and its additional incomplete-input native evidence. Complete root CI is green. No spec/design edits were proposed or made to accommodate the implementation.
+
+## Round 3 — S14 native evidence and optional status values
+
+- `verification_mode`: delta; frozen head `b203c5823239e8c462ac1c88615e0f8ef9769450`; actual implementation delta from `b36053016` consists only of `MemoryDocuments.status` and `Dreaming.reviews` optional-field construction. Prior code and tests are not re-reviewed in full.
+- Missing source state is now omitted from the status object rather than sent as an unsupported undefined value. This preserves the distinction between no authoritative snapshot and an authoritative empty allow set. Review metadata omits only absent fields; empty summary and timestamp 0 remain representable.
+- `/tmp/feat676-incomplete-runtime2.log`: 2 files / 9 tests passed. The four native modes are `unread`, `partial-batch`, `failed-read`, and `normal-stop`. They reach the real normal-tool status renderer before and after maintenance, verify the exact persisted stream object does not advance, verify the original entry bytes remain unchanged and the run is failed with a complete-read/finish diagnostic. Incomplete-batch fixtures explicitly contain multiple input units.
+- This closes the specific S14 deterministic delivery/guard evidence gap and checks the optional-result fix at the actual model-facing serializer. Existing root aggregate 158 files/836 tests at `b36053016` plus the affected 9/9 delta is reused; an additional full rerun is not required for the two object-construction changes.
+- All three supplemental legacy contract changes in the same commit were checked against design/current implementation and remain **aligned**. They do not change runtime behavior.
+- `issues`: []; `requires_full_verification`: false; corrected-delta outcome: **aligned**. Pending overall M1 evidence: final independent product acceptance and final-head build/typecheck result.
+- Final-head build/typecheck were subsequently verified: `/tmp/feat676-build-status.log` completes with installer candidate SHA `b203c5823239e8c462ac1c88615e0f8ef9769450`; `/tmp/feat676-typecheck-status.log` completes all package/app checks. Both commands exited 0. Only independent product acceptance remains pending.
+- Final `check:ios-runtime` passed (`/tmp/feat676-ios-runtime-final.log`) and documentation integrity passed (`/tmp/feat676-docs-prearchive.log`); these supplement the native iOS test/archive evidence rather than replace it.
+
+## Round 4 — observed-backlog and native input readability closure
+
+- `verification_mode`: delta; frozen head `5a123bae760d429c84bc2a3f72814009a69836f0`, actual delta from `b203c5823` limited to status preview/guidance and source-input serialization/guidance plus the corresponding existing native tests.
+- S18's actual backlog is now available from a certified read-only source cut. `sourcesPending` remains eligibility only; `maintenance.backlog` separately identifies the next bounded batch and unknown/blocked ranges. There is no total-count promise and no cursor, dedup receipt or rotation commit from a query.
+- S10's source JSON is no longer an unreadable long single line. Long strings are losslessly encoded as ordered short chunks and pretty-printed; the model receives explicit decoding/read-continuation rules. `ReviewFiles` continues to require complete actual read evidence, so the serializer change does not weaken finish or cursor gates.
+- `/tmp/feat676-readable-tests.log`: 13/13 passed across native Dreaming, incomplete-input, recovery and scheduling suites. Both PA and expert source inputs exceed 6,000 characters; actual maintenance request messages retain the final source marker without line truncation and finish succeeds. Serialized input reconstructs the original string exactly. Failed/partial/no-finish modes retain pending backlog and identical before/after source streams.
+- Prior full root 836/836, source, migration, UI and native iOS evidence remains applicable; new behavior is covered by this affected 13-test set rather than an unnecessary repeated full suite.
+- `issues`: []; `requires_full_verification`: false; corrected-delta outcome: **aligned**. Current remaining overall evidence: final-head build/typecheck and independent product reacceptance.
+- Final frozen-head `pnpm build` and `pnpm typecheck` subsequently passed (`/tmp/feat676-build-final-fixes.log`, `/tmp/feat676-typecheck-final-fixes.log`); the installer candidate names exact SHA `5a123bae760d429c84bc2a3f72814009a69836f0`. Only independent product reacceptance remains pending.
+- Final complete root gate was subsequently rerun at the same 5a123 implementation: `/tmp/feat676-root-ci-5a123.log`, `pnpm exec vitest run --maxWorkers=2`, **159 files / 840 tests passed**, 292.03 seconds. Use this final aggregate instead of the earlier 836-plus-delta composition; the prior runs remain historical diagnostic evidence.
+
+### Independent acceptance reconciliation
+
+`acceptance.md` Round 2 provides the final actual-product reconciliation observed at this update. The verifier reviewed that evidence mapping without reenacting the journeys:
+
+- S01-S09, S11, S13-S16 and S20 retain the independent reviewer's prior applicable pass evidence.
+- S10/S12 now pass: the same persistent root spans actual windows; manual recovery `b9851fd9-d1dd-4260-81f6-ed666140f9da` completed 40/40 with source boundaries preserved, then a separate **automatic** run `fdc890cb-46e2-47b5-b0ab-9dd32821c3bc` began while the main work was still running and completed 10/10. The files and Work distinguish actual results, missing receipts and later facts. The manual run is not used as automatic admission evidence; earlier failure/cancellation history remains visible.
+- S18 now passes: the real N3 answer names observed pending backlog, next-batch scope, exact source range and budget block; it does not conflate eligibility with backlog or historical receipts with new saves. Automatic completion produced Work history without an extra public reply.
+- S19 now passes: the real expert consumed document-only, legacy-only and document-only markers in the respective file modes, preserving the expected stale-basis caveat for uncheckpointed manual text. Existing backup/import evidence remains valid.
+- S17's feature/Skill/manual semantics pass, but the approved1280/390 reference contract also requires the real **saved but not yet effective** state. The reviewer captured Saving/disabled buttons, a409 retained draft, successful applied state and offline read-only state; neither attempted isolated pause proved an actual persisted pending operation. Thus S17 remains **inconclusive**, not an implementation failure or a passed must-match.
+
+Current remaining issue: **C1 (narrowed to W6/R5 pending-state evidence)**, one unmet explicit exit criterion at `design.md:230-232,274`. Complete the real persisted-but-unconfirmed state observation and link its actual operation/state plus screenshot; filenames or Saving… alone do not prove it. All previously listed C1 mechanism/CI/model gaps have been closed by the evidence above.
+
+Current verdict: targeted implementation **pass**; corrected-delta **aligned**; overall M1 **fail / awaiting one explicit UI exit-criterion evidence**. Current counts: 1 CRITICAL evidence hold, 0 WARNING implementation issues, 0 SUGGESTION. This does not assert a new product defect and does not authorize silently weakening the approved must-match.
+
+## Final M1 closure
+
+Independent acceptance `8b28b00dd` completes the final reference requirement without changing product code. The isolated transparent WebSocket proxy delayed only the original node configuration apply/status frames; it neither altered UI nor fabricated responses. Actual operation `d67ed387003b486ea12a54f4e739079f` remained pending while the390 page displayed Save awaiting confirmation, last confirmed state, Refreshing/Read-only and Confirming save/Draft retained. Releasing those frames produced the real v4/off applied state at03:17:24, with the waiting notice removed, editing restored and No changes. The verifier viewed `/tmp/nano-feat676-review/ui390-confirmation-pending.jpg` and `ui390-confirmation-applied.jpg`; these match the report. The earlier ineffective SIGSTOP attempt and Saving-only images are explicitly excluded as pending evidence.
+
+**C1 is closed.** The independent product outcome is now S01-S20 **20/20 pass**, A1/A2 closed, no pending acceptance issue. No historical failed run is relabeled as successful, manual recovery is not substituted for automatic execution, and no source failure is interpreted as empty backlog.
+
+| Final criterion | Disposition / retained evidence |
+|---|---|
+| W1 | pass: certified live/cold cuts, two flushes, own paired prefixes, fragments/revisions/dedup, persisted bounded continuation and later-source progress; actual same-root cross-window automatic journey |
+| W2 | pass: native atomic third-version/Git/lost-receipt protection; reconstructed plan recovery before-first/after-body/after-entry; no early cursor, original-child current/pending/revoked request capture and actual correction/stop-use journeys |
+| W3 | pass: injected scheduler, idle/no increment, pause/off/resource deferral and cancellation; document/legacy exclusivity; fixed creator selection and real foreground create/reload; paused automatic Skill maintenance |
+| W4 | pass: actual root/child/PA+expert maintenance requests and tool results, long-source complete-read/finish and incomplete-input rejection; independent real model consumption and source-boundary behavior |
+| W5 | pass: authorized native maintenance trajectory/host receipt projection; actual Work partial/success/reopen and quiet automatic completion |
+| W6 | pass: reference comparisons at1280/390, creation/legacy/Skill controls,409 draft preservation, real pending→applied closure; shared config plus native iOS tests and Release archive |
+| W7 | pass: synthetic migration bytes/hash/permissions and seven write interruption/reentry points, live mode/import journeys, final root159 files/840 tests, Web1031 tests, native iOS/runtime, Python124, exact-head build/typecheck, format and docs gates |
+| R1-R5 | pass: independent `acceptance.md` final S01-S20 matrix and specific source/message/Work/UI locators; deterministic failure mechanisms remain separately identified |
+
+Final `verification_mode`: targeted-closure/delta with retained full coverage; `verdict`: **pass**; `issues`: []; `validated_issues`: F1/F2/F3/F4/C1 closed; `requires_full_verification`: false; corrected-delta `outcome`: **aligned**. The validated/effective implementation range remains the fields at the top; subsequent report/canonical/archive-only changes are caller-owned retained documentation deltas.
+
+All checks passed. Ready for PR.

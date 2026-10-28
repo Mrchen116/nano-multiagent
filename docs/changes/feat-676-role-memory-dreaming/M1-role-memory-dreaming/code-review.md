@@ -1,5 +1,13 @@
 # Code review: feat-676
 
+> Latest review: Round 4 at `5a123bae760d429c84bc2a3f72814009a69836f0`, targeted observed-backlog and readable-input delta. All prior findings remain closed; surviving findings: `[]`. Earlier records below are historical evidence, not the current verdict.
+
+- `validated_at`: `5a123bae760d429c84bc2a3f72814009a69836f0`
+- `executed_base`: `6b4213c205db04adcebc950fe539a5a759e57391`
+- `effective_base`: `6b4213c205db04adcebc950fe539a5a759e57391`
+- `effective_through`: `5a123bae760d429c84bc2a3f72814009a69836f0`
+- Final fetched origin/main equals effective_base; no unreviewed upstream implementation delta. Later report/canonical/archive-only changes may retain this implementation snapshot when recorded by the caller.
+
 - Mode: full, independent change-code-review; Agent Context Review Mode B included.
 - Reviewed snapshot: `6b4213c20..be1fec6c9075ffafe402c7387f3cde25546ae95d`, including `5d5697d46` and `87b333156`; checkout clean at review start.
 - Scope: configuration/UI and offline migration; document ownership/freshness/read-write receipts; certified history export; isolated Dreaming prompt/tools/finish; recovery/admission; PA source sync; Work/trajectory projections; affected tests and all four delta files.
@@ -69,3 +77,68 @@ The review inspected PA source pending/sync before freeze/apply, generation inva
 A candidate concerning unfiltered child `inbox/conversations` results was **REFUTED for the current product path**: a synthetic observation exported such a result, but `GlobalAgent.callAdmitted` rejects those child calls (`global-agent.ts:427`), and the child scope removes the tools (`global-mode.ts`). It is not a surviving finding and is not presented as a reachable disclosure.
 
 Missing M1 evidence is recorded in `verification.md`, separately from these confirmed implementation defects. No extra speculative edge-case review is required after the findings and stated exit criteria are addressed.
+
+## Round 2 — targeted closure
+
+- Frozen implementation: `c80a9337f3e1c6bd485723a093b6931bd0af0939`; fix delta `7c1f71cd4..c80a9337f`.
+- Additional evidence-only commit inspected: `671954c74` (`memory-child-runtime.test.ts`), no implementation change. The formerly untracked unfinished test was excluded from the frozen implementation review.
+- Reused all applicable Round 1 source, configuration, migration, native request and file-atomicity evidence. No full suite was rerun by this reviewer.
+
+| Finding | Disposition | Fix and direct evidence |
+|---|---|---|
+| F1 stale partial plan | closed | `dreaming.ts:134-146` compares generation/current hashes, retires the inapplicable run while preserving receipts, and freezes the backlog from current files. `dreaming-recovery.test.ts` covers generation and third-version cases, preserved human bytes/receipts and completed metadata replay without rerunning the model. |
+| F2 oversized first unit | closed | `memory-sources.ts` now separates durable continuation hash/offset from the logical complete-step cursor; only the final bounded page advances it. `commitSourceRange` is used both on success and ordered completed-run recovery. The added source test round-trips progress between pages, checks every budget and cursor, reconstructs exact original JSON, then reaches the later correction. |
+| F3 whole-library reread | closed | `MemoryDocuments.unverifiedPaths` reuses hashes confirmed under the same generation, and the control requires actual read/write evidence for changed/invalidated paths with explicit missing-path errors. Library test preserves full invalidation on revocation. Updated native `memory-runtime` seeds an unrelated confirmed page that the executing Agent never reads and still completes checkpoint. |
+| F4 retired memory UI tool | closed | Node capabilities removes the old schema; Web normalization, selected/missing displays and selector updates hide it while retaining its stored allowlist value; iOS hides its catalog, selected count and saved/missing display without altering stored choices. The Node regression asserts both filtered candidates and preserved Agent selection. |
+
+Actual fix-delta review also covered:
+
+- Required `nanoProduct` injection is declared by KnowledgeRuntime. The native Dreaming test now runs both expert and PA configurations and observes PA-only authoritative source refresh before freeze and apply (two calls), along with real staged file writes and the actual restricted request tools. `/tmp/feat676-pa-dream-test2.log`: 2/2 passed.
+- New page metadata and prompt agree that source JSON fragments are incomplete evidence and a logical unit closes only on its final page. Work summary explicitly says page completion and that only the final page advances the source cursor. This is deterministic delivery/progress evidence; it is not a claim of universal model extraction quality from arbitrary fragment boundaries.
+- `dreaming.recover()` orders replay by run creation time, so durable page offsets are reapplied in source processing order. Earlier complete-step ranges cannot regress a later cursor.
+- Migration script/test changes are formatting only: independent Python AST comparison of `7c1f71cd4` and `c80a9337f` returned unchanged for both files. Other CI fixture updates adopt the new default dependency contract rather than expanding production permissions.
+- Evidence-only `memory-child-runtime.test.ts` captures three requests from the same real native fork: initial entry, saved correction plus pending eligibility, then revoked generation/stale basis. `/tmp/feat676-child-context3.log`: 1/1 passed. This establishes delivery to the original child, while actual child judgment remains the product acceptance responsibility.
+
+Reused fix validation: `/tmp/feat676-review-fixes.log` 19/19; `/tmp/feat676-ci-fixture-fixes.log` 47/47; `/tmp/feat676-provider-fix.log` 3/3; PA/expert Dreaming 2/2; Web 1031/1031. Native iOS test and Release archive succeeded. Current-head build/typecheck are caller-reported at c80; the earlier review-build installer log names its precommit parent and is not treated as proof of a different reviewed source version.
+
+Additional closure evidence: `01c5088b7` adds only application-recovery tests; `/tmp/feat676-full-apply-recovery.log` is 5/5. The complete root CI at test-only descendant `b36053016` passes 158 files / 836 tests (`/tmp/feat676-root-ci-final.log`, 305.70 seconds). These commits do not change the frozen c80 implementation.
+
+Surviving findings:
+
+```json
+[]
+```
+
+No new confirmed or plausible defect was found within this targeted implementation delta. Final M1 evidence/verdict remains in `verification.md`; a clear code review does not itself accept all product journeys.
+
+## Round 3 — actual status/receipt serialization boundary
+
+- Frozen delta: `b36053016..b203c5823239e8c462ac1c88615e0f8ef9769450`; only the two product return-object constructions, the added incomplete-input native test and the previously reviewed legacy delta wording were assessed. Prior c80 implementation conclusions remain valid.
+- A real `memory_maintenance status` call in the S14 fixture had exposed an absent expert source snapshot as `sources: undefined`, which the native lossless JSON renderer rejected. `MemoryDocuments.status()` now omits `sources` when absent, without inventing an empty authoritative snapshot. `Dreaming.reviews()` likewise omits nonexistent optional fields while preserving legitimate empty summaries and zero timestamps. Callers already treat the snapshot as optional.
+- `/tmp/feat676-incomplete-runtime2.log`: 9/9 passed. Four real native runtime modes cover unread inputs, only the first of multiple complete input files read, missing-path read, and assistant normal stop without finish. Real before/after status tool results are parsed from the subsequent actual root request and their stream positions are identical. The test also verifies failed host receipt, unchanged entry bytes, more than one input unit, and finish/read tool errors where applicable.
+- This proves the model receives valid status/failure results and incomplete evidence never advances source progress. These are deterministic provider fixtures, not a claim that a real model has understood every source.
+- Final reviewed legacy delta wording matches the historical Skill event, legacy in-flight protection and independent Dreaming context behavior. No spec was rewritten to accept an implementation defect.
+
+Round 3 findings: `[]`. No further implementation review is required without an actual source delta or specific evidence gap.
+
+## Round 4 — observed backlog and readable source delivery
+
+- Frozen delta: `b203c5823..5a123bae760d429c84bc2a3f72814009a69836f0`. Actual product acceptance had exposed absent backlog information (an expert mistook `sourcesPending=false` for empty backlog) and native line truncation of a long single-line source JSON input (an automatic run correctly refused finish). These were specific observed interface failures, not speculative hardening.
+- `Dreaming.status()` now calls the existing certified source adapter for a read-only next-batch preview. The adapter copies `seen`, reads rotation without incrementing it, never commits source ranges, and status returns no event bodies. Output labels `scope=next_bounded_batch`, pending/blocked/empty state, processed/eligible/observed ranges and blocked reasons. Source eligibility pending yields `scope=unavailable`, not zero backlog. The actual tool description and nano-memory Skill explain these distinctions.
+- `prepare()` pretty-prints each input and losslessly encodes long string values into ordered 200-code-point `source_text_chunks`, keeping native per-line reads below their truncation limit. The prompt describes exact concatenation without separators, offset continuation, the untrusted-data boundary and incomplete logical-unit rules. Read completeness remains enforced by the native result observer and finish checks.
+- `/tmp/feat676-readable-tests.log`: 4 files / 13 tests passed. Native PA and expert runs consume a source over 6,000 characters, the actual maintenance requests retain its tail marker without the line-truncated notice, explicit finish/application succeeds, and reviver reconstruction reproduces the original string. Four incomplete-input modes also assert observed pending backlog before/after and unchanged source stream progress.
+- Before-fix reproduction logs `/tmp/feat676-readable-red.log` and `/tmp/feat676-backlog-red.log` were checked; the direct success and rendered-request assertions above are the closure evidence. Prior atomic recovery, scheduler and source-pagination evidence remains applicable.
+
+Context scope: status schema/JSON result and Skill guidance, source-file serialization, native read output and maintenance consumption. This establishes deterministic complete delivery and guard behavior. Real-model status interpretation/automatic-run reuse remains the independent product reviewer responsibility.
+
+Round 4 findings: `[]`. No broader implementation delta was introduced or re-reviewed.
+
+Final full-root confirmation at the same frozen 5a123 implementation: `/tmp/feat676-root-ci-5a123.log`, `pnpm exec vitest run --maxWorkers=2`, 159 files / 840 tests passed in 292.03 seconds. This supersedes the earlier 836-plus-delta combination for the final aggregate while retaining its diagnostic history.
+
+## Final disposition
+
+All F1-F4 code findings are closed; the two actual product-interface findings and optional JSON status defect were corrected and reviewed in their bounded deltas. Final surviving code findings: `[]`.
+
+Independent product acceptance is committed at `8b28b00dd` in `acceptance.md`: S01-S20 all pass, no open acceptance issue. The final pending-state requirement is supported by actual operation `d67ed387003b486ea12a54f4e739079f` and the real390 pending/applied screenshots; the verifier independently viewed both. This is distinct from the earlier unproven pause attempt and from ordinary Saving state. No product source changed after validated implementation `5a123bae760d429c84bc2a3f72814009a69836f0`.
+
+Code review verdict: **pass**. The overall verification and final evidence reconciliation are in `verification.md`.
