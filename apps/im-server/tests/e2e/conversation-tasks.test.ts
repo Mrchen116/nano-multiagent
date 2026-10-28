@@ -28,19 +28,28 @@ it('applies public read, member writes and frozen history across HTTP and Agent 
     {op:'add_task',client_ref:'done',container_id:'n1',title:'Done',status:'done',result:'preserve this'},
     {op:'add_task',client_ref:'open',container_id:'n1',title:'Open',status:'in_review'},
     {op:'select_candidate',scope_id:'n1',node_id:'@open',reason:'Preserve selection history'},
+    {op:'update_task',node_id:'n1',patch:{status:'done',result:'Finished scope'}},
   ]});
   expect(nodes.status,nodes.body).toBe(200);
+  const beforeMessages=(await call('GET',`/im/v1/conversations/${id}/messages`)).body;
+  expect((await call('DELETE',`/im/v1/conversations/${id}`,undefined,'bob')).status).toBe(403);
+  expect((await call('GET',`/im/v1/task-graphs/${graphId}?view=all`)).body.revision).toBe(2);
   expect((await call('DELETE',`/im/v1/conversations/${id}`)).status).toBe(204);
   const history=await call('GET',`/im/v1/conversations/${id}`,undefined,'bob');
   expect(history.body).toMatchObject({is_member:true,can_write:false,visibility:'private'});
   expect(history.body.dissolved_at).toBeTruthy();
   const graph=await call('GET',`/im/v1/task-graphs/${graphId}?view=all`,undefined,'bob');
-  expect(graph.body.nodes.map((n:any)=>n.status)).toEqual(['closed','done','closed']);
+  expect(graph.body.nodes.map((n:any)=>n.status)).toEqual(['done','done','closed']);
   expect(graph.body.nodes[1].result).toBe('preserve this');
-  expect(graph.body.nodes[0]).toMatchObject({selected_candidate_id:null,selection_reason:'Preserve selection history'});
+  expect(graph.body.nodes[0]).toMatchObject({selected_candidate_id:null,selection_reason:'Preserve selection history',result:'Finished scope',updated_by:'alice (alice)',updated_by_actor:{type:'user',id:'alice'},updated_at:history.body.dissolved_at});
+  expect(graph.body.nodes[0].change_note).toBeTruthy();
+  const agentRead=await g.frames.send('task_graph.command',{node_id:g.node,agent_id:'assistant',request_id:'history-task',action:'get',args:{graph_id:graphId,view:'all'}});
+  expect(agentRead.payload).toMatchObject({ok:true,result:{revision:3,updated_by:'alice (alice)',conversation:{can_write:false}}});
+  expect(agentRead.payload.result.nodes[2]).toMatchObject({status:'closed',updated_by_actor:{type:'user',id:'alice'},updated_at:history.body.dissolved_at});
+  expect((await call('GET',`/im/v1/conversations/${id}/messages`)).body).toEqual(beforeMessages);
   expect((await call('GET','/im/v1/conversations',undefined,'bob')).body.items).toHaveLength(0);
   expect((await call('POST',`/im/v1/conversations/${id}/participants`,{participants:[{type:'user',id:'outsider'}]})).status).toBe(409);
-  expect((await call('POST',`/im/v1/task-graphs/${graphId}/apply`,{base_revision:3,request_key:'late',change_note:'',operations:[{op:'claim_task',node_id:'n1'}]})).body.detail.code).toBe('conversation_dissolved');
+  expect((await call('POST',`/im/v1/task-graphs/${graphId}/apply`,{base_revision:3,request_key:'late',change_note:'',operations:[{op:'update_task',node_id:'n1',patch:{description:'Late edit'}}]})).body.detail.code).toBe('conversation_dissolved');
 },20000);
 
 it('stores task notifications offline and cancels delivery when the Agent leaves before reconnect',async()=>{

@@ -903,6 +903,44 @@ export class TaskGraphService {
     try {this.messaging.publishMessages(notices);this.execution?.changed({agent_ids:[actor.id],conversation_ids:conversationId?[conversationId]:[]});} catch { /* Reconnect reconciles durable state. */ }
     return result!;
   }
+  /** Close a dissolved conversation's tasks inside its existing transaction.
+   *
+   * Args:
+   *   conversationId: Conversation already authorized for dissolution by Messaging.
+   *   userId: Authenticated human creator performing the dissolution.
+   *   at: Timestamp shared with the enclosing dissolution transaction.
+   *
+   * Returns:
+   *   Graph IDs to invalidate after the caller commits. This method neither opens
+   *   a transaction nor generates task notices or publishes execution changes.
+   */
+  closeForConversationDissolution(conversationId:string,userId:string,at:string):string[] {
+    const identity = {type:'user',id:userId};
+    const actorName = `${this.identity(identity)!.display_name} (${userId})`;
+    const graphIds:string[] = [];
+    for (const row of this.rows('SELECT * FROM task_graphs WHERE conversation_id=?',conversationId)) {
+      const doc = JSON.parse(row.document_json), changed = new Set<string>();
+      for (const node of doc.nodes) if (!['done','closed'].includes(node.status)) {
+        node.status='closed'; delete node.wait; delete node.resume_request;
+        changed.add(node.id);
+      }
+      const closed = new Set(doc.nodes.filter((node:Obj)=>node.status==='closed').map((node:Obj)=>node.id));
+      for (const node of doc.nodes) {
+        if (node.selected_candidate_id && closed.has(node.selected_candidate_id)) {
+          node.selected_candidate_id=null;
+          changed.add(node.id);
+        }
+        if (changed.has(node.id)) Object.assign(node,{
+          updated_at:at,updated_by:actorName,updated_by_actor:identity,
+          change_note:'Conversation dissolved',
+          provenance:{agent_id:null,source_message_id:null,initiator_id:null,channel:null,source_chat_id:null},
+        });
+      }
+      this.save({...doc,owner_id:row.owner_id,revision:doc.revision+1,updated_at:at,updated_by:actorName});
+      graphIds.push(doc.graph_id);
+    }
+    return graphIds;
+  }
   private pauseNode(node:Obj,actor:Obj,at:string):void {
     node.status='paused';delete node.wait;delete node.resume_request;
     node.updated_at=at;node.updated_by=actor.id;node.updated_by_actor=actor;

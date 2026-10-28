@@ -153,15 +153,81 @@ it('attests only an authenticated human paused-to-doing transition and clears it
 });
 
 
-it('publishes responsibility withdrawal after group dissolution closes the durable Tasks',()=>{
-  const {db,ctx,tasks,changed}=setup();
+it('closes waiting and resumed work with human audit before publishing dissolution',async()=>{
+  const {db,ctx,tasks,changed,graph,waiting}=setup();
   ctx.gateway.tasks=tasks;
   db.prepare("UPDATE conversations SET type='group',creator_id='u1' WHERE id='chat'").run();
-  changed.mockClear();
+  tasks.pauseExecution(actor,'chat','stop');
+  tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:2,request_key:'resume',change_note:'Resume',operations:[{op:'update_task',node_id:'n1',patch:{status:'doing'}}]});
+  await tasks.executeChecked(actor,'apply',{...waiting,base_revision:3});
+  const read=()=>tasks.execute(human,'get',{graph_id:graph.graph_id,view:'all'});
+  expect(read().nodes[0]).toMatchObject({status:'waiting',resume_request:{actor_id:'u1'},updated_by:'Agent (a)'});
+  // The domain action must handle a whole graph, beyond apply's 100-operation limit.
+  const added=tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:4,request_key:'many',change_note:'Add work',operations:Array.from({length:100},(_,i)=>({op:'add_task',client_ref:'work-'+i,container_id:'n1',title:'Work '+i,status:i===0?'done':i===1?'closed':'todo'}))});
+  tasks.execute(actor,'apply',{graph_id:graph.graph_id,base_revision:added.revision,request_key:'agent-update',change_note:'Agent reviewed progress',operations:[{op:'update_task',node_id:'n1',patch:{description:'Latest Agent update'}}]});
+  const before=read();
+  const storedBefore=JSON.parse(db.prepare('SELECT document_json FROM task_graphs WHERE graph_id=?').get(graph.graph_id)!.document_json as string);
+  const complete=tasks.execute(actor,'create',{title:'Completed graph',mode:'dag',status:'done',result:'Keep result',conversation_id:'chat',request_key:'completed'});
+  const completeBefore=tasks.execute(human,'get',{graph_id:complete.graph_id,view:'all'});
+  const counts=()=>['messages','conversation_events','relay_tasks','task_graph_mutation_receipts','task_node_chat_activity'].map(table=>db.prepare(`SELECT count(*) AS n FROM ${table}`).get()!.n);
+  const beforeCounts=counts();
+  changed.mockClear(); ctx.gateway.broadcast.mockClear();
   const observed:any[]=[];
-  changed.mockImplementation((hint)=>{observed.push({hint,tasks:tasks.executionSnapshot(actor,'chat').items});});
+  changed.mockImplementation(hint=>{observed.push({hint,tasks:tasks.executionSnapshot(actor,'chat').items,transaction:db.isTransaction});});
   ctx.messaging.dissolveConversation('u1','chat');
-  expect(observed).toEqual([{hint:{agent_ids:['a'],conversation_ids:['chat']},tasks:[]}]);
+  const after=read(),at=db.prepare("SELECT dissolved_at FROM conversations WHERE id='chat'").get()!.dissolved_at;
+  expect(after).toMatchObject({revision:before.revision+1,updated_at:at,updated_by:'u1 (u1)',conversation:{can_write:false}});
+  expect(after.nodes).toHaveLength(101);
+  for(const node of after.nodes.filter((n:any)=>!['n2','n3'].includes(n.id))) {
+    expect(node).toMatchObject({status:'closed',updated_at:at,updated_by:'u1 (u1)',updated_by_actor:{type:'user',id:'u1'},provenance:{agent_id:null,source_message_id:null}});
+    expect(node.change_note).toBeTruthy();
+    expect(node.wait).toBeUndefined();expect(node.resume_request).toBeUndefined();
+  }
+  // Read permissions change for every node, but finished records themselves do not.
+  const stored=JSON.parse(db.prepare('SELECT document_json FROM task_graphs WHERE graph_id=?').get(graph.graph_id)!.document_json as string);
+  for(const id of ['n2','n3']) {
+    expect(stored.nodes.find((n:any)=>n.id===id)).toEqual(storedBefore.nodes.find((n:any)=>n.id===id));
+  }
+  expect(after.nodes[0].created_by).toEqual(before.nodes[0].created_by);
+  expect(after.nodes[0].assignee).toEqual(before.nodes[0].assignee);
+  const completed=tasks.execute(human,'get',{graph_id:complete.graph_id,view:'all'});
+  expect(completed.nodes[0]).toMatchObject({status:'done',result:'Keep result',updated_by:completeBefore.nodes[0].updated_by,updated_at:completeBefore.nodes[0].updated_at});
+  expect(completed).toMatchObject({revision:2,updated_by:'u1 (u1)'});
+  for(const row of db.prepare('SELECT revision,updated_at,updated_by,document_json FROM task_graphs').all()) {
+    expect(JSON.parse(row.document_json as string)).toMatchObject({revision:row.revision,updated_at:row.updated_at,updated_by:row.updated_by});
+  }
+  expect(observed).toHaveLength(2);
+  expect(observed).toEqual(expect.arrayContaining([
+    {hint:{agent_ids:['a'],conversation_ids:['chat']},tasks:[],transaction:false},
+    {hint:{agent_ids:[],conversation_ids:['chat']},tasks:[],transaction:false},
+  ]));
+  expect(counts()).toEqual(beforeCounts);
+  expect(db.prepare("SELECT count(*) AS n FROM relay_tasks WHERE status IN ('queued','sent','accepted')").get()!.n).toBe(0);
+  expect(ctx.gateway.broadcast).toHaveBeenCalled();
+});
+
+it('rolls back all dissolution records and publishes nothing if a later graph cannot save',()=>{
+  const {db,ctx,tasks,changed}=setup();ctx.gateway.tasks=tasks;
+  db.prepare("UPDATE conversations SET type='group',creator_id='u1' WHERE id='chat'").run();
+  tasks.execute(human,'create',{title:'Second',mode:'dag',conversation_id:'chat',request_key:'second',assignee:{type:'agent',id:'a'}});
+  const snapshot=()=>['conversations','task_graphs','relay_tasks','messages','conversation_events'].map(table=>db.prepare(`SELECT * FROM ${table}`).all());
+  const before=snapshot();changed.mockClear();ctx.gateway.broadcast.mockClear();
+  // Fail on the second graph only, after the first graph and conversation were written.
+  db.exec("CREATE TEMP TRIGGER fail_later_graph BEFORE UPDATE ON task_graphs WHEN (SELECT count(*) FROM task_graphs WHERE revision>1)=1 BEGIN SELECT RAISE(ABORT,'injected graph save failure'); END");
+  expect(()=>ctx.messaging.dissolveConversation('u1','chat')).toThrow('injected graph save failure');
+  expect(snapshot()).toEqual(before);
+  expect(changed).not.toHaveBeenCalled();expect(ctx.gateway.broadcast).not.toHaveBeenCalled();
+  expect(db.isTransaction).toBe(false);
+});
+
+it('dissolves a taskless group without task notices or execution invalidations',()=>{
+  const {db,ctx}=fixture();ctx.gateway.broadcast=vi.fn();ctx.messaging=new Messaging(ctx);
+  const changed=vi.fn();ctx.gateway.tasks=new TaskGraphService(db,ctx.messaging,undefined,{inspect:vi.fn(),changed});
+  db.prepare("UPDATE conversations SET type='group',creator_id='u1' WHERE id='chat'").run();
+  ctx.messaging.dissolveConversation('u1','chat');
+  expect(db.prepare("SELECT dissolved_at FROM conversations WHERE id='chat'").get()!.dissolved_at).toBeTruthy();
+  expect(db.prepare('SELECT count(*) AS n FROM messages').get()!.n).toBe(0);
+  expect(changed).not.toHaveBeenCalled();expect(ctx.gateway.broadcast).toHaveBeenCalled();
 });
 
 it('keeps stop-generated collaboration notices passive for the stopped Agent',()=>{
