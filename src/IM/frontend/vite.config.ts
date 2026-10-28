@@ -11,7 +11,12 @@ export default defineConfig({
       "/im": {
         target: IM_PROXY_TARGET,
         changeOrigin: true,
+        // Preserve browser Origin: IM checks the explicit dev-origin allowlist.
         ws: true
+      },
+      "/trajectory": {
+        target: IM_PROXY_TARGET,
+        changeOrigin: true
       }
     }
   },
