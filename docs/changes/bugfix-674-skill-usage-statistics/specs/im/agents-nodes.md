@@ -31,4 +31,9 @@ Target: docs/specs/im/agents-nodes.md
 
 #### Scenario: agent 离线时查询 skill 统计
 - WHEN Agent 不在线或 Gateway 无法到达
-- THEN API 保留现有离线/缓存数据语义，前端明确数据来源和离线提示而非崩溃。
+- THEN 设置页只展示带新版起点/日期字段的缓存，并明确来源和采集时间；旧 usage 缓存视为不可用。直读接口保留离线不可用语义。
+- AND 在线旧形状或读取失败也不得将旧计数默认包装为新统计。
+
+#### Scenario: 累计超过当前窗口
+- WHEN 早期新调用移出最近 30 日窗口
+- THEN Web/iOS 新累计仍保留，窗口调用数单独标明；图表使用服务端 UTC 日期，起点前桶在 Web 标为未纳入统计、在 iOS 省略，无新统计显示空态。

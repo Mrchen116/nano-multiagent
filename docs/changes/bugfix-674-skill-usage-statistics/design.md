@@ -25,6 +25,7 @@
 - KnowledgeFiles.usage(roots, agentId)：输出该 Agent 聚合，移除属于样本推断的异步 belongs 回调。只返回当前 Agent 的统计投影，不把 statistics 中其他 Agent 数据透传。
 - KnowledgeRuntime.used() 保持原事件和 F4 判断顺序，传入 config.agentId；usage() 仍按该配置允许的 skillRoots 读取。
 - IM 只显式转发新增公开统计字段；Web 的 /settings/usage 及 iOS 的 /skills/usage 两条真实接口均须核对；客户端只消费公开投影。
+- Web 的完整路径为 `/settings/sections/usage`。新版 usage 必须具有整体 statistics_since（允许 null）、period_start、period_end，以及各 Skill 的 statistics_since（允许 null）；这组字段识别新口径，不增加通用版本框架。IM 读取旧 usage snapshot 缺少该形状时返回 unavailable/data:null；合法新 snapshot 保留 last_known 和 captured_at。在线旧形状返回读取失败，不包装默认值、不覆盖合法快照；iOS 直读接口使用相同判断，离线保留 node_online:false 不可用语义。回归覆盖旧快照+离线/读取失败、新快照+离线及在线旧形状。
 - 原始 use_count、uses_since_last_B、recent_call_keys、session_refs 与 curate/batch/references 的用途和保留策略不变，不改 prompt、历史恢复或工具定义；统计不新增 Context 消费面。现有知识维护回归验证该隔离。
 
 ## 前端原型
@@ -32,10 +33,15 @@
 - [prototype.html](prototype.html)：现有 Skill 列表和 Agent 使用卡片的局部增量，覆盖新计数、尚无新调用及起点前日期。不是替代整页的新设计。
 - 沿用现有白色卡片、灰色辅助信息、日格和列表，阅读顺序为次数 → 统计起点 → 30 天趋势。统计口径是用户判断所需信息，不展示内部文件、截断上限等实现细节。
 - Web must-match：30 天实际窗口、明确 UTC、计数与起点、起点前不称零；桌面及 390px。
+- 列表保留名称、来源、状态、次数、最近使用、趋势六列，起点置于名称下方。窄屏沿用表格容器内横向滚动，名称/起点先可见，滑动查看相邻字段，不把六列压缩到 390px。Agent 热力图保留星期/周列关系，30 日格与图例完整可见，累计与窗口合计各有标签。
 - iOS may-adapt：用既有 List/LabeledContent 展示同一语义；无布局/导航变更，编译和解码回归，共享链路通过 Web 验证。
+- iOS Agent 视图分开显示“新累计调用”（所有 Skill.use_count 之和）和“最近 30 天”（heatmap_data 之和）。图表使用 period_start/period_end 对应的 UTC 日字符串为 x 轴，省略 statistics_since 所在日之前的数据点；没有起点时不画图，显示“尚无新调用”。Skill 图使用自己的起点。解码/展示数据契约测试覆盖累计超过窗口合计、起点前桶省略、UTC 日对应、无起点空态。
+- 已从隔离产品 `http://127.0.0.1:60584` 实际登录并进入 daily-product → Skills，观察六列表格及 61 次列表/60 次趋势的旧行为。原型修订保留这些邻近字段；视觉验证仍待获准途径补齐。
 - 当前 UX 来源：agent-detail-page.tsx 的 AgentHeatmapCard/SkillTrend，AgentSkillsView.swift；本地原型 file:// 自动预览被浏览器 URL 安全策略阻止，Codex 原生窗口也禁止自动读取；未尝试绕过。原型视觉未验证，不声称已实际渲染。真实产品的隔离 HTTP 入口由后续产品验收独立观察；设计审查明确保留此证据限制。
 
 ## 契约层增量
+
+附加退出标准：跨日覆盖 30 日清理边界，清理不降低累计或其他 Agent 统计；旧缓存/在线旧形状不得混入，合法新快照离线可读；iOS 展示数据契约通过。
 
 - IM：[specs/im/agents-nodes.md](specs/im/agents-nodes.md) → docs/specs/im/agents-nodes.md。
 
