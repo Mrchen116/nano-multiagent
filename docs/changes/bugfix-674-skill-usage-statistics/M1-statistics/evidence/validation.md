@@ -22,3 +22,12 @@
 `/skills/usage` 真实现有离线契约是 HTTP 503（rpc helper），不是设计分析中误写的 node_online:false。实现保留 503；设置页沿用 unavailable/last_known 语义。此为 current grounding 文字纠正，无新增兼容分支。
 
 原型截图为 gitignored 本地产物：unit 根部 `evidence/prototype-{desktop,mobile,mobile-scrolled}.png`，不提交 Git；设计中含实际观察文字，交付 PR 不将图片链接当作远端证据。
+
+## 扩大验证（2026-10-28）
+
+- 固定实现 `28b205259`。首次不限制并发的 backend/Web 全量在多个无改动区域发生超时；降低本任务并发后重新运行，未改超时阈值或产品代码。
+- `pnpm test --maxWorkers=2`：143 files / 774 tests，其中 142 files / 773 tests 通过，唯一失败为现有 agent-disable-native 的 PTY cleanup；随后以 `pnpm exec vitest run packages/dsh-integration/tests/agent-disable-native.test.ts apps/im-server/tests/e2e/control-work.test.ts --maxWorkers=1` 单独复验，2 files / 11 tests 全过。PTY 失败未稳定复现，不能断言已定位根因；本次统计修复不改终端生命周期。
+- 全量发现既有 control-work E2E 的 Skill usage fixture 仍是旧 envelope；补齐新起点/窗口和引用字段，不放宽断言；上述 11 tests 包含该公开跨进程入口通过结果。
+- `pytest -m "not e2e" -q`：100 passed / 28 deselected；`ruff check .` 与 `ruff format --check .` 通过。
+- iOS 专用模拟器完整 `build.sh test` 通过（`/tmp/skill674-ios-isolated.log`）；`build.sh archive` 通过（`/tmp/skill674-ios-archive.log`）。旧通用模拟器剪贴板失败未在专用模拟器重现；不修改该无关测试。
+- final sync 检查：2026-10-28 fetch 后 origin/main 仍为 `ff326c351d104447028f4b185740ab6d6be55de6`，无 main 增量。已审代码未变化，仅 E2E fixture 与运行证据补齐，待独立审查者核对增量。
