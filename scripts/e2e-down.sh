@@ -11,6 +11,7 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+python3 "$SCRIPT_DIR/dev_host.py" guard --repo "$REPO_ROOT" --runtime "$WT_ROOT"
 if [[ -f "$WT_ROOT/.gateway-config.yaml" && -f "$WT_ROOT/.gateway-state.json" ]]; then
   node "$REPO_ROOT/apps/node/lib/cli.js" stop --config "$WT_ROOT/.gateway-config.yaml"
 fi

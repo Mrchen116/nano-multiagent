@@ -12,9 +12,9 @@
 
 ## 部署前
 
-安装包是独立发布动作，按 [发布规范](../../../../docs/operations/local-stack.md#发布首次安装包) 判断明确授权和版本号。普通部署先记录并保留现有 `IM_NODE_RELEASE_DIR/manifest.json`；默认目录为 IM checkout 下 `dist/node-release`。切换 checkout 时携带现有已验证清单，不用构建候选替代，不为匹配服务 SHA 新建 Release；部署后核对清单内容未变。
+安装包是独立发布动作，按 [发布规范](../../../../docs/operations/local-stack.md#发布首次安装包) 判断明确授权和版本号。普通部署先记录并保留现有 `IM_NODE_RELEASE_DIR/manifest.json`；Mini 当前显式指向独立目录，见生产舰队；产品缺省目录为 IM checkout 下 `dist/node-release`。切换 checkout 时携带现有已验证清单，不用构建候选替代，不为匹配服务 SHA 新建 Release；部署后核对清单内容未变。
 
-1. 确认用户授权范围、目标 `origin/main` 精确 SHA、CI、两机 checkout/status 和 live PID/cwd。Mini 主仓只安全 fast-forward；MacBook Air 主仓只 fetch，保留全部无关 dirty/untracked。
+1. 确认用户授权范围、目标 `origin/main` 精确 SHA、CI、两机 checkout/status 和 live PID/cwd。由 Air 发起；两机开发主仓只 fetch，保留全部无关 dirty/untracked，运行版本以各自 detached 生产 checkout 为准。
 2. 记录现有 IM/Tunnel/Gateway 的 LaunchAgent、launcher、数据库及附件绝对路径、节点 ID、owner、凭据文件位置和通道归属；不输出密钥/token。不要从历史部署记录猜当前 PID，也不按端口批量 kill。
 3. 常规更新复用持久 JWT signing key、公司准入、Gateway 私钥及节点运行凭据；缺失或身份不匹配先查原因。不要例行 `initialize_company`、重新 bind、重新批准成员、创建新 Tunnel 或迁移飞书。
 4. 涉及数据库迁移或运行配置修改时先备份。SQLite 使用 backup API，或正常停写后复制完整快照；不要只复制仍在写入的主库。数据库旁 `message-images/`、旧 uploads、配置及密钥一并备份到权限受限目录，不入 Git。
@@ -22,7 +22,7 @@
 6. 若仍使用旧 PA 目录，先执行 [无覆盖迁移](../../../../docs/operations/pa-workspace-layout-migration.md)。完成迁移后不重复执行。
 7. 在切换版本或停服务前完成下节 unit 部署提示词检查，将适用步骤排入部署顺序。
 
-MacBook Air Gateway 长期复用固定 detached `prod-main` worktree，各自安装锁定的 Node/pnpm 依赖并构建。精确 SHA 进入部署记录，不进入目录名；普通更新不再创建或清理生产 worktree。首次迁移后才回收干净且无进程使用的历史目录；不 force、不动其他 worktree。
+两机长期复用各自固定 detached `prod-main` worktree，各自安装锁定的 Node/pnpm 依赖并构建。精确 SHA 进入部署记录，不进入目录名；普通更新不再创建或清理生产 worktree。首次迁移后才回收干净且无进程使用的历史目录；不 force、不动其他 worktree。
 
 首次切换须同时完成迁移操作单中的「旧生产数据的额外对账」，尤其是 IM 旧全局主会话、可重放 relay 和工具镜像。停止旧 Python Gateway 时从保留的旧 checkout 使用 `PYTHONPATH=<旧checkout>/src <原venv>/bin/python -m personal_assistant.main stop --config …`；新代码已移除旧模块，不能从新 checkout 调旧入口。新状态安装后只用 Node 生命周期命令。
 
@@ -48,15 +48,34 @@ MacBook Air Gateway 长期复用固定 detached `prod-main` worktree，各自安
 
 ## 更新 Mini 代码和前端
 
-需要更新公网 IM 或 Tunnel 运行服务时，更新代码前，先在 Mini 执行 `.venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready`，验证已安装的 runtime 路径。安全 fast-forward 到目标代码后、停止 IM 或更新运行服务前，再核对一次；目标版本未跟踪该运维脚本时保留已安装版本，不从未提交的本地文件覆盖生产 supervisor。只有目标版本跟踪并包含本次授权更新的脚本时，才执行 `.venv/bin/python scripts/prod_tunnel.py --ready` 检查新版本。它核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 实际路由，失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准；不能把系统代理、TUN 出口或 HTTP2 当作等价路径。
+需要更新公网 IM 或 Tunnel 运行服务时，在停服务前用 Mini 的 `~/.nanoassistant/runtime/tunnel-venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready` 检查已安装的路径。目标版本包含待更新 supervisor 时，先用 `git show <目标SHA>:scripts/prod_tunnel.py` 提取到本机临时文件，再用同一独立 Python 执行该临时文件的 `--ready`；这一步不切 live checkout，检查完成后移除临时文件。两项均通过后才允许停止服务和切换版本；目标版本未跟踪该脚本时保留已安装版本，不用未提交文件覆盖。脚本核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 路由；失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准。
 
-以下是按需执行的命令，不是整段盲跑脚本。首先确认 Mini 当前分支为 main、已跟踪改动不会被覆盖，并确认远端目标 SHA 是本次授权版本。
+以下为 Mini 版本更新顺序，由 Air SSH 发起。先确认目标 SHA、生产目录 clean/detached、迁移前提和回退点；准备阶段只 fetch，不切开发主仓。更新时先停 Gateway 与 IM，再切生产 checkout 并构建，不能在 live checkout 上边运行边覆盖产物。Tunnel 已有独立 Python，普通代码更新无需重启它。
 
 ```bash
-ssh mini 'cd ~/Repos/nano-multiagent && git status -sb && git fetch origin && git rev-parse origin/main'
-# 核对目标后，只快进到已确认的 SHA，避免部署期间 main 又前进而漂移。
-# 在 Mini 执行：git merge --ff-only <已确认目标SHA>
-ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent && pnpm install --frozen-lockfile && pnpm build && npm --prefix src/IM/frontend ci && npm --prefix src/IM/frontend run build"'
+ssh mini 'git -C ~/Repos/nano-multiagent fetch origin'
+# 以下在 Mini 执行，target 是本次已审查并授权的完整 SHA。
+set -e
+: "${target:?set the reviewed deployment SHA}"
+prod_worktree="$HOME/.nanoassistant/prod-main/nano-multiagent"
+export PATH="$HOME/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH"
+test -z "$(git -C "$prod_worktree" status --porcelain)" || exit 1
+if git -C "$prod_worktree" symbolic-ref -q HEAD; then exit 1; fi
+cd "$prod_worktree"
+previous_sha=$(git rev-parse HEAD)
+node apps/node/lib/cli.js stop --config ~/.nanoassistant/config.yaml
+launchctl bootout "gui/$(id -u)/io.github.mrchen116.nano-multiagent.public-im"
+git checkout --detach "$target"
+pnpm install --frozen-lockfile && pnpm build
+npm --prefix src/IM/frontend ci && npm --prefix src/IM/frontend run build
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/io.github.mrchen116.nano-multiagent.public-im.plist
+for attempt in $(seq 1 60); do
+  if curl --noproxy '*' -fsS http://127.0.0.1:8011/health >/dev/null; then break; fi
+  if [ "$attempt" = 60 ]; then exit 1; fi
+  sleep 1
+done
+# 再核对 live cwd；失败按 previous_sha 和备份恢复，不启动 Gateway。
+node apps/node/lib/cli.js start --config ~/.nanoassistant/config.yaml
 ```
 
 前端或其依赖变更必须重建 `src/IM/frontend/dist`，它是未入仓的产物。记录本次 build 的资源文件名，随后确认官网 HTML 引用这些资源且请求成功；仅 pull 不等于官网前端更新。
@@ -75,7 +94,7 @@ ssh mini 'zsh -lc "cd ~/Repos/nano-multiagent && pnpm install --frozen-lockfile 
 
 使用 [生产舰队](../../../../docs/operations/prod-fleet.md#源站与隧道) 中的现有 LaunchAgent。部署前读取实际 plist/launcher 并核对：
 
-- IM launcher 从 Mini 目标主仓启动 `node apps/im-server/lib/main.js public-server`，保持 `IM_PUBLIC_URL` 为官网 HTTPS origin、`WEB_CONCURRENCY=1`，`IM_DB_PATH`/`IM_UPLOAD_DIR` 指向原生产数据。
+- IM launcher 从 Mini 固定生产 checkout 启动 `node apps/im-server/lib/main.js public-server`，保持 `IM_PUBLIC_URL` 为官网 HTTPS origin、`WEB_CONCURRENCY=1`，`IM_DB_PATH`/`IM_UPLOAD_DIR` 指向原生产数据。
 - 从 `~/.nanoassistant/im-jwt-secret` 读取非空持久密钥；不打印值，不临时生成。public-server 设置公网模式、loopback 监听、可信 loopback tunnel 及请求边界；不得绕过它直接裸起 uvicorn。
 - Tunnel ingress 只将官网主机映射到 Mini loopback 源站，最后兜底 `http_status:404`；保留 Tunnel 身份、凭据、DNS 和边缘 HTTPS 规则。
 
@@ -100,16 +119,16 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 
 复用原 Tunnel 身份和 LaunchAgent。变更前备份 Tunnel YAML 与 plist，权限和配置中的密钥不得入 Git。使用生产舰队记录的 QUIC/IPv6 en0 路径；保持 `edge-ip-version` 为字符串。修改配置后先执行 ingress validate 和路径门禁，不能依赖系统代理设置、端口可连或未经验收的自动切换。常规部署不修改 Clash 配置。
 
-Mini 将本次已验证的 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 Tunnel plist 的 `ProgramArguments` 使用主仓 `.venv/bin/python`、该脚本、`--supervise`；保留原日志与 RunAtLoad/KeepAlive。用 SHA256 核对源文件与 runtime copy，更新脚本后重启原服务加载新代码。`bootout` 后需等原服务完全卸载，再 `bootstrap`；不能启动第二个长期 connector 来掩盖失败。
+Mini 将本次已验证的 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 Tunnel plist 的 `ProgramArguments` 使用独立 `~/.nanoassistant/runtime/tunnel-venv/bin/python`、该脚本、`--supervise`；保留原日志与 RunAtLoad/KeepAlive。用 SHA256 核对源文件与 runtime copy，更新脚本后重启原服务加载新代码。`bootout` 后需等原服务完全卸载，再 `bootstrap`；不能启动第二个长期 connector 来掩盖失败。
 
 ```bash
 # 仅需更新 Tunnel supervisor 时在 Mini 执行；先备份 runtime copy，只复制本次已审查版本。
-.venv/bin/python scripts/prod_tunnel.py --ready
+~/.nanoassistant/runtime/tunnel-venv/bin/python scripts/prod_tunnel.py --ready
 install -m 600 scripts/prod_tunnel.py ~/.nanoassistant/bin/prod-tunnel.py
 shasum -a 256 scripts/prod_tunnel.py ~/.nanoassistant/bin/prod-tunnel.py
 # 核对既有 plist 已指向 supervisor 后，再按需要 kickstart 原 Tunnel 服务。
 launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiagent.public-tunnel"
-.venv/bin/python scripts/prod_tunnel.py --seconds 600
+~/.nanoassistant/runtime/tunnel-venv/bin/python scripts/prod_tunnel.py --seconds 600
 ```
 
 supervisor 或恢复机制变更的恢复演练优先在隔离环境完成；生产部署不自动暂停或结束健康的 Tunnel 子进程。确需生产演练时，按[生产验证边界](#生产验证范围与停止条件)取得明确授权并限定窗口与次数，再验证 supervisor 自动替换不健康进程及退出后重建；演练应在上面的最终连续采样命令之前完成。出口、协议、cloudflared 版本变更及 Tunnel 故障恢复的采样要求见 [Tunnel 验收分级](../../../../docs/operations/prod-fleet.md#tunnel-验收分级)。清理自己的临时 connector 后开始验收，并复核双 Gateway 心跳。故障恢复时间包含每 5 秒的检查、30 秒不健康判定、最多 10 秒的终止等待与重新握手，不能把 30 秒当作可用性承诺。
@@ -132,13 +151,13 @@ supervisor 或恢复机制变更的恢复演练优先在隔离环境完成；生
 
 ### 固定生产 worktree
 
-固定路径见 [生产舰队](../../../../docs/operations/prod-fleet.md#节点身份)。在 Codex 内首次创建使用 `create_worktree(name="prod-main", ref=目标SHA)` 并核对返回路径；之后复用，不能因 SHA 改变而新建目录。已有同名路径须核对 Git common dir 与用途，不覆盖或改名不明现场。非 Codex 环境可用 `git worktree add --detach <固定路径> <目标SHA>` 首次创建。
+固定路径见 [生产舰队](../../../../docs/operations/prod-fleet.md#节点身份)。Mini 已迁出开发主仓；旧布局迁移按 refactor-675 的 deployment-prompt 核对完成记录，不重复复制旧数据。Air 在 Codex 内首次创建使用 `create_worktree(name="prod-main", ref=目标SHA)` 并核对返回路径；之后复用，不能因 SHA 改变而新建目录。已有同名路径须核对 Git common dir 与用途，不覆盖或改名不明现场。非 Codex 环境可用 `git worktree add --detach <固定路径> <目标SHA>` 首次创建。
 
 首次切换先在新 checkout 执行 `pnpm install --frozen-lockfile` 和 `pnpm build`，再从 live cwd 已核对的、已构建的旧 checkout 执行 `pnpm pa stop --config ~/.nanoassistant/config.yaml`，最后在新目录 restart 并验健康。不要从尚未构建的新目录调用 pa stop。下面的升级示例适用于固定目录已经投入运行的后续部署。
 
 ```bash
 # Mini Gateway（代码、依赖和构建已经更新到确认版本）
-ssh mini 'cd ~/Repos/nano-multiagent && pnpm pa restart --config ~/.nanoassistant/config.yaml'
+ssh mini 'cd ~/.nanoassistant/prod-main/nano-multiagent && ~/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin/node apps/node/lib/cli.js restart --config ~/.nanoassistant/config.yaml'
 
 # MacBook Air：主仓只 fetch；target 是本次已确认、与 Mini 相同的 SHA。
 set -e
@@ -178,7 +197,7 @@ pnpm pa restart --config ~/.nanoassistant/config.yaml
 以下适用于完整舰队部署；局部动作只验证受影响服务及连接，纯文档只做文档检查。公网服务必须从官网验证，不能只用源站 200 或节点绿灯代替：
 
 1. Mini IM 监听地址为 loopback `127.0.0.1:8011`；MacBook Air 没有 IM `:8011`。IM/Tunnel LaunchAgent 已加载，live PID、cwd、启动参数与目标 checkout 一致。
-   按 [Tunnel 验收分级](../../../../docs/operations/prod-fleet.md#tunnel-验收分级) 执行采样：Tunnel 未变的普通部署运行 `.venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --seconds 30`；Tunnel 变更或其故障恢复才用 `--seconds 600`。门禁核对正式子进程、路由、连接与公网，采样窗口内 PID 和断连计数不变。
+   按 [Tunnel 验收分级](../../../../docs/operations/prod-fleet.md#tunnel-验收分级) 执行采样：Tunnel 未变的普通部署运行 `~/.nanoassistant/runtime/tunnel-venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --seconds 30`；Tunnel 变更或其故障恢复才用 `--seconds 600`。门禁核对正式子进程、路由、连接与公网，采样窗口内 PID 和断连计数不变。
 2. 官网 HTTPS 首页返回 200，TLS 验证开启；不使用 `curl -k`。HTTP 首页、带 query 的路径及假凭据登录 POST 返回到同主机 HTTPS 的 308，路径/query 保留。HTTP POST 不应返回应用登录结果。
 3. 官网实际静态资源属于本次 build；从真实浏览器只读检查受影响页面加载、既有历史展示和实时连接，使用现有真实账号及会话。附件/聊天功能复用隔离验收证据，不重新发送消息、上传附件、生成卡片或执行采用操作；生产写入式验证按[明确范围与停止条件](#生产验证范围与停止条件)处理。不得拿隔离环境结果充当生产版本或连接证据。
 4. 经官网认证读取 `/im/v1/me`、`/im/v1/nodes`：两生产节点均 online、心跳新鲜，owner 与 config 中真人 UUID 对齐。取人类有效会话用于这些 API，不使用机器凭据冒充用户；不打印 token，不在命令历史中拼接真实密码。

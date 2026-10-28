@@ -18,9 +18,9 @@ Agent 解读：本次完成 Air/Mini 开发隔离和本机配置；保留 spec/d
 
 ## 现状痛点
 
-- 2026-10-28 只读核验：Mini 生产 SHA 为 `4cea0166d70a604da6a7dcea9246d81e37b1e1bb`，IM/Gateway cwd 与 CLI 位于开发主仓，IM 数据库和上传目录也在该仓 `data/`；Tunnel plist 使用主仓 `.venv/bin/python`。开发切换、构建或清理可能影响生产。来源：现场 plist、launcher、Git；当前操作契约见 [prod-fleet](../../operations/prod-fleet.md)。
+- 2026-10-28 只读核验：Mini 生产 SHA 为 `4cea0166d70a604da6a7dcea9246d81e37b1e1bb`，IM/Gateway cwd 与 CLI 位于开发主仓，IM 数据库和上传目录也在该仓 `data/`；Tunnel plist 使用主仓 `.venv/bin/python`。开发切换、构建或清理可能影响生产。来源：现场 plist、launcher、Git；当前操作契约见 [prod-fleet](../../../operations/prod-fleet.md)。
 - `scripts/e2e-up.sh` 会重建目标目录的测试数据库，尚无生产目录拒绝检查。默认 Gateway 配置指向 `127.0.0.1:4000`；Mini 已验证的模型地址为 `100.88.34.122:4000`。
-- [LLM 联调](../../development/llm-integration.md) 和 AGENTS.md 的日志定位绑定 Air。共享 skill 本身可复用，但缺少本机资源入口。
+- [LLM 联调](../../../development/llm-integration.md) 和 AGENTS.md 的日志定位绑定 Air。共享 skill 本身可复用，但缺少本机资源入口。
 - 编号脚本锁定 Git common dir，只保证同一个 clone 的并发唯一。不同需求在两机同时取号仍可能撞号；同一 unit 的各阶段同机不构成此冲突。
 
 ## 目标状态

@@ -1,0 +1,10 @@
+{
+  "host": "mini",
+  "e2e_config": "~/.config/nano-multiagent/e2e-gateway.yaml",
+  "protected_paths": [
+    "~/.nanoassistant"
+  ],
+  "feishu_e2e": false,
+  "llm_logs": "~/Repos/LLM_Bridge/logs",
+  "reference_root": "~/Repos/opensource-hub"
+}

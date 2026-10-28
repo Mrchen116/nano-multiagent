@@ -62,7 +62,7 @@
 
 各机使用各自的 `~/.nanoassistant/config.yaml`，保留独立设备密钥与已绑定的节点运行凭据。普通发布不重新 bind，也不恢复旧账号密码认证方式。`node.user_id` 对齐与飞书影子会话验收步骤见 skill 验证清单。
 
-两机 Gateway 均由 `node apps/node/lib/cli.js --foreground --config …` 的 LaunchAgent 管理，并各自启动官方 DSH 子进程。Mini 从主仓运行；MacBook Air 从固定的 detached `prod-main` worktree 运行（当前路径为 `~/.codex/worktrees/prod-main/nano-multiagent`，由 Codex 管理）。部署只切换该 checkout 的精确 Git SHA，不另建带 SHA 的目录；开发主仓保留已有改动。以 plist、live cwd 和 `.gateway-state.json` 为实际路径依据，不硬编码另一台机器的 checkout。持久状态位于 `~/.nanoassistant/.dsh-runtime/<node_id>/`，workspace 仍在原位置。
+两机 Gateway 均由 `node apps/node/lib/cli.js --foreground --config …` 的 LaunchAgent 管理，并各自启动官方 DSH 子进程。Mini 从固定 detached `~/.nanoassistant/prod-main/nano-multiagent` 运行（普通 Git worktree）；MacBook Air 从固定 detached `~/.codex/worktrees/prod-main/nano-multiagent` 运行（由 Codex 管理）。部署只切换该 checkout 的精确 Git SHA，不另建带 SHA 的目录；开发主仓保留已有改动。以 plist、live cwd 和 `.gateway-state.json` 为实际路径依据，不硬编码另一台机器的 checkout。持久状态位于 `~/.nanoassistant/.dsh-runtime/<node_id>/`，workspace 仍在原位置。
 
 Mini 的现有 LLM Bridge 为免密代理；Node 配置显式使用非秘密占位 `api_key: nano-local-proxy`，供原生 provider 完成配置。它不是身份凭据，也不能替代其他需要认证的上游密钥；不要为了获得 loopback 默认值改写已验证的代理地址。
 
@@ -82,19 +82,20 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 
 ## 源站与隧道
 
-官网与 Mini 上的 IM 是同一套服务。更新 Mini 主仓代码、重建前端并重启受管 IM 后，官网使用新版本；无需创建第二套公网实例。
+官网与 Mini 上的 IM 是同一套服务。用户在 Air 手动发起部署、将 Mini 固定生产 checkout 切到确认 SHA、重建前端并重启受管 IM 后，官网使用新版本；无需创建第二套公网实例。
 
 | 项目 | 当前生产配置 |
 |---|---|
 | 公网入口 / `IM_PUBLIC_URL` | `https://im.nanoim.win` |
 | IM LaunchAgent | `io.github.mrchen116.nano-multiagent.public-im` |
-| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → Node 运行时目录下 `bin/node apps/im-server/lib/main.js public-server`，cwd 为主仓 |
+| IM launcher | Mini `~/.nanoassistant/bin/run-public-im.sh` → Node 运行时目录下 `bin/node apps/im-server/lib/main.js public-server`，cwd 为 Mini 固定生产 checkout |
 | 源站 / worker | `127.0.0.1:8011` / 1 |
-| 生产数据库 | Mini `~/Repos/nano-multiagent/data/im_service.sqlite3` |
-| 附件 | 数据库旁 `message-images/` 与 `data/uploads/`，保留原目录及元数据 |
+| 生产数据库 | Mini `~/.nanoassistant/im-data/im_service.sqlite3` |
+| 附件 | 同一 `im-data/` 下的 `message-images/` 与 `uploads/`，保留目录内容及元数据 |
+| 安装包清单 | Mini `~/.nanoassistant/node-release/manifest.json`（`IM_NODE_RELEASE_DIR`），保留已发布版本；下载仍跳转清单中的 Release URL |
 | Tunnel LaunchAgent | `io.github.mrchen116.nano-multiagent.public-tunnel` |
 | Tunnel | `nano-im-public`，配置 `~/.cloudflared/nano-im-public.yml` |
-| Tunnel supervisor | 仓库 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 LaunchAgent 使用主仓 `.venv/bin/python` 启动 |
+| Tunnel supervisor | 仓库 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 LaunchAgent 使用独立 `~/.nanoassistant/runtime/tunnel-venv/bin/python` 启动 |
 | Tunnel 出站 | `protocol: quic`、`edge-ip-version: "6"`，IPv6 UDP `7844` 经 Mini `en0` 直连 Cloudflare；不依赖系统代理或 Clash TUN，不自动切回 HTTP2/IPv4 |
 | metrics | `127.0.0.1:20241`，由同一受管 cloudflared 子 PID 监听；不对公网开放 |
 | 健康恢复 | supervisor 每 5 秒检查配置和 IPv6 en0 路由；路径漂移则停止子进程，路径恢复后自动启动。`/ready` 连续失败 30 秒则重建 cloudflared；检查、终止及重新握手另需时间 |
@@ -120,6 +121,8 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 30 秒用于发布后短时间健康核对；600 秒用于本次曾观察到间歇断连的隧道变更或故障恢复观察，两者都不是永久可用性的保证。采样窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 QUIC 断连计数增加即失败。生产 PID 必须持有 metrics listener 和四个 IPv6 UDP socket，四条 QUIC 连接有双向计数；临时 connector 不能替代生产 PID 的门禁。常规发布保留持续运行的 supervisor，不必重启 Tunnel 或注入故障。
 
 公网规则不随 Git 代码发布而重建，但每次完整发布必须验证仍有效。308 不是 HSTS；当前未配置 HSTS，不得在验收中把二者混为一谈。账号准入、签名密钥、设备身份及数据库恢复是独立操作，普通 Feature 发布不重复首次迁移。
+
+开发主仓可以独立切分支和构建。生产 checkout/数据根的 `.nano-production` 标记与两机本机 `protected_paths` 由 [开发配置](../development/local-development.md#本机开发配置)保护；生产版本切换仅由 Air 发起，开发和合并不触发部署。
 
 ## 日常入口
 
