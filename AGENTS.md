@@ -30,7 +30,7 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 
 ## 工作红线
 
-- 先确认 checkout、branch 和 `git status`；保留用户已有 dirty/untracked 内容，只提交本任务明确修改的文件。
+- 先确认 checkout、branch 和 `git status`；保留用户已有 dirty/untracked 内容，只提交本任务明确修改的文件。换机或建立开发环境时，先按 [本机开发配置](docs/development/local-development.md#本机开发配置) 运行 `python3 scripts/dev_host.py check`，不把历史机器路径当作当前事实。
 - 主仓交付时不遗留本任务的未提交修改；未完成工作保存在独立分支/worktree，恢复位置明确。收尾与本地产物规则见 [提交与边界](docs/development/local-development.md#提交与边界)。
 - PR 提交后保留开发 worktree；确认 PR 合入后，执行合并或接手同一任务后续工作的 Agent 须在本轮结束前按 [合入后清理规则](docs/development/change-workflow.md#pr-合入后的-worktree-清理)清理并核实结果，或报告具体保留原因；不等待用户停止聊天。
 - 保持 diff 小而可审；代码修改后先跑最窄相关测试，再按风险扩大。测试规则见 [docs/development/testing.md](docs/development/testing.md)。
@@ -42,16 +42,18 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 
 ## LLM 联调入口
 
-LLM 交互日志：`/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`
+从 [本机开发配置](docs/development/local-development.md#本机开发配置) 的 `llm_logs` 定位日志；协议、session 定位和证据边界见 [LLM 联调](docs/development/llm-integration.md)。
 
 ## 调研参考项目
 
-| 参考项目 | 本地路径 | 本仓主要参考面 |
+参考仓根目录由 [本机开发配置](docs/development/local-development.md#本机开发配置) 的 `reference_root` 指定；下表为根目录内的相对路径。
+
+| 参考项目 | 相对路径 | 本仓主要参考面 |
 |---|---|---|
-| Claude Code | `~/Repos/opensource-hub/claude-code` | agent core、coding agent harness |
-| openclaw | `~/Repos/opensource-hub/openclaw` | 多 channel 个人助手、heartbeat、cron、identity/soul |
-| hermes-agent | `~/Repos/opensource-hub/self-evolution/hermes-agent` | 自进化、skills、子 agent、多终端 |
-| opencode | `~/Repos/opensource-hub/opencode` | 多 provider/客户端、hook、共享 agent 内核 |
-| codex-cli | `~/Repos/opensource-hub/codex` | coding agent core，与 Claude Code 对照 |
+| Claude Code | `claude-code` | agent core、coding agent harness |
+| openclaw | `openclaw` | 多 channel 个人助手、heartbeat、cron、identity/soul |
+| hermes-agent | `self-evolution/hermes-agent` | 自进化、skills、子 agent、多终端 |
+| opencode | `opencode` | 多 provider/客户端、hook、共享 agent 内核 |
+| codex-cli | `codex` | coding agent core，与 Claude Code 对照 |
 
 参考项目是调研材料，不是本仓 current 契约；结论必须回到本仓代码、[SPEC.md](SPEC.md) 和 [docs/specs/](docs/specs/README.md) 核实。完整用途、基线记录规则和其他研究入口见 [docs/research/upstreams.md](docs/research/upstreams.md)。

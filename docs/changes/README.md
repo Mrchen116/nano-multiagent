@@ -46,13 +46,21 @@ docs/changes/
 
 示例：`feat-104-chat-mention-picker`、`bugfix-123-session-leak`。
 
-新编号统一执行：
+新建 unit 前先 `git fetch origin main`，核对本地修改并基于最新 `origin/main` 开始首文档。新编号统一执行：
 
 ```bash
 python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
 ```
 
-脚本同时扫描 active/archive/retired，并在 Git common dir 原子保留编号。已 reservation 但尚未建立目录的编号不复用。
+脚本同时扫描 active/archive/retired，并在 Git common dir 原子保留编号。已 reservation 但尚未建立目录的编号不复用。该保留只保证同一 clone/worktree 集合内唯一，不是跨机器锁；取号后尽快提交首文档。
+
+首文档与设计继续只提交本 unit 文档并推送 `main`。设计沿用已发布的 unit，不重新取号。推送遇到 non-fast-forward 时：
+
+1. 重新 fetch，检查远端 active/archive/retired 中**所有 type 的同数字**目录，而不只查当前 `unit_id`；例如 `feat-676` 与 `refactor-676` 也算撞号。
+2. 无撞号时，保留其他本地工作，将本 unit 文档提交重放到最新 main 后再推送。
+3. 有撞号时，先成功推送者占用该数字。本地尚未发布的 unit 基于最新 main 重新取号，改目录及本次所有关联引用，再提交推送；已发布的 unit 不可重分配编号。
+
+不得 force-push 或覆盖远端 unit。若远端同编号正是本 unit，按已有内容继续或解决文档冲突，不当成新 unit 重新分配。
 
 ### Milestone 目录
 

@@ -392,6 +392,6 @@ echo "  Browser $UI_URL (same-origin IM: $IM_URL)"
 echo "  Test account: nano / nano1234"
 if [[ $START_VITE -eq 1 ]]; then echo "  Vite $VITE_PORT ($WT_ROOT/.vite.log)"; fi
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
-echo "hint: the default profile uses config/e2e/gateway.yaml, never ~/.nanoassistant"
+echo "hint: source config $MAIN_CFG (copied into this isolated stack)"
 echo "      product acceptance uses --profile daily (handoff: .e2e-daily.json)"
 echo "      Feishu requires --feishu and the private profile documented in worktree-runtime.md"
