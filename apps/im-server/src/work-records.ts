@@ -487,7 +487,7 @@ export class WorkRecords {
       }
     }
     const agent = one(this.db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", root) as {node_id: string};
-    
+
     let state = page.turns[0]?.status ?? "idle";
     if (["completed", "failed", "interrupted"].includes(state)) state = "idle";
     return {

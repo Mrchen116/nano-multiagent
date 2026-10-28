@@ -5,6 +5,7 @@ export class WorkEventError extends Error {}
 export const workObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown) => typeof value === 'string';
 const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
+const permissionOptions = (value: unknown) => Array.isArray(value) && value.every(option => workObject(option) && text(option.id));
 const boolean = (value: unknown) => typeof value === 'boolean';
 const nullable = (check: (value: unknown) => boolean) => (value: unknown) => value === null || check(value);
 function fields(value: Record<string, unknown>, names: readonly string[], valid: (value: unknown) => boolean): void {
@@ -60,9 +61,12 @@ export function decodeWorkEvent(value: unknown): DecodedWorkEvent {
         fields(p, ['presentation'], nullable(workObject));
         if (workObject(p.presentation)) fields(p.presentation, ['summary', 'label', 'emoji'], text); break;
       case 'permission_request': case 'permission_resolved':
-        fields(p, ['request_id'], text); fields(p, ['lifecycle_revision'], number); fields(p, ['options'], Array.isArray);
+        fields(p, ['request_id'], text); fields(p, ['lifecycle_revision'], number); fields(p, ['options'], nullable(permissionOptions));
         fields(p, ['permission_request'], nullable(workObject));
-        if (workObject(p.permission_request)) fields(p.permission_request, ['lifecycle_revision'], number); break;
+        if (workObject(p.permission_request)) {
+          fields(p.permission_request, ['lifecycle_revision'], number);
+          fields(p.permission_request, ['options'], nullable(permissionOptions));
+        } break;
       case 'message': case 'message_delta': case 'text_delta':
         fields(p, ['message_id', 'role', 'text', 'delta', 'reasoning_content', 'source_kind', 'source_session_id'], text); fields(p, ['native_turn'], number); break;
       case 'draft_withheld': case 'message_sent': case 'dispatch_confirmed': case 'inbox_read_committed':

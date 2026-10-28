@@ -65,11 +65,17 @@ export interface WorkToolFields extends WorkCommonFields {
   duration_ms?: number;
   presentation?: {summary?: string; label?: string; detail?: unknown; emoji?: string; [key: string]: unknown} | null;
 }
+export interface WorkPermissionOption {id: string; [field: string]: unknown}
+export interface WorkPermissionRequest {
+  lifecycle_revision?: number;
+  options?: WorkPermissionOption[] | null;
+  [field: string]: unknown;
+}
 export interface WorkPermissionFields extends WorkCommonFields {
   request_id?: string;
   lifecycle_revision?: number;
-  permission_request?: {lifecycle_revision?: number; [key: string]: unknown} | null;
-  options?: unknown[];
+  permission_request?: WorkPermissionRequest | null;
+  options?: WorkPermissionOption[] | null;
 }
 export interface WorkMessageFields extends WorkCommonFields {
   message_id?: string;

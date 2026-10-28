@@ -229,9 +229,13 @@ test('a declaration received before socket replacement cannot mark the replaceme
   expect(f.app.im.gateway.work.view('root').record_sync_state).toBe('unknown');
 });
 
-test('known malformed payloads cannot commit a batch or a completely uploaded part set', async () => {
+test.each([
+  ['tool_end', {call_id: 'tool', presentation: {summary: 42}}],
+  ['permission_request', {request_id: 'approval', options: [null]}],
+  ['permission_request', {request_id: 'approval', permission_request: {options: 'invalid'}}],
+])('malformed %s payloads cannot commit a batch or a completely uploaded part set', async (type, payload) => {
   const f = await fixture();
-  const invalid = {...event(2), turn_id: '1', type: 'tool_end', payload: {call_id: 'tool', presentation: {summary: 42}}};
+  const invalid = {...event(2), turn_id: '1', type, payload};
   const rejected = await f.request('POST', `${prefix}/events`, {from_seq: 1, events: [event(1), invalid]});
   expect(rejected.statusCode, rejected.body).toBe(400);
   expect((await f.request('GET')).json().through_seq).toBe(0);

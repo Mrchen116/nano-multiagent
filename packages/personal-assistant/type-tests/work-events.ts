@@ -36,3 +36,8 @@ const modelPayload = {model: 'provider:model'};
 // @ts-expect-error Fact values also retain the correlation before persistence.
 const wrongPair: WorkFact = {type: 'session_registered', payload: modelPayload};
 void wrongPair;
+
+// @ts-expect-error Permission decisions need stable option identities.
+inbox.append({...identity, type: 'permission_request', payload: {request_id: 'approval', options: [{label: 'Allow'}]}});
+// @ts-expect-error Nested permission display data has the same option contract.
+inbox.append({...identity, type: 'permission_request', payload: {permission_request: {options: ['allow']}}});
