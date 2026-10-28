@@ -28,7 +28,7 @@ Channels 从 Task 模块导入通用编码；同名 canonicalJson 的 Unicode、
 
 ## 影响范围
 
-product-contracts、IM、Channels 的序列化实现及调用点；Node/PA 的相关导入/私有帮助函数命名与测试。另一个聊天的 IM Row/ImContext/命令职责重构独立实施，本任务不涉及其类型设计。
+product-contracts、IM、Channels 的序列化实现及调用点；Node/PA 的相关导入/私有帮助函数命名与测试，以及 integration Workflow 持久调用 key 所用的相同纯编码。另一个聊天的 IM Row/ImContext/命令职责重构独立实施，本任务不涉及其类型设计。
 
 ## 迁移与回滚策略
 
