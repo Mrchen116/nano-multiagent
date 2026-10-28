@@ -18,7 +18,7 @@
 | IM identity canonical | 预遍历排序并转义 U+007F..FFFF | members/snapshot 持久 JSON、迁移确认比较、device-binding AAD/证明 | 本地 serializeIdentityJson 使用 sortedJsonAscii 后仅补转义 DEL，保留领域命名与 export 测试入口 |
 | Channels channel-credentials canonical | 只排序顶层，UTF-8 Buffer；不递归 | ChannelKey seal/open 的 flat ChannelAad（字符串和 revision 数字）与 string secret record；openBinding 顶层 AAD（purpose/node/operation/epoch/expires） | 私有 encodeCredentialRecord 命名，保留浅排序原实现，不将额外嵌套字段的字节偷偷改成递归 |
 | Node device-binding canonical | 顶层排序并转义 U+007F..FFFF | 设备绑定 confirmation 的 HMAC；confirmation 是来自中心的 JSON | 本地 serializeBindingConfirmation，仅改名；不合并浅/深排序 |
-| integration workflow/control canonical | 与 Task 相同的 replacer + UTF-16 排序，不转义；输入为前序 key、prompt、去除 label/phase 的 options（含嵌套 schema） | WorkflowControl.call → SHA-256 → WorkflowCall.key 持久记录 → perform 重放完成前缀；由 workflow/service 装配 | 复用 sortedJsonUtf8，补固定历史调用 key 的 replay 测试，保持 options/持久化与执行时序不变 |
+| integration workflow/control canonical | 与 Task 相同的 replacer + UTF-16 排序，不转义；输入为前序 key、prompt、去除 label/phase 的 options（含嵌套 schema） | WorkflowControl.call → SHA-256 → WorkflowCall.key 持久记录 → perform 重放完成前缀；由 workflow/engine.ts 装配 | 复用 sortedJsonUtf8，补固定历史调用 key 的 replay 测试，保持 options/持久化与执行时序不变 |
 | product-contracts interactive canonicalJson | replacer + localeCompare，不转义 | 无直接消费者，根入口被 configuration 显式导出遮蔽；全仓无该文件函数的直接导入 | 删除这份无消费者的实现，避免根入口切换时误选 |
 
 实际输入主要是 HTTP/WS 解析对象、SQLite JSON/row、配置投影、JSON 工具参数和 flat credential record。undefined 属性、null、数组、数字索引键遵循既有 JS 行为；函数不宣称 RFC 8785/Python 全域一致。对 Date/toJSON 等非 JSON 对象不新增支持或验证，搬移仍保留原 traversal，避免 unknown 类型入口暗中变义。

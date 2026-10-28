@@ -81,7 +81,7 @@ export interface MessageApprovalContext {
   channel?: string;
 }
 
-export { canonicalAgentConfiguration, agentConfigurationFingerprint, canonicalJson, type CanonicalAgentConfiguration } from './configuration.js';
+export { canonicalAgentConfiguration, agentConfigurationFingerprint, type CanonicalAgentConfiguration } from './configuration.js';
 export { validateTimeZone, formatLocalTime } from './time.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
 export { parseReleaseManifest, nodeUpdateTerminal, nodeUpdateCancellable,

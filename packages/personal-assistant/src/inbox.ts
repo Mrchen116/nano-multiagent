@@ -1,8 +1,9 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RelayInput } from '@nano/product-contracts';
-import { canonicalJson, formatLocalTime, withInteractionContext } from '@nano/product-contracts';
+import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
 interface Background { last_notified_at: number | null; due_at: number | null; notified_through_seq: number; submitting_through_seq: number | null }
@@ -82,7 +83,7 @@ export class InboxStore {
    *   control: Keep commands out of the model Inbox and recover them separately.
    */
   acceptRelay(input: RelayInput, attention: boolean, control = false): void {
-    const identity = (value: RelayInput) => canonicalJson({agent:value.agent_id,target:value.conversation_id,message:value.message});
+    const identity = (value: RelayInput) => sortedJsonAscii({agent:value.agent_id,target:value.conversation_id,message:value.message});
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const previous = this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND message_id=?').get(input.agent_id,input.message.id) as {payload:string}|undefined;

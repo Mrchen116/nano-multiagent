@@ -53,3 +53,52 @@
 
 - R1-W1 — accepted。全仓搜索确认 workflow/control.ts:48 的同语义 replacer 与 :141 持久 key 消费；已在 design 盘点表、架构总览、验证第 4 项和 M1 范围补齐，选择复用 sortedJsonUtf8，保持行为 options 与 SHA-256 投影不变。改动前已在 a34af8473 的原实现采集 Unicode/嵌套 schema key 1eb5c3ecce73fd0725c41e4d87e08168cedeb7be110fc8e7741e9b30743f326c，后续从固定历史记录验证 replay。motivation 同步这一纯编码范围，无产品语义变化。
 - 补明 runtime dependency contract 仅允许现有合法 owner 的新 serialization subpath；测试不放宽生产跨包相对导入。
+
+
+## Round 2
+
+### Metadata
+
+- reviewer: `/root/design_review`（沿用 R1 独立 reviewer）
+- target: `refactor-671-serialization-contracts` 修订后的 motivation、design、M1 骨架及 R1 Author Resolutions
+- review_mode: `full`
+- mode_reason: R1-W1 的处理新增 integration Workflow 消费者并扩展 M1 范围，按 milestone 范围变化执行 full；同一 reviewer 保留 R1 直接源码证据，同时核对完整设计仍成立。
+- started_at: `2026-10-28T10:53:07+08:00`
+- completed_at: `2026-10-28T10:54:41+08:00`
+- duration: `PT94S`
+- validated_at: `a55c9b999ba8ff717dbf1ce060a720d523cfd3c3`
+- executed_base: `a34af8473c15f1145d6a1dbbc036bc320560f351`
+- checkout: `/Users/czj/.codex/worktrees/serialization-contracts/nano-multiagent`
+- branch: `codex/serialization-contracts`；本轮开始时 working tree clean。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**
+
+R1-W1 已闭环。完整方案能够在现有职责边界内保留旧字节与持久身份，并为 Workflow 增加所需的历史 key 兼容验证；允许进入实施。
+
+### Coverage 与证据
+
+1. **现状与需求。** 已核对 `c422fedcdb..a55c9b999` 的全部文件差异，只有 motivation、design 与历史审查报告，没有产品源码、测试或 SPEC 变化。motivation 新增的范围仅为 Workflow 持久 key 所用的相同纯编码，仍不修改调度、上下文、Row/ImContext 或 Gateway 架构；用户要求的完整盘点现在包含这份真实消费者。
+2. **新增调用链与输入域。** design 现状表补充 WorkflowControl 的前序 key、prompt、去掉 label/phase 后的 options 及嵌套 schema；与 `workflow/control.ts:138-142` 一致。其 `:161-169` 比较历史 key 决定 replay；真实组装仍由 `workflow/engine.ts:373-395` 接入 previous.calls 与持久 save，再由 integration `index.ts:176-177` 注册。`packages/dsh-integration/package.json` 已声明 product-contracts 依赖，不新增逆向依赖或私有 DSH import。
+3. **职责与公共接口。** 两个无选项函数的签名、UTF-16 排序、转义边界、遍历方式和 owner 特例均未改变。Workflow 的现有函数与 Task 相同，选择共享 sortedJsonUtf8 可以删除实际重复实现；crypto 和 `[previousKey,prompt,behavior]` 投影继续留在 Workflow owner。新 subpath 的精确 allowlist 已加入设计，不放宽现有生产边界。R1 对 IM/Channels/PA/Node 以及无消费者 interactive 实现的直接源码核对仍成立。
+4. **历史兼容验证。** 设计新增 Unicode prompt、嵌套 schema 的固定旧 WorkflowCall.key，并要求从固定历史记录 replay；与现有 `workflow-control.test.ts:68-97` 的 replay fixture 相接，不需要真实模型。已读本地 ignored 的 `output/refactor-671/workflow-capture.ts`：直接调用未修改的原 WorkflowControl；`workflow.json` 中的 completed record 包含 key `1eb5c3ecce73fd0725c41e4d87e08168cedeb7be110fc8e7741e9b30743f326c`、Unicode prompt、嵌套 schema 和 completion，满足后续固定历史输入的来源需要。只核对采集方式与记录，不将该记录或作者报告的 14 个基线测试通过认作待实现版本已验证。
+5. **未改变的覆盖。** R1 的 Unicode/DEL/孤立代理项/嵌套/数字索引固定向量、PA 配置固定 SHA-256、旧 receipt、历史信封、真实 IM seal → ChannelKey.open 与 owner/revision 拒绝测试方案均保留；实际源码没有变化。identity/Node/Channels 的特殊规则仍分别保留，既有跨端差异不在本 unit 修复。
+6. **delta、零用户面与 M1。** 复核完整设计后 `no spec delta` 仍正确；新增的 Workflow 变更也只改变同字节函数的导入，不改变模型可见内容、权限、调度或恢复时序。无需 prototype、产品 reviewer、真模型旅程或部署迁移。M1 已显式包含 integration workflow，验证章节明确历史 key/replay 要求；单 milestone 没有并行写入冲突。实现后仍须 code review/verifier 和相关 CI，设计批准不替代这些门禁。
+
+### 历史问题闭环
+
+- **R1-W1 — closed。** Author Resolution accepted；已补齐现状表、motivation、架构接线、M1 范围和历史 key/replay 验证。源码证据见本轮 Coverage 2–4，保留相同字节并明确复用的决定已收口。
+- **R1-R1 — addressed。** design 的契约增量段明确 runtime dependency contract 只为实际使用者补 serialization 精确 subpath，保留原依赖方向限制。
+
+### Issues
+
+无。
+
+### Recommendations
+
+- **R2-R1（可选文案修正）：** 现状表“由 workflow/service 装配”应写为 `workflow/engine.ts`（由 integration `index.ts` 注册）。仓库没有 `workflow/service.ts`；本轮已核实真实入口，因此该名称笔误不影响方案、范围或门禁结论，修正后可按非实质变化 retained。
+
+### Author Resolutions
+
+- R2 — 核实 Approved，无实质异议。可选 R2 装配路径文案建议 accepted：将 workflow/service 更正为 workflow/engine.ts；仅修正文档来源路径，无接口/范围/验证改变，Gate 2 retained。

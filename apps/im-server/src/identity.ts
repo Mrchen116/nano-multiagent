@@ -1,3 +1,4 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import {
   createHash,
   createHmac,
@@ -85,22 +86,15 @@ const now = () => Math.floor(Date.now() / 1000);
 const bcryptModule = createRequire(import.meta.url).resolve("bcryptjs");
 const equal = (a: string, b: string) =>
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-/** Match Python json.dumps(sort_keys=True, separators=(',', ':')) for device proofs. */
-export function canonical(value: any): string {
-  const sorted = (v: any): any =>
-    Array.isArray(v)
-      ? v.map(sorted)
-      : v && typeof v === "object"
-        ? Object.fromEntries(
-            Object.keys(v)
-              .sort()
-              .map((k) => [k, sorted(v[k])]),
-          )
-        : v;
-  return JSON.stringify(sorted(value)).replace(
-    /[\u007f-\uffff]/g,
-    (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
-  );
+/** Preserve the identity proof and snapshot encoding, including escaped DEL.
+ *
+ * Args:
+ *   value: JSON data used by device proofs and identity snapshots.
+ * Returns:
+ *   Sorted, ASCII-escaped JSON with the historical U+007F escape.
+ */
+export function serializeIdentityJson(value: unknown): string {
+  return sortedJsonAscii(value).replace(/\u007f/g, '\\u007f');
 }
 export function bearer(request: Pick<FastifyRequest, "headers">): string {
   const match = /^Bearer\s+(.+)$/i.exec(request.headers.authorization ?? "");
@@ -454,7 +448,7 @@ export class Identity {
   initializeCompany(adminId: string, activeIds: string[] = []) {
     this.transaction(() => {
       const members = [...new Set([adminId, ...activeIds])].sort(),
-        encoded = canonical(members);
+        encoded = serializeIdentityJson(members);
       const existing = this.get("SELECT * FROM company_initialization WHERE singleton=1");
       if (existing) {
         if (existing.admin_id !== adminId || existing.active_ids !== encoded)
@@ -650,7 +644,7 @@ export class Identity {
         32,
       );
       const cipher = createCipheriv("aes-256-gcm", Buffer.from(derived), nonce);
-      cipher.setAAD(Buffer.from(canonical(aad)));
+      cipher.setAAD(Buffer.from(serializeIdentityJson(aad)));
       const ciphertext = Buffer.concat([
         cipher.update(challenge),
         cipher.final(),
@@ -764,7 +758,7 @@ export class Identity {
       if (op.state !== "awaiting_local_confirmation") return { state: op.state };
       const user = this.active(op.target_user_id),
         snapshot = this.snapshot(op.node_id),
-        encoded = canonical(snapshot);
+        encoded = serializeIdentityJson(snapshot);
       this.run(
         "UPDATE node_binding_operations SET snapshot_json=? WHERE operation_id=?",
         encoded,
@@ -795,7 +789,7 @@ export class Identity {
       this.checkTransferRecipient(op.node_id, user);
       const expected = createHmac("sha256", Buffer.from(op.challenge_hash, "hex"))
         .update(
-          canonical({
+          serializeIdentityJson({
             operation_id: id,
             target_user_id: user.id,
             epoch: op.expected_epoch,
@@ -812,7 +806,7 @@ export class Identity {
       )
         throw new IdentityError(409, "node ownership changed");
       const snapshot = this.snapshot(op.node_id);
-      if (canonical(snapshot) !== op.snapshot_json)
+      if (serializeIdentityJson(snapshot) !== op.snapshot_json)
         throw new IdentityError(409, "node configuration changed; prepare again");
       if (
         snapshot.agent_config_operations.some((r: Row) =>
@@ -821,8 +815,8 @@ export class Identity {
       )
         throw new IdentityError(409, "node configuration operation still pending");
       if (
-        canonical(Object.keys(envelopes).sort()) !==
-        canonical(snapshot.agent_channels.map((r: Row) => r.channel_id).sort())
+        serializeIdentityJson(Object.keys(envelopes).sort()) !==
+        serializeIdentityJson(snapshot.agent_channels.map((r: Row) => r.channel_id).sort())
       )
         throw new IdentityError(409, "complete channel ciphertext set required");
       for (const channel of snapshot.agent_channels) {
@@ -835,7 +829,7 @@ export class Identity {
           throw new IdentityError(409, "invalid channel envelope");
         this.run(
           "UPDATE agent_channels SET credential_envelope_json=?,credential_revision=credential_revision+1,channel_revision=channel_revision+1 WHERE channel_id=?",
-          canonical(envelope),
+          serializeIdentityJson(envelope),
           channel.channel_id,
         );
       }

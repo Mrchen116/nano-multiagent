@@ -13,8 +13,13 @@ IMPORT = re.compile(r"(?:\bfrom\s*|\bimport\s*\(?\s*)['\"]([^'\"]+)['\"]")
 ALLOWED = {
     "packages/product-contracts": set(),
     "packages/channels": {"@nano/product-contracts"},
-    "packages/personal-assistant": {"@nano/product-contracts", "@nano/channels"},
+    "packages/personal-assistant": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/serialization",
+        "@nano/channels",
+    },
     "packages/dsh-integration": {
+        "@nano/product-contracts/serialization",
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",
     },
@@ -29,6 +34,7 @@ ALLOWED = {
         "@nano/product-contracts/agent-lifecycle",
     },
     "apps/im-server": {
+        "@nano/product-contracts/serialization",
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",
     },

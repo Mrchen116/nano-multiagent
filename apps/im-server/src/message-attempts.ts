@@ -1,5 +1,6 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { FastifyInstance } from 'fastify';
-import { canonicalJson } from '@nano/product-contracts';
+
 import { fail, one, params, type ImContext, type Row } from './context.js';
 
 /** Freeze the normalized ordinary-send payload independently of transient delivery state.
@@ -10,7 +11,7 @@ import { fail, one, params, type ImContext, type Row } from './context.js';
  *   Canonical JSON used by the message creation transaction and retry comparison.
  */
 export function messageAttemptPayload(input: Row): string {
-  return canonicalJson({content:input.content ?? '', attachments:input.attachments ?? [], interaction_contexts:input.interaction_contexts ?? []});
+  return sortedJsonAscii({content:input.content ?? '', attachments:input.attachments ?? [], interaction_contexts:input.interaction_contexts ?? []});
 }
 
 /** Reject key reuse by another sender or with different immutable message data.

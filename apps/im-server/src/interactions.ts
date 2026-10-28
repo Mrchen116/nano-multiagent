@@ -1,6 +1,7 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { mergeStatements } from '@openuidev/lang-core';
 import type { FastifyRequest } from 'fastify';
-import { canonicalJson, interactiveResponse, type InteractionSnapshot, type InteractionContext } from '@nano/product-contracts';
+import { interactiveResponse, type InteractionSnapshot, type InteractionContext } from '@nano/product-contracts';
 import { body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
 import { agentAvailable } from './identity.js';
 import { conversationAccess } from './conversation-access.js';
@@ -73,7 +74,7 @@ export class Interactions {
     try { value = interactiveResponse(input); if (!value) return; }
     catch (error) { fail(422, String((error as Error).message)); }
     if (!one(this.db, "SELECT 1 FROM users WHERE id=? AND username LIKE 'agent:%'", sender)) fail(403, 'Only an Agent can publish interactive replies');
-    const publication = canonicalJson(value);
+    const publication = sortedJsonAscii(value);
     if (value.supersedes_message_id) {
       const old = this.source(value.supersedes_message_id, cid);
       if (old.executor_user_id !== sender || old.read_only || old.superseded_by) fail(409, 'Only the same Agent can replace its current reply');
@@ -103,7 +104,7 @@ export class Interactions {
     transaction(this.db, () => {
       this.db.prepare('INSERT OR IGNORE INTO interaction_drafts(source_message_id,user_id) VALUES(?,?)').run(mid, p.id);
       const changed = this.db.prepare('UPDATE interaction_drafts SET draft_revision=draft_revision+1,state_json=?,updated_at=?,submission_message_id=NULL WHERE source_message_id=? AND user_id=? AND draft_revision=?')
-        .run(canonicalJson(state), new Date().toISOString(), mid, p.id, b.expected_draft_revision).changes;
+        .run(sortedJsonAscii(state), new Date().toISOString(), mid, p.id, b.expected_draft_revision).changes;
       if (!changed) fail(409, { code: 'interaction_draft_conflict', message: 'The draft changed on another device' });
     });
     return this.readDraft(req);
@@ -128,7 +129,7 @@ export class Interactions {
       ...(event.context !== undefined ? {context:event.context} : {}), ...(event.label ? {label:event.label} : {}), ...(event.form_name ? {form_name:event.form_name} : {})} : undefined;
     const content = input.action_id ? label! : nativeEvent ? nativeEvent.label || '向 Agent 提问' : request.content;
     if (typeof content !== 'string' || !content.trim()) fail(422, 'Handwritten content required');
-    const semantic = canonicalJson({source_message_id: source.message_id, action_id: input.action_id ?? null, typed_content: input.action_id || nativeEvent ? '' : content, canonical_state: state, ...(nativeEvent ? {event:nativeEvent} : {})});
+    const semantic = sortedJsonAscii({source_message_id: source.message_id, action_id: input.action_id ?? null, typed_content: input.action_id || nativeEvent ? '' : content, canonical_state: state, ...(nativeEvent ? {event:nativeEvent} : {})});
     const previous = one(this.db, 'SELECT s.* FROM interaction_submissions s JOIN messages m ON m.id=s.message_id WHERE m.conversation_id=? AND m.caller_idempotency_key=?', cid, key);
     const snapshot: InteractionSnapshot = { source_message_id: source.message_id, source_summary: source.content, agent_id: source.executor_agent_id,
       ...(input.action_id ? {action_id: input.action_id, action_label: label} : {}), ...(nativeEvent ? {event:nativeEvent,action_label:content} : {}), state, fields };
@@ -145,7 +146,7 @@ export class Interactions {
     const source = prepared.snapshot.source_message_id;
     this.db.prepare('INSERT INTO interaction_submissions VALUES(?,?,?,?)').run(source, user, message, prepared.semantic);
     this.db.prepare('INSERT INTO interaction_drafts(source_message_id,user_id,draft_revision,state_json,submission_message_id) VALUES(?,?,1,?,?) ON CONFLICT(source_message_id,user_id) DO UPDATE SET draft_revision=draft_revision+1,state_json=excluded.state_json,submission_message_id=excluded.submission_message_id')
-      .run(source, user, canonicalJson(prepared.snapshot.state), message);
+      .run(source, user, sortedJsonAscii(prepared.snapshot.state), message);
   }
   /** Copy public history only; no private drafts or active continuation survives a fork. */
   copy(ids: Map<string, string>): void {

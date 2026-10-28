@@ -24,7 +24,7 @@ import {
   type ImContext,
   type Row,
 } from "./context.js";
-import { canonicalJson } from "./task-graphs.js";
+import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 
 /** Seal a Gateway-only secret in the Python-compatible X25519 envelope. */
 export function sealChannelSecret(publicKey: string, secret: Row, aad: Row): Row {
@@ -49,9 +49,9 @@ export function sealChannelSecret(publicKey: string, secret: Row, aad: Row): Row
     ),
   );
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
-  cipher.setAAD(Buffer.from(canonicalJson(aad)));
+  cipher.setAAD(Buffer.from(sortedJsonUtf8(aad)));
   const ciphertext = Buffer.concat([
-    cipher.update(canonicalJson(secret)),
+    cipher.update(sortedJsonUtf8(secret)),
     cipher.final(),
     cipher.getAuthTag(),
   ]);
@@ -302,9 +302,9 @@ export class ChannelService {
           node,
           input.provider,
           input.enabled === false ? 0 : 1,
-          canonicalJson(c),
+          sortedJsonUtf8(c),
           fingerprint(input.provider, c),
-          canonicalJson(envelope),
+          sortedJsonUtf8(envelope),
           key.key_id,
           stamp,
           stamp,
@@ -339,7 +339,7 @@ export class ChannelService {
         const k = this.key(owner, r.node_id);
         credentialRevision++;
         keyId = k.key_id;
-        envelope = canonicalJson(
+        envelope = sortedJsonUtf8(
           sealChannelSecret(
             k.public_key,
             { app_secret: input.credentials.app_secret },
@@ -360,7 +360,7 @@ export class ChannelService {
         )
         .run(
           +input.enabled,
-          canonicalJson(c),
+          sortedJsonUtf8(c),
           changed ? fingerprint(r.provider, c) : r.provider_identity_fingerprint,
           r.provider_identity_revision + +changed,
           changed ? "{}" : r.provider_runtime_json,
@@ -396,7 +396,7 @@ export class ChannelService {
           agent,
           r.node_id,
           r.provider,
-          canonicalJson({
+          sortedJsonUtf8({
             app_id_suffix: JSON.parse(r.config_json).app_id.slice(-5),
           }),
           revision,
@@ -497,10 +497,10 @@ export class ChannelService {
             node,
             r.provider,
             r.enabled === false ? 0 : 1,
-            canonicalJson(c),
+            sortedJsonUtf8(c),
             fingerprint(r.provider, c),
-            canonicalJson(runtime),
-            canonicalJson(r.credential_envelope),
+            sortedJsonUtf8(runtime),
+            sortedJsonUtf8(r.credential_envelope),
             k.key_id,
             now(),
             now(),
@@ -559,7 +559,7 @@ export class ChannelService {
           p.diagnostics_state || "unknown",
           p.status_code ?? null,
           p.status_message ?? null,
-          canonicalJson(Array.isArray(p.checks) ? p.checks : []),
+          sortedJsonUtf8(Array.isArray(p.checks) ? p.checks : []),
           now(),
         );
       return {
@@ -600,7 +600,7 @@ export class ChannelService {
       if (changed)
         this.db
           .prepare("UPDATE agent_channels SET provider_runtime_json=? WHERE channel_id=?")
-          .run(canonicalJson(runtime), p.channel_id);
+          .run(sortedJsonUtf8(runtime), p.channel_id);
       return changed ? "accepted" : "already_current";
     });
   }
@@ -620,7 +620,7 @@ export class ChannelService {
           .prepare(
             "UPDATE channel_manifest_heads SET last_apply_error_json=CASE WHEN manifest_revision=? THEN ? ELSE last_apply_error_json END,updated_at=? WHERE node_id=?",
           )
-          .run(p.manifest_revision, canonicalJson(p.failures ?? []), now(), p.node_id);
+          .run(p.manifest_revision, sortedJsonUtf8(p.failures ?? []), now(), p.node_id);
       else if (p.outcome !== "stale") channelError("channel_reconcile_result_invalid");
       const acks: Row[] = [];
       for (const item of p.removal_outcomes ?? []) {

@@ -40,7 +40,8 @@ interface Operation {
   bind_url: string;
   archive_path?: string;
 }
-const canonical = (value: object) =>
+// The device proof uses a flat confirmation record and escapes DEL.
+const serializeBindingConfirmation = (value: object) =>
   JSON.stringify(
     Object.fromEntries(
       Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
@@ -213,7 +214,7 @@ export async function bindDevice(
       "sha256",
       createHash("sha256").update(operation.challenge_response).digest(),
     )
-      .update(canonical(state.confirmation))
+      .update(serializeBindingConfirmation(state.confirmation))
       .digest("hex");
     await post("commit", { ...credential, proof, envelopes });
   }
