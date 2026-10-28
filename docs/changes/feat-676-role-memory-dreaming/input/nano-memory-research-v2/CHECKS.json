@@ -1,0 +1,12 @@
+{
+  "artifact_count_before_checks": 22,
+  "checks": [
+    "markdown fenced blocks paired",
+    "relative Markdown links resolve",
+    "template and prompt files written as UTF-8"
+  ],
+  "runtime_tests": "not_run",
+  "remote_repository_changes": "none",
+  "compared_nano_commit": "a5724f2124acc345783f5b91f293f62204881902",
+  "context_engine_release": "v0.3.0-rc.5"
+}
