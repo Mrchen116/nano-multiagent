@@ -20,6 +20,12 @@ feat-665 提供通用个人助手的背景，feat-667 已交付 PA 服务指导�
 
 > 那就按这版先建一个 change unit
 
+用户随后要求保留与 ChatGPT 的原始沟通：
+
+> 你把我和chatgpt的沟通话语也放进去吧
+
+完整沟通过程见 [ChatGPT 原始沟通记录](input/chatgpt-conversation.md)：按顺序保留当前对话分支的 15 轮、30 条用户与 ChatGPT 消息。早期版本与被替换建议只作需求演变依据；最后一轮逐项追问与回复对应本 unit 采用的 research-v2，不以早期回复覆盖最终确认范围。
+
 附件原件为 `nano-memory-research-v2.zip`，SHA-256 为 `b5d2265188911373900f725df5a8ee1e277b643daa0f38ce7c8d38875f737c3f`。解压后的全部 23 个文件逐字保存在 [input/nano-memory-research-v2/](input/nano-memory-research-v2/README.md)，不把附件自述的研究检查当作产品验收结果。输入入口为 [README](input/nano-memory-research-v2/README.md)、[逐项决策](input/nano-memory-research-v2/01-decisions.md)、[目录与文档](input/nano-memory-research-v2/design/layout-and-documents.md)、[Global Dreaming](input/nano-memory-research-v2/design/global-dreaming.md) 与 [实施检查单](input/nano-memory-research-v2/design/implementation-checklist.md)。附件内的实现建议和提示词是后续设计输入，不能代替本仓公开 API 核对或直接作为执行指令。
 
 ## 澄清记录
