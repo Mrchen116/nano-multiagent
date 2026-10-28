@@ -6,14 +6,15 @@
 
 聊天、Work、Channel 上行业务的 Row/ImContext 尚未全面迁移，本 unit 不宣称全 IM 类型迁移完成。动态插件/provider/工具目录保留扩展载荷。无 schema、协议版本、模型上下文语义或序列化算法变化，无部署迁移；no spec delta，经独立 verifier 确认无需改 current specs。
 
-并行序列化任务可能在 `apps/im-server/src/control.ts`、`packages/product-contracts/src/index.ts` 交叉；本任务保留 asciiJson/candidateFingerprint 及调用语义。原报告未改，派发基线的两笔本地文档提交未带入 PR；报告副本保留在本 worktree 忽略的 `.e2e-refactor-672/architecture-review-baseline.html`。
+并行序列化 refactor-671 已合入主干。本任务已集成其 `sortedJsonUtf8` / `sortedJsonAscii` 子路径导出及 `serializeCandidateJson` 命名，保留本任务配置服务拆分与类型约束，不重复迁移算法。交叉点 `control.ts`、Gateway、control/approval 测试 import 与 contracts index 已核对。原报告未改，派发基线的两笔本地文档提交未带入 PR；报告副本保留在本 worktree 忽略的 `.e2e-refactor-672/architecture-review-baseline.html`。
 
 ## 版本与门禁有效性
 
 - 派发基线：`a34af8473c15f1145d6a1dbbc036bc320560f351`。
-- final sync / executed_base / effective_base：`ff326c351d104447028f4b185740ab6d6be55de6`。
+- Round 1 executed_base：`ff326c351d104447028f4b185740ab6d6be55de6`。
+- Round 2 final integration executed_base：`b8fc5edefcb74ec8a8888aeb7fa245779e644253`；validated_at：`fc0dca156b3c3cce9602d39e7c47a601ad86b038`。
 - 产品验收、full code review、full verification 的 validated_at：`648b5439e914d6cf90f85a5296734c0e77e3c7eb`。
-- effective_through：上述完整实现树；随后只加入报告、交付记录和整个 unit 的归档移动，产品与测试树未再修改，三道门禁 retained。PR body 记录最终文档提交 head；不能把报告提交称为重新执行过产品验收。
+- effective_base / effective_through：最终 effective_base 为 `532704f7168e4eb350b3f830d47fbeb701a13731`（相对 Round 2 只新增 refactor-675 事前文档）；effective_through 以最终 PR body 记录为准。第二轮已复核序列化与任务关闭主干增量；后续纯文档主干提交、报告和 unit 归档不改变产品/测试树，门禁 retained。不能把文档提交称为重新执行过产品验收。
 - Gate 2：design-review Approved，0 CRITICAL / 0 WARNING；实现未改变审定关键设计。
 - Code review：`[]`；verification：0 CRITICAL / 0 WARNING，aligned / no spec delta；限定 Agent Context Mode B 无 finding。
 - Acceptance：pass，3/3 必验场景，0 blocking / major / minor；真实 HTTP/WS/SQLite 与协议测试节点，不声称真实 Node 工作区落盘或模型验收。
@@ -27,6 +28,7 @@ Node 24.22.1；日志保存在本 worktree 的 `.e2e-refactor-672/`，不提交�
 - `ruff check .`、`ruff format --check .`：通过。
 - `scripts/docs-check`：通过；归档后再次检查路径。
 - 前端 npm ci、共享 contracts build、critical audit：通过；`npm run test -- --maxWorkers=2 --no-file-parallelism`：108 files / 1029 tests passed。
+- 最终集成树 build/typecheck 通过；control、approval、configuration-boundaries、node-rpc、e2e/control-work、agent-settings、personal-agent、PA configuration 共 8 files / 77 tests 通过，包含主干新增字节兼容保护。
 - 后端 `vitest run --maxWorkers=2 --no-file-parallelism`：145 files，777 passed / 2 failed；两项失败均原样定向复测通过（见下）。不声称单次全量全绿。
 
 ### 超时调查
@@ -37,4 +39,4 @@ Node 24.22.1；日志保存在本 worktree 的 `.e2e-refactor-672/`，不提交�
 
 ## 现场
 
-专用 IM PID 69336 已停止；验收者客户端全部关闭。原始协议证据和测试日志保留在忽略目录。开发 worktree `/Users/czj/.codex/worktrees/im-contract-boundaries/nano-multiagent` 与 `codex/im-contract-boundaries` 分支在 PR 未合入前保留。没有合并、部署、发布安装包或修改生产。
+Round 1 专用 IM PID 69336 已停止；Round 2 专用 IM PID 84625 也已停止；验收者客户端全部关闭。原始协议证据和测试日志保留在忽略目录。开发 worktree `/Users/czj/.codex/worktrees/im-contract-boundaries/nano-multiagent` 与 `codex/im-contract-boundaries` 分支在 PR 未合入前保留。没有合并、部署、发布安装包或修改生产。

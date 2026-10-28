@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- Final sync：采用已合入 refactor-671 的序列化子路径导出与 `serializeCandidateJson` 名称；保留其字节契约，不新增本 unit 算法迁移。配置纵切、RPC owner、无行为 delta 的关键决策不变。
+
 ## 现状分析
 
 ### 涉及范围

@@ -42,3 +42,34 @@
 ### 结论
 
 指定完整 diff 未发现 maintainer 需要处理的具体代码缺陷。配置纵切与有限 RPC 关联完成；聊天、Work、Channel 上行业务及其 Row 仍属明确剩余范围，不宣称全 IM 类型迁移完成。
+
+## Round 2 — Final Sync Patch
+
+- reviewer: 同一独立 reviewer `/root/static_review`。
+- review_mode: `patch`；mode_reason: 同步主干 refactor-671/refactor-673 后核查冲突整合及受影响边界，保留 Round 1 full 结论。
+- prior_unit_head: `32ac1af9d`（Round 1 后仅增加文档）。
+- executed_base / effective_base: `b8fc5edefcb74ec8a8888aeb7fa245779e644253`。
+- validated_at / effective_through: `fc0dca156b3c3cce9602d39e7c47a601ad86b038`。
+- completed_at: `2026-10-28T11:49:00+08:00`。
+- 范围：`git range-diff ff326c351..32ac1af9d b8fc5edef..fc0dca156`，加主干增量对配置/Task 能力 guard/授权的影响；不是重审其他已合入 unit。
+
+### Findings
+
+```json
+[]
+```
+
+### 同步后有效性
+
+- range-diff 表明本 unit 的两项实现提交仅适配主干序列化入口和测试 import；文档提交 patch 等价。独立逐字比较 `control-routes`、四个 configuration 边界文件、四个 node-rpc 边界文件、PA ConfigurationOperations 与 IM 编译负例，共 11 个文件与同步前一致。服务/HTTP adapter、三类配置 RPC 依赖、解码、恢复、权限与生命周期决定未被冲突解决覆盖。
+- `control.ts:1,24-29,35,96` 保留主干 `sortedJsonUtf8` 和 `serializeCandidateJson`，继续在候选格式转义 U+007F..FFFF；没有误换成 DEL 语义不同的 `sortedJsonAscii`。主干从 task-graphs 移除的 `canonicalJson` 未被恢复。`gateway.ts:1,572` 保留主干 `sortedJsonAscii` 的 publication identity 比较，RPC import 和授权后 accept 同时保留。
+- `control.test.ts` 的 `sortedJsonUtf8`/ChannelKey/AAD 依赖，与本 unit 的 `configurationDependencies`、服务/路由分离 import 并存；`approval-configuration.test.ts` 同时保留 `gatewayCandidate` 和新路由 import。两个主干新增 Unicode fingerprint/AAD 测试正文独立比较为 byte-for-byte 一致，未丢失断言或 fixture。
+- product-contracts 根入口保留主干移除 canonicalJson 的决定，仅追加本 unit 三个配置类型及 parser；`package.json` 保留 `./serialization` 正式 export。不存在旧导出恢复、重名或 private import。
+- refactor-673 的 Task 关闭通过既有 Gateway.tasks 实例在 Messaging 外层事务中执行；本 unit 未覆盖该接线。配置使用的 `activeTaskCount`/`withdrawsTask` 定义未变，Task 请求 map/adapter 未变；关闭后计数基于权威投影是主干已生效契约，不是本 unit 新增 delta。
+- Agent Context：沿用 Round 1 Mode B 结论；本次序列化适配保留字段与字节，配置输入/选择/恢复/Node runtime 映射不变。主干 Task 关闭契约属于新 base；未发现本 unit 整合造成的来源、权限或模型信息变化，无需重复模型任务。
+
+### 证据与结论
+
+- 最终 HEAD `.e2e-refactor-672/build-final.log` 完成 Node installer candidate；`typecheck-final.log` 所有 workspace 包 Done；`test-final-integration.log` 为 8 文件、77 tests passed。独立 `git diff --check b8fc5edef..fc0dca156` 通过。
+- 补充先前全局门禁记录：bounded 全量为 145 文件/779 项、777 passed/2 failed；两项原样定向复跑分别在 `knowledge-low-load.log` 中 5/5 passed、`disable-low-load.log` 中 1 passed/6 未选中。前端 1029、Python 100 通过为 caller 带版本交接，最终状态由 delivery/CI 记录。未将一次全量失败改写成单次全绿，也不以复跑通过证明资源必然是根因。
+- 无存活 finding，Round 1 full 结论在新 base 上保留并有效至本次 HEAD；不需要 full 重审。相对新 base 仍为 no spec delta。本轮仅追加两份报告，未提交、未修改产品或测试。

@@ -47,3 +47,19 @@ N/A。无原型、视觉或 must-match 契约；读取 motivation.md、design.md
 - [x] `docs/specs/im/`：无需更新，no spec delta，验收符合已有契约。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## Round 2 — 合入并行变更后的 targeted 复验
+
+> Validation snapshot: `b8fc5edef → fc0dca156b3c3cce9602d39e7c47a601ad86b038`，2026-10-28。
+
+**Verdict: pass**，产品问题 0。针对 refactor-671 序列化归属/字节契约集成与 refactor-673 Task 关闭同步后的影响，独立复验配置保存、刷新、原 operation 恢复和附加回执字段；未重新运行所有平台或 RPC 矩阵。开始核对 HEAD 与 clean status，专用新 IM PID 84625、`http://127.0.0.1:58132`，fresh SQLite；构建版本由 caller 交接。第一轮记录及证据保留，没有以最终树覆盖第一轮版本。
+
+| 原必验 Scenario | 本轮覆盖与结论 | 证据 |
+|---|---|---|
+| owner 保存与刷新 | **pass（重新实测）**。首次读 version=1；保存名称 `Round2 配置 😀` 及含中文、emoji、双引号、换行的 custom_prompt，PATCH 200/version=2；live 与 mirror GET 保持完整值。旧 version=1 写入 409；bob/outsider 合法读写仍 404。 | D |
+| 应用确认丢失或节点不可达 | **pass（核心重新实测，其余 retained）**。第二次 apply ID `ebc5834d7bf24fb591d36895298b4d68` 收到后丢 ACK 并关闭连接；原 PATCH 及断线期间新修改均 503 config_apply_pending。重连后仅查原 ID status，匹配回执后 live/mirror GET 200/version=3、名称 `Round2 恢复 😀`，custom_prompt 完整保留。SQLite 仅两条 committed operation，没有为断线新写创建候选；恢复过程中没有重发 apply。无 pending 时独立新离线写 409 agent_node_offline 沿用 Round 1 B/C，相关离线入口本轮无影响。 | D/E；Round 1 B/C retained |
+| 连接更换与迟到结果 | **pass（retained）**。沿用 Round 1 B：错连接回包、旧连接迟到回包和旧 request ID 均不完成当前请求；匹配 ID/current socket 才完成。并行合入范围为序列化归属和 Task 关闭，不改变本场景配置 RPC 的 socket/request 关联及门禁。 | Round 1 B retained |
+
+指纹与旧回执字段集成证据：两条 operation 的候选指纹分别为 `bef095720d68b101ad044bfa40da5ae835a9eebb4b79693c26beace88d39027f`、`510fcdb1e1f1b8518d9ab6dac1347b17419b3983c1c8f67403038b8cc0f647b2`；WS apply、恢复 status 回执与持久 operation/gateway_result 中指纹一致。协议回执额外携带 `legacy_extra={"text":"旧字段 😀","order":[2,1],"nullable":null}`，只读 SQLite 检查两条 gateway_result 均完整保留该对象、数组顺序与 null。该证据证明真实边界字段保真与恢复关联；没有单独对旧版本执行字节级 A/B 或声称全面证明序列化算法等价。
+
+本轮证据均在本 worktree `.e2e-refactor-672/`：D 为 `reviewer-round2-evidence.json`（驱动 `reviewer-round2.mjs`）；E 为 `reviewer-round2-db-evidence.json`。Round 1 文件未覆盖。所有本轮 WS/HTTP 客户端已关闭、脚本退出；IM 由 caller 清理。无真实 Node/模型/UI 结论，报告之外未修改受控文件。上层文档仍无需更新，no spec delta。

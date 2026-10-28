@@ -95,3 +95,41 @@ N/A。
 无遗漏的受支持行为增量。新增 decoder/入口检查在所属边界拒绝畸形稳定字段，历史 null skills 仍可读取；不构成新产品能力或现行契约改写。无须为内部类型和 owner 拆分增加 canonical spec。
 
 Outcome: **aligned / no spec delta**。
+
+## Round 2 — Final Sync Delta Verification
+
+- reviewer: 同一独立 verifier `/root/static_review`。
+- verification_mode: `delta`；review_round: `2`。
+- prior_verification_path: 本文件 Round 1。
+- executed_base / effective_base: `b8fc5edefcb74ec8a8888aeb7fa245779e644253`。
+- validated_at / effective_through: `fc0dca156b3c3cce9602d39e7c47a601ad86b038`。
+- fix_delta_range: final sync `32ac1af9d → fc0dca156`，结合 `ff326c351..b8fc5edef` 的共享边界和 range-diff 排除继承主干变化。
+- focus: 序列化冲突、control/Gateway import、既有 Unicode 指纹/AAD 保护、product-contracts exports，以及 Task 关闭 owner 对本配置纵切的影响。
+- completed_at: `2026-10-28T11:49:00+08:00`。
+- requires_full_verification: `false`。
+- verdict: **pass；0 CRITICAL / 0 WARNING / 0 SUGGESTION**。Round 1 的完整实现结论保留；本轮不是重新执行全量产品验收。
+
+### Completeness / Correctness / Coherence
+
+| 同步影响 | 实现证据 | 验证证据 | 结论 |
+|---|---|---|---|
+| 配置候选序列化改用主干正式入口，同时保持历史 DEL 格式 | `control.ts:1,24-29,35,96` 使用 sortedJsonUtf8 + 原 U+007F..FFFF 转义；service、HTTP adapter 和窄依赖仍在 | range-diff；主干 Unicode fingerprint/heartbeat 断言完整保留；final 77 tests | aligned |
+| Gateway publication identity 格式与 RPC 关联并存 | `gateway.ts:1-3,572` 使用 sortedJsonAscii；未恢复 canonicalJson；RPC accept 及身份顺序未变 | 新旧生产 diff；final build/typecheck；相关 8 文件全过 | aligned |
+| 测试冲突没有删除主干新保护或本 unit 旧保护 | control 同时保留 ChannelKey/sortedJsonUtf8 与配置窄依赖；approval 同时保留 gatewayCandidate 与新路由 import | 两个主干新增 Unicode fingerprint/AAD 测试正文逐字一致；77 tests passed | covered |
+| product-contracts export 合并不泄漏/丢失契约 | 根入口保留 canonicalJson 退役，仅追加配置类型/parser；package 保留 serialization 子路径 | 最终 diff、全包 build/typecheck | aligned |
+| Task 关闭 owner 不破坏配置能力 guard 与 Gateway.tasks 装配 | 主干 Messaging 外层事务调用既有 Gateway.tasks；activeTaskCount/withdrawsTask 定义与本 unit Task RPC 边界不变 | main 增量及 Gateway/Task 接线核对；没有本 unit 覆盖主干 Task 关闭逻辑 | retained |
+| 模型有效配置内容与恢复不因同步变化 | HTTP/候选/records/assembly、RPC map/decoder/request/transport、PA ConfigurationOperations 和编译负例共 11 文件与同步前逐字一致 | 独立文件比较；复用 Round 1 Mode B；final 配置/回执回归 | retained；未新增模型行为验证声明 |
+
+### Evidence / 既有门禁限制的补充
+
+- `.e2e-refactor-672/build-final.log` 完成固定 HEAD `fc0dca156...` installer build；`typecheck-final.log` 全部 workspace 包完成；`test-final-integration.log` 在 11:47:57 开始、7.38 秒完成，8 文件/77 tests passed。
+- 本轮独立 `git diff --check b8fc5edef..fc0dca156` 通过；未重复运行已有有效测试，未启动或留下服务。
+- caller 交接的先前 bounded 全量为 777 passed/2 failed（145 文件/779 项），并非单次全绿。两个原样复跑日志已核对：`knowledge-low-load.log` 5/5 passed；`disable-low-load.log` 1 passed/6 未选中。前端 1029、Python 100 通过由 caller 的交付记录承接。未改产品、断言或 timeout 阈值；这些证据不证明所有原失败必由负载引起，远端 CI 仍按交付要求执行。
+- Round 1 的早期失败/未完成记录是当时快照，保留历史；当前集成证据以上述 final 日志为准。无需因已原样复跑通过的旧失败重开实现或修改本 unit 设计。
+
+### Delta / Spec Reconciliation
+
+- 相对新 base `b8fc5edef`，refactor-672 仍为 **aligned / no spec delta**。主干 refactor-673 对 Task 关闭的 current spec 更新是已继承行为，不计为本 unit delta，也未被本 unit 撤销。
+- 无遗漏的对外行为变化、无配置字段/权限/生效时机/恢复或指纹不一致；序列化 owner 迁移沿用新 base 正式契约和历史字节保护。
+- 无新增 Context finding；复用 Round 1 的限定 Implementation Review，不将 unchanged 配置链等同于已验证模型理解。
+- 无 CRITICAL/WARNING/SUGGESTION；Round 1 full 可保留，结果有效至 `fc0dca156b3c3cce9602d39e7c47a601ad86b038`。报告追加由主 Agent 提交，后续仅文档提交不被称为重新执行过验收。
