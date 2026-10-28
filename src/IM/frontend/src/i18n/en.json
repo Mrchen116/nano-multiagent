@@ -1221,14 +1221,6 @@
       "label": "Task Graphs",
       "help": "Allow the agent to save plans, exploration branches and progress for the Tasks page. Turning this off keeps existing records."
     },
-    "memory_curation": {
-      "label": "Memory Curation",
-      "help": "Organize and retain important information across conversations for future tasks."
-    },
-    "skill_creation": {
-      "label": "Skill Creation",
-      "help": "Let the Agent save reusable methods as skills in its workspace and maintain them."
-    },
     "heartbeat": {
       "label": "Scheduled Check-in (Heartbeat)",
       "help": "Send proactive updates on a schedule, with a configurable frequency and active hours."
@@ -1236,6 +1228,11 @@
     "cron_scheduling": {
       "label": "Scheduled Tasks (Cron)",
       "help": "Run scheduled tasks automatically when they are due."
+    },
+    "dreaming": {
+      "label": "Dreaming · Automatic memory organization",
+      "help": "Periodically organize processed experiences. Turning this off still allows remembering, correcting and reading memories.",
+      "unavailable": "Currently unavailable. Missing tools: {{tools}}"
     }
   },
   "tasks": {

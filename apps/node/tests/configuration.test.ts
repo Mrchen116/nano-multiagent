@@ -3,6 +3,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { agentConfigurationFingerprint, canonicalAgentConfiguration } from '@nano/product-contracts';
+import {builtinSkillsRoot} from '@nano/personal-assistant';
 import { NodeConfiguration, type NodeConfigurationFile } from '../src/configuration.js';
 import { load } from 'js-yaml';
 
@@ -26,6 +27,7 @@ it('preserves default versus empty selections and ordered local/global Skill roo
       ...['.nanoassistant', '.claude', '.codex'].map(dir => ({ path: join(home, dir, 'skills'), source: 'workspace' })),
       ...['.nanoassistant', '.agents'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'global' })),
       ...['.claude', '.codex'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'compat' })),
+      {path:builtinSkillsRoot,source:'builtin'},
     ]);
   } finally { await rm(home, { recursive: true, force: true }); }
 });
@@ -59,7 +61,7 @@ it.each([false, true])('uses the advertised workspace base for creation and conf
     expect(config.current('existing')?.workspace_root).toBe(join(base, 'existing'));
     const template = config.defaultWorkspace('{agent_id}');
     expect(template).toBe(join(base, '{agent_id}'));
-    const created = await config.resolve(canonicalAgentConfiguration({ agent_id: 'new', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false} }), true);
+    const created = await config.resolve(canonicalAgentConfiguration({ agent_id: 'new', features: {intelligent_ui:false,task_graph:false,dreaming:false} }), true);
     expect(created.workspace_root).toBe(template.replace('{agent_id}', 'new'));
     // Runtime preparation mounts the workspace before the candidate is persisted.
     expect((await stat(created.workspace_root!)).isDirectory()).toBe(true);
@@ -67,7 +69,7 @@ it.each([false, true])('uses the advertised workspace base for creation and conf
     expect((await NodeConfiguration.read(path)).current('new')).toBeUndefined();
     await config.persist(created);
     expect((await NodeConfiguration.read(path)).current('new')?.workspace_root).toBe(created.workspace_root);
-    const explicit = await config.resolve(canonicalAgentConfiguration({ agent_id: 'explicit', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, workspace_root: join(home, 'explicit') }), true);
+    const explicit = await config.resolve(canonicalAgentConfiguration({ agent_id: 'explicit', features: {intelligent_ui:false,task_graph:false,dreaming:false}, workspace_root: join(home, 'explicit') }), true);
     expect(explicit.workspace_root).toBe(join(home, 'explicit'));
     expect((await stat(explicit.workspace_root!)).isDirectory()).toBe(true);
     expect(config.current('explicit')).toBeUndefined();

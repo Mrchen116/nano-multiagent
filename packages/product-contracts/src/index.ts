@@ -22,7 +22,7 @@ export interface AgentConfiguration {
   skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist' | 'explicit_denylist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
-  knowledge?: { enabled?: boolean; globalSkillRoot?: string; memoryInterval?: number; skillInterval?: number };
+  knowledge?: import('./knowledge.js').KnowledgeConfiguration;
   approval?: import('./approval.js').ApprovalConfiguration;
 }
 export interface SessionBinding {
@@ -119,3 +119,5 @@ export * from './work-events.js';
 export {decodeWorkEvent, decodeWorkBatch, WorkEventError, workObject} from './work-event-codec.js';
 export * from './chat.js';
 export * from './chat-codec.js';
+
+export {normalizeKnowledge, type KnowledgeConfiguration} from './knowledge.js';

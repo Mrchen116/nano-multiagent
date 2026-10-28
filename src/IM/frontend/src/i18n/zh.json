@@ -1215,14 +1215,6 @@
       "label": "任务图",
       "help": "允许 Agent 记录计划、探索分支和进度，在任务页查看。关闭不删除已有记录。"
     },
-    "memory_curation": {
-      "label": "记忆整理",
-      "help": "跨对话整理和保存重要信息，供后续任务使用。"
-    },
-    "skill_creation": {
-      "label": "技能创建",
-      "help": "允许 Agent 在工作区把可复用的方法保存为技能，并持续维护。"
-    },
     "heartbeat": {
       "label": "定期汇报（Heartbeat）",
       "help": "定期主动汇报，可设置频率和活跃时段。"
@@ -1230,6 +1222,11 @@
     "cron_scheduling": {
       "label": "定时任务（Cron）",
       "help": "到点自动执行计划任务，无需每次手动发起。"
+    },
+    "dreaming": {
+      "label": "Dreaming · 自动整理记忆",
+      "help": "定期整理已处理的经历。关闭后仍可记住、更正和读取记忆。",
+      "unavailable": "当前不可用，缺少工具：{{tools}}"
     }
   },
   "tasks": {

@@ -42,6 +42,7 @@ export function parseConfigurationInput(value: unknown, create: true): CreateCon
 export function parseConfigurationInput(value: unknown, create?: false): UpdateConfigurationInput;
 export function parseConfigurationInput(value: unknown, create = false): CreateConfigurationInput | UpdateConfigurationInput {
   const p = isRecord(value) ? value : {};
+  if (['knowledge', 'memoryMode', 'memory_mode', 'legacyMemory', 'dreaming'].some(key => key in p)) fail(422, 'Memory mode and maintenance budgets are file-only settings');
   for (const key of create ? ['agent_id','display_name','group_reply_policy'] : ['display_name','group_reply_policy']) {
     if (typeof p[key] !== 'string' || !p[key].trim()) fail(422, `${key} is required`);
   }

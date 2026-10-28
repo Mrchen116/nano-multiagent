@@ -432,3 +432,11 @@ it("does not declare a JSON body for bodyless channel actions", async () => {
     expect(new Headers(init?.headers).has("content-type")).toBe(false);
   }
 });
+
+
+it("normalizes retired settings while preserving ordinary Skill choices", () => {
+  const config = normalizeAgentConfigResponse({...BASE_RAW, skills:["skill-creator","other"],skills_selection_mode:"explicit_denylist",features:{dreaming:false,memory_curation:false,skill_creation:false,heartbeat:true}});
+  expect(config.skills).toEqual(["other"]);
+  expect(config.skills_selection_mode).toBe("explicit_denylist");
+  expect(config.features).toEqual({dreaming:false,heartbeat:true});
+});

@@ -28,15 +28,14 @@ export interface CapabilityCatalog {
 export const featureDependencies: FeatureDependency[] = [
   {key: 'intelligent_ui', default_on: true, requires: {features: [], tools: ['send_message', 'skill'], skills: ['nano-interactive-ui']}},
   {key: 'task_graph', default_on: true, requires: {features: ['cron_scheduling'], tools: ['task_graph'], skills: []}},
-  {key: 'memory_curation', default_on: true, requires: {features: [], tools: ['memory', 'read'], skills: []}},
-  {key: 'skill_creation', default_on: true, requires: {features: [], tools: ['skill_manage', 'skill', 'read'], skills: []}},
+  {key: 'dreaming', default_on: true, requires: {features: [], tools: ['read', 'write', 'edit', 'memory_maintenance'], skills: []}},
   {key: 'cron_scheduling', default_on: false, requires: {features: [], tools: ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'], skills: []}},
   {key: 'heartbeat', default_on: false, requires: {features: [], tools: ['read'], skills: []}},
 ];
 
 /** Resolve declared defaults without repairing the submitted dependency graph. */
 export function effectiveFeatures(features: Record<string, boolean> = {}, definitions = featureDependencies): Record<string, boolean> {
-  return {...Object.fromEntries(definitions.map(feature => [feature.key, feature.default_on])), ...features};
+  return {...Object.fromEntries(definitions.map(feature => [feature.key, feature.default_on])), ...Object.fromEntries(Object.entries(features).filter(([key]) => definitions.some(feature => feature.key === key) || !['memory_curation', 'skill_creation'].includes(key)))};
 }
 
 /** Expand only Feature dependencies for a newly generated default selection. */
@@ -115,6 +114,8 @@ export function changeCapability<T extends CapabilityDraft>(draft: T, action: Ca
     if (required.length) return {draft, blocks: [{code: 'required_by_feature', target: {kind: action.kind, name: action.name}, required_by: required}]};
     if (action.kind === 'tool' && fixed.includes(action.name)) return {draft, blocks: [{code: 'fixed_capability', target: {kind: 'tool', name: action.name}}]};
   }
+  const preserveUnavailableDreaming = !(action.kind === 'feature' && action.name === 'dreaming')
+    && validateCapabilities(draft, catalog).some(block => block.required_by?.includes('dreaming'));
   const next = {...draft, features, tool_allowlist: [...(draft.tool_allowlist ?? catalog.tools ?? definitions.flatMap(feature => feature.requires.tools))], skills: draft.skills ? [...draft.skills] : draft.skills} as T;
   const tools = new Set(next.tool_allowlist);
   if (action.kind === 'feature') {
@@ -123,11 +124,12 @@ export function changeCapability<T extends CapabilityDraft>(draft: T, action: Ca
     features[action.name] = action.enabled;
     if (action.enabled) {
       Object.assign(features, featureClosure(features, definitions));
-      for (const dependency of definitions.filter(item => features[item.key])) {
+      for (const dependency of definitions.filter(item => features[item.key] && !(preserveUnavailableDreaming && item.key === 'dreaming'))) {
         dependency.requires.tools.forEach(tool => tools.add(tool));
         dependency.requires.skills.forEach(skill => setSkill(next, skill, true));
       }
-    } else {
+    } else if (feature.key !== 'dreaming') {
+      // Dreaming controls automatic work; immediate document memory keeps its tools.
       for (const tool of feature.requires.tools) if (!fixed.includes(tool) && !owners(features, {kind: 'tool', name: tool}, definitions).length) tools.delete(tool);
       for (const skill of feature.requires.skills) if (!owners(features, {kind: 'skill', name: skill}, definitions).length) setSkill(next, skill, false);
     }
@@ -135,6 +137,6 @@ export function changeCapability<T extends CapabilityDraft>(draft: T, action: Ca
     if (action.enabled) tools.add(action.name); else tools.delete(action.name);
   } else setSkill(next, action.name, action.enabled);
   next.tool_allowlist = [...tools];
-  const blocks = validateCapabilities(next, catalog);
+  const blocks = validateCapabilities(next, preserveUnavailableDreaming ? {...catalog,features:definitions.filter(item => item.key !== 'dreaming')} : catalog);
   return {draft: blocks.length ? draft : next, blocks};
 }

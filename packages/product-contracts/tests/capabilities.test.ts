@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { changeCapability, effectiveFeatures, featureClosure, featureDependencies, fixedTools, validateCapabilities } from '../src/capabilities.js';
 
-const off = Object.fromEntries(['intelligent_ui', 'task_graph', 'memory_curation', 'skill_creation', 'cron_scheduling', 'heartbeat'].map(key => [key, false]));
+const off = Object.fromEntries(['intelligent_ui', 'task_graph', 'dreaming', 'cron_scheduling', 'heartbeat'].map(key => [key, false]));
 const draft = () => ({features: {...off}, tool_allowlist: [] as string[], skills: [] as string[], skills_selection_mode: 'explicit_allowlist'});
 describe('capability selections', () => {
   it('expands Task into the full Cron capability and keeps Cron when Task closes', () => {
@@ -18,13 +18,26 @@ describe('capability selections', () => {
   });
   it('preserves shared read and skill dependencies, then allows a tool alone', () => {
     let state = draft();
-    for (const name of ['memory_curation', 'skill_creation']) state = changeCapability(state, {kind: 'feature', name, enabled: true}, {}).draft;
-    state = changeCapability(state, {kind: 'feature', name: 'memory_curation', enabled: false}, {}).draft;
+    for (const name of ['dreaming', 'heartbeat']) state = changeCapability(state, {kind: 'feature', name, enabled: true}, {}).draft;
+    state = changeCapability(state, {kind: 'feature', name: 'dreaming', enabled: false}, {}).draft;
     expect(state.tool_allowlist).toContain('read');
-    expect(state.tool_allowlist).not.toContain('memory');
+    expect(state.tool_allowlist).toContain('memory_maintenance');
     state = changeCapability(state, {kind: 'tool', name: 'memory', enabled: true}, {}).draft;
-    expect(state.features.memory_curation).toBe(false);
+    expect(state.features.dreaming).toBe(false);
     expect(validateCapabilities(state)).toEqual([]);
+  });
+  it('turns off automatic Dreaming without withdrawing immediate memory tools', () => {
+    const opened = changeCapability(draft(), {kind:'feature',name:'dreaming',enabled:true}, {}).draft;
+    const closed = changeCapability(opened, {kind:'feature',name:'dreaming',enabled:false}, {}).draft;
+    expect(closed.features.dreaming).toBe(false);
+    expect(closed.tool_allowlist).toEqual(opened.tool_allowlist);
+  });
+  it('keeps an upgraded unavailable Dreaming selection from granting tools during unrelated edits', () => {
+    const initial = {...draft(), features:{...off,dreaming:true},tool_allowlist:['read']};
+    const changed = changeCapability(initial,{kind:'feature',name:'heartbeat',enabled:true},{});
+    expect(changed.blocks).toEqual([]);
+    expect(changed.draft.tool_allowlist).toEqual(['read']);
+    expect(changed.draft.features.dreaming).toBe(true);
   });
   it('protects required Skills and converts discovery to a denylist only when withdrawing', () => {
     const initial = {...draft(), skills_selection_mode: 'default_discovery'};
@@ -36,8 +49,8 @@ describe('capability selections', () => {
   });
   it('rejects an unavailable dependency atomically, without treating deselection as unavailability', () => {
     const initial = draft();
-    expect(changeCapability(initial, {kind: 'feature', name: 'memory_curation', enabled: true}, {tools: ['memory']}).draft).toBe(initial);
-    expect(changeCapability(initial, {kind: 'feature', name: 'memory_curation', enabled: true}, {tools: ['memory', 'read']}).blocks).toEqual([]);
+    expect(changeCapability(initial, {kind: 'feature', name: 'dreaming', enabled: true}, {tools: ['memory_maintenance']}).draft).toBe(initial);
+    expect(changeCapability(initial, {kind: 'feature', name: 'dreaming', enabled: true}, {tools: ['memory_maintenance', 'read', 'write', 'edit']}).blocks).toEqual([]);
     expect(validateCapabilities({...initial, features: {...off, task_graph: true}, tool_allowlist: ['task_graph']})).toContainEqual({code: 'required_by_feature', target: {kind: 'feature', name: 'cron_scheduling'}, required_by: ['task_graph']});
   });
   it('keeps root fixed tools scoped to mode and role and protects context tools', () => {

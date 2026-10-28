@@ -70,7 +70,7 @@ struct AgentConfigView: View {
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
                                 Text(L("群回复策略", "Group reply policy") + ": " + currentConfig.group_reply_policy)
-                                ForEach(currentConfig.features.keys.sorted(), id: \.self) { key in
+                                ForEach(currentConfig.features.keys.filter { !["memory_curation", "skill_creation"].contains($0) }.sorted(), id: \.self) { key in
                                     LabeledContent(agentFeatureName(key), value: currentConfig.features[key] == true ? L("启用", "Enabled") : L("关闭", "Disabled"))
                                 }
                                 if let heartbeat = currentConfig.heartbeat_json { Text("Heartbeat: " + heartbeat).font(.caption) }
@@ -265,7 +265,7 @@ struct AgentEditorFields: View {
                 Text(L("新技能默认启用；取消勾选的技能保持禁用。", "New skills are enabled by default; unchecked skills stay disabled.")).font(.caption).foregroundStyle(.secondary)
                 if let capabilities {
                     ForEach(["workspace", "global", "compatibility", "unknown"], id: \.self) { group in
-                        let options = capabilities.skills.filter { ($0.source_group ?? "unknown") == group }
+                        let options = capabilities.skills.filter { $0.name != "skill-creator" && ($0.source_group ?? "unknown") == group }
                         if !options.isEmpty {
                             DisclosureGroup(agentSkillGroupName(group)) {
                                 ForEach(options) { option in
@@ -277,12 +277,13 @@ struct AgentEditorFields: View {
                         }
                     }
                 }
-                ForEach(draft.skills.filter { skill in !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
+                ForEach(draft.skills.filter { skill in skill != "skill-creator" && !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
             }
         }
         Section {
             DisclosureGroup(L("运行特性", "Runtime features")) {
-                ForEach(capabilities?.features ?? []) { feature in
+                ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) }) { feature in
+                    if feature.key == "dreaming" { Text(L("定期整理已处理的经历。关闭后仍可记住、更正和读取记忆。", "Periodically organize processed experiences. Turning this off still allows remembering, correcting and reading memories.")).font(.caption).foregroundStyle(.secondary) }
                     Toggle(agentFeatureName(feature.key), isOn: Binding(get: { draft.features[feature.key] ?? feature.default_on }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
                         .capabilityAnchor("feature:" + feature.key)
                 }
@@ -308,8 +309,7 @@ func agentFeatureName(_ key: String) -> String {
     switch key {
     case "intelligent_ui": return L("交互式回复", "Intelligent UI")
     case "task_graph": return L("任务图", "Task graphs")
-    case "memory_curation": return L("记忆维护", "Memory curation")
-    case "skill_creation": return L("Skill 创建", "Skill creation")
+    case "dreaming": return L("Dreaming · 自动整理记忆", "Dreaming · Automatic memory organization")
     case "cron_scheduling": return L("定时任务", "Scheduled jobs")
     case "heartbeat": return L("心跳", "Heartbeat")
     default: return key
