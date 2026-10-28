@@ -15,7 +15,7 @@ export interface ChatToolCall {
   [field: string]: unknown;
 }
 export interface ChatPermission {
-  agent_id?: string; node_id?: string; node_epoch?: number; lifecycle_revision?: number; run_id?: string;
+  agent_id?: string; node_id?: string; node_epoch?: number; lifecycle_revision?: number | null; run_id?: string;
   request_id?: string;
   call_id?: string;
   tool_name?: string;

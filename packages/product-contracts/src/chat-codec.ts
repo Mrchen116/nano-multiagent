@@ -25,7 +25,8 @@ function tool(value: unknown): ChatToolCall {
   return row as unknown as ChatToolCall;
 }
 function permission(value: unknown): ChatPermission {
-  const row = object(value); fields(row, ['request_id', 'call_id', 'tool_name', 'status', 'decision', 'decided_by'], 'string');
+  const row = object(value); fields(row, ['request_id', 'call_id', 'tool_name', 'status', 'decision', 'decided_by', 'agent_id', 'node_id', 'run_id'], 'string');
+  fields(row, ['node_epoch'], 'number'); fields(row, ['lifecycle_revision'], 'number', true);
   if (row.options !== undefined) {
     if (!Array.isArray(row.options)) throw new Error('invalid chat permission options');
     for (const option of row.options) { const entry = object(option); required(entry, 'id'); fields(entry, ['label', 'description'], 'string'); }

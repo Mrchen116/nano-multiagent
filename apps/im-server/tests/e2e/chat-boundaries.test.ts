@@ -17,6 +17,10 @@ it('rejects malformed stable chat fields before message, event or retry identity
     {kind: 'tool_call_upserted', tool_call: {id: {bad: true}}},
     {kind: 'permission_request', run_id: 'run', permission_request: {request_id: 'request', options: [{id: {bad: true}}]}},
     {kind: 'reply_process', item: {item_id: {bad: true}}},
+    ...['agent_id','node_id','node_epoch','lifecycle_revision','run_id'].flatMap(field=>[
+      {kind:'permission_resolved',permission_request:{request_id:`nested-${field}`,[field]:{invalid:true}}},
+      {kind:'permission_resolved',request_id:`flat-${field}`,[field]:{invalid:true}},
+    ]),
   ]) {
     const response = await node.frames.send('node.streaming_delta', {node_id: node.node, message_id: mid, ...input});
     expect(response.type, response).toBe('error');
