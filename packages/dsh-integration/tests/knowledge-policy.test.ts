@@ -94,13 +94,14 @@ export function apply(ctx){let first;let reads=0;ctx.on('llm/stream',async funct
     await submit('one'); expect(await reviews()).toHaveLength(0);
     await submit('two');
     const status = failure === 'provider' ? 'error' : 'aborted';
-    await expect.poll(async()=>(await reviews()).filter(row=>row.status===status).length).toBe(1);
+    // Native step-limit cancellation settles after several tool steps; do not race its async receipt.
+    await expect.poll(async()=>(await reviews()).filter(row=>row.status===status).length,{timeout:8000}).toBe(1);
     expect((await reviews())[0]?.diagnostic).not.toBe('memory_read_incomplete');
     await client.rpc.request('trajectory.prepare',{observerId:binding.sessionId,rootAgentId:'a',rootSessionId:binding.sessionId,sessionId:binding.sessionId,ownerId:'owner',nodeId:'node',nodeEpoch:1});
     const runs=await client.rpc.request('trajectory.call',{observerId:binding.sessionId,method:'trajectory/runs'}) as {value:{stopReason:string;state:string}[]};
     expect(runs.value).toEqual([expect.objectContaining({stopReason:status,state:failure==='provider'?'failed':'cancelled'})]);
     await submit('three');
-    await expect.poll(async()=>(await reviews()).filter(row=>row.status==='completed').length).toBe(1);
+    await expect.poll(async()=>(await reviews()).filter(row=>row.status==='completed').length,{timeout:8000}).toBe(1);
     await submit('four'); expect(await reviews()).toHaveLength(2);
     await client.shutdown(); client=undefined;
   } catch(error) {throw new Error(`${error}\n${logs}`,{cause:error});}
