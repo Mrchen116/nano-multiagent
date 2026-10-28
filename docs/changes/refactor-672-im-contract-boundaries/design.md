@@ -112,3 +112,32 @@ IM：no spec delta。行为兼容重构，无客户端变化。非法输入继�
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | M3-work-events | Work 完整事件契约与持久投影 | M1/M2 | 单纵切 | product-contracts Work，PA work-projection/global-agent/inbox/work-sync，IM Work/WorkSync/Gateway入口，相关测试 | [worker] 已知生产事实的 type/payload 编译关联贯通到日志和传输；共享decoder真实校验保原值；WorkRecords不持有ImContext；固定行与公开投影分离；批量/分段/WS共享入口；重放/恢复/权限/字节兼容及真实生产链通过。[reviewer] 新增三条Requirement均可从真实工作页API结果核实，原记录不丢失、不重复、不虚构完成。 |
+
+## M4 扩展设计：聊天发送与流式更新
+
+### Grounding 与模块归属
+
+`Messaging.sendMessage` 直接以 Row 混用 HTTP body、principal、SQL 结果和公开消息；`message` 同时解码 messages JSON 列和派生发送者/审批展示。`Gateway.streaming` 接收任意 Row，以 kind 分支消费不同字段、检查来源和生命周期并更新消息、过程及事件。`SingleThread.delta` 与 GlobalAgent 显式发送没有生产端载荷关联。既有 RelayDelivery 已独立拥有有界窗口/重试，不重造投递队列。
+
+1. product-contracts 定义 ChatStreamFact 的有限 kind→字段联合、AgentPublication、ChatAttachment、过程项、权限选项、发送回执及稳定消息 View。正文/身份/状态/序号固定，工具 input/output/detail、交互 source/state、来源扩展保持动态。SingleThread.delta、GlobalAgent 的发送方法及 external shadow 的实际转发边界使用这些类型；不得以 string overload 绕过已知生产事件约束。Channels 通用帧仍保留动态协议能力，不扩展为全 Channels 消息表。
+2. untrusted HTTP/WS/持久 outbox 边界分别解码。共享 stream decoder 校验该 kind 真正消费的字段、嵌套工具/审批 id 等，返回原对象；不裁剪附加字段、不重排对象、不补默认字段。turn_start、普通 message 更新及既有 run_terminal_reconcile no-op 分开建模。HTTP 输入与受控 insert metadata 分开，交互数据继续由现有 Interactions owner 校验；不得引入第二份 UI schema 或规范化指纹。
+3. 新 MessageRecords 持有 SQLite 和实际需要的窄交互投影/写入接口，拥有固定 MessageRecord/EventRecord/RelayRecord、JSON 列解码、公开消息投影、基础消息写入及流式持久化操作。发送者/PA provenance 保持现有查询语义；NodeUpdates 的 messageWait 作为只读可选投影函数。不能持有完整 ImContext/Gateway/Messaging。既有 Interactions 是独立业务 owner，不复制其提交/隐私规则。
+4. Messaging 保留发送授权及消息+交互背景+relay 的事务编排，HTTP adapter 转为具名 SendCommand 后进入内部发送方法；消息记录及事件持久化委托 MessageRecords。事务外 publishMessages 沿用既有真实接收者和 relay eligibility 检查。普通消息 attempt 的原始规范化字段、旧行回退与 Agent dispatch log 的不同幂等规则保留，不能为“统一”而改指纹或比较集合。
+5. Gateway 只做传输接线；独立 ChatStreaming 通过数据库、具名消息端口、Agent/PA 授权函数及结束后的 groupReply 回调拥有流式业务。MessageRecords 隐藏 SQL/JSON 更新；ChatStreaming 负责解码后的事件分支、权限和已有状态处理。普通 message_delta 保留只查询身份/状态的热路径，不因为强类型而读取完整过程历史。选中聊天事件用具名 ChatEvent 联合生成并持久发布；其它配置/Task/运维 conversation_events 不纳入此次全表迁移。
+6. 不创建通用 Repository、事件总线或新的持久队列。现有 stream buffer、ack/relay admission、publication recovery、external outbox 的算法与事务边界不变。外部平台结果未知与 IM 补镜像继续由 ExternalChannels 拥有。
+
+### 兼容性、Context 与风险
+
+模型输入、消息路由、审批决定与工具运行时不改。本轮固定产品边界，需核对真实 SingleThread/GlobalAgent 生产载荷和 IM 消费结果；模型能力无需重测。RelayInput 和交互背景仍按已有链路进入 runtime，必要集成检查观察实际 port 请求，而不让 fixture 声称模型理解。
+
+终态、discard、重放等先按既有代码和 current spec 建立基线，发现 drift 单独记录，不能把重构新增的类型默认值变成隐式状态修复。特别是 current gateway-relay 对 provisional discard 的原子投影回滚描述强于当前 Gateway 的简单 delete/event 分支：实施不得借移动代码扩大行为承诺；需在测试/审查中区分已有 drift 与本次回归。无需 schema/协议版本迁移；本轮目标 no spec delta。
+
+### 验证与验收
+
+保留 messaging、message-attempts、relay-delivery、interactive-messages、agent-lifecycle、watchdog、external-ingress、single-thread/external 及真实 e2e/server/relay-recovery 的既有保护。先跑相关基线；新测试集中于稳定字段拒绝不留下 SQL/幂等/广播副作用，以及真实 SingleThread→协议→中心→HTTP/history/user-stream 接线。覆盖发消息重试/冲突、流增量重试、终态后增量、过程/权限/动态内容、身份和生命周期、断线恢复。编译负例覆盖错误 kind/字段配对、缺少身份、SQL 行冒充 View，纳入常规 typecheck。
+
+产品验收沿用隔离真实 HTTP/WS/SQLite，同客户端接口观察发送、实时事件与刷新结果；RuntimePort 提供确定性原生事实，仅用作机制接线，不声称真实模型。无 UI 改动，无视觉原型。M4 full 独立设计审查先于实施，完成后静态 code review/verification 和产品验收；M1–M3 按实际共享影响复验或 retained。首轮可将已冻结契约的 PA producer 迁移作为明确文件范围子任务，其余由主 Agent 完成；后续修复不另派实施 worker。
+
+| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
+|---|---|---|---|---|---|
+| M4-chat-messages | 聊天发送与流式完整契约 | M1–M3 | 单纵切 | product-contracts chat、PA SingleThread/GlobalAgent/external、IM Messaging/MessageRecords/ChatStreaming/Agent publication、相关测试 | [worker] 生产事件有限关联，入口真实校验，发送/记录/View 分离，持久与流式 owner 不持有完整服务容器，原字节/事务/授权/恢复语义及真实接线通过。[reviewer] 新增三条 Requirement 从真实 HTTP/WS/history 结果可核实，基线漂移不冒充本次实现或通过。 |

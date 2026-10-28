@@ -405,13 +405,14 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     if (m.conversation_id !== r.conversation_id) fail(409, "message_id not found");
     const card = m.permission_requests.find((x: Row) => x.request_id === r.request_id);
     if (!card) fail(409, "request_id not found");
+    if(!card.agent_id||!card.node_id)fail(409,'permission execution unavailable');
     requireLifecycle(db,card.agent_id,card.lifecycle_revision);
     const epoch =
       one(db, "SELECT node_epoch FROM node_binding_state WHERE node_id=?", card.node_id)
         ?.node_epoch ?? 0;
     if ((card.node_epoch ?? 0) !== epoch)
       fail(409, "permission execution belongs to a revoked device session");
-    if (["submitted", "resolved"].includes(card.status))
+    if (["submitted", "resolved"].includes(card.status ?? ""))
       return {
         status: card.status,
         request_id: r.request_id,

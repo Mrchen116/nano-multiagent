@@ -153,3 +153,79 @@ M3 覆盖产品事件生产、带 checkpoint 的本地日志、独立上传、�
 ### Recommendations
 
 - **R2-R1（可选）**：M3 的最终验证记录把 `KnowledgeUpdates` 两种生产事件及 `tenancy.test.ts` 的撤销/重新授权共享 journal 用例一起列出。它们已被本设计的“完整生产链/权限恢复保持”范围覆盖；显式列名有助于避免只运行 projection/global-agent/work-sync 文件而漏掉旁路生产者和身份-only 分支，不要求新增流程或重复测试。
+
+## Round 3
+
+### Metadata
+
+- reviewer: 独立 reviewer `/root/design_review`；沿用 R1/R2 身份，未参与设计或实现。
+- target: motivation/design 末尾新增 M4 聊天发送与流式更新、`M4-chat-messages/.gitkeep`，及实际生产装配和消费链。
+- review_mode: `full`（完整覆盖新增 M4，M1–M3 未改变的设计 retained）
+- mode_reason: 用户在同一 PR 内新增完整业务链，涉及共享事件接口、持久记录与流式职责，需要完整审查新增范围；不重新审查无关配置、RPC 或 Work 算法。
+- started_at: `2026-10-28T14:17:06+08:00`
+- completed_at: `2026-10-28T14:19:02+08:00`
+- duration: `1m56s`
+- validated_at: 产品基线 `c90f5e968c2a28f31669fb5acb78567681fc5949` 加本轮未提交 M4 文档；motivation blob `cf2279dc5a02612062330465ee275aa7fc335838`，design blob `1aa77bb14e10346aba38d4e69a6ff4203565598b`。
+- executed_base: 本地已同步的 `origin/main` 为 `94b06908d`；本轮未执行 fetch 或修改分支。
+- checkout: `codex/im-contract-boundaries`；开工已有作者的 unit archive→active 暂存重命名、motivation/design 修改及 M4 骨架，全部保留；本轮仅追加本报告。
+- retained_from: Round 1/2 对配置、NodeRpc 和 Work 的设计结论。M4 没有修改这些职责决定；共享消息投影可能影响既有消费者，实施后仍应按真实 diff 复验相关门禁，不能以 retained 代替新实现验证。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+设计已覆盖普通 HTTP 发送、Agent 显式发送、SingleThread 流式事实、外部 shadow outbox、消息与事件持久化以及实时/历史公开投影。MessageRecords、ChatStreaming、Messaging 的分工能解除当前 Row/ImContext 耦合，同时复用 Interactions 和 RelayDelivery 的现有责任。未发现需要先补设计才能实施的实质阻塞。
+
+本轮未运行测试、未验收 M4 实现或真实模型；Approved 仅表示方案可实施。已确认的 provisional discard 基线 drift 仍存在，不计为本轮已解决或已通过的产品行为。
+
+### Coverage 与证据
+
+#### 实际装配、生产契约与边界
+
+- `apps/im-server/src/server.ts:88-91` 实际创建 Messaging、Gateway 和 PersonalAgents；普通 POST 在 `messaging.ts:916-919` 进入 sendMessage，历史 GET 在 `:922-965` 复用 message 投影。Gateway 的 `node.streaming_delta` 在 `gateway.ts:536` 进入 streaming；Agent 显式发送在 `:549-642`，均为生产入口。
+- `packages/personal-assistant/src/single-thread.ts:290-343,403-428,481-484` 确实生产 turn_start、工具/思考/审批、正文增量和结束事实；目前 delta 接收 Record，使 kind/字段无静态关联。完整 ChatStreamFact 联合加错误配对编译负例直接保护实际生产方法，而非仅为中心 fixture 增加 DTO。
+- `global-agent.ts:553-654` 的显式发送拥有 prepare/sending/unknown/status reconcile/confirmed 状态，以及群聊重新核对后暂缓发送；AgentPublication 与发送回执应贯穿该链，保留不同于普通 HTTP attempt 的现有比较字段和指纹。设计已明确不统一这些幂等机制。
+- `external.ts:181-211,275-304` 在本地持久化 stream frame，并在 shadow 可用后重写 conversation/message 的镜像身份再转发；平台结果未知另由 `finish/publish` 管理。共享 decoder 用于实际 outbox 读取/转发边界、返回原值、允许既有附加字段，可收紧产品契约而不限制 Channels 的其他通用帧。
+- 可信 lifecycle 注入仍在 `external.ts:44-55` → `store.ts:80-84` 的实际 dispatch 边界。类型不能要求模型猜 revision，也不能在恢复 outbox 时以新 epoch 覆盖旧事实；设计保留原 admission/recovery 算法，具备合理落点。
+
+#### 模块责任与事务
+
+- `messaging.ts:306-357` 的 SQL 行、JSON 列、sender/PA provenance、human approval、interactive 公开投影构成真正的 MessageRecords seam；数据库与窄 `Interactions.message/record` 接口足够，不需要完整服务容器。`interactions.ts:38-87` 已分别负责公开卡片投影与验证/写入，复用它可避免复制 UI schema 或把私有 registry/draft 混入消息。
+- `messaging.ts:390-456` 基础插入包含 preview/unread、受控 provenance、交互记录与 message.created；`:541-603` 普通发送还编排授权、reference 校验、attempt 比较、私有交互背景和 relay 持久化。将前者 SQL/投影下沉、后者保留在 Messaging 的现有事务中，既减少依赖又保留原子提交边界。
+- `message-attempts.ts:13-35` 保存规范化普通发送 payload，并为旧行回退；`gateway.ts:566-582` 的 Agent dispatch 比较 trim 后 text、interactive 和 resolved target。设计明确保持两套已有语义及原字节，不会借类型统一改变已保存重试身份。
+- `messaging.ts:648-701` 的 relay enqueue/eligibility/publish 和既有 RelayDelivery 负责投递；MessageRecords 不应另建队列。选中 ChatEvent 在数据库 owner 持久化、由 facade 执行真实接收者广播/PA wake，职责能落实，Task/配置等事件不必全表重构。
+- `NodeUpdates.messageWait`（`node-updates.ts:160-167`）只读 relay/update 状态，设计将其作为可选投影函数而不注入 NodeUpdates 或 ImContext，避免不必要依赖。Agent 显式发送亦需依 M4 范围经具名发送接口接线，不能把 Gateway 中原 Row 业务整体留下后声称链路完成。
+
+#### 流式状态、授权与热路径
+
+- `gateway.ts:750-831` 的 turn_start 与后续消息更新具有不同身份来源；创建前检查 Agent、PA 原聊天资格、predecessor 归属，更新时按已持久 sender 反查 Agent，并同时核对事件与消息 lifecycle。`run_terminal_reconcile` 是既有独立 no-op。设计将这些分支独立建模，保留在 ChatStreaming 的业务授权范围内，不把 decoder 当鉴权。
+- `gateway.ts:835-970` 的增量、完成、工具/思考/审批和 reply_process 各自消费不同字段。decoder 先校验该分支实际需要的嵌套 id/数据，再进入 SQL 与幂等写入，能够实现“畸形稳定字段不留下消息、幂等键或成功事件”的新增退出标准；不必改动动态工具内容。
+- `gateway.ts:819-822` 的 message_delta 只读身份/状态字段，不构造完整 message；`:836-850` 原顺序为幂等键、终态判定、正文拼接。设计显式保持该热路径，且终态规则按基线处理，不引入类型驱动的默认状态修复。拆分 MessageRecords 可提供窄 identity/status 读取，不需要每次解码 tool/thinking/reply_process 历史。
+- 已核查 `agent-lifecycle.test.ts:50-66` 与 `e2e/server.test.ts:184-228` 的旧 lifecycle、审批和工具展示消费者。合法省略、旧顶层/嵌套 permission id、真实通用工具结果应继续兼容；有限 producer 类型与兼容 receiver decoder 的职责不能混用。
+
+#### Current 契约与已知 drift
+
+- `docs/specs/im/gateway-relay.md` 的消息回执、静默、liveness、后台 sidecar、恢复和机器身份规则，及 conversations-messages 的发送/历史规则，要求实时与持久结果一致。M4 的三个 Requirement 聚焦发送身份、已接受过程与非法输入无副作用，范围与本次架构治理一致。
+- 已直接核实 design 指出的 drift：`gateway-relay.md:157-165` 要求 discard 在同一事务保留 tombstone、删除 scoped 事件、恢复 preview/last_message_at/unread，并允许重复 discard；`gateway.ts:865-872` 当前只 delete message 后调用 event，后续重复还会先经过 message not found。它是基线不一致，不能宣称此次结构迁移已经满足该全部 Scenario。
+- 当前设计明确要求单独记录 drift、不隐式扩大状态修复，并在门禁中区分新增回归与原缺口；该处理适合行为兼容重构，不需为本轮改写 current spec 来适配缺陷。最终报告仍须保留这一限制，不能以 no spec delta 表示所有 current Scenario 已验过。
+- 不涉及 schema、协议版本、序列化算法迁移或 UI 内容/交互变更；无需 deployment-prompt 或视觉原型。M1–M3 记录仍保留，M4 必须完成自己的实施/静态/产品门禁。
+
+#### 验证闭环与 Agent Context Design Review
+
+- M4 保留现有 messaging、message-attempts、relay-delivery、interactive-messages、lifecycle/watchdog、external 与真实 e2e 保护，新增真实 SingleThread→协议→IM→HTTP/history/user-stream 链路；覆盖拒绝无副作用、发送/增量重试、终态后增量、动态过程与断线恢复，能够验证设计关键收益。编译负例纳入 typecheck，避免稳定对象仍从宽泛 overload 逃逸。
+- Mode A：消息公开投影同时成为 `messaging.ts:653-669` 的 RelayInput，随后由 `single-thread.ts:150-170` 组装到 runtime；因此本次关注 sender/PA provenance、附件引用、interaction_contexts 的私密范围和正文/过程保真。设计要求检查实际 RuntimePort 请求，而不以中心 fixture 声称模型理解，验证层次合适。
+- 未改变提示词、模型来源选择、审批决定或执行循环；原保留/恢复身份和 external unknown 状态应贯穿类型边界。无必要新增模型能力评测；若实际改动改变这些信息或时机，应按真实 delta 扩大审查。本轮没有模型运行证据。
+
+### 历史问题闭环
+
+- R1/R2 无 CRITICAL/WARNING；原可选建议及作者处置保留。
+- 本轮未重跑 M1–M3 实现门禁；共享消息消费者的最终复验由交付者按实际 diff 判断并记录版本。
+
+### Issues
+
+无。
+
+### Recommendations
+
+- **R3-R1（可选）**：在 MessageRecords 的窄验证中保护 `message()` 当前非枚举的 `awaiting_permission_at`/`sender_source_id`（`messaging.ts:353-356`）：内部消费者仍能读取，公开 JSON 不因改成普通 interface spread 而泄露或丢失职责。可结合已有 watchdog/历史序列化用例，不必为每个投影字段新增测试。
+- **R3-R2（可选）**：给 message_delta 窄读取保留一项结构性回归或静态检查证据，确认新 ChatStreaming 不经完整 `message()` 投影；无需性能基准框架或全量压测。

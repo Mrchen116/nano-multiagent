@@ -1,9 +1,12 @@
 import type { FeishuConfiguration, FeishuMessage, ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
-import type { RelayInput } from '@nano/product-contracts';
+import { decodeAgentPublication, decodeChatStream, type ChatStreamFact, type RelayInput } from '@nano/product-contracts';
+
 import { formatLocalTime } from '@nano/product-contracts';
 import { NodeStore } from './store.js';
 import { ExternalStore, type ExternalChat, type ExternalOutput } from './external-store.js';
+
+type CompletedMessage = Extract<ChatStreamFact, {kind: 'message_completed'}>;
 
 interface Connection {
   config: Pick<FeishuConfiguration, 'appId' | 'botOpenId' | 'ownerOpenId'>;
@@ -179,36 +182,43 @@ export class ExternalChannels {
       const local = this.query(payload); if (local) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: true, result: local } };
     }
     if (type === 'agent.message') {
-      const target = String(payload.to).replace(/^conversation:/, ''); const chat = this.state.chat(target);
+      const publication = decodeAgentPublication(payload);
+      const target = String(publication.to).replace(/^conversation:/, ''); const chat = this.state.chat(target);
       if (chat) {
-        const agentId = String(payload.from_session_id).split('|')[0];
+        const agentId = String(publication.from_session_id).split('|')[0];
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
-        const output = this.state.prepare(chat.id, String(payload.from_session_id), 'explicit',Number(payload.lifecycle_revision??1));
+        const output = this.state.prepare(chat.id, String(publication.from_session_id), 'explicit',Number(publication.lifecycle_revision??1));
         this.state.frame(output.id, { lifecycle_revision:output.lifecycle_revision,kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
-        const complete = { lifecycle_revision:output.lifecycle_revision,kind: 'message_completed', message_id: output.id, final_content: payload.text, pa_incident_ref:payload.pa_incident_ref, delivery_status: 'completed' };
+        const complete: CompletedMessage = { lifecycle_revision:output.lifecycle_revision,kind: 'message_completed', message_id: output.id, final_content: publication.text, pa_incident_ref:publication.pa_incident_ref, delivery_status: 'completed' };
         await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
+      return this.options.relay.request(type, {...publication});
     }
     if (type !== 'node.streaming_delta') return this.options.relay.request(type, payload);
-    if (payload.kind === 'turn_start') {
-      const chat = this.state.chat(String(payload.conversation_id));
-      if (!chat) return this.options.relay.request(type, payload);
-      const output = this.state.prepare(chat.id, String(payload.idempotency_key), typeof payload.external_reply === 'string' ? payload.external_reply : undefined,Number(payload.lifecycle_revision??1));
-      this.state.frame(output.id, payload);
+    const stream = decodeChatStream(payload);
+    if (stream.kind === 'run_terminal_reconcile') return this.forwardStream(stream);
+    if (stream.kind === 'turn_start') {
+      const chat = this.state.chat(String(stream.conversation_id));
+      if (!chat) return this.forwardStream(stream);
+      const output = this.state.prepare(chat.id, String(stream.idempotency_key), typeof stream.external_reply === 'string' ? stream.external_reply : undefined,Number(stream.lifecycle_revision??1));
+      this.state.frame(output.id, stream);
       void this.flush().catch(this.options.onError); return ack(type, { message_id: output.id, conversation_id: chat.id });
     }
-    const output = this.state.output(String(payload.message_id));
-    if (!output) return this.options.relay.request(type, payload);
-    if (payload.kind === 'message_completed') {
-      await this.finish(output, payload);
+    const output = this.state.output(String(stream.message_id));
+    if (!output) return this.forwardStream(stream);
+    if (stream.kind === 'message_completed') {
+      await this.finish(output, stream);
       if (output.reply) await this.removeReaction(output.reply);
-    } else this.state.frame(output.id, payload);
-    if (payload.kind === 'permission_request' && output.reply) await this.approval(output, payload);
-    if (payload.kind === 'permission_resolved') await this.resolveApproval(String((payload.permission_request as Record<string,unknown>|undefined)?.request_id ?? payload.request_id), String(payload.decision));
+    } else this.state.frame(output.id, stream);
+    if (stream.kind === 'permission_request' && output.reply) await this.approval(output, stream);
+    if (stream.kind === 'permission_resolved') await this.resolveApproval(String(stream.permission_request?.request_id ?? stream.request_id), String(stream.decision));
     void this.flush().catch(this.options.onError); return ack(type);
   }
-  private async finish(output: ExternalOutput, payload: Record<string, unknown>): Promise<void> {
+  private forwardStream(payload: ChatStreamFact): Promise<ProtocolFrame> {
+    return this.options.relay.request('node.streaming_delta', {...payload});
+  }
+  private async finish(output: ExternalOutput, payload: CompletedMessage): Promise<void> {
     try {
       if (output.reply && String(payload.final_content ?? '').trim()) await this.publish(output, String(payload.final_content), payload);
       this.state.frame(output.id, payload);
@@ -221,11 +231,11 @@ export class ExternalChannels {
       throw error;
     }
   }
-  private async publish(output: ExternalOutput, text: string, metadata?: Record<string, unknown>): Promise<void> {
+  private async publish(output: ExternalOutput, text: string, metadata?: CompletedMessage): Promise<void> {
     const agentId=this.state.chat(output.chatId)!.agentId;
     return this.options.store.lifecycle.run(agentId,output.lifecycle_revision,()=>this.publishAdmitted(output,text,metadata));
   }
-  private async publishAdmitted(output: ExternalOutput, text:string, metadata?:Record<string,unknown>):Promise<void> {
+  private async publishAdmitted(output: ExternalOutput, text:string, metadata?:CompletedMessage):Promise<void> {
     const active = this.dispatches.get(output.id); if (active) return active;
     const task = (async () => {
       const current = this.state.output(output.id)!;
@@ -292,12 +302,12 @@ export class ExternalChannels {
           if (typeof response.payload.message_id !== 'string') throw new Error('Knowledge projection has no message identity');
           this.state.mirrorOutput(output.id, response.payload.message_id);
         } else if (frame.body.kind === 'turn_start') {
-          const response = await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, conversation_id: chat.shadowId });
+          const response = await this.forwardStream({ ...frame.body, node_id: this.options.nodeId, conversation_id: chat.shadowId });
           if (typeof response.payload.message_id !== 'string') throw new Error('IM mirror has no message identity');
           this.state.mirrorOutput(output.id, response.payload.message_id);
         } else {
           if (!output.imId) return;
-          await this.options.relay.request('node.streaming_delta', { ...frame.body, node_id: this.options.nodeId, message_id: output.imId });
+          await this.forwardStream(frame.body.kind === 'run_terminal_reconcile' ? {...frame.body, node_id: this.options.nodeId} : { ...frame.body, node_id: this.options.nodeId, message_id: output.imId });
         }
         this.state.confirmFrame(frame.id);
         });
@@ -331,10 +341,10 @@ export class ExternalChannels {
           content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, created_at: row.input.message.created_at, timezone: row.input.message.timezone, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
         this.state.mirrorInput(row.id, result.id);
   }
-  private async approval(output: ExternalOutput, payload: Record<string, unknown>): Promise<void> {
+  private async approval(output: ExternalOutput, payload: Extract<ChatStreamFact, {kind: 'permission_request'}>): Promise<void> {
     const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId)!;
     if (this.options.personalAgent?.(chat.agentId) || !connection.config.ownerOpenId) return;
-    const request = payload.permission_request as Record<string, unknown>; const id = String(request.request_id);
+    const request = payload.permission_request ?? payload; const id = String(request.request_id);
     const prior = this.state.approvals().find(row => row.requestId === id); if (prior) return;
     this.state.approval(id, output.id, request);
     const card = approvalCard(id, request, chat.isGroup);
@@ -377,7 +387,7 @@ function approvalCard(id: string, request: Record<string, unknown>, group: boole
   return { config: { wide_screen_mode: true, update_multi: true }, elements };
 }
 
-function runtimeCard(text: string, metadata: Record<string, unknown>): Record<string, unknown> | undefined {
+function runtimeCard(text: string, metadata: CompletedMessage): Record<string, unknown> | undefined {
   const model = typeof metadata.resolved_model === 'string' ? metadata.resolved_model : '';
   const usage = metadata.token_usage as { context_used?: number; context_window?: number } | undefined;
   const parts = [model.length > 512 ? `${model.slice(0, 512)}...` : model];

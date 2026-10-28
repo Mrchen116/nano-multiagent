@@ -1,7 +1,16 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import type { FeishuMessage } from '@nano/channels';
-import type { RelayInput } from '@nano/product-contracts';
+import { decodeChatStream, type ChatStreamFact, type RelayInput } from '@nano/product-contracts';
+
+export type ExternalSystemNotice = {kind: 'system_notice'} & Record<string, unknown>;
+export type ExternalFrame = ChatStreamFact | ExternalSystemNotice;
+function isSystemNotice(value: unknown): value is ExternalSystemNotice {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && 'kind' in value && value.kind === 'system_notice';
+}
+function decodeFrame(value: unknown): ExternalFrame {
+  return isSystemNotice(value) ? value : decodeChatStream(value);
+}
 
 export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
 export interface ExternalOutput { lifecycle_revision:number; id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
@@ -47,11 +56,11 @@ export class ExternalStore {
   }
   settle(id: string, state: string, platformId?: string): void { this.db.prepare('UPDATE outputs SET state=?,platform_id=coalesce(?,platform_id) WHERE id=?').run(state, platformId ?? null, id); }
   mirrorOutput(id: string, imId: string): void { this.db.prepare('UPDATE outputs SET im_id=? WHERE id=?').run(imId, id); }
-  frame(outputId: string, body: Record<string, unknown>): void {
+  frame(outputId: string, body: ExternalFrame): void {
     const encoded = JSON.stringify(body); const key = createHash('sha256').update(`${outputId}:${encoded}`).digest('hex');
     this.db.prepare('INSERT OR IGNORE INTO frames(id,output_id,body) VALUES(?,?,?)').run(key, outputId, encoded);
   }
-  pendingFrames() { return (this.db.prepare('SELECT id,output_id AS outputId,body FROM frames WHERE mirrored=0 ORDER BY rowid').all() as { id: string; outputId: string; body: string }[]).map(row => ({ ...row, body: JSON.parse(row.body) as Record<string, unknown> })); }
+  pendingFrames() { return (this.db.prepare('SELECT id,output_id AS outputId,body FROM frames WHERE mirrored=0 ORDER BY rowid').all() as { id: string; outputId: string; body: string }[]).map(row => ({ ...row, body: decodeFrame(JSON.parse(row.body)) })); }
   confirmFrame(id: string): void { this.db.prepare('UPDATE frames SET mirrored=1 WHERE id=?').run(id); }
   image(url: string, agentId: string): { data: Buffer; mediaType: string; uploaded: string | null } | undefined {
     const row = this.db.prepare('SELECT data,media_type AS mediaType,uploaded FROM images WHERE url=? AND agent_id=?').get(url, agentId) as { data: Uint8Array; mediaType: string; uploaded: string | null } | undefined;

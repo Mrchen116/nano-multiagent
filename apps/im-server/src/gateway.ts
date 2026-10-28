@@ -4,14 +4,15 @@ import { isRecord } from './node-rpc-values.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
-import { withHumanApproval } from "./messaging.js";
+import { ChatStreaming } from './chat-streaming.js';
+import type { ChatStreamReceipt } from '@nano/product-contracts';
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
 import { all, one, now, fail, transaction, type Row, type ImContext } from "./context.js";
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
-import {canonicalAgentConfiguration, interactiveResponse} from "@nano/product-contracts";
+import {canonicalAgentConfiguration, interactiveResponse, decodeAgentPublication, type AgentPublication} from "@nano/product-contracts";
 import { TrajectoryObservers } from './trajectory.js';
 export type Connection = {
   socket: WebSocket;
@@ -30,6 +31,7 @@ type Browser = {
   cursor: number;
 };
 export class Gateway {
+  private readonly chat: ChatStreaming<Connection>;
   readonly nodes = new Map<string, Connection>();
   readonly browsers = new Set<Browser>();
   private readonly rpc = new NodeRpc<Connection>({
@@ -44,6 +46,12 @@ export class Gateway {
   channelHandler?: (type: string, payload: Row) => Row | Promise<Row>;
   channelInitialize?: (nodeId: string) => void;
   constructor(readonly ctx: ImContext) {
+    this.chat=new ChatStreaming(ctx.db,ctx.messaging?.records,{
+      requireAgent:(connection,id)=>{const agent=this.requireAgent(connection,id);return {agent_id:agent.agent_id,work_mode:agent.work_mode};},
+      requirePersonalConversation:(agentId,cid)=>{const binding=one(ctx.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);if(binding&&!ctx.personal!.ownerConversation(binding,cid))fail(403,'personal_reviewed_delivery_required');},
+      agentUserId:id=>ctx.messaging.agentUser(id).id,resolveTarget:(id,target)=>ctx.messaging.resolveTarget(id,target),
+      access:(connection,cid,id)=>{ctx.messaging.access({...connection,kind:'gateway'},cid,id,'write');},groupReply:id=>this.groupReply(id),
+    });
     this.work = new Work(ctx);
     this.trajectory = new TrajectoryObservers(ctx);
     this.tasks = new TaskGraphService(ctx.db,ctx.messaging,undefined,{
@@ -547,104 +555,13 @@ export class Gateway {
       s.access({...c,kind:'gateway'},previous.conversation_id,agent.agent_id);
       return ack({found:true,conversation_id:previous.conversation_id,message_id:previous.message_id,target_kind:previous.target_kind,target_id:previous.target_id,source_agent_id:agent.agent_id});
     }
-    if (type === "agent.message") {
-      const source = String(p.from_session_id ?? "")
-        .replace(/^agent:/, "")
-        .split("|tool_call:");
-      const a = this.requireAgent(c, source[0]!);
-      if (
-        typeof p.text !== "string" ||
-        (!p.text.trim() && !p.background_returns?.length) ||
-        typeof p.to !== "string"
-      )
-        fail(400, "invalid_agent_message");
+    if (type === 'agent.message') {
+      const source=String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:');
+      const agent=this.requireAgent(c,source[0]!);
       if(p.reply_draft!==undefined)fail(422,'reply_draft is retired; use ComposeMessage');
-      const key = source[1] ? `${a.agent_id}:${source[1]}` : null;
-      let interactive;
-      try { interactive = interactiveResponse(p.interactive); } catch (error) { fail(422, (error as Error).message); }
-      const previous = key
-        ? one(db, "SELECT * FROM agent_message_dispatch_log WHERE dispatch_request_key=?", key)
-        : undefined;
-      if (previous) {
-        s.access({ ...c, kind: "gateway" }, previous.conversation_id, a.agent_id);
-        const saved = s.message(previous.message_id);
-        const savedInteractive = s.interactions.publication(previous.message_id);
-        if (saved.content !== p.text.trim() || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
-          || s.resolveTarget(a.agent_id, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
-        return ack({
-          conversation_id: previous.conversation_id,
-          message_id: previous.message_id,
-          target_kind: previous.target_kind,
-          target_id: previous.target_id,
-          source_agent_id: a.agent_id,
-        });
-      }
-      const id = s.resolveTarget(a.agent_id, p.to);
-      const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
-      if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
-      s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
-      const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
-      const targetUser = one(
-        db,
-        "SELECT * FROM users WHERE id=? OR username=?",
-        rawTarget,
-        `agent:${rawTarget}`,
-      );
-      const targetKind =
-        p.to.startsWith("conversation:") || rawTarget === id
-          ? "conversation_id"
-          : targetUser?.username.startsWith("agent:")
-            ? "agent_id"
-            : "user_id";
-      const targetId = targetKind === "agent_id" ? targetUser!.username.slice(6) : rawTarget;
-      const m = transaction(db, () => {
-      const created = s.insertMessage(
-        id,
-        s.agentUser(a.agent_id).id,
-        "agent",
-        p.text.trim(),
-        p.attachments ?? [],
-        key,
-        'completed',
-        { interactive, publish: false },
-      );
-      if (p.background_returns)
-        db.prepare("UPDATE messages SET background_returns_json=? WHERE id=?").run(
-          JSON.stringify(p.background_returns),
-          created.id,
-        );
-      if (key)
-        db.prepare("INSERT INTO agent_message_dispatch_log VALUES(?,?,?,?,?,?,?)").run(
-          key,
-          a.agent_id,
-          targetKind,
-          targetId,
-          id,
-          created.id,
-          now(),
-        );
-      return created;
-      });
-      s.publishMessages([m]);
-      s.event(
-        id,
-        m.id,
-        "message.completed",
-        { content: m.content, token_usage: null },
-        "completed",
-      );
-      if (targetKind === "agent_id") {
-        const target = one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", targetId);
-        if (target) this.relayMessage(m, target, `agent-dm:${m.id}:${targetId}`);
-      }
-      this.groupReply(m.id);
-      return ack({
-        conversation_id: id,
-        message_id: m.id,
-        target_kind: targetKind,
-        target_id: targetId,
-        source_agent_id: a.agent_id,
-      });
+      let publication:AgentPublication;
+      try {publication=decodeAgentPublication(p);}catch(error){fail(400,(error as Error).message);}
+      return ack(s.publishAgent({...c,kind:'gateway'},agent.agent_id,source[1],publication));
     }
     if (type === "node.system_message") {
       const source =
@@ -747,209 +664,7 @@ export class Gateway {
     if(one(this.ctx.db,'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?',id)) this.ctx.personal!.authority(c,{agent_id:id});
     return a!;
   }
-  streaming(c: Connection, p: Row): Row {
-    const db = this.ctx.db,
-      s = this.ctx.messaging;
-    if (p.kind === "turn_start") {
-      const a = this.requireAgent(c, p.agent_id);
-      requireLifecycle(db,a.agent_id,p.lifecycle_revision);
-      if (p.agent_user_id && p.agent_user_id !== s.agentUser(a.agent_id).id)
-        fail(403, "agent_user_id does not match source Agent");
-      const id = p.conversation_id ?? s.resolveTarget(a.agent_id, p.to_user_id);
-      const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",a.agent_id);
-      if(personal && !this.ctx.personal!.ownerConversation(personal,id))fail(403,"personal_reviewed_delivery_required");
-      s.access({ ...c, kind: "gateway" }, id, a.agent_id, "write");
-      const transition = p.reply_process_transition;
-      if (transition?.predecessor_message_id) {
-        const predecessor = s.message(transition.predecessor_message_id);
-        if (predecessor.conversation_id !== id || predecessor.sender.id !== a.agent_id)
-          fail(403, "reply process predecessor must belong to source Agent");
-      }
-      const m = s.insertMessage(
-        id,
-        s.agentUser(a.agent_id).id,
-        "agent",
-        "",
-        [],
-        p.shadow_message_id ?? p.idempotency_key ?? null,
-        "running",
-      );
-      if (p.background_returns)
-        db.prepare("UPDATE messages SET background_returns_json=? WHERE id=?").run(
-          JSON.stringify(p.background_returns),
-          m.id,
-        );
-      if (p.reply_process_transition) {
-        const t = p.reply_process_transition;
-        if (t.predecessor_message_id) {
-          if (t.include_handoff)
-            this.streaming(c, {
-              lifecycle_revision:p.lifecycle_revision,
-              kind: "reply_process",
-              message_id: t.predecessor_message_id,
-              item: {
-                item_id: `handoff:${t.run_id}:${m.id}`,
-                kind: "segment_handoff",
-                run_id: t.run_id,
-                successor_message_id: m.id,
-              },
-            });
-        }
-        this.streaming(c, {
-          lifecycle_revision:p.lifecycle_revision,
-          kind: "reply_process",
-          message_id: m.id,
-          item: {
-            item_id: `revalidation:${t.run_id}:${m.id}`,
-            kind: "revalidation",
-            run_id: t.run_id,
-            source_messages: t.source_messages ?? [],
-            predecessor_message_id: t.predecessor_message_id ?? null,
-            status: "running",
-          },
-        });
-      }
-      return {
-        kind: p.kind,
-        run_id: p.run_id,
-        message_id: m.id,
-        conversation_id: id,
-      };
-    }
-    if (p.kind === "run_terminal_reconcile") return { kind: p.kind, run_id: p.run_id };
-    // Text deltas need identity and authorization, not the growing tool/thinking/message projection.
-    const m = p.kind === "message_delta"
-      ? one(db, `SELECT m.id,m.conversation_id,m.sender_user_id,m.sender_type,m.lifecycle_revision,m.delivery_status,u.username
-          FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?`, p.message_id)
-      : s.message(p.message_id);
-    if (!m) fail(404, "message not found");
-    if (p.kind === "message_delta") m.sender = { id: m.username.startsWith("agent:") ? m.username.slice(6) : m.sender_user_id };
-    if (m.sender_type !== "agent") fail(403, "streaming message must belong to an Agent");
-    this.requireAgent(c, m.sender.id);
-    requireLifecycle(db,m.sender.id,p.lifecycle_revision);
-    requireLifecycle(db,m.sender.id,m.lifecycle_revision);
-    const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",m.sender.id);
-    if(personal && !this.ctx.personal!.ownerConversation(personal,m.conversation_id))fail(403,"personal_reviewed_delivery_required");
-    s.access({ ...c, kind: "gateway" }, m.conversation_id, m.sender.id, "write");
-    let eventType = "",
-      data: Row = {};
-    if (p.kind === "message_delta") {
-      if (p.idempotency_key) {
-        const added = db
-          .prepare("INSERT OR IGNORE INTO message_delta_idempotency VALUES(?,?)")
-          .run(m.id, p.idempotency_key);
-        if (!added.changes) return { message_id: m.id };
-      }
-      if (m.delivery_status !== "running") return { message_id: m.id };
-      db.prepare("UPDATE messages SET content=content||? WHERE id=?").run(p.delta_text ?? "", m.id);
-      eventType = "message.delta";
-      data = {
-        delta: p.delta_text ?? "",
-        delta_text: p.delta_text ?? "",
-        idempotency_key: p.idempotency_key,
-      };
-    } else if (p.kind === "message_completed") {
-      if (!["completed", "failed", undefined].includes(p.delivery_status))
-        fail(400, "invalid delivery status");
-      db.prepare(
-        "UPDATE messages SET content=?,delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?",
-      ).run(
-        p.final_content ?? m.content,
-        p.delivery_status ?? "completed",
-        p.token_usage ? JSON.stringify(p.token_usage) : null,
-        p.elapsed_ms ?? null,
-        p.kernel_message_id ?? null,
-        m.id,
-      );
-      eventType = "message.completed";
-      data = { ...s.message(m.id), content: p.final_content ?? m.content };
-    } else if (p.kind === "message_discarded") {
-      db.prepare("DELETE FROM messages WHERE id=?").run(m.id);
-      s.event(m.conversation_id, null, "message.discarded", {
-        message_id: m.id,
-        reason: p.reason,
-      });
-      return { message_id: m.id };
-    } else if (p.kind === "thinking_segment") {
-      const items = m.thinking;
-      const item = { seq: p.process_seq ?? items.length, text: p.text ?? "" };
-      if (!items.some((x: Row) => x.seq === item.seq)) items.push(item);
-      db.prepare("UPDATE messages SET thinking_json=? WHERE id=?").run(JSON.stringify(items), m.id);
-      eventType = "thinking.segment";
-      data = { segment: item, ...item };
-    } else if (["tool_call_upserted", "tool_call_completed"].includes(p.kind)) {
-      const items = m.tool_calls,
-        item = withHumanApproval({
-          ...p.tool_call,
-          ...(p.process_seq !== undefined ? { seq: p.process_seq } : {}),
-        }, m.permission_requests);
-      const i = items.findIndex((x: Row) => x.id === item.id);
-      if (i < 0) items.push(item);
-      else { item.seq = items[i].seq ?? item.seq; items[i] = { ...items[i], ...item }; }
-      db.prepare("UPDATE messages SET tool_calls_json=? WHERE id=?").run(
-        JSON.stringify(items),
-        m.id,
-      );
-      eventType = p.kind === "tool_call_completed" ? "tool_call.completed" : "tool_call.upserted";
-      data = { tool_call: item };
-    } else if (p.kind === "permission_request" || p.kind === "permission_resolved") {
-      const items = m.permission_requests,
-        item = p.permission_request ?? p;
-      const id = item.request_id ?? p.request_id;
-      let entry = items.find((x: Row) => x.request_id === id);
-      if (!entry) {
-        entry = { ...item, request_id: id };
-        items.push(entry);
-      }
-      if (p.kind === "permission_request") {
-        if (!p.run_id || !id) fail(400, "run_id and request_id required");
-        if (["submitted", "resolved"].includes(entry.status)) return { message_id: m.id };
-        const agent = this.requireAgent(c, m.sender.id);
-        if (agent.work_mode !== "single_thread")
-          fail(400, "global Agent does not expose chat permission cards");
-        Object.assign(entry, {
-          status: "pending",
-          conversation_id: m.conversation_id,
-          message_id: m.id,
-          agent_id: agent.agent_id,
-          node_id: c.node_id,
-          node_epoch: c.node_epoch,
-          lifecycle_revision:lifecycle(db,agent.agent_id).revision,
-          run_id: p.run_id,
-        });
-      } else Object.assign(entry, { status: "resolved", decision: p.decision });
-      db.prepare(
-        "UPDATE messages SET permission_request_json=?,awaiting_permission_at=? WHERE id=?",
-      ).run(JSON.stringify(items), p.kind === "permission_request" ? now() : null, m.id);
-      eventType = p.kind === "permission_request" ? "permission.request" : "permission.resolved";
-      data = { ...entry, permission_request: entry };
-    } else if (p.kind === "reply_process") {
-      const items = m.reply_process;
-      const index = items.findIndex((x: Row) => x.item_id === p.item.item_id);
-      if (index < 0) items.push(p.item);
-      else items[index] = p.item;
-      db.prepare("UPDATE messages SET reply_process_json=? WHERE id=?").run(
-        JSON.stringify(items),
-        m.id,
-      );
-      eventType = "reply_process.upserted";
-      data = { item: p.item };
-    } else if (p.kind === "run_heartbeat") {
-      eventType = "run.heartbeat";
-      data = { source: p.source };
-      if (m.awaiting_permission_at)
-        db.prepare("UPDATE messages SET awaiting_permission_at=? WHERE id=?").run(now(), m.id);
-    } else fail(400, "unsupported streaming kind");
-    s.event(
-      m.conversation_id,
-      m.id,
-      eventType,
-      data,
-      p.delivery_status ?? (p.kind === "message_completed" ? "completed" : m.delivery_status),
-    );
-    if (p.kind === "message_completed") this.groupReply(m.id);
-    return { kind: p.kind, run_id: p.run_id, message_id: m.id };
-  }
+  streaming(c:Connection,p:unknown):ChatStreamReceipt {return this.chat.receive(c,p);}
   relayMessage(m: Row, a: Row, key: string, extra: Row = {}, options: {deferDelivery?: boolean} = {}) {
     const db = this.ctx.db,
       s = this.ctx.messaging;

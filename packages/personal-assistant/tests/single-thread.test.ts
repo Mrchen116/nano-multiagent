@@ -108,7 +108,7 @@ it('starts a fresh context for /new without submitting the command as a model pr
       if (method === 'session.submit') submitted.push((value as { inputId: string }).inputId);
       if (method === 'session.lookup') return { accepted: false };
       return { durable: true, events: [], wasRunning: false };
-    } }, relay: { async request(_type, payload) { frames.push(payload); return { type: 'ack', payload: { message_id: 'reply' } }; } }, image: async () => '', onError: () => {},
+    } }, relay: { async request(_type, payload) { frames.push(payload); return { type: 'ack', payload: payload.kind === 'turn_start' ? { message_id: 'reply' } : {} }; } }, image: async () => '', onError: () => {},
   });
   const input = (id: string, content: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'direct' }, message: { id, content, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
   try {

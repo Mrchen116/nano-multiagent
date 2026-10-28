@@ -1,3 +1,4 @@
+import type { ChatMessage } from '@nano/product-contracts';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { mergeStatements } from '@openuidev/lang-core';
 import { interactiveResponse } from '@nano/product-contracts';
@@ -187,7 +188,7 @@ export class PersonalActions {
     const original=JSON.parse(initial.payload_json).task;
     const taskService=this.pa.ctx.gateway.tasks;
     const hint=original?taskService.changeHint(original.arguments.graph_id):undefined;
-    const notices:Row[]=[];
+    const notices:ChatMessage[]=[];
     const result=transaction(this.db,()=>{
       const op=this.operation(b,args.proposal_ref);this.validate(b,op);
       if(op.state!=='allowed'||!op.verdict_ref||op.verdict_ref!==args.verdict_ref||op.expires_at<now())fail(403,'independent_review_required');
@@ -207,7 +208,7 @@ export class PersonalActions {
       const rewrite=(value:string)=>value.replace(/\/im\/v1\/conversations\/([^/\s]+)\/(images|attachments)\/([\w-]+)/g,(url:string,source:string)=>s.copyReferences(source,op.conversation_id,url));
       const owner=payload.representation==='owner';
       const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive:payload.interactive,
-        ...(op.conversation_id!==b.conversation_id?{personal_source:{...b,operation_id:owner?op.operation_id:null}}:{})});
+        ...(op.conversation_id!==b.conversation_id?{personal_source:{binding_id:b.binding_id,agent_id:b.agent_id,owner_user_id:b.owner_user_id,display_name:b.display_name,operation_id:owner?op.operation_id:null}}:{})});
       if(owner)s.queueRepresentedRelays(message,b.agent_id);
       else {s.queueDirectAgentRelays(message);this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});}
       this.db.prepare("UPDATE pa_operations SET state='confirmed',message_id=?,verdict_ref=NULL WHERE operation_id=?").run(message.id,op.operation_id);

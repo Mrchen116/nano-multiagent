@@ -3,7 +3,7 @@ import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
-import type { WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
+import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
 import { interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
@@ -191,7 +191,7 @@ export class GlobalAgent {
         const result=this.options.taskStop?await this.options.taskStop(binding,input):await this.options.runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean;paused?:number};
         text=result.paused?`已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。`:result.wasRunning?'已停止当前操作。':'当前没有正在执行的操作。';
       }
-      await this.options.relay.request('agent.message', { node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
+      await this.publishMessage({ node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
         from_session_id: `${config.agentId}|tool_call:command:${input.message.id}` });
       await this.receipt(input, 'completed'); return;
     }
@@ -613,7 +613,7 @@ export class GlobalAgent {
     }
     inbox.settlePublication(call.operationId, 'sending');
     try {
-      const response = await this.options.relay.request('agent.message', { node_id: this.options.nodeId, text,
+      const response = await this.publishMessage({ node_id: this.options.nodeId, text,
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload);
@@ -633,6 +633,11 @@ export class GlobalAgent {
       }
       throw error;
     }
+  }
+  private async publishMessage(publication: AgentPublication): Promise<ProtocolFrame & {payload: {message_id: string}}> {
+    const response = await this.options.relay.request('agent.message', {...publication});
+    if (typeof response.payload.message_id !== 'string' || !response.payload.message_id) throw new Error('Agent publication has no message identity');
+    return {...response, payload: {...response.payload, message_id: response.payload.message_id}};
   }
   private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'|'sessionId'>,target:string,text:string,payload:Record<string,unknown>) {
     const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};

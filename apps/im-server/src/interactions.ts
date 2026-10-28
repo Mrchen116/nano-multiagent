@@ -1,7 +1,7 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { mergeStatements } from '@openuidev/lang-core';
 import type { FastifyRequest } from 'fastify';
-import { interactiveResponse, type InteractionSnapshot, type InteractionContext } from '@nano/product-contracts';
+import { interactiveResponse, type InteractionSnapshot, type InteractionContext, type MessageInteractive } from '@nano/product-contracts';
 import { body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
 import { agentAvailable } from './identity.js';
 import { conversationAccess } from './conversation-access.js';
@@ -35,7 +35,7 @@ export class Interactions {
     catch (error) { fail(422, String((error as Error).message)); }
   }
   /** Project only public data; registry and drafts never enter message broadcasts. */
-  message(id: string): Row | undefined {
+  message(id: string): MessageInteractive | undefined {
     const row = one(this.db, 'SELECT * FROM message_interactive WHERE message_id=?', id);
     return row ? { format: row.format, catalog_version: row.catalog_version, source: row.source,
       ...(row.supersedes_message_id ? { supersedes_message_id: row.supersedes_message_id } : {}),
