@@ -31,3 +31,5 @@
 - `pytest -m "not e2e" -q`：100 passed / 28 deselected；`ruff check .` 与 `ruff format --check .` 通过。
 - iOS 专用模拟器完整 `build.sh test` 通过（`/tmp/skill674-ios-isolated.log`）；`build.sh archive` 通过（`/tmp/skill674-ios-archive.log`）。旧通用模拟器剪贴板失败未在专用模拟器重现；不修改该无关测试。
 - final sync 检查：2026-10-28 fetch 后 origin/main 仍为 `ff326c351d104447028f4b185740ab6d6be55de6`，无 main 增量。已审代码未变化，仅 E2E fixture 与运行证据补齐，待独立审查者核对增量。
+
+- Web `npm test -- --maxWorkers=2`：108 files / 1029 tests 全通过；`npm audit --audit-level=critical` 退出 0（0 critical，现有 11 项非 critical，无依赖变更）。所有适用本地测试文件已获得通过结果；首轮资源并发失败及 PTY 复验保留如上。

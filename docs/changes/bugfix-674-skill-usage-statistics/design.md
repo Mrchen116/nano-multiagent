@@ -45,7 +45,7 @@
 
 上述预览限制已通过用户明确授权的仅本机 HTTP 原型预览解决。基于 f2a038751 在 127.0.0.1:60674 实际渲染桌面及 390×844：六列关系可读，名称下起点保持归属；窄屏实际横滚后最近使用与趋势可读，页面其余部分不横移。热力图、UTC 日期、图例均在卡片内完整显示，空态明确。该观察覆盖此前“视觉未验证”缺口，但不替代独立 Gate 2 或产品验收。
 
-证据：[桌面](evidence/prototype-desktop.png)、[窄屏](evidence/prototype-mobile.png)、[窄屏滚动后](evidence/prototype-mobile-scrolled.png)。原型首行草稿标记保留为作者审查前状态。
+本地证据（gitignored，不作为远端链接）：`evidence/prototype-desktop.png`、`evidence/prototype-mobile.png`、`evidence/prototype-mobile-scrolled.png`。原型首行草稿标记保留为作者审查前状态。
 
 附加退出标准：跨日覆盖 30 日清理边界，清理不降低累计或其他 Agent 统计；旧缓存/在线旧形状不得混入，合法新快照离线可读；iOS 展示数据契约通过。
 
