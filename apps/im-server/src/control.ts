@@ -1054,18 +1054,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         agent_id: p.agent_id,
         workspace_root: requiredWorkspace(p),
       });
-    return {
-      agent_id: p.agent_id,
-      node_id: p.node_id,
-      node_online: true,
-      skills: r.skills ?? [],
-      heatmap_data: r.heatmap_data ?? Array(30).fill(0),
-      health: r.health ?? {
-        created_auto_total: 0,
-        active_auto_total: 0,
-        used_auto_total: 0,
-      },
-    };
+    return settingsSectionDisplay('usage', p, {usage:r});
   });
   app.get("/im/v1/policies", async (req) => {
     const u = await user(req);

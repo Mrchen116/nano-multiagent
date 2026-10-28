@@ -836,7 +836,12 @@
       "自进化健康度": "Skill health",
       "Loading skill usage...": "Loading skill activity…",
       "No skill usage yet": "No skill usage yet",
-      "最近 30 天": "uses · last 30 days"
+      "最近 30 天": "uses · last 30 days",
+      "新统计始于": "Statistics since",
+      "尚无新调用": "No new calls yet",
+      "未纳入统计": "Not included in statistics",
+      "新累计调用": "total new calls",
+      "天": "days"
     },
     "publicProfile": "Profile",
     "managedBy": "Managed by",

@@ -162,9 +162,13 @@ describe("agent detail page", () => {
       agent_id: "agent-core-1",
       node_id: "node-1",
       node_online: true,
+      statistics_since: "2026-07-01T10:00:00Z",
+      period_start: "2026-06-03",
+      period_end: "2026-07-02",
       skills: [
         {
           skill_id: "deploy-check",
+          statistics_since: "2026-07-01T10:00:00Z",
           name: "deploy-check",
           source: "F3",
           state: "active",
@@ -177,6 +181,7 @@ describe("agent detail page", () => {
         },
         {
           skill_id: "old-skill",
+          statistics_since: "2026-07-01T10:00:00Z",
           name: "old-skill",
           source: "F4",
           state: "archived",
@@ -185,10 +190,10 @@ describe("agent detail page", () => {
           created_at: "2026-06-01T08:00:00Z",
           session_refs: [{ timestamp: "2026-06-01T09:00:00Z" }],
           recent_call_keys: [],
-          trend_buckets: [0, 1, 0, 0]
+          trend_buckets: [0, 0, 1, 0]
         }
       ],
-      heatmap_data: [0, 1, 2, 0],
+      heatmap_data: [0, 0, 2, 2],
       health: {
         created_auto_total: 2,
         active_auto_total: 1,
@@ -349,7 +354,9 @@ describe("agent detail page", () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
     apiMocks.listAgentsMock.mockResolvedValue([]);
-    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+    const usage = makeSkillsUsage();
+    usage.skills[0].use_count = 75;
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(usage);
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
@@ -360,6 +367,12 @@ describe("agent detail page", () => {
     expect(screen.getByText("Usage activity")).toBeInTheDocument();
     expect(screen.getByText(/uses · last 30 days/)).toBeInTheDocument();
     expect(screen.getByTestId("skills-agent-heatmap")).toBeInTheDocument();
+    expect(screen.getByText("76 total new calls")).toBeInTheDocument();
+    expect(screen.getByText("4 uses · last 30 days (UTC)")).toBeInTheDocument();
+    const heatmap = within(screen.getByTestId("skills-agent-heatmap"));
+    expect(heatmap.getAllByLabelText(/Not included in statistics/)).toHaveLength(28);
+    expect(heatmap.getAllByLabelText(/skill uses/)).toHaveLength(2);
+    expect(heatmap.getByLabelText("Jul 2, 2026 (UTC): 2 skill uses")).toBeInTheDocument();
     expect(screen.getByText("Less")).toBeInTheDocument();
     expect(screen.getByText("More")).toBeInTheDocument();
     expect(screen.getByText("Mon")).toBeInTheDocument();

@@ -150,8 +150,21 @@ struct AgentCronJob: Decodable, Sendable, Identifiable {
 }
 struct AgentSkillUsage: Decodable, Sendable {
     var agent_id: String; var node_id: String?; var node_online: Bool; var skills: [Skill]; var heatmap_data: [Int]; var health: Health
+    var statistics_since: String?; var period_start: String; var period_end: String
+    var totalCalls: Int { skills.reduce(0) { $0 + $1.use_count } }
+    var periodCalls: Int { heatmap_data.reduce(0, +) }
+    struct Day: Identifiable { let date: String; let count: Int; var id: String { date } }
+    func days(values: [Int], since: String?) -> [Day] {
+        guard let since, let start = ISO8601DateFormatter().date(from: period_start + "T00:00:00Z") else { return [] }
+        let formatter = ISO8601DateFormatter()
+        return values.enumerated().compactMap { index, count in
+            let date = String(formatter.string(from: start.addingTimeInterval(Double(index) * 86400)).prefix(10))
+            return date >= String(since.prefix(10)) && date <= period_end ? Day(date: date, count: count) : nil
+        }
+    }
     struct Skill: Decodable, Identifiable, Sendable {
         var skill_id: String; var name: String; var source: String; var state: String; var use_count: Int
+        var statistics_since: String?
         var last_used_at: String?; var created_at: String?; var archived_at: String?; var archive_error: String?
         var session_refs: [SessionRef]; var recent_call_keys: [String]; var trend_buckets: [Int]
         var id: String { skill_id }

@@ -3,6 +3,18 @@ import Testing
 @testable import NanoIM
 
 struct AgentContractsTests {
+    @Test func skillStatisticsKeepCumulativeCallsSeparateFromCoveredUTCDays() throws {
+        let response = #"{"agent_id":"a","node_id":"n","node_online":true,"statistics_since":"2026-10-27T23:00:00Z","period_start":"2026-09-29","period_end":"2026-10-28","skills":[{"skill_id":"s","name":"s","source":"F1","state":"active","use_count":75,"statistics_since":"2026-10-27T23:00:00Z","session_refs":[],"recent_call_keys":[],"trend_buckets":[]}],"heatmap_data":[],"health":{"created_auto_total":0,"active_auto_total":0,"used_auto_total":0}}"#
+        var usage = try JSONDecoder().decode(AgentSkillUsage.self, from: Data(response.utf8))
+        usage.heatmap_data = Array(repeating: 0, count: 28) + [2, 1]
+        #expect(usage.totalCalls == 75)
+        #expect(usage.periodCalls == 3)
+        let days = usage.days(values: usage.heatmap_data, since: usage.statistics_since)
+        #expect(days.map(\.date) == ["2026-10-27", "2026-10-28"])
+        #expect(days.map(\.count) == [2, 1])
+        #expect(usage.days(values: usage.heatmap_data, since: nil).isEmpty)
+    }
+
     @Test func offlineSettingsResponseDoesNotStartVersionConflictRecovery() {
         let offline = APIError(status: 409, detail: "The Agent computer is offline", code: "agent_node_offline")
         #expect(!isAgentStateConflict(offline))

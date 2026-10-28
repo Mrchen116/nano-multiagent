@@ -8,7 +8,8 @@ import { isSkillName } from '@deepseek-ai/dsh-skill';
 
 export interface MemoryChange { action: 'add' | 'replace' | 'remove'; target: 'memory' | 'user'; content?: string; old_text?: string }
 export interface SkillChange { action: 'create' | 'edit' | 'patch' | 'write_file' | 'remove_file'; name: string; scope?: 'agent' | 'global'; content?: string; old_string?: string; new_string?: string; file_path?: string; file_content?: string }
-export interface Usage { source: string; state: string; use_count: number; uses_since_last_B: number; created_at: string; last_used_at: string | null; archived_at: string | null; recent_call_keys: string[]; session_refs: { session_id: string; tool_call_id: string; timestamp: string; location: string }[]; archive_error?: string | null }
+interface UsageStatistics { since: string; use_count: number; last_used_at: string; days: Record<string, number> }
+export interface Usage { source: string; state: string; use_count: number; uses_since_last_B: number; created_at: string; last_used_at: string | null; archived_at: string | null; recent_call_keys: string[]; session_refs: { agent_id?: string; session_id: string; tool_call_id: string; timestamp: string; location: string }[]; archive_error?: string | null; statistics?: Record<string, UsageStatistics> }
 export interface SkillReviewGuard { reads: ReviewFiles; check(): void; target?: { root: string; name: string } }
 const memoryLimits = { memory: 2200, user: 1375 };
 const delimiter = '\n§\n';
@@ -120,7 +121,7 @@ export class KnowledgeFiles {
       return { success: true, action: change.action, name: change.name, scope: change.scope ?? 'agent', skill_root: root, path, source };
     }, signal);
   }
-  async use(root: string, name: string, sessionId: string, callId: string, location: string, now = new Date().toISOString()) {
+  async use(root: string, name: string, agentId: string, sessionId: string, callId: string, location: string, now = new Date().toISOString()) {
     return locked(root, async () => {
       const usage = await readJson<Record<string, Usage>>(join(root, '.usage.json'), {}); const record = usage[name] ??= emptyUsage('F1', now);
       const key = `${sessionId}:${callId}`;
@@ -128,32 +129,44 @@ export class KnowledgeFiles {
       record.use_count++; record.uses_since_last_B++; record.last_used_at = now;
       if (record.state === 'stale') record.state = 'active';
       record.recent_call_keys = [...record.recent_call_keys, key].slice(-200);
-      record.session_refs = [...record.session_refs, { session_id: sessionId, tool_call_id: callId, timestamp: now, location }].slice(-60);
+      record.session_refs = [...record.session_refs, { agent_id: agentId, session_id: sessionId, tool_call_id: callId, timestamp: now, location }].slice(-60);
+      // Legacy counts still drive maintenance. Only new calls establish the display statistics.
+      const statistics = (record.statistics ??= {})[agentId] ??= { since: now, use_count: 0, last_used_at: now, days: {} };
+      statistics.use_count++; statistics.last_used_at = now;
+      const day = new Date(now).toISOString().slice(0, 10);
+      statistics.days[day] = (statistics.days[day] ?? 0) + 1;
+      const start = new Date(Date.parse(day) - 29 * 86400000).toISOString().slice(0, 10);
+      for (const date of Object.keys(statistics.days)) if (date < start) delete statistics.days[date];
       await atomicWrite(join(root, '.usage.json'), JSON.stringify(usage, null, 2));
       return { counted: true, batch: auto.has(record.source) && record.uses_since_last_B >= 20, record };
     });
   }
-  async usage(roots: string[], belongs: (session: string) => Promise<boolean>) {
+  async usage(roots: string[], agentId: string) {
     const skills = []; const heatmap_data = Array.from({ length: 30 }, () => 0);
     const health = { created_auto_total: 0, active_auto_total: 0, used_auto_total: 0 };
     const today = Math.floor(Date.now() / 86400000);
+    const period_start = new Date((today - 29) * 86400000).toISOString().slice(0, 10);
+    const period_end = new Date(today * 86400000).toISOString().slice(0, 10);
     for (const root of [...new Set(roots)]) {
       const records = await readJson<Record<string, Usage>>(join(root, '.usage.json'), {});
       for (const [name, raw] of Object.entries(records)) {
-        const record = { ...raw }; let refs = raw.session_refs ?? [];
-        if (root !== this.skillRoot) {
-          const selected = await Promise.all(refs.map(async ref => await belongs(ref.session_id) ? ref : undefined));
-          refs = selected.filter((ref): ref is Usage['session_refs'][number] => !!ref);
-          if (!refs.length) continue;
-          record.use_count = refs.length; record.last_used_at = refs.map(ref => ref.timestamp).sort().at(-1)!;
-        }
+        const { statistics, ...record } = raw;
+        const own = statistics?.[agentId];
+        if (root !== this.skillRoot && !own) continue;
+        const refs = (raw.session_refs ?? []).filter(ref => ref.agent_id === agentId);
+        record.use_count = own?.use_count ?? 0; record.last_used_at = own?.last_used_at ?? null;
         const trend_buckets = Array.from({ length: 30 }, () => 0);
-        for (const ref of refs) { const day = today - Math.floor(Date.parse(ref.timestamp) / 86400000); if (day >= 0 && day < 30) { trend_buckets[29 - day]!++; heatmap_data[29 - day]!++; } }
+        for (const [date, count] of Object.entries(own?.days ?? {})) {
+          const day = today - Math.floor(Date.parse(date) / 86400000);
+          if (day >= 0 && day < 30) { trend_buckets[29 - day]! += count; heatmap_data[29 - day]! += count; }
+        }
         if (auto.has(record.source)) { health.created_auto_total++; if (record.state !== 'archived') health.active_auto_total++; if (record.use_count > 0) health.used_auto_total++; }
-        skills.push({ ...record, skill_id: name, name, session_refs: refs, trend_buckets });
+        skills.push({ ...record, skill_id: name, name, statistics_since: own?.since ?? null,
+          session_refs: refs, recent_call_keys: refs.map(ref => `${ref.session_id}:${ref.tool_call_id}`), trend_buckets });
       }
     }
-    return { skills, heatmap_data, health };
+    const statistics_since = skills.map(skill => skill.statistics_since).filter((value): value is string => value !== null).sort()[0] ?? null;
+    return { skills, heatmap_data, health, statistics_since, period_start, period_end };
   }
   async references(sessionId: string, roots: string[]) {
     const found = new Map<string, { name: string; location: string }>();

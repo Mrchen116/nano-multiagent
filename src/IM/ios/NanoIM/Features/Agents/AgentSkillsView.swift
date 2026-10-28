@@ -24,9 +24,12 @@ struct AgentSkillsView: View {
                     Toggle(L("显示已归档", "Show archived"), isOn: $showArchived)
                     ForEach(usage.skills.filter { (showArchived || $0.state != "archived") && (source == "all" || $0.source == source) }) { skill in skillRow(skill) }
                 } else if view == "agent" {
-                    Section(L("使用趋势 · 按服务端桶顺序", "Usage trend · server bucket order")) {
-                        AgentUsageChart(values: usage.heatmap_data)
-                        LabeledContent(L("调用总数", "Total calls"), value: String(usage.heatmap_data.reduce(0, +)))
+                    Section(L("最近 30 天（UTC）", "Last 30 days (UTC)")) {
+                        Text(usage.period_start + " — " + usage.period_end).font(.caption)
+                        Text(statisticsLabel(usage.statistics_since)).font(.caption)
+                        AgentUsageChart(days: usage.days(values: usage.heatmap_data, since: usage.statistics_since))
+                        LabeledContent(L("新累计调用", "Total new calls"), value: String(usage.totalCalls))
+                        LabeledContent(L("最近 30 天调用", "Calls in last 30 days"), value: String(usage.periodCalls))
                     }
                     Section(L("自动 Skills", "Automated Skills")) { ForEach(usage.skills.filter { ["F3", "F4"].contains($0.source) }) { skillRow($0) } }
                 } else {
@@ -48,11 +51,12 @@ struct AgentSkillsView: View {
             LabeledContent(L("来源", "Source"), value: sourceName(skill.source))
             LabeledContent(L("状态", "State"), value: skill.state)
             LabeledContent(L("使用次数", "Uses"), value: String(skill.use_count))
+            Text(statisticsLabel(skill.statistics_since)).font(.caption)
             LabeledContent(L("最近使用", "Last used"), value: skill.last_used_at ?? L("未使用", "Never"))
             if let date = skill.created_at { LabeledContent(L("创建时间", "Created"), value: date) }
             if let date = skill.archived_at { LabeledContent(L("归档时间", "Archived"), value: date) }
             if let error = skill.archive_error, !error.isEmpty { ErrorNotice(message: error) }
-            AgentUsageChart(values: skill.trend_buckets)
+            if let usage { AgentUsageChart(days: usage.days(values: skill.trend_buckets, since: skill.statistics_since)) }
             ForEach(Array(skill.session_refs.enumerated()), id: \.offset) { _, reference in
                 VStack(alignment: .leading) {
                     if let session = reference.session_id {
@@ -69,19 +73,22 @@ struct AgentSkillsView: View {
     private func sourceName(_ source: String) -> String {
         switch source { case "F1": return L("用户创建", "User created"); case "F2": return L("历史会话蒸馏", "Conversation distilled"); case "F3": return L("自动创建", "Automatically created"); case "F4": return L("自动批量优化", "Automatically optimized"); default: return source == "unknown" ? L("未知来源", "Unknown source") : source }
     }
+    private func statisticsLabel(_ since: String?) -> String {
+        since.map { L("新统计始于 ", "Statistics since ") + String($0.prefix(10)) + " (UTC)" } ?? L("尚无新调用", "No new calls yet")
+    }
     private func load() async {
         do { usage = try await client.get(agentPath(agentID) + "/skills/usage"); error = nil } catch { self.error = agentError(error); if let api = error as? APIError, [401, 403, 404].contains(api.status) { usage = nil } }
     }
 }
 
 struct AgentUsageChart: View {
-    let values: [Int]
+    let days: [AgentSkillUsage.Day]
     var body: some View {
-        if values.isEmpty { Text(L("暂无趋势数据", "No trend data")).font(.caption) }
+        if days.isEmpty { Text(L("尚无新调用", "No new calls yet")).font(.caption) }
         else {
-            Chart(Array(values.enumerated()), id: \.offset) { index, count in
-                BarMark(x: .value(L("时间桶", "Bucket"), index + 1), y: .value(L("调用次数", "Calls"), count)).foregroundStyle(.teal)
-            }.frame(height: 120).accessibilityLabel(L("使用趋势，按时间桶从旧到新", "Usage trend, oldest to newest buckets"))
+            Chart(days) { day in
+                BarMark(x: .value(L("日期（UTC）", "Date (UTC)"), day.date), y: .value(L("调用次数", "Calls"), day.count)).foregroundStyle(.teal)
+            }.frame(height: 120).accessibilityLabel(L("最近 30 天使用趋势（UTC），仅含统计起点之后的日期", "Last 30 days (UTC), only dates since statistics began"))
         }
     }
 }

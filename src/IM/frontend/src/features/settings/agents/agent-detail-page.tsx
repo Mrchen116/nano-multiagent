@@ -745,14 +745,15 @@ function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideE
 type SkillsUsageView = "list" | "agent" | "health";
 type AgentDetailSection = "work" | "overview" | "config" | "channels" | "skills" | "plugins" | "sessions";
 
-const CONTRIBUTION_DAYS = 365;
 const HEATMAP_DATA_DAYS = 30;
+const UNKNOWN_USAGE_BACKGROUND = "repeating-linear-gradient(45deg, #fafafa, #fafafa 3px, #cbd5e1 3px, #cbd5e1 4px)";
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 interface ContributionCell {
   key: string;
   date: Date;
   inWindow: boolean;
+  covered: boolean;
   value: number;
 }
 
@@ -768,11 +769,8 @@ function normalizedUsageSeries(values: number[] | undefined): number[] {
   return series;
 }
 
-function normalizedContributionSeries(values: number[] | undefined): number[] {
-  const recent = normalizedUsageSeries(values);
-  const series = recent.slice(-CONTRIBUTION_DAYS);
-  while (series.length < CONTRIBUTION_DAYS) series.unshift(0);
-  return series;
+function statisticsLabel(since: string | null) {
+  return since ? `${tr("新统计始于")} ${since.slice(0, 10)} (UTC)` : tr("尚无新调用");
 }
 
 function formatSkillTimestamp(value?: string | null) {
@@ -781,7 +779,7 @@ function formatSkillTimestamp(value?: string | null) {
 }
 
 function formatTooltipDate(date: Date) {
-  const day = date.getDate();
+  const day = date.getUTCDate();
   const suffix = day % 10 === 1 && day !== 11
     ? "st"
     : day % 10 === 2 && day !== 12
@@ -789,7 +787,7 @@ function formatTooltipDate(date: Date) {
       : day % 10 === 3 && day !== 13
         ? "rd"
         : "th";
-  return `${date.toLocaleDateString("en-US", { month: "long" })} ${day}${suffix}`;
+  return `${date.toLocaleDateString("en-US", { month: "long", timeZone: "UTC" })} ${day}${suffix} (UTC)`;
 }
 
 function FloatingTooltip({ tooltip }: { tooltip: FloatingTooltipState | null }) {
@@ -822,28 +820,26 @@ function heatLevel(value: number, max: number) {
   return "#9be9a8";
 }
 
-function SkillTrend({ skill }: { skill: SkillUsageItem }) {
+function SkillTrend({ skill, periodStart }: { skill: SkillUsageItem; periodStart: string }) {
   const [hoveredBar, setHoveredBar] = useState<FloatingTooltipState | null>(null);
   const buckets = normalizedUsageSeries(skill.trend_buckets);
   const max = Math.max(1, ...buckets);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const trendStart = new Date(today);
-  trendStart.setDate(today.getDate() - (buckets.length - 1));
+  const dateAt = (index: number) => new Date(Date.parse(`${periodStart}T00:00:00Z`) + index * 86400000);
+  const covered = (index: number) => !!skill.statistics_since && dateAt(index).toISOString().slice(0, 10) >= skill.statistics_since.slice(0, 10);
   const showTrendTooltip = (
     event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>,
     value: number,
     index: number
   ) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const date = new Date(trendStart);
-    date.setDate(trendStart.getDate() + index);
+    const date = dateAt(index);
     setHoveredBar({
       left: rect.left + rect.width / 2,
       top: rect.top - 8,
-      text: `${value.toLocaleString()} skill uses on ${formatTooltipDate(date)}.`
+      text: covered(index) ? `${value.toLocaleString()} skill uses on ${formatTooltipDate(date)}.` : `${formatTooltipDate(date)}: ${tr("未纳入统计")}`
     });
   };
+  if (!skill.statistics_since) return <span className="text-xs text-slate-500">{tr("尚无新调用")}</span>;
   return (
     <div
       className="relative flex h-8 items-end gap-[2px]"
@@ -857,9 +853,9 @@ function SkillTrend({ skill }: { skill: SkillUsageItem }) {
           className="block w-[4px] rounded-sm"
           style={{
             height: `${Math.max(3, Math.round((value / max) * 28))}px`,
-            background: value > 0 ? "oklch(0.55 0.16 155)" : "oklch(0.88 0.006 240)"
+            background: !covered(index) ? UNKNOWN_USAGE_BACKGROUND : value > 0 ? "oklch(0.55 0.16 155)" : "oklch(0.88 0.006 240)"
           }}
-          aria-label={`${formatTooltipDate(new Date(trendStart.getFullYear(), trendStart.getMonth(), trendStart.getDate() + index))}: ${value} skill uses`}
+          aria-label={`${formatTooltipDate(dateAt(index))}: ${covered(index) ? `${value} skill uses` : tr("未纳入统计")}`}
           onMouseEnter={(event) => showTrendTooltip(event, value, index)}
           onMouseLeave={() => setHoveredBar(null)}
           onFocus={(event) => showTrendTooltip(event, value, index)}
@@ -946,13 +942,13 @@ function SkillsListView({
                 <th className="px-2 py-[6px]">{tr("状态")}</th>
                 <th className="px-2 py-[6px]">{tr("使用次数")}</th>
                 <th className="px-2 py-[6px]">{tr("最近使用")}</th>
-                <th className="px-2 py-[6px]">{tr("趋势")}</th>
+                <th className="px-2 py-[6px]">{tr("趋势")} · 30 {tr("天")} (UTC)</th>
               </tr>
             </thead>
             <tbody>
               {visibleSkills.map((skill) => (
                 <tr key={skill.skill_id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-2 py-3 font-semibold text-slate-900">{skill.name}</td>
+                  <td className="px-2 py-3 font-semibold text-slate-900">{skill.name}<small className="block whitespace-nowrap text-[11px] font-normal text-slate-500">{statisticsLabel(skill.statistics_since)}</small></td>
                   <td className="px-2 py-3">
                     <SkillBadge kind="source" value={skill.source}>{skillSourceLabel(skill.source)}</SkillBadge>
                   </td>
@@ -961,7 +957,7 @@ function SkillsListView({
                   </td>
                   <td className="px-2 py-3 font-semibold text-slate-900">{skill.use_count}</td>
                   <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(skill.last_used_at)}</td>
-                  <td className="px-2 py-3"><SkillTrend skill={skill} /></td>
+                  <td className="px-2 py-3"><SkillTrend skill={skill} periodStart={usage.period_start} /></td>
                 </tr>
               ))}
             </tbody>
@@ -974,23 +970,22 @@ function SkillsListView({
 
 function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
   const [hoveredCell, setHoveredCell] = useState<FloatingTooltipState | null>(null);
-  const series = normalizedContributionSeries(usage.heatmap_data);
+  const series = normalizedUsageSeries(usage.heatmap_data);
   const max = Math.max(0, ...series);
   const total = normalizedUsageSeries(usage.heatmap_data).reduce((sum, value) => sum + value, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const start = new Date(today);
-  start.setDate(today.getDate() - (CONTRIBUTION_DAYS - 1));
+  const today = new Date(`${usage.period_end}T00:00:00Z`);
+  const start = new Date(`${usage.period_start}T00:00:00Z`);
   const gridStart = new Date(start);
-  gridStart.setDate(start.getDate() - start.getDay());
+  gridStart.setUTCDate(start.getUTCDate() - start.getUTCDay());
   const cells: ContributionCell[] = [];
-  for (let cursor = new Date(gridStart), index = 0; cursor <= today; cursor.setDate(cursor.getDate() + 1), index += 1) {
+  for (let cursor = new Date(gridStart), index = 0; cursor <= today; cursor.setUTCDate(cursor.getUTCDate() + 1), index += 1) {
     const inWindow = cursor >= start;
     const valueIndex = Math.floor((cursor.getTime() - start.getTime()) / 86_400_000);
     cells.push({
       key: `heat-${index}`,
       date: new Date(cursor),
       inWindow,
+      covered: !!usage.statistics_since && cursor.toISOString().slice(0, 10) >= usage.statistics_since.slice(0, 10),
       value: inWindow ? series[valueIndex] ?? 0 : 0
     });
   }
@@ -999,12 +994,12 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
     weeks.push(cells.slice(index, index + 7));
   }
   const monthLabels = weeks.map((week, index) => {
-    const month = week.find((cell) => cell.inWindow)?.date.getMonth();
-    const prevMonth = index > 0 ? weeks[index - 1]?.find((cell) => cell.inWindow)?.date.getMonth() : undefined;
+    const month = week.find((cell) => cell.inWindow)?.date.getUTCMonth();
+    const prevMonth = index > 0 ? weeks[index - 1]?.find((cell) => cell.inWindow)?.date.getUTCMonth() : undefined;
     return month !== undefined && month !== prevMonth ? MONTH_LABELS[month] : "";
   });
   const formatCellDate = (date: Date) =>
-    date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   const showCellTooltip = (
     event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>,
     cell: ContributionCell
@@ -1013,7 +1008,7 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
     setHoveredCell({
       left: rect.left + rect.width / 2,
       top: rect.top - 8,
-      text: `${cell.value.toLocaleString()} skill uses on ${formatTooltipDate(cell.date)}.`
+      text: cell.covered ? `${cell.value.toLocaleString()} skill uses on ${formatTooltipDate(cell.date)}.` : `${formatTooltipDate(cell.date)}: ${tr("未纳入统计")}`
     });
   };
   return (
@@ -1021,9 +1016,12 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="im-agent-card-title">{tr("使用热力图")}</h3>
+          <p className="text-xs text-slate-500">{statisticsLabel(usage.statistics_since)}</p>
+          <p className="text-sm font-semibold">{usage.skills.reduce((sum, skill) => sum + skill.use_count, 0).toLocaleString()} {tr("新累计调用")}</p>
         </div>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white px-5 py-4">
+      {usage.statistics_since && <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white px-5 py-4">
+        <p className="mb-3 text-xs text-slate-500">{usage.period_start} — {usage.period_end} · UTC</p>
         <div className="min-w-max">
           <div
             className="ml-[34px] grid h-5 gap-[4px]"
@@ -1055,8 +1053,8 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
                         key={cell.key}
                         tabIndex={0}
                         className="h-3 w-3 rounded-[3px] border border-slate-200"
-                        style={{ backgroundColor: heatLevel(cell.value, max) }}
-                        aria-label={`${formatCellDate(cell.date)}: ${cell.value} skill uses`}
+                        style={{ background: cell.covered ? heatLevel(cell.value, max) : UNKNOWN_USAGE_BACKGROUND }}
+                        aria-label={`${formatCellDate(cell.date)} (UTC): ${cell.covered ? `${cell.value} skill uses` : tr("未纳入统计")}`}
                         onMouseEnter={(event) => showCellTooltip(event, cell)}
                         onMouseLeave={() => setHoveredCell(null)}
                         onFocus={(event) => showCellTooltip(event, cell)}
@@ -1074,8 +1072,10 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
               ))}
             </div>
           </div>
-          <div className="mt-4 flex items-center justify-end gap-2 text-[12px] text-slate-600">
-            <span className="mr-auto text-[0.65rem] text-slate-500">{total.toLocaleString()} {tr("最近 30 天")}</span>
+          <p className="mt-3 text-xs text-slate-500">{total.toLocaleString()} {tr("最近 30 天")} (UTC)</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+            <span className="h-3 w-3 rounded-sm" style={{background:UNKNOWN_USAGE_BACKGROUND}} />
+            <span>{tr("未纳入统计")}</span>
             <span>Less</span>
             {[0, 1, 2, 3, 4].map((level) => (
               <span
@@ -1087,7 +1087,7 @@ function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
             <span>More</span>
           </div>
         </div>
-      </div>
+      </div>}
       <FloatingTooltip tooltip={hoveredCell} />
     </section>
   );

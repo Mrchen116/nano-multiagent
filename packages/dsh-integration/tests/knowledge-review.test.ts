@@ -159,7 +159,7 @@ it('runs F4 only after two completed product sessions and binds patches to the a
     };
     const reviews=async()=>(await client!.rpc.request('knowledge.facts',{}) as {reviews:{status:string;source?:string;evidenceSessionIds?:string[];childSessionId?:string}[]}).reviews;
     await use('other-owner',1000);
-    await files.use(root,'verified-method','missing-history','missing-call',join(root,'verified-method/SKILL.md'));
+    await files.use(root,'verified-method','a','missing-history','missing-call',join(root,'verified-method/SKILL.md'));
     for(let i=0;i<20;i++) await use('first',i);
     await expect.poll(async()=>({reviews:await reviews(),usage:JSON.parse(await readFile(join(root,'.usage.json'),'utf8'))}),{timeout:3000}).toMatchObject({reviews:expect.arrayContaining([expect.objectContaining({status:'skipped'})])});
     expect(await readFile(join(root,'verified-method/SKILL.md'),'utf8')).toBe(content);
