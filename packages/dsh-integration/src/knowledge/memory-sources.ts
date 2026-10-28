@@ -6,13 +6,22 @@ import type { SessionBinding } from '../index.js';
 import { isHumanSource } from '../input-source.js';
 import type { SourceEligibility } from './memory-documents.js';
 
-export interface StreamProgress { baseline: number; cursor: number }
+export interface SourceContinuation { hash: string; offset: number }
+export interface StreamProgress { baseline: number; cursor: number; continuation?: SourceContinuation }
+/** Commit only reviewed pages; a logical unit's cursor advances after its last page. */
+export function commitSourceRange(progress: StreamProgress, range: FrozenBatch['ranges'][number]): void {
+  if (range.through < progress.cursor) return;
+  if (range.through > progress.cursor) { progress.cursor = range.through; delete progress.continuation; }
+  if (range.continuation && (!progress.continuation || progress.continuation.hash !== range.continuation.hash || progress.continuation.offset < range.continuation.offset)) {
+    progress.continuation = range.continuation;
+  }
+}
 export interface MemoryUnit {
   id: string; sessionId: string; start: number; through: number;
-  events: unknown[]; fingerprints: string[];
+  events: unknown[]; fingerprints: string[]; page?: { offset: number; end: number; total: number; hash: string };
 }
 export interface FrozenBatch {
-  id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number }>;
+  id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number; continuation?: SourceContinuation }>;
   filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -65,7 +74,7 @@ export class MemorySources {
         const fragments = new Map<string, { total: number; parts: Map<number, Record<string, unknown>> }>();
         const pending = new Set<string>(); const calls = new Map<string, { name: string; arguments: unknown; skip: boolean }>();
         let start = Math.max(progress.cursor, progress.baseline); let through = start; let selected: unknown[] = []; let fingerprints: string[] = [];
-        let stopped = false;
+        let stopped = false; let continuation: SourceContinuation | undefined;
         for (const event of events) {
           if (typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace') { result.filtered++; continue; }
           if (event.type === 'tool/call') {
@@ -133,6 +142,28 @@ export class MemorySources {
             if (content.length) selected.push({ seq: event.seq, type: 'assistant/message', evidence: 'assistant_self_report', content });
           } else if (event.type === 'step/end' && pending.size === 0 && fragments.size === 0) {
             const tokens = Math.ceil(JSON.stringify(selected).length / 3);
+            if (tokens > options.maxInputTokens) {
+              // Persist page coverage separately from the complete-step cursor. Re-exporting the
+              // certified unit also detects edits/eligibility changes before using an old offset.
+              const text = JSON.stringify(selected); const unitHash = hash(selected);
+              const offset = start === progress.cursor && progress.continuation?.hash === unitHash ? progress.continuation.offset : 0;
+              const remaining = options.maxInputTokens - result.inputTokens;
+              let end = Math.min(text.length, offset + Math.max(0, remaining * 3 - 400));
+              let pageEvents = [{ type: 'source_json_page', text: text.slice(offset, end) }];
+              while (end > offset && Math.ceil(JSON.stringify(pageEvents).length / 3) > remaining) {
+                end -= Math.max(1, Math.ceil((end - offset) / 10));
+                pageEvents = [{ type: 'source_json_page', text: text.slice(offset, end) }];
+              }
+              if (end > offset) {
+                const complete = end === text.length;
+                result.units.push({ id: `${id}:${start + 1}-${event.seq}:page-${offset}-${end}`, sessionId: id, start, through: event.seq,
+                  events: pageEvents, fingerprints: complete ? fingerprints : [], page: { offset, end, total: text.length, hash: unitHash } });
+                result.inputTokens += Math.ceil(JSON.stringify(pageEvents).length / 3);
+                if (complete) through = event.seq; else continuation = { hash: unitHash, offset: end };
+              }
+              result.blocked.push({ sessionId: id, reason: end === text.length ? 'Later source units remain for the next batch.' : 'Large source unit continues on the next bounded page; its complete-step cursor is unchanged.' });
+              stopped = true; break;
+            }
             if (result.inputTokens + tokens > options.maxInputTokens) {
               result.blocked.push({ sessionId: id, reason: 'Next complete unit exceeds the remaining input budget.' }); stopped = true; break;
             }
@@ -144,7 +175,7 @@ export class MemorySources {
             through = event.seq; start = through; selected = []; fingerprints = [];
           } else result.filtered++;
         }
-        result.ranges.push({ sessionId: id, start: progress.cursor, through, observed });
+        result.ranges.push({ sessionId: id, start: progress.cursor, through, observed, ...(continuation ? { continuation } : {}) });
         if (!stopped && fragments.size) result.blocked.push({ sessionId: id, reason: 'An observed Inbox message has unread fragments.' });
         if (!stopped && pending.size) result.blocked.push({ sessionId: id, reason: 'Open tool calls remain beyond the safe step boundary.' });
       } catch (error) { result.blocked.push({ sessionId: id, reason: String(error) }); }

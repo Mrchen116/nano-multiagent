@@ -93,7 +93,7 @@ export const name='background-model';export const inject=['llm'];export function
       relay:{request:async(type,args:any)=>{
         if(type==='agent.work.append')return {type:'ack',payload:{through_seq:args.events.at(-1).seq}};
         const result=type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:args.conversation_id==='own'?'participant':'observer',conversation_type:'direct',channel:'web'}
-          :type==='pa.observations.read'?{items:[]}:type==='pa.sources'?{items:[{id:'background',excluded:false}]}:{};
+          :type==='pa.observations.read'?{items:[]}:type==='pa.sources'?{policy:{revision:1},items:[{id:'background',excluded:false}]}:{};
         return {type:'ack',payload:{ok:true,result}};
       }}});
     client.rpc.handle('product.call',async value=>{

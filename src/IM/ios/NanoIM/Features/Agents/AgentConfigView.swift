@@ -65,7 +65,7 @@ struct AgentConfigView: View {
                                 Text(currentConfig.custom_prompt ?? "")
                                 Text(L("模型", "Model") + ": " + (currentConfig.default_model ?? "—"))
                                 Text(L("备用模型", "Fallbacks") + ": " + currentConfig.model_fallbacks.joined(separator: ", "))
-                                Text(L("工具", "Tools") + ": " + currentConfig.tool_allowlist.joined(separator: ", "))
+                                Text(L("工具", "Tools") + ": " + currentConfig.tool_allowlist.filter { $0 != "memory" }.joined(separator: ", "))
                                 Text((currentConfig.skills_selection_mode == "explicit_denylist" ? L("已禁用 Skills: ", "Disabled skills: ") : "Skills: ") + currentConfig.skills.joined(separator: ", "))
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
@@ -244,9 +244,9 @@ struct AgentEditorFields: View {
             }
         } }
         Section {
-            DisclosureGroup(L("工具", "Tools") + " · \(draft.tool_allowlist.count)") {
+            DisclosureGroup(L("工具", "Tools") + " · \(draft.tool_allowlist.filter { $0 != "memory" }.count)") {
                 if let capabilities {
-                    ForEach(capabilities.tools) { option in
+                    ForEach(capabilities.tools.filter { $0.name != "memory" }) { option in
                         VStack(alignment: .leading) {
                             Toggle(option.name, isOn: Binding(get: { draft.effectiveTools.contains(option.name) }, set: { change(.init(kind: "tool", name: option.name, enabled: $0)) })).capabilityAnchor("tool:" + option.name)
                             if let description = option.description, !description.isEmpty {
@@ -257,7 +257,7 @@ struct AgentEditorFields: View {
                         }
                     }
                 }
-                ForEach(draft.tool_allowlist.filter { tool in !(capabilities?.tools.contains { $0.name == tool } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
+                ForEach(draft.tool_allowlist.filter { tool in tool != "memory" && !(capabilities?.tools.contains { $0.name == tool } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
             }
         }
         Section {

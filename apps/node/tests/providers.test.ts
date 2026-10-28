@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -73,7 +73,7 @@ it("keeps the remaining legacy service credential in the same live session after
     });
     const agent = config.runtime({
       agent_id: "fixture", workspace_root: home, tool_allowlist: [],
-      features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, heartbeat: false, cron_scheduling: false },
+      features: { intelligent_ui: false, task_graph: false, dreaming: false, memory_curation: false, skill_creation: false, heartbeat: false, cron_scheduling: false },
     });
     expect(await client.rpc.request("configuration.apply", agent)).toMatchObject({ effective: true });
     await client.rpc.request("session.ensure", {
@@ -195,19 +195,20 @@ it("sends adaptive thinking and selectable proxy effort through the actual nativ
     const agents = [
       config.runtime({
         agent_id: "adaptive",
-        workspace_root: home,
+        workspace_root: join(home,"adaptive"),
         tool_allowlist: [],
       }),
       ...["high", "max", "none"].map((effort) =>
         config.runtime({
           agent_id: effort,
-          workspace_root: home,
+          workspace_root: join(home,effort),
           default_model: "proxy-selectable",
           reasoning_effort: effort,
           tool_allowlist: [],
         }),
       ),
     ];
+    for (const agent of agents) await mkdir(agent.workspace!, {recursive:true});
     await client.rpc.request("initialize", {
       protocol: 1,
       agents,
@@ -220,7 +221,7 @@ it("sends adaptive thinking and selectable proxy effort through the actual nativ
         agentId: agent.agentId,
         revision: agent.revision,
         ownerId: "owner",
-        cwd: home,
+        cwd: agent.workspace,
       });
       await client.rpc.request("session.submit", {
         sessionId,

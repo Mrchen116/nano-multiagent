@@ -50,7 +50,7 @@ describe('capability configuration responsibility guards', () => {
     service.execute({kind:'user',id:'u1'},'create',{title:'Still working',mode:'dag',conversation_id:'chat',request_key:'guard',status:'doing',assignee:{type:'agent',id:'a'}});
     let sent=false;ctx.gateway.request=async()=>{sent=true;return null as any;};
     const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
-    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toMatchObject({statusCode:409,detail:{code:'capability_in_use',blocks:[{code:'active_tasks',target:{kind:'feature',name:'task_graph'}}]}});
+    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toMatchObject({statusCode:409,detail:{code:'capability_in_use',blocks:[{code:'active_tasks',target:{kind:'feature',name:'task_graph'}}]}});
     expect(sent).toBe(false);
     expect(one(db,'SELECT 1 FROM agent_config_operations')).toBeUndefined();
     expect(one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")).toEqual(previous);
@@ -59,7 +59,7 @@ describe('capability configuration responsibility guards', () => {
     const {db,ctx}=fixture();
     ctx.gateway.request=async()=>null as any;
     const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
-    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toThrow();
+    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toThrow();
     const service=new TaskGraphService(db,taskMessaging(db));
     const args={title:'New work',mode:'dag',conversation_id:'chat',request_key:'new',assignee:{type:'agent',id:'a'}};
     expect(()=>service.execute({kind:'user',id:'u1'},'create',{...args,status:'doing'})).toThrow('configuration');
@@ -303,7 +303,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         display_name: "New",
         skills: [],
         tool_allowlist: [],
-        features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
+        features: {intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
         group_reply_policy: "manual",
       },
       "o1",
@@ -356,7 +356,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         approval_mode: "codex",
         work_mode: "single_thread",
         workspace_root: "/agent",
-        features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
+        features: {intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
         custom_prompt: null,
         heartbeat_json: null,
       };

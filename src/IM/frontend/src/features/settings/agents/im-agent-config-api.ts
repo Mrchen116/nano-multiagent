@@ -434,7 +434,7 @@ function toCapabilitySnapshot(
     node_status: normalizeNodeStatus(node, raw.node_status),
     capabilities_updated_at: normalizeCapabilitiesUpdatedAt(node, raw.capabilities_updated_at),
     skills: normalizeAllowlistOptions(raw.skills).filter(skill => skill.name !== 'skill-creator'),
-    tools: normalizeAllowlistOptions(raw.tools),
+    tools: normalizeAllowlistOptions(raw.tools).filter(tool => tool.name !== 'memory'),
     model_options: normalizeModelOptions(raw),
     inherited_approval_rules: raw.inherited_approval_rules ?? null,
     platform_default_model: raw.platform_default_model ?? null,

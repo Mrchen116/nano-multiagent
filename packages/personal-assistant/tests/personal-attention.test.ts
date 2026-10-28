@@ -28,7 +28,7 @@ function fixture(onObserve?: () => void) {
     }},
     relay:{ready:true,request:async(type,args:any)=>{
       if(type==='agent.work.append')return {type:'ack',payload:{through_seq:args.events.at(-1).seq}};
-      const result=type==='pa.source.admit'?source(args.conversation_id):type==='pa.observations.read'?{items:observations.splice(0)}:type==='pa.sources'?{items:['own','group','background'].map(id=>({id,excluded:excluded.has(id)}))}:type==='conversation.query'?{name:'Chat',conversations:[]} : {};
+      const result=type==='pa.source.admit'?source(args.conversation_id):type==='pa.observations.read'?{items:observations.splice(0)}:type==='pa.sources'?{policy:{revision:1},items:['own','group','background'].map(id=>({id,excluded:excluded.has(id)}))}:type==='conversation.query'?{name:'Chat',conversations:[]} : {};
       return {type:'ack',payload:{ok:true,result}};
     }}});
   const input=(id:string,target='background',metadata:Record<string,unknown>={}):RelayInput=>({agent_id:'pa',conversation_id:target,relay_task_id:id,idempotency_key:id,metadata,

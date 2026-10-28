@@ -151,6 +151,12 @@ export class MemoryDocuments {
       reason: this.sourcesPending ? 'source_eligibility_pending' : !valid ? 'entry_basis_stale' : entry && entry.length > 8000 ? 'entry_needs_shortening' : undefined,
       exclusions: this.state.exclusions, backupRoot: this.backupRoot };
   }
+  /** Reuse only unchanged versions verified under the current source generation. */
+  unverifiedPaths(versions: DocumentVersions, generation: number): string[] {
+    const basis = this.state.basis;
+    return Object.keys(versions).filter(path => this.sourcesPending || generation !== this.state.generation ||
+      basis?.generation !== generation || basis.versions[path] !== versions[path]);
+  }
   /** Confirm versions actually read/written by the caller; the runtime supplies read evidence. */
   checkpoint(versions: DocumentVersions, generation: number) {
     return this.serial(async () => {

@@ -129,8 +129,13 @@ export class DocumentMemory {
     if (this.options.held?.(config.agentId)) throw new Error('Memory maintenance is paused for this Agent.');
     if (args.action === 'checkpoint') {
       const versions = await documents.versions(); const reader = this.reader(agent, documents);
-      for (const path of Object.keys(versions)) reader.require(join(documents.root, path), await readFile(join(documents.root, path), 'utf8'));
       if (args.generation === undefined) throw new Error('Checkpoint requires the source generation observed in current context/status.');
+      const missing: string[] = [];
+      for (const path of documents.unverifiedPaths(versions, args.generation)) {
+        try { reader.require(join(documents.root, path), await readFile(join(documents.root, path), 'utf8')); }
+        catch { missing.push(path); }
+      }
+      if (missing.length) throw new Error(`Read the complete current documents before checkpoint: ${missing.join(', ')}`);
       return documents.checkpoint(versions, args.generation);
     }
     const direct = agent.session.snapshotEvents().findLast(event => event.type === 'user/message' && isHumanSource(event.data.source) && [event.data.id, event.data.source.messageId].includes(args.request_ref ?? '') && (!config.personal || event.data.source.actorId === config.personal.ownerId));

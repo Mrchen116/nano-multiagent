@@ -77,3 +77,23 @@ it('compares a child report with certified original tool results without importi
   expect(JSON.stringify(batch.units)).not.toContain('Inherited secret');
   expect(batch.units[0]?.fingerprints).toEqual(['child:child:4']);
 });
+
+it('continues an oversized source across persisted bounded pages before advancing its complete-step cursor', async () => {
+  const { commitSourceRange } = await import('../src/knowledge/memory-sources.js');
+  const f = fixture([human(0, 'Long evidence: ' + 'conditions matter. '.repeat(300)), event(1, 'step/end'), human(2, 'Later useful correction'), event(3, 'step/end')], {cold:true});
+  let progress = structuredClone(streams); const pages: string[] = [];
+  for (let i = 0; i < 30 && progress.s.cursor < 1; i++) {
+    const batch = await f.sources.freeze('a', progress, {maxInputTokens:500});
+    expect(batch.units).toHaveLength(1); expect(batch.inputTokens).toBeLessThanOrEqual(500);
+    const unit = batch.units[0]!;
+    pages.push((unit.events[0] as {text:string}).text);
+    commitSourceRange(progress.s, batch.ranges[0]!);
+    if (unit.page!.end < unit.page!.total) expect(progress.s.cursor).toBe(-1);
+    progress = JSON.parse(JSON.stringify(progress));
+  }
+  expect(progress.s.cursor).toBe(1); expect(progress.s.continuation).toBeUndefined();
+  expect(JSON.parse(pages.join(''))[0].content[0].text).toBe('Long evidence: ' + 'conditions matter. '.repeat(300));
+  const later = await f.sources.freeze('a', progress, {maxInputTokens:500});
+  expect(JSON.stringify(later.units)).toContain('Later useful correction');
+  expect(later.ranges[0]?.through).toBe(3);
+});

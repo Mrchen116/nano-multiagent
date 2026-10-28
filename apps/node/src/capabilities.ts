@@ -47,7 +47,7 @@ export function projectCapabilities(
             : {}),
       })),
     ),
-    tools: catalog.tools.map((tool) => ({
+    tools: catalog.tools.filter(tool => tool.name !== 'memory').map((tool) => ({
       name: tool.name,
       description: tool.description,
       default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "create_goal", "get_goal", "update_goal"].includes(tool.name),

@@ -92,3 +92,15 @@ it('recovers a committed file after a lost write receipt without writing its byt
     expect(await readFile(join(root,operation.path),'utf8')).toBe('New human correction.');
   } finally {fault.mockRestore();}
 });
+
+it('retains verified unrelated pages for scoped edits but invalidates all pages after source revocation', async () => {
+  const {documents} = await library();
+  await documents.apply({operationId:'a',path:'knowledge/a.md',beforeHash:null,content:'A'});
+  await documents.apply({operationId:'b',path:'knowledge/b.md',beforeHash:null,content:'B'});
+  await documents.checkpoint(await documents.versions(),0);
+  await documents.apply({operationId:'edit-a',path:'knowledge/a.md',beforeHash:(await documents.versions())['knowledge/a.md']!,content:'Corrected A'});
+  const versions=await documents.versions();
+  expect(documents.unverifiedPaths(versions,0)).toEqual(['knowledge/a.md']);
+  await documents.syncSources({revision:'revoked',allowed:[],excluded:['source']});
+  expect(documents.unverifiedPaths(versions,(await documents.status()).generation)).toEqual(Object.keys(versions));
+});
