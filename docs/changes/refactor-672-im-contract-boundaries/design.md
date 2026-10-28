@@ -85,3 +85,30 @@ IM：no spec delta。行为兼容重构，无客户端变化。非法输入继�
 |---|---|---|---|---|---|
 | M1-node-rpc | 节点 RPC 命令与生命周期 | 无 | 顺序 | gateway、node-rpc、命令类型、必要调用者 | [worker] 有限命令输入输出关联，无 string fallback；稳定字段真实解析；超时/offline/更新/错连接/迟到/停服保持；typecheck 与节点测试通过。[reviewer] 节点消息归属不变。 |
 | M2-config-service | 配置完整边界 | M1 | 顺序 | control、config service/records/input、PA 装配、必要 product-contracts 类型 | [worker] 配置服务不依赖 ImContext/Gateway/Identity/Messaging；HTTP、候选、SQL 行、回执与公开投影具名且实际消费；无以 unknown→断言替代校验；create/apply/recover/compensation/restore/离线/权限回归通过，指纹语义不变。[reviewer] owner 保存刷新、越权与版本冲突、确认丢失恢复与新离线写拒绝均保持。 |
+
+## M3 扩展设计：Work 完整事件链
+
+### Grounding 与职责
+
+`work-projection.ts` 将 RuntimeEvent 转为 `{type:string,payload:Record}`；`GlobalAgent.workEvent/append`、`InboxStore.append/commitWork/journal` 再丢失字段关联。`WorkSync` 使用已有 HTTP 批量/分段协议，IM `work-sync.ts` 与 Gateway 的旧 `agent.work.append` 最终都调用 `Work.append`。后者已有原子日志/投影/水位事务，但和用户查询、权限操作、Gateway 广播混在持有完整 ImContext 的类里。`Work.project` 同时处理稳定事件及既有任意扩展事件，不能通过封死未知 type 破坏历史协议。
+
+### 接口与归属
+
+1. **共享产品事件契约。** product-contracts 新增 Work 事件模块，定义有限已知事件 type→payload 的判别联合、事件身份 envelope、本地未编号事实、带 seq 的日志事件、批量输入与 append ACK。现有 WorkSyncPart/Cursor/limits 复用。已知 payload 的身份、状态、统计、工具展示控制字段具名；工具 arguments、detail、error 和来源扩展内容为 unknown/明确动态对象。保留 `turn_start`、`run_completed/run_failed/run_cancelled` 等既有事件别名与允许的缺省字段；不新增协议版本。
+2. **生产契约与不可信数据分开。** PA 生产方法必须接收完整判别联合（不把 type/payload 分拆成可以错误配对的宽泛参数）。InboxStore 的追加/原子 checkpoint、日志读取、WorkSync 上传消费同一 envelope。JSON 读取和 HTTP/WS 接收使用共享 decoder：检查稳定 envelope 及已知事件实际消费字段后返回原对象，不重排、不裁剪、不补默认字段。decoder 将已知事件和未知扩展事件显式区分；未知扩展仍按现行通用投影规则保存。不存在让当前生产调用者绕过事件表的 string fallback。
+3. **IM 持久/投影 owner。** 新增内部 WorkRecords 类，仅依赖 DatabaseSync。拥有注册身份约束、事件去重/顺序、事务性日志+投影+水位推进、固定记录查询与 items/turns 的公开投影。append 返回 ACK 与本次影响的 root IDs，既有 Work facade 在提交后做授权用户广播、在线状态/同步进度组合及用户/Agent 查询控制。固定 SQL 查询位置拥有具名记录，不引入泛型 Repository 或 DI 框架。构造时 running→unknown 恢复语义保持。
+4. **双入口一致。** HTTP 批量、分段 JSON 重组及旧 WS append 都进入相同 decoder/WorkRecords；鉴权身份仍取当前 binding/connection。分段哈希必须基于原始内容；已提交重复的身份比较、历史身份-only 跳过、PA 主会话替换、吊销后的跳过与恢复顺序保持。
+5. **投影契约。** 已知事件按判别联合消费对应字段；turn/item SQLite 行与其 JSON 数据区分，公开 page/view 类型不混入 SQL JSON 列。保留未知事件的通用 item、原附加字段、别名、可省略统计以及原 `JSON.stringify` 语义。不将任意 native runtime 事件 schema 纳入本仓固定契约，也不改模型输入/执行循环。
+
+### 验证和完成边界
+
+- M3 为一个完整纵切，不拆机械分层 milestone；实现可将 PA 生产端作为明确文件范围的独立首轮子任务，先冻结共享类型接口，后续修复由主 Agent 完成。
+- 编译负例覆盖错误 type/payload 配对、缺失身份和 SQL record 冒充公开 view；常规 typecheck 必须执行。
+- 保留既有 work-sync、global-work-recovery、inbox、global-agent、Work 真 HTTP/WS 测试。新增一个贯通真实 PA projection→InboxStore→WorkSync→IM→公开页的隔离链，含主子执行、完整工具结果与结束统计、重启/重放；不以手造中心 fixture 代替生产接线。
+- 畸形稳定字段经批量/分段/WS 入口均不推进水位；合法省略/null、未知事件、旧别名、扩展内容及已保存字节得到必要回归保护，不为每个字段制造重复测试。
+- 独立设计复审先于实施；完成后执行 M3 的产品验收与静态 code review/verification，M1/M2 按未改变的实现与同步影响 retained。无 UI 改动，产品验收以相同真实 HTTP/WS 接口读取结果；无新模型 Context 语义，保真与原生替换事实不重新执行的保护继续保留。
+- 数据库 schema、序列化算法、16 MiB 上限、分段协议与恢复水位不变；no spec delta，无部署迁移。Work 的聊天查询/指令/审批路由不做无关全面重写，聊天和 Channel 事件链仍明确不在此轮。
+
+| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
+|---|---|---|---|---|---|
+| M3-work-events | Work 完整事件契约与持久投影 | M1/M2 | 单纵切 | product-contracts Work，PA work-projection/global-agent/inbox/work-sync，IM Work/WorkSync/Gateway入口，相关测试 | [worker] 已知生产事实的 type/payload 编译关联贯通到日志和传输；共享decoder真实校验保原值；WorkRecords不持有ImContext；固定行与公开投影分离；批量/分段/WS共享入口；重放/恢复/权限/字节兼容及真实生产链通过。[reviewer] 新增三条Requirement均可从真实工作页API结果核实，原记录不丢失、不重复、不虚构完成。 |
