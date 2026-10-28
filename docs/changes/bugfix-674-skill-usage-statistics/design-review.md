@@ -69,3 +69,51 @@
 - R1-W3 accepted，视觉证据 pending：已走查隔离产品六列表格；原型补足邻近字段，起点放在名称下，窄屏沿用横向滚动，热力图保留周/日关系。受限预览不重试，仍标注视觉未验证草稿。
 - R1-R1 accepted：跨日细化到 30 天清理边界，确保累计与其他 Agent 统计不受影响。
 
+## Round 2
+
+### Metadata
+
+- reviewer target: `/root/skill_stats_design_review`（与 R1 相同的独立 reviewer）
+- review_mode: delta
+- mode_reason: R1 后的变化限于既有新统计契约的缓存入口保护、客户端具体呈现及对应验证；累计/日桶/样本职责、宿主归属、持久化边界和 milestone 划分均未改变。复核全部设计 delta 及其接口/客户端影响，不仅依据 author resolution 关闭问题。
+- started_at: 2026-10-28T11:17:41+08:00
+- completed_at: 2026-10-28T11:18:43+08:00
+- duration: 62 seconds
+- validated_at: `18d6922d25f632deb1facdfcc425e36620c67314`
+- executed_base: `ff326c351d104447028f4b185740ab6d6be55de6`
+- effective_base: `ff326c351d104447028f4b185740ab6d6be55de6`
+- effective_through: `18d6922d25f632deb1facdfcc425e36620c67314`
+- retained_from: Round 1，Coverage 1–3 的根因、架构、宿主配置归属、维护/F4/Context 隔离证据；两次检查间仅 unit 文档和原型变化，实际 owning code 与 base 未变。
+- 检查开始时 worktree clean；本轮只追加本报告，不提交，不改变截图或原型服务。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1 的三项问题已在设计层面关闭。批准范围是可进入实施的方案；尚无修复实现、实现测试或真实产品验收通过结论。
+
+### Coverage 与证据
+
+- **入口与缓存。** 独立核对 `594cf4128..18d6922d2` 完整 unit diff。`design.md:28` 用已经需要的新统计字段识别口径，区分 null 起点与缺失字段；旧 snapshot 降级为 unavailable，在线旧形状读取失败且不得覆盖合法新快照，合法新快照继续保留 last_known/captured_at。该决定覆盖 R1 已核实的 `readSettingsSnapshot` 与两个 IM 路由分支，不增加迁移数据库或通用版本抽象。delta 的离线场景和 `design.md:50` 的回归退出标准与之相符。
+- **客户端含义。** `design.md:36,38` 明确 Web 起点放在 Skill 名称下，保留六列及局部横滚；两类总数分开标记。iOS 使用全部 Skill 新累计之和与 30 天桶合计两个值、UTC 日期轴、按对应起点省略前置桶，无起点不画图。Skill 图使用自己的起点，避免误用 Agent 最早起点。delta 的“累计超过当前窗口”场景覆盖两端结果，数据契约测试覆盖失真发生的关键边界。
+- **独立视觉观察。** 本 reviewer 通过图片工具实际查看 `evidence/prototype-desktop.png`、`prototype-mobile.png`、`prototype-mobile-scrolled.png`。桌面图可见名称、来源、状态、次数、最近使用和趋势的同一行关系，起点紧随 Skill 名称；空记录与有调用记录容易区分。390px 图中名称/起点保持可读，表格右侧有明确裁切，滚动后截图可读最近使用与趋势；热力图卡片仍在同一页面宽度内，两个计数各有标签，起点、UTC 窗口和未知/零/有调用图例完整。与 R1 仅有三列源码相比，现有证据足以判断本次局部增量的空间与信息关系。
+- **观察范围。** 用户已明确授权仅 127.0.0.1 HTTP 预览，作者在 `design.md:46-48` 记录渲染及横滚，截图来自原型 `f2a038751`；随后提交只补记录，所审原型未再改变。本 reviewer 尝试打开获准的预览 URL 时，本聊天工具返回 `Browser is not available: iab`，因此没有声称亲手完成横滚；独立视觉判断基于上述已渲染的三张截图，横滚动作证据复用作者记录。原型无本次新增的业务交互，布局和横滚前后证据已足够，不因本 reviewer 的浏览器运行环境不可用继续阻断，也未尝试此前被拒绝的 file URL 或原生窗口操作。
+- **未变范围与验证。** 用户选择的新统计起点及不回填规则、按 Agent 的聚合、30 日桶/60 条样本/200 条去重的独立职责保持 R1 判断；维护字段与 Context 消费链未扩大。单 milestone 加入旧缓存、iOS 展示数据及 30 日清理边界验证，覆盖新修订。真实 Web 产品验收及 iOS 编译/契约验证仍按原 runbook 在实施后进行，与本轮原型观察互不替代。
+
+### 历史问题闭环
+
+| Issue | Author Resolution | 本轮独立证据与判断 | 状态 |
+|---|---|---|---|
+| R1-W1 | accepted；新字段形状判定、旧缓存失效、在线旧形状拒绝 | design:28/50 与 delta 离线场景覆盖实际快照回退路径；不再默认把旧数带入新视图 | closed |
+| R1-W2 | accepted；双计数、UTC 日期、起点前省略、无起点空态 | design:38 与新增 delta 场景给出可实施且可验证的 iOS 数据/呈现决定 | closed |
+| R1-W3 | 初次 resolution 仍标 pending，后由用户授权及 design:46-48 补齐证据 | 本 reviewer 已独立看到桌面、390px、局部横滚后截图；六列、起点、30 日图例及空态可辨。早先“视觉未验证”状态已由后续事实取代 | closed |
+| R1-R1 | accepted | design:50 将 30 日清理边界、累计和其他 Agent 不受影响纳入退出标准 | adopted |
+
+### Issues
+
+无新增或仍未关闭的 CRITICAL / WARNING。
+
+### Recommendations
+
+- **R2-R1（可选）**：后续整理文档时把 design:39-40 和原型顶栏的“视觉未验证”明确标成历史状态，链接本轮记录，减少接手者在前后段落间判读状态的成本。后续证据已有明确时间和覆盖说明，此处不构成 Gate 2 阻断。
+
