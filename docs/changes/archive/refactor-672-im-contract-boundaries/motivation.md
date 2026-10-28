@@ -1,4 +1,4 @@
-# refactor-672: IM 配置链与节点 RPC 契约
+# refactor-672: IM 配置、节点 RPC 与 Work 完整事件链
 
 ## 原始诉求
 

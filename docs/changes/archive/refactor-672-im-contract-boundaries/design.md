@@ -1,4 +1,4 @@
-# refactor-672: IM 配置链与节点 RPC 契约 — 技术方案
+# refactor-672: IM 配置、节点 RPC 与 Work 完整事件链 — 技术方案
 
 > 对齐 motivation.md
 

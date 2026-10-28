@@ -14,3 +14,5 @@
 - PA 与 IM 编译负例均进入常规 typecheck；禁止错误配对、未知生产类型、缺身份、持久行冒充公开视图。Knowledge link/review 两个生产者被覆盖。
 
 后续独立门禁与完整 CI 在 unit 报告和 delivery 中记录。
+
+独立静态与产品审查均在 `badc559a1` 确认权限选项缺口：flat `options:[null]` 或 nested 非数组可提交。修复 `197da048e` 增加具名 option/id 契约与两种表示的共享校验；红测 2 failed / 1 passed，修复后 3 文件 / 23 项通过，PA/IM 编译负例通过。独立复验只覆盖该实际失效范围，其他结论保留。

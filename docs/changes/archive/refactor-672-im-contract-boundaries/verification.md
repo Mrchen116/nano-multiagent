@@ -133,3 +133,101 @@ Outcome: **aligned / no spec delta**。
 - 无遗漏的对外行为变化、无配置字段/权限/生效时机/恢复或指纹不一致；序列化 owner 迁移沿用新 base 正式契约和历史字节保护。
 - 无新增 Context finding；复用 Round 1 的限定 Implementation Review，不将 unchanged 配置链等同于已验证模型理解。
 - 无 CRITICAL/WARNING/SUGGESTION；Round 1 full 可保留，结果有效至 `fc0dca156b3c3cce9602d39e7c47a601ad86b038`。报告追加由主 Agent 提交，后续仅文档提交不被称为重新执行过验收。
+
+## Round 3 — M3 Full Verification 与同步有效性
+
+- verification_mode: `full`（新增 M3 全纵切）；M1/M2 只做同步影响核查，保留 Round 1/2 未失效结论。
+- review_round: `3`；reviewer: 独立 verifier `/root/static_review`。
+- executed_base / effective_base: `94b06908d396c8039d820124c4d86cb32a75eaf4`。
+- validated_at / effective_through: `badc559a1937b9b7b34b75df4d5a3ba0f5137e22`。
+- implementation_range: `bd0938462..badc559a1`；completed_at: `2026-10-28T13:29:00+08:00`。
+- requires_full_verification: `false`；本轮已按完整新增 milestone 核查，修复可限于 finding 关联边界。
+- verdict: **未通过；0 CRITICAL / 1 WARNING / 0 SUGGESTION**。
+- 未改产品、测试、配置或设计；仅追加本报告与 code-review，由 caller 提交。独立内存数据库复现已关闭，无额外进程/现场。
+
+### Summary / Completeness
+
+| 维度 | 结论 |
+|---|---|
+| Completeness | M1/M2 retained；M3 架构与生产链落实，但权限稳定字段解码退出标准未完成 |
+| Correctness | 2/3 新 Requirement 已覆盖；畸形来源边界有 1 项已复现漏检 |
+| Coherence | 事件生产/日志/传输关联、WorkRecords 数据库依赖及投影分工符合设计 |
+
+prototype/reference N/A，无客户端改动。按扩展 motivation/design 逐段追踪 producer、InboxStore、WorkSync、IM 双入口、日志/投影与公开页；没有以类型文件或测试数量替代真实接线核查。
+
+### Correctness
+
+| Requirement / 场景 | 实现与契约位置 | 测试/检查证据 | 状态 |
+|---|---|---|---|
+| Work 记录从生成到刷新保持真实完整 | `work-events.ts:1-149`；PA work-projection/GlobalAgent；IM `work-records.ts:182-510`；current agent-work 的明细/裁剪/统计/刷新要求 | `e2e/work-production-chain.test.ts` 实际 PA→HTTP/SQLite→公开主子页，大参数/完整结果、未报告 total、刷新及恢复；既有替换事实和恢复保护 | covered |
+| Work 同步与重放保持同一身份 | InboxStore commitWork/append/journal；PA WorkSync；IM WorkRecords append 事务与 work-sync hash receipts | 既有 work-sync 的缺口/身份/分段/重启/撤权/completeness；新 alias/扩展字节用例与生产链重复上传 | covered |
+| Work 契约边界不扩大访问权限；畸形稳定字段不得推进 | HTTP readWorkBatch、WS Work.append 与 WorkRecords 的 owning profile/session 检查 | 已有 tenancy/撤权和新增 malformed presentation 的 batch/part/WS 拒绝有效；permission options 独立复现可提交、推进且后续消费 TypeError | **WARNING V3-1** |
+
+表内短文件名分别位于 product-contracts/src、personal-assistant/src 或 im-server/src；新增公开链测试位于 apps/im-server/tests。
+
+### Coherence / Delta 与 M1/M2 保留
+
+- 已知生产事件判别联合通过 projectWorkEvent、GlobalAgent/KnowledgeUpdates、InboxStore 原子 checkpoint 与 journal、WorkSync 贯通；unknown 扩展只在接收/历史 envelope 保留，无生产 string fallback。
+- WorkRecords 只依赖 db，拥有固定 SQL 记录和公开 view/page；Work facade 保留授权、连接/同步状态及提交后广播。事件/投影/水位 SQL 事务、原 JSON.stringify、身份冲突、PA main 替换与 revoked identity-only 规则对照旧实现未变。
+- 新 batch decoder 先校验再提交，chunk 在原字节哈希/UTF-8 检查后进入同一 decoder。旧别名、nullable/省略统计、未知扩展与动态工具 detail 直接返回原对象；新增测试从存储 payload 和公开 item 验证保真。权限 options 尚未达到“实际消费稳定字段均验证”标准。
+- M1/M2 的配置与 NodeRpc 没有语义 delta。唯一同步变化为 control-routes 的 skill usage 改用新 base 已有 settingsSectionDisplay；保持主干投影，并未重开配置/恢复/序列化决定。配置 exports 完整保留后追加 Work export，未恢复 canonicalJson。M1/M2 审查结论 retained 至本次 HEAD。
+- Context：复用同轮 code review 的限定 Mode B。Work 事件包装、用户投影和共享 presentation 不改变正常字符串身份的模型输入或工具消息；native replace 仍不投影成新完成事实。未验证真实模型行为，也不以静态类型或卡片冒充 provider 交付证据；本次没有新增模型语义决定。
+
+### Issues
+
+**CRITICAL：无。**
+
+**WARNING V3-1：权限 options 的对象/id 形状未进入共享稳定契约。**
+
+- 契约：扩展 motivation 的“畸形事件与无权来源”场景、design M3 decoder 与批量/分段/WS 不推进退出标准。
+- 位置：`packages/product-contracts/src/work-event-codec.ts:63-65`、`work-events.ts:68-72`；实际消费 `apps/im-server/src/work.ts:423`。
+- 直接证据：独立内存 SQLite 中 session/turn/`permission_request {request_id:'bad',options:[null]}` 经 readWorkBatch→WorkRecords 提交，ACK through_seq=3；保存 pending 权限。路由相同 `.options?.some(o=>o.id===decision)` 表达式对 null 条目抛 TypeError。嵌套 `permission_request:{request_id:'nested',options:'bad'}` 也被 decoder 接受。该批未按目标拒绝，后续权限决定会失败。
+- 建议：具名两种表示实际消费的 option 对象/id，在共享 decoder 检查；保留未知额外字段与合法省略。扩展最低接收边界回归，证明畸形 flat/nested 值均不产生事件、权限投影或水位推进，再复用既有合法权限/生命周期保护；无需改设计/current spec。
+- 分类：实现未达到设计退出标准；不是设计本身不合理，也不是缺少模型行为证据。状态 CONFIRMED；详见 code-review Round 3 唯一 finding。
+
+**SUGGESTION：无。**
+
+### Evidence
+
+- `m3-integration.log`：10 文件/110 passed，含生产链；PA 首轮/中心边界进度证据按 M3 progress 保留。测试修改仅补齐真实事件身份和合法 payload；Inbox 原子失败/回滚断言未削弱。
+- `m3-build.log`：完成固定 HEAD installer；`m3-typecheck.log`：全包 Done，包含 PA/IM 编译负例；`m3-ios-runtime.log` 通过；`m3-pytest.log`：100 passed/28 deselected。
+- 独立最窄复现为临时内存数据库/共享 decoder 与实际 WorkRecords，不触及生产、源码或测试；输出 ACK、stored pending permission 和相同 route consumer 的 TypeError。全量后端/前端仍由 caller 收尾，未重复全量。
+- 独立 diff-check 当前报告 `work-records.ts:490` 尾随空格，已告知 caller；机械格式门禁尚未清理，不升级成第二个正确性 finding。
+
+### Spec Reconciliation
+
+**目标仍为 no spec delta。** Work event 类型/模块归属变动、数据原值和恢复不变性均可由现行 agent-work 契约承接；没有新增协议版本、schema、模型语义或产品能力。V3-1 是漏掉目标内稳定字段校验，不应通过改 spec 接受畸形权限来关闭。
+
+Outcome: **implementation-mismatch（V3-1 待修）；no spec delta 声明保留。** M3 修复后需限定 patch/closure；M1/M2 与本轮其余有效证据继续保留。
+
+## Round 4 — Targeted Closure V3-1
+
+- verification_mode: `targeted-closure`；review_round: `4`。
+- reviewer: 同一独立 verifier `/root/static_review`。
+- prior_verification_path: 本报告 Round 3；focus_issues: `V3-1`。
+- executed_base / effective_base: `94b06908d396c8039d820124c4d86cb32a75eaf4`。
+- finding_origin_head: `badc559a1937b9b7b34b75df4d5a3ba0f5137e22`；fix_delta_range: `badc559a1..197da048e`。
+- validated_at / effective_through: `197da048e8975677e8e82f7e0f73f511e7f67687`。
+- completed_at: `2026-10-28T13:31:00+08:00`。
+- requires_full_verification: `false`。
+- verdict: **pass；0 CRITICAL / 0 WARNING / 0 SUGGESTION**。Round 3 其它结论及 M1/M2 retained，不重复 full 验证。
+
+### Finding Reconciliation
+
+| Issue | 实现证据 | 验证证据 | 状态 |
+|---|---|---|---|
+| V3-1 flat/nested options 漏检 | WorkPermissionOption{id:string,...扩展}；WorkPermissionRequest 与 flat 字段同用该数组；共享 decoder 检查数组、对象、id，允许安全 null | 原 HTTP 边界测试在原实现两项红测；修复后 batch/part 的 400、不提交和不推进断言全部通过；新增编译负例 | **closed** |
+
+实现符合原设计的稳定消费字段检查；没有通过更改 spec 接受畸形数据。公共模型 Context、SQL 投影、权限生命周期与 ACK 时机未改。修复仅覆盖原问题关联字段，未知扩展仍保存原值，null 按原 optional 消费安全处理。
+
+### Evidence
+
+- `.e2e-refactor-672/m3-permission-red.log`：两项新增权限参数化用例在原实现返回 200/through_seq=2，按预期红；原工具畸形用例仍在同一测试 owner。
+- `m3-permission-green.log`：3 文件/23 passed（batch/分段、生命周期、实际 PA 生产链）；caller 交接本修复 PA/IM typecheck 通过，编译负例已纳入常规 typecheck。
+- 独立源 decoder 最窄检查：4 例畸形 flat/nested shape/id 拒绝；4 例 null/合法带扩展内容保留原 event/fact 引用。没有修改源码/测试或创建现场。
+- 独立 `git diff --check 94b06908d..197da048e` 通过，Round 3 指出的空白已清理；报告差异本身也通过 whitespace 检查。
+- `m3-frontend.log`：108 文件/1029 passed。M3 的 build/typecheck/iOS/Python 和 110 项首次集成证据按 Round 3 保留；本修复用窄测试/typecheck 承接。后端全量还在 caller 的交付流程中，本报告不提前宣称结果。
+
+### Spec / Context / Completion
+
+**aligned / no spec delta**；V3-1 的 implementation-mismatch 已解除。M3 与设计/现行 agent-work 契约对齐，原权限漏检已关闭，无新增 Context finding。静态门禁对固定修复 HEAD 通过；后续全局 CI 与报告提交由 caller 收尾。仅追加两份报告，未覆盖其它并行文档修改、未提交。

@@ -73,3 +73,78 @@
 - 最终 HEAD `.e2e-refactor-672/build-final.log` 完成 Node installer candidate；`typecheck-final.log` 所有 workspace 包 Done；`test-final-integration.log` 为 8 文件、77 tests passed。独立 `git diff --check b8fc5edef..fc0dca156` 通过。
 - 补充先前全局门禁记录：bounded 全量为 145 文件/779 项、777 passed/2 failed；两项原样定向复跑分别在 `knowledge-low-load.log` 中 5/5 passed、`disable-low-load.log` 中 1 passed/6 未选中。前端 1029、Python 100 通过为 caller 带版本交接，最终状态由 delivery/CI 记录。未将一次全量失败改写成单次全绿，也不以复跑通过证明资源必然是根因。
 - 无存活 finding，Round 1 full 结论在新 base 上保留并有效至本次 HEAD；不需要 full 重审。相对新 base 仍为 no spec delta。本轮仅追加两份报告，未提交、未修改产品或测试。
+
+## Round 3 — M3 Work 完整事件链
+
+- reviewer: 独立 reviewer `/root/static_review`；未参与实现。
+- review_mode: `full`，完整覆盖新增 M3 `bd0938462..badc559a1`，另核 M1/M2 的 final sync 影响并保留未失效结论。
+- executed_base / effective_base: `94b06908d396c8039d820124c4d86cb32a75eaf4`。
+- validated_at / effective_through: `badc559a1937b9b7b34b75df4d5a3ba0f5137e22`。
+- completed_at: `2026-10-28T13:29:00+08:00`。
+- 输入：扩展 motivation/design、M3 progress、design-review Round 2、current `docs/specs/im/agent-work.md`；不重审其他主干 unit。
+
+### Findings
+
+```json
+[
+  {
+    "file": "packages/product-contracts/src/work-event-codec.ts",
+    "line": 63,
+    "summary": "[P2] 在提交前校验两种权限表示中实际消费的 options 条目",
+    "failure_scenario": "permission_request 的 options:[null] 通过 Array.isArray；嵌套 permission_request.options:'bad' 也不被检查。readWorkBatch→WorkRecords 独立内存 SQLite 复现已返回 through_seq:3 并保存 pending 权限条目；work.ts:423 随后按 options?.some(o=>o.id===decision) 消费时分别抛 TypeError，不能完成正常权限决定。这违反 M3 畸形稳定字段不得提交或推进水位的退出标准。将 option 对象/id 及嵌套表示的相同稳定字段具名并在共享 decoder 校验，保留额外字段与合法缺省，扩展既有边界回归保护。",
+    "review_mode": "full",
+    "status": "CONFIRMED"
+  }
+]
+```
+
+### 完整覆盖及保留结论
+
+- WorkFact/WorkDraft 关联已知事件和完整身份，projectWorkEvent/GlobalAgent 接收完整 fact；KnowledgeUpdates 的 session_linked/self_evolution_review 同样经过 InboxStore 的具名 append。commitWork 的事务与 checkpoint 未改，journal 在 JSON 边界解码，WorkSync 保留原对象上传及分段哈希算法。编译负例进入 PA/IM 常规 typecheck，没有生产 string fallback。
+- WorkRecords 仅持有 DatabaseSync；固定 session/event/turn/item SQL 记录与公开 view/page 分离。逐段对照旧 Work.append/project/items/turns/view：日志/投影/水位仍在同一事务；去重身份、顺序、撤权 identity-only 跳过、historical 主会话及 PA 替换、重启 running→unknown、提交后授权广播和 live 状态组合保持原顺序。
+- HTTP 批量、分段最终 JSON 和旧 WS 均经 readWorkBatch/WorkRecords。decoder 对合法事件返回原对象，未排序、补默认或裁剪额外字段；turn_start/run_* 别名及未知事件通用投影保留。工具 arguments、presentation.detail/error、source refs 与未报告统计保持原值。权限 options 是唯一确认的稳定字段校验缺口，未因其它测试通过而排除。
+- 真实生产链用 RuntimePort 提供原生事实，随后执行实际 GlobalAgent→InboxStore→WorkSync→独立中心 HTTP/SQLite→公开 Work/子执行页；检查主子身份、大参数/完整结果、已报告/未报告统计、刷新、重启/重复及 WS 拒绝。它不证明真实模型理解，也未覆盖上述畸形 permission options。
+- M1/M2 与 Round 2 相比仅 skill usage HTTP 投影采用主干 settingsSectionDisplay；已核与新 base 对应 route 一致，属于已继承的 integration。配置服务、transport、权限及序列化未被覆盖；product-contracts index 在已有配置 exports 后追加 Work 类型/decoder，无旧 export 恢复。M1/M2 静态结论 retained。
+
+### Agent Context Implementation Review
+
+沿用 Mode B，限定 Work 投影与恢复以及共享 presentation 的 SingleThread 消费。事件类型包装不改变 GlobalAgent 模型输入、Inbox 消息/工具结果或执行循环；runtime 事实仅形成用户 Work/工具卡片。presentation 的 id/name 收窄对既有字符串身份不变；原生替换输出仍被识别为 Context 编辑而非再次完成。Work facade 的 query/command/permission 业务保留，session 读取只去掉内部 SQL JSON 列，调用方不将该列交付模型。无新增 Context finding；未捕获 provider 请求或运行模型，不声称模型语义验收。权限 finding 是确定性接收边界问题。
+
+### 验证证据与限制
+
+- `.e2e-refactor-672/m3-integration.log`：10 文件/110 passed；`m3-build.log` 完成本固定 HEAD installer；`m3-typecheck.log` 全包 Done，包含 PA/IM 编译负例；`m3-ios-runtime.log`、`m3-pytest.log`（100 passed/28 deselected）通过。
+- 独立临时内存 SQLite 复现：以合法 session_registered、turn_started 和 `permission_request {request_id:'bad',options:[null]}` 组成同一批，经 readWorkBatch 后 WorkRecords.append 返回 `{journal_id:'j',through_seq:3}`；持久权限为 `{request_id:'bad',options:[null],node_epoch:0,status:'pending',seq:3}`，执行 route 相同消费表达式得到 `TypeError: Cannot read properties of null (reading 'id')`。嵌套 `permission_request:{request_id:'nested',options:'bad'}` 同样通过 readWorkBatch。未修改源码/测试，数据库已关闭，无现场遗留。
+- `git diff --check 94b06908d..badc559a1` 发现 `work-records.ts:490` 空白行含尾随空格；已交 caller 机械清理，不作为正确性 finding。全量后端/前端运行由 caller 收尾，本轮未重复全量。
+
+### 结论
+
+M3 有 1 项 CONFIRMED / P2 finding，需修正后 patch/closure。其它已核结论及 M1/M2 门禁保留；没有理由扩为无关源码重构或修改 current spec 迎合漏检。
+
+## Round 4 — Permission Finding Closure
+
+- reviewer: 同一独立 reviewer `/root/static_review`。
+- review_mode: `closure`；focus: Round 3 的权限 options P2 finding。
+- finding_origin_head: `badc559a1937b9b7b34b75df4d5a3ba0f5137e22`。
+- fix_delta_range: `badc559a1..197da048e`；executed_base / effective_base: `94b06908d396c8039d820124c4d86cb32a75eaf4`。
+- validated_at / effective_through: `197da048e8975677e8e82f7e0f73f511e7f67687`。
+- completed_at: `2026-10-28T13:31:00+08:00`。
+
+### Findings
+
+```json
+[]
+```
+
+### Focus Finding 状态
+
+**Round 3 P2：closed。** `WorkPermissionOption` 具名 `id:string` 并保留扩展字段，flat/nested request 的 options 共用同一具名契约。decoder 的 permissionOptions 检查每项非 null 对象及字符串 id，两种表示均消费此检查。null 仍是安全缺省，后续可选链返回 invalid_decision 而不抛类型异常；decoder 返回原对象，未修改扩展内容。
+
+修复 delta 仅 5 文件：契约/decoder、PA 编译负例、既有边界测试参数化，以及已指出的尾随空格清理。没有改变投影、权限授权、事务、水位、恢复或模型输入，不使 Round 3 的其它覆盖或 M1/M2 retained 结论失效。
+
+### Evidence 与有效性
+
+- `m3-permission-red.log`：原 decoder 下两项权限用例失败，实际取得 200/through_seq=2，证明回归测试能暴露原缺陷；不是仅断言内部 helper。
+- `m3-permission-green.log`：3 文件/23 passed，覆盖 batch/parts 拒绝及不推进、生命周期和实际生产链；原 malformed tool 用例保留。caller 交接 PA/IM typecheck 通过，新增编译负例拒绝缺 id/错误 nested option。
+- reviewer 独立直接调用本次源 decoder：flat `[null]`、nested 非数组、flat 缺 id、nested 数字 id 共 4 例拒绝；flat/nested null 与含扩展内容的合法对象共 4 例返回原 event/fact 引用。没有写测试或运行全量。
+- `git diff --check 94b06908d..197da048e` 独立通过。前端 `m3-frontend.log` 已完成 108 文件/1029 passed；后端全量仍由 caller 收尾，不声称已全绿。
+- 结论：无存活 finding；权限校验缺口已关闭。原 full/同步结论及本次 closure 有效至固定修复 HEAD，仍为 no spec delta；无新增 Context 影响。仅追加报告，未提交。
