@@ -48,7 +48,7 @@
 
 ## 更新 Mini 代码和前端
 
-需要更新公网 IM 或 Tunnel 运行服务时，更新代码前，先在 Mini 执行 `~/.nanoassistant/runtime/tunnel-venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready`，验证已安装的 runtime 路径。固定生产 checkout 切到已确认 SHA 后、停止 IM 或更新运行服务前，再核对一次；目标版本未跟踪该运维脚本时保留已安装版本，不从未提交的本地文件覆盖生产 supervisor。只有目标版本跟踪并包含本次授权更新的脚本时，才执行 `~/.nanoassistant/runtime/tunnel-venv/bin/python scripts/prod_tunnel.py --ready` 检查新版本。它核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 实际路由，失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准；不能把系统代理、TUN 出口或 HTTP2 当作等价路径。
+需要更新公网 IM 或 Tunnel 运行服务时，在停服务前用 Mini 的 `~/.nanoassistant/runtime/tunnel-venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready` 检查已安装的路径。目标版本包含待更新 supervisor 时，先用 `git show <目标SHA>:scripts/prod_tunnel.py` 提取到本机临时文件，再用同一独立 Python 执行该临时文件的 `--ready`；这一步不切 live checkout，检查完成后移除临时文件。两项均通过后才允许停止服务和切换版本；目标版本未跟踪该脚本时保留已安装版本，不用未提交文件覆盖。脚本核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 路由；失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准。
 
 以下为 Mini 版本更新顺序，由 Air SSH 发起。先确认目标 SHA、生产目录 clean/detached、迁移前提和回退点；准备阶段只 fetch，不切开发主仓。更新时先停 Gateway 与 IM，再切生产 checkout 并构建，不能在 live checkout 上边运行边覆盖产物。Tunnel 已有独立 Python，普通代码更新无需重启它。
 
