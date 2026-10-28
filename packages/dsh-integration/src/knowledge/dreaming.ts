@@ -309,7 +309,7 @@ export class Dreaming {
     if (run.childSessionId) await this.ctx.nanoTrajectoryRuns.finishMaintenance(run.id, run.state === 'completed' ? 'completed' : run.state === 'cancelled' ? 'cancelled' : 'failed');
     this.options.notify();
   }
-  async reviews() { return [...(await this.domain).table('runs').entries()].map(([, run]) => ({ id: run.id, agentId: run.agentId, rootSessionId: run.rootSessionId, childSessionId: run.childSessionId, at: run.at, kind: 'dreaming' as const, status: run.state, summary: run.summary, endedAt: run.endedAt })); }
+  async reviews() { return [...(await this.domain).table('runs').entries()].map(([, run]) => ({ id: run.id, agentId: run.agentId, rootSessionId: run.rootSessionId, ...(run.childSessionId ? { childSessionId: run.childSessionId } : {}), at: run.at, kind: 'dreaming' as const, status: run.state, ...(run.summary !== undefined ? { summary: run.summary } : {}), ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}) })); }
   async status(agentId: string) { const config = this.configuration(agentId); return config ? { ...await this.owner(config), active: this.active.has(agentId), reviews: (await this.reviews()).filter(run => run.agentId === agentId) } : undefined; }
   /** Reapply completed cursor commits without rerunning model or file writes. */
   async recover() {

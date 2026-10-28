@@ -193,7 +193,7 @@ export class MemoryDocuments {
       return this.status();
     });
   }
-  async status() { return { generation: this.state.generation, sourcesPending: this.sourcesPending, sources: this.state.sources, exclusions: this.state.exclusions, receipts: Object.values(this.state.receipts), backupRoot: this.backupRoot }; }
+  async status() { return { generation: this.state.generation, sourcesPending: this.sourcesPending, ...(this.state.sources ? { sources: this.state.sources } : {}), exclusions: this.state.exclusions, receipts: Object.values(this.state.receipts), backupRoot: this.backupRoot }; }
   /** Atomically apply a frozen plan; recovery accepts its after hash but never a third version. */
   apply(operation: DocumentOperation, generation?: number, signal?: AbortSignal): Promise<DocumentReceipt> {
     return this.serial(async () => {
