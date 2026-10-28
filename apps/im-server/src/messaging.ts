@@ -714,22 +714,14 @@ export class Messaging {
     const c = conversationAccess(this.db,id,userId);
     if (!c?.can_write) fail(404,"conversation_id not found");
     if (c.creator_id !== userId) fail(403,"only creator can delete group");
-    transaction(this.db,()=>{
+    const graphIds = transaction(this.db,()=>{
       const at = now();
       this.db.prepare("UPDATE conversations SET dissolved_at=? WHERE id=?").run(at,id);
-      for (const row of all(this.db,"SELECT * FROM task_graphs WHERE conversation_id=?",id)) {
-        const d=JSON.parse(row.document_json);
-        for (const n of d.nodes) if (!["done","closed"].includes(n.status)) {n.status="closed";n.updated_at=at;}
-        for (const n of d.nodes) {
-          if (n.selected_candidate_id && d.nodes.some((candidate: Row)=>candidate.id===n.selected_candidate_id && candidate.status==="closed")) n.selected_candidate_id=null;
-        }
-        d.revision++; d.updated_at=at;
-        this.db.prepare("UPDATE task_graphs SET document_json=?,revision=?,updated_at=? WHERE graph_id=?").run(JSON.stringify(d),d.revision,at,row.graph_id);
-      }
+      const graphIds = this.ctx.gateway.tasks.closeForConversationDissolution(id,userId,at);
       this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE conversation_id=? AND status IN ('queued','sent','accepted')").run(at,id);
+      return graphIds;
     });
-    for (const row of all(this.db,'SELECT graph_id FROM task_graphs WHERE conversation_id=?',id))
-      this.ctx.gateway.tasks.notifyChange(undefined,row.graph_id);
+    for (const graphId of graphIds) this.ctx.gateway.tasks.notifyChange(undefined,graphId);
     this.membership(id,this.members(id).map(u=>u.id));
   }
   /** Resolve an authorized send target.
