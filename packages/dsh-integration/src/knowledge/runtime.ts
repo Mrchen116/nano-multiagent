@@ -166,14 +166,7 @@ export class KnowledgeRuntime extends Service {
     const binding = [...this.options.bindings.values()].find(binding => binding.agentId === agentId);
     if (!config) throw new Error('Unknown Agent');
     const workspace = config.workspace ?? binding?.cwd; if (!workspace) throw new Error('Agent has no workspace');
-    const known = new Map<string, boolean>();
-    return new KnowledgeFiles(workspace, config.knowledge?.globalSkillRoot).usage((config.skillRoots ?? []).map(root => root.path), async id => {
-      if (!known.has(id)) {
-        try { using observation = await this.host.sessionQuery.observeSession(SessionId(id)); known.set(id, observation.header.cwd === workspace); }
-        catch { known.set(id, false); }
-      }
-      return known.get(id)!;
-    });
+    return new KnowledgeFiles(workspace, config.knowledge?.globalSkillRoot).usage((config.skillRoots ?? []).map(root => root.path), agentId);
   }
   async facts() { return [...(await this.state).table('facts').entries()].map(([, value]) => value).filter(value => !value.cancelledByDisable); }
   async acknowledge(id: string) { await (await this.state).table('facts').delete(storageKey(id)); this.undelivered.delete(id); }
@@ -232,7 +225,7 @@ export class KnowledgeRuntime extends Service {
       if (path && !path.startsWith('..') && !path.startsWith('/')) { root = candidate.path; break; }
     }
     if (!root) return;
-    const result = await this.files(agent).use(root, name, agent.id, callId, skill.path);
+    const result = await this.files(agent).use(root, name, config.agentId, agent.id, callId, skill.path);
     if (result.batch && config.mode !== 'global' && config.features?.skill_creation !== false && this.options.bindings.has(agent.id)) {
       const batch = { root: await realpath(root), name };
       this.pendingBatches.set(`${config.agentId}:${batch.root}:${name}`, { agentId: config.agentId, batch });

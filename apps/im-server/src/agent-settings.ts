@@ -12,6 +12,13 @@ export interface SettingsRead<T = Row | Row[]> {
 }
 const pick = (value: Row, keys: string[]): Row => Object.fromEntries(keys.filter(key => key in value).map(key => [key, value[key]]));
 
+// Presence of the new coverage fields distinguishes fresh statistics from legacy sample counts.
+function currentUsage(value: Row): boolean {
+  const since = (item: Row) => item?.statistics_since === null || typeof item?.statistics_since === 'string';
+  return since(value) && typeof value.period_start === 'string' && typeof value.period_end === 'string'
+    && Array.isArray(value.skills) && value.skills.every(since);
+}
+
 /** Return a live connection only when both persisted binding and open socket agree. */
 export function settingsConnection(ctx: ImContext, profile: Row): Connection | undefined {
   const connection = ctx.gateway.nodes.get(profile.node_id);
@@ -79,6 +86,7 @@ export function readSettingsSnapshot(ctx: ImContext, profile: Row, section: Sett
     || snapshot.node_id !== profile.node_id || snapshot.node_epoch !== binding.node_epoch || snapshot.workspace_root !== profile.workspace_root)
     return {source:'unavailable',captured_at:null,data:null,error:null};
   let data = JSON.parse(snapshot.data_json);
+  if (section === 'usage' && !currentUsage(data)) return {source:'unavailable',captured_at:null,data:null,error:null};
   if (section === 'configuration' && snapshot.profile_version !== profile.profile_version) {
     // Names remain useful; defaults/discovery from a different saved version are not current facts.
     data = configurationDisplay(profile, data, false);
@@ -110,9 +118,11 @@ export function settingsSectionDisplay(section: Exclude<SettingsSection, 'config
     })),diagnostics:[],...(plugins.pending ? {pending:pick(plugins.pending,['action','target','enabled','phase'])} : {})};
   }
   const usage = response.usage;
-  if (!Array.isArray(usage?.skills)) fail(502, 'Skill usage result is unavailable');
+  if (!currentUsage(usage)) fail(502, 'Skill usage result is unavailable');
   return {agent_id:profile.agent_id,node_id:profile.node_id,node_online:true,
-    skills:usage.skills.map((skill: Row) => ({...pick(skill,['skill_id','name','source','state','use_count','uses_since_last_B','created_at','last_used_at','archived_at','trend_buckets']),
+    ...pick(usage,['statistics_since','period_start','period_end']),
+    skills:usage.skills.map((skill: Row) => ({...pick(skill,['skill_id','name','source','state','use_count','uses_since_last_B','created_at','last_used_at','archived_at','archive_error','trend_buckets','statistics_since']),
+      recent_call_keys:(skill.session_refs ?? []).map((ref: Row) => `${ref.session_id}:${ref.tool_call_id}`),
       session_refs:(skill.session_refs ?? []).map((ref: Row) => pick(ref,['session_id','tool_call_id','timestamp','location']))})),
     heatmap_data:usage.heatmap_data ?? [],health:pick(usage.health ?? {},['created_auto_total','active_auto_total','used_auto_total'])};
 }

@@ -906,6 +906,7 @@ export interface SkillUsageItem {
   source: string;
   state: string;
   use_count: number;
+  statistics_since: string | null;
   last_used_at?: string | null;
   created_at?: string | null;
   archived_at?: string | null;
@@ -925,6 +926,9 @@ export interface SkillsUsageResponse {
   agent_id: string;
   node_id: string | null;
   node_online: boolean;
+  statistics_since: string | null;
+  period_start: string;
+  period_end: string;
   skills: SkillUsageItem[];
   heatmap_data: number[];
   health: SkillUsageHealth;
