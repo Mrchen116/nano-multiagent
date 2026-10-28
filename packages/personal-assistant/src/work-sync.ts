@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { workSyncLimits as limits, workSyncPrefix, type WorkSyncCursor, type WorkSyncPart } from '@nano/product-contracts';
+import { workSyncLimits as limits, workSyncPrefix, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart } from '@nano/product-contracts';
 import type { InboxStore } from './inbox.js';
 
 interface Options {
@@ -147,7 +147,7 @@ export class WorkSync {
     }
   }
 
-  private async uploadEvent(event: Record<string, unknown>, cursor: WorkSyncCursor): Promise<WorkSyncCursor> {
+  private async uploadEvent(event: WorkJournalEvent, cursor: WorkSyncCursor): Promise<WorkSyncCursor> {
     const raw = Buffer.from(JSON.stringify(event));
     if (raw.length > limits.eventMaxBytes) throw new SyncError('event_too_large', true);
     const hash = sha(raw), count = Math.ceil(raw.length / limits.chunkBytes), seq = Number(event.seq), eventId = String(event.event_id);

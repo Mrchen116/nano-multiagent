@@ -228,3 +228,39 @@ test('a declaration received before socket replacement cannot mark the replaceme
   expect(result.statusCode).toBe(200);
   expect(f.app.im.gateway.work.view('root').record_sync_state).toBe('unknown');
 });
+
+test('known malformed payloads cannot commit a batch or a completely uploaded part set', async () => {
+  const f = await fixture();
+  const invalid = {...event(2), turn_id: '1', type: 'tool_end', payload: {call_id: 'tool', presentation: {summary: 42}}};
+  const rejected = await f.request('POST', `${prefix}/events`, {from_seq: 1, events: [event(1), invalid]});
+  expect(rejected.statusCode, rejected.body).toBe(400);
+  expect((await f.request('GET')).json().through_seq).toBe(0);
+  expect(f.db.prepare('SELECT count(*) n FROM agent_work_sessions').get()).toMatchObject({n: 0});
+  await f.request('POST', `${prefix}/events`, {from_seq: 1, events: [event(1)]});
+  const chunks = parts(invalid);
+  for (let index = 0; index < chunks.length; index++) {
+    const result = await f.request('PUT', `${prefix}/events/2/parts/${index}`, chunks[index]);
+    expect(result.statusCode, result.body).toBe(index === chunks.length - 1 ? 400 : 200);
+  }
+  expect((await f.request('GET')).json().through_seq).toBe(1);
+  expect(f.db.prepare('SELECT count(*) n FROM agent_work_events').get()).toMatchObject({n: 1});
+});
+
+test('legacy aliases, omitted statistics and opaque extension payloads keep original journal bytes', async () => {
+  const f = await fixture();
+  const extension = {z: '中文😀\n"', nested: [null, {dynamic: true}], arbitrary: {x: [1, 2]}};
+  const events = [event(1),
+    {...event(2), turn_id: '1', type: 'turn_start', payload: {model: null, started_at: null}},
+    {...event(3), turn_id: '1', type: 'plugin.custom', payload: extension},
+    {...event(4), turn_id: '1', type: 'run_completed', payload: {usage: null, elapsed_ms: null}},
+  ];
+  const result = await f.request('POST', `${prefix}/events`, {from_seq: 1, events});
+  expect(result.statusCode, result.body).toBe(200);
+  expect(result.json().through_seq).toBe(4);
+  for (const e of events) expect(f.db.prepare('SELECT payload FROM agent_work_events WHERE seq=?').get(e.seq)).toMatchObject({payload: JSON.stringify(e.payload)});
+  const view = f.app.im.gateway.work.turns('root', 'main');
+  expect(view.turns[0]).toMatchObject({status: 'completed', usage: null});
+  expect(view.turns[0]!.items.find(item => item.kind === 'plugin.custom')!.payload).toMatchObject(extension);
+  expect((await f.request('POST', `${prefix}/events`, {from_seq: 1, events})).json().through_seq).toBe(4);
+  expect(f.db.prepare('SELECT count(*) n FROM agent_work_events').get()).toMatchObject({n: 4});
+});

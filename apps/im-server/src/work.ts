@@ -5,18 +5,28 @@ import type { FastifyInstance } from "fastify";
 import {
   all,
   one,
-  now,
   fail,
   body,
   params,
   query,
-  transaction,
   type Row,
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
-import { formatLocalTime } from "@nano/product-contracts";
+import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, formatLocalTime } from "@nano/product-contracts";
 import type { Connection } from './gateway.js';
+import { WorkRecords } from './work-records.js';
+import type { WorkView } from './work-record-types.js';
+/** Decode the wire batch before receipt checks or durable projection.
+ * Args:
+ *   input: Untrusted HTTP/WS body retaining the original event objects.
+ * Returns:
+ *   A validated batch, or the existing transport error shape.
+ */
+export function readWorkBatch(input: unknown) {
+  try { return decodeWorkBatch(input); }
+  catch (error) { if (error instanceof WorkEventError) fail(400, error.message); throw error; }
+}
 export class Work {
   private readonly progress = new WeakMap<Connection, { journal: string; produced: number; pending: boolean }>();
 
@@ -42,164 +52,23 @@ export class Work {
     return report.pending || through < report.produced ? 'catching_up' : 'current';
   }
 
-  constructor(readonly ctx: ImContext) {
-    for (const r of all(ctx.db, "SELECT session_id,turn_id,payload FROM agent_work_turns")) {
-      const p = JSON.parse(r.payload);
-      if (["running", "waiting_permission"].includes(p.status))
-        ctx.db
-          .prepare("UPDATE agent_work_turns SET payload=? WHERE session_id=? AND turn_id=?")
-          .run(JSON.stringify({ ...p, status: "unknown" }), r.session_id, r.turn_id);
-    }
+  private readonly records: WorkRecords;
+  constructor(readonly ctx: ImContext) { this.records = new WorkRecords(ctx.db); }
+  get db() { return this.ctx.db; }
+  register(root: string, session: string, node: string, payload: WorkSessionFields) {
+    this.records.register(root, session, node, payload);
   }
-  get db() {
-    return this.ctx.db;
+  session(root: string, id: string) { return this.records.session(root, id); }
+  items(root: string, session: string, turn: string, after = 0, limit = 100) {
+    return this.records.items(root, session, turn, after, limit);
   }
-  session(root: string, id: string): Row {
-    const r = one(
-      this.db,
-      "SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id=?",
-      root,
-      id,
-    );
-    if (!r) fail(404, "scope_not_allowed");
-    return { ...JSON.parse(r.payload), ...r };
+  turns(root: string, session: string, before?: string, limit = 20) {
+    return this.records.turns(root, session, before, limit);
   }
-  register(root: string, session: string, node: string, p: Row, metadataOnly = false) {
-    if (!["global_main", "subagent", "workflow", "cron"].includes(p.scope))
-      fail(400, "invalid_scope");
-    if (["subagent", "workflow"].includes(p.scope)) this.session(root, p.parent_session_id);
-    const old = one(this.db, "SELECT * FROM agent_work_sessions WHERE session_id=?", session);
-    if (
-      old &&
-      (old.root_agent_id !== root ||
-        old.node_id !== node ||
-        old.scope !== p.scope ||
-        old.parent_session_id !== (p.parent_session_id ?? null))
-    )
-      fail(409, "session_identity_conflict");
-    if (p.scope === "global_main") {
-      if(old && JSON.parse(old.payload).retired && !JSON.parse(old.payload).historical_only)fail(409,"retired_main_session");
-      const other = one(
-        this.db,
-        "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0",
-        root,
-      );
-      if (other && other.session_id !== session) {
-        // Restoring a PA on its current device can replace execution context,
-        // while keeping the owner's old Work records available as history.
-        if(!one(this.db,"SELECT 1 FROM personal_agent_bindings WHERE agent_id=? AND node_id=? AND status='active'",root,node))fail(409,"main_session_conflict");
-        this.db.prepare("UPDATE agent_work_sessions SET payload=json_set(payload,'$.retired',json('true')) WHERE session_id=?").run(other.session_id);
-      }
-    }
-    this.db
-      .prepare(
-        "INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET payload=excluded.payload",
-      )
-      .run(session, root, node, p.scope, p.parent_session_id ?? null, metadataOnly
-        ? old?.payload ?? JSON.stringify({ scope: p.scope, parent_session_id: p.parent_session_id ?? null })
-        : JSON.stringify(p));
-  }
-  append(node: string, p: Row, historical = false): Row {
-    let through =
-      one(
-        this.db,
-        "SELECT through_seq FROM agent_work_journals WHERE node_id=? AND journal_id=?",
-        node,
-        p.journal_id,
-      )?.through_seq ?? 0;
-    if (p.from_seq > through + 1)
-      return {
-        journal_id: p.journal_id,
-        through_seq: through,
-        expected_seq: through + 1,
-      };
-    if (!Array.isArray(p.events) || !p.events.length || p.events.length > 100)
-      fail(400, "invalid_arguments");
-    const appliedRoots = new Set<string>();
-    transaction(this.db, () => {
-      for (const [i, e] of p.events.entries()) {
-        if (
-          e.seq !== p.from_seq + i ||
-          !e.event_id ||
-          !e.session_id ||
-          !e.payload ||
-          typeof e.payload !== "object"
-        )
-          fail(400, "invalid_sequence");
-        const profile = one(
-          this.db,
-          "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=? AND work_mode='global' AND is_stale=0",
-          e.root_agent_id,
-          node,
-        );
-        if (!profile) fail(403, "scope_not_allowed");
-        const old = one(
-          this.db,
-          "SELECT * FROM agent_work_events WHERE node_id=? AND journal_id=? AND seq=?",
-          node,
-          p.journal_id,
-          e.seq,
-        );
-        if (old) {
-          if (
-            old.event_id !== e.event_id ||
-            old.root_agent_id !== e.root_agent_id ||
-            old.session_id !== e.session_id ||
-            old.type !== e.type || old.turn_id !== (e.turn_id ?? null) ||
-            (e.observed_at !== undefined && old.observed_at !== e.observed_at) || old.payload !== JSON.stringify(e.payload)
-          )
-            fail(409, "event_identity_conflict");
-          continue;
-        }
-        // Revoked content is never replayed. Keep only session identities so a
-        // later authorized owner can continue the same shared journal.
-        if (e.seq <= through) continue;
-        if (e.seq !== through + 1) fail(400, "invalid_sequence");
-        const available = agentAvailable(this.db, profile);
-        if (e.type === "session_registered") {
-          if (historical && e.payload.scope === 'global_main') {
-            const existing = one(this.db,'SELECT * FROM agent_work_sessions WHERE session_id=?',e.session_id);
-            if (existing) {
-              if (existing.root_agent_id!==e.root_agent_id || existing.node_id!==node || existing.scope!=='global_main') fail(409,'session_identity_conflict');
-            } else this.db.prepare('INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?)').run(e.session_id,e.root_agent_id,node,'global_main',null,JSON.stringify({...e.payload,retired:true,historical_only:true}));
-          } else this.register(e.root_agent_id, e.session_id, node, e.payload, !available);
-        }
-        else if (available || e.type === "session_linked") this.session(e.root_agent_id, e.session_id);
-        if (e.type === "session_linked") {
-          if (e.payload.parent_session_id !== e.session_id) fail(403, "scope_not_allowed");
-          this.register(e.root_agent_id, e.payload.child_session_id, node, {
-            ...e.payload,
-            scope: e.payload.workflow_run_id ? "workflow" : "subagent",
-            parent_session_id: e.session_id,
-          }, !available);
-        }
-        if (!available) { through = e.seq; continue; }
-        const result = this.db
-          .prepare(
-            "INSERT INTO agent_work_events(node_id,journal_id,seq,event_id,root_agent_id,session_id,turn_id,type,observed_at,payload) VALUES(?,?,?,?,?,?,?,?,?,?)",
-          )
-          .run(
-            node,
-            p.journal_id,
-            e.seq,
-            e.event_id,
-            e.root_agent_id,
-            e.session_id,
-            e.turn_id ?? null,
-            e.type,
-            e.observed_at ?? now(),
-            JSON.stringify(e.payload),
-          );
-        this.project(e, Number(result.lastInsertRowid));
-        appliedRoots.add(e.root_agent_id);
-        through = e.seq;
-      }
-      this.db
-        .prepare(
-          "INSERT INTO agent_work_journals VALUES(?,?,?) ON CONFLICT(node_id,journal_id) DO UPDATE SET through_seq=excluded.through_seq",
-        )
-        .run(node, p.journal_id, through);
-    });
+  revision(root: string) { return this.records.revision(root); }
+  append(node: string, input: unknown, historical = false): WorkAppendAck {
+    const batch = readWorkBatch(input);
+    const {ack, appliedRoots} = this.records.append(node, batch, historical);
     for (const root of appliedRoots) {
       const users = all(
         this.db,
@@ -211,306 +80,15 @@ export class Work {
         data: { agent_id: root, revision: this.revision(root) },
       });
     }
-    return { journal_id: p.journal_id, through_seq: through };
+    return ack;
   }
-  project(e: Row, revision: number) {
-    const p = e.payload,
-      kind = e.type,
-      session = e.session_id;
-    let turnId = e.turn_id;
-    if (!turnId && p.run_id && !["cron_trigger", "cron_delivery"].includes(kind))
-      turnId = one(
-        this.db,
-        "SELECT turn_id FROM agent_work_turns WHERE session_id=? AND json_extract(payload,'$.run_id')=? ORDER BY seq DESC LIMIT 1",
-        session,
-        p.run_id,
-      )?.turn_id;
-    if (!turnId) {
-      if (
-        [
-          "control_result",
-          "recording_degraded",
-          "model_fallback",
-          "cron_trigger",
-          "cron_delivery",
-        ].includes(kind)
-      )
-        this.db
-          .prepare("INSERT INTO agent_work_items VALUES(?,?,?,?,?,?,?,?)")
-          .run(
-            session,
-            "",
-            e.event_id,
-            revision,
-            kind,
-            e.observed_at ?? null,
-            JSON.stringify(p),
-            revision,
-          );
-      return;
-    }
-    const prior = one(
-      this.db,
-      "SELECT * FROM agent_work_turns WHERE session_id=? AND turn_id=?",
-      session,
-      turnId,
-    );
-    const turn = prior
-      ? JSON.parse(prior.payload)
-      : {
-          session_id: session,
-          turn_id: turnId,
-          status: "unknown",
-          usage: null,
-          source_refs: [],
-        };
-    if (kind === "inbox_wake_admitted")
-      turn.trigger = { kind: "inbox", submission_id: p.submission_id };
-    if (["turn_started", "turn_start"].includes(kind))
-      Object.assign(turn, {
-        status: "running",
-        origin: p.origin,
-        trigger: p.trigger,
-        job_id: p.trigger?.job_id,
-        model_id: p.model_id ?? p.model,
-        run_id: p.run_id,
-        started_at: p.started_at ?? e.observed_at,
-      });
-    if (["turn_end", "run_completed", "run_failed", "run_cancelled"].includes(kind)) {
-      Object.assign(turn, {
-        status:
-          p.status ??
-          (["cancelled", "aborted", "interrupted"].includes(p.stop_reason) ||
-          kind === "run_cancelled"
-            ? "interrupted"
-            : p.completed === false || p.error || kind === "run_failed"
-              ? "failed"
-              : "completed"),
-        finished_at: p.finished_at ?? e.observed_at,
-        elapsed_ms: p.elapsed_ms ?? p.duration_ms,
-        error: p.error,
-        model_id: p.model ?? turn.model_id,
-      });
-      if (p.usage)
-        turn.usage = {
-          ...p.usage,
-          context_used: p.usage.context_used ?? p.usage.prompt_tokens,
-          output: p.usage.output ?? p.usage.completion_tokens,
-          context_window: p.context_window ?? p.usage.context_window,
-        };
-    }
-    if (kind === "model_selected") turn.model_id = p.model;
-    if (kind === "permission_request") turn.status = "waiting_permission";
-    if (kind === "permission_resolved" && turn.status === "waiting_permission") {
-      turn.status = one(
-        this.db,
-        "SELECT 1 FROM agent_work_items WHERE session_id=? AND turn_id=? AND kind='permission' AND item_id!=? AND json_extract(payload,'$.status')='pending'",
-        session,
-        turnId,
-        `permission:${p.request_id}`,
-      )
-        ? "waiting_permission"
-        : "running";
-    }
-    if (p.source_refs) turn.source_refs = p.source_refs;
-    this.db
-      .prepare(
-        "INSERT INTO agent_work_turns VALUES(?,?,?,?) ON CONFLICT(session_id,turn_id) DO UPDATE SET payload=excluded.payload",
-      )
-      .run(session, turnId, prior?.seq ?? revision, JSON.stringify(turn));
-    if (
-      [
-        "turn_started",
-        "turn_start",
-        "model_selected",
-        "turn_end",
-        "tool_result_committed",
-        "turn_input_committed",
-        "run_heartbeat",
-        "inbox_wake_admitted",
-      ].includes(kind)
-    )
-      return;
-    const call = p.call_id ?? p.tool_call_id;
-    const itemKind =
-      [
-        "tool_start",
-        "tool_end",
-        "draft_withheld",
-        "message_sent",
-        "dispatch_confirmed",
-        "inbox_read_committed",
-      ].includes(kind) && call
-        ? "tool"
-        : ["permission_request", "permission_resolved"].includes(kind)
-          ? "permission"
-          : kind;
-    const id =
-      itemKind === "tool"
-        ? `tool:${call}`
-        : itemKind === "permission"
-          ? `permission:${p.request_id}`
-          : ["message", "message_delta", "text_delta"].includes(kind) && p.message_id
-            ? `message:${p.message_id}`
-            : e.event_id;
-    const old = one(
-      this.db,
-      "SELECT * FROM agent_work_items WHERE session_id=? AND turn_id=? AND item_id=?",
-      session,
-      turnId,
-      id,
-    );
-    const payload = old ? JSON.parse(old.payload) : {};
-    if (itemKind === "tool") {
-      if (["tool_start", "tool_end"].includes(kind)) {
-        Object.assign(payload, p, {
-          input: p.arguments ?? payload.input ?? {},
-          reason: p.reason_code,
-          id: call,
-          status:
-            kind === "tool_start" ? "running" : p.error || p.is_error ? "failed" : "completed",
-          output: p.presentation?.summary ?? payload.output,
-          name: p.name ?? p.tool_name ?? payload.name ?? "tool",
-        });
-        for (const key of ["label", "summary", "detail", "emoji"])
-          if (p.presentation?.[key] !== undefined) payload[key] = p.presentation[key];
-      } else (payload.work_facts ??= []).push({ type: kind, ...p });
-    } else if (itemKind === "permission") {
-      Object.assign(payload, p.permission_request ?? p, {
-        lifecycle_revision:p.lifecycle_revision??p.permission_request?.lifecycle_revision,
-        node_epoch:
-          one(
-            this.db,
-            "SELECT b.node_epoch FROM node_binding_state b JOIN agent_work_sessions s ON s.node_id=b.node_id WHERE s.session_id=?",
-            session,
-          )?.node_epoch ?? 0,
-        status: kind === "permission_resolved" ? "resolved" : "pending",
-      });
-    } else if (["message_delta", "text_delta"].includes(kind))
-      payload.text = (payload.text ?? "") + (p.text ?? p.delta ?? "");
-    else Object.assign(payload, p);
-    payload.seq = old?.seq ?? revision;
-    this.db
-      .prepare(
-        "INSERT INTO agent_work_items VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(session_id,turn_id,item_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision",
-      )
-      .run(
-        session,
-        turnId,
-        id,
-        payload.seq,
-        itemKind,
-        e.observed_at ?? null,
-        JSON.stringify(payload),
-        revision,
-      );
-  }
-  items(root: string, session: string, turn: string, after = 0, limit = 100): Row {
-    this.session(root, session);
-    const rows = all(
-      this.db,
-      "SELECT * FROM agent_work_items WHERE session_id=? AND turn_id=? AND seq>? ORDER BY seq LIMIT ?",
-      session,
-      turn,
-      after,
-      limit + 1,
-    );
-    return {
-      items: rows.slice(0, limit).map((r) => ({
-        item_id: r.item_id,
-        seq: r.seq,
-        kind: r.kind,
-        observed_at: r.observed_at,
-        revision: r.revision,
-        payload: JSON.parse(r.payload),
-      })),
-      next_cursor: rows.length > limit ? String(rows[limit - 1]!.seq) : null,
-    };
-  }
-  turns(root: string, session: string, before?: string, limit = 20): Row {
-    const registered = this.session(root, session);
-    const anchor = before
-      ? one(
-          this.db,
-          "SELECT seq FROM agent_work_turns WHERE session_id=? AND turn_id=?",
-          session,
-          before,
-        )?.seq
-      : Number.MAX_SAFE_INTEGER;
-    if (anchor === undefined) fail(400, "invalid_cursor");
-    const rows = all(
-      this.db,
-      "SELECT * FROM agent_work_turns WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?",
-      session,
-      anchor,
-      limit + 1,
-    );
-    return {
-      turns: rows.slice(0, limit).map((r) => {
-        const page = this.items(root, session, r.turn_id);
-        return {
-          ...JSON.parse(r.payload),
-          scope: registered.scope,
-          items: page.items,
-          next_items_cursor: page.next_cursor,
-        };
-      }),
-      control_items: this.items(root, session, "").items,
-      next_cursor: rows.length > limit ? rows[limit - 1]!.turn_id : null,
-    };
-  }
-  revision(root: string) {
-    return one(
-      this.db,
-      "SELECT COALESCE(MAX(revision),0) n FROM agent_work_events WHERE root_agent_id=?",
-      root,
-    )!.n;
-  }
-  view(root: string, before?: string, limit = 20): Row {
-    const sessions = all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root),
-      main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
-    const page = main ? this.turns(root, main, before, limit) : { turns: [], next_cursor: null };
-    let latest = null;
-    for (const r of main
-      ? all(
-          this.db,
-          "SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC",
-          main,
-        )
-      : []) {
-      const t = JSON.parse(r.payload);
-      if (t.usage) {
-        latest = {
-          session_id: main,
-          turn_id: t.turn_id,
-          model_id: t.model_id,
-          ...t.usage,
-        };
-        break;
-      }
-    }
-    const agent = one(this.db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", root)!;
-    const online = this.ctx.gateway.isOnline(agent.node_id);
-    let state = page.turns[0]?.status ?? "idle";
-    if (["completed", "failed", "interrupted"].includes(state)) state = "idle";
-    if (!online && ["running", "waiting_permission"].includes(state)) state = "unknown";
-    return {
-      root_agent_id: root,
-      main_session_id: main,
-      revision: this.revision(root),
-      latest_main_usage: latest,
-      main_execution: state,
-      node_connection_state: online ? "online" : "offline",
-      record_sync_state: this.recordSyncState(agent.node_id),
-      control_items: main ? this.items(root, main, "").items : [],
-      other_executions: sessions
-        .filter((s) => s.scope !== "global_main" || JSON.parse(s.payload).retired)
-        .map((s) => {
-          const x = { ...JSON.parse(s.payload), ...s };
-          delete x.payload;
-          return x;
-        }),
-      ...page,
+  view(root: string, before?: string, limit = 20): WorkView {
+    const {node_id, ...view} = this.records.view(root, before, limit);
+    const online = this.ctx.gateway.isOnline(node_id);
+    return {...view,
+      main_execution: !online && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
+      node_connection_state: online ? 'online' : 'offline',
+      record_sync_state: this.recordSyncState(node_id),
     };
   }
   query(c: Row, p: Row): Row {

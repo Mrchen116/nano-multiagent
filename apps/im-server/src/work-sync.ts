@@ -3,9 +3,10 @@ import { closeSync, createReadStream, fsyncSync, mkdirSync, openSync, readdirSyn
 import { open, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { workSyncLimits as limits, workSyncPrefix, type WorkSyncPart, type WorkSyncCursor } from '@nano/product-contracts';
+import { workSyncLimits as limits, workSyncPrefix, type WorkSyncPart, type WorkSyncCursor, workObject } from '@nano/product-contracts';
 import { all, one, fail, transaction, type ImContext, type Row } from './context.js';
 import type { RuntimeIdentity } from './identity.js';
+import { readWorkBatch } from './work.js';
 import type { Connection } from './gateway.js';
 
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -131,10 +132,8 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
   const path = `${workSyncPrefix}/journals/:journal_id`;
   app.get(path, options, serve(async request => { const { identity, journal } = scope(request); return cursor(identity, journal); }));
   app.post(`${path}/events`, options, serve(async request => {
-    const { identity, journal } = scope(request), payload = request.body as Row;
-    if (!payload || !integer(payload.from_seq) || payload.from_seq < 1 || !Array.isArray(payload.events) || !payload.events.length || payload.events.length > limits.batchEvents ||
-      payload.events.some((event: unknown) => !event || typeof event !== 'object'))
-      fail(400, 'invalid_arguments');
+    const { identity, journal } = scope(request);
+    const payload = readWorkBatch({...(workObject(request.body) ? request.body : {}), journal_id: journal});
     for (const event of payload.events) {
       const receipt = one(db, 'SELECT event_id,sha256 FROM work_sync_uploads WHERE node_id=? AND journal_id=? AND seq=? LIMIT 1', identity.node_id, journal, event.seq);
       if (receipt && (receipt.event_id !== event.event_id || receipt.sha256 !== hash(JSON.stringify(event)))) fail(409, 'event_identity_conflict');
@@ -142,7 +141,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     const result = ctx.gateway.work.append(identity.node_id, { ...payload, journal_id: journal }, true);
     // Hash receipts keep chunk and batch retries on the same immutable event identity.
     transaction(db, () => {
-      for (const event of payload.events.filter((event: Row) => event.seq <= result.through_seq)) {
+      for (const event of payload.events.filter((event) => event.seq <= result.through_seq)) {
         const raw = JSON.stringify(event), digest = hash(raw);
         const id = hash(JSON.stringify([identity.owner_id, identity.node_id, identity.node_epoch, journal, event.seq, event.event_id, digest]));
         db.prepare('INSERT OR IGNORE INTO work_sync_uploads VALUES(?,?,?,?,?,?,?,?,?,?,?,1)').run(id, identity.owner_id, identity.node_id, identity.node_epoch,
@@ -211,9 +210,9 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
         }
       }
       if (offset !== payload.total_bytes || digest.digest('hex') !== payload.sha256) fail(400, 'event_hash_mismatch');
-      let event: Row;
-      try { event = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)) as Row; } catch { fail(400, 'invalid_event'); }
-      if (!event || event.seq !== seq || event.event_id !== payload.event_id) fail(409, 'event_identity_conflict');
+      let event: unknown;
+      try { event = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)); } catch { fail(400, 'invalid_event'); }
+      if (!workObject(event) || event.seq !== seq || event.event_id !== payload.event_id) fail(409, 'event_identity_conflict');
       const current = authenticateWorkSync(ctx, request);
       if (current.owner_id !== identity.owner_id || current.node_id !== identity.node_id || current.node_epoch !== identity.node_epoch) fail(401, 'invalid_runtime_token');
       ctx.gateway.work.append(identity.node_id, { journal_id: journal, from_seq: seq, events: [event] }, true);

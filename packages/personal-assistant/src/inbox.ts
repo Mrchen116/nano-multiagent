@@ -2,7 +2,8 @@ import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
-import type { RelayInput } from '@nano/product-contracts';
+import { decodeWorkEvent } from '@nano/product-contracts';
+import type { WorkDraft, WorkJournalEvent, RelayInput } from '@nano/product-contracts';
 import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
@@ -374,7 +375,7 @@ export class InboxStore {
    *   checkpoint: Position covered by the supplied projection facts.
    *   events: Product facts carrying their stable source identities.
    */
-  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:(Record<string,unknown>&{event_id:string})[]):void {
+  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:WorkDraft[]):void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for(const event of events)this.append(event);
@@ -388,12 +389,12 @@ export class InboxStore {
     this.db.prepare('INSERT INTO work_recovery VALUES(?,?) ON CONFLICT(root_session_id) DO UPDATE SET pending=excluded.pending WHERE pending!=excluded.pending').run(rootSessionId,Number(pending));
   }
   get workProcessingPending():boolean {return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 LIMIT 1').get();}
-  append(event: Record<string, unknown> & { event_id: string }): void {
+  append(event: WorkDraft): void {
     if (this.db.prepare('SELECT 1 FROM journal WHERE event_id=?').get(event.event_id)) return;
     const seq = (this.db.prepare('SELECT coalesce(max(seq),0)+1 AS seq FROM journal').get() as { seq: number }).seq;
     this.db.prepare('INSERT INTO journal VALUES(?,?,?)').run(seq, event.event_id, JSON.stringify({ ...event, seq }));
   }
-  journal(after: number, limit = 100): Record<string, unknown>[] { return (this.db.prepare('SELECT event FROM journal WHERE seq>? ORDER BY seq LIMIT ?').all(after,limit) as { event: string }[]).map(row => JSON.parse(row.event) as Record<string, unknown>); }
+  journal(after: number, limit = 100): WorkJournalEvent[] { return (this.db.prepare('SELECT event FROM journal WHERE seq>? ORDER BY seq LIMIT ?').all(after,limit) as { event: string }[]).map(row => decodeWorkEvent(JSON.parse(row.event)).event); }
   get journalSeq(): number {return Number((this.db.prepare('SELECT coalesce(max(seq),0) seq FROM journal').get() as {seq:number}).seq);}
   get throughSeq(): number { return Number((this.db.prepare('SELECT value FROM metadata WHERE key=?').get('through') as { value: string } | undefined)?.value ?? 0); }
   acknowledge(seq: number): void { this.db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('through', String(seq)); }

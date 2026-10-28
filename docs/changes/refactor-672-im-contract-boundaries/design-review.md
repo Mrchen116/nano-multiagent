@@ -79,3 +79,77 @@
 - 作者核对 R1 结论及实际调用点，接受 Approved，无实质异议。
 - REC-1/REC-2：采纳命令/响应覆盖清单和 malformed receipt→pending→同 operation 恢复保护，记录在实施验证中；不改变已审设计语义。
 - 设计语义无变化。实现采用现有 control 模块持有配置业务与原序列化函数，HTTP 路由移到独立 adapter，避免迁移并行任务负责的算法或让服务反向依赖路由。
+
+## Round 2
+
+### Metadata
+
+- reviewer: 独立 reviewer `/root/design_review`，沿用 R1 身份，未参与设计或实现。
+- target: 用户明确要求在同一 PR #426 内增加的 Work 完整事件链；motivation 新增三个 Requirement、design 的 M3 段落与 `M3-work-events/.gitkeep`，以及相关真实生产/传输/存储/读取路径。
+- review_mode: `full`（完整审查新增 M3 范围，M1/M2 retained）
+- mode_reason: 这次增加需求、共享接口、核心持久化责任与 milestone，按 skill 采用 full；审查聚焦这次范围扩展，不重复审查未改变的配置/RPC 决定。
+- started_at: `2026-10-28T13:08:45+08:00`
+- completed_at: `2026-10-28T13:10:14+08:00`
+- duration: `1m29s`
+- validated_at: `bd0938462d32408501c2435bf3a134f096693033`
+- executed_base: `94b06908d`
+- checkout: `codex/im-contract-boundaries`；审查开始时 clean；M3 尚未实施。
+- retained_from: Round 1 的 M1/M2 设计判断。当前扩展不改变其配置服务、NodeRpc owner、有限命令表或字段保真决定；既有实现门禁的版本仍由 verification/code-review/acceptance/delivery 各自记录，本轮不将它们改写为在新 HEAD 重新执行过。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+M3 覆盖产品事件生产、带 checkpoint 的本地日志、独立上传、中心校验和原子投影、受权公开读取整个链路。判别联合用于真实生产者，兼容 decoder 用于不可信/历史数据，WorkRecords 拥有数据库事务而 facade 保留传输和访问控制，这些边界足以形成实际模块契约。没有仅更换类型别名、引入通用 Repository 或借重构扩大模型/执行规则的设计问题。
+
+本轮仅审设计与基线代码；没有运行测试或验证 M3 实现。主 Agent 提供的五文件 41 项基线通过信息不作为新实现已经通过的证据。
+
+### Coverage 与证据
+
+#### 完整生产链与本地恢复
+
+- `packages/personal-assistant/src/work-projection.ts:5-44` 实际生成开始、模型选择、工具、正文、注入与结束事实；稳定类型和 payload 当前脱钩，arguments/detail/error/source 等确实包含应保留的动态数据。设计将产品事件建模而不复制任意 RuntimeEvent schema，归属合理。
+- `global-agent.ts:670-781` 把 projection、模型失败提示、子执行注册与 stop 快照组成事实；`workEvent` 从可信 SessionBinding 派生 root/session/event 身份，不依赖模型提供 owner/node 身份。`InboxStore.commitWork`（`inbox.ts:377-384`）在同一事务中提交事实与处理 checkpoint，`:391-396` 分配 seq、序列化并读取日志。设计保留处理 checkpoint 与上传 ACK 两个不同水位，避免中心恢复反向重建已处理事实。
+- 补充生产者也已核实：`knowledge.ts:51-55,75-76` 通过 InboxStore 产生 `session_linked` 与 `self_evolution_review`；应按“所有当前生产调用者不得绕过事件表”的既定范围一起迁移，而非把它们退回未知扩展事件。它们只记录真实维护关联与结果，不改变维护执行。
+- 生产装配可达：`apps/node/src/main.ts:89-90` 的 KnowledgeUpdates 与 `:382-383` 的 GlobalAgent 均通过 `onWork` 唤醒同一个 WorkSync，`:492` 启动上传。M3 的真实 projection→InboxStore→WorkSync→IM→公开页用例因此有明确装配依据，不是只验证中心手造 fixture。
+
+#### 传输、decoder 与原始身份
+
+- `packages/personal-assistant/src/work-sync.ts:83-169` 已使用独立 HTTP、持久 cursor、批量和基于原 JSON 字节的分段 hash；中心回退时从留存日志补缺口，不降低本地已确认水位。复用现有 Part/Cursor/limits 并保留 16 MiB 上限合适，无需第二套协议或编码层。
+- 中心 HTTP `apps/im-server/src/work-sync.ts:133-154` 批量入口和 `:155-223` 分段入口最终调用同一个 Work.append；后者在重组完成后验证完整 hash 和 event 身份，并重新认证当前机器 binding。旧 WS 在 `gateway.ts:415-419` 经已注册连接身份检查后进入相同 Work owner。共用 decoder/WorkRecords 可以消除入口漂移，不能替代这些现有授权和最终提交前复查。
+- design:98,100-101 明确 decoder 返回原对象、不补默认字段、不重排或裁剪，并区分已知与未知事件；已提交重复比较、历史身份-only 跳过、吊销跳过仍由拥有数据库事实的 WorkRecords 决定。这能同时保留有限生产契约与历史扩展兼容，不需要公开 string fallback。
+- 已检查 `work.ts:142-193`：已落盘事件比较原 event/type/session/turn/payload，已确认但未存内容的序号跳过，撤销内容仅保留必要 session 身份后推进共享 journal。设计显式保留这一区别，不能以“严格类型”为由重新回放撤销内容或把合法旧省略视为缺失必填项。
+
+#### 持久化、投影与公开页面
+
+- `work.ts:103-232` 现有 append 在同一 SQLite 事务内完成注册、日志插入、投影和水位更新，之后广播。WorkRecords 仅依赖 DatabaseSync、返回 ACK 与 affected roots，facade 提交后按权限广播的拆分保留原子性，且不把 Gateway/浏览器对象带入持久模块。
+- `work.ts:64-99` 的注册冲突、子父关系与 PA 新主会话取代、`:42-51` 的 running/waiting_permission→unknown 恢复都可由数据库 owner 保留；无需通用 Repository 或运行时端口。
+- `work.ts:234-418` 的已知事件投影包含 `turn_start`、`run_*` 别名、call_id/tool_call_id、model/model_id、usage 缺省、permission 嵌套字段及未知事件通用 item。设计保留这些分支与原附加字段；未知事件仍依原 turn/control 规则展示，不应误解为给所有无 turn 未知事件新增展示行为。
+- `work.ts:419-514` 的 items/turns/view 确实把 SQLite JSON 列转成公开对象；`work.ts:774-825` 在用户页和分页入口做空间/PA owner 检查；permission route 另有 owner、epoch、lifecycle 检查。具名记录与公开 view 分离可以在这些实际消费者间落实，facade 保留在线/同步状态与用户/Agent 查询控制足以避免数据库模块反向依赖 ImContext。
+
+#### 契约、milestone 与验证
+
+- 已对照 `docs/specs/im/agent-work.md` 的完整参数/结果、未报告统计、原生替换不重执行、主子归属、刷新分页、补传独立与恢复完整性，以及 `gateway-relay.md:271-309` 的 Work 专用机器身份例外和吊销。新增三个 Requirement 是这些现有行为的不变性验收，no spec delta 可成立。
+- M3 为完整纵切，新增共享类型后迁移生产者和中心 owner 的顺序明确；不需要机械拆层。骨架只含 `.gitkeep`，未伪造执行记录。此前 design 开头的“两阶段/Work 保留现状”描述原 M1/M2，追加的明确 M3 范围优先；不影响当前实施理解。
+- 编译负例覆盖 type/payload 错配、身份缺失和记录/公开 view 混用；真实链覆盖主子、工具完整结果、统计、重启重放；三种入口覆盖畸形稳定字段不推进水位，并要求旧别名/合法省略/null/未知扩展/字节保真。这与本次类型和职责风险相称。
+- 基线可复用保护已阅读：IM `work-sync.test.ts:62-150` 的重复身份、分段工具、重启、hash/授权；PA `work-sync.test.ts` 的恢复中心缺口与游标异常；`tenancy.test.ts:186-201,252-269` 的吊销后共享 journal 与重新授权；`e2e/control-work.test.ts` 的真实认证 WS Work 流。未在本轮重新执行。
+- 不改变 UI、schema、协议版本或序列化算法；无需 prototype、迁移脚本或生产写入验证。产品验收使用相同公开 HTTP/WS 接口读取结果；不能用本次 Approved 代替实施后的产品与静态门禁。
+
+#### Agent Context Design Review
+
+- Mode A，范围限定 Work 的事实投影/恢复及维护事件身份，不扩展到 Prompt 内容设计。
+- Work 是已有原生事实的产品记录；design 保留 `logicalEvents/workSuffix/workCheckpoint` 的选择和更新语义、已完成工具原始结果，以及维护 session_linked 的真实父子身份。模型查询/指令/审批职责留在 facade，未改变模型输入、工具 schema 或模型目录。
+- 因此不要求为这次行为兼容重构新增模型语义评测。设计已经要求原生替换不被当成再次执行、stop/重启仅恢复记录的保护；实际实现若更改选择、裁剪或恢复时机，须按真实 delta 重审。本轮没有 provider 输入或模型行为运行结论。
+
+### 历史问题闭环
+
+- Round 1 无 CRITICAL/WARNING；R1-R1/R1-R2 为可选建议，作者已记录采纳与实施验证，不属于本轮新增 Work 范围的未解决问题。
+- 未发现 M3 使 R1 配置/RPC 设计结论失效；实现门禁仍按各自原版本保留，不外推为 M3 已验证。
+
+### Issues
+
+无。
+
+### Recommendations
+
+- **R2-R1（可选）**：M3 的最终验证记录把 `KnowledgeUpdates` 两种生产事件及 `tenancy.test.ts` 的撤销/重新授权共享 journal 用例一起列出。它们已被本设计的“完整生产链/权限恢复保持”范围覆盖；显式列名有助于避免只运行 projection/global-agent/work-sync 文件而漏掉旁路生产者和身份-only 分支，不要求新增流程或重复测试。
