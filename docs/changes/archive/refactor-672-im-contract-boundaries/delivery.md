@@ -69,3 +69,7 @@ Round 1 专用 IM PID 69336 已停止；Round 2 专用 IM PID 84625 也已停止
 - 真实 SingleThread→WS→IM SQLite→HTTP/history/user-stream 及独立验收验证运行链；RuntimePort 仅为确定性 native 事实 fixture，无真实模型行为结论。current spec 中 provisional discard 的原子投影回滚存在既有 drift，本轮明确不将其记为实现或通过；本次无 schema/协议版本/部署迁移。
 
 M4 closure：code-review / verification Round 6 pass，findings []，0 CRITICAL/WARNING，aligned/no spec delta；产品验收 Round 6 pass，M4-AC-1 closed。validated_at 为 `21b09d3e4892806d77829d6e9c2af1cdec6f6087`。独立 source decoder 的 20 个两分支/flat/nested/五字段反例均拒绝，合法 null/动态扩展保留原引用及字节。最终 `m4-build-final.log` 的构建 metadata 绑定 21b；全包 typecheck、iOS runtime 包装和 critical audit 门槛通过（现有依赖审计仍有 5 high，未改变依赖）。测试服务 14882 和 20870、验收客户端均已停止；运行数据仅存忽略目录。
+
+## 最终集成与归档
+
+最终 main 基线 `c0123c23b2b456fd61acb88394f6dc3f823a0260`，集成提交 `06dae58d84d189e952bed5e18662776a19922f52`。新增主干差异仅 refactor-675 的开发主机配置、隔离 E2E guard、部署 runbook 与文档，不改变 apps/packages/src；`git diff --quiet 21b09d3e4 HEAD -- apps packages src` 已核验。M4 closure、M1–M3 retained 结论继续有效；Python 工具链、Ruff 与最终归档文档重新检查。effective_through/PR head 以最终 PR body 为准，归档提交不冒称重新执行产品验收。开发 worktree 干净保留，未合并、部署或发布。
