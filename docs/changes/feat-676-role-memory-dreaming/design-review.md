@@ -175,3 +175,82 @@ W2 的 validator 探针只证明本轮选定依赖规则不会产生 R1 的确�
 - 接受 R2 Approved 结论，复核 R1 三项问题的设计修订与证据，无实质异议、无待升级的产品决定。受审九个文件在交付前保持原 hash。
 - 归档格式整理：仅将空 `.gitkeep` 骨架从 `milestones/M1/` 移到仓库 Full 标准目录 `M1-role-memory-dreaming/`。单一 M1 范围、依赖和退出标准未变；按 review-loop 的纯格式 retained 规则保留 R2，不重开审查。
 - 原型截图保存在本 unit 的 gitignored `evidence/`，按仓库 evidence 规则只提交原型、文字结论和本地定位，不提交截图缓存。设计与原型通过不代表 S01–S20 已运行。
+
+## Round 3
+
+### Metadata
+
+- reviewer: `/root/design_review_676`（独立 reviewer，与 R1/R2 相同）
+- target: `docs/changes/feat-676-role-memory-dreaming`
+- review_mode: `full`
+- mode_reason: 用户把 skill-creator 从可选指导改为固定内置，改变需求、Skill 选择/加载契约、配置归一化与 M1；检查这些组合关系，并保留未受影响的 R2 证据。
+- started_at: `2026-10-29T00:56:51+08:00`
+- completed_at: `2026-10-29T01:00:25+08:00`
+- duration: `00:03:34`
+- checkout: `/Users/czj/Repos/nano-multiagent`，`main`，HEAD `0099cdbe2e8bb3de08550086ce238d5ee1c083dd`。R2 产物已提交，本轮七个受审文件为未提交修订。
+- authorization: 仅追加本报告；不实施、不提交、不部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+新设计已一致表达用户最新决定：skill-creator 固定内置，无 Feature/Skill 选择项；旧 false/allowlist/denylist 不隐藏该指导，底层工具权限仍有效，后台自动 Skill 维护继续暂停。R2 的“可选指导、遵守该名禁用选择”已被本轮明确新需求取代，不再作为实施目标。
+
+### Coverage 与证据
+
+**需求与决定。** 阅读本轮 spec/design/deployment、Gateway capabilities 和 IM agents-nodes delta 的完整 diff，核对 `spec.md` 澄清原话与 S17。移除技能创建行而不补固定开启卡片符合用户指向的具体控件；没有把这次选择扩为所有 Skill 固定可用，也没有把指导可发现等同于自动授予文件或发布权限。旧内容备份、默认文档记忆、Dreaming 可关闭、legacy 文件回退和 F3/F4/combined Skill 停接保持不变。
+
+**真实发现与加载落点。** 独立核对 `packages/dsh-integration/src/capabilities.ts:84–91,137–155`：当前设置候选直接枚举 native provider，实际模型的 list 与 get 均做用户选择过滤。仅从 UI 隐藏名字或给 list 补一条假描述都不足以兑现固定指导。`design.md:121–125` 现已明确宿主解析固定保留真实随包资产、模型可发现并可按需加载、UI candidates 不列该名、同名用户目录不覆盖；这同时约束 list/get 和候选投影，未留下“目录有名字但无法读取正文”的设计歧义。
+
+`apps/node/src/configuration.ts:95–104` 现有 workspace-first roots 和 `packages/personal-assistant/src/builtin-skills.ts` 的随包安装证实需要区分固定资产与一般用户根的优先级；设计采用单一资产特例，复用 native 文件解析/资源加载，不另造 Skill 系统。固定规则只用于正常任务 setup，独立 Dreaming setup 明确不加载；普通 child 继续按已有工具范围返回建议，不因此获得共享发布权。
+
+**Feature、配置和权限。** `packages/product-contracts/src/capabilities.ts:28–35` 当前仍定义 skill_creation；`agent-config.ts:108,118,178` 分别承担工具独立注册、prompt 过滤与 Feature 挂载；`features/skill-creation.ts` 的 apply 同时订阅后台复盘并添加指导。新 design 明确移除 Feature/依赖联动/prompt 关闭条件，正常 root 保留短指导，后台订阅不接回，真实工具仍独立受选择和审批控制。这是对现有职责的可执行拆分，不是把旧 apply 无条件挂载而意外恢复复盘。
+
+`design.md:123` 和 deployment 第 5 步约束旧 false、缺少该名的 allowlist、含该名的 denylist，同步覆盖一次性迁移与正常保存/启动解析；只清理退役键和这个固定资产的陈旧选择，其余名单、模式和工具保留。移除 Feature 必需依赖不会重现 R1-W2 的新增硬依赖拒绝；本轮没有把旧 validator 的结果冒充目标配置归一化已实现。M1 W3 增加固定发现、真实加载及配置往返，W4 继续核对实际模型请求和禁用工具，W6 对齐双宽度/UI 无开关，范围充分。
+
+**Agent Context Review — Design Review。** 检查正常 root 的短指导、按需完整正文/资源、同名解析、当前会话配置刷新与普通 child/Dreaming 组合。宿主固定发现不要求每轮注入全文，维持渐进加载；实际 skill/read/skill_manage 禁用时如实说明限制，不用“内置”恢复权限。旧 Feature false 不再抑制指导，Dreaming 仍无创建工具和对应 Skill，当前设计没有相互矛盾的操作指示。仍需 M1 的请求捕获与真实任务证明实际加载及创建结果；本轮只确认设计链路闭合。
+
+**原型独立判断。** 本 reviewer 实际打开 `evidence/prototype-r3-desktop.png` 和 `evidence/prototype-r3-mobile.png`：技能创建整行已移除，没有空行、禁用开关或固定开启替代卡；桌面 Dreaming 与 Cron 并列，390 宽单列说明完整，内容顺序保持清晰。随后 Chrome 实际打开当前 `prototype.html`，取消 Dreaming，观察“有未保存的更改”，点击保存后看到“配置已生效”且取消选择保持。保存 JS 未改变，R1 的失败/pending 反馈证据仍可复用。旧截图明确标为历史，不能继续作为当前含技能创建行的 must-match；iOS 简单设置项删除仍按既定编译/共享契约深度，不宣称已实测。
+
+**delta、部署与整体架构。** 两份本轮 delta 与新默认能力一致，其余 Scenario 保留。部署提示词清理旧选择而不扩大工具权限，目标解析可读取未转换旧配置，避免依赖一次性脚本才可启动；生产检查仍有限，未把功能/失败分支推迟到上线。实现 owner 仍为 Node 配置、dsh-integration Skills/Prompt 及 IM capability 投影，依赖方向不变；移除废弃 Feature 减少重复开关，没有增加通用配置框架。
+
+**retained_from: Round 2。** 从 R2 的代码基线 `0ddceacb8…` 到本轮 HEAD 仅提交 unit 文档；实际 runtime、Node、PA 与 product-contracts 代码无变化。本轮 git diff 仅涉及固定 skill-creator 及原型行移除。R2 对历史 cut 二次认证、来源完整快照/文档失效、普通文件版本回执、角色归属、恢复与 Work 的独立判断保持有效；S01–S20 的原证据要求及单一 M1 未被删减。PA/Work delta 未变，不重做同一链路取证。
+
+### 历史问题闭环
+
+| Issue | 本轮状态与依据 |
+| --- | --- |
+| R1-W1 | **closed，retained_from R2**；固定 cut 认证未改。 |
+| R1-W2 | **closed**；R2 的可选方案被用户最新要求取代，但新方案移除 skill_creation Feature，而非新增依赖；标准解析与迁移明确归一化废弃选择，并保留真实工具权限。未复现原“旧合法配置因新必需 Skill 被拒绝”的设计矛盾。 |
+| R1-W3 | **closed，retained_from R2**；完整来源同步、当前文档/入口失效与主/child 消费未改。 |
+| R1-R1、R1-R2 | **closed，retained_from R2**；历史概述与 Work delta 不受本次变更影响。 |
+
+### 受审产物指纹（SHA-256）
+
+| 文件 | SHA-256 |
+| --- | --- |
+| spec.md | `9fe8004204b31c0f592a5e9ec75934907a27e906c835c99c7643525c86ef3b9a` |
+| design.md | `671f7ee86620b73b5332cc67a3557b572b2b837ab9008f5ae13c41fee48378b2` |
+| deployment-prompt.md | `2467a1adb0d2c70454e180511a3d21b545ea17ea6a62e9a5f01f812f78103106` |
+| specs/gateway/agent-capabilities.md | `a7e2425b1de362b37513e5cbf796e65ca146a009c3f220d89ee856ecb780e0ea` |
+| specs/im/agents-nodes.md | `cbaf2717a60c9bd8e8b6f06d9221b30f0fb0cd8797cfe252bc54067b468e2c04` |
+| prototype.html | `91289b73ee8b617b105a0723cdd15361ac6735903cb96da64d875cc6bcfcbaf8` |
+| prototype-review.md | `449b3acc10012d78acf167eb83d9e24cc5e9441a4d469ec98c62d35dd312730e` |
+
+### Issues
+
+无新增设计 issue；0 CRITICAL / 0 WARNING。
+
+### Recommendations 与文档收尾
+
+- **R3-R1（非阻断，格式收尾）**：作者报告本轮 docs-check 将 prototype-review 中 gitignored PNG 的 Markdown 链接判为 `BROKEN_LINK`。本 reviewer 已实际读取本地截图，设计证据存在；按仓库产物规则把这些链接改为明确的本地 locator、保持画面/结论不变，并重新运行 docs-check。此类 locator 格式调整可记录 retained，无须新增实质设计 Round。当前不能报告 docs-check 已通过。
+
+### 本轮收尾
+
+仅追加本报告，保留 R1/R2 原文；受审七文件收尾 SHA-256 复核未变。`git diff --check` 无输出；未实施、提交、迁移或部署。未运行新实现、真实模型、完整产品验收或 iOS；Gate 2 通过不替代这些后续退出标准。
+
+### Author Resolutions
+
+- 接受 R3 Approved，用户最新的默认内置、无需选择已覆盖前两轮可选指导设计，无实质异议。
+- **R3-R1 — accepted。** prototype-review 的7个截图链接改为纯文本本地 locator，图像、路径、走查结论和原型不变；格式调整后的文件 SHA-256 为 `8747d438c3d7d2e15a1dd851c8e5ba9f826f2107edaf152b897e7ffafdf8be98`。其余6个受审产物仍匹配 R3 hash，按 retained 规则不重开审查。
+- 将此前 R2 的 Author Resolutions 归回 R2 末尾，原文未改；本轮只修订设计文档和原型，没有实施或部署。

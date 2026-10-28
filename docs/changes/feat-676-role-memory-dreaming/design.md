@@ -71,8 +71,8 @@ flowchart LR
 4. **先保证当前文档与下一步判断一致，再做后台提炼。** 常驻入口每次模型请求组装读取当前版本；正文变化使旧摘要失效。即时纠正由当前执行者完成，不等待 Dreaming。已在途请求无法撤销已经发生的动作；下一模型/工具边界刷新，并通过既有 child 消息链传递适用纠正。
 5. **持续历史用真实流位置，不用窗口号或最近 N 条。** 每根持久 session 独立游标，处理连续、完整配对前缀；已接回的 child 报告属于根经历，细节仅按可信后代关系回查。根换窗不重置游标；根更换保留旧流及其积压。
 6. **Dreaming 用空上下文受限会话，不继承父 prompt。** 只给角色、短指导、按需 Skill、显式源文件和当前记忆。无 Inbox、消息发送、业务写入、调度、联网、shell、插件及 subagent 工具；这只限制维护执行，不改变普通子 Agent 能力，也不宣称是 OS 沙箱。
-7. **不为此次改造增加大型记忆 UI 或泛化任务框架。** 替换记忆设置项并更新前台 Skill 创建文案，详细处理范围、变更、延期和失败用现有 Work/轨迹文本与工具回执呈现。采用单一 M1，内部按“文件消费→历史与维护→真栈行为”顺序验证；这些部分共享配置和生命周期，不作无意义并行切片。
-8. **先暂停后台 Skill 自进化，保留任务中的创建能力。** 原方案要求独立 Skill 维护保持，用户本轮提出调整：新 Memory 承接经验、偏好、项目环境与反馈，成熟可复用方法才提升成 Skill。停止宿主自动 Skill fork（F3、combined 中的 Skill 和 F4），也暂停自动归档扫描；不删除旧 Skill、统计或历史。保留 `skill_creation` 现有前台开关及 `skill_manage` 权限，改说明为“在任务中创建或修改可复用技能”，不再让该 Feature 订阅后台复盘。迁移 Codex 现有 `skill-creator` 为产品内置 Skill，由普通 Agent 按当前任务需要加载；它与历史 JSONL 专用的 conversation-skill-distiller 分工，不强制每次完成任务都生成 Skill。原自动代码暂留未接线；旧记忆及自动复盘机制对用户不可见，不新增网页说明、状态卡或重开开关，恢复后台策略另行设计。旧记忆仅保留前述文件级回退，不误删历史结果。
+7. **不为此次改造增加大型记忆 UI 或泛化任务框架。** 替换记忆设置项并移除技能创建开关，详细处理范围、变更、延期和失败用现有 Work/轨迹文本与工具回执呈现。采用单一 M1，内部按“文件消费→历史与维护→真栈行为”顺序验证；这些部分共享配置和生命周期，不作无意义并行切片。
+8. **先暂停后台 Skill 自进化，保留任务中的创建能力。** 原方案要求独立 Skill 维护保持，用户本轮提出调整：新 Memory 承接经验、偏好、项目环境与反馈，成熟可复用方法才提升成 Skill。停止宿主自动 Skill fork（F3、combined 中的 Skill 和 F4），也暂停自动归档扫描；不删除旧 Skill、统计或历史。移除 `skill_creation` Feature 及其网页/iOS开关；skill-creator 改为内置默认指导，不要求选择。`skill_manage` 实际操作仍遵守既有工具权限，不再以旧 Feature 订阅后台复盘。迁移 Codex 现有 `skill-creator` 为产品内置 Skill，由普通 Agent 按当前任务需要加载；它与历史 JSONL 专用的 conversation-skill-distiller 分工，不强制每次完成任务都生成 Skill。原自动代码暂留未接线；旧记忆及自动复盘机制对用户不可见，不新增网页说明、状态卡或重开开关，恢复后台策略另行设计。旧记忆仅保留前述文件级回退，不误删历史结果。
 
 ## 接口与数据流
 
@@ -118,7 +118,11 @@ Git 是库内独立仓库，无 remote、无自动 push，祖先业务仓库本�
 
 保留简洁指导、按需披露、明确触发描述、根据具体需要添加资源、基于真实使用迭代等编写原则。只适配 Codex 路径/术语、工具调用和不适用的 UI 元数据：Nano 默认 agent scope；global scope 沿既有授权；创建和更新通过现有 `skill_manage` 校验及真实回执，不指导绕过工具直接写共享目录。不迁移 `agents/openai.yaml`、图标和依赖该文件的 initializer；不把 Codex 脚本命令写成 Nano 已安装能力。保留的资源引用必须随资产打包且实际可读。
 
-安装沿现有 `packages/personal-assistant/assets/skills` 清单分发；产品内置 Skill 不可被模型覆盖。`skill_creation` 的硬依赖保持现有 `skill_manage/skill/read`，不新增必选 Skill。skill-creator 作为随包可发现指导遵循既有 Skill 选择：默认 discovery 或未排除它的 denylist 可用；旧 explicit_allowlist 未选它或显式 denylist 禁用它时不注入、不假称可加载，但原创建工具仍可用。用户可用已有 Skill 选择入口启用该指导；开关 skill_creation、保存和 Node 启动均采用相同硬依赖规则，不为旧配置绕过校验，也不扩宽旧名单。新建默认包含此可用指导。普通 child 沿既有权限返回建议，由获准根完成发布。Dreaming 无创建工具也不加载此 Skill。`conversation-skill-distiller` 保留显式历史 JSONL 提炼入口，与同一创建指导和工具衔接，不新增自动触发。
+安装沿现有 `packages/personal-assistant/assets/skills` 清单分发；产品内置 Skill 不可被模型覆盖。**skill-creator 是固定内置指导，不是可选 Feature 或用户 Skill 候选。** 移除 `skill_creation` 的 Feature 定义、依赖联动和 prompt 关闭条件；普通长期 root 的短创建提示常驻，完整 SKILL.md 仍按任务需要用现有 skill/read 加载，不每轮注入全文。宿主 Skills 解析在应用用户 Skill 选择后固定保留这一个产品资产，并使用其真实随包路径；节点能力/UI 的可选 Skill candidates 不列它，不能通过全选/取消本组把它移除。同名用户目录不能覆盖产品资产，不把此规则扩成所有 Skill 不可关闭。
+
+新建和已有 Agent 都使用同一固定指导规则：旧 `features.skill_creation=false`、旧 allowlist 未包含以及旧 denylist 包含 skill-creator 均不关闭它、不导致 Node 校验失败；一次性迁移清除该废弃 Feature 键及名单中 skill-creator 的陈旧选择，其余 Skill 名单和选择模式保持。配置保存/启动的标准解析也把这些旧键视为不再生效的选择，不依赖迁移步骤才能安全读取旧配置；这是废弃选择的归一化，不绕过当前有效能力校验。Web/iOS 不提供 Feature 开关或 Skill 复选框，也不新增一张“始终开启”状态卡。
+
+“内置指导”不放宽真实文件/发布操作权限：普通执行仍用有效的 skill/read/skill_manage，明确禁用的底层工具不会因此恢复；工具不具备时说明实际限制，不伪报已创建。默认配置已有这些普通能力，无需用户额外选择 skill-creator；受限 child 沿既有工具范围返回建议，由获准根发布。Dreaming 不加载该指导、没有创建工具；固定加入仅用于正常任务配置，不污染受限维护 setup。`conversation-skill-distiller` 保留显式历史 JSONL 提炼入口，与同一创建指导和工具衔接，不新增自动触发。
 
 验证一次普通任务提炼成熟方法，观察实际 Skill 加载、真实工具回执与下次可发现；拒绝/失败不得宣称已创建。同时注入旧 F3/F4/combined 门槛和重启确认无后台 fork。此处只规定迁移设计，未修改或安装运行资产。
 
@@ -213,7 +217,7 @@ run 状态为 `prepared → running → applying → completed | partial | faile
 
 ## 前端原型
 
-原型：[prototype.html](prototype.html)。本次是配置表单局部变化：行为设置列表中删除“记忆整理”开关，原位置放“Dreaming · 自动整理记忆”，说明“定期整理已处理的经历。关闭后仍可记住、更正和读取记忆。”沿用现有 checkbox、文字层级、保存及配置生效反馈，不新增页面。legacy 模式不显示这行，不补旧机制说明或替代状态卡。新建、已有专家和 PA 设置入口共享语义。
+原型：[prototype.html](prototype.html)。本次是配置表单局部变化：行为设置列表中删除“记忆整理”开关，原位置放“Dreaming · 自动整理记忆”，同时移除“技能创建”行，说明“定期整理已处理的经历。关闭后仍可记住、更正和读取记忆。”沿用现有 checkbox、文字层级、保存及配置生效反馈，不新增页面。legacy 模式不显示这行，不补旧机制说明或替代状态卡。新建、已有专家和 PA 设置入口共享语义。
 
 ### 现有 UX grounding
 
@@ -223,7 +227,7 @@ run 状态为 `prepared → running → applying → completed | partial | faile
 
 | 区域/状态 | 对齐级别 | 产品入口 | viewport/状态 | 下游投影 |
 | --- | --- | --- | --- | --- |
-| 内置记忆无开关，document 仅 Dreaming 可选 | must-match | 创建/配置 Agent，PA 配置 | Web 1280 与 390；开/关/legacy | M1 R5、W6 |
+| 内置记忆和 skill-creator 均无开关/选择项，document 仅 Dreaming 可选 | must-match | 创建/配置 Agent，PA 配置 | Web 1280 与 390；开/关/legacy | M1 R5、W6 |
 | 保存与实际生效分离，失败保留选择 | must-match | 已有配置保存区 | Web 窄屏；编辑、等待、失败、已生效 | M1 R5、W6 |
 | 工作记录中明确范围与部分成功 | must-match（信息语义） | Agent → 工作记录 → 关联维护执行 | Web 展开结果 | M1 R4、W5 |
 | 外层演示控制和静态相邻功能 | out-of-scope | 仅原型 | 现有页面继续实际功能 | 无产品新增 |
@@ -267,6 +271,6 @@ iOS 只替换同一配置数据/文案并隐藏旧项，沿用原生已有列表
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 | --- | --- | --- | --- | --- | --- |
-| M1 | 角色记忆与持续整理闭环 | 无 | 单线 | dsh-integration 的记忆/配置/历史/轨迹，product-contracts，PA 资格与 Work，Node 文件配置，IM 配置及 Web/iOS 最小呈现，相关测试和 delta | [reviewer] R1：S01–S04、S08–S09，PA/专家不同受众、例外/反例、空库、实际结果正确消费；R2：S05–S07，当前会话及原 child 纠正、人工保存及时生效；R3：S10–S12，同根跨窗、持续忙碌、去重及实际结果；R4：S13–S18、S20，并发、失败/重启、停止使用、真实部分状态、普通成功安静；R5：S17/S19，新建/现有默认新模式与 Dreaming，网页无记忆总开关，关闭后仍即时记忆，文件切 legacy/切回且无双写，自然语言导入旧备份，旧机制/自动复盘不可见且正常任务可创建 Skill，原型两项 UI must-match 与 Work 信息语义成立。[worker] W1：native source adapter 的 live/cold/flush/配对/跨窗/继承去重/修订/预算机制确定性测试，首次 flush 后追加事件与二次认证失败/重启不推进；W2：原子文件冲突、Git失败、每个应用/游标崩溃点恢复；来源已全部消费并写正文/入口后排除，Dreaming关闭/重启/来源同步失败仍失效、原child与下一相关判断不采用，后续批次不复活；W3：调度注入时钟、无增量不调模型、关闭/暂停/资源延期/模式排他，skill-creator迁移/前台创建真实回执以及后台F3/F4/combined暂停回归；旧explicit_allowlist缺少及explicit_denylist禁用skill-creator的升级/启动/保存合法性；W4：模型 request capture 核对主/子/维护 prompt、schema、角色、刷新、disabled tools和无递归来源，真实模型验证消费；W5：真实 Work 授权绑定/回执/通知不外发及刷新恢复；W6：Web 1280/390截图与原型对照、保存失败和生效状态，iOS编译/共享配置契约；W7：隔离旧数据副本迁移、重复执行/中断恢复/切回验证，逐一列 S01–S20 passed/failed/blocked/not_run，并完成相关构建、runtime dependency contract、docs-check。 |
+| M1 | 角色记忆与持续整理闭环 | 无 | 单线 | dsh-integration 的记忆/配置/历史/轨迹，product-contracts，PA 资格与 Work，Node 文件配置，IM 配置及 Web/iOS 最小呈现，相关测试和 delta | [reviewer] R1：S01–S04、S08–S09，PA/专家不同受众、例外/反例、空库、实际结果正确消费；R2：S05–S07，当前会话及原 child 纠正、人工保存及时生效；R3：S10–S12，同根跨窗、持续忙碌、去重及实际结果；R4：S13–S18、S20，并发、失败/重启、停止使用、真实部分状态、普通成功安静；R5：S17/S19，新建/现有默认新模式与 Dreaming，网页无记忆总开关，关闭后仍即时记忆，文件切 legacy/切回且无双写，自然语言导入旧备份，旧机制/自动复盘不可见，skill-creator内置无需选择且正常任务可创建 Skill，原型两项 UI must-match 与 Work 信息语义成立。[worker] W1：native source adapter 的 live/cold/flush/配对/跨窗/继承去重/修订/预算机制确定性测试，首次 flush 后追加事件与二次认证失败/重启不推进；W2：原子文件冲突、Git失败、每个应用/游标崩溃点恢复；来源已全部消费并写正文/入口后排除，Dreaming关闭/重启/来源同步失败仍失效、原child与下一相关判断不采用，后续批次不复活；W3：调度注入时钟、无增量不调模型、关闭/暂停/资源延期/模式排他，skill-creator迁移/前台创建真实回执以及后台F3/F4/combined暂停回归；旧skill_creation=false、explicit_allowlist缺少及explicit_denylist含skill-creator时，升级/启动/保存合法且固定指导可发现/加载、UI无选择项，其他Skill选择及工具权限不变；W4：模型 request capture 核对主/子/维护 prompt、schema、角色、刷新、disabled tools和无递归来源，真实模型验证消费；W5：真实 Work 授权绑定/回执/通知不外发及刷新恢复；W6：Web 1280/390截图与原型对照、保存失败和生效状态，iOS编译/共享配置契约；W7：隔离旧数据副本迁移、重复执行/中断恢复/切回验证，逐一列 S01–S20 passed/failed/blocked/not_run，并完成相关构建、runtime dependency contract、docs-check。 |
 
 设计阶段只建立 M1 空骨架，未运行上述实现验收。实现测试入口应扩展 `packages/dsh-integration/tests/knowledge-*.test.ts`、PA 相关集成测试及 `tests/e2e/critical_paths/` 的真实栈入口；不要只保存一份场景 Markdown。真实模型理解轨使用 daily 和单独命令/筛选，结果中与确定性机制轨分列。

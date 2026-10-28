@@ -47,9 +47,9 @@ Gateway 的文档记忆保存长期理解，Skill 保存成熟可复用方法；
 ### Requirement: Feature可独立启停并撤销其后续影响
 
 #### Scenario: 关闭和重新开启单项能力
-- **WHEN** 用户合法关闭再开启 Task Graphs、Skill Creation、Cron 或 Heartbeat
-- **THEN** 原有依赖、工作保护和工具选择规则保持，其他 Feature/Agent 不受影响，不累积重复监听；Skill Creation 只控制任务中创建指导，不恢复后台自进化。
-- **AND** 记忆是内置能力，旧 Memory Curation 不出现在客户端；document 的 Dreaming 独立控制自动整理，关闭不关闭正常记忆操作。
+- **WHEN** 用户合法关闭再开启 Task Graphs、Cron 或 Heartbeat
+- **THEN** 原有依赖、工作保护和工具选择规则保持，其他 Feature/Agent 不受影响，不累积重复监听；不恢复后台 Skill 自进化。
+- **AND** 记忆是内置能力，旧 Memory Curation 和 Skill Creation 开关不出现在客户端；skill-creator 固定内置，无需选择；document 的 Dreaming 独立控制自动整理，关闭不关闭正常记忆操作。
 
 #### Scenario: 关闭期间重启与在途工作
 - **WHEN** 已关闭的 Feature 经历节点重启，或在工作已接受后尝试关闭
@@ -60,7 +60,7 @@ Gateway 的文档记忆保存长期理解，Skill 保存成熟可复用方法；
 
 #### Scenario: 开启 Feature 展开完整依赖
 - **WHEN** 用户开启 Feature 或创建采用默认 Feature 的 Agent
-- **THEN** 交互式回复需要 send_message、skill 和 nano-interactive-ui；Task 需要 task_graph 与 Cron Feature；Skill 创建需要 skill_manage、skill、read；随包 skill-creator 按既有 Skill 选择可选加载，缺少该可选指导不使原合法配置变为启动错误；Cron 需要 schedule_create/list/update/delete/run/history；Heartbeat 需要 read。
+- **THEN** 交互式回复需要 send_message、skill 和 nano-interactive-ui；Task 需要 task_graph 与 Cron Feature；skill-creator 是固定内置指导，不再属于可选 Feature 或 Skill 名单，其实际操作遵守工具权限；Cron 需要 schedule_create/list/update/delete/run/history；Heartbeat 需要 read。
 - **AND** 内置 document 消费不依赖旧 memory 条目工具；普通记忆写入继续遵守已选文件工具。Dreaming 使用自己的受限维护工具集，不暗中开启父业务工具；缺少可运行所需资源须显示不可用，不能假报运行。
 - **AND** 默认开启 Task 的初始配置同时开启 Cron；依赖缺失时显式启用动作失败，已关闭 Skill 不冒充可加载。
 
@@ -123,6 +123,13 @@ Gateway 的文档记忆保存长期理解，Skill 保存成熟可复用方法；
 - **WHEN** 任一运行模式积累 Skill 使用记录、达到旧 F3/F4/combined 门槛或节点重启
 - **THEN** 不启动后台 Skill fork 或自动归档，不消费待维护证据冒充已完成；保留已有 Skill、使用统计与历史结果。
 - **AND** 普通 Agent 按任务需要使用迁移适配的 Codex skill-creator 创建/维护 Skill，仍遵守现有范围、权限和真实操作回执；Dreaming 不发布 Skill。
+
+### Requirement: skill-creator 内置默认可用，无需用户选择
+
+#### Scenario: 新建、已有和旧配置升级
+- **WHEN** 普通长期 Agent 开始任务、恢复或升级配置
+- **THEN** 固定获得 skill-creator 的发现入口与短创建指导，按需加载全文；旧 skill_creation=false 或 allowlist/denylist 不关闭这一个产品资产，不使旧合法配置无法启动。
+- **AND** 其他 Skill 选择和底层工具权限保留；禁用真实操作工具时如实说明限制，Dreaming 不获得创建能力。
 
 ## REMOVED Requirements
 
