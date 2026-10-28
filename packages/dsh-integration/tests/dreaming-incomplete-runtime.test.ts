@@ -68,6 +68,10 @@ export function apply(ctx) {
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
       const status = (id: string) => JSON.parse(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n'));
+      expect(status('before').sourcesPending).toBe(false);
+      expect(status('before').maintenance.backlog).toMatchObject({ state: 'pending', scope: 'next_bounded_batch' });
+      expect(status('before').maintenance.backlog.units).toBeGreaterThan(0);
+      expect(status('after').maintenance.backlog.state).toBe('pending');
       expect(status('after').maintenance.streams).toEqual(status('before').maintenance.streams);
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
       const inputs = JSON.parse(maintenance[0].messages.flatMap((message: any) => message.content || []).filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n').match(/File list \(data\):\n([^\n]+)/)[1]);

@@ -37,6 +37,8 @@ PA：entities 下的人/Agent/组织/会话；knowledge 下事实/偏好/决定�
 
 ## 宿主维护回执
 
+查询积压以 status 的 maintenance.backlog 为准：它报告下一预算批次的可处理单元、已处理／已观察范围和阻塞原因，不是全量精确计数。sourcesPending 只表示来源资格是否待核对；false 不表示没有待整理材料。资格未核对或读取受阻时说明未知／受阻，不能报零积压。查询不推进处理游标。
+
 正常编辑先完整 read 原文，再 write/edit 正文和入口。修改完后调用 memory_maintenance checkpoint，generation 使用当前上下文或 status 回执中的值；只有实际读过或写过的当前版本才能确认。保存成功与 Git 版本记录成功是两个独立结果。
 
 用户明确要求停止使用时，先用 memory_maintenance exclude 登记原始请求引用和相关 paths/sources，再清理当前正文、入口和适用的原子执行上下文；不能把登记排除当作清理完成。来源待核对时读到旧文字不表示重新认可。

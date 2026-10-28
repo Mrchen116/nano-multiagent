@@ -19,7 +19,7 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
     const binding={sessionId:'dream-root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',...(personal?{mode:'global',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}}:{}),features:{dreaming:false},toolAllowlist:['read','write','edit','memory_maintenance'],knowledge:{dreaming:{maxSteps:24,maxRunMs:10000}}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
-    const submit=async(id:string)=>{await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId:id}) as {terminal?:unknown}).terminal,{timeout:15000}).toBeTruthy();};
+    const submit=async(id:string)=>{await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id==='experience'?'Long source outcome. '.repeat(300)+'END-OF-VERIFIED-SOURCE':id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId:id}) as {terminal?:unknown}).terminal,{timeout:15000}).toBeTruthy();};
     await submit('experience'); await submit('maintain');
     const facts=await client.rpc.request('knowledge.facts',{}) as {reviews:any[]};
     expect(refreshes).toBe(personal?2:0);
@@ -29,6 +29,10 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const maintenance=requests.filter(request=>request.sessionId.startsWith('dreaming-'));
     expect(maintenance.length).toBeGreaterThan(1);
+    expect(JSON.stringify(maintenance)).toContain('END-OF-VERIFIED-SOURCE');
+    expect(JSON.stringify(maintenance)).not.toContain('line truncated to');
+    const input = JSON.parse(await readFile(join(home,'.nanoassistant/maintenance/dreaming',facts.reviews[0].id,'input/0.json'),'utf8'), (_key,value)=>value?.source_text_chunks ? value.source_text_chunks.join('') : value);
+    expect(JSON.stringify(input)).toContain('Long source outcome. '.repeat(300)+'END-OF-VERIFIED-SOURCE');
     expect(maintenance[0].tools.map((tool:any)=>tool.name).sort()).toEqual(['edit','finish','glob','grep','read','write']);
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('nano-skill-creation');
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('user authorization');
