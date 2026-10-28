@@ -41,3 +41,16 @@
 ## 未验证与边界
 
 生产迁移的最终 600 秒采样、原 data 移入受保护备份、生产完整数据/资源/进程核对正在由 caller 收口。本审查没有对这些未完成步骤报代码缺陷，也不宣称迁移验收完成。未发生产消息、未读取密钥正文、未发包、未 merge。开发 Agent 的代表性消费证据为本 reviewer 在真实两机环境按入口读文档并执行 check；没有捕获一个额外开发 Agent 的 provider payload，不外推为所有模型、多轮恢复与部署行为都可靠。
+
+## Round 2 — patch / closure
+
+- 日期：2026-10-28；固定 `pre_fix_head=9de55b2df`、`head=7d4052c4b`、`finding_origin_head=9de55b2df`。
+- 范围：仅审修正后的 runbook 段落和扩大生产保护根的 example JSON；该 diff 中另一文件是 Round 1 报告本身。开始本轮 working tree clean，没有额外未提交实现。
+- 原 finding **closed**：runbook:51 现在先检查已安装 supervisor；需要候选检查时，通过精确 SHA 的 `git show` 提取到临时文件、用独立 Python 执行 `--ready`，明确不切 live checkout，成功才停服务和切版本。与 :53 及 :66–68 的 stop → bootout → checkout 一致。读取 `scripts/prod_tunnel.py` 的依赖和路径来源，确认当前脚本使用 `Path.home()` 和标准/已安装模块，不依赖脚本所在仓库的相对文件，可从该临时文件执行。未执行生产 gate。
+- Example JSON 保护 `~/.nanoassistant`，由既有 `_guard` 的真实路径及双向包含逻辑覆盖其生产 checkout、数据、凭据、runtime 和备份。没有改动保护算法或 E2E 配置选择；Air 位于 `.codex` 的生产 checkout 仍需本机显式配置，按原设计核对，不由 Mini 示例推断。
+- Mode B delta：实际读取最终 reference 正文，确认参数来源（已审查目标 SHA）、候选来源和执行时点明确；原确定性 Context 冲突已消除。沿用 Round 1 的入口/工具输出证据；本轮没有产品模型接口变化，不新增真实模型任务或重复 13 条窄测试。
+- 结论：本轮无存活问题，0 CRITICAL / 0 WARNING。最终 CI、迁移与 verifier 的证据要求保持 Round 1 边界，本轮不代替它们。
+
+```json
+[]
+```
