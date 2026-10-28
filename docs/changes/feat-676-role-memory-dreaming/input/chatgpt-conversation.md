@@ -6,7 +6,7 @@
 
 ## 保存口径
 
-- 通过浏览器加载对话开头至结尾，按当前可见分支的消息顺序提取页面渲染文本；各段正文保留原文，不改写成摘要。分页重叠消息已去重并核对连续顺序。
+- 通过浏览器加载对话开头至结尾，按当前可见分支的消息顺序提取页面渲染文本；各段正文保留原文，仅去除页面提取带入的行尾空白，不改写成摘要。分页重叠消息已去重并核对连续顺序。
 - 这不是后台原始 Markdown 导出；页面中的表格、格式和代码块保留其渲染文本，界面内的语言标记、引用标记及附件名称可能一并出现。每条消息的可见超链接另列在正文后。
 - 未展开模型思考、隐藏工具过程或其他分支；附件名称不代表附件全文已包含。最终设计包的完整文件另见 [research-v2 原件](nano-memory-research-v2/README.md)。
 - 轮次标题与本节说明由 Codex 添加，正文中的“你说：”和“ChatGPT 说：”为原页面角色标签。
@@ -118,7 +118,7 @@ Cloud Coding Agent
 
 北京时间
 
-	
+
 
 聊天内容
 
@@ -127,7 +127,7 @@ Cloud Coding Agent
 
 10 月 4 日 23:35
 
-	
+
 
 你提出继续研究 Dots、Muse、Grok Bot 的内部 Agent 架构
 
@@ -136,7 +136,7 @@ Cloud Coding Agent
 
 10 月 4 日 23:49
 
-	
+
 
 我介绍了 Lauren Tan 的 Grok Bot Engineering Lead 模板
 
@@ -145,7 +145,7 @@ Cloud Coding Agent
 
 10 月 5 日 01:24
 
-	
+
 
 我们进一步讨论长期任务的“持续负责”机制及其对 Nano 的启发
 
@@ -244,15 +244,15 @@ Spec / Design / Coding / Test
 
 产品
 
-	
+
 
 主 Agent 负责用户交互
 
-	
+
 
 后台子 Agent 执行
 
-	
+
 
 长任务续跑与跟进
 
@@ -261,15 +261,15 @@ Spec / Design / Coding / Test
 
 Dots
 
-	
+
 
 明确支持
 
-	
+
 
 官方确认
 
-	
+
 
 官方确认
 
@@ -278,15 +278,15 @@ Dots
 
 Meta Muse
 
-	
+
 
 明确支持
 
-	
+
 
 官方确认
 
-	
+
 
 后台任务明确支持；执行上下文复用细节待确认
 
@@ -295,15 +295,15 @@ Meta Muse
 
 Instinct
 
-	
+
 
 明确支持
 
-	
+
 
 社区逆向确认
 
-	
+
 
 长期任务能力有证据；内部续跑机制未完全公开
 
@@ -423,7 +423,7 @@ PA 默认提示词补充
 ```text
 你说：
 
-找到一个社区发布的 
+找到一个社区发布的
 Meta Muse System Prompt 整理版。非常优秀，也找找dots和Instinct的社区逆向
 ```
 
@@ -570,11 +570,11 @@ GitHub
 
 资料
 
-	
+
 
 核心价值
 
-	
+
 
 建议
 
@@ -583,11 +583,11 @@ GitHub
 
 Muse 社区 System Prompt
 
-	
+
 
 PA 何时分派、如何分层委派
 
-	
+
 
 第一优先
 
@@ -596,11 +596,11 @@ PA 何时分派、如何分层委派
 
 Dots Software Engineering Skill
 
-	
+
 
 长期开发任务创建、续聊和验收
 
-	
+
 
 第一优先
 
@@ -609,11 +609,11 @@ Dots Software Engineering Skill
 
 Instinct 主 Agent 逆向
 
-	
+
 
 主助手不执行任务，交给专属 Task Agent
 
-	
+
 
 第一优先，但证据不如前两者直接
 
@@ -622,11 +622,11 @@ Instinct 主 Agent 逆向
 
 Dots Action Items Skill
 
-	
+
 
 如何同时追踪很多任务及依赖
 
-	
+
 
 第二优先
 
@@ -635,11 +635,11 @@ Dots Action Items Skill
 
 Instinct Memory 逆向
 
-	
+
 
 如何让 PA 长期记住任务和用户情况
 
-	
+
 
 第二优先
 
@@ -648,11 +648,11 @@ Instinct Memory 逆向
 
 Open Instinct 复刻
 
-	
+
 
 分层提示词和代码实现参考
 
-	
+
 
 第三优先
 
@@ -720,9 +720,9 @@ PA 是用户的统一入口和总负责人；独立长任务由一个可续用�
 我已整理成可交给本地 Agent 的文件：
 
 完整交付包 ZIP
- · 
+ ·
 可替换的默认提示 TS
- · 
+ ·
 完整设计与落地方案
 
 下面先给你完整提示词，再讲需要补的 Skill、工具和机制。
@@ -1242,7 +1242,7 @@ GENERAL_PA_BLUEPRINT.md 和 LOCAL_CODING_AGENT_PROMPT.md 开始。
 将验收场景接入真实测试入口，区分已通过、失败、受阻和未运行。
 保留我的自定义配置与未提交工作，遵循仓库现有 change-* 流程。
 
-本次交付完成的是设计与关键文件，不是已经修改好的运行系统。 包内已做 TS 实际导入、提示内容一致性、Skill 元数据、JSON Schema、合成记录、文件链接和汇总脚本检查；58 个行为场景尚未在你的 Nano 上执行，没有把它们写成已通过成绩。详细记录在 
+本次交付完成的是设计与关键文件，不是已经修改好的运行系统。 包内已做 TS 实际导入、提示内容一致性、Skill 元数据、JSON Schema、合成记录、文件链接和汇总脚本检查；58 个行为场景尚未在你的 Nano 上执行，没有把它们写成已通过成绩。详细记录在
 CHECKS.md
 。
 
@@ -1299,7 +1299,7 @@ GENERAL_PA_BLUEPRINT
 ├── index.json            ← 帮助检索的索引，可以重建
 └── tombstones.json       ← 删除标记，防止旧消息重新生成已忘记的记忆
 
-其中，records/ 才是详细记忆的权威来源。USER.md 和 MEMORY.md 是派生摘要，不再各自独立维护另一份事实。 这部分原文在包里的 
+其中，records/ 才是详细记忆的权威来源。USER.md 和 MEMORY.md 是派生摘要，不再各自独立维护另一份事实。 这部分原文在包里的
 记忆存储与消费契约
 。
 
@@ -1319,7 +1319,7 @@ certainty	explicit，用户明确表达	区分你的原话、外部观察、模�
 evidence	原 IM 消息引用及时间	能回答“你为什么这么认为”
 revision / status	第 1 版、当前有效	处理更新、冲突、撤回
 
-完整字段定义在 
+完整字段定义在
 JSON Schema 的 MemoryRecord
 。
 
@@ -1365,7 +1365,7 @@ GENERAL_PA_BLUEPRINT
 
 例如，你说“现在改成优先上午”，就不能等后台下一次整理才生效。
 
-这里由模型负责理解和提炼，由代码负责权限、版本、并发和落盘。 不是让模型直接用 shell 任意改整份记忆文件。拟扩展的工具动作是 search / get / upsert / retract / forget，见 
+这里由模型负责理解和提炼，由代码负责权限、版本、并发和落盘。 不是让模型直接用 shell 任意改整份记忆文件。拟扩展的工具动作是 search / get / upsert / retract / forget，见
 工具契约
 。
 
@@ -1386,7 +1386,7 @@ GENERAL_PA_BLUEPRINT
 
 这里复用你已有的 KnowledgeRuntime 后台维护机制，不再另造一个“每天凌晨跑一遍”的服务。你现有实现已经能通过原生 fork 启动受限的 Memory／Skill 维护执行。
 
-后台维护者的职责已经写在 
+后台维护者的职责已经写在
 memory-curator.md
 。它不是简单追加笔记，而是要去重、判断适用范围、处理纠正，并允许“本轮没什么值得存”。
 
@@ -2193,11 +2193,11 @@ IM 引用：为什么相信这段记忆，它依据的是谁说的话？
 
 五、还有一份可以直接看代码的参考
 
-这次也找到并核对了 
+这次也找到并核对了
 supermemoryai/memoryrepo。它使用短 MEMORY.md 作为入口，其他内容放在主题文件中，通过检索、文件编辑和 Git 提交维护记忆。
 GitHub
 
-最相关的是它的 
+最相关的是它的
 src/server/memory.ts：
 
 chatInstructions()：注入入口笔记，指导 Agent 搜索和读取其他文件。
@@ -2217,9 +2217,9 @@ chatTools()：提供读取，以及 memory_write / memory_edit / memory_delete�
 
 
 
-当前我已经把你说的A+B完成了。A＋B 对应 feat-667 / 
+当前我已经把你说的A+B完成了。A＋B 对应 feat-667 /
 PR #422 已经合入了。
-https://github.com/Mrchen116/nano-multiagent/blob/main/docs/changes/archive/feat-667-pa-service-guidance/spec.md 
+https://github.com/Mrchen116/nano-multiagent/blob/main/docs/changes/archive/feat-667-pa-service-guidance/spec.md
 https://github.com/Mrchen116/nano-multiagent/blob/main/docs/changes/archive/feat-667-pa-service-guidance/design.md
 
 
@@ -2662,9 +2662,9 @@ OpenAI
 
 
 直接阅读设计正文
- · 
+ ·
 实施与迁移规格
- · 
+ ·
 给本地 Coding Agent 的指令
 
 下面把依据和关键设计讲清楚。
@@ -2695,7 +2695,7 @@ self_improvement.md 将学习分成了不同工作：会话内保存、记忆整
 
 forget/SKILL.md 涉及记忆正文、派生内容、检索刷新和防止未来工作重新写回。因此也不能把 Muse 理解成“只有几个裸 Markdown 文件，其他什么都没有”。
 
-另外核对的 
+另外核对的
 instinct-memory 开源复刻，确实提供只读查询、候选笔记与后台整理，但明确局限于单用户，没有多用户授权模型。它可以参考，不能直接承担你未来公司的专家协作设计。
 
 因此，下面不是“复刻某一家”，而是选取有依据的机制，再明确哪些是针对 Nano 的设计决定。
@@ -3028,15 +3028,15 @@ PA 遇到一般偏好与一次例外	下一次选择正确使用两者，不只�
 PA 差异指导
 、
 专家差异指导
-，以及 
+，以及
 按需使用的 nano-memory Skill
 。
 
-还有 
+还有
 文件操作接口草案
 、
 来源证据说明
- 和 
+ 和
 验收清单
 。
 
@@ -3976,9 +3976,9 @@ PA 和独立专家采用不同的常驻记忆模板、不同的目录侧重；�
 我把本轮决策、两套入口模板、各类正文模板、系统指导和 Global Dreaming 输入规范整理好了：
 
 下载修订包
- · 
+ ·
 逐项决策
- · 
+ ·
 来源及证据边界
 
 下面对应你的每个 [?] 说明。
