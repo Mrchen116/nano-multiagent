@@ -13,7 +13,7 @@
 
 新增 `tests/integration/test_dev_host.py` 从 CLI 子进程和磁盘不变量检查保护策略，属于最低可观察的接线层，不起常驻服务。覆盖 up/down、配置保护、symlink、祖先保护、标记、禁用飞书、显式缺失和错误配置；13 项。初始红测中 down 直接删除保护现场的 PID 文件并零退出，up 已进入配置处理；实现后全部通过，独立审查者又确认 13 passed。
 
-一次性数据副本演练与真实模型探针保存在本机 `output/refactor-675/`，不进入永久测试。生产迁移使用相同的 SQLite backup/附件复制函数；演练验证一致复制、拒绝覆盖既有目标和切换后新写入恢复。无生产故障注入或测试消息。
+一次性数据副本演练与真实模型探针执行于本机 `output/refactor-675/`，不进入永久测试。模型探针在收尾删除，结果与日志保留；数据复制脚本为回退所需，保存在 Mini 受保护的迁移备份中。生产迁移使用相同的 SQLite backup/附件复制函数；演练验证一致复制、拒绝覆盖既有目标和切换后新写入恢复。无生产故障注入或测试消息。
 
 ## 两机真实开发验证
 
@@ -51,3 +51,8 @@
 - 本次仅新增单独标记的迁移前快照（retention.json 写明解除条件），没有新增普通版本部署备份；既有备份保留集未删除。固定生产 worktree 长期保留。
 - Air/Mini 的本次 E2E PID 文件均已清理，真实测试服务已 down；运行证据保留本机。Mini 没有 `feishu-e2e.env`。
 - Air 主仓两条原有本地独有提交 `a34af8473`、`a89b778de` 未移动、重排或提交到远端。两机主仓源码未因本次生产迁移切版本；新开发工具与共享入口由本 PR 提供。Mini 验证 checkout 在 `.worktrees/refactor-675-dev`，Air 使用本任务 worktree；开放 PR 期间均保留。
+
+## Final sync 与归档保留
+
+- 最后 fetch 的 origin/main 仍为 `f6175e8719c7c3ed43e9d26c0028657226a17cc4`，没有新增集成代码。设计、代码审查、verifier 和本地测试的已执行基线保持。
+- 归档仅整体移动 unit、修正 motivation 两条相对链接及上述本地脚本 locator；没有实现、契约、测试或生产状态变化。按 verifier 的 retained 条件保留结论，归档后执行 docs-check 和 unit archive check。
