@@ -1,5 +1,6 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { autoClose, createLibrary, createParser, evaluate, evaluateRoot, parseExpression, split, tokenize, walkAST, type ASTNode, type ElementNode, type EvaluationContext } from '@openuidev/lang-core';
-import { interactiveCatalog, interactiveTools, canonicalJson } from '@nano/product-contracts';
+import { interactiveCatalog, interactiveTools } from '@nano/product-contracts';
 
 export interface InteractiveSchema { source: string; actions: Record<string, string> }
 const parser = createParser(interactiveCatalog, 'Stack');
@@ -100,7 +101,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
 export function interactionState(schema: InteractiveSchema, input: unknown) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Buffer.byteLength(JSON.stringify(input), 'utf8') > 16384)
     throw new Error('Interaction state must be an object within 16 KiB');
-  const state = JSON.parse(canonicalJson(input)) as Record<string, unknown>;
+  const state = JSON.parse(sortedJsonAscii(input)) as Record<string, unknown>;
   const parsed = parser.parse(schema.source);
   const unwrap = (value: unknown): unknown => value && typeof value === 'object' && 'value' in value ? value.value : value;
   const ctx: EvaluationContext = {

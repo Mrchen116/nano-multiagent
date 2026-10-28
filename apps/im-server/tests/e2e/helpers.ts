@@ -15,7 +15,7 @@ import {
 } from "node:crypto";
 import WebSocket from "ws";
 import { openDatabase } from "../../src/db.js";
-import { canonical } from "../../src/identity.js";
+import { serializeIdentityJson } from "../../src/identity.js";
 const hash = "$2b$12$EF/L52c0/DOIAIzztg.vLeo3btIdIuVbW5/M3UBiyztqi7ZLIfTUW";
 export const cleanups: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => {
@@ -198,7 +198,7 @@ export async function bind(f: Awaited<ReturnType<typeof start>>, node = "node-a"
     ),
     ciphertext = Buffer.from(c.ciphertext, "base64"),
     decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(c.nonce, "base64"));
-  decipher.setAAD(Buffer.from(canonical(c.aad)));
+  decipher.setAAD(Buffer.from(serializeIdentityJson(c.aad)));
   decipher.setAuthTag(ciphertext.subarray(-16));
   const challenge = Buffer.concat([
     decipher.update(ciphertext.subarray(0, -16)),
@@ -214,7 +214,7 @@ export async function bind(f: Awaited<ReturnType<typeof start>>, node = "node-a"
   ).toBe(200);
   const prepare = await post("prepare", auth);
   const proof = createHmac("sha256", createHash("sha256").update(challenge).digest())
-    .update(canonical(prepare.body.confirmation))
+    .update(serializeIdentityJson(prepare.body.confirmation))
     .digest("hex");
   expect((await post("commit", { ...auth, proof, envelopes: {} })).status).toBe(200);
   const recovery = await post("recover", auth);

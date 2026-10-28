@@ -1,3 +1,4 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
@@ -8,7 +9,7 @@ import type WebSocket from "ws";
 import { all, one, now, fail, transaction, type Row, type ImContext } from "./context.js";
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
-import {canonicalAgentConfiguration, canonicalJson, interactiveResponse} from "@nano/product-contracts";
+import {canonicalAgentConfiguration, interactiveResponse} from "@nano/product-contracts";
 import { TrajectoryObservers } from './trajectory.js';
 export type Connection = {
   socket: WebSocket;
@@ -619,7 +620,7 @@ export class Gateway {
         s.access({ ...c, kind: "gateway" }, previous.conversation_id, a.agent_id);
         const saved = s.message(previous.message_id);
         const savedInteractive = s.interactions.publication(previous.message_id);
-        if (saved.content !== p.text.trim() || canonicalJson(savedInteractive ?? null) !== canonicalJson(interactive ?? null)
+        if (saved.content !== p.text.trim() || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
           || s.resolveTarget(a.agent_id, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
         return ack({
           conversation_id: previous.conversation_id,

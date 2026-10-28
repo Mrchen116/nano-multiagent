@@ -1,3 +1,4 @@
+import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import type { ObjectJsonSchema } from "@deepseek-ai/dsh-tools";
 import { createHash } from "node:crypto";
 
@@ -45,17 +46,6 @@ interface Active {
   settled?: Promise<void>;
   settle?: () => void;
 }
-const canonical = (value: unknown): string =>
-  JSON.stringify(value, (_key, item) =>
-    item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(
-          Object.keys(item)
-            .sort()
-            .map((key) => [key, item[key]]),
-        )
-      : item,
-  );
-
 /** Owns logical calls; native child handles remain honest per-attempt identities. */
 export class WorkflowControl {
   readonly calls: WorkflowCall[] = [];
@@ -138,7 +128,7 @@ export class WorkflowControl {
     const { label: _label, phase: _phase, ...behavior } = options;
     const ordinal = this.calls.length + 1;
     const key = createHash("sha256")
-      .update(canonical([this.calls.at(-1)?.key ?? "", prompt, behavior]))
+      .update(sortedJsonUtf8([this.calls.at(-1)?.key ?? "", prompt, behavior]))
       .digest("hex");
     const call: WorkflowCall = {
       ordinal,

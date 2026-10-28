@@ -19,6 +19,10 @@
     "./agent-lifecycle": {
       "types": "./lib/agent-lifecycle.d.ts",
       "default": "./lib/agent-lifecycle.js"
+    },
+    "./serialization": {
+      "types": "./lib/serialization.d.ts",
+      "default": "./lib/serialization.js"
     }
   },
   "scripts": {

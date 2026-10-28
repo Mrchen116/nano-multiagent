@@ -1,10 +1,11 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { canonicalJson, canonicalAgentConfiguration, agentConfigurationFingerprint } from '@nano/product-contracts';
+import { canonicalAgentConfiguration, agentConfigurationFingerprint } from '@nano/product-contracts';
 import { ConfigurationOperations } from '../src/configuration.js';
 
 it('recovers a persisted configuration after runtime failure without losing the optimistic operation identity', async () => {
@@ -73,7 +74,7 @@ it('recovers a pre-strategy pending receipt without changing its fingerprint or 
   const directory = await mkdtemp(join(tmpdir(), 'nano-config-legacy-'));
   const {approval_mode: _mode, ...legacy} = canonicalAgentConfiguration({agent_id: 'a', workspace_root: directory, custom_prompt: 'old'});
   const candidate = {...legacy, custom_prompt: 'new'};
-  const hash = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+  const hash = (value: unknown) => createHash('sha256').update(sortedJsonAscii(value)).digest('hex');
   const intent = {operation_id: 'legacy', candidate_fingerprint: hash(candidate), expected_previous_fingerprint: hash(legacy), agent: candidate};
   const path = join(directory, 'ops.sqlite3');
   const db = new DatabaseSync(path);

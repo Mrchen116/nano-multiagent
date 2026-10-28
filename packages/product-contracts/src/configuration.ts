@@ -1,14 +1,9 @@
+import { sortedJsonAscii } from './serialization.js';
 import { createHash } from 'node:crypto';
 import type { PersonalAgentIdentity } from './index.js';
 
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
 const strings = (value: unknown): string[] => Array.isArray(value) ? value.flatMap(item => text(item) ? [text(item)!] : []) : [];
-/** Matches the existing Python protocol's sorted, ASCII-escaped JSON fingerprint. */
-export function canonicalJson(value: unknown): string {
-  const sort = (value: unknown): unknown => Array.isArray(value) ? value.map(sort)
-    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, entry]) => [key, sort(entry)])) : value;
-  return JSON.stringify(sort(value)).replace(/[\u0080-\uffff]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
-}
 /** One non-secret configuration representation shared by node and IM. */
 export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   const agentId = text(payload.agent_id) ?? '';
@@ -32,7 +27,7 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   if (heartbeat) {
     const decoded: unknown = JSON.parse(heartbeat);
     if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw new Error('heartbeat_json must encode an object');
-    heartbeatJson = canonicalJson(decoded);
+    heartbeatJson = sortedJsonAscii(decoded);
   }
   return {
     ...(personal ? { personal_agent: personal } : {}),
@@ -52,5 +47,5 @@ export function agentConfigurationFingerprint(payload: Record<string, unknown>):
   if (canonical.heartbeat_json === '{}') canonical.heartbeat_json = null;
   // Inherited mode preserves fingerprints stored in pre-strategy operation receipts.
   const { approval_mode, ...legacy } = canonical;
-  return createHash('sha256').update(canonicalJson(approval_mode === null ? legacy : canonical)).digest('hex');
+  return createHash('sha256').update(sortedJsonAscii(approval_mode === null ? legacy : canonical)).digest('hex');
 }

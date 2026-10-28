@@ -1,6 +1,7 @@
+import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { canonicalJson, interactiveResponse, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
+import { interactiveResponse, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
 import type { NodeStore } from './store.js';
@@ -111,7 +112,7 @@ export class PersonalAssistant {
     const interactive = interactiveResponse(call.args.interactive);
     const representation=call.method==='send_user_message'?'owner':'self';
     if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
-    const publicationBody = canonicalJson({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation});
+    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation});
     const previous = inbox.publication(call.operationId);
     if (previous && (previous.target !== target || previous.body !== publicationBody)) throw new Error('Publication identity conflict');
     if (previous?.result) return JSON.parse(previous.result) as unknown;

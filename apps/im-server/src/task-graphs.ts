@@ -1,3 +1,4 @@
+import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
 import { effectiveFeatures } from '@nano/product-contracts/capabilities';
@@ -40,17 +41,6 @@ export class TaskGraphError extends Error {
   asDict() {
     return { code: this.code, message: this.message, ...this.details };
   }
-}
-export function canonicalJson(value: any): string {
-  return JSON.stringify(value, (_key, item) =>
-    item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(
-          Object.keys(item)
-            .sort()
-            .map((k) => [k, item[k]]),
-        )
-      : item,
-  );
 }
 function fail(code: string, message: string): never {
   throw new TaskGraphError(code, message);
@@ -524,7 +514,7 @@ export class TaskGraphService {
     const checked:CheckedWait[]=[];
     for (const n of next.nodes) {
       const old=before.nodes.find((x:Obj)=>x.id===n.id);
-      if (n.status!=='waiting' || (old?.status==='waiting' && canonicalJson(old.wait)===canonicalJson(n.wait))) continue;
+      if (n.status!=='waiting' || (old?.status==='waiting' && sortedJsonUtf8(old.wait)===sortedJsonUtf8(n.wait))) continue;
       if (Object.keys(n.wait).some(k=>!['reason','schedule_id'].includes(k)) || n.assignee?.type!=='agent')
         fail('task_wait_schedule_invalid','Waiting requires an Agent assignee and a schedule reference');
       if (!this.execution) fail('task_wait_schedule_unavailable','Native schedule verification is unavailable');
@@ -637,7 +627,7 @@ export class TaskGraphService {
       key = text(args.request_key, "request_key");
       hash = createHash("sha256")
         .update(
-          canonicalJson({
+          sortedJsonUtf8({
             action,
             args: Object.fromEntries(Object.entries(args).filter(([k]) => action === "create" || k !== "conversation_id")),
           }),
@@ -829,7 +819,7 @@ export class TaskGraphService {
     }
     for (const n of doc.nodes) if (n.status === 'waiting') {
       const old = before?.nodes.find((x:Obj)=>x.id===n.id);
-      if (old?.status === 'waiting' && canonicalJson(old.wait) === canonicalJson(n.wait)) continue;
+      if (old?.status === 'waiting' && sortedJsonUtf8(old.wait) === sortedJsonUtf8(n.wait)) continue;
       const checked = waits.find(item=>item.node_id===n.id);
       if (!checked || checked.wait.schedule_id!==n.wait.schedule_id || checked.wait.owner_agent_id!==n.assignee?.id || !(Date.parse(checked.wait.next_check_at)>Date.now()))
         fail('task_wait_schedule_invalid','Waiting requires a verified active schedule for the assignee');
@@ -1059,7 +1049,7 @@ export class TaskGraphService {
     if (args.cursor != null) {
       try {
         const saved = JSON.parse(Buffer.from(text(args.cursor,"cursor",2048),"base64url").toString());
-        if (canonicalJson(saved.identity) !== canonicalJson(identity)) throw Error();
+        if (sortedJsonUtf8(saved.identity) !== sortedJsonUtf8(identity)) throw Error();
         after = saved.after;
         text(after!.updated_at,"cursor time"); text(after!.graph_id,"cursor graph"); text(after!.node_id,"cursor node");
       } catch { fail("invalid_arguments","Invalid cursor for this query"); }

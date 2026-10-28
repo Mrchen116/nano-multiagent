@@ -25,12 +25,6 @@ export function interactiveResponse(value: unknown): InteractiveResponse | undef
     ...(input.supersedes_message_id ? { supersedes_message_id: input.supersedes_message_id as string } : {}) };
 }
 
-/** Stable JSON identity, preserving array order and string content. */
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item)
-    ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right))) : item);
-}
-
 /** Attach persisted choice data to human input without replacing their own words. */
 export function withInteractionContext(content: string, reply?: InteractionSnapshot, contexts?: InteractionContext[]): string {
   let text = content;
