@@ -145,6 +145,11 @@ case "$E2E_PROFILE" in
     ;;
 esac
 
+python3 "$SCRIPT_DIR/dev_host.py" guard --repo "$REPO_ROOT" --runtime "$WT_ROOT" --profile "$E2E_PROFILE"
+if [[ $MAIN_CONFIG_EXPLICIT -eq 0 ]]; then
+  MAIN_CFG="$(python3 "$SCRIPT_DIR/dev_host.py" e2e-config --repo "$REPO_ROOT")"
+fi
+
 if [[ ! -f "$MAIN_CFG" ]]; then
   echo "E2E config not found: $MAIN_CFG" >&2
   echo "restore the repository E2E config or pass --main-config" >&2
