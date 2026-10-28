@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { KnowledgeFiles } from '../src/knowledge/files.js';
 
 it('preserves memory assets, source comments, limits and concurrent updates in one workspace', async () => {
@@ -32,15 +32,15 @@ it('controls Skill writes, keeps creation source stable, deduplicates use and ar
     await expect(files.skill({ action: 'create', name: 'useful', content }, 'F1')).rejects.toThrow('exists');
     const root = join(home, '.nanoassistant/skills'); const location = join(root, 'useful/SKILL.md');
     for (let i = 0; i < 20; i++) {
-      const result = await files.use(root, 'useful', 'session', `call-${i}`, location, '2026-01-01T00:00:00Z');
+      const result = await files.use(root, 'useful', 'a', 'session', `call-${i}`, location, '2026-01-01T00:00:00Z');
       expect(result.batch).toBe(i === 19);
     }
-    expect((await files.use(root, 'useful', 'session', 'call-19', location)).counted).toBe(false);
+    expect((await files.use(root, 'useful', 'a', 'session', 'call-19', location)).counted).toBe(false);
     const usage = JSON.parse(await readFile(join(root, '.usage.json'), 'utf8')).useful;
     expect(usage).toMatchObject({ source: 'F3', use_count: 20 });
     const accepted = await files.batchCandidate(root, 'useful');
     expect(accepted?.count).toBe(20);
-    await files.use(root, 'useful', 'later-session', 'later-use', location, '2026-01-01T00:00:00Z');
+    await files.use(root, 'useful', 'a', 'later-session', 'later-use', location, '2026-01-01T00:00:00Z');
     await files.batchAccepted(root, 'useful', accepted!.count);
     expect(JSON.parse(await readFile(join(root, '.usage.json'), 'utf8')).useful.uses_since_last_B).toBe(1);
     await files.skill({action:'create',name:'manual',content:content.replace('name: useful','name: manual')},'F1');
@@ -51,6 +51,50 @@ it('controls Skill writes, keeps creation source stable, deduplicates use and ar
     expect(await readFile(join(root, '.archive/useful/SKILL.md'), 'utf8')).toBe(content);
     expect(JSON.parse(await readFile(join(root, '.usage.json'), 'utf8')).useful.state).toBe('archived');
   } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+it('keeps fresh per-Agent totals and daily counts after evidence eviction and window rollover', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-skill-statistics-'));
+  try {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
+    const files = new KnowledgeFiles(home, join(home, 'shared'));
+    const root = files.skillRoot, shared = files.globalSkillRoot!;
+    const content = '---\nname: useful\ndescription: Fixture\n---\nUse evidence.';
+    await files.skill({ action: 'create', name: 'useful', content }, 'F3');
+    await files.skill({ action: 'create', scope: 'global', name: 'useful', content }, 'F1');
+    // An existing legacy count and sample must remain available to maintenance, but never seed new statistics.
+    const legacy = JSON.parse(await readFile(join(root, '.usage.json'), 'utf8'));
+    legacy.useful.use_count = 999;
+    legacy.useful.session_refs = [{session_id:'legacy',tool_call_id:'old',timestamp:'2026-09-30T12:00:00Z',location:'old'}];
+    await writeFile(join(root, '.usage.json'), JSON.stringify(legacy));
+    expect((await files.usage([root], 'a')).skills[0]).toMatchObject({use_count:0,statistics_since:null,session_refs:[]});
+    for (const target of [root, shared]) {
+      for (let i = 0; i < 75; i++) await files.use(target, 'useful', 'a', 'session-a', `call-${i}`, 'location');
+      expect((await files.use(target, 'useful', 'a', 'session-a', 'call-74', 'location')).counted).toBe(false);
+    }
+    for (let i = 0; i < 65; i++) await files.use(shared, 'useful', 'b', 'session-b', `call-${i}`, 'location');
+    const restarted = new KnowledgeFiles(home, shared);
+    const a = await restarted.usage([root, shared], 'a');
+    expect(a).toMatchObject({statistics_since:'2026-10-01T12:00:00.000Z',period_start:'2026-09-02',period_end:'2026-10-01'});
+    expect(a.skills.map(skill => skill.use_count)).toEqual([75,75]);
+    expect(a.heatmap_data.reduce((sum, count) => sum + count, 0)).toBe(150);
+    expect(a.skills[1]!.session_refs).toEqual([]);
+    expect(a.skills[0]).not.toHaveProperty('statistics');
+    expect((await restarted.usage([shared], 'b')).skills[0]).toMatchObject({use_count:65});
+    expect((await restarted.usage([shared], 'unused')).skills).toEqual([]);
+    const saved = JSON.parse(await readFile(join(root, '.usage.json'), 'utf8')).useful;
+    expect(saved).toMatchObject({use_count:1074,uses_since_last_B:75});
+    expect(saved.session_refs).toHaveLength(60);
+    expect(await files.references('session-a', [root])).toEqual([{name:'useful',location:'location'}]);
+    vi.setSystemTime(new Date('2026-11-01T00:01:00Z'));
+    await files.use(shared, 'useful', 'a', 'session-a', 'new-month', 'location');
+    const later = await restarted.usage([shared], 'a');
+    expect(later.skills[0]!.use_count).toBe(76);
+    expect(later.heatmap_data.reduce((sum, count) => sum + count, 0)).toBe(1);
+    expect((await restarted.usage([shared], 'b')).skills[0]!.use_count).toBe(65);
+    expect(Object.keys(JSON.parse(await readFile(join(shared, '.usage.json'), 'utf8')).useful.statistics.a.days)).toEqual(['2026-11-01']);
+  } finally { vi.useRealTimers(); await rm(home, {recursive:true,force:true}); }
 });
 
 it('runs independent native maintenance children, persists successful facts and withdraws each Feature', async () => {
@@ -179,8 +223,10 @@ it.each([false, true])('invokes live human Inbox Skills once without promoting o
     if (prune) expect((await read()).events.some(e=>e.type==='compaction/prune')).toBe(true);
     expect((await read()).events.filter(e=>e.type==='turn/end').map(e=>(e.data as {reason:{kind:string}}).reason.kind)).toEqual(['completed','completed','completed']);
     expect((await read()).events.filter(e=>e.type==='user/message'&&e.data.source?.kind==='skill-invocation').map(e=>e.data.id)).toEqual(['nano-skill:human-message:selected']);
+    await expect.poll(()=>client!.rpc.request('knowledge.usage',{agentId:'a'})).toMatchObject({skills:[{name:'selected',use_count:1,statistics_since:expect.any(String),session_refs:[{session_id:binding.sessionId}]}]});
     await client!.shutdown();client=undefined;await start();
     expect((await read()).events.filter(e=>e.type==='user/message'&&e.data.source?.kind==='skill-invocation')).toHaveLength(1);
+    expect(await client!.rpc.request('knowledge.usage',{agentId:'a'})).toMatchObject({skills:[{name:'selected',use_count:1}]});
     await client!.shutdown();client=undefined;
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}

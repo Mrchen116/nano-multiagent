@@ -295,7 +295,8 @@ it("returns the node's actual Skill usage envelope through the public endpoint",
   const request = await g.frames.next(frame => frame.type === "node.skills.usage.request");
   const usage = {
     agent_id: "assistant", node_id: g.node,
-    skills: [{ name: "reviewed", source: "F3", state: "archived", use_count: 20 }],
+    statistics_since: "2026-10-01T00:00:00Z", period_start: "2026-09-29", period_end: "2026-10-28",
+    skills: [{ name: "reviewed", source: "F3", state: "archived", use_count: 20, statistics_since: "2026-10-01T00:00:00Z", session_refs: [], recent_call_keys: [] }],
     heatmap_data: Array.from({ length: 30 }, (_, i) => i === 29 ? 1 : 0),
     health: { created_auto_total: 1, active_auto_total: 0, used_auto_total: 1 },
   };

@@ -191,7 +191,7 @@ it('rejects offline PA policy and name changes while preserving existing source 
 
 it('fences section reads and retains only safe usage references across failed refreshes',async()=>{
   const {app,ctx,db}=setup();
-  ctx.gateway.request=async()=>({usage:{skills:[{name:'skill',source:'user',state:'active',use_count:2,body:'SECRET',session_refs:[{session_id:'s',tool_call_id:'c',timestamp:'then',location:'skill',arguments:'SECRET'}]}],heatmap_data:[2],health:{created_auto_total:1,active_auto_total:1,used_auto_total:1,secret:'SECRET'}}});
+  ctx.gateway.request=async()=>({usage:{statistics_since:'2026-10-28T00:00:00Z',period_start:'2026-09-29',period_end:'2026-10-28',skills:[{statistics_since:'2026-10-28T00:00:00Z',name:'skill',source:'user',state:'active',use_count:2,body:'SECRET',session_refs:[{session_id:'s',tool_call_id:'c',timestamp:'then',location:'skill',arguments:'SECRET'}]}],heatmap_data:[2],health:{created_auto_total:1,active_auto_total:1,used_auto_total:1,secret:'SECRET'}}});
   try {
     const current=(await app.inject('/im/v1/agents/a/settings/sections/usage')).json();
     expect(current).toMatchObject({source:'current',data:{skills:[{name:'skill',use_count:2,session_refs:[{session_id:'s'}]}]}});
@@ -207,6 +207,29 @@ it('fences section reads and retains only safe usage references across failed re
   } finally {await app.close();}
 });
 
+
+it('rejects legacy live and cached usage while retaining fresh offline statistics', async () => {
+  const {app,ctx,db,connection}=setup();
+  const fresh={statistics_since:'2026-10-28T00:00:00Z',period_start:'2026-09-29',period_end:'2026-10-28',
+    skills:[{skill_id:'skill',name:'skill',use_count:75,statistics_since:'2026-10-28T00:00:00Z',statistics:{other:{use_count:999}}}],heatmap_data:[75]};
+  ctx.gateway.request=async()=>({usage:fresh});
+  try {
+    const live=(await app.inject('/im/v1/agents/a/settings/sections/usage')).json();
+    const direct=(await app.inject('/im/v1/agents/a/skills/usage')).json();
+    expect(direct).toEqual(live.data);
+    expect(JSON.stringify(direct)).not.toContain('other');
+    ctx.gateway.nodes.clear();
+    expect((await app.inject('/im/v1/agents/a/settings/sections/usage')).json()).toMatchObject({source:'last_known',captured_at:live.captured_at,data:live.data});
+    db.prepare("UPDATE agent_settings_snapshots SET data_json=? WHERE section='usage'").run(JSON.stringify({skills:[{use_count:999}],heatmap_data:[60]}));
+    expect((await app.inject('/im/v1/agents/a/settings/sections/usage')).json()).toMatchObject({source:'unavailable',data:null,error:{code:'offline'}});
+    ctx.gateway.nodes.set('n',connection);
+    ctx.gateway.request=async()=>({usage:{skills:[{use_count:999}],heatmap_data:[60]}});
+    expect((await app.inject('/im/v1/agents/a/settings/sections/usage')).json()).toMatchObject({source:'unavailable',data:null,error:{code:'read_failed'}});
+    expect((await app.inject('/im/v1/agents/a/skills/usage')).statusCode).toBe(502);
+    ctx.gateway.request=async()=>{throw new Error('failed');};
+    expect((await app.inject('/im/v1/agents/a/settings/sections/usage')).json()).toMatchObject({source:'unavailable',data:null,error:{code:'read_failed'}});
+  } finally {await app.close();}
+});
 
 it('preserves fixed context and personal tools in settings capabilities', async () => {
   const {app,ctx}=setup();
