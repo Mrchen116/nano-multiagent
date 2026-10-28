@@ -105,7 +105,7 @@ export class ConfigurationScopes extends Service {
     // Product chat tools must not be inherited through the shared Global preset.
     if (config.mode !== 'global') await ctx.plugin(GlobalMode, { mode: config.mode }).await();
     await ctx.inject(['tools', 'nanoProduct', 'nanoKnowledge', 'skills'], child => {
-      TaskGraphs.registerTool(child, agent => this.forAgent(agent)); MemoryCuration.registerTool(child); SkillCreation.registerTool(child);
+      TaskGraphs.registerTool(child, agent => this.forAgent(agent)); MemoryCuration.registerTool(child); SkillCreation.registerTool(child); child.nanoKnowledge.documents.registerTool(child);
     }).await();
     await ctx.plugin(Cron, { agentId }).await();
     await this.features(scope);
@@ -115,7 +115,7 @@ export class ConfigurationScopes extends Service {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const selected = agent && this.forAgent(agent); if (!selected) return assembly;
       const disabled = new Set<string>();
-      for (const [feature, section] of [['intelligent_ui', 'nano-interactive-replies'], ['task_graph', 'nano-task-graphs'], ['memory_curation', 'nano-memory'], ['skill_creation', 'nano-skill-creation']] as const) if (selected.features?.[feature] === false) disabled.add(section);
+      for (const [feature, section] of [['intelligent_ui', 'nano-interactive-replies'], ['task_graph', 'nano-task-graphs'], ['memory_curation', 'nano-memory']] as const) if (selected.features?.[feature] === false) disabled.add(section);
       if (!selected.features?.cron_scheduling) disabled.add('nano-cron');
       if (!selected.features?.heartbeat) disabled.add('nano-heartbeat');
       if (!this.tools.selection(selected, Skills.goalTools).length) disabled.add('tool:goal');
@@ -176,7 +176,7 @@ export class ConfigurationScopes extends Service {
     // The native Agent restriction and prompt view still apply its exact choices.
     const configs = [...this.allConfigurations()].filter(config => config.agentId === scope.agentId);
     for (const [key, plugin] of [['intelligent_ui', IntelligentUI], ['memory_curation', MemoryCuration], ['skill_creation', SkillCreation], ['task_graph', TaskGraphs], ['heartbeat', Heartbeat]] as const) {
-      const enabled = configs.some(config => (key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false));
+      const enabled = configs.some(config => key === 'skill_creation' ? true : key === 'memory_curation' ? config.knowledge?.memoryMode === 'legacy' : key === 'heartbeat' ? config.features?.[key] === true : config.features?.[key] !== false);
       const existing = scope.features.get(key);
       if (!enabled && existing) { await existing.dispose(); scope.features.delete(key); }
       if (enabled && !existing) { const fiber = scope.ctx.plugin(plugin, { agentId: scope.agentId, mode: configs[0]?.mode }); await fiber.await(); scope.features.set(key, fiber); }

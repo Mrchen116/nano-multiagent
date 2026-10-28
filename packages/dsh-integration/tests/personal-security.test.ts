@@ -76,7 +76,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
       let logs='';const client=new RuntimeClient({home:root,cwd:root,onLog:text=>{logs+=text;}});
       const calls:any[]=[];
       client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);if(call.method==='personal_sources')return {revision:2,excluded_conversation_ids:['source']};if(call.method==='conversations')return {messages:[]};if(call.method==='send_message')return {status:'sent',message_id:'draft-message'};throw new Error('Unexpected product call '+call.method);});
-      const config={agentId:'agent',revision:'1',workspace:root,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
+      const config={agentId:'agent',knowledge:{memoryMode:'legacy'},revision:'1',workspace:root,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
         systemPrompt:'OWNER_EDITABLE_GUIDANCE',extensions:{workspace:join(root,'plugins.json')},skillRoots:[{path:skills,source:'owner'}],features:{intelligent_ui:false,task_graph:false,skill_creation:true,memory_curation:true},
         ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),approval:{...approvalDefaults,dangerouslySkipPermissions:true,globalRoot:root}};
       try {
@@ -107,7 +107,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
           expect(Object.keys(send.parameters.properties)).toEqual(['target','text','interactive']);
           expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
-          expect(await readFile(join(root,'.nanoassistant','memory','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
+          expect(await readFile(join(root,'.nanoassistant','memory-legacy','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');
         }
       }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}

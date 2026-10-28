@@ -49,7 +49,7 @@ it('retries empty global responses without replaying delivery and preserves term
     const calls: any[] = [];
     client.rpc.handle('product.call', value => {calls.push(value);return {status:'sent',message_id:'delivered'};});
     client.rpc.handle('model.check', () => ({published:false}));
-    await client.rpc.request('initialize',{protocol:1,agents:['global','single_thread'].map(mode=>({agentId:mode,revision:'1',mode,provider:'fixture',model:'fixture',toolAllowlist:['send_message'],approval:{dangerouslySkipPermissions:true}})),bindings:[]});
+    await client.rpc.request('initialize',{protocol:1,agents:['global','single_thread'].map(mode=>({agentId:mode,knowledge:{memoryMode:'legacy'},revision:'1',mode,provider:'fixture',model:'fixture',toolAllowlist:['send_message'],approval:{dangerouslySkipPermissions:true}})),bindings:[]});
     for(const [sessionId,mode,expected] of [['sent','global','completed'],['noop','global','completed'],['exhausted','global','error'],['failure','global','error'],['single','single_thread','error']]){
       await client.rpc.request('session.ensure',{sessionId,agentId:mode,revision:'1',ownerId:'owner',cwd:home});
       await client.rpc.request('session.submit',{sessionId,inputId:sessionId,mode:'followup',content:[{type:'text',text:'Handle this turn'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:sessionId}});

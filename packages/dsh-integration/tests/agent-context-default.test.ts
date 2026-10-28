@@ -19,7 +19,7 @@ it('defaults new and existing Agents to context management and persists explicit
         dsh:{profile:{bundles:[]}},custom:{keep:'EXISTING_USER_FIELD'}}));
       await writeFile(join(dir, 'cordis.patch.yml'), '[]\n');
     }
-    const base = {revision:'1',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:[]};
+    const base = {knowledge:{memoryMode:'legacy'},revision:'1',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:[]};
     const agents = [
       ...Object.entries(workspaces).map(([agentId,workspace]) => ({...base,agentId,workspace})),
       {...base,agentId:'peer',workspace:workspaces.fresh},

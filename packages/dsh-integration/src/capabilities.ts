@@ -62,7 +62,7 @@ export class ToolSelection {
     if (agent.ctx.fiber.uid === null) return;
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
-    const disabled: string[] = [];
+    const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
     if (state.config.toolAllowlist === undefined) disabled.push(...goalTools);
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
@@ -86,7 +86,7 @@ export async function skillCatalog(config: AgentConfiguration, cwd: string) {
   for (const provider of [...(providers.get(config) ?? [])].sort((a, b) => a.index - b.index)) {
     const result = await provider.native.list({ cwd });
     const candidates = (Array.isArray(result) ? result : result.candidates) as SkillCandidate[];
-    for (const skill of candidates) if (!found.has(skill.name)) found.set(skill.name, { ...skill, rank: provider.index, source: provider.source });
+    for (const skill of candidates) if (skill.name !== 'skill-creator' && !found.has(skill.name)) found.set(skill.name, { ...skill, rank: provider.index, source: provider.source });
   }
   return [...found.values()];
 }
@@ -134,9 +134,12 @@ export function apply(ctx: Context, config: AgentConfiguration) {
     pending.delete(agent);
     return additions.length ? { ...decision, messages: [...decision.messages, ...additions] } : decision;
   });
-  const allowed = (name: string) => config.skillSelection?.mode === 'explicit_denylist'
-    ? !config.skillSelection.names.includes(name)
-    : config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
+  // Only the host-supplied package root owns fixed guidance; user copies cannot shadow it.
+  const allowed = (name: string, source: string) => name === 'skill-creator'
+    ? source === 'builtin'
+    : config.skillSelection?.mode === 'explicit_denylist'
+      ? !config.skillSelection.names.includes(name)
+      : config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
   for (const [index, root] of (config.skillRoots ?? []).entries()) {
     let native!: FileSystemSkillProvider;
     const providerName = `nano-files-${index}`;
@@ -149,10 +152,10 @@ export function apply(ctx: Context, config: AgentConfiguration) {
         async list(options) {
           const found = await native.list(options);
           const candidates = (Array.isArray(found) ? found : found.candidates) as SkillCandidate[];
-          return { candidates: candidates.filter(candidate => allowed(candidate.name)).map(candidate => ({ ...candidate, rank: index, source: root.source })),
+          return { candidates: candidates.filter(candidate => allowed(candidate.name, root.source)).map(candidate => ({ ...candidate, rank: index, source: root.source })),
             complete: Array.isArray(found) || found.complete };
         },
-        async get(candidate, options) { return allowed(candidate.name) ? native.get(candidate, options) : undefined; },
+        async get(candidate, options) { return allowed(candidate.name, root.source) ? native.get(candidate, options) : undefined; },
       };
     });
     ctx.effect(() => async () => { await native.dispose(); });

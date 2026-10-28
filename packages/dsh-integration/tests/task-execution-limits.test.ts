@@ -47,7 +47,7 @@ export function apply(ctx){
       kind:count(sessionId).automatic>=(sessionId==='other-agent'?1:641)?'quiescent':'continue',
       tasks:[{graph_id:'g',node_id:'n',title:'Unfinished work',status:'doing',revision:1,updated_at:'2026-10-25T08:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[],
     };});
-    await client.rpc.request('initialize',{protocol:1,agents:['a','b'].map(agentId=>({agentId,revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{cron_scheduling:true}})),bindings:[]});
+    await client.rpc.request('initialize',{protocol:1,agents:['a','b'].map(agentId=>({agentId,knowledge:{memoryMode:'legacy'},revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{cron_scheduling:true}})),bindings:[]});
     const ensure=(sessionId:string,agentId:string)=>client!.rpc.request('session.ensure',{sessionId,agentId,ownerId:'o',revision:'1',cwd:home});
     const idle=async(sessionId:string)=>(await client!.rpc.request('session.observe',{sessionId}) as {status:string}).status==='idle';
     await ensure('s','a');

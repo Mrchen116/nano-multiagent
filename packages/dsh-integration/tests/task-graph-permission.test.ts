@@ -28,7 +28,7 @@ export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async functi
  }else{yield{type:'block-end',index:0,block:{type:'text',text:'Scope is the selected subtree.'}};yield{type:'finish',reason:{kind:'stop'}};}
 });}`);
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'task-permission-fixture',name:join(home,'fixture.mjs')}]}]);
-    const agents = ['allow','deny'].map(agentId=>({agentId,revision:'1',provider:'fixture',model:'test',mode:'single_thread',toolAllowlist:[tool],features:{task_graph:true,memory_curation:false,skill_creation:false},approval:{...approvalDefaults,enabled:false,globalRoot:home}}));
+    const agents = ['allow','deny'].map(agentId=>({agentId,knowledge:{memoryMode:'legacy'},revision:'1',provider:'fixture',model:'test',mode:'single_thread',toolAllowlist:[tool],features:{task_graph:true,memory_curation:false,skill_creation:false},approval:{...approvalDefaults,enabled:false,globalRoot:home}}));
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
     const sent: any[] = []; const approvals: string[] = [];
     client.rpc.handle('product.call',value=>{sent.push(value);return{ok:true,result:{deleted_ids:['n2']}};});

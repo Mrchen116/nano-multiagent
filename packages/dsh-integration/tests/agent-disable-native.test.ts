@@ -7,7 +7,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import type { RuntimeStopHistory } from '../../product-contracts/src/index.js';
 import { RuntimeClient, RuntimeSupervisor, prepareProfile } from '../src/client.js';
 
-const config = {agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{task_graph:false,memory_curation:false,skill_creation:false}};
+// These lifecycle fixtures intentionally share a workspace; document-mode owners use separate libraries.
+const config = {agentId:'a',knowledge:{memoryMode:'legacy'},revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{task_graph:false,memory_curation:false,skill_creation:false}};
 const binding = (home:string) => ({sessionId:'root',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
 const input = (id:string,mode='inject') => ({sessionId:'root',inputId:id,mode,content:[{type:'text',text:id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
 

@@ -25,7 +25,7 @@ import { recordToolPresentations } from './tool-presentation.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
-import { CapabilityState, capabilityDraft, needsSchedules } from './capability-state.js';
+import { CapabilityState, capabilityDraft, needsSchedules, configurationBlocks } from './capability-state.js';
 import type { RuntimeStopHistory } from '@nano/product-contracts';
 import { validateCapabilities, type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
@@ -69,7 +69,7 @@ export interface AgentConfiguration {
   skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist' | 'explicit_denylist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
-  knowledge?: { enabled?: boolean; globalSkillRoot?: string; memoryInterval?: number; skillInterval?: number };
+  knowledge?: import('@nano/product-contracts').AgentConfiguration['knowledge'];
   approval?: import('@nano/product-contracts').ApprovalConfiguration;
   mode?: 'single_thread' | 'global';
 }
@@ -380,7 +380,7 @@ export default class NanoRuntime {
           const scopes = await configuration; const scoped = scopes.forAgent(handle.agent)!;
           const catalog = { tools: scopes.catalog(handle.agent), skills: await skillCatalog(scoped, cwd), workflows: (await (await workflow).catalog(handle.agent).list()).map(item=>({name:item.name,description:item.meta.description})) };
           if (catalogOnly) return catalog;
-          const invalid = validateCapabilities(capabilityDraft(requested), {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)});
+          const invalid = configurationBlocks(requested, [...this.configurations.values()].find(config => config.agentId === requested.agentId), {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)});
           if (invalid.length) throw new RpcError(-32602, `Invalid capability dependencies: ${JSON.stringify(invalid)}`);
           const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent });
           return { prompt: [renderPrompt(assembly), renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'), section_count: assembly.sections.length,
@@ -436,6 +436,8 @@ export default class NanoRuntime {
       if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
       return { path: await history.path(sessionId) };
     });
+    handle('knowledge.sources.sync', async value => { const input = value as { agentId: string; snapshot: import('./knowledge/memory-documents.js').SourceEligibility }; return (await knowledge).documents.syncSources(input.agentId, input.snapshot); });
+    handle('knowledge.sources.pending', async value => { await (await knowledge).documents.sourcesPending((value as { agentId: string }).agentId); return { pending: true }; });
     handle('knowledge.usage', async value => (await knowledge).usage((value as { agentId: string }).agentId));
     handle('knowledge.facts', async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }));
     handle('knowledge.acknowledge', async value => { await (await knowledge).acknowledge((value as { id: string }).id); return { acknowledged: true }; });
@@ -624,6 +626,7 @@ export default class NanoRuntime {
       const metadataOnly = previous && scopes.applyRevisionOnly(next);
       if (metadataOnly) await modelPolicy.advanceRevision(next);
       if (previous && !metadataOnly) {
+        await (await knowledge).dreaming.configurationChanging(next);
         (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;

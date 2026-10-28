@@ -38,10 +38,10 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     });
   }`);
   const agents = [
-    { agentId: 'a', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
-    { agentId: 'b', workspace: b, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
-    { agentId: 'peer', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
-    { agentId: 'empty', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] },
+    { agentId: 'a', workspace: a, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
+    { agentId: 'b', workspace: b, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
+    { agentId: 'peer', workspace: a, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
+    { agentId: 'empty', workspace: a, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] },
   ];
   const bindings = [
     { sessionId: 'tools-a', agentId: 'a', revision: '1', ownerId: 'owner', cwd: a },

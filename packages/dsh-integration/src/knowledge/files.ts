@@ -46,8 +46,8 @@ async function safePath(root: string, path: string) {
 export class KnowledgeFiles {
   readonly memoryRoot: string;
   readonly skillRoot: string;
-  constructor(readonly workspace: string, readonly globalSkillRoot?: string) {
-    this.memoryRoot = join(workspace, '.nanoassistant', 'memory'); this.skillRoot = join(workspace, '.nanoassistant', 'skills');
+  constructor(readonly workspace: string, readonly globalSkillRoot?: string, memoryDirectory = 'memory') {
+    this.memoryRoot = join(workspace, '.nanoassistant', memoryDirectory); this.skillRoot = join(workspace, '.nanoassistant', 'skills');
   }
   memoryText(target: 'memory' | 'user') { return readText(join(this.memoryRoot, target === 'memory' ? 'MEMORY.md' : 'USER.md')); }
   async memory(change: MemoryChange, sessionId: string, signal?: AbortSignal) {

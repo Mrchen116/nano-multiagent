@@ -1,0 +1,94 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Context } from '@deepseek-ai/cordis';
+import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local';
+import { MemoryDocuments } from '../src/knowledge/memory-documents.js';
+
+const fs = new LocalFileSystem(new Context(), { cwd: process.cwd(), diffBasisMaxBytes: 10485760 });
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+async function library() {
+  const workspace = await mkdtemp(join(tmpdir(), 'nano-documents-'));
+  cleanups.push(() => rm(workspace, { recursive: true, force: true }));
+  const documents = await MemoryDocuments.open(workspace, 'personal', fs);
+  cleanups.push(() => documents.close());
+  return { documents, workspace, root: documents.root };
+}
+
+describe('current document memory', () => {
+  it('invalidates the entry after an external body edit, including after reopening', async () => {
+    const { documents, workspace, root } = await library();
+    await mkdir(join(root, 'knowledge'), { recursive: true });
+    await writeFile(join(root, 'knowledge/preferences.md'), 'Private updates only.');
+    await documents.refresh();
+    const versions = await documents.versions();
+    await documents.checkpoint(versions, 0);
+    expect((await documents.context()).entry).toContain('Personal');
+    await writeFile(join(root, 'knowledge/preferences.md'), 'Ask before any update.');
+    await documents.invalidate('knowledge/preferences.md');
+    expect((await documents.context()).entry).toBeUndefined();
+    await documents.close();
+    const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
+    cleanups.push(() => reopened.close());
+    expect((await reopened.context()).entry).toBeUndefined();
+    await expect(reopened.checkpoint(versions, 0)).rejects.toThrow(/changed/);
+  });
+
+  it('applies a planned file once, preserves a third version, and reports Git separately', async () => {
+    const { documents, root } = await library();
+    const first = await documents.apply({ operationId: 'run:page', path: 'knowledge/preference.md', beforeHash: null, content: 'Private only.' });
+    expect(first).toMatchObject({ saved: true, versionRecorded: true });
+    expect(await documents.apply({ operationId: 'run:page', path: 'knowledge/preference.md', beforeHash: null, content: 'Private only.' })).toEqual(first);
+    await writeFile(join(root, 'knowledge/preference.md'), 'Human correction.');
+    const conflict = await documents.apply({ operationId: 'run:conflict', path: 'knowledge/preference.md', beforeHash: first.afterHash, content: 'Old automatic conclusion.' });
+    expect(conflict).toMatchObject({ saved: false, versionRecorded: false });
+    expect(await readFile(join(root, 'knowledge/preference.md'), 'utf8')).toBe('Human correction.');
+    await rm(join(root, '.git'), { recursive: true });
+    const saved = await documents.apply({ operationId: 'run:no-git', path: 'knowledge/other.md', beforeHash: null, content: 'Still readable.' });
+    expect(saved).toMatchObject({ saved: true, versionRecorded: false });
+    expect(await readFile(join(root, 'knowledge/other.md'), 'utf8')).toBe('Still readable.');
+  });
+
+  it('keeps revoked knowledge invalid across restart and rejects stale checkpoints', async () => {
+    const { documents, workspace } = await library();
+    const versions = await documents.versions();
+    await documents.checkpoint(versions, 0);
+    await documents.syncSources({ revision: '1', allowed: ['conversation-a'], excluded: [] });
+    const allowed = await documents.status();
+    await documents.checkpoint(await documents.versions(), allowed.generation);
+    await documents.syncSources({ revision: '1', allowed: [], excluded: ['conversation-a'] });
+    const revoked = await documents.status();
+    expect(revoked.generation).toBeGreaterThan(allowed.generation);
+    expect((await documents.context()).entry).toBeUndefined();
+    await expect(documents.checkpoint(versions, allowed.generation)).rejects.toThrow(/generation/);
+    await documents.close();
+    const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
+    cleanups.push(() => reopened.close());
+    expect((await reopened.context()).entry).toBeUndefined();
+    await reopened.syncSources({ revision: '1', allowed: [], excluded: ['conversation-a'] });
+    expect((await reopened.status()).generation).toBe(revoked.generation);
+  });
+});
+
+it('recovers a committed file after a lost write receipt without writing its bytes again', async () => {
+  const { documents, workspace, root } = await library();
+  const operation={operationId:'lost-receipt',path:'knowledge/recovery.md',beforeHash:null,content:'Saved before the interruption.'};
+  const original=fs.writeText.bind(fs);let writes=0;
+  const { vi }=await import('vitest');
+  const fault=vi.spyOn(fs,'writeText').mockImplementation(async(...args)=>{
+    writes++;const result=await original(...args);if(writes===1)throw new Error('Crash after atomic publication, before receipt');return result;
+  });
+  try {
+    expect(await documents.apply(operation)).toMatchObject({saved:false});
+    expect(await readFile(join(root,operation.path),'utf8')).toBe(operation.content);
+    await documents.close();
+    const recovered=await MemoryDocuments.open(workspace,'personal',fs);cleanups.push(()=>recovered.close());
+    expect(await recovered.apply(operation)).toMatchObject({saved:true,versionRecorded:true});
+    expect(writes).toBe(1);
+    await writeFile(join(root,operation.path),'New human correction.');
+    await recovered.apply(operation);
+    expect(await readFile(join(root,operation.path),'utf8')).toBe('New human correction.');
+  } finally {fault.mockRestore();}
+});

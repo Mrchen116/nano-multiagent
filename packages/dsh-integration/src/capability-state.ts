@@ -1,10 +1,17 @@
-import { effectiveFeatures, fixedTools, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { effectiveFeatures, fixedTools, featureDependencies, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import type { AgentConfiguration } from './index.js';
 
 /** Convert the runtime projection without inventing a second dependency graph. */
 export function capabilityDraft(config: AgentConfiguration) {
   return { features: config.features, tool_allowlist: config.toolAllowlist, skills: config.skillSelection?.names,
     skills_selection_mode: config.skillSelection?.mode, work_mode: config.mode, personal_agent: config.personal };
+}
+/** Preserve an upgraded explicit tool selection while reporting Dreaming unavailable at runtime. */
+export function configurationBlocks(config: AgentConfiguration, previous: AgentConfiguration | undefined, catalog: CapabilityCatalog) {
+  const unchangedDreaming = previous && previous.features?.dreaming !== false && config.features?.dreaming !== false
+    && validateCapabilities(capabilityDraft(previous), catalog).some(block => block.required_by?.includes('dreaming'));
+  return validateCapabilities(capabilityDraft(config), { ...catalog,
+    features: (catalog.features ?? featureDependencies).filter(feature => feature.key !== 'dreaming' || config.knowledge?.memoryMode !== 'legacy' && !unchangedDreaming) });
 }
 export function needsSchedules(config: AgentConfiguration): boolean {
   return config.features?.cron_scheduling === true || config.toolAllowlist === undefined || config.toolAllowlist.some(name => name.startsWith('schedule_'));
@@ -39,13 +46,15 @@ export class CapabilityState {
     catalog: CapabilityCatalog, usage: () => Promise<{active_schedules: number; busy: CapabilityTarget[]}>): Promise<Preparation> {
     const {config, operationId, fingerprint} = input;
     const reject = (blocks: CapabilityBlock[], error_code = 'capability_in_use'): Preparation => ({ready: false, error_code, message: 'Capability configuration cannot be applied', blocks});
-    const invalid = validateCapabilities(capabilityDraft(config), catalog);
+    const invalid = configurationBlocks(config, previous, catalog);
     if (invalid.length) return reject(invalid, invalid.some(block => block.code === 'capability_unavailable') ? 'capability_unavailable' : 'invalid_capability_dependencies');
     const existing = this.reservations.get(config.agentId);
     if (existing && (existing.operationId !== operationId || existing.fingerprint !== fingerprint || existing.candidate !== JSON.stringify(config))) return reject([{code: 'capability_busy', target: {kind: 'feature', name: 'configuration'}}]);
     if (existing) return {ready: true};
     const targets: CapabilityTarget[] = [];
     if (previous) {
+      if (previous.knowledge?.memoryMode === 'legacy' && previous.knowledge.legacyMemory?.enabled !== false
+        && (config.knowledge?.memoryMode !== 'legacy' || config.knowledge.legacyMemory?.enabled === false)) targets.push({kind:'feature',name:'memory_curation'});
       const before = effectiveFeatures(previous.features), after = effectiveFeatures(config.features);
       for (const name of Object.keys(before)) if (before[name] && !after[name]) targets.push({kind: 'feature', name});
       const fixed = fixedTools(config.mode, config.personal ? 'personal' : 'root');

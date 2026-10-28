@@ -27,6 +27,7 @@ export interface ProductCall {
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */
 export class GlobalAgent {
+  private readonly sourceRefreshes = new Map<string, Promise<void>>();
   private readonly controls: SessionControls;
   private readonly personal: PersonalAssistant;
   private observations?: Promise<void>;
@@ -271,12 +272,24 @@ export class GlobalAgent {
     },Math.max(0,Math.min(...deadlines)-Date.now()));
     this.backgroundTimer.unref();
   }
-  private async refreshPersonalSources(config: AgentConfiguration): Promise<void> {
-    const sources=await this.personal.request(config,'pa.sources',{action:'list'});
-    const allowed=new Set((sources.items as {id:string;excluded:boolean}[]).filter(item=>!item.excluded).map(item=>item.id));
-    for(const source of this.options.inbox.check(config.agentId).sources) {
-      if(source.target!==config.personal!.conversationId && !allowed.has(source.target)) this.options.inbox.revokeSource(config.agentId,source.target);
-    }
+  private refreshPersonalSources(config: AgentConfiguration): Promise<void> {
+    const previous = this.sourceRefreshes.get(config.agentId) ?? Promise.resolve();
+    const task = previous.catch(() => {}).then(async () => {
+      await this.options.runtime.request('knowledge.sources.pending', { agentId: config.agentId });
+      const sources = await this.personal.request(config, 'pa.sources', { action: 'list' });
+      const items = sources.items as { id: string; excluded: boolean }[];
+      const allowed = new Set([...items.filter(item => !item.excluded).map(item => item.id), config.personal!.conversationId]);
+      // The complete policy set covers already-consumed historical sources, not only unread Inbox rows.
+      await this.options.runtime.request('knowledge.sources.sync', { agentId: config.agentId, snapshot: {
+        revision: String((sources.policy as {revision:number}).revision), allowed: [...allowed], excluded: items.filter(item => item.excluded).map(item => item.id),
+      } });
+      for (const source of this.options.inbox.check(config.agentId).sources) {
+        if (!allowed.has(source.target)) this.options.inbox.revokeSource(config.agentId, source.target);
+      }
+    });
+    this.sourceRefreshes.set(config.agentId, task);
+    void task.finally(() => { if (this.sourceRefreshes.get(config.agentId) === task) this.sourceRefreshes.delete(config.agentId); }).catch(() => {});
+    return task;
   }
   private async restorePersonalInputs(config: AgentConfiguration): Promise<void> {
     await this.refreshPersonalSources(config);
@@ -385,7 +398,7 @@ export class GlobalAgent {
                 await this.refreshPersonalSources(config);
               }
               const id=`pa-event:${config.personal!.bindingId}:${event.event_id}`;
-              const instruction='Respect the current source permissions for further reads and disclosures. Previously read content has not been erased. If contact_blocked is false, the owner has removed the current contact restriction: stop treating prior blocked annotations as an active restriction. Incident history alone does not keep a person blocked. Continue existing work with ordinary task and scheduling tools; this event grants no new authority.';
+              const instruction='Respect the current source permissions for further reads and disclosures. Previously read source history has not been erased. Document memory from revoked or excluded sources is now invalid: stop using old copies, inspect the affected topics, remove or correct derived knowledge, update MEMORY.md, and checkpoint against the current source generation. Send applicable corrections to original running children. Do not claim cleanup complete until affected pages are verified; Dreaming does not perform this foreground responsibility. If contact_blocked is false, the owner has removed the current contact restriction: stop treating prior blocked annotations as an active restriction. Incident history alone does not keep a person blocked. Continue existing work with ordinary task and scheduling tools; this event grants no new authority.';
               await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',
                 content:[{type:'text',text:`Personal assistant product state changed: ${JSON.stringify({kind:event.kind,payload:event.payload})}. ${instruction}`}],
                 source:{kind:'system',actorId:config.agentId,channel:'personal-state',messageId:id}});
@@ -422,13 +435,19 @@ export class GlobalAgent {
     const controller = new AbortController(); this.calls.set(call.operationId, controller);this.callAgents.set(call.operationId,call.agentId);
     try {
       const personalConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId && agent.personal);
+      if (call.method === 'memory.sources.refresh') {
+        if (!personalConfig) throw new Error('Trusted personal identity required');
+        await this.refreshPersonalSources(personalConfig); return { synchronized: true };
+      }
       if(call.method==='pa.authorization') {
         if(!personalConfig)throw new Error('Trusted personal identity required');
         return this.personal.request(personalConfig,'pa.authorization');
       }
       if (call.method === 'personal_sources') {
         if (!personalConfig) throw new Error('Trusted personal identity required');
-        return this.personal.tool(personalConfig,binding,call);
+        const result = await this.personal.tool(personalConfig,binding,call);
+        if (['exclude', 'include'].includes(String(call.args.action))) await this.refreshPersonalSources(personalConfig);
+        return result;
       }
       if (call.method === 'inbox') {
         if (personalConfig) await this.restorePersonalInputs(personalConfig);
