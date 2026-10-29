@@ -35,3 +35,15 @@
 产品 Round 2 pass（报告4636bc606），verifier Round 3 pass（受验41a315eb9，0 CRITICAL / 0 WARNING），code-review Round 2无finding。最终fetch后origin/main仍为9bf2b13da，无新增上游差异；源码自80941dfd6未变，全部门禁retained。两项MODIFIED与全部ADDED均按已审delta逐字归并current spec，更新area计数与路由后完整归档。后续仅文档归并、状态、相对链接和归档路径，不改变产品行为，不重跑无变化源码全量。
 
 服务已按e2e-down停止并核实无目标PID/58487监听，专用tmux关闭。开发worktree保留供PR审查，未合并且未部署；具体PR/head/远端CI状态以GitHub为准。
+
+### Final sync gate validity
+
+executed_base / effective_base：`9bf2b13da4005631096f2a49223564cd68647c3c`；本次有效集成树 effective_through：`3cfad90d8123302ee25516072ece0ef78dc284d5`。
+
+| Gate | 实际 validated_at | 最终判断 |
+|---|---|---|
+| 产品 Round 2 | 80941dfd6afcd181536a08da1b0762051ee98b11 | retained；后续仅文档，用户行为/运行配置未变 |
+| 代码/Context Round 2 | 80941dfd6afcd181536a08da1b0762051ee98b11 | retained；全部源码与测试未变 |
+| 一致性 Round 3 | 41a315eb972616176dbce2b6f3146715b578ed8e | retained；已审delta的全部Requirement逐字归并，脚本逐项相等检查通过，无新delta |
+
+本条记录的提交只补有效性元数据；其后的实际PR head会在PR正文列出并延伸同一文档变化判断。归并后docs integrity通过（317 maintained sources），change unit归档检查通过，git diff --check通过。
