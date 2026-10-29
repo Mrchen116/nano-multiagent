@@ -152,3 +152,22 @@ it('treats a non-owner participant stop as ordinary input without reserving a bl
   expect(f.methods).not.toContain('session.cancel');expect(f.inbox.pendingControls()).toEqual([]);expect(f.submitted).toHaveLength(1);expect(f.inbox.check('pa',true).sources[0]?.unread).toBe(1);
  }finally{await f.close();}
 });
+
+
+it('delivers source withdrawal as a stop-use constraint with Dreaming-owned document repair',async()=>{
+  const f=fixture();
+  try {
+    f.excluded.add('background');
+    f.observations.push({event_id:1,kind:'source.revoked',conversation_id:'background',payload:{conversation_id:'background'}});
+    await f.product.recoverPersonalObservations();
+    const event=f.submitted.find(item=>item.source.channel==='personal-state');
+    expect(event).toMatchObject({source:{kind:'system'}});
+    const text=event!.content[0].text;
+    expect(text).toContain('stop using old copies');
+    expect(text).toContain('Only Dreaming');
+    expect(text).toContain('original running children');
+    expect(text).not.toContain('checkpoint');
+    expect(text).not.toContain('Dreaming does not perform');
+    expect(f.errors).toEqual([]);
+  }finally{await f.close();}
+});
