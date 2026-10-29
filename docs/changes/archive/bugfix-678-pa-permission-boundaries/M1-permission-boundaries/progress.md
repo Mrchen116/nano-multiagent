@@ -55,3 +55,11 @@ executed_base / effective_base：`9bf2b13da4005631096f2a49223564cd68647c3c`；�
 修复将可信已读消息按会话/消息与 part/parts 收齐为完整单元，跨页保持首次出现顺序；缺片整单元省略并标 incomplete。提交交互卡片时，source 与 content/attachments 使用相同冻结资源副本映射。扩展现有 retained-instructions 与 personal-images 回归，不新增平行套件；真实 Inbox 分页覆盖长文本/附件撤回、读不全警告、重建与继承，真实 IM/SQLite/图像文件 seam 覆盖 PNG/JPEG/WebP 卡片实际持久源码和副本字节。
 
 窄验证 2 files / 10 tests passed，DSH 和 IM build 通过。首次图片测试暴露 fixture 未把 PA 加入目标会话，补齐正常成员关系后通过，不放宽产品权限。受影响 DSH+IM 回归与独立 closure 尚在进行，后续补最终结果；没有新增真实模型调用、浏览器试用或生产操作。
+
+### 2026-10-30 Context 修复收口
+
+独立 closure 绑定 `3e5b63e11f453ad84cc3c84f2e0ddcb09375cfe0`，两项 finding 均 closed、remaining `[]`；原缺陷独立重放3项与永久窄回归10项通过。后续提交只记录报告/验证，不改该源码。既有产品/一致性证据仅对未变部分保留；本次两条 delta 由最低有效的确定性 Inbox/IM seam 验证，不冒充重新执行真实模型或 UI 全旅程。
+
+受影响 DSH+IM 回归100 files / 483 tests：98 files、481项通过，knowledge-policy 与 knowledge-review 各一项在等待异步事实时超时，完整日志 `/tmp/pr430-context-fix-tests.log`。同源码单 worker 对照重跑两文件9项全部通过（14.90s，`/tmp/pr430-context-fix-retry.log`）。这是负载相关假设的支持证据，尚不能证明并发超时的确切根因；未修改这两套测试或知识维护源码，不将两次结果拼成“一次全绿”。最终远端CI另行核实。
+
+DSH/IM build、两包 typecheck、文档完整性（317 sources /68 routes）、归档检查与diff check通过。当前没有自建产品服务；测试子进程按fixture清理。PR仍未合并、未部署，开发worktree保留用于审查。

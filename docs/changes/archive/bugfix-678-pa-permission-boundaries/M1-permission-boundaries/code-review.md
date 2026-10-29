@@ -180,3 +180,35 @@ Mode B，仅审核图片输入与 unknown 回执恢复。
 - 没有为本轮新开真实模型环境，也没有获取本轮新 provider upstream 请求。指定的 R5/R8 session 在本机配置日志根下未找到可直接对应的 session 目录，因此不声称审阅了其转换后 upstream payload。现有本地 HTTP wire 测试证明所列 adapter 路径，native fixture 的 llm/stream 证明装配，真实模型响应/产品回执证明特定行为；三者不互相冒充。
 - 未重新运行全仓826/前端1029/pytest113及构建/typecheck；复用仍适用的已冻结证据，不将其覆盖本轮新发现。未跑真实 iOS、Feishu、跨 provider 多模态、所有限制/长历史组合；这些是覆盖限制，非无证据的存活 finding。
 - 本 reviewer 仅读固定源码、合成测试与已指定隔离证据；没有扫描生产消息、启动产品服务、修改实现/测试/design/spec、提交或推送。仅本报告追加；缺陷已提前给主实施者完整定位与 `/tmp` 复现，修复和 PR 更新由其负责。本轮全面审查已完成，不为数量追加假想问题。
+
+## User-requested Context review — finding closure
+
+- review_mode: `closure`；Agent Context Review **Mode B**，仅两项 finding 及受影响链路，不重复 full。
+- finding_origin_head / pre_fix_head: `89acdd4649cc14df8dbd9195e834f08931aad592`。
+- validated_at / effective_through: `3e5b63e11f453ad84cc3c84f2e0ddcb09375cfe0`。
+- scope: `89acdd4..3e5b63e11` 中原话片段收集/补送、冻结图片卡片最终发布的实现与测试 delta。开始时 HEAD 与派发一致、checkout clean。
+- verdict: **两项 closed；此范围无剩余 findings**。
+
+```json
+[]
+```
+
+### Focus findings
+
+1. `[P1] Retain complete owner instructions across partial Inbox fragments`：**closed**。
+
+   `retained-instructions.ts` 现以会话和消息 ID 聚合 `part/parts`，在首次出现时保留单元顺序，读齐后按片号重组全部内容并去除 partial 标志。未读齐的单元不会进入最终 units，返回 `incomplete=true`；已有旧 grant 不再掩盖这个缺口。因此 full/rebuild 中 `retainedEnvelope(..., [], budget)` 会补送完整撤回，或者明确提示原话不完整。沿用实际 reviewer surface 检查、预算整单元选择、原始 sender/delivery 与原有授权语义，没有把碎片文本直接提升成完整许可。
+
+   独立重放原缺陷接缝（真实 InboxStore，native `tool/result`）：附件及长文本两项的 retained_ids 均从仅 `grant` 变为按序 `grant,withdraw`，`withdrawalPresent=true`、`incomplete=false`；空 reviewer history 的重建 envelope 确实含撤回。永久回归另经真实分两页 `limit=1` 与 PTC 投影，验证缺页时整单元省略且有 `instructions_incomplete`，读齐后原文逐字相等、无错误缺失标记，并验证 inherited 单元重新补送相同 envelope。当前修复没有改 reviewer 的 wire adapter 或模型选择，确定性的丢失点已消除。
+
+2. `[P2] Rewrite reviewed resource links inside the delivered interactive source`：**closed**。
+
+   `personal-actions.ts:242-243` 在调用实际 insertMessage 前，对 `interactive.source` 复用同一 `copies` URL 映射；内容来自已冻结、提交前校验且已复制的相同 bytes，不额外读取未审核资源。独立重放原图片卡接缝：commit=confirmed，message_interactive.source 实际持久值为 `/im/v1/conversations/peer/images/<copy.image_id>`，与 peer 新副本一致，未再包含源私聊路径；接收者仍无源 chat 权限。PNG/JPEG/WebP 永久回归还核对卡片源码与 attachment 的目的 URL 相等，以及源文件之后变化不会改变目的副本字节。
+
+### Evidence and limits
+
+- 独立 closure 接缝：`pnpm exec vitest run --config /tmp/bugfix678-context-closure/vitest.config.mjs --maxWorkers 1`，**1 file / 3 tests passed**；`/tmp/bugfix678-context-closure/{review.test.ts,repro.log,evidence.jsonl}`。其输入与原复现一致，只将断言改为修复后的完整撤回和目的 URL；源授权与可见性未放宽。
+- 独立执行修改后的既有永久回归：`pnpm exec vitest run packages/dsh-integration/tests/retained-instructions.test.ts apps/im-server/tests/personal-images.test.ts --maxWorkers 1`，**2 files / 10 tests passed**，`/tmp/bugfix678-context-closure/permanent-regressions.log`，2026-10-30 00:01:36 北京时间。复用 caller 的 DSH/IM build 完成证据；未重新构建整仓。
+- 这是实际 Inbox 序列化/原话补送与真实 IM/SQLite/图像文件/interactive 持久存储的确定性证据。independent verdict 在图片接缝中为 fixture allow；没有新增真实 provider/model 调用、upstream 请求捕获或浏览器/iOS/Feishu UI 验收，不将正确 helper/持久值描述成所有模型行为可靠。原 full review 的适用证据与限制保留。
+- `/tmp/pr430-context-fix-tests.log` 此时宽回归为 **98 files passed / 2 failed，481 tests passed / 2 failed**；knowledge-review 的 held 等待失败可见。caller 正接手失败项独立窄重验，本 closure 不据此宣称宽回归全绿，也不把 unrelated 未决测试转写成这两项仍存活的缺陷。
+- 本 reviewer 仅追加本 closure；未改实现/测试/配置/design/spec、未提交或推送、未启产品服务、未访问生产、未派子 Agent。修复已由主实施者冻结，此结论不覆盖后续新 delta。
