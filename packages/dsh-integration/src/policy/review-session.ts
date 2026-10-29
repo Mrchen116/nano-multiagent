@@ -89,14 +89,6 @@ export class ReviewSession {
       const tools=inspectionTools(this.ctx);
       const overhead=tokenCost(system)+tokenCost(JSON.stringify(tools.map(({name,description,parameters})=>({name,description,parameters}))))+outputReserve+512;
       if(plan.images?.length&&!model.inputModalities?.includes('image'))throw new ReviewFailure('evidence_unavailable','Reviewer model does not support images');
-      const pricing=this.ctx.llm.imageRequestPricing(plan.reviewer.provider,plan.reviewer.model);
-      if(plan.images?.length&&!pricing)throw new ReviewFailure('evidence_unavailable','Reviewer image token pricing unavailable');
-      const imageCost=(images:readonly ImageBlock[])=>{
-        if(!images.length)return 0;
-        const prices=pricing?.priceImages(images);
-        if(!prices||prices.length!==images.length||prices.some(price=>!Number.isFinite(price.visualTokens)||price.visualTokens<=0))throw new ReviewFailure('evidence_unavailable','Complete reviewer image projection unavailable');
-        return prices.reduce((sum,price)=>sum+price.visualTokens+tokenCost(price.text),0);
-      };
       const serialized=evidence.map(row=>JSON.stringify(row));
       if(checkpoint&&!prefix(checkpoint.rows,serialized)){checkpoint=undefined;if(reviewer){await this.discard(reviewer);reviewer=undefined;}mode=fork?'fork-rebuild':'rebuild';}
       while(true) {
@@ -104,15 +96,14 @@ export class ReviewSession {
           run.signal.throwIfAborted();
           const history=reviewer?.handle.agent.session.deriveMessages()??[];
           // A fork is rehydrated before budgeting, so visibility uses its actual surface too.
-          if(!reviewer&&checkpoint){reviewer=await this.create(plan,system,checkpoint,limit,overhead,effort,imageCost);continue;}
+          if(!reviewer&&checkpoint){reviewer=await this.create(plan,system,checkpoint,limit,overhead,effort);continue;}
           const original=retainedEnvelope(retained,history,Math.min(8192,Math.max(0,(limit-overhead)/4)));
-          const allImages=[...imagesIn(history),...(plan.images??[])];
-          const available=limit-overhead-tokenCost(JSON.stringify(history))-imageCost(allImages)-tokenCost(original);
+          const available=limit-overhead-tokenCost(JSON.stringify(history))-tokenCost(original);
           const envelope=reviewEnvelope(checkpoint?evidence.slice(checkpoint.rows.length):evidence,plan.action,available,!!checkpoint,plan.purpose==='disclosure');
           if(envelope.kind==='needs_rebuild')throw new ContextRebuild(envelope.reason);
           if(envelope.kind==='evidence_unavailable')throw new ReviewFailure('evidence_unavailable',envelope.reason);
           const input=original+envelope.input;
-          if(!reviewer)reviewer=await this.create(plan,system,undefined,limit,overhead,effort,imageCost);
+          if(!reviewer)reviewer=await this.create(plan,system,undefined,limit,overhead,effort);
           reviewer.run=run;reviewer.input=input;reviewer.images=plan.images;reviewer.first=true;
           const agent=reviewer.handle.agent;
           metadata={sessionId:agent.id,contextMode:mode};
@@ -178,7 +169,7 @@ export class ReviewSession {
     run.clear=run.pause;run.restart();return run;
   }
   private async discard(reviewer:Reviewer){await reviewer.handle.dispose();this.active.delete(reviewer);}
-  private async create(plan:ReviewPlan<unknown>,system:string,checkpoint:Checkpoint|undefined,limit:number,overhead:number,effort:ReasoningEffortId|undefined,imageCost:(images:readonly ImageBlock[])=>number):Promise<Reviewer>{
+  private async create(plan:ReviewPlan<unknown>,system:string,checkpoint:Checkpoint|undefined,limit:number,overhead:number,effort:ReasoningEffortId|undefined):Promise<Reviewer>{
     const reviewer={start:checkpoint?.events.length??0,input:'',first:true} as Reviewer;
     const handle=await this.ctx.agents.create({sessionId:SessionId(`nano-codex-${randomUUID()}`),
       meta:{cwd:plan.parent.session.header.cwd,agentPreset:'nano-codex-reviewer',...(checkpoint?{parentSession:SessionId(checkpoint.sessionId),isSeeded:true}:{})},
@@ -200,7 +191,7 @@ export class ReviewSession {
         scope.on('agent/request',async(_payload,next)=>{
           const run=reviewer.run!;run.signal.throwIfAborted();
           const history=agent.session.deriveMessages();
-          const cost=tokenCost(JSON.stringify(history))+(reviewer.first&&!history.some(message=>message.id===reviewer.inputId)?tokenCost(reviewer.input):0)+overhead+imageCost(imagesIn(history));
+          const cost=tokenCost(JSON.stringify(history))+(reviewer.first&&!history.some(message=>message.id===reviewer.inputId)?tokenCost(reviewer.input):0)+overhead;
           if(agent.session.snapshotEvents().slice(reviewer.start).some(event=>event.type==='compaction/start')||cost>limit){run.cause='context_rebuild';throw new ContextRebuild('Reviewer request requires evidence rebuild');}
           reviewer.first=false;
           const {reasoningEffort:_previous,...call}=await next();
@@ -229,7 +220,6 @@ export class ReviewSession {
           if(options.sessionId===agent.id&&reviewer.images?.length){
             const pending=options.messages.find(message=>message.id===reviewer.inputId);
             const images=pending?imagesIn([pending]):[];
-            if(tokenCost(JSON.stringify(options.messages))+tokenCost(JSON.stringify(options.tools??[]))+outputReserve+512+imageCost(imagesIn(options.messages))>limit)throw new ReviewFailure('evidence_unavailable','Frozen images exceed actual request budget');
             if(images.length!==reviewer.images.length||images.some((image,index)=>image.offloaded||JSON.stringify(image.attachment)!==JSON.stringify(reviewer.images![index]!.attachment)))throw new ReviewFailure('evidence_unavailable','Frozen review images missing from actual model request');
           }
           yield* next();

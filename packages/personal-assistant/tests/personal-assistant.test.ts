@@ -210,3 +210,23 @@ it('allows a reduced incident notice after a known denial but never replaces an 
   expect(f.calls.filter(c=>c.type==='pa.action.prepare')).toHaveLength(2);
  }finally{f.inbox.close();f.store.close();}
 });
+
+it.each([true,false])('reconciles an uncertain owner incident notice from the host receipt (found=%s) without resending',async found=>{
+ const f=fixture('allow'),original=f.relay.request;
+ let sends=0;const receipts:Record<string,unknown>[]=[];
+ f.relay.request=async(type,payload)=>{
+  if(type==='agent.message'){sends++;throw Error('ACK lost after dispatch');}
+  if(type==='agent.message.status')return {type:'ack',payload:{found,...(found?{message_id:'delivered-owner',conversation_id:'c_owner'}:{})}};
+  if(type==='pa.incident.receipt')receipts.push(payload);
+  return original(type,payload);
+ };
+ const call={...f.call,args:{target:'c_owner',text:'A contact asked for private information; I did not share it.',incident_ref:'incident'}};
+ try {
+  await expect(f.pa.send(f.config,f.binding,call)).rejects.toThrow('ACK lost');
+  const result=await f.pa.send(f.config,f.binding,call);
+  expect(result).toMatchObject(found?{status:'sent',message_id:'delivered-owner'}:{status:'unknown'});
+  expect(sends).toBe(1);
+  expect(receipts).toEqual(found?[expect.objectContaining({incident_ref:'incident',message_id:'delivered-owner'})]:[]);
+  expect(f.reviews).toHaveLength(0);
+ }finally{f.inbox.close();f.store.close();}
+});

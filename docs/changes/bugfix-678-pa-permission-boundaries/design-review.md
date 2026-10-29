@@ -257,3 +257,44 @@ M1 增加两个内部模块及 R7 的 typed 结果、窗口/总限、格式/上�
 - **R1-W1 — accepted, closed / retained。** 两份完整 MODIFIED delta 未改变，闭环保持。
 - **R3-R1 — accepted, editorial clarification。** 将 design“已有 Agent 路径”的概括句明确为普通 Agent 保持原生上下文恢复、补充组件不接管、reviewer 遵循后文专属上下文/完整图片规则。未修改该专属规则、恢复预算、模块职责、接口或退出标准；按 R3 已明确的解释保留 Approved，无需无实质变化复审。
 - 同步 design/incident 的 Gate 2 状态与 deployment-prompt 的设计已通过但尚未实施状态，均为状态性整理。最终受审实质设计仍对应 R3，author 无实质异议。真实 DSH 接线、隔离功能验收及迁移副本验证留在实施退出标准，未宣称已运行。
+
+## Round 4
+
+### Metadata
+
+- reviewer target: `/root/bugfix678_design_review`（同一独立 reviewer）
+- review_mode: `delta`
+- mode_reason: 仅审 `21b8da0d3..5789ce9ef` 的冻结图片审核纠偏；删除额外 pricing 准入门槛、明确复用主 Agent 图片转入。属于有界技术方案修正，未改变整体恢复 owner、权限职责或 M1 交付范围，不重复全 unit 审查。
+- started_at: `2026-10-29T22:49:06+08:00`
+- completed_at: `2026-10-29T22:50:04+08:00`
+- duration: `58s`（证据核对时段，不含随后报告写入）
+- baseline: `5789ce9ef3da52f4270148c87aba0ea2fcbc7fa8`，`unit/bugfix-678`，`/Users/czj/.codex/worktrees/unit-bugfix-678/nano-multiagent`。
+- Context mode: Design Review，限定图片 admission → reviewer followup → 原生请求 → 重建/失败的消费链。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+修订符合用户“按主 Agent 平时的图片转入方式”的明确要求。`imageRequestPricing` 或预估图片 token 不是用户提出的验收前提；前轮审查接受过该技术选择，也不能将其提升为用户需求。本轮以修订后的原生图片路径替代该限制，不要求新增图片估算适配、不为此换审核模型。
+
+这是设计 delta 批准。当前 review-session 仍有旧 pricing 门禁，本轮未将其视为已经修复，也未判定实际模型收图或 R6 产品结果已通过。
+
+### Coverage 与证据
+
+- Git 差异确认本次范围仅 `design.md`“冻结图片审核”小节（当前 `:214–220`）；未扩展为其他代码或文档的重新审查。
+- **实际主入口**：`packages/dsh-integration/src/index.ts:861` 调用 `ctx.attachments.admitPromptContent(input.content)`，将返回内容放入 user message，再按模式调用 Agent.followup/steer/inject。这里没有本仓额外的图片 pricing 准入检查。
+- **当前披露入口**：`personal-security.ts:78–93` 的 `personalReviewImages` 校验服务端冻结原图的 bytes/hash/格式/尺寸，调用同一 `admitPromptContent` 并保持返回 image blocks 数量、顺序；`index.ts:572` 将它们交给 `reviewDisclosure`，`policy/codex.ts:50` 传入审核 plan。新设计与这条已有接线一致，无需第二套图片入口。
+- **公开接口**：安装包 `@deepseek-ai/dsh-attachment/lib/types/index.d.ts:39–51` 声明 admission 按原顺序返回持久规范化引用；`:65–78` 说明保存/读取规范化图像；`:122–129` 提供原生模型请求图像变体读取。因此原图冻结身份和原生规范化后的引用可以各守其职责：原图用于来源/发送一致性，reviewer 使用原生 admission 返回的引用。复用原生规范化不等于丢弃当前待审图片，不需要为此额外发明像素/token 处理机制。
+- **现有实现差距，仅作接线定位**：`policy/review-session.ts:92–98` 仍以缺少 pricing 拒绝图片，`:203,232` 仍将估算图像成本作为请求门禁；这些是后续实现应按本次设计修正的旧路径。`:229–233` 已有当前 pending message 图片存在性/offloaded/引用检查的接缝，其漏审保护意图应保留。此处不代替 code review 判定最终实现。
+
+### Context、R2/R6 与未失效边界
+
+新的方案保留文本证据预算，图片交给主 Agent 同一原生运行时处理，不因缺少独立计费接口提前拒绝本来可送入模型的图片。支持能力、真实请求限制与 provider 返回的 context overflow 仍按实际状态处理；无法完成时准确 unavailable，不转换成“主人未授权”。
+
+每个实际模型请求仍须含全部当前 pending 图，不能靠旧 reviewer 历史图片替代，也不能在原生文本占位/offload/丢图后接受 allow。实际超限只使用既有的一次 full 重建，携带全部当前图片；仍失败则结束，不扩大原恢复额度。这保留了 R2 的 full/delta/fork/rebuild 证据连续性，以及 R6 的实际收图、漏图/能力不足、资源变化和最终副本一致要求。删除强制预估前置不删除这些用户结果约束。
+
+`retained_from: Round 3`：其他 Gate 2 设计结论保持。依据是本次 diff 未改变工具/披露权限语义、图片原资源冻结及提交检查、输入状态/事件、原生与独立恢复分流、共享审核预算、迁移或 M1；canonical delta 与 R2/R6 仍要求完整收图及真实失败，没有要求 imageRequestPricing。R1-C1/R1-W1 继续关闭。本轮只保留未受影响的设计结论，不外推保留任何实现、代码审查、产品验收或部署结论。
+
+### Issues 与 Recommendations
+
+新增问题 0，无额外建议。按修订设计完成旧 pricing 路径修正，再由既有实施验收检查最终请求、携全图重建和 R6 可见结果；不因此增加新的图片预估 Gate 或重复全 unit 设计审查。

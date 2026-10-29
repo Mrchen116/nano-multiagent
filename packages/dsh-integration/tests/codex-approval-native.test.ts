@@ -148,7 +148,7 @@ export function apply(ctx) {
   }
 },20000);
 
-it('carries each frozen pending image set through full, delta and fresh disclosure reviews',async()=>{
+it('uses native image admission without optional pricing across full, delta and fresh disclosure reviews',async()=>{
   const home=await mkdtemp(join(tmpdir(),'nano-review-images-'));let client:RuntimeClient|undefined;let logs='';
   const png='iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAIAAACwpMoFAAABNklEQVR4nO3ZwQmAMBQFwVRjY5ZtB9qD2ILkILgZ+PdJ2OMb235N33He08f9xh2rfXg1V+C4K3DcFTjuChx3BY67AsddgeOuwHFX4LgrcNwVOO4KHHcFjrvjj4/mvj+B467AcVfguCtw3BU47gocdwWOuwLHXYHjrsBxV+C4K3DcFTjuChx37cFxV+C4K3DcFTjuChx3BY67AsddgeOuwHFX4LgrcNwVOO4KHHcFjrsCx117cNwVOO4KHHcFjrsCx12B467AcVfguCtw3BU47gocdwWOuwLHXYHjrsBx1x4cdwWOuwLHXYHjrsBxV+C4K3DcFTjuChx3BY67AsddgeOuwHFX4LgrcNy1B8ddgeOuwHFX4LgrcNwVOO4KHHcFjrsCx12B467AcVfguCtw3BU47gocdx+RTJHLcoVInQAAAABJRU5ErkJggg==';
   try {
@@ -159,7 +159,6 @@ export const name='review-images';export const inject=['llm','agents','attachmen
 export function apply(ctx){
  class Images extends LlmAdapter {
   resolveModel(provider,id){return Promise.resolve({provider,id,name:id,context:{contextWindow:100000},inputModalities:id==='text'?['text']:['text','image']});}
-  imageRequestPricing(){return{priceImages:images=>images.map(()=>({visualTokens:512,text:''}))};}
   async *stream(options){
   await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(options.messages)+'\\n');
   yield{type:'block-end',index:0,block:{type:'text',text:'{"decision":"allow","reason":"complete frozen images reviewed"}'}};

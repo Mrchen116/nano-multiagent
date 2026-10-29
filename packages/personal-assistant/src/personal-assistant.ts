@@ -155,7 +155,18 @@ export class PersonalAssistant {
     let previous = incidentPrevious??inbox.publication(operationId);
     if(incidentKey&&incidentPrevious&&previous) {
       operationId=incidentPrevious.id;
-      if(['sending','unknown'].includes(previous.state))return {status:'unknown',operation_id:operationId,message:'Check the existing publication receipt; do not resend with another key.'};
+      if(['sending','unknown'].includes(previous.state)) {
+        if(conversation===config.personal!.conversationId) {
+          const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:config.agentId,operation_id:operationId});
+          if(status.payload.found===true&&typeof status.payload.message_id==='string'&&status.payload.conversation_id===conversation) {
+            const result={status:'sent',target,message_id:status.payload.message_id,conversation_id:conversation};
+            inbox.settlePublication(operationId,'confirmed',result);
+            await this.request(config,'pa.incident.receipt',{incident_ref:incident,message_id:result.message_id});
+            return result;
+          }
+        }
+        return {status:'unknown',operation_id:operationId,message:incident?'Call send_message with the same incident_ref and target to check its receipt; this will not resend while unknown.':'Check the existing publication receipt; do not resend with another key.'};
+      }
       if(previous.state==='held'&&(previous.target!==target||previous.body!==publicationBody)) {
         operationId=`${incidentKey}:${randomUUID()}`;
         previous=undefined;
@@ -170,7 +181,7 @@ export class PersonalAssistant {
       if(incident&&conversation===config.personal!.conversationId&&result.message_id)await this.request(config,'pa.incident.receipt',{incident_ref:incident,message_id:result.message_id});
       return result;
     }
-    if(previous&&['sending','unknown'].includes(previous.state))return {status:'unknown',operation_id:operationId,message:'Check the existing publication receipt; do not resend with another key.'};
+    if(previous&&['sending','unknown'].includes(previous.state))return {status:'unknown',operation_id:operationId,message:incident?'Call send_message with the same incident_ref and target to check its receipt; this will not resend while unknown.':'Check the existing publication receipt; do not resend with another key.'};
     if(deliveryTarget.startsWith('external:')) {
       if(representation==='owner')throw new Error('Owner representation requires a native IM conversation');
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
