@@ -2,7 +2,7 @@
 
 > 对齐：[spec.md](spec.md) 已确认的 LongMemEval 要求。
 >
-> 状态：首期实现及原 Gate 2 记录保留。2026-10-29 用户授权统一时间回放修订与一道有界真实试跑；本次受影响设计已通过 Round 2 独立审查（0 CRITICAL / 0 WARNING），旧实现验收不覆盖新行为。
+> 状态：首期与时间回放实现、旧审查记录保留。2026-10-29 用户授权继续修正为同一 Global 多原生窗口；本增量待独立 Gate 2，旧审查不覆盖窗口映射。本轮不追加真实模型调用。父分支同步至 `efaa2bbae3e21f8835fea477b1085c8efb7f0c93`，沿用其正常结束与宿主文件校验。
 
 ## Changelog
 
@@ -150,38 +150,42 @@ CLI 默认 `plan`，只读取数据和配置并列出待执行题集，不加载
 
 #### 原生历史物化
 
-为一题建立独立评测 Agent 和 owner；每个原 session 对应一个独立历史 session 与来源 conversation。统一绑定到该题的长期主体，避免把不同题视为同一人的历史。根 session 使用 DSH 正常根元数据：不设置 `origin: 'subagent'`，`isSeeded: false`、无继承前缀；不使用并不存在的 `origin: 'root'` 枚举。
+为一题建立一个独立评测 Agent、owner、Global 持久根 session 和主人聊天目标。数据集 session 是原始对话段，每段映射到同一根 session 的一个原生 window，不再注册为多个根或多个聊天目标。第一段属于 initial window，后续段到达时先导入窗口边界再导入该段。根使用 DSH 正常根元数据：不设置 `origin: 'subagent'`，`isSeeded: false`、无继承前缀；不同题彻底隔离。
 
 | 原始材料 | 当前原生映射 | 保真约束 |
 |---|---|---|
 | user 回合 | `inbox` 的 `tool/call` 与 `tool/result`，结果内 `messages` 保存用户身份、正文、来源和时间 | 当前格式使用 `target`、`sender`、`time`、`content`；PA 主人身份来自该题 fixture 的可信绑定。 |
 | assistant 回合 | `send_message` 调用中的 `target/text` 与配对结果 | 正文是助手对用户说过的话；不重复变成私有 assistant 草稿，不冒充另一个用户。 |
-| session 日期、回合顺序 | session header 与 event 时间、Inbox 可见时间及序号 | 时间精度只到 session 时明确标记；顺序用序号，不伪造消息级时间。 |
+| session 日期、回合顺序 | 根 header 为首段日期，event 时间、Inbox 时间及 provenance 保留每段日期；全根 seq/turn/callId 连续唯一 | 段 ID 只是来源标识；source-map 记录段/回合 → 根/window/事件范围/正文 hash。时间精度只到 session，不伪造消息间隔。 |
 | 结束边界 | 合法的 `turn/start`、`step/start`、`step/end`、`turn/end` 和对应 callId | 每个可消费单元闭合；只补结构，不补思想过程、业务工具动作或模型用量。 |
 
 导入通过 DSH 公开 `sessionPersistence.create → handle.append → handle.flush → close`，不直接拼物理 JSONL。外部配套 `source-map` 将原 session/turn 定位到原生记录及正文 hash；不把它当成第二份记忆。助手的发送结果只证明“数据集已记载此回复”：记录 imported provenance，不伪造本次 IM 的网络送达证据，也不据回复内容补造搜索、支付等工具成功。
 
 实际 `inbox` 长消息格式含分页片段，适配器须无损映射并经产品选择路径检查能否还原全文。它可以复用产品投影 helper；不得在框架层再维护一套 Inbox schema。
 
-日期必须到达实际记忆消费者，而不只存在磁盘 header。当前 `MemorySources` 的选择结果没有普遍保留 event time；Inbox 保留原日期的 `time`，每个导入工具结果另包含来源为 imported-history 的 session 日期与原 turn 位置。原生工具结果的 JSON 支持这些来源字段，选择路径照常保留；assistant-only session 也能获得日期，不改产品来源选择、不添加 benchmark 总结 prompt。集成验证在实际准备请求与读取结果处核实保真。
+日期必须到达实际记忆消费者，而不只存在磁盘 header。当前 `MemorySources` 保留 event time；Inbox 同时保留原日期的 `time`，每个导入工具结果另包含来源为 imported-history 的段 ID、session 日期与原 turn 位置。原生工具结果的 JSON 支持这些来源字段，选择路径照常保留；assistant-only session 也能获得日期，不改产品来源选择、不添加 benchmark 总结 prompt。集成验证在实际准备请求与读取结果处核实保真。
 
 #### 初始化与实际准备
 
-当前 Dreaming 首次登记会以已有安全结束位置作为 baseline。适配器先创建并持久化空来源、登记可信绑定并完成普通初始化，再追加导入事件，确保整份历史处于待处理范围；不先写满历史再指望首次 Dreaming 自动回扫。
+当前 Dreaming 首次登记会以已有安全结束位置作为 baseline。适配器只创建并持久化一个空根、登记其唯一绑定，然后以首段时间初始化 owner，得到 baseline/cursor=-1。之后追加的所有窗口都沿用同一流和游标；不预建未来窗口/来源，也不在换窗时重新激活或重设 baseline。
 
 本次将“全部追加后手动整理到无积压”替换为一套时间回放。候选仍使用真实来源许可检查、来源选择、原 prompt、维护工具和保存路径；通用 Runner、题目和 judge 不加入 Dreaming 名称或调度算法。`prepare` 只收到历史，不增加未来问题或 `question_date`；回放窗口从首段历史到末段历史，最后仅等待已经启动的工作。
 
 **模块边界与接口。** `Dreaming` 持有实际准入规则。提供包内宿主方法 `useClock(now)`（仅在 owner 初始化前切换为宿主驱动，关闭自动定时/step 回调准入）、`recordActivity(agentId, at)`、`nextAutomaticAt(agentId)` 与 `whenIdle(agentId)`。`tick` 保留真实准入，并返回实际尝试结果供宿主判断成功/失败。正常运行默认继续使用 Date.now、现有 timer 和 step 回调；生产 RPC、模型工具和 DSH 上游不增加时钟控制。`nextAutomaticAt` 复用与 `tick` 相同的周期、静默与重试条件，避免适配器复制 24 小时/10 分钟常量或私改 owner 状态。宿主时钟只替换 Dreaming 的逻辑时间；HTTP、工具、进程截止计时与用量耗时继续使用真实时间，不 monkey-patch 全局 Date 或真实定时器。
 
-`evaluation/history.ts` 将空来源初始化与单 session 追加分开，保留现有公开持久化映射；不广播历史 tool/result 给所有运行时监听者，不重新执行旧对话。Nano evaluation runtime 初始化空来源与 owner 后解析真实 root，将候选自动 Dreaming 开启，并以已导入 session 完成时间更新活动记录。已有全部空来源头仅用于绑定/基线，未来正文在对应到达点之前不写入任何候选可读位置；模型的 source_history 仍受本轮真实来源目录约束。
+`evaluation/history.ts` 提供空根初始化与单窗口追加；`evaluation.ts` 只注册唯一 root binding，来源许可只包含该题主人聊天目标。`evaluation/runtime.ts` 负责按时间串行导入和真实 Dreaming 调度。未来段只在宿主控制输入中等待，不在持久历史、窗口目录或模型请求中出现；source_history 继续受实际冻结前缀及来源许可约束。
+
+**原生窗口导入。** 通过公开 Session/SessionPersistence/compaction 事件契约物化完整 `compaction/start → compaction/summary → user/message(surface replace) → compaction/end` 边界，owner 为 standalone/null。summary/replacement 仅含明确 imported-history 的结构提示，无业务摘要或 Notes、无模型调用；provider/model 标记导入来源，不冒充模型生成或实际 token-pressure 触发。公开 TokenMeter 为替换的活动节点给出启发式 shadow price，不伪造 provider usage。replacement 覆盖上一活动窗口的所有会话节点及此前结构 checkpoint，原始 append-origin 事件完整保留；成功括号由现有 dsh-agent-context History 产生稳定 window ID，Dreaming 现有 source_history 可列窗、检索和按 item 读取旧原文。不是只伪造窗口目录，也不调用会对短对话拒绝的自动压缩阈值策略。这是固定材料的窗口适配，不新增第二套运行时。
+
+**持久化与 live owner。** 不向已加载根旁路追加：第一次到达前根保持冷态；自动周期需要 parent 时才通过现有 OwnedSessions.resolve 加载。周期结束后等待 idle、flush 并 dispose 该隔离评测的 root handle，再通过公开 persistence write handle 追加下一组窗口，关闭写句柄后恢复同一 sessionId。不得新建替代根或重建 Dreaming owner。DSH dispose 触发持久化写者异步 close，因此若 write open 短暂返回公开 SessionAlreadyOwnedError，仅在本次明确的 owner 交接中作有界等待，其他错误立即失败；阶段真实截止继续生效。导入使用 detached Session 进行原生表面校验，不发布历史 tool/result 事件；保存事件时显式使用原始逻辑时间，不改全局 Date。窗口切换时点为后段到达，导入整段完成后统一 recordActivity；原生窗口边界本身不触发 Dreaming。
 
 **回放顺序。** 在相邻会话时间之间，宿主向 `nextAutomaticAt` 给出的准入点跳转并调用真实 `tick`，成功后继续推进。相同时间的所有会话先按原顺序完整追加，再检查该时刻的准入；若新消息恰好撞上周期边界，先记录活动，由真实静默条件决定是否延期。会话内部按原序一次追加，不虚构逐消息间隔。每次已准入 Dreaming 沿产品自己的冻结范围连续分批，宿主等待其结束后再推进模拟时钟，确保后续经历不会泄漏进本轮整理。没有业务模型重演，模拟中各会话在其时间戳原子到达；维护期间逻辑时钟固定，实际处理延迟不转换为额外经历时间。因此这是按原时间间隔驱动的顺序回放，不声称重现前台/后台的真实耗时竞争。
 
 **结束与失败。** 到最后历史时刻后不再跳到下一周期、不调用手动 start、不循环强制清空 backlog；等待当前 active promise，确认无未完成已准入工作并封存。尚未触发的 backlog 允许 `ready` 并如实留在收据；即使尚未到首个周期、记忆仍为空，也封存初始记忆正常冷答题。执行失败或预算耗尽立即停止本题，按原协议返回 failed/incomplete，不通过后续时间跳转自动重试。实际预算计时、取消与子进程清理沿用既有 adapter。
 
-**身份与证据。** 协议版本升级为 2，记录 chronological-session-ingestion、同刻顺序、session-atomic、维护期间逻辑时间暂停、末尾只 drain 已触发工作，以及无时区解释；不保留双模式开关。candidate 版本升级为 v3，解析并显式记录 `intervalMs` / `quietMs` / `maxInputTokens`（前两者缺省沿用产品默认）。追加 `timeline.jsonl`，逐条记录逻辑时间、已导入 session 数、自动尝试及其结果、最后冻结的 backlog；每条模型请求额外记录当时模拟时间和已导入会话数。source-map、原历史与 control/gold 隔离继续保留。真实耗时与逻辑时间分别呈现，旧 bulk-ingestion 分数不与新协议混用。
+**身份与证据。** 协议版本升级为 2，记录 chronological-session-ingestion、同刻顺序、session-atomic、维护期间逻辑时间暂停、末尾只 drain 已触发工作，以及无时区解释；不保留双模式开关。本轮 candidate 版本升级为 v4，增加 single-global-session / dataset-session-as-native-window / one-owner-conversation 映射身份；通用时间与冷答题协议保持 v2，不改 Runner/题目/judge。旧 v3 多根构造记录仅作诊断，不能当作真实 Global 基线；解析并显式记录 `intervalMs` / `quietMs` / `maxInputTokens`（前两者缺省沿用产品默认）。追加 `timeline.jsonl`，逐条记录逻辑时间、已导入 session 数、自动尝试及其结果、最后冻结的 backlog；每条模型请求额外记录当时模拟时间和已导入会话数。窗口到达事件另记录 rootSessionId/windowId，source-map 提供每段的稳定定位。source-map、原历史与 control/gold 隔离继续保留。真实耗时与逻辑时间分别呈现，旧 bulk-ingestion 分数不与新协议混用。
 
-**Context 消费验证。** 记忆模型只能看到当时已到达的原文和先前已经形成的记忆；后到的纠正只能影响下一次准入。答题继续只有封存记忆和原问题日期，没有准备原历史或维护恢复笔记。改写现有 evaluation runtime 旅程 fixture，使内容依据实际收到的原文更新，去掉预写未来 Paris 的假响应；同一旅程核实早期请求没有后续纠正、中期已读到纠正、末段未到期的新事实未进入记忆、冷答题消费封存值，并保留原有 source_history/换窗恢复/越界拒绝。另用小型无到期历史验证准备零模型请求及可封存空记忆。现有预算、挂起截止、产品 scheduling、真实 Dreaming 回归保留；通用 Runner 测试只改必要协议身份，不断言某个 Dreaming 批次数。
+**Context 消费验证。** 记忆模型只能看到当时已到达的原文和先前已经形成的记忆；后到的纠正只能影响下一次准入。答题继续只有封存记忆和原问题日期，没有准备原历史或维护恢复笔记。改写现有 evaluation runtime 旅程 fixture，使内容依据实际收到的原文更新，去掉预写未来 Paris 的假响应；同一旅程核实早期请求没有后续纠正、中期已读到纠正、末段未到期的新事实未进入记忆、冷答题消费封存值，并保留原有 source_history/换窗恢复/越界拒绝。窗口修订扩展同一真实运行时旅程：只有一个根来源；早期 History 没有未来窗；后续列出多个同根窗口、读取旧窗完整原文；重载后当前 surface 只含最新窗口和结构 checkpoint，旧正文仍可恢复；所有历史时间、单一聊天目标及全根事件/调用身份保持。用小型无到期历史验证准备零模型请求及可封存空记忆。父分支正常结束变更只调整 fixture 的完成响应，产品实现不由本轮改写。现有预算、挂起截止、产品 scheduling、真实 Dreaming 回归保留；通用 Runner 测试只改必要协议身份，不断言某个 Dreaming 批次数。
 
 #### 冷上下文答题
 
@@ -261,12 +265,12 @@ Nano 专属集成测试放在适配器附近，按语义审计导入和实际可
 
 ## Milestones
 
-本 unit 仍为单 M1；本次在原 M1 内追加时间回放修订、受影响门禁与一题试跑，不扩展其他 benchmark。
+本 unit 仍为单 M1；本次在原 M1 内追加同一 Global 多窗口修订和受影响门禁，不扩展其他 benchmark，不重跑真实模型。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | LongMemEval 原生记忆评测闭环 | 无 | — | `evals/memory/`、稳定协议类型、Nano evaluation adapter 及就近集成测试、评测入口文档 | [reviewer] CLI 默认计划零模型请求；确定性 provider 下可以从完整历史得到冷答题、评分及未完成项，真实 run 需显式开启。[worker] 真实运行时的数据/Context 隔离、历史保真、候选协议替换、失败清理和出站请求证据齐全；框架不依赖 DSH、Dreaming 或记忆介质；时间回放只暴露已到达历史、按实际准入整理并保留未触发积压；一题真实结果与完整 benchmark 效果分别报告。 |
+| M1 | LongMemEval 原生记忆评测闭环 | 无 | — | `evals/memory/`、稳定协议类型、Nano evaluation adapter 及就近集成测试、评测入口文档 | [reviewer] CLI 默认计划零模型请求；确定性 provider 下可以从完整历史得到冷答题、评分及未完成项，真实 run 需显式开启。[worker] 真实运行时的数据/Context 隔离、历史保真、候选协议替换、失败清理和出站请求证据齐全；框架不依赖 DSH、Dreaming 或记忆介质；时间回放只暴露已到达历史、按实际准入整理并保留未触发积压；同一根多窗口具备真实 surface 切换、跨窗原文恢复与重载一致性，无未来空根/空窗；本轮不追加真实模型，旧一题 incomplete 保留其原构造标签。 |
 
 ## 本轮边界与后续对齐
 
-本轮实施 LongMemEval 的稳定协议、候选边界和当前 Nano 映射。具体 subset、模型、对照组合与跑量由未来执行配置提供；其他 benchmark 后续讨论。本次授权仅包含时间回放实现及一道有界真实试跑；不执行全量，不自动重试候选，不部署或连接生产 IM。
+本轮实施 LongMemEval 的稳定协议、候选边界和当前 Nano 映射。具体 subset、模型、对照组合与跑量由未来执行配置提供；其他 benchmark 后续讨论。当前授权为已确认的单根多窗口修订及无真实模型验证；先前一道真实试跑已执行且 incomplete，不能沿用其授权自动重跑。不执行全量、不自动重试候选、不部署或连接生产 IM。
