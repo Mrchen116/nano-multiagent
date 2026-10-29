@@ -7,13 +7,13 @@ import { qualifiedEvents, safeBoundary } from './memory-source-view.js';
 import { isHumanSource } from '../input-source.js';
 import type { SourceEligibility } from './memory-documents.js';
 
-export interface SourceContinuation { hash: string; offset: number; messageId?: string }
+export interface SourceContinuation { hash: string; offset: number; messageId?: string; segment?: number }
 export interface StreamProgress { baseline: number; cursor: number; continuation?: SourceContinuation }
 /** Commit only reviewed pages; a logical unit's cursor advances after its last page. */
 export function commitSourceRange(progress: StreamProgress, range: FrozenBatch['ranges'][number]): void {
   if (range.through < progress.cursor) return;
   if (range.through > progress.cursor) { progress.cursor = range.through; delete progress.continuation; }
-  if (range.continuation && (!progress.continuation || progress.continuation.hash !== range.continuation.hash || progress.continuation.offset < range.continuation.offset)) {
+  if (range.continuation && (!progress.continuation || progress.continuation.hash !== range.continuation.hash || (progress.continuation.segment ?? 0) < (range.continuation.segment ?? 0) || (progress.continuation.segment ?? 0) === (range.continuation.segment ?? 0) && progress.continuation.offset < range.continuation.offset)) {
     progress.continuation = range.continuation;
   }
 }
@@ -23,7 +23,7 @@ export interface MemoryUnit {
 }
 export interface CycleTarget {
   generation: number; activationAt: number;
-  roots: Record<string, { through: number; time: number }>;
+  roots: Record<string, { through: number; time: number; baseline?: number }>;
   children: Record<string, { rootSessionId: string; through: number; time: number; baseline: number }>;
   blocked: Array<{sessionId: string; reason: string}>;
 }
@@ -34,7 +34,7 @@ export interface ChildMaterial {
 export interface SourceOptions { maxInputTokens: number; seen?: string[]; sources?: SourceEligibility; excluded?: string[]; rotation?: number; target?: CycleTarget; generation?: number }
 export interface FrozenBatch {
   id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number; continuation?: SourceContinuation }>;
-  text?: string; cutoffs?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
+  conversations?: string[]; text?: string; cutoffs?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const dataText = (content: readonly { type: string; text?: string }[]) => content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n');
@@ -56,7 +56,7 @@ const excludedTools = new Set(['notes', 'history', 'source_history', 'new_contex
 export function renderMaterial(events: readonly unknown[]): string {
   return events.map(value => {
     const e = value as Record<string, unknown>;
-    if (e.type === 'source_text_continuation') return String(e.text);
+    if (e.type === 'source_text_continuation') return `Original message ${e.messageId}; characters ${e.offset}–${e.end}/${e.total}; ${Number(e.end)<Number(e.total)?'same message continues':'message end'}\nSource: ${JSON.stringify(e.source)}\n${e.text}`;
     const { content, ...metadata } = e;
     if (content && typeof content === 'object' && !Array.isArray(content) && Array.isArray((content as {messages?:unknown[]}).messages)) {
       const body = content as {messages: Record<string,unknown>[]};
@@ -67,6 +67,22 @@ export function renderMaterial(events: readonly unknown[]): string {
       : content === undefined ? '' : JSON.stringify(content, null, 2);
     return `${JSON.stringify(metadata)}\n${text}`;
   }).join('\n\n');
+}
+
+/** Split at original message boundaries so a long human message retains its identity. */
+function materialSegments(values: readonly unknown[]): Array<{messageId:string;text:string;source:unknown}> {
+  return values.flatMap((value,index)=>{
+    const record=value as Record<string,unknown>;
+    const body=record.content as {messages?:Record<string,unknown>[]} | undefined;
+    if(body && !Array.isArray(body) && typeof body==='object' && Array.isArray(body.messages)){
+      return body.messages.map((message,i)=>({messageId:String(message.id??message.message_id??`${record.seq}:${i}`),
+        text:typeof message.content==='string'?message.content:renderMaterial([{content:message.content}]).replace(/^\{\}\n/,''),
+        source:{...record,content:undefined,message:{...message,content:undefined}}}));
+    }
+    const {content,...source}=record;
+    return [{messageId:String(record.messageId??`${record.sessionId}:${record.seq??index}`),
+      text:typeof content==='string'?content:renderMaterial([{content}]).replace(/^\{\}\n/,''),source}];
+  });
 }
 
 /** Exports only certified, paired own history from this business Agent's trusted roots. */
@@ -144,7 +160,7 @@ export class MemorySources {
                     const sender = message.sender as {id?: string; type?: string} | undefined;
                     const identity = `${conversation}:${messageId}:${String(message.revision ?? hash({ content: messageContent(message.content), sender: {id:sender?.id,type:sender?.type} }))}`;
                     if (streamSeen.has(identity)) { result.filtered++; return []; }
-                    streamSeen.add(identity); fingerprints.push(identity); return [message];
+                    streamSeen.add(identity); fingerprints.push(identity); (result.conversations??=[]).push(conversation); return [message];
                   });
                   content = body;
                 } catch { content = { unavailable: 'Mixed-source payload could not be filtered safely.' }; result.filtered++; }
@@ -157,6 +173,7 @@ export class MemorySources {
               const conversation = 'conversationId' in source ? String(source.conversationId) : '';
               if (conversation && (options.excluded?.includes(conversation) || options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation)))) result.filtered++;
               else {
+                if(conversation)(result.conversations??=[]).push(conversation);
                 selected.push({ seq: event.seq, time: event.time, sessionId: id, type: 'user/message', messageId: event.data.id, source, content: event.data.content.filter(block => block.type !== 'reasoning') });
 
               }
@@ -167,25 +184,34 @@ export class MemorySources {
           } else if (event.type === 'step/end' && pending.size === 0 && fragments.size === 0) {
             const tokens = Math.ceil(JSON.stringify(selected).length / 3);
             if (tokens > options.maxInputTokens) {
-              // Persist page coverage separately from the complete-step cursor. Re-exporting the
-              // certified unit also detects edits/eligibility changes before using an old offset.
-              const text = renderMaterial(selected); const characters = Array.from(text); const unitHash = hash(selected);
-              const offset = start === progress.cursor && progress.continuation?.hash === unitHash ? progress.continuation.offset : 0;
+              const segments = materialSegments(selected);
+              const saved = progress.continuation;
+              const candidate = saved?.segment ?? 0;
+              const matches = segments[candidate] && saved?.messageId === segments[candidate]!.messageId && saved.hash === hash(segments[candidate]!.text);
+              const segment = matches ? candidate : 0;
+              const item = segments[segment]!; const characters = Array.from(item.text); const bodyHash = hash(item.text);
+              const offset = matches ? saved!.offset : 0;
               const remaining = options.maxInputTokens - result.inputTokens;
-              let end = Math.min(characters.length, offset + Math.max(0, remaining * 3 - 400));
-              let pageEvents = [{ type: 'source_text_continuation', text: characters.slice(offset, end).join('') }];
+              let end = Math.min(characters.length, offset + Math.max(0, remaining * 3 - 800));
+              const paragraph = characters.slice(offset,end).join('').lastIndexOf('\n\n');
+              if(end < characters.length && paragraph > (end-offset)*0.75)end=offset+Array.from(characters.slice(offset,end).join('').slice(0,paragraph+2)).length;
+              let pageEvents = [{ type:'source_text_continuation', messageId:item.messageId, source:item.source,
+                offset, end, total:characters.length, text:characters.slice(offset,end).join('') }];
               while (end > offset && Math.ceil(JSON.stringify(pageEvents).length / 3) > remaining) {
                 end -= Math.max(1, Math.ceil((end - offset) / 10));
-                pageEvents = [{ type: 'source_text_continuation', text: characters.slice(offset, end).join('') }];
+                pageEvents = [{...pageEvents[0]!,end,text:characters.slice(offset,end).join('')}];
               }
-              if (end > offset) {
-                const complete = end === characters.length;
-                result.units.push({ id: `${id}:${start + 1}-${event.seq}:page-${offset}-${end}`, sessionId: id, start, through: event.seq,
-                  events: pageEvents, fingerprints: complete ? fingerprints : [], page: { offset, end, total: characters.length, hash: unitHash } });
+              if (end > offset || characters.length===0) {
+                const segmentComplete = end === characters.length;
+                const complete = segmentComplete && segment === segments.length-1;
+                result.units.push({ id: `${id}:${start + 1}-${event.seq}:message-${segment}-${offset}-${end}`, sessionId:id,start,through:event.seq,
+                  events:pageEvents,fingerprints:complete?fingerprints:[],page:{offset,end,total:characters.length,hash:bodyHash} });
                 result.inputTokens += Math.ceil(JSON.stringify(pageEvents).length / 3);
-                if (complete) through = event.seq; else continuation = { hash: unitHash, offset: end, messageId: `${id}:${start + 1}` };
+                if(complete)through=event.seq;
+                else if(segmentComplete){const next=segments[segment+1]!;continuation={hash:hash(next.text),offset:0,messageId:next.messageId,segment:segment+1};}
+                else continuation={hash:bodyHash,offset:end,messageId:item.messageId,segment};
               }
-              result.blocked.push({ sessionId: id, reason: end === characters.length ? 'Later source units remain for the next batch.' : 'Large source unit continues on the next bounded page; its complete-step cursor is unchanged.' });
+              result.blocked.push({ sessionId:id,reason:'Original message material continues on the next bounded page; the complete-step cursor advances only after every segment.' });
               stopped = true; break;
             }
             if (result.inputTokens + tokens > options.maxInputTokens) {
@@ -219,7 +245,7 @@ export class MemorySources {
         const root = await this.snapshot(binding.sessionId);
         if (root.header.cwd !== binding.cwd || root.header.origin === 'subagent') throw new Error('Untrusted root identity.');
         const own = root.events.slice(root.inheritedEventCount);
-        target.roots[binding.sessionId] = safeBoundary(own);
+        target.roots[binding.sessionId] = {...safeBoundary(own),baseline:streams[binding.sessionId]!.baseline};
         for (const event of own) {
           if (event.type !== 'subagent/catalog' || event.data.mode === 'unknown') continue;
           const id = event.data.childId;
@@ -268,11 +294,12 @@ export class MemorySources {
         if (cut.through <= limit.baseline) continue;
         const events = qualifiedEvents(own.filter(event => event.seq <= cut.through), options);
         const parent = await this.snapshot(limit.rootSessionId);
-        const inherited = snapshot.events.slice(0,snapshot.inheritedEventCount).filter(event => event.time >= target.activationAt && event.time <= cutoff);
+        const inherited = snapshot.events.slice(0,snapshot.inheritedEventCount).filter(event => event.seq > (target.roots[limit.rootSessionId]?.baseline??-1) && event.time >= target.activationAt && event.time <= cutoff);
         // A fork copy must still match the original parent record. Missing provenance stays a gap.
         const inheritedEvents = qualifiedEvents(inherited.filter(event => parent.events.some(original => original.seq === event.seq && hash(original) === hash(event))), options);
         const entries = [...inheritedEvents.map(event => ({event,sessionId:limit.rootSessionId,inherited:true})), ...events.map(event => ({event,sessionId,inherited:false}))];
-        const priority = (event: SessionEvent) => event.type === 'user/message' ? 0 : event.type === 'assistant/message' ? 1 : 2;
+        const messageCarrier = (event:SessionEvent) => event.type==='tool/result' && entries.some(item=>item.event.type==='tool/call' && item.event.data.callId===event.data.message.toolCallId && ['inbox','conversations'].includes(item.event.data.name));
+        const priority = (event: SessionEvent) => event.type === 'user/message' || messageCarrier(event) ? 0 : event.type === 'assistant/message' ? 1 : 2;
         const selected = new Set<number>(); let used = 0;
         for (const {index,entry} of entries.map((entry,index)=>({entry,index})).sort((a,b)=>priority(a.entry.event)-priority(b.entry.event) || b.entry.event.time-a.entry.event.time)) {
           if (selected.has(index)) continue;
@@ -314,8 +341,13 @@ export class MemorySources {
 }
 
 function renderNative(event: SessionEvent): string {
-  if (event.type === 'user/message') return renderMaterial([{source:event.data.source,content:event.data.content}]);
-  if (event.type === 'assistant/message') return renderMaterial([{role:'assistant',evidence:'self_report',content:event.data.message.content}]);
-  if (event.type === 'tool/result') return renderMaterial([{role:'tool',callId:event.data.message.toolCallId,isError:event.data.message.isError,content:event.data.message.content}]);
+  if (event.type === 'user/message') return renderMaterial([{source:event.data.source,
+    evidence:isHumanSource(event.data.source)?'host_attested_human':'agent_or_delegated_task_input_not_human_authorization',content:event.data.content}]);
+  if (event.type === 'assistant/message') return renderMaterial([{role:'assistant',evidence:'self_report',content:event.data.message.content.filter(block=>block.type==='text')}]);
+  if (event.type === 'tool/result') {
+    let content:unknown=event.data.message.content;
+    try{const body=JSON.parse(dataText(event.data.message.content));if(Array.isArray(body.messages))content=body;}catch{/* Non-JSON tool output remains original text. */}
+    return renderMaterial([{role:'tool',callId:event.data.message.toolCallId,isError:event.data.message.isError,content}]);
+  }
   return JSON.stringify(event.data);
 }

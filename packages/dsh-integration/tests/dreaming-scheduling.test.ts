@@ -6,7 +6,7 @@ const disposals: Array<() => void> = [];
 afterEach(() => { for (const dispose of disposals.splice(0)) dispose(); });
 function scheduler() {
   const config: AgentConfiguration = { agentId: 'a', revision: '1', provider: 'fixture', model: 'test', features: { dreaming: true }, knowledge: { dreaming: { intervalMs: 100, quietMs: 10 } } };
-  const owner = { activationAt: 1000, streams: {}, seen: [], rotation: 0, failures: 0 };
+  const owner = { protocol: 2, integrated: {}, activationAt: 1000, streams: {}, seen: [], rotation: 0, failures: 0 };
   const rows = new Map([[Buffer.from('a').toString('base64url'), owner]]);
   const parent = { id: 's', status: 'idle' };
   const hooks = new Map<string, (...args: any[]) => any>();

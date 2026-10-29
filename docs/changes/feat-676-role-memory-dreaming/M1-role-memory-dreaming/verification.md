@@ -1,5 +1,7 @@
 # Verification Report: feat-676-role-memory-dreaming
 
+> **2026-10-29 设计 R8 实施重开：下列旧版本结论是历史证据。** 前台单写、连续原文、child 两阶段提炼、共享历史回查与输入协议迁移已经改变，相关旧门禁不再覆盖当前实现；本轮新报告完成前不能按旧 pass 交付。未受影响的 UI/旧模式等只可按具体证据继承。
+
 > **Latest targeted verdict: Round 5 pass / aligned** at `e207a51b6e8313083cff05ccebfcca7196b8653d`, **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. The original M1 signoff below remains valid outside the affected native trajectory entry; S18's earlier Work-only evidence is superseded and actual native product reacceptance is separate. See Round 5 for the fixed delta and current evidence limits.
 
 > Historical M1 final verdict: pass at `5a123bae760d429c84bc2a3f72814009a69836f0`; independent product acceptance `8b28b00dd` recorded S01-S20 and the persisted-pending→applied UI state. All prior implementation findings and C1 were closed. The original snapshot and rounds below are preserved, subject to the Round 5 native-entry correction.

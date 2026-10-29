@@ -1,5 +1,7 @@
 # Code review: feat-676
 
+> **2026-10-29 设计 R8 实施重开：下列旧版本结论是历史证据。** 前台单写、连续原文、child 两阶段提炼、共享历史回查与输入协议迁移已经改变，相关旧门禁不再覆盖当前实现；本轮新报告完成前不能按旧 pass 交付。未受影响的 UI/旧模式等只可按具体证据继承。
+
 > Latest review: **Round 5 pass**, patch `c1eea6beb6c2ec4e47cb4bb73b8c6d8b5778a689..e207a51b6e8313083cff05ccebfcca7196b8653d`, native Dreaming trajectory identity/recovery. Surviving findings: `[]`. Unrelated prior coverage is retained; S18 native product reacceptance is separately required. Earlier records below are historical evidence, not the latest verdict.
 
 Original full-review snapshot retained below; Round 5 records its own fixed delta at the end.

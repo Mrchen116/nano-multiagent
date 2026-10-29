@@ -40,7 +40,7 @@
 
 若节点已运行 PR #428 旧逐 step Dreaming，实现此设计前先在隔离副本验证以下操作。部署只在已有授权下执行：
 
-1. 停止旧维护写者，保存 document 当前库、维护 state-domain、活跃 run 与进度副本。正常 document 库不按 legacy 流程搬迁或重新初始化。
+1. 停止旧维护写者，保存 document 当前库、维护 state-domain、活跃 run 与进度副本。正常 document 库不按 legacy 流程搬迁或重新初始化。 本次提供 `scripts/migrate_dreaming_protocol.py --config <隔离/停机配置> --domain <精确 nano_dreaming 目录> --backup <源目录外的新备份目录> --writers-stopped`；脚本按 manifest 准备全部替换后逐个原子发布，重复完成调用保留新进度。不得对已有 document 库运行搬旧库的 `migrate_role_memory.py`。
 2. 核对旧 run 真实文件回执并补齐已成功的游标提交。旧未完成 JSON 分页/模型计划不交给新协议执行，保留历史回执并退役待恢复计划；已保存的正文不回滚。
 3. 将旧每根已完成 cursor/baseline 保留。旧超大单元的字符续读属于 JSON 序列化，不能解释为新原文偏移：丢弃该旧 continuation，从最后完整提交的 cursor 后重读；整理读取当前文档、按稳定事项合并，不能重复追加已保存内容。
 4. child 提炼缓存从空开始；存量 child 的首次范围不得越过主体启用基线向过去自动回溯。child 基线必须对应该主体最初的 document 启用 cut，而不是已经整合的根 cursor 或升级当天尾部：旧根游标不能证明未汇报 child 的历史已进入记忆。启用时已存在 child 以启用 cut 时间内的安全位置为基线；启用后新建 child 从 own-history 起点开始，即使首次发现发生在升级后。自身经历从该基线重新提炼，同时按 design 取合格继承背景参与理解（不改变首次范围或来源授权），和当前文档核对合并，已有知识不重复追加；缺少可证启用边界则仅该源保持待核对/受阻，保留原始资料与问题，不自行采用全历史或跳到最新。来源资格 generation 与停止使用范围保留，不能通过缓存初始化解除撤销。

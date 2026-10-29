@@ -141,3 +141,21 @@ it('keeps original IDs while removing revoked messages before source queries',as
   expect(JSON.stringify(view)).toContain('visible');
   expect(JSON.stringify(view)).not.toContain('secret');
 });
+
+it('continues each original Unicode Inbox message with its own identity and body offset',async()=>{
+  const {commitSourceRange}=await import('../src/knowledge/memory-sources.js');
+  const first='父母同行，免费取消。🌈'.repeat(180);const second='后续更正：改为周日。🌤'.repeat(180);
+  const messages=[{id:'first',sender:{id:'u',type:'user'},content:first},{id:'second',sender:{id:'u',type:'user'},content:second}];
+  const f=fixture([event(0,'tool/call',{callId:'inbox',name:'inbox',arguments:'{}'}),event(1,'tool/result',{message:{toolCallId:'inbox',content:[{type:'text',text:JSON.stringify({target:'room',messages})}]}}),event(2,'step/end')],{cold:true});
+  const progress=structuredClone(streams);const bodies=new Map<string,string>();
+  for(let n=0;n<40&&progress.s.cursor<2;n++){
+    const batch=await f.sources.freeze('a',progress,{maxInputTokens:500});
+    expect(batch.units).toHaveLength(1);
+    const part=batch.units[0]!.events[0] as {messageId:string;text:string;offset:number;end:number;total:number};
+    bodies.set(part.messageId,(bodies.get(part.messageId)??'')+part.text);
+    if(part.messageId==='first'||part.messageId==='second')expect(Array.from(part.text).length).toBe(part.end-part.offset);
+    commitSourceRange(progress.s,batch.ranges[0]!);
+    if(progress.s.continuation)expect(progress.s.cursor).toBe(-1);
+  }
+  expect(progress.s.cursor).toBe(2);expect(bodies.get('first')).toBe(first);expect(bodies.get('second')).toBe(second);
+});
