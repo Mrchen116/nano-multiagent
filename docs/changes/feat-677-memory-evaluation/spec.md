@@ -23,6 +23,10 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 
 > 你还是不理解我的意思。我知道旧对话是评测材料，不需要重新执行。但是我们要评测我们的记忆系统好坏，不得把旧对话导入到我们系统，才能真实的跑我们的记忆dreaming过程吗，不然格式都不同，我们怎么测
 
+> 所以我问你，别人评测是不是也要做这个步骤，我们并不特殊啊，只是`inbox`、`send_message`这个特殊一点点。
+
+> 我们一个一个讨论，不要搞串。LongMemEval，这个benchmark有哪些agent，Hugging Face已经测过了？那他们是怎么做转换的呢？
+
 ## 原始材料
 
 2026-10-29 已下载并读取 `nano-memory-evaluation.zip`，其中四个文件为：
@@ -71,6 +75,17 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 - [FrontierMemory 规则](https://github.com/letta-ai/frontiermemory/blob/main/docs/rules.md) 把旧轨迹作为记忆生成材料，随后在任务环境中执行并评分；并不要求记忆生成者具备旧轨迹中的每一种业务工具。[Claude Code adapter](https://github.com/letta-ai/frontiermemory/blob/main/src/frontier_memory/agents/claude_code.py) 和 [Codex adapter](https://github.com/letta-ai/frontiermemory/blob/main/src/frontier_memory/agents/codex.py) 分别接入各自原生记忆入口。
 
 以上是文档和代码核对，尚未在 Nano 执行。Agent 的讨论建议：固定外部任务与评分，按其规则适配本系统；把“格式转换得到的历史轨迹”与“本轮模型真实生成的动作”分开记录，不把跨 harness 的系统分数直接归因成记忆本身的收益。
+
+### LongMemEval 的具体历史适配证据
+
+用户要求先聚焦 LongMemEval，本节不以其他 benchmark 的适配方式代替它的证据。Hugging Face 上的 `xiaowu0162/longmemeval-cleaned` 是数据集托管页；下面是分别由原作者或系统厂商公开的评测与代码，不是 Hugging Face 统一测试的 Agent 名单。
+
+- **Mastra Observational Memory**：[公开评测报告](https://mastra.ai/research/observational-memory)；当前 [prepare.ts](https://github.com/mastra-ai/mastra/blob/main/explorations/longmemeval/src/commands/prepare.ts#L873) 真实创建 `ObservationalMemory`，Observer／Reflector 使用真实模型，摄入用主 Agent 则接空响应 mock。脚本按日期排序历史，将原始回合转成带 `role/content/createdAt` 的消息，以 user/assistant 对依次传给 `agent.generate`，经真实输入输出处理器积累记忆，并保存 `om.json`。答题阶段 [run.ts](https://github.com/mastra-ai/mastra/blob/main/explorations/longmemeval/src/commands/run.ts#L899) 读回该状态。脚本有内容清洗与可选 shortcut 配置；这里核实的是适配方法，不认定所有配置都与 Nano 目标等价。
+- **Mem0**：[官方评测说明](https://github.com/mem0ai/mem0/blob/main/docs/core-concepts/memory-evaluation.mdx)；[LongMemEval runner](https://github.com/mem0ai/memory-benchmarks/blob/main/benchmarks/longmemeval/run.py#L291) 按日期排序 session，保留 user/assistant 的角色和正文并删除 `has_answer`，每题创建独立 user_id，将相邻两条消息组成一组，调用 `mem0.add(messages, user_id, timestamp=...)`，随后检索并答题。不是先由测试脚本手写事实再灌库。
+- **Zep**：[官方 LongMemEval notebook](https://github.com/getzep/zep-papers/blob/main/kg_architecture_agent_memory/zep_longmem_eval.ipynb) 为每题建立 user/session，把每条历史变成 `Message(role, role_type, content, created_at)` 后调用 `zep.memory.add`。当前 notebook 含题型筛选及 8000 字符截断，不能直接把这份代码快照当作完整无损全量执行协议。
+- **ChatGPT／Coze**：[原论文附录 B](https://arxiv.org/html/2410.10813v2#A2) 记录了 2024 年 8 月人工通过网页逐 session 交互的研究，使用 97 题、每题 3–6 个 session，并排除了部分题型；这不是完整 500 题的自动原生历史导入案例。
+
+对 Nano 的适用判断：Mastra 的历史转换、真实记忆处理器执行和答题时加载产物，是当前最直接的同类参考。Nano 应转换为自身记忆来源可消费的历史结构，再执行现有 Dreaming；具体导入方式仍需核对本仓公开接口。
 
 ## 当前依据
 
