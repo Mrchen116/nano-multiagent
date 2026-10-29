@@ -847,7 +847,7 @@ describe("agent behavior settings", () => {
     renderDetailPage();
     const toggle = await screen.findByRole("checkbox",{name:/Dreaming/i});
     expect(toggle).toBeChecked();
-    expect(screen.getByText(/Turning this off still allows remembering/i)).toBeInTheDocument();
+    expect(screen.getByText(/When off, existing memories remain readable/i)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox",{name:/Memory Curation|Skill Creation/i})).not.toBeInTheDocument();
     await user.click(toggle);
     await user.click(screen.getByRole("button",{name:/Save Agent/i}));

@@ -1231,7 +1231,7 @@
     },
     "dreaming": {
       "label": "Dreaming · Automatic memory organization",
-      "help": "Periodically organize processed experiences. Turning this off still allows remembering, correcting and reading memories.",
+      "help": "Periodically update long-term memory. When off, existing memories remain readable and you can request manual organization.",
       "unavailable": "Currently unavailable. Missing tools: {{tools}}"
     }
   },

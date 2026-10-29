@@ -1,5 +1,7 @@
 # feat-676 — 产品验收报告
 
+> **2026-10-29 设计 R8 实施重开：下列旧版本结论是历史证据。** 前台单写、连续原文、child 两阶段提炼、共享历史回查与输入协议迁移已经改变，相关旧门禁不再覆盖当前实现；本轮新报告完成前不能按旧 pass 交付。未受影响的 UI/旧模式等只可按具体证据继承。
+
 > 对齐：`../spec.md` S01–S20，`../design.md` 前端原型对齐契约。
 > 独立 reviewer；只操作隔离固定日常模板与本报告，不修改实现。
 > Round 1：base `6b4213c20` → `b203c5823`；Round 2 定向复验候选 `5a123bae760d429c84bc2a3f72814009a69836f0`。
@@ -143,3 +145,86 @@ iOS 按 design 指定只验共享语义/编译，复用 `/tmp/feat676-ios-test.l
 S18 的原生 viewer 缺口本轮补齐；S17 关闭自动后仍可手动整理以 Q 新执行补证。S01–S16、S19–S20 的模型理解、角色边界、输入保真、故障恢复、迁移与遗忘结论继续引用 Round 1/2 的具体证据，修复没有业务提示或内容语义改动，不重复大范围真实运行。最高必要动作 `pass`，无需为本修复再复验；T1 为非阻塞 Side finding，无外部 issue 创建。
 
 服务按用户要求保留运行与历史，不执行 e2e-down；IM 与数据库未重启，Q 自动开关未变。独立浏览器 tab 为临时验收页，未改主 tab。本轮只提交 acceptance.md，不 push；其他并行报告与实现提交由 caller 管理。上层 current spec 和设计无需因本次身份恢复修复改写。
+
+## Round 4 — R8 独立产品验收（pass-with-issues）
+
+- `validated_at`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d` 主旅程；18:56 正常重启到 `eff2d4684cc396824ae65943f485a9ba66175111` 构建，用于来源 envelope 修正后的定点长源旅程。文档提交不冒充执行版本。
+- 北京时间2026-10-29 18:34起；隔离环境 `/private/tmp/feat676-daily-20261029`，IM `http://127.0.0.1:50967`，node `wt-feat676-daily-20261029-35113`；专用nano身份，核对daily模板P/E/Q Sol high、PA Astra medium、审核Luna。没有生产或外部接收者操作。
+- 浏览器独立tab，1280宽度与390窄屏；iOS没有新视觉声明，继承前轮共享语义/编译证据。临时配置：E启用模板漏选的memory_maintenance；PA/E在真实设置关闭自动Dreaming，仍允许手动；定点P maxInputTokens=3000、自动关闭、允许memory_maintenance。
+- 证据目录 `/tmp/feat676-r8-product/`；实际provider adapter至透明转发代理的请求/响应位于 `/tmp/feat676-live-evidence/`，`wire-index-current.json`关联模型与Session。这是出站adapter wire，不声称看见共享LLM_PROXY后最终上游转换。
+
+### 真实旅程及失败保留
+
+| 旅程 | 决定性观察与证据 | 结果 |
+|---|---|---|
+| PA当前更正、同一执行者继续 | 私聊c_91ae1772dfea输入3299fd5c…将周六下午更为上午；8b9d3f8f…更正4600仅住宿+800交通且总预算5000。原子执行者收到更正，答复e444af10…判两候选都不满足全部条件，不把取消窗口或400差额视为已证。pa-corrected-result.txt/.png、wire。 | pass |
+| 两阶段提炼、失败与新目标 | extraction 12437e6b…真实模型生成完整任务复盘；consolidation 22f3e7ae…因来源变化实际失败0/4且未推进，PA明确告知未保存。后续extraction 168063c0…与consolidation f1164d10…完成3/3+版本。runs-snapshot.json、maintenance-observed-calls.json、current-consolidation-native.txt、current-native390.png。提炼成功没有冒充记忆保存。 | pass |
+| 继承条件的任务复核 | 输入4597f0cb…要求继承背景、不重写条件；真实新子执行完成，最终d852230c…保留4000+800=4800、200不足以证明全预算、取消期限、周日复查、日期房间未知，不能确认安排，4000仅假设。 | pass |
+| 专家同名人物与反例 | c_99x9buf6中甲南与乙北同名林晓但不同要求；9通过1失败否定成功草稿，普通发布零失败、紧急回滚授权例外不覆盖跨区禁令。run 5d0d341e…5/5；后续实际读回答复13f62790…正确区分人物、例外、未知与无授权。expert-consumption.txt、expert-native.txt/.png、expert-receipt1280.png。 | pass |
+| 先停止采用，再由Dreaming清正文 | 07ff6b6c…撤回甲南固定格式。首次exclude缺对象报错，补路径后generation=1；即刻答复不强制三条且不声称历史删除。明确手动请求366f6ae8…后run 21430015…5/5保存+版本；读回a6a923c4…及磁盘正文/入口均撤回现行要求，保留乙北和发布规则。stop-use-tool-results.json、expert-stop-use.txt/.png、memory-after-stop-use-and-pa.json。 | pass |
+| Web配置及Work明细 | 页面只有Dreaming自动整理开关，关闭说明保留阅读和显式手动；390宽度关闭后手动运行完成。Work面板实际展开初始系统提示、读/写、finish与host回执，prepared与保存可辨，重开仍可达。dreaming-off390.txt/.png、initial-native.png、reopened1280.png及current/expert native证据。 | pass |
+
+专家最初因模板显式allowlist未列memory_maintenance而不能启动手动整理，如实说明并生成共享项目候选文件，未称其正式记忆。保留原始现场；后续正式记忆来自交流与任务结果，不能把候选文件当作已持久成功。启用产品配置中的所需工具后完成旅程，这是模板能力前置差异，不改写成首次即成功。
+
+### S27 原文缺口的真实模型闭环
+
+新私聊c_kbeb5phz，真实用户消息`6ba9422eb7f348c887a283072187dfcb`包含15,299字虚构星港评审，前部暂列通过、末尾签署附录否定。P此前只有空的角色入口，无现成答案。后续用户请求`11082f9cdd9943f9a72a1a0828351484`要求核实签署依据再整理，没有提供工具名、内部参数或正确答案。
+
+run `7b7bebfd-f822-4e62-baa5-62946af905c9` 的实际初始输入只有同消息字符0–8200，明确continuation，既无K-47也无K-74。模型自主`source_history search`定位“签署附录”，第一次返回前部命中且truncated=true；再自主读取同root/window/item24的12500起7000字符，拿到同一消息末尾附录。它据此写明候选B不通过、资格K-47但证据K-74，不能互换；保留作者、原IM消息身份、附录记录时间与消息时间差异、未上线及无授权，并限制于本项目。没有用另一个会话末尾片段替代原依据。
+
+host实际完成2/2保存及版本记录，原生Work回执明确另有1个源范围待处理；后续批次继续运行，未把本批成功说成整个长源已结束。磁盘正文与入口与原始附录相符。`s27-source-history-proof.json`保留初始缺口及两次工具结果，`s27-saved-memory.json`为保存后正文，`s27-native-history.txt/.png`与`s27-native-receipt.txt/.png`为真实UI。完整wire锚点`68981408217c48c39483d4b8bdd5ecd4-request.json`。**S27 pass**，这是自主模型行为与实际落盘证据，不是受控finish fixture。
+
+### S28/S29 的确定性边界证据
+
+S28复用真实native request受控模型旅程：维护笔记、新上下文、自己的旧窗口恢复、业务source_history身份分离、摘要失败复用/续聊替换/no_signal均来自`/tmp/feat676-native-no-signal.log`及对应native任务fixture，14项原始历史边界由`/tmp/feat676-static-r8-narrow.log`补充。受控llm用于稳定触发换窗与故障，不将其称为自主语义理解；S27另承担真实自主核实。
+
+S29独立执行`memory-conversation.test.ts`与`memory-conversations.test.ts` **2/2通过**，证据`s29-mechanism.log`。另在仅新增测试的`86886b9c6`执行`memory-conversation-production-chain.test.ts` **1/1通过**，证据`s29-process.log`：实际IM子进程、HTTP创建真实观察会话和消息、真实设备绑定/认证WebSocket、实际GlobalAgent memory.conversations→relay→IM，search分页/read原消息ID/info得到真实返回；source_reads/source_events/Inbox/journal前后不变，join被拒、来源撤销后旧cursor拒绝。测试调用方受控，非本次daily自主模型调用；没有把普通HTTP GET冒充Dreaming专用入口，也没有接管daily Node连接。**S29 pass at actual product-chain mechanism**；适用语义及缺口核实由S27真实模型旅程证明。
+
+### 全场景证据归并
+
+本轮为R8受影响场景全量归并，保留证据只覆盖未变化的机制或界面条件；没有把前轮已废弃的前台正式写记忆结论沿用到新单写者模型。确定性边界按设计深度使用原生运行、实际数据库与故障注入；不将所有pass标成自主模型消费。
+
+| Scenario | 当前证据与保留条件 | 状态 |
+|---|---|---|
+| S01 | 第二私密聊天c_bv5nyyny真实答复61216991…正确保留适用范围与更正，未重问已知条件；入口待核对时如实使用原交流，详见下文。 | pass |
+| S02 | 专家真实同名甲乙、不同格式及无私人主人混用；任务复盘回归PA库。 | pass |
+| S03 | 专家入口/五页完整读回与后续条件判断；PA入口/旅行页；S27长文原始身份。 | pass |
+| S04 | P新库只有角色说明无虚构事实；首批无业务内容真实0/0完成；缺信息始终保留未知。 | pass |
+| S05 | PA/E显式整理均由真实Dreaming写库、前台只报告实际回执；自然自动增量沿用Round2正常工作触发与新版native cycle。 | pass |
+| S06 | 同一原任务接收费用和时间纠正，当前答复不等待整理；正式页随后由Dreaming更新。 | pass |
+| S07 | 真实前台read及Dreaming暂存/write/host apply；受控只读边界测试来自expanded307及静态Context闭环。 | pass |
+| S08 | 旅行计划/协作边界、专家实际验证结果与工作记录分别落盘，同主题更新。 | pass |
+| S09 | 9通过1失败否定成功草稿；PA来源变化失败0/4如实告知，后续3/3才称保存。 | pass |
+| S10 | Round2同长期会话旧窗/当前窗及自动运行证据保留；新版native连续cycle与P真实长源多批补证。 | pass |
+| S11 | 同源身份、修订、继承去重用expanded source/native断言；P同消息原ID回查不生成重复主题。 | pass |
+| S12 | PA真实子执行交付及完整复盘；E观察与无执行授权区别；S29只读链无消费副作用。 | pass |
+| S13 | PA整理中新增4000假设，失败保留/后续新target，真实更正未被说成此前批次已完成；并发序列机制保留。 | pass |
+| S14 | PA真实来源变化失败与恢复；P真实长文本连续批次；超过24步/旧10分钟限制取消以native受控旅程与静态证据覆盖。 | pass |
+| S15 | 部分保存/重启补偿沿用实际文件与Git index.lock故障路径；eff2d targeted20/20补齐过期staging保留修复。 | pass |
+| S16 | 同S15内容保存与版本记录分离；当前UI真实host回执与prepared分别可读。 | pass |
+| S17 | 真实关闭自动、当前回答及明确手动均有效；新版Web说明390核对；Round2 pending/apply及无Skill连带变更保留，iOS共享语义/编译复用。 | pass |
+| S18 | Work真实prompt/工具/finish/host；失败、0/0、剩余源范围可辨；Round2普通自动完成不额外聊天保留。 | pass |
+| S19 | 旧备份/模式切换保留Round1/2具体证据；R8离线协议转换14tests、migration+architecture27tests与静态审查补证；无生产迁移声明。 | pass |
+| S20 | E真实先exclude后手动清理，generation=1、正文/入口更新、历史保留范围明确。 | pass |
+| S21 | P原消息15299字跨真实批次且原ID/offset一致；PA多事项与重要条件不混淆；旧窗口机制沿用native证据。 | pass |
+| S22 | 已提炼任务继续的整份替换/integrated版本由真实native受控任务旅程覆盖；真实PA费用返工语义另证，不将其冒充“先提炼后返工”。 | pass |
+| S23 | 实际PA直接子任务交付、宿主原始身份；更深后代认证/有界回查用history窄测，未声称本轮真实模型多层委派。 | pass |
+| S24 | PA真实先提炼成功后整理失败，再成功3/3；摘要缓存复用与遗漏任务未集成标志由native故障旅程覆盖。 | pass |
+| S25 | PA真实任务经历与整理失败分开，正式页未把维护失败冒充酒店失败；native no_signal/维护来源排除补证。 | pass |
+| S26 | E撤销并清理不复活，PA较新更正；generation变化失效和重新提炼用native/静态边界验证。 | pass |
+| S27 | 新版真实模型初始缺口→search→同原消息read→纠正结论→host2/2实际保存，上节详述。 | pass |
+| S28 | 新版原生request受控换窗/笔记/自历史恢复与业务历史分离；不声称真实模型自主决定换窗。 | pass |
+| S29 | 独立3项实际数据库/父主体绑定/真IM进程认证relay验证，上节明确受控caller边界。 | pass |
+| S30 | PA真实继承背景子执行保留预算/取消/复查条件；继承背景输入与自身经历标记/去重/无背景未知由native测试补证。 | pass |
+
+### 最终收口与证据限制
+
+19:04 第二私密聊天`c_bv5nyyny`收到PA真实答复`61216991ba334e78a5543df09fae2db4`：周六上午、原两候选不合格、4000只是纸上假设；还明确区分上次保存的假设与之后才完成的复核结果，未说后者已随上次保存。当前入口标记待核对时，它没有冒称旧页为最新凭据，而是引用原私聊更正及已交付复核链接；仍保留不向研发群主动提起、不是全面禁止主动帮助的边界。此证据证明跨聊天适用背景与审慎来源使用，不单独证明“新空上下文仅凭记忆召回”；同会话正式文档消费已有专家实际read与后续回答证据。`pa-crosschat-result.txt/.png`与`pa-crosschat-messages.json`完整保留。该私密群首次未提及时未回复，随后UI选择真实PA成员提及后正常回复，不将等待伪报成模型故障。
+
+19:06 P连续四批完成：3cfbfeba…0/0、7b7bebfd…2/2、d9fd3d7b…0/0、fd6b391a…2/2；最后一批不再显示剩余源范围。最终用户回复真实确认项目页/入口保存与版本成功，结论和条件正确，`s27-final-result.txt/.png`与最终`runs-snapshot.json`可复查。研发日常群仍0条消息（`unrelated-group-messages.json`），没有因这些个人/专家记忆旅程向无关群发消息。
+
+**整体可交付性：pass-with-issues；blocking=0，major=0，本轮新增minor=0。** Round3已有T1（结束边界偶发generation_changed后可重新读取）作为1项未承诺修复的非阻塞side finding保留；本轮没有复现或声称修复。所有S01–S30均有上表对应的真实行为或指定机制深度证据，不把测试通过、wire、模型语义、保存与UI混为一类。
+
+18:56隔离重启旧59025/59092→新Node99257/主DSH99262，PA分区99286；ready/connected和后续真实P/PA消息正常。日志保留两条无时间的`DSH runtime unavailable`，只能定位重启后的日志段；无法据此归因后续PA回复延迟，未作源码诊断或修复。没有隐藏这一观察，也不将其升级为已证实的当前行为缺陷。
+
+验收只提交本报告。所有请求、截图、运行数据及配置均留在临时证据目录，不提交仓库。临时浏览器视口已reset；服务和capture proxy由caller统一收尾，reviewer未停止仍由caller管理的IM/Node。当前所有验收手动整理已完成，没有遗留需继续等待的模型旅程。报告不宣称远端CI、合并、生产部署或生产迁移完成。

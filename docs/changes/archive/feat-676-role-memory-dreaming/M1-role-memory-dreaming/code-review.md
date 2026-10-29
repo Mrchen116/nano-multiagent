@@ -1,5 +1,7 @@
 # Code review: feat-676
 
+> **2026-10-29 设计 R8 实施重开：下列旧版本结论是历史证据。** 前台单写、连续原文、child 两阶段提炼、共享历史回查与输入协议迁移已经改变，相关旧门禁不再覆盖当前实现；本轮新报告完成前不能按旧 pass 交付。未受影响的 UI/旧模式等只可按具体证据继承。
+
 > Latest review: **Round 5 pass**, patch `c1eea6beb6c2ec4e47cb4bb73b8c6d8b5778a689..e207a51b6e8313083cff05ccebfcca7196b8653d`, native Dreaming trajectory identity/recovery. Surviving findings: `[]`. Unrelated prior coverage is retained; S18 native product reacceptance is separately required. Earlier records below are historical evidence, not the latest verdict.
 
 Original full-review snapshot retained below; Round 5 records its own fixed delta at the end.
@@ -205,3 +207,119 @@ Surviving findings:
 ```
 
 Round 6 code-review verdict: **pass**. No confirmed or plausible actionable defect in the bounded delta. Round 5's 842-test aggregate and `acceptance.md` Round 3's actual native trajectory/cold-read reacceptance remain applicable to their unchanged implementation; its minor T1 recovery-prompt observation remains a separate non-blocking side finding. This round does not replace those journeys or alter their evidence.
+
+
+## Round 7 — R8 full implementation review (2026-10-29)
+
+This is the current R8 review. Earlier passes above describe older protocols and do not certify this candidate.
+
+- `review_mode`: full; independent change-code-review with Agent Context Review Mode B.
+- `validated_at`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- `executed_base` / `effective_base`: `80db8b9a6`; `effective_through`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- Approved design baseline: `452e26373` (R8); the candidate also retains the native-identity repair supplement and historical-capability delta sections. These were checked, rather than silently treating the old acceptance as current.
+- Scope: the entire implementation increment, including foreground read-only enforcement; frozen root/child sources; original-message continuation; extraction/cache/replacement/no-signal; consolidation/staging/receipts/recovery; public shared history and bounded IM access; protocol migration; prompt provenance; retained configuration, Skill and UI contracts. No implementation, test, design or production change was made by this reviewer. Concurrent caller edits to implementation-r8.md are outside this report's fixed candidate.
+
+**Verdict: changes requested.** Two CONFIRMED product defects; one CONFIRMED low-priority documentation issue. No PLAUSIBLE finding is being promoted to a confirmed product failure.
+
+### Findings (current JSON)
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/knowledge/dreaming.ts",
+    "line": 351,
+    "summary": "[P2] Retain staging while a completed run still needs Git compensation",
+    "failure_scenario": "A run saves its Markdown but receives saved=true/versionRecorded=false. After eight days offline, recover() deletes its staging because state is completed. execute() still selects that same run for version compensation (line 141), and apply() rereads staging (line 297), now raising ENOENT before new source work can start. This loses the recovery material and repeatedly blocks future maintenance; the already-saved body remains intact.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "recommendation": "Exclude runs with outstanding version-recording receipts from retention cleanup, or make compensation independent of retained staging. Keep the existing recovery seam and cover expiration followed by successful compensation/new work.",
+    "evidence": "dreaming.ts:139-150,290-300,349-355; independent built-candidate recover() reproduction /tmp/feat676-static-r8-repro.json: recovery.staging_retained=false, requires_version_compensation=true, next_apply_read=ENOENT. The reproduction invokes the real recovery method with a minimal domain fixture and temporary actual files; no production incident is claimed."
+  },
+  {
+    "file": "packages/dsh-integration/src/knowledge/memory-sources.ts",
+    "line": 63,
+    "summary": "[P2] Preserve the Inbox source envelope when expanding original messages",
+    "failure_scenario": "A PA Inbox read returns target/name/conversation_type/delivery/channel around messages. renderMaterial() emits only the outer event metadata and body.messages, dropping that source envelope. prepare() sends batch.text directly to consolidation, and child renderNative() uses the same expansion. Oversized-message materialSegments() also drops the envelope from each continuation. The model receives the words/author but loses whether they came from an observer source and the original historical conversation context. A preceding tool call may retain a target, but it cannot recover the missing historical delivery/name/type fields.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "Global original-material input, child extraction input and long-message continuation",
+    "expected": "Preserve actual author, chat, time, message identity and participant/observer provenance through readable projection, extraction and consolidation (design section 4.4; Agent Context Engineering sections 3 and Messages/Inbox).",
+    "observed": "Inbox.read places those fields only on its result envelope (packages/personal-assistant/src/inbox.ts:287-288). renderMaterial() omits every body field except messages; materialSegments() copies record/message metadata without the body envelope. A synthetic envelope with target=conversation-unique and delivery=observer becomes just the event metadata, sender, id and text.",
+    "impact": "Durable summaries and role memory cannot reliably preserve historical observation scope and audience applicability from the supplied source. This confirms an interface information loss; it does not claim that a real model has already disclosed information or certainly misattributed it.",
+    "recommendation": "Carry the non-messages source envelope into the readable result and each long-message segment; preserve message-specific overrides. Extend the existing source-projection seam to check the actual rendered text/continuation with a realistic PA Inbox envelope.",
+    "evidence": "memory-sources.ts:56-84,236,313,347-350; dreaming.ts:250-264, dreaming-agent.ts:130-133; inbox.ts:274-290; /tmp/feat676-static-r8-repro.json: context.preserves_target=false and context.preserves_delivery=false. This is deterministic serialization evidence. Native request delivery is separately captured in /tmp/feat676-static-r8-context/requests.jsonl records 3-4; that probe uses direct synthetic input, so it is not a live observer-case reproduction."
+  },
+  {
+    "file": "docs/changes/feat-676-role-memory-dreaming/spec.md",
+    "line": 156,
+    "summary": "[P3] Restore implementation links relative to the active unit",
+    "failure_scenario": "The three packages links on lines 156-157 use ../../../../ from docs/changes/feat-676-role-memory-dreaming. They resolve outside nano-multiagent and all three targets are absent; readers cannot follow the cited implementation. ../../../ is the active-unit depth, while four levels is appropriate only under archive.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "SUGGESTION",
+    "evidence": "Candidate diff from design baseline 452e26373 changes those three links. Path.resolve()/exists() confirms the targets point to /Users/czj/.codex/worktrees/unit-feat-676/packages/... and do not exist. docs-check passes because its maintained-source scope does not cover these active-unit links."
+  }
+]
+```
+
+### Context delivery and consumption evidence
+
+The affected consumers are foreground root/ordinary child, first-level task extractor, and the single consolidator. Review followed source ownership/qualification → readable input → prompt/tool assembly → cache/generation invalidation → staging/application → root refresh and maintenance recovery. Extraction and consolidation retain distinct duties; all new DSH imports are public declared package imports, and PA/IM use product-contracts rather than DSH.
+
+- Candidate code and `dreaming-task-runtime.test.ts` preserve inherited provenance, replacement/no-signal and real native notes/new_context/source_history handling; the fixture's model returns are controlled. Reused `/tmp/feat676-native-no-signal.log`, `/tmp/feat676-cycle.log`, `/tmp/feat676-history3.log` and the 307-test expanded run as applicable deterministic evidence, not real-model understanding.
+- Independent native pre-adapter capture: `/tmp/feat676-static-r8-context/requests.jsonl`, with structural locator `/tmp/feat676-static-r8-context/summary.json`. Records 1/2/5 are root requests with formal-memory read-only guidance; record 3 is `dreaming-bc606e0e-5c33-45b0-8a02-6d8abe68415b` with the actual role prompt, qualified Global input, source directory, `source_history`, own `history/notes/new_context/get_context_remaining` and `finish`. It has no Inbox, messaging, business task, scheduling, shell or Skill publication tool. Record 4 contains the actual finish result in the next maintenance request. The source directory supplies the otherwise-required session IDs. This is a native-runtime fixture with controlled llm/stream output, before provider adaptation; it proves assembled delivery and result presence, not autonomous tool choice or provider-wire behavior.
+- Source-history/IM return schemas, identity binding, generation checks, cursor scope, Unicode and cutoff filtering were followed in `dreaming-history.ts`, `memory-source-view.ts`, `global-agent.ts` and `work.ts`. The ordinary history API remains the shared package's archived-current-session view; source_history uses public `createHistoryView` for qualified business snapshots. No implementation copy or private import was found.
+- The Codex fixed originals, extraction/consolidation adaptation diff, Muse content-dimension mapping and packaged license/provenance were compared with the final prompt. This establishes source/adaptation coherence; it does not establish real-model preference generalization, audience handling or reflective behavior.
+
+Independent checks: source/history narrow regression **14/14 passed**, `/tmp/feat676-static-r8-narrow.log`; docs-check using `PYTHON=.venv/bin/python` **passed**, `/tmp/feat676-static-r8-docs.log`. The initial system-Python invocation lacked yaml and is an environment failure, not a product finding. `git diff --check` finds only copied Muse original trailing spaces, retained as source fidelity and not reported as a defect.
+
+### Limits and stopping point
+
+The two defects above are directly reproducible at their lowest relevant seam. Real provider request serialization, autonomous source/IM recovery choices, the S21-S30 journeys, affected S05-S07/S13-S20 behavior and the current full CI remain caller/product-review work. implementation-r8.md's preliminary real-model self-check is not independent R8 acceptance. Old UI/legacy/Skill evidence may only be retained for unchanged behavior; it cannot close changed source or single-writer behavior. Scope is sufficiently covered for this full static review; after fixes, review the actual fix delta and these named conditions rather than repeat the entire branch.
+
+
+## Round 8 — R8 finding closure at eff2d4684 (2026-10-29)
+
+- `review_mode`: closure; `validated_at`: `eff2d4684cc396824ae65943f485a9ba66175111`.
+- `finding_origin_head`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`; actual fix delta: `b8069b23892d035e67aa0695ae150a9a864e4265..eff2d4684cc396824ae65943f485a9ba66175111` (b8069b238 adds reports only).
+- Retained effective implementation coverage: `80db8b9a6..eff2d4684cc396824ae65943f485a9ba66175111`, using Round 7 full review plus this bounded closure. No full review was repeated.
+- Focus: F-R8-1, F-R8-2 and D-R8-1; also inspect the actual delta's Web/iOS explanatory strings, test update and implementation/source-reference documentation. Only these two reports were changed by the reviewer.
+
+**Code-review verdict: pass for this closure; surviving findings: `[]`.** This closes the named implementation/documentation findings, not current product acceptance or provider-model behavior.
+
+| Focus finding | Disposition | Direct closure evidence |
+| --- | --- | --- |
+| F-R8-1 — outstanding Git compensation loses staging after retention | **closed, CONFIRMED** | dreaming.ts:351-354 calculates pendingVersion and retains a completed plan with outstanding saved/unversioned receipts. The existing recovery seam now creates a real .git/index.lock, saves the body while version recording fails, removes the lock, ages the run eight days and uses recover/start to complete version recording; a subsequent aged recovery cleans staging and start reports no increment. The reviewer independently ran this candidate test with Node 24.22.1, not just a mocked Git call. Retired plans remain ineligible for replay under the pre-existing apply admission. |
+| F-R8-2 — Inbox envelope lost in readable input and long-message segments | **closed, CONFIRMED Context interface repair** | memory-sources.ts:62-63 emits non-messages envelope as Conversation data; 78-81 attaches that same envelope to each original-message continuation. Message-level sender/id/content remain distinct and preserve their own overrides. Shared renderNative/Global paths continue to use this renderer. Existing Unicode source test now verifies each message page's target/name/observer/type/channel in actual batch.text, and a direct-envelope test verifies the short form. Independent built-candidate rendering contains target, observer, group, web and m1; the 20-test run includes both protections. This proves the formerly lost information is delivered by the projection; no autonomous-model interpretation is inferred. |
+| D-R8-1 — active-unit packages links | **closed, CONFIRMED** | spec.md:156-157 restores ../../../packages; the reviewer resolved all three implementation references and confirmed each exists inside the checkout. |
+
+Independent narrow rerun: `PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec vitest run packages/dsh-integration/tests/dreaming-recovery.test.ts packages/dsh-integration/tests/memory-sources.test.ts`, **2 files / 20 tests passed**, `/tmp/feat676-static-closure-eff2d.log`. Reused owner evidence: `/tmp/feat676-review-red.log` records the original 3 failing / 17 passing conditions; `/tmp/feat676-review-node24.log` records **5 files / 26 passed**, and `/tmp/feat676-review-build-node24.log` records the integration build. Scope and assertions were inspected; no broader repeat was needed.
+
+The English/Chinese Web help and iOS help now say that turning off Dreaming preserves reading existing memory and permits explicit manual organization. This matches the sole-writer contract and removes the earlier implication that foreground writes still occur. The delta changes strings only; `/tmp/feat676-review-ui.log` records **28 UI tests passed** and `/tmp/feat676-review-ui-build.log` records the Web build. True-page/prototype R6 acceptance remains the product reviewer's responsibility. No new Context-facing runtime behavior was introduced by these UI strings.
+
+The appended implementation evidence records the owner's fixed-Codex source-mechanism inspection and Nano adaptations; this reviewer did not repeat that whole upstream investigation. The corrected source locator was independently checked at `8fdf6472955749a731fd9e4b8ffc218e8e80c51d`: phase1_output.rs and rollout_input.rs exist, while stage_one.rs does not. Original prompt/body review from Round 7 remains effective. `git diff --check b8069b238..eff2d4684` passes.
+
+Agent Context Review Mode B here is a targeted closure of the deterministic provenance projection failure. Round 7's actual native pre-adapter root/consolidator request evidence remains scoped to that original capture; it is not relabeled as a new eff2d4684 provider-wire or observer-model run. Current real-model source query, own-context restoration, audience-sensitive consumption and full product acceptance remain open pending the in-flight independent report. No new confirmed or plausible finding survives this fix delta.
+
+
+## Round 9 — final R8 evidence closure (2026-10-29)
+
+- `review_mode`: closure / evidence delta; `validated_at`: `5432c125ad33ec163515dc25acd663da972b3796`.
+- `executed_base`: `5ef3bbf960c053629a51830cfc03aa19389a5530`; `effective_base`: `80db8b9a6`; `effective_through`: `5432c125ad33ec163515dc25acd663da972b3796`.
+- Reviewed product-code snapshot remains `eff2d4684cc396824ae65943f485a9ba66175111`. The later increment is the independent acceptance report, one S29 test and evidence documentation; c08c3a653 imports main@082e72ec4's bugfix-678 design/incident documents only. Direct diff confirms no later product-source/UI/native/contract implementation change. Previous full and fix-closure coverage is retained; no full review was repeated.
+
+**Final code-review verdict: pass; surviving findings: `[]`.** F-R8-1/F-R8-2/D-R8-1 remain closed. The verifier's V-R8-1 evidence gap can now close on the bounded evidence below. Acceptance retains historical non-blocking T1; it is neither reproduced nor claimed fixed here.
+
+### Reviewed evidence delta and Context scope
+
+`acceptance.md` Round 4 at 5432c125a independently reconciles **30 unique S01-S30 rows**, with genuine-model, controlled-native and retained-evidence boundaries. Its actual product verdict is **pass-with-issues, 0 blocking / 0 major / 0 new minor**. The report explicitly supersedes obsolete foreground-memory-write acceptance rather than inheriting it into the sole-writer design.
+
+For the material Context gap, the reviewer inspected `/tmp/feat676-r8-product/s27-source-history-proof.json`, the corresponding actual adapter request `68981408217c48c39483d4b8bdd5ecd4-request.json` in `/tmp/feat676-live-evidence/`, saved memory, native host-receipt text and run snapshots. Initial material contains only characters 0–8200 of the 15,299-character original message, and neither K-47 nor K-74. The actual model calls source_history search then same-root/initial-window item 24 read at offset 12500; the next actual requests contain the returned appendix. Saved project text distinguishes allowed K-47 from K-74 evidence, records candidate B as failing, and qualifies no deployment/no authorization as the supplied record's status rather than an independent audit. The host records 2/2 saved and versioned. The four completed runs share cycle 93043ffd-1a4d-4365-9a27-0b26df788021; the final run reaches the frozen root through=69 and no longer reports a remaining source range. This is genuine model selection and actual persistence, not the earlier controlled finish fixture. The capture is outbound adapter wire to the local transparent proxy; it does not prove the shared LLM_PROXY's final upstream transformation.
+
+The new `apps/im-server/tests/e2e/memory-conversation-production-chain.test.ts` is a different appropriate seam: real IM child process/HTTP-created records, actual device binding and authenticated WS, real GlobalAgent/NodeStore/InboxStore and memory.conversations relay route. Inspection confirms assertions for search pagination, read original message ID, info/current metadata, no changes to pa_source_reads/pa_source_events/Inbox/journal, unsupported join rejection and old-cursor rejection after withdrawal. The caller/runtime is controlled; the test does not claim a model autonomously chose conversations or exercise the daily Node. Owner `/tmp/feat676-im-process.log` and independent product `/tmp/feat676-r8-product/s29-process.log` each record **1/1 pass**; `/tmp/feat676-r8-product/s29-mechanism.log` adds **2/2** narrow tests. These trustworthy runs were reused without a third identical run. No new finding was found in the test or cleanup/identity wiring.
+
+S28/summary replacement/no_signal and selected failure boundaries retain their controlled native depth; they are not relabeled autonomous-model behavior. S01's nonempty persistent Global cross-chat answer proves scope/correction handling using available original exchanges and links, not a new empty-context memory-only recall experiment. The expert's actual document read and subsequent correct answer supply the separate document-consumption observation. Product report locators preserve failures and preparation-vs-save distinctions rather than treating every response as completion.
+
+Four active delta files are byte-for-byte unchanged since eff2d4684 and still align with the approved target and reviewed implementation. Their canonical requirement destinations exist; all seven Gateway and two IM MODIFIED requirement identities resolve. They may now be reconciled into canonical specs by requirement identity (replace existing earlier-version clauses, do not append duplicate ADDED headings) and archived as pure documentation. This report does not perform or certify a not-yet-created canonical/archive suffix; the caller must record the exact retention delta. The new iOS Simulator build evidence ends BUILD SUCCEEDED; it establishes compilation, not iOS visual acceptance. Local full-suite evidence remains scoped to its recorded versions plus targeted final deltas; no remote CI/merge/deployment result is asserted.

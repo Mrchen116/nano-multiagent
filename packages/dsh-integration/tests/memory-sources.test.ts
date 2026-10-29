@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemorySources } from '../src/knowledge/memory-sources.js';
+import { MemorySources, renderMaterial } from '../src/knowledge/memory-sources.js';
 
 const event = (seq: number, type: string, data: unknown = {}) => ({ seq, type, data });
 const human = (seq: number, text: string) => event(seq, 'user/message', { id: `m-${seq}`, source: { kind: 'user', actorId: 'owner', channel: 'test', messageId: `m-${seq}` }, content: [{ type: 'text', text }] });
@@ -66,18 +66,6 @@ it('waits for every Inbox fragment, then deduplicates the full message against a
   expect(JSON.stringify(batch.units)).toContain('Private only.');
 });
 
-it('compares a child report with certified original tool results without importing its inherited context', async()=>{
-  const root=[event(0,'user/message',{source:{kind:'agent-message',senderSessionId:'child'},content:[{type:'text',text:'The test passed.'}]}),event(1,'step/end')];
-  const child=[human(0,'Inherited secret'),event(1,'step/end'),event(2,'tool/call',{callId:'check',name:'bash',arguments:'{"command":"test"}'}),event(3,'tool/result',{message:{toolCallId:'check',isError:true,content:[{type:'text',text:'Test actually failed.'}]}}),event(4,'step/end')];
-  const ctx={sessions:{get:()=>undefined},sessionQuery:{observeSession:async(id:string)=>({source:'prepared',revision:'disk',header:id==='s'?{cwd:'/owner',origin:'root'}:{cwd:'/child',origin:'subagent',parentSession:'s'},inheritedEventCount:id==='s'?0:2,events:id==='s'?root:child,cursor:4,[Symbol.dispose]:()=>{}})}};
-  const sources=new MemorySources(ctx as never,new Map([['s',{sessionId:'s',agentId:'a',ownerId:'owner',cwd:'/owner',revision:'1'}]]));
-  const batch=await sources.freeze('a',streams,{maxInputTokens:3000});
-  expect(JSON.stringify(batch.units)).toContain('The test passed.');
-  expect(JSON.stringify(batch.units)).toContain('Test actually failed.');
-  expect(JSON.stringify(batch.units)).not.toContain('Inherited secret');
-  expect(batch.units[0]?.fingerprints).toEqual(['child:child:4']);
-});
-
 it('continues an oversized source across persisted bounded pages before advancing its complete-step cursor', async () => {
   const { commitSourceRange } = await import('../src/knowledge/memory-sources.js');
   const f = fixture([human(0, 'Long evidence: ' + 'conditions matter. '.repeat(300)), event(1, 'step/end'), human(2, 'Later useful correction'), event(3, 'step/end')], {cold:true});
@@ -92,8 +80,91 @@ it('continues an oversized source across persisted bounded pages before advancin
     progress = JSON.parse(JSON.stringify(progress));
   }
   expect(progress.s.cursor).toBe(1); expect(progress.s.continuation).toBeUndefined();
-  expect(JSON.parse(pages.join(''))[0].content[0].text).toBe('Long evidence: ' + 'conditions matter. '.repeat(300));
+  expect(pages.join('')).toContain('Long evidence: ' + 'conditions matter. '.repeat(300));
+  expect(pages.join('')).not.toContain('source_json_page');
   const later = await f.sources.freeze('a', progress, {maxInputTokens:500});
   expect(JSON.stringify(later.units)).toContain('Later useful correction');
   expect(later.ranges[0]?.through).toBe(3);
+});
+
+function taskFixture() {
+  const at = (e: any, time: number) => ({...e,time});
+  const root: any[] = [at(human(0,'Must be refundable; budget 5000'),110),at(event(1,'step/end'),120),at(event(2,'subagent/catalog',{mode:'continuable',childId:'child',childCreatedAt:125}),125),at(event(3,'step/end'),130)];
+  const child: any[] = [...root.slice(0,2),at(human(2,'Compare using those conditions'),140),at(event(3,'assistant/message',{message:{content:[{type:'text',text:'Compared two hotels; not booked.'}]}}),150),at(event(4,'step/end'),160)];
+  const ctx={sessions:{get:()=>undefined},sessionQuery:{observeSession:async(id:string)=>{
+    const events=structuredClone(id==='s'?root:child);
+    return {source:'prepared',revision:'disk',header:id==='s'?{cwd:'/owner',origin:'root'}:{cwd:'/task',origin:'subagent',parentSession:'s'},inheritedEventCount:id==='s'?0:2,events,cursor:events.at(-1).seq,[Symbol.dispose]:()=>{}};
+  }}};
+  return {root,child,sources:new MemorySources(ctx as never,new Map([['s',{sessionId:'s',agentId:'a',ownerId:'owner',cwd:'/owner',revision:'1'}]]))};
+}
+
+it('discovers unreported direct tasks, retains inherited conditions and excludes future arrivals from a frozen cycle',async()=>{
+  const f=taskFixture();
+  const target=await f.sources.freezeTarget('a',streams,100,{generation:2});
+  expect(Object.keys(target.children)).toEqual(['child']);
+  f.root.push({...human(4,'Future root correction'),time:200},{...event(5,'step/end'),time:210});
+  f.child.push({...human(5,'Future child correction'),time:200},{...event(6,'step/end'),time:210});
+  const batch=await f.sources.freeze('a',streams,{maxInputTokens:2000,target});
+  expect(batch.text).not.toContain('Future root');
+  expect(await f.sources.children('a',target,batch,{maxInputTokens:2000})).toEqual([]);
+  const consumed = {s:{baseline:-1,cursor:3}};
+  const childOnly = await f.sources.freeze('a',consumed,{maxInputTokens:2000,target});
+  const tasks=await f.sources.children('a',target,childOnly,{maxInputTokens:2000});
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0]?.text).toContain('Must be refundable');
+  expect(tasks[0]?.text).toContain('not booked');
+  expect(tasks[0]?.text).not.toContain('Future child');
+  expect(tasks[0]?.text).toContain('session_id=s; item_id=0');
+  expect(tasks[0]?.through).toBe(4);
+});
+
+it('cuts child results at an earlier root batch and re-extracts the full activation range on later batches',async()=>{
+  const f=taskFixture();
+  f.root.push({...human(4,'Check the result'),time:170},{...event(5,'step/end'),time:180});
+  const target=await f.sources.freezeTarget('a',streams,100);
+  const early={id:'early',units:[],ranges:[{sessionId:'s',start:-1,through:3,observed:5}],cutoffs:{s:130},filtered:0,blocked:[],inputTokens:0};
+  expect(await f.sources.children('a',target,early,{maxInputTokens:2000})).toEqual([]);
+  const late=await f.sources.freeze('a',streams,{target,maxInputTokens:2000});
+  const material=await f.sources.children('a',target,late,{maxInputTokens:2000});
+  expect(material[0]?.text).toContain('Compare using those conditions');
+  expect(material[0]?.text).toContain('not booked');
+  const again=await f.sources.children('a',target,late,{maxInputTokens:2000});
+  expect(again[0]?.sourceVersion).toBe(material[0]?.sourceVersion);
+  expect(await f.sources.children('a',{...target,activationAt:135},late,{maxInputTokens:2000})).not.toEqual(material);
+});
+
+it('keeps original IDs while removing revoked messages before source queries',async()=>{
+  const {qualifiedEvents}=await import('../src/knowledge/memory-source-view.js');
+  const events:any[]=[{...event(10,'tool/call',{callId:'read',name:'conversations',arguments:'{}'}),time:100},{...event(11,'tool/result',{message:{toolCallId:'read',content:[{type:'text',text:JSON.stringify({messages:[{id:'good',conversation_id:'allowed',content:'visible'},{id:'bad',conversation_id:'revoked',content:'secret'}]})}]}}),time:101}];
+  const view=qualifiedEvents(events,{sources:{revision:'r',allowed:['allowed'],excluded:['revoked']}});
+  expect(view.map(item=>item.seq)).toEqual([10,11]);
+  expect(JSON.stringify(view)).toContain('visible');
+  expect(JSON.stringify(view)).not.toContain('secret');
+});
+
+it('continues each original Unicode Inbox message with its own identity and body offset',async()=>{
+  const {commitSourceRange}=await import('../src/knowledge/memory-sources.js');
+  const first='父母同行，免费取消。🌈'.repeat(180);const second='后续更正：改为周日。🌤'.repeat(180);
+  const messages=[{id:'first',sender:{id:'u',type:'user'},content:first},{id:'second',sender:{id:'u',type:'user'},content:second}];
+  const f=fixture([event(0,'tool/call',{callId:'inbox',name:'inbox',arguments:'{}'}),event(1,'tool/result',{message:{toolCallId:'inbox',content:[{type:'text',text:JSON.stringify({target:'room',name:'Family trip',delivery:'observer',conversation_type:'group',channel:'web',messages})}]}}),event(2,'step/end')],{cold:true});
+  const progress=structuredClone(streams);const bodies=new Map<string,string>();
+  for(let n=0;n<40&&progress.s.cursor<2;n++){
+    const batch=await f.sources.freeze('a',progress,{maxInputTokens:500});
+    expect(batch.units).toHaveLength(1);
+    const part=batch.units[0]!.events[0] as {messageId:string;text:string;offset:number;end:number;total:number};
+    bodies.set(part.messageId,(bodies.get(part.messageId)??'')+part.text);
+    if(part.messageId==='first'||part.messageId==='second'){
+      expect(Array.from(part.text).length).toBe(part.end-part.offset);
+      expect(batch.text).toContain('Family trip');expect(batch.text).toContain('observer');
+      expect(batch.text).toContain('room');expect(batch.text).toContain('group');expect(batch.text).toContain('web');
+    }
+    commitSourceRange(progress.s,batch.ranges[0]!);
+    if(progress.s.continuation)expect(progress.s.cursor).toBe(-1);
+  }
+  expect(progress.s.cursor).toBe(2);expect(bodies.get('first')).toBe(first);expect(bodies.get('second')).toBe(second);
+});
+
+it('preserves the outer Inbox conversation and observation identity in direct material',()=>{
+  const text=renderMaterial([{type:'tool/result',content:{target:'room',name:'Family trip',delivery:'observer',conversation_type:'group',channel:'web',messages:[{id:'m1',sender:{id:'u'},content:'Conditional preference'}]}}]);
+  for(const value of ['room','Family trip','observer','group','web','m1','Conditional preference'])expect(text).toContain(value);
 });

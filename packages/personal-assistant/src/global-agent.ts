@@ -424,10 +424,11 @@ export class GlobalAgent {
   private async callAdmitted(call: ProductCall): Promise<unknown> {
     const binding = this.options.store.bindings().find(binding => binding.sessionId === call.rootSessionId);
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
-    if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
+    if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'memory.conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
     if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
     const references = this.options.store.toolReferences;
-    const result = await this.execute({ ...call, args: references.arguments(call.agentId, call.method, call.args) }, binding);
+    const result = await this.execute({ ...call, args: call.method === 'memory.conversations' ? call.args : references.arguments(call.agentId, call.method, call.args) }, binding);
+    if (call.method === 'memory.conversations') return result;
     // Inbox reads persist the exact model-visible body before image admission and consumption.
     return call.method === 'inbox' && call.args.action === 'read' ? result : references.result(call.agentId, call.method, result);
   }
@@ -474,6 +475,13 @@ export class GlobalAgent {
       }
       if (call.method === 'inbox.prepare') {
         this.options.inbox.prepareRead(call.sessionId, call.callId, call.args.content as { type: string; text?: string }[]); return { prepared: true };
+      }
+      if (call.method === 'memory.conversations') {
+        const { action, target, cutoff, afterTime } = call.args;
+        if (!['info', 'read', 'search'].includes(String(action)) || typeof target !== 'string' || !target ||
+            typeof cutoff !== 'number' || !Number.isFinite(cutoff) || typeof afterTime !== 'number' || !Number.isFinite(afterTime) || afterTime > cutoff)
+          throw new Error('Memory history requires a read-only action and a trusted bounded source');
+        return await this.query(binding, { ...call.args, memory_cutoff: cutoff, memory_after: afterTime });
       }
       if (call.method === 'conversations') return await this.query(binding, call.args);
       if (call.method === 'schedule.run' || call.method === 'schedule.history') {

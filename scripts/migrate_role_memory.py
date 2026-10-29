@@ -109,6 +109,8 @@ def normalize_agent(agent):
     knowledge.setdefault("memoryMode", "document")
     knowledge["legacyMemory"] = legacy
     knowledge.pop("memoryInterval", None)
+    for name in ("maxSteps", "maxRunMs"):
+        (knowledge.get("dreaming") or {}).pop(name, None)
     features.pop("memory_curation", None)
     features.pop("skill_creation", None)
     features.setdefault("dreaming", True)

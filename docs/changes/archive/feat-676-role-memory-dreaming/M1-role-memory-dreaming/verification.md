@@ -1,5 +1,7 @@
 # Verification Report: feat-676-role-memory-dreaming
 
+> **2026-10-29 设计 R8 实施重开：下列旧版本结论是历史证据。** 前台单写、连续原文、child 两阶段提炼、共享历史回查与输入协议迁移已经改变，相关旧门禁不再覆盖当前实现；本轮新报告完成前不能按旧 pass 交付。未受影响的 UI/旧模式等只可按具体证据继承。
+
 > **Latest targeted verdict: Round 5 pass / aligned** at `e207a51b6e8313083cff05ccebfcca7196b8653d`, **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. The original M1 signoff below remains valid outside the affected native trajectory entry; S18's earlier Work-only evidence is superseded and actual native product reacceptance is separate. See Round 5 for the fixed delta and current evidence limits.
 
 > Historical M1 final verdict: pass at `5a123bae760d429c84bc2a3f72814009a69836f0`; independent product acceptance `8b28b00dd` recorded S01-S20 and the persisted-pending→applied UI state. All prior implementation findings and C1 were closed. The original snapshot and rounds below are preserved, subject to the Round 5 native-entry correction.
@@ -279,3 +281,151 @@ The remaining independent product task is actual S18/native-viewer reacceptance,
 - Historical evidence is preserved: `acceptance.md` Round 3 at the base records actual old/new native trajectories, authorized restart/cold reads and the non-blocking T1 prompt observation. It supplies the previously separate S18 reacceptance; this verifier inspected that report, did not reenact its journey and does not turn T1 into a cleanup finding.
 
 Round 6 `verdict`: **pass**; `issues`: []; **0 CRITICAL / 0 WARNING / 0 SUGGESTION**; `outcome`: **aligned**; `requires_full_verification`: false. Prior unit evidence remains scoped as recorded. Only these two reports were edited; no product code, service or configuration was changed by this reviewer.
+
+
+## Round 7 — R8 full verification (2026-10-29)
+
+- `unit_id`: feat-676; milestone: M1-role-memory-dreaming.
+- `verification_mode`: full; `review_round`: 7.
+- `validated_at`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- `executed_base` / `effective_base`: `80db8b9a6`; `effective_through`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- Design authority: approved R8 at `452e26373`, with the candidate's native-identity supplement and historical capability delta reconciled below.
+- `requires_full_verification`: false (this round already covers the full R8 implementation; fix closure must cover its actual shared-source/recovery impacts).
+- `verdict`: **not ready / implementation-mismatch**. Current counts: **1 CRITICAL evidence/exit-criterion gap, 2 WARNING confirmed implementation defects, 1 SUGGESTION documentation defect**. CRITICAL below records missing current acceptance, not a proven model/product failure. Prior passes are historical; they are not the current result.
+
+### Completeness and correct scope
+
+The implementation increment has the intended single writer, two source paths, frozen continuous batches, per-task extraction/replacement cache, bounded business-history/IM recovery, fixed shared package and offline protocol conversion. No additional runtime, DSH private import, PA/IM DSH dependency or parallel knowledge writer was found. The reviewer changed only the two assigned reports and did not start production or alter implementation/tests/configuration/design.
+
+M1's implementation mechanisms are substantially present, but M1 cannot exit yet: the confirmed findings below affect W2 and W4/W8/W10/W12, and the revised independent product/real-model criteria have not been supplied as current passes to this verifier. The full CI was explicitly left to the caller. Old acceptance stays valid only where its exact unchanged condition still applies; it cannot certify the redesigned behavior by inheritance.
+
+### Correctness — requirements and scenarios
+
+| Requirement / scenarios | Implementation and direct evidence | Current disposition |
+| --- | --- | --- |
+| Role/audience and complete document consumption, S01-S04/S08-S09 | document-memory.ts role/context/version handling, memory-documents.ts basis/receipts; role layout and final consolidation prompt; unchanged original tests in the expanded run | Mechanisms retained; changed source provenance has F-R8-2 below; no new autonomous audience/semantic pass claimed |
+| Sole Dreaming writer/current correction, S05-S07 | document-memory.ts execution rejection and read-only injection; memory_maintenance routes manual/import through Dreaming; independent native requests 1/2/5 show current guidance | Aligned structurally; affected real root/child correction and later consumption remain product-review work |
+| Continuous qualified history, S10-S14/S21 | memory-sources.ts freezeTarget/freeze/commitSourceRange; dreaming.ts continuous loop and fresh retry target; memory-sources and cycle runtime evidence | Aligned batching/cut/continuation mechanisms; source-envelope projection loses required metadata (F-R8-2) |
+| Partial/restart/Git, S15-S16 | dreaming.ts prepare/finish/application receipts, memory-documents.ts apply; recovery native tests | Version compensation fails after retention expiration (F-R8-1) |
+| Auto/manual/lifecycle/quiet Work, S17-S18 | tick/start/stop/configurationChanging and maintenance trajectory registration/publication; scheduler/runtime/PA/IM expanded regressions | No new static mismatch; R8 Work/native reacceptance is distinct from old S18 history |
+| Old-data migration, S19 | migrate_dreaming_protocol.py retains initial activation, successful cursors, source qualification/receipts; retires old JSON plans/offsets; protocol-2 guard, separate legacy migration | 14 migration tests reused; no migration or production run performed by verifier |
+| Source withdrawal, S20/S26 | generation/status/exclusions, request assembly + tools + apply checks; invalid summary sourceVersion/generation forces re-extraction | Mechanism present; current model recovery/stop-use behavior still requires revised product evidence |
+| Task summaries, S22-S25/S30 | memory-sources.ts children own baseline/inherited-source matching/budget; dreaming.ts extraction cache, replacement/no_signal and integrated version tracking | Native controlled journey supports extraction→failed consolidation→reuse→continuation replacement→no_signal; does not prove autonomous understanding |
+| Business history/own recovery, S27-S28 | dreaming-history.ts directory, lineage, qualification/cut before createHistoryView, scoped cursor; dreaming-agent.ts restricted setup; shared rc.6 | Independent 14-test narrow run plus native delivery; real-model omission→query→correct conclusion and own-window recovery not yet accepted here |
+| Read-only IM supplement, S29 | dreaming-history.ts original parent actor, directory + activation/cutoff; global-agent.ts dedicated product route; work.ts version-qualified read/search without source-read side effects | Static and supplied unit/integration evidence aligned; actual IM read/search/Inbox unchanged-state product evidence remains separate |
+
+### Coherence — W1-W13 and evidence depth
+
+| Exit criterion | Implementation / evidence reviewed | Status and limit |
+| --- | --- | --- |
+| W1 certified native source cuts | memory-sources.ts live first flush → immutable observation → second flush; cold revision, pairing, baseline/identity; source tests in 307 run and independent narrow rerun | Mechanism covered; original-source rendering problem separately F-R8-2 |
+| W2 single writer, atomic apply and crash/Git recovery | document-memory.ts; memory-documents.ts apply/checkpoint; dreaming.ts staged plan and recover | **WARNING F-R8-1**: cleanup destroys a still-recoverable completed run's staging |
+| W3 scheduling/configuration/Skill pause | tick/start/stop and unchanged feature/capability/Skill selection paths; expanded scheduler, knowledge and PA suites; old fixed-creator UI evidence only for unchanged controls | No additional static mismatch; does not re-certify all current true-model Skill behavior |
+| W4 actual Context and behavior | independent root/consolidator native request capture in code-review Round 7; supplied native task-extraction fixture; tool schemas/restricted assembly | Assembled pre-adapter delivery checked; **WARNING F-R8-2** information loss; revised provider-wire/real-model behavior pending |
+| W5 Work/auth/receipts/quietness | reviews/publish/maintenance trajectory, PA Work and IM tests in expanded run | Static/native mechanisms covered; current product Work results not inferred from test counts |
+| W6 UI/reference/iOS | R8 code increment has no Web/iOS source change; the two UI controls and save/apply structure retain prior evidence; current delta changes the meaning of turning off Dreaming to read-only/current response/manual Dreaming | No new UI mechanism defect; no new screenshots or iOS compile claimed; final inherited-evidence accounting remains caller-owned |
+| W7 migrations/builds/contracts/docs | implementation-r8.md paths; 14 migrations and 27 migration+architecture tests; whole build/typecheck supplied; own .venv docs-check passes 327 sources/68 routes | Available local checks pass; current full CI and final S01-S30 matrix not yet supplied to this verifier |
+| W8 continuous batches/long human text | freeze pagination at Unicode characters and original message hash/ID; successful range commit/fresh target after failure; source/cycle fixtures | Mechanism covered; **F-R8-2** continuation omits original envelope metadata |
+| W9 inherited background/child replacement | children authenticates actual parent copied records, baseline/time/cut and source identity; cache version includes own/inherited/generation; deeper children only bounded recovery | Deterministic and native controlled support; autonomous inherited-condition handling pending |
+| W10 two-stage failure/partial input | summary cache only valid matching version/generation; extraction success distinct from integration; pending summaries omitted for capacity remain unintegrated; input prepared/hash checked | Two-stage mechanism covered; **F-R8-2** affects actual Inbox provenance; changed real-model cases pending |
+| W11 protocol conversion | explicit offline script + stopped-writers flag/backup/planned replacements; old plans retired; existing protocol-2 progress not reset on completed rerun | 14 migration checks reused, including unreported child activation boundary; no runtime migration compatibility branch introduced |
+| W12 original prompts/content dimensions | fixed Codex originals and prompt-adaptation.diff compared with final dreaming-prompts.ts; provenance/LICENSE/NOTICE packaged; Muse dimensions land in current role layout | Source fidelity/adaptation reviewed; **F-R8-2** removes needed input conditions; autonomous long-term understanding/feedback/preferences pending |
+| W13 shared history + bounded IM | public rc.6 root export createHistoryView, fixed release URL and lock integrity; source_history directory/query/identity/cursor; own history stays archived-current-session; PA/IM bounded product route | Narrow 14 tests and native delivery support structure; shared release not misrepresented as GitHub immutable; actual real-model query/restore + IM no-side-effect journey pending |
+
+Supplied local results were checked at their locators: `/tmp/feat676-expanded-tests.log` **68 files / 307 tests passed**; `/tmp/feat676-migration2.log` **14 passed**; `/tmp/feat676-python-pre-review.log` **27 passed**; `/tmp/feat676-native-no-signal.log`, `/tmp/feat676-cycle.log`, `/tmp/feat676-history3.log`, `/tmp/feat676-full-build.log`, `/tmp/feat676-typecheck-pre-review.log`. They are implementation-owner evidence, not independently rerun full CI. Independently executed: `/tmp/feat676-static-r8-narrow.log` **2 files / 14 tests passed**; `.venv` docs-check `/tmp/feat676-static-r8-docs.log` **passed**; both actual lower-seam reproductions `/tmp/feat676-static-r8-repro.json`.
+
+### Prototype / Reference and delta reconciliation
+
+The reference contract in design requires no Memory/creator toggles, document Dreaming only, save-vs-applied state and real Work partial-result semantics. R8 retains UI implementation and changes backend behavior; code inspection does not invalidate the unchanged reference screenshots, but no fresh visual or true-product pass is asserted by this static verifier.
+
+The four active delta files agree with the intended R8 single writer, current-conversation correction plus later durable persistence, source withdrawal, continuous sources/task replacement and business-vs-own history distinction. The candidate's additional historical-Skill-cache, capability-protection and maintenance-directory clauses preserve existing contracts; they do not restore automatic Skill forks. The native-identity design supplement matches the public descriptor append/repair implementation and introduces no second business source.
+
+Current canonical specs in this unmerged unit branch still contain the earlier implementation's foreground-write wording (for example agent-capabilities.md's immediate body/entry correction). The active delta correctly supersedes it for the target. That is a required final canonical reconciliation after gates, not justification to change implementation to the obsolete writer model or silently proclaim the unit complete. No additional uncovered observable behavior was found beyond the reported implementation mismatches. Current reconciliation outcome: **implementation-mismatch**.
+
+### Issues
+
+#### CRITICAL — current milestone evidence / exit criteria
+
+- **V-R8-1, current R8 acceptance remains open (CONFIRMED evidence gap, not a confirmed model failure).** design.md:393 and the S21-S30/affected S05-S20 contracts require actual requests, independent product behavior and final scenario accounting. The supplied implementation report labels its single synthetic model journey a self-check and explicitly says independent acceptance/wire capture remain pending. Old passes at other snapshots cannot satisfy the revised requirements. Action: caller completes the bounded independent product/real-model and full-CI work already assigned, attaches exact candidate/session/request/response and actual resulting state locators, and reconciles retained old evidence only for unchanged conditions. No extra production exercise is requested.
+
+#### WARNING — confirmed implementation mismatches
+
+- **F-R8-1 / code-review Round 7 finding 1 (CONFIRMED).** dreaming.ts:351-352 cleans completed runs even when saved/versionRecorded=false still requires their staging at line 297. Real recovery reproduction deletes the file and produces ENOENT for the next application. Violates design section 6's retention of pending-recovery materials and S15/S16/W2. Preserve outstanding compensation material and verify expiration→compensation→new-work behavior at the existing recovery seam.
+- **F-R8-2 / code-review Round 7 finding 2 (CONFIRMED Context interface defect).** memory-sources.ts:63 and 77-80 discard the Inbox outer target/delivery/name/type/channel envelope in rendered and continued material. This contradicts design section 4.4's historical chat and participant/observer provenance, and W4/W8/W10/W12. Preserve the envelope through the actual readable projection; verify the rendered native input, not only the intermediate JSON. Failure mechanism, expected/observed Context, impact, evidence and limitations are in the corresponding code-review finding.
+
+#### SUGGESTION
+
+- **D-R8-1 (CONFIRMED).** spec.md:156-157 uses archive-depth ../../../../packages links from the active unit; three cited files resolve outside the repository and are absent. Restore ../../../packages for this active path. The independent docs-check passes its own maintained-source scope and does not refute this direct path check.
+
+### Context evidence and final disposition
+
+Reuse code-review Round 7's Mode B review: fixed-source provenance, final prompt/Schema assembly, generation invalidation, original history/IM identity/cut, cached summary replacement and staging application were traced together. `/tmp/feat676-static-r8-context/requests.jsonl` records 1/2/5 show root guidance; 3/4 show consolidator input/directory/tools and finish result in the following request. This is actual native assembled delivery with controlled llm/stream, not provider-wire or autonomous model consumption. The preliminary real-model self-check remains labeled as such and has not been relabeled as independent acceptance.
+
+Two WARNING defects require implementation fixes; one CRITICAL acceptance gap requires the caller's remaining evidence. The documentation suggestion is low priority. No new review loop is warranted without an actual fix/evidence delta. The report's fixed validated/effective scope is unchanged by this report commit or concurrent caller documentation edits.
+
+
+## Round 8 — R8 targeted closure at eff2d4684 (2026-10-29)
+
+- `unit_id`: feat-676; `verification_mode`: targeted-closure/delta; `review_round`: 8.
+- `validated_at`: `eff2d4684cc396824ae65943f485a9ba66175111`; `executed_base`: `b8069b23892d035e67aa0695ae150a9a864e4265`; findings originated at `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- Effective full-plus-closure implementation range: `80db8b9a6..eff2d4684cc396824ae65943f485a9ba66175111`.
+- `requires_full_verification`: false. Round 7's unaffected implementation/design mappings remain effective; this round checks only the actual fixes and accompanying strings/documentation.
+- **Targeted implementation outcome: aligned. Named findings F-R8-1/F-R8-2/D-R8-1 are closed. Overall milestone verdict: still not ready pending current independent product acceptance.** Counts: **1 CRITICAL evidence/exit-criterion gap retained, 0 WARNING, 0 SUGGESTION**. The retained gap is not a confirmed model failure.
+
+### Closure mapping
+
+| Focus / affected criteria | Candidate implementation | Evidence and result |
+| --- | --- | --- |
+| F-R8-1; S15/S16/W2 | recover retains completed-run staging while any saved receipt awaits version recording; normal cleanup resumes after compensation | Existing recovery test uses a real Git index.lock and actual files, succeeds through expired recover/start compensation, then cleans after success; independently passed at Node 24.22.1. **closed** |
+| F-R8-2; source-provenance portions of W4/W8/W10/W12 | Normal rendered message bodies retain non-messages envelope; Unicode continuation segments each retain the same envelope while message fields stay separate; Global and child share the rendering path | Direct-render test and the existing original-message Unicode traversal assert target/name/observer/type/channel in actual text. Independent built-candidate rendering also preserves all five tested identity fields. **closed at deterministic Context interface seam**; autonomous model consumption remains separately pending |
+| D-R8-1 | Three active-unit implementation links use ../../../packages | Direct path resolution confirms all exist. **closed** |
+| UI prototype R6 explanation delta | Web English/Chinese and native iOS accurately describe reading existing memory and explicit manual organization with automatic Dreaming off | Literal-only diff matches design's sole writer and switch semantics; owner UI **28 passed**, Web build passed. No new control or save/apply change. True-page R6 closure remains owned by the in-flight product reviewer |
+| Fixed-upstream evidence supplement | implementation-r8.md records phase1/phase2/storage/workspace/locking source reading and Nano differences; source README replaces stage_one.rs with phase1_output.rs | Reviewer verified the corrected files at the fixed source commit; the source-reading account is owner evidence, not a claim this verifier repeated the upstream investigation. No prompt/runtime delta or new spec change |
+
+Independent command/result: source+recovery narrow tests **20/20 passed**, `/tmp/feat676-static-closure-eff2d.log`. Reused owner red/green/build evidence: `/tmp/feat676-review-red.log`, `/tmp/feat676-review-node24.log` (**26/26**), `/tmp/feat676-review-build-node24.log`; UI results `/tmp/feat676-review-ui.log` and `/tmp/feat676-review-ui-build.log`. These provide appropriate targeted regression coverage for the two fixes. The delta does not require a new full review or new spec language to justify the implementation.
+
+### Remaining current gate
+
+**V-R8-1 remains open.** The product reviewer is in flight. This snapshot has no final independent S01-S30/retained-scenario matrix and accompanying current real-provider/model behavior conclusion supplied to this verifier. Earlier source/Wire/true-behavior limitations are not closed by the deterministic regression, the source-inspection narrative, or the UI unit test. The caller has additionally recorded local full-suite/build/typecheck/iOS-runtime/Python results for the original 6205cc579 candidate; those improve available local validation evidence but do not constitute a remote CI pass or replace the revised independent product gate. Reconcile the final bounded evidence when it arrives; do not rerun unaffected mechanisms merely to fill a checklist.
+
+Current corrected-delta reconciliation: **aligned for the reviewed fixes**, with no newly uncovered observable delta; overall M1 still **incomplete solely on its outstanding evidence/acceptance criterion**. The two CONFIRMED implementation WARNINGs from Round 7 are closed. Code-review Round 8 contains the corresponding Mode B Context repair evidence and scope limits. Only the assigned two reports were appended; implementation, tests, design and production were not modified by this verifier.
+
+
+## Round 9 — final R8 acceptance/evidence closure (2026-10-29)
+
+- `unit_id`: feat-676; `verification_mode`: targeted-closure/delta; `review_round`: 9.
+- `validated_at`: `5432c125ad33ec163515dc25acd663da972b3796`; `executed_base`: `5ef3bbf960c053629a51830cfc03aa19389a5530`.
+- `effective_base`: `80db8b9a6`; `effective_through`: `5432c125ad33ec163515dc25acd663da972b3796`. These fields describe the R8 full-plus-closure scope; prior unchanged implementation coverage stays in the earlier scoped records. Product implementation remains eff2d4684; approved design authority remains R8@452e26373.
+- `requires_full_verification`: false; `verdict`: **pass**; corrected-delta `outcome`: **aligned**.
+- Current verifier issues: **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. F-R8-1/F-R8-2/D-R8-1 remain closed; **V-R8-1 is closed** by current independent acceptance and the bounded evidence below. Product acceptance separately remains pass-with-issues because historical T1 is an explicitly retained, non-blocking side finding (not reproduced/fixed in R8).
+
+### V-R8-1 evidence reconciliation
+
+| Previously open requirement | Current evidence reviewed | Disposition / exact strength |
+| --- | --- | --- |
+| Revised independent scenario accounting and actual product behavior | acceptance.md Round 4, commit 5432c125a: all **30 unique S01-S30 rows** map to real-model, controlled-mechanism or explicitly unchanged retained evidence; actual PA correction/child follow-up, expert audience/negative outcome, source exclusion then Dreaming cleanup and live Work/UI results | **closed**. Revised foreground-only-read behavior is not passed via obsolete writer acceptance. Product reviewer reports 0 blocking/major and no new minor; T1 remains separate |
+| W4/W12/W13 source missing-condition delivery and model action | S27 initial partial input has no K-47/K-74; actual adapter request contains autonomous source_history search/read, same original root/window/item and appendix result; saved project/entry and actual host 2/2 saved+versioned inspected | **closed at representative real-model consumer depth**. It proves this real missing-condition recovery, not all future model behavior or downstream shared-proxy conversion |
+| W8 continuous source completion and truthful partial state | runs-snapshot.json: same cycle 93043ffd-1a4d-4365-9a27-0b26df788021, four completed batches 3cfbfeba/7b7bebfd/d9fd3d7b/fd6b391a, actual 0/0 → 2/2 → 0/0 → 2/2, final range reaches frozen through=69 without pending-source text | **closed**. The earlier 2/2 host receipt still correctly reports a remaining source; it is not misrepresented as whole-cycle completion |
+| W13/S29 real IM product entrance and read-only effects | New test 86886b9c6 uses actual IM process, device binding/authenticated relay, real GlobalAgent and stores; pagination/read/info, original IDs and before/after database/Inbox/journal equality; withdrawal rejects old cursor | **closed at actual cross-process product mechanism**. Owner and independent product reviewer each ran 1/1 pass. Caller is controlled; no autonomous model IM choice claimed |
+| S28 context-window recovery/task lifecycle | Round 4 accurately retains native request-controlled notes/new_context/own-history/source_history and task extraction-reuse/replacement/no_signal evidence | **closed at design's deterministic boundary depth**. It is not called autonomous model choice to change context |
+| S01/role memory consumption | PA nonempty Global cross-chat actual response preserves current corrections, original-link provenance, audience restriction and unknowns; expert actual document read plus subsequent correct condition judgement is a separate observation | **closed without stronger recall claim**. PA result is not an empty-context memory-only recall test |
+| W6 current explanatory UI/native compilation | Current 390 Web explanation and Work evidence in independent acceptance; iOS Simulator `/tmp/feat676-ios-r8-build.log` ends BUILD SUCCEEDED; previous targeted 28 Web tests/build retained | **closed for explicit contract**. No new iOS visual acceptance claimed |
+
+The verifier inspected the actual S27 proof/request/result/memory/host/run locators rather than only its summary: `/tmp/feat676-r8-product/s27-source-history-proof.json`, `/tmp/feat676-live-evidence/68981408217c48c39483d4b8bdd5ecd4-request.json`, `s27-saved-memory.json`, `s27-native-receipt.txt` and `runs-snapshot.json`. S29 actual process assertions and helpers were inspected; `/tmp/feat676-r8-product/s29-process.log`, `s29-mechanism.log` and `/tmp/feat676-im-process.log` support the claimed passed runs. No duplicate full or cross-process run was added after valid independent evidence.
+
+### Effective implementation, canonical readiness and retained limits
+
+Direct `eff2d4684..5432c125a` comparison shows no changes to runtime/product/UI/iOS implementation. c08c3a653 merges only main@082e72ec4's bugfix-678 design/incident documents. Later commits add evidence and the single S29 test; the test's identity, real transport, state assertions and cleanup are appropriate and introduce no product-code change. This preserves prior full review plus Round 8 confirmed-fix closure.
+
+All four active delta texts are unchanged from eff2d4684; target canonical files and MODIFIED requirement identities exist. SHA-256 fingerprints for the exact approved merge input:
+
+| Delta | SHA-256 |
+| --- | --- |
+| gateway/agent-capabilities.md | b9e7fd37582f7826c8d47b86d654a33b6880224c61a2ecddff77fc7cd44cce66 |
+| gateway/personal-agent.md | cb9d8294e3eb35d3062e9578fd9764e69423ac72aa9b55ccb42b40909506e1c6 |
+| im/agent-work.md | 753306934bd4bd4642234f274b19d3f74374b84815d37d315fa944100e2a28a3 |
+| im/agents-nodes.md | a6d01c288818ec2310db5835568337e1244aebee293e1fd381ca8da58c88baa6 |
+
+Canonical reconciliation/archive may proceed as a pure documentation suffix: replace by requirement identity (some canonical headings already contain the earlier feat-676 wording), apply the removed requirements, preserve unrelated current contracts and update routes/links. Do not duplicate ADDED headings or preserve old foreground immediate-write wording alongside the new sole writer. The caller owns that exact future suffix and retention record; these reports do not pretend it has already been made.
+
+All R8 M1 W1-W13 implementation/evidence concerns are now resolved at the stated depth using Round 7's full matrix plus Rounds 8-9 closures. This concludes verification; no requested implementation change remains. Retained limitations are explicit: T1 is non-blocking and unfixed; PA cross-chat is nonempty Global context, S29 caller is controlled, S28 window/failure injection is controlled, wire capture ends at the local adapter/proxy boundary, and native iOS compilation is not visual QA. None is silently recast as stronger evidence. Remote CI, merge, production deployment/migration and cleanup are caller-owned delivery states and are not asserted by this pass.
