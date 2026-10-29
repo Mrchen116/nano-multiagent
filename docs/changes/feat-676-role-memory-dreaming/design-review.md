@@ -254,3 +254,162 @@ W2 的 validator 探针只证明本轮选定依赖规则不会产生 R1 的确�
 - 接受 R3 Approved，用户最新的默认内置、无需选择已覆盖前两轮可选指导设计，无实质异议。
 - **R3-R1 — accepted。** prototype-review 的7个截图链接改为纯文本本地 locator，图像、路径、走查结论和原型不变；格式调整后的文件 SHA-256 为 `8747d438c3d7d2e15a1dd851c8e5ba9f826f2107edaf152b897e7ffafdf8be98`。其余6个受审产物仍匹配 R3 hash，按 retained 规则不重开审查。
 - 将此前 R2 的 Author Resolutions 归回 R2 末尾，原文未改；本轮只修订设计文档和原型，没有实施或部署。
+
+
+## Round 4
+
+### Metadata
+
+- reviewer: `/root/dreaming_design_revision_review`（新的独立 reviewer；未参与设计编写，不是 R1–R3 reviewer）
+- target: `docs/changes/feat-676-role-memory-dreaming`
+- review_mode: `full`
+- mode_reason: Global 输入、child 摘要生命周期、跨流边界、运行进度、恢复和迁移发生核心变化，且 reviewer 更换；不能仅凭 R3 Approved 继承结论。本轮完整检查新主链，未变化的配置/原型按可核实证据保留。
+- started_at: `2026-10-29T13:03:19+08:00`
+- completed_at: `2026-10-29T13:05:35+08:00`
+- duration: `0:02:16`
+- timing_scope: 时间为报告定稿阶段；此前独立阅读、源码与上游核对、截图观察未精确计时，不将此值当作完整审查耗时。
+- checkout: 主仓 `/Users/czj/Repos/nano-multiagent`，`main`，HEAD `6b4213c205db04adcebc950fe539a5a759e57391`；受审文档未提交。实现参考为开发 worktree `/Users/czj/.codex/worktrees/unit-feat-676/nano-multiagent`，HEAD `80db8b9a604de15476dceb5e2e9a3c92d5fdf170`，不能以主仓没有新实现判断开发分支能力不存在。
+- authorization: 只追加本报告，不修改设计/代码/current specs，不提交或部署。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+新主链、Context 适配和实施退出标准总体闭合；一个可定位的迁移基线错误需要修订：不能把“根流已整合到某时刻”当作“此前 child 历史已整合”的证明。该规则会漏掉旧 document 实例中启用之后、升级之前发生但尚未汇报的任务经历。修订只需调整一次性 child 基线与对应隔离验证，不要求新增兼容运行时或重新设计主流程。
+
+本结论是 Gate 2 设计判断，不是新链路实现/模型行为/迁移已完成的判断。原 PR 实现与旧验收不证明 S21–S26。
+
+### Coverage 与证据
+
+**需求与核心决定。** 阅读 spec 全部澄清及 S01–S26、design 全文、四份 delta、部署提示词和原型 diff。Global 经确定性投影保持交流原文，固定 CycleTarget 后从已完成位置连续分批，保存成功才能推进；两批之间立即续接受资源/本轮预算约束。第一层 child 按可信 session 身份跨窗重提炼，同版复用，新版替换，不喂旧摘要、不给更深层独立摘要。独立整理者合并两路和现有记忆，前台纠正继续即时保存。设计 §4–7、M1 W8–W12 明确撤回逐 step JSON/finish 和阶段增量摘要，并保留失败、无信号、未整合与已保存的区别，覆盖最新用户决定。
+
+**实际组装与公开边界。** 独立读取开发分支 `knowledge/runtime.ts:20,39,56–57,183,200`、`knowledge/dreaming.ts:137–195,228,296–360`、`knowledge/memory-sources.ts:43–73,124–139,185–228` 及 `descendants.ts:97–160`。现有 KnowledgeRuntime 已持有 Dreaming/MemoryDocuments；sources 从业务 bindings 读取 root，旧 child 证据从汇报触发，确实是本次替换落点。DescendantReader 已从原生 catalog 得到可信父子关系，现有 read 会递归，design 明确要求仅选 depth=1、不能全递归导出；无需再造身份注册表。锁定 DSH 公开 `dsh-session/lib/types/types.d.ts:495` 确实有 `SessionEvent.time`，并非依赖私有字段；seq 保持流内顺序、time 只限制跨流上界、无法认证则待办，足以指导实现。live cut 二次持久认证及逐流释放仍保留。
+
+**Agent Context Review — Design Review。** 按提炼者、整理者、前台 root/child 三类 Consumer 检查来源、选择、交付、使用与失效。Global 的 Inbox/conversations 消息在工具载体中仍按真实作者处理，原文和实际送达回执分开；child 的预算选择、未展开标记、两字符串输出/no_signal、更新替换和深层归属明确。整理请求直接包含有界原文与摘要变化目录，不再要求模型拼 JSON 或逐事件交账；背景回查通过本主体登记的 sourceRef、范围/祖先/资格校验，不向模型开放任意 sessionId/path。批次摘要快照、文件版本和 generation 防止在途来源变化被静默复用；失效摘要与缺席摘要语义分开。前台较新更正、no_signal 后仍有其他支撑的旧知识、来源撤销及人工保存分别由现有文档消费规则和新的上游适配约束承接。
+
+新流程没有要求模型填写宿主才知道的 cursor、身份或来源 generation；宿主以实际请求 hash 证明交付，以保存回执证明应用，语义理解由真实模型验证。仍未运行实际请求或模型，不能声称模型已可靠处理一次性要求、授权证据、跨事项关系或较新纠正。迁移阶段的一项选择错误会在模型前排除合法材料，见 R4-W1。
+
+**上游原文与行为保真。** 本地 Codex HEAD 已核实为 `8fdf6472955749a731fd9e4b8ffc218e8e80c51d`。三个模板和 LICENSE/NOTICE 与该 checkout 原件逐字相等，SHA-256 全部匹配快照 README。实际阅读三个模板，并核对 `rollout_input.rs` 的 sanitize、分层近期选择、时序恢复与 extraction_messages，`phase1.rs` 的输出处理，以及 state `memories.rs:860–1020` 的按 thread upsert/no-output 删除与 phase2 通知。design §“上游保真与提示词适配”不是只引用原则：保留请求/纠正、早期未完成工作、单次要求与普遍偏好、授权证据缺失、敏感引用等具体约束，同时明确改动单文件/字节格式及原禁止回查规则的原因。Global 连续原文和受控 read_source 是 Nano 自己的决定，未冒称 Codex 原有能力。W12 要求最终适配 diff、真实请求及行为证据，足以防止实施只按中文摘要重造提示词；此轮没有把研究原件当作运行时资产或指令执行。
+
+**架构与复杂度。** 来源认证/确定性投影仍由 MemorySources 承担，提炼/整理/调度由 Dreaming 承担，文件版本与暂存应用由 MemoryDocuments 承担；PA 只同步完整来源资格、IM 只投影 Work。新增 CycleTarget、每 child 的源版本/整合版本和本批输入快照分别服务固定目标、不重复提炼和崩溃恢复，有实际必要；取消逐 step reviewed 清单减少重复状态。沿既有 storage-domain、AgentHandle、普通 fs 和维护轨迹，没有再造 Agent Loop、全局语义事实库或递归摘要系统。状态无变化不跑模型、共享本轮资源预算、仅短提交锁与 7 天非活动材料清理边界明确，未发现需要额外框架解决的复杂度问题。
+
+**delta、迁移与 M1。** Gateway/PA/IM settings/Work 的 canonical target 正确；MODIFIED 中原有 Scenario 得以保留或按明确退役要求调整。新增 Gateway 三个 Scenario 覆盖原文、child 更新和独立进度，Work 明确提炼/整合/保存/剩余状态。单一 M1 延续文件记忆能力，W8–W12 和 R3/R4 加入新输入链、真实请求、恢复与用户可观察结果；旧报告标为历史，不拿旧 gate 替代新链验收。部署主体权限、目录逐字备份、正常 document 不误搬 legacy、旧 JSON continuation 不当原文 offset、退役旧计划而保留真实保存、重复迁移与回滚保持数据，均明确。生产检查限于备份/状态/服务，功能和失败分支在隔离副本完成；唯一缺陷为存量 child 基线规则（R4-W1）。
+
+**原型独立判断与限制。** 本 reviewer 实际查看 R3 桌面和 390 宽截图：Dreaming 就地显示、说明能解释关闭后的即时记忆能力，桌面并列/窄屏单列自然，技能创建行已消失。与本轮 `git diff prototype.html` 核对，只有底部 Work 演示段落由 18/24 单元改为本批交流、任务复盘与待重试，CSS、布局、设置控件、保存 JS 均未改。原有设置体验可保留 R3 证据；旧 Work 正文不能作为本轮目标。新文字从内容上区分交流、任务复盘、正文保存、入口未同步和版本失败，符合信息语义契约。尝试通过独立 Chrome 标签页打开当前 `file://` 原型被工具的 URL 安全策略拒绝，未绕过、未更改用户页面；故本轮新增回执的实际展开渲染未验证，不声称完成新 UI 实测。这里是既有容器内文案替换，无新布局/交互决定，不将此工具限制单列为产品缺陷；实现阶段 W5/W6 仍需对应真实 Work 与原型检查。
+
+**retained_from: Round 2 / Round 3（有范围的保留）。** 本轮独立重查旧报告、作者 resolutions 及当前内容。PA delta hash 与 R2 相同；IM settings delta 与 R3 相同，prototype-review 与 R3 格式修正 hash 相同。固定 skill-creator、文件工具权限、legacy 排他、源资格同步及当前文档失效在本轮没有改变。开发分支 `global-agent.ts:275–291` 已从完整 pa.sources 快照同步至 `knowledge.sources.sync`，`index.ts:439` 有实际 RPC handler，因此旧 R1-W3 的设计闭环不是仅靠旧 Approved。这些保留仅指仍成立的设计决定与原型观察；实现分支相较 R3 已变化，不继承 R3 的“运行代码未变”断言，也不从旧实现推导新输入链通过。
+
+### 历史问题闭环
+
+| Issue | 本轮证据与状态 |
+| --- | --- |
+| R1-W1 | **closed**：design §4.1 保留不可变 observation 后二次 flush 同 cut 认证；开发分支 memory-sources 的真实接线和公开 API 已核对。新 child cutoff 同样必须认证，不能把 time 当持久性替代品。 |
+| R1-W2 | **closed，retained_from R3**：固定 skill-creator、旧 false/allowlist/denylist 归一化、底层权限保留仍写在 §2.1 及部署第 5 步，没有重新引入必选 Feature 拒绝旧配置。 |
+| R1-W3 | **closed**：完整资格快照、普通执行清理、关闭 Dreaming 仍失效的设计保留；已独立核实开发分支的完整来源 RPC 接线。新增 child 缓存也接受 generation 与来源撤销。 |
+| R1-R1、R1-R2 | **closed**：历史原话与当前决定分开，Work delta 已存在且本轮更新两阶段回执。 |
+| R3-R1 | **closed**：prototype-review 使用纯文本本地 locator，hash 与作者格式修正一致，截图仍可读取；不声称本轮已运行全量 docs-check。 |
+
+### Issues
+
+#### R4-W1 — 旧 document 升级不能以已整合根 cursor 建立 child 已处理基线
+
+- severity: **WARNING**
+- evidence: **CONFIRMED**（可由规则与真实旧接线确定的漏选机制；未在生产执行迁移，不声称已有用户数据丢失）。
+- 位置：`deployment-prompt.md:46`；关联 `design.md:189–201`（§4.3）、`design.md:347`（W9/W11），spec S22/S25。
+- Context Surface：child 原始历史的选择下界 → 首次提炼请求 → 后续摘要替换。
+- expected：存量 document 主体启用后的合格任务经历，包括 child 独自推进且尚未汇报到 Global 的内容，能够进入新提炼链；启用前历史不自动回溯。根与 child 进度独立，根完成不等于 child 完成。
+- observed：部署步骤 4 指定“建立升级时 child 基线为已整合根 cursor 对应时间的安全位置”。而真实旧实现 `memory-sources.ts:58–70` 只推进 root；`124–139` 仅在 agent-message/subagent-settled 到达 root 时调用 childEvidence，`185–208` 只抽取其工具证据。旧根已整合到 T 不能证明 child 在 T 之前的 own-history 已交付/整合。
+- 可成立场景：主体启用于 T0；child A 在 T1 获得任务中的关键约束或失败结果，尚未向根汇报；Global 因其他聊天继续到 T2 并完成旧 Dreaming（T0 < T1 < T2）。升级把 A 的提炼下界置为 T2，A 的 T1 材料不进入首次请求，后续更新仍从该新基线重提炼，无法补回。即使 A 曾报告，旧代码只补工具证据也不足以证明所有 child 请求/纠正已被审阅。
+- impact：新模型没有机会理解被宿主排除的经历，可能持续缺少约束、返工原因或未报告结果；将根处理进度当作任务经历处理进度，违反本轮明确的独立更新语义。仅检查 child cutoff 时间合法、或缓存从空开始，不能发现这一遗漏。
+- recommendation：一次性升级保留/重建原 document 启用 cut 对应的 child 安全基线；原启用后创建的 child 从 own-history 起点读取。首次重提炼可以与当前记忆按稳定来源合并，不必把已读 root 重跑；如真有逐 child 的旧覆盖证明，可据实际证据采用更晚边界，不能仅按 root cursor 推断。没有可证启用边界则如设计已有规则保留待核对，禁止静默跳过。W11 增加上述“旧根已推进、child 在启用后产生未报告材料”的隔离迁移场景，断言该材料进入新提炼请求、无超范围回溯，且重复迁移不重置新进度。无需新增长期双协议分支。
+
+### Recommendations
+
+无新增可选建议。不要因本轮新模型行为尚未运行而添加设计机制；完成 R4-W1 的具体迁移修订及复验即可重新判断 Gate 2。
+
+### 受审产物指纹（SHA-256）
+
+| 文件 | SHA-256 |
+| --- | --- |
+| spec.md | `ffa98061f183bef00c3a274b0a0dd84c4cad42f1ae13bbfc23a2f65cea92d651` |
+| design.md | `6cc6d393114d1ef5560983af1bc2672f6ff8dafe98b1d80d19014c540c846cd8` |
+| deployment-prompt.md | `bf32ac1fd28e8b6bfa0cf02beadb3434599073e699d60fa91353b7e213ffd0ce` |
+| specs/gateway/agent-capabilities.md | `b566627b963fda391ec415f0fa1c88b2c78b84809397a12c56e5f6515f1509ca` |
+| specs/gateway/personal-agent.md | `e30bbfef6c9ff369955b964fa0e87fb0f824a062e1893f582cb671b6246fccb0` |
+| specs/im/agents-nodes.md | `cbaf2717a60c9bd8e8b6f06d9221b30f0fb0cd8797cfe252bc54067b468e2c04` |
+| specs/im/agent-work.md | `753306934bd4bd4642234f274b19d3f74374b84815d37d315fa944100e2a28a3` |
+| prototype.html | `13a01eea170f75e96c96fde5ad087c29e1f42352650f167826d7d340dd5f303c` |
+| prototype-review.md | `8747d438c3d7d2e15a1dd851c8e5ba9f826f2107edaf152b897e7ffafdf8be98` |
+
+三个 Codex 模板与 LICENSE/NOTICE 的 hash 均匹配 `input/codex-memory-v2-8fdf647295/README.md`，且已与锁定 checkout 原件逐字核对。
+
+### 本轮收尾
+
+只追加本报告；没有修改受审产物、代码或 current specs，没有提交、迁移、部署或运行真实模型。未启动服务。主仓与开发 worktree 的资料均按其各自 HEAD 解释，旧实施/验收不作为本版通过证据。报告后执行 `git diff --check` 并复核受审指纹。
+
+### 范围追加待审（2026-10-29T13:06:00+08:00）
+
+报告初稿写入后收到用户补充：Global 的用户/人物关系/互动反思也须核对 Muse 原始材料并保真适配，不能只保存 Codex 模板。author 正在补充设计与参考材料；本 Round 4 暂不签结，以上结论仅对应指纹所列版本。收到新范围后由同一 reviewer 在本轮追加复核证据和最终结论，不把初稿视为新增范围已审。
+
+### Author Resolutions（R4 初稿及范围追加）
+
+- **R4-W1 — accepted。** 旧实现仅随根收到报告补 child 工具证据，根 cursor 不能证明所有子经历已整理。部署提示“已有 document 实例”第 4 步已改为原 document 启用 cut 对应的 child 基线；启用后创建的 child 从 own-history 起点读取。边界不可证时保留受阻，绝不默认跳到升级尾部。design M1 W11 增加根已推进而 child 尚未汇报的定向迁移场景、越界回溯和幂等验证。
+- 用户新增 Muse 与实际记忆结构要求已并入 spec 原话、design 的“Global 的 Muse 参考与 Nano 内容落点”、M1 W12 和 gateway delta；原始说明在 input/muse-reference-1b6f936124。等待同一 reviewer 对扩展范围及上述修订作最终判断，本段不自行批准 Gate 2。
+
+
+### Round 4 扩大范围复核与最终结论
+
+- reviewer: `/root/dreaming_design_revision_review`（与本轮初稿相同，持续独立审查）
+- review_mode: `full`；本轮内部追加 `delta + closure`，没有另开 Gate 或新 Round。
+- scope_reason: 用户在审查中追加 Global 的 Muse 原始材料与现有记忆结构适配要求；同时复核 R4-W1 修订。初稿范围和历史结论保留，上述“暂不签结”状态至此结束。
+- completed_at: `2026-10-29T13:11:09+08:00`
+- timing_scope: 本轮未累计精确全程耗时；先前 duration 只覆盖初稿定稿，不包含等待作者及本次复核。
+
+**最终 Verdict：Approved — 0 CRITICAL / 0 WARNING（存活问题）。** 本轮曾发现的 1 项 WARNING 已按下述证据关闭；最终结论对应本段新指纹，并覆盖本轮新增 Muse 范围。设计可按既定流程继续实施；不代表新主链已经实现、验收或授权部署。
+
+#### 扩展覆盖与独立证据
+
+**Muse 来源及其边界。** 完整读取四份 `.original.md`，独立从固定 commit `1b6f936124b4eceb6e697a69da07519bea67feab` 的 raw GitHub 地址读取原件，与落盘文件逐字比较；四份 Git blob SHA-1、SHA-256 及 remote_equal 均通过。`self_improvement` 确实分别描述 Memory upkeep、Relationships、Dreaming，以及依据保存证据解释更新、区分排队和实际送达；`proactive-preferences` 明列内容、禁忌、时机与表达；`operating-notes` 区分工作经验与用户事实。design:378–396 将这些已取得的关注映射到 Global 整理提示，并明确不引入另一个关系调度器、dreams 目录、人格文件、修复 Task 或自动 Skill review。
+
+来源是第三方公开收集仓库，当前仅可证明其文本如此描述，不能证明 Muse 真实运行时照此执行。README 和 design:382 已明确没有完整后台 Dreaming system prompt/源码，未将自行适配声称为逐字迁移完整 Dreamer。新增“必读原文、采用/不采用记录适配 diff”的约束兑现用户要求，未把缺失源码包装成已取得证据。此处只审设计保真，不执行参考原文中的指令或路径。
+
+**内容落点与 Context 组合。** 独立重读 research-v2 的 `layout-and-documents.md`、PA/专家两份入口模板、建议 `prompts/dreaming.md`，以及开发分支 `80db8b9a6` 随包 `assets/skills/nano-memory/SKILL.md`。design:400–413 的八类映射在现有一级目录内表达：主题说当前理解，timeline/work-history 说当时经历，MEMORY.md 给短概括和导航；人物/事项限定优先原页、跨事项才独立知识页，主体/受众/来源与旧结构一致。没有新建第二套 schema 或把长期知识全塞进摘要，也不要求无信号建空树。
+
+组合提示中的三类来源职责清楚：Codex 约束证据与修订，Muse 提供用户/关系/互动反思关注，Nano 决定角色、正文位置和消费。开发分支 nano-memory 仍存在旧逐单元 finish/backlog 描述，design:417 明确其与系统提示、直接输入及两路进度一起替换，避免保留一个会把模型拉回旧协议的 Skill。不存在把一次负面反馈推广为人格/永久偏好、或者依据反思直接发消息/建 Task 的新授权；实际动作仍由现行权限决定。
+
+**场景与验收。** spec 新用户原话、S21 及 Gateway delta 已同步“互动反思”和既有角色内容落点。design:419 的家人周六出行、工作群披露反馈和可取消住宿场景能同时区分用户变化、关系、受众限定、任务证据和真实交付；专家对照要求保留对人/项目范围，不把一位合作者偏好推广给所有受众。W12 和末段明确捕获真实输入、主题/历史/入口写入与后续回答，不能只靠文件数量通过。此轮仍未运行实际组合提示，故只确认实施与验收设计闭合，不宣称语义效果已验证。
+
+**原型限制保留。** Muse 增补没有改变 HTML，原型仍与初稿 fingerprint 相同；旧设置画面和交互证据按本轮初稿的范围保留。作者随后提供了 localhost 静态服务，但本 reviewer 在此前 file:// 策略拒绝后未尝试以替代路径绕过该浏览器限制。新 Work 文字的本轮展开渲染仍标为未验证；本轮没有用旧 18/24 内容替代新目标，也没有因静态文字变化增加产品门禁。原型没有新的布局/交互，最终 Gate 2 判断依据该有限差异、已独立看过的容器画面和明确的 W5/W6 后续检查范围。
+
+#### R4-W1 闭环
+
+- Author Resolution：接受问题，child 首次下界改为原 document 启用 cut；启用后创建的 child 从 own-history 起点；根游标不证明 child 已整合，缺少边界只阻塞该源。
+- 本轮独立证据：`deployment-prompt.md:46` 已明确上述规则，并保留来源资格、停止使用范围、当前文档合并及不越过启用前边界；`design.md:347` W11 加入“根已推进而启用后 child 尚未汇报”的材料必须进入首次提炼请求、无越界及重复迁移不重置新进度。
+- 判断：**closed**。原可成立场景中 T1 的 child 材料仍位于原启用基线之后，升级不会再以 T2 根进度将其排除；重复语义由当前文档/稳定来源合并处理，无需牺牲历史覆盖。无需新增长期兼容读取器。这里只关闭错误的设计选择，迁移实测仍属于隔离 M1。
+
+#### 最终受审指纹（SHA-256）
+
+| 文件 | SHA-256 |
+| --- | --- |
+| spec.md | `ccb128abce22062ab3cd26f034a16231a8447a46df0b00b25cf67948c138e05c` |
+| design.md | `db3e9babe2d8d2efb77560a449a3f3dfb9078dadddb08e0c846d5cd4cb422f17` |
+| deployment-prompt.md | `19423df61ece336b5f29da7482871d7b8fbd3bd04ac119cf5f420efb4d50cb5b` |
+| specs/gateway/agent-capabilities.md | `f1cf90e82dc8bbc0b3e12dbc923132a0f80c6464145953f311b5b9136ead9452` |
+| specs/gateway/personal-agent.md | `e30bbfef6c9ff369955b964fa0e87fb0f824a062e1893f582cb671b6246fccb0` |
+| specs/im/agents-nodes.md | `cbaf2717a60c9bd8e8b6f06d9221b30f0fb0cd8797cfe252bc54067b468e2c04` |
+| specs/im/agent-work.md | `753306934bd4bd4642234f274b19d3f74374b84815d37d315fa944100e2a28a3` |
+| prototype.html | `13a01eea170f75e96c96fde5ad087c29e1f42352650f167826d7d340dd5f303c` |
+| prototype-review.md | `8747d438c3d7d2e15a1dd851c8e5ba9f826f2107edaf152b897e7ffafdf8be98` |
+| input/muse-reference-1b6f936124/README.md | `af865f542c7a86cbb86888434fbfb850208f2aebb51572285ad0866135eb116f` |
+
+Muse 四份原始文件均匹配其 README 中完整 hash，且本 reviewer 独立核对固定版本远端字节；Codex 原始模板及许可文件未改，保留本轮初稿核验。
+
+#### 最终收尾
+
+只追加审查报告，保留 R1–R3、本轮初稿和 Author Resolutions。受审设计、规范、原型、源代码和上游快照未由 reviewer 修改；未提交、实施、迁移或部署。`git diff --check` 通过，最终指纹再核对。无存活 CRITICAL/WARNING，无新增可选建议；到此停止复审，不继续追查假想边界。
+
+### Author Resolutions（R4 最终收口）
+
+- 接受 R4 最终 Approved，0 CRITICAL / 0 WARNING；R4-W1 已关闭，Muse 原件与 Nano 内容映射已独立复核，无实质异议。
+- 最终受审文件 hash 再核对一致；只追加本段收尾，不修改已审设计。`PYTHON=.venv/bin/python ./scripts/docs-check` 通过（322 maintained Markdown sources / 68 required routes）。作者文档 diff 格式检查通过；Muse memory 原件保留上游四处 Markdown 硬换行空格，Git blob 逐字节一致，不为消除格式提示改写原件。
+- 原型仅底部 Work 示例文字变化，新增文案的实际浏览器渲染未验证，保留报告的准确边界；新实现、真实模型和 S21–S26 验收尚未执行。旧 PR #428 已转 draft，下一次实施须先同步本版设计并重做受影响验证；不因本次 Gate 2 通过恢复为可合并状态。

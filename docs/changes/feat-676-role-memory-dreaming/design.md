@@ -1,14 +1,16 @@
 # feat-676: 角色化文档记忆与持续 Global Dreaming — 技术方案
 
-> 对齐：[spec.md](spec.md)，含设计阶段关于默认开启、内置记忆及临时 legacy 模式的用户澄清。
+> 对齐：[spec.md](spec.md)，包含 2026-10-29 用户确认的“Global 原文 + 第一层子执行摘要”方案。本文定义目标行为；PR #428 的既有实现不代表本版已经实现。
 
 ## Changelog
+
+- 2026-10-29（M1）：用户在实现验收后重新对齐 Dreaming 输入与摘要生命周期。替换 §§4–7 的取材、模型输入、进度与回执方案；新增 S21–S26 / W8–W11。原 M1 的文件记忆与配置能力继续复用，旧 Dreaming 验收不能证明本版方案；实施 owner 接手须先同步本设计，并重新验证受影响范围。
 
 ## 现状分析
 
 ### 涉及范围
 
-设计核对主仓 main `0ddceacb8dac5c5c6f38e2db45e0b72c26cbf3ec`。以下均为本仓实际接线，不把附件中的拟议接口当作已存在能力。
+初版设计核对主仓 main `0ddceacb8dac5c5c6f38e2db45e0b72c26cbf3ec`。下表为初版改造起点；2026-10-29 修订另外核对开发分支 `unit/feat-676` 的 `80db8b9a6`：文档记忆、来源资格、Dreaming 与原生轨迹已有实现，PR #428 仍 OPEN、未合入。其 `memory-sources.ts` 按 `step/end` 形成 MemoryUnit，`dreaming.ts` 按单元生成 JSON 文件并要求逐项 finish；这是本轮替换对象，不是新方案。main `6b4213c20` 仍只有设计，不能拿 main 的旧代码断言新能力已交付。
 
 | 落点 | 当前职责与本次改动 |
 | --- | --- |
@@ -23,7 +25,7 @@
 - 仅 dsh-integration 使用 DSH 已声明公开 exports；PA、Channels、IM 不 import DSH。新增 `@deepseek-ai/dsh-fs` 或 observation policy 使用时须声明直接依赖，不能通过 pnpm 路径 import。
 - 长期主体为业务 `agentId`，库根绑定其配置 workspace；内部 child 继承所属主体，不按执行 cwd 或当前聊天对象换库。两个独立主体不共享可写记忆库；既有共享 workspace 在迁移前报告冲突，由部署确定各自 workspace，不暗中复制混合知识。
 - 文件是当前知识，运行账本只存游标、资格、版本、操作及回执，不存第二套事实。Task、授权、消息投递、Skill 各保留权威。
-- 只做设计，current specs 不变；迁移和真实产品验收尚未执行。
+- 本轮只修设计，main 的 current specs 不变；开发分支已有旧版实现与验收，不能沿用为本次新方案的验收结论，生产迁移不在本轮授权内。
 
 ### 可复用能力
 
@@ -45,23 +47,24 @@ feat-637 的完整当前文件读取、部分成功与知识归属要求继续�
 
 ## 架构总览
 
-主 Agent 在正常工作中读写角色化文档。Dreaming 是同一主体的低优先级维护作业：宿主导出合格的连续历史前缀，模型在暂存区整理，宿主按版本应用，最后确认实际处理进度。旧模式只作为文件配置选择的临时回退。
+主 Agent 在正常工作中及时读写角色化文档；后台沿用同一 Dreaming 调度。Global 的跨聊天交流经过来源识别、去重和过滤后，保留原文进入整理；第一层任务子执行先生成可独立阅读的任务复盘。一个后台整理 Agent 综合这两路材料和已有记忆，更新同一长期主体的文档库。
 
 ```mermaid
-flowchart LR
-  C[主体文件配置] --> O[KnowledgeRuntime 生命周期]
-  R[可信根会话与已接收结果] --> S[只读增量适配]
-  S --> D[受限 Dreaming 会话]
-  D --> P[暂存修改及完成声明]
-  P --> A[版本复核与逐文件应用]
-  A --> M[当前 Markdown 文档库]
-  M --> F[主 Agent 与所属子执行的记忆消费]
-  O --> D
-  A --> W[既有 Work 回执]
-  C --> L[临时 legacy Memory 与旧复盘]
+flowchart TD
+  G[Global 持久历史：跨聊天、跨窗口] --> F[确定性过滤与连续分批：保留交流原文]
+  A[第一层任务子执行：跨窗口历史] --> X[过滤与预算选择] --> S[单会话复盘：更新后重新提炼并替换]
+  C[更深层子执行] -->|结果与证据交回所属任务| A
+  F --> D[一个受限后台整理 Agent]
+  S --> D
+  M[同一主体的当前文档记忆] --> D
+  D --> P[暂存修改与批次完成声明]
+  P --> V[版本与来源复核、实际应用、进度提交]
+  V --> M
+  V --> W[既有 Work 与原生维护轨迹]
+  I[前台明确事实与纠正] --> M
 ```
 
-`document` 与 `legacy` 互斥；图中的两条路径不会同时消费/写入一个主体的记忆。业务历史保留在原持久化系统，导出材料仅是本次维护输入。
+这里的“Global 原文直接整理”由后台完成，不让服务用户的 Global 停下来整理。提炼者只输出任务经历，不写长期记忆；整理者负责跨经历理解。没有第二套 Task、按窗口摘要或逐层递归摘要。普通非 Global 根也沿可信主体绑定使用根原文路径；只有其真实第一层任务 child 走提炼路径，独立专家不因另一个主体提到它而并入私人库。document 与 legacy 的互斥、目录和前台消费规则保持。
 
 ## 关键决策
 
@@ -69,7 +72,7 @@ flowchart LR
 2. **临时保留旧模式，但只由文件配置选择。** 新 `knowledge.memoryMode: document | legacy`，缺省 document；`knowledge.legacyMemory` 保存旧自动开关和旧 interval。网页 API 不可写这些字段；网页保存其他设置不能覆盖或丢失文件值。document 不注册旧 `memory` 条目工具/旧 prompt/旧 Memory F3；legacy 不启动 Dreaming，新 `nano-memory` 文档指导也不注入。旧 Skill 选择始终独立。
 3. **新库路径保持附件约定，legacy 文件和不可变备份分开。** 新库仍为 `<workspace>/.nanoassistant/memory/`；旧可写库搬到 `.nanoassistant/memory-legacy/`，备份在 `.nanoassistant/memory-backups/<migration-id>/`。同一主体改模式不复制内容、不双向同步、不改变工具名单中的无关选择。新模式只给旧备份导航，需用户指令才读取导入。
 4. **先保证当前文档与下一步判断一致，再做后台提炼。** 常驻入口每次模型请求组装读取当前版本；正文变化使旧摘要失效。即时纠正由当前执行者完成，不等待 Dreaming。已在途请求无法撤销已经发生的动作；下一模型/工具边界刷新，并通过既有 child 消息链传递适用纠正。
-5. **持续历史用真实流位置，不用窗口号或最近 N 条。** 每根持久 session 独立游标，处理连续、完整配对前缀；已接回的 child 报告属于根经历，细节仅按可信后代关系回查。根换窗不重置游标；根更换保留旧流及其积压。
+5. **Global 原文连续分批，第一层子会话按 Codex 方式重新提炼。** 根流用持久位置从上次成功处向前处理，不因预算丢弃旧交流。第一层 child 有更新时重新选择截至批次边界的会话历史并替换同一摘要，无更新复用；不采用增量阶段复盘。换窗不重置根流进度或 child 身份，更深层只经所属任务提供结果与必要证据。
 6. **Dreaming 用空上下文受限会话，不继承父 prompt。** 只给角色、短指导、按需 Skill、显式源文件和当前记忆。无 Inbox、消息发送、业务写入、调度、联网、shell、插件及 subagent 工具；这只限制维护执行，不改变普通子 Agent 能力，也不宣称是 OS 沙箱。
 7. **不为此次改造增加大型记忆 UI 或泛化任务框架。** 替换记忆设置项并移除技能创建开关，详细处理范围、变更、延期和失败用现有 Work/轨迹文本与工具回执呈现。采用单一 M1，内部按“文件消费→历史与维护→真栈行为”顺序验证；这些部分共享配置和生命周期，不作无意义并行切片。
 8. **先暂停后台 Skill 自进化，保留任务中的创建能力。** 原方案要求独立 Skill 维护保持，用户本轮提出调整：新 Memory 承接经验、偏好、项目环境与反馈，成熟可复用方法才提升成 Skill。停止宿主自动 Skill fork（F3、combined 中的 Skill 和 F4），也暂停自动归档扫描；不删除旧 Skill、统计或历史。移除 `skill_creation` Feature 及其网页/iOS开关；skill-creator 改为内置默认指导，不要求选择。`skill_manage` 实际操作仍遵守既有工具权限，不再以旧 Feature 订阅后台复盘。迁移 Codex 现有 `skill-creator` 为产品内置 Skill，由普通 Agent 按当前任务需要加载；它与历史 JSONL 专用的 conversation-skill-distiller 分工，不强制每次完成任务都生成 Skill。原自动代码暂留未接线；旧记忆及自动复盘机制对用户不可见，不新增网页说明、状态卡或重开开关，恢复后台策略另行设计。旧记忆仅保留前述文件级回退，不误删历史结果。
@@ -147,23 +150,68 @@ Git 是库内独立仓库，无 remote、无自动 push，祖先业务仓库本�
 
 **Before/After 示例**：旧模式在同一窗口继续看到“默认公开汇报”；新模式用户改为“只在私聊汇报”后，下一次组装显示当前条件，失效提醒指向偏好页，原执行者在相同任务中修正投递对象。记忆只提供偏好，真实发送仍需现有授权与披露审查。
 
-### 4. 有界源适配与来源资格
+### 4. 两路取材与跨窗口边界
 
-MemorySources 私有入口 `freeze(agentId, cursors, limits) -> FrozenBatch`。输入 agentId 来自宿主绑定，模型不能给任意 agentId/sessionId 查询。使用长期主体的现有 roots/bindings registry，登记本主体所有根流，不按 cwd 搜全盘会话。依次初次 `sessions.flush(live)` → `observeSession` 固定不可变 cut → 对该 live session 再次 `sessions.flush` 认证观察 cut → 复制 cut 内预算允许的 own-event 范围和必要身份 → dispose。第二次屏障前先保存 observation 的 cursor 和事件范围，不在屏障后读取更新的 live 数组；无法取得 live handle 或第二次 flush 失败，本 cut 不作为持久输入、不能推进游标。cold/prepared observation 使用其持久 revision。直接沿用 DescendantReader 的公开 API 认证顺序，不锁住前台整轮，不持有全部会话数组。
+#### 4.1 宿主持久历史与职责
 
-`FrozenBatch` 包含 runId、每流 start/exclusive 和 through/inclusive、启用基线、源资格版本、单元 ID、实际覆盖/过滤/待处理范围及文件基线。安全上界取已落盘且模型请求、tool/call-result 配对完成的 step 边界；不要求 turn/session 结束。未完成调用留在上界后；失败工具的已完成 result 仍是合格材料。冻结后的新事件留给下轮。
+继续由 dsh-integration 内的 MemorySources 负责来源认证、冻结、确定性投影和定位；Dreaming 负责调度、提炼、整理及回执；MemoryDocuments 负责当前库、暂存应用和版本保护。PA 只同步来源资格，IM 只消费既有 Work 结果，不引入 DSH 依赖。
 
-| 来源 | 采用与去重 |
+复用 `sessions.flush`、`sessionQuery.observeSession` 和原生 subagentCatalog 的公开能力：live 源先 flush，再取得不可变 observation/cursor，第二次 flush 认证同一个 cut，逐流复制后释放；cold 源使用持久 revision。无法认证则记录该源受阻，不假报读完。源发现从本主体 roots/bindings 及可信 direct-child 关系出发，不按 cwd 扫盘。child 必须验证 parentSession 与 origin；维护执行、未知身份、其他主体不入选。
+
+现有 `DescendantReader` 的原生 catalog/归属校验可复用，但不得直接全量递归导出所有后代。适配应只选 depth=1 的业务 child；无需新注册表或平行身份目录。child 后续运行即使没有新报告到达 Global，也根据其持久 own-event 版本发现更新。更深层不独立创建记忆摘要；已交回第一层的报告和关键工具证据归入所属任务，必要回查仅限该任务可信后代。
+
+默认无摘要换窗保留原始事件。根与 child 都跨窗口读取持久历史；窗口只是定位信息，不能作为摘要单位。inheritedEventCount 前缀不计 child 的新证据。notes、压缩摘要和历史重读只作来源导航；原记录缺失时明确缺口，不能用恢复笔记冒充完整经历。
+
+#### 4.2 Global：连续原文、固定目标、逐批提交
+
+宿主在一次 Dreaming 触发时固定本轮目标 `CycleTarget`：每根流的持久安全上界、当时可发现的第一层 child 上界及来源资格 generation。新的根/child 或目标之后新增事件留给下一轮。批次以内容预算和完整交互边界决定，不固定 500 条、不按 LLM step 建文件；每根流从已提交位置之后向前，轮转避免多根饥饿。工具 call/result 配对边界仍用于宿主安全切分，不暴露为模型逐项交账协议。
+
+例如已处理到 500，本轮固定到 1500：
+
+```text
+501～1000 的交流原文 + 截至该批边界的子会话摘要 + 当前记忆
+  → 整理、保存成功 → 提交到 1000
+1001～1500 的交流原文 + 更新的子会话摘要 + 第一批后的记忆
+  → 整理、保存成功 → 提交到 1500
+```
+
+这只是历史范围等价于较早触发，不倒退真实当前记忆；前台已保存的较新纠正始终有效。第一批后，资源与本轮总预算允许就继续第二批，不再等下一个 24h 周期。达到总时限/步数、资源延期或失败时持久保留目标和剩余范围，下次继续；不越过失败前缀。全部完成后更新自动周期成功时间。无值得长期记忆的信息也允许成功提交空修改。
+
+一问一答、纠正及回应尽量同批；跨批需要的前文按预算附带并标为背景，不重新计进度。单条真人长消息不能因过长截掉中间：按自然段/Unicode 字符边界续读，宿主保存 messageId、正文 hash 与字符偏移；模型看到可读正文和“同一消息未完/续段”，不拼 JSON 字符串。未到末段不把整条消息记为完成；后续结合先前已保存记忆继续，完整原文可回查。巨大普通工具输出可选关键正文及状态、完整引用和未展开说明。
+
+#### 4.3 第一层子会话：有更新重新提炼，替换旧摘要
+
+采用 Codex V2 的会话级策略。缓存键为 `(agentId, childSessionId)`，源版本由冻结的 own-event 上界、内容/revision 与来源 generation 确定，不按窗口或每次唤起新建任务。首次读取启用基线之后的合格 own-history：启用时已存在 child 按根启用 cut 的事件时间记录其安全位置，启用后新建 child 从 own-history 起点开始；不能在首次发现它时把当时尾部当基线而跳过新经历。后续更新时重新从同一基线到本次上界选择历史，生成完整的新复盘，并替换同一来源的旧版。没有变化就复用。**不只总结上次之后的尾巴，不将旧摘要作为提炼正文，不增加按阶段永久累积的摘要链。**
+
+按 Codex 思路对 child 做有取舍的预算选择：优先保留真实请求、限制、纠正和最终答复，其次任务行动/结果，普通工具细节可裁剪；同级优先近期，恢复原始时间顺序交给模型。请求及对应结果尽量成组；不得把他人/Agent 消息升格为真人。模型看到缺口/省略提示，摘要记录未验证和局限，不能宣称全历史完整审计。沿现有 maxInputTokens 预算选择，不照抄 Codex 的文件字节常量或空闲 6h 调度。
+
+提炼在空 seed 的受限维护 AgentHandle 中执行，历史材料直接装入请求；不让模型逐 step read。保留 Codex 输出契约 `rollout_summary` 与 `rollout_slug` 两个字符串（通过受限完成接口返回）；两者为空表示无保留价值，不能当模型失败或继续沿用旧摘要。宿主记录该源版本 no_signal，并将旧摘要退役/通知整理者核对仍由其他证据支持的知识，不能机械删除所有关联正文。非空 `rollout_summary` 是 Markdown，宿主保存身份、范围、版本、hash 和来源，模型无需填写逐事件覆盖表。复盘描述目标、约束及变化、实际尝试/结果、失败教训、适用条件、未完成/未知；不强制写用户画像，不默认偏向开发任务。提炼工具不具备长期库写入、消息发送或业务动作权限。
+
+**批次时间边界**：第一批 Global 到 G1000 时，A 的摘要只能使用对应边界以前的合格历史；第二批到 G1500 再重提炼 A。宿主以已认证事件的 `time` 和每流 seq 固定 child cut，取不晚于所属根本批截止时间、且不超过 CycleTarget 的连续配对前缀；seq 决定流内顺序，时间仅限制跨流上界，不用整理运行的当前时钟替代。原生 `SessionEvent.time` 已在锁定 DSH 公开类型声明。原生关系、事件时间或配对不足以证明边界时，该 child 保留待提炼与原因，不把其未来结果塞进旧批。同一毫秒不声称跨流全序，保留交办/汇报关联。
+
+当 Global 无新增而 child 有更新时，可运行“根增量为空 + 更新摘要”的整理批次，child cutoff 为本轮冻结上界；不必等待又一条 Global 消息。提炼失败不阻塞无关 Global 原文；本批明示缺失/过时摘要，child 版本继续待办，不能拿旧摘要冒充本次新结果。已提炼成功而整理失败，重试复用相同源版本的摘要。
+
+#### 4.4 来源过滤与单一整理者
+
+| 材料 | 两路共有的来源处理及 Global 特别规则 |
 | --- | --- |
-| 普通用户消息、已消费 Inbox 消息/观察 | 从真实持久 event/tool result 提取作者、会话、messageId、原文及参与/观察身份；仅已交给本主体且通过准入的内容，绝不替主 Inbox 消费 |
-| 实际外发、工具错误/验证/回执 | 保存原始 call/result 关联；助手私有草稿只作自述，成功以真实回执为准；`surfaceOp=replace` 是同一结果的上下文替换，不产生第二次执行证据 |
-| child 已回传报告 | 以根已接收报告为入口；报告和同一后代原结果关联，只算一次证据。必要细节用已验证 descendant 关系查询，不能列出其他主体 |
-| 继承前缀、换窗摘要、notes | inheritedEventCount 前缀不计新证据；摘要/notes 仅导航原始来源，不当独立事实 |
-| 系统、工具 schema、注入记忆、维护输入/输出、reasoning、纯唤醒 | 确定性过滤，记录数量；不递归学习自己的整理 |
+| 真人消息、纠正与反馈 | 保留原文、实际作者、聊天、时间、messageId、回复关系、participant/observer 身份；Global 不先做语义概括 |
+| Inbox / conversations 返回 | 展开为真实消息，按 `(conversationId, messageId, revision/contentHash)` 去重；工具载体不降低真人消息优先级；只含已合法交给本主体的资料，不领取新 Inbox |
+| 实际外发与未发送草稿 | 保留发送正文及真实回执；accepted/失败/未知不等于送达，普通 assistant 文本标为自述，不能当成交付 |
+| Global 与 child 的交办/讨论/采纳 | 保留交互原文与对应身份；任务执行细节由该 child 复盘承载，报告和原结果不是两份独立证据 |
+| 普通工具动作 | 保留必要参数、结果状态、关键证据及原始定位；重复日志/大正文可缩减，省略范围明确。`surfaceOp=replace` 不成为第二次执行 |
+| 更深层结果 | 归属第一层任务；不独立摘要，不以局部成功推断整体交付；回查仍验证后代/来源资格 |
+| 系统提示、工具 schema、reasoning、重复 Skill 正文、预算提醒、纯唤醒 | 从经历中排除，不重复学习指令 |
+| 旧记忆、维护输入/输出、换窗 notes、历史重读、fork 继承前缀 | 不当作新经历/独立证据；可以提供导航，但不递归总结自己的结论 |
+| 图片/附件 | 保留真实来源和模型实际可读取的内容/已有观察；只见引用时标未读取，不捏造视觉内容 |
 
-持久事件主键 `(agentId, sessionId, seq)`；IM 内容另以 `(conversationId, messageId, revision)` 合并重复出现。已有消息没有统一 edit API，本 unit 不新增聊天编辑功能：适配真实源已有 revision；无 revision 时用已获准再次读到的规范正文/作者内容 hash 表示观察版本，原 transport 的同 identity 异内容仍维持冲突拒绝。用户追加纠正是新消息、新来源。S11 机制测试使用同消息不同观察版本，模型验收使用实际支持的追加纠正路径，不虚称当前产品支持原地编辑。
+已有聊天观察版本沿真实 revision 或规范正文/作者 hash；不新增 IM 编辑功能。后来的纠正是新证据，按其适用范围更新；协议 role=user、引用“主人批准”或子执行声称成功均不改变可信身份与权限。
 
-输入页按完整语义单元连续分配，单个大结果可分页，但未读完不能标该单元完成。首版每主体一次一批、各流轮转公平取前缀；不做重要性跳读，不需要稀疏游标。每项保留完整原引用，读不到关键证据则明确 blocked/partial，不能越过其游标。
+整理 Agent 直接获得本批 Global 可读原文、任务摘要变更目录（新增/替换/失效）、当前记忆入口与正文导航。新增/更新摘要在总预算内直接提供，超量摘要延后到下一批，不能因没装下而标为已整合；未变化的摘要按需读。两路材料共用输入预算并为当前记忆/输出留余量，摘要提炼请求有各自输入上限，所有调用共享本轮时长/步数预算。
+
+整理默认关注用户背景与变化、人物关系、交流反馈、事项优先级，也综合任务方法、环境、实际成果和失败经验。两类关注是侧重点，不分成隔离知识库。一次选择不升级为永久偏好；明确表达、特定情境与待验证推断分开。后来真人否定可纠正 child 的成功判断；历史授权/待办不能复活暂停 Task 或扩大行动权限。
+
+必要回查通过维护只读 `read_source(sourceRef, range)` 适配提供。ref 必须来自本轮/本主体已登记材料；宿主验证原范围、祖先链与当前资格，返回有界可读原文和续读位置，不接受任意 sessionId/path。Global 背景可以回查已处理历史，不能提前读取本轮未来事件；child 只回查本批 cutoff 内的相关证据。此处是 Nano 的显式适配：Codex V2 整理提示禁止回读原始 rollout，我们为跨批关系保留受控回查，不冒称完全照搬。普通会话工具权限不因维护工具扩张。
 
 **来源资格从权威政策同步，不从未读 Inbox 推断。** PA 的 `refreshPersonalSources` 取得完整 `pa.sources.list` 成功快照（revision、allowed/excluded IDs）后，先经现有 Node–runtime RPC 增加内部 `knowledge.sources.sync`，持久化本主体资格 generation，再清理 Inbox 缓存；同步范围包含历史导出登记的所有 source IDs，不限 `inbox.check().sources`。有资格快照时，已知来源不在允许集合或明确 excluded 即被撤销。成功的 `personal_sources` exclude/include 操作、`policy.changed/source.revoked/membership_changed` 事件、节点启动/重连及每次 Dreaming freeze/apply 前均走同一权威刷新；RPC 失败不确认政策事件处理完成、不回报已完整应用。每主体串行刷新，policy revision 加完整 allowed/excluded 集合 hash 作为快照身份；只有实际资格变化才推进 generation，不能仅按 policy revision 忽略同版本的成员变化。重连相同快照重放幂等。内存消费和 Dreaming 的来源状态在恢复同步前标为待核对，不冒用上次 allow；不阻断不依赖这些来源的普通问答。普通专家的本地文件经历仍由主体归属控制；宿主支持的外部源撤销通过相同内部同步入口传递，不能把 PA 专用来源策略暗套所有本地材料。
 
@@ -180,40 +228,65 @@ MemorySources 私有入口 `freeze(agentId, cursors, limits) -> FrozenBatch`。�
 - `checkpoint`：登记当前普通文档编辑的已保存结果、来源资格核对 generation 及入口 basis；核对真实 read/write 记录和文件 hash，不能替未读正文背书。
 - `exclude`：登记用户明确停止使用/撤回所指的 docId/sourceRef 与原请求引用；不删除原聊天、备份或 Git 历史，不产生业务授权。后续恢复使用须新的明确用户请求，不从旧材料自行解除。
 
-`run/exclude` 只接受现有请求授权链可证明的主体请求，不把模型提供的“用户同意”字符串当证据；后台维护会话只有一个私有 `finish` 工具，不能调用这些控制操作。工具与 Skill 的声明应精确解释何时用、输出含义和失败后下一步，不宣传不存在的全库语义检索。
+`run/exclude` 只接受现有请求授权链可证明的主体请求，不把模型提供的“用户同意”字符串当证据；后台提炼/整理会话不注册这些业务维护控制操作；各自只有本节定义的受限文件/来源读取和私有完成接口。工具与 Skill 的声明应精确解释何时用、输出含义和失败后下一步，不宣传不存在的全库语义检索。
 
-state-domain 增加文档维护表，不复用旧 memory 迭代计数：
+state-domain 承载最小运行元信息；文件记忆仍是唯一当前知识，不再保留逐 step 的 reviewed 清单：
 
-| 记录 | 最小字段及责任 |
+| 记录 | 字段与职责 |
 | --- | --- |
-| 主体调度 | agentId、activationAt、每流 baseline/cursor、lastAttempt、lastSuccess、retryAt、自动暂停/模式由当前配置读取 |
-| 来源资格 | generation、权威 policy revision、已知 source IDs、撤销 refs、明确停止使用范围及请求引用、文档待核对 path/hash/generation；无事实正文副本 |
-| run | runId、mode=automatic/manual、parent/session binding、frozen ranges、input/read coverage、file plan、exclusion generation、state、applied operations、Git receipt、未完成原因 |
+| 主体调度/根流进度 | agentId、activationAt、每流 baseline/cursor、长消息续读位置、固定 CycleTarget、lastAttempt/lastSuccessAutomatic/retryAt；自动开关沿当前配置 |
+| child 提炼结果 | childSessionId、可信 root、启用基线、sourceVersion/cut、摘要路径/hash、源引用/资格 generation、提炼状态与失败原因；同一 child 只有一个当前有效摘要 |
+| 已整合摘要版本 | 每个 child 的最后成功整合 sourceVersion；提炼成功不等于已进入长期记忆 |
+| 来源资格 | 沿已有 generation、policy revision、allowed/excluded、明确停止使用范围与文档待核对状态；新增摘要服从同一失效机制 |
+| 整理批次 | runId/cycleId、Global 范围与必要字符位置、使用的确切摘要版本、输入投影 hash/省略说明、文件基线、计划/操作回执、结果及剩余范围 |
 
-run 状态为 `prepared → running → applying → completed | partial | failed | cancelled`。`completed` 必须覆盖声明前缀、完成所有该前缀所需文件操作和入口同步；Git 单独记录 pending/recorded/failed。非知识噪声可确定性跳过；合格内容是否值得保存由模型判断。`finish` 必须逐单元给出 reviewed/no_change 或关联输出计划；宿主验证输入实际完整读取、无遗漏、所有依赖操作已成功，不推断 LLM 内心“理解正确”。理解与提炼质量由真实模型验收覆盖。
+`memory_maintenance status` 区分 Global 待整理、child 待提炼/已提炼待整合、受阻原因；一个来源 pending=false 不代表全局无积压。来源变更时受影响摘要立即失效；无法从来源引用确定影响范围时使本主体摘要缓存待核对。重新有资格也不自动解除用户停止使用意图。失效摘要不能被读取用于恢复旧结论，先从当前合格原始历史重提炼；长期记忆清理继续使用前述普通执行者路径。
+
+run 仍采用 `prepared → running → applying → completed | partial | failed | cancelled`。私有 `finish` 简化为一次批次完成声明（可带无变化说明），不含逐 step/逐单元 reviewed/no_change/outputs 数组。宿主从 staging diff 生成文件计划，并校验实际读取的待改原文件版本、路径与实际写入；初始直接注入的材料由请求构建和输入 hash 证明交付，不用虚构 read 调用证明模型理解。回查结果记录真实返回范围。模型结束、提炼成功、记忆保存成功和本轮全部完成分别记录；语义正确性靠模型行为验收，不以“核对 N 个单元”代替。
 
 ### 6. 调度、执行与可恢复应用
 
-自动条件：document、dreaming=true、主体未暂停/停用、同主体无在途维护、距最近成功自动批次默认 24h、有合格增量。优先安静 10 分钟；持续忙碌也可在已完成 step 的持久安全上界开始，维护用独立原生 AgentHandle 和低优先级资源准入，不占根 `runMaintenance` 整段锁。共享 provider 没有空余容量则延期，不能以高优先级抢占前台。初次起点按部署/新建时流 cursor 固定，第一次到期为 activationAt+interval；无增量不调用模型。失败退避 5m/30m/2h 后最多每 2h 尝试，lastAttempt 不等于 lastSuccess。
+沿用 document、dreaming=true、主体未暂停/停用、单主体维护排他、默认 24h 到期与安静 10 分钟优先、前台资源优先以及 5m/30m/2h 重试退避。持续忙碌时可对已持久安全范围工作，不锁住业务根整轮。手动运行不等自动周期，也不更改自动成功时间。无根增量、无待更新/待整合 child、无恢复工作时不调模型。每轮只冻结一次目标；资源允许连续处理至该目标，达到 maxRunMs/maxSteps 就让出资源并保存续接，不自建另一套定时器或无限循环。
 
-关闭自动 Dreaming：立刻停止新自动准入，取消尚在推理的自动 run；已经开始单文件原子写入则等其实际回执，再停止剩余操作并记 partial/cancelled。重新开启保留原 cursor，关闭期间本主体已合法处理的经历成为待整理增量；模式从 legacy 首次转 document 初始化新流基线，之后往返保留 document 的既有基线和进度，不重扫所有历史。手动运行不等自动周期且不改变 lastSuccessAutomatic，仍遵守同主体排他、预算和所有权限。
+执行顺序：
 
-运行步骤：
+1. 来源资格刷新、认证 CycleTarget，生成当前有界批次及 child cutoff。按需要提炼更新 child；保存提炼结果后才标 sourceVersion 成功。每次提炼失败保留旧版为历史而非当前结果，并保留未完成项。
+2. 在 `.nanoassistant/maintenance/dreaming/<runId>/` 保存 manifest、可读 `input.md`、只读摘要快照与 staging（0700/0600）。原文按交流段落组织，少数页面只由预算决定；不再生成 `input/0.json` 等逐 step 文件或 `source_text_chunks/source_json_page`。材料直接进入模型请求，manifest 为宿主审计用途，不要求模型拼接或填表。
+3. 用空 seed 创建受限整理 AgentHandle，给角色、短指导、按需 nano-memory、显式历史数据、当前记忆入口和工具。工具仅能读本批材料/摘要及本主体记忆、受控 read_source、写 staging、finish；没有 Inbox、外发、shell、联网、业务、调度、Skill 发布或 subagent。提炼与整理均不继承父 prompt，不作为业务 child 再次被扫描。
+4. 模型读相关当前正文，先改正文再入口；finish 后宿主持久化计划与 operationId（runId+path+afterHash）。应用前复核来源 generation、模式/取消、文件版本及真实路径，按既有公开 fs 原子 compare-and-write 逐文件应用。锁只覆盖短提交，不跨 LLM 调用；冲突可重新整理一次，仍冲突则延期，不覆盖前台更正。
+5. 所有本批依赖文件/入口成功后持久化完成回执，再同时提交本批根位置与实际已整合的 child 版本；空修改也可提交。Git 单独记录 saved/versionRecorded，不用提交失败回滚已保存正文。提炼失败/超预算未选的 child 不被该回执消费。
+6. 下一批以当前记忆继续，使用后续 Global 原文和截至新边界的 child 更新摘要；本轮达到冻结目标且所有候选处理/过滤/明确无信号完成，才记自动轮次成功。受阻项保持待办和退避；运行中新增材料留到下轮。
 
-1. 生成受保护的 `.nanoassistant/maintenance/dreaming/<runId>/manifest.json` 和 input 分页（0600 文件、0700 目录）；先持久化 prepared。复制当前文档基线到 staging，保存各目标 hash。
-2. 用 DSH 空 seed create，专属 setup 仅挂载模型路由、文件工具、固定记忆指导/Skill、私有 finish。维护文件读只允许本次 input、staging 和所选当前记忆；写只允许 staging。真实路径、符号链接及非存在目标父路径检查在执行 guard 中完成，无 shell 可以绕过它。
-3. 模型读取输入、当前主题，提出普通文档修改；先正文/历史、最后入口。finish 提交覆盖与每项处理结果；超时/步数/预算终止没有 finish 不能当成功。
-4. 宿主持久化计划与 operationId（runId+相对路径+目标 hash），重新核对来源资格、每文件基线、scope 和模式，使用公开 fs 原子版本写入。短应用锁不跨 LLM 请求。后台冲突至多重新读取整理一次；仍冲突则 partial，留在后续处理。
-5. 每个文件写前保存意图，写后保存真实 hash/回执；入口最后应用；checkpoint 的资格 generation 过期则拒绝恢复该页有效性。全部依赖完成后持久化可重入完成记录，再推进连续游标。无变化但完整 reviewed 的前缀同样可推进。
-6. 重启时 pending run 按意图和磁盘核对：等于 before 可重试、等于 after 记已应用、两者都不是则冲突；绝不覆盖第三个版本。正文已成功而入口未完成时保留正文、抑制旧入口摘要，补剩余操作。直到所有本批依赖成功才推进该前缀；重跑复用原计划/操作 ID，不再次生成同义日记段落。
+崩溃恢复继续复用既有 operationId 与 before/after hash 规则：等于 before 可重试、等于 after 记已应用、第三版本视为冲突。完成回执先于进度提交，恢复仅补元信息，不重复模型/追加日记；正文已保存、入口未完成则抑制旧入口并补剩余操作。模型尚未 finish 的批次不提交；重试可以重新理解原材料，但不得重复已成功应用的部分。来源撤销时取消未应用计划，保留真实成功回执，不能重放旧摘要。
 
-大输入按批预算分段，不跳过尾项。已读但未完成部分保留；日志明确“本批完成”与“全部历史完成”不同。活跃及未恢复 run 材料不清理；完成 run 原始输入默认保留 7 天，随后清除输入/staging，仅保留范围、hash、回执和已存在的原始源引用；失败 run 处理后同样进入保留周期。清理不删除 memory、legacy、备份或原 DSH 历史。
+每个批次固定摘要快照，后续替换 child 当前摘要不改变该批输入；单主体串行避免维护写者相互覆盖。活动和待恢复 run 的材料不清理；完成 run 的 input/staging/旧快照按既有 7 天保留周期清理，保留范围、版本、hash、回执及原始来源定位。child 当前有效摘要作为可再生成缓存保留，不随某 run 的 7 天清理删除；源失效后禁止消费，重新提炼时替换。原始 DSH 历史和文档记忆不因缓存清理删除。
 
-### 7. 工作记录与可观察结果
+关闭 Dreaming 取消未应用的自动工作、保留已保存内容及根/child 两路进度；重新开启继续积压。legacy 往返和普通前台记忆沿既有规则，不双写。此次不为已经部署的旧 Dreaming 状态新增长期兼容读取器；升级已有 document 实例的一次性处理见部署提示。
 
-扩展现有维护 trajectory registration 接受宿主创建的 AgentHandle 身份与结果，保留 parentSessionId 可信绑定；不伪造 subagent catalog、不新增永久 IM 员工。KnowledgeUpdates 同步 session_linked 与维护回执，Work 仍从当前授权根访问关联执行。
+### 7. 模型可见输入与工作结果
 
-最终呈现由宿主回执生成，例如：“已核对 18/24 个单元；保存 2 页；入口待同步（并发更正）；剩余 6 个单元；内容已保存，版本记录失败。”该文本作为现有 Work 的维护结果投影显示，区别模型草稿；真实 run 失败不能以 private assistant final 覆盖。详情保留源范围和路径，前台不强制用户理解 eventSeq。自动普通完成只更新 Work，不发 node.system_message、不增加新用户待办。legacy 的旧通知行为仅在 legacy 模式保留，Skill 通知不被顺手删除。
+消费者分别为任务提炼 Agent、一个记忆整理 Agent、后续读取当前文档的前台 root/child。生命周期是“持久来源 → 资格/过滤 → 本批原文或 child 重提炼 → 显式请求 → 暂存/应用 → 新版记忆注入”，窗口恢复不改变来源身份、版本和授权。
+
+Before：几十个 step JSON、长字符串碎片、逐项 finish 清单占用模型阅读与工具预算。
+
+After（示意内容，不是写死的产品任务）：
+
+```text
+本批交流（原文；聊天、作者、时间、来源清楚）
+用户：预算改为 5000，但住宿仍然要能免费取消。
+助手实际发送：已按新预算调整，尚未预订。[送达回执]
+
+任务 A 摘要已替换（同一 child；截至本批边界）
+目标是准备出行方案。前一方案被用户否定后重新比较；
+筛出两个可取消方案，尚未付款。工具返回不证明已预订。
+
+已有记忆：MEMORY.md + 相关页导航
+本批未完成：任务 B 提炼失败，保留待处理；不要推断 B 的结果。
+```
+
+第一次整理 A v1 后，同一 A 继续执行，下一批重提炼得 A v2；整理看到“替换”而非新任务。没有新内容时不重复提炼或按多个摘要重复增强同一证据。既有记忆即使来源摘要本轮未入选，也不因缺席被删除；真正撤销/修订按来源变化处理。
+
+Work 沿现有轨迹注册、可信父绑定与授权展示。两阶段实际模型会话均登记维护身份及用途，重启后能从运行记录回溯，不伪造 subagent descriptor 或永久员工。宿主生成可读结果，例如：“本批交流已整理；更新 2 份任务复盘，另 1 份待重试；保存 2 页，入口待同步；剩余交流待继续。内容已保存，版本记录失败。”详细流位置只在详情；不再声称“核对了 18/24 个 step”。普通成功只更新 Work，不发聊天通知、不制造新待办。轨迹可见并不表示记忆语义已通过验收。
 
 ## 前端原型
 
@@ -244,7 +317,7 @@ iOS 只替换同一配置数据/文案并隐藏旧项，沿用原生已有列表
 
 ## 风险与回退
 
-- 语义理解必须真实模型验证；完整读取和成功写盘只能证明机制。模型未理解例外、把观察当指令或未采用纠正均判失败，不用多跑择优掩盖。
+- 语义理解必须真实模型验证；材料交付、版本与成功写盘只能证明机制。模型未理解例外、把观察当指令或未采用纠正均判失败，不用多跑择优掩盖。
 - 文件可被人工任意编辑，Git/普通文件不是事务；版本核对与部分回执是硬边界，不宣称 shell 或外部进程受本机制的 OS 隔离。
 - 持续历史可能大：逐流释放 observation、限制输入和执行预算；源缺失保留缺口。不新建向量库、全局语义依赖图或第二套历史存储。
 - legacy 是临时回退，不长期增强；切换不会自动同步两库，回退后只能消费 legacy 当时内容。停用新后台可先关闭 Dreaming，保留 document 主路径。明确问题需要回退模式时改文件并保留新库与进度，后续可切回。
@@ -265,12 +338,84 @@ iOS 只替换同一配置数据/文案并隐藏旧项，沿用原生已有列表
 
 **Review 驱动方式**：端到端真栈，Web 真实操作 Dreaming 开关、保存/恢复、发送记住/纠正/导入请求、查看 Work；其余批量宿主故障场景可用 Web 调用的相同接口和 recording provider 驱动。模型理解必须 daily 真实模型，不用 fixture 回复替代。iOS 无特有交互目标，按上述范围编译/契约验证。
 
-**验收前置**：daily 已有测试主人、PA、E 专家和 P/Q 合作对象；只用合成偏好、同名人物、限制、失败结果、旧文件。模型凭据来自本机 dev-host 配置，启动检查仅说明资源可用，验收仍需一轮实际响应。无需外部账号/第三方写入/私有生产聊天。时间相关确定性测试注入时钟；真栈在隔离配置缩短 interval/quiet，报告实际值。原始模型请求和回执留本地受保护证据，提交只含去敏定位与结论。
+**验收前置**：daily 已有测试主人、PA、E 专家和 P/Q 合作对象；只用合成偏好、同名人物、限制、失败结果、旧文件。模型凭据来自本机 dev-host 配置，启动检查仅说明资源可用，验收仍需一轮实际响应。无需外部账号/第三方写入/私有生产聊天。时间相关确定性测试注入时钟；真栈在隔离配置缩短 interval/quiet，报告实际值。原始模型请求和回执留本地受保护证据，提交只含去敏定位与结论。新输入链需捕获提炼请求、整理请求、child v1/v2 与后续真实回复，分别检查来源过滤、事实纠正和实际采用。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 | --- | --- | --- | --- | --- | --- |
-| M1 | 角色记忆与持续整理闭环 | 无 | 单线 | dsh-integration 的记忆/配置/历史/轨迹，product-contracts，PA 资格与 Work，Node 文件配置，IM 配置及 Web/iOS 最小呈现，相关测试和 delta | [reviewer] R1：S01–S04、S08–S09，PA/专家不同受众、例外/反例、空库、实际结果正确消费；R2：S05–S07，当前会话及原 child 纠正、人工保存及时生效；R3：S10–S12，同根跨窗、持续忙碌、去重及实际结果；R4：S13–S18、S20，并发、失败/重启、停止使用、真实部分状态、普通成功安静；R5：S17/S19，新建/现有默认新模式与 Dreaming，网页无记忆总开关，关闭后仍即时记忆，文件切 legacy/切回且无双写，自然语言导入旧备份，旧机制/自动复盘不可见，skill-creator内置无需选择且正常任务可创建 Skill，原型两项 UI must-match 与 Work 信息语义成立。[worker] W1：native source adapter 的 live/cold/flush/配对/跨窗/继承去重/修订/预算机制确定性测试，首次 flush 后追加事件与二次认证失败/重启不推进；W2：原子文件冲突、Git失败、每个应用/游标崩溃点恢复；来源已全部消费并写正文/入口后排除，Dreaming关闭/重启/来源同步失败仍失效、原child与下一相关判断不采用，后续批次不复活；W3：调度注入时钟、无增量不调模型、关闭/暂停/资源延期/模式排他，skill-creator迁移/前台创建真实回执以及后台F3/F4/combined暂停回归；旧skill_creation=false、explicit_allowlist缺少及explicit_denylist含skill-creator时，升级/启动/保存合法且固定指导可发现/加载、UI无选择项，其他Skill选择及工具权限不变；W4：模型 request capture 核对主/子/维护 prompt、schema、角色、刷新、disabled tools和无递归来源，真实模型验证消费；W5：真实 Work 授权绑定/回执/通知不外发及刷新恢复；W6：Web 1280/390截图与原型对照、保存失败和生效状态，iOS编译/共享配置契约；W7：隔离旧数据副本迁移、重复执行/中断恢复/切回验证，逐一列 S01–S20 passed/failed/blocked/not_run，并完成相关构建、runtime dependency contract、docs-check。 |
+| M1 | 角色记忆与持续整理闭环 | 无 | 单线 | dsh-integration 的记忆/配置/历史/轨迹，product-contracts，PA 资格与 Work，Node 文件配置，IM 配置及 Web/iOS 最小呈现，相关测试和 delta | [reviewer] R1：S01–S04、S08–S09，PA/专家不同受众、例外/反例、空库、实际结果正确消费；R2：S05–S07，当前会话及原 child 纠正、人工保存及时生效；R3：S10–S12、S21–S23，同根跨窗、连续批次、多事项关系、任务续做/返工更新与深层归属；R4：S13–S18、S20、S24–S26，并发、失败/重启、停止使用、真实部分状态、普通成功安静；R5：S17/S19，新建/现有默认新模式与 Dreaming，网页无记忆总开关，关闭后仍即时记忆，文件切 legacy/切回且无双写，自然语言导入旧备份，旧机制/自动复盘不可见，skill-creator内置无需选择且正常任务可创建 Skill，原型两项 UI must-match 与 Work 信息语义成立。[worker] W1：native source adapter 的 live/cold/flush/配对/跨窗/继承去重/修订/预算机制确定性测试，首次 flush 后追加事件与二次认证失败/重启不推进；W2：原子文件冲突、Git失败、每个应用/游标崩溃点恢复；来源已全部消费并写正文/入口后排除，Dreaming关闭/重启/来源同步失败仍失效、原child与下一相关判断不采用，后续批次不复活；W3：调度注入时钟、无增量不调模型、关闭/暂停/资源延期/模式排他，skill-creator迁移/前台创建真实回执以及后台F3/F4/combined暂停回归；旧skill_creation=false、explicit_allowlist缺少及explicit_denylist含skill-creator时，升级/启动/保存合法且固定指导可发现/加载、UI无选择项，其他Skill选择及工具权限不变；W4：模型 request capture 核对主/子/维护 prompt、schema、角色、刷新、disabled tools和无递归来源，真实模型验证消费；W5：真实 Work 授权绑定/回执/通知不外发及刷新恢复；W6：Web 1280/390截图与原型对照、保存失败和生效状态，iOS编译/共享配置契约；W7：隔离旧数据副本迁移、重复执行/中断恢复/切回验证，逐一列 S01–S26 passed/failed/blocked/not_run，并完成相关构建、runtime dependency contract、docs-check。W8：Global 500→1000→1500 连续批次、运行中新输入、长真人消息续读、跨窗不重置与上下文边界测试；W9：child 同版本复用、更新后整份重提炼/替换、批次 cutoff、防未来泄漏、无 Global 新消息仍处理 child、深层不独立摘要；W10：两阶段失败恢复、摘要成功/整合失败复用、来源撤销/人工较新更正、预算选择与未展开标记、实际请求中的真人 Inbox 原文及草稿/送达区分；W11：替换逐 step JSON/finish 协议及 Work 旧计数，隔离副本验证旧 document 状态迁移，特别覆盖“根已推进而启用后 child 尚未汇报”的材料进入首次提炼请求、无启用前越界回溯、重复迁移不重置新进度；W12：逐段核对 Codex 原始 prompt/源码、Muse 原始说明、research-v2 角色内容规范与 Nano 适配 diff，覆盖 no_signal、真人/Agent 区分、单次请求与普遍偏好、早期未完成/被替代工作、授权证据缺失不等于无授权、敏感引用脱敏、摘要缺席与来源删除区别、后续纠正；提供实际组装请求及行为证据；同时覆盖用户目标变化、人物关系、一次沟通失配/后续改进与主动性条件落到现有 PA/专家文档并被后续回答正确采用。 |
 
-设计阶段只建立 M1 空骨架，未运行上述实现验收。实现测试入口应扩展 `packages/dsh-integration/tests/knowledge-*.test.ts`、PA 相关集成测试及 `tests/e2e/critical_paths/` 的真实栈入口；不要只保存一份场景 Markdown。真实模型理解轨使用 daily 和单独命令/筛选，结果中与确定性机制轨分列。
+main 保留一个 M1 骨架；开发分支已有上一版 M1 报告，本轮不覆盖其历史，也不声称新链路已验收。实施接手先合入本版设计并使受影响旧 gate 失效，完成新退出标准后重新交付。实现测试入口应扩展 `packages/dsh-integration/tests/{memory-sources,dreaming-runtime,dreaming-scheduling,dreaming-recovery,memory-child-runtime}.test.ts`、PA 相关集成测试及 `tests/e2e/critical_paths/` 的真实栈入口；不要只保存一份场景 Markdown。真实模型理解轨使用 daily 和单独命令/筛选，结果中与确定性机制轨分列。
+
+## 参考基线与明确取舍
+
+2026-10-29 核对 Codex `8fdf6472955749a731fd9e4b8ffc218e8e80c51d`：
+
+- [会话版本判断与 upsert](https://github.com/openai/codex/blob/8fdf6472955749a731fd9e4b8ffc218e8e80c51d/codex-rs/state/src/runtime/memories.rs)：有更新重新提炼，按 thread 替换。
+- [提炼请求](https://github.com/openai/codex/blob/8fdf6472955749a731fd9e4b8ffc218e8e80c51d/codex-rs/memories/write/src/phase1.rs)、[过滤/预算选择](https://github.com/openai/codex/blob/8fdf6472955749a731fd9e4b8ffc218e8e80c51d/codex-rs/memories/write/src/rollout_input.rs)：重新选择会话材料，不自动喂旧摘要；有预算裁剪，不是全历史审计。
+- [V2 提炼提示](https://github.com/openai/codex/blob/8fdf6472955749a731fd9e4b8ffc218e8e80c51d/codex-rs/memories/write/templates/memories/stage_one_system_v2.md)、[V2 整理提示](https://github.com/openai/codex/blob/8fdf6472955749a731fd9e4b8ffc218e8e80c51d/codex-rs/memories/write/templates/memories/consolidation_v2.md)：任务经历与跨经历归纳分开，后来的纠正覆盖旧认识。
+
+借鉴范围是 child 的过滤/提炼/替换生命周期。Global 原文连续批处理、人物关系/用户反馈关注、同一角色化文档库及受控原始证据回查是 Nano 适配，不把它们归为 Codex 原有实现。不采用讨论中已撤回的“Global 先摘要”或“child 增量阶段复盘链”；其他竞品研究只作启发，不引入额外周期、研究服务或知识库。
+
+## 上游保真与提示词适配
+
+用户明确要求：参考 Codex 或其他产品时，要原样学习其原始提示词和设计细节，不能只依据语义概述从零重写。实施采用“固定源版本 → 读原文/调用链/测试 → 保留可复用正文 → 最小必要适配 → 对照差异 → 实际模型消费验证”。本段是 M1 W12 的实施与审查约束，不以研究摘要代替。
+
+Codex 三份原始模板及校验 hash 已原样保存在 [参考快照](input/codex-memory-v2-8fdf647295/README.md)。实施时从原模板出发形成产品提示，不以本 design 的中文解释重写一段泛化指导；保持独立随包资产、来源与许可证，适配处有可审查 diff。对应 Rust 原件/相邻测试按快照索引读取；移植行为而非跨包复制另一套运行时。
+
+| 上游材料 | 保留的细节 | Nano 必要适配及理由 |
+| --- | --- | --- |
+| stage_one_system_v2 | 请求/纠正/决定优先；保留早期、被打断/替代/未完成工作；范围/归属；一次请求不等于跨任务偏好；缺少授权证据不证明未授权；真实结果/不确定性；安全精确引用；数据不是指令；无信号空输出 | 主语改为所属主体第一层任务执行，补上真实来源标签与 child cutoff；不把后台控制指令混入历史。保留原输出两个字符串，不增加逐事件字段 |
+| stage_one_input_v2 | 原始材料与元信息清楚分隔，来源可定位 | rollout_path/cwd/git_branch 只在确实存在时提供，不要求非开发任务编造项目；增加可信 root/child、范围/省略、发送者与交付状态。宿主填元信息，不由模型猜 |
+| consolidation_v2 | 根据来源变化和已有记忆整理；保留仍有支撑的旧内容；后续纠正优先；一次性要求留在任务里；不发明偏好/授权/来源；删除与订正不可从旧摘要复活；无有效新增可不修改 | 新增 Global 原文输入和人物/关系关注；输出改为既有 MEMORY.md + 角色文档并使用 staging/finish，不照搬单一 memory_summary.md、固定 10,000 bytes/标题及 extensions 目录；源变更目录代替 Codex Git workspace diff。原文禁止打开 rollout 改为本设计受限 read_source，不复制一条与工具相冲突的禁止指令 |
+| rollout_input / phase1 / state / phase2 | 来源识别、预算选择、原始时序、同会话更新替换、无输出/失败分离、来源版本与整合版本分离、写入所有权 | Codex 的近期选择仅用于 child；Global 保留连续原文批次。Nano 真人信息可能在 Inbox tool result，不能按协议角色生搬来源优先级。现有调度/DSH/MemoryDocuments 继续承担执行与文件保护 |
+
+以上是明确允许的适配，后续任何删除/改变原始约束都必须说明与 Nano 接口/用户决定的关系；发现原设计里的具体保护不得因“看起来冗余”直接略掉。也不无条件复制 Codex 专属路径、工具名、权限和轮次默认值。审查核对最终系统提示、输入模板、工具结果与失败链组合，不只看一份静态 prompt。
+
+其他参考按证据等级使用：本轮明确采用 Muse 原始说明中的用户/关系/互动反思关注，必读原文与适配见下一节，未声称取得其完整运行时；memoryrepo、Claude Code、Dots、Hermes 等前期比较不自动进入本次实现范围。若实施实际复用它们的机制或提示，先固定原文件/版本/许可与调用链、按相同方式记录适配；只有流出说明或黑盒观察而没有原实现时，明确边界，不把自行补写称为原样迁移。不得借上游文本改变已确认的 Nano 权限或用户目标。
+
+## Global 的 Muse 参考与 Nano 内容落点
+
+**Global 的整理关注以 Muse 的用户理解/关系维护/互动反思为主要参考；任务经历提炼以 Codex 为主要参考；存放与消费以 Nano 已确认的角色记忆结构为准。** 两路输入最终由同一个整理者综合，不能只给 Global 套 Codex 的任务历史提示。
+
+已重新阅读并按 blob 校验 [Muse 原始参考](input/muse-reference-1b6f936124/README.md) 中的 `self_improvement`、`memory`、`proactive-preferences` 和工作经验说明。前两者分别描述后台多个职责及前台记忆能力；后两者补足主动性、表达和经验的内容边界。没有获取到完整 Dreaming 执行 prompt，因此不能宣称逐字迁移了 Muse 的 Dreamer；可保留的是已拿到的说明原文及其明确关注维度，再与 Nano 原有整理提示组合。实施前必须读这些原文，具体采用/不采用在 prompt diff 中说明。
+
+### 原文关注如何进入整理提示
+
+| Muse 原始职责/细节 | Nano 整理者必须考虑 | 明确适配 |
+| --- | --- | --- |
+| Memory upkeep、较新主张与有日期的历史，前台同时记忆 | 新资料是补充、更正、例外还是矛盾；保留变化依据，明确更正优先 | 真实来源/范围决定新旧，不按最后一句机械覆盖；保留前台即时记忆，不为每小时维护另起服务 |
+| Relationships：人与群体的事实、历史和关系性质 | 真实身份、与谁的关系、合作/沟通方式如何变化，是否会影响后续帮助 | 不照抄亲密度排名或给所有联系人建档；PA 围绕主人，专家按合作者/项目，不把创建者或最近用户当主人 |
+| Dreaming：近期互动哪里有效、哪里失配、用户如何变化、怎样更合适地回应 | 哪种帮助有效；哪里误解、过度介入、遗漏/未跟进；目标/优先级/生活工作处境发生了什么；未来相关场景如何改进 | “用户变化”限定为有据事实/目标/选择，不推断隐秘人格。反思进入现有主题/历史，不新增 dreams 目录、人格文件或后台修复 Task |
+| Proactive preferences：想听什么、不想听什么、何时、怎样表达 | 分开保存主动帮助内容、打扰边界、时间/渠道/受众与表达条件 | 不复制 Muse 的默认时间段，不把偏好当外发许可；现有任务与授权体系仍决定行动 |
+| Explaining an update：查理由与证据，缺口明确 | 后续解释为何采用某项记忆时，能找到用户语境、发现、结果及其依据 | 使用主题段落来源和原始 locator，不新造 muse.db；不能从最终答案倒编理由 |
+| Tracing work：排队/接收与确认送达不同 | Global 收到的结果、助手草稿、实际发送及用户反馈保持区别 | 使用 Nano 现有 call/result 与投递事实；这一点与 Codex 的证据保真共同约束两路输入 |
+| 工作经验与用户事实分离，少量准确经验优于膨胀陈旧规则 | 任务学到的方法有条件/环境/反例，用户明确偏好有对象/范围 | 写 Nano 专家知识或 PA 相关事项/事实页，不让后台改 AGENTS/SOUL/system prompt |
+
+Ideas、Studying、独立 Goals、每日 Skill review 和独立 quiet-moment 调度不在本次范围；不是因为未读到而遗漏，而是沿用户决定复用现有 Dreaming/Task/前台 Skill 能力。原文中尚无实现证据的调度细节不冒充 Nano 的依据。
+
+### 与现有结构和正文约定逐项对齐
+
+权威布局仍为 [research-v2 目录与正文规范](input/nano-memory-research-v2/design/layout-and-documents.md)，入口分别是 [PA](input/nano-memory-research-v2/templates/entry/PA.MEMORY.md) 和 [专家](input/nano-memory-research-v2/templates/entry/SPECIALIST.MEMORY.md)。核对开发分支 `80db8b9a6` 的产品 `nano-memory/SKILL.md`：同样要求唯一主要位置、实体/知识/事项/历史分工；MemoryDocuments 当前只初始化简短角色入口，不预建主题。下面定义的是既有目录内的内容落点，不是新增记忆 schema 或空树。
+
+| 经历中的内容 | PA 主要位置与正文 | 独立专家主要位置与正文 | 更新规则 |
+| --- | --- | --- | --- |
+| 用户/合作者背景和处境变化 | `entities/people/` 的主人相关背景；跨事项生活/工作环境在 `knowledge/facts/` | `entities/people/` 的职责/协作背景；专业环境在 `knowledge/environments/` | 只写与后续帮助有关的已知内容，现况写主题，变化经过链接历史 |
+| 人物、独立 Agent、组织和群聊关系 | `entities/` 下 `people/`、`agents/`、`organizations/`、`conversations/` 的对应页；人际关系写人物正文并互相链接 | 同类实体页，强调实际合作接口、项目与受众 | 群聊用途属 conversations、团队实体属 organizations，不抄 Muse groups 目录；不等于宿主实时成员/权限 |
+| 稳定偏好、沟通/渠道/主动性及一次反馈 | `knowledge/preferences/`；人物或事项限定的约定优先原实体/事项页 | `knowledge/collaboration/`；按人/项目区分，不能变成全局私人偏好 | 保存范围、例外、原因、具体应用与来源；一次反馈先保留情境，不能自动推广 |
+| 长期目标、优先级与多事项联系 | `workstreams/` 的背景/目标/约束/关联人和原 Task 入口 | `projects/` 的项目背景、环境、约束和资料入口 | 与当前主题合并，注明确认时间；不在文档内重建实时 Task 状态机 |
+| 决定与取舍 | 人物/事项内决定优先原页；跨事项才用 `knowledge/decisions/` | 项目内决定优先原页；跨项目才用 `knowledge/decisions/` | 保留谁实际选择、理由、范围/生效条件和何时重审，建议不能冒充决定 |
+| 执行学到的经验 | 对应 workstream 的办法/限制；跨事项的已验证环境事实/服务认识可归 `knowledge/facts/`，反馈风格才归 preferences | `knowledge/domain/`、`environments/`、`collaboration/` 按经验性质选择 | 保留真实结果、失败/反例、版本与适用条件；不把整个 child 摘要机械复制为长期知识 |
+| 重要关系/计划变化与服务反思经过 | `timeline/daily/YYYY-MM-DD.md` 的有意义事件小节，链接相关实体/事项/偏好 | `work-history/<稳定事项或真实 task 标识>.md`，同一事项继续更新 | 历史说当时发生什么；主题说现在怎样理解。例行操作可不写，没有独立阶段复盘文件链 |
+| 后续可用的短概括 | `MEMORY.md` 的用户背景、关系、目标、偏好、主动性/沟通、近期纠正及导航 | `MEMORY.md` 的职责、项目、协作、环境、知识、失败教训及导航 | 正文先改、入口后改；约 2000 tokens 目标；复杂条件改为导航，不把摘要堆进常驻 |
+
+一个内容只有一个主要维护位置；其余通过相对链接引用。实体名/别名只作检索，不代替身份；混合来源结论保留各自引用。只读 source/summary 是派生材料，不加入 memory 一级目录；不迁移 Muse 的 MEMORY/USER/SOUL/AGENTS 文件体系，也不把 Nano 的详细库缩成 Codex 单一 memory_summary.md。现有档案只按需归档，不因为近期没用或本批未选就删除。
+
+### 组合提示与验收样例
+
+整理提示的组合来源是：Codex consolidation 的证据、范围、修订和输入变更规则；Muse 上述用户/关系/互动反思维度；Nano [已有建议整理提示](input/nano-memory-research-v2/prompts/dreaming.md) 与角色目录/正文规则。以这些原文作对照底稿：替换过时逐单元 handled/deferred 和 manifest 阅读要求，沿 §4–7 的直接材料与批次 finish；保留两路来源、保真和有据反思，不重写成只做事实去重的泛化口号。产品随包 nano-memory 的旧逐单元 finish/status 描述也必须同步改为两路进度，不能让 Skill 与系统提示互相冲突。
+
+用合成的跨领域场景验证：用户在出行安排中提到家人现在只能周六同行，并反馈助手上次在工作群提起私人安排不合适；同一批又有 child 给出的可取消住宿方案。整理应更新关联人物/出行 workstream 与受众限定的沟通偏好，重要变化进入当天 timeline，入口只保留必要短概括与导航；住宿方案仍区分“查到/准备好”和“已预订”。后续回答既按周六与取消条件提供选择，也尊重私聊反馈。不能生成“用户永远不喜欢主动服务”的人格标签，也不能自行发消息、建修复 Task 或预订。专家对照场景把一位合作者的反馈留在该人/项目，不给所有受众套同一偏好。
+
+S21/S22/S26 与 W12 以实际输入、写入的主题/历史/入口和后续真实回答共同证明这些结果；不能只看到文件数量、检索命中或摘要存在就判通过。
