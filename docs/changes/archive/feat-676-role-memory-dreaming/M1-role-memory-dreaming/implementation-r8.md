@@ -23,7 +23,7 @@ PR <https://github.com/Mrchen116/dsh-agent-context/pull/3>；32 项上游测试�
 Codex 原版提炼主体保持逐段内容；修改运行主体、finish 输出接口、原生继承/恢复边界。
 原文与最终两个 prompt 的逐行差异见 [prompt-adaptation.diff](prompt-adaptation.diff)。
 运行分发来源说明及 Apache LICENSE/NOTICE 位于
-[随包 provenance](../../../../packages/dsh-integration/assets/dreaming-provenance.md)。
+[随包 provenance](../../../../../packages/dsh-integration/assets/dreaming-provenance.md)。
 Muse 四份原始说明用于用户目标变化、关系、互动失配与主动性条件维度，落到已有角色文档，不创建平行调度或自我修改系统。
 
 ## 回归处置与已完成证据
@@ -97,3 +97,13 @@ PA 会话 `c_91ae1772dfea`，root `92288720-595f-4666-96e0-30267706dccf`。
 ### IM 补查跨进程产品入口
 
 新增 `apps/im-server/tests/e2e/memory-conversation-production-chain.test.ts`，复用现有真 IM 子进程、设备绑定、认证 WebSocket 和真实 GlobalAgent/NodeStore/InboxStore。受控调用 `memory.conversations` 经产品身份绑定与 relay 查询实际 HTTP 创建的 PA 观察聊天：search 分页、read 原 ID、info/current 返回通过；前后 `pa_source_reads`、`pa_source_events`、Inbox 和 journal 完全相同，来源撤销后旧 cursor 拒绝。没有假 Web API、没有连接或替换 daily Node。Node24 独立命令 1/1 passed，日志 `/tmp/feat676-im-process.log`。此证据覆盖真实跨进程产品传输与数据效果，调用者为受控驱动，不声称模型自主选择补查。
+
+### 最终门禁与归档决定
+
+- 独立产品 Round4（报告 `5432c125a`）：pass-with-issues，0 blocking / 0 major / 本轮新增 minor 0；S01–S30按真实模型、受控机制、未变历史证据分别判定。保留前轮 T1 结束边界偶发 generation_changed 可重新读取，未复现、未声称修复。
+- 独立静态最终 evidence closure（报告 `ee0ba09f3`）：code-review pass、verification pass/aligned，0 CRITICAL / 0 WARNING / 0 SUGGESTION，V-R8-1关闭。四份 delta 的语义未变且经 reviewer 核验；canonical 按同名 Requirement 替换，新增两条 Dreaming 要求，不重复旧ADDED。
+- 门禁版本：产品实际 `validated_at=6205cc579`，修复后的长源/来源与UI定点 `eff2d4684`；最终静态 `validated_at=5432c125a`。最终核对时 `origin/main=082e72ec4`，对应本交付 `executed_base/effective_base`；独立静态报告的 `5ef3bbf96/80db8b9a6` 是其增量/累计diff比较起点，不是本轮main推进位置。收尾后的 `effective_through` 为本归档提交（PR展示完整SHA）。
+- 从产品代码 `eff2d4684` 到最终交付，只有独立报告、跨进程回归测试、main的无关设计文档、canonical文字归并与完整路径归档；没有模型指导、实现或运行配置变更。原型/设计Gate2、产品与静态门禁均按上述实际范围 retained，非机械重验。归档链接按新目录调整，参考原件不改字节。
+- 本地全量检查与定点增量结果见上文。归档后 docs-check：283 maintained sources / 68 routes；check_change_unit_archived与git diff --check通过。远端 CI 尚未在此记录中宣称完成，以本PR当前head的check为准。
+- 19:09后统一执行 `e2e-down.sh --wt /tmp/feat676-daily-20261029`，再终止本轮capture proxy。Node99257、主DSH99262、PA99286、proxy58262均已退出，50967/56172均无监听。保留合成验收资料和截图，不提交运行数据；未触碰生产与另一既有预览。
+- 开发 worktree `/Users/czj/.codex/worktrees/unit-feat-676/nano-multiagent` 保留供PR审查，待确认合并后按规则清理；本轮不自动merge或部署。
