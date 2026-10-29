@@ -26,7 +26,7 @@ export interface NanoEvaluationOptions {
   /** Used by deterministic integration tests, not a CLI injection point. */
   environment?: NodeJS.ProcessEnv;
 }
-interface Audit { requests: string; deniedTools: number; usage: EvaluationUsage }
+interface Audit { requests: string; deniedTools: number; importedSessions: number; importedMessages: number; usage: EvaluationUsage }
 interface Running { client: RuntimeClient; peer: RpcPeer; socket: Socket; socketDir: string; dir: string; workspace: string; rootSessionId: string; binding: SessionBinding; audit?: Audit; stopping?: Promise<void> }
 interface Prepared { workspace: string; sources: string[]; agentId: string }
 const answerConversation = 'evaluation-question';
@@ -58,16 +58,15 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     try {
       timer = setTimeout(() => { this.stopped = true; this.kill(); }, limits.timeoutMs);
       run = await this.launch('prepare', agentId, sources, limits, history);
-      const mapping = await run.peer.request('import', history);
+      await run.peer.request('initializeHistory', history);
       await run.client.rpc.request('knowledge.sources.sync', { agentId, snapshot: { revision: 'evaluation-1', allowed: sources, excluded: [] } });
       await run.client.rpc.request('session.ensure', run.binding);
-      const result = await run.peer.request('prepare', {}) as { status: 'ready' | 'incomplete' | 'failed'; reason?: string; details: unknown };
+      const result = await run.peer.request('prepare', history) as { status: 'ready' | 'incomplete' | 'failed'; reason?: string; details: unknown };
       const audit = await run.peer.request('audit', {}) as Audit;
       const evidenceRef = join(run.dir, 'receipt.json');
-      const receipt = { candidateId: this.id, historyDigest: hash(history), importedSessions: history.sessions.length,
-        importedMessages: history.sessions.reduce((sum, session) => sum + session.turns.length, 0), evidenceRef,
+      const receipt = { candidateId: this.id, historyDigest: hash(history), importedSessions: audit.importedSessions,
+        importedMessages: audit.importedMessages, evidenceRef,
         usage: { ...audit.usage, elapsedMs: Date.now() - started } };
-      await writeFile(join(run.dir, 'source-map.json'), JSON.stringify(mapping, null, 2));
       await writeFile(evidenceRef, JSON.stringify({ ...receipt, ...audit, result }, null, 2));
       await this.stop(run);
       if (result.status !== 'ready') return { status: result.status, receipt, reason: result.reason ?? 'Memory preparation incomplete' };
@@ -80,7 +79,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
       if (!run) return { status: this.stopped ? 'incomplete' : 'failed', reason: String(error) };
       const audit = await this.failedAudit(run, error);
       return { status: this.stopped ? 'incomplete' : 'failed', reason: String(error), receipt: { candidateId: this.id,
-        historyDigest: hash(history), importedSessions: 0, importedMessages: 0, evidenceRef: audit.evidenceRef, usage: audit.usage } };
+        historyDigest: hash(history), importedSessions: audit.importedSessions, importedMessages: audit.importedMessages, evidenceRef: audit.evidenceRef, usage: audit.usage } };
     } finally { if (timer) clearTimeout(timer); if (run) await this.stop(run); }
   }
 
@@ -137,7 +136,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     try { audit = JSON.parse(await readFile(join(run.dir, 'usage.json'), 'utf8')) as Audit; } catch { /* Startup can fail before the recorder mounts. */ }
     const usage = audit.usage ?? { modelCalls: 0, inputTokens: null, outputTokens: null, costUsd: null, elapsedMs: 0 };
     await writeFile(evidenceRef, JSON.stringify({ ...audit, reason: String(error) }, null, 2));
-    return { evidenceRef, usage };
+    return { evidenceRef, usage, importedSessions: audit.importedSessions ?? 0, importedMessages: audit.importedMessages ?? 0 };
   }
 
   private kill() {
@@ -170,7 +169,8 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     const socketDir = await mkdtemp(join(tmpdir(), 'nme-')), socketPath = join(socketDir, 'control');
     const rootSessionId = `evaluation-${stage}-${randomUUID()}`;
     await prepareProfile(home, [...this.options.providerPatch, { insert: [{ id: 'nano-memory-evaluation',
-      name: '@nano/dsh-integration/evaluation/runtime', config: { socket: socketPath, workspace, agentId, rootSessionId, stage, audit: dir, limits } }] }]);
+      name: '@nano/dsh-integration/evaluation/runtime', config: { socket: socketPath, workspace, agentId, rootSessionId, stage, audit: dir, limits,
+        startTime: history?.sessions[0]?.timestamp ?? 0 } }] }]);
     if (this.stopped) { await rm(socketDir, { recursive: true, force: true }); throw new Error('Evaluation cancelled before runtime start'); }
     const client = new RuntimeClient({ home, cwd: workspace, env: this.options.environment,
       onLog: text => appendFileSync(join(dir, 'runtime.log'), text) });
@@ -206,7 +206,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
       const configuration: AgentConfiguration = { agentId, workspace, revision: '1', mode: 'global', provider: this.options.provider,
         model: this.options.model, reasoningEffort: this.options.reasoningEffort, maxTokens: limits.maxOutputTokens,
         personal: { bindingId: 'evaluation-binding', ownerId: 'evaluation-owner', conversationId: answerConversation, epoch: 1 },
-        features: { dreaming: false, skill_creation: false, task_graph: false, heartbeat: false, cron_scheduling: false },
+        features: { dreaming: stage === 'prepare', skill_creation: false, task_graph: false, heartbeat: false, cron_scheduling: false },
         skillRoots: [{ path: this.options.builtinSkillsRoot, source: 'builtin' }],
         skillSelection: { mode: 'explicit_allowlist', names: stage === 'prepare' ? ['nano-memory'] : [] },
         toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance', ...contextTools] : ['read', 'glob', 'grep', 'inbox', 'send_message'],

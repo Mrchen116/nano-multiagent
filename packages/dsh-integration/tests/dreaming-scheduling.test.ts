@@ -21,7 +21,11 @@ function scheduler() {
 it('admits only due quiet or completed-step work and defers while foreground provider work is active', async () => {
   const f = scheduler(); const launch=vi.spyOn(f.instance,'start').mockResolvedValue({});
   await f.instance.tick('a',1099);expect(launch).not.toHaveBeenCalled();
-  await f.instance.tick('a',1100);expect(launch).toHaveBeenCalledTimes(1);
+  expect(await f.instance.nextAutomaticAt('a')).toBe(1100);
+  f.instance.recordActivity('a',1100);
+  await f.instance.tick('a',1100);expect(launch).not.toHaveBeenCalled();
+  expect(await f.instance.nextAutomaticAt('a')).toBe(1110);
+  await f.instance.tick('a',1110);expect(launch).toHaveBeenCalledTimes(1);
   launch.mockClear();f.owner.lastSuccessAutomatic=1100;
   await f.instance.tick('a',1199);expect(launch).not.toHaveBeenCalled();
   f.owner.retryAt=1300;await f.instance.tick('a',1200);expect(launch).not.toHaveBeenCalled();

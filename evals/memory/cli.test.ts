@@ -28,6 +28,8 @@ it('defaults to a verifiable plan with zero model requests and gates execution b
     const { stdout } = await invoke('--config', join(root, 'config.json'), '--ids', join(root, 'ids.json'), '--output', join(root, 'plan'));
     const plan = JSON.parse(stdout);
     expect(plan.counts).toEqual({ questions: 1, sessions: 1, messages: 1 });
+    expect(plan.protocol).toMatchObject({ version: 2, preparation: { ingestion: 'chronological-session-ingestion' } });
+    expect(plan.candidate).toMatchObject({ adapter: 'nano-document-memory-v3', configuration: { dreaming: { intervalMs: 86400000, quietMs: 600000 } } });
     expect(plan.modelCallsStarted).toBe(0); expect(requests).toBe(0);
     expect(await readFile(join(root, 'plan/plan.json'), 'utf8')).not.toContain('Gold only');
     expect(stdout).not.toContain('Original history');

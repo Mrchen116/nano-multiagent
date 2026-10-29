@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { DEFAULT_DREAMING_SCHEDULE } from '@nano/product-contracts';
 import { digest, loadCases } from './dataset.js';
 import { judgeIdentity } from './judge.js';
 import type { EvaluationPlan } from './runner.js';
@@ -14,7 +15,10 @@ const connection = z.object({ baseURL: z.url(), apiKeyEnv: z.string().regex(/^[A
 export const configurationSchema = z.object({
   dataset: z.object({ path: z.string().min(1), revision: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   candidate: connection.extend({ reasoningEffort: z.string().optional(),
-    dreaming: z.object({ maxInputTokens: z.number().int().positive() }).strict(),
+    dreaming: z.object({ maxInputTokens: z.number().int().positive(),
+      intervalMs: z.number().int().positive().default(DEFAULT_DREAMING_SCHEDULE.intervalMs),
+      quietMs: z.number().int().nonnegative().default(DEFAULT_DREAMING_SCHEDULE.quietMs),
+    }).strict(),
   }).strict(),
   judge: connection,
   limits: z.object({ prepare: limits, answer: limits, score: limits }).strict(),
@@ -60,13 +64,16 @@ export async function makePlan(config: EvaluationConfiguration, idsFile: string)
     exec('git', ['rev-parse', 'HEAD'], { cwd: repository }), exec('git', ['status', '--porcelain'], { cwd: repository }),
     readFile(join(repository, 'pnpm-lock.yaml')).then(sha256), treeHash(join(repository, 'packages/dsh-integration/lib')), treeHash(join(repository, 'packages/personal-assistant/assets/skills/nano-memory')),
   ]);
-  const protocol = { version: 1, datasetHash, datasetRevision: config.dataset.revision, selectedIds: selected,
+  const protocol = { version: 2, datasetHash, datasetRevision: config.dataset.revision, selectedIds: selected,
     history: 'all user/assistant turns; stable session date order; unzoned dates interpreted as UTC',
+    preparation: { ingestion: 'chronological-session-ingestion', arrival: 'atomic sessions; stable order at equal timestamps; arrivals before same-time maintenance',
+      clock: 'first through last history timestamp; logical time pauses during maintenance; real-time execution budgets',
+      freeze: 'wait for admitted work only; do not force a future cycle; retain untriggered backlog in evidence' },
     context: 'cold; candidate-persisted memory only; no original active history or external retrieval',
     judge: { ...judgeIdentity, configuration: config.judge, temperature: 0, maxTokens: Math.min(10, config.limits.score.maxOutputTokens) },
     scoreLimits: config.limits.score, retries: 'no automatic retries; explicit judge-only retry uses frozen answers',
   };
-  const candidate = { adapter: 'nano-document-memory-v2', sourceCommit: head.trim(), dirty: status.trim().length > 0,
+  const candidate = { adapter: 'nano-document-memory-v3', sourceCommit: head.trim(), dirty: status.trim().length > 0,
     runtimeHash, guidanceHash, lockHash, configuration: config.candidate, prepareLimits: config.limits.prepare, answerLimits: config.limits.answer };
   const plan: EvaluationPlan = { protocolId: digest(protocol), candidateId: digest(candidate), datasetHash, selectedIds: selected,
     protocol, candidate, judge: config.judge, scoreLimits: config.limits.score,

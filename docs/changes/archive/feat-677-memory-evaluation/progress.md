@@ -89,3 +89,15 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - Web 与原生 iOS 产品文件仅来自父分支原样 merge，无本 PR 自有改动；保留父 PR #428 在 `3e9a46030` 的远端 Web/iOS 成功证据，未重复本地 UI 验收。远端 PR #429 的本轮检查另按最终提交核对。
 
 后续只提交本节和三个独立门禁报告，运行代码/测试/配置不变，`93c8e305b` 的适用验证保留有效。PR #429 继续以 unit/feat-676 为 base；本轮不合并、不部署、不开始真实评测，worktree 保留供后续运行。
+
+## 2026-10-29 chronological preparation revision
+
+用户确认统一时间回放方案，并明确授权实现后只跑此前选定的一道完整 LongMemEval 题。原先集中导入试跑已中断：27 次真实准备请求、3 批完成，无答题/评分；原始产物在 `/Users/czj/.local/share/nano-evals/longmemeval-one-case-20261029-202747/`，保留 incomplete 及 interruption-note，不算作时间回放结果。
+
+- 冻结父基线仍为 `3e9a46030`；重新 fetch 后无新增父实现。复用开放 PR #429、原开发分支/worktree，不改主仓。首文档/设计修订 `a524e3b90`；独立设计 Round 2 Approved，0 CRITICAL / WARNING。
+- 实施：Dreaming 包内宿主时钟与准入时点查询复用正常 timing，默认生产 timer/step 行为保留。Nano adapter 将空来源基线与逐 session 追加拆开，按逻辑时间跳转到真实自动准入点；同刻会话先整体追加，已触发工作结束才推进时间。末尾不手动启动、不跳未来，允许尚未触发积压；已触发失败/超限停止。全局 Date、真实预算计时、Runner 和 judge 不变。
+- 证据：协议 v2 / candidate v3；计划解析实际周期与静默值，默认值由 product-contracts 与产品共同使用。请求增加逻辑时间/已导入会话数，timeline 逐条保留到达、准入结果和冻结状态。逐段 source-map 与 usage 持久化，中途失败不再把未导入历史计入收据。
+- 已有测试处置：rewrite-merge `evaluation-runtime.test.ts` 主旅程与 fixture，用实际收到的原文/已读取记忆形成内容，覆盖未来历史回查为空、后到纠正、末段未触发积压、同刻原顺序、冷答题、原文长消息及维护恢复；保留预算/挂起截止/退出。新增同文件零到期/空记忆旅程，保护末尾不能强制整理。扩展既有 scheduling 测试保护到期时新活动重新延后，CLI 保护新协议和有效周期展示；通用 Runner 不新增内部批次断言。
+- 红证据 `/tmp/feat677-timeline-red.log`：单段未到期历史在旧 adapter 发出 11 次确定性请求，预期 0 失败。原生多批测试首次失败来自 fixture 在无住址依据时写 unknown，随后修改正文却保持入口不变，被既有保存规则拒绝；工具结果证据保留在 `/tmp/feat677-timeline-debug-pCAyRa/`。修正 fixture 为无证据 no-change、正文改变同步入口，没有修改产品保存规则。
+- 窄验证：相关包 build、`pnpm typecheck` 通过；`pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runtime.test.ts packages/dsh-integration/tests/dreaming-scheduling.test.ts packages/dsh-integration/tests/dreaming-runtime.test.ts packages/dsh-integration/tests/dreaming-cycle-runtime.test.ts`：8 files / 19 tests passed（50.59 秒）。日志 `/tmp/feat677-timeline-{build,typecheck,targeted}.log`。
+- no spec delta：生产准入行为与唯一记忆写者不变，权威评测协议更新到 suite README；没有客户端、生产迁移或部署工作。后续追加本轮独立门禁、全量检查与一道真实试跑结果；在这些证据产生前不宣称新实现已完整验收或已有分数。

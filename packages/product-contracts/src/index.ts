@@ -120,6 +120,6 @@ export {decodeWorkEvent, decodeWorkBatch, WorkEventError, workObject} from './wo
 export * from './chat.js';
 export * from './chat-codec.js';
 
-export {normalizeKnowledge, type KnowledgeConfiguration} from './knowledge.js';
+export {normalizeKnowledge, DEFAULT_DREAMING_SCHEDULE, type KnowledgeConfiguration} from './knowledge.js';
 
 export type * from './memory-evaluation.js';
