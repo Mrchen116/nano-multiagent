@@ -19,6 +19,8 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 
 > 摄入历史，要真正转换成我们的系统的设计对不对，比如消息是从inbox进来的
 
+> 所以应该改造成收消息也是send message吧？其实我不太懂的是，不同的agent harness他们的系统提示词，各种agent机制，工具也不同。他们和我们也会有类似的困难吧？大家怎么测的？比如它用的工具，肯定不是所有agent都有它的轨迹中的工具吧
+
 ## 原始材料
 
 2026-10-29 已下载并读取 `nano-memory-evaluation.zip`，其中四个文件为：
@@ -41,6 +43,7 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 - 用户明确要求从当前分支建立独立分支与 worktree。已从 `80db8b9a604de15476dceb5e2e9a3c92d5fdf170` 创建 `codex/feat-677-memory-evaluation`，工作区为 `/Users/czj/.codex/worktrees/unit-feat-677-memory-eval/nano-multiagent`。本 unit 在该分支对齐，不写入 main。
 - 用户要求逐个 benchmark 讨论具体落地方案。尚未确认首期 benchmark 范围、对照条件、输入适配方式、预算或完整跑量；不将附件中的全部建议直接视为已批准要求。
 - 用户强调历史摄入需要映射到 Nano 实际系统设计，例如消息从 Inbox 进入。Agent 理解：评测夹具提供消息及来源，消费、上下文装配、正常记忆操作和 Dreaming 由真实产品链路承担；不能用一条“请阅读并整理这份历史”的请求替代消息摄入，再据此声称验证了正常记忆积累。LongMemEval 原有 assistant 回合如何保持原身份与含义，仍需继续对齐。
+- 用户进一步要求先理解不同 harness 如何处理提示词、机制、工具和历史轨迹差异。需要区分固定历史材料、在线环境交互，以及本系统真实运行生成的新轨迹；本轮调查不代表用户已接受某个历史转换方案。
 
 ## Agent 对材料的理解
 
@@ -57,6 +60,14 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 | Nano 原生场景 | 自然反馈、PA／专家范围、Global 换窗与实际交付；附件优先提议 PA-01 与 EXP-01 |
 
 公开集的静态历史不能直接等同于 Nano 中实际发生的交互；适配时需要明确保留的原始材料、生成记忆的实际路径，以及最终结论能覆盖的范围。具体决定在后续逐项讨论后记录。
+
+### 2026-10-29 官方适配方式核对
+
+- [LongMemEval 官方回答代码](https://github.com/xiaowu0162/LongMemEval/blob/main/src/generation/run_generation.py) 把固定历史或检索结果交给回答模型，比较最终回答；已有 assistant 回合属于历史输入，不要求参测模型重新生成这些回合。这类结果与真实在线经历积累的证据范围不同。
+- [DolphinBench 接入契约](https://github.com/mem0ai/dolphinbench/blob/main/docs/DRIVER_CONTRACT.md) 保留参测方的模型、Agent loop 和记忆系统，另提供模拟应用 MCP 工具；适配器负责工具格式和调用转发。fresh conversation 与 append-only 导出要求仍需核对，不能因工具可接入就宣称整体协议已兼容。
+- [FrontierMemory 规则](https://github.com/letta-ai/frontiermemory/blob/main/docs/rules.md) 把旧轨迹作为记忆生成材料，随后在任务环境中执行并评分；并不要求记忆生成者具备旧轨迹中的每一种业务工具。[Claude Code adapter](https://github.com/letta-ai/frontiermemory/blob/main/src/frontier_memory/agents/claude_code.py) 和 [Codex adapter](https://github.com/letta-ai/frontiermemory/blob/main/src/frontier_memory/agents/codex.py) 分别接入各自原生记忆入口。
+
+以上是文档和代码核对，尚未在 Nano 执行。Agent 的讨论建议：固定外部任务与评分，按其规则适配本系统；把“格式转换得到的历史轨迹”与“本轮模型真实生成的动作”分开记录，不把跨 harness 的系统分数直接归因成记忆本身的收益。
 
 ## 当前依据
 
