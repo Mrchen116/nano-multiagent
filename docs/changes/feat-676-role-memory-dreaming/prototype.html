@@ -10,12 +10,12 @@
 <article><h1>Agent 配置</h1><div class="section"><h2>指令与行为</h2><div class="body"><label for="instruction"><strong>自定义补充指令</strong></label><textarea id="instruction" placeholder="补充此 Agent 的工作方式"></textarea><h3>特性开关</h3><div class="features">
 <label class="feature"><input type="checkbox" checked><span><span class="name">Intelligent UI</span><p class="help">引导 Agent 按需使用交互卡片。</p></span></label>
 <label class="feature"><input type="checkbox" checked><span><span class="name">任务图</span><p class="help">允许 Agent 记录计划、探索分支和进度。</p></span></label>
-<label class="feature" id="dreaming-row"><input id="dreaming" type="checkbox" checked><span><span class="name">Dreaming · 自动整理记忆</span><p class="help">定期整理已处理的经历。关闭后仍可记住、更正和读取记忆。</p></span></label>
+<label class="feature" id="dreaming-row"><input id="dreaming" type="checkbox" checked><span><span class="name">Dreaming · 自动整理记忆</span><p class="help">定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。</p></span></label>
 <label class="feature"><input type="checkbox" checked><span><span class="name">定时任务（Cron）</span><p class="help">到点自动执行计划任务，无需每次手动发起。</p></span></label>
 <label class="feature"><input type="checkbox"><span><span class="name">定期汇报（Heartbeat）</span><p class="help">定期主动汇报，可设置频率和活跃时段。</p></span></label>
 </div><div class="policy"><h3>群聊回复策略</h3><select aria-label="群聊回复策略"><option>仅被提及时回复</option></select></div></div></div>
 <div class="footer"><div id="status" role="status" aria-live="polite">配置已生效</div><div class="actions"><button id="cancel">取消</button><button id="save" class="primary" disabled>保存</button></div></div>
-<details class="work"><summary>工作记录结果示例 · 记忆整理 · 部分完成</summary><p>已核对 18 / 24 个单元；保存 2 页。入口待同步：正文已被更新，需重新核对。剩余 6 个单元留待继续处理。</p><p>内容已保存；版本记录失败。</p><p class="muted">此处仅展示既有 Work 结果中的信息语义，不规定新的卡片、入口或布局。</p></details>
+<details class="work"><summary>工作记录结果示例 · 记忆整理 · 部分完成</summary><p>本批交流已整理，更新 2 份任务复盘，另 1 份待重试；保存 2 页。入口待同步：正文已被更新，需重新核对。剩余交流留待继续处理。</p><p>内容已保存；版本记录失败。</p><p class="muted">此处仅展示既有 Work 结果中的信息语义，不规定新的卡片、入口或布局。</p></details>
 </article></main>
 <script>
 const byId=id=>document.getElementById(id);let saved=true;let pending=false;

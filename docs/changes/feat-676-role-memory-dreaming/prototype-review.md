@@ -35,3 +35,9 @@
 - 实际取消 Dreaming 并点击保存，确认当前选择保留且显示已生效。保存 JS 与失败/pending 机制未改，R1 对应交互证据保留；不重复全表单验收。
 - 本次只删除设置项；固定 skill-creator 的发现、按需加载、旧 false/allowlist/denylist 配置归一化和底层操作权限属于 M1 运行验收，原型不冒充这些机制已经实现。
 - viewport 已恢复，截图仍按仓库规则保留本地。
+
+## R6：Dreaming 是正式记忆唯一写入者
+
+2026-10-29，本轮只调整 Dreaming 辅助说明为“定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。”删除关闭后仍会即时记住/更正的旧承诺。保存交互、布局与相邻控件未改，原交互证据 retained。
+
+Playwright CLI 经本机临时 HTTP 服务实际渲染 Chrome 390×844 与 1280×900，两种宽度下说明均完整换行、未遮挡相邻控件。截图仅保留本地 `/tmp/feat676-single-writer-mobile.png` 和 `/tmp/feat676-single-writer-desktop.png`，不提交。控制台仅 favicon.ico 404，无页面脚本错误。临时浏览器 session 和 HTTP 服务均已关闭；本走查不证明产品写入限制或后台整理已经实现。
