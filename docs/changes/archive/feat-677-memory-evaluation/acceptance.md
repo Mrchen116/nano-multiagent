@@ -144,3 +144,50 @@ README 已说明 LongMemEval 没有子任务执行轨迹，因此不伪造第一
 无问题。Reference Artifacts Reviewed=N/A：本轮为 CLI 用户入口，无原型或视觉匹配要求。README 已包含本轮时间回放与冻结契约；docs/README.md 已有评测入口。已核对 design 的 no spec delta 与 gateway agent-capabilities 当前自动准入/单写者边界，沿用 Round 1 对 SPEC.md、AGENTS.md/CLAUDE.md、specs/CONTRIBUTING.md 无需修改的判断。
 
 仅追加本报告，未读实现定位根因，未修改源码、测试、受版本控制配置或设计，未提交。临时配置和日志留在仓库外。没有启动常驻服务或 HTTP provider，无本 reviewer 进程待清理。
+
+
+## Round 4 — 单 Global 原生窗口 targeted acceptance
+
+> mode=full；revalidation_mode=targeted；review_round=4；2026-10-30（北京时间）。
+>
+> validated_at / executed_base：`8ced1ccd7da12a6437a90927f8b2d632c4bcd66c`；prior：本文件 Round 3；本轮 focus 为 native-window delta 及父分支正常结束接线。开始时 HEAD 精确匹配、分支 `codex/feat-677-memory-evaluation`、工作区干净。
+
+### Verdict 与用户旅程
+
+**pass（无真实模型的 targeted 机制交付范围）**；0 blocking / 0 major / 0 minor；highest_required_action=pass；needs_re_review=false。本轮真实候选模型、真实 judge 和正式题集均 **not_run**；旧 v3 一题 incomplete 保留原构造身份，不能据本轮通过改写其结果、解释为 v4 质量结论或自动重跑。
+
+从 README 复制默认计划入口，得到 1 题、2 个数据集会话、4 条消息和 `modelCallsStarted: 0`。计划明确 protocol version 2、`nano-document-memory-v4` 与 `historyMapping: single-global-session; dataset-session-as-native-window; one-owner-conversation`。sourceCommit 匹配 validated_at、dirty=false，runtimeHash 为 `9f8c613e15dab18c6eac59d855abc35fdf02aabb286cfad93e75dbe160fd6f4c`。输出只展示计数、配置、限额与身份，没有历史正文、问题或 gold。
+
+README 清楚说明每段原对话到达时成为同一持久 session 的原生窗口，未来窗口不预建，不因换窗重设游标或强制 Dreaming；旧窗正文可通过 History 恢复，不生成业务摘要或 Notes。这是数据集固定分段约定，不等同产品 token 压力自动换窗验收。时间到达、等待已准入工作、冻结与冷答题仍为 v2；v4 身份及旧 v3 不可作为当前基线的说明，让维护者能够辨认结果可比边界。
+
+实际尝试不带 `--allow-model-calls` 的 run 和 score，两者均 exit 1，并提示 `Model execution is disabled; pass --allow-model-calls explicitly`。随后独立运行文档自检入口（追加 verbose 展示逐项结果），5 files / 15 tests 全部通过，49.87 秒。入口实际覆盖单持久 Global 的可恢复窗口、只回放已到达历史并冷答题、无到期周期的空记忆冻结、预算 incomplete、停滞 provider 截止退出，以及数据/Runner/judge/CLI。该路径按 design Runbook 使用真实 Nano/DSH 运行时及合成本地 provider；没有手工调用真实模型，没有读取实现定位根因，也不把测试日志称为逐请求人工审计。
+
+### 命令与证据
+
+全部命令以 `PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH` 运行，复用 caller 已准备的构建。
+
+- 默认 plan：`pnpm memory-eval --config evals/memory/examples/plan.json --ids evals/memory/examples/ids.json --output /tmp/feat677-window-acceptance-plan`。证据：`/tmp/feat677-window-acceptance-plan/plan.json`、`/tmp/feat677-window-acceptance-plan.log`。
+- 显式门禁：`pnpm memory-eval run --config evals/memory/examples/plan.json --ids evals/memory/examples/ids.json --output /tmp/feat677-window-acceptance-denied`；`pnpm memory-eval score --output /tmp/feat677-window-acceptance-denied`。完整命令、输出及两个 exit 1 保存在 `/tmp/feat677-window-acceptance-gates.json`。
+- 确定性自检：`pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runtime.test.ts --reporter=verbose`。exit 0；逐项结果保存在 `/tmp/feat677-window-acceptance-selfcheck.log`。
+
+### Scenario 覆盖与 retained 结论
+
+| Scenario | 来源 | 本轮结果 | 证据与范围 |
+|---|---|---|---|
+| 不同日期和话题仍属于同一长期主体 | spec 新增同名 Scenario；design 原生窗口/Context 消费验证 | pass | 本轮自检 `imports dialogue segments as restorable windows of one persistent Global session` 通过；计划实际呈现 v4 单根映射；README 边界明确 |
+| 导入固定历史并回答后续问题 | spec；design Runbook | pass | 本轮窗口及时间回放冷答题自检通过；真实模型记忆质量未测 |
+| 历史跨越记忆维护周期 | spec；design 时间回放 | pass | 本轮 `replays only arrived history and freezes naturally formed memory for isolated answers` 通过；计划仍为 v2 |
+| 摄入结束后冻结 | spec 同名 Scenario | pass | 本轮空记忆冻结和时间回放旅程通过；未到期不强制维护，失败/预算检查通过 |
+| 长期历史仍存在于准备环境 | spec 冷答题隔离 | pass | 本轮真实运行时冷答题旅程通过；不扩展为操作系统沙箱证明 |
+| 比较前后两个记忆版本 | spec 同名 Scenario | pass | opaque Runner 两种候选本轮通过；Round 3 候选配置变更保持协议的结论 retained；本轮 v4 与 v2 的身份可直接辨认 |
+| 仅检查数据与执行计划 | spec 同名 Scenario | pass | 独立 plan 零模型请求、计数/限额/构建身份完整 |
+| 显式执行评测 | spec 同名 Scenario | pass | 本轮 run/score 未授权拒绝；本地 judge/Runner 自检通过，真实授权执行不在本 verdict 内 |
+| 只进行一次有界真实试跑 | spec；本轮明确授权边界 | not-applicable | 旧 v3 一题已有独立结果；此次明确禁止追加真实模型，不重跑、不以新机制通过替代旧结果 |
+
+Round 3 不受影响的数据保真、官方评分规则、报告分母、固定答案补评分与 opaque Runner 结论 retained，并被本轮自检再次覆盖。准备/窗口/冷答题采用本轮结果，不沿用旧多根构造证明新单根窗口行为。
+
+### 文档、问题与清理
+
+无问题。Reference Artifacts Reviewed=N/A；用户入口为 CLI，无 UI、viewport、原型或 IM 常驻栈。已核对 current gateway spec 的跨窗恢复、持久化及 Dreaming 自动准入边界；README 和 design 描述本次固定窗口映射，没有把它泛化为产品压缩策略变化。docs/README.md 已提供评测入口；其余上层文档沿用前轮无需变更判断。
+
+自检进程正常退出，子进程由 adapter/Runner 回收；未另建常驻服务、未连接生产或真实消息。日志留在仓库外。仅追加本 Round，未修改实现、测试、配置或设计；按 caller 要求未提交，report_commit=none，由 owner 收口。

@@ -181,3 +181,52 @@ CRITICAL / WARNING / SUGGESTION 均无。仅在原 code-review.md 与本文件�
 Gateway / PA：**no spec delta**。虽然 patch 提取共享时间函数并增加 Dreaming 包内宿主 seam，生产默认 Date.now、timer/step、周期/静默/重试及唯一写者语义保持；专用评测入口不进入正常 profile、生产 RPC 或模型工具。评测协议确有变更：suite README 的时间回放、ready/backlog、错误停止、默认配置、协议 v2 / candidate v3 与 timeline 审计说明均与实现及已批准 design 对齐；长期评测入口位置未变，不缺新增索引导航。未发现遗漏的产品可观察增量。
 
 CRITICAL / WARNING / SUGGESTION 均无；本轮 delta aligned，不需扩大为 full verification。此结论只放行本次实现与机制证据，一题真实运行结果及整个 benchmark 效果仍由 owner 分开报告。
+
+## Round 4 — 同一 Global 原生多窗口
+
+- reviewer_target: `/root/window_static_review`
+- verification_mode: `delta`
+- review_round: `4`
+- fix_delta_range: `cb296e8affc78715a3013bb35c737fc2bfec41a3..8ced1ccd7da12a6437a90927f8b2d632c4bcd66c`
+- validated_at: `8ced1ccd7da12a6437a90927f8b2d632c4bcd66c`
+- parent_product_baseline: `efaa2bbae3e21f8835fea477b1085c8efb7f0c93`，经 `9e5cfd6cc6019a2767f612ce5dbd504e4b3a29d9` 合入
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **pass**（本轮单根多窗口实现及确定性机制）
+- requires_full_verification: `false`
+- CRITICAL: 0; WARNING: 0; SUGGESTION: 0
+
+### Completeness
+
+冻结 HEAD 与现场一致，工作区初始 clean；父基线/merge 均在受审提交祖先链。核对 spec 的完整原文、单一 Global 主体、时间到达和冷答题要求，design.md:154-188 的单根多窗/交接决定及 :268-272 的 M1 退出条件，Gate 2 Round 4 Approved。保留 Round 3 对无 diff 的 dataset、Runner、judge、时间调度、限额与失败分母证据；没有重复审父产品正常结束变更，也没有把先前一题真实调用授权延续到本轮。Prototype / Reference Contract：N/A。
+
+本轮 M1 增量全部有实现及直接证据：到达时生成真实窗口、surface 替换和重载一致、旧窗原文可恢复、单根单目标及连续进度、cold/live writer 交接、冷答题仍隔离。没有需要扩大 full verification 的共享边界变化。
+
+### Correctness / Coherence
+
+| Requirement / design 决定 | 实现与直接证据 | 状态 |
+|---|---|---|
+| 每题一个 Global、一个持久 root、一个主人 target；每段一个原生 window | `evaluation.ts:56,174,213`；`history.ts:22-26,66-86,93-105`；独立 chronological 和 no-due 各 4 段、4 窗、唯一 root/target，6 个唯一 callId | aligned |
+| 未到达正文/窗口不预建；原段 ID、日期、原 turn 和正文保真 | `runtime.ts:91-110`；`history.ts:89-114`；实际早期/后期 source_history 列窗为 1/2，旧窗 read 完整恢复长消息，原段映射事件时间逐条匹配 | aligned |
+| 原生 surface 真替换，正文仍由 History 恢复，结构标记不编造业务摘要 | `history.ts:67-86` 使用公开 Session / Compaction / TokenMeter；公开 agent/created 捕获第二次真实加载的 surface 只有 Paris 及 checkpoint，没有 Berlin 长原文；最终重载 4 窗并搜索/读取完整首段 | aligned |
+| 同一 Dreaming owner/cursor，按 idle/flush/dispose/cold writer/resume 交接 | `runtime.ts:78-85`；`history.ts:29-38,55-60,116-118`；独立两次同 ID root 加载、baseline 始终 -1，冻结 backlog 从已消费 seq 36 继续到 61，窗口边界不重置进度或另起周期 | aligned |
+| 正常产品完成、恢复和唯一写者 | 父 `dreaming-agent.ts` 的正常 turn/end + 文件核验未被改写；fixture 仅跟随去除 finish。实际维护 source_history、new_context、notes、history 成功，正式记忆封存 Paris；无额外写者或业务重演 | aligned |
+| 零到期可冻结，末尾不强制启动；保留时间/预算失败语义 | 原调度循环继续由产品 nextAutomaticAt/tick 决定；no-due 四窗仅三分钟、零模型/零 root 加载且 pending-ready；本轮已有 15 项窄回归含模型上限、挂起截止和重试准备，Round 3 未变证据 retained | aligned |
+| 冷答题仅用记忆及当前问题，无准备 History/notes 旁路 | `evaluation.ts:94-114,224-235`、`runtime.ts:48-69` 隔离逻辑未扩大；独立新 runtime 7 请求、实际本地 send_message 为 Paris，原日期存在、原历史/恢复笔记缺席、两次越界拒绝 | aligned |
+| 版本/文档对应实际候选与协议 | `plan.ts:67-77` protocol v2 / adapter v4 / historyMapping；suite README 原生单根窗口、冻结、固定分段范围、证据和工具边界与 design 一致；研究页清楚区分外部方法与本仓执行协议 | aligned |
+
+### Context 与执行证据
+
+复用同一独立审查者的 [Round 4 Implementation Review](code-review.md)，不再新建 Context 审查。已组合检查实际 system、messages、工具 schema、原文来源目录、成功工具结果、新窗口及维护自身恢复、形成记忆和冷交付。未发现实现偏离设计、设计本身确定性不合理或必填身份无来源；真实模型理解/策略和质量按授权明确未验证。
+
+- owner 窄验证：`pnpm exec vitest run packages/dsh-integration/tests/evaluation-runtime.test.ts evals/memory`，`/tmp/feat677-window-targeted.log`，5 files / 15 tests passed；相关 package build 已记入 progress。红证据 `/tmp/feat677-window-red.log` 在旧实现的四窗断言实际失败。未重复全量，owner 另行运行。
+- 独立探针：`pnpm exec tsx /tmp/feat677-window-static-review.mts`；日志 `/tmp/feat677-window-static-review.log`。现场根 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-window-static-review-awo4PT/`；逐项 receipt/requests/timeline/source-map/live surface 的 locator 见 code-review.md Round 4，`summary.json` 保存状态、范围与 PID。
+- chronological：84 次准备请求，真实 automatic_start 两次，只有已导入 1/2 段时发生；末尾两段保留 pending，冻结 active=false。no-due：0 次模型请求。cold answer：7 请求、真实本地交付 Paris、deniedTools=2。所有准备请求 maxTokens=2048。
+- pid 66811 / 69064 / 69395 均在 close 后验证不存在；无常驻服务、自建 worktree、真实 provider/judge 或生产操作。只追加本文件和 code-review.md，不提交，由 owner 统一交付。
+
+证据限于锁定 DSH 和本地确定性 provider 的实际组装/工具/持久化/公开投递；不证明 HTTP wire、真实模型行为、正式 LongMemEval 分数或 token-pressure 自动换窗。公开 persistence 与 live surface 观察仅证明对应机制；冷答题和恢复结论另由实际工具结果与投递证明。
+
+### Delta reconciliation / Issues
+
+Gateway / PA：**no spec delta**。本 patch 产品代码只改专用 evaluation 入口和其本地插件；生产 profile、来源/写者语义、RPC/模型工具、正常调度和 current spec 均未改。父产品删除 input.md/finish 是独立已合入基线，不能算作本次评测增量。评测行为确有变更，由 canonical `evals/memory/README.md` 维护：adapter v4、同根原生窗口、唯一 target、cold/live 交接及证据定位均与批准设计/实现一致；导航已覆盖 suite 与新研究页，无遗漏对外行为。
+
+CRITICAL / WARNING / SUGGESTION 均无；delta aligned，`requires_full_verification=false`。本轮完成实现和确定性验证，不新增真实模型效果或正式跑量结论。

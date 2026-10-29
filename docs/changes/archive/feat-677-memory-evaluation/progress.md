@@ -128,4 +128,16 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - 同一真实运行时旅程改为从实际 Source directory 取唯一 root；验证早期只有已到达窗口、后续列出同根多窗并读取旧窗完整长消息、维护自身换窗/notes/history 恢复、冷答题无旧原文或维护笔记。fixture 使用父版本正常完成响应，未调用退役 finish 工具。
 - 保留零到期、请求预算、超时杀进程、Runner/评分/CLI 既有保护。新增同文件四窗无到期旅程，保护真实持久化和恢复，不按 Dreaming 私有批次数设通过条件。
 - `pnpm --filter @nano/dsh-integration... build` 通过；`pnpm exec vitest run packages/dsh-integration/tests/evaluation-runtime.test.ts evals/memory` 5 files / 15 tests 通过，日志 `/tmp/feat677-window-targeted.log`。无真实候选/judge 调用，所有测试目录和子进程由既有 finally 清理。
-- 独立门禁、最终版本与本地/远端检查结果随后追加；不会将确定性机制通过写成真实模型效果提升。
+- 独立门禁与本地检查见下节；不会将确定性机制通过写成真实模型效果提升。
+
+### 窗口修订的独立门禁与交付检查
+
+实现 `785c1ec7c`，冻结审查版本 `8ced1ccd7da12a6437a90927f8b2d632c4bcd66c`；review diff=`cb296e8af..8ced1ccd7`，effective parent=`efaa2bbae3e21f8835fea477b1085c8efb7f0c93`。最终 fetch 未发现父分支新增提交；executed main snapshot=`9bf2b13da`，与 HEAD 的 merge-base=`082e72ec4becb37d4ba08c3e3a8e0d2bf45da087`。本轮继续用户指定的 stacked base，不合入 main 的无关 bugfix-678 设计文档。
+
+- design Round 4 Approved；code-review / verification / acceptance Round 4 全部 pass，零存活发现。独立静态探针验证四窗单根、两次同根恢复后的活动正文替换、旧长原文读回、baseline 与游标连续、冷交付 Paris 和两次越界拒绝；另一个四窗未到期探针零请求。完整证据与进程退出核实见三份报告。
+- 独立 CLI 默认 plan：protocol v2 / candidate v4 / modelCallsStarted=0；未授权 run/score 均 exit 1；自检 5 files / 15 tests passed。新增一次真实模型或 judge 调用数均为 0。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime`、docs-check（283 sources / 68 routes）、ruff check/format、archive check 通过；Python 127 passed / 28 deselected。日志 `/tmp/feat677-window-{full-build,typecheck,ios-runtime,docs,ruff,ruff-format,archive,python}.log`。
+- 默认并发 `pnpm test` 为 875 passed / 2 failed：`agent-disable-native` 的 B 清理返回 kill EPERM；`task-execution-limits` 未在等待期限内达到完成条件。完整失败日志 `/tmp/feat677-window-full-tests.log`。未修改这两个测试或对应产品；单 worker 隔离复跑 2 files / 8 tests passed，日志 `/tmp/feat677-window-failures-isolated.log`。根因尚未确认，不能称为已修复。
+- 因上述全量失败，追加 `pnpm exec vitest run --maxWorkers=2` 全套验证，结果日志 `/tmp/feat677-window-full-bounded.log`；最终状态连同 PR 当前 head 的远端 CI 记录在 PR Validation 与交付回报。没有 Web/iOS UI 自有改动，保留父分支适用产品证据。
+
+此后只追加独立报告和本检查记录，运行代码/测试/配置未变，`8ced1ccd7` 的专项与审查证据 retained。PR #429 继续以 `unit/feat-676` 为 base；未合并或部署，开发 worktree 保留。旧 v3 incomplete 结果保留原构造身份，本轮不产生正式效果分数。

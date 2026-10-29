@@ -115,3 +115,48 @@
 所有请求 maxTokens=2048；首请求 roles 为 system/user/user，工具包含正常受限文件操作、finish、source_history 及维护自身恢复工具。conversations 名称仍可见，但产品桥未接 IM 补查，沿用前轮限制。pid 94832 / 99367 / 1157 均在 close 后验证不存在；未启动常驻服务或自建 worktree。原请求和临时脚本仅留本机，不提交。
 
 冷答题复用本轮已通过主旅程在 `evaluation-runtime.test.ts:34-75` 的实际工具结果、Paris 公开投递、问题日期、原历史/恢复笔记缺席、越界拒绝和两次独立运行证据。上述证明确定性 provider 下的实际交付与机制，不证明 HTTP wire、真实模型策略、记忆质量或正式 benchmark 效果；真实模型/judge 的一题运行由 owner 单独报告，不在本 reviewer 执行范围。无存活 Context finding。
+
+## Round 4 — 同一 Global 原生多窗口
+
+- reviewer_target: `/root/window_static_review`，独立审查者，未参与受审实现。
+- review_mode: `patch`
+- review_diff: `cb296e8affc78715a3013bb35c737fc2bfec41a3..8ced1ccd7da12a6437a90927f8b2d632c4bcd66c`
+- validated_at: `8ced1ccd7da12a6437a90927f8b2d632c4bcd66c`
+- parent_product_baseline: `efaa2bbae3e21f8835fea477b1085c8efb7f0c93`，经 `9e5cfd6cc6019a2767f612ce5dbd504e4b3a29d9` 合入；两者均已核实在受审提交祖先链。
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **pass**
+
+开始时 HEAD 等于冻结版本、工作区 clean。审查本轮 13 文件 patch 及其受影响的持久化/来源/恢复/冷答题消费链；读取 Gate 2 Round 4 Approved、spec、design 的单根多窗决定、M1、current Global/Memory 契约及 codex-execution-notes。保留 Round 3 对未变 dataset、Runner、judge、时间调度与预算边界的适用证据。父版本删除 input.md/finish 不在本次实现内；fixture 跟随父版本正常 turn/end 完成，没有恢复退役工具。
+
+### Findings
+
+```json
+[]
+```
+
+### 增量覆盖
+
+- `evaluation.ts:56,174,213`：只注册一个可信 root binding，来源许可只含唯一主人聊天目标 `evaluation-question`；原段 ID 保留于 provenance/source-map，不成为额外 root 或聊天目标。`history.ts:22-26` 在首次真实加载前持久化空根并初始化 baseline，后续加载未替换 Dreaming 实例或 owner。
+- `evaluation/history.ts:52-118`：每段到达后才通过公开 persistence writer 和 detached Session 追加；seq/turn/callId 跨段延续。后段边界为完整 start/summary/replace/end，替换前一活动窗口及旧 checkpoint；原 append-origin 正文完整保留。结构提示明确 imported-history，不含业务摘要或 Notes。TokenMeter 和所有新增 DSH import 均使用已声明公开 exports，没有 private import 或第二套运行时。
+- `evaluation/runtime.ts:78-110`：真实自动尝试前恢复同一 root，完成后等待维护/parent idle、flush、dispose；下一次导入才重新取得 persistence writer。`history.ts:29-38` 仅对交接中的公开 SessionAlreadyOwnedError 做 5 秒有界等待，其他错误直接失败。导入未广播业务工具事件；换窗不重新激活 owner，也不自行触发维护。
+- `plan.ts:76`、suite README：candidate v4 及 single-global-session / dataset-session-as-native-window / one-owner-conversation 进入候选身份；protocol v2、时间/冷答题/评分口径未改。长期说明区分固定数据分段与产品 token-pressure 换窗；外部方法研究页和导航没有变成第二份执行协议。Gateway/PA **no spec delta**。
+- 受影响测试在原 evaluation runtime 文件内 rewrite-merge，新增零到期多窗场景从公开 Session surface / History 验证真实替换与读回；主旅程从实际 source directory 取唯一根，并核验实际 source_history 工具结果和冷投递。没有靠窗口目录或私有状态快照代替消费结果。
+
+### Agent Context Implementation Review — Mode B（patch）
+
+触发面为单根窗口交付、来源许可/原文身份、冷/live 交接、History 恢复与冷答题。沿 imported-history → 公开持久化 → MemorySources 冻结 → 实际 Dreaming system/messages/tools → source_history 与自身恢复 → 正式记忆 → 新 answer runtime 检查。实际 system 将历史及 Memory 标成不可信证据，source_history 必填 session_id 来自宿主目录；业务 source_history 与维护自身 history/notes 的语义和范围仍分开。没有新增模型不可获得的身份参数或额外记忆写者。
+
+复用 `/tmp/feat677-window-targeted.log` 的 `pnpm exec vitest run packages/dsh-integration/tests/evaluation-runtime.test.ts evals/memory`：5 files / 15 tests passed；红证据 `/tmp/feat677-window-red.log` 在旧实现实际得到 1 窗而非 4 窗。相关 package build 已由 owner 记录，本 reviewer 未重复全量检查。
+
+独立执行 `pnpm exec tsx /tmp/feat677-window-static-review.mts`，日志 `/tmp/feat677-window-static-review.log`。只用本仓确定性 provider、真实锁定 DSH 和两个隔离合成现场；另在公开 agent/created 事件观察恢复后的活动 surface，没有改产品逻辑。证据根 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-window-static-review-awo4PT/`，脱敏结果 `summary.json`：
+
+| 探针 | 直接结果 | Locator |
+|---|---|---|
+| chronological | 4 segments / 6 turns、同一 root、4 个原生 History 窗、两次真实 root 加载；第二次活动 surface 含 Paris，不含 Berlin 长原文。84 次准备请求仅在已导入 1/2 段时发生；早期 source_history 只列 1 窗，后期列 2 窗并按返回的 window/item 读回 LONG_MESSAGE_END。 | `chronological/{live-roots.jsonl,imported-root.json}`；`chronological/prepare-xzdQ3z/{receipt.json,requests.jsonl,timeline.jsonl,source-map.json}` |
+| cursor / recovery | 每批来源目录只有同一个 root、baseline=-1；允许 through 随实际批次从 6、13 到 36。冻结 backlog 的 start=36、through=61，证明后续窗口没有重置已消费进度。首维护 session 的请求索引 5 在 new_context 后不含长原文/维护笔记，索引 6 通过 notes 成功读回 EVALUATION_RECOVERY，索引 7 含成功的自身 history 列窗结果。 | 同上 `requests.jsonl`、`timeline.jsonl`；索引均从 0 起，限定首维护 session |
+| cold answer | 新 runtime 7 次实际请求；本地 send_message 回执交付 `You live in Paris.`。请求含原问题日期，不含准备长原文、干扰原文或维护笔记；旧 runtime read 与越界 glob 均拒绝，deniedTools=2。未来问题标记未进入任何准备请求。 | `chronological/answer-fLVdd7/{answer.json,requests.jsonl,denied-tools.jsonl,deliveries.json}` |
+| no-due | 四段都在三分钟内到达，真实持久化形成 4 窗；0 次 root 加载、0 次模型请求，ready 并保留 pending。最后活动 surface 仅最后原段及结构 checkpoint，旧正文仍可由公开 History 读取。 | `no-due/imported-root.json`；`no-due/prepare-CYx28T/{receipt.json,timeline.jsonl,source-map.json}` |
+
+所有准备请求 maxTokens=2048；实际 system/message/tool schema 与成功工具结果已读取，未将 fixture 固定结论当作真实模型能力。pid 66811 / 69064 / 69395 均在 close 后以 process.kill(pid,0) 确认不存在；脚本自身已退出，未启动常驻服务或自建 worktree。原请求与临时脚本仅留本机，不提交。
+
+限制：上述 llm/stream 是 DSH 最终组装后、HTTP provider 适配前的请求，证明本地确定性链路的交付/恢复/投递，不证明最终 HTTP wire、真实模型策略、记忆质量或正式分数。未调用真实模型/judge、生产 IM 或外部业务。只追加本报告与 verification.md，由 owner 提交。
