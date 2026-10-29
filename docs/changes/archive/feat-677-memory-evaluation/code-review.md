@@ -73,3 +73,45 @@
 本次冷答题 completed，本地 send_message 交付成功；冷请求没有 LONG_MESSAGE_END、UNRELATED_HISTORY_ONLY 或 EVALUATION_RECOVERY；FUTURE_SYNC_REVIEW 未进入准备请求，旧 runtime read 和越界 glob 拒绝共 2 次。准备请求定位 `prepare-jZMNdU/requests.jsonl`，答题 `answer-J19mpw/requests.jsonl`；pid 26076 / 28086 已确认均不存在，所有子进程经 close 清理。
 
 限制：捕获仍是 DSH 组装后、HTTP provider 适配前的 llm/stream，不证明最终 wire 或真实模型理解、恢复策略和记忆质量。LongMemEval 本次只有对话，未覆盖父产品的子任务提炼；未接真实 IM。真实候选/judge/正式 benchmark 均未启动。源码和上述受影响机制的证据充分后停止，不扩大复审未变的 dataset/Runner/judge 或重跑全量门禁。后者由调用方另行记录。
+
+## Round 3 — 时间回放修订
+
+- reviewer_target: `/root/timeline_static_review`，独立审查者，未参与受审实现。
+- review_mode: `patch`
+- review_diff: `a524e3b900cfd32a4dc30ef88969dec635540a2e..13fff74b2ccb3d82e62638108a96363adea82fee`
+- effective stacked base: `3e9a46030939bfcce351b7df2e29e5f3c2439055`
+- validated_at: `13fff74b2ccb3d82e62638108a96363adea82fee`
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **pass**
+
+现场核实 HEAD 与指定 SHA 一致、a524e3b90 是直接父提交，指定 effective base 在本分支祖先链；开始时工作区 clean。范围为本轮 13 文件 patch 及其受影响的产品准入、来源冻结、恢复和冷答题链；不重审无关父实现。保留 Round 1/2 对不变 dataset、Runner、judge、来源映射与隔离的适用证据；旧轮“必须清空 backlog 才 ready”的结论已被本轮批准协议替换。设计 Round 2 Approved；本轮仅追加本报告和 verification.md，不改源码、测试、配置或设计。
+
+### Findings
+
+```json
+[]
+```
+
+### 增量覆盖
+
+- `knowledge/dreaming.ts:74-107,131-149`：宿主时钟在 owner 初始化前启用，关闭该实例 timer/step 回调准入；默认生产实例仍用 Date.now 和原 timer/step。nextAutomaticAt 与 tick 共用 automaticTiming，周期、静默和重试条件未复制到 adapter。tick 返回真实 start 结果；时间改变不触及全局 Date、HTTP 或进程定时器。
+- `evaluation/history.ts:18-35` 与 `evaluation/runtime.ts:88-111`：所有空来源在 baseline 前注册，正文仅在对应到达点通过公开持久化追加；同刻 do/while 全量追加后才 recordActivity 和准入。每次 await tick 完成才推进逻辑时间，业务历史不广播到工具执行监听器，不重演业务动作。source_history 继续受真实冻结范围及来源资格约束。
+- `evaluation/runtime.ts:79-86,113-120`：只有正常完成或无合格增量能继续回放；失败、partial、cancelled 和请求预算耗尽不能落入正常 backlog-ready。最后没有手动 start 或向未来跳转，whenIdle 不启动新周期；冻结后仅允许 pending/no_eligible_increment 且 active=false。
+- `evaluation.ts:53-82,94-114,133-160,224-237`：收据按实际导入计数，失败不会预记尚未导入历史；真实阶段计时、请求限额、取消和进程组清理保留。冷答题仍仅复制正式 memory 和 documents.json，不复制维护输入、恢复笔记或 session；服务桥只接本题 Inbox 和本地发送。
+- `plan.ts:15-21,67-77` 与 suite README：protocol v2 / adapter v3、有效 intervalMs/quietMs、会话原子到达、同刻顺序、维护期间时钟暂停和末尾冻结语义均进入身份/说明。旧 bulk 产物不能与新协议混用；通用 Runner/judge 未耦合产品调度。共享默认常量导出不增加产品能力或生产入口，Gateway/PA **no spec delta** 成立。
+
+### Agent Context Implementation Review — Mode B（patch）
+
+触发面为历史交付时机、Memory 累积、按需来源与自身恢复、冷答题。阅读了当前 agent-capabilities 的持续合格增量/冻结/失败契约以及实际 DreamingAgent、DreamingHistory 和答题守卫；核对最终 llm/stream 组装的 system 消息、工具 schema、来源目录、文件/工具结果与后续请求。system 继续将历史及 Memory 标为不可信依据，source_history 的 session_id 来自宿主来源目录；history 恢复维护自身，与业务原文回查范围分离。本轮没有新增模型必填身份参数或额外记忆写者。
+
+复用 `/tmp/feat677-timeline-targeted.log` 的 8 files / 19 tests passed：包括零到期零模型请求、正常回放/冷答题、预算 incomplete、挂起 provider 真实截止、产品 scheduling 与真实 Dreaming 回归。另独立执行 `pnpm exec tsx /tmp/feat677-timeline-static-review.mts`，日志 `/tmp/feat677-timeline-static-review.log`。仅用现有确定性 fixture 和真实锁定 DSH；独立现场 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-timeline-independent-T5JKXm/`：
+
+| 探针 | 实际交付/行为 | 证据 locator |
+|---|---|---|
+| chronological | 4 sessions、82 次受控请求，仅在已导入 1/2 sessions 时发请求；两个逻辑时点为 1704153600000 / 1704240000000。早期有 Berlin 而无 Paris，后期读到 Paris；未来 history-three 的 source_history 返回 items=[]、through=-1。末段两段新事实不在准备请求中，冻结 pending，正式记忆仍为 Paris。 | `chronological/prepare-DTX2KM/{requests.jsonl,timeline.jsonl,receipt.json}` |
+| same-time-zero-quiet | 将后两段设为同一周期边界、quietMs=0；全部 3 sessions 的到达记录先于唯一 automatic_start。72 次请求全部 importedSessions=3、逻辑时间固定；此时 history-three 回查返回已到达原文，最终 no_eligible_increment。 | `same-time-zero-quiet/prepare-nyPXBF/{requests.jsonl,timeline.jsonl,receipt.json}` |
+| provider-failure | 仅在临时 fixture 抛出确定性 provider 错误；1 次请求/1 次自动尝试后 prepare=failed、importedSessions=1，没有继续后续历史或重试，也没有 frozen-ready。 | `provider-failure/prepare-uASp7X/{requests.jsonl,timeline.jsonl,receipt.json}` |
+
+所有请求 maxTokens=2048；首请求 roles 为 system/user/user，工具包含正常受限文件操作、finish、source_history 及维护自身恢复工具。conversations 名称仍可见，但产品桥未接 IM 补查，沿用前轮限制。pid 94832 / 99367 / 1157 均在 close 后验证不存在；未启动常驻服务或自建 worktree。原请求和临时脚本仅留本机，不提交。
+
+冷答题复用本轮已通过主旅程在 `evaluation-runtime.test.ts:34-75` 的实际工具结果、Paris 公开投递、问题日期、原历史/恢复笔记缺席、越界拒绝和两次独立运行证据。上述证明确定性 provider 下的实际交付与机制，不证明 HTTP wire、真实模型策略、记忆质量或正式 benchmark 效果；真实模型/judge 的一题运行由 owner 单独报告，不在本 reviewer 执行范围。无存活 Context finding。

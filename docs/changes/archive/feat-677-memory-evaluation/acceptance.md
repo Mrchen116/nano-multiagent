@@ -99,3 +99,48 @@ N/A。design 明确无客户端 UI 改动、无需前端原型；无 viewport �
 README 已说明 LongMemEval 没有子任务执行轨迹，因此不伪造第一层任务；评测不连接独立 IM，`conversations` 补查不开放，准备阶段可通过 `source_history` 查询本题合格原文。新版维护自身 `notes/history/new_context` 与原文补查属于准备环境，不能据此扩大为对子任务记忆质量或独立 IM 检索效果的验收。
 
 本轮没有 Web/iOS 改动，Reference Artifacts Reviewed=N/A。suite README 已包含迁移说明与上述范围，design 有同步最新父分支的说明；其余上层文档沿用 Round 1 无需更新判断。没有启动常驻服务或新建 HTTP provider，无自建进程待清理。只追加本报告，未修改实现、测试、受版本控制的配置或提交。
+
+## Round 3 — 统一时间回放 targeted acceptance
+
+> mode=full；revalidation_mode=targeted；review_round=3；2026-10-29。
+>
+> validated_at：`13fff74b2ccb3d82e62638108a96363adea82fee`；prior：本文件 Round 1/2；本轮比较范围 `93c8e305bf30de6f0354510f3d9e8eee46b293c1..13fff74b2ccb3d82e62638108a96363adea82fee`。
+>
+> 入口为 `pnpm memory-eval`；无 Web/iOS/生产服务变化，不适用 daily 栈或 viewport。caller 已构建，独立核实计划中的源 SHA、dirty 与实际构建 hash；没有重新构建受审版本。
+
+### Verdict 与用户旅程
+
+**pass（本轮无真实模型的 targeted 机制验收范围）**；0 blocking / 0 major / 0 minor；highest_required_action=pass；needs_re_review=false。真实一题由 owner 在本门禁之外按授权执行，本报告未验证真实答案、judge 或分数，也不声明整个新增真实试跑 Scenario 已完成。
+
+初始 HEAD 与 validated_at 一致，分支 `codex/feat-677-memory-evaluation`，工作区干净。使用项目固定 Node 24.22.1 的 PATH，从 README 复制默认计划命令，返回 1 题、2 会话、4 消息及 `modelCallsStarted: 0`，无需凭证。计划明确 protocol version 2、`nano-document-memory-v3`，实际 `intervalMs=86400000`、`quietMs=600000`、`maxInputTokens=24000`；sourceCommit 正确且 dirty=false，runtimeHash=`025613fa44ddc728ef4ab6edc27da401e41d676ad4d0ea0d600f0035b64e63ab`。
+
+维护者从 README 能辨认唯一执行顺序、会话原子到达/同刻原顺序、无时区按 UTC 解释、维护期间逻辑时钟暂停与真实超时分离。计划的 preparation 字段同样明确：仅从首段推进至末段历史，冻结只等待已准入工作，不强制未来周期，未触发 backlog 留在证据中。README 进一步解释 `ready` 不要求 backlog 清空、无周期到期可以封存空记忆，以及失败/超限不能伪装为未触发积压。上述说明与 spec/design 本轮要求一致，未形成第二套模式或模糊的“准备完成等于全量整理”承诺。
+
+在仓库外复制配置，把周期/静默改为 3600000/60000 后再次运行 plan，输出确实采用显式值，仍为零模型调用；protocolId 不变、candidateId 改变，用户能够区分候选参数与实验协议。随后实际执行未带授权开关的 run 与 score，两者均 exit 1，明确显示 `Model execution is disabled; pass --allow-model-calls explicitly`。本轮从未使用该允许开关，没有候选模型或 judge 调用。
+
+### 证据与 retained 范围
+
+- 默认计划：`pnpm memory-eval --config evals/memory/examples/plan.json --ids evals/memory/examples/ids.json --output /tmp/feat677-review-r3-plan`；证据 `/tmp/feat677-review-r3-plan/plan.json`、`/tmp/feat677-review-r3-plan.log`。
+- 显式参数计划：仓库外 `/tmp/feat677-review-r3-custom.json`，产物 `/tmp/feat677-review-r3-custom-plan/plan.json`、`/tmp/feat677-review-r3-custom-plan.log`；比较得到 sameProtocol=true、differentCandidate=true、modelCallsStarted=0。
+- 未授权 run/score：`/tmp/feat677-review-r3-rejections.json` 保留两条完整命令、原始输出和 exit 1。
+- caller 交接并允许复用的当前版本确定性专项：`/tmp/feat677-timeline-targeted.log`，8 files / 19 tests passed，50.59 秒。本 reviewer 亲自读取该结果；这是汇总日志，没有逐断言轨迹。其时间线可见性、正常准入、末尾 backlog、空记忆冻结、冷答题与失败边界覆盖按 caller 交接复用，不冒充本轮独立手工检查了每个模型请求。
+- Round 1/2 均无未关闭 fail/inconclusive。未变化的数据保真、官方评分、报告分母、固定答案补评分、opaque 候选 Runner 接口结论 retained；时间回放及准备/冷答题使用本轮专项，不继承旧集中导入的时间语义，不把旧协议产物混成 v2 分数。
+
+### Scenario 覆盖
+
+| Scenario | 来源 | 本轮结果 | 证据与范围 |
+|---|---|---|---|
+| 导入固定历史并回答后续问题 | spec 同名 Scenario；design Runbook | pass | 当前确定性专项复用；保留完整原生历史与冷上下文机制，真实模型质量未验证 |
+| 历史跨越记忆维护周期 | spec 同名 Scenario；design 时间回放 | pass | 亲自核实计划 v2、有效周期/静默及顺序语义；运行时行为采用本轮时间线专项 |
+| 摄入结束后冻结 | spec 同名 Scenario；design 结束与失败 | pass | 计划与 README 清楚表述已触发等待、未到期 backlog、空记忆及失败区别；本轮专项复用，不依赖旧 bulk 证据 |
+| 只进行一次有界真实试跑 | spec 同名 Scenario；本轮派发授权边界 | not-applicable | 本 reviewer 明确仅做无模型门禁，owner 单独执行选定一题；此行不代表真实试跑已完成，须另附实际逐阶段结果 |
+| 比较前后两个记忆版本 | spec 同名 Scenario | pass | 本轮显式周期参数改变候选身份而保持协议；opaque Runner 证据 retained，旧协议与新协议不直接混比 |
+| 长期历史仍存在于准备环境 | spec 同名 Scenario | pass | 当前准备/冷答题专项复用；保留工具/上下文隔离结论，不扩展为 OS 沙箱 |
+| 仅检查数据与执行计划 | spec 同名 Scenario | pass | 两次独立 CLI plan，实际配置和限额可见，均 modelCallsStarted=0 |
+| 显式执行评测 | spec 同名 Scenario | pass | 本轮未授权 run/score 均清楚拒绝；固定 judge、预算与报告机制 retained/专项复用；真实执行及分数不在本 verdict 内 |
+
+### 文档、问题与清理
+
+无问题。Reference Artifacts Reviewed=N/A：本轮为 CLI 用户入口，无原型或视觉匹配要求。README 已包含本轮时间回放与冻结契约；docs/README.md 已有评测入口。已核对 design 的 no spec delta 与 gateway agent-capabilities 当前自动准入/单写者边界，沿用 Round 1 对 SPEC.md、AGENTS.md/CLAUDE.md、specs/CONTRIBUTING.md 无需修改的判断。
+
+仅追加本报告，未读实现定位根因，未修改源码、测试、受版本控制配置或设计，未提交。临时配置和日志留在仓库外。没有启动常驻服务或 HTTP provider，无本 reviewer 进程待清理。

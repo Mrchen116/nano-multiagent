@@ -101,3 +101,14 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - 红证据 `/tmp/feat677-timeline-red.log`：单段未到期历史在旧 adapter 发出 11 次确定性请求，预期 0 失败。原生多批测试首次失败来自 fixture 在无住址依据时写 unknown，随后修改正文却保持入口不变，被既有保存规则拒绝；工具结果证据保留在 `/tmp/feat677-timeline-debug-pCAyRa/`。修正 fixture 为无证据 no-change、正文改变同步入口，没有修改产品保存规则。
 - 窄验证：相关包 build、`pnpm typecheck` 通过；`pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runtime.test.ts packages/dsh-integration/tests/dreaming-scheduling.test.ts packages/dsh-integration/tests/dreaming-runtime.test.ts packages/dsh-integration/tests/dreaming-cycle-runtime.test.ts`：8 files / 19 tests passed（50.59 秒）。日志 `/tmp/feat677-timeline-{build,typecheck,targeted}.log`。
 - no spec delta：生产准入行为与唯一记忆写者不变，权威评测协议更新到 suite README；没有客户端、生产迁移或部署工作。后续追加本轮独立门禁、全量检查与一道真实试跑结果；在这些证据产生前不宣称新实现已完整验收或已有分数。
+
+### 时间回放实现冻结与独立验证
+
+运行代码冻结 `13fff74b2ccb3d82e62638108a96363adea82fee`；review diff=`a524e3b90..13fff74b2`，effective_base=`3e9a46030939bfcce351b7df2e29e5f3c2439055`。
+
+- 独立 Round 3 code review：findings=[]；verification delta=pass/aligned，0 CRITICAL / WARNING / SUGGESTION；CLI targeted acceptance=pass（无真实模型的机制验收）。三份报告追加保留旧轮。
+- 独立原生探针核实常规时间回放、quiet=0 周期边界同刻全部会话先到达、provider 失败立即停止；对应 82 / 72 / 1 次确定性请求，3 个子进程均退出。证据根和最终模型输入观察见 Round 3 报告。未用真实模型或 judge。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime`、docs-check、ruff check/format、archive check 通过；`pnpm test`：170 files / 868 tests passed（151.60 秒）；`pytest -m 'not e2e' -q`：127 passed / 28 deselected。日志 `/tmp/feat677-timeline-{full-build,typecheck,ios-runtime,tests,python,ruff,ruff-format}.log`。
+- 单题计划：1 question / 53 sessions / 550 messages；默认 interval=86400000ms、quiet=600000ms；prepare 40 请求/600秒，answer 12 请求/180秒，judge 1 请求/120秒。模型与上一题一致，尚未执行本轮真实请求。保留父分支原生 UI 证据，当前修改无 Web/iOS 用户流程。
+
+后续真实试跑不自动提高限额、不重试候选、不扩题；失败或 incomplete 作为该次真实结果保存，不以机制通过推导记忆质量通过。

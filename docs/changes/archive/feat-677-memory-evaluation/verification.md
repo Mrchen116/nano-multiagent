@@ -133,3 +133,51 @@ Gateway / PA：**no spec delta** 成立。完整 diff 只新增专用离线评�
 Gateway / PA：本轮评测自有增量仍为 **no spec delta**；父产品的正式记忆只读、连续批次、任务提炼和恢复行为由其自身 current spec 与父 PR 负责，不能把包含父 merge 的全部分支 diff 说成没有产品行为变化。新增评测配置兼容说明、v2 adapter 与能力限制归 suite README；历史、问题、评分、冷上下文和预算的稳定协议未变。
 
 CRITICAL / WARNING / SUGGESTION 均无。仅在原 code-review.md 与本文件追加 Round 2，未改实现/测试/配置、未提交；由调用方提交本轮报告。保留 Round 1 原记录；本轮候选基线以最新 stacked base 为准。
+
+## Round 3 — 时间回放修订
+
+- reviewer_target: `/root/timeline_static_review`
+- verification_mode: `delta`
+- review_round: `3`
+- fix_delta_range: `a524e3b900cfd32a4dc30ef88969dec635540a2e..13fff74b2ccb3d82e62638108a96363adea82fee`
+- effective stacked base: `3e9a46030939bfcce351b7df2e29e5f3c2439055`
+- validated_at: `13fff74b2ccb3d82e62638108a96363adea82fee`
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **pass**（本轮时间回放实现与受影响机制）
+- requires_full_verification: `false`
+- CRITICAL: 0; WARNING: 0; SUGGESTION: 0
+
+### Completeness
+
+核实固定 HEAD、直接父提交和 effective base 祖先链。本轮读 spec 的时间线/冻结/冷答题/有界执行要求、design.md:168-184 的实现决定以及 :262-268 的 M1 退出标准；M1 维护在 design.md，本目录没有独立 milestone 文档。设计 Round 2 Approved。保留原 Round 1/2 未变的数据、候选三方法、Runner、judge 与隔离结论；不沿用被新协议替换的 bulk 完成条件。
+
+本次 delta 的实现与确定性退出条件均有覆盖。用户授权的一道真实题及实际消耗是 owner 的后续交付项，本 verifier 未执行、未把机制 pass 写成整项真实效果已完成。前端原型/Reference Contract：N/A；无生产迁移。
+
+### Correctness / Coherence
+
+| Requirement / design 决定 | 实现位置与证据 | 状态 |
+|---|---|---|
+| 逐会话到达，保持原文/双方身份/日期/顺序，早期无法读未来正文 | `evaluation/history.ts:18-35` 分开 baseline 与追加；`runtime.ts:88-105`；主旅程 early/late 请求和 future source_history 检查；独立 chronological 探针重复观察 through=-1 | aligned |
+| 产品自身自动准入，宿主不复制调度规则或重演业务 | `dreaming.ts:74-107,131-149` 的实例 clock / shared timing / tick；`runtime.ts:90-95` 只查询并调用；既有 scheduling、Dreaming runtime/cycle 专项通过 | aligned |
+| 同刻全量先到达，边界新活动参与静默 | `runtime.ts:97-109`；scheduling 测试记录活动后延后准入；独立 quietMs=0 探针 3 条到达先于唯一自动尝试，所有请求 importedSessions=3 | aligned |
+| 每次已准入处理结束后推进时间，不强制末尾清空 | `runtime.ts:79-95,113-120`；正常探针 82 次请求只有两组固定逻辑时间，末尾 pending-ready；`evaluation-runtime.test.ts:8-22` 零到期时零请求封存初始空记忆 | aligned |
+| 已触发失败、预算耗尽与正常 backlog 分开，无隐式重试 | `runtime.ts:84-86,93-94,109-110`；已有预算测试 incomplete 且实际导入仅 1 session；独立 provider 故障 failed、仅 1 次尝试并停止，不导入后续历史 | aligned |
+| 真实预算/取消/清理不受逻辑时钟影响 | `evaluation.ts:53-82,94-99,133-160` 与 `runtime.ts:17-40` 仍 Date.now、真实 setTimeout 和模型请求上限；专项挂起 provider 截止/usage/退出通过，独立 3 个 PID 均已退出 | aligned |
+| 冷答题只消费封存记忆与当前问题日期，维护恢复不旁路泄露 | `evaluation.ts:94-114,224-237`、`runtime.ts:49-69` 未扩大复制/工具/服务边界；主旅程真实冷请求、公开 Paris 交付、日期、两次独立 answer、原文/notes 缺席和越界拒绝通过 | aligned |
+| 协议身份、候选配置与实际证据可复查 | `plan.ts:15-21,67-77` protocol v2 / adapter v3、实际周期与静默；`runtime.ts:21-38,81-83,102-104,116` timeline/requests/计数；CLI 默认 plan 零请求及新身份测试通过 | aligned |
+| 不增加生产接口、第二套 Agent Loop 或记忆写者 | clock 仅 evaluation profile 调用，默认生产时钟/准入未变；导入仍经 DSH 已声明公开 persistence，评测通用层不 import DSH/Dreaming；共享常量来自 product-contracts | aligned |
+
+复用同一独立审查者的 [Round 3 Implementation Review](code-review.md)；覆盖实际 system 消息、工具 schema、冻结来源/恢复结果、形成的记忆与受影响冷答题消费链，不再新增一轮 Context review。未发现实现偏离设计或设计本身导致的确定性缺陷；真实模型理解/策略与质量在本次范围内未验证。
+
+### 执行证据与限制
+
+- 复用 owner 冻结实现的窄验证：`pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runtime.test.ts packages/dsh-integration/tests/dreaming-scheduling.test.ts packages/dsh-integration/tests/dreaming-runtime.test.ts packages/dsh-integration/tests/dreaming-cycle-runtime.test.ts`；`/tmp/feat677-timeline-targeted.log` 为 8 files / 19 tests passed（50.59 秒）。测试处置为现有主旅程/fixture rewrite-merge、同文件零到期场景、现有 scheduling/CLI 扩展；通用 Runner 未锁产品批次。
+- 已读取 `/tmp/feat677-timeline-typecheck.log`、`/tmp/feat677-timeline-full-build.log`、`/tmp/feat677-timeline-python.log` 的通过结果；Python 127 passed / 28 deselected。全仓 pnpm test 由 owner 执行，本报告不代报尚未交接的全量结果。
+- 独立命令 `pnpm exec tsx /tmp/feat677-timeline-static-review.mts` 通过；日志 `/tmp/feat677-timeline-static-review.log`。3 个隔离合成现场根目录 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-timeline-independent-T5JKXm/`，逐项 receipt/requests/timeline locator 见 code-review.md Round 3；`summary.json` 保留脱敏状态/计数/PID。未运行真实 provider/judge、未下载正式集、未连接生产 IM。完整原请求留本机。
+- 没有新建 worktree 或遗留运行进程；只追加 code-review.md / verification.md，不提交。其他角色并行追加 acceptance.md 的工作保持原样。
+
+### Delta reconciliation / Issues
+
+Gateway / PA：**no spec delta**。虽然 patch 提取共享时间函数并增加 Dreaming 包内宿主 seam，生产默认 Date.now、timer/step、周期/静默/重试及唯一写者语义保持；专用评测入口不进入正常 profile、生产 RPC 或模型工具。评测协议确有变更：suite README 的时间回放、ready/backlog、错误停止、默认配置、协议 v2 / candidate v3 与 timeline 审计说明均与实现及已批准 design 对齐；长期评测入口位置未变，不缺新增索引导航。未发现遗漏的产品可观察增量。
+
+CRITICAL / WARNING / SUGGESTION 均无；本轮 delta aligned，不需扩大为 full verification。此结论只放行本次实现与机制证据，一题真实运行结果及整个 benchmark 效果仍由 owner 分开报告。
