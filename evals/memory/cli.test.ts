@@ -19,7 +19,7 @@ it('defaults to a verifiable plan with zero model requests and gates execution b
   const limits = { timeoutMs: 1000, maxModelCalls: 5, maxOutputTokens: 100 };
   const route = { baseURL: `http://127.0.0.1:${address.port}/v1`, apiKeyEnv: 'EVAL_TEST_UNSET_KEY', model: 'fixture-model' };
   const config = { dataset: { path: 'dataset.json', revision: 'synthetic-v1', sha256: createHash('sha256').update(data).digest('hex') },
-    candidate: { ...route, dreaming: { maxInputTokens: 2000, maxSteps: 10, maxRunMs: 1000 } }, judge: route,
+    candidate: { ...route, dreaming: { maxInputTokens: 2000 } }, judge: route,
     limits: { prepare: limits, answer: limits, score: limits } };
   await writeFile(join(root, 'dataset.json'), data); await writeFile(join(root, 'ids.json'), '["synthetic"]');
   await writeFile(join(root, 'config.json'), JSON.stringify(config));
@@ -32,6 +32,9 @@ it('defaults to a verifiable plan with zero model requests and gates execution b
     expect(await readFile(join(root, 'plan/plan.json'), 'utf8')).not.toContain('Gold only');
     expect(stdout).not.toContain('Original history');
     for (const command of ['run', 'score']) await expect(invoke(command)).rejects.toThrow(/allow-model-calls/);
+    await writeFile(join(root, 'retired-config.json'), JSON.stringify({ ...config,
+      candidate: { ...config.candidate, dreaming: { ...config.candidate.dreaming, maxSteps: 10, maxRunMs: 1000 } } }));
+    await expect(invoke('--config', join(root, 'retired-config.json'), '--ids', join(root, 'ids.json'))).rejects.toThrow(/maxSteps.*maxRunMs/);
     await writeFile(join(root, 'ids.json'), '[]');
     await expect(invoke('run', '--allow-model-calls', '--config', join(root, 'config.json'), '--ids', join(root, 'ids.json'))).rejects.toThrow(/nonempty/);
     expect(requests).toBe(0);

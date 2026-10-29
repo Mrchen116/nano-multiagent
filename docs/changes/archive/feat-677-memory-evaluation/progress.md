@@ -6,6 +6,8 @@
 
 实现保留用户指定的 feat-676 分支基线，不把主仓的新 Dreaming 设计当成已实现行为。后续记忆改版的接线留在 Nano adapter。
 
+本文初次交付记录对应旧基线；2026-10-29 晚间最新分支同步与验证见文末追加记录。
+
 ## M1 implementation
 
 - 稳定 `MemoryCandidate.prepare/answer/close` 类型与 opaque 状态引用位于 product-contracts；数据、Runner、官方评分规则和报告不导入 DSH。
@@ -59,3 +61,17 @@
 报告内 `51b23e42b` 为实现审查 diff 起点（review_diff_base）；工作流的 executed main snapshot 为上述 `631b611ea`。各实现/CLI 门禁的 validated_at 均为 `97a8b1683`，effective_base 为 stacked base `80db8b9a`。此后只提交门禁记录、完成状态与整目录归档、修复归档相对链接；运行代码、测试、配置和产品上下文不变，因此这些门禁保留有效，不重跑未受影响的全量测试。
 
 M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效果已验、PR 已合并或已部署。正式 benchmark 与真实模型/judge 始终 not_run，留给用户之后决定启动。
+
+## 2026-10-29 latest memory branch compatibility
+
+用户要求更新评测代码以测试最新记忆分支。本轮仍只更新可运行候选并使用确定性 provider 验证，未选择正式题集或启动真实候选/judge。
+
+- 同步前 HEAD `25a89c61e`；上游固定为 `origin/unit/feat-676` 的 `3e9a46030939bfcce351b7df2e29e5f3c2439055`；无冲突合并记录 `117873fd1`。保持已有 PR #429 与原开发 worktree，不改主仓现场。上游 PR #428 已通过 CI，仍未合入。
+- 复现：只合并并重新安装/构建后，原生准备测试失败，旧 fixture 仍解析逐单元 File list 并提供旧 finish 参数。日志 `/tmp/feat677-sync-before.log`：prepare=failed、1 次受控请求、without finish；未被错误判为 ready。
+- 适配：fixture 使用新的直接批次输入、批次级 finish；准备的 toolAllowlist 包含既有 contextTools，使原生 Dreaming 恢复可用。配置和示例删除退役的 maxSteps/maxRunMs，CLI 拒绝含旧字段的配置，README 给出修改方法；评测 timeoutMs/maxModelCalls/maxOutputTokens 保持。
+- 历史导入、真实 Dreaming start/status 完成判断、封存/冷恢复和通用 Runner/judge 无需改动。candidate adapter 标记为 v2，protocol 不变。没有改写产品 Memory/Dreaming，也没有新增 IM、任务或维护实现。
+- 已有测试处置：rewrite-merge `fixtures/evaluation.ts`，让输入容量低于长消息以触发真实连续分批；扩展现有 evaluation-runtime 主旅程验证 source_history、notes/history 和换窗后恢复成功、维护笔记不进入冷答题。保留全部数据、Runner、评分、预算、进程清理保护；CLI 既有测试增加退役配置拒绝。没有新增平行测试文件。
+- 窄验证：`pnpm install --frozen-lockfile`、候选相关包 build 通过；5 files / 13 tests 通过（`/tmp/feat677-sync-targeted.log`）。typecheck、全量 build/回归及独立复核随后追加结果。
+- Gate 2 retained：需求、三个候选接口、信息边界与阶段限额均未改变；旧设计已明确允许随产品更新 adapter，新增说明只标识当前接线。独立 implementation review/verification 和 CLI 受影响验收需针对最终版本重做；旧数据/judge/Runner 门禁可按不变范围保留。
+- 当前 main `c61b7629a` 相对指定父分支只有无关 bugfix-678 设计文档；本轮继续使用用户指定记忆分支，不把新设计文档误当产品实现。
+- no spec delta。新版准备允许业务原文回查和维护恢复；答题仍只读取封存记忆。LongMemEval 缺少子任务轨迹，不能据本次通过声称验证了任务提炼质量；没有独立 IM，conversations 不开放。生产状态未变化。

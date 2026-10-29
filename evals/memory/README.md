@@ -32,7 +32,7 @@ pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runt
 1. 从 [LongMemEval cleaned](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned) 获取需要的 JSON 文件，先选 S 的少量完整题目。将数据、配置与产物放在仓库外；本套件不会下载数据或默认选取全部题目。
 2. 复制 `examples/plan.json` 到控制目录，填入数据路径、明确 revision、文件 SHA-256、候选模型与 judge 的 OpenAI-compatible `/v1` base URL、模型名和凭证环境变量名。配置中的路径相对于配置文件；凭证只从命名的环境变量读取，不写入 JSON。
 3. 创建非空 JSON ID 数组，例如 `["原始题目ID"]`。使用完整样本，不能根据 `answer_session_ids` 或 `has_answer` 选段、删回合或缩短历史。
-4. 明确每阶段的 `timeoutMs`、`maxModelCalls` 和每次请求的 `maxOutputTokens`。候选另外固定当前 Dreaming 的输入、步骤和单次维护时限；这些属于候选配置，不是通用 Runner 契约。
+4. 明确每阶段的 `timeoutMs`、`maxModelCalls` 和每次请求的 `maxOutputTokens`。候选另外固定当前 Dreaming 的 `maxInputTokens`。新版 Dreaming 已移除自身的 `maxSteps` / `maxRunMs`，旧评测配置须删除这两项；准备阶段的外部评测限额仍有效，耗尽会报告 `incomplete`。
 5. 运行 `plan`，检查题集规模、配置和限额，再决定是否执行。读取器当前读取一个完整 JSON 数组，内存须足以容纳数据文件；不会暗中截断超大文件。
 
 **下列命令会花费模型预算。本轮开发没有执行它。**
@@ -70,6 +70,8 @@ pnpm memory-eval score --output /absolute/path/existing-run --allow-model-calls
 - `dataset.ts`、`runner.ts`、`judge.ts` 不读取 Nano 记忆目录，不依赖 DSH、Dreaming 游标、批次数或存储介质。稳定协议类型在 `packages/product-contracts/src/memory-evaluation.ts`。
 - `nano.ts` 只在显式运行时加载 `@nano/dsh-integration/evaluation`；当前 Nano adapter 负责历史的 `inbox` / `send_message` 原生映射、先空基线后导入、真实记忆准备和完成判定。
 - 当前文档候选封存整个记忆目录及必要的文档版本/来源状态。冷答题使用新的 runtime、workspace 与 session，只能读准备后的记忆；旧 session、Inbox、维护输入、控制文件和旁路历史工具不可达。
+- 当前 adapter `nano-document-memory-v2` 对接 feat-676 的连续原文 Dreaming：准备阶段保留原生 `source_history` 补查与维护自身的 `notes/history/new_context` 恢复能力；这些维护记录不复制到答题环境。仅在产品报告无待处理增量后返回 `ready`，不以某一批完成代替全部准备完成。
+- LongMemEval 提供双方对话，没有子任务执行轨迹；本候选按 Global 历史导入，不伪造第一层任务。因此这里评测新版记忆对这些对话的处理效果，子任务提炼仍由产品自己的测试验证。评测不连接独立 IM 服务，`conversations` 补查不开放；原生 `source_history` 可回查本题已导入的合格原文。
 - 上述工具隔离针对候选模型的访问入口，不宣称是操作系统沙箱。评测插件是受信任宿主代码，不能添加未经审查的插件或执行工具后仍沿用本协议的隔离结论。
 - 候选以后可改用数据库、向量库、知识图谱或原文索引。只要保存/恢复仍满足相同接口和信息边界，就无需改题集、评分或 Runner；产品接线变化由 adapter 承担。
 - 历史时间按原 session 精度保存，同日保留原顺序；未标时区的日期解释为 UTC。未来问题和 `question_date` 只在答题阶段出现，答案标注只供控制区使用。

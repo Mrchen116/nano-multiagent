@@ -146,6 +146,8 @@ CLI 默认 `plan`，只读取数据和配置并列出待执行题集，不加载
 
 本节是 **adapter 的当前接线说明**，不属于通用协议和通用测试的固定断言。
 
+2026-10-29 后续同步：用户要求测试更新后的记忆分支，候选基线由 `80db8b9a6` 更新至 `unit/feat-676` 的 `3e9a46030`。原生导入、prepare/answer/close、冷上下文和评分边界保持；准备改为消费新版连续原文批次及其正常 `finish`，保留 `source_history` 和维护自身上下文恢复。候选配置只保留 Dreaming 输入容量，已退役的内部时长/步数由评测外部阶段限额继续约束。LongMemEval 没有子任务轨迹，不额外伪造任务执行或接入 IM 服务。具体可运行入口以 [suite README](../../../../evals/memory/README.md) 为准；以下初版分析中的旧源码观察不代表最新产品实现。此为同一设计允许的 adapter 接线替换，无通用协议或产品需求增量。
+
 #### 原生历史物化
 
 为一题建立独立评测 Agent 和 owner；每个原 session 对应一个独立历史 session 与来源 conversation。统一绑定到该题的长期主体，避免把不同题视为同一人的历史。根 session 使用 DSH 正常根元数据：不设置 `origin: 'subagent'`，`isSeeded: false`、无继承前缀；不使用并不存在的 `origin: 'root'` 枚举。

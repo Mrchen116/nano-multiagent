@@ -25,9 +25,18 @@ it('prepares native history and answers from isolated document memory with no li
     expect(requests).toContain('LONG_MESSAGE_END');
     expect(requests).toContain('2024/01/01');
     expect(requests).not.toContain('FUTURE_QUESTION');
+    const prepareRequests = requests.trim().split('\n').map(line => JSON.parse(line));
+    // Recovery and source reads must work inside the candidate, not just appear in its tool list.
+    for (const callId of ['fixture-0', 'fixture-3', 'fixture-4']) {
+      expect(prepareRequests.some(request => request.messages.some((message: { role: string; toolCallId?: string; isError?: boolean }) =>
+        message.role === 'tool' && message.toolCallId === callId && !message.isError))).toBe(true);
+    }
+    expect(requests).toContain('EVALUATION_RECOVERY');
+    expect(requests).toContain('I moved to Paris.');
     const answerRequests = (await readFile(answerAudit.requests, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     expect(JSON.stringify(answerRequests[0])).not.toContain('UNRELATED_HISTORY_ONLY');
     expect(JSON.stringify(answerRequests)).not.toContain('LONG_MESSAGE_END');
+    expect(JSON.stringify(answerRequests)).not.toContain('EVALUATION_RECOVERY');
     expect(JSON.stringify(answerRequests)).toContain('2024/06/01');
     expect(JSON.stringify(answerRequests)).toContain('You live in Paris');
     const second = await candidate.answer(prepared.preparedRef, question, limits);

@@ -9,9 +9,7 @@
     "apiKeyEnv": "MEMORY_EVAL_API_KEY",
     "model": "configure-before-real-run",
     "dreaming": {
-      "maxInputTokens": 24000,
-      "maxSteps": 24,
-      "maxRunMs": 60000
+      "maxInputTokens": 24000
     }
   },
   "judge": {

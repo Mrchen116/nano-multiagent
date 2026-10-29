@@ -29,13 +29,15 @@ export function apply(ctx){
     let call;
     if(String(o.sessionId).startsWith('dreaming-')){
       const plain=o.messages.map(m=>(m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('')).join('\\n');
-      const units=JSON.parse(plain.match(/File list \\(data\\):\\n([^\\n]+)/)[1]);
       const stage=plain.match(/Editable copy: (.+?)\\. Only edit/)[1];
-      call=[...units.map(u=>['read',{file_path:u.path}]),
+      call=[['source_history',{action:'search',session_id:'history-one',query:'LONG_MESSAGE_END',limit:10}],
+        ['notes',{action:'write',path:'progress.md',text:'EVALUATION_RECOVERY: review the supplied dialogue and current memory.'}],
+        ['new_context',{}],['notes',{action:'read',path:'progress.md'}],
+        ['history',{action:'list_windows'}],
         ['read',{file_path:stage+'/MEMORY.md'}],['read',{file_path:stage+'/knowledge/city.md'}],
         ['write',{file_path:stage+'/knowledge/city.md',content:'You live in Paris. Former city: Berlin.'}],
         ['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city](knowledge/city.md)'}],
-        ['finish',{units:units.map(u=>({id:u.id,outcome:'reviewed',outputs:['knowledge/city.md','MEMORY.md']}))}]
+        ['finish',{}]
       ][n];
     }else{
       const memory=process.cwd()+'/.nanoassistant/memory';
@@ -55,6 +57,6 @@ export function apply(ctx){
     environment: { NANO_TEST_KEY: 'fixture', EVALUATION_FORBIDDEN_PATH: forbidden, EVALUATION_ROOT: root },
     providerPatch: [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'test' }] } } } },
       { insert: [{ id: 'evaluation-fixture', name: path }] }],
-    knowledge: { dreaming: { maxSteps: 40, maxRunMs: 30000, maxInputTokens: 24000 } },
+    knowledge: { dreaming: { maxInputTokens: 1000 } },
   };
 }

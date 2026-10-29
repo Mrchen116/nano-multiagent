@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import type { EvaluationHistory, EvaluationQuestion, EvaluationLimits, EvaluationUsage, MemoryCandidate, PreparationResult, EvaluationAnswer } from '@nano/product-contracts';
 import { prepareProfile, RuntimeClient } from './client.js';
 import { RpcPeer } from './rpc.js';
+import { contextTools } from './agent-context.js';
 import { hash } from './evaluation/history.js';
 import type { AgentConfiguration, SessionBinding } from './index.js';
 
@@ -208,7 +209,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
         features: { dreaming: false, skill_creation: false, task_graph: false, heartbeat: false, cron_scheduling: false },
         skillRoots: [{ path: this.options.builtinSkillsRoot, source: 'builtin' }],
         skillSelection: { mode: 'explicit_allowlist', names: stage === 'prepare' ? ['nano-memory'] : [] },
-        toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance'] : ['read', 'glob', 'grep', 'inbox', 'send_message'],
+        toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance', ...contextTools] : ['read', 'glob', 'grep', 'inbox', 'send_message'],
         knowledge: { ...this.options.knowledge, memoryMode: 'document' } };
       await client.rpc.request('initialize', { protocol: 1, agents: [configuration],
         bindings: [...(history?.sessions.map(session => ({ ...binding, sessionId: session.id })) ?? []), binding] });
