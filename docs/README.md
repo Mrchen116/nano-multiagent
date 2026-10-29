@@ -28,7 +28,7 @@
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
 | 编写或执行 unit 的一次性部署迁移提示词 | [`deployment-prompt.md` 约定](changes/README.md#一次性部署提示词) → [部署检查与执行](../.claude/skills/prod-fleet-deploy/references/runbook.md#unit-部署提示词) |
 | 提报 GitHub Issue、分诊和维护标签 | [`development/issues.md`](development/issues.md) |
-| 查已放弃或被后续架构取代的 change unit | [`changes/retired/`](changes/retired/README.md)；退役原因与当前入口以该索引为准 |
+| 查已放弃或被后续架构取代的 change unit | [`changes/retired/`](changes/retired/README.md)；含由 bugfix-678 接替的 feat-625 审核重试方案，退役原因与当前入口以该索引为准 |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
 | 在 Air/Mini 切换开发、定位本机模型入口与能力 | [本机开发配置](development/local-development.md#本机开发配置) |
 | 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
