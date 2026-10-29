@@ -40,6 +40,7 @@
 | 生产 Tunnel QUIC/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
 | 配置两机普通公网代理与本地直连 | [生产出口](operations/prod-fleet.md#公网代理出口)；执行 [部署操作单](../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理) |
 | 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
+| 查看审核只读调查、原话保留、消息级准入与模型恢复 | [`gateway/agent-capabilities`](specs/gateway/agent-capabilities.md) → [`gateway/personal-agent`](specs/gateway/personal-agent.md) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
 | 复用固定 P/E/Q + PA 阵容、模型与审核规则验收新需求 | [固定日常验收模板](development/worktree-runtime.md#固定日常验收模板) |

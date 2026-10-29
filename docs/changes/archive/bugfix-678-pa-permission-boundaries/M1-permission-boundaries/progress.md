@@ -29,3 +29,9 @@
 ## 最终回归与补充真实验证
 
 固定实现 `80941dfd6` 的第三轮全量 TypeScript 已通过：156 files / 826 tests，242.17s。build/typecheck 均通过。R5 真 Luna 预审核后实际等待 >60s 两笔仍可提交、撤回后第三笔 not_sent；R8 副本迁移 CLI 重复执行/verify 及真 Astra 查回已有回执均完成，无重发。详见 [补充证据](evidence/supplemental-validation.md)，明确区分真实模型、host seam 与确定性故障测试。产品 reviewer 正补完其他用户旅程，尚未以这些补充结果替代独立最终裁决。
+
+## 最终同步与归档
+
+产品 Round 2 pass（报告4636bc606），verifier Round 3 pass（受验41a315eb9，0 CRITICAL / 0 WARNING），code-review Round 2无finding。最终fetch后origin/main仍为9bf2b13da，无新增上游差异；源码自80941dfd6未变，全部门禁retained。两项MODIFIED与全部ADDED均按已审delta逐字归并current spec，更新area计数与路由后完整归档。后续仅文档归并、状态、相对链接和归档路径，不改变产品行为，不重跑无变化源码全量。
+
+服务已按e2e-down停止并核实无目标PID/58487监听，专用tmux关闭。开发worktree保留供PR审查，未合并且未部署；具体PR/head/远端CI状态以GitHub为准。

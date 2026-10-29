@@ -5,10 +5,10 @@
 - [x] PA 事件沟通、真实回执、冻结动作提交及图片字节校验。
 - [x] 保留 Agent 原生重试，补独立模型请求恢复。
 - [x] 隔离数据库迁移 plan/apply/verify 与回滚验证。
-- [ ] 独立 code review + verification / Context Implementation Review。
-- [ ] 固定日常模板 R1–R8 产品回归验收。
+- [x] 独立 code review + verification / Context Implementation Review。
+- [x] 固定日常模板 R1–R8 产品回归验收。
 - [x] 按用户纠偏及设计 R4 使用原生图片输入，R2/R6 真实图片成功与拒绝路径补验。
-- [ ] 最终本地 CI、canonical spec 归并、归档与 Ready PR。
+- [x] 最终本地 CI、canonical spec 归并与完整归档；Ready PR / CI 状态以实际 GitHub 为准。
 
 ## 测试策略
 

@@ -1,6 +1,6 @@
 # bugfix-678 一次性部署迁移提示词
 
-仅适用于用户明确授权部署包含本 unit 的已验收实现版本。本文件不是部署授权；当前已通过设计复审，但尚无本 unit 的已验收实现，不可据此执行生产迁移。
+仅适用于用户明确授权部署包含本 unit 的已验收实现版本。本文件不是部署授权；本 unit 已完成实现及隔离验收，具体证据见 [M1 补充验证](M1-permission-boundaries/evidence/supplemental-validation.md) 和 [独立回归](M1-permission-boundaries/regression.md)。执行前仍须固定实际待部署 SHA 并取得生产部署授权。
 
 ## 前提与对象
 

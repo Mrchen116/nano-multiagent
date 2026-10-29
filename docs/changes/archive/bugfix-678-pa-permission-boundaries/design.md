@@ -1,7 +1,7 @@
 # bugfix-678: PA 审核与自主任务推进的职责边界 — 技术方案
 
 > 对齐：[incident.md](incident.md) 已确认决定。本文取代原输入审核阶段稿，覆盖整个 unit。
-> 状态：完整范围设计稿；按用户“不等上游”决定，改为保留 DSH 已有恢复，仅通过公开接口补齐未覆盖的独立调用，并纳入审核执行的局部重构。[设计复审 Round 3](design-review.md) 已 Approved（0 CRITICAL / 0 WARNING），Gate 2 通过。代码、current specs 和生产均未改变。
+> 状态：完整范围设计稿；按用户“不等上游”决定，改为保留 DSH 已有恢复，仅通过公开接口补齐未覆盖的独立调用，并纳入审核执行的局部重构。[设计复审 Round 3](design-review.md) 已 Approved（0 CRITICAL / 0 WARNING），Gate 2 通过。实施及隔离验收已完成；图片输入按用户纠偏及设计复审 Round 4 使用主 Agent 原生路径，current specs 已归并。产品验收 Round 2、代码审查 Round 2、一致性核查 Round 3 均通过；生产尚未部署。
 
 ## Changelog
 
@@ -22,7 +22,7 @@
 
 ### 既有约束
 
-遵守 [SPEC](../../../SPEC.md) 与 [Agent Context Engineering](../../development/agent-context-engineering.md)：DSH 只由 integration 包通过公开 exports 接入，不 fork/patch/private import；不恢复第二套 Loop；current spec 仅在交付归并时修改。审批约束具体动作，Task 调度依据显式状态；保留取消、停用、waiting 安排校验及正常权限边界。本轮不新增 UI 页面或控件，用户仍在既有聊天/风险页看到结果，不生成前端原型。
+遵守 [SPEC](../../../../SPEC.md) 与 [Agent Context Engineering](../../../development/agent-context-engineering.md)：DSH 只由 integration 包通过公开 exports 接入，不 fork/patch/private import；不恢复第二套 Loop；current spec 仅在交付归并时修改。审批约束具体动作，Task 调度依据显式状态；保留取消、停用、waiting 安排校验及正常权限边界。本轮不新增 UI 页面或控件，用户仍在既有聊天/风险页看到结果，不生成前端原型。
 
 ### 可复用能力
 

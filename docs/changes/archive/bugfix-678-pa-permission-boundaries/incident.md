@@ -1,6 +1,6 @@
 # bugfix-678: PA 审核与自主任务推进的职责边界
 
-状态：用户已要求按已确认决定补齐完整设计；范围已收口，见 [design.md](design.md)、delta-spec 与实施骨架。后续用户明确不等待上游，由本仓使用 DSH 公开扩展点统一实现恢复；方案见 design；独立设计复审 Round 3 已 Approved（0 CRITICAL / 0 WARNING），Gate 2 通过，产品代码尚未实施。
+状态：用户已要求按已确认决定补齐完整设计；范围已收口，见 [design.md](design.md)、delta-spec 与实施骨架。后续用户明确不等待上游，由本仓使用 DSH 公开扩展点统一实现恢复；方案见 design；独立设计复审 Round 3 已 Approved（0 CRITICAL / 0 WARNING），Gate 2 通过；实施与隔离验收已完成，产品/代码/一致性门禁通过，current specs 已归并。归档表示可交付，不表示 PR 已合并或生产已部署。
 
 采用 Full 生命周期：本次涉及审核结果与任务续跑之间的职责决策，需分别验证真实拒绝、技术故障、替代路径和任务等待/暂停行为，不能作为无独立设计决策的局部修补处理。
 
@@ -36,9 +36,9 @@
 
 本次只读核对基线：`2b2c178616a62bf855bcabd3e642e5d229258a0f`，本地 main 与 fetch 后 origin/main 一致，开始时工作区干净。本轮没有运行故障注入或真实模型复现。
 
-- [现行 PA 规范](../../specs/gateway/personal-agent.md)“已交办事项中的权限阻塞”已经要求主 Agent 核对原因、原始要求和限制，继续允许的独立部分；不因委派和跨轮次重新索要已有授权。该方向不是本 unit 新增。
-- [审核实现](../../../packages/dsh-integration/src/policy/approval.ts)中，普通 Global 和子 Agent 使用 `return_to_agent`；有效拒绝返回 `NanoApprovalDenied / classifier_block`，审核异常在相应失败分流下也可返回 `NanoApprovalDenied / classifier_unavailable`。schedule/heartbeat 有自身无人值守分流，不能把所有路径概括为同一种处理。
-- [Task 执行驱动](../../../packages/dsh-integration/src/task-execution.ts)监听工具结果，仅按 `NanoApprovalDenied` 名称或人工审批未获准记录进入 `denied()`；未能定位具体 Task 的普通工具会将当前 doing/repair 批次加入内部限制。
+- [现行 PA 规范](../../../specs/gateway/personal-agent.md)“已交办事项中的权限阻塞”已经要求主 Agent 核对原因、原始要求和限制，继续允许的独立部分；不因委派和跨轮次重新索要已有授权。该方向不是本 unit 新增。
+- [审核实现](../../../../packages/dsh-integration/src/policy/approval.ts)中，普通 Global 和子 Agent 使用 `return_to_agent`；有效拒绝返回 `NanoApprovalDenied / classifier_block`，审核异常在相应失败分流下也可返回 `NanoApprovalDenied / classifier_unavailable`。schedule/heartbeat 有自身无人值守分流，不能把所有路径概括为同一种处理。
+- [Task 执行驱动](../../../../packages/dsh-integration/src/task-execution.ts)监听工具结果，仅按 `NanoApprovalDenied` 名称或人工审批未获准记录进入 `denied()`；未能定位具体 Task 的普通工具会将当前 doing/repair 批次加入内部限制。
 - 同文件 `runnable()` 排除这些任务；`poke()` 据此决定空闲后是否自动发起后续轮次。该限制没有直接结束当前 Agent 轮次，也没有把持久任务状态改成 paused。
 - 内部限制可因任务版本改变或同动作成功等条件解除；审核服务恢复本身不是清除这份记录的条件。故障是否在实际运行中导致停滞还取决于后续 Agent 行为和其他唤醒，不能据静态代码声称每次故障都停工。
 
@@ -85,11 +85,11 @@
 
 历史核查：
 
-- [feat-615 原始需求](../archive/feat-615-agent-approval-strategies/spec.md)保留用户原话：“那就按这个方案推进，CC补回快速放行，Codex按完整机制实现，Web IM里每个Agent可以切换，做完构造下合适的测试任务，用同样的任务测一下两套效果。”其中没有要求仅能读取文件开头或不能继续查看目录。
-- [当时设计决策 3 与 7](../archive/feat-615-agent-approval-strategies/design.md)自行选择 stat/read/list 宿主工具，屏蔽其他工具，以工具能力确保只读、避免递归审批，并限制普通文件/有界目录以避免特殊文件读取阻塞。这是有记录的工程取舍，不能表述为用户点名要求的限制。
+- [feat-615 原始需求](../feat-615-agent-approval-strategies/spec.md)保留用户原话：“那就按这个方案推进，CC补回快速放行，Codex按完整机制实现，Web IM里每个Agent可以切换，做完构造下合适的测试任务，用同样的任务测一下两套效果。”其中没有要求仅能读取文件开头或不能继续查看目录。
+- [当时设计决策 3 与 7](../feat-615-agent-approval-strategies/design.md)自行选择 stat/read/list 宿主工具，屏蔽其他工具，以工具能力确保只读、避免递归审批，并限制普通文件/有界目录以避免特殊文件读取阻塞。这是有记录的工程取舍，不能表述为用户点名要求的限制。
 - 固定上游 `806d9732c974bc8a51b8317c1bd8985544fe627c` 的 `codex-rs/core/src/guardian/review.rs` 描述只读沙箱和 never 审批；同目录 `tests.rs` 的工具集合断言包含 `exec_command/view_image/write_stdin`。上游调查能力与本仓三个专用文件工具不等价。
 - 本仓 `4289f1896` 首次引入 `codex-inspection.ts` 时即有 4096 字节、200 项且仅 path 参数的限制。`df7ba84b3` 后续把读取移至可终止的子进程，但没有引入这两个上限。未找到上限数值的单独需求依据或能力等价验证。
-- 当时 [design review](../archive/feat-615-agent-approval-strategies/design-review.md)接受严格工具表作为只读调查适配，主要核查隔离、上下文/会话机制和执行时限；没有证明长文件、目录后续内容等调查能力与上游等价。此为现有文档的证据范围，不推断未留存的口头讨论。
+- 当时 [design review](../feat-615-agent-approval-strategies/design-review.md)接受严格工具表作为只读调查适配，主要核查隔离、上下文/会话机制和执行时限；没有证明长文件、目录后续内容等调查能力与上游等价。此为现有文档的证据范围，不推断未留存的口头讨论。
 
 **已确认方向：** 尽可能保留 Codex 审核机制与调查能力，只适配本仓工具和运行时差异；不能将未经能力核对的收窄视为等价适配。随后确认的工具范围及主动接受的能力差异见下节；之前提出的仅增加 offset/分页不作为方案。
 
@@ -131,7 +131,7 @@
 
 - 固定上游 `806d9732c974bc8a51b8317c1bd8985544fe627c` 的 [预算处理](https://github.com/openai/codex/blob/806d9732c974bc8a51b8317c1bd8985544fe627c/codex-rs/guardian-context/src/enforcement.rs)也允许在最终预算不足时缩短较早的历史证据，保留首尾并标记截断；因此普通历史截断本身不是本仓独有缺陷。
 - 上游另有[原始指令保留层](https://github.com/openai/codex/blob/806d9732c974bc8a51b8317c1bd8985544fe627c/codex-rs/guardian-context/src/retained_instructions.rs)：符合条件的完整指令作为必需证据保留，超限或不完整时明确报告缺失，并提醒剩余授权不能视为完整授权；该层有预算限制，不保证无限保留所有原话。[审核输入装配](https://github.com/openai/codex/blob/806d9732c974bc8a51b8317c1bd8985544fe627c/codex-rs/core/src/guardian/input_budget.rs)核对实际送入模型的历史并重新提供缺失的保留证据。
-- 本仓 [codex.ts](../../../packages/dsh-integration/src/policy/codex.ts)与 [codex-context.ts](../../../packages/dsh-integration/src/policy/codex-context.ts)已有历史重放、预算重建与截断标记；当前核查的路径没有对应的独立原始指令保留与补送层。设计阶段继续核对上游适用条件，避免将其简化为所有消息永不截断。
+- 本仓 [codex.ts](../../../../packages/dsh-integration/src/policy/codex.ts)与 [codex-context.ts](../../../../packages/dsh-integration/src/policy/codex-context.ts)已有历史重放、预算重建与截断标记；当前核查的路径没有对应的独立原始指令保留与补送层。设计阶段继续核对上游适用条件，避免将其简化为所有消息永不截断。
 
 ### Requirement: 长任务中的审核保持原授权与后续限制的语义
 
@@ -215,7 +215,7 @@
 
 > 披露计数器：有并发一致性的目的，但目前实现与上下文机制不配套。根本没用，干掉！
 
-**现状核查：** `apps/im-server/src/personal-actions.ts` 在受控动作提交时递增同一 PA 的 `disclosure_revision`，并在校验中将该版本变化与权限策略版本变化一并返回 `proposal_requires_review`。当前披露审核的历史依据来自 PA 有效上下文，不再通过该计数器自动补入其他动作的实际披露内容；参见 [bugfix-640 设计](../archive/bugfix-640-pa-disclosure-context/design.md)。计数器使其他提交令旧审核失效，但不保证重审时获得新增披露的实际内容。
+**现状核查：** `apps/im-server/src/personal-actions.ts` 在受控动作提交时递增同一 PA 的 `disclosure_revision`，并在校验中将该版本变化与权限策略版本变化一并返回 `proposal_requires_review`。当前披露审核的历史依据来自 PA 有效上下文，不再通过该计数器自动补入其他动作的实际披露内容；参见 [bugfix-640 设计](../bugfix-640-pa-disclosure-context/design.md)。计数器使其他提交令旧审核失效，但不保证重审时获得新增披露的实际内容。
 
 **Agent 解读与已确认范围：** 删除以同一 PA 的全局披露次数为依据使待发审核失效的机制，不另建替代计数器、全局发送串行队列或累计披露账本。其他动作提交本身不再要求本次重审。外发仍独立核对完整动作与 PA 当前有效上下文，保留动作/审核证据绑定、实际权限及受众检查、生命周期和重复提交约束；不宣称并行审核总能看到其他刚提交动作的内容。
 
@@ -311,7 +311,7 @@
 
 这与前文“不透明后台重审已报告的故障输入”是不同层次：前文限制的是已经结束审核、已向 PA 报告故障后由 Inbox/后台自动重新发起业务审核；本节允许同一次审核尚未结束时由底层恢复模型请求。完整设计需同步澄清该分层，避免误实现成完全禁用传输重试。
 
-关联 [feat-625 原需求](../retired/feat-625-auto-review-bounded-retry/spec.md)：该 unit 曾确认工具审核临时失败额外最多 2 次、每次完整正常预算，空白/非法判定最多恢复 1 次且共享总额度，取消和有效拒绝不重试。当前 main 尚不具备该需求的实现，不能将其文档视为已交付。用户随后要求统一走 DSH 原生恢复并废弃旧 unit，以下最新范围优先；旧预算取舍作为设计输入协调，不在原生重试之外叠加审核重试循环。
+关联 [feat-625 原需求](../../retired/feat-625-auto-review-bounded-retry/spec.md)：该 unit 曾确认工具审核临时失败额外最多 2 次、每次完整正常预算，空白/非法判定最多恢复 1 次且共享总额度，取消和有效拒绝不重试。当前 main 尚不具备该需求的实现，不能将其文档视为已交付。用户随后要求统一走 DSH 原生恢复并废弃旧 unit，以下最新范围优先；旧预算取舍作为设计输入协调，不在原生重试之外叠加审核重试循环。
 
 ### Requirement: 临时模型故障由审核内部恢复
 
