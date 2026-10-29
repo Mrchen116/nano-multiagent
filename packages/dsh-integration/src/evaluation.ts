@@ -53,14 +53,13 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     const started = Date.now();
     let run: Running | undefined;
     const agentId = `evaluation-${randomUUID()}`;
-    const sources = [...history.sessions.map(session => session.id), answerConversation];
+    const sources = [answerConversation];
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       timer = setTimeout(() => { this.stopped = true; this.kill(); }, limits.timeoutMs);
       run = await this.launch('prepare', agentId, sources, limits, history);
       await run.peer.request('initializeHistory', history);
       await run.client.rpc.request('knowledge.sources.sync', { agentId, snapshot: { revision: 'evaluation-1', allowed: sources, excluded: [] } });
-      await run.client.rpc.request('session.ensure', run.binding);
       const result = await run.peer.request('prepare', history) as { status: 'ready' | 'incomplete' | 'failed'; reason?: string; details: unknown };
       const audit = await run.peer.request('audit', {}) as Audit;
       const evidenceRef = join(run.dir, 'receipt.json');
@@ -169,7 +168,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     const socketDir = await mkdtemp(join(tmpdir(), 'nme-')), socketPath = join(socketDir, 'control');
     const rootSessionId = `evaluation-${stage}-${randomUUID()}`;
     await prepareProfile(home, [...this.options.providerPatch, { insert: [{ id: 'nano-memory-evaluation',
-      name: '@nano/dsh-integration/evaluation/runtime', config: { socket: socketPath, workspace, agentId, rootSessionId, stage, audit: dir, limits,
+      name: '@nano/dsh-integration/evaluation/runtime', config: { socket: socketPath, workspace, agentId, rootSessionId, conversationId: answerConversation, stage, audit: dir, limits,
         startTime: history?.sessions[0]?.timestamp ?? 0 } }] }]);
     if (this.stopped) { await rm(socketDir, { recursive: true, force: true }); throw new Error('Evaluation cancelled before runtime start'); }
     const client = new RuntimeClient({ home, cwd: workspace, env: this.options.environment,
@@ -212,7 +211,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
         toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance', ...contextTools] : ['read', 'glob', 'grep', 'inbox', 'send_message'],
         knowledge: { ...this.options.knowledge, memoryMode: 'document' } };
       await client.rpc.request('initialize', { protocol: 1, agents: [configuration],
-        bindings: [...(history?.sessions.map(session => ({ ...binding, sessionId: session.id })) ?? []), binding] });
+        bindings: [binding] });
       await new Promise<void>((resolveConnect, reject) => {
         socket.once('error', reject); socket.connect(socketPath, () => { socket.off('error', reject); resolveConnect(); });
       });

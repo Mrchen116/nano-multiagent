@@ -4,13 +4,13 @@ import { join, relative, resolve, isAbsolute } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { EvaluationHistory, EvaluationLimits, EvaluationUsage } from '@nano/product-contracts';
 import { RpcPeer } from '../rpc.js';
-import { initializeHistory, appendHistorySession } from './history.js';
+import { initializeHistory, appendHistoryWindow } from './history.js';
 import type {} from '../owned-sessions.js';
 import type {} from '../knowledge/runtime.js';
 
 export const name = 'nano-memory-evaluation';
-export const inject = ['nanoKnowledge', 'nanoSessions', 'sessionPersistence', 'sessions', 'tools', 'llm'];
-interface Configuration { socket: string; workspace: string; agentId: string; rootSessionId: string; stage: 'prepare' | 'answer'; audit: string; limits: EvaluationLimits; startTime: number }
+export const inject = ['nanoKnowledge', 'nanoSessions', 'sessionPersistence', 'sessions', 'tools', 'llm', 'tokenMeter'];
+interface Configuration { socket: string; workspace: string; agentId: string; rootSessionId: string; conversationId: string; stage: 'prepare' | 'answer'; audit: string; limits: EvaluationLimits; startTime: number }
 
 /** Mount only in the evaluation profile; production exposes none of these controls. */
 export function apply(ctx: Context, config: Configuration) {
@@ -71,15 +71,18 @@ export function apply(ctx: Context, config: Configuration) {
   const peers = new Set<RpcPeer>();
   const server = createServer(socket => {
     const peer = new RpcPeer(socket, socket); peers.add(peer); socket.once('close', () => peers.delete(peer));
-    peer.handle('initializeHistory', async value => initializeHistory(ctx, value as EvaluationHistory, config.workspace, config.agentId));
+    peer.handle('initializeHistory', async value => initializeHistory(ctx, value as EvaluationHistory, config.workspace, config.agentId, config.rootSessionId));
     peer.handle('prepare', async value => {
       const history = value as EvaluationHistory;
-      await ctx.nanoSessions.resolve(config.rootSessionId);
-      const mapping: Awaited<ReturnType<typeof appendHistorySession>> = [];
+      const mapping: Awaited<ReturnType<typeof appendHistoryWindow>>['mapping'] = [];
       const attempt = async (at: number) => {
         logicalTime = at;
+        const parent = await ctx.nanoSessions.resolve(config.rootSessionId);
         timeline({ event: 'automatic_start' });
         const run = await dreaming.tick(config.agentId) as { accepted: boolean; state?: string; reason?: string; error?: string; summary?: string } | undefined;
+        await dreaming.whenIdle(config.agentId);
+        await parent.whenIdle(); await ctx.sessions.flush(parent.session);
+        await ctx.nanoSessions.disposeAgent(config.agentId);
         timeline({ event: 'automatic_end', result: run });
         if (run?.state === 'completed' || run?.reason === 'no_eligible_increment') return;
         return { status: budgetExhausted || run?.state === 'cancelled' ? 'incomplete' as const : 'failed' as const,
@@ -97,10 +100,11 @@ export function apply(ctx: Context, config: Configuration) {
         logicalTime = arrival;
         // A simultaneous arrival wins a tie with maintenance, including all same-time sessions.
         do {
-          const session = history.sessions[index++]!;
-          mapping.push(...await appendHistorySession(ctx, session));
+          const session = history.sessions[index]!;
+          const imported = await appendHistoryWindow(ctx, session, config.rootSessionId, config.conversationId, index++);
+          mapping.push(...imported.mapping);
           importedSessions++; importedMessages += session.turns.length; persistAudit();
-          timeline({ event: 'session_imported', sessionId: session.id });
+          timeline({ event: 'session_imported', sessionId: session.id, rootSessionId: config.rootSessionId, windowId: imported.windowId });
           writeFileSync(join(config.audit, 'source-map.json'), JSON.stringify(mapping, null, 2));
         } while (index < history.sessions.length && history.sessions[index]!.timestamp === arrival);
         dreaming.recordActivity(config.agentId);

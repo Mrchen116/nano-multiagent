@@ -23,11 +23,21 @@ export const history: EvaluationHistory = { caseKey: 'synthetic-case', sessions:
 
 export async function fixtureOptions(root: string): Promise<NanoEvaluationOptions> {
   const path = join(root, 'fixture.mjs');
-  await writeFile(path, `import { readdirSync } from 'node:fs';
+  await writeFile(path, `import { readdirSync, writeFileSync } from 'node:fs';
 export const name='memory-evaluation-fixture';
-export const inject=['llm'];
+export const inject=['llm','sessionPersistence'];
 export function apply(ctx){
   const steps=new Map(),cities=new Map();
+  const open=ctx.sessionPersistence.open.bind(ctx.sessionPersistence);
+  ctx.sessionPersistence.open=async(...args)=>{
+    const h=await open(...args);
+    if(args[1]==='write'&&String(args[0]).startsWith('evaluation-prepare-')){
+      const close=h.close.bind(h);let closed=false;
+      h.close=async()=>{if(closed)return;closed=true;const {events}=await h.read();
+        writeFileSync(process.env.EVALUATION_ROOT+'/imported-root.json',JSON.stringify({header:h.header,events}));await close();};
+    }
+    return h;
+  };
   ctx.on('llm/stream',async function*(o){
     if(process.env.EVALUATION_HANG==='1'){await new Promise(resolve=>o.signal.addEventListener('abort',resolve,{once:true}));return;}
     const n=steps.get(o.sessionId)||0;steps.set(o.sessionId,n+1);
@@ -39,15 +49,18 @@ export function apply(ctx){
       if(all.includes('I moved to Paris.'))cities.set(o.sessionId,'Paris');
       else if(!cities.has(o.sessionId)&&all.includes('I live in Berlin.'))cities.set(o.sessionId,'Berlin');
       else if(!cities.has(o.sessionId)){const known=all.match(/You live in (Berlin|Paris)\\./);if(known)cities.set(o.sessionId,known[1]);}
-      call=[['source_history',{action:'search',session_id:'history-one',query:'LONG_MESSAGE_END',limit:10}],
-        ['source_history',{action:'list_windows',session_id:'history-three'}],
+      const source=JSON.parse(plain.match(/Source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0].session_id;
+      const found=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-1');
+      const item=found&&!found.isError?JSON.parse(found.content[0].text).items[0]:undefined;
+      call=[['source_history',{action:'list_windows',session_id:source}],
+        ['source_history',{action:'search',session_id:source,query:'LONG_MESSAGE_END',limit:10,max_chars_per_item:4000}],
+        item?['source_history',{action:'read',session_id:source,window_id:item.window_id,item_id:item.item_id,limit_chars:20000}]:['source_history',{action:'list_windows',session_id:source}],
         ['notes',{action:'write',path:'progress.md',text:'EVALUATION_RECOVERY: review the supplied dialogue and current memory.'}],
         ['new_context',{}],['notes',{action:'read',path:'progress.md'}],
         ['history',{action:'list_windows'}],
         ['read',{file_path:stage+'/MEMORY.md'}],['read',{file_path:stage+'/knowledge/city.md'}],
-        cities.has(o.sessionId)?['write',{file_path:stage+'/knowledge/city.md',content:'You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'}]:['finish',{no_change_reason:'No city evidence in this batch.'}],
-        cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined,
-        ['finish',{}]
+        cities.has(o.sessionId)?['write',{file_path:stage+'/knowledge/city.md',content:'You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'}]:undefined,
+        cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined
       ][n];
     }else{
       const memory=process.cwd()+'/.nanoassistant/memory';

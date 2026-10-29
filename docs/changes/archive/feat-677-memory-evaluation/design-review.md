@@ -165,3 +165,126 @@ Round 1 无 Issues。Author Resolutions 中的“当轮不执行真实模型”�
 ### Author Resolutions — Round 2
 
 Author 已核对本轮实际组装、公开持久化 revision、准入时钟与 Context 分析，接受 Approved；无 Issues / Recommendations 待处理。本次仅补审查状态说明，受审方案不再实质修改。后续由同一 owner 按 M1 实施，保留一题上限，验证与效果结论分开。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/window_design_review`，独立设计 reviewer，未参与本轮设计或实现。
+- review_mode: `delta`
+- mode_reason: 本轮将 Nano adapter 的多根历史映射改为一个 Global 根的多个原生 window；稳定 prepare/answer/close、时间回放、数据白名单和评分协议没有新增语义。重点覆盖原生 surface、来源游标、live/cold ownership 与相关 M1；无关的框架证据保留 Round 2。
+- reviewer_handoff: 原 reviewer `/root/timeline_design_review`；因旧上下文较大及新增有界 delta，由新独立上下文接手。已读取 Round 1/2、Author Resolutions、冻结 diff，并重新核对受影响实际入口，没有仅依据旧 Approved 放行。
+- started_at: 2026-10-29T23:53:19+08:00
+- completed_at: 2026-10-30T00:01:16+08:00
+- duration: 477 秒；从本轮首次显式时间记录计时，之前的入口、历史报告与 diff 阅读未计入。
+- validated_at: 分支 `codex/feat-677-memory-evaluation`，受审 HEAD `cb296e8affc78715a3013bb35c737fc2bfec41a3`；进入审查时工作区干净。父同步提交 `9e5cfd6cc6019a2767f612ce5dbd504e4b3a29d9`，产品基线包含 `efaa2bbae3e21f8835fea477b1085c8efb7f0c93`。
+- `spec.md` SHA-256：`38c30fa1406fa18988d5354f99fb33b08f2bdbb37e869b40b0abf3e525c21efe`。
+- `design.md` SHA-256：`596c51d6275463601d0c2204700745ebde7f6aa5245df0e04b2c0f85fac403da`。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+同根多窗口方案能够通过现有公开契约实施；未发现需要再建运行时、修改产品 Dreaming 或恢复旧 finish/input.md 机制的理由。唯一阻断项是当前执行 Runbook 仍沿用已耗用的一题真实试跑授权，与本轮明确禁止新增真实模型调用冲突。修正这些执行指令后可作局部 closure，不需要再次重审窗口架构。
+
+本轮是设计与当前源码核对；窗口 delta 尚未实现，没有运行新适配器、真实候选模型、judge 或生产服务，也没有把源码可行性当作实际集成通过。
+
+### Coverage 与证据
+
+#### 用户约束与原生窗口有效性
+
+`spec.md:59,81-87`、`design.md:152-180` 明确一题一个持久根、一个主人聊天目标；首段使用 initial window，后段到达才追加边界。全根 seq/turn/callId 连续唯一，原段 ID 和日期进入 provenance 与 source-map，不再成为额外根或授权目标。固定数据集分段不声称复现 token-pressure 自动压缩，不生成业务摘要、Notes 或额外模型请求。这与 Global 持续认知和跨窗 Dreaming 的 current 契约相容（`docs/specs/gateway/global-agent.md:12-17`、`docs/specs/gateway/agent-capabilities.md:1033-1042`）。
+
+安装版 DSH `0.2.1-alpha.1` 的公开 `Session.create(id, seed, header)` 支持 detached 校验完整事件和 surface；`append` 要求完整 shadowed-node provenance（`packages/dsh-integration/node_modules/@deepseek-ai/dsh-session/lib/types/index.d.ts:139-156,205-242`）。实现会核验连续 seq、当前 surface 替换位置及所有被遮蔽节点的 sourceEventSeqs，并保护首个 system 节点（同包 `lib/index.js:310-328,411-446`）。设计覆盖上一活动窗口及此前 checkpoint，并保留 append-origin 事件，可以实现真实替换；没有以窗口标题替代 Context 变化。
+
+公开 compaction 类型支持 `turn:null` 的轮次间事务，要求 summary/replacement 相邻，并允许不带 `llmStreamCall` 或 usage 的非模型生成来源（`@deepseek-ai/dsh-compaction/lib/types/types.d.ts:16-79`）。公开 TokenMeter `measure` 提供当前节点及启发式价，可为替换填写真实 shadow price（`@deepseek-ai/dsh-token-meter/lib/types/index.d.ts:20-57`）。已核对 `dsh-agent-context/lib/rollover.js` 的配对、provenance、pricing 和缩小限制：在线 helper 的“checkpoint 必须更小”属于该策略，固定导入使用公开事件词汇并明确 imported 来源，不必伪造压力或修改上游。
+
+安装版 `dsh-agent-context@0.3.0-rc.6` 的 `history.js:6-35` 按成功 start/summary/end 生成 `sessionId:startSeq`，不限定 provider；`85-104` 将后续消息归到对应窗口并保留来源、时间与完整内容；公开 `createHistoryView`（`221-234`）允许查询授权后的当前和旧窗原文。稳定 window/item 定位已有真实消费者；以上是源码证据，实际导入和重载仍待 M1 验证。
+
+#### 激活基线、来源可见性与 live owner
+
+旧实现确实预建多个来源、另 ensure 一个实际根（`evaluation/history.ts:18-26`、`evaluation.ts:55-64,214-215`）；本 delta 明确改这些装配落点。新空根在首次 `Dreaming.status` 前持久化并绑定，`MemorySources.baseline` 对无 step/end 的根返回 -1（`knowledge/memory-sources.ts:322-339`）。`Dreaming.owner` 按 agentId 缓存 owner，`agent/created` 只为未登记 stream 建 baseline（`knowledge/dreaming.ts:47-56,109-127`），同一 sessionId 的 resume 不会另建流；设计明确禁止重建 owner 或 reset 游标。
+
+`OwnedSessions.resolve` 校验持久身份后 resume，同一 sessionId/preset/cwd 保留；`disposeAgent` 先等待 pending 再释放持有 handles（`owned-sessions.ts:18-47,70-84`）。评测只有一个业务根，周期结束且 Dreaming/parent idle 后释放，再打开 cold write handle，能复用现有 owner。DSH persistence 的 `session/disposed` 确实异步 close（`@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js:421-427`）；设计仅对本次交接的 SessionAlreadyOwnedError 作有界等待有实际依据，其他错误失败和真实阶段截止保留，不是通用隐藏故障重试。
+
+`Dreaming.tick` 需要 live parent（`knowledge/dreaming.ts:133-148`），准入前 resolve、导入时保持 cold，能避免来源读取停在旧 live log。来源层在 live 时 flush，并重新 observe 持久前缀（`memory-sources.ts:110-120,268-277`）。detached 导入不发布历史 tool/result，整段后 recordActivity；可以保留同刻到达优先、真实周期准入、维护期间不追加未来段、末尾只 drain 已准入工作。时钟和预算/取消逻辑 `retained_from: Round 2`；当前代码仍使用 useClock/nextAutomaticAt 和真实 timeout，不要求全局 Date 改写。
+
+#### Context Design Review — Mode A
+
+触发 Surface 是历史窗口分配、模型可见原文、source_history 目录及重载生命周期；本轮只作设计判断。
+
+- **整理者的来源与参数。** 唯一根、frozen target 和许可由宿主派生，模型从 sourceDirectory 获取可用 session ID 与范围（`dreaming-history.ts:21-33`），不必猜内部身份。Inbox/send_message 保留实际角色、段日期与 imported provenance，结构导入不增加业务授权。
+- **旧窗恢复及未来隔离。** source_history 在读取前后核资格和 generation，先按 through/cutoff 筛原事件，再建 History view（`dreaming-history.ts:70-110`）。`qualifiedEvents` 去掉 replacement，保留 start/end、清空 summary 内容但保留窗口身份（`memory-source-view.ts:13,49-51`）；checkpoint 不进入业务材料，原文仍有稳定定位。未来段未物理落盘，因此早期目录和请求不包含未来窗。
+- **累积与更正。** 同一流继续使用产品冻结前缀和提交游标，窗口边界不 reset owner。Berlin → Paris → 末段未到期更正的原验证仍适用，窗口数量不应被误作 Dreaming 批次数。
+- **维护自身恢复及冷答题。** 当前父基线直接把原文送入维护输入，以正常 turn/end 完成；`dreaming-agent.ts:38-42,57-68,98-110` 保留独立 history/source_history 和宿主文件核验。本 delta 只调整 fixture 完成响应，不恢复 input.md/finish。answer 的新 runtime 只复制正式 memory 和 documents 状态，文件守卫与本地聊天目标继续隔离旧历史（`evaluation.ts:97-114,191-202,224-235`、`evaluation/runtime.ts:48-69`），窗口和维护笔记不成为冷回答旁路输入。
+
+未发现新 Context finding。实际请求、旧窗读取、换窗恢复和 cold answer 仍须在实现后的确定性真实运行时旅程验证，不能用磁盘有事件或工具存在代替交付证据。
+
+#### 退出条件、架构与 retained 范围
+
+`design.md:188,272` 要求扩展既有运行时旅程：唯一来源、早期无未来窗、后续同根多窗及旧窗完整读取、重载后的最新 surface 和仍可恢复原文、单一目标、原时间及全根身份。现有 `tests/evaluation-runtime.test.ts:24-80` 已穿过真实候选子进程、实际请求、source_history/维护恢复与冷 answer；新增断言可以落在同一旅程，不需真实模型或新测试框架。旧测试 `62-64` 的“未来空根 through=-1”应改为未来窗不可见；设计明确不再预建来源，不能保留旧行为作为通过条件。零到期、预算和挂起清理（同文件 `8-22,83-108`）仍应保留。本轮未运行这些测试，不为未实施 delta 产生通过结论。
+
+职责仍由 evaluation/history 物化事件、evaluation/runtime 串行安排时间和 cold/live 交接、OwnedSessions 管根 handle，产品 Dreaming 持有准入及持久记忆更新；Runner 不解释窗口或游标。复用原生 History/compaction 优于新增恢复索引或另一套运行时；有界 writer 交接解决具体 live/cold 问题，维护成本相称。没有新生产接口或用户产品行为，故 `no spec delta` 和无部署迁移仍成立。
+
+数据白名单、judge 模板、分母、opaque preparedRef 和框架可替换性 `retained_from: Round 2`，因本轮没有修改这些接口。candidate v4 显式区分 single-global-session/native-window 映射，protocol v2 的时间和冷回答语义不变；旧 v3 的一题 incomplete 保留原构造标签，不当作新候选基线。无客户端 UI，不要求原型或生产验证。
+
+### 历史问题闭环
+
+Round 1/2 均无存活 Issues，Author Resolutions 无未完成修复。Round 2 的一题真实调用属于当时授权，已经执行且 incomplete；本轮 `spec.md:59`、`design.md:276` 明确不能作为自动重跑依据。旧授权本身不是缺陷，当前 Runbook 未更新的问题记为 R3-W1。
+
+### Issues
+
+#### R3-W1 — 当前执行 Runbook 仍要求追加已不获授权的真实试跑
+
+- Severity / Evidence: **WARNING / CONFIRMED**。
+- 位置：`design.md:143,260-262`。
+- 证据：143 行仍写“本次通过验证后”对已授权原题打开真实调用；260 行要求 owner 在机制通过后另跑一题，262 行把 e47becba 与 40/12/1 请求预算作为“本轮”验收前置。相同文档的 5、268、272、276 行及 `spec.md:59` 明确本轮无真实模型，先前试跑不能沿用授权自动重跑。
+- 未修后果：实施 owner 或产品 reviewer 按当前 Runbook 收尾时，会把已执行的历史试跑当成本轮剩余必要动作，造成未授权请求，并把窗口修订完成条件扩展到真实效果。
+- 可执行修正：将 143 行与当前 Runbook 改为本轮仅确定性 provider、零真实候选和 judge 请求；原 e47becba 预算及实际 incomplete 移到历史执行记录，或明确标为已完成的历史说明并链接证据。保留未来显式 run 能力，但不能把既往授权写成当前待执行步骤。
+- 复验边界：核对这些执行说明与当前 M1/授权一致即可，不需要模型调用或扩大窗口设计审查。
+
+### Recommendations
+
+无。当前窗口和生命周期方案已足够具体；修正执行边界后按既有确定性验证完成，不增加新机制或推测性用例。
+
+### Author Resolutions — Round 3
+
+R3-W1 接受并已修正 design 的 CLI 段与 Runbook：本轮 owner/独立门禁均只使用确定性 provider，不追加真实候选或 judge 调用；此前一题授权已耗用，不延续。窗口架构无变化，提交 reviewer 作局部 closure。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: `/root/window_design_review`，沿用 Round 3 的独立 reviewer。
+- review_mode: `closure`
+- mode_reason: 仅复核 R3-W1；author 修改 CLI 真实调用说明、Review 驱动方式和验收前置，窗口架构及 M1 无实质变化。
+- started_at: 2026-10-30T00:03:01+08:00
+- completed_at: 2026-10-30T00:03:14+08:00
+- duration: 13 秒；为本轮差异与一致性核对时间，不计报告写入。
+- validated_at: HEAD `cb296e8affc78715a3013bb35c737fc2bfec41a3` 加 author 的三处 `design.md` 工作区修订及 Round 3 Author Resolutions；未修改或提交实现。
+- `design.md` SHA-256：`15f3bfd2f24373e8ddcbd2db69aa917956be3ce03ff0ea540f59bdf321d79a87`。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R3-W1 已关闭；同一 Global 多原生窗口的本轮设计通过 Gate 2。此结论只表示设计可进入实施，不表示单根多窗口已经实现、集成验证通过或真实模型效果已测。
+
+### Coverage 与证据
+
+本轮只检查 Round 3 后的实际 diff 及当前执行边界。`design.md:143` 已明确本轮只运行确定性验证、不使用真实调用开关，未来真实试跑另需用户授权；`260` 明确 owner 和独立门禁均不调用真实模型或 judge，且先前的一题授权不延续；`262` 明确此前题目/预算仅保留历史证据，本轮不重跑、不加预算、不换题。上述内容与 `268,272,276` 的 M1 和授权范围一致，不再把历史试跑当作当前待执行步骤。`264` 的确定性真实运行时旅程及固定 judge 响应仍保留，修正没有削弱机制验证。
+
+窗口架构、公开 DSH 事件有效性、source_history、一次 baseline、cold/live ownership、Context Design Review Mode A、冷 answer 及实现退出条件全部 `retained_from: Round 3`：此次 diff 只改执行授权说明，没有修改相关设计或源码，不重新审查这些链路。Round 3 对实际运行尚未验证的限制继续有效。
+
+### 历史问题闭环
+
+- **R3-W1 — closed。** Author Resolution 已接受问题并修正三处当前执行指令；本轮以实际 diff、上述行定位和最终文档 hash 确认修复。没有剩余真实模型/真实 judge 执行动作被写成本轮必要门禁。
+- Round 1/2 无存活问题；Round 3 无其他 Issues。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。按已确认范围实施及确定性验证即可，不追加真实调用或扩大审查。

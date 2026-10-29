@@ -2,6 +2,8 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import { Session } from '@deepseek-ai/dsh-session';
+import { createHistoryView } from 'dsh-agent-context';
 import { NanoMemoryCandidate } from '../lib/evaluation.js';
 import { fixtureOptions, history, limits } from './fixtures/evaluation.js';
 
@@ -18,6 +20,43 @@ it('freezes initial memory without forcing maintenance when no automatic cycle h
     expect(audit.result.details).toMatchObject({ active: false, backlog: { state: 'pending' } });
     const prepared = JSON.parse(await readFile(result.preparedRef, 'utf8'));
     expect(await readFile(join(prepared.workspace, '.nanoassistant/memory/MEMORY.md'), 'utf8')).toContain('No topics saved yet');
+  } finally { await candidate.close(); await rm(root, { recursive: true, force: true }); }
+}, 60000);
+
+it('imports dialogue segments as restorable windows of one persistent Global session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nano-eval-windows-'));
+  const candidate = new NanoMemoryCandidate(await fixtureOptions(root));
+  const recent = { ...history, sessions: history.sessions.map((session, index) => ({ ...session,
+    timestamp: history.sessions[0]!.timestamp + index * 60000 })) };
+  try {
+    const result = await candidate.prepare(recent, limits);
+    expect(result.status, JSON.stringify(result)).toBe('ready');
+    if (result.status !== 'ready') throw new Error(JSON.stringify(result));
+    expect(result.receipt.usage.modelCalls).toBe(0);
+    const map = JSON.parse(await readFile(result.receipt.evidenceRef.replace('receipt.json', 'source-map.json'), 'utf8'));
+    expect(new Set(map.map((row: {rootSessionId:string}) => row.rootSessionId)).size).toBe(1);
+    expect(new Set(map.map((row: {windowId:string}) => row.windowId)).size).toBe(4);
+    const saved = JSON.parse(await readFile(join(root, 'imported-root.json'), 'utf8'));
+    const session = Session.create(saved.header.id, saved.events, saved.header);
+    const active = JSON.stringify(session.surface.nodes.map(seq => saved.events[seq]));
+    expect(active).toContain('UNTRIGGERED_SAME_TIME');
+    expect(active).not.toContain('LONG_MESSAGE_END');
+    expect(active).not.toContain('I moved to Paris.');
+    const view = createHistoryView(saved.header.id, saved.events);
+    expect(view.listWindows().items).toHaveLength(4);
+    const original = view.search({ query: 'LONG_MESSAGE_END', max_chars_per_item: 4000 }).items;
+    expect(original).toHaveLength(1);
+    expect(original[0]?.window_id).toBe(map[0].windowId);
+    const complete = view.read(original[0]!.window_id, original[0]!.item_id, 0, 20000);
+    const recovered = JSON.parse(complete.content.split('\n')[0]!);
+    expect(recovered.messages.map((message: {content:Array<{text:string}>}) => message.content[0]!.text).join('')).toBe(history.sessions[0]!.turns[0]!.content);
+    const calls = saved.events.filter((event: {type:string}) => event.type === 'tool/call');
+    expect(new Set(calls.map((event: {data:{callId:string}}) => event.data.callId)).size).toBe(6);
+    expect(new Set(calls.map((event: {data:{arguments:string}}) => JSON.parse(event.data.arguments).target))).toEqual(new Set(['evaluation-question']));
+    for (const row of map) {
+      const source = recent.sessions.find(session => session.id === row.session)!;
+      expect(saved.events.slice(row.firstSeq, row.lastSeq + 1).every((event: {time:number}) => event.time === source.timestamp)).toBe(true);
+    }
   } finally { await candidate.close(); await rm(root, { recursive: true, force: true }); }
 }, 60000);
 
@@ -55,13 +94,26 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(timeline.filter(event => event.event === 'session_imported').map(event => event.sessionId)).toEqual(history.sessions.map(session => session.id));
     expect(timeline.at(-1)).toMatchObject({ event: 'frozen', importedSessions: 4, logicalTime: history.sessions[3]!.timestamp, backlog: { state: 'pending' } });
     // Recovery and source reads must work inside the candidate, not just appear in its tool list.
-    for (const callId of ['fixture-0', 'fixture-4', 'fixture-5']) {
+    for (const callId of ['fixture-0', 'fixture-5', 'fixture-6']) {
       expect(prepareRequests.some(request => request.messages.some((message: { role: string; toolCallId?: string; isError?: boolean }) =>
         message.role === 'tool' && message.toolCallId === callId && !message.isError))).toBe(true);
     }
-    const futureReads = prepareRequests.flatMap(request => request.messages).filter(message => message.role === 'tool' && message.toolCallId === 'fixture-1');
-    expect(futureReads.length).toBeGreaterThan(0);
-    for (const message of futureReads) expect(JSON.parse(message.content[0].text)).toMatchObject({ items: [], allowed_range: { through: -1 } });
+    const listed = (rows: typeof prepareRequests) => rows.flatMap(request => request.messages)
+      .filter(message => message.role === 'tool' && message.toolCallId === 'fixture-0')
+      .map(message => JSON.parse(message.content[0].text));
+    expect(listed(early).every(result => result.items.length === 1)).toBe(true);
+    const later = prepareRequests.filter(request => request.importedSessions === 2);
+    expect(listed(later).some(result => result.items.length === 2)).toBe(true);
+    const oldReads = later.flatMap(request => request.messages)
+      .filter(message => message.role === 'tool' && message.toolCallId === 'fixture-2' && !message.isError);
+    expect(oldReads.some(message => message.content[0].text.includes('LONG_MESSAGE_END'))).toBe(true);
+    for (const request of prepareRequests) {
+      const plain = request.messages.flatMap((message: {content:Array<{type:string;text?:string}>}) => message.content)
+        .filter((block: {type:string}) => block.type === 'text').map((block: {text:string}) => block.text).join('\n');
+      const directory = JSON.parse(plain.match(/Source directory \(data\): (\[[^\n]*\])/)![1]!);
+      expect(directory).toHaveLength(1);
+      expect(directory[0].baseline).toBe(-1);
+    }
     expect(requests).toContain('EVALUATION_RECOVERY');
     expect(requests).toContain('I moved to Paris.');
     const answerRequests = (await readFile(answerAudit.requests, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
@@ -76,7 +128,7 @@ it('replays only arrived history and freezes naturally formed memory for isolate
   } catch (error) {
     const dirs = (await readdir(root)).filter(name => name.startsWith('prepare-') || name.startsWith('answer-'));
     const logs = await Promise.all(dirs.map(async name => { try { return await readFile(join(root, name, 'runtime.log'), 'utf8'); } catch { return ''; } }));
-    throw new Error(String(error) + '\n' + logs.join('\n'));
+    throw new Error((error instanceof Error ? error.stack : String(error)) + '\n' + logs.join('\n'));
   } finally { await candidate.close(); await rm(root, { recursive: true, force: true }); }
 }, 60000);
 

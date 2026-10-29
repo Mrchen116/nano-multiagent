@@ -73,7 +73,7 @@ export async function makePlan(config: EvaluationConfiguration, idsFile: string)
     judge: { ...judgeIdentity, configuration: config.judge, temperature: 0, maxTokens: Math.min(10, config.limits.score.maxOutputTokens) },
     scoreLimits: config.limits.score, retries: 'no automatic retries; explicit judge-only retry uses frozen answers',
   };
-  const candidate = { adapter: 'nano-document-memory-v3', sourceCommit: head.trim(), dirty: status.trim().length > 0,
+  const candidate = { adapter: 'nano-document-memory-v4', historyMapping: 'single-global-session; dataset-session-as-native-window; one-owner-conversation', sourceCommit: head.trim(), dirty: status.trim().length > 0,
     runtimeHash, guidanceHash, lockHash, configuration: config.candidate, prepareLimits: config.limits.prepare, answerLimits: config.limits.answer };
   const plan: EvaluationPlan = { protocolId: digest(protocol), candidateId: digest(candidate), datasetHash, selectedIds: selected,
     protocol, candidate, judge: config.judge, scoreLimits: config.limits.score,
