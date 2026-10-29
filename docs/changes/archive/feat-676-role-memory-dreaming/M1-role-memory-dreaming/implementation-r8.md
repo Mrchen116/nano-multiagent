@@ -107,3 +107,12 @@ PA 会话 `c_91ae1772dfea`，root `92288720-595f-4666-96e0-30267706dccf`。
 - 本地全量检查与定点增量结果见上文。归档后 docs-check：283 maintained sources / 68 routes；check_change_unit_archived与git diff --check通过。远端 CI 尚未在此记录中宣称完成，以本PR当前head的check为准。
 - 19:09后统一执行 `e2e-down.sh --wt /tmp/feat676-daily-20261029`，再终止本轮capture proxy。Node99257、主DSH99262、PA99286、proxy58262均已退出，50967/56172均无监听。保留合成验收资料和截图，不提交运行数据；未触碰生产与另一既有预览。
 - 开发 worktree `/Users/czj/.codex/worktrees/unit-feat-676/nano-multiagent` 保留供PR审查，待确认合并后按规则清理；本轮不自动merge或部署。
+
+### PR 后续效率修复（2026-10-29，待用户发起统一审查）
+
+- 输入改动 `091d0d7c5`：两阶段直接注入宿主组装材料，删除 `input.md` 和专用输入 hash。4 文件 14 项窄回归及 DSH build、docs-check 通过；来源资格、正式文件和摘要版本机制保持。
+- 移除两阶段私有 `finish`：提炼最终 JSON 经宿主结构/成对空值/slug 校验后保存；整理只在原生正常完成后核对真实 staging 并生成计划，随后沿既有应用/回执/进度流程。固定 DSH 公开 API 不提供 provider-native JSON Schema 模式，此处是最终文本 JSON 加宿主校验，不另造提交工具。
+- 失败、取消、无效提炼输出和未同步入口的正文修改不保存或推进。正常无变化可以完成；文件工具拒绝不合规写入后，模型正常结束且暂存文件仍有效也可无变化完成。
+- 旧实现对移除工具后的正常保存回归 2/2 失败（`/tmp/feat676-no-finish-red.log`）。本次 5 文件 22 项相关用例全部通过：首轮 18 项通过、4 项因提炼/整理回执文案断言混用失败；只修正测试期望后提炼文件 5/5 通过。日志 `/tmp/feat676-no-finish-green.log`、`/tmp/feat676-no-finish-task-green.log`。覆盖实际请求无 finish、单次请求提炼、正常保存/无变化、失败/取消不发布、无效 JSON/字段/空值/slug、摘要复用/替换/no_signal、跨窗恢复及连续批次失败恢复。
+- DSH build 与 docs-check 通过（`/tmp/feat676-no-finish-build.log`、`/tmp/feat676-no-finish-docs.log`）。仅受控 provider 的真实隔离运行时回归，没有追加真实模型评测；不据此宣称质量或费用改善幅度。
+- 用户要求等其确认全部问题并明确发起审查后再统一审查；本批未启动新审查，既有 gate 不覆盖这些新改动。保留开发分支本地提交，未合入或部署。

@@ -293,7 +293,7 @@ export class Dreaming {
     for(const operation of run.plan){
       work.controller.signal.throwIfAborted();const current=this.configuration(config.agentId);
       if(this.options.held?.(config.agentId)||current?.knowledge?.memoryMode==='legacy'||work.automatic&&current?.features?.dreaming===false)throw new Error('Maintenance disabled before file application.');
-      const content=await readFile(join(run.directory,'staging',operation.path),'utf8');if(memoryDigest(content)!==operation.afterHash)throw new Error('Staged output changed after finish.');
+      const content=await readFile(join(run.directory,'staging',operation.path),'utf8');if(memoryDigest(content)!==operation.afterHash)throw new Error('Staged output changed after host validation.');
       const receipt=await library.apply({...operation,content},run.generation,work.controller.signal);
       run.receipts=[...run.receipts.filter(item=>item.operationId!==receipt.operationId),receipt];await this.saveRun(run);
       if(!receipt.saved)throw new Error(receipt.error??'File was not saved.');

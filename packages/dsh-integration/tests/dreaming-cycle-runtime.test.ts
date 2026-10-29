@@ -18,8 +18,7 @@ export function apply(ctx){
     jobs.set(o.sessionId,jobs.size+1);
     await appendFile(process.env.DSH_HOME+'/inputs.jsonl',JSON.stringify({id:o.sessionId,messages:o.messages})+'\\n');
    }
-   if(jobs.get(o.sessionId)===2&&!failed){failed=true;}
-   else if(!o.messages.some(m=>m.role==='tool'&&m.toolCallId==='finish'))call=['finish',{no_change_reason:'Only synthetic temporary test material; no durable signal.'},'finish'];
+   if(jobs.get(o.sessionId)===2&&!failed){failed=true;throw new Error('Simulated failed batch');}
   }else{
    const last=o.messages.findLast(m=>m.role==='user'&&m.source?.actorId==='owner');const id=last?.source.messageId;
    if(id?.startsWith('maintain')&&!o.messages.some(m=>m.role==='tool'&&m.toolCallId===id))call=['memory_maintenance',{action:'run',request_ref:id},id];

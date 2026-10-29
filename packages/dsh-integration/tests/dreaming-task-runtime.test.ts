@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {expect,it} from 'vitest';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
 
-it('reuses a task extraction after consolidation fails, then replaces it after continuation; recovery tools retain source scope',async()=>{
+it.each(['valid','invalid-json','missing-field','one-empty','unsafe-slug'])('validates extraction output (%s), reuses and replaces successful summaries with scoped recovery',async mode=>{
   const home=await mkdtemp(join(tmpdir(),'dreaming-task-runtime-'));let client:RuntimeClient|undefined;let logs='';
   await writeFile(join(home,'fixture.mjs'),`
 import {appendFile,writeFile} from 'node:fs/promises';
@@ -32,13 +32,17 @@ export function apply(ctx){
   });
   ctx.on('llm/stream',async function*(o){
     await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(o)+'\\n');
-    const n=steps.get(o.sessionId)||0;steps.set(o.sessionId,n+1);let call;
+    const n=steps.get(o.sessionId)||0;steps.set(o.sessionId,n+1);let call;let output;
     const text=o.messages.flatMap(m=>m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\\n');
     if(String(o.sessionId).startsWith('dreaming-')){
-      const extraction=text.includes('Call finish with exactly two string fields');
+      const extraction=text.includes('Return a JSON object with exactly two string fields');
       if(extraction){
-        if(n===0)call=['finish',{rollout_summary:withdrawn?'':resumed?'Second refundable hotel compared after first became unavailable. Budget 5000, parents travel Saturday; still not booked.':'Compared refundable hotels under budget 5000 for parents travelling Saturday. Not booked.',rollout_slug:withdrawn?'':'travel-options'}];
-      }else if(!consolidationFailed){consolidationFailed=true;}
+        output=JSON.stringify({rollout_summary:withdrawn?'':resumed?'Second refundable hotel compared after first became unavailable. Budget 5000, parents travel Saturday; still not booked.':'Compared refundable hotels under budget 5000 for parents travelling Saturday. Not booked.',rollout_slug:withdrawn?'':'travel-options'});
+        if (${JSON.stringify(mode)} === 'invalid-json') output='Not JSON';
+        if (${JSON.stringify(mode)} === 'missing-field') output=JSON.stringify({rollout_summary:'Incomplete'});
+        if (${JSON.stringify(mode)} === 'one-empty') output=JSON.stringify({rollout_summary:'',rollout_slug:'travel'});
+        if (${JSON.stringify(mode)} === 'unsafe-slug') output=JSON.stringify({rollout_summary:'Summary',rollout_slug:'../travel'});
+      }else if(!consolidationFailed){consolidationFailed=true;throw new Error('Simulated consolidation failure');}
       else{
         const stage=text.match(/Editable copy: (.+?)\\. Only edit/)[1];
         const directory=JSON.parse(text.match(/Source directory \\(data\\): ([^\\n]+)/)[1]);
@@ -51,7 +55,7 @@ export function apply(ctx){
           ['read',{file_path:stage+'/knowledge/travel.md'}],
           ...Array.from({length:25},()=>['source_history',{action:'search',session_id:root.session_id,query:'free cancellation',limit:10}]),
           ['write',{file_path:stage+'/knowledge/travel.md',content:resumed?'Updated option, still refundable and not booked.':'Parents Saturday, budget 5000, free cancellation; not booked.'}],
-          ['write',{file_path:stage+'/MEMORY.md',content:resumed?'# Expert memory\\nUpdated [travel conditions](knowledge/travel.md).':'# Expert memory\\n[Travel conditions](knowledge/travel.md).'}],['finish',{}]];
+          ['write',{file_path:stage+'/MEMORY.md',content:resumed?'# Expert memory\\nUpdated [travel conditions](knowledge/travel.md).':'# Expert memory\\n[Travel conditions](knowledge/travel.md).'}]];
         call=calls[n];
       }
     }else if(o.sessionId==='root'){
@@ -60,7 +64,7 @@ export function apply(ctx){
       if(id?.startsWith('maintain')&&!o.messages.some(m=>m.role==='tool'&&m.toolCallId===id))call=['memory_maintenance',{action:'run',request_ref:id},id];
     }
     if(call){yield{type:'block-end',index:0,block:{type:'tool-call',id:call[2]||'step-'+n,name:call[0],arguments:JSON.stringify(call[1])}};yield{type:'finish',reason:{kind:'tool-calls'}};}
-    else{yield{type:'block-end',index:0,block:{type:'text',text:o.sessionId==='root'?'Private working note.':resumed?'Second option compared; still not booked.':'Refundable options compared, not booked.'}};yield{type:'finish',reason:{kind:'stop'}};}
+    else{yield{type:'block-end',index:0,block:{type:'text',text:output??(o.sessionId==='root'?'Private working note.':resumed?'Second option compared; still not booked.':'Refundable options compared, not booked.')}};yield{type:'finish',reason:{kind:'stop'}};}
   });
 }`);
   try{
@@ -78,11 +82,18 @@ export function apply(ctx){
     await submit('after-child');
     await submit('maintain-first');
     let reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
+    if(mode!=='valid'){
+      expect(reviews).toHaveLength(1);
+      expect(reviews[0]).toMatchObject({status:'failed'});
+      expect(reviews[0].summary).toContain('未生成有效的新版本');
+      await expect(readFile(join(home,'.nanoassistant/memory/knowledge/travel.md'))).rejects.toMatchObject({code:'ENOENT'});
+      return;
+    }
     expect(reviews,JSON.stringify(reviews)).toEqual(expect.arrayContaining([expect.objectContaining({status:'completed',summary:expect.stringContaining('提炼 completed')})]));
-    expect(reviews.some((review:any)=>review.status==='failed'&&review.summary?.includes('without finish'))).toBe(true);
+    expect(reviews.some((review:any)=>review.status==='failed'&&review.summary?.includes('did not complete'))).toBe(true);
     await submit('maintain-retry');
     const readRequests=async()=>(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
-    const extractionIds=(requests:any[])=>new Set(requests.filter(r=>r.sessionId.startsWith('dreaming-')&&JSON.stringify(r.messages).includes('Call finish with exactly two string fields')).map(r=>r.sessionId));
+    const extractionIds=(requests:any[])=>new Set(requests.filter(r=>r.sessionId.startsWith('dreaming-')&&JSON.stringify(r.messages).includes('Return a JSON object with exactly two string fields')).map(r=>r.sessionId));
     let requests=await readRequests();
     expect(extractionIds(requests).size).toBe(1);
     expect(await readFile(join(home,'.nanoassistant/memory/knowledge/travel.md'),'utf8')).toContain('not booked');
@@ -91,6 +102,8 @@ export function apply(ctx){
     expect(JSON.stringify(extraction.messages)).toContain('free cancellation');
     expect(JSON.stringify(extraction.messages)).toContain('Own experience');
     expect(extraction.tools.map((tool:any)=>tool.name)).not.toContain('write');
+    expect(extraction.tools.map((tool:any)=>tool.name)).not.toContain('finish');
+    expect(requests.filter(r=>extractionIds(requests).has(r.sessionId))).toHaveLength(1);
     await expect(readFile(join(home,'.nanoassistant/maintenance/dreaming',extraction.sessionId.slice('dreaming-'.length),'input.md'))).rejects.toMatchObject({code:'ENOENT'});
     const maintenance=requests.filter(r=>r.sessionId.startsWith('dreaming-')&&!extractionIds(requests).has(r.sessionId));
     expect(Math.max(...[...new Set(maintenance.map(r=>r.sessionId))].map(id=>maintenance.filter(r=>r.sessionId===id).length))).toBeGreaterThan(24);

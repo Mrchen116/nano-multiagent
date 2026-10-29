@@ -8,8 +8,10 @@ These assets ship with the Node payload.
 The extraction prompt retains the original task-history, evidence, preference-scope,
 uncertainty, authorization and redaction guidance. Nano changes the consumer from a
 Codex rollout to a trusted first-level task, supplies original inherited background
-and own events directly, and returns the same two strings through the restricted
-`finish` tool. Empty strings retain the original no-signal meaning. The host owns
+and own events directly, and returns the same two strings in the final JSON response.
+The host parses and validates it after normal completion. The pinned DSH public API
+does not expose provider-native JSON Schema output; Nano does not replace it with
+another completion tool. Empty strings retain the original no-signal meaning. The host owns
 scope, source versions, staging, receipts and persistence.
 
 The consolidation prompt retains the original grounded-claims paragraph, adapting
@@ -19,6 +21,8 @@ interfaces in Nano. The replacement sections specify the approved existing PA/ex
 Markdown layout, one updated summary per task, original Global dialogue, current
 source exclusions and the single Dreaming writer. They preserve the distinction
 between omitted sources and revoked sources, and between private drafts and delivery.
+Normal model completion leads to host validation of staged files and application;
+failed or cancelled execution cannot publish staged changes or advance progress.
 
 The relationship, interaction-reflection and proactive-preference dimensions were
 checked against the original Muse descriptions collected at
