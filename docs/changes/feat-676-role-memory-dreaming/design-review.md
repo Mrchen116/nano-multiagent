@@ -581,3 +581,81 @@ Muse 四份原始文件均匹配其 README 中完整 hash，且本 reviewer 独�
 - 接受 R6 Approved，0 CRITICAL / 0 WARNING；单写职责、当前响应与持久学习时序、来源消费限制与延后清理均符合用户最新决定，无实质异议。
 - R6-R1 accepted：已将架构概述改为前台读/Dreaming 写，纠正示例明确当前输入与 follow-up 先采用、Dreaming 保存后文件刷新。仅消除与已审核心决定 4、§2/3、S06/S07 的措辞冲突，不新增接口、承诺或验证义务；按非实质消歧保留 R6，无需追加审查轮次。design.md 最终 SHA-256：`8a0da617591c5ac226c83d86199461a12144c95bdda41520f84dc9211d8a41e5`；其余受审内容不变。
 - 本轮文档检查、差异检查与原型两种宽度走查通过；只提交 unit 文档，不修改 current specs、产品代码或开发 worktree。Dreaming 单写及新链路尚待实施/验收，不代表已部署。
+
+
+## Round 7
+
+### Metadata
+
+- reviewer: `/root/dreaming_single_writer_review`（与 R6 相同的独立 reviewer，未参与受审设计编写）
+- target: `docs/changes/feat-676-role-memory-dreaming`
+- review_mode: `full`
+- mode_reason: 真实失败终止、重试冻结范围及累计运行限制改变维护生命周期和 M1 退出标准；核对与两路进度、文件应用、模型恢复、单写者和迁移的组合。未变化的能力保留 R6/R5 证据，不重做无关审查。
+- started_at: `2026-10-29T16:00:44+08:00`
+- completed_at: `2026-10-29T16:02:38+08:00`
+- duration: `0:01:54`（恢复后报告定稿阶段）。实质核对在中断前已经完成；其中包含联网等待，未精确计时，不将中断等待计为工程审查耗时。
+- checkout: `/Users/czj/Repos/nano-multiagent`，`main`，HEAD `e0deb05415c549b3cca91a0eb4b161475dd86e96`；四份受审文件为冻结未提交修改。开发 worktree 仅只读取证。
+- authorization: 只追加本报告；不改受审文件、input 原件、代码、依赖或 current specs，不提交、实施或部署。后续询问继承背景尚未改变本轮目标，不加入本轮设计结论。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+正常业务未完成/失败、无信号和输入容量分批不再被视为维护故障；真实维护错误结束本次，保留成功进度，后续按当时最新上界重新冻结。删除 Dreaming 累计时长/步数限制及其预算恢复，与用户确认的简化方向一致，且没有移除原有取消、来源资格、单主体排他或真实应用核对。
+
+### Coverage 与证据
+
+**需求、取舍与范围。** 已完整读取四文件 diff，并核对 spec 新增的用户原话/确认、S14/S25 与 design §4.2/4.3/6。用户明确接受持续故障如实失败，不要求为假设的永久 child 故障建立独立退避或绕过队列。每次运行内部仍固定目标，正常换窗继续；真实错误/取消结束该次，成功游标继续有效，下一次重新冻结最新上界。501–1500 首批成功到 1000、第二批失败后重新面向最新 2000 的例子进入 W8，没有被“先完成旧轮全部 child”的门槛抵消。输入容量仍决定分批与材料选择，删除运行总额不等于要求一次装入无限材料。
+
+**上游归因。** 独立读取固定 Codex `8fdf6472955749a731fd9e4b8ffc218e8e80c51d` 的 [stage_two 常量](https://github.com/openai/codex/blob/8fdf6472955749a731fd9e4b8ffc218e8e80c51d/codex-rs/memories/write/src/lib.rs#L106-L111) 与 [loop_agent](https://github.com/openai/codex/blob/8fdf6472955749a731fd9e4b8ffc218e8e80c51d/codex-rs/memories/write/src/phase2.rs#L496-L557)：租约 3600 秒、重试延迟 3600 秒、心跳 90 秒；循环检查最终状态、会话终止和续租所有权，没有累计运行时长/步数耗尽分支。设计对这些具体落点的归因成立；不外推为所有 Codex 模式或底层请求永无超时。Nano 依用户决定删除自身限制，无需复制 Codex 的租约系统。
+
+**实际组装与实现落点。** 开发 worktree 的 `knowledge/runtime.ts:55–56` 真实创建 DocumentMemory/Dreaming，`agent-config.ts:108` 注册维护工具。当前 `knowledge/dreaming.ts:254` 在 step/start 超出 maxSteps（默认 24）时 cancel，`:300` 设置 maxRunMs（默认 600000）的定时取消；`packages/product-contracts/src/knowledge.ts:7` 声明这两个字段。design §1/6 明确删除字段、累计计数与强制取消，部署新增旧配置归一化，覆盖实际机制而非只改示例。当前源码保留这些限制只是待实施差异，本轮不宣称已删除。
+
+当前 `dreaming.ts:161–196` 已有应用前来源复核、逐文件 saved 回执、完成记录先于游标提交、失败主体 retryAt 和 finally dispose；`:98` 的调度准入使用既有重试与自动周期。新设计可在既有 Dreaming 生命周期内调整，不需要独立 child 重试调度器、第二套 Agent loop 或跨包 DSH 访问。child 当前摘要版本与已整合版本仍是事实进度，不因保留这些记录就变成新增重试队列。
+
+**恢复顺序与应用真值。** design §6 明确异常后先核对已生成应用计划，再开始新材料范围；未 finish 的 staging 不跨目标复用，已 finish 计划按 operationId 与 before/after hash 核对，来源撤销仍取消未应用计划。完成回执先于进度提交，所以可补元信息而不重复写正文；部分正文已保存、入口未完成仍抑制旧入口。重试扩大输入上界不意味着旧 staged 输出可以直接套新目标，也不意味着跳过未成功的根流前缀。版本匹配的有效 child 摘要可以复用，版本变动须重新提炼。保留这些实际成功/失败记录是恢复所需，不是保留旧 CycleTarget 的全体成功锁。
+
+**Agent Context Review — Design Review。** 本轮覆盖提炼者、整理者以及后续消费记忆的 root/child。业务执行失败与维护提炼错误明确分开：前者是可总结经历，no_signal 是有定义的正常结果，后者结束本次且不能拿旧摘要伪装新版。来源筛选/时间边界不足按既有规则说明未纳入，不能谎称已处理或泄漏未来内容。输入过长沿分批/长条目续读及既有上下文容量处理，模型正常换窗仍保有角色、工具 schema、固定 cut、staging 导航和自身恢复入口；没有剩余运行预算字段需要恢复。异常退出后的新运行重新确定目标，历史恢复文本不能覆盖新的宿主边界或复活撤销来源。
+
+§4.4/4.5 已将“所有调用共享累计时长/步数额度”替换为本批输入容量和返回分页限制；§5 的宿主回执仍区分提炼成功、记忆保存、本次完成与真实部分成果。§6 的 partial 只描述实际结果，不作为等待所有 child 成功的常驻状态。当前请求/工具与真实模型行为尚未捕获；W4/W8/W10/W13 承担实际组装、取消、恢复与后续消费验证，本轮只判断设计可兑现性。
+
+**delta、退出标准与部署。** Gateway delta 同步了正常分批、真实错误终止、下次最新目标、旧清单不作为准入条件，以及不保证绕过永久故障；S14/S25 的旧承诺有明确用户决定支撑，不是无解释删除。M1 W8 加入虚拟时钟/recording provider 证明超过旧 10 分钟/24 步仍继续且用户取消仍有效，以及成功到 1000 后失败、下次冻结到 2000、持续故障不得伪推进。W2/W10 保留应用恢复/版本匹配，W13 的“预算保持”结合 §4.5 解释为输入容量，不能重新引入已明确删除的运行额度。
+
+部署新增清除旧 maxRunMs/maxSteps 与预算状态、保留成功游标/来源基线/应用回执、退役旧目标及未 finish staging；已存在 document 库不重建，child 启用 cut 规则保持。旧字段归一化、超过旧限制仍正常完成属于隔离副本验证，生产只核对清单与服务状态，没有上线补跑失败分支或新增演练。删除旧总限时没有改变普通用户关闭、主体暂停/停用、单写排他和来源撤销的效力。
+
+**retained_from: Round 6 / Round 5。** 正式库单写、前台只读、当前纠正与延后持久化、手动导入及停止采用、legacy 排他、角色目录与 skill-creator 结论继续成立。共享历史公开接口、IM 只读权限和输入过滤依 R5 保留；本轮未改其协议。原型、PA/IM delta 与 prototype-review 未改；UI 布局及保存交互证据沿 R6/R4 保留，不重复打开浏览器，不声称产品或 iOS 实测通过。
+
+### 历史问题闭环
+
+- **R1-W1 closed / retained**：固定 cut 的持久认证仍在；下次冻结最新上界不跳过认证。
+- **R1-W2 closed / retained**：skill-creator 与旧选择归一化不受本轮影响。
+- **R1-W3 closed / retained**：来源 generation、立即失效及 Dreaming 独立清理准入保留，删除总限时不扩大来源权限。
+- **R4-W1 closed / retained**：document 原启用 cut 和 child 首次范围保持；最新运行上界不替换启用下界。
+- **R6-R1 closed**：实际重读 design 架构概述与纠正 Before/After，已改为前台读、Dreaming 写及先当前响应、后文件刷新，与 Author Resolution 一致。
+
+### Issues
+
+无阻断 issue；0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+- **R7-R1（非阻断）**：design §7 输入示例仍有“本批未完成：任务 B 提炼失败，保留待处理”。建议改为“任务 B 摘要因本批输入容量未选入，留后续批次”，或明确其为先前失败记录。真实提炼错误后本次已停止，不能把示例理解为同次失败后仍启动整理者。这是示意文本收口，§4.3/6、S14/S25 和 delta 已一致明确 fail-stop 语义，不要求增加新故障机制或另开门禁。
+
+### 受审产物指纹（SHA-256）
+
+| 文件 | SHA-256 |
+| --- | --- |
+| spec.md | `440d9d7cbc9ff6ee0aa8e2ecc15550550117aa2b8997ff9900c19cc0b57d81bc` |
+| design.md | `7324125f539880b3cfa2d0fe61468a52575b1efb93dcf281229b7917c5df0f0c` |
+| specs/gateway/agent-capabilities.md | `172da2be1a0077a430453364e842e4cfe39cc6d2a70e5b802276fdc10b00f57d` |
+| deployment-prompt.md | `02004b8ce013627baeb4b40097dbf450119a1f1b43839947c5e097c4c4fea721` |
+
+### 本轮收尾
+
+仅追加本轮报告，未改四份冻结产物。`git diff --check` 通过；作者给出的 docs-check 323 sources / 68 routes 是冻结前证据，本 reviewer 未重复运行，也未把文档检查当作运行验收。没有执行产品测试、真实模型任务或迁移/部署；结论仅批准本轮设计。
+
+### Author Resolutions（R7 收口）
+
+- 接受 R7 Approved，0 CRITICAL / 0 WARNING。用户确认的按成功进度重试、每次重新冻结上界与删除累计运行限制均有一致需求、设计及退出标准；无实质异议。
+- R7-R1 accepted：将 §7 的任务 B 示例改为本批输入容量未选入、留后续批次，避免示例暗示真实提炼故障后本次仍继续。仅使示例与已审 §4.3/6、S14/S25 一致，不新增机制或义务；保留 R7，不追加审查。design.md 最终 SHA-256：`1f9ed025450010a61faed9e19a7c281238ee77618ec3d7cd7fc0c4c7c8d0b4fa`。
+- 已批准设计仍待实施；旧 runtime 的限时/限步与冻结目标恢复逻辑尚未修改。本轮没有产品、生产或新链路验收结论。第 4 项继承背景正在讨论，不属于本次修订。
