@@ -659,3 +659,83 @@ Muse 四份原始文件均匹配其 README 中完整 hash，且本 reviewer 独�
 - 接受 R7 Approved，0 CRITICAL / 0 WARNING。用户确认的按成功进度重试、每次重新冻结上界与删除累计运行限制均有一致需求、设计及退出标准；无实质异议。
 - R7-R1 accepted：将 §7 的任务 B 示例改为本批输入容量未选入、留后续批次，避免示例暗示真实提炼故障后本次仍继续。仅使示例与已审 §4.3/6、S14/S25 一致，不新增机制或义务；保留 R7，不追加审查。design.md 最终 SHA-256：`1f9ed025450010a61faed9e19a7c281238ee77618ec3d7cd7fc0c4c7c8d0b4fa`。
 - 已批准设计仍待实施；旧 runtime 的限时/限步与冻结目标恢复逻辑尚未修改。本轮没有产品、生产或新链路验收结论。第 4 项继承背景正在讨论，不属于本次修订。
+
+
+## Round 8
+
+### Metadata
+
+- reviewer: `/root/dreaming_single_writer_review`（与 R6/R7 相同的独立 reviewer，未参与受审设计编写）
+- target: `docs/changes/feat-676-role-memory-dreaming`
+- review_mode: `full`
+- mode_reason: 继承内容由一律排除改为提炼理解背景，影响模型输入、来源身份和摘要版本，新增 S30 与 M1 退出标准；核对与既有权限、基线、cut、去重、重提炼和消费的组合，未变部分保留前轮有效证据。
+- started_at: `2026-10-29T16:31:44+08:00`
+- completed_at: `2026-10-29T16:34:21+08:00`
+- duration: `0:02:37`（从首个有时间记录的 diff 核对完成点至定稿；首次读 diff 的短暂时间未计）。
+- checkout: `/Users/czj/Repos/nano-multiagent`，`main`，HEAD `888d2e11f213ec555b4ecaea36fe9f06be97b23d`；四份受审文件为冻结未提交修改。开发 worktree 和安装的公开类型仅只读核对。
+- authorization: 仅追加本报告；不修改受审文档、input 原件、产品代码、依赖或 current specs，不提交、实施或部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+继承背景与 child 自身经历的职责、来源和版本边界已写清；使用背景帮助理解不等于将它再次计为新经历。方案沿既有 observation、选材和摘要替换链实施，不需要新增背景摘要器或 fork 存储。
+
+### Coverage 与证据
+
+**用户决定与需求。** 完整读取四文件 diff 和受影响章节。spec 保留用户类比及确认，明确自身经历为提炼对象，继承历史参与理解；没有把 Codex 所有 fork 路径均能展开背景当已证事实。S30 使用预算 5000、父母同行、免费取消酒店及未预订状态检验条件保留，也检查不泛化为永久偏好、多个 child 引用不增强证据。design §4.1/4.3/4.4、Gateway 新场景及 M1 R3/W9/W12 与之对应；续做仍整份重新选材并替换同一摘要，不回喂旧摘要、不产生阶段链。
+
+**公开能力与实际落点。** 独立读取开发 worktree 安装的 `@deepseek-ai/dsh-session-query/lib/types/observation.d.ts`：SessionObservation 提供同一个不可变 cut 的 header、events、cursor、inheritedEventCount，live/cold 认证差异保持。`@deepseek-ai/dsh-session/lib/types/fork.d.ts` 的公开 buildForkSeed 说明它保留源事件前缀，合成收尾在 inheritedEventCount 之外；Session 的公开类型保留持久 fork cut，恢复 seed 长度不能代替继承长度。`session-query` 公开 traceSession 能返回祖先链或首个无法解析父节点，可用于核对原始来源，不要求私有导入。
+
+本仓 `owned-sessions.ts:54–65` 实际通过 observation、buildForkSeed、精确 inheritedEventCount 和 parentSession 建立 fork；这证明本仓已有真实接线，不是只存在于测试的 API。`knowledge/memory-sources.ts:66–70,189–191` 当前读取 observation 后切掉继承前缀；`descendants.ts:148–155` 同样将前缀与自身事件区分。新设计正确要求在提炼输入适配中保留合格背景，而非把全局新增进度改为重复消费 inherited events。这些旧实现尚未执行 S30，不能用类型或文件存在当模型理解通过。
+
+**Agent Context Review — Design Review。** Consumer 是提炼者、接收摘要的整理者及之后消费文档的 root/child。Before：child 仅有“按刚才条件比较酒店”和结果，前缀在提炼前被删除，模型不能可靠知道预算、同行人及取消条件。After：两部分一起经过原有优先级和输入容量选择，以“继承背景/自身经历”交付，并携带原作者、时间、原 session/message 定位；条件只用于解释当前任务，新增动作与结果归 child。宿主填来源元信息，模型不猜父身份或范围。
+
+design §4.3 明确父内容已被整理不是排除理由，消费游标不能充当背景删除条件；同时两部分仍受来源资格、启用基线或明确授权历史范围、本批 cutoff 约束。只使用真实 fork 继承范围，不补入 fork 后父消息。未知原始定位、缺失内容、容量未选入的条件保持未知，不拿维护摘要补作原文；无背景不是“没有限制”的证据。§4.4 继续过滤系统/维护噪声，并按混合 Inbox 消息的真实来源处理，不因父 Session 获准就提升其中全部数据权限。
+
+重复依据的处理也闭合：继承项保留原始来源，不重编号为 child 新证据；Global 与多个 child 重复引用同一表达仍为一个依据。摘要版本增加所用背景的原始版本及来源 generation，背景变化或撤销不能在 own-event 未变时继续无条件复用旧摘要。缓存键仍是一主体一 child 一份当前摘要；原始内容与摘要的出处均不变成新事实权威。提炼者仍通过显式材料获得背景，不继承完整父 prompt，自己的 notes/history 也不会被当作业务经历。
+
+**与恢复、调度及权限的组合。** 本轮没有改变 R7 的失败终止、下次重新冻结最新上界、输入分批或已保存进度恢复，也没有恢复累计时长/步数限制。背景的读取范围由本次 cut 决定，源版本复用须匹配当前允许范围；更晚父消息仍不自动成为 fork 背景。R6 的正式库单写、当前响应优先、停止采用立即生效及清理由 Dreaming 完成保持。前缀可读不授予新的业务权限，也不让提炼者获得外发、长期库写入或无限父历史扫描能力。
+
+**架构与复杂度。** MemorySources 在 dsh-integration 中识别两类材料、来源和范围；提炼模型负责理解合格输入，Dreaming 与 MemoryDocuments 沿原链整理应用。复用 DSH 原始 fork 事件和祖先身份，新增的只是显式投影与源版本组成；没有复制 Codex 内部存储、另开背景摘要模型或平行 fork 数据库。用已有过滤/容量选择比新建一条专门背景管线更符合当前需求；没有证据需要追加背景索引或复杂语义依赖图。
+
+**验证、delta 与迁移。** Gateway delta 增加 fork 场景，既有续做、连续批次和来源约束场景保留。M1 W9 要求实际提炼请求包含来源标识的继承条件与自身结果，覆盖父已整理后 fork、子续做、多 child 同源引用、容量省略/撤销、未授权及 fork 后父消息不得混入；W12 继续要求最终请求与模型行为，R3/S30 要求条件与未预订状态被正确采用。不是只检查材料数量或摘要文件存在。
+
+部署仅增加合格背景说明，并同步 S01–S30：自身经历起点仍是原 document 启用 cut，不能把 root 已处理游标或升级尾部当 child 基线；读取继承背景不改变启用基线或来源授权。生产检查仍有限且只读，所有功能/失败验证留在隔离环境；不新增迁移状态或上线补验收。
+
+**retained_from: Round 7 / Round 6 / Round 5。** 单写、失败重试、公开共享历史接口、IM 只读通道、来源撤销、角色目录、skill-creator、legacy 与 Work 结论保持。本轮未改原型、交互或 PA/IM delta，因此沿用既有视觉/交互证据及限制，不重新打开浏览器或声称 iOS 实测。未运行真实 provider、S30 或请求捕获，设计批准不代替 M1 行为验收。
+
+### 历史问题闭环
+
+- **R1-W1 closed / retained**：背景仍从已认证不可变 observation 获取，不以可见事件替代持久认证。
+- **R1-W2 closed / retained**：Skill 配置与内置指导未变化。
+- **R1-W3 closed / retained**：背景同样服从当前来源 generation，撤销不能由 fork 副本或缓存重新放开。
+- **R4-W1 closed / retained**：child 原启用基线仍保留，继承背景不成为自动回溯全部旧历史的入口。
+- **R6-R1 closed / retained**：前台只读与 Dreaming 更新的时序未改变。
+- **R7-R1 closed**：§7 已改为“任务 B 摘要因本批输入容量未选入，留后续批次”，与真实提炼错误结束本次的规则一致。
+
+### Issues
+
+无新增 issue；0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+无新增建议。现有 S30/W9/W12 已规定必要的实际请求与行为证据，不新增假设机制或独立门禁。
+
+### 受审产物指纹（SHA-256）
+
+| 文件 | SHA-256 |
+| --- | --- |
+| spec.md | `1c5ac2af9c80768e04bbff2cf73ca6da0ca3ecbd39ab97587ad1ef209d2ddd4f` |
+| design.md | `26ba065fbe5ed296bc816f7121d00d64fbed48b2cca92f7fba83d71265d4f549` |
+| specs/gateway/agent-capabilities.md | `9b0163c7820a01fac16a099c25cd5a3273bdb8b643b86ce40f25ecdd5b6c9427` |
+| deployment-prompt.md | `f8da16d979db4a549bdad499c4af8e0ee4d8175a90e28b1c0f7f4064cc645b1e` |
+
+### 本轮收尾
+
+仅追加 R8，未修改四份冻结产物。`git diff --check` 通过；作者提供 docs-check 323 sources / 68 routes 的冻结前证据，本 reviewer 未重跑，不当作运行验收。未实施、运行真实模型、迁移或部署；完成本轮实质覆盖后停止。
+
+### Author Resolutions（R8 收口）
+
+- 接受 R8 Approved，0 CRITICAL / 0 WARNING，无新增建议。继承背景参与理解、自身经历承担新增结果、原始来源与资格/时间边界、同源去重及继续提炼策略均符合用户确认，无实质异议。
+- 受审后未改目标产物；文档与差异检查通过。只提交本 unit 设计材料，current specs、产品实现与开发 worktree 保持原状；S30 和新输入链尚待实施/验收，不代表已部署。
