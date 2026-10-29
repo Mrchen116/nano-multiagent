@@ -389,3 +389,43 @@ Independent command/result: source+recovery narrow tests **20/20 passed**, `/tmp
 **V-R8-1 remains open.** The product reviewer is in flight. This snapshot has no final independent S01-S30/retained-scenario matrix and accompanying current real-provider/model behavior conclusion supplied to this verifier. Earlier source/Wire/true-behavior limitations are not closed by the deterministic regression, the source-inspection narrative, or the UI unit test. The caller has additionally recorded local full-suite/build/typecheck/iOS-runtime/Python results for the original 6205cc579 candidate; those improve available local validation evidence but do not constitute a remote CI pass or replace the revised independent product gate. Reconcile the final bounded evidence when it arrives; do not rerun unaffected mechanisms merely to fill a checklist.
 
 Current corrected-delta reconciliation: **aligned for the reviewed fixes**, with no newly uncovered observable delta; overall M1 still **incomplete solely on its outstanding evidence/acceptance criterion**. The two CONFIRMED implementation WARNINGs from Round 7 are closed. Code-review Round 8 contains the corresponding Mode B Context repair evidence and scope limits. Only the assigned two reports were appended; implementation, tests, design and production were not modified by this verifier.
+
+
+## Round 9 — final R8 acceptance/evidence closure (2026-10-29)
+
+- `unit_id`: feat-676; `verification_mode`: targeted-closure/delta; `review_round`: 9.
+- `validated_at`: `5432c125ad33ec163515dc25acd663da972b3796`; `executed_base`: `5ef3bbf960c053629a51830cfc03aa19389a5530`.
+- `effective_base`: `80db8b9a6`; `effective_through`: `5432c125ad33ec163515dc25acd663da972b3796`. These fields describe the R8 full-plus-closure scope; prior unchanged implementation coverage stays in the earlier scoped records. Product implementation remains eff2d4684; approved design authority remains R8@452e26373.
+- `requires_full_verification`: false; `verdict`: **pass**; corrected-delta `outcome`: **aligned**.
+- Current verifier issues: **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. F-R8-1/F-R8-2/D-R8-1 remain closed; **V-R8-1 is closed** by current independent acceptance and the bounded evidence below. Product acceptance separately remains pass-with-issues because historical T1 is an explicitly retained, non-blocking side finding (not reproduced/fixed in R8).
+
+### V-R8-1 evidence reconciliation
+
+| Previously open requirement | Current evidence reviewed | Disposition / exact strength |
+| --- | --- | --- |
+| Revised independent scenario accounting and actual product behavior | acceptance.md Round 4, commit 5432c125a: all **30 unique S01-S30 rows** map to real-model, controlled-mechanism or explicitly unchanged retained evidence; actual PA correction/child follow-up, expert audience/negative outcome, source exclusion then Dreaming cleanup and live Work/UI results | **closed**. Revised foreground-only-read behavior is not passed via obsolete writer acceptance. Product reviewer reports 0 blocking/major and no new minor; T1 remains separate |
+| W4/W12/W13 source missing-condition delivery and model action | S27 initial partial input has no K-47/K-74; actual adapter request contains autonomous source_history search/read, same original root/window/item and appendix result; saved project/entry and actual host 2/2 saved+versioned inspected | **closed at representative real-model consumer depth**. It proves this real missing-condition recovery, not all future model behavior or downstream shared-proxy conversion |
+| W8 continuous source completion and truthful partial state | runs-snapshot.json: same cycle 93043ffd-1a4d-4365-9a27-0b26df788021, four completed batches 3cfbfeba/7b7bebfd/d9fd3d7b/fd6b391a, actual 0/0 → 2/2 → 0/0 → 2/2, final range reaches frozen through=69 without pending-source text | **closed**. The earlier 2/2 host receipt still correctly reports a remaining source; it is not misrepresented as whole-cycle completion |
+| W13/S29 real IM product entrance and read-only effects | New test 86886b9c6 uses actual IM process, device binding/authenticated relay, real GlobalAgent and stores; pagination/read/info, original IDs and before/after database/Inbox/journal equality; withdrawal rejects old cursor | **closed at actual cross-process product mechanism**. Owner and independent product reviewer each ran 1/1 pass. Caller is controlled; no autonomous model IM choice claimed |
+| S28 context-window recovery/task lifecycle | Round 4 accurately retains native request-controlled notes/new_context/own-history/source_history and task extraction-reuse/replacement/no_signal evidence | **closed at design's deterministic boundary depth**. It is not called autonomous model choice to change context |
+| S01/role memory consumption | PA nonempty Global cross-chat actual response preserves current corrections, original-link provenance, audience restriction and unknowns; expert actual document read plus subsequent correct condition judgement is a separate observation | **closed without stronger recall claim**. PA result is not an empty-context memory-only recall test |
+| W6 current explanatory UI/native compilation | Current 390 Web explanation and Work evidence in independent acceptance; iOS Simulator `/tmp/feat676-ios-r8-build.log` ends BUILD SUCCEEDED; previous targeted 28 Web tests/build retained | **closed for explicit contract**. No new iOS visual acceptance claimed |
+
+The verifier inspected the actual S27 proof/request/result/memory/host/run locators rather than only its summary: `/tmp/feat676-r8-product/s27-source-history-proof.json`, `/tmp/feat676-live-evidence/68981408217c48c39483d4b8bdd5ecd4-request.json`, `s27-saved-memory.json`, `s27-native-receipt.txt` and `runs-snapshot.json`. S29 actual process assertions and helpers were inspected; `/tmp/feat676-r8-product/s29-process.log`, `s29-mechanism.log` and `/tmp/feat676-im-process.log` support the claimed passed runs. No duplicate full or cross-process run was added after valid independent evidence.
+
+### Effective implementation, canonical readiness and retained limits
+
+Direct `eff2d4684..5432c125a` comparison shows no changes to runtime/product/UI/iOS implementation. c08c3a653 merges only main@082e72ec4's bugfix-678 design/incident documents. Later commits add evidence and the single S29 test; the test's identity, real transport, state assertions and cleanup are appropriate and introduce no product-code change. This preserves prior full review plus Round 8 confirmed-fix closure.
+
+All four active delta texts are unchanged from eff2d4684; target canonical files and MODIFIED requirement identities exist. SHA-256 fingerprints for the exact approved merge input:
+
+| Delta | SHA-256 |
+| --- | --- |
+| gateway/agent-capabilities.md | b9e7fd37582f7826c8d47b86d654a33b6880224c61a2ecddff77fc7cd44cce66 |
+| gateway/personal-agent.md | cb9d8294e3eb35d3062e9578fd9764e69423ac72aa9b55ccb42b40909506e1c6 |
+| im/agent-work.md | 753306934bd4bd4642234f274b19d3f74374b84815d37d315fa944100e2a28a3 |
+| im/agents-nodes.md | a6d01c288818ec2310db5835568337e1244aebee293e1fd381ca8da58c88baa6 |
+
+Canonical reconciliation/archive may proceed as a pure documentation suffix: replace by requirement identity (some canonical headings already contain the earlier feat-676 wording), apply the removed requirements, preserve unrelated current contracts and update routes/links. Do not duplicate ADDED headings or preserve old foreground immediate-write wording alongside the new sole writer. The caller owns that exact future suffix and retention record; these reports do not pretend it has already been made.
+
+All R8 M1 W1-W13 implementation/evidence concerns are now resolved at the stated depth using Round 7's full matrix plus Rounds 8-9 closures. This concludes verification; no requested implementation change remains. Retained limitations are explicit: T1 is non-blocking and unfixed; PA cross-chat is nonempty Global context, S29 caller is controlled, S28 window/failure injection is controlled, wire capture ends at the local adapter/proxy boundary, and native iOS compilation is not visual QA. None is silently recast as stronger evidence. Remote CI, merge, production deployment/migration and cleanup are caller-owned delivery states and are not asserted by this pass.
