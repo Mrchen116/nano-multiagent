@@ -17,6 +17,8 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 
 > 然后我们一个个bench讨论具体落地方案
 
+> 摄入历史，要真正转换成我们的系统的设计对不对，比如消息是从inbox进来的
+
 ## 原始材料
 
 2026-10-29 已下载并读取 `nano-memory-evaluation.zip`，其中四个文件为：
@@ -38,6 +40,7 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 
 - 用户明确要求从当前分支建立独立分支与 worktree。已从 `80db8b9a604de15476dceb5e2e9a3c92d5fdf170` 创建 `codex/feat-677-memory-evaluation`，工作区为 `/Users/czj/.codex/worktrees/unit-feat-677-memory-eval/nano-multiagent`。本 unit 在该分支对齐，不写入 main。
 - 用户要求逐个 benchmark 讨论具体落地方案。尚未确认首期 benchmark 范围、对照条件、输入适配方式、预算或完整跑量；不将附件中的全部建议直接视为已批准要求。
+- 用户强调历史摄入需要映射到 Nano 实际系统设计，例如消息从 Inbox 进入。Agent 理解：评测夹具提供消息及来源，消费、上下文装配、正常记忆操作和 Dreaming 由真实产品链路承担；不能用一条“请阅读并整理这份历史”的请求替代消息摄入，再据此声称验证了正常记忆积累。LongMemEval 原有 assistant 回合如何保持原身份与含义，仍需继续对齐。
 
 ## Agent 对材料的理解
 
