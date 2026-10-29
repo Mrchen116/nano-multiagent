@@ -174,3 +174,34 @@ Surviving findings:
 ```
 
 Round 5 code-review verdict: **pass**, no confirmed or plausible actionable defect in the reviewed delta. This conclusion does not replace the required S18 native product reacceptance.
+
+
+## Round 6 — PR #428 bounded guidance cleanup
+
+- Review mode: **patch**, independent change-code-review with Agent Context Implementation Review **Mode B**. Frozen range: `8fef02de95451334567c5d7c1f4c2edb7ed8fa8f..d572ad78bc216fd9347bf6922e5c42171c22afba`; HEAD matched the candidate and the checkout was clean at review start.
+- Scope is the four-file wording delta only: `features/skill-creation.ts`, `knowledge/document-memory.ts`, packaged `nano-memory/SKILL.md` and packaged `skill-creator/SKILL.md`. The user's requested cleanup removes redundant permission reminders, retired background-Skill explanations, Codex migration commentary and the memory/scheduler aside. No execution logic, tool schema, selection, scheduling, source eligibility, identity/recovery or file-write behavior changes. Prior unrelated review coverage is retained.
+
+### Context combination and retained operation guidance
+
+- `document-memory.ts:44` still distinguishes saved understanding from authorization, Task state and live permissions, identifies the ordinary memory file tools and routes organization to `nano-memory`. Adjacent guidance retains the fixed owner library, role, full relevant-page reads, current corrections, entry synchronization, checkpoint/version semantics and concrete unavailable-tool feedback. Removing the generic permissions reminder does not remove the actual missing-tool signal.
+- `skill-creation.ts:9` retains the creator discovery instruction, evidence threshold, in-place read-before-edit workflow, user deferral/acknowledgement constraint, task/Memory distinction and selected writable scope. The creator body retains `skill_manage` list/create/patch/edit/resource operations, unavailable-tool handling, successful-write receipts and partial-result reporting (`skill-creator/SKILL.md:124-173`). Its opening user-intent/scope guidance remains coherent with those operations. Neither deleting the background explanation nor deleting migration commentary creates a new background workflow or a dependency on Codex helpers.
+- `nano-memory/SKILL.md:33-47` retains identity/source/disclosure boundaries, backlog versus eligibility semantics, complete-read/checkpoint/generation steps, explicit exclusion and cleanup, and Dreaming's staging-only/private-finish/no-Skill-publication instruction. The deleted scheduler aside was not the operational entry for Task or pause/cancel control. The assembled short guide still explicitly separates memory from Task state; this delta introduces no contrary instruction.
+
+### Direct delivery evidence and limits
+
+Independently inspected `/tmp/feat676-prompt-cleanup/probe.mjs`, `result.json` and all three JSONL records in `/tmp/feat676-prompt-cleanup/runtime/requests.jsonl`. The probe uses the real built integration `RuntimeClient` and locked DSH, session `prompt-cleanup`, expert agent `probe`, revision `1`, isolated `/tmp` workspace, Dreaming disabled and selected `read/skill`; an `llm/stream` interceptor supplies deterministic skill calls instead of a real provider response.
+
+- Records 1–3, `messages[2].content[0].text`: new document-memory guidance, fixed owner/role and concrete `Unavailable tools: write, edit, memory_maintenance` are present. `messages[0].content[0].text` retains current Skill-creation guidance.
+- Record 2 and record 3, `messages[5].content[0].text`: the actual `skill` result contains the current creator body, including unavailable-tool handling and write/partial-result receipts. Record 3, `messages[7].content[0].text`: the second real `skill` result contains current `nano-memory`, including checkpoint and staging/finish instructions. Thus loading is checked beyond the asset files or a preview.
+- Independently checked all three records for every removed sentence/fragment in this four-file diff; none appears. The effective tools remain `get_context_remaining/history/new_context/notes/read/skill`; the capture does not claim write capability merely because guidance names file operations.
+- This is native assembled delivery at the **pre-adapter `llm/stream` boundary**, with controlled responses. It does not establish provider-wire serialization, autonomous Skill selection, real-model understanding or successful writes. Pure wording cleanup does not require a new model-understanding experiment; prior applicable runtime/product evidence retains its original limits.
+
+Reused caller-provided validation at the candidate: `pnpm --filter @nano/dsh-integration build` and `pnpm exec vitest run packages/dsh-integration/tests/cron.test.ts packages/dsh-integration/tests/capabilities.test.ts packages/dsh-integration/tests/dreaming-runtime.test.ts`, exit 0, **3 files / 9 tests passed**, 10.98 seconds, started 2026-10-29 10:45:21 Beijing time. These stdout results were supplied by the caller without a saved log; they are not an independent reviewer rerun. No wording-match test, service run or full suite was added.
+
+Surviving findings:
+
+```json
+[]
+```
+
+Round 6 code-review verdict: **pass**. No confirmed or plausible actionable defect in the bounded delta. Round 5's 842-test aggregate and `acceptance.md` Round 3's actual native trajectory/cold-read reacceptance remain applicable to their unchanged implementation; its minor T1 recovery-prompt observation remains a separate non-blocking side finding. This round does not replace those journeys or alter their evidence.
