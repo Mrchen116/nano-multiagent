@@ -7,7 +7,7 @@
 - [x] 隔离数据库迁移 plan/apply/verify 与回滚验证。
 - [ ] 独立 code review + verification / Context Implementation Review。
 - [ ] 固定日常模板 R1–R8 产品回归验收。
-- [ ] 图像计费能力缺口裁决与 R2/R6 真实图片成功路径。
+- [x] 按用户纠偏及设计 R4 使用原生图片输入，R2/R6 真实图片成功与拒绝路径补验。
 - [ ] 最终本地 CI、canonical spec 归并、归档与 Ready PR。
 
 ## 测试策略

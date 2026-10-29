@@ -56,3 +56,42 @@ Mode B，触发于审核 policy/工具、原话保留、输入准入、事件投
 独立核验命令：`pnpm exec vitest run --config /tmp/bugfix678-static-review/vitest.config.mjs --maxWorkers 1`，2 tests passed。仅用内存数据库/宿主 fake transport，未启动新服务、调用生产或真实模型。生命周期候选被现有 `schema.sql:587` 触发器补代次反证，已 REFUTED，不列入 findings。临时脚本位于本机 `/tmp`，不加入永久套件或提交。
 
 已知公开能力缺口：锁定 DSH 0.2.1-alpha.1 的 Pi-AI adapter 无 imageRequestPricing；现用日常 Codex OAuth 路由待发图片及 read_image 调查会明确 unavailable。此为批准设计与现有路由能力的待裁决/未完成验收项，详见 verification，未被本审查豁免；无真实模型图片成功或拒绝结论。
+
+## Round 2 — Patch review and finding closure
+
+- review_mode: `patch + closure`
+- validated_at: `80941dfd6afcd181536a08da1b0762051ee98b11`
+- executed_base / effective_base: `9bf2b13da4005631096f2a49223564cd68647c3c`
+- effective_through: `80941dfd6afcd181536a08da1b0762051ee98b11`
+- pre_fix_head / finding_origin_head: `21b8da0d315b63795775a84e20e1ef475f028f2a`
+- scope: 仅 `21b8da0d3..80941dfd6`，含用户纠偏后的 design `5789ce9ef`、Gate 2 Round 4 和受影响消费链。Round 1 未受影响覆盖 retained；不重新审完整 unit。
+- verdict: **patch approved；原 finding closed**。新增存活 findings：
+
+```json
+[]
+```
+
+### Focus finding closure
+
+`[P2] Reconcile an uncertain owner notice before returning unknown`：**closed**。
+
+`personal-assistant.ts:158–168` 对 sending/unknown 主人事件提醒使用宿主派生的原 operationId 调用 `agent.message.status`；仅 found=true、实际 message_id 和目标会话匹配时确认 publication，并调用 `pa.incident.receipt`。found=false 保持 unknown，不调用 agent.message，不换 key；状态查询失败也在发送边界前退出。若 status 后 receipt 绑定失败，已保存的 confirmed result 在后续 `:179–182` 继续补绑定，仍不重发。原聊天路径先读持久 incident 已送达回执；其权限与独立披露审核未放宽。
+
+`global-agent.ts:411` 的系统事件及 `personal-assistant.ts:168,184` 的模型可见结果现给出真实操作入口：同 incident_ref、同 target 再次调用 send_message 只查询未知结果，查询不到仍不重发。因此 Round 1 的“要求查询但没有可执行入口”接口缺陷也已关闭。
+
+回归位于 `personal-assistant.test.ts:214–233`，参数化覆盖 found=true/false：初次发送 ACK 丢失、再次按原事件查询；实际发送次数均为 1，只有确认结果绑定 incident 回执。复用 caller 的 red→green 证据 `/tmp/bugfix678-receipt-red.log` 和 `/tmp/bugfix678-native-image-green.log`（3 files / 32 tests passed），本轮未重复运行相同窄测试。
+
+### Context Implementation Review — affected delta
+
+Mode B，仅审核图片输入与 unknown 回执恢复。
+
+- 用户已明确否认图片 token 估算是其要求。design `5789ce9ef` 与独立 Gate 2 Round 4 已将旧 pricing 前置替换为主 Agent 原生路径。Round 1 的 pricing 能力前提属于旧版本/旧技术选择，现为 **superseded**，不得继续作为当前缺陷或门禁。
+- `personalReviewImages` 保留冻结 bytes/hash/格式/尺寸校验并调用 `ctx.attachments.admitPromptContent`；`review-session.ts:115–117` 将返回的 image blocks 放入当前 followup，路径与主 Agent `index.ts:861` 的 admission 一致。补丁只删除 `imageRequestPricing` 与 imageCost 的额外门槛，没有自建估算器、改变审核模型或替换 Luna。
+- 文本证据预算和 typed rebuild 保留；实际 provider CONTEXT_WINDOW_EXCEEDED 仍走既有一次 full 重建并携带全部当前图，不新增重试额度。`review-session.ts:219–225` 仍逐请求核对当前 pending message 的图片数量、attachment 身份及 offloaded 标记；不是用旧 history 图片替代当前待审图。
+- `codex-approval-native.test.ts:151–191` 移除 fixture 的 pricing 实现后，通过真实 DSH 子进程记录 full/delta/fresh 的当前图数量 `[1,2,1]`，并保留文本模型明确失败检查。该证据证明无 pricing 也能经原生运行时提交 image blocks；响应仍是受控 fixture，不证明真实 Pi-AI/模型理解或 R6 产品发送结果。
+
+### Retained and pending evidence
+
+复用 `/tmp/bugfix678-native-image-green.log`：3 files / 32 tests passed（含 PA 20 tests 与原生图片子进程）。旧两项全量失败在安静环境单 worker 的 `/tmp/bugfix678-runtime-repro.log` 为 2 files / 5 tests passed，关闭“相同窄测试仍失败”的担忧；不将其外推成最终全量通过。最终全量、当前版本 R4/R6 产品与真实模型验收仍 **pending**，由 owner 接入后续证据，不因此新增一轮完整静态审查。
+
+本轮仅读固定版本与可信窄证据，写本报告和 verification Round 2；未修改实现、测试、配置或设计，未运行生产或启动服务，未提交。现场原有未跟踪 `regression.md` 未触碰。`git diff --check 21b8da0d3..80941dfd6` 通过。

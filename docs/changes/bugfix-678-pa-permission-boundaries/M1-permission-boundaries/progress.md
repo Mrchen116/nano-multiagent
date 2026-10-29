@@ -25,3 +25,7 @@
 静态审查 `21b8da0d3` 确认主人通知 ACK 丢失后 unknown 无法恢复。现重复相同 incident 调用时只查询 host publication receipt，确认真实发送后绑定 incident 回执；found=false 不重发，并向模型说明同工具同 incident_ref 的查询方式。窄验证：3 files / 32 tests passed（含20项 PA 测试），证据 /tmp/bugfix678-native-image-green.log。初始red分别为 /tmp/bugfix678-native-image-red.log 和 /tmp/bugfix678-receipt-red.log。
 
 本地前端108 files /1029 tests通过；文档检查、Ruff、iOS交互资源检查通过。第二次全TS 822 passed/2 failed，失败的 knowledge-review/workflow-native 在无并发重构建/前端全量时单worker复跑5 passed（/tmp/bugfix678-runtime-repro.log），暂只确认与负载相关，最终全量仍待独立一轮完成。
+
+## 最终回归与补充真实验证
+
+固定实现 `80941dfd6` 的第三轮全量 TypeScript 已通过：156 files / 826 tests，242.17s。build/typecheck 均通过。R5 真 Luna 预审核后实际等待 >60s 两笔仍可提交、撤回后第三笔 not_sent；R8 副本迁移 CLI 重复执行/verify 及真 Astra 查回已有回执均完成，无重发。详见 [补充证据](evidence/supplemental-validation.md)，明确区分真实模型、host seam 与确定性故障测试。产品 reviewer 正补完其他用户旅程，尚未以这些补充结果替代独立最终裁决。

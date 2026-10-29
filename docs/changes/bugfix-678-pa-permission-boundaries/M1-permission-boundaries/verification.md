@@ -102,3 +102,51 @@ Outcome: **implementation-mismatch**。
 独立补核 `/tmp/bugfix678-static-review/review.test.ts`，命令 `pnpm exec vitest run --config /tmp/bugfix678-static-review/vitest.config.mjs --maxWorkers 1`，`repro.log` 2 tests passed。其一反证生命周期候选（schema trigger 自动注入 revision3），其二确认 ACK 丢失无回执查询。使用内存 DB 与可控 transport，无新服务、无真实模型、无生产变更。没有源码/测试/设计修改，也未提交；报告由共享现场 owner 提交。已有 `.bugfix678-runtime-sha` 未触碰。后续改动的结论延伸须另做 delta 失效判断。
 
 1 critical issue, 2 warnings found. Fix and complete required evidence before PR.
+
+## Round 2 — Targeted closure and corrected delta
+
+> Validation snapshot: `21b8da0d315b63795775a84e20e1ef475f028f2a → 80941dfd6afcd181536a08da1b0762051ee98b11`
+
+- review_round: 2
+- verification_mode: `targeted-closure`，附受影响 corrected-delta 核对
+- validated_at: `80941dfd6afcd181536a08da1b0762051ee98b11`
+- executed_base / effective_base: `9bf2b13da4005631096f2a49223564cd68647c3c`
+- effective_through: `80941dfd6afcd181536a08da1b0762051ee98b11`
+- fix_delta_range: `21b8da0d3..80941dfd6`
+- focus_issues: Round 1 V2；V1 中被用户纠偏的 pricing 前提；V3 的窄失败复核状态。
+- requires_full_verification: `false`。共享权限、冻结资源、消息准入和恢复 owner 未变化；未受影响 Round 1 结论 retained。
+- scoped_verdict: **pass / 静态实现及受影响 delta aligned**，0 新 CRITICAL / 0 新 WARNING。
+- overall_delivery: **pending**，真实产品验收与最终全量结果仍待 owner 完成，非 Ready PR 结论。
+
+### Reconciliation of prior issues
+
+| 既有项 | 当前结论 | 直接证据及边界 |
+|---|---|---|
+| V1 的 pricing 能力前提 | **superseded** | 用户明确要求沿主 Agent 图片路径；design `5789ce9ef`，Gate 2 Round 4 Approved 0/0。pricing 接口存在与否不再是批准要求，不需要额外估算适配或更换 Luna |
+| V1 的 R1–R8 / W2 真实退出证据 | **pending** | 此次只核静态 patch；产品 reviewer 正在完成既有旅程，新版本 R4/R6 待针对性验收。没有把 fixture 响应记为真实模型结果 |
+| V2 unknown 主人提醒回执 | **closed** | `personal-assistant.ts:158–168` 查询原 operation 的 host status，确认消息/会话后绑定 receipt；found=false 不重发；`:179–182` 能在绑定中断后补绑定。code-review Round 2 关闭原 CONFIRMED finding |
+| V3 knowledge-review/workflow-native 的窄失败 | **复跑通过；最终全量 pending** | `/tmp/bugfix678-runtime-repro.log` 2 files / 5 tests passed。只说明同两测试在安静单 worker 环境通过，不证明最终全量稳定性或失败根因 |
+
+### Correctness and coherence of the fix delta
+
+| 受影响契约 | 实现及直接保护 | 结果 |
+|---|---|---|
+| design.md 原生图片 admission → followup → runtime/adapter | `personal-security.ts:78–93` 调同一公开 admitPromptContent；`review-session.ts:115–117` 原生 followup，与主 Agent `index.ts:861` 一致；原 pricing/imageCost 删除 | aligned |
+| 当前 pending 图完整性，不能占位/offload/丢图后 allow | `review-session.ts:219–225` 核对本 inputId 的全部图片数量、引用及 offloaded；freeze/hash/提交同字节路径无变化 | aligned，未放宽既有保护 |
+| 实际超限准确失败及一次携图重建 | `review-session.ts:191–206` 保留文本预算/typed context rebuild，既有 loop 重建仍复用冻结 plan.images；没有增加恢复 owner/额度 | aligned；真实模型超限行为证据仍属后续验收 |
+| 未知主人提醒查原回执，不当失败重发 | PA send 的 status 查询及绑定；系统事件/结果说明同 incident_ref/target 的真实查询入口 | aligned；ACK lost 参数化 true/false 回归保护 |
+| limited incident authority、先主人后原聊天、独立披露 | 修复只查询宿主事实并绑定真实 receipt；原 `incidentRead`/`securityNotice`/外发审核与目标限制保持 | aligned |
+
+### Corrected delta outcome
+
+既有 canonical delta 未要求图片 token 预估或 imageRequestPricing。`specs/gateway/personal-agent.md` 的“实际消费待发图片 / 能力或材料不足”仍要求真实 image input、同字节发送和准确故障，修正 design 及本 patch 均与之相符；删除 author 额外门槛无需反向缩小 delta。`specs/gateway/agent-capabilities.md` 的原生 read_image 调查与恢复要求也保留。V2 修复使 PA delta“暂停与发送结果未知”的实现偏离关闭。
+
+Uncovered observable behavior: **None in this patch**。同 incident_ref/target 再调用用作回执查询属于原未知状态恢复契约的具体入口，不新增发送授权或产品动作。
+
+Outcome: **aligned**（限定修复 delta）。Round 1 旧 implementation-mismatch 在该固定目标上的 V2 原因已关闭；完整 unit 的真实产品/最终回归证据仍 pending，不静默改 spec，也不因待补日志重复全 unit 静态审查。
+
+### Evidence and handoff
+
+复用 caller 的 red→green 证据：`/tmp/bugfix678-native-image-green.log` 3 files / 32 tests passed；对应 fixture 已删除 optional pricing，经过真实 DSH 子进程捕获 full/delta/fresh 当前图片数量。`/tmp/bugfix678-runtime-repro.log` 2 files / 5 tests passed。按风险保留这些有效窄证据，本轮未重跑全量或重新起栈。新版本真实模型/IM 两端回执与全量日志由 owner 后续补齐；无需为纯证据补入第三轮完整静态审查，有新实质 delta 才按影响复核。
+
+报告追加保留 Round 1 历史；仅写 code-review/verification，未改源码、测试、设计或生产。共享现场由 owner 提交报告，report_commit 尚未产生；不触碰已有未跟踪 regression.md。
