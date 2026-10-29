@@ -86,3 +86,10 @@ PA 会话 `c_91ae1772dfea`，root `92288720-595f-4666-96e0-30267706dccf`。
 - 上游 heartbeat 持续续租，循环等待最终 Agent 状态，无总耗时/总步数上限。Nano 删除专属上限，保留输入容量、取消和请求真实错误。上游 summary-only 格式、9KB 输出裁剪与目录布局不照搬；Nano 使用角色入口/正文及既有模型输出预算，差异由已批准 design 和 prompt-adaptation.diff 说明。
 
 - 项目 Node 24.22.1 复验：DSH build 通过，5 文件 26 项通过（`/tmp/feat676-review-{node24,build-node24}.log`）。产品 reviewer 指出 R6 原型的停用提示漏同步，现已同步 Web 中英和 iOS；Web agent-detail 28 项及构建通过（`/tmp/feat676-review-ui*.log`）。此修复仅说明文字，不变更开关行为；真实页面由产品 reviewer 定向复验。
+
+### Final sync 与追加验证
+
+- 合入 `origin/main@082e72ec4`，merge commit `c08c3a653`；main 增量仅 bugfix-678 的 design/incident，不改变本 unit 实现、模型请求、UI 或依赖。各项未受影响 gate 保留，实际执行版本与 effective 版本在最终交付记录区分。
+- 独立静态 closure `5ef3bbf96`：F-R8-1/F-R8-2/D-R8-1 全部关闭；独立 Node24 20/20。M1 产品/模型证据仍等当前 reviewer，不以代码通过代替。
+- 最新 iOS Simulator 编译通过，隔离 DerivedData `/tmp/feat676-ios-r8-final`，日志 `/tmp/feat676-ios-r8-build.log`。Web28测试、DSH26测试及构建已覆盖最终代码改动；此前全量结果在相应未变范围保留。
+- final-sync 文档检查通过：328 maintained sources / 68 routes，日志 `/tmp/feat676-final-sync-docs.log`。
