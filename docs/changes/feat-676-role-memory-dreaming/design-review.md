@@ -413,3 +413,88 @@ Muse 四份原始文件均匹配其 README 中完整 hash，且本 reviewer 独�
 - 接受 R4 最终 Approved，0 CRITICAL / 0 WARNING；R4-W1 已关闭，Muse 原件与 Nano 内容映射已独立复核，无实质异议。
 - 最终受审文件 hash 再核对一致；只追加本段收尾，不修改已审设计。`PYTHON=.venv/bin/python ./scripts/docs-check` 通过（322 maintained Markdown sources / 68 required routes）。作者文档 diff 格式检查通过；Muse memory 原件保留上游四处 Markdown 硬换行空格，Git blob 逐字节一致，不为消除格式提示改写原件。
 - 原型仅底部 Work 示例文字变化，新增文案的实际浏览器渲染未验证，保留报告的准确边界；新实现、真实模型和 S21–S26 验收尚未执行。旧 PR #428 已转 draft，下一次实施须先同步本版设计并重做受影响验证；不因本次 Gate 2 通过恢复为可合并状态。
+
+
+## Round 5
+
+### Metadata
+
+- reviewer: `/root/dreaming_design_revision_review`（与 Round 4 相同的独立 reviewer，未参与受审设计编写）
+- target: `docs/changes/feat-676-role-memory-dreaming`
+- review_mode: `full`
+- mode_reason: 新增共享包公开接口及固定发布依赖，扩展维护工具权限与自身恢复链，同时新增 S27–S29/W13；属于共享接口和 milestone 的实质变化。完整核对组合关系，对未变化的角色记忆、两路输入、原型及迁移闭环按 Round 4 有效证据保留。
+- started_at: `2026-10-29T14:33:27+08:00`
+- completed_at: `2026-10-29T14:36:06+08:00`
+- duration: `0:02:39`
+- timing_scope: 以上仅计本轮报告定稿阶段；此前独立 diff、当前源码、公开类型和参考原文读取未精确计时，不当作完整审查耗时。
+- checkout: 全部主仓操作显式使用 `/Users/czj/Repos/nano-multiagent`，branch `main`，HEAD `631b611ea80e4576e98e30697df3ef854f7a59c2`。冻结受审四份文件为未提交修改；实现及安装依赖仅在 `/Users/czj/.codex/worktrees/unit-feat-676/nano-multiagent` 只读核对，仍按其旧方案解释。
+- authorization: 仅追加本报告；不改设计/代码/current specs/依赖，不提交、不实施、不发布包、不部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+设计明确共用历史查询实现、区分两个模型工具的来源范围，并通过可信宿主绑定复用 IM 只读通道。普通 history 的恢复语义、维护者自身换窗与业务来源 cutoff 没有被混为一套权限。共享接口尚未存在于已安装包，设计已把源码改造、固定版本发布、Nano 依赖更新和回归纳入交付前置，未拿旧包的公开函数冒充新能力。
+
+本结论只确认可实施设计与验证计划闭合；不证明新包、source_history、IM 维护查询或 S27–S29 已实现或验收。
+
+### Coverage 与证据
+
+**需求与决定。** 完整读取本轮四文件 diff、§4.5 及其前后取材/资格/恢复/应用链，核对用户新增原话与 S27–S29。`history` 恢复维护会话自身已离开活动窗口的记录；`source_history` 由整理者选择获准业务 session，覆盖其当前与旧窗口的持久事件；`conversations` 只挂 info/read/search。Global 原文连续分批、child 同会话更新替换和一个整理者的主干未变，提炼者仍直接消费预算选择后的历史，仅保留自身恢复能力。取消独立 read_source 协议及其平行编号符合用户本轮决定。
+
+**共享历史接口：现状与目标分开。** 独立读取开发 worktree 安装的 `dsh-agent-context/package.json`、`lib/types/index.d.ts`、`lib/types/history.d.ts`、`lib/history.js` 与 `lib/tools.js`：版本确为 `0.3.0-rc.5`，根 exports 提供 collectHistory/searchHistory/readHistoryItem/currentWindow；search 经 collectHistory 用 session.surface 排除活动事件，read 同样拒绝活动记录，工具 execute 固定选择 exec.agent.session。窗口 ID 基于真实 session 与 compaction 事件，item_id 为原事件 seq，分页游标按 seq 方向，长条目采用 Unicode code point 切片。现有设计对这一事实描述准确，不能直接改名复用，也不能以构造假的 surface 规避检查。
+
+`design.md:235–237` 将视图选择与通用查询分开，要求在该包源码提供不可变持久快照的公开入口，普通 history 继续 archived-only；Nano 负责真实来源视图与业务资格。该职责划分复用已有窗口/定位/过滤/分页/读取逻辑，避免 Nano 维护第二套查询实现；无需为这次改造引入通用插件框架。固定发布版本、源码 commit/包 hash、锁文件更新和原恢复回归均在 M1/W13 与部署前提中，禁止 node_modules patch/private import/复制实现。尚未给出未来包版本号不是设计缺陷：明确以完成发布和验证为退出条件，不允许把未发布接口当可运行依赖。
+
+**实际组装落点与权限链。** 开发分支 `knowledge/dreaming.ts:215–242` 目前只有 read/write/edit/glob/grep/finish 白名单，且过滤非维护 prompt/context，说明新增工具与自身恢复必须在真实维护 setup 一起调整，不能只更新业务工具注册表。`workspace-tools.ts:64–67` 已使用公开 ContextRolloverEngine；该包 `lib/index.js:35–55` 实际注册四个恢复工具及上下文指导，NotesStore 目录按 agent/session 隔离。设计 §4.5 和 §6 明确重建对应指导/schema、固定 run/cut/导航与独立 notes 目录，并保持已停用时的摘要回退，未要求维护者继承完整 Global preset。
+
+普通产品 `global-mode.ts:25–27` 的 conversations 同时含 create/join，PA `global-agent.ts:424–428` 又明确拒绝普通 child 的 conversation tools，故现有工具不能原样挂给维护执行。新设计 `256–258` 明确使用可信 run→agentId 调用主体，仅注册只读动作，并沿 PA/product-contracts 产品通道处理；维护 session 不伪装业务 root、模型不填 actor/owner，普通 child 的限制不被连带放开。`global-agent.ts:565–570` 的查询入口及 `apps/im-server/src/work.ts:120–180,256–340` 的实际 PA 双身份、来源资格、查询与分页逻辑具备复用落点。现有 query 的 before/after 在消息选择时生效，分页快照含查询身份；查询有内部来源读取/分页记录，但不走 Inbox 消费。设计没有把“只读业务查询”误述为完全不产生内部审计记录，承诺的是不改变未读/增量、不外发或变更群聊。
+
+**Agent Context Review — Design Review。** 本轮覆盖来源目录→模型工具选择→定位/查询→分页/长条目续读→自身换窗→重新使用与失效→应用。`design.md:239–254` 明确每次 source_history 调用必填 session_id，来源目录与摘要元信息提供该值；window/item ID 来自原始材料或查询结果，只有 session_id 也能先 list/search，不要求模型猜宿主身份或截止时间。返回原作者/来源/时间、缺失/撤销/越界/部分与续读位置，cursor 仅在同一来源和查询范围使用；缺失记录不回退为末尾片段。共享算法不等于共享业务投影：Dreaming 的 reasoning/维护回声/混合 Inbox 消息资格过滤在搜索、计数、分页和渲染之前进行，普通 history 的正常恢复完整性保持。
+
+`design.md:258` 将 IM 当前 info 元数据与历史证据分开；消息创建时间不被当作后来编辑正文的版本证明，无法证明允许历史版本则保持未展开。允许来源目录、启用基线或明确历史授权、根/child-only 批次边界与当前资格共同约束补查，不能通过补查读取下一批未来内容或扫描全部旧历史。去重仍按原始 conversation/message 身份，补查不推进两路进度。
+
+`design.md:260,299–306` 的恢复链保留维护目标、固定来源/cut、staging 与真实回执；notes/history 是维护者找回自身工作的手段，不构成新的用户经历。每次组装、工具读取与应用重新核对 generation/文件版本，恢复旧工具结果不恢复旧资格；换窗或重启不重置取消、暂停和预算。§4.5 的明确 Before/After 与酒店取消条件示例足以指导模型可见接口的实施；W13 要求真实模型自主回查、换窗后继续和失效结果处理，未只以工具注册/文件存在证明效果。本轮没有捕获新请求或运行新模型，语义可用性仍待该验收。
+
+**外部参考核对。** 实际读取固定版本的 [memoryrepo dream 代码](https://github.com/supermemoryai/memoryrepo/blob/54f7ff3065df8af687dc5c04a4bb17d6611e5fd1/src/server/memory.ts#L202-L209) 与 [sourceExcerpt](https://github.com/supermemoryai/memoryrepo/blob/54f7ff3065df8af687dc5c04a4bb17d6611e5fd1/src/server/transcripts.ts#L75-L90)：确有按来源 ref 回读、命中周围三条及缺失时末尾十二条的行为；设计只采用有源可核实的思路，明确不复制缺失时替代证据的回退。读取 [Dots 收集原文](https://github.com/asgeirtj/system_prompts_leaks/blob/1b6f936124b4eceb6e697a69da07519bea67feab/OpenAI/dots/dreamer.md)：文本确实提示使用 cloud_threads.read 读取父聊天并承认不完整，设计保留其第三方来源等级，不将其当官方实现或授权扩大为连接器研究。Codex 第二阶段原禁止回读与本次 source_history/IM 的差异已同步到适配矩阵，没有保留互相冲突的工具指令。
+
+**delta、部署、Milestone 与架构。** Gateway 增加用户可观察的三个场景，不改 ordinary history 的原 current Requirement；本轮没有删除既有 Scenario。M1 范围新增共享包源码/固定发布依赖，W13 将发布证据、普通恢复回归、稳定 ID、主动定位、续读、搜索前过滤、IM actor/时间/版本、未读及增量无副作用、撤销后恢复串成一个验收链；R4 与 W7 场景范围和部署提示均同步 S01–S29。功能与失败分支仍在隔离环境验证，生产只做既定有限迁移状态检查，没有把新模型验证推迟上线。模块分工为共享包处理历史查询、dsh-integration 认证执行来源与维护生命周期、PA/IM 处理产品身份和聊天访问；未扩大跨包 DSH import 或再造查询服务。
+
+**retained_from: Round 4。** 对照 Round 4 最终指纹，PA delta、IM settings/Work delta、prototype.html、prototype-review.md 和 Muse README 均未变；本轮 diff 只涉及冻结四文件。既有角色目录、Muse/Codex 保真约束、文件版本/入口失效、两路摘要生命周期、固定 skill-creator、legacy 排他、普通安静完成和 UI 决定没有新的实质变化。R4 独立读图及其限制继续适用，本轮不重复浏览器操作、不新声称 Work 文案渲染或 iOS 实测通过。R4-W1 的启用基线修订保留且未被回查范围扩张推翻；当前 source_history 明确仍受同一启用基线/授权范围约束。
+
+### 历史问题闭环
+
+| Issue | 本轮状态与证据 |
+| --- | --- |
+| R1-W1 | **closed，retained_from R4**：来源仍先认证持久 cut 再构造共享查询视图；新接口不以 live surface 或查询成功代替持久认证。 |
+| R1-W2 | **closed，retained_from R4**：固定 skill-creator 与旧选择归一化未变，共享包更新不恢复旧 Feature 依赖。 |
+| R1-W3 | **closed，retained_from R4**：完整来源快照、既有文档待核对及清理链保持；新查询与恢复也接受当前 generation，不经旧工具结果复活。 |
+| R4-W1 | **closed**：deployment 的 child 原 document 启用 cut 与 W11 未汇报 child 场景仍在；§4.5 没有把 root 已整合游标或升级尾部用作 child 基线。 |
+| 既往 Recommendations | 已关闭的 R1-R1/R1-R2/R3-R1 保持，无本轮反证。 |
+
+### Issues
+
+无新增 issue；0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+无新增建议。共享包发布、实际请求与模型行为验证已经属于 M1 的必要工作，不另增门禁或要求先实施再审设计。
+
+### 受审产物指纹（SHA-256）
+
+| 文件 | SHA-256 |
+| --- | --- |
+| spec.md | `da731d3d5c0effcd06be291bb0c3e1f4ac446ad0411768d2d063e6ace740c8d2` |
+| design.md | `e213837340a4debc1ff601c78b0339e484258ff7cb01997385199689f9d7c705` |
+| specs/gateway/agent-capabilities.md | `845b5fed06bbaeed688ea9f425723ab36f2547f97828803bcff67dd190ec0f37` |
+| deployment-prompt.md | `821c97ebc5a7f28aaed6814d0ae9e9645189c29e661b78fa9081e5f01d2a3511` |
+
+### 本轮收尾
+
+最终结论 **Approved — 0 CRITICAL / 0 WARNING**。仅追加本报告并保留前四轮；未修改受审文件、实现、依赖或原型，未提交、发布、迁移、启动服务或部署。`git diff --check` 通过，报告后复核四份受审指纹不变。作者提供的 docs-check 322 sources / 68 routes 为本轮冻结前证据，本 reviewer 未重复运行，不将其冒称独立测试。设计通过不替代共享包发布及 S27–S29/W13 的实施验收。
+
+### Author Resolutions（R5 收口）
+
+- 接受 R5 Approved，0 CRITICAL / 0 WARNING；共享查询实现与不同工具范围、IM 只读桥接、自身恢复与来源失效的判断有当前源码和用户决定支持，无实质异议。
+- 四份受审产物 SHA-256 再核对一致；受审后仅追加本收尾，不改变设计。新包发布、source_history 和 S27–S29/W13 均待实施，设计审查通过不作为产品完成或部署授权。
+- 本轮仅提交本 unit 的 spec、design、gateway delta、部署提示与审查报告；current specs、产品代码及开发 worktree 保持原状。

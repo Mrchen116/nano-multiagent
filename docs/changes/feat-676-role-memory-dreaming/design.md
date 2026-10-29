@@ -4,6 +4,7 @@
 
 ## Changelog
 
+- 2026-10-29（M1，回查修订）：用户确认共用历史处理实现、区分 `history` 与 `source_history`，并复用 IM 只读补查。替换独立 `read_source` 方案，新增 §4.5、S27–S29 与 W13；本次仍只修设计，新包接口及产品行为均待实施。
 - 2026-10-29（M1）：用户在实现验收后重新对齐 Dreaming 输入与摘要生命周期。替换 §§4–7 的取材、模型输入、进度与回执方案；新增 S21–S26 / W8–W11。原 M1 的文件记忆与配置能力继续复用，旧 Dreaming 验收不能证明本版方案；实施 owner 接手须先同步本设计，并重新验证受影响范围。
 
 ## 现状分析
@@ -31,7 +32,8 @@
 
 | 能力 | 选择与依据 |
 | --- | --- |
-| DSH `sessionQuery.observeSession` | 用。公开 observation 提供 live/prepared 的不可变 events、cursor、inheritedEventCount；可读取活跃与旧窗口，不调用模型侧跨会话 history 工具 |
+| DSH `sessionQuery.observeSession` | 用。公开 observation 提供 live/prepared 的不可变 events、cursor、inheritedEventCount；宿主据此认证业务来源快照，供批次输入与 `source_history` 读取，普通 `history` 仍仅服务执行会话自身 |
+| `dsh-agent-context` 历史处理 | 改造后复用同一实现。现有 0.3.0-rc.5 已公开导出 collectHistory/searchHistory/readHistoryItem，但仍绑定 Session 和 archived-only；在该包源码分离来源视图与通用查询，发布固定版本后经公开 exports 接入，不复制实现或私有导入 |
 | DSH `sessions.flush` | 用。live 源取得不可变 observation 后再做持久化屏障，认证同一个 cut；flush 失败不导出为已保存历史 |
 | DSH `agents.create/resume`、AgentHandle | 用。空 seed、专属 setup、显式输入；保留 create/dispose/cancel 的宿主所有权，不建循环引擎 |
 | DSH `read/write/edit/glob/grep` 和文件 observation policy | 用。普通模型读写不另造 Memory CRUD；已读版本与 provider 原子 compare-and-write 处理单文件陈旧覆盖；外加维护计划回执解决多文件部分成功 |
@@ -73,7 +75,7 @@ flowchart TD
 3. **新库路径保持附件约定，legacy 文件和不可变备份分开。** 新库仍为 `<workspace>/.nanoassistant/memory/`；旧可写库搬到 `.nanoassistant/memory-legacy/`，备份在 `.nanoassistant/memory-backups/<migration-id>/`。同一主体改模式不复制内容、不双向同步、不改变工具名单中的无关选择。新模式只给旧备份导航，需用户指令才读取导入。
 4. **先保证当前文档与下一步判断一致，再做后台提炼。** 常驻入口每次模型请求组装读取当前版本；正文变化使旧摘要失效。即时纠正由当前执行者完成，不等待 Dreaming。已在途请求无法撤销已经发生的动作；下一模型/工具边界刷新，并通过既有 child 消息链传递适用纠正。
 5. **Global 原文连续分批，第一层子会话按 Codex 方式重新提炼。** 根流用持久位置从上次成功处向前处理，不因预算丢弃旧交流。第一层 child 有更新时重新选择截至批次边界的会话历史并替换同一摘要，无更新复用；不采用增量阶段复盘。换窗不重置根流进度或 child 身份，更深层只经所属任务提供结果与必要证据。
-6. **Dreaming 用空上下文受限会话，不继承父 prompt。** 只给角色、短指导、按需 Skill、显式源文件和当前记忆。无 Inbox、消息发送、业务写入、调度、联网、shell、插件及 subagent 工具；这只限制维护执行，不改变普通子 Agent 能力，也不宣称是 OS 沙箱。
+6. **Dreaming 用空上下文受限会话，不继承父 prompt。** 只给角色、短指导、按需 Skill、显式源文件和当前记忆。自身换窗沿用 notes/history/new_context/get_context_remaining；整理者另用 source_history 回查获准业务经历、conversations 的只读 info/read/search 补查相关 IM。无 Inbox、消息发送、业务写入、调度、通用联网、shell、插件管理及 subagent 工具；这只限制维护执行，不改变普通子 Agent 能力，也不宣称是 OS 沙箱。
 7. **不为此次改造增加大型记忆 UI 或泛化任务框架。** 替换记忆设置项并移除技能创建开关，详细处理范围、变更、延期和失败用现有 Work/轨迹文本与工具回执呈现。采用单一 M1，内部按“文件消费→历史与维护→真栈行为”顺序验证；这些部分共享配置和生命周期，不作无意义并行切片。
 8. **先暂停后台 Skill 自进化，保留任务中的创建能力。** 原方案要求独立 Skill 维护保持，用户本轮提出调整：新 Memory 承接经验、偏好、项目环境与反馈，成熟可复用方法才提升成 Skill。停止宿主自动 Skill fork（F3、combined 中的 Skill 和 F4），也暂停自动归档扫描；不删除旧 Skill、统计或历史。移除 `skill_creation` Feature 及其网页/iOS开关；skill-creator 改为内置默认指导，不要求选择。`skill_manage` 实际操作仍遵守既有工具权限，不再以旧 Feature 订阅后台复盘。迁移 Codex 现有 `skill-creator` 为产品内置 Skill，由普通 Agent 按当前任务需要加载；它与历史 JSONL 专用的 conversation-skill-distiller 分工，不强制每次完成任务都生成 Skill。原自动代码暂留未接线；旧记忆及自动复盘机制对用户不可见，不新增网页说明、状态卡或重开开关，恢复后台策略另行设计。旧记忆仅保留前述文件级回退，不误删历史结果。
 
@@ -211,13 +213,55 @@ Git 是库内独立仓库，无 remote、无自动 push，祖先业务仓库本�
 
 整理默认关注用户背景与变化、人物关系、交流反馈、事项优先级，也综合任务方法、环境、实际成果和失败经验。两类关注是侧重点，不分成隔离知识库。一次选择不升级为永久偏好；明确表达、特定情境与待验证推断分开。后来真人否定可纠正 child 的成功判断；历史授权/待办不能复活暂停 Task 或扩大行动权限。
 
-必要回查通过维护只读 `read_source(sourceRef, range)` 适配提供。ref 必须来自本轮/本主体已登记材料；宿主验证原范围、祖先链与当前资格，返回有界可读原文和续读位置，不接受任意 sessionId/path。Global 背景可以回查已处理历史，不能提前读取本轮未来事件；child 只回查本批 cutoff 内的相关证据。此处是 Nano 的显式适配：Codex V2 整理提示禁止回读原始 rollout，我们为跨批关系保留受控回查，不冒称完全照搬。普通会话工具权限不因维护工具扩张。
+必要回查采用 §4.5 的 `source_history`，共用现有上下文历史处理实现；不再新增独立 `read_source(sourceRef, range)` 或平行来源编号。Global 背景可以回查允许范围内已处理历史，child 只回查本批 cutoff 内的相关证据；按需 IM 补查复用既有只读查询。它们不改变两路增量的处理进度，普通会话权限也不因维护工具扩张。
 
 **来源资格从权威政策同步，不从未读 Inbox 推断。** PA 的 `refreshPersonalSources` 取得完整 `pa.sources.list` 成功快照（revision、allowed/excluded IDs）后，先经现有 Node–runtime RPC 增加内部 `knowledge.sources.sync`，持久化本主体资格 generation，再清理 Inbox 缓存；同步范围包含历史导出登记的所有 source IDs，不限 `inbox.check().sources`。有资格快照时，已知来源不在允许集合或明确 excluded 即被撤销。成功的 `personal_sources` exclude/include 操作、`policy.changed/source.revoked/membership_changed` 事件、节点启动/重连及每次 Dreaming freeze/apply 前均走同一权威刷新；RPC 失败不确认政策事件处理完成、不回报已完整应用。每主体串行刷新，policy revision 加完整 allowed/excluded 集合 hash 作为快照身份；只有实际资格变化才推进 generation，不能仅按 policy revision 忽略同版本的成员变化。重连相同快照重放幂等。内存消费和 Dreaming 的来源状态在恢复同步前标为待核对，不冒用上次 allow；不阻断不依赖这些来源的普通问答。普通专家的本地文件经历仍由主体归属控制；宿主支持的外部源撤销通过相同内部同步入口传递，不能把 PA 专用来源策略暗套所有本地材料。
 
 **撤销同时作用于未来输入、在途应用和当前记忆消费。** generation 与文件应用在同一主体的短提交序列中排序。来源资格变更即使没有未读消息、关闭 Dreaming，也标记相关记忆待核对，立即使入口 basis 失效；根和所有所属 child 下一次模型组装收到宿主失效说明，旧入口不再注入，历史中已读副本不得继续作为有效依据。依据当前 Markdown 来源定位可确定受影响页时只隔离这些页；没有完整来源定位、同义派生范围未知时，暂将既有库标为待核对并只注入导航，不猜测“其他页安全”。正常执行者在确需记忆时读取相关页和有效来源、删改被排除内容或确认独立仍有效依据，再用 checkpoint 记录该页在当前资格 generation 下已核对，恢复该页消费；普通文件读取待核对页仍允许清理，但结果附带当前失效状态，不能把读到旧字节解释为重新认可。这个保守失效标记只保存 path/hash/generation/待处理范围，不建语义依赖图或事实副本；不删除整个库，也不让用户重新手工开启记忆。
 
 **清理由普通主执行负责，不等待 Dreaming。** 已有来源政策 follow-up 附带待核对范围及约束；主执行通过普通文件工具处理正文与入口，并向受影响的原 child 传递纠正。主体暂停或失败时待核对状态持久保留，恢复后继续，不能先宣称清理完成。`memory_maintenance status/checkpoint` 与 Work 回执区分“资格已撤销”“知识待核对/已修正”；受限 Dreaming 遇此状态不得从旧源恢复内容。主 Agent 的“停止使用”同样先登记排除意图、来源集合和文档范围，再修改当前正文/入口。include 只恢复未来访问，不自行解除用户明确的停止使用意图，也不把旧库重新整体判有效；已有明确意图需新的用户请求才能解除。更新 personal-security 的系统/工具指导，明确“不擦除历史”与“文档记忆停止采用”并存。原 IM、成果、Git、备份和原始上下文不被删除，不能声称跨系统隐私清除；未核对的范围仍列为未完成，S20 不以仅写 tombstone 判通过。
+
+#### 4.5 共用历史实现，区分业务来源回查与自身恢复
+
+**Consumer 与工具边界。** 同一个 Dreaming 整理者既需要核实业务经历，也可能自身换窗；两者必须使用不同工具名和清晰描述，不能让模型靠猜测当前模式决定读哪套历史。
+
+| 工具 | 模型用途与范围 | 实现责任 |
+| --- | --- | --- |
+| `history` | 恢复当前维护执行自身已退出活动窗口的原始记录；不选择 Global/child 作为目标 | 原有上下文恢复入口与默认范围保持；提炼者自身换窗同样使用此入口 |
+| `source_history` | 整理者列表、搜索、读取本批获准的 Global/任务来源；包含源会话当前与旧窗口已持久记录 | Nano 绑定来源及时间/资格；与 history 共用历史处理代码 |
+| `conversations`（仅 info/read/search） | 整理者围绕本轮事项、人物或来源补读相关 IM 对话 | 复用既有产品查询及主体权限，单独挂载只读动作，不挂载整套 Global preset |
+| 普通文件 read/glob/grep | 当前记忆正文、只读批次材料及摘要 | 保持固定主体与现有文件边界；修改只进入 staging |
+
+**共用实现及发布依赖。** 已核对开发分支锁定的 `dsh-agent-context 0.3.0-rc.5`：根 exports 公开 collectHistory/searchHistory/readHistoryItem/currentWindow；lib/history 的 normalizedItems、窗口定位、序号游标、角色/工具/字面关键词过滤和 Unicode 切片是复用基础。目前 searchHistory 经 collectHistory 排除活动记录，readHistoryItem 也拒绝活动记录；工具 execute 直接选择当前 agent.session，不能仅改名后用于业务来源。方案是在该包源码中把“历史来源视图/可见记录选择”从通用列表、搜索、读取代码中分离，提供一个支持不可变持久事件快照的公开历史查询入口；原 history 仍提供当前 Session 的 archived-only 视图。Nano 通过该公开入口提供已认证的来源视图，两个模型工具调用同一份查询实现，不在 Nano 复制算法，不构造假的空 surface 或伪 Session 绕过旧检查。只改历史读取接口，不改换窗触发、裁剪或预算算法，不引入通用插件框架。
+
+这是 M1 的前置依赖工作：实施者需在 dsh-agent-context 源码仓完成最小接口改造及原恢复行为回归，发布不可变包版本并记录 commit/包 hash，再更新 Nano 固定依赖和锁文件。包尚未发布或公开入口未具备时，本项仍未完成；不得以修改 node_modules、运行时 patch、深层 private import 或一份复制实现交付。共享包只理解历史数据与查询；Nano 的业务主体、root/child 归属、来源政策、Dreaming cutoff 留在 dsh-integration，IM 查询仍沿 PA/product-contracts 的现有产品通道。
+
+**source_history 模型契约。** 保留 history 的 `action=list_windows|list_items|search|read` 及原参数语义，唯一必要的来源选择增量为每次调用必填的 `session_id`。模型请求不提供 owner、资格或任意截止时间。请求中提供本批可查来源的简短目录（用途、真实 session_id、允许范围/省略状态）；更深层仅按所属任务已登记证据提供定位，不增加全后代扫描。摘要携带宿主保存的来源会话和选材范围，直接材料/返回结果携带原生 window_id/item_id；仅有 session_id 时可先 list_windows/list_items/search 找到记录。不得要求模型猜必填 ID，也不为摘要内容另编号一套永久记录。
+
+```json
+{
+  "action": "read",
+  "session_id": "task-a-session",
+  "window_id": "task-a-session:initial",
+  "item_id": "142",
+  "offset_chars": 0,
+  "limit_chars": 6000
+}
+```
+
+以上 ID 是调用形状示例；真实调用复制材料/查询返回的 ID。list/search 沿用 window_id、role、tool_name、query、recent_first、limit、cursor、max_chars_per_item；read 沿用 window_id/item_id、offset_chars/limit_chars。返回 session_id、原窗口/条目 ID、实际作者/来源及事件时间、可读原文、truncated 与原 next_cursor/next_offset_chars，区分无匹配、来源不可用/已撤销、越界和部分返回。cursor 只在相同来源和查询范围内续读。原始事件编号不因过滤重新排列；不采用“第 12 条投影记录”的平行索引。目标记录缺失应明确返回缺失，不默认换成末尾消息冒充该证据。
+
+Nano 每次先确认会话归属、祖先链、当前来源资格及本批冻结 cut，再向共享查询逻辑提供允许的记录；过滤必须在搜索、计数、分页和结果渲染前生效。沿 §4.4 去除不作为经历的系统噪声、reasoning 和维护回声，保留真人/Agent/工具身份、必要调用结果及原始定位；旧 history 的正常恢复完整性不受这份 Dreaming 业务投影影响。混合 Inbox 工具结果按其中各消息资格过滤，不因外层 Session 获准而暴露被排除聊天。快照逐源按需读取/释放，不能每次检索都全量物化所有主体历史。回查允许已处理背景，但仍受启用基线或用户明确授权的历史范围约束，不因查旧记忆引用自动放开启用前全部历史。
+
+**IM 补查的最小接线。** 现有 conversations 工具含 create/join 等写动作且仅根 Global 注册，不能原样给维护 child 挂上。整理 setup 只注册 info/read/search 子集，复用现有查询服务与 current PA 双身份/排除政策；宿主从可信 run→agentId 绑定调用主体，维护会话本身不冒充业务 root，也不能让模型填写 actor/owner 绕过权限。只读 product 通道与普通会话保持同一权限检查，调用期间重新校验资格；不挂 Inbox，不标记未读已消费，不发送或建群/加入。可查询聊天 ID/原始消息 ID 从本批材料及允许来源目录取得，不新增全连接器发现或独立研究调度。没有 IM 能力的专家或配置不开放该读取能力时不注册，明确补查不可用，source_history 与普通材料仍可工作。
+
+info 的成员/权限是查询时的当前元数据，不能当作本批历史时点的事实。read/search 由宿主收紧 before/after 等范围至本批所属根截止时间或已冻结 child-only 批次边界；搜索、分页和返回正文均不能泄漏边界后的内容。记录原始 conversationId/messageId、作者、时间、revision/contentHash、participant/observer 与真实返回范围，按同一消息键和已有输入去重。仅有创建时间不足以证明后来编辑的正文属于旧批；返回版本无法证明在允许边界内则该材料保持未展开/待查，不伪造历史版本。补查内容只是本批证据，不推进 Global cursor、child 已整合版本或 IM 未读位置；整合进度仍按 §6 的实际应用回执提交。补查和续读共享本轮输入、步数及时间预算。
+
+**自身换窗与失效。** 提炼/整理使用现有上下文机制及其显式停用后的回退，不因为维护角色而禁止正常换窗；空 seed 仅指初始不继承父历史。启用时保留 notes/history/new_context/get_context_remaining，notes 仅能写本维护会话的独立恢复目录，不授予业务 workspace 写入。维护角色指导与 source_history/conversations 的精确 schema 由 setup 在新窗口重建；本批 runId、来源目录、固定 cut 和 staging 导航继续可发现。恢复用自身 notes/history 找判断与未完成项，文件/应用真值仍来自当前 staging、计划及宿主回执。不得把自身恢复历史或其中重复的业务回查结果变成新的经历再次入库；维护会话持续被业务源发现排除。恢复旧工具结果不恢复旧资格：每次模型组装/工具读取与应用前沿当前 generation 失效说明、文件版本和本批边界复核，来源已撤销的旧引用不可继续作为有效依据。暂停/取消、原预算耗尽不因换窗或重启重置。
+
+**参考与取舍。** memoryrepo 固定源码 [memory.ts](https://github.com/supermemoryai/memoryrepo/blob/54f7ff3065df8af687dc5c04a4bb17d6611e5fd1/src/server/memory.ts#L202-L209) 明确在 dream 中提供 read_source(ref)，[transcripts.ts](https://github.com/supermemoryai/memoryrepo/blob/54f7ff3065df8af687dc5c04a4bb17d6611e5fd1/src/server/transcripts.ts#L75-L90) 解析引用并截取前后文；采用其“保留来源、矛盾时核实”思路，不照搬固定前后三条、找不到时读尾部的行为。Dots [第三方收集原文](https://github.com/asgeirtj/system_prompts_leaks/blob/1b6f936124b4eceb6e697a69da07519bea67feab/OpenAI/dots/dreamer.md) 描述用 cloud_threads.read 读父会话及更早对话，仅作为复用既有会话工具的提示材料，不断言官方实现或完整工具轨迹能力，也不迁入其全连接器研究职责。Codex V2 原件禁止第二阶段回读 rollout，本方案保留其子摘要生命周期但明确替换此限制。实施按固定原件和现有包源码核对，不按本段概述另造查询器。
+
+**Before/After 与验证。** Before 是另造 read_source(sourceRef, range)，且忽略维护者自身换窗；After 是 history 恢复“我整理到哪了”，source_history 核实“业务当时发生了什么”，conversations 只读补齐 IM。S27–S29 / W13 验证模型仅凭实际目录、描述与返回值找到原始记录：酒店摘要省略“必须免费取消”，整理者回查工具失败与用户条件、正确保留未预订状态；中途让维护者自身换窗，再用自身恢复入口继续并避免重复应用，同时检查撤销/未来/混合来源过滤。普通换窗的归属、稳定 ID、长结果续读和权限回归必须保持。
 
 ### 5. 宿主控制接口与最小状态
 
@@ -252,7 +296,7 @@ run 仍采用 `prepared → running → applying → completed | partial | faile
 
 1. 来源资格刷新、认证 CycleTarget，生成当前有界批次及 child cutoff。按需要提炼更新 child；保存提炼结果后才标 sourceVersion 成功。每次提炼失败保留旧版为历史而非当前结果，并保留未完成项。
 2. 在 `.nanoassistant/maintenance/dreaming/<runId>/` 保存 manifest、可读 `input.md`、只读摘要快照与 staging（0700/0600）。原文按交流段落组织，少数页面只由预算决定；不再生成 `input/0.json` 等逐 step 文件或 `source_text_chunks/source_json_page`。材料直接进入模型请求，manifest 为宿主审计用途，不要求模型拼接或填表。
-3. 用空 seed 创建受限整理 AgentHandle，给角色、短指导、按需 nano-memory、显式历史数据、当前记忆入口和工具。工具仅能读本批材料/摘要及本主体记忆、受控 read_source、写 staging、finish；没有 Inbox、外发、shell、联网、业务、调度、Skill 发布或 subagent。提炼与整理均不继承父 prompt，不作为业务 child 再次被扫描。
+3. 用空 seed 创建受限整理 AgentHandle，给角色、短指导、按需 nano-memory、显式历史数据、当前记忆入口和工具。工具可读本批材料/摘要及本主体记忆、使用 source_history 和 conversations 只读补查、写 staging、finish；自身 notes/history/new_context/get_context_remaining 按 §4.5 保留。没有 Inbox、外发、shell、通用联网、业务写入、调度、Skill 发布或 subagent。提炼者继续直接消费已选历史，仅保留自身恢复能力与受限完成接口；两种维护执行均不继承父 prompt，不作为业务 child 再次被扫描。
 4. 模型读相关当前正文，先改正文再入口；finish 后宿主持久化计划与 operationId（runId+path+afterHash）。应用前复核来源 generation、模式/取消、文件版本及真实路径，按既有公开 fs 原子 compare-and-write 逐文件应用。锁只覆盖短提交，不跨 LLM 调用；冲突可重新整理一次，仍冲突则延期，不覆盖前台更正。
 5. 所有本批依赖文件/入口成功后持久化完成回执，再同时提交本批根位置与实际已整合的 child 版本；空修改也可提交。Git 单独记录 saved/versionRecorded，不用提交失败回滚已保存正文。提炼失败/超预算未选的 child 不被该回执消费。
 6. 下一批以当前记忆继续，使用后续 Global 原文和截至新边界的 child 更新摘要；本轮达到冻结目标且所有候选处理/过滤/明确无信号完成，才记自动轮次成功。受阻项保持待办和退避；运行中新增材料留到下轮。
@@ -313,7 +357,7 @@ iOS 只替换同一配置数据/文案并隐藏旧项，沿用原生已有列表
 - PA：`docs/specs/gateway/personal-agent.md` → [对应 delta](specs/gateway/personal-agent.md)，来源排除保留历史但停止文档记忆采用。
 - Work：`docs/specs/im/agent-work.md` → [对应 delta](specs/im/agent-work.md)，独立 Dreaming 会话与真实维护结果。
 - IM：`docs/specs/im/agents-nodes.md` → [对应 delta](specs/im/agents-nodes.md)，内置记忆无 UI 开关、Dreaming 控制与文件专属模式。
-- 现有 Task、权限与外发协议不变；不改 DSH 换窗契约。
+- 现有 Task、权限与外发协议不变；共享历史包新增公开查询入口，普通换窗默认读取范围与 DSH 换窗算法不变。
 
 ## 风险与回退
 
@@ -338,13 +382,13 @@ iOS 只替换同一配置数据/文案并隐藏旧项，沿用原生已有列表
 
 **Review 驱动方式**：端到端真栈，Web 真实操作 Dreaming 开关、保存/恢复、发送记住/纠正/导入请求、查看 Work；其余批量宿主故障场景可用 Web 调用的相同接口和 recording provider 驱动。模型理解必须 daily 真实模型，不用 fixture 回复替代。iOS 无特有交互目标，按上述范围编译/契约验证。
 
-**验收前置**：daily 已有测试主人、PA、E 专家和 P/Q 合作对象；只用合成偏好、同名人物、限制、失败结果、旧文件。模型凭据来自本机 dev-host 配置，启动检查仅说明资源可用，验收仍需一轮实际响应。无需外部账号/第三方写入/私有生产聊天。时间相关确定性测试注入时钟；真栈在隔离配置缩短 interval/quiet，报告实际值。原始模型请求和回执留本地受保护证据，提交只含去敏定位与结论。新输入链需捕获提炼请求、整理请求、child v1/v2 与后续真实回复，分别检查来源过滤、事实纠正和实际采用。
+**验收前置**：daily 已有测试主人、PA、E 专家和 P/Q 合作对象；只用合成偏好、同名人物、限制、失败结果、旧文件。模型凭据来自本机 dev-host 配置，启动检查仅说明资源可用，验收仍需一轮实际响应。无需外部账号/第三方写入/私有生产聊天。时间相关确定性测试注入时钟；真栈在隔离配置缩短 interval/quiet，报告实际值。原始模型请求和回执留本地受保护证据，提交只含去敏定位与结论。新输入链需捕获提炼请求、整理请求、child v1/v2 与后续真实回复，分别检查来源过滤、事实纠正和实际采用；S27–S29 另捕获 source_history/IM 真实返回、维护换窗前后请求与恢复调用，以及 IM 未读和两路进度的前后证据。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 | --- | --- | --- | --- | --- | --- |
-| M1 | 角色记忆与持续整理闭环 | 无 | 单线 | dsh-integration 的记忆/配置/历史/轨迹，product-contracts，PA 资格与 Work，Node 文件配置，IM 配置及 Web/iOS 最小呈现，相关测试和 delta | [reviewer] R1：S01–S04、S08–S09，PA/专家不同受众、例外/反例、空库、实际结果正确消费；R2：S05–S07，当前会话及原 child 纠正、人工保存及时生效；R3：S10–S12、S21–S23，同根跨窗、连续批次、多事项关系、任务续做/返工更新与深层归属；R4：S13–S18、S20、S24–S26，并发、失败/重启、停止使用、真实部分状态、普通成功安静；R5：S17/S19，新建/现有默认新模式与 Dreaming，网页无记忆总开关，关闭后仍即时记忆，文件切 legacy/切回且无双写，自然语言导入旧备份，旧机制/自动复盘不可见，skill-creator内置无需选择且正常任务可创建 Skill，原型两项 UI must-match 与 Work 信息语义成立。[worker] W1：native source adapter 的 live/cold/flush/配对/跨窗/继承去重/修订/预算机制确定性测试，首次 flush 后追加事件与二次认证失败/重启不推进；W2：原子文件冲突、Git失败、每个应用/游标崩溃点恢复；来源已全部消费并写正文/入口后排除，Dreaming关闭/重启/来源同步失败仍失效、原child与下一相关判断不采用，后续批次不复活；W3：调度注入时钟、无增量不调模型、关闭/暂停/资源延期/模式排他，skill-creator迁移/前台创建真实回执以及后台F3/F4/combined暂停回归；旧skill_creation=false、explicit_allowlist缺少及explicit_denylist含skill-creator时，升级/启动/保存合法且固定指导可发现/加载、UI无选择项，其他Skill选择及工具权限不变；W4：模型 request capture 核对主/子/维护 prompt、schema、角色、刷新、disabled tools和无递归来源，真实模型验证消费；W5：真实 Work 授权绑定/回执/通知不外发及刷新恢复；W6：Web 1280/390截图与原型对照、保存失败和生效状态，iOS编译/共享配置契约；W7：隔离旧数据副本迁移、重复执行/中断恢复/切回验证，逐一列 S01–S26 passed/failed/blocked/not_run，并完成相关构建、runtime dependency contract、docs-check。W8：Global 500→1000→1500 连续批次、运行中新输入、长真人消息续读、跨窗不重置与上下文边界测试；W9：child 同版本复用、更新后整份重提炼/替换、批次 cutoff、防未来泄漏、无 Global 新消息仍处理 child、深层不独立摘要；W10：两阶段失败恢复、摘要成功/整合失败复用、来源撤销/人工较新更正、预算选择与未展开标记、实际请求中的真人 Inbox 原文及草稿/送达区分；W11：替换逐 step JSON/finish 协议及 Work 旧计数，隔离副本验证旧 document 状态迁移，特别覆盖“根已推进而启用后 child 尚未汇报”的材料进入首次提炼请求、无启用前越界回溯、重复迁移不重置新进度；W12：逐段核对 Codex 原始 prompt/源码、Muse 原始说明、research-v2 角色内容规范与 Nano 适配 diff，覆盖 no_signal、真人/Agent 区分、单次请求与普遍偏好、早期未完成/被替代工作、授权证据缺失不等于无授权、敏感引用脱敏、摘要缺席与来源删除区别、后续纠正；提供实际组装请求及行为证据；同时覆盖用户目标变化、人物关系、一次沟通失配/后续改进与主动性条件落到现有 PA/专家文档并被后续回答正确采用。 |
+| M1 | 角色记忆与持续整理闭环 | 无 | 单线 | dsh-agent-context 源码及固定发布依赖，dsh-integration 的记忆/配置/历史/轨迹，product-contracts，PA 资格与 Work，Node 文件配置，IM 配置及 Web/iOS 最小呈现，相关测试和 delta | [reviewer] R1：S01–S04、S08–S09，PA/专家不同受众、例外/反例、空库、实际结果正确消费；R2：S05–S07，当前会话及原 child 纠正、人工保存及时生效；R3：S10–S12、S21–S23，同根跨窗、连续批次、多事项关系、任务续做/返工更新与深层归属；R4：S13–S18、S20、S24–S29，并发、失败/重启、停止使用、真实部分状态、普通成功安静；R5：S17/S19，新建/现有默认新模式与 Dreaming，网页无记忆总开关，关闭后仍即时记忆，文件切 legacy/切回且无双写，自然语言导入旧备份，旧机制/自动复盘不可见，skill-creator内置无需选择且正常任务可创建 Skill，原型两项 UI must-match 与 Work 信息语义成立。[worker] W1：native source adapter 的 live/cold/flush/配对/跨窗/继承去重/修订/预算机制确定性测试，首次 flush 后追加事件与二次认证失败/重启不推进；W2：原子文件冲突、Git失败、每个应用/游标崩溃点恢复；来源已全部消费并写正文/入口后排除，Dreaming关闭/重启/来源同步失败仍失效、原child与下一相关判断不采用，后续批次不复活；W3：调度注入时钟、无增量不调模型、关闭/暂停/资源延期/模式排他，skill-creator迁移/前台创建真实回执以及后台F3/F4/combined暂停回归；旧skill_creation=false、explicit_allowlist缺少及explicit_denylist含skill-creator时，升级/启动/保存合法且固定指导可发现/加载、UI无选择项，其他Skill选择及工具权限不变；W4：模型 request capture 核对主/子/维护 prompt、schema、角色、刷新、disabled tools和无递归来源，真实模型验证消费；W5：真实 Work 授权绑定/回执/通知不外发及刷新恢复；W6：Web 1280/390截图与原型对照、保存失败和生效状态，iOS编译/共享配置契约；W7：隔离旧数据副本迁移、重复执行/中断恢复/切回验证，逐一列 S01–S29 passed/failed/blocked/not_run，并完成相关构建、runtime dependency contract、docs-check。W8：Global 500→1000→1500 连续批次、运行中新输入、长真人消息续读、跨窗不重置与上下文边界测试；W9：child 同版本复用、更新后整份重提炼/替换、批次 cutoff、防未来泄漏、无 Global 新消息仍处理 child、深层不独立摘要；W10：两阶段失败恢复、摘要成功/整合失败复用、来源撤销/人工较新更正、预算选择与未展开标记、实际请求中的真人 Inbox 原文及草稿/送达区分；W11：替换逐 step JSON/finish 协议及 Work 旧计数，隔离副本验证旧 document 状态迁移，特别覆盖“根已推进而启用后 child 尚未汇报”的材料进入首次提炼请求、无启用前越界回溯、重复迁移不重置新进度；W12：逐段核对 Codex 原始 prompt/源码、Muse 原始说明、research-v2 角色内容规范与 Nano 适配 diff，覆盖 no_signal、真人/Agent 区分、单次请求与普遍偏好、早期未完成/被替代工作、授权证据缺失不等于无授权、敏感引用脱敏、摘要缺席与来源删除区别、后续纠正；提供实际组装请求及行为证据；同时覆盖用户目标变化、人物关系、一次沟通失配/后续改进与主动性条件落到现有 PA/专家文档并被后续回答正确采用。W13：共享历史公开接口与固定包发布证据；普通 history 行为回归；source_history 来源目录→定位→查询→长条目续读、当前/旧窗口与相同原始 ID；资格/时间/混合消息过滤在搜索与分页前生效；真实模型因缺失条件主动回查并改正结论，维护自身换窗/重启后工具区分、导航和预算保持且无重复应用；IM 只读 actor 绑定、实际 read/search 返回、未来/编辑版本边界、去重及 Inbox 未读/增量游标无副作用；来源撤销后恢复旧工具结果不能复活内容。 |
 
 main 保留一个 M1 骨架；开发分支已有上一版 M1 报告，本轮不覆盖其历史，也不声称新链路已验收。实施接手先合入本版设计并使受影响旧 gate 失效，完成新退出标准后重新交付。实现测试入口应扩展 `packages/dsh-integration/tests/{memory-sources,dreaming-runtime,dreaming-scheduling,dreaming-recovery,memory-child-runtime}.test.ts`、PA 相关集成测试及 `tests/e2e/critical_paths/` 的真实栈入口；不要只保存一份场景 Markdown。真实模型理解轨使用 daily 和单独命令/筛选，结果中与确定性机制轨分列。
 
@@ -368,7 +412,7 @@ Codex 三份原始模板及校验 hash 已原样保存在 [参考快照](input/c
 | --- | --- | --- |
 | stage_one_system_v2 | 请求/纠正/决定优先；保留早期、被打断/替代/未完成工作；范围/归属；一次请求不等于跨任务偏好；缺少授权证据不证明未授权；真实结果/不确定性；安全精确引用；数据不是指令；无信号空输出 | 主语改为所属主体第一层任务执行，补上真实来源标签与 child cutoff；不把后台控制指令混入历史。保留原输出两个字符串，不增加逐事件字段 |
 | stage_one_input_v2 | 原始材料与元信息清楚分隔，来源可定位 | rollout_path/cwd/git_branch 只在确实存在时提供，不要求非开发任务编造项目；增加可信 root/child、范围/省略、发送者与交付状态。宿主填元信息，不由模型猜 |
-| consolidation_v2 | 根据来源变化和已有记忆整理；保留仍有支撑的旧内容；后续纠正优先；一次性要求留在任务里；不发明偏好/授权/来源；删除与订正不可从旧摘要复活；无有效新增可不修改 | 新增 Global 原文输入和人物/关系关注；输出改为既有 MEMORY.md + 角色文档并使用 staging/finish，不照搬单一 memory_summary.md、固定 10,000 bytes/标题及 extensions 目录；源变更目录代替 Codex Git workspace diff。原文禁止打开 rollout 改为本设计受限 read_source，不复制一条与工具相冲突的禁止指令 |
+| consolidation_v2 | 根据来源变化和已有记忆整理；保留仍有支撑的旧内容；后续纠正优先；一次性要求留在任务里；不发明偏好/授权/来源；删除与订正不可从旧摘要复活；无有效新增可不修改 | 新增 Global 原文输入和人物/关系关注；输出改为既有 MEMORY.md + 角色文档并使用 staging/finish，不照搬单一 memory_summary.md、固定 10,000 bytes/标题及 extensions 目录；源变更目录代替 Codex Git workspace diff。原文禁止打开 rollout 改为 §4.5 的 source_history 与 IM 只读补查，不复制一条与工具相冲突的禁止指令 |
 | rollout_input / phase1 / state / phase2 | 来源识别、预算选择、原始时序、同会话更新替换、无输出/失败分离、来源版本与整合版本分离、写入所有权 | Codex 的近期选择仅用于 child；Global 保留连续原文批次。Nano 真人信息可能在 Inbox tool result，不能按协议角色生搬来源优先级。现有调度/DSH/MemoryDocuments 继续承担执行与文件保护 |
 
 以上是明确允许的适配，后续任何删除/改变原始约束都必须说明与 Nano 接口/用户决定的关系；发现原设计里的具体保护不得因“看起来冗余”直接略掉。也不无条件复制 Codex 专属路径、工具名、权限和轮次默认值。审查核对最终系统提示、输入模板、工具结果与失败链组合，不只看一份静态 prompt。
