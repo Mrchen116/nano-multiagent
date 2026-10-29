@@ -3,15 +3,15 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
 
-it.each(['unread-write', 'failed-read-write', 'normal-stop'])(
-  'does not publish or advance Dreaming after %s evidence', async mode => {
+it.each(['unread-write', 'failed-read-write', 'normal-stop', 'missing-index', 'model-error', 'cancelled'])(
+  'accepts only valid normally completed staging after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
     let client: InstanceType<typeof RuntimeClient> | undefined;
     await writeFile(join(home, 'fixture.mjs'), `
 import { appendFileSync } from 'node:fs';
 export const name = 'incomplete-fixture';
-export const inject = ['llm'];
+export const inject = ['llm', 'agents'];
 export function apply(ctx) {
   const steps = new Map();
   ctx.on('llm/stream', async function* (request) {
@@ -23,8 +23,15 @@ export function apply(ctx) {
       const text = request.messages.flatMap(m => m.content || []).filter(b => b.type === 'text').map(b => b.text).join('\\n');
       const stage = text.match(/Editable copy: (.+?)\\. Only edit/)[1];
       const write = ['write', { file_path: stage + '/MEMORY.md', content: 'Unsupported overwrite' }];
+      const mode = ${JSON.stringify(mode)};
+      if (step === 2 && ['model-error', 'cancelled'].includes(mode)) {
+        if (mode === 'cancelled') ctx.agents.get(request.sessionId).cancel({kind:'hook',reason:'Fixture cancellation'});
+        throw new Error('Fixture model failure');
+      }
       const calls = ${JSON.stringify(mode)} === 'unread-write' ? [write]
-        : ${JSON.stringify(mode)} === 'failed-read-write' ? [['read', { file_path: stage + '/missing.md' }], write] : [];
+        : mode === 'failed-read-write' ? [['read', { file_path: stage + '/missing.md' }], write]
+        : mode === 'missing-index' ? [['write', {file_path: stage + '/knowledge/new.md', content: 'Staged lesson without navigation update'}]]
+        : ['model-error', 'cancelled'].includes(mode) ? [['read', {file_path: stage + '/MEMORY.md'}], write] : [];
       call = calls[step];
     } else {
       const input = request.messages.findLast(m => m.role === 'user' && m.source?.actorId === 'owner');
@@ -60,9 +67,13 @@ export function apply(ctx) {
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
-      expect(facts.reviews[0]).toMatchObject({ status: 'failed' });
-      expect(facts.reviews[0]!.summary).toContain('without finish');
-      expect(facts.reviews[0]!.summary).toContain('未推进处理游标');
+      const failed = ['missing-index', 'model-error', 'cancelled'].includes(mode);
+      expect(facts.reviews[0]).toMatchObject({ status: failed ? 'failed' : 'completed' });
+      if (failed) {
+        expect(facts.reviews[0]!.summary).toContain(mode === 'missing-index' ? 'Synchronize MEMORY.md' : 'did not complete');
+        expect(facts.reviews[0]!.summary).toContain('未推进处理游标');
+      }
+      await expect(readFile(join(home, '.nanoassistant/memory/knowledge/new.md'))).rejects.toMatchObject({code:'ENOENT'});
       expect(await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8')).toBe(original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
@@ -70,11 +81,14 @@ export function apply(ctx) {
       expect(status('before').sourcesPending).toBe(false);
       expect(status('before').maintenance.backlog).toMatchObject({ state: 'pending', scope: 'frozen_sources' });
       expect(status('before').maintenance.backlog.global.pending).toBe(true);
-      expect(status('after').maintenance.backlog.state).toBe('pending');
-      expect(status('after').maintenance.streams).toEqual(status('before').maintenance.streams);
+      if (failed) {
+        expect(status('after').maintenance.streams).toEqual(status('before').maintenance.streams);
+      } else {
+        expect(status('after').maintenance.streams).not.toEqual(status('before').maintenance.streams);
+      }
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
       expect(JSON.stringify(maintenance[0].messages)).toContain('experience-one');
-      if (mode !== 'normal-stop') expect(maintenance.at(-1).messages.some((message: any) => message.role === 'tool' && message.isError)).toBe(true);
+      if (['unread-write', 'failed-read-write'].includes(mode)) expect(maintenance.at(-1).messages.some((message: any) => message.role === 'tool' && message.isError)).toBe(true);
       await client.shutdown(); client = undefined;
     } finally {
       if (client) { client.process.kill('SIGKILL'); await client.exited; }

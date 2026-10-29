@@ -83,7 +83,7 @@ export class DocumentMemory {
     this.libraries.set(config.agentId, { workspace, value });
     try { const library = await value; if (config.personal) library.markSourcesPending(); return library; } catch (error) { this.libraries.delete(config.agentId); throw error; }
   }
-  /** Register only in normal task presets; isolated Dreaming has its own finish tool. */
+  /** Register only in normal task presets; isolated Dreaming completes under host control. */
   registerTool(ctx: Context) {
     ctx.tools.register({ name: 'memory_maintenance', description: 'Control this Agent’s document memory. status reports backlog, eligibility and saved/version receipts; sourcesPending describes only source eligibility, never backlog. Use maintenance.backlog for observed pending units/ranges and blocked reasons. Its counts cover only the next bounded batch, not the total backlog; unavailable/blocked is not empty. It does not search knowledge. run requests a bounded incremental Dreaming pass; exclude registers an explicit user stop-use request without erasing source/chat/Git history. run/exclude require request_ref identifying the actual owner/requester input and remain subject to ordinary tool approval. Do not claim completion from acceptance or partial receipts. Read knowledge with ordinary file tools. Only Dreaming writes formal memory. importLegacy requests import from this owner’s registered legacy backup.',
       parameters: { type: 'object', properties: { action: { enum: ['status', 'run', 'exclude'] }, request_ref: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } }, sources: { type: 'array', items: { type: 'string' } }, importLegacy: { type: 'boolean' } }, required: ['action'], additionalProperties: false },

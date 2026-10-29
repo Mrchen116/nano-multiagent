@@ -21,6 +21,7 @@ ctx.on('llm/stream',async function*(o){
   const latest=o.messages.findLast(m=>m.role==='user');const input=latest.content.filter(c=>c.type==='text').map(c=>c.text).join('');const pending=input.includes('<planned_action>')?input.split('<planned_action>').at(-1):input.trim().split('\\n').filter(line=>line.startsWith('{')).at(-1);const allow=prompt.includes('CURRENT_OWNER_CHOICE')&&!pending.includes('FORBIDDEN_DISCLOSURE');
   yield{type:'block-end',index:0,block:{type:'text',text:${rules==='codex'?`JSON.stringify({outcome:allow?'allow':'deny',risk_level:allow?'low':'high',user_authorization:'high',rationale:'Not authorized'})`:`allow?'<block>no</block>':'<block>yes</block><reason>Not authorized</reason>'`}}};yield{type:'finish',reason:{kind:'stop'}};return;
  }
+ await appendFile(process.env.DSH_HOME+'/main-input.jsonl',JSON.stringify(o)+'\\n');
  const human=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
  if(!steps.has(human.id)){steps.add(human.id);const call=JSON.parse(human.content[0].text);yield{type:'block-end',index:0,block:{type:'tool-call',id:'call-'+human.id,name:call.name,arguments:JSON.stringify(call.args)}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
  yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
@@ -55,6 +56,10 @@ ctx.on('llm/stream',async function*(o){
   expect(observation.approvals.find((row:any)=>row.callId==='call-4')).toMatchObject({source:'product_disclosure_gate'});
   const results=observation.events.filter((event:any)=>event.type==='tool/result').map((event:any)=>event.data.message);
   expect(sent,JSON.stringify(results)).toEqual(['CURRENT_OWNER_CHOICE chosen reservation','OWNER_REPRESENTATION']);expect(results[4].isError).not.toBe(true);expect(results[5].isError).toBe(true);expect(results[6].isError).toBe(true);expect(results[7].isError).toBe(true);expect(results[0].isError).not.toBe(true);expect(results[3].isError).toBe(true);expect(JSON.stringify(results[3])).toContain('Explicit restriction');expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBe(0);
+  const mainInput=await readFile(join(home,'main-input.jsonl'),'utf8');
+  expect(mainInput).toContain('Only Dreaming');
+  expect(mainInput.includes('Immediately correct affected current pages')).toBe(false);
+  expect(mainInput.includes('checkpoint the current generation')).toBe(false);
   const prompt=await readFile(join(home,'review-input.jsonl'),'utf8');expect(prompt).toContain('CURRENT_OWNER_CHOICE');expect(prompt).not.toContain('DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT');expect(prompt).not.toContain('nano_personal_authorization');
  }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}finally{if(client)await client.shutdown().catch(()=>{});await rm(home,{recursive:true,force:true});}
 },20000);

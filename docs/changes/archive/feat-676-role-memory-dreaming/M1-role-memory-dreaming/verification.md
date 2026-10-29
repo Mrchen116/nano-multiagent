@@ -429,3 +429,47 @@ All four active delta texts are unchanged from eff2d4684; target canonical files
 Canonical reconciliation/archive may proceed as a pure documentation suffix: replace by requirement identity (some canonical headings already contain the earlier feat-676 wording), apply the removed requirements, preserve unrelated current contracts and update routes/links. Do not duplicate ADDED headings or preserve old foreground immediate-write wording alongside the new sole writer. The caller owns that exact future suffix and retention record; these reports do not pretend it has already been made.
 
 All R8 M1 W1-W13 implementation/evidence concerns are now resolved at the stated depth using Round 7's full matrix plus Rounds 8-9 closures. This concludes verification; no requested implementation change remains. Retained limitations are explicit: T1 is non-blocking and unfixed; PA cross-chat is nonempty Global context, S29 caller is controlled, S28 window/failure injection is controlled, wire capture ends at the local adapter/proxy boundary, and native iOS compilation is not visual QA. None is silently recast as stronger evidence. Remote CI, merge, production deployment/migration and cleanup are caller-owned delivery states and are not asserted by this pass.
+
+## Round 10 — direct-input/native-completion delta verification (2026-10-29)
+
+- `unit_id`: feat-676; `verification_mode`: **delta + corrected-delta**; independent reviewer `/root/dreaming_two_fixes_review`.
+- Fixed `executed_base`: `871e48c0478175802c9ce99ecd5b3198f203a5bb`; `validated_at`: `75ed0d4b7904ae5084aaca2de82c6c732a36194d`; commits `091d0d7c5`, `75ed0d4b7`.
+- Scope: the two user-approved post-PR fixes and their affected current/delta/design, prompts, Skill, host completion/application and recovery links. Previous full-unit conclusions are not reissued for the new head; unrelated evaluation findings are excluded.
+- `verdict`: **pass for this delta**; corrected-delta `outcome`: **aligned**; `requires_full_verification`: **false**.
+- Issues: **0 CRITICAL / 0 WARNING / 1 SUGGESTION**. This is a mechanism/code/spec verification, not a fresh autonomous-model or full-product acceptance pass.
+
+### Completeness, Correctness and Coherence
+
+| Dimension | Result |
+| --- | --- |
+| Completeness | **2/2 requested fixes implemented**; all changed runtime consumers/callers and the changed canonical/archived delta scenario checked. No new user interface or prototype requirement. |
+| Correctness | Normal completion is distinguished from execution failure/cancellation before result acceptance; JSON validation and post-completion staging validation gate persistence; source/file/summary versions and receipts still gate progress. |
+| Coherence | Public DSH root exports only; no provider-native JSON Schema mode is falsely claimed, no substitute completion tool, new recovery system or runtime loop added. Latest explicit design decision and current/delta agree with implementation. Old design shorthand remains a documentation suggestion below. |
+
+### Corrected Delta Reconciliation
+
+| Delta item / affected contract | Implementation evidence | Test/evidence | Outcome |
+| --- | --- | --- | --- |
+| design.md:293,302 direct initial-message delivery; existing own-history recovery | dreaming.ts:204-207,227-228,242-265,283-287; dreaming-agent.ts:51-59,93 | Direct-input 4 files/14 pass; runtime request asserts full long input/no file; task request asserts original inherited/own material, no input file, actual rollover/notes/source recovery | **aligned** |
+| current agent-capabilities.md:1094-1097 and archived specs/gateway/agent-capabilities.md:170-173, “两阶段正常完成后由宿主保存”; design.md:293,303-308 | dreaming-agent.ts:38-49,94-104: no finish, native completed status, strict final JSON + paired empty/safe slug. Prompts:52,80-82 and shipped Skill:48-52 agree | Runtime 2 + task 5 pass; actual assembled requests have no finish, successful extraction uses one request; invalid JSON/field/empty/slug fail | **aligned** |
+| Normal consolidation, no-change, failure/cancelled staging; W2/W10 affected seam | dreaming-agent.ts:97-123 validates after normal completion; dreaming.ts:289-307 saves/checkpoints before commitProgress | Incomplete runtime 6 pass: normal stop/no-change succeeds; denied invalid writes leave valid unchanged memory; missing entry, model error and cancellation reject publication/progress | **aligned** |
+| Formal-file versions, source generation, summary reuse/replacement/no_signal; W2/W9/W10 | dreaming.ts:167-177,226-239,250-260,289-313; unchanged operation/receipt recovery:140-150,345-359 | Task valid case passes reuse after failed consolidation, continuation replacement, no_signal retirement and recovery; recovery 8 pass covers generation/third-version/interruption/version-recording | **aligned** |
+| Continuous batches and original progress ownership; W8 | dreaming.ts:157-210,309-313 retains frozen target and only successfully integrated versions | Cycle runtime 1 pass: successful prefix commits; failed later batch remains uncommitted; retry freezes fresh target | **aligned** |
+
+The canonical scenario and its archived delta contain the same five added lines. Direct input transport is an internal simplification: the selected material, source meaning and access scope do not change, so no additional externally observable behavior requiring a new canonical scenario was identified. No uncovered observable delta was found in the assigned 15-file range.
+
+### Issues
+
+- **SUGGESTION D-POSTPR-1 — stale design completion terminology.** design.md:194 still says the two fields return through a “受限完成接口”; design.md:279 still says maintenance has a “私有完成接口”, while :293 explicitly removes private finish and :303 describes final JSON/native completion. Align those two old phrases with the final response/host-validation wording when maintaining the design. The latest decision and executable prompt/Schema/Skill are unambiguous, so this is a non-blocking historical-document inconsistency, not an implementation-mismatch or model-visible conflict. The related source comment at document-memory.ts:86 also retains old “own finish tool” wording; it has no runtime effect. No code finding is emitted for these comments.
+
+### Evidence accounting and limits
+
+Reused owner logs were inspected at the specified locators. Final effective regression is **5 files / 22 tests passed**, reconciled from `/tmp/feat676-no-finish-green.log` (18 pass, four extraction-receipt wording assertion failures) and `/tmp/feat676-no-finish-task-green.log` (all task 5 pass after assertion repair). Direct-input red/green is **3 fail → 14 pass**; normal-save red is **2 fail**. Build `/tmp/feat676-no-finish-build.log` and docs `/tmp/feat676-no-finish-docs.log` pass. See code-review Round 11 for the reproducible Node 24 command and precise coverage; already-valid checks were not duplicated.
+
+Code-review Round 11 supplies the reused Mode B Context inspection: initial material plus maintenance prompt, actual request tool lists, shipped layout Skill, history/notes recovery, source status and authoritative host receipt were considered together. These fixtures run real isolated DSH and capture assembled `llm/stream` input with controlled output. They do not establish final provider-wire serialization, autonomous JSON adherence, choice to recover original input after rollover, consolidation quality or cost reduction. No new paid-model evaluation was performed, as directed; existing earlier acceptance cannot be relabelled as a fresh behavior pass for this changed completion protocol. The user's planned evaluations remain separate.
+
+No shared architectural boundary change requiring full verification was found. Remote CI, PR merge, deployment/migration and production acceptance are outside this report. No new services or worktree were started; only the two assigned reports were edited, without a commit.
+
+### Caller closure of D-POSTPR-1
+
+After the independent fixed-head review, the owner aligned the two design phrases and the document-memory.ts comment with final JSON/native completion and host validation. This is wording-only; no executable code, prompt, tool schema or test changed. The suggestion is addressed; the independent reviewed runtime remains `75ed0d4b7904ae5084aaca2de82c6c732a36194d`.

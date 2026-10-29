@@ -49,4 +49,4 @@ Dreaming 基于刚读到的版本编辑 staging。外部版本异常时保留冲
 
 用户明确要求停止使用时，先用 memory_maintenance exclude 登记原始请求引用和相关 paths/sources，当前立即停止采用并告知受影响的原子执行；正文和入口由 Dreaming 后续清理。不能把登记排除当作清理完成。来源待核对时读到旧文字不表示重新认可。
 
-Dreaming 只能编辑宿主提供的 staging，完成本批整理后用其私有 finish 声明完成；宿主从真实文件差异生成应用计划；不调用普通 memory_maintenance，不修改原库，不创建或发布 Skill。
+Dreaming 只能编辑宿主提供的 staging，完成本批整理后正常结束；宿主核对真实文件差异并生成应用计划；不调用普通 memory_maintenance，不修改原库，不创建或发布 Skill。

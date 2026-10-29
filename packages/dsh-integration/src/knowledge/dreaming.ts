@@ -241,9 +241,9 @@ export class Dreaming {
         run.summaries=selected;run.importLegacy=importPending;
         const omitted=pending.filter(summary=>!selected.includes(summary));
         if(omitted.length)run.batch.blocked.push(...omitted.map(item=>({sessionId:item.sessionId,reason:'Task summary left for a subsequent batch due to input capacity.'})));
-        await this.prepare(run,library,owner);
+        const input=await this.prepare(run,library,owner);
         await this.saveRun(run);
-        await this.model(parent,config,work,run,library,owner);
+        await this.model(parent,config,work,run,library,owner,input);
         await this.apply(parent,config,work,run,library,owner);
         completed.push(run.id);importPending=false;run=undefined;
         await this.disposeHandle(work);
@@ -264,8 +264,8 @@ export class Dreaming {
       target,batch,summaries:[],receipts:[]};
   }
   private async extract(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,material:ChildMaterial):Promise<TaskSummary>{
-    await this.prepare(run,library,owner);await this.saveRun(run);
-    const result=await this.model(parent,config,work,run,library,owner);
+    const input=await this.prepare(run,library,owner);await this.saveRun(run);
+    const result=await this.model(parent,config,work,run,library,owner,input);
     if(!result)throw new Error('Task extraction produced no completed result.');
     await assertDreamingSources(library,run.generation);
     const path=join(library.workspace,'.nanoassistant/maintenance/task-summaries',`${key(material.sessionId)}.md`);
@@ -279,7 +279,7 @@ export class Dreaming {
     await this.saveRun(run);await this.publish(run,work.handle);await this.disposeHandle(work);
     return summary;
   }
-  private async prepare(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner){
+  private async prepare(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner):Promise<string>{
     const staging=join(run.directory,'staging');
     for(const directory of [run.directory,staging,join(run.directory,'summaries')]){await mkdir(directory,{recursive:true,mode:0o700});await chmod(directory,0o700);}
     const versions=run.stage==='consolidate'?await library.versions():{};
@@ -301,9 +301,8 @@ export class Dreaming {
     }
     const legacy=run.importLegacy?await this.importFiles(run,library):[];
     if(run.importLegacy){if(!legacy.length)throw new Error('No registered Markdown legacy backup is available for this owner.');inputs.push(`# Requested legacy import\nRead these verified backup files as old evidence, compare current memory and preserve scope: ${JSON.stringify(legacy)}`);}
-    const input=inputs.join('\n\n');run.inputHash=memoryDigest(input);
-    await writeFile(join(run.directory,'input.md'),input,{mode:0o600});
-    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({runId:run.id,generation:run.generation,versions,inputHash:run.inputHash,ranges:run.batch.ranges,summaries:run.summaries,legacy}),{mode:0o600});
+    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy}),{mode:0o600});
+    return inputs.join('\n\n');
   }
   private async importFiles(run:DreamingRun,library:MemoryDocuments):Promise<string[]>{
     const result:string[]=[];
@@ -321,9 +320,9 @@ export class Dreaming {
     }
     return result;
   }
-  private model(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner){
+  private model(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,input:string){
     this.maintenance.add(`dreaming-${run.id}`);
-    return library.status().then(status=>runDreamingAgent(this.ctx,{parent,config,signal:work.controller.signal,run,owner,library,sources:this.sources,
+    return library.status().then(status=>runDreamingAgent(this.ctx,{parent,config,signal:work.controller.signal,run,owner,library,input,sources:this.sources,
       conversations:[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)&&!status.exclusions.some(item=>item.sources.includes(id))),
       save:()=>this.saveRun(run),opened:handle=>{work.handle=handle;}}));
   }
@@ -334,7 +333,7 @@ export class Dreaming {
     for(const operation of run.plan){
       work.controller.signal.throwIfAborted();const current=this.configuration(config.agentId);
       if(this.options.held?.(config.agentId)||current?.knowledge?.memoryMode==='legacy'||work.automatic&&current?.features?.dreaming===false)throw new Error('Maintenance disabled before file application.');
-      const content=await readFile(join(run.directory,'staging',operation.path),'utf8');if(memoryDigest(content)!==operation.afterHash)throw new Error('Staged output changed after finish.');
+      const content=await readFile(join(run.directory,'staging',operation.path),'utf8');if(memoryDigest(content)!==operation.afterHash)throw new Error('Staged output changed after host validation.');
       const receipt=await library.apply({...operation,content},run.generation,work.controller.signal);
       run.receipts=[...run.receipts.filter(item=>item.operationId!==receipt.operationId),receipt];await this.saveRun(run);
       if(!receipt.saved)throw new Error(receipt.error??'File was not saved.');

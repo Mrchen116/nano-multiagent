@@ -323,3 +323,77 @@ The new `apps/im-server/tests/e2e/memory-conversation-production-chain.test.ts` 
 S28/summary replacement/no_signal and selected failure boundaries retain their controlled native depth; they are not relabeled autonomous-model behavior. S01's nonempty persistent Global cross-chat answer proves scope/correction handling using available original exchanges and links, not a new empty-context memory-only recall experiment. The expert's actual document read and subsequent correct answer supply the separate document-consumption observation. Product report locators preserve failures and preparation-vs-save distinctions rather than treating every response as completion.
 
 Four active delta files are byte-for-byte unchanged since eff2d4684 and still align with the approved target and reviewed implementation. Their canonical requirement destinations exist; all seven Gateway and two IM MODIFIED requirement identities resolve. They may now be reconciled into canonical specs by requirement identity (replace existing earlier-version clauses, do not append duplicate ADDED headings) and archived as pure documentation. This report does not perform or certify a not-yet-created canonical/archive suffix; the caller must record the exact retention delta. The new iOS Simulator build evidence ends BUILD SUCCEEDED; it establishes compilation, not iOS visual acceptance. Local full-suite evidence remains scoped to its recorded versions plus targeted final deltas; no remote CI/merge/deployment result is asserted.
+
+## Round 10 — explicit full Agent Context review (2026-10-29)
+
+The user requested a fresh independent review of the complete PR from the Agent Context perspective. Reviewer `/root/pr428_context_review` applied `change-code-review` full mode and `agent-context-review` Implementation Review against `082e72ec4becb37d4ba08c3e3a8e0d2bf45da087..3e9a46030939bfcce351b7df2e29e5f3c2439055`. The reviewer did not edit implementation or this report; the owner records its returned finding and evidence here.
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/personal-security.ts",
+    "line": 136,
+    "summary": "[P2] Align PA source invalidation guidance with the Dreaming sole writer",
+    "failure_scenario": "When a PA handles source exclusion, revocation or a stop-use request, its system rules demand immediate file edits and a checkpoint. personal-assistant/src/global-agent.ts:401 also injects a reminder that Dreaming does not own this foreground responsibility. Formal-memory write/edit calls are rejected and memory_maintenance has no checkpoint action, so the combined instructions cannot be executed.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "PA System Prompt, personal-state reminder, document-memory injection and actual tool Schema",
+    "expected": "Foreground execution immediately stops relying on invalid knowledge and informs affected original children; only Dreaming repairs formal pages and the entry, with completion grounded in host receipts.",
+    "observed": "One actual outbound request requires foreground edits/checkpoint in system while its memory messages require Only Dreaming updates formal memory; maintenance action enum is status/run/exclude.",
+    "impact": "The model receives conflicting and unavailable actions during source invalidation. This confirms an interface defect, not an observed unauthorized write or a claim that every model fails.",
+    "recommendation": "Correct both prompt entry points, preserve immediate stop-use and child propagation, and assign durable repair to Dreaming. Verify actual assembled PA requests and the personal-state submission, retaining the legacy-mode distinction.",
+    "evidence": "/tmp/feat676-live-evidence/f7b8bd521185473c97d22c4362f5620e-request.json: /system/0/text, /messages/2,6,23,26, and memory_maintenance action enum under /tools. Redacted locator/hash summary: /tmp/feat676-context-review-evidence.json. document-memory.ts:60-64,93-96 provides the execution/Schema counterpart."
+  }
+]
+```
+
+Coverage follows foreground root/child memory consumption; extraction/consolidation; inherited provenance and resumed-task summary replacement; source filtering/invalidation; parameter discovery and result rendering; Skill/Feature combinations; source-history versus maintenance-history recovery; staging, application and partial-failure receipts. No second actionable finding survived this bounded full review. Independent narrow validation passed **7 files / 31 tests**, `/tmp/feat676-context-review-narrow.log`.
+
+The reviewer reused actual outbound adapter requests and S27 autonomous source recovery/persistence evidence. The conflicting capture uses `codexOAuth:gpt-6-astra`; SHA-256 `dffd988acac8e7cd56b71b0cc8875a293401b5ee1b0fb2dfb6bcc254ded21225`. This proves the recorded outbound request to the local transparent proxy, not any final upstream transformation. Existing observations are not a fresh source-withdrawal model run and do not establish reliability across every model.
+
+### Owner resolution
+
+Fixed in `bcbe64afa`: both PA guidance entry points now require immediate stop-use and propagation to original children, while Dreaming alone verifies/repairs formal pages and the entry. Completion requires host confirmation. Explicit stop-use references and legacy-mode guidance remain distinct. No design or canonical-spec delta: this restores the already-approved sole-writer contract.
+
+Extended the existing PA native-request fixture to inspect the actual assembled main request, and the existing personal-attention fixture to inspect the actual product-state submission. These protect two separately assembled inputs; the existing document-memory runtime test retains execution-layer write/checkpoint rejection coverage. The new checks fail on the old implementation (**3 failed / 15 passed**, `/tmp/feat676-context-review-red.log`) and pass after repair (**3 files / 19 tests**, `/tmp/feat676-context-review-green.log`). Integration and PA builds pass (`/tmp/feat676-context-review-build.log`, `/tmp/feat676-context-review-pa-build.log`). Controlled model output proves assembly and enforcement, not autonomous interpretation. No new real-model source-withdrawal journey was run for this text-only correction.
+
+### Independent fix closure
+
+The same independent reviewer closed the finding at `bcbe64afa0883de001add5f76700e8ada245ae92`, reviewing only `3e9a46030..bcbe64afa` (four files). **Closed, CONFIRMED; surviving findings: `[]`.** Both assembled instruction paths now preserve immediate stop-use/child propagation, assign formal repair to Dreaming and require host-confirmed completion. The reviewer inspected and reused the 19-test green run and both build logs without rerunning identical checks. Other Round 10 full coverage and its 31-test run remain effective. The native fixture's controlled-output and untested autonomous source-withdrawal limitations above remain explicit.
+
+## Round 11 — direct-input and native-completion patch review (2026-10-29)
+
+- Independent reviewer: `/root/dreaming_two_fixes_review`; `review_mode`: **patch**; Agent Context Review: **Implementation Review (Mode B)**.
+- Fixed `executed_base`: `871e48c0478175802c9ce99ecd5b3198f203a5bb`; `validated_at`: `75ed0d4b7904ae5084aaca2de82c6c732a36194d`.
+- Reviewed commits: `091d0d7c5` and `75ed0d4b7`, **15 files**. Scope is only direct initial-message delivery and removal of both private finish tools, including affected prompts/Skill, output parsing, staging validation, source checks, recovery and current/delta documentation. This is not another full PR #428 review. Checkout was clean at that head before report edits.
+
+### Findings (current JSON)
+
+```json
+[]
+```
+
+No actionable code defect survived this bounded review. A non-blocking residual design wording suggestion is recorded in verification Round 10; it is not a model-visible instruction conflict or a runtime finding.
+
+### Reviewed consumption and application chain
+
+| Surface / invariant | Fixed-head evidence and conclusion |
+| --- | --- |
+| Direct material delivery | `dreaming.ts:242-265` returns the host-composed material; both callers pass it through `model` to `dreaming-agent.ts:93`. No input.md or dedicated inputHash is produced/read. Manifest retains file versions/explicit legacy paths; run records retain target, generation, ranges and exact summary versions. Summary snapshot hashes and formal-file hashes remain. |
+| Final assembled instructions and tools | `dreaming-agent.ts:38-84` retains the empty seed, maintenance-only prompt/Schema filtering, native file tools, bounded business-history lookup and own recovery tools. `dreaming-prompts.ts:52,80-82`, shipped nano-memory Skill:48-52 and provenance text consistently require final JSON for extraction or normal completion for consolidation, then host-confirmed outcome. Neither stage advertises/registers finish; extraction does not gain file/business-write authority. |
+| Original input and window recovery | Input is a provenance-labelled nano-system message in the same persistent session. The installed fixed `dsh-agent-context` history normalizer preserves this source and original text; existing history/new_context/notes facilities remain. The valid task runtime fixture exercises a real context rollover, restored notes, bounded source_history and more than 24 requests. It does not independently demonstrate a model choosing to recover the entire initial message after rollover. |
+| Successful versus failed execution | `dreaming-agent.ts:94-104` first requires the last native turn boundary to be completed, rechecks generation, then parses the public `finalAssistantOutput` selection with strict two-string JSON validation, paired-empty and safe-slug checks. Installed public root export and native loop semantics were inspected: max-tokens/error/cancelled are not normal completed outcomes. No private DSH import, alternate submit tool or second completion protocol is introduced. |
+| Host validation, receipts and progress | `dreaming-agent.ts:106-123` performs the existing read/version, path/symlink, body-before-entry and actual diff checks after normal completion, then persists the plan. `dreaming.ts:289-313` rechecks cancellation/source eligibility before apply; each file receipt precedes checkpoint, completed-run persistence and source/summary progress. A valid empty plan can complete. Failed write attempts followed by a valid unchanged stage are correctly distinguishable from failed/cancelled execution. |
+| Task-cache identity and recovery | `dreaming.ts:167-177,226-239,250-260` retains sourceVersion/generation/hash validation, same-task replacement and explicit no-signal retirement. Existing saved/versionRecorded, application operationId and interrupted-plan recovery mechanisms are retained; unfinished model staging is not turned into a completed plan. |
+
+### Evidence reused and limits
+
+The reviewer inspected the changed test fixtures/assertions and their supplied execution logs, rather than rerunning already-valid tests. Native isolated runtime fixtures intercept actual assembled `llm/stream` requests and control responses; this proves the exercised request/tool composition and host execution, **not provider-wire serialization or autonomous real-model behavior**.
+
+- Direct-input regression: `/tmp/feat676-direct-input-red.log` has **3 failures** on the old implementation; `/tmp/feat676-direct-input-green.log` has **4 files / 14 tests passed**.
+- Normal-save regression: `/tmp/feat676-no-finish-red.log` has **2 failures** on the old implementation. Final effective narrow result is **5 files / 22 tests passed**: runtime 2, incomplete/runtime-state 6, task 5, cycle 1, recovery 8. `/tmp/feat676-no-finish-green.log` initially has 18 passes and four failures solely because extraction-error receipts were expected to use consolidation wording; `/tmp/feat676-no-finish-task-green.log` passes all five task cases after changing only that assertion. This is a reconciled result, not an invented single all-green run.
+- Coverage includes no finish in actual requests, one-request valid JSON extraction, normal save/no-change, failure/cancellation after staged writes without publication/progress, malformed JSON/missing field/one-empty/unsafe slug, body change without entry, cache reuse/replacement/no_signal, window recovery, fresh target after batch failure, version/generation conflicts and receipt recovery.
+- Build `/tmp/feat676-no-finish-build.log` and docs `/tmp/feat676-no-finish-docs.log` pass. Native runtime uses Node **24.22.1**; reproducible narrow command is `PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec vitest run packages/dsh-integration/tests/dreaming-{runtime,incomplete-runtime,task-runtime,cycle-runtime,recovery}.test.ts`.
+
+No paid real-model run, new whole-PR review, remote CI, merge, deployment, production mutation, performance/cost improvement or new product acceptance is claimed. The user's separate evaluations and unrelated evaluation findings remain outside this patch review. Only this report and verification.md were edited; no implementation/test/design file was changed or committed by the reviewer.

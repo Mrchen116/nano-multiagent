@@ -15,7 +15,7 @@ export interface DreamingRun {
   stage: 'extract' | 'consolidate'; cycleId: string;
   mode: 'automatic' | 'manual'; state: 'prepared' | 'running' | 'applying' | 'completed' | 'partial' | 'failed' | 'cancelled';
   at: number; endedAt?: number; generation: number; directory: string; batch: FrozenBatch;
-  target: CycleTarget; summaries: TaskSummary[]; inputHash?: string;
+  target: CycleTarget; summaries: TaskSummary[];
   importLegacy?: boolean; sourcesChecked?: boolean;
   planRetired?: boolean;
   plan?: Array<Omit<DocumentOperation, 'content'> & { afterHash: string }>; receipts: DocumentReceipt[]; summary?: string; error?: string;
