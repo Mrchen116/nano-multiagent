@@ -283,7 +283,7 @@ struct AgentEditorFields: View {
         Section {
             DisclosureGroup(L("运行特性", "Runtime features")) {
                 ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) }) { feature in
-                    if feature.key == "dreaming" { Text(L("定期整理已处理的经历。关闭后仍可记住、更正和读取记忆。", "Periodically organize processed experiences. Turning this off still allows remembering, correcting and reading memories.")).font(.caption).foregroundStyle(.secondary) }
+                    if feature.key == "dreaming" { Text(L("定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。", "Periodically update long-term memory. When off, existing memories remain readable and you can request manual organization.")).font(.caption).foregroundStyle(.secondary) }
                     Toggle(agentFeatureName(feature.key), isOn: Binding(get: { draft.features[feature.key] ?? feature.default_on }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
                         .capabilityAnchor("feature:" + feature.key)
                 }

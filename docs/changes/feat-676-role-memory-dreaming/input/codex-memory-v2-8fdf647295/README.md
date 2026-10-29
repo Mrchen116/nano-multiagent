@@ -20,7 +20,7 @@
 不能只读这三份模板就宣称复用完成。实施者必须按相同 commit 读取以下源码及相邻测试，记录采用的机制与必要差异；原始仓库本机位置由 dev-host reference_root 定位，不写死成产品依赖。
 
 - `codex-rs/memories/write/src/rollout_input.rs`：sanitization、来源分层、真人问答配对、优先级、近期选择、裁剪标记、媒体占位、最终时序和 extraction_messages；注意消息分块仍是一次请求。
-- `codex-rs/memories/write/src/phase1.rs`、`prompts.rs`、`stage_one.rs`：请求组装、模型预算、输出解析、无信号及失败结果。
+- `codex-rs/memories/write/src/phase1.rs`、`prompts.rs`、`phase1_output.rs`：请求组装、模型预算、输出解析、无信号及失败结果。
 - `codex-rs/state/src/runtime/memories.rs`：资格/更新时间、同 thread 替换、无输出处理、提炼与整合成功位置、重试及并发所有权。
 - `codex-rs/memories/write/src/phase2.rs`、`storage.rs`、`workspace.rs`、`workspace_lock.rs`：摘要同步、来源变化 diff、写入所有权、成功基线与恢复。
 

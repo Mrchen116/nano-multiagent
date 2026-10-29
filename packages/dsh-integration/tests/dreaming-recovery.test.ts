@@ -81,6 +81,24 @@ it.each(['before-first-file','after-body','after-entry'])('resumes a persisted p
   }finally{fault.mockRestore();checkpointFault.mockRestore();await f.close();}
 });
 
+it('retains old completed staging until pending version recording is recovered',async()=>{
+  const f=await fixture();
+  try{
+    const lock=join(f.library.root,'.git/index.lock');await writeFile(lock,'external writer');
+    expect(await f.make().start(f.parent,false)).toMatchObject({state:'completed'});
+    expect(f.runs.get('frozen').receipts.every((r:any)=>r.saved&&!r.versionRecorded)).toBe(true);
+    await rm(lock);
+    f.runs.get('frozen').endedAt=Date.now()-8*86400000;
+    const restarted=f.make();await restarted.recover();
+    expect(await restarted.start(f.parent,false)).toMatchObject({state:'completed'});
+    expect(f.runs.get('frozen').receipts.every((r:any)=>r.saved&&r.versionRecorded)).toBe(true);
+    f.runs.get('frozen').endedAt=Date.now()-8*86400000;
+    await restarted.recover();
+    await expect(readFile(join(f.runs.get('frozen').directory,'staging/MEMORY.md'))).rejects.toMatchObject({code:'ENOENT'});
+    expect(await restarted.start(f.parent,false)).toMatchObject({reason:'no_eligible_increment'});
+  }finally{await f.close();}
+});
+
 it.each([false,true])('repairs only a recorded legacy Dreaming identity, preserving its original events (wrongParent=%s)',async wrongParent=>{
   const id=SessionId('dreaming-old');
   const session=Session.create(id,[],{...Session.create(id).header,cwd:'/test',origin:'subagent',parentSession:SessionId(wrongParent?'other':'root')});

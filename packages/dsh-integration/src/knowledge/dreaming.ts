@@ -348,7 +348,9 @@ export class Dreaming {
     const domain=await this.domain;
     for(const [,run] of [...domain.table('runs').entries()].sort((a,b)=>a[1].at-b[1].at)){
       if(run.childSessionId&&!run.identityRecorded)await this.repairIdentity(run);
-      if(run.endedAt&&Date.now()-run.endedAt>7*86400000&&(run.state==='completed'||!run.plan&&['failed','cancelled'].includes(run.state))){
+      // A saved file may still need its frozen content to retry version recording.
+      const pendingVersion=run.receipts.some(receipt=>receipt.saved&&!receipt.versionRecorded);
+      if(run.endedAt&&Date.now()-run.endedAt>7*86400000&&(run.planRetired||run.state==='completed'&&!pendingVersion||!run.plan&&['failed','cancelled'].includes(run.state))){
         for(const path of ['input','input.md','staging','summaries','legacy'])await rm(join(run.directory,path),{recursive:true,force:true});
       }
       if(run.stage==='consolidate'&&run.state==='completed'){

@@ -53,3 +53,36 @@ PA 会话 `c_91ae1772dfea`，root `92288720-595f-4666-96e0-30267706dccf`。
 `dreaming-a823e27b-c6d8-4666-9ceb-069c280cb922`，宿主 completed、2/2页保存。
 本地材料 `/tmp/feat676-live-evidence/` 及隔离 workspace；没有提交原始模型/用户数据。
 这仅是自检，不能代替 S01–S30 独立产品验收。共享代理 request logging 默认关闭，本次没有重启它；真实 wire 捕获另在隔离转发路径补证。
+
+## 冻结版本的本地全量检查
+
+实现候选 `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`：
+
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime` 通过；日志分别为 `/tmp/feat676-frozen-build.log`、`/tmp/feat676-full-typecheck.log`、`/tmp/feat676-ios-runtime.log`。
+- `pnpm test`：164文件、851项通过，`/tmp/feat676-root-tests.log`。
+- Web `npm --prefix src/IM/frontend run test -- --run`：108文件、1031项通过，`/tmp/feat676-frontend-tests.log`。
+- Python `pytest -m 'not e2e' -q`：127通过、28未运行，`/tmp/feat676-python-full.log`。`ruff check .` 与 `ruff format --check .` 通过。
+- docs-check：326 maintained sources / 68 required routes 通过，`/tmp/feat676-docs-pre-review2.log`；重新打开活动unit后的两条相对链接已修正。
+- Web `npm audit --audit-level=critical` 退出0；仍报告11项既有依赖告警（4 low / 2 moderate / 5 high），未擅自升级本轮无关依赖，`/tmp/feat676-frontend-audit.log`。该结果仅表示当前CI阈值通过，不等于依赖无告警。
+
+共享代理保持原状。仅当前隔离环境经 `/tmp/feat676-live-evidence/capture_proxy.py`
+透明转发并记录真实 adapter 请求/响应，端口56172；候选构建后 Node pid59025、DSH pid59092，IM保持50967。
+捕获文件只写本机私有目录；独立产品reviewer使用该环境，不以stub替代模型行为。
+
+### 独立审查后的定点修复
+
+- F-R8-1：8 天前已保存但 Git 版本记录失败的 completed plan，恢复时保留 staging；补记成功后仍按保留期清理。真实 `.git/index.lock` 造成版本记录失败，解除锁后跨 recover/start 补记成功，随后过期清理通过。
+- F-R8-2：直接展开 Inbox 及按原消息 Unicode 分页均保留外层 conversation target/name/delivery/type/channel，消息自身 sender/id 不变；Global 与 child 复用同一 renderer。
+- D-R8-1：修正 active spec 三个包源码链接层级；上游源码阅读入口 `stage_one.rs` 更正为该固定版本实际的 `phase1_output.rs`。
+- 新回归先得到 3 failed / 17 passed，修复后 20 passed；原生 Dreaming、子任务提炼/续做/换窗和共享原始历史 6 passed，DSH integration build 通过。日志 `/tmp/feat676-review-{red,green,runtime,build}.log`。初次窄测 shell 为 Node 25.8.2（build 给出 engine warning），交付前使用项目 Node 24.22.1 再验。
+
+### 固定上游代码机制核对
+
+按 `8fdf6472955749a731fd9e4b8ffc218e8e80c51d` 阅读 `rollout_input.rs`/相邻测试、`phase1.rs`/`phase1_output.rs`/`prompts.rs`、state `memories.rs` 的资格/更新/成功/无输出路径、`phase2.rs`、`storage.rs`/tests、`workspace.rs`/tests、`workspace_lock.rs`，补齐模板之外的实现依据：
+
+- 原始提炼输入按 human/final/other-agent/commentary/context/tool 近期优先选择，最后恢复时序；问答配对、缺口标记和 Unicode 分块保留。Nano 保留优先级及来源身份，Global 使用连续可提交批次，child 按容量选择合格自身经历及继承背景；Inbox 里的真人正文与外围观察身份同时保留。
+- V2 输出仅 rollout_summary/rollout_slug；同 thread 源版本更新替换，no_output 删除旧输出，并在旧输出曾存在时驱动下一次整合。Nano 采用同一语义，用现有 storage domain 的每 child 当前摘要与 integrated 版本分开表示提炼/整合成功位置；不增加 raw_memory。
+- 上游 phase2 先排他、同步当前选中摘要、计算 workspace diff，再启动受限整理 Agent；只有完成且产物有效、仍拥有作业权才重置 baseline 和登记选中版本。Nano 复用现有主体排他、冻结 source generation、staging 文件计划与逐文件回执，成功后推进相应来源范围；无需复制 SQL 租约或 Codex 工作区格式。
+- 上游 heartbeat 持续续租，循环等待最终 Agent 状态，无总耗时/总步数上限。Nano 删除专属上限，保留输入容量、取消和请求真实错误。上游 summary-only 格式、9KB 输出裁剪与目录布局不照搬；Nano 使用角色入口/正文及既有模型输出预算，差异由已批准 design 和 prompt-adaptation.diff 说明。
+
+- 项目 Node 24.22.1 复验：DSH build 通过，5 文件 26 项通过（`/tmp/feat676-review-{node24,build-node24}.log`）。产品 reviewer 指出 R6 原型的停用提示漏同步，现已同步 Web 中英和 iOS；Web agent-detail 28 项及构建通过（`/tmp/feat676-review-ui*.log`）。此修复仅说明文字，不变更开关行为；真实页面由产品 reviewer 定向复验。

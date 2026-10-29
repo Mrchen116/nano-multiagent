@@ -59,8 +59,8 @@ export function renderMaterial(events: readonly unknown[]): string {
     if (e.type === 'source_text_continuation') return `Original message ${e.messageId}; characters ${e.offset}–${e.end}/${e.total}; ${Number(e.end)<Number(e.total)?'same message continues':'message end'}\nSource: ${JSON.stringify(e.source)}\n${e.text}`;
     const { content, ...metadata } = e;
     if (content && typeof content === 'object' && !Array.isArray(content) && Array.isArray((content as {messages?:unknown[]}).messages)) {
-      const body = content as {messages: Record<string,unknown>[]};
-      return `${JSON.stringify(metadata)}\n${renderMaterial(body.messages)}`;
+      const {messages,...envelope} = content as {messages: Record<string,unknown>[]};
+      return `${JSON.stringify(metadata)}\nConversation: ${JSON.stringify(envelope)}\n${renderMaterial(messages)}`;
     }
     const text = typeof content === 'string' ? content : Array.isArray(content)
       ? content.map(block => block?.type === 'text' ? block.text : `[attachment: ${JSON.stringify(block)}]`).join('\n')
@@ -75,9 +75,10 @@ function materialSegments(values: readonly unknown[]): Array<{messageId:string;t
     const record=value as Record<string,unknown>;
     const body=record.content as {messages?:Record<string,unknown>[]} | undefined;
     if(body && !Array.isArray(body) && typeof body==='object' && Array.isArray(body.messages)){
-      return body.messages.map((message,i)=>({messageId:String(message.id??message.message_id??`${record.seq}:${i}`),
+      const {messages,...envelope}=body;
+      return messages.map((message,i)=>({messageId:String(message.id??message.message_id??`${record.seq}:${i}`),
         text:typeof message.content==='string'?message.content:renderMaterial([{content:message.content}]).replace(/^\{\}\n/,''),
-        source:{...record,content:undefined,message:{...message,content:undefined}}}));
+        source:{...record,content:undefined,conversation:envelope,message:{...message,content:undefined}}}));
     }
     const {content,...source}=record;
     return [{messageId:String(record.messageId??`${record.sessionId}:${record.seq??index}`),

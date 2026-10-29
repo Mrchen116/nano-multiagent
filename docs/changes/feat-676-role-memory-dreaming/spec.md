@@ -153,8 +153,8 @@ Agent 提议保留成功进度、真实失败停止本次、下次从进度重�
 本次核对 main `a5724f2124acc345783f5b91f293f62204881902`：
 
 - [当前知识维护契约](../../specs/gateway/agent-capabilities.md)描述用户／环境记忆、明确纠正、后台先读最新文件，以及 Memory／Skill 联合复盘；当前验收中的纠正采用新会话观察，不等于已满足本 unit 的同会话及时生效。
-- [现有文件实现](../../../../packages/dsh-integration/src/knowledge/files.ts)保存 `USER.md` 和 `MEMORY.md` 条目，容量分别为 1,375 和 2,200 字符；[当前注入](../../../../packages/dsh-integration/src/features/memory-curation.ts)使用首次加载及压缩后更新的快照。目标是可维护的详细文档与角色入口，并让文件变化及时影响后续相关判断。
-- [现有维护运行时](../../../../packages/dsh-integration/src/knowledge/runtime.ts)与 [Global 行为契约](../../specs/gateway/global-agent.md)是复用起点。附件对持续事件输入、当前窗口和旧窗口覆盖的要求仍需设计验证，不能把当前可见上下文当作完整历史。
+- [现有文件实现](../../../packages/dsh-integration/src/knowledge/files.ts)保存 `USER.md` 和 `MEMORY.md` 条目，容量分别为 1,375 和 2,200 字符；[当前注入](../../../packages/dsh-integration/src/features/memory-curation.ts)使用首次加载及压缩后更新的快照。目标是可维护的详细文档与角色入口，并让文件变化及时影响后续相关判断。
+- [现有维护运行时](../../../packages/dsh-integration/src/knowledge/runtime.ts)与 [Global 行为契约](../../specs/gateway/global-agent.md)是复用起点。附件对持续事件输入、当前窗口和旧窗口覆盖的要求仍需设计验证，不能把当前可见上下文当作完整历史。
 
 这些是现状与目标的差异，不将旧契约倒判为 bug；本轮不改 current specs。上述是初版核对。2026-10-29 修订另核对开发分支 `80db8b9a6` 的 `memory-sources.ts`、`dreaming.ts` 与 Codex 最新本地源码 `8fdf647295`，具体事实、取舍及代码入口见 design；原始 research-v2 附件不改写。
 
