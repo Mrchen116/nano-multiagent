@@ -116,3 +116,28 @@ PA 会话 `c_91ae1772dfea`，root `92288720-595f-4666-96e0-30267706dccf`。
 - 旧实现对移除工具后的正常保存回归 2/2 失败（`/tmp/feat676-no-finish-red.log`）。本次 5 文件 22 项相关用例全部通过：首轮 18 项通过、4 项因提炼/整理回执文案断言混用失败；只修正测试期望后提炼文件 5/5 通过。日志 `/tmp/feat676-no-finish-green.log`、`/tmp/feat676-no-finish-task-green.log`。覆盖实际请求无 finish、单次请求提炼、正常保存/无变化、失败/取消不发布、无效 JSON/字段/空值/slug、摘要复用/替换/no_signal、跨窗恢复及连续批次失败恢复。
 - DSH build 与 docs-check 通过（`/tmp/feat676-no-finish-build.log`、`/tmp/feat676-no-finish-docs.log`）。仅受控 provider 的真实隔离运行时回归，没有追加真实模型评测；不据此宣称质量或费用改善幅度。
 - 用户要求等其确认全部问题并明确发起审查后再统一审查；本批未启动新审查，既有 gate 不覆盖这些新改动。保留开发分支本地提交，未合入或部署。
+
+## 2026-10-30：按模型容量计算完整输入预算
+
+用户确认四条规则后，在 PR #428 的 `efaa2bbae3e21f8835fea477b1085c8efb7f0c93` 上追加实现；设计 §5.1 经独立 Gate 2 Round 9 Approved。此前直接输入/native completion 的证据继续保留。
+
+- 使用公开 `resolveModelInfo` 的 `context.contextWindow`；首请求估算上限为 `min(floor(C*0.7), C-8192)`。缺少容量时报告不可用；显式 `maxInputTokens` 仅缩小材料上限。
+- 统一 UTF-8 字节 / 3 估算。用实际维护 scope 的公开 prompt assembly 计算系统、恢复 context、工具、来源目录、记忆入口和正文，加 512 tokens 消息封装余量；首次 `llm/stream` 再检查实际请求。后续工具调用/换窗不受首轮 70% 限制。
+- 宿主缩减连续 Global 范围后确定任务 cutoff，再在提炼会话自己的预算内选材。完整摘要与 Global 共享容量，剩余摘要先用原 cutoff 的补批处理，再继续 Global；缓存、成功版本、失败/取消和来源检查继续生效。不新增持久队列或模型试装调用。
+- 来源目录和 IM 目录在最终装配/工具调用时取最终 batch；未入选摘要不写入该会话材料目录。失败提炼与停止的整理分别记录真实失败。
+
+### 证据
+
+复现旧固定预算：同一长中文输入在 256K 与 1M 模型声明下均拆为六批，新增两项回归失败（`/tmp/feat676-budget-red.log`）。实现后使用 Node 24.22.1，DSH build 通过（`/tmp/feat676-budget-build.log`）。
+
+运行时/恢复新增及关联验证 **3 文件 21 项通过**（`/tmp/feat676-budget-edge.log`）：256K/1M 原文连续完整、实际首请求 <= 70%；增加 120K 固定工具说明后材料相应缩小；三份摘要先排空、原 cutoff 不变、只提炼一次；过大摘要保持未整合且不推进剩余原文；容量未知不默认猜测；正常保存、真实换窗、后续超过 24 次工具调用、摘要复用/替换及失败恢复继续成立。
+
+其他来源、历史、周期、未正常结束、调度回归：`/tmp/feat676-budget-retained.log`。文档校验：`/tmp/feat676-budget-docs.log`。可复现命令：
+
+```sh
+pnpm --filter @nano/dsh-integration build
+pnpm exec vitest run packages/dsh-integration/tests/dreaming-runtime.test.ts packages/dsh-integration/tests/dreaming-task-runtime.test.ts packages/dsh-integration/tests/dreaming-recovery.test.ts packages/dsh-integration/tests/memory-sources.test.ts packages/dsh-integration/tests/dreaming-history.test.ts packages/dsh-integration/tests/dreaming-cycle-runtime.test.ts packages/dsh-integration/tests/dreaming-incomplete-runtime.test.ts packages/dsh-integration/tests/dreaming-scheduling.test.ts
+./scripts/docs-check
+```
+
+这些测试运行真实隔离 DSH、捕获最终 `llm/stream` 输入并使用受控输出；估算不是 provider tokenizer，也不是最终 provider wire 计量。尚未重新执行真实模型质量/费用评测。无生产迁移或部署。本轮独立增量审查结论见同目录 code-review/verification 的后续 Round。

@@ -4,6 +4,7 @@ export interface KnowledgeConfiguration {
   globalSkillRoot?: string;
   memoryMode?: 'document' | 'legacy';
   legacyMemory?: {enabled?: boolean; interval?: number};
+  /** maxInputTokens optionally caps materials inside the model-derived full input budget. */
   dreaming?: {intervalMs?: number; quietMs?: number; maxInputTokens?: number};
   skillInterval?: number;
 }

@@ -67,3 +67,66 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
 },25000);
+
+it.each([{contextWindow:256000,fixed:0,maxBatches:3},{contextWindow:1000000,fixed:0,maxBatches:1},{contextWindow:256000,fixed:120000,maxBatches:10}])('bounds the full first request with $contextWindow capacity and $fixed fixed overhead', async ({contextWindow,fixed,maxBatches}) => {
+  const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
+  const home = await mkdtemp(join(tmpdir(), 'dreaming-capacity-'));
+  let client: InstanceType<typeof RuntimeClient> | undefined;
+  await writeFile(join(home, 'fixture.mjs'), `
+import {appendFileSync} from 'node:fs';
+export const inject=['llm'];
+export function apply(ctx){
+ctx.on('system-prompt/assemble',async(assembly,context,next)=>{
+ const result=await next();
+ if(String(context.scope?.id).startsWith('dreaming-'))result.tools=result.tools.map(tool=>tool.name==='read'?{...tool,description:tool.description+'固'.repeat(${fixed})}:tool);
+ return result;
+});
+ctx.on('llm/stream',async function*(request){
+  appendFileSync(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(request)+'\\n');
+  const last=request.messages.findLast(m=>m.role==='user'&&m.source?.actorId==='owner');
+  if(request.sessionId==='root'&&last?.source.messageId==='maintain'&&!request.messages.some(m=>m.role==='tool'&&m.toolCallId==='run')){
+    yield {type:'block-end',index:0,block:{type:'tool-call',id:'run',name:'memory_maintenance',arguments:JSON.stringify({action:'run',request_ref:'maintain'})}};
+    yield {type:'finish',reason:{kind:'tool-calls'}};
+  }else{
+    yield {type:'block-end',index:0,block:{type:'text',text:'No durable update needed for this synthetic source.'}};
+    yield {type:'finish',reason:{kind:'stop'}};
+  }
+});}
+`);
+  try {
+    await prepareProfile(home, [
+      {id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test',contextWindow}]}}}},
+      {insert:[{id:'capacity-fixture',name:join(home,'fixture.mjs')}]},
+    ]);
+    client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',features:{dreaming:false},toolAllowlist:['read','write','edit','memory_maintenance']}],bindings:[binding]});
+    await client.rpc.request('session.ensure',binding);
+    const submit=async(id:string,text:string)=>{
+      await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
+      await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal,{timeout:30000}).toBeTruthy();
+    };
+    await submit('source','SOURCE-START\n'+'积压证据。'.repeat(60000)+'\nSOURCE-END');
+    await submit('maintain','maintain');
+    const facts=await client.rpc.request('knowledge.facts',{}) as any;
+    expect(facts.reviews.length).toBeGreaterThan(0);
+    expect(facts.reviews.every((r:any)=>r.status==='completed'),JSON.stringify(facts.reviews)).toBe(true);
+    const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+    const stages=requests.filter(r=>r.sessionId.startsWith('dreaming-'));
+    expect(stages.length).toBeLessThanOrEqual(maxBatches);
+    const input=(r:any)=>r.messages.filter((m:any)=>m.source?.channel==='dreaming').map((m:any)=>m.content.map((b:any)=>b.text??'').join('')).join('');
+    expect(Math.max(...stages.map(r=>Buffer.byteLength(input(r),'utf8')/3))).toBeGreaterThan(fixed?30000:90000);
+    expect(stages.map(input).join('\n')).toContain('SOURCE-END');
+    if(fixed){
+      expect(stages[0].tools.find((tool:any)=>tool.name==='read').description).toContain('固'.repeat(fixed));
+      expect(Math.max(...stages.map(r=>Buffer.byteLength(input(r),'utf8')/3))).toBeLessThan(60000);
+    }
+    for(const request of stages){
+      const full=JSON.stringify({system:request.system,messages:request.messages,tools:request.tools});
+      expect(Math.ceil(Buffer.byteLength(full,'utf8')/3)).toBeLessThanOrEqual(Math.floor(contextWindow*0.7));
+    }
+  }finally{
+    if(client)await client.shutdown();
+    await rm(home,{recursive:true,force:true});
+  }
+},60000);

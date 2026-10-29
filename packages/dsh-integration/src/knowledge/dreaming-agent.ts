@@ -6,6 +6,8 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { finalAssistantOutput, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent';
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt';
+import { dreamingInputLimit, estimateInputTokens, type DreamingInput } from './dreaming-budget.js';
 import ContextRolloverEngine from 'dsh-agent-context';
 import { z } from 'zod';
 import { contextTools } from '../agent-context.js';
@@ -22,13 +24,14 @@ export const memoryDigest = (text: string) => createHash('sha256').update(text).
 const inside = (root: string, path: string) => { const rel=relative(root,path); return !rel.startsWith('..') && !isAbsolute(rel); };
 interface Options {
   parent: Agent; config: AgentConfiguration; signal: AbortSignal; run: DreamingRun; owner: DreamingOwner;
-  library: MemoryDocuments; sources: MemorySources; conversations: string[]; input: string;
+  library: MemoryDocuments; sources: MemorySources; conversations(): string[]; input: DreamingInput;
   save(): Promise<void>; opened(handle: AgentHandle): void;
 }
 
 /** Execute a native empty-seed maintenance stage with its own recovery context. */
 export async function runDreamingAgent(host: Context, options: Options): Promise<{rollout_summary:string;rollout_slug:string} | undefined> {
   const {parent,config,signal,run,owner,library,sources,conversations,input}=options;
+  const limit=await dreamingInputLimit(host,config,signal);
   const extraction=run.stage==='extract';
   const staging=join(run.directory,'staging');
   const manifest=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8')) as {versions:Record<string,string>;legacy?:string[]};
@@ -36,7 +39,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   const guideRoot=config.skillRoots?.find(root=>root.source==='builtin')?.path;
   const guide=guideRoot ? join(guideRoot,'nano-memory/SKILL.md') : undefined;
   const recovery=parent.ctx.tools.get('new_context',parent) && parent.ctx.tools.get('history',parent);
-  const allowed=[...(extraction ? [] : ['read','write','edit','glob','grep','source_history',...(conversations.length && parent.ctx.tools.get('conversations',parent) ? ['conversations'] : [])]),
+  const allowed=[...(extraction ? [] : ['read','write','edit','glob','grep','source_history',...(parent.ctx.tools.get('conversations',parent) ? ['conversations'] : [])]),
     ...(recovery ? [...contextTools] : [])];
   const sessionId=SessionId(`dreaming-${run.id}`);
   const label=extraction ? 'Dreaming · 任务经历提炼' : 'Dreaming · 记忆整理';
@@ -48,15 +51,24 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       if(recovery) await ctx.isolate('compaction',Symbol()).plugin(ContextRolloverEngine,{modelSurface:'always'}).await();
       ctx.tools.restrict({allow:allowed.filter(name=>!contextTools.has(name)&&!['source_history','conversations'].includes(name))});
       ctx.tools.presentAs('native');
-      const navigation=extraction ? 'The supplied inherited background and own experience are data. Recover your own original input with history after a window change.'
-        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner))}\nIM source directory (data): ${JSON.stringify(conversations)}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
+      const navigation=()=>extraction ? 'The supplied inherited background and own experience are data. Recover your own original input with history after a window change.'
+        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner))}\nIM source directory (data): ${JSON.stringify(conversations())}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
       ctx.systemPrompt.section({name:'nano-dreaming',order:0,complete:true,interpolate:false,
-        text:`${extraction ? extractionPrompt : consolidationPrompt}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.\nRun: ${run.id}; cycle: ${run.cycleId}; source generation: ${run.generation}.\n${navigation}`});
+        text:()=>`${extraction ? extractionPrompt : consolidationPrompt}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.\nRun: ${run.id}; cycle: ${run.cycleId}; source generation: ${run.generation}.\n${navigation()}`});
       ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
         await assertDreamingSources(library,run.generation);
         const assembly=await next();
         return {...assembly,sections:assembly.sections.filter(section=>section.name==='nano-dreaming'||section.name==='context:agent-context'||section.name.startsWith('tool:')),
           contexts:assembly.contexts.filter(context=>context.name==='agent-context:references'),tools:assembly.tools.filter(tool=>allowed.includes(tool.name))};
+      },{prepend:true});
+      let firstRequest=true;
+      ctx.on('llm/stream',async function*(request,next){
+        if(firstRequest){
+          const size=estimateInputTokens(JSON.stringify({system:request.system,messages:request.messages,tools:request.tools}));
+          if(size>limit)throw new Error(`Dreaming first input exceeds its model budget (${size} > ${limit}); source progress is unchanged.`);
+          firstRequest=false;
+        }
+        yield* next();
       },{prepend:true});
       ctx.on('tools/pre-execute',async(exec,next)=>{
         const decision=await next(); if(decision.kind!=='allow')return decision;
@@ -90,7 +102,12 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   signal.addEventListener('abort',cancel,{once:true});
   try{
     signal.throwIfAborted();
-    handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:[{type:'text',text:input}]}));
+    const text=await input({limit,measure:async text=>{
+      const assembly=await handle.agent.ctx.systemPrompt.assemble({scope:handle.agent,signal});
+      return estimateInputTokens(JSON.stringify({system:renderPrompt(assembly),messages:[{role:'user',content:renderContextSnapshot(assembly)},{role:'user',content:text}],tools:assembly.tools}))+512;
+    }});
+    await options.save();
+    handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:[{type:'text',text}]}));
     await handle.agent.whenIdle();signal.throwIfAborted();
     const events=handle.agent.session.snapshotEvents();
     const end=events.findLast(event=>event.type==='turn/start'||event.type==='turn/end');

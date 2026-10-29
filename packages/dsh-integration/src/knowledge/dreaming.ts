@@ -8,11 +8,12 @@ import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent';
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
-import { MemorySources, commitSourceRange, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
+import { MemorySources, commitSourceRange, selectChildMaterial, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
 import { dreamingDomain, type DreamingOwner, type DreamingRun, type TaskSummary } from './dreaming-state.js';
 import type { MemoryDocuments } from './memory-documents.js';
 import { atomicWrite } from './files.js';
 import { runDreamingAgent, memoryDigest } from './dreaming-agent.js';
+import { dreamingInputLimit, estimateInputTokens, type DreamingInput } from './dreaming-budget.js';
 import { sourceConversations } from './memory-source-view.js';
 import { assertDreamingSources } from './dreaming-history.js';
 import type {} from '../product-bridge.js';
@@ -154,43 +155,27 @@ export class Dreaming {
       for(const [id,progress] of Object.entries(baselines))owner.streams[id]??=progress;
       await this.saveOwner(config.agentId,owner);
       const target=await this.sources.freezeTarget(config.agentId,owner.streams,owner.activationAt,{generation:eligibility.generation});
-      const cycleId=randomUUID();const budget=config.knowledge?.dreaming?.maxInputTokens??24000;
+      const cycleId=randomUUID();const limit=await dreamingInputLimit(this.ctx,config,signal);
+      const budget=Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit);
+      let deferred:{batch:FrozenBatch;summaries:TaskSummary[]}|undefined;
       let importPending=importLegacy;
       while(true){
         signal.throwIfAborted();await assertDreamingSources(library,target.generation);
         const policy=await library.status();
         const options={maxInputTokens:budget,seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation++,target};
-        const batch=await this.sources.freeze(config.agentId,owner.streams,options);
-        const materials=await this.sources.children(config.agentId,target,batch,options);
-        batch.conversations=[...new Set([...(batch.conversations??[]),...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents]))])];
-        const summaries:TaskSummary[]=[];
-        for(const material of materials){
-          const cached=(await this.domain).table('summaries').get(summaryKey(config.agentId,material.sessionId));
-          const valid=cached?.sourceVersion===material.sourceVersion&&cached.generation===target.generation;
-          if(valid){
-            if(memoryDigest(await readFile(cached.path,'utf8'))!==cached.hash)throw new Error('Task summary cache changed unexpectedly.');
-            summaries.push(cached);
-          }else{
-            run=this.newRun(parent,config,work,library,target,cycleId,{...batch,id:randomUUID(),units:[],ranges:[],text:material.text},'extract');
-            const extracted=await this.extract(parent,config,work,run,library,owner,material);
-            summaries.push(extracted);run=undefined;
-          }
-        }
-        const pending=summaries.filter(summary=>owner.integrated[summary.sessionId]!==summary.sourceVersion);
-        const selected:TaskSummary[]=[];let remaining=budget-batch.inputTokens;
-        for(const summary of [...pending,...summaries.filter(item=>!pending.includes(item))]){
-          const size=Math.ceil((await readFile(summary.path,'utf8')).length/3)+150;
-          if(size<=remaining){selected.push(summary);remaining-=size;}
-        }
-        const pendingSelected=selected.some(summary=>owner.integrated[summary.sessionId]!==summary.sourceVersion);
+        let batch=deferred ? {...deferred.batch,id:randomUUID(),units:[],text:'',inputTokens:0} : await this.sources.freeze(config.agentId,owner.streams,options);
+        let materials=deferred ? [] : await this.sources.children(config.agentId,target,batch,options);
+        const includeConversations=()=>{batch.conversations=[...new Set([...(batch.conversations??[]),...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents]))])];};
+        includeConversations();
+        const cache=(await this.domain).table('summaries');
+        const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
         const check=Boolean((await library.context()).reason);
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
-        if(!batch.units.length&&!pendingSelected&&!check&&!importPending){
+        if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
           for(const range of batch.ranges)commitSourceRange(owner.streams[range.sessionId]!,range);
           await this.saveOwner(config.agentId,owner);
           const rootPending=Object.entries(target.roots).some(([id,cut])=>owner.streams[id]!.cursor<cut.through||owner.streams[id]!.continuation);
-          if(pending.length)throw new Error('A task summary does not fit the configured input capacity; it remains unintegrated.');
           if(target.blocked.length||batch.blocked.length&&(!hasProgress||rootPending))throw new Error(`Source ranges remain blocked: ${JSON.stringify([...target.blocked,...batch.blocked])}`);
           if(rootPending)throw new Error('No safe progress towards the frozen source boundary.');
           owner.failures=0;delete owner.retryAt;if(work.automatic)owner.lastSuccessAutomatic=Date.now();
@@ -198,13 +183,63 @@ export class Dreaming {
           return completed.length ? {accepted:true,state:'completed',runIds:completed} : {accepted:false,completed:false,reason:'no_eligible_increment'};
         }
         run=this.newRun(parent,config,work,library,target,cycleId,batch,'consolidate');
-        run.summaries=selected;run.importLegacy=importPending;
-        const omitted=pending.filter(summary=>!selected.includes(summary));
-        if(omitted.length)run.batch.blocked.push(...omitted.map(item=>({sessionId:item.sessionId,reason:'Task summary left for a subsequent batch due to input capacity.'})));
-        const input=await this.prepare(run,library,owner);
+        run.importLegacy=importPending;
+        await this.prepare(run,library);
         await this.saveRun(run);
-        await this.model(parent,config,work,run,library,owner,input);
+        const current=run;
+        let remaining:TaskSummary[]=[];
+        await this.model(parent,config,work,current,library,owner,async capacity=>{
+          // Fit the actual scope before fixing the child cutoff. No packing attempt calls the model.
+          let materialBudget=budget;
+          let input=await this.renderInput(current,library,owner);
+          while(await capacity.measure(input)>capacity.limit){
+            const excess=await capacity.measure(input)-capacity.limit;
+            materialBudget=Math.min(materialBudget-1,current.batch.inputTokens-excess-512);
+            if(materialBudget<=0||!current.batch.units.length)throw new Error('Dreaming fixed input leaves no capacity for source material.');
+            const id=current.batch.id;
+            current.batch=await this.sources.freeze(config.agentId,owner.streams,{...options,maxInputTokens:materialBudget});
+            current.batch.id=id;
+            batch=current.batch;
+            materials=await this.sources.children(config.agentId,target,batch,options);
+            includeConversations();
+            input=await this.renderInput(current,library,owner);
+          }
+          batch=current.batch;
+          const summaries:TaskSummary[]=deferred?.summaries??[];
+          if(!deferred){
+            for(const material of materials){
+              if(owner.integrated[material.sessionId]===material.sourceVersion)continue;
+              const cached=cache.get(summaryKey(config.agentId,material.sessionId));
+              if(cached?.sourceVersion===material.sourceVersion&&cached.generation===target.generation){
+                if(memoryDigest(await readFile(cached.path,'utf8'))!==cached.hash)throw new Error('Task summary cache changed unexpectedly.');
+                summaries.push(cached);
+              }else{
+                const childWork:Active={automatic:work.automatic,controller:work.controller,promise:Promise.resolve()};
+                const child=this.newRun(parent,config,childWork,library,target,cycleId,{...batch,id:randomUUID(),units:[],ranges:[],text:material.text},'extract');
+                try{summaries.push(await this.extract(parent,config,childWork,child,library,owner,material));}
+                catch(error){
+                  child.state=signal.aborted?'cancelled':'failed';child.error=String(error);child.endedAt=Date.now();child.summary=this.summary(child);
+                  await this.saveRun(child);await this.publish(child,childWork.handle);throw error;
+                }finally{await this.disposeHandle(childWork);}
+              }
+            }
+          }
+          let usedMaterial=batch.inputTokens;
+          for(const summary of summaries){
+            current.summaries.push(summary);
+            const candidate=await this.renderInput(current,library,owner);
+            const materialSize=usedMaterial+estimateInputTokens(candidate)-estimateInputTokens(input);
+            if(await capacity.measure(candidate)<=capacity.limit&&materialSize<=budget){input=candidate;usedMaterial=materialSize;}
+            else{current.summaries.pop();remaining.push(summary);}
+          }
+          if(remaining.length&&!batch.units.length&&!current.summaries.length)throw new Error('A task summary does not fit the available input capacity; it remains unintegrated.');
+          for(const summary of current.summaries){
+            await writeFile(join(current.directory,'summaries',`${key(summary.sessionId)}.md`),await readFile(summary.path,'utf8'),{mode:0o600});
+          }
+          return this.renderInput(current,library,owner);
+        });
         await this.apply(parent,config,work,run,library,owner);
+        deferred=remaining.length?{batch:run.batch,summaries:remaining}:undefined;
         completed.push(run.id);importPending=false;run=undefined;
         await this.disposeHandle(work);
         // Re-enter even after the final root page: tasks may have later evidence inside this cycle's cut.
@@ -224,8 +259,18 @@ export class Dreaming {
       target,batch,summaries:[],receipts:[]};
   }
   private async extract(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,material:ChildMaterial):Promise<TaskSummary>{
-    const input=await this.prepare(run,library,owner);await this.saveRun(run);
-    const result=await this.model(parent,config,work,run,library,owner,input);
+    await this.prepare(run,library);await this.saveRun(run);
+    const result=await this.model(parent,config,work,run,library,owner,async capacity=>{
+      let budget=Math.min(capacity.limit,config.knowledge?.dreaming?.maxInputTokens??capacity.limit);
+      let input=await this.renderInput(run,library,owner);
+      while(await capacity.measure(input)>capacity.limit){
+        budget-=await capacity.measure(input)-capacity.limit+512;
+        if(budget<=0)throw new Error('Task extraction fixed input exceeds its model capacity.');
+        run.batch.text=selectChildMaterial(material,budget).text;
+        input=await this.renderInput(run,library,owner);
+      }
+      return input;
+    });
     if(!result)throw new Error('Task extraction produced no completed result.');
     await assertDreamingSources(library,run.generation);
     const path=join(library.workspace,'.nanoassistant/maintenance/task-summaries',`${key(material.sessionId)}.md`);
@@ -239,7 +284,7 @@ export class Dreaming {
     await this.saveRun(run);await this.publish(run,work.handle);await this.disposeHandle(work);
     return summary;
   }
-  private async prepare(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner):Promise<string>{
+  private async prepare(run:DreamingRun,library:MemoryDocuments):Promise<void>{
     const staging=join(run.directory,'staging');
     for(const directory of [run.directory,staging,join(run.directory,'summaries')]){await mkdir(directory,{recursive:true,mode:0o700});await chmod(directory,0o700);}
     const versions=run.stage==='consolidate'?await library.versions():{};
@@ -247,21 +292,26 @@ export class Dreaming {
       const target=join(staging,path);await mkdir(join(target,'..'),{recursive:true,mode:0o700});
       await writeFile(target,await readFile(join(library.root,path),'utf8'),{mode:0o600});
     }
+    const legacy=run.importLegacy?await this.importFiles(run,library):[];
+    if(run.importLegacy&&!legacy.length)throw new Error('No registered Markdown legacy backup is available for this owner.');
+    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy}),{mode:0o600});
+  }
+  private async renderInput(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner):Promise<string>{
     const inputs=[run.stage==='extract'?'# Task extraction: inherited context and own experience':'# Qualified Global dialogue (original evidence)',run.batch.text??''];
     if(run.stage==='consolidate'){
       inputs.push('# Task source updates');
       for(const summary of run.summaries){
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
-        const path=join(run.directory,'summaries',`${key(summary.sessionId)}.md`);await writeFile(path,text,{mode:0o600});
         inputs.push(`## ${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated task summary, replaces same source':'Task summary'}\nSource session_id=${summary.sessionId}; root=${summary.rootSessionId}; events ${summary.baseline+1}–${summary.through}; version=${summary.sourceVersion}\n${text}`);
       }
       const view=await library.context();
       inputs.push(`# Current memory entry (data)\n${view.entry??`Entry requires verification: ${view.reason}; pages: ${Object.keys(view.versions).join(', ')}`}`);
       inputs.push(`# Source exclusions (data)\n${JSON.stringify(view.exclusions)}\n# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
     }
-    const legacy=run.importLegacy?await this.importFiles(run,library):[];
-    if(run.importLegacy){if(!legacy.length)throw new Error('No registered Markdown legacy backup is available for this owner.');inputs.push(`# Requested legacy import\nRead these verified backup files as old evidence, compare current memory and preserve scope: ${JSON.stringify(legacy)}`);}
-    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy}),{mode:0o600});
+    if(run.importLegacy){
+      const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
+      inputs.push(`# Requested legacy import\nRead these verified backup files as old evidence, compare current memory and preserve scope: ${JSON.stringify(legacy)}`);
+    }
     return inputs.join('\n\n');
   }
   private async importFiles(run:DreamingRun,library:MemoryDocuments):Promise<string[]>{
@@ -280,10 +330,10 @@ export class Dreaming {
     }
     return result;
   }
-  private model(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,input:string){
+  private model(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,input:DreamingInput){
     this.maintenance.add(`dreaming-${run.id}`);
     return library.status().then(status=>runDreamingAgent(this.ctx,{parent,config,signal:work.controller.signal,run,owner,library,input,sources:this.sources,
-      conversations:[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)&&!status.exclusions.some(item=>item.sources.includes(id))),
+      conversations:()=>[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)&&!status.exclusions.some(item=>item.sources.includes(id))),
       save:()=>this.saveRun(run),opened:handle=>{work.handle=handle;}}));
   }
   private async apply(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner){
@@ -330,8 +380,11 @@ export class Dreaming {
     const config=this.configuration(agentId);if(!config)return undefined;const owner=await this.owner(config);
     const policy=await(await this.documents.forConfig(config)).status();
     if(policy.sourcesPending)return {...owner,active:this.active.has(agentId),backlog:{state:'source_eligibility_pending',scope:'unavailable'}};
+    let limit:number;
+    try{limit=await dreamingInputLimit(this.ctx,config);}
+    catch(error){return {...owner,active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
     const target=await this.sources.freezeTarget(agentId,owner.streams,owner.activationAt,{generation:policy.generation});
-    const options={maxInputTokens:config.knowledge?.dreaming?.maxInputTokens??24000,seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation,target};
+    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation,target};
     const batch=await this.sources.freeze(agentId,owner.streams,options);
     const materials=await this.sources.children(agentId,target,{...batch,ranges:[],cutoffs:{}},options);
     const summaries=(await this.domain).table('summaries');
