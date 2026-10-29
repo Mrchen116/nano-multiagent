@@ -12,7 +12,7 @@
 - Nano 专用入口加载评测 profile 插件，使用 DSH 公开 SessionPersistence 导入历史、实际 KnowledgeRuntime 准备记忆。空历史基线先登记，再追加原文，避免首次激活跳过经历。
 - 每道题与每次答题分别创建独立 runtime/workspace/session。只恢复文档记忆和其必要版本/来源状态；答题工具拒绝访问旧 runtime、控制文件及越界 glob。
 - 默认 CLI 为计划，真实 run/score 必须显式开启。未完成项不从分母移除；judge 可基于同一原回答重试，保留旧尝试。
-- 入口与操作命令见 [suite README](../../../evals/memory/README.md)。本 unit 不修改生产启动、RPC、工具或 current 记忆行为；no spec delta，长期评测契约在 suite README。
+- 入口与操作命令见 [suite README](../../../../evals/memory/README.md)。本 unit 不修改生产启动、RPC、工具或 current 记忆行为；no spec delta，长期评测契约在 suite README。
 
 ## Test ownership
 
@@ -37,3 +37,25 @@
 - 独立门禁与本地全量检查随后记录。
 
 所有测试 runtime 使用独立临时目录并由 adapter 终止；默认回归清理临时数据。未触碰生产身份、生产配置或公开 IM。单次排障证据在 `/tmp/feat677-native-debug/`，仅为可清理本地产物。
+
+## Independent gates and final checks
+
+实现冻结版本：`97a8b168339fd6dc454537744db152597a3cf0cf`。
+
+- 独立 code review + verification：pass，findings `[]`，0 CRITICAL / 0 WARNING / 0 SUGGESTION。另用真实 DSH 确定性探针覆盖 assistant-only、连续 user、中文/emoji/换行，3 sessions / 6 messages 保真；准备 12 次、冷答题 7 次模型请求，两个越界访问拒绝，进程已退出。见 [code-review.md](code-review.md)、[verification.md](verification.md)。
+- 独立 CLI acceptance：pass，0 问题；默认计划、拒绝未授权 run/score、自检与第二候选同协议/不同 candidate 身份通过。见 [acceptance.md](acceptance.md)。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime`：通过。
+- `pnpm test`：164 files / 855 tests 通过；日志 `/tmp/feat677-tests.log`。
+- `pytest -m 'not e2e' -q`（仓库既有 venv）：124 passed / 28 deselected。
+- frontend CI 等价检查：`npm ci`、shared contracts tsc、`npm audit --audit-level=critical`、`npm run test` 通过，108 files / 1031 tests。audit 为 0 critical；报告保留既有 11 项较低等级漏洞，不将其表述为所有依赖均无漏洞。未更新前端依赖。
+- docs-check：285 maintained Markdown sources / 68 required routes；ruff check 与 ruff format --check 通过。
+
+### Base and validity
+
+用户明确要求从 feat-676 当前实现分叉。最终 fetch 确认 `origin/unit/feat-676` 仍是 `80db8b9a604de15476dceb5e2e9a3c92d5fdf170`；本交付以它为 stacked PR base。父 PR #428 尚未合入，不能将本交付描述成 main 或生产可用。
+
+本轮读取的 main 为 `631b611ea80e4576e98e30697df3ef854f7a59c2`；相对指定开发基线，main 唯一新增提交为 feat-676 的新 Dreaming 设计文档，没有产品实现增量。本任务不将这份新目标设计覆盖成当前候选实现，不改变用户指定的分叉基线；日后父分支实施新机制时需单独核对 adapter。
+
+报告内 `51b23e42b` 为实现审查 diff 起点（review_diff_base）；工作流的 executed main snapshot 为上述 `631b611ea`。各实现/CLI 门禁的 validated_at 均为 `97a8b1683`，effective_base 为 stacked base `80db8b9a`。此后只提交门禁记录、完成状态与整目录归档、修复归档相对链接；运行代码、测试、配置和产品上下文不变，因此这些门禁保留有效，不重跑未受影响的全量测试。
+
+M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效果已验、PR 已合并或已部署。正式 benchmark 与真实模型/judge 始终 not_run，留给用户之后决定启动。

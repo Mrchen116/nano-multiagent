@@ -17,7 +17,7 @@
 | `packages/personal-assistant/src/inbox.ts`、`packages/dsh-integration/src/global-mode.ts` | 当前 Inbox 消息、工具参数和结果的实际格式依据；不把格式知识复制到通用评测框架。 |
 | `docs/specs/gateway/agent-capabilities.md` | 当前角色文档记忆、来源约束和 Dreaming 增量处理契约；本评测使用它，不重新定义产品记忆行为。 |
 
-调查基线为本分支 `ebf0df43f5fa82b5d657392ced7bf1b80f5a7e8e`，继承 feat-676 实现。核对了已安装且与本分支声明一致的 DSH `0.2.1-alpha.1` 公开类型；尚未在本 worktree 执行导入验证。实际评测必须重新记录受测 commit、依赖锁文件及配置，不能将这份调查基线当成永久绑定。
+调查基线为本分支 `ebf0df43f5fa82b5d657392ced7bf1b80f5a7e8e`，继承 feat-676 实现。核对了已安装且与本分支声明一致的 DSH `0.2.1-alpha.1` 公开类型；调查时尚未在本 worktree 执行导入验证，后续实施证据见 [progress.md](progress.md)。实际评测必须重新记录受测 commit、依赖锁文件及配置，不能将这份调查基线当成永久绑定。
 
 ### 既有约束
 
@@ -39,8 +39,8 @@ Mastra 的同类做法是先将原历史转换为自身消息结构，再执行�
 
 ### 相关历史
 
-- [feat-676](../archive/feat-676-role-memory-dreaming/) 是当前候选机制的来源；其后续修改只影响候选版本与适配接线。
-- [feat-628](../feat-628-pa-long-horizon-evaluation/spec.md) 是长期评测目标参考，不假定已有可复用的完整运行器。
+- [feat-676](../feat-676-role-memory-dreaming/) 是当前候选机制的来源；其后续修改只影响候选版本与适配接线。
+- [feat-628](../../feat-628-pa-long-horizon-evaluation/spec.md) 是长期评测目标参考，不假定已有可复用的完整运行器。
 
 ## 架构总览
 

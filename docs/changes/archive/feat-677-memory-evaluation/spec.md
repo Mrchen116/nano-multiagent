@@ -135,10 +135,10 @@ feat-676 提供本分支的角色文档记忆与 Dreaming 实现基线；feat-62
 
 ## 当前依据
 
-- [评测资产入口](../../../evals/README.md)：现有长期评测资产与候选执行环境分离。
-- [角色文档记忆与 Dreaming 当前契约](../../specs/gateway/agent-capabilities.md)：生产能力与待测基线。
-- [Global 当前契约](../../specs/gateway/global-agent.md)：原生持续主体、内部委派与交付。
-- [feat-676 原始设计与实施](../archive/feat-676-role-memory-dreaming/)：本分支继承的实现来源。
-- [feat-628 需求](../feat-628-pa-long-horizon-evaluation/spec.md)：长期评测的已有目标与证据边界。
+- [评测资产入口](../../../../evals/README.md)：现有长期评测资产与候选执行环境分离。
+- [角色文档记忆与 Dreaming 当前契约](../../../specs/gateway/agent-capabilities.md)：生产能力与待测基线。
+- [Global 当前契约](../../../specs/gateway/global-agent.md)：原生持续主体、内部委派与交付。
+- [feat-676 原始设计与实施](../feat-676-role-memory-dreaming/)：本分支继承的实现来源。
+- [feat-628 需求](../../feat-628-pa-long-horizon-evaluation/spec.md)：长期评测的已有目标与证据边界。
 
 当前 LongMemEval 技术细节见 [design.md](design.md)。本轮交付实现及确定性验证，真实模型效果与正式跑量明确待用户启动；其余 benchmark 不在本 unit 实施范围。
