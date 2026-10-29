@@ -1,6 +1,6 @@
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
   all,
@@ -93,6 +93,10 @@ export class Work {
   }
   query(c: Row, p: Row): Row {
     p={...p,query:p.keyword??p.query};
+    const memory = p.memory_cutoff !== undefined;
+    if (memory && (!['info', 'read', 'search'].includes(p.action) || typeof p.target !== 'string' || !p.target ||
+      typeof p.memory_cutoff !== 'number' || !Number.isFinite(p.memory_cutoff) || typeof p.memory_after !== 'number' ||
+      !Number.isFinite(p.memory_after) || p.memory_after > p.memory_cutoff)) fail(400, 'invalid_memory_range');
     if(p.message_id&&!p.target)p={...p,target:one(this.db,'SELECT conversation_id FROM messages WHERE id=?',p.message_id)?.conversation_id};
     const agent = one(
         this.db,
@@ -166,6 +170,7 @@ export class Work {
       if (!target) fail(404, "target_not_accessible");
       return {
         target: p.target,
+        ...(memory ? { metadata_scope: 'current', history_cutoff: p.memory_cutoff } : {}),
         name: target.title,
         type: target.type,
         channel: target.external_source ?? "web",
@@ -188,6 +193,7 @@ export class Work {
       before: p.before ?? null,
       after: p.after ?? null,
       scope: p.scope ?? "joined",
+      memory_cutoff: p.memory_cutoff ?? null, memory_after: p.memory_after ?? null,
     };
     let cursor: Row | undefined, snapshot: Row | undefined;
     if (p.cursor) {
@@ -255,6 +261,15 @@ export class Work {
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
     const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
     const filters = ["sender_type IN ('user','agent','system')"], values:any[]=[];
+    if (memory) {
+      // Stored message text can be reconciled after creation. Only a durable matching
+      // snapshot proves this version existed at the batch cut; do not infer from created_at.
+      filters.push(`julianday(created_at)<=julianday(?) AND julianday(created_at)>=julianday(?)`,
+        `NOT EXISTS (SELECT 1 FROM conversation_events e WHERE e.message_id=messages.id AND julianday(e.created_at)>julianday(?))`,
+        `EXISTS (SELECT 1 FROM conversation_events e WHERE e.message_id=messages.id AND julianday(e.created_at)<=julianday(?) AND e.delivery_status IN ('completed','failed') AND json_extract(e.payload_json,'$.content')=messages.content)`);
+      const cutoff = new Date(p.memory_cutoff).toISOString();
+      values.push(cutoff, new Date(p.memory_after).toISOString(), cutoff, cutoff);
+    }
     if(p.message_id){filters.push('id=?');values.push(p.message_id);}
     if(p.query){filters.push('instr(lower(content),lower(?))>0');values.push(String(p.query));}
     if(p.before){filters.push('created_at<?');values.push(p.before);}
@@ -299,9 +314,11 @@ export class Work {
         if (cost > budget || (content.type === "image" && images >= 4)) break;
         budget -= cost;
         if (content.type === "image") images++;
-        if(personal) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
+        if(personal && !memory) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
+          ...(memory ? { created_at: m.created_at, content_hash: createHash('sha256').update(m.content).digest('hex'),
+            delivery: personalFacts?.delivery ?? 'participant', version_scope: 'verified_at_cutoff' } : {}),
           ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
             id: m.sender_user_id,
@@ -343,6 +360,8 @@ export class Work {
       channel: target?.external_source ?? "web",
       messages: page,
       history_scope: "im_history",
+      ...(memory ? { history_cutoff: p.memory_cutoff, history_after: p.memory_after,
+        availability: 'Only versions with durable matching snapshots at the cutoff are included; later or unproven versions are unavailable.' } : {}),
       has_more: offset < ids.length,
       next_cursor: offset < ids.length ? next(ids, offset, part) : null,
     };
