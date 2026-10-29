@@ -112,3 +112,20 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - 单题计划：1 question / 53 sessions / 550 messages；默认 interval=86400000ms、quiet=600000ms；prepare 40 请求/600秒，answer 12 请求/180秒，judge 1 请求/120秒。模型与上一题一致，尚未执行本轮真实请求。保留父分支原生 UI 证据，当前修改无 Web/iOS 用户流程。
 
 后续真实试跑不自动提高限额、不重试候选、不扩题；失败或 incomplete 作为该次真实结果保存，不以机制通过推导记忆质量通过。
+
+## 2026-10-30 single Global native-window revision
+
+用户确认“一题一个 Global、一个持久 session、每段原对话一个原生 window”；本轮只做实现与确定性验证，不沿用已执行的一题真实试跑授权。父分支已提交的 input.md 删除和正常 turn/end 完成逻辑通过 `9e5cfd6cc` 原样合并，本次不重写产品 Dreaming。设计冻结 `cb296e8af`，Round 3 唯一 Runbook 授权冲突已在 Round 4 关闭，Approved / 0 CRITICAL / 0 WARNING。
+
+- `evaluation/history.ts` 通过公开 SessionPersistence 和 detached Session 物化同一根中的原生 compaction 边界及真实 surface replacement；保留原文、段 ID、日期与连续 turn/callId，source-map/timeline 增加根和窗口定位。没有业务摘要、Notes、额外模型请求或 DSH private import。
+- `evaluation.ts` 只注册一个根 binding 和主人聊天目标。`evaluation/runtime.ts` 首次基线时保留空根冷态；自动整理前 resume，同步等待 parent/maintenance idle 并 flush/dispose 后再导入下一窗口。owner 和游标不重建；仅对 native 异步 close 的单写者交接作有界等待。
+- 原生 Session.create 对带 seed 的 detached 恢复会补 `session/end-seed`，首次实现漏持久化该结构事件导致 seq 从 1 起写入空流而失败。现在显式提供并保存同一个 restore marker，所有原始逻辑时间均写入持久日志，无全局 Date 改写。最终结果以 targeted 日志为准。
+- candidate v4 显式记录 single-global-session / dataset-session-as-native-window / one-owner-conversation；稳定 protocol v2、Runner、题目与 judge 不变。canonical 使用说明更新在 `evals/memory/README.md`；no spec delta，无部署迁移。
+
+### 测试策略与已得证据
+
+- 扩展既有 `evaluation-runtime.test.ts` 和共享 fixture（rewrite-merge），不新增测试文件。原生持久化观察器仅在 fixture 记录宿主实际写入；恢复后验证当前 surface、History 完整原文、唯一根/目标、连续调用身份和原时间。旧实现先出现四窗口断言失败，日志 `/tmp/feat677-window-red.log`。
+- 同一真实运行时旅程改为从实际 Source directory 取唯一 root；验证早期只有已到达窗口、后续列出同根多窗并读取旧窗完整长消息、维护自身换窗/notes/history 恢复、冷答题无旧原文或维护笔记。fixture 使用父版本正常完成响应，未调用退役 finish 工具。
+- 保留零到期、请求预算、超时杀进程、Runner/评分/CLI 既有保护。新增同文件四窗无到期旅程，保护真实持久化和恢复，不按 Dreaming 私有批次数设通过条件。
+- `pnpm --filter @nano/dsh-integration... build` 通过；`pnpm exec vitest run packages/dsh-integration/tests/evaluation-runtime.test.ts evals/memory` 5 files / 15 tests 通过，日志 `/tmp/feat677-window-targeted.log`。无真实候选/judge 调用，所有测试目录和子进程由既有 finally 清理。
+- 独立门禁、最终版本与本地/远端检查结果随后追加；不会将确定性机制通过写成真实模型效果提升。
