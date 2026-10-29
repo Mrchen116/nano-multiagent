@@ -207,3 +207,74 @@ Surviving findings:
 ```
 
 Round 6 code-review verdict: **pass**. No confirmed or plausible actionable defect in the bounded delta. Round 5's 842-test aggregate and `acceptance.md` Round 3's actual native trajectory/cold-read reacceptance remain applicable to their unchanged implementation; its minor T1 recovery-prompt observation remains a separate non-blocking side finding. This round does not replace those journeys or alter their evidence.
+
+
+## Round 7 — R8 full implementation review (2026-10-29)
+
+This is the current R8 review. Earlier passes above describe older protocols and do not certify this candidate.
+
+- `review_mode`: full; independent change-code-review with Agent Context Review Mode B.
+- `validated_at`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- `executed_base` / `effective_base`: `80db8b9a6`; `effective_through`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- Approved design baseline: `452e26373` (R8); the candidate also retains the native-identity repair supplement and historical-capability delta sections. These were checked, rather than silently treating the old acceptance as current.
+- Scope: the entire implementation increment, including foreground read-only enforcement; frozen root/child sources; original-message continuation; extraction/cache/replacement/no-signal; consolidation/staging/receipts/recovery; public shared history and bounded IM access; protocol migration; prompt provenance; retained configuration, Skill and UI contracts. No implementation, test, design or production change was made by this reviewer. Concurrent caller edits to implementation-r8.md are outside this report's fixed candidate.
+
+**Verdict: changes requested.** Two CONFIRMED product defects; one CONFIRMED low-priority documentation issue. No PLAUSIBLE finding is being promoted to a confirmed product failure.
+
+### Findings (current JSON)
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/knowledge/dreaming.ts",
+    "line": 351,
+    "summary": "[P2] Retain staging while a completed run still needs Git compensation",
+    "failure_scenario": "A run saves its Markdown but receives saved=true/versionRecorded=false. After eight days offline, recover() deletes its staging because state is completed. execute() still selects that same run for version compensation (line 141), and apply() rereads staging (line 297), now raising ENOENT before new source work can start. This loses the recovery material and repeatedly blocks future maintenance; the already-saved body remains intact.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "recommendation": "Exclude runs with outstanding version-recording receipts from retention cleanup, or make compensation independent of retained staging. Keep the existing recovery seam and cover expiration followed by successful compensation/new work.",
+    "evidence": "dreaming.ts:139-150,290-300,349-355; independent built-candidate recover() reproduction /tmp/feat676-static-r8-repro.json: recovery.staging_retained=false, requires_version_compensation=true, next_apply_read=ENOENT. The reproduction invokes the real recovery method with a minimal domain fixture and temporary actual files; no production incident is claimed."
+  },
+  {
+    "file": "packages/dsh-integration/src/knowledge/memory-sources.ts",
+    "line": 63,
+    "summary": "[P2] Preserve the Inbox source envelope when expanding original messages",
+    "failure_scenario": "A PA Inbox read returns target/name/conversation_type/delivery/channel around messages. renderMaterial() emits only the outer event metadata and body.messages, dropping that source envelope. prepare() sends batch.text directly to consolidation, and child renderNative() uses the same expansion. Oversized-message materialSegments() also drops the envelope from each continuation. The model receives the words/author but loses whether they came from an observer source and the original historical conversation context. A preceding tool call may retain a target, but it cannot recover the missing historical delivery/name/type fields.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "Global original-material input, child extraction input and long-message continuation",
+    "expected": "Preserve actual author, chat, time, message identity and participant/observer provenance through readable projection, extraction and consolidation (design section 4.4; Agent Context Engineering sections 3 and Messages/Inbox).",
+    "observed": "Inbox.read places those fields only on its result envelope (packages/personal-assistant/src/inbox.ts:287-288). renderMaterial() omits every body field except messages; materialSegments() copies record/message metadata without the body envelope. A synthetic envelope with target=conversation-unique and delivery=observer becomes just the event metadata, sender, id and text.",
+    "impact": "Durable summaries and role memory cannot reliably preserve historical observation scope and audience applicability from the supplied source. This confirms an interface information loss; it does not claim that a real model has already disclosed information or certainly misattributed it.",
+    "recommendation": "Carry the non-messages source envelope into the readable result and each long-message segment; preserve message-specific overrides. Extend the existing source-projection seam to check the actual rendered text/continuation with a realistic PA Inbox envelope.",
+    "evidence": "memory-sources.ts:56-84,236,313,347-350; dreaming.ts:250-264, dreaming-agent.ts:130-133; inbox.ts:274-290; /tmp/feat676-static-r8-repro.json: context.preserves_target=false and context.preserves_delivery=false. This is deterministic serialization evidence. Native request delivery is separately captured in /tmp/feat676-static-r8-context/requests.jsonl records 3-4; that probe uses direct synthetic input, so it is not a live observer-case reproduction."
+  },
+  {
+    "file": "docs/changes/feat-676-role-memory-dreaming/spec.md",
+    "line": 156,
+    "summary": "[P3] Restore implementation links relative to the active unit",
+    "failure_scenario": "The three packages links on lines 156-157 use ../../../../ from docs/changes/feat-676-role-memory-dreaming. They resolve outside nano-multiagent and all three targets are absent; readers cannot follow the cited implementation. ../../../ is the active-unit depth, while four levels is appropriate only under archive.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "SUGGESTION",
+    "evidence": "Candidate diff from design baseline 452e26373 changes those three links. Path.resolve()/exists() confirms the targets point to /Users/czj/.codex/worktrees/unit-feat-676/packages/... and do not exist. docs-check passes because its maintained-source scope does not cover these active-unit links."
+  }
+]
+```
+
+### Context delivery and consumption evidence
+
+The affected consumers are foreground root/ordinary child, first-level task extractor, and the single consolidator. Review followed source ownership/qualification → readable input → prompt/tool assembly → cache/generation invalidation → staging/application → root refresh and maintenance recovery. Extraction and consolidation retain distinct duties; all new DSH imports are public declared package imports, and PA/IM use product-contracts rather than DSH.
+
+- Candidate code and `dreaming-task-runtime.test.ts` preserve inherited provenance, replacement/no-signal and real native notes/new_context/source_history handling; the fixture's model returns are controlled. Reused `/tmp/feat676-native-no-signal.log`, `/tmp/feat676-cycle.log`, `/tmp/feat676-history3.log` and the 307-test expanded run as applicable deterministic evidence, not real-model understanding.
+- Independent native pre-adapter capture: `/tmp/feat676-static-r8-context/requests.jsonl`, with structural locator `/tmp/feat676-static-r8-context/summary.json`. Records 1/2/5 are root requests with formal-memory read-only guidance; record 3 is `dreaming-bc606e0e-5c33-45b0-8a02-6d8abe68415b` with the actual role prompt, qualified Global input, source directory, `source_history`, own `history/notes/new_context/get_context_remaining` and `finish`. It has no Inbox, messaging, business task, scheduling, shell or Skill publication tool. Record 4 contains the actual finish result in the next maintenance request. The source directory supplies the otherwise-required session IDs. This is a native-runtime fixture with controlled llm/stream output, before provider adaptation; it proves assembled delivery and result presence, not autonomous tool choice or provider-wire behavior.
+- Source-history/IM return schemas, identity binding, generation checks, cursor scope, Unicode and cutoff filtering were followed in `dreaming-history.ts`, `memory-source-view.ts`, `global-agent.ts` and `work.ts`. The ordinary history API remains the shared package's archived-current-session view; source_history uses public `createHistoryView` for qualified business snapshots. No implementation copy or private import was found.
+- The Codex fixed originals, extraction/consolidation adaptation diff, Muse content-dimension mapping and packaged license/provenance were compared with the final prompt. This establishes source/adaptation coherence; it does not establish real-model preference generalization, audience handling or reflective behavior.
+
+Independent checks: source/history narrow regression **14/14 passed**, `/tmp/feat676-static-r8-narrow.log`; docs-check using `PYTHON=.venv/bin/python` **passed**, `/tmp/feat676-static-r8-docs.log`. The initial system-Python invocation lacked yaml and is an environment failure, not a product finding. `git diff --check` finds only copied Muse original trailing spaces, retained as source fidelity and not reported as a defect.
+
+### Limits and stopping point
+
+The two defects above are directly reproducible at their lowest relevant seam. Real provider request serialization, autonomous source/IM recovery choices, the S21-S30 journeys, affected S05-S07/S13-S20 behavior and the current full CI remain caller/product-review work. implementation-r8.md's preliminary real-model self-check is not independent R8 acceptance. Old UI/legacy/Skill evidence may only be retained for unchanged behavior; it cannot close changed source or single-writer behavior. Scope is sufficiently covered for this full static review; after fixes, review the actual fix delta and these named conditions rather than repeat the entire branch.

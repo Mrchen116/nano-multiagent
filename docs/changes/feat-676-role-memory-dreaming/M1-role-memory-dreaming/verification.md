@@ -281,3 +281,84 @@ The remaining independent product task is actual S18/native-viewer reacceptance,
 - Historical evidence is preserved: `acceptance.md` Round 3 at the base records actual old/new native trajectories, authorized restart/cold reads and the non-blocking T1 prompt observation. It supplies the previously separate S18 reacceptance; this verifier inspected that report, did not reenact its journey and does not turn T1 into a cleanup finding.
 
 Round 6 `verdict`: **pass**; `issues`: []; **0 CRITICAL / 0 WARNING / 0 SUGGESTION**; `outcome`: **aligned**; `requires_full_verification`: false. Prior unit evidence remains scoped as recorded. Only these two reports were edited; no product code, service or configuration was changed by this reviewer.
+
+
+## Round 7 — R8 full verification (2026-10-29)
+
+- `unit_id`: feat-676; milestone: M1-role-memory-dreaming.
+- `verification_mode`: full; `review_round`: 7.
+- `validated_at`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- `executed_base` / `effective_base`: `80db8b9a6`; `effective_through`: `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- Design authority: approved R8 at `452e26373`, with the candidate's native-identity supplement and historical capability delta reconciled below.
+- `requires_full_verification`: false (this round already covers the full R8 implementation; fix closure must cover its actual shared-source/recovery impacts).
+- `verdict`: **not ready / implementation-mismatch**. Current counts: **1 CRITICAL evidence/exit-criterion gap, 2 WARNING confirmed implementation defects, 1 SUGGESTION documentation defect**. CRITICAL below records missing current acceptance, not a proven model/product failure. Prior passes are historical; they are not the current result.
+
+### Completeness and correct scope
+
+The implementation increment has the intended single writer, two source paths, frozen continuous batches, per-task extraction/replacement cache, bounded business-history/IM recovery, fixed shared package and offline protocol conversion. No additional runtime, DSH private import, PA/IM DSH dependency or parallel knowledge writer was found. The reviewer changed only the two assigned reports and did not start production or alter implementation/tests/configuration/design.
+
+M1's implementation mechanisms are substantially present, but M1 cannot exit yet: the confirmed findings below affect W2 and W4/W8/W10/W12, and the revised independent product/real-model criteria have not been supplied as current passes to this verifier. The full CI was explicitly left to the caller. Old acceptance stays valid only where its exact unchanged condition still applies; it cannot certify the redesigned behavior by inheritance.
+
+### Correctness — requirements and scenarios
+
+| Requirement / scenarios | Implementation and direct evidence | Current disposition |
+| --- | --- | --- |
+| Role/audience and complete document consumption, S01-S04/S08-S09 | document-memory.ts role/context/version handling, memory-documents.ts basis/receipts; role layout and final consolidation prompt; unchanged original tests in the expanded run | Mechanisms retained; changed source provenance has F-R8-2 below; no new autonomous audience/semantic pass claimed |
+| Sole Dreaming writer/current correction, S05-S07 | document-memory.ts execution rejection and read-only injection; memory_maintenance routes manual/import through Dreaming; independent native requests 1/2/5 show current guidance | Aligned structurally; affected real root/child correction and later consumption remain product-review work |
+| Continuous qualified history, S10-S14/S21 | memory-sources.ts freezeTarget/freeze/commitSourceRange; dreaming.ts continuous loop and fresh retry target; memory-sources and cycle runtime evidence | Aligned batching/cut/continuation mechanisms; source-envelope projection loses required metadata (F-R8-2) |
+| Partial/restart/Git, S15-S16 | dreaming.ts prepare/finish/application receipts, memory-documents.ts apply; recovery native tests | Version compensation fails after retention expiration (F-R8-1) |
+| Auto/manual/lifecycle/quiet Work, S17-S18 | tick/start/stop/configurationChanging and maintenance trajectory registration/publication; scheduler/runtime/PA/IM expanded regressions | No new static mismatch; R8 Work/native reacceptance is distinct from old S18 history |
+| Old-data migration, S19 | migrate_dreaming_protocol.py retains initial activation, successful cursors, source qualification/receipts; retires old JSON plans/offsets; protocol-2 guard, separate legacy migration | 14 migration tests reused; no migration or production run performed by verifier |
+| Source withdrawal, S20/S26 | generation/status/exclusions, request assembly + tools + apply checks; invalid summary sourceVersion/generation forces re-extraction | Mechanism present; current model recovery/stop-use behavior still requires revised product evidence |
+| Task summaries, S22-S25/S30 | memory-sources.ts children own baseline/inherited-source matching/budget; dreaming.ts extraction cache, replacement/no_signal and integrated version tracking | Native controlled journey supports extraction→failed consolidation→reuse→continuation replacement→no_signal; does not prove autonomous understanding |
+| Business history/own recovery, S27-S28 | dreaming-history.ts directory, lineage, qualification/cut before createHistoryView, scoped cursor; dreaming-agent.ts restricted setup; shared rc.6 | Independent 14-test narrow run plus native delivery; real-model omission→query→correct conclusion and own-window recovery not yet accepted here |
+| Read-only IM supplement, S29 | dreaming-history.ts original parent actor, directory + activation/cutoff; global-agent.ts dedicated product route; work.ts version-qualified read/search without source-read side effects | Static and supplied unit/integration evidence aligned; actual IM read/search/Inbox unchanged-state product evidence remains separate |
+
+### Coherence — W1-W13 and evidence depth
+
+| Exit criterion | Implementation / evidence reviewed | Status and limit |
+| --- | --- | --- |
+| W1 certified native source cuts | memory-sources.ts live first flush → immutable observation → second flush; cold revision, pairing, baseline/identity; source tests in 307 run and independent narrow rerun | Mechanism covered; original-source rendering problem separately F-R8-2 |
+| W2 single writer, atomic apply and crash/Git recovery | document-memory.ts; memory-documents.ts apply/checkpoint; dreaming.ts staged plan and recover | **WARNING F-R8-1**: cleanup destroys a still-recoverable completed run's staging |
+| W3 scheduling/configuration/Skill pause | tick/start/stop and unchanged feature/capability/Skill selection paths; expanded scheduler, knowledge and PA suites; old fixed-creator UI evidence only for unchanged controls | No additional static mismatch; does not re-certify all current true-model Skill behavior |
+| W4 actual Context and behavior | independent root/consolidator native request capture in code-review Round 7; supplied native task-extraction fixture; tool schemas/restricted assembly | Assembled pre-adapter delivery checked; **WARNING F-R8-2** information loss; revised provider-wire/real-model behavior pending |
+| W5 Work/auth/receipts/quietness | reviews/publish/maintenance trajectory, PA Work and IM tests in expanded run | Static/native mechanisms covered; current product Work results not inferred from test counts |
+| W6 UI/reference/iOS | R8 code increment has no Web/iOS source change; the two UI controls and save/apply structure retain prior evidence; current delta changes the meaning of turning off Dreaming to read-only/current response/manual Dreaming | No new UI mechanism defect; no new screenshots or iOS compile claimed; final inherited-evidence accounting remains caller-owned |
+| W7 migrations/builds/contracts/docs | implementation-r8.md paths; 14 migrations and 27 migration+architecture tests; whole build/typecheck supplied; own .venv docs-check passes 327 sources/68 routes | Available local checks pass; current full CI and final S01-S30 matrix not yet supplied to this verifier |
+| W8 continuous batches/long human text | freeze pagination at Unicode characters and original message hash/ID; successful range commit/fresh target after failure; source/cycle fixtures | Mechanism covered; **F-R8-2** continuation omits original envelope metadata |
+| W9 inherited background/child replacement | children authenticates actual parent copied records, baseline/time/cut and source identity; cache version includes own/inherited/generation; deeper children only bounded recovery | Deterministic and native controlled support; autonomous inherited-condition handling pending |
+| W10 two-stage failure/partial input | summary cache only valid matching version/generation; extraction success distinct from integration; pending summaries omitted for capacity remain unintegrated; input prepared/hash checked | Two-stage mechanism covered; **F-R8-2** affects actual Inbox provenance; changed real-model cases pending |
+| W11 protocol conversion | explicit offline script + stopped-writers flag/backup/planned replacements; old plans retired; existing protocol-2 progress not reset on completed rerun | 14 migration checks reused, including unreported child activation boundary; no runtime migration compatibility branch introduced |
+| W12 original prompts/content dimensions | fixed Codex originals and prompt-adaptation.diff compared with final dreaming-prompts.ts; provenance/LICENSE/NOTICE packaged; Muse dimensions land in current role layout | Source fidelity/adaptation reviewed; **F-R8-2** removes needed input conditions; autonomous long-term understanding/feedback/preferences pending |
+| W13 shared history + bounded IM | public rc.6 root export createHistoryView, fixed release URL and lock integrity; source_history directory/query/identity/cursor; own history stays archived-current-session; PA/IM bounded product route | Narrow 14 tests and native delivery support structure; shared release not misrepresented as GitHub immutable; actual real-model query/restore + IM no-side-effect journey pending |
+
+Supplied local results were checked at their locators: `/tmp/feat676-expanded-tests.log` **68 files / 307 tests passed**; `/tmp/feat676-migration2.log` **14 passed**; `/tmp/feat676-python-pre-review.log` **27 passed**; `/tmp/feat676-native-no-signal.log`, `/tmp/feat676-cycle.log`, `/tmp/feat676-history3.log`, `/tmp/feat676-full-build.log`, `/tmp/feat676-typecheck-pre-review.log`. They are implementation-owner evidence, not independently rerun full CI. Independently executed: `/tmp/feat676-static-r8-narrow.log` **2 files / 14 tests passed**; `.venv` docs-check `/tmp/feat676-static-r8-docs.log` **passed**; both actual lower-seam reproductions `/tmp/feat676-static-r8-repro.json`.
+
+### Prototype / Reference and delta reconciliation
+
+The reference contract in design requires no Memory/creator toggles, document Dreaming only, save-vs-applied state and real Work partial-result semantics. R8 retains UI implementation and changes backend behavior; code inspection does not invalidate the unchanged reference screenshots, but no fresh visual or true-product pass is asserted by this static verifier.
+
+The four active delta files agree with the intended R8 single writer, current-conversation correction plus later durable persistence, source withdrawal, continuous sources/task replacement and business-vs-own history distinction. The candidate's additional historical-Skill-cache, capability-protection and maintenance-directory clauses preserve existing contracts; they do not restore automatic Skill forks. The native-identity design supplement matches the public descriptor append/repair implementation and introduces no second business source.
+
+Current canonical specs in this unmerged unit branch still contain the earlier implementation's foreground-write wording (for example agent-capabilities.md's immediate body/entry correction). The active delta correctly supersedes it for the target. That is a required final canonical reconciliation after gates, not justification to change implementation to the obsolete writer model or silently proclaim the unit complete. No additional uncovered observable behavior was found beyond the reported implementation mismatches. Current reconciliation outcome: **implementation-mismatch**.
+
+### Issues
+
+#### CRITICAL — current milestone evidence / exit criteria
+
+- **V-R8-1, current R8 acceptance remains open (CONFIRMED evidence gap, not a confirmed model failure).** design.md:393 and the S21-S30/affected S05-S20 contracts require actual requests, independent product behavior and final scenario accounting. The supplied implementation report labels its single synthetic model journey a self-check and explicitly says independent acceptance/wire capture remain pending. Old passes at other snapshots cannot satisfy the revised requirements. Action: caller completes the bounded independent product/real-model and full-CI work already assigned, attaches exact candidate/session/request/response and actual resulting state locators, and reconciles retained old evidence only for unchanged conditions. No extra production exercise is requested.
+
+#### WARNING — confirmed implementation mismatches
+
+- **F-R8-1 / code-review Round 7 finding 1 (CONFIRMED).** dreaming.ts:351-352 cleans completed runs even when saved/versionRecorded=false still requires their staging at line 297. Real recovery reproduction deletes the file and produces ENOENT for the next application. Violates design section 6's retention of pending-recovery materials and S15/S16/W2. Preserve outstanding compensation material and verify expiration→compensation→new-work behavior at the existing recovery seam.
+- **F-R8-2 / code-review Round 7 finding 2 (CONFIRMED Context interface defect).** memory-sources.ts:63 and 77-80 discard the Inbox outer target/delivery/name/type/channel envelope in rendered and continued material. This contradicts design section 4.4's historical chat and participant/observer provenance, and W4/W8/W10/W12. Preserve the envelope through the actual readable projection; verify the rendered native input, not only the intermediate JSON. Failure mechanism, expected/observed Context, impact, evidence and limitations are in the corresponding code-review finding.
+
+#### SUGGESTION
+
+- **D-R8-1 (CONFIRMED).** spec.md:156-157 uses archive-depth ../../../../packages links from the active unit; three cited files resolve outside the repository and are absent. Restore ../../../packages for this active path. The independent docs-check passes its own maintained-source scope and does not refute this direct path check.
+
+### Context evidence and final disposition
+
+Reuse code-review Round 7's Mode B review: fixed-source provenance, final prompt/Schema assembly, generation invalidation, original history/IM identity/cut, cached summary replacement and staging application were traced together. `/tmp/feat676-static-r8-context/requests.jsonl` records 1/2/5 show root guidance; 3/4 show consolidator input/directory/tools and finish result in the following request. This is actual native assembled delivery with controlled llm/stream, not provider-wire or autonomous model consumption. The preliminary real-model self-check remains labeled as such and has not been relabeled as independent acceptance.
+
+Two WARNING defects require implementation fixes; one CRITICAL acceptance gap requires the caller's remaining evidence. The documentation suggestion is low priority. No new review loop is warranted without an actual fix/evidence delta. The report's fixed validated/effective scope is unchanged by this report commit or concurrent caller documentation edits.
