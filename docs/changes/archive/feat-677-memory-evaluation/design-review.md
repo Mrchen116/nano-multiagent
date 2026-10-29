@@ -82,3 +82,86 @@ Inbox 格式来自 PA，而 integration 不可导入 PA。设计允许复用投�
 - 接受 Round 1 结论。已核对公开持久化接口、空来源初始化、当前 KnowledgeRuntime 接线和冷答题来源状态，未发现实质异议。
 - 用户授权边界：本轮只做确定性 provider 验证，不执行真实候选或 judge；真实效果继续标记未测。
 - design.md 状态行仅将“待 Gate 2”改为已通过，无受审行为变化；保留本轮审查证据。
+
+## Round 2
+
+### Metadata
+
+- reviewer_target: `/root/timeline_design_review`，独立设计 reviewer，未参与受审设计或实现编写。
+- review_mode: `full`
+- mode_reason: 时间回放本身有界，但同时修改稳定 `prepare.ready` 语义、协议身份与 M1 退出标准；因此按 full 核对完整需求与链路，详细展开时间准入、原生历史可见性和状态语义。没有把 Round 1 Approved 当作本轮放行依据。
+- reviewer_handoff: 原 reviewer `/root/design_review`；本轮由新独立上下文接手，依据 Round 1 完整报告、当前 diff、实际组装入口及现行实现重新核对。Round 1 无存活问题。
+- started_at: 2026-10-29T22:08:28+08:00
+- completed_at: 2026-10-29T22:10:51+08:00
+- duration: 143 秒；计时自本轮首次显式时间记录开始，前置文档与 diff 阅读未计入。
+- validated_at: 分支 `codex/feat-677-memory-evaluation`，HEAD `31f68e4152e06948575065f0e59dcd91ff6b4915`，加本轮受审的 `spec.md` / `design.md` 工作区修改。
+- `spec.md` SHA-256：`077df3589a1e65394479bba1f390a137852fa3f4a8f874329004bcf6ced5e327`。
+- `design.md` SHA-256：`4f5c7a9807368dd9af34f2dcc518c80e3575d878a40fc332d600c6504d12a864`。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+统一时间回放可在当前产品组装和公开持久化接口中实施。准入规则由 Dreaming 持有，评测宿主负责按已确认的会话时间推进、等待和封存；未发现会使实施实质走偏的未解决设计问题。本结论只确认设计可行性，不表示新回放已经实现或通过运行验收。
+
+### Coverage 与证据
+
+#### 需求、协议与用户约束
+
+`spec.md:72-118` 的完整历史、正常自动积累、末尾只等待已触发工作、冷答题、框架独立性和显式花费预算均有对应落点。`design.md:172-184` 只定义一套 chronological-session-ingestion；回放终点是末段历史，不传未来问题或 `question_date` 给 prepare，不跳到下一周期清空积压。会话原子到达、同刻原顺序、碰到周期边界先记录新活动、维护期间逻辑时间暂停和无时区解释均已明确。这是会话级顺序回放，设计没有宣称覆盖真实前后台耗时竞争。
+
+`prepare.ready` 的新含义与用户要求一致：完整导入、已准入处理成功结束、当前状态已封存；不等于全部历史已提炼。协议 version 2 与 candidate v3，以及有效 `intervalMs` / `quietMs` / `maxInputTokens` 和时间假设进入身份，避免旧集中导入结果与新结果混用（`design.md:137,180-182`）。通用 Runner 当前只核对完整导入收据及 ready 状态后交付问题，不读取 Dreaming backlog，因此不需要把时间调度或游标知识引入框架（`evals/memory/runner.ts:95-114`）。
+
+默认 plan 仍不加载候选；实际运行开关、非空题集和阶段限额保留（`evals/memory/cli.ts:22-46`）。`design.md:256-272` 明确独立门禁使用确定性 provider，owner 随后只执行已选 e47becba，一题准备 40 请求/600 秒、答题 12 请求/180 秒、judge 1 请求/120 秒；不自动加预算、换题或重跑候选。该授权范围没有被扩大到完整 benchmark、生产服务或本 reviewer 的真实模型调用。
+
+#### 实际组装与时钟接入
+
+- 实际服务由 `packages/dsh-integration/src/index.ts:179-180` 装配 `KnowledgeRuntime`，后者在 `knowledge/runtime.ts:53-58` 建立 `DocumentMemory` 与 `Dreaming`。评测 profile 挂载独立插件，仍通过同一 `RuntimeClient` 和本地控制 socket 使用这些服务（`evaluation.ts:163-179,204-219`）。设计没有要求替换 Agent loop、DSH 私有导入或生产 RPC。
+- 当前 `Dreaming.owner` 的 activation、`execute` 的自动成功/失败重试时点直接取 `Date.now`，只给 `tick` 传入历史时间不足以完成回放（`knowledge/dreaming.ts:72-107,133,196,213`）。设计已明确在 owner 初始化前调用 `useClock`，使逻辑时间的所有者仍是 Dreaming，并关闭 timer/step 自动准入；因此没有把这一差异留给适配器私改 owner 状态。
+- 当前 initialize 在恢复知识服务后注册配置，owner 的首次创建发生于 `status` 或绑定 root 的 `agent/created`；现有评测 import 先调用 status，之后才 ensure 独立 root（`index.ts:305-350`、`evaluation/history.ts:20-27`、`evaluation.ts:61-64`）。因此在评测插件/导入初始化中先设宿主时钟，再创建空来源与 owner，最后解析 root 的顺序有真实接入位置；不是依赖测试专有装配。
+- 自动准入现状包含周期、retryAt、静默、前台 provider 容量、父 Agent 状态和停用条件（`dreaming.ts:92-107`）；自动成功会更新下次周期基准，即使本次没有合格增量也不会无限卡在同一到期点（`196-198`）。设计要求 `nextAutomaticAt` 与 `tick` 复用这些产品条件；长时间空档可以按真实周期检查，无需复制常量或建立第二个调度器。实际执行失败由本次评测立即终止，不能拿产品后续重试时间把失败掩盖成 ready；这与复用产品准入条件不冲突。
+- 当前阶段超时、退出 watchdog 和用量耗时均在 adapter/runner 使用真实计时（`evaluation.ts:53-59,79-84,98,149-157`、`evaluation/runtime.ts:17-43`、`evals/memory/runner.ts:23-40`）。设计只替换 Dreaming 逻辑时间，禁止全局 Date/timer 替换，能够保留这些硬截止和取消边界。准备过程结束再停子进程、复制正式记忆的顺序已有实现（`evaluation.ts:64-78`），可承接新的 idle/freeze 屏障。
+
+#### 原生历史后续可见性与冻结范围
+
+当前 `importHistory` 已通过公开 persistence `create/open/append/flush/close` 保留事件身份和正文（`evaluation/history.ts:20-67`）。拆成空来源初始化与逐 session 追加不会改变该存储契约。`MemorySources.baseline` 按空日志得到 `-1`，后续 freezeTarget 与 freeze 每次重新 observe，而非把首次读到的事件数组永久保存（`knowledge/memory-sources.ts:110-120,241-277,323-337`）。
+
+本轮另核实安装版 `@deepseek-ai/dsh-session-query@0.2.1-alpha.1`：其公开根 export 的实现 `lib/index.js:348-393,419-425` 每次先 stat，冷读缓存以持久化 identity 和 revision 为键；`dsh-session-persistence/lib/types/index.d.ts:141-145` 明确 revision 的变化契约。因此先 observe 空来源不会阻止后续 append 对新观察可见，不需要广播历史事件、重演旧工具或手工失效 DSH 缓存。此处是本地安装版源码核对，未运行新的导入试验。
+
+现有真正执行的 root 与导入的历史 session 分离（`evaluation.ts:171,179,214-215`），历史来源保持冷读；设计只解析该真实 root，不把所有历史 session 激活成运行中的 Agent。未来正文到时才写入，并且每轮 tick 完成前不继续追加，形成物理可见性边界。产品自身 freezeTarget 再限制连续批次，source_history 在资格检查后按 seq/time cutoff 过滤（`knowledge/dreaming.ts:153-164`、`dreaming-history.ts:19-33,78-90`），两者能共同保证早期整理与回查不读到后到正文。
+
+#### Context Design Review — Mode A
+
+触发面为历史交付时机、整理者可见来源、先前记忆累积、维护恢复和冷答题；不是提示词字面改动。以下均为设计与源码层面判断，没有新实现的模型请求或行为证据。
+
+| Consumer / Surface | 本轮判断 |
+|---|---|
+| 记忆整理者：消息、来源与时间 | 数据白名单继续只给历史，原文/角色/会话日期与 imported provenance 沿原生事件进入实际来源选择。未到达正文不落可读存储；同刻全部追加后再准入，后到纠正进入下一轮。历史只是经历数据，不增加业务授权。 |
+| 记忆整理者：既有记忆与按需原文 | `runDreamingAgent` 仍提供当前正式库、staging、真实 input 和 source directory，保留受限文件工具与 source_history（`dreaming-agent.ts:35-85`）。source directory 和参数由宿主派生，模型有可发现的来源 ID 和读取入口，不要求猜测内部身份。早期 Berlin 只能生成当时知识，中期 Paris 纠正可更新已有记忆，末段尚未到期的新事实可以留在 backlog。 |
+| 维护换窗恢复 | `history` 恢复维护者自身，`source_history` 回查获准业务原文；来源资格与本批 cutoff 在读取时复核，换窗不自动扩大到后到历史（`dreaming-agent.ts:49,52,59-60`、`dreaming-history.ts:70-90`）。设计保留原恢复测试，没有把维护笔记当作答题记忆。 |
+| 冷答题：Memory、问题与日期 | 独立 runtime 仅复制正式记忆及必要的 documents 状态，经正常来源同步与装配消费；文件守卫不开放准备目录，服务只提供本次问题和本地发送（`evaluation.ts:97-114,186-202,224-235`、`evaluation/runtime.ts:45-64`）。末尾有 backlog 不产生额外注入，空记忆同样可冷答题。 |
+| 运行者与 Runner：成功、未触发、失败 | tick 返回实际尝试结果，whenIdle 只等待已准入工作；已触发失败/超限不能用空闲或文件存在推断成功。最终 backlog 与 timeline 留证，Runner 只消费稳定状态和 locator。没有对模型隐藏失败并继续补跑的设计。 |
+
+`design.md:184` 的验证样例能够区分新的时间行为与旧的集中导入：依据实际收到的原文生成 fixture 记忆，核查早期请求无后续纠正、中期确已收到纠正、末段未到期事实没有进入封存记忆，并由冷答题实际读取封存值。另有零到期/零准备模型请求用例；预算、挂起截止、产品 scheduling 和真实 Dreaming 回归保留。该证据计划能证明交付与边界，不把固定写入 Paris 的替身当作记忆理解证据；模型理解能力仍须与确定性机制结果分别报告。
+
+#### 完整性、职责与未受影响边界
+
+完整历史无损、问题/gold 隔离、独立评分、失败分母和最终回答原样保留均未被本次修改改变。本轮从 `evals/memory/dataset.ts` 的字段白名单/稳定时间排序、`runner.ts:85-117` 的阶段交接和 `judge.ts:14-46` 的独立评分重新核对了本地链路；官方 evaluator 原始核验 `retained_from: Round 1`，因本次不改评分模板或题型规则，不重复联网核对上游。所有真实模型效果均未在本轮验证。
+
+职责分工合理：Dreaming 维护自身时钟与准入语义，evaluation runtime 维护回放顺序和来源物化，adapter 维护隔离/真实预算/快照，通用 Runner 维护稳定状态和评分。新增四个宿主方法服务于可验证的生命周期，没有新增通用调度服务、重复记忆写者或第二套候选协议。生产默认 Date.now/timer/step 行为要求保持；因此 Gateway/PA `no spec delta` 成立，实施若改变正常产品准入须按现有约定补窄 delta。评测协议的长期权威继续在 `evals/memory/README.md`，M1 已纳入新时间与消费验证；无前端变化或一次性生产迁移，不需要原型或部署提示词。
+
+### 历史问题闭环
+
+Round 1 无 Issues。Author Resolutions 中的“当轮不执行真实模型”属于历史授权；本轮以已确认的一题有界授权和新 Runbook 为准，未将旧范围继续当作当前禁止条件。原轮关于来源初始化、框架独立与冷答题隔离的判断已经在当前装配和上述代码中重新核对，没有新增存活问题。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。实施按既有 M1 和本轮已明确的时间/失败/Context 证据要求验证即可，不新增可选机制或第二套严格时点实验。
+
+### Author Resolutions — Round 2
+
+Author 已核对本轮实际组装、公开持久化 revision、准入时钟与 Context 分析，接受 Approved；无 Issues / Recommendations 待处理。本次仅补审查状态说明，受审方案不再实质修改。后续由同一 owner 按 M1 实施，保留一题上限，验证与效果结论分开。
