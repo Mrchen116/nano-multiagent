@@ -211,9 +211,11 @@ Native 与外部 channel/task 路径统一保留以上区别。提交前 Inbox �
 
 ### 冻结图片审核
 
+2026-10-29 实施纠偏：用户明确要求沿用主 Agent 的图片转入方式。原文“必须先有公开图像计费/估算接口”是 author 自行增加的实现限制，并非用户需求；本次删除该限制，保持完整待审图片与真实失败的既有要求。
+
 复用 IM 原生附件 URL → 当前来源权限 → message_images 记录 → 本地文件读取与 sha256 校验，不接受任意远程 URL 下载。第一版支持静态 PNG/JPEG/WebP，最多 5 张、每张最多 10 MiB、总计最多 20 MiB，最大单图 4096×4096；检查真实解码类型、尺寸和静态帧数，不仅信任扩展名/MIME。超限、动画、SVG/PDF 等报告 unsupported/unavailable，不降级为文本说明。较低的 provider 能力上限优先，不能为过预算静默漏图。
 
-prepare 固定资源 ID/hash/MIME/尺寸，DSH 收到同一份验证过的 bytes（RPC 内部有界 base64，不写入普通轨迹文本）；integration 转为公开 image block，与正文、受众、原话及图片 manifest 一起组装。request 前确认 model.inputModalities 含 image，并按公开图像计费/估算能力预留预算；无法保证全图输入时 unavailable。禁止 DSH 文本模型占位、image offload/裁剪掉待审图后仍返回 allow；每次实际模型请求校验 manifest 的全部图已入输入，漏图使本次无效。
+prepare 固定资源 ID/hash/MIME/尺寸，DSH 收到同一份验证过的 bytes（RPC 内部有界 base64，不写入普通轨迹文本）。图片沿用主 Agent 的原生路径：`ctx.attachments.admitPromptContent` 完成入库与标准图像规范化，再把返回的 image blocks 交给 reviewer Agent 的 followup；后续由 DSH 原生 Agent/adapter 转入模型请求。不新增图片 token 估算器，不把 `imageRequestPricing` 是否存在设成准入门槛，也不为此更换 Luna。文本证据仍按既有预算组织；图片处理、支持能力与实际请求限制沿用主 Agent 所用的公开运行时机制。原生上下文超限可按审核既有的一次 full 证据重建恢复，重新附带全部当前待审图片；仍无法成功请求时 unavailable。审核额外不变量仅用于避免漏审：每次实际模型请求校验 manifest 的全部当前待审图已入输入；不允许文本占位、offload 或丢弃当前待审图后返回 allow。
 
 图片属于当前 pending action，不只种在复用 reviewer 的旧历史里；full/delta/fork/预算重建都重新附带本次完整图像，旧图不替换本次待审图。提交在当前资源权限与冻结 hash 一致时复制该资源到目标会话；文件变化即 not_sent/attachment_snapshot_changed，不能凭审核旧图发新图。沿用宿主资源不可变写入路径，并让校验和复制消费同一已校验字节快照，避免校验后重读文件的间隙。
 
