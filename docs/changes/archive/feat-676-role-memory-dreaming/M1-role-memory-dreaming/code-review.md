@@ -397,3 +397,58 @@ The reviewer inspected the changed test fixtures/assertions and their supplied e
 - Build `/tmp/feat676-no-finish-build.log` and docs `/tmp/feat676-no-finish-docs.log` pass. Native runtime uses Node **24.22.1**; reproducible narrow command is `PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec vitest run packages/dsh-integration/tests/dreaming-{runtime,incomplete-runtime,task-runtime,cycle-runtime,recovery}.test.ts`.
 
 No paid real-model run, new whole-PR review, remote CI, merge, deployment, production mutation, performance/cost improvement or new product acceptance is claimed. The user's separate evaluations and unrelated evaluation findings remain outside this patch review. Only this report and verification.md were edited; no implementation/test/design file was changed or committed by the reviewer.
+
+## Round 12 — model-capacity/shared-batch patch review (2026-10-30)
+
+- Independent reviewer `/root/dreaming_two_fixes_review`; `review_mode`: **patch**; Agent Context Review: **Mode B**.
+- Fixed `executed_base`: `efaa2bbae3e21f8835fea477b1085c8efb7f0c93`; `validated_at`: `f263fac944dbaaa9d8a26a65b7a0c94118578bf6`; assigned **14-file** delta only. Design authority: §5.1 / design-review Round 9 Approved.
+- Caller concurrently merged main at `a8b376b6b3eb9e447cac6addb240dfed8f694c9e`; direct comparison confirms no change to the reviewed runtime, tests or budget contracts. Unrelated main documentation is excluded. No full PR #428 review or new paid-model evaluation was performed.
+
+### Findings (current JSON)
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/knowledge/dreaming.ts",
+    "line": 166,
+    "summary": "[P2] Preserve the original page history bound in summary-only batches",
+    "failure_scenario": "A Global batch contains a partial long-message page and leaves a task summary for a supplemental batch. Clearing units removes the page used by sourceDirectory to select the original step's through value; it falls back to range.through, which deliberately remains at the old cursor until the long message completes. The supplemental summarizer can no longer retrieve the original message even though it was available in the original batch and the cutoff is unchanged.",
+    "review_mode": "patch",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "Supplemental maintenance system source directory and source_history results",
+    "expected": "The summary-only batch retains the original batch's permitted source directory and cutoff, so missing task conditions remain recoverable without adding new Global material or future evidence.",
+    "observed": "With a partial page, the original root directory allows through=2/cutoff=102 and source_history finds original item 1. Applying the exact new units=[] supplemental transformation changes through to 0 with the same cutoff=102; the same search returns no items.",
+    "impact": "A summary that omits a condition loses its existing original-evidence recovery route during the mandatory supplemental batch. This is a deterministic Context interface defect, not an observed autonomous-model error.",
+    "recommendation": "Keep the original page's history bound when removing newly delivered Global material from a supplemental batch. Extend the existing shared-budget/page regression to assert the unchanged root through bound and successful source_history recovery, not only equal cutoff.",
+    "evidence": "dreaming.ts:166 clears units; dreaming-history.ts:23-26 derives through from the last page or range.through; :84 filters original events by this value. Independent Node 24 compiled-module reproduction: /tmp/feat676-budget-review-directory.json, before.directory/result versus after.directory/result. Synthetic certified-source fixture with actual sourceDirectory/registerDreamingHistory/createHistoryView; no model or production call. Existing shared-budget runtime test asserts cutoff equality but does not assert through or query this original condition in the supplemental batch."
+  }
+]
+```
+
+### Coverage and evidence limits
+
+The actual host chain was followed through public `resolveModelInfo`, UTF-8 bytes/3 estimation, maintenance scope prompt/Schema/context assembly, final first-request guard, Global repacking, child cutoff and extraction, complete-summary selection, supplemental traversal, generation/cache identity and application/receipt/progress recovery. The selected provider/model and 8192 output reserve are consistent; explicit caps only reduce materials. Final navigation and source_history scope resolve from the mutable final run, and only selected summaries are snapshotted. The confirmed failure is the partial-page bound lost by that final run, rather than a stale setup closure. Native completion, cancellation and staged-file validation retain the previous review's behavior.
+
+Owner logs inspected and reused: `/tmp/feat676-budget-edge.log` **3 files / 21 passed**, `/tmp/feat676-budget-retained.log` **5 files / 24 passed**, `/tmp/feat676-budget-build.log` build passed, `/tmp/feat676-budget-docs.log` **283 sources / 68 routes passed**. Changed tests cover 256K/1M Chinese input and full-request estimates, 120K fixed-tool overhead, complete-summary supplemental order, oversized summary rejection, unknown capacity, cache reuse/replacement, normal completion and existing recovery. The retained tests cover source/history/cycle/incomplete/scheduling. Passing results are not contradicted by the new reproduction: their supplemental-directory assertion checks the unchanged time cutoff but misses the page-dependent sequence bound.
+
+Only the missing condition above was independently reproduced; already-valid suites were not duplicated. Runtime fixtures capture actual assembled `llm/stream` requests with controlled responses, not final provider-wire tokenizer measurements or autonomous model quality/cost behavior. No new production/service/worktree was started. Only the two assigned reports were appended, without committing; the concrete finding ends this review rather than opening speculative review loops.
+
+## Round 13 — F-BUDGET-1 targeted closure (2026-10-30)
+
+- Independent reviewer `/root/dreaming_two_fixes_review`; `review_mode`: **closure**, with associated delta verification and retained Mode B Context inspection.
+- Fixed `executed_base`: `a8b376b6b3eb9e447cac6addb240dfed8f694c9e`; `validated_at`: `1496afdaf76e78edef6ef06e36a961622be81bc5`; `finding_origin_head`: `f263fac944dbaaa9d8a26a65b7a0c94118578bf6`. Only the **four-file fix** was reviewed. Effective budget review remains `efaa2bbae3e21f8835fea477b1085c8efb7f0c93..1496afdaf76e78edef6ef06e36a961622be81bc5`; intervening main documentation is excluded.
+
+**F-BUDGET-1: closed (CONFIRMED). Surviving findings:**
+
+```json
+[]
+```
+
+`dreaming.ts:242-244` records the original root sourceDirectory through values in `historyThrough` when retaining remaining summaries. `sourceDirectory` prefers this bound; subsequent supplemental batches retain and recapture it. Removing newly delivered Global text/units no longer removes the original evidence. Actual commitProgress still reads only ranges and selected summary versions, so the readable sequence bound is not mistaken for a processed cursor. The next ordinary freeze produces its own fresh batch; no persistent supplemental queue or expanded source permission is introduced. Original cutoff, generation checks and root baseline remain unchanged.
+
+The strengthened existing shared-budget runtime case compares the entire root SourceRange and has each of three summary batches actually call source_history for GLOBAL-START. Its following request must contain a successful original-condition result; complete-summary ordering and one extraction per task remain asserted. First-request size checks correctly select each stage's first request, excluding subsequent tool-result traffic from the 70% rule. Owner red `/tmp/feat676-budget-cutoff-red.log` is **1 failed / 1 passed / 5 intentionally unselected by the focused command** on old code; green `/tmp/feat676-budget-cutoff-green.log` is **4 files / 20 passed** after the fix; `/tmp/feat676-budget-cutoff-build.log` passes.
+
+Independently reapplied the same synthetic-source reproduction at the compiled fixed seam: `/tmp/feat676-budget-review-directory-closure.json`. Original plus **three successive supplemental transitions** all retain **through=2, cutoff=102**, retrieve the same original item and leave the committed cursor **0**. This is deterministic retrieval proof, not autonomous model behavior. Already-valid suites were not duplicated. The caller's **165 files / 868 passed** full test log predates this fix and is retained only for unchanged implementation; the 20-test run and reproduction cover the local correction. No post-fix full-suite pass, provider-wire/tokenizer measurement, new paid-model run, deployment or new product acceptance is claimed.
+
+Previous unaffected Round 12 inspection remains effective. No new actionable defect was found in this bounded fix; only the two assigned reports were appended, without a commit or implementation/test/design edit.

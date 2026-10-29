@@ -473,3 +473,66 @@ No shared architectural boundary change requiring full verification was found. R
 ### Caller closure of D-POSTPR-1
 
 After the independent fixed-head review, the owner aligned the two design phrases and the document-memory.ts comment with final JSON/native completion and host validation. This is wording-only; no executable code, prompt, tool schema or test changed. The suggestion is addressed; the independent reviewed runtime remains `75ed0d4b7904ae5084aaca2de82c6c732a36194d`.
+
+## Round 11 — model-capacity/shared-batch delta verification (2026-10-30)
+
+- `unit_id`: feat-676; `verification_mode`: **delta + corrected-delta**; independent reviewer `/root/dreaming_two_fixes_review`.
+- Fixed `executed_base`: `efaa2bbae3e21f8835fea477b1085c8efb7f0c93`; `validated_at`: `f263fac944dbaaa9d8a26a65b7a0c94118578bf6`. Concurrent main-sync head `a8b376b6b3eb9e447cac6addb240dfed8f694c9e` has identical reviewed runtime/tests/budget contracts and is not substituted for the frozen target.
+- Scope: §5.1's approved model capacity, complete first-input estimate, Global/summary shared packing, supplemental boundaries and affected current/delta scenario; not the complete PR or unrelated evaluation findings.
+- `verdict`: **fail for this delta**; corrected-delta `outcome`: **implementation-mismatch**; `requires_full_verification`: **false**.
+- Issues: **0 CRITICAL / 1 WARNING / 0 SUGGESTION**. The local supplemental-boundary defect can be repaired and rechecked without reopening the full unit.
+
+### Completeness / Correctness / Coherence
+
+| Contract / delta item | Implementation and evidence | Result |
+| --- | --- | --- |
+| Actual provider/model capacity; two independent complete-input budgets; unknown capacity | dreaming-budget.ts:8-13 uses public resolveModelInfo and min(floor(C*0.7),C-8192); dreaming-agent.ts:34,105-108 measures actual maintenance scope and :64-72 guards the first assembled request only | **aligned**; 256K/1M, fixed overhead and unknown-capacity regressions pass |
+| System/tools/recovery context/entry/directory/material combined; explicit smaller material cap | dreaming.ts:158-159,191-206,227-239,263-272; UTF-8 byte estimate shared with memory-sources.ts; final stage prompt and directory are dynamically assembled | **aligned at tested mechanism depth**; actual full assembled request limits asserted, not provider-tokenizer guarantees |
+| Shrink Global before child cutoff, cache by original qualified source version, full-summary selection | dreaming.ts:195-225; memory-sources.ts:282-303,344-362; final selected summaries alone enter run.summaries and snapshot directory | **aligned**; task/runtime tests cover summary cache, replacement, scope, complete rather than truncated summaries |
+| Supplemental summaries before next Global; keep original cutoff and source directory (§5.1 item 3; current agent-capabilities.md “按模型容量联合安排材料”) | dreaming.ts:166 removes page-bearing units; sourceDirectory uses the missing page to derive the original root upper sequence bound. Cutoff remains equal but the allowed original evidence shrinks | **implementation-mismatch**; F-BUDGET-1 below |
+| Host completion, file/source versions, receipts then actual source/summary progress; failures and recovery | dreaming.ts:241-252,339-363,398-412 retains publication/commit ordering; task/oversized/cycle/incomplete/recovery evidence | **aligned for covered paths**, subject to the missing original-evidence recovery route above; no second runtime loop, private import or persistent supplemental queue |
+
+Prototype/reference contract: **N/A for this delta**; no UI, data migration or deployment change. Canonical and archived delta add the same model-capacity scenario. No separate omitted observable delta was identified; the confirmed problem is implementation's failure to retain the expressly approved boundary.
+
+### WARNING — F-BUDGET-1 (CONFIRMED)
+
+`dreaming.ts:166` creates a summary-only batch with `units:[]`. For a partial long-message page, `dreaming-history.ts:23-26` previously obtains root `through` from that page's unit because the committed range remains at the earlier cursor. Clearing units makes it fall back to the earlier `range.through`, removing the original message from source_history. This violates design §5.1 item 3's preserved source-directory boundary and the affected W4/W8/W10/W13 original-condition recovery contract.
+
+Independent Node 24 evidence `/tmp/feat676-budget-review-directory.json` uses actual compiled sourceDirectory/registerDreamingHistory/history view and a synthetic certified original message. Original batch: root **through=2, cutoff=102**, original condition at item 1 found. Exact supplemental transformation: root **through=0, cutoff=102**, identical search returns **items=[]**. Task-summary scope itself remains unchanged. The finding proves the deterministic retrieval loss; it does not claim a model necessarily hallucinates or that a production run failed.
+
+Action: preserve the original page's permitted history bound while supplying no new Global text; extend the existing shared-budget regression to query the original root condition and check both sequence and time boundaries across the supplemental transition. Code-review Round 12 contains the complete Context finding, location and limits. No design/spec change is recommended to accommodate the incorrect narrowing.
+
+### Evidence and disposition
+
+Reused inspected owner evidence: `/tmp/feat676-budget-edge.log` **21 passed**, `/tmp/feat676-budget-retained.log` **24 passed**, DSH build and docs-check pass. Their test sources were examined; the shared-budget case verifies summary ordering, no duplicate extraction, complete summaries and equal cutoff, but does not guard the lost root sequence bound. The new narrow reproduction is the only additional execution and explains the uncovered failure without rejecting valid existing passes.
+
+Context inspection reuses this reviewer's Mode B work in code-review Round 12. The fixtures use real isolated DSH with controlled `llm/stream` output and actual assembled request capture. Neither that evidence nor the synthetic history reproduction establishes final provider-wire serialization/tokenization, autonomous model quality, recovery choices or fee improvement. No paid-model evaluation or new full-product pass is claimed. Remote CI, final sync, PR merge and deployment remain caller-owned.
+
+Return the single concrete defect for repair; no further speculative pass is requested. Only the two assigned reports were appended, with no commit or product/test/design modification.
+
+## Round 12 — F-BUDGET-1 closure and corrected-delta reconciliation (2026-10-30)
+
+- `unit_id`: feat-676; `verification_mode`: **targeted-closure + delta/corrected-delta**; reviewer `/root/dreaming_two_fixes_review`.
+- Fixed `executed_base`: `a8b376b6b3eb9e447cac6addb240dfed8f694c9e`; `validated_at`: `1496afdaf76e78edef6ef06e36a961622be81bc5`; finding origin `f263fac944dbaaa9d8a26a65b7a0c94118578bf6`.
+- Scope: **four-file correction of F-BUDGET-1**, retaining Round 11's unaffected model-budget and application/recovery mappings. The intervening main sync only changes unrelated documents.
+- `verdict`: **pass for the reviewed budget delta plus closure**; corrected-delta `outcome`: **aligned**; `requires_full_verification`: **false**.
+- Current issues: **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. **F-BUDGET-1 closed, CONFIRMED**; surviving findings `[]`.
+
+### Corrected Delta Reconciliation
+
+| Contract / focus | Implementation and evidence | Outcome |
+| --- | --- | --- |
+| §5.1 item 3: supplemental batch retains original source-directory/time boundary without delivering new Global text | FrozenBatch.historyThrough stores the original root query bounds; dreaming.ts captures actual sourceDirectory through values before deferral; dreaming-history.ts uses them before page/range fallback; repeated supplements retain them | **aligned**, F-BUDGET-1 closed |
+| Query upper bound remains separate from successful progress | commitProgress continues to commit ranges and selected summary sourceVersion only; historyThrough does not change cursor, cutoff, permissions or current generation | **aligned**; independent original-plus-three-supplement reproduction retains through=2/cutoff=102 and original item while cursor stays 0 |
+| Real maintenance source lookup for deferred summaries | Existing task runtime case compares full root SourceRange and three successful source_history results for GLOBAL-START in following actual assembled requests; next Global remains after summaries and each task is extracted once | **aligned**, owner red/green supports regression strength |
+| Other model-capacity/current/delta behavior | Prior Round 11 mappings retained; public metadata/complete first-input measurement, first-request-only limit, intact complete summaries and host application/receipt progress unchanged by this fix | **aligned**; no new observable scenario, prototype, migration or broader verification needed |
+
+The existing canonical and archived “按模型容量联合安排材料” scenario and approved design §5.1 remain unchanged; the fix restores their already-required boundary rather than editing the contract to match a defect. No uncovered observable behavior was found in the four-file correction.
+
+### Evidence and limits
+
+Inspected and reused `/tmp/feat676-budget-cutoff-red.log` (**old implementation: 1 failed / 1 passed**, with five cases unselected by the focused command), `/tmp/feat676-budget-cutoff-green.log` (**task/history/cycle/recovery: 4 files / 20 passed**) and `/tmp/feat676-budget-cutoff-build.log` (**pass**). Independent narrow closure evidence `/tmp/feat676-budget-review-directory-closure.json` repeats the exact supplemental transformation three times against the actual compiled sourceDirectory/registerDreamingHistory/history view; all four snapshots preserve the permitted root range and recover the original condition without advancing its cursor. Code-review Round 13 supplies the reused Mode B closure analysis.
+
+The caller's `/tmp/feat676-budget-full-tests.log` **165 files / 868 passed** is explicitly a **pre-fix** whole-suite run; the final fix is covered by the 20-test targeted run and narrow independent reproduction, not an invented final full-suite execution. Other prior 21/24-test and docs evidence remains scoped to unchanged code. Controlled actual DSH request/response fixtures and synthetic retrieval demonstrate mechanism, not autonomous quality/recovery choices, provider-wire tokenization or cost reduction. No new paid-model task, full-product acceptance, remote CI, merge or deployment is claimed.
+
+This closes the only budget review WARNING. Only the two reports were appended; no implementation/test/design modification, commit, service or extra worktree was created by this reviewer.

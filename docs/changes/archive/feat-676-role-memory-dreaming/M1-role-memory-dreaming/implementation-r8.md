@@ -141,3 +141,10 @@ pnpm exec vitest run packages/dsh-integration/tests/dreaming-runtime.test.ts pac
 ```
 
 这些测试运行真实隔离 DSH、捕获最终 `llm/stream` 输入并使用受控输出；估算不是 provider tokenizer，也不是最终 provider wire 计量。尚未重新执行真实模型质量/费用评测。无生产迁移或部署。本轮独立增量审查结论见同目录 code-review/verification 的后续 Round。
+
+### 集成与独立审查修复
+
+- 同步 `origin/main=9bf2b13da4005631096f2a49223564cd68647c3c`，合并为 `a8b376b6b3eb9e447cac6addb240dfed8f694c9e`；增量仅其他 unit 的设计/退役/入口文档，本次运行时代码未变。
+- 该集成版本本地全仓 build、typecheck 通过（`/tmp/feat676-budget-full-build.log`、`/tmp/feat676-budget-typecheck.log`）；全量 Vitest **165 文件 / 868 项通过**（`/tmp/feat676-budget-full-tests.log`），运行时依赖契约 **13 项通过**（`/tmp/feat676-budget-contract.log`）。前述其他窄回归为 **5 文件 / 24 项通过**；与 21 项组合为 45 项有效覆盖。
+- 独立审查确认补批长消息的原文查询事件上界丢失。修复 `1496afdaf76e78edef6ef06e36a961622be81bc5` 保留原始 `historyThrough`，不把查询上界误作提交游标。实际 runtime 回归从仅比较 cutoff 扩为完整根来源范围相同，并让三份摘要补批分别执行 `source_history` 查询原条件。旧实现 **1 失败 / 1 通过 / 5 skipped**（`/tmp/feat676-budget-cutoff-red.log`）；修复后任务/历史/周期/恢复 **4 文件 / 20 项通过**（`/tmp/feat676-budget-cutoff-green.log`），DSH build 通过（`/tmp/feat676-budget-cutoff-build.log`）。已通过的其余全量结果按影响保留，不把旧版本执行时间冒充修复后全量重跑。
+- 静态审查/验证报告分别记录原始 finding 和定点 closure。当前未做新真实模型质量评测；remote CI、PR 合并、生产部署分别以实际状态为准。
