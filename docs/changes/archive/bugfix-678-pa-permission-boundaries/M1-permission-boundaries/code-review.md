@@ -95,3 +95,88 @@ Mode B，仅审核图片输入与 unknown 回执恢复。
 复用 `/tmp/bugfix678-native-image-green.log`：3 files / 32 tests passed（含 PA 20 tests 与原生图片子进程）。旧两项全量失败在安静环境单 worker 的 `/tmp/bugfix678-runtime-repro.log` 为 2 files / 5 tests passed，关闭“相同窄测试仍失败”的担忧；不将其外推成最终全量通过。最终全量、当前版本 R4/R6 产品与真实模型验收仍 **pending**，由 owner 接入后续证据，不因此新增一轮完整静态审查。
 
 本轮仅读固定版本与可信窄证据，写本报告和 verification Round 2；未修改实现、测试、配置或设计，未运行生产或启动服务，未提交。现场原有未跟踪 `regression.md` 未触碰。`git diff --check 21b8da0d3..80941dfd6` 通过。
+
+## User-requested full Agent Context review
+
+- review_mode: `full`；Agent Context Review **Mode B**。
+- validated_at / effective_through: `89acdd4649cc14df8dbd9195e834f08931aad592`。
+- executed_base / effective_base: `9bf2b13da4005631096f2a49223564cd68647c3c`。
+- scope: PR #430 完整 `base...HEAD`，71 files；全部源码 diff 与直接、间接受影响的 Context 消费链。不是对 Round 2 的补丁复审。该 HEAD 的实现与 `80941dfd6` 一致；本轮审查开始时 checkout clean。
+- reviewer: 用户指定新开的独立 subagent，未参与该实现，不另派 reviewer。遵循本 worktree 的 AGENTS、change-code-review、agent-context-review，以及 Agent Context Engineering / LLM 联调规范。
+- verdict: **changes requested，2 个 CONFIRMED findings**。以下定位为受审 HEAD；主实施者收到本轮证据后并行修改的工作区内容不属于此固定版本结论。
+
+### Findings
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/policy/retained-instructions.ts",
+    "line": 37,
+    "summary": "[P1] Retain complete owner instructions across partial Inbox fragments",
+    "failure_scenario": "主人先给一条简短外发许可，随后通过正常 Inbox 发来带附件的撤回，或一条超过 6000 字、末尾含撤回的消息。InboxStore.parts/read 会把后一条的每个片段都标为 partial=true；即便所有片段均已读到，此处也全部跳过。经历主会话换窗或 reviewer full 重建、旧有效历史不再含该结果后，retainedEnvelope 只补送旧许可。此前已有 grant unit 又使 compaction/start 不设置 incomplete，故没有原话不完整警告。",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "surface": "Inbox 序列化结果 → 原始授权单元收集 → reviewer full/rebuild/fork 原话补送",
+    "expected": "已完整读取的同一真人消息按完整单元保留，其较新限制和撤回与旧许可一起交给审核者；读不全时明确标记缺口，不能仅保留旧许可而宣称完整。",
+    "observed": "真实 InboxStore 的两种正常消息均产生 part=1/2、part=2/2 且 partial=true；retainInstructions 只返回 private-owner-chat:grant，incomplete=false；最终 retainedEnvelope 有旧 may publish，没有 WITHDRAWAL_NEVER_PUBLISH，也没有 instructions_incomplete。",
+    "impact": "新保留层会确定性遗漏已读到的较新授权约束，重建后的审核输入可只剩过期许可。审核模型可能据此放行已撤回的动作；本轮确认的是原话交付缺陷，没有把模型必然误判作为已观察事实。",
+    "recommendation": "按可信来源、会话和消息 ID 收集并按 part/parts 重组完整片段后保留整个单元及上下文；片段缺失或无法安全重组时标记 incomplete。覆盖长消息、附件消息、跨页与换窗后撤回，不把 partial 文本直接当完整许可。",
+    "severity": "CRITICAL",
+    "evidence": [
+      "packages/personal-assistant/src/inbox.ts:282-292,304-310：真实消息拆片及 partial 投影",
+      "packages/dsh-integration/src/policy/retained-instructions.ts:28-43,52-69,76-91：partial 跳过与缺失标记/补送",
+      "packages/dsh-integration/src/policy/review-session.ts:94-105：实际 full/rebuild 使用 retainedEnvelope",
+      "/tmp/bugfix678-context-full/review.test.ts：前两项分别使用真实 InboxStore 投影的附件与长文本消息，所有片段均含在已读结果中",
+      "/tmp/bugfix678-context-full/evidence.jsonl：两项均 oldGrantPresent=true、withdrawalPresent=false、incomplete=false、warningPresent=false；repro.log 为 3 tests passed"
+    ]
+  },
+  {
+    "file": "apps/im-server/src/personal-actions.ts",
+    "line": 242,
+    "summary": "[P2] Rewrite reviewed resource links inside the delivered interactive source",
+    "failure_scenario": "PA 将主人私聊中的已授权 PNG 放在正常 interactive.source 的 TextContent Markdown 图片链接中，发给无源会话读权限的另一会话。prepareChecked 已扫描 source 并冻结/解码图片，审核通过；commit 也创建目的会话副本，但只重写普通 content 和 attachments，交互 source 原样写入。因此返回 confirmed，而卡片仍请求私聊 URL。",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "surface": "send_message interactive.source / 冻结图片证据 / 实际发布内容 / confirmed 工具结果",
+    "expected": "审核过的原图以目的会话可访问的副本交付；模型收到 sent/confirmed 后，交互卡片中的该图片或资源链接也可由实际受众读取。",
+    "observed": "合成图片 proposal 含冻结原图，review allow 后 commit=confirmed；目的 peer 中存在新 image_id，但 message_interactive.source 仍为 /im/v1/conversations/chat/images/image。接收者 u2 不在源 chat，media 路由先按源会话 access 检查，不能打开这张卡片引用的原图。",
+    "impact": "模型会依据 confirmed 结束交付，实际接收者只能得到失效图片/资源链接；新允许的图像卡片路径没有兑现审查过的交付内容。",
+    "recommendation": "对已冻结并复制的资源在最终 interactive.source 中应用同一 URL 映射，保持完整卡片实际内容与受审内容一致；覆盖无源会话权限的接收者和卡片编辑/替换路径。",
+    "severity": "WARNING",
+    "evidence": [
+      "apps/im-server/src/personal-actions.ts:121-123,172-177：interactive.source 参与快照收集和图片解码",
+      "apps/im-server/src/personal-actions.ts:232-243：副本 URL 映射存在，但 interactive:payload.interactive 未重写",
+      "apps/im-server/src/interactions.ts:70-86：原样保存 source；apps/im-server/src/media.ts:48-55：资源先检查 URL 所属会话访问权",
+      "/tmp/bugfix678-context-full/review.test.ts：第三项真实 PersonalActions/SQLite/图像字节/交互源码存储 seam，独立 verdict 为 fixture allow",
+      "/tmp/bugfix678-context-full/evidence.jsonl：confirmed、目的副本存在、卡片源 URL 未变、recipient_can_read_source=false；未声称浏览器截图或真实模型已选择该卡片"
+    ]
+  }
+]
+```
+
+### Full coverage and evidence levels
+
+本轮沿“来源 → 选择/检索 → 转换/组装 → 注入 → 消费 → 更新/失效 → 换窗/恢复”检查组合，不把字段存在或单测总数当模型已消费：
+
+| 消费链 | 本轮独立判断与证据边界 |
+| --- | --- |
+| System / Prompt / 可信身份 | 核对 global-mode、personal-security、policy sources 与最终 ReviewPlan 组合。owner/binding/epoch、root lineage、实际受众和冻结 action 由宿主派生；新增 inbox review 只需故障事件/check 已给出的 message_id，incident_ref/目标由宿主事件给出，无新增模型不可获得的必填身份。reviewer scope 原生四调查工具和 guard、contexts 清空及额外 workspace 指令过滤，在 codex-approval-native 本轮真实 DSH 子进程测试中通过；adapter 响应为 stub。 |
+| 来源 / Inbox / 输入审核 | 核对 participant/observer、sender.is_owner、represented PA 标记、普通/系统/Agent 消息与 live/restored/historical 投影。输入当前正文完整、前20条和单个直接回复按原 rowid 取证；超窗、附件不可投影明确 unavailable，不当 deny。持久 generation、故障事件和显式 inbox review 不在 check/read/重启时自动重审；新状态不屏蔽其他 admitted 消息。input-admission 与 personal-input-context 本轮执行通过；真实 Astra 显式重审与继续任务的产品事实复用 regression Round 2，对应原始本机文件已核对。 |
+| 原始指令 / 主子 Agent / 历史 | 核对 durable events、Inbox/conversations/PTC 工具结果、源标签、reply/preceding 背景、delegated audit 与 reviewer 实际 deriveMessages 的补送判断。full/delta/fork/rebuild 按真实前缀和可见文本检查，旧 verdict 不成为真人许可；发现上方 partial 丢失缺陷。普通委派/撤回复用独立产品回归，未据单条成功轨迹推导所有长历史可靠。 |
+| reviewer cache / fork / 更新 | 核对 purpose 隔离、config/reviewer/cwd fingerprint、前缀变更失效、并发 fork 快照、取消不提交 checkpoint、失败不复用 handle、旧 timer 清理、格式最多一次重建及一次 Context 重建。codex-approval-native/lifecycle 本轮执行通过；其中 fake lifecycle 与真 DSH fixture 分开解释。有效 deny 不重试至 allow，缺失 evidence/unavailable 不生成许可。 |
+| 图片 / 调查器 / 工具结果 | 核对真实解码、MIME/hash/数量/尺寸/总量、冻结 base64、主 Agent 同路径 attachments admission、当前 followup 全图及 llm/stream 缺图/offload 检查、提交再次核对 bytes。原生 fixture 本轮 full/delta/fresh 图片数 [1,2,1] 和无图能力失败通过；真实授权蓝图字节一致交付复用 regression Round 2。发现上方卡片实际发布与 confirmed 语义缺口。 |
+| 安全事件 / 回执 / 恢复 | 核对 rejected 文本不以任务进入 Inbox；instruction 与外部 reason/original_content 分开；PA 自写主人提醒、原聊天独立披露审核、root-only self 发言及真实 receipt 前置。unknown 主人消息按原 operation status 恢复、不换 key；peer 已有 receipt 直接复用。独立读取 /tmp/bugfix678-r8/evidence.json 与脚本：真实 Astra 调用后有下一轮工具调用，原回执恢复、消息47→47。其额外 task_graph harness 错误不冒充产品功能通过。 |
+| 许可失效 / 发送状态 | 核对完整 payload、audience、policy/profile/lifecycle、授权 guard、资源和主人新消息的提交前再验；独立许可无60秒/全局披露计数互相作废。prepare/review/commit 的 allow/deny/needs_owner/unavailable 与 not_sent/sending/unknown/confirmed 不混用。独立读取 R5 实际 Luna full/delta/delta、两许可预先批准并等待64,410/62,061ms、第三笔新主人消息后 not_sent；这是实际 DSH+IM seam，不是 UI 或 WebSocket 全链路。 |
+| 失败 / 部分流 / 取消 | 核对 standalone middleware 与 native Loop 标记的唯一恢复归属，request-local ALS budget、prepared generation、WeakSet 防重入、完整流缓冲和失败片段丢弃；CC 两阶段共享恢复预算，输入审核/web/model setup/原生摘要入口纳入。standalone-model-retry 和 native/lifecycle 本轮通过；其故障是确定性 fixture，不是真实供应商故障演练。 |
+| Task 动态提醒 | 完整 diff 核对移除拒绝批次 held 机制后仍保留 paused/waiting/doing 真状态、源失败/取消 hold 与短轮上限；提醒明确不授予权限、不绕过拒绝，要求正常任务状态表达阻塞。独立产品 regression 中真实 hard_deny 后一项 Paused、另一项 Done 与实际文件事实可复核；未扩大为人工拒绝全部 UI 验收。 |
+| Skill / Memory / 非本次直接 Surface | 本 PR 没有改产品 Skill 发现/加载、Memory 写入选择器或主会话换窗算法；间接影响为 direct 摘要/维护恢复、审查证据中的历史快照与新原话层。其 Prompt 明确 Skill/Memory/摘要不能创造授权。llm-attribution 本轮真 DSH+本地 HTTP 捕获证明后台 Skill fork 的实际 system/tools/messages 前缀与执行限制；不据此宣称所有 Skill/Memory 任务或所有 provider 多模态序列化通过。 |
+| 迁移 | 核对 IM 旧 allowed 失效、confirmed/sending/unknown 不改、unfinished incident 持久登记，Inbox 旧 consumed 不重放、legacy unknown 失败及 marker/事务边界。input-admission 本轮含实际 SQLite 重开/迁移中断/幂等；IM CLI/回执的真实副本证据复用 R8。 |
+
+### Executed validation, limits and handoff
+
+- 新独立缺陷复现：`pnpm exec vitest run --config /tmp/bugfix678-context-full/vitest.config.mjs --maxWorkers 1`，**1 file / 3 tests passed**，Node 24.22.1；`repro.log` / `evidence.jsonl` 留本机。前两项是实际 Inbox serialization + retained helper 的确定性接口证据，第三项是真实服务类/SQLite/文件图像/interactive 存储 seam，verdict stub。不把它们描述为真实模型违规或浏览器可见验收。
+- 固定实现相关窄复跑：llm-attribution、codex-approval-native、retained-instructions、codex-approval-lifecycle、standalone-model-retry、input-admission、personal-input-context，**7 files / 29 tests passed**，`/tmp/bugfix678-context-full/existing-regressions.log`，23:56:45 起，10.38s。真实子进程导入与 HEAD 对应的既有构建产物；未改实现后重跑旧缺陷结论。
+- 独立阅读可信固定版本回归与原始本机结果：`regression.md` Round 2、`supplemental-validation.md`、R5/R8 `.mjs` 与 `evidence.json`；其中真实模型和产品事实可复用，但不是本轮重新执行 Web 旅程。保留旧 Round 1 故障历史。
+- 没有为本轮新开真实模型环境，也没有获取本轮新 provider upstream 请求。指定的 R5/R8 session 在本机配置日志根下未找到可直接对应的 session 目录，因此不声称审阅了其转换后 upstream payload。现有本地 HTTP wire 测试证明所列 adapter 路径，native fixture 的 llm/stream 证明装配，真实模型响应/产品回执证明特定行为；三者不互相冒充。
+- 未重新运行全仓826/前端1029/pytest113及构建/typecheck；复用仍适用的已冻结证据，不将其覆盖本轮新发现。未跑真实 iOS、Feishu、跨 provider 多模态、所有限制/长历史组合；这些是覆盖限制，非无证据的存活 finding。
+- 本 reviewer 仅读固定源码、合成测试与已指定隔离证据；没有扫描生产消息、启动产品服务、修改实现/测试/design/spec、提交或推送。仅本报告追加；缺陷已提前给主实施者完整定位与 `/tmp` 复现，修复和 PR 更新由其负责。本轮全面审查已完成，不为数量追加假想问题。

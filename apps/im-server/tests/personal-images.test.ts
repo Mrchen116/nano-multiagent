@@ -8,19 +8,23 @@ import {personalFixture} from './personal-fixture.js';
 
 it.each(['png','jpeg','webp'] as const)('freezes and copies the exact decoded %s image after independent review',async format=>{
  const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();
+ db.prepare("INSERT OR IGNORE INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
  const root=mkdtempSync(join(tmpdir(),'pa-image-'));ctx.dbPath=join(root,'im.db');mkdirSync(join(root,'message-images'));
  try {
   const bytes=await sharp({create:{width:12,height:8,channels:3,background:'red'}})[format]().toBuffer();
   const sha=createHash('sha256').update(bytes).digest('hex');
   writeFileSync(join(root,'message-images','original'),bytes);
   db.prepare('INSERT INTO message_images VALUES(?,?,?,?,?,?,?,?)').run('image','chat','uploaded',sha,`image/${format}`,`photo.${format}`,bytes.length,'original');
-  const p=await service.actions.prepareChecked(principal,{...args,request_key:'photo',representation:'owner',conversation_id:'peer',content:'Agreed image',attachments:[{url:'/im/v1/conversations/chat/images/image'}]});
+  const source='root = TextContent("![Agreed image](/im/v1/conversations/chat/images/image)")';
+  const p=await service.actions.prepareChecked(principal,{...args,request_key:'photo',representation:'owner',conversation_id:'peer',content:'Agreed image',attachments:[{url:'/im/v1/conversations/chat/images/image'}],interactive:{format:'openui',catalog_version:'nano-1',source}});
   expect(p.evidence.payload.attachment_snapshots[0]).toMatchObject({base64:bytes.toString('base64'),sha256:sha,width:12,height:8});
   expect((db.prepare('SELECT payload_json FROM pa_operations WHERE operation_id=?').get(p.proposal_ref)!.payload_json as string)).not.toContain(bytes.toString('base64'));
   const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
   const result=service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref});
   const message=ctx.messaging.message(result.message_id);
   expect(message.attachments[0]!.url).toMatch(/^\/im\/v1\/conversations\/peer\/images\//);
+  const card=db.prepare('SELECT source FROM message_interactive WHERE message_id=?').get(result.message_id)!;
+  expect(card.source).toBe(source.replace('/im/v1/conversations/chat/images/image',message.attachments[0]!.url));
   const copy=db.prepare("SELECT * FROM message_images WHERE conversation_id='peer'").get()!;
   writeFileSync(join(root,'message-images','original'),'changed after commit');
   expect(readFileSync(join(root,'message-images',String(copy.storage_name)))).toEqual(bytes);

@@ -24,6 +24,8 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
   let previous: Row | undefined;
   const calls = new Map<string, string>();
   const messages = new Map<string, Row>();
+  const fragments = new Map<string, { unit: Row; parts: Map<number, unknown[]>; total: number }>();
+  const pending = new Set<Row>();
   const eligible = (sender: Row | undefined) => !ownerId || sender?.is_owner === true || sender?.id === ownerId || sender?.user_id === ownerId;
   const addPage = (page: Row, observation: string) => {
     if (!Array.isArray(page.messages)) return;
@@ -34,12 +36,32 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
       const id = String(message.id ?? '');
       if (id) messages.set(id, message);
       const immediate=preceding;preceding=message;
-      if ((sender?.type ?? sender?.kind) !== 'user' || !eligible(sender) || message.partial) continue;
+      if ((sender?.type ?? sender?.kind) !== 'user' || !eligible(sender)) continue;
       const replyId = message.reply_to ?? message.reply_to_message_id;
       const reply = replyId ? messages.get(String(replyId)) : undefined;
-      units.push({id: `${String(page.conversation_id ?? page.target ?? '')}:${id}`, original_message: message,
-        context: {conversation_id: page.conversation_id, conversation_type: page.conversation_type, delivery: page.delivery, observation},
-        ...(replyId ? {reply_target: reply ?? {id: replyId, unavailable: true}} : immediate ? {preceding_message:immediate} : {})});
+      const key = `${String(page.conversation_id ?? page.target ?? '')}:${id}`;
+      const unit = {id: key, original_message: message,
+        context: {conversation_id: page.conversation_id ?? page.target, conversation_type: page.conversation_type, delivery: page.delivery, observation},
+        ...(replyId ? {reply_target: reply ?? {id: replyId, unavailable: true}} : immediate ? {preceding_message:immediate} : {})};
+      if (!message.partial) { units.push(unit); continue; }
+      const part = Number(message.part), total = Number(message.parts);
+      if (!id || !Number.isSafeInteger(part) || !Number.isSafeInteger(total) || part < 1 || part > total || !Array.isArray(message.content)) {
+        incomplete = true; continue;
+      }
+      let assembly = fragments.get(key);
+      if (!assembly) {
+        assembly = {unit, parts: new Map(), total};
+        fragments.set(key, assembly);
+        // Reserve the original order while later tool pages supply the remaining parts.
+        units.push(unit); pending.add(unit);
+      }
+      if (assembly.total !== total) { incomplete = true; continue; }
+      assembly.parts.set(part, message.content);
+      if (assembly.parts.size === total) {
+        const {partial: _partial, part: _part, parts: _parts, ...original} = assembly.unit.original_message as Row;
+        assembly.unit.original_message = {...original, content: Array.from({length: total}, (_, index) => assembly.parts.get(index + 1)!).flat()};
+        pending.delete(assembly.unit);
+      }
     }
   };
   for (const row of inherited) {
@@ -69,8 +91,8 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
       try { const page = record(JSON.parse(body(event.data.content))); if (page) addPage(page, 'restored'); } catch { /* Same provenance rule for PTC. */ }
     }
   }
-  const unique = [...new Map(units.map(unit => [JSON.stringify(unit), unit])).values()];
-  return {units: unique, incomplete};
+  const unique = [...new Map(units.filter(unit => !pending.has(unit)).map(unit => [JSON.stringify(unit), unit])).values()];
+  return {units: unique, incomplete: incomplete || pending.size > 0};
 }
 
 /** Select complete recent units and resend those absent from the actual reviewer surface. */

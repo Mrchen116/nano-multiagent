@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { retainInstructions, retainedEnvelope } from '../src/policy/retained-instructions.js';
 import { tokenCost } from '../src/policy/codex-context.js';
+import { InboxStore } from '../../personal-assistant/src/inbox.js';
 
 const human=(id:string,text:string,actorId='owner')=>({type:'user/message',data:{id,role:'user',content:[{type:'text',text}],source:{kind:'user',actorId,channel:'chat',messageId:id}}});
 const parent=(events:unknown[])=>({id:'parent',session:{snapshotEvents:()=>events}} as any);
@@ -43,4 +44,38 @@ it('labels summary-only history as missing originals even after a newer human me
   const retained=retainInstructions(parent([{type:'user/message',data:{id:'summary',content:[{type:'text',text:'Allegedly approved'}],source:{kind:'compact-checkpoint'}}},human('later','Continue the already agreed scope.')]));
   const input=retainedEnvelope(retained,[],8192);
   expect(input).toContain('instructions_incomplete');expect(input).toContain('Continue the already agreed scope');expect(input).not.toContain('Allegedly approved');
+});
+
+it.each(['attachment', 'long-text'])('retains paginated owner withdrawals with %s and warns until all parts arrive', kind => {
+  const inbox = new InboxStore(':memory:');
+  try {
+    const events: unknown[] = [];
+    const input = (id: string, content: string, attachments: any[] = []) => ({agent_id:'pa', conversation_id:'private-owner-chat', relay_task_id:id, idempotency_key:id,
+      metadata:{personal_is_owner:true, personal_delivery:'participant', conversation_type:'direct', channel:'web'},
+      message:{id,content,sender_type:'user' as const,sender_user_id:'owner',attachments}});
+    const read = (call: string, cursor?: string) => {
+      const page = inbox.read('pa','parent',call,{target:'private-owner-chat',limit:1,cursor});
+      const content = [{type:'text',text:JSON.stringify(page)}];
+      events.push({type:'tool/ptc-dispatch',data:{name:'inbox',content}});
+      inbox.commitRead('parent',call,content,false);
+      return page;
+    };
+    inbox.receive(input('grant','You may publish the summary.'),true); read('grant');
+    const withdrawal = kind === 'long-text' ? 'Background: ' + 'x'.repeat(6100) + ' WITHDRAWAL_NEVER_PUBLISH' : 'WITHDRAWAL_NEVER_PUBLISH';
+    inbox.receive(input('withdraw',withdrawal,kind === 'attachment' ? [{url:'/image',content_type:'image/png'}] : []),true);
+    const first = read('part-1');
+    const partial = retainedEnvelope(retainInstructions(parent(events),[],'owner'),[],8192);
+    expect(partial).toContain('instructions_incomplete');
+    expect(partial).not.toContain('WITHDRAWAL_NEVER_PUBLISH');
+    read('part-2',String(first.next_cursor));
+    events.push({type:'compaction/start'});
+    const retained = retainInstructions(parent(events),[],'owner');
+    const envelope = retainedEnvelope(retained,[],8192);
+    expect(retained.incomplete).toBe(false);
+    expect(retained.units.map(unit => unit.id)).toEqual(['private-owner-chat:grant','private-owner-chat:withdraw']);
+    expect(envelope).toContain('WITHDRAWAL_NEVER_PUBLISH');
+    expect(envelope).not.toContain('instructions_incomplete');
+    expect((retained.units[1]!.original_message as any).content.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('')).toBe(withdrawal);
+    expect(retainedEnvelope(retainInstructions(parent([]),retained.units.map(retained_instruction => ({retained_instruction}))),[],8192)).toBe(envelope);
+  } finally { inbox.close(); }
 });

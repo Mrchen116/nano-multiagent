@@ -47,3 +47,11 @@ executed_base / effective_base：`9bf2b13da4005631096f2a49223564cd68647c3c`；�
 | 一致性 Round 3 | 41a315eb972616176dbce2b6f3146715b578ed8e | retained；已审delta的全部Requirement逐字归并，脚本逐项相等检查通过，无新delta |
 
 本条记录的提交只补有效性元数据；其后的实际PR head会在PR正文列出并延伸同一文档变化判断。归并后docs integrity通过（317 maintained sources），change unit归档检查通过，git diff --check通过。
+
+## PR #430 用户指定全面 Context 复审与修复
+
+对 `89acdd464` 的完整 PR diff 新派独立 reviewer，确认两项先前门禁未覆盖的缺陷：Inbox 全部 partial 片段被原话保留层丢弃；交互卡片图片已复制到受众会话但 source 仍指向原私聊。完整覆盖和确定性复现在 code-review 的 User-requested full Agent Context review 中，原“无剩余 finding”结论不再代表当前结果。
+
+修复将可信已读消息按会话/消息与 part/parts 收齐为完整单元，跨页保持首次出现顺序；缺片整单元省略并标 incomplete。提交交互卡片时，source 与 content/attachments 使用相同冻结资源副本映射。扩展现有 retained-instructions 与 personal-images 回归，不新增平行套件；真实 Inbox 分页覆盖长文本/附件撤回、读不全警告、重建与继承，真实 IM/SQLite/图像文件 seam 覆盖 PNG/JPEG/WebP 卡片实际持久源码和副本字节。
+
+窄验证 2 files / 10 tests passed，DSH 和 IM build 通过。首次图片测试暴露 fixture 未把 PA 加入目标会话，补齐正常成员关系后通过，不放宽产品权限。受影响 DSH+IM 回归与独立 closure 尚在进行，后续补最终结果；没有新增真实模型调用、浏览器试用或生产操作。

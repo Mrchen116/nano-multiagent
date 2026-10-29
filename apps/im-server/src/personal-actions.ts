@@ -239,7 +239,8 @@ export class PersonalActions {
       }
       const rewrite=(value:string)=>value.replace(/\/im\/v1\/conversations\/([^/\s]+)\/(images|attachments)\/([\w-]+)/g,(url:string)=>copies.get(url)??url);
       const owner=payload.representation==='owner';
-      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive:payload.interactive,
+      const interactive=payload.interactive?{...payload.interactive,source:rewrite(payload.interactive.source)}:undefined;
+      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive,
         ...(op.conversation_id!==b.conversation_id?{personal_source:{binding_id:b.binding_id,agent_id:b.agent_id,owner_user_id:b.owner_user_id,display_name:b.display_name,operation_id:owner?op.operation_id:null}}:{})});
       if(owner)s.queueRepresentedRelays(message,b.agent_id);
       else {s.queueDirectAgentRelays(message);this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});}
