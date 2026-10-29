@@ -362,3 +362,30 @@ Current canonical specs in this unmerged unit branch still contain the earlier i
 Reuse code-review Round 7's Mode B review: fixed-source provenance, final prompt/Schema assembly, generation invalidation, original history/IM identity/cut, cached summary replacement and staging application were traced together. `/tmp/feat676-static-r8-context/requests.jsonl` records 1/2/5 show root guidance; 3/4 show consolidator input/directory/tools and finish result in the following request. This is actual native assembled delivery with controlled llm/stream, not provider-wire or autonomous model consumption. The preliminary real-model self-check remains labeled as such and has not been relabeled as independent acceptance.
 
 Two WARNING defects require implementation fixes; one CRITICAL acceptance gap requires the caller's remaining evidence. The documentation suggestion is low priority. No new review loop is warranted without an actual fix/evidence delta. The report's fixed validated/effective scope is unchanged by this report commit or concurrent caller documentation edits.
+
+
+## Round 8 — R8 targeted closure at eff2d4684 (2026-10-29)
+
+- `unit_id`: feat-676; `verification_mode`: targeted-closure/delta; `review_round`: 8.
+- `validated_at`: `eff2d4684cc396824ae65943f485a9ba66175111`; `executed_base`: `b8069b23892d035e67aa0695ae150a9a864e4265`; findings originated at `6205cc5794ad6efab00cd144b61e3b2f9eefa09d`.
+- Effective full-plus-closure implementation range: `80db8b9a6..eff2d4684cc396824ae65943f485a9ba66175111`.
+- `requires_full_verification`: false. Round 7's unaffected implementation/design mappings remain effective; this round checks only the actual fixes and accompanying strings/documentation.
+- **Targeted implementation outcome: aligned. Named findings F-R8-1/F-R8-2/D-R8-1 are closed. Overall milestone verdict: still not ready pending current independent product acceptance.** Counts: **1 CRITICAL evidence/exit-criterion gap retained, 0 WARNING, 0 SUGGESTION**. The retained gap is not a confirmed model failure.
+
+### Closure mapping
+
+| Focus / affected criteria | Candidate implementation | Evidence and result |
+| --- | --- | --- |
+| F-R8-1; S15/S16/W2 | recover retains completed-run staging while any saved receipt awaits version recording; normal cleanup resumes after compensation | Existing recovery test uses a real Git index.lock and actual files, succeeds through expired recover/start compensation, then cleans after success; independently passed at Node 24.22.1. **closed** |
+| F-R8-2; source-provenance portions of W4/W8/W10/W12 | Normal rendered message bodies retain non-messages envelope; Unicode continuation segments each retain the same envelope while message fields stay separate; Global and child share the rendering path | Direct-render test and the existing original-message Unicode traversal assert target/name/observer/type/channel in actual text. Independent built-candidate rendering also preserves all five tested identity fields. **closed at deterministic Context interface seam**; autonomous model consumption remains separately pending |
+| D-R8-1 | Three active-unit implementation links use ../../../packages | Direct path resolution confirms all exist. **closed** |
+| UI prototype R6 explanation delta | Web English/Chinese and native iOS accurately describe reading existing memory and explicit manual organization with automatic Dreaming off | Literal-only diff matches design's sole writer and switch semantics; owner UI **28 passed**, Web build passed. No new control or save/apply change. True-page R6 closure remains owned by the in-flight product reviewer |
+| Fixed-upstream evidence supplement | implementation-r8.md records phase1/phase2/storage/workspace/locking source reading and Nano differences; source README replaces stage_one.rs with phase1_output.rs | Reviewer verified the corrected files at the fixed source commit; the source-reading account is owner evidence, not a claim this verifier repeated the upstream investigation. No prompt/runtime delta or new spec change |
+
+Independent command/result: source+recovery narrow tests **20/20 passed**, `/tmp/feat676-static-closure-eff2d.log`. Reused owner red/green/build evidence: `/tmp/feat676-review-red.log`, `/tmp/feat676-review-node24.log` (**26/26**), `/tmp/feat676-review-build-node24.log`; UI results `/tmp/feat676-review-ui.log` and `/tmp/feat676-review-ui-build.log`. These provide appropriate targeted regression coverage for the two fixes. The delta does not require a new full review or new spec language to justify the implementation.
+
+### Remaining current gate
+
+**V-R8-1 remains open.** The product reviewer is in flight. This snapshot has no final independent S01-S30/retained-scenario matrix and accompanying current real-provider/model behavior conclusion supplied to this verifier. Earlier source/Wire/true-behavior limitations are not closed by the deterministic regression, the source-inspection narrative, or the UI unit test. The caller has additionally recorded local full-suite/build/typecheck/iOS-runtime/Python results for the original 6205cc579 candidate; those improve available local validation evidence but do not constitute a remote CI pass or replace the revised independent product gate. Reconcile the final bounded evidence when it arrives; do not rerun unaffected mechanisms merely to fill a checklist.
+
+Current corrected-delta reconciliation: **aligned for the reviewed fixes**, with no newly uncovered observable delta; overall M1 still **incomplete solely on its outstanding evidence/acceptance criterion**. The two CONFIRMED implementation WARNINGs from Round 7 are closed. Code-review Round 8 contains the corresponding Mode B Context repair evidence and scope limits. Only the assigned two reports were appended; implementation, tests, design and production were not modified by this verifier.
