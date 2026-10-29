@@ -47,4 +47,4 @@ Luna 对 A/B/C 分别 allow，审核 contextMode 为 full/delta/delta。两个�
 - 非E2E pytest：**113 passed / 28 deselected**，`/tmp/bugfix678-pytest.log`。
 - docs integrity、ruff check/format、packaged iOS runtime 检查通过。无 iOS源码变更，未声称原生设备验收。canonical归并/归档后将重跑文档与change归档检查；源码未变不重复全部测试。
 
-清理记录：发现第二轮 workflow-native 超时遗留的 DSH 子进程 PID13000，PPID1、PGID13000、cwd/DSH_HOME 均为专用 nano-workflow-uft0Se 临时目录，启动时间22:40:17与该轮测试匹配；核对后仅终止该进程组。日常验收服务待 reviewer 完成后统一停止。
+清理记录：发现第二轮 workflow-native 超时遗留的 DSH 子进程 PID13000，PPID1、PGID13000、cwd/DSH_HOME 均为专用 nano-workflow-uft0Se 临时目录，启动时间22:40:17与该轮测试匹配；核对后仅终止该进程组。产品 reviewer 完成全部旅程后执行 scripts/e2e-down.sh，STOPPED；核对Node PID31071及DSH子进程31077/31296均退出，58487无监听。独立日常tmux仅剩sleep，已关闭该专用session。R5/R8脚本均exit0且finally完成清理。
