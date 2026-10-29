@@ -10,7 +10,8 @@ import type { FastifyInstance } from 'fastify';
 import { all, one, now, fail, body, params, transaction, type Row, type ImContext } from './context.js';
 import { conversationAccess } from './conversation-access.js';
 import { ConfigOperations, profileResponse } from './control.js';
-import { PersonalActions, PEER_NOTICE } from './personal-actions.js';
+import { personalInputContext } from './personal-input-context.js';
+import { PersonalActions } from './personal-actions.js';
 
 /** Personal authority and source access are resolved from the authenticated node. */
 export class PersonalAgents {
@@ -213,7 +214,7 @@ export class PersonalAgents {
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
         return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
-          ...(message?{mentioned_agent_ids:this.addressedAgents(message)}:{}),payload:JSON.parse(e.payload_json),
+          ...(message?{mentioned_agent_ids:this.addressedAgents(message)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);
@@ -269,26 +270,55 @@ export class PersonalAgents {
   incidents(owner:string) {
     const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
   }
+  /** Project unfinished communication from persisted receipts, not model claims. */
+  incidentEvent(b:Row,incident:Row) {
+    if(!this.sourceAllowed(b,incident.conversation_id)||!one(this.db,'SELECT 1 FROM messages WHERE id=?',incident.source_message_id))return {incident_ref:incident.id,blocked_reason:'source_unavailable',owner_notice_message_id:incident.owner_notice_message_id,peer_notice_message_id:incident.peer_notice_message_id};
+    const source=one(this.db,'SELECT content FROM messages WHERE id=?',incident.source_message_id);
+    return {incident_ref:incident.id,owner_target:`conversation:${b.conversation_id}`,peer_target:`conversation:${incident.conversation_id}`,
+      source_message_id:incident.source_message_id,actor_id:incident.actor_id,reason:incident.reason,original_content:source?.content??null,
+      owner_notice_message_id:incident.owner_notice_message_id,peer_notice_message_id:incident.peer_notice_message_id,input_state:'rejected'};
+  }
   incident(principal:Row,args:Row) {
     const b=this.authority(principal,args),source=one(this.db,'SELECT * FROM messages WHERE id=?',args.source_message_id);
     if(!source||!this.sourceAllowed(b,source.conversation_id)||this.sourceFacts(b,source).is_owner)fail(404,'incident_source_not_accessible');
-    const actorId=this.sourceActor(source);
-    args={...args,category:args.category??'suspected_probing'};
-    if(typeof args.category!=='string'||typeof args.reason!=='string')fail(422,'incident_evidence_required');
-    const seen=one(this.db,'SELECT i.* FROM pa_incidents i JOIN pa_incident_evidence e ON e.incident_id=i.id WHERE e.binding_id=? AND e.message_id=? AND e.category=?',b.binding_id,source.id,args.category);
-    if(seen)return {...seen,peer_notice_content:PEER_NOTICE,peer_notice_requires_review:true};
-    const open=one(this.db,"SELECT * FROM pa_incidents WHERE binding_id=? AND actor_id=? AND conversation_id=? AND category=? AND status='open'",b.binding_id,actorId,source.conversation_id,args.category);
-    if(open){this.db.prepare('INSERT INTO pa_incident_evidence VALUES(?,?,?,?)').run(b.binding_id,source.id,args.category,open.id);this.db.prepare('UPDATE pa_incidents SET count=count+1,source_message_id=?,reason=? WHERE id=?').run(source.id,args.reason,open.id);return {...one(this.db,'SELECT * FROM pa_incidents WHERE id=?',open.id)!,peer_notice_content:PEER_NOTICE,peer_notice_requires_review:true};}
-    const id=randomUUID(),actor=source.sender_display_name?{display_name:source.sender_display_name}:one(this.db,'SELECT display_name FROM users WHERE id=?',source.sender_user_id)!;
+    const actorId=this.sourceActor(source),category=args.category??'suspected_probing';
+    if(typeof category!=='string'||typeof args.reason!=='string')fail(422,'incident_evidence_required');
+    const seen=one(this.db,'SELECT i.* FROM pa_incidents i JOIN pa_incident_evidence e ON e.incident_id=i.id WHERE e.binding_id=? AND e.message_id=? AND e.category=?',b.binding_id,source.id,category);
+    if(seen)return seen;
+    let incident:Row;
     transaction(this.db,()=>{
-      this.db.prepare('INSERT INTO pa_incidents(id,binding_id,actor_id,conversation_id,source_message_id,category,reason) VALUES(?,?,?,?,?,?,?)').run(id,b.binding_id,actorId,source.conversation_id,source.id,args.category,args.reason);
-      this.db.prepare('INSERT INTO pa_incident_evidence VALUES(?,?,?,?)').run(b.binding_id,source.id,args.category,id);
-      const message=this.ctx.messaging.insertMessage(b.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id,'agent',`${actor.display_name}的请求可能超出了协作范围。${args.reason}\n\n原请求${source.content.length > 500 ? "（摘录）" : ""}：\n${String(source.content).slice(0,500).split("\n").map(line=>`> ${line}`).join("\n")}\n\n我已拒绝这次索取；其他工作继续。`,[],`pa-incident:${id}`,'completed',{publish:false});
-      this.db.prepare('UPDATE pa_incidents SET owner_notice_message_id=? WHERE id=?').run(message.id,id);
+      const open=one(this.db,"SELECT * FROM pa_incidents WHERE binding_id=? AND actor_id=? AND conversation_id=? AND category=? AND status='open'",b.binding_id,actorId,source.conversation_id,category);
+      const id=open?.id??randomUUID();
+      if(open)this.db.prepare('UPDATE pa_incidents SET count=count+1,source_message_id=?,reason=? WHERE id=?').run(source.id,args.reason,id);
+      else this.db.prepare('INSERT INTO pa_incidents(id,binding_id,actor_id,conversation_id,source_message_id,category,reason) VALUES(?,?,?,?,?,?,?)').run(id,b.binding_id,actorId,source.conversation_id,source.id,category,args.reason);
+      this.db.prepare('INSERT INTO pa_incident_evidence VALUES(?,?,?,?)').run(b.binding_id,source.id,category,id);
+      incident=one(this.db,'SELECT * FROM pa_incidents WHERE id=?',id)!;
+      if(!open)this.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'security.incident',?,?,?)")
+        .run(b.binding_id,JSON.stringify(this.incidentEvent(b,incident)),this.policy(b.binding_id).revision,now());
     });
-    const incident=one(this.db,'SELECT * FROM pa_incidents WHERE id=?',id)!;
-    this.ctx.messaging.publishMessages([this.ctx.messaging.message(incident.owner_notice_message_id)]);
-    return {...incident,peer_notice_content:PEER_NOTICE,peer_notice_requires_review:true};
+    this.wake(b);return incident!;
+  }
+  pendingIncidents(principal:Row,args:Row) {
+    const b=this.authority(principal,args);
+    return {items:all(this.db,"SELECT * FROM pa_incidents WHERE binding_id=? AND status IN ('open','dismissed') AND (owner_notice_message_id IS NULL OR peer_notice_message_id IS NULL) ORDER BY rowid",b.binding_id).map(incident=>{
+      const allowed=this.sourceAllowed(b,incident.conversation_id);
+      return allowed?this.incidentEvent(b,incident):{incident_ref:incident.id,blocked_reason:'source_unavailable',owner_notice_message_id:incident.owner_notice_message_id,peer_notice_message_id:incident.peer_notice_message_id};
+    })};
+  }
+  incidentRead(principal:Row,args:Row) {
+    const b=this.authority(principal,args),incident=one(this.db,'SELECT * FROM pa_incidents WHERE id=? AND binding_id=?',args.incident_ref,b.binding_id);
+    if(!incident||!['open','dismissed'].includes(incident.status)||![b.conversation_id,incident.conversation_id].includes(args.conversation_id))fail(403,'invalid_security_notice');
+    return this.incidentEvent(b,incident);
+  }
+  /** Bind a host-observed owner publication to an incident after actual delivery. */
+  incidentReceipt(principal:Row,args:Row) {
+    const b=this.authority(principal,args),incident=one(this.db,'SELECT * FROM pa_incidents WHERE id=? AND binding_id=?',args.incident_ref,b.binding_id);
+    if(!incident)fail(404,'incident_not_found');
+    const message=one(this.db,'SELECT * FROM messages WHERE id=?',args.message_id);
+    if(!message||message.conversation_id!==b.conversation_id||message.sender_user_id!==this.ctx.messaging.agentUser(b.agent_id).id||message.delivery_status!=='completed')fail(409,'incident_receipt_unconfirmed');
+    if(incident.owner_notice_message_id&&incident.owner_notice_message_id!==message.id)fail(409,'incident_receipt_conflict');
+    this.db.prepare('UPDATE pa_incidents SET owner_notice_message_id=? WHERE id=?').run(message.id,incident.id);
+    return this.incidentEvent(b,{...incident,owner_notice_message_id:message.id});
   }
   async handle(principal:Row,type:string,args:Row):Promise<Row> {
     const b=this.authority(principal,args);
@@ -299,11 +329,15 @@ export class PersonalAgents {
       case 'pa.runtime.status':
         if(typeof args.available!=='boolean')fail(422,'runtime_availability_required');
         this.db.prepare('INSERT OR REPLACE INTO pa_runtime_status VALUES(?,?,?)').run(b.binding_id,b.node_epoch,Number(args.available));return {recorded:true};
+      case 'pa.input.context': return personalInputContext(this.db,args.source_message_id,m=>this.messageAllowed(b,m),m=>this.messageEvidence(b,m));
+      case 'pa.incidents.pending': return this.pendingIncidents(principal,args);
+      case 'pa.incident.read': return this.incidentRead(principal,args);
       case 'pa.source.admit': return this.admitSource(principal,args);
       case 'pa.observations.read': return this.observations(principal,args);
       case 'pa.observations.ack': return this.acknowledge(principal,args);
       case 'pa.incident.report': return this.incident(principal,args);
-      case 'pa.action.prepare': return this.actions.prepare(principal,args);
+      case 'pa.incident.receipt': return this.incidentReceipt(principal,args);
+      case 'pa.action.prepare': return this.actions.prepareChecked(principal,args);
       case 'pa.action.review-result': return this.actions.review(principal,args);
       case 'pa.action.commit': return this.actions.commitChecked(principal,args);
       case 'pa.action.complete': return this.actions.complete(principal,args);

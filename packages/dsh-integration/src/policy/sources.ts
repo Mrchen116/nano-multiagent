@@ -23,6 +23,7 @@ const safeJson = (value: unknown) => JSON.stringify(value).replace(/[<>\u2028\u2
 export function codexEntries(entries: Record<string, unknown>[]): Record<string, unknown>[] {
   const resultIds = new Set(entries.filter(row => row.id !== undefined && hostResults.some(name => `${name}_result` in row)).map(row => row.id));
   return entries.flatMap(row => {
+    if ('retained_instruction' in row) return [];
     if ('outcome' in row && resultIds.has(row.id)) return [];
     const key = 'inbox_result' in row ? 'inbox_result' : 'conversations_result';
     const page = row[key] as Record<string, unknown> | undefined;

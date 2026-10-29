@@ -6,7 +6,22 @@
 
 固定目标 Nano SHA、发布 DSH 版本、Node/IM schema 版本及隔离验收证据后，确认部署目标、实际数据路径和进程 owner。对象仅为本 unit 新增的 Inbox 审核状态、PA 事件处置标记、未消费审核凭证和受影响 provider 重试配置；不改 owner、密钥、workspace、聊天内容或联系人决定。
 
-实施交付须提供版本化、可检查 plan/apply 的一次性迁移命令和副本验证证据，补入本文件确切命令后复审。当前不虚构可执行脚本。schema 的正常创建/新增列由既有迁移机制承担，历史语义整理由部署 Agent 一次性执行，不放进每次启动的扫描/回放。
+迁移命令随本版本构建产物交付：先执行 pnpm build；在受管服务停止写入且完成一致性备份后，使用下列命令。PA_AGENT_ID 必须来自当前节点的真实绑定清单，可传多个；不从历史路径推断。schema 的正常创建/新增列由既有迁移机制承担，历史语义整理由部署 Agent 一次性执行，不放进每次启动的扫描/回放。
+
+## 可执行命令
+
+```sh
+node apps/im-server/lib/migrate-pa-permissions.js plan IM_DATABASE
+node packages/personal-assistant/lib/migrate-input-review.js plan INBOX_DATABASE
+node apps/im-server/lib/migrate-pa-permissions.js apply IM_DATABASE
+node packages/personal-assistant/lib/migrate-input-review.js apply INBOX_DATABASE PA_AGENT_ID
+node apps/im-server/lib/migrate-pa-permissions.js verify IM_DATABASE IM_BACKUP
+node packages/personal-assistant/lib/migrate-input-review.js verify INBOX_DATABASE INBOX_BACKUP
+```
+
+IM 标识为 `pa-permission-boundaries-v1`，Inbox 标识为 `input-review-v1`。两个数据库各自事务提交；多节点需逐个执行 Inbox 命令，全部 verify 成功前保持服务停止。plan 只读；apply 重跑不会重复失效许可或创建事件。脚本不改 provider 配置，不发送消息、不调用模型。来源访问在事件实际投影时按当前权限重新核对；不可访问只报告 source_unavailable，不读取旧私有正文。
+
+隔离验证见本 unit M1 证据；永久回归分别位于 `apps/im-server/tests/pa-permission-migration.test.ts`、`packages/personal-assistant/tests/input-admission.test.ts`，覆盖终态保留、marker 前事务中断回滚、重复 apply 与备份对比。生产不得用测试脚本替代只读验证。
 
 ## 顺序与保留原则
 

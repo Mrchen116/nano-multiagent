@@ -16,3 +16,11 @@ export function personalFixture() {
  const service=new PersonalAgents(f.ctx); f.ctx.personal=service;
  return {...f,service,principal:{node_id:'n',owner_id:'o1',node_epoch:1},args:{agent_id:'a',binding_id:'binding',epoch:1}};
 }
+
+/** Record an actual PA-authored owner delivery before testing the peer boundary. */
+export function recordOwnerNotice(service:PersonalAgents,principal:Record<string,any>,args:Record<string,any>,incident:Record<string,any>) {
+ const message=service.ctx.messaging.insertMessage('chat','a1','agent','A request was refused; your private information was not shared.',[],`pa-incident:${incident.id}:owner`,'completed');
+ service.incidentReceipt(principal,{...args,incident_ref:incident.id,message_id:message.id});
+ incident.owner_notice_message_id=message.id;
+ return message;
+}

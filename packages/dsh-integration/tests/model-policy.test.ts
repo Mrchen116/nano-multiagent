@@ -6,13 +6,13 @@ import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
 it.each([[true, false], [false, false], [true, true], [false, true]])('keeps session effort and separates Skill catalogs from archived bodies (context windows=%s, skill callable=%s)', async (contextWindows, skillCallable) => {
   const home = await mkdtemp(join(tmpdir(), 'nano-model-policy-')); let client: RuntimeClient | undefined; let logs='';
-  await writeFile(join(home, 'fixture.mjs'), `import {appendFile}from'node:fs/promises';export const name='model-fixture';export const inject=['llm'];export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({purpose:o.purpose,effort:o.reasoningEffort,messages:o.messages,system:o.system})+'\\n');yield{type:'block-end',index:0,block:{type:'text',text:o.purpose==='compaction'?'Preserve AUTH_FOCUS and continue the original task.':'A useful response. '.repeat(100)}};yield{type:'finish',reason:{kind:'stop'},usage:{inputTokens:100,outputTokens:20}};});}`);
+  await writeFile(join(home, 'fixture.mjs'), `import {appendFile}from'node:fs/promises';export const name='model-fixture';export const inject=['llm'];export function apply(ctx){let summaryFailed=false;ctx.on('llm/stream',async function*(o){await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({purpose:o.purpose,sessionId:o.sessionId,effort:o.reasoningEffort,messages:o.messages,system:o.system})+'\\n');if(o.purpose==='compaction'&&!summaryFailed){summaryFailed=true;yield{type:'block-end',index:0,block:{type:'text',text:'FAILED_PARTIAL_SUMMARY'}};yield{type:'finish',reason:{kind:'error',failure:{code:'SERVER',message:'temporary summary failure'}}};return;}yield{type:'block-end',index:0,block:{type:'text',text:o.purpose==='compaction'?'Preserve AUTH_FOCUS and continue the original task.':'A useful response. '.repeat(100)}};yield{type:'finish',reason:{kind:'stop'},usage:{inputTokens:100,outputTokens:20}};});}`);
   await mkdir(join(home,'skills/retained'),{recursive:true});
   await writeFile(join(home,'skills/retained/SKILL.md'),'---\nname: retained\ndescription: Guidance that must survive compaction\n---\nKEEP_SELECTED_SKILL_BODY');
   const config={agentId:'a',revision:'1',workspace:home,provider:'fixture',model:'test',features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false},toolAllowlist:skillCallable ? ['workflow','skill'] : ['workflow'],skillRoots:[{path:join(home,'skills'),source:'workspace'}],reasoningEffort:'low'};
   const binding={sessionId:'model-session',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try {
-    await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test',contextWindow:100000,reasoningEfforts:{low:'low',high:'high',xhigh:'xhigh'}}]}}}},{id:'nano-compaction',config:{retainTokens:0,headroomTokens:100,maxTokens:256}},{insert:[{id:'model-fixture',name:join(home,'fixture.mjs')}]}]);
+    await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',retryPolicy:{mode:'normal',maxRetries:1,backoff:{initialDelayMs:1,maxDelayMs:1,jitterRatio:0}},models:[{id:'test',contextWindow:100000,reasoningEfforts:{low:'low',high:'high',xhigh:'xhigh'}}]}}}},{id:'nano-compaction',config:{retainTokens:0,headroomTokens:100,maxTokens:256}},{insert:[{id:'model-fixture',name:join(home,'fixture.mjs')}]}]);
     const start=async()=>{client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);};
     await start();
     if (!contextWindows) {
@@ -32,7 +32,9 @@ it.each([[true, false], [false, false], [true, true], [false, true]])('keeps ses
     expect(await client!.rpc.request('session.command',command)).toEqual(result);
     config.revision='2';await client!.rpc.request('configuration.apply',config);await submit('four');
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
-    expect(requests.filter(r=>r.purpose==='compaction')).toHaveLength(contextWindows ? 0 : 1);
+    expect(requests.filter(r=>r.purpose==='compaction')).toHaveLength(contextWindows ? 0 : 2);
+    expect(JSON.stringify(await events())).not.toContain('FAILED_PARTIAL_SUMMARY');
+    if (!contextWindows) expect(requests.filter(r=>r.purpose==='compaction').map(r=>r.sessionId)).toEqual([binding.sessionId,binding.sessionId]);
     if (contextWindows) expect(JSON.stringify(requests.at(-1).messages)).toContain('Context reset reason: manual');
     else expect(JSON.stringify(requests.find(r=>r.purpose==='compaction').messages)).toContain('For this summarization only');
     expect(requests.at(-1).effort).toBe('xhigh');

@@ -1,7 +1,4 @@
 import { expect, it } from 'vitest';
-import { mkdtemp, writeFile, rm, symlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { parseCodexDecision, reviewInput, tokenCost, codexPolicy } from '../src/policy/codex-context.js';
 import { inspectionTools } from '../src/policy/codex-inspection.js';
 import { parsePersonalDecision } from '../src/personal-security.js';
@@ -79,18 +76,11 @@ it('assembles pinned policy with actual restrictions and source provenance', asy
   expect(policy).not.toContain('The coding-agent is running in a sandbox');
 });
 
-it('bounds read-only inspection and rejects non-regular files even through symlinks', async () => {
-  const cwd = await mkdtemp(join(tmpdir(),'guardian-inspect-'));
-  try {
-    await writeFile(join(cwd,'a'),'hello');await symlink('/dev/zero',join(cwd,'device'));
-    const tools = inspectionTools(cwd,()=>new AbortController().signal);
-    const run = (name:string,args:unknown)=>tools.find(t=>t.name===name)!.execute(args,{signal:new AbortController().signal} as any);
-    expect(await run('guardian_read',{path:'a'})).toMatchObject({text:'hello',truncated:false});
-    // Filesystem failures should report the cause, not the entire child program and stack.
-    await expect(run('guardian_read',{path:'missing'})).rejects.toThrow(/^ENOENT: no such file or directory/);
-    await expect(run('guardian_read',{path:'device'})).rejects.toThrow(/regular/);
-    expect(await run('guardian_list',{path:'.'})).toMatchObject({entries:expect.arrayContaining(['a','device'])});
-    const abort=new AbortController();abort.abort();
-    await expect(tools[0]!.execute({path:'a'},{signal:abort.signal} as any)).rejects.toThrow();
-  } finally { await rm(cwd,{recursive:true,force:true}); }
+it('captures native inspection definitions outside workspace overlays', () => {
+  const names=['read','read_image','glob','grep'];
+  const native=names.map(name=>({name,parameters:{type:'object'},execute:async()=>name}));
+  const scopes:unknown[]=[];
+  const tools=inspectionTools({tools:{get:(name:string,scope?:unknown)=>{scopes.push(scope);return native.find(tool=>tool.name===name);}}} as any);
+  expect(tools).toEqual(native);expect(scopes).toEqual([undefined,undefined,undefined,undefined]);
+  expect(()=>inspectionTools({tools:{get:()=>undefined}} as any)).toThrow(/unavailable/);
 });

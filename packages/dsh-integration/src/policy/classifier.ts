@@ -1,3 +1,4 @@
+import { withStandaloneRetry, type StandaloneRetryControl } from '../standalone-model-retry.js';
 import { BlockAssembler } from '@deepseek-ai/dsh-llm';
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { Context } from '@deepseek-ai/cordis';
@@ -14,10 +15,12 @@ export async function classify(ctx: Context, request: ApprovalReviewRequest): Pr
   const transcript = await sources.transcript(agent, exec, inherited, messageContext, config.mode !== 'global');
   const model = await ctx.llm.resolveModelInfo(reviewer.provider, reviewer.model, exec.signal);
   const system = `${prompt}\n\n${reviewSourceInstructions}\n\n${inboxSourceInstructions}${messageContext ? `\n\n${messageReviewInstructions}` : ''}`;
+  const reviewBudget = { remaining: 2, formatRemaining: 1 };
   for (const stage of policy.rules === 'nano' ? [1, 2] : [1]) {
     const suffix = policy.rules === 'nano' ? await policyAsset(`cc-2.1.267-nano-v1/s${stage}_suffix.txt`) : '';
     const assembly = new BlockAssembler();
-    const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(stage === 1 ? 30_000 : 60_000)]);
+    const control: StandaloneRetryControl<ReviewDecision> = { timeoutMs: stage === 1 ? 30_000 : 60_000, reviewBudget,
+      decodeReview: policy.rules === 'nano' ? parseNanoDecision : parseDshDecision, purpose: 'tool-classification' };
     const maxTokens = stage === 1 ? 2112 : 10240;
     const userText = transcript + suffix;
     // Public DSH estimator is a heuristic, not the provider tokenizer. Reserve the full stage output.
@@ -25,13 +28,15 @@ export async function classify(ctx: Context, request: ApprovalReviewRequest): Pr
     if (model.context && estimatedInput + maxTokens > model.context.contextWindow) {
       throw new Error(`Review context exceeds configured window: estimated input ${estimatedInput} + output ${maxTokens} > ${model.context.contextWindow}`);
     }
-    for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: model.reasoning?.efforts.find(value=>value.id==='low')?.id??model.reasoning?.defaultEffort??model.reasoning?.efforts[0]?.id,
-      messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal })) assembly.push(chunk);
+    await withStandaloneRetry(control, async () => {
+      for await (const chunk of ctx.llm.stream({ ...reviewer, system, reasoningEffort: model.reasoning?.efforts.find(value=>value.id==='low')?.id??model.reasoning?.defaultEffort??model.reasoning?.efforts[0]?.id,
+        messages: [{ role: 'user', content: [{ type: 'text', text: userText }] }], temperature: 0, maxTokens, signal: exec.signal })) assembly.push(chunk);
+    });
 
     usage = assembly.usage;
     if (assembly.finish.kind === 'error' || assembly.finish.kind === 'aborted') throw new Error(JSON.stringify(assembly.finish));
     const result = assembly.blocks().filter(block => block.type === 'text').map(block => block.text).join('');
-    decision = policy.rules === 'nano' ? parseNanoDecision(result) : parseDshDecision(result);
+    decision = control.decodedReview ?? (policy.rules === 'nano' ? parseNanoDecision(result) : parseDshDecision(result));
     if (!decision) throw new Error('Reviewer returned no valid verdict');
     if (policy.rules !== 'nano' || stage === 2 || decision.behavior === 'allow') break;
   }
