@@ -6,7 +6,7 @@
 
 ## Verdict
 
-**pass**。Round 1 的两项 major 已在同一真实隔离环境定向复验关闭；S01–S20 全部通过，0项未关闭问题。最终实现验收版本为 `5a123bae760d429c84bc2a3f72814009a69836f0`；报告提交及后续纯文档归并不冒充另一次产品运行。
+**pass-with-issues（Round 3，定向复验）**。原 Round 1/2 对记忆内容、Work 摘要和刷新重开的结论保留，但未实际覆盖 Dreaming 原生 viewer 的完整明细与重启冷读取；原先“S01–S20 全部通过”不能证明该入口可用。用户随后发现的 `trajectory_read_failed: subagent descriptor is corrupt` 是原验收缺口。候选 `e207a51b6e8313083cff05ccebfcca7196b8653d` 已通过两条旧轨迹、一条新真实执行及隔离 Gateway 重启后的原生 UI 复验：0 blocking、0 major；保留 1 项不阻塞回溯的 minor 体验观察（完成边界需一次重新读取）。未受影响的模型内容理解与其他场景按 Round 2 具体证据继承；本报告不宣称重新执行全量矩阵。
 
 ## Round 1 — fail
 
@@ -104,3 +104,42 @@ M3 显式手动运行 `b9851fd9-d1dd-4260-81f6-ed666140f9da` 完成40/40，到se
 - [x] 文档规范：无需更新。
 
 iOS 按 design 指定只验共享语义/编译，复用 `/tmp/feat676-ios-test.log`、`/tmp/feat676-ios-archive.log`；本报告不宣称 iOS 视觉验收。
+
+
+## Round 3 — 原生 Dreaming 轨迹定向复验（pass-with-issues）
+
+- `validated_at` / 实现候选：`e207a51b6e8313083cff05ccebfcca7196b8653d`；`executed_base`：原 PR #428 head `c1eea6beb` 的既有数据；原 PR 未合并。复验开始 HEAD 为候选，冷读时 HEAD 为仅更新 code-review/verification 的 `49be9e80e`，未冒充新的实现运行。
+- 时间：2026-10-29 北京时间约 10:18–10:32；平台：Web，独立浏览器 tab，实际 viewport 1280×720。本次没有界面实现改动，保留 Round 1/2 390 宽度及 iOS 共享语义证据，不声称本轮另验 iOS。
+- 环境：`/private/tmp/nano-feat676-daily`，IM `http://127.0.0.1:65225`，node `wt-nano-feat676-daily-76245`，专用 nano 测试身份。核对 `.e2e-daily.json` 的 P/E/Q sol、PA astra 与固定模型/审核阵容。PA 自动 Dreaming 关闭、P 开启且间隔 1000ms、E 开启、Q 关闭；本轮不改配置。
+- 证据目录：`/tmp/feat676-trajectory-review/`。原故障画面 `before.png` 与旧历史备份 `pre-repair/` 均保留。reviewer 不改实现或历史，只在既有 Q 合成测试私聊增加一条输入、等待真实整理，并进行一次授权隔离 Gateway 重启。
+
+### 真实旅程与决定性结果
+
+可复查的隔离入口：
+
+- [旧自动10/10](http://127.0.0.1:65225/settings/agents/daily-product?view=work&work_view=trajectory&execution=dreaming-fdc890cb-46e2-47b5-b0ab-9dd32821c3bc)
+- [旧手动40/40](http://127.0.0.1:65225/settings/agents/daily-product?view=work&work_view=trajectory&execution=dreaming-b9851fd9-d1dd-4260-81f6-ed666140f9da)
+- [本轮新手动21/21](http://127.0.0.1:65225/settings/agents/daily-quality?view=work&work_view=trajectory&execution=dreaming-d8ce8998-9154-4d7e-ab1e-572a315d5da9)
+
+| 来源/必验结果 | 实际操作与观察 | 结果 |
+|---|---|---|
+| S18；current `agent-work.md` 完整原生明细 | 打开 P 的既有自动 `dreaming-fdc890cb-46e2-47b5-b0ab-9dd32821c3bc`，逐项展开初始系统提示、read、edit、finish 和宿主回执。独立受限 prompt、参数/结果/Schema 可读；finish reviewed=10，宿主 10/10、保存3/3。保留一次绝对路径 finish error 及后续成功重试，未把历史错误隐藏。`reviewer-auto-{prompt,read,edit,finish}.txt`、`reviewer-auto-receipt.png`。 | pass |
+| 同上，较长旧历史分页 | 打开 P 的既有手动 `dreaming-b9851fd9-d1dd-4260-81f6-ed666140f9da`，点击“加载更早的历史”后系统提示与首批输入可达，再展开 read/edit/finish/宿主回执。finish reviewed=40，宿主 40/40、保存3/3，并明确另有1个源范围待处理。`reviewer-manual-{prompt,read,edit,finish}.txt`、`reviewer-manual-receipt.png`。 | pass |
+| S17/S18，新真实手动整理 | 从 Q 的 Open chat 进入既有 `c_s5tkgcqp`，发送合成经验676-T：刷新保留状态不证明服务重启持久化，分别记录证据；明确仅手动整理一次、不启用自动整理。真实输入 `11fabcf00f9d425085e286a76b813c85`；Q 实际调用 `memory_maintenance run`，没有用伪造宿主结果替代模型执行。 | pass |
+| 新执行完整原生链路 | UI 选择新 `dreaming-d8ce8998-9154-4d7e-ab1e-572a315d5da9`，实际展开 prompt/read/edit/finish/宿主回执。10:24:06–10:27:58 的维护运行核对21/21、保存3/3；有界批次包含 Q 原有合格历史，不把它说成只处理新消息。新增 knowledge/receipt-aware-report.md、projects/synthetic-checklist-676.md，并更新入口；明确合成性质和刷新/重启证据区别。finish prepared 与宿主实际保存分别可辨，回执保留另有1个源范围待处理。`reviewer-new-*.txt/.png`。 | pass |
+| current 维护效果不佳后回溯；重启冷读 | 等 Q 主执行完成（10:22:13–10:29:12，真实回复已投递）后，guard 通过，CLI stop/start 仅重启隔离 Gateway。旧92831/DSH92837 → 新19680/DSH19686，10:30:16启动，ready/connected=true，`.gateway.pid` 已维护。重新导航三条旧/新原生轨迹，均已连接、可展开宿主回执，旧手动历史分页仍正常；无 descriptor corrupt。`reviewer-cold-{auto,manual,new}.txt/.png`、`reviewer-restart-check.txt`。 | pass |
+| 既有历史保留与身份不扩散 | 复用 `history-prefix-check.txt` 的8条日志原记录不变、仅追加1条隐藏one-shot身份结论；reviewer 独立比较重启前后及冷读后压缩日志 SHA-256，8条旧日志和完整 Gateway 配置均完全一致，没有再次追加或重写。模型目录隔离复用原生回归 `pnpm exec vitest run packages/dsh-integration/tests/dreaming-runtime.test.ts --maxWorkers=1`，`/tmp/feat676-trajectory-green.log` 2/2通过；其 warm/cold 后 descendants=[] 与实际请求无descriptor/工具不扩张断言由实现与code-review证据支撑，不宣称本轮UI直接观察模型目录。 | pass |
+
+### 完整体验与非阻塞观察
+
+原生时间线与右侧检查器沿用现有布局：左侧选择真实事件，右侧可读 prompt、调用参数、结果与 Schema；宿主回执与助手“prepared，不等于应用”的声明分别呈现，用户能判断模型处理与实际保存的区别。既有错误、剩余材料没有被成功摘要掩盖。此轮主要可交付目标——从 Work 进入真实完整明细、重新启动后仍能回溯——成立。
+
+| # | Severity / Regression Relation | 期望、实际与证据 | Recommended Action / Rationale |
+|---|---|---|---|
+| T1 | minor / unclear | 新执行实时从运行转完成时，已有完成回执仍可见，但顶部出现 `generation_changed: generation_changed`、“历史读取中断”，需要点击一次“重新读取”。点击后即恢复已连接，原数据完整，随后冷读取也正常。`reviewer-new-receipt.png` 保留中断现场，`reviewer-new-reread.png/.txt` 证明恢复。 | Side finding；建议后续改善结束边界提示或恢复体验。current 契约允许更新中断如实呈现，当前有明确恢复按钮且不重执行任务；没有阻断明细回溯或造成数据缺失，因此不扩大本轮修复范围、不据此推断根因。 |
+
+### 覆盖继承与环境交还
+
+S18 的原生 viewer 缺口本轮补齐；S17 关闭自动后仍可手动整理以 Q 新执行补证。S01–S16、S19–S20 的模型理解、角色边界、输入保真、故障恢复、迁移与遗忘结论继续引用 Round 1/2 的具体证据，修复没有业务提示或内容语义改动，不重复大范围真实运行。最高必要动作 `pass`，无需为本修复再复验；T1 为非阻塞 Side finding，无外部 issue 创建。
+
+服务按用户要求保留运行与历史，不执行 e2e-down；IM 与数据库未重启，Q 自动开关未变。独立浏览器 tab 为临时验收页，未改主 tab。本轮只提交 acceptance.md，不 push；其他并行报告与实现提交由 caller 管理。上层 current spec 和设计无需因本次身份恢复修复改写。
