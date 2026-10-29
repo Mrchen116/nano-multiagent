@@ -87,3 +87,49 @@ Gateway / PA：**no spec delta** 成立。完整 diff 只新增专用离线评�
 ## Handoff
 
 未创建 worktree、未切换或同步分支、未修改源码/测试/配置/设计、未提交报告，由调用方在本 unit 分支提交。没有生产操作、真实模型请求或正式 benchmark 下载。独立报告位置即本文件及 code-review.md；后续真实评测应按 suite README 冻结配置并取得用户单独启动授权。
+
+## Round 2 — 最新父分支适配
+
+- verification_mode: `delta`
+- review_round: `2`
+- executed_base（main merge-base）: `082e72ec4becb37d4ba08c3e3a8e0d2bf45da087`
+- effective stacked base: `3e9a46030939bfcce351b7df2e29e5f3c2439055`
+- fix_delta_range: `117873fd1..93c8e305bf30de6f0354510f3d9e8eee46b293c1`
+- parent_upgrade: `80db8b9a6..3e9a46030`
+- validated_at: `93c8e305bf30de6f0354510f3d9e8eee46b293c1`
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **pass**
+- requires_full_verification: `false`
+- CRITICAL: 0; WARNING: 0; SUGGESTION: 0
+
+### 范围与完成度
+
+用户本轮要求评测跟随最新版记忆父分支。只核验该兼容增量及受其影响的原生历史、准备/恢复、封存/冷答题与外部预算链；不替代父 PR 本身的完整审查。数据白名单、题集/协议、三方法接口、通用 Runner、独立 judge、失败分母和重评分实现均无本轮 diff，复用 Round 1 仍适用的结论。M1 的 adapter 接线替换符合原设计允许的变化；新增设计附注明确旧源码观察的版本限制。
+
+| 受影响契约 / 决定 | 实现与适用证据 | 结论 |
+|---|---|---|
+| 完整原生历史继续由真实记忆机制消费 | `evaluation/history.ts:20` 仍先建立空来源 baseline 再导入；父 `knowledge/memory-sources.ts` 按原文连续片段及冻结来源处理；确定性请求含长消息尾部、日期和第二会话更新 | aligned |
+| 新版连续批次及批次 finish，不以单批成功替代全部准备 | `evaluation/runtime.ts:70` 的现有 start/status 接线配合父 `dreaming.ts:159-211,330`；独立现场 6 批 / 66 次请求后才 ready | aligned |
+| 准备可恢复自身工作与回查合格业务原文 | `evaluation.ts:212` 放开 prepare 的 contextTools；父 `dreaming-agent.ts:35`、`dreaming-history.ts:63` 分离自身恢复和 source_history；实际 new_context 后原批次输入消失，notes/history 工具成功，source_history 返回原文尾部 | aligned |
+| 冷答题仍仅恢复持久记忆，不能继承准备轨迹或笔记 | `evaluation.ts:99,224` 的新 runtime 与 memory/documents.json 复制集合未变；`evaluation/runtime.ts:45` guard 与本地题目桥未变；独立冷请求无原文标记/维护笔记，旧 runtime read 和越界 glob 均拒绝 | aligned |
+| 当前正式记忆只由 Dreaming 更新 | 父 DocumentMemory 的只读业务契约被沿用；adapter 不调用旧 checkpoint、不引入额外写入器，fixture 对 staging 写入并经真实 finish/apply 封存 | aligned |
+| 删除内部步数/时长后仍保留外部有界运行 | `evals/memory/plan.ts:14` 只保留 maxInputTokens，strict 拒绝退役字段；README 说明迁移；EvaluationLimits 及 runtime 请求上限、阶段定时器、进程清理未变；专项测试保留 budget/timeout/重试准备保护且通过 | aligned |
+| 稳定协议与候选身份分离 | `plan.ts:69` 候选 adapter 为 v2，并含最新实际构建/锁文件/配置；protocol 计算及 dataset/Runner/judge 不变 | aligned |
+| 不伪造 LongMemEval 没有的子任务，不声称 IM 接线完成 | 原生映射仍为 Global 对话，没有 subagent/catalog；无 IM product handler，conversations 名称可见不表示补查服务可用；suite README 说明子任务提炼和 IM 的证据范围 | aligned |
+
+### Context 与执行证据
+
+复用同一 reviewer 的 [Round 2 Implementation Review](code-review.md)，不另发 Context reviewer。已读取受影响的当前 agent-capabilities 契约、父 DreamingAgent/DreamingHistory/DocumentMemory、来源连续片段与冻结边界，以及评测自身的配置、工具集、准备状态判断和冷复制。
+
+- 兼容性 before：`/tmp/feat677-sync-before.log`，旧逐单元 fixture 在新产品无有效 finish 时 prepare=failed；没有把失败推进成 ready。
+- 专项回归：`/tmp/feat677-sync-targeted.log`，`pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runtime.test.ts`，5 files / 13 tests passed；包含新增恢复结果与退役配置拒绝，以及保留的预算/超时/清理。
+- 独立窄探针：`pnpm exec tsx /tmp/feat677-sync-review-probe.mts`，真实锁定 DSH、受控 fixture、1000 输入容量、6 批 / 66 次准备请求、maxTokens 均 2048；prepare=ready、answer=completed。source_history 返回原长消息尾部，new_context 确实移除活跃原批次输入，notes/history 成功恢复维护自身工作。未来问题未进入准备；冷答题无原历史与维护笔记，越界拒绝 2 次。
+- 本机证据：`/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-sync-review-mtuKAl/prepare-jZMNdU/{receipt.json,requests.jsonl}` 与 `answer-J19mpw/{answer.json,requests.jsonl}`。完整请求不提交。pid 26076、28086 均已确认退出；本轮没有自建 worktree 或常驻服务。
+
+证据限制：确定性 llm/stream 请求与真实工具/产品结果证明接线和恢复机制，不证明最终 HTTP wire、真实模型主动选择、记忆质量、子任务提炼或真实 IM 行为。本轮没有正式评测授权，真实候选与 judge、正式 benchmark 始终未运行。全量 build/typecheck/回归由调用方独立完成，不将其仍在运行的状态写成已通过。本轮已充分覆盖适配增量，保留旧不变结论，无需扩大为 full verification。
+
+### Delta 与问题
+
+Gateway / PA：本轮评测自有增量仍为 **no spec delta**；父产品的正式记忆只读、连续批次、任务提炼和恢复行为由其自身 current spec 与父 PR 负责，不能把包含父 merge 的全部分支 diff 说成没有产品行为变化。新增评测配置兼容说明、v2 adapter 与能力限制归 suite README；历史、问题、评分、冷上下文和预算的稳定协议未变。
+
+CRITICAL / WARNING / SUGGESTION 均无。仅在原 code-review.md 与本文件追加 Round 2，未改实现/测试/配置、未提交；由调用方提交本轮报告。保留 Round 1 原记录；本轮候选基线以最新 stacked base 为准。

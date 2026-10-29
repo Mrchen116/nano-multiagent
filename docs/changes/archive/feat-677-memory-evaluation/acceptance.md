@@ -60,3 +60,42 @@ N/A。design 明确无客户端 UI 改动、无需前端原型；无 viewport �
 - [x] `docs/README.md`、`evals/README.md`：已有 Memory / LongMemEval 入口；`evals/memory/README.md` 已提供计划、自检、未来真实运行、报告及效果未测说明。
 
 报告未提交；按 caller 指示只写本报告，由 owner 统一收口。未更改分支、合并 main 或修改受审实现。
+
+## Round 2 — 最新父分支同步 targeted revalidation
+
+> mode=full；revalidation_mode=targeted；review_round=2。
+>
+> Validation snapshot：`082e72ec4becb37d4ba08c3e3a8e0d2bf45da087 → 93c8e305bf30de6f0354510f3d9e8eee46b293c1`。
+>
+> effective stacked base：`3e9a46030939bfcce351b7df2e29e5f3c2439055`；fix_delta_range：`117873fd1..93c8e305b`。
+
+### Verdict 与用户旅程
+
+**pass（确定性机制交付范围）**，0 blocking / 0 major / 0 minor；highest_required_action=pass；needs_re_review=false。真实候选模型、真实 judge 与正式题集跑分仍为 **not_run**，不产生模型能力结论。
+
+本轮确认 HEAD 精确匹配 validated_at，分支为 `codex/feat-677-memory-evaluation`，开始验收时工作区干净。按最新 README 复制默认计划入口，得到 1 题、2 会话、4 消息，`modelCallsStarted: 0`。候选明确标为 `nano-document-memory-v2`，Dreaming 配置只有 `maxInputTokens: 24000`；sourceCommit 匹配 HEAD，runtimeHash 为 `6efcb48889574c8e3f97a62698dd3266fd6a23af7e9b11188c78bddfa2d19c6e`。
+
+在仓库外复制合成配置，分别加入旧 `maxSteps` 和 `maxRunMs`，默认计划均退出 1，并指出 `candidate.dreaming` 下对应字段为 `Unrecognized key`。虽然错误采用结构化 schema 文案，字段和位置足以定位；README“准备一次真实运行”第 4 步明确要求删除这两项，并解释外部阶段限额仍有效、耗尽返回 incomplete，用户有可执行的迁移路径。
+
+再实测未带授权开关的 run 与 score，均退出 1，仍为 `Model execution is disabled; pass --allow-model-calls explicitly`。没有传入允许模型调用的开关，没有连接真实模型。
+
+### 本轮证据与继承范围
+
+- 新计划命令：`pnpm memory-eval --config evals/memory/examples/plan.json --ids evals/memory/examples/ids.json --output /tmp/feat677-review-r2-plan`；证据 `/tmp/feat677-review-r2-plan/plan.json`、`/tmp/feat677-review-r2-plan.log`。
+- 旧字段拒绝与 run/score 门禁：`/tmp/feat677-review-r2-rejections.log`，逐条保留实际命令、exit code 与原始错误；临时合成配置 `/tmp/feat677-review-r2-maxSteps.json`、`/tmp/feat677-review-r2-maxRunMs.json`。
+- 按 caller 明确授权复用本次专项 `/tmp/feat677-sync-targeted.log`：5 files / 13 tests passed，17.95 秒。caller 交接覆盖新版确定性真实运行时准备、跨窗恢复、冷答题，以及原有数据/Runner/judge/CLI 专项；该日志是简洁汇总，不含逐断言轨迹，本轮未声称重新人工审计其内部请求，也未重复全量运行。
+- 原 Round 1 无 fail/inconclusive。未改变的数据、评分、报告口径与候选 opaque 接口，继承 Round 1 的对应结论；与新适配器有关的准备与冷答题证据采用本轮专项，不以旧 runtimeHash 冒充新版验证。
+
+| spec Scenario | Round 2 结果 | 依据与边界 |
+|---|---|---|
+| 导入固定历史并回答后续问题 | pass | 新版确定性运行时专项复用；真实模型质量 not_run |
+| 比较前后两个记忆版本 | pass | 继承 Round 1 同协议/不同候选与 opaque 候选证据；本轮专项通过；计划明确候选 v2 |
+| 长期历史仍存在于准备环境 | pass | 本轮新版准备/跨窗恢复/冷答题专项；只证明确定性机制边界 |
+| 仅检查数据与执行计划 | pass | 本轮亲自运行新配置计划，零模型调用；旧字段均在计划阶段清楚拒绝 |
+| 显式执行评测 | pass | 本轮 run/score 未授权拒绝；报告机制沿用专项与 Round 1；真实授权运行 not_run |
+
+### 明确限制、文档与清理
+
+README 已说明 LongMemEval 没有子任务执行轨迹，因此不伪造第一层任务；评测不连接独立 IM，`conversations` 补查不开放，准备阶段可通过 `source_history` 查询本题合格原文。新版维护自身 `notes/history/new_context` 与原文补查属于准备环境，不能据此扩大为对子任务记忆质量或独立 IM 检索效果的验收。
+
+本轮没有 Web/iOS 改动，Reference Artifacts Reviewed=N/A。suite README 已包含迁移说明与上述范围，design 有同步最新父分支的说明；其余上层文档沿用 Round 1 无需更新判断。没有启动常驻服务或新建 HTTP provider，无自建进程待清理。只追加本报告，未修改实现、测试、受版本控制的配置或提交。

@@ -35,3 +35,41 @@
 脱敏执行摘要对应现场：`/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-review-9cAoYH/`，准备请求 `prepare-iF5WJ2/requests.jsonl`，答题请求 `answer-gCbkoG/requests.jsonl`；完整请求仅留本机，不提交。所有候选子进程均经 close 结束。脚本与合成审计材料保留供本轮复查。
 
 证据限制：llm/stream 捕获证明 DSH 组装后、provider 适配前的交付及确定性工具链，不能独立证明 OpenAI-compatible wire 序列化，也不能证明真实模型理解、工具选择或记忆质量。本轮授权禁止真实候选与真实 judge，未运行它们，未下载或跑正式 benchmark；这符合本 unit 明确的交付范围。独立审查未重复全量测试；调用方随后提供的全仓 build/typecheck 与 Python/docs/lint 结果作为补充门禁，不替代上述机制检查。
+
+## Round 2 — 最新父分支适配
+
+- review_mode: `patch`
+- executed_base（main merge-base）: `082e72ec4becb37d4ba08c3e3a8e0d2bf45da087`
+- effective stacked base: `3e9a46030939bfcce351b7df2e29e5f3c2439055`
+- review_diff: `117873fd1..93c8e305bf30de6f0354510f3d9e8eee46b293c1`
+- parent_upgrade: `80db8b9a6..3e9a46030`
+- validated_at: `93c8e305bf30de6f0354510f3d9e8eee46b293c1`
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **pass**
+
+### Findings
+
+```json
+[]
+```
+
+无确认缺陷。此次只审评测自有增量，并沿父升级影响到的 Dreaming、DocumentMemory、来源物化及上下文恢复检查适配是否完整；未重新审父 PR 全部实现。Round 1 的历史结论保留，涉及旧准备机制的描述以本轮证据为准。
+
+### 增量覆盖
+
+- `evals/memory/plan.ts:14,69` 移除已退役的 Dreaming `maxSteps/maxRunMs` 并更新 candidate adapter 标识为 v2；strict schema 拒绝静默忽略旧配置，README 明示迁移方法。prepare 的外部 timeoutMs/maxModelCalls/maxOutputTokens 不变，实际构建、锁文件、候选模型/记忆配置仍进入 candidate 身份；历史、问题、评分规则和 protocol 计算未改。
+- `packages/dsh-integration/src/evaluation.ts:212` 只给 prepare 加入既有 contextTools。父实现 `knowledge/dreaming-agent.ts:35` 通过父工具资格开启维护自身 notes/history/new_context/get_context_remaining；独立业务来源恢复由 `dreaming-history.ts:63` 的 source_history 提供。两者有不同的描述及数据作用域。父级的 sourceDirectory/qualifiedEvents 按可信来源、冻结时间/序号范围过滤；评测仍只导入完整原对话，没有构造子任务。
+- `evaluation/history.ts:20` 的公开原生导入和空来源 baseline 接线不变，仍适用于新版根会话连续原文选择；`evaluation/runtime.ts:70` 继续使用真实 start/status，只有最终 backlog=no_eligible_increment 才 ready。父 `dreaming.ts:159-211,330` 已在自身循环中处理连续批次；框架不需要理解新批次或 finish 私有格式。
+- 父 DocumentMemory 改为业务 Agent 只读、Dreaming 写正式记忆，评测没有另加写入器或旧 checkpoint 调用。`evaluation.ts:224` 的复制集合仍只含 memory 及 documents.json；父 MemoryDocuments 状态布局在这次父升级没有变化。准备侧的 notes、维护 session、Dreaming 输入和 runtime 数据没有复制给 answer。answer 的工具 guard 与仅本题 Inbox/本地发送服务也未改。
+- 新 fixture 在当前产品的 direct input 上执行 source_history、notes/new_context/history、正常文件维护和批次级 finish，不再解析旧逐单元 File list。输入容量降到 1000 使长消息走真实连续批次；扩展的既有主旅程检查成功工具结果和冷答题排除维护笔记。没有把这些实现细节移入稳定 Runner 测试。
+- 评测没有独立 IM 服务。实际 Dreaming schema 仍可能包含父级 conversations，但本地产品桥没有 memory.conversations 接线，因而不会获得额外 IM 原文；suite README 明确说明该限制。此处不把工具名出现在 schema 当作已可用的服务证据。
+
+### Agent Context Implementation Review — Mode B（delta）
+
+复用 `/tmp/feat677-sync-before.log` 的兼容性红测：旧 fixture 在新版第一次维护后因 without finish 返回 failed，没有误报 ready。复用 `/tmp/feat677-sync-targeted.log`：`pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runtime.test.ts`，5 files / 13 tests 通过，包含现有请求上限与挂起 provider 清理。
+
+独立执行 `pnpm exec tsx /tmp/feat677-sync-review-probe.mts`，仅复用本仓确定性 provider，保留可复查现场：`/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-sync-review-mtuKAl/`。2 sessions / 4 messages、maxInputTokens=1000，prepare=ready，6 个独立 Dreaming 批次合计 66 次 llm/stream 请求，全部 maxTokens=2048。每批实际工具结果均证明 source_history 查询成功返回原长消息尾部、notes 恢复 EVALUATION_RECOVERY、history 返回自身旧窗口。首批第 0 次请求含原批次输入，第 3 次请求在 new_context 后不再含原输入，第 4 次请求才通过 notes 成功读回维护笔记，随后 history 返回该维护 session 的 initial 窗口；这证明换窗与恢复真实执行，未仅核对工具列表。
+
+本次冷答题 completed，本地 send_message 交付成功；冷请求没有 LONG_MESSAGE_END、UNRELATED_HISTORY_ONLY 或 EVALUATION_RECOVERY；FUTURE_SYNC_REVIEW 未进入准备请求，旧 runtime read 和越界 glob 拒绝共 2 次。准备请求定位 `prepare-jZMNdU/requests.jsonl`，答题 `answer-J19mpw/requests.jsonl`；pid 26076 / 28086 已确认均不存在，所有子进程经 close 清理。
+
+限制：捕获仍是 DSH 组装后、HTTP provider 适配前的 llm/stream，不证明最终 wire 或真实模型理解、恢复策略和记忆质量。LongMemEval 本次只有对话，未覆盖父产品的子任务提炼；未接真实 IM。真实候选/judge/正式 benchmark 均未启动。源码和上述受影响机制的证据充分后停止，不扩大复审未变的 dataset/Runner/judge 或重跑全量门禁。后者由调用方另行记录。

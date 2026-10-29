@@ -75,3 +75,17 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - Gate 2 retained：需求、三个候选接口、信息边界与阶段限额均未改变；旧设计已明确允许随产品更新 adapter，新增说明只标识当前接线。独立 implementation review/verification 和 CLI 受影响验收需针对最终版本重做；旧数据/judge/Runner 门禁可按不变范围保留。
 - 当前 main `c61b7629a` 相对指定父分支只有无关 bugfix-678 设计文档；本轮继续使用用户指定记忆分支，不把新设计文档误当产品实现。
 - no spec delta。新版准备允许业务原文回查和维护恢复；答题仍只读取封存记忆。LongMemEval 缺少子任务轨迹，不能据本次通过声称验证了任务提炼质量；没有独立 IM，conversations 不开放。生产状态未变化。
+
+### 同步后的最终门禁
+
+实现冻结 `93c8e305bf30de6f0354510f3d9e8eee46b293c1`；executed_base（当时 main merge-base）=`082e72ec4becb37d4ba08c3e3a8e0d2bf45da087`，effective_base（指定父分支）=`3e9a46030939bfcce351b7df2e29e5f3c2439055`。交付前重新 fetch 父分支，仍为同一 SHA。
+
+- 独立 code review + verifier Round 2：pass，findings=[]，0 CRITICAL / WARNING / SUGGESTION；CLI acceptance Round 2：pass，0 问题。报告均追加在原文件，没有覆盖初次证据。
+- 独立原生探针：6 个准备批次、66 次确定性请求；source_history 读到原长消息尾部，换窗后原批次输入退出活动上下文，再经 notes/history 恢复；最终 prepare=ready、answer=completed；冷答题无原历史或维护笔记，越界拒绝 2 次，两个进程均退出。完整合成证据位置见 Round 2 报告，不提交运行产物。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime`：通过。日志 `/tmp/feat677-sync-{full-build,typecheck,ios-runtime}.log`。
+- `pnpm test`：170 files / 867 tests passed，132.62 秒，日志 `/tmp/feat677-sync-tests.log`。
+- `pytest -m 'not e2e' -q`：127 passed / 28 deselected，日志 `/tmp/feat677-sync-python.log`。
+- 示例 plan：1 题 / 2 会话 / 4 消息，modelCallsStarted=0，日志 `/tmp/feat677-sync-plan.log`。只有合成数据，没有正式评测分数。
+- Web 与原生 iOS 产品文件仅来自父分支原样 merge，无本 PR 自有改动；保留父 PR #428 在 `3e9a46030` 的远端 Web/iOS 成功证据，未重复本地 UI 验收。远端 PR #429 的本轮检查另按最终提交核对。
+
+后续只提交本节和三个独立门禁报告，运行代码/测试/配置不变，`93c8e305b` 的适用验证保留有效。PR #429 继续以 unit/feat-676 为 base；本轮不合并、不部署、不开始真实评测，worktree 保留供后续运行。
