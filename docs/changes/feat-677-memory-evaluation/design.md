@@ -2,7 +2,7 @@
 
 > 对齐：[spec.md](spec.md) 已确认的 LongMemEval 要求。
 >
-> 状态：LongMemEval 分项设计草稿。用户要求逐个 benchmark 讨论，本轮只细化这一项；其他 benchmark 不在本文推定实施。完整 unit 范围与实验预算尚未收口，本文不表示 Gate 2 已通过或已开始实施。
+> 状态：LongMemEval 首期设计，Gate 2 Round 1 已通过（0 CRITICAL / 0 WARNING）。用户已授权实现并明确要求停在实际模型评测之前；本轮以真实运行时和确定性 provider 验证机制，模型能力分数不在交付完成判据中。
 
 ## Changelog
 
@@ -130,7 +130,7 @@ type AnswerResult = {
 };
 ```
 
-`RunLimits` 仅含外部截止时间与调用/token/费用上限；具体模型、阈值和存储配置放在候选配置中。所有动作记录实际耗时与可获得的模型用量；缺失的用量写 unavailable，不能默认为零。诊断证据可包含候选内部信息，但 Runner 只透传 locator，不据其内部字段分支。
+`RunLimits` 使用正数 `timeoutMs`、`maxModelCalls`、`maxOutputTokens`，最后一项是每次请求的输出上限；调用前限制请求数，每阶段有硬超时，实际输入 token 与费用另行记录，不将事后统计伪称为精确计费硬上限。具体模型、阈值和存储配置放在候选配置中。所有动作记录实际耗时与可获得的模型用量；缺失的用量写 unavailable，不能默认为零。诊断证据可包含候选内部信息，但 Runner 只透传 locator，不据其内部字段分支。
 
 接口语义：
 
@@ -138,7 +138,9 @@ type AnswerResult = {
 2. `answer` 每次创建新的答题执行上下文，使用同一个已准备状态；不继承摄入会话、compaction 摘要或上一次答题的新状态。它返回候选实际交付的最终回答，不能根据 gold 选择多次回答中的最佳值。
 3. `close` 释放本题持有的进程与句柄。失败和超时也要释放；外层 Runner 对超时进程作最终清理。审计产物按 run 保留，不能因 close 删除唯一证据。
 
-计划将接口与编排放在 `evals/memory/`，Nano 实现经 `@nano/dsh-integration/evaluation` 的专用评测入口暴露。该入口只由评测命令加载，不增加产品 RPC、模型工具或生产启动逻辑。实现位置须遵守依赖约束；通用目录不出现 DSH import。
+稳定类型放在 `packages/product-contracts`，编排、数据和评分在 `evals/memory/`；Nano 实现经 `@nano/dsh-integration/evaluation` 的专用评测入口暴露。该入口只由评测命令加载，不增加生产 RPC、模型工具或生产启动逻辑。适配器加载评测专用 profile 插件，经隔离目录中的本地控制 socket 访问原生持久化和已有 KnowledgeRuntime；正常 profile 不加载该插件。实现位置须遵守依赖约束；通用目录不出现 DSH import。
+
+CLI 默认 `plan`，只读取数据和配置并列出待执行题集，不加载候选运行时、不探测模型、不发 judge 请求。实际 `run` 必须带显式 `--allow-model-calls`、非空题集清单与阶段限额；不默认选择全量。此开关是未来使用者的执行入口，本轮不使用。确定性自检独立于真实 run，使用本地 fixture provider。
 
 ### 3. 当前 Nano 适配方案（可随机制替换）
 
@@ -159,7 +161,7 @@ type AnswerResult = {
 
 实际 `inbox` 长消息格式含分页片段，适配器须无损映射并经产品选择路径检查能否还原全文。它可以复用产品投影 helper；不得在框架层再维护一套 Inbox schema。
 
-日期必须到达实际记忆消费者，而不只存在磁盘 header。当前 `MemorySources` 的选择结果没有普遍保留 event time，因此导入验证须检查原生 Inbox 的 `time` 以及 assistant 所属会话日期在最终准备请求中可见。若存在 assistant-only 历史等日期无法经当前投影表达的情况，应在 Nano 来源投影边界补齐正常来源时间或报告适配失败；不能用 benchmark 专属总结/拼答案掩盖。是否需补该通用字段在实施的最小导入试验中确认。
+日期必须到达实际记忆消费者，而不只存在磁盘 header。当前 `MemorySources` 的选择结果没有普遍保留 event time；Inbox 保留原日期的 `time`，每个导入工具结果另包含来源为 imported-history 的 session 日期与原 turn 位置。原生工具结果的 JSON 支持这些来源字段，选择路径照常保留；assistant-only session 也能获得日期，不改产品来源选择、不添加 benchmark 总结 prompt。集成验证在实际准备请求与读取结果处核实保真。
 
 #### 初始化与实际准备
 
@@ -239,20 +241,20 @@ Nano 专属集成测试放在适配器附近，按语义审计导入和实际可
 
 无本 unit 改动的常驻产品服务。候选运行时是评测命令的受管子进程，退出或失败由适配器和 Runner 回收；不要求启动生产舰队或连接公网 IM。
 
-**Review 驱动方式**：通过计划中的 suite CLI 运行真实 Nano 候选。评测 CLI 是本 unit 的用户入口；导入允许在 adapter 中写原生历史，记忆准备与答题使用实际产品实现和真实模型。无客户端 UI 变化，不生成前端原型。
+**Review 驱动方式**：通过 suite CLI 与集成测试运行真实 Nano/DSH 运行时，在 provider 边界提供确定性响应。评测 CLI 是本 unit 的用户入口；导入允许在 adapter 中写原生历史，记忆准备与答题使用实际产品实现。受用户本轮限制，不请求真实模型或 judge，不以此宣称模型效果。无客户端 UI 变化，不生成前端原型。
 
-**验收前置**：固定 revision/hash 的 LongMemEval 数据、批准的候选与 judge 模型配置、独立可写目录和明确运行限额。实现后在 `evals/memory/README.md` 提供物化、运行、停止、检查无残留进程及查看报告的可复制命令；此设计阶段不把尚不存在的命令写成已可运行。
+**验收前置**：本轮使用包含长消息、日期、更新与干扰内容的合成 fixture、确定性 provider、独立可写目录和运行限额。真实数据、候选与 judge 模型参数由使用者后续配置，不成为本轮运行授权。实现后在 `evals/memory/README.md` 提供计划、自检、真实运行与查看报告的可复制命令，并说明真实效果未测。
 
-最小走查依次验证：完整历史导入收据 → 真实准备 ready 或如实 incomplete → 新上下文按正常记忆入口答题 → 官方规则评分与报告；再换一个候选配置复用原题集和评分，确认框架没有读候选内部状态。检查少量真实样本时不删除它们的历史干扰信息。
+最小走查依次验证：合成完整历史导入收据 → 真实产品机制配合确定性 provider 返回 ready 或如实 incomplete → 新上下文按正常记忆入口答题 → 固定 judge 响应经过官方规则输出报告；再换一个候选配置复用原题集与评分，确认框架没有读候选内部状态。机制通过与真实模型评分在报告中分开。
 
 ## Milestones
 
-以下仅是 LongMemEval 部分的单 M1 候选，随整个 unit 范围收口后进入 Gate 2；不预填实施 tasks/progress。
+本 unit 单 M1，实现、确定性验证与独立静态审查完成后停在真实模型评测之前。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | LongMemEval 原生记忆评测闭环 | 无 | — | `evals/memory/`、Nano evaluation adapter 及就近集成测试、评测入口文档 | [reviewer] 能从固定完整历史得到实际记忆后的冷答题、评分及明确未完成项；切换候选仍使用同一题集与评分。[worker] 数据/Context 隔离、历史保真、候选协议替换、失败清理和真实链路证据齐全；框架不依赖 DSH、Dreaming 或记忆介质。 |
+| M1 | LongMemEval 原生记忆评测闭环 | 无 | — | `evals/memory/`、稳定协议类型、Nano evaluation adapter 及就近集成测试、评测入口文档 | [reviewer] CLI 默认计划零模型请求；确定性 provider 下可以从完整历史得到冷答题、评分及未完成项，真实 run 需显式开启。[worker] 真实运行时的数据/Context 隔离、历史保真、候选协议替换、失败清理和出站请求证据齐全；框架不依赖 DSH、Dreaming 或记忆介质；真实模型效果明确未测。 |
 
 ## 本轮边界与后续对齐
 
-本轮已细化 LongMemEval 的稳定协议、候选边界和当前 Nano 映射。具体 subset 数量、模型、对照组合、费用上限与全量跑量待实验配置确定；其他 benchmark 另行逐项讨论。本轮仅提交设计材料，不实现适配器、不运行 benchmark、不声明设计门禁已通过。
+本轮实施 LongMemEval 的稳定协议、候选边界和当前 Nano 映射。具体 subset、模型、对照组合与跑量由未来执行配置提供；其他 benchmark 后续讨论。当前授权不包含任何真实模型评测，完成确定性验证后保留可审查实现供用户决定何时运行。
