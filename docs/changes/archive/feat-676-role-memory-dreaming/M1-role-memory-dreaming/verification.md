@@ -1,6 +1,8 @@
 # Verification Report: feat-676-role-memory-dreaming
 
-> **Final verdict: pass.** Validated implementation `5a123bae760d429c84bc2a3f72814009a69836f0`; independent product acceptance `8b28b00dd` passes S01-S20, including real persisted-pending→applied UI state. All implementation findings and C1 are closed. Corrected delta: **aligned**. Current counts: **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. Earlier verdicts below are retained as history.
+> **Latest targeted verdict: Round 5 pass / aligned** at `e207a51b6e8313083cff05ccebfcca7196b8653d`, **0 CRITICAL / 0 WARNING / 0 SUGGESTION**. The original M1 signoff below remains valid outside the affected native trajectory entry; S18's earlier Work-only evidence is superseded and actual native product reacceptance is separate. See Round 5 for the fixed delta and current evidence limits.
+
+> Historical M1 final verdict: pass at `5a123bae760d429c84bc2a3f72814009a69836f0`; independent product acceptance `8b28b00dd` recorded S01-S20 and the persisted-pending→applied UI state. All prior implementation findings and C1 were closed. The original snapshot and rounds below are preserved, subject to the Round 5 native-entry correction.
 
 - `validated_at`: `5a123bae760d429c84bc2a3f72814009a69836f0`
 - `executed_base`: `6b4213c205db04adcebc950fe539a5a759e57391`
@@ -218,3 +220,35 @@ All checks passed. Ready for PR.
 Final fetch retains `origin/main=6b4213c205db04adcebc950fe539a5a759e57391`; no upstream delta invalidates the gates. The range `5a123bae760d429c84bc2a3f72814009a69836f0..1681feb40251451c4f8a276003d5fc78b94d3ad2` contains only the three independent reports. Subsequent delivery changes merge the reviewed four delta-specs into canonical requirements, update their indexes and move this complete unit to archive; product code and tests remain identical to the validated implementation. All three gate conclusions are retained for that documentation-only delivery suffix; the PR records its exact effective-through head.
 
 The final implementation has a complete 159-file / 840-test TypeScript pass, 1031 Web tests, 124 Python tests, native iOS tests and Release archive, build/typecheck, packaged iOS runtime check and Ruff passes. Canonical and archive integrity are checked separately after the move. Local test processes, IM listener, gateway/runtime and temporary configuration-delay proxy have been stopped; ports 65225/62264 and the owned tmux session are released. Runtime data and evidence remain local for audit, and the development worktree is retained for the unmerged PR. No production deployment or merge was performed.
+
+## Round 5 — PR #428 native trajectory identity delta
+
+- `verification_mode`: delta / targeted closure of the observed Dreaming native-viewer failure.
+- `executed_base`: `c1eea6beb6c2ec4e47cb4bb73b8c6d8b5778a689`; `validated_at`: `e207a51b6e8313083cff05ccebfcca7196b8653d`; main baseline `6b4213c205db04adcebc950fe539a5a759e57391`.
+- `requires_full_verification`: false. The seven-file delta is confined to Dreaming identity setup/recovery, the dependency declaration, two existing test files and design/deployment clarification. No spec files changed: **no spec delta**. The existing canonical contracts already require native execution details, cold readability, read-only access and separation from the model's child-management directory.
+- Prior W1-W4/W6-W7 and unrelated product evidence remain applicable. Prior W5/S18 claims based only on Work summaries and reopening are insufficient for the reported native-viewer path; their native-entry portion is superseded by this round and the independent product reacceptance. The earlier final M1 signoff must not be read as proof that the reported native entry worked.
+
+### Completeness, correctness and coherence
+
+| Dimension / contract | Implementation and direct evidence | Result |
+|---|---|---|
+| New maintenance identity; `docs/specs/im/agent-work.md:203-211`, design `:278-284` | `dreaming.ts:223-226,296` appends the public one-shot/native descriptor during setup; locked DSH durably stores setup events before `agents.create` resolves. Native expert and PA DTOs expose prompt, finish and host receipt, with identical warm/cold snapshots (`dreaming-runtime.test.ts:41-60`). | aligned |
+| Recorded old runs retain their actual history; same cold-read contract and deployment supplement | `dreaming.ts:340-373` uses public persistence write ownership, validates exact ID/origin/parent/no inherited prefix, appends missing metadata only and flushes before the durable marker. Recovery assertions preserve every original event, next sequence, original failure/receipt state and repeat-run result; wrong parent rejects without writing (`dreaming-recovery.test.ts:95-121`). No model or memory-write path is called by identity repair. | aligned at implementation / deterministic recovery seam |
+| Hidden maintenance remains outside managed children; `docs/specs/gateway/agent-capabilities.md:994-1008` | Descriptor events have no model surface operation. Actual captured native requests preserve the restricted prompt/input/tool set and omit the descriptor; both pre/post-restart descendant queries return `[]`. Catalog publication and normal model delegation code are unchanged. | aligned |
+| Architecture and startup ownership; `SPEC.md:7,49-54` | Only integration imports declared public DSH exports. `KnowledgeRuntime` injects `sessionPersistence` (`runtime.ts:37`) and recovery precedes normal initialization (`index.ts:323-324`). No DSH patch, private runtime dependency or viewer bypass. | aligned |
+| Design and test coverage | The appended design/deployment text describes the actual creation and one-time backfill strategy. Existing native-runtime and recovery files were extended at their respective observable seams; prior source, receipt, scheduling and incomplete-input protections remain. UI prototype/reference contracts are unchanged and outside this delta. | complete for this implementation delta |
+
+The code review above includes Agent Context Implementation Review. This verifier reuses that check: the relevant delivered prompt/tools, model-hidden metadata and catalog boundary were inspected in combination. There is no implementation deviation from design and no newly identified design defect. Deterministic provider requests do not establish real-model understanding; no prompt or tool semantics changed that would require a new understanding experiment.
+
+### Evidence reconciliation
+
+- The original error is a real native-path regression: `/tmp/feat676-trajectory-red.log` records **2/2 failures**, both `subagent descriptor is corrupt`.
+- Independent rerun at the fixed candidate: `pnpm exec vitest run packages/dsh-integration/tests/dreaming-runtime.test.ts packages/dsh-integration/tests/dreaming-recovery.test.ts --maxWorkers=2`, **2 files / 9 tests passed**, 8.64 seconds, `/tmp/feat676-trajectory-independent-review.log`. This covers both PA/expert warm and restarted DTOs plus all seven recovery tests.
+- The older `/tmp/feat676-trajectory-green2.log` sequence assertion failure and `/tmp/feat676-trajectory-regression.log` header-fixture failures remain failed diagnostic runs. The corrected source now derives the sequence from the preserved prefix and creates a valid public Session header; `/tmp/feat676-trajectory-recovery3.log` and the independent 9/9 rerun confirm closure. The other four files in the regression log passed **16 tests** and remain applicable.
+- Package typecheck is green in `/tmp/feat676-trajectory-typecheck.log`. Final caller-run logs were independently read: `pnpm exec vitest run --maxWorkers=2` passes **159 files / 842 tests**, 300.29 seconds (`/tmp/feat676-trajectory-full-ts.log`); dependency contracts pass **13/13** (`/tmp/feat676-trajectory-dependencies.log`); docs integrity passes **281 maintained sources / 68 required routes** (`/tmp/feat676-trajectory-docs.log`). The old 840-test aggregate remains historical evidence and is superseded for this candidate.
+
+### Current verdict and limits
+
+`verdict`: **pass** for the targeted implementation verification; `issues`: []; **0 CRITICAL, 0 WARNING, 0 SUGGESTION**; `outcome`: **aligned**; `requires_full_verification`: false. No additional observable behavior requiring a spec delta was found.
+
+The remaining independent product task is actual S18/native-viewer reacceptance, including opening an existing pre-fix run through the authorized product UI, inspecting real prompt/tool/host details and reopening after restart. This report's controlled old-run recovery test is not substituted for that upgrade/UI journey. The product reviewer owns its outcome; the historical 20/20 matrix is not carried forward as unconditional post-fix native acceptance. No production service, configuration or implementation file was changed by this reviewer, and the test-created isolated homes/processes were cleaned by their fixtures.

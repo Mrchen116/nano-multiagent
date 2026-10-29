@@ -1,6 +1,8 @@
 # Code review: feat-676
 
-> Latest review: Round 4 at `5a123bae760d429c84bc2a3f72814009a69836f0`, targeted observed-backlog and readable-input delta. All prior findings remain closed; surviving findings: `[]`. Earlier records below are historical evidence, not the current verdict.
+> Latest review: **Round 5 pass**, patch `c1eea6beb6c2ec4e47cb4bb73b8c6d8b5778a689..e207a51b6e8313083cff05ccebfcca7196b8653d`, native Dreaming trajectory identity/recovery. Surviving findings: `[]`. Unrelated prior coverage is retained; S18 native product reacceptance is separately required. Earlier records below are historical evidence, not the latest verdict.
+
+Original full-review snapshot retained below; Round 5 records its own fixed delta at the end.
 
 - `validated_at`: `5a123bae760d429c84bc2a3f72814009a69836f0`
 - `executed_base`: `6b4213c205db04adcebc950fe539a5a759e57391`
@@ -142,3 +144,33 @@ All F1-F4 code findings are closed; the two actual product-interface findings an
 Independent product acceptance is committed at `8b28b00dd` in `acceptance.md`: S01-S20 all pass, no open acceptance issue. The final pending-state requirement is supported by actual operation `d67ed387003b486ea12a54f4e739079f` and the real390 pending/applied screenshots; the verifier independently viewed both. This is distinct from the earlier unproven pause attempt and from ordinary Saving state. No product source changed after validated implementation `5a123bae760d429c84bc2a3f72814009a69836f0`.
 
 Code review verdict: **pass**. The overall verification and final evidence reconciliation are in `verification.md`.
+
+## Round 5 — PR #428 native Dreaming trajectory identity
+
+- Review mode: **patch**, frozen `c1eea6beb6c2ec4e47cb4bb73b8c6d8b5778a689..e207a51b6e8313083cff05ccebfcca7196b8653d`; main baseline `6b4213c205db04adcebc950fe539a5a759e57391`. HEAD matched the candidate and the checkout was clean before review. This round covers the seven-file identity/recovery delta and its affected viewer, persistence and model-context interactions; prior unrelated findings and acceptance coverage retain their scope.
+- The observed defect is directly reproduced by `/tmp/feat676-trajectory-red.log`: both expert and PA native `trajectory.prepare/open/next` paths failed with `subagent descriptor is corrupt`. Earlier Work-summary/reopen evidence did not prove that native entry worked. The previous final S18/native-trajectory signoff is superseded for this defect; other prior code-review conclusions remain applicable.
+- `dreaming.ts:223-226,296` now records the public DSH one-shot/native descriptor during creation setup. The locked DSH `dsh-agent-loop` implementation (`setupAndPublish` / `appendUnstoredSuffix`, `lib/index.js:1830-1892`) durably appends setup events before publishing and resolving `agents.create`; saving `identityRecorded=true` afterward therefore does not precede the descriptor's persistence barrier. This also refutes a possible setup-buffer/crash ordering concern; it is not a surviving finding.
+- `dreaming.ts:340-373` repairs only recorded runs with a child ID and no completed identity marker. It checks the expected child ID, persisted origin, exact parent and zero inherited prefix, appends only if no descriptor exists, uses the valid contiguous event count as the next sequence, flushes before marking the run and releases the public write handle. Existing original events and existing descriptors are retained; missing history is not manufactured. A crash after append but before the run marker is safe to retry because the descriptor-presence check prevents a second append. Recovery does not create/resume an Agent or invoke the model. `KnowledgeRuntime` declares its new persistence dependency and initialization runs recovery before normal Agent preparation.
+- All new DSH imports are declared dependencies and public exports within `packages/dsh-integration`. No runtime fork, private import, product-layer DSH dependency or viewer-validation bypass was introduced.
+
+### Agent Context Review — Implementation Review (Mode B)
+
+The trigger is persisted maintenance identity and recovery interacting with the model-visible child directory and the native session history. Reviewed surfaces are the actual maintenance request, hidden session metadata, parent/child lineage and catalog publication. The consumer still receives the restricted Dreaming prompt, explicit frozen-source input and native file/finish tools; a viewer identity does not grant model delegation authority.
+
+- `dreaming-runtime.test.ts:32-60` captures actual `llm/stream` requests from the real locked native runtime with a deterministic provider. The prompt/input tail remains present, the initial tools remain `edit/finish/glob/grep/read/write`, unrelated Skill/authority text is absent, and the descriptor event is absent from model messages. Warm and restarted native trajectory DTOs contain the real Dreaming prompt, finish and host receipt and are equal. `session.descendants` remains empty in both processes.
+- `dreaming-recovery.test.ts:95-121` checks original-event byte-equivalent serialization, contiguous appended metadata without a `surfaceOp`, valid public descriptor folding, persisted identity marker, repeat recovery and wrong-parent refusal. This test controls the persistence handle; it proves the recovery decision/append contract, not a production upgrade or native UI journey.
+- No tool schema, prompt policy, input serialization, source eligibility or file-application behavior changed. No new real-model understanding experiment is required for this metadata-only fix; these fixture captures establish deterministic delivery and boundaries, not general model comprehension. Actual native UI inspection and an existing historical-run upgrade remain independent product acceptance responsibilities.
+
+### Validation and verdict
+
+- Independent command at the frozen candidate: `pnpm exec vitest run packages/dsh-integration/tests/dreaming-runtime.test.ts packages/dsh-integration/tests/dreaming-recovery.test.ts --maxWorkers=2` — **2 files / 9 tests passed**, 8.64 seconds; `/tmp/feat676-trajectory-independent-review.log`.
+- Reused `/tmp/feat676-trajectory-regression.log`: the other four files had **16 passing tests**. Its two recovery-fixture failures are historical failures, superseded by the corrected 9/9 rerun above. `/tmp/feat676-trajectory-green2.log` likewise retains the earlier hard-coded-sequence fixture failure; it is not labeled a full pass. `/tmp/feat676-trajectory-typecheck.log` records the successful package typecheck.
+- Final caller-run evidence was independently read: `pnpm exec vitest run --maxWorkers=2` — **159 files / 842 tests passed**, 300.29 seconds (`/tmp/feat676-trajectory-full-ts.log`); dependency contracts **13/13** (`/tmp/feat676-trajectory-dependencies.log`); docs integrity **281 maintained sources / 68 required routes** (`/tmp/feat676-trajectory-docs.log`). These replace the historical 840-test aggregate for this candidate.
+
+Surviving findings:
+
+```json
+[]
+```
+
+Round 5 code-review verdict: **pass**, no confirmed or plausible actionable defect in the reviewed delta. This conclusion does not replace the required S18 native product reacceptance.
