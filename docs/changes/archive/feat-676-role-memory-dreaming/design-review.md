@@ -739,3 +739,73 @@ design §4.3 明确父内容已被整理不是排除理由，消费游标不能�
 
 - 接受 R8 Approved，0 CRITICAL / 0 WARNING，无新增建议。继承背景参与理解、自身经历承担新增结果、原始来源与资格/时间边界、同源去重及继续提炼策略均符合用户确认，无实质异议。
 - 受审后未改目标产物；文档与差异检查通过。只提交本 unit 设计材料，current specs、产品实现与开发 worktree 保持原状；S30 和新输入链尚待实施/验收，不代表已部署。
+
+
+## Round 9
+
+### Metadata
+
+- reviewer: `/root/dreaming_budget_design_review`（独立 reviewer，未参与受审设计编写）
+- target: `docs/changes/archive/feat-676-role-memory-dreaming`
+- review_mode: `delta`
+- mode_reason: 本轮仅审用户确认的 §5.1 模型容量、完整输入估算、Global/摘要共享批次及对应 Gateway Scenario；接口、来源政策、维护角色和成功应用契约沿既有实现复核，未重开全 unit。
+- started_at: `2026-10-30T00:22:42+08:00`
+- completed_at: `2026-10-30T00:25:19+08:00`
+- duration: `0:02:37`（有时间记录的最终接口核对及报告阶段；前面的文档/代码读取未精确计时，不据此声称完整审查耗时）。
+- checkout: `/Users/czj/.codex/worktrees/unit-feat-676/nano-multiagent`，`unit/feat-676`，HEAD `efaa2bbae3e21f8835fea477b1085c8efb7f0c93`。
+- reviewed_delta: `design.md` 的配置例子、child 预算表述及新增 §5.1；`specs/gateway/agent-capabilities.md` 新增“按模型容量联合安排材料”场景。开始时仅这两份文档 dirty，运行时代码尚未实现本轮调整。
+- authorization: 只追加本报告，不修改受审设计、实现、current specs 或部署材料，不提交、不启动服务、不另派 reviewer。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+方案可由现有 DSH 公开模型元信息、维护 scope 的 prompt assembly 和首请求拦截兑现；Global 连续范围、同 cutoff 的摘要补批以及成功应用后提交进度闭合。未发现需要新增持久队列、另一个模型循环或重开历史设计才能解决的实质问题。
+
+### Coverage 与证据
+
+**需求与边界。** 四项确认均已覆盖：预算随实际 provider/model；首轮完整输入按 `min(0.7 × contextWindow, contextWindow − 8192)` 的估算上限；系统、工具、恢复 context、来源及省略说明、当前记忆与两路材料合并计量；提炼/整理分别计算，成功后连续批次。显式 `maxInputTokens` 只进一步压小材料量，默认不再固定 24K。70% 约束不错误施加到后续工具请求，余下空间仍由既有读取、回查、输出和换窗机制使用。UTF-8 bytes/3 是可重复的估算规则，不能把该规则下满足上限写成 provider tokenizer 实测或绝对不超窗保证；受审文本已明确这一限制。
+
+**实际产品入口与调用可行性。** `knowledge/dreaming.ts:156–206` 当前冻结目标、用默认 24000 选 Global/child、选择摘要、prepare 后 model/apply，确实存在待替换的固定预算和分开计量；不是在未接线的测试辅助代码中实现新机制。`dreaming-agent.ts:43–60,87–95` 通过真实 `host.agents.create` 建立空 seed 的维护 scope、注册完整角色提示和受限工具，再 followup；因此可在 handle 创建后、首 followup 前使用实际 scope 试算并重选材料，无需追加模型请求。
+
+安装依赖的公开 `dsh-llm` 类型提供 `resolveModelInfo(provider, model, signal)`、可缺省的模型 context 与 `llm/stream` waterfall；`LlmModelContext.contextWindow` 明确表示请求和响应合计容量。`dsh-system-prompt` 根公开 `assemble({scope})`、`renderPrompt`、`renderContextSnapshot`，assembly 同时包含 canonical tools。仓库 `index.ts:385–386` 已在实际 handle 上使用相同公开组装/渲染路径。直接复用这些能力，比复制提示和 schema 来估算更可靠；无需 private import、DSH patch 或跨包边界扩张。未知容量明确失败，不新增猜测模型容量的 fallback。
+
+**准备时点与目录一致性。** 首请求固定开销需要在受限 scope 已就绪后核算，最终完整请求再校验；宿主重选/重组不构成模型循环。当前 `dreaming-agent.ts:51–55` 的 navigation 是 setup 时生成的静态字符串，`dreaming-history.ts:45` 的 history directory 也在注册时捕获。实施必须使这两个消费者取最终 batch/summary 的目录，不能只改变 `run.batch` 后保留早先目录；这是 §5.1“重新核对范围、补批保留来源目录边界”的具体实现义务，公开 assembly 本身不会替宿主刷新已捕获数据。可在同一准备流程中重新生成，不需要新增目录缓存或协调框架。
+
+**截止范围与无饥饿推进。** `memory-sources.ts:101` 的 freeze 不提交游标，`children:281–320` 依 root batch cutoff 取得 child 合格版本，故先缩减并稳定 Global 再调用对应 child 提炼是可兑现的。设计明确每批成功后先处理该批未装入的完整摘要，再取下一段 Global；无 Global 的补批保留原时间/来源边界，不让旧代码的“空 range 则用 target 尾部”语义扩大范围。摘要独立过大时报容量不足、保留未整合状态，避免空循环；无摘要时释放全部材料空间给 Global，也没有无意义固定比例浪费。sourceVersion 继续描述合格原始范围，估算长度不是新版本身份。
+
+**失败、取消与重启。** `dreaming.ts:226–238` 先保存提炼缓存，`:289–314` 在真实应用后提交 root ranges 和实际 `run.summaries` 的整合版本，两路进度已有独立事实。新方案保留此顺序：首请求超限、提炼失败、取消或应用失败不能确认未处理材料；已成功的前批保持，下次按最新目标和有效缓存重新选择。补批内存遍历不要求跨重启复活旧轮清单，也不能把未选择摘要提前写进 integrated。按源版本复用与已有成功应用恢复足以实现本轮要求，不新增持久队列。
+
+**Agent Context Review — Design Review。** 本轮 Consumer 是提炼者和整理者；Surface 覆盖实际 system/tools/runtime context、直接注入的 Global 原文、child 的继承背景与自身经历、来源目录和当前记忆入口。Before 的固定材料额度未表达完整首请求成本，并可能让持续 Global 输入延迟摘要；After 使两阶段分别在实际工具/提示/来源开销之外选材，完整摘要在同 cutoff 补批。原始来源、继承背景非新证据、缺口未知、维护自身 history 与业务 source_history 的区别均保留。较小批次不截断最后字符串、跳过 root 前缀或扩大回查权限；直接注入和现有恢复能力继续提供可发现、可行动的上下文。没有新增模型必须猜测的预算、owner 或 session 参数。
+
+**验证、delta 与退出标准。** Gateway delta 的 canonical target 正确，原有正常完成、连续批次、独立进度、fork 和回查 Scenario 保留。§5.1 的受控 provider 验证细化既有 M1 W1/W4/W8–W10/W13：覆盖 256K/1M、中文、入口/目录开销、Global+摘要+工具的完整请求、同 cutoff 补批、显式 cap、未知容量、单摘要过大及失败/重启/取消；既要捕获请求，也要核对持久进度，不能仅测预算函数。真实质量/费用收益仍由独立评测判断，本轮没有这样的结论。未新增数据迁移或 UI 变化，原部署的隔离验证与生产只读核对边界不变。
+
+**retained_from: Round 8 / Round 7 / Round 6。** 继承背景资格与来源归属、失败后按最新目标重试、正式文档单写和前台即时采用纠正继续保留；本轮 diff 未改变其决定，并与所读 current spec/现有维护链一致。R5 的公开历史查询边界、旧 UI/原型及迁移证据沿历史报告保留，仅作为未受影响项的依据，不据此宣称本轮产品验收或模型理解已经通过。
+
+### 历史问题闭环
+
+- **R1-W1 closed / retained**：固定目标和来源持久认证没有被大小估算替换；缩减候选不提交进度。
+- **R1-W2 closed / retained**：内置 skill-creator、其他工具配置不变。
+- **R1-W3 closed / retained**：来源 generation 仍在组装、读取、应用前生效；新补批不放宽权限。
+- **R4-W1 closed / retained**：child 原 document 启用下界不变，较大模型容量不授权回溯更早内容。
+- **R6-R1 / R7-R1 closed / retained**：前台只读与 Dreaming 写的时序、容量延期与真实失败的区分均保持。
+- R8 无新增 issue。本轮无需重开已关闭问题。
+
+### Issues
+
+无新增 issue；0 CRITICAL / 0 WARNING。
+
+### Recommendations
+
+无新增建议。实施沿已批准的准备时点、最终目录和首请求核对落点完成即可，不因尚未实施而把已明确的设计义务重新列作设计缺陷。
+
+### 受审产物指纹（SHA-256）
+
+| 文件 | SHA-256 |
+| --- | --- |
+| design.md | `58de54b881cbfdff027d9359296313eadfbce29e9376e49a3b0fe810eb789360` |
+| specs/gateway/agent-capabilities.md | `e79dec5a4ab14b4dc05400e15d05a15366ad34bf3356f7c8439c801ba2cdd9bd` |
+
+### 本轮收尾
+
+仅追加 R9；未修改受审设计或实现。未运行模型、产品测试、评测、迁移或部署；本结论仅批准有界设计调整。报告写入后 `git diff --check` 通过，两份受审产物指纹未变。收尾时另有 `dreaming-runtime.test.ts` 并行修改，非本 reviewer 产物，未纳入本次设计结论。

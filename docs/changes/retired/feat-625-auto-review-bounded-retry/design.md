@@ -1,5 +1,7 @@
 # feat-625: Auto 审核失败的有界恢复 — 技术方案
 
+> **Retired — 2026-10-29。** 本设计不再推进，统一恢复的新设计由 [bugfix-678](../../bugfix-678-pa-permission-boundaries/incident.md) 承担；以下历史方案及审查不得作为当前实施授权。
+
 > 对齐: [spec.md](spec.md)，定稿 commit `80134297ddfabb08e80e83c01a20e20280de20f0`。
 
 ## Changelog
@@ -51,7 +53,7 @@
 - feat-615：独立CC/Codex插件与Guardian生命周期；沿用full/delta/fork、配置失效和只读工具限制，不把Codex简化成另一段分类prompt。
 - 既有approval-sources及classifier相关测试：去重指令、来源事实与超窗处理；不得裁授权、改来源或模型以恢复失败。
 - refactor-581：DSH接入与进程边界；不恢复旧Python broker。
-- [bugfix-626](../archive/bugfix-626-approval-context-fidelity/design.md) 已合入当前产品：普通审批不再附PA全库授权包；Codex规范化消息粒度、preserve/recovery admission及assessment输出已恢复固定上游行为。本unit只在该新基线增加故障恢复，不能从旧625草案复制回已撤销的626前逻辑。
+- [bugfix-626](../../archive/bugfix-626-approval-context-fidelity/design.md) 已合入当前产品：普通审批不再附PA全库授权包；Codex规范化消息粒度、preserve/recovery admission及assessment输出已恢复固定上游行为。本unit只在该新基线增加故障恢复，不能从旧625草案复制回已撤销的626前逻辑。
 
 ### 626交叉保真约束（最新基线必须保留）
 

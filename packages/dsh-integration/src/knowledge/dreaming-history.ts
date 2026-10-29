@@ -22,7 +22,7 @@ export function sourceDirectory(run: DreamingRun, owner: DreamingOwner): SourceR
     const range = run.batch.ranges.find(item => item.sessionId === id);
     const page = run.batch.units.findLast(item => item.sessionId === id)?.page;
     return {session_id:id, root_session_id:id, baseline:owner.streams[id]!.baseline,
-      through:page ? run.batch.units.findLast(item => item.sessionId === id)!.through : range?.through ?? cut.through,
+      through:run.batch.historyThrough?.[id] ?? (page ? run.batch.units.findLast(item => item.sessionId === id)!.through : range?.through ?? cut.through),
       cutoff:run.batch.cutoffs?.[id] ?? cut.time, purpose:'Global dialogue and already processed background'};
   });
   const children = run.summaries.map(summary => ({session_id:summary.sessionId, root_session_id:summary.rootSessionId,
@@ -41,9 +41,9 @@ export async function assertDreamingSources(library: MemoryDocuments, generation
 
 /** Register business-history recovery separately from the maintenance Agent's own history. */
 export function registerDreamingHistory(ctx: Context, host: Context, parent: Agent, run: DreamingRun,
-  owner: DreamingOwner, library: MemoryDocuments, sources: MemorySources, conversations: string[]) {
-  const directory = sourceDirectory(run, owner);
+  owner: DreamingOwner, library: MemoryDocuments, sources: MemorySources, conversations: string[] | (()=>string[])) {
   const resolveScope=async(sessionId:string):Promise<SourceRange>=>{
+    const directory=sourceDirectory(run,owner);
     const known=directory.find(item=>item.session_id===sessionId);if(known)return known;
     const chain:Array<{id:string;snapshot:Awaited<ReturnType<MemorySources['snapshot']>>}>=[];
     let id=sessionId;
@@ -110,7 +110,8 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
       return {session_id,...result,allowed_range:scope,descendants};
     },
   });
-  if (!conversations.length || !parent.ctx.tools.get('conversations',parent)) return;
+  const allowedConversations=()=>typeof conversations==='function'?conversations():conversations;
+  if (!parent.ctx.tools.get('conversations',parent)) return;
   ctx.tools.register({name:'conversations',
     description:'Read-only IM evidence for this frozen memory batch: info/read/search only, using original conversation/message IDs from the supplied directory or evidence. info is current metadata. Results preserve real authors and participant/observer scope; omitted historical versions are unavailable. Does not consume Inbox or send/join/create anything.',
     parameters:{type:'object',properties:{action:{enum:['info','read','search']},target:{type:'string'},query:{type:'string'},keyword:{type:'string'},message_id:{type:'string'},before:{type:'string'},after:{type:'string'},cursor:{type:'string'},limit:{type:'integer',minimum:1,maximum:50}},required:['action','target'],additionalProperties:false},
@@ -118,8 +119,8 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
     execute:async (raw,exec) => {
       await assertDreamingSources(library, run.generation);
       const args = raw as {target:string;[key:string]:unknown};
-      if (!conversations.includes(args.target)) throw new Error('Conversation is outside this batch source directory.');
-      const ranges = directory.filter(item => item.root_session_id === parent.id);
+      if (!allowedConversations().includes(args.target)) throw new Error('Conversation is outside this batch source directory.');
+      const ranges = sourceDirectory(run,owner).filter(item => item.root_session_id === parent.id);
       const cutoff = Math.max(...ranges.map(item => item.cutoff));
       const result = await host.nanoProduct.call('memory.conversations',{...args,cutoff,afterTime:owner.activationAt},{...exec,agent:parent});
       await assertDreamingSources(library, run.generation);

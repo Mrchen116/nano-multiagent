@@ -16,7 +16,7 @@ async function fixture(){
   const library=await MemoryDocuments.open(workspace,'expert',new LocalFileSystem(new Context(),{cwd:workspace,diffBasisMaxBytes:10485760}));
   const owners=new Map<string,any>([['YQ',{protocol:2,activationAt:0,streams:{s:{baseline:-1,cursor:-1}},seen:[],integrated:{},rotation:0,failures:0}]]);
   const runs=new Map<string,any>();const summaries=new Map();const cleanup:Array<()=>void>=[];
-  const ctx={storageDomain:{open:async()=>({table:(name:string)=>{const rows=name==='owners'?owners:name==='runs'?runs:summaries;return {get:(id:string)=>rows.get(id),put:async(id:string,value:any)=>{rows.set(id,structuredClone(value));},entries:()=>rows.entries()};}})},
+  const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:256000}})},storageDomain:{open:async()=>({table:(name:string)=>{const rows=name==='owners'?owners:name==='runs'?runs:summaries;return {get:(id:string)=>rows.get(id),put:async(id:string,value:any)=>{rows.set(id,structuredClone(value));},entries:()=>rows.entries()};}})},
     on:()=>{},effect:(f:()=>()=>void)=>cleanup.push(f()),nanoTrajectoryRuns:{finishMaintenance:async()=>{}},sessions:{get:()=>undefined},sessionQuery:{}};
   const config={agentId:'a',revision:'1',workspace,provider:'fixture',model:'test'};
   const make=()=>new Dreaming(ctx as never,{forConfig:async()=>library} as never,{configOf:()=>config,configs:new Map([['a',config]]),bindings:new Map(),notify:()=>{}});
@@ -32,7 +32,7 @@ async function fixture(){
   runs.set('frozen',{id:'frozen',agentId:'a',rootSessionId:'s',mode:'manual',stage:'consolidate',cycleId:'cycle',state:'applying',at:Date.now(),generation:0,directory,
     batch:{id:'frozen',units:[{id:'unit',sessionId:'s',start:-1,through:1,events:[],fingerprints:['source:revision']}],ranges:[{sessionId:'s',start:-1,through:1,observed:1}],blocked:[],filtered:0,inputTokens:0},
     target:{roots:{},children:{},blocked:[],generation:0,activationAt:0},summaries:[],receipts:[],plan,sourcesChecked:true});
-  return {workspace,library,owners,runs,make,parent:{id:'s',ctx:{tools:{get:()=>true}}} as never,
+  return {workspace,library,owners,runs,make,ctx,parent:{id:'s',ctx:{tools:{get:()=>true}}} as never,
     close:async()=>{for(const fn of cleanup)fn();await library.close();await rm(workspace,{recursive:true,force:true});}};
 }
 
@@ -108,7 +108,7 @@ it.each([false,true])('repairs only a recorded legacy Dreaming identity, preserv
     batch:{id:'old',units:[],ranges:[],blocked:[],filtered:0,inputTokens:0},receipts:[],reviewed:[]};
   const runs=new Map([['old',run]]);const cleanup:Array<()=>void>=[];let durable=false;
   const handle={header:session.header,inheritedEventCount:0,read:async()=>({events}),append:async(batch:any[])=>{events.push(...batch);},flush:async()=>{durable=true;},[Symbol.asyncDispose]:async()=>{}};
-  const ctx={storageDomain:{open:async()=>({table:()=>({entries:()=>runs.entries(),put:async(id:string,value:any)=>{runs.set(id,structuredClone(value));}})})},
+  const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:256000}})},storageDomain:{open:async()=>({table:()=>({entries:()=>runs.entries(),put:async(id:string,value:any)=>{runs.set(id,structuredClone(value));}})})},
     sessionPersistence:{stat:async()=>({header:session.header}),open:async()=>handle},on:()=>{},effect:(f:()=>()=>void)=>cleanup.push(f())};
   const dreaming=new Dreaming(ctx as never,{} as never,{configOf:()=>undefined,configs:new Map(),bindings:new Map(),notify:()=>{}});
   try{
@@ -126,4 +126,18 @@ it.each([false,true])('repairs only a recorded legacy Dreaming identity, preserv
       await dreaming.recover();expect(JSON.stringify(events)).toBe(repaired);
     }
   }finally{for(const close of cleanup)close();}
+});
+
+
+it('reports unavailable model capacity without advancing or guessing a default',async()=>{
+  const f=await fixture();
+  try{
+    f.runs.clear();
+    vi.spyOn(f.ctx.llm,'resolveModelInfo').mockResolvedValue({} as never);
+    const dreaming=f.make();
+    expect(await dreaming.status('a')).toMatchObject({backlog:{state:'model_capacity_unavailable',scope:'unavailable'}});
+    expect(await dreaming.start(f.parent,false)).toMatchObject({state:'failed',reason:expect.stringContaining('declared model context')});
+    expect(f.owners.get('YQ').streams.s.cursor).toBe(-1);
+    expect(f.runs.size).toBe(0);
+  }finally{await f.close();}
 });

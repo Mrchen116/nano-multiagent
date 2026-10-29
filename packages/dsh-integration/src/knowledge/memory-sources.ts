@@ -4,6 +4,7 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
 import type { SessionBinding } from '../index.js';
 import { qualifiedEvents, safeBoundary } from './memory-source-view.js';
+import { estimateInputTokens } from './dreaming-budget.js';
 import { isHumanSource } from '../input-source.js';
 import type { SourceEligibility } from './memory-documents.js';
 
@@ -29,12 +30,12 @@ export interface CycleTarget {
 }
 export interface ChildMaterial {
   sessionId: string; rootSessionId: string; baseline: number; through: number; sourceVersion: string;
-  text: string; events: SessionEvent[]; inheritedEvents: SessionEvent[]; omitted: number;
+  text: string; events: SessionEvent[]; inheritedEvents: SessionEvent[]; omitted: number; unavailable?: number;
 }
 export interface SourceOptions { maxInputTokens: number; seen?: string[]; sources?: SourceEligibility; excluded?: string[]; rotation?: number; target?: CycleTarget; generation?: number }
 export interface FrozenBatch {
   id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number; continuation?: SourceContinuation }>;
-  conversations?: string[]; text?: string; cutoffs?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
+  conversations?: string[]; text?: string; cutoffs?: Record<string, number>; historyThrough?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const dataText = (content: readonly { type: string; text?: string }[]) => content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n');
@@ -183,7 +184,7 @@ export class MemorySources {
             const content = event.data.message.content.filter(block => block.type === 'text');
             if (content.length) selected.push({ seq: event.seq, time: event.time, sessionId: id, type: 'assistant/message', evidence: 'assistant_self_report', content });
           } else if (event.type === 'step/end' && pending.size === 0 && fragments.size === 0) {
-            const tokens = Math.ceil(JSON.stringify(selected).length / 3);
+            const tokens = estimateInputTokens(JSON.stringify(selected));
             if (tokens > options.maxInputTokens) {
               const segments = materialSegments(selected);
               const saved = progress.continuation;
@@ -198,7 +199,7 @@ export class MemorySources {
               if(end < characters.length && paragraph > (end-offset)*0.75)end=offset+Array.from(characters.slice(offset,end).join('').slice(0,paragraph+2)).length;
               let pageEvents = [{ type:'source_text_continuation', messageId:item.messageId, source:item.source,
                 offset, end, total:characters.length, text:characters.slice(offset,end).join('') }];
-              while (end > offset && Math.ceil(JSON.stringify(pageEvents).length / 3) > remaining) {
+              while (end > offset && estimateInputTokens(JSON.stringify(pageEvents)) > remaining) {
                 end -= Math.max(1, Math.ceil((end - offset) / 10));
                 pageEvents = [{...pageEvents[0]!,end,text:characters.slice(offset,end).join('')}];
               }
@@ -207,7 +208,7 @@ export class MemorySources {
                 const complete = segmentComplete && segment === segments.length-1;
                 result.units.push({ id: `${id}:${start + 1}-${event.seq}:message-${segment}-${offset}-${end}`, sessionId:id,start,through:event.seq,
                   events:pageEvents,fingerprints:complete?fingerprints:[],page:{offset,end,total:characters.length,hash:bodyHash} });
-                result.inputTokens += Math.ceil(JSON.stringify(pageEvents).length / 3);
+                result.inputTokens += estimateInputTokens(JSON.stringify(pageEvents));
                 if(complete)through=event.seq;
                 else if(segmentComplete){const next=segments[segment+1]!;continuation={hash:hash(next.text),offset:0,messageId:next.messageId,segment:segment+1};}
                 else continuation={hash:bodyHash,offset:end,messageId:item.messageId,segment};
@@ -298,22 +299,8 @@ export class MemorySources {
         const inherited = snapshot.events.slice(0,snapshot.inheritedEventCount).filter(event => event.seq > (target.roots[limit.rootSessionId]?.baseline??-1) && event.time >= target.activationAt && event.time <= cutoff);
         // A fork copy must still match the original parent record. Missing provenance stays a gap.
         const inheritedEvents = qualifiedEvents(inherited.filter(event => parent.events.some(original => original.seq === event.seq && hash(original) === hash(event))), options);
-        const entries = [...inheritedEvents.map(event => ({event,sessionId:limit.rootSessionId,inherited:true})), ...events.map(event => ({event,sessionId,inherited:false}))];
-        const messageCarrier = (event:SessionEvent) => event.type==='tool/result' && entries.some(item=>item.event.type==='tool/call' && item.event.data.callId===event.data.message.toolCallId && ['inbox','conversations'].includes(item.event.data.name));
-        const priority = (event: SessionEvent) => event.type === 'user/message' || messageCarrier(event) ? 0 : event.type === 'assistant/message' ? 1 : 2;
-        const selected = new Set<number>(); let used = 0;
-        for (const {index,entry} of entries.map((entry,index)=>({entry,index})).sort((a,b)=>priority(a.entry.event)-priority(b.entry.event) || b.entry.event.time-a.entry.event.time)) {
-          if (selected.has(index)) continue;
-          const event = entry.event;
-          const callId = event.type === 'tool/call' ? event.data.callId : event.type === 'tool/result' ? event.data.message.toolCallId : undefined;
-          const group = callId ? entries.flatMap((candidate,i)=>candidate.sessionId === entry.sessionId && candidate.inherited === entry.inherited &&
-            (candidate.event.type === 'tool/call' && candidate.event.data.callId === callId || candidate.event.type === 'tool/result' && candidate.event.data.message.toolCallId === callId) ? [i] : []) : [index];
-          const size = group.reduce((sum,i)=>sum + Math.ceil(JSON.stringify(entries[i]).length/3),0);
-          if (used + size <= options.maxInputTokens) { for (const i of group) selected.add(i); used += size; }
-        }
-        const text = entries.flatMap((entry,index)=>selected.has(index) ? [`### ${entry.inherited ? 'Inherited background, not new evidence' : 'Own experience'}; session_id=${entry.sessionId}; item_id=${entry.event.seq}; time=${entry.event.time}\n${renderNative(entry.event)}`] : []).join('\n\n');
-        const omitted = entries.length-selected.size + inherited.length-inheritedEvents.length;
-        result.push({sessionId,rootSessionId:limit.rootSessionId,baseline:limit.baseline,through:cut.through,sourceVersion:hash({events,inheritedEvents,generation:target.generation,through:cut.through}),text:`${text}\n\nOmitted/unavailable records: ${omitted}. Missing conditions remain unknown.`,events,inheritedEvents,omitted});
+        const material = selectChildMaterial({sessionId,rootSessionId:limit.rootSessionId,events,inheritedEvents,unavailable:inherited.length-inheritedEvents.length}, options.maxInputTokens);
+        result.push({sessionId,rootSessionId:limit.rootSessionId,baseline:limit.baseline,through:cut.through,sourceVersion:hash({events,inheritedEvents,generation:target.generation,through:cut.through}),...material,events,inheritedEvents,unavailable:inherited.length-inheritedEvents.length});
       } catch (error) { batch.blocked.push({sessionId,reason:String(error)}); }
     }
     return result;
@@ -351,4 +338,24 @@ function renderNative(event: SessionEvent): string {
     return renderMaterial([{role:'tool',callId:event.data.message.toolCallId,isError:event.data.message.isError,content}]);
   }
   return JSON.stringify(event.data);
+}
+
+/** Repack the same certified child evidence without querying or changing its source version. */
+export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'rootSessionId'|'events'|'inheritedEvents'|'unavailable'>, maxInputTokens: number): {text:string;omitted:number} {
+  const entries = [...material.inheritedEvents.map(event => ({event,sessionId:material.rootSessionId,inherited:true})), ...material.events.map(event => ({event,sessionId:material.sessionId,inherited:false}))];
+  const messageCarrier = (event:SessionEvent) => event.type==='tool/result' && entries.some(item=>item.event.type==='tool/call' && item.event.data.callId===event.data.message.toolCallId && ['inbox','conversations'].includes(item.event.data.name));
+  const priority = (event: SessionEvent) => event.type === 'user/message' || messageCarrier(event) ? 0 : event.type === 'assistant/message' ? 1 : 2;
+  const selected = new Set<number>(); let used = 0;
+  for (const {index,entry} of entries.map((entry,index)=>({entry,index})).sort((a,b)=>priority(a.entry.event)-priority(b.entry.event) || b.entry.event.time-a.entry.event.time)) {
+    if (selected.has(index)) continue;
+    const event = entry.event;
+    const callId = event.type === 'tool/call' ? event.data.callId : event.type === 'tool/result' ? event.data.message.toolCallId : undefined;
+    const group = callId ? entries.flatMap((candidate,i)=>candidate.sessionId === entry.sessionId && candidate.inherited === entry.inherited &&
+      (candidate.event.type === 'tool/call' && candidate.event.data.callId === callId || candidate.event.type === 'tool/result' && candidate.event.data.message.toolCallId === callId) ? [i] : []) : [index];
+    const size = group.reduce((sum,i)=>sum + estimateInputTokens(JSON.stringify(entries[i])),0);
+    if (used + size <= maxInputTokens) { for (const i of group) selected.add(i); used += size; }
+  }
+  const text = entries.flatMap((entry,index)=>selected.has(index) ? [`### ${entry.inherited ? 'Inherited background, not new evidence' : 'Own experience'}; session_id=${entry.sessionId}; item_id=${entry.event.seq}; time=${entry.event.time}\n${renderNative(entry.event)}`] : []).join('\n\n');
+  const omitted = entries.length-selected.size + (material.unavailable??0);
+  return {text:`${text}\n\nOmitted/unavailable records: ${omitted}. Missing conditions remain unknown.`,omitted};
 }

@@ -83,9 +83,9 @@ export function apply(ctx){
     await submit('maintain-first');
     let reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
     if(mode!=='valid'){
-      expect(reviews).toHaveLength(1);
-      expect(reviews[0]).toMatchObject({status:'failed'});
-      expect(reviews[0].summary).toContain('未生成有效的新版本');
+      expect(reviews).toHaveLength(2);
+      expect(reviews.every((review:any)=>review.status==='failed')).toBe(true);
+      expect(reviews.some((review:any)=>review.summary.includes('未生成有效的新版本'))).toBe(true);
       await expect(readFile(join(home,'.nanoassistant/memory/knowledge/travel.md'))).rejects.toMatchObject({code:'ENOENT'});
       return;
     }
@@ -124,4 +124,87 @@ export function apply(ctx){
     expect(reviews.some((review:any)=>review.status==='completed'&&review.summary?.includes('无值得保留的新信号'))).toBe(true);
   }catch(error){await writeFile('/tmp/feat676-task-debug.jsonl',await readFile(join(home,'requests.jsonl'),'utf8').catch(()=>''));if(client)await writeFile('/tmp/feat676-task-debug-facts.json',JSON.stringify(await client.rpc.request('knowledge.facts',{})));throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
+},60000);
+
+it.each([false,true])('drains whole pending summaries before advancing Global, retaining oversized input (oversized=%s)',async oversized=>{
+  const home=await mkdtemp(join(tmpdir(),'dreaming-shared-budget-'));let client:RuntimeClient|undefined;
+  await writeFile(join(home,'fixture.mjs'),`
+import {appendFile} from 'node:fs/promises';
+export const inject=['llm','subagents','agents'];
+export function apply(ctx){
+ let launched=false;let count=0;
+ ctx.on('agent/pre-step',async({agent,messages,signal},next)=>{
+  if(agent.id==='root'&&!launched&&messages.some(m=>m.source?.messageId==='launch')){
+   launched=true;
+   for(let i=0;i<3;i++){
+    const child=await ctx.subagents.startContinuable({provider:'fork',label:'task-'+i,request:{parent:agent,prompt:[{type:'text',text:'TASK-'+i+': compare the supplied evidence.'}]},signal});
+    await ctx.agents.get(child.childId)?.whenIdle();
+   }
+  }
+  return next();
+ });
+ ctx.on('llm/stream',async function*(r){
+  await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(r)+'\\n');
+  const extraction=JSON.stringify(r.messages).includes('Return a JSON object with exactly two string fields');
+  const last=r.messages.findLast(m=>m.source?.actorId==='owner');
+  const input=r.messages.filter(m=>m.source?.channel==='dreaming').flatMap(m=>m.content||[]).map(b=>b.text||'').join('\\n');
+  const recovered=r.messages.find(m=>m.role==='tool'&&m.toolCallId==='recover-original');
+  if(input.includes('SUMMARY-END-')&&!recovered){
+   yield{type:'block-end',index:0,block:{type:'tool-call',id:'recover-original',name:'source_history',arguments:JSON.stringify({action:'search',session_id:'root',query:'GLOBAL-START',limit:1})}};
+   yield{type:'finish',reason:{kind:'tool-calls'}};
+  }else if(r.sessionId==='root'&&last?.source.messageId==='maintain'&&!r.messages.some(m=>m.toolCallId==='maintain')){
+   yield{type:'block-end',index:0,block:{type:'tool-call',id:'maintain',name:'memory_maintenance',arguments:JSON.stringify({action:'run',request_ref:'maintain'})}};
+   yield{type:'finish',reason:{kind:'tool-calls'}};
+  }else{
+   if(recovered&&!JSON.stringify(recovered).includes('GLOBAL-START'))throw new Error('Summary batch lost original Global conditions.');
+   const text=extraction?JSON.stringify({rollout_summary:'SUMMARY-'+(++count)+'\\n'+'摘要证据。'.repeat(1400)+'\\nSUMMARY-END-'+count,rollout_slug:'task-'+count}):'No durable update needed.';
+   yield{type:'block-end',index:0,block:{type:'text',text}};yield{type:'finish',reason:{kind:'stop'}};
+  }
+ });
+}`);
+  try{
+    await prepareProfile(home,[
+      {id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test',contextWindow:32000}]}}}},
+      {insert:[{id:'shared-budget',name:join(home,'fixture.mjs')}]},
+    ]);
+    client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'fixture',model:'test',features:{dreaming:false},knowledge:{dreaming:{maxInputTokens:oversized?5000:9000}},toolAllowlist:['read','write','edit','memory_maintenance','subagent','subagent_fork'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
+    await client.rpc.request('session.ensure',binding);
+    const submit=async(id:string,text=id)=>{
+      await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
+      await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal,{timeout:30000}).toBeTruthy();
+    };
+    await submit('launch','GLOBAL-START\n'+'原始证据。'.repeat(5000)+'\nGLOBAL-END');
+    await submit('later','LATER-GLOBAL-EVIDENCE');
+    await submit('maintain');
+    const reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
+    expect(reviews.every((r:any)=>r.status==='completed'),JSON.stringify(reviews)).toBe(!oversized);
+    const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line)).filter(r=>r.sessionId.startsWith('dreaming-'));
+    const material=(r:any)=>r.messages.filter((m:any)=>m.source?.channel==='dreaming').map((m:any)=>m.content.map((b:any)=>b.text??'').join('')).join('');
+    const extraction=requests.filter(r=>JSON.stringify(r.messages).includes('Return a JSON object with exactly two string fields'));
+    expect(extraction).toHaveLength(3);
+    const consolidation=requests.filter(r=>!extraction.includes(r));
+    const batches=consolidation.filter((r:any,index:number)=>consolidation.findIndex((item:any)=>item.sessionId===r.sessionId)===index);
+    const text=batches.map(material);
+    if(oversized){
+      expect(reviews.at(-1).summary).toContain('summary does not fit');
+      expect(text.join('\n')).not.toContain('GLOBAL-END');
+      expect(text.join('\n')).not.toContain('SUMMARY-END-');
+      return;
+    }
+    const summaries=text.flatMap((input:string,i:number)=>input.includes('SUMMARY-END-')?[i]:[]);
+    expect(summaries).toHaveLength(3);
+    expect(text.findIndex((input:string)=>input.includes('GLOBAL-END'))).toBeGreaterThan(summaries.at(-1)!);
+    expect(text.join('\n')).toContain('LATER-GLOBAL-EVIDENCE');
+    for(let i=1;i<=3;i++)expect(text.filter((input:string)=>input.includes('SUMMARY-END-'+i))).toHaveLength(1);
+    const directory=(r:any)=>JSON.parse(r.messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('\n').match(/Source directory \(data\): (.+?)\n/)![1]);
+    for(const i of summaries){
+      const source=directory(batches[i]);
+      expect(source.filter((item:any)=>item.purpose==='Original evidence for this task summary')).toHaveLength(1);
+      expect(source.find((item:any)=>item.purpose.startsWith('Global'))).toEqual(directory(batches[0]).find((item:any)=>item.purpose.startsWith('Global')));
+    }
+    expect(consolidation.filter(r=>r.messages.some((m:any)=>m.toolCallId==='recover-original'&&!m.isError&&JSON.stringify(m).includes('GLOBAL-START')))).toHaveLength(3);
+    for(const request of [...extraction,...batches])expect(Math.ceil(Buffer.byteLength(JSON.stringify({system:request.system,messages:request.messages,tools:request.tools}),'utf8')/3)).toBeLessThanOrEqual(22400);
+  }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },60000);

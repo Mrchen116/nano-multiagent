@@ -1,5 +1,7 @@
 # feat-625: Auto 审核失败的有界恢复
 
+> **Retired — 2026-10-29。** 用户明确要求由 [bugfix-678](../../bugfix-678-pa-permission-boundaries/incident.md) 统一所有模型调用的 DSH 技术失败恢复，废弃本 unit 的独立交付。未合入 [PR #419](https://github.com/Mrchen116/nano-multiagent/pull/419) 内改名为 feat-669，head 为 `77468b4717b6e63ea4fec9fba9da9996f6cc92ed`；旧方案不再合入。以下需求、历史授权与证据保留用于追溯，不能据此恢复实施，也不表示 main 已具备重试功能。Issue #361 由 bugfix-678 接手。
+
 ## Relations
 
 - Refs: [GitHub #361](https://github.com/Mrchen116/nano-multiagent/issues/361)
