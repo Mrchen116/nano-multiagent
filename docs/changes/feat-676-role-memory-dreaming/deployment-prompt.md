@@ -6,8 +6,8 @@
 
 - 对象：此次部署节点上已有的长期 PA/独立专家。默认 document + Dreaming 开启；文件可显式选择 legacy，网页不能改变模式或旧自动维护设置。
 - 旧状态：workspace 的 `.nanoassistant/memory/{USER,MEMORY}.md` 是限额条目库，旧 memory_curation/skill_creation 可能触发父会话 fork 维护。
-- 目标状态：新文档库仍在 `.nanoassistant/memory/`，可写旧库在 `.nanoassistant/memory-legacy/`，逐字备份位于 `.nanoassistant/memory-backups/<migration-id>/`。后台 Skill 自进化暂停，skill-creator 固定内置、无需选择，skill_manage 仍按实际工具权限执行。
-- 前提：目标版本已有模式隔离、配置解析、手动导入指导、持续历史基线和恢复回执；M1 已在合成副本验证正常、重复执行、中断及回切；发布物包含经 W13 验证的 dsh-agent-context 固定新版本/包 hash 与公开历史入口，不能用安装目录 patch 替代。部署前核对验收报告，不在生产补跑未完成验收。
+- 目标状态：新文档库仍在 `.nanoassistant/memory/`，可写旧库在 `.nanoassistant/memory-legacy/`，逐字备份位于 `.nanoassistant/memory-backups/<migration-id>/`。正式文档库仅由 Dreaming 更新，普通 root/child 只读；后台 Skill 自进化暂停，skill-creator 固定内置、无需选择，skill_manage 仍按实际工具权限执行。
+- 前提：目标版本已有模式隔离、配置解析、Dreaming 单写及手动导入指导、持续历史基线和恢复回执；M1 已在合成副本验证正常、重复执行、中断及回切；发布物包含经 W13 验证的 dsh-agent-context 固定新版本/包 hash 与公开历史入口，不能用安装目录 patch 替代。部署前核对验收报告，不在生产补跑未完成验收。
 
 ## 顺序与最小修改
 
@@ -23,7 +23,7 @@
 
 ## 完成与有限生产核对
 
-只读检查：每主体旧内容备份 hash 一致；两活动库分离；新入口存在且无编造事实；有效模式/自动开关与配置一致；旧 Memory 和新 Dreaming 没有同时在途；后台 Skill 无新自动 fork；节点与 relay 恢复。核对当次 ready 及一次已有状态快照，不等待 24h，不发验收消息、不创建 Task/卡片、不强制触发 LLM 或重启演练。
+只读检查：每主体旧内容备份 hash 一致；两活动库分离；新入口存在且无编造事实；普通 root/child 使用只读记忆配置，手动导入路由同一 Dreaming；有效模式/自动开关与配置一致；旧 Memory 和新 Dreaming 没有同时在途；后台 Skill 无新自动 fork；节点与 relay 恢复。核对当次 ready 及一次已有状态快照，不等待 24h，不发验收消息、不创建 Task/卡片、不强制触发 LLM 或重启演练。
 
 本次生产完成只表示迁移完整性与服务恢复，不替代 S01–S29 产品验收。实际环境、备份位置、SHA、清单和检查结果写本机受保护部署记录，不把生产记忆/原配置/聊天提交到仓库。
 
