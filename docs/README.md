@@ -49,6 +49,7 @@
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [本机开发配置](development/local-development.md#本机开发配置) → [LLM 联调](development/llm-integration.md) / [参考项目](../AGENTS.md#调研参考项目) |
 | 查外部项目比较、脑暴或阶段性审查 | [`research/`](research/README.md)；先核对日期、代码基线和当前权威 |
+| 评测 Memory 版本的效果与冷上下文隔离 | [`../evals/memory/`](../evals/memory/README.md) |
 | 构建或运行 Agent 评测集 | [`../evals/`](../evals/README.md) |
 
 ## 当前权威分工

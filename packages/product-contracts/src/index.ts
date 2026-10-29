@@ -121,3 +121,5 @@ export * from './chat.js';
 export * from './chat-codec.js';
 
 export {normalizeKnowledge, type KnowledgeConfiguration} from './knowledge.js';
+
+export type * from './memory-evaluation.js';
