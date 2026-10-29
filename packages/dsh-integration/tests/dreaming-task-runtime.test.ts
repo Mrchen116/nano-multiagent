@@ -91,6 +91,7 @@ export function apply(ctx){
     expect(JSON.stringify(extraction.messages)).toContain('free cancellation');
     expect(JSON.stringify(extraction.messages)).toContain('Own experience');
     expect(extraction.tools.map((tool:any)=>tool.name)).not.toContain('write');
+    await expect(readFile(join(home,'.nanoassistant/maintenance/dreaming',extraction.sessionId.slice('dreaming-'.length),'input.md'))).rejects.toMatchObject({code:'ENOENT'});
     const maintenance=requests.filter(r=>r.sessionId.startsWith('dreaming-')&&!extractionIds(requests).has(r.sessionId));
     expect(Math.max(...[...new Set(maintenance.map(r=>r.sessionId))].map(id=>maintenance.filter(r=>r.sessionId===id).length))).toBeGreaterThan(24);
     expect(maintenance.some(r=>r.messages.some((m:any)=>m.role==='tool'&&m.toolCallId==='step-5'&&!m.isError))).toBe(true);

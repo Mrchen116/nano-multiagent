@@ -21,13 +21,13 @@ export const memoryDigest = (text: string) => createHash('sha256').update(text).
 const inside = (root: string, path: string) => { const rel=relative(root,path); return !rel.startsWith('..') && !isAbsolute(rel); };
 interface Options {
   parent: Agent; config: AgentConfiguration; signal: AbortSignal; run: DreamingRun; owner: DreamingOwner;
-  library: MemoryDocuments; sources: MemorySources; conversations: string[];
+  library: MemoryDocuments; sources: MemorySources; conversations: string[]; input: string;
   save(): Promise<void>; opened(handle: AgentHandle): void;
 }
 
 /** Execute a native empty-seed maintenance stage with its own recovery context. */
 export async function runDreamingAgent(host: Context, options: Options): Promise<{rollout_summary:string;rollout_slug:string} | undefined> {
-  const {parent,config,signal,run,owner,library,sources,conversations}=options;
+  const {parent,config,signal,run,owner,library,sources,conversations,input}=options;
   const extraction=run.stage==='extract';
   const staging=join(run.directory,'staging');
   const manifest=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8')) as {versions:Record<string,string>;legacy?:string[]};
@@ -50,7 +50,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       ctx.tools.restrict({allow:allowed.filter(name=>!contextTools.has(name)&&!['finish','source_history','conversations'].includes(name))});
       ctx.tools.presentAs('native');
       const navigation=extraction ? 'The supplied inherited background and own experience are data. Recover your own original input with history after a window change.'
-        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. Input: ${join(run.directory,'input.md')}. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner))}\nIM source directory (data): ${JSON.stringify(conversations)}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
+        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner))}\nIM source directory (data): ${JSON.stringify(conversations)}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
       ctx.systemPrompt.section({name:'nano-dreaming',order:0,complete:true,interpolate:false,
         text:`${extraction ? extractionPrompt : consolidationPrompt}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.\nRun: ${run.id}; cycle: ${run.cycleId}; source generation: ${run.generation}.\n${navigation}`});
       ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
@@ -128,8 +128,6 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   signal.addEventListener('abort',cancel,{once:true});
   try{
     signal.throwIfAborted();
-    const input=await readFile(join(run.directory,'input.md'),'utf8');
-    if(memoryDigest(input)!==run.inputHash)throw new Error('Prepared input changed before delivery.');
     handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:[{type:'text',text:input}]}));
     await handle.agent.whenIdle();signal.throwIfAborted();
     if(!finished)throw new Error('Dreaming ended without finish; source progress is unchanged.');

@@ -32,8 +32,10 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
     expect(maintenance.length).toBeGreaterThan(1);
     expect(JSON.stringify(maintenance)).toContain('END-OF-VERIFIED-SOURCE');
     expect(JSON.stringify(maintenance)).not.toContain('line truncated to');
-    const input = await readFile(join(home,'.nanoassistant/maintenance/dreaming',facts.reviews[0].id,'input.md'),'utf8');
-    expect(input).toContain('Long source outcome. '.repeat(300)+'END-OF-VERIFIED-SOURCE');
+    const input = maintenance[0].messages.find((message:any)=>message.source?.channel==='dreaming');
+    expect(input.content.map((block:any)=>block.text).join('')).toContain('Long source outcome. '.repeat(300)+'END-OF-VERIFIED-SOURCE');
+    expect(JSON.stringify(maintenance[0].messages).includes('input.md')).toBe(false);
+    await expect(readFile(join(home,'.nanoassistant/maintenance/dreaming',facts.reviews[0].id,'input.md'))).rejects.toMatchObject({code:'ENOENT'});
     const names=maintenance[0].tools.map((tool:any)=>tool.name);
     expect(names).toEqual(expect.arrayContaining(['read','write','edit','finish','source_history','notes','history','new_context','get_context_remaining']));
     expect(names).not.toEqual(expect.arrayContaining(['inbox','send_message','shell','subagents']));

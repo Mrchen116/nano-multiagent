@@ -4,6 +4,7 @@
 
 ## Changelog
 
+- 2026-10-29（PR 后续小修）：用户确认两阶段材料直接注入初始消息，删除 `input.md` 中转和专用输入 hash；既有会话历史负责换窗恢复，正式文件/摘要版本及来源检查保留。本次不修改 `finish` 的执行终止行为。
 - 2026-10-29（M1，回查修订）：用户确认共用历史处理实现、区分 `history` 与 `source_history`，并复用 IM 只读补查。替换独立 `read_source` 方案，新增 §4.5、S27–S29 与 W13；本次仍只修设计，新包接口及产品行为均待实施。
 - 2026-10-29（M1）：用户在实现验收后重新对齐 Dreaming 输入与摘要生命周期。替换 §§4–7 的取材、模型输入、进度与回执方案；新增 S21–S26 / W8–W11。原 M1 的文件记忆与配置能力继续复用，旧 Dreaming 验收不能证明本版方案；实施 owner 接手须先同步本设计，并重新验证受影响范围。
 
@@ -284,11 +285,11 @@ state-domain 承载最小运行元信息；文件记忆仍是唯一当前知识�
 | child 提炼结果 | childSessionId、可信 root、启用基线、sourceVersion/cut、摘要路径/hash、源引用/资格 generation、提炼状态与失败原因；同一 child 只有一个当前有效摘要 |
 | 已整合摘要版本 | 每个 child 的最后成功整合 sourceVersion；提炼成功不等于已进入长期记忆 |
 | 来源资格 | 沿已有 generation、policy revision、allowed/excluded、明确停止使用范围与文档待核对状态；新增摘要服从同一失效机制 |
-| 整理批次 | runId/cycleId、Global 范围与必要字符位置、使用的确切摘要版本、输入投影 hash/省略说明、文件基线、计划/操作回执、结果及剩余范围 |
+| 整理批次 | runId/cycleId、Global 范围与必要字符位置、使用的确切摘要版本、输入省略说明、文件基线、计划/操作回执、结果及剩余范围 |
 
 `memory_maintenance status` 区分 Global 待整理、child 待提炼/已提炼待整合、受阻原因；一个来源 pending=false 不代表全局无积压。来源变更时受影响摘要立即失效；无法从来源引用确定影响范围时使本主体摘要缓存待核对。重新有资格也不自动解除用户停止使用意图。失效摘要不能被读取用于恢复旧结论，先从当前合格原始历史重提炼；长期记忆清理仅由 Dreaming 完成，前台不能解除待核对标记。
 
-run 仍采用 `prepared → running → applying → completed | partial | failed | cancelled`。私有 `finish` 简化为一次批次完成声明（可带无变化说明），不含逐 step/逐单元 reviewed/no_change/outputs 数组。宿主从 staging diff 生成文件计划，并校验实际读取的待改原文件版本、路径与实际写入；初始直接注入的材料由请求构建和输入 hash 证明交付，不用虚构 read 调用证明模型理解。回查结果记录真实返回范围。模型结束、提炼成功、记忆保存成功和本轮全部完成分别记录；语义正确性靠模型行为验收，不以“核对 N 个单元”代替。
+run 仍采用 `prepared → running → applying → completed | partial | failed | cancelled`。私有 `finish` 简化为一次批次完成声明（可带无变化说明），不含逐 step/逐单元 reviewed/no_change/outputs 数组。宿主从 staging diff 生成文件计划，并校验实际读取的待改原文件版本、路径与实际写入；初始材料由宿主组装后直接交给模型，实际交付通过既有请求与会话历史取证，不写输入中转文件或专用输入 hash，也不用虚构 read 调用证明模型理解。回查结果记录真实返回范围。模型结束、提炼成功、记忆保存成功和本轮全部完成分别记录；语义正确性靠模型行为验收，不以“核对 N 个单元”代替。
 
 ### 6. 调度、执行与可恢复应用
 
@@ -297,7 +298,7 @@ run 仍采用 `prepared → running → applying → completed | partial | faile
 执行顺序：
 
 1. 来源资格刷新、认证 CycleTarget，生成当前有界批次及 child cutoff。按需要提炼更新 child；保存提炼结果后才标 sourceVersion 成功。真实提炼错误停止本次；旧版只保留为历史而非当前结果，未完成版本留待下次。缺少资格或无法证明时间边界的材料按来源规则不纳入当前批次并说明，不能把正常过滤/无信号当作模型故障。
-2. 在 `.nanoassistant/maintenance/dreaming/<runId>/` 保存 manifest、可读 `input.md`、只读摘要快照与 staging（0700/0600）。原文按交流段落组织，少数页面只由预算决定；不再生成 `input/0.json` 等逐 step 文件或 `source_text_chunks/source_json_page`。材料直接进入模型请求，manifest 为宿主审计用途，不要求模型拼接或填表。
+2. 宿主组装提炼或整理材料后直接传入该阶段的初始消息，不经 `input.md` 写入、回读和哈希比较，也不提供重复文件入口。原文按交流段落组织，分批只由预算决定。在 `.nanoassistant/maintenance/dreaming/<runId>/` 保留正式文件应用所需的版本基线 manifest、显式 legacy 导入路径、只读摘要快照与 staging（0700/0600）；来源范围和运行进度继续由既有 run 记录持有。换窗通过既有 history/new_context 恢复原始注入与维护过程，不新增输入快照或恢复系统。
 3. 用空 seed 创建受限整理 AgentHandle，给角色、短指导、按需 nano-memory、显式历史数据、当前记忆入口和工具。工具可读本批材料/摘要及本主体记忆、使用 source_history 和 conversations 只读补查、写 staging、finish；自身 notes/history/new_context/get_context_remaining 按 §4.5 保留。没有 Inbox、外发、shell、通用联网、业务写入、调度、Skill 发布或 subagent。提炼者继续直接消费已选历史，仅保留自身恢复能力与受限完成接口；两种维护执行均不继承父 prompt，不作为业务 child 再次被扫描。
 4. 模型读相关当前正文，先改正文再入口；finish 后宿主持久化计划与 operationId（runId+path+afterHash）。应用前复核来源 generation、模式/取消、文件版本及真实路径，按既有公开 fs 原子 compare-and-write 逐文件应用。锁只覆盖短提交，不跨 LLM 调用；冲突可重新整理一次，仍冲突则延期，不覆盖未解释的外部修改。同主体自动、手动及导入共用维护排他；前台没有正式文件写入路径，不为后来普通纠正重启当前批次。
 5. 所有本批依赖文件/入口成功后持久化完成回执，再同时提交本批根位置与实际已整合的 child 版本；空修改也可提交。Git 单独记录 saved/versionRecorded，不用提交失败回滚已保存正文。未成功提炼或因本批输入容量未选的 child 不被该回执消费。
@@ -305,7 +306,7 @@ run 仍采用 `prepared → running → applying → completed | partial | faile
 
 崩溃后先处理已生成应用计划，再开始新的材料范围；未 finish 的旧 staging 不跨目标复用。回执恢复继续复用既有 operationId 与 before/after hash 规则：等于 before 可重试、等于 after 记已应用、第三版本视为冲突。完成回执先于进度提交，恢复仅补元信息，不重复模型/追加日记；正文已保存、入口未完成则抑制旧入口并补剩余操作。模型尚未 finish 的批次不提交；重试可以重新理解原材料，但不得重复已成功应用的部分。来源撤销时取消未应用计划，保留真实成功回执，不能重放旧摘要。
 
-每个批次固定摘要快照，后续替换 child 当前摘要不改变该批输入；单主体串行避免维护写者相互覆盖。活动和待恢复 run 的材料不清理；完成 run 的 input/staging/旧快照按既有 7 天保留周期清理，保留范围、版本、hash、回执及原始来源定位。child 当前有效摘要作为可再生成缓存保留，不随某 run 的 7 天清理删除；源失效后禁止消费，重新提炼时替换。原始 DSH 历史和文档记忆不因缓存清理删除。
+每个批次固定摘要快照，后续替换 child 当前摘要不改变该批输入；单主体串行避免维护写者相互覆盖。活动和待恢复 run 的材料不清理；完成 run 的 staging/旧摘要快照按既有 7 天保留周期清理（既有旧输入文件也在清理范围内），保留范围、文档及摘要版本、回执与原始来源定位。child 当前有效摘要作为可再生成缓存保留，不随某 run 的 7 天清理删除；源失效后禁止消费，重新提炼时替换。原始 DSH 历史和文档记忆不因缓存清理删除。
 
 关闭 Dreaming 取消未应用的自动工作、保留已保存内容及根/child 两路进度；重新开启继续积压。关闭期间前台仍只读正式记忆，当前对话照常响应；用户显式 run 仍进入同一 Dreaming。legacy 往返沿既有排他规则，不双写。此次不为已经部署的旧 Dreaming 状态新增长期兼容读取器；升级已有 document 实例的一次性处理见部署提示。
 
