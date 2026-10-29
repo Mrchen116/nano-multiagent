@@ -146,3 +146,114 @@ R1-W1 已关闭；R1-C1 仍为未关闭的关键依赖阻断。本轮没有新�
 
 - **R1-W1 — accepted, closed。** 复审确认两处 canonical 冲突已由完整 MODIFIED delta 消除，无后续实质修改。
 - **R1-C1 — accepted, unresolved。** 维持 D1 依赖阻塞及 Gate 2 未通过；本次提交保存完整范围设计稿、接口/验收安排和准确门禁状态，不代表设计已满足实施准入或功能已实现。不为追求通过继续无变化复审；取得真实公共能力证据后再更新并复审。
+
+### Author Scope Update — Before Round 3
+
+- 用户随后明确“不等上游”，并确认已有重试继续使用原生能力，仅未覆盖的独立调用接入补充层。R1-C1 原先要求“同一个上游公共执行器”的前提已被这项决定替代；提交复审核实替代方案是否闭合，不自行宣称旧问题关闭。
+- 本轮按用户明确授权加入审核执行局部重构：codex.ts 入口、review-session.ts 执行与资源所有权、现有 context 模块组装。已补 typed 结果、原生终态取错、原生恢复委派及审核额度/时限协调，明确独立模型调用重试组件不服务审核 Agent。
+- R1-W1 继续保持已关闭；current specs 和产品代码未改。本轮主要修改 design、incident，已有 fbbf34f75 中的恢复 delta/部署边界一并交审。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/bugfix678_design_review`（同一独立 reviewer）
+- review_mode: `full`
+- mode_reason: 用户改变关键依赖前提，恢复 owner 从等待统一上游执行器改为原生/独立调用分流，并加入审核执行模块与共享预算接口；涉及核心职责、接口和 M1 文件范围，不能仅以旧问题 closure 放行。
+- started_at: `2026-10-29T21:29:30+08:00`
+- completed_at: `2026-10-29T21:34:23+08:00`
+- duration: `4m53s`（证据核对时段，不含随后报告写入）
+- baseline: `fbbf34f75a74a2c9fd0d48b560ee10f44c4aa809`，`main`；受审文件为该提交加冻结中的 design/incident 修改及 Author Scope Update。
+- Context mode: `agent-context-review` Mode A — Design Review，覆盖审核输入、失败/取消投影、缓存/重建和图片在重试中的连续性。
+- 范围限制：只追加本报告；未改产品、依赖、current specs 或其他受审文档，未提交、未运行模型或生产验证。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1-C1 按用户明确替代的架构前提关闭：现在允许本仓通过 DSH 公开接口集中补齐独立调用，已经不要求尚未存在的同一上游恢复执行器。关闭依据是替代方案的公开 API 与职责可行性，不是宣称上游新增能力、依赖已升级或恢复已实现。R1-W1 保持关闭；新增实质问题 0，可选措辞建议 1。
+
+本轮批准的是实施前设计。原生恢复接回、独立中间件、审核预算与资源清理的实际行为，仍须按 R7/W1–W5 完成真实 DSH 接线和隔离验收；本报告不能替代这些证据。
+
+### Coverage 与证据
+
+#### 当前基线、用户决定与整体覆盖
+
+核对 `c61b7629a..fbbf34f75` 的 Git 变更清单，变化全部位于本 unit 文档；packages、apps 和 current specs 未变。对比上一轮已确认稿 `5c6c4b26a`，personal-agent/task-graphs delta 和 M1 空骨架没有后续变化。原入口及 current 缺陷仍由 R1 源码证据支持，本轮重新核对 `index.ts:209–210,562–570` 的 Codex 装配/披露 RPC、`policy/approval.ts:136` 的分类分流，以及当前 `codex.ts` 的执行/错误读取路径。
+
+`incident.md` 新增的“不等上游”“原本有重试的继续原生、只补没有的”和局部审核重构授权有明确原话。设计不再把所有调用强塞进新恢复器，保留原生 provider 策略；审核额外最多两次、格式最多一次和当前消息失败后显式重审的要求仍存在。对未知第三方 SDK/HTTP 直调不承诺中间件可拦截，同时要求本仓不新增这种出口，范围表述与实际接缝一致。
+
+完整范围逐项对齐结果如下：
+
+- A 的 Task 职责、B/C 的 Codex 原生只读调查与有界原始指令、单消息输入状态、20 条背景/直接回复、主 PA 风险沟通、凭证计数/期限删除和冻结图片仍覆盖 incident 的已确认要求；没有扩大暂缓的真实受众、搜索词、长期记忆、精细分类、披露侧补报或 Bash。
+- **retained_from: Round 1 / Round 2**：以上未修改的数据流、可信身份、消息/回执/来源失效、暂停恢复和迁移历史数据规则继续适用。复用理由是产品基线与对应设计决定没有变化，而非只依赖旧 Approved；R1 的 full 证据、R2 的 canonical Scenario 对照仍可定位。
+- 本轮新增 D 和模型恢复节已纳入整体重审；不是仅验证模块名字存在。新增执行器属于 integration 内部，产品 RPC 仍由原入口解释，不改变 IM/PA/DSH 的依赖方向，不新增第二套 Agent Loop。
+
+#### 公开 API 是否足够
+
+已检查锁定 `@deepseek-ai/* 0.2.1-alpha.1` 安装包公开声明，并只读核对必要实现语义：
+
+| 设计接缝 | 当前可用证据与判断 |
+|---|---|
+| 区分 Loop 请求和直接请求 | `dsh-llm/lib/types/index.d.ts:26,33–45` 从根公开 `isAgentLoopRequest`，文档明确 Loop 请求携带进程内标记且深冻结；不能用 sessionId 猜测。现有 `lib/index.js:358–386` 实现对象身份标记，分流可实现。 |
+| 独立流中间件及重入 | 同一公开声明提供 `llm/stream` waterfall；`lib/index.js:2362–2365` 将原 options 对象交给 waterfall，不先克隆。新组件对自己生成的 attempt 用 WeakSet 标记、重入只委派，当前 API 能保留这一身份；无需修改冻结的 Loop options。 |
+| 每次独立请求绑定模型与策略 | `PreparedLlmCall` 公开 config、retryPolicy、context、inputModalities 和单次 stream；`prepareCall` 在公开服务上。实现 `lib/index.js:2197–2227` 明确每个 handle 只能 dispatch 一次并核对 config，设计逐 attempt 新建 handle、保留路由并检查实际能力与该限制一致。 |
+| 失败分类和 provider 配置 | 根公开 LlmError/LlmFailure、providerRetryPolicy、resolveRetryPolicy；normal/always、maxRetries、retryableCodes 和 backoff 结构均公开。新组件可以复用类型/解析而自己实现缺失的执行部分，不必 private import 原生 retry 内部函数。 |
+| 原生审核恢复委派与预算观察 | `dsh-agent/lib/types/runtime-types.d.ts:335–358` 公开 scoped request-error waterfall，next 可返回 retry/undefined；`dsh-llm-retry/lib/index.js:141–174` 在可取消等待前追加 llm/retry，结束后追加 retry-started，再返回 retry。执行器可按本次事件游标结算恢复，不伪造持久计数。 |
+| 审核终态与资源管理 | Agent 公开 followup、cancel、whenIdle 和 AgentHandle.dispose；`dsh-session/lib/types/types.d.ts:165–184` 的 turn/end 提供 completed/aborted/error 等结构，error 带 LlmFailure。创建 signal 是 creation-only（agent 根声明 `:83`），返回 handle 前解除；按 run 安装并清理取消监听、读取本次 turn 可以实现，不依赖旧 reviewer.failure。 |
+| 可取消时限与等待 | 当前间接安装的 `dsh-timeout` 根公开 deadline、idleWatchdog、TimeoutReason、timeoutOf；它只提供信号和计时，不终止工作。设计明确增加直接依赖，并由调用 owner 取消、关闭 iterator/drain Agent，未把超时工具当作强制杀死机制。 |
+
+这些是可实现性证据，不是新插件已正确装配的证明。真实验收仍需检查根/子 scope、依赖内部摘要调用、实际 provider 请求、timeout 分类和 finally 清理。
+
+#### 恢复职责、预算与局部重构
+
+`standalone-model-retry.ts` 与 `review-session.ts` 解决不同问题：前者只缓冲并恢复未标记 Loop 的直接模型流，后者只管理审核 Agent 的一次逻辑运行、缓存和结果。review-session 不调用独立恢复组件；原生请求在中间件无条件委派，从而不在原生耗尽后再补一轮。保留当前 llm-retry 插件及原生事件也避免破坏 `workflow/budget.ts` 对 retry-started/assistant attempt 的计费边界。
+
+独立调用的 ALS 控制只携带用途所需时限、共享额度与既有解析器，没有新增通用验证注册框架；CC 两阶段共用额度但仍是原判定流程，503 不被当作阶段结论。终态正常且完整后才解析、交付；失败半段丢弃，未知插件/消费者错误不被伪装成瞬态 provider 错误。当前 classifier、personal-security、model-setup、web 提炼和 BasicCompaction 都消费完整模型结果，因此缓冲边界符合当前消费者。
+
+审核执行器的拆分对应真实维护问题：入口保留规则/证据/动作和现有返回契约；context 模块作纯组装及 typed 重建判断；执行器统一持有 trunk、handle、run record 和资源。没有把 cache 再拆成独立池服务。第一个 await 前认领 trunk、临时 fork 不回写、失败不推进 checkpoint、release 取消迟到提交资格，能够避免并发结果和缓存串用。
+
+本次审核预算以逻辑 run 而非每工具步骤为单位：技术恢复、格式恢复和上下文重建共用额外两次上限，格式/上下文各最多一次；原生恢复由新增事件计数；整体窗口到期只取消并 drain 当前只读 reviewer，不复活已取消 turn，不重跑主 Agent 副作用。90 秒活动窗口与 `3 × 90 秒 + 2 × maxDelayMs` 总限分工明确。provider normal/maxRetries=0 和更小上限不被放大的全局限制同样约束技术超时恢复，不能用“生命周期重建”名称规避。此处应以该既有设计规则作为实施和 R7 验收依据。
+
+模型 error 只有原生终态未恢复后才变 unavailable，正常 deny/needs_owner 是有效 decision；父取消与宿主 timeout 的差异由本次 run 的可信原因保留。此前一次可恢复失败污染 reviewer.failure、导致最终成功仍判失败的耦合在设计上已移除。读取 input/turn 和事件起点而非 seeded 历史最后一条，保证有效缓存不会成为当前审核结果。
+
+#### Context Design Review
+
+- **消费者及交付**：工具 reviewer 与披露 reviewer 继续使用原规则、完整冻结动作、当前图片与有界来源证据；没有将新内部结果名泄漏为要求执行 Agent 理解的工具协议。主 Agent 仍得到原权限拒绝、准确技术失败、真实取消和发送结果，输入失败仍只在同一次底层恢复耗尽后交 PA。
+- **更新与恢复**：full/delta/fork/配置失效、成功 checkpoint、失败半轮不入缓存与 retained-instructions 一起构成恢复链。格式重建不生成新的主人授权；上下文缺失/图片无法完整投影仍 unavailable，不以重试得到一份较少证据后放行。
+- **组合与预算**：新的 retry/timeout 不得绕过 frozen image manifest 与原始指令缺失规则；每次实际请求仍核对当前待审完整内容。reviewer 专属 context overflow 规则见 `design.md:266`，明确 typed needs_rebuild 且不得与原生 compaction 各做一次；普通 Agent 和独立补充组件保持自身边界。对概括句的可读性建议见 R3-R1，不改变该已明确的专属规则。
+- **验证**：D 的重构验证与扩展 R7 明确要求真实 DSH 故障 provider、503 后恢复、耗尽/取消、deny 不重试、并发与 timer/checkpoint 隔离；窄 fake Agent 仅证明局部资源逻辑，不替代 next/原生 retry 的接线。结合原 R2/R3/R4/R6 的实际 Context 与产品行为验收，覆盖深度足够。当前仍没有真实模型验证结果，不作行为可靠性结论。
+
+#### Delta、迁移与 M1
+
+agent-capabilities delta 已改为“所有模型调用具备匹配入口的技术恢复”，明确已有 Agent 原生恢复、独立请求共享组件、单请求只有一条恢复路径和普通显式 provider 策略保留，符合最新用户决定。R2 的完整 MODIFIED Requirement 未被撤回，CC/DSH 与 Codex 原始指令保留边界仍一致。纯局部模块拆分不另加用户行为 Requirement 是适当的，行为变化仍由现有 delta 约束。
+
+deployment-prompt 删除等待 D1/批量覆写 provider 的安排，保留原 llm-retry、只增独立插件，并要求核对 Loop 绕过和不叠加。历史数据、未完成事件和旧凭证处理不变；生产仍仅只读版本/计数/不变量/健康，功能与失败分支在隔离副本完成，没有把运行时故障试验推迟到生产。
+
+M1 增加两个内部模块及 R7 的 typed 结果、窗口/总限、格式/上下文/共享额度和资源隔离证据；无并行组，模块之间的执行顺序不会产生独立交付缺口。R1–R8、W1–W5 仍涵盖全部范围。实现期具体迁移命令和受影响测试必须按原交付要求补齐，不是本轮已有产物。
+
+### 历史问题闭环
+
+| Issue | Author Resolution / 范围变化 | 本轮证据与状态 |
+|---|---|---|
+| R1-C1 | 用户替代“等待同一上游公共执行器”前提，允许在公开接口集中补齐独立调用；提交实际设计复审 | **closed — superseded by authorized architecture**。公开接口足够承载新分流与执行方案；原有“当前版本无统一独立执行器”事实仍成立，但不再是本设计必需依赖。未通过更名掩盖本仓组件，也未移除原生恢复。 |
+| R1-W1 | R2 已核实完整 MODIFIED delta；此次保持 | **closed / retained_from: Round 2**。两个 canonical Requirement 的修改仍完整，未回到 ADDED-only 冲突；本轮恢复 Requirement 的更新没有破坏该闭环。 |
+
+### Issues
+
+无 CRITICAL/WARNING。静态设计批准不代表实现、测试、合并或部署已完成。
+
+### Recommendations
+
+#### R3-R1 — 可选明确概括句的 Context 恢复作用域
+
+`design.md:239` 的“上下文溢出和 image offload 仍由各自原生处理”紧跟 Codex reviewer 描述，摘读时容易忽略 `:266` 的 reviewer 专属重建规则。建议概括句明确“普通 Agent 保持原生处理；独立补充组件不接管；reviewer 按下文专属 context/图片规则”，或加直接引用。
+
+这是减少重复描述歧义的可选编辑。后文已明确 reviewer 的 typed needs_rebuild、一次重建/共享额度以及禁止原生 compaction 与本仓重复恢复，本轮按该具体规则作出判断，不要求新增设计决定或重新开启 Gate。
+
+### Author Resolutions — Round 3
+
+- **R1-C1 — accepted, closed。** 认可 reviewer 对用户新授权及现有公开接口的核对，采用“原生能力保留、独立调用补齐”的设计，不再依赖不存在的统一上游执行器；不将接口可行性当作实现验收。
+- **R1-W1 — accepted, closed / retained。** 两份完整 MODIFIED delta 未改变，闭环保持。
+- **R3-R1 — accepted, editorial clarification。** 将 design“已有 Agent 路径”的概括句明确为普通 Agent 保持原生上下文恢复、补充组件不接管、reviewer 遵循后文专属上下文/完整图片规则。未修改该专属规则、恢复预算、模块职责、接口或退出标准；按 R3 已明确的解释保留 Approved，无需无实质变化复审。
+- 同步 design/incident 的 Gate 2 状态与 deployment-prompt 的设计已通过但尚未实施状态，均为状态性整理。最终受审实质设计仍对应 R3，author 无实质异议。真实 DSH 接线、隔离功能验收及迁移副本验证留在实施退出标准，未宣称已运行。

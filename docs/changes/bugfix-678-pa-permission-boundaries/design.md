@@ -1,7 +1,7 @@
 # bugfix-678: PA 审核与自主任务推进的职责边界 — 技术方案
 
 > 对齐：[incident.md](incident.md) 已确认决定。本文取代原输入审核阶段稿，覆盖整个 unit。
-> 状态：完整范围设计稿；按用户“不等上游”决定，改为保留 DSH 已有恢复，仅通过公开接口补齐未覆盖的独立调用，见 D1 替代方案；待本轮独立复审。不得提前视为 Gate 2 已通过。代码、current specs 和生产均未改变。
+> 状态：完整范围设计稿；按用户“不等上游”决定，改为保留 DSH 已有恢复，仅通过公开接口补齐未覆盖的独立调用，并纳入审核执行的局部重构。[设计复审 Round 3](design-review.md) 已 Approved（0 CRITICAL / 0 WARNING），Gate 2 通过。代码、current specs 和生产均未改变。
 
 ## Changelog
 
@@ -9,7 +9,7 @@
 
 ### 涉及范围
 
-核对基线 `c61b7629a`（2026-10-29 main）。
+核对基线 `fbbf34f75`（2026-10-29 main；此前 c61b7629a 至此只有本 unit 文档变化，受影响产品接线已重新核对）。
 
 | 路径 | current 行为与本次落点 |
 |---|---|
@@ -29,7 +29,7 @@
 - **用** DSH Agent、工具注册/guard、原生 read/read_image/glob/grep、会话事件与压缩/恢复接口；**改** reviewer 装配，不复制四个工具实现。
 - **用并扩展** Inbox 持久消息及 Global 唤醒、pa_incidents、pa_operations/publication；不另建任务引擎或通知调度器。
 - **用** 完整动作 digest、权限/来源/受众/生命周期检查、原生 IM 附件资源和真实回执；**删除** 全局 disclosure_revision 失效逻辑与 expires_at 时间检查。
-- **不使用** 旧 PR #419 的审核专用重试循环。锁定 DSH `0.2.1-alpha.1` 的 `dsh-llm-retry` 公开导出只有 Agent 恢复插件/事件类型等，没有独立流重试执行器；`dsh-llm` 的 llm/stream waterfall 是扩展点，不是已经具备的恢复实现。该缺口由下文的本仓共享组件补齐，不等待上游新增接口。
+- **不使用** 旧 PR #419 的审核专用重试循环。锁定 DSH `0.2.1-alpha.1` 的 `dsh-llm-retry` 公开导出只有 Agent 恢复插件/事件类型等，没有独立流重试执行器；`dsh-llm` 的 llm/stream waterfall 是扩展点，不是已经具备的恢复实现。该缺口由下文的独立模型调用重试组件补齐，不等待上游新增接口。
 
 ### 相关历史
 
@@ -75,6 +75,45 @@ flowchart LR
 保留单元为原始消息及解释它所需的直接问答/回复目标：结构化交互携带实际发布提案和选择；普通连续问答携带前一条助手消息；明确回复补直接目标一次。超限整单元省略并记缺失，不截去否定或限制。保留最近的完整单元且按原顺序呈现；省略旧单元时，强制提示“原始指令证据不完整，不能把剩余许可视为全部授权”。未提取到的更早语境仍通过普通 transcript/获准调查提供，不承诺无限上下文。
 
 每次请求对照 reviewer 实际 deriveMessages 与 checkpoint，而非曾发送 ID 集合；首次、预算重建、fork、进程恢复后补送当前未见的单元。撤回/限制属于同样的保留来源，不能只保留最初许可。父级交办继承原授权范围，不能创造新授权。纯摘要无法复原的记录只标缺失。对披露仍以当前 PA 有效上下文与可恢复原话为据，不扫描私有全库、不接入新记忆系统。
+
+### D. 局部重构审核执行，保留 DSH 的运行职责
+
+当前 `CodexApproval.run()` 同时负责 cache/fork、证据预算、执行等待、判定解析和资源清理；`create()` 的 request-error 回调写 `reviewer.failure`，外层再读取，混合了单次失败与最终失败。用户已明确同意本轮按职责重构。保留 `review()`/`reviewDisclosure()` 的现有调用入口，只增加一个审核专用执行模块，不推广为通用 Agent 框架。
+
+| 模块 | 职责与输入输出 | 不承担的工作 |
+|---|---|---|
+| `policy/codex.ts` 审核入口 | 为 tool/disclosure 构造 `ReviewPlan<T>`：purpose、父会话、模型配置、规则、证据来源、冻结动作和解析器；调用执行器并投影现有 ApprovalReviewResult/PersonalReview | 不创建 Agent、管理 cache、判断技术重试或计时 |
+| 新 `policy/review-session.ts` 审核会话执行器 | `run(plan, parentSignal)` 与 `release(parentSessionId)`；内部持有 trunk/checkpoint、并发占用、Agent handle 和本次 run；执行一次审核至终态、解释结果、提交或丢弃 checkpoint、取消与清理 | 不制定权限策略，不把 deny 当异常，不实现网络退避，不调用独立模型重试组件 |
+| `policy/codex-context.ts` 与内部 retained-instructions | 依据当前证据、实际 reviewer 历史和模型预算生成 full/delta envelope；返回 complete、needs_rebuild 或 evidence_unavailable，提供明确原因与 omissions | 不持有 Agent、计时器、并发锁或供应商重试计数 |
+
+现有 `sources.ts` 仍负责可信来源投影；inspection 模块只装配四个原生工具的受限 scope。完整图片使用下文冻结图片投影，不把 parse callback 变成新的模型请求。cache 是执行器内部实现，不额外拆一套池/仓储服务；tool/disclosure 继续按 purpose 隔离。
+
+#### 接口与结果
+
+```ts
+// 仅 integration 内部类型；不是新增跨包或上游 API。
+type ReviewExecution<T> =
+  | { kind: 'decision'; value: T; usage: unknown; metadata: ReviewMetadata }
+  | { kind: 'cancelled' }
+  | { kind: 'unavailable'; cause: ReviewFailure; metadata: ReviewMetadata };
+```
+
+`ReviewFailure.kind` 限定为本链真实结果：runtime、timeout、invalid_verdict、evidence_unavailable。上下文需要重建是执行器内部状态；允许的一次重建耗尽后投影 evidence_unavailable。decision 中的 deny/needs_owner 与 allow 一样都是有效审核结果，允许保存成功 checkpoint，业务结果由入口解释。保持现有调用方的返回/抛错契约：工具审核 unavailable 仍由 approval.ts 进入原失败分流，披露审核映射为其 unavailable；cancelled 传播原父取消，不伪装拒绝。不新增面向模型的内部状态名。
+
+#### 一次运行的数据流与状态所有权
+
+1. 入口冻结本次 action、purpose 和规则/模型选择，执行器按 purpose+parent 查缓存，在第一个 await 前认领空闲 trunk；忙碌时只从最后成功 checkpoint 创建临时 fork。
+2. 上下文模块对照完整输入、实际 deriveMessages 与 checkpoint 生成 envelope。历史改写/配置指纹变化使旧缓存失效；delta 放不下时返回 needs_rebuild，由执行器做一次完整重建，不靠匹配错误字符串决定。
+3. 执行器创建或复用 DSH Agent，在本次 followup 前保存事件起点、input ID、run ID 和独立取消控制。工具/规则 scope 不变；本次可变状态只由执行器的 run record 持有，不散落在长期 Reviewer 对象中。
+4. Agent 请求仍由 DSH 执行。request-error 中仅执行审核范围的次数/上下文约束并委派 `next()`，不得把尚可恢复的失败写成最终结果。DSH 决定 retry 时透传，原生 Loop 记录失败 attempt、重发请求及执行工具。
+5. whenIdle 返回后，只读取本次 input 对应 turn 的终态/assistant 输出，忽略 seed 历史的旧 turn/end；父取消或本次 timeout 原因优先。DSH `turn/end.reason.kind=error` 已公开提供结构化 LlmFailure；直接读取它，不再维护通用 `reviewer.failure`。创建/提交抛错由本次调用直接捕获。上下文检查在发请求前返回 typed needs_rebuild；异步原生 compaction/overflow 用已记录事件/code 识别，不解析 JSON.stringify(error) 或错误文案。
+6. 有效完整判定且父请求仍有效时才提交 checkpoint；临时 fork 永不覆盖 trunk。失败、取消、超时、证据缺失和无效判定都不推进 checkpoint，dispose 后释放占用。配置期间 release 使旧 run 的提交资格失效，旧 run 即使迟到也不能重建已释放 cache。
+
+每次 run 自己拥有父取消监听和 timer，finally 清理。复用的 Agent handle 不继承上一审核已到期的 signal；工具读取当前绑定 run 的 signal。本次结束后没有悬挂 timer 去取消下一次审核。宿主主动中止原因只保留在该 run 内（parent_cancel/attempt_timeout/context_rebuild），这是结构化 turn/end 无法自行区分的宿主事实，不是恢复旧的多回调 error side channel。
+
+#### 重构验证边界
+
+保留并迁移现有 full/delta/fork/配置失效/取消/图片/来源测试；不以重命名私有字段为测试目标。新增真实 DSH runtime 故障 provider 场景：503 后原生恢复成功、耗尽准确返回、取消无后续请求、有效 deny 不重试、并发不串结果、失败 checkpoint 不复用及已执行主任务工具不重放。执行器可用窄 fake Agent 验证 cache/资源所有权，但它不能代替 request-error/原生 retry 的实际接线证据。纯局部职责重构本身 `no spec delta`；重试和用户结果的行为变化仍由已有 delta 描述。
 
 ## 1. 单消息状态与故障交付
 
@@ -188,7 +227,7 @@ prepare 固定资源 ID/hash/MIME/尺寸，DSH 收到同一份验证过的 bytes
 |---|---|---|
 | 普通主/子 Agent、Workflow、知识/记忆后台 Agent | DSH 原生 llm-retry 与 Loop | 保留现有执行器、provider 策略、持久事件、流式回滚及取消；不接入新重试循环。 |
 | Codex 工具/披露审核 Agent | DSH 原生 llm-retry 与 Loop | 修复当前 request-error 前置监听截断 next 的接线，让已有能力生效；不换成新组件。 |
-| 输入分类、CC/legacy 分类、网页提炼、模型验证等直接调用 | 新增的一个独立调用恢复组件 | 通过公开 LLM 接缝统一补齐，业务处不分别写重试。 |
+| 输入分类、CC/legacy 分类、网页提炼、模型验证等直接调用 | 新增的一个独立模型调用重试组件 | 通过公开 LLM 接缝统一补齐，业务处不分别写重试。 |
 | BasicCompactionEngine/preset 内部模型调用 | 按实际调用入口判断 | 原生 Agent 请求保持原生恢复；直接 llm.stream 请求由补充层覆盖，不能按“压缩/记忆”业务名称一刀切。 |
 
 `cordis.patch.yml` 保留原 llm-retry，不禁用或替换。新增组件不得注册接管普通 Agent 技术失败的 request-error handler，不重建原生持久计数器，也不复制原生 Loop。此前 D1 的“等待上游新接口”前提撤销；使用锁定版本已有公开接口完成增量集成。
@@ -197,13 +236,15 @@ prepare 固定资源 ID/hash/MIME/尺寸，DSH 收到同一份验证过的 bytes
 
 在 llm/stream waterfall 中通过公开 `isAgentLoopRequest(options)` 判断。为 true 就只 `yield* next()`，不缓冲、不重试、不修改深冻结请求。失败继续由 DSH request-error/llm-retry/Loop 处理，原生 assistant/attempt、llm/retry、llm/retry-started 和 workflow/budget 消费关系不改。
 
-Codex reviewer 的 prepend listener 改为 `await next()`：已有恢复返回 retry 时透传；只有最终未恢复才记录 reviewer.failure。上下文溢出和 image offload 仍由各自原生处理，不在新组件内复刻。原生恢复耗尽后不得再套补充层重新尝试同一请求。
+Codex reviewer 的 prepend listener 改为委派 `next()` 并透传原生恢复结果；最终错误由 review-session 读取本次原生 turn/end，删除通用 reviewer.failure。普通 Agent 的上下文溢出和 image offload 保持原生处理，独立调用补充组件不接管；reviewer 遵循下文的专属上下文重建及完整待审图片规则。原生恢复耗尽后不得再套补充层重新尝试同一请求。
 
-### 新组件仅服务独立模型调用
+### 独立模型调用重试组件
 
-新增 `packages/dsh-integration/src/model-recovery.ts`，在 runtime 装配公开 llm/stream middleware，覆盖未标记为 Loop 的直接请求，包括依赖内部通过同一 LLM service 发起的请求。复用公开 providerRetryPolicy/resolveRetryPolicy、LlmFailure 与 dsh-timeout 工具；后者需声明直接依赖。新组件只集中缺失路径的错误判断、计数、退避、超时、取消和 attempt 记录，不声称复用到尚未导出的原生执行器。
+新增 `packages/dsh-integration/src/standalone-model-retry.ts`，在 runtime 装配公开 llm/stream middleware，覆盖未标记为 Loop 的直接请求，包括依赖内部通过同一 LLM service 发起的请求。复用公开 providerRetryPolicy/resolveRetryPolicy、LlmFailure 与 dsh-timeout 工具；后者需声明直接依赖。新组件只集中缺失路径的错误判断、计数、退避、超时、取消和 attempt 记录，不声称复用到尚未导出的原生执行器。
 
 模块内部小接口为 `planRetry(failure, policy, attemptState)` 与可取消等待；业务接口只接受原模型请求、父级 signal、必要的每次时限/审核总额度。使用已有 provider 配置词汇，避免再建第二份供应商配置。普通原生 Agent 的配置完全不因补充层改变；独立调用默认遵守同一 provider 策略，审核额外最多 2 次及格式最多 1 次的用途上限仍需生效。
+
+内部接入保持一个入口：`withStandaloneRetry({timeoutMs, reviewBudget?, decodeReview?}, fn)`，通过 AsyncLocalStorage 为本次直接请求提供控制，fn 仍使用公开 llm.stream。已有原生 Agent 不读这份控制。CC 两阶段共用一个 reviewBudget，输入分类独立一份；没有控制的依赖调用沿用 provider 默认重试/idle timeout。decodeReview 复用现有严格审核解析器，仅对 provider 正常完成的完整文本返回有效判定或 invalid；补充层在交付前处理至多一次 invalid 恢复并缓存解析结果，不要求业务层再套一轮调用。有效 deny/needs_owner 不触发该恢复，输入过长/缺图等执行前错误不进入此分支。不向外暴露可扩展的通用 validation 注册系统。
 
 保留 provider/model、messages、system、tools、session/purpose 等归属信息；sessionId 存在不意味着 Agent 请求，压缩同样可能有 sessionId。组件自己发起的独立 attempt 用进程内 WeakSet 标记，重入 middleware 只委派，并在 finally 释放。每次使用新的公开 prepareCall/prepared.stream handle，不复用已消费 handle；不自动换 provider/model。实际能力无法完整承载待审正文/图片时明确失败，不能沿用旧能力结论放行。
 
@@ -215,13 +256,22 @@ Codex reviewer 的 prepend listener 改为 `await next()`：已有恢复返回 r
 
 父级取消立即结束；每次 attempt 独立建立 deadline，不能复用已 aborted 的 timeout。classifier/input/model-setup 将原外层一次性 timeout 改为组件的每次时限控制，业务 signal 只承载取消。CC 两阶段是业务判定流程，不把一次 503 当成第二阶段；两阶段共享本次审核的额外尝试额度。有效 deny/needs_owner 是正常结果，不进入技术重试；输入最终故障交 PA 后，Inbox 不后台再起审核。
 
-普通 Agent 的原生策略、次数和无响应处理维持 current 行为；不为统一覆盖而把所有调用改成额外 2 次。审核的特殊预算、90 秒完整判断窗口及非法判定恢复需在 reviewer 生命周期内落实，但不得借此对原生技术重试再套一轮新组件。**本次边界修订尚待细化并复审审核预算与原生恢复的协调，不能将旧稿接管原生计数的安排继续视为可实施方案。**该待收口点在本仓现有公开接口范围内解决，不重新引入等待上游的依赖。
+普通 Agent 的原生策略、次数和无响应处理维持 current 行为；不为统一覆盖而把所有调用改成额外 2 次。审核的范围约束由审核会话执行器管理，技术请求恢复仍由原生插件执行，规则如下：
+
+- 每个逻辑审核一个预算：额外恢复总量最多 2 次；格式恢复最多 1 次、上下文预算重建最多 1 次，均消耗同一总量。初次选择 full/delta 或因配置变化新建不计失败恢复。没有给每个工具步骤重新发一份额度。明确 provider normal/maxRetries=0 时不开技术恢复，已有较小 provider 上限不放大；审核的本地总上限只会收紧原生恢复。
+- 原生请求失败时，reviewer scoped request-error hook 先检查本审核剩余额度；有额度就委派 next。对本次调用读取新增 llm/retry 事件：原生每调度一次技术恢复计一次；这些事件只用于统计/限制，不由本仓伪造。原生未接管而终止时，runner 直接 unavailable，不能外层再补一次网络重试。该 hook 只属于 reviewer，不改变普通 Agent。
+- 本次审核有 90 秒活动判断窗口，覆盖准备、模型和只读调查。进入有界原生恢复等待时暂停该窗口，next 返回 retry 后重新给完整 90 秒；另设总上限 `3 × 90 秒 + 2 × provider.maxDelayMs` 防止委派恢复或调查无界等待。父取消始终有效。窗口/总上限 timer 由 run record 管理并随结束清理，不修改用户 provider 超时配置。
+- 90 秒活动窗口到期先取消并 drain 当前 reviewer，明确标记 attempt_timeout；在剩余额度内，runner 可为同一冻结审核创建新的只读会话尝试，给予完整 90 秒。这是审核整体超时的生命周期恢复，不通过独立模型调用重试组件，不复活已取消 turn，不重跑主 Agent 业务工具。总上限耗尽直接 unavailable。原生 provider TIMEOUT 已被原生重试处理时，不再作为整体超时重复消费额度。
+- 空白/非法最终判定只在原生 turn 正常结束且解析失败时触发至多一次审核重建，消耗相同总额度；原生 error/aborted 不再追加“格式重试”。有效 deny/needs_owner、输入超限、缺图片/能力和永久配置错误不重试到 allow。全部重建从成功 checkpoint 或新 full 证据开始，失败半轮不入缓存。
+- 每次 next 委派前保存原生事件游标，返回后先结算新事件，再决定是否还能重建；parent cancel/总限到期优先，不清零额度。上下文溢出需要重建时由 reviewer 专属 scope 截获为 typed needs_rebuild，不让原生 compaction 与本仓重建各重做一次。已恢复的临时失败不会污染最终 decision。
+
+这里没有给普通 Agent 增加恢复实现；只有审核已有的生命周期和预算管理明确区分了原生请求恢复、只读审核重建与终止。
 
 ### 审计与验收
 
 原生 Agent 继续使用其现有持久事件和尝试标识；独立调用记录自己的 requestId、purpose、sessionId（若有）、attempt、实际模型、失败 code、耗时和可得 usage，不伪造原生 turn/step、不记录敏感原文。独立调用崩溃不透明续跑，业务仍按消息状态/显式重审处理。
 
-必须验证：原生插件仍装配且 Agent 行为未被替换；Codex 审核已接回 next；Loop 标记请求不进入补充层；直接调用和原生摘要内部请求确实进入补充层；重入不重复恢复；503/超时/部分输出/取消/永久错误/真实 deny 的结果正确；一次工具副作用不因模型恢复重做。审核预算协调完成后同轮复审，不以当前增量边界确认代替 Gate 2 Approved。
+必须验证：原生插件仍装配且 Agent 行为未被替换；Codex 审核已接回 next；Loop 标记请求不进入补充层；直接调用和原生摘要内部请求确实进入补充层；重入不重复恢复；503/超时/部分输出/取消/永久错误/真实 deny 的结果正确；一次工具副作用不因模型恢复重做。本节与局部重构在同轮复审，不以静态设计代替真实 DSH 接线验收。
 
 ## Context 消费链与交互
 
@@ -244,7 +294,7 @@ Before：文件头调查、授权随压缩丢失、单输入失败扩大来源�
 
 | ID | 标题 | 依赖 | 并行组 | 文件范围 | 两轨退出标准 |
 |---|---|---|---|---|---|
-| M1 | 完成审核职责与统一模型恢复 | Gate 2 Approved | 无 | 上述 integration/PA/contracts/IM 路径；对应测试、delta 与部署副本验证 | [reviewer] R1–R8 全部真实可见结果成立；[worker] W1–W5 证据齐全且独立审查通过 |
+| M1 | 完成审核职责与统一模型恢复 | Gate 2 Approved | 无 | 上述 integration/PA/contracts/IM 路径，新增 policy/review-session.ts 与 standalone-model-retry.ts；对应测试、delta 与部署副本验证 | [reviewer] R1–R8 全部真实可见结果成立；[worker] W1–W5 证据齐全且独立审查通过 |
 
 ### 验收矩阵
 
@@ -256,7 +306,7 @@ Before：文件头调查、授权随压缩丢失、单输入失败扩大来源�
 | R4 | 风险出现后 PA 先私聊提醒、后原聊天拒绝，措辞不泄密，两端实见 | 真模型调用+两端回执；停用、发送失败/unknown、恢复不重复，非后端模板代发 |
 | R5 | 两个独立审核的外发可先后提交；超过 60s 不因时间失败；实际变化仍明确未发送 | 并发提交、权限/受众/主人消息/附件变化、task/external/native、幂等与 unknown 区别 |
 | R6 | 授权图片成功发出，含未授权信息的图片被拒；能力不足报真实原因 | 请求实际含全部冻结图片；非图像模型、图像丢失/预算、资源变化、错误类型及最终副本一致 |
-| R7 | 各模型用途临时故障在底层恢复；耗尽/取消终止，既有工具不重复执行 | 原生恢复及独立调用补充层的覆盖清单、尝试 trace、格式恢复额度与两个 CC 阶段、部分流、无重试倍增 |
+| R7 | 各模型用途临时故障在对应路径恢复；耗尽/取消终止，既有工具不重复执行 | 原生恢复及独立调用补充层覆盖清单；review-session 三种结果、90 秒刷新/总限、共享额度、格式与上下文恢复、两个 CC 阶段、部分流、不叠加尝试；并发结果及 timer/checkpoint 隔离 |
 | R8 | 升级保留历史终态和真实回执，未完成事件可发现且不自动重发 | 部署副本迁移重复执行/中断/回滚测试，保留故障与未知状态，生产无功能测试写入 |
 
 W1：最窄单元/契约测试覆盖状态转换、context/图片最终投影、native retry 接入；W2：隔离 IM+Node 真模型端到端覆盖 R1–R7，暂时模型不可用与确定性故障注入分别报告；W3：Context/代码独立审查；W4：部署副本验证与文档完整性检查；W5：全仓模型入口盘点（含依赖内部请求）、构建/typecheck、runtime dependency contract 与相关回归，附固定版本、证据 locator、测试进程清理记录。不得用旧 #419 验收代替。
