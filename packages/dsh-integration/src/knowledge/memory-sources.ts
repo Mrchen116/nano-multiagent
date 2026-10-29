@@ -35,7 +35,7 @@ export interface ChildMaterial {
 export interface SourceOptions { maxInputTokens: number; seen?: string[]; sources?: SourceEligibility; excluded?: string[]; rotation?: number; target?: CycleTarget; generation?: number }
 export interface FrozenBatch {
   id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number; continuation?: SourceContinuation }>;
-  conversations?: string[]; text?: string; cutoffs?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
+  conversations?: string[]; text?: string; cutoffs?: Record<string, number>; historyThrough?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const dataText = (content: readonly { type: string; text?: string }[]) => content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n');

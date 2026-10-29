@@ -15,7 +15,7 @@ import { atomicWrite } from './files.js';
 import { runDreamingAgent, memoryDigest } from './dreaming-agent.js';
 import { dreamingInputLimit, estimateInputTokens, type DreamingInput } from './dreaming-budget.js';
 import { sourceConversations } from './memory-source-view.js';
-import { assertDreamingSources } from './dreaming-history.js';
+import { assertDreamingSources, sourceDirectory } from './dreaming-history.js';
 import type {} from '../product-bridge.js';
 import type {} from '../trajectory-runs.js';
 
@@ -239,7 +239,9 @@ export class Dreaming {
           return this.renderInput(current,library,owner);
         });
         await this.apply(parent,config,work,run,library,owner);
-        deferred=remaining.length?{batch:run.batch,summaries:remaining}:undefined;
+        // A partial message's readable step is ahead of its committed cursor; retain both bounds.
+        deferred=remaining.length?{batch:{...run.batch,historyThrough:Object.fromEntries(sourceDirectory(run,owner)
+          .filter(source=>source.session_id===source.root_session_id).map(source=>[source.session_id,source.through]))},summaries:remaining}:undefined;
         completed.push(run.id);importPending=false;run=undefined;
         await this.disposeHandle(work);
         // Re-enter even after the final root page: tasks may have later evidence inside this cycle's cut.

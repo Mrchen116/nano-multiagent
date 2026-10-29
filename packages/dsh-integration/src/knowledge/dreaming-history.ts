@@ -22,7 +22,7 @@ export function sourceDirectory(run: DreamingRun, owner: DreamingOwner): SourceR
     const range = run.batch.ranges.find(item => item.sessionId === id);
     const page = run.batch.units.findLast(item => item.sessionId === id)?.page;
     return {session_id:id, root_session_id:id, baseline:owner.streams[id]!.baseline,
-      through:page ? run.batch.units.findLast(item => item.sessionId === id)!.through : range?.through ?? cut.through,
+      through:run.batch.historyThrough?.[id] ?? (page ? run.batch.units.findLast(item => item.sessionId === id)!.through : range?.through ?? cut.through),
       cutoff:run.batch.cutoffs?.[id] ?? cut.time, purpose:'Global dialogue and already processed background'};
   });
   const children = run.summaries.map(summary => ({session_id:summary.sessionId, root_session_id:summary.rootSessionId,

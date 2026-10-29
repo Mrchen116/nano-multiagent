@@ -147,10 +147,16 @@ export function apply(ctx){
   await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(r)+'\\n');
   const extraction=JSON.stringify(r.messages).includes('Return a JSON object with exactly two string fields');
   const last=r.messages.findLast(m=>m.source?.actorId==='owner');
-  if(r.sessionId==='root'&&last?.source.messageId==='maintain'&&!r.messages.some(m=>m.toolCallId==='maintain')){
+  const input=r.messages.filter(m=>m.source?.channel==='dreaming').flatMap(m=>m.content||[]).map(b=>b.text||'').join('\\n');
+  const recovered=r.messages.find(m=>m.role==='tool'&&m.toolCallId==='recover-original');
+  if(input.includes('SUMMARY-END-')&&!recovered){
+   yield{type:'block-end',index:0,block:{type:'tool-call',id:'recover-original',name:'source_history',arguments:JSON.stringify({action:'search',session_id:'root',query:'GLOBAL-START',limit:1})}};
+   yield{type:'finish',reason:{kind:'tool-calls'}};
+  }else if(r.sessionId==='root'&&last?.source.messageId==='maintain'&&!r.messages.some(m=>m.toolCallId==='maintain')){
    yield{type:'block-end',index:0,block:{type:'tool-call',id:'maintain',name:'memory_maintenance',arguments:JSON.stringify({action:'run',request_ref:'maintain'})}};
    yield{type:'finish',reason:{kind:'tool-calls'}};
   }else{
+   if(recovered&&!JSON.stringify(recovered).includes('GLOBAL-START'))throw new Error('Summary batch lost original Global conditions.');
    const text=extraction?JSON.stringify({rollout_summary:'SUMMARY-'+(++count)+'\\n'+'摘要证据。'.repeat(1400)+'\\nSUMMARY-END-'+count,rollout_slug:'task-'+count}):'No durable update needed.';
    yield{type:'block-end',index:0,block:{type:'text',text}};yield{type:'finish',reason:{kind:'stop'}};
   }
@@ -178,7 +184,8 @@ export function apply(ctx){
     const material=(r:any)=>r.messages.filter((m:any)=>m.source?.channel==='dreaming').map((m:any)=>m.content.map((b:any)=>b.text??'').join('')).join('');
     const extraction=requests.filter(r=>JSON.stringify(r.messages).includes('Return a JSON object with exactly two string fields'));
     expect(extraction).toHaveLength(3);
-    const batches=requests.filter(r=>!extraction.includes(r));
+    const consolidation=requests.filter(r=>!extraction.includes(r));
+    const batches=consolidation.filter((r:any,index:number)=>consolidation.findIndex((item:any)=>item.sessionId===r.sessionId)===index);
     const text=batches.map(material);
     if(oversized){
       expect(reviews.at(-1).summary).toContain('summary does not fit');
@@ -195,8 +202,9 @@ export function apply(ctx){
     for(const i of summaries){
       const source=directory(batches[i]);
       expect(source.filter((item:any)=>item.purpose==='Original evidence for this task summary')).toHaveLength(1);
-      expect(source.find((item:any)=>item.purpose.startsWith('Global')).cutoff).toBe(directory(batches[0]).find((item:any)=>item.purpose.startsWith('Global')).cutoff);
+      expect(source.find((item:any)=>item.purpose.startsWith('Global'))).toEqual(directory(batches[0]).find((item:any)=>item.purpose.startsWith('Global')));
     }
-    for(const request of requests)expect(Math.ceil(Buffer.byteLength(JSON.stringify({system:request.system,messages:request.messages,tools:request.tools}),'utf8')/3)).toBeLessThanOrEqual(22400);
+    expect(consolidation.filter(r=>r.messages.some((m:any)=>m.toolCallId==='recover-original'&&!m.isError&&JSON.stringify(m).includes('GLOBAL-START')))).toHaveLength(3);
+    for(const request of [...extraction,...batches])expect(Math.ceil(Buffer.byteLength(JSON.stringify({system:request.system,messages:request.messages,tools:request.tools}),'utf8')/3)).toBeLessThanOrEqual(22400);
   }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },60000);
