@@ -148,9 +148,9 @@ Use `skill_manage` with `action="list"` to inspect existing skills and avoid dup
 
 For a new skill, call `skill_manage` with `action="create"`, `scope="agent"` (the default), its `name`, and the complete `content`, including matching YAML `name` and `description`. Add only needed supporting resources with `action="write_file"`, a relative `file_path` under `references/`, `templates/`, `scripts/` or `assets/`, and `file_content`. Read relevant resources before changing them. Use `remove_file` only for an intended removal.
 
-The tool validates the document and returns the actual scope, path and result. Report success only after that receipt; if a resource operation fails, report what was saved and what remains incomplete. Explicitly disabled tools stay disabled. This guidance does not authorize external publication or additional actions.
+The tool validates the document and returns the actual scope, path and result. Report success only after that receipt; if a resource operation fails, report what was saved and what remains incomplete.
 
-For explicit historical JSONL distillation, use the available `conversation-skill-distiller` instructions; that workflow selects evidence, while this skill guides the reusable result. Neither implies automatic background creation.
+For explicit historical JSONL distillation, use the available `conversation-skill-distiller` instructions; that workflow selects evidence, while this skill guides the reusable result.
 
 ### Write the Instructions
 
@@ -168,7 +168,7 @@ Write only the instructions needed for another agent to perform the task well. S
 
 ### Validate and Iterate
 
-Use the `skill_manage` validation and successful write receipt, then read the saved result when the available tools permit. Document validation does not prove that the skill makes good decisions. Check that descriptions remain discriminating, instructions preserve user intent, references resolve to saved resources, and any added scripts actually work in the target environment. Do not assume Codex helper scripts or UI metadata are installed in Nano.
+Use the `skill_manage` validation and successful write receipt, then read the saved result when the available tools permit. Document validation does not prove that the skill makes good decisions. Check that descriptions remain discriminating, instructions preserve user intent, references resolve to saved resources, and any added scripts actually work in the target environment.
 
 When testing is warranted, verify observable behavior or meaningful invariants. Avoid tests that merely match generated wording, headings, or regex patterns.
 

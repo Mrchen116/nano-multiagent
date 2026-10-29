@@ -41,7 +41,7 @@ export class DocumentMemory {
       const changed = previous ? [...new Set([...Object.keys(previous), ...Object.keys(view.versions)])].filter(path => previous[path] !== view.versions[path]) : [];
       this.seen.set(agent, view.versions);
       assembly.contexts.push({ name: 'nano-document-memory', text: [
-        'Document memory is built in. Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use ordinary read/glob/grep/write/edit with their existing permissions; load nano-memory when organizing knowledge. Never bypass a denied tool.',
+        'Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use read/glob/grep/write/edit for memory files; load nano-memory when organizing knowledge.',
         config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
         `Fixed owner library: ${view.root}. It does not follow a child working directory. Backup navigation: ${view.backupRoot}; read/import old backups only on the user’s request.`,
         'Read the complete relevant pages before applying a conclusion or editing. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Record actual outcomes and counterexamples; avoid duplicate topics and routine logs. Keep MEMORY.md short and update it after bodies; checkpoint confirms actual read/write versions, not your intention.',
