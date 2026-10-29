@@ -93,3 +93,7 @@ PA 会话 `c_91ae1772dfea`，root `92288720-595f-4666-96e0-30267706dccf`。
 - 独立静态 closure `5ef3bbf96`：F-R8-1/F-R8-2/D-R8-1 全部关闭；独立 Node24 20/20。M1 产品/模型证据仍等当前 reviewer，不以代码通过代替。
 - 最新 iOS Simulator 编译通过，隔离 DerivedData `/tmp/feat676-ios-r8-final`，日志 `/tmp/feat676-ios-r8-build.log`。Web28测试、DSH26测试及构建已覆盖最终代码改动；此前全量结果在相应未变范围保留。
 - final-sync 文档检查通过：328 maintained sources / 68 routes，日志 `/tmp/feat676-final-sync-docs.log`。
+
+### IM 补查跨进程产品入口
+
+新增 `apps/im-server/tests/e2e/memory-conversation-production-chain.test.ts`，复用现有真 IM 子进程、设备绑定、认证 WebSocket 和真实 GlobalAgent/NodeStore/InboxStore。受控调用 `memory.conversations` 经产品身份绑定与 relay 查询实际 HTTP 创建的 PA 观察聊天：search 分页、read 原 ID、info/current 返回通过；前后 `pa_source_reads`、`pa_source_events`、Inbox 和 journal 完全相同，来源撤销后旧 cursor 拒绝。没有假 Web API、没有连接或替换 daily Node。Node24 独立命令 1/1 passed，日志 `/tmp/feat676-im-process.log`。此证据覆盖真实跨进程产品传输与数据效果，调用者为受控驱动，不声称模型自主选择补查。
