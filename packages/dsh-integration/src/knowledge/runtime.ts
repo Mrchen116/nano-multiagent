@@ -34,7 +34,7 @@ interface ReviewContext { id: string; work: Active; allow: string[]; parent: Age
 
 /** Owns accepted native review runs and durable success facts across Feature disposal. */
 export class KnowledgeRuntime extends Service {
-  static inject = ['subagents', 'tools', 'skills', 'agents', 'storageDomain', 'systemPrompt', 'sessionQuery', 'nanoTrajectoryRuns', 'fs', 'nanoApproval', 'nanoProduct'];
+  static inject = ['subagents', 'tools', 'skills', 'agents', 'storageDomain', 'systemPrompt', 'sessionQuery', 'sessionPersistence', 'nanoTrajectoryRuns', 'fs', 'nanoApproval', 'nanoProduct'];
   readonly documents: DocumentMemory;
   readonly dreaming: Dreaming;
   private readonly state: Promise<Domain<KnowledgeDomain>>;

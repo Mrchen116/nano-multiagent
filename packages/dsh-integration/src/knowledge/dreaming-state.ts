@@ -9,6 +9,7 @@ export interface DreamingOwner {
 }
 export interface DreamingRun {
   id: string; agentId: string; rootSessionId: string; childSessionId?: string;
+  identityRecorded?: boolean;
   mode: 'automatic' | 'manual'; state: 'prepared' | 'running' | 'applying' | 'completed' | 'partial' | 'failed' | 'cancelled';
   at: number; endedAt?: number; generation: number; directory: string; batch: FrozenBatch;
   plan?: Array<Omit<DocumentOperation, 'content'> & { afterHash: string }>; receipts: DocumentReceipt[]; reviewed: string[]; summary?: string; error?: string;

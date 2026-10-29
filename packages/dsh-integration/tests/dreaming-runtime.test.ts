@@ -17,7 +17,8 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
       return {refreshed:true};
     });
     const binding={sessionId:'dream-root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
-    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',...(personal?{mode:'global',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}}:{}),features:{dreaming:false},toolAllowlist:['read','write','edit','memory_maintenance'],knowledge:{dreaming:{maxSteps:24,maxRunMs:10000}}}],bindings:[binding]});
+    const configuration={protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',mode:'global',provider:'fixture',model:'test',...(personal?{mode:'global',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}}:{}),features:{dreaming:false},toolAllowlist:['read','write','edit','memory_maintenance'],knowledge:{dreaming:{maxSteps:24,maxRunMs:10000}}}],bindings:[binding]};
+    await client.rpc.request('initialize',configuration);
     await client.rpc.request('session.ensure',binding);
     const submit=async(id:string)=>{await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id==='experience'?'Long source outcome. '.repeat(300)+'END-OF-VERIFIED-SOURCE':id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId:id}) as {terminal?:unknown}).terminal,{timeout:15000}).toBeTruthy();};
     await submit('experience'); await submit('maintain');
@@ -36,6 +37,27 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
     expect(maintenance[0].tools.map((tool:any)=>tool.name).sort()).toEqual(['edit','finish','glob','grep','read','write']);
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('nano-skill-creation');
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('user authorization');
+    expect(JSON.stringify(maintenance[0].messages)).not.toContain('subagent/descriptor');
+    const readTrajectory = async () => {
+      const sessionId = facts.reviews[0].childSessionId;
+      await client!.rpc.request('trajectory.prepare', { observerId: 'dream-view', rootAgentId: 'a', rootSessionId: binding.sessionId, sessionId, ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
+      const { streamId } = await client!.rpc.request('trajectory.open', { observerId: 'dream-view', method: 'session/follow', params: { args: { request: { maxMessages: 500 } } } }) as { streamId: string };
+      const frame = await client!.rpc.request('trajectory.next', { observerId: 'dream-view', streamId }) as any;
+      await client!.rpc.request('trajectory.close', { observerId: 'dream-view' });
+      return frame;
+    };
+    const warm = await readTrajectory();
+    expect(JSON.stringify(warm)).toContain('finish');
+    expect(JSON.stringify(warm)).toContain('nano-dreaming');
+    expect(JSON.stringify(warm)).toContain('Host application receipt');
+    // Durable viewer identity does not publish a model-manageable child.
+    expect(await client.rpc.request('session.descendants', { sessionId: binding.sessionId })).toEqual([]);
+    await client.shutdown();
+    client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+    await client.rpc.request('initialize',configuration);
+    const cold = await readTrajectory();
+    expect(cold).toEqual(warm);
+    expect(await client.rpc.request('session.descendants', { sessionId: binding.sessionId })).toEqual([]);
     await client.shutdown();client=undefined;
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}

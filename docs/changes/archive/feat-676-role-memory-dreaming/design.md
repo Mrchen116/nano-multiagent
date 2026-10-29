@@ -274,3 +274,11 @@ iOS 只替换同一配置数据/文案并隐藏旧项，沿用原生已有列表
 | M1 | 角色记忆与持续整理闭环 | 无 | 单线 | dsh-integration 的记忆/配置/历史/轨迹，product-contracts，PA 资格与 Work，Node 文件配置，IM 配置及 Web/iOS 最小呈现，相关测试和 delta | [reviewer] R1：S01–S04、S08–S09，PA/专家不同受众、例外/反例、空库、实际结果正确消费；R2：S05–S07，当前会话及原 child 纠正、人工保存及时生效；R3：S10–S12，同根跨窗、持续忙碌、去重及实际结果；R4：S13–S18、S20，并发、失败/重启、停止使用、真实部分状态、普通成功安静；R5：S17/S19，新建/现有默认新模式与 Dreaming，网页无记忆总开关，关闭后仍即时记忆，文件切 legacy/切回且无双写，自然语言导入旧备份，旧机制/自动复盘不可见，skill-creator内置无需选择且正常任务可创建 Skill，原型两项 UI must-match 与 Work 信息语义成立。[worker] W1：native source adapter 的 live/cold/flush/配对/跨窗/继承去重/修订/预算机制确定性测试，首次 flush 后追加事件与二次认证失败/重启不推进；W2：原子文件冲突、Git失败、每个应用/游标崩溃点恢复；来源已全部消费并写正文/入口后排除，Dreaming关闭/重启/来源同步失败仍失效、原child与下一相关判断不采用，后续批次不复活；W3：调度注入时钟、无增量不调模型、关闭/暂停/资源延期/模式排他，skill-creator迁移/前台创建真实回执以及后台F3/F4/combined暂停回归；旧skill_creation=false、explicit_allowlist缺少及explicit_denylist含skill-creator时，升级/启动/保存合法且固定指导可发现/加载、UI无选择项，其他Skill选择及工具权限不变；W4：模型 request capture 核对主/子/维护 prompt、schema、角色、刷新、disabled tools和无递归来源，真实模型验证消费；W5：真实 Work 授权绑定/回执/通知不外发及刷新恢复；W6：Web 1280/390截图与原型对照、保存失败和生效状态，iOS编译/共享配置契约；W7：隔离旧数据副本迁移、重复执行/中断恢复/切回验证，逐一列 S01–S20 passed/failed/blocked/not_run，并完成相关构建、runtime dependency contract、docs-check。 |
 
 设计阶段只建立 M1 空骨架，未运行上述实现验收。实现测试入口应扩展 `packages/dsh-integration/tests/knowledge-*.test.ts`、PA 相关集成测试及 `tests/e2e/critical_paths/` 的真实栈入口；不要只保存一份场景 Markdown。真实模型理解轨使用 daily 和单独命令/筛选，结果中与确定性机制轨分列。
+
+### PR 后原生轨迹身份修正（2026-10-29）
+
+用户打开已完成 Dreaming 的原生轨迹时出现 `subagent descriptor is corrupt`。原执行事件完整，缺少的是创建独立 `origin: subagent` 会话时必须持久化的 DSH 身份描述；产品 Work 索引不能替代该身份。原先 Work 摘要与刷新重开的验收未覆盖完整原生查看器，S18 的原生入口证据失效，需定向复验。
+
+新会话在 `agents.create.setup` 通过公开 `snapshotSubagentDescriptor` 与 `Session.append` 写入 one-shot/native 身份，保持空业务上下文、模型隐藏事件与不发布父目录的边界。既有本产品登记的 Dreaming 在恢复阶段一次性补齐：核对会话 ID、父会话、origin 与无继承前缀，再用公开 `sessionPersistence` 写句柄在原日志末尾追加身份；不修改原事件、序号、时间或执行结果，不重跑模型。逐 run 保存 `identityRecorded`，避免之后每次恢复重读历史。已有描述不覆盖，身份不匹配拒绝补写；缺失的历史文件不伪造。查看入口继续只读，不在 viewer 中绕过 DSH 校验。
+
+验证扩展现有 `dreaming-runtime.test.ts`，从真实运行时的 `trajectory.prepare/open/next` 读取 prompt、工具和宿主回执，重启后重复读取，并确认 `session.descendants` 仍不发布维护会话。`dreaming-recovery.test.ts` 保护历史前缀不变、追加连续、幂等与父身份拒绝。当前契约已要求原生明细和重启后可读，本次无 spec delta。

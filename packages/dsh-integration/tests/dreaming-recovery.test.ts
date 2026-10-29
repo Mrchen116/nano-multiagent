@@ -6,6 +6,9 @@ import {Context} from '@deepseek-ai/cordis';
 import {LocalFileSystem} from '@deepseek-ai/dsh-fs-local';
 import {MemoryDocuments} from '../src/knowledge/memory-documents.js';
 import {Dreaming} from '../src/knowledge/dreaming.js';
+import {Session,SessionId} from '@deepseek-ai/dsh-session';
+import {createUserMessage} from '@deepseek-ai/dsh-llm';
+import {foldSubagentDescriptor} from '@deepseek-ai/dsh-subagent';
 
 it.each(['generation','third-version'])('retires a stale %s plan and processes the same backlog against current files',async reason=>{
   const workspace=await mkdtemp(join(tmpdir(),'dreaming-recovery-'));
@@ -87,4 +90,33 @@ it.each(['before-first-file','after-body','after-entry'])('resumes the frozen pl
     expect(await restarted.start(parent,false)).toEqual({completed:false,reason:'no_eligible_increment',blocked:[]});
     expect(calls).toBe(beforeNoIncrement);expect(noModel).not.toHaveBeenCalled();
   }finally{fault.mockRestore();checkpointFault.mockRestore();for(const fn of cleanup)fn();await library.close();await rm(workspace,{recursive:true,force:true});}
+});
+
+it.each([false,true])('repairs only a recorded legacy Dreaming identity, preserving its original events (wrongParent=%s)',async wrongParent=>{
+  const id=SessionId('dreaming-old');
+  const session=Session.create(id,[],{...Session.create(id).header,cwd:'/test',origin:'subagent',parentSession:SessionId(wrongParent?'other':'root')});
+  session.append('user/message',createUserMessage({content:[{type:'text',text:'Original frozen source manifest'}]}),{surfaceOp:'append'});
+  const events=[...session.snapshotEvents()];const original=JSON.stringify(events);
+  const run:any={id:'old',agentId:'a',rootSessionId:'root',childSessionId:id,mode:'automatic',state:'failed',at:Date.now(),directory:'/unused',generation:0,
+    batch:{id:'old',units:[],ranges:[],blocked:[],filtered:0,inputTokens:0},receipts:[],reviewed:[]};
+  const runs=new Map([['old',run]]);const cleanup:Array<()=>void>=[];let durable=false;
+  const handle={header:session.header,inheritedEventCount:0,read:async()=>({events}),append:async(batch:any[])=>{events.push(...batch);},flush:async()=>{durable=true;},[Symbol.asyncDispose]:async()=>{}};
+  const ctx={storageDomain:{open:async()=>({table:()=>({entries:()=>runs.entries(),put:async(id:string,value:any)=>{runs.set(id,structuredClone(value));}})})},
+    sessionPersistence:{stat:async()=>({header:session.header}),open:async()=>handle},on:()=>{},effect:(f:()=>()=>void)=>cleanup.push(f())};
+  const dreaming=new Dreaming(ctx as never,{} as never,{configOf:()=>undefined,configs:new Map(),bindings:new Map(),notify:()=>{}});
+  try{
+    if(wrongParent){
+      await expect(dreaming.recover()).rejects.toThrow('does not match');
+      expect(JSON.stringify(events)).toBe(original);expect(durable).toBe(false);
+    }else{
+      await dreaming.recover();
+      expect(JSON.stringify(events.slice(0,-1))).toBe(original);
+      expect(events.at(-1)).toMatchObject({type:'subagent/descriptor',seq:JSON.parse(original).length});
+      expect(events.at(-1)).not.toHaveProperty('surfaceOp');
+      expect(foldSubagentDescriptor(events)).toMatchObject({mode:'one-shot',provider:'native'});
+      expect(durable).toBe(true);expect(runs.get('old')).toMatchObject({identityRecorded:true,state:'failed',receipts:[]});
+      const repaired=JSON.stringify(events);
+      await dreaming.recover();expect(JSON.stringify(events)).toBe(repaired);
+    }
+  }finally{for(const close of cleanup)close();}
 });
