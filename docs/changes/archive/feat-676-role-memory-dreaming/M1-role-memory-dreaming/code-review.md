@@ -323,3 +323,41 @@ The new `apps/im-server/tests/e2e/memory-conversation-production-chain.test.ts` 
 S28/summary replacement/no_signal and selected failure boundaries retain their controlled native depth; they are not relabeled autonomous-model behavior. S01's nonempty persistent Global cross-chat answer proves scope/correction handling using available original exchanges and links, not a new empty-context memory-only recall experiment. The expert's actual document read and subsequent correct answer supply the separate document-consumption observation. Product report locators preserve failures and preparation-vs-save distinctions rather than treating every response as completion.
 
 Four active delta files are byte-for-byte unchanged since eff2d4684 and still align with the approved target and reviewed implementation. Their canonical requirement destinations exist; all seven Gateway and two IM MODIFIED requirement identities resolve. They may now be reconciled into canonical specs by requirement identity (replace existing earlier-version clauses, do not append duplicate ADDED headings) and archived as pure documentation. This report does not perform or certify a not-yet-created canonical/archive suffix; the caller must record the exact retention delta. The new iOS Simulator build evidence ends BUILD SUCCEEDED; it establishes compilation, not iOS visual acceptance. Local full-suite evidence remains scoped to its recorded versions plus targeted final deltas; no remote CI/merge/deployment result is asserted.
+
+## Round 10 — explicit full Agent Context review (2026-10-29)
+
+The user requested a fresh independent review of the complete PR from the Agent Context perspective. Reviewer `/root/pr428_context_review` applied `change-code-review` full mode and `agent-context-review` Implementation Review against `082e72ec4becb37d4ba08c3e3a8e0d2bf45da087..3e9a46030939bfcce351b7df2e29e5f3c2439055`. The reviewer did not edit implementation or this report; the owner records its returned finding and evidence here.
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/personal-security.ts",
+    "line": 136,
+    "summary": "[P2] Align PA source invalidation guidance with the Dreaming sole writer",
+    "failure_scenario": "When a PA handles source exclusion, revocation or a stop-use request, its system rules demand immediate file edits and a checkpoint. personal-assistant/src/global-agent.ts:401 also injects a reminder that Dreaming does not own this foreground responsibility. Formal-memory write/edit calls are rejected and memory_maintenance has no checkpoint action, so the combined instructions cannot be executed.",
+    "review_mode": "full",
+    "status": "CONFIRMED",
+    "severity": "WARNING",
+    "surface": "PA System Prompt, personal-state reminder, document-memory injection and actual tool Schema",
+    "expected": "Foreground execution immediately stops relying on invalid knowledge and informs affected original children; only Dreaming repairs formal pages and the entry, with completion grounded in host receipts.",
+    "observed": "One actual outbound request requires foreground edits/checkpoint in system while its memory messages require Only Dreaming updates formal memory; maintenance action enum is status/run/exclude.",
+    "impact": "The model receives conflicting and unavailable actions during source invalidation. This confirms an interface defect, not an observed unauthorized write or a claim that every model fails.",
+    "recommendation": "Correct both prompt entry points, preserve immediate stop-use and child propagation, and assign durable repair to Dreaming. Verify actual assembled PA requests and the personal-state submission, retaining the legacy-mode distinction.",
+    "evidence": "/tmp/feat676-live-evidence/f7b8bd521185473c97d22c4362f5620e-request.json: /system/0/text, /messages/2,6,23,26, and memory_maintenance action enum under /tools. Redacted locator/hash summary: /tmp/feat676-context-review-evidence.json. document-memory.ts:60-64,93-96 provides the execution/Schema counterpart."
+  }
+]
+```
+
+Coverage follows foreground root/child memory consumption; extraction/consolidation; inherited provenance and resumed-task summary replacement; source filtering/invalidation; parameter discovery and result rendering; Skill/Feature combinations; source-history versus maintenance-history recovery; staging, application and partial-failure receipts. No second actionable finding survived this bounded full review. Independent narrow validation passed **7 files / 31 tests**, `/tmp/feat676-context-review-narrow.log`.
+
+The reviewer reused actual outbound adapter requests and S27 autonomous source recovery/persistence evidence. The conflicting capture uses `codexOAuth:gpt-6-astra`; SHA-256 `dffd988acac8e7cd56b71b0cc8875a293401b5ee1b0fb2dfb6bcc254ded21225`. This proves the recorded outbound request to the local transparent proxy, not any final upstream transformation. Existing observations are not a fresh source-withdrawal model run and do not establish reliability across every model.
+
+### Owner resolution
+
+Fixed in `bcbe64afa`: both PA guidance entry points now require immediate stop-use and propagation to original children, while Dreaming alone verifies/repairs formal pages and the entry. Completion requires host confirmation. Explicit stop-use references and legacy-mode guidance remain distinct. No design or canonical-spec delta: this restores the already-approved sole-writer contract.
+
+Extended the existing PA native-request fixture to inspect the actual assembled main request, and the existing personal-attention fixture to inspect the actual product-state submission. These protect two separately assembled inputs; the existing document-memory runtime test retains execution-layer write/checkpoint rejection coverage. The new checks fail on the old implementation (**3 failed / 15 passed**, `/tmp/feat676-context-review-red.log`) and pass after repair (**3 files / 19 tests**, `/tmp/feat676-context-review-green.log`). Integration and PA builds pass (`/tmp/feat676-context-review-build.log`, `/tmp/feat676-context-review-pa-build.log`). Controlled model output proves assembly and enforcement, not autonomous interpretation. No new real-model source-withdrawal journey was run for this text-only correction.
+
+### Independent fix closure
+
+The same independent reviewer closed the finding at `bcbe64afa0883de001add5f76700e8ada245ae92`, reviewing only `3e9a46030..bcbe64afa` (four files). **Closed, CONFIRMED; surviving findings: `[]`.** Both assembled instruction paths now preserve immediate stop-use/child propagation, assign formal repair to Dreaming and require host-confirmed completion. The reviewer inspected and reused the 19-test green run and both build logs without rerunning identical checks. Other Round 10 full coverage and its 31-test run remain effective. The native fixture's controlled-output and untested autonomous source-withdrawal limitations above remain explicit.
