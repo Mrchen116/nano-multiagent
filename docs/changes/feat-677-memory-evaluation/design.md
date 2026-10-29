@@ -1,0 +1,258 @@
+# feat-677: Memory 效果评测 — 技术方案
+
+> 对齐：[spec.md](spec.md) 已确认的 LongMemEval 要求。
+>
+> 状态：LongMemEval 分项设计草稿。用户要求逐个 benchmark 讨论，本轮只细化这一项；其他 benchmark 不在本文推定实施。完整 unit 范围与实验预算尚未收口，本文不表示 Gate 2 已通过或已开始实施。
+
+## Changelog
+
+## 现状分析
+
+### 涉及范围
+
+| 位置 | 当前职责与本次规划 |
+|---|---|
+| `evals/` | 已有长期评测资产入口，尚无 memory suite；计划增加 `evals/memory/`，保存 LongMemEval 读取、协议、运行编排、评分和报告。 |
+| `packages/dsh-integration/` | 唯一 DSH 运行时接入包；Nano 候选适配实现放在此包，负责原生历史物化、当前记忆机制接线和答题环境。 |
+| `packages/personal-assistant/src/inbox.ts`、`packages/dsh-integration/src/global-mode.ts` | 当前 Inbox 消息、工具参数和结果的实际格式依据；不把格式知识复制到通用评测框架。 |
+| `docs/specs/gateway/agent-capabilities.md` | 当前角色文档记忆、来源约束和 Dreaming 增量处理契约；本评测使用它，不重新定义产品记忆行为。 |
+
+调查基线为本分支 `ebf0df43f5fa82b5d657392ced7bf1b80f5a7e8e`，继承 feat-676 实现。核对了已安装且与本分支声明一致的 DSH `0.2.1-alpha.1` 公开类型；尚未在本 worktree 执行导入验证。实际评测必须重新记录受测 commit、依赖锁文件及配置，不能将这份调查基线当成永久绑定。
+
+### 既有约束
+
+- DSH 只从 `packages/dsh-integration` 经公开 exports 接入；评测框架不 import DSH、不自行写其 JSONL 存储、不建立另一套 Agent loop。
+- 原始数据、gold、模型日志、运行目录均不提交；评测控制资产与候选 Agent 可读目录隔离。
+- 使用独立 Agent 身份、工作目录和 runtime 数据；不连接生产 IM，不向真实会话发送数据集旧回复。
+- 用户要求后续修改记忆机制时沿用测试框架。这是接口与测试边界的首要约束，不把当前 Dreaming 实现提升为 benchmark 契约。
+
+### 可复用能力
+
+| 能力 | 用法与边界 |
+|---|---|
+| DSH `SessionPersistence.create/open`、`SessionHandle.append/flush` | 公开接口支持持久化原生 session 事件，保留历史时间并由后端校验连续序号；当前 Nano 适配器可直接使用，无需 mock 主回复模型。 |
+| `MemorySources`、`Dreaming`、`DocumentMemory` | 当前候选版本的真实来源选择、记忆准备和消费路径；只由 Nano 适配器接入，框架不知这些类名和状态结构。 |
+| 当前 Inbox 投影与 `send_message` schema | 确定原 user/assistant 如何落入本系统历史，正文不变；导入记录是数据集经历的结构映射，另留来源收据。 |
+| LongMemEval 官方 QA evaluator | 沿用题型对应的评分规则和回答输出格式；评分在候选外进行，不把 gold 交给候选。 |
+
+Mastra 的同类做法是先将原历史转换为自身消息结构，再执行真实记忆处理器、保存状态并用于答题；参考与限制见 [spec 的适配证据](spec.md#longmemeval-的具体历史适配证据)。这里复用这种边界，不复制其内容清洗、阈值或 shortcut 配置。
+
+### 相关历史
+
+- [feat-676](../archive/feat-676-role-memory-dreaming/) 是当前候选机制的来源；其后续修改只影响候选版本与适配接线。
+- [feat-628](../feat-628-pa-long-horizon-evaluation/spec.md) 是长期评测目标参考，不假定已有可复用的完整运行器。
+
+## 架构总览
+
+稳定部分围绕 LongMemEval 的输入和最终回答；可变部分围绕被测系统怎样形成、保存和使用记忆。
+
+```mermaid
+flowchart LR
+    D[固定版本 LongMemEval] --> L[数据读取与字段隔离]
+    L --> H[历史包]
+    L --> Q[答题包]
+    L --> G[仅评分器可读的 gold]
+    H --> R[通用 Runner]
+    Q --> R
+    R --> A[Nano 候选适配器]
+    A --> P[该版本的原生历史与记忆机制]
+    P --> C[冷上下文答题]
+    C --> O[原始最终回答]
+    O --> J[固定评分器]
+    G --> J
+    J --> S[得分与运行完整性报告]
+```
+
+Runner 只调用候选接口，不加载记忆文件、不读取 Dreaming 状态表，也不判断某个内部游标是否归零。今后记忆机制从离线整理变成摄入时更新、换存储或换检索方法，数据集和 Runner 保持不变。
+
+## 关键决策
+
+**评测系统结果；机制差异作为候选版本变化。** 默认讨论的是“完整历史经过本系统记忆处理后，冷上下文答题怎样”，不是某个内部函数的输出快照。题目得分用于比较，不预设某一版必须达到的准确率；框架通过条件是输入保真、隔离和运行可核实。
+
+**固定一个小接口，由适配器隐藏候选生命周期。** 只定义 `prepare`、`answer`、`close`。`prepare` 表示从历史准备可供后续使用的状态，允许候选在摄入时就完成记忆；不要求每个实现都存在一次“Dreaming”或“总结”动作。不增加通用插件市场、调度服务或任意图式流水线。
+
+**状态是 opaque 引用，不规定记忆介质。** Runner 只保存 `preparedRef` 和摘要收据。引用可以指向文件副本、数据库命名空间或其他候选私有状态。复制、恢复、读取和清理由适配器负责；通用代码不列举 `.nanoassistant`、Markdown、向量集合或游标字段。
+
+**只改变适配接线时不改变测量口径。** 数据集 revision、题集、完整历史规则、问答输入、judge 规则共同确定 `protocol_id`；产品 SHA、适配器版本、记忆/模型配置确定 `candidate_id`。候选可以把原文或片段保存为自己的记忆并正常检索，不强制记忆是摘要或 Markdown；其保留方式与存储成本记入候选说明。Runner 额外提供全历史 prompt、旁路数据库或额外检索服务才是协议变化，不能混入原分数。
+
+**不为本轮强制搭建完整消融矩阵。** 先支持一个指定候选完成同一协议。无记忆、Dreaming 前后或不同机制之间的比较，可以配置多个候选；哪些对照正式执行随预算另定。框架不内置 `dreaming_on/off` 二分，也不因生产实现变化重写 case。
+
+## 接口与数据流
+
+### 1. LongMemEval 数据边界
+
+数据读取器按字段白名单拆包，不把整条原始样本传给候选：
+
+| 包 | 内容 | 可见方 |
+|---|---|---|
+| `HistoryInput` | opaque case key、按历史日期稳定排序的 sessions；每个 session 的 opaque ID、原日期及解析结果、原始顺序、逐回合 `role/content` | `prepare` |
+| `QuestionInput` | opaque query key、原问题、`question_date` | `answer`，仅在准备状态封存后传入 |
+| `GoldRecord` | 原 `question_id`、题型、答案、`answer_session_ids`、`has_answer` 等标注 | 数据审计与评分器 |
+
+- 同题所有历史会话、双方消息和干扰信息全部保留；不根据 answer 标注过滤 session、选段、截断长正文或删除 assistant 回合。
+- 正文按原字符串保留，不翻译、重写、清洗成事实列表；JSON 编解码不改变字符串值。
+- session 按日期排序，同日以数据集原顺序为准；session 内保持回合顺序，不把不规则序列强制配成两两对话。
+- 数据集仅提供 session 日期时，保留该精度；不伪造每条消息相差几秒的“原始时间”。无时区日期的解析约定固定在协议中，原始日期字符串始终保留。
+- 原问题 ID 可能包含 `_abs` 等信息，不作为候选可见标识；题型、问题日期也不进入 `prepare`。候选使用无标签含义的标识，原 ID 映射留在控制区。
+- 历史中的普通文本即使提到某个问题或事实也照实保留；隔离对象是 benchmark 额外标注，而非根据答案改写历史。
+
+数据集选 `longmemeval-cleaned` 的具体文件、revision、SHA-256，并固定 subset ID 清单。建议先用 S 的少量完整样本验证，再决定完整跑量；不得把缩短历史后的结果称为原 S。样本数、模型和 token/费用预算仍待实验配置确定，本轮不启动付费跑量。
+
+### 2. 稳定候选接口
+
+以下是计划中的类型边界，不是当前已存在的 API：
+
+```typescript
+interface MemoryCandidate {
+  prepare(input: HistoryInput, limits: RunLimits): Promise<PrepareResult>;
+  answer(preparedRef: string, query: QuestionInput, limits: RunLimits): Promise<AnswerResult>;
+  close(preparedRef: string): Promise<void>;
+}
+
+type PrepareResult = {
+  status: 'ready' | 'incomplete' | 'failed';
+  preparedRef?: string;
+  receipt: {
+    historyDigest: string;
+    importedSessions: number;
+    importedMessages: number;
+    candidateId: string;
+    evidenceRef: string;
+  };
+  reason?: string;
+};
+
+type AnswerResult = {
+  status: 'completed' | 'failed';
+  text?: string;
+  evidenceRef: string;
+  reason?: string;
+};
+```
+
+`RunLimits` 仅含外部截止时间与调用/token/费用上限；具体模型、阈值和存储配置放在候选配置中。所有动作记录实际耗时与可获得的模型用量；缺失的用量写 unavailable，不能默认为零。诊断证据可包含候选内部信息，但 Runner 只透传 locator，不据其内部字段分支。
+
+接口语义：
+
+1. `prepare` 创建本题独立主体，摄入完整历史，并让候选按自己的机制完成记忆准备。没有需要运行的后台机制时可以直接完成。`ready` 表示该候选确认所有输入已完整导入且已完成其准备策略；超预算或存在未完成处理返回 `incomplete`，不凭空生成 ready。
+2. `answer` 每次创建新的答题执行上下文，使用同一个已准备状态；不继承摄入会话、compaction 摘要或上一次答题的新状态。它返回候选实际交付的最终回答，不能根据 gold 选择多次回答中的最佳值。
+3. `close` 释放本题持有的进程与句柄。失败和超时也要释放；外层 Runner 对超时进程作最终清理。审计产物按 run 保留，不能因 close 删除唯一证据。
+
+计划将接口与编排放在 `evals/memory/`，Nano 实现经 `@nano/dsh-integration/evaluation` 的专用评测入口暴露。该入口只由评测命令加载，不增加产品 RPC、模型工具或生产启动逻辑。实现位置须遵守依赖约束；通用目录不出现 DSH import。
+
+### 3. 当前 Nano 适配方案（可随机制替换）
+
+本节是 **adapter 的当前接线说明**，不属于通用协议和通用测试的固定断言。
+
+#### 原生历史物化
+
+为一题建立独立评测 Agent 和 owner；每个原 session 对应一个独立历史 session 与来源 conversation。统一绑定到该题的长期主体，避免把不同题视为同一人的历史。根 session 使用 DSH 正常根元数据：不设置 `origin: 'subagent'`，`isSeeded: false`、无继承前缀；不使用并不存在的 `origin: 'root'` 枚举。
+
+| 原始材料 | 当前原生映射 | 保真约束 |
+|---|---|---|
+| user 回合 | `inbox` 的 `tool/call` 与 `tool/result`，结果内 `messages` 保存用户身份、正文、来源和时间 | 当前格式使用 `target`、`sender`、`time`、`content`；PA 主人身份来自该题 fixture 的可信绑定。 |
+| assistant 回合 | `send_message` 调用中的 `target/text` 与配对结果 | 正文是助手对用户说过的话；不重复变成私有 assistant 草稿，不冒充另一个用户。 |
+| session 日期、回合顺序 | session header 与 event 时间、Inbox 可见时间及序号 | 时间精度只到 session 时明确标记；顺序用序号，不伪造消息级时间。 |
+| 结束边界 | 合法的 `turn/start`、`step/start`、`step/end`、`turn/end` 和对应 callId | 每个可消费单元闭合；只补结构，不补思想过程、业务工具动作或模型用量。 |
+
+导入通过 DSH 公开 `sessionPersistence.create → handle.append → handle.flush → close`，不直接拼物理 JSONL。外部配套 `source-map` 将原 session/turn 定位到原生记录及正文 hash；不把它当成第二份记忆。助手的发送结果只证明“数据集已记载此回复”：记录 imported provenance，不伪造本次 IM 的网络送达证据，也不据回复内容补造搜索、支付等工具成功。
+
+实际 `inbox` 长消息格式含分页片段，适配器须无损映射并经产品选择路径检查能否还原全文。它可以复用产品投影 helper；不得在框架层再维护一套 Inbox schema。
+
+日期必须到达实际记忆消费者，而不只存在磁盘 header。当前 `MemorySources` 的选择结果没有普遍保留 event time，因此导入验证须检查原生 Inbox 的 `time` 以及 assistant 所属会话日期在最终准备请求中可见。若存在 assistant-only 历史等日期无法经当前投影表达的情况，应在 Nano 来源投影边界补齐正常来源时间或报告适配失败；不能用 benchmark 专属总结/拼答案掩盖。是否需补该通用字段在实施的最小导入试验中确认。
+
+#### 初始化与实际准备
+
+当前 Dreaming 首次登记会以已有安全结束位置作为 baseline。适配器先创建并持久化空来源、登记可信绑定并完成普通初始化，再追加导入事件，确保整份历史处于待处理范围；不先写满历史再指望首次 Dreaming 自动回扫。
+
+随后通过包内评测接线触发 **现有记忆准备服务**，复用当前来源许可检查、来源选择、原 prompt、原维护工具、真实模型与保存路径。评测宿主负责触发，不让答题模型自己决定是否启动，也不将 gold 或问题塞进维护请求。可以固定触发时点以节省自动周期等待；由此得到的是内容处理能力证据，不宣称覆盖生产定时调度。
+
+当前版本需要多批处理时，适配器使用产品自身状态继续，直到对该历史完成或外部预算耗尽；cursor、分页、批量大小、完成回执只在本适配器中解释。准备结束不能仅依据“模型停了”“写出文件”或某次调用成功。换成即时记忆等机制后，可替换整段逻辑，Runner 无需修改。
+
+#### 冷上下文答题
+
+稳定协议要求：答题只得到准备状态经候选正常记忆入口提供的信息；gold、其他题产物、旧活动上下文和框架额外提供的原始数据都不可达。记忆机制自身保存并索引的原文属于合法准备状态，不因它未被摘要就排除。隔离由文件/服务访问边界落实，不能只在 prompt 里要求“不要看”。
+
+对于**当前文档记忆候选**，原始历史 session、Inbox、Dreaming 输入/轨迹与旧窗口恢复入口不是它的记忆产物，因此不开放给答题环境。以后换成以原文索引为核心的机制，由适配器暴露该机制正常的检索入口，沿用同一稳定协议；无需改写题目或把“必须删除原文”设为测试条件。
+
+当前文档记忆适配器需封存页面及使这些页面正确消费所必需的版本、来源许可状态；恢复后走 `DocumentMemory` 的正常装配和按需读取。不能只复制 `MEMORY.md` 而遗漏正文或把原维护输入目录一并开放。具体复制集合与状态迁移由适配器维护，框架不知路径。
+
+答题使用原问题与原 `question_date`；该日期作为任务的时间依据传入，不能以运行机器的今天替代。答题模型与 memory-only 工具边界按配置固定。Global 的最终答复从隔离目标的实际 `send_message` 回执提取，普通模式从正常最终交付提取，禁止拿内部草稿作答案。测试目标只落本地，不接真实聊天。
+
+本 protocol 衡量候选持久记忆带来的后续答题能力。若另加独立于候选记忆机制的历史恢复能力或直接全上下文答题，应另列 protocol 并说明允许的来源，不能混入此分数。
+
+### 4. Context 生命周期与隔离验证
+
+| Consumer | 正常可见 | 不可见/不继承 | 验证 |
+|---|---|---|---|
+| 当前记忆准备模型 | 完整导入历史经本版本来源选择后的材料、既有记忆、正常整理规则 | 未来 question、题型、gold、答案 session 标注 | 捕获实际模型请求，追溯原文、身份、顺序和日期；控制资产不可达。 |
+| 答题模型 | 当前问题、问题日期、正常角色规则、准备后的持久记忆入口（可含候选自行保留的原文索引） | 原活动上下文、旁路历史、维护输入、评分结论、上一题 | 检查冷启动首请求与工具可访问范围，并验证确实能按正常入口读到记忆。 |
+| 独立 judge | 原问题、答案或 rubric、候选原始回答、官方题型规则 | 不向候选回传评分用来重答 | 固定 prompt/code/model 版本，保存原始 judge 响应。 |
+
+例如，历史“我从 A 搬到了 B”必须仍是该用户在原日期的原话，经候选自己的记忆机制形成状态；不能在导入时变成适配器生成的 `current_city=B`。若题目问旧日期的住址，题目只在 answer 阶段出现，准备阶段不能据此决定保留哪个城市。
+
+### 5. 评分与报告
+
+使用 [LongMemEval 官方 `evaluate_qa.py`](https://github.com/xiaowu0162/LongMemEval/blob/main/src/evaluation/evaluate_qa.py) 的题型规则，回答输出可导出官方 `question_id/hypothesis` 形式。2026-10-29 核对的文件 blob 为 `4732f3772b04a2b9069121ade304e6320494abc2`；执行时冻结实际源码 revision、内容 hash、judge 模型和参数，不能一直追随 main。
+
+通用报告至少列出：
+
+- `protocol_id`、`candidate_id`、数据文件 hash、subset 清单与样本数，完整历史与时间处理规则。
+- 总正确数/计划题数、已有效评分题准确率、各题型及 abstention 分项；未完成、适配失败、答题失败、judge 失败分别列数，不从分母悄悄消失。
+- 每题的 prepare/answer/score 状态、原始答案、评分及证据 locator；未跑是 `not_run`，未判定不可伪装成错误或成功。
+- 准备、答题和 judge 的耗时、可取得的 token 与费用；导入无模型调用时记录事实，不填造 usage。
+
+judge 出错时可对同一已冻结回答重试评分；不能重答择优。候选准备或答题重试保留 attempt，按预先固定的重试规则计入用量；更换模型/配置要生成新 candidate。公开集结果用于可复现回归，不声称排除了模型训练污染。
+
+### 6. 测试边界：测契约，不锁实现
+
+| 层 | 有价值的断言 | 不作为通过条件 |
+|---|---|---|
+| 数据与评分 | 全历史角色/正文/日期/顺序保真，标注只给 judge；官方题型规则、分母和失败状态正确 | 某题必须由某个记忆摘要命中；根据 gold 挑“有效历史”。 |
+| Runner 契约 | 只把历史交给 prepare，ready 后才传问题；失败/超时不当 ready；关闭资源；原始回答不改写 | 调用 Dreaming 几次、哪个 cursor 值、生成几个文件。 |
+| 候选一致性 | fresh case 不串题；冷 answer 不继承经历/旧答案；准备状态可正常消费；同一状态支持独立答题 | Markdown 目录、页名、表名、向量索引结构和具体生成措辞。 |
+| Nano 适配集成 | 原生导入可被真实产品来源路径读取，完整映射可核对；真实准备和答题链路工作 | mock 掉记忆模型后声称通过模型能力评测；快照锁住 `MemorySources` 私有输出。 |
+| 正式 benchmark | 按冻结协议运行并报告实际正确/错误、成本与未完成项 | 用单个 score 阈值证明适配正确，或用单测成功代替模型效果。 |
+
+用两个轻量测试 candidate 验证 Runner 的独立性：一个在摄入时得到私有状态，另一个先收集历史、prepare 结束前生成状态；两者采用不同的 opaque 状态表示，均不暴露 Dreaming。相同 Runner 测试必须通过。这只是协议测试替身，不开发第二套产品记忆系统。
+
+Nano 专属集成测试放在适配器附近，按语义审计导入和实际可见 Context；实现换代时允许接线和局部 fixture 更新。通用测试不因这种变化改预期结果。已有 Dreaming 游标/分页单测留在产品原测试套，本 unit 不把它们复制成评测框架门禁。
+
+## 契约层增量（delta-spec）
+
+- Gateway / PA：**no spec delta**。当前方案增加离线评测入口，沿用产品记忆和消息行为；不增加用户产品 API。若实施时确认来源时间等产品行为需要修正，先明确最窄增量再补对应 delta，不能以评测适配名义隐式改变产品。
+- 评测协议：实施时维护在 `evals/memory/README.md` 与协议配置，连同 `evals/README.md` 更新入口；这里保留本 unit 的设计决定，不复制长期操作手册。
+
+## 风险与回退
+
+- 原生存储接口已从公开类型核实，完整事件与产品消费兼容性仍需最小导入试验。适配失败如实报错，不降级成另一个总结器。
+- 当前时间投影、来源许可和恢复状态可能影响完整消费；只在 adapter 或确有必要的产品边界修正，通用 protocol 不接受静默丢字段。
+- 对历史内容的提炼正确性由真实模型决定；导入完整不等于记忆有用，答案错误应保留供比较。
+- 超预算保留 incomplete 和真实产物，不能通过减少历史长度或选择答案会话凑完成。
+- 评测入口不被生产加载；回退为停用本候选与删除其隔离环境，保留报告和审计材料，不改生产状态。
+
+## 一次性部署迁移
+
+无。评测使用新建隔离数据，不迁移生产历史。
+
+## Runbook for Reviewer
+
+无本 unit 改动的常驻产品服务。候选运行时是评测命令的受管子进程，退出或失败由适配器和 Runner 回收；不要求启动生产舰队或连接公网 IM。
+
+**Review 驱动方式**：通过计划中的 suite CLI 运行真实 Nano 候选。评测 CLI 是本 unit 的用户入口；导入允许在 adapter 中写原生历史，记忆准备与答题使用实际产品实现和真实模型。无客户端 UI 变化，不生成前端原型。
+
+**验收前置**：固定 revision/hash 的 LongMemEval 数据、批准的候选与 judge 模型配置、独立可写目录和明确运行限额。实现后在 `evals/memory/README.md` 提供物化、运行、停止、检查无残留进程及查看报告的可复制命令；此设计阶段不把尚不存在的命令写成已可运行。
+
+最小走查依次验证：完整历史导入收据 → 真实准备 ready 或如实 incomplete → 新上下文按正常记忆入口答题 → 官方规则评分与报告；再换一个候选配置复用原题集和评分，确认框架没有读候选内部状态。检查少量真实样本时不删除它们的历史干扰信息。
+
+## Milestones
+
+以下仅是 LongMemEval 部分的单 M1 候选，随整个 unit 范围收口后进入 Gate 2；不预填实施 tasks/progress。
+
+| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
+|---|---|---|---|---|---|
+| M1 | LongMemEval 原生记忆评测闭环 | 无 | — | `evals/memory/`、Nano evaluation adapter 及就近集成测试、评测入口文档 | [reviewer] 能从固定完整历史得到实际记忆后的冷答题、评分及明确未完成项；切换候选仍使用同一题集与评分。[worker] 数据/Context 隔离、历史保真、候选协议替换、失败清理和真实链路证据齐全；框架不依赖 DSH、Dreaming 或记忆介质。 |
+
+## 本轮边界与后续对齐
+
+本轮已细化 LongMemEval 的稳定协议、候选边界和当前 Nano 映射。具体 subset 数量、模型、对照组合、费用上限与全量跑量待实验配置确定；其他 benchmark 另行逐项讨论。本轮仅提交设计材料，不实现适配器、不运行 benchmark、不声明设计门禁已通过。
