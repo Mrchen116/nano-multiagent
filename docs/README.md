@@ -124,3 +124,5 @@
 - 文档中的命令优先指向仓库脚本，避免散文步骤与脚本形成两套流程。
 
 退役的 Python Kernel/Coding CLI 契约见 [`archive/pre-dsh-581/`](archive/pre-dsh-581/README.md)。
+
+当前权限设计补充：同一 [bugfix-678](changes/bugfix-678-pa-permission-boundaries/incident.md) 正在补齐累计五次自动拉黑；完成前以 current specs 为准。

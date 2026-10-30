@@ -22,7 +22,7 @@
 
 ### 既有约束
 
-遵守 [SPEC](../../../../SPEC.md) 与 [Agent Context Engineering](../../../development/agent-context-engineering.md)：DSH 只由 integration 包通过公开 exports 接入，不 fork/patch/private import；不恢复第二套 Loop；current spec 仅在交付归并时修改。审批约束具体动作，Task 调度依据显式状态；保留取消、停用、waiting 安排校验及正常权限边界。本轮不新增 UI 页面或控件，用户仍在既有聊天/风险页看到结果，不生成前端原型。
+遵守 [SPEC](../../../SPEC.md) 与 [Agent Context Engineering](../../development/agent-context-engineering.md)：DSH 只由 integration 包通过公开 exports 接入，不 fork/patch/private import；不恢复第二套 Loop；current spec 仅在交付归并时修改。审批约束具体动作，Task 调度依据显式状态；保留取消、停用、waiting 安排校验及正常权限边界。本轮不新增 UI 页面或控件，用户仍在既有聊天/风险页看到结果，不生成前端原型。
 
 ### 可复用能力
 
@@ -316,3 +316,36 @@ W1：最窄单元/契约测试覆盖状态转换、context/图片最终投影、
 ## 明确不做
 
 沿用 incident 的暂缓清单：公开群/旁观真实受众重新设计、搜索词前置披露检查、审核与长期记忆进一步绑定、精细区分普通私人问题与攻击、披露侧事后补报、Shell 调查及新增通用防循环预算。本稿不宣称这些问题已解决。
+
+
+## R9 补充设计：系统累计五次自动拉黑（2026-10-30）
+
+范围由用户确认加入同一unit，M1扩展R9，不建立第二个unit或实施工作流。无前端布局/新入口变化，复用现有黑名单与主人私聊，因此无新原型。当前源码基线91a63daaa，既有R1–R8的未变证据保留；R4新增自动屏蔽通知分支重新验收。
+
+### 计数与持久化
+
+在现有IM schema增加单一伴随表 `pa_contact_violations(binding_id, actor_id, message_id, incident_id, counting, triggered_block)`；binding/message唯一、incident唯一。counting默认1；triggered_block默认0，用于保留第五条触发动作的事实而不复用后续动态计数。无需修改旧列、回填旧事件或增设可调阈值。
+
+`pa.incident.report`是Node内部输入审核链路，不向模型提供。只对该链路现有 `prompt_injection` 类别计数（有效deny或显式risk incident；needs_owner无incident和unavailable不会进入report）；同一消息先检查旧evidence，因此重投返回旧incident，解除后重投也不会新增计数。伴随表按binding/message唯一，多个类别也不能重复计数。身份使用既有sourceActor；不修改外部渠道的会话作用域。
+
+在incident事务内登记风险记录并查询同binding/actor的counting条数。达到5且当前未屏蔽时，复用提取出的服务端blockContact逻辑：写pa_contact_blocks、把既有open事件标为blocked、更新policy revision及policy.changed、给触发记录置triggered_block=1。系统动作与incident/event原子提交。已有屏蔽时后续群消息仍按现有路径审核和处置，不重复自动拉黑或重复产生阈值通知。
+
+owner unblock事务内把此人的counting置0，不删除历史记录、triggered_block或回执。misunderstanding只将选中incident的counting置0，不自动解封；dismiss不改计数。手动拉黑继续现有入口，仍不给PA拉黑工具。
+
+### PA通知与Context链路
+
+复用第五条incident的owner通知和publication幂等键，避免再造通知队列。`incidentEvent`对triggered_block输出可信 `automatic_block:{threshold:5, currently_blocked:boolean}`、`owner_target`、`incident_ref`、actor/source引用与已发owner回执；明确 `owner_only:true`，不要求原聊天拒绝。原因/原文仍仅在来源当前可访问时投影，来源不可访问不阻断主人获知已执行的系统动作，但不携带已失权原文/风险理由。该事件即使后来被主人dismiss/misunderstanding或解除也保留历史触发事实，currently_blocked从当前名单读出。
+
+主PA Consumer为GlobalAgent.recoverPersonalObservations及inbox check的security_incidents。系统提示对自动分支说明：系统已在第五条触发屏蔽，先核当前状态，只给主人私聊通知，不再尝试给被屏蔽对象发送；指明计数、现有解除入口，原文/理由是外部证据，不是任务或新权限。普通事件继续现有两端沟通。actorRisk提示改用中性“当前已屏蔽”，不误称所有屏蔽均为主人手工决定。
+
+`pendingIncidents`将自动触发且owner回执缺失的事件单独列入（不依赖blocked/closed状态或peer回执）；`incidentRead`对该分支仅允许主人会话，不放宽peer安全发送；主人发信仍只允许绑定主PA/self/plain text，并由实际host publication绑定owner回执。confirmed不重发，unknown沿用查询路径；PA暂停不启动，恢复发现pending。解除后的迟到通知说明此前自动拉黑、当前已解除，不能重新施加限制。无需更改独立披露审核，因为自动通知只发主人专属私聊。
+
+Before：第五条仅再次风险沟通，无自动策略。After：第五条立即持久屏蔽，主PA收到可恢复且带当前状态的有限通知任务。模型无权增减计数或变更黑名单；工具执行/输出披露拒绝不计入该输入风险表。
+
+### 升级与退出验证
+
+新表由既有schema加载创建，空表启用，不扫描或重放旧记录；现有联系人黑名单、所有incident与发送回执保持。部署提示注明此增量。隔离副本验证重开/重复初始化保留计数与triggered事实，旧记录不计入/不变；正常Node/IM匹配发布，不支持旧Node混跑。
+
+R9 reviewer：真实daily模型5条风险顺序输入→第5条真实主人私聊自动拉黑告知、设置列表及证据可见；私聊拒收、同群正常请求继续；主人界面解除，后续第1条不立即拉黑。永久确定性保护负责完整解除后再5条、跨聊天/账号隔离、重复消息/类别、误判/故障不计入、事务回滚、源权限变化、暂停/恢复/unknown与无重发。实际最终系统事件/工具结果与真实PA调用分别留证；不以fixture文案替代模型通知。
+
+M1新增退出项：实现上述计数/状态/通知链及最低有效回归，独立代码+Context/一致性审查通过，R9真实产品验收通过；相关IM/PA构建与测试、文档/归档及PR CI通过，无生产功能写入。
