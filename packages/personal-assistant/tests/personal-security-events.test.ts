@@ -8,7 +8,7 @@ it.each([true,false])('delivers automatic-block facts with owner-only instructio
  store.bind({agentId:'pa',ownerId:'owner',sessionId:'main',conversationId:'global:pa',revision:'1'});
  const submitted:any[]=[];let acked=false;
  const config={agentId:'pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'c_owner',epoch:1}};
- const payload={incident_ref:'fifth',owner_only:true,owner_target:'conversation:c_owner',actor_id:'peer',source_message_id:'risk-5',automatic_block:{threshold:5,currently_blocked:blocked},owner_notice_message_id:null};
+ const payload={incident_ref:'fifth',owner_only:true,owner_target:'conversation:c_owner',actor_id:'peer',actor_name:'Lin',conversation:{id:'group',name:'Book club',type:'group'},source_message_id:'risk-5',automatic_block:{threshold:5,currently_blocked:blocked},owner_notice_message_id:null};
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:e=>{throw e;},
   runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
    if(method==='session.submit'&&!submitted.some(item=>item.inputId===args.inputId))submitted.push(args);

@@ -279,21 +279,26 @@ export class PersonalAgents {
   }
   /** Project unfinished communication from persisted receipts, not model claims. */
   incidentEvent(b:Row,incident:Row) {
+    const source=this.sourceAllowed(b,incident.conversation_id)?one(this.db,`SELECT m.content,
+      COALESCE(NULLIF(m.sender_display_name,''),NULLIF(u.display_name,'')) actor_name,
+      c.id conversation_id,c.title conversation_name,c.type conversation_type
+      FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN users u ON u.id=?
+      WHERE m.id=?`,incident.actor_id,incident.source_message_id):undefined;
+    const identity=source?{...(source.actor_name?{actor_name:source.actor_name}:{}),
+      conversation:{id:source.conversation_id,name:source.conversation_name,type:source.conversation_type}}:{};
     const automatic=one(this.db,'SELECT 1 FROM pa_contact_violations WHERE incident_id=? AND triggered_block=1',incident.id);
     if(automatic) {
       // The system action remains reportable to the owner after source access or contact policy changes.
-      const source=this.sourceAllowed(b,incident.conversation_id)?one(this.db,'SELECT content FROM messages WHERE id=?',incident.source_message_id):undefined;
       return {incident_ref:incident.id,owner_target:`conversation:${b.conversation_id}`,owner_only:true,
-        actor_id:incident.actor_id,source_message_id:incident.source_message_id,input_state:'rejected',
+        actor_id:incident.actor_id,...identity,source_message_id:incident.source_message_id,input_state:'rejected',
         automatic_block:{threshold:5,currently_blocked:!!this.actorRisk(b,incident.actor_id)},
         owner_notice_message_id:incident.owner_notice_message_id,
         ...(source?{reason:incident.reason,original_content:source.content}:{})};
     }
 
-    if(!this.sourceAllowed(b,incident.conversation_id)||!one(this.db,'SELECT 1 FROM messages WHERE id=?',incident.source_message_id))return {incident_ref:incident.id,blocked_reason:'source_unavailable',owner_notice_message_id:incident.owner_notice_message_id,peer_notice_message_id:incident.peer_notice_message_id};
-    const source=one(this.db,'SELECT content FROM messages WHERE id=?',incident.source_message_id);
+    if(!source)return {incident_ref:incident.id,blocked_reason:'source_unavailable',owner_notice_message_id:incident.owner_notice_message_id,peer_notice_message_id:incident.peer_notice_message_id};
     return {incident_ref:incident.id,owner_target:`conversation:${b.conversation_id}`,peer_target:`conversation:${incident.conversation_id}`,
-      source_message_id:incident.source_message_id,actor_id:incident.actor_id,reason:incident.reason,original_content:source?.content??null,
+      source_message_id:incident.source_message_id,actor_id:incident.actor_id,...identity,reason:incident.reason,original_content:source.content,
       owner_notice_message_id:incident.owner_notice_message_id,peer_notice_message_id:incident.peer_notice_message_id,input_state:'rejected'};
   }
   incident(principal:Row,args:Row) {
