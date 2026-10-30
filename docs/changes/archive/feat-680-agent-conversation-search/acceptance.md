@@ -197,3 +197,32 @@ Caller 报告以 `0292ef392aec8413c9e0ce1539a518ad038a05a2` 的隔离 `54292` �
 ### Caller 补充：真实 Web 失败恢复
 
 在同一隔离栈、产品代码 `0292ef392` 下，caller 保持 Web 页面打开，核对进程身份后暂时停止本次 IM，输入 `QA_RETURN_680`；实际页面显示 `Search failed` 和 `Retry`。用同一隔离数据库、端口与密钥恢复 IM 后点击 Retry，搜索重新返回 20 条结果及 Load more。该证据是 caller 自检，不冒充独立 reviewer；已有前端自动化亦覆盖失败与重试。
+
+## Round 6：独立搜索页面体验复验
+
+- Reviewer：独立 `change-reviewer`（`/root/search_ux_product_review`）；mode=targeted。本轮范围为用户反馈后的独立搜索页面、移动/桌面输入与结果、清空退出、原消息与返回及视觉层级，不重新执行 Agent 搜索与共享权限全部场景。
+- **Verdict：pass（本轮限定范围）**；highest_required_action=pass；issues_count=0；gh_issues_filed=0。旧 Round 3 的返回/年份问题已由 Round 5 独立关闭；本轮再验证关键词和分类返回保留，未把两条样本冒充多页位置复验。
+- 版本：开始时 HEAD=`8e84a75e3`，caller 在验收期间将键盘视口 CSS 修订为 `236ada431eb752f0ec2c23a34dadbf5fdc2317b6` 并重新构建。初始页加载版本按 caller 交接为 `8e84a75e3`；刷新后在 `236ada431` 再验 390×500 短视口和普通 PA 匹配。保留两个实际观察阶段，不将全部证据冒称来自更新版本。
+- 环境：仅使用 `http://127.0.0.1:63770`，caller 明确其隔离 runtime 为 `/tmp/nano-feat680-preview.fV9NiV`，群为 `c_nhnr9xqt`。实际 UI 为 Test User，研发日常成员显示 P/E/Q；worktree 的 `.e2e-daily.json` 指向另一个 54292 栈，未冒称它是本轮配置。没有修改测试数据，没有使用生产或真实飞书，没有停止服务或关闭用户标签。
+
+### 整体体验与证据
+
+移动端 390×844 从列表点击搜索，界面只保留返回、输入、分类和搜索主体，固定 PA、原列表、创建和底部导航在画面中消失；清空时保留轻提示，主动退出恢复完整普通列表。搜“发布”后两条结果以群图标、粗体来源和右侧时间建立行结构，作者与片段居次，高亮关键词支持快速比较。没有联系人和消息混排造成的阅读歧义。桌面 1280×720 切换左栏搜索时保留右侧原聊天，内容与搜索分工明确。整体延续产品现有灰绿配色与紧凑列表语言。
+
+关键画面（本机临时证据，不提交截图缓存）：`/tmp/feat680-product-review-8e84a75/` 内 `mobile-results.jpg`、`mobile-message.jpg`、`mobile-clear.jpg`、`mobile-empty.jpg`、`mobile-exit.jpg`、`desktop-results-context.jpg`、`desktop-pa-match.jpg`、`mobile-short-236ada431.jpg`。操作工具记录含同轮 AX 状态及完整截图。
+
+| 本轮场景 | 来源 | 实际观察 | 结果 |
+|---|---|---|---|
+| 独立搜索视图 | spec 用户反馈；design 体验修订；Web delta-spec | 手机进入独立全屏搜索；桌面左栏替换列表，保留聊天 | pass |
+| 输入、结果及来源可读 | Web delta-spec 查找并定位原消息 | 发布命中两条群消息，来源、作者、16:54 时间与突出关键词均可读 | pass |
+| 清空与主动退出 | Web delta-spec 独立搜索视图 | 桌面和手机清空保留搜索提示，返回退出恢复固定 PA、普通列表和创建入口 | pass |
+| 打开原文与返回 | Web delta-spec 查找并定位原消息 | 点击“发布方案…”到 message_id=d0e379bd76724e7a8aff28afa98e6fcb；显示 Original message located，命中高亮。手机 Back 恢复“发布”和 Group 选择；桌面侧栏继续保留搜索 | pass |
+| 空结果与加载 | Web delta-spec 权限、分页和状态中的受影响 UI 状态 | 真实看到 Searching…；无匹配词显示统一 No results found | pass |
+| PA 普通匹配项 | Web delta-spec 独立搜索视图 | 搜“发布”不固定出现 PA；搜“个人助手”只出现 Conversations 分组的 PA 匹配，没有空 Messages 分组 | pass |
+| 新版短视口 | caller 236ada431 CSS 修订 | 刷新后 390×500 输入“发布”，搜索顶部和两条结果均完整可见，无原列表重叠 | pass |
+
+### Reference Artifacts Reviewed 与边界
+
+已读 spec、design 用户试用后的修订、Web delta-spec 和共同体验标准。用户明确允许直接检查实际界面并跳过旧原型；旧 `prototype.html` 不作为 must-match 依据。按新版 design 的独立搜索、内容分组、返回清空契约，实际结果 match。没有模拟真实手机软键盘；390×500 仅证明短浏览器视口，不能证明原生键盘/visualViewport 事件行为。多页位置、跨年年份、失败 Retry、非零未读与权限沿用 Round 4/5 的具体证据及其原有限制，不以本轮代替再次执行。Agent 首文档其他场景不在本轮变化范围。
+
+上层文档：`SPEC.md`、`AGENTS.md`、`docs/specs/CONTRIBUTING.md` 无需更新；搜索页面行为应由 caller 确认归并至 `docs/specs/im/web-chat-ux.md`，本 reviewer 不修改契约。已重置临时 viewport、关闭自己创建的 IAB 标签；服务保持可供用户试用。
