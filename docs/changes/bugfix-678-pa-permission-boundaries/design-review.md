@@ -376,3 +376,43 @@ R9 的实现接缝、状态所有权与恢复方案可以落在现有结构内�
 ### Round 5 Author Resolutions
 
 R5-W1 accepted：将既有“主PA执行安全事件的提醒与拒绝”从历史ADDED区移入完整MODIFIED，保留普通风险、去重、暂停/unknown语义，显式列出第五条owner-only通知及完成条件；current spec保持未实现前的现状，实施验证后统一归并。无代码或其他实质设计改变。
+
+## Round 6
+
+### Metadata
+
+- reviewer target: `/root/automatic_block_design`（同一独立 reviewer）
+- review_mode: `closure`
+- mode_reason: 仅复核 Round 5 唯一问题 R5-W1 的局部契约修订；未增加实现、架构、通知权限或验收范围。
+- started_at: `2026-10-30T11:07:06+08:00`
+- completed_at: `2026-10-30T11:07:13+08:00`
+- duration: `7s`（局部差异及精确位置复核，不含报告写入）
+- baseline: `a3f25a1eb4a5364058e5a6ab16091e67149f8908`，`unit/bugfix-678`；审查前工作区 clean。
+- Context mode: Design Review closure，仅核对自动事件的通知受众与完成状态。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R5-W1 已关闭。该批准适用于已修订的 R9 实施前设计，不代表实现、真实模型验收或部署已完成。
+
+### Coverage 与证据
+
+核对 `git show a3f25a1eb`：除保留 Round 5 报告及 Author Resolution 外，实质修改只有 `specs/gateway/personal-agent.md`。原通知 Requirement 从 ADDED 区完整移除，并在 `:69–86` 作为唯一同名 MODIFIED 条目提供。
+
+- `:74–77` 明确普通两端处置仅适用于未触发自动拉黑的事件，保留有限沟通权限、实际对外审核、消息级去重和独立回执。
+- `:79–82` 明确第五条自动分支仅给主人专属私聊通知，以真实 owner 回执完成，不等待 peer 回执，屏蔽立即生效且不依赖通知。这与 `design.md:337–341` 的 owner_only、pending 与 incidentRead 分支一致。
+- `:84–86` 原样保留暂停、未知结果与恢复去重 Scenario；没有为解决文档冲突删除失败分支。
+- canonical 仍维持实现前 current，后续按 MODIFIED 替换同名 Requirement 即可得到无冲突契约；无需提前改变 current。
+
+**retained_from: Round 5**：计数及身份边界、服务端名单职责、Global/Inbox 交付、publication/回执、来源失权与解除恢复、部署及 M1 的其余结论保持。依据是本次精确 diff 未改这些设计、源码或验收条款；本轮不重复此前调查。
+
+### 历史问题闭环
+
+| Issue | Author Resolution | 本轮证据与状态 |
+|---|---|---|
+| R5-W1 | 完整通知 Requirement 移入 MODIFIED，普通分支排除自动事件，补第五条 owner-only 和完成条件，保留其他 Scenario | `specs/gateway/personal-agent.md:69–86` 与本提交 diff，**closed** |
+
+### Issues 与 Recommendations
+
+无新增问题或建议。按已批准设计继续 R9 实施与既定退出验证；本轮闭环结束。

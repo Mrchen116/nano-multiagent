@@ -496,6 +496,14 @@ CREATE TABLE IF NOT EXISTS pa_incidents (
 CREATE TABLE IF NOT EXISTS pa_contact_blocks (
  binding_id TEXT NOT NULL, actor_id TEXT NOT NULL, PRIMARY KEY(binding_id,actor_id)
 );
+-- New input-review evidence only; historical incidents are not retroactive strikes.
+CREATE TABLE IF NOT EXISTS pa_contact_violations (
+ binding_id TEXT NOT NULL, actor_id TEXT NOT NULL, message_id TEXT NOT NULL,
+ incident_id TEXT NOT NULL UNIQUE REFERENCES pa_incidents(id),
+ counting INTEGER NOT NULL DEFAULT 1, triggered_block INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY(binding_id,message_id)
+);
+CREATE INDEX IF NOT EXISTS pa_contact_violations_counter ON pa_contact_violations(binding_id,actor_id,counting);
 CREATE TRIGGER IF NOT EXISTS personal_membership_revoked AFTER DELETE ON conversation_participants BEGIN
  INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at)
  SELECT b.binding_id,'source.revoked',json_object('conversation_id',OLD.conversation_id),p.revision,strftime('%Y-%m-%dT%H:%M:%fZ','now')

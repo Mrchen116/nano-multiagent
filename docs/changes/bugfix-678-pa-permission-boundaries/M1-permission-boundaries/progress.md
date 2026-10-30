@@ -83,3 +83,12 @@ DSH/IM build、两包 typecheck、文档完整性（317 sources /68 routes）、
 final sync fetch后origin/main仍 `9bf2b13da4005631096f2a49223564cd68647c3c`，无上游增量；executed_base=effective_base为该SHA，code/Context/consistency及product均实际validated_at=`6e80670e3`。后续 `fd8ef953a` 与收口提交仅报告，源码不变，effective_through延伸至本次最终报告HEAD。既有未变部分按各报告retained，不替换历史失败事实。PR仍未合并、未部署，开发worktree保留用于审查。
 
 本轮隔离栈已由受控tmux的trap调用e2e-down，结果STOPPED；57997无监听，Node PID51454与专用tmux已退出。数据/截图/轨迹保留于本机runtime，未提交。
+
+
+## R9 系统累计五次自动拉黑实施
+
+用户明确将自动拉黑纳入同一unit；已将unit移回active，原历史验收保留。新增R9设计Round5发现普通两端沟通契约与第五条owner-only例外冲突，修正为完整MODIFIED后Round6 Approved，0 CRITICAL/0 WARNING。
+
+实现以单一pa_contact_violations伴随表登记新输入风险，binding/message去重；counting用于解除/误判后重计，triggered_block保留第五条系统动作。事务内调用手动与自动共用blockContact，不暴露Agent工具。第五条沿用incident/publication的owner通知及unknown查询，单独投影owner_only和当前黑名单状态；来源失权省略理由和原文，但主人仍可获知系统动作。普通黑名单私聊/群聊行为保持。
+
+先取得阈值/持久恢复6项及系统事件组装2项失败复现，日志 `/tmp/pr430-auto-block-red.log`、`/tmp/pr430-auto-event-red.log`。初步修复3文件31项通过，`/tmp/pr430-auto-block-green.log`。首次build指出事件联合类型缺少owner_only判别，已改用in类型收窄，未放宽类型。进一步受影响回归、独立门禁和真实产品验收另记录实际结果。

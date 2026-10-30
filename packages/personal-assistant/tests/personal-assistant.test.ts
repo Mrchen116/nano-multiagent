@@ -230,3 +230,11 @@ it.each([true,false])('reconciles an uncertain owner incident notice from the ho
   expect(f.reviews).toHaveLength(0);
  }finally{f.inbox.close();f.store.close();}
 });
+
+it.each(['allow','needs_owner','unavailable'])('does not report a countable security incident for %s without explicit risk',async decision=>{
+ const f=fixture(decision);
+ try {
+  await f.pa.admit(f.config,f.binding,{agent_id:'pa',conversation_id:'c_peer',relay_task_id:'ordinary',idempotency_key:'ordinary',metadata:{},message:{id:'ordinary',content:'Please do an ordinary task',sender_type:'user',sender_user_id:'peer',attachments:[]}});
+  expect(f.calls.some(c=>c.type==='pa.incident.report')).toBe(false);
+ }finally{f.inbox.close();f.store.close();}
+});
