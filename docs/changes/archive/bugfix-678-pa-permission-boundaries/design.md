@@ -189,7 +189,7 @@ type ReviewExecution<T> =
 
 ### 主 PA 安全处置与回执
 
-`pa.incident.report` 保留可信源核查、事件聚合/去重及联系人操作，返回持久事件；不 insertMessage。报告参数 category 从审核归一化结果生成，不能缺少现有服务端必需字段。在 pa_source_events 加 `security.incident` 事件，Global 转成主 PA 系统输入；事件事实含 owner target、原聊天 target、source_message_id、incident_ref、理由、已送达回执以及待处理步骤。理由和原文是外部证据，不插进系统指令字符串。
+`pa.incident.report` 保留可信源核查、同一消息/类别去重及联系人操作，每条新拒绝消息返回独立持久事件；联系人聚合仅用于主人端紧凑展示，不合并消息处置及发送回执。此处根据 2026-10-30 用户反馈校正原“事件聚合”的实现歧义；不 insertMessage。报告参数 category 从审核归一化结果生成，不能缺少现有服务端必需字段。在 pa_source_events 加 `security.incident` 事件，Global 转成主 PA 系统输入；事件事实含 owner target、原聊天 target、source_message_id、incident_ref、理由、已送达回执以及待处理步骤。理由和原文是外部证据，不插进系统指令字符串。
 
 扩展 send_message 的可选 `incident_ref`（仅绑定主 PA）；宿主校验事件属于当前 binding。允许目的地仅为主人会话和事件原会话，representation 固定 self，不附带文件/卡片/任务变更。主人提醒走既有私聊 publication；服务端从实际 message/operation 回执绑定 owner_notice_message_id，而非相信模型自报“已通知”。原聊天拒绝必须已具备主人提醒回执，冻结实际文案及事件事实，走正常披露审核；删掉 PEER_NOTICE 精确文本特例，不以 incident_ref 直接 allow。审核识别的是有限的“告知风险、拒绝当前请求”处置，不允许转发私人资料、原始恶意内容或代表主人承诺。
 

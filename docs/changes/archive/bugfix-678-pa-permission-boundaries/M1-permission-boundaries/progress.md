@@ -63,3 +63,12 @@ executed_base / effective_base：`9bf2b13da4005631096f2a49223564cd68647c3c`；�
 受影响 DSH+IM 回归100 files / 483 tests：98 files、481项通过，knowledge-policy 与 knowledge-review 各一项在等待异步事实时超时，完整日志 `/tmp/pr430-context-fix-tests.log`。同源码单 worker 对照重跑两文件9项全部通过（14.90s，`/tmp/pr430-context-fix-retry.log`）。这是负载相关假设的支持证据，尚不能证明并发超时的确切根因；未修改这两套测试或知识维护源码，不将两次结果拼成“一次全绿”。最终远端CI另行核实。
 
 DSH/IM build、两包 typecheck、文档完整性（317 sources /68 routes）、归档检查与diff check通过。当前没有自建产品服务；测试子进程按fixture清理。PR仍未合并、未部署，开发worktree保留用于审查。
+
+
+## 2026-10-30 连续拒绝处置与身份标签修复
+
+用户要求核对后续拒绝为什么未交主 PA，并修复自身发言的“代为发送”。current spec 要求每条 deny 交主 PA 处置；旧实现按联系人/会话/类别复用 open incident，只首次生成 security.incident，并把首条已完成回执带给后续输入，导致后续事实缺失且 pending 不再返回。设计“事件聚合”的描述与逐条处置不一致，已明确聚合仅在主人摘要 UI，底层新消息独立 incident；原消息/类别重复报告仍幂等。沿用已有表与事件通路，不新增 schema/迁移，也不重置或重放历史回执。主人端现有按 actor 分组和批量知情操作保持。
+
+自身发言的真实 sender 一直是 PA，错误来自无 representation_operation_id 的旧 delegation 投影一律写“代为发送”。标签改为仅表明“某人的 PA”；真实 representation=owner 仍由用户 sender + pa_agent_id 表达“PA代发”，旧消息不会提升为主人授权。修改读取投影使已有消息经历史刷新也获得准确标签，已持久化的旧 realtime event payload 不做数据回写。
+
+永久保护扩展既有 disclosure 事件测试，覆盖首条未完成时又来一条、首条已完成后新请求、独立 owner→peer 顺序、消息/事件事实不被覆盖、恢复与重复报告不重发；representation 测试覆盖真实群发送和历史/realtime投影，既有 owner 和 legacy tests 保留。修改前两项各自红测，日志 `/tmp/pr430-per-message-red.log`；修改后两文件24项通过，`/tmp/pr430-per-message-green.log`。后续独立审查及真实复验结果在收口时追加。

@@ -287,13 +287,12 @@ export class PersonalAgents {
     if(seen)return seen;
     let incident:Row;
     transaction(this.db,()=>{
-      const open=one(this.db,"SELECT * FROM pa_incidents WHERE binding_id=? AND actor_id=? AND conversation_id=? AND category=? AND status='open'",b.binding_id,actorId,source.conversation_id,category);
-      const id=open?.id??randomUUID();
-      if(open)this.db.prepare('UPDATE pa_incidents SET count=count+1,source_message_id=?,reason=? WHERE id=?').run(source.id,args.reason,id);
-      else this.db.prepare('INSERT INTO pa_incidents(id,binding_id,actor_id,conversation_id,source_message_id,category,reason) VALUES(?,?,?,?,?,?,?)').run(id,b.binding_id,actorId,source.conversation_id,source.id,category,args.reason);
+      // Group reminders in the owner UI; communication receipts belong to one rejected message.
+      const id=randomUUID();
+      this.db.prepare('INSERT INTO pa_incidents(id,binding_id,actor_id,conversation_id,source_message_id,category,reason) VALUES(?,?,?,?,?,?,?)').run(id,b.binding_id,actorId,source.conversation_id,source.id,category,args.reason);
       this.db.prepare('INSERT INTO pa_incident_evidence VALUES(?,?,?,?)').run(b.binding_id,source.id,category,id);
       incident=one(this.db,'SELECT * FROM pa_incidents WHERE id=?',id)!;
-      if(!open)this.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'security.incident',?,?,?)")
+      this.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'security.incident',?,?,?)")
         .run(b.binding_id,JSON.stringify(this.incidentEvent(b,incident)),this.policy(b.binding_id).revision,now());
     });
     this.wake(b);return incident!;
