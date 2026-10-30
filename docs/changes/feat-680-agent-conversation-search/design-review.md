@@ -73,3 +73,81 @@
 ### Author Resolutions
 
 复核 Round 2 的覆盖与结论，无遗留 finding 或需要采纳的建议；设计产物在该轮后无实质修改，Gate 2 通过。
+
+## Round 3
+
+- Reviewer：独立 `change-design-reviewer`（Codex，`/root/feat680_design_review`）；同一 reviewer 执行 `agent-context-review` Design Review。
+- review_mode：full；mode_reason：本轮变更 `conversations` 共享结果接口、恢复与 milestone，故复核全部契约及受影响消费链，而非仅核旧问题。
+- started_at：2026-10-30T11:53:07+08:00；completed_at：2026-10-30T11:53:43+08:00；duration：约 36 秒。
+- Verdict：**Issues Found — 0 CRITICAL / 2 WARNING**。
+- 基线：`878380d12375a50d1cbc6d8afedfc0df9887b281` 加 `design.md`、delta 的未提交修订。本轮静态审查设计与现有实现，未运行新实现或真实模型。
+
+### 历史问题闭环
+
+- **R1-W1 / R1-W2 — 保持 closed**。本轮 `design.md:61-67,85-94,137` 保留按 Agent 的外部 target 到 shadow 映射、续页重授权、外部发送人作用域与 M1 场景；引用映射后精简结果的变动没有撤销这些约束。依据沿用 Round 2，并对照 `tool-references.ts:71-75,90-109`、`external.ts:268-282,323-341` 和 `work.ts:119-125,181-211,254-264`。Round 2 无存活问题。
+
+### Coverage 与证据
+
+- 用户本轮确认允许省略无后续与完整消息的冗余状态；设计保留 `next_cursor` 存在时续页、IM 范围限制、权限检查和不消费 Inbox。`spec.md` 原有多词、排序、筛选、来源、非消费和权限场景不变；delta 新增完整/分段 scenario 指向既有 gateway canonical target。相关性、排序、范围与职责的未变证据沿用 Round 1/2。
+- 从实际产品入口核对：`global-mode.ts:25-26,32-42` 的工具及 JSON renderer，`global-agent.ts:411-419,459` 的引用与 relay，`tool-references.ts:19-35,71-75,90-109` 的持久短游标，`work.ts:181-221,270-347` 的快照、part 预算、附件、顺序与返回，`external.ts:75-96,268-282` 的缓存原始消息，`policy/sources.ts:23-30,69-93,188-192` 和 `policy/codex-context.ts:44-77,115-125` 的历史分发、恢复与有标记截断。新设计明确单页合并、跨页部分序号、对附件只宣称描述完整、预算不能空转及权限/内容变化；但以下两处状态尚不能闭合。
+- Agent Context Design Review：consumer 为主 Global/PA Agent 与后续授权 reviewer；surface 是 `conversations` 的 schema、投影和历史证据。正常新快照的示例表达首/末分段、来源及按原参数续页，历史按 untrusted evidence 保留 partial 和发送者，并要求验证实际 renderer、审核/恢复；没有实现与模型运行，无法证明实际交付或模型行为。外部缓存未知完整性和旧游标恢复的可执行语义见 findings。
+- 无前端变更或一次性数据迁移；M1 和隔离 runbook 继续覆盖核心旅程，但应增加下列状态的验证。无运行时性能或真实模型结果，本轮不替代实施及产品验收。
+
+### Issues
+
+#### R3-W1 — 旧的跨页游标没有内容指纹，续读与一致性承诺冲突
+
+- 严重度/证据状态：WARNING / CONFIRMED（旧游标的数据结构和设计矛盾）。Context surface：模型工具结果、跨版本续页与恢复。
+- 位置：`design.md:55,77-80,137`。
+- 期望：模型恢复一条跨页消息时，应知道各页是否可被视作同一版本；设计规定续页绑定内容指纹、变化则拒绝，同时要求旧游标仍按原规则用完。
+- 证据：当前 `work.ts:181-221` 的旧快照仅保存查询身份与 ID 列表，游标仅含 snapshot、offset、part；`work.ts:287-295` 每次按当前正文和附件重新构造 parts。`tool-references.ts:19-35,71-75` 将游标短引用持久化，并不保存旧正文指纹。故升级前首段已交付、消息随后变更、升级后用旧 cursor 续读时，无法与首段版本比较；直接采用新 `partial` 区间并在最后省略 `next_cursor`，可能让模型把不同时点内容当成完整消息。此处确认的是状态缺口，不断言该场景已在运行中出现。
+- 建议：明确旧的**消息内分段** cursor 如何安全续读及向模型提示不确定性（例如对无法验证的分段要求重新读取该消息），并与旧 cursor 兼容承诺协调；普通位于消息边界的旧游标可按既有规则继续。M1 增加升级前首段、内容改变及不变两种续页，并验证错误或状态、重新读取和权限约束。
+
+#### R3-W2 — 外部缓存完整性未知时的模型可见状态没有定义
+
+- 严重度/证据状态：WARNING / CONFIRMED（结果契约未闭合）。Context surface：外部缓存消息投影、可执行恢复和历史审核。
+- 位置：`design.md:77-81,85,137`。
+- 期望：模型应区分完整消息、可按区间续页的部分消息与外部缓存中无法确定完整性的消息，知道能否补读；授权审核/恢复也需保留这一区别。
+- 证据：设计的唯一部分消息格式 `partial` 要求实际的 `first_part`、`last_part`、`total_parts`（`design.md:79-80`），但对缓存又明确“不臆造 parts”且未知时“显式标明不完整”（`design.md:81`），未指定未知状态的字段、含义及无游标时如何恢复；现有本地缓存直接返回 `row.input.message`（`external.ts:280-282`），它来自将正文与图片分别归并的接入表示（`external.ts:83-94`），并非带 IM 分段数的快照。没有确定的计数时不能填充所规定的部分区间，也不能省略标识而被理解为完整。
+- 建议：为缓存内容未知/不完整规定明确、模型及历史审核均能保留的状态和恢复路径，区分其与有精确区间的 `partial`；说明如何通过已同步历史定位或在无法定位时如实报告。M1 需覆盖本地缓存（含正文与图片、未同步/未知完整性）、模型可见投影和审核/恢复，而非只测 IM 分段。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+- R3-W1 — **accepted**。当前旧游标只有 offset/part，无法重建此前交付内容的版本。已在 `design.md` 决策 3/6 约定旧游标停在消息内时拒绝续读并重查、消息边界沿原快照续页，以及后续跨页指纹与权限复核；M1 覆盖旧内容改变和不变两种情形。
+- R3-W2 — **accepted**。外部本地缓存并无 IM part 区间可证完整。已在决策 6 定义 `partial: {"status":"unknown"}`、缓存范围、可信镜像映射可回查及无映射时不能猜测的恢复路径；M1 增加正文/图片、镜像/未同步、模型与审核恢复覆盖。
+
+## Round 4
+
+- Reviewer：独立 `change-design-reviewer`（Codex，`/root/feat680_design_review`）；同一 reviewer 执行 `agent-context-review` Design Review。
+- review_mode：full；mode_reason：本轮新增模型可见的未知状态，调整旧游标兼容及 milestone；涉及共享结果接口与恢复，复核相关端到端路径和全范围契约。
+- started_at：2026-10-30T11:54:48+08:00；completed_at：2026-10-30T11:55:02+08:00；duration：约 14 秒。
+- Verdict：**Approved — 0 CRITICAL / 0 WARNING**。
+- 基线：`878380d12375a50d1cbc6d8afedfc0df9887b281` 加本轮未提交设计与 delta；静态设计结论，不代表实现或模型运行通过。
+
+### 历史问题闭环
+
+- **R3-W1 — closed**。Author Resolution accepted。`design.md:55,80,137` 对旧消息内游标 `part > 0` 明确不返回片段、报错并重查，不依赖无法重建的历史指纹；`part = 0` 保留原快照排序，后续新分段建立指纹，均先重新核验身份与权限。`work.ts:181-221,270-283` 确认旧游标有 `part` 与快照顺序，允许实施识别此边界。M1 覆盖消息内容改变/不变、边界续查、权限重核及重读。
+- **R3-W2 — closed**。Author Resolution accepted。`design.md:81,104,137` 为缓存无法确认完整性规定 `partial.status=unknown`，不伪造分段位置，并区分本地缓存范围、可信镜像可回查与无映射/未同步的说明；要求未知状态与真实来源保留至授权审核和恢复。`external-store.ts:15,24-25,35-47` 的 chat shadow 与 inbound mirror、`external.ts:323-342` 的写入路径提供真实映射依据；M1 涵盖缓存文字和图片、已镜像/未同步、模型投影及审核恢复。
+- **R1-W1 / R1-W2 — 保持 closed**。本轮继续保留由当前 Agent 映射 shadow、定向查询及当前 IM 授权、外部发送者作用域及对应验证；见 `design.md:61-67,137`，其余证据沿用 Round 2/3。
+
+### Coverage 与证据
+
+- 重新对照 spec、delta、设计和 M1：本轮没有改变多词、排序、过滤、来源和 Inbox 非消费的用户要求；delta 的完整/分段场景与当前 canonical gateway target 一致。对无后续/完整消息省略状态仍保留明确的 `next_cursor` 缺省语义，已同步范围与外部缓存范围各自限定；普通消息内分段、附件描述、错误、权限变化及恢复均有设计与验证承接。未受影响的现状、架构与依赖证据沿用 Round 1–3。
+- Agent Context Design Review：模型能区分带区间的部分消息和完整性未知的缓存消息，前者沿 cursor 继续、后者通过可信映射回读或如实说明限制；旧 cursor 错误明确引导重新查询，不能把历史片段升级成新授权。`policy/sources.ts:23-30,69-93,188-192` 的投影及恢复路径保留结果对象，`design.md:80-81` 明确须保留来源和 partial，M1 要求在实际 renderer 与审核/恢复验证。上述为方案及现有代码判断，实际模型输入、provider 行为和新实现仍待 M1 取证。
+- Gateway 继续承担可信映射及模型投影，IM 负责授权、快照和当前内容；复用已有缓存映射及历史审核机制，不新增索引或身份服务。单 milestone、隔离 runbook、无前端和无一次性迁移的判断未变；实际容量和验收资源仍须实施时确认。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+复核 Round 4 的覆盖和历史问题闭环，无遗留 finding 或需要采纳的建议；受审设计在本轮后无实质修改，Gate 2 通过。
