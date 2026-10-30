@@ -217,7 +217,7 @@ export function ConversationSidebar({
           className="chat-sidebar-search"
           placeholder={t("chat.list.search")}
           value={search}
-          onChange={(e) => { setSearch(e.target.value); saveSearch({query:e.target.value,filter,pages:1,scrollTop:0}); }}
+          onChange={(e) => { restoreScroll.current = null; setSearch(e.target.value); saveSearch({query:e.target.value,filter,pages:1,scrollTop:0}); }}
         />
         <div className="chat-sidebar-filters" role="tablist">
           {FILTER_ORDER.map((key) => (
@@ -227,7 +227,7 @@ export function ConversationSidebar({
               role="tab"
               aria-selected={filter === key}
               className={`chat-sidebar-filter${filter === key ? " chat-sidebar-filter--active" : ""}`}
-              onClick={() => { setFilter(key); saveSearch({query:search,filter:key,pages:1,scrollTop:0}); }}
+              onClick={() => { restoreScroll.current = null; setFilter(key); saveSearch({query:search,filter:key,pages:1,scrollTop:0}); }}
             >
               {t(FILTER_LABEL[key])}
             </button>

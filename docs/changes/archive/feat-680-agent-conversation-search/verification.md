@@ -350,3 +350,11 @@ canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inb
 - 跨年展示：代码和 `conversation-sidebar.test.tsx` 确认非本年结果显示年份；实际产品复验由独立产品 reviewer 负责。
 - **移动端验收 major #1 部分关闭**：当前缓存并在 sidebar 重挂载后恢复搜索词和分类，但 `searchResult` 重置为 null 并仅重查首页；用户在第 2 页点击结果返回时仍会丢失已加载页和位置，必须重新点击加载更多。`acceptance.md` Round 3 原 finding 明确要求已加载结果或等效恢复位置，当前不能按这一标准将其完全关闭；具体体验和复验由产品 reviewer 裁定。
 - Node 24.22.1 下独立重跑 `apps/im-server/tests/conversation-search.test.ts`、`personal-sources.test.ts`、`messaging.test.ts` 共 21 项通过；前端 `conversation-sidebar.test.tsx` 共 19 项通过。这些测试覆盖词/分类恢复，未覆盖第 2 页返回位置。
+
+### 针对 f3a33aef9 的分页恢复复验
+
+- validated_at `f3a33aef94104594a70cb92bd0f1e083631b8ec6`，executed_base `aeed9cbfd`；code review `patch/closure` + verification `targeted-closure`，requires_full_verification：false。
+- 产品验收 major #1：实现新增页数与滚动位置保存，返回后重新顺序请求各页以执行当前权限检查，覆盖此前丢失第 2 页的问题。原产品体验是否达标由产品 reviewer 的真实 Web 复验裁定。
+- **WARNING — 切换条件时旧滚动位置未失效**：`restoreScroll.current` 仅成功接收结果后清除，返回后旧请求尚未完成时修改关键词/分类，只重置持久状态却未重置 ref。新查询完成会应用旧查询滚动位置，可能跳过新结果开头。建议切换条件时同步清空待恢复位置并覆盖异步条件切换。
+- **WARNING — 无观察者的搜索状态默认五分钟回收**：workspace 以 QueryClient `setQueryData` 保存、`getQueryData` 读取，未建立 observer 或配置该键 `gcTime`；前端 QueryClient 为默认配置。已核验本仓已安装 TanStack Query 浏览器默认 `gcTime=5分钟`，无 observer 且空闲时回收；用 30ms 配置在隔离 Node 查询缓存中复现到期后 `getQueryData` 为 undefined（未实际等待默认五分钟）。用户打开原文超过五分钟再返回会丢失查询及位置；建议使用页面生命周期内的状态，或显式设置该项生命周期，并保留登出/切换用户清理。
+- 审查期间共享 worktree 出现后续未提交修复，源码结论以上述 commit `git show` 为准；随后执行的侧栏测试覆盖了工作树新改动，不作为 f3a33aef9 固定版本测试证据。最终修复需另以固定头复验。

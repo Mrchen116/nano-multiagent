@@ -333,6 +333,7 @@ export function ChatWorkspacePage() {
   const chatRootRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
+  useEffect(() => { queryClient.setQueryDefaults(['chat', 'sidebar-search'], {gcTime:Infinity}); }, [queryClient]);
   const { t, i18n } = useTranslation();
   const [membershipReady, setMembershipReady] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);

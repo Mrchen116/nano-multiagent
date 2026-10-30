@@ -85,6 +85,17 @@ describe("ConversationSidebar", () => {
     await waitFor(() => expect(searchMessages).toHaveBeenLastCalledWith('plan','group','next',expect.any(AbortSignal)));
   });
 
+  it('starts at the top when search changes before a saved position is restored', async () => {
+    const user = userEvent.setup();
+    const searchMessages = vi.fn((query:string) => query === 'old' ? new Promise<never>(() => {}) : Promise.resolve({messages:[]}));
+    render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} searchMessages={searchMessages}
+      initialSearch={{query:'old',filter:'all',pages:2,scrollTop:300}} />);
+    const input = screen.getByRole('searchbox');
+    await user.clear(input); await user.type(input,'new');
+    expect(await screen.findByText('No matching messages')).toBeVisible();
+    expect(screen.getByRole('list').scrollTop).toBe(0);
+  });
+
   it('distinguishes a failed search from an empty result and retries', async () => {
     const user = userEvent.setup();
     const searchMessages = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({messages:[]});
