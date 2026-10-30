@@ -91,3 +91,58 @@ N/A：设计明确没有前端改动与新增原型契约。实际 Web 进入、
 - E9：`work-final.json` turn7，准确 `AP-680` 返回 `fixture-pa-only`，`owner_can_read=false`；PA回答指出本人无权且未给来源链接。外部 target `external:pa_d8c9ef251c44:feishu:feat680-test:group:synthetic` 搜银燕方案得三条；小乙 `sender_source_id=ou-feat680-two` + 2026全年为空，换2024全年仅 `fixture-fs-2`；around得到小甲、小乙、未知旧记录，证明external定位路由及跨消息上下文。内部主人过滤两次返回未知旧记录，构成#1；该记录is_owner=true构成#2。未存在映射 `external:pa_d8c9ef251c44:feishu:feat680-unmirrored:group:synthetic` 返回 `Error: target_not_accessible`，PA明确不可访问不等于零匹配，也没有擅自断言全部外部历史已查全。
 - E10：`unread-before.json` / `unread-after.json`，`fixture-feat680-unread` 的主人 unread_count **1→1**。中间 turn7 实际 `search 青鹭项目` 和 `read around_message_id=fixture-unread-680` 均成功，真实作者为测试同事 `fixture-user-680`，reviewer 没有打开该群；本轮未对该群 inbox read。
 - `policy-restored.json` 证明排除策略已恢复 `excluded_conversation_ids:[]`（revision3）。所有新增虚构数据保留在 caller 管理的隔离栈，便于 targeted 复验。无需清理 reviewer 自启进程。
+
+---
+
+# Round 2 — targeted 修复复验
+
+> Validation snapshot: `6b95850a6 → 6066037d7a8abba46ae1ed1a96d483d85624e577`。
+> Prior acceptance: 本报告 Round 1，`validated_at=2d51d501dab8b62e1616ae4019bfab200088a3aa`。
+> Fix delta: `2d51d501d..6066037d7`；2026-10-30，复用原隔离数据及端口。caller 已以本提交重建并重启；reviewer 核实 clean HEAD、运行进程仍指向该工作树构建、`/health` 正常、原 node online。
+
+## Verdict
+
+**pass。Round 1 的两个 major 均关闭，未观察到新增问题。** 本结论由本轮身份/过滤/来源回查/相邻分页的实际旅程，加上下面逐项明确保留的 Round 1 证据组成；不把前轮失败直接改写为成功。
+
+本轮只通过正常 PA 自然语言消息驱动，读取真实 `/im/v1/agents/pa_d8c9ef251c44/work` 模型可见结果及聊天消息接口确认最终答复。未读取实现定位，未修改源码/测试/设计，未停止或启动服务。虚构外部镜像、PA-only 及未读数据仍为前轮 caller 注入的合成前置，不声称真实飞书传输链路已验证。
+
+## 问题关闭与决定性证据
+
+本轮请求 `d10b378da88843c09a5d34d5956b3bda`、相邻回归请求 `a625e1b27a5d444fba34c44fc920e8e1`。真实执行为 PA 主 session turn 8；原始证据 `/tmp/feat680-review/round2-work.json`、`round2-messages.json`。最终答复 `5d39113bef734870a83bf2c7ada3c4af` 已在真实聊天消息接口确认送达，不仅是待发送参数。
+
+| 前轮问题 | 本轮实际观察 | 结论 |
+|---|---|---|
+| major #1：未知外部旧记录被内部主人ID筛中 | 同一真实 external target，`query=银燕方案,participant_id=u_xcfqwzq4,limit=20` 成功返回 `messages:[]`、`history_scope:im_history`，未返回任何外部记录。 | closed / pass |
+| major #2：未知外部作者误标为主人 | 无筛选 search、以小乙为锚的 around read、`message_id=fixture-fs-unknown` 精确 read 三条路径均返回未知记录 sender **`{"name":"未知","kind":"external","channel":"feishu"}`**；没有内部代记 `id`、没有 `source_id`、没有 `is_owner`。 | closed / pass |
+
+相邻边界也由实际结果确认：
+
+- 小甲/小乙分别保留 `source_id=ou-feat680-one/ou-feat680-two`、`kind=external`、`channel=feishu`、`is_owner=false`，二者均无内部代记 `sender.id`。小乙加2024全年及指定 external target 搜索只返回 `fixture-fs-2`；around回读三条，未知作者仍保留未知字段语义。
+- 重新搜索 AP-680 确实返回原始 `fixture-pa-only`，其 sender 保留 PA 的内部 Agent ID、`kind=agent,is_owner=false`，来源 `owner_can_read=false`。PA 在实际答复中排除本聊天自命中，说明主人无权访问且没有附不可访问来源链接。
+- 内部赤鹭新查询 `query=赤鹭,limit=2` 首批为 `862a.../bd3f...`，使用新 `p_1bd3b4e1` 续页为 `c3eb.../24c8...`，第二页继续返回 `p_4e0218c7`。四条内部用户仍保留 `id=u_xcfqwzq4,name=Test User,is_owner=true,kind=user`，证明外部字段修正没有顺带删除内部作者信息。
+- 最终答复明确未知作者不能说成主人，省略字段不等于 true/false；准确区分内部主人过滤零匹配和访问拒绝；分页说明“只读两页、4条，不是全量，仍有后续”。同一来源的真实作者、时间、原文和链接仍可对应。没有向受验群发消息。
+
+## 范围判断与前轮结论保留
+
+派发的修复范围为外部身份投影、内部发送人匹配和模型工具说明；文件级变更范围与该说明一致。搜索匹配/排序策略、around窗口、当前来源排除、已读消费和 Web 路由没有新的行为要求。共享 sender 投影可能影响内部用户与 Agent，因此本轮扩展核验了内部作者和 PA-only 作者；共享搜索/游标路径额外执行了真实新游标续页。未出现需要扩为 full 的新副作用。
+
+下表的 retained 只保留 Round 1 已实际观察到的对应结论，原有限制仍成立。原通过仅代表当时已验行为，当前继承通过以修复影响可限定、需求/数据/入口未改变、相邻真实回归成功为依据，不声称本轮重跑了所有旅程。
+
+| Scenario（来源同 `spec.md`） | Round 2状态 | 实际复验或明确保留的证据 |
+|---|---|---|
+| 中文多关键词 | pass / retained | Round1 E1/E2：真实不连续中文三线索命中。当前无匹配算法变化，单项筛选及相邻搜索本轮成功。 |
+| 精确短语和标识 | pass / revalidated + retained | 本轮 AP-680 原始命中及自命中区分；Round1 E1/E2 HERON-680/BLUE-680准确标识证据保留。 |
+| 相关性优先 | pass / retained | Round1 E4 的旧三词先于新单词、时间分离对照；本次身份修复不改变排序判据。 |
+| 最新优先与旧历史 | pass / retained | Round1 E3/E4 的recent新消息优先及2024历史；本轮外部2024时段检索仍成功。 |
+| 聊天、发送人与时间组合 | pass / revalidated + retained | 本轮小乙+external target+2024只一条、内部主人过滤外部记录为空；Round1 E5/E8内部发送人及时间正反例保留。原fail关闭。 |
+| 从命中回到原文 | pass / revalidated + retained | 本轮around与精确read均保留真实已知作者/未知状态及来源；Round1 Web原消息定位和返回截图与操作证据保留，UI无改动。本轮未重跑视觉矩阵。原fail关闭。 |
+| 多页结果 | pass / revalidated + retained | 本轮真实新cursor两页、仍有后续且答复不宣称全量；Round1 E3读三页至末页的完整性证据保留。 |
+| 没有匹配与未查全 | pass / revalidated + retained | 本轮内部主人筛选正常空数组、两页未查完表达；Round1 E5空词与E7来源拒绝、E9不可用映射错误保留。未测IM断连的原边界不变。 |
+| PA双身份和来源排除 | pass / revalidated + retained | 本轮PA-only再次返回owner_can_read=false且不附无权链接；内部主人来源查询成功。Round1 E7策略排除后拒绝与允许来源成功保留。 |
+| 权限变化与续查 | pass / retained | Round1 E7旧cursor/around在来源排除后均target_not_accessible；本次没有改变当前权限判定。本轮普通续页成功；策略仍revision3、排除列表空。 |
+| 不消费未读 | pass / retained | Round1 E6/E10的Agent Inbox7→7与主人1→1保留；本轮未read该群，sources before/after仍显示合成未读群1。后者只作状态旁证，不冒充再次执行该群完整未读旅程。 |
+| design M1：外部双真人定向查找、身份消歧 | pass / revalidated | 本轮两已知source_id区分、2024筛小乙、around与未知精确读取、内部主人空匹配、最终答复正确处理未知；关闭原fail。 |
+
+## 本轮交付与环境状态
+
+仅追加本报告，无代码/测试/设计变更，无提交。原临时数据保留用于追溯，服务由 caller 管理且未停止。`round2-sources-after.json` 确认策略仍为revision3、`excluded_conversation_ids:[]`。报告中的上层文档归并责任与前轮相同，由 orchestrator 收尾。

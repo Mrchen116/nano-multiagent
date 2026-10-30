@@ -185,3 +185,127 @@ DSH fixture schema 捕获、真实 PA Work 行为及未取得 OAuth provider wir
 - report_commit: 共享现场由 caller 提交本报告；未修改其他文件
 - top_concern: 无阻断问题；保留单机容量样本、provider wire 未捕获的证据边界
 - 自建服务：无；临时测试数据库由 fixture 清理；未改动 caller 隔离服务
+
+## Round 3 — External Identity Projection Patch
+
+> Validation snapshot: `6b95850a67da5215f3e26dd433037de0fbde5ac5 → 6066037d7a8abba46ae1ed1a96d483d85624e577`
+>
+> verification_mode: targeted-closure · review_round: 3 · pre_fix_head: `5e080ffbf7709e85e526cede50dc740a6e547234` · fix_delta_range: `5e080ffbf..6066037d7` · inspected: 2026-10-30, Asia/Shanghai
+
+**本轮定向结论：PASS，0 critical / 0 warnings / 0 suggestions；code-review patch 无存活 finding。** 范围是产品验收发现的 `conversations search/read` 外部真人身份投影，W1/W2 的 Round 2 closure 不重开。`requires_full_verification: false`。
+
+### 实现与直接验证
+
+| 契约 / 风险 | 当前实现 | 核对结果 |
+|---|---|---|
+| 外部真人不能以代记 IM owner ID 充当真实作者 | `apps/im-server/src/work.ts:307`, `:328` 统一以 externalHuman 判定，对全部外部真人省略内部 sender.id | 已知主人、已知同事、未知旧作者三路均不返回代记 id |
+| 旧外部镜像缺少可靠 source_id 时不能标为主人 | `work.ts:330` 对未知外部作者不投影 is_owner；保留 kind/channel/name 和其他来源事实 | 未知作者结果没有 id/is_owner/source_id；不以 false 冒充确定的非主人身份 |
+| 已知外部作者仍可准确辨认、筛选 | `work.ts:334` 保留 source_id；已知来源继续使用现有宿主 owner 判定 | 真实配置 owner_open_id 匹配时保留 is_owner=true；已知其他人保留 false；sender_source_id 搜索仍通过 |
+| 内部真人 / Agent 的身份与权限不回归 | externalHuman 只包括外部来源 sender_type=user；身份校验、sourceAllowed、conversationAccess 与 participant/observer 未改 | 现有双身份、来源排除、内部作者/时间组合和 owner 身份测试通过 |
+| 模型能解释缺失身份 | `packages/dsh-integration/src/global-mode.ts:25` 明确 external source_id 缺失为未知、is_owner 缺失不证明主人身份 | 源码与当前构建 `lib/global-mode.js` 一致；原有 DSH schema 装配路径与 JSON renderer 未改 |
+| 审核 / 恢复不补回内部 ID 或主人字段 | ApprovalSources 以完整 JSON 保存 conversations_result 并标 observation=historical；restoreEntries/codexEntries 保留消息；bounded 仅改 content | 沿实际消费链核对，无重新调用 sourceFacts 补字段；现有 provenance/history/recovery 测试通过 |
+
+独立执行支持的 Node v24.22.1：
+
+```sh
+PATH="/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH" pnpm exec vitest run apps/im-server/tests/conversation-search.test.ts apps/im-server/tests/personal-sources.test.ts packages/dsh-integration/tests/approval-sources.test.ts
+# 3 files, 29 tests passed; 2026-10-30 12:24 Asia/Shanghai
+```
+
+另外使用 `/tmp/feat680-identity-patch-repro.mts` 构造独立内存 IM + 真实 PersonalAgents/Work.query，配置 feishu owner_open_id，验证真实查询结果：
+
+```json
+{"case":"known-owner","sender":{"name":"owner","is_owner":true,"kind":"external","channel":"feishu","source_id":"owner-open"}}
+{"case":"known-peer","sender":{"name":"owner","is_owner":false,"kind":"external","channel":"feishu","source_id":"other-open"}}
+{"case":"unknown","sender":{"name":"owner","kind":"external","channel":"feishu"}}
+```
+
+此复现故意不设 sender_display_name，展示保留的显示名可以来自旧镜像账户，不能替代 source_id 证明作者。工具说明明确未知身份；没有从显示名推导 owner。脚本只用合成数据，不启动服务。`git diff 5e080ffbf 6066037d7 --check` 通过。caller 提供测试 red→green 过程，本 reviewer 独立复验 green，未修改固定现场重放 red。
+
+### 修复范围与既存边界
+
+本次修复的是 **Work 历史查询向模型投影的身份事实**，不等于整个 PA 宿主身份判定已修复。`apps/im-server/src/personal-agent.ts:123` 的 sourceFacts 仍将 `sender_user_id=owner` 且无 sender_source_id 的外部旧镜像判断为 is_owner=true；messageEvidence、pa.source.admit、authorization 与部分 owner 证据校验使用该函数。独立脚本对相同 unknown 消息观察到 Work 结果不含 is_owner，但 sourceFacts 仍为 true。
+
+已对照 `git show 5e080ffbf:apps/im-server/src/personal-agent.ts`，该逻辑在 pre_fix_head 已存在，本 patch 没有新增或扩大它。历史 conversations_result 的审核/恢复也不会用此函数重新生成 sender，故它不使本轮修复后的 Work 结果反向恢复成旧字段。本轮不把该既存共同身份缺口算作新 patch finding，也不宣称 ownerMessage、实时输入摄取或其他宿主证据接口已经因此得到修复。若后续要统一这些 Surface，应另行明确范围并验证共享 owner 判定；不能仅用本报告宣称所有外部身份/授权路径均正确。
+
+此前的模型行为与 provider-wire 限制继续适用；本轮没有独立运行真实模型旅程，最终产品复验由 product reviewer 承担。既有错误字段已经进入的历史 Context 不会被这个补丁追溯擦除，恢复只能保留当时真实记录，不是新的主人授权。
+
+### Round 3 Handoff
+
+- unit_id: `feat-680-agent-conversation-search`
+- review_round / verification_mode: `3` / `targeted-closure`
+- validated_at: `6066037d7a8abba46ae1ed1a96d483d85624e577`
+- executed_base: `6b95850a67da5215f3e26dd433037de0fbde5ac5`
+- verdict: `pass`; issues: `[]`; validated_issues: `产品验收未知外部作者的 Work 身份投影 closed`
+- requires_full_verification: `false`
+- report_path: `docs/changes/feat-680-agent-conversation-search/verification.md`
+- report_commit: 共享现场由 caller 提交；仅修改本报告
+- top_concern: 本轮只修历史模型投影；既存 sourceFacts 对缺失来源身份的判定仍未改变，勿扩大宣称
+- 自建服务：无；未修改 caller 隔离数据或服务
+
+## Corrected Delta Reconciliation
+
+> verification_mode: corrected-delta · validated_at: `6066037d7a8abba46ae1ed1a96d483d85624e577` · executed_base: `6b95850a67da5215f3e26dd433037de0fbde5ac5` · inspected: 2026-10-30, Asia/Shanghai
+>
+> Delta: `docs/changes/feat-680-agent-conversation-search/specs/gateway/global-agent.md` → canonical `docs/specs/gateway/global-agent.md`。
+
+Outcome: **delta-mismatch**。未发现新的 implementation-mismatch；1 项 WARNING 为 delta 遗漏稳定的模型结果行为。此前三轮实现审查通过结论保留，产品 `acceptance.md` Round 2 修复版 targeted 旅程 pass 作为最终真实行为证据。尚不能把当前 delta 原样认定为完整归并稿。
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| Requirement 主体：当前允许的 IM 同步历史、精确/多线索、组合过滤、排序、无任意时间窗口 | `work.ts:265`–`:275`，schema 明示已同步范围；可信宿主身份/当前权限 | Round 1/2/3 自动化；acceptance E1–E5、修复版外部真人/时间过滤 | aligned |
+| 多线索和准确文本 | `work.ts:95`–`:97`, `:267`–`:275` | 多词/ERR-42 测试；真实 HERON-680/BLUE-680 与 relevance 对照 | aligned |
+| 最近和筛选 | `work.ts:270`–`:275`，participant_id 与 sender_source_id 分离 | 旧历史、内部作者/时间和外部小乙 2024 组合，旧镜像内部作者不再命中 | aligned |
+| 来源和前后文 | `work.ts:277`–`:280`, `:328`–`:350`; external→shadow 可信路由 | 修复版 search/around/精确 read；PA-only owner_can_read=false，已知/未知外部作者区分 | aligned |
+| 分页与当前权限 | `work.ts:196`–`:230`, `:287`–`:304`；只投影当前仍可读/仍匹配候选 | 旧快照新增参数拒绝、内容指纹、来源排除后的 cursor/around 拒绝与允许来源继续；真实分页 | aligned |
+| 完整与分段消息 | `tool-references.ts:113`–`:135` 合并顺序内容并标已知部分范围 | 单页正文+附件、首/末段、完整状态省略；与 partial 相关前轮证据 | aligned，未知缓存完整性未被本 Scenario 覆盖，见 D1 |
+| 结果为空或历史不可用 | `work.ts:263`, `:370`; external 未同步错误；schema 同步范围 | 真正空结果、来源拒绝与未映射 target 错误；真实模型不把未查全说成不存在 | aligned，IM 断连实际旅程未测的原限制保留 |
+
+### Uncovered Observable Behavior
+
+#### D1 — delta 未覆盖聊天发现/缓存回读的完整性与分页结果语义（WARNING）
+
+`packages/personal-assistant/src/tool-references.ts:109`–`:111` 在 **conversations list/read/search** 成功结果统一省略 has_more，无后续时省略 next_cursor；`external.ts:288`–`:292` 将本地来源读取明确区分为 external_cache，并将其消息完整性标为 unknown。这些是本 unit diff 实际引入且跨版本需保持的模型消费约定。
+
+现有 delta 的“分页与当前权限”只描述搜索快照可继续及撤权；“完整与分段消息”只描述 search/read 中完整内容与已知前后片段，未包含：
+
+- 聊天发现、历史读取与搜索的成功结果仅在存在后续时提供可续查提示；没有后续信息的终止含义不适用于错误或外部未同步历史。
+- 只能从本地外部缓存取得的消息，其来源范围与完整性未知必须可辨认，不能与已知分段或完整 IM 历史混同；能定位镜像时可继续核实原文。
+
+canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inbox**，不能自动覆盖 conversations list；既有“缓存历史明确标出仅含已接收记录”也没有表达缓存消息完整性未知与已知分段的差异。因此这不是重复补写内部字段，而是遗漏两个相关的外部结果语义。
+
+建议 delta owner 在现有 Scenario 中补一到两条稳定行为，或增加一个简短 Scenario；无需列出字段名、内部 cursor、part 编码或 50 条缓存实现常量。应描述已有实现/已确认设计，不改实现或静默放宽契约。本 verifier 未修改 delta 或 canonical。
+
+证据：`tool-references.test.ts:18`–`:37` 的续页/末页与 partial 实际投影、`external.test.ts:20`–`:21` 的 external_cache/unknown 实际返回，均已于 Round 1 在相同实现上通过；这些文件后续未改，复用有效测试结果。本次没有重复跑全量或重新做产品旅程。
+
+### 已有 canonical 覆盖与范围限制
+
+- `docs/specs/gateway/global-agent.md:187` 的“外部聊天发送者没有 IM 身份映射”已经要求不把代记账号当作可私信作者、已知保留平台身份、未知只保留已知显示名。6066037d7 的外部作者投影修复符合该既有要求，无需为同一事实再增加新 Requirement。
+- Inbox 不消费和双身份等要求由现有 canonical 持有，delta 引用沿用足够，不需要复制。
+- 旧游标遇不兼容新参数或不可验证片段明确要求重查，是安全续查实现细节；当前“可继续查看允许访问的快照”不承诺不兼容游标永不失败，没有发现冲突。
+- Round 3 记录的既存 sourceFacts 共同身份边界仍非本 delta 对模型历史搜索/回查的修复范围，未把局部投影修复升级成整个宿主授权链承诺。
+- 当前 canonical 尚未归并，符合 active unit 状态；本轮只核对预备增量，不把尚未归并本身报为实现错误。共享现场原有 acceptance.md/verification.md 修改均保留。
+
+### Corrected Delta Handoff
+
+- unit_id: `feat-680-agent-conversation-search`
+- verification_mode: `corrected-delta`
+- outcome: `delta-mismatch`; issues: `D1`; requires_full_verification: `false`
+- report_path: `docs/changes/feat-680-agent-conversation-search/verification.md`
+- report_commit: 共享现场由 caller 提交；本轮仅追加此报告
+- 下一步：delta owner 补齐 D1 后定向核对修订文本，不重新验收整个 unit
+
+### D1 修订复核 — 最终 Outcome: aligned
+
+复核对象为当前工作树中修订后的 `specs/gateway/global-agent.md`，产品代码仍固定在 `6066037d7a8abba46ae1ed1a96d483d85624e577`，executed_base 仍为 `6b95850a67da5215f3e26dd433037de0fbde5ac5`。仅 delta 增补文本，未变更产品实现或 canonical；前述 D1 发现记录保留作为修订依据，本段为 corrected-delta **最新结论**。
+
+新增 Requirement“聊天工具结果准确说明续查与完整性”的两项 Scenario 与实现和有效证据一致：
+
+| 修订项 | 实现 / 有效证据 | 结论 |
+|---|---|---|
+| 会话列表和历史结果的续查 | `ToolReferences.result` 对 list/read/search 只保留非空续页引用；DSH schema 限定成功结果与当前已同步范围；既有 projection 测试及产品真实分页证据 | aligned |
+| 外部本地缓存完整性未知 | `external.ts:288`–`:292` 标出 external_cache/unknown、已镜像时提供 message_id；外部锚点/精确回查经当前 Agent 对应 shadow 并由 IM 复核；`external.test.ts` 与前轮有效测试 | aligned |
+
+文字没有把缓存无下一页扩大为外部历史已查全，没有将未知完整性冒充已知分段，没有承诺未同步来源必然可读，亦未加入实现内部结构。此前六项场景已 aligned，本轮没有新增不符或 unit diff 的未覆盖对外行为。
+
+**D1 closed；最终 outcome: aligned；0 critical / 0 warnings / 0 suggestions；requires_full_verification: false。** 本轮仅核对修订文本与既有实现/证据，不重复测试或产品全量旅程；原有 provider wire、容量样本及宿主 sourceFacts 范围限制仍成立。可由 caller 将最终 delta 归并 canonical；本 verifier 未改其他文件。
