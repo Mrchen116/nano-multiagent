@@ -166,3 +166,144 @@ R1-W1、R1-W2 均在设计层关闭；未发现新的实质设计问题。Gate 2
 
 - 接受 Round 2 的设计层结论：R1-W1／R1-W2 已关闭，无新增 finding 或 recommendation，无实质异议。核对本轮公开接口依据、共享 owner、消费切点与两轨退出标准后，Gate 2 文档门禁通过。
 - 本轮审查后仅追加本段收口记录；首文档、design、delta 与 milestone 骨架无后续实质变化，retained 依据为 Round 2 冻结范围及哈希。实现、实际请求和用户行为尚未验收；本轮只交付设计。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/refactor_679_design_review`（同一独立 reviewer，继承调用方模型）
+- review_mode: `full`
+- mode_reason: 用户新增“系统提示词怎么写，在 design 中就要确认”的明确交付要求；新增完整固定正文、动态模板及消费者组合，必须重新审查内容保真与组合，Round 2 Approved 不覆盖新增正文。
+- started_at: `2026-10-30T17:04:25+08:00`
+- completed_at: `2026-10-30T17:15:06+08:00`
+- duration: `PT10M41S`
+- checkout: `/Users/czj/Repos/nano-multiagent`，`main`，`cdf7e706241c20a0aca33a6764a1c0ac7d6a3ef6`。
+- frozen_scope: 未提交的 `motivation.md` 与 `design.md`；其余设计产物沿 Round 2。
+- motivation_sha256: `a2e7650cda36a48ce6aac94d592efef2876e309059cca69592ec9518208f2aff`
+- design_sha256: `f3a1a861682e5d5a48177eaa7051b3f354862dde789b9d5f64d1abee633b9347`
+- boundary: 只读当前源码、文档和锁定接口；只追加报告。未实施、未运行模型、未启动服务、未部署。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 3 WARNING。**
+
+新增正文已显著提高设计交付深度，大部分规则有明确归属且与现状保真。仍有三个会让实施者选择不同语义或遗漏现有信息的缺口；本版新增正文尚不能按“只调整字符串组织与空白”实施。R1-W1、R1-W2 保持设计层关闭。
+
+### Coverage 与证据
+
+- **需求**：核对新增原话与 motivation 解释，确认这是设计正文及分支的收口要求，没有授权改变五项 Task 原则。`design.md:213-240,633-648` 明确唯一正文、保留项和实施限制；因此本轮不仅判断职责合理，也检查真实消费者能否按规定得到完整内容。
+- **基线**：比较 `28a8473e8..cdf7e7062`，变化均为本 unit 设计交付文件，没有运行时代码变化。三份 delta 哈希与 Round 2 一致。`retained_from: Round 2`：原消息索引/固定 through、每步准入、跨模式撤销映射及原生候选过滤、自动初始化衔接、隔离 runbook 和 M1 消费链退出标准。新增正文没有撤回这些决定，未重开 R1 问题。
+- **P0/P1/P1S/P1C/P2/P3/P3C**：对照 `personal-agent-defaults.ts`、`global-mode.ts`、`personal-security.ts:134-136`、`policy/sources.ts` 和实际 `agent-config.ts:100-139`。默认人格保留主动准备、私人帮助、Skill 发现和结果优先；Global 保留完整 Inbox、长事先反馈、实际交付、私有结尾、子 Agent 管理及拒绝处理；SingleThread 保留 NO_REPLY；PA 的引用/owner_can_read、代表权限、草稿、来源排除、附件和 actor_risk 均有落点。新增 quiet Heartbeat 的显式例外与既有 P7 一致。来源/送达去重总体成立，但 P2 的独立审查消费者遗漏，见 R3-W1。
+- **P5/P6**：对照 `features/task-graphs.ts`、`features/intelligent-ui.ts`。Task 空间/成员、真实 creator、显式保存计划、删除范围、revision/request_key、waiting 前提、一小时复查、失败送达、全部状态及固定聊天均保留；root/child 尾段区分公开交付。UI 的选择条件、Skill 加载、ComposeMessage/ToAssistant、私聊/群状态及数据真实性没有被删除。正文不要求修改既有用户自定义文本或 feat-676 Memory 所有权。
+- **保留段与审批**：用只读脚本提取正文核对，P7、P8、P9、P11 均与当前定义逐字一致；P10 保留文件指导、原授权延续、限制作用范围和精确待审动作，并加强结构化 human-task-control 边界。实际审批装配比组合表复杂，不能用 P10/P11 概括全部消费者，见 R3-W1。
+- **D1-D9**：对照 Global 两种 wake、TaskExecutionDriver prompt/delta、Task 成功后的 deferContext 和 PA snapshot。Task 消息的原文/来源、认证控制、最小撤销投影、全部本人概要、held 限制、Schedule 删除与 Task 修复分离、waiting/结果交付和未知状态整体保留。缺少已核实运行限制分支，且共步组合仍存在自由裁量，见 R3-W2/W3。
+- **架构与验收**：文本继续复用现有 section、Persona、Feature、工具结果及 native input，不新增提示管理层或权限机制。`design.md:648` 把定稿一致性并入 W1/W2，最终 provider 请求和真实行为仍是独立证据。新增内容没有客户端布局变化或一次性生产操作，未新增原型/部署要求。本轮未捕获实际请求，不能证明模型已经正确消费。
+
+### Agent Context Review — Mode A
+
+本轮重点覆盖固定提示、动态提醒、共享来源函数和独立审批系统提示；Consumer 包括 Global/PA 根、SingleThread、Global child、CC/Codex 工具审批及 PA input/action 审查。沿实际调用核对来源、组装、触发、必要信息和下一步行动；生命周期机制沿 Round 2 证据。以下 finding 的文档/接口事实为 CONFIRMED；模型会如何误解仍属未运行的风险，不以设计缺口冒充已发生事故。
+
+### 历史问题闭环
+
+| Issue | 本轮证据 | 状态 |
+|---|---|---|
+| R1-W1 | `design.md:144-155` 仍保留固定 through、持久摄取与每步准入；三份 delta 未变 | closed，retained_from: Round 2 |
+| R1-W2 | `design.md:157-169` 仍保留 revoked 终态、公开队列清理和已 claim 过滤；D3 最小投影不附失权正文 | closed，retained_from: Round 2 |
+
+### Issues
+
+#### R3-W1 — 审批组合漏掉实际共享 P2 的消费者，不能按当前表格完成保真替换
+
+- **Severity / evidence**：WARNING / CONFIRMED（装配不一致）；误导审查行为的后果尚未运行验证。
+- **位置与 Surface**：`design.md:221-240,307-323,455-473`；独立审批 System Prompt。
+- **Expected**：实施者应明确每类独立审查收到哪些定稿段，保留它自己的证据和输出协议，不向只读审查器发送工作 Agent 的执行指令。
+- **Observed / evidence**：组合表统一写“既有审批 policy＋P10＋适用时 P11”，未列 P2，也未区分 PA input/action。实际 `policy/classifier.ts:16` 使用 policy＋reviewSourceInstructions＋inboxSourceInstructions＋条件 messageReviewInstructions；`policy/codex-context.ts:35` 同样拼接三项；PA input 的 `personal-security.ts:80-87,109-120` 和 action 的 `policy/codex.ts:73-77` 则使用 **inboxSourceInstructions＋personalReviewPolicy 专用正文/分支**，并非 P10/P11 配方。将共享 inboxSourceInstructions 替换为 P2，会把 `design.md:322` 的“read newer messages…make a new call”同步带给这些独立审查器，尤其 input 消费者没有业务工具；若为遵循表格删掉 P2，又会丢失原有 sender/partial/observer/送达解释。
+- **影响**：两种按文档可成立的实现会形成不同审查上下文；“保留原有专用消费者”概述不足以确定共享函数修改的实际边界。实施者必须自行选择删哪些来源语义、保留哪些工作指令，违背本轮正文定稿要求，也可能导致额外拒绝或错误的后续行动要求。
+- **必要改进**：分别列出 CC classifier、Codex 工具审批、PA input、PA action 的准确组合，明确 `personalReviewPolicy` 的保留范围以及 P2 是否进入。若分离工作来源段与审查来源段，给出审查分支完整定稿；可复用来源事实，但把“读取并重新发送”的行动语义改成只读判断语义。验收从这四个实际 assembler 捕获系统文本与输出协议，不只测根 Agent section。
+
+#### R3-W2 — 已核实的运行限制没有定稿出口，D9 又只适用于无法核实
+
+- **Severity / evidence**：WARNING / CONFIRMED（必要信息缺少投影）；实际模型失败未验证。
+- **位置与 Surface**：`design.md:175,195,479-492,531-583,624-631`；自动续跑、Task 等待修复提醒。
+- **Expected**：Task 状态及 Schedule 失效已经核实，但当前能力不能完成修复时，模型应知道具体限制，解释受阻并继续独立工作，不能把已知限制说成查询未知。
+- **Observed / evidence**：当前 `personal-assistant/src/task-execution.ts:55` 返回 `reason:'cron_disabled'`；`dsh-integration/src/task-execution.ts:140,190-201,248` 把这个事实随 snapshot 呈现，并据此限制重复续推。目标设计 `:175,195` 仍要求保留运行限制，但 TASKS_JSON、HELD_JSON、REPAIR_JSON 没有承载能力限制的确定分支；LIMIT_JSON 只出现在 D9，而 D9 固定首句是“facts or … permissions cannot be verified”，且代码块外把它限定为独立输入步骤。已核实 Cron 关闭不等于事实无法核实。D4/D7 在该情况下仍无条件要求建立新安排。
+- **影响**：删去整份 snapshot 后，这项原有独有事实可能随之丢失；使用 D9 补洞则错误描述为未知。实施者需要另外创造条件和英文正文，模型可能尝试不可用能力或不能准确报告阻塞。
+- **必要改进**：增加或明确“已核实运行限制”的完整模板及触发/共步分支，给出数据来源与受影响范围；与 D9 的 unavailable 保持区别。明确 D4/D7 如何带上该限制、如何表达在能力恢复前不能完成的动作，保留既有不热循环和独立工作语义；回归 Cron 关闭且关联安排失效的实际请求。
+
+#### R3-W3 — 共步动态模板要求共享概要，但共享后的数据与拼接规则尚未定稿
+
+- **Severity / evidence**：WARNING / CONFIRMED（设计内部不闭合）。
+- **位置与 Surface**：`design.md:479-492,531-556,566-583`，尤其 `:546`；同一步的续跑/到期/修复 Context。
+- **Expected**：D4 与 D5/D7 同步出现时仍保留全部本人责任、具体 occurrence 和逐 Task 失效原因，并能直接按设计拼出唯一内容。
+- **Observed / evidence**：TASKS_JSON 明确为全部 doing/waiting 概要，CHECK_JSON 又包含到期 Task 当前概要与检查事实，REPAIR_JSON 包含失效 Task 可定位概要和原因；`:546` 同时要求它们“共享一份当前任务概要”，却未规定保留哪个占位、其他占位改成什么结构、组合次序和模式尾段是否只拼一次。当前驱动允许 automatic 与普通 Schedule 输入同批，见 `task-execution.ts:89-100,137-140`，并非只存在于假设中的组合。对“doing A＋到期 waiting B＋失效 waiting C”，实施者必须自行决定移除/合并哪些字段与段落。
+- **影响**：逐模板照抄违反明确的去重规则；直接删重复概要可能丢掉全部本人任务、Task 关联或本次检查/修复原因；重复拼模式尾段又恢复了本 unit 要消除的重复。不同实现都需要在定稿之外做语义选择。
+- **必要改进**：明确同一步共享概要的数据形状、D5/D7 的专有事实如何按 ID 引用、条件段及唯一尾段顺序，或明确采用另一套完整共步模板。给一个含 A/B/C 的组装例以验证字段完整；不需要增加新调度算法。固定段组合表中 `P5/P6` 的顺序也应与数值 order 的 P6→P5 对齐，避免两套“按顺序”规则。
+
+### Recommendations
+
+无额外可选建议。本轮要求只针对新增正文的真实消费者、原有独有信息及已经要求去重的共步分支；不扩展产品范围或重做已通过的消费链。
+
+### Author Resolutions
+
+- **R3-W1 — accepted**。核对 classifier.ts、codex-context.ts、personalReviewPolicy 和 reviewPersonal/reviewDisclosure 的实际装配后，原表确实遗漏共享来源及 PA 专用分支。design 改为四类准确组合，新增完整 P2R 只读来源正文、P12 common/action 原专用正文，工作 P2 不进入审查器；原输出协议和工具限制保持，M1 增加四类 assembler 捕获。
+- **R3-W2 — accepted**。cron_disabled 是已核实限制，不能归为 unavailable。新增定稿 D10、limits 字段与当前 reason 的精确映射，D4/D5/D7 明确遵守不可用能力限制；保留当前 limited 防重复推进和独立 doing 语义，加入实际请求验例。
+- **R3-W3 — accepted**。新增共步的唯一 Task reminder 包配方：D10/D4/D5/D7 条件正文固定顺序、一份 task_context 数据、一次模式尾段；checks/repairs/limits/held 通过任务引用关联概要，附 A/B/C 具体夹具。固定段表同步改成与数值 order 一致的 P6→P5。没有新增调度算法或改变已确认产品原则。
+
+新增正文仍待独立复审；Round 3 不作为通过结论。
+
+## Round 4
+
+### Metadata
+
+- reviewer_target: `/root/refactor_679_design_review`（同一独立 reviewer，继承调用方模型）
+- review_mode: `delta`
+- mode_reason: 本轮是 R3 三项问题引起的有界正文与组合修订：新增审查专用来源段和保留的 PA 专用正文、Cron 关闭限制段及共步配方。没有改变需求、共享产品接口、消费准入机制或 milestone 边界；展开新增正文及其实际消费者，未受影响范围保留 R3/R2 证据，不重做全量审查。
+- started_at: `2026-10-30T17:21:06+08:00`
+- completed_at: `2026-10-30T17:22:11+08:00`
+- duration: `PT1M5S`
+- checkout: `/Users/czj/Repos/nano-multiagent`，`main`，`cdf7e706241c20a0aca33a6764a1c0ac7d6a3ef6`，与 Round 3 相同。
+- frozen_scope: 修订后的 `design.md` 和 Round 3 Author Resolutions；motivation、三份 delta-spec 及 M1 骨架未变。
+- design_sha256: `3c208cec4b3e9c8b5f02d73b32dce8a5df5047bd2ba82046b4c537f06a694545`
+- motivation_sha256: `a2e7650cda36a48ce6aac94d592efef2876e309059cca69592ec9518208f2aff`，与 Round 3 相同。
+- boundary: 仅文档复审和只读源码/正文/夹具核对；未实施、未运行模型、未启动服务或部署。只追加本轮报告。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R3-W1、R3-W2、R3-W3 均在设计层关闭，没有新增实质问题。当前完整正文及组合规则可以作为实施依据；通过的是 Gate 2 文档审查，不是实际请求、模型行为或产品验收。
+
+### Coverage 与证据
+
+- **独立审查消费者**：`design.md:227-230` 分别固定 CC/legacy classifier、Codex 工具审批、PA input、PA action 四种真实配方，与 `policy/classifier.ts:16-18`、`policy/codex-context.ts:30-35`、`personal-security.ts:80-87,109-120`、`policy/codex.ts:73-77` 的实际装配对应。P2R 在 `design.md:328-342` 保留 sender/pa_agent_id、participant/observer、live/restored、partial、认证控制与实际送达语义，并明确仅按审查器允许的证据/只读能力作判断及遵守原输出格式；没有工作 Agent 的发送要求。P10/P11 与各原 policy/output adapter 保持自身适用范围。
+- **PA 专用正文保真**：`design.md:494-512` 提供 P12 common/action 完整文本及宿主限定的 REVIEW_KIND。只读提取比较确认：将源码 `${kind}` 对应为设计占位符、归一空白后，common 与 action 都与 `personalReviewPolicy` 原文相同；input 不拼 action，原严格 JSON、证据冻结、缺失证据处理及工具限制没有被“统一审批”覆盖。共享来源常量分为工作和只读审查两种，是现有消费者差异的最小表达，不新增 policy engine。
+- **已核实运行限制**：`design.md:528,539,678-686` 为现有 `snapshot.reason=cron_disabled` 提供唯一 reason、blocked_actions、受影响任务引用、检查时间和完整 D10；它明确区分已知能力限制与 D9 的 unknown。D4/D5/D7 在 `:587,602,615` 以 scheduling available 为安排先决条件并服从已核实限制，不再无条件要求不可用动作。现有来源与去重对应 `personal-assistant/src/task-execution.ts:49-55`、`dsh-integration/src/task-execution.ts:137-140,248`；`schedule_create/schedule_update` 是现有能力工具名（`product-contracts/src/capabilities.ts:33`）。修订保留 limited 及独立 doing，不借文案改变 Task 状态或恢复暂停工作。
+- **共步配方及数据**：`design.md:514-541` 将 D4/D5/D7/D10 定义为一个 reminder 包的条件片段，确定 D10→D4→D5→D7→一个 TASK_CONTEXT_JSON→唯一模式尾段。数据有一份全部本人 doing/waiting 概要，checks/repairs/limits/held_actions 通过 graph/node 引用它；不存在的旧引用排除并由 D3 表达实际变化。D5 继续同步于原 occurrence，D6 保持独立删除事实。`design.md:688-704` 的 A/B/C 夹具经 JSON 解析及引用核对通过，三项任务不重复，checks/repairs 均能定位任务且不重复标题/聊天；Cron 关闭分支明确只对当时需修复的 C 建立限制，不把 B 正常到期提前当作失效。固定段表的 P6→P5 也与数值 order 一致。
+- **验收与适用范围**：`design.md:721` 已将四类真实 assembler、Cron 已知限制、A/B/C 共步及 held_actions 纳入 W1/W2，观察最终系统文本、完整专用输出协议以及单份数据/尾段，保留代表性模型和真实产品验收要求。只读文本比较与夹具检查是本轮设计证据，不代替这些实施期验证。
+- **未变范围**：`retained_from: Round 3` 的 P0/P1/P1S/P1C/P2/P3/P3C、P5/P6、P7-P11 及 D1-D3/D6/D8/D9 的未受影响正文保真、用户配置和 Memory 边界继续成立；本轮正文变化没有更改这些职责。`retained_from: Round 2` 的原消息索引、固定 through、每步准入、撤销终态和原生输入清理、隔离 runbook 继续成立。motivation 和三份 delta 的哈希仍与既有记录一致；没有新客户端布局、一次性迁移或生产操作要求。
+
+### Agent Context Review — Mode A
+
+本轮沿两条实际消费链审查：共享来源常量到四类独立审批 System Prompt，以及 Task snapshot/occurrence/repair 到同一步动态 reminder 包。确认来源解释、可用能力、输出协议和下一步动作各自完整，新增文本没有提升来源权限或改变实际工具能力；生命周期和恢复沿 R2 已核证设计。未捕获 provider 请求或运行模型，故结论限于方案可实施与正文组合闭合。
+
+### 历史问题闭环
+
+| Issue | Author Resolution 与本轮核实 | 状态 |
+|---|---|---|
+| R3-W1 | 接受并拆分四类 assembler；P2R 只读语义及 P12 common/action 完整正文见 `design.md:227-230,328-342,494-512`，与实际入口和原专用文本核对一致 | closed |
+| R3-W2 | 接受并新增 D10、精确 cron_disabled 数据映射和各动态段条件句；运行限制、unknown 和原 limited 语义有明确区分，见 `design.md:528,539,587,602,615,678-686` | closed |
+| R3-W3 | 接受并固定唯一配方、共享数据和模式尾段；A/B/C 与 Cron 关闭夹具明确，见 `design.md:514-541,688-704` | closed |
+| R1-W1 / R1-W2 | 本轮未改变原消息追平/准入或撤销机制，保留 Round 2 关闭证据 | closed，retained_from: Round 2 |
+
+### Issues
+
+无新增 CRITICAL / WARNING；无仍开放的历史问题。
+
+### Recommendations
+
+无额外可选建议。实施按已定稿正文、消费者配方及 M1 验证边界推进；需要改变语义时按设计已有规则处理。
+
+### Author Resolutions
+
+- 接受 Round 4 结论，无实质异议；R3-W1/W2/W3 已关闭，提示词完整正文、准确消费者组合、已知运行限制和共步模板达到本轮设计交付要求。Gate 2 在新增正文复审后通过。
+- 受审后只追加本段记录，design 与 motivation 无后续实质变化，保留 Round 4 哈希作为 retained 依据；未将文档比较、JSON 夹具或审批通过当作实际模型行为验收。本轮不实施、不部署。
