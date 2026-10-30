@@ -227,7 +227,7 @@ export class Work {
         this.db
           .prepare("INSERT INTO agent_work_query_snapshots VALUES(?,?)")
           .run(id, JSON.stringify({ ...newIdentity, version: 2, ids }));
-      return Buffer.from(JSON.stringify({ snapshot: id, offset, part, version: 2 })).toString("base64url");
+      return Buffer.from(JSON.stringify({ snapshot: id, offset, part })).toString("base64url");
     };
     if (p.action === "list") {
       const filtered = conversations.filter(

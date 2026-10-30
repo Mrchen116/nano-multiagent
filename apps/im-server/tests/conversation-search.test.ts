@@ -36,7 +36,7 @@ it('keeps snapshot order and rechecks current permissions on every page', () => 
   expect(db.prepare('SELECT unread_count FROM conversation_participants WHERE conversation_id=? AND user_id=?').get('peer', 'u1')).toEqual({ unread_count: 0 });
 });
 
-it('continues long messages across pages using both current and legacy cursors', () => {
+it('continues long messages across pages', () => {
   const { ctx, principal, args } = personalFixture();
   const message = ctx.messaging.insertMessage('peer', 'u1', 'user', `长${'x'.repeat(25000)}`, [], null, 'completed');
   const work = new Work(ctx);
@@ -44,10 +44,6 @@ it('continues long messages across pages using both current and legacy cursors',
   const first = query({ action: 'search', query: '长', limit: 1 });
   expect(first.messages[0]).toMatchObject({ message_id: message.id, part_key: '0', total_parts: 2 });
   expect(query({ action: 'search', query: '长', limit: 1, cursor: first.next_cursor }).messages[0]).toMatchObject({ message_id: message.id, part_key: '1', total_parts: 2 });
-  const legacy = JSON.parse(Buffer.from(first.next_cursor, 'base64url').toString());
-  delete legacy.version;
-  const legacyCursor = Buffer.from(JSON.stringify(legacy)).toString('base64url');
-  expect(query({ action: 'search', query: '长', limit: 1, cursor: legacyCursor }).messages[0]).toMatchObject({ message_id: message.id, part_key: '1', total_parts: 2 });
 });
 
 it('filters external messages by their actual sender rather than their mirror account', () => {
@@ -79,7 +75,6 @@ it('rejects new filters on a legacy snapshot instead of silently reusing its old
   const snapshot = JSON.parse(row.data);
   for (const key of ['version', 'keywords', 'sort', 'sender_source_id', 'around_message_id']) delete snapshot[key];
   db.prepare('UPDATE agent_work_query_snapshots SET data=? WHERE snapshot_id=?').run(JSON.stringify(snapshot), cursor.snapshot);
-  delete cursor.version;
   const legacyCursor = Buffer.from(JSON.stringify(cursor)).toString('base64url');
   expect(query({ action: 'search', limit: 1, cursor: legacyCursor }).messages).toHaveLength(1);
   expect(() => query({ action: 'search', limit: 1, cursor: legacyCursor, sort: 'recent' })).toThrow('invalid_cursor');
