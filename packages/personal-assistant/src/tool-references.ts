@@ -87,7 +87,7 @@ export class ToolReferences {
    * Side Effects:
    *   Persists new mappings before returning them to the model.
    */
-  result(agent: string, method: string, value: unknown): unknown {
+  result(agent: string, method: string, value: unknown, action?: string): unknown {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
     const body = { ...value } as ObjectValue;
     const cursor = (object: ObjectValue): ObjectValue => ({ ...object,
@@ -106,6 +106,34 @@ export class ToolReferences {
       if (Array.isArray(body.conversations)) body.conversations = body.conversations.map(item => conversation(item));
       const result = cursor(conversation(body));
       if (result.id === result.target) delete result.id;
+      if (['list', 'read', 'search'].includes(action ?? '')) {
+        delete result.has_more;
+        if (!result.next_cursor) delete result.next_cursor;
+      }
+      if (['read', 'search'].includes(action ?? '') && Array.isArray(result.messages)) {
+        const messages: ObjectValue[] = [];
+        for (const raw of result.messages as ObjectValue[]) {
+          const source = raw.source && typeof raw.source === 'object' ? raw.source as ObjectValue : undefined;
+          const projectedSource = source ? { ...source, ...('target' in source ? { target: this.target(agent, source.target) } : {}) } : undefined;
+          if (typeof raw.part_key !== 'string') { messages.push({ ...raw, ...(projectedSource ? { source: projectedSource } : {}) }); continue; }
+          const index = Number(raw.part_key) + 1;
+          const total = Number(raw.total_parts);
+          const previous = messages.at(-1);
+          const partial = previous?.partial as { first_part?: number; last_part?: number; total_parts?: number } | undefined;
+          if (previous && previous.message_id === raw.message_id && partial?.last_part === index - 1 && partial.total_parts === total && JSON.stringify(previous.source) === JSON.stringify(projectedSource)) {
+            previous.content = [...previous.content as unknown[], ...raw.content as unknown[]];
+            partial.last_part = index;
+            if (partial.first_part === 1 && partial.last_part === total) delete previous.partial;
+            continue;
+          }
+          const { part_key: _part, total_parts: _total, complete_message: complete, ...message } = raw;
+          const isKnown = Number.isInteger(index) && Number.isInteger(total) && total >= index;
+          messages.push({ ...message, ...(projectedSource ? { source: projectedSource } : {}),
+            ...(isKnown && !(index === 1 && total === 1) ? { partial: { first_part: index, last_part: index, total_parts: total } }
+              : !isKnown && !complete ? { partial: { status: 'unknown' } } : {}) });
+        }
+        result.messages = messages;
+      }
       return result;
     }
     if (method === 'task_graph' && body.result && typeof body.result === 'object') return { ...body, result: cursor(body.result as ObjectValue) };

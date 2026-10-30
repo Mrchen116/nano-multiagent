@@ -53,6 +53,12 @@ ctx.on('llm/stream',async function*(o){
     expect(children).toHaveLength(3);
     const root = before.find(row => row.id === 'root');
     expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining(['inbox', 'conversations', 'send_message', ...(personal ? ['send_user_message'] : [])]));
+    const conversations = root.schemas.find((tool: any) => tool.name === 'conversations');
+    expect(conversations.description).toContain('next_cursor');
+    expect(conversations.description).toContain('partial');
+    for (const name of ['keywords', 'query', 'sort', 'around_message_id', 'sender_source_id', 'cursor']) {
+      expect(conversations.parameters.properties[name].description).toBeTruthy();
+    }
     for (const row of before.filter(row => row.id !== 'root')) {
       const names = row.schemas.map((tool: any) => tool.name);
       expect(JSON.stringify(row.system)).toContain('You are an internal execution agent');

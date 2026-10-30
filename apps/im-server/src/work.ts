@@ -1,6 +1,6 @@
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
   all,
@@ -92,6 +92,9 @@ export class Work {
     };
   }
   query(c: Row, p: Row): Row {
+    if (p.keywords !== undefined && (p.query !== undefined || p.keyword !== undefined)) fail(400, 'invalid_arguments');
+    if (p.keywords !== undefined && (!Array.isArray(p.keywords) || p.keywords.some((v: unknown) => typeof v !== 'string'))) fail(400, 'invalid_arguments');
+    const keywords: string[] | undefined = p.keywords === undefined ? undefined : [...new Set<string>(p.keywords.map((v: string) => v.trim().replace(/[A-Z]/g, letter => letter.toLowerCase())).filter(Boolean))];
     p={...p,query:p.keyword??p.query};
     if(p.message_id&&!p.target)p={...p,target:one(this.db,'SELECT conversation_id FROM messages WHERE id=?',p.message_id)?.conversation_id};
     const agent = one(
@@ -162,6 +165,9 @@ export class Work {
           })),
       };
     const target = p.target && sourceAllowed(p.target) && conversationAccess(this.db,p.target,viewerFor(p.target)) ? s.conversation(p.target,viewerFor(p.target)) : undefined;
+    if (p.sort !== undefined && !['relevance', 'recent'].includes(p.sort)) fail(400, 'invalid_arguments');
+    if (p.sender_source_id && (!p.target || !target?.external_source || p.participant_id)) fail(400, 'invalid_arguments');
+    if (p.around_message_id && (p.action !== 'read' || !p.target || p.message_id || p.query || p.keywords || p.before || p.after || p.participant_id || p.sender_source_id)) fail(400, 'invalid_arguments');
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
       return {
@@ -178,7 +184,7 @@ export class Work {
         })),
       };
     }
-    const identity = {
+    const identity: Row = {
       agent: p.agent_id,
       action: p.action,
       target: p.target ?? null,
@@ -189,6 +195,8 @@ export class Work {
       after: p.after ?? null,
       scope: p.scope ?? "joined",
     };
+    const newIdentity: Row = { ...identity, keywords: keywords ?? null, sort: p.action === 'search' ? p.sort ?? 'relevance' : null,
+      sender_source_id: p.sender_source_id ?? null, around_message_id: p.around_message_id ?? null };
     let cursor: Row | undefined, snapshot: Row | undefined;
     if (p.cursor) {
       try {
@@ -205,20 +213,20 @@ export class Work {
           cursor!.offset < 0 ||
           !Number.isInteger(cursor!.part) ||
           cursor!.part < 0 ||
-          Object.keys(identity).some((k) => snapshot![k] !== identity[k as keyof typeof identity])
+          Object.keys(snapshot!.version === 2 ? newIdentity : identity).some((k) => JSON.stringify(snapshot![k]) !== JSON.stringify((snapshot!.version === 2 ? newIdentity : identity)[k]))
         )
           throw Error();
       } catch {
         fail(400, "invalid_cursor");
       }
     }
-    const next = (ids: string[], offset: number, part = 0) => {
+    const next = (ids: string[], offset: number, part = 0, fingerprint?: string) => {
       const id = cursor?.snapshot ?? randomUUID();
       if (!cursor)
         this.db
           .prepare("INSERT INTO agent_work_query_snapshots VALUES(?,?)")
-          .run(id, JSON.stringify({ ...identity, ids }));
-      return Buffer.from(JSON.stringify({ snapshot: id, offset, part })).toString("base64url");
+          .run(id, JSON.stringify({ ...newIdentity, version: 2, ids }));
+      return Buffer.from(JSON.stringify({ snapshot: id, offset, part, version: 2, ...(fingerprint ? { fingerprint } : {}) })).toString("base64url");
     };
     if (p.action === "list") {
       const filtered = conversations.filter(
@@ -254,34 +262,45 @@ export class Work {
     if (!target && (p.action !== "search" || p.target)) fail(404, "target_not_accessible");
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
     const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
-    const filters = ["sender_type IN ('user','agent','system')"], values:any[]=[];
-    if(p.message_id){filters.push('id=?');values.push(p.message_id);}
-    if(p.query){filters.push('instr(lower(content),lower(?))>0');values.push(String(p.query));}
-    if(p.before){filters.push('created_at<?');values.push(p.before);}
-    if(p.after){filters.push('created_at>=?');values.push(p.after);}
-    if(p.participant_id){filters.push('sender_user_id=?');values.push(p.participant_id);}
-    let messages = targets.length ? all(this.db,
-      `SELECT id FROM messages WHERE conversation_id IN (${targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY rowid`,...targets,...values)
-      .map(row=>s.message(row.id)).filter(m=>m.content||m.attachments.length||m.interactive) : [];
-    if (p.before_message_id) {
-      const i = messages.findIndex((m) => m.id === p.before_message_id);
-      if (i < 0) fail(404, "target_not_accessible");
-      messages = messages.slice(0, i);
+    const filters = ["m.sender_type IN ('user','agent','system')"], values:any[]=[];
+    const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
+    if(p.message_id){filters.push('m.id=?');values.push(p.message_id);}
+    if(terms.length){filters.push(`(${terms.map(() => 'instr(lower(m.content),lower(?))>0').join(' OR ')})`);values.push(...terms);}
+    if(p.before){filters.push('julianday(m.created_at)<julianday(?)');values.push(p.before);}
+    if(p.after){filters.push('julianday(m.created_at)>=julianday(?)');values.push(p.after);}
+    if(p.participant_id){filters.push("m.sender_user_id=? AND NOT (c.external_source IS NOT NULL AND m.sender_type='user' AND m.sender_source_id IS NOT NULL)");values.push(p.participant_id);}
+    if(p.sender_source_id){filters.push("c.external_source IS NOT NULL AND m.sender_type='user' AND m.sender_source_id=?");values.push(p.sender_source_id);}
+    const matches = targets.length ? all(this.db,
+      `SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id IN (${targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY ${p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' && terms.length ? terms.map(() => 'CASE WHEN instr(lower(m.content),lower(?))>0 THEN 1 ELSE 0 END').join('+') + ' DESC,' : ''} ${p.action === 'read' && !p.around_message_id ? 'm.rowid DESC' : 'julianday(m.created_at) DESC,m.id DESC'}`,...targets,...values,...(p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' ? terms : [])) : [];
+    let currentIds: string[] = matches.map(row=>row.id);
+    if (p.around_message_id) {
+      const index = currentIds.indexOf(p.around_message_id);
+      if (index < 0) fail(404, 'target_not_accessible');
+      if (!snapshot) currentIds = currentIds.slice(Math.max(0,index-5),index+6).reverse();
     }
-    const ids: string[] = snapshot?.ids ?? messages.map((m) => m.id).reverse(),
-      byId = new Map(messages.map((m) => [m.id, m]));
+    if (p.before_message_id) {
+      const index = currentIds.indexOf(p.before_message_id);
+      if (index < 0) fail(404, 'target_not_accessible');
+      currentIds = currentIds.slice(index+1);
+    }
+    const ids: string[] = snapshot?.ids ?? currentIds,
+      available = new Set(currentIds);
     let offset = cursor?.offset ?? 0,
       part = cursor?.part ?? 0,
       budget = 24000,
       images = 0;
     const page = [];
     while (offset < ids.length && page.length < limit) {
-      const m = byId.get(ids[offset]!);
-      if (!m) {
+      const id = ids[offset]!;
+      if (!available.has(id)) {
         offset++;
         part = 0;
         continue;
       }
+      const m = s.message(id);
+      if (!m.content && !m.attachments.length && !m.interactive) { offset++; part=0; continue; }
+      const fingerprint = createHash('sha256').update(JSON.stringify([m.content, m.attachments])).digest('hex');
+      if (part > 0 && (!cursor?.version || cursor.fingerprint !== fingerprint)) fail(400, 'partial_cursor_expired_restart_query');
       const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
       const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
       const parts: Row[] = [];
@@ -320,6 +339,8 @@ export class Work {
             channel: messageConversation.external_source ?? "web",
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
+            target: m.conversation_id,
+            name: s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
             ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
@@ -327,6 +348,7 @@ export class Work {
           ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
+          total_parts: parts.length,
           content: [content],
           complete_message: parts.length === 1,
         });
@@ -336,6 +358,8 @@ export class Work {
       offset++;
       part = 0;
     }
+    const fingerprint = part > 0 && offset < ids.length && available.has(ids[offset]!)
+      ? createHash('sha256').update(JSON.stringify([s.message(ids[offset]!).content, s.message(ids[offset]!).attachments])).digest('hex') : undefined;
     return {
       target: p.target,
       name: target?.title,
@@ -344,7 +368,7 @@ export class Work {
       messages: page,
       history_scope: "im_history",
       has_more: offset < ids.length,
-      next_cursor: offset < ids.length ? next(ids, offset, part) : null,
+      next_cursor: offset < ids.length ? next(ids, offset, part, fingerprint) : null,
     };
   }
 }
