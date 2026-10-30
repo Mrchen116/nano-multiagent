@@ -97,3 +97,13 @@ final sync fetch后origin/main仍 `9bf2b13da4005631096f2a49223564cd68647c3c`，�
 ### R9 定向审查修复
 
 独立审查确认停用/启用后旧security事件被生命周期过滤，而恢复未主动查pending，导致owner-only通知滞留。保留原生命周期隔离，恢复改为主动读取未完成自动通知，以incident/current lifecycle作为runtime稳定inputId；普通旧消息不重放。新增回归先红后绿，日志 `/tmp/pr430-auto-recovery-red.log` 与 `/tmp/pr430-auto-recovery-green.log`，3文件32项通过。原生事件fact/instruction组装复用单一方法；确认回执后不再发现该任务。
+
+### R9 独立复验与本地检查
+
+静态 review 在 `9d400865091260717372ccc235fe73dae919ab1d` 关闭通知恢复问题，0 CRITICAL / 0 WARNING，corrected-delta aligned；其真实 IM+Global 消费边界复验1项通过，独立永久回归3文件73项通过。主实施 IM/PA build/typecheck 与74文件497项通过。
+
+本轮全仓 build/typecheck通过，初次默认并发 `pnpm test` 为839 passed / 2 failed（158文件，841项）；失败是 task-execution-limits 的45秒状态等待与 knowledge-policy 的异步结果等待超时，日志 `/tmp/pr430-r9-full.log`。同一源码单worker对照2文件6项全过（51.12秒，`/tmp/pr430-r9-runtime-repro.log`）。支持负载相关假设，确切根因未确认；不将两轮拼成一次全绿，不为此更改产品/测试超时。低并发完整复跑另记实际结果。
+
+Python 113 passed / 28 deselected；Ruff check/format（93 files）、iOS打包交互资源校验通过。日志分别 `/tmp/pr430-r9-python.log`、`/tmp/pr430-r9-ruff.log`、`/tmp/pr430-r9-ios-package.log`。active文档检查331 sources / 68 routes通过。
+
+final sync已merge `origin/main=5d0fbea1e`，相对原executed_base `9bf2b13da4005631096f2a49223564cd68647c3c` 仅新增独立refactor-679 motivation.md，无运行源码或本unit契约变化。受验source仍为9d4008650，code/Context/consistency门禁保留；产品review按同一实际运行源码记录，主干文档增量不要求重建或重测。
