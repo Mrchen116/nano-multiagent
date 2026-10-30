@@ -36,8 +36,8 @@ it('keeps snapshot order and rechecks current permissions on every page', () => 
   expect(db.prepare('SELECT unread_count FROM conversation_participants WHERE conversation_id=? AND user_id=?').get('peer', 'u1')).toEqual({ unread_count: 0 });
 });
 
-it('does not combine fragments from changed messages or unverifiable legacy cursors', () => {
-  const { ctx, db, principal, args } = personalFixture();
+it('continues long messages across pages using both current and legacy cursors', () => {
+  const { ctx, principal, args } = personalFixture();
   const message = ctx.messaging.insertMessage('peer', 'u1', 'user', `长${'x'.repeat(25000)}`, [], null, 'completed');
   const work = new Work(ctx);
   const query = (input: Record<string, unknown>) => work.query(principal, { ...args, ...input });
@@ -45,12 +45,9 @@ it('does not combine fragments from changed messages or unverifiable legacy curs
   expect(first.messages[0]).toMatchObject({ message_id: message.id, part_key: '0', total_parts: 2 });
   expect(query({ action: 'search', query: '长', limit: 1, cursor: first.next_cursor }).messages[0]).toMatchObject({ message_id: message.id, part_key: '1', total_parts: 2 });
   const legacy = JSON.parse(Buffer.from(first.next_cursor, 'base64url').toString());
-  delete legacy.version; delete legacy.fingerprint;
+  delete legacy.version;
   const legacyCursor = Buffer.from(JSON.stringify(legacy)).toString('base64url');
-  expect(() => query({ action: 'search', query: '长', limit: 1, cursor: legacyCursor })).toThrow('partial_cursor_expired_restart_query');
-  db.prepare('UPDATE messages SET content=? WHERE id=?').run(`长${'y'.repeat(25000)}`, message.id);
-  expect(() => query({ action: 'search', query: '长', limit: 1, cursor: first.next_cursor })).toThrow('partial_cursor_expired_restart_query');
-  expect(() => query({ action: 'search', query: '长', limit: 1, cursor: legacyCursor })).toThrow('partial_cursor_expired_restart_query');
+  expect(query({ action: 'search', query: '长', limit: 1, cursor: legacyCursor }).messages[0]).toMatchObject({ message_id: message.id, part_key: '1', total_parts: 2 });
 });
 
 it('filters external messages by their actual sender rather than their mirror account', () => {

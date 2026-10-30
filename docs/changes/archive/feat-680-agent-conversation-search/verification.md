@@ -309,3 +309,9 @@ canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inb
 文字没有把缓存无下一页扩大为外部历史已查全，没有将未知完整性冒充已知分段，没有承诺未同步来源必然可读，亦未加入实现内部结构。此前六项场景已 aligned，本轮没有新增不符或 unit diff 的未覆盖对外行为。
 
 **D1 closed；最终 outcome: aligned；0 critical / 0 warnings / 0 suggestions；requires_full_verification: false。** 本轮仅核对修订文本与既有实现/证据，不重复测试或产品全量旅程；原有 provider wire、容量样本及宿主 sourceFacts 范围限制仍成立。可由 caller 将最终 delta 归并 canonical；本 verifier 未改其他文件。
+
+## 后续用户决定：移除跨页内容指纹
+
+用户确认无需对生成中消息跨页变化做内容版本校验；后续实现移除指纹及旧分段游标拒绝规则。上文关于指纹的结果仅适用于当时审查的版本。
+
+本次调整后运行 `pnpm exec vitest run apps/im-server/tests/conversation-search.test.ts apps/im-server/tests/personal-sources.test.ts`（15 passed）及 `pnpm --filter @nano/im-server typecheck`（通过；本机 Node v25.8.2 不在项目支持范围）。本段不替代此前固定版本的独立审查记录。

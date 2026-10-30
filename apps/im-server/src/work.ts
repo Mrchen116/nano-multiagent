@@ -1,6 +1,6 @@
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
   all,
@@ -221,13 +221,13 @@ export class Work {
         fail(400, "invalid_cursor");
       }
     }
-    const next = (ids: string[], offset: number, part = 0, fingerprint?: string) => {
+    const next = (ids: string[], offset: number, part = 0) => {
       const id = cursor?.snapshot ?? randomUUID();
       if (!cursor)
         this.db
           .prepare("INSERT INTO agent_work_query_snapshots VALUES(?,?)")
           .run(id, JSON.stringify({ ...newIdentity, version: 2, ids }));
-      return Buffer.from(JSON.stringify({ snapshot: id, offset, part, version: 2, ...(fingerprint ? { fingerprint } : {}) })).toString("base64url");
+      return Buffer.from(JSON.stringify({ snapshot: id, offset, part, version: 2 })).toString("base64url");
     };
     if (p.action === "list") {
       const filtered = conversations.filter(
@@ -300,8 +300,6 @@ export class Work {
       }
       const m = s.message(id);
       if (!m.content && !m.attachments.length && !m.interactive) { offset++; part=0; continue; }
-      const fingerprint = createHash('sha256').update(JSON.stringify([m.content, m.attachments])).digest('hex');
-      if (part > 0 && (!cursor?.version || cursor.fingerprint !== fingerprint)) fail(400, 'partial_cursor_expired_restart_query');
       const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
       const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
       const externalHuman = !!messageConversation.external_source && m.sender_type === 'user';
@@ -360,8 +358,6 @@ export class Work {
       offset++;
       part = 0;
     }
-    const fingerprint = part > 0 && offset < ids.length && available.has(ids[offset]!)
-      ? createHash('sha256').update(JSON.stringify([s.message(ids[offset]!).content, s.message(ids[offset]!).attachments])).digest('hex') : undefined;
     return {
       target: p.target,
       name: target?.title,
@@ -370,7 +366,7 @@ export class Work {
       messages: page,
       history_scope: "im_history",
       has_more: offset < ids.length,
-      next_cursor: offset < ids.length ? next(ids, offset, part, fingerprint) : null,
+      next_cursor: offset < ids.length ? next(ids, offset, part) : null,
     };
   }
 }
