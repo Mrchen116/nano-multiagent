@@ -1,0 +1,93 @@
+# feat-680 — 独立产品验收报告
+
+> Round 1；full；2026-10-30。对齐 `spec.md` 全部 Scenario 与 `design.md` M1-search。
+> Validation snapshot: `6b95850a6 → 2d51d501dab8b62e1616ae4019bfab200088a3aa`。
+> 本轮复用 caller 启动的该版本构建；运行进程为该工作树 `apps/im-server/lib/main.js`，Node v24.22.1，端口 59928。验收中 caller 通知源码有后续修订，但未重建/重启本栈；结论不覆盖后续修订。
+
+## Verdict
+
+**fail（2 个 major 问题）**。真实产品旅程已覆盖首期五项及全部首文档 Scenario；内部 IM 的检索、分页、回查、排序、访问拒绝和未读对照均得到预期结果。补充的合成外部镜像通过真实 Agent→工具→IM 旅程，发现未知外部作者旧记录被内部主人 ID 筛选命中，并被返回为 `is_owner=true`。这两项违背发送者过滤和真实身份边界，阻塞本轮交付。结论只针对 2d51d501d，不评价 caller 后续修复。
+
+PA-only、外部双真人和非零主人未读前置最初缺失，caller 随后直接写入隔离 SQLite 及本地 external target 映射补齐；本轮独立观察了真实产品消费这些合成材料的行为。它们不证明真实飞书收发/同步链路；该链路也不是本期镜像检索的验收替代物。
+
+## 用户旅程体验与环境
+
+仅操作 `http://127.0.0.1:59928`，账号 nano，未访问生产。核对 `/tmp/nano-feat-680-e2e/.e2e-daily.json` 与实际 agents/config：P/E/Q 为 gpt-6.1-sol/high，PA 为 gpt-6-astra/medium，均 global/codex。真实调用记录显示 PA 使用 gpt-6-astra；审核模型的本轮实际调用未单独验证。
+
+Web 1280×720：从 PA 聊天发自然语言请求，答案用表格将作者、时间、原话和链接对应起来。点击“原消息”后出现 `Original message located`，焦点落在实际原消息，旁边可见后续更改决定；“Back to previous chat”可回到 PA。用户能够区分原计划与后续决定，并自行回查。UI 无本期新增布局，未作 iOS 或窄屏视觉结论。原消息定位截图：`/tmp/feat680-review/source-link.png`；最终回答与左侧非零未读画面：`/tmp/feat680-review/final-answer.png`。
+
+首轮我故意查询不存在的准确编号 BLUE-680：PA 发现精确查找仅命中本次请求，明确排除自命中，并未把 RAVEN-41 的“周五”套为 BLUE-680 的结论。第二组独立赤鹭材料中，PA 将“周四开会”与后续“周五上午十点”区分，并指出原话没有具体日期/时区。
+
+产品内 PA 是被测角色。验收判断来自独立比较真实 HTTP Work 工具参数/返回、用户消息接口、原聊天及浏览器操作，没有读取实现定位或运行内部 Work 函数；没有以模型自称成功作为证据。
+
+### 本轮临时增量
+
+- 原蓝鸟群 `c_i2uebrwq` 新增一条虚构补充（`65c55be5ee164941acdb59fd8af61d0f`）。该条同时含三个词，未用它作为“弱匹配”对照。
+- 新建主人参与、PA 以 observer 访问的 `独立验收-赤鹭历史`，ID `c_fm5aub93`。先发六条虚构消息，再发时间更晚的单线索“赤鹭发布快讯五：仅更新手册”。无外发到真实联系人。
+- 强匹配 `41f16ef37393411881816ae937aaaf98`：12:10:41，正文“赤鹭线索：方案已明确；周四开会，再讨论发布。代号 HERON-680。”；弱匹配 `862ad6f7adf94cf992422eb9628956dd`：12:12:17。
+- 在 PA 聊天 `c_043be4b9cb28` 发独立回查、排序、分页、权限与过滤对照请求。请求和回答保留在隔离栈。
+- 临时通过 Web 同一 policy API 排除 `benchmark-feat680-0`，以既有真实 cursor 继续读并核查拒绝。源策略恢复状态见末尾。
+- caller 追加合成 PA-only 私密群 `fixture-feat680-pa-only`、两真人及未知旧作者镜像 `fixture-feat680-external` 和 `fixture-feat680-unread` 非主人作者未读1条。均由 caller 直接注入隔离 SQLite，外部 target 映射亦为合成；没有真实飞书 Bot、真人或外发。reviewer 的检索/筛选/around/回答观察全部经正常 PA 消息及真实产品 API。
+- 没有启动或停止任何服务；栈由 caller 管理。
+
+## 证据索引
+
+原始证据保留在 `/tmp/feat680-review/`，不提交日志、截图、凭据或数据库；本报告给出决定性摘录。`auth.json` 仅是本机临时测试凭据，不是验收附件。
+
+| 编号 | 独立观察与证据 |
+|---|---|
+| E1 | `work-r1.json` turn 3：请求 `f3654cf157584db1b025ea87727dc722`；真实 `search keywords=[发布,周四,方案]`、`query=BLUE-680`、`read around_message_id=fa56e...`。回答 `03b9fa652cba4be687b22e431a57ea8c`；`messages-r1.json` 与来源定位截图。 |
+| E2 | `work-r3.json` turn 4：请求 `3240826444aa4da1af328c03fff46c51`；默认多词每页2条，实际 cursor `p_7c810f50` → `p_67806fc5`。`query=HERON-680` 仅返回强匹配；around 读取到六条及后续决定。 |
+| E3 | 同 turn：`query=赤鹭,sort=recent,limit=2`，三页 ID 分别为 `bd3f.../c3eb...`、`24c8.../50d8...`、`6b25.../41f1...`；cursor `p_c7f66425` → `p_eb3e919f` → 末页省略。共六条且未重复。PA 明确这是新增第七条之前的快照。 |
+| E4 | 同 turn：新弱匹配加入后默认相关性第一条仍为旧 `41f1...`，第二条新 `862a...`；`sort=recent` 则新 `862a...` 第一。`benchmark-feat680-0` 未设日期搜索返回 2024-01-27 的 `bench680-978/950`，cursor `p_fc2319a4`，PA 明确只读第一页、未查全。 |
+| E5 | 同 turn：限定 `target=c_fm5aub93,participant_id=u_xcfqwzq4,after=2026-10-30T12:00:00+08:00,before=2026-10-30T13:00:00+08:00,query=赤鹭` 返回六条。同群 `query=不存在的紫鹭-680` 返回 `messages:[]`、`history_scope:im_history`，PA 限定结论为当时可访问已同步历史。 |
+| E6 | 同 turn：单独 `inbox check` 显示赤鹭7；search 两种排序、around read 后再 check 仍为7。`sources-before-r3.json`、`sources-after-r3.json`、`sources-current.json` 中主人该群 unread_count 均0；未覆盖主人非零未读。 |
+| E7 | `policy-before.json` revision1 无排除 → `policy-excluded.json` revision2 排除 benchmark-feat680-0。`work-r4.json` turn6：旧 `p_fc2319a4` 同参数续查返回 `is_error:true,Error: target_not_accessible`；`read around_message_id=bench680-978` 同样拒绝；未排除赤鹭 `query=HERON-680` 仍返回强匹配。 |
+
+## Reference Artifacts Reviewed
+
+N/A：设计明确没有前端改动与新增原型契约。实际 Web 进入、阅读、原消息定位与返回已独立观察。
+
+## 问题清单
+
+| # | 严重度 | 实际现象与复现证据 | 处置 |
+|---|---|---|---|
+| 1 | major | 在真实 external target 搜“银燕方案”，再限定 `participant_id=u_xcfqwzq4`，两次均返回 `fixture-fs-unknown`（外部身份未知的旧记录）。内部主人并非其可确认真实作者，内部发送人过滤不应命中该外部记录。见 `work-final.json` turn7。 | 阻塞；在修复构建针对本场景复验。 |
+| 2 | major | 同记录的 `sender={id:u_xcfqwzq4,name:未知,kind:external,channel:feishu,is_owner:true}`，缺少 `source_id`。无筛选搜索、around及内部发送人筛选均向模型呈现主人身份标记。模型此次审慎说明不能确认本人，不能抵消返回事实字段错误。 | 阻塞；真实作者未知必须不冒认为主人，修复后复验模型实际可见结果。 |
+
+两名已知外部真人小甲/小乙均正确 `is_owner=false`、保留各自 `source_id`；问题限定在未知旧作者记录，不扩大为全部外部身份失效。
+
+## 验收标准覆盖
+
+所有期望来源为 `spec.md` 对应同名 Scenario；外部专项另来自 `design.md` M1-search。
+
+| Requirement / Scenario | 真实旅程与证据 | 结果 | 边界 |
+|---|---|---|---|
+| 关键词回溯 / 中文多关键词 | E1、E2，不连续三个中文词实际命中 | pass | 字面多词，不是语义搜索 |
+| 关键词回溯 / 精确短语和标识 | E1、E2，HERON-680唯一命中，BLUE-680请求自命中被识别 | pass | 已验项目标识 |
+| 排序与范围 / 相关性优先 | E4，旧三词消息在新单词消息之前 | pass | 真实时间分离对照 |
+| 排序与范围 / 最新优先与旧历史 | E3、E4，新快讯优先且2024年历史可查 | pass | 未声称读取完全部10万条 |
+| 组合条件 / 聊天、发送人与时间组合 | E5、E8、E9，内部正反例通过；外部未知旧作者被主人ID命中 | fail | major #1；已知小乙+2024年+target正确仅命中小乙 |
+| 原文上下文 / 从命中回到原文 | E1、E2回查通过；E9未知外部作者被错误标记is_owner | fail | major #2；PA-only回答正确不提供主人无权链接 |
+| 完整性权限 / 多页结果 | E2、E3，真实三页至无cursor；模型说明停止/完结边界 | pass | 没有用首批当全量 |
+| 完整性权限 / 没有匹配与未查全 | E4、E5、E7，空结果、主动停止未查全、当前访问拒绝可区分 | pass | 不存在外部映射实际返回target_not_accessible；IM断连未实测，不声称覆盖所有故障 |
+| 完整性权限 / PA双身份和来源排除 | E7、E9：主人observer、PA-only均可发现；排除后拒绝；PA-only回答说明主人无权且不发无权链接 | pass | 合成前置，不是实际飞书同步 |
+| 完整性权限 / 权限变化与续查 | E7，排除后原cursor及around均拒绝，允许来源继续命中 | pass | 来源排除分支；普通成员撤权另未覆盖 |
+| 完整性权限 / 不消费未读 | E6、E10：Agent Inbox7→7；另主人非零未读1→1，真实search/around后不推进 | pass | 非零未读由caller注入合成前置；reviewer未打开群 |
+| M1外部专项 / 两真人镜像定向查找与身份消歧 | E9：known source_id过滤及around通过；未知旧作者误筛选与误身份 | fail | major #1/#2；合成镜像走真实产品，不代表飞书传输链路 |
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新跨包顶层架构。
+- [x] `docs/specs/gateway/global-agent.md`：需由 orchestrator 在交付时根据最终实现校正并归并现有 delta-spec。本轮未替其归并。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## 补充记录与清理
+
+本轮没有修改源码、测试或设计；仅本报告写回工作树。未提交报告，由 caller 收尾纳入提交。
+
+- E8：`work-filters.json` turn6，赤鹭群主人在11:00–12:00查“赤鹭”返回0；同群12:00–13:00改发言人为真实 E 内部用户 `u_5as72ej7` 返回0。此前主人12:00–13:00为6条。错误时段和错误发送人各自排除，符合内部组合过滤。
+- E9：`work-final.json` turn7，准确 `AP-680` 返回 `fixture-pa-only`，`owner_can_read=false`；PA回答指出本人无权且未给来源链接。外部 target `external:pa_d8c9ef251c44:feishu:feat680-test:group:synthetic` 搜银燕方案得三条；小乙 `sender_source_id=ou-feat680-two` + 2026全年为空，换2024全年仅 `fixture-fs-2`；around得到小甲、小乙、未知旧记录，证明external定位路由及跨消息上下文。内部主人过滤两次返回未知旧记录，构成#1；该记录is_owner=true构成#2。未存在映射 `external:pa_d8c9ef251c44:feishu:feat680-unmirrored:group:synthetic` 返回 `Error: target_not_accessible`，PA明确不可访问不等于零匹配，也没有擅自断言全部外部历史已查全。
+- E10：`unread-before.json` / `unread-after.json`，`fixture-feat680-unread` 的主人 unread_count **1→1**。中间 turn7 实际 `search 青鹭项目` 和 `read around_message_id=fixture-unread-680` 均成功，真实作者为测试同事 `fixture-user-680`，reviewer 没有打开该群；本轮未对该群 inbox read。
+- `policy-restored.json` 证明排除策略已恢复 `excluded_conversation_ids:[]`（revision3）。所有新增虚构数据保留在 caller 管理的隔离栈，便于 targeted 复验。无需清理 reviewer 自启进程。

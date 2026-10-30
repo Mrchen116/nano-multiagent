@@ -304,6 +304,7 @@ export class Work {
       if (part > 0 && (!cursor?.version || cursor.fingerprint !== fingerprint)) fail(400, 'partial_cursor_expired_restart_query');
       const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
       const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
+      const externalHuman = !!messageConversation.external_source && m.sender_type === 'user';
       const parts: Row[] = [];
       for (let i = 0; i < m.content.length; i += 24000)
         parts.push({ type: "text", text: m.content.slice(i, i + 24000) });
@@ -324,11 +325,11 @@ export class Work {
           message_id: m.id,
           ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
-            id: m.sender_user_id,
+            ...(!externalHuman ? { id: m.sender_user_id } : {}),
             name: m.sender.display_name,
-            ...(personalFacts?{is_owner:personalFacts.is_owner}:{}),
-            kind: messageConversation.external_source && m.sender_type === "user" ? "external" : m.sender_type,
-            ...(messageConversation.external_source && m.sender_type === "user"
+            ...(personalFacts && (!externalHuman || m.sender_source_id) ? {is_owner:personalFacts.is_owner} : {}),
+            kind: externalHuman ? "external" : m.sender_type,
+            ...(externalHuman
               ? {
                   channel: messageConversation.external_source,
                   ...(m.sender_source_id ? { source_id: m.sender_source_id } : {}),

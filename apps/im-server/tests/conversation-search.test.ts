@@ -58,11 +58,16 @@ it('filters external messages by their actual sender rather than their mirror ac
   db.prepare("UPDATE conversations SET external_source='feishu' WHERE id='peer'").run();
   const one = ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案', [], null, 'completed', { sender_source_id: 'ou-one' });
   ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案', [], null, 'completed', { sender_source_id: 'ou-two' });
-  ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案（旧镜像无发言人身份）', [], null, 'completed');
+  const unknown = ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案（旧镜像无发言人身份）', [], null, 'completed');
   const work = new Work(ctx);
   const query = (input: Record<string, unknown>) => work.query(principal, { ...args, ...input });
   expect(query({ action: 'search', target: 'peer', query: '发布', sender_source_id: 'ou-one' }).messages.map((m: any) => m.message_id)).toEqual([one.id]);
   expect(query({ action: 'search', target: 'peer', query: '发布', participant_id: 'u1' }).messages).toEqual([]);
+  const all = query({ action: 'search', target: 'peer', query: '发布' }).messages;
+  expect(all.find((m: any) => m.message_id === one.id).sender).toMatchObject({ kind: 'external', source_id: 'ou-one' });
+  expect(all.find((m: any) => m.message_id === one.id).sender).not.toHaveProperty('id');
+  expect(all.find((m: any) => m.message_id === unknown.id).sender).not.toHaveProperty('id');
+  expect(all.find((m: any) => m.message_id === unknown.id).sender).not.toHaveProperty('is_owner');
   expect(() => query({ action: 'search', query: '发布', sender_source_id: 'ou-one' })).toThrow();
 });
 

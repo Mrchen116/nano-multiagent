@@ -124,3 +124,64 @@ PATH="/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH"
 - report_commit: caller 在共享 branch 提交后填写/引用；审查者未提交其他文件
 - top_concern: 外部旧镜像的内部作者筛选语义错误；旧游标新参数未绑定
 - 自建服务：无；使用独立内存库、测试自清理的临时 DSH home；未停止或改动 caller 的 `/tmp/nano-feat-680-e2e`。
+
+## Round 2 — Targeted Closure
+
+> Validation snapshot: `6b95850a67da5215f3e26dd433037de0fbde5ac5 → 5e080ffbf7709e85e526cede50dc740a6e547234`
+>
+> verification_mode: targeted-closure · review_round: 2 · finding_origin_head: `2d51d501dab8b62e1616ae4019bfab200088a3aa` · fix_delta_range: `2d51d501d..5e080ffbf` · inspected: 2026-10-30, Asia/Shanghai
+
+**本轮最终结论：PASS，0 critical / 0 warnings / 0 suggestions。W1、W2、W3 均 closed。** 本轮结论取代 Round 1 的待修状态；先前范围和证据限制仍然保留。`requires_full_verification: false`。
+
+本轮只检查两项代码修复、相关回归和新增容量证据，复用 Round 1 未受影响的权限、Schema、结果投影、审核/恢复和模型行为证据。没有重开 full Context Review，没有修改代码、测试或设计。
+
+### Closure evidence
+
+| Focus | 实际修复 / 补证 | 独立核对 | 结论 |
+|---|---|---|---|
+| W1：NULL source_id 外部旧镜像误匹配内部作者 | `apps/im-server/src/work.ts:272` 的内部作者过滤去掉 `sender_source_id IS NOT NULL` 条件，排除所有外部真人镜像 | `conversation-search.test.ts` 原外部身份用例加入无来源 ID 旧消息；该消息与两位已知外部真人均不匹配 participant_id；sender_source_id 仍只匹配指定真人。原内部作者/时间组合用例仍通过 | closed |
+| W2：旧快照接受新参数 | `work.ts:211` 在旧 snapshot 上拒绝显式 keywords、sort、sender_source_id、around_message_id；原 identity 比较与旧参数兼容仍在 | 新回归真正删除持久 snapshot 新字段及 cursor.version；旧参数在消息边界仍可继续，新 sort/keywords 报 invalid_cursor。guard 直接覆盖另外两个新增字段，不改变 v2 查询身份 | closed |
+| W3：独立内存和写入基线缺失 | `M1-search/evidence/self-check.md:8` 补独立进程、受支持 Node、隔离磁盘、同规模旧/新数据集与测量 | 核对本机 `/tmp/feat680-benchmark-results.ndjson` 两条原始工具结果转存与文档完全一致；执行与基线说明见下文 | closed，保留样本边界 |
+
+独立测试命令（固定 HEAD `5e080ffbf`，Node v24.22.1）：
+
+```sh
+PATH="/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH" pnpm exec vitest run apps/im-server/tests/conversation-search.test.ts
+# 1 file, 6 tests passed; 2026-10-30 12:14 Asia/Shanghai
+```
+
+`git diff 2d51d501d 5e080ffbf --check` 通过。没有因本次 delta 重新执行先前通过的 41 个测试；当前 6 个搜索测试覆盖受影响入口。caller 提供 red→green 过程，本 reviewer 独立确认修复后的 green 与确切断言，未修改冻结现场重放 red。
+
+### 容量证据的实际含义
+
+补测使用 Node v24.22.1 + `pnpm exec tsx`；旧版 Work 源码由 `git show 6b95850a6:apps/im-server/src/work.ts` 取得，新版来自本 unit work.ts。两版各自独立进程在临时磁盘库创建 100 个聊天、100,000 消息、50% 命中，再执行相同 query 的旧版 3 次 / 新版 10 次，记录 `process.memoryUsage().rss`、`resourceUsage().maxRSS` 和各自造数事务耗时。
+
+| 测量 | 旧版 | 新版 |
+|---|---|---|
+| query_ms | 2338 / 2070 / 2127 | 100 / 117 / 123 / 99 / 105 / 100 / 105 / 104 / 97 / 109 |
+| RSS 起始 / 结束 MiB | 125 / 890 | 112 / 251 |
+| maxRSS KiB | 911360 | 264560 |
+| 100k 造数事务 ms | 557 | 309 |
+
+这些数值支持本机该负载下新版查询时间与进程峰值内存低于旧版；每版写入各一次，只补齐可比较输入和观测值，不能推导精确写入增益。写入路径未修改；没有新增索引/写入钩子。本次需求不要求证明多用户并发或生产 SLA，故不再要求为关闭 W3 构建并发性能框架。真实自然语言全栈工具调用 465ms 是独立的单样本，未与上述 Work 直调结果混淆。
+
+证据来源和限制：ndjson 是 caller 从本会话原始工具输出原样转存，非原进程直接输出文件；一次性 TS 脚本与临时数据库已清理。本 reviewer 检查转存数值及基线/执行方式说明并复用结果，没有伪称独立重跑容量基准。共享进程的旧 RSS 结果仍仅作为历史记录，不用于新版结论。
+
+### Context closure 与剩余限制
+
+W1 修复使内部作者 schema 与筛选结果一致；W2 修复使旧游标遇新参数明确失败，模型可以重新查询，不再把不兼容参数下的旧快照当成功结果。两处均在 IM 查询层修复，没有扩大模型可选择的身份或读权限，没有改 renderer、来源标签、partial 或授权恢复链。
+
+DSH fixture schema 捕获、真实 PA Work 行为及未取得 OAuth provider wire 的边界，仍按 Round 1 和 `self-check.md:9` 记录。本轮不从容量测量推出普遍模型可靠性，亦不替代独立产品 reviewer 的场景验收。
+
+### Round 2 Handoff
+
+- unit_id: `feat-680-agent-conversation-search`
+- review_round / verification_mode: `2` / `targeted-closure`
+- validated_at: `5e080ffbf7709e85e526cede50dc740a6e547234`
+- executed_base: `6b95850a67da5215f3e26dd433037de0fbde5ac5`
+- verdict: `pass`; issues: `[]`; validated_issues: `W1 closed`, `W2 closed`, `W3 closed`
+- requires_full_verification: `false`
+- report_path: `docs/changes/feat-680-agent-conversation-search/verification.md`
+- report_commit: 共享现场由 caller 提交本报告；未修改其他文件
+- top_concern: 无阻断问题；保留单机容量样本、provider wire 未捕获的证据边界
+- 自建服务：无；临时测试数据库由 fixture 清理；未改动 caller 隔离服务
