@@ -92,3 +92,8 @@ final sync fetch后origin/main仍 `9bf2b13da4005631096f2a49223564cd68647c3c`，�
 实现以单一pa_contact_violations伴随表登记新输入风险，binding/message去重；counting用于解除/误判后重计，triggered_block保留第五条系统动作。事务内调用手动与自动共用blockContact，不暴露Agent工具。第五条沿用incident/publication的owner通知及unknown查询，单独投影owner_only和当前黑名单状态；来源失权省略理由和原文，但主人仍可获知系统动作。普通黑名单私聊/群聊行为保持。
 
 先取得阈值/持久恢复6项及系统事件组装2项失败复现，日志 `/tmp/pr430-auto-block-red.log`、`/tmp/pr430-auto-event-red.log`。初步修复3文件31项通过，`/tmp/pr430-auto-block-green.log`。首次build指出事件联合类型缺少owner_only判别，已改用in类型收窄，未放宽类型。进一步受影响回归、独立门禁和真实产品验收另记录实际结果。
+
+
+### R9 定向审查修复
+
+独立审查确认停用/启用后旧security事件被生命周期过滤，而恢复未主动查pending，导致owner-only通知滞留。保留原生命周期隔离，恢复改为主动读取未完成自动通知，以incident/current lifecycle作为runtime稳定inputId；普通旧消息不重放。新增回归先红后绿，日志 `/tmp/pr430-auto-recovery-red.log` 与 `/tmp/pr430-auto-recovery-green.log`，3文件32项通过。原生事件fact/instruction组装复用单一方法；确认回执后不再发现该任务。

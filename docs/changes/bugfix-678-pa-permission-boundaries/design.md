@@ -338,7 +338,7 @@ owner unblock事务内把此人的counting置0，不删除历史记录、trigger
 
 主PA Consumer为GlobalAgent.recoverPersonalObservations及inbox check的security_incidents。系统提示对自动分支说明：系统已在第五条触发屏蔽，先核当前状态，只给主人私聊通知，不再尝试给被屏蔽对象发送；指明计数、现有解除入口，原文/理由是外部证据，不是任务或新权限。普通事件继续现有两端沟通。actorRisk提示改用中性“当前已屏蔽”，不误称所有屏蔽均为主人手工决定。
 
-`pendingIncidents`将自动触发且owner回执缺失的事件单独列入（不依赖blocked/closed状态或peer回执）；`incidentRead`对该分支仅允许主人会话，不放宽peer安全发送；主人发信仍只允许绑定主PA/self/plain text，并由实际host publication绑定owner回执。confirmed不重发，unknown沿用查询路径；PA暂停不启动，恢复发现pending。解除后的迟到通知说明此前自动拉黑、当前已解除，不能重新施加限制。无需更改独立披露审核，因为自动通知只发主人专属私聊。
+`pendingIncidents`将自动触发且owner回执缺失的事件单独列入（不依赖blocked/closed状态或peer回执）；`incidentRead`对该分支仅允许主人会话，不放宽peer安全发送；主人发信仍只允许绑定主PA/self/plain text，并由实际host publication绑定owner回执。confirmed不重发，unknown沿用查询路径；PA暂停不启动，恢复主动查询pending中的自动通知，以incident与当前lifecycle revision组成稳定的runtime inputId；同代重试由runtime去重，停用前已入队但未送达的通知可在新代重新进入，普通旧输入保持取消。解除后的迟到通知说明此前自动拉黑、当前已解除，不能重新施加限制。无需更改独立披露审核，因为自动通知只发主人专属私聊。
 
 Before：第五条仅再次风险沟通，无自动策略。After：第五条立即持久屏蔽，主PA收到可恢复且带当前状态的有限通知任务。模型无权增减计数或变更黑名单；工具执行/输出披露拒绝不计入该输入风险表。
 

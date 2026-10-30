@@ -222,3 +222,36 @@ Mode B，仅审核图片输入与 unknown 回执恢复。
 - 结论：`[]`，无存活 finding。新消息各有持久 incident 和 source event，同消息/类别报告幂等；事件事实、恢复与发送操作保持独立，owner→peer 顺序继续服务端约束。主 PA 获得每条独立 ID、原文、原因、目标和当前回执，外部证据不提升为指令。主人 UI 仍按 actor 分组，联系人屏蔽与批量知情操作相容。
 - 自身发言保留 PA sender、去掉误导性代发文案；真正主人身份发送保留 owner sender + pa_agent_id。历史消息重新读取会获得修正标签；既存 realtime payload 和旧聚合 incident 不回写、不拆分、不重放。没有 schema/API/新权限变化。
 - 独立运行3文件/28项通过；核对 caller 的72文件/485项日志。此处为代码装配与确定性 seam 证据；本轮真实模型、UI与消息交付另见 regression Round 4，不以本审查替代。
+
+## R9 automatic-block independent patch review — 2026-10-30
+
+- reviewer: `automatic_block_review`; review_mode=`patch`; independent from implementation.
+- pre_fix_head=`91a63daaa`; validated_at=`2ce3df0fadeb9da00c8efca3708ccc36a10811cd`; initial checkout clean.
+- Scope: new counter/table, threshold transaction, owner reset/misunderstanding, automatic incident projection, pending/read permissions, Global notification and actual Node/IM routing. Agent Context Review Mode B applies to the owner-only event and lifecycle. Unchanged R1–R8 evidence is retained only where unaffected.
+- Verdict: **1 CONFIRMED WARNING; R9 review not yet passed**.
+
+```json
+[
+  {
+    "file": "apps/im-server/src/personal-agent.ts",
+    "line": 329,
+    "summary": "[P2] Rediscover unfinished automatic-block notices after a lifecycle restart",
+    "failure_scenario": "The fifth incident is persisted at lifecycle revision 1, but the owner disables PA before its notification is consumed and then enables revision 3. The existing observations filter rejects that old event permanently. This new pending branch retains the notice, but Global recovery only reads pa.observations.read; pa.incidents.pending is queried only by a model Inbox check. With no other work, the resumed PA receives no notification task and the owner is not told about the completed automatic block.",
+    "review_mode": "patch",
+    "status": "CONFIRMED",
+    "surface": "Host security.incident followup / Inbox security_incidents / lifecycle recovery",
+    "expected": "After explicit resume, the main PA discovers unfinished owner-only system-action communication, uses current state and confirmed/unknown receipts, and does not revive the rejected input as a task.",
+    "observed": "pa_source_events retains revision 1; observations filters it at personal-agent.ts:217 after revision 3. The pending automatic item remains readable, but recoverPersonalObservations produces no session.submit and recovery has no proactive pending-incident read.",
+    "impact": "Automatic blocking succeeds, but required owner notification can remain stranded until unrelated work happens to make the model check Inbox.",
+    "recommendation": "Rediscover unfinished automatic notification facts under the current enabled lifecycle during recovery, preserving stable publication identity and existing receipt reconciliation; add a stop-before-consumption then resume regression. Do not reopen old source inputs or weaken the general lifecycle barrier.",
+    "severity": "WARNING",
+    "evidence": "/tmp/bugfix678-r9-review/review.test.ts and repro.log: actual PersonalAgents/SQLite event plus GlobalAgent consumer, 1 passing reproduction; old notification absent from observations after revision 3, still present in pendingIncidents, no runtime submission. Lifecycle state transitions are simulated at the persistence seam; no product service or real model was started. Related code: schema.sql personal_observation_lifecycle; personal-agent.ts:214-224,327-332; global-agent.ts:290-297,348-377,380-427,476."
+  }
+]
+```
+
+Other covered behavior is consistent with the approved R9 design: binding/message dedupe and actor counting, current-only reset, immutable triggering fact, transaction rollback, shared owner/system blacklist behavior, source-revoked evidence omission, owner-only destination guard, real owner receipt validation and existing unknown-query path. The new table is empty on upgrade and retained across reopen. The main PA receives discoverable incident/target IDs from trusted host facts, not attacker text; no Agent block tool was added.
+
+Independent supported Node 24 validation: `pnpm exec vitest run apps/im-server/tests/personal-contact-blocks.test.ts apps/im-server/tests/personal-disclosure.test.ts packages/personal-assistant/tests/personal-security-events.test.ts packages/personal-assistant/tests/personal-assistant.test.ts packages/personal-assistant/tests/agent-lifecycle.test.ts --maxWorkers 2` — **5 files / 55 tests passed**, `/tmp/bugfix678-r9-independent-tests.log`. Caller regression `/tmp/pr430-auto-block-regression.log` was inspected: **74 files / 496 tests passed**. The passing tests do not cover this cross-lifecycle discovery gap.
+
+Context evidence here is the actual host assembly and deterministic consumer seam. No new provider wire capture, real-model notification, browser/settings acceptance or production run was performed; the separate product reviewer owns the representative daily-model journey. No source/test/config/design/spec edit, service start, subagent, commit or push was made by this reviewer; only this report and the corresponding verification append were changed. Temporary reproduction stays in `/tmp`.
