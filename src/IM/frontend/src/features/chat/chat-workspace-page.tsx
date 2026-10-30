@@ -1198,7 +1198,7 @@ export function ChatWorkspacePage() {
           onSelect={(id) => navigate(`/chat/${id}`)}
           searchMessages={searchMessages}
           initialSearch={queryClient.getQueryData(["chat", "sidebar-search", selfUserId])}
-          onSearchChange={(query, filter) => queryClient.setQueryData(["chat", "sidebar-search", selfUserId], {query, filter})}
+          onSearchChange={state => queryClient.setQueryData(["chat", "sidebar-search", selfUserId], state)}
           onSelectMessage={(id, messageId) => navigate(`/chat/${encodeURIComponent(id)}?message_id=${encodeURIComponent(messageId)}`)}
           onNewChat={() => setShowNewChat(true)}
           onDiscover={() => setShowPublicGroups(true)}

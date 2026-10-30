@@ -341,3 +341,12 @@ canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inb
 - W3 **closed**：提取并复用已有 mention 渲染规则，先解析再截取，搜索和已有会话预览测试通过。
 - 验证：Node 24.22.1 执行 `pnpm exec vitest run apps/im-server/tests/conversation-search.test.ts apps/im-server/tests/personal-sources.test.ts apps/im-server/tests/messaging.test.ts`：3 文件 21 tests passed。Context 受影响处为 Agent 搜索来源名称，静态核对数据流及隔离 `Work.query`；本轮未重跑真实模型。
 - **相邻 WARNING**：Agent 工具返回的外部作者显示名仍来自 `m.sender.display_name`。飞书 enrich 未取得显示名时，隔离 Work.query 实际返回 `name: OwnerName, is_owner: false, source_id: ou-other`；来源 ID 和 owner 判定正确，但姓名仍是内部占位主人。应令 Agent 结果按外部显示名、真实来源 ID 回退，与 Web 修复一致。`design.md` 的 Web 返回字段列表还写“会话类型”，接口实际未返回且无消费者，建议修正文档而非增加冗余字段。
+
+### 针对 aeed9cbfd 的修复复验
+
+- validated_at `aeed9cbfdd8fc6703502ebd8426db0705b15f39c`，executed_base `5ce0bf142`；code review `patch/closure` + verification `targeted-closure`，requires_full_verification：false。
+- Agent 外部名称相邻问题 **closed**：`work.ts` 对有外部来源 ID 的发言优先使用真实外部显示名，缺名回退 source ID；`conversation-search.test.ts` 覆盖未获取名称的场景。Context 影响为 Agent 按需搜索结果作者显示，原始来源 ID 与主人身份事实保留；未在本轮重跑真实模型。
+- Web 接口设计返回字段不一致 **closed**：`design.md` 已移除接口不返回且界面无消费者的“会话类型”，保留用于服务器分类过滤的 `kind` 请求参数。
+- 跨年展示：代码和 `conversation-sidebar.test.tsx` 确认非本年结果显示年份；实际产品复验由独立产品 reviewer 负责。
+- **移动端验收 major #1 部分关闭**：当前缓存并在 sidebar 重挂载后恢复搜索词和分类，但 `searchResult` 重置为 null 并仅重查首页；用户在第 2 页点击结果返回时仍会丢失已加载页和位置，必须重新点击加载更多。`acceptance.md` Round 3 原 finding 明确要求已加载结果或等效恢复位置，当前不能按这一标准将其完全关闭；具体体验和复验由产品 reviewer 裁定。
+- Node 24.22.1 下独立重跑 `apps/im-server/tests/conversation-search.test.ts`、`personal-sources.test.ts`、`messaging.test.ts` 共 21 项通过；前端 `conversation-sidebar.test.tsx` 共 19 项通过。这些测试覆盖词/分类恢复，未覆盖第 2 页返回位置。

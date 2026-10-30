@@ -19,6 +19,7 @@ interface SidebarAgent {
 }
 
 type FilterKey = "all" | ConversationKind;
+type SidebarSearchState = { query: string; filter: FilterKey; pages: number; scrollTop: number };
 
 const FILTER_ORDER: FilterKey[] = ["all", "direct-user", "direct-agent", "group", "agent-network"];
 
@@ -39,8 +40,8 @@ export interface ConversationSidebarProps {
   onSelect(conversationId: string): void;
   searchMessages?(query: string, kind: string, cursor?: string, signal?: AbortSignal): Promise<MessageSearchResult>;
   onSelectMessage?(conversationId: string, messageId: string): void;
-  initialSearch?: { query: string; filter: FilterKey };
-  onSearchChange?(query: string, filter: FilterKey): void;
+  initialSearch?: SidebarSearchState;
+  onSearchChange?(state: SidebarSearchState): void;
   onDiscover?(): void;
   onNewGroup(): void;
   onNewChat?(): void;
@@ -115,6 +116,13 @@ export function ConversationSidebar({
   const [searchError, setSearchError] = useState(false);
   const [retrySearch, setRetrySearch] = useState(0);
   const searchAbort = useRef<AbortController | null>(null);
+  const searchState = useRef<SidebarSearchState>(initialSearch ?? {query:'',filter:'all',pages:1,scrollTop:0});
+  const listRef = useRef<HTMLUListElement>(null);
+  const restoreScroll = useRef<number | null>(initialSearch?.scrollTop ?? null);
+  const saveSearch = (update: Partial<SidebarSearchState>) => {
+    searchState.current = {...searchState.current, ...update};
+    onSearchChange?.(searchState.current);
+  };
   const [contextMenu, setContextMenu] = useState<{ conversationId: string; x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -122,8 +130,17 @@ export function ConversationSidebar({
     if (!q || !searchMessages || distillMode) { setSearchResult(null); setSearchError(false); setSearchLoading(false); return; }
     const controller = new AbortController(); searchAbort.current = controller;
     setSearchResult(null); setSearchError(false); setSearchLoading(true);
+    const pages = searchState.current.pages;
     const timer = setTimeout(() => {
-      void searchMessages(q, filter, undefined, controller.signal).then(result => {
+      void (async () => {
+        let result = await searchMessages(q, filter, undefined, controller.signal);
+        const messages = [...result.messages];
+        for (let page = 1; page < pages && result.next_cursor && !controller.signal.aborted; page++) {
+          result = await searchMessages(q, filter, result.next_cursor, controller.signal);
+          messages.push(...result.messages);
+        }
+        return {...result, messages};
+      })().then(result => {
         if (!controller.signal.aborted) setSearchResult(result);
       }).catch(() => { if (!controller.signal.aborted) setSearchError(true); })
         .finally(() => { if (!controller.signal.aborted) setSearchLoading(false); });
@@ -131,12 +148,22 @@ export function ConversationSidebar({
     return () => { clearTimeout(timer); controller.abort(); };
   }, [search, filter, searchMessages, distillMode, retrySearch]);
 
+  useEffect(() => {
+    if (searchResult && restoreScroll.current !== null && listRef.current) {
+      listRef.current.scrollTop = restoreScroll.current;
+      restoreScroll.current = null;
+    }
+  }, [searchResult]);
+
   const loadMore = () => {
     if (!searchMessages || !searchResult?.next_cursor || searchLoading) return;
     const signal = searchAbort.current?.signal;
     setSearchLoading(true); setSearchError(false);
     void searchMessages(search.trim(), filter, searchResult.next_cursor, signal).then(result => {
-      if (!signal?.aborted) setSearchResult(previous => ({ ...result, messages: [...(previous?.messages ?? []), ...result.messages] }));
+      if (!signal?.aborted) {
+        setSearchResult(previous => ({ ...result, messages: [...(previous?.messages ?? []), ...result.messages] }));
+        saveSearch({pages:searchState.current.pages+1});
+      }
     }).catch(() => { if (!signal?.aborted) setSearchError(true); })
       .finally(() => { if (!signal?.aborted) setSearchLoading(false); });
   };
@@ -190,7 +217,7 @@ export function ConversationSidebar({
           className="chat-sidebar-search"
           placeholder={t("chat.list.search")}
           value={search}
-          onChange={(e) => { setSearch(e.target.value); onSearchChange?.(e.target.value, filter); }}
+          onChange={(e) => { setSearch(e.target.value); saveSearch({query:e.target.value,filter,pages:1,scrollTop:0}); }}
         />
         <div className="chat-sidebar-filters" role="tablist">
           {FILTER_ORDER.map((key) => (
@@ -200,7 +227,7 @@ export function ConversationSidebar({
               role="tab"
               aria-selected={filter === key}
               className={`chat-sidebar-filter${filter === key ? " chat-sidebar-filter--active" : ""}`}
-              onClick={() => { setFilter(key); onSearchChange?.(search, key); }}
+              onClick={() => { setFilter(key); saveSearch({query:search,filter:key,pages:1,scrollTop:0}); }}
             >
               {t(FILTER_LABEL[key])}
             </button>
@@ -230,7 +257,7 @@ export function ConversationSidebar({
         </div>
       ) : null}
       {personalAgentEntry}
-      <ul className="chat-sidebar-list">
+      <ul ref={listRef} className="chat-sidebar-list" onScroll={event => { if (search.trim() && !searchLoading) saveSearch({scrollTop:event.currentTarget.scrollTop}); }}>
         {search.trim() && searchMessages && !distillMode ? <li className="chat-search-heading">{t('chat.list.conversationResults')}</li> : null}
         {filtered.length === 0 ? (
           <li className="chat-sidebar-empty">{search.trim() ? t('chat.list.noConversationResults') : emptyLabel ?? t("chat.list.empty")}</li>
