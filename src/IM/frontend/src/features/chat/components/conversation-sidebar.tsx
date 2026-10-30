@@ -205,10 +205,10 @@ export function ConversationSidebar({
   return (
     <aside className={`chat-sidebar${searchActive ? " chat-sidebar--searching" : ""}`} aria-label={searchActive ? t("chat.list.searchTitle") : t("chat.list.header")} onClick={() => setContextMenu(null)}>
       <header className="chat-sidebar-header">
-        {!searchActive && <div className="chat-sidebar-header-row">
+        <div className="chat-sidebar-header-row" inert={searchActive}>
           <span className="chat-sidebar-title">{t("chat.list.header")}</span>
           <NewConversationMenu onNewChat={onNewChat} onNewGroup={onNewGroup} onDiscover={onDiscover} />
-        </div>}
+        </div>
         {distillMode && (
           <div className="chat-sidebar-distill-actions">
             <button type="button" className="chat-sidebar-action" onClick={onCancelDistillMode}>
@@ -230,7 +230,7 @@ export function ConversationSidebar({
           </p>
         ) : null}
         <div className="chat-search-input-row">
-        {searchActive && <button type="button" className="chat-search-back" aria-label={t("chat.list.exitSearch")} onClick={exitSearch}>‹</button>}
+        <button type="button" className="chat-search-back" aria-label={t("chat.list.exitSearch")} aria-hidden={!searchActive} disabled={!searchActive} tabIndex={searchActive ? 0 : -1} onClick={exitSearch}>‹</button>
         <input
           type="search"
           role="searchbox"
