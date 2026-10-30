@@ -211,3 +211,8 @@ Outcome: **aligned**（限定修复 delta）。Round 1 旧 implementation-mismat
 没有新增实现或设计问题；corrected-delta **aligned** 延伸至 effective_through，无 uncovered observable behavior。报告只追加本 Round 3；源码、设计、spec及其他报告未修改，未提交/推送。后续 owner 同步勾选交付记录、归并 current spec/归档并按文档变化跑相应检查；若此后只有文档收尾，不要求第三次完整静态审查或重跑未变化源码的全量测试。
 
 All verification checks passed for this fixed tree. Ready for PR closeout after the documented spec merge and archive steps.
+
+
+## 2026-10-30 targeted delta consistency
+
+独立静态审查者 `per_message_review` 同次受派 code review 与定向一致性核对，validated_at=`6e80670e3`，范围 `14964ba653..6e80670e3`。结论 **pass / aligned**，0 CRITICAL / 0 WARNING：逐条 deny 交付主 PA 的原需求落实到独立持久事件与回执；联系人摘要聚合保留在现有 UI，design 澄清、delta/current spec 同步，无新增权限、API、schema 或运行时边界。自身标签修复不改变真实 sender 或授权语义。历史聚合记录不重放，已保存回执不清除。未变 R1/R2/R3 准入/R5/R6/R7/R8 机制证据 retained；R4 连续沟通与身份体验由 regression Round 4 单独复验，不能以静态一致性代替产品通过。

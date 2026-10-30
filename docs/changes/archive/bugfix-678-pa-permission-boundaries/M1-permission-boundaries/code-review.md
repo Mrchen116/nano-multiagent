@@ -212,3 +212,13 @@ Mode B，仅审核图片输入与 unknown 回执恢复。
 - 这是实际 Inbox 序列化/原话补送与真实 IM/SQLite/图像文件/interactive 持久存储的确定性证据。independent verdict 在图片接缝中为 fixture allow；没有新增真实 provider/model 调用、upstream 请求捕获或浏览器/iOS/Feishu UI 验收，不将正确 helper/持久值描述成所有模型行为可靠。原 full review 的适用证据与限制保留。
 - `/tmp/pr430-context-fix-tests.log` 此时宽回归为 **98 files passed / 2 failed，481 tests passed / 2 failed**；knowledge-review 的 held 等待失败可见。caller 正接手失败项独立窄重验，本 closure 不据此宣称宽回归全绿，也不把 unrelated 未决测试转写成这两项仍存活的缺陷。
 - 本 reviewer 仅追加本 closure；未改实现/测试/配置/design/spec、未提交或推送、未启产品服务、未访问生产、未派子 Agent。修复已由主实施者冻结，此结论不覆盖后续新 delta。
+
+
+## 连续拒绝与自身身份修复 — 独立 patch review
+
+- reviewer：`per_message_review`，gpt-6.1-sol/high，独立新上下文；review_mode=patch。
+- pre_fix_head：`14964ba65331fd4a7386e6fe1fc2916d0c11ed97`；validated_at：`6e80670e3`；executed_base：`9bf2b13da4005631096f2a49223564cd68647c3c`。
+- diff scope：逐消息 incident/系统事件、消息身份标签与对应永久回归；Agent Context Implementation Review 沿 report → source event → Global 主 PA 事件与 Inbox pending → incident_ref/发送回执检查实际消费链。
+- 结论：`[]`，无存活 finding。新消息各有持久 incident 和 source event，同消息/类别报告幂等；事件事实、恢复与发送操作保持独立，owner→peer 顺序继续服务端约束。主 PA 获得每条独立 ID、原文、原因、目标和当前回执，外部证据不提升为指令。主人 UI 仍按 actor 分组，联系人屏蔽与批量知情操作相容。
+- 自身发言保留 PA sender、去掉误导性代发文案；真正主人身份发送保留 owner sender + pa_agent_id。历史消息重新读取会获得修正标签；既存 realtime payload 和旧聚合 incident 不回写、不拆分、不重放。没有 schema/API/新权限变化。
+- 独立运行3文件/28项通过；核对 caller 的72文件/485项日志。此处为代码装配与确定性 seam 证据；本轮真实模型、UI与消息交付另见 regression Round 4，不以本审查替代。

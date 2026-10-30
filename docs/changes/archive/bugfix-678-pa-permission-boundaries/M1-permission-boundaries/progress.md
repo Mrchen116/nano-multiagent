@@ -72,3 +72,14 @@ DSH/IM build、两包 typecheck、文档完整性（317 sources /68 routes）、
 自身发言的真实 sender 一直是 PA，错误来自无 representation_operation_id 的旧 delegation 投影一律写“代为发送”。标签改为仅表明“某人的 PA”；真实 representation=owner 仍由用户 sender + pa_agent_id 表达“PA代发”，旧消息不会提升为主人授权。修改读取投影使已有消息经历史刷新也获得准确标签，已持久化的旧 realtime event payload 不做数据回写。
 
 永久保护扩展既有 disclosure 事件测试，覆盖首条未完成时又来一条、首条已完成后新请求、独立 owner→peer 顺序、消息/事件事实不被覆盖、恢复与重复报告不重发；representation 测试覆盖真实群发送和历史/realtime投影，既有 owner 和 legacy tests 保留。修改前两项各自红测，日志 `/tmp/pr430-per-message-red.log`；修改后两文件24项通过，`/tmp/pr430-per-message-green.log`。后续独立审查及真实复验结果在收口时追加。
+
+
+### 连续拒绝修复最终验证
+
+源码固定 `6e80670e3bb8090106639012d0710c4551551ce9`：IM build/typecheck 通过，IM+PA 72文件/485项通过（`/tmp/pr430-per-message-regression.log`）；窄回归另在支持的 Node24.22.1 运行24项通过（`/tmp/pr430-per-message-node24.log`）。文档完整性通过317 sources/68 routes，首次系统Python缺yaml后已用仓库venv重跑，没有修改依赖或工具。独立 code/Context patch review 与 delta consistency 均通过，无存活finding，独立另跑3文件28项通过。
+
+独立产品 Round4（报告 `fd8ef953a`）通过：合成秘密在私聊被真实Astra掌握，同一联系人两次顺序套话均独立触发主人先提醒、群中后拒绝，两条独立incident和四条真实发送回执；随后正常群问题回答15:30/90页。Web1280×720的自身标签无“代为发送”，主人摘要仍2 requests/1 person。实际主PA runtime_events两组事件与四次send_message均可对账。源码与临时栈绑定，未改生产。新增真实证据限本次连续旅程，不冒充iOS/Feishu、全部R1–R8或统计安全保证。
+
+final sync fetch后origin/main仍 `9bf2b13da4005631096f2a49223564cd68647c3c`，无上游增量；executed_base=effective_base为该SHA，code/Context/consistency及product均实际validated_at=`6e80670e3`。后续 `fd8ef953a` 与收口提交仅报告，源码不变，effective_through延伸至本次最终报告HEAD。既有未变部分按各报告retained，不替换历史失败事实。PR仍未合并、未部署，开发worktree保留用于审查。
+
+本轮隔离栈已由受控tmux的trap调用e2e-down，结果STOPPED；57997无监听，Node PID51454与专用tmux已退出。数据/截图/轨迹保留于本机runtime，未提交。
