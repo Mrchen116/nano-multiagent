@@ -119,3 +119,8 @@ current gateway PA归并已审R9 ADDED及R4 MODIFIED；IM文档只加同一自�
 
 
 隔离栈已由e2e-down退出，`down.log=STOPPED`，IM端口50839无监听、GW PID91353不存在；证据与数据库只留本机。归并后的首次docs-check提示Gateway目录Requirement数量16→17，已同步索引，未改行为契约。开发worktree因PR未合并保留。
+## R10 快速修订与验证
+
+用户明确取消后续设计流程与 subagent，要求直接实施/真实复测并精简指引；已派设计 reviewer 在指令到达时完成的 Round 7 留作历史，此后没有再派 agent。实际改动只为 incidentEvent 补当前可访问的 actor_name/conversation，并合并缩短事件指引。两个回归先红；窄回归27项、受影响74文件498项、短指引最终26项与IM/PA build/typecheck通过；日志 `/tmp/pr430-r10-{red,green,regression,concise}.log`。源码自审和真实验收由主 Agent 完成，不记作独立审查。
+
+真实五条验证见 regression Round 6；现有名称优先级、缺名不猜、失权不投影、普通/自动事件实际上下文和发送边界均有对应证据。测试达到用户要求后停止扩展规则。无schema/迁移、UI布局或计数变化，旧消息不重写。当前源码057e690a8；本轮后续仅报告/契约归并与归档，既有未变门禁范围保留。
