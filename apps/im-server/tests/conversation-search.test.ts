@@ -46,21 +46,21 @@ it('continues long messages across pages', () => {
   expect(query({ action: 'search', query: '长', limit: 1, cursor: first.next_cursor }).messages[0]).toMatchObject({ message_id: message.id, part_key: '1', total_parts: 2 });
 });
 
-it('filters external messages by their actual sender rather than their mirror account', () => {
+it('distinguishes external senders from internal messages in a shadow conversation', async () => {
   const { ctx, db, principal, args } = personalFixture();
   db.prepare("UPDATE conversations SET external_source='feishu' WHERE id='peer'").run();
   const one = ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案', [], null, 'completed', { sender_source_id: 'ou-one' });
   ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案', [], null, 'completed', { sender_source_id: 'ou-two' });
-  const unknown = ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案（旧镜像无发言人身份）', [], null, 'completed');
+  const internal = await ctx.messaging.sendMessage({ headers: {}, params: { conversation_id: 'peer' }, query: {},
+    body: { sender_user_id: 'u1', content: '发布方案（内部 IM 发言）' } } as any);
   const work = new Work(ctx);
   const query = (input: Record<string, unknown>) => work.query(principal, { ...args, ...input });
   expect(query({ action: 'search', target: 'peer', query: '发布', sender_source_id: 'ou-one' }).messages.map((m: any) => m.message_id)).toEqual([one.id]);
-  expect(query({ action: 'search', target: 'peer', query: '发布', participant_id: 'u1' }).messages).toEqual([]);
+  expect(query({ action: 'search', target: 'peer', query: '发布', participant_id: 'u1' }).messages.map((m: any) => m.message_id)).toEqual([internal.id]);
   const all = query({ action: 'search', target: 'peer', query: '发布' }).messages;
   expect(all.find((m: any) => m.message_id === one.id).sender).toMatchObject({ kind: 'external', source_id: 'ou-one' });
   expect(all.find((m: any) => m.message_id === one.id).sender).not.toHaveProperty('id');
-  expect(all.find((m: any) => m.message_id === unknown.id).sender).not.toHaveProperty('id');
-  expect(all.find((m: any) => m.message_id === unknown.id).sender).not.toHaveProperty('is_owner');
+  expect(all.find((m: any) => m.message_id === internal.id).sender).toMatchObject({ id: 'u1', kind: 'user', is_owner: true });
   expect(() => query({ action: 'search', query: '发布', sender_source_id: 'ou-one' })).toThrow();
 });
 

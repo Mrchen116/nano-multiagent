@@ -269,7 +269,7 @@ export class Work {
     if(terms.length){filters.push(`(${terms.map(() => 'instr(lower(m.content),lower(?))>0').join(' OR ')})`);values.push(...terms);}
     if(p.before){filters.push('julianday(m.created_at)<julianday(?)');values.push(p.before);}
     if(p.after){filters.push('julianday(m.created_at)>=julianday(?)');values.push(p.after);}
-    if(p.participant_id){filters.push("m.sender_user_id=? AND NOT (c.external_source IS NOT NULL AND m.sender_type='user')");values.push(p.participant_id);}
+    if(p.participant_id){filters.push("m.sender_user_id=? AND NOT (c.external_source IS NOT NULL AND m.sender_type='user' AND COALESCE(m.sender_source_id,'')!='')");values.push(p.participant_id);}
     if(p.sender_source_id){filters.push("c.external_source IS NOT NULL AND m.sender_type='user' AND m.sender_source_id=?");values.push(p.sender_source_id);}
     const matches = targets.length ? all(this.db,
       `SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id IN (${targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY ${p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' && terms.length ? terms.map(() => 'CASE WHEN instr(lower(m.content),lower(?))>0 THEN 1 ELSE 0 END').join('+') + ' DESC,' : ''} ${p.action === 'read' && !p.around_message_id ? 'm.rowid DESC' : 'julianday(m.created_at) DESC,m.id DESC'}`,...targets,...values,...(p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' ? terms : [])) : [];
@@ -302,7 +302,7 @@ export class Work {
       if (!m.content && !m.attachments.length && !m.interactive) { offset++; part=0; continue; }
       const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
       const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
-      const externalHuman = !!messageConversation.external_source && m.sender_type === 'user';
+      const externalHuman = !!messageConversation.external_source && m.sender_type === 'user' && !!m.sender_source_id;
       const parts: Row[] = [];
       for (let i = 0; i < m.content.length; i += 24000)
         parts.push({ type: "text", text: m.content.slice(i, i + 24000) });
@@ -325,12 +325,12 @@ export class Work {
           sender: {
             ...(!externalHuman ? { id: m.sender_user_id } : {}),
             name: m.sender.display_name,
-            ...(personalFacts && (!externalHuman || m.sender_source_id) ? {is_owner:personalFacts.is_owner} : {}),
+            ...(personalFacts ? {is_owner:personalFacts.is_owner} : {}),
             kind: externalHuman ? "external" : m.sender_type,
             ...(externalHuman
               ? {
                   channel: messageConversation.external_source,
-                  ...(m.sender_source_id ? { source_id: m.sender_source_id } : {}),
+                  source_id: m.sender_source_id,
                 }
               : {}),
           },
@@ -340,7 +340,7 @@ export class Work {
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
             target: m.conversation_id,
-            name: s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
+            name: messageConversation.title,
             ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,

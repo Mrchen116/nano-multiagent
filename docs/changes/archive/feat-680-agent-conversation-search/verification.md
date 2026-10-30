@@ -315,3 +315,7 @@ canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inb
 用户确认无需对生成中消息跨页变化做内容版本校验；后续实现移除指纹及旧分段游标拒绝规则。上文关于指纹的结果仅适用于当时审查的版本。
 
 本次调整后运行 `pnpm exec vitest run apps/im-server/tests/conversation-search.test.ts apps/im-server/tests/personal-sources.test.ts`（15 passed）及 `pnpm --filter @nano/im-server typecheck`（通过；本机 Node v25.8.2 不在项目支持范围）。本段不替代此前固定版本的独立审查记录。
+
+## 后续检查：影子会话中的内部消息
+
+此前以合成数据推断未知飞书作者的结论不代表实际飞书输入；正常接入要求来源 ID，而主人也可直接在内部 IM 影子会话中发消息且不带该 ID。后续修复保留内部消息作者与内部发送人过滤，并保留有来源 ID 的外部发言人区分。上文关于未知旧作者的结论仅为当时合成场景记录。
