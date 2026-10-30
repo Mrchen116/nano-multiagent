@@ -1,5 +1,6 @@
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
+import { searchMessages } from './message-search.js';
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
@@ -92,6 +93,9 @@ export class Work {
     };
   }
   query(c: Row, p: Row): Row {
+    if (p.keywords !== undefined && (p.query !== undefined || p.keyword !== undefined)) fail(400, 'invalid_arguments');
+    if (p.keywords !== undefined && (!Array.isArray(p.keywords) || p.keywords.some((v: unknown) => typeof v !== 'string'))) fail(400, 'invalid_arguments');
+    const keywords: string[] | undefined = p.keywords === undefined ? undefined : [...new Set<string>(p.keywords.map((v: string) => v.trim().replace(/[A-Z]/g, letter => letter.toLowerCase())).filter(Boolean))];
     p={...p,query:p.keyword??p.query};
     if(p.message_id&&!p.target)p={...p,target:one(this.db,'SELECT conversation_id FROM messages WHERE id=?',p.message_id)?.conversation_id};
     const agent = one(
@@ -162,6 +166,9 @@ export class Work {
           })),
       };
     const target = p.target && sourceAllowed(p.target) && conversationAccess(this.db,p.target,viewerFor(p.target)) ? s.conversation(p.target,viewerFor(p.target)) : undefined;
+    if (p.sort !== undefined && !['relevance', 'recent'].includes(p.sort)) fail(400, 'invalid_arguments');
+    if (p.sender_source_id && (!p.target || !target?.external_source || p.participant_id)) fail(400, 'invalid_arguments');
+    if (p.around_message_id && (p.action !== 'read' || !p.target || p.message_id || p.query || p.keywords || p.before || p.after || p.participant_id || p.sender_source_id)) fail(400, 'invalid_arguments');
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
       return {
@@ -178,7 +185,7 @@ export class Work {
         })),
       };
     }
-    const identity = {
+    const identity: Row = {
       agent: p.agent_id,
       action: p.action,
       target: p.target ?? null,
@@ -189,6 +196,8 @@ export class Work {
       after: p.after ?? null,
       scope: p.scope ?? "joined",
     };
+    const newIdentity: Row = { ...identity, keywords: keywords ?? null, sort: p.action === 'search' ? p.sort ?? 'relevance' : null,
+      sender_source_id: p.sender_source_id ?? null, around_message_id: p.around_message_id ?? null };
     let cursor: Row | undefined, snapshot: Row | undefined;
     if (p.cursor) {
       try {
@@ -200,12 +209,13 @@ export class Work {
         );
         if (!r) throw Error();
         snapshot = JSON.parse(r.data);
+        if (snapshot!.version !== 2 && (p.keywords !== undefined || p.sort !== undefined || p.sender_source_id !== undefined || p.around_message_id !== undefined)) throw Error();
         if (
           !Number.isInteger(cursor!.offset) ||
           cursor!.offset < 0 ||
           !Number.isInteger(cursor!.part) ||
           cursor!.part < 0 ||
-          Object.keys(identity).some((k) => snapshot![k] !== identity[k as keyof typeof identity])
+          Object.keys(snapshot!.version === 2 ? newIdentity : identity).some((k) => JSON.stringify(snapshot![k]) !== JSON.stringify((snapshot!.version === 2 ? newIdentity : identity)[k]))
         )
           throw Error();
       } catch {
@@ -217,7 +227,7 @@ export class Work {
       if (!cursor)
         this.db
           .prepare("INSERT INTO agent_work_query_snapshots VALUES(?,?)")
-          .run(id, JSON.stringify({ ...identity, ids }));
+          .run(id, JSON.stringify({ ...newIdentity, version: 2, ids }));
       return Buffer.from(JSON.stringify({ snapshot: id, offset, part })).toString("base64url");
     };
     if (p.action === "list") {
@@ -254,36 +264,40 @@ export class Work {
     if (!target && (p.action !== "search" || p.target)) fail(404, "target_not_accessible");
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
     const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
-    const filters = ["sender_type IN ('user','agent','system')"], values:any[]=[];
-    if(p.message_id){filters.push('id=?');values.push(p.message_id);}
-    if(p.query){filters.push('instr(lower(content),lower(?))>0');values.push(String(p.query));}
-    if(p.before){filters.push('created_at<?');values.push(p.before);}
-    if(p.after){filters.push('created_at>=?');values.push(p.after);}
-    if(p.participant_id){filters.push('sender_user_id=?');values.push(p.participant_id);}
-    let messages = targets.length ? all(this.db,
-      `SELECT id FROM messages WHERE conversation_id IN (${targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY rowid`,...targets,...values)
-      .map(row=>s.message(row.id)).filter(m=>m.content||m.attachments.length||m.interactive) : [];
-    if (p.before_message_id) {
-      const i = messages.findIndex((m) => m.id === p.before_message_id);
-      if (i < 0) fail(404, "target_not_accessible");
-      messages = messages.slice(0, i);
+    const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
+    const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
+      messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id });
+    const matchesById = new Map(matches.map(row => [row.id, row]));
+    let currentIds: string[] = matches.map(row=>row.id);
+    if (p.around_message_id) {
+      const index = currentIds.indexOf(p.around_message_id);
+      if (index < 0) fail(404, 'target_not_accessible');
+      if (!snapshot) currentIds = currentIds.slice(Math.max(0,index-5),index+6).reverse();
     }
-    const ids: string[] = snapshot?.ids ?? messages.map((m) => m.id).reverse(),
-      byId = new Map(messages.map((m) => [m.id, m]));
+    if (p.before_message_id) {
+      const index = currentIds.indexOf(p.before_message_id);
+      if (index < 0) fail(404, 'target_not_accessible');
+      currentIds = currentIds.slice(index+1);
+    }
+    const ids: string[] = snapshot?.ids ?? currentIds,
+      available = new Set(currentIds);
     let offset = cursor?.offset ?? 0,
       part = cursor?.part ?? 0,
       budget = 24000,
       images = 0;
     const page = [];
     while (offset < ids.length && page.length < limit) {
-      const m = byId.get(ids[offset]!);
-      if (!m) {
+      const id = ids[offset]!;
+      if (!available.has(id)) {
         offset++;
         part = 0;
         continue;
       }
+      const m = s.message(id);
+      if (!m.content && !m.attachments.length && !m.interactive) { offset++; part=0; continue; }
       const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
       const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
+      const externalHuman = !!messageConversation.external_source && m.sender_type === 'user' && !!m.sender_source_id;
       const parts: Row[] = [];
       for (let i = 0; i < m.content.length; i += 24000)
         parts.push({ type: "text", text: m.content.slice(i, i + 24000) });
@@ -304,14 +318,14 @@ export class Work {
           message_id: m.id,
           ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
-            id: m.sender_user_id,
-            name: m.sender.display_name,
-            ...(personalFacts?{is_owner:personalFacts.is_owner}:{}),
-            kind: messageConversation.external_source && m.sender_type === "user" ? "external" : m.sender_type,
-            ...(messageConversation.external_source && m.sender_type === "user"
+            ...(!externalHuman ? { id: m.sender_user_id } : {}),
+            name: externalHuman ? matchesById.get(m.id)?.sender_display_name || m.sender_source_id : m.sender.display_name,
+            ...(personalFacts ? {is_owner:personalFacts.is_owner} : {}),
+            kind: externalHuman ? "external" : m.sender_type,
+            ...(externalHuman
               ? {
                   channel: messageConversation.external_source,
-                  ...(m.sender_source_id ? { source_id: m.sender_source_id } : {}),
+                  source_id: m.sender_source_id,
                 }
               : {}),
           },
@@ -320,6 +334,8 @@ export class Work {
             channel: messageConversation.external_source ?? "web",
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
+            target: m.conversation_id,
+            name: conversations.find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
             ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
@@ -327,6 +343,7 @@ export class Work {
           ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
+          total_parts: parts.length,
           content: [content],
           complete_message: parts.length === 1,
         });

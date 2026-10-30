@@ -180,6 +180,14 @@ export class ExternalChannels {
     }
     if (type === 'conversation.query') {
       const local = this.query(payload); if (local) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: true, result: local } };
+      if (payload.target && (payload.action === 'search' || payload.action === 'read' && (payload.message_id || payload.around_message_id))) {
+        const target = String(payload.target).replace(/^conversation:/, '');
+        const chat = this.state.chats().find(item => item.agentId === payload.agent_id && (item.id === target || item.shadowId === target));
+        if (chat) {
+          if (!chat.shadowId) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: false, error: 'External source is not synchronized to IM' } };
+          return this.options.relay.request(type, { ...payload, target: chat.shadowId });
+        }
+      }
     }
     if (type === 'agent.message') {
       const publication = decodeAgentPublication(payload);
@@ -277,8 +285,11 @@ export class ExternalChannels {
     const chat = chats.find(chat => chat.id === String(payload.target).replace(/^conversation:/, '') || chat.shadowId === payload.target);
     if (!chat) return;
     if (payload.action === 'info') return describe(chat);
-    if (payload.action === 'read') return { ...describe(chat), messages: this.state.inbound().filter(row => row.chatId === chat.id).slice(-50).map(row => ({
+    if (payload.action === 'read' && !payload.message_id && !payload.around_message_id) return { ...describe(chat), history_scope: 'external_cache', messages: this.state.inbound().filter(row => row.chatId === chat.id).slice(-50).map(row => ({
       ...row.input.message, ...(row.input.message.created_at ? { created_at: formatLocalTime(row.input.message.created_at, row.input.message.timezone) } : {}),
+      sender: { name: row.message.senderName, kind: 'external', channel: 'feishu', source_id: row.message.senderId },
+      source: { target: chat.id, name: chatTitle(chat), ...(row.mirror ? { message_id: row.mirror } : {}) },
+      partial: { status: 'unknown' },
     })) };
   }
 

@@ -15,6 +15,28 @@ const message = (id: string): RelayInput => ({ agent_id: 'alice', conversation_i
   metadata: { conversation_type: 'direct' }, message: { id, content: id, sender_type: 'user', sender_user_id: 'owner', attachments: [] },
 });
 
+it('presents complete conversation messages compactly and marks cross-page fragments', () => {
+  const store = new NodeStore(':memory:', 'owner');
+  try {
+    const refs = store.toolReferences;
+    const source = { conversation_id: 'chat', target: 'chat', name: 'Team' };
+    const part = (message_id: string, part_key: string, total_parts: number, content: unknown) => ({ message_id, source, sender: { name: 'Alice', kind: 'user' }, part_key, total_parts, complete_message: total_parts === 1, content: [content] });
+    const result = refs.result('alice', 'conversations', { history_scope: 'im_history', messages: [
+      part('complete', '0', 2, { type: 'text', text: 'hello' }), part('complete', '1', 2, { type: 'attachment', url: '/file' }),
+      part('long', '0', 2, { type: 'text', text: 'first' }),
+    ], has_more: true, next_cursor: 'cursor-1' }, 'search') as any;
+    expect(result).not.toHaveProperty('has_more');
+    expect(result.next_cursor).toMatch(/^p_/);
+    expect(result.messages[0]).toMatchObject({ message_id: 'complete', content: [{ type: 'text', text: 'hello' }, { type: 'attachment', url: '/file' }] });
+    expect(result.messages[0]).not.toHaveProperty('partial');
+    expect(result.messages[0]).not.toHaveProperty('complete_message');
+    expect(result.messages[1].partial).toEqual({ first_part: 1, last_part: 1, total_parts: 2 });
+    const last = refs.result('alice', 'conversations', { messages: [part('long', '1', 2, { type: 'text', text: 'last' })], has_more: false, next_cursor: null }, 'read') as any;
+    expect(last.messages[0].partial).toEqual({ first_part: 2, last_part: 2, total_parts: 2 });
+    expect(last).not.toHaveProperty('next_cursor');
+  } finally { store.close(); }
+});
+
 it('keeps compact Feishu targets and frozen Inbox pages valid after restart, with canonical approval, images and delivery', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'nano-tool-references-'));
   let store: NodeStore, inbox: InboxStore, product: GlobalAgent;
