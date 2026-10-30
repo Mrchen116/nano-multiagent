@@ -365,3 +365,37 @@ canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inb
 - **条件切换旧滚动位置 closed**：关键词和分类处理均同步清除 `restoreScroll.current`，保存的新条件重置页数及位置；新增测试覆盖旧查询未完成时修改关键词，结果保持顶部。分类处理同一路径经源码核对。
 - **缓存回收 closed**：workspace 为 `['chat','sidebar-search']` 设置 `gcTime: Infinity`，当前用户身份仍在缓存键中；现有 `AppProviders` 在登出、切换用户或账号状态变化时清除 QueryClient。针对同一已安装 QueryClient，在默认 30ms 回收的隔离验证中使用前缀 Infinity：60ms 后状态仍在，`clear()` 后消失（非真实等待五分钟的测试）。
 - Node 24.22.1：独立运行 `conversation-sidebar.test.tsx`，20 项通过。0 CRITICAL / 0 WARNING；实际移动端体验由独立产品 reviewer 判定。
+
+
+## Web 搜索体验修订：独立 delta 审查与键盘布局 closure
+
+- Reviewer：独立 `change-code-review` + `change-verifier`（`/root/search_ux_code_review`）。
+- verification_mode：delta；原始范围 `76c455254c5452a045e54a64921a3f448bc0cb50 → 8e84a75e3f59abd546b2174715d4ff5bf1e36a92`；closure 范围 `8e84a75e3 → 236ada431`（仅 5 行 CSS 差异）。
+- 结论：原始版本 0 CRITICAL / 1 WARNING；`236ada431` closure 后 **0 CRITICAL / 0 WARNING，pass**。requires_full_verification：false。当前增量仅影响用户 Web 搜索 UI，不改变模型可见信息或生命周期，无完整 Agent Context Review 触发。
+
+### Completeness / Correctness
+
+| 契约 / 范围 | 代码与验证证据 | 状态 |
+|---|---|---|
+| 独立搜索视图、清空留在搜索、主动退出恢复列表 | `conversation-sidebar.tsx:197-243,282-289,407`：`searchActive` 控制标题、固定 PA、原列表和 footer；侧栏组件现有 21 项测试通过，包含新进入/清空/退出旅程 | covered |
+| PA 会话按普通会话参与匹配 | `chat-workspace-page.tsx:1194-1195`：普通列表排除固定 PA 对应会话，搜索单独传全部已加载可见会话；`conversation-sidebar.tsx:181-195` 使用搜索集合匹配，新增测试实际断言 PA 命中 | covered |
+| 分类隔离及移动返回 | `conversation-sidebar.tsx:120-159,168-175,197-202,240,253`：进入前保存 listFilter，退出恢复，查询/分类变更清页；`chat-workspace-page.tsx:1202-1204` 沿用按用户缓存与 message_id 导航；现有组件重挂载测试重查各页，验证恢复词、分类及第二页 | covered |
+| 分组、关键词、空/加载/失败与续页 | `conversation-sidebar.tsx:87-90,285-289,392-405`：仅展示命中分组，字面高亮和统一无结果；现有测试覆盖失败重试、分页及原消息回调 | covered |
+| 权限、身份隔离和不消费未读 | 本 diff 未修改搜索 API、服务端当前用户权限过滤或已读路径；搜索重挂载仍逐页调用原接口。`searchConversations` 源自现有用户会话集合，未引入更高权限来源；缓存仍含 selfUserId，认证切换清理机制未变 | covered / unchanged |
+| 移动键盘可视区 | 下述 W1 及 closure | closed |
+
+### Coherence
+
+修订设计的独立移动搜索/桌面侧栏搜索、清空与退出区别、PA 普通匹配、分组/高亮和不在已加载列表中的来源头像均有对应实现。旧原型依用户授权不作为 must-match；桌面/移动真实产品体验由产品 reviewer 独立判定，本报告的组件测试和合成布局测量不代替该验收。
+
+### WARNING W1 — 移动搜索页绕过现有键盘可视高度（closed）
+
+- 原始定位：`src/IM/frontend/src/styles/global.css:4986-4989`，`8e84a75e3` 使用 `position:fixed; inset:0; min-height:100dvh`。触发条件是手机输入搜索时软件键盘缩小 visual viewport；现有 `use-mobile-viewport.ts:10-15` 明确记录 iOS 的 dvh 不随键盘缩小，并为编辑状态更新 `--im-viewport-height` / `--im-viewport-offset`。新搜索页未使用该值，导致列表最后部分和 Load more 即便滚到底仍在键盘遮挡区；偏离 current Web UX 的“可用高度随浏览器栏和键盘变化”契约。
+- 独立窄复现：Playwright 独立 Chromium 会话，390×844 布局视口，加载上述固定 revision 的真实 CSS 与最小同类搜索 DOM（30 行及 Load more），将已有 hook 的输出变量设为 `--im-viewport-height:400px`。原样规则的 aside/list 底部均为 844px，最大滚动时 Load more 底部 819.72px。此为确定性布局复现，没有模拟真实 iOS 键盘，也不宣称真实手机验收。
+- closure：`236ada431` 改为 `inset:var(--im-viewport-offset,0px) 0 auto; height:var(--im-viewport-height); min-height:0`；同一测量下 aside/list 底部为 400px，Load more 底部为 375.72px，回到可视区。源码复核同时保留 offset 处理。W1 closed，无其他存活问题。
+
+### 独立验证与现场
+
+- Node `v25.8.2`，`src/IM/frontend` 下 `pnpm exec vitest run src/features/chat/components/conversation-sidebar.test.tsx`：1 file / 21 tests passed（原始 `8e84a75e3`）；CSS closure 不改变该组件路径，未重复跑同一套测试。
+- `pnpm exec vitest run src/app/providers.test.tsx`：1 file / 3 tests passed（`236ada431`），覆盖现有视觉视口变量的编辑/恢复行为。
+- 仅写本报告，未改产品代码、测试、配置或设计；未启动服务。自建 Playwright `feat680-code-layout` 会话已关闭。共享现场由 caller 提交报告。
