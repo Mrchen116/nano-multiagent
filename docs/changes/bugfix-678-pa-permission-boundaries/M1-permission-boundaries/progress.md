@@ -107,3 +107,5 @@ final sync fetch后origin/main仍 `9bf2b13da4005631096f2a49223564cd68647c3c`，�
 Python 113 passed / 28 deselected；Ruff check/format（93 files）、iOS打包交互资源校验通过。日志分别 `/tmp/pr430-r9-python.log`、`/tmp/pr430-r9-ruff.log`、`/tmp/pr430-r9-ios-package.log`。active文档检查331 sources / 68 routes通过。
 
 final sync已merge `origin/main=5d0fbea1e`，相对原executed_base `9bf2b13da4005631096f2a49223564cd68647c3c` 仅新增独立refactor-679 motivation.md，无运行源码或本unit契约变化。受验source仍为9d4008650，code/Context/consistency门禁保留；产品review按同一实际运行源码记录，主干文档增量不要求重建或重测。
+
+低并发完整复跑 `pnpm exec vitest run --maxWorkers=2`：158文件841项全部通过，226.83秒，日志 `/tmp/pr430-r9-full-low-concurrency.log`。该结果是一轮完整绿，不替换前轮2项等待超时的记录。源码自9d4008650未变；前端本轮无改动，保留前轮真实Web/1029项及远端CI证据，新head远端CI另核。
