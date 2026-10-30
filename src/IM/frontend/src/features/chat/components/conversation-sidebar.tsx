@@ -39,6 +39,8 @@ export interface ConversationSidebarProps {
   onSelect(conversationId: string): void;
   searchMessages?(query: string, kind: string, cursor?: string, signal?: AbortSignal): Promise<MessageSearchResult>;
   onSelectMessage?(conversationId: string, messageId: string): void;
+  initialSearch?: { query: string; filter: FilterKey };
+  onSearchChange?(query: string, filter: FilterKey): void;
   onDiscover?(): void;
   onNewGroup(): void;
   onNewChat?(): void;
@@ -73,6 +75,13 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatSearchDate(iso: string): string {
+  const date = new Date(iso);
+  if (!Number.isNaN(date.getTime()) && date.getFullYear() !== new Date().getFullYear())
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return formatDate(iso);
+}
+
 export function ConversationSidebar({
   conversations,
   personalAgentEntry,
@@ -82,6 +91,8 @@ export function ConversationSidebar({
   onSelect,
   searchMessages,
   onSelectMessage,
+  initialSearch,
+  onSearchChange,
   onDiscover,
   onNewGroup,
   onNewChat,
@@ -97,8 +108,8 @@ export function ConversationSidebar({
   onStartDistill
 }: ConversationSidebarProps) {
   const { t } = useTranslation();
-  const [filter, setFilter] = useState<FilterKey>("all");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<FilterKey>(initialSearch?.filter ?? "all");
+  const [search, setSearch] = useState(initialSearch?.query ?? "");
   const [searchResult, setSearchResult] = useState<MessageSearchResult | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
@@ -179,7 +190,7 @@ export function ConversationSidebar({
           className="chat-sidebar-search"
           placeholder={t("chat.list.search")}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); onSearchChange?.(e.target.value, filter); }}
         />
         <div className="chat-sidebar-filters" role="tablist">
           {FILTER_ORDER.map((key) => (
@@ -189,7 +200,7 @@ export function ConversationSidebar({
               role="tab"
               aria-selected={filter === key}
               className={`chat-sidebar-filter${filter === key ? " chat-sidebar-filter--active" : ""}`}
-              onClick={() => setFilter(key)}
+              onClick={() => { setFilter(key); onSearchChange?.(search, key); }}
             >
               {t(FILTER_LABEL[key])}
             </button>
@@ -331,7 +342,7 @@ export function ConversationSidebar({
           <li className="chat-search-heading">{t('chat.list.messageResults')}</li>
           {searchResult?.messages.map(message => <li key={message.message_id}>
             <button type="button" className="chat-sidebar-row chat-search-result" onClick={() => onSelectMessage?.(message.conversation_id, message.message_id)}>
-              <span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title-line"><span className="chat-sidebar-row-title">{message.conversation_name}</span><span className="chat-sidebar-row-time">{formatDate(message.created_at)}</span></span>
+              <span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title-line"><span className="chat-sidebar-row-title">{message.conversation_name}</span><span className="chat-sidebar-row-time">{formatSearchDate(message.created_at)}</span></span>
                 <span className="chat-search-snippet">{message.sender_name}: {message.snippet}</span></span>
             </button>
           </li>)}

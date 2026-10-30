@@ -332,3 +332,12 @@ canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inb
 1. **W1 — 观察者私聊的 Agent 搜索来源名称发生回归。** `apps/im-server/src/work.ts` 的 `source.name` 直接取 `messageConversation.title`；`messaging.ts` 的 `conversation()` 对未自定义的观察者私聊生成参与者名称。隔离库中，同一 PA 可观察私聊在 `conversation('peer','u1').title` 返回 `agent:a ↔ Bob`，`Work.query` 返回 `source.name: Internal routing title`。结果与用户实际看到的聊天名不一致，削弱 Agent 辨认来源。建议复用当前授权会话列表的对应投影或缓存正确的 viewer title，覆盖同场景搜索与读取。
 2. **W2 — 外部作者名称缺失时 Web 搜索误显示主人。** `apps/im-server/src/messaging.ts` 搜索结果直接使用 `message.sender.display_name`；飞书 `enrich` 查询可以失败或未返回 sender_name（`packages/channels/src/feishu.ts`），镜像可携带有效其他人 source ID 而没有显示名；`message-records.ts` 会回退到内部占位账号的显示名。隔离库真实 HTTP handler 中，`sender_source_id=ou-other`、无 sender_display_name 的消息搜索返回 `sender_name: OwnerName`。应在真实来源 ID 已知但外部显示名不可用时显示可区分的外部身份或未知，避免冒认主人。此问题关于名称缺失，不依赖之前无法证实的来源 ID 缺失假设。
 3. **W3 — 含提及的命中片段显示破碎内部标记。** `apps/im-server/src/messaging.ts` 按原始 `message.content` 截取片段，未像同文件的会话预览那样先转为可读 @姓名。真实 HTTP handler 对 `<mention type="user" target_id="u2"/> please review needle` 搜索 needle 返回 `…e="user" target_id="u2"/> please review needle`，标记甚至在中间被截断。建议先解析可读提及再围绕匹配截取，并验证前后文与命中定位。
+
+### 针对 5ce0bf142 的集中修复复验
+
+- validated_at `5ce0bf1424c6d545141ebd237d56dfa8cc2368ca`，executed_base `52b5e2e59`；code review `closure` + verification `targeted-closure`，requires_full_verification：false。
+- W1 **closed**：`work.ts` 使用已有授权范围内的 viewer title，目标不在列表时继续按现有 viewer 检查；`personal-sources.test.ts` 对观察者私聊结果与当前会话名称比较。
+- W2 **closed for Web**：`messaging.ts` 返回外部原始显示名或来源 ID，缺名不会回退给主人账号；`conversation-search.test.ts` 覆盖源 ID 存在而显示名缺失。
+- W3 **closed**：提取并复用已有 mention 渲染规则，先解析再截取，搜索和已有会话预览测试通过。
+- 验证：Node 24.22.1 执行 `pnpm exec vitest run apps/im-server/tests/conversation-search.test.ts apps/im-server/tests/personal-sources.test.ts apps/im-server/tests/messaging.test.ts`：3 文件 21 tests passed。Context 受影响处为 Agent 搜索来源名称，静态核对数据流及隔离 `Work.query`；本轮未重跑真实模型。
+- **相邻 WARNING**：Agent 工具返回的外部作者显示名仍来自 `m.sender.display_name`。飞书 enrich 未取得显示名时，隔离 Work.query 实际返回 `name: OwnerName, is_owner: false, source_id: ou-other`；来源 ID 和 owner 判定正确，但姓名仍是内部占位主人。应令 Agent 结果按外部显示名、真实来源 ID 回退，与 Web 修复一致。`design.md` 的 Web 返回字段列表还写“会话类型”，接口实际未返回且无消费者，建议修正文档而非增加冗余字段。

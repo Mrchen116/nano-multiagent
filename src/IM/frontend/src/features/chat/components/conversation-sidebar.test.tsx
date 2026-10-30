@@ -51,10 +51,11 @@ describe("ConversationSidebar", () => {
     const user = userEvent.setup(), select = vi.fn();
     const searchMessages = vi.fn(async (_q:string, _kind:string, cursor?:string) => cursor
       ? {messages:[{message_id:'m2',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Bob',created_at:'2026-01-01T00:00:00Z',snippet:'plan older'}]}
-      : {messages:[{message_id:'m1',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Alice',created_at:'2026-02-01T00:00:00Z',snippet:'plan approved'}],next_cursor:'next'});
+      : {messages:[{message_id:'m1',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Alice',created_at:'2025-02-01T00:00:00Z',snippet:'plan approved'}],next_cursor:'next'});
     render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} searchMessages={searchMessages} onSelectMessage={select} />);
     await user.type(screen.getByRole('searchbox'), 'plan');
     expect(await screen.findByText(/Alice: plan approved/)).toBeVisible();
+    expect(screen.getByRole('button', {name:/Alice: plan approved/})).toHaveTextContent('2025');
     expect(screen.getByText('Conversations')).toBeVisible();
     await user.click(screen.getByRole('button', {name:'Load more'}));
     expect(await screen.findByText(/Bob: plan older/)).toBeVisible();
@@ -62,6 +63,21 @@ describe("ConversationSidebar", () => {
     expect(select).toHaveBeenCalledWith('c2','m1');
     await user.click(screen.getByRole('tab', {name:'Group'}));
     await waitFor(() => expect(searchMessages).toHaveBeenLastCalledWith('plan', 'group', undefined, expect.any(AbortSignal)));
+  });
+
+  it('restores a search and category after the sidebar is remounted', async () => {
+    const user = userEvent.setup();
+    let saved: {query:string; filter:'all' | 'group'} = {query:'',filter:'all'};
+    const searchMessages = vi.fn().mockResolvedValue({messages:[]});
+    const props = {conversations:CONVS, activeConversationId:null, onSelect:() => {}, onNewGroup:() => {}, searchMessages};
+    const view = render(<ConversationSidebar {...props} onSearchChange={(query, filter) => { if (filter === 'all' || filter === 'group') saved = {query, filter}; }} />);
+    await user.type(screen.getByRole('searchbox'), 'plan');
+    await user.click(screen.getByRole('tab', {name:'Group'}));
+    view.unmount();
+    render(<ConversationSidebar {...props} initialSearch={saved} />);
+    expect(screen.getByRole('searchbox')).toHaveValue('plan');
+    expect(screen.getByRole('tab', {name:'Group'})).toHaveAttribute('aria-selected','true');
+    await waitFor(() => expect(searchMessages).toHaveBeenLastCalledWith('plan','group',undefined,expect.any(AbortSignal)));
   });
 
   it('distinguishes a failed search from an empty result and retries', async () => {

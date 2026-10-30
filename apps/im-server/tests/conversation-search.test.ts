@@ -96,6 +96,7 @@ it('distinguishes external senders from internal messages in a shadow conversati
   expect(query({ action: 'search', target: 'peer', query: '发布', participant_id: 'u1' }).messages.map((m: any) => m.message_id)).toEqual([internal.id]);
   const all = query({ action: 'search', target: 'peer', query: '发布' }).messages;
   expect(all.find((m: any) => m.message_id === one.id).sender).toMatchObject({ kind: 'external', source_id: 'ou-one' });
+  expect(all.find((m: any) => m.message_id === one.id).sender.name).toBe('ou-one');
   expect(all.find((m: any) => m.message_id === one.id).sender).not.toHaveProperty('id');
   expect(all.find((m: any) => m.message_id === internal.id).sender).toMatchObject({ id: 'u1', kind: 'user', is_owner: true });
   expect(() => query({ action: 'search', query: '发布', sender_source_id: 'ou-one' })).toThrow();

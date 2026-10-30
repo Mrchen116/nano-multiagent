@@ -146,3 +146,27 @@ N/A：设计明确没有前端改动与新增原型契约。实际 Web 进入、
 ## 本轮交付与环境状态
 
 仅追加本报告，无代码/测试/设计变更，无提交。原临时数据保留用于追溯，服务由 caller 管理且未停止。`round2-sources-after.json` 确认策略仍为revision3、`excluded_conversation_ids:[]`。报告中的上层文档归并责任与前轮相同，由 orchestrator 收尾。
+
+## Round 3：Web 搜索独立产品验收
+
+- **结论：fail**；Highest Required Action：fix-implementation；1 major、1 minor，另有未验证项。`validated_at=52b5e2e59d1c9d8da23f8f9e19fea8cec457882b`；`executed_base=21dc66c4fc4c8d10b7ee76cf7dc248c4fb7f4eb6`。验收期间 worktree HEAD 前移不改变已启动服务及本轮版本；caller 按固定版本复验其后修改。
+- 范围：针对用户新增 Web 旅程，沿用先前 Agent 范围的既有验收并核对共享查询代码后续影响；本轮没有重新运行真实 Agent 任务。已读并对照 `spec.md` 追加范围、`design.md` 的 Web 交互及用户提供的侧栏截图；用户允许跳过原型视觉审查，原型未渲染。
+- 环境：caller 启动 daily 独立栈 `http://127.0.0.1:51781`，核对 `.e2e-daily.json` 中 P/E/Q 与 PA；Web 登录隔离 `nano`。在 `研发日常` 经真实 UI 创建两条中文消息、经正式消息接口追加 23 条测试消息并抑制 relay，另注册隔离账号 `review680b`。后续仅为跨年显示验证将两条测试消息日期分别改为 2025-02-01 和 2024-02-01；无真实飞书或生产数据。
+
+| 验收点 | 观察证据 | 结果 |
+|---|---|---|
+| 非最新历史搜索及原文定位 | 实际输入“紫藤计划”命中被随后消息覆盖预览的旧消息，显示 `研发日常 / Test User / 15:25 / 原文片段`；点击后 URL 包含 `message_id=010571d383c3445abbd805b2f8102d45`，页面提示 `Original message located`，原文获得焦点。 | pass |
+| 会话/消息分组与分类 | 搜索中会话分组与消息分组可辨；切 People 返回 `No matching messages`，切 Group 后命中群消息。 | pass |
+| 分页及清空 | 搜索 `QAPAGE_680` 首屏 20 条并显示 Load more，点击追加剩余 3 条且无继续按钮；清空输入恢复常规列表。 | pass |
+| 用户访问边界 | 已登录主人可搜索群消息；隔离第二账号用相同搜索 API 返回 200、0 条；未登录请求返回 401。未独立做续页中撤权或公开/解散聊天的真实入口复验。 | 部分 pass / 余项 inconclusive |
+| 空、加载、失败 | 真实 UI 看到 Searching、No matching messages；未在真实界面注入后端失败或验证 Retry。 | inconclusive |
+| 搜索不消费未读 | 本轮未构造非零未读状态并对照查询前后。 | inconclusive |
+| 桌面和窄屏体验 | 默认桌面及 390×844 窄屏可读、结果可点击且能定位；窄屏返回丢失搜索状态，见 #1。 | fail |
+| 历史时间可辨 | 两条样本实际时间分别为 2025-02-01 和 2024-02-01，搜索结果都显示 `2月1日`，见 #2。 | fail |
+
+### Issues
+
+1. **major / direct / fix-implementation：窄屏从原消息返回后搜索上下文丢失。** 在 390×844 输入“紫藤计划”，点击命中原消息后按 Back，搜索框清空、筛选从 Group/All 重置，结果列表消失。用户逐条核对多条结果时必须反复输入并重新翻页，破坏搜索→核对→返回的连续旅程。建议返回时保留关键词、分类和已加载结果/可等效恢复的位置。
+2. **minor / direct / fix-implementation：跨年搜索结果没有年份。** 对 2025-02-01 与 2024-02-01 两条隔离数据，分页结果均显示“2月1日”，用户不能区分记录年份。搜索的用途是回溯历史，建议至少对非本年消息显示年份。
+
+运行栈与数据由 caller 管理，本 reviewer 未停止服务；自己的浏览器标签已关闭、临时 viewport 已恢复。失败恢复、非零未读及续页撤权仍缺真实产品证据，不以自动化结果冒充本轮观察。

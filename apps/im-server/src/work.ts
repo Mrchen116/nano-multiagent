@@ -267,6 +267,7 @@ export class Work {
     const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
     const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
       messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id });
+    const matchesById = new Map(matches.map(row => [row.id, row]));
     let currentIds: string[] = matches.map(row=>row.id);
     if (p.around_message_id) {
       const index = currentIds.indexOf(p.around_message_id);
@@ -318,7 +319,7 @@ export class Work {
           ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
             ...(!externalHuman ? { id: m.sender_user_id } : {}),
-            name: m.sender.display_name,
+            name: externalHuman ? matchesById.get(m.id)?.sender_display_name || m.sender_source_id : m.sender.display_name,
             ...(personalFacts ? {is_owner:personalFacts.is_owner} : {}),
             kind: externalHuman ? "external" : m.sender_type,
             ...(externalHuman
