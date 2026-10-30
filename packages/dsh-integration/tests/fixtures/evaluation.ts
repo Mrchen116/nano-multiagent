@@ -50,6 +50,7 @@ export function apply(ctx){
       if(all.includes('I moved to Paris.'))cities.set(o.sessionId,'Paris');
       else if(!cities.has(o.sessionId)&&all.includes('I live in Berlin.'))cities.set(o.sessionId,'Berlin');
       else if(!cities.has(o.sessionId)){const known=all.match(/You live in (Berlin|Paris)\\./);if(known)cities.set(o.sessionId,known[1]);}
+      const chat=JSON.parse(plain.match(/IM source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0];
       const source=JSON.parse(plain.match(/Source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0].session_id;
       const found=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-1');
       const item=found&&!found.isError?JSON.parse(found.content[0].text).items[0]:undefined;
@@ -61,8 +62,19 @@ export function apply(ctx){
         ['history',{action:'list_windows'}],
         ['read',{file_path:stage+'/MEMORY.md'}],['read',{file_path:stage+'/knowledge/city.md'}],
         cities.has(o.sessionId)?['write',{file_path:stage+'/knowledge/city.md',content:'You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'}]:undefined,
-        cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined
+        cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined,
+        ['conversations',{action:'search',target:chat,query:'LONG_MESSAGE_END'}],
+        ['conversations',{action:'search',target:chat,query:'UNTRIGGERED_LAST_UPDATE'}]
       ][n];
+    }else if(process.env.EVALUATION_CHAT_ONLY){
+      const result=id=>{const m=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId===id);return m&&!m.isError?JSON.parse(m.content[0].text):undefined;};
+      const checked=result('fixture-0');if(checked)targets.set(o.sessionId,checked.sources[0]?.target);
+      const target=targets.get(o.sessionId),first=result('fixture-2'),second=result('fixture-3');
+      const text=[...(first?.messages||[]),...(second?.messages||[])].map(m=>m.content[0].text).join('\\n');
+      call=[['inbox',{action:'check'}],['inbox',{action:'read',target}],
+        ['conversations',{action:'search',target,query:'CASE_MARKER',limit:1}],
+        ['conversations',{action:'search',target,query:'CASE_MARKER',limit:1,cursor:first?.next_cursor}],
+        ['send_message',{target,text}]][n];
     }else if(process.env.EVALUATION_DELEGATE_ROOT&&o.sessionId!==process.env.EVALUATION_DELEGATE_ROOT){
       if(n===0)call=['read',{file_path:process.cwd()+'/.nanoassistant/memory/knowledge/city.md'}];
       if(n===1){

@@ -27,7 +27,8 @@
     "zod": "4.6.5",
     "@nano/dsh-integration": "workspace:*",
     "@nano/product-contracts": "workspace:*",
-    "@nano/personal-assistant": "workspace:*"
+    "@nano/personal-assistant": "workspace:*",
+    "@nano/im-server": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.2.1-alpha.1"

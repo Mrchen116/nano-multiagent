@@ -93,17 +93,21 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(JSON.stringify(early)).toContain('I live in Berlin.');
     expect(JSON.stringify(early)).not.toContain('I moved to Paris.');
     expect(prepareRequests.some(request => request.importedSessions === 2 && JSON.stringify(request).includes('I moved to Paris.'))).toBe(true);
-    expect(requests).not.toContain('UNTRIGGERED_LAST_UPDATE');
+    expect(requests).not.toContain('I moved to Rome. UNTRIGGERED_LAST_UPDATE');
     expect(requests).not.toContain('UNTRIGGERED_SAME_TIME');
     expect(prepareRequests.every(request => request.logicalTime < history.sessions[2]!.timestamp)).toBe(true);
     const timeline = (await readFile(audit.requests.replace('requests.jsonl', 'timeline.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     expect(timeline.filter(event => event.event === 'session_imported').map(event => event.sessionId)).toEqual(history.sessions.map(session => session.id));
     expect(timeline.at(-1)).toMatchObject({ event: 'frozen', importedSessions: 4, logicalTime: history.sessions[3]!.timestamp, backlog: { state: 'pending' } });
     // Recovery and source reads must work inside the candidate, not just appear in its tool list.
-    for (const callId of ['fixture-0', 'fixture-5', 'fixture-6']) {
+    for (const callId of ['fixture-0', 'fixture-5', 'fixture-6', 'fixture-11', 'fixture-12']) {
       expect(prepareRequests.some(request => request.messages.some((message: { role: string; toolCallId?: string; isError?: boolean }) =>
         message.role === 'tool' && message.toolCallId === callId && !message.isError))).toBe(true);
     }
+    const chatResults = early.flatMap(request => request.messages).filter(message => message.role === 'tool' && message.toolCallId === 'fixture-11');
+    expect(chatResults.some(message => JSON.parse(message.content[0].text).messages.some((item: {content:Array<{text:string}>}) => item.content[0]?.text.includes('LONG_MESSAGE_END')))).toBe(true);
+    const futureResults = prepareRequests.flatMap(request => request.messages).filter(message => message.role === 'tool' && message.toolCallId === 'fixture-12');
+    expect(futureResults.every(message => JSON.parse(message.content[0].text).messages.length === 0)).toBe(true);
     const listed = (rows: typeof prepareRequests) => rows.flatMap(request => request.messages)
       .filter(message => message.role === 'tool' && message.toolCallId === 'fixture-0')
       .map(message => JSON.parse(message.content[0].text));
@@ -132,7 +136,7 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(JSON.stringify(answerRequests[0])).not.toContain('UNRELATED_HISTORY_ONLY');
     expect(JSON.stringify(answerRequests[0])).not.toContain('source_eligibility_pending');
     expect(JSON.stringify(answerRequests[0])).toContain('Current city: Paris');
-    expect(JSON.stringify(answerRequests)).not.toContain('LONG_MESSAGE_END');
+    expect(JSON.stringify(answerRequests)).toContain('LONG_MESSAGE_END');
     expect(JSON.stringify(answerRequests)).not.toContain('EVALUATION_RECOVERY');
     expect(JSON.stringify(answerRequests)).toContain('2024/06/01');
     expect(JSON.stringify(answerRequests)).toContain('You live in Paris');
@@ -147,6 +151,12 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(result(5).content[0].text).toContain('nano-memory');
     expect(JSON.parse(result(11).content[0].text).items).toEqual([]);
     expect(JSON.parse(result(12).content[0].text)).toEqual({ sources: [] });
+    const stored = JSON.parse(result(13).content[0].text).messages;
+    expect(stored.some((message: { content:Array<{text:string}> }) => message.content[0]?.text.includes('UNTRIGGERED_LAST_UPDATE'))).toBe(true);
+    const mapping = JSON.parse(await readFile(audit.requests.replace('requests.jsonl', 'source-map.json'), 'utf8'));
+    const original = stored.find((message: {message_id:string}) => message.message_id === mapping[0].messageId);
+    expect(original).toMatchObject({ sender: { id: identity.ownerId, is_owner: true }, source_time: '2024-01-01T00:00:00+00:00',
+      content: [{ text: history.sessions[0]!.turns[0]!.content }] });
     expect(JSON.parse(result(14).content[0].text)).toMatchObject({ status: 'sent', target: identity.conversationId });
     expect(JSON.stringify(answerRequests)).not.toContain('evaluation-answer-');
     expect(JSON.stringify(answerRequests)).not.toContain('evaluation-question');
@@ -194,3 +204,41 @@ it('terminates a stalled provider at the preparation deadline and retains its us
     expect(() => process.kill(audit.processId, 0)).toThrow();
   } finally { await candidate.close(); await rm(root, { recursive: true, force: true }); }
 }, 15000);
+
+
+it('isolates parallel case runtimes and keeps a sealed chat reusable after another case is cancelled', async () => {
+  const roots = await Promise.all(['a', 'b'].map(label => mkdtemp(join(tmpdir(), `nano-eval-parallel-${label}-`))));
+  const options = await Promise.all(roots.map(fixtureOptions));
+  for (const option of options) option.environment!.EVALUATION_CHAT_ONLY = '1';
+  const candidates = options.map(option => new NanoMemoryCandidate(option));
+  try {
+    const prepared = await Promise.all(candidates.map((candidate, index) => candidate.prepare({ caseKey: `case-${index}`, sessions: [{
+      id: 'shared-dataset-id', date: '2024/01/01', timestamp: Date.UTC(2024, 0, 1), turns: [
+        { role: 'user', content: `CASE_MARKER: owner ${index}` }, { role: 'assistant', content: `CASE_MARKER: reply ${index}` },
+      ],
+    }] }, limits)));
+    for (const result of prepared) expect(result.status, JSON.stringify(result)).toBe('ready');
+    const refs = prepared.map(result => { if (result.status !== 'ready') throw new Error(JSON.stringify(result)); return result.preparedRef; });
+    const identities = await Promise.all(refs.map(async ref => JSON.parse(await readFile(ref, 'utf8')).identity));
+    expect(identities[0].conversationId).not.toBe(identities[1].conversationId);
+    options[1]!.environment!.EVALUATION_HANG = '1';
+    const question = { id: 'question', text: 'Find the stored facts.', date: '2024/06/01' };
+    const answeringA = candidates[0]!.answer(refs[0]!, question, limits);
+    const answeringB = candidates[1]!.answer(refs[1]!, question, limits);
+    await expect.poll(async () => {
+      const dir = (await readdir(roots[1]!)).find(name => name.startsWith('answer-'));
+      try { return JSON.parse(await readFile(join(roots[1]!, dir!, 'usage.json'), 'utf8')).usage.modelCalls; } catch { return 0; }
+    }, { timeout: 10000 }).toBe(1);
+    await candidates[1]!.close();
+    const [answerA, interrupted] = await Promise.all([answeringA, answeringB]);
+    expect(answerA).toMatchObject({ status: 'completed', text: 'CASE_MARKER: reply 0\nCASE_MARKER: owner 0' });
+    expect(interrupted.status).toBe('failed');
+    delete options[1]!.environment!.EVALUATION_HANG;
+    const answerB = await candidates[1]!.answer(refs[1]!, question, limits);
+    expect(answerB).toMatchObject({ status: 'completed', text: 'CASE_MARKER: reply 1\nCASE_MARKER: owner 1' });
+    for (const root of roots) for (const name of (await readdir(root)).filter(name => name.startsWith('prepare-') || name.startsWith('answer-'))) {
+      const audit = JSON.parse(await readFile(join(root, name, 'usage.json'), 'utf8'));
+      expect(() => process.kill(audit.processId, 0)).toThrow();
+    }
+  } finally { await Promise.all(candidates.map(candidate => candidate.close())); await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); }
+}, 60000);

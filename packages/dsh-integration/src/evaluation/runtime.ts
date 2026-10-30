@@ -110,7 +110,8 @@ export function apply(ctx: Context, config: Configuration) {
         // A simultaneous arrival wins a tie with maintenance, including all same-time sessions.
         do {
           const session = history.sessions[index]!;
-          const imported = await appendHistoryWindow(ctx, session, config.rootSessionId, config.conversationId, config.ownerId, index++);
+          const messageIds = await peer.request('history.append', session) as string[];
+          const imported = await appendHistoryWindow(ctx, session, config.rootSessionId, config.conversationId, config.ownerId, index++, messageIds);
           mapping.push(...imported.mapping);
           importedSessions++; importedMessages += session.turns.length; persistAudit();
           timeline({ event: 'session_imported', sessionId: session.id, rootSessionId: config.rootSessionId, windowId: imported.windowId });

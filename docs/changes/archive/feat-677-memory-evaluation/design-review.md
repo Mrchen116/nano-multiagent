@@ -288,3 +288,76 @@ R3-W1 已关闭；同一 Global 多原生窗口的本轮设计通过 Gate 2。�
 ### Recommendations
 
 无。按已确认范围实施及确定性验证即可，不追加真实调用或扩大审查。
+
+## Round 5
+
+### Metadata
+
+- reviewer_target: `/root/conversation_design_review`，独立设计 reviewer，未参与本轮 spec/design 或实现编写。
+- review_mode: `full`
+- mode_reason: 本轮改变冷答题允许的信息来源、protocol 版本及 product port，并扩展 M1；按 full 核对完整需求与边界，重点展开新增 IM 查询、封存与并行隔离。未变的上游评分、原生窗口和时间准入证据保留原轮结论。
+- reviewer_handoff: 已读取 Round 1–4 及 Author Resolutions，重新核对当前实际装配、IM 查询和运行目录生命周期；未仅根据旧 Approved 放行。
+- started_at: 2026-10-30T11:26:34+08:00
+- completed_at: 2026-10-30T11:28:57+08:00
+- duration: 143 秒；自本轮首次显式时间记录计时，前置入口阅读与报告写入未计入。
+- validated_at: `codex/feat-677-memory-evaluation`，HEAD `25577c958d3e1b379800f1856024d30d9c8f4752`，加 `spec.md` / `design.md` 的本轮工作区修订。审查开始时仅这两份文件有修改。
+- `spec.md` SHA-256：`4186160aefcc9b5319e948ca09c827eba3565128dda78e5f1cdd07fb3c27920e`。
+- `design.md` SHA-256：`8bf6db035d8ec070d3365166fc92a3b6fbd2dfcac18f8b431c26293b7503f9ec`。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+正常聊天检索与冷活动上下文可以同时成立；本方案通过显式协议升级、真实 IM 查询复用及独立答题副本表达了这一改变。未发现会让实施方向实质走偏的未决设计问题。此结论仅批准方案进入实施：本轮没有运行新增实现、测试、真实候选模型、judge 或生产服务，也不证明历史检索和并行隔离已经验证通过。
+
+### Coverage 与证据
+
+#### 需求、协议与用户约束
+
+`spec.md:118-145` 覆盖保留 PA/owner/chat/session 身份、冷活动上下文、完整历史按需检索、时间与消息 ID 保真、跨题和重复答题隔离、零默认真实请求。`design.md:214-226` 明确替代旧 v5 memory-only 限制，并以 protocol v3 / Nano v6 单独标记；旧报告、封存状态和运行目录不改写、不混算。模型预算不足没有被转成设计或机制验收的阻塞项，当前 Runbook（286-290）仍只要求确定性 provider，先前一题授权不延续。
+
+数据白名单与完整输入要求未变：`evals/memory/dataset.ts:73-89` 仅交付原角色/正文和日期，保留全部 sessions 并稳定排序，question/gold 另置；`runner.ts:95-114` 只有完整收据且 ready 后才传入问题并单独评分。本次 IM 导入接收这一历史包，而非原数据整行，不会因为增加数据库接线而必须暴露标注。评分模板与官方规则的原始核对 `retained_from: Round 1/2`，本次不修改 judge 规则，未重新联网或运行评分。
+
+#### 实际装配、责任与复用
+
+当前 `evals/memory/nano-product.ts:16-89` 已是 GlobalAgent 的组合根，但查询来自只保存本次问答的数组，时间过滤、结果投影和游标都由其手写；因此新增 IM 离线入口具有具体复用收益。由 `apps/im-server` 拥有 SQLite、消息投影和查询，`evals` 负责组合，integration 只持 product port，符合 `SPEC.md:28-40` 与 runtime dependency contract；没有要求 PA 或 IM import DSH，也没有跨包私有路径。
+
+`Work.query` 不是无权限 SQL 包装：它核对 node/agent、Global 根范围与 PA authority（`apps/im-server/src/work.ts:101-130`），并使用现有来源许可；`GlobalAgent.call/query` 从 binding 补可信身份、限制主 Agent 入口，再发送 `conversation.query`（`global-agent.ts:425-433,479-486,573-578`）。设计明确初始化 PA/owner/node/chat/Global 权限记录，能接通这些既有检查，而非绕过检查另造简化查询。
+
+时间导入也已覆盖关键现状差异：`MessageRecords.insert` 可接收原 `created_at`，但默认事件使用当前 `now()`（`message-records.ts:58-61,159-201`）；`Work.query` 的 memory 模式要求截止前存在内容匹配的 durable event，且不能有截止后的同消息版本（`work.ts:264-271`）。设计同时物化原消息和当时 durable event，且禁止全局时钟替换，足以指导 adapter 局部处理这个差异；只改 messages 时间不满足受审方案。
+
+#### Context Design Review — Mode A
+
+触发 Surface 为准备阶段的 conversations 证据、冷答题历史工具结果、身份/时间投影以及封存恢复。以下为设计与源码判断，未捕获新实现的实际模型输入。
+
+- **准备者的发现与范围。** 既有 Dreaming prompt 提供 IM source directory（`knowledge/dreaming-agent.ts:55`），受限 conversations 只接受该目录中的 target，cutoff/activation 由宿主追加，读取前后核来源 generation（`dreaming-history.ts:113-127`）。设计沿用该链路；每段先导入 IM，再追加 DSH 窗口，完成后才允许维护，未来段尚未入库。模型无需猜宿主身份，也不能通过普通历史检索突破冻结批次。
+- **答题者的信息取得。** Before 是新 runtime 中只可查询本次问答；After 保留相同身份、空活动上下文与普通 Inbox 唤醒，历史正文仅在实际调用 conversations 后返回。`global-mode.ts:25` 的工具入口可发现；Inbox 提供本聊天目标，GlobalAgent 解析引用并补身份。prepare 的 DSH 原生轨迹与维护 Notes 不复制，History 仍只恢复答题自己的轨迹；聊天 DB 位于文件工具允许范围之外。增加可查询原文不会自动变成首轮全历史注入。
+- **可理解且可继续读取的结果。** 复用的 `Work.query` 返回真实 message_id、发送者、来源、source_time，并以 part_key / next_cursor 分段（`work.ts:303-366`）；查询快照保存消息集合及参数，后续页校验身份与过滤条件（186-227）。设计要求 source-map 与导入原生事件使用存储返回的实际 ID，避免模型在一条链路获得的 ID 无法在另一条查询中使用。
+- **保留与失效。** preparedRef 保存文档记忆及聊天快照，每次 answer 使用独立可写副本；问题、回答、读取状态和新游标不能写回 sealed DB。原文检索只是历史证据，不复建旧 Inbox 待办或赋予旧消息新的授权。协议明确衡量“持久记忆加聊天历史检索”，不把新结果归因为纯记忆收益。
+
+无新增 Context finding。实现后仍须以实际 provider 请求和工具结果验证发现、读取、分页及边界，不能仅以 DB 有记录或工具 schema 存在作为通过证据。
+
+#### 并行生命周期、验证与退出标准
+
+当前 adapter 已有独立 mkdtemp runtime/workspace/control socket、单实例 active-operation 排他与实例持有的子进程清理（`packages/dsh-integration/src/evaluation.ts:129-168,172-191`）。新增 SQLite 也归本阶段目录和 product.close 管理，封存只读、答题复制；没有共享监听端口、全局可变时钟或公共工作目录。保持单实例串行、允许未来调度器创建多个实例，与本轮不实现全量调度器的范围一致。
+
+`design.md:224-226` 将两个小型实例并行、不串题、跨副本游标拒绝、重复答题不污染和取消独立写入验证与 M1；特别是分页快照属于数据库状态，不能因复制文件就免验游标隔离。现有 `evaluation-runtime.test.ts:68-130` 已穿过实际子进程、来源恢复、首轮输入与工具结果，可在同一旅程加入历史查询、完整长文、日期/ID 及并行副本证据，无需真实模型调用或第二套测试框架。IM 既有查询语义测试保留，本轮新增接线风险覆盖的深度相称。
+
+原生同根多窗口、一次激活基线、cold/live writer 交接和正常时间准入 `retained_from: Round 2/3`；本次只在每段追加前插入聊天物化，不改变这些机制。框架三方法接口及 opaque preparedRef 仍成立，Runner 不解析数据库或 Dreaming 状态。产品 current 行为不改，`no spec delta` 合理；新协议的长期权威在 suite README。无前端变化、生产迁移或部署动作，不需要原型和 deployment prompt。
+
+### 历史问题闭环
+
+- **R3-W1 — remains closed。** Round 4 已核实修复；当前 `design.md:143,286-288,302` 与新增 214/224 行均禁止本轮追加真实候选或 judge 请求，没有重新引入旧试跑授权。
+- Round 1/2 无存活 Issues；本轮不继承 v5 的“原历史不可查询”作为新协议验收条件，已按最新需求重新判断。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。按现有 M1 及本轮增补标准实施、保存确定性消费证据即可，不增加全量跑量或真实模型门禁。
+
+### Author Resolutions (Round 5)
+
+Owner 核实本轮无 findings/recommendations，接受 Approved。实现沿本轮产品查询复用、v3/v6 和隔离边界开展；本轮不追加真实模型或 judge 请求。

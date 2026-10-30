@@ -1,6 +1,6 @@
 # LongMemEval memory evaluation
 
-本套件按会话时间逐步把完整历史交给候选系统的记忆机制，等待已触发的处理结束并封存状态后，用冷上下文回答原问题，再按 LongMemEval 官方规则评分。默认命令只生成计划，**不会调用候选模型或 judge**。首期实现只完成确定性机制验证；没有正式 LongMemEval 分数。
+本套件按会话时间逐步把完整历史交给候选系统的记忆机制，等待已触发的处理结束并封存状态后，用冷上下文回答原问题，再按 LongMemEval 官方规则评分。默认命令只生成计划，**不会调用候选模型或 judge**。当前协议只完成确定性机制验证；没有正式 LongMemEval 分数。
 
 理解官方和业界怎样使用这套题，先读 [LongMemEval：官方基线与业界评测方法](longmemeval-methods.md)。其中包含商业产品、多会话记忆、全文输入与检索的具体例子，以及影响分数可比性的设置；本页负责本仓实际运行协议。
 
@@ -10,7 +10,7 @@
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @nano/dsh-integration... --filter @nano/personal-assistant... build
+pnpm --filter @nano/dsh-integration... --filter @nano/personal-assistant... --filter @nano/im-server... build
 ```
 
 以下例子只有一题合成材料，模型地址是不可用的本地占位符。命令仅检查输入和展示计划，可直接运行：
@@ -32,30 +32,36 @@ pnpm memory-eval --config evals/memory/examples/plan.json --ids evals/memory/exa
 - 最后只等待已经启动的工作，不手动清空积压、不跳到未来强制启动下一周期。`prepare=ready` 表示完整导入、已触发工作成功结束且记忆已封存；收据中仍可有尚未到期的 backlog。尚无任何周期到期时，可以封存初始空记忆，准备阶段零模型请求。
 - 已触发处理失败或超限会停止本题，分别报告 failed/incomplete；不会用之后的模拟时间自动重试，或把这类失败当成正常未触发积压。
 
-时间回放使用 protocol version 2、Nano adapter v5。每题只有一个 Global、一个持久 session 和一个主人聊天目标；每段数据集会话到达时成为这个 session 的一个原生 window。未来窗口不预建，换窗不重置记忆游标、不额外触发 Dreaming；上一窗正文离开活动上下文，但仍能通过 History 按窗口读回。不生成数据集未提供的业务摘要或 Notes。这个固定分段约定不代表验证了产品按 token 压力自动换窗。旧 v3 多根历史构造及更早的集中导入产物保留原身份，不能作为当前候选的运行或成本基线。通用 Runner 仍只认识 prepare/answer/close；具体时钟与维护接线由候选适配层负责。
+时间回放使用 protocol version 3、Nano adapter v6。每题只有一个 Global、一个持久 session 和一个主人聊天目标；每段数据集会话到达时成为这个 session 的一个原生 window。未来窗口不预建，换窗不重置记忆游标、不额外触发 Dreaming；上一窗正文离开活动上下文，但仍能通过 History 按窗口读回。不生成数据集未提供的业务摘要或 Notes。这个固定分段约定不代表验证了产品按 token 压力自动换窗。旧 v3 多根历史构造及更早的集中导入产物保留原身份，不能作为当前候选的运行或成本基线。通用 Runner 仍只认识 prepare/answer/close；具体时钟与维护接线由候选适配层负责。
 
 ## 与真实 PA 的一致性及保留差异
 
 冷答题的接收、唤醒消息、Inbox 的 `sources` / `delivery` / `conversation_type` / `sender.is_owner`、分页与消费、回复前重核及实际发送回包，均经过现有 PA 实现。问题正文只通过 Inbox 进入，基准题号只留控制区；`question_date` 保留为问题的原时间。首请求使用产品正常角色规则、有效文档记忆入口和技能目录，不另写评测答题提示词。
 
-`nano-memory` 可正常发现、加载和读取随包资源。答题自己的 `notes/history/new_context/get_context_remaining` 可用，换窗后可恢复这次答题；它们不能读取准备 runtime 的旧窗口和维护笔记。普通文件工具只读封存记忆与随包技能，生产目录、控制资产、其他题和原始历史仍不可读。
+`nano-memory` 可正常发现、加载和读取随包资源。答题自己的 `notes/history/new_context/get_context_remaining` 可用，换窗后可恢复这次答题；它们不能读取准备 runtime 的旧窗口和维护笔记。普通文件工具只读封存记忆与随包技能，生产目录、控制资产、其他题和准备 runtime 文件仍不可读；原始聊天仅经 `conversations` 按需查询。
 
 以下是明确保留的评测条件，不能据此宣称完整产品链路验收：
 
 | 部分 | 保留差异及原因 |
 |---|---|
 | 原始经历 | 数据集双方文本按已确认的固定原生窗口导入，带原时间/来源映射；没有真实前台执行、子任务轨迹或自动压力换窗。 |
-| 冷上下文 | 保留关系和 session 标识，去掉原活动历史、原 Inbox 及维护恢复状态，避免绕过待评测的记忆。 |
-| 聊天服务 | PA 代码真实运行；IM transport 由单一私聊的本地适配器承接，不连接公网 IM，不开放其他聊天、创建/加入群或来源变更。`conversations` 只能读本次问答，回复落本地回执。 |
+| 冷上下文 | 保留关系和 session 标识，去掉原活动历史、原 Inbox 及维护恢复状态，首轮不直接注入原始历史，随后允许正常聊天检索。 |
+| 聊天服务 | PA 代码及 IM 的 `MessageRecords` / `Work.query` 真实运行；离线 transport 只连接本题 SQLite 私聊，无 HTTP 监听或公网连接。`conversations` 可查询全部已到达的历史和当前问答，复用正文/时间过滤、分页及 Dreaming cutoff；回复落本地数据库与回执。不开放其他聊天、创建/加入群或来源变更。 |
 | 能力与限额 | 不加载私人技能；答题不启动 Dreaming、Task、定时任务或 Heartbeat。可见的当前上下文工具与内部委派沿原生路径运行，所有模型请求共享阶段限额；普通文件读受上述隔离约束。 |
 | 时间与资源 | 历史按 session 精度推进逻辑时钟，问题保留原日期；执行时长、取消和外部请求限额使用真实时间。实验目录可见，但阶段名称不再充当 Agent 身份。 |
 
-v5 改变的是 Nano adapter，通用 protocol v2 不变。旧 v4 轨迹、配置及封存文件保持原样，不能仅改名后当成新候选证据；后续真实复跑须生成新 run。本轮确定性接线通过不等于真实模型分数改善。
+v3 开放了正常聊天历史检索，衡量的是持久记忆与聊天检索的共同效果，不能与旧 memory-only protocol v2 混算或单独归因于 Dreaming。Nano adapter v6 的准备/答题均用同一 IM 查询路径；旧 v5 及更早轨迹、配置、封存文件保持原样，不支持把旧快照改名后恢复为新候选。后续真实复跑须生成新 run。本轮确定性接线通过不等于真实模型分数改善。
+
+## 为后续并行运行保留的隔离边界
+
+每题有独立的身份、SQLite、runtime、Unix socket 和 workspace，无固定端口或共享可写服务。每次冷答题复制同一 sealed chat 为新的可写数据库；问题、回复、分页快照和读取状态不会污染 sealed chat 或另一答题副本。关闭/取消只作用于本候选进程和 handles。单个 candidate 同时只接受一个操作，多实例可并行；现有 CLI 仍顺序跑题，本轮没有新增全量并发调度器。
+
+本地检查包含两个小型候选同时运行、取消其中一题后另一题继续交付，以及独立副本分页与聊天隔离。全部使用确定性 provider，零真实候选/judge 请求；不运行 500 题 benchmark。
 
 ## 确定性自检
 
 ```sh
-pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runtime.test.ts
+pnpm exec vitest run evals/memory apps/im-server/tests/evaluation.test.ts packages/dsh-integration/tests/evaluation-runtime.test.ts
 ```
 
 这些检查使用合成材料、本地 HTTP 响应和固定 provider 响应。Nano 集成检查启动锁定版本的真实 DSH，经过公开原生持久化、现有记忆服务、文件工具、冷启动和本地 `send_message` 交付；不会连接生产 IM 或真实模型。它们证明接线、保真、隔离、预算与报告机制，不能证明真实模型的记忆质量。
@@ -92,19 +98,19 @@ pnpm memory-eval score --output /absolute/path/existing-run --allow-model-calls
 | `gold.json` | 控制区独立评分材料；不传给候选 |
 | `report.json` | 所有计划题目的 prepare/answer/score 状态、评分尝试、用量和证据位置 |
 | `answers.jsonl` | 官方兼容 `question_id/hypothesis` 原始交付答案；按实际发送顺序保留所有公开回复 |
-| `candidate-data/` | 每题独立的准备环境、封存状态与每次独立答题环境；包含原生历史、实际模型请求、来源映射（原段/回合到同一 rootSessionId、windowId 和事件范围）、维护回执、拒绝访问记录与进程日志；准备目录的 `timeline.jsonl` 记录会话到达、自动尝试结果和最终积压，`requests.jsonl` 记录每次请求的逻辑时间和已导入会话数 |
+| `candidate-data/` | 每题独立的准备环境、封存状态与每次独立答题环境；包含原生历史、实际模型请求、来源映射（原段/回合到同一 rootSessionId、windowId、实际 IM messageId 和事件范围）、维护回执、拒绝访问记录与进程日志；准备目录的 `timeline.jsonl` 记录会话到达、自动尝试结果和最终积压，`requests.jsonl` 记录每次请求的逻辑时间和已导入会话数 |
 
 `accuracy` 只以有效评分题为分母；`correctPerPlanned` 以全部计划题为分母，同时展示未完成准备、准备失败、答题失败、judge 失败与未评分数量。失败不能悄悄从分母移除。用量按阶段记录；输入/输出 token 或费用不可得时写 `null`，不能把它当零费用。请求数量和每次输出有上限，输入 token 与实际费用是观察值，并非精确计费硬上限。
 
-`protocolId` 由数据版本/内容、题集、输入规则、冷上下文规则与固定评分规则确定。`candidateId` 另包含产品 commit、DSH 接入及 PA 的实际构建字节、候选接线源码、随包技能、锁文件、候选模型/记忆配置及准备和答题限额。改记忆实现时沿用前者，比对后者；应重新构建后再计划和运行。
+`protocolId` 由数据版本/内容、题集、输入规则、冷上下文规则与固定评分规则确定。`candidateId` 另包含产品 commit、DSH 接入、PA 及 IM 的实际构建字节、候选接线源码、随包技能、锁文件、候选模型/记忆配置及准备和答题限额。改记忆实现时沿用前者，比对后者；应重新构建后再计划和运行。
 
 ## 边界与维护位置
 
 - `dataset.ts`、`runner.ts`、`judge.ts` 不读取 Nano 记忆目录，不依赖 DSH、Dreaming 游标、批次数或存储介质。稳定协议类型在 `packages/product-contracts/src/memory-evaluation.ts`。
-- `nano.ts` 只在显式运行时加载 `@nano/dsh-integration/evaluation` 与 `nano-product.ts`；后者组合现有 `GlobalAgent`、`InboxStore`、`NodeStore`。PA 不 import DSH，DSH 接入包通过注入的 product 接口调用 PA，不反向 import PA。当前 Nano adapter 负责历史的 `inbox` / `send_message` 原生映射、先空基线后导入、真实记忆准备和完成判定。
-- 当前文档候选封存整个记忆目录及必要的文档版本/来源状态，同时保留同一 PA、主人、常驻私聊和 Global session 标识。冷答题使用新的 runtime/workspace，将该 session 恢复为空活动上下文，先同步来源资格再接收原问题；不新建另一段“评测问题”聊天，也不使用 evaluation-answer 等会话名。旧原始 session 内容、Inbox、维护输入和恢复笔记不复制。
-- 当前 adapter `nano-document-memory-v5` 对接 feat-676 的连续原文 Dreaming：准备阶段保留原生 `source_history` 补查与维护自身的 `notes/history/new_context` 恢复能力；这些维护记录不复制到答题环境。按产品自动准入执行；`ready` 仅表示本协议准备和冻结完成，不能解读成 backlog 必然为空。每次已触发的连续分批必须正常结束。
-- LongMemEval 提供双方对话，没有子任务执行轨迹；本候选按 Global 历史导入，不伪造第一层任务。因此这里评测新版记忆对这些对话的处理效果，子任务提炼仍由产品自己的测试验证。评测不连接独立 IM 服务；准备阶段原生 `source_history` 可回查本题已导入的合格原文，IM 历史补查不可用。答题阶段的本地聊天适配器只提供当前问题与本次回复的 conversation 信息/读取，不提供准备原文。
+- `nano.ts` 只在显式运行时加载 `@nano/dsh-integration/evaluation` 与 `nano-product.ts`；后者组合现有 `GlobalAgent`、`InboxStore`、`NodeStore` 及 `@nano/im-server/evaluation` 离线聊天入口。PA 不 import DSH，DSH 接入包通过注入的 product 接口调用 PA，不反向 import PA。当前 Nano adapter 负责历史的 `inbox` / `send_message` 原生映射、先空基线后导入、真实记忆准备和完成判定。
+- 当前文档候选封存整个记忆目录及必要的文档版本/来源状态，连同聊天数据库快照保留同一 PA、主人、节点、常驻私聊和 Global session 标识。冷答题使用新的 runtime/workspace，将该 session 恢复为空活动上下文，先同步来源资格再接收原问题；不新建另一段“评测问题”聊天，也不使用 evaluation-answer 等会话名。旧原始 session 内容、Inbox、维护输入和恢复笔记不复制。
+- 当前 adapter `nano-document-memory-v6` 对接 feat-676 的连续原文 Dreaming：准备阶段保留原生 `source_history` 补查与维护自身的 `notes/history/new_context` 恢复能力；这些维护记录不复制到答题环境。按产品自动准入执行；`ready` 仅表示本协议准备和冻结完成，不能解读成 backlog 必然为空。每次已触发的连续分批必须正常结束。
+- LongMemEval 提供双方对话，没有子任务执行轨迹；本候选按 Global 历史导入，不伪造第一层任务。因此这里评测新版记忆对这些对话的处理效果，子任务提炼仍由产品自己的测试验证。评测不连接生产 IM；准备阶段原生 `source_history` 与 `conversations` 均可回查本题已导入且符合批次范围的原文。答题阶段通过普通 `conversations` 回查封存聊天；原 DSH 轨迹仍不开放。聊天时间规范化为 UTC ISO，数据集原始日期与 session 精度保留在原生映射和审计材料中。
 - 上述工具隔离针对候选模型的访问入口，不宣称是操作系统沙箱。评测插件是受信任宿主代码，不能添加未经审查的插件或执行工具后仍沿用本协议的隔离结论。
 - 候选以后可改用数据库、向量库、知识图谱或原文索引。只要保存/恢复仍满足相同接口和信息边界，就无需改题集、评分或 Runner；产品接线变化由 adapter 承担。
 - 历史时间按原 session 精度保存，同日保留原顺序；未标时区的日期解释为 UTC。未来问题和 `question_date` 只在答题阶段出现，答案标注只供控制区使用。

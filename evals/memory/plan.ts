@@ -60,25 +60,26 @@ export async function makePlan(config: EvaluationConfiguration, idsFile: string)
   if (datasetHash !== config.dataset.sha256) throw new Error('Dataset SHA-256 mismatch');
   const cases = loadCases(JSON.parse(data.toString('utf8')), selected);
   const exec = promisify(execFile);
-  const [{ stdout: head }, { stdout: status }, lockHash, runtimeHash, productHash, adapterHash, guidanceHash] = await Promise.all([
+  const [{ stdout: head }, { stdout: status }, lockHash, runtimeHash, productHash, adapterHash, guidanceHash, chatHash] = await Promise.all([
     exec('git', ['rev-parse', 'HEAD'], { cwd: repository }), exec('git', ['status', '--porcelain'], { cwd: repository }),
     readFile(join(repository, 'pnpm-lock.yaml')).then(sha256), treeHash(join(repository, 'packages/dsh-integration/lib')),
     treeHash(join(repository, 'packages/personal-assistant/lib')),
     Promise.all(['nano.ts', 'nano-product.ts'].map(file => readFile(join(repository, 'evals/memory', file)).then(sha256))).then(digest),
     treeHash(join(repository, 'packages/personal-assistant/assets/skills')),
+    treeHash(join(repository, 'apps/im-server/lib')),
   ]);
-  const protocol = { version: 2, datasetHash, datasetRevision: config.dataset.revision, selectedIds: selected,
+  const protocol = { version: 3, datasetHash, datasetRevision: config.dataset.revision, selectedIds: selected,
     history: 'all user/assistant turns; stable session date order; unzoned dates interpreted as UTC',
     preparation: { ingestion: 'chronological-session-ingestion', arrival: 'atomic sessions; stable order at equal timestamps; arrivals before same-time maintenance',
       clock: 'first through last history timestamp; logical time pauses during maintenance; real-time execution budgets',
       freeze: 'wait for admitted work only; do not force a future cycle; retain untriggered backlog in evidence' },
-    context: 'cold; candidate-persisted memory only; no original active history or external retrieval',
+    context: 'cold active context; persistent memory plus stored conversation retrieval; no preparation trajectories or external retrieval',
     judge: { ...judgeIdentity, configuration: config.judge, temperature: 0, maxTokens: Math.min(10, config.limits.score.maxOutputTokens) },
     scoreLimits: config.limits.score, retries: 'no automatic retries; explicit judge-only retry uses frozen answers',
   };
-  const candidate = { adapter: 'nano-document-memory-v5', historyMapping: 'single-global-session; dataset-session-as-native-window; one-owner-conversation',
+  const candidate = { adapter: 'nano-document-memory-v6', historyMapping: 'single-global-session; dataset-session-as-native-window; one-owner-conversation',
     answerMapping: 'same-pa-owner-conversation-session; cold-runtime; product-global-inbox-delivery', sourceCommit: head.trim(), dirty: status.trim().length > 0,
-    runtimeHash, productHash, adapterHash, guidanceHash, lockHash, configuration: config.candidate, prepareLimits: config.limits.prepare, answerLimits: config.limits.answer };
+    runtimeHash, productHash, adapterHash, guidanceHash, chatHash, lockHash, configuration: config.candidate, prepareLimits: config.limits.prepare, answerLimits: config.limits.answer };
   const plan: EvaluationPlan = { protocolId: digest(protocol), candidateId: digest(candidate), datasetHash, selectedIds: selected,
     protocol, candidate, judge: config.judge, scoreLimits: config.limits.score,
     counts: { questions: cases.length, sessions: cases.reduce((sum, item) => sum + item.history.sessions.length, 0),

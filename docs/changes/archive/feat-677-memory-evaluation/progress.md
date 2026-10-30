@@ -164,3 +164,16 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - 默认 plan：1 题 / 2 sessions / 4 messages、modelCallsStarted=0，candidate v5，Dreaming 无额外材料上限，日志 `/tmp/feat677-pa-plan.log`。确定性 provider 验证接线与执行生命周期，不证明真实模型策略或记忆质量；本轮真实候选/judge 调用均为 0。
 
 PR #429 保留 `unit/feat-676` base；最新 head 的远端 CI 结果单独记录在 PR。未合并、未部署；保留开发 worktree 供 review 和后续运行。用户已要求保留的旧单题只读查看入口继续运行，原始轨迹/配置不改写；本轮测试进程已退出。
+
+
+## 2026-10-30 stored conversation retrieval and parallel isolation
+
+用户要求 `conversations` 能真实搜索原聊天及时间，且基础设施考虑后续并行全 benchmark；再次明确当前 token 不足。本轮仅本地合成数据与确定性 provider，新增真实候选/judge 调用均为 0，不启动全量 benchmark。
+
+- Design Round 5 Approved，0 CRITICAL / WARNING；本轮沿原 M1 与现有 stacked PR。协议升级 v3（持久记忆加正常聊天检索）、Nano v6，旧 v2 memory-only 分数/快照不改写，不混算。
+- 新增 IM 离线 evaluation export，复用 MessageRecords、PA 权限和 Work.query；没有新服务器端口、全局时钟或生产配置。按原到达时间同时物化消息与 durable event，并把真实 IM messageId 写入同根窗口/source-map。prepare 只查询已到达且在 cutoff 内的版本；answer 在独立副本查询全历史，首轮不注入旧正文，原 DSH/Notes 仍不可达。
+- prepare/answer 都组合现有 GlobalAgent；每题随机身份与独立 SQLite/runtime/socket/workspace，每次 answer 从 sealed chat 复制，清空跨阶段查询快照。单实例仍串行，独立实例可并行；CLI 尚未加全量调度器。
+- 测试处置：扩展既有 evaluation-runtime 及 fixture 保护跨进程实际请求/工具结果、源消息映射、准备未来排除、答题回查和并行取消；新增 IM evaluation.test.ts 只保护新导入/封存接口的正文/角色/时间、长消息分页及副本游标隔离，复用既有 Work 查询单测。
+- 红证据 `/tmp/feat677-conversations-red.log`：旧适配器无法在答题查询结果中返回 LONG_MESSAGE_END。实施中分片 ID 误用导致产品检测出未读片段，已改为同消息全片使用同一真实 ID。
+- 最终窄验证 `/tmp/feat677-conversations-targeted.log`：6 files / 17 tests passed（37.60s），含两候选并行、取消一题不影响另一题交付、取消后 sealed chat 可独立再答，已核所有测试 PID 退出。相关包 build、全仓 typecheck、架构契约 13 passed、docs-check 283 sources / 68 routes 通过；日志 `/tmp/feat677-conversations-{build,typecheck,contract,docs}.log`。
+- 无生产行为 delta、部署、原生 UI 变化；原父分支 UI 证据 retained。完整本地检查及本轮独立门禁随后记录。

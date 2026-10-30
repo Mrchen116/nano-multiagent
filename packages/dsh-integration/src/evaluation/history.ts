@@ -47,12 +47,13 @@ async function openWriter(ctx: Context, id: string) {
  *   target: The one owner conversation, independent of dataset segment IDs.
  *   ownerId: The same trusted owner used for the later question.
  *   windowIndex: Zero-based segment position; the first uses the initial window.
+ *   messageIds: IM identities already stored at this arrival, in original turn order.
  * Returns:
  *   Window identity and original-turn mapping for audit, never extra memory.
  */
 export async function appendHistoryWindow(ctx: Context, session: EvaluationHistory['sessions'][number], rootSessionId: string,
-  target: string, ownerId: string, windowIndex: number) {
-  const mapping: Array<{ session: string; turn: number; rootSessionId: string; windowId: string; firstSeq: number; lastSeq: number; contentHash: string }> = [];
+  target: string, ownerId: string, windowIndex: number, messageIds: string[]) {
+  const mapping: Array<{ session: string; turn: number; rootSessionId: string; windowId: string; firstSeq: number; lastSeq: number; contentHash: string; messageId: string }> = [];
   const handle = await openWriter(ctx, rootSessionId);
   try {
     const { events: prior } = await handle.read();
@@ -99,11 +100,11 @@ export async function appendHistoryWindow(ctx: Context, session: EvaluationHisto
       const parts: string[] = [];
       for (let offset = 0; offset < fragments.length; offset += 6000) parts.push(fragments.slice(offset, offset + 6000).join(''));
       if (!parts.length) parts.push('');
-      const body = message.role === 'user' ? { target, name: 'Personal Assistant', conversation_type: 'direct', delivery: 'participant', channel: 'web', provenance, messages: parts.map((text, index) => ({
-        id: `${session.id}-${turn}`, sender: { id: ownerId, type: 'user', name: 'Owner', is_owner: true },
+      const body = message.role === 'user' ? { target, name: 'Personal Assistant', conversation_type: 'direct', delivery: 'participant', channel: 'web', provenance, messages: parts.map((text, partIndex) => ({
+        id: messageIds[index]!, sender: { id: ownerId, type: 'user', name: 'Owner', is_owner: true },
         time: session.date, content: [{ type: 'text', text }],
-        ...(parts.length > 1 ? { partial: true, part: index + 1, parts: parts.length } : {}),
-      })) } : { status: 'sent', target, provenance, message_id: `${session.id}-${turn}` };
+        ...(parts.length > 1 ? { partial: true, part: partIndex + 1, parts: parts.length } : {}),
+      })) } : { status: 'sent', target, provenance, message_id: messageIds[index]! };
       record(native.append('assistant/message', { turn, step: 1, stream: [], message: createAssistantMessage({
         content: [{ type: 'tool-call', id: callId, name, arguments: JSON.stringify(args) }],
         source: { provider: 'imported-history', model: 'structural-mapping' },
@@ -112,7 +113,7 @@ export async function appendHistoryWindow(ctx: Context, session: EvaluationHisto
       record(native.append('tool/result', { turn, step: 1, message: createToolResultMessage({ callId,
         content: [{ type: 'text', text: JSON.stringify(body) }], isError: false }) }, { surfaceOp: 'append' }));
       record(native.append('step/end', { turn, step: 1 })); record(native.append('turn/end', { turn, reason: { kind: 'completed' } }));
-      mapping.push({ session: session.id, turn: index, rootSessionId, windowId, firstSeq, lastSeq: native.seq - 1, contentHash: hash(message.content) });
+      mapping.push({ session: session.id, turn: index, rootSessionId, windowId, firstSeq, lastSeq: native.seq - 1, contentHash: hash(message.content), messageId: messageIds[index]! });
     }
     await handle.append(events); await handle.flush();
     return { windowId, mapping };

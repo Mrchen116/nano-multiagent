@@ -209,6 +209,22 @@ Nano v5 在封存状态内保存 PA、owner、binding、conversation、Global se
 
 扩展既有 evaluation-runtime 旅程，在真实 provider 请求 seam 核实同一身份、首轮有效入口、标准 Inbox 字段、技能加载、读后消费、当前问答 conversations 查询、答题内换窗恢复及原历史不可达；CLI 继续零默认请求、显式限额并区分 v5 候选。新版原生请求使用确定性 provider 捕获，本轮不追加真实候选或 judge 调用，旧单题记录不改写。长期契约与剩余差异矩阵以 [suite README](../../../../evals/memory/README.md#与真实-pa-的一致性及保留差异) 为准。
 
+#### 2026-10-30：正常 conversations 历史与并行隔离修订
+
+本节取代上文 v5 的“本地 transport 只保存本次问答”及 memory-only 限制。用户要求真实保存并可查询完整聊天，并提前考虑并行 benchmark；本轮不追加真实模型、judge 或全量跑量。
+
+**接口与责任。** `apps/im-server` 增加显式 `@nano/im-server/evaluation` 离线入口，内部打开一份隔离 SQLite、初始化本题 PA/owner/node/chat/Global 权限记录，复用 `MessageRecords` 和 `Work.query` 的投影、搜索、时间过滤、分页快照和 Dreaming cutoff 验证。无 HTTP 监听、全局时钟替换、后台 watchdog 或生产配置加载。导入消息用原 session 时间，匹配的 durable event 同样物化为当时版本，保留原内容与顺序；source-map 连同 DSH Inbox/send_message 事件使用该存储返回的实际 message id。
+
+`evals/memory/nano-product.ts` 是组合根：创建 GlobalAgent 与离线聊天服务，替换手写数组查询。Nano runtime 包只依赖扩展 product port：`importSession(session): string[]` 返回消息 ID，`snapshot(path)` 生成封存聊天副本；`createProduct` 接收本阶段目录、模拟起点和可选封存聊天路径。两阶段都创建 product port。prepare 中每段到达时经控制 RPC 同步写入 IM 后追加原生窗口，完成前不启动维护；失败不封存 ready。Dreaming 的 `memory.conversations` 仍走 GlobalAgent → IM `Work.query`，保留真实范围裁剪。answer 从已关闭或一致快照复制的数据库恢复，问题按原 question_date 保存，私聊回复落本地数据库及交付回执。
+
+**封存与并行。** preparedRef 私有描述增加聊天快照路径。封存只含文档记忆和聊天 DB，不复制准备的 DSH 原生轨迹或维护 Notes；DB 位于 runtime workspace 之外，模型只能经产品工具查询。每次 answer 都复制为自己的可写 DB；sealed DB 永不接收答题问题、答案或新游标。实例沿用独立 mkdtemp runtime/socket/workspace、随机 PA/owner/node/chat 身份；没有共享服务、固定端口或全局可变状态。单实例仍串行操作，未来调度器可并行创建独立实例；本轮不增加全量调度器。close/取消只关闭本实例 handles 和进程。
+
+**协议。** 开放正常历史查询是可见信息实质改变：protocol v3 明确 `cold active context; persistent memory plus stored conversation retrieval`，Nano v6。计划指纹加入 IM 构建 hash，避免仅改变查询实现却沿用 candidate ID。旧分数、封存状态和运行目录不改写、不与 v3 混算；无旧 v5 快照兼容路径。
+
+**Context 与验证。** 准备 Consumer 仅可检索当时已到达且落在批次 cutoff 的消息；answer Consumer 首轮仍只见持久记忆入口和 Inbox 唤醒，实际调用 conversations 后才取得历史原文，History 仍只能回查答题自己的轨迹。保留 gold、准备文件/Notes 与其他题隔离。扩展现有 runtime fixture 在真实模型请求 seam 观察早期无未来、后续检索成功、消息 ID/正文/日期一致与长文完整分页；用两个小型实例并行验证不串题、跨副本游标拒绝、重复答题不污染和取消独立。确定性 provider 不访问外部 API，不用固定答案冒充模型能力成绩。IM 既有查询语义单测 retained，本轮只增加导入/封存接线风险覆盖。
+
+M1 增补退出标准：[reviewer] 冷答题能正常检索封存历史，计划明确 v3/v6 和零默认真实请求；[worker] IM 接线、时间保真、快照/并发/清理隔离与最终模型工具结果证据齐全。产品 current API 行为未改，`no spec delta`；suite README 维护最新协议，历史设计段落保留版本上下文。
+
 ### 4. Context 生命周期与隔离验证
 
 | Consumer | 正常可见 | 不可见/不继承 | 验证 |

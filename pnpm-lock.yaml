@@ -18,6 +18,9 @@ importers:
       '@nano/dsh-integration':
         specifier: workspace:*
         version: link:packages/dsh-integration
+      '@nano/im-server':
+        specifier: workspace:*
+        version: link:apps/im-server
       '@nano/personal-assistant':
         specifier: workspace:*
         version: link:packages/personal-assistant
