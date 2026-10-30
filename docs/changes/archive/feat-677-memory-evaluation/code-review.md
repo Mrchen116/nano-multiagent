@@ -212,3 +212,43 @@
 关键缺口独立命令：`pnpm exec tsx /tmp/feat677-pa-delegation-probe.mts`。该临时脚本只替换隔离 provider fixture：根 check/read 后启动默认后台 child，结束当前轮等待；child 延后 1200ms 通过原生 send_message(agent_id=root) 回传 Paris，根下一步准备通过产品 send_message 回答。实际 tool probe-3 返回 started subagent，根先 completed、评测在 803ms 返回 failed；child 回传前 runtime 已收尾。结果在上述 finding locator；PID 18203 已退出。更早同类初探根目录 `feat677-pa-delegation-JGVyLW` 同样退出，PID 16781 已确认不存在。未启动常驻服务或自建 worktree；不修改源码/测试/设计、不提交报告。
 
 限制：所有请求证据均是最终组装后的真实 DSH llm/stream seam 与本地确定性 provider，不证明 HTTP wire、真实模型选择/理解、记忆质量或正式 benchmark 分数。本轮没有真实模型、judge、生产或外部业务调用；不将旧单题结果改名为 v5 结果。
+
+## Round 6 — 后台委派收口 closure
+
+- reviewer_target: `/root/pa_context_static_review`
+- review_mode: `closure`
+- finding_origin_head / pre_fix_head: `a992a059d043fb118e98adb540304ed329e1b036`
+- review_diff: `a992a059d043fb118e98adb540304ed329e1b036..de2b92942e5f4b03c9b6d86d2e13da510e3e3743`
+- validated_at: `de2b92942e5f4b03c9b6d86d2e13da510e3e3743`
+- branch: `codex/feat-677-memory-evaluation`
+- focus_findings: Round 5 `[P2] 等待后台子 Agent 与后续根唤醒收口后再结束答题`
+- focus_status: **closed**；无 still_open / superseded 项。
+- retained: Round 5 其余 PA 身份、真实产品接线、来源资格/首入口、原历史与控制区隔离、Context 恢复、随包技能及文档差异结论；Round 4 无 diff 的时间回放/窗口/维护机制证据。
+- verdict: **pass**
+
+HEAD 与冻结版本一致，开工 clean；只核上述修复与受影响的生命周期、计数、限额及文档措辞，不重审父分支或整个 PR，也不重复全量测试。独立读取红证据 `/tmp/feat677-pa-child-red.log`：旧实现第二次冷答题 failed/no public answer；复用最终 targeted `/tmp/feat677-pa-child-final.log`：5 files / 15 tests passed。源码改动只有专用评测 runtime、既有 fixture/旅程扩展；其余是本 unit 报告及文档。
+
+### Findings
+
+```json
+[]
+```
+
+### Closure 与 Context Implementation Review — Mode B（targeted）
+
+`evaluation/runtime.ts:27-33,135-146` 通过 DSH 已声明公开 `subagent/start` / `subagent/end` 事件记录所有活跃 residency/run；根 whenIdle 后如有 child，事件唤醒收口检查，再次等待根后续工作。候选进程隔离且同一时间只有一个 answer 操作，集合覆盖该候选全部子层级，不需要另复制执行调度。检查本机锁定上游实现可见 continuable settlement 先向父发送通知，再发布 end；新检查下一轮等待 root.whenIdle 可包含相应后续工作。无新增 private import、第二套 Agent Loop 或生产行为变更。
+
+实际受影响消费链已验证，原 finding 的可成立条件被消除：
+
+| Evidence | 直接观察 | Locator |
+|---|---|---|
+| 相同原失败探针重跑 | `pnpm exec tsx /tmp/feat677-pa-delegation-probe.mts`；根默认后台委派并结束当前轮，child 延后 1200ms 原生回传后，根公开发送 Paris。answer completed、8 次实际请求=usage.modelCalls 8；包含两个 child 请求、根消费回传、实际产品 send_message 和最终 settlement 通知后的根请求。 | `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-pa-delegation-tIyJpR/answer-lFAfzh/{answer.json,requests.jsonl,deliveries.json}` |
+| 正式旅程回归 | 既有主旅程第二次 answer 默认后台 child 读取正式 city.md、延后回传；断言根实际请求消费 DELEGATED_RESULT、最终公开 Paris、完整请求数与全树 usage 一致。旧实现红、新实现 15 项通过。 | `/tmp/feat677-pa-child-{red,final}.log`；`evaluation-runtime.test.ts:153-163`；fixture 的 child 分支 |
+| 全树请求预算 | `pnpm exec tsx /tmp/feat677-pa-closure-limits.mts budget`，maxModelCalls=5；实际 root/child 合计恰 5 请求，后续模型请求未进入 provider，未交付时 failed，进程退出。所有已进入请求 maxTokens=2048。 | `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-pa-closure-budget-dLTEAv/answer-oHETjs/{answer.json,requests.jsonl,usage.json}` |
+| 等待 child 时仍受真实截止 | `pnpm exec tsx /tmp/feat677-pa-closure-limits.mts timeout`，child provider 延后 10000ms，阶段 timeoutMs=5000；child 已进入第 5 个请求时截止关闭连接、返回 failed 并回收 runtime，未等待 child 到 10 秒才结束。 | `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-pa-closure-timeout-mco4AG/answer-Sie6tK/{failure.json,requests.jsonl,usage.json}` |
+
+外部 timeout / 模型次数 / 每请求 maxTokens 的 enforcement 未被新事件等待替换；llm/stream 全局拦截继续计入子树全部请求。provider fixture 不提供 token usage，inputTokens/outputTokens/costUsd 仍诚实为 null；没有从 modelCalls 外推实际 token 或成本。上述最终进程 PID 52379 / 60488 / 59583 已确认不存在；额外探针 PID 54850 / 54851 也已退出，未遗留服务。
+
+README 与 design 改为直接引用当前产品按模型容量计算完整首轮输入的规则，正常评测不另设 maxInputTokens 材料上限；没有继续用旧固定值解释当前设计。现有公开可选配置仍可解析属保留产品能力，与正常评测配置指导不冲突。Gateway / PA **no spec delta**；候选 v5 / protocol v2 保持，未改旧真实评测结果。
+
+本轮仅验证确定性真实 DSH seam、实际工具与本地产品交付；真实模型选择/理解、HTTP wire、记忆质量与正式分数继续未验证。没有真实模型/judge/生产调用。只追加本文件和 verification.md，不提交；修复充分覆盖，结束 closure，不扩大审查。

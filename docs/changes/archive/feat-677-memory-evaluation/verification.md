@@ -279,3 +279,45 @@ CRITICAL / SUGGESTION：无。无需扩大为 full verification；问题局限�
 ### Delta reconciliation
 
 Gateway / PA：**no spec delta**。本 patch 修改评测 composition / 专用 runtime profile 和候选身份，未修改生产 Global/PA 正常行为、公开产品工具/RPC 或 current specs。评测契约在 canonical suite README 中更新，索引位置已存在。实现总体遵守设计；上述新工具的生命周期尚未兑现，属于 implementation-mismatch，而不是应通过修改 spec 接受的偏差。CRITICAL=0 / WARNING=1，当前 delta 不 pass；真实模型理解、策略、质量和正式分数仍未验证。
+
+## Round 6 — 后台委派收口 targeted closure
+
+- reviewer_target: `/root/pa_context_static_review`
+- verification_mode: `targeted-closure`
+- review_round: `6`
+- fix_delta_range: `a992a059d043fb118e98adb540304ed329e1b036..de2b92942e5f4b03c9b6d86d2e13da510e3e3743`
+- validated_at: `de2b92942e5f4b03c9b6d86d2e13da510e3e3743`
+- branch: `codex/feat-677-memory-evaluation`
+- focus_issue: Round 5 后台委派被根 idle 提前截断（CONFIRMED WARNING）
+- validated_issues: **closed**；没有 still_open / superseded 项。
+- verdict: **pass**
+- requires_full_verification: `false`
+- CRITICAL: 0; WARNING: 0; SUGGESTION: 0
+- retained: Round 5 其余身份、接线、来源/入口、技能/自身恢复与隔离结论；Round 4 无变更的时间回放/窗口/Dreaming/Runner/judge 证据。
+
+### Completeness / Correctness / Coherence
+
+冻结版本核实、开工 clean；只复验指定 WARNING 与本次受影响 diff，不重跑全量、不重审父 PR。复用同一 reviewer 的 code-review.md Round 6 targeted Implementation Review。Prototype / Reference Contract：N/A。
+
+| 关闭条件 / 受影响契约 | 实现与直接证据 | 结论 |
+|---|---|---|
+| 根 idle 不再截断已启动后台 child | `runtime.ts:27-33,135-146` 跟踪公开 lifecycle 事件，等待 child end 后再次等待根后续 idle；原失败探针现在 completed/Paris | closed |
+| 回传后根真实消费并公开交付 | 原失败探针 8 请求中有 child 原生 send_message、根消费结果后的产品 send_message；既有旅程第二次 answer 的 child 还读取正式记忆，根实际 request 包含 DELEGATED_RESULT、公开交付 Paris | aligned |
+| 全树 usage 完整、不越请求/输出预算 | 正常重跑 requests=8 / modelCalls=8；maxModelCalls=5 探针 root+child 只进入 5 请求，无公开交付时 failed；所有请求 maxTokens=2048；未提供的 token/cost 为 null | aligned |
+| 新等待仍可被阶段真实时间截止 | child provider 等 10 秒时，timeoutMs=5000 终止 runtime 并返回 failed，child 已进入真实第 5 请求；PID 不存在 | aligned |
+| 当前模型容量说明准确 | README:68 与 design:208 直接沿产品完整输入容量规则，正常评测不设额外材料上限；公开可选字段保留，没有引入产品行为变更 | aligned |
+
+### 执行证据与边界
+
+- 红：`/tmp/feat677-pa-child-red.log`，旧实现第二次 answer failed/no public answer。绿：`/tmp/feat677-pa-child-final.log`，既有专项 5 files / 15 tests passed；构建由 owner 交接为 passed，本 reviewer未重复全量。
+- 独立关闭：`pnpm exec tsx /tmp/feat677-pa-delegation-probe.mts`；证据 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-pa-delegation-tIyJpR/answer-lFAfzh/`，completed/Paris、8 calls，正常后台回传/后续根工作/公开投递均已完成才采集结果。
+- 独立限额：`pnpm exec tsx /tmp/feat677-pa-closure-limits.mts budget` 与 `timeout`；最终证据分别在 `feat677-pa-closure-budget-dLTEAv/answer-oHETjs/`、`feat677-pa-closure-timeout-mco4AG/answer-Sie6tK/`（同一系统临时根目录）。预算实际 root+child 5 calls；截止发生时 child 活跃，整个 runtime 被回收。过程额外探针记录保留本机，不入仓。
+- PID 52379 / 60488 / 59583 以及额外探针 54850 / 54851 均确认退出；无常驻进程、新 worktree、真实模型、judge 或生产调用。仅追加两份审查报告，不提交。
+
+真实模型策略、质量、HTTP wire 与正式分数未验证；确定性机制通过不外推模型能力。Round 5 其他有效结果全部 retained，不因修复重复运行原准备/直接答题全链。
+
+### Delta reconciliation / Issues
+
+Gateway / PA：**no spec delta**。新等待只位于隔离评测专用 runtime，不新增产品 RPC/工具、修改 PA 生产生命周期或更改 current specs。设计与 README 的材料预算纠正对齐当前产品已存在规则，没有将旧固定值当当前契约。候选 v5 / protocol v2 不变，原真实单题记录保持原身份。
+
+WARNING 已 closed，新增 CRITICAL / WARNING / SUGGESTION 均无；本轮 aligned，`requires_full_verification=false`。保留 Round 5 失败与原始复现作为历史证据，以本轮 closure 为最新有效结论。

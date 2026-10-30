@@ -152,3 +152,15 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - 独立 acceptance Round 5 通过；code review / verification Round 5 发现真实遗漏：默认后台 child 尚未回传时根已 idle，评测提前关闭并判失败。原始独立探针和 finding 保留于报告。
 - 修正使用 DSH 公开 subagent/start/end 生命周期，在隔离候选内等待已启动 child 全部收口并再次等待根后续工作 idle；不终止正常委派、不延长阶段限额。扩展既有 evaluation-runtime 主旅程的第二次冷答题及 fixture，子 Agent 延迟 1200ms、读正式记忆、回传并触发 PA 公开交付；核对实际请求已消费 child 结果和全树调用用量。没有新建平行测试文件。
 - 红证据 `/tmp/feat677-pa-child-red.log`：旧实现第二次答题 failed/no public answer；最终 targeted `/tmp/feat677-pa-child-final.log`：5 files / 15 tests passed（24.12 秒）。实现构建通过；独立复验和完整交付检查随后追加。
+
+### PA 接线最终门禁与交付检查
+
+运行实现冻结 `de2b92942e5f4b03c9b6d86d2e13da510e3e3743`；整体 review diff=`75f4794d3..de2b92942`，修复增量=`a992a059d..de2b92942`，effective parent=`c2a7fe3c3727db2c557a28915fda6ccee5e4298e`。本轮末尾仅追加报告和记录，运行代码/测试/配置不变。
+
+- acceptance Round 5 pass；code-review / verification Round 6 pass，原 WARNING closed、零存活发现，其他未失效证据 retained，no spec delta。
+- 独立原失败探针现为 completed/Paris，8 次实际请求与 usage 一致；5 次全树请求上限及 child 等待期间的 5 秒截止均生效，相关 PID 全部退出。详见两份 Round 6 报告。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime`、docs-check（283 sources / 68 routes）、ruff check/format、archive check 全过；`pytest -m 'not e2e' -q`：127 passed / 28 deselected。
+- `pnpm exec vitest run --maxWorkers=2` 全套 170 files / 883 tests passed（375.30 秒）。本轮使用已知可复现的两 worker 配置，没有重跑默认高并发；先前默认并发/远端偶发失败的根因未在本轮声称修复。日志 `/tmp/feat677-pa-{full-build,typecheck,ios-runtime,docs,ruff,ruff-format,archive,python,full-tests}.log`。
+- 默认 plan：1 题 / 2 sessions / 4 messages、modelCallsStarted=0，candidate v5，Dreaming 无额外材料上限，日志 `/tmp/feat677-pa-plan.log`。确定性 provider 验证接线与执行生命周期，不证明真实模型策略或记忆质量；本轮真实候选/judge 调用均为 0。
+
+PR #429 保留 `unit/feat-676` base；最新 head 的远端 CI 结果单独记录在 PR。未合并、未部署；保留开发 worktree 供 review 和后续运行。用户已要求保留的旧单题只读查看入口继续运行，原始轨迹/配置不改写；本轮测试进程已退出。
