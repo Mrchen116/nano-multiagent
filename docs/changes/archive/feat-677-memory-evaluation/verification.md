@@ -321,3 +321,49 @@ Gateway / PA：**no spec delta**。本 patch 修改评测 composition / 专用 r
 Gateway / PA：**no spec delta**。新等待只位于隔离评测专用 runtime，不新增产品 RPC/工具、修改 PA 生产生命周期或更改 current specs。设计与 README 的材料预算纠正对齐当前产品已存在规则，没有将旧固定值当当前契约。候选 v5 / protocol v2 不变，原真实单题记录保持原身份。
 
 WARNING 已 closed，新增 CRITICAL / WARNING / SUGGESTION 均无；本轮 aligned，`requires_full_verification=false`。保留 Round 5 失败与原始复现作为历史证据，以本轮 closure 为最新有效结论。
+
+## Round 7 — conversations 历史检索与并行基础设施 delta
+
+- reviewer_target: `/root/conversation_static_review`
+- verification_mode: `delta`
+- review_round: `7`
+- fix_delta_range: `25577c958d3e1b379800f1856024d30d9c8f4752..067850180ea388d92197fbf59546f464cafecb1b`
+- validated_at: `067850180ea388d92197fbf59546f464cafecb1b`
+- executed_base / stacked_parent: `c2a7fe3c3727db2c557a28915fda6ccee5e4298e`
+- executed_main_snapshot: `2b208eccf43b269242c6f1101c539fb4e0f8bd4f`（用户要求沿父分支，不合 unrelated main）
+- branch: `codex/feat-677-memory-evaluation`；开始时 clean，HEAD 正确。
+- verdict: **pass**；outcome: **aligned**
+- requires_full_verification: `false`
+- CRITICAL: 0; WARNING: 0; SUGGESTION: 0
+
+### Completeness / Correctness / Coherence
+
+按最新 spec 的完整原聊天/时间/并行隔离 scenarios 与 design Round 5 增补 M1 核对本 delta；保留此前未变的时间回放、原生窗口、Dreaming 唯一写者、后台委派收口及 Runner/judge 结论。旧 memory-only 可见信息限制不再适用当前 v3/v6，旧真实单题记录不能证明本轮新能力。Prototype / Reference Contract：N/A；无生产迁移。
+
+| Requirement / design 决定 | 实现与直接证据 | 状态 |
+|---|---|---|
+| 原聊天保存全部 turn、角色、正文及原 session 时间 | `apps/im-server/src/evaluation.ts:79-103` 事务物化 MessageRecords 与同时间 durable event；IM 测试断言 owner/user 与 assistant/agent；独立 source probe 跨页恢复 36016 code units 原文 | aligned |
+| 准备者仅查询已到达且批次 cutoff 内的历史 | `runtime.ts:110-116` 到达时先 IM 后窗口、完成前不维护；既有 Dreaming 宿主补 range，Work.query 不变；实际请求中早期 long 原文成功、未来检索结果为空 | aligned |
+| source-map 与原生记录使用实际聊天消息 ID | `history.ts:103-116` 接收 import 返回 ID；runtime 专项逐 ID 对照冷工具结果的正文、owner 和 source_time | aligned |
+| 冷活动上下文不继承准备轨迹，但可正常检索封存聊天 | `evaluation.ts:86-93,113-120` 封存并传聊天快照，`nano-product.ts:20-44` 走实际 Work.query；首请求无历史长文，工具查询后实际请求出现原文与最后尚未整理的历史；越界文件/准备 Notes 仍不可得 | aligned |
+| 每次 answer 独立 DB、分页快照及读状态 | `EvaluationChat:39,59-60,125` copy/clear/backup；专项及独立探针验证准备游标与副本间游标拒绝，新增问题不污染 sealed/兄弟副本 | aligned |
+| 多题独立身份、runtime、workspace 和取消 | identity 新增随机 node；继续使用独立 mkdtemp/socket 与单实例 operation 排他；并行 runtime 测试 B 挂起取消不影响 A 的实际回复，B 后续复用 sealed 重答成功并核 PID 退出 | aligned |
+| 新协议指纹及默认零真实请求 | `plan.ts:63-83` protocol 3、Nano 6、IM tree hash；CLI 回归明确 v3/v6 和 modelCallsStarted=0、requests=0；README 披露 CLI 仍串行及未来并发边界 | aligned |
+| 产品包边界、代码复用与长期契约 | 组合根在 evals，通过 IM evaluation public export；integration 仅持注入 port，未加 private import/运行时 fork；current PA 来源及 Dreaming IM 补查语义未变 | aligned |
+
+### Context 与执行证据
+
+复用同一独立 reviewer 的 code-review.md Round 7 Implementation Review，不另做一轮完整 Context Review。直接读取最终 fixture 断言及 owner 日志，确认覆盖最终组装请求、实际工具结果和本地产品交付，非仅 schema 或 DB 静态存在。
+
+- 可信专项：`pnpm exec vitest run evals/memory apps/im-server/tests/evaluation.test.ts packages/dsh-integration/tests/evaluation-runtime.test.ts`，`/tmp/feat677-conversations-targeted.log`，6 files / 17 tests passed。旧实现红日志 `/tmp/feat677-conversations-red.log` 明确失败在答题 request 未含 LONG_MESSAGE_END。
+- 独立探针：`pnpm exec tsx /tmp/feat677-conversations-static-probe.mts`；日志 `/tmp/feat677-conversations-static-probe.log`；证据 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-conversations-static-ltwXZ5/{result.json,query-pages.json,sealed.sqlite}`。含中文/emoji 的原文分页恢复、durable cutoff、冷封存检索、三类副本隔离均通过；3 handles 已关闭，modelCalls=0，无服务/子进程。
+- 复核独立产品 reviewer 的 `/tmp/feat677-conversations-acceptance/run/`：prepare-yE5dk0 的 receipt/source-map/封存 DB，以及 answer-VGGgsK、answer-KFh9LU 两份 requests/answer 和 db-observations.json。准备 1 段 2 turn、0 模型请求 ready；答题各 6 个本地确定性请求 completed，首请求无历史，后续 conversations 两页工具结果包含原 user/assistant、`2024-02-03T04:05:00+00:00` 与 source-map 对应 ID，公开发送 sent。sealed 2 条、答题各 4 条且互无另一问题；PID 22179 / 22747 复核不存在。适用机制与可保留原始证据一致。
+- 亲读 `/tmp/feat677-conversations-typecheck.log` 全过；`-contract.log` 13 passed；`-docs.log` 283 sources / 68 routes。owner 独立执行全 build/full tests，本报告不重复全套；结论不代替其交付门禁。
+
+本轮没有真实模型/judge/生产或大规模 benchmark 调用。确定性 provider 验证真实 DSH seam 的装配/消费路径；真实模型策略、质量、HTTP wire、正式分数与大规模并行吞吐未验证。这是用户明确限定的验证范围，没有把 stub 的固定答案当效果分数。只追加两份原报告，未提交，无新 worktree 或常驻现场。
+
+### Delta reconciliation / Issues
+
+Gateway / PA / IM 产品 **no spec delta**：新增只在评测装配显式使用的 IM offline export 与 product port，未修改生产权限、工具/RPC、正常查询或当前运行行为。真实变化是 benchmark 的信息边界，已在 canonical `evals/memory/README.md` 写明 protocol v3 / Nano v6、memory+chat retrieval、旧证据不可混用、独立副本及当前串行调度限制；索引入口既有且文档完整性通过。没有发现 unit diff 遗漏的对外行为、实现偏离设计或设计自身不合理项。
+
+CRITICAL / WARNING / SUGGESTION 均无；本 delta **aligned**，`requires_full_verification=false`。已授权的确定性完成度成立，真实模型效果保持未验证，不增加预算门禁。

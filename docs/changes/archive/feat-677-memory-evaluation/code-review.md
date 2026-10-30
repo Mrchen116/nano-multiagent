@@ -252,3 +252,44 @@ HEAD 与冻结版本一致，开工 clean；只核上述修复与受影响的生
 README 与 design 改为直接引用当前产品按模型容量计算完整首轮输入的规则，正常评测不另设 maxInputTokens 材料上限；没有继续用旧固定值解释当前设计。现有公开可选配置仍可解析属保留产品能力，与正常评测配置指导不冲突。Gateway / PA **no spec delta**；候选 v5 / protocol v2 保持，未改旧真实评测结果。
 
 本轮仅验证确定性真实 DSH seam、实际工具与本地产品交付；真实模型选择/理解、HTTP wire、记忆质量与正式分数继续未验证。没有真实模型/judge/生产调用。只追加本文件和 verification.md，不提交；修复充分覆盖，结束 closure，不扩大审查。
+
+## Round 7 — conversations 原聊天与并行隔离 patch review
+
+- reviewer_target: `/root/conversation_static_review`，独立 reviewer，未参与本轮实现。
+- review_mode: `patch`
+- fix_delta_range: `25577c958d3e1b379800f1856024d30d9c8f4752..067850180ea388d92197fbf59546f464cafecb1b`（18 files）
+- validated_at: `067850180ea388d92197fbf59546f464cafecb1b`
+- stacked_parent: `c2a7fe3c3727db2c557a28915fda6ccee5e4298e`
+- executed_main_snapshot: `2b208eccf43b269242c6f1101c539fb4e0f8bd4f`；按用户要求沿父分支继续，不合 unrelated main。
+- branch: `codex/feat-677-memory-evaluation`；开始时 clean，冻结 HEAD 复核一致。
+- verdict: **pass**；0 CRITICAL / 0 WARNING。
+
+### Findings
+
+```json
+[]
+```
+
+### 覆盖与 Context Implementation Review — Mode B
+
+本轮触发 Surface 是准备者的 IM 原文工具结果、冷答题可按需取得的历史、时间/角色/消息 ID 投影以及封存恢复。依据 AGENTS、SPEC 的包边界、current PA 来源规则、Gateway Dreaming IM 补查规则、Context/测试规范、unit spec 和 design Round 5，只核本 patch 与受影响消费链。先前未改的窗口/准入、唯一写者、Runner/judge、后台 child 收口结论 retained；旧 v5 的“答题不能检索原聊天”已被本轮用户要求与 v3 协议取代，不能作为本轮不变量。
+
+| 链路 | 代码与可观察证据 | 判断 |
+|---|---|---|
+| 历史到达 → IM → 原生窗口 | `runtime.ts:110-116` 先同步 importSession，再追加对应窗口；`evaluation.ts:79-103` 事务中逐 turn 复用 MessageRecords，正文不改，消息及匹配 durable event 都使用原时间；`history.ts:103-116` 采用返回的实际 IM ID | 不预建未来聊天；source-map 与工具结果 ID 可互用 |
+| 准备者按目录/cutoff 补查 | 仍沿产品 Dreaming → GlobalAgent → Work.query；身份由宿主补齐，未让模型猜 node/owner；Work.query 保留来源与 durable-version 截止校验 | fixture 在实际后续模型请求中消费成功的 conversations 结果，早期包含 LONG_MESSAGE_END，未来 UNTRIGGERED_LAST_UPDATE 查询为空 |
+| 冷答题发现 → 检索 → 回复 | `nano-product.ts:20-44` 组合 GlobalAgent 与 IM 查询；`evaluation.ts:113-120,214-217` 从快照建新 runtime，先同步来源再正常收 Inbox | 首请求无 LONG_MESSAGE_END / unrelated history；调用 conversations 后实际请求出现长原文、原时间/owner/真实 ID 及末尾未整理原文；History 不恢复准备 Notes，原文件越界仍拒绝 |
+| 封存与副本 | SQLite backup 后每次 answer copy；`evaluation.ts:39,59-60` 清理副本的查询快照及读取状态 | 准备游标与兄弟副本游标均拒绝，答题写入不污染 sealed/其他副本；产品查询本身未复制成第二套实现 |
+| 多题取消/清理 | 本阶段 DB/NodeStore/InboxStore 均由 product.close 关闭，独立 runtime/socket/workspace 与随机 node/PA/chat 身份；原实例阶段限额仍有效 | 既有实际 runtime seam 新增两实例并行：取消挂起 B 后 A 正常公开交付，B 可从同一封存状态重答，各 PID 已退出 |
+| 身份与协议 | `plan.ts:63-83` protocol v3 / Nano v6，candidate 指纹包含 IM 构建字节；CLI 显式执行授权及零默认请求保护 retained | 新信息边界可追踪，旧 v2/v5 结果不混算；当前 CLI 串行，未声称已有并发调度器 |
+
+### 证据与限制
+
+- 亲读 owner 红/绿日志：`/tmp/feat677-conversations-red.log` 旧实现确实未把历史返回给答题请求；`/tmp/feat677-conversations-targeted.log` 对应 `pnpm exec vitest run evals/memory apps/im-server/tests/evaluation.test.ts packages/dsh-integration/tests/evaluation-runtime.test.ts`，6 files / 17 tests passed。核对了断言所在 fixture 与实际请求消费路径，覆盖时间/ID、分页、未来排除、冷检索和并行取消，未重复全套。
+- 独立小探针：`pnpm exec tsx /tmp/feat677-conversations-static-probe.mts`，日志 `/tmp/feat677-conversations-static-probe.log`；证据 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-conversations-static-ltwXZ5/{result.json,query-pages.json,sealed.sqlite}`。直接通过受审 source 的 EvaluationChat 查询，跨页恢复含中文和 emoji 的 36016 UTF-16 code units 原文，cutoff 排除未来；冷副本可检索完整封存历史，准备/兄弟游标拒绝，答题写入不串副本。3 个 DB handles 均关闭，modelCalls=0，无 listener 或子进程。
+- 另亲读独立产品 reviewer 保存的 `/tmp/feat677-conversations-acceptance/run/` 现场：`prepare-yE5dk0/{receipt.json,source-map.json,prepared-chat.sqlite}`、`answer-VGGgsK/requests.jsonl` / `answer.json`、`answer-KFh9LU/requests.jsonl` / `answer.json` 及 `db-observations.json`。prepare ready、1 段 2 turn、0 请求；两次 cold answer 各 6 个本地确定性请求、terminal completed。两份首请求无 CASE_MARKER，后续实际工具结果两页分别返回原 assistant/user、原时间 `2024-02-03T04:05:00+00:00` 与 source-map 对应 ID，再发送并取得 sent 结果；sealed 仅 2 条，两个 answer DB 各 4 条且只含自己的问题。答题 PID 22179 / 22747 独立复核不存在。这补足可保留的实际组装证据，并非新增真实 provider 调用。
+- 复用 owner 日志：typecheck 全过；runtime dependency contract 13 passed；documentation integrity 283 maintained sources / 68 routes。全量 build 与 full tests 由 owner 单独负责，本轮不把其尚未完成结果冒称完成。
+
+上述 runtime fixture 是锁定真实 DSH 的最终组装/工具结果及本地交付 seam，provider 为确定性实现；独立 IM 探针是产品数据库/查询 seam。它们不证明 HTTP wire、真实模型的选工具/理解能力、记忆质量、正式 LongMemEval 分数或全量并发吞吐。预算约束下未调用真实候选/judge、未跑大规模评测或生产操作。
+
+本轮 Gateway / PA / IM 产品 **no spec delta**：新增显式离线 evaluation export 与 evals composition，未改生产查询、RPC、权限或正常运行时；依赖仍经 public exports，integration 不 import IM/PA，IM 不 import DSH。评测可见信息变化已由 canonical suite README 的 protocol v3 / Nano v6 维护。仅追加 code-review.md / verification.md，未提交；无存活问题，不扩大审查。

@@ -229,3 +229,45 @@ Round 3 不受影响的数据保真、官方评分规则、报告分母、固定
 已对照 current gateway personal-agent/global-agent 的主人身份、Inbox 消费、历史恢复和本人私聊投递契约，以及 README 的一致性/差异表。该表明确数据导入、冷上下文、本地单聊 transport、关闭后台能力和逻辑时间差异，足以避免把局部接线通过宣称成完整线上 PA 验收。Reference Artifacts Reviewed=N/A：CLI 入口，无界面改动、viewport 或原型要求。
 
 仅追加本报告，未修改其他受控文件，未提交（report_commit=none）。未启动服务、真实模型或生产操作，没有本 reviewer 新建进程需清理。无阻塞事项。
+
+## Round 6 — stored conversations 与并行隔离 targeted acceptance
+
+> mode=full；revalidation_mode=targeted；review_round=6；2026-10-30 11:40–11:46（北京时间）。validated_at=`067850180ea388d92197fbf59546f464cafecb1b`；stacked parent=`c2a7fe3c3727db2c557a28915fda6ccee5e4298e`；executed main=`2b208eccf43b269242c6f1101c539fb4e0f8bd4f`。开始时 HEAD 精确匹配、分支 `codex/feat-677-memory-evaluation`、工作区干净。按 change-reviewer 阅读首文档 conversations 修订、design Runbook、suite README 和 current gateway 工具/来源约束；只操作 CLI、候选公开 API 和运行证据，不读取实现定位根因。
+
+**Verdict：pass（仅本地确定性机制的 targeted 交付范围）**。0 blocking / 0 major / 0 minor；highest_required_action=pass；needs_re_review=false。真实候选模型、judge、正式分数、全量 benchmark 与生产访问均未执行。
+
+### 独立用户旅程与直接观察
+
+执行 README 默认 CLI：`pnpm memory-eval --config evals/memory/examples/plan.json --ids evals/memory/examples/ids.json --output /tmp/feat677-conversations-review-plan`。实际输出 1 题、2 sessions、4 messages、`modelCallsStarted=0`，protocol version=3、adapter=`nano-document-memory-v6`、sourceCommit 匹配冻结版本、dirty=false。`protocolId=42d7aa71a68fa8898690c1a17838c1d2ac71763ed2d6830fe9c5bc8d27d3449c`；runtimeHash=`9b4501229fa134dd294c7f7e52dce60b93687e0f73a443119b559a01d0ee2e35`，chatHash=`e1b2c3aeee8f0149c875ae60d222f9d3cd57e05ed162212d63faf7ab70c321fb`。计划和 README 均明确 persistent memory plus stored conversation retrieval，与旧 memory-only v2 不混算。
+
+另在仓库外编写 `/tmp/feat677-conversations-acceptance/probe.mts`，通过公开 `NanoMemoryCandidate.prepare/answer/close`，复用已有 fixtureOptions 的本地确定性 provider（EVALUATION_CHAT_ONLY=1），导入一个短 session 的两条原文，再从同一封存状态回答两次不同问题。使用项目 Node v24.22.1，命令 `pnpm exec tsx /tmp/feat677-conversations-acceptance/probe.mts`。第一次探针扩展名 `.ts` 被 tsx 解释为 CJS，加载 ESM 依赖失败且未创建 runtime；仅改仓库外文件为 `.mts` 后正常 exit 0，没有修改产品或测试。
+
+- prepare 返回 ready，importedSessions=1 / importedMessages=2 / modelCalls=0；历史是原日期 `2024/02/03 04:05`、user 的 brass key/blue drawer 陈述和 assistant 确认。两个 answer 均 completed，各 6 次本地确定性 provider 调用；没有真实模型请求。
+- 直接查看两份 `requests.jsonl`：首请求都不含 `CASE_MARKER` 原文或当前问题正文。问题经正常 Inbox read 后进入；`conversations search` 用 limit=1 返回 assistant 原文，next_cursor 续页返回 user 原文，末页 has_more=false。两条 source_time 均为 `2024-02-03T04:05:00+00:00`，sender 分别为 agent 与 owner/user，正文逐字匹配输入。
+- 原消息 ID `90596c91e64c4da8a9209fec90b1c690`（user）与 `3e6ec426f1f04059930978ff06e34659`（assistant）在 source-map 和实际工具结果中一致。两次冷答题保留 session `f11cdb74-78b2-4e36-8ae9-e4da247da5c8` 及 conversation `c_429ff37ed5b7`；各自产生独立分页 cursor。
+- 两份实际 `send_message` 工具结果均为 status=sent，answer receipt 返回由两页原文组成的已交付文本；没有把内部 prose 当交付结果。
+- 关闭 candidate 后只读检查 SQLite：sealed chat 仍是 2 条原历史、不含问题 A/B；两个可写副本各 4 条（历史、自己的问题和实际回复），分别只含 `UNIQUE_QUESTION_A` 或 `UNIQUE_QUESTION_B`。两个请求捕获也均不含另一轮问题。重复答题没有污染 sealed chat 或另一副本。
+
+### 证据与复用检查
+
+独立原始证据保留在 `/tmp/feat677-conversations-acceptance/`：`probe-esm.log`、`run/results.json`、`run/request-observations.json`、`run/db-observations.json`；准备目录 `run/prepare-yE5dk0/` 包含 source-map.json、prepared.json、prepared-chat.sqlite 与 receipt；答题目录 `run/answer-VGGgsK/` 和 `run/answer-KFh9LU/` 各有 requests.jsonl、answer.json、chat.sqlite。CLI plan 位于 `/tmp/feat677-conversations-review-plan/plan.json`。
+
+复用 caller 已运行的 `/tmp/feat677-conversations-targeted.log`，命令为 `pnpm exec vitest run apps/im-server/tests/evaluation.test.ts packages/dsh-integration/tests/evaluation-runtime.test.ts evals/memory`，实际日志为 6 files / 17 tests passed，37.60 秒。caller 说明专项之后仅补 API docstring 与 identity secret/ctx 一致性；当前冻结构建的真实查询由本轮独立探针再验。该 runtime 旅程覆盖准备早期原文与未来纠正隔离、source-map/日期、首轮与检索后的 Context；parallel case runtimes 检查同时运行两题，B 开始请求后取消，A completed、B failed，随后可从 B 封存状态重答，并检查 PID 退出。IM evaluation 检查 30000+ 字符真实查询分页、cutoff 排除未来、跨题拒绝、跨准备/副本和跨副本 cursor 拒绝及写入隔离。这部分是复用确定性测试证据，不宣称 reviewer 另行手工执行了并行取消或长文旅程；不重复全套测试。
+
+| Scenario / 来源 | 结果 | 本轮证据与边界 |
+|---|---|---|
+| 准备和冷答题查询主人聊天；spec 2026-10-30 新增 | pass | 独立实际两页原文/作者/时间/消息 ID 与发送回执；准备 cutoff、长文分页复用本轮专项 |
+| 多题同时运行或重复答同一题；spec 新增 | pass | 独立重复冷答题与 sealed/副本 SQLite 检查；并行取消、跨题和游标隔离复用本轮专项 |
+| 长期历史仍存在于准备环境；spec 冷答题隔离 | pass | 独立首轮无历史、查询后才出现原文；准备 runtime/Notes 文件隔离沿用 Round 5，结合本轮专项 |
+| 仅检查数据与执行计划；spec | pass | 独立默认 CLI 零请求，明确 v3/v6，计划源版本与构建标识完整 |
+| 导入固定历史并回答后续问题；spec | pass | 独立 ready 收据、空初始记忆、两次 completed 与实际 sent；不证明模型质量 |
+| 比较前后记忆版本；spec | pass | 新 protocolId 与 v3 查询边界可辨；旧结果保持旧标签，Runner opaque 候选/分数规则测试 retained |
+| 时间回放、自动周期、冻结、数据保真、失败分母、judge-only retry | pass（retained） | Round 4/5 未失效结论及本轮 17 tests；检索范围改变部分以本 Round 替代旧 memory-only 结论 |
+| 显式执行评测 | pass（retained） | Round 5 run/score 未授权拒绝；本轮独立默认 plan 零请求，授权执行未重跑 |
+| 有界真实试跑 | not-applicable | 用户预算边界明确禁止；旧 incomplete 记录保留，不追加真实候选/judge |
+
+### 体验、清理与报告边界
+
+Reference Artifacts Reviewed=N/A：CLI/候选 API 用户入口，无 UI、viewport、原型或 daily 常驻服务需求。README 已说明协议升级、原历史按需检索、旧快照不可改名复用、CLI 仍顺序调度及未来多实例并行边界；维护者能区分计划、执行、机制通过与正式效果。无新增文档同步要求或产品问题。
+
+探针通过 finally 调用 close，主进程 exit 0；随后 `ps` 核对没有带本探针目录或 evaluation/runtime 的残留进程。没有 HTTP 监听、生产连接或真实模型调用；运行证据留在仓库外且未删除。只追加本 Round；未提交（report_commit=none），由 owner 收口。无阻塞事项。

@@ -177,3 +177,14 @@ PR #429 保留 `unit/feat-676` base；最新 head 的远端 CI 结果单独记�
 - 红证据 `/tmp/feat677-conversations-red.log`：旧适配器无法在答题查询结果中返回 LONG_MESSAGE_END。实施中分片 ID 误用导致产品检测出未读片段，已改为同消息全片使用同一真实 ID。
 - 最终窄验证 `/tmp/feat677-conversations-targeted.log`：6 files / 17 tests passed（37.60s），含两候选并行、取消一题不影响另一题交付、取消后 sealed chat 可独立再答，已核所有测试 PID 退出。相关包 build、全仓 typecheck、架构契约 13 passed、docs-check 283 sources / 68 routes 通过；日志 `/tmp/feat677-conversations-{build,typecheck,contract,docs}.log`。
 - 无生产行为 delta、部署、原生 UI 变化；原父分支 UI 证据 retained。完整本地检查及本轮独立门禁随后记录。
+
+### conversations 修订最终门禁与交付检查
+
+运行实现冻结 `067850180ea388d92197fbf59546f464cafecb1b`；review diff=`25577c958..067850180`。最终 fetch 确认指定父分支未推进，executed_base / effective_base=`c2a7fe3c3727db2c557a28915fda6ccee5e4298e`；main snapshot=`2b208eccf43b269242c6f1101c539fb4e0f8bd4f`。沿用户指定 stacked base，不合无关 main 工作；本轮后续仅追加报告和本记录，代码、测试和配置未再改变，原门禁结论 retained。
+
+- Design Round 5 Approved；code-review / verification Round 7 pass/aligned，0 CRITICAL / WARNING / SUGGESTION；acceptance Round 6 pass，0 问题。Gateway / PA / IM no spec delta；评测信息边界 v3/v6 已归并 suite README。
+- 独立验收实际证据 `/tmp/feat677-conversations-acceptance/run/`：prepare 1 段 / 2 条 / 0 请求；两次 cold answer 各 6 个本地确定性请求。首请求无原历史，后续 conversations 两页返回原 user/assistant、时间、source-map 消息 ID，公开 send_message sent。sealed DB 2 条，两个副本各 4 条且没有另一问题；所有 runtime PID 已退出。另一个静态 probe 跨页恢复 36016 UTF-16 code units 的中英文/emoji 原文，核 cutoff、游标与写入隔离，3 个数据库 handles 已关闭；完整 locator 在审查报告。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime`、docs-check（283 sources / 68 routes）、ruff check/format、archive check 全过。Python 127 passed / 28 deselected；全套 `pnpm exec vitest run --maxWorkers=2` 为 **171 files / 885 tests passed（372.63s）**。日志 `/tmp/feat677-conversations-{full-build,typecheck,ios-runtime,docs,ruff,ruff-format,archive,python,full-tests}.log`。本轮未复跑默认高并发，也未声称修复旧高并发偶发问题的未确认根因。
+- CLI 默认 plan 经独立验收为 protocol v3 / candidate v6 / modelCallsStarted=0；真实候选与 judge 新增调用均为 0。确定性通过不代表真实模型策略、质量或全量并发吞吐已经验证；现有 CLI 仍顺序运行题目。
+
+PR #429 保留 `unit/feat-676` base；远端 CI 对最终交付 head 单独核实并记录在 PR。未合并、未部署；开发 worktree 和用户要求保留的旧单题只读入口继续保留，旧实验数据/配置/轨迹未改写。本轮测试新建进程已清理，只保留本机原始审查证据。
