@@ -1192,6 +1192,7 @@ export function ChatWorkspacePage() {
       {showList && (
         <ConversationSidebar
           conversations={sidebarConversations.filter(c=>c.id!==personalBinding?.conversation_id)}
+          searchConversations={sidebarConversations}
           emptyLabel={personalBinding?t('pa.noOtherChats'):undefined}
           personalAgentEntry={personalAgent.isError ? <div className="pa-entry pa-notice"><button type="button" onClick={()=>void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div> : personalAgent.isSuccess && <div className="pa-entry"><button type="button" className={`chat-sidebar-row${isPersonalConversation?' chat-sidebar-row--active':''}`} aria-current={isPersonalConversation?'true':undefined} onClick={()=>personalBinding?navigate(`/chat/${personalBinding.conversation_id}`):setShowPersonalAgentSetup(true)}><span className="pa-entry-icon" aria-hidden="true">✦</span><span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title">{personalBinding?.display_name??t('pa.create','我的个人助手')}</span><span className="chat-sidebar-row-preview">{personalBinding?t('pa.role','个人助手 · 持续替你跟进'):t('pa.start','给它一个名字，开始合作')}</span></span>{(localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count??0)>0&&<span className="chat-sidebar-row-unread">{localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count}</span>}</button></div>}
           selfUserId={selfUserId}

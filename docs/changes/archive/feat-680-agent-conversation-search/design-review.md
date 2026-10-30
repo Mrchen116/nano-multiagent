@@ -247,3 +247,35 @@
 ### Recommendations
 
 无。
+
+## Round 8
+
+- Reviewer：独立 `change-design-reviewer`（Codex，`/root/search_ux_design_recheck`）。
+- review_mode：delta；mode_reason：用户试用后变更 Web 搜索的信息组织与移动返回旅程，搜索 API、权限及 Agent Context 未变；未受影响内容 `retained_from: Round 7`。
+- started_at：2026-10-30T17:02:00+08:00；completed_at：2026-10-30T17:04:30+08:00；duration：约 2 分钟 30 秒。
+- Verdict：**Approved — 0 CRITICAL / 0 WARNING**；仅表示修订后的设计可指导实施，不表示实际界面已验收。
+- 基线：`76c455254c5452a045e54a64921a3f448bc0cb50` 加工作区的 spec、design 与 Web delta 修订。
+
+### 历史问题闭环
+
+- **R6-W1 保持 closed**：`design.md` 保留 `kind` 参数、分页前分类及权限复核；本轮搜索视图内分类仍同时限制会话与消息结果。
+- **R6-W2 保持 superseded**：用户已授权跳过旧本地原型，改在实施后检查实际 Web 界面；旧原型并未因此通过视觉审查。R5-W1/W2 的范围与需求闭环沿用 Round 7。
+
+### Coverage 与证据
+
+- 对照用户反馈与 `spec.md`、`design.md` 新节：移动端明确切换占满可用空间的独立搜索界面，隐藏导航、固定 PA 入口、普通列表及创建入口；桌面在侧栏切换而保留聊天。清空留在搜索、退出恢复普通列表；从原消息返回搜索视图恢复关键词、分类、页数及位置，并逐页重查权限。输入、分组、关键词、空状态、加载、错误、续页与原消息定位均有决定；分类仅作用于搜索结果。该组织能直接回应用户所述的列表重叠问题。
+- 核对真实产品组装入口：`chat-workspace-page.tsx:1122-1123,1193-1203,1286` 现以移动会话 ID 切换列表/详情，侧栏 props 中显式排除 PA，并在返回时回 `/chat`；`conversation-sidebar.tsx:112-155,171-185,214-235,259-261,368-379` 当前把搜索、筛选、固定入口与列表放在同一侧栏，结果恢复依赖前端缓存及重新请求。因此这次需改变搜索视图与返回状态，而非只调整结果样式。修订明确由 workspace 为搜索提供含 PA 的已加载会话；对不在列表中的可访问来源使用返回名称生成普通头像，不假定类型或增加请求，和 `chat-api.ts:25-27` 现有返回字段相容。
+- Web delta 现为对 `docs/specs/im/web-chat-ux.md` 同名已有 Requirement 的 MODIFIED，保留原有权限、分页、年份及上下文 Scenario，并把移动返回明确改为搜索视图；不在设计阶段覆盖 current。设计第 21 行的 worker/reviewer 真实入口验证及修订段要求分别验证桌面与移动流程；原查询职责、权限边界和非消费行为证据沿用 Round 5–7。本次不改变 Agent 可见 Context、共享 API 或迁移。
+- 本 reviewer 打开隔离 Web 标签时仅见登录页，未独立看到搜索界面；既有 `acceptance.md` Round 3、5 的旧版真实 UI 记录证明既有产品路径，不证明本次新设计画面。用户调整了原型验证顺序，故不将缺少新画面当作本轮阻断；实施后仍须在隔离实际界面分别走移动和桌面，检查进入、清空、退出、分类、状态、分页及定位后返回，取得可复查的视觉和交互证据后才能宣称体验通过。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+- Round 8 无遗留问题；接受 Approved。实施后仍须独立验证隔离环境中的桌面与移动实际界面。

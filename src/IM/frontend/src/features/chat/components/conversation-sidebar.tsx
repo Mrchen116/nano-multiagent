@@ -19,7 +19,7 @@ interface SidebarAgent {
 }
 
 type FilterKey = "all" | ConversationKind;
-type SidebarSearchState = { query: string; filter: FilterKey; pages: number; scrollTop: number };
+type SidebarSearchState = { query: string; filter: FilterKey; pages: number; scrollTop: number; listFilter?: FilterKey };
 
 const FILTER_ORDER: FilterKey[] = ["all", "direct-user", "direct-agent", "group", "agent-network"];
 
@@ -33,6 +33,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 
 export interface ConversationSidebarProps {
   conversations: Conversation[];
+  searchConversations?: Conversation[];
   personalAgentEntry?: ReactNode;
   emptyLabel?: string;
   selfUserId?: string | null;
@@ -83,8 +84,15 @@ function formatSearchDate(iso: string): string {
   return formatDate(iso);
 }
 
+function highlightMatch(text: string, query: string): ReactNode {
+  const index = text.toLowerCase().indexOf(query.trim().toLowerCase());
+  if (!query.trim() || index < 0) return text;
+  return <>{text.slice(0, index)}<mark>{text.slice(index, index + query.trim().length)}</mark>{text.slice(index + query.trim().length)}</>;
+}
+
 export function ConversationSidebar({
   conversations,
+  searchConversations = conversations,
   personalAgentEntry,
   emptyLabel,
   selfUserId = null,
@@ -111,12 +119,14 @@ export function ConversationSidebar({
   const { t } = useTranslation();
   const [filter, setFilter] = useState<FilterKey>(initialSearch?.filter ?? "all");
   const [search, setSearch] = useState(initialSearch?.query ?? "");
+  const [searchActive, setSearchActive] = useState(Boolean(initialSearch?.query));
   const [searchResult, setSearchResult] = useState<MessageSearchResult | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [retrySearch, setRetrySearch] = useState(0);
   const searchAbort = useRef<AbortController | null>(null);
   const searchState = useRef<SidebarSearchState>(initialSearch ?? {query:'',filter:'all',pages:1,scrollTop:0});
+  const listFilter = useRef<FilterKey>(initialSearch?.listFilter ?? initialSearch?.filter ?? "all");
   const listRef = useRef<HTMLUListElement>(null);
   const restoreScroll = useRef<number | null>(initialSearch?.scrollTop ?? null);
   const saveSearch = (update: Partial<SidebarSearchState>) => {
@@ -168,29 +178,37 @@ export function ConversationSidebar({
       .finally(() => { if (!signal?.aborted) setSearchLoading(false); });
   };
 
-  const previews = useMemo(() => new Map(conversations.map((c) => [
+  const previews = useMemo(() => new Map(searchConversations.map((c) => [
     c.id, formatSystemNotice(t, c.last_message_system_notice, c.type === "direct")
       ?? mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants))
-  ])), [conversations, t]);
+  ])), [searchConversations, t]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return conversations.filter((c) => {
+    return (searchActive ? searchConversations : conversations).filter((c) => {
       const kind = classifyConversationKind(c);
       if (filter !== "all" && kind !== filter) return false;
       if (!q) return true;
       const haystack = `${c.title} ${previews.get(c.id) ?? ""}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [conversations, filter, search, previews]);
+  }, [conversations, searchConversations, searchActive, filter, search, previews]);
+
+  const exitSearch = () => {
+    setSearchActive(false);
+    setSearch("");
+    setFilter(listFilter.current);
+    restoreScroll.current = null;
+    saveSearch({query:"", filter:listFilter.current, pages:1, scrollTop:0});
+  };
 
   return (
-    <aside className="chat-sidebar" aria-label={t("chat.list.header")} onClick={() => setContextMenu(null)}>
+    <aside className={`chat-sidebar${searchActive ? " chat-sidebar--searching" : ""}`} aria-label={searchActive ? t("chat.list.searchTitle") : t("chat.list.header")} onClick={() => setContextMenu(null)}>
       <header className="chat-sidebar-header">
-        <div className="chat-sidebar-header-row">
+        {!searchActive && <div className="chat-sidebar-header-row">
           <span className="chat-sidebar-title">{t("chat.list.header")}</span>
           <NewConversationMenu onNewChat={onNewChat} onNewGroup={onNewGroup} onDiscover={onDiscover} />
-        </div>
+        </div>}
         {distillMode && (
           <div className="chat-sidebar-distill-actions">
             <button type="button" className="chat-sidebar-action" onClick={onCancelDistillMode}>
@@ -211,14 +229,19 @@ export function ConversationSidebar({
             {distillNotice}
           </p>
         ) : null}
+        <div className="chat-search-input-row">
+        {searchActive && <button type="button" className="chat-search-back" aria-label={t("chat.list.exitSearch")} onClick={exitSearch}>‹</button>}
         <input
           type="search"
           role="searchbox"
           className="chat-sidebar-search"
           placeholder={t("chat.list.search")}
           value={search}
+          onFocus={() => { if (!searchActive && searchMessages && !distillMode) { listFilter.current = filter; saveSearch({listFilter:filter}); setSearchActive(true); } }}
           onChange={(e) => { restoreScroll.current = null; setSearch(e.target.value); saveSearch({query:e.target.value,filter,pages:1,scrollTop:0}); }}
         />
+        {searchActive && search && <button type="button" className="chat-search-clear" aria-label={t("chat.list.clearSearch")} onClick={() => { restoreScroll.current = null; setSearch(""); saveSearch({query:"",filter,pages:1,scrollTop:0}); }}>×</button>}
+        </div>
         <div className="chat-sidebar-filters" role="tablist">
           {FILTER_ORDER.map((key) => (
             <button
@@ -256,13 +279,14 @@ export function ConversationSidebar({
           </button>
         </div>
       ) : null}
-      {personalAgentEntry}
+      {!searchActive && personalAgentEntry}
       <ul ref={listRef} className="chat-sidebar-list" onScroll={event => { if (search.trim() && !searchLoading) saveSearch({scrollTop:event.currentTarget.scrollTop}); }}>
-        {search.trim() && searchMessages && !distillMode ? <li className="chat-search-heading">{t('chat.list.conversationResults')}</li> : null}
-        {filtered.length === 0 ? (
+        {searchActive && !search.trim() ? <li className="chat-search-hint">{t('chat.list.searchHint')}</li> : null}
+        {search.trim() && searchMessages && !distillMode && filtered.length > 0 ? <li className="chat-search-heading">{t('chat.list.conversationResults')}</li> : null}
+        {filtered.length === 0 && !searchActive ? (
           <li className="chat-sidebar-empty">{search.trim() ? t('chat.list.noConversationResults') : emptyLabel ?? t("chat.list.empty")}</li>
         ) : (
-          filtered.map((c) => {
+          (searchActive && !search.trim() ? [] : filtered).map((c) => {
             const active = c.id === activeConversationId;
             const dateStr = formatDate(c.last_message_at);
             const kind = classifyConversationKind(c);
@@ -345,13 +369,13 @@ export function ConversationSidebar({
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">
-                      <span className="chat-sidebar-row-title">{c.title}</span>
+                      <span className="chat-sidebar-row-title">{searchActive ? highlightMatch(c.title, search) : c.title}</span>
                       {dateStr && (
                         <span className="chat-sidebar-row-time">{dateStr}</span>
                       )}
                     </span>
                     <span className="chat-sidebar-row-preview-line">
-                      <span className="chat-sidebar-row-preview">{previews.get(c.id) ?? ""}</span>
+                      <span className="chat-sidebar-row-preview">{searchActive ? highlightMatch(previews.get(c.id) ?? "", search) : previews.get(c.id) ?? ""}</span>
                       {c.unread_count > 0 && (
                         <span className="chat-sidebar-row-unread" aria-label={`${c.unread_count} unread`}>
                           {c.unread_count}
@@ -366,20 +390,21 @@ export function ConversationSidebar({
           })
         )}
         {search.trim() && searchMessages && !distillMode ? <>
-          <li className="chat-search-heading">{t('chat.list.messageResults')}</li>
+          {searchResult && searchResult.messages.length > 0 ? <li className="chat-search-heading">{t('chat.list.messageResults')}</li> : null}
           {searchResult?.messages.map(message => <li key={message.message_id}>
             <button type="button" className="chat-sidebar-row chat-search-result" onClick={() => onSelectMessage?.(message.conversation_id, message.message_id)}>
+              <span className="chat-sidebar-row-avatar">{searchConversations.find(c => c.id === message.conversation_id)?.type === 'group' ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={message.conversation_name.slice(0, 2)} color={colorForAgentSeed(message.conversation_name)} size={36} />}</span>
               <span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title-line"><span className="chat-sidebar-row-title">{message.conversation_name}</span><span className="chat-sidebar-row-time">{formatSearchDate(message.created_at)}</span></span>
-                <span className="chat-search-snippet">{message.sender_name}: {message.snippet}</span></span>
+                <span className="chat-search-snippet">{message.sender_name}: {highlightMatch(message.snippet, search)}</span></span>
             </button>
           </li>)}
           {searchLoading ? <li className="chat-sidebar-empty" role="status">{t('chat.list.searchLoading')}</li> : null}
           {searchError ? <li className="chat-sidebar-empty" role="alert">{t('chat.list.searchError')} <button type="button" onClick={() => searchResult?.next_cursor ? loadMore() : setRetrySearch(n => n + 1)}>{t('chat.list.retrySearch')}</button></li> : null}
-          {!searchLoading && !searchError && searchResult && !searchResult.messages.length ? <li className="chat-sidebar-empty">{t('chat.list.noMessageResults')}</li> : null}
+          {!searchLoading && !searchError && searchResult && !searchResult.messages.length && filtered.length === 0 ? <li className="chat-search-empty">{t('chat.list.noSearchResults')}</li> : null}
           {!searchLoading && !searchError && searchResult?.next_cursor ? <li><button type="button" className="chat-search-more" onClick={loadMore}>{t('chat.list.loadMore')}</button></li> : null}
         </> : null}
       </ul>
-      {!distillMode && (
+      {!distillMode && !searchActive && (
         <footer className="chat-sidebar-secondary">
           <button type="button" onClick={() => onEnterDistillMode?.()}>
             {t("chat.list.generateSkill")}
