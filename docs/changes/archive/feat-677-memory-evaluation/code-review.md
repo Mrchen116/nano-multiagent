@@ -160,3 +160,55 @@
 所有准备请求 maxTokens=2048；实际 system/message/tool schema 与成功工具结果已读取，未将 fixture 固定结论当作真实模型能力。pid 66811 / 69064 / 69395 均在 close 后以 process.kill(pid,0) 确认不存在；脚本自身已退出，未启动常驻服务或自建 worktree。原请求与临时脚本仅留本机，不提交。
 
 限制：上述 llm/stream 是 DSH 最终组装后、HTTP provider 适配前的请求，证明本地确定性链路的交付/恢复/投递，不证明最终 HTTP wire、真实模型策略、记忆质量或正式分数。未调用真实模型/judge、生产 IM 或外部业务。只追加本报告与 verification.md，由 owner 提交。
+
+## Round 5 — 常驻 PA 关系与冷答题产品接线
+
+- reviewer_target: `/root/pa_context_static_review`，独立审查者，未参与受审实现。
+- review_mode: `patch`
+- review_diff: `75f4794d38cfcd33efbd49d259f7e5289ea9e763..a992a059d043fb118e98adb540304ed329e1b036`（12 files）
+- validated_at: `a992a059d043fb118e98adb540304ed329e1b036`
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **changes required**
+
+开工时 HEAD 与冻结版本一致、工作区 clean；本轮只审上述 patch 和受影响消费链，不重审父分支或历史整个 PR。读取本仓 AGENTS、code-review / verifier / agent-context-review skills、Context / testing 规范、current Global/PA/Memory 契约、unit spec、设计新增冷答题修正和 M1。Gateway / PA 为 **no spec delta**；评测 adapter v5 的长期差异由 suite README 维护。后续其他角色修改 acceptance.md 未纳入本 reviewer 修改。
+
+### Findings
+
+```json
+[
+  {
+    "file": "packages/dsh-integration/src/evaluation/runtime.ts",
+    "line": 57,
+    "summary": "[P2] 等待后台子 Agent 与后续根唤醒收口后再结束答题",
+    "failure_scenario": "本 patch 放行并向答题模型正常提供 subagent，且其默认是后台执行。根 PA 在成功启动后台 child 后先结束当前轮等待结果时，idle RPC 仅等待 root.whenIdle（runtime.ts:128-130）；answerQuestion 随即读取 audit/deliveries、把根轮 completed 当成整题完成，并在 finally 关闭 runtime（evaluation.ts:113-126）。child 尚在运行就会被停止，正常委派的答题被记为 no public answer；若根已发送了进度，尚未完成的进度还可能直接成为评分文本。",
+    "review_mode": "patch",
+    "status": "CONFIRMED",
+    "surface": "工具 schema / 默认后台委派 / 冷答题执行生命周期",
+    "expected": "模型依照实际工具说明启动默认后台 child 后，可等待其完成通知，在同一 PA 常驻 session 继续处理并通过产品 send_message 交付；阶段仍受现有真实时间与全树模型请求限额约束。",
+    "observed": "真实 DSH seam 返回 started subagent 成功；child 已进入 provider 请求。根首轮 completed 时评测在 803ms 就返回 failed/Agent delivered no public answer，child 的计划回传在 1200ms 后，尚未来得及送达；answer audit 当时只记录 4 calls，而退出前请求文件已有含 child 的第 5 次请求。",
+    "impact": "工具可见性与可执行生命周期不一致，评测会因正常产品委派路径产生假失败或提前评分，README 所称原生内部委派未完整兑现。",
+    "recommendation": "在现有阶段限额内等答题执行树及其引发的根后续工作真正收口，再采集 audit/terminal/deliveries；在现有 evaluation-runtime 旅程中覆盖默认后台 child 延后回传、根恢复并实际交付的场景。不要以拒绝模型已可见的默认委派工具规避。",
+    "severity": "WARNING",
+    "evidence": "/tmp/feat677-pa-delegation-probe.mts；/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-pa-delegation-zVj084/answer-XO15ZN/{answer.json,requests.jsonl,runtime.log}。仅使用既有封存合成记忆、锁定 DSH 与本地确定性 provider；确认的是机制，不声称真实模型必然选择委派。"
+  }
+]
+```
+
+### 增量覆盖
+
+- `evaluation.ts:64-86,174-191,206-217`：PA/owner/binding/conversation/rootSession 五项身份在准备/封存/答题间复用；新的 runtime/workspace 只恢复正式记忆与 documents 状态，未复制准备 sessions、Inbox 或维护笔记。prepare 的原生 Inbox 映射使用相同真实 owner、私聊/participant/web 字段。不是只改显示名。
+- `nano-product.ts:19-22,43-88`：composition root 注入 product port，实际运行现有 GlobalAgent / InboxStore / NodeStore；问题正文从 receive 进入，生成随机消息/relay ID，题号没有作为用户消息身份。DSH 接入包不反向 import PA；PA 不 import DSH；无第二套 Agent Loop 或生产 RPC。
+- `evaluation.ts:108-112`：在首轮 session 装配前同步来源资格；既有真实捕获的首请求有 personal-assistant role、有效 Paris 记忆入口、来源 generation=1 和 nano-memory 目录，无 source_eligibility_pending。答题自己的 Notes / History / new_context 实际成功；准备 History 原文查询为空，文件越界拒绝两次。
+- `runtime.ts:51-70`：文件 read/glob/grep 对准备记忆和随包技能做 realpath 边界检查；控制区、旧 runtime 和其他题不能经该路径读取。上下文工具访问新 runtime 的自身会话；product transport 只保存本次问答，不存在连接原 IM 历史的后端。包内 Skill 可加载，但不能因此执行未开放文件写/插件工具。未发现原历史或 gold 旁路。
+- `nano-product.ts:25-72`：本地 conversations 支持当前私聊 info/read/search、分页、时间/关键词过滤，public list 不返回私聊；不接受其他 target。来源修改和其他聊天/群创建明确不可用，与 README 差异矩阵一致。发送仍走 PA 私聊实际重核与回包。
+- `plan.ts:18,63-83`：maxInputTokens 可选、周期/静默沿产品默认；candidate v5 加入实际 PA build、adapter 和技能 hash，protocol v2 / Runner / judge 未变。测试沿用原文件扩展，而不是新建平行框架；已有效的专项 5 files / 15 tests passed，但未覆盖本 finding 的后台委派收口。
+
+### Agent Context Implementation Review — Mode B（patch）
+
+触发面是常驻 PA 关系、首次入口来源资格、Inbox 实际字段、技能与上下文工具可用性、冷状态恢复及工具生命周期。组合检查 source/owner → configuration → GlobalAgent.receive → Inbox → 实际 llm/stream system/messages/tools → 工具结果/换窗 → PA 本地发送。除上述 finding 外，没有发现必填参数无来源、装配身份不一致或旧历史泄漏；首请求问题正文只在后续 Inbox.read 后出现，当前日期保留为原 question_date。
+
+复用并亲自读取 owner 提供的 `/tmp/feat677-product-suite-final.log`（5 files / 15 tests passed）以及 `/Users/czj/.local/share/nano-evals/context-parity-20261030/result.json`。后者准备 84 次、答题 16 次真实 DSH 组装请求，answer 为 completed 且实际本地交付 Paris；定位 `prepare-mdO7ot/{prepared.json,receipt.json,requests.jsonl}` 与 `answer-Dw0Qug/{answer.json,requests.jsonl,denied-tools.jsonl}`。已读首请求与 fixture-0/1/5/6/7/9/10/11/12/13/14 的实际结果；同一 session、Inbox 读后消费、nano-memory 加载、答题恢复、原历史空结果与两个越界拒绝均可复查。prepare PID 9015 / answer PID 9614 均已退出。
+
+关键缺口独立命令：`pnpm exec tsx /tmp/feat677-pa-delegation-probe.mts`。该临时脚本只替换隔离 provider fixture：根 check/read 后启动默认后台 child，结束当前轮等待；child 延后 1200ms 通过原生 send_message(agent_id=root) 回传 Paris，根下一步准备通过产品 send_message 回答。实际 tool probe-3 返回 started subagent，根先 completed、评测在 803ms 返回 failed；child 回传前 runtime 已收尾。结果在上述 finding locator；PID 18203 已退出。更早同类初探根目录 `feat677-pa-delegation-JGVyLW` 同样退出，PID 16781 已确认不存在。未启动常驻服务或自建 worktree；不修改源码/测试/设计、不提交报告。
+
+限制：所有请求证据均是最终组装后的真实 DSH llm/stream seam 与本地确定性 provider，不证明 HTTP wire、真实模型选择/理解、记忆质量或正式 benchmark 分数。本轮没有真实模型、judge、生产或外部业务调用；不将旧单题结果改名为 v5 结果。

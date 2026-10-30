@@ -2,6 +2,7 @@ import { createServer } from 'node:net';
 import { appendFileSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
+import type {} from '@deepseek-ai/dsh-subagent';
 import type { EvaluationHistory, EvaluationLimits, EvaluationUsage } from '@nano/product-contracts';
 import { RpcPeer } from '../rpc.js';
 import { initializeHistory, appendHistoryWindow } from './history.js';
@@ -23,6 +24,12 @@ export function apply(ctx: Context, config: Configuration) {
     JSON.stringify({ logicalTime, importedSessions, ...event }) + '\n');
   const usage: EvaluationUsage = { modelCalls: 0, inputTokens: null, outputTokens: null, costUsd: null, elapsedMs: 0 };
   let deniedTools = 0, accountedCalls = 0, inputTokens = 0, outputTokens = 0, budgetExhausted = false;
+  const activeChildren = new Set<string>();
+  let wakeIdleCheck: (() => void) | undefined;
+  ctx.on('subagent/start', ({ runId }) => { activeChildren.add(runId); });
+  ctx.on('subagent/end', ({ runId }) => {
+    activeChildren.delete(runId); wakeIdleCheck?.();
+  });
   const requests = join(config.audit, 'requests.jsonl');
   const audit = () => ({ processId: process.pid, requests, deniedTools, importedSessions, importedMessages, usage: { ...usage, elapsedMs: Date.now() - started,
     inputTokens: accountedCalls === usage.modelCalls && accountedCalls > 0 ? inputTokens : null,
@@ -127,7 +134,13 @@ export function apply(ctx: Context, config: Configuration) {
     });
     peer.handle('idle', async () => {
       const agent = await ctx.nanoSessions.resolve(config.rootSessionId);
-      await agent.whenIdle(); await ctx.sessions.flush(agent.session);
+      // Root idleness can mean waiting for a background child. Its native settlement wakes the root again.
+      for (;;) {
+        await agent.whenIdle();
+        if (!activeChildren.size) break;
+        await new Promise<void>(resolve => { wakeIdleCheck = resolve; });
+      }
+      await ctx.sessions.flush(agent.session);
       return { status: agent.status };
     });
     peer.handle('audit', audit);

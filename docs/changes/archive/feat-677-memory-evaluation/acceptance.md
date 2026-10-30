@@ -191,3 +191,41 @@ Round 3 不受影响的数据保真、官方评分规则、报告分母、固定
 无问题。Reference Artifacts Reviewed=N/A；用户入口为 CLI，无 UI、viewport、原型或 IM 常驻栈。已核对 current gateway spec 的跨窗恢复、持久化及 Dreaming 自动准入边界；README 和 design 描述本次固定窗口映射，没有把它泛化为产品压缩策略变化。docs/README.md 已提供评测入口；其余上层文档沿用前轮无需变更判断。
 
 自检进程正常退出，子进程由 adapter/Runner 回收；未另建常驻服务、未连接生产或真实消息。日志留在仓库外。仅追加本 Round，未修改实现、测试、配置或设计；按 caller 要求未提交，report_commit=none，由 owner 收口。
+
+## Round 5 — 同一 PA/主人常驻私聊冷答题 targeted acceptance
+
+> mode=full；revalidation_mode=targeted；review_round=5；2026-10-30（北京时间）。validated_at=`a992a059d043fb118e98adb540304ed329e1b036`；增量范围 `75f4794d38cfcd33efbd49d259f7e5289ea9e763..a992a059d043fb118e98adb540304ed329e1b036`。开始时 HEAD 精确匹配、分支 `codex/feat-677-memory-evaluation`、工作区干净。依 change-reviewer 独立操作 CLI 并阅读实际 provider 捕获，未读取实现定位根因。
+
+**Verdict：pass（无真实模型的 targeted 机制交付范围）**。0 blocking / 0 major / 0 minor；highest_required_action=pass；needs_re_review=false。真实 LLM、judge、正式分数及完整公网 IM/Node 链路不属于本轮结论。
+
+### 用户入口与直接证据
+
+独立执行 README 默认计划入口，实际返回 1 题、2 段会话、4 条消息、`modelCallsStarted=0`；protocol version=2，adapter=`nano-document-memory-v5`，answerMapping=`same-pa-owner-conversation-session; cold-runtime; product-global-inbox-delivery`。sourceCommit 与冻结版本相符、dirty=false；runtimeHash=`3f50ec324e6d0d1cb3a44d7b0f2e1faf4c371e82c015f7f269030b8c33a56807`。默认 dreaming 仅解析周期/静默，没有强加 maxInputTokens。另用仓库外配置显式设置 maxInputTokens=12345，计划保留该值并改变 candidateId，protocolId 仍为 `5d07e255c9a7d344ffcbcf2b7de47a82cfdbbae219b150f5a838477cde4d7463`，请求仍为零。省略值沿产品模型容量规则的契约见 README；执行接线复用本轮专项，不把计划输出解释为测量过真实模型容量。
+
+不带 `--allow-model-calls` 实际执行 run 与 score，两者均 exit 1，明确提示 `Model execution is disabled; pass --allow-model-calls explicitly`。四条完整命令、退出码及输出分别保存于 `/tmp/feat677-pa-independent/0.json` 至 `3.json`；显式配置为同目录 `explicit.json`。使用项目 Node v24.22.1 的 PATH，没有运行获授权模型命令。
+
+独立阅读 `/Users/czj/.local/share/nano-evals/context-parity-20261030/result.json`、`prepare-mdO7ot/prepared.json` 与 `answer-Dw0Qug/requests.jsonl` / `answer.json`，观察到：
+
+- 封存身份为 PA `pa_c520e58de10b`、owner `bf2aecd6-7844-4f77-996e-d7992aa17d2f`、conversation `c_e228b6ce847b`、session `7b5a6551-34c6-4d6c-a655-4230fde84055`。答题首请求 session、唤醒 actor、Inbox sender 和目标分别匹配这些身份；不是仅把显示名称改成 Personal Assistant。
+- 首请求有普通 PA/Global 规则、有效文档记忆入口 `Current city: Paris`、source generation=1 和随包技能目录。首请求只出现 Inbox 唤醒；原问题 `Where do I live?` 从后续 Inbox read 进入，携带 `direct`、`participant`、`sender.is_owner=true` 以及原日期 `2024/06/01`。
+- `fixture-4` 成功读取封存页面 `You live in Paris. Former city: Berlin.`；`fixture-5` 成功加载 nano-memory，包含正式记忆仅由 Dreaming 写入的规则。`fixture-7/9` 写入并在换窗后读回本次回答的 reply.md；History 只列答题初始窗口，查询准备原文标记 `UNRELATED_HISTORY_ONLY` 返回空。
+- 准备 runtime 文件读取与越界 glob 均收到隔离拒绝；answer receipt 为 importedSessions=0 / importedMessages=0。Inbox 再 check 返回 sources=[]；conversations read 仅含当前问题，未带准备原历史。最终 send_message 向同一 conversation 返回 status=sent；answer.json 的 deliveries 为 `You live in Paris.`，terminal completed、pending=false。这是本地实际回执，不是把内部草稿当答案。
+
+复用 caller 的 `/tmp/feat677-product-suite-final.log`：5 files / 15 tests 通过（21.37 秒）；不因独立交接重跑全量。该证据与实际请求捕获共同覆盖默认/显式限额、真实 Nano/DSH 接线和隔离；固定 provider 不证明模型记忆质量。
+
+### Scenario 覆盖与保留结论
+
+| Scenario / 来源 | 本轮结果 | 实际证据与范围 |
+|---|---|---|
+| 同一长期主体；spec 与 design 2026-10-30 冷答题关系对齐 | pass | 封存身份与答题 session、PA 唤醒、owner Inbox、conversation 回执逐项匹配；冷 runtime 独立 |
+| 导入历史后冷答题；spec / design Runbook | pass | 封存有效记忆首轮可见、页面与技能可读、正常 Inbox 获取问题、实际 sent 回执；确定性 provider |
+| 长期历史仍在准备环境；spec 隔离 Scenario | pass | 本次请求中的目录/越界拒绝、History 无准备标记、当前 conversations 无准备正文、answer 零导入 |
+| 仅检查数据与执行计划；spec | pass | 独立默认与显式限额计划均零请求；v5 candidate / v2 protocol 可辨 |
+| 比较记忆版本；spec | pass | 显式 maxInputTokens 改 candidateId、不改 protocolId；旧 v4 不冒充 v5 |
+| 显式执行评测；spec | pass | 未授权 run/score 独立实测拒绝；真实授权运行未执行 |
+| 时间回放、冻结、完整保真、官方评分、失败分母及 opaque Runner | pass（retained） | Round 4 未失效结论及本轮 5 files / 15 tests；本补丁不修改通用 v2 协议 |
+| 只进行一次有界真实试跑；spec | not-applicable | 本轮明确禁止真实 LLM/judge；旧 incomplete 及原候选标签保留，不自动复跑 |
+
+已对照 current gateway personal-agent/global-agent 的主人身份、Inbox 消费、历史恢复和本人私聊投递契约，以及 README 的一致性/差异表。该表明确数据导入、冷上下文、本地单聊 transport、关闭后台能力和逻辑时间差异，足以避免把局部接线通过宣称成完整线上 PA 验收。Reference Artifacts Reviewed=N/A：CLI 入口，无界面改动、viewport 或原型要求。
+
+仅追加本报告，未修改其他受控文件，未提交（report_commit=none）。未启动服务、真实模型或生产操作，没有本 reviewer 新建进程需清理。无阻塞事项。

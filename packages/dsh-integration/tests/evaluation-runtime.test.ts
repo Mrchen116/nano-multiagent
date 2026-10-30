@@ -67,7 +67,8 @@ it('imports dialogue segments as restorable windows of one persistent Global ses
 
 it('replays only arrived history and freezes naturally formed memory for isolated answers', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nano-eval-'));
-  const candidate = new NanoMemoryCandidate(await fixtureOptions(root));
+  const options = await fixtureOptions(root);
+  const candidate = new NanoMemoryCandidate(options);
   try {
     const prepared = await candidate.prepare(history, limits);
     expect(prepared.status, JSON.stringify(prepared)).toBe('ready');
@@ -149,9 +150,17 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(JSON.parse(result(14).content[0].text)).toMatchObject({ status: 'sent', target: identity.conversationId });
     expect(JSON.stringify(answerRequests)).not.toContain('evaluation-answer-');
     expect(JSON.stringify(answerRequests)).not.toContain('evaluation-question');
+    options.environment!.EVALUATION_DELEGATE_ROOT = identity.rootSessionId;
     const second = await candidate.answer(prepared.preparedRef, question, limits);
-    expect(second.status).toBe('completed');
-    if (second.status === 'completed') expect(second.evidenceRef).not.toBe(first.evidenceRef);
+    expect(second.status, JSON.stringify(second)).toBe('completed');
+    if (second.status !== 'completed') throw new Error(JSON.stringify(second));
+    expect(second.evidenceRef).not.toBe(first.evidenceRef);
+    expect(second.text).toBe('You live in Paris.');
+    const delegatedAudit = JSON.parse(await readFile(second.evidenceRef, 'utf8'));
+    const delegatedRequests = (await readFile(delegatedAudit.requests, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    expect(delegatedRequests.some(request => request.sessionId !== identity.rootSessionId)).toBe(true);
+    expect(delegatedRequests.some(request => request.sessionId === identity.rootSessionId && JSON.stringify(request.messages).includes('DELEGATED_RESULT: You live in Paris.'))).toBe(true);
+    expect(second.usage.modelCalls).toBe(delegatedRequests.length);
   } catch (error) {
     const dirs = (await readdir(root)).filter(name => name.startsWith('prepare-') || name.startsWith('answer-'));
     const logs = await Promise.all(dirs.map(async name => { try { return await readFile(join(root, name, 'runtime.log'), 'utf8'); } catch { return ''; } }));

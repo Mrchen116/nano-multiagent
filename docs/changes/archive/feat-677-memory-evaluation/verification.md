@@ -230,3 +230,52 @@ CRITICAL / WARNING / SUGGESTION 均无；本轮 delta aligned，不需扩大为 
 Gateway / PA：**no spec delta**。本 patch 产品代码只改专用 evaluation 入口和其本地插件；生产 profile、来源/写者语义、RPC/模型工具、正常调度和 current spec 均未改。父产品删除 input.md/finish 是独立已合入基线，不能算作本次评测增量。评测行为确有变更，由 canonical `evals/memory/README.md` 维护：adapter v4、同根原生窗口、唯一 target、cold/live 交接及证据定位均与批准设计/实现一致；导航已覆盖 suite 与新研究页，无遗漏对外行为。
 
 CRITICAL / WARNING / SUGGESTION 均无；delta aligned，`requires_full_verification=false`。本轮完成实现和确定性验证，不新增真实模型效果或正式跑量结论。
+
+## Round 5 — 常驻 PA 关系与冷答题产品接线
+
+- reviewer_target: `/root/pa_context_static_review`
+- verification_mode: `delta`
+- review_round: `5`
+- fix_delta_range: `75f4794d38cfcd33efbd49d259f7e5289ea9e763..a992a059d043fb118e98adb540304ed329e1b036`（12 files）
+- validated_at: `a992a059d043fb118e98adb540304ed329e1b036`
+- branch: `codex/feat-677-memory-evaluation`
+- verdict: **fail — fix WARNING before delivery**
+- requires_full_verification: `false`
+- CRITICAL: 0; WARNING: 1; SUGGESTION: 0
+
+### Completeness / Correctness / Coherence
+
+仅核本轮修正及其影响，不重审父分支或整个 PR。开工 HEAD 正确、工作区 clean。读取 unit spec、design.md:190-210 的冷答题/PA 关系修正和 M1、suite README 的长期契约与保留差异、current Gateway Global/PA/Memory 契约及架构/测试规范。Prototype / Reference Contract：N/A；无生产迁移。复用 Round 4 对无 diff 的时间回放、原生窗口、Dreaming 唯一写者、通用 Runner / judge / 失败分母等结论。
+
+| 契约 / 设计决定 | 实现及直接证据 | 结论 |
+|---|---|---|
+| 准备/冷答题是同一 PA、主人、binding、私聊、Global session | `evaluation.ts:64-86,174-191,206-217`；prepared.json 五项身份与 answer 实际 request session / Inbox sender / target 对齐；history.ts:102-106 使用同一 owner | aligned |
+| 冷 runtime 仅恢复持久记忆，不能访问准备原历史/控制资产 | `evaluation.ts:108,179,226-237`、runtime.ts:51-70；首请求无准备正文/维护笔记，History.search 原标记为空、越界 read/glob 两次拒绝 | aligned |
+| 正常 PA receive / Inbox / 唤醒 / 消费 / 回复链 | `nano-product.ts:19-22,43-88` 注入现有产品实现；实际 wake 不含问题正文、Inbox 提供 owner/direct/participant/web/原日期，读后无 unread，PA send_message 实际回包与本地 Paris 交付 | aligned |
+| 首请求有效记忆及随包技能、答题自身恢复 | `evaluation.ts:109-112,210-213`；首请求角色与 Paris 入口/source generation=1，nano-memory 实际加载，Notes/new_context/History 与本次 conversations.read 成功 | aligned |
+| 当前上下文工具和原生内部委派可以在冷答题工作 | 自身 Context 恢复已证实；但 runtime.ts:57 放行后台 subagent 后，idle 只等待 root，正常委派工作会被提前结束；独立复现见 WARNING | **implementation-mismatch** |
+| 产品依赖边界与明确保留差异 | composition root 在 evals 中组合 PA，运行包只接 product port；未加生产 RPC/第二套执行环；本地单聊天 transport、关闭能力/限额/固定窗口均在 README:37-53 披露 | aligned（委派收口例外） |
+| 可选容量、版本与可复查身份 | plan.ts:18,63-83；maxInputTokens 可选、产品 schedule 默认不变；candidate v5，新增实际 build/adapter/技能 hash，protocol v2 保持 | aligned |
+
+### Context 与执行证据
+
+复用同一独立 reviewer 的 code-review.md Round 5 Implementation Review，不另做一轮完整 Context Review。亲自读取 owner 提供的 `/tmp/feat677-product-suite-final.log`：5 files / 15 tests passed；读取 `/Users/czj/.local/share/nano-evals/context-parity-20261030/result.json` 及其实际 requests / prepared / receipt / answer。准备 84 请求、答题 16 请求，直接主链 completed/Paris；证据证明装配、工具与本地产品结果，不能证明后台委派完成。
+
+关键缺口只补一个独立受控探针：`pnpm exec tsx /tmp/feat677-pa-delegation-probe.mts`。证据根 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-pa-delegation-zVj084/`，`answer-XO15ZN/{answer.json,requests.jsonl,runtime.log}`。只复用封存的合成记忆，不调用真实 provider/judge 或生产。结果：subagent 工具成功、child 进入 provider 请求；根首轮结束时在 803ms 返回 failed/no public answer，早于 child 1200ms 后的正常原生回传，执行树随后关闭。根下一次模型步骤已设置为产品 send_message，但未获得继续机会。
+
+prepare 9015、answer 9614、独立探针 18203 和初探 16781 均确认退出；无常驻服务或新 worktree。只追加 code-review.md / verification.md，未提交。接受其他角色并行维护 acceptance.md，不覆盖。
+
+### Issues
+
+#### WARNING — 后台委派被根 idle 提前截断（CONFIRMED）
+
+- 契约：design.md:208-210、suite README:49 要求可见内部委派沿原生路径工作；current PA 复用 Global 能力。默认 subagent schema 明确后台执行并在完成时通知。
+- 实现：`packages/dsh-integration/src/evaluation/runtime.ts:57` 新放行 subagent；同文件 :128-130 的 idle 仅 root.whenIdle；`evaluation.ts:113-126` 立即读取 audit/deliveries 并关闭 runtime。
+- 直接后果：默认后台 child 仍在执行时根处于正常等待空档，整题被记为 failed；已有进度时还可能提前将进度当答案评分。主链的 15 项专项全部通过并不能排除此场景。
+- 可执行建议：在既有时间/模型阶段限额内等待整个答题执行树和通知触发的后续根工作收口，然后统一采集结果；扩展现有 evaluation-runtime 测试覆盖 child 延后回传与根实际公开交付。不建议静默更改设计来迎合提前终止。
+
+CRITICAL / SUGGESTION：无。无需扩大为 full verification；问题局限于本轮新增工具生命周期支持。
+
+### Delta reconciliation
+
+Gateway / PA：**no spec delta**。本 patch 修改评测 composition / 专用 runtime profile 和候选身份，未修改生产 Global/PA 正常行为、公开产品工具/RPC 或 current specs。评测契约在 canonical suite README 中更新，索引位置已存在。实现总体遵守设计；上述新工具的生命周期尚未兑现，属于 implementation-mismatch，而不是应通过修改 spec 接受的偏差。CRITICAL=0 / WARNING=1，当前 delta 不 pass；真实模型理解、策略、质量和正式分数仍未验证。

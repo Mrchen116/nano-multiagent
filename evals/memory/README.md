@@ -65,7 +65,7 @@ pnpm exec vitest run evals/memory packages/dsh-integration/tests/evaluation-runt
 1. 从 [LongMemEval cleaned](https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned) 获取需要的 JSON 文件，先选 S 的少量完整题目。将数据、配置与产物放在仓库外；本套件不会下载数据或默认选取全部题目。
 2. 复制 `examples/plan.json` 到控制目录，填入数据路径、明确 revision、文件 SHA-256、候选模型与 judge 的 OpenAI-compatible `/v1` base URL、模型名和凭证环境变量名。配置中的路径相对于配置文件；凭证只从命名的环境变量读取，不写入 JSON。
 3. 创建非空 JSON ID 数组，例如 `["原始题目ID"]`。使用完整样本，不能根据 `answer_session_ids` 或 `has_answer` 选段、删回合或缩短历史。
-4. 明确每阶段的 `timeoutMs`、`maxModelCalls` 和每次请求的 `maxOutputTokens`。Dreaming 的 `maxInputTokens` 为可选材料上限；省略时使用产品按模型容量计算的首轮完整输入预算，不再由示例强制覆盖为 24K。显式数值仍生效，并与计划中解析出的 `intervalMs` / `quietMs` 一起记录。新版 Dreaming 已移除自身的 `maxSteps` / `maxRunMs`，旧评测配置须删除这两项；准备阶段的外部评测限额仍有效，耗尽会报告 `incomplete`。
+4. 明确每阶段的 `timeoutMs`、`maxModelCalls` 和每次请求的 `maxOutputTokens`。Dreaming 直接使用[产品的模型容量预算](../../docs/specs/gateway/agent-capabilities.md#scenario-按模型容量联合安排材料)，系统提示、工具、记忆入口、来源说明与材料合并计算；正常评测配置不设置额外的 `maxInputTokens` 材料上限。计划记录实际采用的 `intervalMs` / `quietMs`。新版 Dreaming 已移除自身的 `maxSteps` / `maxRunMs`，旧评测配置须删除这两项；准备阶段的外部评测限额仍有效，耗尽会报告 `incomplete`。
 5. 运行 `plan`，检查题集规模、配置和限额，再决定是否执行。读取器当前读取一个完整 JSON 数组，内存须足以容纳数据文件；不会暗中截断超大文件。
 
 **下列命令会花费模型预算；只对已明确选择的题目和阶段限额执行。**

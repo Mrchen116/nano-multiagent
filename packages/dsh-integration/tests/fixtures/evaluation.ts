@@ -63,6 +63,12 @@ export function apply(ctx){
         cities.has(o.sessionId)?['write',{file_path:stage+'/knowledge/city.md',content:'You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'}]:undefined,
         cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined
       ][n];
+    }else if(process.env.EVALUATION_DELEGATE_ROOT&&o.sessionId!==process.env.EVALUATION_DELEGATE_ROOT){
+      if(n===0)call=['read',{file_path:process.cwd()+'/.nanoassistant/memory/knowledge/city.md'}];
+      if(n===1){
+        await new Promise(resolve=>setTimeout(resolve,1200));
+        call=['send_message',{agent_id:process.env.EVALUATION_DELEGATE_ROOT,message:'DELEGATED_RESULT: '+all.match(/You live in (?:Berlin|Paris|Rome)\\./)?.at(-1)}];
+      }
     }else{
       const memory=process.cwd()+'/.nanoassistant/memory';
       const checked=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-0');
@@ -78,7 +84,8 @@ export function apply(ctx){
         ['new_context',{}],['notes',{action:'read',path:'reply.md'}],
         ['history',{action:'list_windows'}],['history',{action:'search',query:'UNRELATED_HISTORY_ONLY'}],
         ['inbox',{action:'check'}],['conversations',{action:'read',target}],
-        ['send_message',{target,text:city}]
+        process.env.EVALUATION_DELEGATE_ROOT?['subagent',{description:'Read the saved city',prompt:'Read memory/knowledge/city.md and report the city to your parent.'}]:['send_message',{target,text:city}],
+        undefined,['send_message',{target,text:city}]
       ][n];
     }
     if(call){yield {type:'block-end',index:0,block:{type:'tool-call',id:'fixture-'+n,name:call[0],arguments:JSON.stringify(call[1])}};yield {type:'finish',reason:{kind:'tool-calls'}};}

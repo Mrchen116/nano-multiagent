@@ -141,3 +141,14 @@ M1 已完成本轮框架交付范围；整 unit 归档不表示真实模型效�
 - 因上述全量失败，追加 `pnpm exec vitest run --maxWorkers=2` 全套验证，结果日志 `/tmp/feat677-window-full-bounded.log`；最终状态连同 PR 当前 head 的远端 CI 记录在 PR Validation 与交付回报。没有 Web/iOS UI 自有改动，保留父分支适用产品证据。
 
 此后只追加独立报告和本检查记录，运行代码/测试/配置未变，`8ced1ccd7` 的专项与审查证据 retained。PR #429 继续以 `unit/feat-676` 为 base；未合并或部署，开发 worktree 保留。旧 v3 incomplete 结果保留原构造身份，本轮不产生正式效果分数。
+
+## 2026-10-30 persistent PA context parity revision
+
+用户要求对齐真实 PA 与主人的常驻关系，并检查评测引入的不必要 Context 差异。父基线更新为 `c2a7fe3c3`，已通过 `75f4794d3` 合并其模型容量预算实现；最终 fetch 确认没有更新。原始实验配置、答案和轨迹保留，本轮不追加真实候选或 judge 调用。
+
+- `a992a059d`：准备/答题复用 PA、owner、binding、conversation 与 Global session 身份；冷进程只恢复正式记忆和必要状态。通过 evals composition root 组合实际 GlobalAgent、InboxStore 和 NodeStore，统一唤醒、来源字段、Inbox 消费、回复前重核及交付。
+- 首轮之前同步来源资格；开放包内 nano-memory、答题自身 Notes/History/换窗、当前私聊查询及原生内部委派。文件边界继续隔离原历史、维护笔记、控制数据和其他题。candidate v5 记录实际 PA build、adapter 和技能；protocol v2 不变，Gateway/PA no spec delta。
+- Dreaming 正常评测直接使用产品按实际模型容量计算的完整首请求预算，不另设固定材料上限。按用户纠正移除当前说明中的旧固定值解释；产品本身的可选材料配置仍按公开契约解析，确定性 fixture 的较小材料量只用于覆盖连续批次。
+- 独立 acceptance Round 5 通过；code review / verification Round 5 发现真实遗漏：默认后台 child 尚未回传时根已 idle，评测提前关闭并判失败。原始独立探针和 finding 保留于报告。
+- 修正使用 DSH 公开 subagent/start/end 生命周期，在隔离候选内等待已启动 child 全部收口并再次等待根后续工作 idle；不终止正常委派、不延长阶段限额。扩展既有 evaluation-runtime 主旅程的第二次冷答题及 fixture，子 Agent 延迟 1200ms、读正式记忆、回传并触发 PA 公开交付；核对实际请求已消费 child 结果和全树调用用量。没有新建平行测试文件。
+- 红证据 `/tmp/feat677-pa-child-red.log`：旧实现第二次答题 failed/no public answer；最终 targeted `/tmp/feat677-pa-child-final.log`：5 files / 15 tests passed（24.12 秒）。实现构建通过；独立复验和完整交付检查随后追加。
