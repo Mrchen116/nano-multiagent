@@ -199,6 +199,16 @@ CLI 默认 `plan`，只读取数据和配置并列出待执行题集，不加载
 
 本 protocol 衡量候选持久记忆带来的后续答题能力。若另加独立于候选记忆机制的历史恢复能力或直接全上下文答题，应另列 protocol 并说明允许的来源，不能混入此分数。
 
+#### 2026-10-30：冷答题与常驻 PA 关系对齐
+
+用户明确要求当前上下文与真实产品一致，并指出这应是 PA 与主人的常驻对话，不能只改显示名字。此修正仍在既有候选接线替换边界内，protocol v2 的冷上下文、时间回放、gold 隔离和评分规则不变。
+
+Nano v5 在封存状态内保存 PA、owner、binding、conversation、Global session 的同一组身份。两阶段保留它们；answer 仅建立新的隔离 runtime/workspace，原 session 标识下没有旧活动内容，不另造 evaluation-question 或 evaluation-answer 身份。答题从正常 GlobalAgent.receive 进入，复用 Inbox、唤醒、消费与私人回复实现；DSH 接入包通过 composition 注入的 product port 调用，PA 不依赖 DSH。单一私聊的本地 transport 只保存本次问答，不暴露准备历史或连接生产 IM；不得将此表述为完整 IM/Node 链路。
+
+答题前同步当前聊天来源资格，保证首轮记忆入口有效；开放随包 nano-memory 及答题自身 Notes/History/换窗，不把模型已能看到且隔离内可安全工作的工具统一拒绝。文件读仍限制为封存记忆和随包技能；准备的维护笔记不带入。原问题日期保留，题号不作为用户消息身份。可选 maxInputTokens 不再强制 24K，默认沿产品模型容量规则；显式限额继续记录和执行。
+
+扩展既有 evaluation-runtime 旅程，在真实 provider 请求 seam 核实同一身份、首轮有效入口、标准 Inbox 字段、技能加载、读后消费、当前问答 conversations 查询、答题内换窗恢复及原历史不可达；CLI 继续零默认请求、显式限额并区分 v5 候选。新版原生请求使用确定性 provider 捕获，本轮不追加真实候选或 judge 调用，旧单题记录不改写。长期契约与剩余差异矩阵以 [suite README](../../../../evals/memory/README.md#与真实-pa-的一致性及保留差异) 为准。
+
 ### 4. Context 生命周期与隔离验证
 
 | Consumer | 正常可见 | 不可见/不继承 | 验证 |

@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EvaluationHistory, EvaluationLimits } from '@nano/product-contracts';
 import type { NanoEvaluationOptions } from '../../src/evaluation.js';
+import { createNanoProduct } from '../../../../evals/memory/nano-product.js';
 
 export const limits: EvaluationLimits = { timeoutMs: 45000, maxModelCalls: 100, maxOutputTokens: 2048 };
 export const history: EvaluationHistory = { caseKey: 'synthetic-case', sessions: [
@@ -27,11 +28,11 @@ export async function fixtureOptions(root: string): Promise<NanoEvaluationOption
 export const name='memory-evaluation-fixture';
 export const inject=['llm','sessionPersistence'];
 export function apply(ctx){
-  const steps=new Map(),cities=new Map();
+  const steps=new Map(),cities=new Map(),targets=new Map();
   const open=ctx.sessionPersistence.open.bind(ctx.sessionPersistence);
   ctx.sessionPersistence.open=async(...args)=>{
     const h=await open(...args);
-    if(args[1]==='write'&&String(args[0]).startsWith('evaluation-prepare-')){
+    if(args[1]==='write'&&!String(args[0]).startsWith('dreaming-')){
       const close=h.close.bind(h);let closed=false;
       h.close=async()=>{if(closed)return;closed=true;const {events}=await h.read();
         writeFileSync(process.env.EVALUATION_ROOT+'/imported-root.json',JSON.stringify({header:h.header,events}));await close();};
@@ -64,11 +65,20 @@ export function apply(ctx){
       ][n];
     }else{
       const memory=process.cwd()+'/.nanoassistant/memory';
-      call=[['inbox',{action:'check'}],['inbox',{action:'read',target:'evaluation-question'}],
+      const checked=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-0');
+      if(checked&&!checked.isError)targets.set(o.sessionId,JSON.parse(checked.content[0].text).sources[0]?.target);
+      const target=targets.get(o.sessionId);
+      const city=all.match(/You live in (?:Berlin|Paris|Rome)\\./g)?.at(-1)||'I do not know your city.';
+      call=[['inbox',{action:'check'}],['inbox',{action:'read',target}],
         ['read',{file_path:process.env.EVALUATION_ROOT+'/'+readdirSync(process.env.EVALUATION_ROOT).find(n=>n.startsWith('prepare-'))+'/runtime'}],
         ['glob',{path:memory,pattern:'../../../**/*'}],
         ['read',{file_path:memory+'/knowledge/city.md'}],
-        ['send_message',{target:'evaluation-question',text:all.match(/You live in (?:Berlin|Paris|Rome)\\./g)?.at(-1)||'I do not know your city.'}]
+        ['skill',{name:'nano-memory'}],['conversations',{action:'info',target}],
+        ['notes',{action:'write',path:'reply.md',text:'ANSWER_RECOVERY: '+city+' Reply in '+target}],
+        ['new_context',{}],['notes',{action:'read',path:'reply.md'}],
+        ['history',{action:'list_windows'}],['history',{action:'search',query:'UNRELATED_HISTORY_ONLY'}],
+        ['inbox',{action:'check'}],['conversations',{action:'read',target}],
+        ['send_message',{target,text:city}]
       ][n];
     }
     if(call){yield {type:'block-end',index:0,block:{type:'tool-call',id:'fixture-'+n,name:call[0],arguments:JSON.stringify(call[1])}};yield {type:'finish',reason:{kind:'tool-calls'}};}
@@ -76,7 +86,7 @@ export function apply(ctx){
   });
 }`);
   const forbidden = join(root, 'forbidden.txt'); await writeFile(forbidden, 'HISTORY_MUST_NOT_LEAK');
-  return { id: 'deterministic-nano', root, builtinSkillsRoot, allowModelCalls: true, provider: 'fixture', model: 'test',
+  return { id: 'deterministic-nano', root, builtinSkillsRoot, createProduct: createNanoProduct, allowModelCalls: true, provider: 'fixture', model: 'test',
     environment: { NANO_TEST_KEY: 'fixture', EVALUATION_FORBIDDEN_PATH: forbidden, EVALUATION_ROOT: root },
     providerPatch: [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'test' }] } } } },
       { insert: [{ id: 'evaluation-fixture', name: path }] }],

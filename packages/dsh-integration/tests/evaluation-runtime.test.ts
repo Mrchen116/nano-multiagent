@@ -52,7 +52,12 @@ it('imports dialogue segments as restorable windows of one persistent Global ses
     expect(recovered.messages.map((message: {content:Array<{text:string}>}) => message.content[0]!.text).join('')).toBe(history.sessions[0]!.turns[0]!.content);
     const calls = saved.events.filter((event: {type:string}) => event.type === 'tool/call');
     expect(new Set(calls.map((event: {data:{callId:string}}) => event.data.callId)).size).toBe(6);
-    expect(new Set(calls.map((event: {data:{arguments:string}}) => JSON.parse(event.data.arguments).target))).toEqual(new Set(['evaluation-question']));
+    const { identity } = JSON.parse(await readFile(result.preparedRef, 'utf8'));
+    expect(saved.header.id).toBe(identity.rootSessionId);
+    expect(new Set(calls.map((event: {data:{arguments:string}}) => JSON.parse(event.data.arguments).target))).toEqual(new Set([identity.conversationId]));
+    const firstRead = saved.events.find((event: {type:string}) => event.type === 'tool/result');
+    expect(JSON.parse(firstRead.data.message.content[0].text)).toMatchObject({ conversation_type: 'direct', delivery: 'participant', channel: 'web',
+      messages: [expect.objectContaining({ sender: { id: identity.ownerId, type: 'user', name: 'Owner', is_owner: true } }), expect.anything()] });
     for (const row of map) {
       const source = recent.sessions.find(session => session.id === row.session)!;
       expect(saved.events.slice(row.firstSeq, row.lastSeq + 1).every((event: {time:number}) => event.time === source.timestamp)).toBe(true);
@@ -117,11 +122,33 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(requests).toContain('EVALUATION_RECOVERY');
     expect(requests).toContain('I moved to Paris.');
     const answerRequests = (await readFile(answerAudit.requests, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    const { identity } = JSON.parse(await readFile(prepared.preparedRef, 'utf8'));
+    expect(answerRequests.every(request => request.sessionId === identity.rootSessionId)).toBe(true);
+    const wake = answerRequests[0].messages.find((message: {source?:{channel?:string}}) => message.source?.channel === 'inbox');
+    expect(wake.source).toMatchObject({ kind: 'nano-system', actorId: identity.agentId, channel: 'inbox' });
+    expect(wake.content[0].text).toContain('New messages are waiting in your Inbox.');
+    expect(wake.content[0].text).not.toContain(question.text);
     expect(JSON.stringify(answerRequests[0])).not.toContain('UNRELATED_HISTORY_ONLY');
+    expect(JSON.stringify(answerRequests[0])).not.toContain('source_eligibility_pending');
+    expect(JSON.stringify(answerRequests[0])).toContain('Current city: Paris');
     expect(JSON.stringify(answerRequests)).not.toContain('LONG_MESSAGE_END');
     expect(JSON.stringify(answerRequests)).not.toContain('EVALUATION_RECOVERY');
     expect(JSON.stringify(answerRequests)).toContain('2024/06/01');
     expect(JSON.stringify(answerRequests)).toContain('You live in Paris');
+    const results = answerRequests.flatMap(request => request.messages).filter(message => message.role === 'tool');
+    const result = (call: number) => results.find(message => message.toolCallId === `fixture-${call}`);
+    expect(JSON.parse(result(0).content[0].text)).toMatchObject({ sources: [{ target: identity.conversationId, unread: 1, conversation_type: 'direct', delivery: 'participant' }] });
+    expect(JSON.parse(result(1).content[0].text)).toMatchObject({ target: identity.conversationId, conversation_type: 'direct', delivery: 'participant', channel: 'web',
+      messages: [{ sender: { id: identity.ownerId, is_owner: true }, time: question.date, content: [{ text: question.text }] }] });
+    for (const call of [5, 6, 7, 9, 10, 11, 12, 13, 14]) expect(result(call), `tool result ${call}`).toMatchObject({ isError: false });
+    expect(JSON.parse(result(10).content[0].text).items).toEqual([expect.objectContaining({ window_id: `${identity.rootSessionId}:initial` })]);
+    expect(result(9).content[0].text).toContain('ANSWER_RECOVERY');
+    expect(result(5).content[0].text).toContain('nano-memory');
+    expect(JSON.parse(result(11).content[0].text).items).toEqual([]);
+    expect(JSON.parse(result(12).content[0].text)).toEqual({ sources: [] });
+    expect(JSON.parse(result(14).content[0].text)).toMatchObject({ status: 'sent', target: identity.conversationId });
+    expect(JSON.stringify(answerRequests)).not.toContain('evaluation-answer-');
+    expect(JSON.stringify(answerRequests)).not.toContain('evaluation-question');
     const second = await candidate.answer(prepared.preparedRef, question, limits);
     expect(second.status).toBe('completed');
     if (second.status === 'completed') expect(second.evidenceRef).not.toBe(first.evidenceRef);

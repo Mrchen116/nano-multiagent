@@ -45,12 +45,13 @@ async function openWriter(ctx: Context, id: string) {
  *   session: Original dialogue segment, appended once at its arrival time.
  *   rootSessionId: Persistent Global identity shared by all segments.
  *   target: The one owner conversation, independent of dataset segment IDs.
+ *   ownerId: The same trusted owner used for the later question.
  *   windowIndex: Zero-based segment position; the first uses the initial window.
  * Returns:
  *   Window identity and original-turn mapping for audit, never extra memory.
  */
 export async function appendHistoryWindow(ctx: Context, session: EvaluationHistory['sessions'][number], rootSessionId: string,
-  target: string, windowIndex: number) {
+  target: string, ownerId: string, windowIndex: number) {
   const mapping: Array<{ session: string; turn: number; rootSessionId: string; windowId: string; firstSeq: number; lastSeq: number; contentHash: string }> = [];
   const handle = await openWriter(ctx, rootSessionId);
   try {
@@ -98,8 +99,8 @@ export async function appendHistoryWindow(ctx: Context, session: EvaluationHisto
       const parts: string[] = [];
       for (let offset = 0; offset < fragments.length; offset += 6000) parts.push(fragments.slice(offset, offset + 6000).join(''));
       if (!parts.length) parts.push('');
-      const body = message.role === 'user' ? { target, provenance, messages: parts.map((text, index) => ({
-        id: `${session.id}-${turn}`, sender: { id: 'evaluation-owner', type: 'user', name: 'Owner', is_owner: true },
+      const body = message.role === 'user' ? { target, name: 'Personal Assistant', conversation_type: 'direct', delivery: 'participant', channel: 'web', provenance, messages: parts.map((text, index) => ({
+        id: `${session.id}-${turn}`, sender: { id: ownerId, type: 'user', name: 'Owner', is_owner: true },
         time: session.date, content: [{ type: 'text', text }],
         ...(parts.length > 1 ? { partial: true, part: index + 1, parts: parts.length } : {}),
       })) } : { status: 'sent', target, provenance, message_id: `${session.id}-${turn}` };

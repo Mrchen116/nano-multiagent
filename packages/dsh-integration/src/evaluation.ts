@@ -4,7 +4,7 @@ import { Socket } from 'node:net';
 import { mkdir, mkdtemp, readFile, writeFile, cp, lstat, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { EvaluationHistory, EvaluationQuestion, EvaluationLimits, EvaluationUsage, MemoryCandidate, PreparationResult, EvaluationAnswer } from '@nano/product-contracts';
+import type { EvaluationHistory, EvaluationQuestion, EvaluationLimits, EvaluationUsage, MemoryCandidate, PreparationResult, EvaluationAnswer, RuntimePort, AgentConfiguration as ProductConfiguration } from '@nano/product-contracts';
 import { prepareProfile, RuntimeClient } from './client.js';
 import { RpcPeer } from './rpc.js';
 import { contextTools } from './agent-context.js';
@@ -20,16 +20,25 @@ export interface NanoEvaluationOptions {
   providerPatch: unknown[];
   /** Packaged product guidance supplied by the composition root, never private owner skills. */
   builtinSkillsRoot: string;
+  /** Product composition supplied by the runner, keeping PA dependencies outside the runtime package. */
+  createProduct(options: { configuration: ProductConfiguration; binding: SessionBinding; runtime: RuntimePort; directory: string;
+    deliver(text: string): Promise<void> }): NanoEvaluationProduct;
   knowledge?: AgentConfiguration['knowledge'];
   reasoningEffort?: string;
   allowModelCalls: boolean;
   /** Used by deterministic integration tests, not a CLI injection point. */
   environment?: NodeJS.ProcessEnv;
 }
+export interface NanoEvaluationProduct {
+  /** Admit a question through the product and return its actual wake input ID. */
+  submit(question: EvaluationQuestion): Promise<string>;
+  call(value: unknown): Promise<unknown>;
+  close(): Promise<void>;
+}
+interface Identity { agentId: string; ownerId: string; bindingId: string; conversationId: string; rootSessionId: string }
 interface Audit { requests: string; deniedTools: number; importedSessions: number; importedMessages: number; usage: EvaluationUsage }
-interface Running { client: RuntimeClient; peer: RpcPeer; socket: Socket; socketDir: string; dir: string; workspace: string; rootSessionId: string; binding: SessionBinding; audit?: Audit; stopping?: Promise<void> }
-interface Prepared { workspace: string; sources: string[]; agentId: string }
-const answerConversation = 'evaluation-question';
+interface Running { client: RuntimeClient; peer: RpcPeer; socket: Socket; socketDir: string; dir: string; workspace: string; rootSessionId: string; binding: SessionBinding; product?: NanoEvaluationProduct; audit?: Audit; stopping?: Promise<void> }
+interface Prepared { workspace: string; identity: Identity }
 
 /** Exercise Nano's native memory services while keeping benchmark control data outside them. */
 export class NanoMemoryCandidate implements MemoryCandidate {
@@ -52,14 +61,16 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     this.stopped = false;
     const started = Date.now();
     let run: Running | undefined;
-    const agentId = `evaluation-${randomUUID()}`;
-    const sources = [answerConversation];
+    const bindingId = randomUUID();
+    const identity: Identity = { agentId: `pa_${bindingId.replaceAll('-', '').slice(0, 12)}`, ownerId: randomUUID(), bindingId,
+      conversationId: `c_${randomUUID().replaceAll('-', '').slice(0, 12)}`, rootSessionId: randomUUID() };
+    const sources = [identity.conversationId];
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       timer = setTimeout(() => { this.stopped = true; this.kill(); }, limits.timeoutMs);
-      run = await this.launch('prepare', agentId, sources, limits, history);
+      run = await this.launch('prepare', identity, limits, history);
       await run.peer.request('initializeHistory', history);
-      await run.client.rpc.request('knowledge.sources.sync', { agentId, snapshot: { revision: 'evaluation-1', allowed: sources, excluded: [] } });
+      await run.client.rpc.request('knowledge.sources.sync', { agentId: identity.agentId, snapshot: { revision: '1', allowed: sources, excluded: [] } });
       const result = await run.peer.request('prepare', history) as { status: 'ready' | 'incomplete' | 'failed'; reason?: string; details: unknown };
       const audit = await run.peer.request('audit', {}) as Audit;
       const evidenceRef = join(run.dir, 'receipt.json');
@@ -72,7 +83,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
       const workspace = join(run.dir, 'prepared');
       await copyMemory(run.workspace, workspace);
       const preparedRef = join(run.dir, 'prepared.json');
-      await writeFile(preparedRef, JSON.stringify({ workspace, sources, agentId } satisfies Prepared));
+      await writeFile(preparedRef, JSON.stringify({ workspace, identity } satisfies Prepared));
       return { status: 'ready', preparedRef, receipt };
     } catch (error) {
       if (!run) return { status: this.stopped ? 'incomplete' : 'failed', reason: String(error) };
@@ -82,7 +93,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     } finally { if (timer) clearTimeout(timer); if (run) await this.stop(run); }
   }
 
-  /** Answer in a new runtime, restoring memory without the preparation sessions. */
+  /** Restore the same PA relationship in an empty runtime, without its original active history. */
   answer(preparedRef: string, question: EvaluationQuestion, limits: EvaluationLimits): Promise<EvaluationAnswer> {
     return this.track(() => this.answerQuestion(preparedRef, question, limits));
   }
@@ -94,17 +105,16 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     try {
       const prepared = JSON.parse(await readFile(preparedRef, 'utf8')) as Prepared;
       timer = setTimeout(() => { this.stopped = true; this.kill(); }, limits.timeoutMs);
-      run = await this.launch('answer', prepared.agentId, prepared.sources, limits, undefined, prepared.workspace, question);
-      await run.client.rpc.request('knowledge.sources.sync', { agentId: prepared.agentId, snapshot: { revision: 'evaluation-1', allowed: prepared.sources, excluded: [] } });
-      await run.client.rpc.request('session.ensure', run.binding);
-      await run.client.rpc.request('session.submit', { sessionId: run.rootSessionId, inputId: question.id, mode: 'followup',
-        source: { kind: 'system', channel: 'evaluation-inbox', messageId: question.id },
-        content: [{ type: 'text', text: 'Inbox has a new request. Check and read its source conversation.' }] });
+      run = await this.launch('answer', prepared.identity, limits, undefined, prepared.workspace);
+      // The cold process has no source-authority cache. Establish the connected chat before the root assembles its first context.
+      await run.client.rpc.request('knowledge.sources.sync', { agentId: prepared.identity.agentId,
+        snapshot: { revision: '1', allowed: [prepared.identity.conversationId], excluded: [] } });
+      const inputId = await run.product!.submit(question);
       await run.peer.request('idle', {});
       const audit = await run.peer.request('audit', {}) as Audit;
       const evidenceRef = join(run.dir, 'answer.json');
       const deliveries = JSON.parse(await readFile(join(run.dir, 'deliveries.json'), 'utf8')) as string[];
-      const terminal = await run.client.rpc.request('session.lookup', { sessionId: run.rootSessionId, inputId: question.id }) as { terminal?: { kind: string } };
+      const terminal = await run.client.rpc.request('session.lookup', { sessionId: run.rootSessionId, inputId }) as { terminal?: { kind: string } };
       await writeFile(evidenceRef, JSON.stringify({ ...audit, terminal, deliveries, questionDate: question.date }, null, 2));
       if (terminal.terminal?.kind !== 'completed') return { status: 'failed', reason: 'Answer turn did not complete', evidenceRef, usage: audit.usage };
       if (!deliveries.length) return { status: 'failed', reason: 'Agent delivered no public answer', evidenceRef, usage: audit.usage };
@@ -149,6 +159,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
   }
 
   private async stopRuntime(run: Running) {
+    await run.product?.close();
     if (run.client.process.exitCode === null && run.client.process.signalCode === null) {
       const watchdog = setTimeout(() => this.kill(), 5000);
       try { await run.client.shutdown(); } catch { this.kill(); await run.client.exited; }
@@ -158,58 +169,50 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     if (this.active === run) this.active = undefined;
   }
 
-  private async launch(stage: 'prepare' | 'answer', agentId: string, sources: string[], limits: EvaluationLimits,
-    history?: EvaluationHistory, prepared?: string, question?: EvaluationQuestion): Promise<Running> {
+  private async launch(stage: 'prepare' | 'answer', identity: Identity, limits: EvaluationLimits,
+    history?: EvaluationHistory, prepared?: string): Promise<Running> {
+    const { agentId, ownerId, bindingId, conversationId, rootSessionId } = identity;
     await mkdir(this.options.root, { recursive: true });
     const dir = await mkdtemp(join(resolve(this.options.root), `${stage}-`));
     const home = join(dir, 'runtime'), workspace = join(dir, 'workspace');
     await mkdir(home); await mkdir(workspace);
     if (prepared) await copyMemory(prepared, workspace);
     const socketDir = await mkdtemp(join(tmpdir(), 'nme-')), socketPath = join(socketDir, 'control');
-    const rootSessionId = `evaluation-${stage}-${randomUUID()}`;
     await prepareProfile(home, [...this.options.providerPatch, { insert: [{ id: 'nano-memory-evaluation',
-      name: '@nano/dsh-integration/evaluation/runtime', config: { socket: socketPath, workspace, agentId, rootSessionId, conversationId: answerConversation, stage, audit: dir, limits,
+      name: '@nano/dsh-integration/evaluation/runtime', config: { socket: socketPath, workspace, agentId, ownerId, rootSessionId, conversationId, stage, audit: dir, limits,
+        builtinSkillsRoot: this.options.builtinSkillsRoot,
         startTime: history?.sessions[0]?.timestamp ?? 0 } }] }]);
     if (this.stopped) { await rm(socketDir, { recursive: true, force: true }); throw new Error('Evaluation cancelled before runtime start'); }
     const client = new RuntimeClient({ home, cwd: workspace, env: this.options.environment,
       onLog: text => appendFileSync(join(dir, 'runtime.log'), text) });
     const socket = new Socket();
     // Install ownership before any awaited runtime initialization, so deadlines can kill it.
-    const binding = { sessionId: rootSessionId, agentId, ownerId: 'evaluation-owner', cwd: workspace, revision: '1' };
+    const binding = { sessionId: rootSessionId, agentId, ownerId, cwd: workspace, revision: '1' };
     const run: Running = { client, socket, peer: new RpcPeer(socket, socket), dir, socketDir, workspace, rootSessionId, binding };
     this.active = run;
     const deliveries: string[] = [];
     await writeFile(join(dir, 'deliveries.json'), '[]');
     client.rpc.handle('product.call', async value => {
+      if (run.product) return run.product.call(value);
       const call = value as { method: string; args: Record<string, unknown> };
       if (call.method === 'memory.sources.refresh') {
-        await client.rpc.request('knowledge.sources.sync', { agentId, snapshot: { revision: 'evaluation-1', allowed: sources, excluded: [] } });
+        await client.rpc.request('knowledge.sources.sync', { agentId, snapshot: { revision: '1', allowed: [conversationId], excluded: [] } });
         return { refreshed: true };
-      }
-      if (call.method === 'inbox.prepare') return { prepared: true };
-      if (call.method === 'inbox' && question) {
-        if (call.args.action === 'check') return { conversations: [{ target: answerConversation, unread_count: 1 }] };
-        if (call.args.target !== answerConversation) throw new Error('No historical inbox is connected in the answer environment');
-        return { target: answerConversation, messages: [{ id: question.id,
-          sender: { id: 'evaluation-owner', type: 'user', name: 'Owner', is_owner: true }, time: question.date,
-          content: [{ type: 'text', text: question.text }] }] };
-      }
-      if (call.method === 'send_message' && question && call.args.target === answerConversation && typeof call.args.text === 'string') {
-        deliveries.push(call.args.text); await writeFile(join(dir, 'deliveries.json'), JSON.stringify(deliveries));
-        return { status: 'sent', message_id: `local-${deliveries.length}`, target: answerConversation };
       }
       throw new Error(`Evaluation product operation unavailable: ${call.method}`);
     });
     try {
       if (this.stopped) throw new Error('Evaluation cancelled');
-      const configuration: AgentConfiguration = { agentId, workspace, revision: '1', mode: 'global', provider: this.options.provider,
+      const configuration: ProductConfiguration = { agentId, workspace, revision: '1', mode: 'global', provider: this.options.provider,
         model: this.options.model, reasoningEffort: this.options.reasoningEffort, maxTokens: limits.maxOutputTokens,
-        personal: { bindingId: 'evaluation-binding', ownerId: 'evaluation-owner', conversationId: answerConversation, epoch: 1 },
+        personal: { bindingId, ownerId, conversationId, epoch: 1 },
         features: { dreaming: stage === 'prepare', skill_creation: false, task_graph: false, heartbeat: false, cron_scheduling: false },
         skillRoots: [{ path: this.options.builtinSkillsRoot, source: 'builtin' }],
-        skillSelection: { mode: 'explicit_allowlist', names: stage === 'prepare' ? ['nano-memory'] : [] },
-        toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance', ...contextTools] : ['read', 'glob', 'grep', 'inbox', 'send_message'],
+        skillSelection: { mode: 'explicit_allowlist', names: ['nano-memory', 'nano-interactive-ui'] },
+        toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance', ...contextTools] : ['read', 'glob', 'grep', 'skill', 'inbox', 'send_message'],
         knowledge: { ...this.options.knowledge, memoryMode: 'document' } };
+      if (stage === 'answer') run.product = this.options.createProduct({ configuration, binding, runtime: client.rpc, directory: dir,
+        deliver: async text => { deliveries.push(text); await writeFile(join(dir, 'deliveries.json'), JSON.stringify(deliveries)); } });
       await client.rpc.request('initialize', { protocol: 1, agents: [configuration],
         bindings: [binding] });
       await new Promise<void>((resolveConnect, reject) => {

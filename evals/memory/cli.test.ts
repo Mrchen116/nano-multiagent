@@ -29,11 +29,16 @@ it('defaults to a verifiable plan with zero model requests and gates execution b
     const plan = JSON.parse(stdout);
     expect(plan.counts).toEqual({ questions: 1, sessions: 1, messages: 1 });
     expect(plan.protocol).toMatchObject({ version: 2, preparation: { ingestion: 'chronological-session-ingestion' } });
-    expect(plan.candidate).toMatchObject({ adapter: 'nano-document-memory-v4', configuration: { dreaming: { intervalMs: 86400000, quietMs: 600000 } } });
+    expect(plan.candidate).toMatchObject({ adapter: 'nano-document-memory-v5', configuration: { dreaming: { maxInputTokens: 2000, intervalMs: 86400000, quietMs: 600000 } } });
     expect(plan.modelCallsStarted).toBe(0); expect(requests).toBe(0);
     expect(await readFile(join(root, 'plan/plan.json'), 'utf8')).not.toContain('Gold only');
     expect(stdout).not.toContain('Original history');
     for (const command of ['run', 'score']) await expect(invoke(command)).rejects.toThrow(/allow-model-calls/);
+    await writeFile(join(root, 'product-defaults.json'), JSON.stringify({ ...config, candidate: { ...config.candidate, dreaming: {} } }));
+    const defaults = JSON.parse((await invoke('--config', join(root, 'product-defaults.json'), '--ids', join(root, 'ids.json'))).stdout);
+    expect(defaults.candidate.configuration.dreaming).not.toHaveProperty('maxInputTokens');
+    expect(defaults.protocolId).toBe(plan.protocolId);
+    expect(defaults.candidateId).not.toBe(plan.candidateId);
     await writeFile(join(root, 'retired-config.json'), JSON.stringify({ ...config,
       candidate: { ...config.candidate, dreaming: { ...config.candidate.dreaming, maxSteps: 10, maxRunMs: 1000 } } }));
     await expect(invoke('--config', join(root, 'retired-config.json'), '--ids', join(root, 'ids.json'))).rejects.toThrow(/maxSteps.*maxRunMs/);

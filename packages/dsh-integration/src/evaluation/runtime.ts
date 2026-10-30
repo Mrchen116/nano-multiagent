@@ -5,12 +5,13 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { EvaluationHistory, EvaluationLimits, EvaluationUsage } from '@nano/product-contracts';
 import { RpcPeer } from '../rpc.js';
 import { initializeHistory, appendHistoryWindow } from './history.js';
+import { contextTools } from '../agent-context.js';
 import type {} from '../owned-sessions.js';
 import type {} from '../knowledge/runtime.js';
 
 export const name = 'nano-memory-evaluation';
 export const inject = ['nanoKnowledge', 'nanoSessions', 'sessionPersistence', 'sessions', 'tools', 'llm', 'tokenMeter'];
-interface Configuration { socket: string; workspace: string; agentId: string; rootSessionId: string; conversationId: string; stage: 'prepare' | 'answer'; audit: string; limits: EvaluationLimits; startTime: number }
+interface Configuration { socket: string; workspace: string; agentId: string; ownerId: string; rootSessionId: string; conversationId: string; stage: 'prepare' | 'answer'; audit: string; limits: EvaluationLimits; startTime: number; builtinSkillsRoot: string }
 
 /** Mount only in the evaluation profile; production exposes none of these controls. */
 export function apply(ctx: Context, config: Configuration) {
@@ -49,20 +50,21 @@ export function apply(ctx: Context, config: Configuration) {
   }, { prepend: true });
   if (config.stage === 'answer') {
     const root = realpathSync(join(config.workspace, '.nanoassistant/memory'));
+    const guidance = realpathSync(config.builtinSkillsRoot);
     ctx.tools.guard(execution => {
       let reason: string | undefined;
       const args = execution.arguments as Record<string, unknown>;
-      if (execution.name === 'inbox' || execution.name === 'send_message') return;
+      if (contextTools.has(execution.name) || ['inbox', 'conversations', 'send_message', 'send_user_message', 'personal_sources', 'skill', 'subagent'].includes(execution.name)) return;
       if (!['read', 'glob', 'grep'].includes(execution.name)) reason = 'Evaluation answer allows only memory reads and local communication';
       else {
         const requested = args.file_path ?? args.path ?? root;
         try {
           if (typeof requested !== 'string') throw new Error('Invalid path');
           const path = realpathSync(resolve(config.workspace, requested));
-          const rel = relative(root, path);
-          if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Outside prepared memory');
+          const inside = (base: string) => { const rel = relative(base, path); return !rel.startsWith('..') && !isAbsolute(rel); };
+          if (!inside(root) && !inside(guidance)) throw new Error('Outside prepared memory and packaged guidance');
           if (execution.name === 'glob' && typeof args.pattern === 'string' && (isAbsolute(args.pattern) || args.pattern.split('/').includes('..'))) throw new Error('Pattern escapes memory');
-        } catch { reason = 'Evaluation isolation: only the prepared memory directory is readable'; }
+        } catch { reason = 'Evaluation isolation: only prepared memory and packaged guidance are readable'; }
       }
       if (reason) { deniedTools++; appendFileSync(join(config.audit, 'denied-tools.jsonl'), JSON.stringify({ name: execution.name, args, reason }) + '\n'); }
       return reason;
@@ -101,7 +103,7 @@ export function apply(ctx: Context, config: Configuration) {
         // A simultaneous arrival wins a tie with maintenance, including all same-time sessions.
         do {
           const session = history.sessions[index]!;
-          const imported = await appendHistoryWindow(ctx, session, config.rootSessionId, config.conversationId, index++);
+          const imported = await appendHistoryWindow(ctx, session, config.rootSessionId, config.conversationId, config.ownerId, index++);
           mapping.push(...imported.mapping);
           importedSessions++; importedMessages += session.turns.length; persistAudit();
           timeline({ event: 'session_imported', sessionId: session.id, rootSessionId: config.rootSessionId, windowId: imported.windowId });

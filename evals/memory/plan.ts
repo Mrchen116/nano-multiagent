@@ -15,7 +15,7 @@ const connection = z.object({ baseURL: z.url(), apiKeyEnv: z.string().regex(/^[A
 export const configurationSchema = z.object({
   dataset: z.object({ path: z.string().min(1), revision: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   candidate: connection.extend({ reasoningEffort: z.string().optional(),
-    dreaming: z.object({ maxInputTokens: z.number().int().positive(),
+    dreaming: z.object({ maxInputTokens: z.number().int().positive().optional(),
       intervalMs: z.number().int().positive().default(DEFAULT_DREAMING_SCHEDULE.intervalMs),
       quietMs: z.number().int().nonnegative().default(DEFAULT_DREAMING_SCHEDULE.quietMs),
     }).strict(),
@@ -60,9 +60,12 @@ export async function makePlan(config: EvaluationConfiguration, idsFile: string)
   if (datasetHash !== config.dataset.sha256) throw new Error('Dataset SHA-256 mismatch');
   const cases = loadCases(JSON.parse(data.toString('utf8')), selected);
   const exec = promisify(execFile);
-  const [{ stdout: head }, { stdout: status }, lockHash, runtimeHash, guidanceHash] = await Promise.all([
+  const [{ stdout: head }, { stdout: status }, lockHash, runtimeHash, productHash, adapterHash, guidanceHash] = await Promise.all([
     exec('git', ['rev-parse', 'HEAD'], { cwd: repository }), exec('git', ['status', '--porcelain'], { cwd: repository }),
-    readFile(join(repository, 'pnpm-lock.yaml')).then(sha256), treeHash(join(repository, 'packages/dsh-integration/lib')), treeHash(join(repository, 'packages/personal-assistant/assets/skills/nano-memory')),
+    readFile(join(repository, 'pnpm-lock.yaml')).then(sha256), treeHash(join(repository, 'packages/dsh-integration/lib')),
+    treeHash(join(repository, 'packages/personal-assistant/lib')),
+    Promise.all(['nano.ts', 'nano-product.ts'].map(file => readFile(join(repository, 'evals/memory', file)).then(sha256))).then(digest),
+    treeHash(join(repository, 'packages/personal-assistant/assets/skills')),
   ]);
   const protocol = { version: 2, datasetHash, datasetRevision: config.dataset.revision, selectedIds: selected,
     history: 'all user/assistant turns; stable session date order; unzoned dates interpreted as UTC',
@@ -73,8 +76,9 @@ export async function makePlan(config: EvaluationConfiguration, idsFile: string)
     judge: { ...judgeIdentity, configuration: config.judge, temperature: 0, maxTokens: Math.min(10, config.limits.score.maxOutputTokens) },
     scoreLimits: config.limits.score, retries: 'no automatic retries; explicit judge-only retry uses frozen answers',
   };
-  const candidate = { adapter: 'nano-document-memory-v4', historyMapping: 'single-global-session; dataset-session-as-native-window; one-owner-conversation', sourceCommit: head.trim(), dirty: status.trim().length > 0,
-    runtimeHash, guidanceHash, lockHash, configuration: config.candidate, prepareLimits: config.limits.prepare, answerLimits: config.limits.answer };
+  const candidate = { adapter: 'nano-document-memory-v5', historyMapping: 'single-global-session; dataset-session-as-native-window; one-owner-conversation',
+    answerMapping: 'same-pa-owner-conversation-session; cold-runtime; product-global-inbox-delivery', sourceCommit: head.trim(), dirty: status.trim().length > 0,
+    runtimeHash, productHash, adapterHash, guidanceHash, lockHash, configuration: config.candidate, prepareLimits: config.limits.prepare, answerLimits: config.limits.answer };
   const plan: EvaluationPlan = { protocolId: digest(protocol), candidateId: digest(candidate), datasetHash, selectedIds: selected,
     protocol, candidate, judge: config.judge, scoreLimits: config.limits.score,
     counts: { questions: cases.length, sessions: cases.reduce((sum, item) => sum + item.history.sessions.length, 0),

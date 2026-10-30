@@ -6,7 +6,8 @@ export async function createNanoCandidate(config: EvaluationConfiguration['candi
   if (!allowModelCalls) throw new Error('Candidate model calls require --allow-model-calls');
   const { builtinSkillsRoot } = await import('@nano/personal-assistant');
   const { NanoMemoryCandidate } = await import('@nano/dsh-integration/evaluation');
-  return new NanoMemoryCandidate({ id, root, allowModelCalls, builtinSkillsRoot, provider: 'evaluation', model: config.model,
+  const { createNanoProduct } = await import('./nano-product.js');
+  return new NanoMemoryCandidate({ id, root, allowModelCalls, builtinSkillsRoot, createProduct: createNanoProduct, provider: 'evaluation', model: config.model,
     reasoningEffort: config.reasoningEffort, knowledge: { dreaming: config.dreaming },
     providerPatch: [{ id: 'llm-pi-ai', config: { providers: { evaluation: {
       api: 'openai-completions', baseURL: config.baseURL, apiKeyEnv: config.apiKeyEnv, models: [{ id: config.model }],

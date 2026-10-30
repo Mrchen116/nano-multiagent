@@ -8,9 +8,7 @@
     "baseURL": "http://127.0.0.1:9/v1",
     "apiKeyEnv": "MEMORY_EVAL_API_KEY",
     "model": "configure-before-real-run",
-    "dreaming": {
-      "maxInputTokens": 24000
-    }
+    "dreaming": {}
   },
   "judge": {
     "baseURL": "http://127.0.0.1:9/v1",
