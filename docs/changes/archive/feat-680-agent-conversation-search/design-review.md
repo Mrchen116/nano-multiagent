@@ -155,3 +155,95 @@
 ## 后续用户决定：移除跨页内容指纹
 
 用户确认无需对生成中消息跨页变化做内容版本校验；设计已取消内容指纹和旧分段游标拒绝规则。上文相关审查结论保留为当时的评审记录，不再作为当前设计约束。
+
+## Round 5
+
+- Reviewer：独立 `change-design-reviewer`（Codex，`/root/web_search_design_review`）。
+- review_mode：full；mode_reason：用户追加 Web 用户旅程，涉及共享搜索实现、用户权限与新接口，需复核受影响的产品边界。
+- started_at：2026-10-30T15:16:00+08:00；completed_at：2026-10-30T15:17:00+08:00；duration：约 1 分钟。
+- Verdict：**Issues Found — 0 CRITICAL / 2 WARNING**；本结论仅针对设计，非实现或真实产品验收。
+
+### Coverage 与证据
+
+- 核对本轮需求、设计、Web delta、原型源码及现有 `conversationAccess`、`Messaging.conversations`、聊天定位入口。IM 应拥有消息匹配和排序，Agent 与用户使用各自主体计算范围，复用查询而不借用 Agent 权限；无需新增搜索服务或索引。
+- Agent Context：共享 SQL 将同时用于 Agent 工具与 Web 用户，设计要求不改变工具契约；实施验证仍需覆盖 Agent 的多词、排序与当前权限，防止提取逻辑改变模型可见结果。旧轮未受影响的 Context 与回查设计证据沿用 Round 4，跨页 hash 按后续用户决定移除。
+- 原型视觉及交互**未验证**：应用内浏览器明确拒绝 `file:` 协议且禁止绕过；本轮没有通过本地服务或其他浏览器绕过，也不能声称已实际观察原型。用户提供的截图可证明现有入口，不证明新增原型体验。视觉审查结果保留缺口，独立判断须待可获准的呈现方式或实际产品验证。
+
+### Issues
+
+#### R5-W1 — 用户可访问的搜索范围尚未落到可枚举的会话集合
+
+- 位置：`design.md`「用户追加：Web 会话与消息搜索」；`specs/im/web-chat-ux.md`。
+- 证据：设计要求搜索“当前用户可见”的历史，`conversation-access.ts` 的 `conversationAccess` 对当前有公司资格的用户允许未加入的公开群，且成员有历史读取资格时允许已解散会话；`messaging.ts` 的默认 `conversations(..., 'joined')` 则只列已加入/特定观察会话并排除已解散会话。
+- 后果：若实现直接从现有列表收集候选，仍可读取的公开群、已解散历史会被无提示遗漏；若改成无约束遍历又不能从设计判断清楚预期作用域。作者在审查期间已说明目标是所有 `conversationAccess` 当前可读会话，含未加入公开群及仍可读解散群；需写入设计与验收并保留实际权限检查。
+
+#### R5-W2 — 首文档保留旧的 Web 搜索非目标，与追加范围冲突
+
+- 位置：`spec.md`「范围与非目标」。
+- 证据：同一文档新加「Web 聊天记录搜索」，末尾却仍将“面向人的全局搜索界面”列为非目标。
+- 后果：后续实施和验收无法以首文档确定此次用户授权范围；应保留原始决策记录，同时更新当前范围与非目标。
+
+### Recommendations
+
+- 说明侧栏 People、Agent、Group 分类与新增消息结果的关系，并用真实入口验证，避免选中分类后结果来源与筛选状态冲突。搜索本身不消费未读与点击结果后打开聊天的既有已读行为宜分别陈述。
+
+## Round 6
+
+- Reviewer：独立 `change-design-reviewer`（Codex，`/root/web_search_design_review`）。
+- review_mode：closure + delta；mode_reason：复核 Round 5 修订并检查新增类别过滤及接口的闭合。
+- started_at：2026-10-30T15:17:30+08:00；completed_at：2026-10-30T15:18:30+08:00；duration：约 1 分钟。
+- Verdict：**Issues Found — 0 CRITICAL / 2 WARNING**；Gate 2 尚不可判定通过。
+
+### 历史问题闭环
+
+- **R5-W1 — closed**。`design.md` 本轮追加明确按 `conversationAccess` 当前可读范围枚举，包含未加入公开群与仍可读的已解散聊天；不以 joined 列表代替权限集合。权限仍须在真实实现和续页测试中核对。
+- **R5-W2 — closed**。`spec.md` 已从当前非目标移除 Web 搜索，并保留原始用户澄清记录及新增确认。
+
+### Coverage 与证据
+
+- 其余查询职责、权限边界、Agent Context 影响判断及消息定位证据沿用 Round 5。本轮新要求类别服务端过滤，检查了 `chat-types.ts`、`conversation-sidebar.tsx` 的当前分类语义。
+- 原型仍未视觉或交互验证：`file:` URL 遭浏览器安全策略拒绝，且拒绝说明禁止以本地服务、其他浏览器或其他方式绕过。用户现有产品截图不构成新增设计画面证据；不存在受审原型的实际走查证据。
+
+### Issues
+
+#### R6-W1 — 追加的分类过滤没有完整定义请求与分类口径
+
+- 位置：`design.md`「用户追加：Web 会话与消息搜索」。
+- 证据：新设计要求服务器按选中类别过滤后分页，但给出的 GET 仅含 `q` 与 `cursor`；结果字段中的会话类型无法单独表示当前侧栏全部分类：`classifyConversationKind` 对 direct 还依赖 `direct_kind`，对 group 依赖参与者是否全是 Agent（`chat-types.ts:283–294`）。
+- 后果：用户选 People、Agent、Group 或 Network 后，服务端无法从当前约定稳定重现现有分类；先分页再在前端筛选会漏结果或制造空页。应明确请求类别、采用与现有分类等价的口径，以及分页/切换分类验证。
+
+#### R6-W2 — 必要原型视觉审查没有可用证据
+
+- 位置：`design.md`「用户追加：Web 会话与消息搜索」及 `prototype.html`。
+- 证据：新增 Web 界面的原型打不开，无法独立走查其布局、响应式及状态；`change-design-author/references/prototype-and-runbook.md:77–79` 要求原型实际渲染走查，且明确渲染工具不可用时只能标记“视觉未验证”，不能将必要视觉检查推迟到实施验收。
+- 后果：不能以静态源码或旧产品截图宣称新交互符合体验契约；需通过安全策略允许的方式获得实际视觉证据，或由用户明确调整相关要求。当前浏览器对本地文件的自动审批已拒绝，不得通过其他浏览器、本地服务器或间接执行绕过。
+
+### Recommendations
+
+无。
+
+## Round 7
+
+- Reviewer：独立 `change-design-reviewer`（Codex，`/root/web_search_design_review`）。
+- review_mode：closure；mode_reason：复核 R6 设计修订与用户对视觉验证方式的明确调整。
+- started_at：2026-10-30T15:19:00+08:00；completed_at：2026-10-30T15:19:30+08:00；duration：约 30 秒。
+- Verdict：**Approved — 0 CRITICAL / 0 WARNING**，准予按调整后的验证方式实施；不表示原型或真实产品视觉已通过。
+
+### 历史问题闭环
+
+- **R6-W1 — closed**。`design.md` 已定义 `kind` 请求参数及 `all`、`direct-user`、`direct-agent`、`group`、`agent-network`，要求在分页前按与 `classifyConversationKind` 一致的 `direct_kind` / participants 规则过滤；实施需测试分类、切换与分页。
+- **R6-W2 — superseded**。用户明确决定“可以，检查实际界面”，授权跳过本地原型阶段的视觉审查，改查实际 Web 界面。原型的视觉与交互仍未验证，不能将此轮结论表述为原型已通过；实际界面的桌面、窄宽度、关键状态和操作需在实现后独立验收，未取得证据不得宣称体验已验证。浏览器对本地文件的自动审批拒绝仍有效，不得绕过。
+- **R5-W1 / R5-W2 — 保持 closed**。本轮未改变用户可读范围和需求增量。
+
+### Coverage 与证据
+
+- 按 R6 仅复核类别请求、分类语义及用户对验证方式的调整；权限范围、共享查询与 Agent Context 的静态判断保留 Round 5/6 的证据。设计为实现提供了必要的权限、排序、分页和界面行为边界。
+- 视觉判断尚欠真实 Web 证据；这是用户同意的验证顺序调整，不是豁免产品体验验收。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。

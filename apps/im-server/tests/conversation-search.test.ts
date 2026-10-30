@@ -1,6 +1,32 @@
 import { expect, it } from 'vitest';
+import Fastify from 'fastify';
 import { Work } from '../src/work.js';
+import { registerMessagingRoutes } from '../src/messaging.js';
 import { personalFixture } from './personal-fixture.js';
+
+it('searches messages using the signed-in user’s current read access and paginates without reading', async () => {
+  const { ctx, db } = personalFixture();
+  const app = Fastify();
+  registerMessagingRoutes(app, ctx);
+  try {
+    db.prepare("INSERT INTO conversations(id,title,type,visibility,created_at) VALUES('public','Public','group','public',datetime('now')),('private','Private','group','private',datetime('now'))").run();
+    const old = ctx.messaging.insertMessage('peer', 'u1', 'user', '发布 older', [], null, 'completed', {created_at:'2025-01-01T00:00:00Z'});
+    const recent = ctx.messaging.insertMessage('public', 'u2', 'user', '发布 recent', [], null, 'completed', {created_at:'2026-01-01T00:00:00Z'});
+    ctx.messaging.insertMessage('private', 'u2', 'user', '发布 secret');
+    const before = db.prepare("SELECT unread_count FROM conversation_participants WHERE conversation_id='peer' AND user_id='u1'").get();
+    const first = await app.inject({url:'/im/v1/messages/search?q=%E5%8F%91%E5%B8%83&limit=1', headers:{'x-user':'u1'}});
+    expect(first.statusCode).toBe(200);
+    expect(first.json().messages.map((m:any)=>m.message_id)).toEqual([recent.id]);
+    const next = await app.inject({url:`/im/v1/messages/search?q=%E5%8F%91%E5%B8%83&limit=1&cursor=${encodeURIComponent(first.json().next_cursor)}`, headers:{'x-user':'u1'}});
+    expect(next.json().messages.map((m:any)=>m.message_id)).toEqual([old.id]);
+    const group = await app.inject({url:'/im/v1/messages/search?q=%E5%8F%91%E5%B8%83&kind=group', headers:{'x-user':'u1'}});
+    expect(group.json().messages.map((m:any)=>m.message_id)).toEqual([recent.id]);
+    expect(db.prepare("SELECT unread_count FROM conversation_participants WHERE conversation_id='peer' AND user_id='u1'").get()).toEqual(before);
+    db.prepare("DELETE FROM conversation_participants WHERE conversation_id='peer' AND user_id='u1'").run();
+    const revoked = await app.inject({url:`/im/v1/messages/search?q=%E5%8F%91%E5%B8%83&limit=1&cursor=${encodeURIComponent(first.json().next_cursor)}`, headers:{'x-user':'u1'}});
+    expect(revoked.json().messages).toEqual([]);
+  } finally { await app.close(); }
+});
 
 it('finds multiple literal clues, ranks relevance or recency and reads around a match', () => {
   const { ctx, principal, args } = personalFixture();

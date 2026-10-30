@@ -26,6 +26,7 @@ import {
   forkConversation,
   listConversations,
   listMessages,
+  searchMessages,
   markConversationRead,
   getConversationCommands,
   removeParticipant,
@@ -1195,6 +1196,8 @@ export function ChatWorkspacePage() {
           selfUserId={selfUserId}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
+          searchMessages={searchMessages}
+          onSelectMessage={(id, messageId) => navigate(`/chat/${encodeURIComponent(id)}?message_id=${encodeURIComponent(messageId)}`)}
           onNewChat={() => setShowNewChat(true)}
           onDiscover={() => setShowPublicGroups(true)}
           onNewGroup={() => setShowNewGroup(true)}

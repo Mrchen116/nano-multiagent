@@ -1,5 +1,6 @@
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
+import { searchMessages } from './message-search.js';
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
@@ -263,16 +264,9 @@ export class Work {
     if (!target && (p.action !== "search" || p.target)) fail(404, "target_not_accessible");
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
     const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
-    const filters = ["m.sender_type IN ('user','agent','system')"], values:any[]=[];
     const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
-    if(p.message_id){filters.push('m.id=?');values.push(p.message_id);}
-    if(terms.length){filters.push(`(${terms.map(() => 'instr(lower(m.content),lower(?))>0').join(' OR ')})`);values.push(...terms);}
-    if(p.before){filters.push('julianday(m.created_at)<julianday(?)');values.push(p.before);}
-    if(p.after){filters.push('julianday(m.created_at)>=julianday(?)');values.push(p.after);}
-    if(p.participant_id){filters.push("m.sender_user_id=? AND NOT (c.external_source IS NOT NULL AND m.sender_type='user' AND COALESCE(m.sender_source_id,'')!='')");values.push(p.participant_id);}
-    if(p.sender_source_id){filters.push("c.external_source IS NOT NULL AND m.sender_type='user' AND m.sender_source_id=?");values.push(p.sender_source_id);}
-    const matches = targets.length ? all(this.db,
-      `SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id IN (${targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY ${p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' && terms.length ? terms.map(() => 'CASE WHEN instr(lower(m.content),lower(?))>0 THEN 1 ELSE 0 END').join('+') + ' DESC,' : ''} ${p.action === 'read' && !p.around_message_id ? 'm.rowid DESC' : 'julianday(m.created_at) DESC,m.id DESC'}`,...targets,...values,...(p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' ? terms : [])) : [];
+    const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
+      messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id });
     let currentIds: string[] = matches.map(row=>row.id);
     if (p.around_message_id) {
       const index = currentIds.indexOf(p.around_message_id);

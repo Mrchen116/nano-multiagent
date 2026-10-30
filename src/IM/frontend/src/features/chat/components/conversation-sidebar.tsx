@@ -1,5 +1,6 @@
 import { mentionNameMap, mentionPlainText } from "./mention-parser";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { MessageSearchResult } from '../chat-api';
 
 import { useTranslation } from "../../../i18n";
 import { formatSystemNotice } from "../system-notice";
@@ -36,6 +37,8 @@ export interface ConversationSidebarProps {
   selfUserId?: string | null;
   activeConversationId: string | null;
   onSelect(conversationId: string): void;
+  searchMessages?(query: string, kind: string, cursor?: string, signal?: AbortSignal): Promise<MessageSearchResult>;
+  onSelectMessage?(conversationId: string, messageId: string): void;
   onDiscover?(): void;
   onNewGroup(): void;
   onNewChat?(): void;
@@ -77,6 +80,8 @@ export function ConversationSidebar({
   selfUserId = null,
   activeConversationId,
   onSelect,
+  searchMessages,
+  onSelectMessage,
   onDiscover,
   onNewGroup,
   onNewChat,
@@ -94,7 +99,36 @@ export function ConversationSidebar({
   const { t } = useTranslation();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [search, setSearch] = useState("");
+  const [searchResult, setSearchResult] = useState<MessageSearchResult | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [retrySearch, setRetrySearch] = useState(0);
+  const searchAbort = useRef<AbortController | null>(null);
   const [contextMenu, setContextMenu] = useState<{ conversationId: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const q = search.trim();
+    if (!q || !searchMessages || distillMode) { setSearchResult(null); setSearchError(false); setSearchLoading(false); return; }
+    const controller = new AbortController(); searchAbort.current = controller;
+    setSearchResult(null); setSearchError(false); setSearchLoading(true);
+    const timer = setTimeout(() => {
+      void searchMessages(q, filter, undefined, controller.signal).then(result => {
+        if (!controller.signal.aborted) setSearchResult(result);
+      }).catch(() => { if (!controller.signal.aborted) setSearchError(true); })
+        .finally(() => { if (!controller.signal.aborted) setSearchLoading(false); });
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [search, filter, searchMessages, distillMode, retrySearch]);
+
+  const loadMore = () => {
+    if (!searchMessages || !searchResult?.next_cursor || searchLoading) return;
+    const signal = searchAbort.current?.signal;
+    setSearchLoading(true); setSearchError(false);
+    void searchMessages(search.trim(), filter, searchResult.next_cursor, signal).then(result => {
+      if (!signal?.aborted) setSearchResult(previous => ({ ...result, messages: [...(previous?.messages ?? []), ...result.messages] }));
+    }).catch(() => { if (!signal?.aborted) setSearchError(true); })
+      .finally(() => { if (!signal?.aborted) setSearchLoading(false); });
+  };
 
   const previews = useMemo(() => new Map(conversations.map((c) => [
     c.id, formatSystemNotice(t, c.last_message_system_notice, c.type === "direct")
@@ -186,8 +220,9 @@ export function ConversationSidebar({
       ) : null}
       {personalAgentEntry}
       <ul className="chat-sidebar-list">
+        {search.trim() && searchMessages && !distillMode ? <li className="chat-search-heading">{t('chat.list.conversationResults')}</li> : null}
         {filtered.length === 0 ? (
-          <li className="chat-sidebar-empty">{emptyLabel ?? t("chat.list.empty")}</li>
+          <li className="chat-sidebar-empty">{search.trim() ? t('chat.list.noConversationResults') : emptyLabel ?? t("chat.list.empty")}</li>
         ) : (
           filtered.map((c) => {
             const active = c.id === activeConversationId;
@@ -292,6 +327,19 @@ export function ConversationSidebar({
             );
           })
         )}
+        {search.trim() && searchMessages && !distillMode ? <>
+          <li className="chat-search-heading">{t('chat.list.messageResults')}</li>
+          {searchResult?.messages.map(message => <li key={message.message_id}>
+            <button type="button" className="chat-sidebar-row chat-search-result" onClick={() => onSelectMessage?.(message.conversation_id, message.message_id)}>
+              <span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title-line"><span className="chat-sidebar-row-title">{message.conversation_name}</span><span className="chat-sidebar-row-time">{formatDate(message.created_at)}</span></span>
+                <span className="chat-search-snippet">{message.sender_name}: {message.snippet}</span></span>
+            </button>
+          </li>)}
+          {searchLoading ? <li className="chat-sidebar-empty" role="status">{t('chat.list.searchLoading')}</li> : null}
+          {searchError ? <li className="chat-sidebar-empty" role="alert">{t('chat.list.searchError')} <button type="button" onClick={() => searchResult?.next_cursor ? loadMore() : setRetrySearch(n => n + 1)}>{t('chat.list.retrySearch')}</button></li> : null}
+          {!searchLoading && !searchError && searchResult && !searchResult.messages.length ? <li className="chat-sidebar-empty">{t('chat.list.noMessageResults')}</li> : null}
+          {!searchLoading && !searchError && searchResult?.next_cursor ? <li><button type="button" className="chat-search-more" onClick={loadMore}>{t('chat.list.loadMore')}</button></li> : null}
+        </> : null}
       </ul>
       {!distillMode && (
         <footer className="chat-sidebar-secondary">

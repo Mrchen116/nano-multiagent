@@ -1858,6 +1858,11 @@ body {
   font-size: 0.85rem;
 }
 
+.chat-search-heading { padding: 12px 8px 4px; color: var(--im-text-muted); font-size: 0.72rem; font-weight: 700; }
+.chat-search-result { align-items: flex-start; }
+.chat-search-snippet { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--im-text-muted); font-size: 0.78rem; line-height: 1.45; overflow-wrap: anywhere; }
+.chat-search-more { border: 0; background: transparent; color: var(--im-accent); font: inherit; font-size: 0.78rem; padding: 10px 8px; cursor: pointer; }
+
 .chat-sidebar-row {
   display: flex;
   align-items: center;
