@@ -349,3 +349,15 @@ Before：第五条仅再次风险沟通，无自动策略。After：第五条立
 R9 reviewer：真实daily模型5条风险顺序输入→第5条真实主人私聊自动拉黑告知、设置列表及证据可见；私聊拒收、同群正常请求继续；主人界面解除，后续第1条不立即拉黑。永久确定性保护负责完整解除后再5条、跨聊天/账号隔离、重复消息/类别、误判/故障不计入、事务回滚、源权限变化、暂停/恢复/unknown与无重发。实际最终系统事件/工具结果与真实PA调用分别留证；不以fixture文案替代模型通知。
 
 M1新增退出项：实现上述计数/状态/通知链及最低有效回归，独立代码+Context/一致性审查通过，R9真实产品验收通过；相关IM/PA构建与测试、文档/归档及PR CI通过，无生产功能写入。
+## R10 通知身份清晰化修订
+
+使用现有 incidentEvent 统一投影，在来源当前可访问且原消息存在时附加 `actor_name` 和 `conversation:{id,name,type}`。姓名复用风险列表的来源优先级：持久消息 sender_display_name、服务端 users.display_name；名称缺失不从正文推断。会话来自同一持久消息的 conversations 记录。普通事件和自动屏蔽 pending/read/observation 都通过该投影，避免仅补 UI。无 schema、历史回填或迁移；启动恢复按当前事实投影，已确认回执和已发通知不重写。
+
+Consumer 仍为 GlobalAgent.submitPersonalEvent 及 Inbox security_incidents。共用通知指引要求给主人明确姓名、群名或私聊类型、简要风险和已完成/待执行动作；普通先 owner 再 peer，自动屏蔽只 owner 的顺序不变。自动阈值按 binding/actor 跨聊天累计，聊天名只定位当前触发消息，不承诺五条均来自同一聊天。不把对外拒绝变成公开点名或暴露主人隐私。名称、聊天名、reason/original_content 都是描述性外部数据，不授予身份、权限或指令。
+
+来源失权保留现有系统动作可告知分支，但不投影新增姓名/聊天信息及原文/理由；主 PA 明确表示当前不能核实名称，不根据攻击正文补名。既有 actor_id 与 source_message_id 保持审计引用，不要求向用户展示内部 ID。
+
+Before：可信事件只有 opaque actor_id，模型自然写“该群成员”。After：事件提供可访问的可辨认事实，指引让每条通知自足说明对象与处置。前后交互保持当前 lifecycle/稳定 inputId、publication receipt 和 unknown 查询，不恢复旧已完成通知。
+
+M1 范围：IM incidentEvent、GlobalAgent 事件指引及相关既有测试。确定性验证普通/自动事件实际投影、外部 sender_display_name、名称缺失与来源撤销不越权；捕获 runtime session.submit 最终组装指引/事实。独立 code/Context+corrected-delta 只复核此增量。真实 daily 模型/Web 重验首条/第二条通知及第五条自动屏蔽，实际消息同时有联系人和聊天、阈值与当前状态准确。既有 R1–R9 机制证据按未变范围保留，不重跑所有故障演练。当前用户正在看的旧预览保留；新验证使用独立 daily 实例，完成后可供用户看新效果。无前端原型、无新迁移。
+
