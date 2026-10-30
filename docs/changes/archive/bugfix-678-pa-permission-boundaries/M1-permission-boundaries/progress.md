@@ -109,3 +109,13 @@ Python 113 passed / 28 deselected；Ruff check/format（93 files）、iOS打包�
 final sync已merge `origin/main=5d0fbea1e`，相对原executed_base `9bf2b13da4005631096f2a49223564cd68647c3c` 仅新增独立refactor-679 motivation.md，无运行源码或本unit契约变化。受验source仍为9d4008650，code/Context/consistency门禁保留；产品review按同一实际运行源码记录，主干文档增量不要求重建或重测。
 
 低并发完整复跑 `pnpm exec vitest run --maxWorkers=2`：158文件841项全部通过，226.83秒，日志 `/tmp/pr430-r9-full-low-concurrency.log`。该结果是一轮完整绿，不替换前轮2项等待超时的记录。源码自9d4008650未变；前端本轮无改动，保留前轮真实Web/1029项及远端CI证据，新head远端CI另核。
+
+
+### R9 产品通过及收尾
+
+独立reviewer在9d4008650完成真实daily模型/Web旅程：五条独立风险，第五条真实PA主人通知；设置名单/五条原因/原消息跳转；屏蔽期间私聊拒收而群正常问题回答；主人界面解除；新风险count=1不再拉黑，同一私聊正常回答126。Round 5 pass / 0 issues，原始证据留隔离runtime目录，不提交。R1–R8未变结论保留各自原范围，非真实iOS/Feishu验收。
+
+current gateway PA归并已审R9 ADDED及R4 MODIFIED；IM文档只加同一自动屏蔽例外摘要与权威链接，不复制计数实现。全unit归档回archive，历史报告保留。effective_base=5d0fbea1e；validated_at=9d4008650，之后只有报告、契约归并/归档及独立主干文档同步，code/Context/consistency/product结论有效延伸至最终交付head。未自动merge或部署。
+
+
+隔离栈已由e2e-down退出，`down.log=STOPPED`，IM端口50839无监听、GW PID91353不存在；证据与数据库只留本机。归并后的首次docs-check提示Gateway目录Requirement数量16→17，已同步索引，未改行为契约。开发worktree因PR未合并保留。

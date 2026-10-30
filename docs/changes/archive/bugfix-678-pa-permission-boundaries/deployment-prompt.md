@@ -45,4 +45,4 @@ IM 标识为 `pa-permission-boundaries-v1`，Inbox 标识为 `input-review-v1`�
 
 ## R9 自动拉黑增量
 
-包含R9的新版本通过既有schema初始化创建pa_contact_violations伴随表；不改旧表列、不需要另一次历史整理命令。新表从空计数启用，不回算历史incident/count，不在升级时自动拉黑或发送通知；现有黑名单、消息及回执完整保留。暂停服务与一致备份沿用上文。已运行R9的数据库再次打开不得清空counting/triggered_block；生产只读检查表存在和历史数据保留，不人工制造5条风险消息。隔离副本与真实链路证据将在交付前归入M1报告。回退保留伴随表及新运行增量，不删除表冒充回滚。
+包含R9的新版本通过既有schema初始化创建pa_contact_violations伴随表；不改旧表列、不需要另一次历史整理命令。新表从空计数启用，不回算历史incident/count，不在升级时自动拉黑或发送通知；现有黑名单、消息及回执完整保留。暂停服务与一致备份沿用上文。已运行R9的数据库再次打开不得清空counting/triggered_block；生产只读检查表存在和历史数据保留，不人工制造5条风险消息。隔离副本初始化/重开测试与真实链路证据已归入M1 progress、regression Round 5及verification报告。回退保留伴随表及新运行增量，不删除表冒充回滚。

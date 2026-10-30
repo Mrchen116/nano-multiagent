@@ -125,4 +125,4 @@
 
 退役的 Python Kernel/Coding CLI 契约见 [`archive/pre-dsh-581/`](archive/pre-dsh-581/README.md)。
 
-当前权限设计补充：同一 [bugfix-678](changes/bugfix-678-pa-permission-boundaries/incident.md) 正在补齐累计五次自动拉黑；完成前以 current specs 为准。
+累计五次自动拉黑与恢复通知的已验收变更见 [bugfix-678](changes/archive/bugfix-678-pa-permission-boundaries/incident.md)；当前行为以 [Gateway PA 契约](specs/gateway/personal-agent.md) 为准，归档不表示已部署。

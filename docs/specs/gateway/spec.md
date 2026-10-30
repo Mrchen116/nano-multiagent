@@ -27,7 +27,7 @@
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、运行时查询控制、权限路由与投递 | 9 |
 | [External Channels](external-channels.md) | Feishu channel、富文本与多模态消息、IM 托管配置、多 Bot、listener lifecycle、trigger source、reply mirror、运行信息页脚、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离、限定附件来源 | 17 |
 | [Task Graphs](task-graphs.md) | 会话内任务协作、真实 Agent 授权、本人全层持续责任、有效等待、停止恢复、停用冻结与真人指定恢复、原子修改与未知回执、拒绝后自主续跑与显式暂停 | 21 |
-| [Personal Agent](personal-agent.md) | 可信主人与参与关系、双身份历史、观察背景批次、来源限制与对外披露边界、代表用户发送与原委托延续、消息级准入、主PA安全处置、冻结图片审核；通用能力复用 Global | 16 |
+| [Personal Agent](personal-agent.md) | 可信主人与参与关系、双身份历史、观察背景批次、来源限制与对外披露边界、代表用户发送与原委托延续、消息级准入、主PA安全处置、冻结图片审核；通用能力复用 Global | 17 |
 
 ## Maintenance Rule
 
