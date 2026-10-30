@@ -170,3 +170,30 @@ N/A：设计明确没有前端改动与新增原型契约。实际 Web 进入、
 2. **minor / direct / fix-implementation：跨年搜索结果没有年份。** 对 2025-02-01 与 2024-02-01 两条隔离数据，分页结果均显示“2月1日”，用户不能区分记录年份。搜索的用途是回溯历史，建议至少对非本年消息显示年份。
 
 运行栈与数据由 caller 管理，本 reviewer 未停止服务；自己的浏览器标签已关闭、临时 viewport 已恢复。失败恢复、非零未读及续页撤权仍缺真实产品证据，不以自动化结果冒充本轮观察。
+
+## Round 4：修复后复验进度
+
+- `validated_at=0292ef392aec8413c9e0ce1539a518ad038a05a2`，caller 重建隔离 daily 栈 `http://127.0.0.1:54292`；与生产、真实飞书无关。已通过受信 IM HTTP 接口在群 `c_7t3b7dqw` 创建 25 条 `QA_RETURN_680` 消息，其中两条隔离样本仅用于跨年复验，经数据库设为 2025-02-01 和 2024-02-01。
+- **非零未读：pass（真实用户 API，合成初始状态）**。将隔离账号在群的未读设为 4；调用真实用户会话列表、搜索后再次读取列表，未读仍为 4；搜索首批返回 20。未以浏览器页面代称该 API 证据。
+- **续页撤权：pass（真实用户 API，合成权限变化）**。经正式 API 创建私密测试群 `c_kku7ojtw` 并发布 22 条 `QA_REVOKE_680`，首批返回 20 与游标；在隔离数据库移除测试用户的群参与关系，沿原游标续查返回 0。该合成操作只证明服务端续页按当前权限过滤。
+- **两项 UI finding：inconclusive，等待 caller 实际复验。** 本轮子任务 IAB 不可用；Chrome 仅用于实际本地产品，并非用于绕过先前禁止打开的本地原型。Chrome 登录后弹出密码安全提示；处理提示时浏览器控制因用户正在操作而中断，故停止该浏览器交互，不将点击无响应归因为产品。已告知 caller 数据、端口和缺口。跨年显示、窄屏第二页返回及位置、失败恢复均尚未完成本轮真实 UI 验证；不能以实现或自动测试替代。
+- 本 reviewer 未停止 caller 管理的服务；未改产品源码。验收结论继续保留 Round 3 的 fail，直到实际 UI 的两个 finding 复验通过。
+
+### Caller 后续实际 Web 自检证据（非本 reviewer 独立观察）
+
+Caller 报告以 `0292ef392aec8413c9e0ce1539a518ad038a05a2` 的隔离 `54292` 栈在 390×844 Web 实际执行：搜索 `QA_RETURN_680`、选 Group、加载第二页后，sample 00 和 01 分别显示 `2025年2月1日` 与 `2024年2月1日`；点击 sample 00 可定位原消息；Back 后仍保留关键词、Group、25 条和滚动位置，画面同时展示 sample 08 至 sample 01。Caller 还观察到搜索前后未读数为 4。这是 caller 的实际观察，不是本 reviewer 的独立 UI 实测。
+
+**本轮验收判定：inconclusive。** 上述 caller 证据支持修复有效，但本 reviewer 因浏览器控制中断无法独立观察两项决定性修复，故不把原 major/minor 标记为独立复验通过；失败后 Retry 的实际 UI 仍未验证。已独立观察的非零未读和撤权后续页按上文保留。无需将该缺口表述为产品已发生新故障。
+
+## Round 5：窄屏结果返回与年份独立复验
+
+- Reviewer：独立 `change-reviewer`（Codex，`/root/web_search_product_closure`）；模式：targeted closure，范围是 Round 3 的两个 UI finding。产品代码 `validated_at=0292ef392aec8413c9e0ce1539a518ad038a05a2`；当前 HEAD `130e57627e1557e547855a5c5ad67bad1cd7ab09` 为后续文档提交。复用 caller 启动的 daily 隔离栈 `http://127.0.0.1:54292`、测试用户及 Round 4 准备的 25 条虚构数据；没有接触真实飞书或生产数据。
+- 环境核对：`.e2e-daily.json` 显示 P/E/Q 和 PA 固定阵容，测试群为 `c_7t3b7dqw`。本轮用独立 IAB，以 390×844 真实 Web 入口操作；本 reviewer 没有修改源码、测试、配置或测试数据。
+- **Round 3 major #1：closed / pass。** 输入 `QA_RETURN_680`，选择 Group，首批显示 20 条；点击 Load more 出现其余 5 条。点击第二页 sample 00 后，URL 指向 `c_7t3b7dqw?message_id=7b3eb0b9a29b440b917ec421e4f950b2`，页面提示 `Original message located`，原消息被定位。点击 Back 后重新出现搜索词、已选 Group、全部 25 条与此前第二页位置；实际画面直接显示 sample 08 至 sample 01，不需再次加载或寻找。搜索与结果主体的分组和可点击行在窄屏内清晰可辨。
+- **Round 3 minor #2：closed / pass。** 第二页 sample 00 及 sample 01 在实际 Web 结果中分别显示 `2025年2月1日`、`2024年2月1日`，年份可直接区分；返回后仍显示。
+- 其他范围沿用 Round 3/4 已观察证据与原有限制。失败后 Retry 的真实 UI 场景本轮未覆盖；本次不以本轮结果声称全部产品验收已完成。原型视觉未验证，用户已明确允许改查实际界面。
+- 本 reviewer 重置临时 viewport 并关闭自己打开的 IAB 标签；隔离服务由 caller 管理，未停止。
+
+### Caller 补充：真实 Web 失败恢复
+
+在同一隔离栈、产品代码 `0292ef392` 下，caller 保持 Web 页面打开，核对进程身份后暂时停止本次 IM，输入 `QA_RETURN_680`；实际页面显示 `Search failed` 和 `Retry`。用同一隔离数据库、端口与密钥恢复 IM 后点击 Retry，搜索重新返回 20 条结果及 Load more。该证据是 caller 自检，不冒充独立 reviewer；已有前端自动化亦覆盖失败与重试。
