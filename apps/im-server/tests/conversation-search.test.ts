@@ -28,6 +28,17 @@ it('searches messages using the signed-in user’s current read access and pagin
   } finally { await app.close(); }
 });
 
+it('shows readable mentions and preserves a Feishu sender when display name is missing', async () => {
+  const { ctx, db } = personalFixture();
+  const app = Fastify(); registerMessagingRoutes(app, ctx);
+  try {
+    db.prepare("UPDATE conversations SET external_source='feishu' WHERE id='peer'").run();
+    ctx.messaging.insertMessage('peer','u1','user','<mention type="user" target_id="u2"/> please review needle',[],null,'completed',{sender_source_id:'ou-other'});
+    const response = await app.inject({url:'/im/v1/messages/search?q=needle',headers:{'x-user':'u1'}});
+    expect(response.json().messages[0]).toMatchObject({sender_name:'ou-other',snippet:'@u2 please review needle'});
+  } finally { await app.close(); }
+});
+
 it('finds multiple literal clues, ranks relevance or recency and reads around a match', () => {
   const { ctx, principal, args } = personalFixture();
   const add = (content: string, created_at: string) => ctx.messaging.insertMessage('peer', 'u1', 'user', content, [], null, 'completed', { created_at });

@@ -18,6 +18,6 @@ export function searchMessages(db: DatabaseSync, options: {
   if(options.cursor){filters.push('(julianday(m.created_at)<julianday(?) OR (julianday(m.created_at)=julianday(?) AND m.id<?))');values.push(options.cursor.created_at,options.cursor.created_at,options.cursor.id);}
   const relevance = options.action === 'search' && (options.sort ?? 'relevance') === 'relevance';
   const order = options.action === 'read' && !options.around ? 'm.rowid DESC' : 'julianday(m.created_at) DESC,m.id DESC';
-  return all(db, `SELECT m.id,m.created_at FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id IN (${options.targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY ${relevance && options.terms.length ? options.terms.map(() => 'CASE WHEN instr(lower(m.content),lower(?))>0 THEN 1 ELSE 0 END').join('+') + ' DESC,' : ''} ${order}${options.limit ? ' LIMIT ?' : ''}`,
+  return all(db, `SELECT m.id,m.created_at,m.sender_source_id,m.sender_display_name FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id IN (${options.targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY ${relevance && options.terms.length ? options.terms.map(() => 'CASE WHEN instr(lower(m.content),lower(?))>0 THEN 1 ELSE 0 END').join('+') + ' DESC,' : ''} ${order}${options.limit ? ' LIMIT ?' : ''}`,
     ...options.targets,...values,...(relevance ? options.terms : []),...(options.limit ? [options.limit] : []));
 }

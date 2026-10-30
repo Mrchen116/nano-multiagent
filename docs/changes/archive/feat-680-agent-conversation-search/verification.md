@@ -319,3 +319,16 @@ canonical 现有“模型读取简洁且可操作的 Inbox 结果”限定 **Inb
 ## 后续检查：影子会话中的内部消息
 
 此前以合成数据推断未知飞书作者的结论不代表实际飞书输入；正常接入要求来源 ID，而主人也可直接在内部 IM 影子会话中发消息且不带该 ID。后续修复保留内部消息作者与内部发送人过滤，并保留有来源 ID 的外部发言人区分。上文关于未知旧作者的结论仅为当时合成场景记录。
+
+## Web 搜索追加：独立静态审查与一致性核对
+
+- reviewer：独立 `change-code-review` + `change-verifier`；validated_at `52b5e2e59d1c9d8da23f8f9e19fea8cec457882b`，executed_base `ccbe5aa4c`，verification_mode `delta`；requires_full_verification：false。
+- 结论：**0 CRITICAL / 3 WARNING**。当前版本尚不能判定该增量通过；旧版本真实 Agent 验收只证明对应旧 revision，不冒充当前版本的完整真实产品验收。用户已明确允许跳过被安全策略拒绝的本地原型，改为验证实际 Web 界面；本次静态审查未代替独立产品验收。
+- 覆盖：复核 `searchMessages` 共享 SQL、Agent 旧参数和新 Web 身份、`conversationAccess` 当前权限、类别及分页、搜索不推进未读；真实 HTTP handler + 内存 SQLite 的直接构造对照，以及 Node 24.22.1 下 `pnpm exec vitest run apps/im-server/tests/conversation-search.test.ts apps/im-server/tests/personal-sources.test.ts`：2 文件 16 tests passed。前述 fixture 可检验权限与数据路径，不代表真实飞书或线上数据。
+- Agent Context Implementation Review：触发点为 Agent `conversations` 搜索结果来源名称及真实作者信息；消费者为主 Agent，沿宿主投影、工具渲染与历史来源追踪。此前实际模型证据在 `acceptance.md`，不证明此版本：本轮未重跑真实模型；下述 W1 是以真实宿主 `Work.query` 直接复现的确定性投影缺陷，而非断言模型已误解。
+
+### WARNING
+
+1. **W1 — 观察者私聊的 Agent 搜索来源名称发生回归。** `apps/im-server/src/work.ts` 的 `source.name` 直接取 `messageConversation.title`；`messaging.ts` 的 `conversation()` 对未自定义的观察者私聊生成参与者名称。隔离库中，同一 PA 可观察私聊在 `conversation('peer','u1').title` 返回 `agent:a ↔ Bob`，`Work.query` 返回 `source.name: Internal routing title`。结果与用户实际看到的聊天名不一致，削弱 Agent 辨认来源。建议复用当前授权会话列表的对应投影或缓存正确的 viewer title，覆盖同场景搜索与读取。
+2. **W2 — 外部作者名称缺失时 Web 搜索误显示主人。** `apps/im-server/src/messaging.ts` 搜索结果直接使用 `message.sender.display_name`；飞书 `enrich` 查询可以失败或未返回 sender_name（`packages/channels/src/feishu.ts`），镜像可携带有效其他人 source ID 而没有显示名；`message-records.ts` 会回退到内部占位账号的显示名。隔离库真实 HTTP handler 中，`sender_source_id=ou-other`、无 sender_display_name 的消息搜索返回 `sender_name: OwnerName`。应在真实来源 ID 已知但外部显示名不可用时显示可区分的外部身份或未知，避免冒认主人。此问题关于名称缺失，不依赖之前无法证实的来源 ID 缺失假设。
+3. **W3 — 含提及的命中片段显示破碎内部标记。** `apps/im-server/src/messaging.ts` 按原始 `message.content` 截取片段，未像同文件的会话预览那样先转为可读 @姓名。真实 HTTP handler 对 `<mention type="user" target_id="u2"/> please review needle` 搜索 needle 返回 `…e="user" target_id="u2"/> please review needle`，标记甚至在中间被截断。建议先解析可读提及再围绕匹配截取，并验证前后文与命中定位。

@@ -27,6 +27,12 @@ import { conversationAccess, conversationReaderIds, qualifiedUser } from "./conv
 import { searchMessages } from './message-search.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
+
+function readableMentions(content: string, members: Row[]): string {
+  const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
+  return content.replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
+    (_tag, targetId: string) => `@${names.get(targetId) || 'unknown'}`);
+}
 export class Messaging {
   readonly records: MessageRecords;
   readonly interactions: Interactions;
@@ -116,13 +122,9 @@ export class Messaging {
       "SELECT content, system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
       id, c.last_message_at,
     ) : undefined;
-    const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
     // Stored previews can end inside a mention tag. Resolve from the full message
     // before truncating so existing conversations also recover on refresh.
-    const preview = lastMessage?.content.trim()
-      .replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
-        (_tag: string, targetId: string) => `@${names.get(targetId) || "unknown"}`)
-      .slice(0, 120) || c.last_message_preview;
+    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || c.last_message_preview : c.last_message_preview;
     const prefs =
       one(
         this.db,
@@ -733,11 +735,12 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const matches = searchMessages(db, {targets:[...conversations.keys()], terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
     const messages = matches.slice(0,limit).map(row => {
       const message = s.message(row.id), chat = conversations.get(message.conversation_id)!;
-      const position = Math.max(0, message.content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
-      const start = Math.max(0, position - 40), end = Math.min(message.content.length, position + q.q.trim().length + 80);
+      const content = readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
+      const position = Math.max(0, content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
+      const start = Math.max(0, position - 40), end = Math.min(content.length, position + q.q.trim().length + 80);
       return {message_id:message.id, conversation_id:message.conversation_id, conversation_name:chat.title,
-        sender_name:message.sender.display_name, created_at:message.created_at,
-        snippet:`${start ? '…' : ''}${message.content.slice(start,end)}${end < message.content.length ? '…' : ''}`};
+        sender_name:row.sender_source_id ? row.sender_display_name || row.sender_source_id : message.sender.display_name, created_at:message.created_at,
+        snippet:`${start ? '…' : ''}${content.slice(start,end)}${end < content.length ? '…' : ''}`};
     });
     const last = matches[limit-1];
     return {messages, ...(matches.length > limit && last ? {next_cursor:Buffer.from(JSON.stringify({created_at:last.created_at,id:last.id})).toString('base64url')} : {})};
