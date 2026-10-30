@@ -58,11 +58,30 @@ it('filters external messages by their actual sender rather than their mirror ac
   db.prepare("UPDATE conversations SET external_source='feishu' WHERE id='peer'").run();
   const one = ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案', [], null, 'completed', { sender_source_id: 'ou-one' });
   ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案', [], null, 'completed', { sender_source_id: 'ou-two' });
+  ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案（旧镜像无发言人身份）', [], null, 'completed');
   const work = new Work(ctx);
   const query = (input: Record<string, unknown>) => work.query(principal, { ...args, ...input });
   expect(query({ action: 'search', target: 'peer', query: '发布', sender_source_id: 'ou-one' }).messages.map((m: any) => m.message_id)).toEqual([one.id]);
   expect(query({ action: 'search', target: 'peer', query: '发布', participant_id: 'u1' }).messages).toEqual([]);
   expect(() => query({ action: 'search', query: '发布', sender_source_id: 'ou-one' })).toThrow();
+});
+
+it('rejects new filters on a legacy snapshot instead of silently reusing its old order', () => {
+  const { ctx, db, principal, args } = personalFixture();
+  ctx.messaging.insertMessage('peer', 'u1', 'user', 'first', [], null, 'completed');
+  ctx.messaging.insertMessage('peer', 'u1', 'user', 'second', [], null, 'completed');
+  const work = new Work(ctx), query = (input: Record<string, unknown>) => work.query(principal, { ...args, ...input });
+  const first = query({ action: 'search', limit: 1 });
+  const cursor = JSON.parse(Buffer.from(first.next_cursor, 'base64url').toString());
+  const row = db.prepare('SELECT data FROM agent_work_query_snapshots WHERE snapshot_id=?').get(cursor.snapshot) as { data: string };
+  const snapshot = JSON.parse(row.data);
+  for (const key of ['version', 'keywords', 'sort', 'sender_source_id', 'around_message_id']) delete snapshot[key];
+  db.prepare('UPDATE agent_work_query_snapshots SET data=? WHERE snapshot_id=?').run(JSON.stringify(snapshot), cursor.snapshot);
+  delete cursor.version;
+  const legacyCursor = Buffer.from(JSON.stringify(cursor)).toString('base64url');
+  expect(query({ action: 'search', limit: 1, cursor: legacyCursor }).messages).toHaveLength(1);
+  expect(() => query({ action: 'search', limit: 1, cursor: legacyCursor, sort: 'recent' })).toThrow('invalid_cursor');
+  expect(() => query({ action: 'search', limit: 1, cursor: legacyCursor, keywords: ['first'] })).toThrow('invalid_cursor');
 });
 
 it('keeps an anchored window fixed while newer messages arrive', () => {

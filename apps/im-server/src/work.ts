@@ -208,6 +208,7 @@ export class Work {
         );
         if (!r) throw Error();
         snapshot = JSON.parse(r.data);
+        if (snapshot!.version !== 2 && (p.keywords !== undefined || p.sort !== undefined || p.sender_source_id !== undefined || p.around_message_id !== undefined)) throw Error();
         if (
           !Number.isInteger(cursor!.offset) ||
           cursor!.offset < 0 ||
@@ -268,7 +269,7 @@ export class Work {
     if(terms.length){filters.push(`(${terms.map(() => 'instr(lower(m.content),lower(?))>0').join(' OR ')})`);values.push(...terms);}
     if(p.before){filters.push('julianday(m.created_at)<julianday(?)');values.push(p.before);}
     if(p.after){filters.push('julianday(m.created_at)>=julianday(?)');values.push(p.after);}
-    if(p.participant_id){filters.push("m.sender_user_id=? AND NOT (c.external_source IS NOT NULL AND m.sender_type='user' AND m.sender_source_id IS NOT NULL)");values.push(p.participant_id);}
+    if(p.participant_id){filters.push("m.sender_user_id=? AND NOT (c.external_source IS NOT NULL AND m.sender_type='user')");values.push(p.participant_id);}
     if(p.sender_source_id){filters.push("c.external_source IS NOT NULL AND m.sender_type='user' AND m.sender_source_id=?");values.push(p.sender_source_id);}
     const matches = targets.length ? all(this.db,
       `SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id IN (${targets.map(()=>'?').join(',')}) AND ${filters.join(' AND ')} ORDER BY ${p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' && terms.length ? terms.map(() => 'CASE WHEN instr(lower(m.content),lower(?))>0 THEN 1 ELSE 0 END').join('+') + ' DESC,' : ''} ${p.action === 'read' && !p.around_message_id ? 'm.rowid DESC' : 'julianday(m.created_at) DESC,m.id DESC'}`,...targets,...values,...(p.action === 'search' && (p.sort ?? 'relevance') === 'relevance' ? terms : [])) : [];
