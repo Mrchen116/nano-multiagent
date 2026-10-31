@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 const goalTools = ['create_goal', 'get_goal', 'update_goal'];
 it('defaults Goal tools off and honors each ordinary tool selection', async () => {
@@ -22,6 +23,7 @@ await writeFile(process.env.DSH_HOME+'/'+(agent.session.header.origin==='subagen
 ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator();await writeFile(process.env.DSH_HOME+'/'+agent.id+'.request.json',JSON.stringify(o.messages));if(o.messages.findLast(m=>m.role==='user')?.id==='hold'){await new Promise(resolve=>o.signal.addEventListener('abort',resolve,{once:true}));return;}yield{type:'block-end',index:0,block:{type:'text',text:'ordinary reply'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home, [{insert: [{id: 'goal-probe', name: join(home, 'probe.mjs')}]}]);
     client = new RuntimeClient({home, cwd: home, onLog: text => {logs += text;}});
+    registerNoopTaskHosts(client);
     const base = {knowledge:{memoryMode:'legacy'},features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false},revision:'1',provider:'deepseek-official',model:'deepseek-flash'};
     const agents = [
       {...base,agentId:'default'},

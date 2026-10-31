@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { expect, it } from "vitest";
 import { prepareProfile, RuntimeClient } from "../lib/client.js";
+import { registerNoopTaskHosts } from "./helpers/noop-task-hosts.js";
 
 it("uses the configured search backend and preserves fetch prompt extraction and raw fallback through native tools", async () => {
   const requests: string[] = [];
@@ -78,6 +79,7 @@ export function apply(ctx) {
         logs += text;
       },
     });
+    registerNoopTaskHosts(client);
     await client.rpc.request("initialize", {
       protocol: 1,
       agents: [

@@ -13,7 +13,8 @@ export interface TaskWaitInspection {
   session_id?: string;
   next_check_at?: string;
   checked_at: string;
-  reason_code?: string;
+  reason_code?: 'missing'|'inactive'|'expired'|'owner_or_session_mismatch'|'unavailable';
+  pending_occurrence_id?: string;
 }
 /** Minimum task context needed to keep a product Agent responsible for its work. */
 export interface TaskResponsibility {
@@ -34,6 +35,7 @@ export interface TaskExecutionSnapshot {
   tasks: TaskResponsibility[];
   repair_task_ids: string[];
   reason?: string;
+  repairs?: {graph_id:string;node_id:string;schedule_id:string;checked_at:string;reason_code:'missing'|'inactive'|'expired'|'owner_or_session_mismatch';reason:string}[];
 }
 /** Private invalidation hint; no task body crosses this notification. */
 export interface TaskExecutionChange { agent_ids: string[]; conversation_ids: string[] }

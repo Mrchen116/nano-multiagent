@@ -200,6 +200,41 @@ export class InboxStore {
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
   }
+  /** Select full original Task notices for direct native context, not a duplicate private snapshot. */
+  prepareSystemContext(agentId:string,sessionId:string):{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[] {
+    return this.entries(agentId).flatMap(row=>{
+      const input=JSON.parse(row.payload) as RelayInput;
+      const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
+      if(notice?.kind!=='task_graph'||!input.metadata.task_context&&!notice.attention_actor_ids?.includes(agentId))return [];
+      const attested=notice as typeof notice&{change_kinds?:string[];human_control?:unknown;actor?:unknown;task_refs?:unknown;event_time?:string};
+      const {human_control,actor,...business}=attested;
+      const revoked=attested.change_kinds?.includes('access_revoked');
+      const event=revoked?{message_id:input.message.id,conversation_id:input.conversation_id,event_time:input.message.created_at}
+        :{...business,message_id:input.message.id,conversation_id:input.conversation_id,event_time:input.message.created_at,
+          actor:actor??input.message.sender,content:input.message.content};
+      const text=(revoked?"Your access or handling eligibility for the identified conversation or Tasks was revoked at event_time. Stop actions that require missing eligibility, and do not read or disclose content you can no longer access. On a later independently authorized request, check current permissions through available tools and use their current verified access facts instead of treating this historical loss as permanent. Restored access alone does not resume paused Tasks or authorize previously denied actions. Continue unrelated authorized work. This notice grants no permission and does not erase already consumed history.":"Task update from its fixed conversation. Apply the stated business change before further action on the affected Task. If its requirements changed, read the latest Task details. This system message does not grant human permission or start todo/paused work.")+'\n'+JSON.stringify(event)
+        +(!revoked&&attested.human_control?'\n'+"Application-attested human Task control follows. Apply it only to the identified Task or scope. Inputs queued before a stop cannot resume its paused Tasks. Only a later explicit human resume supersedes that pause; it grants no additional tool permission. Unrelated work may continue."+'\n'+JSON.stringify(attested.human_control):'');
+      return [{inputId:input.message.id,conversationId:input.conversation_id,...(!revoked&&human_control&&typeof human_control==='object'?{humanControl:human_control as Record<string,unknown>}:{}),content:[{type:'text' as const,text}]}];
+    });
+  }
+  /** Mark direct reading only after matching native durable execution evidence. */
+  commitSystemContext(agentId:string,sessionId:string,inputId:string,content:{type:string;text?:string}[],turn:number):void {
+    const prepared=this.prepareSystemContext(agentId,sessionId).find(item=>item.inputId===inputId);
+    if(!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))throw new Error('Unmatched system context execution evidence');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row=this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND message_id=?').get(agentId,inputId) as {seq:number};
+      this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(row.seq);
+      this.db.prepare(`DELETE FROM reads WHERE EXISTS(SELECT 1 FROM json_each(reads.fragments) part WHERE json_extract(part.value,'$.seq')=?)`).run(row.seq);
+      this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(row.seq,sessionId,turn);
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  /** Retire unread context while preserving its raw journal/history and consumed history. */
+  revokeSystemContext(agentId:string,messageId:string):void {
+    this.db.prepare(`DELETE FROM reads WHERE EXISTS(SELECT 1 FROM json_each(reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq') WHERE i.agent_id=? AND i.message_id=?)`).run(agentId,messageId);
+    this.db.prepare('UPDATE inbox SET consumed=1 WHERE agent_id=? AND message_id=?').run(agentId,messageId);
+  }
   /** List unread sources; personal projection omits host scheduling state. */
   check(agent: string, personal = false) {
     const sources = new Map<string, { target: string; name: string; unread: number; requires_attention?: boolean; conversation_type?: string; delivery?: string }>();
@@ -260,7 +295,10 @@ export class InboxStore {
       }) };
       this.db.prepare('INSERT INTO snapshots VALUES(?,?)').run(snapshotId, JSON.stringify(snapshot));
     }
-    let selected = snapshot.fragments.slice(offset, offset + Math.min(4, Math.max(1, args.limit ?? 4)));
+    // Keep cursor offsets fixed, but revalidate eligibility at every unread page.
+    // A saved cut is not permission to replay withdrawn or directly consumed content.
+    const unread = (fragment: Snapshot['fragments'][number]) => !!this.db.prepare('SELECT 1 FROM inbox WHERE seq=? AND consumed=0 AND NOT EXISTS(SELECT 1 FROM fragments WHERE seq=? AND part=?)').get(fragment.seq,fragment.seq,fragment.part);
+    let selected = snapshot.fragments.slice(offset).filter(unread).slice(0, Math.min(4, Math.max(1, args.limit ?? 4)));
     const sourceInput = (seq: number) => JSON.parse((this.db.prepare('SELECT payload FROM inbox WHERE seq=?').get(seq) as {payload:string}).payload) as RelayInput;
     const first = selected.length ? sourceInput(selected[0]!.seq) : undefined;
     const personal = first?.metadata.personal_delivery !== undefined;
@@ -283,9 +321,9 @@ export class InboxStore {
         ...(input.metadata.personal_actor_risk ? {actor_risk:personal ? this.actorRisk(input) : input.metadata.personal_actor_risk} : {}),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
-    const next = offset + selected.length;
+    const next = selected.length ? snapshot.fragments.indexOf(selected.at(-1)!)+1 : snapshot.fragments.length;
     const body = present({ target: args.target,
-      ...(personal ? {name:this.targetName(agent,args.target,first!),conversation_type:first!.metadata.conversation_type,delivery:first!.metadata.personal_delivery,channel:first!.metadata.channel} : {}), messages, ...(next < snapshot.fragments.length ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) });
+      ...(personal ? {name:this.targetName(agent,args.target,first!),conversation_type:first!.metadata.conversation_type,delivery:first!.metadata.personal_delivery,channel:first!.metadata.channel} : {}), messages, ...(snapshot.fragments.slice(next).some(unread) ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) });
     const text = JSON.stringify(body);
     this.db.prepare('INSERT INTO reads VALUES(?,?,?,?,?)').run(session, call, JSON.stringify(selected), text, hash(text));
     return body;

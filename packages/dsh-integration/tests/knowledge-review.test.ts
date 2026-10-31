@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('keeps maintenance out of agent discovery while preserving its cold trajectory and tool evidence', async () => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
@@ -15,6 +16,7 @@ it('keeps maintenance out of agent discovery while preserving its cold trajector
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'combined-fixture',name:join(home,'fixture.mjs')}]}]);
     const start = async () => {
       client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});
       await client.rpc.request('session.ensure',binding);
     };
@@ -92,6 +94,7 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'lifecycle-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);
     const submit=async(inputId:string)=>{
       await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'followup',content:[{type:'text',text:inputId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});
@@ -113,6 +116,7 @@ export function apply(ctx){const steps=new Map();ctx.on('llm/stream',async funct
     expect((await facts()).reviews.filter(r=>r.status==='running')).toHaveLength(1);
     await client.shutdown(); client=undefined;
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]}); await client.rpc.request('session.ensure',binding);
     await expect.poll(async()=>(await facts()).reviews.filter(r=>r.status==='cancelled').length).toBe(1);
     expect((await facts()).facts).toEqual([expect.objectContaining({kind:'memory'})]);
@@ -142,6 +146,7 @@ it.each(['legacy','document'])('keeps F3 and F4 paused across usage thresholds, 
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'f4-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings});
     for(const binding of bindings) {
       await client.rpc.request('session.ensure',binding);
@@ -162,6 +167,7 @@ it.each(['legacy','document'])('keeps F3 and F4 paused across usage thresholds, 
     expect(JSON.parse(await readFile(join(root,'.usage.json'),'utf8'))['verified-method'].use_count).toBeGreaterThanOrEqual(22);
     await client.shutdown();client=undefined;
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings});
     await client.rpc.request('session.ensure',bindings[0]);
     await use('first',21);
@@ -183,6 +189,7 @@ it('rejects legacy Memory writes and retains the interval after incomplete reads
   try{
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'incomplete-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:t=>{logs+=t;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);
     const submit=async(inputId:string)=>{await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'followup',content:[{type:'text',text:inputId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId})as{terminal?:unknown}).terminal).toBeTruthy();};
     const facts=async()=>await client!.rpc.request('knowledge.facts',{})as{reviews:{kind:string;status:string;diagnostic?:string}[];facts:{kind:string}[]};

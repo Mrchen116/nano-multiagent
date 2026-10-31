@@ -30,6 +30,24 @@ it('only consumes exact durable read fragments, across restart and a frozen page
     expect(() => store.read('bob', 'other', 'call-3', { target: 'group-a', cursor: String(page.next_cursor) })).toThrow('cursor');
   } finally { store.close(); rmSync(dir, { recursive: true }); }
 });
+it.each(['revoked','directly consumed'] as const)('does not expose a %s Task on an unread page of an older frozen cursor', state => {
+  const store=new InboxStore(':memory:');
+  try {
+    store.receive(input('ordinary','first page'),true);
+    const task=input('task','UNCONSUMED_TASK_REQUIREMENTS');
+    task.message.system_notice={kind:'task_graph',attention_actor_ids:['alice']};
+    task.metadata.task_context=true;
+    store.receive(task,true);store.receive(input('later','still eligible'),true);
+    const first=store.read('alice','main','page-1',{target:'group-a',limit:1});
+    expect(store.commitRead('main','page-1',[{type:'text',text:JSON.stringify(first)}],false)).toBe(true);
+    if(state==='revoked')store.revokeSystemContext('alice','task');
+    else {const prepared=store.prepareSystemContext('alice','main')[0]!;store.commitSystemContext('alice','main','task',prepared.content,1);}
+    const next=store.read('alice','main','page-2',{target:'group-a',cursor:String(first.next_cursor),limit:1});
+    expect(next).toMatchObject({messages:[{id:'later'}]});
+    expect(JSON.stringify(next)).not.toContain('UNCONSUMED_TASK_REQUIREMENTS');
+    expect(next).not.toHaveProperty('next_cursor');
+  } finally {store.close();}
+});
 it('keeps duplicate ingress stable and separates background and other-target messages from send revalidation', () => {
   const store = new InboxStore(':memory:');
   try {

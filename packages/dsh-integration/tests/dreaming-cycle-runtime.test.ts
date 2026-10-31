@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect,it} from 'vitest';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('commits each successful prefix, then freezes a fresh target after a later batch fails',async()=>{
   const home=await mkdtemp(join(tmpdir(),'dreaming-cycle-'));let client:RuntimeClient|undefined;
@@ -30,6 +31,7 @@ export function apply(ctx){
   try{
     await prepareProfile(home,[{insert:[{id:'cycle-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});
+    registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxInputTokens:1000}},toolAllowlist:['read','write','edit','memory_maintenance'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);

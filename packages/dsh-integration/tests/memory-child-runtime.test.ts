@@ -6,6 +6,7 @@ import {Context} from '@deepseek-ai/cordis';
 import {LocalFileSystem} from '@deepseek-ai/dsh-fs-local';
 import {MemoryDocuments} from '../src/knowledge/memory-documents.js';
 import {RuntimeClient,prepareProfile} from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('refreshes the same native child after host-applied correction and pending/revoked source authority',async()=>{
   const home=await mkdtemp(join(tmpdir(),'memory-child-refresh-'));let client:RuntimeClient|undefined;let logs='';
@@ -21,6 +22,7 @@ if(child&&n<2){await writeFile(process.env.DSH_HOME+'/waiting-'+n,'ready');while
   try{
     await prepareProfile(home,[{insert:[{id:'child-memory-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,onLog:s=>{logs+=s;}});
+    registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},toolAllowlist:['read','write','subagent']}],bindings:[]});
     await client.rpc.request('session.ensure',binding);

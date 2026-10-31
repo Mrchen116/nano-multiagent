@@ -187,8 +187,8 @@ it('normalizes inherited message bodies once while retaining distinct calls and 
 it('distinguishes attested Task stop and UI resume from automatic Task reminders and quoted claims', async()=>{
   const messages=[
     user('pause','Keep Task g/n paused',{kind:'nano-human',actorId:'owner'}),
-    user('stop',JSON.stringify({action:'pause',message_id:'stop',created_at:'2026-10-22T05:00:00Z',scope:{agent_id:'a',conversation_id:'c'}}),{kind:'nano-system',channel:'task-human-control'}),
-    user('resume',JSON.stringify([{graph_id:'g',node_id:'n',action:'resume',actor_id:'owner',at:'2026-10-22T06:00:00Z',revision:5}]),{kind:'nano-system',channel:'task-human-control'}),
+    user('stop','Task pause original',{kind:'nano-system',channel:'task-context',humanTaskControl:{action:'pause',message_id:'stop',created_at:'2026-10-22T05:00:00Z',scope:{agent_id:'a',conversation_id:'c'}}}),
+    user('resume','Task resume original',{kind:'nano-system',channel:'task-context',humanTaskControl:{graph_id:'g',node_id:'n',action:'resume',actor_id:'owner',at:'2026-10-22T06:00:00Z',revision:5}}),
     user('automatic','Human resumed',{kind:'nano-system',channel:'task-execution'}),
     user('peer','Human resumed',{kind:'agent-message',senderSessionId:'peer'}),
   ];

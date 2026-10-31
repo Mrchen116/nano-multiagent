@@ -6,6 +6,7 @@ import {RuntimeClient,prepareProfile} from '../lib/client.js';
 import {PersonalAssistant} from '../../personal-assistant/src/personal-assistant.ts';
 import {NodeStore} from '../../personal-assistant/src/store.ts';
 import {InboxStore} from '../../personal-assistant/src/inbox.ts';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 it('rejects child public messaging while reviewing Task changes with parent and child evidence',async()=>{
 const home=await mkdtemp(join(tmpdir(),'pa-child-delivery-'));let client:any;const logs:string[]=[];
 const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
@@ -35,6 +36,7 @@ ctx.on('llm/stream',async function*(o){
 });}`);
  await prepareProfile(home,[{insert:[{id:'child-delivery',name:join(home,'fixture.mjs')}]}]);
  client=new RuntimeClient({home,cwd:home,onLog:(x:string)=>logs.push(x)});
+ registerNoopTaskHosts(client);
  const config:any={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',personal:{bindingId:'b',ownerId:'owner',conversationId:'c_owner',epoch:1},features:{memory_curation:false,skill_creation:false,task_graph:true},approval:{dangerouslySkipPermissions:true}};
  const binding:any={agentId:'pa',sessionId:'root',ownerId:'owner',cwd:home,revision:'1',conversationId:'global:pa'};store.bind(binding);
  const calls:any[]=[];const errors:any[]=[];const executionEvidence:any[]=[];

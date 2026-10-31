@@ -1,18 +1,21 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fixture } from './control-fixture.js';
 import { TaskGraphService } from '../src/task-graphs.js';
+import { Messaging } from '../src/messaging.js';
 import { applyMigration, inspectMigration, verifyMigration } from '../src/migrate-task-collaboration.js';
 
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) rmSync(path, { recursive: true }); });
 
 it('migrates an evidenced Agent assignee before personal-space columns exist', async () => {
-  const { db } = fixture();
-  const graph = new TaskGraphService(db).execute({ kind: 'user', id: 'u1' }, 'create', {
+  const { db, ctx } = fixture();
+  ctx.gateway.broadcast = vi.fn();
+  ctx.messaging = new Messaging(ctx);
+  const graph = new TaskGraphService(db, ctx.messaging).execute({ kind: 'user', id: 'u1' }, 'create', {
     title: 'Legacy task', mode: 'dag', conversation_id: 'chat', request_key: 'legacy',
   });
   const document = JSON.parse(db.prepare('SELECT document_json FROM task_graphs').get()!.document_json as string);

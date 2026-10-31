@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { expect, it } from 'vitest';
 import { approvalDefaults } from '@nano/product-contracts';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 const require = createRequire(import.meta.url);
 
 it('continues one admitted input on the backup and restores successful sticky selection after restart', async () => {
@@ -56,6 +57,7 @@ it('continues one admitted input on the backup and restores successful sticky se
           logs += text;
         },
       });
+      registerNoopTaskHosts(client);
       client.rpc.handle('model.check', () => ({ published: false }));
       await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
       await client.rpc.request('session.ensure', binding);
@@ -181,6 +183,7 @@ class Fixture extends LlmAdapter{
           logs += text;
         },
       });
+      registerNoopTaskHosts(client);
       let checked = 0;
       let release: () => void = () => {};
       const gate = new Promise<void>((resolve) => {
@@ -219,6 +222,7 @@ class Fixture extends LlmAdapter{
             logs += text;
           },
         });
+        registerNoopTaskHosts(client);
         client.rpc.handle('model.check', () => ({ published: false }));
         await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
         await client.rpc.request('session.ensure', binding);

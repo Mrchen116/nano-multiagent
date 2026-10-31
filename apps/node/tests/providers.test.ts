@@ -8,6 +8,12 @@ import { NodeConfiguration } from "../src/configuration.js";
 import { providerProfiles } from "../src/providers.js";
 import { ModelSetup } from "../src/model-setup.js";
 
+// These native fixtures have no Task data; register their product context host explicitly.
+function registerEmptyTaskContext(client: RuntimeClient): void {
+  client.rpc.handle("product.task_context.prepare", () => ({ messages: [], revoked: [] }));
+  client.rpc.handle("product.task_context.commit", () => null);
+}
+
 it("keeps built-in provider identity separate from the service label after cold initialization", async () => {
   const home = await mkdtemp(join(tmpdir(), "nano-provider-catalog-"));
   let client: RuntimeClient | undefined;
@@ -15,6 +21,7 @@ it("keeps built-in provider identity separate from the service label after cold 
     await prepareProfile(home, [{ id: "llm-pi-ai", config: { providers: {} } }]);
     const catalog = async (providers: Record<string, unknown>) => {
       client = new RuntimeClient({ home, cwd: home });
+      registerEmptyTaskContext(client);
       await client.rpc.request("initialize", { protocol: 1, agents: [], bindings: [], providers });
       const entries = await client.rpc.request("model.setup.catalog", {}) as Array<{ provider: string; display_name: string }>;
       await client.shutdown(); client = undefined;
@@ -66,6 +73,7 @@ it("keeps the remaining legacy service credential in the same live session after
     const initial = providerProfiles(config.value.llm);
     await prepareProfile(home, [{ id: "llm-pi-ai", config: { providers: {} } }]);
     client = new RuntimeClient({ home, cwd: home, env: initial.env });
+    registerEmptyTaskContext(client);
     await client.rpc.request("initialize", { protocol: 1, agents: [], bindings: [], providers: initial.providers });
     setup = new ModelSetup(config, {
       request: (method, params) => client!.rpc.request(method, params),
@@ -192,6 +200,7 @@ it("sends adaptive thinking and selectable proxy effort through the actual nativ
         logs += value;
       },
     });
+    registerEmptyTaskContext(client);
     const agents = [
       config.runtime({
         agent_id: "adaptive",

@@ -1,3 +1,4 @@
+import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,7 +36,7 @@ ctx.on('llm/stream',async function*(o){
 });}`);
     await prepareProfile(home, [{ insert: [{ id: 'global-child-tools-fixture', name: join(home, 'fixture.mjs') }] }]);
     const start = async () => {
-      client = new RuntimeClient({ home, cwd: home, onLog: value => { logs += value; } });
+      client = new RuntimeClient({ home, cwd: home, onLog: value => { logs += value; } });registerNoopTaskContext(client);
       client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [], repair_task_ids: [] }));
       client.rpc.handle('product.call', value => { calls.push(value as any); throw new Error('Internal coordination must not use product messaging'); });
       await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
@@ -66,6 +67,7 @@ ctx.on('llm/stream',async function*(o){
     expect(calls).toEqual([]);
     const descendants = await client!.rpc.request('session.descendants', { sessionId: 'root' }) as any[];
     for (const child of descendants) {
+      expect(child.kind,JSON.stringify(child)).toBe('child');
       const results = child.events.filter((event: any) => event.type === 'tool/result');
       const continuable = child.events.find((event: any) => event.type === 'subagent/descriptor').data.mode === 'continuable';
       expect(results).toHaveLength(continuable ? (before.find(row => row.id === child.id)?.parent === 'root' ? 2 : 1) : 0);

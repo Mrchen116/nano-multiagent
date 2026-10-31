@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect,it} from 'vitest';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each(['valid','invalid-json','missing-field','one-empty','unsafe-slug'])('validates extraction output (%s), reuses and replaces successful summaries with scoped recovery',async mode=>{
   const home=await mkdtemp(join(tmpdir(),'dreaming-task-runtime-'));let client:RuntimeClient|undefined;let logs='';
@@ -70,6 +71,7 @@ export function apply(ctx){
   try{
     await prepareProfile(home,[{insert:[{id:'task-memory-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxSteps:24,maxRunMs:1}},toolAllowlist:['read','write','edit','memory_maintenance','subagent','subagent_fork'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
@@ -168,6 +170,7 @@ export function apply(ctx){
       {insert:[{id:'shared-budget',name:join(home,'fixture.mjs')}]},
     ]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'fixture',model:'test',features:{dreaming:false},knowledge:{dreaming:{maxInputTokens:oversized?5000:9000}},toolAllowlist:['read','write','edit','memory_maintenance','subagent','subagent_fork'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);

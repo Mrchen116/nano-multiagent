@@ -10,6 +10,8 @@ import { ToolSelection } from './capabilities.js';
 import { mountExtensions } from './extensions.js';
 import * as Persona from '@deepseek-ai/dsh-persona';
 import * as GlobalMode from './global-mode.js';
+import * as ContextOrder from './context-order.js';
+import * as ContextVisibility from './context-visibility.js';
 import * as TaskGraphs from './features/task-graphs.js';
 import * as Heartbeat from './features/heartbeat.js';
 import * as IntelligentUI from './features/intelligent-ui.js';
@@ -138,6 +140,8 @@ export class ConfigurationScopes extends Service {
     }
     if (config.personal && agent.session.header.origin !== 'subagent') await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
+    await agent.ctx.plugin(ContextOrder).await();
+    if (agent.session.header.origin === 'subagent') await agent.ctx.plugin(ContextVisibility).await();
   }
   async setFeatures(agentId: string, features: Record<string, boolean>): Promise<void> {
     for (const config of this.allConfigurations()) if (config.agentId === agentId) config.features = { ...features };

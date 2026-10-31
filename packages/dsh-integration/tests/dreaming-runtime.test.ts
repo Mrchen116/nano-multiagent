@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each([false, true])('runs empty-context manual Dreaming with real reads, staged application and a host receipt (personal=%s)', async personal => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
@@ -10,6 +11,7 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'dream-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     let refreshes=0;
     client.rpc.handle('product.call',async(value:any)=>{
       expect(value.method).toBe('memory.sources.refresh');expect(value.agentId).toBe('a');refreshes++;
@@ -59,6 +61,7 @@ it.each([false, true])('runs empty-context manual Dreaming with real reads, stag
     expect(await client.rpc.request('session.descendants', { sessionId: binding.sessionId })).toEqual([]);
     await client.shutdown();
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',configuration);
     const cold = await readTrajectory();
     expect(cold).toEqual(warm);
@@ -99,6 +102,7 @@ ctx.on('llm/stream',async function*(request){
       {insert:[{id:'capacity-fixture',name:join(home,'fixture.mjs')}]},
     ]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',features:{dreaming:false},toolAllowlist:['read','write','edit','memory_maintenance']}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);

@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { parseNanoDecision, parseDshDecision, buildPolicy } from '../src/policy/rules.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('parses only valid verdicts and keeps malformed reviews distinct from denials', () => {
   expect(parseNanoDecision('<thinking><block>yes</block></thinking><block>no</block>')).toEqual({ behavior: 'allow', reason: 'Allowed by classifier' });
@@ -36,6 +37,7 @@ export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exe
 });}`);
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture'}]}}}},{insert:[{id:'message-approval-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    registerNoopTaskHosts(client);
     const sent:string[]=[];
     client.rpc.handle('product.call',value=>{
       const call=value as {method:string;args:{target:string};agentId:string};
@@ -99,6 +101,7 @@ export function apply(ctx) {
   try {
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main-model' }, { id: 'review-model', reasoningEfforts: { low: 'low' } }] } } } }, { insert: [{ id: 'approval-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const requests: Record<string, unknown>[] = [];
     client.rpc.onNotification((method, value) => { if (method === 'approval.request') { requests.push(value as Record<string, unknown>); const request = value as { requestId: string; sessionId: string };
       if (['approval-timeout', 'approval-threshold'].includes(request.sessionId)) return;
@@ -143,6 +146,7 @@ export function apply(ctx) {
     expect(fault.approvals.filter(event => event.source === 'classifier_unavailable')).toEqual([expect.objectContaining({ decision: 'no_verdict', consecutive: 0, total: 0 })]);
     await client.shutdown(); client = undefined;
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const bindings = agents.map(config => ({ sessionId: `approval-${config.agentId}`, agentId: config.agentId, revision: config.revision, ownerId: 'owner', cwd: home }));
     await client.rpc.request('initialize', { protocol: 1, agents, bindings });
     await client.rpc.request('session.ensure', bindings.find(binding => binding.agentId === 'threshold'));
@@ -219,6 +223,7 @@ export function apply(ctx) {
       approval: { ...approvalDefaults, enabled: agentId !== 'manual', globalRoot: home, rules: agentId === 'dsh' ? 'dsh' : 'nano' },
     }));
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const effects: { method: string; sessionId: string }[] = [];
     client.rpc.handle('product.call', value => {
       const call = value as { method: string; sessionId: string };
@@ -290,6 +295,7 @@ export function apply(ctx){
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main', contextWindow: 1000000 }, { id: 'review', contextWindow: 258400 }, { id: 'tiny', contextWindow: 4096 }] } } } },
       { insert: [{ id: 'review-context-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' } });
+    registerNoopTaskHosts(client);
     const reads = new Map<string, number>();
     client.rpc.handle('product.call', value => {
       const call = value as { method: string; sessionId: string };

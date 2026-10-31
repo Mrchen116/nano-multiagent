@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('preserves legacy Memory-fork wire prefixes, enforces execution-only limits and groups concurrent roots', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-attribution-'));
@@ -35,6 +36,7 @@ it('preserves legacy Memory-fork wire prefixes, enforces execution-only limits a
     const bindings = agents.map(agent => ({ sessionId: `global-${agent.agentId}`, agentId: agent.agentId, revision: '1', ownerId: 'owner', cwd: join(home, agent.agentId) }));
     for (const binding of bindings) await mkdir(binding.cwd);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents, bindings });
     for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     await Promise.all(bindings.map(binding => client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: binding.sessionId, mode: 'followup', content: [{ type: 'text', text: `Inspect skills for ${binding.sessionId}` }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: binding.sessionId } })));

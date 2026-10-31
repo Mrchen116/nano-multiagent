@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('keeps tool-only schedules alive across restart and fences Cron shutdown against new schedules', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-cron-'));
@@ -12,6 +13,7 @@ it('keeps tool-only schedules alive across restart and fences Cron shutdown agai
   const binding = {sessionId: 'session-a', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home};
   const start = async () => {
     client = new RuntimeClient({home, cwd: home});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', {protocol: 1, agents: [agent], bindings: [binding]});
     await client.rpc.request('session.ensure', binding);
   };
@@ -84,12 +86,14 @@ it('recovers admitted schedule identity when the process dies before the timer r
     }`);
     await prepareProfile(home, [{ insert: [{ id: 'flush-fault', name: fault }] }]);
     client = new RuntimeClient({ home, cwd: home });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents: [agent], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
     const task = await client.rpc.request('schedule.command', { agentId: 'gap', sessionId: binding.sessionId, action: 'create', args: { title: 'gap', prompt: 'gap', after_seconds: 1 } }) as { id: string };
     expect((await client.exited).signal).toBe('SIGKILL'); client = undefined;
     await prepareProfile(home); agent.features.cron_scheduling = false;
     client = new RuntimeClient({ home, cwd: home });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents: [agent], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
     const catalog = await client.rpc.request('schedule.command', { agentId: 'gap', action: 'catalog' });

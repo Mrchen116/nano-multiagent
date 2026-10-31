@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('refreshes retained profile links and cold-recovers a durably accepted input', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-dsh-profile-'));
@@ -35,6 +36,7 @@ it('refreshes retained profile links and cold-recovers a durably accepted input'
     await prepareProfile(home);
     expect(await Promise.all(links.map(path => readlink(path)))).toEqual(targets);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     expect(await client.rpc.request('initialize', config)).toMatchObject({ protocol: 1, version: '0.2.1-alpha.1' });
     await client.rpc.request('session.ensure', binding);
     const input = { sessionId: binding.sessionId, inputId: 'stable-input', mode: 'inject',
@@ -45,6 +47,7 @@ it('refreshes retained profile links and cold-recovers a durably accepted input'
     client.process.kill('SIGKILL');
     await client.exited;
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', config);
     await client.rpc.request('session.ensure', binding);
     expect(await client.rpc.request('session.lookup', { sessionId: binding.sessionId, inputId: input.inputId })).toMatchObject({ accepted: true, pending: true });
@@ -54,6 +57,7 @@ it('refreshes retained profile links and cold-recovers a durably accepted input'
     await client.shutdown();
     // Native owner disposal cancels pending work; that cancellation must survive.
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', config);
     await client.rpc.request('session.ensure', binding);
     expect(await client.rpc.request('session.lookup', { sessionId: binding.sessionId, inputId: input.inputId })).toMatchObject({
@@ -77,6 +81,7 @@ it('emits liveness from a real running native Agent while the model is silent', 
     await writeFile(join(home, 'quiet.mjs'), `export const name='quiet'; export const inject=['llm']; export function apply(ctx){ctx.on('llm/stream',async function*(o){await new Promise(resolve=>{const timer=setTimeout(resolve,60000);o.signal.addEventListener('abort',()=>{clearTimeout(timer);resolve();},{once:true});});o.signal.throwIfAborted();yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home, [{insert:[{id:'quiet',name:join(home,'quiet.mjs')}]}]);
     client = new RuntimeClient({home,cwd:home});
+    registerNoopTaskHosts(client);
     const notifications: {method: string; data: unknown}[] = [];
     client.rpc.onNotification((method,data)=>notifications.push({method,data}));
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[]});

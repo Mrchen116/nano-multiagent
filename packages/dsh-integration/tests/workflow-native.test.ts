@@ -5,6 +5,7 @@ import { expect, it } from "vitest";
 import { deriveTurnTokenUsage } from "@deepseek-ai/dsh-token-meter/client";
 import { outputTokens } from "../src/workflow/budget.js";
 import { prepareProfile, RuntimeClient } from "../lib/client.js";
+import { registerNoopTaskHosts } from "./helpers/noop-task-hosts.js";
 
 const until = (fn: () => unknown, options = {}) =>
   expect.poll(fn, { timeout: 10000, ...options });
@@ -62,6 +63,7 @@ export async function apply(ctx) {
         env: { NANO_OWNER_CONFIG_ROOT: join(home, "owner"), ...(appendChild?{NANO_FIXTURE_APPEND_CHILD:appendChild}:{}) },
         onLog: (text) => (logs += text),
       });
+      registerNoopTaskHosts(client);
       await client.rpc.request("initialize", {
         protocol: 1,
         agents: [
@@ -97,7 +99,7 @@ export async function apply(ctx) {
       }) as Promise<any[]>;
     await until(async () => (await read())[0]?.state, { timeout: 15000 }).toBe(
       "completed",
-    );
+    ).catch(async error=>{throw new Error(String(error)+"\nWorkflow state: "+JSON.stringify(await read()),{cause:error});});
     const parentObservation = (await client!.rpc.request("session.observe", {
       sessionId: "workflow",
     })) as { events: import("@deepseek-ai/dsh-session").SessionEvent[] };
