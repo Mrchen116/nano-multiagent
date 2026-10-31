@@ -367,3 +367,40 @@ WARNING 已 closed，新增 CRITICAL / WARNING / SUGGESTION 均无；本轮 alig
 Gateway / PA / IM 产品 **no spec delta**：新增只在评测装配显式使用的 IM offline export 与 product port，未修改生产权限、工具/RPC、正常查询或当前运行行为。真实变化是 benchmark 的信息边界，已在 canonical `evals/memory/README.md` 写明 protocol v3 / Nano v6、memory+chat retrieval、旧证据不可混用、独立副本及当前串行调度限制；索引入口既有且文档完整性通过。没有发现 unit diff 遗漏的对外行为、实现偏离设计或设计自身不合理项。
 
 CRITICAL / WARNING / SUGGESTION 均无；本 delta **aligned**，`requires_full_verification=false`。已授权的确定性完成度成立，真实模型效果保持未验证，不增加预算门禁。
+
+
+## Round 8 — 父分支同步后 TaskContext 适配 delta
+
+- reviewer_target: `/root/sync_static_review`，独立 verifier，未参与实现。
+- verification_mode: `delta`；review_round: `8`
+- fix_delta_range: `0d6a534a5376bfc6e8e707c270fa6553fab7677c..f09f44c4ecf66672b21834cc76e7a7eee4eea31c`
+- validated_at: `f09f44c4ecf66672b21834cc76e7a7eee4eea31c`
+- stacked_parent: `68074e8c4e27eb7efb08af5e40cfec30976fff58` 已合入；main merge-base=`f01ee218b10efccbfc3fa41bac14e73b9c5a9027`，不合 unrelated main。
+- branch: `codex/feat-677-memory-evaluation`；开工 clean，执行中其他角色的 spec 研究范围记录保留且不改变本次已确认 LongMemEval 要求。
+- verdict: **pass**；outcome: **aligned**；`requires_full_verification=false`
+- CRITICAL: 0; WARNING: 0; SUGGESTION: 0
+
+### Completeness / Correctness / Coherence
+
+仅核适配 fix delta 和必要 upstream 影响，按 unit spec 的机制可替换、冷答题及正常聊天检索 scenarios、design 的 M1/产品复用决定、current PA 全来源资格规则和 Context 规范对照。Round 7 与此前未变场景的有效结论 retained；没有重验全部 M1 或整个父分支。Prototype / Reference Contract：N/A；无生产迁移。
+
+| 契约 / 设计决定 | 实现与直接证据 | 状态 |
+|---|---|---|
+| 产品机制更新可由 Nano 适配局部跟进，通用协议不耦合内部算法 | `evaluation.ts:205-206` 接公开 product port；`nano-product.ts:49-50,65-67` 使用产品 TaskContext，通用 Runner/judge 未改 | aligned |
+| 冷答题必须能按真实产品链路继续工作 | 红 probe 首请求前 Unknown method；独立修复 probe prepare ready / answer completed、实际 sent 与 Paris；不是以工具 schema 存在代替结果 | aligned |
+| 来源同步先于组装，身份及访问由宿主确定 | `evaluation.ts:127-131` 固定本题 PA 权威；产品 TaskContext 先 refreshSources 再固定范围同步，prepare/commit 均接原实现；DB task index=0 符合 dialogue-only 数据 | aligned |
+| 历史时间、冷上下文、按需读取与恢复边界保留 | 准备实际 source directory 的 root 与 available_before 对应原历史；冷首请求无准备正文/Notes，Inbox 后续原时间与 owner 可见；History 旧标记为空，conversations 成功，越界读取拒绝两次 | aligned |
+| 测试不绑定被测实现的内部字段或同刻搜索顺序 | runtime 测试核同一 root/时间边界和完整消息集合；没有删除原文、未来排除、实际结果、限额、委派/取消/并行隔离的原保护；专项 6 files / 17 tests passed | aligned |
+| 协议/候选身份与架构边界正确 | protocol v3、adapter v6 与允许材料/评分规则不变；candidate 纳入变动构建字节；PA/IM 公开导出由 evals 组合，未引入生产 runtime/RPC/权限修改 | aligned |
+
+### Context 与执行证据
+
+复用同一独立 reviewer 的 code-review.md Round 8 Implementation Review，不额外重复完整 Context Review。读取红/绿专项与 build 日志，并独立以 Node 24.22.1 重跑 `/tmp/feat677-sync-probe.mts`；日志 `/tmp/feat677-sync-static-review-probe.log`。现场 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-sync-probe-5VzdeT/` 的 `prepare-dRcAyC/requests.jsonl`、`answer-6dRnG0/{requests.jsonl,answer.json}`，证明 98 次准备请求 ready、16 次答题请求 completed、两次越界拒绝和实际公开本地交付。读取了最终 system/tools/messages、实际工具结果及恢复后的后续请求，非仅源码推断。PID 5490 / 6175 已退出；没有服务、额外 worktree、真实模型/judge 或生产操作。全量由 owner 负责，本报告不代替最终交付检查。
+
+本轮没有非空 Task 数据，验证的是现有同步/回执接线及空范围，不声称已验 Task 消息撤销/故障恢复。HTTP wire、真实模型策略/质量、正式分数与大规模吞吐继续未验证；确定性 Paris 不是 benchmark 效果分数。
+
+### Delta reconciliation / Issues
+
+Gateway / PA / IM 产品 **no spec delta**。本 patch 只修离线评测 composition 与专用 port，沿用父分支既有产品同步；未新增产品行为、工具/RPC、Task 数据或上下文算法。父分支提示/检索更新影响 candidate 构建身份，允许来源、冷边界、prepare/answer/score 规则无变化，因此 protocol v3 / Nano v6 保持，与 canonical suite README 的新增同步说明对齐。并行 DolphinBench/FrontierMemory 研究不构成新适配器或跑量实施授权，不纳入本次实现完成度。
+
+没有发现遗漏对外行为、实现偏离设计或设计本身不合理项。CRITICAL / WARNING / SUGGESTION 均无；delta **aligned**，`requires_full_verification=false`。仅追加本报告与 code-review.md，未提交；未扩大为 full 验证。

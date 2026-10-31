@@ -271,3 +271,47 @@ Round 3 不受影响的数据保真、官方评分规则、报告分母、固定
 Reference Artifacts Reviewed=N/A：CLI/候选 API 用户入口，无 UI、viewport、原型或 daily 常驻服务需求。README 已说明协议升级、原历史按需检索、旧快照不可改名复用、CLI 仍顺序调度及未来多实例并行边界；维护者能区分计划、执行、机制通过与正式效果。无新增文档同步要求或产品问题。
 
 探针通过 finally 调用 close，主进程 exit 0；随后 `ps` 核对没有带本探针目录或 evaluation/runtime 的残留进程。没有 HTTP 监听、生产连接或真实模型调用；运行证据留在仓库外且未删除。只追加本 Round；未提交（report_commit=none），由 owner 收口。无阻塞事项。
+
+## Round 7 — 父分支更新与 TaskContext 适配 targeted acceptance
+
+> mode=full；revalidation_mode=targeted；review_round=7；2026-11-01。validated_at=`f09f44c4ecf66672b21834cc76e7a7eee4eea31c`；fix_delta_range=`0d6a534a5376bfc6e8e707c270fa6553fab7677c..f09f44c4ecf66672b21834cc76e7a7eee4eea31c`；executed_base=`f01ee218b10efccbfc3fa41bac14e73b9c5a9027`。分支 `codex/feat-677-memory-evaluation`，HEAD 精确匹配；开始已有并行文档修改（spec/code-review/verification），未改动受验源码。prior=本文件 Round 6（`067850180ea388d92197fbf59546f464cafecb1b`）。仅验父分支同步后的 CLI 与冷答题产品旅程，不审实现根因、不评两份新增 benchmark 研究。
+
+**Verdict：pass（本地确定性机制的 targeted 交付范围）**。0 blocking / 0 major / 0 minor；highest_required_action=pass；needs_re_review=false。真实模型、真实 judge、正式 benchmark 分数与生产调用全部 not_run。
+
+### 独立观察与证据
+
+按 change-reviewer 阅读 spec/design Runbook、suite README、current Global Inbox/历史及 PA 关系约束，使用项目 Node v24.22.1 PATH。独立执行默认 plan、无授权 run、无授权 score，完整命令/退出码/输出在 `/tmp/feat677-sync-acceptance/cli-0.json` 至 `cli-2.json`。计划 exit 0，1 题/2 sessions/4 messages、`modelCallsStarted=0`、protocol v3 / adapter v6；protocolId 仍为 `42d7aa71a68fa8898690c1a17838c1d2ac71763ed2d6830fe9c5bc8d27d3449c`。run/score 均 exit 1，明确提示 `Model execution is disabled; pass --allow-model-calls explicitly`。
+
+计划 `/tmp/feat677-sync-acceptance/plan/plan.json` 记录 sourceCommit=f09f44、dirty=true（并行报告/需求文档修改），没有伪称 clean。runtimeHash=`0124188a18090c0f2a3e3551360bca78a33bb7597b1de3531e77ef37fe6c224a`，productHash=`a4e6ed2fb8e800cd9e60037725d3461b5e416955352a789acd3ecda81fbe91ae`，chatHash=`86cd91fa6c7d57e959f0fb05093708b3fe6e13f54716462b2c6852d4da8ca3d7`。复用 `/tmp/feat677-sync-build-fixed.log` 构建：caller 确认先在 merge HEAD 的工作区写入最终适配源码再构建，之后仅调整测试断言与文档并提交 f09f44，应用/适配源码未再改；日志安装包标记 0d6a534 是构建时 HEAD，不作为已发布 f09f44 安装包证据。本轮使用同源码本地构建，无部署。
+
+独立仓库外探针 `/tmp/feat677-sync-acceptance/probe.mts` 调用公开 `NanoMemoryCandidate.prepare/answer/close` 与允许的 fixtureOptions，`EVALUATION_CHAT_ONLY=1`；真实 Nano/DSH 子进程、本地确定性 provider、独立 SQLite，不启动 HTTP/UI 栈。执行 `pnpm exec tsx /tmp/feat677-sync-acceptance/probe.mts` 正常 exit 0，日志为同目录 `probe.log`。一段完整 user/assistant brass-key 合成历史准备 ready，导入 1 session/2 messages、准备 modelCalls=0；从同一封存状态回答两个不同问题，各 completed、6 次本地 provider 请求。
+
+直接读取 `run/answer-hpSvjJ/requests.jsonl` 和 `run/answer-CVO5uz/requests.jsonl`，并只读查询数据库，汇总在 `run/observations.json`：
+
+- 两个首请求都没有 `CASE_MARKER` 原历史或 `UNIQUE_QUESTION` 正文。当前角色为 PA `pa_47f0616932ca`，session=`b8b6b796-0cef-4673-a0d9-3a0ab52b5f0d`，主人=`a1e325f8-9271-4b42-ab51-726af91fc3dc`，私聊=`c_c5529bf57867`；与封存/source-map 一致。
+- Inbox check/read 使用当前 direct/participant 来源，读到各自问题，sender.is_owner=true，问题日期分别保留 `2024/02/04` 与 `2024/02/05`。
+- conversations search limit=1，第一页面 user 原文并给 next_cursor，第二页 assistant 原文且无 next_cursor。两页 source_time 均为 `2024-02-03T04:05:00+00:00`，原角色/正文完整。消息 ID `99e206b1a4c941aaa718ece2d23f10a0` 与 `5f7e0e8fd1fe40baa42d0294e1c59949` 和准备 source-map 一致。两次查询有不同分页 cursor。
+- 两个实际 send_message 结果均 status=sent，目标为同一私聊；`run/results.json` 与各 answer.json 返回由原文组成的真实已交付文本，不把内部结束 prose 当答案。
+- sealed `run/prepare-Wc6lkE/prepared-chat.sqlite` 仍为 2 条原历史，不含问题 A/B；两个 answer/chat.sqlite 各 4 条，各只含自己的问题，request 捕获也无另一轮问题。三个数据库的 task_context_index 都为 0：LongMemEval 没有 Task 原文，本轮未编造任务场景。
+
+### Scenario 覆盖与 retained 范围
+
+| Scenario / 来源 | 结果 | 证据与范围 |
+|---|---|---|
+| 仅检查数据与执行计划；spec | pass | 本轮独立默认 plan 零请求、v3/v6 与构建标识 |
+| 显式执行评测；spec | pass | 本轮独立 run/score 未授权拒绝；未开启真实执行 |
+| 导入固定历史并回答后续问题；spec/Runbook | pass | ready、两个冷答题 completed、实际 sent 与 SQLite 交付 |
+| 长期历史仍存在于准备环境；spec | pass | 首轮无历史、Inbox 读题、调用 conversations 后才出现原文；准备轨迹/Notes 文件隔离沿 Round 5/6 与本轮专项保留 |
+| 准备和冷答题查询主人聊天；spec | pass | 独立两页作者/时间/正文/消息 ID；长消息与准备 cutoff 复用专项 |
+| 多题同时运行或重复答同一题；spec | pass | 独立封存/两次冷副本不串；并行取消及游标拒绝复用专项 |
+| 不同日期话题属于同一长期主体；时间回放；摄入结束冻结 | pass（retained） | Round 6 引用的同根窗口、自动周期、未来隔离与冻结证据；本轮 17 tests 再覆盖这些运行时边界，最小冷答题独立验证身份及可恢复聊天 |
+| 比较记忆版本；官方评分、失败分母、judge-only retry | pass（retained） | Round 6 通用 Runner/评分结论与本轮专项；v3 protocolId 不变，candidate 构建身份变化。未把机制通过当分数改善 |
+| 一次有界真实试跑 | not-applicable | 本轮明确零真实模型/judge；旧 incomplete 保持原标签，不重跑 |
+
+复用 `/tmp/feat677-sync-targeted-final.log`：6 files / 17 tests passed，28.27 秒，涵盖 evals/memory、IM evaluation 与 DSH evaluation runtime。Round 6 已具体记录并行取消、跨题/跨副本游标隔离、长文分页、截止退出与原生窗口的充分证据；本轮专项继续覆盖，故不重复全矩阵或声称 reviewer 手工重跑这些分支。父分支适配的当前身份/来源同步和交付以本轮真实旅程为准。Task 数据为空的结论仅对应本 fixture，不扩展为 Task 产品验收。
+
+### 体验、清理与限制
+
+Reference Artifacts Reviewed=N/A：CLI/API 入口，无 UI/viewport/原型。README 清楚区分默认计划、预算授权、机制证据与正式效果，并说明 TaskContext 正常同步、空 Task 范围及本地 transport 差异。未发现妨碍维护者完成本轮目标的问题。
+
+探针 finally close，主进程 exit 0；随后 ps 核对没有本探针或 evaluation/runtime 残留（仅观察命令自身），未触碰旧 viewer。证据保留在 `/tmp/feat677-sync-acceptance/`。仅追加 acceptance Round 7，未改源码/测试/受控配置，未提交，report_commit=none。无阻塞事项。

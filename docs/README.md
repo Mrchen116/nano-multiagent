@@ -51,6 +51,7 @@
 | 查外部项目比较、脑暴或阶段性审查 | [`research/`](research/README.md)；先核对日期、代码基线和当前权威 |
 | 评测 Memory 版本的效果与冷上下文隔离 | [`../evals/memory/`](../evals/memory/README.md) |
 | 理解 LongMemEval 官方基线、业界接入方法及分数可比性 | [LongMemEval 评测方法记录](../evals/memory/longmemeval-methods.md) |
+| 研究后续 PA 行动与专家经验评测，尚未接入执行 | feat-677 的 [DolphinBench](changes/archive/feat-677-memory-evaluation/dolphinbench-methods.md) 与 [FrontierMemory](changes/archive/feat-677-memory-evaluation/frontiermemory-methods.md) 方法研究 |
 | 构建或运行 Agent 评测集 | [`../evals/`](../evals/README.md) |
 
 ## 当前权威分工

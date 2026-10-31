@@ -200,3 +200,15 @@ PR #429 保留 `unit/feat-676` base；远端 CI 对最终交付 head 单独核�
 - 窄验证 `/tmp/feat677-sync-targeted-final.log`：6 files / 17 tests passed（28.27s）。protocol v3 / adapter v6 的信息边界、准备/答题/评分规则不变；产品代码与构建变化自然改变 candidateId。后续实验应重新 build/plan 并新建 run，不改写旧结果。
 
 沿既有 Full unit 对本次适配执行 targeted 独立门禁；设计方案、产品 current specs 与原无关场景 retained，no spec delta。最终独立结论与完整检查另行追加；此处不预先声称全量验证或 CI 通过。
+
+### 同步后的最终门禁与本地验证
+
+运行源码冻结 `f09f44c4ecf66672b21834cc76e7a7eee4eea31c`；review diff=`0d6a534a5376bfc6e8e707c270fa6553fab7677c..f09f44c4e`；用户指定 effective_base=`68074e8c4e27eb7efb08af5e40cfec30976fff58`。最终远端读取确认该父分支未继续推进。随后只增加审查/研究/范围记录及文档入口，运行源码、测试和配置不变。
+
+- code-review / verification Round 8 pass/aligned，acceptance Round 7 pass，零存活问题；旧未受影响场景保留原证据。独立静态 probe 再现 prepare=ready、answer=completed/Paris、两次越界拒绝；独立产品 probe 验默认 plan 零调用、未授权 run/score 拒绝、两页历史检索、真实 sent 和两个冷副本不串。见三份本轮报告与 `/tmp/feat677-sync-static-review-probe.log`、`/tmp/feat677-sync-acceptance/`。
+- 固定 Node 24.22.1 的 `pnpm exec vitest run --maxWorkers=2`：**191 files / 1017 tests passed（485.79s）**，日志 `/tmp/feat677-sync-full-tests.log`。首轮专项的真实失败及修复过程仍保留，未把它改写为首次全绿；也未声称默认高并发的旧未知问题已修复。
+- `pnpm build`、全仓 typecheck、iOS runtime check、Python **129 passed / 28 deselected**、ruff check/format、archive check 均通过。日志为 `/tmp/feat677-sync-{build-fixed,typecheck-final,ios-runtime,python,ruff,ruff-format,archive}.log`。构建时源码已包含最终修复、Git HEAD 尚为 merge commit；安装包 sourceCommit 标记不作发布 SHA 证据。本轮不发布或部署。
+- 研究文档由两个独立 subagent 只读核验官方网页/源码/数据后写入 [DolphinBench 方法](dolphinbench-methods.md) 和 [FrontierMemory 方法](frontiermemory-methods.md)，主 Agent 核对叙述、引用、本地链接和流程顺序；`docs/README.md`、`evals/README.md` 已链接。DolphinBench 的在线用户消息摄入与 FrontierMemory 的混合旧轨迹学习分别解释，未把它们误接到 LongMemEval。两者尚未实施；受限语料未读取，未接受访问条款，未运行模型或评分。
+- 新研究页尚未加入 Git 索引时，docs-check 按 tracked-file 规则报两个入口链接未跟踪；文件加入本次提交后重验，最终日志 `/tmp/feat677-sync-docs-final.log`。源码测试不因纯文档收尾重复执行。
+
+本轮真实候选/judge 新增调用均为 0；机制通过不代表正式分数、真实模型质量、HTTP wire 或全量并行吞吐通过。新建测试进程已退出，原始红/绿证据留本机；旧单题实验和用户保留的只读 viewer 未改。PR #429 继续基于 `unit/feat-676`，远端 CI 对交付 head 另行核实；未合并、未部署，开发 worktree 保留。

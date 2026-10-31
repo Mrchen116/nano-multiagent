@@ -293,3 +293,42 @@ README 与 design 改为直接引用当前产品按模型容量计算完整首�
 上述 runtime fixture 是锁定真实 DSH 的最终组装/工具结果及本地交付 seam，provider 为确定性实现；独立 IM 探针是产品数据库/查询 seam。它们不证明 HTTP wire、真实模型的选工具/理解能力、记忆质量、正式 LongMemEval 分数或全量并发吞吐。预算约束下未调用真实候选/judge、未跑大规模评测或生产操作。
 
 本轮 Gateway / PA / IM 产品 **no spec delta**：新增显式离线 evaluation export 与 evals composition，未改生产查询、RPC、权限或正常运行时；依赖仍经 public exports，integration 不 import IM/PA，IM 不 import DSH。评测可见信息变化已由 canonical suite README 的 protocol v3 / Nano v6 维护。仅追加 code-review.md / verification.md，未提交；无存活问题，不扩大审查。
+
+
+## Round 8 — 父分支同步后的 TaskContext 接线 patch review
+
+- reviewer_target: `/root/sync_static_review`，独立 reviewer，未参与实现；使用 change-code-review 与 agent-context-review Implementation Review（Mode B）。
+- review_mode: `patch`
+- fix_delta_range: `0d6a534a5376bfc6e8e707c270fa6553fab7677c..f09f44c4ecf66672b21834cc76e7a7eee4eea31c`（6 files）
+- validated_at: `f09f44c4ecf66672b21834cc76e7a7eee4eea31c`
+- stacked_parent: `68074e8c4e27eb7efb08af5e40cfec30976fff58`，已包含在 pre-fix merge tree；执行时 main merge-base=`f01ee218b10efccbfc3fa41bac14e73b9c5a9027`，本轮不要求合入 main。
+- branch: `codex/feat-677-memory-evaluation`；开工 clean，复核 HEAD 与冻结版本一致。并行新增的 spec 研究范围记录及研究页不属于本源码审查。
+- verdict: **pass**；0 CRITICAL / 0 WARNING。
+
+### Findings
+
+```json
+[]
+```
+
+### 覆盖与 Context Implementation Review — Mode B
+
+按 AGENTS、包依赖边界、current PA 全来源资格同步、Task 上下文同步与 Context 规范，审查本 patch 与父分支对评测消费链的必要影响。Round 7 及此前未变化的 Runner/judge、历史完整导入、原生窗口、Dreaming 唯一写者、后台 child 收口、并行隔离与失败清理结论 retained，不重审整个父分支。
+
+| 链路 / delta | 实现与实际证据 | 结论 |
+|---|---|---|
+| 首次组装前的产品调用 | `packages/dsh-integration/src/evaluation.ts:205-206` 同时接 prepare/commit；`evals/memory/nano-product.ts:49-50,65-67` 组合公开 TaskContext 并用 GlobalAgent.prepareSystemContext 刷新来源 | 复用生产身份校验、同步及回执，不以空返回绕过新接口 |
+| IM 固定范围与 PA 权威 | `apps/im-server/src/evaluation.ts:127-131` 从本题 principal 固定 agent 并走 PersonalAgents.authority/sourceAllowed、Messaging.syncTaskContext；对照 gateway 同一生产处理 | 宿主派生身份，未让模型补 node/owner；本题 task_context_index 实际为空，未伪造 Task |
+| 父分支 Dreaming 提示与检索变化 | 来源目录改为原生 session/available_before，IM 查询增加稳定分页与检索投影；测试改核原生根及时间、不锁内部 baseline 和同刻搜索顺序 | 不减弱完整消息集合、未来排除、真实工具结果与公开交付的断言 |
+| 最终冷请求与工具结果 | 独立现场首请求有 nano-memory 与 Inbox wake，未含历史长文、准备 Notes 或问题正文；后续 Inbox 正常给 owner/direct/participant/web/原问题时间；read/skill/notes/new_context/history/conversations 实际结果可见，send_message 返回 sent | 同一身份的冷活动上下文、来源和恢复边界成立；越界两次被拒绝 |
+| 协议与架构 | protocol v3 / adapter v6 未改，candidate 指纹仍包含 runtime/product/adapter/chat 构建字节；integration 仅接 product port，组合根经 PA/IM public exports | 无新增信息来源、生产工具/RPC、运行环或 private import；no spec delta |
+
+### 独立证据与限制
+
+- 亲读初次专项红 `/tmp/feat677-sync-targeted.log`，以及固定 Node 24 的 `/tmp/feat677-sync-probe.log`：准备 ready，答题 0 请求即因 `Unknown method: product.task_context.prepare` 失败；不将默认 Node 25 与固定 Node 24 差别误当根因。
+- 亲读修复 build `/tmp/feat677-sync-build-fixed.log`、专项 `/tmp/feat677-sync-targeted-final.log`（6 files / 17 tests passed）及 owner 修复 probe。build 日志的 release sourceCommit 为提交前 merge HEAD，受审修复源码随后提交为本轮 frozen HEAD；未把该日志当独立发布版本证据。
+- 独立重跑：`env PATH=/Users/czj/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH pnpm exec tsx /tmp/feat677-sync-probe.mts`，日志 `/tmp/feat677-sync-static-review-probe.log`。证据根 `/var/folders/mf/fxm1x6xs7pbf34h6rnmvjz1c0000gn/T/feat677-sync-probe-5VzdeT/`；`prepare-dRcAyC/{prepared.json,receipt.json,requests.jsonl}`、`answer-6dRnG0/{requests.jsonl,answer.json,usage.json}`。
+- 准备 4 段 / 6 turn、98 次确定性请求 ready；来源目录同一原生 root，最早 available_before 为 2024-01-01、最后为 2024-01-02T01:00，均早于对应 logicalTime。冷答题 16 请求 completed，实际本地交付 Paris，deniedTools=2。亲读请求中的成功工具结果，确认 History 的旧准备标记检索为空、Inbox 读后为空、conversations 含原来源/日期及末尾未整理历史、发送回包 sent。
+- prepare PID 5490、answer PID 6175 已独立确认退出；两阶段 chat.sqlite 的 task_context_index 均为 0。未启动常驻服务、新 worktree、真实模型/judge 或生产调用；只追加本文件和 verification.md，未提交。
+
+本轮真实 DSH + 本地确定性 provider 验证装配、实际工具结果、产品同步接线与本地交付；不证明 HTTP wire、真实模型选择/理解或记忆质量、正式 LongMemEval 分数、大规模并发吞吐。数据没有 Task，故不声称重验非空 Task 原文、撤销或消费恢复语义；这些仍属父分支产品契约及其原测试范围。全量检查由 owner 另行执行，本报告不预先宣称其通过。没有存活 finding，无需扩大为 full。
