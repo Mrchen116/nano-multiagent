@@ -22,7 +22,7 @@ describe('current plans',()=>{
  });
  it('shows the empty state when only inactive history remains',()=>{show([job('expired',false)]);expect(screen.getByText('No scheduled tasks pending')).toBeInTheDocument();});
  it('formats all recurring native schedule kinds without exposing JSON',()=>{
-  const format=(s:Record<string,unknown>)=>formatSchedule({scheduledAt:'2026-11-01T10:00:00Z',...s},'en',i18n.t.bind(i18n));
+  const format=(s:Record<string,unknown>)=>formatSchedule({scheduledAt:'2026-11-01T10:00:00Z',...s},'en',i18n.t.bind(i18n)).rule;
   expect(format({kind:'every',everySeconds:3600})).toContain('Every 1 hour');
   expect(format({kind:'daily',time:'18:00:00.000',timeZone:'Asia/Shanghai'})).toContain('Daily at 18:00 (Asia/Shanghai)');
   expect(format({kind:'weekly',weekdays:[1,7],time:'18:00:00.000',timeZone:'UTC'})).toContain('Mon and Sun');

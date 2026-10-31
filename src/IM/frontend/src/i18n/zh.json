@@ -631,8 +631,12 @@
         "daily": "每天 {{time}}（{{zone}}）",
         "weekly": "每周 {{days}} {{time}}（{{zone}}）",
         "custom": "自定义周期",
-        "next": "下次：{{time}}",
-        "unknownTime": "时间未知"
+        "unknownTime": "时间未知",
+        "subtitle": "把接下来的事，交给 Agent。",
+        "emptyHelp": "告诉 Agent 要做什么、什么时候做，就可以安排提醒。",
+        "recurring": "重复计划",
+        "nextLabel": "下次执行",
+        "instructionLabel": "执行内容"
       },
       "workspace": {
         "title": "工作区与运行时",

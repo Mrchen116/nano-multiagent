@@ -632,8 +632,12 @@
         "daily": "Daily at {{time}} ({{zone}})",
         "weekly": "Weekly on {{days}} at {{time}} ({{zone}})",
         "custom": "Custom recurrence",
-        "next": "Next: {{time}}",
-        "unknownTime": "Unknown time"
+        "unknownTime": "Unknown time",
+        "subtitle": "Let your agent take care of what comes next.",
+        "emptyHelp": "Tell your agent what to do and when to arrange a reminder.",
+        "recurring": "Repeating",
+        "nextLabel": "Next run",
+        "instructionLabel": "Instructions"
       },
       "workspace": {
         "title": "Workspace & Runtime",

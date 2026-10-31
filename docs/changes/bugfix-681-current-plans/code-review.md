@@ -27,3 +27,13 @@
 ## Delivery boundary
 
 用户尚未亲自验收，active unit 暂不归档，delta-spec 暂不覆盖 current spec。无 push、PR、合并或部署。独立 worktree 保留供用户反馈，预览进程与标签已关闭。
+
+## Round 2 — 用户视觉反馈后的 patch review
+
+- Base / finding_origin_head: 75609c7c9。
+- Reviewer: 同一独立 review_current_plans，gpt-6.1-sol/high。
+- 范围：本轮 CronCard 布局、限定 CSS、rule/next 展示拆分、文案、测试和文档；无后端变化。
+- Result: Passed；findings `[]`。审查覆盖最终移除单次重复规则后的树。
+- 28 项相关测试通过；最终组件 3 项复测与 TypeScript/Vite 构建通过。
+- 浏览器验证：桌面、详情展开、空态、390px 窄屏；预览已关闭，临时源码移至仓外证据目录。
+- 用户验收仍待本轮截图反馈，尚未归档或部署。

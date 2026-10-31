@@ -27,3 +27,11 @@ cron-card.test.tsx 覆盖失效过滤、active 过时计划保留、详情、取
 Base: `99354a6a1afaf2a2f495d2e5abf62f1027c3eade`；代码范围为 CronCard、schedule-display、cron-card 测试、相邻 feature panel 测试及 zh/en 词条。本次提交保存完整实现，最终验证见 code-review.md。
 
 截图目录：`/Users/czj/.codex/visualizations/2026/10/31/01a190b0-fde5-7af1-9f6c-9424cf25229c/`，含 plans-before.jpg、plans-after.jpg、plans-empty.jpg 与 preview-source 重现入口。预览数据不包含生产内容；截图不是线上状态。
+
+## 视觉修订（基于 75609c7c9）
+
+按用户反馈完善视觉：沿用设置页连续画布，计划采用圆角细边界、低饱和绿色图标、类型标签和独立的下次执行时间；原生 details 的整行 summary 支持鼠标与键盘展开。取消操作保留可访问名称、原接口和所有保护，移入详情末尾降低干扰。单次计划不重复展示“单次”文字。
+
+formatSchedule 返回 rule/next 两部分供不同层级展示；Intl 日期和规则语义不变。窄屏把时间标注与值分行。新增 CSS 限定 im-plan(s) 类名，不覆盖其他设置模块。
+
+新增截图 plans-designed.jpg、plans-designed-details.jpg、plans-designed-empty.jpg、plans-designed-mobile.jpg。使用真实组件与设置容器 CSS，fixture 为 5 条失效历史、1 条每日计划和 1 条单次计划（均为隔离测试数据），在 390px 窄屏核实无溢出。不是生产截图。

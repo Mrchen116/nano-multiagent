@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 
 /** Describe a saved plan; active overdue entries still need delivery. */
-export function formatSchedule(schedule: Record<string, unknown>, language: string, t: TFunction): string {
+export function formatSchedule(schedule: Record<string, unknown>, language: string, t: TFunction): { rule: string; next: string } {
   const key = "agents.form.cron.";
   let rule = t(`${key}once`);
   if (schedule.kind === "every") {
@@ -20,5 +20,5 @@ export function formatSchedule(schedule: Record<string, unknown>, language: stri
   const next = Number.isNaN(date.getTime()) ? t(`${key}unknownTime`) : new Intl.DateTimeFormat(language, {
     year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
   }).format(date);
-  return `${rule} · ${t(`${key}next`, { time: next })}`;
+  return { rule, next };
 }
