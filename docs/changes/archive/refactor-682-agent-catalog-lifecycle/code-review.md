@@ -84,3 +84,12 @@
 - 本轮没有重复运行全量/性能负载。最终 100 次实际重建全成功、每轮 home 空、active=0；1800.065 秒 / 1001 HTTP 全成功，6 cold / 995 cache，p95 2324.085 / 12.951 ms，32 资源采样目录与持久 preview 全 0，FD 固定 Node39/IM20。读取 JSON 统计和 soak 脚本，正常每 600 秒 refresh token、按真实 captured_at 分类；未采用早期无效/短 preflight。
 - 最终独立产品验收 pass：真实 inspection 同步阻塞后只读降级/其他分区与 Agent 可用/移除故障后恢复；断连、重连、正式 logout 后拒绝已撤销身份；配置保存/版本冲突和并发目录均通过。证据 `M1-catalog-lifecycle/acceptance.md` Round 2 与 `evidence/product-acceptance.json`。
 - 最终后端全量为 838/840 passed（151/153 files），两个既有测试失败在源码不变时以两文件串行复验 8/8 passed。保留 PTY cleanup 与 45 秒等待原始失败，不宣称一次全量绿，也不把负载归因视作已证实。其他本地门禁及风险限制见 verification.md；归并/归档/Ready PR/远端 CI 仍由 caller 按工作流完成。
+
+## Round 3 — post-PR test-only patch closure
+
+- review_mode: `patch`；scope: `c16ef517a..e2c2af62eeeb0e3bf67d964eb1392647092c9815`，聚焦 `55c3b27b7` 的 OS 活进程断言与 retained 有效性。
+- executed_base / effective_base: `9a3d62de6`；validated_at / effective_through: `e2c2af62eeeb0e3bf67d964eb1392647092c9815`；branch: `codex/refactor-682-agent-catalog-lifecycle`。
+- verdict: **Approved**；findings: `[]`。F1/F2 保持 closed。
+- 测试 helper 通过 `ps -p <pid> -o stat=` 区分活进程与不存在/zombie，非 status=1 的 ps 错误继续抛出；不是放宽到忽略任意清理错误。owner SIGKILL 场景仍要求专属 root 空、orphan计数为1、后续真实 inspection成功；同组child忽略SIGTERM场景仍独立断言无活child。与生产 `processInfo/groupAlive` 原有排除zombie语义一致，不改变运行时或资源释放边界。
+- 已读首轮Linux CI失败摘要：839/840通过，唯一失败是旧 `kill(pid,0)` 必须throw断言；不能据此直接声称结束runner的该PID当时就是zombie。该解释为与成功recover一致的机制推断，实施记录已作此限定。修正后Mac完整inspector 6/6通过、12.94秒（`/tmp/refactor-682-linux-orphan-test.log`），下一轮Linux CI尚待运行。
+- retained_from: Round2全部产品/Context/资源结论，证据源码仍为bf0cdfdc3；本patch无生产代码变化，新main `9a3d62de6`仅新增bugfix-683首文档。另核对canonical/SPEC归并仅为批准delta与索引，unit整体archive未丢历史，不引入新契约。无需重跑全量/产品/soak或完整Context Review；远端required CI仍由caller push后完成。

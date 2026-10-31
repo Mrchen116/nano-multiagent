@@ -146,3 +146,12 @@ N/A。未引入前端原型或视觉参考。
 无遗漏的本 unit 对外行为。内部 `node.request.cancel`、`node.capabilities.changed` 和错误码是实现有界生命周期/候选失效的节点间机制；用户可观察结果已由上述“连续读取与故障后恢复”和“临时检查不污染或阻塞持久执行”覆盖。没有新增 UI 或客户端操作规则。普通 mount/重复 watch 不再发布失效，真实 native mutation 发布；外部文件仍按 TTL 反映，符合现有目标。
 
 Outcome: **aligned**。最终证据提交未修改 delta 或后端实现，无新delta变化。实现与适用本地退出证据已对齐；此结论不代替current spec归并、archive或PR后的远端CI。
+
+## Round 3 — post-PR targeted-closure / retained
+
+- verification_mode: `targeted-closure`；fix_delta_range: `c16ef517a..e2c2af62eeeb0e3bf67d964eb1392647092c9815`。
+- executed_base / effective_base: `9a3d62de6`；validated_at / effective_through: `e2c2af62eeeb0e3bf67d964eb1392647092c9815`；backend_source: `bf0cdfdc32df872c9c40a0461c8284652d142d2f`。
+- verdict: **PASS — 0 CRITICAL / 0 WARNING / 0 SUGGESTION**（定向静态与适用本地门禁）；requires_full_verification: false。该结论不把尚未运行的下一轮Linux CI计为通过。
+- 唯一测试delta将PID存在性改为OS非zombie活进程判定，其他ps异常仍报错；保留目录空、计数、后续真实构建和同组child回收保护。符合已批准“确认无活执行资源后释放”的契约及运行时已有语义。真实Mac inspector完整6/6通过（12.94秒），证据`/tmp/refactor-682-linux-orphan-test.log`。
+- PR #434首轮Linux CI为839/840，唯一失败是owner SIGKILL场景旧PID消失断言；之前本地PTY/执行上限两项在CI通过。原失败保留，未假称直接观测已结束runner的PID状态。下一轮Linux平台验证待caller push，不重跑全量或长时验收。
+- Round2全部代码/产品/Context/100次/30分钟证据retained：此delta不改生产代码；新main只添bugfix-683/incident.md，没有runtime交叉。canonical IM/Gateway与SPEC、Gateway索引已按批准delta归并，整体archive保留报告/证据历史。corrected-delta结论继续 **aligned**，无新delta或遗漏用户行为，不重复完整Context Review。
