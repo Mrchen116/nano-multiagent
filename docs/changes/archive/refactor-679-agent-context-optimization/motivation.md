@@ -127,7 +127,7 @@ Agent 核对原始需求后，将第三个机制归纳为“必要的续跑行�
 - 保留用户最初要求：执行确实因重启、断连或意外结束而中断，且仍有可推进 doing 时，按原本统一续跑逻辑接续；这不授权无任务时或正常工作未中断时因内部重建而额外催促。真实任务变化由机制二同步，不再保留仅以首次执行／内部恢复为由的独立提醒机制。
 - 首次会话所需信息和有效上下文的完整性仍须满足本 unit 的信息保真要求；具体组织方式在五个机制全部对齐后的整体设计中统一处理，不用内部对象生命周期替代模型可见信息的判断。
 
-原意与偏差追溯：[`feat-635 Q13`](../archive/feat-635-task-driven-execution/spec.md#q13重启或断连导致执行中断后如何接续) 明确“doing 的还是按原本的方式发 prompt”及上下文换窗与 Task 正交；其设计要求比较已展示责任并移除无变化提示。后续 [`bugfix-646 用户复核续修`](../archive/bugfix-646-task-continuation/design.md#用户复核续修停止不唤醒与变更同步审计2026-10-24) 将“任务实际变化后需同步”扩大为冷恢复时只要 shown 缺失就附快照；提交 `503498e1f` 又在该路径复用完整续跑 prompt。该扩大是设计和实现推导，不是用户要求内部释放重建后追加提醒。
+原意与偏差追溯：[`feat-635 Q13`](../feat-635-task-driven-execution/spec.md#q13重启或断连导致执行中断后如何接续) 明确“doing 的还是按原本的方式发 prompt”及上下文换窗与 Task 正交；其设计要求比较已展示责任并移除无变化提示。后续 [`bugfix-646 用户复核续修`](../bugfix-646-task-continuation/design.md#用户复核续修停止不唤醒与变更同步审计2026-10-24) 将“任务实际变化后需同步”扩大为冷恢复时只要 shown 缺失就附快照；提交 `503498e1f` 又在该路径复用完整续跑 prompt。该扩大是设计和实现推导，不是用户要求内部释放重建后追加提醒。
 
 #### 机制二已确认：真实任务变化统一通过所属聊天系统消息表达
 
@@ -143,7 +143,7 @@ Agent 核对原始需求后，将第三个机制归纳为“必要的续跑行�
 #### 机制三已确认约束：续跑 prompt 保留必要行为规则
 
 - 用户明确否定“仅补任务清单，稳定规则全部交给其他上下文”的简化。自动续跑需要必要的行为规则，不能将规则去重理解为删除续跑所需的行动指导。
-- 回到 [`feat-635 Q15`](../archive/feat-635-task-driven-execution/spec.md#q15agent-看到什么用户看到什么) 的用户原话：“Agent 的续跑 prompt 要参考DSH的prompt，改变就是DSH只有一个goal，我们的是全部doing 任务。任务详情 Agent 按需读取完整正文和讨论，不每轮重复注入全部历史。”后续对齐增加 waiting 分类，不能因此丢掉原始行为目的。
+- 回到 [`feat-635 Q15`](../feat-635-task-driven-execution/spec.md#q15agent-看到什么用户看到什么) 的用户原话：“Agent 的续跑 prompt 要参考DSH的prompt，改变就是DSH只有一个goal，我们的是全部doing 任务。任务详情 Agent 按需读取完整正文和讨论，不每轮重复注入全部历史。”后续对齐增加 waiting 分类，不能因此丢掉原始行为目的。
 - 历史文档已确认的核心是：在同一会话继续，核对当前工作区／工具结果／持久状态，取得具体进展并验证，完成前核对整个目标及证据，未完成的责任继续保留；按需读取详情。`bugfix-646` 又对真实阻塞、授权内替代路径、等待和实际交付作了产品适配。
 - 已确认续跑内容由必要行为规则、全部本人 doing／waiting 任务概要及按需读取详情入口组成；必须区分无意义的规则重复与续跑触发点所需的必要重申。具体措辞及与常驻说明、等待和交付提示的分工，在五个机制全部收口后统一设计；本段不冻结最终英文 prompt，也不将第四、第五机制提前定案。
 
@@ -180,7 +180,7 @@ Agent 核对原始需求后，将第三个机制归纳为“必要的续跑行�
 
 PA 默认指导是中文，Global/PA 固定规则、Task 和 Feature 指导大多英文；来源规则甚至在英文段落内穿插中文解释。Global 与 PA 段各有四千余字符的长段，身份、来源、权限、沟通、工具操作、失败处理混杂，难以审查遗漏或冲突。
 
-来源入口：[`personal-agent-defaults.ts`](../../../apps/im-server/src/personal-agent-defaults.ts)、[`global-mode.ts`](../../../packages/dsh-integration/src/global-mode.ts)、[`personal-security.ts`](../../../packages/dsh-integration/src/personal-security.ts)、[`policy/sources.ts`](../../../packages/dsh-integration/src/policy/sources.ts)。
+来源入口：[`personal-agent-defaults.ts`](../../../../apps/im-server/src/personal-agent-defaults.ts)、[`global-mode.ts`](../../../../packages/dsh-integration/src/global-mode.ts)、[`personal-security.ts`](../../../../packages/dsh-integration/src/personal-security.ts)、[`policy/sources.ts`](../../../../packages/dsh-integration/src/policy/sources.ts)。
 
 语言混用本身不能证明模型错误；主要风险是职责交叠、重复规则掩盖关键约束。不能以全部翻译替代结构整理。
 
@@ -193,13 +193,13 @@ PA 默认指导是中文，Global/PA 固定规则、Task 和 Feature 指导大�
 | 反馈与安静 | 多处要求有变化才汇报、不得重复发送已交付结果；相同规则缺少清楚的唯一归属 |
 | 持续推进与等待 | Task 常驻说明与动态续跑消息都完整解释等待、复查、恢复及反馈流程 |
 
-补充入口：[`features/task-graphs.ts`](../../../packages/dsh-integration/src/features/task-graphs.ts)、[`features/intelligent-ui.ts`](../../../packages/dsh-integration/src/features/intelligent-ui.ts)、[`task-execution.ts`](../../../packages/dsh-integration/src/task-execution.ts)。重复的安全边界仍然有效，去重不能误删其唯一生效位置。
+补充入口：[`features/task-graphs.ts`](../../../../packages/dsh-integration/src/features/task-graphs.ts)、[`features/intelligent-ui.ts`](../../../../packages/dsh-integration/src/features/intelligent-ui.ts)、[`task-execution.ts`](../../../../packages/dsh-integration/src/task-execution.ts)。重复的安全边界仍然有效，去重不能误删其唯一生效位置。
 
 ### 3. 常驻细节与按需指导重叠
 
 Task 等待及复查包含长篇操作细节；Skill 创建指导一面要求加载 Skill，一面已在常驻提示中展开创建细则。需要区分常驻必要边界、能力发现入口、按需操作方法和本轮任务事实，避免同一指导在多种载体反复出现。
 
-来源入口：[`features/skill-creation.ts`](../../../packages/dsh-integration/src/features/skill-creation.ts)、[`agent-config.ts`](../../../packages/dsh-integration/src/agent-config.ts) 及上述 Task 入口。不能仅因存在 Skill 就删除模型发现它所必需的信息。
+来源入口：[`features/skill-creation.ts`](../../../../packages/dsh-integration/src/features/skill-creation.ts)、[`agent-config.ts`](../../../../packages/dsh-integration/src/agent-config.ts) 及上述 Task 入口。不能仅因存在 Skill 就删除模型发现它所必需的信息。
 
 ### 4. 首次环境和能力信息排列在唤醒之后，轨迹难以理解
 
@@ -207,7 +207,7 @@ Task 等待及复查包含长篇操作细节；Skill 创建指导一面要求加
 
 前轮对本机 DSH 依赖的检查表明，这些动态信息在第一次模型调用前准备；该排列不代表模型先处理 Inbox、执行后才得到环境与 Skill。运行快照在变化或旧快照缺失时提供；Skill 目录在首次、变化或当前上下文缺失时补充，并非每条新消息都注入全部 Skill 正文。
 
-待优化的是首次上下文与后续更新的职责及可理解性。调整模型实际顺序和调整轨迹展示是不同方案，设计时应根据实际请求验证；不能仅为视觉顺序修改 DSH 私有运行时。DSH 接入红线仍以 [`SPEC.md`](../../../SPEC.md) 为准。
+待优化的是首次上下文与后续更新的职责及可理解性。调整模型实际顺序和调整轨迹展示是不同方案，设计时应根据实际请求验证；不能仅为视觉顺序修改 DSH 私有运行时。DSH 接入红线仍以 [`SPEC.md`](../../../../SPEC.md) 为准。
 
 ### 5. Task 动态提醒过长，注入条件与当前责任不充分匹配
 
@@ -318,7 +318,7 @@ Task 等待及复查包含长篇操作细节；Skill 创建指导一面要求加
 
 范围覆盖 Nano 自有的 PA/Global 提示、来源规则、相关 Feature 指导、Task 动态提醒，以及首次/后续运行状态和 Skill 目录的注入边界。以 PA 样本发现问题，但共享规则调整须回归受影响的 Global/普通 Agent。
 
-current 契约：[`personal-agent.md`](../../specs/gateway/personal-agent.md)、[`global-agent.md`](../../specs/gateway/global-agent.md)、[`task-graphs.md`](../../specs/gateway/task-graphs.md)、[`agent-capabilities.md`](../../specs/gateway/agent-capabilities.md)。方法遵循 [`Agent Context Engineering`](../../development/agent-context-engineering.md)。本轮不修改 current spec，不以活动 unit 代替当前行为。
+current 契约：[`personal-agent.md`](../../../specs/gateway/personal-agent.md)、[`global-agent.md`](../../../specs/gateway/global-agent.md)、[`task-graphs.md`](../../../specs/gateway/task-graphs.md)、[`agent-capabilities.md`](../../../specs/gateway/agent-capabilities.md)。方法遵循 [`Agent Context Engineering`](../../../development/agent-context-engineering.md)。本轮不修改 current spec，不以活动 unit 代替当前行为。
 
 非目标：重做 Task 调度或权限模型、改变 Dreaming/记忆写入归属、新增 Agent Loop、批量改写用户自定义指导、为整理文案 fork/patch DSH、在生产发送测试消息。
 

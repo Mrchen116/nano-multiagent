@@ -37,7 +37,7 @@
 - 继续使用原生 Session、Inbox、Schedule、approval、context engine；不新造 Agent Loop、调度器、记忆写入者或通用事件总线。
 - Task 当前事实、授权来源、用户暂停、PA participant/observer、公开交付和 Feature／工具选择分别保持各自契约。内部对象生命周期不是业务变化。
 - 自有提示英文；用户自定义指导、用户消息与任务原文不翻译或覆盖。系统聊天消息继续采用现有产品文案语言，模型结构化事实及行动指导用英文；“统一英文”不扩大成聊天 UI 国际化工程。
-- 规范入口为 [Agent Context Engineering](../../development/agent-context-engineering.md)、[Global](../../specs/gateway/global-agent.md)、[PA](../../specs/gateway/personal-agent.md)、[Gateway Task](../../specs/gateway/task-graphs.md)、[IM Task](../../specs/im/task-graphs.md)、[能力契约](../../specs/gateway/agent-capabilities.md)。
+- 规范入口为 [Agent Context Engineering](../../../development/agent-context-engineering.md)、[Global](../../../specs/gateway/global-agent.md)、[PA](../../../specs/gateway/personal-agent.md)、[Gateway Task](../../../specs/gateway/task-graphs.md)、[IM Task](../../../specs/im/task-graphs.md)、[能力契约](../../../specs/gateway/agent-capabilities.md)。
 
 ### 可复用能力
 
@@ -766,7 +766,7 @@ M1 W1/W2 增加定稿对照：覆盖三类工作消费者及 PA/Feature 分支�
 
 **Review 驱动方式**：端到端真栈；本 unit 不改客户端组件，可用客户端实际使用的聊天、Task、成员管理、Schedule DELETE 接口驱动，必须核对实际聊天系统消息、真实 Agent 行为与最终 provider 请求。不得以底层 service mock 代替用户旅程。
 
-**验收前置**：实施 worktree 本机配置通过 `python3 scripts/dev_host.py check`，按 [隔离运行契约](../../development/worktree-runtime.md) 配置独立身份／workspace／端口／数据和真实模型。受控模型验证请求及消费分支；代表性模型行为使用配置的真实模型，记录型号、配置、请求轮次与证据 locator。可用性检查失败应作为明确缺口，不去生产补测。
+**验收前置**：实施 worktree 本机配置通过 `python3 scripts/dev_host.py check`，按 [隔离运行契约](../../../development/worktree-runtime.md) 配置独立身份／workspace／端口／数据和真实模型。受控模型验证请求及消费分支；代表性模型行为使用配置的真实模型，记录型号、配置、请求轮次与证据 locator。可用性检查失败应作为明确缺口，不去生产补测。
 
 ## Milestones
 
