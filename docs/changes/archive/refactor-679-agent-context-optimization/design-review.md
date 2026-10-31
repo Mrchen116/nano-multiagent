@@ -602,3 +602,57 @@ R3-W1、R3-W2、R3-W3 均在设计层关闭，没有新增实质问题。当前�
 ### Recommendations
 
 无额外可选建议。按已冻结的有界设计和真实 Global/PA 输入/结果验收推进。
+
+## Round 10
+
+### Metadata
+
+- reviewer_target: `/root/refactor679_child_design`（本轮独立 reviewer，继承调用方模型）
+- review_mode: `delta`
+- mode_reason: 仅复审 2026-11-01 四项新决定：普通 child 身份/工具、fork 父前缀、自然语言遗忘、Dreaming 信息投影；此前 Task/前端/消息事务与后台保存协议无设计变化，保留既有结论。
+- started_at: `2026-11-01T00:39:36+08:00`
+- completed_at: `2026-11-01T00:40:00+08:00`
+- duration: `PT24S`
+- timing_note: 时间仅覆盖首个明确时钟检查点到最终文档 hash 核对；此前的独立源码和文档审查未计时，不作为完整工时统计。
+- checkout: `/Users/czj/.codex/worktrees/refactor-679-memory/nano-multiagent`，`codex/refactor-679-child-context`，HEAD / origin/unit/feat-676 基线 `8c9d34780d04ce9d43ed68950fde88abc6e26a6a`。
+- frozen_scope: `motivation.md:422-442`、`design.md:902-920` 及 Gateway agent-capabilities / personal-agent 本轮 delta；包括调用方转达的用户追加要求：永久测试保护 fork provider 输入前缀。
+- design_sha256: `c03dfcee0e4b149b67782928901c401f8ed2f7ee0cc09450d71fba8fbf61d219`
+- motivation_sha256: `cdc80e575cc5cc0e8a71dc67154e6c5a5b39cdcd1e70c865766c43a5634be9e5`
+- gateway_capabilities_delta_sha256: `6c2f5cab3b1b0aeeb8e402febe2420150cde0e411bdc6767db58250c9f23cfd0`
+- personal_agent_delta_sha256: `b873de1c01483705d58fc08b52f21b8117e12a0efb416fe2ac58c09406d53670`（含末尾空行；删除该空行属非实质整理）
+- boundary: 仅读取受审文档、当前产品接线、已安装锁定 DSH 包的公开接口及其实现，并查看新增永久测试；仅追加本报告。未实现、未运行模型/测试、未启动服务、未提交或部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+设计可沿现有公开 DSH 接入落地，不需要新 Agent Loop、持久子执行协议、遗忘队列或第二文档写者。结论限于方案；实际完整输入、权限拒绝、自然语言遗忘及缓存 usage 必须按本轮 M1 退出标准验证，不能用历史通过记录替代。
+
+### Coverage 与证据
+
+- **普通 child 与 fork 的真实差异落点**：`agent-config.ts:136-153` 目前对全部 subagent 使用内部产品身份/Global 指导，同时仍安装父 Persona；`personal-security.ts:134-152`、`features/task-graphs.ts:33`、`features/intelligent-ui.ts:7` 也直接按 origin 分支。`capabilities.ts:71-75` 决定实际工具选择，`context-visibility.ts:15-29` 会替换继承的 root Task 节点。这些均在真实请求组装链中，因此设计用一个小型宿主角色判断统一这些分支、普通子移除父 Persona、fork 保持父系统段并停止过滤继承 Task，能修到实际消费者而不是仅改变描述文字。普通子保留产品归属和内部回传入口；叉分后的身份/回传边界放在历史后，不要求模型根据会话 ID 猜身份。
+- **空 seed fork 及恢复接线可实施**：锁定 `dsh-subagent-fork-in-process@0.2.1-alpha.1` 的 `completedTurnPrefix` 只取完成轮次，首轮没有完成记录时不传 seed；共享 one-shot driver 在 `agent/pre-step` 才追加 `subagent/descriptor`，晚于本仓 `index.ts:239-253` 的配置附着。因此只看创建时 isSeeded/descriptor 确会漏掉首轮 fork，设计 `:907` 明确使用公开 `tools/execute` 的 AsyncLocalStorage 创建作用域补齐，并核对父 ID，具有实际必要性。已有 `workflow/engine.ts:104-105,409-410` 证明本仓已使用相同创建作用域方式。恢复可读 native 自身 descriptor，且以自身事件边界排除继承的祖先 descriptor，无需新增持久字段。公开 `agent/pre-step` waterfall 允许替换入步消息，适合 `:909` 的历史后补充，不需要改 native 历史头或 private import。
+- **工具定义一致与宿主权限分开**：fork 重新注册父工具 schema 的设计不能只依赖提示拒绝。实际 `product-bridge.ts:21` 拒绝 child 代表主人；`personal-assistant/src/global-agent.ts:434-435` 根据可信 session/root identity 拒绝 child 的 Inbox、conversations、公开 send_message 与 owner representation，`:495` 拒绝 child Schedule 操作；`personal-assistant.ts:82-83` 拒绝 child 修改来源。内部 `send_message(agent_id,message)` 继续走 native 实现。因而保留相同 schema 不等于开放这些操作。普通子的 personal_sources、schedule_run、schedule_history 隐藏属于可用性修正，权限仍由原宿主承担。测试须实际触发拒绝，不能仅断言 schema 或错误文案。
+- **遗忘链路与旧状态**：当前 `document-memory.ts` 在工具 schema、入口和 status 展示 exclusions；`memory-documents.ts:194-204` 持久保存并提升 generation；`dreaming.ts:162,308,335,386` 与 `dreaming-history.ts:88` 消费名单。`design.md:910,914` 已明确删除整条链，而非仅删工具 enum，同时保留 personal_sources 和来源版本的独立读权限校验。旧 documents.json 只读取仍有效字段、后续保存自然去掉废弃项，不根据旧名单写正文或伪造聊天指令，属于兼容读取而非一次性数据迁移。已有正文、聊天和 Git 保留；当前更正由前台即时遵守，后续 Dreaming 从合格原聊天理解范围并修改正文/入口，没有恢复被用户否定的并行写者。
+- **Dreaming 的可操作信息与后台边界**：`dreaming-agent.ts:58` 当前把 Run/cycle/generation 注入系统段，`:54` 投影 sourceDirectory；`dreaming-history.ts:20-32,71-110` 同一宿主范围同时服务查找、分页和返回结果。设计 `:911` 明确只收窄模型投影，保留内部 baseline/through/generation、实际 session/window/item 定位与截止时间，因此 `source_history` 的必填参数仍可由目录和查询结果获得，来源访问/冻结边界仍由宿主验证。删除独立 exclusions 数据包后，原话的永久停止与仅本轮例外由现有聊天证据供提炼/整合理解；业务记录经过筛选与额外容量省略区分，不把省略计数误报成完整轨迹。实现须同步检查工具结果投影，不能只删系统段的一行。
+- **delta 和验证闭合**：最终 Gateway delta `agent-capabilities.md:63-70,84-101`、`personal-agent.md:7-19` 已回到完整 Requirement/Scenario，并保留原有来源访问、重新允许和历史保留场景。当前只读与 Dreaming 唯一写者不变。`design.md:917-920` 覆盖 ordinary/fork/空历史/恢复、实际拒绝、旧字段消失、PA 即时停止与后续正文/入口同步、仅本轮例外、provider/cache usage。新增 `packages/dsh-integration/tests/fork-prefix-provider.test.ts` 已在 HTTP provider 边界比较 system/tools 与完成历史 messages 前缀，分别包含 Global/PA、空历史及根进程重启后 fork，适合作为用户要求的永久回归；该 fixture 的模拟 usage 不能证明真实缓存命中。真实 provider 输入前缀和 cache usage 仍须分别保存，未报告 usage 时如实记录缺口并调查现有路由，不冒称命中。保持用户旧预览、当前 worktree 和最终 PR base `unit/feat-676`，不把验证移到生产。
+
+### Agent Context Review — Mode A
+
+覆盖三条消费链：可信原生子执行方式 → 产品身份/Persona/Feature/tool schema → 父前缀与历史后任务；用户原话 → 当前回答及原执行者跟进 → 合格聊天 → Dreaming 正文/入口；宿主维护范围 → 模型可读目录及 source_history → 宿主资格/版本检查。身份与访问权限仍由可信宿主派生，模型不填写宿主版本计数器，不靠可见工具推断权限。Before/After 的关键差异已能落到实际入口；本轮未获取真实 provider 请求或观察模型行为，相关结果尚未验证。
+
+### 历史问题闭环与 retained 范围
+
+- 本轮初读时 Gateway delta 仍在正式停止采用 Scenario 保留 `memory_maintenance exclude`，仅末尾散文声明替代，存在归并时留下相反契约的风险。已向 author 提出，author 在本轮内删除散文补丁并直接修订正式场景；最终 `agent-capabilities.md:65-66` 和 `personal-agent.md:10` 无该冲突。此项 closed，无存活 WARNING。
+- `retained_from: Round 9`：前台持续读取、工作与审批消费者分开、默认 E2E 工具目录不变；其中显式停止采用登记被本轮用户选择替代，不再 retained。
+- `retained_from: Round 8`：真实产品身份、固定主体目录、独立 Dreaming 工具能力、Task 限制去重不变；child 的 Persona/Feature/schema 与 fork 继承可见性由本轮覆盖。
+- `retained_from: Round 2/4/5/6/7`：未改动的消息事务、Task 原文准入与时态、Schedule 业务语义、审批协议及后台保存/恢复边界保留。历史实现和验收只解释基线，不证明本轮修订已完成。
+- 受审文档 `git diff --check` 唯一报告 personal-agent delta 末尾空行；已反馈 author 作非实质整理，不影响设计结论。本 reviewer 未修改该文件。
+
+### Issues
+
+无存活 CRITICAL / WARNING。
+
+### Recommendations
+
+无额外可选机制。按本轮退出标准实施并保留永久 fork 前缀回归测试，真实缓存和自然语言遗忘由隔离实跑证明。

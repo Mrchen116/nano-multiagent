@@ -898,3 +898,23 @@ After：当前路径及 `<memory_content>` 正文；确有停止采用请求时�
 - [reviewer] 使用新的隔离 daily 实例实跑 Global 与 PA，自然请求触发文件查询、记忆读取和显式整理／状态查询；完整检查 System、runtime context、Skill 目录、工具 schema、返回结果及后续行为。记录默认工具集合、源码版本、原生请求 locator 与证据限制，确认公开回复送达。用户接受的 DSH jobs 特殊受限配置例外单列，不宣称任意工具配置无差异。
 
 保留先前两个用户预览；本轮使用新的隔离运行目录。既有无关验证 retained，不重复全部历史旅程；本节交原 reviewer 作增量设计审查，实施后执行静态与产品增量门禁。
+
+## 2026-11-01 子执行、fork 前缀与遗忘机制修订（本轮权威）
+
+基线 origin/unit/feat-676 `8c9d34780`；本轮分支 `codex/refactor-679-child-context`，复用现有 worktree。此前版本已合入 Memory 分支且预览按用户要求保留。本轮仍只改 Nano 的公开 DSH 接入，不 fork/patch 运行时。
+
+### 决定与接线
+1. 在 dsh-integration 增加小型子执行角色判断，统一供配置、Feature prompt、工具选择和历史可见性使用。native Session isSeeded/自身 subagent descriptor 识别 fork；首次空 seed fork 在公开 tools/execute 调用链内用 AsyncLocalStorage 携带父 ID，agent/created 在对应父下捕获执行方式。无需新增持久协议，重启用已有 native descriptor。复用 workflow 已采用的异步创建作用域方式，不以模型文本判断身份。
+2. 普通子不安装父 Persona，保留所属产品名/ID及内部执行指导。Global、PA 和 SingleThread 均隐藏 conversations、personal_sources、schedule_run、schedule_history；Global/PA 不注册根 Inbox/公开发送，SingleThread 保留根 preset 的静态工具选择机制，但子覆盖 send_message 为仅 agent_id/message 的内部参数并复用原生执行分支、抑制根交付段。Task/来源等指导不要求子自己承担根会话的公开交付、Inbox 或等待管理。
+3. fork 与父采用相同 Persona、产品身份、Global/PA/Task/UI 系统段和工具定义；注册相同产品工具用于 schema 一致，现有宿主根身份检查继续拒绝子公开操作。首次委派末尾追加子角色与内部回传要求，采用原生 pre-step 输入扩展；不改历史系统头，不过滤继承的 root Task 消息。动态窗口 ID 保留，作为历史后的新快照。未继承完成轮次的首轮 fork 也识别为 fork。正常 role 配置更新仍可改变前缀，不伪造缓存。
+4. 删除 memory_maintenance exclude、paths/sources 参数、MemoryDocuments.exclude 和 exclusions 消费链；status/run/importLegacy 保留。主 Agent 当前遵守新要求，并通知相关原 child；没有新遗忘 API、后台队列或名单。Dreaming 从已有 qualified 原聊天读停止使用意图，修改正文与入口；仅本轮例外只在事项中保留。聊天权限 personal_sources 与来源版本检查保持，它们控制可读范围，不承担内容遗忘。
+5. Dreaming 去掉 Run/cycle/source generation 行；sourceDirectory 的外显投影只给 source session ID、用途和可读截止时间，source_history 返回也采用该外显投影，Task summary 头仅保留 source session_id；内部 baseline/through/generation/sourceVersion 继续做宿主校验和去重。移除独立 Source exclusions 数据包；清楚说明提炼材料是经过筛选的业务记录，省略计数只指额外容量省略。保留实际工具需要的窗口/条目定位、库/暂存路径。
+
+### 旧状态
+旧文档状态中的 exclusions 不再参与任何读取、筛选、提示或保存决策；加载时只取仍使用的明确字段，后续保存自然去掉废弃字段。已有 MEMORY.md 正文、原聊天和 Git 历史保留，不根据旧名单自动删除任何内容。没有一次性业务数据迁移，也不把旧名单转成新的聊天指令。旧在途 Dreaming 仍按既有版本/启动恢复规则处理，本轮不增加并发补偿。
+
+### M1 增量退出标准
+- [worker] 现有真实 DSH fixture 断言主/普通/fork（含无历史与恢复）system/tools、历史前缀、公开工具拒绝；记忆工具 schema 不含 exclude，历史旧字段不再出现在 context/status/Dreaming；源权限和唯一写者仍受保护。保留最窄已有覆盖，改写依赖废弃接口的测试。
+- [reviewer] 独立 daily 真 IM/Node/DSH 实跑 Global、PA、普通与 fork，检查完整初始输入、目录/schema、实际工具结果；PA 先记住测试事实，再在聊天明确停止采用，下一回答即时遵守，Dreaming 从该聊天清理正文和入口；仅本轮更正不永久删除。
+- [worker/reviewer] 保存 fork 实际 provider/cache usage（如 cache_read_input_tokens/cached_tokens）与父/子输入前缀对照；前缀一致不等于命中，不以配置或模拟返回冒充实际缓存。若 provider 不报告，明确该项证据缺口并继续寻找当前路由的可用观测入口。
+- [static reviewer] 按 Agent Context Implementation Review 复核上述最终消费链与证据；旧 Task/前端等无变化面 retained。所有文档修订合并回 current spec，归档后 PR 至 unit/feat-676。
