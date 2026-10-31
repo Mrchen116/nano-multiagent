@@ -12,9 +12,9 @@
 
 ### Preconditions and sequence
 
-1. Instantiate actual [RuntimeClient](<../../../packages/dsh-integration/src/client.ts>) with a temporary native profile. Insert an `llm/stream` observer that records every provider invocation, then returns a normal text response.
+1. Instantiate actual [RuntimeClient](<../../../../packages/dsh-integration/src/client.ts>) with a temporary native profile. Insert an `llm/stream` observer that records every provider invocation, then returns a normal text response.
 2. Configure an ordinary `single_thread` Agent with `features.task_graph=false`. Bind its root to an external Feishu conversation. Actual NodeStore and InboxStore are empty: no Task, task context mappings, unread system messages, or continuation.
-3. Wire `product.task_context.prepare/commit` to actual [TaskContext](<../../../packages/personal-assistant/src/task-context.ts>). Its relay has `ready=false`; `request` increments a counter then throws `CENTER_OFFLINE_NO_TASKS`. Source refresh is an ordinary-Agent no-op.
+3. Wire `product.task_context.prepare/commit` to actual [TaskContext](<../../../../packages/personal-assistant/src/task-context.ts>). Its relay has `ready=false`; `request` increments a counter then throws `CENTER_OFFLINE_NO_TASKS`. Source refresh is an ordinary-Agent no-op.
 4. Submit native followup `feishu-ordinary-no-task` with `source={kind:human,actorId:owner,channel:feishu,messageId:feishu-ordinary-no-task}` and text `Just answer: what is 2+2? No Task requested.`
 5. Await that native turn reaching idle; inspect provider records and `session.lookup`.
 
@@ -45,7 +45,7 @@
 }
 ```
 
-This is the unconditional root [pre-step request](<../../../packages/dsh-integration/src/task-context.ts#L21-L25>) reaching unconditional [authoritative synchronization](<../../../packages/personal-assistant/src/task-context.ts#L30-L71>). It proves loss of the existing independent-external-input availability boundary. It does not argue that stale Task originals or automatic Task continuations should run offline; those must remain pending without a retry loop. See [SPEC](<../../../SPEC.md#L22>) and the [approved degradation rule](<design.md#L157-L191>).
+This is the unconditional root [pre-step request](<../../../../packages/dsh-integration/src/task-context.ts#L21-L25>) reaching unconditional [authoritative synchronization](<../../../../packages/personal-assistant/src/task-context.ts#L30-L71>). It proves loss of the existing independent-external-input availability boundary. It does not argue that stale Task originals or automatic Task continuations should run offline; those must remain pending without a retry loop. See [SPEC](<../../../../SPEC.md#L22>) and the [approved degradation rule](<design.md#L157-L191>).
 
 ## B. Revoked, never-consumed Task first appears through an old unread cursor
 
@@ -102,7 +102,7 @@ try {
 - The second read, with the old cursor and a fresh call ID, returns the full `withdrawn-task` content `UNCONSUMED_WITHDRAWN_TASK_TITLE_AND_REQUIREMENTS`.
 - The Task was never on the first saved page, never committed by an Inbox read, and never consumed in a native step. This is **not** rereading already-consumed canonical history or replaying an already-returned tool page.
 
-Root cause: [revocation](<../../../packages/personal-assistant/src/inbox.ts#L233-L235>) updates `consumed` and deletes saved reads but leaves `snapshots.fragments`. The [cursor path](<../../../packages/personal-assistant/src/inbox.ts#L293-L317>) selects those old fragments without revalidating their terminal Task revocation. [GlobalAgent.call](<../../../packages/personal-assistant/src/global-agent.ts#L460-L473>) still allows the source to be read when it remains public/readable. Expected fix: invalidate/filter affected unconsumed Task fragments in frozen unread snapshots and cover this exact race, preserving genuinely consumed native history. Also verify direct-consumption deduplication for preexisting cursors.
+Root cause: [revocation](<../../../../packages/personal-assistant/src/inbox.ts#L233-L235>) updates `consumed` and deletes saved reads but leaves `snapshots.fragments`. The [cursor path](<../../../../packages/personal-assistant/src/inbox.ts#L293-L317>) selects those old fragments without revalidating their terminal Task revocation. [GlobalAgent.call](<../../../../packages/personal-assistant/src/global-agent.ts#L460-L473>) still allows the source to be read when it remains public/readable. Expected fix: invalidate/filter affected unconsumed Task fragments in frozen unread snapshots and cover this exact race, preserving genuinely consumed native history. Also verify direct-consumption deduplication for preexisting cursors.
 
 ## Post-probe fingerprints
 
@@ -124,7 +124,7 @@ The parent authorized only rechecking prior C1/C2/C3 and an external temporary T
 
 ### C1: Ordinary input, pending Task originals, automatic work and hard tool boundary
 
-The outside-repository temporary script used actual [RuntimeClient](<../../../packages/dsh-integration/src/client.ts>), [TaskContext](<../../../packages/personal-assistant/src/task-context.ts>), [NodeStore](<../../../packages/personal-assistant/src/store.ts>) and [InboxStore](<../../../packages/personal-assistant/src/inbox.ts>). Only center relay, responsibility responses and provider transport were controlled. Provider bodies were recorded at native `llm/stream`; these are **not real-model behavior or live-product acceptance**.
+The outside-repository temporary script used actual [RuntimeClient](<../../../../packages/dsh-integration/src/client.ts>), [TaskContext](<../../../../packages/personal-assistant/src/task-context.ts>), [NodeStore](<../../../../packages/personal-assistant/src/store.ts>) and [InboxStore](<../../../../packages/personal-assistant/src/inbox.ts>). Only center relay, responsibility responses and provider transport were controlled. Provider bodies were recorded at native `llm/stream`; these are **not real-model behavior or live-product acceptance**.
 
 For pending cases an actual Inbox original was prepared while online, preserving its original ID and digest, then passively queued in native context. Authority was disconnected before the next native step. A responsibility response could still report a stale doing Task, so the shared availability gate had to block automatic work rather than relying on a conveniently unavailable snapshot response.
 
@@ -154,17 +154,17 @@ These built SHA-256 values matched before and after that successful matrix; they
 
 Job `bash-780e08e423d54991` first obtained the expected offline denial, then restored the relay and submitted a new independent human request in the **same feature-off session**. The provider emitted another real Task apply with a distinct call ID. Actual PA preparation succeeded after restoration, but the second native tool result was still unavailable: provider 4 total, product calls **0 instead of 1**. The assertion failed **exit 1**; runtime/profile cleanup ran in finally.
 
-The [feature-off early return](<../../../packages/dsh-integration/src/task-execution.ts>) preceded recomputation of the cached authority-unavailable flag. PA preparation cleared only context-unavailable. The offline authority-unavailable snapshot stayed sticky, so manually permitted Task tools remained blocked after catch-up. This was independently reported, not mistaken for the original ordinary-conversation outage. The parent subsequently removed that cached flag and changed [the hard gate](<../../../packages/dsh-integration/src/task-execution.ts#L85-L92>) to revalidate the current snapshot at each tool invocation. A later subsection records the exact counterexample rerun; the intermediate failure is retained here rather than erased.
+The [feature-off early return](<../../../../packages/dsh-integration/src/task-execution.ts>) preceded recomputation of the cached authority-unavailable flag. PA preparation cleared only context-unavailable. The offline authority-unavailable snapshot stayed sticky, so manually permitted Task tools remained blocked after catch-up. This was independently reported, not mistaken for the original ordinary-conversation outage. The parent subsequently removed that cached flag and changed [the hard gate](<../../../../packages/dsh-integration/src/task-execution.ts#L85-L92>) to revalidate the current snapshot at each tool invocation. A later subsection records the exact counterexample rerun; the intermediate failure is retained here rather than erased.
 
 ### C2: Old cursor withdrawal and direct-consumption deduplication
 
-The exact actual [GlobalAgent.call](<../../../packages/personal-assistant/src/global-agent.ts>) / Inbox public-read witness from B was rerun on Node24, with assertions inverted to the fixed contract. Public source info stayed can_read=true / can_write=false. After committing only the first ordinary page, revoking the never-returned Task and making a fresh read with the old cursor yielded `{target:"public-chat",messages:[]}`, with no withdrawn title/requirements; check.sources stayed empty. A separate run replaced revocation with actual direct native-context consumption; the old cursor likewise returned no Task. Replaying the already-consumed ordinary saved read preserved its exact body in both cases. Both completed **exit 0**.
+The exact actual [GlobalAgent.call](<../../../../packages/personal-assistant/src/global-agent.ts>) / Inbox public-read witness from B was rerun on Node24, with assertions inverted to the fixed contract. Public source info stayed can_read=true / can_write=false. After committing only the first ordinary page, revoking the never-returned Task and making a fresh read with the old cursor yielded `{target:"public-chat",messages:[]}`, with no withdrawn title/requirements; check.sources stayed empty. A separate run replaced revocation with actual direct native-context consumption; the old cursor likewise returned no Task. Replaying the already-consumed ordinary saved read preserved its exact body in both cases. Both completed **exit 0**.
 
-The [unread selection and next-cursor calculation](<../../../packages/personal-assistant/src/inbox.ts#L298-L326>) now intersect frozen fragments with current unconsumed rows and fragment-consumption state. Retaining snapshots no longer independently proves the old unread leak.
+The [unread selection and next-cursor calculation](<../../../../packages/personal-assistant/src/inbox.ts#L298-L326>) now intersect frozen fragments with current unconsumed rows and fragment-consumption state. Retaining snapshots no longer independently proves the old unread leak.
 
 ### C3: Original business semantics
 
-A temporary Node24 script imported the actual [notice generator](<../../../apps/im-server/src/task-notifications.ts>) and completed **exit 0**, asserting:
+A temporary Node24 script imported the actual [notice generator](<../../../../apps/im-server/src/task-notifications.ts>) and completed **exit 0**, asserting:
 
 - Explicit old→new named assignment roles; unassignment names the former assignee; a nonmember is not emitted as a live mention.
 - Container, derived-from and selected-replacement edits each state old→new endpoints and reference changed/old/new Task IDs; directly affected endpoint owners are attended, unrelated owners excluded.
@@ -181,7 +181,7 @@ No final frozen review, full regression, dependency-contract rerun, M1 signoff, 
 
 Job `bash-2f630a1037a04d46` completed **exit 0** on Node v24.22.1. It repeated every native case in C and then the exact same-session feature-off tool recovery counterexample. All original ordinary-input, uncertain-original, Task-only, bounded-no-hotloop and exactly-once assertions remained true. Offline apply still produced a real native unavailable tool result with product calls 0; after actual PA catch-up and a new independent human input, the second apply produced a real successful native tool result with product calls **1**, provider calls **4** total. The sticky gate counterexample is therefore repaired at this working snapshot, not silently removed from the review history.
 
-Current [hard Task-tool gate](<../../../packages/dsh-integration/src/task-execution.ts#L85-L92>) rejects known context unavailability and otherwise obtains a fresh responsibility/source snapshot at the actual tool boundary. The observed off/on feature behavior is not being inferred from D9 text. This reviewer directly exercised the feature-off same-session native deny→allow boundary; the parent's additional four-quadrant focused test claim is not represented as a reviewer execution.
+Current [hard Task-tool gate](<../../../../packages/dsh-integration/src/task-execution.ts#L85-L92>) rejects known context unavailability and otherwise obtains a fresh responsibility/source snapshot at the actual tool boundary. The observed off/on feature behavior is not being inferred from D9 text. This reviewer directly exercised the feature-off same-session native deny→allow boundary; the parent's additional four-quadrant focused test claim is not represented as a reviewer execution.
 
 Before/after SHA-256 values for this latest full scoped native run were identical:
 

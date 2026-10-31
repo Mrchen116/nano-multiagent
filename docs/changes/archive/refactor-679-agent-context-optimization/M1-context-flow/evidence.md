@@ -99,3 +99,19 @@ The isolated daily stack was stopped via `scripts/e2e-down.sh --wt /tmp/nano-ref
 根 Agent 逐段核读 Global 完整系统指导、PA 所有差异段、两者 runtime/Skill/唤醒与工具目录；独立产品 reviewer 核完整输入和交付。PA 首次模板 basis generation0 与首次来源同步 generation1 不同，按保留的来源保护暂不展示待核对正文；后续通过正式 Dreaming 完成保存，`pa-valid-memory-snapshot.txt` 展示绝对文件路径、完整一页关键记忆、详细页导航及当前来源代际。不能将首次失效分支记成有效正文通过；有效分支另由该后续请求证明。详细判据与交付消息见本轮 `acceptance.md`。
 
 旧用户预览 `/tmp/nano-refactor679-daily:64012` 保留；新预览也保留供查看完整轨迹。均为隔离测试环境，没有部署生产或向生产发送消息。当前 worktree 提供两套保留预览的运行文件，结束时如仍保留，应明确报告生命周期原因。
+
+## 消费者接口修正与默认测试能力（2026-10-31，第二轮用户反馈）
+
+- 实现版本：`81bff879b`；真实启动接口修正：`0718cbd3b`，基线 Memory `2724ea8d1`。Round 9 增量设计 Approved。工作 Agent 与审批器使用各自可见接口；前台直接读取当前正式记忆，后台冻结/发布继续校验来源与版本；公开维护状态不暴露内部调度状态。
+- Red：`pnpm exec vitest run packages/dsh-integration/tests/memory-documents.test.ts --maxWorkers=1` 得到 3 个当前正文被错误隐藏的失败（首次来源准备、普通文件变更、来源集变化）；`/tmp/refactor679-consumer-red.log`。新增通用测试默认工具同步在尚无实现时两例失败，`/tmp/refactor679-bootstrap-red.log`。
+- Green：当前文档、root/child 原生记忆请求、真实 HTTP provider 请求共 4 文件 / 12 测试通过（`/tmp/refactor679-consumer-focused.log` 中另外 6 个旧 status fixture 因再次打开已打开 domain 失败，未归为产品通过）。改从实际持久文件读取后台进度后，Dreaming 终止/失败/不写入、恢复、审批来源、审批提示和 Node 原生 PA 来源准备共 5 文件 / 41 测试通过：`/tmp/refactor679-consumer-regression.log`。保护了失败不推进、成功推进、前台不可直接修改正式记忆与审批私有协议不变。
+- `python -m pytest tests/unit/test_e2e_catalog.py tests/unit/test_e2e_daily.py -q`：10 passed。覆盖动态新 default_on、固定工具、已开 Feature 依赖、默认关闭选择、已有额外选择和显式替代配置。
+- 真实 daily 首次启动发现 bootstrap PATCH 没有完整配置，真实 API 返回 422，独立 code reviewer 同时复现。`0718cbd3b` 使用已 GET 的完整 current 配置合并工具选择；补保留名称、群策略、提示和模型断言。失败日志 `/tmp/refactor679-consumer-bootstrap-422.log` 保留。按 e2e-down 关闭仅本轮失败栈后重起成功；`/tmp/refactor679-consumer-up.log`、`/tmp/nano-refactor679-consumer/.e2e-daily.json`。
+- 新栈 `http://127.0.0.1:58220`，P/E/Q `codexOAuth:gpt-6.1-sol/high`，PA `codexOAuth:gpt-6-astra/medium`，审批 `codexOAuth:gpt-6-luna`；P/E/Q 各 37 个持久工具选择。PA 沿真实产品创建，固定工具由宿主加入；以 allowlist 与 fixed_tools 合集核对产品默认目录，四者缺失均为空，证据 `output/refactor-679-consumer/default-tools.json`。最终实际模型工具由产品验收核对，不能仅以配置声明代替。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime` 通过；`pytest -m "not e2e" -q`：129 passed / 28 deselected；ruff check 与 format：97 文件通过；当前 docs-check：295 Markdown / 68 routes。日志 `/tmp/refactor679-consumer-{full-build,typecheck,ios,python-all,ruff,docs}.log`。前端源码和锁未修改，前轮完整 Web 验证保留，远端最终完整 CI 仍为交付门禁。
+- 用户明确接受的例外：DSH jobs 插件已加载而工具被人为白名单隐藏时仍有相关指导，本轮不改 jobs/bash/工具过滤或后台执行行为；保留 `Use read/glob/grep for memory files`。不能把正常默认配置通过概括为任意受限配置都无错配。
+- 最终完整 Native：`pnpm exec vitest run --maxWorkers=2`，181 文件 / 954 测试通过，345.86 秒；`/tmp/refactor679-consumer-full-tests.log`。没有用定向通过替代本次全量。
+- 新 daily 真实首轮：Global `97e406fe-2a9c-4e35-809f-1a67f81e02e8`，PA `54f70a6a-b492-4cff-a8a8-fad495f1aecb`，实际工具分别 37 / 39，均有 glob/grep/job_output/job_kill。root 全文审读 initial messages、全部 tool schemas 与动态加载内容；首次 MEMORY.md 正文均直接可用，实际 Global 完成 glob/grep/read 并送回原群，PA 只在主人私聊完成整理状态与更正回复。
+- PA seq47 完成 Dreaming，seq50 新正文进入下一上下文，seq53 status 只含来源待核对、显式停用、路径级保存/版本回执及 active/backlog/reviews；2 页 saved/versionRecorded。后续更正 seq97 登记停止采用，seq100 约束进入实际上下文，PA 未启动新整理/写正式文件且按新截止时间排序，不谎报持久更正。实际正文、请求、返回、截图均在 `output/refactor-679-consumer/`；来源为原生实际请求记录，不冒充上游 HTTP 抓包。
+- Root 在实际加载的 Skill 全文发现残留 memoryRoot/profile、前台 checkpoint 和旧逐 step 说法，产品 reviewer 记 consumer-1 C1 未通过。`5fcb9b18a` 只修 7 行 Skill 文本；managed 重启本轮 Node 后安装内容逐字匹配。实际 seq128 重载全文、seq133 查询 status、seq138 送达新状态说明、seq143 completed，consumer-2 C1 closed / PASS。旧历史中的先前 Skill 原文保留，不伪造历史全无旧词；最终检查的是本次真正重载的当前说明及其后续消费。证据 `pa-reloaded-skill.txt`、`pa-skill-reload-full.json`、`pa-skill-reload.png`。既有行为与完整门禁 retained，不因 7 行文案机械重跑整套测试。
+- 本轮无生产操作。先前两个用户预览保持原样；本轮预览保留实际记录，当前 worktree 继续为预览的源码及运行路径 owner。
