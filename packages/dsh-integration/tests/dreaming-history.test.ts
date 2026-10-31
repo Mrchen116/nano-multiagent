@@ -27,6 +27,8 @@ function fixture(){
 it('preserves native window/item identities, Unicode reads and source filtering before search or pagination',async()=>{
   const f=fixture();const query=(args:any)=>f.tools.get('source_history').execute({session_id:'root',...args});
   const windows=await query({action:'list_windows',recent_first:false});
+  expect(Object.keys(windows.allowed_range).sort()).toEqual(['available_before','purpose','session_id']);
+  expect(windows.allowed_range.available_before).toBe(new Date(109).toISOString());
   expect(windows.items.map((w:any)=>w.window_id)).toEqual(['root:initial','root:2']);
   expect(await query({action:'search',query:'SECRET'})).toMatchObject({items:[]});
   expect(await query({action:'search',query:'FUTURE'})).toMatchObject({items:[]});

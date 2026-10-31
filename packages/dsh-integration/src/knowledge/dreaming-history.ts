@@ -107,7 +107,7 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
       await assertDreamingSources(library, run.generation);
       if (typeof result.next_cursor === 'string') result.next_cursor = Buffer.from(JSON.stringify({scope:tokenScope,cursor:result.next_cursor})).toString('base64url');
       const descendants=scope.session_id===scope.root_session_id?[]:snapshot.events.flatMap(event=>event.type==='subagent/catalog'&&event.data.mode!=='unknown'&&event.seq<=scope.through&&event.time<=scope.cutoff?[{session_id:event.data.childId,purpose:'Task descendant; source_history validates its original evidence on access'}]:[]);
-      return {session_id,...result,allowed_range:scope,descendants};
+      return {session_id,...result,allowed_range:{session_id:scope.session_id,purpose:scope.purpose,available_before:new Date(scope.cutoff).toISOString()},descendants};
     },
   });
   const allowedConversations=()=>typeof conversations==='function'?conversations():conversations;
