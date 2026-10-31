@@ -118,6 +118,19 @@ export class EvaluationChat {
   /** Resolve the actual stored PA source policy through the product authority check. */
   sources() { return this.ctx.personal!.sources(this.principal, { agent_id: this.options.agentId, action: 'list' }); }
 
+  /** Synchronize task originals against this case's stored PA authority.
+   * Args:
+   *   args: Ordinary product cursor and pending-message revalidation request.
+   * Returns:
+   *   The fixed authority range; dialogue-only datasets have no task originals.
+   */
+  taskContext(args: Record<string, unknown>) {
+    const personal = this.ctx.personal!;
+    const binding = personal.authority(this.principal, { agent_id: this.options.agentId });
+    return this.ctx.messaging.syncTaskContext(this.options.agentId, args.after as number, args.through as number | undefined,
+      args.limit as number, id => personal.sourceAllowed(binding, id), args.pending as string[]);
+  }
+
   /** Make a consistent SQLite snapshot; later answer phases always copy it.
    * Args:
    *   path: New sealed database destination owned by this case.

@@ -38,6 +38,8 @@ pnpm memory-eval --config evals/memory/examples/plan.json --ids evals/memory/exa
 
 冷答题的接收、唤醒消息、Inbox 的 `sources` / `delivery` / `conversation_type` / `sender.is_owner`、分页与消费、回复前重核及实际发送回包，均经过现有 PA 实现。问题正文只通过 Inbox 进入，基准题号只留控制区；`question_date` 保留为问题的原时间。首请求使用产品正常角色规则、有效文档记忆入口和技能目录，不另写评测答题提示词。
 
+每轮组装上下文前，使用产品 `TaskContext` 同步本题聊天库的来源权限与任务原文，并通过原消费回执收口；LongMemEval 没有 Task 数据，因此任务原文范围自然为空。该接线不伪造任务，也不跳过来源重核。
+
 `nano-memory` 可正常发现、加载和读取随包资源。答题自己的 `notes/history/new_context/get_context_remaining` 可用，换窗后可恢复这次答题；它们不能读取准备 runtime 的旧窗口和维护笔记。普通文件工具只读封存记忆与随包技能，生产目录、控制资产、其他题和准备 runtime 文件仍不可读；原始聊天仅经 `conversations` 按需查询。
 
 以下是明确保留的评测条件，不能据此宣称完整产品链路验收：

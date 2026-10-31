@@ -188,3 +188,15 @@ PR #429 保留 `unit/feat-676` base；最新 head 的远端 CI 结果单独记�
 - CLI 默认 plan 经独立验收为 protocol v3 / candidate v6 / modelCallsStarted=0；真实候选与 judge 新增调用均为 0。确定性通过不代表真实模型策略、质量或全量并发吞吐已经验证；现有 CLI 仍顺序运行题目。
 
 PR #429 保留 `unit/feat-676` base；远端 CI 对最终交付 head 单独核实并记录在 PR。未合并、未部署；开发 worktree 和用户要求保留的旧单题只读入口继续保留，旧实验数据/配置/轨迹未改写。本轮测试新建进程已清理，只保留本机原始审查证据。
+
+## 2026-11-01 父分支同步与适配
+
+用户要求同步更新后的 `unit/feat-676` 并确认当前评测适配。由 clean `d03b5fae0` 合并指定父分支 `68074e8c4e27eb7efb08af5e40cfec30976fff58`，没有文本冲突。父分支包括 refactor-679 的上下文同步、Dreaming 消费提示及 feat-680 聊天检索更新。
+
+- 首次专项 6 files / 17 tests 中 2 failed；`/tmp/feat677-sync-targeted.log` 保留红测。随后用仓库指定 Node 24.22.1 独立复现，prepare=ready，但 answer 首次模型调用前失败：`Unknown method: product.task_context.prepare`。证据 `/tmp/feat677-sync-probe.log` 及其引用的原生运行目录。初次构建/专项使用宿主默认 Node 25.8.2；此后的修复验证切换到固定 Node 24.22.1，未将环境差异当作根因。
+- Nano adapter 补接现有 `product.task_context.prepare/commit`，组合产品 `TaskContext` 与本题 IM 数据库的 `Messaging.syncTaskContext`，复用 PA 来源同步、身份校验和消费回执。没有新增产品行为、工具、Task 数据或第二套上下文算法；LongMemEval 的任务原文范围自然为空。
+- 测试移除对旧模型提示中内部 `baseline` 字段的依赖，改核同一原生根和来源时间边界；并行隔离按完整消息集合判定，不固定聊天搜索的同刻排序。旧全链断言继续保护历史保真、未来排除、冷上下文、工具结果、委派交付、限额、取消和跨题隔离。
+- 修复后独立 probe：prepare=ready；answer=completed/Paris，16 次确定性请求、2 次越界读取拒绝。证据 `/tmp/feat677-sync-probe-fixed.log`；未运行真实模型/judge。
+- 窄验证 `/tmp/feat677-sync-targeted-final.log`：6 files / 17 tests passed（28.27s）。protocol v3 / adapter v6 的信息边界、准备/答题/评分规则不变；产品代码与构建变化自然改变 candidateId。后续实验应重新 build/plan 并新建 run，不改写旧结果。
+
+沿既有 Full unit 对本次适配执行 targeted 独立门禁；设计方案、产品 current specs 与原无关场景 retained，no spec delta。最终独立结论与完整检查另行追加；此处不预先声称全量验证或 CI 通过。

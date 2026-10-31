@@ -73,6 +73,7 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     const prepared = await candidate.prepare(history, limits);
     expect(prepared.status, JSON.stringify(prepared)).toBe('ready');
     if (prepared.status !== 'ready') throw new Error(JSON.stringify(prepared));
+    const { identity } = JSON.parse(await readFile(prepared.preparedRef, 'utf8'));
     const audit = JSON.parse(await readFile(prepared.receipt.evidenceRef, 'utf8'));
     expect(audit.importedMessages).toBe(6);
     expect(audit.result.details).toMatchObject({ active: false, backlog: { state: 'pending' } });
@@ -122,12 +123,12 @@ it('replays only arrived history and freezes naturally formed memory for isolate
         .filter((block: {type:string}) => block.type === 'text').map((block: {text:string}) => block.text).join('\n');
       const directory = JSON.parse(plain.match(/Source directory \(data\): (\[[^\n]*\])/)![1]!);
       expect(directory).toHaveLength(1);
-      expect(directory[0].baseline).toBe(-1);
+      expect(directory[0].session_id).toBe(identity.rootSessionId);
+      expect(Date.parse(directory[0].available_before)).toBeLessThanOrEqual(request.logicalTime);
     }
     expect(requests).toContain('EVALUATION_RECOVERY');
     expect(requests).toContain('I moved to Paris.');
     const answerRequests = (await readFile(answerAudit.requests, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-    const { identity } = JSON.parse(await readFile(prepared.preparedRef, 'utf8'));
     expect(answerRequests.every(request => request.sessionId === identity.rootSessionId)).toBe(true);
     const wake = answerRequests[0].messages.find((message: {source?:{channel?:string}}) => message.source?.channel === 'inbox');
     expect(wake.source).toMatchObject({ kind: 'nano-system', actorId: identity.agentId, channel: 'inbox' });
@@ -231,11 +232,15 @@ it('isolates parallel case runtimes and keeps a sealed chat reusable after anoth
     }, { timeout: 10000 }).toBe(1);
     await candidates[1]!.close();
     const [answerA, interrupted] = await Promise.all([answeringA, answeringB]);
-    expect(answerA).toMatchObject({ status: 'completed', text: 'CASE_MARKER: reply 0\nCASE_MARKER: owner 0' });
+    expect(answerA.status).toBe('completed');
+    if (answerA.status !== 'completed') throw new Error(JSON.stringify(answerA));
+    expect(answerA.text.split('\n').sort()).toEqual(['CASE_MARKER: owner 0', 'CASE_MARKER: reply 0']);
     expect(interrupted.status).toBe('failed');
     delete options[1]!.environment!.EVALUATION_HANG;
     const answerB = await candidates[1]!.answer(refs[1]!, question, limits);
-    expect(answerB).toMatchObject({ status: 'completed', text: 'CASE_MARKER: reply 1\nCASE_MARKER: owner 1' });
+    expect(answerB.status).toBe('completed');
+    if (answerB.status !== 'completed') throw new Error(JSON.stringify(answerB));
+    expect(answerB.text.split('\n').sort()).toEqual(['CASE_MARKER: owner 1', 'CASE_MARKER: reply 1']);
     for (const root of roots) for (const name of (await readdir(root)).filter(name => name.startsWith('prepare-') || name.startsWith('answer-'))) {
       const audit = JSON.parse(await readFile(join(root, name, 'usage.json'), 'utf8'));
       expect(() => process.kill(audit.processId, 0)).toThrow();

@@ -37,6 +37,8 @@ export interface NanoEvaluationProduct {
   snapshot(path: string): Promise<void>;
   /** Admit a question through the product and return its actual wake input ID. */
   submit(question: EvaluationQuestion): Promise<string>;
+  /** Use the product's pre-step source synchronization and consumption receipts. */
+  taskContext: { prepare(value: unknown): Promise<unknown>; commit(value: unknown): Promise<void> };
   call(value: unknown): Promise<unknown>;
   close(): Promise<void>;
 }
@@ -200,6 +202,8 @@ export class NanoMemoryCandidate implements MemoryCandidate {
     const deliveries: string[] = [];
     await writeFile(join(dir, 'deliveries.json'), '[]');
     client.rpc.handle('product.call', value => run.product!.call(value));
+    client.rpc.handle('product.task_context.prepare', value => run.product!.taskContext.prepare(value));
+    client.rpc.handle('product.task_context.commit', value => run.product!.taskContext.commit(value));
     run.peer.handle('history.append', value => run.product!.importSession(value as EvaluationHistory['sessions'][number]));
     try {
       if (this.stopped) throw new Error('Evaluation cancelled');

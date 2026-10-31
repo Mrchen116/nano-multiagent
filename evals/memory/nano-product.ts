@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { GlobalAgent, InboxStore, NodeStore, type ProductCall } from '@nano/personal-assistant';
+import { GlobalAgent, InboxStore, NodeStore, TaskContext, type ProductCall } from '@nano/personal-assistant';
 import { EvaluationChat } from '@nano/im-server/evaluation';
 import type { NanoEvaluationOptions } from '@nano/dsh-integration/evaluation';
 import type { RelayInput } from '@nano/product-contracts';
@@ -25,10 +25,7 @@ export const createNanoProduct: NanoEvaluationOptions['createProduct'] = options
   store.bind({ ...binding, conversationId: `global:${config.agentId}` });
   const target = identity.conversationId;
   let questionTime = options.startTime;
-  const product = new GlobalAgent({ nodeId, ownerId: identity.ownerId, agents: [config], store, inbox, runtime,
-    image: async () => { throw new Error('This chat has no image attachments'); },
-    onError: error => appendFileSync(join(directory, 'product-errors.log'), String(error) + '\n'),
-    relay: { ready: true, async request(type, args) {
+  const relay: ConstructorParameters<typeof GlobalAgent>[0]['relay'] = { ready: true, async request(type, args) {
       const ok = (result: unknown = {}) => ({ type: `${type}.result`, payload: { ok: true, result } });
       if (type === 'agent.session.ensure' || type === 'node.delivery_receipt') return ok();
       if (type === 'pa.observations.read') return ok({ items: [], has_more: false });
@@ -42,9 +39,15 @@ export const createNanoProduct: NanoEvaluationOptions['createProduct'] = options
         return { type: 'ack', payload: { message_id: message.id, conversation_id: target } };
       }
       if (type === 'conversation.query') return ok(chat.query(args));
+      if (type === 'task.context.sync') return ok(chat.taskContext(args));
       throw new Error(`Operation is unavailable in the isolated owner chat: ${type}`);
-    } },
+    } };
+  const product = new GlobalAgent({ nodeId, ownerId: identity.ownerId, agents: [config], store, inbox, runtime, relay,
+    image: async () => { throw new Error('This chat has no image attachments'); },
+    onError: error => appendFileSync(join(directory, 'product-errors.log'), String(error) + '\n'),
   });
+  const taskContext = new TaskContext({ nodeId, ownerId: identity.ownerId, agents: [config], store, inbox, runtime, relay,
+    refreshSources: agentId => product.prepareSystemContext(agentId) });
   return {
     importSession: session => chat.importSession(session),
     snapshot: path => chat.snapshot(path),
@@ -59,6 +62,10 @@ export const createNanoProduct: NanoEvaluationOptions['createProduct'] = options
       return `inbox-wake:${config.agentId}:${inbox.admittedWake(config.agentId)}`;
     },
     call: value => product.call(value as ProductCall),
+    taskContext: {
+      prepare: value => taskContext.prepare(value as Parameters<TaskContext['prepare']>[0]),
+      commit: value => taskContext.commit(value as Parameters<TaskContext['commit']>[0]),
+    },
     async close() { try { await product.stop(); } finally { inbox.close(); store.close(); chat.close(); } },
   };
 };
