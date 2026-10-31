@@ -303,3 +303,18 @@ The independent complete-input/37-39-tool-schema and natural Global/PA journey r
 Local evidence is complete: 181 files/954 native tests, 129 Python passed/28 deselected, complete build/typecheck, shared iOS runtime, ruff and docs295/68 passed; source/logic checks and the small Skill review remain retained. Native request/header/context/surface observations and actual sent/model behavior are not upstream final HTTP-wire capture; historical controlled HTTP serialization evidence remains a separate class. User-approved read/glob/grep and constrained-jobs exceptions remain as specified, not open defects.
 
 **V-CONSUMER-FINAL-1 closed; no remaining implementation or evidence issue in this bounded round.** Current canonical delta merge, whole-unit archive, relative-link/index correction and final docs-check may retain this code/Context/verifier result without another full review, provided they add no semantics. PR, remote CI, Memory merge and preview lifecycle remain caller delivery work; this local PASS does not claim those have occurred. Existing previews are intentionally retained for user viewing. Reviewer stops writing files after handing back this closure.
+
+
+## CI confirmed-stop test wait — bounded review (2026-10-31)
+
+**Review mode: test-only delta**, HEAD `0b7f7a6e13132cd8d733bc8c2af0d71d07b6ff63` plus the single dirty change in `packages/dsh-integration/tests/task-execution.test.ts`. No product/runtime/Context implementation changes. Prior implementation, product and verifier PASS conclusions remain retained; this review does not reopen them.
+
+```json
+[]
+```
+
+The revised wait preserves the declared stop-fence and notice-retention assertions at the observable boundary: the stopped session settles idle with no model call; releasing the fence stays quiet; the next actual human request's first provider invocation includes HOST_STOP_NOTICE; prior Schedule and queued human input remain present; the unconfirmed doing Task is absent. It removes the assumption that an injected notice must appear in at least two internal inbox insertion events. The required outcome is notification retention before the next model decision, whether the native queue kept or reinserted the notice. No later behavioral assertion was deleted, and no skip/retry or product fallback was introduced.
+
+PR #436 CI run `41196290600` remains a real failed run: this assertion observed one insertion where the old test required at least two (953 other tests passed). The unchanged focused local reproduction passed in 4.07s. The exact CI scheduling/interleaving cause was not captured and is **not proven**; this test repair must not be described as a confirmed runtime batching fix. The replacement verifies observable settling/absence of premature calls and later actual notice consumption without asserting private batching counts.
+
+Caller reran the owning `task-execution.test.ts` regression: **13/13 passed**, 17.93s, `/tmp/refactor679-ci-stop-regression.log`. Reviewer inspected the complete owning scenario and retained downstream assertions, did not run tests/models/services and changed only this report. Remote CI after the test repair is still a separate pending delivery check, not implied by the local regression. No new full review or verifier change is needed.

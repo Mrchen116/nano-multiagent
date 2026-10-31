@@ -115,3 +115,10 @@ The isolated daily stack was stopped via `scripts/e2e-down.sh --wt /tmp/nano-ref
 - PA seq47 完成 Dreaming，seq50 新正文进入下一上下文，seq53 status 只含来源待核对、显式停用、路径级保存/版本回执及 active/backlog/reviews；2 页 saved/versionRecorded。后续更正 seq97 登记停止采用，seq100 约束进入实际上下文，PA 未启动新整理/写正式文件且按新截止时间排序，不谎报持久更正。实际正文、请求、返回、截图均在 `output/refactor-679-consumer/`；来源为原生实际请求记录，不冒充上游 HTTP 抓包。
 - Root 在实际加载的 Skill 全文发现残留 memoryRoot/profile、前台 checkpoint 和旧逐 step 说法，产品 reviewer 记 consumer-1 C1 未通过。`5fcb9b18a` 只修 7 行 Skill 文本；managed 重启本轮 Node 后安装内容逐字匹配。实际 seq128 重载全文、seq133 查询 status、seq138 送达新状态说明、seq143 completed，consumer-2 C1 closed / PASS。旧历史中的先前 Skill 原文保留，不伪造历史全无旧词；最终检查的是本次真正重载的当前说明及其后续消费。证据 `pa-reloaded-skill.txt`、`pa-skill-reload-full.json`、`pa-skill-reload.png`。既有行为与完整门禁 retained，不因 7 行文案机械重跑整套测试。
 - 本轮无生产操作。先前两个用户预览保持原样；本轮预览保留实际记录，当前 worktree 继续为预览的源码及运行路径 owner。
+
+### PR #436 CI 的停止用例校正
+
+- CI run `41196290600` 的 Native 回归为 953 passed / 1 failed：`task-execution.test.ts` 的 confirmed-stop 场景要求停止通知出现至少两次 `agent/inbox/spliced` 插入事件，实际只有一次，轮询超时。失败摘录保留在 `/tmp/refactor679-consumer-ci-failure.txt`；前端、构建和类型检查通过，后端余下步骤因该失败跳过。
+- 未修改用例的本地定向复现通过（4.07 秒，`/tmp/refactor679-ci-stop-repro.log`）。因此没有把未复现当作已确定 CI 的具体调度交错或运行时缺陷已修复。该断言依赖内部入队/重新入队次数，本身不是停止和通知保留的产品契约。
+- 仅将该等待改为实际 session 回到 idle，并立即断言无模型请求；保留解除 fence 后仍安静、新外部输入后首个实际模型请求包含停止通知、原 Schedule 与排队人类输入仍可用、旧 doing Task 不复活等原有行为断言。没有修改产品运行时或放宽超时。
+- 校正后同文件 13/13 测试通过（17.93 秒，`/tmp/refactor679-ci-stop-regression.log`）。既有 954 项本地全量和真实 Global/PA 证据仍适用于未改的产品代码；远端须在最终提交重新完成整套 CI，不能将首轮失败改记成功。
