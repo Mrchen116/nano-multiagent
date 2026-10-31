@@ -159,3 +159,9 @@ pnpm exec vitest run packages/dsh-integration/tests/dreaming-runtime.test.ts pac
 - 测试冲突保留双方有效行为覆盖；Gateway capabilities 合并为 62 条 Requirement。删除 main 自动带回的 refactor-679 旧 active 文档，继续使用已实施验收的 archive 版本。
 - 首轮 shell 使用不受支持的 Node 25.8.2：重点 9 文件/41 项通过、前端 1039 项通过；全量后端出现 task-execution-limits 与 workspace-tools 两项超时后主动中止，exit 130，无完整汇总。保留 `/tmp/feat676-main-focused.log`、`/tmp/feat676-main-full.log`、`/tmp/feat676-main-web.log`，不把这些当作正式 Node 24 门禁，也不将超时归因为版本或宣称产品缺陷已修复。
 - 切到固定 Node 24.22.1 后，build、typecheck、iOS runtime、前端 109 文件/1039 项通过（`/tmp/feat676-main-node24-{build,typecheck,ios,web}.log`）。Python 129 passed / 28 deselected、ruff check/format、docs-check 与归档检查通过。Node 24 完整后端日志为 `/tmp/feat676-main-node24-full.log`；最终完整 CI 与提交状态在 PR #428 更新，不把此前旧 head 的绿色结果当作本次合并提交的门禁。
+
+### 合并后 CI 时限复核
+
+`68074e8c4` 的 Node 24 本地全量为 999 passed / 1 failed（task-execution-limits 等待超时），原样单独复验 40.56 秒通过。远端 CI run `41228782775` 两次均为 999 passed / 1 failed，失败均为 workspace-tools 的 90 秒总时限；该测试本地原样 40.43 秒通过，远端 task-execution-limits 则通过。首轮与复跑失败均保留，不写成全绿，也不从单独通过推断产品无风险。
+
+对照已通过的原分支 CI：refactor-682 `153e27f47` 的 workspace-tools 为 60.38 秒；合并前 Memory `049da1513` 为 80.54 秒（run `41224201128`）。合并后该完整旅程还承载独立 catalog/preview worker 启停，原 90 秒总预算余量不足是待验证解释。仅将该长集成用例的总预算设为 120 秒，所有行为断言、20 秒工具完成等待及清理条件保持不变；补充外层 timeout 也能触发的未完成 RPC 和运行日志。未修改运行时、未加入重试或跳过。最终结果以修正提交的 CI 为准，详见 PR #428。
