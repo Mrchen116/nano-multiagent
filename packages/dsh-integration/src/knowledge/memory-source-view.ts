@@ -5,8 +5,8 @@ import type { SourceEligibility } from './memory-documents.js';
 
 const excludedTools = new Set(['memory', 'memory_maintenance', 'skill', 'skill_manage', 'notes', 'history', 'source_history', 'new_context', 'get_context_remaining']);
 /** Keep original event identity while removing maintenance and unauthorized mixed-source content. */
-export function qualifiedEvents(events: readonly SessionEvent[], options: { sources?: SourceEligibility; excluded?: string[] }): SessionEvent[] {
-  const allowed = (id: string) => !options.excluded?.includes(id) && (!options.sources || options.sources.allowed.includes(id) && !options.sources.excluded.includes(id));
+export function qualifiedEvents(events: readonly SessionEvent[], options: { sources?: SourceEligibility }): SessionEvent[] {
+  const allowed = (id: string) => (!options.sources || options.sources.allowed.includes(id) && !options.sources.excluded.includes(id));
   const calls = new Map<string, boolean>();
   const messages = new Set<string>();
   return events.flatMap<SessionEvent>(original => {

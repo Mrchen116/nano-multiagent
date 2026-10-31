@@ -4,6 +4,32 @@ import { NodeStore } from '../src/store.js';
 import type { RelayInput } from '@nano/product-contracts';
 import { InboxStore } from '../src/inbox.js';
 
+it('routes external search and anchored reads to the authorized shadow while labeling cached history', async () => {
+  const store = new NodeStore(':memory:', 'owner'), accepted: RelayInput[] = [], forwarded: Record<string, unknown>[] = [];
+  let online = false;
+  const external = new ExternalChannels(':memory:', { nodeId: 'node', ownerId: 'owner', store,
+    relay: { get ready() { return online; }, async request(_type, payload) { forwarded.push(payload); return { type: 'result', payload: { ok: true, result: { messages: [] } } }; } },
+    im: async path => ({ id: path.endsWith('find-or-create') ? 'shadow' : 'mirror' }),
+    receive: async input => { accepted.push(input); }, permission: async () => {}, onError: () => {},
+  });
+  external.add('a', { config: { appId: 'app' }, send: async () => 'sent', thinking: async () => undefined,
+    image: async () => ({ data: Buffer.alloc(0), mediaType: 'image/png' }), updateCard: async () => {} });
+  try {
+    await external.receive('a', { messageId: 'input', chatId: 'group', senderId: 'ou-one', senderName: 'Alice', isGroup: true, mentioned: true, time: '1000', parts: [{ type: 'text', text: '发布' }] });
+    const target = accepted[0]!.conversation_id;
+    expect((await external.request('conversation.query', { agent_id: 'a', action: 'read', target })).payload.result).toMatchObject({
+      history_scope: 'external_cache', messages: [{ partial: { status: 'unknown' }, sender: { source_id: 'ou-one' } }],
+    });
+    expect((await external.request('conversation.query', { agent_id: 'a', action: 'search', target, query: '发布' })).payload.ok).toBe(false);
+    online = true; await external.recover();
+    await external.request('conversation.query', { agent_id: 'a', action: 'search', target, sender_source_id: 'ou-one', query: '发布' });
+    expect(forwarded.at(-1)).toMatchObject({ target: 'shadow', sender_source_id: 'ou-one', query: '发布' });
+    await external.request('conversation.query', { agent_id: 'a', action: 'read', target, around_message_id: 'mirror' });
+    expect(forwarded.at(-1)).toMatchObject({ target: 'shadow', around_message_id: 'mirror' });
+    expect((await external.request('conversation.query', { agent_id: 'a', action: 'read', target })).payload.result).toMatchObject({ messages: [{ source: { message_id: 'mirror' } }] });
+  } finally { await external.stop(); store.close(); }
+});
+
 it('marks only the configured owner direct chat as an owner recipient, including shadow aliases', async () => {
   const store=new NodeStore(':memory:','owner'),accepted:RelayInput[]=[];
   const external=new ExternalChannels(':memory:',{nodeId:'node',ownerId:'owner',store,

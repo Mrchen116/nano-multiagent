@@ -15,6 +15,9 @@ it('preserves default versus empty selections and ordered local/global Skill roo
     const config = await NodeConfiguration.read(path);
     const agent = { agent_id: 'a', workspace_root: home };
     expect(config.runtime(agent).toolAllowlist).toBeUndefined();
+    expect(config.runtime({...agent,title:'P · 产品与体验'})).toMatchObject({agentId:'a',displayName:'P · 产品与体验'});
+    expect(config.runtime({...agent,display_name:'PA · 个人助手'})).toMatchObject({agentId:'a',displayName:'PA · 个人助手'});
+    expect(config.runtime(agent)).toMatchObject({displayName:'a'});
     const personal=config.runtime({...agent,work_mode:'global',personal_agent:{bindingId:'binding',ownerId:'owner',conversationId:'c_owner',epoch:1}});
     const ordinary=config.runtime({...agent,work_mode:'global'});
     expect(personal.extensions).toEqual(ordinary.extensions);

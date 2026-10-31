@@ -20,7 +20,7 @@ import { ChannelService, sealChannelSecret } from "../src/channels.js";
 import {ConfigOperations, candidateFingerprint, profileResponse} from "../src/control.js";
 import {registerControlRoutes} from '../src/control-routes.js';
 import { one, type ImContext, type Row } from "../src/context.js";
-import { fixture } from "./control-fixture.js";
+import { fixture, connectFixtureGateway } from "./control-fixture.js";
 function taskMessaging(db: any) {
   const ctx = {db,gateway:{broadcast:()=>{},send:()=>false}} as unknown as ImContext;
   return new Messaging(ctx);
@@ -505,7 +505,8 @@ it('finishes migration after recovering a pending legacy configuration operation
 });
 
 it("preserves workspace tool availability in the Agent capabilities response", async () => {
-  const {ctx} = fixture();
+  const f = fixture(); connectFixtureGateway(f);
+  const {ctx} = f;
   ctx.gateway.request = async () => ({capabilities:{tools:[{name:"expense_summary",description:"Monthly expenses",source_group:"workspace",enabled:true,default_on:false}]}});
   const app=Fastify();registerControlRoutes(app,ctx);
   try {

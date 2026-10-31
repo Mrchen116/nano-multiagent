@@ -14,7 +14,7 @@ export interface DocumentReceipt {
   saved: boolean; versionRecorded: boolean; commit?: string; error?: string;
 }
 interface DocumentState {
-  generation: number; sources?: SourceEligibility; exclusions: Array<{ requestRef: string; paths: string[]; sources: string[] }>;
+  generation: number; sources?: SourceEligibility;
   basis?: { generation: number; versions: DocumentVersions };
   receipts: Record<string, DocumentReceipt>;
 }
@@ -35,7 +35,7 @@ export class MemoryDocuments {
   readonly root: string;
   readonly backupRoot: string;
   private readonly statePath: string;
-  private state: DocumentState = { generation: 0, exclusions: [], receipts: {} };
+  private state: DocumentState = { generation: 0, receipts: {} };
   private hashes: DocumentVersions = {};
   private dirty = new Set<string>();
   private rescan = true;
@@ -58,13 +58,16 @@ export class MemoryDocuments {
     const owner = new MemoryDocuments(await realpath(workspace), role, fs);
     await mkdir(owner.root, { recursive: true });
     if (await realpath(owner.root) !== owner.root) throw new Error('Memory root must not be a symbolic link.');
-    try { owner.state = JSON.parse(await readFile(owner.statePath, 'utf8')) as DocumentState; }
+    try {
+      const {generation, sources, basis, receipts} = JSON.parse(await readFile(owner.statePath, 'utf8')) as DocumentState;
+      owner.state = {generation, sources, basis, receipts};
+    }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const entry = await fs.resolve(join(owner.root, 'MEMORY.md'));
     if (!await fs.stat(entry)) {
       await fs.writeText(entry, role === 'personal'
         ? '# Personal memory\n\nDurable understanding of the owner, their relationships, preferences and workstreams.\n\n## Topics\n\nNo topics saved yet.\n'
-        : '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## Topics\n\nNo topics saved yet.\n', { kind: 'createIfAbsent' });
+        : '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## Topics\n\nNo topics saved yet.\n', { kind: 'createIfAbsent' }, undefined, owner.writePolicy());
     }
     // Exclude the entire private tree from an enclosing repository before initializing ours.
     try {
@@ -104,6 +107,11 @@ export class MemoryDocuments {
     const task = this.tail.then(action); this.tail = task.catch(() => {}); return task;
   }
   private save() { return atomicWrite(this.statePath, JSON.stringify(this.state)); }
+  private writePolicy() {
+    // Publication belongs to the configured owner, not the runtime process cwd.
+    // Preserve the backend mode, including read-only, when selecting that root.
+    return this.fs.sandboxMode ? { mode: this.fs.sandboxMode, workspaceRoot: this.workspace } : undefined;
+  }
   /** Resolve a document without allowing aliases to escape its owner library. */
   async path(path: string): Promise<string> {
     const absolute = resolve(this.root, path); const rel = relative(this.root, absolute);
@@ -141,15 +149,18 @@ export class MemoryDocuments {
     }
     return Object.fromEntries(Object.entries(this.hashes).sort(([a], [b]) => a.localeCompare(b)));
   }
-  /** Assemble navigation and an entry only when its confirmed basis is still current. */
+  /** Read current saved memory; background verification does not hide foreground knowledge. */
   async context() {
-    const versions = await this.versions(); const basis = this.state.basis;
-    const valid = !this.sourcesPending && basis?.generation === this.state.generation && same(basis.versions, versions);
-    const entry = valid ? await readFile(join(this.root, 'MEMORY.md'), 'utf8') : undefined;
-    return { role: this.role, root: this.root, generation: this.state.generation, versions,
-      entry: entry && entry.length <= 8000 ? entry : undefined,
-      reason: this.sourcesPending ? 'source_eligibility_pending' : !valid ? 'entry_basis_stale' : entry && entry.length > 8000 ? 'entry_needs_shortening' : undefined,
-      exclusions: this.state.exclusions, backupRoot: this.backupRoot };
+    const versions = await this.versions();
+    const entry = await readFile(join(this.root, 'MEMORY.md'), 'utf8');
+    return { role: this.role, root: this.root, versions,
+      entry: entry.length <= 8000 ? entry : undefined,
+      backupRoot: this.backupRoot };
+  }
+  /** Tell Dreaming whether saved pages need checking before its next publication. */
+  async needsVerification() {
+    const basis = this.state.basis;
+    return this.sourcesPending || basis?.generation !== this.state.generation || !same(basis.versions, await this.versions());
   }
   /** Reuse only unchanged versions verified under the current source generation. */
   unverifiedPaths(versions: DocumentVersions, generation: number): string[] {
@@ -183,17 +194,7 @@ export class MemoryDocuments {
       return this.status();
     });
   }
-  /** Persist an authorized stop-use request without erasing source or Git history. */
-  exclude(requestRef: string, paths: string[], sources: string[]) {
-    return this.serial(async () => {
-      for (const path of paths) await this.path(path);
-      if (!this.state.exclusions.some(item => item.requestRef === requestRef)) {
-        this.state.exclusions.push({ requestRef, paths, sources }); this.state.generation++; await this.save();
-      }
-      return this.status();
-    });
-  }
-  async status() { return { generation: this.state.generation, sourcesPending: this.sourcesPending, ...(this.state.sources ? { sources: this.state.sources } : {}), exclusions: this.state.exclusions, receipts: Object.values(this.state.receipts), backupRoot: this.backupRoot }; }
+  async status() { return { generation: this.state.generation, sourcesPending: this.sourcesPending, ...(this.state.sources ? { sources: this.state.sources } : {}), receipts: Object.values(this.state.receipts), backupRoot: this.backupRoot }; }
   /** Atomically apply a frozen plan; recovery accepts its after hash but never a third version. */
   apply(operation: DocumentOperation, generation?: number, signal?: AbortSignal): Promise<DocumentReceipt> {
     return this.serial(async () => {
@@ -211,7 +212,7 @@ export class MemoryDocuments {
         const currentHash = current === null ? null : digest(current);
         if (currentHash !== afterHash) {
           if (currentHash !== operation.beforeHash || receipt.saved) throw new Error('Document changed; planned write conflicts with the current version.');
-          await this.fs.writeText(target, operation.content, info ? { kind: 'replaceIfVersion', version: info.version } : { kind: 'createIfAbsent' }, signal);
+          await this.fs.writeText(target, operation.content, info ? { kind: 'replaceIfVersion', version: info.version } : { kind: 'createIfAbsent' }, signal, this.writePolicy());
         }
         receipt.saved = true; this.dirty.add(path); await this.save();
         receipt.commit = await this.recordVersion(path, operation.content); receipt.versionRecorded = true; delete receipt.error;

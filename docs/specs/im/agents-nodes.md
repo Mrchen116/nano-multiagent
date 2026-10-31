@@ -251,6 +251,13 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **WHEN** 前端 `GET /im/v1/agents/{id}/cron/jobs`
 - **THEN** 在线成功时 200 返回 jobs 数组；节点离线或超时时返回明确不可用错误，不以空数组冒充无任务，也不直读 gateway 侧文件
 
+#### Scenario: Web 配置页管理当前计划
+- **WHEN** 用户查看 Agent 配置中的当前计划
+- **THEN** 仅展示已取得列表中仍有效的计划；到达计划时间但尚未投递的有效计划仍保留，不能仅按时间隐藏
+- **AND** 无有效计划时显示“暂无待执行的定时任务”；离线快照继续显示来源提示，不宣称实时状态
+- **AND** 任务信息与带时区的下次执行时间分层展示，窄容器改为上下排列；详情默认收起执行指令和自定义 cron 规则，取消操作位于详情内并沿用当前可信状态保护
+- **AND** 页面隐藏失效记录不删除底层历史，也不表示后续工作执行成功；列表沿用现有查询刷新机制
+
 #### Scenario: 删 cron 任务经 RPC 代理
 - **WHEN** 前端 `DELETE /im/v1/agents/{id}/cron/jobs/{job_id}`
 - **THEN** 204 表示删除成功；节点离线或 RPC 超时返回明确不可用错误，只有已确认 job_id 不存在才返回 404
@@ -427,7 +434,7 @@ Gateway 和其全部 Agent 由同一个有效账号管理；绑定与整体换�
 
 工具候选合并 Gateway 的 PA 内置声明与对应上下文中已注册的工具：内置声明保持既有顺序及 default_on，其他注册工具去重追加、default_on=false；已有注册项携带真实描述，缺失 runtime 实例的内置声明仍保留。节点创建页使用共享目录，Agent 编辑页还包含其工作区工具并采用该工作区的同名覆盖。候选可见不代表已启用；选中状态和保存值仍由用户配置决定，不因新增候选而扩大已有白名单（含显式空集），global 固定基础工具规则不变。
 
-新建/编辑 Agent 页需要的 runtime 候选项（skills / tools / models / features）由 IM **当场**经 gateway WS 向在线节点解析后返回，IM 不在本地持久化该能力目录，也不据 IM 部署机文件系统推断。Agent 设置页可保留已成功取得的有限展示信息，供离线只读；这些信息带取得时间，不作为当前候选目录、保存校验或操作许可。节点级 `GET /im/v1/nodes/{id}/capabilities`（agent 尚不存在时用）与 agent 级 `GET /im/v1/agents/{id}/capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。Skill 候选的 `location` 和可选 `source_group` 亦由 Gateway 解析；IM 只透传，不直读 Gateway Workspace。
+新建/编辑 Agent 页需要的 runtime 候选项（skills / tools / models / features）由在线 Gateway 解析，IM 可在相同 owner、绑定、连接、Workspace 和配置版本下复用最长五分钟的内存候选缓存，IM 不在本地持久化该能力目录，也不据 IM 部署机文件系统推断。Agent 设置页可保留已成功取得的有限展示信息，供离线只读；这些信息带真实取得时间，不作为当前候选目录、保存校验或操作许可；缓存命中不伪造新的确认时间，保存仍由运行时按真实候选校验。节点级 `GET /im/v1/nodes/{id}/capabilities`（agent 尚不存在时用）与 agent 级 `GET /im/v1/agents/{id}/capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。Skill 候选的 `location` 和可选 `source_group` 亦由 Gateway 解析；IM 只透传，不直读 Gateway Workspace。
 
 #### Scenario: 节点能力含 features 列表供创建页渲染
 - **GIVEN** 一个已知节点,网关在线
@@ -493,6 +500,13 @@ Gateway 和其全部 Agent 由同一个有效账号管理；绑定与整体换�
 - **WHEN** 用户查看已保存的模型、推理强度、Features、工具和 Skills
 - **THEN** 页面保留显式配置和最近确认的名称、来源与派生状态；未取得的信息明确未知
 - **AND** 不因缺少目录显示强度不受支持、移除配置项或填入默认值，历史展示信息不能用于开启编辑
+
+#### Scenario: 连续读取与故障后恢复
+- **WHEN** 同一 Agent 的设置被连续或并发读取
+- **THEN** 已确认且仍有效的候选可复用；失效时并发读取合并为一次有界刷新，普通读不占有配置写锁
+- **WHEN** 构建超时或失败
+- **THEN** settings 按既有 last-known/只读语义返回，后续重试可以重新构建；一次失败不能要求重启聊天运行时
+- **AND** 权限、配置、绑定或连接变化后的迟到结果不能解锁页面或覆盖新状态
 
 ### Requirement: Agent 配置页可按 Skill 来源分组批量调整选择
 

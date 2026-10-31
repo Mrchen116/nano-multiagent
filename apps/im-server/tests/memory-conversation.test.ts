@@ -13,6 +13,7 @@ it('filters frozen memory reads before pagination and keeps observation consumpt
   };
   const first=add('hotel refundable','2026-10-20T10:00:00Z');
   const second=add('hotel not booked','2026-10-20T11:00:00Z');
+  add('hotel before range','2026-10-19T10:00:00Z');
   const edited=add('hotel old','2026-10-20T11:30:00Z');
   db.prepare('UPDATE messages SET content=? WHERE id=?').run('hotel future edit',edited.id);
   ctx.messaging.event('peer',edited.id,'message.reconciled',{content:'hotel future edit'});
@@ -26,7 +27,10 @@ it('filters frozen memory reads before pagination and keeps observation consumpt
   const tail=read({cursor:page.next_cursor});
   expect(tail.messages).toMatchObject([{message_id:first.id}]);expect(tail.has_more).toBe(false);
   expect(read({query:'future'}).messages).toEqual([]);
+  expect(read({query:undefined,keywords:['hotel']}).messages).toMatchObject([{message_id:second.id}]);
+  expect(read({query:undefined,keywords:['future']}).messages).toEqual([]);
   expect(()=>read({cursor:page.next_cursor,memory_cutoff:cutoff+1000})).toThrow('invalid_cursor');
+  expect(()=>read({cursor:page.next_cursor,memory_cutoff:undefined,memory_after:undefined})).toThrow('invalid_cursor');
   expect(read({action:'info'}).metadata_scope).toBe('current');
   expect(()=>read({action:'join'})).toThrow('invalid_memory_range');
   expect(db.prepare('SELECT * FROM pa_source_reads').all()).toEqual([]);

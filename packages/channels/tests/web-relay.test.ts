@@ -51,7 +51,7 @@ test('registration gates business sends and blocked inbound handlers do not bloc
   expect(received).toEqual(['relay.message', 'agent.work.cancel', 'agent.work.permission']);
 });
 
-test.each(['conversation.query','pa.scope.resolve','pa.action.commit','task.execution.snapshot','task.execution.scopes','task.execution.pause'])('typed %s responses require matching correlation and generic rejection advances FIFO', async type => {
+test.each(['conversation.query','pa.scope.resolve','pa.action.commit','task.context.sync','task.execution.snapshot','task.execution.scopes','task.execution.pause'])('typed %s responses require matching correlation and generic rejection advances FIFO', async type => {
   const s = await server((socket, frame) => {
     if (frame.type === type) {
       socket.send(JSON.stringify({ type: `${type}.result`, payload: { request_id: 'wrong' } }));
@@ -183,4 +183,23 @@ test('connection refusal records a safe transport category and retry without exp
   expect(JSON.stringify(diagnostics)).not.toMatch(/private|127\.0\.0\.1/);
   await relay.stop();
   expect(await started).toMatchObject({ delivery: 'not-sent' });
+});
+
+test.each(['expired','failed'])('does not send a %s inspection reply as a new business request', async outcome => {
+  let received = false;
+  const s = await server((socket, frame) => {
+    ack(socket,frame);
+    if (frame.type === 'node.register') socket.send(JSON.stringify({type:'agent.capabilities.resolve',payload:{request_id:'inspection',deadline_at:Date.now()+20}}));
+  });
+  const relay = connection(s.url,{onFrame:async frame=>{
+    if (frame.type !== 'agent.capabilities.resolve') return;
+    received=true;
+    if (outcome==='failed') throw new Error('inspection failed');
+    await new Promise(()=>{});
+  }});
+  await relay.start();
+  await expect.poll(()=>received).toBe(true);
+  await pause(35);
+  await expect(relay.request('agent.capabilities',{request_id:'inspection',capabilities:{}})).rejects.toMatchObject({delivery:'not-sent'});
+  expect(s.frames.some(frame=>frame.type==='agent.capabilities')).toBe(false);
 });

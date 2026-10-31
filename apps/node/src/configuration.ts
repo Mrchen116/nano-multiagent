@@ -29,6 +29,8 @@ export interface NodeConfigurationFile {
 
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
 export class NodeConfiguration {
+  /** Called after model metadata is durably committed, before new reads are admitted. */
+  onModelsChanged?: () => void;
   private readonly policies = new Map<string, AgentConfiguration['approval']>();
   get ownerRoot() { return this.value.gateway?.environment?.NANO_OWNER_CONFIG_ROOT ?? process.env.NANO_OWNER_CONFIG_ROOT ?? join(homedir(), '.nanoassistant'); }
   private persistence: Promise<void> = Promise.resolve();
@@ -84,7 +86,7 @@ export class NodeConfiguration {
       if (!reviewer) throw new Error(`llm.tool_approval_model is not registered: ${this.value.llm.tool_approval_model}`);
       approval.reviewer = { provider: reviewer.name, model: reviewer.models.find(model => model.name === this.value.llm.tool_approval_model)!.id ?? this.value.llm.tool_approval_model };
     }
-    return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
+    return { agentId: agent.agent_id, displayName: String(('title' in agent ? agent.title : undefined) ?? agent.display_name ?? agent.agent_id), workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       ...(canonical.personal_agent ? {personal: canonical.personal_agent} : {}),
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
@@ -121,9 +123,7 @@ export class NodeConfiguration {
     const workspace = candidate.workspace_root || previous?.workspace_root || this.defaultWorkspace(candidate.agent_id);
     if (previous?.work_mode === 'global' && resolve(workspace) !== resolve(previous.workspace_root!)) throw new Error('Global Agent workspace is immutable');
     const legacy = this.runtime({...candidate, workspace_root:workspace}).knowledge?.memoryMode === 'legacy';
-    const unchangedDreaming = !!previous && previous.features.dreaming !== false && candidate.features.dreaming !== false
-      && validateCapabilities(previous).some(block => block.required_by?.includes('dreaming'));
-    const invalid = validateCapabilities(candidate, {features: featureDependencies.filter(feature => feature.key !== 'dreaming' || (!legacy && !unchangedDreaming))});
+    const invalid = validateCapabilities(candidate, {features: featureDependencies.filter(feature => feature.key !== 'dreaming' || !legacy)});
     if (invalid.length) throw Object.assign(new Error('Invalid capability dependencies'), {error_code: 'invalid_capability_dependencies', blocks: invalid});
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);
@@ -165,6 +165,7 @@ export class NodeConfiguration {
         await effect?.apply();
         await this.writeFile({ ...this.value, llm: next });
         this.value.llm = next;
+        this.onModelsChanged?.();
       } catch (error) {
         await effect?.rollback();
         throw error;

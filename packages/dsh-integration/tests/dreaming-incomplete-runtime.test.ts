@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each(['unread-write', 'failed-read-write', 'normal-stop', 'missing-index', 'model-error', 'cancelled'])(
   'accepts only valid normally completed staging after %s', async mode => {
@@ -55,6 +56,7 @@ export function apply(ctx) {
         { insert: [{ id: 'incomplete-fixture', name: join(home, 'fixture.mjs') }] },
       ]);
       client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' } });
+      registerNoopTaskHosts(client);
       const binding = { sessionId: 'root', agentId: 'a', ownerId: 'owner', cwd: home, revision: '1' };
       await client.rpc.request('initialize', { protocol: 1, agents: [{ agentId: 'a', workspace: home, revision: '1', provider: 'fixture', model: 'test', features: { dreaming: false }, toolAllowlist: ['read', 'write', 'edit', 'memory_maintenance'], knowledge: { dreaming: { maxInputTokens: 24000 } } }], bindings: [binding] });
       await client.rpc.request('session.ensure', binding);
@@ -63,6 +65,8 @@ export function apply(ctx) {
         await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId: id }) as { terminal?: unknown }).terminal, { timeout: 15000 }).toBeTruthy();
       };
       await submit('experience-one'); await submit('experience-two'); await submit('before');
+      const progressPath = join(home, 'storages/nano_dreaming/owners/YQ.json');
+      const beforeProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
       const original = await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8');
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
@@ -71,7 +75,7 @@ export function apply(ctx) {
       expect(facts.reviews[0]).toMatchObject({ status: failed ? 'failed' : 'completed' });
       if (failed) {
         expect(facts.reviews[0]!.summary).toContain(mode === 'missing-index' ? 'Synchronize MEMORY.md' : 'did not complete');
-        expect(facts.reviews[0]!.summary).toContain('未推进处理游标');
+        expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
       }
       await expect(readFile(join(home, '.nanoassistant/memory/knowledge/new.md'))).rejects.toMatchObject({code:'ENOENT'});
       expect(await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8')).toBe(original);
@@ -81,10 +85,15 @@ export function apply(ctx) {
       expect(status('before').sourcesPending).toBe(false);
       expect(status('before').maintenance.backlog).toMatchObject({ state: 'pending', scope: 'frozen_sources' });
       expect(status('before').maintenance.backlog.global.pending).toBe(true);
-      if (failed) {
-        expect(status('after').maintenance.streams).toEqual(status('before').maintenance.streams);
-      } else {
-        expect(status('after').maintenance.streams).not.toEqual(status('before').maintenance.streams);
+      const afterProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
+      if (failed) expect(afterProgress).toEqual(beforeProgress);
+      else expect(afterProgress).not.toEqual(beforeProgress);
+      for (const id of ['before', 'after']) {
+        const result = status(id);
+        for (const key of ['generation', 'sources', 'backupRoot']) expect(result).not.toHaveProperty(key);
+        for (const key of ['protocol', 'streams', 'seen', 'rotation', 'integrated', 'retryAt', 'failures']) expect(result.maintenance).not.toHaveProperty(key);
+        expect(result.maintenance.backlog.global).not.toHaveProperty('ranges');
+        expect(result.maintenance.backlog.global.units).toBeGreaterThanOrEqual(0);
       }
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
       expect(JSON.stringify(maintenance[0].messages)).toContain('experience-one');

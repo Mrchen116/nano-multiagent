@@ -3,7 +3,7 @@ import type { ProtocolFrame } from '@nano/channels';
 import { NodeStore } from './store.js';
 import { needsAttention, controlText } from './attention.js';
 
-export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: string; argument: string; text?: string; delivered?: boolean }
+export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: string; argument: string; stoppedAt?:string; text?: string; delivered?: boolean }
 interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; relay: { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> } }
 export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;

@@ -48,7 +48,7 @@ it('defaults document and Dreaming independently of retired false settings', asy
 });
 
 
-it('saves an upgraded unavailable Dreaming default without expanding explicit tools', async () => {
+it('keeps automatic Dreaming available without expanding explicit foreground tools', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-memory-restricted-'));
   try {
     const path=join(home,'node.json');
@@ -59,6 +59,6 @@ it('saves an upgraded unavailable Dreaming default without expanding explicit to
     const runtime=config.runtime(config.current('a')!);
     expect(runtime.toolAllowlist).toEqual(['read']);
     const feature=projectCapabilities({tools:['read','write','edit','memory_maintenance'].map(name=>({name,description:name})),skills:[]},config.value,runtime).features.find(feature=>feature.key==='dreaming');
-    expect(feature).toMatchObject({default_on:true,available:false,missing_tools:['write','edit','memory_maintenance']});
+    expect(feature).toMatchObject({default_on:true,available:true,requires:{tools:[]}});
   }finally{await rm(home,{recursive:true,force:true});}
 });

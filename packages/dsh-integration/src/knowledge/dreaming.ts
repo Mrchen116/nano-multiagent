@@ -158,9 +158,6 @@ export class Dreaming {
     if (!config || config.knowledge?.memoryMode === 'legacy' || this.stopped || this.options.held?.(config.agentId)) return Promise.reject(new Error('Document maintenance is not available.'));
     if (automatic && config.features?.dreaming === false) return Promise.reject(new Error('Automatic Dreaming is disabled.'));
     const prior = this.active.get(config.agentId); if (prior) return Promise.resolve({ accepted: false, reason: 'maintenance_already_running' });
-    const required = ['read', 'write', 'edit', 'memory_maintenance'];
-    const missing = required.filter(name => !parent.ctx.tools.get(name, parent));
-    if (missing.length) return Promise.resolve({ accepted: false, reason: 'missing_tools', missing });
     const controller = new AbortController();
     const work: Active = { automatic, controller, promise: Promise.resolve() };
     this.active.set(config.agentId, work);
@@ -202,14 +199,14 @@ export class Dreaming {
       while(true){
         signal.throwIfAborted();await assertDreamingSources(library,target.generation);
         const policy=await library.status();
-        const options={maxInputTokens:budget,seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation++,target};
+        const options={maxInputTokens:budget,seen:owner.seen,sources:policy.sources,rotation:owner.rotation++,target};
         let batch=deferred ? {...deferred.batch,id:randomUUID(),units:[],text:'',inputTokens:0} : await this.sources.freeze(config.agentId,owner.streams,options);
         let materials=deferred ? [] : await this.sources.children(config.agentId,target,batch,options);
         const includeConversations=()=>{batch.conversations=[...new Set([...(batch.conversations??[]),...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents]))])];};
         includeConversations();
         const cache=(await this.domain).table('summaries');
         const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
-        const check=Boolean((await library.context()).reason);
+        const check=await library.needsVerification();
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
         if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
@@ -344,11 +341,11 @@ export class Dreaming {
       inputs.push('# Task source updates');
       for(const summary of run.summaries){
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
-        inputs.push(`## ${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated task summary, replaces same source':'Task summary'}\nSource session_id=${summary.sessionId}; root=${summary.rootSessionId}; events ${summary.baseline+1}–${summary.through}; version=${summary.sourceVersion}\n${text}`);
+        inputs.push(`## ${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated task summary, replaces same source':'Task summary'}\nSource session_id=${summary.sessionId}\n${text}`);
       }
       const view=await library.context();
-      inputs.push(`# Current memory entry (data)\n${view.entry??`Entry requires verification: ${view.reason}; pages: ${Object.keys(view.versions).join(', ')}`}`);
-      inputs.push(`# Source exclusions (data)\n${JSON.stringify(view.exclusions)}\n# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
+      inputs.push(`# Current memory entry (data)\n${view.entry??`Read the complete entry at ${join(view.root, 'MEMORY.md')}.`}`);
+      inputs.push(`# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
@@ -375,7 +372,7 @@ export class Dreaming {
   private model(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,input:DreamingInput){
     this.maintenance.add(`dreaming-${run.id}`);
     return library.status().then(status=>runDreamingAgent(this.ctx,{parent,config,signal:work.controller.signal,run,owner,library,input,sources:this.sources,
-      conversations:()=>[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)&&!status.exclusions.some(item=>item.sources.includes(id))),
+      conversations:()=>[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)),
       save:()=>this.saveRun(run),opened:handle=>{work.handle=handle;}}));
   }
   private async apply(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner){
@@ -410,7 +407,7 @@ export class Dreaming {
   private summary(run:DreamingRun):string{
     if(run.stage==='extract')return `任务经历提炼 ${run.state}；${run.state==='completed'?(run.summaries[0]?.noSignal?'无值得保留的新信号，旧摘要退役':'已保存任务复盘，尚未整合进正式记忆'):'未生成有效的新版本'}。${run.error??''}`;
     const saved=run.receipts.filter(receipt=>receipt.saved).length;const git=run.receipts.filter(receipt=>receipt.saved&&!receipt.versionRecorded).length;
-    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；保存 ${saved}/${run.plan?.length??0} 页；${run.state==='completed'?'本批成功进度已登记':'未推进处理游标'}。${git?`${git} 页内容已保存，版本记录失败。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
+    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；保存 ${saved}/${run.plan?.length??0} 页；${run.state==='completed'?'本批成功进度已登记':'整理进度未推进'}。${git?`${git} 页内容已保存，版本记录失败。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
   }
   private async publish(run:DreamingRun,handle?:AgentHandle){
     if(handle){handle.agent.session.append('user/message',createUserMessage({source:{kind:'nano-system',actorId:run.agentId,channel:'dreaming-receipt',messageId:`${run.id}:receipt`},content:[{type:'text',text:`Host application receipt (authoritative outcome): ${run.summary}`}]}),{surfaceOp:'append'});await this.ctx.sessions.flush(handle.agent.session);}
@@ -421,12 +418,12 @@ export class Dreaming {
   async status(agentId:string){
     const config=this.configuration(agentId);if(!config)return undefined;const owner=await this.owner(config);
     const policy=await(await this.documents.forConfig(config)).status();
-    if(policy.sourcesPending)return {...owner,active:this.active.has(agentId),backlog:{state:'source_eligibility_pending',scope:'unavailable'}};
+    if(policy.sourcesPending)return {active:this.active.has(agentId),backlog:{state:'source_eligibility_pending',scope:'unavailable'}};
     let limit:number;
     try{limit=await dreamingInputLimit(this.ctx,config);}
-    catch(error){return {...owner,active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
+    catch(error){return {active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
     const target=await this.sources.freezeTarget(agentId,owner.streams,owner.activationAt,{generation:policy.generation});
-    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation,target};
+    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),seen:owner.seen,sources:policy.sources,rotation:owner.rotation,target};
     const batch=await this.sources.freeze(agentId,owner.streams,options);
     const materials=await this.sources.children(agentId,target,{...batch,ranges:[],cutoffs:{}},options);
     const summaries=(await this.domain).table('summaries');
@@ -434,8 +431,8 @@ export class Dreaming {
       state:cached?.sourceVersion!==material.sourceVersion||cached.generation!==policy.generation?'pending_extraction':owner.integrated[material.sessionId]!==material.sourceVersion?'pending_integration':'integrated'};});
     const pending=batch.units.length>0||children.some(child=>child.state!=='integrated');
     const blocked=[...target.blocked,...batch.blocked];
-    return {...owner,active:this.active.has(agentId),backlog:{state:pending?'pending':blocked.length?'blocked':'no_eligible_increment',scope:'frozen_sources',
-      global:{pending:batch.units.length>0,ranges:batch.ranges},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId)};
+    return {active:this.active.has(agentId),backlog:{state:pending?'pending':blocked.length?'blocked':'no_eligible_increment',scope:'frozen_sources',
+      global:{pending:batch.units.length>0,units:batch.units.length},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId).map(({status,summary,at,endedAt})=>({status,summary,at,endedAt}))};
   }
   /** Recover real application receipts; never reuse unfinished model staging or an old cycle target. */
   async recover(){

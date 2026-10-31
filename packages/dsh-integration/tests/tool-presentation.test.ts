@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect, it} from 'vitest';
 import {prepareProfile, RuntimeClient} from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('preserves native presenter output and actual child identity across configuration withdrawal and restart', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-tool-view-'));
@@ -25,6 +26,7 @@ it('preserves native presenter output and actual child identity across configura
     await prepareProfile(home,[{insert:[{id:'presenter-fixture',name:join(home,'fixture.mjs')}]}]);
     const start=async()=>{
       client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});
       await client.rpc.request('session.ensure',binding);
     };

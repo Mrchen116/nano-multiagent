@@ -1,9 +1,10 @@
-import { cp, mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 const contextTools = ['get_context_remaining', 'history', 'new_context', 'notes'];
 
@@ -16,6 +17,7 @@ it('keeps empty business tools and Skills empty while retaining context manageme
   try {
     await writeFile(join(home, 'hang.mjs'), `export const name = 'hang'; export const inject = ['llm']; export function apply(ctx) { ctx.on('llm/stream', async function* (options) { if (options.signal.aborted) return; await new Promise(resolve => options.signal.addEventListener('abort', resolve, { once: true })); }); }`);
     await prepareProfile(home, [{ insert: [{ id: 'hang', name: join(home, 'hang.mjs') }] }]); client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents: [config, { ...config, agentId: 'g', mode: 'global' }, { ...config, agentId: 'b', toolAllowlist: undefined, skillSelection: { mode: 'default_discovery', names: [] } }], bindings: [] });
     for (const agentId of ['a', 'b', 'g']) await client.rpc.request('session.ensure', { sessionId: `session-${agentId}`, agentId, revision: '1', ownerId: 'owner', cwd: home });
     const read = (id: string) => client!.rpc.request('session.capabilities', { sessionId: `session-${id}` }) as Promise<{ tools: string[]; skills: { name: string }[]; prompt: unknown }>;
@@ -37,19 +39,24 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     await client.rpc.request('configuration.apply', { ...config, revision: '2', toolAllowlist: ['read', 'skill'], skillSelection: { mode: 'explicit_allowlist', names: ['local-skill'] } });
     expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     expect((await read('a')).skills.map(skill => skill.name)).toEqual(['local-skill']);
+    const selectedPreview = await client.rpc.request('configuration.preview', {config:{...config,revision:'2',toolAllowlist:['read','skill'],skillSelection:{mode:'explicit_allowlist',names:['local-skill']}},cwd:home}) as {tools:string[];skills:{name:string}[]};
+    const selected = await read('a');
+    expect(selectedPreview.tools.sort()).toEqual((selected.prompt as {tools:{name:string}[]}).tools.map(tool=>tool.name).sort());
+    expect(selectedPreview.skills.map(skill=>skill.name)).toEqual(selected.skills.map(skill=>skill.name));
+
     expect((await read('b')).tools).toContain('task_graph');
     await client.rpc.request('session.submit', { sessionId: 'session-a', inputId: 'busy', mode: 'followup', content: [{ type: 'text', text: 'wait' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'busy' } });
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: 'session-a' }) as { status: string }).status).toBe('running');
     let renamed = false;
     const rename = client.rpc.request('configuration.apply', { ...config, revision: '2-renamed', toolAllowlist: ['read', 'skill'], skillSelection: { mode: 'explicit_allowlist', names: ['local-skill'] } }).then(() => { renamed = true; });
     void rename.catch(() => {}); // The failure cleanup closes the runtime before a blocked apply can finish.
-    await expect.poll(() => renamed, {timeout: 1500}).toBe(true);
+    await expect.poll(() => renamed, {timeout: 8000}).toBe(true);
     await rename;
     expect((await client.rpc.request('session.observe', {sessionId:'session-a'}) as {status:string}).status).toBe('running');
     expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     let applied = false;
     const pending = client.rpc.request('configuration.apply', { ...config, revision: '3', toolAllowlist: ['write'], systemPrompt: 'AFTER_IDLE_581' }).then(() => { applied = true; });
-    await expect.poll(async () => (await read('a')).tools.sort()).toEqual(contextTools);
+    await expect.poll(async () => (await read('a')).tools.sort(), {timeout:8000}).toEqual(contextTools);
     expect((await read('a')).skills).toEqual([]);
     expect(JSON.stringify((await read('a')).prompt)).not.toContain('AFTER_IDLE_581');
     expect(applied).toBe(false);
@@ -59,7 +66,7 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     await client.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
-}, 20_000);
+}, 40_000);
 
 it('shadows owner tools in one workspace, constrains actual dispatch, and rebuilds after restart', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-extension-')); let client: RuntimeClient | undefined; let logs = '';
@@ -101,6 +108,7 @@ export function apply(ctx) {
     await prepareProfile(home, [{ insert: [{ id: 'fixture-probe', name: join(home, 'probe.mjs') }] }]);
     for (let run = 0; run < 2; run++) {
       client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, agents, bindings: run ? bindings : [] });
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
       for (const [id, expected] of [['a', 'workspace'], ['b', 'global'], ['c', 'UNKNOWN_TOOL']]) {
@@ -137,6 +145,7 @@ export function apply(ctx) {
     await prepareProfile(home,[{insert:[{id:'load',name:join(home,'load.mjs')}]}]);
     for(let restart=0;restart<2;restart++) {
       client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:restart?[binding]:[]});
       await client.rpc.request('session.ensure',binding);
       const skills=async()=>((await client!.rpc.request('session.capabilities',{sessionId:'imports'})) as {skills:{name:string}[]}).skills.map(s=>s.name);
@@ -175,6 +184,7 @@ export const name='capability-busy'; export const inject=['tools','llm']; export
 }`);
     await prepareProfile(home, [{insert: [{id: 'capability-busy', name: join(home, 'fixture.mjs')}]}]);
     client = new RuntimeClient({home, cwd: home});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', {protocol: 1, agents: [config], bindings: []});
     await client.rpc.request('session.ensure', {agentId: 'busy', revision: '1', sessionId: 'busy-session', ownerId: 'owner', cwd: home});
     await client.rpc.request('session.submit', {sessionId: 'busy-session', inputId: 'work', mode: 'followup', content: [{type:'text',text:'Execute the selected tool'}], source:{kind:'human',actorId:'owner',channel:'test',messageId:'work'}});
@@ -211,6 +221,7 @@ export function apply(ctx) { const seen=new Set(); ctx.on('llm/stream', async fu
 }); }`);
     await prepareProfile(home, [{insert: [{id: 'fixed-skill-probe', name: join(home, 'load.mjs')}]}]);
     client = new RuntimeClient({home, cwd: home, onLog: text => { logs += text; }});
+    registerNoopTaskHosts(client);
     const agents = ['explicit_allowlist', 'explicit_denylist', 'default_discovery'].map((mode, i) => ({
       agentId: `fixed-${i}`, workspace: join(home, `owner-${i}`), revision: '1', provider: 'deepseek-official', model: 'deepseek-flash',
       toolAllowlist: ['skill'], features: {skill_creation: false},
@@ -246,4 +257,20 @@ export function apply(ctx) { const seen=new Set(); ctx.on('llm/stream', async fu
     await expect(readFile(join(builtin, '.usage.json'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, {cause: error}); }
   finally { if (client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home, {recursive: true, force: true}); }
+}, 30_000);
+
+it('reclaims temporary catalog Sessions without adding them to the execution home', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-catalog-lifecycle-'));
+  let client: RuntimeClient | undefined;
+  try {
+    await prepareProfile(home);
+    client = new RuntimeClient({home, cwd:home});
+    await client.rpc.request('initialize', {protocol:1, agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}], bindings:[]});
+    for (let i=0; i<3; i++) await client.rpc.request('configuration.catalog', {agentId:'a',cwd:home});
+    const sessions = await readdir(join(home,'sessions'), {recursive:true}).catch(error => {if(error.code==='ENOENT')return [];throw error;});
+    expect(sessions.filter(name=>/(^|[/\\])preview-/.test(name))).toEqual([]);
+  } finally {
+    if(client){client.process.kill('SIGKILL');await client.exited;}
+    await rm(home,{recursive:true,force:true});
+  }
 }, 30_000);

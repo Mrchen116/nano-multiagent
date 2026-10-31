@@ -4,6 +4,7 @@ export * from './agent-lifecycle.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
   agentId: string;
+  displayName?: string;
   /** Server-issued personal identity; ordinary Agent configuration cannot grant this role. */
   personal?: PersonalAgentIdentity;
   revision: string;

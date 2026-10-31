@@ -148,3 +148,14 @@ pnpm exec vitest run packages/dsh-integration/tests/dreaming-runtime.test.ts pac
 - 该集成版本本地全仓 build、typecheck 通过（`/tmp/feat676-budget-full-build.log`、`/tmp/feat676-budget-typecheck.log`）；全量 Vitest **165 文件 / 868 项通过**（`/tmp/feat676-budget-full-tests.log`），运行时依赖契约 **13 项通过**（`/tmp/feat676-budget-contract.log`）。前述其他窄回归为 **5 文件 / 24 项通过**；与 21 项组合为 45 项有效覆盖。
 - 独立审查确认补批长消息的原文查询事件上界丢失。修复 `1496afdaf76e78edef6ef06e36a961622be81bc5` 保留原始 `historyThrough`，不把查询上界误作提交游标。实际 runtime 回归从仅比较 cutoff 扩为完整根来源范围相同，并让三份摘要补批分别执行 `source_history` 查询原条件。旧实现 **1 失败 / 1 通过 / 5 skipped**（`/tmp/feat676-budget-cutoff-red.log`）；修复后任务/历史/周期/恢复 **4 文件 / 20 项通过**（`/tmp/feat676-budget-cutoff-green.log`），DSH build 通过（`/tmp/feat676-budget-cutoff-build.log`）。已通过的其余全量结果按影响保留，不把旧版本执行时间冒充修复后全量重跑。
 - 静态审查/验证报告分别记录原始 finding 和定点 closure。当前未做新真实模型质量评测；remote CI、PR 合并、生产部署分别以实际状态为准。
+
+## 2026-11-01 与 main 的意图对齐及冲突解决
+
+基线为 `unit/feat-676=62cd41ccfb75c655a0f8500f5f54748161b0fc52`，合入 `origin/main=f01ee218b10efccbfc3fa41bac14e73b9c5a9027`。用户要求按 main 新改动的实际意图整合，不勉强兼容旧路径。本次不增加新需求，也不合并到 main 或部署。
+
+- 阅读 feat-680 搜索和 refactor-682 能力目录的首文档、design 与 current 契约。临时能力检查采用 main 的独立 `ConfigurationInspector`、取消、资源回收、共享刷新和缓存失效；不恢复聊天运行时承载 preview 的旧路径。新的 ConfigurationScopes options/changed/ready 保留，只接入已验收的 fork 注册；worker 的候选校验复用 Memory 的 `configurationBlocks`，不另外维护校验图。
+- `Work.query` 统一走 main 的 `searchMessages`，保留多关键词、相关性/时间排序、发送人、锚点及快照分页；Dreaming 的可信时间范围通过 `memoryRange` 传入同一查询，在排序/分页前核验时间及持久内容版本。该查询隐藏筛选和排序的组合，不保留旧 SQL 分支或失败回退。直接采用 main 查询时，现有 Memory 回归实测把 future 消息返回为本批证据（`/tmp/feat676-main-memory-red.log`）；整合后相关搜索与 Memory 9 项通过。
+- 独立合并审查确认一项 P2：普通查询若无条件增加 Memory 空范围字段，main 已持久 v1/v2 游标会返回 invalid_cursor。Node 24.22.1 下两个原格式快照均复现失败（`/tmp/feat676-main-cursor-red.log`，2 failed / 8 passed）。仅 Memory 查询持有范围身份，普通查询保持 main 格式，且显式拒绝移除范围后复用 Memory 快照；不增加并行兼容实现。修复后 10/10 通过（`/tmp/feat676-main-cursor-green.log`）。独立定点复核 `[]`，P2 CLOSED；其余合并/Context 接线审查保留。
+- 测试冲突保留双方有效行为覆盖；Gateway capabilities 合并为 62 条 Requirement。删除 main 自动带回的 refactor-679 旧 active 文档，继续使用已实施验收的 archive 版本。
+- 首轮 shell 使用不受支持的 Node 25.8.2：重点 9 文件/41 项通过、前端 1039 项通过；全量后端出现 task-execution-limits 与 workspace-tools 两项超时后主动中止，exit 130，无完整汇总。保留 `/tmp/feat676-main-focused.log`、`/tmp/feat676-main-full.log`、`/tmp/feat676-main-web.log`，不把这些当作正式 Node 24 门禁，也不将超时归因为版本或宣称产品缺陷已修复。
+- 切到固定 Node 24.22.1 后，build、typecheck、iOS runtime、前端 109 文件/1039 项通过（`/tmp/feat676-main-node24-{build,typecheck,ios,web}.log`）。Python 129 passed / 28 deselected、ruff check/format、docs-check 与归档检查通过。Node 24 完整后端日志为 `/tmp/feat676-main-node24-full.log`；最终完整 CI 与提交状态在 PR #428 更新，不把此前旧 head 的绿色结果当作本次合并提交的门禁。

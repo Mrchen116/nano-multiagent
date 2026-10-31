@@ -1,4 +1,16 @@
 -- IM business schema; preserves existing center storage and identifiers.
+CREATE TABLE IF NOT EXISTS task_context_index (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, message_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL, projection_kind TEXT NOT NULL,
+    UNIQUE(agent_id,message_id,projection_kind)
+);
+CREATE INDEX IF NOT EXISTS task_context_agent_seq ON task_context_index(agent_id,seq);
+CREATE INDEX IF NOT EXISTS task_context_source_seq ON task_context_index(agent_id,conversation_id,projection_kind,seq);
+-- New minimal withdrawal originals survive a Direct's hard-delete cascade. No Task body is retained here.
+CREATE TABLE IF NOT EXISTS task_context_revocations (
+    message_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_user_id TEXT NOT NULL,
+    actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS task_graphs (
     graph_id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,

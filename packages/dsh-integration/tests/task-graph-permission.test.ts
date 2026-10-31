@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each([
   { tool: 'task_graph', args: { action: 'delete', graph_id: 'graph', node_id: 'n2', base_revision: 2, request_key: 'delete' } },
@@ -30,6 +31,7 @@ export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async functi
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'task-permission-fixture',name:join(home,'fixture.mjs')}]}]);
     const agents = ['allow','deny'].map(agentId=>({agentId,knowledge:{memoryMode:'legacy'},revision:'1',provider:'fixture',model:'test',mode:'single_thread',toolAllowlist:[tool],features:{task_graph:true,memory_curation:false,skill_creation:false},approval:{...approvalDefaults,enabled:false,globalRoot:home}}));
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     const sent: any[] = []; const approvals: string[] = [];
     client.rpc.handle('product.call',value=>{sent.push(value);return{ok:true,result:{deleted_ids:['n2']}};});
     client.rpc.onNotification((method,value)=>{if(method==='approval.request'){

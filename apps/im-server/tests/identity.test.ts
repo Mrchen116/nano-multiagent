@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { openDatabase } from "../src/db.js";
 import { serializeIdentityJson, createIdentity, digest, canActorAccess, canAccessSpace, type Identity } from "../src/identity.js";
 import { registerIdentityRoutes } from "../src/identity-routes.js";
+import { Gateway } from "../src/gateway.js";
+import { Messaging } from "../src/messaging.js";
 import type { ImContext } from "../src/context.js";
 
 // Created with Python bcrypt.hashpw, not with the implementation under test.
@@ -25,9 +27,9 @@ const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
-function fixture(path = ":memory:") {
+function fixture(path = ":memory:", publishWithdrawals?: Parameters<typeof createIdentity>[2]) {
   const db = openDatabase(path),
-    identity = createIdentity(db, "migration-test-secret");
+    identity = createIdentity(db, "migration-test-secret", publishWithdrawals);
   cleanups.push(() => db.close());
   return { db, identity };
 }
@@ -281,9 +283,22 @@ describe("device possession and ownership transfer", () => {
       .digest("hex");
 
   it("completes encrypted proof and local commit, rejects stale snapshots, and recovers with a new node epoch", async () => {
-    const { identity } = fixture();
+    const published: any[][] = [], liveFrames: any[] = [];
+    let ctx: ImContext;
+    const { identity } = fixture(":memory:", messages => {
+      expect(identity.db.isTransaction).toBe(false);
+      for(const message of messages)expect(identity.get("SELECT message_id FROM task_context_revocations WHERE message_id=?",message.id)).toBeDefined();
+      published.push(messages);
+      ctx.messaging.publishMessages(messages,{deferDelivery:true});
+    });
+    ctx={db:identity.db,identity,publicUrl:"https://im.test"} as ImContext;
+    ctx.messaging=new Messaging(ctx);ctx.gateway=new Gateway(ctx);
     human(identity, "owner");
     human(identity, "receiver");
+    identity.run("INSERT INTO auth_sessions VALUES('transfer-browser','owner',0,'unused',?,0)",Math.floor(Date.now()/1000)+300);
+    ctx.gateway.browsers.add({userId:"owner",sessionId:"transfer-browser",cursor:0,ready:true,socket:{readyState:1,bufferedAmount:0,send:(raw:string)=>{
+      expect(identity.db.isTransaction).toBe(false);liveFrames.push(JSON.parse(raw));
+    },close(){}}} as any);
     const key = deviceKey(),
       started = identity.deviceStart({
         node_id: "new-node",
@@ -338,10 +353,19 @@ describe("device possession and ownership transfer", () => {
     identity.run("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,space_id,created_at,updated_at) VALUES('private','owner','new-node','Private','personal:owner','then','then')");
     identity.run("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('agent-private','agent:private','Private','owner','then')");
     identity.run("INSERT INTO conversations(id,title,owner_id,space_id,created_at) VALUES('private-chat','Private','owner','personal:owner','then')");
-    identity.run("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('private-chat','agent-private')");
+    identity.run("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('private-chat','agent-private'),('private-chat','owner')");
     identity.run("INSERT INTO task_graphs(graph_id,owner_id,space_id,conversation_id,root_title,revision,document_json,created_at,updated_at,updated_by) VALUES('private-task','owner','personal:owner','private-chat','Private',1,'{}','then','then','owner')");
     identity.run("INSERT INTO agent_work_sessions VALUES('work-history','private','new-node','global_main',NULL,'{}')");
     expect(canActorAccess(identity.db, 'agent-private', 'personal:owner')).toBe(true);
+    identity.run("INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,delivery_status,created_at) VALUES('private-original','private-chat','owner','system','PRIVATE original Task','completed','then')");
+    identity.run("INSERT INTO task_context_index(agent_id,message_id,conversation_id,projection_kind) VALUES('private','private-original','private-chat','full')");
+    // Company handling survives an owner transfer between active company members.
+    identity.run("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,space_id,created_at,updated_at) VALUES('company','owner','new-node','Company','company','then','then')");
+    identity.run("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('agent-company','agent:company','Company','owner','then')");
+    identity.run("INSERT INTO conversations(id,title,owner_id,space_id,created_at) VALUES('company-chat','Company','owner','company','then')");
+    identity.run("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('company-chat','agent-company')");
+    identity.run("INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,delivery_status,created_at) VALUES('company-original','company-chat','owner','system','Company Task','completed','then')");
+    identity.run("INSERT INTO task_context_index(agent_id,message_id,conversation_id,projection_kind) VALUES('company','company-original','company-chat','full')");
     const transfer = identity.deviceStart({
       node_id: "new-node",
       node_name: "Device",
@@ -363,13 +387,39 @@ describe("device possession and ownership transfer", () => {
         {},
       ),
     ).toThrow("node configuration changed");
+    expect(identity.all("SELECT * FROM task_context_revocations")).toEqual([]);
     ready = identity.devicePrepare(transfer.operation_id, transfer.operation_token);
-    identity.deviceCommit(
+    expect(published).toEqual([]);
+    identity.run("CREATE TRIGGER fail_device_withdrawal AFTER INSERT ON task_context_index WHEN NEW.projection_kind='revoked' BEGIN SELECT RAISE(ABORT,'test device rollback'); END");
+    expect(()=>identity.deviceCommit(transfer.operation_id,transfer.operation_token,proof(transferChallenge,ready.confirmation),{})).toThrow("test device rollback");
+    expect(published).toEqual([]);expect(liveFrames).toEqual([]);
+    expect(identity.get("SELECT owner_id FROM agent_profiles WHERE agent_id='private'")?.owner_id).toBe("owner");
+    expect(identity.get("SELECT owner_id FROM nodes WHERE node_id='new-node'")?.owner_id).toBe("owner");
+    identity.run("DROP TRIGGER fail_device_withdrawal");
+    expect(identity.deviceCommit(
       transfer.operation_id,
       transfer.operation_token,
       proof(transferChallenge, ready.confirmation),
       {},
-    );
+    )).toEqual({state:"committed"});
+    expect(published).toHaveLength(1);
+    expect(published[0]).toHaveLength(1);
+    expect(published[0][0]).toMatchObject({sender_type:"system",system_notice:{kind:"task_graph",change_kinds:["access_revoked"]}});
+    expect(JSON.stringify(published)).not.toMatch(/PRIVATE|private-task|private-original/);
+    expect(liveFrames).toHaveLength(1);
+    expect(liveFrames[0]).toMatchObject({op:"event",data:{system_notice:{change_kinds:["access_revoked"]}}});
+    expect(JSON.stringify(liveFrames)).not.toMatch(/PRIVATE|private-task|private-original/);
+    const withdrawals=identity.all("SELECT * FROM task_context_index WHERE projection_kind='revoked'");
+    expect(withdrawals).toHaveLength(1);
+    expect(withdrawals[0]).toMatchObject({agent_id:'private',conversation_id:'private-chat'});
+    const fact=identity.get('SELECT * FROM task_context_revocations WHERE message_id=?',withdrawals[0].message_id)!;
+    const visible=identity.get('SELECT * FROM messages WHERE id=?',fact.message_id)!;
+    expect(visible.created_at).toBe(fact.created_at);
+    expect(visible.content).not.toContain('PRIVATE');
+    expect(identity.get("SELECT content FROM messages WHERE id='private-original'")?.content).toBe('PRIVATE original Task');
+    identity.deviceCommit(transfer.operation_id,transfer.operation_token,proof(transferChallenge,ready.confirmation),{});
+    expect(published).toHaveLength(1);expect(liveFrames).toHaveLength(1);
+    expect(identity.all('SELECT * FROM task_context_revocations')).toHaveLength(1);
     expect(identity.get("SELECT owner_id,space_id FROM agent_profiles WHERE agent_id='private'")).toEqual({owner_id: 'receiver', space_id: 'personal:receiver'});
     expect(identity.user('receiver')!.personal_space_enabled).toBe(true);
     expect(canAccessSpace(identity.user('owner'), 'personal:receiver')).toBe(false);

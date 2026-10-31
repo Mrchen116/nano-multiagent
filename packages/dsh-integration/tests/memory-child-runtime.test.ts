@@ -6,6 +6,7 @@ import {Context} from '@deepseek-ai/cordis';
 import {LocalFileSystem} from '@deepseek-ai/dsh-fs-local';
 import {MemoryDocuments} from '../src/knowledge/memory-documents.js';
 import {RuntimeClient,prepareProfile} from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('refreshes the same native child after host-applied correction and pending/revoked source authority',async()=>{
   const home=await mkdtemp(join(tmpdir(),'memory-child-refresh-'));let client:RuntimeClient|undefined;let logs='';
@@ -21,6 +22,7 @@ if(child&&n<2){await writeFile(process.env.DSH_HOME+'/waiting-'+n,'ready');while
   try{
     await prepareProfile(home,[{insert:[{id:'child-memory-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,onLog:s=>{logs+=s;}});
+    registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},toolAllowlist:['read','write','subagent']}],bindings:[]});
     await client.rpc.request('session.ensure',binding);
@@ -39,14 +41,15 @@ if(child&&n<2){await writeFile(process.env.DSH_HOME+'/waiting-'+n,'ready');while
     const child=requests.filter(request=>request.sessionId!=='root');
     expect(new Set(child.map(request=>request.sessionId)).size).toBe(1);expect(child).toHaveLength(4);
     expect(JSON.stringify(child[0].messages)).toContain('OLD PERMISSION');
-    expect(JSON.stringify(child[1])).toContain('source_eligibility_pending');
+    expect(JSON.stringify(child[1])).not.toContain('source_eligibility_pending');
     expect(JSON.stringify(child[1])).toContain('CURRENT: private only.');
-    expect(JSON.stringify(child[2])).toContain('entry_basis_stale');
-    expect(JSON.stringify(child[2])).toContain('Source generation: 1');
+    expect(JSON.stringify(child[2])).not.toContain('entry_basis_stale');
+    expect(JSON.stringify(child[2])).not.toContain('Source generation:');
     expect(await readFile(join(home,'.nanoassistant/memory/MEMORY.md'),'utf8')).toBe('# Expert memory\nCURRENT: private only.');
     expect(JSON.stringify(child[3])).toContain('Only Dreaming');
     const currentSystem=child[2].messages.filter((message:any)=>message.role==='system');
-    expect(JSON.stringify(currentSystem)).not.toContain('Current entry:');
+    expect(JSON.stringify(child[2].messages.findLast((message:any)=>message.source?.kind==='runtime-context'))).toContain('CURRENT: private only.');
+    expect(JSON.stringify(currentSystem)).not.toContain('entry_basis_stale');
   }catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally{if(client){await client.shutdown();}await rm(home,{recursive:true,force:true});}
 },35000);

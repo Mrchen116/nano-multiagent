@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('rejects foreground writes and checkpoint while refreshing host-applied memory', async () => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
@@ -22,6 +23,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
   try {
     await prepareProfile(home, [{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}}, {insert:[{id:'memory-fixture',name:join(home,'fixture.mjs')}]}]);
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     const binding={sessionId:'memory-root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',features:{dreaming:false,memory_curation:false,skill_creation:false},toolAllowlist:['read','write','edit','memory','memory_maintenance']}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
@@ -41,10 +43,16 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const latest=requests.at(-1);
     const control = latest.tools.find((tool:any)=>tool.name==='memory_maintenance');
+    expect(control.parameters.properties.action.enum).toEqual(['status', 'run']);
+    expect(control.parameters.properties).not.toHaveProperty('paths');
+    expect(control.parameters.properties).not.toHaveProperty('sources');
     expect(JSON.stringify(control)).not.toContain('checkpoint');
     expect(JSON.stringify(control)).toContain('importLegacy');
     expect(latest.tools.map((tool:any)=>tool.name)).not.toContain('memory');
-    expect(JSON.stringify(latest.messages)).toContain('entry_basis_stale');
+    expect(JSON.stringify(latest.messages)).not.toContain('entry_basis_stale');
+    expect(JSON.stringify(latest.messages)).toContain('# Expert memory');
+    expect(JSON.stringify(latest.messages)).not.toContain('Source generation:');
+    expect(JSON.stringify(latest.messages)).not.toContain('fs-observation-policy');
     expect(JSON.stringify(latest.messages)).toContain('knowledge/preferences.md');
     expect(JSON.stringify(latest.messages)).toContain('built-in skill-creator');
     expect((await client.rpc.request('knowledge.facts',{}) as {reviews:unknown[]}).reviews).toEqual([]);

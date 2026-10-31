@@ -7,6 +7,7 @@ import { expect, it, vi } from 'vitest';
 import { apply } from '../src/features/memory-curation.js';
 import { KnowledgeFiles } from '../src/knowledge/files.js';
 import { reviewReadings } from '../src/knowledge/review-readings.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('freezes memory lazily, inherits the fork snapshot, refreshes after compaction and never reads while disabled', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-memory-freeze-'));
@@ -84,6 +85,7 @@ export function apply(ctx){let first;let reads=0;ctx.on('llm/stream',async funct
     const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:false},knowledge:{memoryMode:'legacy',legacyMemory:{enabled:true,interval:2}},toolAllowlist:['read','memory']};
     const binding = {sessionId:'review-failure',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
     const submit = async (id: string) => {

@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
@@ -18,7 +19,61 @@ async function library() {
 }
 
 describe('current document memory', () => {
-  it('invalidates the entry after an external body edit, including after reopening', async () => {
+  it('uses saved memory during initial source refresh and after a new conversation', async () => {
+    const { documents } = await library();
+    documents.markSourcesPending();
+    expect((await documents.context()).entry).toContain('Personal');
+    await documents.syncSources({ revision: '1', allowed: ['first-chat'], excluded: [] });
+    expect((await documents.context()).entry).toContain('Personal');
+    await documents.syncSources({ revision: '2', allowed: ['first-chat', 'new-chat'], excluded: [] });
+    expect((await documents.context()).entry).toContain('Personal');
+    const before = (await documents.versions())['MEMORY.md']!;
+    await documents.apply({ operationId: 'dreaming-save', path: 'MEMORY.md', beforeHash: before, content: 'Updated key memory.' });
+    expect((await documents.context()).entry).toBe('Updated key memory.');
+    expect(await documents.context()).not.toHaveProperty('exclusions');
+  });
+
+  it('ignores retired forgetting registries without changing saved memory', async () => {
+    const {documents, workspace} = await library();
+    const entry = (await documents.context()).entry;
+    await documents.close();
+    const statePath = join(workspace, '.nanoassistant/maintenance/documents.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.exclusions = [{requestRef:'old-request',paths:['MEMORY.md'],sources:['old-chat']}];
+    await writeFile(statePath, JSON.stringify(state));
+    const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
+    cleanups.push(() => reopened.close());
+    expect((await reopened.context()).entry).toBe(entry);
+    expect(await reopened.context()).not.toHaveProperty('exclusions');
+    expect(await reopened.status()).not.toHaveProperty('exclusions');
+    await reopened.syncSources({revision:'current',allowed:['old-chat'],excluded:[]});
+    expect(JSON.parse(await readFile(statePath,'utf8'))).not.toHaveProperty('exclusions');
+  });
+
+  it.each(['workspace-write', 'read-only'] as const)('uses the trusted owner root without widening %s for initialization and publication', async mode => {
+    const workspace = await mkdtemp(join(tmpdir(), 'nano-document-policy-'));
+    const workspaceRoot = await realpath(workspace);
+    cleanups.push(() => rm(workspace, { recursive: true, force: true }));
+    const guarded: FileSystem = new LocalFileSystem(new Context(), { cwd: process.cwd(), diffBasisMaxBytes: 10485760 });
+    Object.defineProperty(guarded, 'sandboxMode', { get: () => mode });
+    const write = guarded.writeText.bind(guarded);
+    const writes = vi.spyOn(guarded, 'writeText').mockImplementation((target, content, intent, signal, policy) => {
+      expect(policy).toEqual({ mode, workspaceRoot });
+      if (policy!.mode === 'read-only') throw new Error('Read-only memory backend');
+      return write(target, content, intent, signal, policy);
+    });
+    if (mode === 'read-only') {
+      await expect(MemoryDocuments.open(workspace, 'expert', guarded)).rejects.toThrow('Read-only memory backend');
+      await expect(readFile(join(workspace, '.nanoassistant/memory/MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      return;
+    }
+    const documents = await MemoryDocuments.open(workspace, 'expert', guarded);
+    cleanups.push(() => documents.close());
+    await expect(documents.apply({ operationId: 'scope', path: 'knowledge/scope.md', beforeHash: null, content: 'Owner-scoped publication.' })).resolves.toMatchObject({ saved: true });
+    expect(writes).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps current memory readable after a document change and reopening', async () => {
     const { documents, workspace, root } = await library();
     await mkdir(join(root, 'knowledge'), { recursive: true });
     await writeFile(join(root, 'knowledge/preferences.md'), 'Private updates only.');
@@ -28,11 +83,11 @@ describe('current document memory', () => {
     expect((await documents.context()).entry).toContain('Personal');
     await writeFile(join(root, 'knowledge/preferences.md'), 'Ask before any update.');
     await documents.invalidate('knowledge/preferences.md');
-    expect((await documents.context()).entry).toBeUndefined();
+    expect((await documents.context()).entry).toContain('Personal');
     await documents.close();
     const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
     cleanups.push(() => reopened.close());
-    expect((await reopened.context()).entry).toBeUndefined();
+    expect((await reopened.context()).entry).toContain('Personal');
     await expect(reopened.checkpoint(versions, 0)).rejects.toThrow(/changed/);
   });
 
@@ -51,7 +106,7 @@ describe('current document memory', () => {
     expect(await readFile(join(root, 'knowledge/other.md'), 'utf8')).toBe('Still readable.');
   });
 
-  it('keeps revoked knowledge invalid across restart and rejects stale checkpoints', async () => {
+  it('keeps foreground memory readable while background source checks reject stale checkpoints', async () => {
     const { documents, workspace } = await library();
     const versions = await documents.versions();
     await documents.checkpoint(versions, 0);
@@ -61,12 +116,12 @@ describe('current document memory', () => {
     await documents.syncSources({ revision: '1', allowed: [], excluded: ['conversation-a'] });
     const revoked = await documents.status();
     expect(revoked.generation).toBeGreaterThan(allowed.generation);
-    expect((await documents.context()).entry).toBeUndefined();
+    expect((await documents.context()).entry).toContain('Personal');
     await expect(documents.checkpoint(versions, allowed.generation)).rejects.toThrow(/generation/);
     await documents.close();
     const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
     cleanups.push(() => reopened.close());
-    expect((await reopened.context()).entry).toBeUndefined();
+    expect((await reopened.context()).entry).toContain('Personal');
     await reopened.syncSources({ revision: '1', allowed: [], excluded: ['conversation-a'] });
     expect((await reopened.status()).generation).toBe(revoked.generation);
   });

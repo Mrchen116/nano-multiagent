@@ -6,6 +6,7 @@ import { reviewPersonal } from '../lib/personal-security.js';
 import { personalReviewAction } from '../src/personal-security.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each(['nano', 'codex'] as const)('keeps %s ordinary approval inside effective history while PA delivery retains its product boundary',async(rules)=>{
  const home=await mkdtemp(join(tmpdir(),'pa-owner-approval-'));let client:RuntimeClient|undefined;let logs='';
@@ -28,6 +29,7 @@ ctx.on('llm/stream',async function*(o){
 });}`);
   await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'main',contextWindow:100000},{id:'review',contextWindow:100000,reasoningEfforts:{low:'low'}}]}}}},{insert:[{id:'pa-owner-approval',name:join(home,'fixture.mjs')}]}]);
   client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+  registerNoopTaskHosts(client);
   const sent:string[]=[];let authorityReads=0;
   client.rpc.handle('product.call',value=>{const call=value as any;
    if(call.method==='send_message.context')return {target:'peer',sender:{type:'agent',agent_id:'pa'},recipient:{kind:'user'},channel:'web'};
@@ -79,6 +81,7 @@ it('keeps the ordinary Global capability catalog and executes owner extensions a
 export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',text:'Draft',interactive:{source:'root = TextContent("Draft")'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
       await prepareProfile(root,[{insert:[{id:'capability-fixture',name:join(root,'fixture.mjs')}]}]);
       let logs='';const client=new RuntimeClient({home:root,cwd:root,onLog:text=>{logs+=text;}});
+      registerNoopTaskHosts(client);
       const calls:any[]=[];
       client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);if(call.method==='personal_sources')return {revision:2,excluded_conversation_ids:['source']};if(call.method==='conversations')return {messages:[]};if(call.method==='send_message')return {status:'sent',message_id:'draft-message'};throw new Error('Unexpected product call '+call.method);});
       const config={agentId:'agent',knowledge:{memoryMode:'legacy'},revision:'1',workspace:root,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
@@ -98,6 +101,12 @@ export const name='capability-fixture';export const inject=['tools'];export func
         expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('持续推进已交办的工作');
         const before=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
         expect(JSON.stringify(before.prompt)).toContain('OWNER_EDITABLE_GUIDANCE');
+        const preview=await client.rpc.request('configuration.preview',{config,cwd:root}) as any;
+        expect(preview.tools.sort()).toEqual(before.prompt.tools.map((tool:any)=>tool.name).sort());
+        expect(preview.skills.map((skill:any)=>skill.name).sort()).toEqual(before.skills.map((skill:any)=>skill.name).sort());
+        expect(preview.prompt).toContain('OWNER_EDITABLE_GUIDANCE');
+        if(personal)expect(preview.prompt).toContain(before.prompt.sections.find((section:any)=>section.name==='nano-personal-agent').text);
+
         await client.rpc.request('configuration.apply',{...config,revision:'2',systemPrompt:'',skillSelection:{mode:'explicit_denylist',names:['nano-ongoing-work']}});
         const after=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
         expect(JSON.stringify(after.prompt)).not.toContain('OWNER_EDITABLE_GUIDANCE');

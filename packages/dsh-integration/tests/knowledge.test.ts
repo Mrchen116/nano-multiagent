@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { KnowledgeFiles } from '../src/knowledge/files.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('preserves memory assets, source comments, limits and concurrent updates in one workspace', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-knowledge-'));
@@ -135,6 +136,7 @@ export function apply(ctx) {
     await prepareProfile(home, [{ id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}} },{insert:[{id:'knowledge-fixture',name:join(home,'fixture.mjs')}]}]);
     const start = async () => {
       client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, agents, bindings });
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };
@@ -212,6 +214,7 @@ it.each([false, true])('invokes live human Inbox Skills once without promoting o
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'global-skill-fixture',name:join(home,'fixture.mjs')}]}]);
     const start = async () => {
       client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+      registerNoopTaskHosts(client);
       client.rpc.handle('product.call', value=>{const call=value as {method:string;args:{target:string}};return call.method==='inbox'?{messages:[{id:call.args.target+'-message',sender:{type:call.args.target==='other-agent'?'agent':'user'},partial:call.args.target==='partial-human',content:[{type:'text',text:'/skill:selected'+(prune?' '+ 'a'.repeat(12000):'')}]}]}:{};});
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);
     };

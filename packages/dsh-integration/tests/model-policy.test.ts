@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each([[true, false], [false, false], [true, true], [false, true]])('keeps session effort and separates Skill catalogs from archived bodies (context windows=%s, skill callable=%s)', async (contextWindows, skillCallable) => {
   const home = await mkdtemp(join(tmpdir(), 'nano-model-policy-')); let client: RuntimeClient | undefined; let logs='';
@@ -13,7 +14,7 @@ it.each([[true, false], [false, false], [true, true], [false, true]])('keeps ses
   const binding={sessionId:'model-session',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test',contextWindow:100000,reasoningEfforts:{low:'low',high:'high',xhigh:'xhigh'}}]}}}},{id:'nano-compaction',config:{retainTokens:0,headroomTokens:100,maxTokens:256}},{insert:[{id:'model-fixture',name:join(home,'fixture.mjs')}]}]);
-    const start=async()=>{client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);};
+    const start=async()=>{client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);};
     await start();
     if (!contextWindows) {
       await client!.rpc.request('plugins.manage',{agentId:'a',action:'set_bundle',target:'dsh-agent-context',enabled:false});
