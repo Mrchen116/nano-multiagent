@@ -51,6 +51,10 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     const names=maintenance[0].tools.map((tool:any)=>tool.name);
     expect(names).toEqual(expect.arrayContaining(['read','write','edit','source_history','notes','history','new_context','get_context_remaining']));
     expect(names).not.toContain('finish');
+    const initialText=JSON.stringify(maintenance[0].messages);
+    expect(initialText).not.toContain('source generation:');
+    expect(initialText).not.toContain('Source exclusions (data)');
+    expect(initialText).not.toContain('baseline');
     expect(names).not.toEqual(expect.arrayContaining(['inbox','send_message','shell','subagents']));
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('nano-skill-creation');
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('user authorization');
@@ -74,7 +78,13 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     registerNoopTaskHosts(client);
     await client.rpc.request('initialize',configuration);
     const cold = await readTrajectory();
-    expect(cold).toEqual(warm);
+    // Live stream revisions restart at zero, and persisted headers materialize
+    // the default depth. Compare the complete durable view across restart.
+    const durableView = (batch:any) => ({...batch,frames:batch.frames.map((frame:any)=>({...frame,
+      header:{...frame.header,delegationDepth:frame.header.delegationDepth??0},
+      assistantStream:{...frame.assistantStream,revision:0},
+    }))});
+    expect(durableView(cold)).toEqual(durableView(warm));
     expect(await client.rpc.request('session.descendants', { sessionId: binding.sessionId })).toEqual([]);
     await client.shutdown();client=undefined;
   }catch(error){

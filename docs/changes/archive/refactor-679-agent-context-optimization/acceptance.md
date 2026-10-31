@@ -1,6 +1,6 @@
 # refactor-679 — 独立产品验收
 
-> 最新增量结论：Round followup-1 **PASS**，`326dac00ed5d78daaa6464032a94a24daba5d794`。Global与PA均已真实运行，完整初始上下文/工具及公开回复已核对；PA首次合法记忆失效分支、正式Dreaming后的有效正文与后续回复分别记录。详见文末该轮；下方final-4为前次交付历史。
+> 最新增量结论：Round child-forget-2 **PASS**，实际运行 `fea88c187`。普通子、fork 完整请求与真实缓存、自然语言遗忘及 Dreaming 单写者旅程通过；CF1 摘要内部边界头已定向关闭。详见文末；此前轮次保留为历史。
 
 ## 最终结论（2026-10-31，Round final-4）
 
@@ -274,3 +274,59 @@ caller同步当前Skill并managed重启本轮Node，保留IM、session及记忆�
 seq132实际调用status，seq133显示旧两页保存回执仍在、停止采用请求仍在；maintenance.active=false，backlog.pending、下一批units=8、无blocked。没有protocol/streams/seen/rotation/integrated/cursor。PA据此明确区分：本轮更正即时生效、旧回执不代表更正已经保存、下一批8个单元不代表全部积压。没有run/write/edit/bash/Task/Schedule调用。seq138公开sent，消息`2e7be5234a9740a0830bc759d0f003e1`；seq143 completed。浏览器实际确认完整答复可见。
 
 新证据：`output/refactor-679-consumer/pa-reloaded-skill.txt`（seq128完整返回）、`pa-skill-reload-full.json`（完整seq0–143，含继承的header/tools及后续请求/结果）、`skill-reload-request.json`、`pa-skill-reload.png`。旧seq27的Skill原文仍自然保留在历史中，未删除或改写；C1关闭依据是本次新加载全文及随后实际状态行为，不宣称旧历史文本被追溯消除。此定向复验完成后停止新消息和模型调用。报告由caller统一提交；reviewer未启停服务。
+
+## Round child-forget-1（2026-11-01，普通子／fork／自然语言遗忘）
+
+**PENDING：Task summary 内部边界头待定向关闭**。executed_base `8c9d34780`，本轮实跑实现 `2b158262075097ad4e7b54afd3fd63290de73b21`，分支 `codex/refactor-679-child-context`。本节替换前轮显式exclude机制的目标判断，旧consumer证据保留为历史，不将旧契约视为本轮要求。既有无关Task/Schedule/UI场景retained。
+
+### 实测环境与证据性质
+
+使用caller集中启动的daily `/tmp/nano-refactor679-child/.e2e-daily.json`，IM63958、node `wt-nano-refactor679-child-62030`，专用owner `u_a81qgri2`。PA `pa_15e5d7a35be6` / 私聊`c_f8cb0d911373`，主session `255d6513-5ada-46ac-9eb4-884626f9d41b`；真实astra/medium，审核Luna，普通/fork继承模型。Global P `daily-product` / 群`c_oyhx41yk`使用sol/high，主session `da629f2f-4479-46fe-a885-35ab29764d5d`。无生产操作、旧预览未动；reviewer未启动或停止服务。
+
+本次有真实出站HTTP request body及SSEresponse：`output/refactor-679-child-live/wire/`，仅本隔离实例的透明代理转发正常4000路由，不保存认证头。不同于前轮仅native surface证据，本轮system、tools、messages和实际cache usage可直接逐字段对照。完整初始输入通过全文阅读与完全相同段/schema去重核对，非关键词抽查。PA额外完整native事件`pa-native.jsonl`至seq190及分阶段正文/status快照已保存。
+
+### 普通子与 fork
+
+| 场景 | 真实输入和行为 | 判定 |
+|---|---|---|
+| 普通PA子 | 请求`483d4f199c42481282e42ace4130c90b`委派虚构天气条件分析；wire0044/session`53e69ef5-7afd-44ad-b9d2-8fcb56eb3ed4`。System是internal subagent，保留所属PA名/ID但无主人助理Persona或根公开交付职责；33tools，无inbox/conversations/send_user_message/personal_sources/schedule_run/schedule_history。send_message schema只有agent_id/message。实际仅内部send_message向父回传，seq19确认、seq24完成，没有公开发言。 | PASS |
+| PA fork | 同请求先取得普通子结果，再fork；wire0048/session`c2aaedbd-14b3-4bf1-be50-86096107d9f9`。system和39tools与父请求0047完全相等；前24个message对象完全相等，保留上一完成轮，新增runtime及本轮委派/回传边界在末尾。父主动把当前未完成轮的普通子结论放入委派，fork成功复核天气/会议约束优先于虚构偏好，通过原生completion返回，无额外发信。 | PASS |
+| Global普通与fork | caller驱动暖轮`481e30fea4cd48b6a82ae07152694d0e`、主请求`e04b5ab3428d4a6dbf3891dbd3c451b8`；reviewer独立核对完整`global-*-initial-request.json`。普通wire0024/session`f9b8520a…`为internal身份、33tools；两fork0033/0035 system/tools与父完全相同（37tools），10条既有message对象前缀相等，后接新runtime与委派。第一次fork未拿到当前未完成轮普通子原文，诚实返回证据不足；父补齐原文后第二次fork才完成复核。最终群消息`3f5f26b6cf274f37b256bb3edc92c095`三行结论真实可见。此原生fork仅继承完成轮次的边界不隐瞒，不把第一次记为成功复核。 | PASS |
+| 实际缓存 | PA fork0048 SSE `cache_read_input_tokens=19968`、`input_tokens=1100`；Global0033/0035均cache read15744，未缓存input889/1009。均为实际provider返回，不从字节前缀或配置推定命中。 | PASS |
+
+普通与fork完整输入分别见`pa-{ordinary,fork}-initial-request.json`及native文件；`pa-ordinary-tool-diff.json`展示普通子唯一修改schema是native send_message；`pa-fork-prefix-comparison.json`保留逐父请求比较。fork保留可见schema不等于获根会话权限；实际本次不尝试恶意公开调用，宿主拒绝边界引用caller原生机制回归，不能写成此次自然旅程实测拒绝。
+
+### 自然语言记忆旅程
+
+1. **先保存两条虚构长期偏好。** 请求`cb3400a223af4c0ab72f8d904b4fcddf`要求默认周末上午出行、方案先简短结论后细节；明确隔离验收虚构范围。PA读取nano-memory后以原request_ref运行Dreaming `5b442a0c-f975-454c-a126-092029c273c5`；seq44 status证明偏好页、入口、当日记录3/3 saved/versionRecorded，读回后交付`5215465843d54d0286d95eaff088ea6e`。正式内容保留虚构范围，未泛化成真实生活事实。**PASS**。
+2. **仅本轮例外不删长期偏好。** 请求`483d4f19…`要求普通+fork分析后“仅此次先细节再结论”，并实际整理核查。Dreaming `7f358a09-7c96-4b5e-a178-21bc41e0f56d`整合两份子摘要，2/2更新页保存，seq133读回偏好页仍完整保留两条长期偏好；单次例外写在事项记录与入口，未改长期表达顺序。最终`e80eb6b22b8f4eb28a9dbd17aae15b99`确实先列条件后给结论，报告下一批仍有1单位而未假报全部清空。**行为PASS，输入头有下述独立问题**。
+3. **自然忘掉先当轮不采用。** 请求`b0c8e10b85494357bc5fc17c7f17d189`要求以后不再采用上午出行偏好，保留结论优先；新条件上午/下午天气与空闲完全相同，要求先回答再整理。PA seq160先回答两者均可、无依据优先其一，明确“已停止采用、尚未修改正式记忆”；seq161送达`19aed6127d624fd9ad0da736de094168`。随后seq165才调用普通memory_maintenance run，无exclude/paths/sources参数，无停用名单操作。**PASS**。
+4. **Dreaming直接从聊天清理。** `6ef6fd38-98ca-41d2-b645-597a281a1cfa`完整初始输入包含原始主人forget消息和PA即时答复，没有独立遗忘登记包；Dreaming完成3/3保存及版本记录。seq179完整偏好页只保留结论优先，seq180入口同样移除上午偏好，仍注明虚构范围。实际新版commit：偏好`e67be99017b22e1f5e86b2d40fdbf69127851596`、入口`56e54c010d5f095065d6e7ce015cb3ef29aaa823`。seq185送达`4095cc455ca24f9ba3b46d50c492479b`，说明现在已修改正式记忆、并非删除原聊天/Git历史；seq190 completed。**PASS**。
+
+主Agent整个三轮除read/Skill/委派/内部与公开send及maintenance status/run外，未write/edit/bash写正式库，未调用遗忘工具或personal_sources，未创建Task/Schedule。memory_maintenance实际schema仅status/run及request_ref/importLegacy；context/status没有exclusions或停用请求引用。原始聊天与历史记载保留，不能将“忘掉”误报成擦除所有历史。
+
+### Dreaming完整输入与问题
+
+首轮`pa-dreaming-initial.json`（wire0012）System、两条messages及11tools完整核对：目录投影仅session_id/purpose/available_before；无Run/cycle/source generation行或baseline/through字段；保留实际可用的staging路径与窗口ID。遗忘轮`pa-forget-dreaming-initial.json`同样成立，已完整核对当前正文与原始忘掉原话。正文的事件seq用于原始证据定位，与内部冻结范围字段区分。前三个自然Dreaming均未自主调用source_history，因此不能据此声称实际返回已验；其工具schema已检查，返回面仍需caller机制/后续证据。
+
+**发现 CF1（major，待修复复验）：** 含子摘要的consolidation wire0053，`pa-child-consolidation-initial.json`，新Task summary头仍注入`root=…; events 0–23/66–82; version=<hash>`。这些是宿主摘要边界/版本记账，不是模型继续读取工具所需参数；旧范围随后还出现在当日记忆引用。与本轮明确清理目标不符，不能以行为成功放行。caller已冻结修复`fea88c187`，本报告暂保留失败证据，待最终版本单次新增子摘要与Dreaming消费复验；旧历史内容不要求追溯抹除。
+
+### 真实界面与范围
+
+Chrome真实查看群三行结论及PA保存回报：消息明确作者、按要求分项，能分辨条件推论、实际保存与尚待处理；未出现重复子公开回复。`pa-review-global-delivery.png`保存Global画面。使用客户端同款HTTP入口发送授权测试消息，不触碰生产。无客户端布局变更，本轮不扩大iOS；fork/root工具权限机制及SingleThread静态修正由caller窄回归支持，未冒充自然PA旅程覆盖全部工作模式。
+
+## Round child-forget-2（2026-11-01，CF1 定向关闭）
+
+**PASS**；validated_at: `fea88c187`（实际运行产物）；报告时 HEAD `dfdfbd66b67a4912c00defad8ed0bf955b3100ac` 仅后续测试修正，不冒充重新实跑版本。0 blocking、0 major、0 minor；highest_required_action: none。child-forget-1 中普通子、fork、实际缓存及自然遗忘结论 retained；唯一 CF1 已关闭。旧失败证据和旧历史文本保留。
+
+caller 在隔离 Node 重启后，reviewer 仅新增一次有界请求 `a65a323ce3a64f11b4c8a6c426e922a5`。普通子 `6d54c2c5-934e-4ccf-ad42-f5a51020af77` 正确区分“本机刷新后仍在”与跨设备同步证明，只向父级返回。新的提炼 wire0090 及 consolidation wire0091（`pa-closure-consolidation-initial.json`）完整输入核对：Task summary 头只有 `Source session_id=…`，不再附加 root、events 范围或 version 哈希；正文仍保留虚构项目范围、委派来源、单次约束和证据局限。原始业务记录的 seq 引用仍存在，不与已删除的内部摘要边界混淆。
+
+Dreaming `02b34dac-70b2-495f-8009-d31b252b4f63` completed；PA 随后真实 status 返回一份子复盘 integrated、2/2 页 saved/versionRecorded；新当日记录 commit `755030c72e517d48973d1accbfa965d24d367883`、入口 `8359886ef9ed573b0b86a5bf91ef5f510ccbe147`。偏好页未再写入，保留上一遗忘轮版本。公开发送 `14a13af9b7c340618330ab33f35c069c` 为 sent，明确结论、实际保存和未改变剩余偏好，未联系外部或建 Task/Schedule。完整后续工具结果见 wire0106 继承的 messages；其后观察群消息只读至实际 P 回答，没有重复公开插话。
+
+Chrome 1230×816 真实查看同一 PA 私聊末尾：作者、请求、两段结论与保存结果清楚，文本完整换行，无遮挡/溢出；截图 `output/refactor-679-child-live/pa-closure-delivery.png`。此前遗忘即时回报与正式保存回报也保持可辨认的时间顺序。
+
+### source_history 证据层次
+
+自然模型本轮未自主调用 source_history，不能声称已验证自然调用行为。补充审读 caller 现有 `dreaming-task-runtime.test.ts` valid 用例的完整 runtime 请求与成功工具结果（`source-history-runtime-requests.jsonl`、`source-history-runtime-results.json`；`/tmp/refactor679-sourcehistory-proof.log`：1 pass、6 skip）：真实 DSH 工具执行，LLM 与业务来源使用 fixture。成功返回保留原始角色、source、正文、window/item 定位、分页游标；allowed_range 仅 session_id/purpose/available_before，没有内部冻结 baseline/through 范围。此为工具运行时机制证据，不冒充本次真实模型 provider 请求。完整结果去重后仅三份时间不同的同内容回执。
+
+reviewer 至此停止新请求；没有启停服务、改源码/测试或提交。仅写本 acceptance 报告，由 caller 统一提交、归档并清理隔离环境。生产未验收、未部署；既有无关场景沿用前轮已明确的覆盖和边界。

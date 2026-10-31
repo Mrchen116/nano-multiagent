@@ -31,7 +31,7 @@ const fixture = [
   '});});}',
 ].join('\n');
 
-it('omits only inherited root-private Task packages on fork wire while retaining canonical history and cold-resume evidence', async () => {
+it('retains inherited Task context and the parent system on fork wire and cold resume', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-task-child-context-'));
   let client: RuntimeClient | undefined, logs = '';
   const requests: Request[] = [], issued = new Set<string>();
@@ -90,13 +90,13 @@ it('omits only inherited root-private Task packages on fork wire while retaining
   const omissions = (events: Event[]) => events.filter(event => event.type === 'system/message' && event.data.message.content.length === 0 && event.sourceEventSeqs?.length === 1 && events.some(target => target.seq === event.sourceEventSeqs![0] && target.type === 'user/message' && privateChannels.includes(target.data.source?.channel)));
   const assertWire = (request: Request, events: Event[]) => {
     const raw = JSON.stringify(request.body);
-    for (const channel of privateChannels) expect(raw).not.toContain('ROOT_PRIVATE_' + channel);
+    for (const channel of privateChannels) expect(raw).toContain('ROOT_PRIVATE_' + channel);
     for (const retained of ['BUSINESS_D3_TASK_FACT', 'PARENT_AUTHORIZATION_EVIDENCE', 'PARENT_SCHEDULE_EVIDENCE', 'PARENT_ORDINARY_AUTHORIZATION', 'QUOTED Current Task context: PRIVATE_SNAPSHOT', 'CHILD_LOCAL_SCHEDULE', 'CHILD_LOCAL_DIAGNOSTIC']) expect(raw).toContain(retained);
     expect(JSON.stringify(request.body.system)).toContain('VISIBILITY_SYSTEM_HEAD');
-    expect(JSON.stringify(request.body.system)).toContain('You are an internal execution agent');
-    expect(JSON.stringify(request.body.system)).toContain('You are an internal subagent of this product Agent:');
+    expect(JSON.stringify(request.body.system)).not.toContain('You are an internal execution agent');
+    expect(JSON.stringify(request.body.system)).not.toContain('You are an internal subagent of this product Agent:');
     expect(JSON.stringify(request.body.system)).toContain(config.displayName);
-    expect(JSON.stringify(request.body.system)).not.toContain('Your Agent name:');
+    expect(JSON.stringify(request.body.system)).toContain('Your Agent name:');
     const visible = request.body.messages.map((message: any) => text(message)).join('\n');
     const runtime = events.find(event => event.type === 'user/message' && event.data.source.kind === 'runtime-context');
     const catalog = events.find(event => event.type === 'user/message' && event.data.source.kind === 'skill-catalog');
@@ -138,8 +138,7 @@ it('omits only inherited root-private Task packages on fork wire while retaining
       const events=await canonical(child.id);
       for (const original of parentBefore) expect(events.find(event => event.seq === original.seq)).toEqual(original);
       expect(child.events!.filter(event=>parentBefore.some(original=>original.seq===event.seq))).toEqual([]);
-      const hidden = omissions(events); expect(hidden).toHaveLength(4);
-      for (const event of hidden) expect(event.surfaceOp).toEqual({ op: 'replace', startSeq: event.sourceEventSeqs![0], endSeq: event.sourceEventSeqs![0] });
+      expect(omissions(events)).toHaveLength(0);
       assertWire(requests.find(request => request.session === child.id)!, events);
       expect(JSON.stringify(requests.find(request => request.session === child.id)!.body)).toContain('PARENT_DELEGATION_');
     }

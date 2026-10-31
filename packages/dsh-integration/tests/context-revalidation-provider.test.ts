@@ -69,7 +69,7 @@ it.each([
   const identity = (request: any) => expect(request).toMatchObject({ agentId: 'wire-revalidation', ownerId: 'wire-owner', sessionId: binding.sessionId });
   const observe = () => client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as Promise<{ status: string; events: Event[] }>;
   const submit = async (inputId: string) => {
-    const item = original('task-' + inputId); originals.set(item.inputId, item); armed = true;
+    const item = original('task-' + inputId); originals.set(item.inputId, item);
     const first = requests.length;
     await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId, mode: 'followup', content: [{ type: 'text', text: 'HUMAN_' + inputId }],
       source: { kind: 'human', channel: 'wire-test', actorId: 'wire-owner', messageId: inputId, conversationId: 'wire-human-chat' } });
@@ -154,7 +154,11 @@ it.each([
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     client.rpc.handle('product.task_context.prepare', request => {
       identity(request); prepareCalls++;
-      return { messages: [...originals.values()].filter(item => !consumed.has(item.inputId)), revoked: [] };
+      const messages = [...originals.values()].filter(item => !consumed.has(item.inputId));
+      // Activate the fixture Task inside the submitted turn. session.ensure's
+      // asynchronous idle check must not race the human input into a prior turn.
+      if (messages.length) armed = true;
+      return { messages, revoked: [] };
     });
     client.rpc.handle('product.task_context.commit', request => {
       identity(request);
@@ -187,6 +191,7 @@ it.each([
     }
     const initial = await submit('before-' + cell);
     expect(initial).toHaveLength(2); initial.forEach(assembly);
+    expect(strings(initial[0]!.body.messages)).toContain('HUMAN_before-' + cell);
     expect(strings(initial[1]!.body.messages)).toContain(packagedBody);
     expect(strings(initial[1]!.body.messages)).toContain(join(builtin, 'skill-creator'));
     const results = initial[1]!.body.messages.flatMap((message: any) => Array.isArray(message.content) ? message.content : [])

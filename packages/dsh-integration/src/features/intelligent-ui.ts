@@ -1,10 +1,11 @@
+import {isOrdinaryChild} from '../child-role.js';
 import type { Context } from '@deepseek-ai/cordis';
 export const name = 'nano-intelligent-ui';
 export const inject = ['systemPrompt'];
 /** Offers interactive replies while the Agent has Intelligent UI enabled. */
 export function apply(ctx: Context, config: {mode?: string}) {
   ctx.systemPrompt.section({ name: 'nano-interactive-replies', order: 808, text: ({agent}) => {
-    const internal = agent?.session.header.origin === 'subagent';
+    const internal = isOrdinaryChild(agent);
     return [`Choose the response form that helps the user understand, decide or act. Keep this presentation decision internal and do not add decorative controls.
 - Use concise text for direct facts, ordinary conversation, writing and straightforward code.
 - For mechanisms, processes, relationships or changing conditions, offer an interactive explanation when meaningful steps or variables improve understanding, even without an interface request. Connect controls to visible results and explanations. Use a static diagram when interaction adds nothing.

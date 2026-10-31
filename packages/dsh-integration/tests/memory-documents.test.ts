@@ -30,8 +30,24 @@ describe('current document memory', () => {
     const before = (await documents.versions())['MEMORY.md']!;
     await documents.apply({ operationId: 'dreaming-save', path: 'MEMORY.md', beforeHash: before, content: 'Updated key memory.' });
     expect((await documents.context()).entry).toBe('Updated key memory.');
-    await documents.exclude('stop', ['MEMORY.md'], []);
-    expect((await documents.context()).exclusions).toEqual([{ requestRef: 'stop', paths: ['MEMORY.md'], sources: [] }]);
+    expect(await documents.context()).not.toHaveProperty('exclusions');
+  });
+
+  it('ignores retired forgetting registries without changing saved memory', async () => {
+    const {documents, workspace} = await library();
+    const entry = (await documents.context()).entry;
+    await documents.close();
+    const statePath = join(workspace, '.nanoassistant/maintenance/documents.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    state.exclusions = [{requestRef:'old-request',paths:['MEMORY.md'],sources:['old-chat']}];
+    await writeFile(statePath, JSON.stringify(state));
+    const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
+    cleanups.push(() => reopened.close());
+    expect((await reopened.context()).entry).toBe(entry);
+    expect(await reopened.context()).not.toHaveProperty('exclusions');
+    expect(await reopened.status()).not.toHaveProperty('exclusions');
+    await reopened.syncSources({revision:'current',allowed:['old-chat'],excluded:[]});
+    expect(JSON.parse(await readFile(statePath,'utf8'))).not.toHaveProperty('exclusions');
   });
 
   it.each(['workspace-write', 'read-only'] as const)('uses the trusted owner root without widening %s for initialization and publication', async mode => {
