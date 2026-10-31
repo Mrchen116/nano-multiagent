@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it.each([false, true])('keeps fork tool definitions equal to the parent and ordinary workers internal across cold resume (PA=%s)', async personal => {
+it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'single_thread',personal:false}])('keeps forks equal and ordinary workers internal across cold resume ($mode, PA=$personal)', async ({mode,personal}) => {
   const home = await mkdtemp(join(tmpdir(), 'global-child-tools-'));
   let client: RuntimeClient | undefined, logs = '';
   const calls: { method: string; sessionId: string }[] = [];
-  const config = { agentId: 'a', revision: '1', mode: 'global', workspace: home,
+  const config = { agentId: 'a', revision: '1', mode, workspace: home,
     provider: 'deepseek-official', model: 'deepseek-flash',
     toolAllowlist: ['subagent', 'subagent_fork', 'send_message', 'inbox', 'conversations', 'task_graph'],
     features: { task_graph: true, intelligent_ui: true, memory_curation: false, skill_creation: false },
@@ -53,11 +53,12 @@ ctx.on('llm/stream',async function*(o){
     const children = [...new Set(before.filter(row => row.id !== 'root').map(row => row.id))];
     expect(children).toHaveLength(3);
     const root = before.find(row => row.id === 'root');
-    expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining(['inbox', 'conversations', 'send_message', ...(personal ? ['send_user_message'] : [])]));
+    expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining([...(mode==='global'?['inbox']:[]), 'conversations', 'send_message', ...(personal ? ['send_user_message'] : [])]));
     for (const row of before.filter(row => row.id !== 'root')) {
       if (row.fork) { expect(row.schemas).toEqual(root.schemas); expect(row.tools).toEqual(root.tools); continue; }
       const names = row.schemas.map((tool: any) => tool.name);
       expect(JSON.stringify(row.system)).toContain('You are an internal execution agent');
+      expect(JSON.stringify(row.system)).not.toContain('Your final prose is delivered to the current conversation.');
       expect(JSON.stringify(row.system)).not.toContain('In Global mode this requires send_message; private prose is not delivery.');
       expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('send_user_message');
       const send = row.schemas.find((tool: any) => tool.name === 'send_message');
@@ -74,11 +75,14 @@ ctx.on('llm/stream',async function*(o){
       expect(results).toHaveLength(continuable ? (before.find(row => row.id === child.id)?.parent === 'root' ? 2 : 1) : 0);
       if (continuable) expect(results[0].data.message.isError, JSON.stringify(results[0].data.message)).not.toBe(true);
     }
+    const firstChild = descendants.find(child => child.events.some((event:any) => event.type==='subagent/descriptor' && event.data.mode==='continuable')).id;
+    if (mode === 'global') {
     await client!.rpc.request('trajectory.prepare', { observerId: 'root', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
     const runs = (await client!.rpc.request('trajectory.call', { observerId: 'root', method: 'trajectory/runs' }) as any).value;
     expect(runs).toHaveLength(2);
     // The ordinary child remains continuable after the runtime process is recreated.
-    const firstChild = runs.find((run: any) => run.provider === 'spawn').sessionId;
+    expect(runs.find((run: any) => run.provider === 'spawn').sessionId).toBe(firstChild);
+    }
     await client!.shutdown(); client = undefined;
     await start(); await submit('resume', `resume:${firstChild}`);
     await expect.poll(async () => (await snapshots()).filter(row => row.id === firstChild).length).toBeGreaterThan(before.filter(row => row.id === firstChild).length);

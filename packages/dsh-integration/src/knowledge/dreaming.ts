@@ -301,7 +301,7 @@ export class Dreaming {
       inputs.push('# Task source updates');
       for(const summary of run.summaries){
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
-        inputs.push(`## ${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated task summary, replaces same source':'Task summary'}\nSource session_id=${summary.sessionId}; root=${summary.rootSessionId}; events ${summary.baseline+1}–${summary.through}; version=${summary.sourceVersion}\n${text}`);
+        inputs.push(`## ${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated task summary, replaces same source':'Task summary'}\nSource session_id=${summary.sessionId}\n${text}`);
       }
       const view=await library.context();
       inputs.push(`# Current memory entry (data)\n${view.entry??`Read the complete entry at ${join(view.root, 'MEMORY.md')}.`}`);

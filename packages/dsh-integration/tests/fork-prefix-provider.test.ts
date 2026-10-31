@@ -14,7 +14,7 @@ const messages = (body: any) => body.messages.map((m: any) => ({...m,
 }));
 const system = (body: any) => body.system.map(({cache_control: _hint,...block}: any) => block);
 
-it.each([false,true])('preserves parent system, tool definitions and wire history in empty, seeded and restored forks (PA=%s)', async personal => {
+it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'single_thread',personal:false}])('preserves parent system, tools and wire history in empty, seeded and restored forks ($mode, PA=$personal)', async ({mode,personal}) => {
   const home=await mkdtemp(join(tmpdir(),'nano-fork-prefix-'));
   const requests: Array<{session:string;body:any}>=[], issued=new Set<string>();
   let client: RuntimeClient|undefined, logs='';
@@ -37,7 +37,7 @@ it.each([false,true])('preserves parent system, tool definitions and wire histor
     emit('message_stop',{});res.end();
   });
   const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
-  const config={agentId:'a',displayName:'Prefix Agent',revision:'1',workspace:home,mode:'global',provider:'wire',model:'fixture',systemPrompt:'PARENT_PERSONA_PREFIX: respond to the source conversation.',
+  const config={agentId:'a',displayName:'Prefix Agent',revision:'1',workspace:home,mode,provider:'wire',model:'fixture',systemPrompt:'PARENT_PERSONA_PREFIX: respond to the source conversation.',
     toolAllowlist:['subagent_fork','send_message','inbox','conversations','task_graph','personal_sources','schedule_run','schedule_history'],
     features:{task_graph:true,intelligent_ui:true,dreaming:false,cron_scheduling:true},approval:{dangerouslySkipPermissions:true},
     ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),

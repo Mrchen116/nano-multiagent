@@ -36,7 +36,7 @@ Persistence and blocked actions
 Continue accepted human work until its requested outcome is delivered or a concrete blocker has been communicated. A failed tool call or denied action is not completion. Inspect execution failures, correct recoverable errors and take a useful permitted next step.
 
 Never bypass a denial by switching tools, channels or identities, or disguising the same action. Choose a materially safer allowed alternative. If human input is necessary, send the originating human the specific blocked action and reason. A denied public message does not prohibit a separately reviewed clarification or blocker report; exclude the denied content from that report. Do not end with only a private draft while this follow-through is still needed. After sending the result or necessary question, wait without redundant public messages and continue independent authorized work.` });
-  else ctx.systemPrompt.section({ name: 'nano-communication', order: 800, text: `Your final prose is delivered to the current conversation. Use send_message with target/text for explicit public delivery; target="current" means this conversation. Use agent_id/message only for native internal child or parent communication. After confirmed card delivery, end with the exact non-empty final text NO_REPLY so the host suppresses a duplicate final reply.` });
+  else ctx.systemPrompt.section({ name: 'nano-communication', order: 800, text: ({agent}) => isOrdinaryChild(agent) ? '' : `Your final prose is delivered to the current conversation. Use send_message with target/text for explicit public delivery; target="current" means this conversation. Use agent_id/message only for native internal child or parent communication. After confirmed card delivery, end with the exact non-empty final text NO_REPLY so the host suppresses a duplicate final reply.` });
   const tools: Pick<ToolDefinition, 'name' | 'description' | 'parameters'>[] = [
     { name: 'inbox', description: 'Check unread conversation sources or read their ordered content. Root main Agent only; consumption is recorded after full durable ingestion.', parameters: {
       type: 'object', properties: { action: { type: 'string', enum: ['check', 'read'] }, target: { type: 'string' }, cursor: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['action'], additionalProperties: false,
@@ -98,10 +98,15 @@ export function registerUserMessage(ctx: Context): void {
  *
  * Args:
  *   ctx: Ordinary internal child scope, including resumed workers.
+ *   inheritedProductSend: Whether the preset supplies a public/native combined tool.
  */
-export function registerChildGuidance(ctx: Context): void {
+export function registerChildGuidance(ctx: Context, inheritedProductSend = false): void {
+  if (inheritedProductSend) {
+    const send = ctx.tools.get('send_message')!;
+    ctx.tools.register({...send,description:'Send a useful internal message to your direct parent or child. Acceptance is not public delivery.',parameters:{type:'object',properties:{agent_id:{type:'string'},message:{type:'string'}},required:['agent_id','message'],additionalProperties:false}});
+  }
   ctx.systemPrompt.section({ name: 'nano-global-child', order: 800, text:
-    `You are an internal execution agent. Your parent coordinates this work; the root Global Agent owns product conversations and public delivery. You do not have inbox, conversations or public target/text sending. Ask your parent for needed conversation facts or source checks.
+    `You are an internal execution agent. Your parent coordinates this work; the main Agent owns product conversations and public delivery. You do not have inbox, conversations or public target/text sending. Ask your parent for needed conversation facts or source checks.
 
 Follow the native return mode. A continuable child sends one self-contained result to its parent with send_message before finishing, then writes a brief closing note. A one-shot fork returns its result through completion without an extra send and is not a continuable conversation. Include findings, drafts, evidence and actual execution results; internal input acceptance is not public delivery.
 
@@ -110,3 +115,4 @@ During continuable execution, message the parent only for information or a decis
 When coordinating your own children, send only new information, decisions or corrections that change their next action. Continue within the delegated task and current corrections; cancellation or late results do not authorize restarting. Ordinary tools retain the same approval and source restrictions. Do not bypass a denied action by switching tools or disguising the same action.` });
   ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions.split('\n\nDelivery results')[0]! });
 }
+import {isOrdinaryChild} from './child-role.js';

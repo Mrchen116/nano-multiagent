@@ -145,10 +145,8 @@ export class ConfigurationScopes extends Service {
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     if (config.systemPrompt && !isOrdinaryChild(agent)) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
-    if (config.mode === 'global') {
-      if (isOrdinaryChild(agent)) GlobalMode.registerChildGuidance(agent.ctx);
-      else await agent.ctx.plugin(GlobalMode, { mode: config.mode }).await();
-    }
+    if (isOrdinaryChild(agent)) GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global');
+    else if (config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode }).await();
     if (config.personal && !isOrdinaryChild(agent)) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
     await agent.ctx.plugin(ContextOrder).await();
