@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {mkdtemp, mkdir, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -18,6 +18,18 @@ async function fixture(timeoutMs=7000) {
   return {home,root,inspector,input};
 }
 async function waitForFile(path:string) {await expect.poll(async()=>readFile(path,'utf8').catch(()=>''),{timeout:5000}).not.toBe('');}
+
+// Reparented exited workers may remain zombies until init reaps them on Linux.
+// Only a non-zombie process can still execute or retain the resources we own.
+function processAlive(pid: number): boolean {
+  try {
+    const state = execFileSync('ps', ['-p', String(pid), '-o', 'stat='], {encoding:'utf8'}).trim();
+    return state.length > 0 && !state.startsWith('Z');
+  } catch (error) {
+    if ((error as {status?:number}).status === 1) return false;
+    throw error;
+  }
+}
 
 it('coalesces 30 native checks, lets one waiter cancel, and reclaims every temporary home',async()=>{
   const {root,inspector,input}=await fixture();
@@ -87,7 +99,7 @@ it('reclaims a live blocked worker after SIGKILL of its owner, then successfully
   expect(()=>process.kill(lease.pid,0)).not.toThrow();
   const restarted=new ConfigurationInspector({root});cleanups.push(()=>restarted.close());
   await restarted.initialize();
-  expect(()=>process.kill(lease.pid,0)).toThrow();
+  expect(processAlive(lease.pid)).toBe(false);
   expect(await readdir(root)).toEqual([]);
   expect(restarted.metrics().preview_orphan_total).toBe(1);
   await expect(restarted.inspect(input)).resolves.toMatchObject({tools:expect.any(Array)});
@@ -105,15 +117,12 @@ it('reclaims a plugin child that ignores SIGTERM even after its worker leader ex
   const {home,root,inspector,input}=await fixture();
   const marker=join(home,'child-pid'),plugin=join(home,'child.mjs');
   const childSource=`import {writeFileSync} from 'node:fs';process.on('SIGTERM',()=>{});writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000);`;
-  await writeFile(plugin,`import {spawn} from 'node:child_process';import {access} from 'node:fs/promises';export const name='child-fixture';export async function apply(){spawn(process.execPath,['--input-type=module','-e',${JSON.stringify(childSource)}],{stdio:'ignore'});while(!await access(${JSON.stringify(marker)}).then(()=>true,()=>false))await new Promise(r=>setTimeout(r,10));}`);
+  await writeFile(plugin,`import {execFileSync, spawn} from 'node:child_process';import {access} from 'node:fs/promises';export const name='child-fixture';export async function apply(){spawn(process.execPath,['--input-type=module','-e',${JSON.stringify(childSource)}],{stdio:'ignore'});while(!await access(${JSON.stringify(marker)}).then(()=>true,()=>false))await new Promise(r=>setTimeout(r,10));}`);
   const result=await inspector.inspect({...input,profilePatch:[{insert:[{id:'child-fixture',name:plugin}]}]});
   expect(result).toMatchObject({tools:expect.any(Array)});
   const pid=Number(await readFile(marker,'utf8'));
   cleanups.push(async()=>{try{process.kill(pid,'SIGKILL');}catch{}});
-  // A reparented zombie has no live resources and may await init's reaping on CI.
-  const {execFileSync}=await import('node:child_process');
-  const alive=()=>{try{return !execFileSync('ps',['-p',String(pid),'-o','stat='],{encoding:'utf8'}).trim().startsWith('Z');}catch{return false;}};
-  expect(alive()).toBe(false);
+  expect(processAlive(pid)).toBe(false);
   expect(await readdir(root)).toEqual([]);
   expect(inspector.metrics().preview_active).toBe(0);
 },15000);

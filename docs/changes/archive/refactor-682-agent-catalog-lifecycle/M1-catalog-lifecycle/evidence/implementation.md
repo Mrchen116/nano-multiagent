@@ -71,3 +71,11 @@
 - Ready PR之后仍须等待远端CI；本记录不预先宣称远端通过。最终PR head上的门禁有效性与CI结果由交付说明记录。
 
 - 交付分支更名为 `codex/refactor-682-agent-catalog-lifecycle`，以进入现有CI的unit归档检查；此前审查记录中的分支名保留为实际执行历史。实际分支归档检查已确认 refactor-682 唯一位于 archive。
+
+
+### PR 后 CI 定向修正
+
+- Ready PR #434 首轮 CI run `41186717728`：前端通过；后端原生全量839/840通过，仅 `configuration-inspector.test.ts` 的 owner-SIGKILL 回收用例在 `process.kill(pid,0)` 必须抛错的断言失败。此前本地失败的PTY/执行次数两项在本轮CI通过。故障摘要另存 `/Users/czj/.codex/reports/refactor-682-20261031/refactor-682-ci-first-failure.log`。
+- 该断言把PID存在误等同于仍可执行。Linux未被init收割的zombie会保留PID；现有产品回收本就以进程组中无非zombie成员为释放条件，同文件的child回收测试也已采用该语义。结束后的runner无法再次读取PID状态，因此“该PID当时为zombie”是依据成功recover与断言结果的推断，不冒充现场直接观察。
+- 只修测试：两个回收场景共用OS `ps stat` 活进程判定，允许不存在或zombie，其他ps错误仍抛出；仍要求目录空、orphan计数、后续真实构建成功，并保留独立同组child回收断言。生产代码、超时、资源清理和契约未改。
+- 当前Mac真实native inspector完整6/6通过（12.94s），`/tmp/refactor-682-linux-orphan-test.log`。下一次Linux CI验证平台差异；独立静态审查按这个test-only delta定向复核，100次/30分钟/产品证据保留，不重复已通过长时负载。
