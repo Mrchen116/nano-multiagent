@@ -119,7 +119,7 @@ it('projects one conversation context per PA page and preserves ordered ingestio
     const next = store.read('alice','main','joined',{target:'owner-chat',cursor:String(page.next_cursor)});
     expect(next).toMatchObject({delivery:'participant',messages:[{id:'joined'}]});
     expect(store.commitRead('main','joined',[{type:'text',text:JSON.stringify(next)}],false)).toBe(true);
-    expect(store.check('alice',true)).toEqual({sources:[]});
+    expect(store.check('alice',true)).toEqual({sources:[],review_failures:[]});
   } finally {store.close();}
 });
 it('persists a fixed background deadline and notification identity separately from unread consumption', () => {

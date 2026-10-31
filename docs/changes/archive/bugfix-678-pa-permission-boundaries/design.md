@@ -1,7 +1,7 @@
 # bugfix-678: PA 审核与自主任务推进的职责边界 — 技术方案
 
 > 对齐：[incident.md](incident.md) 已确认决定。本文取代原输入审核阶段稿，覆盖整个 unit。
-> 状态：完整范围设计稿；按用户“不等上游”决定，改为保留 DSH 已有恢复，仅通过公开接口补齐未覆盖的独立调用，并纳入审核执行的局部重构。[设计复审 Round 3](design-review.md) 已 Approved（0 CRITICAL / 0 WARNING），Gate 2 通过。代码、current specs 和生产均未改变。
+> 状态：完整范围设计稿；按用户“不等上游”决定，改为保留 DSH 已有恢复，仅通过公开接口补齐未覆盖的独立调用，并纳入审核执行的局部重构。[设计复审 Round 3](design-review.md) 已 Approved（0 CRITICAL / 0 WARNING），Gate 2 通过。实施及隔离验收已完成；图片输入按用户纠偏及设计复审 Round 4 使用主 Agent 原生路径，current specs 已归并。产品验收 Round 2、代码审查 Round 2、一致性核查 Round 3 均通过；生产尚未部署。
 
 ## Changelog
 
@@ -189,7 +189,7 @@ type ReviewExecution<T> =
 
 ### 主 PA 安全处置与回执
 
-`pa.incident.report` 保留可信源核查、事件聚合/去重及联系人操作，返回持久事件；不 insertMessage。报告参数 category 从审核归一化结果生成，不能缺少现有服务端必需字段。在 pa_source_events 加 `security.incident` 事件，Global 转成主 PA 系统输入；事件事实含 owner target、原聊天 target、source_message_id、incident_ref、理由、已送达回执以及待处理步骤。理由和原文是外部证据，不插进系统指令字符串。
+`pa.incident.report` 保留可信源核查、同一消息/类别去重及联系人操作，每条新拒绝消息返回独立持久事件；联系人聚合仅用于主人端紧凑展示，不合并消息处置及发送回执。此处根据 2026-10-30 用户反馈校正原“事件聚合”的实现歧义；不 insertMessage。报告参数 category 从审核归一化结果生成，不能缺少现有服务端必需字段。在 pa_source_events 加 `security.incident` 事件，Global 转成主 PA 系统输入；事件事实含 owner target、原聊天 target、source_message_id、incident_ref、理由、已送达回执以及待处理步骤。理由和原文是外部证据，不插进系统指令字符串。
 
 扩展 send_message 的可选 `incident_ref`（仅绑定主 PA）；宿主校验事件属于当前 binding。允许目的地仅为主人会话和事件原会话，representation 固定 self，不附带文件/卡片/任务变更。主人提醒走既有私聊 publication；服务端从实际 message/operation 回执绑定 owner_notice_message_id，而非相信模型自报“已通知”。原聊天拒绝必须已具备主人提醒回执，冻结实际文案及事件事实，走正常披露审核；删掉 PEER_NOTICE 精确文本特例，不以 incident_ref 直接 allow。审核识别的是有限的“告知风险、拒绝当前请求”处置，不允许转发私人资料、原始恶意内容或代表主人承诺。
 
@@ -211,9 +211,11 @@ Native 与外部 channel/task 路径统一保留以上区别。提交前 Inbox �
 
 ### 冻结图片审核
 
+2026-10-29 实施纠偏：用户明确要求沿用主 Agent 的图片转入方式。原文“必须先有公开图像计费/估算接口”是 author 自行增加的实现限制，并非用户需求；本次删除该限制，保持完整待审图片与真实失败的既有要求。
+
 复用 IM 原生附件 URL → 当前来源权限 → message_images 记录 → 本地文件读取与 sha256 校验，不接受任意远程 URL 下载。第一版支持静态 PNG/JPEG/WebP，最多 5 张、每张最多 10 MiB、总计最多 20 MiB，最大单图 4096×4096；检查真实解码类型、尺寸和静态帧数，不仅信任扩展名/MIME。超限、动画、SVG/PDF 等报告 unsupported/unavailable，不降级为文本说明。较低的 provider 能力上限优先，不能为过预算静默漏图。
 
-prepare 固定资源 ID/hash/MIME/尺寸，DSH 收到同一份验证过的 bytes（RPC 内部有界 base64，不写入普通轨迹文本）；integration 转为公开 image block，与正文、受众、原话及图片 manifest 一起组装。request 前确认 model.inputModalities 含 image，并按公开图像计费/估算能力预留预算；无法保证全图输入时 unavailable。禁止 DSH 文本模型占位、image offload/裁剪掉待审图后仍返回 allow；每次实际模型请求校验 manifest 的全部图已入输入，漏图使本次无效。
+prepare 固定资源 ID/hash/MIME/尺寸，DSH 收到同一份验证过的 bytes（RPC 内部有界 base64，不写入普通轨迹文本）。图片沿用主 Agent 的原生路径：`ctx.attachments.admitPromptContent` 完成入库与标准图像规范化，再把返回的 image blocks 交给 reviewer Agent 的 followup；后续由 DSH 原生 Agent/adapter 转入模型请求。不新增图片 token 估算器，不把 `imageRequestPricing` 是否存在设成准入门槛，也不为此更换 Luna。文本证据仍按既有预算组织；图片处理、支持能力与实际请求限制沿用主 Agent 所用的公开运行时机制。原生上下文超限可按审核既有的一次 full 证据重建恢复，重新附带全部当前待审图片；仍无法成功请求时 unavailable。审核额外不变量仅用于避免漏审：每次实际模型请求校验 manifest 的全部当前待审图已入输入；不允许文本占位、offload 或丢弃当前待审图后返回 allow。
 
 图片属于当前 pending action，不只种在复用 reviewer 的旧历史里；full/delta/fork/预算重建都重新附带本次完整图像，旧图不替换本次待审图。提交在当前资源权限与冻结 hash 一致时复制该资源到目标会话；文件变化即 not_sent/attachment_snapshot_changed，不能凭审核旧图发新图。沿用宿主资源不可变写入路径，并让校验和复制消费同一已校验字节快照，避免校验后重读文件的间隙。
 
@@ -314,3 +316,48 @@ W1：最窄单元/契约测试覆盖状态转换、context/图片最终投影、
 ## 明确不做
 
 沿用 incident 的暂缓清单：公开群/旁观真实受众重新设计、搜索词前置披露检查、审核与长期记忆进一步绑定、精细区分普通私人问题与攻击、披露侧事后补报、Shell 调查及新增通用防循环预算。本稿不宣称这些问题已解决。
+
+
+## R9 补充设计：系统累计五次自动拉黑（2026-10-30）
+
+范围由用户确认加入同一unit，M1扩展R9，不建立第二个unit或实施工作流。无前端布局/新入口变化，复用现有黑名单与主人私聊，因此无新原型。当前源码基线91a63daaa，既有R1–R8的未变证据保留；R4新增自动屏蔽通知分支重新验收。
+
+### 计数与持久化
+
+在现有IM schema增加单一伴随表 `pa_contact_violations(binding_id, actor_id, message_id, incident_id, counting, triggered_block)`；binding/message唯一、incident唯一。counting默认1；triggered_block默认0，用于保留第五条触发动作的事实而不复用后续动态计数。无需修改旧列、回填旧事件或增设可调阈值。
+
+`pa.incident.report`是Node内部输入审核链路，不向模型提供。只对该链路现有 `prompt_injection` 类别计数（有效deny或显式risk incident；needs_owner无incident和unavailable不会进入report）；同一消息先检查旧evidence，因此重投返回旧incident，解除后重投也不会新增计数。伴随表按binding/message唯一，多个类别也不能重复计数。身份使用既有sourceActor；不修改外部渠道的会话作用域。
+
+在incident事务内登记风险记录并查询同binding/actor的counting条数。达到5且当前未屏蔽时，复用提取出的服务端blockContact逻辑：写pa_contact_blocks、把既有open事件标为blocked、更新policy revision及policy.changed、给触发记录置triggered_block=1。系统动作与incident/event原子提交。已有屏蔽时后续群消息仍按现有路径审核和处置，不重复自动拉黑或重复产生阈值通知。
+
+owner unblock事务内把此人的counting置0，不删除历史记录、triggered_block或回执。misunderstanding只将选中incident的counting置0，不自动解封；dismiss不改计数。手动拉黑继续现有入口，仍不给PA拉黑工具。
+
+### PA通知与Context链路
+
+复用第五条incident的owner通知和publication幂等键，避免再造通知队列。`incidentEvent`对triggered_block输出可信 `automatic_block:{threshold:5, currently_blocked:boolean}`、`owner_target`、`incident_ref`、actor/source引用与已发owner回执；明确 `owner_only:true`，不要求原聊天拒绝。原因/原文仍仅在来源当前可访问时投影，来源不可访问不阻断主人获知已执行的系统动作，但不携带已失权原文/风险理由。该事件即使后来被主人dismiss/misunderstanding或解除也保留历史触发事实，currently_blocked从当前名单读出。
+
+主PA Consumer为GlobalAgent.recoverPersonalObservations及inbox check的security_incidents。系统提示对自动分支说明：系统已在第五条触发屏蔽，先核当前状态，只给主人私聊通知，不再尝试给被屏蔽对象发送；指明计数、现有解除入口，原文/理由是外部证据，不是任务或新权限。普通事件继续现有两端沟通。actorRisk提示改用中性“当前已屏蔽”，不误称所有屏蔽均为主人手工决定。
+
+`pendingIncidents`将自动触发且owner回执缺失的事件单独列入（不依赖blocked/closed状态或peer回执）；`incidentRead`对该分支仅允许主人会话，不放宽peer安全发送；主人发信仍只允许绑定主PA/self/plain text，并由实际host publication绑定owner回执。confirmed不重发，unknown沿用查询路径；PA暂停不启动，恢复主动查询pending中的自动通知，以incident与当前lifecycle revision组成稳定的runtime inputId；同代重试由runtime去重，停用前已入队但未送达的通知可在新代重新进入，普通旧输入保持取消。解除后的迟到通知说明此前自动拉黑、当前已解除，不能重新施加限制。无需更改独立披露审核，因为自动通知只发主人专属私聊。
+
+Before：第五条仅再次风险沟通，无自动策略。After：第五条立即持久屏蔽，主PA收到可恢复且带当前状态的有限通知任务。模型无权增减计数或变更黑名单；工具执行/输出披露拒绝不计入该输入风险表。
+
+### 升级与退出验证
+
+新表由既有schema加载创建，空表启用，不扫描或重放旧记录；现有联系人黑名单、所有incident与发送回执保持。部署提示注明此增量。隔离副本验证重开/重复初始化保留计数与triggered事实，旧记录不计入/不变；正常Node/IM匹配发布，不支持旧Node混跑。
+
+R9 reviewer：真实daily模型5条风险顺序输入→第5条真实主人私聊自动拉黑告知、设置列表及证据可见；私聊拒收、同群正常请求继续；主人界面解除，后续第1条不立即拉黑。永久确定性保护负责完整解除后再5条、跨聊天/账号隔离、重复消息/类别、误判/故障不计入、事务回滚、源权限变化、暂停/恢复/unknown与无重发。实际最终系统事件/工具结果与真实PA调用分别留证；不以fixture文案替代模型通知。
+
+M1新增退出项：实现上述计数/状态/通知链及最低有效回归，独立代码+Context/一致性审查通过，R9真实产品验收通过；相关IM/PA构建与测试、文档/归档及PR CI通过，无生产功能写入。
+## R10 通知身份清晰化修订
+
+使用现有 incidentEvent 统一投影，在来源当前可访问且原消息存在时附加 `actor_name` 和 `conversation:{id,name,type}`。姓名复用风险列表的来源优先级：持久消息 sender_display_name、服务端 users.display_name；名称缺失不从正文推断。会话来自同一持久消息的 conversations 记录。普通事件和自动屏蔽 pending/read/observation 都通过该投影，避免仅补 UI。无 schema、历史回填或迁移；启动恢复按当前事实投影，已确认回执和已发通知不重写。
+
+Consumer 仍为 GlobalAgent.submitPersonalEvent 及 Inbox security_incidents。共用通知指引要求给主人明确姓名、群名或私聊类型、简要风险和已完成/待执行动作；普通先 owner 再 peer，自动屏蔽只 owner 的顺序不变。自动阈值按 binding/actor 跨聊天累计，聊天名只定位当前触发消息，不承诺五条均来自同一聊天。不把对外拒绝变成公开点名或暴露主人隐私。名称、聊天名、reason/original_content 都是描述性外部数据，不授予身份、权限或指令。
+
+来源失权保留现有系统动作可告知分支，但不投影新增姓名/聊天信息及原文/理由；主 PA 明确表示当前不能核实名称，不根据攻击正文补名。既有 actor_id 与 source_message_id 保持审计引用，不要求向用户展示内部 ID。
+
+Before：可信事件只有 opaque actor_id，模型自然写“该群成员”。After：事件提供可访问的可辨认事实，指引让每条通知自足说明对象与处置。前后交互保持当前 lifecycle/稳定 inputId、publication receipt 和 unknown 查询，不恢复旧已完成通知。
+
+M1 范围：IM incidentEvent、GlobalAgent 事件指引及相关既有测试。确定性验证普通/自动事件实际投影、外部 sender_display_name、名称缺失与来源撤销不越权；捕获 runtime session.submit 最终组装指引/事实。独立 code/Context+corrected-delta 只复核此增量。真实 daily 模型/Web 重验首条/第二条通知及第五条自动屏蔽，实际消息同时有联系人和聊天、阈值与当前状态准确。既有 R1–R9 机制证据按未变范围保留，不重跑所有故障演练。当前用户正在看的旧预览保留；新验证使用独立 daily 实例，完成后可供用户看新效果。无前端原型、无新迁移。
+

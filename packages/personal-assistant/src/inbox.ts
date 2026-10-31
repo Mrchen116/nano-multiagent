@@ -1,3 +1,4 @@
+import { InboxReviews } from './inbox-review.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
@@ -15,6 +16,7 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 /** Durable cross-chat inbox; a read does not itself advance consumption. */
 export class InboxStore {
   readonly journalId: string;
+  readonly reviews: InboxReviews;
   private readonly db: DatabaseSync;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -39,6 +41,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS relay_controls(agent_id TEXT,message_id TEXT,input TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
     `);
+    this.reviews = new InboxReviews(this.db);
     if(!(this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).some(c=>c.name==='agent_id'))this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
     this.db.prepare('INSERT OR IGNORE INTO metadata VALUES(?,?)').run('journal', randomUUID());
     this.journalId = (this.db.prepare('SELECT value FROM metadata WHERE key=?').get('journal') as { value: string }).value;
@@ -52,7 +55,7 @@ export class InboxStore {
   cancelAgent(agentId: string, sessionIds: string[] = []): void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('UPDATE inbox SET consumed=1 WHERE agent_id=?').run(agentId);
+      this.db.prepare('UPDATE inbox SET consumed=1,review_event_delivered=1 WHERE agent_id=?').run(agentId);
       this.admitWake(agentId,this.watermark(agentId));
       this.db.prepare('DELETE FROM background_wakes WHERE agent_id=?').run(agentId);
       this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=?').run(agentId);
@@ -73,6 +76,7 @@ export class InboxStore {
         coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0),
         coalesce((SELECT max(notified_through_seq) FROM background_wakes),0),coalesce((SELECT max(submitting_through_seq) FROM background_wakes),0))+1),?,?,?,?,?)`)
         .run(input.agent_id, input.conversation_id, input.message.id, JSON.stringify(input), Number(attention));
+      this.reviews.initialize(input);
       if (input.metadata.personal_delivery === 'observer') this.trackBackground(input.agent_id, now);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
@@ -98,6 +102,7 @@ export class InboxStore {
           .run(input.agent_id,input.conversation_id,input.message.id,JSON.stringify(input),Number(attention),Number(control));
         if (input.metadata.personal_delivery === 'observer') this.trackBackground(input.agent_id,Date.now());
       }
+      this.reviews.initialize(input);
       this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status) VALUES(?,?,?,?,?)')
         .run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),'sent');
       // An identical redelivery requests the last durable receipt again.
@@ -135,10 +140,6 @@ export class InboxStore {
     this.db.prepare('INSERT OR IGNORE INTO background_wakes(agent_id,notified_through_seq) VALUES(?,coalesce((SELECT watermark FROM wakes WHERE agent_id=?),0))').run(agent,agent);
     this.background(agent, now);
   }
-  /** Return unread legacy PA inputs that still require authenticated source facts. */
-  unclassified(agent: string): RelayInput[] {
-    return (this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND consumed=0').all(agent) as {payload:string}[]).map(row => JSON.parse(row.payload) as RelayInput).filter(input => input.metadata.personal_unclassified === true || input.metadata.personal_delivery === undefined);
-  }
   /** Replace legacy admission facts without changing saved tool results or consumption. */
   classify(input: RelayInput, attention: boolean): void {
     delete input.metadata.personal_unclassified;
@@ -158,7 +159,7 @@ export class InboxStore {
   background(agent: string, now = Date.now()): {dueAt: number; watermark: number; pending: boolean; unread: boolean} | undefined {
     const row=this.db.prepare('SELECT * FROM background_wakes WHERE agent_id=?').get(agent) as unknown as Background | undefined;
     if (!row) return;
-    const newest=this.db.prepare("SELECT max(seq) seq FROM inbox WHERE agent_id=? AND consumed=0 AND seq>? AND json_extract(payload,'$.metadata.personal_delivery')='observer'").get(agent,row.notified_through_seq) as {seq:number|null};
+    const newest=this.db.prepare("SELECT max(seq) seq FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND seq>? AND json_extract(payload,'$.metadata.personal_delivery')='observer'").get(agent,row.notified_through_seq) as {seq:number|null};
     if (newest.seq === null && row.submitting_through_seq === null) {
       this.db.prepare('UPDATE background_wakes SET due_at=NULL WHERE agent_id=?').run(agent); return;
     }
@@ -198,7 +199,7 @@ export class InboxStore {
     this.db.prepare('DELETE FROM targets WHERE agent_id=? AND target=?').run(agent,target);
   }
   private entries(agent: string, target?: string): Entry[] {
-    return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
+    return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
   }
   /** List unread sources; personal projection omits host scheduling state. */
   check(agent: string, personal = false) {
@@ -209,13 +210,13 @@ export class InboxStore {
         ...(personal ? {conversation_type:String(input.metadata.conversation_type),delivery:String(input.metadata.personal_delivery)} : {requires_attention:false}) };
       source.unread++; if (!personal) source.requires_attention ||= !!row.attention; sources.set(row.target, source);
     }
-    return { sources: [...sources.values()] };
+    return { sources: [...sources.values()], ...(personal?{review_failures:this.reviews.failures(agent).map(({event_id,event_delivered,...failure})=>failure)}:{}) };
   }
   private targetName(agent: string, target: string, input: RelayInput): string {
     return (this.db.prepare('SELECT name FROM targets WHERE agent_id=? AND target=?').get(agent,target) as {name:string}|undefined)?.name ?? String(input.metadata.conversation_title ?? target);
   }
   blocking(agent: string, target: string): boolean { return this.entries(agent, target).some(row => !!row.attention); }
-  watermark(agent: string): number { return Number((this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM inbox WHERE agent_id=? AND attention=1').get(agent) as { seq: number }).seq); }
+  watermark(agent: string): number { return Number((this.db.prepare("SELECT coalesce(max(seq),0) AS seq FROM inbox WHERE agent_id=? AND attention=1 AND review_state='admitted'").get(agent) as { seq: number }).seq); }
   /** Return only admitted unread work; consumed or unclassified inputs cannot restart a turn. */
   unreadAttention(agent: string): number | undefined { return this.entries(agent).filter(row=>row.attention).at(-1)?.seq; }
   /** Preserve the actual notification boundary even after some of its inputs were consumed or revoked. */
@@ -400,6 +401,10 @@ export class InboxStore {
   acknowledge(seq: number): void { this.db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('through', String(seq)); }
   publication(id: string): { target: string; body: string; state: string; result: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null } | undefined; }
   /** Read uncertain sends owned by this execution session without replaying them. */
+  /** Find the current incident attempt, preserving uncertain delivery across wording changes. */
+  incidentPublication(prefix: string): ({id:string} & NonNullable<ReturnType<InboxStore['publication']>>) | undefined {
+    return this.db.prepare('SELECT id,target,body,state,result FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
+  }
   pendingPublications(session: string): {id:string;target:string;body:string}[] { return this.db.prepare("SELECT id,target,body FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string}[]; }
   preparePublication(id: string, target: string, body: string, agentId?: string): void { this.db.prepare("INSERT OR IGNORE INTO publications(id,target,body,state,result,agent_id) VALUES(?,?,?,'prepared',NULL,?)").run(id, target, body, agentId??null); }
   settlePublication(id: string, state: string, result?: unknown): void { this.db.prepare('UPDATE publications SET state=?,result=? WHERE id=?').run(state, result === undefined ? null : JSON.stringify(result), id); }

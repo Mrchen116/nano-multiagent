@@ -60,6 +60,9 @@ importers:
       fastify:
         specifier: 5.8.2
         version: 5.8.2
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@24.19.2)
       ws:
         specifier: 8.20.0
         version: 8.20.0
@@ -261,6 +264,9 @@ importers:
       '@deepseek-ai/dsh-terminal':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-agent@0.2.1-alpha.1(bc8e1a234d16d0329e7a818df1caf030))(@deepseek-ai/dsh-brand@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))
+      '@deepseek-ai/dsh-timeout':
+        specifier: 0.2.1-alpha.1
+        version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-token-meter':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(a9ea758212795dc8e7250a25629605cf)

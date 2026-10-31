@@ -85,3 +85,22 @@ it.each(['prepared','allowed','confirmed'])('decodes a legacy %s operation as se
  expect(message).not.toHaveProperty('pa_agent_id');
  expect(db.prepare('SELECT count(*) n FROM messages WHERE id=?').get(sent.message_id)).toEqual({n:1});
 });
+
+
+it('shows group replies as the PA itself without a sent-on-behalf label in history or events',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();
+ db.prepare("UPDATE conversations SET type='group' WHERE id='peer'").run();
+ db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+ const p=service.actions.prepare(principal,{...args,request_key:'self-group',representation:'self',conversation_id:'peer',content:'The reading club starts at 15:00.'});
+ const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
+ const sent=service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref});
+ const message=ctx.messaging.message(sent.message_id);
+ expect(message).toMatchObject({sender_user_id:'a1',sender_type:'agent',sender:{role:'personal'}});
+ expect(message).not.toHaveProperty('pa_agent_id');
+ expect(message.delegation?.label).not.toContain('代为发送');
+ const event=db.prepare("SELECT payload_json FROM conversation_events WHERE message_id=? AND event_type='message.created'").get(message.id)!;
+ const data=JSON.parse(String(event.payload_json));
+ expect(data.sender_user_id).toBe('a1');
+ expect(data.delegation?.label).not.toContain('代为发送');
+ expect(data).not.toHaveProperty('pa_agent_id');
+});

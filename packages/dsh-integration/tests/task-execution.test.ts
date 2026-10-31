@@ -59,7 +59,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){
   finally{await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
-it.each(['automatic', 'human'])('holds automatic retries after %s permission failure and delivers the final result after responsibility ends', async denial => {
+it.each(['automatic', 'human'])('continues a permitted alternative after %s permission failure without changing Task state', async denial => {
   const home = await mkdtemp(join(tmpdir(), 'nano-task-policy-'));
   let client: RuntimeClient | undefined;
   let logs = '';
@@ -67,20 +67,19 @@ it.each(['automatic', 'human'])('holds automatic retries after %s permission fai
     await writeFile(join(home, 'probe.mjs'), `import {appendFile,writeFile} from 'node:fs/promises';
 export const name='task-policy-probe';export const inject=['tools','llm','agents'];
 export function apply(ctx){
- let denied=false;
+ let step=0;
  ctx.tools.register({name:'fixture_effect',description:'Test effect',parameters:{type:'object',properties:{readOnly:{type:'boolean'}}},output:{schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]},
-  execute:async(args)=>{if(!args.readOnly)await writeFile(process.env.DSH_HOME+'/completed','yes');return 'completed';}});
+  execute:async(args)=>{await writeFile(process.env.DSH_HOME+(args.readOnly?'/completed':'/forbidden'),'yes');return 'completed';}});
  ctx.on('tools/pre-execute',(exec,next)=>{
   if(exec.name!=='fixture_effect')return next();
-  if(!denied){denied=true;return ${denial==='human'?"{kind:'ask',reason:'Requires permission'}":"{kind:'deny',reason:'Requires permission',info:{name:'NanoApprovalDenied',code:'classifier_block'}}"};}
+  if(!exec.arguments.readOnly){return ${denial==='human'?"{kind:'ask',reason:'Requires permission'}":"{kind:'deny',reason:'Requires permission',info:{name:'NanoApprovalDenied',code:'classifier_block'}}"};}
   return {kind:'allow'};
  },{prepend:true});
  ctx.on('llm/stream',async function*(o){
-  const last=o.messages.at(-1);
-  const isResult=last?.role==='tool'||last?.role==='user'&&o.messages.at(-2)?.role==='tool';
+  const isResult=++step%2===0;
   await appendFile(process.env.DSH_HOME+'/calls.jsonl',JSON.stringify({isResult,messages:o.messages})+'\\n');
   const trigger=o.messages.findLast(m=>m.role==='user'&&['task-execution','heartbeat'].includes(m.source?.channel));
-  const readOnly=trigger?.source?.channel==='heartbeat';
+  const readOnly=step>2;
   const block=isResult?{type:'text',text:'RESULT_OR_BLOCKER_VISIBLE'}:{type:'tool-call',id:'effect-'+Date.now(),name:'fixture_effect',arguments:JSON.stringify({readOnly})};
   yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:isResult?'stop':'tool-calls'}};
  });
@@ -98,31 +97,11 @@ export function apply(ctx){
     const calls = async () => (await readFile(join(home, 'calls.jsonl'), 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     await client.rpc.request('initialize', {protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[]});
     await client.rpc.request('session.ensure', {sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
-    await expect.poll(async () => (await calls()).length).toBeGreaterThanOrEqual(2);
-    await expect.poll(async () => (await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    await client.rpc.request('task.execution.changed',{agentId:'a',reset:false});
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
-    await new Promise(resolve => setTimeout(resolve, 150));
-    expect((await calls()).length).toBe(2);
-    expect(await readFile(join(home,'completed'),'utf8').catch(()=>null)).toBeNull();
-
-    // Neither a heartbeat with a successful different action on the same tool,
-    // nor an unrelated node's graph revision may reopen the denied responsibility.
-    await client.rpc.request('session.submit',{sessionId:'s',inputId:'unrelated',mode:'followup',content:[{type:'text',text:'Unrelated read'}],source:{kind:'system',actorId:'a',channel:'heartbeat',messageId:'unrelated'}});
-    await expect.poll(async () => (await calls()).length).toBeGreaterThanOrEqual(4);
-    await expect.poll(async () => (await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    revision = 2;
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
-    await new Promise(resolve => setTimeout(resolve, 150));
-    expect((await calls()).length).toBe(4);
-    expect(await readFile(join(home,'completed'),'utf8').catch(()=>null)).toBeNull();
-    // A change to this node's own contents permits reassessment under approval.
-    updated = '2026-10-23T15:01:00Z';
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
     await expect.poll(() => readFile(join(home,'completed'),'utf8').catch(()=>null)).toBe('yes');
-    await expect.poll(async () => (await calls()).length).toBe(6);
+    await expect.poll(async () => (await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
+    expect(await readFile(join(home,'forbidden'),'utf8').catch(()=>null)).toBeNull();
     const observed = await client.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:Record<string,unknown>}[]};
-    expect(observed.events.filter(e=>e.type==='assistant/message').map(e=>JSON.stringify(e.data)).filter(s=>s.includes('RESULT_OR_BLOCKER_VISIBLE'))).toHaveLength(3);
+    expect(observed.events.filter(e=>e.type==='assistant/message').map(e=>JSON.stringify(e.data)).filter(s=>s.includes('RESULT_OR_BLOCKER_VISIBLE'))).toHaveLength(2);
   } catch(error) {throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
@@ -176,7 +155,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(){
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
-it.each(['node','dependency','subtree'] as const)('keeps an unchanged denied Task held while independent work completes: %s',async(scope)=>{
+it.each(['node','dependency','subtree'] as const)('continues independent and permitted Task work after a denial: %s',async(scope)=>{
   const home=await mkdtemp(join(tmpdir(),'nano-task-scope-'));let client:RuntimeClient|undefined;
   try {
     await writeFile(join(home,'probe.mjs'),`import {appendFile} from 'node:fs/promises';
@@ -206,15 +185,8 @@ export function apply(ctx){let step=0,denied=false;
     });
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',mode:'global',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['task_graph']}],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
-    await expect.poll(()=>completed).toEqual(['B']);
-    await expect.poll(async()=>(await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
-    await new Promise(resolve=>setTimeout(resolve,100));
-    const calls=()=>readFile(join(home,'calls'),'utf8').then(text=>text.trim().split('\n').map(line=>JSON.parse(line)));
-    expect(await calls()).toHaveLength(4);
-    updated='2026-10-23T15:01:00Z';
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
     await expect.poll(()=>completed).toEqual(['B','A']);
+    const calls=()=>readFile(join(home,'calls'),'utf8').then(text=>text.trim().split('\n').map(line=>JSON.parse(line)));
     await expect.poll(async()=>(await calls()).length).toBe(6);
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },20_000);

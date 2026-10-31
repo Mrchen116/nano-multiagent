@@ -257,3 +257,215 @@ M1 增加两个内部模块及 R7 的 typed 结果、窗口/总限、格式/上�
 - **R1-W1 — accepted, closed / retained。** 两份完整 MODIFIED delta 未改变，闭环保持。
 - **R3-R1 — accepted, editorial clarification。** 将 design“已有 Agent 路径”的概括句明确为普通 Agent 保持原生上下文恢复、补充组件不接管、reviewer 遵循后文专属上下文/完整图片规则。未修改该专属规则、恢复预算、模块职责、接口或退出标准；按 R3 已明确的解释保留 Approved，无需无实质变化复审。
 - 同步 design/incident 的 Gate 2 状态与 deployment-prompt 的设计已通过但尚未实施状态，均为状态性整理。最终受审实质设计仍对应 R3，author 无实质异议。真实 DSH 接线、隔离功能验收及迁移副本验证留在实施退出标准，未宣称已运行。
+
+## Round 4
+
+### Metadata
+
+- reviewer target: `/root/bugfix678_design_review`（同一独立 reviewer）
+- review_mode: `delta`
+- mode_reason: 仅审 `21b8da0d3..5789ce9ef` 的冻结图片审核纠偏；删除额外 pricing 准入门槛、明确复用主 Agent 图片转入。属于有界技术方案修正，未改变整体恢复 owner、权限职责或 M1 交付范围，不重复全 unit 审查。
+- started_at: `2026-10-29T22:49:06+08:00`
+- completed_at: `2026-10-29T22:50:04+08:00`
+- duration: `58s`（证据核对时段，不含随后报告写入）
+- baseline: `5789ce9ef3da52f4270148c87aba0ea2fcbc7fa8`，`unit/bugfix-678`，`/Users/czj/.codex/worktrees/unit-bugfix-678/nano-multiagent`。
+- Context mode: Design Review，限定图片 admission → reviewer followup → 原生请求 → 重建/失败的消费链。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+修订符合用户“按主 Agent 平时的图片转入方式”的明确要求。`imageRequestPricing` 或预估图片 token 不是用户提出的验收前提；前轮审查接受过该技术选择，也不能将其提升为用户需求。本轮以修订后的原生图片路径替代该限制，不要求新增图片估算适配、不为此换审核模型。
+
+这是设计 delta 批准。当前 review-session 仍有旧 pricing 门禁，本轮未将其视为已经修复，也未判定实际模型收图或 R6 产品结果已通过。
+
+### Coverage 与证据
+
+- Git 差异确认本次范围仅 `design.md`“冻结图片审核”小节（当前 `:214–220`）；未扩展为其他代码或文档的重新审查。
+- **实际主入口**：`packages/dsh-integration/src/index.ts:861` 调用 `ctx.attachments.admitPromptContent(input.content)`，将返回内容放入 user message，再按模式调用 Agent.followup/steer/inject。这里没有本仓额外的图片 pricing 准入检查。
+- **当前披露入口**：`personal-security.ts:78–93` 的 `personalReviewImages` 校验服务端冻结原图的 bytes/hash/格式/尺寸，调用同一 `admitPromptContent` 并保持返回 image blocks 数量、顺序；`index.ts:572` 将它们交给 `reviewDisclosure`，`policy/codex.ts:50` 传入审核 plan。新设计与这条已有接线一致，无需第二套图片入口。
+- **公开接口**：安装包 `@deepseek-ai/dsh-attachment/lib/types/index.d.ts:39–51` 声明 admission 按原顺序返回持久规范化引用；`:65–78` 说明保存/读取规范化图像；`:122–129` 提供原生模型请求图像变体读取。因此原图冻结身份和原生规范化后的引用可以各守其职责：原图用于来源/发送一致性，reviewer 使用原生 admission 返回的引用。复用原生规范化不等于丢弃当前待审图片，不需要为此额外发明像素/token 处理机制。
+- **现有实现差距，仅作接线定位**：`policy/review-session.ts:92–98` 仍以缺少 pricing 拒绝图片，`:203,232` 仍将估算图像成本作为请求门禁；这些是后续实现应按本次设计修正的旧路径。`:229–233` 已有当前 pending message 图片存在性/offloaded/引用检查的接缝，其漏审保护意图应保留。此处不代替 code review 判定最终实现。
+
+### Context、R2/R6 与未失效边界
+
+新的方案保留文本证据预算，图片交给主 Agent 同一原生运行时处理，不因缺少独立计费接口提前拒绝本来可送入模型的图片。支持能力、真实请求限制与 provider 返回的 context overflow 仍按实际状态处理；无法完成时准确 unavailable，不转换成“主人未授权”。
+
+每个实际模型请求仍须含全部当前 pending 图，不能靠旧 reviewer 历史图片替代，也不能在原生文本占位/offload/丢图后接受 allow。实际超限只使用既有的一次 full 重建，携带全部当前图片；仍失败则结束，不扩大原恢复额度。这保留了 R2 的 full/delta/fork/rebuild 证据连续性，以及 R6 的实际收图、漏图/能力不足、资源变化和最终副本一致要求。删除强制预估前置不删除这些用户结果约束。
+
+`retained_from: Round 3`：其他 Gate 2 设计结论保持。依据是本次 diff 未改变工具/披露权限语义、图片原资源冻结及提交检查、输入状态/事件、原生与独立恢复分流、共享审核预算、迁移或 M1；canonical delta 与 R2/R6 仍要求完整收图及真实失败，没有要求 imageRequestPricing。R1-C1/R1-W1 继续关闭。本轮只保留未受影响的设计结论，不外推保留任何实现、代码审查、产品验收或部署结论。
+
+### Issues 与 Recommendations
+
+新增问题 0，无额外建议。按修订设计完成旧 pricing 路径修正，再由既有实施验收检查最终请求、携全图重建和 R6 可见结果；不因此增加新的图片预估 Gate 或重复全 unit 设计审查。
+
+## Round 5
+
+### Metadata
+
+- reviewer target: `/root/automatic_block_design`（新独立 reviewer；未参与受审设计或实现）
+- review_mode: `full`
+- mode_reason: 本轮新增 R9 用户要求，将联系人限制从仅主人操作扩展到系统阈值动作，同时新增 IM 持久状态、主 PA 事件分支并扩展 M1；按真实影响采用 full。重新核对整个方案及受影响实际装配，未变化的 R1–R8 沿用明确的历史证据，不重新执行已完成的实现验收。
+- started_at: `2026-10-30T11:02:39+08:00`
+- completed_at: `2026-10-30T11:04:03+08:00`
+- duration: `84s`（从首次记录时钟至最终证据定位；此前文档/代码阅读未计入，不代表总审查耗时）
+- baseline: `d89f74a9bbb13405cb25dff0c0d10ac42683d5a2`，`unit/bugfix-678`，产品代码仍为 `91a63daaa`；审查前工作区 clean。
+- Context mode: `agent-context-review` Design Review，覆盖风险分类 → IM 计数/屏蔽 → security.incident/Inbox → 主 PA 通知 → publication/真实回执及解除后的恢复。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+R9 的实现接缝、状态所有权与恢复方案可以落在现有结构内，未发现必须新增框架或 Agent 权限的缺口。唯一阻断项是增量契约没有修改已归并的“两端通知”要求，导致第五条事件同时落入互相矛盾的要求；应在实施前明确该例外的 canonical 修改方式。本结论不代表 R9 已实现、已通过模型验收或可部署。
+
+### Coverage 与证据
+
+#### 用户范围、整体方案及保留证据
+
+核对用户原话及 `incident.md` R9：累计五条、系统立即执行、复用名单、主 PA 私聊告知、解除后重新累计均有设计落点。Web 使用真实 user identity 跨聊天累计；外部渠道保留 conversation-scoped sender identity，不借此增加跨平台身份合并。没有增加 Agent 黑名单工具、前端入口、可调阈值或历史追溯动作。
+
+`git diff 91a63daaa..d89f74a9b --stat` 及四份增量文档显示，重新开启 unit 的实质变化集中在 R9；此前报告与实现证据仅移动路径。重新阅读整体设计 A–D、消息状态、背景选择、发送凭证、图片与模型恢复，并以本轮实际源码重新核对输入和通知入口。
+
+**retained_from: Round 3 / Round 4**：R1–R8 未变的工具审核职责、只读调查、原始指令保留、消息级准入、冻结动作/图片、原生恢复及独立补充层仍按原证据成立；图片特例沿用 Round 4 的主 Agent 原生路径。R9 不修改这些接口或预算。R4 的自动屏蔽事件属于受影响分支，已按本轮新设计重审；旧实现/回归报告不能替代 R9 验收。R1-C1 与 R1-W1 的既有闭环保持，不因本轮新的契约问题回写旧结论。
+
+#### 分类、计数与名单职责
+
+- `packages/dsh-integration/src/personal-security.ts:105` 明确 input 只将 injection/probing 判 deny，其他输入作为不可信资料 allow；`personal-assistant.ts:76–104` 将 unavailable 留在 failed、无 incident 的 needs_owner 标为授权不足，`reportInputIncident` 只上报无 error_code 的 rejected，category 固定 `prompt_injection`。因此新计数可直接复用当前输入风险链，不需要增加分类模型或把工具/外发拒绝混入统计。
+- `apps/im-server/src/personal-agent.ts:75–85` 的 sourceActor/messageAllowed 已区分 Web 与外部身份，并对私聊拒收、群聊保留；`:281–298` 以服务端来源派生 actor，按消息/类别去重并在事务内产生安全事件。设计 `:327–333` 伴随表的 binding/message 唯一约束补足跨类别去重，计数与屏蔽同事务；解除将 counting 置零而保留行，能够阻止旧消息重投重新计数。
+- 当前手动 block 在 `personal-agent.ts:425–433` 写名单、将 open incident 标 blocked 并调用 contactChanged；`:169–183` 提供策略更新与 owner unblock 接缝。抽取共用 blockContact 的职责正确：IM 管可信身份、持久计数与名单，Node 负责既有审核及报告，主 PA 只解释系统已执行动作。无需新增跨包运行时依赖或第二套通知调度器。
+- 独立 triggered_block 保存历史阈值动作，counting 表示当前轮累计；误判只退出单项计数、解除重置全联系人、dismiss 不影响计数，语义彼此分离。已有屏蔽期间的群消息继续现有处理，不重复产生阈值通知；设计未把群聊改成静默丢弃。
+
+#### Context Design Review：发现、理解、执行和恢复
+
+- **来源和交付**：`personal-agent.ts:207–219,274–298` 的 security.incident 作为无 message/conversation 外键的产品事件持久化，由 `global-agent.ts:380–429` 交付主 PA；不会因为第五条私聊已被名单拒收而过滤掉这项产品事件。设计要求新的自动分支在来源失权时仍保留系统动作、目标与 incident_ref，同时省略原文和风险理由，权限方向明确。
+- **可行动信息**：设计 `:337–341` 的 owner_target、incident_ref、automatic_block.threshold/currently_blocked、owner_only 和 owner 回执足以支撑发送；identity/binding 由宿主派生，模型无需猜测。当前 Global 的一律两端通知指令必须按设计增加自动分支；普通事件保持原规则，actorRisk 改成中性当前状态，避免将自动动作伪称主人决定。
+- **真实发送接缝**：`personal-assistant.ts:138–180,196–212` 已限制 root/self/plain text、调用 incidentRead、派生稳定 owner publication key、查询 unknown 并绑定真实回执。当前 `incidentRead` 只接受 open/dismissed，`pendingIncidents` 也过滤这些状态；设计 `:341` 明确为 triggered_block 开出不依赖 blocked/closed 的 owner-only 分支，覆盖自动 block 立即改变事件状态造成的实际障碍，不要求放宽 `personal-actions.ts:49–51` 的对外 securityNotice。
+- **失效和恢复**：历史 triggered_block 与动态 currently_blocked 分离，迟到通知可说明此前动作及当前解除；pending 按 owner 回执而不是 peer 回执完成。confirmed 不重发、unknown 查询、来源失权脱敏以及 lifecycle 暂停门禁均复用现有职责。设计不会通过旧事件重新施加名单，也没有让模型改计数。
+- **证据限制**：以上为现有代码与拟定数据流可行性判断，未运行 R9 实现、模型或 UI。设计 `:349–351` 要求实际最终事件/工具结果、真实 PA 调用与聊天回执分别留证，覆盖第五条、解除后继续计数、隔离性、去重、误判、回滚、失权、暂停及 unknown；这足以作为下一阶段验证要求。
+
+#### Delta、部署与 M1
+
+新增 Requirement 指向正确 canonical 文件，并覆盖阈值、owner-only 通知、解除与升级。缺口见 R5-W1；其余 R9 行为与 incident/design 一致。M1 追加了真实模型与持久状态退出标准，未以 fixture 文案代替 PA 通知，也未新增流程或将验收延后到生产。
+
+部署增量限定为正常 schema 初始化创建空伴随表，不回填旧事件、不在升级时触发黑名单或通知；已运行版本再次打开保留计数/触发事实。隔离副本负责升级、重复初始化与恢复验证，生产只读核对版本、schema、历史数据和健康。正常匹配发布与回退保全新增数据的边界已声明，未要求额外生产功能写入。
+
+### 历史问题闭环
+
+| Issue | Author Resolution / 本轮证据 | 状态 |
+|---|---|---|
+| R1-C1 | Round 3 已按用户授权改为保留原生、公开接口补齐独立调用；R9 不修改该方案 | closed / retained |
+| R1-W1 | 原两项 canonical MODIFIED 闭环保持；R9 新的通知契约问题另列 R5-W1，不覆写旧结论 | closed / retained |
+| R3-R1 | Author 已作概括句澄清，Round 4 保留；本轮未改恢复作用域 | closed / retained |
+
+### Issues
+
+#### R5-W1 — 第五条 owner-only 分支缺少对既有通知 Requirement 的完整修改
+
+- **Severity / evidence**：WARNING / CONFIRMED（文档契约直接冲突，非模型行为推测）。
+- **位置**：`specs/gateway/personal-agent.md:28–38,64–79`；canonical `docs/specs/gateway/personal-agent.md:165–175`；设计 `design.md:337–341`。
+- **Expected / Context Surface**：第五条触发自动屏蔽时，主 PA 只向主人发送通知，恢复完成条件只看 owner 回执；普通事件仍沿用两端处置。
+- **Observed**：新 delta 仅在 ADDED 区新增自动屏蔽要求，原“主 PA 执行安全事件的提醒与拒绝”仍无条件要求每个 deny/incident 先主人后原聊天，且该同名要求已经归并进 canonical。按 `docs/specs/CONTRIBUTING.md:142–154` 合并新增条目不会替换这项旧要求，第五条将同时被要求对外拒绝与 owner-only。
+- **影响**：实现/一致性验收无法从唯一行为契约判断第五条的 peer 回执是否必需；照旧要求扩大发送权限或保留 peer 待办，都会偏离已确认的 R9 设计。
+- **建议**：为已存在的“主 PA 执行安全事件的提醒与拒绝”提供完整 MODIFIED Requirement，保留普通风险、暂停、unknown 和去重 Scenario，并明确自动阈值事件适用 owner-only 例外；不要让同名条目同时作为 ADDED 和 MODIFIED。已归并的其他 R1–R8 历史条目可明确保留为历史，不要求本轮重新设计。修订只需局部 closure 核对，无需重新讨论自动拉黑方案或新增机制。
+
+### Recommendations
+
+无额外建议。完成 R5-W1 后再确认 Gate 2；R9 实现、独立代码/Context 审查及真实产品验收仍按既有 M1 退出条件执行。
+
+
+### Round 5 Author Resolutions
+
+R5-W1 accepted：将既有“主PA执行安全事件的提醒与拒绝”从历史ADDED区移入完整MODIFIED，保留普通风险、去重、暂停/unknown语义，显式列出第五条owner-only通知及完成条件；current spec保持未实现前的现状，实施验证后统一归并。无代码或其他实质设计改变。
+
+## Round 6
+
+### Metadata
+
+- reviewer target: `/root/automatic_block_design`（同一独立 reviewer）
+- review_mode: `closure`
+- mode_reason: 仅复核 Round 5 唯一问题 R5-W1 的局部契约修订；未增加实现、架构、通知权限或验收范围。
+- started_at: `2026-10-30T11:07:06+08:00`
+- completed_at: `2026-10-30T11:07:13+08:00`
+- duration: `7s`（局部差异及精确位置复核，不含报告写入）
+- baseline: `a3f25a1eb4a5364058e5a6ab16091e67149f8908`，`unit/bugfix-678`；审查前工作区 clean。
+- Context mode: Design Review closure，仅核对自动事件的通知受众与完成状态。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R5-W1 已关闭。该批准适用于已修订的 R9 实施前设计，不代表实现、真实模型验收或部署已完成。
+
+### Coverage 与证据
+
+核对 `git show a3f25a1eb`：除保留 Round 5 报告及 Author Resolution 外，实质修改只有 `specs/gateway/personal-agent.md`。原通知 Requirement 从 ADDED 区完整移除，并在 `:69–86` 作为唯一同名 MODIFIED 条目提供。
+
+- `:74–77` 明确普通两端处置仅适用于未触发自动拉黑的事件，保留有限沟通权限、实际对外审核、消息级去重和独立回执。
+- `:79–82` 明确第五条自动分支仅给主人专属私聊通知，以真实 owner 回执完成，不等待 peer 回执，屏蔽立即生效且不依赖通知。这与 `design.md:337–341` 的 owner_only、pending 与 incidentRead 分支一致。
+- `:84–86` 原样保留暂停、未知结果与恢复去重 Scenario；没有为解决文档冲突删除失败分支。
+- canonical 仍维持实现前 current，后续按 MODIFIED 替换同名 Requirement 即可得到无冲突契约；无需提前改变 current。
+
+**retained_from: Round 5**：计数及身份边界、服务端名单职责、Global/Inbox 交付、publication/回执、来源失权与解除恢复、部署及 M1 的其余结论保持。依据是本次精确 diff 未改这些设计、源码或验收条款；本轮不重复此前调查。
+
+### 历史问题闭环
+
+| Issue | Author Resolution | 本轮证据与状态 |
+|---|---|---|
+| R5-W1 | 完整通知 Requirement 移入 MODIFIED，普通分支排除自动事件，补第五条 owner-only 和完成条件，保留其他 Scenario | `specs/gateway/personal-agent.md:69–86` 与本提交 diff，**closed** |
+
+### Issues 与 Recommendations
+
+无新增问题或建议。按已批准设计继续 R9 实施与既定退出验证；本轮闭环结束。
+
+## Round 7
+
+### Metadata
+
+- reviewer target: `/root/automatic_block_design`（同一独立 reviewer）
+- review_mode: `delta`
+- mode_reason: R10 是既有 R4/R9 通知的有界 Context 修订，补足来源显示信息及表达指引；不改变身份判定、权限、计数、回执、schema 或交付生命周期。仅展开变化及受影响的普通/自动通知链。
+- started_at: `2026-10-30T11:48:46+08:00`
+- completed_at: `2026-10-30T11:48:56+08:00`
+- duration: `10s`（记录时钟后的定向源码及契约核对；此前文档阅读、随后报告写入不计入）
+- baseline: `4feac2645bd71457ed2f2824610ec3200f582355`，`unit/bugfix-678`；审查前工作区 clean。
+- Context mode: `agent-context-review` Design Review，限定来源记录 → incidentEvent → Global/Inbox → 主 PA 风险通知与来源失权投影。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R10 同时补信息通路与主 PA 指引，覆盖首次、后续及第五条通知，符合用户要求。批准的是实施前设计；本轮未运行 R10 模型或 UI 验收，旧 R9 通知有回执不能证明新通知已经清晰。
+
+### Coverage 与证据
+
+#### 用户反馈与实际接缝
+
+`incident.md` R10 保存用户“该群成员，为啥他跟我说话，不直接说谁”及“包括早期风险提示”的要求，范围是每条主人通知能直接识别对象。`design.md:354–362` 不止修改第五条模板，明确普通事件与自动事件共用投影和指引，并要求首条、第二条、第五条真实消息验收。
+
+当前 `apps/im-server/src/personal-agent.ts:277–298` 可验证缺口：风险列表单独查询 actor_name，而两种 incidentEvent 均只给 actor_id/source_message_id、理由及原文；列表字段不会自动进入主 PA Context。当前 `packages/personal-assistant/src/global-agent.ts:437–443` 的两个安全分支要求沟通风险/动作，却没有要求使用姓名与聊天定位。设计定位与当前代码一致；“模型自然写该群成员”仅作为已报告现象的解释，本轮不推断所有模型必然如此。
+
+来源数据已在现有表内：`schema.sql:34–40,143` 有 conversations.title/type 与 messages.sender_display_name，`personal-agent.ts:277` 已使用 sender_display_name → users.display_name 的姓名来源优先级。新增只读投影无需 schema、姓名猜测器或额外身份系统。聊天由同一原消息关联记录取得，姓名仅描述服务端确认的 actor，不改变 actor_id 或授权身份。
+
+#### Context 生命周期与组合
+
+- **可获得和可理解**：`actor_name` 与 `conversation:{id,name,type}` 使模型可以直接说明谁/哪里；共用指引要求风险及实际已完成/待执行动作，避免只补字段却仍依赖模型自行发现表达要求。姓名缺失允许明确不可核实，私聊可使用类型表达，不强行造群名。
+- **覆盖实际消费者**：现有 observations (`personal-agent.ts:224`)、pending (`:327–332`)、read (`:335–340`) 和 receipt 返回均调用 incidentEvent，Inbox check (`global-agent.ts:488`) 返回 pending；Global 自动恢复与普通事件都通过 submitPersonalEvent。把新增字段放在统一投影、把通用表达约束放在共享通知指引，能够覆盖早期与第五条及恢复路径，不需要维护 UI/Agent 两份名称逻辑。
+- **来源和权限**：设计 `:354,358` 要求当前来源可访问且原消息存在才投影新增名称/聊天；撤销后自动系统动作仍可通知，但省略新增来源信息、原文和理由，不能从攻击正文补名。名称和聊天名明确是描述性外部数据，不是指令或身份授权。这与现有 sourceAllowed 的访问检查及 R9 系统动作例外相容。
+- **范围和时间**：当前触发聊天只定位本次消息；五次累计依然按 binding/actor，指引明确不声称五次全在该群。当前名单状态与历史动作仍由 automatic_block 区分，R10 不增加可供模型编造的逐群统计。已完成通知与回执不改写，恢复按当前可访问事实投影，不为补名称重发旧消息。
+- **受众**：主人通知点明对象不扩大对外发送内容；普通先 owner 再 peer、自动仅 owner 保持，设计明确不将对外拒绝改成公开点名或披露主人信息。
+
+#### 契约、验证及架构判断
+
+Delta 在现有完整 MODIFIED “主 PA 执行安全事件的提醒与拒绝”内新增“通知对象可辨认”Scenario，保留普通风险、第五条例外、暂停/unknown 和去重，与当前 canonical 同名要求正确对应；没有重复 R5-W1 的 ADDED-only 问题。
+
+M1 的增量验证覆盖普通/自动实际投影、外部显示名、缺名与来源撤销，以及最终 runtime session.submit 指引/事实；daily 模型与 Web 验证首条/第二条/第五条实际通知内容。字段单测与模型可见请求、真实消息有区分，能针对本次用户发现补足原验收缺口。旧用户预览保留、新实例隔离，不要求生产写入或重跑无关故障矩阵。无 UI 布局变化，不需要新原型；无 schema 或历史数据变更，不需要新迁移。
+
+架构上 IM 持有可访问来源的事实投影，Global 负责系统事件交付及表达指引，主 PA 自行组织通知并复用原 publication。新增需求没有理由引入新队列、模型身份解析、跨包 DSH 接入或通知模板服务，当前设计的复用范围适当。
+
+### 历史结论与问题闭环
+
+**retained_from: Round 5 / Round 6（以及其保留的 Round 3 / Round 4）**：R1–R9 未变的权限、计数/解除、黑名单行为、发送回执、恢复和部署设计结论保持。R5-W1 已关闭：当前完整 MODIFIED Requirement 仍明确第五条 owner-only，以 owner 回执完成，新增身份 Scenario 不恢复 peer 待办。R10 只重验通知 Context 与清晰度；既有产品/代码证据按对应未变范围使用，不外推其覆盖 R10。
+
+### Issues 与 Recommendations
+
+无 CRITICAL/WARNING 或额外建议。按本轮增量完成实现、最终 Context 捕获及三类真实通知验收后停止在既定范围，不新增推测性身份框架或额外设计循环。

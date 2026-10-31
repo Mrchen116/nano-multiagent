@@ -326,7 +326,7 @@ it('keeps a failed observation pending while processing later policy events in t
  const acked:number[]=[],errors:unknown[]=[];let reads=0;
  const config={agentId:'pa',workspace:'/tmp/pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'owner-chat',epoch:1}};
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:e=>errors.push(e),
-  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{if(method==='session.submit'&&args.inputId.endsWith(':1'))throw new Error('One source unavailable');return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};}},
+  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{if(method==='session.submit'&&args.inputId.endsWith(':1'))throw new Error('One source unavailable');return method==='session.descendants'?[]:{events:[],accepted:true,durable:true,status:'idle'};}},
   relay:{ready:true,request:async(type,payload:any)=>{if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};if(type==='pa.observations.ack')acked.push(...payload.event_ids);if(type==='pa.observations.read')reads++;return {type:type+'.result',payload:{ok:true,result:type==='pa.observations.read'?{items:Array.from({length:50},(_,i)=>({event_id:i+1,kind:'policy.changed',payload:{}}))}:type==='pa.sources'?{items:[]}:{}}};}}});
  try {
   await product.recoverPersonalObservations();
@@ -341,7 +341,7 @@ it('revokes queued excluded sources without replacing the main context or removi
  const config={agentId:'pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'c_owner',epoch:1}};
  inbox.receive({agent_id:'pa',conversation_id:'c_excluded',relay_task_id:'old',idempotency_key:'old',metadata:{},message:{id:'old',content:'old source',sender_type:'user',sender_user_id:'peer',attachments:[]}},true);
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:e=>{throw e;},
-  runtime:{onNotification:()=>()=>{},request:async(method)=>{methods.push(method);return {events:[],durable:true,status:'idle'};}},
+  runtime:{onNotification:()=>()=>{},request:async(method)=>{methods.push(method);return {events:[],accepted:true,durable:true,status:'idle'};}},
   relay:{ready:true,request:async(type,payload:any)=>{
    if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};
    if(type==='pa.observations.read')return {type:'result',payload:{ok:true,result:{items:delivered?[]:[{event_id:1,kind:'policy.changed',payload:{excluded_conversation_ids:['c_excluded']}}]}}};

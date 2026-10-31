@@ -11,6 +11,7 @@ import type { AgentConfiguration } from '../index.js';
 import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { ApprovalSources } from './sources.js';
+import { retainInstructions } from './retained-instructions.js';
 import type { ReviewDecision } from './rules.js';
 import type { ApprovalReviewResult } from './types.js';
 import { classify } from './classifier.js';
@@ -58,7 +59,7 @@ export class NanoApproval extends Service {
     const parent = parentId && this.ctx.agents.get(parentId);
     if (agent.session.header.origin === 'subagent' && !agent.session.header.isSeeded && !delegated.get(agent.id) && parent) {
       await delegated.put(agent.id, { epoch: this.epoch, entries: [...await this.inherited(parent.id), ...await this.sources.history(parent, undefined, this.config(parent)?.mode !== 'global')],
-        codexEntries: [...await this.inherited(parent.id, true), ...await this.sources.history(parent, undefined, this.config(parent)?.mode !== 'global', { toolResults: true, fullAssistant: true })] });
+        codexEntries: [...await this.inherited(parent.id, true), ...retainInstructions(parent, [], this.config(parent)?.personal?.ownerId).units.map(retained_instruction=>({retained_instruction})), ...await this.sources.history(parent, undefined, this.config(parent)?.mode !== 'global', { toolResults: true, fullAssistant: true })] });
     }
     if (config.approval.enabled || config.approval.dangerouslySkipPermissions) this.ctx.permissionPresets.set(agent.session, 'auto');
     // Auto selects ask as a preset side effect; restore the native delegation boundary afterward.

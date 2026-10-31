@@ -1,5 +1,5 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
-import { personalEvidenceMessages, personalReviewAction, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
+import { personalEvidenceMessages, personalReviewAction, personalReviewImages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { OwnedSessions, OwnedSessionController } from './owned-sessions.js';
@@ -46,6 +46,7 @@ import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
 import { installLlmAttribution } from './llm-attribution.js';
+import { installStandaloneModelRetry } from './standalone-model-retry.js';
 import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
@@ -134,6 +135,7 @@ export default class NanoRuntime {
     const lifecycle = this.lifecycle = new ColdLifecycleBarrier(ctx);
     this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId));
     ctx.provide('nanoSessions', this.owned);
+    installStandaloneModelRetry(ctx);
     installLlmAttribution(ctx, sessionId => {
       let session = ctx.sessions.get(SessionId(sessionId));
       while (session && !this.bindings.has(session.id) && session.header.parentSession) {
@@ -567,10 +569,8 @@ export default class NanoRuntime {
       if(kind!=='action'||!sessionId)throw new RpcError(-32602,'Personal disclosure requires a bound session');
       const {lineage}=await personalScopes(agentId,sessionId);
       try {
-        return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:personalReviewAction(evidence),
+        return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:personalReviewAction(evidence),images:await personalReviewImages(ctx,evidence),
           evidence:async()=>{
-            // Fixed host-validated refusals contain no private task information.
-            if(evidence.security_notice)return [];
             const scopes=await Promise.all([...lineage].reverse().map(async scope=>{
               const assembly=await ctx.systemPrompt.assemble({scope});
               const rows=await (await approval).sources.history(scope,scope.id===sessionId?callId:undefined,false,{toolResults:true,fullAssistant:true,privateContext:true});

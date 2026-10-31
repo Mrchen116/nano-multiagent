@@ -1,3 +1,4 @@
+import { withStandaloneRetry } from './standalone-model-retry.js';
 import type { Context } from '@deepseek-ai/cordis';
 import { AuthorizationDeclinedError } from '@deepseek-ai/dsh-authorization';
 import type { CredentialRecord } from '@deepseek-ai/dsh-credentials';
@@ -125,11 +126,13 @@ export class NativeModelSetup {
       this.notice(candidate, 'testing');
       for (const model of candidate.models ?? [candidate.model!]) {
       const assembly = new BlockAssembler();
-      for await (const chunk of this.ctx.llm.stream({
-        provider: candidate.provider, model, maxTokens: 128,
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with the single word READY.' }] }],
-        signal: AbortSignal.any([transaction.abort.signal, AbortSignal.timeout(45_000)]),
-      })) assembly.push(chunk);
+      await withStandaloneRetry({ timeoutMs: 45_000, purpose: 'model-verification' }, async () => {
+        for await (const chunk of this.ctx.llm.stream({
+          provider: candidate.provider, model, maxTokens: 128,
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with the single word READY.' }] }],
+          signal: transaction.abort.signal,
+        })) assembly.push(chunk);
+      });
       if (assembly.finish.kind === 'error' || assembly.finish.kind === 'aborted' || !assembly.blocks().some(block => block.type === 'text' && block.text.trim())) throw new Error('Model did not return text');
       }
       transaction.abort.signal.throwIfAborted();
