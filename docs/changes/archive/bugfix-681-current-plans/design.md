@@ -39,3 +39,9 @@ formatSchedule 返回 rule/next 两部分供不同层级展示；Intl 日期和�
 ## 布局平衡修订（基于 d9c9477c9）
 
 计划主体改为三列 grid：图标、可伸缩任务信息、右侧执行时间；时间区使用轻分隔线和右对齐。容器宽度不超过 560px 时回到两列，时间放到内容列下一行，使用 container query 避免桌面窄侧栏仍挤成三列。仅变更 DOM 位置与 CSS，无数据或操作语义变化。浏览器核实桌面与 390px，证据为 plans-balanced.jpg / plans-balanced-mobile.jpg。
+
+## 最终验收与同步
+
+2026-10-31 用户在最终左右平衡截图后明确回复：“这版可以”。验收对象为原 a2c0fe21d（同步主干后为 28127ce0c），确认 Web 组件视觉与本轮展示效果；不将截图验收扩大成生产运行验证。
+
+同步到主干 6d602fdae（相较原基线只有 refactor-682 motivation 文档），本 unit 生产 diff 未变，无审查或用户验收失效。canonical 已归并到 docs/specs/im/agents-nodes.md 的“Web 配置页管理当前计划”。前述待验收、待归并段落为历史阶段记录，以本节为最终状态。

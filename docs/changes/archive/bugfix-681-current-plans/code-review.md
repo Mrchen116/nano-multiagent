@@ -45,3 +45,26 @@
 - Result: Passed，findings `[]`。
 - 组件 3 项、TypeScript/Vite 构建通过；桌面与 390px 浏览器检查通过。业务逻辑未变，上一轮相关回归继续有效。
 - 用户验收仍待截图反馈，无归档或部署。
+
+## Final gate retention
+
+- 用户最终验收：2026-10-31 原话“这版可以”，对应原 a2c0fe21d / rebase 后 28127ce0c。
+- validated_at: 原 a2c0fe21d（Round 1 full + Round 2/3 patch 已覆盖完整实现）。
+- executed_base: 99354a6a1。
+- effective_base: 6d602fdae08464fbc5cc834fc403054581521c96。
+- effective_through: 本报告所在最终提交树；相较 28127ce0c 仅 canonical 归并、验收记录及归档位置变化。
+- Main 增量只新增 refactor-682 motivation，无本 unit 依赖、行为或运行面变化；代码审查和用户验收 retained。
+- 前述“待用户验收/不归档”是历史阶段边界，由本节验收结论取代。无生产部署、合并或数据迁移。
+
+## Local delivery checks (2026-10-31)
+
+- Supported Node 24.22.1 used for final backend build/typecheck/runtime checks and controlled frontend/backend test runs. Earlier default Node 25 run was stopped; no production code changed to accommodate environment failures.
+- `pnpm install --frozen-lockfile`, `pnpm build`, `pnpm typecheck`, `pnpm check:ios-runtime`: passed. Build generated a local installer candidate only; nothing published.
+- Frontend production build: passed on the accepted implementation; subsequent rebase touched only unrelated documentation.
+- Frontend full suite (`--maxWorkers=2`): 1,036 passed / 1 failed. Failure was unchanged chat-workspace integration waiting for Reply draft under concurrent machine load. Focused test rerun passed; then entire file passed 60/60 without code changes. This is a retained local instability record, not a claim that the original full suite was green.
+- Python non-E2E suite: 110 passed / 3 initial failures because checks started before dependency installation completed. After install, complete runtime dependency contract file passed 13/13. No code changes.
+- `ruff check .`, `ruff format --check .`: passed (93 files).
+- `npm audit --audit-level=critical`: exit 0; existing 4 low / 2 moderate / 5 high advisories remain outside this UI change, zero critical.
+- Docs integrity and diff whitespace checks passed.
+- Local logs: `/tmp/plans-close-*`; screenshots remain in the previously recorded Codex visualizations directory. No logs, screenshots or runtime data committed.
+- Backend full suite (`pnpm test --maxWorkers=2`): 809 passed / 1 timeout across 151 files. Unchanged workspace-tools test hit its 90s timeout during concurrent local runs; isolated entire-file rerun passed in 51.55s without changes. Local full runs therefore retain recorded failures with successful targeted reruns; remote CI remains the clean-run check.
