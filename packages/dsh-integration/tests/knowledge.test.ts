@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { KnowledgeFiles } from '../src/knowledge/files.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('preserves memory assets, source comments, limits and concurrent updates in one workspace', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-knowledge-'));
@@ -97,7 +98,7 @@ it('keeps fresh per-Agent totals and daily counts after evidence eviction and wi
   } finally { vi.useRealTimers(); await rm(home, {recursive:true,force:true}); }
 });
 
-it('runs independent native maintenance children, persists successful facts and withdraws each Feature', async () => {
+it('keeps legacy maintenance independent from foreground Skill creation and selection', async () => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const home = await mkdtemp(join(tmpdir(), 'nano-knowledge-profile-')); let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
   const workspaceA = join(home, 'a'); const workspaceB = join(home, 'b');
@@ -118,23 +119,24 @@ export function apply(ctx) {
     writeFileSync(${JSON.stringify(join(home, 'review-started'))},'started');
     while(!existsSync(${JSON.stringify(join(home, 'release-review'))}))await new Promise(resolve=>setTimeout(resolve,20));
     if(options.maxTokens!==8192)throw new Error('Review output budget was overwritten');
-    if (prompt.includes('consider saving to memory')) {if(step<2){name='read';args={file_path:${JSON.stringify(join(workspaceA,'.nanoassistant/memory/'))}+(step===0?'USER.md':'MEMORY.md')};}else{name='memory';args={action:'add',target:'user',content:'The user prefers evidence-backed concise responses.'};}}
+    if (prompt.includes('consider saving to memory')) {if(step<2){name='read';args={file_path:${JSON.stringify(join(workspaceA,'.nanoassistant/memory-legacy/'))}+(step===0?'USER.md':'MEMORY.md')};}else{name='memory';args={action:'add',target:'user',content:'The user prefers evidence-backed concise responses.'};}}
     else {name='skill_manage';args={action:'create',name:'reviewed-workflow',content:${JSON.stringify(content)}};}
-   } else if (prompt==='skill fixture') {name='fixture_observation';args={};}
+   } else if (prompt==='skill fixture') {name='skill_manage';args={action:'create',name:'reviewed-workflow',content:${JSON.stringify(content)}};}
   }
   if (name) {yield {type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-call-'+step,name,arguments:JSON.stringify(args)}};yield {type:'finish',reason:{kind:'tool-calls'}};}
   else {yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};}
  });
 }`);
   const agents = [
-    { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { intelligent_ui: false, task_graph: false, memory_curation: true, skill_creation: false }, knowledge: { memoryInterval: 1 }, toolAllowlist: ['read', 'memory'] },
-    { agentId: 'b', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['fixture_observation', 'read', 'skill_manage', 'skill'], skillRoots: [{ path: join(workspaceB, '.nanoassistant/skills'), source: 'workspace' }] },
+    { agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { intelligent_ui: false, task_graph: false, memory_curation: true, skill_creation: false }, knowledge: { memoryMode: 'legacy', legacyMemory: {enabled:true,interval:1} }, toolAllowlist: ['read', 'memory'] },
+    { agentId: 'b', revision: '1', mode: 'global', provider: 'fixture', model: 'test', features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: true }, knowledge: { memoryMode: 'legacy', skillInterval: 1 }, toolAllowlist: ['fixture_observation', 'read', 'skill_manage', 'skill'], skillRoots: [{ path: join(workspaceB, '.nanoassistant/skills'), source: 'workspace' }] },
   ];
   const bindings = agents.map(config => ({ sessionId: `knowledge-${config.agentId}`, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: config.agentId === 'a' ? workspaceA : workspaceB }));
   try {
     await prepareProfile(home, [{ id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}} },{insert:[{id:'knowledge-fixture',name:join(home,'fixture.mjs')}]}]);
     const start = async () => {
       client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, agents, bindings });
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };
@@ -150,11 +152,12 @@ export function apply(ctx) {
     expect((await Promise.all(advertised)).some(state=>state.reviews.some(review=>review.status==='running'&&review.childSessionId))).toBe(true);
     expect(await client!.rpc.request('update.prepare',{operationId:'background-review'})).toEqual({ready:false});
     await writeFile(join(home,'release-review'),'continue');
-    await expect.poll(async () => (await facts()).reviews.filter(review => review.status === 'completed').length, { timeout: 8000 }).toBe(2);
+    await expect.poll(async () => (await facts()).reviews.filter(review => review.status === 'completed').length, { timeout: 8000 }).toBe(1);
     for (const [index, binding] of bindings.entries()) {
       // Explicit launch provenance must survive opaque review labels for both maintenance kinds.
       await client!.rpc.request('trajectory.prepare', { observerId: binding.sessionId, rootAgentId: binding.agentId, rootSessionId: binding.sessionId, sessionId: binding.sessionId, ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
       const runs = await client!.rpc.request('trajectory.call', { observerId: binding.sessionId, method: 'trajectory/runs' }) as { value: import('@nano/product-contracts').TrajectoryRun[] };
+      if(index){expect(runs.value).toEqual([]);continue;}
       expect(runs.value).toHaveLength(1);
       expect(runs.value[0]).toMatchObject({ kind: index ? 'skills' : 'memory', delegation: 'background', provider: 'fork', state: 'completed' });
       expect(runs.value[0]!.launchSeq).toBeTypeOf('number');
@@ -162,12 +165,12 @@ export function apply(ctx) {
       expect(runs.value[0]!.endSeq).toBeGreaterThan(runs.value[0]!.startSeq!);
       expect(runs.value[0]!.callId).toBeUndefined();
     }
-    expect((await facts()).facts.map(fact => [fact.agentId, fact.kind, !!fact.reviewId]).sort()).toEqual([['a','memory',true],['b','skills',true]]);
-    expect(await readFile(join(workspaceA,'.nanoassistant/memory/USER.md'),'utf8')).toContain('evidence-backed');
+    expect((await facts()).facts.map(fact => [fact.agentId, fact.kind, !!fact.reviewId]).sort()).toEqual([['a','memory',true],['b','skills',false]]);
+    expect(await readFile(join(workspaceA,'.nanoassistant/memory-legacy/USER.md'),'utf8')).toContain('evidence-backed');
     expect(await readFile(join(workspaceB,'.nanoassistant/skills/reviewed-workflow/SKILL.md'),'utf8')).toBe(content);
-    expect(JSON.parse(await readFile(join(workspaceB,'.nanoassistant/skills/.usage.json'),'utf8'))['reviewed-workflow'].source).toBe('F3');
-    expect(await client!.rpc.request('knowledge.usage', { agentId: 'b' })).toMatchObject({ health: { created_auto_total: 1, active_auto_total: 1, used_auto_total: 0 } });
-    agents[0]!.features.memory_curation = false; agents[1]!.features.skill_creation = false;
+    expect(JSON.parse(await readFile(join(workspaceB,'.nanoassistant/skills/.usage.json'),'utf8'))['reviewed-workflow'].source).toBe('F1');
+    expect(await client!.rpc.request('knowledge.usage', { agentId: 'b' })).toMatchObject({ health: { created_auto_total: 0, active_auto_total: 0, used_auto_total: 0 } });
+    agents[0]!.knowledge.legacyMemory!.enabled = false; agents[0]!.features.memory_curation = false; agents[1]!.features.skill_creation = false;
     for (const config of agents) await client!.rpc.request('configuration.apply', config);
     for (const binding of bindings) {
       const view = await client!.rpc.request('configuration.preview', { config: agents.find(config => config.agentId === binding.agentId), cwd: binding.cwd }) as { tools: string[] };
@@ -186,9 +189,9 @@ export function apply(ctx) {
     await invoke('invoke-excluded');
     const excluded = await client!.rpc.request('session.observe',{sessionId:'knowledge-b'}) as typeof invoked;
     expect(excluded.events.filter(event=>event.type==='user/message' && event.data.source?.kind==='skill-invocation')).toHaveLength(1);
-    await client!.rpc.request('configuration.apply',{...agents[1],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:true},knowledge:{skillInterval:100000}});
+    await client!.rpc.request('configuration.apply',{...agents[1],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:true},knowledge:{memoryMode:'legacy',skillInterval:100000}});
     for(let i=0;i<19;i++) await invoke(`batch-use-${i}`);
-    expect((await facts()).reviews.filter(review=>review.status==='completed')).toHaveLength(2);
+    expect((await facts()).reviews.filter(review=>review.status==='completed')).toHaveLength(1);
     expect(await readFile(join(workspaceB,'.nanoassistant/skills/reviewed-workflow/SKILL.md'),'utf8')).toBe(content);
     expect((await facts()).facts).not.toContainEqual(expect.objectContaining({source:'F4'}));
     await client!.rpc.request('configuration.apply',{...agents[0],features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:false}});
@@ -211,6 +214,7 @@ it.each([false, true])('invokes live human Inbox Skills once without promoting o
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'global-skill-fixture',name:join(home,'fixture.mjs')}]}]);
     const start = async () => {
       client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+      registerNoopTaskHosts(client);
       client.rpc.handle('product.call', value=>{const call=value as {method:string;args:{target:string}};return call.method==='inbox'?{messages:[{id:call.args.target+'-message',sender:{type:call.args.target==='other-agent'?'agent':'user'},partial:call.args.target==='partial-human',content:[{type:'text',text:'/skill:selected'+(prune?' '+ 'a'.repeat(12000):'')}]}]}:{};});
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});await client.rpc.request('session.ensure',binding);
     };

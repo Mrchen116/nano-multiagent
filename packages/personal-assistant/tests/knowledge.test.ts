@@ -80,3 +80,21 @@ it('isolates a failed legacy migration and retries it without blocking other age
     expect(agents[0]!.skillSelection!.mode).toBe('explicit_denylist');
   } finally { await updates.stop(); }
 });
+
+it('projects authoritative Dreaming partial receipts into Work without any public notice', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-dreaming-work-'));
+  const store=new NodeStore(join(home,'node.db'),'owner'), inbox=new InboxStore(join(home,'inbox.db'));
+  store.bind({sessionId:'main',agentId:'a',conversationId:'global:a',ownerId:'owner',cwd:home,revision:'1'});
+  const agent:AgentConfiguration={agentId:'a',workspace:home,revision:'1',mode:'global',provider:'test',model:'test'};
+  const review={id:'dream',kind:'dreaming',status:'partial',agentId:'a',rootSessionId:'main',childSessionId:'child',at:1000,endedAt:2000,summary:'保存 1/2 页；入口待同步；未推进处理游标'};
+  const updates=new KnowledgeUpdates({nodeId:'n',agents:[agent],store,inbox,onError:error=>{throw error;},im:async()=>({}),
+    runtime:{onNotification:()=>()=>{},request:async()=>({facts:[],reviews:[review]})},relay:{request:async()=>{throw new Error('Dreaming must remain quiet');}}});
+  try {
+    await updates.recover();await updates.recover();
+    const events=inbox.journal(0);
+    expect(events.filter(event=>event.type==='session_linked')).toHaveLength(1);
+    expect(events.find(event=>event.type==='message')).toMatchObject({session_id:'child',payload:{text:review.summary,source_kind:'host_receipt'}});
+    expect(events.find(event=>event.type==='turn_end')).toMatchObject({session_id:'child',payload:{status:'partial',completed:false}});
+    expect(events).toHaveLength(4);
+  } finally {await updates.stop();inbox.close();store.close();await rm(home,{recursive:true,force:true});}
+});

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('routes single-thread public send fields through the product bridge', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-communication-'));
@@ -11,6 +12,7 @@ it('routes single-thread public send fields through the product bridge', async (
     await writeFile(join(home, 'fixture.mjs'), `export const name='send-fixture';export const inject=['llm'];export function apply(ctx){let sent=false;ctx.on('llm/stream',async function*(){if(!sent){sent=true;yield {type:'block-end',index:0,block:{type:'tool-call',id:'public-send',name:'send_message',arguments:JSON.stringify({target:'current',text:'public reply'})}};yield {type:'finish',reason:{kind:'tool-calls'}};}else{yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};}});}`);
     await prepareProfile(home, [{insert:[{id:'send-fixture',name:join(home,'fixture.mjs')}]}]);
     client = new RuntimeClient({home,cwd:home});
+    registerNoopTaskHosts(client);
     const calls: any[] = [];
     client.rpc.handle('product.call', value => {calls.push(value);return {status:'sent',message_id:'public-message'};});
     await mkdir(join(home,'skills/nano-interactive-ui'),{recursive:true});
@@ -46,10 +48,11 @@ it('retries empty global responses without replaying delivery and preserves term
       });}`);
     await prepareProfile(home, [{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:100000}],retryPolicy:{mode:'normal',maxRetries:1,backoff:{initialDelayMs:1,maxDelayMs:1,jitterRatio:0}}}}}},{insert:[{id:'empty-fixture',name:join(home,'fixture.mjs')}]}]);
     client = new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     const calls: any[] = [];
     client.rpc.handle('product.call', value => {calls.push(value);return {status:'sent',message_id:'delivered'};});
     client.rpc.handle('model.check', () => ({published:false}));
-    await client.rpc.request('initialize',{protocol:1,agents:['global','single_thread'].map(mode=>({agentId:mode,revision:'1',mode,provider:'fixture',model:'fixture',toolAllowlist:['send_message'],approval:{dangerouslySkipPermissions:true}})),bindings:[]});
+    await client.rpc.request('initialize',{protocol:1,agents:['global','single_thread'].map(mode=>({agentId:mode,knowledge:{memoryMode:'legacy'},revision:'1',mode,provider:'fixture',model:'fixture',toolAllowlist:['send_message'],approval:{dangerouslySkipPermissions:true}})),bindings:[]});
     for(const [sessionId,mode,expected] of [['sent','global','completed'],['noop','global','completed'],['exhausted','global','error'],['failure','global','error'],['single','single_thread','error']]){
       await client.rpc.request('session.ensure',{sessionId,agentId:mode,revision:'1',ownerId:'owner',cwd:home});
       await client.rpc.request('session.submit',{sessionId,inputId:sessionId,mode:'followup',content:[{type:'text',text:'Handle this turn'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:sessionId}});

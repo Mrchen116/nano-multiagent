@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { prepareProfile, RuntimeClient } from "../lib/client.js";
+import { registerNoopTaskHosts } from "./helpers/noop-task-hosts.js";
 
 it("forks a native message with its configuration and compacted prefix, independently and across restart", async () => {
   const home = await mkdtemp(join(tmpdir(), "nano-history-"));
@@ -64,6 +65,7 @@ it("forks a native message with its configuration and compacted prefix, independ
           logs += text;
         },
       });
+      registerNoopTaskHosts(client);
       await client.rpc.request("initialize", {
         protocol: 1,
         agents: [config],

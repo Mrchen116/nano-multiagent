@@ -7,15 +7,16 @@ import { expect, it, vi } from 'vitest';
 import { apply } from '../src/features/memory-curation.js';
 import { KnowledgeFiles } from '../src/knowledge/files.js';
 import { reviewReadings } from '../src/knowledge/review-readings.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('freezes memory lazily, inherits the fork snapshot, refreshes after compaction and never reads while disabled', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-memory-freeze-'));
   try {
-    await mkdir(join(home, '.nanoassistant/memory'), { recursive: true });
-    const file = join(home, '.nanoassistant/memory/MEMORY.md');
+    await mkdir(join(home, '.nanoassistant/memory-legacy'), { recursive: true });
+    const file = join(home, '.nanoassistant/memory-legacy/MEMORY.md');
     await writeFile(file, 'BEFORE');
     const handlers = new Map<string, (...args: any[]) => any>();
-    const files = new KnowledgeFiles(home);
+    const files = new KnowledgeFiles(home, undefined, 'memory-legacy');
     const read = vi.spyOn(files, 'memoryText');
     let enabled = true;
     const events: any[] = [];
@@ -23,7 +24,7 @@ it('freezes memory lazily, inherits the fork snapshot, refreshes after compactio
     const child = { session: { header: { parentSession: 'parent' }, snapshotEvents: () => events } } as unknown as Agent;
     apply({ on: (name: string, handler: (...args: any[]) => any) => handlers.set(name, handler),
       agents: { get: () => parent }, tools: { register: () => {} },
-      nanoKnowledge: { subscribe: () => {}, config: () => ({ features: { memory_curation: enabled } }), files: () => files },
+      nanoKnowledge: { subscribe: () => {}, config: () => ({ knowledge: { memoryMode: enabled ? 'legacy' : 'document' } }), files: () => files },
     } as unknown as Context, { agentId: 'a' });
     const assemble = (agent = parent) => handlers.get('system-prompt/assemble')!({}, { scope: agent }, async () => ({ contexts: [] }));
     expect(read).not.toHaveBeenCalled();
@@ -75,15 +76,16 @@ export function apply(ctx){let first;let reads=0;ctx.on('llm/stream',async funct
  const review=last.content.some(b=>b.type==='text'&&b.text.startsWith('Review the conversation'));
  if(review){first??=last.id;if(last.id===first){
   if(reads++>0&&${JSON.stringify(failure)}==='provider')throw new Error('intentional fixture failure');
-  yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+reads,name:'read',arguments:JSON.stringify({file_path:${JSON.stringify(join(home, '.nanoassistant/memory/USER.md'))}})}};
+  yield{type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+reads,name:'read',arguments:JSON.stringify({file_path:${JSON.stringify(join(home, '.nanoassistant/memory-legacy/USER.md'))}})}};
   yield{type:'finish',reason:{kind:'tool-calls'}};return;
  }}
  yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
     await prepareProfile(home, [{ id:'llm-pi-ai', config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}],retryPolicy:{mode:'normal',maxRetries:0}}}} }, {insert:[{id:'review-failure',name:join(home,'fixture.mjs')}]}]);
-    const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:false},knowledge:{memoryInterval:2},toolAllowlist:['read','memory']};
+    const config = {agentId:'a',revision:'1',provider:'fixture',model:'test',mode:'global',features:{memory_curation:true,skill_creation:false},knowledge:{memoryMode:'legacy',legacyMemory:{enabled:true,interval:2}},toolAllowlist:['read','memory']};
     const binding = {sessionId:'review-failure',agentId:'a',revision:'1',ownerId:'owner',cwd:home};
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
     const submit = async (id: string) => {
@@ -94,13 +96,14 @@ export function apply(ctx){let first;let reads=0;ctx.on('llm/stream',async funct
     await submit('one'); expect(await reviews()).toHaveLength(0);
     await submit('two');
     const status = failure === 'provider' ? 'error' : 'aborted';
-    await expect.poll(async()=>(await reviews()).filter(row=>row.status===status).length).toBe(1);
+    // Native step-limit cancellation settles after several tool steps; do not race its async receipt.
+    await expect.poll(async()=>(await reviews()).filter(row=>row.status===status).length,{timeout:8000}).toBe(1);
     expect((await reviews())[0]?.diagnostic).not.toBe('memory_read_incomplete');
     await client.rpc.request('trajectory.prepare',{observerId:binding.sessionId,rootAgentId:'a',rootSessionId:binding.sessionId,sessionId:binding.sessionId,ownerId:'owner',nodeId:'node',nodeEpoch:1});
     const runs=await client.rpc.request('trajectory.call',{observerId:binding.sessionId,method:'trajectory/runs'}) as {value:{stopReason:string;state:string}[]};
     expect(runs.value).toEqual([expect.objectContaining({stopReason:status,state:failure==='provider'?'failed':'cancelled'})]);
     await submit('three');
-    await expect.poll(async()=>(await reviews()).filter(row=>row.status==='completed').length).toBe(1);
+    await expect.poll(async()=>(await reviews()).filter(row=>row.status==='completed').length,{timeout:8000}).toBe(1);
     await submit('four'); expect(await reviews()).toHaveLength(2);
     await client.shutdown(); client=undefined;
   } catch(error) {throw new Error(`${error}\n${logs}`,{cause:error});}

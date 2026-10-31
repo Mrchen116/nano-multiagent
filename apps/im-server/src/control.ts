@@ -2,7 +2,7 @@ import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import {createHash, randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {parseAgentConfigurationFields, type AgentConfigurationFields, type ConfigurationResult} from '@nano/product-contracts';
-import {effectiveFeatures, validateCapabilities} from '@nano/product-contracts/capabilities';
+import {effectiveFeatures, featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import {fail, now, transaction} from './context.js';
 import {defaultSpace, accountEnabled, canAccessSpace, ownerAccount} from './identity.js';
 import {activeTaskCount, withdrawsTask} from './task-graphs.js';
@@ -71,7 +71,7 @@ export function gatewayCandidate(c: AgentConfigurationFields): AgentConfiguratio
     work_mode: c.work_mode || "single_thread",
     workspace_root: optionalText(c.workspace_root),
     features: Object.fromEntries(
-      Object.entries(c.features ?? {}).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
+      Object.entries(c.features ?? {}).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean" && !["memory_curation", "skill_creation"].includes(entry[0])),
     ),
     custom_prompt: optionalText(c.custom_prompt),
     heartbeat_json: heartbeat(c.heartbeat_json),
@@ -84,6 +84,7 @@ export function gatewayCandidate(c: AgentConfigurationFields): AgentConfiguratio
       : (c.skills_selection_mode ?? null);
   if ("confirm_existing_workspace" in c)
     p.confirm_existing_workspace = c.confirm_existing_workspace === true;
+  if (p.skills) p.skills = p.skills.filter(name => name !== 'skill-creator');
   return p;
 }
 export function candidateFingerprint(c: AgentConfigurationFields): string {
@@ -126,19 +127,20 @@ function storedStrings(json: string): string[] {
 }
 function storedFeatures(json: string): Record<string, boolean> {
   const fields = parseAgentConfigurationFields({features: JSON.parse(json)});
-  return fields.features!;
+  return Object.fromEntries(Object.entries(fields.features!).filter(([key]) => !['memory_curation','skill_creation'].includes(key)));
 }
 /** Project public fields once; callers never expose the SQLite JSON columns. */
 export function profileResponse(p: AgentProfileRecord, mirror = false): AgentProfileView {
   const rawSkills: unknown = JSON.parse(p.skills_json);
   const skills = rawSkills === null ? null : storedStrings(p.skills_json);
+  const skillMode = p.skills_selection_mode ?? (skills?.includes('skill-creator') ? selection(null, skills) : null);
   return {
     agent_id:p.agent_id, owner_id:p.owner_id, space_id:p.space_id, node_id:p.node_id,
     display_name:p.display_name, description:p.description, group_reply_policy:p.group_reply_policy,
     default_model:p.default_model, reasoning_effort:p.reasoning_effort, approval_mode:p.approval_mode,
     work_mode:p.work_mode, workspace_root:p.workspace_root, profile_version:p.profile_version,
     updated_at:p.updated_at, custom_prompt:p.custom_prompt, heartbeat_json:p.heartbeat_json,
-    skills, skills_selection_mode:mirror ? p.skills_selection_mode : selection(p.skills_selection_mode, skills),
+    skills:skills?.filter(name => name !== 'skill-creator') ?? null, skills_selection_mode:mirror ? skillMode : selection(skillMode, skills),
     tool_allowlist:storedStrings(p.tool_allowlist_json), model_fallbacks:storedStrings(p.model_fallbacks_json),
     features:storedFeatures(p.features_json),
     workspace_is_default:p.workspace_is_default == null ? null : !!p.workspace_is_default,
@@ -208,7 +210,9 @@ export class ConfigOperations {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
       if(previous)previous={...previous,personal_agent:candidate.personal_agent};
     } else {candidate={...candidate};delete candidate.personal_agent;}
-    const blocks = validateCapabilities(candidate);
+    const unchangedDreaming = !!previous && previous.features?.dreaming !== false && candidate.features?.dreaming !== false
+      && validateCapabilities(previous).some(block => block.required_by?.includes('dreaming'));
+    const blocks = validateCapabilities(candidate, {features:featureDependencies.filter(feature => feature.key !== 'dreaming' || !unchangedDreaming)});
     if (blocks.length) fail(422, {code:'invalid_capability_dependencies', message:'Configuration is missing required capabilities', blocks});
     if (previous && withdrawsTask(previous, candidate) && activeTaskCount(this.dependencies.db, candidate.agent_id)) {
       const kind = effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph ? 'feature' : 'tool';

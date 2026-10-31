@@ -277,6 +277,7 @@ function BehaviorCard({
                     {/* label_i18n / help_i18n are i18n keys provided by the backend registry */}
                     <p id={`feature-${feat.key}-label`} className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
                     <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.help_i18n, "")}</p>
+                    {feat.key === "dreaming" && feat.missing_tools?.length ? <p className="im-settings-feature-help">{t("feature.dreaming.unavailable", {tools: feat.missing_tools.join(", ")})}</p> : null}
                     {unknownFeatures.includes(feat.key) && <p id={`feature-${feat.key}-state`} className="im-settings-feature-state">{t("agents.settings.featureUnknown")}</p>}
                   </div>
                 </label>
@@ -1376,7 +1377,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   const fixedTools = capabilityCatalog(capabilities, draft?.work_mode).fixed_tools;
   const absent = (names: string[], options: {name: string}[]) => names.filter(name => !options.some(option => option.name === name));
   const missingModels = absent([draft?.default_model, ...(draft?.model_fallbacks ?? [])].filter((name): name is string => !!name), modelOptions);
-  const missingTools = absent(draft?.tool_allowlist ?? [], [...(capabilities?.tools ?? []), ...fixedTools.map(name => ({name}))]);
+  const missingTools = absent((draft?.tool_allowlist ?? []).filter(name => name !== 'memory'), [...(capabilities?.tools ?? []), ...fixedTools.map(name => ({name}))]);
   const missingSkills = absent(draft?.skills ?? [], capabilities?.skills ?? []);
   const missingAllowedSkills = (draft?.skills_selection_mode ?? ((draft?.skills.length ?? 0) > 0 ? "explicit_allowlist" : "default_discovery")) === "explicit_allowlist" ? missingSkills : [];
   const catalogCurrent = detailQuery.data?.liveCapabilities === true && !readOnly;
@@ -2012,7 +2013,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
                   <span aria-hidden="true">→</span>
                 </button>
               }
-              selected={[...new Set([...draft.tool_allowlist, ...fixedTools])]}
+              selected={[...new Set([...draft.tool_allowlist, ...fixedTools])].filter(name => name !== 'memory')}
               fixed={fixedTools}
               options={[...capabilities.tools, ...[...missingTools, ...fixedTools.filter(name => !capabilities.tools.some(tool => tool.name === name))].map(name => ({name}))]}
               isLoading={detailQuery.isLoading}
@@ -2020,7 +2021,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
               onRetry={() => void detailQuery.refetch()}
               onChange={(toolAllowlist) => {
                 setSaved(false);
-                capabilityEditor.tools(toolAllowlist);
+                capabilityEditor.tools([...toolAllowlist, ...draft.tool_allowlist.filter(name => name === 'memory')]);
               }}
             />
           </div>

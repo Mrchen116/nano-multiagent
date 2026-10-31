@@ -75,6 +75,12 @@ export class SingleThread {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
+    // Task originals are indexed by IM and caught up at native pre-step. Routing
+    // them through ordinary chat would create a second identity and idle wake.
+    if(input.message.sender_type==='system'&&input.message.system_notice?.kind==='task_graph') {
+      await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,relay_task_id:input.relay_task_id,delivery_status:'sent'});
+      return;
+    }
     const control = sessionControl(input, config);
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(controlText(input)) && !control;
     if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(controlText(input))) {

@@ -7,7 +7,7 @@ interface Fact {
   id: string; agentId: string; rootSessionId: string; sessionId: string; turn: number;
   kind: 'memory' | 'skills'; action: string; name?: string; scope?: string; skill_root?: string; reviewId?: string;
 }
-interface Review { id: string; status: string; agentId: string; rootSessionId: string; childSessionId?: string; kind: 'memory' | 'skills' | 'combined'; at: number }
+interface Review { id: string; status: string; agentId: string; rootSessionId: string; childSessionId?: string; kind: 'memory' | 'skills' | 'combined' | 'dreaming'; at: number; endedAt?: number; summary?: string }
 interface Options {
   partitionKey?: string;
   nodeId: string; agents: AgentConfiguration[]; runtime: RuntimePort; store: NodeStore; inbox: InboxStore;
@@ -51,8 +51,20 @@ export class KnowledgeUpdates {
       this.options.inbox.append({ event_id: `knowledge-run:${review.id}`, type: 'session_linked', root_agent_id: review.agentId,
         session_id: review.rootSessionId, observed_at: new Date(review.at).toISOString(), payload: {
           parent_session_id: review.rootSessionId, child_session_id: review.childSessionId,
-          title: review.kind === 'combined' ? '记忆与技能复盘' : review.kind === 'memory' ? '记忆整理' : '技能复盘',
+          title: review.kind === 'dreaming' ? 'Dreaming · 自动整理记忆' : review.kind === 'combined' ? '记忆与技能复盘' : review.kind === 'memory' ? '记忆整理' : '技能复盘',
         } });
+      if (review.kind === 'dreaming') {
+        const identity = { root_agent_id: review.agentId, session_id: review.childSessionId, turn_id: review.id };
+        this.options.inbox.append({ ...identity, event_id: `dreaming:${review.id}:start`, type: 'turn_started',
+          observed_at: new Date(review.at).toISOString(), payload: { origin: 'dreaming', started_at: new Date(review.at).toISOString() } });
+        if (review.endedAt && review.summary) {
+          const observed_at = new Date(review.endedAt).toISOString();
+          this.options.inbox.append({ ...identity, event_id: `dreaming:${review.id}:${review.endedAt}:receipt`, type: 'message', observed_at,
+            payload: { message_id: `dreaming:${review.id}:receipt`, role: 'assistant', text: review.summary, source_kind: 'host_receipt' } });
+          this.options.inbox.append({ ...identity, event_id: `dreaming:${review.id}:${review.endedAt}:end`, type: 'turn_end', observed_at,
+            payload: { status: review.status, completed: review.status === 'completed', finished_at: observed_at } });
+        }
+      }
     }
     if (this.options.inbox.journalSeq > before) this.options.onWork?.();
     const groups = new Map<string, Fact[]>();

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { prepareProfile, RuntimeClient } from "../lib/client.js";
+import { registerNoopTaskHosts } from "./helpers/noop-task-hosts.js";
 
 const until = (fn: () => unknown, options = {}) =>
   expect.poll(fn, { timeout: 10000, ...options });
@@ -49,6 +50,7 @@ export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async functi
         env: { NANO_OWNER_CONFIG_ROOT: join(home, "owner") },
         onLog: (t) => (logs += t),
       });
+      registerNoopTaskHosts(client);
       await client.rpc.request("initialize", {
         protocol: 1,
         agents: [

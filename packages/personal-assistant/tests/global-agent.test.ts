@@ -327,7 +327,7 @@ it('keeps a failed observation pending while processing later policy events in t
  const config={agentId:'pa',workspace:'/tmp/pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'owner-chat',epoch:1}};
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:e=>errors.push(e),
   runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{if(method==='session.submit'&&args.inputId.endsWith(':1'))throw new Error('One source unavailable');return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};}},
-  relay:{ready:true,request:async(type,payload:any)=>{if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};if(type==='pa.observations.ack')acked.push(...payload.event_ids);if(type==='pa.observations.read')reads++;return {type:type+'.result',payload:{ok:true,result:type==='pa.observations.read'?{items:Array.from({length:50},(_,i)=>({event_id:i+1,kind:'policy.changed',payload:{}}))}:type==='pa.sources'?{items:[]}:{}}};}}});
+  relay:{ready:true,request:async(type,payload:any)=>{if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};if(type==='pa.observations.ack')acked.push(...payload.event_ids);if(type==='pa.observations.read')reads++;return {type:type+'.result',payload:{ok:true,result:type==='pa.observations.read'?{items:Array.from({length:50},(_,i)=>({event_id:i+1,kind:'policy.changed',payload:{}}))}:type==='pa.sources'?{policy:{revision:1},items:[]}:{}}};}}});
  try {
   await product.recoverPersonalObservations();
   expect(errors.map(String)).toEqual(['Error: One source unavailable']);expect(acked).toHaveLength(49);expect(acked).not.toContain(1);expect(acked).toContain(50);expect(reads).toBe(1);
@@ -345,7 +345,7 @@ it('revokes queued excluded sources without replacing the main context or removi
   relay:{ready:true,request:async(type,payload:any)=>{
    if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};
    if(type==='pa.observations.read')return {type:'result',payload:{ok:true,result:{items:delivered?[]:[{event_id:1,kind:'policy.changed',payload:{excluded_conversation_ids:['c_excluded']}}]}}};
-   if(type==='pa.sources')return {type:'result',payload:{ok:true,result:{items:[{id:'c_excluded',excluded:true},{id:'c_owner',excluded:false}]}}};
+   if(type==='pa.sources')return {type:'result',payload:{ok:true,result:{policy:{revision:1},items:[{id:'c_excluded',excluded:true},{id:'c_owner',excluded:false}]}}};
    if(type==='pa.observations.ack')delivered=true;
    return {type:'result',payload:{ok:true,result:{}}};
   }}});

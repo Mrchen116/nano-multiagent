@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each(['workflow', 'subagent'])('%s children keep delegated permissions without human approval cards', async kind => {
   const home = await mkdtemp(join(tmpdir(), 'nano-child-approval-'));
@@ -49,6 +50,7 @@ export function apply(ctx) {
 }`);
     await prepareProfile(home, [{ insert: [{ id: 'child-approval', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const requests: any[] = [];
     client.rpc.onNotification((method, value) => {
       if (method !== 'approval.request') return;

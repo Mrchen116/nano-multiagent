@@ -17,6 +17,8 @@ import type { SessionBinding, AgentConfiguration } from '../index.js';
 import { invalidateSkills } from '../capabilities.js';
 import { KnowledgeFiles, type MemoryChange, type SkillChange } from './files.js';
 import { knowledgeDomain, type KnowledgeDomain, type KnowledgeFact, type KnowledgeKind, type KnowledgeReview } from './state.js';
+import { Dreaming } from './dreaming.js';
+import { DocumentMemory } from './document-memory.js';
 import { ReviewFiles } from './review-files.js';
 import { reviewReadings } from './review-readings.js';
 import { withKnowledgeRun } from '../trajectory-runs.js';
@@ -32,7 +34,9 @@ interface ReviewContext { id: string; work: Active; allow: string[]; parent: Age
 
 /** Owns accepted native review runs and durable success facts across Feature disposal. */
 export class KnowledgeRuntime extends Service {
-  static inject = ['subagents', 'tools', 'skills', 'agents', 'storageDomain', 'systemPrompt', 'sessionQuery', 'nanoTrajectoryRuns'];
+  static inject = ['subagents', 'tools', 'skills', 'agents', 'storageDomain', 'systemPrompt', 'sessionQuery', 'sessionPersistence', 'nanoTrajectoryRuns', 'fs', 'nanoApproval', 'nanoProduct'];
+  readonly documents: DocumentMemory;
+  readonly dreaming: Dreaming;
   private readonly state: Promise<Domain<KnowledgeDomain>>;
   private readonly scans = new Map<string, number>();
   private readonly active = new Map<string, Active>();
@@ -47,6 +51,10 @@ export class KnowledgeRuntime extends Service {
   private readonly reviewStart = new AsyncLocalStorage<ReviewContext & { parentId: string; system: string; tools: ToolSchema[] }>();
   constructor(ctx: Context, private readonly options: Options) {
     super(ctx, 'nanoKnowledge'); this.host = ctx; this.state = ctx.storageDomain.open(knowledgeDomain);
+    const held = (agentId: string) => this.stopping || this.updateHeld || options.held?.(agentId, 'memory') === true;
+    this.documents = new DocumentMemory(ctx, { ...options, held });
+    this.dreaming = new Dreaming(ctx, this.documents, { ...options, held });
+    this.documents.maintenanceStatus = agentId => this.dreaming.status(agentId);
     ctx.effect(() => async () => { await this.stop(); await (await this.state).close(); });
     ctx.on('agent/created', ({ agent }) => {
       const frozen = this.reviewStart.getStore();
@@ -103,7 +111,7 @@ export class KnowledgeRuntime extends Service {
     });
   }
   /** Reviews and their asynchronous bookkeeping must finish before an update. */
-  get busy(): boolean { return this.active.size > 0 || this.tasks.size > 0 || this.undelivered.size > 0; }
+  get busy(): boolean { return this.dreaming.busy || this.active.size > 0 || this.tasks.size > 0 || this.undelivered.size > 0; }
   /** Accepted maintenance, without treating unrelated foreground turns as busy. */
   busyKinds(agentId: string): KnowledgeKind[] { return [...new Set([...this.active.values()].filter(work => work.agentId === agentId).flatMap(work => work.kinds).concat(this.scans.has(agentId) ? ['skills'] : []))]; }
   /** Pause periodic curation during an update without changing Feature settings. */
@@ -112,7 +120,7 @@ export class KnowledgeRuntime extends Service {
     this.tasks.set(task, agentId); void task.catch(error => this.host.logger('nano-knowledge').warn(String(error))).finally(() => this.tasks.delete(task));
   }
   config(agent: Agent) { return this.options.configOf(agent); }
-  files(agent: Agent) { return new KnowledgeFiles(agent.session.header.cwd!, this.config(agent)?.knowledge?.globalSkillRoot); }
+  files(agent: Agent) { const config = this.config(agent); return new KnowledgeFiles(config?.workspace ?? agent.session.header.cwd!, config?.knowledge?.globalSkillRoot, config?.knowledge?.memoryMode === 'legacy' ? 'memory-legacy' : 'memory'); }
   private root(agent: Agent) {
     let current = agent;
     while (!this.options.bindings.has(current.id) && current.session.header.parentSession) {
@@ -139,6 +147,7 @@ export class KnowledgeRuntime extends Service {
   }
   async memory(exec: ToolExecution, change: MemoryChange) {
     const agent = exec.agent!;
+    if (this.config(agent)?.knowledge?.memoryMode !== 'legacy') throw new Error('Use ordinary files for document memory.');
     const review = this.children.get(agent);
     this.checkReview(agent, 'memory');
     if (review) { review.work.reads.memoryWrite(); if (review.work.reads.memoryIncomplete) throw new Error('Read both current Memory files before writing.'); }
@@ -171,6 +180,7 @@ export class KnowledgeRuntime extends Service {
   async facts() { return [...(await this.state).table('facts').entries()].map(([, value]) => value).filter(value => !value.cancelledByDisable); }
   async acknowledge(id: string) { await (await this.state).table('facts').delete(storageKey(id)); this.undelivered.delete(id); }
   async recover() {
+    await this.dreaming.recover();
     for (const fact of await this.facts()) this.undelivered.add(fact.id);
     const reviews = (await this.state).table('reviews');
     for (const [id, review] of reviews.entries()) if (review.status === 'running') await reviews.put(id, { ...review, status: 'interrupted' });
@@ -187,9 +197,10 @@ export class KnowledgeRuntime extends Service {
     }
     for (const [id, pending] of this.pendingBatches) if (pending.agentId === agentId) this.pendingBatches.delete(id);
   }
-  async reviews() { return [...(await this.state).table('reviews').entries()].map(([, value]) => value); }
+  async reviews() { return [...[...(await this.state).table('reviews').entries()].map(([, value]) => value), ...await this.dreaming.reviews()]; }
   /** A Feature owns this listener and its disposal cancels only this kind of accepted review. */
   subscribe(ctx: Context, agentId: string, kind: KnowledgeKind) {
+    if (['skills'].includes(kind)) return; // Automatic Skill evolution is paused in both memory modes.
     const key = `${agentId}:${kind}`;
     let owners = this.subscriptions.get(key); if (!owners) { owners = new Set(); this.subscriptions.set(key, owners); }
     owners.add(ctx);
@@ -221,12 +232,13 @@ export class KnowledgeRuntime extends Service {
     const location = await realpath(skill.path);
     let root: string | undefined;
     for (const candidate of config.skillRoots ?? []) {
+      if (candidate.source === 'builtin') continue;
       const path = relative(await realpath(candidate.path).catch(() => candidate.path), location);
       if (path && !path.startsWith('..') && !path.startsWith('/')) { root = candidate.path; break; }
     }
     if (!root) return;
     const result = await this.files(agent).use(root, name, config.agentId, agent.id, callId, skill.path);
-    if (result.batch && config.mode !== 'global' && config.features?.skill_creation !== false && this.options.bindings.has(agent.id)) {
+    if (result.batch && this.subscriptions.has(`${config.agentId}:skills`) && config.mode !== 'global' && this.options.bindings.has(agent.id)) {
       const batch = { root: await realpath(root), name };
       this.pendingBatches.set(`${config.agentId}:${batch.root}:${name}`, { agentId: config.agentId, batch });
       this.queueReview(agent, batch);
@@ -253,14 +265,14 @@ export class KnowledgeRuntime extends Service {
     const config = this.config(agent)!; const work = this.active.get(id)!;
     if (config.knowledge?.enabled === false || batch && config.mode === 'global') return;
     const state = await this.state; const counters = state.table('counters'); signal.throwIfAborted();
-    const enabled = (kind: KnowledgeKind) => config.features?.[kind === 'memory' ? 'memory_curation' : 'skill_creation'] !== false
+    const enabled = (kind: KnowledgeKind) => kind === 'memory' && config.knowledge?.memoryMode === 'legacy' && config.knowledge?.legacyMemory?.enabled !== false
       && this.subscriptions.has(`${config.agentId}:${kind}`)
       && !!agent.ctx.tools.get(kind === 'memory' ? 'memory' : 'skill_manage', agent)
       && (kind !== 'memory' || !!agent.ctx.tools.get('read', agent));
     const readings = { memory: reviewReadings(agent.session.ownEvents(), 'memory'), skills: reviewReadings(agent.session.ownEvents(), 'skills') };
     const key = (kind: KnowledgeKind) => storageKey(`${agent.id}:${kind}:iterations`);
     const due = (kind: KnowledgeKind) => {
-      const interval = config.knowledge?.[kind === 'memory' ? 'memoryInterval' : 'skillInterval'] ?? 10;
+      const interval = (kind === 'memory' ? config.knowledge?.legacyMemory?.interval : config.knowledge?.skillInterval) ?? 10;
       return enabled(kind) && interval > 0 && readings[kind].current - Math.max(counters.get(key(kind))?.[kind] ?? 0, readings[kind].maintained) >= interval;
     };
     work.kinds = batch ? enabled('skills') && agent.ctx.tools.get('read', agent) ? ['skills'] : [] : (['memory', 'skills'] as const).filter(due);
@@ -362,11 +374,12 @@ export class KnowledgeRuntime extends Service {
   }
   /** Settle only this Agent's accepted reviews and maintenance writes. */
   async stopAgent(agentId: string) {
+    await this.dreaming.stopAgent(agentId);
     for (const work of this.active.values()) if (work.agentId === agentId) work.controller.abort();
     await Promise.allSettled([...this.tasks].filter(([, owner]) => owner === agentId).map(([task]) => task));
   }
   async stop() {
-    this.stopping = true; for (const work of this.active.values()) work.controller.abort();
+    this.stopping = true; await this.dreaming.stop(); await this.documents.stop(); for (const work of this.active.values()) work.controller.abort();
     await Promise.allSettled([...this.tasks.keys(), ...[...this.active.values()].map(work => work.task)]);
   }
 }

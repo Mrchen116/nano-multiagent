@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimePort, SessionBinding, TaskExecutionSnapshot, TaskResponsibility, TaskWaitInspection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { NodeStore } from './store.js';
+import type {ScheduleDeletionIntent} from './schedule-deletions.js';
 
 interface Options {
   nodeId:string;ownerId:string;agents:AgentConfiguration[];store:NodeStore;runtime:RuntimePort;
   relay:{request(type:string,payload:Record<string,unknown>):Promise<ProtocolFrame>};
   drain(sessionId:string):Promise<void>;
+  context(binding:SessionBinding):Promise<{messages:{inputId:string;conversationId:string;content:{type:'text';text:string}[]}[];revoked:string[];unavailable?:boolean}>;
 }
 /** Resolve product scope and native waiting evidence without scheduling model execution. */
 export class TaskExecution {
@@ -45,15 +47,31 @@ export class TaskExecution {
       const items=(frame.payload.result as {items:TaskResponsibility[]}).items;
       const tasks=items.map(({graph_id,node_id,title,status,revision,updated_at,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,updated_at,conversation:{id:conversation.id},relative_url,wait,resume_request}));
       if(tasks.some(t=>t.status==='waiting'))this.waitingAgents.add(binding.agentId);else this.waitingAgents.delete(binding.agentId);
-      const repair:string[]=[];let unavailable=false;
+      const repair:string[]=[],repairs:NonNullable<TaskExecutionSnapshot['repairs']>=[];let unavailable=false;
       for(const task of tasks)if(task.status==='waiting') {
         try {
           const proof=await this.inspect({agent_id:binding.agentId,conversation_id:task.conversation.id,schedule_id:task.wait?.schedule_id??''});
-          if(!proof.valid||proof.session_id!==task.wait?.session_id||proof.owner_agent_id!==task.wait?.owner_agent_id)repair.push(`${task.graph_id}/${task.node_id}`);
+          if(proof.reason_code==='unavailable'){unavailable=true;continue;}
+          if(!proof.valid||proof.session_id!==task.wait?.session_id||proof.owner_agent_id!==task.wait?.owner_agent_id) {
+            const reason_code=proof.valid?'owner_or_session_mismatch':proof.reason_code??'missing';
+            const reasons={missing:'The linked Schedule could not be found.',inactive:'The linked Schedule is inactive.',expired:'The linked Schedule has no valid future occurrence.',owner_or_session_mismatch:'The linked Schedule does not belong to the required Task owner and current session.'};
+            repair.push(`${task.graph_id}/${task.node_id}`);
+            repairs.push({graph_id:task.graph_id,node_id:task.node_id,schedule_id:task.wait?.schedule_id??'',checked_at:proof.checked_at,reason_code,reason:reason_code==='missing'&&this.options.store.scheduleDeletions().some(intent=>intent.agentId===binding.agentId&&intent.scheduleId===task.wait?.schedule_id&&intent.phase==='deleted')?'The linked Schedule was deleted and no longer exists.':reasons[reason_code]});
+          }
         } catch {unavailable=true;}
       }
-      return {kind:tasks.some(t=>t.status==='doing')||repair.length?'continue':unavailable?'unavailable':'quiescent',tasks,repair_task_ids:repair,...(repair.length&&config.features?.cron_scheduling!==true?{reason:'cron_disabled'}:{})};
+      return {kind:tasks.some(t=>t.status==='doing')||repair.length?'continue':unavailable?'unavailable':'quiescent',tasks,repair_task_ids:repair,repairs,...(repair.length&&config.features?.cron_scheduling!==true?{reason:'cron_disabled'}:{})};
     } catch {return {kind:'unavailable',...empty,reason:'task_source_unavailable'};}
+  }
+  /** Re-read current own waiting references; deletion alone is not repair authority. */
+  async scheduleDeleted(intent:ScheduleDeletionIntent):Promise<void>{
+    for(const binding of this.options.store.bindings().filter(item=>item.agentId===intent.agentId&&this.options.store.bindingFor(item.agentId,item.conversationId)?.sessionId===item.sessionId)){
+      const snapshot=await this.snapshot({agentId:binding.agentId,ownerId:binding.ownerId,sessionId:binding.sessionId});
+      if(snapshot.kind==='unavailable')throw new Error('Current Task waiting references are unavailable');
+      if(!snapshot.repairs?.some(repair=>repair.schedule_id===intent.scheduleId))continue;
+      await this.options.runtime.request('session.ensure',binding);
+      await this.options.runtime.request('task.wait.repair',{agentId:binding.agentId,sessionId:binding.sessionId,inputId:intent.repairInputId+':'+binding.sessionId});
+    }
   }
   /** Resolve a Schedule only within the assignee's current product session scope. */
   async inspect(input:{agent_id:string;conversation_id:string;schedule_id:string}):Promise<TaskWaitInspection> {
@@ -62,7 +80,7 @@ export class TaskExecution {
     if(!config)throw new Error('Unknown task owner');
     const bindings=this.options.store.bindings().filter(b=>b.agentId===config.agentId&&this.options.store.bindingFor(b.agentId,b.conversationId)?.sessionId===b.sessionId);
     const binding=config.mode==='global'?bindings.find(b=>b.conversationId===`global:${config.agentId}`):bindings.find(b=>this.options.store.imConversation(b.agentId,b.conversationId)===input.conversation_id);
-    if(!binding)return {valid:false,checked_at:new Date().toISOString(),reason_code:'session_unbound'};
+    if(!binding)return {valid:false,checked_at:new Date().toISOString(),reason_code:'owner_or_session_mismatch'};
     return await this.options.runtime.request('schedule.wait.inspect',{agentId:config.agentId,sessionId:binding.sessionId,scheduleId:input.schedule_id}) as TaskWaitInspection;
   }
   /** Fence, drain, and atomically pause the host-attested human stop scope. */
@@ -73,18 +91,21 @@ export class TaskExecution {
   private async stopAdmitted(binding:SessionBinding,input:RelayInput):Promise<{wasRunning:boolean;paused:number}> {
     const id=`task-stop:${binding.agentId}:${input.message.id}`;
     const intent=this.options.store.control(id)??{id,binding,input,action:'task-stop',argument:''};
+    intent.stoppedAt??=new Date().toISOString();
     this.options.store.saveControl(intent);
     if(intent.text)return JSON.parse(intent.text);
     await this.options.runtime.request('task.execution.block',{sessionId:binding.sessionId,blocked:true});
     await this.options.runtime.request('session.ensure',(({conversationId,...value})=>value)(binding));
-    const cancelled=await this.options.runtime.request('session.cancel',{sessionId:binding.sessionId}) as {wasRunning:boolean};
+    const cancelled=await this.options.runtime.request('session.cancel',{sessionId:binding.sessionId,stoppedAt:intent.stoppedAt}) as {wasRunning:boolean};
     await this.options.drain(binding.sessionId);
-    const frame=await this.options.relay.request('task.execution.pause',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:this.scope(binding),request_id:randomUUID(),request_key:id});
+    const frame=await this.options.relay.request('task.execution.pause',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:this.scope(binding),request_id:randomUUID(),request_key:id,control_message_id:input.message.id});
     if(!frame.payload.ok)throw new Error('Stop is pending until Task state can be confirmed');
     const result={...cancelled,paused:Number((frame.payload.result as {paused:number}).paused)};
-    await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:`task-stop-notice:${binding.agentId}:${input.message.id}`,mode:'inject',
-      source:{kind:'system',actorId:input.message.sender_user_id,channel:'task-human-control',messageId:input.message.id},
-      content:[{type:'text',text:'Host-attested human stop. Inputs queued before this stop do not resume paused Tasks even when processed later. Only a new explicit human resume after this stop may resume them. Unrelated work may continue.\n'+JSON.stringify({action:'pause',actor_id:input.message.sender_user_id,message_id:input.message.id,created_at:input.message.created_at,scope:{agent_id:binding.agentId,conversation_id:this.scope(binding)??null},paused:result.paused})}]});
+    // The authority transaction created the real Task originals. Admit those same
+    // IDs passively; a parallel private summary would split their consumption.
+    const prepared=await this.options.context(binding);
+    if(prepared.unavailable)throw new Error('Task context synchronization unavailable');
+    await this.options.runtime.request('task.context.passive',{sessionId:binding.sessionId,agentId:binding.agentId,...prepared});
     intent.text=JSON.stringify(result);intent.delivered=true;this.options.store.saveControl(intent);
     await this.options.runtime.request('task.execution.block',{sessionId:binding.sessionId,blocked:false});
     return result;

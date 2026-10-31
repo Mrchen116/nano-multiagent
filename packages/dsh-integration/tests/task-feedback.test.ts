@@ -1,3 +1,4 @@
+import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -13,15 +14,15 @@ export const name='task-feedback-fixture';export const inject=['llm'];
 export function apply(ctx){let step=0;ctx.on('llm/stream',async function*(o){
  step++;await appendFile(process.env.DSH_HOME+'/calls',JSON.stringify(o.messages)+'\\n');
  const feedback=o.messages.findLast(m=>m.role==='user'&&m.source?.channel==='task-feedback');
- const data=feedback&&JSON.parse(feedback.content[0].text.split('\\n').at(-1));
+ const data=feedback&&JSON.parse(feedback.content[0].text.split('\\n').find(line=>line.startsWith('{')));
  let block;
  if(step<3)block={type:'tool-call',id:'apply-'+step,name:'task_graph',arguments:JSON.stringify({action:'apply',graph_id:'graph',base_revision:1,request_key:'change',change_note:'Verified current facts',operations:[{op:'update_task',node_id:'child',patch:{status:${JSON.stringify(status)},result:'Verified result'}}]})};
- else if(step===3&&data)block={type:'tool-call',id:'deliver',name:'send_message',arguments:JSON.stringify({target:data.feedback.conversation_id,text:JSON.stringify(data.feedback.tasks)})};
+ else if(step===3&&data)block={type:'tool-call',id:'deliver',name:'send_message',arguments:JSON.stringify({target:data.conversation_id,text:JSON.stringify(data.tasks)})};
  else block={type:'text',text:'The confirmed result was delivered to its original conversation.'};
  yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:block.type==='tool-call'?'tool-calls':'stop'}};
 });}`);
     await prepareProfile(home,[{insert:[{id:'task-feedback-fixture',name:join(home,'fixture.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     let applied=0,finished=false;
     const sent:unknown[]=[];
     const task={graph_id:'graph',node_id:'child',title:'Child',status:'doing',updated_at:'2026-10-23T15:00:00Z',revision:1,conversation:{id:'original-chat'},relative_url:'/tasks/graph'};

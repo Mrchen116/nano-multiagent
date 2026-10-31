@@ -47,21 +47,22 @@ export function projectCapabilities(
             : {}),
       })),
     ),
-    tools: catalog.tools.map((tool) => ({
+    tools: catalog.tools.filter(tool => tool.name !== 'memory').map((tool) => ({
       name: tool.name,
       description: tool.description,
       default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "create_goal", "get_goal", "update_goal"].includes(tool.name),
       ...(tool.source_group === "workspace" ? {source_group: tool.source_group, enabled: tool.enabled} : {}),
     })),
-    skills: catalog.skills.map((skill) => ({
+    skills: catalog.skills.filter(skill => skill.name !== 'skill-creator').map((skill) => ({
       name: skill.name,
       description: skill.description,
       location: skill.path,
       source_group: skill.source === "compat" ? "compatibility" : skill.source,
-      default_on: skill.source === "global",
+      default_on: skill.source === "global" || (skill.source === "builtin" && skill.name === "nano-memory"),
     })),
     fixed_tools: fixedTools(agent?.mode, agent?.personal ? 'personal' : 'root', catalog.tools.some(tool => tool.name === 'new_context')),
-    features: featureDependencies.map((feature) => {
+    memory_mode: agent?.knowledge?.memoryMode ?? 'document',
+    features: featureDependencies.filter(feature => feature.key !== 'dreaming' || agent?.knowledge?.memoryMode !== 'legacy').map((feature) => {
       const closure = featureClosure(Object.fromEntries(featureDependencies.map(item => [item.key, item.key === feature.key])));
       const available = featureDependencies.filter(item => closure[item.key]).every(item =>
         item.requires.tools.every(name => catalog.tools.some(tool => tool.name === name)) && item.requires.skills.every(name => catalog.skills.some(skill => skill.name === name)));

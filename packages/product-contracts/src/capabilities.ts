@@ -28,15 +28,14 @@ export interface CapabilityCatalog {
 export const featureDependencies: FeatureDependency[] = [
   {key: 'intelligent_ui', default_on: true, requires: {features: [], tools: ['send_message', 'skill'], skills: ['nano-interactive-ui']}},
   {key: 'task_graph', default_on: true, requires: {features: ['cron_scheduling'], tools: ['task_graph'], skills: []}},
-  {key: 'memory_curation', default_on: true, requires: {features: [], tools: ['memory', 'read'], skills: []}},
-  {key: 'skill_creation', default_on: true, requires: {features: [], tools: ['skill_manage', 'skill', 'read'], skills: []}},
+  {key: 'dreaming', default_on: true, requires: {features: [], tools: [], skills: []}},
   {key: 'cron_scheduling', default_on: false, requires: {features: [], tools: ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'], skills: []}},
   {key: 'heartbeat', default_on: false, requires: {features: [], tools: ['read'], skills: []}},
 ];
 
 /** Resolve declared defaults without repairing the submitted dependency graph. */
 export function effectiveFeatures(features: Record<string, boolean> = {}, definitions = featureDependencies): Record<string, boolean> {
-  return {...Object.fromEntries(definitions.map(feature => [feature.key, feature.default_on])), ...features};
+  return {...Object.fromEntries(definitions.map(feature => [feature.key, feature.default_on])), ...Object.fromEntries(Object.entries(features).filter(([key]) => definitions.some(feature => feature.key === key) || !['memory_curation', 'skill_creation'].includes(key)))};
 }
 
 /** Expand only Feature dependencies for a newly generated default selection. */

@@ -3,15 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('keeps tool-only schedules alive across restart and fences Cron shutdown against new schedules', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-cron-'));
   let client: RuntimeClient | undefined;
   const off = {intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false};
-  const agent = {agentId: 'a', workspace: home, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', features: off, toolAllowlist: ['schedule_create', 'task_graph', 'memory', 'skill_manage']};
+  const agent = {knowledge:{memoryMode:'legacy'}, agentId: 'a', workspace: home, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', features: off, toolAllowlist: ['schedule_create', 'task_graph', 'skill_manage', 'memory']};
   const binding = {sessionId: 'session-a', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home};
   const start = async () => {
     client = new RuntimeClient({home, cwd: home});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', {protocol: 1, agents: [agent], bindings: [binding]});
     await client.rpc.request('session.ensure', binding);
   };
@@ -30,15 +32,15 @@ export function apply(ctx) { const steps=new Map(); ctx.on('llm/stream', async f
 }); }`);
     await prepareProfile(home, [{insert:[{id:'tool-only',name:join(home,'fixture.mjs')}]}]); await start();
     const view = await client!.rpc.request('session.capabilities', {sessionId: binding.sessionId}) as {tools: string[]; prompt: {sections: {name: string}[]}};
-    expect(view.tools).toEqual(expect.arrayContaining(['schedule_create', 'task_graph', 'memory', 'skill_manage']));
+    expect(view.tools).toEqual(expect.arrayContaining(['schedule_create', 'task_graph', 'skill_manage', 'memory']));
     expect(view.tools).not.toContain('schedule_list');
     expect(JSON.stringify(view.prompt)).not.toContain('nano-cron');
     expect(JSON.stringify(view.prompt)).not.toContain('nano-task-graphs');
-    expect(JSON.stringify(view.prompt)).not.toContain('nano-skill-creation');
+    expect(JSON.stringify(view.prompt)).toContain('built-in skill-creator');
     await client!.rpc.request('session.submit', {sessionId: binding.sessionId, inputId: 'tool-only', mode: 'followup', content: [{type:'text',text:'Call the three selected tools'}], source:{kind:'human',actorId:'owner',channel:'test',messageId:'tool-only'}});
     await expect.poll(async () => (await client!.rpc.request('schedule.command', {agentId:'a',action:'catalog'}) as unknown[]).length).toBe(1);
     const [task] = await client!.rpc.request('schedule.command', {agentId:'a',action:'catalog'}) as {id:string}[];
-    expect(await readFile(join(home,'.nanoassistant/memory/MEMORY.md'),'utf8')).toContain('Environment fact');
+    expect(await readFile(join(home,'.nanoassistant/memory-legacy/MEMORY.md'),'utf8')).toContain('Environment fact');
     expect(await readFile(join(home,'.nanoassistant/skills/tool-only-method/SKILL.md'),'utf8')).toContain('Check the result');
     expect(await client!.rpc.request('knowledge.facts', {})).toMatchObject({reviews: []});
     await expect.poll(async () => await client!.rpc.request('schedule.evidence', {sessionId: binding.sessionId}), {timeout: 6000}).toEqual(expect.arrayContaining([expect.objectContaining({scheduleId: task!.id, accepted: true})]));
@@ -84,12 +86,14 @@ it('recovers admitted schedule identity when the process dies before the timer r
     }`);
     await prepareProfile(home, [{ insert: [{ id: 'flush-fault', name: fault }] }]);
     client = new RuntimeClient({ home, cwd: home });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents: [agent], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
     const task = await client.rpc.request('schedule.command', { agentId: 'gap', sessionId: binding.sessionId, action: 'create', args: { title: 'gap', prompt: 'gap', after_seconds: 1 } }) as { id: string };
     expect((await client.exited).signal).toBe('SIGKILL'); client = undefined;
     await prepareProfile(home); agent.features.cron_scheduling = false;
     client = new RuntimeClient({ home, cwd: home });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents: [agent], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
     const catalog = await client.rpc.request('schedule.command', { agentId: 'gap', action: 'catalog' });

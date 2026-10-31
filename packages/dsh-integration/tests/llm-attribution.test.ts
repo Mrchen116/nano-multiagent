@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it('preserves native Skill-fork wire prefixes, enforces execution-only limits and groups concurrent roots', async () => {
+it('preserves legacy Memory-fork wire prefixes, enforces execution-only limits and groups concurrent roots', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-attribution-'));
   const requests: { root: string; session: string; body: any; path: string }[] = [];
   const server = createServer(async (req, res) => {
@@ -31,10 +32,11 @@ it('preserves native Skill-fork wire prefixes, enforces execution-only limits an
   try {
     const port = (server.address() as { port: number }).port;
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'anthropic-messages', baseURL: `http://127.0.0.1:${port}`, apiKeyEnv: 'NANO_TEST_KEY', headers: { 'x-session-id': 'stale-static-id' }, models: [{ id: 'fixture', contextWindow: 100000 }], retryPolicy: { mode: 'normal', maxRetries: 0 } } } } }]);
-    const agents = ['a', 'b'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'fixture', systemPrompt: `Parent persona ${agentId}: preserve this exact prefix.`, features: { memory_curation: false, skill_creation: true }, knowledge: { skillInterval: 1 }, toolAllowlist: ['skill_manage', 'skill', 'write'], approval: { dangerouslySkipPermissions: true } }));
+    const agents = ['a', 'b'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'fixture', systemPrompt: `Parent persona ${agentId}: preserve this exact prefix.`, features: { memory_curation: true, skill_creation: true }, knowledge: { memoryMode: 'legacy', legacyMemory: {enabled:true,interval:1}, skillInterval: 1 }, toolAllowlist: ['read', 'memory', 'skill_manage', 'skill', 'write'], approval: { dangerouslySkipPermissions: true } }));
     const bindings = agents.map(agent => ({ sessionId: `global-${agent.agentId}`, agentId: agent.agentId, revision: '1', ownerId: 'owner', cwd: join(home, agent.agentId) }));
     for (const binding of bindings) await mkdir(binding.cwd);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents, bindings });
     for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     await Promise.all(bindings.map(binding => client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: binding.sessionId, mode: 'followup', content: [{ type: 'text', text: `Inspect skills for ${binding.sessionId}` }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: binding.sessionId } })));

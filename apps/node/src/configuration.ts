@@ -1,4 +1,5 @@
-import {validateCapabilities} from '@nano/product-contracts/capabilities';
+import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
+import {builtinSkillsRoot} from '@nano/personal-assistant';
 import { readFileSync } from 'node:fs';
 import { readFile, open, rename, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -8,7 +9,7 @@ import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
 import { defaultReasoning } from './providers.js';
 import { readApproval } from './approval.js';
-import { canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
+import { normalizeKnowledge, canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
 
 export interface LocalAgent extends Record<string, unknown> {
   agent_id: string; workspace_root: string; work_mode?: 'single_thread' | 'global';
@@ -36,7 +37,12 @@ export class NodeConfiguration {
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
   static async read(path: string) {
     const value=load(await readFile(path,'utf8')) as NodeConfigurationFile;const config=new NodeConfiguration(path,value);
-    for(const agent of value.agents){agent.workspace_root=resolve(agent.workspace_root??config.defaultWorkspace(agent.agent_id));await mkdir(agent.workspace_root,{recursive:true});}
+    for (const agent of value.agents) {
+      agent.workspace_root=resolve(agent.workspace_root??config.defaultWorkspace(agent.agent_id));
+      await mkdir(agent.workspace_root,{recursive:true});
+      agent.knowledge=normalizeKnowledge(agent.knowledge, agent.features, config.evolution(agent.workspace_root));
+      agent.features={dreaming:true,...canonicalAgentConfiguration(agent).features};
+    }
     return config;
   }
   /** Resolve both the advertised template and new Agent workspaces on this node. */
@@ -58,6 +64,10 @@ export class NodeConfiguration {
     if (!this.policies.has(workspace)) this.policies.set(workspace, readApproval(this.ownerRoot, workspace));
     return { ...this.policies.get(workspace)! };
   }
+  private evolution(workspace: string): Record<string, unknown> {
+    try { return (load(readFileSync(join(workspace, '.nanoassistant', 'config.yaml'), 'utf8')) as {self_evolution?: Record<string, unknown>})?.self_evolution ?? {}; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return {}; }
+  }
   runtime(agent: LocalAgent | CanonicalAgentConfiguration): AgentConfiguration {
     const model = agent.default_model || this.value.llm.default_model;
     const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
@@ -70,15 +80,13 @@ export class NodeConfiguration {
     const workspace = agent.workspace_root!;
     const approval = this.inheritedApproval(workspace);
     if (canonical.approval_mode !== null) approval.rules = canonical.approval_mode === 'cc' ? 'nano' : 'codex';
-    let evolution: Record<string, unknown> = {};
-    try { evolution = (load(readFileSync(join(workspace, '.nanoassistant', 'config.yaml'), 'utf8')) as { self_evolution?: Record<string, unknown> })?.self_evolution ?? {}; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    const evolution = this.evolution(workspace);
     if (this.value.llm.tool_approval_model) {
       const reviewer = this.value.llm.providers.find(provider => provider.models.some(model => model.name === this.value.llm.tool_approval_model));
       if (!reviewer) throw new Error(`llm.tool_approval_model is not registered: ${this.value.llm.tool_approval_model}`);
       approval.reviewer = { provider: reviewer.name, model: reviewer.models.find(model => model.name === this.value.llm.tool_approval_model)!.id ?? this.value.llm.tool_approval_model };
     }
-    return { agentId: agent.agent_id, workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
+    return { agentId: agent.agent_id, displayName: String(('title' in agent ? agent.title : undefined) ?? agent.display_name ?? agent.agent_id), workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       ...(canonical.personal_agent ? {personal: canonical.personal_agent} : {}),
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
@@ -89,11 +97,9 @@ export class NodeConfiguration {
         const effort = defaultReasoning(selected);
         return { provider: provider.name, model: selected.id ?? model, ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}) };
       }),
-      features: agent.features, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
+      features: {dreaming:true,...canonical.features}, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
       workflow: {sizeGuideline: String(this.value.agents.find(item=>item.agent_id===agent.agent_id)?.workflow_size_guideline ?? 'medium')},
-      approval, knowledge: { globalSkillRoot: join(this.ownerRoot, 'skills'), enabled: evolution.enabled !== false,
-        memoryInterval: evolution.memory_curation === false ? 0 : Number(evolution.memory_nudge_interval ?? 10),
-        skillInterval: evolution.skill_creation === false ? 0 : Number(evolution.skill_nudge_interval ?? 10) },
+      approval, knowledge: { ...normalizeKnowledge(this.value.agents.find(item => item.agent_id === agent.agent_id)?.knowledge, this.value.agents.find(item => item.agent_id === agent.agent_id)?.features ?? agent.features, evolution), globalSkillRoot: join(this.ownerRoot, 'skills') },
       toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,
       extensions: { global: join(this.ownerRoot, 'plugins.json'), workspace: join(agent.workspace_root!, '.nanoassistant', 'plugins.json') },
       skillSelection: { mode: canonical.skills_selection_mode === 'explicit_denylist' ? 'explicit_denylist' : canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
@@ -102,6 +108,7 @@ export class NodeConfiguration {
         { path: join(this.ownerRoot, 'skills'), source: 'global' },
         { path: join(homedir(), '.agents', 'skills'), source: 'global' },
         ...['.claude', '.codex'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'compat' })),
+        {path:builtinSkillsRoot, source:'builtin'},
       ],
     };
   }
@@ -115,7 +122,8 @@ export class NodeConfiguration {
     if (previous && previous.work_mode !== candidate.work_mode) throw new Error('Work mode is immutable');
     const workspace = candidate.workspace_root || previous?.workspace_root || this.defaultWorkspace(candidate.agent_id);
     if (previous?.work_mode === 'global' && resolve(workspace) !== resolve(previous.workspace_root!)) throw new Error('Global Agent workspace is immutable');
-    const invalid = validateCapabilities(candidate);
+    const legacy = this.runtime({...candidate, workspace_root:workspace}).knowledge?.memoryMode === 'legacy';
+    const invalid = validateCapabilities(candidate, {features: featureDependencies.filter(feature => feature.key !== 'dreaming' || !legacy)});
     if (invalid.length) throw Object.assign(new Error('Invalid capability dependencies'), {error_code: 'invalid_capability_dependencies', blocks: invalid});
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);

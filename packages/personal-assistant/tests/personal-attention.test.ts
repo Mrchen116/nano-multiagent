@@ -28,7 +28,7 @@ function fixture(onObserve?: () => void) {
     }},
     relay:{ready:true,request:async(type,args:any)=>{
       if(type==='agent.work.append')return {type:'ack',payload:{through_seq:args.events.at(-1).seq}};
-      const result=type==='pa.source.admit'?source(args.conversation_id):type==='pa.observations.read'?{items:observations.splice(0)}:type==='pa.sources'?{items:['own','group','background'].map(id=>({id,excluded:excluded.has(id)}))}:type==='conversation.query'?{name:'Chat',conversations:[]} : {};
+      const result=type==='pa.source.admit'?source(args.conversation_id):type==='pa.observations.read'?{items:observations.splice(0)}:type==='pa.sources'?{policy:{revision:1},items:['own','group','background'].map(id=>({id,excluded:excluded.has(id)}))}:type==='conversation.query'?{name:'Chat',conversations:[]} : {};
       return {type:'ack',payload:{ok:true,result}};
     }}});
   const input=(id:string,target='background',metadata:Record<string,unknown>={}):RelayInput=>({agent_id:'pa',conversation_id:target,relay_task_id:id,idempotency_key:id,metadata,
@@ -151,4 +151,23 @@ it('treats a non-owner participant stop as ordinary input without reserving a bl
   await Promise.race([f.product.receive(input),new Promise((_,reject)=>setTimeout(()=>reject(Error('peer control blocked Inbox')),300))]);
   expect(f.methods).not.toContain('session.cancel');expect(f.inbox.pendingControls()).toEqual([]);expect(f.submitted).toHaveLength(1);expect(f.inbox.check('pa',true).sources[0]?.unread).toBe(1);
  }finally{await f.close();}
+});
+
+
+it('delivers source withdrawal as a stop-use constraint with Dreaming-owned document repair',async()=>{
+  const f=fixture();
+  try {
+    f.excluded.add('background');
+    f.observations.push({event_id:1,kind:'source.revoked',conversation_id:'background',payload:{conversation_id:'background'}});
+    await f.product.recoverPersonalObservations();
+    const event=f.submitted.find(item=>item.source.channel==='personal-state');
+    expect(event).toMatchObject({source:{kind:'system'}});
+    const text=event!.content[0].text;
+    expect(text).toContain('stop using old copies');
+    expect(text).toContain('Only Dreaming');
+    expect(text).toContain('original running children');
+    expect(text).not.toContain('checkpoint');
+    expect(text).not.toContain('Dreaming does not perform');
+    expect(f.errors).toEqual([]);
+  }finally{await f.close();}
 });
