@@ -12,6 +12,7 @@ import { AgentLifecycles } from '../src/agent-lifecycle.js';
 import { all, one, transaction, type ImContext } from '../src/context.js';
 import { openDatabase } from '../src/db.js';
 import { captureTaskContextAccess, revokeLostTaskContextAccess } from '../src/task-context-access.js';
+import { TaskGraphService } from '../src/task-graphs.js';
 
 const apps:ReturnType<typeof Fastify>[]=[];
 afterEach(async()=>{for(const app of apps.splice(0))await app.close();});
@@ -52,6 +53,27 @@ it('records one new withdrawal for actual member loss, revalidates before the fi
   expect(f.service.syncTaskContext('a',0,undefined,32).items[0].allowed).toBe(false);
   const fresh=original(f.ctx,'chat','a','Newly authorized Task');
   expect(f.service.syncTaskContext('a',0,undefined,32).items.find((item:any)=>item.message_id===fresh.id).allowed).toBe(true);
+});
+
+it('keeps the affected member and Task visible to remaining members but sends only the same-ID minimal withdrawal to the removed Agent',async()=>{
+  const f=messaging(),tasks=new TaskGraphService(f.db,f.service);
+  const graph=tasks.execute({kind:'user',id:'u1'},'create',{title:'PRIVATE publication Task',mode:'dag',conversation_id:'chat',request_key:'create',assignee:{type:'agent',id:'a'}});
+  const cut=f.service.syncTaskContext('a',0,undefined,32);
+  const published=vi.spyOn(f.service,'publishMessages');
+  expect((await f.app.inject({method:'DELETE',url:'/im/v1/conversations/chat/participants/a1'})).statusCode).toBe(204);
+  const row=revoked(f.ctx)[0],visible=f.service.message(row.message_id);
+  expect(visible.content).toContain('Agent');
+  expect(visible.content).toContain('PRIVATE publication Task');
+  expect(visible.content).toContain('/tasks/'+graph.graph_id);
+  expect(visible.system_notice).toMatchObject({task_refs:[{graph_id:graph.graph_id,node_id:'n1'}]});
+  expect(published.mock.calls.flatMap(call=>call[0]).find(message=>message.id===visible.id)?.content).toBe(visible.content);
+  const projected=f.service.syncTaskContext('a',cut.through,undefined,32).items[0];
+  minimal(projected);
+  expect(projected.input.message.id).toBe(visible.id);
+  expect(projected.input.message.system_notice.task_refs).toBeUndefined();
+  const relay=JSON.parse(one(f.db,'SELECT payload_json FROM relay_tasks WHERE message_id=?',visible.id)!.payload_json);
+  expect(relay.message).toEqual(projected.input.message);
+  expect(JSON.stringify(relay)).not.toContain('PRIVATE publication Task');
 });
 
 it('rolls the authority mutation back if its minimal original cannot be persisted',async()=>{

@@ -591,7 +591,7 @@ ${CONTROL_JSON}
 最小撤销投影**替代**完整投影，不同时拼 EVENT_JSON：
 
 ```text
-Your access or handling eligibility for the identified conversation or Tasks was revoked. Stop further actions that require that eligibility. Do not read or disclose content you can no longer access. Continue unrelated authorized work. This notice grants no permission and does not erase already consumed history.
+Your access or handling eligibility for the identified conversation or Tasks was revoked at event_time. Stop actions that require missing eligibility, and do not read or disclose content you can no longer access. On a later independently authorized request, check current permissions through available tools and use their current verified access facts instead of treating this historical loss as permanent. Restored access alone does not resume paused Tasks or authorize previously denied actions. Continue unrelated authorized work. This notice grants no permission and does not erase already consumed history.
 ${REVOKED_JSON}
 ```
 

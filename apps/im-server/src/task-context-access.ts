@@ -8,6 +8,7 @@ import { agentAvailable } from './identity.js';
 interface TaskSource {agent_id:string;conversation_id:string}
 interface Scope {agentIds?:readonly string[];conversationIds?:readonly string[]}
 const withdrawal = '任务处理资格已撤销；此通知不授予读取原聊天或继续原任务的权限。';
+const escape = (value:string) => value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replace(/[\[\]()*_`]/g,'\\$&');
 
 /** Resolve the PA's existing owner/Agent access union without granting historical membership.
  * Args:
@@ -109,7 +110,7 @@ export function taskContextRevocation(db:DatabaseSync,messageId:string):ChatMess
  *   actorUserId: Persisted authenticated operator, also used by the visible chat original.
  *   actorType: Operator provenance; withdrawal never confers human tool authorization.
  * Returns:
- *   Minimal originals whose chats still exist, for optional post-commit publication.
+ *   Visible originals whose chats still exist, for post-commit publication to current members.
  * Raises:
  *   Error: If called outside the authority mutation transaction.
  */
@@ -123,14 +124,25 @@ export function revokeLostTaskContextAccess(db:DatabaseSync,before:readonly Task
     const message=taskContextRevocation(db,id)!;
     const conversation=one(db,'SELECT type,dissolved_at FROM conversations WHERE id=?',conversationId);
     if(conversation) {
-      // This is a new restricted business original, not an archive of the withdrawn Task body.
+      const agentIds=lost.filter(source=>source.conversation_id===conversationId).map(source=>source.agent_id);
+      const names=agentIds.map(agentId=>escape(one(db,'SELECT display_name FROM agent_profiles WHERE agent_id=?',agentId)?.display_name??agentId)+'（'+escape(agentId)+'）');
+      const affected=all(db,'SELECT graph_id,document_json FROM task_graphs WHERE conversation_id=?',conversationId).flatMap(row=>{
+        const doc=JSON.parse(row.document_json);
+        return (doc.nodes??[]).filter((node:Row)=>node.assignee?.type==='agent'&&agentIds.includes(node.assignee.id))
+          .map((node:Row)=>({graph_id:row.graph_id,node_id:node.id,title:node.title,scope:node.container_id??doc.root_node_id}));
+      });
+      const content=names.join('、')+' 的'+withdrawal+(affected.length?' 受影响任务：'+affected.map(task=>'['+escape(task.title)+'](/tasks/'+task.graph_id+'?scope='+task.scope+'&node='+task.node_id+')').join('、')+'。':'');
+      // Current members see the business fact; the same-ID revoked projection
+      // below never copies these names, titles or links into a lost source.
+      const visible={...message,content,system_notice:{...(message.system_notice as Row),
+        ...(affected.length?{task_refs:affected.map(({graph_id,node_id})=>({graph_id,node_id}))}:{})}};
       db.prepare("INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,attachments_json,delivery_status,created_at,system_notice_json) VALUES(?,?,?,'system',?,'[]','completed',?,?)")
-        .run(id,conversationId,actorUserId,withdrawal,at,JSON.stringify(message.system_notice));
-      db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(withdrawal,at,conversationId);
+        .run(id,conversationId,actorUserId,content,at,JSON.stringify(visible.system_notice));
+      db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(content,at,conversationId);
       db.prepare('UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?').run(conversationId,actorUserId);
       db.prepare("INSERT INTO conversation_events(conversation_id,message_id,event_type,delivery_status,payload_json,created_at) VALUES(?,?,'message.created','completed',?,?)")
-        .run(conversationId,id,JSON.stringify({...message,message_id:id}),at);
-      messages.push(message);
+        .run(conversationId,id,JSON.stringify({...visible,message_id:id}),at);
+      messages.push(visible);
     }
     for(const source of lost.filter(source=>source.conversation_id===conversationId)) {
       db.prepare("INSERT INTO task_context_index(agent_id,message_id,conversation_id,projection_kind) VALUES(?,?,?,'revoked')").run(source.agent_id,id,conversationId);
