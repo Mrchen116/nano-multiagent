@@ -489,3 +489,58 @@ R3-W1、R3-W2、R3-W3 均在设计层关闭，没有新增实质问题。当前�
 ### Recommendations
 
 无额外可选建议。停止扩大复审范围，按上述有界反例验证实际文案修复。
+
+
+## Round 8
+
+### Metadata
+
+- reviewer_target: `/root/refactor_679_design_review`（原独立 reviewer，继承调用方模型）
+- review_mode: `delta`
+- mode_reason: 用户明确在本 unit 内继续修复验收发现的初始上下文问题。本轮展开身份、Task 限制相关性/去重、记忆来源包装和 Dreaming 前后台解耦这组有界增量及实际消费者；不重新审查未变的 Task 协作、投递、停止或 Memory 存储协议。
+- started_at: `2026-10-31T17:14:21+08:00`
+- completed_at: `2026-10-31T17:18:14+08:00`
+- duration: `PT233S`
+- checkout: `/Users/czj/.codex/worktrees/refactor-679-memory/nano-multiagent`，`codex/refactor-679-context-followup`，HEAD `5e5d3fcc801c6ad766910b126a10ee25076627a9`（Memory 基线已包含先前交付）。
+- frozen_scope: `motivation.md:332-366` 用户验收补充、`design.md:790-861` 用户验收修复及 `:696` 的旧 D9 替代标记、两份 Gateway delta 新增段。unit 从 archive 移回 active 的已暂存移动保留；reviewer 不改暂存区。
+- design_sha256: `ad51116e099a8d4b0c2503530deee12b5f6976426cfb82ae123197daaf210bab`
+- motivation_sha256: `6ef8caa9c27d635c37a2d0fa993a498c333ba95f21ded149cac0f84a5f05104f`
+- gateway_capabilities_delta_sha256: `0ab9b33571205eb88d6e2c4854dd25719b7d3451d8c4e0b81f1183657b6ec052`
+- gateway_task_delta_sha256: `d6dd5befb0121c7064c12282f5b99d141afb9ccb975810da31b7402e40ac2077`
+- boundary: 只读文档、当前实际组装/运行入口、锁定依赖公开接口及安装包渲染代码；仅追加本报告。未修改设计/实现、未运行模型或测试、未启动服务、未发布依赖、未提交/合并/部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+方案覆盖本次用户指出的问题，可以复用现有配置、原生可见消息记录、Task 原文准备和独立 Dreaming 执行边界实施。批准的是设计；本轮明确要求的隔离 daily Global/PA 完整真实首轮输入与实际回复仍须在实现后验收，历史通过或字符串测试不能替代。
+
+### Coverage 与证据
+
+- **用户范围与契约**：`motivation.md:332-366` 保留“不新建 unit”“原生的不改”及完整初始上下文/实际运行要求；`design.md:794,817,853-861` 对应继续 M1、只删除自有插件 UUID 名称行、保留原生 snapshot 开场以及独立真栈验证。Gateway capabilities delta `:31-39` 覆盖身份、关键记忆来源、后台自身能力，Task delta `:70-74` 覆盖无对象不提示、有对象及可见性去重。旧 D9 已明确被新条件及文本取代，不再保留两个并行触发标准。新增项落在正确 canonical areas，没有修改既有 Scenario 或扩大 Task/Memory 权限。
+- **产品身份及更新**：`apps/node/src/configuration.ts:50-52,87-90` 已持有规范显示名且将其纳入配置代际，但当前 runtime payload 未携带显示名；两份 `AgentConfiguration` 增加可省略的 `displayName` 是现有链路的直接补齐。`agent-config.ts:116-127,129-144,164-176` 在真实 Agent scope 组装并更新有效配置，适合提供 `design.md:800-815` 的根/child 两种宿主身份段。显示名与 ID 用 JSON 字符串表示，child 说明所属产品主体，未将其表述为 PA owner 或新授权；改名沿当前配置应用时点、换窗重新组装，不要求改写 custom_prompt 或历史。
+- **窗口名称落点**：锁定 `dsh-agent-context@0.3.0-rc.6` 安装包 `lib/checkpoint.js:8,19` 确实在 checkpoint 和首窗导航将传入执行 ID 写为 `Agent name`；同文件的窗口 ID 独立生成。包元数据指向自有仓库，当前锁使用固定 release tarball。`design.md:817` 限定在自有源码移除名称行/无用参数、发布新的不可覆盖版本并更新锁，保留 notes/history 的会话隔离、窗口 ID 和 DSH 原生运行快照，未要求 patch node_modules、private import 或改 DSH 内核。此处只核实已有包的真实落点，未发布或验证新包。
+- **Task 限制的相关性与准入**：当前 `task-execution.ts:135-139` 在 unavailable 时无条件追加含每步时间的 D9；`personal-assistant/src/task-context.ts:66-81` 失败只返回 unavailable，成功才按 Global/SingleThread 作用域筛原文。新设计 `:821-828` 将故障提示限定为最近核实的本人 doing/waiting 或当前待消费原文，并要求失败结果仅携带可信定位、SingleThread 过滤所属聊天。没有对象时保持安静，实际调用失败留在工具结果中；未核实原文、自动续跑和工具操作仍受宿主拦截。关闭 Feature、无 Task 的普通输入因此不会仅因内部同步失败被塞入无关故障说明，亦未借减少提示放行旧事实。
+- **去重和恢复的可实施性**：`design.md:830` 以排序后的 reason/task/input 引用定义同一限制，去掉 checked_at 噪声；只在当前模型可见且没有较新 Task 事实/成功工具结果时抑制重复。锁定 `dsh-session` 公开 `Session.surface` 和 `SessionSurface.nodes` 提供当前可见事件序列；本仓 `context-visibility.ts:15-29` 已沿该接口处理 child 继承的 root-only Task 包。故可复用原生记录判断可见性，无需新增数据库或进程内“已提醒”真相源；旧限制离开窗口后仍适用时可重新提供，重建本身不构成变化。保留 task-only 拒绝及无热循环，不能把持久日志里曾有记录等同当前可见。
+- **一页关键记忆与来源保真**：当前 `knowledge/document-memory.ts:39-49` 确实无条件包含 Backup navigation、按前台工具目录生成缺工具提示，以及无具体 MEMORY.md 路径的 Current entry。`memory-documents.ts:149-157` 已按资格/版本提供有效 entry 或准确失效原因，`document-memory.ts:73-84` 固定主体目录。新包装 `design.md:834-845` 直接标明绝对目录、完整文件路径、一页关键记忆用途及正文边界，详细页面按需获取；保留角色、来源失效、更正、只读、唯一写者和真实保存回执。删除常驻备份/缺工具信息不删除备份或显式 importLegacy 入口，后台 manifest 的实际旧备份路径仍由宿主生成。Skill 与 Dreaming 原有入口说明需同步核对已列为实施范围，无需新增索引服务或更改库归属。
+- **Dreaming 独立能力及生命周期**：`knowledge/dreaming.ts:116-123` 当前在自动/手动共用启动处检查 parent 的四个前台工具，正是本轮要删除的耦合；`:93-108,118-120,137-139` 已分别控制自动开关、时机、维护 hold、模式、并发和来源刷新。`dreaming-agent.ts:32-62,73-92` 从 host 创建独立空输入执行、限定自身工具和暂存目录、逐工具核来源与路径；没有通过普通根工具目录决定写暂存副本的必要性。公共 Agent factory 将调用方 scope 作为创建 owner，`parentAgent` 负责运行归属；Nano 的 `agent/created` 仅为 nano preset 挂普通配置。`design.md:847` 仅移除前台可见性前置，保留实际后台初始化/执行失败、手动工具选择、关闭、来源、预算和保存校验，不暗中启用前台写工具或引入第二写者。受限后台读写仍须由实际 native 测试验证，不能凭删除三行检查就报告维护成功。
+- **验证与交付**：`design.md:853-857` 对身份改名/child/换窗、Task 有无对象/连续步骤/重建/恢复、Memory 有效与失效/legacy、Dreaming 前台缺工具及实际权限负例分别给出最低有效保护。最终必须在隔离 daily 真栈分别运行 Global、PA 的自然首次请求，保留完整 System/messages/tools、实际回复、模型配置和原生/provider locator，不能只检查单段文本或 stub。`:859` 明确新隔离目录、保留用户正在查看的旧预览、无生产消息/Task。没有新客户端布局或一次性数据迁移，无需新原型或 deployment-prompt。本轮仅执行受审文档 `git diff --check`，通过；未执行上述实施验收。
+
+### Agent Context Review — Mode A
+
+本轮实际覆盖三条消费链：Node 配置→产品身份/窗口导航→根和普通 child；Task 准备/快照→对象集合→原生可见限制→后续步骤/重建/换窗；有效文档入口→前台一页记忆及按需目录→独立后台维护。身份由宿主给出，故障信息按当前工作相关性选择，持久记录和当前可见性分开；后台工具能力与前台展示分开，但不改变来源和写入权限。新增文案、宿主数据来源与下一步动作闭合，实际交付和模型行为留在已明确的 M1 退出标准。
+
+### 历史问题闭环与 retained 范围
+
+- `retained_from: Round 2/4/5`：本轮未改变 Task 消息事务、原文准入/撤销、认证控制、Schedule 业务语义、审批消费者和 Memory 固定主体/唯一写者。仅原 D9 触发与常驻 Memory 展示、前台工具对后台启动的耦合由本轮覆盖。
+- `retained_from: Round 6`：来源准备前移到 assembly、pre-step 候选处理与消费证据边界未变，本轮增加失败结果的对象定位及提示选择。
+- `retained_from: Round 7`：历史撤销与当前权限的时态说明未变；本轮故障提示去重不把已知历史事实变成永久权限判定。
+- 本轮为新的用户验收设计补充；既有产品报告作为历史保留，不声称本次问题已修复或重新验收。没有需由本轮关闭的历史设计 WARNING。
+
+### Issues
+
+无新增 CRITICAL / WARNING。
+
+### Recommendations
+
+无额外可选建议。按已明确的有界实现和真实初始输入/回复验收推进，不扩展新平台或追加假设性机制。

@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-10-31 (M1 验收修复): 用户要求在本 unit 继续修正初始身份、Task 无关故障、文档记忆来源与 Dreaming 前台依赖；本轮设计见末尾“用户验收修复”。
+
 ## 现状分析
 
 ### 涉及范围
@@ -691,7 +693,7 @@ Current Task facts or the identified source permissions cannot be verified. Do n
 ${LIMIT_JSON}
 ```
 
-此模板用于允许独立输入继续的步骤；不能用它把失权正文附在后面，也不为单独报错制造模型热循环。
+此模板为首轮历史版本，已由末尾“用户验收修复”的相关性条件与限定对象模板替代；不再仅凭同步 unavailable 注入。
 
 ### D10 — 已核实的 Cron 关闭限制
 
@@ -783,3 +785,77 @@ M1 W1/W2 增加定稿对照：覆盖三类工作消费者及 PA/Feature 分支�
 - 真实模型至少覆盖正常问答不建 Task、正文更新后读取最新要求并继续、删除安排后区分两类通知并修复、跨聊天交付不重复，以及 PA 观察不越权。给正常任务目标，不暗塞工具参数或期望答案。
 - 捕获首次、运行中变化、离线恢复及一次实际换窗／摘要模式中的最终 provider 请求；同时观察后续工具选择和产品事实。单段字符串断言、轨迹显示或消息入库均不能独立证明完整消费成功。
 - 不要求全量模型矩阵、token 降幅或生产功能测试；验证失败按具体证据修复，不追逐假设边界。
+
+
+## 用户验收修复（2026-10-31，覆盖原 D9 与初始信息保留范围）
+
+### 基线与范围
+
+Memory `unit/feat-676@5e5d3fcc8` 已包含第一次交付。用户查看真实 daily-product 首次请求发现：宿主缺显示名/ID；自有插件把会话 ID 当名称；D9 没有对象判断；Memory 无条件显示备份和前台缺工具；正文无路径；后台 Dreaming 入口检查前台四个工具。此次继续 M1，不新增 unit、通用 Prompt 平台、业务数据迁移或第二套持久状态。
+
+相关实现：`apps/node/src/configuration.ts`，product-contracts 和 integration 的 `AgentConfiguration`，`agent-config.ts`，`task-context.ts`/`task-execution.ts`，`knowledge/document-memory.ts`/`dreaming.ts`，自有 `dsh-agent-context` 的 checkpoint 渲染。复用配置代际、原生 Session/可见 surface、原 Task 原文准备与消费机制、后台独立受限工具和文件提交边界。
+
+### 身份与窗口
+
+Node 将规范配置的显示名传为 `displayName`（缺省为产品 agentId；测试/内部调用可省略），integration 通过已绑定配置生成独立身份段。根提示为：
+
+```text
+Your Agent name: ${DISPLAY_NAME}
+Your Agent ID: ${AGENT_ID}
+```
+
+值作为 JSON 字符串转义，不解释其中指令。内部 child 为：
+
+```text
+You are an internal subagent of this product Agent:
+Agent name: ${DISPLAY_NAME}
+Agent ID: ${AGENT_ID}
+```
+
+正文从本轮有效配置读取，沿已有 idle 配置提交机制更新；不回填用户 custom_prompt。身份段是宿主事实，不授予代表主人权限或公开发送能力，PA/child 规则仍由原 owner 负责。正常换窗仍重组此段。
+
+自有 dsh-agent-context 源码删除首窗/换窗 checkpoint 的 `Agent name` 行及无用参数，发布不可覆盖的新固定包并更新依赖锁。窗口 ID、Notes/History 的会话隔离、内部执行 ID 与 DSH 原生快照开场保持原样；不修改 node_modules 或 DSH 内核。
+
+### 有影响的 Task 限制
+
+内部同步、查询、自动续跑拦截和 Task 工具拒绝照常进行。显示限制前求最小对象集合：本 Agent 最近成功核实且仍 doing/waiting 的 Task（或 unavailable 快照仍明确带出的 Task），以及本作用域内当前待消费的 Task 原文。PA 的 prepare 失败结果附本地待消费原文的 inputId/conversationId；只给定位，不带未经核实正文，SingleThread 按所属聊天过滤。
+
+没有上述对象时不追加限制，实际 Task 工具失败照常返回具体错误。有对象时使用：
+
+```text
+Verification is unavailable for the Task references or queued Task inputs listed below. Recheck their current facts and access before acting on them; queued input content has not been delivered. This does not complete or pause a Task. Independently authorized work can continue.
+${LIMIT_JSON}
+```
+
+`LIMIT_JSON` 只含 reason_code、task_refs（graph_id/node_id）、input_refs（input_id/conversation_id），集合排序去重，不用每步时间戳制造变化。同一限制在当前原生 surface 已可见、且没有较新的 Task 事实或成功 Task 工具结果时，不再次插入；原生换窗移走旧限制后，仍适用的限制可重新提供。以 native Session 的真实可见记录判断，不以进程对象重建作为消息变化，不新增持久表。Task-only 候选仍可拒绝且不产生模型热循环。
+
+### 一页关键记忆与后台维护
+
+有效记忆使用以下来源/内容包装，原有角色、来源失效、更正即时适用、前台只读、Dreaming 唯一写者与真实回执规则保留：
+
+```text
+Memory directory: ${ABSOLUTE_ROOT}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.
+
+Contents of ${ABSOLUTE_ROOT}/MEMORY.md — your one-page key memory:
+<memory_content>
+${ENTRY}
+</memory_content>
+```
+
+目录/文件路径由宿主提供。`MEMORY.md` 不是仅有索引；Skill 与 Dreaming 中相关表述同步核对，详细页面仍按需读取。日常 context 删除备份导航和缺工具清单；现有显式 importLegacy 请求及备份文件不变，维护任务从既有 manifest 获得实际备份路径。
+
+Dreaming.start 不再检查 parent 的 read/write/edit/memory_maintenance 是否可见。自动启动继续经过 features.dreaming、主体生命周期、维护 hold、来源刷新、增量/时间/预算；后台使用自己已有受限工具。真正缺后台资源由实际后台初始化/执行结果报告，不给前台额外开工具、不新增旁路写入。manual 工具仍仅在前台选择允许时可调用。Feature 依赖声明同样移除前台 read/write/edit/memory_maintenance；Node/UI 的选择与可用性投影、runtime configuration.apply 统一消费这份声明，不再为历史缺工具配置保留特殊豁免。后台自己的工具和路径检查保持原样。
+
+### 验证与本轮 M1 退出标准
+
+| 范围 | 最低有效保护与最终证据 |
+|---|---|
+| Node → root/PA/child 身份、改名和换窗 | 扩展现有配置/实际 provider 请求测试；插件真实首窗和换窗测试，确认没有会话 UUID 名称行且窗口导航仍可用 |
+| Task 无对象/有对象、工具失败、去重与恢复 | 扩展 `task-context-sync.test.ts` 与 PA prepare 测试；保留拒绝未核实工具/原文和停止边界；同一可见限制连续步骤及重建不重复，恢复可消费原文 |
+| Memory 来源、文案、目录与工具选择 | 修改原 `context-revalidation-provider.test.ts` 的缺工具预期，验证 document/legacy、有效/失效、原生换窗/摘要依旧遵守原有边界；检查完整有效正文与绝对路径 |
+| Dreaming 前台/后台解耦 | 扩展真实 runtime Dreaming 测试：前台不给维护/写工具仍可自动整理；显式关闭、来源失效及后台路径限制保留 |
+| [reviewer] 实际模型输入与行为 | 固定 daily 隔离真栈分别用 Global 与 PA 首次自然请求；检查完整 System/messages/tools，核对身份答复及角色边界，保留模型/配置/源码/首轮原生与 provider locator；不得把 stub 内容当作真实模型选择 |
+
+本轮不改变客户端布局，允许使用客户端同一 API 发起请求，并在既有轨迹查看完整结果。保留原用户预览 `/tmp/nano-refactor679-daily`；本轮用独立 `/tmp/nano-refactor679-context`，按 worktree-runtime 的 daily profile 启动与停止。真实模型入口由本机配置发现，不调用生产消息/Task。新增预览若用户继续查看则保留并报告。
+
+现有 Round 1–6 与产品/静态审查仅在未受影响部分 retained。本补充交原 design reviewer 作 delta；实施后 code reviewer 同轮核对 Agent Context Implementation Review，产品 reviewer 核对 Global/PA 真实首轮。真实输入不合理则继续修，不能以机制测试通过结束。

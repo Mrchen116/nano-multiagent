@@ -292,3 +292,69 @@ Mode is full design/spec consistency plus active-delta correction assessment; no
 No intended new observable behavior requiring an additional active-delta requirement was identified. The unconditional offline-conversation block is an unintended regression of a retained invariant, not a new desired behavior to document. Child projection, ordering, default guidance, original Task context, Schedule deletion and fixed-chat delivery are covered by active deltas/design and existing current contracts.
 
 **Historical outcome: implementation-mismatch (pre-fix snapshot).** The latest scoped disposition above records independently rechecked repairs, not a replacement final unit verdict. No independently established delta-mismatch; final frozen evidence and gate are still required before recommending PR.
+
+
+## User-acceptance follow-up — delta verifier (2026-10-31)
+
+Latest round; old full/targeted PASS applies only to retained unaffected behavior. Mode: **delta + affected corrected-delta reconciliation**, same reviewer separately executed code delta review and Agent Context Implementation Review above. Nano base/HEAD `5e5d3fcc801c6ad766910b126a10ee25076627a9`, working source/test/dependency patch SHA-256 `96590047ea4fc55b6a13866c3c651baa3171b8f2b15194522b23ff5cab4ae901`; plugin base `fa2b47d470b5cd51f569b678da17fb3b4f43188d`, seven-file diff SHA-256 `668ecd5e7d8563bd97f9a484833a3fefa35bea2598a91c894fedf08c56f85aca`. Checkout/branch and dirty staged rename/report state were checked and preserved. No production/testing/design/release edits by verifier.
+
+### Delta verdict
+
+- Implementation/approved-design alignment: **aligned**; no implementation or architecture mismatch found.
+- Code review findings: `[]`.
+- Final delta verifier: **PENDING EVIDENCE**, 0 CRITICAL implementation / 0 WARNING implementation / 1 WARNING final-evidence gap / 0 SUGGESTION.
+- `requires_full_verification: false`: this bounded user-acceptance follow-up does not invalidate unrelated full-review evidence.
+
+| Appended requirement / exit | Actual implementation and meaningful coverage | Disposition |
+|---|---|---|
+| Product displayName/ID in root and internal child, rename/current window | Node canonical mapping, configuration contracts and Agent-scoped section; real provider rename/root-child tests, plugin initial/reset engine tests | aligned; real Global/PA first-request acceptance pending |
+| Window plugin stops session UUID-as-name | Two rendering sites and all CheckpointInput/windowText callers updated, window IDs/recovery remain; complete seven-file source diff and 32 native plugin tests checked | aligned; final immutable package/lock pending |
+| Task no-object silence, affected refs and visible dedup | Scoped PA unavailableInputs without body; current active Task refs; native visible evidence, stable text and same-session/lost-object restart tests; actual Task tool fails closed | aligned; fixture regression inspected and reused |
+| One-page key Memory has absolute source/content boundary; no routine backup or frontend missing-tool warnings | Document context, shared nano-memory Skill and Dreaming consolidation prompt agree; document/legacy/current/invalid and actual window/summary fixture assertions preserve eligibility and writer ownership | aligned; complete real initial-input inspection pending |
+| Dreaming uses its own restricted tools without granting frontend tools | Shared dependency declaration plus Node/UI/runtime validation no longer require/auto-add foreground tools; obsolete exemptions removed; automatic native fixture runs through its own staged writes/host receipt; original source/path/disable controls unchanged | aligned; six-case native Dreaming rerun passed |
+
+### Evidence reuse
+
+The exact seam/results and limitations are recorded in the latest [code-review round](code-review.md#user-acceptance-follow-up--independent-delta-review-2026-10-31). Narrow Nano run: 9 files/51 passed plus one fixture failure; corrected six-case Dreaming rerun passed. Plugin native suite: 9 files/32 passed and typecheck passed. Workspace typecheck passes; earlier Node build title-union error is superseded by guarded source and focused Node build. No whole suite/model was duplicated by reviewer. This does not relabel a mixed failed log as exit zero.
+
+### Open evidence issue
+
+**V-FOLLOWUP-1 — final artifact/gate and real initial-input evidence pending (WARNING).** Contract: appended design “用户验收修复 / 验证与本轮 M1 退出标准”. Current dependency still points to `/tmp/refactor679-plugin/dsh-agent-context-0.3.0-rc.7.tgz`. Replace it with the promised immutable GitHub release URL and lock, bind final packed bytes to the audited plugin source and record checksum/install/build results. Supply final build/typecheck/narrow-regression/docs results and independent daily-stack Global/PA natural first-request complete System/messages/tools plus actual response, model/config/runtime/source/provider locators. Reviewer must distinguish live input delivery/model behavior from controlled native/provider fixtures. Then close this same evidence issue; no need to rerun retained whole-unit review.
+
+### Affected delta reconciliation
+
+| Active delta | Changed scenario(s) and final source/test check | Outcome |
+|---|---|---|
+| Gateway agent-capabilities | 产品身份随当前配置提供；一页关键记忆及详细目录；Dreaming使用自己的受限维护能力 — implementations/tests above match the appended approved design | aligned |
+| Gateway task-graphs | 无受影响对象时保持安静；有受影响对象且限制仍可见 — source-scoped references, actual tool gate, native surface dedup/recovery above | aligned |
+| IM task-graphs | No semantic change in this follow-up; original transaction/message/withdrawal behavior retained | retained |
+
+Uncovered intended observable behavior: none identified beyond these appended deltas. **Corrected-delta outcome: aligned; final verifier pending V-FOLLOWUP-1.** Do not weaken the design/delta or claim Global/PA actual-input acceptance from a unit fixture.
+
+
+## User-acceptance follow-up — final V-FOLLOWUP-1 closure
+
+**Final delta verifier: PASS.** Validated source `326dac00ed5d78daaa6464032a94a24daba5d794`, base `5e5d3fcc801c6ad766910b126a10ee25076627a9`, branch `codex/refactor-679-context-followup`. 0 CRITICAL / 0 WARNING / 0 SUGGESTION; code-review JSON `[]`; affected corrected-delta **aligned**; `requires_full_verification: false`. This supersedes the preceding follow-up pending verdict and closes V-FOLLOWUP-1. Unaffected first-delivery full review remains retained; this is only bounded artifact/fixture/evidence closure.
+
+### Closed evidence requirements
+
+| V-FOLLOWUP-1 element | Independently checked final evidence | Outcome |
+|---|---|---|
+| Immutable versioned plugin and audited source | v0.3.0-rc.7→`00f61960a6a81078cb9102347a277aa9147fe30b`; fa2b47d→tag diff hash equals prior audited seven-file diff `668ecd5e7d8563bd97f9a484833a3fefa35bea2598a91c894fedf08c56f85aca` | closed |
+| Final tarball / portable lock | Released and tested tarballs compared byte-for-byte; SHA-256 `e3409381a9cd77546093dcd5cd133021347d6cc650c8bddfdb20a555442848c2`; locally recomputed SHA-512 exactly matches lock. package.json and all lock references use the fixed GitHub v0.3.0-rc.7 URL, no temporary tarball. Packed checkpoint matches tested plugin build. `/tmp/refactor679-followup-frozen-install.log` and final-build log pass | closed |
+| Local implementation gates | `/tmp/refactor679-followup-full-tests.log`: 181 files/953 tests passed; final build and workspace typecheck pass; Python 127 passed/28 deselected; iOS-runtime, ruff and docs294/68 pass. Prior mixed failures remain historical, superseded only by their relevant passing reruns | closed |
+| Web fixture and local/remote boundary | Only test premise changed: Dreaming tools requirements empty, selected foreground tools/catalog provided independently. Final affected page 28 passed; earlier Web all-run 107 files/1,030 passed plus one obsolete-fixture failure stays honestly recorded. No remote CI pass or clean final full-Web command is claimed; remote CI will test final tree | closed locally; remote CI remains delivery gate |
+| Independent real Global / PA complete initial Context | Acceptance followup-1 PASS; reviewer read complete System/runtime/catalog/input and all 23/38 tool schemas. Preserved full JSON SHA-256: Global `199aeae6b3a6818f598cb220ad2c6d31245587e37927a1d4a5a497a705ce75b1`, PA `86374d27f946fde1da890e6189579f0e9a4a80c828ee95f184adf737bb49ee66`; verifier independently recomputed hashes, inspected identity/noise/scope and sent/completed evidence | closed |
+| PA invalid/valid Memory and writer truth | First request correctly stale, without valid body; separately actual maintenance run completed with saved/versionRecorded receipts, later snapshot has full Agent-owned MEMORY.md path/content boundaries and current valid key memory. This later successful branch does not rewrite the first-request state. Foreground formal-memory writer restriction remains | closed |
+
+### Context evidence limits retained
+
+Global session `c1413933-2d32-4574-8388-53c93d346fd3` has actual sent seq35 and completed seq40; PA session `cbb7f3b2-dc1e-4e2a-b0e4-aab22026de9d` has sent seq27/completed seq32 for the first natural request. Both first inputs have 4 messages, correct product identity, native runtime before catalog/Inbox wake, no unscoped D9 or routine backup/foreground-missing-tool guidance. Global valid memory is already supplied; PA first context has source-generation invalidation and supplies the full body only after actual Dreaming maintenance in the later recorded branch. The product reviewer inspected all input/tool content; the verifier's artifact and receipt checks are corroboration, not a claim of a second complete product/model trial.
+
+Native request/header/context plus persisted surface supports actual model delivery and behavior, but is **not final upstream HTTP-wire capture**. The former controlled HTTP window/summary evidence is retained only for serialization/mechanism scope. Live PA maintenance had frontend maintenance selected; the missing-frontend-tools automatic path is separately proved by the native Dreaming fixture. No all-model reliability, production deployment or remote CI result is inferred.
+
+### Corrected delta and documentation retention
+
+The three new Requirement blocks match canonical copies exactly: 产品身份与关键记忆具有明确来源; Dreaming 使用自己的受限维护能力; 后台 Task 故障只在影响当前工作时进入上下文. Their five appended scenarios remain aligned with approved Round 8, final source and actual evidence. Capability/Task canonical counts are 58/23. IM delta is unchanged and retained. **Outcome: aligned; no further design/spec semantic correction required.**
+
+Whole-unit archive, relative links and index migration are documentation-only finalization: retain this PASS and code-review `[]`, run docs-check after those operations, and do not repeat full implementation/Context/product review. New semantic source changes would require only their relevant delta. Local verification is complete; PR, remote CI (including final full Web), Memory merge and preview lifecycle remain caller-owned delivery steps. Both preview environments are intentionally retained for the user; no production action is part of this verdict. Reports are handed back for centralized commit, and this reviewer stops writing files now.

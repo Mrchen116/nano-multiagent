@@ -65,3 +65,37 @@ Mechanism tests establish deterministic boundaries; they do not establish model 
 Independent code review is `[]`; verification and corrected-delta are PASS/aligned at `6881952b9`, with R1–R6 product PASS and all five observed findings closed. The destination was fetched again and remains `unit/feat-676` at `c2a7fe3c3`; no source sync was needed. The three audited deltas were merged by exact Requirement name, the Gateway index counts were refreshed, and the entire unit was moved to archive with relative links migrated. These documentation-only changes retain the frozen gates. Final `scripts/docs-check` passed (283 maintained Markdown sources / 68 required routes); `scripts/check_change_unit_archived.py --head-ref codex/refactor-679-on-memory` and staged/unstaged `git diff --check` passed. Exact comparison confirms all seven merged Requirement blocks match the audited deltas.
 
 The isolated daily stack was stopped via `scripts/e2e-down.sh --wt /tmp/nano-refactor679-daily`; no listener remains on port 64012 and its IM/Node/runtime PIDs are gone (`daily-shutdown.log`). Ignored local evidence is preserved at `/tmp/nano-refactor679-daily/evidence/` before disposable worktree cleanup. No production process or data was changed.
+
+## 用户验收增量（2026-10-31）
+
+- 实现基线：Memory `5e5d3fcc801c6ad766910b126a10ee25076627a9`；本轮实现：`326dac00ed5d78daaa6464032a94a24daba5d794`。本轮继续 refactor-679，不建立第二个 unit。旧证据保留，以下仅覆盖用户指出的身份、窗口名称、Task 限制相关性、关键记忆包装和 Dreaming 前后台能力。
+- 自有插件：`dsh-agent-context@0.3.0-rc.7`，tag/source `00f61960a6a81078cb9102347a277aa9147fe30b`。首窗/换窗删除错误名称行；窗口导航和原生 runtime snapshot 不变。`pnpm test` 9 文件 / 32 测试、`pnpm typecheck` 均通过。固定 release tarball 匿名下载后与本次测试包 `cmp` 相同；SHA256 `e3409381a9cd77546093dcd5cd133021347d6cc650c8bddfdb20a555442848c2`，依赖锁使用 release URL 及 SHA512。最终 `pnpm install --frozen-lockfile` 成功；锁中 SHA512 与下载包一致。重新安装后的真实 HTTP 首轮/恢复/改名测试再次通过（`/tmp/refactor679-release-install-native.log`）。
+
+### 有意义的失败与修复
+
+- 初始上下文回归先复现无对象 Task 同步失败仍追加提醒、缺身份、Memory 来源包装/缺工具噪声；修改后相关原生 provider、child、恢复用例通过。
+- 自动 Dreaming 用例复现前台缺少写/维护工具时无法启动。移除启动检查后又定位到配置层 Feature 依赖声明拒绝开启；同步消除该错误前台依赖及历史特殊豁免。测试明确断言配置 `effective:true`、前台无 write/edit/memory_maintenance、后台真实执行与最终保存回执。
+- 中间测试 fixture 使用其他 Feature 的隐式默认依赖，曾令自动用例配置仍失败；关闭不相关 Feature 后最终 Dreaming 6 用例通过。前端旧 fixture 将前台工具声明为 Dreaming 必需工具；按新产品契约分开独立工具目录/选择后，原设置页全部28用例通过。没有以修改断言跳过真实保存或授权边界。
+
+### 最终验证
+
+| 命令/范围 | 结果与本地完整日志 |
+|---|---|
+| `pnpm exec vitest run --maxWorkers=2` | **181 文件 / 953 测试通过**；`/tmp/refactor679-followup-full-tests.log` |
+| `pnpm -r build`（最终 release 锁安装后） | **通过**；`/tmp/refactor679-followup-final-build.log` |
+| `pnpm -r typecheck` | **通过**；`/tmp/refactor679-followup-typecheck.log` |
+| Web `npm test -- --maxWorkers=2` + 受影响 fixture 定向复验 | 全量107文件/1030项通过，1项旧fixture失败；校正后受影响文件28项全部通过；`/tmp/refactor679-followup-frontend.log`、`/tmp/refactor679-followup-frontend-fix.log`。远端 CI 将再次验证最终完整树 |
+| `pytest -m 'not e2e' -q` | **127 passed / 28 deselected**；`/tmp/refactor679-followup-python.log` |
+| `pnpm check:ios-runtime` | **通过**；`/tmp/refactor679-followup-ios-runtime.log`；本轮无 iOS 原生源变更 |
+| `ruff check .` / `ruff format --check .` | **通过**；`/tmp/refactor679-followup-ruff.log` |
+| `./scripts/docs-check`（归档前） | **294 maintained sources / 68 required routes 通过**；`/tmp/refactor679-followup-docs.log`；归档后另复核 |
+
+### 真模型完整输入与行为
+
+固定 daily 独立环境 `/tmp/nano-refactor679-context`（IM `http://127.0.0.1:51966`，Node `wt-nano-refactor679-context-32788`），源码与实现提交一致。Global `daily-product` 使用 `codexOAuth:gpt-6.1-sol/high`；PA `pa_3e16eef0a4b1` 使用 `codexOAuth:gpt-6-astra/medium`。真实客户端 API 发起用户请求，模型真实运行并确认公开/主人私聊送达；没有用受控响应替代该行为。
+
+完整首次 `llm/request` header + context + messages 在 `output/refactor-679-followup/{global,pa}-initial-full.json`，可读正文及完整 tools 各有导出；Global session `c1413933-2d32-4574-8388-53c93d346fd3`，PA session `cbb7f3b2-dc1e-4e2a-b0e4-aab22026de9d`。这是 native 请求事件观测，未冒充实际上游 HTTP 抓包；adapter 序列化另有真实 HTTP fixture 回归。
+
+根 Agent 逐段核读 Global 完整系统指导、PA 所有差异段、两者 runtime/Skill/唤醒与工具目录；独立产品 reviewer 核完整输入和交付。PA 首次模板 basis generation0 与首次来源同步 generation1 不同，按保留的来源保护暂不展示待核对正文；后续通过正式 Dreaming 完成保存，`pa-valid-memory-snapshot.txt` 展示绝对文件路径、完整一页关键记忆、详细页导航及当前来源代际。不能将首次失效分支记成有效正文通过；有效分支另由该后续请求证明。详细判据与交付消息见本轮 `acceptance.md`。
+
+旧用户预览 `/tmp/nano-refactor679-daily:64012` 保留；新预览也保留供查看完整轨迹。均为隔离测试环境，没有部署生产或向生产发送消息。当前 worktree 提供两套保留预览的运行文件，结束时如仍保留，应明确报告生命周期原因。

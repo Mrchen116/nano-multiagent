@@ -186,3 +186,56 @@ No final PASS, PR recommendation, M1 signoff, whole-diff assurance, child-cold r
 ## Required final closure outside this recheck
 
 The scoped repairs were reopened and rechecked as recorded above. Bind a separate whole-unit review to the final frozen source and authoritative regression, native, milestone, product and provider evidence before a merge recommendation. Historical findings remain an audit record, not a current unresolved count, final design-verification verdict or product acceptance.
+
+
+## User-acceptance follow-up — independent delta review (2026-10-31)
+
+This is the latest review round. Earlier frozen-source PASS records remain historical/retained for unaffected behavior; they do not certify the new dirty implementation or the pending product/provider acceptance.
+
+- Mode: **change-code-review delta + Agent Context Implementation Review**; no whole-unit rereview.
+- Nano checkout: `codex/refactor-679-context-followup`, base/HEAD `5e5d3fcc801c6ad766910b126a10ee25076627a9`, reviewed working diff under apps/packages/pnpm-lock, SHA-256 `96590047ea4fc55b6a13866c3c651baa3171b8f2b15194522b23ff5cab4ae901` (dependency URL still local at this snapshot).
+- Owned plugin: `/Users/czj/Repos/opensource-hub/dsh-agent-context-feat-676`, branch `codex/refactor-679-window-identity`, base/HEAD `fa2b47d470b5cd51f569b678da17fb3b4f43188d`; complete seven-file working diff SHA-256 `668ecd5e7d8563bd97f9a484833a3fefa35bea2598a91c894fedf08c56f85aca`.
+- Authority: approved [Round 8 design review](design-review.md#round-8), appended user-acceptance design/motivation and affected Gateway capability/Task deltas. Only this and verification.md were written by the reviewer; no source/test/design changes, release publication, real-model calls or services were performed.
+
+### Findings
+
+```json
+[]
+```
+
+No confirmed or plausible correctness defect found in the reviewed scope. Missing final evidence below is a verifier gap, not an invented product defect. The temporary local tarball is a declared integration intermediate and must be replaced/locked before final delivery; it is not accepted as a portable final dependency.
+
+### Actual coverage and Context evidence
+
+| Surface / risk | Independent source and relevant regression check |
+|---|---|
+| Node displayName → root/PA/child identity | Canonical title/display_name fallback is carried through both configuration contracts. Agent-local identity section JSON-quotes name and ID, disables interpolation, distinguishes internal child ownership and reads the effective config object updated by the existing idle commit path. Existing custom prompts and actual public communication capabilities remain separate. Node configuration tests and actual HTTP provider order/rename/child fixtures exercise the changed seam. |
+| Owned context-window plugin | All seven plugin files checked. Initial window and reset checkpoint stop labeling runtime session ID as Agent name; unused argument is removed at all callers. Window IDs, Notes/History isolation, archived recovery and native session identity remain. Real native engine tests cover initial/reset serialized absence. No node_modules patch, private runtime import or DSH kernel change. |
+| Object-scoped Task failure and native-visible deduplication | Failed PA preparation returns only local pending input/conversation references and applies SingleThread scope filtering; revoked refs stay excluded. Task driver retains hard Task-tool/source/automatic-step gates and emits no D9 without known active Task or pending-input objects. Limitation text contains deterministic sorted references without per-step time noise. Dedup scans native visible surface and treats later Task facts or successful Task tools as boundaries, so runtime object restart alone is not a new fact. Native tests cover no-object actual tool rejection, scoped pending inputs, repeated request/restart dedup, current-task outage and recovery consumption; no arbitrary title/body is delivered while authority is unknown. |
+| One-page Memory provenance/content | Dynamic document context identifies fixed Agent-owned directory and complete MEMORY.md path, uses explicit memory_content boundaries, retains role/source eligibility/current-correction/read-only/Dreaming-only writer rules and removes routine backup/missing-foreground-tool prose. Invalid entries stay invalid rather than copying old bytes. Explicit legacy import still discovers registered backups through its existing manifest. Shared Skill and Dreaming instructions now describe useful key memory rather than only an index. HTTP window/summary and same-child memory fixtures are updated at their existing seams. |
+| Dreaming frontend/backend separation | start no longer checks the parent's read/write/edit/memory_maintenance selection. Shared feature dependencies, Node capability projection, Node validation and native configuration validation consistently remove obsolete foreground dependency exceptions. Automatic toggle does not add foreground tools. Unchanged runDreamingAgent creates its own empty-seed maintenance scope with explicit tools, generation checks, read-before-write and staging-path restrictions; feature disable/hold/mode/timing/budget/lifecycle remain. Real native automatic Dreaming fixture verifies foreground lacks write/edit/maintenance while background writes staged pages and emits actual saved receipt. |
+
+### Reused execution evidence and limits
+
+- `/tmp/refactor679-followup-focus.log`: 9 files/51 tests passed plus one then-failing automatic Dreaming fixture. The failure was its default unrelated Feature dependencies, not declared successful behavior. Corrected fixture explicitly disables unrelated features and `/tmp/refactor679-dreaming-green.log` passes all 6 Dreaming cases.
+- `/tmp/refactor679-plugin-test.log`: 9 files/32 plugin tests passed; plugin typecheck also passed. This proves native window/history behavior under controlled tests, not a published artifact or live model.
+- `/tmp/refactor679-followup-typecheck.log`: all workspace typechecks pass. The older broad build log retains its title-union compile error; the current guarded source and subsequent `/tmp/refactor679-followup-node-build.log` supersede that Node error. Final complete build/lock evidence remains with caller.
+- Actual serialized provider fixture tests prove delivery and deterministic tool consumption. Independent Global/PA natural first-request complete System/messages/tools and real replies are still required by the appended design. They are not replaced with a static prompt preview or controlled provider choice.
+
+**Code delta conclusion: `[]`; final verification remains pending final portable plugin lock/artifact, gate results and independent Global/PA actual initial-context acceptance.** Later dependency-only immutable-release replacement requires only package/lock/artifact identity check, not a new full review. A material source repair should be checked only as its relevant delta.
+
+
+## User-acceptance follow-up — final bounded closure at 326dac00e
+
+This latest section supersedes the pending status of the preceding follow-up round. **Code review: `[]`; delta verifier: PASS; affected corrected-delta: aligned. V-FOLLOWUP-1 closed.** Base `5e5d3fcc801c6ad766910b126a10ee25076627a9` → final implementation `326dac00ed5d78daaa6464032a94a24daba5d794`; branch `codex/refactor-679-context-followup`.
+
+The closure checked only the final release URL/lock and package identity, the final frontend Dreaming fixture correction, the affected canonical delta blocks and handed-over evidence. The previously reviewed identity/Task/Memory/Dreaming business source is retained; no full rereview, whole test run or model task was repeated.
+
+- **Plugin artifact/source:** final tag v0.3.0-rc.7 resolves to `00f61960a6a81078cb9102347a277aa9147fe30b`. Its complete `fa2b47d..tag` diff SHA-256 is `668ecd5e7d8563bd97f9a484833a3fefa35bea2598a91c894fedf08c56f85aca`, exactly the prior audited seven-file working diff. The locally preserved anonymously downloaded release package is byte-for-byte equal to the tested tarball, SHA-256 `e3409381a9cd77546093dcd5cd133021347d6cc650c8bddfdb20a555442848c2`; recomputed SHA-512 equals pnpm-lock integrity. Final dependency/lock use the fixed [v0.3.0-rc.7 release tarball](https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.7/dsh-agent-context-0.3.0-rc.7.tgz), with no /tmp tarball reference. Packed checkpoint bytes match the tested plugin build and omit the misleading Agent-name row. Frozen-lock installation and final complete build passed.
+- **Frontend fixture delta:** the unchanged save behavior now receives the real Dreaming contract `requires.tools=[]`, with independently configured foreground tool selection and catalog. This repairs the obsolete test premise; it adds no product code, skip or weakened save assertion. Final affected page: 28/28 passed. The earlier full Web run remains recorded as 107 files/1,030 passed plus this one then-failing old fixture. Remote CI must still run the final complete tree; no remote-CI success is claimed here.
+- **Actual Context and behavior:** independent [acceptance Round followup-1](acceptance.md#round-followup-12026-10-31用户初始上下文修复-delta) is PASS. The verifier checked the preserved Global/PA first-request artifact hashes and key source/role boundaries, actual sent/completed native events and later PA valid-memory snapshot. Global has 4 messages/23 tools, PA 4 messages/38 tools, correct display names/IDs, no unscoped Task failure or routine backup/missing-tool noise. PA's first request legitimately has entry_basis_stale and no valid memory body; only later after actual Dreaming receipts is the fully sourced one-page body supplied. This distinction remains explicit. The independent reviewer read the complete inputs and tool schemas; no keyword summary substitutes for that review.
+- **Evidence boundary:** this follow-up's complete inputs are native request/header/context and persisted model surface associated with real tool calls and sent receipts. They are not final upstream HTTP-wire captures. Prior controlled raw HTTP fixtures remain separate retained mechanism evidence. Automatic Dreaming with missing frontend maintenance/write tools is proved by the native runtime regression, not by the live PA journey where maintenance was selected.
+
+The local final source passes 181 native files/953 tests, workspace typecheck, final release-installed build, Python 127 non-e2e tests (28 deselected), shared iOS runtime, ruff and docs-check 294 sources/68 routes; exact commands/logs remain in [M1 evidence](M1-context-flow/evidence.md). No open confirmed/plausible finding remains. New and old isolated previews remain caller-managed and retained for user viewing, not abandoned production processes.
+
+The three appended Requirement blocks in the two Gateway active deltas exactly match their canonical copies; index counts are 58 capability and 23 Task Requirements. No additional design/spec semantic change is required. Retain this scoped code/Context/verifier result through whole-unit archive, relative-link/index migration and the resulting docs-check. Remote CI, final PR, Memory merge and lifecycle cleanup remain separate caller delivery steps. Reviewer stops writing reports after this closure.
