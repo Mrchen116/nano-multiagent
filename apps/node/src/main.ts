@@ -16,7 +16,7 @@ import { ModelSetup, type SetupRequest } from './model-setup.js';
 import { projectCapabilities } from './capabilities.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
-import { WorkSync, NodeStore, TaskExecution, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
 
@@ -117,7 +117,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           const state = store.lifecycle.snapshot(agent.agentId)!;
           return [agent.agentId, {revision:state.revision, disabled:state.desired==='disabled', disabledThroughRevision:state.disabled_through_revision}];
         }));
-        await rpc.request('initialize', { protocol: 1, blockedScheduleIds: frozen.flatMap(frame => frame.payload.schedule_ids ?? []), lifecycle: states, taskStops:store.controls().filter(i=>i.action==='task-stop'&&!i.text&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
+        await rpc.request('initialize', { protocol: 1, blockedScheduleIds: frozen.flatMap(frame => frame.payload.schedule_ids ?? []), lifecycle: states, taskStopFences:store.controls().filter(i=>i.action==='task-stop'&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>({sessionId:i.binding.sessionId,stoppedAt:i.stoppedAt??i.input.message.created_at})), taskStops:store.controls().filter(i=>i.action==='task-stop'&&!i.text&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
           providers: providerProfiles(config.llm).providers,
           pendingConfigurations: operations?.pending().filter(item => partition.agents.some(agent => agent.agentId === item.candidate.agent_id)).map(item => ({operationId: item.intent.operation_id, fingerprint: item.intent.candidate_fingerprint, config: configuration.runtime(item.candidate)})) ?? [],
           bindings: store.bindings().filter(binding => partition.agents.some(agent => agent.agentId === binding.agentId)).map(({ conversationId: _, ...binding }) => binding) });
@@ -134,7 +134,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           }
           if (relay.ready) await knowledgeByPartition.get(partition.key)?.migrateSkills();
           if (product) {
-            if(relay.ready){await tasks.recoverStops(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));await tasks.recover(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));}
+            if(relay.ready){await tasks.recoverStops(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));await scheduleDeletions.recover(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));await tasks.recover(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));}
             await settlePartitions([product.recover(!relay.ready), globalProduct.recover(), external.recover(),
               knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover()]);
           }
@@ -289,7 +289,7 @@ const relay = new WebRelayConnection({
       if (frame.type === 'node.cron.jobs.request') await relay.request('node.cron.jobs', { request_id: payload.request_id, node_id: config.node.node_id, jobs });
       else {
         const job = jobs.find(job => job.id === payload.job_id);
-        const result = job ? await runtime.request('schedule.command', { agentId: agent.agentId, sessionId: job.sessionId, action: 'delete', args: { id: job.id } }) as { deleted: boolean } : undefined;
+        const result = job ? await scheduleDeletions.delete({agentId:agent.agentId,scheduleId:job.id,operationId:String(payload.operation_id??''),actor:{kind:'user',id:String(payload.actor_user_id??'')}}) : undefined;
         await relay.request('node.cron.delete', { request_id: payload.request_id, node_id: config.node.node_id, deleted: result?.deleted === true });
       }
     }
@@ -316,6 +316,7 @@ const relay = new WebRelayConnection({
     if(state==='revoked') {workAvailable=false;managed.revoke();}
     if(state==='ready' && !updateHolding)await admitted(async()=>{
       await tasks.recoverStops(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
+      await scheduleDeletions.recover(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
       await tasks.recover(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
       await settlePartitions([globalProduct.recover(), (async()=>{
         for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available);
@@ -372,7 +373,7 @@ managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.n
 managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:') && (channel.enabled !== false || channel.settings.appId)).map(channel => ({
   agentId: channel.name.slice(7), enabled: channel.enabled !== false, appId: channel.settings.appId!, appSecret: channel.settings.appSecret!, botOpenId: channel.settings.botOpenId, ownerOpenId: channel.settings.ownerOpenId,
 })));
-tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime,relay,
+tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime,relay,context:binding=>taskContext.prepare({sessionId:binding.sessionId,agentId:binding.agentId,ownerId:binding.ownerId}),
   drain:async sessionId=>{await Promise.allSettled([...productCalls.values()].filter(c=>c.sessionId===sessionId).map(c=>c.promise));},
 });
 product = new SingleThread({
@@ -390,10 +391,23 @@ runtime.handle('configuration.workflow', async value => {
   return {effective: true};
 });
 runtime.handle('model.check', value => product.modelCheck(value as { sessionId: string; turn: number }));
+const scheduleDeletions=new ScheduleDeletions({ownerId:config.node.user_id,agents,store,runtime,onError:reportError,repair:intent=>tasks.scheduleDeleted(intent),
+ notify:async intent=>{
+  await runtime.request('schedule.deleted.notify',{agentId:intent.agentId,sessionId:intent.sessionId,inputId:intent.changeInputId,content:[{type:'text',text:'The user deleted the Schedule identified below. It will no longer wake you as planned. Account for this change when checking your existing arrangements. This is a Schedule change, not a new task or permission, and it does not resume paused work.\n'+JSON.stringify({schedule_id:intent.scheduleId,title:intent.title,agent_id:intent.agentId,session_id:intent.sessionId,deleted_at:intent.deletedAt,actor:intent.actor})}]});
+ }});
+const taskContext=new TaskContext({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,inbox,runtime,relay,refreshSources:agentId=>globalProduct.prepareSystemContext(agentId)});
+runtime.handle('product.task_context.prepare',value=>taskContext.prepare(value as Parameters<TaskContext['prepare']>[0]));
+runtime.handle('product.task_context.commit',value=>taskContext.commit(value as Parameters<TaskContext['commit']>[0]));
 runtime.handle('product.task_execution.snapshot', value=>tasks.snapshot(value as Parameters<TaskExecution['snapshot']>[0]));
 runtime.handle('product.call', value=>{
   const call=value as ProductCall;
-  const promise=globalProduct.call(call);productCalls.set(call.operationId,{sessionId:call.rootSessionId,promise});
+  const promise=call.method==='schedule.delete'?(async()=>{
+    const binding=store.bindings().find(binding=>binding.sessionId===(call.rootSessionId??call.sessionId));
+    if(!binding||binding.agentId!==call.agentId||binding.ownerId!==call.ownerId||call.ownerId!==config.node.user_id)throw new Error('Invalid Schedule tool identity');
+    const args=call.args as {id?:unknown};if(typeof args.id!=='string')throw new Error('Invalid Schedule identity');
+    store.lifecycle.assert(call.agentId);
+    return scheduleDeletions.delete({operationId:call.operationId,agentId:call.agentId,sessionId:call.sessionId,scheduleId:args.id,actor:{kind:'agent',id:call.agentId}});
+  })():globalProduct.call(call);productCalls.set(call.operationId,{sessionId:call.rootSessionId,promise});
   void promise.finally(()=>productCalls.delete(call.operationId)).catch(()=>{});return promise;
 });
 operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
@@ -423,6 +437,8 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
     if (previous) Object.assign(previous, next); else agents.push(next);
     if (runtime.availableFor(next.agentId)) {
       if (next.personal) await reportPersonalAvailability(runtime.forAgent(next.agentId), true);
+      await tasks.recoverStops([next.agentId]);
+      await scheduleDeletions.recover([next.agentId]);
       await tasks.recover([next.agentId]);
     }
   },

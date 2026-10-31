@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 
 it('restores native goal authority through later steps and resets repetition only for direct humans', async () => {
@@ -35,6 +36,7 @@ export function apply(ctx){
 }`);
     await prepareProfile(home, [{ insert: [{ id: 'human-source-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const config = { agentId: 'a', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash',
       toolAllowlist: ['read', 'create_goal', 'update_goal', 'subagent'], features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false } };
     await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
@@ -73,7 +75,10 @@ export function apply(ctx){
     const children = await client.rpc.request('session.descendants', { sessionId: 'parent' }) as any[];
     expect(children).toHaveLength(1);
     const child = children[0].events;
-    expect(child.find((e: any) => e.type === 'user/message')?.data.source).toEqual({ kind: 'user' });
+    // Runtime snapshots now precede input: identify the child prompt, not the first user-role message.
+    const childPrompts = child.filter((e: any) => e.type === 'user/message' && e.data.content.some((block: any) => block.type === 'text' && block.text === 'goal-child'));
+    expect(childPrompts).toHaveLength(1);
+    expect(childPrompts[0].data.source).toEqual({ kind: 'user' });
     expect(JSON.stringify(child.filter((e: any) => e.type === 'tool/result'))).toContain('this goal operation requires a direct human turn on a top-level agent');
     await ensure('repeat');
     await submit('repeat', 'repeat-start'); await submit('repeat', 'repeat-human');
@@ -99,6 +104,7 @@ it('uses native direct Skill gestures and injects compatibility forms only once'
     const binding = { sessionId: 'skills', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home };
     const start = async () => {
       client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
       await client.rpc.request('session.ensure', binding);
     };
@@ -147,6 +153,7 @@ it('still reviews and can deny a goal with native human source eligibility', asy
     });}`);
     await prepareProfile(home, [{ insert: [{ id: 'goal-consent-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home });
+    registerNoopTaskHosts(client);
     const requests: string[] = [];
     client.rpc.onNotification((method, value) => {
       if (method !== 'approval.request') return;

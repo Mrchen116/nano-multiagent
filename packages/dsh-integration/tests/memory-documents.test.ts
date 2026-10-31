@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,28 @@ async function library() {
 }
 
 describe('current document memory', () => {
+  it.each(['workspace-write', 'read-only'] as const)('uses the trusted owner root without widening %s for initialization and publication', async mode => {
+    const workspace = await mkdtemp(join(tmpdir(), 'nano-document-policy-'));
+    cleanups.push(() => rm(workspace, { recursive: true, force: true }));
+    const guarded: FileSystem = new LocalFileSystem(new Context(), { cwd: process.cwd(), diffBasisMaxBytes: 10485760 });
+    Object.defineProperty(guarded, 'sandboxMode', { get: () => mode });
+    const write = guarded.writeText.bind(guarded);
+    const writes = vi.spyOn(guarded, 'writeText').mockImplementation((target, content, intent, signal, policy) => {
+      expect(policy).toEqual({ mode, workspaceRoot: workspace });
+      if (policy!.mode === 'read-only') throw new Error('Read-only memory backend');
+      return write(target, content, intent, signal, policy);
+    });
+    if (mode === 'read-only') {
+      await expect(MemoryDocuments.open(workspace, 'expert', guarded)).rejects.toThrow('Read-only memory backend');
+      await expect(readFile(join(workspace, '.nanoassistant/memory/MEMORY.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      return;
+    }
+    const documents = await MemoryDocuments.open(workspace, 'expert', guarded);
+    cleanups.push(() => documents.close());
+    await expect(documents.apply({ operationId: 'scope', path: 'knowledge/scope.md', beforeHash: null, content: 'Owner-scoped publication.' })).resolves.toMatchObject({ saved: true });
+    expect(writes).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidates the entry after an external body edit, including after reopening', async () => {
     const { documents, workspace, root } = await library();
     await mkdir(join(root, 'knowledge'), { recursive: true });

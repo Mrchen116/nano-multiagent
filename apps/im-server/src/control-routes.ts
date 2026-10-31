@@ -552,6 +552,8 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
           agent_id: p.agent_id,
           workspace_root: requiredWorkspace(p),
           job_id: controlRouteId(req, 'job_id'),
+          actor_user_id:u.id,
+          operation_id:'schedule-delete:user:'+p.agent_id+':'+controlRouteId(req,'job_id'),
         });
     if (!r || typeof r.deleted !== "boolean") fail(502, "Cron deletion result is unavailable");
     if (!r.deleted) fail(404, "job_id not found");

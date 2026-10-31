@@ -1,11 +1,34 @@
+import type { ScheduleDeletionIntent } from './schedule-deletions.js';
 import type { ControlIntent } from './session-controls.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { DeliveryState, RelayInput, RuntimeEvent, SessionBinding } from '@nano/product-contracts';
 import { ToolReferences } from './tool-references.js';
 import { AgentLifecycleAuthority } from './agent-lifecycle.js';
 
+interface SystemContextInput {message_id:string;conversation_id:string;session_id:string|null;input_id:string;digest:string;state:'prepared'|'consumed'|'revoked';turn:number|null}
+
 /** Node-owned durable handoff and delivery facts, independent of DSH storage. */
 export class NodeStore {
+  /** Read durable ingestion progress, independent of model consumption. */
+  taskContextCursor(agentId:string):number { return (this.db.prepare('SELECT seq FROM task_context_cursors WHERE agent_id=?').get(agentId) as {seq:number}|undefined)?.seq??0; }
+  /** Advance only after every original input or terminal reference was persisted. */
+  advanceTaskContext(agentId:string,seq:number):void { this.db.prepare('INSERT INTO task_context_cursors VALUES(?,?) ON CONFLICT(agent_id) DO UPDATE SET seq=max(seq,excluded.seq)').run(agentId,seq); }
+  /** Persist a stable native identity without treating admission as consumption. */
+  prepareSystemContext(agentId:string,messageId:string,conversationId:string,sessionId:string,digest:string):void {
+    this.db.prepare("INSERT INTO system_context_inputs VALUES(?,?,?,?,?,?,'prepared',NULL) ON CONFLICT(agent_id,message_id) DO UPDATE SET session_id=excluded.session_id,digest=excluded.digest,turn=NULL WHERE state='prepared'").run(agentId,messageId,conversationId,sessionId,messageId,digest);
+  }
+  /** List product mappings for execution evidence repair, including terminal revocations. */
+  systemContextInputs(agentId:string):SystemContextInput[] {
+    return this.db.prepare('SELECT * FROM system_context_inputs WHERE agent_id=?').all(agentId) as unknown as SystemContextInput[];
+  }
+  /** Revocation is terminal and wins over delayed admission or evidence ACKs. */
+  revokeSystemContext(agentId:string,messageId:string,conversationId:string):void {
+    this.db.prepare("INSERT INTO system_context_inputs VALUES(?,?,?,NULL,?,'','revoked',NULL) ON CONFLICT(agent_id,message_id) DO UPDATE SET state=CASE WHEN state='consumed' THEN state ELSE 'revoked' END").run(agentId,messageId,conversationId,messageId);
+  }
+  /** Commit only the exact prepared content evidenced in an actual native step. */
+  commitSystemContext(sessionId:string,inputId:string,digest:string,turn:number):boolean {
+    return Number(this.db.prepare("UPDATE system_context_inputs SET state='consumed',turn=? WHERE session_id=? AND input_id=? AND digest=? AND state='prepared'").run(turn,sessionId,inputId,digest).changes)>0;
+  }
   private readonly db: DatabaseSync;
   readonly toolReferences: ToolReferences;
   readonly lifecycle: AgentLifecycleAuthority;
@@ -48,6 +71,9 @@ export class NodeStore {
         operation_id TEXT NOT NULL REFERENCES deliveries(operation_id), seq INTEGER NOT NULL,
         PRIMARY KEY(operation_id,seq)
       );
+      CREATE TABLE IF NOT EXISTS schedule_deletions(operation_id TEXT PRIMARY KEY,intent TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_context_cursors(agent_id TEXT PRIMARY KEY,seq INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS system_context_inputs(agent_id TEXT,message_id TEXT,conversation_id TEXT,session_id TEXT,input_id TEXT,digest TEXT,state TEXT NOT NULL,turn INTEGER,PRIMARY KEY(agent_id,message_id),UNIQUE(session_id,input_id));
       CREATE TABLE IF NOT EXISTS control_intents(id TEXT PRIMARY KEY, intent TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS command_results (id TEXT PRIMARY KEY, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS input_receipts (input_id TEXT PRIMARY KEY REFERENCES inputs(input_id), status TEXT NOT NULL);
@@ -170,6 +196,10 @@ export class NodeStore {
     return updated;
   }
 
+  /** Read only deletion-operation facts, never a substitute Schedule catalog. */
+  scheduleDeletions():ScheduleDeletionIntent[]{return (this.db.prepare('SELECT intent FROM schedule_deletions ORDER BY rowid').all() as {intent:string}[]).map(row=>JSON.parse(row.intent));}
+  /** Persist an intent or independent notification receipt before proceeding. */
+  saveScheduleDeletion(intent:ScheduleDeletionIntent):void{this.db.prepare('INSERT INTO schedule_deletions VALUES(?,?) ON CONFLICT(operation_id) DO UPDATE SET intent=excluded.intent').run(intent.operationId,JSON.stringify(intent));}
   control(id: string): ControlIntent | undefined {
     const row = this.db.prepare('SELECT intent FROM control_intents WHERE id=?').get(id) as { intent: string } | undefined; return row ? JSON.parse(row.intent) : undefined;
   }

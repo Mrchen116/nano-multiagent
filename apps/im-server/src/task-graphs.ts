@@ -838,7 +838,10 @@ export class TaskGraphService {
     }
     this.save(doc);
     for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
-      notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));
+      notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,actor:{type:actor.kind,id:actor.id},
+        ...(actor.kind==='user'&&doc.nodes.some((n:Obj)=>n.id===notice.metadata.node_id&&before?.nodes.find((p:Obj)=>p.id===n.id)?.status!==n.status&&(n.status==='paused'||n.status==='doing'&&n.resume_request?.revision===doc.revision))
+          ?{human_control:{action:doc.nodes.find((n:Obj)=>n.id===notice.metadata.node_id).status==='paused'?'pause':'resume',actor:{type:'user',id:actor.id},task_refs:notice.metadata.task_refs,revision:doc.revision,event_time:doc.updated_at}}:{}),
+        ...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));
     this.receipt(actorKey, key, hash, doc, result);
     if (chat)
       for (const id of changed)
@@ -860,12 +863,21 @@ export class TaskGraphService {
     return this.executeTransaction(actor,'execution_scopes',{},false,[]);
   }
   /** Atomically pause the authenticated host's stop scope, replaying the original result. */
-  pauseExecution(actor:TaskGraphActor,conversationId:string|undefined,requestKey:string,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean}):Obj {
-    if(personal) return new TaskGraphService(this.db,this.messaging,{...personal,agentUserId:this.messaging.agentUser(actor.id).id},this.execution).pauseExecution(actor,conversationId,requestKey);
+  pauseExecution(actor:TaskGraphActor,conversationId:string|undefined,requestKey:string,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean},control?:{messageId:string;nodeId:string}):Obj {
+    if(personal) return new TaskGraphService(this.db,this.messaging,{...personal,agentUserId:this.messaging.agentUser(actor.id).id},this.execution).pauseExecution(actor,conversationId,requestKey,undefined,control);
     text(requestKey,'request_key');
     const notices:ChatMessage[]=[]; let result:Obj;
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      const original=control?this.row("SELECT m.* FROM messages m WHERE m.id=? AND m.sender_type='user' AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=m.id)",control.messageId):undefined;
+      const relay=control?this.row("SELECT 1 FROM relay_tasks WHERE message_id=? AND target_node_id=? AND json_extract(payload_json,'$.agent_id')=?",control.messageId,control.nodeId,actor.id):undefined;
+      if(control&&(!original||!relay||conversationId&&original.conversation_id!==conversationId))fail('invalid_human_control','Stop requires its original authenticated human input');
+      if(original) {
+        const self=this.row("SELECT id FROM users WHERE username='agent:'||?",actor.id);
+        const text=original.content.trim(),mention=/^<mention type="user" target_id="([^"<>]+)"\s*\/>\s*/.exec(text);
+        if((mention?.[1]===self?.id?text.slice(mention![0].length).trim():text)!=='/stop')fail('invalid_human_control','Input is not the exact host-targeted stop command');
+      }
+      const stopActor=original?{type:'user',id:original.sender_user_id}:{type:'agent',id:actor.id};
       const items=this.executeTransaction(actor,'execution_pause',{conversation_id:conversationId},false,[]).items as Obj[];
       const previous=this.row('SELECT * FROM task_execution_stops WHERE agent_id=? AND request_key=?',actor.id,requestKey);
       if(previous) {
@@ -880,11 +892,11 @@ export class TaskGraphService {
           const now=new Date().toISOString(),ids=new Set(nodes.map(n=>n.node_id));
           const next={...structuredClone(before),revision:before.revision+1,updated_at:now,updated_by:actor.id};
           for(const node of next.nodes)if(ids.has(node.id)) {
-            this.pauseNode(node,{type:'agent',id:actor.id},now);
+            this.pauseNode(node,stopActor,now);
           }
           this.save({...next,owner_id:row.owner_id});
           for(const notice of taskNotices(next,before,actor.id,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
-            notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,notice.metadata,actor.id));
+            notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,{...notice.metadata,actor:stopActor,...(original?{human_control:{action:'pause',actor:stopActor,original_user_message_id:original.id,original_user_message_time:original.created_at,task_refs:notice.metadata.task_refs,revision:next.revision,event_time:now,scope:{agent_id:actor.id,conversation_id:conversationId??null}}}:{})},actor.id));
         }
         result={paused:items.length};
         this.db.prepare('INSERT INTO task_execution_stops VALUES(?,?,?,?)').run(actor.id,requestKey,conversationId??'',JSON.stringify(result));

@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each(['unread-write', 'failed-read-write', 'normal-stop', 'missing-index', 'model-error', 'cancelled'])(
   'accepts only valid normally completed staging after %s', async mode => {
@@ -55,6 +56,7 @@ export function apply(ctx) {
         { insert: [{ id: 'incomplete-fixture', name: join(home, 'fixture.mjs') }] },
       ]);
       client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' } });
+      registerNoopTaskHosts(client);
       const binding = { sessionId: 'root', agentId: 'a', ownerId: 'owner', cwd: home, revision: '1' };
       await client.rpc.request('initialize', { protocol: 1, agents: [{ agentId: 'a', workspace: home, revision: '1', provider: 'fixture', model: 'test', features: { dreaming: false }, toolAllowlist: ['read', 'write', 'edit', 'memory_maintenance'], knowledge: { dreaming: { maxInputTokens: 24000 } } }], bindings: [binding] });
       await client.rpc.request('session.ensure', binding);

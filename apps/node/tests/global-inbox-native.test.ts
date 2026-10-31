@@ -6,6 +6,12 @@ import { prepareProfile, RuntimeClient } from '@nano/dsh-integration/client';
 import { GlobalAgent, InboxStore, NodeStore, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
 
+// These native fixtures have no Task data; register their product context host explicitly.
+function registerEmptyTaskContext(client: RuntimeClient): void {
+  client.rpc.handle('product.task_context.prepare', () => ({ messages: [], revoked: [] }));
+  client.rpc.handle('product.task_context.commit', () => null);
+}
+
 it('delivers a busy Inbox notice at the next native model request without injecting the body or bypassing send review', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-inbox-'));
   const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
@@ -26,6 +32,7 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
 });}`);
     await prepareProfile(home, [{ insert: [{ id: 'inbox-model', name: join(home, 'model.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerEmptyTaskContext(client);
     const config: AgentConfiguration = { agentId: 'a', revision: '1', workspace: home, mode: 'global', provider: 'deepseek-official', model: 'deepseek-flash', approval: { dangerouslySkipPermissions: true } };
     await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
     product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [config], store, inbox,
@@ -87,6 +94,7 @@ export const name='background-model';export const inject=['llm'];export function
 });}`);
     await prepareProfile(home,[{insert:[{id:'background-model',name:join(home,'model.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+    registerEmptyTaskContext(client);
     const config:AgentConfiguration={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',personal:{bindingId:'binding',ownerId:'owner',conversationId:'own',epoch:1},approval:{dangerouslySkipPermissions:true}};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime:client.rpc,image:async()=>'',onError:error=>errors.push(error),

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('installs workspace tools into existing chats, isolates dispatch, retries failed source and preserves restart choices', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-workspace-tools-'));
@@ -64,6 +65,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await prepareProfile(home, [{ insert: [{ id: 'model', name: join(home, 'model.mjs') }] }]);
     const start = async (restore = false) => {
       client = new RuntimeClient({ home, cwd: home, env: { PATH: join(home, 'no-global-tools') }, onLog: text => { logs += text; } });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, packageManager, agents, bindings: restore ? bindings : [] });
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };

@@ -7,6 +7,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { AuthorizationRequest } from '@deepseek-ai/dsh-authorization';
 import { NativeModelSetup } from '../src/model-setup.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('configures a real empty DSH through settings and credentials, probes native HTTP and restores routes after failure and cold restart', async () => {
   const calls: { url?: string; authorization?: string }[] = [];
@@ -28,6 +29,7 @@ it('configures a real empty DSH through settings and credentials, probes native 
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: {} } }]);
     const start = async (routes: unknown) => {
       client = new RuntimeClient({ home, cwd: home });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, agents: [], bindings: [], providers: routes });
     };
     await start({});

@@ -6,6 +6,7 @@ import { expect, it } from 'vitest';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import type { RuntimeStopHistory } from '../../product-contracts/src/index.js';
 import { RuntimeClient, RuntimeSupervisor, prepareProfile } from '../src/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 // These lifecycle fixtures intentionally share a workspace; document-mode owners use separate libraries.
 const config = {agentId:'a',knowledge:{memoryMode:'legacy'},revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{task_graph:false,memory_curation:false,skill_creation:false}};
@@ -14,7 +15,7 @@ const input = (id:string,mode='inject') => ({sessionId:'root',inputId:id,mode,co
 
 it('clears cold durable inbox once per disable revision and preserves fresh post-enable work on later restart', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-cold-disable-'));let client:RuntimeClient|undefined;
-  const start=async(lifecycle?:unknown)=>{client=new RuntimeClient({home,cwd:home});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle:lifecycle?{a:lifecycle}:undefined});await client.rpc.request('session.ensure',binding(home));};
+  const start=async(lifecycle?:unknown)=>{client=new RuntimeClient({home,cwd:home});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle:lifecycle?{a:lifecycle}:undefined});await client.rpc.request('session.ensure',binding(home));};
   try {
     await prepareProfile(home); await start();
     const {sessionId, ...rest}=binding(home);
@@ -98,10 +99,10 @@ it('returns durable stop history for cold disabled roots after a Node restart wi
   try {
     await writeFile(join(home,'hold.mjs'), `import {appendFile} from 'node:fs/promises';export const inject=['llm'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id==='root')return appendFile(process.env.DSH_HOME+'/created','root\\n');});ctx.on('llm/stream',async function*(options){await new Promise(resolve=>{if(options.signal?.aborted)resolve();else options.signal?.addEventListener('abort',resolve,{once:true});});yield {type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home,[{insert:[{id:'hold',name:join(home,'hold.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)]});await client.rpc.request('session.ensure',binding(home));await client.rpc.request('session.submit',input('before-shutdown','followup'));
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)]});await client.rpc.request('session.ensure',binding(home));await client.rpc.request('session.submit',input('before-shutdown','followup'));
     await expect.poll(async()=>await client!.rpc.request('session.observe',{sessionId:'root'})).toMatchObject({status:'running'});
     await client.shutdown();
-    client=new RuntimeClient({home,cwd:home});await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle:{a:{revision:2,disabled:true,disabledThroughRevision:2}}});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle:{a:{revision:2,disabled:true,disabledThroughRevision:2}}});
     const result=await client.rpc.request('agent.disable',{agentId:'a',revision:2}) as {confirmed:boolean;history:{sessionId:string;events:{type:string}[]}[]};
     expect(result).toMatchObject({confirmed:true,history:[{sessionId:'root',events:expect.arrayContaining([expect.objectContaining({type:'turn/end'})])}]});
     expect(await readFile(join(home,'created'),'utf8')).toBe('root\n');
@@ -135,7 +136,7 @@ it('reports unconfirmed when a managed owner cleanup throws even though Cordis d
 it('skips expired schedules before restore and stamps only new automatic inputs with the enabled revision', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-schedule-disable-'));let client:RuntimeClient|undefined;
   const scheduled={...config,toolAllowlist:['schedule_create','schedule_run']};
-  const start=async(lifecycle?:unknown)=>{client=new RuntimeClient({home,cwd:home});await client.rpc.request('initialize',{protocol:1,agents:[scheduled],bindings:[binding(home)],lifecycle:lifecycle?{a:lifecycle}:undefined});await client.rpc.request('session.ensure',binding(home));};
+  const start=async(lifecycle?:unknown)=>{client=new RuntimeClient({home,cwd:home});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[scheduled],bindings:[binding(home)],lifecycle:lifecycle?{a:lifecycle}:undefined});await client.rpc.request('session.ensure',binding(home));};
   try {
     await writeFile(join(home,'model.mjs'), `export const inject=['llm'];export function apply(ctx){ctx.on('llm/stream',async function*(){yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home,[{insert:[{id:'model',name:join(home,'model.mjs')}]}]);await start();
@@ -181,10 +182,11 @@ export async function apply(ctx){const marker=process.env.DSH_HOME+'/seeded';try
     const seed={insert:[{id:'seed',name:join(home,'seed.mjs')}]};
     await prepareProfile(home,[{id:'nano-runtime',disabled:true},seed]);
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+    registerNoopTaskHosts(client);
     await expect.poll(()=>readFile(join(home,'seeded'),'utf8').catch(()=>logs),{timeout:5000}).toBe('done');
     client.process.kill('SIGKILL');await client.exited;
     await prepareProfile(home,[seed]);
-    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});await client.rpc.request('initialize',{protocol:1,agents:[config,{...config,agentId:'b'}],bindings:[binding(home),{...binding(home),agentId:'b',sessionId:'root-b'}],lifecycle:{a:{revision:3,disabledThroughRevision:2}}});
+    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[config,{...config,agentId:'b'}],bindings:[binding(home),{...binding(home),agentId:'b',sessionId:'root-b'}],lifecycle:{a:{revision:3,disabledThroughRevision:2}}});
     await client.rpc.request('session.ensure',binding(home));
     expect(await client.rpc.request('session.command',{sessionId:'root',id:'old-command',action:'compact'})).toMatchObject({status:'completed',success:false});
     expect(await client.rpc.request('session.observe',{sessionId:'root'})).toMatchObject({modelRuns:[{id:'old-run',state:'completed',terminal:{kind:'cancelled',reason:'agent_disabled'}}]});

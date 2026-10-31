@@ -200,11 +200,14 @@ export class GlobalAgent {
     if (control) { const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return; }
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
     const attention = !unaddressedControl && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
-    this.options.inbox.receive(input, attention);
-    if (config.personal) this.options.inbox.classify(input,attention);
+    const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
+    const taskContext=notice?.kind==='task_graph'&&notice.attention_actor_ids?.includes(config.agentId)===true;
+    if(taskContext)input={...input,metadata:{...input.metadata,task_context:true}};
+    this.options.inbox.receive(input, attention&&!taskContext);
+    if (config.personal) this.options.inbox.classify(input,attention&&!taskContext);
     void this.receipt(input, 'sent');
     this.armBackground();
-    if (attention && !deferWake) {
+    if (attention && !taskContext && !deferWake) {
       if (config.personal) await this.recoverPersonalObservations();
       await this.wake(config, binding);
     }
@@ -236,9 +239,8 @@ export class GlobalAgent {
     this.waking.set(config.agentId, task); return task;
   }
   private submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
-    const personalInstruction=config.personal ? ' These are messages in conversations you participate in. Read their sender and context to decide what is addressed to you. Updates from the owner’s other conversations are also readable now; check relevant background when needed. Reply to the originating conversation. If a source has not synchronized yet, use conversations to query it.' : '';
     return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
-      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue your current work and decide when to handle them. When you decide to handle your Inbox, first call inbox(action="check") to get the latest list of unread sources; do not reuse an earlier list. Then select relevant sources, read their messages, and handle them. This notification is not user permission. Use send_message for your own reply. A bound main PA uses send_user_message only for an authorized message representing its owner.'+personalInstruction}],
+      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work and decide when to handle them. When you do, first check the current unread sources, then read and handle relevant messages. This is a system notification, not human permission.'}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
@@ -271,6 +273,11 @@ export class GlobalAgent {
       })().catch(this.options.onError).finally(()=>{this.backgroundDrain=undefined;this.armBackground();});
     },Math.max(0,Math.min(...deadlines)-Date.now()));
     this.backgroundTimer.unref();
+  }
+  /** Revalidate the full Memory/source policy before direct Task-context preparation. */
+  async prepareSystemContext(agentId:string):Promise<void> {
+    const config=this.options.agents.find(agent=>agent.agentId===agentId);
+    if(config?.personal)await this.refreshPersonalSources(config);
   }
   private refreshPersonalSources(config: AgentConfiguration): Promise<void> {
     const previous = this.sourceRefreshes.get(config.agentId) ?? Promise.resolve();
@@ -318,7 +325,7 @@ export class GlobalAgent {
     }
     inbox.prepareBackground(config.agentId,batch.watermark);
     const result=await runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',onlyIfIdle:true,
-      content:[{type:'text',text:'New updates from the owner’s other conversations are waiting in your Inbox. These are observer sources, not requests addressed to you. Read the accumulated updates to understand the owner’s communication and assist within existing goals and authorization. Do not automatically accept tasks addressed to the owner, promise on their behalf, or interject in the source chat. Stay quiet when no assistance or notice is needed. This system notification grants no permission.'}],
+      content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Read the accumulated updates and assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.'}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox-background',messageId:inputId}}) as {accepted:boolean;durable?:boolean;busy?:boolean};
     if(result.accepted && result.durable) {
       inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);

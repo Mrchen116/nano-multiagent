@@ -120,10 +120,11 @@ it('pauses after a server write still awaiting native evidence, even when its cl
   gateway.request=async()=>{entered();return new Promise(resolve=>{release=resolve;});};
   const writing=gateway.handle(connection,'task_graph.command',{node_id:'n',agent_id:'a',request_id:'write',action:'apply',args:{graph_id:graph.graph_id,base_revision:1,request_key:'wait',change_note:'',operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Await delivered request',schedule_id:'schedule'}}}]}});
   await checking;
-  const stopping=gateway.handle(connection,'task.execution.pause',{node_id:'n',agent_id:'a',conversation_id:'chat',request_id:'stop',request_key:'stop'});
+  const stop=ctx.messaging.insertMessage('chat','u1','user','/stop');ctx.messaging.queueRepresentedRelays(stop,'no-agent');
+  const stopping=gateway.handle(connection,'task.execution.pause',{node_id:'n',agent_id:'a',conversation_id:'chat',request_id:'stop',request_key:'stop',control_message_id:stop.id});
   expect(gateway.tasks.execute(human,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0].status).toBe('doing');
   release({valid:true,owner_agent_id:'a',session_id:'s',next_check_at:new Date(Date.now()+60000).toISOString(),checked_at:new Date().toISOString()});
-  expect((await writing).payload.ok).toBe(true);expect((await stopping).payload.result.paused).toBe(1);
+  expect((await writing).payload.ok).toBe(true);const stopped=await stopping;expect(stopped,JSON.stringify(stopped)).toMatchObject({payload:{ok:true,result:{paused:1}}});
   expect(gateway.tasks.execute(human,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0]).toMatchObject({status:'paused'});
 });
 
@@ -201,7 +202,10 @@ it('closes waiting and resumed work with human audit before publishing dissoluti
     {hint:{agent_ids:['a'],conversation_ids:['chat']},tasks:[],transaction:false},
     {hint:{agent_ids:[],conversation_ids:['chat']},tasks:[],transaction:false},
   ]));
-  expect(counts()).toEqual(beforeCounts);
+  expect(counts()).toEqual(beforeCounts.map((value,index)=>index<2?Number(value)+1:value));
+  const withdrawal=JSON.parse(db.prepare("SELECT system_notice_json FROM messages WHERE system_notice_json LIKE '%access_revoked%' ORDER BY rowid DESC LIMIT 1").get()!.system_notice_json as string);
+  expect(withdrawal).toMatchObject({kind:'task_graph',change_kinds:['access_revoked']});
+  expect(JSON.stringify(withdrawal)).not.toContain('Completed graph');
   expect(db.prepare("SELECT count(*) AS n FROM relay_tasks WHERE status IN ('queued','sent','accepted')").get()!.n).toBe(0);
   expect(ctx.gateway.broadcast).toHaveBeenCalled();
 });

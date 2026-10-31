@@ -1,4 +1,5 @@
 import {configurationDependencies} from './configuration-assembly.js';
+import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import {readAgentProfile} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, lifecycleAllows } from './agent-lifecycle.js';
@@ -38,11 +39,7 @@ export class PersonalAgents {
     return b;
   }
   sourceAccess(b: Row, conversationId: string, mode: 'read'|'write' = 'read') {
-    const owner = conversationAccess(this.db, conversationId, b.owner_user_id);
-    const agentUser = this.ctx.messaging.agentUser(b.agent_id);
-    const agent = conversationAccess(this.db, conversationId, agentUser.id);
-    const participated = one(this.db, 'SELECT 1 FROM conversation_participation_history WHERE conversation_id=? AND user_id=?', conversationId, b.owner_user_id);
-    return [owner && participated ? owner : undefined, agent].find(access => access && (mode === 'read' || access.can_write));
+    return personalSourceAccess(this.db,b,conversationId,mode);
   }
   sourceAllowed(b: Row, conversationId: string, mode: 'read'|'write' = 'read') {
     return !!this.sourceAccess(b, conversationId, mode) && !this.policy(b.binding_id).excluded_conversation_ids.includes(conversationId);
@@ -193,12 +190,15 @@ export class PersonalAgents {
     const excluded = input.excluded_conversation_ids ?? current.excluded_conversation_ids;
     if (!Array.isArray(excluded) || excluded.some(id=>typeof id !== 'string' || id === b.conversation_id)) fail(422, 'invalid_source_exclusions');
     if (excluded.some(id=>!current.excluded_conversation_ids.includes(id)&&!this.sourceAccess(b,id))) fail(404,'source_not_accessible');
-    transaction(this.db,()=> {
+    const withdrawals=transaction(this.db,()=> {
+      const before=captureTaskContextAccess(this.db,{agentIds:[b.agent_id]});
       this.db.prepare('UPDATE pa_policies SET revision=revision+1,excluded_json=? WHERE binding_id=?').run(JSON.stringify([...new Set(excluded)]),b.binding_id);
       this.db.prepare("UPDATE pa_operations SET state='invalidated',verdict_ref=NULL WHERE binding_id=? AND state IN ('prepared','allowed')").run(b.binding_id);
       for (const id of excluded) this.db.prepare("UPDATE pa_source_events SET state='revoked' WHERE binding_id=? AND conversation_id=? AND state!='processed'").run(b.binding_id,id);
       this.db.prepare("INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at) VALUES(?,'policy.changed',?,?,?)").run(b.binding_id,JSON.stringify({excluded_conversation_ids:excluded}),current.revision+1,now());
+      return revokeLostTaskContextAccess(this.db,before,b.owner_user_id);
     });
+    if(withdrawals.length)this.ctx.messaging.publishMessages(withdrawals,{deferDelivery:true});
     this.wake(b);
     return this.policy(b.binding_id);
   }

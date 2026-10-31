@@ -1,3 +1,4 @@
+import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -30,7 +31,7 @@ export function apply(ctx){
  });
 }`);
     await prepareProfile(home,[{insert:[{id:'task-limit-probe',name:join(home,'probe.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     const totals=new Map<string,{automatic:number;turns:number;steps:number}>();
     const count=(id:string)=>{let value=totals.get(id);if(!value){value={automatic:0,turns:0,steps:0};totals.set(id,value);}return value;};
     client.rpc.onNotification((method,payload)=>{
