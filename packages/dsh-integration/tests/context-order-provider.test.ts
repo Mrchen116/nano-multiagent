@@ -51,7 +51,7 @@ it('orders native environment updates on Anthropic HTTP wire without rewriting r
   let prepareCalls = 0, commitCalls = 0;
   const skills = join(home, 'skills');
   const config = {
-    agentId: 'wire-agent', revision: '1', workspace: home,
+    agentId: 'wire-agent', displayName: 'P · 产品与体验', revision: '1', workspace: home,
     knowledge: { memoryMode: 'legacy' }, provider: 'wire', model: 'fixture',
     systemPrompt: 'WIRE_SYSTEM_REVISION_ONE', toolAllowlist: ['skill'],
     features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false },
@@ -102,6 +102,9 @@ it('orders native environment updates on Anthropic HTTP wire without rewriting r
     expect(invocation!.id).not.toMatch(/^nano-skill:/);
     expect(firstUsers.find(message => message.id === 'first-human')).toMatchObject({ source: { kind: 'user', actorId: 'owner', channel: 'test', messageId: 'first-human' } });
     expect(JSON.stringify(body(first).system)).toContain(config.systemPrompt);
+    expect(JSON.stringify(body(first).system)).toContain(config.displayName);
+    expect(JSON.stringify(body(first).system)).toContain(config.agentId);
+    expect(text(runtime!)).not.toContain('Agent name:');
 
     const normal = await submit('normal-human', 'WIRE_NORMAL_HUMAN');
     const normalUsers = users(await observe());
@@ -124,7 +127,7 @@ it('orders native environment updates on Anthropic HTTP wire without rewriting r
     expect(wireMessages(restored).slice(0, wireMessages(normal).length)).toEqual(wireMessages(normal));
     expect(position(restored, text(runtime!))).toBeLessThan(position(restored, 'WIRE_RESTORED_HUMAN'));
 
-    const updated = { ...config, revision: '2', systemPrompt: 'WIRE_SYSTEM_REVISION_TWO',
+    const updated = { ...config, displayName: 'Renamed product Agent', revision: '2', systemPrompt: 'WIRE_SYSTEM_REVISION_TWO',
       skillSelection: { mode: 'explicit_allowlist', names: ['replacement'] }, approval: { ...config.approval, enabled: true } };
     expect(await client!.rpc.request('configuration.apply', updated)).toMatchObject({ effective: true, revision: '2' });
     await client!.shutdown(); client = undefined;
@@ -149,6 +152,8 @@ it('orders native environment updates on Anthropic HTTP wire without rewriting r
     expect(position(changed, 'WIRE_UPDATED_HUMAN')).toBeLessThan(position(changed, text(nextInvocation)));
     expect(text(nextInvocation)).toContain('WIRE_REPLACEMENT_SKILL_BODY');
     expect(JSON.stringify(body(changed).system)).toContain(updated.systemPrompt);
+    expect(JSON.stringify(body(changed).system)).toContain(updated.displayName);
+    expect(JSON.stringify(body(changed).system)).not.toContain(config.displayName);
     expect(JSON.stringify(body(changed).system)).not.toContain(config.systemPrompt);
     expect(changedUsers.slice(0, restoredUsers.length)).toEqual(restoredUsers);
     expect(wireMessages(changed).slice(0, wireMessages(restored).length)).toEqual(wireMessages(restored));

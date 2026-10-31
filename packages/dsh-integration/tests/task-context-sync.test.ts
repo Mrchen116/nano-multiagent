@@ -49,7 +49,7 @@ export function apply(ctx){const attempted=new Set();ctx.on('llm/stream',async f
     current.rpc.handle('product.task_context.prepare',async value=>{
       state.prepareReads++;expect(value).toMatchObject({agentId:'a',sessionId:'s',ownerId:'o'});
       await state.beforePrepare?.();reconcile((value as {evidence:Evidence[]}).evidence);
-      if(state.unavailable)return {unavailable:true,messages:[],revoked:state.revoked};
+      if(state.unavailable)return {unavailable:true,messages:[],revoked:state.revoked,unavailableInputs:state.pending.filter(item=>!state.consumed.has(item.inputId)&&!state.revoked.includes(item.inputId)).map(({inputId,conversationId})=>({inputId,conversationId}))};
       return {messages:state.pending.filter(message=>!state.consumed.has(message.inputId)&&!state.revoked.includes(message.inputId)),revoked:state.revoked};
     });
     current.rpc.handle('product.task_context.commit',value=>{reconcile((value as {evidence:Evidence[]}).evidence);return null;});
@@ -80,6 +80,7 @@ it.each([{outage:'source',taskGraph:true},{outage:'snapshot',taskGraph:true},{ou
   try{
     await f.start(client);await f.submit(client,'force-task-tool');
     await expect.poll(async()=>(await f.calls()).length).toBe(2);await f.idle(client);
+    expect((await f.calls())[0]!.messages.some(message=>message.source?.channel==='task-context-limitation')).toBe(false);
     const denied=(await f.observe(client)).events.find(event=>event.type==='tool/result'&&event.data.message.toolCallId==='task-probe-force-task-tool');
     expect(denied?.data.message.isError).toBe(true);expect(JSON.stringify(denied)).toContain('unavailable');expect(f.state.productCalls).toBe(0);
     f.state.unavailable=false;f.state.snapshot=empty;
@@ -125,7 +126,7 @@ it('fails closed until Task originals synchronize, then preserves their business
 },25_000);
 
 it.each([false,true])('allows independent offline input without admitting uncertain Task originals (task_graph=%s)',async taskGraph=>{
-  const f=await fixture(taskGraph),client=f.client(),message=original('offline-pending','UNCERTAIN_TASK_REQUIREMENTS');
+  const f=await fixture(taskGraph),message=original('offline-pending','UNCERTAIN_TASK_REQUIREMENTS');let client=f.client();
   f.state.pending=[message];f.state.unavailable=true;
   try {
     await f.start(client);await f.passive(client,[message]);await f.submit(client,'ordinary-offline-question');
@@ -133,13 +134,36 @@ it.each([false,true])('allows independent offline input without admitting uncert
     const first=(await f.calls())[0]!;
     expect(first.messages.some(value=>value.id==='ordinary-offline-question')).toBe(true);
     expect(JSON.stringify(first)).not.toContain('UNCERTAIN_TASK_REQUIREMENTS');
-    expect(first.messages.filter(value=>value.source?.channel==='task-context-limitation')).toHaveLength(1);
-    expect(f.state.consumed.has(message.inputId)).toBe(false);
-    f.state.unavailable=false;await f.submit(client,'after-authority-restored');
+    const limitations=first.messages.filter(value=>value.source?.channel==='task-context-limitation');
+    expect(limitations).toHaveLength(1);
+    expect(JSON.stringify(limitations)).toContain('offline-pending');
+    expect(JSON.stringify(limitations)).toContain('fixed-task-chat');
+    await f.submit(client,'second-offline-question');
     await expect.poll(async()=>(await f.calls()).length).toBe(2);await f.idle(client);
-    expect((await f.calls())[1]!.messages.filter(value=>value.id===message.inputId)).toHaveLength(1);
+    expect((await f.observe(client)).events.filter(event=>event.type==='user/message'&&event.data.source?.channel==='task-context-limitation')).toHaveLength(1);
+    expect(f.state.consumed.has(message.inputId)).toBe(false);
+    await client.shutdown();client=f.client();await f.start(client);await f.submit(client,'offline-after-restart');
+    await expect.poll(async()=>(await f.calls()).length).toBe(3);await f.idle(client);
+    expect((await f.observe(client)).events.filter(event=>event.type==='user/message'&&event.data.source?.channel==='task-context-limitation')).toHaveLength(1);
+    f.state.unavailable=false;await f.submit(client,'after-authority-restored');
+    await expect.poll(async()=>(await f.calls()).length).toBe(4);await f.idle(client);
+    expect((await f.calls())[3]!.messages.filter(value=>value.id===message.inputId)).toHaveLength(1);
     expect(f.state.consumed.has(message.inputId)).toBe(true);
   } finally {await client.shutdown();await rm(f.home,{recursive:true,force:true});}
+},25_000);
+
+it('identifies current Task work when authority fails during a native tool round',async()=>{
+  const f=await fixture(true,true),client=f.client();
+  f.state.beforePrepare=async()=>{if(f.state.prepareReads===1)f.state.snapshot=doing();else f.state.unavailable=true;};
+  try{
+    await f.start(client);await f.submit(client,'force-task-tool-current-work');
+    await expect.poll(async()=>(await f.calls()).length).toBe(2);await f.idle(client);
+    const limitation=(await f.calls())[1]!.messages.find(message=>message.source?.channel==='task-context-limitation');
+    expect(limitation).toBeDefined();
+    const scope=JSON.parse(limitation!.content[0]!.text!.split('\n').at(-1)!);
+    expect(scope.task_refs).toEqual([{graph_id:'g',node_id:'n1'}]);
+    expect(scope.input_refs).toEqual([]);expect(f.state.productCalls).toBe(1);
+  }finally{await client.shutdown();await rm(f.home,{recursive:true,force:true});}
 },25_000);
 
 it('holds Task-only candidates without a provider call or idle retry loop, then rechecks on authority recovery',async()=>{

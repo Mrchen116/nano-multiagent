@@ -70,8 +70,7 @@ export function projectCapabilities(
       ...feature,
       label_i18n: `feature.${feature.key}.label`,
       help_i18n: `feature.${feature.key}.help`,
-      available: available && (feature.key !== 'dreaming' || !agent?.toolAllowlist || feature.requires.tools.every(name => agent.toolAllowlist!.includes(name))),
-      ...(feature.key === 'dreaming' ? {missing_tools: feature.requires.tools.filter(name => !catalog.tools.some(tool => tool.name === name) || (agent?.toolAllowlist !== undefined && !agent.toolAllowlist.includes(name)))} : {}),
+      available,
     }; }),
     commands: [
       { name: "new", description: "Start a new conversation context" },

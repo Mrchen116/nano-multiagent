@@ -118,9 +118,6 @@ export class Dreaming {
     if (!config || config.knowledge?.memoryMode === 'legacy' || this.stopped || this.options.held?.(config.agentId)) return Promise.reject(new Error('Document maintenance is not available.'));
     if (automatic && config.features?.dreaming === false) return Promise.reject(new Error('Automatic Dreaming is disabled.'));
     const prior = this.active.get(config.agentId); if (prior) return Promise.resolve({ accepted: false, reason: 'maintenance_already_running' });
-    const required = ['read', 'write', 'edit', 'memory_maintenance'];
-    const missing = required.filter(name => !parent.ctx.tools.get(name, parent));
-    if (missing.length) return Promise.resolve({ accepted: false, reason: 'missing_tools', missing });
     const controller = new AbortController();
     const work: Active = { automatic, controller, promise: Promise.resolve() };
     this.active.set(config.agentId, work);

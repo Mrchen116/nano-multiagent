@@ -102,9 +102,12 @@ it.each([
     expect(names).toEqual(expect.arrayContaining(['skill', 'read', 'task_graph']));
     for (const absent of ['write', 'edit', 'skill_manage', 'memory', 'cron', 'goal']) expect(names).not.toContain(absent);
     if (!legacy) {
-      expect(visible).toContain('Current entry:');
+      expect(visible).toContain(join(home, '.nanoassistant/memory/MEMORY.md'));
+      expect(visible).toContain('one-page key memory');
+      expect(visible).toContain('<memory_content>');
+      expect(visible).not.toContain('Backup navigation:');
       expect(visible).not.toContain('entry_basis_stale');
-      expect(visible).toContain('Unavailable tools: write, edit.');
+      expect(visible).not.toContain('Unavailable tools:');
       expect(names).toContain('memory_maintenance');
       const schema = JSON.stringify(request.body.tools.find((tool: any) => tool.name === 'memory_maintenance'));
       expect(schema).toContain('importLegacy'); expect(schema).not.toContain('checkpoint');

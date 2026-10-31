@@ -21,6 +21,7 @@ interface State {
   checking:boolean;requested:boolean;queued?:string;serial:number;seenSerial:number;
   automaticTurn:boolean;stoppedAt?:number;interrupted?:'error'|'cancelled'|'source'|'flush';interruptedAt?:string;recoveringTurn?:number;
   blocked:boolean;contextUnavailable?:boolean;shown?:TaskExecutionSnapshot;limited?:string;
+  unavailableInputs?:{inputId:string;conversationId:string}[];
   denied:Map<string,Map<string,string>>;deniedCalls:Set<string>;
   run?:{steps:number;automatic:boolean;external:boolean};
 }
@@ -41,9 +42,10 @@ export class TaskExecutionDriver {
    * Args:
    *   agent: Bound native execution.
    *   available: Whether complete original/source reconciliation succeeded.
+   *   inputs: Scoped queued originals withheld by the product host.
    */
-  contextAvailability(agent:Agent,available:boolean):void {
-    const state=this.state(agent.id);state.contextUnavailable=!available;
+  contextAvailability(agent:Agent,available:boolean,inputs:{inputId:string;conversationId:string}[]=[]):void {
+    const state=this.state(agent.id);state.contextUnavailable=!available;state.unavailableInputs=inputs;
     if(!available){
       if(state.queued)agent.inbox.remove(MessageId(state.queued));
       state.queued=undefined;state.automaticTurn=false;
@@ -136,7 +138,8 @@ export class TaskExecutionDriver {
         if(!state.interrupted)this.hold(state,'source');
         retain();state.automaticTurn=false;
         if(own.length&&!ordinary.length)return {kind:'reject'};
-        messages.push(this.message(agent,"Current Task facts or the identified source permissions cannot be verified. Do not continue affected Task actions from an older snapshot or use content whose access has not been verified. This does not complete or pause any Task. Independently authorized work outside the affected scope may continue. Recheck through the available tools when the limitation is resolved; do not invent a missing Schedule or a completed synchronization."+'\n'+JSON.stringify({reason_code:snapshot.reason??'task_source_unavailable',checked_at:new Date().toISOString()}),'task-context-limitation'));
+        const limitation=this.limitation(agent,state,snapshot);
+        if(limitation)messages.push(this.message(agent,limitation,'task-context-limitation'));
         return next();
       }
       if(state.interrupted==='source')state.interrupted=undefined;
@@ -206,6 +209,25 @@ export class TaskExecutionDriver {
     if(agent.status==='running'&&this.state(agent.id).contextUnavailable)return {kind:'unavailable',tasks:[],repair_task_ids:[],reason:'task_context_sync_unavailable'};
     try{return await this.options.peer.request('product.task_execution.snapshot',this.identity(agent)) as TaskExecutionSnapshot;}
     catch{return {kind:'unavailable',tasks:[],repair_task_ids:[],reason:'task_source_unavailable'};}
+  }
+  /** Explain only known affected work; native visible evidence owns repetition. */
+  private limitation(agent:Agent,state:State,snapshot:TaskExecutionSnapshot):string|undefined {
+    const tasks=snapshot.tasks.length?snapshot.tasks:state.shown?.tasks??[];
+    const task_refs=tasks.filter(task=>task.status==='doing'||task.status==='waiting').map(({graph_id,node_id})=>({graph_id,node_id})).sort((a,b)=>taskId(a).localeCompare(taskId(b)));
+    const input_refs=(state.unavailableInputs??[]).map(({inputId,conversationId})=>({input_id:inputId,conversation_id:conversationId})).sort((a,b)=>a.input_id.localeCompare(b.input_id));
+    if(!task_refs.length&&!input_refs.length)return;
+    const text='Verification is unavailable for the Task references or queued Task inputs listed below. Recheck their current facts and access before acting on them; queued input content has not been delivered. This does not complete or pause a Task. Independently authorized work can continue.\n'
+      +JSON.stringify({reason_code:snapshot.reason??'task_source_unavailable',task_refs,input_refs});
+    const events=agent.session.snapshotEvents(),visible=new Set(agent.session.surface.nodes);
+    const calls=new Map(events.filter(event=>event.type==='tool/call').map(event=>[event.data.callId,event.data.name]));
+    for(const event of events.toReversed()){
+      if(!visible.has(event.seq))continue;
+      if(event.type==='tool/result'&&!event.data.message.isError&&calls.get(event.data.message.toolCallId)==='task_graph')break;
+      if(event.type!=='user/message'||event.data.source.kind!=='nano-system')continue;
+      if(['task-context','task-execution','task-reminder','task-wait-repair'].includes(event.data.source.channel))break;
+      if(event.data.source.channel==='task-context-limitation')return event.data.content.some(block=>block.type==='text'&&block.text===text)?undefined:text;
+    }
+    return text;
   }
   private prompt(agent:Agent,snapshot:TaskExecutionSnapshot,state:State,automatic=true,checks:{graph_id:string;node_id:string;schedule_id:string;occurrence_id:string;planned_check_at:string;checked_at:string}[]=[]):string {
     const closing=this.options.configuration(agent)?.mode==='global'

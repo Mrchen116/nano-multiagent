@@ -63,19 +63,23 @@ export class TaskContext {
     try{await next;}finally{if(this.syncing.get(agentId)===next)this.syncing.delete(agentId);}
   }
   /** Complete current authority synchronization before any original message is admitted. */
-  async prepare(identity:Identity&{evidence?:Evidence[]}):Promise<{messages:ReturnType<InboxStore['prepareSystemContext']>;revoked:string[];unavailable?:boolean}> {
+  async prepare(identity:Identity&{evidence?:Evidence[]}):Promise<{messages:ReturnType<InboxStore['prepareSystemContext']>;revoked:string[];unavailable?:boolean;unavailableInputs?:{inputId:string;conversationId:string}[]}> {
     const binding=this.binding(identity);
+    const config=this.options.agents.find(item=>item.agentId===identity.agentId)!;
+    const scope=config.mode==='global'?undefined:this.options.store.imConversation(identity.agentId,binding.conversationId);
+    const inScope=(message:{conversationId:string})=>config.mode==='global'||message.conversationId===scope;
     try {await this.sync(identity.agentId);}
     catch {
       // Source uncertainty blocks originals, not independent already-authorized input.
       // Keep unread/prepared rows pending for the next successful catch-up.
       this.binding(identity);
-      return {messages:[],revoked:this.options.store.systemContextInputs(identity.agentId).filter(row=>row.state==='revoked').map(row=>row.input_id),unavailable:true};
+      const revoked=this.options.store.systemContextInputs(identity.agentId).filter(row=>row.state==='revoked').map(row=>row.input_id);
+      const unavailableInputs=this.options.inbox.prepareSystemContext(identity.agentId,identity.sessionId)
+        .filter(message=>inScope(message)&&!revoked.includes(message.inputId)).map(({inputId,conversationId})=>({inputId,conversationId}));
+      return {messages:[],revoked,unavailable:true,unavailableInputs};
     }
     await this.commit({...identity,evidence:identity.evidence??[]});
-    const config=this.options.agents.find(item=>item.agentId===identity.agentId)!;
-    const scope=config.mode==='global'?undefined:this.options.store.imConversation(identity.agentId,binding.conversationId);
-    const messages=this.options.inbox.prepareSystemContext(identity.agentId,identity.sessionId).filter(message=>config.mode==='global'||message.conversationId===scope);
+    const messages=this.options.inbox.prepareSystemContext(identity.agentId,identity.sessionId).filter(inScope);
     for(const message of messages)this.options.store.prepareSystemContext(identity.agentId,message.inputId,message.conversationId,identity.sessionId,digest(message.content));
     const rows=this.options.store.systemContextInputs(identity.agentId);
     return {messages:messages.filter(message=>rows.find(row=>row.message_id===message.inputId)?.state==='prepared'&&rows.find(row=>row.message_id===message.inputId)?.session_id===identity.sessionId),revoked:rows.filter(row=>row.state==='revoked').map(row=>row.input_id)};

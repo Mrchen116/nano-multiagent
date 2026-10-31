@@ -3,10 +3,10 @@ import type {Agent} from '@deepseek-ai/dsh-agent';
 import {freezeMessage,MessageId} from '@deepseek-ai/dsh-llm';
 import type {SessionBinding} from './index.js';
 import type {RpcPeer} from './rpc.js';
-interface Prepared {unavailable?:boolean;messages:{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[];revoked:string[]}
+interface Prepared {unavailable?:boolean;unavailableInputs?:{inputId:string;conversationId:string}[];messages:{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[];revoked:string[]}
 /** Admit original product context only after a complete authoritative pre-step catch-up. */
 export class TaskContextDriver {
-  constructor(ctx:Context,options:{bindings:Map<string,SessionBinding>;peer:RpcPeer;availability(agent:Agent,available:boolean):void;lifecycleRevision(agentId:string):number}) {
+  constructor(ctx:Context,options:{bindings:Map<string,SessionBinding>;peer:RpcPeer;availability(agent:Agent,available:boolean,inputs:NonNullable<Prepared['unavailableInputs']>):void;lifecycleRevision(agentId:string):number}) {
     const identity=(agent:Agent)=>{const binding=options.bindings.get(agent.id)!;return {agentId:binding.agentId,sessionId:agent.id,ownerId:binding.ownerId};};
     const evidence=async(agent:Agent)=>{
       await ctx.sessions.flush(agent.session);
@@ -27,7 +27,7 @@ export class TaskContextDriver {
       const prepared=await options.peer.request('product.task_context.prepare',{...identity(agent),evidence:consumedEvidence}) as Prepared;
       context.signal.throwIfAborted();
       // Source eligibility must be current before native Memory/context providers render.
-      options.availability(agent,!prepared.unavailable);
+      options.availability(agent,!prepared.unavailable,prepared.unavailableInputs??[]);
       preparations.set(agent,{prepared,consumed:new Set(consumedEvidence.map(item=>item.inputId))});
       return next();
     },{prepend:true});

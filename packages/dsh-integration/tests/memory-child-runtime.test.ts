@@ -48,7 +48,7 @@ if(child&&n<2){await writeFile(process.env.DSH_HOME+'/waiting-'+n,'ready');while
     expect(await readFile(join(home,'.nanoassistant/memory/MEMORY.md'),'utf8')).toBe('# Expert memory\nCURRENT: private only.');
     expect(JSON.stringify(child[3])).toContain('Only Dreaming');
     const currentSystem=child[2].messages.filter((message:any)=>message.role==='system');
-    expect(JSON.stringify(currentSystem)).not.toContain('Current entry:');
+    expect(JSON.stringify(currentSystem)).not.toContain('<memory_content>');
   }catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally{if(client){await client.shutdown();}await rm(home,{recursive:true,force:true});}
 },35000);

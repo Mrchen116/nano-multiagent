@@ -1,5 +1,7 @@
 # refactor-679 — 独立产品验收
 
+> 最新增量结论：Round followup-1 **PASS**，`326dac00ed5d78daaa6464032a94a24daba5d794`。Global与PA均已真实运行，完整初始上下文/工具及公开回复已核对；PA首次合法记忆失效分支、正式Dreaming后的有效正文与后续回复分别记录。详见文末该轮；下方final-4为前次交付历史。
+
 ## 最终结论（2026-10-31，Round final-4）
 
 **PASS**；validated_at: `6881952b9`；executed_base: `4b27d962c1cc09a27a567619bd5cabc3db2ee934`。5个历史major均已独立复验关闭，当前0 blocking、0 major、0 minor；highest_required_action: none。历史失败轮次保留在后文，不能视为当前结论。
@@ -171,3 +173,56 @@ PA 独立提醒由真实模型创建；在配置页点击 Delete 后显示 No sc
 caller交接的 `/tmp/nano-refactor679-daily/provider-wire-DOCUMENT.json`（3请求）和 `provider-wire-LEGACY.json`（4请求）经 reviewer 实际读取：原始HTTP请求body含稳定system/persona、runtime与Skill目录、human输入和本轮Task事实；system保留用户persona。当前模式工具包含history/new_context/notes，legacy模式没有这些禁用工具。DOCUMENT后续请求重建runtime及完整变更Skill目录；LEGACY明确summary请求后，下一请求含自动checkpoint、刷新runtime和新目录；session/root均为wire-session。对应 `recovery-wire.log` 2 pass、`final-fix-focused.log` 41 pass 已核对。
 
 这是受控模型响应下真实adapter出站HTTP序列化，不是线上模型代理抓包；实际模型行为另由前述完整产品旅程支撑。由此“首次接收用户请求”和“新会话或正常换窗后继续工作”的装配/恢复机制缺口可关闭；实际模型已在重启后继续原任务并完成交付，PA/P/E/Q首次普通问答成立。没有声称每个模式、每次换窗均做了自治真模型重复试验。
+
+## Round followup-1（2026-10-31，用户初始上下文修复 delta）
+
+**PASS**；validated_at: `326dac00ed5d78daaa6464032a94a24daba5d794`；executed_base: `5e5d3fcc801c6ad766910b126a10ee25076627a9`。0 blocking、0 major、0 minor；highest_required_action: none。此轮只复验 Round 8 设计增量；原未受影响场景 retained，不重做全部 Task 旅程。首次请求运行于该提交前的冻结同源实现；caller确认提交仅冻结已运行代码，并将同bytes rc.7包改为不可变release URL。未把后提交时间冒充首次请求时间。
+
+### 隔离环境与入口
+
+- 新环境 `/tmp/nano-refactor679-context/.e2e-daily.json`，IM `http://127.0.0.1:51966`，node `wt-nano-refactor679-context-32788`；现场核对IM33366/Node33432命令指向本worktree lib及新config。原用户预览 `/tmp/nano-refactor679-daily:64012` 未修改或关闭。
+- Global `daily-product` / `P · 产品与体验`，真实 `codexOAuth:gpt-6.1-sol` high；PA `pa_3e16eef0a4b1` / `PA · 个人助手`，真实 `codexOAuth:gpt-6-astra` medium。正常Codex审核；未降级。
+- 新环境无seed消息；发送前Global原生session仅配置事件、没有request/header。首轮从客户端同款HTTP登录/消息API发出，按runbook许可，浏览器查看实际结果。Chrome页面fill可操作但此次click/press未推进，未以点击成功冒充发送；API记录与UI最终内容一致。
+- 真实公开回复指IM聊天可见交付，包括PA主人私聊；没有发送到公网、生产、外部人员或其他账号。
+
+### 完整输入检查（非关键词抽查）
+
+独立读完Global与PA完整System/runtime/Skill目录/触发输入，以及全部23/38个工具的描述和参数；相同工具/目录以完整相等比较去重阅读。保存完整首轮JSON、可读文本、工具JSON和SHA256 inventory，未只保存截图片段。
+
+| 检查项 | Global | PA |
+|---|---|---|
+| 产品身份 | System明确 `Your Agent name: "P · 产品与体验"` 与 `Your Agent ID: "daily-product"`；自定义中文指导完整保留 | System明确 `PA · 个人助手` 与 `pa_3e16eef0a4b1`；默认PA职责、代表主人边界保留 |
+| 原生与窗口 | `You are an AI agent powered by DeepSeek Harness.` 开场及 `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.` 保留；context_window只有窗口ID，无UUID名称行 | 同左；UUID仅用于窗口身份，没有冒充产品显示名 |
+| Task限制 | 无当前Task/待消费Task原文，因此未出现verification unavailable/D9泛化警告；Task工具与正常权限边界仍在 | 同左；未让普通问答背负不存在Task的故障提示 |
+| Memory首轮 | 绝对memory目录、绝对`MEMORY.md`、one-page key memory包装及完整初始Expert memory正文；明确详细记忆从此目录检索 | 首次source gen1相对初始化basis0失效，明确`entry_basis_stale`并禁止采用旧副本，保留绝对目录；**首次未注入有效正文，不能声称此项首轮已验** |
+| 常驻噪声 | 无backup navigation、无前台缺工具清单 | 无常驻backup导航或前台缺工具警告；正式维护status按需返回backupRoot不属于常驻注入 |
+| 来源/权限/工具 | inbox/conversations/send_message分工与来源sender一致；无send_user_message；read存在，按需读取项目文档；Memory唯一写者边界未因普通write/edit可用而放松 | participant与observer分明；`is_owner`与代发授权分开；send_user_message/personal_sources/memory_maintenance存在且有原请求限制；仅以send_message回复主人，没有代发或修改来源 |
+
+Global首轮System约17,982字符（含结构计数），4条可见消息，23工具；PA System约25,482字符，4条可见消息，38工具。首轮顺序均为System → runtime snapshot → Skill catalog → Inbox系统唤醒；真人正文并不伪装为直接system，而是在真实inbox read工具结果（两者seq22）带sender/时间/聊天归属进入下一步。此顺序符合Global持久Inbox模式。Global检查群成员后读brief/feedback/checklist，PA按owner participant私聊处理，观察群没有变成PA任务。
+
+### 真模型连续结果
+
+1. **Global首轮**：09:32:58Z用户消息`63c40826c64e4bb8af7f64a20d82d972`，自然请求自我介绍和项目欢迎页两项体验建议，并明确不建Task/安排。session `c1413933-2d32-4574-8388-53c93d346fd3`：首轮seq9–14；inbox check→read与conversation info→读取三个项目文档→send_message。09:33:26Z群真实回执`518cccb362fd4c79aa66777f4b901a8e`介绍“我是P”，建议快速开始记录与安心继续处理，内容对应实际资料；seq35 sent、seq40 completed。没有把私有结束语当交付。
+2. **PA首轮**：09:32:58Z用户消息`c917fd70ba2047bbbc86d5755187ce44`，自然请求自我介绍和20分钟整理明日清单三步建议，仅此私聊、不设提醒/联系别人。session `cbb7f3b2-dc1e-4e2a-b0e4-aab22026de9d`：首轮seq9–14；inbox check→只read主人私聊→send_message。09:33:13Z回执`c14a6740c2be4e78ae9852aaf230bec7`，三步为5分钟收集/10分钟取舍/5分钟明确下一步；seq27 sent、seq32 completed。没有代发、安排或Task创建。
+3. **PA正式维护补验有效Memory**：由于首次是合法失效分支，追加明确有界请求`427af9f34b1e4d7785b2f65399e350d9`，要求仅整理主人真实表达、不要把助手建议当长期偏好。PA自主加载nano-memory，seq54调用`memory_maintenance run`并引用原request_ref。run `7b738ec1-dd0d-4dfe-8990-2cd5a27a9782` completed；seq61 status核实MEMORY.md及knowledge/planning.md均saved=true/versionRecorded=true，提交分别`ef0c663fa11cd298691ac0cc2cac73949a9452d0`与`4cc02d2333f71e841b432a0d242656e8cfc519fd`。主Agent没有用write/edit或shell写正式库；还read完整详页核验后才公开确认`f131beb90f474b09aa0f33b7da55f3f5`。
+4. **PA有效正文与自然使用**：维护后seq58/64 runtime给出绝对`.../pa_3e16eef0a4b1/.nanoassistant/memory/MEMORY.md`及完整一页关键记忆，正文明确主人容易列过长清单、尚无固定三项/时间分配偏好，并链接knowledge/planning.md；source gen1有效。随后自然请求`f1e2b4918a1c4dfb8b9bcc64855f3d25`询问下次十几项待办应先做什么，PA真实回复`8e0ad8a5e9594703a0f4b07805f0ca07`先分必须/可延后，再按实际可用时间缩减，不套固定三件上限；seq95 sent、seq100 completed。**这是后续有效分支，不改写首次失效事实**。
+
+检查后Task表仍0条；两角色均没有schedule_create/send_user_message。无引导模型复述内部Prompt；完整输入由原生取证读取。正常建议可读、明确、有针对性，内容与身份、授权和实际工具结果一致。
+
+### 证据 locator 与诚实边界
+
+证据均位于本地 `output/refactor-679-followup/`，不提交runtime/secret/raw logs：
+
+- `global-initial-full.json` / `pa-initial-full.json`：完整首轮System/messages/header配置与全部工具；相应`*-initial-messages.txt`、`*-initial-tools.json`、`*-initial-inventory.json`。
+- 首轮JSON SHA256：Global `199aeae6b3a6818f598cb220ad2c6d31245587e37927a1d4a5a497a705ce75b1`；PA `86374d27f946fde1da890e6189579f0e9a4a80c828ee95f184adf737bb49ee66`。
+- `global-native.jsonl`、`pa-native.jsonl`：完整原生持久事件；`pa-valid-memory-snapshot.{json,txt}`及`pa-through-valid-request-events.json`保留有效分支与第三次请求前完整事件。
+- `requests.json`、`pa-memory-request.json`、`pa-valid-memory-request.json`、`global-timeline.json`、`pa-timeline.json`：真实客户端消息/交付。
+- `global-reply.png`、`pa-reply.png`、`pa-memory-followup.png`：浏览器实际交付。
+
+这里的“完整输入”是原生System/user/tool持久surface + request/header工具与request/context配置，能关联真实模型后续tool calls与sent回执；**不是upstream代理最终HTTP wire抓包**。未声称捕获代理层转换。既有受控HTTP机制证据只retained，未替代本轮真模型行为。本轮不额外运行大评测。
+
+本轮有效Memory已有真实Dreaming保存；“前台没有四个工具仍可自动维护”继续复用caller本轮真实runtime测试，不冒称此次PA（前台maintenance开放）的旅程证明该缺工具分支。插件rc.7同bytes与源码tag由caller记录，独立产品输入已证明UUID名称行消失。
+
+### 生命周期与文档
+
+reviewer未启动或关闭服务。按用户查看要求保留新51966预览和旧64012预览；由caller集中生命周期。无客户端布局变更、不扩大iOS。报告由caller集中提交，current spec归并及分支交付不是验收通过的同义词。

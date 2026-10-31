@@ -47,7 +47,7 @@ it('returns explicit unavailable while retaining pending originals, then recover
  }}});
  const identity={agentId:'a',sessionId:'s',ownerId:'owner'};
  try {
-  expect(await service.prepare(identity)).toEqual({unavailable:true,messages:[],revoked:[]});
+  expect(await service.prepare(identity)).toEqual({unavailable:true,messages:[],revoked:[],unavailableInputs:[{inputId:'pending',conversationId:'chat'}]});
   expect(inbox.prepareSystemContext('a','s')).toHaveLength(1);
   offline=false;expect((await service.prepare(identity)).messages).toHaveLength(1);
   await expect(service.prepare({...identity,ownerId:'wrong'})).rejects.toThrow('identity');

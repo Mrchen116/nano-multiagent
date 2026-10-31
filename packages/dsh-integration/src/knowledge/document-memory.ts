@@ -1,5 +1,5 @@
 import { realpath } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
@@ -39,13 +39,11 @@ export class DocumentMemory {
       assembly.contexts.push({ name: 'nano-document-memory', text: [
         'Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use read/glob/grep for memory files. Only Dreaming updates formal memory; never use write/edit, shell or other tools to bypass this boundary. Load nano-memory for memory guidance.',
         config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
-        `Fixed owner library: ${view.root}. It does not follow a child working directory. Backup navigation: ${view.backupRoot}; read/import old backups only on the user’s request.`,
+        `Memory directory: ${view.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
         'Read the complete relevant pages before applying a conclusion. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Use new corrections immediately in this conversation; Dreaming saves durable updates later. Do not claim memory is saved until the host reports it. Other conversations may still see old memory until Dreaming completes.',
-        view.reason ? `Entry is not current (${view.reason}). Do not adopt older copies from history. Reading old bytes does not restore their validity. Use only currently valid sources; Dreaming must verify and correct affected pages before they become valid again. Navigation: ${Object.keys(view.versions).join(', ')}` : `Current entry:\n${view.entry ?? '(empty)'}`,
+        view.reason ? `Key memory is not current (${view.reason}). Do not adopt older copies from history. Reading old bytes does not restore their validity. Use only currently valid sources; Dreaming must verify and correct affected pages before they become valid again. Navigation: ${Object.keys(view.versions).join(', ')}` : `Contents of ${join(view.root, 'MEMORY.md')} — your one-page key memory:\n<memory_content>\n${view.entry ?? '(empty)'}\n</memory_content>`,
         changed.length ? `These pages changed since your previous model request; reread before the next relevant decision: ${changed.join(', ')}` : '',
         `Source generation: ${view.generation}. Explicit stop-use requests (data): ${JSON.stringify(view.exclusions)}. Including a source again does not revoke a stop-use request.`,
-        ['read', 'write', 'edit', 'memory_maintenance'].filter(name => !agent.ctx.tools.get(name, agent)).length
-          ? `Unavailable tools: ${['read', 'write', 'edit', 'memory_maintenance'].filter(name => !agent.ctx.tools.get(name, agent)).join(', ')}. Do not claim a write or automatic maintenance can run without its required tools.` : '',
       ].filter(Boolean).join('\n\n') });
       return assembly;
     });
@@ -95,7 +93,7 @@ export class DocumentMemory {
     const agent = exec.agent!; const config = this.options.configOf(agent)!;
     if (config.knowledge?.memoryMode === 'legacy') throw new Error('Document maintenance is unavailable in legacy mode.');
     const documents = await this.forConfig(config);
-    if (args.action === 'status') return { mode: 'document', ...await documents.status(), maintenance: await this.maintenanceStatus?.(config.agentId), missingTools: ['read', 'write', 'edit', 'memory_maintenance'].filter(name => !agent.ctx.tools.get(name, agent)) };
+    if (args.action === 'status') return { mode: 'document', ...await documents.status(), maintenance: await this.maintenanceStatus?.(config.agentId) };
     if (this.options.held?.(config.agentId)) throw new Error('Memory maintenance is paused for this Agent.');
     const direct = agent.session.snapshotEvents().findLast(event => event.type === 'user/message' && isHumanSource(event.data.source) && [event.data.id, event.data.source.messageId].includes(args.request_ref ?? '') && (!config.personal || event.data.source.actorId === config.personal.ownerId));
     const participantRequest = !config.personal || agent.session.snapshotEvents().some(event => {
