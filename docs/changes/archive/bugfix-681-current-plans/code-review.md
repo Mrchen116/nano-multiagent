@@ -68,3 +68,7 @@
 - Docs integrity and diff whitespace checks passed.
 - Local logs: `/tmp/plans-close-*`; screenshots remain in the previously recorded Codex visualizations directory. No logs, screenshots or runtime data committed.
 - Backend full suite (`pnpm test --maxWorkers=2`): 809 passed / 1 timeout across 151 files. Unchanged workspace-tools test hit its 90s timeout during concurrent local runs; isolated entire-file rerun passed in 51.55s without changes. Local full runs therefore retain recorded failures with successful targeted reruns; remote CI remains the clean-run check.
+
+## PR 主干增量核对
+
+创建 PR 时 main 已推进到 7c3fba7fddfb11eb27fe18cc1029e661442529e9，增量仅为 refactor-682 设计与评审文档。已合并该主干，产品代码、依赖与本 unit canonical 无变化；用户验收、review 和测试结论 retained。effective_base 更新为该 SHA，effective_through 为本次记录提交树。
