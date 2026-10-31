@@ -131,6 +131,13 @@ export class ConfigurationScopes extends Service {
     while (workspace && this.maintenance.has(workspace)) await this.maintenance.get(workspace);
     const scope: AgentScope = { agent, config, workspace }; this.agents.set(agent, scope);
     agent.ctx.effect(() => () => { this.agents.delete(agent); });
+    agent.ctx.systemPrompt.section({ name: 'nano-product-identity', order: 5, interpolate: false, text: () => {
+      const name = JSON.stringify(scope.config.displayName ?? scope.config.agentId);
+      const id = JSON.stringify(scope.config.agentId);
+      return agent.session.header.origin === 'subagent'
+        ? `You are an internal subagent of this product Agent:\nAgent name: ${name}\nAgent ID: ${id}`
+        : `Your Agent name: ${name}\nYour Agent ID: ${id}`;
+    } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     if (config.systemPrompt) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();

@@ -55,6 +55,7 @@ import { DescendantReader } from './descendants.js';
 export interface AgentConfiguration {
   personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
   agentId: string;
+  displayName?: string;
   workspace?: string;
   revision: string;
   provider: string;
@@ -226,7 +227,7 @@ export default class NanoRuntime {
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
     this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled});
     // Both hooks prepend: register catch-up last so its authority cut precedes Task decisions.
-    new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available)=>this.tasks.contextAvailability(agent,available),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
+    new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
     ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
@@ -384,7 +385,7 @@ export default class NanoRuntime {
           const scopes = await configuration; const scoped = scopes.forAgent(handle.agent)!;
           const catalog = { tools: scopes.catalog(handle.agent), skills: await skillCatalog(scoped, cwd), workflows: (await (await workflow).catalog(handle.agent).list()).map(item=>({name:item.name,description:item.meta.description})) };
           if (catalogOnly) return catalog;
-          const invalid = configurationBlocks(requested, [...this.configurations.values()].find(config => config.agentId === requested.agentId), {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)});
+          const invalid = configurationBlocks(requested, {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)});
           if (invalid.length) throw new RpcError(-32602, `Invalid capability dependencies: ${JSON.stringify(invalid)}`);
           const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent });
           return { prompt: [renderPrompt(assembly), renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'), section_count: assembly.sections.length,

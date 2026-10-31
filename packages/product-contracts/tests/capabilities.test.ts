@@ -16,8 +16,8 @@ describe('capability selections', () => {
     expect(closed.draft.features.cron_scheduling).toBe(true);
     expect(closed.draft.tool_allowlist).not.toContain('task_graph');
   });
-  it('preserves shared read and skill dependencies, then allows a tool alone', () => {
-    let state = draft();
+  it('preserves Heartbeat read and independently selected maintenance tools', () => {
+    let state = {...draft(),tool_allowlist:['memory_maintenance']};
     for (const name of ['dreaming', 'heartbeat']) state = changeCapability(state, {kind: 'feature', name, enabled: true}, {}).draft;
     state = changeCapability(state, {kind: 'feature', name: 'dreaming', enabled: false}, {}).draft;
     expect(state.tool_allowlist).toContain('read');
@@ -32,12 +32,18 @@ describe('capability selections', () => {
     expect(closed.features.dreaming).toBe(false);
     expect(closed.tool_allowlist).toEqual(opened.tool_allowlist);
   });
-  it('keeps an upgraded unavailable Dreaming selection from granting tools during unrelated edits', () => {
+  it('keeps Dreaming independent of foreground tools during unrelated edits', () => {
     const initial = {...draft(), features:{...off,dreaming:true},tool_allowlist:['read']};
     const changed = changeCapability(initial,{kind:'feature',name:'heartbeat',enabled:true},{});
     expect(changed.blocks).toEqual([]);
     expect(changed.draft.tool_allowlist).toEqual(['read']);
     expect(changed.draft.features.dreaming).toBe(true);
+  });
+  it('enables automatic Dreaming without granting foreground tools', () => {
+    const opened = changeCapability(draft(), {kind:'feature', name:'dreaming', enabled:true}, {tools:[]});
+    expect(opened.blocks).toEqual([]);
+    expect(opened.draft.tool_allowlist).toEqual([]);
+    expect(validateCapabilities(opened.draft, {tools:[]})).toEqual([]);
   });
   it('protects required Skills and converts discovery to a denylist only when withdrawing', () => {
     const initial = {...draft(), skills_selection_mode: 'default_discovery'};
@@ -49,8 +55,8 @@ describe('capability selections', () => {
   });
   it('rejects an unavailable dependency atomically, without treating deselection as unavailability', () => {
     const initial = draft();
-    expect(changeCapability(initial, {kind: 'feature', name: 'dreaming', enabled: true}, {tools: ['memory_maintenance']}).draft).toBe(initial);
-    expect(changeCapability(initial, {kind: 'feature', name: 'dreaming', enabled: true}, {tools: ['memory_maintenance', 'read', 'write', 'edit']}).blocks).toEqual([]);
+    expect(changeCapability(initial, {kind: 'feature', name: 'heartbeat', enabled: true}, {tools: []}).draft).toBe(initial);
+    expect(changeCapability(initial, {kind: 'feature', name: 'heartbeat', enabled: true}, {tools: ['read']}).blocks).toEqual([]);
     expect(validateCapabilities({...initial, features: {...off, task_graph: true}, tool_allowlist: ['task_graph']})).toContainEqual({code: 'required_by_feature', target: {kind: 'feature', name: 'cron_scheduling'}, required_by: ['task_graph']});
   });
   it('keeps root fixed tools scoped to mode and role and protects context tools', () => {

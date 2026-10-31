@@ -68,7 +68,7 @@ it('omits only inherited root-private Task packages on fork wire while retaining
     emit('message_delta', { delta: { stop_reason: calls.length ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 4 } });
     emit('message_stop', {}); res.end();
   });
-  const config = { agentId: 'a', revision: '1', mode: 'global', workspace: home, provider: 'wire', model: 'fixture', systemPrompt: 'VISIBILITY_SYSTEM_HEAD',
+  const config = { agentId: 'a', displayName: 'P · 产品与体验', revision: '1', mode: 'global', workspace: home, provider: 'wire', model: 'fixture', systemPrompt: 'VISIBILITY_SYSTEM_HEAD',
     toolAllowlist: ['subagent_fork', 'visibility_continuable', 'visibility_resume', 'skill'], knowledge: { memoryMode: 'legacy' },
     skillRoots: [{ path: join(home, 'skills'), source: 'workspace' }], skillSelection: { mode: 'explicit_allowlist', names: ['evidence'] },
     features: { task_graph: false, intelligent_ui: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false } };
@@ -94,6 +94,9 @@ it('omits only inherited root-private Task packages on fork wire while retaining
     for (const retained of ['BUSINESS_D3_TASK_FACT', 'PARENT_AUTHORIZATION_EVIDENCE', 'PARENT_SCHEDULE_EVIDENCE', 'PARENT_ORDINARY_AUTHORIZATION', 'QUOTED Current Task context: PRIVATE_SNAPSHOT', 'CHILD_LOCAL_SCHEDULE', 'CHILD_LOCAL_DIAGNOSTIC']) expect(raw).toContain(retained);
     expect(JSON.stringify(request.body.system)).toContain('VISIBILITY_SYSTEM_HEAD');
     expect(JSON.stringify(request.body.system)).toContain('You are an internal execution agent');
+    expect(JSON.stringify(request.body.system)).toContain('You are an internal subagent of this product Agent:');
+    expect(JSON.stringify(request.body.system)).toContain(config.displayName);
+    expect(JSON.stringify(request.body.system)).not.toContain('Your Agent name:');
     const visible = request.body.messages.map((message: any) => text(message)).join('\n');
     const runtime = events.find(event => event.type === 'user/message' && event.data.source.kind === 'runtime-context');
     const catalog = events.find(event => event.type === 'user/message' && event.data.source.kind === 'skill-catalog');

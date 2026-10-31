@@ -834,10 +834,12 @@ describe("agent behavior settings", () => {
     expect(toggle).not.toBeChecked();
   });
 
-  it("saves Dreaming off while keeping immediate memory tools selected", async () => {
+  it("saves Dreaming off while keeping independently selected foreground tools", async () => {
     const user = userEvent.setup();
     const tools = ["read","write","edit","memory_maintenance"];
-    const state = makeDetailState({features:[{key:"dreaming",label_i18n:"feature.dreaming.label",help_i18n:"feature.dreaming.help",default_on:true,available:true,requires:{features:[],tools,skills:[]}}],configFeatures:{dreaming:true}});
+    const state = makeDetailState({features:[{key:"dreaming",label_i18n:"feature.dreaming.label",help_i18n:"feature.dreaming.help",default_on:true,available:true,requires:{features:[],tools:[],skills:[]}}],configFeatures:{dreaming:true}});
+    state.config.tool_allowlist = tools;
+    state.capabilities.tools = tools.map(name => ({name, description: "Independent foreground tool"}));
     apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
     apiMocks.updateAgentConfigMock.mockImplementation(async () => {
       const config = {...state.config,features:{dreaming:false}};
