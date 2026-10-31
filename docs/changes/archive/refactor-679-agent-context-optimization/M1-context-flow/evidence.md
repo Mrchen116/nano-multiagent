@@ -138,3 +138,9 @@ The isolated daily stack was stopped via `scripts/e2e-down.sh --wt /tmp/nano-ref
 - canonical Agent Capabilities / Personal Agent 已归并自然语言遗忘与两项新增上下文契约，capabilities requirement 数为 61。重开时损坏的 131 个历史链接已修复；退役 context-visibility.ts 两处历史证据指向原基线永久链接。active docs-check 295 maintained / 68 routes 通过，归档后再验。
 - 最终产品定向 closure `child-forget-2` PASS：运行实现 `fea88c187`，新普通子 `6d54c2c5...` 后主 seq220 请求整理，wire0090 提炼、0091 整合；新版 Task summary 头仅 `Source session_id`，没有新注入 root/events/version。Dreaming `02b34...` completed，2/2 保存及版本记录、一份子复盘 integrated；公开 `14a13...` sent，Chrome 1230×816 实际显示完整回报。`pa-closure-delivery.png` 与 acceptance 最终 round。旧 wire0053 的失败保留，不能把历史输入重写成新版。
 - 最终独立 code review `[]`、verifier PASS、corrected-delta aligned，V-CHILD-FINAL-1 CLOSED。验收后仅关闭本轮 `/tmp/nano-refactor679-child` 的 Node/IM 和透明捕获代理（端口 63958/64178 已停止监听）；旧 daily/context/consumer 三个预览保留，本工作区仍为其源码/运行路径 owner，合入后不能删除。
+
+### 2026-11-01 PR #437 首轮 CI 的测试时序修正
+
+- 首轮远端 CI（run `41223146002`、head `426cfe2e3`）为 181 files passed / 1 failed，958 tests passed / 1 failed；前端通过，构建/类型/iOS runtime 通过。唯一失败是 `context-revalidation-provider.test.ts` document cell 期望 2 次请求却收到 3 次。保留该失败，不称首次全绿。
+- 完整事件显示 `session.ensure` 发起的异步 `TaskExecutionDriver.poke` 先消费夹具提前发布的可执行 Task，自动 turn 1 调用两次模型；人工输入随后进入 turn 2，再调用一次。现有测试在 `session.submit` 前设置 `armed=true`，引入了不属于本场景的启动竞争。原样窄跑 2/2 通过（`/tmp/refactor679-ci-context-before.log`）不能否定该竞争；临时在人工提交前等待首请求后，精确复现相同 3 次请求失败（`/tmp/refactor679-ci-context-race-red.log`），随后移除临时调度。
+- 仅修夹具：在人工轮的 `product.task_context.prepare` 读取待消费原文时才启用 Task；保持原有 2 次请求、工具实际消费、来源及压缩后完整上下文断言，另增首请求包含人工输入断言。产品源码不变。窄测 2/2 通过（`/tmp/refactor679-ci-context-green.log`）；连同 Global/PA/SingleThread fork provider 前缀回归共 5/5 通过（`/tmp/refactor679-ci-context-and-fork.log`）。后续远端完整 CI 独立判定。
