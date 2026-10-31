@@ -78,7 +78,13 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     registerNoopTaskHosts(client);
     await client.rpc.request('initialize',configuration);
     const cold = await readTrajectory();
-    expect(cold).toEqual(warm);
+    // Live stream revisions restart at zero, and persisted headers materialize
+    // the default depth. Compare the complete durable view across restart.
+    const durableView = (batch:any) => ({...batch,frames:batch.frames.map((frame:any)=>({...frame,
+      header:{...frame.header,delegationDepth:frame.header.delegationDepth??0},
+      assistantStream:{...frame.assistantStream,revision:0},
+    }))});
+    expect(durableView(cold)).toEqual(durableView(warm));
     expect(await client.rpc.request('session.descendants', { sessionId: binding.sessionId })).toEqual([]);
     await client.shutdown();client=undefined;
   }catch(error){
