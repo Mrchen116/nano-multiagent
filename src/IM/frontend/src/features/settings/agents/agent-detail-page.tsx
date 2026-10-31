@@ -1,3 +1,4 @@
+import { formatSchedule } from "./schedule-display";
 import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import { useAuthStore } from '../../auth/auth-store';
 import "./agent-settings.css";
@@ -633,14 +634,14 @@ interface CronCardProps {
   readOnly: boolean;
   operationReadOnly: boolean;
   agentId: string;
-  draft: AgentConfigFormState;
+  draft: Pick<AgentConfigFormState, "features">;
   onToggle: (enabled: boolean) => void;
   // feat-394 M9 R6: when cron enable is managed by the Features checkbox list, hide inline toggle.
   hideEnableToggle?: boolean;
 }
 
-function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
-  const { t } = useTranslation();
+export function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
+  const { t, i18n } = useTranslation();
   // feat-394 M9-E: enable is the single-true-source in features["cron_scheduling"]; no draft.cron object.
   const enabled = draft.features?.cron_scheduling ?? false;
   const queryClient = useQueryClient();
@@ -665,7 +666,7 @@ function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideE
     },
   });
 
-  const jobs = jobsQuery.data?.data ?? [];
+  const jobs = (jobsQuery.data?.data ?? []).filter(job => job.enabled);
 
   return (
     <section className="im-agent-card">
@@ -717,10 +718,12 @@ function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideE
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium text-slate-800 truncate">{job.name}</p>
-                    <p className="text-[11px] text-slate-500 truncate">{job.instruction}</p>
-                    <p className="text-[10px] text-slate-400 font-mono truncate">
-                      {JSON.stringify(job.schedule)}
-                    </p>
+                    <p className="text-[12px] text-slate-500 mt-1">{formatSchedule(job.schedule, i18n.language, t)}</p>
+                    <details className="mt-2 text-[12px] text-slate-600">
+                      <summary className="cursor-pointer">{t("agents.form.cron.details")}</summary>
+                      <p className="mt-2 whitespace-pre-wrap break-words">{job.instruction}</p>
+                      {job.schedule.kind === "cron" && <p className="mt-2">{t("agents.form.cron.rule")}: {String(job.schedule.expression)} · {String(job.schedule.timeZone)}</p>}
+                    </details>
                   </div>
                   <button
                     type="button"
