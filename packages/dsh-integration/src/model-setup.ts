@@ -13,6 +13,9 @@ interface Transaction { abort: AbortController; previous: Profiles; candidate: C
 /** Expose native model configuration/authentication through the existing stdio seam. */
 export class NativeModelSetup {
   private providers: Profiles = {};
+  private configured = false;
+  /** Current explicit provider metadata for a temporary native inspection. */
+  get inspectionProviders(): Profiles | undefined {return this.configured ? structuredClone(this.providers) : undefined;}
   private transaction?: Transaction;
   constructor(private readonly ctx: Context, private readonly peer: Pick<RpcPeer, 'handle' | 'notify'>) {
     peer.handle('model.setup.catalog', () => this.catalog());
@@ -41,6 +44,7 @@ export class NativeModelSetup {
   async apply(providers: Profiles): Promise<void> {
     await this.ctx.settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers'], value: providers }]);
     this.providers = structuredClone(providers);
+    this.configured = true;
   }
   /** Export only approved model routes and their credentials to a trusted sibling host. */
   async snapshot() {

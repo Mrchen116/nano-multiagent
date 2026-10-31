@@ -29,6 +29,8 @@ export interface NodeConfigurationFile {
 
 /** Owns the existing node file; IM stores operations and mirrors its non-secret projection. */
 export class NodeConfiguration {
+  /** Called after model metadata is durably committed, before new reads are admitted. */
+  onModelsChanged?: () => void;
   private readonly policies = new Map<string, AgentConfiguration['approval']>();
   get ownerRoot() { return this.value.gateway?.environment?.NANO_OWNER_CONFIG_ROOT ?? process.env.NANO_OWNER_CONFIG_ROOT ?? join(homedir(), '.nanoassistant'); }
   private persistence: Promise<void> = Promise.resolve();
@@ -163,6 +165,7 @@ export class NodeConfiguration {
         await effect?.apply();
         await this.writeFile({ ...this.value, llm: next });
         this.value.llm = next;
+        this.onModelsChanged?.();
       } catch (error) {
         await effect?.rollback();
         throw error;

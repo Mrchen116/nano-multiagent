@@ -53,7 +53,7 @@ export class WorkspaceExtensions {
   private readonly owners = new Map<string, Promise<WorkspaceOwner>>();
   private creating: Promise<unknown> = Promise.resolve();
   private readonly mounts = new Set<Mount>();
-  constructor(private readonly ctx: Context, private readonly changed: (agentId: string) => void) {
+  constructor(private readonly ctx: Context, private readonly changed: (agentId: string, catalogChanged: boolean) => void) {
     ctx.effect(() => async () => { for (const owner of [...this.owners.values()].reverse()) await (await owner).close(); });
   }
   /** Mount only the trusted configured workspace, never a model-supplied scope.
@@ -71,7 +71,7 @@ export class WorkspaceExtensions {
     let pending = this.owners.get(workspace);
     if (!pending) {
       // Native resolver wrappers must be installed and released in opposite orders.
-      pending = this.creating.then(() => WorkspaceOwner.create(this.ctx, workspace, id => this.changed(id), this.packageManager));
+      pending = this.creating.then(() => WorkspaceOwner.create(this.ctx, workspace, (id, catalogChanged) => this.changed(id, catalogChanged), this.packageManager));
       this.creating = pending.catch(() => {});
       this.owners.set(workspace, pending);
     }
@@ -121,8 +121,8 @@ class WorkspaceOwner {
   private error?: string;
   private readonly watches: (() => Promise<void>)[] = [];
   private diagnostics: string[] = [];
-  private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly resolver: Context, private resolution: RuntimeResolution, private readonly changed: (agentId: string) => void) {}
-  static async create(host: Context, workspace: string, changed: (agentId: string) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
+  private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly resolver: Context, private resolution: RuntimeResolution, private readonly changed: (agentId: string, catalogChanged: boolean) => void) {}
+  static async create(host: Context, workspace: string, changed: (agentId: string, catalogChanged: boolean) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
     const dir = join(workspace, '.nanoassistant', 'dsh-plugins');
     // The profile owns only extensions; its default migration never rewrites user patches.
     await initializeContextProfile(dir);
@@ -212,7 +212,7 @@ class WorkspaceOwner {
       const active = new Set([...mount.tree.entries()].filter(entry => !entry.disabled).map(entry => entry.fiber));
       await Promise.all([...retired].filter(fiber => !active.has(fiber)).map(fiber => fiber.inertia));
       mount.tools = mount.ctx.tools.schemas(scopeOf(mount.ctx)).map(tool => tool.name).filter(name => !mount.baseline.has(name));
-      this.changed(mount.config.agentId);
+      this.changed(mount.config.agentId, false);
     }
     // The removed plugins have drained; their dependency mappings can now leave the native table.
     this.resolver.pluginPackages.replace(next);
@@ -306,6 +306,9 @@ class WorkspaceOwner {
         }
         signal.throwIfAborted();
         if (result.error || result.application === 'cancelled') return result;
+        // Only completed native mutations advance catalog generations. Mounts and
+        // duplicate filesystem watch events still refresh tool selection locally.
+        for (const mount of this.mounts) this.changed(mount.config.agentId, true);
         // Native manager owns no execution tree. Only this scoped activation can report that a tool is actually live.
         if (args.action === 'install_bundle' && result.application === 'restart-required'
           && result.bundle && previousPackages.has(result.bundle)) return result;

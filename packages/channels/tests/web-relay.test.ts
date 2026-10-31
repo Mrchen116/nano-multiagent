@@ -184,3 +184,22 @@ test('connection refusal records a safe transport category and retry without exp
   await relay.stop();
   expect(await started).toMatchObject({ delivery: 'not-sent' });
 });
+
+test.each(['expired','failed'])('does not send a %s inspection reply as a new business request', async outcome => {
+  let received = false;
+  const s = await server((socket, frame) => {
+    ack(socket,frame);
+    if (frame.type === 'node.register') socket.send(JSON.stringify({type:'agent.capabilities.resolve',payload:{request_id:'inspection',deadline_at:Date.now()+20}}));
+  });
+  const relay = connection(s.url,{onFrame:async frame=>{
+    if (frame.type !== 'agent.capabilities.resolve') return;
+    received=true;
+    if (outcome==='failed') throw new Error('inspection failed');
+    await new Promise(()=>{});
+  }});
+  await relay.start();
+  await expect.poll(()=>received).toBe(true);
+  await pause(35);
+  await expect(relay.request('agent.capabilities',{request_id:'inspection',capabilities:{}})).rejects.toMatchObject({delivery:'not-sent'});
+  expect(s.frames.some(frame=>frame.type==='agent.capabilities')).toBe(false);
+});

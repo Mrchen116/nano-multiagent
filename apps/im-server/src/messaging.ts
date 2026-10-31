@@ -25,8 +25,15 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, conversationReaderIds, qualifiedUser } from "./conversation-access.js";
+import { searchMessages } from './message-search.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
+
+function readableMentions(content: string, members: Row[]): string {
+  const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
+  return content.replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
+    (_tag, targetId: string) => `@${names.get(targetId) || 'unknown'}`);
+}
 export class Messaging {
   readonly records: MessageRecords;
   readonly interactions: Interactions;
@@ -116,13 +123,9 @@ export class Messaging {
       "SELECT content, system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
       id, c.last_message_at,
     ) : undefined;
-    const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
     // Stored previews can end inside a mention tag. Resolve from the full message
     // before truncating so existing conversations also recover on refresh.
-    const preview = lastMessage?.content.trim()
-      .replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
-        (_tag: string, targetId: string) => `@${names.get(targetId) || "unknown"}`)
-      .slice(0, 120) || c.last_message_preview;
+    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || c.last_message_preview : c.last_message_preview;
     const prefs =
       one(
         this.db,
@@ -752,6 +755,39 @@ export class Messaging {
 export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   const s = ctx.messaging,
     db = ctx.db;
+  app.get('/im/v1/messages/search', req => {
+    const user = ctx.identity.authenticateRequest(req), q = query(req);
+    if (typeof q.q !== 'string' || !q.q.trim()) fail(400, 'search_query_required');
+    const kind = q.kind ?? 'all', limit = q.limit === undefined ? 20 : Number(q.limit);
+    if (!['all','direct-user','direct-agent','group','agent-network'].includes(kind) || !Number.isInteger(limit) || limit < 1 || limit > 50) fail(400, 'invalid_arguments');
+    let cursor: {created_at:string; id:string} | undefined;
+    if (q.cursor) {
+      try {
+        cursor = JSON.parse(Buffer.from(q.cursor, 'base64url').toString());
+        if (!cursor || typeof cursor.id !== 'string' || typeof cursor.created_at !== 'string' || !Number.isFinite(Date.parse(cursor.created_at))) throw Error();
+      } catch { fail(400, 'invalid_cursor'); }
+    }
+    const conversations = new Map<string, Row>();
+    for (const row of all(db, 'SELECT id FROM conversations')) {
+      if (!conversationAccess(db, row.id, user.id)) continue;
+      const chat = s.conversation(row.id, user.id);
+      const chatKind = chat.type === 'direct' ? chat.direct_kind === 'agent-agent' ? 'agent-network' : chat.direct_kind === 'user-user' || chat.direct_kind === 'user' ? 'direct-user' : 'direct-agent'
+        : chat.participants.length > 0 && chat.participants.every((p: Row) => p.type === 'agent') ? 'agent-network' : 'group';
+      if (kind === 'all' || kind === chatKind) conversations.set(row.id, chat);
+    }
+    const matches = searchMessages(db, {targets:[...conversations.keys()], terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
+    const messages = matches.slice(0,limit).map(row => {
+      const message = s.message(row.id), chat = conversations.get(message.conversation_id)!;
+      const content = readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
+      const position = Math.max(0, content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
+      const start = Math.max(0, position - 40), end = Math.min(content.length, position + q.q.trim().length + 80);
+      return {message_id:message.id, conversation_id:message.conversation_id, conversation_name:chat.title,
+        sender_name:row.sender_source_id ? row.sender_display_name || row.sender_source_id : message.sender.display_name, created_at:message.created_at,
+        snippet:`${start ? '…' : ''}${content.slice(start,end)}${end < content.length ? '…' : ''}`};
+    });
+    const last = matches[limit-1];
+    return {messages, ...(matches.length > limit && last ? {next_cursor:Buffer.from(JSON.stringify({created_at:last.created_at,id:last.id})).toString('base64url')} : {})};
+  });
   app.get("/im/v1/contacts", (req) => {
     const viewer = ctx.identity.authenticateRequest(req), q = query(req);
     if (q.kind && !["human", "agent"].includes(q.kind)) fail(400, "invalid kind");

@@ -1,5 +1,6 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { NodeRpc } from './node-rpc.js';
+import { catalogReads } from './catalog-reads.js';
 import { isRecord } from './node-rpc-values.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
@@ -148,6 +149,7 @@ export class Gateway {
    *   reason: Local diagnostic category, never remote payload text.
    */
   disconnect(connection: Connection, reason = "connection_closed") {
+    this.rpc.disconnect(connection);
     this.trajectory.closeDevice(connection);
     if (this.nodes.get(connection.node_id) !== connection) return;
     this.nodes.delete(connection.node_id);
@@ -413,6 +415,7 @@ export class Gateway {
       const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
       this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);
     }
+    if (type === 'node.capabilities.changed') { catalogReads(this.ctx).invalidateNode(c.node_id); return ack(); }
     if (this.rpc.accept(c, type, p)) return ack({request_id:p.request_id});
     if (type.startsWith("pa.")) {
       try { return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result:await this.ctx.personal!.handle(c,type,p)}}; }
@@ -756,6 +759,7 @@ export class Gateway {
     }
   }
   shutdown() {
+    this.rpc.close();
     this.trajectory.shutdown();
     this.ctx.messaging.delivery.stop();
     for (const c of this.nodes.values()) {
@@ -763,7 +767,6 @@ export class Gateway {
       c.socket.close(1001, "server_shutdown");
     }
     for (const b of this.browsers) b.socket.close(1001);
-    this.rpc.close();
   }
 }
 export function registerSockets(app: FastifyInstance, ctx: ImContext) {

@@ -1,12 +1,15 @@
 /** Product-facing lifecycle for one owner node's official DSH process. */
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdir, symlink, writeFile, readlink, unlink } from 'node:fs/promises';
+import { mkdir, symlink, writeFile, readlink, unlink, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RuntimeStopHistory } from '@nano/product-contracts';
 import { RpcPeer } from './rpc.js';
+import {load as loadYaml} from 'js-yaml';
+import {ConfigurationInspector, type ConfigurationInspection} from './configuration-inspector.js';
+export {ConfigurationInspector, InspectionError, type ConfigurationInspection} from './configuration-inspector.js';
 
 const require = createRequire(import.meta.url);
 const integrationRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,23 +47,38 @@ export class RuntimeClient {
   readonly rpc: RpcPeer;
   readonly exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
 
-  constructor(options: { home: string; cwd: string; env?: NodeJS.ProcessEnv; onLog?: (text: string) => void }) {
+  private readonly inspector?: ConfigurationInspector;
+  private readonly ownsInspector: boolean;
+  constructor(options: { home: string; cwd: string; env?: NodeJS.ProcessEnv; onLog?: (text: string) => void;
+    inspector?: ConfigurationInspector; inspectionWorker?: {id:string;deadlineAt:number;requestId?:string} }) {
+    this.ownsInspector = !options.inspector && !options.inspectionWorker;
+    this.inspector = options.inspectionWorker ? undefined : options.inspector ?? new ConfigurationInspector({root:join(options.home,'.configuration-inspections'),env:options.env,onLog:options.onLog});
     const cli = require.resolve('@deepseek-ai/dsh/package.json');
-    this.process = spawn(process.execPath, [join(dirname(cli), 'lib/bin.js'), '--profile', 'nano'], {
+    this.process = spawn(process.execPath, [join(dirname(cli), 'lib/bin.js'), '--profile', 'nano', ...(options.inspectionWorker ? [`--nano-inspection-id=${options.inspectionWorker.id}`] : [])], {
       cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
-      env: { ...process.env, ...options.env, DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1' },
+      env: { ...process.env, ...options.env, DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1', ...(options.inspectionWorker ? {NANO_CONFIGURATION_INSPECTION_ID:options.inspectionWorker.id, NANO_CONFIGURATION_INSPECTION_DEADLINE:String(options.inspectionWorker.deadlineAt), NANO_CONFIGURATION_INSPECTION_REQUEST:options.inspectionWorker.requestId} : {}) },
     });
     this.rpc = new RpcPeer(this.process.stdout, this.process.stdin);
+    if (this.inspector) {
+      this.rpc.handle('configuration.inspect', async value => {
+        const input = value as ConfigurationInspection;
+        // DSH settings can rewrite this trusted profile as YAML after initialization.
+        const profilePatch = loadYaml(await readFile(join(options.home,'profiles','nano','cordis.patch.yml'),'utf8')) as unknown[];
+        return this.inspector!.inspect({...input,profilePatch});
+      });
+      this.rpc.onNotification(method => {if (this.ownsInspector && method === 'configuration.catalog.changed') this.inspector!.invalidate();});
+    }
     this.process.stderr.setEncoding('utf8');
     this.process.stderr.on('data', chunk => options.onLog?.(String(chunk)));
     this.exited = new Promise((resolveExit, reject) => {
       this.process.once('error', reject);
-      this.process.once('exit', (code, signal) => { this.rpc.close(); resolveExit({ code, signal }); });
+      this.process.once('exit', (code, signal) => { this.rpc.close(); if (this.ownsInspector) void this.inspector?.close(); resolveExit({ code, signal }); });
     });
   }
 
   /** Drain the runtime before asking the official launcher to dispose its root. */
   async shutdown(): Promise<void> {
+    if (this.ownsInspector) await this.inspector?.close();
     await this.rpc.request('shutdown', {});
     this.process.kill('SIGTERM');
     await this.exited;
@@ -77,6 +95,7 @@ interface SupervisorOptions {
   onUnavailable?: () => Promise<void>;
   onError: (error: unknown) => void;
   stopTimeoutMs?: number;
+  inspector?: ConfigurationInspector;
 
 
 }

@@ -437,7 +437,7 @@ export class GlobalAgent {
     const result = await this.execute({ ...call, args: call.method === 'memory.conversations' ? call.args : references.arguments(call.agentId, call.method, call.args) }, binding);
     if (call.method === 'memory.conversations') return result;
     // Inbox reads persist the exact model-visible body before image admission and consumption.
-    return call.method === 'inbox' && call.args.action === 'read' ? result : references.result(call.agentId, call.method, result);
+    return call.method === 'inbox' && call.args.action === 'read' ? result : references.result(call.agentId, call.method, result, String(call.args.action ?? ''));
   }
   private async execute(call: ProductCall, binding: SessionBinding): Promise<unknown> {
     const controller = new AbortController(); this.calls.set(call.operationId, controller);this.callAgents.set(call.operationId,call.agentId);

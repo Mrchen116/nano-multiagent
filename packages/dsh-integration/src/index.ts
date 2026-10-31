@@ -9,7 +9,7 @@ import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
-import type { Agent } from '@deepseek-ai/dsh-agent';
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent-preset-registry';
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt';
@@ -25,9 +25,9 @@ import { recordToolPresentations } from './tool-presentation.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
-import { CapabilityState, capabilityDraft, needsSchedules, configurationBlocks } from './capability-state.js';
+import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
 import type { RuntimeStopHistory } from '@nano/product-contracts';
-import { validateCapabilities, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { TaskExecutionDriver } from './task-execution.js';
@@ -121,6 +121,17 @@ export default class NanoRuntime {
   private readonly sessionController: Promise<SessionController>;
 
   constructor(private readonly ctx: Context) {
+    const inspection = process.env.NANO_CONFIGURATION_INSPECTION_ID;
+    const inspectionAbort = new AbortController();
+    if (inspection) {
+      // An orphan must not survive a responsive parent-link loss. A blocked
+      // event loop is reclaimed by the next Node via the worker's OS identity.
+      process.stdin.once('end', () => process.exit(0));
+      this.peer.onNotification(method => {if (method === 'configuration.cancel') inspectionAbort.abort();});
+      const deadline = Number(process.env.NANO_CONFIGURATION_INSPECTION_DEADLINE);
+      if (Number.isFinite(deadline)) setTimeout(() => process.exit(1), Math.max(0,deadline-Date.now())+500).unref();
+    }
+    let inspectionPackageManager: ProfilePnpmInvocation | undefined;
     const cleanup = new AsyncLocalStorage<string[]>();
     ctx.logger.exporter({export: message => {
       if (message.type === 'error') cleanup.getStore()?.push(String(message.args[0]?.stack ?? message.args[0] ?? 'Runtime cleanup error'));
@@ -150,7 +161,7 @@ export default class NanoRuntime {
     this.capabilities = new CapabilityState((config, names) => configurationService.selection(config, names));
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!, (agentId, action) => !['catalog', 'history', 'list', 'delete'].includes(action) && (this.capabilities.held(agentId, {kind: 'feature', name: 'cron_scheduling'}) || this.capabilities.held(agentId, {kind: 'tool', name: `schedule_${action}`})));
-    ctx.plugin(ConfigurationScopes, this.configurations);
+    ctx.plugin(ConfigurationScopes, {configurations:this.configurations, changed:agentId => this.peer.notify('configuration.catalog.changed', {agentId})});
     const descendantReader = new DescendantReader(ctx);
     const boundRoot = (id: string): string | undefined => {
       let current: string | undefined = id;
@@ -331,6 +342,7 @@ export default class NanoRuntime {
       });
       await ctx.loader.await();
       configurationService.packageManager(config.packageManager);
+      inspectionPackageManager = config.packageManager;
       if (config.providers !== undefined) await modelSetup.apply(config.providers);
       const personal = config.agents.filter(agent => agent.personal);
       if (personal.length && (config.agents.length !== 1 || config.bindings.some(binding => binding.agentId !== personal[0]!.agentId || binding.ownerId !== personal[0]!.personal!.ownerId))) throw new RpcError(-32002, 'Personal runtime must contain only its trusted binding');
@@ -369,29 +381,52 @@ export default class NanoRuntime {
       const agent = await this.agent((value as { sessionId: string }).sessionId);
       return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
     });
-    const preview = async (requested: AgentConfiguration, cwd: string, catalogOnly = false) => {
+    const preview = async (requested: AgentConfiguration, cwd: string, catalogOnly = false): Promise<unknown> => {
       assertPersonalConfiguration(requested);
+      if (!inspection) return this.peer.request('configuration.inspect', {
+        method:catalogOnly ? 'catalog' : 'preview', config:requested, cwd,
+        providers:modelSetup.inspectionProviders, packageManager:inspectionPackageManager,
+      });
       const previewId = `preview-${randomUUID()}`;
+      const started = Date.now();
+      const observe = (event: string, fields: Record<string,unknown> = {}) => process.stderr.write(`${JSON.stringify({
+        component:'dsh.configuration-inspection',event,refresh_id:inspection,request_id:process.env.NANO_CONFIGURATION_INSPECTION_REQUEST,
+        preview_id:previewId,agent_id:requested.agentId,elapsed_ms:Date.now()-started,...fields,
+      })}\n`);
       const config = { ...requested, agentId: previewId, ...(catalogOnly ? { features: { task_graph: true, memory_curation: true, skill_creation: true, cron_scheduling: true, heartbeat: true } } : {}) };
       const preset = `nano:${previewId}:preview`;
+      let unregister: (() => Promise<void>) | undefined;
+      let handle: AgentHandle | undefined;
       this.configurations.set(preset, config);
-      const unregister = await ctx.agentPresets.register({ id: preset, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: previewId } }] });
+      observe('preview.start');
       try {
-        // Native schedule tools appear only while their scoped service is mounted.
+        inspectionAbort.signal.throwIfAborted();
+        unregister = await ctx.agentPresets.register({ id: preset, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: previewId } }] });
         await this.cron.setEnabled(previewId, true);
-        const handle = await ctx.agents.create({ sessionId: SessionId(previewId), meta: { cwd, agentPreset: preset },
-          setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, preset); } });
-        try {
-          const scopes = await configuration; const scoped = scopes.forAgent(handle.agent)!;
-          const catalog = { tools: scopes.catalog(handle.agent), skills: await skillCatalog(scoped, cwd), workflows: (await (await workflow).catalog(handle.agent).list()).map(item=>({name:item.name,description:item.meta.description})) };
-          if (catalogOnly) return catalog;
-          const invalid = configurationBlocks(requested, {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)});
-          if (invalid.length) throw new RpcError(-32602, `Invalid capability dependencies: ${JSON.stringify(invalid)}`);
-          const assembly = await ctx.systemPrompt.assemble({ scope: handle.agent });
-          return { prompt: [renderPrompt(assembly), renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'), section_count: assembly.sections.length,
-            tools: assembly.tools.map(tool => tool.name), skills: await ctx.skills.list({ scope: handle.agent, cwd }), catalog };
-        } finally { await handle.dispose(); }
-      } finally { await unregister(); this.configurations.delete(preset); await this.cron.disposeAgent(previewId, true); }
+        handle = await ctx.agents.create({sessionId:SessionId(previewId),meta:{cwd,agentPreset:preset},signal:inspectionAbort.signal,
+          setup:async agentCtx => {await ctx.agentPresets.mount(agentCtx,preset);}});
+        inspectionAbort.signal.throwIfAborted();
+        const scopes = await configuration; await scopes.ready(previewId); const scoped = scopes.forAgent(handle.agent)!;
+        const catalog = {tools:scopes.catalog(handle.agent),skills:await skillCatalog(scoped,cwd),
+          workflows:(await (await workflow).catalog(handle.agent).list()).map(item=>({name:item.name,description:item.meta.description}))};
+        observe('catalog.built', {tool_count:catalog.tools.length,skill_count:catalog.skills.length,workflow_count:catalog.workflows.length});
+        if (catalogOnly) return catalog;
+        const invalid = configurationBlocks(requested, {tools:catalog.tools.map(tool=>tool.name),skills:catalog.skills.map(skill=>skill.name)});
+        if (invalid.length) throw new RpcError(-32602, `Invalid capability dependencies: ${JSON.stringify(invalid)}`);
+        const assembly = await ctx.systemPrompt.assemble({scope:handle.agent});
+        return {prompt:[renderPrompt(assembly),renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'),section_count:assembly.sections.length,
+          tools:assembly.tools.map(tool=>tool.name),skills:await ctx.skills.list({scope:handle.agent,cwd}),catalog};
+      } finally {
+        const errors: unknown[] = [];
+        // Attempt every owned disposer even if a previous one failed. The outer
+        // worker owner enforces a hard process boundary for a hung disposer.
+        for (const dispose of [() => handle?.dispose(), () => unregister?.(), () => this.cron.disposeAgent(previewId,true)]) {
+          try {await dispose();} catch (error) {errors.push(error);}
+        }
+        this.configurations.delete(preset);
+        observe(errors.length ? 'cleanup.error' : 'cleanup.done');
+        if (errors.length) throw new AggregateError(errors,'Temporary preview cleanup failed');
+      }
     };
     handle('configuration.catalog', async value => {
       const { agentId, cwd, config: candidate } = value as { agentId?: string; cwd: string; config?: AgentConfiguration };

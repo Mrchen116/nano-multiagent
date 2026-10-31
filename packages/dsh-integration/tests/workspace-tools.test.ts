@@ -228,6 +228,13 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     }
     expect((await call('tools-a', 'workspace_total', {cents:[1250,3750,-500]})).text).toContain('4500');
     expect(await prompt('tools-a')).toContain('待核对事项');
+    const templateConfig={...agents[0],revision:'preview-checked',features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false}};
+    expect(await client!.rpc.request('configuration.apply',templateConfig)).toMatchObject({effective:true});
+    const templatePreview = await client!.rpc.request('configuration.preview',{config:templateConfig,cwd:a}) as {prompt:string;tools:string[]};
+    const templateActual = await client!.rpc.request('session.capabilities',{sessionId:'tools-a'}) as {prompt:{tools:{name:string}[]}};
+    expect(templatePreview.prompt).toContain('待核对事项');
+    expect(templatePreview.tools.sort()).toEqual(templateActual.prompt.tools.map(tool=>tool.name).sort());
+
     expect(await prompt('tools-b')).not.toContain('待核对事项');
     expect((await call('tools-a', 'workspace_counted_echo', {text:'A_ONLY'})).text).toContain('A_ONLY');
     expect(JSON.parse(JSON.parse((await call('tools-a','workspace_counter_status',{})).text)[0].text)).toBe(1);

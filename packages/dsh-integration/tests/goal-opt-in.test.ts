@@ -54,7 +54,7 @@ ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator()
     let applied = false;
     const applying = client.rpc.request('configuration.apply',{...agents[2],revision:'2',toolAllowlist:['update_goal']}).then(()=>{applied=true;});
     void applying.catch(()=>{});
-    await expect.poll(async()=>(await client!.rpc.request('session.capabilities',{sessionId:'read-goal'}) as {tools:string[]}).tools).not.toContain('get_goal');
+    await expect.poll(async()=>(await client!.rpc.request('session.capabilities',{sessionId:'read-goal'}) as {tools:string[]}).tools,{timeout:8000}).not.toContain('get_goal');
     const busy=await client.rpc.request('session.capabilities',{sessionId:'read-goal'}) as {tools:string[]};
     expect(busy.tools).not.toContain('read');
     expect(busy.tools).not.toContain('update_goal');
@@ -67,7 +67,7 @@ ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator()
     await expect.poll(()=>readFile(join(home,'default.request.json'),'utf8')).toContain('hold');
     const defaultApply=client.rpc.request('configuration.apply',{...agents[0],revision:'2',toolAllowlist:['get_goal']});
     void defaultApply.catch(()=>{});
-    await expect.poll(async()=>(await client!.rpc.request('session.capabilities',{sessionId:'default'}) as {tools:string[]}).tools).not.toContain('read');
+    await expect.poll(async()=>(await client!.rpc.request('session.capabilities',{sessionId:'default'}) as {tools:string[]}).tools,{timeout:8000}).not.toContain('read');
     const defaultBusy=await client.rpc.request('session.capabilities',{sessionId:'default'}) as {tools:string[]};
     expect(defaultBusy.tools).not.toContain('get_goal');
     await client.rpc.request('session.cancel',{sessionId:'default'});

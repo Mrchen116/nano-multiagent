@@ -101,6 +101,12 @@ export const name='capability-fixture';export const inject=['tools'];export func
         expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('持续推进已交办的工作');
         const before=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
         expect(JSON.stringify(before.prompt)).toContain('OWNER_EDITABLE_GUIDANCE');
+        const preview=await client.rpc.request('configuration.preview',{config,cwd:root}) as any;
+        expect(preview.tools.sort()).toEqual(before.prompt.tools.map((tool:any)=>tool.name).sort());
+        expect(preview.skills.map((skill:any)=>skill.name).sort()).toEqual(before.skills.map((skill:any)=>skill.name).sort());
+        expect(preview.prompt).toContain('OWNER_EDITABLE_GUIDANCE');
+        if(personal)expect(preview.prompt).toContain(before.prompt.sections.find((section:any)=>section.name==='nano-personal-agent').text);
+
         await client.rpc.request('configuration.apply',{...config,revision:'2',systemPrompt:'',skillSelection:{mode:'explicit_denylist',names:['nano-ongoing-work']}});
         const after=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
         expect(JSON.stringify(after.prompt)).not.toContain('OWNER_EDITABLE_GUIDANCE');

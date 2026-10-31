@@ -54,6 +54,12 @@ ctx.on('llm/stream',async function*(o){
     expect(children).toHaveLength(3);
     const root = before.find(row => row.id === 'root');
     expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining([...(mode==='global'?['inbox']:[]), 'conversations', 'send_message', ...(personal ? ['send_user_message'] : [])]));
+    const conversations = root.schemas.find((tool: any) => tool.name === 'conversations');
+    expect(conversations.description).toContain('next_cursor');
+    expect(conversations.description).toContain('partial');
+    for (const name of ['keywords', 'query', 'sort', 'around_message_id', 'sender_source_id', 'cursor']) {
+      expect(conversations.parameters.properties[name].description).toBeTruthy();
+    }
     for (const row of before.filter(row => row.id !== 'root')) {
       if (row.fork) { expect(row.schemas).toEqual(root.schemas); expect(row.tools).toEqual(root.tools); continue; }
       const names = row.schemas.map((tool: any) => tool.name);
