@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
@@ -21,12 +21,13 @@ async function library() {
 describe('current document memory', () => {
   it.each(['workspace-write', 'read-only'] as const)('uses the trusted owner root without widening %s for initialization and publication', async mode => {
     const workspace = await mkdtemp(join(tmpdir(), 'nano-document-policy-'));
+    const workspaceRoot = await realpath(workspace);
     cleanups.push(() => rm(workspace, { recursive: true, force: true }));
     const guarded: FileSystem = new LocalFileSystem(new Context(), { cwd: process.cwd(), diffBasisMaxBytes: 10485760 });
     Object.defineProperty(guarded, 'sandboxMode', { get: () => mode });
     const write = guarded.writeText.bind(guarded);
     const writes = vi.spyOn(guarded, 'writeText').mockImplementation((target, content, intent, signal, policy) => {
-      expect(policy).toEqual({ mode, workspaceRoot: workspace });
+      expect(policy).toEqual({ mode, workspaceRoot });
       if (policy!.mode === 'read-only') throw new Error('Read-only memory backend');
       return write(target, content, intent, signal, policy);
     });

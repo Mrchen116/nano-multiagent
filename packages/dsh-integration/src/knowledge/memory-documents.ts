@@ -64,7 +64,7 @@ export class MemoryDocuments {
     if (!await fs.stat(entry)) {
       await fs.writeText(entry, role === 'personal'
         ? '# Personal memory\n\nDurable understanding of the owner, their relationships, preferences and workstreams.\n\n## Topics\n\nNo topics saved yet.\n'
-        : '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## Topics\n\nNo topics saved yet.\n', { kind: 'createIfAbsent' });
+        : '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## Topics\n\nNo topics saved yet.\n', { kind: 'createIfAbsent' }, undefined, owner.writePolicy());
     }
     // Exclude the entire private tree from an enclosing repository before initializing ours.
     try {
@@ -104,6 +104,11 @@ export class MemoryDocuments {
     const task = this.tail.then(action); this.tail = task.catch(() => {}); return task;
   }
   private save() { return atomicWrite(this.statePath, JSON.stringify(this.state)); }
+  private writePolicy() {
+    // Publication belongs to the configured owner, not the runtime process cwd.
+    // Preserve the backend mode, including read-only, when selecting that root.
+    return this.fs.sandboxMode ? { mode: this.fs.sandboxMode, workspaceRoot: this.workspace } : undefined;
+  }
   /** Resolve a document without allowing aliases to escape its owner library. */
   async path(path: string): Promise<string> {
     const absolute = resolve(this.root, path); const rel = relative(this.root, absolute);
@@ -211,7 +216,7 @@ export class MemoryDocuments {
         const currentHash = current === null ? null : digest(current);
         if (currentHash !== afterHash) {
           if (currentHash !== operation.beforeHash || receipt.saved) throw new Error('Document changed; planned write conflicts with the current version.');
-          await this.fs.writeText(target, operation.content, info ? { kind: 'replaceIfVersion', version: info.version } : { kind: 'createIfAbsent' }, signal);
+          await this.fs.writeText(target, operation.content, info ? { kind: 'replaceIfVersion', version: info.version } : { kind: 'createIfAbsent' }, signal, this.writePolicy());
         }
         receipt.saved = true; this.dirty.add(path); await this.save();
         receipt.commit = await this.recordVersion(path, operation.content); receipt.versionRecorded = true; delete receipt.error;

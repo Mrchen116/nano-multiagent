@@ -31,7 +31,8 @@ it.each([
   const requests: Wire[] = [], consumed = new Set<string>(), committed: any[] = [];
   const originals = new Map<string, Original>();
   let client: RuntimeClient | undefined, logs = '', summarizing = false, armed = false, toolsSent = false;
-  let binding: { sessionId: string }, prepareCalls = 0, snapshotCalls = 0;
+  const binding = { sessionId: 'wire-session', agentId: 'wire-revalidation', ownerId: 'wire-owner', revision: '1', cwd: home };
+  let prepareCalls = 0, snapshotCalls = 0;
   const cell = legacy ? 'LEGACY' : 'DOCUMENT';
   const documentMarker = 'DOCUMENT_ONLY_VALID_ENTRY_679', legacyMarker = 'LEGACY_ONLY_ENTRY_679';
   const readMarker = 'DOCUMENT_OFF_ACTUAL_READ_679';
@@ -70,9 +71,9 @@ it.each([
   const submit = async (inputId: string) => {
     const item = original('task-' + inputId); originals.set(item.inputId, item); armed = true;
     const first = requests.length;
-    await client!.rpc.request('input.enqueue', { sessionId: binding.sessionId, inputId, content: [{ type: 'text', text: 'HUMAN_' + inputId }],
-      source: { kind: 'user', channel: 'wire-test', actorId: 'wire-owner', messageId: inputId, conversationId: 'wire-human-chat' } });
-    await expect.poll(async () => (await client!.rpc.request('input.lookup', { sessionId: binding.sessionId, inputId }) as any).terminal,
+    await client!.rpc.request('session.submit', { sessionId: binding.sessionId, inputId, mode: 'followup', content: [{ type: 'text', text: 'HUMAN_' + inputId }],
+      source: { kind: 'human', channel: 'wire-test', actorId: 'wire-owner', messageId: inputId, conversationId: 'wire-human-chat' } });
+    await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: binding.sessionId, inputId }) as any).terminal,
       { timeout: 15_000 }).toBeTruthy();
     await expect.poll(async () => (await observe()).status, { timeout: 10_000 }).toBe('idle');
     await expect.poll(() => consumed.has(item.inputId)).toBe(true);
@@ -87,10 +88,9 @@ it.each([
     expect(visible).toContain('You are one persistent Agent working across conversations.');
     expect(visible).toContain('WIRE_PERSONA_' + cell);
     expect(visible).toContain('Task ownership and changes');
-    expect(visible).toContain('Use current responsibility as execution context');
+    expect(visible).toContain('Automatic continuation does not grant authority');
     expect(visible).toContain(taskTitle);
     expect(visible).toContain('cron_disabled');
-    expect(visible).toContain('Skill creation and improvement');
     expect(visible).toContain('built-in skill-creator');
     expect(visible).toContain('Use only enabled maintenance tools within their selected writable scopes.');
     expect(visible).toContain('<available_skills>');
@@ -104,7 +104,7 @@ it.each([
     if (!legacy) {
       expect(visible).toContain('Current entry:');
       expect(visible).not.toContain('entry_basis_stale');
-      expect(visible).toContain('Unavailable in this template: write, edit.');
+      expect(visible).toContain('Unavailable tools: write, edit.');
       expect(names).toContain('memory_maintenance');
       const schema = JSON.stringify(request.body.tools.find((tool: any) => tool.name === 'memory_maintenance'));
       expect(schema).toContain('importLegacy'); expect(schema).not.toContain('checkpoint');
@@ -142,10 +142,12 @@ it.each([
     }
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const port = (server.address() as { port: number }).port;
+    await writeFile(join(home, 'native-tools.mjs'), "export const name='native-tools';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});}");
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { wire: { api: 'anthropic-messages',
       apiKeyEnv: 'NANO_TEST_KEY', baseURL: 'http://127.0.0.1:' + port, models: [{ id: 'fixture', contextWindow: 100000 }],
-      retryPolicy: { mode: 'normal', maxRetries: 0 } } } } }, { id: 'nano-compaction', config: { retainTokens: 0, maxTokens: 256 } }]);
-    client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture', NANO_BUILTIN_SKILL_ROOT: builtin }, onLog: text => { logs += text; } });
+      retryPolicy: { mode: 'normal', maxRetries: 0 } } } } }, { id: 'nano-compaction', config: { retainTokens: 0, maxTokens: 256 } },
+      { insert: [{ id: 'native-tools', name: join(home, 'native-tools.mjs') }] }]);
+    client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     client.rpc.handle('product.task_context.prepare', request => {
       identity(request); prepareCalls++;
       return { messages: [...originals.values()].filter(item => !consumed.has(item.inputId)), revoked: [] };
@@ -162,22 +164,27 @@ it.each([
       identity(request); snapshotCalls++;
       return (armed ? { kind: 'continue', tasks: [{ graph_id: 'wire-graph', node_id: 'wire-node', title: taskTitle, status: 'waiting', revision: 1,
         updated_at: '2026-10-30T12:00:00Z', conversation: { id: 'wire-fixed-task-chat' }, relative_url: '/tasks/wire-graph' }],
-        repair_task_ids: ['wire-graph/wire-node'] } : { kind: 'quiescent', tasks: [], repair_task_ids: [] }) satisfies TaskExecutionSnapshot;
+        repair_task_ids: ['wire-graph/wire-node'], reason: 'cron_disabled', repairs: [{ graph_id: 'wire-graph', node_id: 'wire-node',
+          schedule_id: 'missing-schedule', checked_at: '2026-10-30T12:00:00Z', reason_code: 'missing', reason: 'The linked Schedule could not be found.' }] }
+        : { kind: 'quiescent', tasks: [], repair_task_ids: [] }) satisfies TaskExecutionSnapshot;
     });
-    await client.rpc.request('initialize', {});
     const config = { agentId: 'wire-revalidation', revision: '1', mode: 'global', workspace: home, provider: 'wire', model: 'fixture',
       systemPrompt: 'WIRE_PERSONA_' + cell, approval: { enabled: false },
-      ...(legacy ? { knowledge: { memoryMode: 'legacy', legacyMemory: { enabled: true, interval: 1000 } } } : {}),
+      ...(legacy ? { knowledge: { memoryMode: 'legacy' } } : {}),
       features: { intelligent_ui: false, task_graph: true, dreaming: false, memory_curation: legacy, skill_creation: false, cron_scheduling: false, heartbeat: false },
       toolAllowlist: ['skill', 'read', 'task_graph', ...(!legacy ? ['memory_maintenance'] : [])],
-      skillRoots: [{ path: skills, source: 'workspace' }], skillSelection: legacy
+      skillRoots: [{ path: skills, source: 'workspace' }, { path: builtin, source: 'builtin' }], skillSelection: legacy
         ? { mode: 'explicit_denylist', names: ['skill-creator', 'optional'] } : { mode: 'explicit_allowlist', names: [] } };
-    binding = await client.rpc.request('session.ensure', { kind: 'global', agentId: config.agentId, ownerId: 'wire-owner', configuration: config }) as typeof binding;
-    if (!windows) await client.rpc.request('plugins.manage', { action: 'set_bundle', sessionId: binding.sessionId, name: 'dsh-agent-context', disabled: true });
+    await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
+    await client.rpc.request('session.ensure', binding);
+    if (!windows) {
+      await client.rpc.request('plugins.manage', { action: 'set_bundle', agentId: config.agentId, target: 'dsh-agent-context', enabled: false });
+      await expect.poll(async () => (await client!.rpc.request('plugins.manage', { agentId: config.agentId, action: 'list_bundles' }) as {pending?: unknown}).pending).toBeUndefined();
+    }
     const initial = await submit('before-' + cell);
     expect(initial).toHaveLength(2); initial.forEach(assembly);
     expect(strings(initial[1]!.body.messages)).toContain(packagedBody);
-    expect(strings(initial[1]!.body.messages)).toContain(join(builtin, 'skill-creator/SKILL.md'));
+    expect(strings(initial[1]!.body.messages)).toContain(join(builtin, 'skill-creator'));
     const results = initial[1]!.body.messages.flatMap((message: any) => Array.isArray(message.content) ? message.content : [])
       .filter((block: any) => block.type === 'tool_result');
     expect(results.find((block: any) => block.tool_use_id === 'creator-' + cell)).toBeTruthy();
@@ -187,7 +194,7 @@ it.each([
     const beforeCompact = requests.length; summarizing = true;
     try {
       // The public native command, not a fabricated compaction/summary event.
-      await client.rpc.request('session.command', { sessionId: binding.sessionId, commandId: 'real-compact-' + cell, command: { action: 'compact', argument: 'AUTHORITY_FOCUS_679' } });
+      expect(await client.rpc.request('session.command', { sessionId: binding.sessionId, id: 'real-compact-' + cell, action: 'compact', argument: 'AUTHORITY_FOCUS_679' })).toMatchObject({success: true});
     } finally { summarizing = false; }
     expect(requests.slice(beforeCompact)).toHaveLength(windows ? 0 : 1);
     if (!windows) {
@@ -204,7 +211,8 @@ it.each([
     expect(prepareCalls).toBeGreaterThanOrEqual(3); expect(snapshotCalls).toBeGreaterThanOrEqual(2);
     expect(logs).not.toContain('Method not found');
   } catch (error) {
-    throw new Error(String(error) + '\n' + logs + '\nHTTP captures: ' + JSON.stringify(requests.map(({ body, ...request }) => ({
+    const events = client ? (await observe()).events : [];
+    throw new Error(String(error) + '\n' + logs + '\nNative events: ' + JSON.stringify(events) + '\nHTTP captures: ' + JSON.stringify(requests.map(({ body, ...request }) => ({
       ...request, raw: undefined, body: { ...body, tools: body.tools?.map((tool: any) => tool.name) } }))), { cause: error });
   } finally {
     if (client) {
