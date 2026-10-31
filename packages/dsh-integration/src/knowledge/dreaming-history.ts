@@ -85,7 +85,7 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
       const status = await library.status();
       const events = snapshot.events.filter(event => event.seq <= scope.through && event.time <= scope.cutoff &&
         (marker(event) || event.seq > Math.max(scope.baseline, snapshot.inheritedEventCount - 1)));
-      const qualified = qualifiedEvents(events, {sources:status.sources, excluded:status.exclusions.flatMap(item => item.sources)});
+      const qualified = qualifiedEvents(events, {sources:status.sources});
       const view = createHistoryView(scope.session_id, qualified);
       const {action,session_id,window_id,item_id,offset_chars,limit_chars,cursor,...query} = args;
       const tokenScope = createHash('sha256').update(JSON.stringify({scope,generation:run.generation,action,window_id,query})).digest('hex');

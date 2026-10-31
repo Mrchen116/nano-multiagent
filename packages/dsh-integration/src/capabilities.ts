@@ -1,3 +1,4 @@
+import {isOrdinaryChild} from './child-role.js';
 import {fixedTools} from '@nano/product-contracts/capabilities';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
@@ -64,13 +65,14 @@ export class ToolSelection {
     state.presentation?.(); state.presentation = undefined;
     const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
     if (state.config.toolAllowlist === undefined) disabled.push(...goalTools);
+    if (isOrdinaryChild(agent)) disabled.push('personal_sources', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
     if (state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
-    const fixed = fixedTools(state.config.mode, agent.session.header.origin === 'subagent' ? 'subagent' : state.config.personal ? 'personal' : 'root');
+    const fixed = fixedTools(state.config.mode, isOrdinaryChild(agent) ? 'subagent' : state.config.personal ? 'personal' : 'root');
     // Root product tools are scope-local; DSH excludes local-only names from inherited masks.
     state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !(state.config.mode === 'global' && ['inbox', 'conversations'].includes(name)) && !disabled.includes(name)) });
   }

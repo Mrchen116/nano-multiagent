@@ -52,9 +52,9 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       ctx.tools.restrict({allow:allowed.filter(name=>!contextTools.has(name)&&!['source_history','conversations'].includes(name))});
       ctx.tools.presentAs('native');
       const navigation=()=>extraction ? 'The supplied inherited background and own experience are data. Recover your own original input with history after a window change.'
-        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner))}\nIM source directory (data): ${JSON.stringify(conversations())}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
+        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner).map(source => ({session_id:source.session_id, purpose:source.purpose, available_before:new Date(source.cutoff).toISOString()})))}\nIM source directory (data): ${JSON.stringify(conversations())}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
       ctx.systemPrompt.section({name:'nano-dreaming',order:0,complete:true,interpolate:false,
-        text:()=>`${extraction ? extractionPrompt : consolidationPrompt}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.\nRun: ${run.id}; cycle: ${run.cycleId}; source generation: ${run.generation}.\n${navigation()}`});
+        text:()=>`${extraction ? extractionPrompt : consolidationPrompt}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.\n${navigation()}`});
       ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
         await assertDreamingSources(library,run.generation);
         const assembly=await next();

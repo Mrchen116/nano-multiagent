@@ -43,6 +43,9 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const latest=requests.at(-1);
     const control = latest.tools.find((tool:any)=>tool.name==='memory_maintenance');
+    expect(control.parameters.properties.action.enum).toEqual(['status', 'run']);
+    expect(control.parameters.properties).not.toHaveProperty('paths');
+    expect(control.parameters.properties).not.toHaveProperty('sources');
     expect(JSON.stringify(control)).not.toContain('checkpoint');
     expect(JSON.stringify(control)).toContain('importLegacy');
     expect(latest.tools.map((tool:any)=>tool.name)).not.toContain('memory');

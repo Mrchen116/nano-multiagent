@@ -1,3 +1,4 @@
+import {attachChildRole, isOrdinaryChild, trackForkCreation} from './child-role.js';
 import * as PersonalTools from './personal-security.js';
 import { assertPersonalConfiguration } from './personal-security.js';
 import { realpath } from 'node:fs/promises';
@@ -11,7 +12,6 @@ import { mountExtensions } from './extensions.js';
 import * as Persona from '@deepseek-ai/dsh-persona';
 import * as GlobalMode from './global-mode.js';
 import * as ContextOrder from './context-order.js';
-import * as ContextVisibility from './context-visibility.js';
 import * as TaskGraphs from './features/task-graphs.js';
 import * as Heartbeat from './features/heartbeat.js';
 import * as IntelligentUI from './features/intelligent-ui.js';
@@ -38,6 +38,7 @@ export class ConfigurationScopes extends Service {
   private readonly extensions: WorkspaceExtensions;
   constructor(ctx: Context, readonly configurations: Map<string, AgentConfiguration>) {
     super(ctx, 'nanoConfiguration'); this.host = ctx;
+    trackForkCreation(ctx);
     this.extensions = new WorkspaceExtensions(ctx, id => this.tools.update(id));
     this.tools = new ToolSelection(ctx, config => this.extensions.tools(config.agentId));
   }
@@ -129,6 +130,7 @@ export class ConfigurationScopes extends Service {
     }, { prepend: true });
   }
   async attachAgent(agent: Agent, config: AgentConfiguration): Promise<void> {
+    attachChildRole(agent);
     const workspace = config.workspace ? await realpath(config.workspace) : undefined;
     while (workspace && this.maintenance.has(workspace)) await this.maintenance.get(workspace);
     const scope: AgentScope = { agent, config, workspace }; this.agents.set(agent, scope);
@@ -136,21 +138,20 @@ export class ConfigurationScopes extends Service {
     agent.ctx.systemPrompt.section({ name: 'nano-product-identity', order: 5, interpolate: false, text: () => {
       const name = JSON.stringify(scope.config.displayName ?? scope.config.agentId);
       const id = JSON.stringify(scope.config.agentId);
-      return agent.session.header.origin === 'subagent'
+      return isOrdinaryChild(agent)
         ? `You are an internal subagent of this product Agent:\nAgent name: ${name}\nAgent ID: ${id}`
         : `Your Agent name: ${name}\nYour Agent ID: ${id}`;
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
-    if (config.systemPrompt) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
+    if (config.systemPrompt && !isOrdinaryChild(agent)) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
     if (config.mode === 'global') {
-      if (agent.session.header.origin === 'subagent') GlobalMode.registerChildGuidance(agent.ctx);
+      if (isOrdinaryChild(agent)) GlobalMode.registerChildGuidance(agent.ctx);
       else await agent.ctx.plugin(GlobalMode, { mode: config.mode }).await();
     }
-    if (config.personal && agent.session.header.origin !== 'subagent') await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
+    if (config.personal && !isOrdinaryChild(agent)) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
     await agent.ctx.plugin(ContextOrder).await();
-    if (agent.session.header.origin === 'subagent') await agent.ctx.plugin(ContextVisibility).await();
   }
   async setFeatures(agentId: string, features: Record<string, boolean>): Promise<void> {
     for (const config of this.allConfigurations()) if (config.agentId === agentId) config.features = { ...features };
@@ -173,7 +174,7 @@ export class ConfigurationScopes extends Service {
   async setConfiguration(next: AgentConfiguration): Promise<void> {
     for (const scope of this.agents.values()) if (scope.config.agentId === next.agentId && scope.config.systemPrompt !== next.systemPrompt) {
       await scope.persona?.dispose(); scope.persona = undefined;
-      if (next.systemPrompt) { scope.persona = scope.agent.ctx.plugin(Persona, { prefix: next.systemPrompt }); await scope.persona.await(); }
+      if (next.systemPrompt && !isOrdinaryChild(scope.agent)) { scope.persona = scope.agent.ctx.plugin(Persona, { prefix: next.systemPrompt }); await scope.persona.await(); }
     }
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
       for (const key of Object.keys(config)) delete (config as unknown as Record<string, unknown>)[key];

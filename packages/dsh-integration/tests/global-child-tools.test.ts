@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 
-it.each([false, true])('keeps Global product tools on the root across spawn, fork and cold resume (PA=%s)', async personal => {
+it.each([false, true])('keeps fork tool definitions equal to the parent and ordinary workers internal across cold resume (PA=%s)', async personal => {
   const home = await mkdtemp(join(tmpdir(), 'global-child-tools-'));
   let client: RuntimeClient | undefined, logs = '';
   const calls: { method: string; sessionId: string }[] = [];
@@ -24,7 +24,7 @@ export const name='global-child-tools-fixture';export const inject=['llm','agent
 export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});const seen=new Set();
 ctx.on('llm/stream',async function*(o){
  const agent=ctx.agents.get(o.sessionId);if(!agent)throw Error('Expected actual Agent model request');
- await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({id:agent.id,parent:agent.session.header.parentSession,tools:o.tools,schemas:ctx.tools.schemas(agent),system:o.messages.filter(m=>m.role==='system'||m.role==='developer')})+'\\n');
+ await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({id:agent.id,parent:agent.session.header.parentSession,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork',tools:o.tools,schemas:ctx.tools.schemas(agent),system:o.messages.filter(m=>m.role==='system'||m.role==='developer')})+'\\n');
  const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
  const key=agent.id+':'+(user?.id??'child');const fresh=!seen.has(key);seen.add(key);
  const text=user?.content.filter(b=>b.type==='text').map(b=>b.text).join('')??'';
@@ -55,6 +55,7 @@ ctx.on('llm/stream',async function*(o){
     const root = before.find(row => row.id === 'root');
     expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining(['inbox', 'conversations', 'send_message', ...(personal ? ['send_user_message'] : [])]));
     for (const row of before.filter(row => row.id !== 'root')) {
+      if (row.fork) { expect(row.schemas).toEqual(root.schemas); expect(row.tools).toEqual(root.tools); continue; }
       const names = row.schemas.map((tool: any) => tool.name);
       expect(JSON.stringify(row.system)).toContain('You are an internal execution agent');
       expect(JSON.stringify(row.system)).not.toContain('In Global mode this requires send_message; private prose is not delivery.');

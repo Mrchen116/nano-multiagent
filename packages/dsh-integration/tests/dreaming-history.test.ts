@@ -17,7 +17,7 @@ function fixture(){
   const ctx={tools:{register:(tool:any)=>tools.set(tool.name,tool)}};
   const parent={id:'root',ctx:{tools:{get:()=>true}}};
   const host={nanoProduct:{call:async(method:string,args:unknown,exec:unknown)=>{calls.push({method,args,exec});return {messages:[{id:'original-message',content:'Historical original'}]};}}};
-  const library={status:async()=>({generation,sourcesPending:false,sources:{revision:'r',allowed:['allowed'],excluded:['revoked']},exclusions:[]})};
+  const library={status:async()=>({generation,sourcesPending:false,sources:{revision:'r',allowed:['allowed'],excluded:['revoked']}})};
   const run={generation:1,target:{roots:{root:{through:9,time:109}},children:{}},batch:{ranges:[{sessionId:'root',through:9}],cutoffs:{root:109},units:[]},summaries:[]};
   const owner={activationAt:101,streams:{root:{baseline:0,cursor:0}}};
   registerDreamingHistory(ctx as never,host as never,parent as never,run as never,owner as never,library as never,new MemorySources(snapshots as never,new Map()),['allowed']);
@@ -68,7 +68,7 @@ it('allows bounded original evidence from a selected task descendant, but not an
   const root={id:'root',ctx:{tools:{get:()=>false}}};
   const run={generation:1,target:{roots:{root:{through:10,time:150}},children:{task:{time:150}}},batch:{ranges:[],cutoffs:{},units:[]},summaries:[{sessionId:'task',rootSessionId:'root',baseline:-1,through:0}]};
   const owner={activationAt:100,streams:{root:{baseline:-1,cursor:0}}};
-  const library={status:async()=>({generation:1,sourcesPending:false,exclusions:[]})};
+  const library={status:async()=>({generation:1,sourcesPending:false})};
   const sourceContext={sessions:{get:()=>undefined},sessionQuery:{observeSession:async(id:string)=>({...snapshots[id],source:'prepared',revision:'stable',[Symbol.dispose]:()=>{}})}};
   registerDreamingHistory(ctx as never,{} as never,root as never,run as never,owner as never,library as never,new MemorySources(sourceContext as never,new Map()),[]);
   const query=(args:any)=>tools.get('source_history').execute(args);

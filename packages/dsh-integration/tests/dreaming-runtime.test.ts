@@ -51,6 +51,10 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     const names=maintenance[0].tools.map((tool:any)=>tool.name);
     expect(names).toEqual(expect.arrayContaining(['read','write','edit','source_history','notes','history','new_context','get_context_remaining']));
     expect(names).not.toContain('finish');
+    const initialText=JSON.stringify(maintenance[0].messages);
+    expect(initialText).not.toContain('source generation:');
+    expect(initialText).not.toContain('Source exclusions (data)');
+    expect(initialText).not.toContain('baseline');
     expect(names).not.toEqual(expect.arrayContaining(['inbox','send_message','shell','subagents']));
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('nano-skill-creation');
     expect(JSON.stringify(maintenance[0].messages)).not.toContain('user authorization');

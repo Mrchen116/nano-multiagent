@@ -159,7 +159,7 @@ export class Dreaming {
       while(true){
         signal.throwIfAborted();await assertDreamingSources(library,target.generation);
         const policy=await library.status();
-        const options={maxInputTokens:budget,seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation++,target};
+        const options={maxInputTokens:budget,seen:owner.seen,sources:policy.sources,rotation:owner.rotation++,target};
         let batch=deferred ? {...deferred.batch,id:randomUUID(),units:[],text:'',inputTokens:0} : await this.sources.freeze(config.agentId,owner.streams,options);
         let materials=deferred ? [] : await this.sources.children(config.agentId,target,batch,options);
         const includeConversations=()=>{batch.conversations=[...new Set([...(batch.conversations??[]),...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents]))])];};
@@ -305,7 +305,7 @@ export class Dreaming {
       }
       const view=await library.context();
       inputs.push(`# Current memory entry (data)\n${view.entry??`Read the complete entry at ${join(view.root, 'MEMORY.md')}.`}`);
-      inputs.push(`# Source exclusions (data)\n${JSON.stringify(view.exclusions)}\n# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
+      inputs.push(`# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
@@ -332,7 +332,7 @@ export class Dreaming {
   private model(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,input:DreamingInput){
     this.maintenance.add(`dreaming-${run.id}`);
     return library.status().then(status=>runDreamingAgent(this.ctx,{parent,config,signal:work.controller.signal,run,owner,library,input,sources:this.sources,
-      conversations:()=>[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)&&!status.exclusions.some(item=>item.sources.includes(id))),
+      conversations:()=>[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)),
       save:()=>this.saveRun(run),opened:handle=>{work.handle=handle;}}));
   }
   private async apply(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner){
@@ -383,7 +383,7 @@ export class Dreaming {
     try{limit=await dreamingInputLimit(this.ctx,config);}
     catch(error){return {active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
     const target=await this.sources.freezeTarget(agentId,owner.streams,owner.activationAt,{generation:policy.generation});
-    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation,target};
+    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),seen:owner.seen,sources:policy.sources,rotation:owner.rotation,target};
     const batch=await this.sources.freeze(agentId,owner.streams,options);
     const materials=await this.sources.children(agentId,target,{...batch,ranges:[],cutoffs:{}},options);
     const summaries=(await this.domain).table('summaries');

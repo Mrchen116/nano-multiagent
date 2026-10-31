@@ -82,10 +82,10 @@ Never bypass a denial by switching tools, channels or identities, or disguising 
   });
 }
 
-/** Register representation only in a bound root PA's execution scope.
+/** Register root PA representation, retaining declarations in forks for prefix reuse.
  *
  * Args:
- *   ctx: Root PA scope with tools and product bridge injected.
+ *   ctx: Root PA or fork scope; the host enforces root-only execution.
  */
 export function registerUserMessage(ctx: Context): void {
   ctx.tools.register({name:'send_user_message',description:'Represent the owner in a Nano IM conversation under their original delegation. Write naturally in the owner’s voice, preserving their meaning and limits. Returns actual sent, held_for_revalidation or unknown delivery state. Use send_message for your own replies and reports.',
@@ -97,7 +97,7 @@ export function registerUserMessage(ctx: Context): void {
 /** Explain internal coordination without advertising the root's product chat tools.
  *
  * Args:
- *   ctx: Native child Agent scope, including resumed and forked children.
+ *   ctx: Ordinary internal child scope, including resumed workers.
  */
 export function registerChildGuidance(ctx: Context): void {
   ctx.systemPrompt.section({ name: 'nano-global-child', order: 800, text:
@@ -108,5 +108,5 @@ Follow the native return mode. A continuable child sends one self-contained resu
 During continuable execution, message the parent only for information or a decision it must supply, a change that requires revising the plan or user expectation, or an agreed checkpoint. First identify what the parent needs to do differently. If it could only reply "received" or "continue", keep working and include the update in the final result. Routine test results and recovery you can handle are not checkpoints. Handle routine steps and recoverable problems within your scope without asking to continue. Do not send receipt acknowledgments.
 
 When coordinating your own children, send only new information, decisions or corrections that change their next action. Continue within the delegated task and current corrections; cancellation or late results do not authorize restarting. Ordinary tools retain the same approval and source restrictions. Do not bypass a denied action by switching tools or disguising the same action.` });
-  ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
+  ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions.split('\n\nDelivery results')[0]! });
 }

@@ -32,7 +32,7 @@ export interface ChildMaterial {
   sessionId: string; rootSessionId: string; baseline: number; through: number; sourceVersion: string;
   text: string; events: SessionEvent[]; inheritedEvents: SessionEvent[]; omitted: number; unavailable?: number;
 }
-export interface SourceOptions { maxInputTokens: number; seen?: string[]; sources?: SourceEligibility; excluded?: string[]; rotation?: number; target?: CycleTarget; generation?: number }
+export interface SourceOptions { maxInputTokens: number; seen?: string[]; sources?: SourceEligibility; rotation?: number; target?: CycleTarget; generation?: number }
 export interface FrozenBatch {
   id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number; continuation?: SourceContinuation }>;
   conversations?: string[]; text?: string; cutoffs?: Record<string, number>; historyThrough?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
@@ -146,7 +146,7 @@ export class MemorySources {
                     let message = original;
                     const conversation = String(message.conversation_id ?? message.target ?? body.conversation_id ?? body.target ?? body.source ?? '');
                     const messageId = String(message.id ?? message.message_id ?? '');
-                    if (options.excluded?.includes(conversation) || options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation))) { result.filtered++; return []; }
+                    if (options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation))) { result.filtered++; return []; }
                     if (message.partial) {
                       const part = Number(message.part); const total = Number(message.parts);
                       const fragmentKey = `${conversation}:${messageId}`;
@@ -173,7 +173,7 @@ export class MemorySources {
             const source = event.data.source;
             if (isHumanSource(source) || source.kind === 'agent-message' || source.kind === 'subagent-settled') {
               const conversation = 'conversationId' in source ? String(source.conversationId) : '';
-              if (conversation && (options.excluded?.includes(conversation) || options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation)))) result.filtered++;
+              if (conversation && (options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation)))) result.filtered++;
               else {
                 if(conversation)(result.conversations??=[]).push(conversation);
                 selected.push({ seq: event.seq, time: event.time, sessionId: id, type: 'user/message', messageId: event.data.id, source, content: event.data.content.filter(block => block.type !== 'reasoning') });
@@ -357,5 +357,5 @@ export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'ro
   }
   const text = entries.flatMap((entry,index)=>selected.has(index) ? [`### ${entry.inherited ? 'Inherited background, not new evidence' : 'Own experience'}; session_id=${entry.sessionId}; item_id=${entry.event.seq}; time=${entry.event.time}\n${renderNative(entry.event)}`] : []).join('\n\n');
   const omitted = entries.length-selected.size + (material.unavailable??0);
-  return {text:`${text}\n\nOmitted/unavailable records: ${omitted}. Missing conditions remain unknown.`,omitted};
+  return {text:`${text}\n\nThese are qualified business records, not the complete execution transcript. Additional records omitted for input capacity or unavailable provenance: ${omitted}. Missing conditions remain unknown.`,omitted};
 }
