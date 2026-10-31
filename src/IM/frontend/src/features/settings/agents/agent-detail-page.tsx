@@ -733,8 +733,8 @@ export function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle
                         <span className="im-plan-kind">{t(`agents.form.cron.${recurring ? "recurring" : "once"}`)}</span>
                       </div>
                       {recurring && <p className="im-plan-rule">{timing.rule}</p>}
-                      <p className="im-plan-next"><span>{t("agents.form.cron.nextLabel")}</span><time dateTime={String(job.schedule.scheduledAt)}>{timing.next}</time></p>
                     </div>
+                      <p className="im-plan-next"><span>{t("agents.form.cron.nextLabel")}</span><time dateTime={String(job.schedule.scheduledAt)}>{timing.next}</time></p>
                   </div>
                   <details className="im-plan-details">
                     <summary>{t("agents.form.cron.details")}<span className="im-plan-chevron" aria-hidden="true">⌄</span></summary>

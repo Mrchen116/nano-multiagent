@@ -35,3 +35,7 @@ Base: `99354a6a1afaf2a2f495d2e5abf62f1027c3eade`；代码范围为 CronCard、sc
 formatSchedule 返回 rule/next 两部分供不同层级展示；Intl 日期和规则语义不变。窄屏把时间标注与值分行。新增 CSS 限定 im-plan(s) 类名，不覆盖其他设置模块。
 
 新增截图 plans-designed.jpg、plans-designed-details.jpg、plans-designed-empty.jpg、plans-designed-mobile.jpg。使用真实组件与设置容器 CSS，fixture 为 5 条失效历史、1 条每日计划和 1 条单次计划（均为隔离测试数据），在 390px 窄屏核实无溢出。不是生产截图。
+
+## 布局平衡修订（基于 d9c9477c9）
+
+计划主体改为三列 grid：图标、可伸缩任务信息、右侧执行时间；时间区使用轻分隔线和右对齐。容器宽度不超过 560px 时回到两列，时间放到内容列下一行，使用 container query 避免桌面窄侧栏仍挤成三列。仅变更 DOM 位置与 CSS，无数据或操作语义变化。浏览器核实桌面与 390px，证据为 plans-balanced.jpg / plans-balanced-mobile.jpg。
