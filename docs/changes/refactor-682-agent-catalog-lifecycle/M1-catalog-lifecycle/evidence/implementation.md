@@ -32,3 +32,13 @@
 - 原 workspace-tools test 发现冷 preset 的异步 Nano composition 尚未结束即投影目录：临时诊断观察 mount.tools 有 workspace_echo，但 catalog 投影时 installed 为空且早于 mount 完成。ConfigurationScopes 明确持有自身 attach readiness，preview 投影前等待；未依赖私有 DSH exports、睡眠或扩大 deadline。诊断代码已移除。原 workspace-tools 与 capabilities 共 6 tests 通过，`/tmp/refactor-682-native-presets.log`。
 - 配置 apply 的条件轮询预算按新增冷检查上限调整为 8 秒；仍断言忙会话的撤销即时在当前回合结束前生效，没有把等待当前回合结束视为成功。
 - 本地 Python 113 passed / 28 e2e deselected，ruff check/format 通过；`/tmp/refactor-682-pytest.log`、`/tmp/refactor-682-ruff.log`。首轮全量 native 被具体失败中止，不能记为通过；修正后再跑。
+
+### 独立审查修正（待冻结/复验）
+
+- Round 1 head `0812c67ef` 独立审查报告提交 `516c2b6f4`，两项 confirmed P1：startup cleanup_error 误阻断整个 Node；退出 leader 后未回收仍活同组 child。
+- 修复让 Node 记录 inspector 初始化错误后继续启动，inspector 保留 cleanup_error 拒绝新检查；回收对整个拥有的进程组 TERM→宽限→KILL并确认无非zombie成员，之后才删 home/释放名额。startup 若 leader 已死但组仍有活成员且无法确认随机身份，保留并拒绝检查，不能误删。
+- `/tmp/refactor-682-startup-check.py` 使用本轮 daily 实例+独立 sleeper PID 制造 identity mismatch：Node online、settings ready=false/read_failed、cron section source=current、未知进程和目录仍在；停止后删自建残留并重启恢复。结果 `/tmp/refactor-682-startup.json`，日志 `/tmp/refactor-682-startup-recovery.log`。未接触生产或发送模型消息。
+- 新真实 native 子进程回归与 ordinary selected preview 对照已通过（`/tmp/refactor-682-fix-tests.log` 中 inspector/capabilities 两文件；同轮新 PA/workspace断言另有fixture问题，不把整轮记为绿）。PA 比较实际section正文而非渲染后不存在的section名称。workspace完整候选需关闭没有对应所选工具/Skill的Features，不能把原始不完整fixture当有效preview输入。
+- workspace预览补测还复现重复文件watch误触发generation，造成无实际mutation时取消新检查：把generation通知收敛到原生plugin mutation完成，普通挂载/重复watch只刷新实际tool selection；外部文件变化按既定TTL有界。
+- 历史preview迁移隔离副本 `/tmp/refactor-682-migration-check.mjs` 使用锁定DSH真实v4压缩header，选择2项，保留普通Session、真实binding、伪造名、header不符及损坏头共5项；rename后/ledger前中断恢复、二次重跑、移回后的字节hash均通过。结果 `/tmp/refactor-682-migration.json`；自建副本已删除。
+- 首次高并发全量与100刷新/soak同时运行造成多项native deadline/测试失败，已停止本轮并保留日志 `/tmp/refactor-682-full-tests-r2.log`、`/tmp/refactor-682-refresh100.log`、`/tmp/refactor-682-soak-progress.json`；不是有效长时验收。后续本地全量用 `--maxWorkers=2`，性能采样单独运行。

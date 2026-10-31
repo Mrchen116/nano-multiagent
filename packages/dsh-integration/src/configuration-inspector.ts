@@ -218,8 +218,12 @@ export class ConfigurationInspector {
           if (!info.split(/\s+/).includes(`--nano-inspection-id=${lease.id}`)) throw cleanupFailed();
           killGroup(lease.pid, 'SIGTERM');
           await delay(150);
-          if (await processInfo(lease.pid)) {killGroup(lease.pid,'SIGKILL');await delay(150);}
-          if (await processInfo(lease.pid)) throw cleanupFailed();
+          killGroup(lease.pid,'SIGKILL');
+          await waitForGroupExit(lease.pid);
+        } else if (await groupAlive(lease.pid)) {
+          // Without the marked leader we cannot prove a surviving group's identity.
+          // Retain its lease/home and refuse inspections instead of deleting live state.
+          throw cleanupFailed();
         }
         await rm(home,{recursive:true,force:true});
         this.orphanTotal++;
@@ -237,12 +241,28 @@ function killGroup(pid: number, signal: NodeJS.Signals) {
   catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;}
 }
 async function terminateWorker(worker: RuntimeClient): Promise<void> {
-  if (worker.process.exitCode !== null || worker.process.signalCode !== null) {await worker.exited;return;}
   if (!worker.process.pid) {await worker.exited;return;}
   killGroup(worker.process.pid, 'SIGTERM');
-  if (await Promise.race([worker.exited.then(()=>true), delay(150).then(()=>false)])) return;
+  // A plugin can outlive its CLI leader and ignore SIGTERM. Reclaim the whole
+  // group owned by this ChildProcess even when the leader has already exited.
+  await delay(150);
   killGroup(worker.process.pid, 'SIGKILL');
   if (!await Promise.race([worker.exited.then(()=>true), delay(500).then(()=>false)])) throw cleanupFailed();
+  await waitForGroupExit(worker.process.pid);
+}
+async function groupAlive(pid: number): Promise<boolean> {
+  const {stdout} = await execute('ps', ['-eo','pgid=,stat='], {timeout:1000});
+  return stdout.split('\n').some(line => {
+    const [group,state] = line.trim().split(/\s+/);
+    return Number(group) === pid && !!state && !state.startsWith('Z');
+  });
+}
+async function waitForGroupExit(pid: number): Promise<void> {
+  for (let attempt=0;attempt<10;attempt++) {
+    if (!await groupAlive(pid)) return;
+    await delay(50);
+  }
+  throw cleanupFailed();
 }
 async function processInfo(pid: number): Promise<string | undefined> {
   try {

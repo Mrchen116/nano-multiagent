@@ -100,3 +100,20 @@ it('retains an orphan with mismatched process identity and refuses new work',asy
   await expect(inspector.inspect(input)).rejects.toMatchObject({code:'catalog_cleanup_failed'});
   expect(await readdir(root)).toEqual([`inspection-${id}-fixture`]);
 });
+
+it('reclaims a plugin child that ignores SIGTERM even after its worker leader exits',async()=>{
+  const {home,root,inspector,input}=await fixture();
+  const marker=join(home,'child-pid'),plugin=join(home,'child.mjs');
+  const childSource=`import {writeFileSync} from 'node:fs';process.on('SIGTERM',()=>{});writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000);`;
+  await writeFile(plugin,`import {spawn} from 'node:child_process';import {access} from 'node:fs/promises';export const name='child-fixture';export async function apply(){spawn(process.execPath,['--input-type=module','-e',${JSON.stringify(childSource)}],{stdio:'ignore'});while(!await access(${JSON.stringify(marker)}).then(()=>true,()=>false))await new Promise(r=>setTimeout(r,10));}`);
+  const result=await inspector.inspect({...input,profilePatch:[{insert:[{id:'child-fixture',name:plugin}]}]});
+  expect(result).toMatchObject({tools:expect.any(Array)});
+  const pid=Number(await readFile(marker,'utf8'));
+  cleanups.push(async()=>{try{process.kill(pid,'SIGKILL');}catch{}});
+  // A reparented zombie has no live resources and may await init's reaping on CI.
+  const {execFileSync}=await import('node:child_process');
+  const alive=()=>{try{return !execFileSync('ps',['-p',String(pid),'-o','stat='],{encoding:'utf8'}).trim().startsWith('Z');}catch{return false;}};
+  expect(alive()).toBe(false);
+  expect(await readdir(root)).toEqual([]);
+  expect(inspector.metrics().preview_active).toBe(0);
+},15000);

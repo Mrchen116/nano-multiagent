@@ -36,6 +36,11 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     await client.rpc.request('configuration.apply', { ...config, revision: '2', toolAllowlist: ['read', 'skill'], skillSelection: { mode: 'explicit_allowlist', names: ['local-skill'] } });
     expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     expect((await read('a')).skills.map(skill => skill.name)).toEqual(['local-skill']);
+    const selectedPreview = await client.rpc.request('configuration.preview', {config:{...config,revision:'2',toolAllowlist:['read','skill'],skillSelection:{mode:'explicit_allowlist',names:['local-skill']}},cwd:home}) as {tools:string[];skills:{name:string}[]};
+    const selected = await read('a');
+    expect(selectedPreview.tools.sort()).toEqual((selected.prompt as {tools:{name:string}[]}).tools.map(tool=>tool.name).sort());
+    expect(selectedPreview.skills.map(skill=>skill.name)).toEqual(selected.skills.map(skill=>skill.name));
+
     expect((await read('b')).tools).toContain('task_graph');
     await client.rpc.request('session.submit', { sessionId: 'session-a', inputId: 'busy', mode: 'followup', content: [{ type: 'text', text: 'wait' }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'busy' } });
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: 'session-a' }) as { status: string }).status).toBe('running');

@@ -47,7 +47,8 @@ const { providers, env } = providerProfiles(config.llm);
 const modelEnvironment = await readFile(join(home, '.env'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
 Object.assign(env, parseEnv(modelEnvironment));
 const inspector = new ConfigurationInspector({root:join(home,'.configuration-inspections'),env,onLog:text=>process.stderr.write(text)});
-await inspector.initialize();
+// Failed inspection recovery must not prevent durable conversation runtimes from starting.
+await inspector.initialize().catch(error => process.stderr.write(`${String(error)}\n`));
 const machineBoot = process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 for (const agent of config.agents) {

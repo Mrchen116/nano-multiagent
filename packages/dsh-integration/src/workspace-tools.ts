@@ -90,7 +90,7 @@ export class WorkspaceExtensions {
     this.mounts.add(mount); owner.mounts.add(mount);
     ctx.effect(() => () => { tree.root.stop(); this.mounts.delete(mount); owner.mounts.delete(mount); });
     // A broken persisted bundle must not prevent access to the management tool needed to repair it.
-    await this.ctx.hmr.runExclusive(() => owner.refresh(false));
+    await this.ctx.hmr.runExclusive(() => owner.refresh());
   }
   /** Manage an installed bundle through trusted configuration, retaining its scope until settlement.
    *
@@ -148,7 +148,7 @@ class WorkspaceOwner {
     if (profile.skippedBundles.length) throw new Error(profile.skippedBundles.map(item => `${item.packageName}: ${item.reason}`).join('\n'));
     return composeEntries([...profile.layers.map(layer => layer.patches), profile.patches]);
   }
-  async refresh(catalogChanged = true): Promise<void> {
+  async refresh(): Promise<void> {
     let rows: EntryOptions[];
     let next: RuntimeResolution;
     try {
@@ -212,7 +212,7 @@ class WorkspaceOwner {
       const active = new Set([...mount.tree.entries()].filter(entry => !entry.disabled).map(entry => entry.fiber));
       await Promise.all([...retired].filter(fiber => !active.has(fiber)).map(fiber => fiber.inertia));
       mount.tools = mount.ctx.tools.schemas(scopeOf(mount.ctx)).map(tool => tool.name).filter(name => !mount.baseline.has(name));
-      this.changed(mount.config.agentId, catalogChanged);
+      this.changed(mount.config.agentId, false);
     }
     // The removed plugins have drained; their dependency mappings can now leave the native table.
     this.resolver.pluginPackages.replace(next);
@@ -306,6 +306,9 @@ class WorkspaceOwner {
         }
         signal.throwIfAborted();
         if (result.error || result.application === 'cancelled') return result;
+        // Only completed native mutations advance catalog generations. Mounts and
+        // duplicate filesystem watch events still refresh tool selection locally.
+        for (const mount of this.mounts) this.changed(mount.config.agentId, true);
         // Native manager owns no execution tree. Only this scoped activation can report that a tool is actually live.
         if (args.action === 'install_bundle' && result.application === 'restart-required'
           && result.bundle && previousPackages.has(result.bundle)) return result;
