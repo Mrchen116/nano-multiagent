@@ -167,6 +167,9 @@ it('recovers an already accepted config operation and keeps committed settings v
     expect((await app.inject('/im/v1/agents/a/settings')).json()).toMatchObject({ready:false,config:{display_name:'Agent'},pending_operation:{status:'pending'}});
     expect(calls).toHaveLength(count);
     connectFixtureGateway({ctx,db});confirmed=true;
+    const recovering=(await app.inject('/im/v1/agents/a/settings')).json();
+    expect(recovering).toMatchObject({ready:false,pending_operation:{status:'pending'}});
+    await new Promise(resolve=>setImmediate(resolve));
     const recovered=(await app.inject('/im/v1/agents/a/settings')).json();
     expect(recovered).toMatchObject({ready:true,config:{display_name:'Accepted',profile_version:2},pending_operation:null});
     expect(one(db,'SELECT COUNT(*) AS n FROM agent_config_operations')?.n).toBe(1);
@@ -253,5 +256,113 @@ it('resolves approval for the owned node and exact target workspace', async () =
     expect((await app.inject('/im/v1/nodes/n/approval')).statusCode).toBe(422);
     expect((await app.inject('/im/v1/nodes/unknown/approval?workspace_root=%2Fcustom')).statusCode).toBe(404);
     expect(ctx.gateway.request).toHaveBeenCalledTimes(1);
+  } finally {await app.close();}
+});
+
+
+it('shares thirty concurrent settings and capabilities reads and preserves original capture time',async()=>{
+  const {app,ctx}=setup(); let resolve!: (value:any)=>void;
+  const pending=new Promise<any>(r=>{resolve=r;});
+  ctx.gateway.request=vi.fn(()=>pending);
+  try {
+    const requests=Array.from({length:30},(_,i)=>app.inject(`/im/v1/agents/a/${i%2?'settings':'capabilities'}`));
+    await new Promise(r=>setImmediate(r));resolve({capabilities});
+    const results=await Promise.all(requests);expect(results.every(result=>result.statusCode===200)).toBe(true);
+    expect(ctx.gateway.request).toHaveBeenCalledTimes(1);
+    const first=results[1].json();
+    await new Promise(r=>setTimeout(r,5));
+    const repeated=(await app.inject('/im/v1/agents/a/settings')).json();
+    expect(repeated.display.captured_at).toBe(first.display.captured_at);
+    expect(ctx.gateway.request).toHaveBeenCalledTimes(1);
+  } finally {await app.close();}
+});
+
+it('lets configuration saves progress while a catalog read is blocked and rejects its old profile',async()=>{
+  const {app,ctx}=setup(); let release!: (value:any)=>void, entered!:()=>void;
+  const started=new Promise<void>(r=>{entered=r;});
+  ctx.gateway.request=async(_node,action,payload)=>{
+    if(action==='agent.capabilities.resolve'){entered();return new Promise(r=>{release=r;});}
+    if(action==='agent.config.apply')return {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent};
+    return null as never;
+  };
+  try {
+    const reading=app.inject('/im/v1/agents/a/settings').then(result=>result);
+    await started;
+    const saved=await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Saved during read',group_reply_policy:'manual',profile_version:1}});
+    expect(saved.statusCode,saved.body).toBe(200);
+    release({capabilities});
+    expect((await reading).json()).toMatchObject({ready:false,live_capabilities:null,config:{profile_version:2}});
+  } finally {await app.close();}
+});
+
+it('plugin invalidation fences in-flight settings and snapshot writes and allows a fresh request',async()=>{
+  const {app,ctx,db}=setup();let release!:(value:any)=>void,entered!:()=>void;
+  const started=new Promise<void>(r=>{entered=r;}); let calls=0;
+  ctx.gateway.request=async(_node,action)=>{
+    if(action==='node.plugins.request')return {plugins:{entries:[]}};
+    if(++calls===1){entered();return new Promise(r=>{release=r;});}
+    return {capabilities:{...capabilities,models:[{name:'new-model'}]}};
+  };
+  try {
+    const reading=app.inject('/im/v1/agents/a/settings').then(result=>result);
+    await started;
+    expect((await app.inject({method:'POST',url:'/im/v1/agents/a/plugins',payload:{action:'remove_bundle',target:'example'}})).statusCode).toBe(200);
+    expect((await reading).json()).toMatchObject({ready:false,live_capabilities:null});
+    expect(one(db,'SELECT * FROM agent_settings_snapshots')).toBeUndefined();
+    const fresh=(await app.inject('/im/v1/agents/a/settings')).json();
+    expect(fresh).toMatchObject({ready:true,live_capabilities:{models:[{name:'new-model'}]}});
+    release({capabilities});await new Promise(r=>setImmediate(r));
+    expect((await app.inject('/im/v1/agents/a/settings')).json().live_capabilities.models).toEqual(fresh.live_capabilities.models);
+  } finally {await app.close();}
+});
+
+it('returns pending settings promptly and starts one background recovery for concurrent readers',async()=>{
+  const {app,ctx,db}=setup();let release!:(value:any)=>void;
+  ctx.gateway.request=async()=>null as never;
+  try {
+    await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Pending',group_reply_policy:'manual',profile_version:1}});
+    const held=new Promise<any>(r=>{release=r;});
+    ctx.gateway.request=vi.fn(()=>held);
+    const reads=await Promise.all(Array.from({length:10},()=>app.inject('/im/v1/agents/a/settings')));
+    for(const read of reads)expect(read.json()).toMatchObject({ready:false,config:{profile_version:1},pending_operation:{status:'pending'}});
+    expect(ctx.gateway.request).toHaveBeenCalledTimes(1);
+    release(null);await new Promise(r=>setImmediate(r));
+    expect(one(db,'SELECT profile_version FROM agent_profiles')?.profile_version).toBe(1);
+  } finally {await app.close();}
+});
+
+it('shares node reads and invalidates both node and agent slots only for an authenticated changed event',async()=>{
+  const {Gateway}=await import('../src/gateway.js');
+  const {app,ctx,connection}=setup();const gateway=new Gateway(ctx); gateway.nodes.set('n',connection);
+  ctx.gateway.request=vi.fn(async()=>({capabilities}));
+  try {
+    for(let i=0;i<2;i++){
+      expect((await app.inject('/im/v1/nodes/n/capabilities')).statusCode).toBe(200);
+      expect((await app.inject('/im/v1/agents/a/settings')).json().ready).toBe(true);
+    }
+    expect(ctx.gateway.request).toHaveBeenCalledTimes(2);
+    await expect((gateway as any).handleFrame({...connection},'node.capabilities.changed',{node_id:'n'})).rejects.toMatchObject({statusCode:403});
+    await (gateway as any).handleFrame(connection,'node.capabilities.changed',{node_id:'n'});
+    expect((await app.inject('/im/v1/nodes/n/capabilities')).statusCode).toBe(200);
+    expect((await app.inject('/im/v1/agents/a/settings')).json().ready).toBe(true);
+    expect(ctx.gateway.request).toHaveBeenCalledTimes(4);
+  } finally {await app.close();}
+});
+
+it('invalidates catalog at setup start and again when asynchronous login publishes a new revision',async()=>{
+  const {registerOnboardingRoutes}=await import('../src/onboarding.js');
+  const {app,ctx}=setup();registerOnboardingRoutes(app,ctx,'/unused');
+  let revision='old',catalogCalls=0;
+  ctx.gateway.request=async(_node,action)=>{
+    if(action==='node.setup.request')return {revision,operation:{state:'waiting'}};
+    catalogCalls++;return {capabilities};
+  };
+  const settings=()=>app.inject('/im/v1/agents/a/settings');
+  const setupRequest=(action:string)=>app.inject({method:'POST',url:'/im/v1/nodes/n/setup',payload:{action}});
+  try {
+    await setupRequest('status');await settings();expect(catalogCalls).toBe(1);
+    await setupRequest('login');await settings();expect(catalogCalls).toBe(2);
+    await setupRequest('status');await settings();expect(catalogCalls).toBe(2);
+    revision='new';await setupRequest('status');await settings();expect(catalogCalls).toBe(3);
   } finally {await app.close();}
 });

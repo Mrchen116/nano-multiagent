@@ -54,7 +54,7 @@ settings GET / capabilities GET
 
 3. **deadline 覆盖准备、启动、构建和退出，不只覆盖等待。** IM catalog RPC 默认 9 秒；Node 默认 8 秒；worker 构建预算默认 7 秒（参数允许测试覆盖，生产仅专属配置入口限制为正数）。deadline_at 向下传播并取本地上限；不增加现有 10 秒上限。AbortSignal 传给原生创建；worker 超时先尝试取消，再终止其进程组，短暂宽限后 SIGKILL，确认退出后删 home。共享聊天进程不被重启。清理失败单独记录并保留路径，下次 Node 启动处理本功能的孤儿目录。
 
-   **异常父进程死亡接管：** 每个 worker 使用随机 inspection_id，同时放入独立目录名、lease（pid、process group、创建时间）和官方 CLI 透传的专属参数 `--nano-inspection-id=<UUID>`。在发送 initialize 之前写入 lease。Node 单实例锁内的新 inspector 逐项处理本节点专属 root：无活进程可删；仍活且 OS 命令行中的完整随机标识与 lease/目录一致，才接管并终止该进程组，确认退出再删；PID 被复用、身份无法确认或 lease 不完整且可能存活时保留并记录 cleanup_error，不扩大扫描到其他 runtime。本期运行平台为仓库受支持的 macOS/Linux；当前启动的 ChildProcess 直接由 handle 保证身份。worker 自身也在父 stdio EOF 时退出，覆盖正常异步代码；对事件循环卡死仍靠重启后的身份接管。新运行不得把尚未清理的存活旧 worker 当作已释放预算：明确拒绝新构建并报告 cleanup_error，避免反复崩溃绕过并发上限。
+   **异常父进程死亡接管：** 每个 worker 使用随机 inspection_id，同时放入独立目录名、lease（pid、随机 inspection_id；进程组 ID 等于该 detached worker 的 pid）和官方 CLI 透传的专属参数 `--nano-inspection-id=<UUID>`。在发送 initialize 之前写入 lease。Node 单实例锁内的新 inspector 逐项处理本节点专属 root：无活进程可删；仍活且 OS 命令行中的完整随机标识与 lease/目录一致，才接管并终止该进程组，确认退出再删；PID 被复用、身份无法确认或 lease 不完整且可能存活时保留并记录 cleanup_error，不扩大扫描到其他 runtime。本期运行平台为仓库受支持的 macOS/Linux；当前启动的 ChildProcess 直接由 handle 保证身份。worker 自身也在父 stdio EOF 时退出，覆盖正常异步代码；对事件循环卡死仍靠重启后的身份接管。新运行不得把尚未清理的存活旧 worker 当作已释放预算：明确拒绝新构建并报告 cleanup_error，避免反复崩溃绕过并发上限。
 
 4. **single-flight 与资源预算都有明确 owner。** IM key 的刷新 Promise 完成或失败后无条件释放；过期结果通过身份/版本/连接 fence 丢弃。Node inspector 按本地 catalog generation、候选配置、cwd、providers 与方法的稳定指纹合并同时发生的相同检查，不缓存保存校验。多个调用者各持 waiter，取消一个 waiter 不终止其他 waiter；最后一个退出才取消 worker。最多 2 个实际 worker，不维护无界队列；满额返回明确暂时不可用，现有 UI 走失败降级，后续重试可恢复。失败短退避（1 秒），不让 30 个并发失败立刻再次开 30 个进程；成功不设退避。
 

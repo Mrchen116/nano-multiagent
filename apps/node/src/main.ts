@@ -13,12 +13,12 @@ import { NodeUpdater, updatePath } from './node-updater.js';
 import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
 import { ModelSetup, type SetupRequest } from './model-setup.js';
-import { projectCapabilities } from './capabilities.js';
+import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
 import { WorkSync, NodeStore, TaskExecution, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
-import { prepareProfile, RuntimeSupervisor } from '@nano/dsh-integration/client';
+import { prepareProfile, RuntimeSupervisor, ConfigurationInspector } from '@nano/dsh-integration/client';
 
 const configIndex = process.argv.indexOf('--config');
 if (configIndex < 0 || !process.argv[configIndex + 1]) throw new Error('Usage: node apps/node/lib/main.js --config <gateway.yaml>');
@@ -46,6 +46,9 @@ await mkdir(home, { recursive: true });
 const { providers, env } = providerProfiles(config.llm);
 const modelEnvironment = await readFile(join(home, '.env'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
 Object.assign(env, parseEnv(modelEnvironment));
+const inspector = new ConfigurationInspector({root:join(home,'.configuration-inspections'),env,onLog:text=>process.stderr.write(text)});
+// Failed inspection recovery must not prevent durable conversation runtimes from starting.
+await inspector.initialize().catch(error => process.stderr.write(`${String(error)}\n`));
 const machineBoot = process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 for (const agent of config.agents) {
@@ -102,7 +105,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
   execution: (agentId, action, revision) => store.lifecycle.run(agentId, revision, action),
   create: partition => {
     const partitionHome = partition.key === 'ordinary' ? home : join(home, 'pa', Buffer.from(partition.key).toString('base64url'));
-    const supervisor = new RuntimeSupervisor({ home: partitionHome, cwd: partitionHome, env,
+    const supervisor = new RuntimeSupervisor({ home: partitionHome, cwd: partitionHome, env, inspector,
       onLog: text => process.stderr.write(text),
       initialize: async rpc => {
         await writeFile(join(partitionHome, 'runtime.pid'), String(supervisor.process!.pid));
@@ -175,6 +178,8 @@ const relay = new WebRelayConnection({
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: release.version }),
   onFrame: async frame => {
     const payload = frame.payload;
+    if (frame.type === 'node.request.cancel') {await capabilityRequests.handle(frame);return;}
+    if (capabilityRequests.accepts(frame.type)) {await admitted(()=>capabilityRequests.handle(frame));return;}
     if (frame.type === 'agent.lifecycle.apply') { await agentLifecycle.apply(payload as unknown as AgentLifecycleSnapshot); return; }
     await lifecycleSync;
     if (frame.type === 'pa.observations.available') { await globalProduct.recoverPersonalObservations(); return; }
@@ -209,42 +214,6 @@ const relay = new WebRelayConnection({
         inherited_approval_rules: configuration.inheritedApproval(workspace).rules});
       return;
     }
-    if (['agent.capabilities.resolve', 'node.capabilities.resolve', 'agent.prompt.preview.request', 'node.prompt.preview.request'].includes(frame.type)) {
-      const agentId = typeof payload.agent_id === 'string' ? payload.agent_id : undefined;
-      const current = config.agents.find(agent => agent.agent_id === agentId);
-      if (agentId && !current) throw new Error('Capability request has no Agent on this node');
-      const preview = frame.type.endsWith('preview.request');
-      const workspace = current?.workspace_root ?? (typeof payload.workspace_root === 'string' && payload.workspace_root
-        ? payload.workspace_root : configuration.defaultWorkspace(String(payload.agent_id_hint ?? 'preview')));
-      if (!config.llm.default_model && !current) {
-        await relay.request(preview ? frame.type.replace('.request', '') : 'node.capabilities', {
-          request_id: payload.request_id, node_id: config.node.node_id,
-          ...(preview ? { error_code: 'model_not_configured', message: 'Connect a model before creating your assistant' } : {
-            capabilities: { ...projectCapabilities({ tools: [], skills: [] }, config), inherited_approval_rules: configuration.inheritedApproval(workspace).rules, default_workspace_template: configuration.defaultWorkspace('{agent_id}') },
-          }),
-        });
-        return;
-      }
-      const candidate = configuration.runtime({ ...current, agent_id: agentId ?? 'preview', workspace_root: workspace,
-        ...(preview ? { features: payload.features as Record<string, boolean>, custom_prompt: payload.custom_prompt as string,
-          tool_allowlist: payload.tool_ids ?? [], skills: payload.skill_ids ?? [], skills_selection_mode: payload.skills_selection_mode ?? 'explicit_denylist', work_mode: payload.work_mode as 'single_thread' | 'global' } : {}),
-      });
-      // Creation previews have no persisted Agent to initialize their workspace yet.
-      await mkdir(workspace, { recursive: true });
-      if (preview) {
-        const result = await runtime.request('configuration.preview', { config: candidate, cwd: workspace }) as { prompt: string; section_count: number };
-        await relay.request(frame.type.replace('.request', ''), { request_id: payload.request_id, node_id: config.node.node_id,
-          preview: { prompt: result.prompt, section_count: result.section_count } });
-      } else {
-        const catalog = await runtime.request('configuration.catalog', { ...(current ? { agentId } : { config: candidate }), cwd: workspace }) as Parameters<typeof projectCapabilities>[0];
-        await relay.request(current ? 'agent.capabilities' : 'node.capabilities', { request_id: payload.request_id, node_id: config.node.node_id,
-          ...(current ? { agent_id: agentId, workspace_root: workspace } : {}), capabilities: {
-            ...projectCapabilities(catalog, config, current ? candidate : undefined),
-            inherited_approval_rules: configuration.inheritedApproval(workspace).rules,
-            ...(!current ? { default_workspace_template: configuration.defaultWorkspace('{agent_id}') } : {}),
-          } });
-      }
-    }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);
     if (frame.type === 'node.plugins.request') {
       const result = await (async () => {
@@ -252,6 +221,7 @@ const relay = new WebRelayConnection({
         if (!config.agents.some(agent => agent.agent_id === agentId)) throw new Error('Plugin request has no Agent on this node');
         return {plugins: await runtime.request('plugins.manage', {agentId, action: payload.action, target: payload.target, enabled: payload.enabled})};
       })().catch(error => ({error: String(error)}));
+      if (payload.action !== 'list_bundles' && !('error' in result)) publishCatalogChange();
       await relay.request('node.plugins', {request_id: payload.request_id, node_id: config.node.node_id, ...result});
     }
     if (frame.type === 'agent.capability-usage.request') {
@@ -303,6 +273,7 @@ const relay = new WebRelayConnection({
     } finally { admissions--; }
   },
   onState: async state => {
+    if (state !== 'ready') capabilityRequests.cancelAll();
     if(state==='ready') {
       lifecycleSync = agentLifecycle.synchronize(relay.registration?.agent_lifecycles as AgentLifecycleSnapshot[]);
       await lifecycleSync;
@@ -326,6 +297,13 @@ const relay = new WebRelayConnection({
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });
+const capabilityRequests = new CapabilityRequests({configuration,inspector,packageManager:installedPackageManager(release),
+  reply:(type,payload)=>relay.request(type,payload)});
+function publishCatalogChange() {
+  inspector.invalidate();
+  if (relay.ready) void relay.request('node.capabilities.changed',{node_id:config.node.node_id}).catch(reportError);
+}
+configuration.onModelsChanged = publishCatalogChange;
 trajectory = new NodeTrajectory({ imUrl: config.im_service.url, runtime, valid: scope => {
   const binding = store.bindings().find(binding => binding.sessionId === scope.rootSessionId);
   return relay.ready && scope.nodeId === config.node.node_id && scope.ownerId === config.node.user_id
@@ -434,13 +412,13 @@ heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, li
   binding: agent => agent.mode === 'global' ? globalProduct.heartbeatBinding(agent) : product.heartbeatBinding(agent),
   available: agentId => !updateHolding && runtime.availableFor(agentId) && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
 });
-runtime.onNotification((method, value) => { if (method === 'heartbeat.subscription') { const data = value as { agentId: string; enabled: boolean }; heartbeat.subscription(data.agentId, data.enabled); } });
+runtime.onNotification((method, value) => { if (method === 'configuration.catalog.changed' || method === 'knowledge.changed') publishCatalogChange(); if (method === 'heartbeat.subscription') { const data = value as { agentId: string; enabled: boolean }; heartbeat.subscription(data.agentId, data.enabled); } });
 const updater = new NodeUpdater(configuration, {
   onError: reportError,
   prepare: async operationId => {
     if (updateHolding && updateHolding !== operationId) return false;
     updateHolding = operationId;
-    const busy = () => admissions > 0 || modelSetup.busy || product.busy || globalProduct.busy || heartbeat.busy || operations.busy || knowledge.busy || workflows.busy;
+    const busy = () => admissions > 0 || inspector.metrics().preview_active > 0 || modelSetup.busy || product.busy || globalProduct.busy || heartbeat.busy || operations.busy || knowledge.busy || workflows.busy;
     if (!runtime.available || busy()) return false;
     const result = await runtime.request('update.prepare', {operationId}) as {ready: boolean};
     return result.ready && !busy();
@@ -504,7 +482,7 @@ async function stop() {
   stopping = true;
   clearInterval(taskWatch);
   trajectory.closeAll();
-  try { await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { capabilityRequests.cancelAll(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }
