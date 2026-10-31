@@ -9,6 +9,9 @@ export interface KnowledgeConfiguration {
   skillInterval?: number;
 }
 
+/** Default automatic maintenance timing, shared by the runtime and explicit run plans. */
+export const DEFAULT_DREAMING_SCHEDULE = { intervalMs: 86400000, quietMs: 600000 } as const;
+
 /** Normalize retired configuration keys at the file boundary, without granting tools.
  * Args:
  *   value: Agent-local knowledge settings, including old memoryInterval if present.

@@ -1,0 +1,35 @@
+{
+  "dataset": {
+    "path": "synthetic.json",
+    "revision": "synthetic-example-v1-not-a-benchmark",
+    "sha256": "0ad32eda4559e6b24e4766906b85f29521f35569e5c05babf852b89ee98b41b1"
+  },
+  "candidate": {
+    "baseURL": "http://127.0.0.1:9/v1",
+    "apiKeyEnv": "MEMORY_EVAL_API_KEY",
+    "model": "configure-before-real-run",
+    "dreaming": {}
+  },
+  "judge": {
+    "baseURL": "http://127.0.0.1:9/v1",
+    "apiKeyEnv": "MEMORY_EVAL_JUDGE_KEY",
+    "model": "configure-before-real-run"
+  },
+  "limits": {
+    "prepare": {
+      "timeoutMs": 60000,
+      "maxModelCalls": 40,
+      "maxOutputTokens": 2048
+    },
+    "answer": {
+      "timeoutMs": 60000,
+      "maxModelCalls": 40,
+      "maxOutputTokens": 2048
+    },
+    "score": {
+      "timeoutMs": 30000,
+      "maxModelCalls": 1,
+      "maxOutputTokens": 10
+    }
+  }
+}

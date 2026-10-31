@@ -20,5 +20,11 @@
   "devDependencies": {
     "@nano/channels": "workspace:*",
     "@types/ws": "8.18.1"
+  },
+  "exports": {
+    "./evaluation": {
+      "types": "./lib/evaluation.d.ts",
+      "import": "./lib/evaluation.js"
+    }
   }
 }
