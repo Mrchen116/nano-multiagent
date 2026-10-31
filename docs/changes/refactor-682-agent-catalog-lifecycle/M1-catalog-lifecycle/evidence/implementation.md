@@ -42,3 +42,22 @@
 - workspace预览补测还复现重复文件watch误触发generation，造成无实际mutation时取消新检查：把generation通知收敛到原生plugin mutation完成，普通挂载/重复watch只刷新实际tool selection；外部文件变化按既定TTL有界。
 - 历史preview迁移隔离副本 `/tmp/refactor-682-migration-check.mjs` 使用锁定DSH真实v4压缩header，选择2项，保留普通Session、真实binding、伪造名、header不符及损坏头共5项；rename后/ledger前中断恢复、二次重跑、移回后的字节hash均通过。结果 `/tmp/refactor-682-migration.json`；自建副本已删除。
 - 首次高并发全量与100刷新/soak同时运行造成多项native deadline/测试失败，已停止本轮并保留日志 `/tmp/refactor-682-full-tests-r2.log`、`/tmp/refactor-682-refresh100.log`、`/tmp/refactor-682-soak-progress.json`；不是有效长时验收。后续本地全量用 `--maxWorkers=2`，性能采样单独运行。
+
+### 补充证据与 final sync
+
+- 修复冻结提交 `372654f60`，合入 `origin/main@01c8e0b80` 后为 `bf0cdfdc32df872c9c40a0461c8284652d142d2f`。main 增量只涉及 bugfix-681 当前计划前端与对应文档，不改本 unit 后端；后端既有窄测试保留，前端全量另跑新树。待 reviewer 对最终树记录 retained 范围。
+- workspace 完整 preview/真实 assembly 对照主旅程最终 1 file / 1 test 通过，`/tmp/refactor-682-fidelity-r3.log`；PA/Global 补测位于 `personal-security.test.ts`，上一轮两文件中的该文件已通过，最终全量仍核对。
+- 两层 generation 交错 `/tmp/refactor-682-race.mjs`、结果 `/tmp/refactor-682-race.json`：真实 RuntimeClient reverse prepare 被只在 inspection 生效的同步插件阻塞；真实 IM CatalogReads waiter 加入同一个 worker（active=1）；原生 `plugins.manage set_bundle` 产生 change 通知后推进 inspector/IM 两层代次；旧 prepare 与旧读取均拒绝，新 worker ID 不同且目录不含刚禁用的工具，snapshot current fence 只接受新结果，最终 active=0、目录为空。日志 `/tmp/refactor-682-race.log`。这是实际跨组件/原生进程证据，通知 consumer 复用 Node 接线语义；HTTP、鉴权与 relay 不在该探针内，仍由各自现有测试和独立真栈验收覆盖。没有调用真实模型。
+- 已清理上一轮中断后遗留的两个本任务 native test 进程（cwd 为临时 nano-knowledge-profile 与 nano-workspace-tools，PPID=1、worktree 与进程组均核实）；未操作其他 checkout 的进程。
+
+- 最终后端全量（同一后端源码，运行时 final sync 只改前端/docs）`pnpm exec vitest run --maxWorkers=2`：153 files，838 passed / 2 failed，374.86s，`/tmp/refactor-682-full-tests-r3.log`。失败为既有 agent-disable-native 的 PTY cleanup 与 task-execution-limits 的45秒等待；没有据此宣称一次全绿。前者单独重现通过；两文件在无其他测试负载下用 `--maxWorkers=1` 定向复验 8/8 passed、71.13s，`/tmp/refactor-682-full-failure-recheck.log`。未修改这两个测试或对应产品代码，未把负载推断写成确认根因。
+- final-sync 前端全量 `npm run test -- --maxWorkers=2`：109 files / 1037 tests passed，127.09s，`/tmp/refactor-682-frontend-r2.log`。
+- `bf0cdfdc3` 最终 `pnpm build`、`pnpm typecheck` 通过，`/tmp/refactor-682-final-build.log`、`/tmp/refactor-682-final-typecheck.log`。构建出的 installer 只是本地 candidate，未发布。Node 已用相同隔离配置 stop/start 加载该构建（`/tmp/refactor-682-final-node-restart.log`），IM 源码相对原验收构建未变，服务保留同一隔离DB/端口/fixture，交给产品 reviewer 独占窗口。
+
+
+### 最终资源与产品证据
+
+- 100 次实际重建全部成功，p95 1320ms / max1699ms，每次 root 空、最终 active=0；30 分钟（1800.065s）真实 HTTP soak 共1001次全成功，6冷读/995缓存，p95分别2324.085ms/12.951ms。32次资源采样 Node/IM FD始终39/20，inspection与持久preview均0；RSS首末均下降。详见 [performance.md](performance.md)，原始结果与一次性脚本另存 `/Users/czj/.codex/reports/refactor-682-20261031/`。
+- 独立产品 reviewer 最终 pass，报告提交 `69cffbb9c`；故障降级/恢复、独立分区、离线重连、认证撤销、保存/冲突以及32并发读取均通过。没有用 native fixture 冒充模型自由行为。
+- 文档完整性340 maintained sources/68 routes通过（显式使用本机开发venv执行 `scripts/docs_check.py`，默认系统Python缺yaml的启动失败不是文档问题）；critical audit gate退出0。归并/归档后再核对路径门禁。最近 fetch 确认 main 仍 `01c8e0b80`，没有新待集成提交。
+- 静态复验与 corrected-delta 已无新 finding，等待 reviewer 核对本节最终数据后落最终报告；随后 canonical 归并、整体 archive、Ready PR及远端CI。未部署/发布。
