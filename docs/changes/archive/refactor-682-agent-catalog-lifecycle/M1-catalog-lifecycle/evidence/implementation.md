@@ -61,3 +61,13 @@
 - 独立产品 reviewer 最终 pass，报告提交 `69cffbb9c`；故障降级/恢复、独立分区、离线重连、认证撤销、保存/冲突以及32并发读取均通过。没有用 native fixture 冒充模型自由行为。
 - 文档完整性340 maintained sources/68 routes通过（显式使用本机开发venv执行 `scripts/docs_check.py`，默认系统Python缺yaml的启动失败不是文档问题）；critical audit gate退出0。归并/归档后再核对路径门禁。最近 fetch 确认 main 仍 `01c8e0b80`，没有新待集成提交。
 - 静态复验与 corrected-delta 已无新 finding，等待 reviewer 核对本节最终数据后落最终报告；随后 canonical 归并、整体 archive、Ready PR及远端CI。未部署/发布。
+
+
+### 交付收口
+
+- 独立最终静态报告提交 `6bd81b9ab`：code review无finding、F1/F2 closed；verification PASS（0 critical/warning/suggestion）；corrected-delta aligned。产品验收与上述最终实现、补充证据共同有效；main仍为01c8e0b80。
+- 按已核对delta归并 IM/Gateway canonical specs，并在SPEC说明临时官方DSH检查进程职责；不改批准的契约或实现，保留bugfix-681当前计划更新。完整unit移入archive，所有历史Round与失败证据保留。归并/归档是文档和路径变化，保留最终独立门禁，不重跑实现审查。
+- 本任务 `./scripts/e2e-down.sh` 已成功执行，工作树路径下无剩余进程，隔离IM端口60392无listener；日志 `/tmp/refactor-682-final-down.log`。开发worktree保留供未合入PR审查。生产服务、生产历史preview和原主仓诊断patch未操作。
+- Ready PR之后仍须等待远端CI；本记录不预先宣称远端通过。最终PR head上的门禁有效性与CI结果由交付说明记录。
+
+- 交付分支更名为 `codex/refactor-682-agent-catalog-lifecycle`，以进入现有CI的unit归档检查；此前审查记录中的分支名保留为实际执行历史。实际分支归档检查已确认 refactor-682 唯一位于 archive。
