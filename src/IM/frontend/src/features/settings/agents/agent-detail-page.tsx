@@ -1,3 +1,4 @@
+import { formatSchedule } from "./schedule-display";
 import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import { useAuthStore } from '../../auth/auth-store';
 import "./agent-settings.css";
@@ -633,14 +634,18 @@ interface CronCardProps {
   readOnly: boolean;
   operationReadOnly: boolean;
   agentId: string;
-  draft: AgentConfigFormState;
+  draft: Pick<AgentConfigFormState, "features">;
   onToggle: (enabled: boolean) => void;
   // feat-394 M9 R6: when cron enable is managed by the Features checkbox list, hide inline toggle.
   hideEnableToggle?: boolean;
 }
 
-function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
-  const { t } = useTranslation();
+function ScheduleIcon() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="4" /><path d="M7 3v4M17 3v4M3 11h18M8 15h3M8 18h6" /></svg>;
+}
+
+export function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
+  const { t, i18n } = useTranslation();
   // feat-394 M9-E: enable is the single-true-source in features["cron_scheduling"]; no draft.cron object.
   const enabled = draft.features?.cron_scheduling ?? false;
   const queryClient = useQueryClient();
@@ -665,12 +670,15 @@ function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideE
     },
   });
 
-  const jobs = jobsQuery.data?.data ?? [];
+  const jobs = (jobsQuery.data?.data ?? []).filter(job => job.enabled);
 
   return (
-    <section className="im-agent-card">
-      <div>
-        <h3 className="im-agent-card-title">{t("agents.form.cron.title")}</h3>
+    <section className="im-agent-card im-plans-section">
+      <div className="im-plans-heading">
+        <div>
+          <h3 className="im-agent-card-title">{t("agents.form.cron.title")}{jobs.length > 0 && <span className="im-plans-count">{jobs.length}</span>}</h3>
+          <p className="im-plans-subtitle">{t("agents.form.cron.subtitle")}</p>
+        </div>
       </div>
       {/* feat-394 M9 R6: enable toggle shown only when not managed by Features list */}
       {!hideEnableToggle && (
@@ -705,35 +713,45 @@ function CronCard({ readOnly, operationReadOnly, agentId, draft, onToggle, hideE
             <p className="text-[12px] text-red-500">{t("agents.form.cron.loadError")}</p>
           )}
           {!jobsQuery.isError && jobsQuery.data?.data !== null && jobsQuery.data !== undefined && jobs.length === 0 && (
-            <p className="text-[12px] text-slate-400 italic">{t("agents.form.cron.noJobs")}</p>
+            <div className="im-plans-empty">
+              <span className="im-plan-icon"><ScheduleIcon /></span>
+              <p className="im-plans-empty-title">{t("agents.form.cron.noJobs")}</p>
+              <p>{t("agents.form.cron.emptyHelp")}</p>
+            </div>
           )}
           {jobs.length > 0 && (
-            <ul className="space-y-2" role="list" aria-label={t("agents.form.cron.jobsListLabel")}>
-              {jobs.map((job: CronJobSummary) => (
-                <li
-                  key={job.id}
-                  className="flex items-start justify-between gap-2 p-2 bg-slate-50 rounded border border-slate-200"
-                  data-testid={`cron-job-${job.id}`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium text-slate-800 truncate">{job.name}</p>
-                    <p className="text-[11px] text-slate-500 truncate">{job.instruction}</p>
-                    <p className="text-[10px] text-slate-400 font-mono truncate">
-                      {JSON.stringify(job.schedule)}
-                    </p>
+            <ul className="im-plans-list" role="list" aria-label={t("agents.form.cron.jobsListLabel")}>
+              {jobs.map((job: CronJobSummary) => {
+                const timing = formatSchedule(job.schedule, i18n.language, t);
+                const recurring = !["at", "after"].includes(String(job.schedule.kind));
+                return <li key={job.id} className="im-plan" data-testid={`cron-job-${job.id}`}>
+                  <div className="im-plan-main">
+                    <span className="im-plan-icon"><ScheduleIcon /></span>
+                    <div className="im-plan-content">
+                      <div className="im-plan-title-row">
+                        <h4>{job.name}</h4>
+                        <span className="im-plan-kind">{t(`agents.form.cron.${recurring ? "recurring" : "once"}`)}</span>
+                      </div>
+                      {recurring && <p className="im-plan-rule">{timing.rule}</p>}
+                    </div>
+                      <p className="im-plan-next"><span>{t("agents.form.cron.nextLabel")}</span><time dateTime={String(job.schedule.scheduledAt)}>{timing.next}</time></p>
                   </div>
-                  <button
-                    type="button"
-                    data-testid={`cron-job-delete-${job.id}`}
-                    className="shrink-0 text-[12px] text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors"
-                    onClick={() => deleteMutation.mutate(job.id)}
-                    disabled={operationReadOnly || jobsQuery.isFetching || jobsQuery.data?.source !== "current" || deleteMutation.isPending || deleteMutation.isError}
-                    aria-label={`${t("agents.form.cron.deleteJob")} ${job.name}`}
-                  >
-                    {t("agents.form.cron.deleteJob")}
-                  </button>
-                </li>
-              ))}
+                  <details className="im-plan-details">
+                    <summary>{t("agents.form.cron.details")}<span className="im-plan-chevron" aria-hidden="true">⌄</span></summary>
+                    <div className="im-plan-detail-body">
+                      <p className="im-plan-detail-label">{t("agents.form.cron.instructionLabel")}</p>
+                      <p className="im-plan-instruction">{job.instruction}</p>
+                      {job.schedule.kind === "cron" && <p className="im-plan-rule">{t("agents.form.cron.rule")}: {String(job.schedule.expression)} · {String(job.schedule.timeZone)}</p>}
+                      <button type="button" data-testid={`cron-job-delete-${job.id}`} className="im-plan-cancel"
+                        onClick={() => deleteMutation.mutate(job.id)}
+                        disabled={operationReadOnly || jobsQuery.isFetching || jobsQuery.data?.source !== "current" || deleteMutation.isPending || deleteMutation.isError}
+                        aria-label={`${t("agents.form.cron.deleteJob")} ${job.name}`}>
+                        {t("agents.form.cron.deleteJob")}
+                      </button>
+                    </div>
+                  </details>
+                </li>;
+              })}
             </ul>
           )}
         </div>

@@ -617,14 +617,27 @@
         }
       },
       "cron": {
-        "title": "Cron Jobs",
+        "title": "Current plans",
         "sub": "Scheduled tasks that return to their original conversation and retain its context.",
         "enabledLabel": "Enable cron",
         "enabledHelp": "Agent can register and manage scheduled tasks (add/list/remove via conversation).",
         "loadError": "Could not load scheduled tasks.",
-        "noJobs": "No scheduled tasks",
-        "jobsListLabel": "Scheduled tasks",
-        "deleteJob": "Delete"
+        "noJobs": "No scheduled tasks pending",
+        "jobsListLabel": "Current plans",
+        "deleteJob": "Cancel plan",
+        "details": "View details",
+        "rule": "Schedule rule",
+        "once": "Once",
+        "every": "Every {{interval}}",
+        "daily": "Daily at {{time}} ({{zone}})",
+        "weekly": "Weekly on {{days}} at {{time}} ({{zone}})",
+        "custom": "Custom recurrence",
+        "unknownTime": "Unknown time",
+        "subtitle": "Let your agent take care of what comes next.",
+        "emptyHelp": "Tell your agent what to do and when to arrange a reminder.",
+        "recurring": "Repeating",
+        "nextLabel": "Next run",
+        "instructionLabel": "Instructions"
       },
       "workspace": {
         "title": "Workspace & Runtime",
