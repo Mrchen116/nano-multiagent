@@ -226,3 +226,51 @@ Global首轮System约17,982字符（含结构计数），4条可见消息，23�
 ### 生命周期与文档
 
 reviewer未启动或关闭服务。按用户查看要求保留新51966预览和旧64012预览；由caller集中生命周期。无客户端布局变更、不扩大iOS。报告由caller集中提交，current spec归并及分支交付不是验收通过的同义词。
+
+## Round consumer-1（2026-10-31，消费者接口与当前记忆读取）
+
+**PENDING / 1 major 待关闭**；validated_at: `0718cbd3b`；基线 Memory `2724ea8d1`。本轮自然行为、初始上下文、状态与即时更正已通过；加载后的 nano-memory Skill 尚有旧机制术语，须按下述发现修正并定向复验，不能提前宣布整体 PASS。前轮无关 Task、Schedule、换窗等验收 retained。
+
+### 环境、完整输入和实际默认工具
+
+固定 daily `/tmp/nano-refactor679-consumer/.e2e-daily.json`，IM `http://127.0.0.1:58220`，node `wt-nano-refactor679-consumer-4938`。Global P `daily-product` 使用 `codexOAuth:gpt-6.1-sol/high`，PA `pa_0adea1e232c4` 使用 `codexOAuth:gpt-6-astra/medium`，正常 Codex 审核。群聊 `c_cq6xp802` 与主人私聊 `c_581378ff3edc`。旧51966、64012未动。
+
+独立读完完整初始 System、runtime snapshot、Skill目录以及全部工具description/schema；两角色37个完全相同工具逐项去重阅读，PA另有personal_sources/send_user_message两项。实际模型tools为Global37、PA39；glob、grep、job_output、job_kill、job_list均在真实request/header中，非仅配置声明。Global实际调用glob/grep/read均成功。未为了证明工具存在而制造无关后台工作。
+
+初始模型content中无inbox_result、observation=live/restored、send_message_result、send_user_message_result、Gateway身份映射指导、fs-observation-policy、Source generation、entry_basis_stale。来源规则用实际sender/target/channel/reply字段，sent/held/unknown区别与PA participant/observer边界仍清楚。两角色首轮均注入完整当前MEMORY.md、绝对目录/文件路径及一页关键记忆包装；PA首次同步不再隐藏模板正文。DSH原生开场/runtime snapshot与窗口ID保留。read/glob/grep指导保持。**这些初始结论不代表后续加载Skill没有遗留文案。**
+
+用户接受“刻意限制工具而保留DSH jobs指导”的例外，本轮不测试或声称任意白名单配置都一致。审批器独立协议和未触发的旧场景只引用既有机制证据，不冒称此次普通问答重新验证。
+
+### 有界自然旅程与结果
+
+| 场景 | 实际结果 | 判定 |
+|---|---|---|
+| Global文件查询/记忆读取/建议交付 | 11:07:46Z请求`9f7e5fd1fa144416a3772c0b12f542ae`；session `97e406fe-2a9c-4e35-809f-1a67f81e02e8`。inbox check/read、conversations info、读三份项目资料、加载nano-memory、读正式MEMORY、grep关键词及glob目录；seq52返回sent，消息`675f825e28c448b49df9f75b1e4d9c6a`。两条建议分别为误点恢复与离开后接续，带文件/行号、前置操作预期，明确仅建议未实测、不擅自扩大跨设备要求。 | PASS |
+| PA首次读取、明确保存与真实status | 11:07:46Z请求`9cb75e01983c4a519f5bbceed71a6003`；session `54f70a6a-b492-4cff-a8a8-fad495f1aecb`。读模板/列文件后按原request_ref运行Dreaming，run `afe122ca-b099-46d5-a872-292375633b5b` completed。seq53 status显示MEMORY.md和workstreams/todo-memory-test.md均saved/versionRecorded true，commit分别`e6a2fb268740e2456622ec4942b8a1dc17416c2d`、`39174e3c0e27508a7d4c8fe8fee3f2c8c6d96156`；主Agent读回两页后seq69 sent，交付`ba92862b2fa24b9d9c824abe9a91fd2a`。 | PASS |
+| 状态不泄漏后台私有数据 | 实际seq53完整结果仅mode/sourcesPending/exclusions/receipts与maintenance.active/backlog/reviews；无protocol/streams/seen/rotation/integrated/cursor。backlog注明frozen_sources，global pending false/units0，children/blocked空；模型公开解释为已纳入检查来源范围内的本批0增量，不声称所有未来材料已整理。 | PASS |
+| 保存后下一请求直接使用新正文 | seq50 runtime已带新完整MEMORY.md及两页变化提示；seq56仍带当前正文，不出现来源代数或失效原因。随后读回正文核实偏好仅限测试，不把行动边界泛化为永久偏好。 | PASS |
+| 本轮即时更正与停止采用 | 请求`23ebfe2b48214846b443d24c23bb8793`明确本轮停用二分法、改按截止时间，不立即整理。PA读回详页，seq96 exclude按原请求登记路径，seq100新runtime保留当前正文并明确停止采用约束；没有run/write/edit/bash。seq103 sent交付`0f6d55911dc74213ab30cf312cac6b6f`：今晚食材→明早报告→下周还书，准确说明已登记但未整理、未修改正式文件。seq108 completed。 | PASS |
+
+两角色均未创建Task/Schedule、未对外代发或联系其他人。PA仅消费主人participant私聊，群observer未变成受托工作。后台记忆保存了证据截止点的“尚未见保存回执”历史记录，PA清楚区分这段旧记录与后来真实保存回执，没有把旧过程记录当当前失败，也没有篡改历史以伪装当时已知。
+
+客户端同一HTTP API发起消息；Chrome输入可填充但click/Enter未提交，读取聊天确认无同文后使用API，未重复发送。真实浏览器看到Global完整建议、PA保存状态和更正答复；1230×816画面可辨认主体、分项结论、来源与本轮边界，没有表格溢出或不可读内容。截图`global-reply.png`、`pa-correction.png`。
+
+### 发现 C1：加载后的 nano-memory 仍带旧接口术语（major，待关闭）
+
+root独立完整审读实际PA seq27的Skill结果指出，reviewer确认：首句要求使用memoryRoot及PA/specialist profile，而当前消费者实际收到Memory directory/Role；“前台不提供checkpoint，也不能给待核对页重新背书”仍描述旧失效链路；“旧逐step数量”无当前操作用途。初始System/目录通过不能覆盖此完整动态加载面。未观察到实际错误调用或错误保存，但违反本轮明确的消费者接口清理要求，因此阻塞本轮通过。修复仅需同步Skill文字，随后有界重新加载、检查完整Skill结果及行为；不需重做已通过的记忆保存旅程。
+
+### 证据与边界
+
+本地`output/refactor-679-consumer/`保存：`{global,pa}-initial-full.json`、`*-initial-messages.txt`、`*-initial-tools.json`、`shared-tools.json`、`different-tools.json`、`sha256.json`；原生完整`{global,pa}-native.jsonl`及去除source/meta副本`*-complete-visible-surface.json`；`pa-after-status-full.json`（seq0–57）、`pa-through-correction-full.json`（seq0–108）；状态/运行时文本`pa-status.txt`、`pa-updated-memory.txt`、`pa-after-status-runtime.txt`、`pa-exclude-result.txt`、`pa-stop-use-runtime.txt`；请求与两张截图。完整文件保留所有实际内容，不以关键词搜索代替审读。
+
+这些是原生持久请求header/context与System/user/tool/assistant surface及实际模型行为，不是上游代理最终HTTP wire抓包；header仅在变化时持久化，后续请求继承该37/39工具集合。没有降级stub、额外评测或生产操作。reviewer未启停任何服务；三个隔离预览由caller统一管理。
+
+### Round consumer-2：C1 定向关闭与最终裁决
+
+**PASS**；validated_at: `5fcb9b18a288e5b1c8007c27ce41448d50637c7e`。0 blocking、0 major、0 minor；highest_required_action: none。consumer-1的行为及工具/初始输入结论保留；唯一C1现已关闭。
+
+caller同步当前Skill并managed重启本轮Node，保留IM、session及记忆。reviewer只发一次有界重载请求`98818fdf9ad64f39bcc4ed338e9d0b01`（11:13:34Z），要求重新加载nano-memory并查询当前更正/保存状态，明确禁止启动整理或改文件。PA同一session在seq127重新调用skill，seq128返回当前完整正文。独立全文检查：首句明确“当前上下文标注的记忆目录和个人助手／独立专家角色”；旧memoryRoot/profile、checkpoint背书和逐step说法已删除；后台暂存副本职责、来源边界、真实保存/版本回执、下一有界批次数量解释仍完整。没有引入不存在工具或新的持久写入入口。
+
+seq132实际调用status，seq133显示旧两页保存回执仍在、停止采用请求仍在；maintenance.active=false，backlog.pending、下一批units=8、无blocked。没有protocol/streams/seen/rotation/integrated/cursor。PA据此明确区分：本轮更正即时生效、旧回执不代表更正已经保存、下一批8个单元不代表全部积压。没有run/write/edit/bash/Task/Schedule调用。seq138公开sent，消息`2e7be5234a9740a0830bc759d0f003e1`；seq143 completed。浏览器实际确认完整答复可见。
+
+新证据：`output/refactor-679-consumer/pa-reloaded-skill.txt`（seq128完整返回）、`pa-skill-reload-full.json`（完整seq0–143，含继承的header/tools及后续请求/结果）、`skill-reload-request.json`、`pa-skill-reload.png`。旧seq27的Skill原文仍自然保留在历史中，未删除或改写；C1关闭依据是本次新加载全文及随后实际状态行为，不宣称旧历史文本被追溯消除。此定向复验完成后停止新消息和模型调用。报告由caller统一提交；reviewer未启停服务。

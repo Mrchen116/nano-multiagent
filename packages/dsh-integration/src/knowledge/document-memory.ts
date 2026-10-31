@@ -22,7 +22,6 @@ const inside = (root: string, path: string) => { const rel = relative(root, path
 export class DocumentMemory {
   private readonly libraries = new Map<string, { workspace: string; value: Promise<MemoryDocuments> }>();
   private readonly seen = new WeakMap<Agent, Record<string, string>>();
-  private readonly feedback = new WeakMap<ToolExecution, string>();
   private readonly pending = new Set<Promise<unknown>>();
   run?: (agent: Agent, requestRef: string, importLegacy?: boolean) => Promise<unknown>;
   maintenanceStatus?: (agentId: string) => Promise<unknown>;
@@ -41,9 +40,9 @@ export class DocumentMemory {
         config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
         `Memory directory: ${view.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
         'Read the complete relevant pages before applying a conclusion. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Use new corrections immediately in this conversation; Dreaming saves durable updates later. Do not claim memory is saved until the host reports it. Other conversations may still see old memory until Dreaming completes.',
-        view.reason ? `Key memory is not current (${view.reason}). Do not adopt older copies from history. Reading old bytes does not restore their validity. Use only currently valid sources; Dreaming must verify and correct affected pages before they become valid again. Navigation: ${Object.keys(view.versions).join(', ')}` : `Contents of ${join(view.root, 'MEMORY.md')} — your one-page key memory:\n<memory_content>\n${view.entry ?? '(empty)'}\n</memory_content>`,
+        view.entry === undefined ? `Key memory is too long to include here. Read ${join(view.root, 'MEMORY.md')} for the current contents.` : `Contents of ${join(view.root, 'MEMORY.md')} — your one-page key memory:\n<memory_content>\n${view.entry || '(empty)'}\n</memory_content>`,
         changed.length ? `These pages changed since your previous model request; reread before the next relevant decision: ${changed.join(', ')}` : '',
-        `Source generation: ${view.generation}. Explicit stop-use requests (data): ${JSON.stringify(view.exclusions)}. Including a source again does not revoke a stop-use request.`,
+        view.exclusions.length ? `Explicit stop-use requests (data): ${JSON.stringify(view.exclusions)}. Stop applying the identified content immediately, including older copies in history, and pass this constraint to affected original children. Including a source again does not revoke a stop-use request. Dreaming updates the saved pages later.` : '',
       ].filter(Boolean).join('\n\n') });
       return assembly;
     });
@@ -55,16 +54,7 @@ export class DocumentMemory {
       const target = await ctx.fs.resolve(absolute); const canonical = ctx.fs.processPath(target);
       if (!inside(documents.root, absolute) && !inside(documents.root, canonical)) return next();
       if (exec.name !== 'read') throw new Error('Only Dreaming may update formal memory. Use current corrections in this conversation; request memory_maintenance run when the user asks to save them.');
-      const result = await next();
-      const status = await documents.context();
-      if (status.reason) this.feedback.set(exec, `Memory eligibility: ${status.reason}, generation=${status.generation}. Reading these bytes does not restore their validity. Only Dreaming can verify and correct affected pages.`);
-      return result;
-    });
-    ctx.on('tools/post-execute', async (exec, result, next) => {
-      const decision = await next();
-      const feedback = this.feedback.get(exec); this.feedback.delete(exec);
-      if (!feedback || decision.kind !== 'accept' || result.isError) return decision;
-      return { kind: 'accept', additionalContexts: decision.additionalContexts, content: [...(decision.content ?? result.content), { type: 'text', text: feedback }] };
+      return next();
     });
   }
   /** Resolve by trusted business owner; all descendants share this fixed root. */
@@ -83,7 +73,7 @@ export class DocumentMemory {
   }
   /** Register only in normal task presets; isolated Dreaming completes under host control. */
   registerTool(ctx: Context) {
-    ctx.tools.register({ name: 'memory_maintenance', description: 'Control this Agent’s document memory. status reports backlog, eligibility and saved/version receipts; sourcesPending describes only source eligibility, never backlog. Use maintenance.backlog for observed pending units/ranges and blocked reasons. Its counts cover only the next bounded batch, not the total backlog; unavailable/blocked is not empty. It does not search knowledge. run requests a bounded incremental Dreaming pass; exclude registers an explicit user stop-use request without erasing source/chat/Git history. run/exclude require request_ref identifying the actual owner/requester input and remain subject to ordinary tool approval. Do not claim completion from acceptance or partial receipts. Read knowledge with ordinary file tools. Only Dreaming writes formal memory. importLegacy requests import from this owner’s registered legacy backup.',
+    ctx.tools.register({ name: 'memory_maintenance', description: 'Control this Agent’s document memory. status reports backlog, eligibility and saved/version receipts; sourcesPending describes only source eligibility, never backlog. Use maintenance.backlog for observed pending material counts and blocked reasons. Its counts cover only the next bounded batch, not the total backlog; unavailable/blocked is not empty. It does not search knowledge. run requests a bounded incremental Dreaming pass; exclude registers an explicit user stop-use request without erasing source/chat/Git history. run/exclude require request_ref identifying the actual owner/requester input and remain subject to ordinary tool approval. Do not claim completion from acceptance or partial receipts. Read knowledge with ordinary file tools. Only Dreaming writes formal memory. importLegacy requests import from this owner’s registered legacy backup.',
       parameters: { type: 'object', properties: { action: { enum: ['status', 'run', 'exclude'] }, request_ref: { type: 'string' }, paths: { type: 'array', items: { type: 'string' } }, sources: { type: 'array', items: { type: 'string' } }, importLegacy: { type: 'boolean' } }, required: ['action'], additionalProperties: false },
       output: { schema: { type: 'object', additionalProperties: true }, render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
       execute: (args, exec) => this.control(exec, args as MaintenanceArguments),
@@ -93,7 +83,7 @@ export class DocumentMemory {
     const agent = exec.agent!; const config = this.options.configOf(agent)!;
     if (config.knowledge?.memoryMode === 'legacy') throw new Error('Document maintenance is unavailable in legacy mode.');
     const documents = await this.forConfig(config);
-    if (args.action === 'status') return { mode: 'document', ...await documents.status(), maintenance: await this.maintenanceStatus?.(config.agentId) };
+    if (args.action === 'status') return { mode: 'document', ...await this.status(documents), maintenance: await this.maintenanceStatus?.(config.agentId) };
     if (this.options.held?.(config.agentId)) throw new Error('Memory maintenance is paused for this Agent.');
     const direct = agent.session.snapshotEvents().findLast(event => event.type === 'user/message' && isHumanSource(event.data.source) && [event.data.id, event.data.source.messageId].includes(args.request_ref ?? '') && (!config.personal || event.data.source.actorId === config.personal.ownerId));
     const participantRequest = !config.personal || agent.session.snapshotEvents().some(event => {
@@ -108,11 +98,17 @@ export class DocumentMemory {
     if (!requestRef) throw new Error('An actual applicable human request reference is required.');
     if (args.action === 'exclude') {
       if (!args.paths?.length && !args.sources?.length) throw new Error('Identify the documents or sources to stop using.');
-      return documents.exclude(requestRef, args.paths ?? [], args.sources ?? []);
+      await documents.exclude(requestRef, args.paths ?? [], args.sources ?? []);
+      return this.status(documents);
     }
     if (args.action !== 'run') throw new Error('Unsupported memory maintenance action.');
     if (!this.run) throw new Error('Dreaming is not available.');
     return this.run(agent, requestRef, args.importLegacy);
+  }
+  private async status(documents: MemoryDocuments) {
+    const state = await documents.status();
+    return { sourcesPending: state.sourcesPending, exclusions: state.exclusions,
+      receipts: state.receipts.map(({ path, saved, versionRecorded, commit, error }) => ({ path, saved, versionRecorded, ...(commit ? { commit } : {}), ...(error ? { error } : {}) })) };
   }
   async syncSources(agentId: string, snapshot: SourceEligibility) {
     const config = [...this.options.configs.values()].find(config => config.agentId === agentId);

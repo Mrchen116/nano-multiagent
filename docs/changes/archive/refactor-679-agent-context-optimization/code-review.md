@@ -239,3 +239,82 @@ The closure checked only the final release URL/lock and package identity, the fi
 The local final source passes 181 native files/953 tests, workspace typecheck, final release-installed build, Python 127 non-e2e tests (28 deselected), shared iOS runtime, ruff and docs-check 294 sources/68 routes; exact commands/logs remain in [M1 evidence](M1-context-flow/evidence.md). No open confirmed/plausible finding remains. New and old isolated previews remain caller-managed and retained for user viewing, not abandoned production processes.
 
 The three appended Requirement blocks in the two Gateway active deltas exactly match their canonical copies; index counts are 58 capability and 23 Task Requirements. No additional design/spec semantic change is required. Retain this scoped code/Context/verifier result through whole-unit archive, relative-link/index migration and the resulting docs-check. Remote CI, final PR, Memory merge and lifecycle cleanup remain separate caller delivery steps. Reviewer stops writing reports after this closure.
+
+
+## Consumer interface and continuous-memory delta — Round 9 (2026-10-31)
+
+Latest independent round; earlier full and follow-up results are retained only for unaffected behavior. Mode: **change-code-review delta + Agent Context Implementation Review**. Initial range Memory `2724ea8d1d455c40fcc9f7798154a93b2aa6a0b5` → `81bff879b4ac723e2b40fccc43bf52bce31e5065`; one confirmed bootstrap defect then received bounded closure at **`0718cbd3b881bf0262373e1ee502abe2173461c3`**. Branch `codex/refactor-679-context-followup`; checkout/source freeze and clean source state were checked. Only code-review.md and verification.md were written; no model, preview, production, source/test/design or service changes by reviewer.
+
+### Current findings at 0718cbd3b
+
+```json
+[]
+```
+
+No surviving confirmed/plausible defect remains in the specified implementation and its small fix delta. This is the code conclusion; final real-model/default-tool/maintenance acceptance and broad evidence handoff are still pending under the separate verifier issue below.
+
+### Confirmed finding and bounded repair
+
+**R9-C1, P1, CONFIRMED at 81bff879b — `scripts/e2e_catalog.py:60`: bootstrap must send the real configuration API contract.** When a current default/fixed/Feature tool is missing, the original bootstrap PATCH sent only profile_version/tool_allowlist. The real HTTP parser requires display_name and group_reply_policy; omission returns 422 and prevents default/daily startup before ready. The reviewer independently imported the actual built public configuration parser under Node24: original payload returned `{status:422,message:"display_name is required"}`; complete configuration accepted. Caller independently reproduced the same real daily 422 (`/tmp/refactor679-consumer-bootstrap-422.log`). The old unit mock had accepted a payload the production contract rejects.
+
+At 0718cbd3b the two-file repair sends the previously fetched complete current config plus the new allowlist, preserving unrelated role/prompt/model/selection fields. The regression now asserts display_name, group_reply_policy, custom_prompt and default_model preservation; error output retains bounded server details. 10 Python tests pass (`/tmp/refactor679-bootstrap-green.log`). The repaired same public startup reaches daily ready at port58220 (`/tmp/refactor679-consumer-up.log`), and the four-role capabilities/config audit has missing_defaults=[] for P/E/Q/PA. Fixed PA tools are correctly accounted for as selected∪host-fixed rather than forced into the stored allowlist. **R9-C1: closed; no full review repeated.** Final model tools are still the product reviewer's distinct observation seam.
+
+### Context Implementation Review and retained boundaries
+
+| Consumer / changed seam | Checked behavior and direct evidence |
+|---|---|
+| Working P2 versus independent approval | Working guidance now uses actual Inbox fields, newly received/restored/history semantics and public sending call results; private inbox_result/observation/result-wrapper terminology is removed only there. The separate reviewInboxSourceInstructions, ApprovalSources transcript and reviewer output protocols are unchanged. Sender, participant/observer, partial messages, historical scope, sent/held/unknown and internal accepted distinctions remain. Existing actual native/provider tests exercise the new work-consumer text; no reviewer-reliability claim is made. |
+| Public write/edit assembly | Only known tool:write/tool:edit sections lose the explanatory fs-observation-policy name through public assembly. Prior-read/edit-first behavior and runtime enforcement are unchanged. read/glob/grep guidance stays. DSH jobs/bash behavior and loaded-but-allowlist-hidden jobs guidance are explicitly user-accepted out-of-scope cases, not an unconditional tool mismatch finding or remaining fix request. |
+| Current formal memory for root/PA/child | MemoryDocuments.context reads current saved MEMORY.md irrespective of pending source checks, generation or checkpoint; length cap still gives a complete path to read. Dynamic context keeps fixed owner/path/content boundaries, current correction priority, only-Dreaming writing, actual save semantics and changed-detail paths. Ordinary source/message/new-chat/file changes no longer suppress the whole foreground entry. Updated unit/native same-child and real read/write-denial fixtures protect these observable changes. |
+| Stop-use and backend publication | Explicit exclusion remains immediately visible with targeted constraints and original-child guidance; saved old bytes are data, not renewed permission. Foreground write protection remains. Existing full source synchronization, backend generation/permission checks, frozen plans, version conflicts and publication receipts are retained. New needsVerification preserves the backend pending/generation/version-basis check without relying on a foreground reason field. User-excluded observation/history-linking scope is not added back as a requirement. |
+| Maintenance status / results | Frontend status/exclude projects source-check pending, explicit requests and path-level saved/version/commit/error facts; removes full source sets, generation, backupRoot and operation/hash fields. Dreaming status keeps active state, bounded pending counts, child consolidation states, blocked reasons and result/times; no owner streams/seen/rotation/integrated/retry cursor. Internal owner state remains in backend storage and is still used for scheduling/recovery. Incomplete Dreaming regression checks failed-progress invariants against persisted backend state rather than leaking it through the tool. |
+| Test-default tools | Shared bootstrap derives defaults, fixed items, enabled-Feature tools and valid explicit extras from real product capability/config APIs; retired names are filtered. Default/daily call it before ready; explicit --main-config returns without reading or modifying it. PA creation keeps its host-fixed tool semantics. Repaired actual startup and four-role config audit cover API wiring; actual native request tool lists remain final product evidence. |
+
+### Reused evidence and limits
+
+`/tmp/refactor679-consumer-focused.log` is mixed (4 files/12 passing tests and a six-case then-failing Dreaming fixture); it is not a blanket green run. `/tmp/refactor679-consumer-regression.log` subsequently passes all 5 files/41 tests, including the corrected fixture and native memory/current-source/foreground-write protections. Three original current-memory red cases are retained in `/tmp/refactor679-consumer-red.log`. Bootstrap missing-function red and initial 10-pass mock do not supersede the actual 422; the repair and live ready evidence above do. Workspace typecheck and complete build logs pass. Final full native/Web/Python/docs and the independent new daily Global/PA complete input, returned maintenance status and real behavior are pending handoff; no historical task journey was rerun by reviewer.
+
+**Code-review result `[]`; verifier pending V-CONSUMER-FINAL-1 only.** Existing sol/high configuration and previews were not changed by this reviewer. Only relevant fixes need further delta closure; do not reopen unrelated full-unit review.
+
+
+## Round 9 — loaded nano-memory Skill targeted delta at 5fcb9b18a
+
+**Mode: code-review delta + affected Context Implementation Review; no full rereview.** Validated HEAD `5fcb9b18a288e5b1c8007c27ce41448d50637c7e`; the commit changes only seven lines of the existing bundled nano-memory Skill. The earlier 0718cbd3b implementation/real-bootstrap closure remains retained. The product review's consumer-1 C1 identified this real loaded-Skill seam rather than a speculative wording concern.
+
+```json
+[]
+```
+
+No new surviving code/Context defect found in the seven-line diff. The Skill now points to the actual contextual memory directory and personal-assistant/independent-expert role rather than an unavailable memoryRoot/profile field. “Existing children” identifies the correction recipients without the misleading atomic-execution wording. Dreaming uses the same staging-copy concept expressed in ordinary language; it still alone writes formal memory through host application. Foreground write/edit/shell bypass remains prohibited, current corrections and stop-use remain immediate, request_ref/importLegacy selection and truthful saved-versus-version receipts remain. The obsolete foreground-checkpoint/backing warning is removed without adding a checkpoint tool or weakening host checks. Backlog language states the next-batch count boundary and avoids old per-step terminology. Explicit read/glob/grep guidance is unchanged; no jobs/plugin exception is reopened.
+
+The supplied native consumer-1 seq27 proves the old Skill had actually loaded, so source inspection alone does not close the product finding. Caller managed-restarted only this round's Node, installed the new bundled Skill and compared bytes; independent actual reload/consumer behavior is still pending. **consumer-1 C1: implementation repaired; product closure pending.** V-CONSUMER-FINAL-1 remains open until that evidence is handed over.
+
+Retained gate accounting: `/tmp/refactor679-consumer-full-tests.log` completes 181 native files/954 tests passed (345.86s); no native full-suite failure remains. Current 129 Python passed/28 deselected, build/typecheck, ruff, shared iOS runtime and docs295/68 remain applicable to unchanged code. This prose-only delta does not require rerunning full tests/models; actual Skill-load evidence is the effective remaining seam. The reviewer changed only these two reports and did not alter source, services, role models or previews.
+
+
+## Round 9 — final consumer-2 evidence closure at 5fcb9b18a
+
+**Latest code-review result: `[]`; final delta verifier: PASS; affected corrected-delta: aligned.** Validated source `5fcb9b18a288e5b1c8007c27ce41448d50637c7e`, base Memory `2724ea8d1d455c40fcc9f7798154a93b2aa6a0b5`. This section closes the preceding consumer evidence pending status; no whole-unit rereview, model run, test or preview mutation was performed.
+
+Independent product acceptance consumer-2 is PASS at the same source, with consumer-1 C1 closed and zero unresolved findings. The reviewer corroborated the actual native reload artifact `output/refactor-679-consumer/pa-skill-reload-full.json` (SHA-256 `fd136993eb5400051b6edf50e7f37cae2fd96de8073e7be27343b4e8dada3300`): seq127 calls skill; seq128 contains the entire current bundled nano-memory body, with no memoryRoot/PA-specialist-profile/checkpoint/old per-step text; seq132/133 queries and returns the current status. That result has only mode/sourcesPending/exclusions/receipts and maintenance.active/backlog/reviews, active=false and pending next-batch units=8, with no private owner protocol/streams/seen/rotation/integrated/cursor/retry fields. Actual seq138 returns sent, message `2e7be5234a9740a0830bc759d0f003e1`; seq143 completes. This is actual newly loaded consumption, not merely a changed installed file. The old seq27 text remains historical and was not rewritten.
+
+The independent complete-input/37-39-tool-schema and natural Global/PA journey review in consumer-1 remains retained: real default tools, file lookup, current memory on first/newer requests, actual Dreaming save/version receipts, sanitized status and immediate explicit stop-use all passed. Consumer-2's response correctly separates the immediate correction from formal memory not yet rewritten and next-batch count from total history; it did not run maintenance or modify files. The sole loaded-Skill issue is therefore closed by its actual replacement and subsequent behavior.
+
+Local evidence is complete: 181 files/954 native tests, 129 Python passed/28 deselected, complete build/typecheck, shared iOS runtime, ruff and docs295/68 passed; source/logic checks and the small Skill review remain retained. Native request/header/context/surface observations and actual sent/model behavior are not upstream final HTTP-wire capture; historical controlled HTTP serialization evidence remains a separate class. User-approved read/glob/grep and constrained-jobs exceptions remain as specified, not open defects.
+
+**V-CONSUMER-FINAL-1 closed; no remaining implementation or evidence issue in this bounded round.** Current canonical delta merge, whole-unit archive, relative-link/index correction and final docs-check may retain this code/Context/verifier result without another full review, provided they add no semantics. PR, remote CI, Memory merge and preview lifecycle remain caller delivery work; this local PASS does not claim those have occurred. Existing previews are intentionally retained for user viewing. Reviewer stops writing files after handing back this closure.
+
+
+## CI confirmed-stop test wait — bounded review (2026-10-31)
+
+**Review mode: test-only delta**, HEAD `0b7f7a6e13132cd8d733bc8c2af0d71d07b6ff63` plus the single dirty change in `packages/dsh-integration/tests/task-execution.test.ts`. No product/runtime/Context implementation changes. Prior implementation, product and verifier PASS conclusions remain retained; this review does not reopen them.
+
+```json
+[]
+```
+
+The revised wait preserves the declared stop-fence and notice-retention assertions at the observable boundary: the stopped session settles idle with no model call; releasing the fence stays quiet; the next actual human request's first provider invocation includes HOST_STOP_NOTICE; prior Schedule and queued human input remain present; the unconfirmed doing Task is absent. It removes the assumption that an injected notice must appear in at least two internal inbox insertion events. The required outcome is notification retention before the next model decision, whether the native queue kept or reinserted the notice. No later behavioral assertion was deleted, and no skip/retry or product fallback was introduced.
+
+PR #436 CI run `41196290600` remains a real failed run: this assertion observed one insertion where the old test required at least two (953 other tests passed). The unchanged focused local reproduction passed in 4.07s. The exact CI scheduling/interleaving cause was not captured and is **not proven**; this test repair must not be described as a confirmed runtime batching fix. The replacement verifies observable settling/absence of premature calls and later actual notice consumption without asserting private batching counts.
+
+Caller reran the owning `task-execution.test.ts` regression: **13/13 passed**, 17.93s, `/tmp/refactor679-ci-stop-regression.log`. Reviewer inspected the complete owning scenario and retained downstream assertions, did not run tests/models/services and changed only this report. Remote CI after the test repair is still a separate pending delivery check, not implied by the local regression. No new full review or verifier change is needed.

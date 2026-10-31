@@ -302,10 +302,10 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'stop-notice',mode:'inject',content:[{type:'text',text:'HOST_STOP_NOTICE: prior queued replies cannot resume paused Tasks.'}],source:{kind:'system',actorId:'o',channel:'task-human-control',messageId:'stop'}});
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'concurrent-wake',mode:'followup',content:[{type:'text',text:'Another queued input'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'concurrent-wake'}});
-    await expect.poll(async()=>{
-      const observed=await client!.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:{inserted?:{id:string}[]}}[]};
-      return observed.events.filter(event=>event.type==='agent/inbox/spliced'&&event.data.inserted?.some(message=>message.id==='stop-notice')).length;
-    }).toBeGreaterThanOrEqual(2);
+    // Native batching may leave the injected notice queued without reinserting it.
+    // Wait for the stopped turn to settle; the next real request below proves retention.
+    await expect.poll(async()=>((await client!.rpc.request('session.observe',{sessionId:'s'})) as {status:string}).status).toBe('idle');
+    expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
     pending=false;
     await client.rpc.request('task.execution.block',{sessionId:'s',blocked:false});
     await new Promise(resolve=>setTimeout(resolve,150));

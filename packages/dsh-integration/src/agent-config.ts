@@ -122,6 +122,8 @@ export class ConfigurationScopes extends Service {
       if (!selected.features?.heartbeat) disabled.add('nano-heartbeat');
       if (!this.tools.selection(selected, Skills.goalTools).length) disabled.add('tool:goal');
       assembly.sections = assembly.sections.filter(section => !disabled.has(section.name));
+      for (const section of assembly.sections) if (section.name === 'tool:write' || section.name === 'tool:edit')
+        section.text = section.text.replace(' (the default fs-observation-policy requires it)', '');
       assembly.contexts = assembly.contexts.filter(section => !disabled.has(section.name));
       return assembly;
     }, { prepend: true });

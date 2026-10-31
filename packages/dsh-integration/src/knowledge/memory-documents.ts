@@ -146,15 +146,18 @@ export class MemoryDocuments {
     }
     return Object.fromEntries(Object.entries(this.hashes).sort(([a], [b]) => a.localeCompare(b)));
   }
-  /** Assemble navigation and an entry only when its confirmed basis is still current. */
+  /** Read current saved memory; background verification does not hide foreground knowledge. */
   async context() {
-    const versions = await this.versions(); const basis = this.state.basis;
-    const valid = !this.sourcesPending && basis?.generation === this.state.generation && same(basis.versions, versions);
-    const entry = valid ? await readFile(join(this.root, 'MEMORY.md'), 'utf8') : undefined;
-    return { role: this.role, root: this.root, generation: this.state.generation, versions,
-      entry: entry && entry.length <= 8000 ? entry : undefined,
-      reason: this.sourcesPending ? 'source_eligibility_pending' : !valid ? 'entry_basis_stale' : entry && entry.length > 8000 ? 'entry_needs_shortening' : undefined,
+    const versions = await this.versions();
+    const entry = await readFile(join(this.root, 'MEMORY.md'), 'utf8');
+    return { role: this.role, root: this.root, versions,
+      entry: entry.length <= 8000 ? entry : undefined,
       exclusions: this.state.exclusions, backupRoot: this.backupRoot };
+  }
+  /** Tell Dreaming whether saved pages need checking before its next publication. */
+  async needsVerification() {
+    const basis = this.state.basis;
+    return this.sourcesPending || basis?.generation !== this.state.generation || !same(basis.versions, await this.versions());
   }
   /** Reuse only unchanged versions verified under the current source generation. */
   unverifiedPaths(versions: DocumentVersions, generation: number): string[] {

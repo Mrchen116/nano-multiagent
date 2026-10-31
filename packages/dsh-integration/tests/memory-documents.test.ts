@@ -19,6 +19,21 @@ async function library() {
 }
 
 describe('current document memory', () => {
+  it('uses saved memory during initial source refresh and after a new conversation', async () => {
+    const { documents } = await library();
+    documents.markSourcesPending();
+    expect((await documents.context()).entry).toContain('Personal');
+    await documents.syncSources({ revision: '1', allowed: ['first-chat'], excluded: [] });
+    expect((await documents.context()).entry).toContain('Personal');
+    await documents.syncSources({ revision: '2', allowed: ['first-chat', 'new-chat'], excluded: [] });
+    expect((await documents.context()).entry).toContain('Personal');
+    const before = (await documents.versions())['MEMORY.md']!;
+    await documents.apply({ operationId: 'dreaming-save', path: 'MEMORY.md', beforeHash: before, content: 'Updated key memory.' });
+    expect((await documents.context()).entry).toBe('Updated key memory.');
+    await documents.exclude('stop', ['MEMORY.md'], []);
+    expect((await documents.context()).exclusions).toEqual([{ requestRef: 'stop', paths: ['MEMORY.md'], sources: [] }]);
+  });
+
   it.each(['workspace-write', 'read-only'] as const)('uses the trusted owner root without widening %s for initialization and publication', async mode => {
     const workspace = await mkdtemp(join(tmpdir(), 'nano-document-policy-'));
     const workspaceRoot = await realpath(workspace);
@@ -42,7 +57,7 @@ describe('current document memory', () => {
     expect(writes).toHaveBeenCalledTimes(2);
   });
 
-  it('invalidates the entry after an external body edit, including after reopening', async () => {
+  it('keeps current memory readable after a document change and reopening', async () => {
     const { documents, workspace, root } = await library();
     await mkdir(join(root, 'knowledge'), { recursive: true });
     await writeFile(join(root, 'knowledge/preferences.md'), 'Private updates only.');
@@ -52,11 +67,11 @@ describe('current document memory', () => {
     expect((await documents.context()).entry).toContain('Personal');
     await writeFile(join(root, 'knowledge/preferences.md'), 'Ask before any update.');
     await documents.invalidate('knowledge/preferences.md');
-    expect((await documents.context()).entry).toBeUndefined();
+    expect((await documents.context()).entry).toContain('Personal');
     await documents.close();
     const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
     cleanups.push(() => reopened.close());
-    expect((await reopened.context()).entry).toBeUndefined();
+    expect((await reopened.context()).entry).toContain('Personal');
     await expect(reopened.checkpoint(versions, 0)).rejects.toThrow(/changed/);
   });
 
@@ -75,7 +90,7 @@ describe('current document memory', () => {
     expect(await readFile(join(root, 'knowledge/other.md'), 'utf8')).toBe('Still readable.');
   });
 
-  it('keeps revoked knowledge invalid across restart and rejects stale checkpoints', async () => {
+  it('keeps foreground memory readable while background source checks reject stale checkpoints', async () => {
     const { documents, workspace } = await library();
     const versions = await documents.versions();
     await documents.checkpoint(versions, 0);
@@ -85,12 +100,12 @@ describe('current document memory', () => {
     await documents.syncSources({ revision: '1', allowed: [], excluded: ['conversation-a'] });
     const revoked = await documents.status();
     expect(revoked.generation).toBeGreaterThan(allowed.generation);
-    expect((await documents.context()).entry).toBeUndefined();
+    expect((await documents.context()).entry).toContain('Personal');
     await expect(documents.checkpoint(versions, allowed.generation)).rejects.toThrow(/generation/);
     await documents.close();
     const reopened = await MemoryDocuments.open(workspace, 'personal', fs);
     cleanups.push(() => reopened.close());
-    expect((await reopened.context()).entry).toBeUndefined();
+    expect((await reopened.context()).entry).toContain('Personal');
     await reopened.syncSources({ revision: '1', allowed: [], excluded: ['conversation-a'] });
     expect((await reopened.status()).generation).toBe(revoked.generation);
   });

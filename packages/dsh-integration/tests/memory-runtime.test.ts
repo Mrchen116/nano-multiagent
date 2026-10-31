@@ -46,7 +46,10 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     expect(JSON.stringify(control)).not.toContain('checkpoint');
     expect(JSON.stringify(control)).toContain('importLegacy');
     expect(latest.tools.map((tool:any)=>tool.name)).not.toContain('memory');
-    expect(JSON.stringify(latest.messages)).toContain('entry_basis_stale');
+    expect(JSON.stringify(latest.messages)).not.toContain('entry_basis_stale');
+    expect(JSON.stringify(latest.messages)).toContain('# Expert memory');
+    expect(JSON.stringify(latest.messages)).not.toContain('Source generation:');
+    expect(JSON.stringify(latest.messages)).not.toContain('fs-observation-policy');
     expect(JSON.stringify(latest.messages)).toContain('knowledge/preferences.md');
     expect(JSON.stringify(latest.messages)).toContain('built-in skill-creator');
     expect((await client.rpc.request('knowledge.facts',{}) as {reviews:unknown[]}).reviews).toEqual([]);

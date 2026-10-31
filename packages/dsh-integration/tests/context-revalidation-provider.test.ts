@@ -86,6 +86,7 @@ it.each([
     expect(request.body.model).toBe('fixture');
     // These packages come from native contributors, not test-created system messages.
     expect(visible).toContain('You are one persistent Agent working across conversations.');
+    for (const term of ['inbox_result', 'observation=live', 'observation=restored', 'external-user mapping', 'send_message_result', 'send_user_message_result']) expect(visible).not.toContain(term);
     expect(visible).toContain('WIRE_PERSONA_' + cell);
     expect(visible).toContain('Task ownership and changes');
     expect(visible).toContain('Automatic continuation does not grant authority');

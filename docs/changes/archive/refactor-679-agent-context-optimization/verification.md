@@ -358,3 +358,89 @@ Native request/header/context plus persisted surface supports actual model deliv
 The three new Requirement blocks match canonical copies exactly: 产品身份与关键记忆具有明确来源; Dreaming 使用自己的受限维护能力; 后台 Task 故障只在影响当前工作时进入上下文. Their five appended scenarios remain aligned with approved Round 8, final source and actual evidence. Capability/Task canonical counts are 58/23. IM delta is unchanged and retained. **Outcome: aligned; no further design/spec semantic correction required.**
 
 Whole-unit archive, relative links and index migration are documentation-only finalization: retain this PASS and code-review `[]`, run docs-check after those operations, and do not repeat full implementation/Context/product review. New semantic source changes would require only their relevant delta. Local verification is complete; PR, remote CI (including final full Web), Memory merge and preview lifecycle remain caller-owned delivery steps. Both preview environments are intentionally retained for the user; no production action is part of this verdict. Reports are handed back for centralized commit, and this reviewer stops writing files now.
+
+
+## Consumer interface and continuous-memory delta verification — Round 9
+
+Latest scope: base Memory `2724ea8d1d455c40fcc9f7798154a93b2aa6a0b5` → initial implementation `81bff879b4ac723e2b40fccc43bf52bce31e5065`, plus the independently checked two-file bootstrap repair **`0718cbd3b881bf0262373e1ee502abe2173461c3`**. Mode: **delta + affected corrected-delta reconciliation**; approved design Round 9. Earlier unaffected full/follow-up results are retained, not rerun. Independent code review and Context Implementation Review are in this same round of code-review.md; no source/test/design/model/preview mutations by verifier.
+
+### Current verdict and implementation closure
+
+- Code review: `[]`; R9-C1 **closed** at 0718cbd3b.
+- Corrected-delta: **aligned** for affected Gateway capabilities and personal-agent deltas.
+- Verifier: **PENDING EVIDENCE**, 0 CRITICAL implementation / 0 WARNING implementation / 1 WARNING final-evidence gap / 0 SUGGESTION.
+- `requires_full_verification: false`: unchanged Task/approval/identity/window/Schedule/production contracts remain retained.
+
+| Approved scope / exit | Final source and meaningful regression / direct observation | Alignment |
+|---|---|---|
+| Working source/delivery guidance matches consumer | Working P2 no longer references private approval wrappers; P2R/transcript/strict reviewer protocols unchanged; actual Inbox/public-send fields, historical instructions and authority boundaries retained | aligned |
+| Public write/edit guidance cleanup only | Known public assembly sections remove explanatory policy name only; prior-read/edit-first constraints and tools unchanged; read/glob/grep retained; user-accepted jobs exception is not requested work | aligned |
+| Current saved memory stays readable on first/new-message/new-chat/document update | Current file read and versions independent of backend checkpoint; complete path/content wrapper and bounded fallback; updated memory-documents/runtime/child and Node source-sync fixtures | aligned |
+| Stop-use immediately; only Dreaming persists | Exclusion/child guidance and foreground write rejection remain; backend source/generation/version gates kept via needsVerification and existing frozen-plan publication checks | aligned |
+| Model-visible maintenance results are actionable | Projected status/exclude and bounded Dreaming backlog/results omit owner streams/cursor/source-version counters; persisted backend invariants are asserted independently in six incomplete-work modes | aligned |
+| Real default/daily capability synchronization | R9-C1 original partial PATCH independently failed actual parser and real startup (422). Repaired full-current-config PATCH preserves required/profile/persona/model fields; 10 tests and real daily-ready at58220; four-role selected∪fixed audit shows no missing defaults. Explicit --main-config and subsequent specialized restrictions are preserved | aligned after fix; model-tool comparison pending |
+
+### Confirmed defect retained as history
+
+R9-C1 at `scripts/e2e_catalog.py:60` in 81bff879b violated the existing HTTP config contract: display_name/group_reply_policy are mandatory, and omitted optional fields can reset profile data in candidate construction. The independent exact parser witness and real daily startup both returned 422. 0718cbd3b now merges selected tools into the complete current config; regression preserves display_name/group_reply_policy/custom_prompt/default_model; normal startup and default-role audit succeed. This closes the implementation mismatch rather than weakening the design or treating the old mock as authority.
+
+### Reused validation
+
+- `/tmp/refactor679-consumer-regression.log`: 5 files/41 tests passed. The older focused log's 12 passed plus six fixture failures remains historical, closed only by this rerun.
+- `/tmp/refactor679-bootstrap-green.log`: 10 passed after repaired config-contract/preservation assertions; `/tmp/refactor679-consumer-bootstrap-422.log` retains original real failure; `/tmp/refactor679-consumer-up.log` reaches repaired ready through the actual API.
+- `output/refactor-679-consumer/default-tools.json`: P/E/Q/PA missing_defaults empty. Correct comparison includes fixed host tools; it does not assume those must be stored in PA allowlist or substitute for actual model tools.
+- Workspace `/tmp/refactor679-consumer-typecheck.log` and `consumer-full-build.log` passed. Current docs log passes 295 maintained sources/68 routes; ruff passes. Root reports final Python/iOS checks, and final full regression/product evidence will be bound in the closure below when available. No broad suite/model was duplicated by verifier.
+
+### Corrected-delta reconciliation
+
+| Active delta | Scenario / checked change | Outcome |
+|---|---|---|
+| Gateway agent-capabilities: 角色化文档记忆可及时消费且不扩大权限 | PA/expert role; current files continually readable; partial/unknown facts and authority scope remain | aligned |
+| Gateway agent-capabilities: 停止使用和撤销来源不得被后台复活 | Explicit stop-use immediately and via original children; Dreaming later durable cleanup; backend source access, disable and save truth retained | aligned |
+| Gateway agent-capabilities: 工作指导与维护结果使用实际消费者接口 | Work source/delivery terms, limited maintenance status/results, no internal owner cursor exposure; new docs map existing consumer seams | aligned |
+| Gateway personal-agent: 来源控制停止后续访问与文档记忆采用，保留原始历史 | Actual source access/revoked pending-input policy stays; explicit stop-use versus future access versus durable cleanup are distinct; observer texts cannot change policy; reopening access does not cancel explicit stop-use | aligned |
+
+No intended new product behavior outside these affected deltas was found. Test-default synchronization is development harness behavior required by the design; it uses current product capabilities instead of inventing a second permanent tool list. User-excluded jobs and observation/history-linking scope remain excluded.
+
+### Open final evidence requirement
+
+**V-CONSUMER-FINAL-1 (WARNING):** final execution handoff is not yet complete. Supply final full regression/gate results at 0718cbd3b and the independent new isolated daily Global/PA natural file-query, memory-read, explicit Dreaming/status journey. The latter must inspect complete System/runtime/catalog/tools and actual tool results, verify work-versus-reviewer terminology and sanitized state, current formal memory through new source/file changes, explicit stop-use and true save/delivery, and compare actual model tools to product defaults∪fixed/Feature requirements. Keep sol/high roles and the accepted jobs exception explicit; do not describe native request events as upstream HTTP capture. This is evidence pending, not another implementation defect. Close this same issue when supplied; no retained whole-unit rereview or historical journey repetition required.
+
+
+## Round 9 — bundled nano-memory Skill delta verification at 5fcb9b18a
+
+Mode: **targeted delta**, validated `5fcb9b18a288e5b1c8007c27ce41448d50637c7e`; prior 0718cbd3b code/default-bootstrap review retained. Scope is exactly the seven replacement lines in the existing Skill, not another full implementation review. Code findings `[]`; implementation/design and affected corrected-delta remain **aligned**; `requires_full_verification: false`.
+
+| Actual consumer-1 C1 material | Implemented correction / retained invariant | Status |
+|---|---|---|
+| memoryRoot and PA/specialist profile labels | Actual context-provided directory and personal-assistant/independent-expert role | aligned |
+| Foreground checkpoint endorsement warning | Deleted obsolete warning; ordinary Agent/children remain read-only; no host/Schema checkpoint change | aligned |
+| Staging / atomic executor terminology | Same constrained staging-copy and existing-child correction behavior in ordinary wording | aligned |
+| Old per-step progress wording | Next-batch counts explicitly do not mean all historical material is integrated; status does not mark material processed | aligned |
+| Actual Skill delivery | Old native seq27 loaded the stale Skill; new bytes installed after managed Node restart, actual independent model reload pending | product C1 still pending |
+
+Final native full-suite evidence is now supplied: 181 files/954 passed, `/tmp/refactor679-consumer-full-tests.log`. Parent's 129 Python passed/28 deselected plus build/typecheck, ruff, iOS-runtime and docs295/68 are retained for unchanged mechanics. The only source delta after the reviewed code is the seven-line Skill prose correction, so no full test or model was repeated by verifier. Foreground write protection, backend source/generation/frozen-plan/version/failed-progress checks and user-accepted jobs exception remain unchanged.
+
+**Verifier remains PENDING under V-CONSUMER-FINAL-1 solely for final independent actual-input/Skill-reload/behavior evidence, including consumer-1 C1 closure.** This is an explicit evidence boundary; installed files or old native consumption cannot prove the replacement Skill was actually delivered and used. No new design/delta semantic correction is needed, and no root evidence/acceptance/source files were edited by this reviewer.
+
+
+## Round 9 — V-CONSUMER-FINAL-1 final closure
+
+**Final verifier: PASS.** Validated `5fcb9b18a288e5b1c8007c27ce41448d50637c7e`; executed base Memory `2724ea8d1d455c40fcc9f7798154a93b2aa6a0b5`; branch `codex/refactor-679-context-followup`. Code-review JSON `[]`; affected corrected-delta **aligned**; `requires_full_verification: false`; 0 CRITICAL / 0 WARNING / 0 SUGGESTION. R9-C1 bootstrap defect remains closed at 0718cbd3b, and consumer-1 C1 loaded-Skill finding is now closed by independent product consumer-2. This latest closure supersedes the prior pending states, with historical observations retained.
+
+### Direct final evidence check
+
+- Read independent acceptance consumer-1/consumer-2: complete Global System/runtime/catalog and 37 actual tool schemas, complete PA differences plus its two extra tools, real file queries/memory read, actual maintenance/save/version receipts, current-memory updates and immediate stop-use passed. Actual Global/PA tools match the default catalog plus host fixed tools; user-accepted deliberately constrained jobs guidance is explicitly excluded rather than treated as unresolved.
+- Independently parsed `output/refactor-679-consumer/pa-skill-reload-full.json`, full native seq0–143 plus header, SHA-256 `fd136993eb5400051b6edf50e7f37cae2fd96de8073e7be27343b4e8dada3300`. Actual seq128 includes the complete current bundled Skill body, not just the corrected opening line; retired terms are absent while read/glob/grep, formal-memory read-only, only-Dreaming writes, original-request authority, staging-copy and truthful receipt rules remain.
+- Seq133 actual status keys are mode/sourcesPending/exclusions/receipts/maintenance; maintenance keys active/backlog/reviews. It reports active=false and pending next batch units=8, preserves old save receipts and explicit stop-use, and does not expose owner protocol/streams/seen/rotation/integrated/cursor/retry state. Status is not being inferred from UI decoration or source types.
+- Consumer-2 real reply distinguishes current correction taking effect from the formal file not yet saved, previous receipts from new work and next batch from all backlog. Actual seq138 sent receipt `2e7be5234a9740a0830bc759d0f003e1` and seq143 completed are present. No new model or test was invoked by verifier; actual replacement Skill consumption closes the remaining evidence gap without repeating the earlier successful maintenance journey.
+
+### Gate and boundary disposition
+
+The final native run is 181 files/954 passed; Python is 129 passed/28 deselected; complete build/typecheck, iOS-runtime, ruff and current docs295/68 all passed. Earlier fixture failures and real bootstrap 422 remain explicitly recorded with their fixes; they are not relabeled as successful original commands. The seven-line Skill prose-only change retains code-mechanism tests, and the actual reload/behavior evidence validates its affected consumer seam.
+
+These are actual native request/header/context and persisted model/tool/sent behavior, not final upstream HTTP-wire capture. Root and product reviewer complete-input/schema inspections are reused; this bounded corroboration does not claim a second full product trial. Historical controlled-provider HTTP tests remain limited to serialization mechanisms. Background source/frozen-plan/version gates and failed-progress invariants are preserved even though foreground current memory is always readable; explicit stop-use remains immediate and formal persistence stays Dreaming-only.
+
+**V-CONSUMER-FINAL-1: CLOSED.** All affected Gateway capabilities and personal-agent delta scenarios align with approved Round 9, final source and required evidence. No further design/spec semantic correction is required; unrelated former Task/Schedule/identity/window/approval journeys remain retained.
+
+Exact canonical merge, whole-unit archive, relative links/index maintenance and final docs-check are caller documentation finalization and retain this PASS; no new full review is needed unless new semantics/source changes are introduced. PR, remote CI, Memory merge and lifecycle remain separate delivery gates, not claimed completed here. Existing user previews remain intentionally retained and under caller lifecycle ownership. This reviewer has finished both owned reports and stops writing files now.
