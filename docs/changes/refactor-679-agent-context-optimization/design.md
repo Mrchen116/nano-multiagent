@@ -161,7 +161,8 @@ Inbox 增加内部 `prepareSystemContext(agentId, sessionId)` 和 `commitSystemC
 - IM 在 Task／成员资格变化的同一事务内，将对应原系统消息 ID、受影响 Agent 与完整／最小撤销投影类型登记到 `task_context_index`；`seq` 使用持久单调自增键，`(agent_id,message_id,projection_kind)` 唯一。该索引不存第二份正文、不生成新消息，业务内容仍来自所属聊天消息。既有 relay 继续主动推送；索引只用于从原消息补取到确定位置。
 - 新增产品协议 `task.context.sync({agent_id,after,through?,limit})`。首段在同一一致读取中固定该 Agent 当前最高 `through`，返回按 seq 排序的原消息投影、当前访问撤销事实和 `next`；后续分页始终使用同一 through。已无资格读取的原消息返回终结引用（原 ID＋不允许消费），不返回正文。只有 `next=through` 且所有该范围投影／终结引用均由 Node 持久保存，才算追平。after 是 Node 已持久摄取的索引位置，与模型消费游标分开。
 - PA 同步服务负责分页、按原消息 ID 幂等摄取及保存游标；主动 relay 提前到达的消息与补取内容合并，不能重复入 Inbox。每次恢复先恢复停止 fence，再追平到固定 through，修复待消费映射，最后核对当前责任和续跑。所有模式共用该同步服务，普通 Global、PA、SingleThread 不能各自假设 ready 已追平。
-- dsh-integration 在原生 `agent/pre-step`、任何候选输入进入模型之前调用产品侧准备接口；该接口先固定本步骤的 through 并完成追平，再返回待呈现消息、撤销结果和当前检查限制。它覆盖恢复出的旧原生输入、普通新消息先到及 Task 自动续跑，不仅在 Node 的 onReady 回调执行。候选步骤只能在准备完成后进入，且先包含尚未消费的相关业务事实；通过原 ID 复用已候选的消息。
+- dsh-integration 在本步原生 `system-prompt/assemble` 的外层 listener、调用 `next()` 前执行产品侧准备接口。锁定 DSH 先 claim 候选、再 assemble 环境快照、最后执行 `agent/pre-step`；若到 pre-step 才同步 PA 来源，本步 Memory 快照会滞后一轮。准备接口先完整同步 PA 来源，再固定本步骤的 through 并追平，返回待呈现消息、撤销结果和当前检查限制；同一步的准备结果在 `agent/pre-step` 中消费，不重复同步。只处理有可信 root binding 且携带原生 turn signal 的 assembly；无 turn signal 的 UI 能力预览及无 root binding 的 child／Dreaming 不触发产品同步。结果暂存于 Agent 局部，进入 pre-step 后取走；中断后的下个 assembly 重新准备，不复用上步事实。
+- `agent/pre-step` 仍负责从已经 claim 的候选中剔除已撤销 ID、按原 ID 加入尚未消费的业务事实，并根据准备限制拒绝不具备独立输入的步骤；运行状态和 Skill 的重排仍只操作本步原生消息，不重造 Memory 快照。准备覆盖恢复出的旧原生输入、普通新消息先到及 Task 自动续跑，不仅在 Node 的 onReady 回调执行。通过实际 PA 空 unread → 排除历史来源 → 下一模型请求的 generation／失效说明，以及原有 claim 后撤销、离线及 child 测试验证时序。
 - through 是该步骤的明确事实切点：切点之前已提交的变化必须在本步准备中处理；切点后提交的变化由主动投递及下一步重新固定切点处理，不等待一个永远移动的“全局无新消息”。超过 relay 窗口也通过有界分页补齐，不等主动发送队列自然耗尽。
 - 同步／资格核对不可用时，含尚待授权复核的聊天内容不能进入模型，相关 Task 自动步骤保持待处理；不把失败当空责任或假定追平。若候选步骤存在可独立执行且不涉及该未知来源的输入，可保留这些输入并呈现一次明确运行限制，Task 工具和相关来源内容在重新核对成功前禁止继续使用。没有这样的独立输入则 reject 并保留待处理输入，不热循环；连接恢复或有效新输入可再试。
 

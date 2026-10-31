@@ -18,13 +18,25 @@ export class TaskContextDriver {
           ? [{inputId:event.data.id,content:event.data.content,turn,consumedSeq:event.seq}]:[];
       });
     };
+    const preparations=new WeakMap<Agent,{prepared:Prepared;consumed:Set<string>}>();
+    ctx.on('system-prompt/assemble',async(_assembly,context,next)=>{
+      const agent=context.agent??context.scope as Agent|undefined;
+      if(!agent||!context.signal||!options.bindings.has(agent.id))return next();
+      preparations.delete(agent);
+      const consumedEvidence=await evidence(agent);
+      const prepared=await options.peer.request('product.task_context.prepare',{...identity(agent),evidence:consumedEvidence}) as Prepared;
+      context.signal.throwIfAborted();
+      // Source eligibility must be current before native Memory/context providers render.
+      options.availability(agent,!prepared.unavailable);
+      preparations.set(agent,{prepared,consumed:new Set(consumedEvidence.map(item=>item.inputId))});
+      return next();
+    },{prepend:true});
     ctx.on('agent/pre-step',async({agent,messages,signal},next)=>{
       if(!options.bindings.has(agent.id))return next();
       const current=identity(agent);
-      const consumedEvidence=await evidence(agent),consumed=new Set<string>(consumedEvidence.map(item=>item.inputId));
-      const prepared=await options.peer.request('product.task_context.prepare',{...current,evidence:consumedEvidence}) as Prepared;
+      const {prepared,consumed}=preparations.get(agent)!;
+      preparations.delete(agent);
       signal.throwIfAborted();
-      options.availability(agent,!prepared.unavailable);
       const revoked=new Set(prepared.revoked);
       // Remove from both the public queue and this already-claimed batch. Removing
       // only the inbox misses native candidates claimed before source revocation.

@@ -17,6 +17,27 @@ function setup() {
 }
 
 describe('durable Task execution responsibility',()=>{
+  it.each(['root','subtree'])('publishes one original deletion notice per removed node for %s deletion and receipt replay',scope=>{
+    const {db,ctx,tasks,graph}=setup();
+    const added=tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:1,request_key:'add-child',change_note:'Add child',operations:[{op:'add_task',container_id:'n1',client_ref:'child',title:'Child work',assignee:{type:'agent',id:'a'}}]});
+    const nodeId=scope==='root'?'n1':added.client_refs.child;
+    const published=vi.spyOn(ctx.messaging,'publishMessages');
+    const args={graph_id:graph.graph_id,node_id:nodeId,base_revision:2,request_key:'delete'};
+    const result=tasks.execute(human,'delete',args);
+    const notices=published.mock.calls.flatMap(call=>call[0]);
+    expect(notices).toHaveLength(scope==='root'?2:1);
+    for(const message of notices){
+      expect(message.conversation_id).toBe('chat');
+      expect(message.content).toContain('已删除，原入口已失效');
+      expect(message.content).toContain('target_id="a1"');
+      expect(message.content).not.toContain('/tasks/');
+      expect(db.prepare('SELECT message_id FROM task_context_index WHERE agent_id=? AND message_id=?').get('a',message.id)).toEqual({message_id:message.id});
+      expect(ctx.messaging.message(message.id)?.content).toBe(message.content);
+    }
+    published.mockClear();
+    expect(tasks.execute(human,'delete',args)).toEqual(result);
+    expect(published.mock.calls.flatMap(call=>call[0])).toEqual([]);
+  });
   it('versions only the edited responsibility when another node in the same graph changes',()=>{
     vi.useFakeTimers({toFake:['Date']});
     try {

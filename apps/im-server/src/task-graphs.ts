@@ -679,6 +679,13 @@ export class TaskGraphService {
       channel: source?.external_source ?? null,
       source_chat_id: source?.conversation_id ?? null,
     };
+    const persistNotices = () => {
+      for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
+        notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,actor:{type:actor.kind,id:actor.id},
+          ...(actor.kind==='user'&&doc.nodes.some((n:Obj)=>n.id===notice.metadata.node_id&&before?.nodes.find((p:Obj)=>p.id===n.id)?.status!==n.status&&(n.status==='paused'||n.status==='doing'&&n.resume_request?.revision===doc.revision))
+            ?{human_control:{action:doc.nodes.find((n:Obj)=>n.id===notice.metadata.node_id).status==='paused'?'pause':'resume',actor:{type:'user',id:actor.id},task_refs:notice.metadata.task_refs,revision:doc.revision,event_time:doc.updated_at}}:{}),
+          ...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));
+    };
     const now = new Date().toISOString();
     let changed: string[] = [],
       result: Obj;
@@ -775,6 +782,7 @@ export class TaskGraphService {
               .prepare("DELETE FROM task_node_chat_activity WHERE graph_id=? AND node_id=?")
               .run(doc.graph_id, removedId);
         }
+        persistNotices();
         this.receipt(actorKey, key, hash, doc, result);
         return result;
       }
@@ -837,11 +845,7 @@ export class TaskGraphService {
       if(feedback.length)result.feedback={conversation_id:doc.conversation_id,tasks:feedback};
     }
     this.save(doc);
-    for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
-      notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,actor:{type:actor.kind,id:actor.id},
-        ...(actor.kind==='user'&&doc.nodes.some((n:Obj)=>n.id===notice.metadata.node_id&&before?.nodes.find((p:Obj)=>p.id===n.id)?.status!==n.status&&(n.status==='paused'||n.status==='doing'&&n.resume_request?.revision===doc.revision))
-          ?{human_control:{action:doc.nodes.find((n:Obj)=>n.id===notice.metadata.node_id).status==='paused'?'pause':'resume',actor:{type:'user',id:actor.id},task_refs:notice.metadata.task_refs,revision:doc.revision,event_time:doc.updated_at}}:{}),
-        ...(delegatedOwner?{authorized_by:delegatedOwner}:{})}));
+    persistNotices();
     this.receipt(actorKey, key, hash, doc, result);
     if (chat)
       for (const id of changed)

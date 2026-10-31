@@ -387,3 +387,55 @@ R3-W1、R3-W2、R3-W3 均在设计层关闭，没有新增实质问题。当前�
 - 接受 Round 5 结论，无实质异议；迁移后的文档保留 Memory 分支当前信息与消费边界，Gate 2 对本轮冻结版本通过。受审后仅追加本段，design／motivation／delta-spec／M1 骨架不再改变，保留 Round 5 哈希作为 retained 依据。
 - 完整性核对覆盖全部 7 文件；三份 delta 仅 EOF 格式整理，英文正文仅 P3/P9 变化且与 Memory 源码相应段一致，JSON 夹具可解析。21 个相关核心文件与旧设计代码基线字节相同；`git diff --cached --check` 与 `docs-check`（289 maintained Markdown sources、68 required routes）通过。源码／文档核对不作为产品或模型验收证据。
 - 当前交付仅为 `codex/refactor-679-on-memory` 上的设计迁移与核对，保留独立 worktree。后续彻底实现、完成适用验证并复核 Memory 最新基线后，才合回 `unit/feat-676`；本轮没有产品代码修改、服务运行、合并或部署。
+
+## Round 6
+
+### Metadata
+
+- reviewer_target: `/root/refactor_679_design_review`（同一独立 reviewer，继承调用方模型）
+- review_mode: `delta`
+- mode_reason: 限定审查 `design.md` 权威追平与步骤准入中的两段时序修订。产品准备接口、持久消息/撤销模型、权限、正文及 owner 未变；改变的是同一步内准备与原生 assembly 的先后关系，因此展开相关 Context 消费链，未重新接手产品或代码验收。
+- started_at: `2026-10-31T15:16:12+08:00`
+- completed_at: `2026-10-31T15:17:39+08:00`
+- duration: `PT1M27S`
+- checkout: `/Users/czj/.codex/worktrees/refactor-679-memory/nano-multiagent`，`codex/refactor-679-on-memory`，HEAD `36cef9604935754e1da0a11b0616e194a0d56523`。
+- frozen_scope: `design.md:164-165` 的外层 assembly 准备及 pre-step 候选处理；与 HEAD 的 diff 仅该处一段改为两段。并行工作中的测试、代码审查、verification、acceptance 等产物只作明确引用，不改动。
+- design_sha256: `18e2be7bd377b3c090b2f65f07bfe0e7ca4148b415c6500ad21134a84571d579`
+- boundary: 只读实际入口、锁定依赖公开类型/行为和已有失败日志；只追加本轮报告。未修改产品代码、未运行测试或服务、未接手并行验收、未提交/合并/部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+把完整来源及 Task 准备前移到本步外层 `system-prompt/assemble` 的 `next()` 前，与锁定运行时的真实顺序吻合，并保留 pre-step 的候选剔除、补入和拒绝职责。未发现本次修订与既有权限、恢复或 Memory 唯一写者设计冲突。该结论只批准设计调整；已有红测仍需在实现后验证通过。
+
+### Coverage 与证据
+
+- **确认问题及证据边界**：`output/refactor-679/pa-empty-memory.log:5-24` 记录跨包原生 fixture 失败：产品查询顺序已是 `pa.sources → task.context.sync` 两轮，但首个捕获请求仍为 `Source generation: 0`、`source_eligibility_pending`，未达测试要求的 generation 1。这是当前 assembly 滞后的直接证据；该测试在 `apps/node/tests/global-inbox-native.test.ts:26-31` 截获 provider 消息，不能描述成真实模型行为失败，也不能凭日志声称第二个请求的所有断言已执行通过。
+- **真实运行时顺序**：锁定 `@deepseek-ai/dsh-agent-loop@0.2.1-alpha.1` 的 `lib/index.js:902-924` 明确执行 claim → `systemPrompt.assemble(assembleContextFor(this, signal))` → `runtimeContext.project` → `agent/pre-step`；`:950-978` 在通过后才记录 step/start 并执行模型步骤。当前 `task-context.ts:21-26` 到 pre-step 才准备，而 `knowledge/document-memory.ts:31-49` 在 assembly 中读取当前文档资格和 generation。新设计先准备、再放行 `next()`，让同一次 assembly 的 Memory context 读取同步后的状态，再由原生生成本步快照；无需重造快照或改写模型消息。
+- **公开接口与实际 owner**：公开 `dsh-system-prompt/lib/types/index.d.ts:15-27,37-44` 定义 assemble waterfall、scope 和本次显式 signal；公开 `dsh-agent/lib/types/dispatch.d.ts:101-109` 及导出的 `assembleContextFor` 同时提供 agent/scope 和当前 turn signal。外层 prepend hook 可以在 `next()` 前完成原有准备。现有 `index.ts:180,227-230` 由 KnowledgeRuntime 管文档 context、TaskContextDriver 管业务准入，继续由后者承接本次前移最直接，不需要新服务、loop、私有 import 或 DSH patch。依赖源码在本轮仅作为顺序取证材料。
+- **同一步临时结果与恢复**：设计规定只处理有直接可信 root binding 且有 turn signal 的 assembly；结果仅在该 Agent 本步暂存，pre-step 取走，下次 assembly 重新准备。锁定原生路径每次 pre-step 前均调用 assembly，因而无需跨步骤沿用旧 through 或把临时缓存持久化。prepare 仍先核对已持久消费证据，再返回尚待呈现的原 ID；准备完成或缓存存在不成为已消费回执。中断后重新准备与原持久 cursor/revoked/consumed 恢复规则一致，原 turn signal 不被留作后续 turn 控制。
+- **来源与撤销边界**：`personal-assistant/src/task-context.ts:20-41,65-81` 先调用完整来源刷新，再固定 through/追平；`global-agent.ts:277-299` 仍串行执行 pending → 权威来源集 → sync → Inbox 清理。前移只改变发生时点，不把 Task 追平等同于 Memory 同步。候选已经在 assembly 前 claim，因此保留 pre-step 对候选 ID 的撤销过滤和原文补入是必要的；只调用 inbox.remove 不能替代它。准备限制仍由 pre-step 判定独立输入或 reject，停止 fence、当前 lifecycle 和工具权限没有被准备接口授予或解除。
+- **独立消费者与预览**：当前 preview/快照调用 `index.ts:369,389,563,581` 未传 turn signal；设计明确跳过它们，避免 UI 查询触发产品同步。普通 child 和 Dreaming 无自身 root binding，即使 Dreaming 显式 assembly 带 signal 也不进入这条业务准备路径。它们继续按既有固定库动态消费及独立维护 preset 工作；Dreaming 正文、工具、预算和唯一正式写者不变。
+- **验证足够且有界**：新增空 unread PA 测试 `global-inbox-native.test.ts:63-77` 验证两次当前 runtime-context 的 generation、排除后失效说明及每步只一次来源/Task 查询，能直接区分“本步已更新”与“下一步才更新”。修订同时保留既有 claimed-candidate 撤销、消费回执丢失后重启、离线及 child 验证；如 `task-context-originals.test.ts:21-51` 已覆盖原 ID/ACK 恢复与 claim 后撤销的观察面。修复后必须运行相关验证，本轮仅核验其设计覆盖，不代报执行结果。
+
+### Agent Context Review — Mode A
+
+本轮沿“完整 PA 来源同步 → 文档动态 context 组装 → 原生 runtime snapshot → Task 候选准入 → 当前 provider 请求”核对来源、时点与失效语义。关键改动修正模型当前可见信息滞后的接线位置；没有更改提示正文、事实权限或持久写者。异常时的限制表达及相关输入拦截保持，不以恢复缓存、socket ready 或已经 claim 推断事实有效。
+
+### 历史问题闭环与 retained 范围
+
+| 范围 / Issue | 本轮依据 | 状态 |
+|---|---|---|
+| R1-W1 | 固定 through 与持久追平不变；准备前移到 assembly 前，候选仍在准备完成后由 pre-step 准入 | closed，retained_from: Round 2；本轮复核时序 |
+| R1-W2 | 原生队列清理及 already-claimed 候选过滤继续由 pre-step 执行，未把 assembly 准备当消费 | closed，retained_from: Round 2 |
+| R3-W1/W2/W3 | 四类审批配方、已核实 Cron 限制及共步模板没有本轮变化 | closed，retained_from: Round 4 |
+| Round 5 Memory 基线 | document/legacy、完整来源集、原 child 更新、固定 skill-creator、Dreaming 独立 preset/唯一写者均未变；本轮专门补核来源刷新与当前 assembly 的先后关系 | retained_from: Round 5，时序以本轮修订为准 |
+
+### Issues
+
+无新增 CRITICAL / WARNING。旧设计批准不作为本次实现已修复红测或产品验收通过的证据。
+
+### Recommendations
+
+无额外可选建议；停止扩展复审范围，按既定修订和上述最窄相关验证完成实现核对。

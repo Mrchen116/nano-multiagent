@@ -235,7 +235,7 @@ export class TaskExecutionDriver {
   async repair(agent:Agent,inputId:string):Promise<void>{
     if(inputEvidence(agent.session.snapshotEvents(),inputId).accepted)return;
     const message=this.message(agent,'Recheck the current waiting Tasks and their linked Schedules.','task-wait-repair',MessageId(inputId));
-    if(this.passive(agent.id))agent.inject(message);else agent.followup(message);
+    if(this.passive(agent.id)||agent.status==='running')agent.inject(message);else agent.followup(message);
     await this.ctx.sessions.flush(agent.session);
   }
   /** Reserve one continuation after persistence and a second native inbox check. */
