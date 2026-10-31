@@ -105,6 +105,10 @@ def test_bootstrap_tracks_product_default_tools_and_keeps_explicit_choices(tmp_p
                 200,
                 json={
                     "profile_version": 7,
+                    "display_name": "Named test agent",
+                    "group_reply_policy": "mention_only",
+                    "custom_prompt": "Preserve this fixture's role.",
+                    "default_model": "fixture:model",
                     "tool_allowlist": ["explicit", "retired"],
                     "features": {"active": True, "off": False},
                 },
@@ -126,6 +130,10 @@ def test_bootstrap_tracks_product_default_tools_and_keeps_explicit_choices(tmp_p
             "inbox",
         }
         assert config["profile_version"] == 7
+        assert config["display_name"] == "Named test agent"
+        assert config["group_reply_policy"] == "mention_only"
+        assert config["custom_prompt"] == "Preserve this fixture's role."
+        assert config["default_model"] == "fixture:model"
     assert yaml.safe_load(path.read_text()) == {
         "agents": [{"agent_id": "p"}, {"agent_id": "q"}]
     }

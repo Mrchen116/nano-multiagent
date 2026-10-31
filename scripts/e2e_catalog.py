@@ -32,7 +32,10 @@ def sync_default_tools(
 
     def request(method: str, path: str, **kwargs):
         response = client.request(method, path, **kwargs)
-        response.raise_for_status()
+        if response.is_error:
+            raise RuntimeError(
+                f"Test capability sync {method} {path}: HTTP {response.status_code}: {response.text[:500]}"
+            )
         return response.json()
 
     deadline = time.monotonic() + 30
@@ -57,10 +60,7 @@ def sync_default_tools(
             request(
                 "PATCH",
                 path + "/config",
-                json={
-                    "profile_version": current["profile_version"],
-                    "tool_allowlist": sorted(selected),
-                },
+                json={**current, "tool_allowlist": sorted(selected)},
             )
 
 
