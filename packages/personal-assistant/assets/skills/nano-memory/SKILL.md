@@ -43,10 +43,10 @@ Dreaming 基于刚读到的版本编辑 staging。外部版本异常时保留冲
 
 ## 宿主维护回执
 
-查询积压以 status 的 maintenance.backlog 为准：它分别报告 Global 已提交／本轮冻结范围、任务待提炼或待整合状态及阻塞原因，不用旧逐 step 数量代表理解完整性。sourcesPending 只表示来源资格是否待核对；false 不表示没有待整理材料。资格未核对或读取受阻时说明未知／受阻，不能报零积压。查询不推进处理游标。
+查询积压以 status 的 maintenance.backlog 为准：它分别报告 Global 下一批待整理材料数量、任务待提炼或待整合状态及阻塞原因，不用旧逐 step 数量代表理解完整性。sourcesPending 只表示来源资格是否待核对；false 不表示没有待整理材料。资格未核对或读取受阻时说明未知／受阻，不能报零积压。查询不会将材料标为已整理。
 
 前台不提供 checkpoint，也不能给待核对页重新背书。Dreaming 完成后依据宿主真实回执区分内容保存与 Git 版本记录，不能把受理请求或模型结束当保存成功。
 
-用户明确要求停止使用时，先用 memory_maintenance exclude 登记原始请求引用和相关 paths/sources，当前立即停止采用并告知受影响的原子执行；正文和入口由 Dreaming 后续清理。不能把登记排除当作清理完成。来源待核对时读到旧文字不表示重新认可。
+用户明确要求停止使用时，先用 memory_maintenance exclude 登记原始请求引用和相关 paths/sources，当前立即停止采用并告知受影响的原子执行；正文和入口由 Dreaming 后续清理。不能把登记排除当作清理完成。当前明确更正和停止采用要求优先于保存的旧文字。
 
 Dreaming 只能编辑宿主提供的 staging，完成本批整理后正常结束；宿主核对真实文件差异并生成应用计划；不调用普通 memory_maintenance，不修改原库，不创建或发布 Skill。

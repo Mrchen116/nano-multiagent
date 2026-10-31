@@ -166,7 +166,7 @@ export class Dreaming {
         includeConversations();
         const cache=(await this.domain).table('summaries');
         const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
-        const check=Boolean((await library.context()).reason);
+        const check=await library.needsVerification();
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
         if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
@@ -304,7 +304,7 @@ export class Dreaming {
         inputs.push(`## ${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated task summary, replaces same source':'Task summary'}\nSource session_id=${summary.sessionId}; root=${summary.rootSessionId}; events ${summary.baseline+1}–${summary.through}; version=${summary.sourceVersion}\n${text}`);
       }
       const view=await library.context();
-      inputs.push(`# Current memory entry (data)\n${view.entry??`Entry requires verification: ${view.reason}; pages: ${Object.keys(view.versions).join(', ')}`}`);
+      inputs.push(`# Current memory entry (data)\n${view.entry??`Read the complete entry at ${join(view.root, 'MEMORY.md')}.`}`);
       inputs.push(`# Source exclusions (data)\n${JSON.stringify(view.exclusions)}\n# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
     }
     if(run.importLegacy){
@@ -367,7 +367,7 @@ export class Dreaming {
   private summary(run:DreamingRun):string{
     if(run.stage==='extract')return `任务经历提炼 ${run.state}；${run.state==='completed'?(run.summaries[0]?.noSignal?'无值得保留的新信号，旧摘要退役':'已保存任务复盘，尚未整合进正式记忆'):'未生成有效的新版本'}。${run.error??''}`;
     const saved=run.receipts.filter(receipt=>receipt.saved).length;const git=run.receipts.filter(receipt=>receipt.saved&&!receipt.versionRecorded).length;
-    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；保存 ${saved}/${run.plan?.length??0} 页；${run.state==='completed'?'本批成功进度已登记':'未推进处理游标'}。${git?`${git} 页内容已保存，版本记录失败。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
+    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；保存 ${saved}/${run.plan?.length??0} 页；${run.state==='completed'?'本批成功进度已登记':'整理进度未推进'}。${git?`${git} 页内容已保存，版本记录失败。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
   }
   private async publish(run:DreamingRun,handle?:AgentHandle){
     if(handle){handle.agent.session.append('user/message',createUserMessage({source:{kind:'nano-system',actorId:run.agentId,channel:'dreaming-receipt',messageId:`${run.id}:receipt`},content:[{type:'text',text:`Host application receipt (authoritative outcome): ${run.summary}`}]}),{surfaceOp:'append'});await this.ctx.sessions.flush(handle.agent.session);}
@@ -378,10 +378,10 @@ export class Dreaming {
   async status(agentId:string){
     const config=this.configuration(agentId);if(!config)return undefined;const owner=await this.owner(config);
     const policy=await(await this.documents.forConfig(config)).status();
-    if(policy.sourcesPending)return {...owner,active:this.active.has(agentId),backlog:{state:'source_eligibility_pending',scope:'unavailable'}};
+    if(policy.sourcesPending)return {active:this.active.has(agentId),backlog:{state:'source_eligibility_pending',scope:'unavailable'}};
     let limit:number;
     try{limit=await dreamingInputLimit(this.ctx,config);}
-    catch(error){return {...owner,active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
+    catch(error){return {active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
     const target=await this.sources.freezeTarget(agentId,owner.streams,owner.activationAt,{generation:policy.generation});
     const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),seen:owner.seen,sources:policy.sources,excluded:policy.exclusions.flatMap(item=>item.sources),rotation:owner.rotation,target};
     const batch=await this.sources.freeze(agentId,owner.streams,options);
@@ -391,8 +391,8 @@ export class Dreaming {
       state:cached?.sourceVersion!==material.sourceVersion||cached.generation!==policy.generation?'pending_extraction':owner.integrated[material.sessionId]!==material.sourceVersion?'pending_integration':'integrated'};});
     const pending=batch.units.length>0||children.some(child=>child.state!=='integrated');
     const blocked=[...target.blocked,...batch.blocked];
-    return {...owner,active:this.active.has(agentId),backlog:{state:pending?'pending':blocked.length?'blocked':'no_eligible_increment',scope:'frozen_sources',
-      global:{pending:batch.units.length>0,ranges:batch.ranges},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId)};
+    return {active:this.active.has(agentId),backlog:{state:pending?'pending':blocked.length?'blocked':'no_eligible_increment',scope:'frozen_sources',
+      global:{pending:batch.units.length>0,units:batch.units.length},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId).map(({status,summary,at,endedAt})=>({status,summary,at,endedAt}))};
   }
   /** Recover real application receipts; never reuse unfinished model staging or an old cycle target. */
   async recover(){

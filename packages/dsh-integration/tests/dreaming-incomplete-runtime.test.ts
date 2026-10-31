@@ -65,6 +65,8 @@ export function apply(ctx) {
         await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId: id }) as { terminal?: unknown }).terminal, { timeout: 15000 }).toBeTruthy();
       };
       await submit('experience-one'); await submit('experience-two'); await submit('before');
+      const progressPath = join(home, 'storages/nano_dreaming/owners/YQ.json');
+      const beforeProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
       const original = await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8');
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
@@ -73,7 +75,7 @@ export function apply(ctx) {
       expect(facts.reviews[0]).toMatchObject({ status: failed ? 'failed' : 'completed' });
       if (failed) {
         expect(facts.reviews[0]!.summary).toContain(mode === 'missing-index' ? 'Synchronize MEMORY.md' : 'did not complete');
-        expect(facts.reviews[0]!.summary).toContain('未推进处理游标');
+        expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
       }
       await expect(readFile(join(home, '.nanoassistant/memory/knowledge/new.md'))).rejects.toMatchObject({code:'ENOENT'});
       expect(await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8')).toBe(original);
@@ -83,10 +85,15 @@ export function apply(ctx) {
       expect(status('before').sourcesPending).toBe(false);
       expect(status('before').maintenance.backlog).toMatchObject({ state: 'pending', scope: 'frozen_sources' });
       expect(status('before').maintenance.backlog.global.pending).toBe(true);
-      if (failed) {
-        expect(status('after').maintenance.streams).toEqual(status('before').maintenance.streams);
-      } else {
-        expect(status('after').maintenance.streams).not.toEqual(status('before').maintenance.streams);
+      const afterProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
+      if (failed) expect(afterProgress).toEqual(beforeProgress);
+      else expect(afterProgress).not.toEqual(beforeProgress);
+      for (const id of ['before', 'after']) {
+        const result = status(id);
+        for (const key of ['generation', 'sources', 'backupRoot']) expect(result).not.toHaveProperty(key);
+        for (const key of ['protocol', 'streams', 'seen', 'rotation', 'integrated', 'retryAt', 'failures']) expect(result.maintenance).not.toHaveProperty(key);
+        expect(result.maintenance.backlog.global).not.toHaveProperty('ranges');
+        expect(result.maintenance.backlog.global.units).toBeGreaterThanOrEqual(0);
       }
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
       expect(JSON.stringify(maintenance[0].messages)).toContain('experience-one');

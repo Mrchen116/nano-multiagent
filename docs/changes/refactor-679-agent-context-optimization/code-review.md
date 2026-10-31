@@ -153,7 +153,7 @@ No final PASS, PR recommendation, M1 signoff, whole-diff assurance, child-cold r
 - **Impact:** IM downtime prevents unrelated external-channel conversations from reaching the provider.
 - **Recommendation:** distinguish unavailable Task context from independent input; do not admit old queued/claimed Task candidates or run automatic Task continuation while allowing an explicit, bounded independent-input degradation.
 - **Severity:** CRITICAL / P1.
-- **Evidence:** [native pre-step](<../../../../packages/dsh-integration/src/task-context.ts#L21-L25>), [product synchronization](<../../../../packages/personal-assistant/src/task-context.ts#L30-L71>), [witness A](<review-witnesses.md#L10>), [architecture availability](<../../../../SPEC.md#L22>), [approved synchronization/degradation design](<design.md#L157-L191>).
+- **Evidence:** [native pre-step](<../../../packages/dsh-integration/src/task-context.ts#L21-L25>), [product synchronization](<../../../packages/personal-assistant/src/task-context.ts#L30-L71>), [witness A](<review-witnesses.md#L10>), [architecture availability](<../../../SPEC.md#L22>), [approved synchronization/degradation design](<design.md#L157-L191>).
 
 ### C2: Alternate unread projection survives terminal Task revocation
 
@@ -163,7 +163,7 @@ No final PASS, PR recommendation, M1 signoff, whole-diff assurance, child-cold r
 - **Impact:** withdrawn Task facts reenter an actionable unread tool surface after their direct/native route was correctly revoked. This witness does not claim exposure of otherwise-private source data or prove model behavior.
 - **Recommendation:** terminalize/filter affected pending fragments in all snapshots and saved-but-unconsumed read projections; add the exact multi-page/public-read regression and verify direct-consumption deduplication too.
 - **Severity:** CRITICAL / P1 (Task revocation boundary).
-- **Evidence:** [revocation](<../../../../packages/personal-assistant/src/inbox.ts#L233-L235>), [frozen cursor path](<../../../../packages/personal-assistant/src/inbox.ts#L293-L317>), [Global call](<../../../../packages/personal-assistant/src/global-agent.ts#L460-L473>), [witness B](<review-witnesses.md#L56>), [active revocation scenario](<specs/im/task-graphs.md#L37-L41>).
+- **Evidence:** [revocation](<../../../packages/personal-assistant/src/inbox.ts#L233-L235>), [frozen cursor path](<../../../packages/personal-assistant/src/inbox.ts#L293-L317>), [Global call](<../../../packages/personal-assistant/src/global-agent.ts#L460-L473>), [witness B](<review-witnesses.md#L56>), [active revocation scenario](<specs/im/task-graphs.md#L37-L41>).
 
 ### C3: Original task notice lacks business facts that the replacement path requires
 
@@ -173,7 +173,7 @@ No final PASS, PR recommendation, M1 signoff, whole-diff assurance, child-cold r
 - **Impact:** the receiver cannot determine which dependency/parent/replacement changed or who handed responsibility to whom without reconstructing absent historical facts.
 - **Recommendation:** preserve one original message but encode the missing endpoints and explicit old→new responsibility roles; test visible text and structured references, including deletion/old-parent cases. Do not weaken the active delta to match the omission.
 - **Severity:** WARNING / P2.
-- **Evidence:** [assignment wording](<../../../../apps/im-server/src/task-notifications.ts#L21>), [relationship wording](<../../../../apps/im-server/src/task-notifications.ts#L32-L39>), [one-node metadata](<../../../../apps/im-server/src/task-notifications.ts#L48-L52>), [approved business-message contract](<design.md#L126-L140>), [active IM delta](<specs/im/task-graphs.md#L11-L24>).
+- **Evidence:** [assignment wording](<../../../apps/im-server/src/task-notifications.ts#L21>), [relationship wording](<../../../apps/im-server/src/task-notifications.ts#L32-L39>), [one-node metadata](<../../../apps/im-server/src/task-notifications.ts#L48-L52>), [approved business-message contract](<design.md#L126-L140>), [active IM delta](<specs/im/task-graphs.md#L11-L24>).
 
 ## Non-findings / evidence limitations
 

@@ -41,14 +41,15 @@ if(child&&n<2){await writeFile(process.env.DSH_HOME+'/waiting-'+n,'ready');while
     const child=requests.filter(request=>request.sessionId!=='root');
     expect(new Set(child.map(request=>request.sessionId)).size).toBe(1);expect(child).toHaveLength(4);
     expect(JSON.stringify(child[0].messages)).toContain('OLD PERMISSION');
-    expect(JSON.stringify(child[1])).toContain('source_eligibility_pending');
+    expect(JSON.stringify(child[1])).not.toContain('source_eligibility_pending');
     expect(JSON.stringify(child[1])).toContain('CURRENT: private only.');
-    expect(JSON.stringify(child[2])).toContain('entry_basis_stale');
-    expect(JSON.stringify(child[2])).toContain('Source generation: 1');
+    expect(JSON.stringify(child[2])).not.toContain('entry_basis_stale');
+    expect(JSON.stringify(child[2])).not.toContain('Source generation:');
     expect(await readFile(join(home,'.nanoassistant/memory/MEMORY.md'),'utf8')).toBe('# Expert memory\nCURRENT: private only.');
     expect(JSON.stringify(child[3])).toContain('Only Dreaming');
     const currentSystem=child[2].messages.filter((message:any)=>message.role==='system');
-    expect(JSON.stringify(currentSystem)).not.toContain('<memory_content>');
+    expect(JSON.stringify(child[2].messages.findLast((message:any)=>message.source?.kind==='runtime-context'))).toContain('CURRENT: private only.');
+    expect(JSON.stringify(currentSystem)).not.toContain('entry_basis_stale');
   }catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally{if(client){await client.shutdown();}await rm(home,{recursive:true,force:true});}
 },35000);

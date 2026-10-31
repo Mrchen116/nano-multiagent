@@ -39,7 +39,7 @@
 - 继续使用原生 Session、Inbox、Schedule、approval、context engine；不新造 Agent Loop、调度器、记忆写入者或通用事件总线。
 - Task 当前事实、授权来源、用户暂停、PA participant/observer、公开交付和 Feature／工具选择分别保持各自契约。内部对象生命周期不是业务变化。
 - 自有提示英文；用户自定义指导、用户消息与任务原文不翻译或覆盖。系统聊天消息继续采用现有产品文案语言，模型结构化事实及行动指导用英文；“统一英文”不扩大成聊天 UI 国际化工程。
-- 规范入口为 [Agent Context Engineering](../../../development/agent-context-engineering.md)、[Global](../../../specs/gateway/global-agent.md)、[PA](../../../specs/gateway/personal-agent.md)、[Gateway Task](../../../specs/gateway/task-graphs.md)、[IM Task](../../../specs/im/task-graphs.md)、[能力契约](../../../specs/gateway/agent-capabilities.md)。
+- 规范入口为 [Agent Context Engineering](../../development/agent-context-engineering.md)、[Global](../../specs/gateway/global-agent.md)、[PA](../../specs/gateway/personal-agent.md)、[Gateway Task](../../specs/gateway/task-graphs.md)、[IM Task](../../specs/im/task-graphs.md)、[能力契约](../../specs/gateway/agent-capabilities.md)。
 
 ### 可复用能力
 
@@ -768,7 +768,7 @@ M1 W1/W2 增加定稿对照：覆盖三类工作消费者及 PA/Feature 分支�
 
 **Review 驱动方式**：端到端真栈；本 unit 不改客户端组件，可用客户端实际使用的聊天、Task、成员管理、Schedule DELETE 接口驱动，必须核对实际聊天系统消息、真实 Agent 行为与最终 provider 请求。不得以底层 service mock 代替用户旅程。
 
-**验收前置**：实施 worktree 本机配置通过 `python3 scripts/dev_host.py check`，按 [隔离运行契约](../../../development/worktree-runtime.md) 配置独立身份／workspace／端口／数据和真实模型。受控模型验证请求及消费分支；代表性模型行为使用配置的真实模型，记录型号、配置、请求轮次与证据 locator。可用性检查失败应作为明确缺口，不去生产补测。
+**验收前置**：实施 worktree 本机配置通过 `python3 scripts/dev_host.py check`，按 [隔离运行契约](../../development/worktree-runtime.md) 配置独立身份／workspace／端口／数据和真实模型。受控模型验证请求及消费分支；代表性模型行为使用配置的真实模型，记录型号、配置、请求轮次与证据 locator。可用性检查失败应作为明确缺口，不去生产补测。
 
 ## Milestones
 
@@ -859,3 +859,42 @@ Dreaming.start 不再检查 parent 的 read/write/edit/memory_maintenance 是否
 本轮不改变客户端布局，允许使用客户端同一 API 发起请求，并在既有轨迹查看完整结果。保留原用户预览 `/tmp/nano-refactor679-daily`；本轮用独立 `/tmp/nano-refactor679-context`，按 worktree-runtime 的 daily profile 启动与停止。真实模型入口由本机配置发现，不调用生产消息/Task。新增预览若用户继续查看则保留并报告。
 
 现有 Round 1–6 与产品/静态审查仅在未受影响部分 retained。本补充交原 design reviewer 作 delta；实施后 code reviewer 同轮核对 Agent Context Implementation Review，产品 reviewer 核对 Global/PA 真实首轮。真实输入不合理则继续修，不能以机制测试通过结束。
+
+## 消费者接口与记忆读取修正（2026-10-31，继续 M1）
+
+基线为 Memory `unit/feat-676@2724ea8d1`。本节覆盖与前文冲突的前台记忆失效描述和 P2 文案；后台唯一写者、来源检查、冻结计划和保存回执不变。用户确认普通消息／新增聊天不使旧记忆失效，Dreaming 更新后下一轮直接读新文件；显式停止采用立即生效、持久修改由 Dreaming 完成。不扩展停止观察与历史记忆联动场景。
+
+### 工作 Agent 与审批器分别使用自己的接口
+
+`inboxSourceInstructions` 只提工作 Agent 实际收到的 Inbox 消息与历史读取：用 supplied sender/target/channel/reply fields 判断来源；历史原话保留原范围、不是新事件。删除 `inbox_result`、`observation=live/restored` 和 Gateway 内部映射说法。公开投递写为“results from public send_message and send_user_message calls”，保留 sent/held/unknown 与内部 accepted 的区别。`reviewInboxSourceInstructions`、ApprovalSources 的 transcript 包装及独立审核协议不改。
+
+DSH write/edit 指导只移除无操作用途的 fs-observation-policy 名称，保留先读再改、可用 edit 优先的原有约束；通过已公开的 prompt assembly section 接口处理已知 tool:write/tool:edit 段，不改依赖包、运行时或其权限实现。DSH jobs/bash 及 runtime snapshot 文案按用户决定保持。
+
+### 当前正式文件与后台整理状态分离
+
+Consumer 为根 Agent、PA 及继承同一正式记忆目录的 child。`MemoryDocuments.context()` 读取当前文件及版本用于注入/变化提示；前台不再以 sourcesPending、basis.generation 或全库 hash 与 checkpoint 是否相等决定可读性。超过既有入口长度限制仍按清晰文字引导从路径读取，不用内部原因码。
+
+Dreaming 的来源资格、generation、版本冲突和 checkpoint 继续只服务后台冻结计划和安全发布。原 `context().reason` 同时承担后台“是否需重新核对”判断的地方改为显式后台方法，避免简化前台后漏掉后台整理工作；复用原判断，不增加第二套状态。
+
+前台 Memory snapshot 保留固定目录、完整正文、当前更正优先、Dreaming 唯一写者和明确停止采用约束。删除 Source generation 和非必要空约束；详细页确有变化时继续提供路径。删除普通 read 结果中依据全库过期判断追加的 generation/原因码，不移除前台写入保护。PA personal_sources 文案不再承诺整个文档库自动失效；显式停止采用仍由已有 memory_maintenance exclude 登记和传播。
+
+`memory_maintenance status/exclude` 只呈现当前来源核对状态、明确停止采用请求、路径级保存／版本记录结果和有限的维护状态。Dreaming 状态去掉 owner 的 protocol/streams/seen/rotation/integrated/重试内部时间；积压返回下一个有界批次的待处理数量、任务整理状态、阻塞原因，完成记录保留结果摘要和必要时间。不把内部流 cursor 当用户进度。后台原状态仍用于恢复和调度，不由模型传回。
+
+Before：`Source generation: 1`、`Key memory is not current (entry_basis_stale)`、`maintenance.streams[session].cursor`。
+After：当前路径及 `<memory_content>` 正文；确有停止采用请求时说明其目标；状态区分本批待整理／阻塞／完成与实际保存结果。
+
+### 测试默认工具来自产品目录
+
+通用 e2e-up 默认/daily 栈注册后、发布 ready manifest 前，通过现有 Agent capabilities/config API 获取当前 default_on、fixed_tools 和已开启 Feature 的依赖，写回该测试 Agent 的完整工具选择。保留显式有效的额外选择，移除已不在当前目录的退役名字；不改用户生产配置。显式 --main-config 和专项测试主动限制不强制改成默认。daily PA 继续通过产品创建流程取得默认能力。
+
+默认入口与 daily 共用一个 bootstrap 函数，不在 YAML 再复制一份工具名称。不修改 DSH 的工具过滤和后台执行规则；正常模板获得当前默认 job 工具，不构造默认缺工具的假现场。
+
+### M1 本轮退出标准
+
+- [worker] 复用 memory-documents、memory-runtime、memory-child-runtime：首次/新增来源及正式文件变化后当前记忆仍进入下一请求；显式停止采用约束可见、前台写入仍被拒、后台失权与冲突仍拒绝发布。
+- [worker] 复用 dreaming-incomplete-runtime：status 实际工具结果没有内部游标/去重集合；失败不消费进度的保护改从后台持久状态或下一轮真实材料验证，不能靠私有状态暴露给模型。
+- [worker] 来源规则的现有 native 请求覆盖证明工作 Agent 与审批器获得各自的术语，权限和送达结果语义保持。公开 assembly 中 write/edit 行为不因移除插件名改变。
+- [worker] E2E bootstrap 测试注入一个新增 default_on 工具，验证自动选中；默认关闭工具不被无条件打开、显式替代配置不被改写；真实 daily 栈逐 Agent 对照当前能力目录与实际模型 tools。
+- [reviewer] 使用新的隔离 daily 实例实跑 Global 与 PA，自然请求触发文件查询、记忆读取和显式整理／状态查询；完整检查 System、runtime context、Skill 目录、工具 schema、返回结果及后续行为。记录默认工具集合、源码版本、原生请求 locator 与证据限制，确认公开回复送达。用户接受的 DSH jobs 特殊受限配置例外单列，不宣称任意工具配置无差异。
+
+保留先前两个用户预览；本轮使用新的隔离运行目录。既有无关验证 retained，不重复全部历史旅程；本节交原 reviewer 作增量设计审查，实施后执行静态与产品增量门禁。

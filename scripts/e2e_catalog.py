@@ -4,13 +4,64 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from collections.abc import MutableMapping
 from pathlib import Path
 
 import yaml
+import httpx
 
 
 E2E_MODEL_ENV = "NANO_MULTIAGENT_E2E_MODEL"
+
+
+def sync_default_tools(
+    client: httpx.Client, config_path: Path, *, explicit_config: bool = False
+) -> None:
+    """Apply current product defaults to registered default/daily test agents.
+
+    Args:
+        client: Authenticated owner client for this isolated stack.
+        config_path: Stack configuration identifying its seeded agents.
+        explicit_config: Preserve a caller's intentional capability restrictions.
+    """
+    if explicit_config:
+        return
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    expected = {agent["agent_id"] for agent in config["agents"]}
+
+    def request(method: str, path: str, **kwargs):
+        response = client.request(method, path, **kwargs)
+        response.raise_for_status()
+        return response.json()
+
+    deadline = time.monotonic() + 30
+    while not expected <= {
+        agent["agent_id"] for agent in request("GET", "/im/v1/agents")
+    }:
+        if time.monotonic() >= deadline:
+            raise RuntimeError("Test agents did not register within 30s")
+        time.sleep(0.5)
+    for agent_id in sorted(expected):
+        path = f"/im/v1/agents/{agent_id}"
+        catalog = request("GET", path + "/capabilities")
+        current = request("GET", path + "/config")
+        available = {tool["name"] for tool in catalog["tools"]}
+        selected = set(current.get("tool_allowlist") or []) & available
+        selected.update(tool["name"] for tool in catalog["tools"] if tool["default_on"])
+        selected.update(catalog["fixed_tools"])
+        for feature in catalog["features"]:
+            if current["features"].get(feature["key"]):
+                selected.update(feature["requires"]["tools"])
+        if selected != set(current.get("tool_allowlist") or []):
+            request(
+                "PATCH",
+                path + "/config",
+                json={
+                    "profile_version": current["profile_version"],
+                    "tool_allowlist": sorted(selected),
+                },
+            )
 
 
 def select_e2e_model(

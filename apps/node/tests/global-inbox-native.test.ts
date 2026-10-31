@@ -23,10 +23,10 @@ it('refreshes complete PA memory authority through Task preparation even with no
     personal: { bindingId: 'binding', ownerId: 'owner', conversationId: 'owner-chat', epoch: 1 } };
   const binding = store.bind({ agentId: 'pa', sessionId: 'main', conversationId: 'global:pa', ownerId: 'owner', cwd: home, revision: '1' });
   try {
-    await writeFile(join(home, 'model.mjs'), `import {appendFile} from 'node:fs/promises';
+    await writeFile(join(home, 'model.mjs'), `import {appendFile,readFile} from 'node:fs/promises';
 export const name='task-memory-observer';export const inject=['llm'];
 export function apply(ctx){ctx.on('llm/stream',async function*(options){
- await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(options.messages)+'\\n');
+ await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({messages:options.messages,authority:JSON.parse(await readFile(process.env.DSH_HOME+'/.nanoassistant/maintenance/documents.json','utf8'))})+'\\n');
  yield {type:'block-end',index:0,block:{type:'text',text:'Observed current context.'}};yield {type:'finish',reason:{kind:'stop'}};
 });}`);
     await prepareProfile(home, [{ insert: [{ id: 'task-memory-observer', name: join(home, 'model.mjs') }] }]);
@@ -68,11 +68,13 @@ export function apply(ctx){ctx.on('llm/stream',async function*(options){
     const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     const current = (messages: any[]) => messages.findLast(message => message.source?.kind === 'runtime-context');
     expect(requests).toHaveLength(2);
-    expect(JSON.stringify(current(requests[0]))).toContain('Source generation: 1');
-    const after = JSON.stringify(current(requests[1]));
-    expect(after).toContain('Source generation: 2');
-    expect(after).toContain('entry_basis_stale');
-    expect(after).toContain('Do not adopt older copies from history');
+    expect(requests[0].authority.generation).toBe(1);
+    expect(JSON.stringify(current(requests[0].messages))).toContain('Personal memory');
+    const after = JSON.stringify(current(requests[1].messages));
+    expect(requests[1].authority.generation).toBe(2);
+    expect(after).not.toContain('Source generation:');
+    expect(after).not.toContain('entry_basis_stale');
+    expect(after).toContain('Personal memory');
     expect(after).not.toContain('Current entry:');
     expect(queries).toEqual(['pa.sources', 'task.context.sync', 'pa.sources', 'task.context.sync']);
   } catch (error) { throw new Error(String(error) + '\n' + logs + '\nSource queries: ' + JSON.stringify(queries), { cause: error }); }

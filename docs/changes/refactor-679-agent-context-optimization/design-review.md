@@ -544,3 +544,61 @@ R3-W1、R3-W2、R3-W3 均在设计层关闭，没有新增实质问题。当前�
 ### Recommendations
 
 无额外可选建议。按已明确的有界实现和真实初始输入/回复验收推进，不扩展新平台或追加假设性机制。
+
+
+## Round 9
+
+### Metadata
+
+- reviewer_target: `/root/refactor_679_design_review`（原独立 reviewer，继承调用方模型）
+- review_mode: `delta`
+- mode_reason: 本轮仅展开用户新确认的工作消费者术语、前台记忆持续读取/状态投影，以及通用 E2E 默认工具装配。后台来源和保存协议、消息/任务权限不改；用户明确排除的停止观察与历史记忆联动、原生 jobs/bash 组合不扩展为新机制或审查问题。
+- started_at: `2026-10-31T18:56:32+08:00`
+- completed_at: `2026-10-31T18:59:05+08:00`
+- duration: `PT153S`
+- timing_note: 起点为本轮首个留有明确时钟的审查检查点；初始状态和文档读取略早于此，duration 不作为完整工时统计。
+- checkout: `/Users/czj/.codex/worktrees/refactor-679-memory/nano-multiagent`，`codex/refactor-679-context-followup`，HEAD `2724ea8d1d455c40fcc9f7798154a93b2aa6a0b5`。
+- frozen_scope: `motivation.md:368-420`、`design.md:863-900`、Gateway agent-capabilities delta `:47-82` 与新增 personal-agent delta；unit 移回 active 和历史报告路径整理保留，不改变暂存区。
+- design_sha256: `bf17bf7b6e373c32e2f12ce481485626af71ed6548cb6e3ed6a53177e7d388c0`
+- motivation_sha256: `79dfa21710f8bc46efb86054744224927e73ac81340f556ce20f8f5b55ca2b23`
+- gateway_capabilities_delta_sha256: `1c5a118ebc95a6eaf90b12c4f2b5179937c099dc139fe313bdad653c4f70e737`
+- personal_agent_delta_sha256: `0d5e9975b4c5692268ea2cae634c4656200ddb7a50390bfc2ded6f410ac80875`
+- boundary: 只读受审增量、实际产品装配/工具结果/状态使用者、锁定依赖公开 assembly 及文件工具贡献、E2E 启动与配置 API；仅追加本报告。未改其他文件、未跑模型或测试、未启动服务、未提交/合并/部署。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本次设计按用户确认的简化语义区分前台读取、后台校验和审批器证据；通用测试工具复用产品能力目录，范围和实际入口闭合。结论限于设计，完整真实 Global/PA 输入、工具结果和行为仍须按本轮 M1 退出标准实跑，不能引用前轮验收代替。
+
+### Coverage 与证据
+
+- **范围及 delta**：`motivation.md:368-420` 保存用户对持续读取、显式停止采用、read/glob/grep 保留、DSH jobs 例外和通用测试默认工具的明确选择。`design.md:865` 指定本节覆盖旧的前台失效描述与 P2，避免实施同时遵循相反规则；`:871,890,898` 保留原生 jobs/bash、snapshot 和特殊受限配置例外。Gateway capabilities 的 MODIFIED 块锚定 current `:1022` 的角色化记忆及 `:1056` 的停止采用要求；personal-agent delta 锚定 current `:134` 的来源控制，保留“观察文本不控制来源”和当前访问资格核对，只改变用户选定的前台记忆采用行为。没有因排除复杂场景引入来源依赖图、同步清理或第二写者。
+- **工作提示与审批证据确实是两种接口**：`policy/sources.ts:8-29` 当前两个常量都包含 inbox_result/observation/send_*_result 及 Gateway 映射；实际工作入口 `global-mode.ts:16,111` 使用前者，classifier、codex-context 和 `personal-security.ts:81` 使用后者。`global-mode.ts:51-80` 给模型直接返回实际 Inbox JSON，`personal-assistant/src/inbox.ts:317-326` 提供 sender、PA owner 标识、target、channel、delivery 等字段；它不把结果包成审批器 transcript。ApprovalSources 则在自身投影中生成私有标签。因此 `design.md:869` 只替换工作指导的内部术语、保留审批器独立协议，是按真实消费者修正，未丢掉 partial、participant/observer、历史范围或人类授权边界。
+- **交付语义仍有可操作依据**：`global-mode.ts:47-60` 已区分 public target/text 和内部 agent_id/message，并以实际 JSON 返回公共结果；send_user_message 只注册于根 PA。新文案用公开工具调用结果描述 sent/held/unknown，不让模型寻找不存在的 *_result 包装，也不把 native accepted 或私有结束语当公开送达。内部 child 继续受原 root 交付规则约束，引用公开结果语义不授予其缺少的公共发送能力。
+- **文件工具指导保持约束**：锁定 `dsh-tool-fs@0.2.1-alpha.1` 的真实 `tool:write`/`tool:edit` section 只在对应工具可见时贡献文本；安装包 `lib/index.js:520-524,668-672` 中 fs-observation-policy 是先读再写/编辑约束的解释性名称。`dsh-system-prompt` 公开 assembly waterfall 明确提供可修改的组装结果。`design.md:871` 仅去掉这处名称，保留先读、刚创建/编辑的例外与 targeted edit 优先，不替换工具实现或权限机制，也不扩展到 jobs/bash。实现测试应看实际 assembly 和工具行为，不以全局字符串清洗代替这一有界修改。
+- **前台持续读取与后台校验分开**：`memory-documents.ts:138-157` 已在 assembly 时刷新 MEMORY.md，但把 sourcesPending、generation 和全库 basis 等同前台可用性；`document-memory.ts:44,59-67` 随后隐藏入口并在普通 read 结果重复内部原因。`design.md:875-879` 改为读取当前正式文件，详细页变化仍给路径，超长入口仍保留原长度保护和真实读取路径；根/PA/child 的固定主体目录与前台写入保护不改。用户明确停止采用仍在当前请求和原 child 的后续指令中生效，必要 exclusion 由既有入口登记，文件清理由 Dreaming 完成。普通来源变化不再自动使整库前台失效，是本轮明确授权的行为变化，不是遗漏旧失效机制。
+- **后台复用不能被前台展示简化误删**：`dreaming.ts:169` 使用 `context().reason` 决定无新材料时是否仍需核对，`:306-308` 还用当前入口构造维护输入；`memory-documents.ts:166-172,178-198,203` 的 checkpoint、来源代际、显式排除和应用检查仍承担后台一致性。设计 `:877` 已要求将这类后台判断移到显式后台方法并复用原判断，而不是把 reason 简单删掉。`dreaming-agent.ts:59,76,115,123` 继续在组装、工具与提交前校验来源并要求重新读取未验证页面。前台显示当前文件不让后台跳过来源、冻结计划、版本冲突或真实发布结果。
+- **维护结果面向实际下一步**：`document-memory.ts:86-96,109-115` 的工具输出直接序列化结果；当前 `memory-documents.status()` 暴露 generation/sources/receipts，`Dreaming.status():378-395` 展开整个 owner 并返回 ranges/children。设计 `:881-884` 将模型面限制为来源核对状态、明确停止采用、下一个有界批次的待处理/阻塞、任务整理状态和路径级保存/版本记录结果；内部恢复、去重和游标仍留在后台。此处应在工具消费者投影中收窄展示，不改变后台所需 generation/source/plan 数据。现有 `dreaming-incomplete-runtime.test.ts:83-89` 从模型可见 streams 比较进度的断言，已在 `design.md:895` 明确改用后台状态或后续真实材料，仍验证失败不消费进度，没有用隐藏字段替代事实保护。
+- **默认测试工具来自同一产品目录**：`apps/node/src/capabilities.ts:50-74` 提供 tools.default_on、角色 fixed_tools 和 Feature requires；`control-routes.ts:40-49,81-90,477-497` 的实际 Agent capabilities API 保留这些字段，config GET/PATCH `:368-420` 提供当前完整选择和受版本控制的更新。`e2e-up.sh:314-337` 在注册在线后已有认证客户端，ready manifest 在其后发布；`e2e_daily.py:143-166` 已通过产品创建 PA 并读取/更新实际配置。故 `design.md:888-890` 的一个共用 bootstrap 能在此处合并 default_on、fixed、已开启 Feature 依赖及仍有效的显式额外选择，无需 YAML 副本或新增产品端点。明确 --main-config 不强改，专项用例可随后收窄，默认关闭工具不无条件开启；目录下线的名字过滤后仍走正常配置校验，不绕过能力契约。
+- **验证是请求和实际行为级别**：`design.md:894-898` 覆盖首次/新增来源/文件变化、显式停止采用及前台写保护、后台失权/冲突、真实 status 结果、工作/审批消费者、默认目录新增工具及显式配置例外。最终新隔离 daily Global/PA 的自然请求须触发文件查询、记忆读取、显式整理/状态查询，检查完整 System/runtime context/Skill/schema/result 和后续公开送达；逐 Agent 对照当前目录与实际 tools。该要求能够发现“提示有工具但测试配置缺工具”和“结果仍泄漏内部状态”，并明确用户接受的 jobs 例外。旧预览保留、新隔离目录、不去生产补测均已明确；无客户端布局或一次性数据迁移。受审文档 `git diff --check` 通过，本轮未执行实施测试或模型验收。
+
+### Agent Context Review — Mode A
+
+覆盖链路为真实消息/公共工具结果→工作 P2，与相同原始证据→独立审批 transcript；当前正式记忆→每次 assembly/按需 read，与后台来源/版本→冻结及发布；产品能力目录→隔离配置→真实模型工具集合。各消费者只保留完成任务所需接口，读权限、停止采用、前台写保护和唯一持久写者没有混同。后台内部状态不再作为工作模型需要解释或回传的参数；保留有界积压和真实保存结果以支撑下一步。
+
+### 历史问题闭环与 retained 范围
+
+- `retained_from: Round 8`：宿主身份/窗口名称、Task 有对象限制和 native 可见性去重、固定记忆绝对目录及独立 Dreaming 工具范围不变；前台入口资格与状态展示以本轮新语义替代。
+- `retained_from: Round 7/6`：历史撤销与当前权限、assembly 准备和 pre-step 候选处理不变；不因前台记忆持续读取解除 Task 原文准入或外部来源访问检查。
+- `retained_from: Round 2/4/5`：未受影响的业务消息、Schedule、交付/停止、审批器 P2R 及输出协议保留。工作 P2 中本轮指出的私有术语不再视为必须保留的信息。
+- 用户排除的“停止观察与过去记忆关联”不作为缺失验收或新增问题；后台新读取和发布仍遵守现有资格检查。
+- 本轮没有需关闭的历史设计 WARNING；新实现与产品验收尚未发生。
+
+### Issues
+
+无新增 CRITICAL / WARNING。
+
+### Recommendations
+
+无额外可选建议。按已冻结的有界设计和真实 Global/PA 输入/结果验收推进。
