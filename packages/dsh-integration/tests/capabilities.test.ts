@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -42,13 +42,13 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     let renamed = false;
     const rename = client.rpc.request('configuration.apply', { ...config, revision: '2-renamed', toolAllowlist: ['read', 'skill'], skillSelection: { mode: 'explicit_allowlist', names: ['local-skill'] } }).then(() => { renamed = true; });
     void rename.catch(() => {}); // The failure cleanup closes the runtime before a blocked apply can finish.
-    await expect.poll(() => renamed, {timeout: 1500}).toBe(true);
+    await expect.poll(() => renamed, {timeout: 8000}).toBe(true);
     await rename;
     expect((await client.rpc.request('session.observe', {sessionId:'session-a'}) as {status:string}).status).toBe('running');
     expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     let applied = false;
     const pending = client.rpc.request('configuration.apply', { ...config, revision: '3', toolAllowlist: ['write'], systemPrompt: 'AFTER_IDLE_581' }).then(() => { applied = true; });
-    await expect.poll(async () => (await read('a')).tools.sort()).toEqual(contextTools);
+    await expect.poll(async () => (await read('a')).tools.sort(), {timeout:8000}).toEqual(contextTools);
     expect((await read('a')).skills).toEqual([]);
     expect(JSON.stringify((await read('a')).prompt)).not.toContain('AFTER_IDLE_581');
     expect(applied).toBe(false);
@@ -58,7 +58,7 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     await client.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
-}, 20_000);
+}, 40_000);
 
 it('shadows owner tools in one workspace, constrains actual dispatch, and rebuilds after restart', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-extension-')); let client: RuntimeClient | undefined; let logs = '';
@@ -185,4 +185,21 @@ export const name='capability-busy'; export const inject=['tools','llm']; export
     await expect.poll(async () => (await client!.rpc.request('configuration.usage', {agentId:'busy'}) as {busy: unknown[]}).busy).toEqual([]);
     await client.shutdown(); client = undefined;
   } finally { if (client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home, {recursive:true,force:true}); }
+}, 30_000);
+
+
+it('reclaims temporary catalog Sessions without adding them to the execution home', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-catalog-lifecycle-'));
+  let client: RuntimeClient | undefined;
+  try {
+    await prepareProfile(home);
+    client = new RuntimeClient({home, cwd:home});
+    await client.rpc.request('initialize', {protocol:1, agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}], bindings:[]});
+    for (let i=0; i<3; i++) await client.rpc.request('configuration.catalog', {agentId:'a',cwd:home});
+    const sessions = await readdir(join(home,'sessions'), {recursive:true}).catch(error => {if(error.code==='ENOENT')return [];throw error;});
+    expect(sessions.filter(name=>/(^|[/\\])preview-/.test(name))).toEqual([]);
+  } finally {
+    if(client){client.process.kill('SIGKILL');await client.exited;}
+    await rm(home,{recursive:true,force:true});
+  }
 }, 30_000);

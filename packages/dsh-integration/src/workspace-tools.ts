@@ -53,7 +53,7 @@ export class WorkspaceExtensions {
   private readonly owners = new Map<string, Promise<WorkspaceOwner>>();
   private creating: Promise<unknown> = Promise.resolve();
   private readonly mounts = new Set<Mount>();
-  constructor(private readonly ctx: Context, private readonly changed: (agentId: string) => void) {
+  constructor(private readonly ctx: Context, private readonly changed: (agentId: string, catalogChanged: boolean) => void) {
     ctx.effect(() => async () => { for (const owner of [...this.owners.values()].reverse()) await (await owner).close(); });
   }
   /** Mount only the trusted configured workspace, never a model-supplied scope.
@@ -71,7 +71,7 @@ export class WorkspaceExtensions {
     let pending = this.owners.get(workspace);
     if (!pending) {
       // Native resolver wrappers must be installed and released in opposite orders.
-      pending = this.creating.then(() => WorkspaceOwner.create(this.ctx, workspace, id => this.changed(id), this.packageManager));
+      pending = this.creating.then(() => WorkspaceOwner.create(this.ctx, workspace, (id, catalogChanged) => this.changed(id, catalogChanged), this.packageManager));
       this.creating = pending.catch(() => {});
       this.owners.set(workspace, pending);
     }
@@ -90,7 +90,7 @@ export class WorkspaceExtensions {
     this.mounts.add(mount); owner.mounts.add(mount);
     ctx.effect(() => () => { tree.root.stop(); this.mounts.delete(mount); owner.mounts.delete(mount); });
     // A broken persisted bundle must not prevent access to the management tool needed to repair it.
-    await this.ctx.hmr.runExclusive(() => owner.refresh());
+    await this.ctx.hmr.runExclusive(() => owner.refresh(false));
   }
   /** Manage an installed bundle through trusted configuration, retaining its scope until settlement.
    *
@@ -121,8 +121,8 @@ class WorkspaceOwner {
   private error?: string;
   private readonly watches: (() => Promise<void>)[] = [];
   private diagnostics: string[] = [];
-  private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly resolver: Context, private resolution: RuntimeResolution, private readonly changed: (agentId: string) => void) {}
-  static async create(host: Context, workspace: string, changed: (agentId: string) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
+  private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly resolver: Context, private resolution: RuntimeResolution, private readonly changed: (agentId: string, catalogChanged: boolean) => void) {}
+  static async create(host: Context, workspace: string, changed: (agentId: string, catalogChanged: boolean) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
     const dir = join(workspace, '.nanoassistant', 'dsh-plugins');
     // The profile owns only extensions; its default migration never rewrites user patches.
     await initializeContextProfile(dir);
@@ -148,7 +148,7 @@ class WorkspaceOwner {
     if (profile.skippedBundles.length) throw new Error(profile.skippedBundles.map(item => `${item.packageName}: ${item.reason}`).join('\n'));
     return composeEntries([...profile.layers.map(layer => layer.patches), profile.patches]);
   }
-  async refresh(): Promise<void> {
+  async refresh(catalogChanged = true): Promise<void> {
     let rows: EntryOptions[];
     let next: RuntimeResolution;
     try {
@@ -212,7 +212,7 @@ class WorkspaceOwner {
       const active = new Set([...mount.tree.entries()].filter(entry => !entry.disabled).map(entry => entry.fiber));
       await Promise.all([...retired].filter(fiber => !active.has(fiber)).map(fiber => fiber.inertia));
       mount.tools = mount.ctx.tools.schemas(scopeOf(mount.ctx)).map(tool => tool.name).filter(name => !mount.baseline.has(name));
-      this.changed(mount.config.agentId);
+      this.changed(mount.config.agentId, catalogChanged);
     }
     // The removed plugins have drained; their dependency mappings can now leave the native table.
     this.resolver.pluginPackages.replace(next);

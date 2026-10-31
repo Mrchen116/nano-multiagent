@@ -14,6 +14,7 @@ import {parseConfigurationInput, controlRouteId, configurationSource, parseSkill
 import {gatewayRequest} from './node-rpc-request.js';
 import type {NodeCommand, NodeInput, NodeCapabilities} from './node-rpc-contracts.js';
 import {isRecord} from './node-rpc-values.js';
+import {catalogReads, type CatalogRead, type CatalogScope} from './catalog-reads.js';
 function requireProfile(ctx: ImContext, agent: string, owner: string): AgentProfileRecord {
   const p = readAgentProfile(ctx.db, agent, owner);
   if (!p || !canAccessSpace(ownerAccount(ctx.db, owner), p.space_id)) fail(404, "agent_id not found");
@@ -128,6 +129,26 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       reply.header('Cache-Control','private, no-store');
   });
   const ops = new ConfigOperations(configurationDependencies(ctx));
+  const catalogs = catalogReads(ctx);
+  const recoveries = new Set<string>();
+  const recoverSettings = (profile: Row) => {
+    if (recoveries.has(profile.agent_id)) return;
+    recoveries.add(profile.agent_id);
+    void ops.serialized(profile.agent_id, () => ops.recover(profile.agent_id,profile.owner_id))
+      .catch(() => undefined).finally(() => recoveries.delete(profile.agent_id));
+  };
+  const catalogScope = (profile: Row): CatalogScope => {
+    const connection = settingsConnection(ctx,profile);
+    if (!connection) fail(503,'target_node_id is not connected');
+    return {owner_id:profile.owner_id,node_id:profile.node_id,agent_id:profile.agent_id,node_epoch:connection.node_epoch,
+      connection,workspace_root:profile.workspace_root,profile_version:profile.profile_version};
+  };
+  const readAgentCatalog = (profile: Row) => catalogs.read(catalogScope(profile),async (signal,requestId) => {
+    const response = await ctx.gateway.request(profile.node_id,'agent.capabilities.resolve',
+      {request_id:requestId,agent_id:profile.agent_id,workspace_root:requiredWorkspace(profile)},signal);
+    if (!response?.capabilities) fail(502,'Agent capabilities are unavailable');
+    return response.capabilities;
+  });
   const user = (req: FastifyRequest) => {
     const u = ctx.identity.authenticateRequest(req);
     const id = isRecord(req.params) && typeof req.params.agent_id === 'string' ? req.params.agent_id : undefined;
@@ -181,9 +202,17 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const u = await user(req),
       id = controlRouteId(req, 'node_id');
     requireNode(ctx, id, u.owner_id);
-    const {capabilities} = await rpc(id, "node.capabilities.resolve", {});
-    if (!capabilities) fail(502, 'Node capabilities are unavailable');
-    const r = capabilities;
+    const scope = catalogScope({owner_id:u.owner_id,node_id:id});
+    const result = await catalogs.read(scope,async (signal,requestId) => {
+      const response = await ctx.gateway.request(id,'node.capabilities.resolve',{request_id:requestId},signal);
+      if (!response?.capabilities) fail(502,'Node capabilities are unavailable');
+      return response.capabilities;
+    });
+    const currentUser = user(req);
+    requireNode(ctx,id,currentUser.owner_id);
+    if (currentUser.owner_id !== u.owner_id || !result.current()
+      || settingsConnection(ctx,{owner_id:u.owner_id,node_id:id}) !== scope.connection) fail(503,'Catalog read superseded');
+    const r = result.capabilities;
     return {
       node_id: id,
       models: modelOptions(r.models),
@@ -305,41 +334,34 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     profile.agent_id, profile.owner_id) ?? null;
   app.get('/im/v1/agents/:agent_id/settings', async (req, reply) => {
     reply.header('Cache-Control', 'private, no-store');
-    settingsProfile(req);
-    return ops.serialized(controlRouteId(req, 'agent_id'), async () => {
-      let profile = settingsProfile(req);
-      let connection = settingsConnection(ctx, profile);
-      let error: SettingsRead['error'] = connection ? null : settingsError('offline');
-      if (connection && activeOperation(profile)) {
-        try { await ops.recover(profile.agent_id, profile.owner_id); }
-        catch (failure) {
-          if ((failure as Row).detail?.code !== 'config_apply_pending') throw failure;
-        }
-        profile = settingsProfile(req);
-        if (settingsConnection(ctx, profile) !== connection) { connection = undefined; error = settingsError('read_failed'); }
+    let profile = settingsProfile(req);
+    const connection = settingsConnection(ctx, profile);
+    let error: SettingsRead['error'] = connection ? null : settingsError('offline');
+    const pendingOperation = activeOperation(profile);
+    if (connection && pendingOperation) recoverSettings(profile);
+    let live: Row | null = null;
+    let display = readSettingsSnapshot(ctx,profile,'configuration');
+    if (connection && !pendingOperation) {
+      const before = profile;
+      let catalog: CatalogRead | undefined;
+      try {
+        catalog = await readAgentCatalog(profile);
+        live = agentCapabilities(profile,catalog.capabilities);
+      } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
+      // Permission loss never falls back; config writes and invalidation can proceed while we wait.
+      profile = settingsProfile(req);
+      if (!settingsReadCurrent(ctx,before,profile,connection) || (catalog && !catalog.current()) || activeOperation(profile)) {
+        live = null; error = settingsError('read_failed');
       }
-      let live: Row | null = null;
-      let display = readSettingsSnapshot(ctx, profile, 'configuration');
-      const pendingOperation = activeOperation(profile);
-      if (connection && !pendingOperation) {
-        const before = profile;
-        try {
-          const response = await ctx.gateway.request(profile.node_id ?? '', 'agent.capabilities.resolve', {agent_id:profile.agent_id,workspace_root:requiredWorkspace(profile)});
-          live = agentCapabilities(profile, response?.capabilities);
-        } catch (failure) { error = settingsError((failure as Row).statusCode === 504 ? 'timeout' : 'read_failed'); }
-        // Re-authenticate the HTTP identity after RPC; permission loss never falls back to a snapshot.
-        profile = settingsProfile(req);
-        if (!settingsReadCurrent(ctx, before, profile, connection)) { live = null; error = settingsError('read_failed'); }
-        if (live) {
-          const capturedAt = now(), data = configurationDisplay(profile, live);
-          writeSettingsSnapshot(ctx, profile, 'configuration', data, capturedAt);
-          display = {source:'current',captured_at:capturedAt,data,error:null};
-        } else display = readSettingsSnapshot(ctx, profile, 'configuration');
-      }
-      if (error) display.error = error;
-      return {config:profileResponse(profile,true),node:{node_id:profile.node_id,state:!profile.node_id?'unknown':settingsConnection(ctx,profile)?'online':'offline'},
-        display,live_capabilities:live,pending_operation:activeOperation(profile),ready:!!live && !activeOperation(profile)};
-    });
+      if (live && catalog) {
+        const capturedAt = catalog.captured_at, data = configurationDisplay(profile,live);
+        writeSettingsSnapshot(ctx,profile,'configuration',data,capturedAt);
+        display = {source:'current',captured_at:capturedAt,data,error:null};
+      } else display = readSettingsSnapshot(ctx,profile,'configuration');
+    }
+    if (error) display.error = error;
+    return {config:profileResponse(profile,true),node:{node_id:profile.node_id,state:!profile.node_id?'unknown':settingsConnection(ctx,profile)?'online':'offline'},
+      display,live_capabilities:live,pending_operation:pendingOperation ?? activeOperation(profile),ready:!!live && !activeOperation(profile)};
   });
   app.get('/im/v1/agents/:agent_id/settings/sections/:section', async (req, reply) => {
     reply.header('Cache-Control', 'private, no-store');
@@ -472,17 +494,17 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     if (method === 'POST') requireSettingsNodeOnline(ctx,p);
     const result = await rpc(p.node_id ?? '', 'node.plugins.request', {...b,agent_id: p.agent_id,action:b.action});
     if (result.error) fail(409, result.error);
+    if (method === 'POST') catalogs.invalidateNode(p.node_id ?? '');
     return result.plugins;
   }});
   app.get("/im/v1/agents/:agent_id/capabilities", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, controlRouteId(req, 'agent_id'), u.owner_id);
-    const {capabilities} = await rpc(p.node_id ?? '', "agent.capabilities.resolve", {
-      agent_id: p.agent_id,
-      workspace_root: requiredWorkspace(p),
-    });
-    if (!capabilities) fail(502, 'Node capabilities are unavailable');
-    const r = capabilities;
+    const connection = settingsConnection(ctx,p);
+    const result = await readAgentCatalog(p);
+    const after = settingsProfile(req);
+    if (!connection || !settingsReadCurrent(ctx,p,after,connection) || !result.current()) fail(503,'Catalog read superseded');
+    const r = result.capabilities;
     return {
       agent_id: p.agent_id,
       node_id: p.node_id,

@@ -82,7 +82,7 @@ export type NodeCommand = keyof NodeCommandMap;
 export type NodeInput<K extends NodeCommand> = NodeCommandMap[K]['input'] & {request_id?: string};
 export type NodeOutput<K extends NodeCommand> = NodeCommandMap[K]['output'];
 /** Consumer port: command inference cannot be widened by an unrelated payload. */
-export type NodeRequest = <K extends NodeCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>) => Promise<NodeOutput<K>>;
+export type NodeRequest = <K extends NodeCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>, signal?: AbortSignal) => Promise<NodeOutput<K>>;
 
 export type ConfigurationCommand = 'agent.create' | 'agent.config.apply' | 'agent.config.operation.status';
 export type ConfigurationRequest = <K extends ConfigurationCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>) => Promise<NodeOutput<K>>;

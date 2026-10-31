@@ -29,14 +29,16 @@ export class ConfigurationScopes extends Service {
   static inject = ['tools', 'hmr'];
   private readonly maintenance = new Map<string, Promise<void>>();
   private readonly presets = new Set<PresetScope>();
+  private readonly presetReadiness = new Map<string, Set<Promise<void>>>();
   private readonly agents = new Map<Agent, AgentScope>();
   private readonly tools: ToolSelection;
   private readonly sharedExtensions = new Map<string, Promise<void>>();
   private readonly host: Context;
   private readonly extensions: WorkspaceExtensions;
-  constructor(ctx: Context, readonly configurations: Map<string, AgentConfiguration>) {
-    super(ctx, 'nanoConfiguration'); this.host = ctx;
-    this.extensions = new WorkspaceExtensions(ctx, id => this.tools.update(id));
+  readonly configurations: Map<string, AgentConfiguration>;
+  constructor(ctx: Context, options: {configurations: Map<string, AgentConfiguration>; changed: (agentId: string) => void}) {
+    super(ctx, 'nanoConfiguration'); this.host = ctx; this.configurations = options.configurations;
+    this.extensions = new WorkspaceExtensions(ctx, (id, catalogChanged) => {this.tools.update(id); if (catalogChanged) options.changed(id);});
     this.tools = new ToolSelection(ctx, config => this.extensions.tools(config.agentId));
   }
   /** Configure the trusted Node package invocation before any workspace is mounted.
@@ -91,7 +93,17 @@ export class ConfigurationScopes extends Service {
     return config;
   }
   /** Called while the native preset generation is assembled, above Agent restrictions. */
-  async attach(ctx: Context, agentId: string): Promise<void> {
+  attach(ctx: Context, agentId: string): Promise<void> {
+    const pending = this.presetReadiness.get(agentId) ?? new Set<Promise<void>>();
+    this.presetReadiness.set(agentId, pending);
+    const ready = this.attachPreset(ctx, agentId);
+    pending.add(ready);
+    ctx.effect(() => () => { pending.delete(ready); if (!pending.size) this.presetReadiness.delete(agentId); });
+    return ready;
+  }
+  /** Await Nano's asynchronous workspace composition before projecting a cold preset. */
+  async ready(agentId: string): Promise<void> { await Promise.all(this.presetReadiness.get(agentId) ?? []); }
+  private async attachPreset(ctx: Context, agentId: string): Promise<void> {
     const config = this.config(agentId);
     assertPersonalConfiguration(config);
     if (config.extensions?.global) {
