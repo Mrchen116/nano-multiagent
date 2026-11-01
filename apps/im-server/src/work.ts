@@ -128,8 +128,12 @@ export class Work {
     if(personal) this.ctx.personal!.authority(c,p);
     const s = this.ctx.messaging,
       uid = personal?.owner_user_id ?? s.agentUser(p.agent_id).id,
-      sourceAllowed = (id:string) => !personal || this.ctx.personal!.sourceAllowed(personal,id),
-      conversations = personal ? this.ctx.personal!.sourceConversations(personal,p.scope??"joined").filter(r=>!r.excluded) : s.conversations(uid,p.scope ?? "joined");
+      sourceAllowed = (id:string) => !personal || this.ctx.personal!.sourceAllowed(personal,id);
+    const scope = p.scope ?? "joined";
+    if (!["joined", "public"].includes(scope)) fail(400, "invalid scope");
+    // Targeted reads validate their own access; only discovery needs every chat.
+    let listedConversations: Row[] | undefined;
+    const conversations = () => listedConversations ??= personal ? this.ctx.personal!.sourceConversations(personal,scope).filter(r=>!r.excluded) : s.conversations(uid,scope);
     const viewerFor=(id:string)=>personal&&!conversationAccess(this.db,id,uid)?s.agentUser(p.agent_id).id:uid;
     const user = qualifiedUser(this.db,uid);
     if (!user) fail(403,"scope_not_allowed");
@@ -137,7 +141,7 @@ export class Work {
       if (typeof p.target !== "string" || !p.target.trim()) fail(400, "invalid_arguments");
       if(personal) {
         const target=p.target.replace(/^(conversation|user|agent):/, "");
-        const matches=conversations.filter(r=>r.id===target || r.title===target || (r.type==="direct" && s.members(r.id).some(u=>u.id===target || u.display_name===target || u.username===`agent:${target}`)));
+        const matches=conversations().filter(r=>r.id===target || r.title===target || (r.type==="direct" && s.members(r.id).some(u=>u.id===target || u.display_name===target || u.username===`agent:${target}`)));
         return {target:matches.length===1?matches[0]!.id:null};
       }
       return { target: s.resolveTarget(p.agent_id, p.target, false) ?? null };
@@ -238,7 +242,7 @@ export class Work {
       return Buffer.from(JSON.stringify({ snapshot: id, offset, part })).toString("base64url");
     };
     if (p.action === "list") {
-      const filtered = conversations.filter(
+      const filtered = conversations().filter(
         (r) =>
           !p.query ||
           r.title.toLowerCase().includes(p.query.toLowerCase()) ||
@@ -270,7 +274,7 @@ export class Work {
     }
     if (!target && (p.action !== "search" || p.target)) fail(404, "target_not_accessible");
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
-    const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
+    const targets = p.action === 'search' ? (target ? [target.id] : conversations().map(r=>r.id)) : [p.target];
     const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
     const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
       messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id,
@@ -345,7 +349,7 @@ export class Work {
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
             target: m.conversation_id,
-            name: conversations.find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
+            name: target?.title ?? conversations().find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
             ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
