@@ -1,12 +1,27 @@
 # bugfix-678 一次性部署迁移提示词
 
-仅适用于用户明确授权部署包含本 unit 的已验收实现版本。本文件不是部署授权；当前已通过设计复审，但尚无本 unit 的已验收实现，不可据此执行生产迁移。
+仅适用于用户明确授权部署包含本 unit 的已验收实现版本。本文件不是部署授权；本 unit 已完成实现及隔离验收，具体证据见 [M1 补充验证](M1-permission-boundaries/evidence/supplemental-validation.md) 和 [独立回归](M1-permission-boundaries/regression.md)。执行前仍须固定实际待部署 SHA 并取得生产部署授权。
 
 ## 前提与对象
 
 固定目标 Nano SHA、发布 DSH 版本、Node/IM schema 版本及隔离验收证据后，确认部署目标、实际数据路径和进程 owner。对象仅为本 unit 新增的 Inbox 审核状态、PA 事件处置标记、未消费审核凭证和受影响 provider 重试配置；不改 owner、密钥、workspace、聊天内容或联系人决定。
 
-实施交付须提供版本化、可检查 plan/apply 的一次性迁移命令和副本验证证据，补入本文件确切命令后复审。当前不虚构可执行脚本。schema 的正常创建/新增列由既有迁移机制承担，历史语义整理由部署 Agent 一次性执行，不放进每次启动的扫描/回放。
+迁移命令随本版本构建产物交付：先执行 pnpm build；在受管服务停止写入且完成一致性备份后，使用下列命令。PA_AGENT_ID 必须来自当前节点的真实绑定清单，可传多个；不从历史路径推断。schema 的正常创建/新增列由既有迁移机制承担，历史语义整理由部署 Agent 一次性执行，不放进每次启动的扫描/回放。
+
+## 可执行命令
+
+```sh
+node apps/im-server/lib/migrate-pa-permissions.js plan IM_DATABASE
+node packages/personal-assistant/lib/migrate-input-review.js plan INBOX_DATABASE
+node apps/im-server/lib/migrate-pa-permissions.js apply IM_DATABASE
+node packages/personal-assistant/lib/migrate-input-review.js apply INBOX_DATABASE PA_AGENT_ID
+node apps/im-server/lib/migrate-pa-permissions.js verify IM_DATABASE IM_BACKUP
+node packages/personal-assistant/lib/migrate-input-review.js verify INBOX_DATABASE INBOX_BACKUP
+```
+
+IM 标识为 `pa-permission-boundaries-v1`，Inbox 标识为 `input-review-v1`。两个数据库各自事务提交；多节点需逐个执行 Inbox 命令，全部 verify 成功前保持服务停止。plan 只读；apply 重跑不会重复失效许可或创建事件。脚本不改 provider 配置，不发送消息、不调用模型。来源访问在事件实际投影时按当前权限重新核对；不可访问只报告 source_unavailable，不读取旧私有正文。
+
+隔离验证见本 unit M1 证据；永久回归分别位于 `apps/im-server/tests/pa-permission-migration.test.ts`、`packages/personal-assistant/tests/input-admission.test.ts`，覆盖终态保留、marker 前事务中断回滚、重复 apply 与备份对比。生产不得用测试脚本替代只读验证。
 
 ## 顺序与保留原则
 
@@ -26,3 +41,8 @@
 ## 中断与恢复
 
 以部署记录、事务标识及实际状态判断是否已完成。未提交事务重新 plan/apply；已提交只核结果，不再失效凭证/重复生成事件。若启动前验证失败，可在仍停止写入时恢复同一批数据库与配置并运行旧版本；一旦新版本产生真实数据，不直接覆写备份，先停止写入并保留增量，决定前向修复或有明确数据保全方案的回滚。不能仅换旧二进制并复用新 schema 冒充恢复。
+
+
+## R9 自动拉黑增量
+
+包含R9的新版本通过既有schema初始化创建pa_contact_violations伴随表；不改旧表列、不需要另一次历史整理命令。新表从空计数启用，不回算历史incident/count，不在升级时自动拉黑或发送通知；现有黑名单、消息及回执完整保留。暂停服务与一致备份沿用上文。已运行R9的数据库再次打开不得清空counting/triggered_block；生产只读检查表存在和历史数据保留，不人工制造5条风险消息。隔离副本初始化/重开测试与真实链路证据已归入M1 progress、regression Round 5及verification报告。回退保留伴随表及新运行增量，不删除表冒充回滚。

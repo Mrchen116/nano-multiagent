@@ -100,11 +100,11 @@ it('keeps observed slash commands as background and applies the existing partici
   } finally {await f.close();vi.useRealTimers();}
 });
 
-it('drains stored observations before a direct wake and restores old unread source facts without changing an old read',async()=>{
+it('drains stored observations before a direct wake and preserves previously admitted observer facts',async()=>{
   vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
   try {
-    const old=f.input('old observed');old.metadata.personal_source_role='owner_fact';
-    f.inbox.receive(old,true);
+    const old=f.input('old observed');old.metadata={personal_delivery:'observer',personal_is_owner:true,conversation_type:'direct'};
+    f.inbox.receive(old,false);
     const historical=f.inbox.read('pa','old-main','old-read',{target:'background'});
     await f.product.recover();
     expect(f.submitted).toHaveLength(0);

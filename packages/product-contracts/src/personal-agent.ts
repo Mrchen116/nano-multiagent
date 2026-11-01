@@ -22,7 +22,7 @@ export interface PersonalDelegation {
 }
 /** Host-only transport. The tool bridge must not expose review issuance as tools. */
 export type PersonalAgentMethod =
-  | 'pa.runtime.status' | 'pa.state' | 'pa.source.admit'
+  | 'pa.incidents.pending' | 'pa.incident.read' | 'pa.input.context' | 'pa.incident.receipt' | 'pa.runtime.status' | 'pa.state' | 'pa.source.admit'
   | 'pa.observations.read' | 'pa.observations.ack'
   | 'pa.authorization' | 'pa.sources' | 'pa.action.prepare' | 'pa.action.review-result'
   | 'pa.action.commit' | 'pa.action.complete' | 'pa.incident.report';

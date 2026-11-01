@@ -29,6 +29,7 @@ export const createNanoProduct: NanoEvaluationOptions['createProduct'] = options
       const ok = (result: unknown = {}) => ({ type: `${type}.result`, payload: { ok: true, result } });
       if (type === 'agent.session.ensure' || type === 'node.delivery_receipt') return ok();
       if (type === 'pa.observations.read') return ok({ items: [], has_more: false });
+      if (type === 'pa.incidents.pending') return ok(chat.pendingIncidents());
       if (type === 'pa.sources' && args.action === 'list') return ok(chat.sources());
       if (type === 'pa.source.admit') return ok({ allowed: args.conversation_id === target, is_owner: true,
         delivery: 'participant', conversation_type: 'direct', channel: 'web' });

@@ -122,7 +122,7 @@ export class MessageRecords {
       timezone:m.timezone,elapsed_ms:m.elapsed_ms,kernel_message_id:m.kernel_message_id,
       sender:{...this.actor(u),type:m.sender_type,display_name:m.sender_display_name??u.display_name},
       ...(updateWait!==undefined?{update_wait:updateWait}:{}),
-      ...(delegation?.representation_operation_id?{pa_agent_id:delegation.agent_id}:delegation?{delegation:{agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${(this.db.prepare('SELECT display_name FROM users WHERE id=?').get(delegation.authorized_by) as MessageAuthorName|undefined)?.display_name??delegation.display_name}的 PA · 代为发送`}}:{}),
+      ...(delegation?.representation_operation_id?{pa_agent_id:delegation.agent_id}:delegation?{delegation:{agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${(this.db.prepare('SELECT display_name FROM users WHERE id=?').get(delegation.authorized_by) as MessageAuthorName|undefined)?.display_name??delegation.display_name}的 PA`}}:{}),
       attachments:JSON.parse(m.attachments_json??'[]'),
       tool_calls:(JSON.parse(m.tool_calls_json??'[]') as ChatToolCall[]).map(call=>withHumanApproval(call,permissions)),
       thinking:JSON.parse(m.thinking_json??'[]'),background_returns:JSON.parse(m.background_returns_json??'[]'),

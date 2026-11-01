@@ -1,7 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import type {Context} from '@deepseek-ai/cordis';
 import type {Agent} from '@deepseek-ai/dsh-agent';
-import type {ToolExecution} from '@deepseek-ai/dsh-tools';
 import {freezeMessage,MessageId,type UserMessage} from '@deepseek-ai/dsh-llm';
 import type {TaskExecutionSnapshot} from '@nano/product-contracts';
 import type {AgentConfiguration,SessionBinding} from './index.js';
@@ -22,7 +21,6 @@ interface State {
   automaticTurn:boolean;stoppedAt?:number;interrupted?:'error'|'cancelled'|'source'|'flush';interruptedAt?:string;recoveringTurn?:number;
   blocked:boolean;contextUnavailable?:boolean;shown?:TaskExecutionSnapshot;limited?:string;
   unavailableInputs?:{inputId:string;conversationId:string}[];
-  denied:Map<string,Map<string,string>>;deniedCalls:Set<string>;
   run?:{steps:number;automatic:boolean;external:boolean};
 }
 const fingerprint=(snapshot:TaskExecutionSnapshot)=>JSON.stringify(snapshot);
@@ -30,7 +28,6 @@ type Task=TaskExecutionSnapshot['tasks'][number];
 const taskId=(task:{graph_id:string;node_id:string})=>`${task.graph_id}/${task.node_id}`;
 const taskVersion=({revision,...task}:Task)=>JSON.stringify(task);
 const responsibility=(snapshot:TaskExecutionSnapshot|undefined)=>JSON.stringify(snapshot?.tasks.map(taskVersion));
-const actionKey=(exec:ToolExecution)=>JSON.stringify([exec.name,exec.arguments]);
 
 /** Schedule native turns from current product responsibility, without another execution loop. */
 export class TaskExecutionDriver {
@@ -92,18 +89,6 @@ export class TaskExecutionDriver {
       }
       return next();
     },{prepend:true});
-    ctx.on('tools/result',(exec,result)=>{
-      if(!exec.agent||!options.bindings.has(exec.agent.id))return;
-      const state=this.state(exec.agent.id);
-      const rejected=state.deniedCalls.delete(exec.callId);
-      if(result.isError&&(rejected||result.error.info?.name==='NanoApprovalDenied'))this.denied(exec,state);
-      else if(!result.isError)state.denied.delete(actionKey(exec));
-    });
-    ctx.on('approval/request',async(request,next)=>{
-      const outcome=await next();
-      if(options.bindings.has(request.agent.id)&&outcome!=='allowed-once'&&request.callId)this.state(request.agent.id).deniedCalls.add(request.callId);
-      return outcome;
-    });
     ctx.on('agent/error',({agent})=>{this.hold(this.state(agent.id),'error');});
     ctx.on('agent/turn-stopping',({agent,turn})=>{
       const state=this.state(agent.id);
@@ -143,21 +128,20 @@ export class TaskExecutionDriver {
         return next();
       }
       if(state.interrupted==='source')state.interrupted=undefined;
-      this.refreshDenials(state,snapshot);
       state.shown=snapshot;retain();
       const ids=new Set<string>(ordinary.filter(message=>message.source.kind==='schedule').map(message=>message.id));
       const checks=scheduleEvidence(agent.session.snapshotEvents()).filter(item=>ids.has(item.messageId)).flatMap(item=>snapshot.tasks
         .filter(task=>task.status==='waiting'&&task.wait?.schedule_id===item.scheduleId&&task.wait.session_id===agent.id)
         .map(task=>({graph_id:task.graph_id,node_id:task.node_id,schedule_id:item.scheduleId,occurrence_id:item.messageId,planned_check_at:item.scheduledAt??task.wait!.next_check_at,checked_at:new Date().toISOString()})));
-      if(!this.runnable(state,snapshot)) {
+      if(!this.runnable(snapshot)) {
         state.automaticTurn=false;
         if(own.length&&!ordinary.length)return {kind:'reject'};
-        if(checks.length)messages.push(this.message(agent,this.prompt(agent,snapshot,state,false,checks),'task-reminder'));
+        if(checks.length)messages.push(this.message(agent,this.prompt(agent,snapshot,false,checks),'task-reminder'));
         return next();
       }
       if(own.length||checks.length||snapshot.repair_task_ids.length) {
         const repairOnly=own.length>0&&own.every(message=>channel(message)==='task-wait-repair');
-        messages.push(this.message(agent,this.prompt(agent,snapshot,state,own.length>0&&!repairOnly,checks),repairOnly?'task-wait-repair':own.length?'task-execution':'task-reminder',own[0]?.id));
+        messages.push(this.message(agent,this.prompt(agent,snapshot,own.length>0&&!repairOnly,checks),repairOnly?'task-wait-repair':own.length?'task-execution':'task-reminder',own[0]?.id));
         // Each stable receipt remains consumable; only the first carries this
         // step's single combined Task package rather than duplicating it.
         if(repairOnly)messages.push(...own.slice(1));
@@ -169,36 +153,14 @@ export class TaskExecutionDriver {
   }
   private state(id:string):State {
     let state=this.states.get(id);
-    if(!state){state={checking:false,requested:false,serial:1,seenSerial:0,automaticTurn:false,blocked:false,denied:new Map(),deniedCalls:new Set()};this.states.set(id,state);}return state;
+    if(!state){state={checking:false,requested:false,serial:1,seenSerial:0,automaticTurn:false,blocked:false};this.states.set(id,state);}return state;
   }
   private exhausted(agentId:string):boolean {return (this.shortRuns.get(agentId)??0)>=SHORT_RUN_LIMIT;}
   private hold(state:State,reason:NonNullable<State['interrupted']>):void {
     state.interrupted=reason;state.interruptedAt=responsibility(state.shown);state.recoveringTurn=undefined;
   }
-  private denied(exec:ToolExecution,state:State):void {
-    const snapshot=state.shown;if(!snapshot)return;
-    let tasks=snapshot.tasks.filter(task=>task.status==='doing'||snapshot.repair_task_ids.includes(taskId(task)));
-    const args=exec.arguments as {action?:string;graph_id?:string;node_id?:string;operations?:{node_id?:string;container_id?:string;scope_id?:string;from?:string;to?:string}[]};
-    if(exec.name==='task_graph'&&args.graph_id){
-      const ids=[args.node_id,...(args.operations??[]).flatMap(op=>[op.node_id,op.container_id,op.scope_id,op.from,op.to])].filter(Boolean);
-      // Deletion can cover descendants absent from the responsibility projection.
-      // Hold that graph's batch rather than guessing subtree membership.
-      tasks=tasks.filter(task=>task.graph_id===args.graph_id&&(args.action==='delete'||!ids.length||ids.includes(task.node_id)));
-    }
-    // Unattributed tools can affect the current batch; do not guess a task identity.
-    if(tasks.length)state.denied.set(actionKey(exec),new Map(tasks.map(task=>[taskId(task),taskVersion(task)])));
-  }
-  private refreshDenials(state:State,snapshot:TaskExecutionSnapshot):void {
-    const current=new Map(snapshot.tasks.map(task=>[taskId(task),taskVersion(task)]));
-    for(const [action,tasks] of state.denied){
-      for(const [id,version] of tasks)if(current.get(id)!==version)tasks.delete(id);
-      if(!tasks.size)state.denied.delete(action);
-    }
-  }
-  private heldTasks(state:State):Set<string> {return new Set([...state.denied.values()].flatMap(tasks=>[...tasks.keys()]));}
-  private runnable(state:State,snapshot:TaskExecutionSnapshot):boolean {
-    const held=this.heldTasks(state);
-    return snapshot.kind==='continue'&&snapshot.tasks.some(task=>!held.has(taskId(task))&&(task.status==='doing'||snapshot.repair_task_ids.includes(taskId(task))));
+  private runnable(snapshot:TaskExecutionSnapshot):boolean {
+    return snapshot.kind==='continue'&&snapshot.tasks.some(task=>task.status==='doing'||snapshot.repair_task_ids.includes(taskId(task)));
   }
   private enabled(agent:Agent):boolean {
     const config=this.options.configuration(agent);
@@ -229,7 +191,7 @@ export class TaskExecutionDriver {
     }
     return text;
   }
-  private prompt(agent:Agent,snapshot:TaskExecutionSnapshot,state:State,automatic=true,checks:{graph_id:string;node_id:string;schedule_id:string;occurrence_id:string;planned_check_at:string;checked_at:string}[]=[]):string {
+  private prompt(agent:Agent,snapshot:TaskExecutionSnapshot,automatic=true,checks:{graph_id:string;node_id:string;schedule_id:string;occurrence_id:string;planned_check_at:string;checked_at:string}[]=[]):string {
     const closing=this.options.configuration(agent)?.mode==='global'
       ? "Deliver meaningful results or a new blocker with send_message to the Task's fixed conversation. Skip confirmed feedback and unchanged routine progress. End with a brief non-empty private closing note."
       : "Deliver meaningful results or a new blocker to the Task's fixed conversation. Skip confirmed feedback and unchanged routine progress. Use NO_REPLY only when the SingleThread delivery protocol requires silence.";
@@ -239,9 +201,8 @@ export class TaskExecutionDriver {
     const repairs=(snapshot.repairs??[]).filter(repair=>refs.has(taskId(repair))&&!checked.has(taskId(repair)));
     const limits=snapshot.reason==='cron_disabled'?[{reason_code:'cron_disabled',reason:'Cron scheduling is disabled for this Agent.',blocked_actions:['schedule_create','schedule_update'],
       task_refs:tasks.filter(task=>snapshot.repair_task_ids.includes(taskId(task))&&!checked.has(taskId(task))).map(({graph_id,node_id})=>({graph_id,node_id})),checked_at:new Date().toISOString()}].filter(limit=>limit.task_refs.length):[];
-    const held_actions=[...state.denied].map(([action,held])=>({task_refs:tasks.filter(task=>held.has(taskId(task))).map(({graph_id,node_id})=>({graph_id,node_id})),action:JSON.parse(action)})).filter(held=>held.task_refs.length);
-    const context={tasks,...(checks.length?{checks}:{}),...(repairs.length?{repairs}:{}),...(limits.length?{limits}:{}),...(held_actions.length?{held_actions}:{})};
-    return [limits.length?"Cron scheduling is disabled for this Agent. The affected Tasks and unavailable actions are listed in limits. Their Task state and Schedule problem have been verified; the limitation is not an unknown lookup result.\n\nDo not try to create or renew Schedules while this capability is disabled, and do not bypass the configuration or claim that a future check is arranged. Reassess whether the affected work can proceed without waiting. If it cannot, communicate the concrete limitation when useful and retain the actual Task state; do not claim completion or silently change it to paused. Enabling a capability requires the existing configuration and authorization process. Continue independent executable work. Resume Schedule repair only when current capability facts permit it; do not repeat unchanged automatic attempts or public notices.":undefined,automatic?"Continue your owned Tasks in this same session. Inspect the current workspace, tool results and durable Task state instead of relying only on earlier narration. Read Task details and discussion as needed.\n\nMake concrete progress on executable work and verify it. Ending a reply does not finish a Task; before completion, check the whole objective and record evidence.\n\nBefore waiting, verify the blocker, reconsider whether it is necessary and try authorized alternatives or independent work. Confirm any needed request was delivered. When scheduling is available, create a real future native Schedule, then record waiting with its reason and schedule_id. Choose the interval for the actual Task, without a fixed default, and check again within one hour. Follow any verified runtime limitation below instead of attempting its unavailable actions. Continue other doing Tasks.\n\nDo not reopen paused, closed, done or in_review Tasks because of this reminder. It grants no new human authority. Do not bypass a denied action. For listed held actions, unchanged automatic retries remain suspended; new evidence, permitted alternatives and independent work may still be handled.":undefined,
+    const context={tasks,...(checks.length?{checks}:{}),...(repairs.length?{repairs}:{}),...(limits.length?{limits}:{})};
+    return [limits.length?"Cron scheduling is disabled for this Agent. The affected Tasks and unavailable actions are listed in limits. Their Task state and Schedule problem have been verified; the limitation is not an unknown lookup result.\n\nDo not try to create or renew Schedules while this capability is disabled, and do not bypass the configuration or claim that a future check is arranged. Reassess whether the affected work can proceed without waiting. If it cannot, communicate the concrete limitation when useful and retain the actual Task state; do not claim completion or silently change it to paused. Enabling a capability requires the existing configuration and authorization process. Continue independent executable work. Resume Schedule repair only when current capability facts permit it; do not repeat unchanged automatic attempts or public notices.":undefined,automatic?"Continue your owned Tasks in this same session. Inspect the current workspace, tool results and durable Task state instead of relying only on earlier narration. Read Task details and discussion as needed.\n\nMake concrete progress on executable work and verify it. Ending a reply does not finish a Task; before completion, check the whole objective and record evidence.\n\nBefore waiting, verify the blocker, reconsider whether it is necessary and try authorized alternatives or independent work. Confirm any needed request was delivered. When scheduling is available, create a real future native Schedule, then record waiting with its reason and schedule_id. Choose the interval for the actual Task, without a fixed default, and check again within one hour. Follow any verified runtime limitation below instead of attempting its unavailable actions. Continue other doing Tasks.\n\nDo not reopen paused, closed, done or in_review Tasks because of this reminder. It grants no new human authority. Do not bypass a denied action. Use permitted alternatives and continue independent work. If a Task truly cannot proceed, record its explicit paused or waiting state with the actual reason.":undefined,
       checks.length?"This scheduled check concerns the Tasks listed in checks. Read their current state and external facts; recovery may have occurred without a message. Reconsider whether each blocker is still necessary and whether authorized alternatives or independent parts can progress.\n\nIf work is executable, continue it. If waiting is still necessary and scheduling is available, establish a valid next check within one hour using an interval appropriate to the Task. Otherwise follow the verified runtime limitation rather than attempting unavailable actions. Continue other doing Tasks. This timer is not consent and cannot reopen paused, closed, done or in_review Tasks.":undefined,repairs.length?"The Tasks listed in repairs are still waiting, but their linked Schedules are not valid for the planned wake. The verified reason for each Task is included. Check whether the Task is already finished. Continue executable work, or establish a new valid check within one hour if waiting is still necessary and scheduling is available. Follow any verified runtime limitation instead of attempting unavailable actions. Reconsider the blocker and authorized alternatives; continue other doing Tasks.\n\nThis reminder does not change Task state, reopen paused/closed/done/in_review work or grant authority. A Schedule deletion receipt does not replace handling these Tasks.":undefined,
       'Current Task context:',JSON.stringify(context),closing].filter(part=>part!==undefined).join('\n\n');
   }
@@ -275,8 +236,7 @@ export class TaskExecutionDriver {
       const snapshot=await this.snapshot(agent);
       if(!this.enabled(agent)||this.exhausted(agentId))return;
       if(snapshot.kind==='unavailable'){if(!state.interrupted)this.hold(state,'source');return;}
-      this.refreshDenials(state,snapshot);
-      if(!this.runnable(state,snapshot)||state.limited===fingerprint(snapshot)||state.blocked||agent.status!=='idle'||!reconsider&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))return;
+      if(!this.runnable(snapshot)||state.limited===fingerprint(snapshot)||state.blocked||agent.status!=='idle'||!reconsider&&(agent.inbox.nextTurn.length||agent.inbox.nextStep.length))return;
       if(state.interrupted){
         if(state.interrupted==='cancelled') {
           const freshInput=agent.session.snapshotEvents().some(event=>event.type==='user/message'&&freshWake(event.data,state.stoppedAt));
@@ -285,7 +245,7 @@ export class TaskExecutionDriver {
         } else if(state.interrupted==='error'&&(!reconsider||responsibility(snapshot)===state.interruptedAt))return;
         state.interrupted=undefined;
       }
-      const message=this.message(agent,this.prompt(agent,snapshot,state),'task-execution');state.queued=message.id;
+      const message=this.message(agent,this.prompt(agent,snapshot),'task-execution');state.queued=message.id;
       agent.followup(message);
     } catch {this.hold(state,'flush');}
     finally {state.checking=false;if(state.requested){state.requested=false;void this.poke(agent);}}

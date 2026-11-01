@@ -151,7 +151,7 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(result(9).content[0].text).toContain('ANSWER_RECOVERY');
     expect(result(5).content[0].text).toContain('nano-memory');
     expect(JSON.parse(result(11).content[0].text).items).toEqual([]);
-    expect(JSON.parse(result(12).content[0].text)).toEqual({ sources: [] });
+    expect(JSON.parse(result(12).content[0].text)).toEqual({ sources: [], review_failures: [], security_incidents: [] });
     const stored = JSON.parse(result(13).content[0].text).messages;
     expect(stored.some((message: { content:Array<{text:string}> }) => message.content[0]?.text.includes('UNTRIGGERED_LAST_UPDATE'))).toBe(true);
     const mapping = JSON.parse(await readFile(audit.requests.replace('requests.jsonl', 'source-map.json'), 'utf8'));

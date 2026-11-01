@@ -10,7 +10,7 @@ Retired 与 completed history 不同：
 
 | Unit | 退役原因 | 当前入口 |
 |---|---|---|
-| [`feat-625-auto-review-bounded-retry`](feat-625-auto-review-bounded-retry/spec.md) | 2026-10-29 用户明确废弃独立审核重试交付；未合入 PR #419 内改名为 feat-669，保留原证据，统一所有模型调用的 DSH 恢复由新 unit 承担 | [bugfix-678](../bugfix-678-pa-permission-boundaries/incident.md) |
+| [`feat-625-auto-review-bounded-retry`](feat-625-auto-review-bounded-retry/spec.md) | 2026-10-29 用户明确废弃独立审核重试交付；未合入 PR #419 内改名为 feat-669，保留原证据，统一所有模型调用的 DSH 恢复由新 unit 承担 | [bugfix-678](../archive/bugfix-678-pa-permission-boundaries/incident.md) |
 | [`feat-329-acp-interface-parity`](feat-329-acp-interface-parity/spec.md) | 依赖已删除的 kernel HTTP / ServerClient 架构 | [`SPEC.md`](../../../SPEC.md)、[`kernel specs`](../../specs/kernel/spec.md)、[`CLI specs`](../../specs/cli/spec.md) |
 | [`feat-336-generic-channel-architecture`](feat-336-generic-channel-architecture/spec.md) | 被 feat-447 和后续 channel changes 取代 | [`Gateway external channels`](../../specs/gateway/external-channels.md) |
 | [`bugfix-494-feishu-sdk-cache-warning`](bugfix-494-feishu-sdk-cache-warning/fix.md) | 2026-10-19 退役：refactor-581 已移除 Python Feishu SDK、ExpiringCache 与对应 seam 测试，旧修复对象不再存在 | [当前 Node SDK 适配器](../../../packages/channels/src/feishu.ts)、[外部渠道契约](../../specs/gateway/external-channels.md) |

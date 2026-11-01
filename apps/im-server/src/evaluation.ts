@@ -118,6 +118,9 @@ export class EvaluationChat {
   /** Resolve the actual stored PA source policy through the product authority check. */
   sources() { return this.ctx.personal!.sources(this.principal, { agent_id: this.options.agentId, action: 'list' }); }
 
+  /** Read pending security notices for the case's own PA binding. */
+  pendingIncidents() { return this.ctx.personal!.pendingIncidents(this.principal, { agent_id: this.options.agentId }); }
+
   /** Synchronize task originals against this case's stored PA authority.
    * Args:
    *   args: Ordinary product cursor and pending-message revalidation request.
