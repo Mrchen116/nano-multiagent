@@ -24,7 +24,7 @@
 - Web 全量 109 个文件 / 1,039 项通过。
 - Python 非 E2E 129 项通过，28 项按标记排除；Ruff 通过。
 - 构建、全仓类型检查、iOS runtime 静态校验、文档完整性通过。
-- 组合后的后端全量及远端 CI 结果在最终提交时补入。
+- 组合后端全量在 `27aa90acd` 上 200 文件 / 1,082 项通过，用时 385 秒。远端 CI 以 PR 最终 head 对应检查为准。
 - canonical delta 只覆盖可选的游标响应。原完整快照测试、创建恢复、来源边界及输入确认回归共同约束既有体验。
 
 ## 真实浏览器重连
@@ -32,3 +32,7 @@
 隔离 IM 与 Node 使用独立账号、数据、workspace 和高位端口。Playwright CLI 登录后创建并打开 Reconnect check 群。初次建连和主动关闭 WebSocket 后，均看到 `GET /im/v1/sync?view=cursor` 返回 200 和 `max_event_id:0`，随后用户流实际发送 `resume after_event_id:0`，原群仍打开。非零游标和撤销账号资格由真实 HTTP 路由回归覆盖。
 
 验证完关闭专用浏览器，运行 e2e-down 并确认 IM 监听端口释放。没有把合成服务或开发者验证记为用户亲测。
+
+## 真实 DSH 流式对照
+
+沿用 bugfix-690 的隔离 SSE 探针，在本轮实现上启动真实 RuntimeClient/DSH 子进程，同时注册 SingleThread 和 GlobalAgent。100 条绑定、500 条已确认旧输入、100 个四字符片段，实际计得 200 次同步 SQL、100 条绑定、0 条旧输入、9 个合并批次，最终正文 400 字符且按序相同，错误列表为空。网络 provider 为本地受控端点；所有子进程和临时数据库在探针 finally 中关闭。
