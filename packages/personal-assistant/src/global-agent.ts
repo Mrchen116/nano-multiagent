@@ -63,8 +63,9 @@ export class GlobalAgent {
     this.personal = new PersonalAssistant(options);
     this.unsubscribe = options.runtime.onNotification((method, params) => {
       if (method === 'product.cancel') { this.calls.get((params as { operationId: string }).operationId)?.abort(); return; }
+      if (method !== 'session.event' && method !== 'model.changed' && method !== 'session.status') return;
       const data = params as { sessionId: string; rootSessionId?: string; status?: string };
-      const binding = options.store.bindings().find(binding => binding.sessionId === (data.rootSessionId ?? data.sessionId));
+      const binding = options.store.bindingForSession(data.rootSessionId ?? data.sessionId);
       const config = options.agents.find(agent => agent.agentId === binding?.agentId && agent.mode === 'global');
       if (!binding || !config) return;
       if (method === 'session.event' || method === 'model.changed') this.reconcile(binding).catch(options.onError);
