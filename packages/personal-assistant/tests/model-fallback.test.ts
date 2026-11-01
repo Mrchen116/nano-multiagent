@@ -144,7 +144,10 @@ it.each([false, true])('merges queued deltas and settles the complete native ans
     nodeId: 'n',
     ownerId: 'owner',
     store,
-    agents: [{ agentId: 'a', revision: '1', mode: 'single_thread', provider: 'p', model: 'm', workspace: '/tmp' }],
+    agents: [
+      { agentId: 'a', revision: '1', mode: 'single_thread', provider: 'p', model: 'm', workspace: '/tmp' },
+      { agentId: 'g', revision: '1', mode: 'global', provider: 'p', model: 'm', workspace: '/tmp' },
+    ],
     runtime: {
       onNotification(listener) {
         notify = listener;
@@ -187,6 +190,9 @@ it.each([false, true])('merges queued deltas and settles the complete native ans
       frame: { type: 'chunk', attemptId: 'attempt', index: 0, chunk: { type: 'text-delta', text: 'PART' } },
     });
     await expect.poll(() => deltaEntered).toBe(true);
+    // Global notifications share the runtime transport while a chat ACK is outstanding.
+    store.bind({ agentId: 'g', sessionId: 'global', conversationId: 'global:g', ownerId: 'owner', revision: '1', cwd: '/tmp' });
+    notify('session.stream', { sessionId: 'global', frame: { type: 'chunk', attemptId: 'attempt', index: 1, chunk: { type: 'text-delta', text: 'private work' } } });
     events = [
       {
         seq: 1,

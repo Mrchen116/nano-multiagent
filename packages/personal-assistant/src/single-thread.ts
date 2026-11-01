@@ -39,7 +39,8 @@ export class SingleThread {
     this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, value) => {
       const data = value as { sessionId: string; event?: RuntimeEvent };
-      const binding = options.store.bindings().find(binding => binding.sessionId === data.sessionId);
+      if (!data.sessionId) return;
+      const binding = options.store.bindingForSession(data.sessionId);
       if (!binding || options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') return;
       if ((method === 'session.event' && data.event) || method === 'model.changed') this.reconcile(data.sessionId).catch(options.onError);
       if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
@@ -235,7 +236,7 @@ export class SingleThread {
 
   private async drain(sessionId: string): Promise<void> {
     const { store, runtime } = this.options;
-    const binding = store.bindings().find(item => item.sessionId === sessionId);
+    const binding = store.bindingForSession(sessionId);
     if (!binding) return;
     const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
@@ -432,7 +433,7 @@ export class SingleThread {
     this.pendingApprovals.delete(result.requestId);
   }
   private binding(sessionId: string): SessionBinding {
-    const binding = this.options.store.bindings().find(item => item.sessionId === sessionId);
+    const binding = this.options.store.bindingForSession(sessionId);
     if (!binding) throw new Error('Unknown session');
     return binding;
   }
@@ -454,7 +455,7 @@ export class SingleThread {
     if (controlText(input) !== '/stop') this.options.store.confirmReceipt(inputId, status);
   }
   private stream({ sessionId, frame }: Stream) {
-    if (this.options.store.inputs(sessionId).some(input => input.input.metadata.conversation_type === 'group')) return;
+    if (this.options.store.hasGroupInput(sessionId)) return;
     if (frame.type === 'start') {
       this.streams.set(frame.attemptId, { sessionId, attemptId: frame.attemptId, turn: frame.turn!,
         chain: this.reconcile(sessionId), text: '', flushing: false });
@@ -491,7 +492,7 @@ export class SingleThread {
           stream.text = '';
           const { sessionId } = stream;
           const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
-          const turnInputs = this.options.store.inputs(sessionId).filter(input => input.turn === turn);
+          const turnInputs = this.options.store.inputs(sessionId, turn);
           if (!turnInputs.length || turnInputs.every(input => input.input.metadata.origin === 'task_execution' || input.input.message.sender_type === 'system' && input.input.message.system_notice?.kind === 'task_graph')) continue;
           const delivery = this.options.store.delivery(sessionId, turn);
           if (!delivery?.messageId || delivery.state !== 'sending') continue;

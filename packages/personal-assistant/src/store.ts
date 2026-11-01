@@ -87,6 +87,9 @@ export class NodeStore {
       this.db.exec('ALTER TABLE inputs ADD COLUMN evidence_final INTEGER NOT NULL DEFAULT 0');
     }
     this.db.exec('CREATE INDEX IF NOT EXISTS inputs_evidence_pending ON inputs(session_id,evidence_final)');
+    this.db.exec(`CREATE INDEX IF NOT EXISTS inputs_group_session ON inputs(session_id)
+      WHERE json_extract(payload,'$.metadata.conversation_type')='group';
+      CREATE INDEX IF NOT EXISTS inputs_session_turn ON inputs(session_id,turn);`);
     this.toolReferences = new ToolReferences(this.db);
     this.lifecycle = new AgentLifecycleAuthority(this.db);
     if(!(this.db.prepare('PRAGMA table_info(group_background)').all() as {name:string}[]).some(c=>c.name==='cancelled'))this.db.exec('ALTER TABLE group_background ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0');
@@ -172,6 +175,15 @@ export class NodeStore {
   bindingFor(agentId: string, conversationId: string): SessionBinding | undefined {
     conversationId = this.canonicalConversation(agentId, conversationId);
     const row = this.db.prepare('SELECT binding FROM sessions WHERE agent_id=? AND conversation_id=?').get(agentId, conversationId) as { binding: string } | undefined;
+    return row ? JSON.parse(row.binding) as SessionBinding : undefined;
+  }
+  /** Resolve a runtime notification using its durable session identity.
+   *
+   * Returns:
+   *   The stored binding, or undefined for a session outside this node.
+   */
+  bindingForSession(sessionId: string): SessionBinding | undefined {
+    const row = this.db.prepare('SELECT binding FROM sessions WHERE session_id=?').get(sessionId) as { binding: string } | undefined;
     return row ? JSON.parse(row.binding) as SessionBinding : undefined;
   }
   bindings(): SessionBinding[] {
@@ -270,8 +282,22 @@ export class NodeStore {
   lookupInputIds(sessionId: string): string[] {
     return (this.db.prepare('SELECT input_id FROM inputs WHERE session_id=? AND evidence_final=0 ORDER BY rowid').all(sessionId) as { input_id: string }[]).map(row => row.input_id);
   }
-  inputs(sessionId: string) {
-    return (this.db.prepare('SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? ORDER BY rowid').all(sessionId) as {
+  /** Check for group inputs across turns, including those preceding a system wake. */
+  hasGroupInput(sessionId: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM inputs WHERE session_id=?
+      AND json_extract(payload,'$.metadata.conversation_type')='group' LIMIT 1`).get(sessionId);
+  }
+  /** Read inputs in admission order.
+   *
+   * Args:
+   *   sessionId: Durable session identity.
+   *   turn: Limit to this logical turn, or omit for session-wide recovery.
+   */
+  inputs(sessionId: string, turn?: number) {
+    const query = 'SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=?';
+    const rows = turn === undefined ? this.db.prepare(query + ' ORDER BY rowid').all(sessionId)
+      : this.db.prepare(query + ' AND turn=? ORDER BY rowid').all(sessionId, turn);
+    return (rows as {
       input_id: string; payload: string; accepted: number; turn: number | null; terminal: string | null;
     }[]).map(row => ({ id: row.input_id, input: JSON.parse(row.payload) as RelayInput, accepted: !!row.accepted, turn: row.turn, terminal: row.terminal }));
   }
