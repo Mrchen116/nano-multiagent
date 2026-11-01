@@ -1,6 +1,6 @@
-import {configurationDependencies} from './configuration-assembly.js';
+import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
-import {readAgentProfile} from './configuration-records.js';
+import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, lifecycleAllows } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, fail, body, params, transaction, type Row, type ImContext } from './context.js';
 import { conversationAccess } from './conversation-access.js';
-import { ConfigOperations, profileResponse } from './control.js';
+import { profileResponse } from './control.js';
 import { personalInputContext } from './personal-input-context.js';
 import { PersonalActions } from './personal-actions.js';
 
@@ -382,7 +382,7 @@ export class PersonalAgents {
 
 /** Register owner-only product controls; node operations use the authenticated gateway. */
 export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
-  const pa=ctx.personal!; const ops=new ConfigOperations(configurationDependencies(ctx));
+  const pa=ctx.personal!; const ops=configurationOperations(ctx);
   const user=(req:any)=>ctx.identity.authenticateRequest(req);
   app.get('/im/v1/personal-agent',req=>pa.state(user(req).owner_id));
   app.post('/im/v1/personal-agent',async(req,reply)=>{
@@ -429,13 +429,14 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   app.patch('/im/v1/personal-agent',async req=>{
     const u=user(req),b=pa.binding(u.owner_id),name=body(req).display_name;
     if(!b)fail(404,'personal_agent_not_found');if(typeof name!=='string'||!name.trim()||name.length>80)fail(422,'invalid_name');
-    await ops.serialized(b.agent_id,async()=>{
-      await ops.recover(b.agent_id,u.owner_id);
+    return ops.serialized(b.agent_id,async()=>{
+      const candidateFor = (profile: AgentProfileRecord) => ({...profileResponse(profile,true),display_name:name.trim()});
+      if (await ops.recoverEdit(b.agent_id,u.owner_id,undefined,candidateFor)) return pa.state(u.owner_id);
       const profile=readAgentProfile(ctx.db,b.agent_id)!;
       requireSettingsNodeOnline(ctx,profile);
-      await ops.update(profile,{...profileResponse(profile,true),display_name:name.trim()},u.owner_id);
+      await ops.update(profile,candidateFor(profile),u.owner_id);
+      return pa.state(u.owner_id);
     });
-    return pa.state(u.owner_id);
   });
   const settingsOwner = (req: import('fastify').FastifyRequest) => {
     const u=user(req), binding=pa.binding(u.owner_id);
