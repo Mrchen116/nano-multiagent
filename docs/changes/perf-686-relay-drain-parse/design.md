@@ -28,3 +28,4 @@
 - `apps/im-server/tests/relay-delivery.test.ts` 在前后两个版本都通过。使用交错的三个 Agent 和真实资格检查，覆盖剩余候选次序变化、窗口填满，以及第一次向 C 发帧后从群中移除 C，后续 C 的行被取消。
 - `apps/im-server/tests/e2e/relay-recovery.test.ts` 通过隔离 IM 进程和本地 WebSocket 验证回执腾出窗口、迟到回执和重连恢复。`apps/im-server/tests/task-context-revocations.test.ts` 验证撤销和生命周期边界。
 - 用户授权以正常体验不变为交付条件。以上为开发者测试，未进行生产试投或用户亲测。
+- 一次性时钟验证在单条未确认 relay 上先令发送返回 false，检查持久行仍为 queued，再让发送成功。时钟依次取 100、10099、10100、11099、11100、21100、23099、23100 毫秒，捕获到的成功发送时刻仅为 100、11100、23100 毫秒，覆盖首次和再次超时的退避。
