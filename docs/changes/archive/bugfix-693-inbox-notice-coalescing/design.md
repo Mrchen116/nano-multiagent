@@ -1,6 +1,6 @@
 # bugfix-693: As-built Design
 
-> 本文在实现后根据实际代码与测试形成。用户亲自验收尚未发生，unit 保持 active。
+> 本文在实现后根据实际代码与测试形成。用户明确授权本次由 Agent 自行验收、通过后合入。
 
 ## 实现范围
 
@@ -37,4 +37,4 @@
 
 ## Canonical 文档影响
 
-待归并 delta：[specs/gateway/global-agent.md](specs/gateway/global-agent.md)，目标 `docs/specs/gateway/global-agent.md`。用户确认前保留 active，不将目标状态覆盖 current spec。
+已归并 delta：[specs/gateway/global-agent.md](specs/gateway/global-agent.md)，目标 `docs/specs/gateway/global-agent.md`。按本次明确授权完成 Agent 自验后归并；用户没有亲自测试，不作相反记录。

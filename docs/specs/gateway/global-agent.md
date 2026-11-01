@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: bugfix-646
+> 对齐: bugfix-693
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -23,6 +23,8 @@
 - **WHEN** 其他聊天发来符合接收条件的新请求
 - **THEN** 新请求保留供其读取，不因收到请求就强制中断当前工作
 - **AND** 符合触发配置的新输入在主 Agent 下一次模型请求前提供 Inbox 系统提醒，不必等当前任务结束；已开始的模型请求和工具执行不被硬中断
+- **AND** 下一次模型请求前积累的多条符合触发配置的新输入合并为至多一条新的 Inbox 系统提醒；各条消息正文仍完整保留供 Inbox 读取
+- **AND** 提醒进入模型上下文后，再到达的新输入可以在后续模型请求中触发新提醒
 - **AND** 提醒不包含新消息正文或代表真人授权，正文与来源仍通过 Inbox 主动读取；原发送前复核继续生效
 - **AND** 用户能在工作视图中查看其后续读取和处理过程
 
