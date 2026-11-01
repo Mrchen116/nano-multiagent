@@ -55,7 +55,7 @@ Bugfix lite
 
 快速开发
   用户与 Agent 持续对齐、实现和测试
-    → 用户亲自测试并确认结果
+    → 按体验变化确定验收方式（见快速开发模式）
     → change-fast-close
        → 建立 unit，补首文档、as-built design 与必要的 delta-spec
        → change-code-review
@@ -77,9 +77,10 @@ Bugfix lite
 - 首文档来自原始对话和用户决定，不能只根据最终代码反推需求；
 - `design.md` 是标明事后形成的 as-built design，必须以实际代码、diff、测试和已确认决策为依据；
 - 不补造没有发生过的 milestone、`tasks.md`、`progress.md`、design review、verifier 或产品 reviewer 记录；
-- 用户亲自测试并确认结果后才能进入 `change-fast-close`；本路径不再重复产品验收；
+- 用户可观察体验发生变化时，亲自测试并确认结果后进入 `change-fast-close`；本路径不再重复产品验收；
+- 仅后台性能或架构优化、产品设计和用户体验不变时，以行为等价性证据、适用测试和独立 code review 完成验收，无需用户亲测。文档记录适用依据与实际验证结果；
 - `change-code-review` 是唯一独立质量门禁；review 修复改变用户可观察行为时，用户需要重新确认受影响旅程；
-- 收尾未完成或用户尚未确认时，unit 保持 active。
+- 收尾未完成或适用的验收尚未完成时，unit 保持 active。
 
 `change-fast-close` 负责锁定现有 diff、建立事后 unit、回填文档、执行 code review、归并 canonical spec 并按用户授权交付。
 
@@ -177,7 +178,7 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 | Full，存在用户可观察旅程 | 必须 | 必须 | 必须 |
 | Full，零用户面 | 必须 | 跳过 | 必须 |
 | Bugfix lite | 跳过 | 跳过 | 必须 |
-| 快速开发 | 跳过 | 跳过；使用已记录的用户验收 | 必须 |
+| 快速开发 | 跳过 | 跳过；按快速开发模式记录适用验收 | 必须 |
 
 Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。表格规定检查职责，不规定 Agent 数量；orchestrator 负责角色组合与模型配置，在派发中明确职责、范围和输出，执行角色不自行增加兼任职责：Full 默认由同一位未参与受审实现的独立静态审查者一次执行 `$change-code-review` 与 `$change-verifier`，分别保留代码审查结论和一致性报告；产品 reviewer 与实现、静态审查均独立。高风险或存在争议、关键条件无法确认的代码发现，再按具体问题追加独立候选核验；普通明确问题由静态审查者直接举证。
 
@@ -206,7 +207,7 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 
 每次实际执行门禁都记录 `validated_at`（实际核对的 unit tree）和 `executed_base`（执行时的 main）；最终 sync 后再记录 `effective_base` 和 `effective_through`。PR 必须同时展示这些值，区分“在哪里真正执行过”和“经过失效判断后结论有效到哪里”。开放 PR 后若再次同步 main，重新执行同一套门禁失效判断。
 
-快速开发由 `change-fast-close` 收尾，继续使用已经记录的用户验收，不补 verifier 或产品 reviewer。若交付时需要在 code review 或用户确认后同步 main，同样必须判断 main 增量是否使 code review 或用户验收失效；内部变化重跑 code review，用户可观察行为可能变化时交回用户确认。
+快速开发由 `change-fast-close` 收尾，沿用[快速开发模式](#快速开发模式)规定的验收方式，不补 verifier 或产品 reviewer。若交付时需要在 code review 或验收后同步 main，同样必须判断 main 增量是否使 code review 或验收证据失效；内部变化重跑 code review，用户可观察体验可能变化时交回用户确认。
 
 开放 PR 的同一交付会话可以继续处理自包含小修。会话退出后，恢复前必须核对 unit branch、PR head 和 clean worktree；需要修改 design 或新增 milestone 的反馈交由人判断，不能在 archive 中启动第二套生命周期。
 
@@ -230,7 +231,7 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 | `change-orchestrator` | sync、调度、判真、直接闭环、门禁、契约归并、归档和 PR/CI | 接管已派发的 implementation milestone |
 | `change-orchestrator-simple` | 在 unit worktree 内自主组织实现，并负责适用门禁、契约归并、归档和 PR/CI | 改写已经确认的需求、设计或交付标准 |
 | `change-impl-worker` | 首轮已派发 milestone 的实现、测试和适用证据 | 擅自改写需求或绕过设计 |
-| `change-fast-close` | 为已完成的快速开发 diff 补 unit、as-built design、用户验收记录、code review、契约归并和归档 | 伪造事前流程、代替用户验收 |
+| `change-fast-close` | 为已完成的快速开发 diff 补 unit、as-built design、适用验收记录、code review、契约归并和归档 | 伪造事前流程或验收 |
 | `change-verifier` | 实现与 spec/design/milestone 的一致性 | 写代码、产品体验判断 |
 | `change-reviewer` | 用户旅程和产品可用性 | 写代码、用源码检查替代真实旅程 |
 | `change-code-review` | diff correctness 和维护风险 | 直接实施 finding |
