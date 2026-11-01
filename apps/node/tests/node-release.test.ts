@@ -34,6 +34,7 @@ async function fixture(failure = '') {
     gh: `if(args[0]==='repo') console.log('PUBLIC'); else {
       if(fs.existsSync(dir+'/uploaded')) process.exit(1);
       if(args[0]!=='release'||args[1]!=='create'||args[2]!=='v${releaseVersion}'||args[args.indexOf('--title')+1]!=='Nano Node v${releaseVersion}'||args[args.indexOf('--target')+1]!=='${version}') process.exit(2);
+      fs.writeFileSync(dir+'/notes', args[args.indexOf('--notes')+1]);
       fs.copyFileSync(args[3], dir+'/uploaded');
     }`,
     curl: `if(args[0]!=='--disable'||args.includes('--header')||args.includes('--user')||!args.includes(${JSON.stringify(downloadUrl)})) process.exit(3);
@@ -45,7 +46,10 @@ async function fixture(failure = '') {
     await writeFile(join(bin, name), prelude + source);
     await chmod(join(bin, name), 0o700);
   }
-  const run = (release = releaseVersion) => spawnSync(process.execPath, [isolatedPublisher, directory], { cwd: directory, encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RELEASE_VERSION: release } });
+  const run = (release = releaseVersion, changes = '- 改进节点连接', upgradeNotes = '无需额外操作') =>
+    spawnSync(process.execPath, [isolatedPublisher, directory], { cwd: directory, encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RELEASE_VERSION: release,
+        RELEASE_CHANGES: changes, RELEASE_UPGRADE_NOTES: upgradeNotes } });
   return { directory, candidate, bytes, run, published: { ...candidate, version: releaseVersion, source_commit: version, download_url: downloadUrl } };
 }
 
@@ -55,11 +59,25 @@ it('promotes only the same uploaded and anonymously verified bytes, without over
     const result = f.run();
     expect(result.status, result.stderr).toBe(0);
     expect(await readFile(join(f.directory, 'uploaded'))).toEqual(f.bytes);
+    expect(await readFile(join(f.directory, 'notes'), 'utf8')).toBe([
+      '## 本版变化', '- 改进节点连接', '## 升级说明', '无需额外操作', '## 安装包与校验',
+      `- 安装包 [nano-node.tgz](${f.published.download_url})\n- 源码提交 [\`${f.published.source_commit}\`](https://github.com/Mrchen116/nano-multiagent/commit/${f.published.source_commit})\n- SHA-256 \`${f.candidate.sha256}\``,
+    ].join('\n\n'));
     expect(JSON.parse(await readFile(join(f.directory, 'manifest.json'), 'utf8'))).toEqual(f.published);
     const published = await readFile(join(f.directory, 'manifest.json'), 'utf8');
     expect(f.run().status).not.toBe(0);
     expect(await readFile(join(f.directory, 'uploaded'))).toEqual(f.bytes);
     expect(await readFile(join(f.directory, 'manifest.json'), 'utf8')).toBe(published);
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+it.each([[' ', '无需额外操作'], ['- 改进节点连接', '']])('requires both release note sections before uploading', async (changes, upgradeNotes) => {
+  const f = await fixture();
+  try {
+    const result = f.run(undefined, changes, upgradeNotes);
+    expect(result.stderr).toContain('RELEASE_CHANGES and RELEASE_UPGRADE_NOTES are required');
+    expect(result.status).not.toBe(0);
+    await expect(readFile(join(f.directory, 'uploaded'))).rejects.toThrow();
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 

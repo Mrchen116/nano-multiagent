@@ -11,6 +11,14 @@ on:
         description: Full source commit SHA (40 lowercase hex characters)
         type: string
         required: true
+      changes:
+        description: 相对上一发行版的用户可见变化（Markdown）
+        type: string
+        required: true
+      upgrade_notes:
+        description: 升级步骤、兼容性或迁移要求，无特殊要求时填写“无需额外操作”
+        type: string
+        required: true
 
 permissions:
   contents: write
@@ -51,6 +59,8 @@ jobs:
       - name: Publish and anonymously verify the same package
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANGES: ${{ inputs.changes }}
+          RELEASE_UPGRADE_NOTES: ${{ inputs.upgrade_notes }}
           GH_TOKEN: ${{ github.token }}
         run: node "$RUNNER_TEMP/nano-publish-node-release.mjs"
       - name: Preserve verified manifest for the matching IM deployment

@@ -1,6 +1,7 @@
 /** Upload one built candidate, verify it anonymously, then promote its IM manifest.
  *
- * Usage: RELEASE_VERSION=X.Y.Z node scripts/publish-node-release.mjs [candidate-directory]
+ * Inputs: RELEASE_VERSION=X.Y.Z, RELEASE_CHANGES and RELEASE_UPGRADE_NOTES.
+ * Usage: node scripts/publish-node-release.mjs [candidate-directory]
  * Run from the clean source checkout matching the candidate, with release-authorized gh.
  * Existing Release tags are never updated; deployment is a separate operation.
  */
@@ -16,6 +17,9 @@ const repository = 'Mrchen116/nano-multiagent';
 const version = process.env.RELEASE_VERSION;
 if (!version || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version))
   throw new Error('RELEASE_VERSION must be an explicit X.Y.Z version (without v prefix)');
+const changes = process.env.RELEASE_CHANGES?.trim();
+const upgradeNotes = process.env.RELEASE_UPGRADE_NOTES?.trim();
+if (!changes || !upgradeNotes) throw new Error('RELEASE_CHANGES and RELEASE_UPGRADE_NOTES are required');
 const candidate = JSON.parse(await readFile(join(directory, 'manifest.candidate.json'), 'utf8'));
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const tag = `v${version}`;
@@ -36,9 +40,18 @@ if (metadata.source_commit !== revision || metadata.updater_protocol !== 1 || me
   throw new Error('Candidate package metadata does not match the source and updater protocol');
 const visibility = execFileSync('gh', ['repo', 'view', repository, '--json', 'visibility', '--jq', '.visibility'], { encoding: 'utf8' }).trim();
 if (visibility !== 'PUBLIC') throw new Error('Installer releases require a public repository');
+const notes = [
+  '## 本版变化', changes,
+  '## 升级说明', upgradeNotes,
+  '## 安装包与校验', [
+    `- 安装包 [${candidate.package}](${manifest.download_url})`,
+    `- 源码提交 [\`${revision}\`](https://github.com/${repository}/commit/${revision})`,
+    `- SHA-256 \`${candidate.sha256}\``,
+  ].join('\n'),
+].join('\n\n');
 // gh release create fails if this tag already has a Release; never use upload --clobber.
 execFileSync('gh', ['release', 'create', tag, archive, '--repo', repository, '--target', revision,
-  '--title', `Nano Node v${version}`, '--notes', `Source: ${revision}\nSHA-256: ${candidate.sha256}`, '--latest=false'], { stdio: 'inherit' });
+  '--title', `Nano Node v${version}`, '--notes', notes, '--latest=false'], { stdio: 'inherit' });
 const temporary = await mkdtemp(join(directory, '.verify-'));
 try {
   const downloaded = join(temporary, 'nano-node.tgz');
