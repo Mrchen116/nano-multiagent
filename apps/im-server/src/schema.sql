@@ -428,6 +428,9 @@ WHERE receipt_status IS NULL AND status IN ('queued','sent','accepted');
 CREATE INDEX IF NOT EXISTS relay_tasks_message ON relay_tasks(message_id,status);
 CREATE INDEX IF NOT EXISTS conversation_events_message ON conversation_events(message_id,event_type);
 CREATE INDEX IF NOT EXISTS conversation_events_latest ON conversation_events(message_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS participants_by_user ON conversation_participants(user_id,conversation_id);
+CREATE INDEX IF NOT EXISTS public_groups ON conversations(id) WHERE type='group' AND visibility='public';
+CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS messages_running ON messages(id,conversation_id,created_at) WHERE delivery_status='running';
 CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
         ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
