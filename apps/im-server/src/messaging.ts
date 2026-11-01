@@ -814,10 +814,10 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.get("/im/v1/sync", (req) => {
     const p = ctx.identity.authenticateRequest(req);
-    return {
-      items: s.conversations(p.id),
-      max_event_id: one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n,
-    };
+    const cursorOnly = query(req).view === "cursor";
+    if (cursorOnly && !qualifiedUser(db, p.id)) fail(403, "account access required");
+    const max_event_id = one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n;
+    return cursorOnly ? { max_event_id } : { items: s.conversations(p.id), max_event_id };
   });
   app.get("/im/v1/conversations/:conversation_id", (req) => {
     const p = s.principal(req),

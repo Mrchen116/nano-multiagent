@@ -746,7 +746,7 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 
 #### Scenario: sync 返回快照与全局游标
 - **WHEN** 前端 `GET /im/v1/sync`
-- **THEN** 200 含 `items`(会话列表)与 `max_event_id`(>0);前端据其对齐用户流游标
+- **THEN** 200 含 `items`(会话列表)与 `max_event_id`(无事件时为 0)。Web 建连或重新同步时使用 `?view=cursor`，经相同账号资格检查后只返回同一个 `max_event_id`。
 
 #### Scenario: 长时间登录后短暂断网自动恢复
 - **GIVEN** 用户已在 Web IM 持续登录一段时间

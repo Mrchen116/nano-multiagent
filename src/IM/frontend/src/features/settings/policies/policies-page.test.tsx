@@ -63,7 +63,7 @@ function mockPolicies() {
             owners: [],
           });
     if (input === "/im/v1/nodes") return json([]);
-    if (input === "/im/v1/sync") return json({ items: [], max_event_id: 0 });
+    if (input === "/im/v1/sync?view=cursor") return json({ items: [], max_event_id: 0 });
     if (input === "/im/v1/conversations") return json({ items: [] });
     return json({}, 404);
   });
