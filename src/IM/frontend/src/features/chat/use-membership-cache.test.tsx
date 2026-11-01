@@ -76,3 +76,13 @@ it("does not publish a late authority response after unmount", async () => {
   await act(async () => { resolve([{ id: "removed" } as Conversation]); await recovery; });
   expect(client.getQueryData(key)).toBeUndefined();
 });
+
+it("invalidates the conversation list once when a coalesced event batch fails", async () => {
+  list.mockRejectedValue(new Error("offline"));
+  const { client } = fixture();
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  for (let i = 0; i < 100; i++) change();
+  await waitFor(() => expect(invalidate).toHaveBeenCalled());
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(invalidate).toHaveBeenCalledTimes(1);
+});

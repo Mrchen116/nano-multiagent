@@ -12,9 +12,11 @@ export function useMembershipCache() {
   useEffect(() => {
     let pending = false;
     let disposed = false;
+    let invalidateOnFailure = false;
     let running: Promise<void> | undefined;
-    function refresh(): Promise<void> {
+    function refresh(fromEvent = false): Promise<void> {
       pending = true;
+      invalidateOnFailure ||= fromEvent;
       if (running) return running;
       // Coalesce a replay burst, but read again when a change arrives during a request.
       running = Promise.resolve().then(async () => {
@@ -38,7 +40,10 @@ export function useMembershipCache() {
           restoreComposerMembership(composerStoreFor(userId ?? null), visible);
           client.setQueryData(["chat", "conversations"], conversations);
         }
-      }).finally(() => { running = undefined; });
+      }).catch(error => {
+        if (invalidateOnFailure) void client.invalidateQueries({ queryKey: ["chat", "conversations"] });
+        throw error;
+      }).finally(() => { running = undefined; invalidateOnFailure = false; });
       return running;
     }
     const unsubscribe = subscribeUserStream({ onRecovery: refresh, onEvent: event => {
@@ -47,7 +52,7 @@ export function useMembershipCache() {
       if (typeof id !== "string") return;
       void client.cancelQueries({ queryKey: ["chat", "messages", id] });
       client.removeQueries({ queryKey: ["chat", "messages", id] });
-      void refresh().catch(() => client.invalidateQueries({ queryKey: ["chat", "conversations"] }));
+      void refresh(true).catch(() => {});
     } });
     return () => { disposed = true; unsubscribe(); };
   }, [client]);
