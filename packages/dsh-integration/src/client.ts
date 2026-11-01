@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RuntimeStopHistory } from '@nano/product-contracts';
+import { staleRuntimeMessage } from './input-evidence.js';
 import { RpcPeer } from './rpc.js';
 import {load as loadYaml} from 'js-yaml';
 import {ConfigurationInspector, type ConfigurationInspection} from './configuration-inspector.js';
@@ -132,7 +133,7 @@ export class RuntimeSupervisor {
   }
   private installHandler(client: RuntimeClient, method: string, handler: (params: unknown) => unknown | Promise<unknown>): void {
     client.rpc.handle(method, params => {
-      if (this.stopping || this.client !== client) throw new Error('Agent is disabled or runtime instance is stale');
+      if (this.stopping || this.client !== client) throw new Error(staleRuntimeMessage);
       return handler(params);
     });
   }

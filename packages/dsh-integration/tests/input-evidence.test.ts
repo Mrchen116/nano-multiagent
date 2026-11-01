@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm';
-import { inputEvidence, inputIdsForTurn } from '../src/input-evidence.js';
+import { inputEvidence, inputIdsForTurn, interruptedByHost } from '../src/input-evidence.js';
 
 describe('durable input evidence', () => {
   const message = freezeMessage({ id: MessageId('inbound-1'), role: 'user' as const, content: [{ type: 'text' as const, text: 'hello' }], source: { kind: 'user' as const } });
@@ -9,6 +9,14 @@ describe('durable input evidence', () => {
     return rows.map((row, seq) => ({ ...row, seq: SessionSeq(seq), time: seq })) as SessionEvent[];
   }
   const accepted = { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } };
+  it('requires a failed tool from the same turn for the v1.0.2 shutdown fence', () => {
+    const message = 'Agent is disabled or runtime instance is stale';
+    const end = {kind:'error',error:{code:'UNKNOWN',message}};
+    const history = events([{type:'tool/result',data:{turn:2,message:{isError:true,content:[{type:'text',text:`Error: ${message}`}]}}}]);
+    expect(interruptedByHost(end, 2, history)).toBe(true);
+    expect(interruptedByHost(end, 1, history)).toBe(false);
+    expect(interruptedByHost({kind:'aborted',reason:{kind:'user'}}, 2, history)).toBe(false);
+  });
   it('retains acceptance when a crash occurs between claim and transcript commit', () => {
     expect(inputEvidence(events([
       accepted,

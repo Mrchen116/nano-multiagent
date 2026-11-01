@@ -257,9 +257,9 @@ export class GlobalAgent {
     const watermark=Math.max(this.options.inbox.watermark(config.agentId),this.options.inbox.admittedWake(config.agentId));
     const original=`inbox-wake:${config.agentId}:${watermark}`;let inputId=original;
     for(;;) {
-      const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string}};
+      const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string};hostInterrupted?:boolean};
       if(!evidence.accepted) {if(inputId!==original)await this.submitWake(config,binding,inputId);return;}
-      if(evidence.terminal?.kind!=='interrupted')return;
+      if(evidence.terminal?.kind!=='interrupted' && !evidence.hostInterrupted)return;
       // A cold DSH resume closes the interrupted turn; retrying its accepted ID
       // cannot wake it. Give this recovery notice its own durable identity.
       if(!Number.isSafeInteger(evidence.acceptedSeq))throw new Error('Interrupted Inbox wake has no durable acceptance sequence');

@@ -12,7 +12,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { z } from 'zod';
 import type { AgentConfiguration } from './index.js';
 import type { ModelRoute } from './model-policy.js';
-import { inputEvidence, inputIdsForTurn } from './input-evidence.js';
+import { inputEvidence, inputIdsForTurn, interruptedByHost } from './input-evidence.js';
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -170,9 +170,10 @@ export class ModelFallback {
     return [...new Map([...this.historical,...this.runs]).values()].filter((run) => run.sessionId === sessionId);
   }
   evidence(agent: Agent, inputId: string) {
-    const evidence = inputEvidence(agent.session.snapshotEvents(), inputId);
+    const events = agent.session.snapshotEvents();
+    const evidence = inputEvidence(events, inputId);
     const run = this.list(agent.id).findLast((run) => run.inputs.includes(inputId));
-    return run
+    const result = run
       ? {
           ...evidence,
           turn: run.turn,
@@ -180,6 +181,7 @@ export class ModelFallback {
           terminal: run.state === 'completed' ? run.terminal : undefined,
         }
       : evidence;
+    return {...result, hostInterrupted: interruptedByHost(result.terminal, run?.attempts.at(-1)?.turn ?? evidence.turn, events)};
   }
   interrupt(agent: Agent) {
     this.epochs.set(agent.id, (this.epochs.get(agent.id) ?? 0) + 1);
