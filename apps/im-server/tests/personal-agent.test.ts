@@ -111,6 +111,19 @@ it('retries only readable pending observations, including retained originals aft
  expect(await heartbeat()).toBe(0);
 });
 
+it.each(['public group','PA membership'])('keeps observation retries through the %s route after the owner leaves',async route=>{
+ const f=personalFixture(), {ctx,db,service,principal,args}=f;
+ const connection=connectFixtureGateway(f);ctx.gateway=new Gateway(ctx);ctx.gateway.nodes.set('n',connection);
+ const sent=vi.spyOn(ctx.gateway,'send').mockReturnValue(true);
+ db.prepare("UPDATE conversations SET type='group',visibility=? WHERE id='peer'").run(route==='public group'?'public':'private');
+ if(route==='PA membership')db.exec("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')");
+ const original=ctx.messaging.insertMessage('peer','u2','user','Still readable through the remaining route');
+ db.exec("DELETE FROM conversation_participants WHERE conversation_id='peer' AND user_id='u1'");
+ sent.mockClear();await ctx.gateway.handle(connection,'node.heartbeat',{node_id:'n',status:'online'});
+ expect(sent.mock.calls.filter(([,frame])=>frame.type==='pa.observations.available')).toHaveLength(1);
+ expect(service.observations(principal,{...args,limit:1}).items[0].message.id).toBe(original.id);
+});
+
 it('reads owner tasks without PA membership and removes excluded sources before list counts and cursors',()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  const tasks=new TaskGraphService(db,ctx.messaging),actor={kind:'agent' as const,id:'a',node_id:'n'};
