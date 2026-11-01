@@ -7,10 +7,10 @@ import {activeTaskCount, registerTaskGraphRoutes} from './task-graphs.js';
 import {registerChannelRoutes} from './channels.js';
 import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
   settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
-import {profileResponse, fromProfile, gatewayKeys, optionalText, stringList, selection, copyConfigurationField} from './control.js';
+import {candidateFingerprint, profileResponse, fromProfile, gatewayKeys, optionalText, stringList, selection, copyConfigurationField} from './control.js';
 import {configurationOperations} from './configuration-assembly.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
-import {parseConfigurationInput, controlRouteId, configurationSource, parseSkillsMigration, type ConfigurationCandidate} from './configuration-input.js';
+import {parseConfigurationInput, storedConfigurationCandidate, controlRouteId, configurationSource, parseSkillsMigration, type ConfigurationCandidate} from './configuration-input.js';
 import {gatewayRequest} from './node-rpc-request.js';
 import type {NodeCommand, NodeInput, NodeCapabilities} from './node-rpc-contracts.js';
 import {isRecord} from './node-rpc-values.js';
@@ -258,10 +258,17 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       b = parseConfigurationInput(req.body, true);
     requireNode(ctx, id, u.owner_id);
     const result = await ops.serialized(b.agent_id, async () => {
-      const recovered = await ops.recover(b.agent_id, u.owner_id);
-      if (recovered) return recovered;
+      const pending = one(ctx.db, `SELECT owner_id,node_id,operation_kind,candidate_json,candidate_fingerprint
+        FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied') ORDER BY rowid DESC LIMIT 1`, b.agent_id);
+      if (pending && (pending.operation_kind !== 'create' || pending.owner_id !== u.owner_id || pending.node_id !== id))
+        fail(409, "agent_id already exists");
+      const stored = pending && storedConfigurationCandidate(pending.candidate_json);
+      // A retry with omitted skills must use the defaults chosen on its first submission.
+      const defaults = stored && 'create_default_skills' in stored ? stored.create_default_skills : undefined;
       let skills = b.skills;
-      if (skills === undefined) {
+      if (skills === undefined && (defaults === null || Array.isArray(defaults) && defaults.every(name => typeof name === 'string'))) {
+        skills = defaults ?? undefined;
+      } else if (skills === undefined) {
         const capabilities = await gatewayRequest(ctx, id, "node.capabilities.resolve", {});
         skills = capabilities
           ? (capabilities.skills ?? []).filter(isRecord).filter(s => s.default_on).map(s => s.name).filter((name): name is string => typeof name === 'string')
@@ -294,7 +301,15 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         c.features = Object.fromEntries(featureDependencies.map(feature => [feature.key,false]));
         for (const feature of featureDependencies) if (desired[feature.key]) Object.assign(c, changeCapability(c,{kind:'feature',name:feature.key,enabled:true},{}).draft);
       }
-      return ops.create(c, u.owner_id, id);
+      if (pending && stored) {
+        if (candidateFingerprint(c) !== pending.candidate_fingerprint || c.description !== (stored.description ?? "") ||
+            c.confirm_existing_workspace !== (stored.confirm_existing_workspace === true)) fail(409, "agent_id already exists");
+        const recovered = await ops.recover(b.agent_id, u.owner_id);
+        if (!recovered) fail(409, "agent_id already exists");
+        return recovered;
+      }
+      const candidate = {...c, ...(b.skills === undefined ? {create_default_skills:skills ?? null} : {})};
+      return ops.create(candidate, u.owner_id, id);
     });
     return reply.code(201).send(result);
   });
