@@ -31,7 +31,7 @@ function mockNodes(nodes: unknown[]) {
         new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } })
       );
     }
-    if (url === "/im/v1/sync") {
+    if (url === "/im/v1/sync?view=cursor") {
       return Promise.resolve(
         new Response(JSON.stringify({ items: [], max_event_id: 0 }), { status: 200, headers: { "Content-Type": "application/json" } })
       );

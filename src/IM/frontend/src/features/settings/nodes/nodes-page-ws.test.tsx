@@ -93,7 +93,7 @@ describe("nodes page — node.status_changed WS subscription", () => {
           })
         );
       }
-      if (url === "/im/v1/sync") {
+      if (url === "/im/v1/sync?view=cursor") {
         return Promise.resolve(
           new Response(JSON.stringify({ max_event_id: 0, events: [] }), {
             status: 200,

@@ -74,7 +74,7 @@ export class Messaging {
   members(id: string): Row[] {
     return all(
       this.db,
-      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id WHERE cp.conversation_id=? ORDER BY cp.rowid`,
+      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username GLOB 'agent:*' AND ap.agent_id=substr(u.username,7) WHERE cp.conversation_id=? ORDER BY cp.rowid`,
       id,
     );
   }
@@ -814,10 +814,10 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.get("/im/v1/sync", (req) => {
     const p = ctx.identity.authenticateRequest(req);
-    return {
-      items: s.conversations(p.id),
-      max_event_id: one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n,
-    };
+    const cursorOnly = query(req).view === "cursor";
+    if (cursorOnly && !qualifiedUser(db, p.id)) fail(403, "account access required");
+    const max_event_id = one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n;
+    return cursorOnly ? { max_event_id } : { items: s.conversations(p.id), max_event_id };
   });
   app.get("/im/v1/conversations/:conversation_id", (req) => {
     const p = s.principal(req),

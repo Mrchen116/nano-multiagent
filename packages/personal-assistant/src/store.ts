@@ -7,6 +7,13 @@ import { AgentLifecycleAuthority } from './agent-lifecycle.js';
 
 interface SystemContextInput {message_id:string;conversation_id:string;session_id:string|null;input_id:string;digest:string;state:'prepared'|'consumed'|'revoked';turn:number|null}
 
+type InputRow = {
+  input_id: string; payload: string; accepted: number; turn: number | null; terminal: string | null;
+};
+function decodeInput(row: InputRow) {
+  return { id: row.input_id, input: JSON.parse(row.payload) as RelayInput, accepted: !!row.accepted, turn: row.turn, terminal: row.terminal };
+}
+
 /** Node-owned durable handoff and delivery facts, independent of DSH storage. */
 export class NodeStore {
   /** Read durable ingestion progress, independent of model consumption. */
@@ -305,9 +312,29 @@ export class NodeStore {
     const query = 'SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=?';
     const rows = turn === undefined ? this.db.prepare(query + ' ORDER BY rowid').all(sessionId)
       : this.db.prepare(query + ' AND turn=? ORDER BY rowid').all(sessionId, turn);
-    return (rows as {
-      input_id: string; payload: string; accepted: number; turn: number | null; terminal: string | null;
-    }[]).map(row => ({ id: row.input_id, input: JSON.parse(row.payload) as RelayInput, accepted: !!row.accepted, turn: row.turn, terminal: row.terminal }));
+    return (rows as InputRow[]).map(decodeInput);
+  }
+
+  /** Select admitted turns that can still publish a notice, output, or missing receipt.
+   *
+   * Args:
+   *   sessionId: Session being reconciled after durable observation.
+   *   noticeTurns: Logical turns with fallback notices that may need replay.
+   */
+  deliveryInputs(sessionId: string, noticeTurns: number[]) {
+    const rows = this.db.prepare(`
+      SELECT i.input_id,i.payload,i.accepted,i.turn,i.terminal FROM inputs i
+      WHERE i.session_id=? AND i.turn IS NOT NULL AND (
+        i.turn IN (SELECT value FROM json_each(?)) OR NOT EXISTS (
+          SELECT 1 FROM deliveries d JOIN input_receipts r
+            ON r.input_id=coalesce(json_extract(i.payload,'$.metadata.runtime_input_id'),i.input_id)
+          WHERE d.session_id=i.session_id AND d.turn=i.turn AND r.status=CASE
+            WHEN d.state IN ('confirmed','withheld') THEN 'completed'
+            WHEN d.state IN ('failed','unknown') THEN 'failed' END
+        )
+      ) ORDER BY i.rowid
+    `).all(sessionId, JSON.stringify(noticeTurns)) as InputRow[];
+    return rows.map(decodeInput);
   }
   inputForTurn(sessionId: string, turn: number) { return this.inputs(sessionId).find(input => input.turn === turn); }
 
@@ -353,8 +380,8 @@ export class NodeStore {
     };
     this.db.prepare('INSERT OR IGNORE INTO inputs(input_id,session_id,relay_id,payload,accepted) VALUES(?,?,?,?,1)').run(message.id, sessionId, input.relay_task_id, JSON.stringify(input));
   }
-  events(sessionId: string, afterSeq = -1): RuntimeEvent[] {
-    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? AND seq>? ORDER BY seq').all(sessionId,afterSeq) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
+  events(sessionId: string, afterSeq = -1, throughSeq = Number.MAX_SAFE_INTEGER): RuntimeEvent[] {
+    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? AND seq>? AND seq<=? ORDER BY seq').all(sessionId,afterSeq,throughSeq) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
   }
   cursor(sessionId: string): number {
     return (this.db.prepare('SELECT coalesce(max(seq),-1) AS seq FROM runtime_events WHERE session_id=?').get(sessionId) as { seq: number }).seq;

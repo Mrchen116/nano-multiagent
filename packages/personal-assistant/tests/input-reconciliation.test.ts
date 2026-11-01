@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { ModelRunProjection, RelayInput, RuntimeEvent } from '@nano/product-contracts';
 import { NodeStore } from '../src/store.js';
 import { SingleThread } from '../src/single-thread.js';
@@ -51,7 +51,11 @@ it('bounds steady-state lookup RPCs by unresolved inputs after old terminal rows
       store.confirmReceipt(id, 'completed');
       state.evidence.set(id, completed(turn));
     }
+    const ledger = vi.spyOn(store, 'events');
+    const prepare = vi.spyOn(store, 'prepareDelivery');
     await product.recover();
+    expect(ledger).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
     expect(state.lookups).toHaveLength(1000);
     state.lookups.length = 0;
     await product.recover();
@@ -156,5 +160,29 @@ it.each(['running', 'switching'] as const)('does not settle newer lookup evidenc
     state.lookups.length = 0;
     await product.recover();
     expect(state.lookups).toEqual([]);
+  } finally { await product.stop(); store.close(); }
+});
+
+it('delivers a late fallback notice once when the original delivery and receipt are already settled', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  store.bind(binding);
+  const id = store.receive('s', input('one'));
+  store.inputEvidence(id, completed(1), true);
+  const delivery = store.prepareDelivery('s', 1);
+  store.updateDelivery(delivery.operationId, 'confirmed', 'already-delivered', 'done');
+  store.confirmReceipt(id, 'completed');
+  const { state, product } = harness(store);
+  try {
+    const ledger = vi.spyOn(store, 'events');
+    state.runs.push({ id: 'r', sessionId: 's', turn: 1, state: 'completed', switched: 'backup',
+      terminal: { kind: 'completed' }, attempts: [{ turn: 1, route: { provider: 'p', model: 'backup' } }] });
+    await product.recover();
+    await product.recover();
+    expect(state.frames).toMatchObject([
+      { kind: 'turn_start', idempotency_key: 'r:switched' },
+      { kind: 'message_completed', final_content: '已改用 backup，因为主模型不可用。' },
+    ]);
+    expect(store.delivery('s', 1)?.messageId).toBe('already-delivered');
+    expect(ledger).not.toHaveBeenCalled();
   } finally { await product.stop(); store.close(); }
 });

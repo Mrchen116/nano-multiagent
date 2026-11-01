@@ -52,7 +52,7 @@ describe("nodes page", () => {
       }
       if (url === "/im/v1/nodes") return Promise.resolve(jsonResponse(nodes));
       if (url === "/im/v1/agents") return Promise.resolve(jsonResponse({ items: [] }));
-      if (url === "/im/v1/sync") return Promise.resolve(jsonResponse({ items: [], max_event_id: 0 }));
+      if (url === "/im/v1/sync?view=cursor") return Promise.resolve(jsonResponse({ items: [], max_event_id: 0 }));
       if (url === "/im/v1/conversations") return Promise.resolve(jsonResponse({ items: [] }));
       return Promise.resolve(new Response(null, { status: 404 }));
     });

@@ -105,3 +105,42 @@ it('admits the PA rename after a different pending edit is definitively rejected
     expect(profile()).toMatchObject({display_name:'PA',profile_version:2});
   } finally { await app.close(); }
 });
+
+it.each(['current', 'legacy'])('only lets the original creation request claim its %s receipt', async format => {
+  const {app, ctx, db} = settings();
+  db.exec("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('other','o1','Other','online'),('bob','o2','Bob','online')");
+  const original = {agent_id:'b',display_name:'Alpha',workspace_root:'/alpha',group_reply_policy:'manual',description:'original'};
+  const create = (fields = {}, node = 'n', user = 'u1') => app.inject({
+    method:'POST',url:`/im/v1/nodes/${node}/agents`,headers:{'x-user':user},payload:{...original,...fields},
+  });
+  let receipt: ConfigurationResult | undefined, confirmed = false;
+  const operations = new Set<string>();
+  ctx.gateway.request = async (_node, command, payload) => {
+    if (command === 'node.capabilities.resolve') {
+      return {skills:[{name: confirmed && format === 'current' ? 'new-default' : 'original-default',default_on:true}]};
+    }
+    operations.add(payload.operation_id);
+    if (command === 'agent.create') {
+      receipt = {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent};
+    }
+    return confirmed ? receipt! : {status:'pending'};
+  };
+  try {
+    expect((await create()).statusCode).toBe(503);
+    if (format === 'legacy') db.exec("UPDATE agent_config_operations SET candidate_json=json_remove(candidate_json,'$.create_default_skills')");
+    expect((await create()).statusCode).toBe(503);
+    confirmed = true;
+    expect((await create({display_name:'Bravo',workspace_root:'/bravo'})).statusCode).toBe(409);
+    expect((await create({description:'different'})).statusCode).toBe(409);
+    expect((await create({confirm_existing_workspace:true})).statusCode).toBe(409);
+    expect((await create({}, 'other')).statusCode).toBe(409);
+    expect((await create({}, 'n', 'u2')).statusCode).toBe(404);
+    expect((await create({}, 'bob', 'u2')).statusCode).toBe(409);
+    const retry = await create();
+    expect(retry.statusCode,retry.body).toBe(201);
+    expect(retry.json()).toMatchObject({display_name:'Alpha',workspace_root:'/alpha',description:'original',node_id:'n'});
+    expect(retry.json().skills).toContain('original-default');
+    expect((await create()).statusCode).toBe(409);
+    expect(operations.size).toBe(1);
+  } finally { await app.close(); }
+});
