@@ -1,5 +1,22 @@
 # feat-665: 通用、长期、主动的 Personal Agent
 
+## 退役决定（2026-11-01）
+
+原整包实现的 [PR #414](https://github.com/Mrchen116/nano-multiagent/pull/414) 已关闭，未合入 `main`。本目录保留当时的需求、设计与输入材料。各项目标按下列决定收口，依据见 [feat-667 的用户澄清](../../archive/feat-667-pa-service-guidance/spec.md#澄清记录)和[原 PR 拆分审查](../../archive/feat-667-pa-service-guidance/input/pr414-review.md)。
+
+| 原目标 | 已合入的方案 |
+|---|---|
+| 通用 PA 服务、持续负责、轻量主动准备（拆分 A+B） | PA 可在已有授权内核对聊天、私下准备，对长事项沿用原执行者并传递更正、停止和接续要求。Task 由主 Agent 负责，支持两级内部委派，对外沟通由主 Agent 完成。[feat-667 / PR #422](https://github.com/Mrchen116/nano-multiagent/pull/422) |
+| 跨聊天长期记忆、纠正与停止采用旧信息 | PA 与独立专家使用各自的 Markdown 文档记忆，当前交流中的纠正立即生效，只有 Dreaming 更新正式记忆。此方案已取代本 unit 的 `records.json` 存储、迁移和全局遗忘机制。[feat-676 / PR #428](https://github.com/Mrchen116/nano-multiagent/pull/428) |
+
+**留待以后按需立项**
+
+- **领域 Skills（拆分 C）**。研究、日程、出行、购物、表单等场景可按实际需求分别补充指导，外部服务动作以届时已接入的能力为准。
+- **文件交付（拆分 D）**。将指定版本的产物持久发布给指定受众，单独验证接收方能打开、权限收窄后的访问和重试去重。
+- **主动关注与聚合查询**。暂缓 `personal_attention` 的持久关注项、预算及通知回执协议，以及 `personal_context` 聚合查询。出现轻量准备无法满足的持久跟进需求，或可复现的漏查、重复查询后，再独立设计。
+
+**原实现与评测**。保留分支 `codex/feat-665-general-pa`，原评测固定在提交 `66b49e4e0`。58 项场景中，21 项通过、3 项受阻、34 项未运行。结果归属原候选版本及各自的运行条件。[评测报告](https://github.com/Mrchen116/nano-multiagent/blob/66b49e4e0fa6be17a87466ef04fa2cbf1d4007f7/docs/changes/archive/feat-665-general-personal-agent/evaluation.md) · [逐项结果](https://github.com/Mrchen116/nano-multiagent/blob/66b49e4e0fa6be17a87466ef04fa2cbf1d4007f7/docs/changes/archive/feat-665-general-personal-agent/evaluation-results.json)
+
 ## Relations
 
 - Related: feat-658, feat-635, feat-645, feat-659, bugfix-664
