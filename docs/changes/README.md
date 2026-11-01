@@ -29,7 +29,7 @@ docs/changes/
 - 符合“不建 unit”判据的小修直接修改；
 - Bugfix lite 建立 `fix.md` 和单个 `M1-fix/`；
 - Full 建立完整 unit。
-- 快速开发允许实现先发生，但在交付前建立事后 unit，记录最终需求、实际设计、适用验收和 code review。验收方式见 [快速开发模式](../development/change-workflow.md#快速开发模式)。
+- 快速开发允许实现先发生，但在交付前建立事后 unit，记录最终需求、实际设计、用户验收和 code review。
 
 ## 命名与编号
 
