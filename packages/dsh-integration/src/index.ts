@@ -948,7 +948,15 @@ export default class NanoRuntime {
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
         source: input.source.kind === 'human' ? { ...source, kind: 'user' as const } : { ...source, kind: 'nano-system' as const } });
       if (input.mode === 'followup') agent.followup(message);
-      else if (input.mode === 'steer') agent.steer(message);
+      else if (input.mode === 'steer') {
+        if (message.source.kind === 'nano-system' && message.source.channel === 'inbox') {
+          // Only pending notices are redundant; keep the newest durable wake ID
+          // so recovery still tracks the latest admitted Inbox watermark.
+          for (const pending of [...agent.inbox.nextTurn, ...agent.inbox.nextStep])
+            if (pending.source.kind === 'nano-system' && pending.source.channel === 'inbox') agent.inbox.remove(pending.id);
+        }
+        agent.steer(message);
+      }
       else if (input.mode === 'inject') agent.inject(message);
       else throw new RpcError(-32602, 'Invalid input mode');
     }

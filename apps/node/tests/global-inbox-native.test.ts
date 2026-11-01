@@ -1,10 +1,86 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer, type ServerResponse } from 'node:http';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '@nano/dsh-integration/client';
 import { GlobalAgent, InboxStore, NodeStore, TaskContext, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
+
+it('coalesces Inbox notices during a model request and notifies again after consumption', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-inbox-batch-'));
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const requests: { messages: any[]; response: ServerResponse }[] = [];
+  const server = createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    requests.push({ messages: JSON.parse(body), response });
+  });
+  let client: RuntimeClient | undefined, product: GlobalAgent | undefined, logs = '';
+  const errors: unknown[] = [];
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as { port: number };
+    await writeFile(join(home, 'model.mjs'), `export const name='batch-model';export const inject=['llm'];export function apply(ctx){ctx.on('llm/stream',async function*(o){
+      const response=await fetch('http://127.0.0.1:${port}',{method:'POST',body:JSON.stringify(o.messages),signal:o.signal});
+      for(const chunk of await response.json())yield chunk;
+    });}`);
+    await prepareProfile(home, [{ insert: [{ id: 'batch-model', name: join(home, 'model.mjs') }] }]);
+    client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerEmptyTaskContext(client);
+    const config: AgentConfiguration = { agentId: 'a', revision: '1', workspace: home, mode: 'global', provider: 'deepseek-official', model: 'deepseek-flash', approval: { dangerouslySkipPermissions: true } };
+    await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
+    product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [config], store, inbox,
+      runtime: client.rpc, image: async () => '', onError: error => errors.push(error),
+      relay: { request: async (type, payload: any) => {
+        if (type === 'agent.work.append') return { type: 'ack', payload: { through_seq: payload.events.at(-1).seq } };
+        return { type: 'ack', payload: { ok: true, result: { target: 'c_dm', name: 'Owner', type: 'direct', channel: 'web', members: [{ type: 'user', user_id: 'owner' }] } } };
+      } },
+    });
+    client.rpc.handle('product.call', value => product!.call(value as ProductCall));
+    client.rpc.handle('model.check', () => ({ published: false }));
+    const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c_dm', relay_task_id: id, idempotency_key: id,
+      metadata: { conversation_type: 'direct' }, message: { id, content: `BODY_${id}`, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
+    const respond = (index: number, action?: 'check' | 'read') => requests[index]!.response.end(JSON.stringify(action ? [
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: `read-${index}`, name: 'inbox', arguments: JSON.stringify({ action, ...(action === 'read' ? { target: 'c_dm' } : {}) }) } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ] : [{ type: 'block-end', index: 0, block: { type: 'text', text: 'No public reply requested.' } }, { type: 'finish', reason: { kind: 'stop' } }]));
+    const notices = (index: number) => requests[index]!.messages.filter(message => message.source?.channel === 'inbox').length;
+    await product.receive(input('initial'));
+    await expect.poll(() => requests.length).toBe(1);
+    for (const id of ['one', 'two', 'three']) await product.receive(input(id));
+    const binding = store.bindingFor('a', 'global:a')!;
+    await client.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: 'other-notice', mode: 'inject',
+      content: [{ type: 'text', text: 'OTHER_NOTICE' }], source: { kind: 'system', actorId: 'a', channel: 'other', messageId: 'other-notice' } });
+    respond(0, 'check');
+    await expect.poll(() => requests.length).toBe(2);
+    expect(notices(1)).toBe(notices(0) + 1);
+    expect(JSON.stringify(requests[1]!.messages)).toContain('OTHER_NOTICE');
+    expect(JSON.stringify(requests[1]!.messages)).not.toContain('BODY_one');
+    respond(1, 'read');
+    await expect.poll(() => requests.length).toBe(3);
+    for (const id of ['initial', 'one', 'two', 'three']) expect(JSON.stringify(requests[2]!.messages)).toContain(`BODY_${id}`);
+    expect(notices(2)).toBe(notices(1));
+    await product.receive(input('later'));
+    respond(2, 'check');
+    await expect.poll(() => requests.length).toBe(4);
+    expect(notices(3)).toBe(notices(2) + 1);
+    respond(3, 'read');
+    await expect.poll(() => requests.length).toBe(5);
+    expect(JSON.stringify(requests[4]!.messages)).toContain('BODY_later');
+    respond(4);
+    await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
+    expect(inbox.check('a').sources).toEqual([]);
+    expect(errors).toEqual([]);
+  } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
+  finally {
+    if (client) { client.process.kill('SIGKILL'); await client.exited; }
+    if (product) await product.stop();
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    inbox.close(); store.close(); await rm(home, { recursive: true, force: true });
+  }
+}, 20000);
 
 // These native fixtures have no Task data; register their product context host explicitly.
 function registerEmptyTaskContext(client: RuntimeClient): void {
@@ -124,6 +200,8 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     await product.receive(input('initial', 'Start the large task'));
     await expect.poll(() => entered).toBe(true);
     await product.receive(input('correction', correction));
+    await product.receive(input('more-context', 'Additional task context'));
+    await product.receive(input('last-context', 'Final task context'));
     expect(returned).toBe(false);
     const requests = async () => (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     expect(await requests()).toHaveLength(2);
@@ -135,6 +213,8 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     expect(JSON.stringify(captured[2])).not.toContain(correction);
     expect(JSON.stringify(captured[2])).toContain('held_for_revalidation');
     expect(JSON.stringify(captured[3])).toContain(correction);
+    expect(JSON.stringify(captured[3])).toContain('Additional task context');
+    expect(JSON.stringify(captured[3])).toContain('Final task context');
     expect(sent).toEqual(['Corrected result']);
     const binding = store.bindingFor('a', 'global:a')!;
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
