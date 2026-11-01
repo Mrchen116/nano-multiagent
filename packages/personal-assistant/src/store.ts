@@ -322,6 +322,13 @@ export class NodeStore {
     return (rows as InputRow[]).map(decodeInput);
   }
 
+  /** Read the earliest admitted matching source within its original session. */
+  inputForIds(sessionId: string, inputIds: string[]) {
+    const row=this.db.prepare("SELECT i.input_id,i.payload,i.accepted,i.turn,i.terminal FROM json_each(?) ids CROSS JOIN inputs i ON i.input_id=ids.value WHERE i.session_id=? ORDER BY i.rowid LIMIT 1")
+      .get(JSON.stringify(inputIds),sessionId) as InputRow|undefined;
+    return row&&decodeInput(row);
+  }
+
   /** Read only unsubmitted inputs in durable admission order. */
   pendingInputs(sessionId: string) {
     return (this.db.prepare("SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? AND accepted=0 AND (terminal IS NULL OR terminal='') ORDER BY rowid")

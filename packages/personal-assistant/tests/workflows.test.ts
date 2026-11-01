@@ -32,6 +32,9 @@ it("hands persisted results to the original single-thread binding and checkpoint
       attachments: [],
     },
   });
+  const first = store.inputs("old")[0]!.input;
+  store.receive("old", { ...first, relay_task_id: "later", message: { ...first.message, id: "later" },
+    metadata: { ...first.metadata, external_reply: "later-source" } });
   store.reset(binding, { ...binding, sessionId: "new" }, "reset");
   let acknowledged = false;
   let fail = true;
@@ -49,7 +52,7 @@ it("hands persisted results to the original single-thread binding and checkpoint
                 {
                   id: "w",
                   parentSessionId: "old",
-                  inputIds: ["a:human"],
+                  inputIds: ["a:later", "a:human"],
                   meta: { name: "research", description: "Research" },
                   usage: { outputTokens: 12 },
                   logs: [{ text: "Finished phase" }],
