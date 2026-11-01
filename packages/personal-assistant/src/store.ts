@@ -90,6 +90,7 @@ export class NodeStore {
       CREATE TABLE IF NOT EXISTS task_context_cursors(agent_id TEXT PRIMARY KEY,seq INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS system_context_inputs(agent_id TEXT,message_id TEXT,conversation_id TEXT,session_id TEXT,input_id TEXT,digest TEXT,state TEXT NOT NULL,turn INTEGER,PRIMARY KEY(agent_id,message_id),UNIQUE(session_id,input_id));
       CREATE TABLE IF NOT EXISTS control_intents(id TEXT PRIMARY KEY, intent TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS pending_controls ON control_intents(json_extract(intent,'$.binding.agentId')) WHERE coalesce(json_extract(intent,'$.delivered'),0)=0;
       CREATE TABLE IF NOT EXISTS command_results (id TEXT PRIMARY KEY, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS input_receipts (input_id TEXT PRIMARY KEY REFERENCES inputs(input_id), status TEXT NOT NULL);
     `);
@@ -232,6 +233,11 @@ export class NodeStore {
     const row = this.db.prepare('SELECT intent FROM control_intents WHERE id=?').get(id) as { intent: string } | undefined; return row ? JSON.parse(row.intent) : undefined;
   }
   controls(): ControlIntent[] { return (this.db.prepare('SELECT intent FROM control_intents ORDER BY rowid').all() as { intent: string }[]).map(row => JSON.parse(row.intent)); }
+  /** Select unfinished controls in durable order, optionally for one Agent. */
+  pendingControls(agentId?: string): ControlIntent[] {
+    const where=agentId===undefined?'':" AND json_extract(intent,'$.binding.agentId')=?";
+    return (this.db.prepare("SELECT intent FROM control_intents WHERE coalesce(json_extract(intent,'$.delivered'),0)=0"+where+' ORDER BY rowid').all(...(agentId===undefined?[]:[agentId])) as {intent:string}[]).map(row=>JSON.parse(row.intent));
+  }
   saveControl(intent: ControlIntent) { this.db.prepare('INSERT INTO control_intents VALUES(?,?) ON CONFLICT(id) DO UPDATE SET intent=excluded.intent').run(intent.id, JSON.stringify(intent)); }
   command(id: string): string | undefined {
     return (this.db.prepare('SELECT result FROM command_results WHERE id=?').get(id) as { result: string } | undefined)?.result;

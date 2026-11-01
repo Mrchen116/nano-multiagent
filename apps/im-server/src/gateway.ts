@@ -217,9 +217,9 @@ export class Gateway {
   replay(b: Browser, cursor: number) {
     const db = this.ctx.db;
     const top = one(db, "SELECT COALESCE(MAX(event_id),0) n FROM conversation_events")!.n;
-    const earliest = one(
+    const earliest = top - cursor > 2000 || cursor <= 0 || cursor >= top ? null : one(
       db,
-      "SELECT MIN(event_id) n FROM conversation_events WHERE created_at>=?",
+      "SELECT MIN(event_id) n FROM conversation_events INDEXED BY conversation_events_time WHERE created_at>=?",
       new Date(Date.now() - 15 * 60000).toISOString(),
     )?.n;
     if (top - cursor > 2000 || (cursor > 0 && earliest && cursor < earliest - 1)) {

@@ -208,7 +208,9 @@ export class InboxStore {
   }
   /** Select full original Task notices for direct native context, not a duplicate private snapshot. */
   prepareSystemContext(agentId:string,sessionId:string):{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[] {
-    return this.entries(agentId).flatMap(row=>{
+    return this.entries(agentId).flatMap(row=>this.systemContextEntry(agentId,row));
+  }
+  private systemContextEntry(agentId:string,row:Entry) {
       const input=JSON.parse(row.payload) as RelayInput;
       const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
       if(notice?.kind!=='task_graph'||!input.metadata.task_context&&!notice.attention_actor_ids?.includes(agentId))return [];
@@ -221,15 +223,14 @@ export class InboxStore {
       const text=(revoked?"Your access or handling eligibility for the identified conversation or Tasks was revoked at event_time. Stop actions that require missing eligibility, and do not read or disclose content you can no longer access. On a later independently authorized request, check current permissions through available tools and use their current verified access facts instead of treating this historical loss as permanent. Restored access alone does not resume paused Tasks or authorize previously denied actions. Continue unrelated authorized work. This notice grants no permission and does not erase already consumed history.":"Task update from its fixed conversation. Apply the stated business change before further action on the affected Task. If its requirements changed, read the latest Task details. This system message does not grant human permission or start todo/paused work.")+'\n'+JSON.stringify(event)
         +(!revoked&&attested.human_control?'\n'+"Application-attested human Task control follows. Apply it only to the identified Task or scope. Inputs queued before a stop cannot resume its paused Tasks. Only a later explicit human resume supersedes that pause; it grants no additional tool permission. Unrelated work may continue."+'\n'+JSON.stringify(attested.human_control):'');
       return [{inputId:input.message.id,conversationId:input.conversation_id,...(!revoked&&human_control&&typeof human_control==='object'?{humanControl:human_control as Record<string,unknown>}:{}),content:[{type:'text' as const,text}]}];
-    });
   }
   /** Mark direct reading only after matching native durable execution evidence. */
   commitSystemContext(agentId:string,sessionId:string,inputId:string,content:{type:string;text?:string}[],turn:number):void {
-    const prepared=this.prepareSystemContext(agentId,sessionId).find(item=>item.inputId===inputId);
-    if(!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))throw new Error('Unmatched system context execution evidence');
+    const row=this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND message_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0").get(agentId,inputId) as unknown as Entry|undefined;
+    const prepared=row&&this.systemContextEntry(agentId,row)[0];
+    if(!row||!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))throw new Error('Unmatched system context execution evidence');
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      const row=this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND message_id=?').get(agentId,inputId) as {seq:number};
       this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(row.seq);
       this.db.prepare(`DELETE FROM reads WHERE EXISTS(SELECT 1 FROM json_each(reads.fragments) part WHERE json_extract(part.value,'$.seq')=?)`).run(row.seq);
       this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(row.seq,sessionId,turn);

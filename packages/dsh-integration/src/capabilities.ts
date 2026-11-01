@@ -117,7 +117,6 @@ export function apply(ctx: Context, config: AgentConfiguration) {
   // (/skill:name or an attached [label]) and pending legacy nano-human inputs.
   ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
     const decision = await next(); if (decision.kind === 'reject') return decision;
-    const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
     // The native middleware may append its injections after this scope returns.
     // Detect its /name syntax here solely to suppress the compatibility copy.
     const nativeNames = new Set(messages.filter(message => message.source.kind === 'user').flatMap(message => message.content.flatMap(block =>
@@ -125,6 +124,8 @@ export function apply(ctx: Context, config: AgentConfiguration) {
     const compatibility = messages.filter(message => isHumanSource(message.source) && (message.source.kind === 'nano-human'
       || message.content.some(block => block.type === 'text' && /^(?:\[[^\]]*\]\s*)*\/skill:|^(?:\[[^\]]*\]\s*)+\//.test(block.text))));
     const gestures = [...skillGestures(compatibility).filter(gesture => !nativeNames.has(gesture.name)), ...(pending.get(agent) ?? [])];
+    if (!gestures.length) { pending.delete(agent); return decision; }
+    const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
     const additions: UserMessage[] = [];
     for (const { id, name } of gestures) {
       if (invoked.has(id)) continue;

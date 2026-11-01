@@ -44,6 +44,7 @@ declare module '@deepseek-ai/cordis' { interface Context { nanoTrajectoryRuns: T
 export class TrajectoryRuns extends Service {
   private readonly domain;
   private writes = Promise.resolve();
+  private readonly runsBySession: Promise<Map<string, Set<string>>>;
   private readonly bounds = new WeakMap<Agent, number>();
   private readonly tails = new Map<string, number>();
   private readonly active = new Map<string, TrajectoryRun>();
@@ -52,6 +53,11 @@ export class TrajectoryRuns extends Service {
   constructor(ctx: Context) {
     super(ctx, 'nanoTrajectoryRuns');
     this.domain = ctx.storageDomain.open(trajectoryRunsDomain);
+    this.runsBySession = this.domain.then(domain => {
+      const index = new Map<string, Set<string>>();
+      for (const [, run] of domain.table('runs').entries()) this.indexRun(index, run);
+      return index;
+    });
     ctx.effect(() => async () => { try { await this.writes; } finally { await (await this.domain).close(); } });
     ctx.on('agent/created', ({ agent }) => {
       if (!agent.session.header.parentSession) return;
@@ -156,8 +162,20 @@ export class TrajectoryRuns extends Service {
     await this.writes;
   }
 
+  private indexRun(index: Map<string, Set<string>>, run: TrajectoryRun): void {
+    for (const sessionId of [run.sessionId, run.parentSessionId]) {
+      let ids = index.get(sessionId);
+      if (!ids) { ids = new Set(); index.set(sessionId, ids); }
+      ids.add(run.runId);
+    }
+  }
+
   private persist(run: TrajectoryRun): void {
-    this.writes = this.writes.then(async () => { await (await this.domain).table('runs').put(run.runId, run); });
+    this.writes = this.writes.then(async () => {
+      const index = await this.runsBySession;
+      await (await this.domain).table('runs').put(run.runId, run);
+      this.indexRun(index, run);
+    });
     void this.writes.catch(() => {}); // Reads report a failed durable write barrier instead of fabricated saved facts.
   }
 
@@ -175,8 +193,8 @@ export class TrajectoryRuns extends Service {
     // Lifecycle callbacks may enqueue an end while a start write is in flight.
     let barrier: Promise<void>;
     do { barrier = this.writes; await barrier; } while (barrier !== this.writes);
-    return [...table.entries()].map(([, run]) => run)
-      .filter(run => run.sessionId === sessionId || run.parentSessionId === sessionId)
+    const ids = (await this.runsBySession).get(sessionId) ?? [];
+    return [...ids].map(id => table.get(id)!)
       .map(run => ({ ...run, state: run.state === 'running' && !this.active.has(run.runId) ? 'unknown' : run.state }))
       .sort((a, b) => a.startedAt - b.startedAt || a.runId.localeCompare(b.runId));
   }

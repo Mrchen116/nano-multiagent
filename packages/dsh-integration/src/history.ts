@@ -133,25 +133,16 @@ export class NativeHistory {
   attach(agent: Agent, config: AgentConfiguration, route: () => ModelRoute) {
     agent.ctx.on(
       "agent/pre-step",
-      async (_payload, next) => {
+      async ({ turn }, next) => {
         const decision = await next();
         if (decision.kind === "reject") return decision;
-        const start = agent.session
-          .snapshotEvents()
-          .findLast((event) => event.type === "turn/start");
-        if (start?.type === "turn/start") {
-          const snapshot: Snapshot = {
-            sessionId: agent.id,
-            turn: start.data.turn,
-            config: copy({ ...config, ...route() }),
-          };
-          this.writes = this.writes.then(async () => {
-            const table = (await this.state).table("snapshots");
-            const id = key(`${agent.id}:${snapshot.turn}`);
-            if (!table.get(id)) await table.put(id, snapshot);
-          });
-          await this.writes;
-        }
+        const snapshot: Snapshot = { sessionId: agent.id, turn, config: copy({ ...config, ...route() }) };
+        this.writes = this.writes.then(async () => {
+          const table = (await this.state).table("snapshots");
+          const id = key(`${agent.id}:${turn}`);
+          if (!table.get(id)) await table.put(id, snapshot);
+        });
+        await this.writes;
         return decision;
       },
       { prepend: true },

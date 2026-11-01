@@ -387,6 +387,7 @@ describe("useGlobalMessageToast", () => {
         created_at: "2026-07-13T00:00:00Z"
       }
     });
+    await waitFor(() => expect(resolvers).toHaveLength(1));
     emit("conv-new-external", {
       eventType: "message.created",
       eventId: 2,
@@ -837,4 +838,18 @@ it("renders mention names in toast while preserving whole wire tags in the list 
   } });
   expect(result.current.toast?.preview).toBe("@小策 请准时到");
   expect(client.getQueryData<Conversation[]>(["chat", "conversations"])?.[0].last_message_preview).toBe(wire + " 请准时到");
+  it("retains only the latest unresolved candidate per conversation on recovery", async () => {
+    const queryClient = new QueryClient({defaultOptions:{queries:{retry:false}}});
+    listConversationsMock.mockRejectedValue(new Error("offline list"));
+    const {result}=renderHook(()=>useGlobalMessageToast(),{wrapper:buildWrapper(queryClient,"/")});
+    await waitFor(()=>expect(subscribeUserStreamMock).toHaveBeenCalled());
+    for(let i=1;i<=100;i++) emit("new-external",{eventType:"message.created",eventId:i,payload:{message_id:"external-"+i,sender_type:"user",sender_user_id:"self-user",sender_display_name:"Sender",content:"text-"+i}});
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
+    expect(listConversationsMock).toHaveBeenCalledTimes(1);
+    listConversationsMock.mockClear();
+    listConversationsMock.mockResolvedValue([conversation("new-external",{external_source:"feishu",external_chat_id:"chat"})]);
+    await act(async()=>{await recoveryHandler?.();await new Promise(resolve=>setTimeout(resolve,10));});
+    expect(listConversationsMock).toHaveBeenCalledTimes(1);
+    expect(result.current.toast?.id).toBe("message:external-100");
+  });
 });

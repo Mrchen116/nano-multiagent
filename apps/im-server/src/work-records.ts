@@ -469,13 +469,9 @@ export class WorkRecords {
     const page = main ? this.turns(root, main, before, limit) : { turns: [], next_cursor: null };
     let latest = null;
     for (const r of main
-      ? all(
-          this.db,
-          "SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC",
-          main,
-        )
+      ? this.db.prepare("SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC").iterate(main)
       : []) {
-      const t: WorkTurnData = JSON.parse(r.payload);
+      const t: WorkTurnData = JSON.parse(String(r.payload));
       if (t.usage) {
         latest = {
           session_id: main!,

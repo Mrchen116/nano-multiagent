@@ -194,13 +194,17 @@ export class SingleThread {
 
   /** Durable history is replayed on reconnect; display notifications are just hints. */
   async recover(externalOnly = false): Promise<void> {
+    const recoveredControls = new Set<string>();
     for (const binding of this.options.store.bindings()) {
       if(!this.options.store.lifecycle.allowed(binding.agentId))continue;
       if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
       if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
       await this.options.store.lifecycle.run(binding.agentId,undefined,async()=>{
       await this.options.runtime.request('session.ensure', runtimeBinding(binding));
-      await this.controls.recover(binding.agentId);
+      if (!recoveredControls.has(binding.agentId)) {
+        await this.controls.recover(binding.agentId);
+        recoveredControls.add(binding.agentId);
+      }
       for (const input of this.options.store.pendingInputs(binding.sessionId)) await this.submit(binding, input.input);
       await this.reconcile(binding.sessionId);
       });
