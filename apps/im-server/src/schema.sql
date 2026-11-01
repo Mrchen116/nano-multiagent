@@ -432,6 +432,7 @@ CREATE INDEX IF NOT EXISTS participants_by_user ON conversation_participants(use
 CREATE INDEX IF NOT EXISTS public_groups ON conversations(id) WHERE type='group' AND visibility='public';
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS messages_running ON messages(id,conversation_id,created_at) WHERE delivery_status='running';
+CREATE INDEX IF NOT EXISTS messages_running_conversation ON messages(conversation_id) WHERE delivery_status='running';
 CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
         ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
         ;

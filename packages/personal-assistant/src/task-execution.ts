@@ -19,7 +19,7 @@ export class TaskExecution {
       relay:{request:(type,payload)=>relay.request(type,options.store.executionPayload(payload))}};
   }
   private binding(identity:{sessionId:string;agentId:string;ownerId:string}):SessionBinding {
-    const binding=this.options.store.bindings().find(b=>b.sessionId===identity.sessionId);
+    const binding=this.options.store.bindingForSession(identity.sessionId);
     if(!binding||binding.agentId!==identity.agentId||binding.ownerId!==identity.ownerId||binding.ownerId!==this.options.ownerId)throw new Error('Task execution identity mismatch');
     return binding;
   }
@@ -78,9 +78,8 @@ export class TaskExecution {
     this.options.store.lifecycle.assert(input.agent_id);
     const config=this.options.agents.find(a=>a.agentId===input.agent_id);
     if(!config)throw new Error('Unknown task owner');
-    const bindings=this.options.store.bindings().filter(b=>b.agentId===config.agentId&&this.options.store.bindingFor(b.agentId,b.conversationId)?.sessionId===b.sessionId);
-    const binding=config.mode==='global'?bindings.find(b=>b.conversationId===`global:${config.agentId}`):bindings.find(b=>this.options.store.imConversation(b.agentId,b.conversationId)===input.conversation_id);
-    if(!binding)return {valid:false,checked_at:new Date().toISOString(),reason_code:'owner_or_session_mismatch'};
+    const binding=this.options.store.bindingFor(config.agentId,config.mode==='global'?`global:${config.agentId}`:input.conversation_id);
+    if(!binding || (config.mode!=='global' && this.options.store.imConversation(binding.agentId,binding.conversationId)!==input.conversation_id))return {valid:false,checked_at:new Date().toISOString(),reason_code:'owner_or_session_mismatch'};
     return await this.options.runtime.request('schedule.wait.inspect',{agentId:config.agentId,sessionId:binding.sessionId,scheduleId:input.schedule_id}) as TaskWaitInspection;
   }
   /** Fence, drain, and atomically pause the host-attested human stop scope. */

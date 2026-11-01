@@ -197,7 +197,7 @@ export class Messaging {
       LEFT JOIN conversation_participants p ON p.conversation_id=c.id AND p.user_id=?
       WHERE c.dissolved_at IS NULL AND (p.user_id IS NOT NULL OR (c.type='direct' AND EXISTS (
         SELECT 1 FROM conversation_participants cp JOIN users u ON u.id=cp.user_id
-        JOIN agent_profiles a ON u.username='agent:'||a.agent_id WHERE cp.conversation_id=c.id AND (a.owner_id=? OR EXISTS(SELECT 1 FROM personal_agent_bindings b WHERE b.agent_id=a.agent_id AND b.owner_user_id=?)))))
+        JOIN agent_profiles a ON u.username GLOB 'agent:*' AND a.agent_id=substr(u.username,7) WHERE cp.conversation_id=c.id AND (a.owner_id=? OR EXISTS(SELECT 1 FROM personal_agent_bindings b WHERE b.agent_id=a.agent_id AND b.owner_user_id=?)))))
       ORDER BY COALESCE(p.is_pinned,0) DESC,COALESCE(c.last_message_at,c.created_at) DESC`,userId,userId,userId)
       .filter(c => conversationAccess(this.db,c.id,userId)).map(c => this.conversation(c.id,userId));
   }

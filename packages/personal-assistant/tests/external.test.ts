@@ -234,3 +234,21 @@ it('decodes only the requested external messages while keeping pending work and 
     } finally { parse.mockRestore(); }
   } finally { state.close(); }
 });
+
+it('describes selected external targets in chat order with aliases, deduplication and Agent scope', async () => {
+  const store=new NodeStore(':memory:','owner');
+  const external=new ExternalChannels(':memory:',{nodeId:'n',ownerId:'owner',store,
+    relay:{ready:false,request:async()=>({type:'result',payload:{ok:true,result:{forwarded:true}}})},
+    im:async()=>({}),receive:async()=>{},permission:async()=>{},onError:error=>{throw error;}});
+  const state=(external as unknown as {state:ExternalStore}).state;
+  for (const [id,agentId] of [['first','a'],['second','a'],['other','b']]) state.saveChat({id,agentId,appId:'app',chatId:id,sourceId:id,isGroup:true,shadowId:'shadow-'+id});
+  const query=(payload:Record<string,unknown>)=>external.request('conversation.query',{agent_id:'a',...payload});
+  try {
+    expect((await query({action:'describe',targets:['shadow-second','first','second']})).payload.result).toMatchObject({conversations:[{id:'first'},{id:'second'}]});
+    expect((await query({action:'describe',targets:[]})).payload.result).toEqual({conversations:[]});
+    expect((await query({action:'describe',targets:['other']})).payload.result).toEqual({forwarded:true});
+    expect((await query({action:'info',target:'conversation:first'})).payload.result).toMatchObject({id:'first'});
+    expect((await query({action:'info',target:'shadow-first'})).payload.result).toMatchObject({id:'first'});
+    expect((await query({action:'info',target:'conversation:shadow-first'})).payload.result).toEqual({forwarded:true});
+  } finally {await external.stop();store.close();}
+});

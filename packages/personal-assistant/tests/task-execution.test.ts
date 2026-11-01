@@ -52,3 +52,24 @@ it('discovers UI-started responsibility, validates the current session, and reco
     expect(await service.stop(binding,input)).toMatchObject({paused:1});
   }finally{store.close();}
 });
+
+it('checks only the current Task session, including mirrored external conversations', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  const binding = {agentId:'a',sessionId:'old',ownerId:'owner',conversationId:'external:chat',cwd:'/tmp',revision:'1'};
+  store.bind(binding); store.aliasConversation('a','shadow','external:chat');
+  store.reset(binding,{...binding,sessionId:'current'},'reset');
+  const calls: unknown[] = [];
+  const service = new TaskExecution({nodeId:'node',ownerId:'owner',store,
+    agents:[{agentId:'a',mode:'single_thread',workspace:'/tmp',revision:'1',provider:'p',model:'m'}],
+    runtime:{onNotification:()=>()=>{},request:async (_method,args)=>{calls.push(args);return {valid:true};}},
+    relay:{request:async()=>({type:'result',payload:{ok:true,result:{items:[]}}})},
+    drain:async()=>{},context:async()=>({messages:[],revoked:[]}),
+  });
+  try {
+    expect(await service.inspect({agent_id:'a',conversation_id:'shadow',schedule_id:'schedule'})).toMatchObject({valid:true});
+    expect(calls).toEqual([expect.objectContaining({sessionId:'current',scheduleId:'schedule'})]);
+    expect(await service.inspect({agent_id:'a',conversation_id:'external:chat',schedule_id:'schedule'})).toMatchObject({valid:false});
+    expect(await service.snapshot({agentId:'a',ownerId:'owner',sessionId:'old'})).toMatchObject({reason:'session_superseded'});
+    expect(calls).toHaveLength(1);
+  } finally {store.close();}
+});

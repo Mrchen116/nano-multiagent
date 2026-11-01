@@ -71,10 +71,12 @@ export class Work {
     const batch = readWorkBatch(input);
     const {ack, appliedRoots} = this.records.append(node, batch, historical);
     for (const root of appliedRoots) {
+      const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
+      const space = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id;
       const users = all(
         this.db,
         "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
-      ).filter(u => {const personal=one(this.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",root);return (!personal||personal.owner_user_id===u.id)&&canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id);}).map((u) => u.id);
+      ).filter(u => (!personal || personal.owner_user_id === u.id) && canAccessSpace(u, space)).map((u) => u.id);
       this.ctx.gateway.broadcast(users, {
         op: "event",
         event_type: "agent.work.updated",
