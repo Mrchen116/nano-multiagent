@@ -630,8 +630,8 @@ export class Messaging {
     this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>`agent:${agent.agent_id}`!==one(this.db,'SELECT username FROM users WHERE id=?',message.sender_user_id)?.username));
   }
   /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
-  relayEligible(task: Row): boolean {
-    const payload = JSON.parse(task.payload_json), agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
+  relayEligible(task: Row, payload: Row = JSON.parse(task.payload_json)): boolean {
+    const agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
     if(!lifecycleAllows(this.db,payload.agent_id,payload.lifecycle_revision))return false;
     const epoch = one(this.db, 'SELECT node_epoch FROM node_binding_state WHERE node_id=?', task.target_node_id)?.node_epoch ?? 0;
     if (payload.metadata?.node_epoch !== undefined && payload.metadata.node_epoch !== epoch) return false;
