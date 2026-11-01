@@ -11,9 +11,10 @@
     "check:ios-runtime": "tsx scripts/generate-ios-interactive.ts --check && tsc -p src/IM/ios/Runtime/tsconfig.json",
     "build": "pnpm -r --if-present build && node scripts/build-node-release.mjs",
     "test": "vitest run",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "pnpm -r --if-present typecheck && tsc -p evals/memory/tsconfig.json",
     "pa": "node apps/node/lib/cli.js",
-    "im": "node apps/im-server/lib/main.js"
+    "im": "node apps/im-server/lib/main.js",
+    "memory-eval": "tsx evals/memory/cli.ts"
   },
   "devDependencies": {
     "@openuidev/lang-core": "1.0.1",
@@ -24,7 +25,10 @@
     "typescript": "6.0.3",
     "vitest": "4.1.11",
     "zod": "4.6.5",
-    "@nano/dsh-integration": "workspace:*"
+    "@nano/dsh-integration": "workspace:*",
+    "@nano/product-contracts": "workspace:*",
+    "@nano/personal-assistant": "workspace:*",
+    "@nano/im-server": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "0.2.1-alpha.1"

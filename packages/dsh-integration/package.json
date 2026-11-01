@@ -12,7 +12,9 @@
     "./agent-config": "./lib/agent-config.js",
     "./compaction": "./lib/compaction.js",
     "./assets/social-tools": "./lib/assets/social-tools.js",
-    "./workflow": "./lib/workflow/engine.js"
+    "./workflow": "./lib/workflow/engine.js",
+    "./evaluation": "./lib/evaluation.js",
+    "./evaluation/runtime": "./lib/evaluation/runtime.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

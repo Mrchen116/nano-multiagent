@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_DREAMING_SCHEDULE } from '@nano/product-contracts';
 import { mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
@@ -38,6 +39,9 @@ export class Dreaming {
   private readonly maintenance = new Set<string>();
   private foregroundRequests = 0;
   private stopped = false;
+  private now = () => Date.now();
+  private hostClock = false;
+  private readonly timer: ReturnType<typeof setInterval>;
   constructor(private readonly ctx: Context, private readonly documents: DocumentMemory, private readonly options: Options) {
     this.domain = ctx.storageDomain.open(dreamingDomain); this.sources = new MemorySources(ctx, options.bindings);
     documents.run = (agent, requestRef, importLegacy) => this.start(agent, false, requestRef, importLegacy);
@@ -56,8 +60,8 @@ export class Dreaming {
     ctx.on('session/event', (session, event) => {
       const binding = options.bindings.get(session.id);
       if (!binding) return;
-      if (event.type === 'user/message' || event.type === 'tool/result') this.lastActivity.set(binding.agentId, Date.now());
-      if (event.type === 'step/end') void this.tick(binding.agentId).catch(() => {});
+      if (event.type === 'user/message' || event.type === 'tool/result') this.recordActivity(binding.agentId);
+      if (event.type === 'step/end' && !this.hostClock) void this.tick(binding.agentId).catch(() => {});
     });
     const self = this;
     ctx.on('llm/stream', async function* (request, next) {
@@ -65,9 +69,45 @@ export class Dreaming {
       if (foreground) self.foregroundRequests++;
       try { yield* next(); } finally { if (foreground) self.foregroundRequests--; }
     }, { prepend: true });
-    const timer = setInterval(() => { for (const config of new Set(options.configs.values())) void this.tick(config.agentId).catch(() => {}); }, 1000);
-    timer.unref(); ctx.effect(() => () => clearInterval(timer));
+    this.timer = setInterval(() => { for (const config of new Set(options.configs.values())) void this.tick(config.agentId).catch(() => {}); }, 1000);
+    this.timer.unref(); ctx.effect(() => () => clearInterval(this.timer));
   }
+  /** Use a host-driven clock before initializing any owner.
+   *
+   * Args:
+   *   now: Monotonic logical time in Unix milliseconds. The host must call tick explicitly.
+   * Raises:
+   *   Error: An owner has already been initialized.
+   * Side Effects:
+   *   Disables timer and completed-step admission for this isolated service instance.
+   */
+  useClock(now: () => number): void {
+    if (this.owners.size) throw new Error('Install the maintenance clock before initializing owners.');
+    this.now = now; this.hostClock = true; clearInterval(this.timer);
+  }
+
+  /** Record completed source activity without replaying historical business tools. */
+  recordActivity(agentId: string, at = this.now()): void { this.lastActivity.set(agentId, at); }
+
+  /** Return the earliest idle-owner admission time, or undefined when maintenance is disabled. */
+  async nextAutomaticAt(agentId: string): Promise<number | undefined> {
+    const config = this.configuration(agentId);
+    if (this.stopped || !config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
+    const timing = this.automaticTiming(config, await this.owner(config));
+    return Math.max(timing.dueAt, timing.quietAt);
+  }
+
+  /** Wait only for work already admitted; never start an additional maintenance cycle. */
+  async whenIdle(agentId: string): Promise<unknown> { return this.active.get(agentId)?.promise; }
+
+  private automaticTiming(config: AgentConfiguration, owner: DreamingOwner) {
+    const settings = config.knowledge?.dreaming;
+    return {
+      dueAt: Math.max(owner.retryAt ?? 0, (owner.lastSuccessAutomatic ?? owner.activationAt) + (settings?.intervalMs ?? DEFAULT_DREAMING_SCHEDULE.intervalMs)),
+      quietAt: (this.lastActivity.get(config.agentId) ?? owner.activationAt) + (settings?.quietMs ?? DEFAULT_DREAMING_SCHEDULE.quietMs),
+    };
+  }
+
   get busy() { return this.active.size > 0; }
   private configuration(agentId: string) { return [...this.options.configs.values()].find(config => config.agentId === agentId); }
   private async owner(config: AgentConfiguration): Promise<DreamingOwner> {
@@ -81,7 +121,7 @@ export class Dreaming {
       let imported: Partial<DreamingOwner> | undefined;
       try { imported = JSON.parse(await readFile(join(library.workspace, '.nanoassistant/maintenance/dreaming-state.json'), 'utf8')) as DreamingOwner; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      const owner: DreamingOwner = { protocol: 2, integrated: {}, activationAt: imported?.activationAt ?? Date.now(), streams: imported?.streams ?? await this.sources.baseline(config.agentId), seen: [], rotation: 0, failures: 0 };
+      const owner: DreamingOwner = { protocol: 2, integrated: {}, activationAt: imported?.activationAt ?? this.now(), streams: imported?.streams ?? await this.sources.baseline(config.agentId), seen: [], rotation: 0, failures: 0 };
       await table.put(key(config.agentId), owner); return owner;
     })();
     this.owners.set(config.agentId, promise);
@@ -90,7 +130,7 @@ export class Dreaming {
   private async saveOwner(agentId: string, owner: DreamingOwner) { await (await this.domain).table('owners').put(key(agentId), owner); }
   private async saveRun(run: DreamingRun) { await (await this.domain).table('runs').put(run.id, { ...run, batch: { ...run.batch, units: run.batch.units.map(unit => ({ ...unit, events: [] })) } }); this.options.notify(); }
   /** Automatic admission never reserves the root Agent for the model call. */
-  async tick(agentId: string, now = Date.now()): Promise<void> {
+  async tick(agentId: string, now = this.now()): Promise<unknown> {
     const config = this.configuration(agentId);
     const active = this.active.get(agentId);
     if (active) {
@@ -100,12 +140,12 @@ export class Dreaming {
     if (this.stopped || !config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
     const parent = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId).map(binding => this.ctx.agents.get(SessionId(binding.sessionId))).find(Boolean);
     if (!parent) return;
-    const owner = await this.owner(config); const settings = config.knowledge?.dreaming;
-    if (now < (owner.retryAt ?? 0) || now < (owner.lastSuccessAutomatic ?? owner.activationAt) + (settings?.intervalMs ?? 86400000)) return;
-    const quiet = now - (this.lastActivity.get(agentId) ?? owner.activationAt) >= (settings?.quietMs ?? 600000);
+    const timing = this.automaticTiming(config, await this.owner(config));
+    if (now < timing.dueAt) return;
+    const quiet = now >= timing.quietAt;
     // A completed-step callback can admit work during a continuous turn, but only with spare provider capacity.
     if (this.foregroundRequests > 0 || !quiet && parent.status === 'idle') return;
-    await this.start(parent, true);
+    return this.start(parent, true);
   }
   private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal) {
     if (!config.personal) return;
@@ -128,7 +168,7 @@ export class Dreaming {
   private async execute(parent: Agent, config: AgentConfiguration, work: Active, importLegacy: boolean): Promise<unknown> {
     const owner=await this.owner(config);const library=await this.documents.forConfig(config);const signal=work.controller.signal;
     const table=(await this.domain).table('runs');
-    owner.lastAttempt=Date.now();await this.saveOwner(config.agentId,owner);
+    owner.lastAttempt=this.now();await this.saveOwner(config.agentId,owner);
     const completed:string[]=[];let run:DreamingRun|undefined;
     try{
       await this.refreshSources(parent,config,signal);
@@ -143,7 +183,7 @@ export class Dreaming {
           const current=versions[operation.path]??null;return current!==operation.beforeHash&&current!==operation.afterHash;
         })){
           run.state='failed';run.planRetired=true;run.error='Frozen plan retired after source or document change; successful file receipts are preserved.';
-          run.endedAt=Date.now();run.summary=this.summary(run);await this.saveRun(run);await this.publish(run);continue;
+          run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);await this.publish(run);continue;
         }
         await this.apply(parent,config,work,run,library,owner);completed.push(run.id);
       }
@@ -175,7 +215,7 @@ export class Dreaming {
           const rootPending=Object.entries(target.roots).some(([id,cut])=>owner.streams[id]!.cursor<cut.through||owner.streams[id]!.continuation);
           if(target.blocked.length||batch.blocked.length&&(!hasProgress||rootPending))throw new Error(`Source ranges remain blocked: ${JSON.stringify([...target.blocked,...batch.blocked])}`);
           if(rootPending)throw new Error('No safe progress towards the frozen source boundary.');
-          owner.failures=0;delete owner.retryAt;if(work.automatic)owner.lastSuccessAutomatic=Date.now();
+          owner.failures=0;delete owner.retryAt;if(work.automatic)owner.lastSuccessAutomatic=this.now();
           await this.saveOwner(config.agentId,owner);
           return completed.length ? {accepted:true,state:'completed',runIds:completed} : {accepted:false,completed:false,reason:'no_eligible_increment'};
         }
@@ -244,17 +284,17 @@ export class Dreaming {
         // Re-enter even after the final root page: tasks may have later evidence inside this cycle's cut.
       }
     }catch(error){
-      owner.failures++;owner.retryAt=Date.now()+retryDelays[Math.min(owner.failures-1,retryDelays.length-1)]!;await this.saveOwner(config.agentId,owner);
+      owner.failures++;owner.retryAt=this.now()+retryDelays[Math.min(owner.failures-1,retryDelays.length-1)]!;await this.saveOwner(config.agentId,owner);
       if(!run)return {accepted:completed.length>0,state:'failed',runIds:completed,reason:String(error)};
       run.state=signal.aborted ? run.receipts.some(receipt=>receipt.saved)?'partial':'cancelled' : run.receipts.some(receipt=>receipt.saved)?'partial':'failed';
       if(signal.aborted)run.planRetired=true;
-      run.error=String(error);run.endedAt=Date.now();run.summary=this.summary(run);await this.saveRun(run);await this.publish(run,work.handle);
+      run.error=String(error);run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);await this.publish(run,work.handle);
       return {accepted:true,runId:run.id,state:run.state,summary:run.summary};
     }finally{await this.disposeHandle(work);}
   }
   private newRun(parent:Agent,config:AgentConfiguration,work:Active,library:MemoryDocuments,target:CycleTarget,cycleId:string,batch:FrozenBatch,stage:DreamingRun['stage']):DreamingRun{
     return {id:batch.id,agentId:config.agentId,rootSessionId:parent.id,mode:work.automatic?'automatic':'manual',stage,cycleId,
-      state:'prepared',at:Date.now(),generation:target.generation,directory:join(library.workspace,'.nanoassistant/maintenance/dreaming',batch.id),
+      state:'prepared',at:this.now(),generation:target.generation,directory:join(library.workspace,'.nanoassistant/maintenance/dreaming',batch.id),
       target,batch,summaries:[],receipts:[]};
   }
   private async extract(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,material:ChildMaterial):Promise<TaskSummary>{
@@ -279,7 +319,7 @@ export class Dreaming {
     const summary:TaskSummary={agentId:config.agentId,sessionId:material.sessionId,rootSessionId:material.rootSessionId,baseline:material.baseline,through:material.through,
       sourceVersion:material.sourceVersion,generation:run.generation,path,hash:memoryDigest(text),noSignal:!text,extractionRunId:run.id,slug:result.rollout_slug};
     await (await this.domain).table('summaries').put(summaryKey(config.agentId,material.sessionId),summary);
-    run.summaries=[summary];run.state='completed';run.endedAt=Date.now();run.summary=this.summary(run);
+    run.summaries=[summary];run.state='completed';run.endedAt=this.now();run.summary=this.summary(run);
     await this.saveRun(run);await this.publish(run,work.handle);await this.disposeHandle(work);
     return summary;
   }
@@ -352,7 +392,7 @@ export class Dreaming {
       const confirmed={...manifest.versions};for(const operation of run.plan)confirmed[operation.path]=operation.afterHash;
       await library.checkpoint(Object.fromEntries(Object.entries(confirmed).sort(([a],[b])=>a.localeCompare(b))),run.generation);
     }
-    run.state='completed';run.endedAt=Date.now();run.summary=this.summary(run);await this.saveRun(run);
+    run.state='completed';run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);
     await this.commitProgress(run,owner);await this.publish(run,work.handle);
   }
   private async commitProgress(run:DreamingRun,owner:DreamingOwner){
@@ -401,7 +441,7 @@ export class Dreaming {
       if(run.childSessionId&&!run.identityRecorded)await this.repairIdentity(run);
       // A saved file may still need its frozen content to retry version recording.
       const pendingVersion=run.receipts.some(receipt=>receipt.saved&&!receipt.versionRecorded);
-      if(run.endedAt&&Date.now()-run.endedAt>7*86400000&&(run.planRetired||run.state==='completed'&&!pendingVersion||!run.plan&&['failed','cancelled'].includes(run.state))){
+      if(run.endedAt&&this.now()-run.endedAt>7*86400000&&(run.planRetired||run.state==='completed'&&!pendingVersion||!run.plan&&['failed','cancelled'].includes(run.state))){
         for(const path of ['input','input.md','staging','summaries','legacy'])await rm(join(run.directory,path),{recursive:true,force:true});
       }
       if(run.stage==='consolidate'&&run.state==='completed'){
@@ -422,7 +462,7 @@ export class Dreaming {
     const { events } = await handle.read();
     if (!events.some(event => event.type === 'subagent/descriptor')) {
       // Append model-hidden metadata at today's time; retain every original event and sequence.
-      const descriptor = snapshotSessionEvent({ type: 'subagent/descriptor', seq: SessionSeq(events.length), time: Date.now(),
+      const descriptor = snapshotSessionEvent({ type: 'subagent/descriptor', seq: SessionSeq(events.length), time: this.now(),
         data: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'native', label: 'Dreaming · 自动整理记忆' }) });
       await handle.append([descriptor]); await handle.flush();
     }
