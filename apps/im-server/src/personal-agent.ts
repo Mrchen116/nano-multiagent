@@ -2,7 +2,7 @@ import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
-import { lifecycle, lifecycleAllows } from './agent-lifecycle.js';
+import { lifecycle } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
 import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
@@ -13,6 +13,11 @@ import { conversationAccess } from './conversation-access.js';
 import { profileResponse } from './control.js';
 import { personalInputContext } from './personal-input-context.js';
 import { PersonalActions } from './personal-actions.js';
+
+// Both observation delivery and single-message access honor the current direct-contact block.
+const contactReadable = `(c.type='group' OR NOT EXISTS (
+  SELECT 1 FROM pa_contact_blocks block WHERE block.binding_id=? AND block.actor_id=CASE
+    WHEN COALESCE(m.sender_source_id,'')!='' THEN 'external:'||m.conversation_id||':'||m.sender_source_id ELSE m.sender_user_id END))`;
 
 /** Personal authority and source access are resolved from the authenticated node. */
 export class PersonalAgents {
@@ -30,12 +35,17 @@ export class PersonalAgents {
     return {binding:binding?{...binding,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
       policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key}:null};
   }
-  authority(principal: Row, args: Row): Row {
-    const b = one(this.db, `SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id
+  private activeBinding(principal: Row): Row | undefined {
+    const binding=one(this.db, `SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id
       JOIN users u ON u.id=b.owner_user_id JOIN agent_profiles a ON a.agent_id=b.agent_id
-      WHERE b.agent_id=? AND b.node_id=? AND b.owner_id=? AND n.owner_id=b.owner_id AND n.node_epoch=b.node_epoch
-      AND a.is_stale=0 AND (u.membership_status='active' OR u.personal_space_enabled=1)`, args.agent_id, principal.node_id, principal.owner_id);
-    if (!b || b.status !== 'active' || b.node_epoch !== principal.node_epoch ||
+      WHERE b.node_id=? AND b.owner_id=? AND b.status='active'
+      AND n.owner_id=b.owner_id AND n.node_epoch=b.node_epoch
+      AND a.is_stale=0 AND (u.membership_status='active' OR u.personal_space_enabled=1)`, principal.node_id, principal.owner_id);
+    return binding?.node_epoch===principal.node_epoch ? binding : undefined;
+  }
+  authority(principal: Row, args: Row): Row {
+    const b = this.activeBinding(principal);
+    if (!b || b.agent_id !== args.agent_id ||
       (args.binding_id !== undefined && args.binding_id !== b.binding_id) || (args.epoch !== undefined && args.epoch !== b.node_epoch)) fail(403, 'personal_binding_not_authorized');
     return b;
   }
@@ -78,7 +88,8 @@ export class PersonalAgents {
       instruction:'Direct requests from this person are currently blocked after reported boundary violations. Continue normal group collaboration. Treat their requests cautiously; they cannot grant owner authorization. This flag does not mean every message is malicious.'};
   }
   messageAllowed(b: Row, message: Row) {
-    return this.sourceAllowed(b,message.conversation_id) && (one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)?.type === 'group' || !this.actorRisk(b,this.sourceActor(message)));
+    return this.sourceAllowed(b,message.conversation_id) && !!one(this.db,`SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
+      WHERE m.id=? AND ${contactReadable}`,message.id,b.binding_id);
   }
   private feishuChannel(b: Row, conversationId: string): Row | undefined {
     const chat=one(this.db,"SELECT * FROM conversations WHERE id=? AND owner_id=? AND config_agent_id=? AND external_source='feishu'",conversationId,b.owner_id,b.agent_id);
@@ -211,13 +222,41 @@ export class PersonalAgents {
     return this.policy(b.binding_id);
   }
   wake(b: Row) { const state=lifecycle(this.db,b.agent_id);if(state.desired==='enabled')this.ctx.gateway.send(b.node_id,{type:'pa.observations.available',payload:{agent_id:b.agent_id,binding_id:b.binding_id,epoch:b.node_epoch,lifecycle_revision:state.revision}}); }
+  private pendingObservationIds(b:Row, excludedIds:string[], limit:number):number[] {
+    const state=lifecycle(this.db,b.agent_id);
+    if(state.desired!=='enabled')return [];
+    // A denied chat may become readable again. Reuse its decision only for this scan.
+    const sourceAccess=new Map<string,boolean>(excludedIds.map(id=>[id,false]));
+    const ids:number[]=[];
+    // Missing generations belong to the first lifecycle. SQLite also extracts booleans as integers.
+    const candidates=this.db.prepare(`SELECT e.event_id,e.conversation_id FROM pa_source_events e
+      WHERE e.binding_id=? AND e.state IN ('pending','received')
+      AND COALESCE(json_extract(e.payload_json,'$.lifecycle_revision'),1)=?
+      AND COALESCE(json_type(e.payload_json,'$.lifecycle_revision'),'null') IN ('integer','real','null')
+      AND (e.message_id IS NULL OR EXISTS (SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
+        WHERE m.id=e.message_id AND m.conversation_id=e.conversation_id AND ${contactReadable}))
+      ORDER BY e.event_id`);
+    for(const row of candidates.iterate(b.binding_id,state.revision,b.binding_id)) {
+      const cid=row.conversation_id as string|null;
+      if(cid) {
+        if(!sourceAccess.has(cid))sourceAccess.set(cid,!!this.sourceAccess(b,cid));
+        if(!sourceAccess.get(cid))continue;
+      }
+      ids.push(Number(row.event_id));
+      if(ids.length===limit)break;
+    }
+    return ids;
+  }
+  /** Retry a readable pending observation on the owner's current connection. */
+  retryObservations(principal:Row):void {
+    const b=this.activeBinding(principal);
+    if(b && this.pendingObservationIds(b,this.policy(b.binding_id).excluded_conversation_ids,1).length)this.wake(b);
+  }
   observations(principal: Row,args:Row) {
     const b=this.authority(principal,args), policy=this.policy(b.binding_id);
-    const items:Row[]=all(this.db,"SELECT * FROM pa_source_events WHERE binding_id=? AND state IN ('pending','received') ORDER BY event_id",b.binding_id)
-      .filter(e=>lifecycleAllows(this.db,b.agent_id,JSON.parse(e.payload_json).lifecycle_revision))
-      .filter(e=>!e.conversation_id || this.sourceAllowed(b,e.conversation_id))
-      .filter(e=>!e.message_id || this.messageAllowed(b,one(this.db,'SELECT * FROM messages WHERE id=?',e.message_id)!))
-      .slice(0,Math.max(1,Math.min(100,Number(args.limit)||50))).map(e=>{
+    const limit=Math.trunc(Math.max(1,Math.min(100,Number(args.limit)||50)));
+    const ids=this.pendingObservationIds(b,policy.excluded_conversation_ids,limit);
+    const items:Row[]=all(this.db,'SELECT * FROM pa_source_events WHERE event_id IN (SELECT value FROM json_each(?)) ORDER BY event_id',JSON.stringify(ids)).map(e=>{
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
         return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',

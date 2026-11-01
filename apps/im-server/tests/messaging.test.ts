@@ -36,6 +36,16 @@ it("keeps empty conversations, ordinary text and attachment previews", () => {
   expect(messaging.conversation("chat", "u1").last_message_preview).toBe("report.pdf");
 });
 
+it("retains member order and stale badges even when an Agent profile is missing", () => {
+  const { db, ctx } = fixture();
+  db.exec(`UPDATE agent_profiles SET is_stale=1 WHERE agent_id='a';
+    INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('gone','agent:gone','Former Agent','o1','now');
+    INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','gone');`);
+  const participants=new Messaging(ctx).conversation('chat','u1').participants;
+  expect(participants.map(({user_id,is_stale}: {user_id:string,is_stale:boolean|null})=>[user_id,is_stale]))
+    .toEqual([['u1',null],['a1',true],['gone',null]]);
+});
+
 it.each(["stale profile", "suspended owner"])("completes an ordinary message when its only Agent has a %s", async reason => {
   const { db, ctx } = fixture();
   ctx.gateway.broadcast = vi.fn();

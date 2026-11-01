@@ -472,6 +472,10 @@ CREATE TABLE IF NOT EXISTS pa_source_events (
  policy_revision INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
  UNIQUE(binding_id,source_event_id)
 );
+CREATE INDEX IF NOT EXISTS pa_observations_pending_revision ON pa_source_events(
+ binding_id,COALESCE(json_extract(payload_json,'$.lifecycle_revision'),1),event_id,conversation_id,message_id
+) WHERE state IN ('pending','received')
+  AND COALESCE(json_type(payload_json,'$.lifecycle_revision'),'null') IN ('integer','real','null');
 CREATE TRIGGER IF NOT EXISTS personal_observation_event AFTER INSERT ON conversation_events
 WHEN NEW.event_type IN ('message.created','message.completed','conversation.membership_changed','task_graph.changed')
 BEGIN

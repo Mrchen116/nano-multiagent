@@ -1,8 +1,9 @@
+import Fastify from 'fastify';
 import {configurationDependencies} from '../src/configuration-assembly.js';
 import { expect, it, vi } from 'vitest';
 import { fixture, connectFixtureGateway } from './control-fixture.js';
 import { personalFixture, recordOwnerNotice } from './personal-fixture.js';
-import { Messaging } from '../src/messaging.js';
+import { Messaging, registerMessagingRoutes } from '../src/messaging.js';
 import { TaskGraphService } from '../src/task-graphs.js';
 import { PersonalAgents } from '../src/personal-agent.js';
 import { Gateway, type Connection } from '../src/gateway.js';
@@ -68,6 +69,46 @@ it('retries observations only for the enabled generation after a PA restarts', a
  ack(notice.event_id, 'processed');
  expect(await heartbeat()).toEqual([]);
  expect(db.prepare('SELECT state FROM pa_source_events WHERE event_id=?').get(old.event_id)).toEqual({state:'pending'});
+});
+
+it('retries only readable pending observations, including retained originals after rejoining',async()=>{
+ const f=personalFixture(), {ctx,db,service,principal,args}=f;
+ const connection=connectFixtureGateway(f);
+ ctx.gateway=new Gateway(ctx);ctx.gateway.nodes.set('n',connection);
+ const sent=vi.spyOn(ctx.gateway,'send').mockReturnValue(true);
+ const heartbeat=async()=>{
+   sent.mockClear();
+   await ctx.gateway.handle(connection,'node.heartbeat',{node_id:'n',status:'online'});
+   return sent.mock.calls.filter(([,frame])=>frame.type==='pa.observations.available').length;
+ };
+ const read=()=>service.observations(principal,{...args,limit:1}).items;
+ const processed=(event:Record<string,any>)=>service.acknowledge(principal,{...args,event_ids:[event.event_id],stage:'processed'});
+ db.exec("UPDATE conversations SET type='group',visibility='private',creator_id='u2' WHERE id='peer'");
+ const originals=['first','second'].map(text=>ctx.messaging.insertMessage('peer','u2','user',text).id);
+ const app=Fastify();registerMessagingRoutes(app,ctx);
+ try {
+   const removed=await app.inject({method:'DELETE',url:'/im/v1/conversations/peer/participants/u1',headers:{'x-user':'u2'}});
+   expect(removed.statusCode).toBe(204);
+ } finally {await app.close();}
+ const [revoked]=read();
+ expect(revoked.kind).toBe('source.revoked');
+ processed(revoked);
+ expect(read()).toHaveLength(0);
+ expect(await heartbeat()).toBe(0);
+ // A later eligible source must still wake the node past the inaccessible prefix.
+ db.exec(`INSERT INTO conversations(id,title,type,created_at) VALUES('later','Still readable','group','now');
+   INSERT INTO conversation_participants(conversation_id,user_id) VALUES('later','u1'),('later','u2');`);
+ const later=ctx.messaging.insertMessage('later','u2','user','Visible after the revoked prefix');
+ expect(await heartbeat()).toBe(1);
+ const [current]=read();expect(current.message.id).toBe(later.id);
+ processed(current);
+ expect(await heartbeat()).toBe(0);
+ db.exec("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','u1')");
+ expect(await heartbeat()).toBe(1);
+ for(const id of originals){
+   const [event]=read();expect(event.message.id).toBe(id);processed(event);
+ }
+ expect(await heartbeat()).toBe(0);
 });
 
 it('reads owner tasks without PA membership and removes excluded sources before list counts and cursors',()=>{

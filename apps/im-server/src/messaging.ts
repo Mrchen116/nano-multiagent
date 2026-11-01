@@ -74,7 +74,7 @@ export class Messaging {
   members(id: string): Row[] {
     return all(
       this.db,
-      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id WHERE cp.conversation_id=? ORDER BY cp.rowid`,
+      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username GLOB 'agent:*' AND ap.agent_id=substr(u.username,7) WHERE cp.conversation_id=? ORDER BY cp.rowid`,
       id,
     );
   }
