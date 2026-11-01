@@ -26,6 +26,7 @@ it('migrates an evidenced Agent assignee before personal-space columns exist', a
   db.exec(`DELETE FROM task_graph_mutation_receipts;
     ALTER TABLE task_graphs DROP COLUMN conversation_id;
     ALTER TABLE task_graph_mutation_receipts DROP COLUMN conversation_id;
+    DROP INDEX public_groups;
     ALTER TABLE conversations DROP COLUMN visibility;
     ALTER TABLE conversations DROP COLUMN dissolved_at;
     ALTER TABLE conversations DROP COLUMN space_id;

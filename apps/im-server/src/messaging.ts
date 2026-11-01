@@ -24,7 +24,7 @@ import {
   type Row,
   type ImContext,
 } from "./context.js";
-import { conversationAccess, conversationReaderIds, qualifiedUser } from "./conversation-access.js";
+import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from "./conversation-access.js";
 import { searchMessages } from './message-search.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
@@ -767,17 +767,16 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         if (!cursor || typeof cursor.id !== 'string' || typeof cursor.created_at !== 'string' || !Number.isFinite(Date.parse(cursor.created_at))) throw Error();
       } catch { fail(400, 'invalid_cursor'); }
     }
+    const targets = [...readableConversationIds(db, user)];
+    const matches = searchMessages(db, {targets, kind, terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
     const conversations = new Map<string, Row>();
-    for (const row of all(db, 'SELECT id FROM conversations')) {
-      if (!conversationAccess(db, row.id, user.id)) continue;
-      const chat = s.conversation(row.id, user.id);
-      const chatKind = chat.type === 'direct' ? chat.direct_kind === 'agent-agent' ? 'agent-network' : chat.direct_kind === 'user-user' || chat.direct_kind === 'user' ? 'direct-user' : 'direct-agent'
-        : chat.participants.length > 0 && chat.participants.every((p: Row) => p.type === 'agent') ? 'agent-network' : 'group';
-      if (kind === 'all' || kind === chatKind) conversations.set(row.id, chat);
-    }
-    const matches = searchMessages(db, {targets:[...conversations.keys()], terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
     const messages = matches.slice(0,limit).map(row => {
-      const message = s.message(row.id), chat = conversations.get(message.conversation_id)!;
+      const message = s.message(row.id), id = message.conversation_id;
+      let chat = conversations.get(id);
+      if (!chat) {
+        chat = s.conversation(id, user.id);
+        conversations.set(id, chat);
+      }
       const content = readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
       const position = Math.max(0, content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
       const start = Math.max(0, position - 40), end = Math.min(content.length, position + q.q.trim().length + 80);
