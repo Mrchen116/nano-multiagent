@@ -426,9 +426,14 @@ export class Gateway {
         "UPDATE nodes SET status=?,last_heartbeat_at=?,last_error=?,agent_count=COALESCE(?,agent_count) WHERE node_id=?",
       ).run(p.status ?? "online", now(), p.last_error ?? null, p.agent_count ?? null, c.node_id);
       // Pending observations survive transient review failures. Existing heartbeats retry them without a new user message.
-      if((p.status??'online')==='online') for(const binding of all(db,`SELECT DISTINCT b.* FROM personal_agent_bindings b
-        JOIN pa_source_events e ON e.binding_id=b.binding_id
-        WHERE b.node_id=? AND b.status='active' AND e.state IN ('pending','received')`,c.node_id)) this.ctx.personal?.wake(binding);
+      if((p.status??'online')==='online') for(const binding of all(db,`SELECT b.* FROM personal_agent_bindings b
+        JOIN agent_lifecycle l ON l.agent_id=b.agent_id
+        WHERE b.node_id=? AND b.status='active' AND l.desired='enabled' AND EXISTS (
+          SELECT 1 FROM pa_source_events e WHERE e.binding_id=b.binding_id AND e.state IN ('pending','received')
+          -- Match lifecycleAllows: a missing revision belongs only to the first generation.
+          AND COALESCE(json_type(e.payload_json,'$.lifecycle_revision'),'null') IN ('integer','real','null')
+          AND COALESCE(json_extract(e.payload_json,'$.lifecycle_revision'),1)=l.revision
+        )`,c.node_id)) this.ctx.personal?.wake(binding);
       return ack({ node_id: c.node_id });
     }
     if (type === "agent.work.append")

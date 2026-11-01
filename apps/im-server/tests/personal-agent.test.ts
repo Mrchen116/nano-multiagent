@@ -6,6 +6,7 @@ import { Messaging } from '../src/messaging.js';
 import { TaskGraphService } from '../src/task-graphs.js';
 import { PersonalAgents } from '../src/personal-agent.js';
 import { Gateway, type Connection } from '../src/gateway.js';
+import { AgentLifecycles } from '../src/agent-lifecycle.js';
 it('retries persisted pending observations on node heartbeat without another user message',async()=>{
  const {ctx,db,service,principal}=personalFixture();ctx.personal=service;
  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at,membership_status) VALUES('o1','owner-binding','Owner','o1',datetime('now'),'active')").run();
@@ -21,6 +22,52 @@ it('retries persisted pending observations on node heartbeat without another use
  db.prepare("UPDATE pa_source_events SET state='processed'").run();
  await gateway.handle(connection,'node.heartbeat',{node_id:'n',status:'online'});
  expect(wake).toHaveBeenCalledTimes(2);
+});
+
+it('retries observations only for the enabled generation after a PA restarts', async () => {
+ const f = personalFixture();
+ const {ctx, db, service, principal, args} = f;
+ const connection = connectFixtureGateway(f);
+ ctx.gateway = new Gateway(ctx);
+ ctx.gateway.nodes.set('n', connection);
+ connection.agent_lifecycle_v1 = true;
+ const send = vi.spyOn(ctx.gateway, 'send').mockReturnValue(true);
+ const heartbeat = async () => {
+   send.mockClear();
+   await ctx.gateway.handle(connection, 'node.heartbeat', {node_id:'n', status:'online'});
+   return send.mock.calls.filter(([, frame]) => frame.type === 'pa.observations.available').map(([, frame]) => frame.payload);
+ };
+ const read = () => service.observations(principal, args).items;
+ ctx.messaging.insertMessage('peer', 'u2', 'user', 'Queued before stop');
+ const [old] = read();
+ expect(old.lifecycle_revision).toBe(1);
+
+ const lifecycle = new AgentLifecycles(ctx);
+ lifecycle.change('a', 'u1', {enabled:false, request_id:'off', expected_revision:1});
+ lifecycle.report('a', {revision:2, observed:'disabled', process_instance_id:null});
+ lifecycle.change('a', 'u1', {enabled:true, request_id:'on', expected_revision:2});
+ const samples = [];
+ for (let i = 0; i < 3; i++) samples.push({wakes:(await heartbeat()).length, items:read().length});
+ expect(samples).toEqual(Array(3).fill({wakes:0, items:0}));
+
+ const message = ctx.messaging.insertMessage('peer', 'u2', 'user', 'New request');
+ const expectedWake = [{...args, lifecycle_revision:3}];
+ expect(await heartbeat()).toEqual(expectedWake);
+ const [current] = read();
+ expect(current).toMatchObject({message_id:message.id, lifecycle_revision:3});
+ const ack = (id:number, stage:string) => service.acknowledge(principal, {...args, event_ids:[id], stage});
+ ack(current.event_id, 'received');
+ expect(await heartbeat()).toEqual(expectedWake);
+ expect(read()).toMatchObject([{event_id:current.event_id, state:'received'}]);
+ ack(current.event_id, 'processed');
+
+ const incident = service.incident(principal, {...args, source_message_id:message.id, reason:'Suspicious request'});
+ expect(await heartbeat()).toEqual(expectedWake);
+ const [notice] = read();
+ expect(notice).toMatchObject({kind:'security.incident', payload:{incident_ref:incident.id}});
+ ack(notice.event_id, 'processed');
+ expect(await heartbeat()).toEqual([]);
+ expect(db.prepare('SELECT state FROM pa_source_events WHERE event_id=?').get(old.event_id)).toEqual({state:'pending'});
 });
 
 it('reads owner tasks without PA membership and removes excluded sources before list counts and cursors',()=>{
