@@ -272,9 +272,6 @@ export class ModelFallback {
     const attempt = run.attempts.at(-1)!;
     const reason = event.data.reason;
     if (reason.kind === 'error') attempt.error = reason.error;
-    const executed = history.some(
-      (event) => event.type === 'tool/call' && run.attempts.some((attempt) => attempt.turn === event.data.turn),
-    );
     const candidates = this.candidates(config, run);
     const newer = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(
       (message) => !run.inputs.includes(message.id) && message.source.kind !== 'nano-fallback',
@@ -283,9 +280,9 @@ export class ModelFallback {
       reason.kind === 'error' &&
       available(reason.error) &&
       candidates.length &&
-      !executed &&
       !newer &&
-      !this.stopped
+      !this.stopped &&
+      !history.some(event => event.type === 'tool/call' && run.attempts.some(attempt => attempt.turn === event.data.turn))
     ) {
       run.state = 'switching';
       run.terminal = reason;

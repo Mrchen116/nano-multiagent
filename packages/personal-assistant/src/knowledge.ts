@@ -44,8 +44,9 @@ export class KnowledgeUpdates {
     const { facts, reviews } = await runtime.request('knowledge.facts', {}) as { facts: Fact[]; reviews: Review[] };
     const before = this.options.inbox.journalSeq;
     for (const review of reviews) {
-      const binding = this.options.store.bindings().find(item => item.sessionId === review.rootSessionId);
-      if (!review.childSessionId || binding?.agentId !== review.agentId || !this.options.agents.some(agent => agent.agentId === review.agentId && agent.mode === 'global')) continue;
+      if (!review.childSessionId) continue;
+      const binding = this.options.store.bindingForSession(review.rootSessionId);
+      if (binding?.agentId !== review.agentId || !this.options.agents.some(agent => agent.agentId === review.agentId && agent.mode === 'global')) continue;
       // Work authorization needs only the trusted identity link. Session bodies
       // stay demand-loaded and the model's subagent catalog stays untouched.
       this.options.inbox.append({ event_id: `knowledge-run:${review.id}`, type: 'session_linked', root_agent_id: review.agentId,
@@ -69,7 +70,7 @@ export class KnowledgeUpdates {
     if (this.options.inbox.journalSeq > before) this.options.onWork?.();
     const groups = new Map<string, Fact[]>();
     for (const fact of facts) {
-      const binding = this.options.store.bindings().find(item => item.sessionId === fact.rootSessionId);
+      const binding = this.options.store.bindingForSession(fact.rootSessionId);
       if (!binding || binding.agentId !== fact.agentId || !this.options.agents.some(agent => agent.agentId === fact.agentId) || !this.options.store.lifecycle.allowed(fact.agentId)) continue;
       if (fact.reviewId && reviews.find(review => review.id === fact.reviewId)?.status === 'running') continue;
       const key = fact.reviewId ?? fact.id; const group = groups.get(key) ?? []; group.push(fact); groups.set(key, group);
@@ -82,7 +83,7 @@ export class KnowledgeUpdates {
         if (first.reviewId) {
           const agent = this.options.agents.find(agent => agent.agentId === first.agentId); if (!agent) return;
           const targets = agent.personal ? [agent.personal.conversationId] : agent.mode === 'global' ? this.options.inbox.reviewTargets(first.rootSessionId, first.turn)
-            : [this.options.store.inputForTurn(first.rootSessionId, first.turn)?.input.conversation_id ?? this.options.store.bindings().find(binding => binding.sessionId === first.rootSessionId)?.conversationId].filter((value): value is string => !!value);
+            : [this.options.store.inputForTurn(first.rootSessionId, first.turn)?.input.conversation_id ?? this.options.store.bindingForSession(first.rootSessionId)?.conversationId].filter((value): value is string => !!value);
           const updated = ['skills', 'memory'].filter(kind => group.some(fact => fact.kind === kind));
           if (agent.mode === 'global') this.options.inbox.append({ event_id: `knowledge:${deliveryId}`, type: 'self_evolution_review', root_agent_id: first.agentId,
             session_id: first.rootSessionId, turn_id: String(first.turn), payload: { review_id: id, updated_targets: updated }, observed_at: new Date().toISOString() });

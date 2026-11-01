@@ -18,7 +18,7 @@ export const trajectoryRunsDomain: RunDomain = defineDomain({ name: 'nano_trajec
     state: z.enum(['running', 'completed', 'failed', 'cancelled', 'unknown']),
   })),
 } });
-interface Launch { toolName?: string; parentSessionId: string; kind: TrajectoryRun['kind']; delegation: TrajectoryRun['delegation']; launchSeq?: number; callId?: string; label?: string }
+interface Launch { toolName?: string; parentSessionId: string; kind: TrajectoryRun['kind']; delegation: TrajectoryRun['delegation']; launchSeq?: () => number | undefined; callId?: string; label?: string }
 const launchContext = new AsyncLocalStorage<Launch>();
 
 /** Observe host-owned maintenance without publishing a model-managed child.
@@ -79,9 +79,17 @@ export class TrajectoryRuns extends Service {
     ctx.on('tools/execute', (exec, next) => {
       if (!exec.agent) return next();
       const args = exec.arguments as { description?: unknown; run_in_background?: unknown } | null;
-      const call = exec.agent.session.snapshotEvents().findLast(event => event.type === 'tool/call' && event.data.callId === (exec.rootCallId ?? exec.callId));
+      const agent = exec.agent, callId = exec.rootCallId ?? exec.callId, through = agent.session.seq - 1;
+      let resolved = false, launchSeq: number | undefined;
+      const resolveLaunchSeq = () => {
+        if (!resolved) {
+          launchSeq = agent.session.snapshotEvents().findLast(event => event.seq <= through && event.type === 'tool/call' && event.data.callId === callId)?.seq;
+          resolved = true;
+        }
+        return launchSeq;
+      };
       return launchContext.run({ parentSessionId: exec.agent.id, kind: 'tool', toolName: exec.name, callId: exec.rootCallId ?? exec.callId,
-        ...(call ? { launchSeq: call.seq } : {}),
+        launchSeq: resolveLaunchSeq,
         ...(typeof args?.description === 'string' ? { label: args.description } : {}),
         delegation: typeof args?.run_in_background === 'boolean' ? args.run_in_background ? 'background' : 'foreground'
           : ['send_message', 'send_user_message'].includes(exec.name) ? 'background' : 'unknown',
@@ -94,6 +102,7 @@ export class TrajectoryRuns extends Service {
       const child = ctx.agents.get(info.id);
       const source = launchContext.getStore();
       const launch = source?.parentSessionId === parent.id ? source : undefined;
+      const launchSeq = launch?.launchSeq?.();
       const descriptor = child?.session.ownEvents().find(event => event.type === 'subagent/descriptor');
       const label = launch?.label ?? (descriptor?.type === 'subagent/descriptor' ? descriptor.data.label : undefined);
       const startSeq = child && self.bounds.get(child);
@@ -102,7 +111,7 @@ export class TrajectoryRuns extends Service {
         ? descriptor.data.mode === 'continuable' ? 'background' : 'foreground' : launch?.delegation ?? 'unknown';
       const run: TrajectoryRun = { runId: info.runId, parentSessionId: parent.id, sessionId: info.id, provider: info.provider,
         ...(label ? { label } : {}), kind: launch?.kind ?? 'unknown', delegation,
-        ...(launch?.launchSeq !== undefined ? { launchSeq: launch.launchSeq } : {}), ...(launch?.callId ? { callId: launch.callId } : {}),
+        ...(launchSeq !== undefined ? { launchSeq } : {}), ...(launch?.callId ? { callId: launch.callId } : {}),
         ...(startSeq !== undefined ? { startSeq } : {}), startedAt: Date.now(), state: 'running' };
       self.active.set(info.runId, run);
       // One-shot start can precede its descriptor; resolve omitted defaults when that fact arrives.
