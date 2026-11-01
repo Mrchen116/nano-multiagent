@@ -7,8 +7,8 @@ import {activeTaskCount, registerTaskGraphRoutes} from './task-graphs.js';
 import {registerChannelRoutes} from './channels.js';
 import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
   settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
-import {ConfigOperations, profileResponse, fromProfile, gatewayKeys, optionalText, stringList, selection, copyConfigurationField} from './control.js';
-import {configurationDependencies} from './configuration-assembly.js';
+import {profileResponse, fromProfile, gatewayKeys, optionalText, stringList, selection, copyConfigurationField} from './control.js';
+import {configurationOperations} from './configuration-assembly.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {parseConfigurationInput, controlRouteId, configurationSource, parseSkillsMigration, type ConfigurationCandidate} from './configuration-input.js';
 import {gatewayRequest} from './node-rpc-request.js';
@@ -128,7 +128,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
       reply.header('Cache-Control','private, no-store');
   });
-  const ops = new ConfigOperations(configurationDependencies(ctx));
+  const ops = configurationOperations(ctx);
   const catalogs = catalogReads(ctx);
   const recoveries = new Set<string>();
   const recoverSettings = (profile: Row) => {
@@ -428,21 +428,11 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const u = await user(req),
       id = controlRouteId(req, 'agent_id'),
       b = parseConfigurationInput(req.body);
-    return ops.serialized(id, async () => {
-      const recovered = await ops.recover(id, u.owner_id);
-      if (recovered) return recovered;
-      const p = requireProfile(ctx, id, u.owner_id);
-      if (!p.node_id)
-        fail(422, {
-          code: "agent_not_bound",
-          message: "The Agent is not bound to a Gateway node.",
-        });
-      if (b.work_mode != null && b.work_mode !== p.work_mode) fail(409, "work_mode is immutable");
-      if (b.profile_version !== p.profile_version) fail(409, "profile_version conflict");
-      requireSettingsNodeOnline(ctx, p);
+    const candidateFor = (p: AgentProfileRecord): ConfigurationCandidate => {
       const previous = fromProfile(p);
       const c: ConfigurationCandidate = {
         ...previous,
+        work_mode: b.work_mode ?? previous.work_mode,
         display_name: b.display_name,
         description: b.description ?? "",
         skills: b.skills ?? previous.skills,
@@ -458,7 +448,21 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         if (k in b && (k === "reasoning_effort" || b[k] !== null)) c[k] = b[k];
       if (b.heartbeat != null && !("heartbeat_json" in b))
         c.heartbeat_json = JSON.stringify(b.heartbeat);
-      return ops.update(p, c, u.owner_id);
+      return c;
+    };
+    return ops.serialized(id, async () => {
+      const recovered = await ops.recoverEdit(id, u.owner_id, b.profile_version, candidateFor);
+      if (recovered) return recovered;
+      const p = requireProfile(ctx, id, u.owner_id);
+      if (!p.node_id)
+        fail(422, {
+          code: "agent_not_bound",
+          message: "The Agent is not bound to a Gateway node.",
+        });
+      if (b.work_mode != null && b.work_mode !== p.work_mode) fail(409, "work_mode is immutable");
+      if (b.profile_version !== p.profile_version) fail(409, "profile_version conflict");
+      requireSettingsNodeOnline(ctx, p);
+      return ops.update(p, candidateFor(p), u.owner_id);
     });
   });
   app.post("/im/v1/agents/:agent_id/skills/migrate", async (req) => {

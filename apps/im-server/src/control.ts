@@ -315,6 +315,29 @@ export class ConfigOperations {
     if (!op) return null;
     return this.commit(op, await this.resolve(op));
   }
+  /** Finish an interrupted edit before admitting another writer. Only its own retry inherits the outcome. */
+  async recoverEdit(agent: string, owner: string, version: number | undefined, candidateFor: (profile: AgentProfileRecord) => ConfigurationCandidate) {
+    const op = this.active(agent, owner);
+    if (!op) return null;
+    const profile = readAgentProfile(this.dependencies.db, agent, owner);
+    let retry = false;
+    if (op.operation_kind === 'apply' && profile && profile.profile_version === op.expected_profile_version &&
+        (version === undefined || version === op.expected_profile_version)) {
+      const stored = storedConfigurationCandidate(op.candidate_json);
+      const candidate = candidateFor(profile);
+      // The Gateway fingerprint includes the server-issued PA binding but excludes the IM description.
+      retry = candidateFingerprint({...candidate, personal_agent:stored.personal_agent}) === op.candidate_fingerprint &&
+        (candidate.description ?? '') === (stored.description ?? '');
+    }
+    try {
+      const result = await this.commit(op, await this.resolve(op));
+      return retry ? result : null;
+    } catch (error) {
+      // A terminal rejection of a different edit frees its slot. Pending and authorization errors still fence writes.
+      if (!retry && readConfigOperation(this.dependencies.db, op.operation_id)?.status === 'rejected') return null;
+      throw error;
+    }
+  }
   async create(candidate: ConfigurationCandidate, owner: string, node: string) {
     if (readAgentProfile(this.dependencies.db, candidate.agent_id))
       fail(409, "agent_id already exists");
