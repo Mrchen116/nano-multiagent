@@ -74,6 +74,7 @@ const results: Record<string, [string, string]> = {
   'agent.work.append': ['agent.work.ack', 'journal_id'],
   'conversation.query': ['conversation.query.result', 'request_id'],
   'task_graph.command': ['task_graph.result', 'request_id'],
+  'task.context.sync': ['task.context.sync.result', 'request_id'],
   'task.execution.snapshot': ['task.execution.snapshot.result','request_id'],
   'task.execution.scopes': ['task.execution.scopes.result','request_id'],
   'task.execution.pause': ['task.execution.pause.result','request_id'],
@@ -88,7 +89,7 @@ export class WebRelayConnection {
   private socket?: WebSocket;
   private readonly pending = new Map<string, Pending>();
   private correlated = false;
-  private readonly serverRequests = new Set<string>();
+  private readonly serverRequests = new Map<string, ReturnType<typeof setTimeout>>();
   private lastAgent = '';
   private readySince = 0;
   private heartbeatFailures = 0;
@@ -139,7 +140,10 @@ export class WebRelayConnection {
     if (!this.ready || type === 'node.register' || type === 'node.heartbeat') {
       return Promise.reject(new RelayDeliveryError('Relay is not ready for this business request', 'not-sent'));
     }
-    const preserve = typeof payload.request_id === 'string' && this.serverRequests.delete(payload.request_id);
+    const preserve = typeof payload.request_id === 'string' && this.serverRequests.has(payload.request_id);
+    if (preserve) this.releaseServerRequest(payload.request_id as string);
+    if (!preserve && typeof payload.request_id === 'string' && ['agent.capabilities','node.capabilities','agent.prompt.preview','node.prompt.preview'].includes(type))
+      return Promise.reject(new RelayDeliveryError('Server inspection request expired', 'not-sent'));
     return this.enqueue({ type, payload: this.correlated && !preserve ? {...payload,request_id:randomUUID()} : payload },options.priority);
   }
 
@@ -293,8 +297,15 @@ export class WebRelayConnection {
       } else pending.resolve(frame);
       this.pump(); return;
     }
-    if (typeof frame.payload.request_id==='string' && frame.type!=='ack' && frame.type!=='error' && !frame.type.endsWith('.result')) this.serverRequests.add(frame.payload.request_id);
-    void Promise.resolve().then(() => this.options.onFrame(frame)).catch(error => this.report(error instanceof Error ? error : new Error('IM inbound callback failed')));
+    const serverId = typeof frame.payload.request_id==='string' && frame.type!=='ack' && frame.type!=='error' && !frame.type.endsWith('.result') ? frame.payload.request_id : undefined;
+    if (serverId) {
+      this.releaseServerRequest(serverId);
+      const deadline = typeof frame.payload.deadline_at === 'number' ? frame.payload.deadline_at : Date.now()+10000;
+      this.serverRequests.set(serverId,setTimeout(()=>this.releaseServerRequest(serverId),Math.max(0,Math.min(10000,deadline-Date.now()))));
+    }
+    void Promise.resolve().then(() => this.options.onFrame(frame))
+      .catch(error => this.report(error instanceof Error ? error : new Error('IM inbound callback failed')))
+      .finally(() => {if (serverId && this.generation===generation) this.releaseServerRequest(serverId);});
   }
   private matches(sent: ProtocolFrame, received: ProtocolFrame): boolean {
     if (received.type === 'error') {
@@ -367,11 +378,16 @@ export class WebRelayConnection {
         connection: this.generation, event, phase, attempt: this.attempt + 1, ...details });
     } catch { /* A diagnostic sink cannot change connection lifecycle behavior. */ }
   }
+  private releaseServerRequest(id: string): void {
+    clearTimeout(this.serverRequests.get(id));
+    this.serverRequests.delete(id);
+  }
   private failRequests(message: string): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer); pending.reject(new RelayDeliveryError(message, 'unknown'));
     }
-    this.pending.clear(); this.correlated = false; this.serverRequests.clear();
+    this.pending.clear(); this.correlated = false;
+    for (const id of this.serverRequests.keys()) this.releaseServerRequest(id);
     for (const pending of this.queue.splice(0)) pending.reject(new RelayDeliveryError(message, 'not-sent'));
   }
   private clearTimers(): void {

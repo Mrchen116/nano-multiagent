@@ -79,3 +79,28 @@ it.each(['attachment', 'long-text'])('retains paginated owner withdrawals with %
     expect(retainedEnvelope(retainInstructions(parent([]),retained.units.map(retained_instruction => ({retained_instruction}))),[],8192)).toBe(envelope);
   } finally { inbox.close(); }
 });
+
+it('retains only the attested Task control alongside older authorizations after compaction', () => {
+  const control = { action: 'pause', actor: {type: 'user', id: 'owner'}, revision: 3, task_refs: [{graph_id: 'g', node_id: 'n'}] };
+  const events = [human('grant', 'Publish the report'), {type:'user/message', data:{id:'stop', content:[{type:'text',text:'UNTRUSTED_TASK_TITLE'}],
+    source:{kind:'nano-system', channel:'task-context', messageId:'stop', humanTaskControl:control}}}, {type:'compaction/start'}];
+  const retained = retainInstructions(parent(events), [], 'owner');
+  expect(retained.units.map(unit => unit.id)).toEqual(['grant', 'stop']);
+  expect(retained.units[1]).toMatchObject({human_task_control: control});
+  expect(retainedEnvelope(retained, [], 8192)).not.toContain('UNTRUSTED_TASK_TITLE');
+});
+
+it('reassembles conversation search results with their original source and no implied neighbouring message', () => {
+  const source = {conversation_id:'group', delivery:'observer', conversation_type:'group'};
+  const piece = (first: number, last: number, ...texts: string[]) => ({message_id:'withdraw', sender:{kind:'user',is_owner:true}, source,
+    partial:{first_part:first, last_part:last, total_parts:3}, content:texts.map(text => ({type:'text',text}))});
+  const page = (...messages: unknown[]) => ({conversations_result:{messages}});
+  const first = page({message_id:'peer', sender:{kind:'agent'}, source:{conversation_id:'other'}, content:[{type:'text',text:'UNRELATED_PROPOSAL'}]}, piece(1,2,'Keep', ' this'));
+  expect(retainInstructions(parent([]), [first], 'owner')).toEqual({units:[], incomplete:true});
+  const retained = retainInstructions(parent([]), [first,page(piece(3,3,' private.'))], 'owner');
+  expect(retained.incomplete).toBe(false);
+  expect(retained.units).toHaveLength(1);
+  expect(retained.units[0]).toMatchObject({id:'group:withdraw', context:source,
+    original_message:{content:[{text:'Keep'}, {text:' this'}, {text:' private.'}]}});
+  expect(retainedEnvelope(retained, [], 8192)).not.toContain('UNRELATED_PROPOSAL');
+});

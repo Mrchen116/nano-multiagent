@@ -22,6 +22,17 @@ export async function listConversations(): Promise<Conversation[]> {
   return payload.items;
 }
 
+export interface MessageSearchResult {
+  messages: { message_id: string; conversation_id: string; conversation_name: string; sender_name: string; created_at: string; snippet: string }[];
+  next_cursor?: string;
+}
+
+export function searchMessages(query: string, kind: string, cursor?: string, signal?: AbortSignal): Promise<MessageSearchResult> {
+  const params = new URLSearchParams({ q: query, kind });
+  if (cursor) params.set('cursor', cursor);
+  return authFetchJson<MessageSearchResult>(`/im/v1/messages/search?${params}`, { signal }, 'searchMessages');
+}
+
 export interface ListMessagesOptions {
   limit?: number;
   beforeMessageId?: string;

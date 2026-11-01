@@ -16,6 +16,15 @@ struct CapabilitySelectionTests {
             #expect(usage.blocks(removing:next.removingCapabilities(from:previous,capabilities:caps)) == [.init(code:"capability_busy",target:target)])
         }
     }
+    @Test func dreamingOffPreservesImmediateMemoryTools() {
+        let tools = ["read", "write", "edit", "memory_maintenance"]
+        let feature = AgentFeature(key:"dreaming", label_i18n:"feature.dreaming.label", help_i18n:"feature.dreaming.help", default_on:true, available:true, requires:.init(features:[],tools:tools,skills:[]))
+        let caps = AgentCapabilities(node_id:"n",models:[],skills:[],tools:tools.map { AgentOption(name:$0) },features:[feature])
+        var draft = AgentDraft(); draft.tool_allowlist = tools; draft.features = ["dreaming":true]
+        #expect(draft.changeCapability(.init(kind:"feature",name:"dreaming",enabled:false),capabilities:caps).isEmpty)
+        #expect(draft.features["dreaming"] == false)
+        #expect(draft.tool_allowlist == tools)
+    }
     struct Fixture: Decodable {
         struct Definition: Decodable {
             var key: String; var default_on: Bool; var requires: AgentFeature.Requirements

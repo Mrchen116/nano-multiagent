@@ -109,6 +109,7 @@ export interface AgentFeature {
   help_i18n: string;
   default_on: boolean;
   available: boolean;
+  missing_tools?: string[];
   requires: { features: string[]; tools: string[]; skills: string[] };
 }
 
@@ -432,14 +433,14 @@ function toCapabilitySnapshot(
     node_name: normalizeNodeName(node, raw.node_id, raw.node_name),
     node_status: normalizeNodeStatus(node, raw.node_status),
     capabilities_updated_at: normalizeCapabilitiesUpdatedAt(node, raw.capabilities_updated_at),
-    skills: normalizeAllowlistOptions(raw.skills),
-    tools: normalizeAllowlistOptions(raw.tools),
+    skills: normalizeAllowlistOptions(raw.skills).filter(skill => skill.name !== 'skill-creator'),
+    tools: normalizeAllowlistOptions(raw.tools).filter(tool => tool.name !== 'memory'),
     model_options: normalizeModelOptions(raw),
     inherited_approval_rules: raw.inherited_approval_rules ?? null,
     platform_default_model: raw.platform_default_model ?? null,
     default_workspace_template:
       "default_workspace_template" in raw ? raw.default_workspace_template ?? null : null,
-    features: "features" in raw && Array.isArray(raw.features) ? raw.features : [],
+    features: "features" in raw && Array.isArray(raw.features) ? raw.features.filter(feature => !['memory_curation', 'skill_creation'].includes(feature.key)) : [],
     fixed_tools: raw.fixed_tools ?? [],
   };
 }
@@ -587,6 +588,8 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
 
   return {
     ...config,
+    skills: config.skills?.filter(name => name !== 'skill-creator') ?? [],
+    features: Object.fromEntries(Object.entries(config.features ?? {}).filter(([key]) => !['memory_curation', 'skill_creation'].includes(key))),
     work_mode: config.work_mode === "global" ? "global" : "single_thread",
     skills_selection_mode:
       config.skills_selection_mode === "explicit_denylist"

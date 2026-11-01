@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 const require=createRequire(import.meta.url);
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('runs Guardian in native isolated scopes, reuses deltas, forks concurrent checks and recovers invalid verdicts', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-guardian-native-'));let client:RuntimeClient|undefined;let logs='';
@@ -54,6 +55,7 @@ export function apply(ctx){
 }`);
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',retryPolicy:{mode:'normal',maxRetries:5,backoff:{initialDelayMs:1,maxDelayMs:1,jitterRatio:0}},models:[{id:'main',contextWindow:100000},{id:'review',contextWindow:100000,reasoningEfforts:{low:'low'}}]}}}},{insert:[{id:'guardian-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>logs+=text});
+    registerNoopTaskHosts(client);
     const config={agentId:'a',revision:'1',provider:'fixture',model:'main',mode:'global',extensions:{workspace:join(home,'plugins.json')},features:{memory_curation:false,skill_creation:false},approval:{...approvalDefaults,globalRoot:home,reviewer:{provider:'fixture',model:'review'}}};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'parent',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
@@ -122,6 +124,7 @@ export function apply(ctx) {
       {insert:[{id:'guardian-boundary-fixture',name:join(home,'fixture.mjs')}]},
     ]);
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    registerNoopTaskHosts(client);
     const config = {agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'main',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home,reviewer:{provider:'fixture',model:'review'}}};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'parent',agentId:'pa',revision:'1',ownerId:'owner',cwd:home});

@@ -616,14 +616,27 @@
         }
       },
       "cron": {
-        "title": "定时任务",
+        "title": "当前计划",
         "sub": "到期回到原对话、沿用对话上下文执行的定时任务。",
         "enabledLabel": "启用 cron",
         "enabledHelp": "Agent 可通过对话注册和管理定时任务（增/查/删）。",
         "loadError": "加载定时任务失败。",
-        "noJobs": "暂无定时任务",
-        "jobsListLabel": "定时任务列表",
-        "deleteJob": "删除"
+        "noJobs": "暂无待执行的定时任务",
+        "jobsListLabel": "当前计划列表",
+        "deleteJob": "取消计划",
+        "details": "查看详情",
+        "rule": "调度规则",
+        "once": "单次",
+        "every": "每{{interval}}",
+        "daily": "每天 {{time}}（{{zone}}）",
+        "weekly": "每周 {{days}} {{time}}（{{zone}}）",
+        "custom": "自定义周期",
+        "unknownTime": "时间未知",
+        "subtitle": "把接下来的事，交给 Agent。",
+        "emptyHelp": "告诉 Agent 要做什么、什么时候做，就可以安排提醒。",
+        "recurring": "重复计划",
+        "nextLabel": "下次执行",
+        "instructionLabel": "执行内容"
       },
       "workspace": {
         "title": "工作区与运行时",
@@ -930,6 +943,19 @@
       "createConversation": "发起会话",
       "newGroup": "创建群聊",
       "search": "搜索…",
+      "searchTitle": "搜索",
+      "exitSearch": "返回会话列表",
+      "clearSearch": "清空搜索",
+      "searchHint": "搜索会话和聊天记录",
+      "noSearchResults": "没有找到相关结果",
+      "conversationResults": "会话",
+      "noConversationResults": "没有匹配的会话",
+      "messageResults": "聊天记录",
+      "searchLoading": "正在搜索…",
+      "searchError": "搜索失败",
+      "retrySearch": "重试",
+      "noMessageResults": "没有匹配的聊天记录",
+      "loadMore": "加载更多",
       "filters": {
         "all": "全部",
         "agent": "Agent",
@@ -1215,14 +1241,6 @@
       "label": "任务图",
       "help": "允许 Agent 记录计划、探索分支和进度，在任务页查看。关闭不删除已有记录。"
     },
-    "memory_curation": {
-      "label": "记忆整理",
-      "help": "跨对话整理和保存重要信息，供后续任务使用。"
-    },
-    "skill_creation": {
-      "label": "技能创建",
-      "help": "允许 Agent 在工作区把可复用的方法保存为技能，并持续维护。"
-    },
     "heartbeat": {
       "label": "定期汇报（Heartbeat）",
       "help": "定期主动汇报，可设置频率和活跃时段。"
@@ -1230,6 +1248,11 @@
     "cron_scheduling": {
       "label": "定时任务（Cron）",
       "help": "到点自动执行计划任务，无需每次手动发起。"
+    },
+    "dreaming": {
+      "label": "Dreaming · 自动整理记忆",
+      "help": "定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。",
+      "unavailable": "当前不可用，缺少工具：{{tools}}"
     }
   },
   "tasks": {

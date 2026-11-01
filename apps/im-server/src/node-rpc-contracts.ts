@@ -70,7 +70,7 @@ export interface NodeCommandMap {
   'agent.capability-usage.request': {input: {agent_id: string}; output: {usage?: {checked_at: string; active_schedules: number; busy: {kind: string; name: string}[]}; error?: unknown}};
   'node.heartbeat.md.request': {input: AgentTarget; output: {content?: string}};
   'node.cron.jobs.request': {input: AgentTarget; output: {jobs?: unknown[]; error?: string}};
-  'node.cron.delete.request': {input: AgentTarget & {job_id: string}; output: {deleted?: boolean}};
+  'node.cron.delete.request': {input: AgentTarget & {job_id: string;actor_user_id:string;operation_id:string}; output: {deleted?: boolean}};
   'node.setup.request': {input: SetupCommand; output: Record<string, unknown>};
   'node.distill.prompt.request': {input: {sources: {conversation_id: string; [key: string]: unknown}[]; execution_agent_id: string; target_scope: string}; output: {prompt?: string; message?: string; error_code?: string}};
   'session.fork.request': {input: {source_conversation_id: string; new_conversation_id: string; agent_id: string; fork_point: {message_id: string}; source_external_source?: string; source_external_chat_id?: string}; output: {ok?: boolean; error?: string; id_map?: Record<string, string>}};
@@ -82,7 +82,7 @@ export type NodeCommand = keyof NodeCommandMap;
 export type NodeInput<K extends NodeCommand> = NodeCommandMap[K]['input'] & {request_id?: string};
 export type NodeOutput<K extends NodeCommand> = NodeCommandMap[K]['output'];
 /** Consumer port: command inference cannot be widened by an unrelated payload. */
-export type NodeRequest = <K extends NodeCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>) => Promise<NodeOutput<K>>;
+export type NodeRequest = <K extends NodeCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>, signal?: AbortSignal) => Promise<NodeOutput<K>>;
 
 export type ConfigurationCommand = 'agent.create' | 'agent.config.apply' | 'agent.config.operation.status';
 export type ConfigurationRequest = <K extends ConfigurationCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>) => Promise<NodeOutput<K>>;

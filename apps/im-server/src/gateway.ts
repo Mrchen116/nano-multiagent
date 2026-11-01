@@ -1,8 +1,11 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { NodeRpc } from './node-rpc.js';
+import { catalogReads } from './catalog-reads.js';
 import { isRecord } from './node-rpc-values.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
+import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
+import type { ChatMessage } from '@nano/product-contracts';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
 import { ChatStreaming } from './chat-streaming.js';
 import type { ChatStreamReceipt } from '@nano/product-contracts';
@@ -146,6 +149,7 @@ export class Gateway {
    *   reason: Local diagnostic category, never remote payload text.
    */
   disconnect(connection: Connection, reason = "connection_closed") {
+    this.rpc.disconnect(connection);
     this.trajectory.closeDevice(connection);
     if (this.nodes.get(connection.node_id) !== connection) return;
     this.nodes.delete(connection.node_id);
@@ -299,6 +303,9 @@ export class Gateway {
       `INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES(?,?,?,'online',?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_name=excluded.node_name,status='online',last_error=NULL,last_heartbeat_at=excluded.last_heartbeat_at,agent_count=excluded.agent_count,version=excluded.version`,
     ).run(c.node_id, c.owner_id, p.node_name ?? c.node_id, now(), p.agents.length, p.version ?? "");
     this.ctx.updates?.register(c, p.release);
+    let withdrawals:ChatMessage[]=[];
+    transaction(db,()=>{
+    const before=captureTaskContextAccess(db,{agentIds:all(db,'SELECT agent_id FROM agent_profiles WHERE node_id=?',c.node_id).map(profile=>profile.agent_id)});
     db.prepare("UPDATE agent_profiles SET is_stale=1,staled_at=? WHERE node_id=?").run(
       now(),
       c.node_id,
@@ -351,6 +358,9 @@ export class Gateway {
       if(!c.agent_lifecycle_v1&&lifecycle(db,id).desired==='disabled')db.prepare("UPDATE agent_lifecycle SET observed='stop_unconfirmed',error_code='node_upgrade_required',error_detail='Update this node to confirm all managed execution has stopped' WHERE agent_id=?").run(id);
       this.ctx.messaging.agentUser(id);
     }
+    withdrawals=revokeLostTaskContextAccess(db,before,c.owner_id);
+    });
+    this.ctx.messaging.publishMessages(withdrawals);
     this.publishNodeStatus(c, "online", { last_heartbeat_at: now(), last_error: null });
     return {
       message_type: "node.register",
@@ -405,6 +415,7 @@ export class Gateway {
       const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
       this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);
     }
+    if (type === 'node.capabilities.changed') { catalogReads(this.ctx).invalidateNode(c.node_id); return ack(); }
     if (this.rpc.accept(c, type, p)) return ack({request_id:p.request_id});
     if (type.startsWith("pa.")) {
       try { return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result:await this.ctx.personal!.handle(c,type,p)}}; }
@@ -425,12 +436,20 @@ export class Gateway {
         type: "agent.work.ack",
         payload: this.work.append(c.node_id, p),
       };
+    if(type==='task.context.sync') {
+      this.requireAgent(c,p.agent_id);
+      const binding=one(db,'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?',p.agent_id)?this.ctx.personal!.authority(c,{agent_id:p.agent_id}):undefined;
+      const result=this.ctx.messaging.syncTaskContext(p.agent_id,p.after??0,p.through,p.limit,binding?id=>this.ctx.personal!.sourceAllowed(binding,id):undefined,p.pending??[]);
+      return {type:'task.context.sync.result',payload:{request_id:p.request_id,ok:true,result}};
+    }
     if(['task.execution.snapshot','task.execution.pause','task.execution.scopes'].includes(type)) {
       try {
+        this.requireAgent(c,p.agent_id);
         const actor={kind:'agent' as const,id:p.agent_id,node_id:c.node_id};
+        if(type==='task.execution.pause'&&typeof p.control_message_id!=='string')throw new TaskGraphError('invalid_human_control','Missing original stop input');
         const binding=one(db,'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?',p.agent_id)?this.ctx.personal!.authority(c,{agent_id:p.agent_id}):undefined;
         const policy=binding?{ownerUserId:binding.owner_user_id,sourceAllowed:(id:string)=>this.ctx.personal!.sourceAllowed(binding,id)}:undefined;
-        const result=type==='task.execution.scopes'?this.tasks.executionScopes(actor,policy):type==='task.execution.snapshot'?this.tasks.executionSnapshot(actor,p.conversation_id,policy):this.tasks.pauseExecution(actor,p.conversation_id,p.request_key,policy);
+        const result=type==='task.execution.scopes'?this.tasks.executionScopes(actor,policy):type==='task.execution.snapshot'?this.tasks.executionSnapshot(actor,p.conversation_id,policy):this.tasks.pauseExecution(actor,p.conversation_id,p.request_key,policy,{messageId:p.control_message_id,nodeId:c.node_id});
         return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result}};
       } catch(error) {return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:error instanceof TaskGraphError?error.asDict():{code:'source_unavailable',message:String(error)}}};}
     }
@@ -740,6 +759,7 @@ export class Gateway {
     }
   }
   shutdown() {
+    this.rpc.close();
     this.trajectory.shutdown();
     this.ctx.messaging.delivery.stop();
     for (const c of this.nodes.values()) {
@@ -747,7 +767,6 @@ export class Gateway {
       c.socket.close(1001, "server_shutdown");
     }
     for (const b of this.browsers) b.socket.close(1001);
-    this.rpc.close();
   }
 }
 export function registerSockets(app: FastifyInstance, ctx: ImContext) {

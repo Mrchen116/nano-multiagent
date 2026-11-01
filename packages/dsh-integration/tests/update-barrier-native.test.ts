@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('holds true idle, fences admissions and preserves native Cron jobs through release', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-update-barrier-'));
@@ -12,6 +13,7 @@ it('holds true idle, fences admissions and preserves native Cron jobs through re
     await writeFile(join(home, 'model.mjs'), `export const name='update-model'; export const inject=['llm']; export function apply(ctx){ctx.on('llm/stream',async function*(){yield {type:'block-end',index:0,block:{type:'text',text:'Done'}};yield {type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home, [{ insert: [{ id: 'update-model', name: join(home, 'model.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const scheduled: string[] = [];
     client.rpc.onNotification((method, value) => {
       const data = value as { event?: { type: string; data: { source?: { kind: string }; id?: string } } };
@@ -56,6 +58,7 @@ it('refuses an idle-looking native queued input, including before cold PA recove
   try {
     await prepareProfile(home);
     client = new RuntimeClient({ home, cwd: home });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', config);
     await client.rpc.request('session.ensure', binding);
     expect(await client.rpc.request('session.submit', { sessionId: 's', inputId: 'pending', mode: 'inject', content: [{ type: 'text', text: 'Retained input' }], source: { kind: 'system', actorId: 'owner', channel: 'test', messageId: 'pending' } })).toMatchObject({ pending: true, accepted: true });
@@ -64,6 +67,7 @@ it('refuses an idle-looking native queued input, including before cold PA recove
     expect(await client.rpc.request('session.lookup', { sessionId: 's', inputId: 'pending' })).toMatchObject({ accepted: true, pending: true });
     client.process.kill('SIGKILL'); await client.exited;
     client = new RuntimeClient({ home, cwd: home });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', config);
     expect(await client.rpc.request('update.prepare', { operationId: 'cold' })).toEqual({ ready: false });
     expect(await client.rpc.request('session.lookup', { sessionId: 's', inputId: 'pending' })).toMatchObject({ accepted: true, pending: true });

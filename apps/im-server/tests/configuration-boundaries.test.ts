@@ -27,7 +27,7 @@ it('rejects malformed known HTTP fields before any durable operation or node req
   let requested = false;
   f.ctx.gateway.request = async () => {requested=true; throw new Error('must not reach node');};
   try {
-    for (const malformed of [{skills:42},{tool_allowlist:[false]},{profile_version:'1'},{custom_prompt:{text:'bad'}}]) {
+    for (const malformed of [{skills:42},{tool_allowlist:[false]},{profile_version:'1'},{custom_prompt:{text:'bad'}},{knowledge:{memoryMode:'legacy'}},{memoryMode:'legacy'},{legacyMemory:{enabled:true}},{dreaming:{intervalMs:1}}]) {
       const response = await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{profile_version:1,display_name:'Name',group_reply_policy:'manual',...malformed}});
       expect(response.statusCode,response.body).toBe(422);
     }
@@ -47,4 +47,16 @@ it('retains a legacy null skill selection in the stored mirror projection', asyn
     expect(response.statusCode,response.body).toBe(200);
     expect(response.json()).toMatchObject({skills:null,skills_selection_mode:null});
   } finally { await app.close(); }
+});
+
+
+it('keeps an inferred explicit Skill selection after retiring its only fixed member', async () => {
+  const f=fixture(),app=Fastify();
+  f.db.prepare("UPDATE agent_profiles SET skills_json='[\"skill-creator\"]',skills_selection_mode=NULL WHERE agent_id='a'").run();
+  registerControlRoutes(app,f.ctx);
+  try {
+    const response=await app.inject({url:'/im/v1/agents/a/config?source=mirror',headers:{authorization:'Bearer token'}});
+    expect(response.statusCode,response.body).toBe(200);
+    expect(response.json()).toMatchObject({skills:[],skills_selection_mode:'explicit_allowlist'});
+  } finally {await app.close();}
 });

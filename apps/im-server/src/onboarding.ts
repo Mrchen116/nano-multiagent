@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { all, body, fail, one, params, type ImContext, type Row } from './context.js';
 import { installMaterials } from './install.js';
+import { catalogReads } from './catalog-reads.js';
 
 const fields = (row: Row, names: string[]) => Object.fromEntries(names.filter(name => row[name] !== undefined).map(name => [name, row[name]]));
 /** Keep setup credentials confined to the request; only public status crosses back. */
@@ -19,6 +20,7 @@ function setupStatus(value: Row) {
 
 /** Bridge first-run setup to the currently owned node over its existing connection. */
 export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, releaseDirectory: string) {
+  const revisions = new WeakMap<object,string>();
   app.get('/im/v1/onboarding', req => {
     const user = ctx.identity.authenticateRequest(req);
     return {
@@ -48,7 +50,14 @@ export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, r
         return item;
       });
     }
+    const connection = ctx.gateway.nodes.get(nodeId);
+    if (['save','remove','login'].includes(input.action)) catalogReads(ctx).invalidateNode(nodeId);
     const result = await ctx.gateway.request(nodeId, 'node.setup.request', {...payload, action:input.action});
+    if (connection && ctx.gateway.nodes.get(nodeId) === connection && typeof result.revision === 'string') {
+      if (revisions.get(connection) !== result.revision) catalogReads(ctx).invalidateNode(nodeId);
+      revisions.set(connection,result.revision);
+    }
+    if (['save','remove'].includes(input.action) && !result.error && !result.error_code) catalogReads(ctx).invalidateNode(nodeId);
     owned();
     if (result.error_code) fail(503, 'Computer setup is unavailable. Reconnect your computer and retry.');
     return setupStatus(result);

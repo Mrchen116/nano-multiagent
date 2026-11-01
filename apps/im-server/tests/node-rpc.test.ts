@@ -53,3 +53,39 @@ it('preserves offline, update, timeout and shutdown outcomes and ignores late re
   await stopped;
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it('bounds and cancels only inspections, and consumes only inspection late replies',async()=>{
+  vi.useFakeTimers(); const {rpc,connection,sent}=fixture();
+  const failed=expect(rpc.request('node','agent.capabilities.resolve',{request_id:'catalog',agent_id:'agent'})).rejects.toMatchObject({statusCode:504});
+  expect(sent[0]).toMatchObject({payload:{deadline_at:Date.now()+9000}});
+  await vi.advanceTimersByTimeAsync(9000); await failed;
+  expect(sent[1]).toEqual({type:'node.request.cancel',payload:{target_request_id:'catalog'}});
+  expect(rpc.accept(connection,'agent.capabilities',{request_id:'catalog',capabilities:{}})).toBe(true);
+  expect(rpc.accept(connection,'agent.config.apply.result',{request_id:'old'})).toBe(false);
+  const controller=new AbortController();
+  const aborted=expect(rpc.request('node','node.capabilities.resolve',{request_id:'aborted'},controller.signal)).rejects.toMatchObject({statusCode:503});
+  controller.abort(); await aborted;
+  expect(sent.at(-1)).toEqual({type:'node.request.cancel',payload:{target_request_id:'aborted'}});
+  rpc.close(); expect(vi.getTimerCount()).toBe(0);
+});
+
+it('never sends cancellation to a replacement connection or cancels durable mutation',async()=>{
+  const {rpc,transport,sent}=fixture(),controller=new AbortController();
+  const canceled=expect(rpc.request('node','node.capabilities.resolve',{},controller.signal)).rejects.toThrow();
+  transport.current=()=>({});controller.abort();await canceled;expect(sent).toHaveLength(1);
+  const durable=rpc.request('node','agent.config.get',{agent_id:'agent'},controller.signal);
+  const stopped=expect(durable).rejects.toThrow('server stopped');rpc.close();await stopped;
+  expect(sent.every(frame=>frame.type!=='node.request.cancel')).toBe(true);
+});
+
+it('maps inspection error codes and cancels active inspections on disconnect and shutdown',async()=>{
+  const {rpc,connection,sent}=fixture();
+  const failed=expect(rpc.request('node','node.capabilities.resolve',{request_id:'failed'})).rejects.toMatchObject({statusCode:504});
+  rpc.accept(connection,'node.capabilities',{request_id:'failed',error_code:'catalog_timeout'});await failed;
+  const disconnected=expect(rpc.request('node','node.capabilities.resolve',{request_id:'gone'})).rejects.toMatchObject({statusCode:503});
+  rpc.disconnect(connection);await disconnected;
+  expect(sent.at(-1)).toEqual({type:'node.request.cancel',payload:{target_request_id:'gone'}});
+  const stopped=expect(rpc.request('node','node.capabilities.resolve',{request_id:'closed'})).rejects.toThrow('server stopped');
+  rpc.close();await stopped;
+  expect(sent.at(-1)).toEqual({type:'node.request.cancel',payload:{target_request_id:'closed'}});
+});

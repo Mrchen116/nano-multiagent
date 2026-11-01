@@ -83,7 +83,7 @@ export async function createServer(options: ServerOptions = {}) {
     uploadDir,
     publicUrl: publicUrl!,
     jwtSecret: secret,
-    identity: createIdentity(db, secret),
+    identity: createIdentity(db, secret, messages => { ctx.messaging.publishMessages(messages, {deferDelivery:true}); }),
   } as ImContext;
   ctx.messaging = new Messaging(ctx);
   ctx.gateway = new Gateway(ctx);

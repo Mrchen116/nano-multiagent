@@ -6,6 +6,8 @@ nano-multiagent 提供常驻个人助手和独立 IM 中心。用户从 Web IM�
 
 DSH 是唯一 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.1-alpha.1`。Nano 不维护第二套 Agent Loop，不复制 DSH 执行运行时源码，不导入其私有实现。浏览器轨迹 UI 的单包分叉例外见下文。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
 
+能力目录枚举、提示词预览及配置校验所需的临时能力检查在独立的官方 DSH 子进程和临时 home 中执行；`packages/dsh-integration` 负责有界等待、取消和回收，与持久聊天运行时隔离。
+
 ## 部署与请求路径
 
 ```mermaid

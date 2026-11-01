@@ -1,4 +1,6 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
+import type { ChatMessage } from '@nano/product-contracts';
+import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import {
   createHash,
   createHmac,
@@ -121,6 +123,7 @@ export class Identity {
   constructor(
     readonly db: DatabaseSync,
     private jwtSecret: string,
+    private readonly publishWithdrawals?: (messages: ChatMessage[]) => void,
   ) {
     if (!jwtSecret) throw new Error("jwt_secret must be non-empty");
   }
@@ -473,12 +476,14 @@ export class Identity {
     });
   }
   transition(actorId: string, userId: string, action: string): User {
-    return this.transaction(() => {
+    let withdrawals: ChatMessage[] = [];
+    const result = this.transaction(() => {
       const actor = this.user(actorId),
         target = this.user(userId);
       if (!actor?.is_company_admin || actor.membership_status !== "active")
         throw new IdentityError(403, "company administrator required");
       if (!target?.password_hash || target.membership_status === "none") throw new IdentityError(404, "member not found");
+      const before=captureTaskContextAccess(this.db);
       let next: string;
       if (action === "approve") {
         if (target.membership_status === "suspended")
@@ -520,8 +525,11 @@ export class Identity {
           userId,
           action,
         );
+      withdrawals = revokeLostTaskContextAccess(this.db,before,actorId);
       return this.user(userId)!;
     });
+    if (withdrawals.length) this.publishWithdrawals?.(withdrawals);
+    return result;
   }
   enrollDevice(nodeId: string, publicText: string, keyId: string) {
     publicKey(publicText);
@@ -780,7 +788,8 @@ export class Identity {
     });
   }
   deviceCommit(id: string, token: string, proof: string, envelopes: Row) {
-    return this.transaction(() => {
+    let withdrawals: ChatMessage[] = [];
+    const result = this.transaction(() => {
       const op = this.operation(id, token);
       if (op.state === "committed") return { state: "committed" };
       if (op.state !== "awaiting_local_confirmation" || !op.snapshot_json)
@@ -819,6 +828,7 @@ export class Identity {
         serializeIdentityJson(snapshot.agent_channels.map((r: Row) => r.channel_id).sort())
       )
         throw new IdentityError(409, "complete channel ciphertext set required");
+      const before=captureTaskContextAccess(this.db,{agentIds:snapshot.agent_profiles.map((profile:Row)=>profile.agent_id)});
       for (const channel of snapshot.agent_channels) {
         const envelope = envelopes[channel.channel_id];
         if (
@@ -891,8 +901,11 @@ export class Identity {
         op.node_id,
         user.id,
       );
+      withdrawals = revokeLostTaskContextAccess(this.db,before,user.id);
       return { state: "committed" };
     });
+    if (withdrawals.length) this.publishWithdrawals?.(withdrawals);
+    return result;
   }
   /** Rotate personal authority with device credentials; never carry an old permit forward. */
   private rotatePersonalEpoch(node: string, owner: string, epoch: number) {
@@ -940,4 +953,14 @@ export class Identity {
     });
   }
 }
-export const createIdentity = (db: DatabaseSync, jwtSecret: string) => new Identity(db, jwtSecret);
+/** Create identity authority without coupling it to a live transport.
+ *
+ * Args:
+ *   db: Authority database shared by the server.
+ *   jwtSecret: Signing key for identity sessions.
+ *   publishWithdrawals: Optional post-commit publisher for newly created minimal
+ *     Task originals only; never called for rolled-back changes or historical facts.
+ * Returns:
+ *   The identity authority service.
+ */
+export const createIdentity = (db: DatabaseSync, jwtSecret: string, publishWithdrawals?: (messages: ChatMessage[]) => void) => new Identity(db, jwtSecret, publishWithdrawals);

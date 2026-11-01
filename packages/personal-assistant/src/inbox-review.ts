@@ -59,6 +59,10 @@ export class InboxReviews {
   this.db.exec('BEGIN IMMEDIATE');
   try {
    if(this.db.prepare("SELECT 1 FROM metadata WHERE key='input-review-v1'").get()){this.db.exec('COMMIT');return;}
+   // Synced Task notices are host originals. Their current access is revalidated at consumption.
+   this.db.prepare(`UPDATE inbox SET review_state='admitted' WHERE review_state IS NULL AND consumed=0
+     AND json_extract(payload,'$.metadata.task_context')=1 AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0
+     AND json_extract(payload,'$.message.sender_type')='system' AND json_extract(payload,'$.message.system_notice.kind')='task_graph'`).run();
    for(const agent of personalAgents)this.db.prepare(`UPDATE inbox SET review_state=CASE
      WHEN consumed=1 THEN 'failed'
      WHEN json_extract(payload,'$.metadata.personal_delivery') IN ('participant','observer') AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 THEN 'admitted'

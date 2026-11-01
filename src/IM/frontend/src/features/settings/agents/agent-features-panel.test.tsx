@@ -175,13 +175,13 @@ describe("agent feature settings", () => {
 
     renderDetail();
     await screen.findByRole("heading", { name: "Settings Agent" });
-    expect(screen.queryByRole("heading", { name: /Cron Jobs/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Current plans/i })).toBeNull();
 
     await user.click(
       document.querySelector<HTMLInputElement>('[data-feature-key="cron_scheduling"]')!,
     );
 
-    expect(await screen.findByRole("heading", { name: /Cron Jobs/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /Current plans/i })).toBeInTheDocument();
   });
 });
 

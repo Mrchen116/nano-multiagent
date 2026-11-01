@@ -33,19 +33,28 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
     for (const value of page.messages) {
       const message = record(value); if (!message) continue;
       const sender = record(message.sender);
-      const id = String(message.id ?? '');
-      if (id) messages.set(id, message);
-      const immediate=preceding;preceding=message;
+      const source = record(message.source);
+      const conversation = source?.conversation_id ?? page.conversation_id ?? page.target;
+      const id = String(message.message_id ?? message.id ?? '');
+      const key = `${conversation ?? ''}:${id}`;
+      const partial = message.partial || message.complete_message === false;
+      if (id && !partial) messages.set(key, message);
+      // A search page can contain non-adjacent hits from different conversations.
+      const immediate = source ? undefined : preceding;
+      preceding = partial ? undefined : message;
       if ((sender?.type ?? sender?.kind) !== 'user' || !eligible(sender)) continue;
       const replyId = message.reply_to ?? message.reply_to_message_id;
-      const reply = replyId ? messages.get(String(replyId)) : undefined;
-      const key = `${String(page.conversation_id ?? page.target ?? '')}:${id}`;
+      const reply = replyId ? messages.get(`${conversation ?? ''}:${replyId}`) : undefined;
       const unit = {id: key, original_message: message,
-        context: {conversation_id: page.conversation_id ?? page.target, conversation_type: page.conversation_type, delivery: page.delivery, observation},
+        context: {conversation_id: conversation, conversation_type: source?.conversation_type ?? page.conversation_type, delivery: source?.delivery ?? page.delivery, observation},
         ...(replyId ? {reply_target: reply ?? {id: replyId, unavailable: true}} : immediate ? {preceding_message:immediate} : {})};
-      if (!message.partial) { units.push(unit); continue; }
-      const part = Number(message.part), total = Number(message.parts);
-      if (!id || !Number.isSafeInteger(part) || !Number.isSafeInteger(total) || part < 1 || part > total || !Array.isArray(message.content)) {
+      if (!partial) { units.push(unit); continue; }
+      // Inbox pages number individual parts; conversations can coalesce a range per page.
+      const range = record(message.partial);
+      const first = Number(range ? range.first_part : message.part), last = Number(range ? range.last_part : message.part);
+      const total = Number(range ? range.total_parts : message.parts);
+      if (!id || !Number.isSafeInteger(first) || !Number.isSafeInteger(last) || !Number.isSafeInteger(total)
+        || first < 1 || last < first || last > total || !Array.isArray(message.content) || range && message.content.length !== last-first+1) {
         incomplete = true; continue;
       }
       let assembly = fragments.get(key);
@@ -56,10 +65,12 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
         units.push(unit); pending.add(unit);
       }
       if (assembly.total !== total) { incomplete = true; continue; }
-      assembly.parts.set(part, message.content);
+      if (range) message.content.forEach((block, index) => assembly.parts.set(first + index, [block]));
+      else assembly.parts.set(first, message.content);
       if (assembly.parts.size === total) {
         const {partial: _partial, part: _part, parts: _parts, ...original} = assembly.unit.original_message as Row;
         assembly.unit.original_message = {...original, content: Array.from({length: total}, (_, index) => assembly.parts.get(index + 1)!).flat()};
+        messages.set(key, assembly.unit.original_message as Row);
         pending.delete(assembly.unit);
       }
     }
@@ -80,6 +91,9 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
     } else if (event.type === 'user/message') {
       const message = event.data;
       if(message.source.kind==='compact-checkpoint'&&!units.length)incomplete=true;
+      if (message.source.kind === 'nano-system' && message.source.humanTaskControl) {
+        units.push({id:message.source.messageId, session_id:agent.id, human_task_control:message.source.humanTaskControl});
+      }
       if (!isHumanSource(message.source) || ownerId && message.source.actorId !== ownerId) { previous=undefined;continue; }
       units.push({id: message.source.messageId, session_id: agent.id, original_message: {id: message.id, user: body(message.content), source: message.source}, ...(previous ? {preceding_assistant: previous} : {})});
       previous = undefined;

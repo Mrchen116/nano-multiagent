@@ -14,6 +14,7 @@ it('queries both identities once and keeps excluded sources out of list, search 
  expect(query({action:'list'}).conversations.map((c:any)=>c.target)).not.toContain('discover');
  expect(query({action:'list',scope:'public'}).conversations.map((c:any)=>c.target)).toContain('discover');
  const result=query({action:'search',query:'launch'});
+ expect(result.messages.find((m:any)=>m.message_id===peerMessage.id).source.name).toBe(ctx.messaging.conversation('agent-only','u1').title);
  expect(result.messages.map((m:any)=>m.message_id).sort()).toEqual([ownerMessage.id,peerMessage.id].sort());
  expect(result.messages.find((m:any)=>m.message_id===ownerMessage.id).source.url).toBe(`http://im.test/chat/peer?message_id=${ownerMessage.id}`);
  expect(query({action:'read',target:'agent-only'}).messages[0].sender.name).toBe('u2');

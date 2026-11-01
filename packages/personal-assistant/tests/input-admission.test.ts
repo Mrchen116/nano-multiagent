@@ -37,10 +37,13 @@ it('recovers an interrupted review as a discoverable failure and keeps migration
   const db=new DatabaseSync(path);
   for(const [id,consumed,metadata] of [['unknown',0,{}],['settled',1,{}],['allowed',0,{personal_delivery:'participant'}]] as const)
    db.prepare('INSERT INTO inbox(agent_id,target,message_id,payload,attention,consumed) VALUES(?,?,?,?,0,?)').run('pa','chat',id,JSON.stringify({...input(id),metadata}),consumed);
+  const task = {...input('host-task'),metadata:{task_context:true},message:{...input('host-task').message,sender_type:'system',system_notice:{kind:'task_graph'}}};
+  db.prepare('INSERT INTO inbox(agent_id,target,message_id,payload,attention,consumed) VALUES(?,?,?,?,0,0)').run('pa','chat','host-task',JSON.stringify(task));
   db.close();
   inbox=new InboxStore(path);inbox.reviews.migrate(['pa']);
   expect(inbox.reviews.get('pa','unknown')).toMatchObject({state:'failed',error_code:'legacy_unreviewed'});
   expect(inbox.reviews.get('pa','settled')).toMatchObject({state:'failed',error_code:'legacy_settled',event_delivered:true});
+  expect(inbox.prepareSystemContext('pa','main').map(message=>message.inputId)).toContain('host-task');
   expect(inbox.reviews.get('pa','allowed')).toMatchObject({state:'admitted'});
   expect(inbox.reviews.failures('pa').map(row=>row.message_id)).not.toContain('settled');
   expect(inbox.reviews.begin('pa','settled',true)).toBeUndefined();
@@ -49,7 +52,7 @@ it('recovers an interrupted review as a discoverable failure and keeps migration
 });
 
 it('does not retry a failed input during Inbox reads or recovery and explicitly retries only that message',async()=>{
- const inbox=new InboxStore(':memory:'),store=new NodeStore(':memory:','owner');let available=false,reviews=0;
+ const inbox=new InboxStore(':memory:'),store=new NodeStore(':memory:','owner');let available=false,excluded=false,reviews=0;
  const submissions:any[]=[];
  const config={agentId:'pa',mode:'global' as const,workspace:'/tmp',revision:'1',provider:'p',model:'m',personal:{bindingId:'b',ownerId:'owner',conversationId:'owner-chat',epoch:1}};
  const product=new GlobalAgent({nodeId:'n',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:()=>{},
@@ -60,7 +63,7 @@ it('does not retry a failed input during Inbox reads or recovery and explicitly 
    return {events:[],status:'idle',durable:true};
   }},relay:{request:async(type,args:any)=>{
    const result=type==='pa.source.admit'?{allowed:true,is_owner:args.source_message_id==='good',delivery:'participant',conversation_type:'direct',channel:'web'}
-    :type==='pa.sources'?{items:[{id:'chat',excluded:false}]}:type==='pa.incidents.pending'?{items:[{incident_ref:'incident',peer_notice_message_id:null}]}:type==='pa.observations.read'?{items:[]}:type==='conversation.query'?{name:'Chat',conversations:[]}:{};
+    :type==='pa.sources'?{policy:{revision:excluded?2:1},items:[{id:'chat',excluded:false},{id:'failed-chat',excluded}]}:type==='pa.incidents.pending'?{items:[{incident_ref:'incident',peer_notice_message_id:null}]}:type==='pa.observations.read'?{items:[]}:type==='conversation.query'?{name:'Chat',conversations:[]}:{};
    return {type:'ack',payload:{ok:true,result}};
   }}});
  try {
@@ -74,6 +77,12 @@ it('does not retry a failed input during Inbox reads or recovery and explicitly 
   available=true;
   expect(await call('review',{message_id:'down'})).toMatchObject({kind:'admitted',message_id:'down'});
   expect(reviews).toBe(2);expect(inbox.check('pa',true).review_failures).toEqual([]);
+  available=false;
+  await product.receive({...input('last-failure'),conversation_id:'failed-chat'});
+  expect(await call('check')).toMatchObject({sources:[{target:'chat'}],review_failures:[{message_id:'last-failure'}]});
+  excluded=true;
+  expect(await call('check')).toMatchObject({sources:[{target:'chat'}],review_failures:[]});
+  expect(inbox.input('pa','last-failure')).toBeUndefined();
  }finally{await product.stop();inbox.close();store.close();}
 });
 

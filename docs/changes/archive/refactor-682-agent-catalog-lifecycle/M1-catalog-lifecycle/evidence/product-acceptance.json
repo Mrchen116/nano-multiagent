@@ -1,0 +1,479 @@
+{
+  "validated_at": "bf0cdfdc32df872c9c40a0461c8284652d142d2f",
+  "observations": {
+    "r2-cold-E": {
+      "path": "/im/v1/agents/daily-engineering/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 1.8712,
+      "ready": true,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "online"
+      },
+      "display": {
+        "source": "current",
+        "captured_at": "2026-10-31T08:12:16.545Z",
+        "error": null
+      },
+      "live_capabilities_present": true,
+      "profile_version": 3,
+      "reasoning_effort": "high"
+    },
+    "r2-cold-Q": {
+      "path": "/im/v1/agents/daily-quality/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 1.2843,
+      "ready": true,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "online"
+      },
+      "display": {
+        "source": "current",
+        "captured_at": "2026-10-31T08:12:17.846Z",
+        "error": null
+      },
+      "live_capabilities_present": true,
+      "profile_version": 1,
+      "reasoning_effort": "high"
+    },
+    "r2-cold-PA": {
+      "path": "/im/v1/agents/pa_b54ac0f3d027/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 1.2891,
+      "ready": true,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "online"
+      },
+      "display": {
+        "source": "current",
+        "captured_at": "2026-10-31T08:12:19.138Z",
+        "error": null
+      },
+      "live_capabilities_present": true,
+      "profile_version": 2,
+      "reasoning_effort": "medium"
+    },
+    "r2-fault-settings": {
+      "path": "/im/v1/agents/daily-engineering/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 7.1862,
+      "ready": false,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "online"
+      },
+      "display": {
+        "source": "last_known",
+        "captured_at": "2026-10-31T08:12:39.310Z",
+        "error": {
+          "code": "timeout",
+          "message": "The computer did not respond in time."
+        }
+      },
+      "live_capabilities_present": false,
+      "profile_version": 3,
+      "reasoning_effort": "high"
+    },
+    "r2-recovered-settings": {
+      "path": "/im/v1/agents/daily-engineering/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 1.3317,
+      "ready": true,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "online"
+      },
+      "display": {
+        "source": "current",
+        "captured_at": "2026-10-31T08:13:06.191Z",
+        "error": null
+      },
+      "live_capabilities_present": true,
+      "profile_version": 3,
+      "reasoning_effort": "high"
+    },
+    "r2-offline-settings": {
+      "path": "/im/v1/agents/daily-engineering/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 0.0034,
+      "ready": false,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "offline"
+      },
+      "display": {
+        "source": "last_known",
+        "captured_at": "2026-10-31T08:13:06.191Z",
+        "error": {
+          "code": "offline",
+          "message": "The Agent computer is offline."
+        }
+      },
+      "live_capabilities_present": false,
+      "profile_version": 3,
+      "reasoning_effort": "high"
+    },
+    "r2-offline-save": {
+      "path": "/im/v1/agents/daily-engineering/config",
+      "method": "PATCH",
+      "status": 409,
+      "seconds": 0.001,
+      "detail": {
+        "code": "agent_node_offline",
+        "message": "The Agent computer is offline. Reconnect it before making changes."
+      }
+    },
+    "r2-offline-capabilities": {
+      "path": "/im/v1/agents/daily-engineering/capabilities",
+      "method": "GET",
+      "status": 503,
+      "seconds": 0.0006,
+      "detail": "target_node_id is not connected"
+    },
+    "r2-reconnected-settings": {
+      "path": "/im/v1/agents/daily-engineering/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 1.3036,
+      "ready": true,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "online"
+      },
+      "display": {
+        "source": "current",
+        "captured_at": "2026-10-31T08:13:37.101Z",
+        "error": null
+      },
+      "live_capabilities_present": true,
+      "profile_version": 3,
+      "reasoning_effort": "high"
+    },
+    "r2-logout": {
+      "path": "/im/v1/auth/logout",
+      "method": "POST",
+      "status": 200,
+      "seconds": 0.0022
+    },
+    "r2-revoked-settings": {
+      "path": "/im/v1/agents/daily-engineering/settings",
+      "method": "GET",
+      "status": 401,
+      "seconds": 0.0009,
+      "detail": "session revoked or expired"
+    },
+    "r2-save": {
+      "path": "/im/v1/agents/daily-engineering/config",
+      "method": "PATCH",
+      "status": 200,
+      "seconds": 1.4697,
+      "profile_version": 4,
+      "reasoning_effort": "medium"
+    },
+    "r2-saved-settings": {
+      "path": "/im/v1/agents/daily-engineering/settings",
+      "method": "GET",
+      "status": 200,
+      "seconds": 1.3096,
+      "ready": true,
+      "node": {
+        "node_id": "wt-nano-multiagent-84872",
+        "state": "online"
+      },
+      "display": {
+        "source": "current",
+        "captured_at": "2026-10-31T08:13:51.932Z",
+        "error": null
+      },
+      "live_capabilities_present": true,
+      "profile_version": 4,
+      "reasoning_effort": "medium"
+    },
+    "r2-conflict": {
+      "path": "/im/v1/agents/daily-engineering/config",
+      "method": "PATCH",
+      "status": 409,
+      "seconds": 0.0013,
+      "detail": "profile_version conflict"
+    },
+    "r2-restore": {
+      "path": "/im/v1/agents/daily-engineering/config",
+      "method": "PATCH",
+      "status": 200,
+      "seconds": 1.3036,
+      "profile_version": 5,
+      "reasoning_effort": "high"
+    },
+    "r2-sections-during-fault": [
+      {
+        "path": "/im/v1/agents/daily-engineering/settings/sections/plugins",
+        "status": 200,
+        "seconds": 0.0113,
+        "ready": null,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings/sections/cron",
+        "status": 200,
+        "seconds": 0.0015,
+        "ready": null,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings/sections/usage",
+        "status": 200,
+        "seconds": 0.0022,
+        "ready": null,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/channels",
+        "status": 200,
+        "seconds": 0.0007,
+        "ready": null,
+        "source": null
+      },
+      {
+        "path": "/im/v1/agents/daily-quality/settings",
+        "status": 200,
+        "seconds": 1.3449,
+        "ready": true,
+        "source": "current"
+      }
+    ],
+    "r2-concurrent-cold": [
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3174,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3194,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3172,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3194,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3174,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3181,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3172,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3173,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.319,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3176,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3187,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3174,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3175,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3221,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3234,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3169,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.321,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3196,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3213,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3215,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3192,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3202,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3169,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3207,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3188,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3194,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3155,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3185,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3167,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3162,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3136,
+        "ready": true,
+        "source": "current"
+      },
+      {
+        "path": "/im/v1/agents/daily-engineering/settings",
+        "status": 200,
+        "seconds": 1.3152,
+        "ready": true,
+        "source": "current"
+      }
+    ]
+  }
+}

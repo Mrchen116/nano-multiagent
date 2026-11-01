@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import type { FastifyInstance } from 'fastify';
 import type { AgentLifecycleSnapshot } from '@nano/product-contracts';
 import { all, body, fail, now, one, params, transaction, type ImContext, type Row } from './context.js';
@@ -67,6 +68,7 @@ export class AgentLifecycles {
     if(typeof input.request_id!=='string'||!input.request_id.trim()||input.request_id.length>200)fail(422,'request_id_required');
     if(!retry&&(typeof input.enabled!=='boolean'||!Number.isInteger(input.expected_revision)))fail(422,'invalid_lifecycle_change');
     const intent=retry?'retry':input.enabled?'enabled':'disabled';
+    let withdrawals: ReturnType<typeof revokeLostTaskContextAccess> = [];
     const state=transaction(this.ctx.db,()=>{
       const current=lifecycle(this.ctx.db,agentId);
       const prior=one(this.ctx.db,'SELECT * FROM agent_lifecycle_requests WHERE agent_id=? AND request_id=?',agentId,input.request_id);
@@ -78,12 +80,14 @@ export class AgentLifecycles {
       if(!retry&&current.revision!==input.expected_revision)fail(409,{code:'revision_conflict',current_revision:current.revision});
       if(intent==='enabled'&&current.desired==='disabled'&&(current.observed!=='disabled'||current.applied_revision!==current.revision))fail(409,'stop_not_confirmed');
       if(!retry&&intent!==current.desired) {
+        const before=captureTaskContextAccess(this.ctx.db,{agentIds:[agentId]});
         const revision=current.revision+1;
         const profile=one(this.ctx.db,'SELECT node_id FROM agent_profiles WHERE agent_id=?',agentId)!;
         const connection=this.ctx.gateway.nodes.get(profile.node_id);
         const unsupported=connection&&!connection.agent_lifecycle_v1;
         this.ctx.db.prepare(`UPDATE agent_lifecycle SET desired=?,revision=?,disabled_through_revision=?,request_id=?,actor_user_id=?,requested_at=?,observed=?,confirmed_at=NULL,error_code=?,error_detail=? WHERE agent_id=?`).run(
           intent,revision,intent==='disabled'?revision:current.disabled_through_revision,input.request_id,userId,now(),intent==='enabled'?'enabling':unsupported?'stop_unconfirmed':'stopping',unsupported?'node_upgrade_required':null,unsupported?'Update this node to confirm all managed execution has stopped':null,agentId);
+        withdrawals=revokeLostTaskContextAccess(this.ctx.db,before,userId);
       }
       const saved=lifecycle(this.ctx.db,agentId);
       this.ctx.db.prepare('INSERT INTO agent_lifecycle_requests VALUES(?,?,?,?)').run(agentId,input.request_id,intent,saved.revision);
@@ -91,6 +95,7 @@ export class AgentLifecycles {
     });
     // The persistent barrier and control frame precede any graph projection work.
     this.deliver(state);
+    if(withdrawals.length)this.ctx.messaging.publishMessages(withdrawals,{deferDelivery:true});
     if(state.desired==='disabled') {
       this.interruptMessages(agentId);
       this.ctx.gateway.tasks.freezeAgent(agentId,userId,state.revision);

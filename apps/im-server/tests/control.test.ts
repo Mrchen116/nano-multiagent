@@ -20,7 +20,7 @@ import { ChannelService, sealChannelSecret } from "../src/channels.js";
 import {ConfigOperations, candidateFingerprint, profileResponse} from "../src/control.js";
 import {registerControlRoutes} from '../src/control-routes.js';
 import { one, type ImContext, type Row } from "../src/context.js";
-import { fixture } from "./control-fixture.js";
+import { fixture, connectFixtureGateway } from "./control-fixture.js";
 function taskMessaging(db: any) {
   const ctx = {db,gateway:{broadcast:()=>{},send:()=>false}} as unknown as ImContext;
   return new Messaging(ctx);
@@ -50,7 +50,7 @@ describe('capability configuration responsibility guards', () => {
     service.execute({kind:'user',id:'u1'},'create',{title:'Still working',mode:'dag',conversation_id:'chat',request_key:'guard',status:'doing',assignee:{type:'agent',id:'a'}});
     let sent=false;ctx.gateway.request=async()=>{sent=true;return null as any;};
     const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
-    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toMatchObject({statusCode:409,detail:{code:'capability_in_use',blocks:[{code:'active_tasks',target:{kind:'feature',name:'task_graph'}}]}});
+    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toMatchObject({statusCode:409,detail:{code:'capability_in_use',blocks:[{code:'active_tasks',target:{kind:'feature',name:'task_graph'}}]}});
     expect(sent).toBe(false);
     expect(one(db,'SELECT 1 FROM agent_config_operations')).toBeUndefined();
     expect(one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")).toEqual(previous);
@@ -59,7 +59,7 @@ describe('capability configuration responsibility guards', () => {
     const {db,ctx}=fixture();
     ctx.gateway.request=async()=>null as any;
     const previous=one(db,"SELECT * FROM agent_profiles WHERE agent_id='a'")!;
-    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toThrow();
+    await expect(new ConfigOperations(configurationDependencies(ctx)).update(previous,{...profileResponse(previous,true),features:{intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},tool_allowlist:[]},'o1')).rejects.toThrow();
     const service=new TaskGraphService(db,taskMessaging(db));
     const args={title:'New work',mode:'dag',conversation_id:'chat',request_key:'new',assignee:{type:'agent',id:'a'}};
     expect(()=>service.execute({kind:'user',id:'u1'},'create',{...args,status:'doing'})).toThrow('configuration');
@@ -303,7 +303,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         display_name: "New",
         skills: [],
         tool_allowlist: [],
-        features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
+        features: {intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
         group_reply_policy: "manual",
       },
       "o1",
@@ -356,7 +356,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         approval_mode: "codex",
         work_mode: "single_thread",
         workspace_root: "/agent",
-        features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
+        features: {intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
         custom_prompt: null,
         heartbeat_json: null,
       };
@@ -505,7 +505,8 @@ it('finishes migration after recovering a pending legacy configuration operation
 });
 
 it("preserves workspace tool availability in the Agent capabilities response", async () => {
-  const {ctx} = fixture();
+  const f = fixture(); connectFixtureGateway(f);
+  const {ctx} = f;
   ctx.gateway.request = async () => ({capabilities:{tools:[{name:"expense_summary",description:"Monthly expenses",source_group:"workspace",enabled:true,default_on:false}]}});
   const app=Fastify();registerControlRoutes(app,ctx);
   try {

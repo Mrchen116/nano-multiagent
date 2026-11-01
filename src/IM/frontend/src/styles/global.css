@@ -1679,6 +1679,7 @@ body {
   background: var(--im-sidebar);
   min-height: 0;
   overflow: hidden;
+  transition: background-color 160ms ease;
 }
 
 .chat-sidebar-header {
@@ -1695,6 +1696,16 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
+  max-height: 44px;
+  overflow: hidden;
+  opacity: 1;
+  transition: max-height 160ms ease, margin-bottom 160ms ease, opacity 120ms ease;
+}
+
+.chat-sidebar--searching .chat-sidebar-header-row {
+  max-height: 0;
+  margin-bottom: 0;
+  opacity: 0;
 }
 
 .chat-sidebar-title {
@@ -1809,6 +1820,20 @@ body {
   outline-offset: 1px;
 }
 
+.chat-search-input-row { display: flex; align-items: center; position: relative; }
+.chat-search-input-row .chat-sidebar-search { min-width: 0; }
+.chat-sidebar--searching { background: var(--im-surface); }
+.chat-sidebar--searching .chat-sidebar-header { padding: 14px 12px 10px; border-bottom: 1px solid var(--im-border); }
+.chat-sidebar--searching .chat-sidebar-search { padding-right: 36px; }
+.chat-sidebar--searching .chat-sidebar-search::-webkit-search-cancel-button { display: none; }
+.chat-search-back, .chat-search-clear { border: 0; background: transparent; color: var(--im-text-muted); cursor: pointer; font: inherit; flex: none; }
+.chat-search-back { width: 0; height: 36px; padding: 0; overflow: hidden; opacity: 0; font-size: 26px; line-height: 1; color: var(--im-text); transition: width 160ms ease, margin-right 160ms ease, opacity 120ms ease; }
+.chat-sidebar--searching .chat-search-back { width: 26px; margin-right: 6px; opacity: 1; }
+.chat-search-clear { position: absolute; right: 7px; width: 30px; height: 30px; font-size: 20px; }
+.chat-search-hint, .chat-search-empty { padding: 48px 20px; text-align: center; color: var(--im-text-muted); font-size: 0.85rem; }
+.chat-sidebar--searching .chat-sidebar-list { padding: 8px 12px 24px; }
+.chat-sidebar--searching mark { color: var(--im-accent); background: transparent; font-weight: 700; }
+
 .chat-sidebar-filters {
   display: flex;
   gap: 6px;
@@ -1849,6 +1874,19 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  animation: chat-list-content-in 160ms ease-out;
+}
+
+.chat-sidebar--searching .chat-sidebar-list { animation: chat-search-content-in 160ms ease-out; }
+@keyframes chat-search-content-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chat-list-content-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .chat-sidebar, .chat-sidebar-header-row, .chat-search-back { transition: none; }
+  .chat-sidebar-list, .chat-sidebar--searching .chat-sidebar-list { animation: none; }
+}
+@media (min-width: 768px) {
+  .chat-sidebar--searching .chat-sidebar-filters { gap: 2px; }
+  .chat-sidebar--searching .chat-sidebar-filter { padding-inline: 6px; }
 }
 
 .chat-sidebar-empty {
@@ -1857,6 +1895,11 @@ body {
   color: var(--im-text-muted);
   font-size: 0.85rem;
 }
+
+.chat-search-heading { padding: 12px 8px 4px; color: var(--im-text-muted); font-size: 0.72rem; font-weight: 700; }
+.chat-search-result { align-items: flex-start; }
+.chat-search-snippet { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--im-text-muted); font-size: 0.78rem; line-height: 1.45; overflow-wrap: anywhere; }
+.chat-search-more { border: 0; background: transparent; color: var(--im-accent); font: inherit; font-size: 0.78rem; padding: 10px 8px; cursor: pointer; }
 
 .chat-sidebar-row {
   display: flex;
@@ -4963,6 +5006,21 @@ body {
     border-right: 0;
     background: var(--im-sidebar);
   }
+  .chat-sidebar--searching {
+    position: fixed;
+    inset: var(--im-viewport-offset, 0px) 0 auto;
+    z-index: 100;
+    width: 100%;
+    height: var(--im-viewport-height);
+    min-height: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--im-surface);
+  }
+  .chat-sidebar--searching .chat-sidebar-header { padding: 10px 16px; }
+  .chat-sidebar--searching .chat-search-back { width: 36px; height: 44px; }
+  .chat-sidebar--searching .chat-sidebar-list { padding: 8px 16px 24px; }
+  .chat-sidebar--searching .chat-sidebar-row { padding-top: 12px; padding-bottom: 12px; }
   .chat-sidebar-header {
     padding: 10px 16px 10px;
     border-bottom: none;

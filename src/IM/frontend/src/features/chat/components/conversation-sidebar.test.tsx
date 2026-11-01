@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -47,6 +47,85 @@ const CONVS: Conversation[] = [
 ];
 
 describe("ConversationSidebar", () => {
+  it('shows message matches alongside conversations, pages and opens the original', async () => {
+    const user = userEvent.setup(), select = vi.fn();
+    const searchMessages = vi.fn(async (_q:string, _kind:string, cursor?:string) => cursor
+      ? {messages:[{message_id:'m2',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Bob',created_at:'2026-01-01T00:00:00Z',snippet:'plan older'}]}
+      : {messages:[{message_id:'m1',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Alice',created_at:'2025-02-01T00:00:00Z',snippet:'plan approved'}],next_cursor:'next'});
+    render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} searchMessages={searchMessages} onSelectMessage={select} />);
+    await user.type(screen.getByRole('searchbox'), 'plan');
+    expect(await screen.findByRole('button', {name:/Alice: plan approved/})).toBeVisible();
+    expect(screen.getByRole('button', {name:/Alice: plan approved/})).toHaveTextContent('2025');
+    expect(screen.getByText('Conversations')).toBeVisible();
+    await user.click(screen.getByRole('button', {name:'Load more'}));
+    expect(await screen.findByRole('button', {name:/Bob: plan older/})).toBeVisible();
+    await user.click(screen.getByRole('button', {name:/Alice: plan approved/}));
+    expect(select).toHaveBeenCalledWith('c2','m1');
+    await user.click(screen.getByRole('tab', {name:'Group'}));
+    await waitFor(() => expect(searchMessages).toHaveBeenLastCalledWith('plan', 'group', undefined, expect.any(AbortSignal)));
+  });
+
+  it('restores a search and category after the sidebar is remounted', async () => {
+    const user = userEvent.setup();
+    let saved: {query:string; filter:'all' | 'group'; pages:number; scrollTop:number} = {query:'',filter:'all',pages:1,scrollTop:0};
+    const searchMessages = vi.fn(async (_query:string, _kind:string, cursor?:string) => cursor
+      ? {messages:[{message_id:'m2',conversation_id:'c2',conversation_name:'Team',sender_name:'Bob',created_at:'2025-01-01',snippet:'plan second'}]}
+      : {messages:[{message_id:'m1',conversation_id:'c2',conversation_name:'Team',sender_name:'Alice',created_at:'2025-01-01',snippet:'plan first'}],next_cursor:'next'});
+    const props = {conversations:CONVS, activeConversationId:null, onSelect:() => {}, onNewGroup:() => {}, searchMessages};
+    const view = render(<ConversationSidebar {...props} onSearchChange={state => { if (state.filter === 'all' || state.filter === 'group') saved = {...state, filter:state.filter}; }} />);
+    await user.type(screen.getByRole('searchbox'), 'plan');
+    await user.click(screen.getByRole('tab', {name:'Group'}));
+    await user.click(await screen.findByRole('button', {name:'Load more'}));
+    expect(await screen.findByRole('button', {name:/Bob: plan second/})).toBeVisible();
+    view.unmount();
+    render(<ConversationSidebar {...props} initialSearch={saved} />);
+    expect(screen.getByRole('searchbox')).toHaveValue('plan');
+    expect(screen.getByRole('tab', {name:'Group'})).toHaveAttribute('aria-selected','true');
+    expect(await screen.findByRole('button', {name:/Bob: plan second/})).toBeVisible();
+    await waitFor(() => expect(searchMessages).toHaveBeenLastCalledWith('plan','group','next',expect.any(AbortSignal)));
+  });
+
+  it('starts at the top when search changes before a saved position is restored', async () => {
+    const user = userEvent.setup();
+    const searchMessages = vi.fn((query:string) => query === 'old' ? new Promise<never>(() => {}) : Promise.resolve({messages:[]}));
+    render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} searchMessages={searchMessages}
+      initialSearch={{query:'old',filter:'all',pages:2,scrollTop:300}} />);
+    const input = screen.getByRole('searchbox');
+    await user.clear(input); await user.type(input,'new');
+    expect(await screen.findByText('No results found')).toBeVisible();
+    expect(screen.getByRole('list').scrollTop).toBe(0);
+  });
+
+  it('distinguishes a failed search from an empty result and retries', async () => {
+    const user = userEvent.setup();
+    const searchMessages = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({messages:[]});
+    render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} searchMessages={searchMessages} />);
+    await user.type(screen.getByRole('searchbox'), 'missing');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Search failed');
+    expect(screen.queryByText('No results found')).toBeNull();
+    await user.click(screen.getByRole('button', {name:'Retry'}));
+    expect(await screen.findByText('No results found')).toBeVisible();
+  });
+
+  it('switches to search without the fixed assistant, finds its conversation and exits to the list', async () => {
+    const user = userEvent.setup();
+    const personal = conv({id:'pa', title:'Personal assistant'});
+    render(<ConversationSidebar conversations={CONVS} searchConversations={[...CONVS, personal]} personalAgentEntry={<div>Fixed assistant entry</div>}
+      activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} searchMessages={async () => ({messages:[]})} />);
+    await user.click(screen.getByRole('searchbox'));
+    expect(screen.queryByText('Fixed assistant entry')).toBeNull();
+    expect(screen.queryByText('Sprint Planning')).toBeNull();
+    expect(screen.getByText('Search conversations and messages')).toBeVisible();
+    await user.type(screen.getByRole('searchbox'), 'Personal');
+    expect(screen.getByRole('button', {name:/Personal assistant/})).toBeVisible();
+    await user.click(screen.getByRole('button', {name:'Clear search'}));
+    expect(screen.getByText('Search conversations and messages')).toBeVisible();
+    expect(screen.queryByText('Fixed assistant entry')).toBeNull();
+    await user.click(screen.getByRole('button', {name:'Back to conversations'}));
+    expect(screen.getByText('Fixed assistant entry')).toBeVisible();
+    expect(screen.getByText('Sprint Planning')).toBeVisible();
+  });
+
   it("renders all conversations under the default 'all' filter", () => {
     render(
       <ConversationSidebar

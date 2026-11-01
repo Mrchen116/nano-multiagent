@@ -1,0 +1,56 @@
+# feat-676 一次性部署迁移提示词
+
+本文件是未来授权部署时的操作要求，不代表当前授权执行。目标代码及隔离验证尚未交付时不可执行。由 prod-fleet-deploy 在部署包含 feat-676 的版本时发现并采用。
+
+## 适用范围与前提
+
+- 对象：此次部署节点上已有的长期 PA/独立专家。默认 document + Dreaming 开启；文件可显式选择 legacy，网页不能改变模式或旧自动维护设置。
+- 旧状态：workspace 的 `.nanoassistant/memory/{USER,MEMORY}.md` 是限额条目库，旧 memory_curation/skill_creation 可能触发父会话 fork 维护。
+- 目标状态：新文档库仍在 `.nanoassistant/memory/`，可写旧库在 `.nanoassistant/memory-legacy/`，逐字备份位于 `.nanoassistant/memory-backups/<migration-id>/`。正式文档库仅由 Dreaming 更新，普通 root/child 只读；后台 Skill 自进化暂停，skill-creator 固定内置、无需选择，skill_manage 仍按实际工具权限执行。
+- 前提：目标版本已有模式隔离、配置解析、Dreaming 单写及手动导入指导、持续历史基线和恢复回执；M1 已在合成副本验证正常、重复执行、中断及回切；发布物包含经 W13 验证的 dsh-agent-context 固定新版本/包 hash 与公开历史入口，不能用安装目录 patch 替代。部署前核对验收报告，不在生产补跑未完成验收。
+
+## 顺序与最小修改
+
+1. 记录目标 release SHA、节点、各 agentId/workspace/角色及当前模式。确认无独立主体共用同一可写库；有冲突先报告，不能把混合知识自动分发给多个主体。不要修改模型、channel、身份、Task 或无关工具配置。
+2. 按 fleet runbook 暂停相关节点 admission，排空/取消旧记忆维护，再停止受影响服务。核实旧写者已退出后复制；不得在旧 writer 仍活跃时替换库。
+3. 为每主体建立迁移清单，保存原文件字节、原权限、原配置及 hash；备份目录 0700、文件 0600。备份成功且 hash 一致才继续。既有 git、用户自定义页或非标准文件一并保留，不擅自清理。
+4. 将旧活动库完整保存为 memory-legacy。若目标已存在，按原清单和 hash 判断已完成或冲突，不能覆盖较新旧库。新 memory 根建立仅含角色说明和备份导航的 MEMORY.md；不把旧知识自动摘要、改写、复制进新入口。新库已存在时保留，禁止重新初始化覆盖。
+5. 使用目标版本的配置模式写回：memoryMode=document（已有明确 legacy 选择则保留）；旧 memory_curation、memoryInterval 映射到 legacyMemory；默认 features.dreaming=true。保留无关工具、Skill 选择、自定义 prompt 和旧内容。对已有显式名单缺少新机制所需能力，记录缺项与实际不可用状态，不以迁移偷偷扩大工具权限。清除废弃 features.skill_creation 和 Skill 名单中 skill-creator 的陈旧选择，其余 Skill 名单/模式、无关工具与权限保持；新版本固定提供 skill-creator，不新增必选 Feature 依赖。验证旧 skill_creation=false、allowlist 未包含及 denylist 曾包含该名的配置都能启动且默认指导可发现，配置往返不再产生选择项。只转换已明确退役的选择键；旧配置未转换时也由目标解析按相同语义处理。
+6. 在服务停机的固定持久事件 cut 初始化 document 源基线；记录每根真实 session cursor及启用时间，不用 wall clock 猜最后一条消息。清单必须把基线与这次目录/配置迁移绑定，重复执行不能重置已处理进度。默认不导入启用前聊天。
+7. 启动目标版本。原 legacy writer 与新 Dreaming 必须按模式互斥。新版本仅展示 Dreaming 控制，skill-creator 无需用户选择且无技能创建开关，旧记忆/旧自动复盘无用户入口，自动 Skill fork 已停；旧备份可从 status/入口找到，等用户以后在聊天中要求整理。
+
+一次性搬目录、配置转换由部署 Agent 按清单执行，不增加产品每次启动的猜测式历史迁移。产品正常初始化仅面向新建空库。
+
+## 完成与有限生产核对
+
+只读检查：每主体旧内容备份 hash 一致；两活动库分离；新入口存在且无编造事实；普通 root/child 使用只读记忆配置，手动导入路由同一 Dreaming；有效模式/自动开关与配置一致；旧 Memory 和新 Dreaming 没有同时在途；后台 Skill 无新自动 fork；节点与 relay 恢复。核对当次 ready 及一次已有状态快照，不等待 24h，不发验收消息、不创建 Task/卡片、不强制触发 LLM 或重启演练。
+
+本次生产完成只表示迁移完整性与服务恢复，不替代 S01–S30 产品验收。实际环境、备份位置、SHA、清单和检查结果写本机受保护部署记录，不把生产记忆/原配置/聊天提交到仓库。
+
+## 中断与恢复
+
+- 备份未完成：原库不动，补齐备份；权限或读取错误不当作空库。
+- 备份完成、配置未切换：按清单核对目录；继续未完成步骤，不重新抽取或让模型重写。
+- 目标服务已产生新文档：保留新库、Git、维护进度；不得用备份覆盖。短期止损可关闭 Dreaming；需要 legacy 时文件切换并走现有配置应用流程。
+- 回切 legacy：消费 memory-legacy 的独立旧内容，不自动将新库压缩回旧格式。之后切回 document 继续原文档及进度。版本降级若旧二进制只识别原路径，先停服务并另外保存新库，再按迁移清单恢复旧路径；不能让旧二进制直接打开新 MEMORY.md。
+
+隔离 M1 必须验证上述每个中断点、幂等重入、Git 失败、模式回切及自然语言旧备份导入。生产只应用已验证步骤，具体故障超出记录则停在保留数据的状态并报告。
+
+## 已有 document 实例的输入协议升级
+
+若节点已运行 PR #428 旧逐 step Dreaming，实现此设计前先在隔离副本验证以下操作。部署只在已有授权下执行：
+
+1. 停止旧维护写者，保存 document 当前库、维护 state-domain、活跃 run 与进度副本。正常 document 库不按 legacy 流程搬迁或重新初始化。 本次提供 `scripts/migrate_dreaming_protocol.py --config <隔离/停机配置> --domain <精确 nano_dreaming 目录> --backup <源目录外的新备份目录> --writers-stopped`；脚本按 manifest 准备全部替换后逐个原子发布，重复完成调用保留新进度。不得对已有 document 库运行搬旧库的 `migrate_role_memory.py`。
+2. 核对旧 run 真实文件回执并补齐已成功的游标提交。旧未完成 JSON 分页/模型计划不交给新协议执行，保留历史回执并退役待恢复计划；已保存的正文不回滚。
+3. 将旧每根已完成 cursor/baseline 保留。旧超大单元的字符续读属于 JSON 序列化，不能解释为新原文偏移：丢弃该旧 continuation，从最后完整提交的 cursor 后重读；整理读取当前文档、按稳定事项合并，不能重复追加已保存内容。
+4. child 提炼缓存从空开始；存量 child 的首次范围不得越过主体启用基线向过去自动回溯。child 基线必须对应该主体最初的 document 启用 cut，而不是已经整合的根 cursor 或升级当天尾部：旧根游标不能证明未汇报 child 的历史已进入记忆。启用时已存在 child 以启用 cut 时间内的安全位置为基线；启用后新建 child 从 own-history 起点开始，即使首次发现发生在升级后。自身经历从该基线重新提炼，同时按 design 取合格继承背景参与理解（不改变首次范围或来源授权），和当前文档核对合并，已有知识不重复追加；缺少可证启用边界则仅该源保持待核对/受阻，保留原始资料与问题，不自行采用全历史或跳到最新。来源资格 generation 与停止使用范围保留，不能通过缓存初始化解除撤销。
+5. 删除旧 dreaming.maxRunMs/maxSteps 配置及未完成运行的预算状态；保留 intervalMs、quietMs、maxInputTokens、成功游标、来源基线和真实应用回执。旧 CycleTarget 只作历史记录，下次按最新上界重新冻结，不重放旧未 finish 的 staging。隔离副本须验证旧字段经目标配置解析归一化后不再生效、超过旧限制仍可正常完成。
+6. 状态转换写入一次性升级清单，重复执行核对 hash/位置后跳过，不重置已由新版本推进的根或 child 状态。旧版本回滚必须先停维护并保存新进度，只读旧副本恢复，不能让旧写者解释新状态。
+
+这些是部署/升级 Agent 的一次性转换，不新增产品每次启动的长期双协议分支。隔离验收覆盖部分正文已保存、旧 JSON 续页、完成回执未提交进度、重复迁移和来源撤销；生产只核对转换清单与服务状态，不补做模型测试。
+
+## PR 后补充：已有 Dreaming 轨迹身份（2026-10-29）
+
+修复前的 Dreaming 可能有完整执行日志但缺少原生 `subagent/descriptor`，导致查看器报 corrupt。更新后的运行时在恢复已登记的 Dreaming 时，通过 DSH 公开持久化句柄仅追加缺少的 one-shot/native 身份元数据，并标记已完成；不重跑整理，不覆盖历史事件，不更改记忆内容或把维护会话发布到模型子 Agent 目录。
+
+如目标节点已运行旧版本 feat-676，更新前停止该节点并备份其隔离 DSH home 中的 sessions 与 `nano_dreaming` 存储，随后正常启动。验收必须打开一条已有 Dreaming 的原生轨迹，展开实际 prompt、read/edit/finish 与宿主结果，再重启复验；不能只检查 Work 摘要。身份不匹配或持久化失败应保留错误和备份，不手工伪造执行结果。回退前停止节点；如需还原此次元数据补写，只对没有后续写入的匹配会话及其 run 标记恢复备份，不覆盖后续新工作。
