@@ -241,7 +241,8 @@ export class SingleThread {
     const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
     store.recordEvents(sessionId, read.events);
-    this.modelRuns.set(sessionId, read.modelRuns ?? []);
+    const runs = read.modelRuns ?? [];
+    this.modelRuns.set(sessionId, runs);
     for (const inputId of store.lookupInputIds(sessionId)) {
       const evidence = await runtime.request('session.lookup', { sessionId, inputId }) as InputEvidence;
       const run = read.modelRuns?.find(run => run.turn === evidence.turn || run.attempts.some(attempt => attempt.turn === evidence.turn));
@@ -250,12 +251,18 @@ export class SingleThread {
       const final = evidence.accepted && evidence.pending === false && evidence.terminal != null && (!run || run.state === 'completed');
       store.inputEvidence(inputId, evidence, final);
     }
-    const events = logicalEvents(store.events(sessionId), read.modelRuns ?? []);
-    for (const input of store.inputs(sessionId)) {
+    const noticeTurns = runs.filter(run => run.switched || run.attempts.some(attempt => attempt.error)).map(run => run.turn);
+    const inputs = store.deliveryInputs(sessionId, noticeTurns);
+    if (!inputs.length) return;
+    const runsByTurn = new Map(runs.map(run => [run.turn, run]));
+    // Keep this observation cut even if a concurrent tool persists newer events while a notice is being delivered.
+    const throughSeq = store.cursor(sessionId);
+    let events: RuntimeEvent[] | undefined;
+    for (const input of inputs) {
       if(!store.lifecycle.allowed(binding.agentId,input.input.lifecycle_revision??1) || input.terminal?.includes('cancelled_by_disable'))continue;
       if (input.turn === null) continue;
       const turn = input.turn;
-      const run = read.modelRuns?.find(run => run.turn === turn);
+      const run = runsByTurn.get(turn);
       if (run) await this.modelNotices(binding, input.input, run);
       let delivery = store.prepareDelivery(sessionId, turn);
       if (delivery.state === 'unknown') { await this.receipt(input.input, 'failed'); continue; }
@@ -263,11 +270,12 @@ export class SingleThread {
         await this.receipt(input.input, delivery.state === 'failed' ? 'failed' : 'completed');
         continue;
       }
-      const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
       if (run && run.state !== 'completed' && (run.state === 'switching' || run.attempts.length > 1)) continue;
       if (run?.state === 'completed' && (run.terminal as { kind: string })?.kind !== 'completed' && !delivery.messageId && run.attempts.some(attempt => attempt.error)) {
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
+      events ??= logicalEvents(store.events(sessionId, -1, throughSeq), runs);
+      const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
       const explicitDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
       const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
       if (end && explicitDelivered && !approvalVisible) {
@@ -277,8 +285,8 @@ export class SingleThread {
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
-      const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
-      const turnInputs=store.inputs(sessionId).filter(item=>item.turn===turn);
+      const turnInputs = store.inputs(sessionId, turn);
+      const group = turnInputs.some(item => item.input.metadata.conversation_type === 'group');
       const automaticOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin))
         || item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
       const approvalPending=[...this.pendingApprovals.values()].some(p=>p.sessionId===sessionId&&!p.posted);
@@ -293,7 +301,7 @@ export class SingleThread {
       }
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
-        const externalReply = store.inputs(sessionId).find(item => item.turn === turn && !item.input.metadata.context_only)?.input.metadata.external_reply;
+        const externalReply = turnInputs.find(item => !item.input.metadata.context_only)?.input.metadata.external_reply;
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
           agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
@@ -336,9 +344,12 @@ export class SingleThread {
         await this.delta({ kind: 'message_discarded', message_id: messageId, reason: 'model_failure_notice' });
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
-      const inputs = store.inputs(sessionId);
-      const position = inputs.findLastIndex(item => item.turn === turn);
-      const correction = group && !binding.conversationId.startsWith('external:') && inputs.slice(position + 1).some(item => !item.input.metadata.context_only);
+      let correction = false;
+      if (group && !binding.conversationId.startsWith('external:')) {
+        const sessionInputs = store.inputs(sessionId);
+        const position = sessionInputs.findLastIndex(item => item.turn === turn);
+        correction = sessionInputs.slice(position + 1).some(item => !item.input.metadata.context_only);
+      }
       if (completed && correction && text && delivery.state !== 'completing') {
         const identity = `revalidation:${delivery.operationId}`;
         await runtime.request('session.submit', { sessionId, inputId: identity, mode: 'inject', content: [{ type: 'text', text: 'Your previous draft has NOT been sent because newer messages were accepted in this group. Consider the newer messages before publishing the revised answer.' }], source: { kind: 'system', actorId: binding.agentId, channel: 'revalidation', messageId: identity } });
