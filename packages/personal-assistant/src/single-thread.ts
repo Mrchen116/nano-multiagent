@@ -125,7 +125,7 @@ export class SingleThread {
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
     await runtime.request('session.ensure', runtimeBinding(binding));
-    for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted && !pending.terminal) await this.submit(binding, pending.input);
+    for (const pending of store.pendingInputs(binding.sessionId)) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
   }
 
@@ -178,7 +178,7 @@ export class SingleThread {
       });
     }
     store.accepted(inputId);
-    if (!store.inputs(binding.sessionId).find(item => item.id === inputId)?.terminal) await this.receipt(input, 'sent');
+    if (!store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
@@ -201,7 +201,7 @@ export class SingleThread {
       await this.options.store.lifecycle.run(binding.agentId,undefined,async()=>{
       await this.options.runtime.request('session.ensure', runtimeBinding(binding));
       await this.controls.recover(binding.agentId);
-      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted && !input.terminal) await this.submit(binding, input.input);
+      for (const input of this.options.store.pendingInputs(binding.sessionId)) await this.submit(binding, input.input);
       await this.reconcile(binding.sessionId);
       });
     }

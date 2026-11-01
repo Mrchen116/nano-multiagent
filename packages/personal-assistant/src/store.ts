@@ -104,7 +104,8 @@ export class NodeStore {
     this.db.exec('CREATE INDEX IF NOT EXISTS inputs_evidence_pending ON inputs(session_id,evidence_final)');
     this.db.exec(`CREATE INDEX IF NOT EXISTS inputs_group_session ON inputs(session_id)
       WHERE json_extract(payload,'$.metadata.conversation_type')='group';
-      CREATE INDEX IF NOT EXISTS inputs_session_turn ON inputs(session_id,turn);`);
+      CREATE INDEX IF NOT EXISTS inputs_session_turn ON inputs(session_id,turn);
+      CREATE INDEX IF NOT EXISTS inputs_unsubmitted ON inputs(session_id) WHERE accepted=0 AND (terminal IS NULL OR terminal='');`);
     this.toolReferences = new ToolReferences(this.db);
     this.lifecycle = new AgentLifecycleAuthority(this.db);
     if(!(this.db.prepare('PRAGMA table_info(group_background)').all() as {name:string}[]).some(c=>c.name==='cancelled'))this.db.exec('ALTER TABLE group_background ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0');
@@ -315,6 +316,16 @@ export class NodeStore {
     return (rows as InputRow[]).map(decodeInput);
   }
 
+  /** Read only unsubmitted inputs in durable admission order. */
+  pendingInputs(sessionId: string) {
+    return (this.db.prepare("SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? AND accepted=0 AND (terminal IS NULL OR terminal='') ORDER BY rowid")
+      .all(sessionId) as InputRow[]).map(decodeInput);
+  }
+  /** Check one input receipt without decoding unrelated input bodies. */
+  inputTerminal(sessionId: string, inputId: string): string | null | undefined {
+    return (this.db.prepare('SELECT terminal FROM inputs WHERE session_id=? AND input_id=?').get(sessionId, inputId) as {terminal:string|null}|undefined)?.terminal;
+  }
+
   /** Select admitted turns that can still publish a notice, output, or missing receipt.
    *
    * Args:
@@ -336,7 +347,7 @@ export class NodeStore {
     `).all(sessionId, JSON.stringify(noticeTurns)) as InputRow[];
     return rows.map(decodeInput);
   }
-  inputForTurn(sessionId: string, turn: number) { return this.inputs(sessionId).find(input => input.turn === turn); }
+  inputForTurn(sessionId: string, turn: number) { return this.inputs(sessionId, turn)[0]; }
 
   prepareScheduleRun(inputId: string, agentId: string, scheduleId: string, sessionId: string): void {
     this.db.prepare('INSERT OR IGNORE INTO schedule_runs VALUES(?,?,?,?,?)').run(inputId, agentId, scheduleId, sessionId, new Date().toISOString());

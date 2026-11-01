@@ -258,6 +258,10 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             createdAt: completion.candidate.createdAt
           };
         }
+        if (event.eventType === "message.completed") {
+          void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }).catch(() => undefined);
+        }
+        if (!candidate) return;
         const viewingConversation = isViewingConversation(pathnameRef.current, conversationId);
         const conversations = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]);
         const cachedConversation = conversations?.find((conversation) => conversation.id === conversationId);
@@ -302,10 +306,6 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         // they stay inside the owner's conversation scope. The conversation's
         // existing external identity, not that storage identity, decides whether
         // this tab should surface the inbound peer message.
-        if (event.eventType === "message.completed") {
-          void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }).catch(() => undefined);
-        }
-
         const unresolvedExternalOwnerMirror = Boolean(
           candidate
           && event.eventType === "message.created"

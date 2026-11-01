@@ -274,16 +274,18 @@ export class ExternalChannels {
     try { await connection.thinking(row.message.messageId, row.reaction); this.state.reaction(id, null); } catch (error) { this.options.onError(error); }
   }
   private query(payload: Record<string, unknown>): Record<string, unknown> | undefined {
-    const chats = this.state.chats().filter(chat => chat.agentId === payload.agent_id);
     const describe = (chat: ExternalChat) => {
       const connection = this.connections.get(chat.agentId);
       const owner = connection?.config.appId === chat.appId ? connection.config.ownerOpenId : undefined;
       return { target: chat.id, id: chat.id, name: chatTitle(chat), type: chat.isGroup ? 'group' : 'direct', channel: 'feishu',
         owner_recipient: !!owner && !chat.isGroup && chat.sourceId === `feishu:${chat.appId}:dm:${owner}` };
     };
-    if (payload.action === 'describe' && Array.isArray(payload.targets) && payload.targets.every(target => chats.some(chat => chat.id === target || chat.shadowId === target))) return { conversations: chats.filter(chat => (payload.targets as string[]).includes(chat.id) || (payload.targets as string[]).includes(chat.shadowId!)).map(describe) };
-    const chat = chats.find(chat => chat.id === String(payload.target).replace(/^conversation:/, '') || chat.shadowId === payload.target);
-    if (!chat) return;
+    if (payload.action === 'describe' && Array.isArray(payload.targets) && payload.targets.every(target => typeof target === 'string')) {
+      const chats = this.state.chatsForTargets(String(payload.agent_id), payload.targets);
+      if (payload.targets.every(target => chats.some(chat => chat.id === target || chat.shadowId === target))) return { conversations: chats.map(describe) };
+    }
+    const chat = this.state.chat(String(payload.target).replace(/^conversation:/, ''), String(payload.target));
+    if (!chat || chat.agentId !== payload.agent_id) return;
     if (payload.action === 'info') return describe(chat);
     if (payload.action === 'read' && !payload.message_id && !payload.around_message_id) return { ...describe(chat), history_scope: 'external_cache', messages: this.state.recentInbound(chat.id).map(row => ({
       ...row.input.message, ...(row.input.message.created_at ? { created_at: formatLocalTime(row.input.message.created_at, row.input.message.timezone) } : {}),
@@ -356,7 +358,7 @@ export class ExternalChannels {
     const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId)!;
     if (this.options.personalAgent?.(chat.agentId) || !connection.config.ownerOpenId) return;
     const request = payload.permission_request ?? payload; const id = String(request.request_id);
-    const prior = this.state.approvals().find(row => row.requestId === id); if (prior) return;
+    const prior = this.state.approvalForRequest(id); if (prior) return;
     this.state.approval(id, output.id, request);
     const card = approvalCard(id, request, chat.isGroup);
     const platformId = await connection.send(chat.chatId, '', `approval:${id}`, card);
@@ -365,7 +367,7 @@ export class ExternalChannels {
   async card(agentId: string, value: unknown): Promise<unknown> {
     const event = value as { operator?: { open_id?: string }; context?: { open_message_id?: string }; action?: { value?: { request_id?: string; decision?: string } } };
     const requestId = event.action?.value?.request_id; const decision = event.action?.value?.decision;
-    const pending = this.state.approvals().find(row => row.requestId === requestId);
+    const pending = requestId ? this.state.approvalForRequest(requestId) : undefined;
     const connection = this.connections.get(agentId);
     if (pending?.settled) return { toast: { type: 'info', content: '审批已结束' }, card: { type: 'raw', data: approvalStatus('已处理') } };
     if (!pending || !connection?.config.ownerOpenId || event.operator?.open_id !== connection.config.ownerOpenId || pending.platformId !== event.context?.open_message_id) return { toast: { type: 'error', content: '此审批不可用或无权操作' } };
@@ -375,7 +377,7 @@ export class ExternalChannels {
     this.state.settleApproval(requestId!); return { toast: { type: 'success', content: '已提交审批决定' }, card: { type: 'raw', data: approvalStatus(decision!) } };
   }
   private async resolveApproval(requestId: string, decision: string): Promise<void> {
-    const pending = this.state.approvals().find(row => row.requestId === requestId); if (!pending) return;
+    const pending = requestId ? this.state.approvalForRequest(requestId) : undefined; if (!pending) return;
     this.state.settleApproval(requestId);
     if (!pending.platformId) return;
     const output = this.state.output(pending.outputId)!; const chat = this.state.chat(output.chatId)!;

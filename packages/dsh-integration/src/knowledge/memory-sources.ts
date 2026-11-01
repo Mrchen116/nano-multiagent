@@ -281,6 +281,7 @@ export class MemorySources {
   /** Re-select each direct task from its activation baseline, including qualified inherited context. */
   async children(agentId: string, target: CycleTarget, batch: FrozenBatch, options: SourceOptions): Promise<ChildMaterial[]> {
     const result: ChildMaterial[] = [];
+    const parents = new Map<string, Map<number, SessionEvent>>();
     for (const [sessionId, limit] of Object.entries(target.children)) {
       const binding = this.bindings.get(limit.rootSessionId);
       if (!binding || binding.agentId !== agentId) continue;
@@ -295,10 +296,14 @@ export class MemorySources {
         const cut = safeBoundary(own, cutoff);
         if (cut.through <= limit.baseline) continue;
         const events = qualifiedEvents(own.filter(event => event.seq <= cut.through), options);
-        const parent = await this.snapshot(limit.rootSessionId);
+        let parent = parents.get(limit.rootSessionId);
+        if (!parent) {
+          parent = new Map((await this.snapshot(limit.rootSessionId)).events.map(event => [event.seq, event]));
+          parents.set(limit.rootSessionId, parent);
+        }
         const inherited = snapshot.events.slice(0,snapshot.inheritedEventCount).filter(event => event.seq > (target.roots[limit.rootSessionId]?.baseline??-1) && event.time >= target.activationAt && event.time <= cutoff);
         // A fork copy must still match the original parent record. Missing provenance stays a gap.
-        const inheritedEvents = qualifiedEvents(inherited.filter(event => parent.events.some(original => original.seq === event.seq && hash(original) === hash(event))), options);
+        const inheritedEvents = qualifiedEvents(inherited.filter(event => { const original = parent.get(event.seq); return original !== undefined && hash(original) === hash(event); }), options);
         const material = selectChildMaterial({sessionId,rootSessionId:limit.rootSessionId,events,inheritedEvents,unavailable:inherited.length-inheritedEvents.length}, options.maxInputTokens);
         result.push({sessionId,rootSessionId:limit.rootSessionId,baseline:limit.baseline,through:cut.through,sourceVersion:hash({events,inheritedEvents,generation:target.generation,through:cut.through}),...material,events,inheritedEvents,unavailable:inherited.length-inheritedEvents.length});
       } catch (error) { batch.blocked.push({sessionId,reason:String(error)}); }
@@ -343,17 +348,28 @@ function renderNative(event: SessionEvent): string {
 /** Repack the same certified child evidence without querying or changing its source version. */
 export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'rootSessionId'|'events'|'inheritedEvents'|'unavailable'>, maxInputTokens: number): {text:string;omitted:number} {
   const entries = [...material.inheritedEvents.map(event => ({event,sessionId:material.rootSessionId,inherited:true})), ...material.events.map(event => ({event,sessionId:material.sessionId,inherited:false}))];
-  const messageCarrier = (event:SessionEvent) => event.type==='tool/result' && entries.some(item=>item.event.type==='tool/call' && item.event.data.callId===event.data.message.toolCallId && ['inbox','conversations'].includes(item.event.data.name));
-  const priority = (event: SessionEvent) => event.type === 'user/message' || messageCarrier(event) ? 0 : event.type === 'assistant/message' ? 1 : 2;
+  const messageCalls = new Set(entries.flatMap(({event}) => event.type === 'tool/call' && ['inbox','conversations'].includes(event.data.name) ? [event.data.callId] : []));
+  const priority = (event: SessionEvent) => event.type === 'user/message' || event.type === 'tool/result' && messageCalls.has(event.data.message.toolCallId) ? 0 : event.type === 'assistant/message' ? 1 : 2;
+  const groupKey = (entry: typeof entries[number]) => {
+    const event = entry.event;
+    const callId = event.type === 'tool/call' ? event.data.callId : event.type === 'tool/result' ? event.data.message.toolCallId : undefined;
+    return callId ? JSON.stringify([entry.sessionId, entry.inherited, callId]) : undefined;
+  };
+  const groups = new Map<string, {indices:number[];size:number}>();
+  for (const [index, entry] of entries.entries()) {
+    const key = groupKey(entry);
+    if (!key) continue;
+    const group = groups.get(key) ?? {indices:[],size:0};
+    group.indices.push(index);
+    group.size += estimateInputTokens(JSON.stringify(entry));
+    groups.set(key, group);
+  }
   const selected = new Set<number>(); let used = 0;
   for (const {index,entry} of entries.map((entry,index)=>({entry,index})).sort((a,b)=>priority(a.entry.event)-priority(b.entry.event) || b.entry.event.time-a.entry.event.time)) {
     if (selected.has(index)) continue;
-    const event = entry.event;
-    const callId = event.type === 'tool/call' ? event.data.callId : event.type === 'tool/result' ? event.data.message.toolCallId : undefined;
-    const group = callId ? entries.flatMap((candidate,i)=>candidate.sessionId === entry.sessionId && candidate.inherited === entry.inherited &&
-      (candidate.event.type === 'tool/call' && candidate.event.data.callId === callId || candidate.event.type === 'tool/result' && candidate.event.data.message.toolCallId === callId) ? [i] : []) : [index];
-    const size = group.reduce((sum,i)=>sum + estimateInputTokens(JSON.stringify(entries[i])),0);
-    if (used + size <= maxInputTokens) { for (const i of group) selected.add(i); used += size; }
+    const key = groupKey(entry);
+    const group = key ? groups.get(key)! : {indices:[index],size:estimateInputTokens(JSON.stringify(entry))};
+    if (used + group.size <= maxInputTokens) { for (const i of group.indices) selected.add(i); used += group.size; }
   }
   const text = entries.flatMap((entry,index)=>selected.has(index) ? [`### ${entry.inherited ? 'Inherited background, not new evidence' : 'Own experience'}; session_id=${entry.sessionId}; item_id=${entry.event.seq}; time=${entry.event.time}\n${renderNative(entry.event)}`] : []).join('\n\n');
   const omitted = entries.length-selected.size + (material.unavailable??0);

@@ -7,6 +7,8 @@ const excludedTools = new Set(['memory', 'memory_maintenance', 'skill', 'skill_m
 /** Keep original event identity while removing maintenance and unauthorized mixed-source content. */
 export function qualifiedEvents(events: readonly SessionEvent[], options: { sources?: SourceEligibility }): SessionEvent[] {
   const allowed = (id: string) => (!options.sources || options.sources.allowed.includes(id) && !options.sources.excluded.includes(id));
+  const callNames = new Map<string, string>();
+  for (const event of events) if (event.type === 'tool/call' && !callNames.has(event.data.callId)) callNames.set(event.data.callId, event.data.name);
   const calls = new Map<string, boolean>();
   const messages = new Set<string>();
   return events.flatMap<SessionEvent>(original => {
@@ -30,8 +32,7 @@ export function qualifiedEvents(events: readonly SessionEvent[], options: { sour
     }
     if (event.type === 'tool/result') {
       if (!calls.get(event.data.message.toolCallId)) return [];
-      const call = events.find(item => item.type === 'tool/call' && item.data.callId === event.data.message.toolCallId);
-      if (call?.type === 'tool/call' && ['inbox','conversations'].includes(call.data.name)) {
+      if (['inbox','conversations'].includes(callNames.get(event.data.message.toolCallId) ?? '')) {
         try {
           const body = JSON.parse(event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('\n'));
           if (Array.isArray(body.messages)) body.messages = body.messages.filter((message: Record<string, unknown>) => {

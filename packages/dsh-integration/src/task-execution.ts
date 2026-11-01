@@ -130,9 +130,9 @@ export class TaskExecutionDriver {
       if(state.interrupted==='source')state.interrupted=undefined;
       state.shown=snapshot;retain();
       const ids=new Set<string>(ordinary.filter(message=>message.source.kind==='schedule').map(message=>message.id));
-      const checks=scheduleEvidence(agent.session.snapshotEvents()).filter(item=>ids.has(item.messageId)).flatMap(item=>snapshot.tasks
+      const checks=ids.size?scheduleEvidence(agent.session.snapshotEvents()).filter(item=>ids.has(item.messageId)).flatMap(item=>snapshot.tasks
         .filter(task=>task.status==='waiting'&&task.wait?.schedule_id===item.scheduleId&&task.wait.session_id===agent.id)
-        .map(task=>({graph_id:task.graph_id,node_id:task.node_id,schedule_id:item.scheduleId,occurrence_id:item.messageId,planned_check_at:item.scheduledAt??task.wait!.next_check_at,checked_at:new Date().toISOString()})));
+        .map(task=>({graph_id:task.graph_id,node_id:task.node_id,schedule_id:item.scheduleId,occurrence_id:item.messageId,planned_check_at:item.scheduledAt??task.wait!.next_check_at,checked_at:new Date().toISOString()}))):[];
       if(!this.runnable(snapshot)) {
         state.automaticTurn=false;
         if(own.length&&!ordinary.length)return {kind:'reject'};
