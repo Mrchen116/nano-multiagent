@@ -21,6 +21,14 @@ export class NodeStore {
   systemContextInputs(agentId:string):SystemContextInput[] {
     return this.db.prepare('SELECT * FROM system_context_inputs WHERE agent_id=?').all(agentId) as unknown as SystemContextInput[];
   }
+  /** Load session receipts that still need a product mapping or Inbox acknowledgement. */
+  systemContextToReconcile(agentId: string, sessionId: string, unreadIds: string[]) {
+    return this.db.prepare(`
+      SELECT input_id, digest, state FROM system_context_inputs
+      WHERE session_id=? AND agent_id=? AND
+        (state='prepared' OR (state='consumed' AND input_id IN (SELECT value FROM json_each(?))))
+    `).all(sessionId, agentId, JSON.stringify(unreadIds)) as Pick<SystemContextInput,'input_id'|'digest'|'state'>[];
+  }
   /** Revocation is terminal and wins over delayed admission or evidence ACKs. */
   revokeSystemContext(agentId:string,messageId:string,conversationId:string):void {
     this.db.prepare("INSERT INTO system_context_inputs VALUES(?,?,?,NULL,?,'','revoked',NULL) ON CONFLICT(agent_id,message_id) DO UPDATE SET state=CASE WHEN state='consumed' THEN state ELSE 'revoked' END").run(agentId,messageId,conversationId,messageId);

@@ -1,4 +1,5 @@
-import {expect,it} from 'vitest';
+import {StatementSync} from 'node:sqlite';
+import {expect,it,vi} from 'vitest';
 import type {AgentConfiguration,RelayInput} from '@nano/product-contracts';
 import {NodeStore} from '../src/store.js';
 import {InboxStore} from '../src/inbox.js';
@@ -57,4 +58,70 @@ it('does not submit a second SingleThread identity or wake for a passive indexed
  const store=new NodeStore(':memory:','owner'),receipts:unknown[]=[];
  const product=new SingleThread({nodeId:'node',ownerId:'owner',agents:[{...agent,mode:'single_thread'}],store,runtime:{...runtime,request:async()=>{throw new Error('unexpected native wake');}},relay:{request:async(type,args)=>{receipts.push({type,args});return {type:'result',payload:{ok:true}};}},image:async()=>'',onError:error=>{throw error;}});
  try{await product.receive(original('original'));expect(receipts).toHaveLength(1);expect(store.bindings()).toHaveLength(0);}finally{await product.stop();store.close();}
+});
+
+function replayFixture() {
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  const identity={agentId:'a',sessionId:'s',ownerId:'owner'};
+  store.bind({...identity,conversationId:'global:a',cwd:'/tmp',revision:'1'});
+  const service=new TaskContext({nodeId:'node',ownerId:'owner',agents:[agent],store,inbox,runtime,refreshSources:async()=>{},
+    relay:{request:async()=>({type:'result',payload:{ok:true,result:{through:0,next:0,items:[],revoked_message_ids:[]}}})}});
+  return {store,inbox,identity,service};
+}
+
+it('bounds receipt reconciliation work when an idle session replays 300 consumed originals',async()=>{
+  const {store,inbox,identity,service}=replayFixture();
+  try {
+    for(let i=0;i<300;i++){
+      const id='task-'+i;
+      inbox.receive(original(id),false);
+    }
+    const {messages}=await service.prepare(identity);
+    expect(messages).toHaveLength(300);
+    const replay={...identity,evidence:messages.map(({inputId,content},i)=>({inputId,content,turn:1,consumedSeq:2+i}))};
+    await service.commit(replay);
+    expect(store.systemContextInputs('a').every(row=>row.state==='consumed')).toBe(true);
+
+    let reads=0,rows=0;
+    const all=StatementSync.prototype.all;
+    vi.spyOn(StatementSync.prototype,'all').mockImplementation(function(this:StatementSync,...args){
+      const result=all.apply(this,args);
+      if(this.sourceSQL.includes('FROM system_context_inputs')){reads++;rows+=result.length;}
+      return result;
+    });
+    const inboxReads=vi.spyOn(inbox,'prepareSystemContext');
+    const updates=vi.spyOn(store,'commitSystemContext');
+    expect((await service.prepare(replay)).messages).toEqual([]);
+    const prepare={reads,rows,inboxReads:inboxReads.mock.calls.length,updates:updates.mock.calls.length};
+    reads=0;rows=0;inboxReads.mockClear();updates.mockClear();
+    await service.commit(replay);
+    const commit={reads,rows,inboxReads:inboxReads.mock.calls.length,updates:updates.mock.calls.length};
+    expect(prepare.reads).toBeLessThanOrEqual(3);
+    expect(prepare.rows).toBeLessThanOrEqual(600);
+    expect(commit.rows).toBe(0);
+    expect(prepare.inboxReads).toBeLessThanOrEqual(3);
+    expect(prepare.updates).toBe(0);
+    expect(commit.reads).toBeLessThanOrEqual(1);
+    expect(commit.inboxReads).toBeLessThanOrEqual(1);
+    expect(commit.updates).toBe(0);
+  } finally {vi.restoreAllMocks();inbox.close();store.close();}
+});
+
+it('repairs either outstanding product acknowledgement on replay without changing a recorded turn',async()=>{
+  const {store,inbox,identity,service}=replayFixture();
+  try {
+    for(const id of ['inbox-done','mapping-done'])inbox.receive(original(id),false);
+    const {messages}=await service.prepare(identity);
+    const evidence=messages.map(({inputId,content},i)=>({inputId,content,turn:2,consumedSeq:i+1}));
+    const [first,second]=messages;
+    inbox.commitSystemContext('a','s',first!.inputId,first!.content,2);
+    const row=store.systemContextInputs('a').find(item=>item.input_id===second!.inputId)!;
+    store.commitSystemContext('s',row.input_id,row.digest,1);
+    expect(await service.prepare({...identity,evidence})).toEqual({messages:[],revoked:[]});
+    expect(inbox.prepareSystemContext('a','s')).toHaveLength(0);
+    expect(store.systemContextInputs('a')).toEqual(expect.arrayContaining([
+      expect.objectContaining({input_id:'inbox-done',state:'consumed',turn:2}),
+      expect.objectContaining({input_id:'mapping-done',state:'consumed',turn:1}),
+    ]));
+  } finally {inbox.close();store.close();}
 });

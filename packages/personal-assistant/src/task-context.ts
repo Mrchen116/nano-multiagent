@@ -87,14 +87,24 @@ export class TaskContext {
   /** Reconcile only flushed native user/message evidence, never queue/ACK/summary evidence. */
   async commit(identity:Identity&{evidence:Evidence[]}):Promise<void> {
     this.binding(identity);
-    for(const evidence of identity.evidence) {
-      if(!Number.isSafeInteger(evidence.turn)||!Number.isSafeInteger(evidence.consumedSeq))continue;
-      const row=this.options.store.systemContextInputs(identity.agentId).find(row=>row.session_id===identity.sessionId&&row.input_id===evidence.inputId);
-      if(!row||row.state==='revoked'||row.digest!==digest(evidence.content))continue;
-      // Recover the product side even when the process died after the native flush.
-      const unread=this.options.inbox.prepareSystemContext(identity.agentId,identity.sessionId).some(item=>item.inputId===evidence.inputId);
-      if(unread)this.options.inbox.commitSystemContext(identity.agentId,identity.sessionId,evidence.inputId,evidence.content,evidence.turn);
-      this.options.store.commitSystemContext(identity.sessionId,evidence.inputId,digest(evidence.content),evidence.turn);
+    if (!identity.evidence.length) return;
+    const {agentId, sessionId} = identity;
+    const unread = new Set(this.options.inbox.prepareSystemContext(agentId, sessionId).map(item => item.inputId));
+    const rows = this.options.store.systemContextToReconcile(agentId, sessionId, [...unread]);
+    const pending = new Map(rows.map(row => [row.input_id, row]));
+    for (const evidence of identity.evidence) {
+      if (!pending.size) break;
+      const row = pending.get(evidence.inputId);
+      if (!row || !Number.isSafeInteger(evidence.turn) || !Number.isSafeInteger(evidence.consumedSeq)) continue;
+      if (row.digest !== digest(evidence.content)) continue;
+      // Inbox first: after a crash between writes, native replay can finish the prepared mapping.
+      if (unread.has(row.input_id)) {
+        this.options.inbox.commitSystemContext(agentId, sessionId, row.input_id, evidence.content, evidence.turn);
+      }
+      if (row.state === 'prepared') {
+        this.options.store.commitSystemContext(sessionId, row.input_id, row.digest, evidence.turn);
+      }
+      pending.delete(row.input_id);
     }
   }
 }
