@@ -619,3 +619,7 @@ CREATE TRIGGER IF NOT EXISTS personal_observation_lifecycle AFTER INSERT ON pa_s
 END;
 
 CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,schedule_id TEXT NOT NULL,graph_id TEXT NOT NULL,node_id TEXT NOT NULL,PRIMARY KEY(agent_id,schedule_id));
+
+CREATE INDEX IF NOT EXISTS agent_work_turns_sequence ON agent_work_turns(session_id,seq DESC);
+CREATE INDEX IF NOT EXISTS agent_work_items_sequence ON agent_work_items(session_id,turn_id,seq);
+CREATE INDEX IF NOT EXISTS conversation_events_time ON conversation_events(created_at);

@@ -30,6 +30,7 @@ export class ExternalStore {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS chats(id TEXT PRIMARY KEY,agent_id TEXT NOT NULL,body TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS chats_shadow ON chats(json_extract(body,'$.shadowId'));
+      CREATE INDEX IF NOT EXISTS chats_source ON chats(agent_id,json_extract(body,'$.sourceId'));
       CREATE TABLE IF NOT EXISTS inbound(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,body TEXT NOT NULL,accepted INTEGER NOT NULL DEFAULT 0,mirror TEXT,reaction TEXT);
       CREATE INDEX IF NOT EXISTS inbound_mirror ON inbound(mirror);
       CREATE INDEX IF NOT EXISTS inbound_unaccepted ON inbound(accepted) WHERE accepted=0;
@@ -47,6 +48,11 @@ export class ExternalStore {
   chat(id: string, shadowId = id): ExternalChat | undefined {
     const row = this.db.prepare('SELECT body FROM chats WHERE id=? OR json_extract(body,\'$.shadowId\')=? ORDER BY rowid LIMIT 1').get(id, shadowId) as { body: string } | undefined;
     return row && JSON.parse(row.body) as ExternalChat;
+  }
+  /** Resolve the first durable external source within its owning Agent. */
+  chatForSource(agentId: string, sourceId: string): ExternalChat | undefined {
+    const row=this.db.prepare("SELECT body FROM chats WHERE agent_id=? AND json_extract(body,'$.sourceId')=? ORDER BY rowid LIMIT 1").get(agentId,sourceId) as {body:string}|undefined;
+    return row&&JSON.parse(row.body) as ExternalChat;
   }
   chats(): ExternalChat[] { return (this.db.prepare('SELECT body FROM chats').all() as { body: string }[]).map(row => JSON.parse(row.body) as ExternalChat); }
   /** Resolve selected targets within an Agent, preserving durable chat order. */

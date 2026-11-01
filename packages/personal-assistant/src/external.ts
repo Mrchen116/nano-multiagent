@@ -59,7 +59,7 @@ export class ExternalChannels {
   }
   historyConversation(agentId: string, source: string, chatId: string): string | undefined {
     if (source !== 'feishu') return;
-    return this.state.chats().find(chat => chat.agentId === agentId && chat.sourceId === chatId)?.id;
+    return this.state.chatForSource(agentId,chatId)?.id;
   }
   get ready() { return this.options.relay.ready; }
   add(agentId: string, connection: Connection): void {
@@ -182,7 +182,7 @@ export class ExternalChannels {
       const local = this.query(payload); if (local) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: true, result: local } };
       if (payload.target && (payload.action === 'search' || payload.action === 'read' && (payload.message_id || payload.around_message_id))) {
         const target = String(payload.target).replace(/^conversation:/, '');
-        const chat = this.state.chats().find(item => item.agentId === payload.agent_id && (item.id === target || item.shadowId === target));
+        const chat = this.state.chatsForTargets(String(payload.agent_id),[target])[0];
         if (chat) {
           if (!chat.shadowId) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: false, error: 'External source is not synchronized to IM' } };
           return this.options.relay.request(type, { ...payload, target: chat.shadowId });

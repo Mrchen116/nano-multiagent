@@ -45,6 +45,17 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       if (existsSync(path)) unlinkSync(path);
   }
   db.prepare("DELETE FROM attachment_storage WHERE state='reserved'").run();
+  // This route owns all storage writes; derive quota totals once after crash cleanup.
+  const ownerBytes = new Map<string, number>();
+  let usedBytes: number | undefined;
+  const loadUsage = () => {
+    if (usedBytes !== undefined) return;
+    usedBytes = 0;
+    for (const row of all(db, "SELECT owner_id,SUM(byte_size) n FROM attachment_storage GROUP BY owner_id")) {
+      usedBytes += row.n;
+      ownerBytes.set(row.owner_id, row.n);
+    }
+  };
   const read = (req: FastifyRequest, reply: FastifyReply) => {
     const p = ctx.messaging.principal(req),
       r = params(req);
@@ -145,6 +156,8 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       const storage = randomUUID().replaceAll("-", ""),
         temporary = join(directory, `.${storage}.tmp`),
         destination = join(directory, storage);
+      loadUsage();
+      let reservedBytes = 0;
       let size = 0,
         head = Buffer.alloc(0),
         committed = false;
@@ -162,18 +175,15 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             size += bytes.length;
             if (size > MAX_BYTES) fail(413, "attachment too large");
-            const used = one(db, "SELECT COALESCE(SUM(byte_size),0) n FROM attachment_storage")!.n,
-              ownerUsed = one(
-                db,
-                "SELECT COALESCE(SUM(byte_size),0) n FROM attachment_storage WHERE owner_id=?",
-                owner,
-              )!.n;
-            if (used + bytes.length > SERVICE_LIMIT || ownerUsed + bytes.length > OWNER_LIMIT)
+            if (usedBytes! + bytes.length > SERVICE_LIMIT || (ownerBytes.get(owner) ?? 0) + bytes.length > OWNER_LIMIT)
               fail(507, "attachment storage unavailable");
             db.prepare("UPDATE attachment_storage SET byte_size=? WHERE storage_name=?").run(
               size,
               storage,
             );
+            usedBytes! += bytes.length;
+            ownerBytes.set(owner, (ownerBytes.get(owner) ?? 0) + bytes.length);
+            reservedBytes += bytes.length;
             if (head.length < 12) head = Buffer.concat([head, bytes]).subarray(0, 12);
             hash.update(bytes);
             if (!output.write(bytes)) await once(output, "drain");
@@ -231,9 +241,12 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       } finally {
         slots.set(owner, (slots.get(owner) ?? 1) - 1);
         if (!committed) {
-          output.destroy();
+          // Wait for asynchronous open/close before removing an unfinished file.
+          if (!output.closed) { const closed = once(output, "close"); output.destroy(); await closed; }
           for (const path of [temporary, destination]) if (existsSync(path)) unlinkSync(path);
           db.prepare("DELETE FROM attachment_storage WHERE storage_name=?").run(storage);
+          usedBytes! -= reservedBytes;
+          ownerBytes.set(owner, (ownerBytes.get(owner) ?? 0) - reservedBytes);
         }
       }
     };

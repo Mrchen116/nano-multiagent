@@ -198,7 +198,6 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
   const pendingExternalClassificationsRef = useRef(new Map<string, PendingExternalClassification>());
-  const latestExternalClassificationEventIdRef = useRef(new Map<string, number>());
   const agentCompletionRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
 
   useEffect(() => {
@@ -213,7 +212,6 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
     selfUserIdRef.current = selfUserId;
     conversationStateRef.current.clear();
     pendingExternalClassificationsRef.current.clear();
-    latestExternalClassificationEventIdRef.current.clear();
     agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
     resetLocalUnreadFeedback();
     setToast(null);
@@ -297,10 +295,8 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           && event.eventType === "message.created"
           && payload.sender_type === "user"
         ) {
-          // Cached and unresolved external candidates share one per-conversation
-          // clock. A fast-path newer message must invalidate any older authority
-          // request that is still waiting to classify the same conversation.
-          latestExternalClassificationEventIdRef.current.set(conversationId, event.eventId);
+          // A cached newer candidate supersedes any unresolved authority request.
+          pendingExternalClassificationsRef.current.delete(conversationId);
         }
         // External shadow writes intentionally persist under the account owner so
         // they stay inside the owner's conversation scope. The conversation's
@@ -315,9 +311,6 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         );
         if (unresolvedExternalOwnerMirror && candidate) {
           const eventUserId = selfUserIdRef.current;
-          const candidateKey = candidate.messageKey;
-          const candidateEventId = event.eventId;
-          latestExternalClassificationEventIdRef.current.set(conversationId, candidateEventId);
           const pending: PendingExternalClassification = {
             inFlight: false,
             retry: () => undefined
@@ -334,18 +327,15 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             void queryClient.cancelQueries({
               queryKey: ["chat", "conversations"],
               exact: true
-            }).then(() => listConversations()).then((freshConversations) => {
+            }).then(() => pendingExternalClassificationsRef.current.get(conversationId) === pending
+              ? listConversations() : undefined).then((freshConversations) => {
               if (
-                pendingExternalClassificationsRef.current.get(candidateKey) !== pending
+                !freshConversations
+                || pendingExternalClassificationsRef.current.get(conversationId) !== pending
                 || selfUserIdRef.current !== eventUserId
                 || conversationStateRef.current.get(conversationId) !== state
               ) return;
-              if (latestExternalClassificationEventIdRef.current.get(conversationId) !== candidateEventId) {
-                pendingExternalClassificationsRef.current.delete(candidateKey);
-                return;
-              }
-              pendingExternalClassificationsRef.current.delete(candidateKey);
-              latestExternalClassificationEventIdRef.current.delete(conversationId);
+              pendingExternalClassificationsRef.current.delete(conversationId);
               const freshConversation = freshConversations.find((item) => item.id === conversationId);
               if (freshConversation) {
                 queryClient.setQueryData<Conversation[] | undefined>(
@@ -358,7 +348,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
               pending.inFlight = false;
             });
           };
-          pendingExternalClassificationsRef.current.set(candidateKey, pending);
+          pendingExternalClassificationsRef.current.set(conversationId, pending);
           pending.retry();
           return;
         }
