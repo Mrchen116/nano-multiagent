@@ -8,6 +8,13 @@ export const scheduleRealm = (agentId: string) => Symbol.for(`nano-schedule:${ag
 /** Session tools follow the one long-lived native owner for this product Agent. */
 export function apply(ctx: Context, config: Config) {
   const scoped = ctx.isolate('schedule', scheduleRealm(config.agentId));
+  // Preserve native schema/approval/return semantics, but route the authorized
+  // body through the same durable product operation used by the settings UI.
+  ctx.on('tools/execute',async(exec,next)=>{
+    if(exec.name!=='schedule_delete'||!exec.agent)return next();
+    const value=await ctx.nanoProduct.call('schedule.delete',exec.arguments,exec) as {id:string;deleted:boolean;code?:'schedule_not_found'};
+    return {isError:false,value,content:[{type:'text',text:JSON.stringify(value)}]};
+  });
   scoped.plugin(ToolSchedule);
   scoped.inject(['schedule', 'tools', 'nanoProduct', 'systemPrompt'], child => {
     child.systemPrompt.section({ name: 'nano-cron', order: 816, text: 'Scheduled and manually triggered saved tasks are system work with saved instructions. They are not new live human messages or answers to approval questions. Creation of a schedule does not grant permission for its future tool actions. Keep queued admission, model completion, and actual public delivery distinct when explaining results.' });

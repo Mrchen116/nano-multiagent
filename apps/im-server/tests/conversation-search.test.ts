@@ -102,7 +102,7 @@ it('distinguishes external senders from internal messages in a shadow conversati
   expect(() => query({ action: 'search', query: '发布', sender_source_id: 'ou-one' })).toThrow();
 });
 
-it('rejects new filters on a legacy snapshot instead of silently reusing its old order', () => {
+it.each([1, 2])('preserves main v%s snapshots and rejects changes to their query', version => {
   const { ctx, db, principal, args } = personalFixture();
   ctx.messaging.insertMessage('peer', 'u1', 'user', 'first', [], null, 'completed');
   ctx.messaging.insertMessage('peer', 'u1', 'user', 'second', [], null, 'completed');
@@ -111,7 +111,8 @@ it('rejects new filters on a legacy snapshot instead of silently reusing its old
   const cursor = JSON.parse(Buffer.from(first.next_cursor, 'base64url').toString());
   const row = db.prepare('SELECT data FROM agent_work_query_snapshots WHERE snapshot_id=?').get(cursor.snapshot) as { data: string };
   const snapshot = JSON.parse(row.data);
-  for (const key of ['version', 'keywords', 'sort', 'sender_source_id', 'around_message_id']) delete snapshot[key];
+  for (const key of ['memory_cutoff', 'memory_after']) delete snapshot[key];
+  if (version === 1) for (const key of ['version', 'keywords', 'sort', 'sender_source_id', 'around_message_id']) delete snapshot[key];
   db.prepare('UPDATE agent_work_query_snapshots SET data=? WHERE snapshot_id=?').run(JSON.stringify(snapshot), cursor.snapshot);
   const legacyCursor = Buffer.from(JSON.stringify(cursor)).toString('base64url');
   expect(query({ action: 'search', limit: 1, cursor: legacyCursor }).messages).toHaveLength(1);

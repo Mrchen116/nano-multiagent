@@ -1,3 +1,4 @@
+import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -30,7 +31,7 @@ export function apply(ctx){
  });
 }`);
     await prepareProfile(home,[{insert:[{id:'task-limit-probe',name:join(home,'probe.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     const totals=new Map<string,{automatic:number;turns:number;steps:number}>();
     const count=(id:string)=>{let value=totals.get(id);if(!value){value={automatic:0,turns:0,steps:0};totals.set(id,value);}return value;};
     client.rpc.onNotification((method,payload)=>{
@@ -47,7 +48,7 @@ export function apply(ctx){
       kind:count(sessionId).automatic>=(sessionId==='other-agent'?1:641)?'quiescent':'continue',
       tasks:[{graph_id:'g',node_id:'n',title:'Unfinished work',status:'doing',revision:1,updated_at:'2026-10-25T08:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[],
     };});
-    await client.rpc.request('initialize',{protocol:1,agents:['a','b'].map(agentId=>({agentId,revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{cron_scheduling:true}})),bindings:[]});
+    await client.rpc.request('initialize',{protocol:1,agents:['a','b'].map(agentId=>({agentId,knowledge:{memoryMode:'legacy'},revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{cron_scheduling:true}})),bindings:[]});
     const ensure=(sessionId:string,agentId:string)=>client!.rpc.request('session.ensure',{sessionId,agentId,ownerId:'o',revision:'1',cwd:home});
     const idle=async(sessionId:string)=>(await client!.rpc.request('session.observe',{sessionId}) as {status:string}).status==='idle';
     await ensure('s','a');

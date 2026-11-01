@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each([false,true])('reads cold history without activation, including disabled=%s, then follows explicit activation', async disabled => {
   const home = await mkdtemp(join(tmpdir(), 'nano-trajectory-'));
@@ -15,6 +16,7 @@ it.each([false,true])('reads cold history without activation, including disabled
   const source = { kind: 'chat', conversationId: 'private-chat', messageId: 'input', url: '/im/v1/conversations/private-chat/images/photo' };
   const start = async (disabled = false) => {
     client = new RuntimeClient({ home, cwd: home, onLog: value => { logs += value; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', {...configuration, ...(disabled ? {lifecycle:{a:{revision:2,disabled:true,disabledThroughRevision:2}}} : {})});
   };
   try {

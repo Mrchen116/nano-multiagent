@@ -14,6 +14,7 @@
 | 查看双方 Agent owner 对协作私聊的只读观察权限 | [`specs/im/auth-tenancy.md`](specs/im/auth-tenancy.md) → [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)；Web 入口见 [`specs/im/web-chat-ux.md`](specs/im/web-chat-ux.md) |
 | 理解全局 Agent 的跨聊天工作、原生轨迹与父子执行范围导航 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 理解每个人的 PA、双身份聊天访问和原聊天协助 | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
+| 理解角色化文档记忆、增量 Dreaming、来源失效与旧库回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；配置入口见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)，整理记录见 [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
@@ -48,6 +49,9 @@
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [本机开发配置](development/local-development.md#本机开发配置) → [LLM 联调](development/llm-integration.md) / [参考项目](../AGENTS.md#调研参考项目) |
 | 查外部项目比较、脑暴或阶段性审查 | [`research/`](research/README.md)；先核对日期、代码基线和当前权威 |
+| 评测 Memory 版本的效果与冷上下文隔离 | [`../evals/memory/`](../evals/memory/README.md) |
+| 理解 LongMemEval 官方基线、业界接入方法及分数可比性 | [LongMemEval 评测方法记录](../evals/memory/longmemeval-methods.md) |
+| 研究后续 PA 行动与专家经验评测，尚未接入执行 | feat-677 的 [DolphinBench](changes/archive/feat-677-memory-evaluation/dolphinbench-methods.md) 与 [FrontierMemory](changes/archive/feat-677-memory-evaluation/frontiermemory-methods.md) 方法研究 |
 | 构建或运行 Agent 评测集 | [`../evals/`](../evals/README.md) |
 
 ## 当前权威分工

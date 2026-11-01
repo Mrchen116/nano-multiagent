@@ -51,7 +51,7 @@ test('registration gates business sends and blocked inbound handlers do not bloc
   expect(received).toEqual(['relay.message', 'agent.work.cancel', 'agent.work.permission']);
 });
 
-test.each(['conversation.query','pa.scope.resolve','pa.action.commit','task.execution.snapshot','task.execution.scopes','task.execution.pause'])('typed %s responses require matching correlation and generic rejection advances FIFO', async type => {
+test.each(['conversation.query','pa.scope.resolve','pa.action.commit','task.context.sync','task.execution.snapshot','task.execution.scopes','task.execution.pause'])('typed %s responses require matching correlation and generic rejection advances FIFO', async type => {
   const s = await server((socket, frame) => {
     if (frame.type === type) {
       socket.send(JSON.stringify({ type: `${type}.result`, payload: { request_id: 'wrong' } }));

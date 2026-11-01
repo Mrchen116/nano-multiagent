@@ -1,7 +1,7 @@
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
-import { searchMessages } from './message-search.js';
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { searchMessages } from "./message-search.js";
 import type { FastifyInstance } from "fastify";
 import {
   all,
@@ -97,6 +97,10 @@ export class Work {
     if (p.keywords !== undefined && (!Array.isArray(p.keywords) || p.keywords.some((v: unknown) => typeof v !== 'string'))) fail(400, 'invalid_arguments');
     const keywords: string[] | undefined = p.keywords === undefined ? undefined : [...new Set<string>(p.keywords.map((v: string) => v.trim().replace(/[A-Z]/g, letter => letter.toLowerCase())).filter(Boolean))];
     p={...p,query:p.keyword??p.query};
+    const memory = p.memory_cutoff !== undefined;
+    if (memory && (!['info', 'read', 'search'].includes(p.action) || typeof p.target !== 'string' || !p.target ||
+      typeof p.memory_cutoff !== 'number' || !Number.isFinite(p.memory_cutoff) || typeof p.memory_after !== 'number' ||
+      !Number.isFinite(p.memory_after) || p.memory_after > p.memory_cutoff)) fail(400, 'invalid_memory_range');
     if(p.message_id&&!p.target)p={...p,target:one(this.db,'SELECT conversation_id FROM messages WHERE id=?',p.message_id)?.conversation_id};
     const agent = one(
         this.db,
@@ -173,6 +177,7 @@ export class Work {
       if (!target) fail(404, "target_not_accessible");
       return {
         target: p.target,
+        ...(memory ? { metadata_scope: 'current', history_cutoff: p.memory_cutoff } : {}),
         name: target.title,
         type: target.type,
         channel: target.external_source ?? "web",
@@ -195,6 +200,7 @@ export class Work {
       before: p.before ?? null,
       after: p.after ?? null,
       scope: p.scope ?? "joined",
+      ...(memory ? {memory_cutoff:p.memory_cutoff,memory_after:p.memory_after} : {}),
     };
     const newIdentity: Row = { ...identity, keywords: keywords ?? null, sort: p.action === 'search' ? p.sort ?? 'relevance' : null,
       sender_source_id: p.sender_source_id ?? null, around_message_id: p.around_message_id ?? null };
@@ -209,6 +215,7 @@ export class Work {
         );
         if (!r) throw Error();
         snapshot = JSON.parse(r.data);
+        if (!memory && snapshot!.memory_cutoff !== undefined) throw Error();
         if (snapshot!.version !== 2 && (p.keywords !== undefined || p.sort !== undefined || p.sender_source_id !== undefined || p.around_message_id !== undefined)) throw Error();
         if (
           !Number.isInteger(cursor!.offset) ||
@@ -266,7 +273,8 @@ export class Work {
     const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
     const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
     const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
-      messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id });
+      messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id,
+      ...(memory ? {memoryRange:{after:new Date(p.memory_after).toISOString(),cutoff:new Date(p.memory_cutoff).toISOString()}} : {}) });
     const matchesById = new Map(matches.map(row => [row.id, row]));
     let currentIds: string[] = matches.map(row=>row.id);
     if (p.around_message_id) {
@@ -313,9 +321,11 @@ export class Work {
         if (cost > budget || (content.type === "image" && images >= 4)) break;
         budget -= cost;
         if (content.type === "image") images++;
-        if(personal) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
+        if(personal && !memory) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
+          ...(memory ? { created_at: m.created_at, content_hash: createHash('sha256').update(m.content).digest('hex'),
+            delivery: personalFacts?.delivery ?? 'participant', version_scope: 'verified_at_cutoff' } : {}),
           ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
             ...(!externalHuman ? { id: m.sender_user_id } : {}),
@@ -360,6 +370,8 @@ export class Work {
       channel: target?.external_source ?? "web",
       messages: page,
       history_scope: "im_history",
+      ...(memory ? { history_cutoff: p.memory_cutoff, history_after: p.memory_after,
+        availability: 'Only versions with durable matching snapshots at the cutoff are included; later or unproven versions are unavailable.' } : {}),
       has_more: offset < ids.length,
       next_cursor: offset < ids.length ? next(ids, offset, part) : null,
     };

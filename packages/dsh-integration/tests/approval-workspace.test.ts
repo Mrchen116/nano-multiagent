@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { workspaceFileAllowed } from '../src/policy/cc-workspace.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('limits workspace file exemption to ordinary lexical and real targets, including new paths', async () => {
   const root = await mkdtemp(join(tmpdir(), 'approval-paths-'));
@@ -60,6 +61,7 @@ export function apply(ctx) {
 }`);
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'fixture' }] } } } }, { insert: [{ id: 'workspace-approval-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: workspace, env: { NANO_TEST_KEY: 'fixture' } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents: [{ agentId: 'agent', revision: '1', provider: 'fixture', model: 'fixture', mode: 'global', toolAllowlist: ['write'], approval: { ...approvalDefaults, rules: 'nano', globalRoot: home } }], bindings: [] });
     await client.rpc.request('session.ensure', { sessionId: 'test', agentId: 'agent', revision: '1', ownerId: 'owner', cwd: workspace });
     for (const [id, path] of [['ordinary', 'proof.txt'], ['blocked', 'blocked.txt'], ['outside', join(home, 'outside.txt')], ['symlink', 'looks-local.txt']]) {

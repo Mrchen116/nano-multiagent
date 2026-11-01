@@ -1,8 +1,10 @@
-import { mkdtemp, mkdir, writeFile, rm, readdir } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 const contextTools = ['get_context_remaining', 'history', 'new_context', 'notes'];
 
@@ -10,11 +12,12 @@ it('keeps empty business tools and Skills empty while retaining context manageme
   const home = await mkdtemp(join(tmpdir(), 'nano-capabilities-')); let client: RuntimeClient | undefined; let logs = '';
   const root = join(home, 'skills'); await mkdir(join(root, 'local-skill'), { recursive: true });
   await writeFile(join(root, 'local-skill', 'SKILL.md'), '---\nname: local-skill\ndescription: Selected test guidance\n---\nLOCAL_SKILL_BODY');
-  const config = { agentId: 'a', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] as string[],
+  const config = { agentId: 'a', knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] as string[],
     skillSelection: { mode: 'explicit_allowlist', names: [] as string[] }, skillRoots: [{ path: root, source: 'workspace' }], features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false } };
   try {
     await writeFile(join(home, 'hang.mjs'), `export const name = 'hang'; export const inject = ['llm']; export function apply(ctx) { ctx.on('llm/stream', async function* (options) { if (options.signal.aborted) return; await new Promise(resolve => options.signal.addEventListener('abort', resolve, { once: true })); }); }`);
     await prepareProfile(home, [{ insert: [{ id: 'hang', name: join(home, 'hang.mjs') }] }]); client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', { protocol: 1, agents: [config, { ...config, agentId: 'g', mode: 'global' }, { ...config, agentId: 'b', toolAllowlist: undefined, skillSelection: { mode: 'default_discovery', names: [] } }], bindings: [] });
     for (const agentId of ['a', 'b', 'g']) await client.rpc.request('session.ensure', { sessionId: `session-${agentId}`, agentId, revision: '1', ownerId: 'owner', cwd: home });
     const read = (id: string) => client!.rpc.request('session.capabilities', { sessionId: `session-${id}` }) as Promise<{ tools: string[]; skills: { name: string }[]; prompt: unknown }>;
@@ -95,9 +98,9 @@ export function apply(ctx) {
   ctx.on('tools/result', (exec, result) => { if (exec.name === 'run_code') void writeFile(process.env.DSH_HOME + '/' + exec.agent.id + '.ptc.json', JSON.stringify(result)); });
 }`);
   const agents = [
-    { agentId: 'a', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['fixture_echo'], extensions: { global, workspace } },
-    { agentId: 'b', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['fixture_echo'], extensions: { global } },
-    { agentId: 'c', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [], extensions: { global, workspace } },
+    { agentId: 'a', knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['fixture_echo'], extensions: { global, workspace } },
+    { agentId: 'b', knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['fixture_echo'], extensions: { global } },
+    { agentId: 'c', knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [], extensions: { global, workspace } },
   ];
   const bindings = agents.map(agent => ({ sessionId: 'extension-' + agent.agentId, agentId: agent.agentId, revision: '1', ownerId: 'owner', cwd: home }));
   const { readFile } = await import('node:fs/promises');
@@ -105,6 +108,7 @@ export function apply(ctx) {
     await prepareProfile(home, [{ insert: [{ id: 'fixture-probe', name: join(home, 'probe.mjs') }] }]);
     for (let run = 0; run < 2; run++) {
       client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, agents, bindings: run ? bindings : [] });
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
       for (const [id, expected] of [['a', 'workspace'], ['b', 'global'], ['c', 'UNKNOWN_TOOL']]) {
@@ -141,6 +145,7 @@ export function apply(ctx) {
     await prepareProfile(home,[{insert:[{id:'load',name:join(home,'load.mjs')}]}]);
     for(let restart=0;restart<2;restart++) {
       client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:restart?[binding]:[]});
       await client.rpc.request('session.ensure',binding);
       const skills=async()=>((await client!.rpc.request('session.capabilities',{sessionId:'imports'})) as {skills:{name:string}[]}).skills.map(s=>s.name);
@@ -179,6 +184,7 @@ export const name='capability-busy'; export const inject=['tools','llm']; export
 }`);
     await prepareProfile(home, [{insert: [{id: 'capability-busy', name: join(home, 'fixture.mjs')}]}]);
     client = new RuntimeClient({home, cwd: home});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', {protocol: 1, agents: [config], bindings: []});
     await client.rpc.request('session.ensure', {agentId: 'busy', revision: '1', sessionId: 'busy-session', ownerId: 'owner', cwd: home});
     await client.rpc.request('session.submit', {sessionId: 'busy-session', inputId: 'work', mode: 'followup', content: [{type:'text',text:'Execute the selected tool'}], source:{kind:'human',actorId:'owner',channel:'test',messageId:'work'}});
@@ -192,6 +198,66 @@ export const name='capability-busy'; export const inject=['tools','llm']; export
   } finally { if (client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home, {recursive:true,force:true}); }
 }, 30_000);
 
+it('keeps the packaged skill creator loadable across selections without exposing a user replacement or enabling tools', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-fixed-skill-'));
+  let client: RuntimeClient | undefined;
+  let logs = '';
+  const root = join(home, 'skills');
+  const packaged = fileURLToPath(new URL('../../personal-assistant/assets/skills/skill-creator/', import.meta.url));
+  const builtin = join(home, 'builtin');
+  const packagedBody = (await readFile(join(packaged, 'SKILL.md'), 'utf8')).replace(/^---\n[\s\S]*?\n---\n/, '').trim();
+  try {
+    // Exercise the distributed asset in an isolated package root, including on a failing run.
+    await cp(packaged, join(builtin, 'skill-creator'), {recursive: true});
+    for (const [directory, name, body] of [[root, 'skill-creator', 'USER_REPLACEMENT'], [root, 'optional', 'OPTIONAL']]) {
+      await mkdir(join(directory, name), {recursive: true});
+      await writeFile(join(directory, name, 'SKILL.md'), `---\nname: ${name}\ndescription: Skill selection fixture\n---\n${body}`);
+    }
+    await writeFile(join(home, 'load.mjs'), `export const name='fixed-skill-probe'; export const inject=['llm'];
+export function apply(ctx) { const seen=new Set(); ctx.on('llm/stream', async function* (options) {
+ const last=options.messages.findLast(m=>m.role==='user' && m.source?.kind==='user');
+ if(seen.has(last.id)){yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};return;}
+ seen.add(last.id);yield {type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-load',name:'skill',arguments:JSON.stringify({name:'skill-creator'})}};yield {type:'finish',reason:{kind:'tool-calls'}};
+}); }`);
+    await prepareProfile(home, [{insert: [{id: 'fixed-skill-probe', name: join(home, 'load.mjs')}]}]);
+    client = new RuntimeClient({home, cwd: home, onLog: text => { logs += text; }});
+    registerNoopTaskHosts(client);
+    const agents = ['explicit_allowlist', 'explicit_denylist', 'default_discovery'].map((mode, i) => ({
+      agentId: `fixed-${i}`, workspace: join(home, `owner-${i}`), revision: '1', provider: 'deepseek-official', model: 'deepseek-flash',
+      toolAllowlist: ['skill'], features: {skill_creation: false},
+      skillSelection: {mode, names: mode === 'explicit_denylist' ? ['skill-creator', 'optional'] : []},
+      skillRoots: [{path: root, source: 'workspace'}, {path: builtin, source: 'builtin'}],
+    }));
+    for (const config of agents) await mkdir(config.workspace, {recursive: true});
+    await client.rpc.request('initialize', {protocol: 1, agents, bindings: []});
+    for (const config of agents) {
+      await mkdir(config.workspace, {recursive: true});
+      const sessionId = config.agentId;
+      await client.rpc.request('session.ensure', {sessionId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: config.workspace});
+      const capabilities = await client.rpc.request('session.capabilities', {sessionId}) as {skills: {name: string}[]; tools: string[]};
+      const selected = capabilities.skills.map(skill => skill.name);
+      expect(selected).toContain('skill-creator');
+      expect(selected.includes('optional')).toBe(config.skillSelection.mode === 'default_discovery');
+      if (config.skillSelection.mode === 'explicit_allowlist') expect(selected).toEqual(['skill-creator']);
+      expect(capabilities.tools).not.toContain('skill_manage');
+      const catalog = await client.rpc.request('configuration.catalog', {agentId: config.agentId, cwd: home}) as {skills: {name: string}[]};
+      expect(catalog.skills.map(skill => skill.name)).toContain('optional');
+      expect(catalog.skills.map(skill => skill.name)).not.toContain('skill-creator');
+      await client.rpc.request('session.submit', {sessionId, inputId: sessionId, mode: 'followup', content: [{type: 'text', text: 'Load the creator'}], source: {kind: 'human', actorId: 'owner', channel: 'test', messageId: sessionId}});
+      await expect.poll(async () => (await client!.rpc.request('session.lookup', {sessionId, inputId: sessionId}) as {terminal?: unknown}).terminal).toBeTruthy();
+      const observed = await client.rpc.request('session.observe', {sessionId}) as {events: {type: string; data: {message?: {isError?: boolean; content: unknown}}}[]};
+      const result = observed.events.findLast(event => event.type === 'tool/result')?.data.message;
+      expect(result?.isError, JSON.stringify(result)).toBe(false);
+      const content = (result?.content as {type: string; text?: string}[]).filter(block => block.type === 'text').map(block => block.text).join('\n');
+      expect(content).toContain(packagedBody);
+      expect(content).toContain(join(builtin, 'skill-creator'));
+      expect(JSON.stringify(result?.content)).not.toContain('USER_REPLACEMENT');
+    }
+    await client.shutdown(); client = undefined;
+    await expect(readFile(join(builtin, '.usage.json'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+  } catch (error) { throw new Error(`${String(error)}\n${logs}`, {cause: error}); }
+  finally { if (client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home, {recursive: true, force: true}); }
+}, 30_000);
 
 it('reclaims temporary catalog Sessions without adding them to the execution home', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-catalog-lifecycle-'));

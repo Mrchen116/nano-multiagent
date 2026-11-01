@@ -12,7 +12,7 @@ interface RunDomain extends DomainSpec { tables: { runs: DomainTableSpec<string,
 export const trajectoryRunsDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', version: 1, layout: 'per-record', tables: {
   runs: domainTable(z.object({
     runId: z.string(), parentSessionId: z.string(), sessionId: z.string(), provider: z.string(), label: z.string().optional(),
-    kind: z.enum(['tool', 'memory', 'skills', 'combined', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
+    kind: z.enum(['tool', 'memory', 'skills', 'combined', 'dreaming', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
     launchSeq: z.number().optional(), callId: z.string().optional(), startSeq: z.number().optional(), endSeq: z.number().optional(),
     startedAt: z.number(), endedAt: z.number().optional(), stopReason: z.string().optional(),
     state: z.enum(['running', 'completed', 'failed', 'cancelled', 'unknown']),
@@ -139,6 +139,21 @@ export class TrajectoryRuns extends Service {
         endedAt: Date.now(), stopReason, state: stopReason === 'completed' ? 'completed' : stopReason === 'aborted' ? 'cancelled' : 'failed' });
     };
     return { ...run, result: run.result.then(result => { finish(result.stopReason); return result; }, error => { finish('error'); throw error; }) };
+  }
+
+  /** Register an empty-context host maintenance handle without a subagent catalog entry. */
+  async startMaintenance(parent: Agent, child: Agent, runId: string, label: string): Promise<void> {
+    const record: TrajectoryRun = { runId, parentSessionId: parent.id, sessionId: child.id, provider: 'native', kind: 'dreaming',
+      label, delegation: 'background', launchSeq: parent.session.seq - 1, startSeq: child.session.seq, startedAt: Date.now(), state: 'running' };
+    this.active.set(runId, record); this.persist(record); await this.writes;
+  }
+  /** Record actual host application state, independently of the model's final prose. */
+  async finishMaintenance(runId: string, state: 'completed' | 'failed' | 'cancelled'): Promise<void> {
+    const record = this.active.get(runId) ?? (await this.domain).table('runs').get(runId);
+    if (!record) return;
+    this.active.delete(runId);
+    this.persist({ ...record, state, stopReason: state, endedAt: Date.now(), endSeq: this.tails.get(record.sessionId) ?? record.endSeq });
+    await this.writes;
   }
 
   private persist(run: TrajectoryRun): void {

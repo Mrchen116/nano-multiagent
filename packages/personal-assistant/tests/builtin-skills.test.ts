@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
-import { installBuiltinSkills } from "../src/builtin-skills.js";
+import { builtinSkillsRoot, installBuiltinSkills } from "../src/builtin-skills.js";
 
 it("refreshes packaged Skills and support files without touching user-created names", async () => {
   const root = await mkdtemp(join(tmpdir(), "nano-builtin-"));
@@ -32,4 +32,15 @@ it("refreshes packaged Skills and support files without touching user-created na
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+it("installs the packaged skill creator with its license and provenance", async () => {
+  const target = await mkdtemp(join(tmpdir(), "nano-creator-install-"));
+  try {
+    expect(await installBuiltinSkills(target)).toContain("skill-creator");
+    for (const file of ["SKILL.md", "license.txt", "PROVENANCE.md"]) {
+      const expected = await readFile(join(builtinSkillsRoot, "skill-creator", file), "utf8");
+      expect(await readFile(join(target, "skill-creator", file), "utf8")).toBe(expected);
+    }
+  } finally { await rm(target, { recursive: true, force: true }); }
 });

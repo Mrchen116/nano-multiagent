@@ -76,5 +76,10 @@ it('stores task notifications offline and cancels delivery when the Agent leaves
   const last=await connect(f,g.node,g.runtime);
   // A normal request gives the serialized connection handler a completed turn after its replay.
   await last.frames.send('conversation.query',{node_id:g.node,agent_id:'assistant',session_id:'s',action:'list',request_id:'after-replay'});
-  expect(last.frames.queue.filter(p=>p.type==='relay.message')).toHaveLength(0);
+  const replay=last.frames.queue.filter(p=>p.type==='relay.message');
+  expect(replay).toHaveLength(1);
+  expect(replay[0].payload.message.id).not.toBe(notification.payload.message.id);
+  expect(replay[0].payload.message.system_notice.change_kinds).toEqual(['access_revoked']);
+  expect(replay[0].payload.metadata).toMatchObject({context_only:true,task_context:true});
+  expect(replay[0].payload.message.content).not.toContain('Assignment');
 },20000);

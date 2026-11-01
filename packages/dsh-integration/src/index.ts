@@ -25,12 +25,13 @@ import { recordToolPresentations } from './tool-presentation.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
-import { CapabilityState, capabilityDraft, needsSchedules } from './capability-state.js';
+import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
 import type { RuntimeStopHistory } from '@nano/product-contracts';
-import { validateCapabilities, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { TaskExecutionDriver } from './task-execution.js';
+import { TaskContextDriver } from './task-context.js';
 import { ProductBridge } from './product-bridge.js';
 import { skillCatalog } from './capabilities.js';
 import * as SelectedSkills from './capabilities.js';
@@ -54,6 +55,7 @@ import { DescendantReader } from './descendants.js';
 export interface AgentConfiguration {
   personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
   agentId: string;
+  displayName?: string;
   workspace?: string;
   revision: string;
   provider: string;
@@ -69,7 +71,7 @@ export interface AgentConfiguration {
   skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist' | 'explicit_denylist'; names: string[] };
   skillRoots?: { path: string; source: string }[];
   extensions?: { global?: string; workspace?: string };
-  knowledge?: { enabled?: boolean; globalSkillRoot?: string; memoryInterval?: number; skillInterval?: number };
+  knowledge?: import('@nano/product-contracts').AgentConfiguration['knowledge'];
   approval?: import('@nano/product-contracts').ApprovalConfiguration;
   mode?: 'single_thread' | 'global';
 }
@@ -88,12 +90,12 @@ interface Submit {
   mode: 'followup' | 'steer' | 'inject';
   onlyIfIdle?: boolean;
   content: PromptContentPart[];
-  source: { kind: 'human' | 'system'; lifecycle_revision?: number; contextEnvelope?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
+  source: { kind: 'human' | 'system'; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
 }
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     schedule: { kind: 'schedule'; lifecycle_revision?: number; scheduleId?: string; triggerKind?: 'manual' };
-    'nano-system': { kind: 'nano-system'; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
+    'nano-system': { kind: 'nano-system'; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; conversationId?:string; humanTaskControl?:Record<string,unknown>; background_returns?: Record<string, unknown>[] };
   }
 }
 
@@ -222,7 +224,6 @@ export default class NanoRuntime {
     const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
-    ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
     ctx.on('tools/pre-execute', async (exec, next) => {
       if (exec.agent && disabled(exec.agent.id)) return {kind: 'deny', reason: 'agent_disabled'};
       const config = exec.agent && configurationService.forAgent(exec.agent);
@@ -236,6 +237,9 @@ export default class NanoRuntime {
     ctx.on('tools/result', exec => { if (exec.agent) { this.capabilities.end(`${exec.agent.id}:${exec.callId}`); this.capabilities.end(`${exec.agent.id}:${exec.callId}:skill`); } });
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
     this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled});
+    // Both hooks prepend: register catch-up last so its authority cut precedes Task decisions.
+    new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
+    ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -315,7 +319,7 @@ export default class NanoRuntime {
     });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       for (const agent of config.agents) {
         lifecycle.configure(agent.agentId, config.lifecycle?.[agent.agentId] ?? {revision: 1});
@@ -354,6 +358,7 @@ export default class NanoRuntime {
         this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: agent.agentId } }] }));
         }
       }
+      for(const stop of config.taskStopFences??[])this.tasks.interrupt(typeof stop==='string'?stop:stop.sessionId,typeof stop==='string'?undefined:stop.stoppedAt);
       for(const sessionId of config.taskStops??[])this.tasks.block(sessionId,true);
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
@@ -406,7 +411,7 @@ export default class NanoRuntime {
           workflows:(await (await workflow).catalog(handle.agent).list()).map(item=>({name:item.name,description:item.meta.description}))};
         observe('catalog.built', {tool_count:catalog.tools.length,skill_count:catalog.skills.length,workflow_count:catalog.workflows.length});
         if (catalogOnly) return catalog;
-        const invalid = validateCapabilities(capabilityDraft(requested), {tools:catalog.tools.map(tool=>tool.name),skills:catalog.skills.map(skill=>skill.name)});
+        const invalid = configurationBlocks(requested, {tools:catalog.tools.map(tool=>tool.name),skills:catalog.skills.map(skill=>skill.name)});
         if (invalid.length) throw new RpcError(-32602, `Invalid capability dependencies: ${JSON.stringify(invalid)}`);
         const assembly = await ctx.systemPrompt.assemble({scope:handle.agent});
         return {prompt:[renderPrompt(assembly),renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'),section_count:assembly.sections.length,
@@ -471,6 +476,8 @@ export default class NanoRuntime {
       if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
       return { path: await history.path(sessionId) };
     });
+    handle('knowledge.sources.sync', async value => { const input = value as { agentId: string; snapshot: import('./knowledge/memory-documents.js').SourceEligibility }; return (await knowledge).documents.syncSources(input.agentId, input.snapshot); });
+    handle('knowledge.sources.pending', async value => { await (await knowledge).documents.sourcesPending((value as { agentId: string }).agentId); return { pending: true }; });
     handle('knowledge.usage', async value => (await knowledge).usage((value as { agentId: string }).agentId));
     handle('knowledge.facts', async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }));
     handle('knowledge.acknowledge', async value => { await (await knowledge).acknowledge((value as { id: string }).id); return { acknowledged: true }; });
@@ -547,8 +554,8 @@ export default class NanoRuntime {
     handle('task.execution.changed', value=>{this.tasks.changed((value as {agentId:string}).agentId,(value as {reset?:boolean}).reset!==false);return {ok:true};});
     handle('task.execution.block', value=>{const {sessionId,blocked}=value as {sessionId:string;blocked:boolean};this.tasks.block(sessionId,blocked);return {ok:true};});
     handle('session.cancel', async value => {
-      const { sessionId } = value as { sessionId: string };
-      this.tasks.interrupt(sessionId);
+      const { sessionId,stoppedAt } = value as { sessionId: string;stoppedAt?:string };
+      this.tasks.interrupt(sessionId,stoppedAt);
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
       (await models).fallback.interrupt(agent);
@@ -659,6 +666,7 @@ export default class NanoRuntime {
       const metadataOnly = previous && scopes.applyRevisionOnly(next);
       if (metadataOnly) await modelPolicy.advanceRevision(next);
       if (previous && !metadataOnly) {
+        await (await knowledge).dreaming.configurationChanging(next);
         (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;
@@ -682,15 +690,50 @@ export default class NanoRuntime {
     for (const method of ['configuration.features', 'schedule.enabled']) handle(method, () => {
       throw new RpcError(-32602, 'Use configuration.prepare and configuration.apply with a complete candidate');
     });
+    handle('task.context.passive',async value=>{
+      const {agentId,sessionId,messages,revoked}=value as {agentId:string;sessionId:string;messages:{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:Submit['content']}[];revoked:string[]};
+      if(this.bindings.get(sessionId)?.agentId!==agentId)throw new RpcError(-32602,'Invalid Task context identity');
+      this.lifecycle.assertEnabled(agentId);const agent=await this.agent(sessionId);
+      for(const id of revoked)agent.inbox.remove(MessageId(id));
+      for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
+      await this.ctx.sessions.flush(agent.session);return {durable:true};
+    });
+    handle('task.wait.repair',async value=>{
+      const {agentId,sessionId,inputId}=value as {agentId:string;sessionId:string;inputId:string};
+      if(this.bindings.get(sessionId)?.agentId!==agentId||!inputId.startsWith('task-wait-repair:'))throw new RpcError(-32602,'Invalid Task repair identity');
+      this.lifecycle.assertEnabled(agentId);await this.tasks.repair(await this.agent(sessionId),inputId);return {durable:true};
+    });
+    handle('schedule.deleted.notify',async value=>{
+      const {agentId,sessionId,inputId,content}=value as {agentId:string;sessionId:string;inputId:string;content:Submit['content']};
+      if(!inputId.startsWith('schedule-deleted:'))throw new RpcError(-32602,'Invalid Schedule change identity');
+      this.lifecycle.assertEnabled(agentId);
+      const {agent,root}=await this.owned.resolveManaged(sessionId,agentId);
+      if(root.sessionId===sessionId)return this.submit({sessionId,inputId,content,mode:this.tasks.passive(root.sessionId)?'inject':'followup',source:{kind:'system',actorId:agentId,channel:'schedule-change',messageId:inputId}});
+      // Preserve the native child's identity and composition; never redirect to root.
+      const revision=this.lifecycle.current(agentId).revision;
+      const admitted=await ctx.attachments.admitPromptContent(content);
+      this.lifecycle.assertEnabled(agentId);
+      if(this.lifecycle.current(agentId).revision!==revision)throw new Error('stale_lifecycle');
+      // The final evidence check and synchronous enqueue share one admission turn.
+      if(!inputEvidence(agent.session.snapshotEvents(),inputId).accepted){
+        const message:UserMessage=freezeMessage({id:MessageId(inputId),role:'user' as const,content:admitted,source:{kind:'nano-system',actorId:agentId,channel:'schedule-change',messageId:inputId,lifecycle_revision:revision}});
+        if(this.tasks.passive(root.sessionId))agent.inject(message);else agent.followup(message);
+      }
+      await this.flush(agent);return {durable:true};
+    });
     handle('schedule.wait.inspect',async value=>{
       const {agentId,sessionId,scheduleId}=value as {agentId:string;sessionId:string;scheduleId:string};
       const config=[...this.configurations.values()].find(config=>config.agentId===agentId);
       const checked_at=new Date().toISOString();
-      if(!config||this.bindings.get(sessionId)?.agentId!==agentId)return {valid:false,checked_at,reason_code:'schedule_disabled_or_unbound'};
+      if(!config||this.bindings.get(sessionId)?.agentId!==agentId)return {valid:false,checked_at,reason_code:'owner_or_session_mismatch'};
       const catalog=await this.cron.command(agentId,undefined,'catalog',{}) as ScheduleCatalogEntry[];
-      const task=catalog.find(t=>t.id===scheduleId&&t.sessionId===sessionId);
-      const valid=task?.status==='active'&&Date.parse(task.scheduledAt)>Date.now();
-      return {valid,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:task?.scheduledAt,...(!valid?{reason_code:'schedule_inactive_or_expired'}:{})};
+      const task=catalog.find(t=>t.id===scheduleId);
+      if(task&&task.sessionId!==sessionId)return {valid:false,checked_at,reason_code:'owner_or_session_mismatch'};
+      const agent=await this.agent(sessionId);await this.flush(agent);
+      const pending=scheduleEvidence(agent.session.snapshotEvents()).find(item=>item.scheduleId===scheduleId&&item.trigger==='timed'&&item.pending&&item.consumedSeq===undefined);
+      if(pending)return {valid:true,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:pending.scheduledAt,pending_occurrence_id:pending.messageId};
+      const reason_code=!task?'missing':task.status!=='active'?'inactive':!(Date.parse(task.scheduledAt)>Date.now())?'expired':undefined;
+      return {valid:!reason_code,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:task?.scheduledAt,...(reason_code?{reason_code}:{})};
     });
     handle('schedule.evidence', async value => {
       const agent = await this.agent((value as { sessionId: string }).sessionId); await this.flush(agent);
@@ -699,7 +742,7 @@ export default class NanoRuntime {
     handle('schedule.command', async value => {
       const { agentId, sessionId, action, args = {} } = value as { agentId: string; sessionId?: string; action: string; args?: Record<string, unknown> };
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
-      if (sessionId && this.bindings.get(sessionId)?.agentId !== agentId) throw new RpcError(-32004, 'Schedule Session does not belong to this Agent');
+      if (sessionId && this.ownerOf(sessionId) !== agentId) throw new RpcError(-32004, 'Schedule Session does not belong to this Agent');
       if (action === 'jobs') {
         const tasks = await this.cron.command(agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
         return tasks.map(({ id, title, prompt, sessionId, status, lastDelivery: _delivery, ...schedule }) => ({
@@ -901,7 +944,7 @@ export default class NanoRuntime {
       (await this.models).fallback.interrupt(agent);
       this.lifecycle.assertEnabled(agentId);
       if (this.lifecycle.current(agentId).revision !== revision) throw new Error('stale_lifecycle');
-      const source = {...input.source, lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
+      const source = {...input.source, admittedAt:Date.now(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
         source: input.source.kind === 'human' ? { ...source, kind: 'user' as const } : { ...source, kind: 'nano-system' as const } });
       if (input.mode === 'followup') agent.followup(message);

@@ -313,7 +313,7 @@ JS
 
 # Readiness requires the expected node to be online under the admitted owner.
 # A successful proof alone is insufficient: registration and config sync follow it.
-IM_E2E_URL="http://127.0.0.1:$IM_PORT" E2E_NODE_ID="$NODE_ID" E2E_GATEWAY_PID="$(cat "$WT_ROOT/.gateway.pid")" E2E_PROFILE="$E2E_PROFILE" E2E_CONFIG="$WT_CFG" PYTHONPATH="$REPO_ROOT" python - <<'PYREADY'
+IM_E2E_URL="http://127.0.0.1:$IM_PORT" E2E_NODE_ID="$NODE_ID" E2E_GATEWAY_PID="$(cat "$WT_ROOT/.gateway.pid")" E2E_PROFILE="$E2E_PROFILE" E2E_CONFIG="$WT_CFG" E2E_EXPLICIT_CONFIG="$MAIN_CONFIG_EXPLICIT" PYTHONPATH="$REPO_ROOT" python - <<'PYREADY'
 import os, time, httpx
 from pathlib import Path
 with httpx.Client(base_url=os.environ["IM_E2E_URL"], trust_env=False) as client:
@@ -330,9 +330,12 @@ with httpx.Client(base_url=os.environ["IM_E2E_URL"], trust_env=False) as client:
         time.sleep(0.5)
     else:
         raise SystemExit("Gateway did not register online within 30s; inspect .gateway.log")
+    client.timeout = httpx.Timeout(60)
+    if os.environ["E2E_PROFILE"] in {"default", "daily"}:
+        from scripts.e2e_catalog import sync_default_tools
+        sync_default_tools(client, Path(os.environ["E2E_CONFIG"]), explicit_config=os.environ["E2E_EXPLICIT_CONFIG"] == "1")
     if os.environ["E2E_PROFILE"] == "daily":
         from scripts.e2e_daily import seed
-        client.timeout = httpx.Timeout(60)
         seed(client, Path(os.environ["E2E_CONFIG"]), pair["user"])
 PYREADY
 

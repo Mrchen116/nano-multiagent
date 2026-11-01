@@ -2,6 +2,8 @@ export { NodeStore } from './store.js';
 export { SingleThread } from './single-thread.js';
 export { GlobalAgent, type ProductCall } from './global-agent.js';
 export { InboxStore } from './inbox.js';
+export { TaskContext } from './task-context.js';
+export {ScheduleDeletions,type ScheduleDeletionIntent} from './schedule-deletions.js';
 export { ConfigurationOperations } from './configuration.js';
 export { Heartbeat } from './heartbeat.js';
 export { heartbeatTasks, heartbeatDue, withinActiveHours, type HeartbeatSettings } from './heartbeat-policy.js';

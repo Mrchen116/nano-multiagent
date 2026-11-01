@@ -4,7 +4,10 @@
 
 | Suite | 用途 | 入口 |
 |---|---|---|
+| Memory / LongMemEval | 完整历史准备记忆、冷上下文答题和固定评分；默认计划零模型调用 | [memory/](memory/README.md) |
 | Spec/design alignment | 比较需求对齐工作流的用户对齐负担与最终产物质量；当前包含 8 个历史回归和前瞻 pilot case | [spec_design_alignment/](spec_design_alignment/README.md) |
+
+后续记忆评测的方法研究位于 feat-677：[DolphinBench](../docs/changes/archive/feat-677-memory-evaluation/dolphinbench-methods.md) 关注 PA 将偏好用于行动，[FrontierMemory](../docs/changes/archive/feat-677-memory-evaluation/frontiermemory-methods.md) 关注历史经验对专家任务的帮助。它们仍是研究材料，尚未接入本仓执行。
 
 每个 suite 负责维护共享的 case、schema、materializer、validator 与稳定收据；具体待比较方案的协议和 seal 放在 suite 的 `experiments/<experiment-id>/` 下。候选仓由 materializer 生成，不提交物化输出，也不得把 `evals/` 控制资产暴露给候选 Agent。
 

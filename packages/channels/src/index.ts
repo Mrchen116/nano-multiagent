@@ -74,6 +74,7 @@ const results: Record<string, [string, string]> = {
   'agent.work.append': ['agent.work.ack', 'journal_id'],
   'conversation.query': ['conversation.query.result', 'request_id'],
   'task_graph.command': ['task_graph.result', 'request_id'],
+  'task.context.sync': ['task.context.sync.result', 'request_id'],
   'task.execution.snapshot': ['task.execution.snapshot.result','request_id'],
   'task.execution.scopes': ['task.execution.scopes.result','request_id'],
   'task.execution.pause': ['task.execution.pause.result','request_id'],

@@ -77,7 +77,8 @@ it('creates one private PA through the existing configuration operation and reco
   const state=response.json();expect(state.binding.status).toBe('active');
   expect(db.prepare('SELECT COUNT(*) AS n FROM messages WHERE conversation_id=?').get(state.binding.conversation_id)).toEqual({n:0});
   expect(candidates[0].tool_allowlist).toEqual(expect.arrayContaining(['read','task_graph','send_message','personal_sources']));
-  expect(candidates[0].features.skill_creation).toBe(true);
+  expect(candidates[0].features.skill_creation).toBeUndefined();
+  expect(candidates[0].features.dreaming).toBe(true);
   expect(candidates[0].custom_prompt).toContain("nano-ongoing-work");
   expect(candidates[0].skills_selection_mode).toBe("default_discovery");
   expect(candidates[0].personal_agent.bindingId).toBe(state.binding.binding_id);

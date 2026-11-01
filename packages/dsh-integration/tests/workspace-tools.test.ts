@@ -4,15 +4,21 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { expect, it } from 'vitest';
+import { expect, it, onTestFailed } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
+// Repeated installs/restarts also boot independent catalog/preview workers.
 it('installs workspace tools into existing chats, isolates dispatch, retries failed source and preserves restart choices', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-workspace-tools-'));
   const pnpm = await realpath(process.env.PATH!.split(delimiter).map(dir => join(dir, 'pnpm')).find(path => existsSync(path))!);
   const packageManager = { command: pnpm, args: [], env: { PATH: process.env.PATH! } };
   const a = join(home, 'a'); const b = join(home, 'b'); const source = join(a, 'my-tool');
   let client: RuntimeClient | undefined; let logs = '';
+  const activeRequests = new Map<number, {method: string; params: unknown; started: number}>();
+  let requestId = 0;
+  // Vitest's outer timeout bypasses the catch below; retain the unfinished RPC.
+  onTestFailed(() => console.error(JSON.stringify({pending: [...activeRequests.values()].map(value => ({...value, elapsedMs: Date.now() - value.started}))}), logs));
   await mkdir(source, { recursive: true }); await mkdir(b);
   await writeFile(join(source, 'package.json'), JSON.stringify({ name: 'workspace-echo', version: '1.0.0', type: 'module', peerDependencies: {'@deepseek-ai/cordis':'*','@deepseek-ai/dsh-llm':'*'}, dsh: { bundle: { patch: './cordis.patch.yml' } } }));
   await writeFile(join(source, 'cordis.patch.yml'), JSON.stringify([{ insert: [{ id: 'echo', name: './tool.mjs' }] }]));
@@ -38,10 +44,10 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     });
   }`);
   const agents = [
-    { agentId: 'a', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
-    { agentId: 'b', workspace: b, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
-    { agentId: 'peer', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
-    { agentId: 'empty', workspace: a, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] },
+    { agentId: 'a', workspace: a, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
+    { agentId: 'b', workspace: b, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
+    { agentId: 'peer', workspace: a, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'] },
+    { agentId: 'empty', workspace: a, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: [] },
   ];
   const bindings = [
     { sessionId: 'tools-a', agentId: 'a', revision: '1', ownerId: 'owner', cwd: a },
@@ -64,6 +70,14 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await prepareProfile(home, [{ insert: [{ id: 'model', name: join(home, 'model.mjs') }] }]);
     const start = async (restore = false) => {
       client = new RuntimeClient({ home, cwd: home, env: { PATH: join(home, 'no-global-tools') }, onLog: text => { logs += text; } });
+      const request = client.rpc.request.bind(client.rpc);
+      client.rpc.request = async (method, params) => {
+        const id = ++requestId;
+        activeRequests.set(id, {method, params, started: Date.now()});
+        try { return await request(method, params); }
+        finally { activeRequests.delete(id); }
+      };
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, packageManager, agents, bindings: restore ? bindings : [] });
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };
@@ -281,4 +295,4 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await client!.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
-}, 90_000);
+}, 120_000);
