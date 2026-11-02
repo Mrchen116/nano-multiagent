@@ -1259,9 +1259,6 @@ export function MessagePane({
             {uploads.map(item => <ComposerAttachmentCard key={item.id} item={item} busy={composerBusy}
               retryClock={retryClock} onRemove={() => removeUpload(item)} onRetry={() => retryUpload(item)} />)}
           </div>}
-          {uploading > 0 && <div className="chat-composer-attachment-hint" role="status">
-            {zh ? `正在上传 ${uploading} 个附件，完成后可发送` : `Uploading ${uploading} attachment(s). Send when ready.`}
-          </div>}
           {failed.length > 0 && <div className="chat-composer-attachment-hint">
             <button type="button" disabled={composerBusy || uploading > 0 || !draft.trim()}
               onClick={() => void commit(draft, true)}>{zh ? "仅发送文字" : "Send text only"}</button>
