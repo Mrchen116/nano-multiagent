@@ -19,7 +19,7 @@
 - 隔离真实 HTTP：PNG 201；用户提供的 JPEG 字节按 PNG 声明在旧代码 415，修复后 201、content_type=image/jpeg、file_name=user-image.jpg；非图片反例仍 415。
 - IM 全套：60 files / 363 tests passed；media/tenancy 窄验证 10 tests passed。IM build/typecheck 与 product-contracts build 通过。
 - 文档完整性：277 maintained Markdown sources / 68 required routes，通过。
-- 浏览器：真实隔离 IM，浏览器原生 File/DataTransfer/ClipboardEvent；在上传 HTTP 边界注入等待及一次 503，观察即时本地缩略图、继续输入、原位错误/重试及恢复就绪；桌面和 320/375px 移动宽度截图在 `output/playwright/`。图片编码反例与用户原文件另经真实 HTTP 验证，不以模拟响应代替。
+- 浏览器：真实隔离 IM，浏览器原生 File/DataTransfer/ClipboardEvent；在上传 HTTP 边界注入等待及一次 503，观察即时本地缩略图、继续输入、原位错误/重试及恢复就绪；主会话独立执行 `root-visual-check.js`，桌面输入区与 320px 移动宽度截图在 `output/playwright/root-*.png`；验证重试后发送按钮就绪、页面无横向溢出。图片编码反例与用户原文件另经真实 HTTP 验证，不以模拟响应代替。
 - 验证中出现的初次依赖失败：借用旧 main 依赖不包含新主干的 sharp/EvaluationHistory；在本 worktree 独立安装锁定依赖并构建 contracts 后，最终服务端套件和构建通过。不将该环境错误当成产品失败。
 
 ## Independent review
@@ -34,7 +34,7 @@
 - 同期补齐：失败/恢复时刷新重试时钟，避免进入聊天较久后非限流错误也误显示等待；保留普通文件的打开/下载入口与紧凑布局，避免统一卡片后丢失原功能；输入区设置 min-width:0 防止移动端横向溢出。相关保护位于附件生命周期文件。
 - 窄验证：12 tests passed（发送恢复与附件生命周期）。
 - Patch/closure：原独立 reviewer 审查 `4ee46b976..2ff43d77a59d0a220728e700ec9033c50a4a0c00`，返回 `[]`，原 P2 closed；独立运行相关 12 tests passed，另核实 ready 附件草稿重挂及确认发送后的清理。
-- 最终纯展示调整：卡片使用简短错误状态，title/可访问标签保留详细原因，避免英文说明撑高卡片；相关 72 tests 与构建通过，发送/恢复/MIME 逻辑不变。
+- 最终纯展示调整：卡片使用简短错误状态，title/可访问标签保留详细原因，避免英文说明撑高卡片；相关 72 tests 与构建通过，发送/恢复/MIME 逻辑不变。原 reviewer 对最终展示差异及随后发现的两文件 dirty 作只读窄核验，返回 []，未修改源码。
 
 
 ## Final state
@@ -43,3 +43,9 @@
 - 逻辑有效版本：`2ff43d77a59d0a220728e700ec9033c50a4a0c00`；最终提交仅含紧凑错误展示及本文记录，相关逻辑审查结论保留。
 - 用户实际验收：尚未发生，不伪造；unit 保持 active，canonical delta 未归并，未归档、未推送或部署。
 - 本地产物与临时服务不纳入提交。开发 worktree 保留用于用户体验与后续反馈。
+
+## Concurrent-write boundary
+
+交付核对时再次出现未经本主会话或 reviewer 写入的两文件 dirty：`message-pane.tsx` 的 textarea 自然换行自动增高 effect，以及 `global.css` 的行高/高度/错误区 flex-wrap。此前也发现另一个本地 63823 预览服务与 final-browser 产物。独立 reviewer 明确否认创建这些资源；主会话已向用户询问是否有其他窗口/Agent 同时写入。
+
+这两处 dirty 原样保留、不纳入本次提交；本 unit 已提交实现仍可由分支恢复。主会话自建 62601 服务和独立 `paste-preview-root-check` 浏览器结束，未知归属的服务/共享会话不误关。用户确认归属后再处理剩余工作区内容。
