@@ -1567,49 +1567,49 @@ describe("ChatWorkspacePage — integration", () => {
       label: "capacity reached",
       locale: "en" as const,
       outcome: { status: 507, body: "capacity" },
-      expected: "Attachments temporarily unavailable.",
+      expected: "Uploads unavailable",
       dismiss: "Dismiss attachment error"
     },
     {
       label: "upload cooldown",
       locale: "zh" as const,
       outcome: { status: 429, body: "cooldown" },
-      expected: "上传暂时受限，请等待重试倒计时结束。",
+      expected: "请稍后重试",
       dismiss: "关闭附件错误"
     },
     {
       label: "unsupported type",
       locale: "en" as const,
       outcome: { status: 415, body: "unsupported" },
-      expected: "This image type is not supported.",
+      expected: "Unsupported format",
       dismiss: "Dismiss attachment error"
     },
     {
       label: "too large",
       locale: "en" as const,
       outcome: { status: 413, body: "too large" },
-      expected: "This image is larger than the current attachment limit.",
+      expected: "File too large",
       dismiss: "Dismiss attachment error"
     },
     {
       label: "network or server failure",
       locale: "en" as const,
       outcome: { status: 503, body: "unavailable" },
-      expected: "The attachment could not be uploaded. Check your connection and try again.",
+      expected: "Upload failed",
       dismiss: "Dismiss attachment error"
     },
     {
       label: "unknown failure",
       locale: "en" as const,
       outcome: { error: new TypeError("unexpected fetch failure") },
-      expected: "The attachment could not be uploaded. Check your connection and try again.",
+      expected: "Upload failed",
       dismiss: "Dismiss attachment error"
     },
     {
       label: "localized Chinese feedback",
       locale: "zh" as const,
       outcome: { status: 415, body: "unsupported" },
-      expected: "暂不支持这种图片格式。",
+      expected: "格式不支持",
       dismiss: "关闭附件错误"
     }
   ])("shows dismissible, localized attachment feedback for $label", async ({ locale, outcome, expected }) => {
@@ -1640,7 +1640,7 @@ describe("ChatWorkspacePage — integration", () => {
 
     pasteImages(composer, ["first-ok.png", "too-large.png", "last-ok.png"]);
 
-    expect(await within(composerForm).findByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
+    expect(await within(composerForm).findByText("File too large")).toBeInTheDocument();
     expect(within(composerForm).getAllByRole("img").map(image => image.getAttribute("alt"))).toEqual([
       "first-ok.png", "too-large.png", "last-ok.png"
     ]);
@@ -1676,7 +1676,7 @@ describe("ChatWorkspacePage — integration", () => {
       upload.resolve(new Response("too large", { status: 413 }));
       await upload.promise;
     });
-    expect(await screen.findByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
+    expect(await screen.findByText("File too large")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Send text only" }));
     await waitFor(() => expect(fetchSpy.mock.calls.some(([input, init]) => /\/im\/v1\/conversations\/c1\/messages$/.test(input.toString()) && init?.method === "POST")).toBe(true));
 
@@ -1696,7 +1696,7 @@ describe("ChatWorkspacePage — integration", () => {
     });
     await screen.findByText("send while upload is pending");
 
-    expect(within(composer.closest("form")!).getByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
+    expect(within(composer.closest("form")!).getByText("File too large")).toBeInTheDocument();
   });
 
   it("does not show a late attachment failure after switching conversations", async () => {

@@ -44,6 +44,12 @@ export function ComposerAttachmentCard({ item, busy, retryClock, onRemove, onRet
     : item.code === "invalidImage" ? (zh ? "图片内容与格式不匹配，请重新复制或选择图片" : "Image contents do not match its format. Copy or choose the image again.")
     : item.code === "cooldown" ? t("chat.messagePane.attachmentCooldown")
     : t("chat.messagePane.attachmentNetwork");
+  const errorLabel = item.code === "capacity" ? (zh ? "暂时无法上传" : "Uploads unavailable")
+    : item.code === "tooLarge" ? (zh ? "文件过大" : "File too large")
+    : item.code === "unsupportedType" ? (zh ? "格式不支持" : "Unsupported format")
+    : item.code === "invalidImage" ? (zh ? "无法识别图片" : "Invalid image")
+    : item.code === "cooldown" ? (zh ? "请稍后重试" : "Try again shortly")
+    : (zh ? "上传失败" : "Upload failed");
   const loadingLabel = item.status === "queued" ? (zh ? "等待上传" : "Waiting to upload") : (zh ? "正在上传" : "Uploading");
 
   return <div className={`chat-composer-attachment${image ? " chat-composer-attachment--image" : ""}${failed ? " chat-composer-attachment--failed" : ""}`}>
@@ -81,8 +87,8 @@ export function ComposerAttachmentCard({ item, busy, retryClock, onRemove, onRet
       <button type="button" className="chat-composer-attachment-remove" disabled={busy}
         aria-label={`Remove ${item.file.name}`} onClick={onRemove}>×</button>
     </div>
-    {failed && <div className="chat-composer-attachment-error" role="status">
-      <span>{reason}</span>
+    {failed && <div className="chat-composer-attachment-error" role="status" aria-label={reason}>
+      <span title={reason}>{errorLabel}</span>
       {retryable && <button type="button" disabled={busy || seconds > 0} onClick={onRetry}>
         {seconds > 0 ? (zh ? `${seconds} 秒后重试` : `Retry in ${seconds}s`) : (zh ? "重试" : "Retry")}
       </button>}
