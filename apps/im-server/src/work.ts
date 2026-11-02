@@ -1,7 +1,7 @@
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
-import { searchMessages } from './message-search.js';
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { searchMessages } from "./message-search.js";
 import type { FastifyInstance } from "fastify";
 import {
   all,
@@ -71,10 +71,12 @@ export class Work {
     const batch = readWorkBatch(input);
     const {ack, appliedRoots} = this.records.append(node, batch, historical);
     for (const root of appliedRoots) {
+      const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
+      const space = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id;
       const users = all(
         this.db,
         "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
-      ).filter(u => {const personal=one(this.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",root);return (!personal||personal.owner_user_id===u.id)&&canAccessSpace(u, one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id);}).map((u) => u.id);
+      ).filter(u => (!personal || personal.owner_user_id === u.id) && canAccessSpace(u, space)).map((u) => u.id);
       this.ctx.gateway.broadcast(users, {
         op: "event",
         event_type: "agent.work.updated",
@@ -97,6 +99,10 @@ export class Work {
     if (p.keywords !== undefined && (!Array.isArray(p.keywords) || p.keywords.some((v: unknown) => typeof v !== 'string'))) fail(400, 'invalid_arguments');
     const keywords: string[] | undefined = p.keywords === undefined ? undefined : [...new Set<string>(p.keywords.map((v: string) => v.trim().replace(/[A-Z]/g, letter => letter.toLowerCase())).filter(Boolean))];
     p={...p,query:p.keyword??p.query};
+    const memory = p.memory_cutoff !== undefined;
+    if (memory && (!['info', 'read', 'search'].includes(p.action) || typeof p.target !== 'string' || !p.target ||
+      typeof p.memory_cutoff !== 'number' || !Number.isFinite(p.memory_cutoff) || typeof p.memory_after !== 'number' ||
+      !Number.isFinite(p.memory_after) || p.memory_after > p.memory_cutoff)) fail(400, 'invalid_memory_range');
     if(p.message_id&&!p.target)p={...p,target:one(this.db,'SELECT conversation_id FROM messages WHERE id=?',p.message_id)?.conversation_id};
     const agent = one(
         this.db,
@@ -124,8 +130,12 @@ export class Work {
     if(personal) this.ctx.personal!.authority(c,p);
     const s = this.ctx.messaging,
       uid = personal?.owner_user_id ?? s.agentUser(p.agent_id).id,
-      sourceAllowed = (id:string) => !personal || this.ctx.personal!.sourceAllowed(personal,id),
-      conversations = personal ? this.ctx.personal!.sourceConversations(personal,p.scope??"joined").filter(r=>!r.excluded) : s.conversations(uid,p.scope ?? "joined");
+      sourceAllowed = (id:string) => !personal || this.ctx.personal!.sourceAllowed(personal,id);
+    const scope = p.scope ?? "joined";
+    if (!["joined", "public"].includes(scope)) fail(400, "invalid scope");
+    // Targeted reads validate their own access; only discovery needs every chat.
+    let listedConversations: Row[] | undefined;
+    const conversations = () => listedConversations ??= personal ? this.ctx.personal!.sourceConversations(personal,scope).filter(r=>!r.excluded) : s.conversations(uid,scope);
     const viewerFor=(id:string)=>personal&&!conversationAccess(this.db,id,uid)?s.agentUser(p.agent_id).id:uid;
     const user = qualifiedUser(this.db,uid);
     if (!user) fail(403,"scope_not_allowed");
@@ -133,7 +143,7 @@ export class Work {
       if (typeof p.target !== "string" || !p.target.trim()) fail(400, "invalid_arguments");
       if(personal) {
         const target=p.target.replace(/^(conversation|user|agent):/, "");
-        const matches=conversations.filter(r=>r.id===target || r.title===target || (r.type==="direct" && s.members(r.id).some(u=>u.id===target || u.display_name===target || u.username===`agent:${target}`)));
+        const matches=conversations().filter(r=>r.id===target || r.title===target || (r.type==="direct" && s.members(r.id).some(u=>u.id===target || u.display_name===target || u.username===`agent:${target}`)));
         return {target:matches.length===1?matches[0]!.id:null};
       }
       return { target: s.resolveTarget(p.agent_id, p.target, false) ?? null };
@@ -173,6 +183,7 @@ export class Work {
       if (!target) fail(404, "target_not_accessible");
       return {
         target: p.target,
+        ...(memory ? { metadata_scope: 'current', history_cutoff: p.memory_cutoff } : {}),
         name: target.title,
         type: target.type,
         channel: target.external_source ?? "web",
@@ -195,6 +206,7 @@ export class Work {
       before: p.before ?? null,
       after: p.after ?? null,
       scope: p.scope ?? "joined",
+      ...(memory ? {memory_cutoff:p.memory_cutoff,memory_after:p.memory_after} : {}),
     };
     const newIdentity: Row = { ...identity, keywords: keywords ?? null, sort: p.action === 'search' ? p.sort ?? 'relevance' : null,
       sender_source_id: p.sender_source_id ?? null, around_message_id: p.around_message_id ?? null };
@@ -209,6 +221,7 @@ export class Work {
         );
         if (!r) throw Error();
         snapshot = JSON.parse(r.data);
+        if (!memory && snapshot!.memory_cutoff !== undefined) throw Error();
         if (snapshot!.version !== 2 && (p.keywords !== undefined || p.sort !== undefined || p.sender_source_id !== undefined || p.around_message_id !== undefined)) throw Error();
         if (
           !Number.isInteger(cursor!.offset) ||
@@ -231,7 +244,7 @@ export class Work {
       return Buffer.from(JSON.stringify({ snapshot: id, offset, part })).toString("base64url");
     };
     if (p.action === "list") {
-      const filtered = conversations.filter(
+      const filtered = conversations().filter(
         (r) =>
           !p.query ||
           r.title.toLowerCase().includes(p.query.toLowerCase()) ||
@@ -263,10 +276,11 @@ export class Work {
     }
     if (!target && (p.action !== "search" || p.target)) fail(404, "target_not_accessible");
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
-    const targets = p.action === 'search' ? (target ? [target.id] : conversations.map(r=>r.id)) : [p.target];
+    const targets = p.action === 'search' ? (target ? [target.id] : conversations().map(r=>r.id)) : [p.target];
     const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
     const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
-      messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id });
+      messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id,
+      ...(memory ? {memoryRange:{after:new Date(p.memory_after).toISOString(),cutoff:new Date(p.memory_cutoff).toISOString()}} : {}) });
     const matchesById = new Map(matches.map(row => [row.id, row]));
     let currentIds: string[] = matches.map(row=>row.id);
     if (p.around_message_id) {
@@ -313,9 +327,11 @@ export class Work {
         if (cost > budget || (content.type === "image" && images >= 4)) break;
         budget -= cost;
         if (content.type === "image") images++;
-        if(personal) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
+        if(personal && !memory) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
+          ...(memory ? { created_at: m.created_at, content_hash: createHash('sha256').update(m.content).digest('hex'),
+            delivery: personalFacts?.delivery ?? 'participant', version_scope: 'verified_at_cutoff' } : {}),
           ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
           sender: {
             ...(!externalHuman ? { id: m.sender_user_id } : {}),
@@ -335,7 +351,7 @@ export class Work {
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
             target: m.conversation_id,
-            name: conversations.find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
+            name: target?.title ?? conversations().find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
             ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
@@ -360,6 +376,8 @@ export class Work {
       channel: target?.external_source ?? "web",
       messages: page,
       history_scope: "im_history",
+      ...(memory ? { history_cutoff: p.memory_cutoff, history_after: p.memory_after,
+        availability: 'Only versions with durable matching snapshots at the cutoff are included; later or unproven versions are unavailable.' } : {}),
       has_more: offset < ids.length,
       next_cursor: offset < ids.length ? next(ids, offset, part) : null,
     };

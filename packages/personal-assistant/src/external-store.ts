@@ -15,6 +15,13 @@ function decodeFrame(value: unknown): ExternalFrame {
 export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
 export interface ExternalOutput { lifecycle_revision:number; id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
 
+type InboundRow = { id: string; chatId: string; body: string; accepted: number; mirror: string | null; reaction: string | null };
+export type ExternalInbound = Omit<InboundRow, 'body'> & { message: FeishuMessage; input: RelayInput };
+const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction FROM inbound';
+function decodeInbound({ body, ...row }: InboundRow): ExternalInbound {
+  return { ...row, ...JSON.parse(body) as { message: FeishuMessage; input: RelayInput } };
+}
+
 /** Separate facts for platform delivery and IM projection; one can succeed without the other. */
 export class ExternalStore {
   private readonly db: DatabaseSync;
@@ -22,9 +29,15 @@ export class ExternalStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS chats(id TEXT PRIMARY KEY,agent_id TEXT NOT NULL,body TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS chats_shadow ON chats(json_extract(body,'$.shadowId'));
+      CREATE INDEX IF NOT EXISTS chats_source ON chats(agent_id,json_extract(body,'$.sourceId'));
       CREATE TABLE IF NOT EXISTS inbound(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,body TEXT NOT NULL,accepted INTEGER NOT NULL DEFAULT 0,mirror TEXT,reaction TEXT);
+      CREATE INDEX IF NOT EXISTS inbound_mirror ON inbound(mirror);
+      CREATE INDEX IF NOT EXISTS inbound_unaccepted ON inbound(accepted) WHERE accepted=0;
+      CREATE INDEX IF NOT EXISTS inbound_chat ON inbound(chat_id);
       CREATE TABLE IF NOT EXISTS outputs(id TEXT PRIMARY KEY,chat_id TEXT NOT NULL,operation_id TEXT UNIQUE NOT NULL,reply TEXT,state TEXT NOT NULL DEFAULT 'prepared',platform_id TEXT,im_id TEXT);
       CREATE TABLE IF NOT EXISTS frames(id TEXT PRIMARY KEY,output_id TEXT NOT NULL,body TEXT NOT NULL,mirrored INTEGER NOT NULL DEFAULT 0);
+      CREATE INDEX IF NOT EXISTS frames_unmirrored ON frames(mirrored) WHERE mirrored=0;
       CREATE TABLE IF NOT EXISTS images(url TEXT PRIMARY KEY,agent_id TEXT NOT NULL,data BLOB NOT NULL,media_type TEXT NOT NULL,uploaded TEXT);
       CREATE TABLE IF NOT EXISTS approvals(request_id TEXT PRIMARY KEY,output_id TEXT NOT NULL,platform_id TEXT,body TEXT NOT NULL,settled INTEGER NOT NULL DEFAULT 0);
     `);
@@ -32,16 +45,47 @@ export class ExternalStore {
     // A crash after dispatch has no trustworthy platform result. Recovery must never blindly send it again.
     this.db.exec("UPDATE outputs SET state='unknown' WHERE state='sending'");
   }
-  chat(id: string): ExternalChat | undefined {
-    const row = this.db.prepare('SELECT body FROM chats WHERE id=? OR json_extract(body,\'$.shadowId\')=?').get(id, id) as { body: string } | undefined;
+  chat(id: string, shadowId = id): ExternalChat | undefined {
+    const row = this.db.prepare('SELECT body FROM chats WHERE id=? OR json_extract(body,\'$.shadowId\')=? ORDER BY rowid LIMIT 1').get(id, shadowId) as { body: string } | undefined;
     return row && JSON.parse(row.body) as ExternalChat;
   }
+  /** Resolve the first durable external source within its owning Agent. */
+  chatForSource(agentId: string, sourceId: string): ExternalChat | undefined {
+    const row=this.db.prepare("SELECT body FROM chats WHERE agent_id=? AND json_extract(body,'$.sourceId')=? ORDER BY rowid LIMIT 1").get(agentId,sourceId) as {body:string}|undefined;
+    return row&&JSON.parse(row.body) as ExternalChat;
+  }
   chats(): ExternalChat[] { return (this.db.prepare('SELECT body FROM chats').all() as { body: string }[]).map(row => JSON.parse(row.body) as ExternalChat); }
+  /** Resolve selected targets within an Agent, preserving durable chat order. */
+  chatsForTargets(agentId: string, targets: string[]): ExternalChat[] {
+    const selected = JSON.stringify(targets);
+    return (this.db.prepare("SELECT body FROM chats WHERE agent_id=? AND (id IN (SELECT value FROM json_each(?)) OR json_extract(body,'$.shadowId') IN (SELECT value FROM json_each(?))) ORDER BY rowid")
+      .all(agentId, selected, selected) as {body:string}[]).map(row => JSON.parse(row.body) as ExternalChat);
+  }
   saveChat(chat: ExternalChat): void { this.db.prepare('INSERT INTO chats VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body').run(chat.id, chat.agentId, JSON.stringify(chat)); }
   saveInbound(id: string, chatId: string, message: FeishuMessage, input: RelayInput): void {
     this.db.prepare('INSERT OR IGNORE INTO inbound(id,chat_id,body) VALUES(?,?,?)').run(id, chatId, JSON.stringify({ message, input }));
   }
-  inbound() { return (this.db.prepare('SELECT id,chat_id AS chatId,body,accepted,mirror,reaction FROM inbound ORDER BY rowid').all() as { id: string; chatId: string; body: string; accepted: number; mirror: string | null; reaction: string | null }[]).map(row => ({ ...row, ...JSON.parse(row.body) as { message: FeishuMessage; input: RelayInput } })); }
+  inbound(id: string): ExternalInbound | undefined {
+    const row = this.db.prepare(selectInbound + ' WHERE id=?').get(id) as InboundRow | undefined;
+    return row && decodeInbound(row);
+  }
+  /** IM receipts identify a source by its mirror and the addressed Agent. */
+  inboundByMirror(mirror: string, agentId: string): ExternalInbound | undefined {
+    const row = this.db.prepare(selectInbound + " WHERE mirror=? AND json_extract(body,'$.input.agent_id')=? ORDER BY rowid LIMIT 1")
+      .get(mirror, agentId) as InboundRow | undefined;
+    return row && decodeInbound(row);
+  }
+  pendingAdmissions() {
+    return this.db.prepare("SELECT id,json_extract(body,'$.input.agent_id') AS agentId FROM inbound WHERE accepted=0 ORDER BY rowid")
+      .all() as { id: string; agentId: string }[];
+  }
+  pendingMirrors(): ExternalInbound[] {
+    return (this.db.prepare(selectInbound + " WHERE mirror IS NULL OR mirror='' ORDER BY rowid").all() as InboundRow[]).map(decodeInbound);
+  }
+  /** Read the most recent 50 arrivals in their original presentation order. */
+  recentInbound(chatId: string): ExternalInbound[] {
+    return (this.db.prepare(selectInbound + ' WHERE chat_id=? ORDER BY rowid DESC LIMIT 50').all(chatId) as InboundRow[]).reverse().map(decodeInbound);
+  }
   updateInput(id: string, message: FeishuMessage, input: RelayInput): void { this.db.prepare('UPDATE inbound SET body=? WHERE id=?').run(JSON.stringify({ message, input }), id); }
   accept(id: string): void { this.db.prepare('UPDATE inbound SET accepted=1 WHERE id=?').run(id); }
   mirrorInput(id: string, messageId: string): void { this.db.prepare('UPDATE inbound SET mirror=? WHERE id=?').run(messageId, id); }
@@ -71,7 +115,11 @@ export class ExternalStore {
   approval(requestId: string, outputId: string, body: Record<string, unknown>, platformId?: string): void {
     this.db.prepare('INSERT INTO approvals(request_id,output_id,body,platform_id) VALUES(?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET platform_id=coalesce(excluded.platform_id,platform_id)').run(requestId, outputId, JSON.stringify(body), platformId ?? null);
   }
-  approvals() { return (this.db.prepare('SELECT request_id AS requestId,output_id AS outputId,platform_id AS platformId,body,settled FROM approvals').all() as { requestId: string; outputId: string; platformId: string | null; body: string; settled: number }[]).map(row => ({ ...row, body: JSON.parse(row.body) as Record<string, unknown> })); }
+  /** Read one approval by its durable request identity. */
+  approvalForRequest(requestId: string) {
+    const row = this.db.prepare('SELECT request_id AS requestId,output_id AS outputId,platform_id AS platformId,body,settled FROM approvals WHERE request_id=?').get(requestId) as {requestId:string;outputId:string;platformId:string|null;body:string;settled:number}|undefined;
+    return row && {...row, body:JSON.parse(row.body) as Record<string,unknown>};
+  }
   settleApproval(requestId: string): void { this.db.prepare('UPDATE approvals SET settled=1 WHERE request_id=?').run(requestId); }
   close(): void { this.db.close(); }
 }

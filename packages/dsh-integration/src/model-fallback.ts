@@ -109,7 +109,7 @@ interface Host {
 export class ModelFallback {
   private readonly storage: Promise<Domain<RunDomain>>;
   private readonly runs = new Map<string, ModelRun>();
-  private readonly historical = new Map<string, ModelRun>();
+  private readonly runsBySession = new Map<string, Map<string, ModelRun>>();
   readonly ready: Promise<void>;
   private readonly agents = new Map<string, { agent: Agent; config: AgentConfiguration }>();
   private readonly tasks = new Map<string, Promise<void>>();
@@ -123,7 +123,7 @@ export class ModelFallback {
     private readonly host: Host,
   ) {
     this.storage = ctx.storageDomain.open(modelRunsDomain);
-    this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.historical.set(run.id,run); });
+    this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.remember(this.runs.get(run.id) ?? run); });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
       if (item) this.observe(item.agent, item.config, event);
@@ -133,8 +133,8 @@ export class ModelFallback {
   get busy(): boolean { return this.pendingWrites > 0 || this.tasks.size > 0 || [...this.runs.values()].some(run => run.state !== 'completed'); }
   async attach(agent: Agent, config: AgentConfiguration) {
     this.agents.set(agent.id, { agent, config });
-    for (const [, run] of (await this.storage).table('runs').entries())
-      if (run.sessionId === agent.id) this.runs.set(run.id, run);
+    await this.ready;
+    for (const run of this.list(agent.id)) this.runs.set(run.id, run);
     const active = this.list(agent.id).findLast((run) => run.state !== 'completed');
     if (active) {
       const history = agent.session.snapshotEvents();
@@ -167,7 +167,12 @@ export class ModelFallback {
     });
   }
   list(sessionId: string) {
-    return [...new Map([...this.historical,...this.runs]).values()].filter((run) => run.sessionId === sessionId);
+    return [...(this.runsBySession.get(sessionId)?.values() ?? [])];
+  }
+  private remember(run: ModelRun) {
+    let runs = this.runsBySession.get(run.sessionId);
+    if (!runs) { runs = new Map(); this.runsBySession.set(run.sessionId, runs); }
+    runs.set(run.id, run);
   }
   evidence(agent: Agent, inputId: string) {
     const evidence = inputEvidence(agent.session.snapshotEvents(), inputId);
@@ -206,7 +211,8 @@ export class ModelFallback {
     if (this.failure) throw this.failure;
   }
   allowed(agent: Agent, messages: UserMessage[]) {
-    return messages.filter((message) => !this.list(agent.id).some((run) => run.withdrawn?.includes(message.id)));
+    const runs = this.list(agent.id);
+    return messages.filter((message) => !runs.some((run) => run.withdrawn?.includes(message.id)));
   }
   private save(run: ModelRun) {
     this.pendingWrites++;
@@ -252,6 +258,7 @@ export class ModelFallback {
           state: 'running',
         };
         this.runs.set(run.id, run);
+        this.remember(run);
         void this.save(run);
       }
       return;
@@ -265,9 +272,6 @@ export class ModelFallback {
     const attempt = run.attempts.at(-1)!;
     const reason = event.data.reason;
     if (reason.kind === 'error') attempt.error = reason.error;
-    const executed = history.some(
-      (event) => event.type === 'tool/call' && run.attempts.some((attempt) => attempt.turn === event.data.turn),
-    );
     const candidates = this.candidates(config, run);
     const newer = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(
       (message) => !run.inputs.includes(message.id) && message.source.kind !== 'nano-fallback',
@@ -276,9 +280,9 @@ export class ModelFallback {
       reason.kind === 'error' &&
       available(reason.error) &&
       candidates.length &&
-      !executed &&
       !newer &&
-      !this.stopped
+      !this.stopped &&
+      !history.some(event => event.type === 'tool/call' && run.attempts.some(attempt => attempt.turn === event.data.turn))
     ) {
       run.state = 'switching';
       run.terminal = reason;
@@ -399,10 +403,10 @@ export class ModelFallback {
     await this.ready;
     for (const {agent} of this.agents.values()) if (owns(agent.id)) this.interrupt(agent);
     await Promise.allSettled([...this.tasks].filter(([id]) => {
-      const run = this.runs.get(id) ?? this.historical.get(id);
+      const run = this.runs.get(id);
       return run && owns(run.sessionId);
     }).map(([, task]) => task));
-    for (const run of new Map([...this.historical, ...this.runs]).values()) {
+    for (const runs of this.runsBySession.values()) for (const run of runs.values()) {
       if (owns(run.sessionId) && run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
     }
     await this.checkpoint();

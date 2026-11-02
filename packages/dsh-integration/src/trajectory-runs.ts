@@ -12,13 +12,13 @@ interface RunDomain extends DomainSpec { tables: { runs: DomainTableSpec<string,
 export const trajectoryRunsDomain: RunDomain = defineDomain({ name: 'nano_trajectory_runs', version: 1, layout: 'per-record', tables: {
   runs: domainTable(z.object({
     runId: z.string(), parentSessionId: z.string(), sessionId: z.string(), provider: z.string(), label: z.string().optional(),
-    kind: z.enum(['tool', 'memory', 'skills', 'combined', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
+    kind: z.enum(['tool', 'memory', 'skills', 'combined', 'dreaming', 'unknown']), delegation: z.enum(['foreground', 'background', 'unknown']),
     launchSeq: z.number().optional(), callId: z.string().optional(), startSeq: z.number().optional(), endSeq: z.number().optional(),
     startedAt: z.number(), endedAt: z.number().optional(), stopReason: z.string().optional(),
     state: z.enum(['running', 'completed', 'failed', 'cancelled', 'unknown']),
   })),
 } });
-interface Launch { toolName?: string; parentSessionId: string; kind: TrajectoryRun['kind']; delegation: TrajectoryRun['delegation']; launchSeq?: number; callId?: string; label?: string }
+interface Launch { toolName?: string; parentSessionId: string; kind: TrajectoryRun['kind']; delegation: TrajectoryRun['delegation']; launchSeq?: () => number | undefined; callId?: string; label?: string }
 const launchContext = new AsyncLocalStorage<Launch>();
 
 /** Observe host-owned maintenance without publishing a model-managed child.
@@ -44,6 +44,7 @@ declare module '@deepseek-ai/cordis' { interface Context { nanoTrajectoryRuns: T
 export class TrajectoryRuns extends Service {
   private readonly domain;
   private writes = Promise.resolve();
+  private readonly runsBySession: Promise<Map<string, Set<string>>>;
   private readonly bounds = new WeakMap<Agent, number>();
   private readonly tails = new Map<string, number>();
   private readonly active = new Map<string, TrajectoryRun>();
@@ -52,6 +53,11 @@ export class TrajectoryRuns extends Service {
   constructor(ctx: Context) {
     super(ctx, 'nanoTrajectoryRuns');
     this.domain = ctx.storageDomain.open(trajectoryRunsDomain);
+    this.runsBySession = this.domain.then(domain => {
+      const index = new Map<string, Set<string>>();
+      for (const [, run] of domain.table('runs').entries()) this.indexRun(index, run);
+      return index;
+    });
     ctx.effect(() => async () => { try { await this.writes; } finally { await (await this.domain).close(); } });
     ctx.on('agent/created', ({ agent }) => {
       if (!agent.session.header.parentSession) return;
@@ -73,9 +79,17 @@ export class TrajectoryRuns extends Service {
     ctx.on('tools/execute', (exec, next) => {
       if (!exec.agent) return next();
       const args = exec.arguments as { description?: unknown; run_in_background?: unknown } | null;
-      const call = exec.agent.session.snapshotEvents().findLast(event => event.type === 'tool/call' && event.data.callId === (exec.rootCallId ?? exec.callId));
+      const agent = exec.agent, callId = exec.rootCallId ?? exec.callId, through = agent.session.seq - 1;
+      let resolved = false, launchSeq: number | undefined;
+      const resolveLaunchSeq = () => {
+        if (!resolved) {
+          launchSeq = agent.session.snapshotEvents().findLast(event => event.seq <= through && event.type === 'tool/call' && event.data.callId === callId)?.seq;
+          resolved = true;
+        }
+        return launchSeq;
+      };
       return launchContext.run({ parentSessionId: exec.agent.id, kind: 'tool', toolName: exec.name, callId: exec.rootCallId ?? exec.callId,
-        ...(call ? { launchSeq: call.seq } : {}),
+        launchSeq: resolveLaunchSeq,
         ...(typeof args?.description === 'string' ? { label: args.description } : {}),
         delegation: typeof args?.run_in_background === 'boolean' ? args.run_in_background ? 'background' : 'foreground'
           : ['send_message', 'send_user_message'].includes(exec.name) ? 'background' : 'unknown',
@@ -88,6 +102,7 @@ export class TrajectoryRuns extends Service {
       const child = ctx.agents.get(info.id);
       const source = launchContext.getStore();
       const launch = source?.parentSessionId === parent.id ? source : undefined;
+      const launchSeq = launch?.launchSeq?.();
       const descriptor = child?.session.ownEvents().find(event => event.type === 'subagent/descriptor');
       const label = launch?.label ?? (descriptor?.type === 'subagent/descriptor' ? descriptor.data.label : undefined);
       const startSeq = child && self.bounds.get(child);
@@ -96,7 +111,7 @@ export class TrajectoryRuns extends Service {
         ? descriptor.data.mode === 'continuable' ? 'background' : 'foreground' : launch?.delegation ?? 'unknown';
       const run: TrajectoryRun = { runId: info.runId, parentSessionId: parent.id, sessionId: info.id, provider: info.provider,
         ...(label ? { label } : {}), kind: launch?.kind ?? 'unknown', delegation,
-        ...(launch?.launchSeq !== undefined ? { launchSeq: launch.launchSeq } : {}), ...(launch?.callId ? { callId: launch.callId } : {}),
+        ...(launchSeq !== undefined ? { launchSeq } : {}), ...(launch?.callId ? { callId: launch.callId } : {}),
         ...(startSeq !== undefined ? { startSeq } : {}), startedAt: Date.now(), state: 'running' };
       self.active.set(info.runId, run);
       // One-shot start can precede its descriptor; resolve omitted defaults when that fact arrives.
@@ -141,8 +156,35 @@ export class TrajectoryRuns extends Service {
     return { ...run, result: run.result.then(result => { finish(result.stopReason); return result; }, error => { finish('error'); throw error; }) };
   }
 
+  /** Register an empty-context host maintenance handle without a subagent catalog entry. */
+  async startMaintenance(parent: Agent, child: Agent, runId: string, label: string): Promise<void> {
+    const record: TrajectoryRun = { runId, parentSessionId: parent.id, sessionId: child.id, provider: 'native', kind: 'dreaming',
+      label, delegation: 'background', launchSeq: parent.session.seq - 1, startSeq: child.session.seq, startedAt: Date.now(), state: 'running' };
+    this.active.set(runId, record); this.persist(record); await this.writes;
+  }
+  /** Record actual host application state, independently of the model's final prose. */
+  async finishMaintenance(runId: string, state: 'completed' | 'failed' | 'cancelled'): Promise<void> {
+    const record = this.active.get(runId) ?? (await this.domain).table('runs').get(runId);
+    if (!record) return;
+    this.active.delete(runId);
+    this.persist({ ...record, state, stopReason: state, endedAt: Date.now(), endSeq: this.tails.get(record.sessionId) ?? record.endSeq });
+    await this.writes;
+  }
+
+  private indexRun(index: Map<string, Set<string>>, run: TrajectoryRun): void {
+    for (const sessionId of [run.sessionId, run.parentSessionId]) {
+      let ids = index.get(sessionId);
+      if (!ids) { ids = new Set(); index.set(sessionId, ids); }
+      ids.add(run.runId);
+    }
+  }
+
   private persist(run: TrajectoryRun): void {
-    this.writes = this.writes.then(async () => { await (await this.domain).table('runs').put(run.runId, run); });
+    this.writes = this.writes.then(async () => {
+      const index = await this.runsBySession;
+      await (await this.domain).table('runs').put(run.runId, run);
+      this.indexRun(index, run);
+    });
     void this.writes.catch(() => {}); // Reads report a failed durable write barrier instead of fabricated saved facts.
   }
 
@@ -160,8 +202,8 @@ export class TrajectoryRuns extends Service {
     // Lifecycle callbacks may enqueue an end while a start write is in flight.
     let barrier: Promise<void>;
     do { barrier = this.writes; await barrier; } while (barrier !== this.writes);
-    return [...table.entries()].map(([, run]) => run)
-      .filter(run => run.sessionId === sessionId || run.parentSessionId === sessionId)
+    const ids = (await this.runsBySession).get(sessionId) ?? [];
+    return [...ids].map(id => table.get(id)!)
       .map(run => ({ ...run, state: run.state === 'running' && !this.active.has(run.runId) ? 'unknown' : run.state }))
       .sort((a, b) => a.startedAt - b.startedAt || a.runId.localeCompare(b.runId));
   }

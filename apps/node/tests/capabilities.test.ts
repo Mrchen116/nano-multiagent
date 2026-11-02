@@ -75,3 +75,11 @@ it('reports dependency resources independently from the selected allowlist', () 
   expect(available.features.find(feature => feature.key === 'task_graph')).toMatchObject({available: false});
   expect(available.fixed_tools).toContain('subagent');
 });
+
+it('hides retired memory controls without changing stored legacy tool choices', () => {
+  const node = {llm:{default_model:'test',providers:[]}} as unknown as NodeConfigurationFile;
+  const agent = {agentId:'a',revision:'1',provider:'test',model:'test',toolAllowlist:['memory','read']};
+  const catalog = {tools:['memory','read','memory_maintenance'].map(name=>({name,description:name})),skills:[]};
+  expect(projectCapabilities(catalog,node,agent).tools.map(tool=>tool.name)).toEqual(['read','memory_maintenance']);
+  expect(agent.toolAllowlist).toEqual(['memory','read']);
+});

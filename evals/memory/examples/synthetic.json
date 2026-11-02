@@ -1,0 +1,43 @@
+[
+  {
+    "question_id": "synthetic-city",
+    "question_type": "knowledge-update",
+    "question": "Where do I live now?",
+    "answer": "Paris",
+    "question_date": "2024/06/01",
+    "haystack_session_ids": [
+      "jan",
+      "may"
+    ],
+    "haystack_dates": [
+      "2024/01/01",
+      "2024/05/01"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "I live in Berlin."
+        },
+        {
+          "role": "assistant",
+          "content": "I noted your city."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I moved to Paris.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Your new city is Paris."
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "may"
+    ]
+  }
+]

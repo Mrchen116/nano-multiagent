@@ -25,7 +25,7 @@
 
 - 已执行 `pnpm install --frozen-lockfile`、`pnpm build`。主前端依赖另需 `npm --prefix src/IM/frontend ci`；up 自动校验主前端与原生轨迹查看器，按需构建，不要求手工构建 Web。隔离脚本的 YAML/HTTP 辅助逻辑仍需 Python dev 依赖（PyYAML、httpx）；可以复用主 checkout 的 `.venv`。Python 不承担 IM 或 Agent 服务。
 - 先按 [本机开发配置](local-development.md#本机开发配置) 执行 `python3 scripts/dev_host.py check`，确认当前机器的测试源配置和能力；此报告不证明真实 E2E 可用。
-- 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是未配置本机覆盖时的无密钥 E2E 配置，包含两个普通 Agent（`e2e`、`e2e-peer`）、一个 Global Agent（`e2e-global`）、Web IM channel 和可选模型目录。预设显式配置文件、命令、搜索、Skill 与消息工具，避免缺省工具名单在配置同步后变为空集；Skills 使用空禁用名单，保留正常发现。default 可通过 `--main-config` 显式指定另一个受控 config；配置优先级见本机开发配置。
+- 仓库内的 [`../../config/e2e/gateway.yaml`](../../config/e2e/gateway.yaml) 是未配置本机覆盖时的无密钥 E2E 配置，包含两个普通 Agent（`e2e`、`e2e-peer`）、一个 Global Agent（`e2e-global`）、Web IM channel 和可选模型目录。初始配置提供启动所需工具；default/daily 注册后通过产品 capabilities/config API 同步当前默认工具、固定工具及已启用 Feature 的依赖，再报告 ready。保留仍有效的额外选择，后续新增默认工具自动跟随，不在测试 YAML 另维护完整名单；显式 `--main-config` 和专项限制不自动扩展。Skills 使用空禁用名单，保留正常发现。default 可通过 `--main-config` 显式指定另一个受控 config；配置优先级见本机开发配置。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
 

@@ -3,7 +3,7 @@ import type { ProtocolFrame } from '@nano/channels';
 import { NodeStore } from './store.js';
 import { needsAttention, controlText } from './attention.js';
 
-export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: string; argument: string; text?: string; delivered?: boolean }
+export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: string; argument: string; stoppedAt?:string; text?: string; delivered?: boolean }
 interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; relay: { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> } }
 export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;
@@ -18,7 +18,7 @@ export class SessionControls {
   private readonly active = new Map<string, Promise<void>>();
   constructor(private readonly options: Options) {}
   /** Unfinished controls remain busy even after a failed delivery or reconnect. */
-  get busy(): boolean { return this.active.size > 0 || this.options.store.controls().some(intent => !intent.delivered); }
+  get busy(): boolean { return this.active.size > 0 || this.options.store.pendingControls().length > 0; }
   run(binding: SessionBinding, input: RelayInput, action: string, argument: string): Promise<void> {
     input=this.options.store.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
@@ -32,7 +32,7 @@ export class SessionControls {
   }
   async wait(sessionId: string) { await this.tails.get(sessionId); }
   async recover(agentId: string) {
-    for (const intent of this.options.store.controls()) if (this.options.store.lifecycle.allowed(agentId,intent.input.lifecycle_revision??1) && intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
+    for (const intent of this.options.store.pendingControls(agentId)) if (this.options.store.lifecycle.allowed(agentId,intent.input.lifecycle_revision??1) && intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
   }
   private async perform(intent: ControlIntent) {
     const { store, runtime, relay, nodeId } = this.options; const { binding, input } = intent;

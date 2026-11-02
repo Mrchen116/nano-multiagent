@@ -1,6 +1,7 @@
+import Fastify from "fastify";
 import { expect, it, vi } from "vitest";
 import { fixture } from "./control-fixture.js";
-import { Messaging } from "../src/messaging.js";
+import { Messaging, registerMessagingRoutes } from "../src/messaging.js";
 import { all } from "../src/context.js";
 
 it("resolves all preview mentions before truncation, including previously stored previews", () => {
@@ -35,6 +36,16 @@ it("keeps empty conversations, ordinary text and attachment previews", () => {
   expect(messaging.conversation("chat", "u1").last_message_preview).toBe("report.pdf");
 });
 
+it("retains member order and stale badges even when an Agent profile is missing", () => {
+  const { db, ctx } = fixture();
+  db.exec(`UPDATE agent_profiles SET is_stale=1 WHERE agent_id='a';
+    INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('gone','agent:gone','Former Agent','o1','now');
+    INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','gone');`);
+  const participants=new Messaging(ctx).conversation('chat','u1').participants;
+  expect(participants.map(({user_id,is_stale}: {user_id:string,is_stale:boolean|null})=>[user_id,is_stale]))
+    .toEqual([['u1',null],['a1',true],['gone',null]]);
+});
+
 it.each(["stale profile", "suspended owner"])("completes an ordinary message when its only Agent has a %s", async reason => {
   const { db, ctx } = fixture();
   ctx.gateway.broadcast = vi.fn();
@@ -45,4 +56,30 @@ it.each(["stale profile", "suspended owner"])("completes an ordinary message whe
   const message = await messaging.sendMessage({headers:{"x-user":"u2"},params:{conversation_id:"chat"},query:{},body:{sender_user_id:"u2",content:"Keep this conversation usable"}} as any);
   expect(message.delivery_status).toBe("completed");
   expect(all(db, "SELECT * FROM relay_tasks")).toEqual([]);
+});
+
+it("returns the same authorized cursor without loading a conversation snapshot", async () => {
+  const { db, ctx } = fixture();
+  ctx.gateway.broadcast = vi.fn();
+  ctx.messaging = new Messaging(ctx);
+  ctx.messaging.insertMessage("chat", "u1", "user", "cursor baseline");
+  const app = Fastify();
+  registerMessagingRoutes(app, ctx);
+  try {
+    const full = await app.inject("/im/v1/sync");
+    expect(full.statusCode).toBe(200);
+    expect(full.json().items.map((item: {id: string}) => item.id)).toContain("chat");
+    expect(full.json().max_event_id).toBeGreaterThan(0);
+    const snapshots = vi.spyOn(ctx.messaging, "conversations");
+    const cursor = await app.inject("/im/v1/sync?view=cursor");
+    expect(cursor.statusCode).toBe(200);
+    expect(cursor.json()).toEqual({ max_event_id: full.json().max_event_id });
+    expect(snapshots).not.toHaveBeenCalled();
+
+    db.prepare("UPDATE users SET membership_status='suspended' WHERE id='u1'").run();
+    for (const path of ["/im/v1/sync", "/im/v1/sync?view=cursor"])
+      expect((await app.inject(path)).statusCode).toBe(403);
+  } finally {
+    await app.close();
+  }
 });

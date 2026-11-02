@@ -29,18 +29,23 @@ export class RelayDelivery {
       if (flights.size>=32) continue;
       // Pages keep reconnect recovery independent of total journal/message volume.
       const rows=all(this.ctx.db,"SELECT * FROM relay_tasks WHERE target_node_id=? AND status IN ('queued','sent','accepted') AND receipt_status IS NULL ORDER BY updated_at,created_at LIMIT 256",id);
-      const candidates=rows.filter(row=>!flights.has(row.relay_task_id) && (this.retries.get(row.relay_task_id)?.at??0)<=time);
+      const candidates = rows
+        .filter(row => !flights.has(row.relay_task_id) && (this.retries.get(row.relay_task_id)?.at ?? 0) <= time)
+        .map(task => {
+          const payload = JSON.parse(task.payload_json) as Row;
+          return {task, payload, agentId: String(payload.agent_id)};
+        });
       while(candidates.length && flights.size<32) {
-        const agents=[...new Set(candidates.map(row=>String(JSON.parse(row.payload_json).agent_id)))];
+        // Rotation follows the first remaining row for each Agent after every removal.
+        const agents = [...new Set(candidates.map(candidate => candidate.agentId))];
         const next=agents[(agents.indexOf(this.lastAgents.get(id)??'')+1)%agents.length];
-        const index=candidates.findIndex(row=>String(JSON.parse(row.payload_json).agent_id)===next);
-        const task=candidates.splice(index,1)[0]!;
-        if (!this.ctx.messaging.relayEligible(task)) {
+        const index = candidates.findIndex(candidate => candidate.agentId === next);
+        const {task, payload, agentId} = candidates.splice(index, 1)[0]!;
+        if (!this.ctx.messaging.relayEligible(task, payload)) {
           this.ctx.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);this.retries.delete(task.relay_task_id);continue;
         }
-        const payload=JSON.parse(task.payload_json) as Row;
         if(!this.ctx.gateway.send(id,{type:'relay.message',payload}))break;
-        flights.set(task.relay_task_id,time);this.lastAgents.set(id,String(payload.agent_id));
+        flights.set(task.relay_task_id,time);this.lastAgents.set(id,agentId);
         this.ctx.db.prepare("UPDATE relay_tasks SET status='sent',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);sent=true;
       }
     }

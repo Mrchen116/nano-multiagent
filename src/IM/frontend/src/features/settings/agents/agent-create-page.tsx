@@ -270,6 +270,7 @@ function CreateBehaviorCard({
                   <div className="min-w-0">
                     <p id={`feature-${feat.key}-label`} className="im-settings-feature-name">{t(feat.label_i18n, feat.key)}</p>
                     <p id={`feature-${feat.key}-help`} className="im-settings-feature-help">{t(feat.help_i18n, "")}</p>
+                    {feat.key === "dreaming" && feat.missing_tools?.length ? <p className="im-settings-feature-help">{t("feature.dreaming.unavailable", {tools: feat.missing_tools.join(", ")})}</p> : null}
                   </div>
                 </label>
               );

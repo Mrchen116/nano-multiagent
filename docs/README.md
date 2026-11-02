@@ -14,6 +14,7 @@
 | 查看双方 Agent owner 对协作私聊的只读观察权限 | [`specs/im/auth-tenancy.md`](specs/im/auth-tenancy.md) → [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)；Web 入口见 [`specs/im/web-chat-ux.md`](specs/im/web-chat-ux.md) |
 | 理解全局 Agent 的跨聊天工作、原生轨迹与父子执行范围导航 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 理解每个人的 PA、双身份聊天访问和原聊天协助 | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
+| 理解角色化文档记忆、增量 Dreaming、来源失效与旧库回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；配置入口见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)，整理记录见 [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
@@ -28,7 +29,7 @@
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
 | 编写或执行 unit 的一次性部署迁移提示词 | [`deployment-prompt.md` 约定](changes/README.md#一次性部署提示词) → [部署检查与执行](../.claude/skills/prod-fleet-deploy/references/runbook.md#unit-部署提示词) |
 | 提报 GitHub Issue、分诊和维护标签 | [`development/issues.md`](development/issues.md) |
-| 查已放弃或被后续架构取代的 change unit | [`changes/retired/`](changes/retired/README.md)；含由 bugfix-678 接替的 feat-625 审核重试方案，退役原因与当前入口以该索引为准 |
+| 查已放弃或拆分接手的 change unit | [退役索引](changes/retired/README.md)（含 feat-625 审核重试、feat-665 通用 PA 的接手范围与后续去向） |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
 | 在 Air/Mini 切换开发、定位本机模型入口与能力 | [本机开发配置](development/local-development.md#本机开发配置) |
 | 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
@@ -40,6 +41,7 @@
 | 生产 Tunnel QUIC/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
 | 配置两机普通公网代理与本地直连 | [生产出口](operations/prod-fleet.md#公网代理出口)；执行 [部署操作单](../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理) |
 | 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
+| 查看审核只读调查、原话保留、消息级准入与模型恢复 | [`gateway/agent-capabilities`](specs/gateway/agent-capabilities.md) → [`gateway/personal-agent`](specs/gateway/personal-agent.md) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
 | 复用固定 P/E/Q + PA 阵容、模型与审核规则验收新需求 | [固定日常验收模板](development/worktree-runtime.md#固定日常验收模板) |
@@ -48,6 +50,9 @@
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [本机开发配置](development/local-development.md#本机开发配置) → [LLM 联调](development/llm-integration.md) / [参考项目](../AGENTS.md#调研参考项目) |
 | 查外部项目比较、脑暴或阶段性审查 | [`research/`](research/README.md)；先核对日期、代码基线和当前权威 |
+| 评测 Memory 版本的效果与冷上下文隔离 | [`../evals/memory/`](../evals/memory/README.md) |
+| 理解 LongMemEval 官方基线、业界接入方法及分数可比性 | [LongMemEval 评测方法记录](../evals/memory/longmemeval-methods.md) |
+| 研究后续 PA 行动与专家经验评测，尚未接入执行 | feat-677 的 [DolphinBench](changes/archive/feat-677-memory-evaluation/dolphinbench-methods.md) 与 [FrontierMemory](changes/archive/feat-677-memory-evaluation/frontiermemory-methods.md) 方法研究 |
 | 构建或运行 Agent 评测集 | [`../evals/`](../evals/README.md) |
 
 ## 当前权威分工
@@ -123,3 +128,5 @@
 - 文档中的命令优先指向仓库脚本，避免散文步骤与脚本形成两套流程。
 
 退役的 Python Kernel/Coding CLI 契约见 [`archive/pre-dsh-581/`](archive/pre-dsh-581/README.md)。
+
+累计五次自动拉黑与恢复通知的已验收变更见 [bugfix-678](changes/archive/bugfix-678-pa-permission-boundaries/incident.md)；当前行为以 [Gateway PA 契约](specs/gateway/personal-agent.md) 为准，归档不表示已部署。

@@ -39,7 +39,8 @@ export class SingleThread {
     this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, value) => {
       const data = value as { sessionId: string; event?: RuntimeEvent };
-      const binding = options.store.bindings().find(binding => binding.sessionId === data.sessionId);
+      if (!data.sessionId) return;
+      const binding = options.store.bindingForSession(data.sessionId);
       if (!binding || options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') return;
       if ((method === 'session.event' && data.event) || method === 'model.changed') this.reconcile(data.sessionId).catch(options.onError);
       if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
@@ -75,6 +76,12 @@ export class SingleThread {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
+    // Task originals are indexed by IM and caught up at native pre-step. Routing
+    // them through ordinary chat would create a second identity and idle wake.
+    if(input.message.sender_type==='system'&&input.message.system_notice?.kind==='task_graph') {
+      await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,relay_task_id:input.relay_task_id,delivery_status:'sent'});
+      return;
+    }
     const control = sessionControl(input, config);
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(controlText(input)) && !control;
     if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(controlText(input))) {
@@ -118,7 +125,7 @@ export class SingleThread {
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
     await runtime.request('session.ensure', runtimeBinding(binding));
-    for (const pending of store.inputs(binding.sessionId)) if (!pending.accepted && !pending.terminal) await this.submit(binding, pending.input);
+    for (const pending of store.pendingInputs(binding.sessionId)) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
   }
 
@@ -171,7 +178,7 @@ export class SingleThread {
       });
     }
     store.accepted(inputId);
-    if (!store.inputs(binding.sessionId).find(item => item.id === inputId)?.terminal) await this.receipt(input, 'sent');
+    if (!store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
@@ -187,14 +194,18 @@ export class SingleThread {
 
   /** Durable history is replayed on reconnect; display notifications are just hints. */
   async recover(externalOnly = false): Promise<void> {
+    const recoveredControls = new Set<string>();
     for (const binding of this.options.store.bindings()) {
       if(!this.options.store.lifecycle.allowed(binding.agentId))continue;
       if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
       if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
       await this.options.store.lifecycle.run(binding.agentId,undefined,async()=>{
       await this.options.runtime.request('session.ensure', runtimeBinding(binding));
-      await this.controls.recover(binding.agentId);
-      for (const input of this.options.store.inputs(binding.sessionId)) if (!input.accepted && !input.terminal) await this.submit(binding, input.input);
+      if (!recoveredControls.has(binding.agentId)) {
+        await this.controls.recover(binding.agentId);
+        recoveredControls.add(binding.agentId);
+      }
+      for (const input of this.options.store.pendingInputs(binding.sessionId)) await this.submit(binding, input.input);
       await this.reconcile(binding.sessionId);
       });
     }
@@ -229,12 +240,13 @@ export class SingleThread {
 
   private async drain(sessionId: string): Promise<void> {
     const { store, runtime } = this.options;
-    const binding = store.bindings().find(item => item.sessionId === sessionId);
+    const binding = store.bindingForSession(sessionId);
     if (!binding) return;
     const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
     store.recordEvents(sessionId, read.events);
-    this.modelRuns.set(sessionId, read.modelRuns ?? []);
+    const runs = read.modelRuns ?? [];
+    this.modelRuns.set(sessionId, runs);
     for (const inputId of store.lookupInputIds(sessionId)) {
       const evidence = await runtime.request('session.lookup', { sessionId, inputId }) as InputEvidence;
       const run = read.modelRuns?.find(run => run.turn === evidence.turn || run.attempts.some(attempt => attempt.turn === evidence.turn));
@@ -243,12 +255,18 @@ export class SingleThread {
       const final = evidence.accepted && evidence.pending === false && evidence.terminal != null && (!run || run.state === 'completed');
       store.inputEvidence(inputId, evidence, final);
     }
-    const events = logicalEvents(store.events(sessionId), read.modelRuns ?? []);
-    for (const input of store.inputs(sessionId)) {
+    const noticeTurns = runs.filter(run => run.switched || run.attempts.some(attempt => attempt.error)).map(run => run.turn);
+    const inputs = store.deliveryInputs(sessionId, noticeTurns);
+    if (!inputs.length) return;
+    const runsByTurn = new Map(runs.map(run => [run.turn, run]));
+    // Keep this observation cut even if a concurrent tool persists newer events while a notice is being delivered.
+    const throughSeq = store.cursor(sessionId);
+    let events: RuntimeEvent[] | undefined;
+    for (const input of inputs) {
       if(!store.lifecycle.allowed(binding.agentId,input.input.lifecycle_revision??1) || input.terminal?.includes('cancelled_by_disable'))continue;
       if (input.turn === null) continue;
       const turn = input.turn;
-      const run = read.modelRuns?.find(run => run.turn === turn);
+      const run = runsByTurn.get(turn);
       if (run) await this.modelNotices(binding, input.input, run);
       let delivery = store.prepareDelivery(sessionId, turn);
       if (delivery.state === 'unknown') { await this.receipt(input.input, 'failed'); continue; }
@@ -256,11 +274,12 @@ export class SingleThread {
         await this.receipt(input.input, delivery.state === 'failed' ? 'failed' : 'completed');
         continue;
       }
-      const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
       if (run && run.state !== 'completed' && (run.state === 'switching' || run.attempts.length > 1)) continue;
       if (run?.state === 'completed' && (run.terminal as { kind: string })?.kind !== 'completed' && !delivery.messageId && run.attempts.some(attempt => attempt.error)) {
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
+      events ??= logicalEvents(store.events(sessionId, -1, throughSeq), runs);
+      const end = events.find(event => event.type === 'turn/end' && event.data.turn === turn);
       const explicitDelivered = store.command(`interactive-delivered:${sessionId}:${turn}`);
       const approvalVisible=!!store.command(`task-approval-visible:${sessionId}:${turn}`);
       if (end && explicitDelivered && !approvalVisible) {
@@ -270,8 +289,8 @@ export class SingleThread {
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
-      const group = store.inputs(sessionId).some(item => item.turn === turn && item.input.metadata.conversation_type === 'group');
-      const turnInputs=store.inputs(sessionId).filter(item=>item.turn===turn);
+      const turnInputs = store.inputs(sessionId, turn);
+      const group = turnInputs.some(item => item.input.metadata.conversation_type === 'group');
       const automaticOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin))
         || item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
       const approvalPending=[...this.pendingApprovals.values()].some(p=>p.sessionId===sessionId&&!p.posted);
@@ -286,7 +305,7 @@ export class SingleThread {
       }
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
-        const externalReply = store.inputs(sessionId).find(item => item.turn === turn && !item.input.metadata.context_only)?.input.metadata.external_reply;
+        const externalReply = turnInputs.find(item => !item.input.metadata.context_only)?.input.metadata.external_reply;
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
           agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
@@ -329,9 +348,12 @@ export class SingleThread {
         await this.delta({ kind: 'message_discarded', message_id: messageId, reason: 'model_failure_notice' });
         store.updateDelivery(delivery.operationId, 'failed', null, ''); await this.receipt(input.input, 'failed'); continue;
       }
-      const inputs = store.inputs(sessionId);
-      const position = inputs.findLastIndex(item => item.turn === turn);
-      const correction = group && !binding.conversationId.startsWith('external:') && inputs.slice(position + 1).some(item => !item.input.metadata.context_only);
+      let correction = false;
+      if (group && !binding.conversationId.startsWith('external:')) {
+        const sessionInputs = store.inputs(sessionId);
+        const position = sessionInputs.findLastIndex(item => item.turn === turn);
+        correction = sessionInputs.slice(position + 1).some(item => !item.input.metadata.context_only);
+      }
       if (completed && correction && text && delivery.state !== 'completing') {
         const identity = `revalidation:${delivery.operationId}`;
         await runtime.request('session.submit', { sessionId, inputId: identity, mode: 'inject', content: [{ type: 'text', text: 'Your previous draft has NOT been sent because newer messages were accepted in this group. Consider the newer messages before publishing the revised answer.' }], source: { kind: 'system', actorId: binding.agentId, channel: 'revalidation', messageId: identity } });
@@ -426,7 +448,7 @@ export class SingleThread {
     this.pendingApprovals.delete(result.requestId);
   }
   private binding(sessionId: string): SessionBinding {
-    const binding = this.options.store.bindings().find(item => item.sessionId === sessionId);
+    const binding = this.options.store.bindingForSession(sessionId);
     if (!binding) throw new Error('Unknown session');
     return binding;
   }
@@ -448,7 +470,7 @@ export class SingleThread {
     if (controlText(input) !== '/stop') this.options.store.confirmReceipt(inputId, status);
   }
   private stream({ sessionId, frame }: Stream) {
-    if (this.options.store.inputs(sessionId).some(input => input.input.metadata.conversation_type === 'group')) return;
+    if (this.options.store.hasGroupInput(sessionId)) return;
     if (frame.type === 'start') {
       this.streams.set(frame.attemptId, { sessionId, attemptId: frame.attemptId, turn: frame.turn!,
         chain: this.reconcile(sessionId), text: '', flushing: false });
@@ -485,7 +507,7 @@ export class SingleThread {
           stream.text = '';
           const { sessionId } = stream;
           const turn = this.modelRuns.get(sessionId)?.find(run => run.attempts.some(attempt => attempt.turn === stream.turn))?.turn ?? stream.turn;
-          const turnInputs = this.options.store.inputs(sessionId).filter(input => input.turn === turn);
+          const turnInputs = this.options.store.inputs(sessionId, turn);
           if (!turnInputs.length || turnInputs.every(input => input.input.metadata.origin === 'task_execution' || input.input.message.sender_type === 'system' && input.input.message.system_notice?.kind === 'task_graph')) continue;
           const delivery = this.options.store.delivery(sessionId, turn);
           if (!delivery?.messageId || delivery.state !== 'sending') continue;

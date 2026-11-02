@@ -71,6 +71,9 @@ extension AgentDraft {
                 if !draft.skills.contains(name) { draft.skills.append(name) }
             } else { draft.skills.removeAll { $0 == name } }
         }
+        let preserveUnavailableDreaming = !(action.kind == "feature" && action.name == "dreaming") && definitions.contains { feature in
+            feature.key == "dreaming" && next.features[feature.key] == true && feature.requires.tools.contains { name in !next.tool_allowlist.contains(name) || !capabilities.tools.contains { $0.name == name } }
+        }
         if action.kind == "feature" {
             guard let feature = definitions.first(where: { $0.key == action.name }) else { return [.init(code: "capability_unavailable", target: action.target)] }
             next.features[action.name] = action.enabled
@@ -82,11 +85,12 @@ extension AgentDraft {
                         for key in item.requires.features where next.features[key] != true { next.features[key] = true; changed = true }
                     }
                 }
-                for item in definitions where next.features[item.key] == true {
+                for item in definitions where next.features[item.key] == true && !(preserveUnavailableDreaming && item.key == "dreaming") {
                     for name in item.requires.tools where !next.tool_allowlist.contains(name) { next.tool_allowlist.append(name) }
                     for name in item.requires.skills { setSkill(name, true, &next) }
                 }
-            } else {
+            } else if feature.key != "dreaming" {
+                // Closing automatic Dreaming keeps ordinary memory read/write tools.
                 for name in feature.requires.tools where !capabilities.fixedTools(mode: work_mode).contains(name) && owners(.init(kind: "tool", name: name), next).isEmpty { next.tool_allowlist.removeAll { $0 == name } }
                 for name in feature.requires.skills where owners(.init(kind: "skill", name: name), next).isEmpty { setSkill(name, false, &next) }
             }
@@ -95,7 +99,7 @@ extension AgentDraft {
             else { next.tool_allowlist.removeAll { $0 == action.name } }
         } else { setSkill(action.name, action.enabled, &next) }
         var blocks: [CapabilityBlock] = []
-        for feature in definitions where next.features[feature.key] == true {
+        for feature in definitions where next.features[feature.key] == true && !(preserveUnavailableDreaming && feature.key == "dreaming") {
             for kind in ["feature", "tool", "skill"] {
                 for name in feature.requires.values(for: kind) {
                     let available = kind == "feature" ? definitions.contains { $0.key == name } : kind == "tool" ? capabilities.tools.contains { $0.name == name } : capabilities.skills.contains { $0.name == name }

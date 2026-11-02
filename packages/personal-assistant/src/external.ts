@@ -4,7 +4,7 @@ import { decodeAgentPublication, decodeChatStream, type ChatStreamFact, type Rel
 
 import { formatLocalTime } from '@nano/product-contracts';
 import { NodeStore } from './store.js';
-import { ExternalStore, type ExternalChat, type ExternalOutput } from './external-store.js';
+import { ExternalStore, type ExternalChat, type ExternalInbound, type ExternalOutput } from './external-store.js';
 
 type CompletedMessage = Extract<ChatStreamFact, {kind: 'message_completed'}>;
 
@@ -59,7 +59,7 @@ export class ExternalChannels {
   }
   historyConversation(agentId: string, source: string, chatId: string): string | undefined {
     if (source !== 'feishu') return;
-    return this.state.chats().find(chat => chat.agentId === agentId && chat.sourceId === chatId)?.id;
+    return this.state.chatForSource(agentId,chatId)?.id;
   }
   get ready() { return this.options.relay.ready; }
   add(agentId: string, connection: Connection): void {
@@ -97,12 +97,12 @@ export class ExternalChannels {
     const task = this.admit(eventId).finally(() => this.admissions.delete(eventId)); this.admissions.set(eventId, task); return task;
   }
   private async admit(id: string) {
-    const row = this.state.inbound().find(row => row.id === id)!;
+    const row = this.state.inbound(id)!;
     if (row.accepted) return;
     if(!this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1))return;
     return this.options.store.lifecycle.run(row.input.agent_id,row.input.lifecycle_revision??1,()=>this.admitInput(row));
   }
-  private async admitInput(row:ReturnType<ExternalStore['inbound']>[number]) {
+  private async admitInput(row:ExternalInbound) {
     const id=row.id;
     const chat = this.state.chat(row.chatId)!; const connection = this.connections.get(chat.agentId)!;
     if (!row.reaction && (this.options.attention?.(row.input) ?? (!row.message.isGroup || row.message.mentioned))) {
@@ -131,7 +131,7 @@ export class ExternalChannels {
     const image = this.state.image(url, agentId); if (!image) throw new Error('Image is outside the authenticated external input'); return image;
   }
   async recover(): Promise<void> {
-    for (const row of this.state.inbound()) if (!row.accepted && this.connections.has(row.input.agent_id)) await this.admit(row.id);
+    for (const row of this.state.pendingAdmissions()) if (this.connections.has(row.agentId)) await this.admit(row.id);
     await this.flush();
   }
 
@@ -145,7 +145,7 @@ export class ExternalChannels {
   }
   private async requestAdmitted(type:string,payload:Record<string,unknown>):Promise<ProtocolFrame> {
     if(type==='node.delivery_receipt' && typeof payload.external_source_message_id==='string') {
-      const source=this.state.inbound().find(row=>row.mirror===payload.external_source_message_id && row.input.agent_id===payload.agent_id);
+      const source=typeof payload.agent_id === 'string' ? this.state.inboundByMirror(payload.external_source_message_id, payload.agent_id) : undefined;
       if(source && ['completed','failed'].includes(String(payload.delivery_status)))await this.removeReaction(source.id);
       return ack(type);
     }
@@ -167,14 +167,14 @@ export class ExternalChannels {
       }
     }
     if(['pa.source.admit','pa.incident.report'].includes(type) && String(payload.source_message_id).startsWith('external:')) {
-      const source=this.state.inbound().find(row=>row.id===payload.source_message_id&&row.input.agent_id===payload.agent_id);
-      const chat=source?this.state.chat(source.chatId):undefined;
+      const source=typeof payload.source_message_id === 'string' ? this.state.inbound(payload.source_message_id) : undefined;
+      const chat=source && source.input.agent_id === payload.agent_id ? this.state.chat(source.chatId) : undefined;
       if(!source?.mirror||!chat?.shadowId)throw new Error('Personal source is not yet synchronized');
       return this.options.relay.request(type,{...payload,source_message_id:source.mirror,conversation_id:chat.shadowId});
     }
     if (type === 'task_graph.command' && ['create', 'apply', 'delete'].includes(String(payload.action)) && String(payload.source_message_id).startsWith('external:')) {
-      const source = this.state.inbound().find(row => row.id === payload.source_message_id && row.input.agent_id === payload.agent_id);
-      if (!source?.mirror) return { type: 'task_graph.result', payload: { request_id: payload.request_id, ok: false,
+      const source = typeof payload.source_message_id === 'string' ? this.state.inbound(payload.source_message_id) : undefined;
+      if (!source?.mirror || source.input.agent_id !== payload.agent_id) return { type: 'task_graph.result', payload: { request_id: payload.request_id, ok: false,
         error: { code: 'source_unavailable', message: 'The external source message has not been mirrored to IM.' } } };
       return this.options.relay.request(type, { ...payload, source_message_id: source.mirror });
     }
@@ -182,7 +182,7 @@ export class ExternalChannels {
       const local = this.query(payload); if (local) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: true, result: local } };
       if (payload.target && (payload.action === 'search' || payload.action === 'read' && (payload.message_id || payload.around_message_id))) {
         const target = String(payload.target).replace(/^conversation:/, '');
-        const chat = this.state.chats().find(item => item.agentId === payload.agent_id && (item.id === target || item.shadowId === target));
+        const chat = this.state.chatsForTargets(String(payload.agent_id),[target])[0];
         if (chat) {
           if (!chat.shadowId) return { type: 'conversation.query.result', payload: { request_id: payload.request_id, ok: false, error: 'External source is not synchronized to IM' } };
           return this.options.relay.request(type, { ...payload, target: chat.shadowId });
@@ -269,23 +269,25 @@ export class ExternalChannels {
     this.dispatches.set(output.id, task); return task;
   }
   private async removeReaction(id: string): Promise<void> {
-    const row = this.state.inbound().find(row => row.id === id); if (!row?.reaction) return;
+    const row = this.state.inbound(id); if (!row?.reaction) return;
     const connection = this.connections.get(row.input.agent_id); if (!connection || !this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1)) return;
     try { await connection.thinking(row.message.messageId, row.reaction); this.state.reaction(id, null); } catch (error) { this.options.onError(error); }
   }
   private query(payload: Record<string, unknown>): Record<string, unknown> | undefined {
-    const chats = this.state.chats().filter(chat => chat.agentId === payload.agent_id);
     const describe = (chat: ExternalChat) => {
       const connection = this.connections.get(chat.agentId);
       const owner = connection?.config.appId === chat.appId ? connection.config.ownerOpenId : undefined;
       return { target: chat.id, id: chat.id, name: chatTitle(chat), type: chat.isGroup ? 'group' : 'direct', channel: 'feishu',
         owner_recipient: !!owner && !chat.isGroup && chat.sourceId === `feishu:${chat.appId}:dm:${owner}` };
     };
-    if (payload.action === 'describe' && Array.isArray(payload.targets) && payload.targets.every(target => chats.some(chat => chat.id === target || chat.shadowId === target))) return { conversations: chats.filter(chat => (payload.targets as string[]).includes(chat.id) || (payload.targets as string[]).includes(chat.shadowId!)).map(describe) };
-    const chat = chats.find(chat => chat.id === String(payload.target).replace(/^conversation:/, '') || chat.shadowId === payload.target);
-    if (!chat) return;
+    if (payload.action === 'describe' && Array.isArray(payload.targets) && payload.targets.every(target => typeof target === 'string')) {
+      const chats = this.state.chatsForTargets(String(payload.agent_id), payload.targets);
+      if (payload.targets.every(target => chats.some(chat => chat.id === target || chat.shadowId === target))) return { conversations: chats.map(describe) };
+    }
+    const chat = this.state.chat(String(payload.target).replace(/^conversation:/, ''), String(payload.target));
+    if (!chat || chat.agentId !== payload.agent_id) return;
     if (payload.action === 'info') return describe(chat);
-    if (payload.action === 'read' && !payload.message_id && !payload.around_message_id) return { ...describe(chat), history_scope: 'external_cache', messages: this.state.inbound().filter(row => row.chatId === chat.id).slice(-50).map(row => ({
+    if (payload.action === 'read' && !payload.message_id && !payload.around_message_id) return { ...describe(chat), history_scope: 'external_cache', messages: this.state.recentInbound(chat.id).map(row => ({
       ...row.input.message, ...(row.input.message.created_at ? { created_at: formatLocalTime(row.input.message.created_at, row.input.message.timezone) } : {}),
       sender: { name: row.message.senderName, kind: 'external', channel: 'feishu', source_id: row.message.senderId },
       source: { target: chat.id, name: chatTitle(chat), ...(row.mirror ? { message_id: row.mirror } : {}) },
@@ -300,7 +302,7 @@ export class ExternalChannels {
     const task = (async () => {
       while (this.flushAgain) {
         this.flushAgain = false;
-      for (const row of this.state.inbound()) await this.mirrorInput(row);
+      for (const row of this.state.pendingMirrors()) await this.mirrorInput(row);
       for (const frame of this.state.pendingFrames()) {
         const output = this.state.output(frame.outputId)!; const chat = this.state.chat(output.chatId)!;
         if (!chat.shadowId || !this.options.store.lifecycle.allowed(chat.agentId,output.lifecycle_revision)) continue;
@@ -327,11 +329,11 @@ export class ExternalChannels {
       }
     })().finally(() => { this.flushing = undefined; }); this.flushing = task; return task;
   }
-  private async mirrorInput(row: ReturnType<ExternalStore['inbound']>[number]): Promise<void> {
+  private async mirrorInput(row: ExternalInbound): Promise<void> {
     if(row.mirror || !this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1))return;
     return this.options.store.lifecycle.run(row.input.agent_id,row.input.lifecycle_revision??1,()=>this.mirrorAdmitted(row));
   }
-  private async mirrorAdmitted(row:ReturnType<ExternalStore['inbound']>[number]):Promise<void> {
+  private async mirrorAdmitted(row:ExternalInbound):Promise<void> {
         if (row.mirror) return;
         const chat = this.state.chat(row.chatId)!;
         if (!chat.shadowId) {
@@ -356,7 +358,7 @@ export class ExternalChannels {
     const chat = this.state.chat(output.chatId)!; const connection = this.connections.get(chat.agentId)!;
     if (this.options.personalAgent?.(chat.agentId) || !connection.config.ownerOpenId) return;
     const request = payload.permission_request ?? payload; const id = String(request.request_id);
-    const prior = this.state.approvals().find(row => row.requestId === id); if (prior) return;
+    const prior = this.state.approvalForRequest(id); if (prior) return;
     this.state.approval(id, output.id, request);
     const card = approvalCard(id, request, chat.isGroup);
     const platformId = await connection.send(chat.chatId, '', `approval:${id}`, card);
@@ -365,7 +367,7 @@ export class ExternalChannels {
   async card(agentId: string, value: unknown): Promise<unknown> {
     const event = value as { operator?: { open_id?: string }; context?: { open_message_id?: string }; action?: { value?: { request_id?: string; decision?: string } } };
     const requestId = event.action?.value?.request_id; const decision = event.action?.value?.decision;
-    const pending = this.state.approvals().find(row => row.requestId === requestId);
+    const pending = requestId ? this.state.approvalForRequest(requestId) : undefined;
     const connection = this.connections.get(agentId);
     if (pending?.settled) return { toast: { type: 'info', content: '审批已结束' }, card: { type: 'raw', data: approvalStatus('已处理') } };
     if (!pending || !connection?.config.ownerOpenId || event.operator?.open_id !== connection.config.ownerOpenId || pending.platformId !== event.context?.open_message_id) return { toast: { type: 'error', content: '此审批不可用或无权操作' } };
@@ -375,7 +377,7 @@ export class ExternalChannels {
     this.state.settleApproval(requestId!); return { toast: { type: 'success', content: '已提交审批决定' }, card: { type: 'raw', data: approvalStatus(decision!) } };
   }
   private async resolveApproval(requestId: string, decision: string): Promise<void> {
-    const pending = this.state.approvals().find(row => row.requestId === requestId); if (!pending) return;
+    const pending = requestId ? this.state.approvalForRequest(requestId) : undefined; if (!pending) return;
     this.state.settleApproval(requestId);
     if (!pending.platformId) return;
     const output = this.state.output(pending.outputId)!; const chat = this.state.chat(output.chatId)!;

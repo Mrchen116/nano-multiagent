@@ -45,10 +45,6 @@ import { useAuthStore } from "../auth/auth-store";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
-  AttachmentUploadError,
-  type AttachmentUploadErrorCode
-} from "./attachments/use-attachment-upload";
-import {
   classifyConversationKind,
   type Attachment,
   type Actor,
@@ -90,31 +86,10 @@ const HISTORY_PAGE_SIZE = 50;
 
 type ChatWorkspaceError = {
   conversationId: string;
-  kind: "send" | "attachment" | "access";
+  kind: "send" | "access";
   message: string;
   submissionMessageId?: string;
 };
-
-const ATTACHMENT_ERROR_KEYS: Record<
-  AttachmentUploadErrorCode,
-  "chat.messagePane.attachmentUnsupportedType"
-  | "chat.messagePane.attachmentTooLarge"
-  | "chat.messagePane.attachmentNetwork"
-  | "chat.messagePane.attachmentCapacity"
-  | "chat.messagePane.attachmentCooldown"
-> = {
-  unsupportedType: "chat.messagePane.attachmentUnsupportedType",
-  tooLarge: "chat.messagePane.attachmentTooLarge",
-  network: "chat.messagePane.attachmentNetwork",
-  capacity: "chat.messagePane.attachmentCapacity",
-  cooldown: "chat.messagePane.attachmentCooldown"
-};
-
-function attachmentErrorKey(error: unknown) {
-  return error instanceof AttachmentUploadError
-    ? ATTACHMENT_ERROR_KEYS[error.code]
-    : "chat.messagePane.attachmentUnknown";
-}
 
 function mergeBackgroundReturns(
   fromServer: BackgroundReturn[] | undefined,
@@ -1125,22 +1100,13 @@ export function ChatWorkspacePage() {
     ? workspaceError
     : null;
 
-  function handleAttachmentUploadError(sourceConversationId: string, error: unknown) {
-    if (conversationIdRef.current !== sourceConversationId) return;
-    setWorkspaceError({
-      conversationId: sourceConversationId,
-      kind: "attachment",
-      message: t(attachmentErrorKey(error))
-    });
-  }
-
   async function handleComposeMessage(target: string, text: string) {
     const account = selfUserId;
     const destination = await getConversation(target);
     if (useAuthStore.getState().user?.id !== account) return;
     if (destination.can_write !== true || destination.dissolved_at || destination.external_source) throw new Error(t('pa.composeUnavailable'));
     const existing = composerStoreFor(account).get(target);
-    const hasConflict = existing && ((existing.draft !== '' && existing.draft !== text) || existing.pending.length > 0 || (existing.failed?.length ?? 0) > 0);
+    const hasConflict = existing && ((existing.draft !== '' && existing.draft !== text) || existing.pending.length > 0 || (existing.uploads?.length ?? 0) > 0);
     if (hasConflict && !window.confirm(t('pa.replaceDraft'))) return;
     const focusOnly = existing?.draft === text && !hasConflict;
     if (!focusOnly) writeComposerSnapshot(composerStoreFor(account), target, {...EMPTY_COMPOSER_SNAPSHOT,draft:text,revision:crypto.randomUUID()});
@@ -1167,9 +1133,7 @@ export function ChatWorkspacePage() {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-[var(--im-danger)]">
               {t(
-                visibleWorkspaceError.kind === "access" ? "chat.messagePane.accessErrorTitle" : visibleWorkspaceError.kind === "attachment"
-                  ? "chat.messagePane.attachmentErrorTitle"
-                  : "chat.messagePane.sendErrorTitle"
+                visibleWorkspaceError.kind === "access" ? "chat.messagePane.accessErrorTitle" : "chat.messagePane.sendErrorTitle"
               )}
             </p>
             <p className="mt-0.5 text-xs text-slate-700">{visibleWorkspaceError.message}</p>
@@ -1178,9 +1142,7 @@ export function ChatWorkspacePage() {
           <button
             type="button"
             aria-label={t(
-              visibleWorkspaceError.kind === "access" ? "chat.messagePane.accessErrorDismiss" : visibleWorkspaceError.kind === "attachment"
-                ? "chat.messagePane.attachmentErrorDismiss"
-                : "chat.messagePane.sendErrorDismiss"
+              visibleWorkspaceError.kind === "access" ? "chat.messagePane.accessErrorDismiss" : "chat.messagePane.sendErrorDismiss"
             )}
             className="shrink-0 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
             onClick={() => setWorkspaceError(null)}
@@ -1265,7 +1227,6 @@ export function ChatWorkspacePage() {
               message: t("chat.messagePane.sendError")
             })}
             sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
-            onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}
             selfUserId={selfUserId}
             isSending={
               sendMutation.isPending

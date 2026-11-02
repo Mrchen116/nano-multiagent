@@ -7,13 +7,16 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { AuthorizationRequest } from '@deepseek-ai/dsh-authorization';
 import { NativeModelSetup } from '../src/model-setup.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('configures a real empty DSH through settings and credentials, probes native HTTP and restores routes after failure and cold restart', async () => {
   const calls: { url?: string; authorization?: string }[] = [];
+  let transientCalls = 0;
   const server = createServer(async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     calls.push({ url: req.url, authorization: req.headers.authorization });
+    if (body.model === 'transient' && ++transientCalls === 1) { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({error:{message:'temporary unavailable'}})); return; }
     if (body.model === 'failure') { res.writeHead(401, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'sensitive-upstream-body', type: 'authentication_error' } })); return; }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     for (const delta of [{ content: 'READY' }, {}]) res.write(`data: ${JSON.stringify({ id: 'probe', object: 'chat.completion.chunk', created: 1, model: body.model, choices: [{ index: 0, delta, finish_reason: delta.content ? null : 'stop' }] })}\n\n`);
@@ -28,6 +31,7 @@ it('configures a real empty DSH through settings and credentials, probes native 
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: {} } }]);
     const start = async (routes: unknown) => {
       client = new RuntimeClient({ home, cwd: home });
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize', { protocol: 1, agents: [], bindings: [], providers: routes });
     };
     await start({});
@@ -43,6 +47,11 @@ it('configures a real empty DSH through settings and credentials, probes native 
     expect(await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'})).toEqual({record: {kind: 'api-key', key: 'rotated-fixture-secret'}});
     await client!.rpc.request('model.setup.finish', {commit: false});
     expect(await client!.rpc.request('model.setup.credential', {provider: 'nano-fixture'})).toEqual(saved);
+
+    const transient = { ...providers, 'nano-transient': { ...providers['nano-fixture'], models: [{id:'transient'}], retryPolicy: {mode:'normal',maxRetries:1,backoff:{initialDelayMs:1,maxDelayMs:1,jitterRatio:0}} } };
+    expect(await client!.rpc.request('model.setup.test', {id:'transient', providers:transient, provider:'nano-transient', model:'transient', api_key:'fixture'})).toEqual({});
+    expect(transientCalls).toBe(2);
+    await client!.rpc.request('model.setup.finish', {commit:false});
 
     const failed = { ...providers, 'nano-failure': { ...providers['nano-fixture'], models: [{ id: 'failure' }] } };
     await expect(client!.rpc.request('model.setup.test', { id: 'failure', providers: failed, provider: 'nano-failure', model: 'failure', api_key: 'bad-secret' })).rejects.toThrow('Model connection verification failed');

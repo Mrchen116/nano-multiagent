@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -8,6 +8,12 @@ import { NodeConfiguration } from "../src/configuration.js";
 import { providerProfiles } from "../src/providers.js";
 import { ModelSetup } from "../src/model-setup.js";
 
+// These native fixtures have no Task data; register their product context host explicitly.
+function registerEmptyTaskContext(client: RuntimeClient): void {
+  client.rpc.handle("product.task_context.prepare", () => ({ messages: [], revoked: [] }));
+  client.rpc.handle("product.task_context.commit", () => null);
+}
+
 it("keeps built-in provider identity separate from the service label after cold initialization", async () => {
   const home = await mkdtemp(join(tmpdir(), "nano-provider-catalog-"));
   let client: RuntimeClient | undefined;
@@ -15,6 +21,7 @@ it("keeps built-in provider identity separate from the service label after cold 
     await prepareProfile(home, [{ id: "llm-pi-ai", config: { providers: {} } }]);
     const catalog = async (providers: Record<string, unknown>) => {
       client = new RuntimeClient({ home, cwd: home });
+      registerEmptyTaskContext(client);
       await client.rpc.request("initialize", { protocol: 1, agents: [], bindings: [], providers });
       const entries = await client.rpc.request("model.setup.catalog", {}) as Array<{ provider: string; display_name: string }>;
       await client.shutdown(); client = undefined;
@@ -66,6 +73,7 @@ it("keeps the remaining legacy service credential in the same live session after
     const initial = providerProfiles(config.value.llm);
     await prepareProfile(home, [{ id: "llm-pi-ai", config: { providers: {} } }]);
     client = new RuntimeClient({ home, cwd: home, env: initial.env });
+    registerEmptyTaskContext(client);
     await client.rpc.request("initialize", { protocol: 1, agents: [], bindings: [], providers: initial.providers });
     setup = new ModelSetup(config, {
       request: (method, params) => client!.rpc.request(method, params),
@@ -73,7 +81,7 @@ it("keeps the remaining legacy service credential in the same live session after
     });
     const agent = config.runtime({
       agent_id: "fixture", workspace_root: home, tool_allowlist: [],
-      features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, heartbeat: false, cron_scheduling: false },
+      features: { intelligent_ui: false, task_graph: false, dreaming: false, memory_curation: false, skill_creation: false, heartbeat: false, cron_scheduling: false },
     });
     expect(await client.rpc.request("configuration.apply", agent)).toMatchObject({ effective: true });
     await client.rpc.request("session.ensure", {
@@ -192,22 +200,24 @@ it("sends adaptive thinking and selectable proxy effort through the actual nativ
         logs += value;
       },
     });
+    registerEmptyTaskContext(client);
     const agents = [
       config.runtime({
         agent_id: "adaptive",
-        workspace_root: home,
+        workspace_root: join(home,"adaptive"),
         tool_allowlist: [],
       }),
       ...["high", "max", "none"].map((effort) =>
         config.runtime({
           agent_id: effort,
-          workspace_root: home,
+          workspace_root: join(home,effort),
           default_model: "proxy-selectable",
           reasoning_effort: effort,
           tool_allowlist: [],
         }),
       ),
     ];
+    for (const agent of agents) await mkdir(agent.workspace!, {recursive:true});
     await client.rpc.request("initialize", {
       protocol: 1,
       agents,
@@ -220,7 +230,7 @@ it("sends adaptive thinking and selectable proxy effort through the actual nativ
         agentId: agent.agentId,
         revision: agent.revision,
         ownerId: "owner",
-        cwd: home,
+        cwd: agent.workspace,
       });
       await client.rpc.request("session.submit", {
         sessionId,

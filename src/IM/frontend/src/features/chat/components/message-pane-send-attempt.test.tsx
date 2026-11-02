@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
@@ -77,6 +77,21 @@ describe('ordinary composer send identity',()=>{
     await waitFor(()=>expect(onRecovered).toHaveBeenCalledWith(message));
     await waitFor(()=>expect(screen.getByRole('textbox')).toHaveValue(expected));
     expect(await listSendAttempts('u1','chat')).toEqual([]);
+  });
+
+  it('keeps a newly pasted image when an older send lookup completes',async()=>{
+    const submitted = {draft:'old submission',draftMentions:[],pending:[],slashDismissed:false,revision:'old-version'};
+    await prepareSendAttempt('u1','chat',submitted,{text:'old submission',attachments:[],contexts:[]});
+    let confirm!: (message: Message | null) => void;
+    vi.mocked(lookupMessageAttempt).mockReturnValue(new Promise(resolve=>{confirm=resolve;}));
+    const uploadAttachment = vi.fn(()=>new Promise<{url:string}>(()=>{}));
+    render(pane({uploadAttachment}));
+    await waitFor(()=>expect(lookupMessageAttempt).toHaveBeenCalled());
+    fireEvent.paste(screen.getByRole('textbox'),{clipboardData:{items:[],files:[new File(['image'],'new.png',{type:'image/png'})]}});
+    expect(screen.getByRole('img',{name:'new.png'})).toBeInTheDocument();
+    await act(async()=>confirm(null));
+    expect(screen.getByRole('img',{name:'new.png'})).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('');
   });
 
   it('gives two successfully submitted identical messages distinct keys',async()=>{

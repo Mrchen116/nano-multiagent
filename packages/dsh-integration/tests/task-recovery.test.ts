@@ -1,3 +1,4 @@
+import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -21,7 +22,7 @@ export function apply(ctx){
  });
 }`);
     await prepareProfile(home,[{insert:[{id:'task-recovery-probe',name:join(home,'probe.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
     let active=false,online=false,reads=0;
     client.rpc.handle('product.task_execution.snapshot',async()=>{
       reads++;

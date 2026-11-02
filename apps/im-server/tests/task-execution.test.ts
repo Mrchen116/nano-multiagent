@@ -17,6 +17,27 @@ function setup() {
 }
 
 describe('durable Task execution responsibility',()=>{
+  it.each(['root','subtree'])('publishes one original deletion notice per removed node for %s deletion and receipt replay',scope=>{
+    const {db,ctx,tasks,graph}=setup();
+    const added=tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:1,request_key:'add-child',change_note:'Add child',operations:[{op:'add_task',container_id:'n1',client_ref:'child',title:'Child work',assignee:{type:'agent',id:'a'}}]});
+    const nodeId=scope==='root'?'n1':added.client_refs.child;
+    const published=vi.spyOn(ctx.messaging,'publishMessages');
+    const args={graph_id:graph.graph_id,node_id:nodeId,base_revision:2,request_key:'delete'};
+    const result=tasks.execute(human,'delete',args);
+    const notices=published.mock.calls.flatMap(call=>call[0]);
+    expect(notices).toHaveLength(scope==='root'?2:1);
+    for(const message of notices){
+      expect(message.conversation_id).toBe('chat');
+      expect(message.content).toContain('已删除，原入口已失效');
+      expect(message.content).toContain('target_id="a1"');
+      expect(message.content).not.toContain('/tasks/');
+      expect(db.prepare('SELECT message_id FROM task_context_index WHERE agent_id=? AND message_id=?').get('a',message.id)).toEqual({message_id:message.id});
+      expect(ctx.messaging.message(message.id)?.content).toBe(message.content);
+    }
+    published.mockClear();
+    expect(tasks.execute(human,'delete',args)).toEqual(result);
+    expect(published.mock.calls.flatMap(call=>call[0])).toEqual([]);
+  });
   it('versions only the edited responsibility when another node in the same graph changes',()=>{
     vi.useFakeTimers({toFake:['Date']});
     try {
@@ -120,10 +141,11 @@ it('pauses after a server write still awaiting native evidence, even when its cl
   gateway.request=async()=>{entered();return new Promise(resolve=>{release=resolve;});};
   const writing=gateway.handle(connection,'task_graph.command',{node_id:'n',agent_id:'a',request_id:'write',action:'apply',args:{graph_id:graph.graph_id,base_revision:1,request_key:'wait',change_note:'',operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Await delivered request',schedule_id:'schedule'}}}]}});
   await checking;
-  const stopping=gateway.handle(connection,'task.execution.pause',{node_id:'n',agent_id:'a',conversation_id:'chat',request_id:'stop',request_key:'stop'});
+  const stop=ctx.messaging.insertMessage('chat','u1','user','/stop');ctx.messaging.queueRepresentedRelays(stop,'no-agent');
+  const stopping=gateway.handle(connection,'task.execution.pause',{node_id:'n',agent_id:'a',conversation_id:'chat',request_id:'stop',request_key:'stop',control_message_id:stop.id});
   expect(gateway.tasks.execute(human,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0].status).toBe('doing');
   release({valid:true,owner_agent_id:'a',session_id:'s',next_check_at:new Date(Date.now()+60000).toISOString(),checked_at:new Date().toISOString()});
-  expect((await writing).payload.ok).toBe(true);expect((await stopping).payload.result.paused).toBe(1);
+  expect((await writing).payload.ok).toBe(true);const stopped=await stopping;expect(stopped,JSON.stringify(stopped)).toMatchObject({payload:{ok:true,result:{paused:1}}});
   expect(gateway.tasks.execute(human,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0]).toMatchObject({status:'paused'});
 });
 
@@ -201,7 +223,10 @@ it('closes waiting and resumed work with human audit before publishing dissoluti
     {hint:{agent_ids:['a'],conversation_ids:['chat']},tasks:[],transaction:false},
     {hint:{agent_ids:[],conversation_ids:['chat']},tasks:[],transaction:false},
   ]));
-  expect(counts()).toEqual(beforeCounts);
+  expect(counts()).toEqual(beforeCounts.map((value,index)=>index<2?Number(value)+1:value));
+  const withdrawal=JSON.parse(db.prepare("SELECT system_notice_json FROM messages WHERE system_notice_json LIKE '%access_revoked%' ORDER BY rowid DESC LIMIT 1").get()!.system_notice_json as string);
+  expect(withdrawal).toMatchObject({kind:'task_graph',change_kinds:['access_revoked']});
+  expect(JSON.stringify(withdrawal)).not.toContain('Completed graph');
   expect(db.prepare("SELECT count(*) AS n FROM relay_tasks WHERE status IN ('queued','sent','accepted')").get()!.n).toBe(0);
   expect(ctx.gateway.broadcast).toHaveBeenCalled();
 });

@@ -1,11 +1,49 @@
+import type { ScheduleDeletionIntent } from './schedule-deletions.js';
 import type { ControlIntent } from './session-controls.js';
 import { DatabaseSync } from 'node:sqlite';
 import type { DeliveryState, RelayInput, RuntimeEvent, SessionBinding } from '@nano/product-contracts';
 import { ToolReferences } from './tool-references.js';
 import { AgentLifecycleAuthority } from './agent-lifecycle.js';
 
+interface SystemContextInput {message_id:string;conversation_id:string;session_id:string|null;input_id:string;digest:string;state:'prepared'|'consumed'|'revoked';turn:number|null}
+
+type InputRow = {
+  input_id: string; payload: string; accepted: number; turn: number | null; terminal: string | null;
+};
+function decodeInput(row: InputRow) {
+  return { id: row.input_id, input: JSON.parse(row.payload) as RelayInput, accepted: !!row.accepted, turn: row.turn, terminal: row.terminal };
+}
+
 /** Node-owned durable handoff and delivery facts, independent of DSH storage. */
 export class NodeStore {
+  /** Read durable ingestion progress, independent of model consumption. */
+  taskContextCursor(agentId:string):number { return (this.db.prepare('SELECT seq FROM task_context_cursors WHERE agent_id=?').get(agentId) as {seq:number}|undefined)?.seq??0; }
+  /** Advance only after every original input or terminal reference was persisted. */
+  advanceTaskContext(agentId:string,seq:number):void { this.db.prepare('INSERT INTO task_context_cursors VALUES(?,?) ON CONFLICT(agent_id) DO UPDATE SET seq=max(seq,excluded.seq)').run(agentId,seq); }
+  /** Persist a stable native identity without treating admission as consumption. */
+  prepareSystemContext(agentId:string,messageId:string,conversationId:string,sessionId:string,digest:string):void {
+    this.db.prepare("INSERT INTO system_context_inputs VALUES(?,?,?,?,?,?,'prepared',NULL) ON CONFLICT(agent_id,message_id) DO UPDATE SET session_id=excluded.session_id,digest=excluded.digest,turn=NULL WHERE state='prepared'").run(agentId,messageId,conversationId,sessionId,messageId,digest);
+  }
+  /** List product mappings for execution evidence repair, including terminal revocations. */
+  systemContextInputs(agentId:string):SystemContextInput[] {
+    return this.db.prepare('SELECT * FROM system_context_inputs WHERE agent_id=?').all(agentId) as unknown as SystemContextInput[];
+  }
+  /** Load session receipts that still need a product mapping or Inbox acknowledgement. */
+  systemContextToReconcile(agentId: string, sessionId: string, unreadIds: string[]) {
+    return this.db.prepare(`
+      SELECT input_id, digest, state FROM system_context_inputs
+      WHERE session_id=? AND agent_id=? AND
+        (state='prepared' OR (state='consumed' AND input_id IN (SELECT value FROM json_each(?))))
+    `).all(sessionId, agentId, JSON.stringify(unreadIds)) as Pick<SystemContextInput,'input_id'|'digest'|'state'>[];
+  }
+  /** Revocation is terminal and wins over delayed admission or evidence ACKs. */
+  revokeSystemContext(agentId:string,messageId:string,conversationId:string):void {
+    this.db.prepare("INSERT INTO system_context_inputs VALUES(?,?,?,NULL,?,'','revoked',NULL) ON CONFLICT(agent_id,message_id) DO UPDATE SET state=CASE WHEN state='consumed' THEN state ELSE 'revoked' END").run(agentId,messageId,conversationId,messageId);
+  }
+  /** Commit only the exact prepared content evidenced in an actual native step. */
+  commitSystemContext(sessionId:string,inputId:string,digest:string,turn:number):boolean {
+    return Number(this.db.prepare("UPDATE system_context_inputs SET state='consumed',turn=? WHERE session_id=? AND input_id=? AND digest=? AND state='prepared'").run(turn,sessionId,inputId,digest).changes)>0;
+  }
   private readonly db: DatabaseSync;
   readonly toolReferences: ToolReferences;
   readonly lifecycle: AgentLifecycleAuthority;
@@ -48,7 +86,11 @@ export class NodeStore {
         operation_id TEXT NOT NULL REFERENCES deliveries(operation_id), seq INTEGER NOT NULL,
         PRIMARY KEY(operation_id,seq)
       );
+      CREATE TABLE IF NOT EXISTS schedule_deletions(operation_id TEXT PRIMARY KEY,intent TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_context_cursors(agent_id TEXT PRIMARY KEY,seq INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS system_context_inputs(agent_id TEXT,message_id TEXT,conversation_id TEXT,session_id TEXT,input_id TEXT,digest TEXT,state TEXT NOT NULL,turn INTEGER,PRIMARY KEY(agent_id,message_id),UNIQUE(session_id,input_id));
       CREATE TABLE IF NOT EXISTS control_intents(id TEXT PRIMARY KEY, intent TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS pending_controls ON control_intents(json_extract(intent,'$.binding.agentId')) WHERE coalesce(json_extract(intent,'$.delivered'),0)=0;
       CREATE TABLE IF NOT EXISTS command_results (id TEXT PRIMARY KEY, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS input_receipts (input_id TEXT PRIMARY KEY REFERENCES inputs(input_id), status TEXT NOT NULL);
     `);
@@ -61,6 +103,10 @@ export class NodeStore {
       this.db.exec('ALTER TABLE inputs ADD COLUMN evidence_final INTEGER NOT NULL DEFAULT 0');
     }
     this.db.exec('CREATE INDEX IF NOT EXISTS inputs_evidence_pending ON inputs(session_id,evidence_final)');
+    this.db.exec(`CREATE INDEX IF NOT EXISTS inputs_group_session ON inputs(session_id)
+      WHERE json_extract(payload,'$.metadata.conversation_type')='group';
+      CREATE INDEX IF NOT EXISTS inputs_session_turn ON inputs(session_id,turn);
+      CREATE INDEX IF NOT EXISTS inputs_unsubmitted ON inputs(session_id) WHERE accepted=0 AND (terminal IS NULL OR terminal='');`);
     this.toolReferences = new ToolReferences(this.db);
     this.lifecycle = new AgentLifecycleAuthority(this.db);
     if(!(this.db.prepare('PRAGMA table_info(group_background)').all() as {name:string}[]).some(c=>c.name==='cancelled'))this.db.exec('ALTER TABLE group_background ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0');
@@ -148,6 +194,15 @@ export class NodeStore {
     const row = this.db.prepare('SELECT binding FROM sessions WHERE agent_id=? AND conversation_id=?').get(agentId, conversationId) as { binding: string } | undefined;
     return row ? JSON.parse(row.binding) as SessionBinding : undefined;
   }
+  /** Resolve a runtime notification using its durable session identity.
+   *
+   * Returns:
+   *   The stored binding, or undefined for a session outside this node.
+   */
+  bindingForSession(sessionId: string): SessionBinding | undefined {
+    const row = this.db.prepare('SELECT binding FROM sessions WHERE session_id=?').get(sessionId) as { binding: string } | undefined;
+    return row ? JSON.parse(row.binding) as SessionBinding : undefined;
+  }
   bindings(): SessionBinding[] {
     return (this.db.prepare('SELECT binding FROM sessions').all() as { binding: string }[]).map(row => JSON.parse(row.binding) as SessionBinding);
   }
@@ -170,10 +225,19 @@ export class NodeStore {
     return updated;
   }
 
+  /** Read only deletion-operation facts, never a substitute Schedule catalog. */
+  scheduleDeletions():ScheduleDeletionIntent[]{return (this.db.prepare('SELECT intent FROM schedule_deletions ORDER BY rowid').all() as {intent:string}[]).map(row=>JSON.parse(row.intent));}
+  /** Persist an intent or independent notification receipt before proceeding. */
+  saveScheduleDeletion(intent:ScheduleDeletionIntent):void{this.db.prepare('INSERT INTO schedule_deletions VALUES(?,?) ON CONFLICT(operation_id) DO UPDATE SET intent=excluded.intent').run(intent.operationId,JSON.stringify(intent));}
   control(id: string): ControlIntent | undefined {
     const row = this.db.prepare('SELECT intent FROM control_intents WHERE id=?').get(id) as { intent: string } | undefined; return row ? JSON.parse(row.intent) : undefined;
   }
   controls(): ControlIntent[] { return (this.db.prepare('SELECT intent FROM control_intents ORDER BY rowid').all() as { intent: string }[]).map(row => JSON.parse(row.intent)); }
+  /** Select unfinished controls in durable order, optionally for one Agent. */
+  pendingControls(agentId?: string): ControlIntent[] {
+    const where=agentId===undefined?'':" AND json_extract(intent,'$.binding.agentId')=?";
+    return (this.db.prepare("SELECT intent FROM control_intents WHERE coalesce(json_extract(intent,'$.delivered'),0)=0"+where+' ORDER BY rowid').all(...(agentId===undefined?[]:[agentId])) as {intent:string}[]).map(row=>JSON.parse(row.intent));
+  }
   saveControl(intent: ControlIntent) { this.db.prepare('INSERT INTO control_intents VALUES(?,?) ON CONFLICT(id) DO UPDATE SET intent=excluded.intent').run(intent.id, JSON.stringify(intent)); }
   command(id: string): string | undefined {
     return (this.db.prepare('SELECT result FROM command_results WHERE id=?').get(id) as { result: string } | undefined)?.result;
@@ -240,12 +304,63 @@ export class NodeStore {
   lookupInputIds(sessionId: string): string[] {
     return (this.db.prepare('SELECT input_id FROM inputs WHERE session_id=? AND evidence_final=0 ORDER BY rowid').all(sessionId) as { input_id: string }[]).map(row => row.input_id);
   }
-  inputs(sessionId: string) {
-    return (this.db.prepare('SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? ORDER BY rowid').all(sessionId) as {
-      input_id: string; payload: string; accepted: number; turn: number | null; terminal: string | null;
-    }[]).map(row => ({ id: row.input_id, input: JSON.parse(row.payload) as RelayInput, accepted: !!row.accepted, turn: row.turn, terminal: row.terminal }));
+  /** Check for group inputs across turns, including those preceding a system wake. */
+  hasGroupInput(sessionId: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM inputs WHERE session_id=?
+      AND json_extract(payload,'$.metadata.conversation_type')='group' LIMIT 1`).get(sessionId);
   }
-  inputForTurn(sessionId: string, turn: number) { return this.inputs(sessionId).find(input => input.turn === turn); }
+  /** Read inputs in admission order.
+   *
+   * Args:
+   *   sessionId: Durable session identity.
+   *   turn: Limit to this logical turn, or omit for session-wide recovery.
+   */
+  inputs(sessionId: string, turn?: number) {
+    const query = 'SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=?';
+    const rows = turn === undefined ? this.db.prepare(query + ' ORDER BY rowid').all(sessionId)
+      : this.db.prepare(query + ' AND turn=? ORDER BY rowid').all(sessionId, turn);
+    return (rows as InputRow[]).map(decodeInput);
+  }
+
+  /** Read the earliest admitted matching source within its original session. */
+  inputForIds(sessionId: string, inputIds: string[]) {
+    const row=this.db.prepare("SELECT i.input_id,i.payload,i.accepted,i.turn,i.terminal FROM json_each(?) ids CROSS JOIN inputs i ON i.input_id=ids.value WHERE i.session_id=? ORDER BY i.rowid LIMIT 1")
+      .get(JSON.stringify(inputIds),sessionId) as InputRow|undefined;
+    return row&&decodeInput(row);
+  }
+
+  /** Read only unsubmitted inputs in durable admission order. */
+  pendingInputs(sessionId: string) {
+    return (this.db.prepare("SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? AND accepted=0 AND (terminal IS NULL OR terminal='') ORDER BY rowid")
+      .all(sessionId) as InputRow[]).map(decodeInput);
+  }
+  /** Check one input receipt without decoding unrelated input bodies. */
+  inputTerminal(sessionId: string, inputId: string): string | null | undefined {
+    return (this.db.prepare('SELECT terminal FROM inputs WHERE session_id=? AND input_id=?').get(sessionId, inputId) as {terminal:string|null}|undefined)?.terminal;
+  }
+
+  /** Select admitted turns that can still publish a notice, output, or missing receipt.
+   *
+   * Args:
+   *   sessionId: Session being reconciled after durable observation.
+   *   noticeTurns: Logical turns with fallback notices that may need replay.
+   */
+  deliveryInputs(sessionId: string, noticeTurns: number[]) {
+    const rows = this.db.prepare(`
+      SELECT i.input_id,i.payload,i.accepted,i.turn,i.terminal FROM inputs i
+      WHERE i.session_id=? AND i.turn IS NOT NULL AND (
+        i.turn IN (SELECT value FROM json_each(?)) OR NOT EXISTS (
+          SELECT 1 FROM deliveries d JOIN input_receipts r
+            ON r.input_id=coalesce(json_extract(i.payload,'$.metadata.runtime_input_id'),i.input_id)
+          WHERE d.session_id=i.session_id AND d.turn=i.turn AND r.status=CASE
+            WHEN d.state IN ('confirmed','withheld') THEN 'completed'
+            WHEN d.state IN ('failed','unknown') THEN 'failed' END
+        )
+      ) ORDER BY i.rowid
+    `).all(sessionId, JSON.stringify(noticeTurns)) as InputRow[];
+    return rows.map(decodeInput);
+  }
+  inputForTurn(sessionId: string, turn: number) { return this.inputs(sessionId, turn)[0]; }
 
   prepareScheduleRun(inputId: string, agentId: string, scheduleId: string, sessionId: string): void {
     this.db.prepare('INSERT OR IGNORE INTO schedule_runs VALUES(?,?,?,?,?)').run(inputId, agentId, scheduleId, sessionId, new Date().toISOString());
@@ -289,8 +404,8 @@ export class NodeStore {
     };
     this.db.prepare('INSERT OR IGNORE INTO inputs(input_id,session_id,relay_id,payload,accepted) VALUES(?,?,?,?,1)').run(message.id, sessionId, input.relay_task_id, JSON.stringify(input));
   }
-  events(sessionId: string, afterSeq = -1): RuntimeEvent[] {
-    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? AND seq>? ORDER BY seq').all(sessionId,afterSeq) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
+  events(sessionId: string, afterSeq = -1, throughSeq = Number.MAX_SAFE_INTEGER): RuntimeEvent[] {
+    return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? AND seq>? AND seq<=? ORDER BY seq').all(sessionId,afterSeq,throughSeq) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
   }
   cursor(sessionId: string): number {
     return (this.db.prepare('SELECT coalesce(max(seq),-1) AS seq FROM runtime_events WHERE session_id=?').get(sessionId) as { seq: number }).seq;

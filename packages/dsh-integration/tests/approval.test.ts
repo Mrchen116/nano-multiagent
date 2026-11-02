@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { parseNanoDecision, parseDshDecision, buildPolicy } from '../src/policy/rules.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('parses only valid verdicts and keeps malformed reviews distinct from denials', () => {
   expect(parseNanoDecision('<thinking><block>yes</block></thinking><block>no</block>')).toEqual({ behavior: 'allow', reason: 'Allowed by classifier' });
@@ -36,6 +37,7 @@ export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exe
 });}`);
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture'}]}}}},{insert:[{id:'message-approval-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'}});
+    registerNoopTaskHosts(client);
     const sent:string[]=[];
     client.rpc.handle('product.call',value=>{
       const call=value as {method:string;args:{target:string};agentId:string};
@@ -44,7 +46,7 @@ export function apply(ctx){const steps=new Set();ctx.on('tools/pre-execute',(exe
       throw new Error('Unexpected product request');
     });
     const cases=[['owner-global','global','nano'],['owner-single','single_thread','nano'],['owner-dsh','global','dsh'],['owner-blocked','global','nano'],['user','global','nano'],['group','global','nano'],['unknown','global','nano']] as const;
-    const agents=cases.map(([agentId,mode,rules])=>({agentId,revision:'1',mode,provider:'fixture',model:'fixture',toolAllowlist:['send_message'],approval:{...approvalDefaults,globalRoot:home,rules,denyLimit:20,alwaysAllowTools:['send_message']}}));
+    const agents=cases.map(([agentId,mode,rules])=>({agentId,knowledge:{memoryMode:'legacy'},revision:'1',mode,provider:'fixture',model:'fixture',toolAllowlist:['send_message'],approval:{...approvalDefaults,globalRoot:home,rules,denyLimit:20,alwaysAllowTools:['send_message']}}));
     await client.rpc.request('initialize',{protocol:1,agents,bindings:[]});
     for(const [agentId] of cases){
       await client.rpc.request('session.ensure',{sessionId:agentId,agentId,revision:'1',ownerId:'owner',cwd:home});
@@ -94,11 +96,12 @@ export function apply(ctx) {
     yield { type: 'block-end', index: 0, block: { type: 'text', text: content } }; yield { type: 'finish', reason: { kind: 'stop' } };
   });
 }`);
-  const agents = ['allow', 'threshold', 'fault', 'global', 'system', 'dsh', 'reject', 'cancel', 'timeout'].map(agentId => ({ agentId, revision: '1', provider: 'fixture', model: 'main-model', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, mode: agentId === 'global' ? 'global' : 'single_thread',
+  const agents = ['allow', 'threshold', 'fault', 'global', 'system', 'dsh', 'reject', 'cancel', 'timeout'].map(agentId => ({ agentId, knowledge: {memoryMode: 'legacy'}, revision: '1', provider: 'fixture', model: 'main-model', features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}, mode: agentId === 'global' ? 'global' : 'single_thread',
     approval: { ...approvalDefaults, globalRoot: home, askTimeoutSec: agentId === 'timeout' ? 0.05 : 600, rules: agentId === 'dsh' ? 'dsh' : 'nano', denyLimit: agentId === 'dsh' ? 1 : 3, reviewer: { provider: 'fixture', model: 'review-model' } } }));
   try {
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main-model' }, { id: 'review-model', reasoningEfforts: { low: 'low' } }] } } } }, { insert: [{ id: 'approval-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const requests: Record<string, unknown>[] = [];
     client.rpc.onNotification((method, value) => { if (method === 'approval.request') { requests.push(value as Record<string, unknown>); const request = value as { requestId: string; sessionId: string };
       if (['approval-timeout', 'approval-threshold'].includes(request.sessionId)) return;
@@ -143,6 +146,7 @@ export function apply(ctx) {
     expect(fault.approvals.filter(event => event.source === 'classifier_unavailable')).toEqual([expect.objectContaining({ decision: 'no_verdict', consecutive: 0, total: 0 })]);
     await client.shutdown(); client = undefined;
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const bindings = agents.map(config => ({ sessionId: `approval-${config.agentId}`, agentId: config.agentId, revision: config.revision, ownerId: 'owner', cwd: home }));
     await client.rpc.request('initialize', { protocol: 1, agents, bindings });
     await client.rpc.request('session.ensure', bindings.find(binding => binding.agentId === 'threshold'));
@@ -215,10 +219,11 @@ export function apply(ctx) {
       agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'fixture',
       toolAllowlist: agentId === 'hidden' ? [] : toolAllowlist,
       features: { task_graph: true, skill_creation: true, memory_curation: false, cron_scheduling: true },
-      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') },
+      knowledge: { memoryMode: 'legacy', enabled: false, globalSkillRoot: join(home, 'skills') },
       approval: { ...approvalDefaults, enabled: agentId !== 'manual', globalRoot: home, rules: agentId === 'dsh' ? 'dsh' : 'nano' },
     }));
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     const effects: { method: string; sessionId: string }[] = [];
     client.rpc.handle('product.call', value => {
       const call = value as { method: string; sessionId: string };
@@ -290,6 +295,7 @@ export function apply(ctx){
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'main', contextWindow: 1000000 }, { id: 'review', contextWindow: 258400 }, { id: 'tiny', contextWindow: 4096 }] } } } },
       { insert: [{ id: 'review-context-fixture', name: join(home, 'fixture.mjs') }] }]);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' } });
+    registerNoopTaskHosts(client);
     const reads = new Map<string, number>();
     client.rpc.handle('product.call', value => {
       const call = value as { method: string; sessionId: string };
@@ -303,7 +309,7 @@ export function apply(ctx){
       throw new Error('Unexpected product call: ' + call.method);
     });
     const agents = ['normal', 'overflow'].map(agentId => ({ agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'main', toolAllowlist: ['inbox', 'send_message', 'fixture_effect'],
-      knowledge: { enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, rules: 'nano', globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
+      knowledge: { memoryMode: 'legacy', enabled: false, globalSkillRoot: join(home, 'skills') }, approval: { ...approvalDefaults, rules: 'nano', globalRoot: home, reviewer: { provider: 'fixture', model: agentId === 'normal' ? 'review' : 'tiny' } } }));
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
     for (const config of agents) {
       await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });

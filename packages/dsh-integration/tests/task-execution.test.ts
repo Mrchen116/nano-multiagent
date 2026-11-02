@@ -1,3 +1,4 @@
+import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -17,7 +18,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){
  yield{type:'block-end',index:0,block:{type:'text',text:'NO_REPLY'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
     await prepareProfile(home,[{insert:[{id:'task-execution-probe',name:join(home,'probe.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
+    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
     let task:TaskExecutionSnapshot={kind:'quiescent',tasks:[],repair_task_ids:[]};
     let reads=0,blockRead:undefined|(()=>Promise<void>);
     const calls=async()=>{const text=await readFile(join(home,'calls.jsonl'),'utf8').catch(()=>'');return text.trim()?text.trim().split('\n').map(line=>JSON.parse(line)):[];};
@@ -37,7 +38,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){
     await expect.poll(async()=>(await calls()).length).toBeGreaterThanOrEqual(1);
     task={kind:'quiescent',tasks:[],repair_task_ids:[]};
     await expect.poll(async()=>(await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    const first=(await calls())[0];expect(first.messages.filter((message:{source?:{channel?:string}})=>message.source?.channel==='task-human-control')).toHaveLength(1);expect(JSON.stringify(first.messages)).toContain('LATEST_TASK');expect(JSON.stringify(first.messages)).not.toContain('OLD_DISCOVERY');
+    const first=(await calls())[0];expect(first.messages.filter((message:{source?:{channel?:string}})=>message.source?.channel==='task-human-control')).toHaveLength(0);expect(JSON.stringify(first.messages).match(/Current Task context:/g)).toHaveLength(1);expect(JSON.stringify(first.messages)).toContain('LATEST_TASK');expect(JSON.stringify(first.messages)).not.toContain('OLD_DISCOVERY');
     const count=(await calls()).length;
     await client.rpc.request('task.execution.changed',{agentId:'a'});
     expect((await calls()).length).toBe(count);
@@ -59,7 +60,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){
   finally{await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
-it.each(['automatic', 'human'])('holds automatic retries after %s permission failure and delivers the final result after responsibility ends', async denial => {
+it.each(['automatic', 'human'])('continues a permitted alternative after %s permission failure without changing Task state', async denial => {
   const home = await mkdtemp(join(tmpdir(), 'nano-task-policy-'));
   let client: RuntimeClient | undefined;
   let logs = '';
@@ -67,26 +68,25 @@ it.each(['automatic', 'human'])('holds automatic retries after %s permission fai
     await writeFile(join(home, 'probe.mjs'), `import {appendFile,writeFile} from 'node:fs/promises';
 export const name='task-policy-probe';export const inject=['tools','llm','agents'];
 export function apply(ctx){
- let denied=false;
+ let step=0;
  ctx.tools.register({name:'fixture_effect',description:'Test effect',parameters:{type:'object',properties:{readOnly:{type:'boolean'}}},output:{schema:{type:'string'},render:(_args,value)=>[{type:'text',text:value}]},
-  execute:async(args)=>{if(!args.readOnly)await writeFile(process.env.DSH_HOME+'/completed','yes');return 'completed';}});
+  execute:async(args)=>{await writeFile(process.env.DSH_HOME+(args.readOnly?'/completed':'/forbidden'),'yes');return 'completed';}});
  ctx.on('tools/pre-execute',(exec,next)=>{
   if(exec.name!=='fixture_effect')return next();
-  if(!denied){denied=true;return ${denial==='human'?"{kind:'ask',reason:'Requires permission'}":"{kind:'deny',reason:'Requires permission',info:{name:'NanoApprovalDenied',code:'classifier_block'}}"};}
+  if(!exec.arguments.readOnly){return ${denial==='human'?"{kind:'ask',reason:'Requires permission'}":"{kind:'deny',reason:'Requires permission',info:{name:'NanoApprovalDenied',code:'classifier_block'}}"};}
   return {kind:'allow'};
  },{prepend:true});
  ctx.on('llm/stream',async function*(o){
-  const last=o.messages.at(-1);
-  const isResult=last?.role==='tool'||last?.role==='user'&&o.messages.at(-2)?.role==='tool';
+  const isResult=++step%2===0;
   await appendFile(process.env.DSH_HOME+'/calls.jsonl',JSON.stringify({isResult,messages:o.messages})+'\\n');
   const trigger=o.messages.findLast(m=>m.role==='user'&&['task-execution','heartbeat'].includes(m.source?.channel));
-  const readOnly=trigger?.source?.channel==='heartbeat';
+  const readOnly=step>2;
   const block=isResult?{type:'text',text:'RESULT_OR_BLOCKER_VISIBLE'}:{type:'tool-call',id:'effect-'+Date.now(),name:'fixture_effect',arguments:JSON.stringify({readOnly})};
   yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:isResult?'stop':'tool-calls'}};
  });
 }`);
     await prepareProfile(home, [{insert: [{id: 'task-policy-probe', name: join(home, 'probe.mjs')}]}]);
-    client = new RuntimeClient({home, cwd: home, onLog: text => {logs += text;}});
+    client = new RuntimeClient({home, cwd: home, onLog: text => {logs += text;}});registerNoopTaskContext(client);
     client.rpc.onNotification((method,payload)=>{if(method==='approval.request')void client!.rpc.request('approval.answer',{requestId:(payload as {requestId:string}).requestId,decision:'rejected'});});
     let revision = 1, updated = '2026-10-23T15:00:00Z';
     client.rpc.handle('product.task_execution.snapshot', async () => {
@@ -98,31 +98,11 @@ export function apply(ctx){
     const calls = async () => (await readFile(join(home, 'calls.jsonl'), 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     await client.rpc.request('initialize', {protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[]});
     await client.rpc.request('session.ensure', {sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
-    await expect.poll(async () => (await calls()).length).toBeGreaterThanOrEqual(2);
-    await expect.poll(async () => (await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    await client.rpc.request('task.execution.changed',{agentId:'a',reset:false});
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
-    await new Promise(resolve => setTimeout(resolve, 150));
-    expect((await calls()).length).toBe(2);
-    expect(await readFile(join(home,'completed'),'utf8').catch(()=>null)).toBeNull();
-
-    // Neither a heartbeat with a successful different action on the same tool,
-    // nor an unrelated node's graph revision may reopen the denied responsibility.
-    await client.rpc.request('session.submit',{sessionId:'s',inputId:'unrelated',mode:'followup',content:[{type:'text',text:'Unrelated read'}],source:{kind:'system',actorId:'a',channel:'heartbeat',messageId:'unrelated'}});
-    await expect.poll(async () => (await calls()).length).toBeGreaterThanOrEqual(4);
-    await expect.poll(async () => (await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    revision = 2;
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
-    await new Promise(resolve => setTimeout(resolve, 150));
-    expect((await calls()).length).toBe(4);
-    expect(await readFile(join(home,'completed'),'utf8').catch(()=>null)).toBeNull();
-    // A change to this node's own contents permits reassessment under approval.
-    updated = '2026-10-23T15:01:00Z';
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
     await expect.poll(() => readFile(join(home,'completed'),'utf8').catch(()=>null)).toBe('yes');
-    await expect.poll(async () => (await calls()).length).toBe(6);
+    await expect.poll(async () => (await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
+    expect(await readFile(join(home,'forbidden'),'utf8').catch(()=>null)).toBeNull();
     const observed = await client.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:Record<string,unknown>}[]};
-    expect(observed.events.filter(e=>e.type==='assistant/message').map(e=>JSON.stringify(e.data)).filter(s=>s.includes('RESULT_OR_BLOCKER_VISIBLE'))).toHaveLength(3);
+    expect(observed.events.filter(e=>e.type==='assistant/message').map(e=>JSON.stringify(e.data)).filter(s=>s.includes('RESULT_OR_BLOCKER_VISIBLE'))).toHaveLength(2);
   } catch(error) {throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
@@ -145,7 +125,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(){
  yield{type:'block-end',index:0,block:{type:'text',text:'Recovered result'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
     await prepareProfile(home, [{insert:[{id:'task-model-recovery',name:join(home,'probe.mjs')}]}]);
-    client = new RuntimeClient({home,cwd:home});
+    client = new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     client.rpc.handle('product.task_execution.snapshot', async () => await readFile(join(home,'completed'),'utf8').catch(()=>null)
       ? {kind:'quiescent',tasks:[],repair_task_ids:[]}
       : {kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Task',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[]});
@@ -167,8 +147,8 @@ export function apply(ctx){ctx.on('llm/stream',async function*(){
     await client.rpc.request('task.execution.changed',{agentId:'a'});
     await expect.poll(()=>readFile(join(home,'completed'),'utf8').catch(()=>null)).toBe('yes');
     await expect.poll(async ()=>(await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    // The queued ordinary turn also observes its Task's removal at the next step.
-    expect(await calls()).toBe(failure==='finish-with-inbox'?3:2);
+    // The queued native input is consumed once; removal does not fabricate another delta turn.
+    expect(await calls()).toBe(2);
     if(failure==='finish-with-inbox') {
       const observed=await client.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:{id?:string}}[]};
       expect(observed.events.filter(event=>event.type==='user/message'&&event.data.id==='assignment-notice')).toHaveLength(1);
@@ -176,7 +156,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(){
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
-it.each(['node','dependency','subtree'] as const)('keeps an unchanged denied Task held while independent work completes: %s',async(scope)=>{
+it.each(['node','dependency','subtree'] as const)('continues independent and permitted Task work after a denial: %s',async(scope)=>{
   const home=await mkdtemp(join(tmpdir(),'nano-task-scope-'));let client:RuntimeClient|undefined;
   try {
     await writeFile(join(home,'probe.mjs'),`import {appendFile} from 'node:fs/promises';
@@ -196,7 +176,7 @@ export function apply(ctx){let step=0,denied=false;
  });
 }`);
     await prepareProfile(home,[{insert:[{id:'task-scope-probe',name:join(home,'probe.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     let revision=1,updated='2026-10-23T15:00:00Z';const completed:string[]=[];
     client.rpc.handle('product.task_execution.snapshot',()=>({kind:completed.length===2?'quiescent':'continue',tasks:['A','B'].filter(id=>!completed.includes(id)).map(id=>({graph_id:id==='B'&&scope==='subtree'?'other':'g',node_id:id,title:id,status:'doing',revision,updated_at:updated,conversation:{id:'c'},relative_url:'/tasks/g'})),repair_task_ids:[]}));
     client.rpc.handle('product.call',value=>{
@@ -206,15 +186,8 @@ export function apply(ctx){let step=0,denied=false;
     });
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',mode:'global',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['task_graph']}],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
-    await expect.poll(()=>completed).toEqual(['B']);
-    await expect.poll(async()=>(await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
-    await new Promise(resolve=>setTimeout(resolve,100));
-    const calls=()=>readFile(join(home,'calls'),'utf8').then(text=>text.trim().split('\n').map(line=>JSON.parse(line)));
-    expect(await calls()).toHaveLength(4);
-    updated='2026-10-23T15:01:00Z';
-    await client.rpc.request('task.execution.changed',{agentId:'a'});
     await expect.poll(()=>completed).toEqual(['B','A']);
+    const calls=()=>readFile(join(home,'calls'),'utf8').then(text=>text.trim().split('\n').map(line=>JSON.parse(line)));
     await expect.poll(async()=>(await calls()).length).toBe(6);
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },20_000);
@@ -240,6 +213,9 @@ export function apply(ctx){let call=0;
     await prepareProfile(home,[{insert:[{id:'task-steer-probe',name:join(home,'probe.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});
     let withdrawn=false;
+    const original={inputId:'withdraw-A-original',conversationId:'c',content:[{type:'text',text:'ORIGINAL_WITHDRAW_A: Task g/n1 was reassigned; g/n2 remains doing.'}]};
+    client.rpc.handle('product.task_context.prepare',()=>({messages:withdrawn?[original]:[],revoked:[]}));
+    client.rpc.handle('product.task_context.commit',()=>null);
     client.rpc.handle('product.task_execution.snapshot',async()=>{
       if(await readFile(join(home,'completed'),'utf8').catch(()=>null))return {kind:'quiescent',tasks:[],repair_task_ids:[]};
       return {kind:'continue',tasks:(withdrawn?['B']:['A','B']).map(task=>({graph_id:'g',node_id:task==='A'?'n1':'n2',title:task,status:'doing',revision:withdrawn?2:1,conversation:{id:'c'},relative_url:'/tasks/g'})),repair_task_ids:[]};
@@ -257,8 +233,11 @@ export function apply(ctx){let call=0;
     expect((await readFile(join(home,'effects'),'utf8')).trim().split('\n')).toEqual(['A','B']);
     const calls=(await readFile(join(home,'calls'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     expect(calls).toHaveLength(3);
-    const delta=calls[1].flatMap((m:{content:{type:string;text?:string}[]})=>m.content).filter((b:{text?:string})=>b.text?.startsWith('Task responsibility changed.')).at(-1).text;
-    expect(delta).toContain('"removed":["g/n1"]');expect(delta).toContain('"doing":["g/n2"]');
+    const change=calls[1].find((message:{id:string})=>message.id===original.inputId);
+    expect(change).toMatchObject({role:'user',content:original.content,source:{kind:'nano-system',channel:'task-context',messageId:original.inputId,conversationId:'c'}});
+    expect(JSON.stringify(calls)).not.toContain('Task responsibility changed.');
+    const observed=await client.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:{id?:string}}[]};
+    expect(observed.events.filter(event=>event.type==='user/message'&&event.data.id===original.inputId)).toHaveLength(1);
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
@@ -273,14 +252,14 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     const agent={agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{cron_scheduling:true}};
     const binding={sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home};
     const empty={kind:'quiescent',tasks:[],repair_task_ids:[]};
-    client=new RuntimeClient({home,cwd:home});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     client.rpc.handle('product.task_execution.snapshot',()=>empty);
     await client.rpc.request('initialize',{protocol:1,agents:[agent],bindings:[]});
     await client.rpc.request('session.ensure',binding);
     await client.rpc.request('session.observe',{sessionId:'s'});
     await client.rpc.request('schedule.command',{agentId:'a',sessionId:'s',action:'create',args:{title:'STOP_OLD_SCHEDULE',prompt:'STOP_OLD_SCHEDULE: read current Task before considering any action.',after_seconds:2}});
     await client.shutdown();
-    client=new RuntimeClient({home,cwd:home});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     let pending=true;
     client.rpc.handle('product.task_execution.snapshot',()=>pending?{kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Unconfirmed stop',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[]}:empty);
     await client.rpc.request('initialize',{protocol:1,agents:[agent],bindings:[binding],taskStops:['s']});
@@ -295,10 +274,10 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'stop-notice',mode:'inject',content:[{type:'text',text:'HOST_STOP_NOTICE: prior queued replies cannot resume paused Tasks.'}],source:{kind:'system',actorId:'o',channel:'task-human-control',messageId:'stop'}});
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'concurrent-wake',mode:'followup',content:[{type:'text',text:'Another queued input'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'concurrent-wake'}});
-    await expect.poll(async()=>{
-      const observed=await client!.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:{inserted?:{id:string}[]}}[]};
-      return observed.events.filter(event=>event.type==='agent/inbox/spliced'&&event.data.inserted?.some(message=>message.id==='stop-notice')).length;
-    }).toBeGreaterThanOrEqual(2);
+    // Native batching may leave the injected notice queued without reinserting it.
+    // Wait for the stopped turn to settle; the next real request below proves retention.
+    await expect.poll(async()=>((await client!.rpc.request('session.observe',{sessionId:'s'})) as {status:string}).status).toBe('idle');
+    expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
     pending=false;
     await client.rpc.request('task.execution.block',{sessionId:'s',blocked:false});
     await new Promise(resolve=>setTimeout(resolve,150));
@@ -324,7 +303,7 @@ it('rechecks a consumed native Schedule and becomes quiet after a valid replacem
 export const name='task-schedule-probe';export const inject=['llm'];
 export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFile(process.env.DSH_HOME+'/calls',JSON.stringify(o.messages)+'\\n');while(!await readFile(process.env.DSH_HOME+'/release','utf8').catch(()=>''))await new Promise(r=>setTimeout(r,20));yield{type:'block-end',index:0,block:{type:'text',text:'NO_REPLY'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home,[{insert:[{id:'task-schedule-probe',name:join(home,'probe.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home});
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     let scheduleId:string|undefined;
     client.rpc.handle('product.task_execution.snapshot',async()=>{
       if(!scheduleId)return {kind:'quiescent',tasks:[],repair_task_ids:[]};
@@ -346,9 +325,11 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     await client.rpc.request('task.execution.changed',{agentId:'a',reset:false});
     await new Promise(resolve=>setTimeout(resolve,100));
     const calls=(await readFile(join(home,'calls'),'utf8')).trim().split('\n');
-    // The in-flight native turn receives the replacement delta before its final reply.
-    expect(calls).toHaveLength(2);expect(calls[0]).toContain('repair_task_ids');
-    expect(JSON.parse(calls[1]).at(-1).content[0].text).toContain('"repair_task_ids":[]');
+    // A valid replacement quiets the driver; it is not a fabricated second wake.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('Current Task context:');
+    expect(calls[0]).toContain(oldScheduleId);
+    expect(calls.join('')).not.toContain('Task responsibility changed.');
     expect(await client.rpc.request('schedule.wait.inspect',{agentId:'a',sessionId:'s',scheduleId})).toMatchObject({valid:true});
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);

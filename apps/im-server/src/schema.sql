@@ -1,4 +1,16 @@
 -- IM business schema; preserves existing center storage and identifiers.
+CREATE TABLE IF NOT EXISTS task_context_index (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, message_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL, projection_kind TEXT NOT NULL,
+    UNIQUE(agent_id,message_id,projection_kind)
+);
+CREATE INDEX IF NOT EXISTS task_context_agent_seq ON task_context_index(agent_id,seq);
+CREATE INDEX IF NOT EXISTS task_context_source_seq ON task_context_index(agent_id,conversation_id,projection_kind,seq);
+-- New minimal withdrawal originals survive a Direct's hard-delete cascade. No Task body is retained here.
+CREATE TABLE IF NOT EXISTS task_context_revocations (
+    message_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_user_id TEXT NOT NULL,
+    actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS task_graphs (
     graph_id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
@@ -416,7 +428,11 @@ WHERE receipt_status IS NULL AND status IN ('queued','sent','accepted');
 CREATE INDEX IF NOT EXISTS relay_tasks_message ON relay_tasks(message_id,status);
 CREATE INDEX IF NOT EXISTS conversation_events_message ON conversation_events(message_id,event_type);
 CREATE INDEX IF NOT EXISTS conversation_events_latest ON conversation_events(message_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS participants_by_user ON conversation_participants(user_id,conversation_id);
+CREATE INDEX IF NOT EXISTS public_groups ON conversations(id) WHERE type='group' AND visibility='public';
+CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS messages_running ON messages(id,conversation_id,created_at) WHERE delivery_status='running';
+CREATE INDEX IF NOT EXISTS messages_running_conversation ON messages(conversation_id) WHERE delivery_status='running';
 CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
         ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
         ;
@@ -457,6 +473,10 @@ CREATE TABLE IF NOT EXISTS pa_source_events (
  policy_revision INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
  UNIQUE(binding_id,source_event_id)
 );
+CREATE INDEX IF NOT EXISTS pa_observations_pending_revision ON pa_source_events(
+ binding_id,COALESCE(json_extract(payload_json,'$.lifecycle_revision'),1),event_id,conversation_id,message_id
+) WHERE state IN ('pending','received')
+  AND COALESCE(json_type(payload_json,'$.lifecycle_revision'),'null') IN ('integer','real','null');
 CREATE TRIGGER IF NOT EXISTS personal_observation_event AFTER INSERT ON conversation_events
 WHEN NEW.event_type IN ('message.created','message.completed','conversation.membership_changed','task_graph.changed')
 BEGIN
@@ -496,6 +516,14 @@ CREATE TABLE IF NOT EXISTS pa_incidents (
 CREATE TABLE IF NOT EXISTS pa_contact_blocks (
  binding_id TEXT NOT NULL, actor_id TEXT NOT NULL, PRIMARY KEY(binding_id,actor_id)
 );
+-- New input-review evidence only; historical incidents are not retroactive strikes.
+CREATE TABLE IF NOT EXISTS pa_contact_violations (
+ binding_id TEXT NOT NULL, actor_id TEXT NOT NULL, message_id TEXT NOT NULL,
+ incident_id TEXT NOT NULL UNIQUE REFERENCES pa_incidents(id),
+ counting INTEGER NOT NULL DEFAULT 1, triggered_block INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY(binding_id,message_id)
+);
+CREATE INDEX IF NOT EXISTS pa_contact_violations_counter ON pa_contact_violations(binding_id,actor_id,counting);
 CREATE TRIGGER IF NOT EXISTS personal_membership_revoked AFTER DELETE ON conversation_participants BEGIN
  INSERT INTO pa_source_events(binding_id,kind,payload_json,policy_revision,created_at)
  SELECT b.binding_id,'source.revoked',json_object('conversation_id',OLD.conversation_id),p.revision,strftime('%Y-%m-%dT%H:%M:%fZ','now')
@@ -591,3 +619,10 @@ CREATE TRIGGER IF NOT EXISTS personal_observation_lifecycle AFTER INSERT ON pa_s
 END;
 
 CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,schedule_id TEXT NOT NULL,graph_id TEXT NOT NULL,node_id TEXT NOT NULL,PRIMARY KEY(agent_id,schedule_id));
+
+CREATE INDEX IF NOT EXISTS agent_work_turns_sequence ON agent_work_turns(session_id,seq DESC);
+CREATE INDEX IF NOT EXISTS agent_work_items_sequence ON agent_work_items(session_id,turn_id,seq);
+CREATE INDEX IF NOT EXISTS conversation_events_time ON conversation_events(created_at);
+
+CREATE INDEX IF NOT EXISTS pa_source_events_event ON pa_source_events(source_event_id,binding_id);
+CREATE INDEX IF NOT EXISTS agent_work_events_root ON agent_work_events(root_agent_id);

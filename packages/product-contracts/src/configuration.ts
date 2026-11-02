@@ -9,10 +9,11 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   const agentId = text(payload.agent_id) ?? '';
   const approvalMode = payload.approval_mode ?? null;
   if (approvalMode !== null && approvalMode !== 'cc' && approvalMode !== 'codex') throw new Error('Invalid approval_mode');
-  const skills = Array.isArray(payload.skills) ? strings(payload.skills) : null;
+  const originalSkills = Array.isArray(payload.skills) ? strings(payload.skills) : null;
+  const skills = originalSkills?.filter(name => name !== 'skill-creator') ?? null;
   let mode = text(payload.skills_selection_mode);
   if (mode && !['default_discovery', 'explicit_allowlist', 'explicit_denylist'].includes(mode)) throw new Error('Invalid skills_selection_mode');
-  if (skills !== null) mode ??= skills.length ? 'explicit_allowlist' : 'default_discovery';
+  if (skills !== null) mode ??= originalSkills!.length ? 'explicit_allowlist' : 'default_discovery';
   let personal: PersonalAgentIdentity | undefined;
   if (payload.personal_agent != null) {
     const value = payload.personal_agent as Partial<PersonalAgentIdentity>;
@@ -37,7 +38,7 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
     default_model: text(payload.default_model), model_fallbacks: strings(payload.model_fallbacks), reasoning_effort: text(payload.reasoning_effort),
     workspace_root: text(payload.workspace_root), custom_prompt: text(payload.custom_prompt), heartbeat_json: heartbeatJson,
     features: payload.features && typeof payload.features === 'object' && !Array.isArray(payload.features)
-      ? Object.fromEntries(Object.entries(payload.features).filter((pair): pair is [string, boolean] => typeof pair[1] === 'boolean')) : {} as Record<string, boolean>,
+      ? Object.fromEntries(Object.entries(payload.features).filter((pair): pair is [string, boolean] => typeof pair[1] === 'boolean' && !['memory_curation', 'skill_creation'].includes(pair[0]))) : {} as Record<string, boolean>,
   };
 }
 export type CanonicalAgentConfiguration = ReturnType<typeof canonicalAgentConfiguration>;

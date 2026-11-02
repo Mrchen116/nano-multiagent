@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 const contextTools = ['get_context_remaining', 'history', 'new_context', 'notes'];
 
@@ -19,7 +20,7 @@ it('defaults new and existing Agents to context management and persists explicit
         dsh:{profile:{bundles:[]}},custom:{keep:'EXISTING_USER_FIELD'}}));
       await writeFile(join(dir, 'cordis.patch.yml'), '[]\n');
     }
-    const base = {revision:'1',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:[]};
+    const base = {knowledge:{memoryMode:'legacy'},revision:'1',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:[]};
     const agents = [
       ...Object.entries(workspaces).map(([agentId,workspace]) => ({...base,agentId,workspace})),
       {...base,agentId:'peer',workspace:workspaces.fresh},
@@ -29,6 +30,7 @@ it('defaults new and existing Agents to context management and persists explicit
     const bindings = agents.map(agent => ({sessionId:`context-${agent.agentId}`,agentId:agent.agentId,revision:'1',ownerId:'owner',cwd:home}));
     const start = async (restore = false) => {
       client = new RuntimeClient({home,cwd:home,onLog:text => {logs += text;}});
+      registerNoopTaskHosts(client);
       await client.rpc.request('initialize',{protocol:1,agents,bindings:restore ? bindings : []});
       for (const binding of bindings) await client.rpc.request('session.ensure',binding);
     };
@@ -73,6 +75,7 @@ it('gives a private Personal Agent the same default context tools without busine
   let client: RuntimeClient | undefined;
   try {
     await prepareProfile(home); client = new RuntimeClient({home,cwd:home});
+    registerNoopTaskHosts(client);
     const config = {agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:[],
       personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
@@ -105,6 +108,7 @@ export function apply(ctx) {
     await prepareProfile(home,[{insert:[{id:'context-probe',name:join(home,'probe.mjs')}]}]);
     const {approvalDefaults} = await import('../../product-contracts/src/approval.js');
     client = new RuntimeClient({home,cwd:home,onLog:text => {logs+=text;}});
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'global',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['context_forbidden'],approval:{...approvalDefaults,enabled:false,rules,globalRoot:home}}],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'root',agentId:'global',ownerId:'owner',revision:'1',cwd:home});
     await expect.poll(async()=>readFile(join(home,'probe.json'),'utf8').catch(()=>''),{timeout:15000}).not.toBe('');

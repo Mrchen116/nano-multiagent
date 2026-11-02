@@ -1,3 +1,4 @@
+import { withStandaloneRetry } from './standalone-model-retry.js';
 import type { Context } from '@deepseek-ai/cordis';
 import { AuthorizationDeclinedError } from '@deepseek-ai/dsh-authorization';
 import type { CredentialRecord } from '@deepseek-ai/dsh-credentials';
@@ -13,6 +14,9 @@ interface Transaction { abort: AbortController; previous: Profiles; candidate: C
 /** Expose native model configuration/authentication through the existing stdio seam. */
 export class NativeModelSetup {
   private providers: Profiles = {};
+  private configured = false;
+  /** Current explicit provider metadata for a temporary native inspection. */
+  get inspectionProviders(): Profiles | undefined {return this.configured ? structuredClone(this.providers) : undefined;}
   private transaction?: Transaction;
   constructor(private readonly ctx: Context, private readonly peer: Pick<RpcPeer, 'handle' | 'notify'>) {
     peer.handle('model.setup.catalog', () => this.catalog());
@@ -41,6 +45,7 @@ export class NativeModelSetup {
   async apply(providers: Profiles): Promise<void> {
     await this.ctx.settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers'], value: providers }]);
     this.providers = structuredClone(providers);
+    this.configured = true;
   }
   /** Export only approved model routes and their credentials to a trusted sibling host. */
   async snapshot() {
@@ -125,11 +130,13 @@ export class NativeModelSetup {
       this.notice(candidate, 'testing');
       for (const model of candidate.models ?? [candidate.model!]) {
       const assembly = new BlockAssembler();
-      for await (const chunk of this.ctx.llm.stream({
-        provider: candidate.provider, model, maxTokens: 128,
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with the single word READY.' }] }],
-        signal: AbortSignal.any([transaction.abort.signal, AbortSignal.timeout(45_000)]),
-      })) assembly.push(chunk);
+      await withStandaloneRetry({ timeoutMs: 45_000, purpose: 'model-verification' }, async () => {
+        for await (const chunk of this.ctx.llm.stream({
+          provider: candidate.provider, model, maxTokens: 128,
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with the single word READY.' }] }],
+          signal: transaction.abort.signal,
+        })) assembly.push(chunk);
+      });
       if (assembly.finish.kind === 'error' || assembly.finish.kind === 'aborted' || !assembly.blocks().some(block => block.type === 'text' && block.text.trim())) throw new Error('Model did not return text');
       }
       transaction.abort.signal.throwIfAborted();

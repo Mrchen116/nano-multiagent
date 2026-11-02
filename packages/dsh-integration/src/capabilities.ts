@@ -1,3 +1,4 @@
+import {isOrdinaryChild} from './child-role.js';
 import {fixedTools} from '@nano/product-contracts/capabilities';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
@@ -62,15 +63,16 @@ export class ToolSelection {
     if (agent.ctx.fiber.uid === null) return;
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
-    const disabled: string[] = [];
+    const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
     if (state.config.toolAllowlist === undefined) disabled.push(...goalTools);
+    if (isOrdinaryChild(agent)) disabled.push('conversations', 'personal_sources', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
     if (state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
-    const fixed = fixedTools(state.config.mode, agent.session.header.origin === 'subagent' ? 'subagent' : state.config.personal ? 'personal' : 'root');
+    const fixed = fixedTools(state.config.mode, isOrdinaryChild(agent) ? 'subagent' : state.config.personal ? 'personal' : 'root');
     // Root product tools are scope-local; DSH excludes local-only names from inherited masks.
     state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !(state.config.mode === 'global' && ['inbox', 'conversations'].includes(name)) && !disabled.includes(name)) });
   }
@@ -86,7 +88,7 @@ export async function skillCatalog(config: AgentConfiguration, cwd: string) {
   for (const provider of [...(providers.get(config) ?? [])].sort((a, b) => a.index - b.index)) {
     const result = await provider.native.list({ cwd });
     const candidates = (Array.isArray(result) ? result : result.candidates) as SkillCandidate[];
-    for (const skill of candidates) if (!found.has(skill.name)) found.set(skill.name, { ...skill, rank: provider.index, source: provider.source });
+    for (const skill of candidates) if (skill.name !== 'skill-creator' && !found.has(skill.name)) found.set(skill.name, { ...skill, rank: provider.index, source: provider.source });
   }
   return [...found.values()];
 }
@@ -115,7 +117,6 @@ export function apply(ctx: Context, config: AgentConfiguration) {
   // (/skill:name or an attached [label]) and pending legacy nano-human inputs.
   ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
     const decision = await next(); if (decision.kind === 'reject') return decision;
-    const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
     // The native middleware may append its injections after this scope returns.
     // Detect its /name syntax here solely to suppress the compatibility copy.
     const nativeNames = new Set(messages.filter(message => message.source.kind === 'user').flatMap(message => message.content.flatMap(block =>
@@ -123,6 +124,8 @@ export function apply(ctx: Context, config: AgentConfiguration) {
     const compatibility = messages.filter(message => isHumanSource(message.source) && (message.source.kind === 'nano-human'
       || message.content.some(block => block.type === 'text' && /^(?:\[[^\]]*\]\s*)*\/skill:|^(?:\[[^\]]*\]\s*)+\//.test(block.text))));
     const gestures = [...skillGestures(compatibility).filter(gesture => !nativeNames.has(gesture.name)), ...(pending.get(agent) ?? [])];
+    if (!gestures.length) { pending.delete(agent); return decision; }
+    const invoked = new Set(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id as string] : []));
     const additions: UserMessage[] = [];
     for (const { id, name } of gestures) {
       if (invoked.has(id)) continue;
@@ -134,9 +137,12 @@ export function apply(ctx: Context, config: AgentConfiguration) {
     pending.delete(agent);
     return additions.length ? { ...decision, messages: [...decision.messages, ...additions] } : decision;
   });
-  const allowed = (name: string) => config.skillSelection?.mode === 'explicit_denylist'
-    ? !config.skillSelection.names.includes(name)
-    : config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
+  // Only the host-supplied package root owns fixed guidance; user copies cannot shadow it.
+  const allowed = (name: string, source: string) => name === 'skill-creator'
+    ? source === 'builtin'
+    : config.skillSelection?.mode === 'explicit_denylist'
+      ? !config.skillSelection.names.includes(name)
+      : config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
   for (const [index, root] of (config.skillRoots ?? []).entries()) {
     let native!: FileSystemSkillProvider;
     const providerName = `nano-files-${index}`;
@@ -149,10 +155,10 @@ export function apply(ctx: Context, config: AgentConfiguration) {
         async list(options) {
           const found = await native.list(options);
           const candidates = (Array.isArray(found) ? found : found.candidates) as SkillCandidate[];
-          return { candidates: candidates.filter(candidate => allowed(candidate.name)).map(candidate => ({ ...candidate, rank: index, source: root.source })),
+          return { candidates: candidates.filter(candidate => allowed(candidate.name, root.source)).map(candidate => ({ ...candidate, rank: index, source: root.source })),
             complete: Array.isArray(found) || found.complete };
         },
-        async get(candidate, options) { return allowed(candidate.name) ? native.get(candidate, options) : undefined; },
+        async get(candidate, options) { return allowed(candidate.name, root.source) ? native.get(candidate, options) : undefined; },
       };
     });
     ctx.effect(() => async () => { await native.dispose(); });

@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { Work } from '../src/work.js';
 import { registerMessagingRoutes } from '../src/messaging.js';
@@ -102,7 +102,7 @@ it('distinguishes external senders from internal messages in a shadow conversati
   expect(() => query({ action: 'search', query: '发布', sender_source_id: 'ou-one' })).toThrow();
 });
 
-it('rejects new filters on a legacy snapshot instead of silently reusing its old order', () => {
+it.each([1, 2])('preserves main v%s snapshots and rejects changes to their query', version => {
   const { ctx, db, principal, args } = personalFixture();
   ctx.messaging.insertMessage('peer', 'u1', 'user', 'first', [], null, 'completed');
   ctx.messaging.insertMessage('peer', 'u1', 'user', 'second', [], null, 'completed');
@@ -111,7 +111,8 @@ it('rejects new filters on a legacy snapshot instead of silently reusing its old
   const cursor = JSON.parse(Buffer.from(first.next_cursor, 'base64url').toString());
   const row = db.prepare('SELECT data FROM agent_work_query_snapshots WHERE snapshot_id=?').get(cursor.snapshot) as { data: string };
   const snapshot = JSON.parse(row.data);
-  for (const key of ['version', 'keywords', 'sort', 'sender_source_id', 'around_message_id']) delete snapshot[key];
+  for (const key of ['memory_cutoff', 'memory_after']) delete snapshot[key];
+  if (version === 1) for (const key of ['version', 'keywords', 'sort', 'sender_source_id', 'around_message_id']) delete snapshot[key];
   db.prepare('UPDATE agent_work_query_snapshots SET data=? WHERE snapshot_id=?').run(JSON.stringify(snapshot), cursor.snapshot);
   const legacyCursor = Buffer.from(JSON.stringify(cursor)).toString('base64url');
   expect(query({ action: 'search', limit: 1, cursor: legacyCursor }).messages).toHaveLength(1);
@@ -133,4 +134,98 @@ it('keeps an anchored window fixed while newer messages arrive', () => {
     seen.push(...page.messages.map((m: any) => m.message_id)); cursor = page.next_cursor;
   }
   expect(seen).toEqual(ids);
+});
+
+it('does no extra search queries for unrelated private groups and hydrates no chats on a miss', async () => {
+  const { ctx, db } = personalFixture();
+  db.exec("DELETE FROM conversations");
+  const group = db.prepare("INSERT INTO conversations(id,title,type,visibility,created_at) VALUES(?, 'Search group','group',?,datetime('now'))");
+  for (let i = 0; i < 10; ++i) {
+    group.run('visible-' + i, 'private');
+    db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,'u1')").run('visible-' + i);
+  }
+  const app = Fastify();
+  registerMessagingRoutes(app, ctx);
+  const detail = vi.spyOn(ctx.messaging, 'conversation');
+  const statements = vi.spyOn(db, 'prepare');
+  async function miss() {
+    statements.mockClear();
+    detail.mockClear();
+    const response = await app.inject('/im/v1/messages/search?q=absent&limit=1');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ messages: [] });
+    return { sql: statements.mock.calls.length, details: detail.mock.calls.length };
+  }
+  try {
+    const before = await miss();
+    for (let i = 0; i < 1000; ++i) group.run('hidden-' + i, 'private');
+    const after = await miss();
+    expect(after.sql).toBe(before.sql);
+    expect([before.details, after.details]).toEqual([0, 0]);
+  } finally {
+    await app.close();
+  }
+});
+
+it('preserves each chat category, observer titles, scope and revocation on the search route', async () => {
+  const { ctx, db } = personalFixture();
+  // The two-Agent owner and PA binding grant independent kinds of observation.
+  db.exec(`UPDATE agent_profiles SET owner_id='u1' WHERE agent_id='a';
+    UPDATE users SET owner_id='u1', personal_space_enabled=1 WHERE id='u1';
+    UPDATE personal_agent_bindings SET owner_id='u1';
+    INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('a2','agent:b','Beta','u2',datetime('now'));
+    INSERT INTO agent_profiles(agent_id,owner_id,display_name,created_at,updated_at) VALUES('b','u2','Beta',datetime('now'),datetime('now'))`);
+  const addChat = (id: string, type: string, members: string[], visibility = 'private', space = 'company:default') => {
+    db.prepare('INSERT INTO conversations(id,title,type,visibility,space_id,created_at) VALUES(?,?,?,?,?,?)')
+      .run(id, id, type, visibility, space, '2026-01-01');
+    for (const user of members) db.prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(id,user);
+  };
+  addChat('network','direct',['a1','a2']);
+  addChat('observed-pa','direct',['u2','a1']);
+  addChat('agent-group','group',['a1','a2'],'public');
+  addChat('empty-group','group',[],'public');
+  addChat('private','group',['u2']);
+  addChat('extra-peer','direct',['u2','a1','a2']);
+  addChat('personal','group',['u1'],'private','personal:u1');
+  addChat('foreign','group',['u1'],'public','personal:u2');
+  db.exec("UPDATE conversations SET dissolved_at='2026-01-02' WHERE id='empty-group'");
+  for (const {id} of db.prepare('SELECT id FROM conversations').all()) {
+    db.prepare(`INSERT INTO messages(id,conversation_id,sender_user_id,content,delivery_status,created_at)
+      VALUES(?,?,'u2','needle','completed','2026-01-01T00:00:00Z')`).run(id,id);
+  }
+
+  const app = Fastify();
+  registerMessagingRoutes(app, ctx);
+  const page = async (kind: string, limit = 50, cursor = '') => {
+    const response = await app.inject({url:'/im/v1/messages/search', query:{q:'NEEDLE',kind,limit:String(limit),cursor}});
+    expect(response.statusCode).toBe(200);
+    return response.json();
+  };
+  try {
+    const categories = {
+      'direct-user':['peer'], 'direct-agent':['observed-pa','chat'],
+      'group':['personal','empty-group'], 'agent-network':['network','agent-group'],
+    };
+    for (const [kind, ids] of Object.entries(categories)) {
+      expect((await page(kind)).messages.map((m: any) => m.message_id)).toEqual(ids);
+    }
+    const expected = Object.values(categories).flat().sort().reverse();
+    let cursor = '';
+    for (const id of expected) {
+      const result = await page('all',1,cursor);
+      expect(result.messages.map((m: any) => m.message_id)).toEqual([id]);
+      cursor = result.next_cursor ?? '';
+    }
+    expect(cursor).toBe('');
+    expect((await page('direct-agent')).messages[0]).toMatchObject({
+      conversation_name:'u2 ↔ a1', sender_name:'u2', snippet:'needle',
+    });
+    db.exec("UPDATE agent_profiles SET is_stale=1 WHERE agent_id='a'");
+    expect((await page('direct-agent')).messages.map((m: any) => m.message_id)).toEqual(['chat']);
+    expect((await page('agent-network')).messages.map((m: any) => m.message_id)).toContain('network');
+    db.exec("UPDATE users SET membership_status='suspended' WHERE id='u1'");
+    expect((await page('all')).messages.map((m: any) => m.message_id)).toEqual(['personal']);
+  } finally {
+    await app.close();
+  }
 });

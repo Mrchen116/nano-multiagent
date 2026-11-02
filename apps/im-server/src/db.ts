@@ -74,6 +74,26 @@ export function openDatabase(path: string): DatabaseSync {
         db.exec("ALTER TABLE agent_profiles ADD COLUMN approval_mode TEXT CHECK (approval_mode IS NULL OR approval_mode IN ('cc', 'codex'))");
       db.prepare("INSERT INTO schema_migrations VALUES('agent-approval-mode-v1')").run();
     }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='task-context-unfinished-relays-v1'").get()) {
+      // Accepted transport is not consumption. Bootstrap only unfinished business
+      // relays, by their authoritative original IDs, before admitting any steps.
+      // A previously withdrawn source must never be resurrected by a later seq.
+      db.exec(`WITH unfinished AS (
+          SELECT r.*,r.rowid AS relay_order,CASE WHEN json_valid(r.payload_json) THEN r.payload_json ELSE '{}' END AS payload
+          FROM relay_tasks r WHERE r.status IN ('queued','sent','accepted')
+        )
+        INSERT OR IGNORE INTO task_context_index(agent_id,message_id,conversation_id,projection_kind)
+        SELECT a.agent_id,m.id,m.conversation_id,'full'
+        FROM unfinished r JOIN messages m ON m.id=r.message_id AND m.conversation_id=r.conversation_id
+        JOIN agent_profiles a ON a.agent_id=json_extract(r.payload,'$.agent_id')
+        WHERE json_type(r.payload,'$.agent_id')='text' AND m.sender_type='system'
+          AND json_extract(CASE WHEN json_valid(m.system_notice_json) THEN m.system_notice_json END,'$.kind')='task_graph'
+          AND NOT EXISTS (SELECT 1 FROM task_context_revocations v WHERE v.message_id=m.id)
+          AND NOT EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(m.system_notice_json) THEN m.system_notice_json END,'$.change_kinds') k WHERE k.value='access_revoked')
+          AND NOT EXISTS (SELECT 1 FROM task_context_index i WHERE i.agent_id=a.agent_id AND i.conversation_id=m.conversation_id AND i.projection_kind='revoked')
+        ORDER BY m.rowid,r.relay_order`);
+      db.prepare("INSERT INTO schema_migrations VALUES('task-context-unfinished-relays-v1')").run();
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: bugfix-662
+> 对齐: feat-676
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -434,7 +434,7 @@ Gateway 和其全部 Agent 由同一个有效账号管理；绑定与整体换�
 
 工具候选合并 Gateway 的 PA 内置声明与对应上下文中已注册的工具：内置声明保持既有顺序及 default_on，其他注册工具去重追加、default_on=false；已有注册项携带真实描述，缺失 runtime 实例的内置声明仍保留。节点创建页使用共享目录，Agent 编辑页还包含其工作区工具并采用该工作区的同名覆盖。候选可见不代表已启用；选中状态和保存值仍由用户配置决定，不因新增候选而扩大已有白名单（含显式空集），global 固定基础工具规则不变。
 
-新建/编辑 Agent 页需要的 runtime 候选项（skills / tools / models / features）由 IM **当场**经 gateway WS 向在线节点解析后返回，IM 不在本地持久化该能力目录，也不据 IM 部署机文件系统推断。Agent 设置页可保留已成功取得的有限展示信息，供离线只读；这些信息带取得时间，不作为当前候选目录、保存校验或操作许可。节点级 `GET /im/v1/nodes/{id}/capabilities`（agent 尚不存在时用）与 agent 级 `GET /im/v1/agents/{id}/capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。Skill 候选的 `location` 和可选 `source_group` 亦由 Gateway 解析；IM 只透传，不直读 Gateway Workspace。
+新建/编辑 Agent 页需要的 runtime 候选项（skills / tools / models / features）由在线 Gateway 解析，IM 可在相同 owner、绑定、连接、Workspace 和配置版本下复用最长五分钟的内存候选缓存，IM 不在本地持久化该能力目录，也不据 IM 部署机文件系统推断。Agent 设置页可保留已成功取得的有限展示信息，供离线只读；这些信息带真实取得时间，不作为当前候选目录、保存校验或操作许可；缓存命中不伪造新的确认时间，保存仍由运行时按真实候选校验。节点级 `GET /im/v1/nodes/{id}/capabilities`（agent 尚不存在时用）与 agent 级 `GET /im/v1/agents/{id}/capabilities` 都把网关返回的 `features` 和每模型安全的 reasoning descriptor 透传给前端；节点级响应另透传可选的 `default_workspace_template`，供创建页展示该 Gateway 的默认路径，IM 不自行推导。Skill 候选的 `location` 和可选 `source_group` 亦由 Gateway 解析；IM 只透传，不直读 Gateway Workspace。
 
 #### Scenario: 节点能力含 features 列表供创建页渲染
 - **GIVEN** 一个已知节点,网关在线
@@ -500,6 +500,13 @@ Gateway 和其全部 Agent 由同一个有效账号管理；绑定与整体换�
 - **WHEN** 用户查看已保存的模型、推理强度、Features、工具和 Skills
 - **THEN** 页面保留显式配置和最近确认的名称、来源与派生状态；未取得的信息明确未知
 - **AND** 不因缺少目录显示强度不受支持、移除配置项或填入默认值，历史展示信息不能用于开启编辑
+
+#### Scenario: 连续读取与故障后恢复
+- **WHEN** 同一 Agent 的设置被连续或并发读取
+- **THEN** 已确认且仍有效的候选可复用；失效时并发读取合并为一次有界刷新，普通读不占有配置写锁
+- **WHEN** 构建超时或失败
+- **THEN** settings 按既有 last-known/只读语义返回，后续重试可以重新构建；一次失败不能要求重启聊天运行时
+- **AND** 权限、配置、绑定或连接变化后的迟到结果不能解锁页面或覆盖新状态
 
 ### Requirement: Agent 配置页可按 Skill 来源分组批量调整选择
 
@@ -739,7 +746,7 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 
 #### Scenario: sync 返回快照与全局游标
 - **WHEN** 前端 `GET /im/v1/sync`
-- **THEN** 200 含 `items`(会话列表)与 `max_event_id`(>0);前端据其对齐用户流游标
+- **THEN** 200 含 `items`(会话列表)与 `max_event_id`(无事件时为 0)。Web 建连或重新同步时使用 `?view=cursor`，经相同账号资格检查后只返回同一个 `max_event_id`。
 
 #### Scenario: 长时间登录后短暂断网自动恢复
 - **GIVEN** 用户已在 Web IM 持续登录一段时间
@@ -1036,3 +1043,22 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 - **THEN** 可以处理新工作，历史、会话、文件和任务仍可访问
 - **AND** 旧任务、子 Agent、Bash、审批、积压输出不自动恢复，错过的定时触发不补跑
 - **AND** 旧任务只在新的真人明确恢复后继续，独立周期计划仅从未来触发点运行
+
+### Requirement: 记忆是内置能力，客户端只控制自动 Dreaming
+
+#### Scenario: 新建和已有 Agent 的文档记忆模式
+- **WHEN** 用户在 Web 或 iOS 创建、配置 Agent
+- **THEN** 不提供记忆总开关或技能创建开关，文档记忆模式的 Dreaming 默认开启并可单独关闭；关闭保留已有记忆读取和当前对话响应，暂停长期记忆自动更新；明确请求的手动整理仍由 Dreaming 完成。
+- **AND** 保存与实际应用状态沿用已有配置反馈，失败保留草稿，不宣称已经生效。
+
+#### Scenario: 临时旧模式
+- **GIVEN** 节点文件选择旧记忆模式
+- **WHEN** 用户查看或保存网页配置
+- **THEN** 页面不呈现旧机制、模式切换、旧自进化说明或开关；无效的 Dreaming 控件不显示，保存其他设置不改变文件专属配置。
+
+### Requirement: Skill 创建与后台自动自进化分离
+
+#### Scenario: 在任务中保存成熟方法
+- **WHEN** 普通 Agent 在任务中需要创建可复用方法
+- **THEN** skill-creator 默认内置，无需通过 Feature 或 Skill 列表选择；受控写入仍按真实工具权限执行，其他 Skill 继续遵守原有选择。
+- **AND** 页面不显示技能创建开关、skill-creator 复选框或替代的固定开启状态卡，用户不被告知普通任务结果已自动发布为 Skill；后台自动复盘保持暂停且不暴露 UI 控制/介绍。

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { beforeEach } from "vitest";
+import { beforeEach, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 
 import { resetComposerStores } from "../features/chat/components/composer-draft-store";
@@ -109,3 +109,7 @@ class TestBroadcastChannel {
   close() { TestBroadcastChannel.channels.delete(this); }
 }
 Object.defineProperty(globalThis, "BroadcastChannel", { configurable: true, value: TestBroadcastChannel });
+
+// jsdom has no object URL implementation for local clipboard previews.
+URL.createObjectURL = vi.fn(() => `blob:preview-${crypto.randomUUID()}`);
+URL.revokeObjectURL = vi.fn();

@@ -59,9 +59,7 @@ export class WorkflowResults {
       "workflow.pending",
       {},
     )) as ResultRecord[]) {
-      const binding = store
-        .bindings()
-        .find((binding) => binding.sessionId === record.parentSessionId);
+      const binding = store.bindingForSession(record.parentSessionId);
       if (!binding || !store.lifecycle.allowed(binding.agentId)) continue;
       const config = this.options.agents.find(
         (agent) => agent.agentId === binding.agentId,
@@ -70,9 +68,6 @@ export class WorkflowResults {
       try {
         await store.lifecycle.run(binding.agentId, undefined, async () => {
           const inputId = `workflow-result:${this.options.partitionKey ? `${this.options.partitionKey}:` : ""}${record.id}`;
-          const source = store
-            .inputs(binding.sessionId)
-            .find((input) => record.inputIds.includes(input.id))?.input;
           const content = `A background Workflow has finished. This is a system result, not a new human instruction or permission. Return the useful result to the original conversation(s).\n${JSON.stringify({ runId: record.id, name: record.meta.name, ...record.result })}`;
           const backgroundReturns = [
             {
@@ -117,6 +112,7 @@ export class WorkflowResults {
                 },
               });
           } else {
+            const source = store.inputForIds(binding.sessionId, record.inputIds)?.input;
             await this.options.receive(binding.sessionId, {
               agent_id: binding.agentId,
               conversation_id: binding.conversationId,

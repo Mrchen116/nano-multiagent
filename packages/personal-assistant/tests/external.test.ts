@@ -1,4 +1,5 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { ExternalStore } from '../src/external-store.js';
 import { ExternalChannels } from '../src/external.js';
 import { NodeStore } from '../src/store.js';
 import type { RelayInput } from '@nano/product-contracts';
@@ -206,4 +207,48 @@ it('mirrors personal inputs once for observation without blocking them on failed
   await external.request('node.delivery_receipt',{agent_id:'pa',external_source_message_id:'shadow-first',delivery_status:'completed'});
   expect(removed).toBe(1);
  }finally{await external.stop();store.close();}
+});
+
+it('decodes only the requested external messages while keeping pending work and recent history in arrival order', () => {
+  const state = new ExternalStore(':memory:');
+  try {
+    for (let i = 0; i < 65; i++) {
+      const id = String(i), agentId = i < 60 ? 'a' : 'b';
+      const message = { messageId: id, chatId: agentId, senderId: 'peer', isGroup: false, mentioned: false, parts: [], time: '1000' };
+      const input: RelayInput = { agent_id: agentId, conversation_id: agentId, relay_task_id: id, idempotency_key: id, metadata: {},
+        message: { id, sender_user_id: 'peer', sender_type: 'user', content: id, attachments: [] } };
+      state.saveInbound(id, agentId, message, input);
+      if (i !== 61) state.accept(id);
+      if (i !== 59 && i !== 64) state.mirrorInput(id, i === 0 || i === 60 ? 'shared' : 'mirror-' + id);
+    }
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      const row = state.inbound('40'), byMirror = state.inboundByMirror('shared', 'b');
+      const admissions = state.pendingAdmissions(), mirrors = state.pendingMirrors(), history = state.recentInbound('a');
+      expect(parse.mock.calls.filter(([body]) => body.startsWith('{"message":'))).toHaveLength(54);
+      expect(row?.id).toBe('40');
+      expect(byMirror?.id).toBe('60');
+      expect(admissions).toEqual([{ id: '61', agentId: 'b' }]);
+      expect(mirrors.map(row => row.id)).toEqual(['59', '64']);
+      expect(history.map(row => row.id)).toEqual(Array.from({ length: 50 }, (_, i) => String(i + 10)));
+    } finally { parse.mockRestore(); }
+  } finally { state.close(); }
+});
+
+it('describes selected external targets in chat order with aliases, deduplication and Agent scope', async () => {
+  const store=new NodeStore(':memory:','owner');
+  const external=new ExternalChannels(':memory:',{nodeId:'n',ownerId:'owner',store,
+    relay:{ready:false,request:async()=>({type:'result',payload:{ok:true,result:{forwarded:true}}})},
+    im:async()=>({}),receive:async()=>{},permission:async()=>{},onError:error=>{throw error;}});
+  const state=(external as unknown as {state:ExternalStore}).state;
+  for (const [id,agentId] of [['first','a'],['second','a'],['other','b']]) state.saveChat({id,agentId,appId:'app',chatId:id,sourceId:id,isGroup:true,shadowId:'shadow-'+id});
+  const query=(payload:Record<string,unknown>)=>external.request('conversation.query',{agent_id:'a',...payload});
+  try {
+    expect((await query({action:'describe',targets:['shadow-second','first','second']})).payload.result).toMatchObject({conversations:[{id:'first'},{id:'second'}]});
+    expect((await query({action:'describe',targets:[]})).payload.result).toEqual({conversations:[]});
+    expect((await query({action:'describe',targets:['other']})).payload.result).toEqual({forwarded:true});
+    expect((await query({action:'info',target:'conversation:first'})).payload.result).toMatchObject({id:'first'});
+    expect((await query({action:'info',target:'shadow-first'})).payload.result).toMatchObject({id:'first'});
+    expect((await query({action:'info',target:'conversation:shadow-first'})).payload.result).toEqual({forwarded:true});
+  } finally {await external.stop();store.close();}
 });

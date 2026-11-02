@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import type { TrajectoryRun } from '@nano/product-contracts';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), 'nano-run-facts-'));
@@ -47,6 +48,7 @@ async function fixture() {
     { insert: [{ id: 'run-facts-fixture', name: join(home, 'fixture.mjs') }] }]);
   const start = async (ensure = true) => {
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+    registerNoopTaskHosts(client);
     await client.rpc.request('initialize', configuration);
     if (ensure) await client.rpc.request('session.ensure', binding);
   };

@@ -5,6 +5,7 @@ import { MessageRecords, type MessageMetadata, type MessageEventFrame, type Mess
 import type { ChatAttachment, ChatMessage } from '@nano/product-contracts';
 import { contactDetail, contactPage } from './contacts.js';
 import { lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
+import { captureTaskContextAccess, revokeLostTaskContextAccess, taskContextEligible, taskContextEntryAllowed, taskContextRevocation } from './task-context-access.js';
 import {RelayDelivery} from './relay-delivery.js';
 import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
 import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
@@ -23,7 +24,7 @@ import {
   type Row,
   type ImContext,
 } from "./context.js";
-import { conversationAccess, conversationReaderIds, qualifiedUser } from "./conversation-access.js";
+import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from "./conversation-access.js";
 import { searchMessages } from './message-search.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
@@ -73,7 +74,7 @@ export class Messaging {
   members(id: string): Row[] {
     return all(
       this.db,
-      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id WHERE cp.conversation_id=? ORDER BY cp.rowid`,
+      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username GLOB 'agent:*' AND ap.agent_id=substr(u.username,7) WHERE cp.conversation_id=? ORDER BY cp.rowid`,
       id,
     );
   }
@@ -196,7 +197,7 @@ export class Messaging {
       LEFT JOIN conversation_participants p ON p.conversation_id=c.id AND p.user_id=?
       WHERE c.dissolved_at IS NULL AND (p.user_id IS NOT NULL OR (c.type='direct' AND EXISTS (
         SELECT 1 FROM conversation_participants cp JOIN users u ON u.id=cp.user_id
-        JOIN agent_profiles a ON u.username='agent:'||a.agent_id WHERE cp.conversation_id=c.id AND (a.owner_id=? OR EXISTS(SELECT 1 FROM personal_agent_bindings b WHERE b.agent_id=a.agent_id AND b.owner_user_id=?)))))
+        JOIN agent_profiles a ON u.username GLOB 'agent:*' AND a.agent_id=substr(u.username,7) WHERE cp.conversation_id=c.id AND (a.owner_id=? OR EXISTS(SELECT 1 FROM personal_agent_bindings b WHERE b.agent_id=a.agent_id AND b.owner_user_id=?)))))
       ORDER BY COALESCE(p.is_pinned,0) DESC,COALESCE(c.last_message_at,c.created_at) DESC`,userId,userId,userId)
       .filter(c => conversationAccess(this.db,c.id,userId)).map(c => this.conversation(c.id,userId));
   }
@@ -569,7 +570,33 @@ export class Messaging {
   persistTaskNotice(id: string, sender: string, content: string, metadata: Row, contextOnlyAgentId?: string): ChatMessage {
     const m = this.insertMessage(id,sender,"system",content,[],null,"completed",{system_notice:metadata,publish:false});
     this.enqueueRelays(m,null,this.relayAgents(id),[],contextOnlyAgentId);
+    for(const agentId of metadata.attention_actor_ids ?? [])if(taskContextEligible(this.db,agentId,id))
+      this.db.prepare('INSERT OR IGNORE INTO task_context_index(agent_id,message_id,conversation_id,projection_kind) VALUES(?,?,?,?)').run(agentId,m.id,id,'full');
     return m;
+  }
+  /** Read one fixed authority range; the index contains references, never a second message body. */
+  syncTaskContext(agentId:string, after:number, through:number|undefined, limit:number, allowedSource?:((id:string)=>boolean), pending:string[]=[]):Row {
+    if(!Number.isSafeInteger(after)||after<0||through!==undefined&&(!Number.isSafeInteger(through)||through<after))fail(422,'Invalid task context cursor');
+    if(!Array.isArray(pending)||pending.length>64||pending.some(id=>typeof id!=='string'))fail(422,'Invalid task context revalidation batch');
+    return transaction(this.db,()=>{
+      const bound=through??one(this.db,'SELECT coalesce(max(seq),0) AS seq FROM task_context_index WHERE agent_id=?',agentId)!.seq;
+      const rows=all(this.db,'SELECT * FROM task_context_index WHERE agent_id=? AND seq>? AND seq<=? ORDER BY seq LIMIT ?',agentId,after,bound,Math.max(1,Math.min(64,limit||32)));
+      const items=rows.map(row=>{
+        const allowed=row.projection_kind==='revoked'||row.projection_kind==='full'&&taskContextEntryAllowed(this.db,row)&&(!allowedSource||allowedSource(row.conversation_id));
+        const ref={seq:row.seq,message_id:row.message_id,conversation_id:row.conversation_id,projection_kind:row.projection_kind,allowed};
+        if(!allowed)return ref;
+        const m=row.projection_kind==='revoked'?taskContextRevocation(this.db,row.message_id):this.message(row.message_id);
+        if(!m)return {...ref,allowed:false};
+        const c=one(this.db,'SELECT type FROM conversations WHERE id=?',row.conversation_id);
+        return {...ref,input:{agent_id:agentId,conversation_id:row.conversation_id,relay_task_id:'task-context:'+row.message_id+':'+agentId,idempotency_key:row.message_id+':'+agentId,
+          lifecycle_revision:lifecycle(this.db,agentId).revision,message:m,sender:m.sender,participants:row.projection_kind==='revoked'?[]:this.members(row.conversation_id).map(u=>this.actor(u)),metadata:{conversation_type:c?.type??'direct',mentioned_agent_ids:[agentId],participant_agent_ids:[agentId],task_context:true}}};
+      });
+      const revoked_message_ids=pending.filter(messageId=>{
+        const entry=one(this.db,'SELECT * FROM task_context_index WHERE agent_id=? AND message_id=?',agentId,messageId);
+        return !entry||entry.projection_kind!=='revoked'&&(!taskContextEntryAllowed(this.db,entry)||!!allowedSource&&!allowedSource(entry.conversation_id));
+      });
+      return {through:bound,next:rows.length<Math.max(1,Math.min(64,limit||32))?bound:rows.at(-1)!.seq,items,revoked_message_ids};
+    });
   }
   private relayAgents(id: string): Row[] {
     return this.members(id).filter(u=>u.username.startsWith("agent:") && conversationAccess(this.db,id,u.id)?.can_write)
@@ -603,12 +630,16 @@ export class Messaging {
     this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>`agent:${agent.agent_id}`!==one(this.db,'SELECT username FROM users WHERE id=?',message.sender_user_id)?.username));
   }
   /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
-  relayEligible(task: Row): boolean {
-    const payload = JSON.parse(task.payload_json), agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
+  relayEligible(task: Row, payload: Row = JSON.parse(task.payload_json)): boolean {
+    const agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
     if(!lifecycleAllows(this.db,payload.agent_id,payload.lifecycle_revision))return false;
     const epoch = one(this.db, 'SELECT node_epoch FROM node_binding_state WHERE node_id=?', task.target_node_id)?.node_epoch ?? 0;
     if (payload.metadata?.node_epoch !== undefined && payload.metadata.node_epoch !== epoch) return false;
-    return !!agent && agent.node_id===task.target_node_id && !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
+    if(!agent||agent.node_id!==task.target_node_id)return false;
+    const entry=one(this.db,'SELECT * FROM task_context_index WHERE agent_id=? AND message_id=?',payload.agent_id,task.message_id);
+    if(entry?.projection_kind==='revoked')return !!taskContextRevocation(this.db,task.message_id);
+    if(entry)return taskContextEntryAllowed(this.db,entry);
+    return !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
   }
   deliverRelays(relays: Row[]): boolean {
     let sent=false;
@@ -635,16 +666,28 @@ export class Messaging {
     this.membership(id,this.members(id).map(u=>u.id));
     return this.conversation(id,userId);
   }
-  /** Freeze group history and close unfinished records without generating task notices. */
+  /** Delete Direct history while retaining the new minimal withdrawal originals. */
+  deleteDirectConversation(userId:string,id:string):void {
+    const c=conversationAccess(this.db,id,userId);
+    if(!c?.can_write||c.type!=='direct')fail(404,'conversation_id not found');
+    transaction(this.db,()=>{
+      const before=captureTaskContextAccess(this.db,{conversationIds:[id]});
+      this.db.prepare('DELETE FROM conversations WHERE id=?').run(id);
+      revokeLostTaskContextAccess(this.db,before,userId);
+    });
+  }
+  /** Freeze group history and close unfinished records without erasing consumed history. */
   dissolveConversation(userId: string, id: string) {
     const c = conversationAccess(this.db,id,userId);
     if (!c?.can_write) fail(404,"conversation_id not found");
     if (c.creator_id !== userId) fail(403,"only creator can delete group");
     const graphIds = transaction(this.db,()=>{
+      const before=captureTaskContextAccess(this.db,{conversationIds:[id]});
       const at = now();
       this.db.prepare("UPDATE conversations SET dissolved_at=? WHERE id=?").run(at,id);
       const graphIds = this.ctx.gateway.tasks.closeForConversationDissolution(id,userId,at);
       this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE conversation_id=? AND status IN ('queued','sent','accepted')").run(at,id);
+      revokeLostTaskContextAccess(this.db,before,userId);
       return graphIds;
     });
     for (const graphId of graphIds) this.ctx.gateway.tasks.notifyChange(undefined,graphId);
@@ -724,17 +767,16 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         if (!cursor || typeof cursor.id !== 'string' || typeof cursor.created_at !== 'string' || !Number.isFinite(Date.parse(cursor.created_at))) throw Error();
       } catch { fail(400, 'invalid_cursor'); }
     }
+    const targets = [...readableConversationIds(db, user)];
+    const matches = searchMessages(db, {targets, kind, terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
     const conversations = new Map<string, Row>();
-    for (const row of all(db, 'SELECT id FROM conversations')) {
-      if (!conversationAccess(db, row.id, user.id)) continue;
-      const chat = s.conversation(row.id, user.id);
-      const chatKind = chat.type === 'direct' ? chat.direct_kind === 'agent-agent' ? 'agent-network' : chat.direct_kind === 'user-user' || chat.direct_kind === 'user' ? 'direct-user' : 'direct-agent'
-        : chat.participants.length > 0 && chat.participants.every((p: Row) => p.type === 'agent') ? 'agent-network' : 'group';
-      if (kind === 'all' || kind === chatKind) conversations.set(row.id, chat);
-    }
-    const matches = searchMessages(db, {targets:[...conversations.keys()], terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
     const messages = matches.slice(0,limit).map(row => {
-      const message = s.message(row.id), chat = conversations.get(message.conversation_id)!;
+      const message = s.message(row.id), id = message.conversation_id;
+      let chat = conversations.get(id);
+      if (!chat) {
+        chat = s.conversation(id, user.id);
+        conversations.set(id, chat);
+      }
       const content = readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
       const position = Math.max(0, content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
       const start = Math.max(0, position - 40), end = Math.min(content.length, position + q.q.trim().length + 80);
@@ -772,10 +814,10 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.get("/im/v1/sync", (req) => {
     const p = ctx.identity.authenticateRequest(req);
-    return {
-      items: s.conversations(p.id),
-      max_event_id: one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n,
-    };
+    const cursorOnly = query(req).view === "cursor";
+    if (cursorOnly && !qualifiedUser(db, p.id)) fail(403, "account access required");
+    const max_event_id = one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n;
+    return cursorOnly ? { max_event_id } : { items: s.conversations(p.id), max_event_id };
   });
   app.get("/im/v1/conversations/:conversation_id", (req) => {
     const p = s.principal(req),
@@ -803,7 +845,11 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         id,
       );
     }
-    if (b.visibility !== undefined) db.prepare("UPDATE conversations SET visibility=? WHERE id=?").run(b.visibility,id);
+    if (b.visibility !== undefined) transaction(db,()=>{
+      const before=captureTaskContextAccess(db,{conversationIds:[id]});
+      db.prepare("UPDATE conversations SET visibility=? WHERE id=?").run(b.visibility,id);
+      revokeLostTaskContextAccess(db,before,p.id);
+    });
     for (const key of ["is_pinned", "is_muted"])
       if (b[key] !== undefined)
         db.prepare(
@@ -822,7 +868,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     if (c.type === "group" && c.creator_id !== p.id) fail(403, "only creator can delete group");
     const recipients = s.members(id).map((u) => u.id);
     if (c.type === "group") s.dissolveConversation(p.id,id);
-    else db.prepare("DELETE FROM conversations WHERE id=?").run(id);
+    else s.deleteDirectConversation(p.id,id);
     s.membership(id, recipients);
     reply.code(204).send();
   });
@@ -849,10 +895,12 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       c = s.access(p, id, undefined, "write");
     if (c.type !== "group" || uid === c.creator_id) fail(403, "creator cannot be removed");
     const recipients = s.members(id).map((u) => u.id);
-    db.prepare("DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?").run(
-      id,
-      uid,
-    );
+    const notices=transaction(db,()=>{
+      const before=captureTaskContextAccess(db,{conversationIds:[id]});
+      db.prepare("DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?").run(id,uid);
+      return revokeLostTaskContextAccess(db,before,p.id);
+    });
+    s.publishMessages(notices);
     s.membership(id, recipients);
     reply.code(204).send();
   });
