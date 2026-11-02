@@ -100,3 +100,55 @@
 - 窄 patch 独立 review `[]`；资产一致性检查通过，DSH capabilities 4 tests 通过。
 - 最后 Chrome 预览控制超时，改用内置浏览器继续同一隔离服务；重新登录并在 1440×1000 断点实际核对：新酒店/看板的 Close/Reset 按钮数量均为 0；酒店收藏仍显示“已收藏 1”，看板点击 Clicks 仍显示“Clicks · 310,000”。
 - 新截图：`output/playwright/openiui/hotel-no-extra-controls.png`、`dashboard-no-extra-controls.png`；旧截图作为反馈前历史证据保留，不冒充最新版本。内置浏览器已恢复尺寸并关闭测试页。
+
+## 清空上下文后的独立复测（2026-11-02，最新现场）
+
+### 方法与结论
+
+用户明确要求“清空聊天记录，重新测，不要累计着记录测。前后会有干扰”，并要求测试完保留服务供亲自试用。本节替代前述累积反馈结果作为**首次生成**表现的证据；旧证据作为历史保留。
+
+使用 product-tryout：基线 `afd3ef0bc`，开测前 checkout clean，重新 build；三个 daily 隔离实例分别有新 IM 数据库、测试身份、PA、node identity、workspace 和 DSH home。每场景的消息 API 初始结果均为 `[]`。酒店/看板只发一次初始请求，不追加修正提示，不手写或替换模型 source；确认场景只增加同一旅程所需的一次真实确认。
+
+模型均为模板 PA `codexOAuth:gpt-6-astra` / medium。酒店初始输入含用户原图及五个已验证照片素材 URL；这属于资源输入，未提供目标 DSL、布局参数或上一轮修改过程。看板仅附用户原图与普通复现要求。图片上传通过公开 API，确认任务发起、选择、提交与所有交互核对通过真实 Web。
+
+结论：确认后回复能力在干净上下文中完整通过；桌面看板首次即画出四级居中漏斗并支持交互。酒店仍有卡片区域留白；手机看板有明显可读性问题。不能把上一轮经过多次反馈修正的结果当成首次生成稳定性证明。
+
+### 确认回复旅程：直接成功证据
+
+- node `wt-runtime-openiui-13132`，PA `pa_11c64498a06e`，聊天 `c_f904c9b5844a`；原生 session `bf56b25a-6e39-4570-874c-15423d4be460` 只有本轮 1/2 两个完成 turn。
+- 初始请求 `8c800fcb869247d8bc38613ceab5808a`，交互卡片 `e0e12757ca264a208acee4d3c8e32757`；未选时间/时长时“确认选择”不可点。
+- 实际选择“周四下午3点”“60分钟”，编辑备注为“带上预算草案”。确认前公开记录仍只有初始请求和卡片，没有因编辑自动发消息。
+- 点击“确认选择”生成用户消息 `08cb6841473f422290ab32073cf7b932`，event context、完整 state 和带可读标签的 fields 均包含上述最新三项值。
+- Agent 回复 `21b7447386544537993aa524b27ff4bc` 准确复述三项选择，并明确未创建真实日程。不是只看 HTTP 成功或本地回调；实际消息已送达、Agent 后续处理并在 UI 显示。
+- 最终聊天仅本轮 4 条消息：请求、卡片、确认、Agent 回复。截图 `output/playwright/openiui-clean/confirm-{empty,before-submit,agent-reply}.png`；公开记录快照 `output/clean-iui/confirm-{empty,edited-not-submitted,submitted,complete,final}.json`。
+
+### 酒店首次生成与发现 UI-CLEAN-1
+
+- node `wt-runtime-openiui-clean-hotel-13379`，PA `pa_ab45d6c70cc3`；session `38a38e81-f4ea-4436-a68f-8c6f39787e7f` 只有 turn 1。聊天 `c_4718644999af`，请求 `48808fa8b075407697d7fcad2c5e5943`，交付 `a4f7481228b84df3a9e8185a87b28566`。
+- 8 个显示照片实例均 complete 且 naturalWidth > 0；拼贴左大图 523px、右四图各 259.5px。收藏实际 aria-pressed false → true；点击第五张缩略图显示“照片 5 / 5”与大图，收起可恢复。不产生额外公开消息。
+- UI-CLEAN-1（现象已证实，生成布局选择）：桌面卡片仍使用固定 232px Carousel，三张图各 214px，宽聊天中右侧留白明显，与参考及前轮经过反馈铺满三列的结果不同。source 明确固定 itemWidth，未观察宿主重新覆盖皮肤。不凭单样本声称普遍失败率；未修改本次结果。
+- 最终仅一次请求 + 一张卡片；没有上一轮布局反馈。截图 `output/playwright/openiui-clean/hotel-{first-pass,photo-interaction}.png`，source / 消息在 `output/clean-iui/hotel-*`。本次没有专项复测酒店手机布局。
+
+### 看板首次生成与发现 UI-CLEAN-2
+
+- node `wt-runtime-openiui-clean-dashboard-13490`，PA `pa_e6f2091125f5`；session `b30137e1-ddd3-4fbe-aeb1-6d9ab354f347` 只有 turn 1。聊天 `c_b101f7e09046`，请求 `e5f3928627a346c8ad5384f5c6b90f27`，进度提示 `b37a589315074dc7aedd101f68a66899`，卡片 `3120be0cb9fc4ef4afc695a2d55ff55d`。
+- 1440×1000：四项指标、三色散点、四级居中色条及连续率实际可见，没有零宽色条问题。Europe 开关令三组 opacity 1/1/1 → 1/0/1；点 Clicks 展示“Clicks · 310,000（演示）”及“占初始曝光的 7.38% · 下一阶段转化率 13.5%”。真实数值、事件与展示一致。
+- UI-CLEAN-2（现象与布局机制已证实，P2/生成内容）：390×844 仍将两张图并排压缩，散点宽约 138.5px，漏斗 SVG 宽约 81.5px，图中文字几乎不可读；首个 KPI 也出现 Mn 断行。虽然 document scrollWidth=390 无整页溢出，**不能据此称手机适配通过**。
+- source 的 panels 为 Box row/wrap，两个子 Box 使用 flex 1.7/1，没有窄屏最小列宽或切换为单列的条件；渲染器按该程序布局。Generic Grid minChildWidth 等能力可表达窄屏堆叠，但本次生成未使用。未观察组件硬性表达限制，不归咎为官方无法画漏斗。
+- 保留初次结果，不追加“手机改为堆叠”提示。仅一次用户请求，最终 3 条公开消息（含进度提示）；本地筛选/阶段点击不新增消息。截图 `output/playwright/openiui-clean/dashboard-{first-pass,interaction,mobile-first-pass}.png`；消息/source 在 `output/clean-iui/dashboard-*`。
+
+### Context 与未覆盖边界
+
+- `output/clean-iui/native-summary.json` 保存不同 node/PA/session、各自仅有的本轮 turn 及实际 Skill 加载记录。物理隔离和初始空记录是去除历史干扰的证据；不是仅隐藏 Web 聊天。
+- 未另核 provider 原始 wire payload；不把原生 run/Skill 记录冒充 wire 保真。未在本次重复群聊、离线、幂等冲突或 native iOS 旅程。
+- 本次没有产品代码/提示词修改，也没有用已修结果覆盖原始生成结果。发现供用户亲自检查后决定后续修复。
+
+### 用户要求保留的服务
+
+用户明确说“测试完不要关服务，我去亲自看看”，因此三个受控服务与对应预览页保持运行，未按通常试用结束规则停止。当前 health / 消息数量见 `output/clean-iui/retained-services.json`。运行配置、凭据和原始材料仅留本机 output，不提交。
+
+- 确认回复：`http://127.0.0.1:50985/chat/c_f904c9b5844a`，runtime `output/runtime-openiui`，启动 session `openiui-clean-confirm`。
+- 酒店：`http://127.0.0.1:51193/chat/c_4718644999af`，runtime `output/runtime-openiui-clean-hotel`，启动 session `openiui-clean-hotel`。
+- 看板：`http://127.0.0.1:51507/chat/c_b101f7e09046`，runtime `output/runtime-openiui-clean-dashboard`，启动 session `openiui-clean-dashboard`。
+
+后续停止时对各自 runtime 执行配对 e2e-down；不要误停生产或其他工作区。unit 仍 Active，用户尚未验收；开发 worktree 保留，未部署或发布。
