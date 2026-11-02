@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "IM Frontend",
-  "short_name": "IM Frontend",
+  "name": "Nano",
+  "short_name": "Nano",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
