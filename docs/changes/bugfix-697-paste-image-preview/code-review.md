@@ -37,14 +37,14 @@
 - 最终纯展示调整：卡片使用简短错误状态，title/可访问标签保留详细原因，避免英文说明撑高卡片；相关 72 tests 与构建通过，发送/恢复/MIME 逻辑不变。原 reviewer 对最终展示差异及随后发现的两文件 dirty 作只读窄核验，返回 []，未修改源码。
 
 
-## Final state
+## Checkpoint before additional UX audit
 
 - executed_base / effective_base：`011396a815299b0bf6037709b92e775f87304d6f`。
 - 逻辑有效版本：`2ff43d77a59d0a220728e700ec9033c50a4a0c00`；最终提交仅含紧凑错误展示及本文记录，相关逻辑审查结论保留。
 - 用户实际验收：尚未发生，不伪造；unit 保持 active，canonical delta 未归并，未归档、未推送或部署。
 - 本地产物与临时服务不纳入提交。开发 worktree 保留用于用户体验与后续反馈。
 
-## Concurrent-write boundary
+## Concurrent-write boundary（历史观察；归属已在下文确认）
 
 交付核对时再次出现未经本主会话或 reviewer 写入的两文件 dirty：`message-pane.tsx` 的 textarea 自然换行自动增高 effect，以及 `global.css` 的行高/高度/错误区 flex-wrap。此前也发现另一个本地 63823 预览服务与 final-browser 产物。独立 reviewer 明确否认创建这些资源；主会话已向用户询问是否有其他窗口/Agent 同时写入。
 
@@ -72,3 +72,12 @@
 - 实际查看桌面、320px 和 375px 画面；失败短状态与重试保持紧凑，长文件名省略且完整 title 保留，320px 输入自然换行文字完整可见。浏览器通过数据面注入延迟/503，验证的是前端失败处理；真实原文件编码接受另有独立 HTTP 证据，不混为生产故障复现。
 - 本地证据：`output/playwright/audit-composer.png`、`audit-mobile-320.png`、`audit-mobile-375.png`、`ux-audit-browser.log`、`visual-fix-tests.log`、`final-recovery-tests.log`、`backend-validation.log`、`final-build.log`。图片、日志及临时数据库不提交。
 - 用户实际体验仍未确认；unit 保持 active，canonical delta 未归并。所有源码保存在本 worktree 分支；本轮没有推送、发布或生产部署。
+
+## Handoff reconciliation — 2026-11-02
+
+- 用户明确指出聊天 `01a19b2b-351a-7191-b62c-5982a16e510c` 为并行修改来源，并说明「有，这个。他改完了，你接手」。主会话已读取该聊天最终交接与同一 worktree 的实际提交，归属疑问解除。
+- 该聊天补充的用户要求为「帮我检查一下代码，还有没有类似这种明显的用户交互体验问题。」「包括这个例子体现的前端特别丑陋的情况」。其代码、设计、delta 与审查证据已经合入本分支提交 `6dfcdda4c06d416366adf8b317dba478a2c59992`；没有剩余来源未确认的 dirty。
+- effective_base：`011396a815299b0bf6037709b92e775f87304d6f`；effective_through：`6dfcdda4c06d416366adf8b317dba478a2c59992`。上文各独立审查与对应验证保留有效；该版本之后本次接手只整理交接记录和清理运行资源，不改变产品行为，不重复全量检查。
+- 已核实该聊天的 166 项视觉相关组件测试、12 项发送恢复测试、12 项服务端相关测试及最终构建成功日志；与主会话此前的前端/IM 全量结果一起使用，不把不同执行版本的数量混算为一次运行。
+- 已接手清理本任务遗留的 63823 隔离预览服务和共享 `paste-preview` 浏览器会话。开发 worktree 保留，源码均已提交；未推送、未部署。
+- 本次「接手」确认的是修改归属与维护责任，不能代替用户实际体验确认。unit 继续 active，canonical 归并与归档待实际体验确认后执行。
