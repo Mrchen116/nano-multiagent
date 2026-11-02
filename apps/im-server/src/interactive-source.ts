@@ -1,17 +1,35 @@
 import { interactiveRuntimeFunctions } from '@nano/product-contracts/interactive-functions';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { autoClose, createParser, evaluate, parseExpression, split, tokenize, walkAST, type ASTNode, type EvaluationContext } from '@openuidev/lang-core';
+import { autoClose, createLibrary, createParser, enrichErrors, evaluate, evaluateRoot, jsonToOpenUI, parseExpression, split, tokenize, walkAST, type ASTNode, type EvaluationContext, type OpenUIError } from '@openuidev/lang-core';
 import { intelligentUICatalog as interactiveCatalog, interactiveTools } from '@nano/product-contracts';
 
 export interface InteractiveSchema { source: string; actions: Record<string, string> }
 const parser = createParser(interactiveCatalog, 'Col');
+// Initial-state evaluation needs no React components or reactive event handlers.
+// The public serializer uses the same generated schema as the publication parser.
+const validationLibrary = {...createLibrary({components: []}), toJSONSchema: () => interactiveCatalog};
+const componentNames = Object.keys(interactiveCatalog.$defs);
+
+/** Carry upstream repair diagnostics without source, ASTs, or server stacks. */
+export class InteractiveSourceError extends Error {
+  readonly detail;
+  constructor(errors: OpenUIError[]) {
+    super('Interactive UI was not published. Correct the errors and retry.');
+    this.detail = {code: 'invalid_interactive_source', message: this.message,
+      errors: [...new Map(errors.map(error => [JSON.stringify(error), error])).values()]};
+  }
+}
 
 /** Validate a complete Open Intelligent UI program. */
 export function validateInteractiveSource(source: string): InteractiveSchema {
   if (Buffer.byteLength(source, 'utf8') > 65536 || autoClose(source).wasIncomplete) throw new Error('Interactive source is oversized or incomplete');
   const parsed = parser.parse(source);
-  if ((!parsed.root && !parsed.rootExpression) || parsed.meta.incomplete || parsed.meta.unresolved.length || parsed.meta.errors.length)
-    throw new Error(`Invalid interactive source: ${JSON.stringify({errors: parsed.meta.errors.map(item => item.message), unresolved: parsed.meta.unresolved})}`);
+  const diagnostics = enrichErrors(parsed.meta.errors, interactiveCatalog, componentNames);
+  for (const statementId of parsed.meta.unresolved) diagnostics.push({source:'parser', code:'parse-failed', statementId,
+    message:`Unresolved reference "${statementId}"`, hint:'Define the referenced statement before publishing the complete program.'});
+  if ((!parsed.root && !parsed.rootExpression) || parsed.meta.incomplete) diagnostics.push({source:'parser', code:'parse-failed',
+    message:'The complete program must have a renderable root.', hint:'Provide root = Component(...) and complete all statements.'});
+  if (diagnostics.length) throw new InteractiveSourceError(diagnostics);
   const actions: Record<string, string> = {};
   const sourceStatements = split(tokenize(source));
   const statements = sourceStatements.map(statement => parseExpression(statement.tokens));
@@ -24,6 +42,19 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
       return value ? evaluate(value, context) : undefined;
     },
   };
+  const runtimeErrors: OpenUIError[] = [];
+  const evaluated = evaluateRoot(parsed, {library: validationLibrary, ctx: context, store: null, errors: runtimeErrors});
+  if (runtimeErrors.length) throw new InteractiveSourceError(runtimeErrors);
+  // Reuse the SDK's schema checks on computed initial props. Queries without
+  // defaults have no value yet; do not treat pending external data as invalid.
+  if (evaluated && parsed.queryStatements.every(query => query.defaultsAST)) {
+    const snapshot = parser.parse(jsonToOpenUI({...evaluated, statementId:'root'}, validationLibrary));
+    // An unset binding is a valid initial control state. Serialization turns it
+    // into literal null, so null-required here is not a conclusive source error.
+    // Literal required nulls were already checked on the original program.
+    const errors = enrichErrors(snapshot.meta.errors.filter(error => error.code !== 'null-required'), interactiveCatalog, componentNames);
+    if (errors.length) throw new InteractiveSourceError(errors);
+  }
   // The native parser defers bound values. Enforce declared string types too:
   // numeric Select values render a blank label even when an option has that ID.
   const definitions = interactiveCatalog.$defs as Record<string, {properties?:Record<string,{type?:string|string[]}>}>;

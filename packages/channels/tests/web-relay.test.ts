@@ -99,14 +99,16 @@ test('heartbeat timeout reconnects; revoked identity stops automatic reconnect',
 });
 
 test('preserves a definite IM validation failure for tool recovery', async () => {
+  const detail={code:'invalid_interactive_source',message:'Correct the errors and retry.',errors:[{source:'parser',code:'type-mismatch',component:'Title',statementId:'heading',path:'/size',message:'Invalid size',hint:'Use sm or md'}]};
   const s = await server((socket, frame) => {
     if (frame.type === 'node.register') ack(socket, frame);
-    else socket.send(JSON.stringify({type:'error',payload:{message_type:frame.type,code:'invalid_reply_draft: use the declared state key'}}));
+    else socket.send(JSON.stringify({type:'error',payload:{message_type:frame.type,code:'invalid_reply_draft: use the declared state key',detail}}));
   });
   const relay = connection(s.url); await relay.start();
   await expect(relay.request('agent.message', {})).rejects.toMatchObject({
     delivery:'rejected',code:'invalid_reply_draft: use the declared state key',
     message:'IM rejected the request: invalid_reply_draft: use the declared state key',
+    detail,
   });
 });
 

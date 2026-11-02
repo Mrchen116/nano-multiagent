@@ -37,3 +37,10 @@
 - 采用用户确认的约100词英文选择/设计策略，替换intelligent-ui.ts中旧比较优先简单表格及长生成入口说明；按理解负担选择形式，复杂信息即使未点名界面也主动用UI，先设计信息组织与视觉舒适。
 - 保留同段后的ComposeMessage/ToAssistant、本地状态、群聊隐私、数据真实性、授权及root/child交付边界；Feature开关与按需Skill机制不变。没有给广告case添加UI提示或题目专用规则。
 - 此处为候选生成指导更新，dataset v4与CSV不变；沿用evals的独立上下文协议复测。没有搭配修复此前中文裸键导致空图的解析缺口，以保持本轮变更范围可审。
+
+## 后续 as-built：发布前检查与诊断（2026-11-03）
+
+- IM的`validateInteractiveSource`仍是发布入口：保留原大小/完整性、工具注册与动作权限约束；官方`enrichErrors`保留code/source/statementId/component/path/message及可用hint/severity，未解析引用补可操作诊断。`InteractiveSourceError.detail`携带一次紧凑JSON错误列表，完全相同的条目去重，不发送源码、AST或调用栈。
+- 使用lang-core公开`evaluateRoot`与共享函数检查初始状态，收集官方runtime诊断。不创建toolProvider、不执行Query/Mutation/点击动作、不加载React或浏览器。初始求值的树经官方`jsonToOpenUI`及同目录parser再校验计算后的参数；只用于检查，不替换发布source。任一Query没有defaults时跳过此快照参数检查，因其外部数据尚不可知；仍保留解析与可获取的求值诊断。快照把未初始化binding变成字面null，因此快照的null-required不作为确定错误，避免拒绝合法的空输入；原程序字面null、已知非null的类型/枚举与官方runtime错误仍检查。不是对未来所有交互状态或视觉的保证。
+- HTTP保留422结构化detail；Gateway的422 WebSocket错误附带detail；Channels保留到RelayDeliveryError；Global及私人PA发送把detail序列化为原生工具错误文本，当前调用明确rejected。共享PA操作保留同一错误结构。既有RPC可传递JSON错误文本，不扩展DSH协议，不新增模型调用或纠错循环。
+- 最小替换边界为已有IM validator和错误转发链；不改上游parser、目录、Skill、模型、case或已有消息。测试从validator、原子消息持久化、真实IM进程/WebSocket、relay、PA发送到原生模型请求分别取证；stub证据只证明实际Context交付，不冒充真实模型自主修正。

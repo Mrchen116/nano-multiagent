@@ -5,7 +5,7 @@ import { interactiveResponse, type InteractionSnapshot, type InteractionContext,
 import { body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
 import { agentAvailable } from './identity.js';
 import { conversationAccess } from './conversation-access.js';
-import { interactionState, validateInteractiveSource, type InteractiveSchema } from './interactive-source.js';
+import { InteractiveSourceError, interactionState, validateInteractiveSource, type InteractiveSchema } from './interactive-source.js';
 
 /** Own immutable UI records, private drafts, and viewer-specific submission identity. */
 export class Interactions {
@@ -81,7 +81,8 @@ export class Interactions {
       if (value.source_mode === 'patch') value = {...value, source: mergeStatements(old.source, value.source)};
       this.db.prepare('UPDATE message_interactive SET superseded_by=? WHERE message_id=?').run(id, old.message_id);
     }
-    try { registry = validateInteractiveSource(value.source); } catch (error) { fail(422, (error as Error).message); }
+    try { registry = validateInteractiveSource(value.source); }
+    catch (error) { fail(422, error instanceof InteractiveSourceError ? error.detail : (error as Error).message); }
     this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,supersedes_message_id,publication_json) VALUES(?,?,?,?,?,?,?)')
       .run(id, value.format, value.catalog_version, value.source, JSON.stringify(registry), value.supersedes_message_id ?? null, publication);
   }

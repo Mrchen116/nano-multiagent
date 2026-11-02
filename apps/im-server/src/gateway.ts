@@ -419,7 +419,7 @@ export class Gateway {
     if (this.rpc.accept(c, type, p)) return ack({request_id:p.request_id});
     if (type.startsWith("pa.")) {
       try { return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result:await this.ctx.personal!.handle(c,type,p)}}; }
-      catch(error) { const e=error as any;return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:{code:e.detail??"personal_operation_failed",message:e.message}}}; }
+      catch(error) { const e=error as any;return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:e.detail?.code==='invalid_interactive_source'?e.detail:{code:e.detail??"personal_operation_failed",message:e.message}}}; }
     }
     if (type === "node.heartbeat") {
       db.prepare(
@@ -846,6 +846,8 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
             type: "error",
             payload: {
               code: (e as Error).message,
+              ...((e as {statusCode?:number;detail?:unknown}).statusCode === 422 && typeof (e as any).detail === 'object'
+                ? {detail:(e as any).detail} : {}),
               message_type: frame.type,
               request_id: frame.payload?.request_id,
               journal_id: frame.payload?.journal_id,

@@ -163,3 +163,14 @@
 - 只读诊断确认生成的未引号中文对象key/属性被解析为“?”，四个key互相覆盖；Chart按中文series读不到值。parser仍meta.errors=[]。与前一用户显式UI追问的空图同类，本次保留原始失败，没有修改消息、重试或混入解析修复。
 - 原始证据留本机 `output/eval-ad-analysis-20261102-03/`：baseline、完整work/turn-items/messages、generated.oui、native-session.jsonl、actual-system-prompt.txt、chart-ast.json、result.png/mobile.png、result.json/report.md。native seq9实际包含新指导且旧表格偏好消失，不等同provider wire抓包。
 - 服务按用户要求保留：`http://127.0.0.1:56319/chat/c_f693beacf0d1`；原trial02与酒店/看板/会议均未停止。此次为Agent自验，unit仍Active，未冒充用户验收、部署或发布。
+
+## 发布前检查与可修正诊断（2026-11-03）
+
+- Base / executed_base：`b26bcff02320a7d8d889f0c21addbf41eeaeae95`。保留官方可用诊断，使用公开SDK初始状态求值与参数校验，不修改上游parser/目录/生成指导，也不安装浏览器或调用纠错模型。
+- 最窄发送链验证7files / 85tests通过，覆盖静态enum、状态计算后的enum、函数参数错误，HTTP业务错误/原子持久化、真实IM进程WebSocket拒绝→修正新调用成功、Channels detail、Global及私人PA明确拒绝与诊断、原生模型下一次请求包含工具错误及定位字段。原生测试是受控model stub，验证实际Context序列化，不声称真实模型自主修正或provider wire抓包。
+- IM、PA、Channels build，IM typecheck通过；runtime dependency contract 13tests、docs-check 282 maintained Markdown sources / 68 required routes、git diff --check通过。本机日志留 `output/ui-preflight/`。
+- IM/PA/Channels非E2E扩展回归83files / 631tests通过；另personal-images的3项因仍用旧nano-1/TextContent而在进入本轮校验前失败。仅迁移该测试输入为现有Image/nano-iui-1，图片实现不改；该文件4tests窄复测通过。未将修正后的窄复测冒充重新运行全量。
+- 只读重校验已有酒店、看板、会议与本次广告source均接受。此前广告空图仍能通过官方parser，未修或伪称解决静默吞错；原消息和截图不改。Query无defaults时数据未知，快照参数检查延后；不保证未来所有交互状态或浏览器视觉。
+- 本轮无产品前端改动，不重跑视觉评分；没有停止或重启用户保留的预览，未部署生产。unit继续Active，独立审查记录见code-review.md。
+- 独立审查发现初始快照误拒未初始化Input/TextArea/Checkbox，修复为不将快照null-required当作确定错误；原程序字面null仍拒绝，并存的非null错误仍拒绝。最终source+PA两文件47tests通过，覆盖空输入与共享PA明确拒绝。旧图片fixture迁移窄测4/4通过。
+- 同PR上一head的远端CI还暴露前端job仅npm ci、未安装新共享contracts的lang-core/zod依赖，编译失败。补pnpm frozen workspace安装步骤，保留原前端安装/编译/审计/测试；不改变产品代码或依赖版本。后端旧图片fixture失败与前述同因。此次提交不冒充此前远端CI已绿。

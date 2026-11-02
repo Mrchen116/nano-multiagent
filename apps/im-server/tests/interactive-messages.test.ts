@@ -68,6 +68,9 @@ describe('interactive message persistence', () => {
     expect(()=>messaging.insertMessage('chat','a1','agent','无效卡片',[],null,'completed',{interactive:{...interactive,source:'root = Unknown("x")',supersedes_message_id:card.id}})).toThrow();
     expect(all(db,'SELECT * FROM messages')).toHaveLength(before);
     expect(messaging.message(card.id).interactive.superseded_by).toBeUndefined();
+    expect(()=>messaging.insertMessage('chat','a1','agent','无效卡片',[],null,'completed',{interactive:{...interactive,source:'root = Title("Hello", "huge")'}}))
+      .toThrow(expect.objectContaining({statusCode:422, detail:expect.objectContaining({code:'invalid_interactive_source',errors:[expect.objectContaining({code:'type-mismatch',component:'Title',path:'/size',statementId:'root'})]})}));
+    expect(all(db,'SELECT * FROM messages')).toHaveLength(before);
   });
   it('copies public cards as read-only without copying viewer drafts', () => {
     const {messaging,card,db,request} = setup();

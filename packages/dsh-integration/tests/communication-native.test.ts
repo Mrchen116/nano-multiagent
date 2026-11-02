@@ -1,9 +1,35 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
+
+it('delivers structured UI repair diagnostics to the next native model request', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-ui-diagnostics-'));
+  let client:RuntimeClient|undefined;
+  const detail={code:'invalid_interactive_source',message:'UI was not published. Correct and retry.',errors:[{source:'parser',code:'type-mismatch',component:'Title',statementId:'heading',path:'/size',message:'Invalid size',hint:'Use sm or md'}]};
+  try {
+    await writeFile(join(home,'fixture.mjs'), `import {writeFile} from 'node:fs/promises';
+export const name='ui-error-fixture';export const inject=['llm'];export function apply(ctx){let step=0;ctx.on('llm/stream',async function*(o){
+if(step++===0){yield{type:'block-end',index:0,block:{type:'tool-call',id:'invalid-ui',name:'send_message',arguments:JSON.stringify({target:'current',text:'Summary',interactive:{source:'root = Title("Hello", "huge")'}})}};yield{type:'finish',reason:{kind:'tool-calls'}};}
+else{await writeFile(${JSON.stringify(join(home,'repair-context.json'))},JSON.stringify(o.messages));yield{type:'block-end',index:0,block:{type:'text',text:'I received the repair diagnostics.'}};yield{type:'finish',reason:{kind:'stop'}};}
+});}`);
+    await prepareProfile(home,[{insert:[{id:'ui-error-fixture',name:join(home,'fixture.mjs')}]}]);
+    client=new RuntimeClient({home,cwd:home});registerNoopTaskHosts(client);
+    client.rpc.handle('product.call',()=>{throw new Error(JSON.stringify(detail));});
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,mode:'single_thread',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['send_message'],features:{intelligent_ui:true},approval:{dangerouslySkipPermissions:true}}],bindings:[]});
+    await client.rpc.request('session.ensure',{sessionId:'chat',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
+    await client.rpc.request('session.submit',{sessionId:'chat',inputId:'human',mode:'followup',content:[{type:'text',text:'Send the UI'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'human'}});
+    await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'chat',inputId:'human'}) as any).terminal).toBeTruthy();
+    const messages=JSON.parse(await readFile(join(home,'repair-context.json'),'utf8'));
+    const result=messages.find((message:any)=>message.role==='tool'&&message.toolCallId==='invalid-ui');
+    expect(result.isError).toBe(true);
+    const text=JSON.stringify(result.content);
+    for(const value of ['invalid_interactive_source','type-mismatch','heading','/size','Use sm or md'])expect(text).toContain(value);
+    await client.shutdown();client=undefined;
+  } finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
+},15000);
 
 it('routes single-thread public send fields through the product bridge', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-communication-'));

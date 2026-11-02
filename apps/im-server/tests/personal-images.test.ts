@@ -15,8 +15,8 @@ it.each(['png','jpeg','webp'] as const)('freezes and copies the exact decoded %s
   const sha=createHash('sha256').update(bytes).digest('hex');
   writeFileSync(join(root,'message-images','original'),bytes);
   db.prepare('INSERT INTO message_images VALUES(?,?,?,?,?,?,?,?)').run('image','chat','uploaded',sha,`image/${format}`,`photo.${format}`,bytes.length,'original');
-  const source='root = TextContent("![Agreed image](/im/v1/conversations/chat/images/image)")';
-  const p=await service.actions.prepareChecked(principal,{...args,request_key:'photo',representation:'owner',conversation_id:'peer',content:'Agreed image',attachments:[{url:'/im/v1/conversations/chat/images/image'}],interactive:{format:'openui',catalog_version:'nano-1',source}});
+  const source='root = Image("/im/v1/conversations/chat/images/image", "Agreed image")';
+  const p=await service.actions.prepareChecked(principal,{...args,request_key:'photo',representation:'owner',conversation_id:'peer',content:'Agreed image',attachments:[{url:'/im/v1/conversations/chat/images/image'}],interactive:{format:'openui',catalog_version:'nano-iui-1',source}});
   expect(p.evidence.payload.attachment_snapshots[0]).toMatchObject({base64:bytes.toString('base64'),sha256:sha,width:12,height:8});
   expect((db.prepare('SELECT payload_json FROM pa_operations WHERE operation_id=?').get(p.proposal_ref)!.payload_json as string)).not.toContain(bytes.toString('base64'));
   const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});

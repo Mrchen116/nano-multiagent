@@ -1,10 +1,36 @@
 import { describe, it, expect } from 'vitest';
-import { validateInteractiveSource, interactionState } from '../src/interactive-source.js';
+import { InteractiveSourceError, validateInteractiveSource, interactionState } from '../src/interactive-source.js';
 
 const source = `$body = "周六见"
 root = Col([Form([TextArea($body, "消息草稿"), Button("继续修改", @ToAssistant("继续修改"))])])`;
 
 describe('Open Intelligent UI source boundary', () => {
+  it.each([
+    ['heading = Title("Hello", "huge")\nroot = Col([heading])', 'parser', 'type-mismatch', 'Title', '/size', 'heading'],
+    ['$size = "huge"\nheading = Title("Hello", $size)\nroot = Col([heading])', 'parser', 'type-mismatch', 'Title', '/size', 'heading'],
+    ['$n = "wrong"\nheading = Text(@Pow($n, 2))\nroot = Col([heading])', 'runtime', 'runtime-error', 'Text', undefined, 'heading'],
+  ])('returns upstream repair diagnostics for static and initial-state failures: %s', (program, origin, code, component, path, statementId) => {
+    let error: InteractiveSourceError | undefined;
+    try { validateInteractiveSource(program!); } catch (caught) { error = caught as InteractiveSourceError; }
+    expect(error).toBeInstanceOf(InteractiveSourceError);
+    expect(error!.detail).toMatchObject({code:'invalid_interactive_source', errors:[expect.objectContaining({source:origin, code, component, statementId})]});
+    if (path) expect(error!.detail.errors[0].path).toBe(path);
+    expect(error!.detail.errors[0].message).toBeTruthy();
+    if (origin === 'runtime') expect(error!.detail.errors[0].hint).toBeTruthy();
+    expect(error!.detail).not.toHaveProperty('source');
+    expect(error!.detail).not.toHaveProperty('stack');
+  });
+  it('does not execute actions or reject pending queries while checking initial props', () => {
+    expect(() => validateInteractiveSource(`data = Query("conversation_messages", {})
+$n = 1
+$later = "bad"
+root = Col([Text("Count " + @Count(data)), Button("Next", @Set($n, @Pow($later, 2)))])`)).not.toThrow();
+  });
+  it.each(['Input($name, "Name")','TextArea($draft)','Checkbox($selected, "Selected")'])('allows unset initial bindings without weakening known computed prop checks: %s', control => {
+    expect(() => validateInteractiveSource(`root = Col([${control}])`)).not.toThrow();
+    expect(() => validateInteractiveSource(`$size = "huge"\nroot = Col([${control}, Title("Hello", $size)])`))
+      .toThrow(expect.objectContaining({detail:expect.objectContaining({errors:[expect.objectContaining({code:'type-mismatch',component:'Title',path:'/size'})]})}));
+  });
   it('snapshots edited values with control and option labels', () => {
     const schema = validateInteractiveSource(`$mode = "bike"
 $time = "am"
@@ -46,7 +72,7 @@ root = Text("消息数：" + @Count(data))`)).toThrow();
   });
   it('rejects mismatched selection types before publishing a blank selection', () => {
     const invalid='$option = 0\nroot = Select($option, [{value:"0",label:"首项"}])';
-    expect(()=>validateInteractiveSource(invalid)).toThrow(/Select.value.*string/);
+    expect(()=>validateInteractiveSource(invalid)).toThrow(expect.objectContaining({detail:expect.objectContaining({errors:[expect.objectContaining({component:'Select',path:'/value',code:'type-mismatch'})]})}));
     expect(()=>validateInteractiveSource(invalid.replace('$option = 0','$option = "0"')+'\nchange = @Set($option, 1)')).toThrow(/Set.*string/);
   });
 });

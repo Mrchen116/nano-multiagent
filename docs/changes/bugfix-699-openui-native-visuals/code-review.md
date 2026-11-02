@@ -49,3 +49,11 @@
 - Result：`[]`。确认英文选择/设计段符合用户决定；状态、真实性、授权与root/child交付边界保留，Skill、组件、解析和case均未改变。
 - 实际Context限定于本次SID `f57cea98-164a-4e0a-84f2-bfbd8f9d87b0`：native seq9有新规则且无旧表格偏好，seq14保留工具/Skill schema，seq23出现固定自然任务。baseline源码、dataset v4、CSV哈希和零消息起点一致。未核provider wire；审查不冒充采用率或视觉通过。
 - 实际模型采用与空图失败分别记录在validation.md；本次未宣称修复既有解析缺陷。
+
+## 发布前诊断 patch（2026-11-03）
+
+- Base/head：`b26bcff02320a7d8d889f0c21addbf41eeaeae95` + 本次IM校验/错误转发、Channels、PA、相关测试和unit文档dirty diff；包括旧图片fixture迁移及前端CI补共享依赖安装。没有改上游parser、生成指导、case或前端组件。
+- 独立reviewer `/root/openui_visual_review`，gpt-6.1-sol / high，change-code-review + agent-context-review Mode B。初轮发现快照把未初始化binding当字面null，误拒Input/TextArea/Checkbox。
+- 修复：快照null-required不当确定错误，原程序显式非法null仍拒；非null计算类型/enum及官方runtime诊断保留。新增空绑定与并存已知错误回归。Closure：该finding **closed**；最终结构化结论 `[]`，无存活问题。
+- 独立复测60项通过；同时核共享PA明确拒绝、图片fixture迁移与CI依赖安装，无新问题。实际validated_at为上述最终working tree，后续仅追加本记录/验证事实；executed_base同上，没有混入额外main更新。
+- Context证据覆盖真实IM/WebSocket拒绝→修正成功，以及原生model stub下一次o.messages中的错误标记与定位字段。证明工具诊断实际交付，不证明真实模型自主修正、provider wire或视觉正确性。初始null和未返回Query数据的限制已在design/validation明示；用户验收仍未发生。
