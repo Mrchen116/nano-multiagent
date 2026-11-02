@@ -1,6 +1,12 @@
 # bugfix-697: As-built Design
 
-> 本文在实现后形成，描述实际代码与验证；用户实际验收仍待完成。
+> 本文在实现后形成，描述实际代码与验证；用户已在最终文案修正后确认结果并要求提交 PR。
+
+## 实现范围
+
+- Base：`011396a815299b0bf6037709b92e775f87304d6f`。
+- 最终产品代码：`6e3692ef7a814b64322d0d133f99287ab6bd1cbc`；后续收尾仅改契约与记录。
+- Included dirty files：无产品代码 dirty；交接来源已确认，同一分支提交统一交付。
 
 ## 最终结构
 
@@ -33,9 +39,9 @@
 ## 验证定位
 
 - 自动化结果、浏览器证据和独立审查见 [code-review.md](code-review.md)。
-- 用户实际验收尚未完成；保持 active，不归档、不宣称上线。
+- 用户在移除上传说明文字后回复「ok，提pr」，确认结果并授权交付；未部署。
 - 本地产物位于 worktree `output/playwright/`，截图/日志/数据库不提交。复现实验明确区分原始字节与人工构造的非图片反例。
 
 ## Canonical 文档影响
 
-拟更新 `docs/specs/im/web-chat-ux.md` 与 `docs/specs/im/conversations-messages.md`，具体见 [delta-spec.md](delta-spec.md)。尚未归并，以免把未完成验收的目标覆盖 current。
+已将最终行为归并至 `docs/specs/im/web-chat-ux.md` 与 `docs/specs/im/conversations-messages.md`，具体增量见 [delta-spec.md](delta-spec.md)。归并未新增 Requirement，包入口数量不变。

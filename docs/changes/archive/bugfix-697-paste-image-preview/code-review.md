@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-快速开发；实现、工程验证与独立审查记录在此。用户亲自体验确认尚未完成，unit active。独立 full 审查及恢复修复的 patch/closure 已完成；最终紧凑提示调整以窄测试与视觉核对验证。
+快速开发；实现、工程验证与独立审查记录在此。用户在移除最终冗余提示后回复「ok，提pr」，确认结果并授权交付。下文保留各阶段执行时的验收/active 状态；最终收尾结论以末尾记录为准。独立 full 审查及恢复修复的 patch/closure 已完成；最终紧凑提示调整以窄测试与视觉核对验证。
 
 ## Existing test disposition
 
@@ -85,3 +85,13 @@
 ## 用户反馈修正 — 去掉上传说明文字
 
 用户明确要求移除截图中的 `Uploading 2 attachment(s). Send when ready.`。删除对应中英文辅助说明行，保留卡片已有的蒙层、加载圈与可访问状态，以及发送约束和失败动作。此次只删冗余展示节点，既有上传/发送逻辑审查结论保留；相关附件生命周期 5/5 测试、前端类型检查与生产构建通过。不增加只镜像文字删除的测试，不重跑无关全量。
+
+## PR delivery closure — 2026-11-02
+
+- 用户在最终反馈修正后回复「ok，提pr」，确认本次结果并授权提交 PR。用户确认与 Agent 执行的浏览器/自动化证据分别记录，不声称用户逐条手工执行过验收。
+- 原始 full review、后续 patch/closure 和用户反馈修正均已收敛。最终产品代码 `6e3692ef7a814b64322d0d133f99287ab6bd1cbc` 之后只有 delta、canonical 和归档记录变动，既有代码审查/视觉验证保留有效。主会话按最终实现核对两份 corrected delta，无新增 Requirement、无无关 spec 扩写；不补 verifier 或产品 reviewer。
+- validated_at：产品代码 `6e3692ef7a814b64322d0d133f99287ab6bd1cbc`；executed_base / effective_base：`011396a815299b0bf6037709b92e775f87304d6f`。交付前 fetch 确认 main 未推进；最终归档提交仅文档变更，逻辑门禁 retained，有效至最终 PR head（PR 描述记录完整 SHA）。
+- 本地等价 CI：`pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime` 通过；root Vitest `--maxWorkers=4`：203 files / 1095 tests passed；前端 111 files / 1052 tests passed；Python 129 passed / 28 e2e deselected；ruff check 和 format check 通过；前端 critical dependency audit 通过；docs-check 279 maintained sources / 68 routes 通过。
+- 前端生产构建在最终提示移除后已通过；本轮 source 无变化复用该结果。iOS 原生文件及其 CI 配置未变，不额外运行原生模拟器/归档门禁。
+- 最终镜像 delta 已归并至两份 IM canonical 文档；unit 整体移入 archive，表示可交付，不表示已合并或部署。开发 worktree 在 PR 未合入期间保留，验证服务均已停止。
+- 本轮 CI 日志在 `output/pr-validation/`，此前 UI/HTTP 证据在 `output/playwright/`；本地产物不提交。
