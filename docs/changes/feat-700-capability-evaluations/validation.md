@@ -28,3 +28,10 @@
 - 看板：<http://127.0.0.1:51507/chat/c_b101f7e09046>，`output/runtime-openiui-clean-dashboard`。
 
 这些是上一轮独立上下文现场；看板手机图表过小等已知问题没有冒充修复或通过。本轮不提供正式自动运行/评分，fresh-context 是已记录的执行前协议，尚未交付自动隔离器。未提交运行数据、日志、密钥、PID或截图缓存。
+
+## Dataset v2 四例增补
+
+- 用户同意新增 activity-budget；会议原样保留，检查真实确认消息及 Agent 回复。新 case 自然任务不点名 UI、不附界面参考，包含固定报价、初始选择、40→50人容量变化及自行前往的操作检查点。
+- Node24：evals/ui 3文件4 tests及evals TypeScript检查通过；独立窄 patch review `[]`。仅扩充材料，不重跑产品运行时测试。
+- CUA 实际打开四例目录和新增 case，核对固定输入、从零上下文、步骤、判据及“未运行”状态。截图 `output/eval-ui-evidence/activity-budget-case.png`，不冒充候选完成或正式评分。
+- 当前公共入口更新为 <http://127.0.0.1:63351/609d5ed3-d53b-4919-a454-20b407ed6541/#activity-budget>，tmux `capability-eval-ui-v2`，日志 `output/eval-ui-viewer-v2.log`；最新 pid/url 仍在 `output/capability-eval-viewer/state.json`。旧版公共 viewer 已替换，原三个产品预览不停止。开发 worktree 和更新后的服务保留。

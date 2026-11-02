@@ -2,7 +2,7 @@
 
 从之前 Memory 单题原生轨迹入口提取的公共页面层，按能力、实验、case、阶段展示材料与证据。当前登记 Memory 与 Intelligent UI；后续 Agent 并行等能力可以添加自己的 case 和阶段，无须复制页面。
 
-页面层不决定各能力的执行与评分协议。Memory 继续使用 `evals/memory` 的准备、冷答题和评分；Intelligent UI 本轮先搭三个 case，尚未新增自动运行与评分。不要将“建档”“已有证据”或“原生轨迹可读”当成评测通过。
+页面层不决定各能力的执行与评分协议。Memory 继续使用 `evals/memory` 的准备、冷答题和评分；Intelligent UI 本轮已建四个 case，尚未新增自动运行与评分。不要将“建档”“已有证据”或“原生轨迹可读”当成评测通过。
 
 ```sh
 pnpm install --frozen-lockfile

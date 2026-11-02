@@ -9,3 +9,9 @@
 - 证据：真实 RuntimeClient 回归保留原件 sentinel，而相同数据普通初始化会执行清理；导航延迟关闭回归保留最新 case；归档 439 文件查看前后哈希无变化；独立复核窄测试/类型检查和导航复现通过。
 - Closure：上述发现全部关闭，最终结构化结论 `[]`。最后目录原生阶段默认折叠的窄改动单独 closure `[]`。曾有一次 reviewer capacity failure，沿用原 reviewer 重试后取得上述结论，没有把失败当通过。
 - 不声称：未重跑 Memory 候选或正式分数；未执行新 Intelligent UI 正式评测；未将已有场景或源码可运行判为通过。
+
+## 四例增补 patch review
+
+- Base/head：9c556188f；范围为其后的活动试算 case、dataset v2、目录/README、现有接线测试和 unit 文档增补，未改产品代码或运行器。
+- 沿用独立 /root/openui_visual_review（gpt-6.1-sol/high）按 change-code-review 执行窄 patch review，结论 `[]`。三个计算点正确，新 prompt 未点名工具、组件或泄漏判定答案；操作控制材料未注入候选输入；原三个 case 不变。独立相关2项接线测试通过。
+- 用户同意加第四个 case，会议保留是当前建议和默认处理，不写成用户已批准删除或已完成验收。未运行候选或评分。
