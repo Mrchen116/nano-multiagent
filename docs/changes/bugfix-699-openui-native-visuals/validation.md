@@ -152,3 +152,14 @@
 - 看板：`http://127.0.0.1:51507/chat/c_b101f7e09046`，runtime `output/runtime-openiui-clean-dashboard`，启动 session `openiui-clean-dashboard`。
 
 后续停止时对各自 runtime 执行配对 e2e-down；不要误停生产或其他工作区。unit 仍 Active，用户尚未验收；开发 worktree 保留，未部署或发布。
+
+## 短常驻选择与设计指导候选（2026-11-02）
+
+- 用户确认约100词英文指导后，仅替换公共 `intelligent-ui.ts` 的选择/设计段落：降低理解负担、复杂信息主动UI、先选信息结构/布局/可视化、美观舒适；保留后半段状态、真实性、权限和root/child交付规则。未改Skill语法、解析器、发布校验或固定case。
+- `@nano/dsh-integration` build通过；communication-native 1 file / 2 tests通过；docs-check 282 maintained Markdown sources / 68 required routes通过；git diff --check通过。独立Context审查见code-review.md。
+- 同一dataset v4广告case，固定CSV SHA `7c7f5806be03dfb44d8d3eaa26f54df34c3f2e74d952f3076a7e9b04b248608a`。新隔离runtime `output/runtime-eval-20261102-03`，新PA `pa_db62538c9822`，SID `f57cea98-164a-4e0a-84f2-bfbd8f9d87b0`；codexOAuth:gpt-6-astra / medium，初始0消息、workspace预置文件、无附件，唯一自然任务不含UI要求。旧trial02纯文字基线保留。
+- **本次usedUI=true**：主动加载nano-interactive-ui，1次send_message带interactive.source，公开卡片 `32c97b56201c41bda58c8bfd86bfdc51`；共8次工具、0工具错误、1个完整完成turn。旧自然任务基线usedUI=false；单次对照不能外推稳定采用率。
+- **视觉未通过**：实际桌面及390×844均看到空图，12根柱高为0；转化表每行四格重复20%或5%。周次切换能本地更新流失表，切回后公开消息仍3条，没有额外模型调用。正文很长且重复UI，没有达到简短摘要/降低理解负担的目标；不评分业务分析准确率。
+- 只读诊断确认生成的未引号中文对象key/属性被解析为“?”，四个key互相覆盖；Chart按中文series读不到值。parser仍meta.errors=[]。与前一用户显式UI追问的空图同类，本次保留原始失败，没有修改消息、重试或混入解析修复。
+- 原始证据留本机 `output/eval-ad-analysis-20261102-03/`：baseline、完整work/turn-items/messages、generated.oui、native-session.jsonl、actual-system-prompt.txt、chart-ast.json、result.png/mobile.png、result.json/report.md。native seq9实际包含新指导且旧表格偏好消失，不等同provider wire抓包。
+- 服务按用户要求保留：`http://127.0.0.1:56319/chat/c_f693beacf0d1`；原trial02与酒店/看板/会议均未停止。此次为Agent自验，unit仍Active，未冒充用户验收、部署或发布。

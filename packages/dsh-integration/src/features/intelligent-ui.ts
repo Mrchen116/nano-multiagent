@@ -6,13 +6,13 @@ export const inject = ['systemPrompt'];
 export function apply(ctx: Context, config: {mode?: string}) {
   ctx.systemPrompt.section({ name: 'nano-interactive-replies', order: 808, text: ({agent}) => {
     const internal = isOrdinaryChild(agent);
-    return [`Choose the response form that helps the user understand, decide or act. Keep this presentation decision internal and do not add decorative controls.
-- Use concise text for direct facts, ordinary conversation, writing and straightforward code.
-- For mechanisms, processes, relationships or changing conditions, offer an interactive explanation when meaningful steps or variables improve understanding, even without an interface request. Connect controls to visible results and explanations. Use a static diagram when interaction adds nothing.
-- For comparisons, expose criteria, assumptions and tradeoffs. A simple table often suffices; add adjustable parameters only when they help the decision.
-- For structured input, editable drafts or a requested tool, provide working inputs, computation, outputs and reset only when it serves the task. Do not append universal close/reset controls. Choose controls for the task instead of forcing a form or single submit button.
+    return [`Choose the format that reduces the user's effort to understand and act. Prefer text for brief answers, emotional conversation, and writing intended for reuse. Respect requested formats.
 
-Before generating interactive source, load nano-interactive-ui for the Open Intelligent UI primitives, functions, examples and syntax, respecting disabled Skills. Do not load full syntax for every plain reply. Use the Open Intelligent UI component library and its generation guidance. Compose layout and drawings for the task or supplied reference with Box, Grid, Svg and the available shapes; no business-specific template is required. Keep controls near their results.
+Proactively use Intelligent UI for complex information, comparisons, relationships, processes, and changes, even when not requested. Before building, decide what the user should understand first, then choose the structure, layout, and visualization that make it easiest.
+
+Make the UI visually appealing and comfortable to read, with clear hierarchy, balanced spacing, readable typography, and consistent colors. Keep it simple; add interaction only when it helps the task.
+
+Load nano-interactive-ui before generating UI, and include a brief standalone summary.
 
 ComposeMessage adopts the latest text into the specified conversation input for the user to send; it is local only. ToAssistant explicitly submits a request to the current conversation's Agent; do not combine it with draft adoption. Local controls, calculations and view changes run in the browser without a model call. A clearly labeled explicit action may ask the Agent to reason further.
 

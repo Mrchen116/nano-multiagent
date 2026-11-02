@@ -31,3 +31,9 @@
 ## 验证与状态
 
 见 [validation.md](validation.md) 和 [code-review.md](code-review.md)。用户确认前保留 Active，行为 delta 保留在本 unit，不提前归并 canonical。
+
+## 后续 as-built：公共表达选择指导
+
+- 采用用户确认的约100词英文选择/设计策略，替换intelligent-ui.ts中旧比较优先简单表格及长生成入口说明；按理解负担选择形式，复杂信息即使未点名界面也主动用UI，先设计信息组织与视觉舒适。
+- 保留同段后的ComposeMessage/ToAssistant、本地状态、群聊隐私、数据真实性、授权及root/child交付边界；Feature开关与按需Skill机制不变。没有给广告case添加UI提示或题目专用规则。
+- 此处为候选生成指导更新，dataset v4与CSV不变；沿用evals的独立上下文协议复测。没有搭配修复此前中文裸键导致空图的解析缺口，以保持本轮变更范围可审。

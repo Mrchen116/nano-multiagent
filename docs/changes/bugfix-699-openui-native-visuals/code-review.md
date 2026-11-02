@@ -41,3 +41,11 @@
 
 - 用户指出 Close/Reset 每张都有后，基于 `8807c5d66` 审查新增短/长生成规则与同步资产。
 - reviewer 同上，结论 `[]`：不默认添加装饰操作，按具体任务决定控件；未删除组件能力、未改变权限，短长一致。
+
+## 短选择与设计指导 patch（2026-11-02）
+
+- Base/head：`74c02b212dc47bc7aaa22e8abfb26f03936af23f` + 本次4-file dirty diff（公共intelligent-ui.ts、incident、as-built design、Web delta）；后续只补实际验证和本记录。
+- 独立reviewer `/root/openui_visual_review`，gpt-6.1-sol / high；change-code-review + agent-context-review Implementation Review / Mode B。未参与本次实现。
+- Result：`[]`。确认英文选择/设计段符合用户决定；状态、真实性、授权与root/child交付边界保留，Skill、组件、解析和case均未改变。
+- 实际Context限定于本次SID `f57cea98-164a-4e0a-84f2-bfbd8f9d87b0`：native seq9有新规则且无旧表格偏好，seq14保留工具/Skill schema，seq23出现固定自然任务。baseline源码、dataset v4、CSV哈希和零消息起点一致。未核provider wire；审查不冒充采用率或视觉通过。
+- 实际模型采用与空图失败分别记录在validation.md；本次未宣称修复既有解析缺陷。
