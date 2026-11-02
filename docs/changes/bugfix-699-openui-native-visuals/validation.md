@@ -39,3 +39,14 @@
 - 看板保留四项指标与左右图形结构、区域切换可用，但模型仍以原生 HorizontalBarChart 近似居中示意漏斗，后级因数量级差异很短；背景面板/轴和比例也不同。**不能宣称看板已忠实复现原图**，本轮未增加专用漏斗或截图模板。
 - 官方 `thesysdev/skills` / OpenUI Skill 用于开发接入；当前运行时 Skill 的语言/目录来自注册库的上游 prompt()，Nano 仅包装消息及状态/权限约束和通用生成指导，未整套引入开发 Skill。官方来源：https://www.openui.com/docs/mcp 与 https://github.com/thesysdev/skills 。
 - 用户验收仍未发生；不以 Agent 自验冒充，不归并 canonical，不归档。
+
+## 用户追问后的漏斗能力核对
+
+用户问：“漏斗不能还原的原因是模型还是什么限制，你写的话能还原吗”。
+
+- 核对实际已安装 react-ui 0.18.1 的公开 JS exports：`FunnelChart` 为 function；`openuiLibrary.components` 共 82 项，其中无 FunnelChart。本仓继承完整模型目录，不代表开放了包里所有原生 React 组件。
+- 当前已登记 HorizontalBarChart 的 schema 只有 labels/series/variant/xLabel/yLabel；没有居中漏斗、独立示意宽度、隐藏轴等参数。单纯换一份同样受该目录限制的 DSL，不能忠实复现参考的居中示意条。
+- 使用同一份 4.2M/310K/42K/9.8K 数据，在本机隔离页实际渲染三列：当前 HorizontalBarChart、上游公开 FunnelChart（vertical/straight/layers=1）、手写参考式流程示意。截图留 `output/playwright/openui-native/funnel-capability-comparison.jpg`。
+- 上游 FunnelChart 确实能画居中漏斗，但同样按实际数量缩放，后段很窄。手写通用 HTML/CSS 的阶段条能接近参考；条宽明确仅为流程示意，不伪装成真实数量比例。
+- 原因包含模型选图/语义判断与已开放表达范围两部分；不能全归给模型，也不能声称只登记 FunnelChart 就获得参考外观。验证页没有加入产品，也没有新增截图专用组件或模板。
+- 此证据补充不改变已审代码。扩展通用图形/布局表达能力不在已实现的“恢复默认视觉”代码范围内；用户仍未确认验收。
