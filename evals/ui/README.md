@@ -28,7 +28,7 @@ pnpm eval-ui --memory-archive /absolute/path/to/experiment --output /absolute/pa
 
 这些是已有现场链接，页面明确标注不是本轮新执行。运行目录保存 state.json 供恢复入口，不存入 Git。Ctrl-C 关闭本查看器；不停止这些外部既有产品服务。用户明确要求保留预览时记录入口、目录及后续清理方式。
 
-输入附件可从 case 页面下载，读取与参考图一样需要本地 capability，且仅限登记在该 case 的文件。广告分析只提供固定CSV，不附UI范例；本轮没有执行候选或评分。
+输入文件可从 case 页面下载，读取与参考图一样需要本地 capability，且仅限登记文件。广告分析的 `workspaceFiles` 要在运行前复制到全新Agent工作区根目录，候选只收到自然任务；不经聊天附件链路、不附UI范例。
 
 ## 来源与边界
 

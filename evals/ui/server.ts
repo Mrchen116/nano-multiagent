@@ -28,7 +28,7 @@ export async function startViewer(options:{suites:Suite[];archive?:ArchiveReader
       }
       if(path==='/api/attachment') {
         const name=new URL(req.url!,'http://localhost').searchParams.get('name');
-        if(!options.suites.flatMap(s=>s.cases).some(c=>c.attachments?.some(file=>file===name)))throw new Error('Unknown attachment');
+        if(!options.suites.flatMap(s=>s.cases).some(c=>[...(c.attachments??[]),...(c.workspaceFiles??[])].includes(name!)))throw new Error('Unknown attachment');
         await file(join(root,'evals/intelligent-ui/assets'),name!);return;
       }
       if(path==='/api/report'){json(200,{text:options.report??'当前只建档 case，尚未启动正式评测。'});return}

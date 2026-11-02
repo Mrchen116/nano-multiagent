@@ -22,3 +22,8 @@
 - 用户最新要求只评是否主动使用UI和主观呈现质量，分析正确性不评分；prompt只含业务问题，固定CSV无输出示例、工具或组件提示。
 - 独立 /root/openui_visual_review 发现判定口径接缝：本产品没有独立名为Intelligent UI的工具，模糊描述不能客观地区分Skill加载与真实发布。核对global-mode及message-arguments后，明确只有本case实际send_message/send_user_message调用携带非空字符串interactive.source才记使用；发布或渲染失败仍是调用事实，质量另记失败。Skill加载、代码和普通消息不算，缺轨迹或未跑是未判定。
 - 修复后closure结论 `[]`，上述finding closed。附件鉴权/登记白名单与下载接线无新缺陷；独立窄测试和类型检查通过。未调用候选或评分。
+
+## v4 工作区文件 patch review
+
+- Base/head：791c9456e；范围为workspaceFiles、自然任务文件定位、操作员下载说明与白名单、已有接线测试及文档。用户纠正不应混入附件链路，未修改产品上传或附件处理代码。
+- 独立 /root/openui_visual_review 按change-code-review窄审查结论 `[]`；工作区预置、操作员下载与候选自然任务已区分，没有界面/工具提示或判据泄漏；原三题和两个评价维度不变。独立3项窄测试及类型检查通过，实际运行由主会话另行取证。

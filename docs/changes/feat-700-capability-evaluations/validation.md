@@ -43,3 +43,12 @@
 - evals/ui 3文件4tests、evals TypeScript通过；server测试覆盖CSV读取、缺token拒绝、未登记附件与路径越界拒绝。原三个case无变更。独立patch/closure审查 `[]`。
 - CUA实际查看四例目录、固定业务输入、附件下载入口、操作与判据；点击下载入口无页面错误，HTTP测试确认CSV读取，未宣称实际候选完成。截图 `output/eval-ui-evidence/ad-analysis-case.png`。
 - 当前入口 <http://127.0.0.1:64734/96c2a32c-6937-447d-8983-b6bf72243188/#ad-analysis>，tmux `capability-eval-ui-v3-final`，日志 `output/eval-ui-viewer-v3-final.log`；pid/url仍在 `output/capability-eval-viewer/state.json`。旧公共viewer已替换，保留最新服务、原三个产品预览与开发worktree。
+
+## Dataset v4 工作区文件首次实际评测
+
+- 用户纠正将CSV直接放入workspace后，另起 `output/runtime-eval-20261102-02`，新身份/聊天/workspace/owner/DSH home，模型codexOAuth:gpt-6-astra、medium，Intelligent UI开启。777字节CSV预置到Agent工作区根目录，SHA-256前后相同；先证实0消息，再从Web真实输入框发送一次自然任务，无聊天附件及额外提示。
+- 当前case采用workspaceFiles（v4），总数仍4。旧v3聊天附件试验单独保留，不混算，也没有通过修改产品代码让本次输入通过。
+- 实际结果：read读取成功，7工具调用、0工具报错，耗时111.83秒，最终交付长文字+静态Markdown表格。完整15条Work记录且无下一页，2次公开send_message均无interactive.source；usedUI=false，uiCallCount=0，视觉未适用，分析正确性不评分。
+- Session `34b7c04d-48b2-4a87-b3cc-2d1bbfca2b5f`，turn1；1条用户请求、1条确认、1条最终回复。现场 <http://127.0.0.1:51124/chat/c_2770889dcac4>，本地报告 `output/eval-ad-analysis-20261102-02/report.md`，截图/result/baseline/完整Work证据同目录。单次结果不证明普遍主动采用率，不擅自归因或修改生成指导。
+- 公共入口更新为 <http://127.0.0.1:51938/e221cd2d-79a5-4835-b746-9a43c2080253/#ad-analysis>，tmux `capability-eval-ui-v4`，日志 `output/eval-ui-viewer-v4.log`，已挂接本次真实聊天。CUA核对工作区文件说明、固定输入和现场链接，明确不是页面自行执行或自动评分。
+- evals/ui 3文件4tests、evals类型检查、独立窄审查通过；未更改候选产品代码。本轮用户要求保留服务，最新公共viewer、本轮运行、旧失败现场和原3个产品预览保留，开发worktree保留。

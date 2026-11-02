@@ -3,7 +3,7 @@ import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 export const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 export interface Stage {id:string;title:string;kind:'native'|'product';sessionId?:string;url?:string}
-export interface EvaluationCase {id:string;title:string;experiment?:{id:string;title:string};prompt?:string;photoUrls?:string[];reference?:string;attachments?:string[];steps?:string[];criteria?:Array<{id:string;title:string}>;context?:string;stages:Stage[];notice:string}
+export interface EvaluationCase {id:string;title:string;experiment?:{id:string;title:string};prompt?:string;photoUrls?:string[];reference?:string;attachments?:string[];workspaceFiles?:string[];steps?:string[];criteria?:Array<{id:string;title:string}>;context?:string;stages:Stage[];notice:string}
 export interface Suite {id:string;title:string;description:string;cases:EvaluationCase[]}
 /** Public case catalog. Scoring and runtime protocols remain owned by each capability. */
 export async function catalog(evidence?:string):Promise<Suite[]> {
