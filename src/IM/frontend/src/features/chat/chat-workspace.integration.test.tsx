@@ -1532,7 +1532,7 @@ describe("ChatWorkspacePage — integration", () => {
     });
 
     const chipImg = await screen.findByRole("img", { name: "dropped.png" });
-    expect(chipImg).toHaveAttribute("src", "http://im.local/im/uploads/dropped.png");
+    expect(chipImg.getAttribute("src")).toMatch(/^blob:/);
 
     await user.type(composer, "see image");
     await user.click(screen.getByRole("button", { name: /Send/i }));
@@ -1602,7 +1602,7 @@ describe("ChatWorkspacePage — integration", () => {
       label: "unknown failure",
       locale: "en" as const,
       outcome: { error: new TypeError("unexpected fetch failure") },
-      expected: "The attachment could not be uploaded. Please try again.",
+      expected: "The attachment could not be uploaded. Check your connection and try again.",
       dismiss: "Dismiss attachment error"
     },
     {
@@ -1612,7 +1612,7 @@ describe("ChatWorkspacePage — integration", () => {
       expected: "暂不支持这种图片格式。",
       dismiss: "关闭附件错误"
     }
-  ])("shows dismissible, localized attachment feedback for $label", async ({ locale, outcome, expected, dismiss }) => {
+  ])("shows dismissible, localized attachment feedback for $label", async ({ locale, outcome, expected }) => {
     setLanguage(locale);
     fetchSpy = mockFetch({ uploadOutcomes: [outcome] });
     vi.stubGlobal("fetch", fetchSpy);
@@ -1622,16 +1622,15 @@ describe("ChatWorkspacePage — integration", () => {
 
     pasteImages(composer, ["rejected.png"]);
 
-    const toast = await screen.findByRole("alert");
-    expect(within(toast).getByText(locale === "zh" ? "附件上传失败" : "Attachment upload failed")).toBeInTheDocument();
-    expect(within(toast).getByText(expected)).toBeInTheDocument();
-    expect(within(composer.closest("form") as HTMLElement).queryByRole("img", { name: "rejected.png" })).not.toBeInTheDocument();
-
-    await userEvent.click(within(toast).getByRole("button", { name: dismiss }));
+    const form = composer.closest("form") as HTMLElement;
+    expect(await within(form).findByText(expected)).toBeInTheDocument();
+    expect(within(form).getByRole("img", { name: "rejected.png" })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(within(form).getByRole("button", { name: "Remove rejected.png" }));
+    expect(within(form).queryByRole("img", { name: "rejected.png" })).not.toBeInTheDocument();
   });
 
-  it("keeps successful pasted images when another upload fails and shows the page-level error", async () => {
+  it("keeps every pasted preview in order when another upload fails", async () => {
     fetchSpy = mockFetch({ uploadOutcomes: [null, { status: 413 }, null] });
     vi.stubGlobal("fetch", fetchSpy);
     renderAtRoute("/chat/c1");
@@ -1641,15 +1640,11 @@ describe("ChatWorkspacePage — integration", () => {
 
     pasteImages(composer, ["first-ok.png", "too-large.png", "last-ok.png"]);
 
-    const toast = await screen.findByRole("alert");
-    expect(within(toast).getByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(within(composerForm).getAllByRole("img").map((image) => image.getAttribute("alt"))).toEqual([
-        "first-ok.png",
-        "last-ok.png"
-      ]);
-    });
-    expect(within(composerForm).queryByRole("img", { name: "too-large.png" })).not.toBeInTheDocument();
+    expect(await within(composerForm).findByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
+    expect(within(composerForm).getAllByRole("img").map(image => image.getAttribute("alt"))).toEqual([
+      "first-ok.png", "too-large.png", "last-ok.png"
+    ]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("blocks an incomplete attachment send and preserves its failure after sending text only", async () => {
@@ -1701,7 +1696,7 @@ describe("ChatWorkspacePage — integration", () => {
     });
     await screen.findByText("send while upload is pending");
 
-    expect(screen.getByRole("alert")).toHaveTextContent("This image is larger than the current attachment limit.");
+    expect(within(composer.closest("form")!).getByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
   });
 
   it("does not show a late attachment failure after switching conversations", async () => {

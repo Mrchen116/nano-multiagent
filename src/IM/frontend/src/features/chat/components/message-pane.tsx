@@ -30,6 +30,7 @@ import {
 } from "./message-content-policy";
 import { AttachmentLink } from "../attachments/attachment-link";
 import { protectedResourceUrl } from "./message-image";
+import { ComposerAttachmentCard } from "../attachments/composer-attachment-card";
 import { AttachmentChip } from "../attachments/attachment-chip";
 import { AttachmentDropzone } from "../attachments/attachment-dropzone";
 import { AttachmentUploadError, uploadOneAttachment } from "../attachments/use-attachment-upload";
@@ -71,6 +72,7 @@ import {
   subscribeComposerStore,
   writeComposerSnapshot,
   composerStoreFor,
+  type ComposerUpload,
   type ComposerSnapshot
 } from "./composer-draft-store";
 
@@ -160,7 +162,6 @@ export interface MessagePaneProps {
   globalAgentIds?: string[];
   agentNodeNames?: Record<string, string>;
   /** Reports each rejected attachment to the page-level error owner. */
-  onAttachmentUploadError?(error: unknown): void;
   /**
    * 测试 seam：注入会话草稿仓库。生产路径用模块级仓库，撑过 MessagePane
    * 和聊天页卸载；测试默认用组件内仓库，避免并行文件互相污染。
@@ -274,7 +275,6 @@ export function MessagePane({
   onPreferenceChange,
   globalAgentIds = [],
   agentNodeNames = {},
-  onAttachmentUploadError,
   onDraftSeedConsumed,
   composerStore
 }: MessagePaneProps) {
@@ -316,14 +316,15 @@ export function MessagePane({
   const [pending, setPending] = useState<Attachment[]>(
     () => (initialSnapshot ? [...initialSnapshot.pending] : [])
   );
-  const [failed, setFailed] = useState(initialSnapshot?.failed ?? []);
-  const [uploading, setUploading] = useState(0);
+  const [uploads, setUploads] = useState(initialSnapshot?.uploads ?? []);
+  const failed = uploads.filter(item => item.status === "failed");
+  const uploading = uploads.filter(item => item.status === "queued" || item.status === "uploading").length;
   const [retryClock, setRetryClock] = useState(Date.now());
   useEffect(() => {
-    if (!failed.some(item => item.retryAt > Date.now())) return;
+    if (!failed.some(item => (item.retryAt ?? 0) > Date.now())) return;
     const timer = window.setInterval(() => setRetryClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [failed]);
+  }, [uploads]);
   const [composerSending, setComposerSending] = useState(() => isComposerSending(conversation.id));
   // feat-430: Esc / click-outside hides the slash picker but keeps the `/` text;
   // any further typing re-opens it (reset on draft change).
@@ -339,7 +340,7 @@ export function MessagePane({
   });
   const previousComposer = liveComposerRef.current;
   const sameDraft = JSON.stringify([previousComposer.draft,previousComposer.draftMentions,previousComposer.pending]) === JSON.stringify([draft,draftMentions,pending]);
-  liveComposerRef.current = { draft, draftMentions, pending, failed, slashDismissed,
+  liveComposerRef.current = { draft, draftMentions, pending, uploads, slashDismissed,
     revision: sameDraft ? previousComposer.revision ?? crypto.randomUUID() : crypto.randomUUID() };
   const currentOwnerRef = useRef(selfUserId);
   currentOwnerRef.current = selfUserId;
@@ -417,7 +418,7 @@ export function MessagePane({
     if (draftSeed.conversationId && draftSeed.conversationId !== conversation.id) return;
     if (!draftSeed.focusOnly) {
       setDraft(draftSeed.text);
-      if (draftSeed.replace) { setPending([]); setFailed([]); }
+      if (draftSeed.replace) { setPending([]); setUploads([]); }
       setDraftMentions([]);
       setSlashDismissed(false);
     }
@@ -436,7 +437,7 @@ export function MessagePane({
     setDraft(next.draft);
     setDraftMentions([...next.draftMentions]);
     setPending([...next.pending]);
-    setFailed([...(next.failed ?? [])]);
+    setUploads([...(next.uploads ?? [])]);
     setSlashDismissed(next.slashDismissed);
     setComposerSending(isComposerSending(conversation.id));
   }
@@ -499,7 +500,7 @@ export function MessagePane({
       ? liveComposerRef.current : composerSnapshots.get(cid);
     if (!current || current.revision !== attempt.draft.revision) return;
     const submittedUrls = new Set(attempt.attachments.map(item => item.url));
-    const cleared = {...current,draft:'',draftMentions:[],pending:current.pending.filter(item=>!submittedUrls.has(item.url)),revision:crypto.randomUUID()};
+    const cleared = {...current,draft:'',draftMentions:[],pending:current.pending.filter(item=>!submittedUrls.has(item.url)),uploads:current.uploads?.filter(item=>!item.attachment || !submittedUrls.has(item.attachment.url)),revision:crypto.randomUUID()};
     writeComposerSnapshot(composerSnapshots,cid,cleared);
     if (mountedRef.current && displayedConversationIdRef.current === cid) applyComposerSnapshot(cleared);
   }
@@ -853,48 +854,61 @@ export function MessagePane({
     composerRef.current?.focus();
   }
 
-  async function handleAdd(files: File[]) {
-    if (composerBusy) return;
-    const sourceConversationId = displayedConversationIdRef.current;
-    setUploading(value => value + 1);
-    for (const file of files) {
+  function updateUploadDraft(cid: string, update: (base: ComposerSnapshot) => ComposerSnapshot) {
+    const base = mountedRef.current && displayedConversationIdRef.current === cid
+      ? liveComposerRef.current : composerSnapshots.get(cid);
+    if (base) writeComposerSnapshot(composerSnapshots, cid, update(base));
+  }
+
+  async function uploadFiles(items: ComposerUpload[], cid: string) {
+    for (const item of items) {
+      const base = mountedRef.current && displayedConversationIdRef.current === cid
+        ? liveComposerRef.current : composerSnapshots.get(cid);
+      // Removing a card also cancels queued work and ignores any late result.
+      if (!base?.uploads?.some(value => value.id === item.id)) continue;
+      updateUploadDraft(cid, value => ({ ...value, uploads: value.uploads?.map(value =>
+        value.id === item.id ? { ...value, status: "uploading" } : value) }));
       try {
-        // Sequential uploads keep the chip ordering deterministic and avoid
-        // bursting `/im/v1/uploads` with N parallel large bodies.
-        const att = await (uploadAttachment ? uploadAttachment(file) : uploadOneAttachment(file, conversation.id));
-        const base = displayedConversationIdRef.current === sourceConversationId
-          ? liveComposerRef.current
-          : (composerSnapshots.get(sourceConversationId) ?? EMPTY_COMPOSER_SNAPSHOT);
-        const next: ComposerSnapshot = {
-          ...cloneComposerSnapshot(base),
-          pending: [...base.pending, att]
-        };
-        writeComposerSnapshot(composerSnapshots, sourceConversationId, next);
-        if (mountedRef.current && displayedConversationIdRef.current === sourceConversationId) {
-          liveComposerRef.current = next;
-          setPending(next.pending);
-        }
+        const attachment = await (uploadAttachment ? uploadAttachment(item.file) : uploadOneAttachment(item.file, cid));
+        updateUploadDraft(cid, value => {
+          if (!value.uploads?.some(value => value.id === item.id)) return value;
+          const nextUploads = value.uploads.map(value => value.id === item.id
+            ? { ...value, status: "ready" as const, attachment } : value);
+          // Completed batches can race; derive ready references in visible card order.
+          const localUrls = new Set(value.uploads.flatMap(value => value.attachment ? [value.attachment.url] : []));
+          return { ...value, uploads: nextUploads, pending: [
+            ...value.pending.filter(value => !localUrls.has(value.url)),
+            ...nextUploads.flatMap(value => value.attachment ? [value.attachment] : [])
+          ] };
+        });
       } catch (error) {
-        const base = displayedConversationIdRef.current === sourceConversationId
-          ? liveComposerRef.current
-          : (composerSnapshots.get(sourceConversationId) ?? EMPTY_COMPOSER_SNAPSHOT);
-        const next: ComposerSnapshot = {
-          ...cloneComposerSnapshot(base),
-          failed: [...(base.failed ?? []), {
-            id: crypto.randomUUID(), file,
-            code: error instanceof AttachmentUploadError ? error.code : "network",
-            retryAt: error instanceof AttachmentUploadError ? error.retryAt : 0
-          }]
-        };
-        writeComposerSnapshot(composerSnapshots, sourceConversationId, next);
-        if (mountedRef.current && displayedConversationIdRef.current === sourceConversationId) {
-          liveComposerRef.current = next;
-          setFailed(next.failed ?? []);
-        }
-        onAttachmentUploadError?.(error);
+        updateUploadDraft(cid, value => ({ ...value, uploads: value.uploads?.map(value => value.id === item.id
+          ? { ...value, status: "failed", code: error instanceof AttachmentUploadError ? error.code : "network",
+              retryAt: error instanceof AttachmentUploadError ? error.retryAt : 0 } : value) }));
       }
     }
-    setUploading(value => value - 1);
+  }
+
+  function handleAdd(files: File[]) {
+    if (composerBusy) return;
+    const cid = displayedConversationIdRef.current;
+    const items: ComposerUpload[] = files.map(file => ({ id: crypto.randomUUID(), file, status: "queued" }));
+    updateUploadDraft(cid, base => ({ ...base, uploads: [...(base.uploads ?? []), ...items] }));
+    void uploadFiles(items, cid);
+  }
+
+  function removeUpload(item: ComposerUpload) {
+    if (sendInFlightRef.current) return;
+    updateUploadDraft(conversation.id, base => ({ ...base,
+      uploads: base.uploads?.filter(value => value.id !== item.id),
+      pending: base.pending.filter(value => value.url !== item.attachment?.url)
+    }));
+  }
+
+  function retryUpload(item: ComposerUpload) {
+    updateUploadDraft(conversation.id, base => ({ ...base, uploads: base.uploads?.map(value => value.id === item.id
+      ? { ...value, status: "queued", code: undefined, retryAt: undefined } : value) }));
+    void uploadFiles([item], conversation.id);
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -1210,42 +1224,20 @@ export function MessagePane({
       {conversation.can_write !== false && <form className="chat-pane-composer" onSubmit={handleSubmit}>
         {pendingInteraction && !composerBusy && <div className="interactive-selection" role="status">{t('chat.interactive.pendingRetry')}</div>}
         <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
-          {pending.length > 0 && (
-            <div className="chat-pane-composer-chips">
-              {pending.map((att) => (
-                <AttachmentChip
-                  key={att.url}
-                  attachment={att}
-                  onRemove={() => {
-                    if (sendInFlightRef.current) return;
-                    setPending((prev) => prev.filter((p) => p.url !== att.url));
-                  }}
-                  removeDisabled={composerBusy}
-                />
-              ))}
-            </div>
-          )}
-          {failed.length > 0 && <div className="chat-pane-composer-chips">
-            {failed.map(item => <div key={item.id} className="chat-attachment-chip chat-attachment-chip--doc" role="status">
-              <span>{item.file.name}</span>
-              <span>{item.code === "capacity" ? (zh ? "暂时无法上传附件" : "Attachments temporarily unavailable")
-                : item.code === "tooLarge" ? (zh ? "文件过大，请更换文件" : "File too large; choose another file")
-                : item.code === "unsupportedType" ? (zh ? "格式不支持，请更换文件" : "Unsupported format; choose another file")
-                : item.code === "cooldown" ? (zh ? "上传繁忙，请稍后重试" : "Upload busy; retry shortly")
-                : (zh ? "上传失败，请重试" : "Upload failed; retry")}</span>
-              {(item.code === "network" || item.code === "cooldown") && <button type="button"
-                disabled={composerBusy || uploading > 0 || item.retryAt > retryClock}
-                onClick={() => {
-                  const next = { ...liveComposerRef.current, failed: failed.filter(value => value.id !== item.id) };
-                  liveComposerRef.current = next;
-                  writeComposerSnapshot(composerSnapshots, conversation.id, next);
-                  setFailed(next.failed);
-                  void handleAdd([item.file]);
-                }}>
-                {zh ? "重试" : "Retry"}</button>}
-              <button type="button" disabled={composerBusy} aria-label={`Remove ${item.file.name}`}
-                onClick={() => setFailed(current => current.filter(value => value.id !== item.id))}>×</button>
-            </div>)}
+          <div className="chat-composer-input">
+          {(pending.length > 0 || uploads.length > 0) && <div className="chat-pane-composer-chips">
+            {pending.filter(att => !uploads.some(item => item.attachment?.url === att.url)).map(att => (
+              <AttachmentChip key={att.url} attachment={att}
+                onRemove={() => { if (!sendInFlightRef.current) setPending(prev => prev.filter(value => value.url !== att.url)); }}
+                removeDisabled={composerBusy} />
+            ))}
+            {uploads.map(item => <ComposerAttachmentCard key={item.id} item={item} busy={composerBusy}
+              retryClock={retryClock} onRemove={() => removeUpload(item)} onRetry={() => retryUpload(item)} />)}
+          </div>}
+          {uploading > 0 && <div className="chat-composer-attachment-hint" role="status">
+            {zh ? `正在上传 ${uploading} 个附件，完成后可发送` : `Uploading ${uploading} attachment(s). Send when ready.`}
+          </div>}
+          {failed.length > 0 && <div className="chat-composer-attachment-hint">
             <button type="button" disabled={composerBusy || uploading > 0 || !draft.trim()}
               onClick={() => void commit(draft, true)}>{zh ? "仅发送文字" : "Send text only"}</button>
           </div>}
@@ -1307,6 +1299,7 @@ export function MessagePane({
                 <path d="M12 19V5m-6 6 6-6 6 6" />
               </svg>
             </button>
+          </div>
           </div>
           {!isMobile && (
             <p className="chat-pane-composer-help">
