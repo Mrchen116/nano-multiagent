@@ -2334,14 +2334,17 @@ body {
   padding: 0.5rem 0.75rem;
   font: inherit;
   font-size: 0.9rem;
+  line-height: 1.5;
   color: var(--im-text);
   resize: none;
+  min-height: calc((1.5em * 2) + 1rem + 2px);
   max-height: calc((1.5em * 5) + 1rem);
   overflow-y: auto;
 }
 
 @media (max-width: 767px) {
   .chat-pane-composer-input {
+    min-height: calc(1.5em + 1rem + 2px);
     max-height: calc((1.5em * 4) + 1rem);
     background: var(--im-surface);
     border: 1px solid transparent;
@@ -5910,9 +5913,9 @@ body {
 
 .chat-composer-attachment-error {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
   padding: 4px 2px;
   color: var(--im-danger);
   font-size: 12px;

@@ -715,6 +715,19 @@ export function MessagePane({
     Math.max(minComposerRows, draft.split("\n").length)
   );
 
+  useLayoutEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const resize = () => {
+      // Wrapped lines need the same growth as explicit newlines; CSS caps the height.
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight + 2}px`;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [draft, composerRows, isMobile, conversation.can_write]);
+
   function changeDraft(next: string) {
     setSlashDismissed(false);
     setDraft(next);
