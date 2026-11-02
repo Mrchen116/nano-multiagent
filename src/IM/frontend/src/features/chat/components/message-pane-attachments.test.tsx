@@ -4,6 +4,7 @@ import { expect, it, vi } from "vitest";
 
 import { setLanguage } from "../../../i18n";
 import type { Attachment, Conversation } from "../chat-types";
+import { AttachmentUploadError } from "../attachments/use-attachment-upload";
 import { MessagePane } from "./message-pane";
 
 const conversation: Conversation = {
@@ -97,4 +98,32 @@ it("keeps paste order in the sent attachments when separate uploads finish out o
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(onSend).toHaveBeenCalledWith("", [attachment("first.png"), attachment("second.png")], undefined, expect.any(String), []));
   await waitFor(() => expect(screen.queryByRole("img")).not.toBeInTheDocument());
+});
+
+it("enables retry immediately after an HTTP failure long after entering the chat", async () => {
+  setLanguage("en");
+  const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
+  let reject!: (error: Error) => void;
+  const uploadAttachment = vi.fn(() => new Promise<Attachment>((_resolve, fail) => { reject = fail; }));
+  try {
+    render(<MessagePane conversation={conversation} messages={[]} mentionCandidates={[]} onSend={() => {}} uploadAttachment={uploadAttachment} />);
+    paste([file("retry.png")]);
+    clock.mockReturnValue(6000);
+    await act(async () => { reject(new AttachmentUploadError("network", 500, "unavailable")); });
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Retry in/ })).not.toBeInTheDocument();
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it("keeps the open/download action on a ready document in the draft", async () => {
+  setLanguage("en");
+  const uploadAttachment = vi.fn().mockResolvedValue({ url: "/im/v1/conversations/local-preview/attachments/report", file_name: "report.pdf", content_type: "application/pdf" });
+  render(<MessagePane conversation={conversation} messages={[]} mentionCandidates={[]} onSend={() => {}} uploadAttachment={uploadAttachment} />);
+  fireEvent.drop(screen.getByRole("textbox").closest("[data-dragging]")!, {
+    dataTransfer: { files: [new File(["pdf"], "report.pdf", { type: "application/pdf" })], types: ["Files"] }
+  });
+  expect(await screen.findByRole("button", { name: "report.pdf" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
 });

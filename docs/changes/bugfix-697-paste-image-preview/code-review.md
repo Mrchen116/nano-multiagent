@@ -2,7 +2,7 @@
 
 ## Scope and status
 
-快速开发；实现、工程验证与独立审查记录在此。用户亲自体验确认尚未完成，unit active。尚未执行独立审查，不能视为已通过。
+快速开发；实现、工程验证与独立审查记录在此。用户亲自体验确认尚未完成，unit active。首轮独立审查完成，发现的恢复覆盖问题已修复，待 patch 核验。
 
 ## Existing test disposition
 
@@ -21,4 +21,14 @@
 
 ## Independent review
 
-待对最终同步后的完整 diff 执行 `change-code-review`。
+### Round 1 — full
+
+- Base/executed_base: `011396a815299b0bf6037709b92e775f87304d6f`。
+- Head/validated_at: `4ee46b97643cc17e8ecc819abee6ee6fb744d695`。
+- Reviewer: 独立 `review_paste_preview`，`gpt-6.1-sol/high`，按 change-code-review；无 Prompt/工具/模型 Context 组装变化，无完整 Context 审查。
+- Finding（CONFIRMED/P2）：用户粘贴新图片时，queued/uploading 身份未参与草稿版本；旧发送查询晚到时可能误判为空草稿并覆盖新卡片。独立临时组件测试已复现，日志 `output/playwright/review-paste-recovery.log`；临时测试已删除。
+- Resolution：上传身份加入版本比较；本地项增删在写入订阅 store 前明确更新 revision；恢复判定也检查 uploads 为空。扩展既有 `message-pane-send-attempt.test.tsx` 验证新图片不会被旧发送查询覆盖。
+- 同期补齐：失败/恢复时刷新重试时钟，避免进入聊天较久后非限流错误也误显示等待；保留普通文件的打开/下载入口与紧凑布局，避免统一卡片后丢失原功能；输入区设置 min-width:0 防止移动端横向溢出。相关保护位于附件生命周期文件。
+- 窄验证：12 tests passed（发送恢复与附件生命周期）。
+- Follow-up：将完整 patch 交原独立 reviewer，一次核验后收口。
+

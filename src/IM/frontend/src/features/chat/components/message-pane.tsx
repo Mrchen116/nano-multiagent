@@ -321,7 +321,10 @@ export function MessagePane({
   const uploading = uploads.filter(item => item.status === "queued" || item.status === "uploading").length;
   const [retryClock, setRetryClock] = useState(Date.now());
   useEffect(() => {
-    if (!failed.some(item => (item.retryAt ?? 0) > Date.now())) return;
+    const now = Date.now();
+    // A new failure or a restored draft must not compare against an old clock.
+    setRetryClock(now);
+    if (!failed.some(item => (item.retryAt ?? 0) > now)) return;
     const timer = window.setInterval(() => setRetryClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [uploads]);
@@ -339,7 +342,7 @@ export function MessagePane({
     slashDismissed: initialSnapshot?.slashDismissed ?? false
   });
   const previousComposer = liveComposerRef.current;
-  const sameDraft = JSON.stringify([previousComposer.draft,previousComposer.draftMentions,previousComposer.pending]) === JSON.stringify([draft,draftMentions,pending]);
+  const sameDraft = JSON.stringify([previousComposer.draft,previousComposer.draftMentions,previousComposer.pending,previousComposer.uploads?.map(item => item.id) ?? []]) === JSON.stringify([draft,draftMentions,pending,uploads.map(item => item.id)]);
   liveComposerRef.current = { draft, draftMentions, pending, uploads, slashDismissed,
     revision: sameDraft ? previousComposer.revision ?? crypto.randomUUID() : crypto.randomUUID() };
   const currentOwnerRef = useRef(selfUserId);
@@ -524,7 +527,7 @@ export function MessagePane({
           clearSendAttempt(cid,attempt.key);
         } else if (attempt.retryable) {
           const current = liveComposerRef.current;
-          if (current.revision === initialRevision && !current.draft && !current.pending.length) {
+          if (current.revision === initialRevision && !current.draft && !current.pending.length && !current.uploads?.length) {
             writeComposerSnapshot(composerSnapshots,cid,attempt.draft);
             applyComposerSnapshot(cloneComposerSnapshot(attempt.draft));
           }
@@ -857,7 +860,16 @@ export function MessagePane({
   function updateUploadDraft(cid: string, update: (base: ComposerSnapshot) => ComposerSnapshot) {
     const base = mountedRef.current && displayedConversationIdRef.current === cid
       ? liveComposerRef.current : composerSnapshots.get(cid);
-    if (base) writeComposerSnapshot(composerSnapshots, cid, update(base));
+    if (!base) return;
+    const next = update(base);
+    const before = base.uploads ?? [];
+    const after = next.uploads ?? [];
+    // Store subscribers apply this snapshot before render; stamp user changes here
+    // so recovery cannot mistake a new local file for the old empty draft.
+    if (before.length !== after.length || before.some((item, index) => item.id !== after[index]?.id)) {
+      next.revision = crypto.randomUUID();
+    }
+    writeComposerSnapshot(composerSnapshots, cid, next);
   }
 
   async function uploadFiles(items: ComposerUpload[], cid: string) {

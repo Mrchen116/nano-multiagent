@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import type { ComposerUpload } from "../components/composer-draft-store";
+import { AttachmentLink } from "./attachment-link";
 
 /** Keep a local attachment visible through upload, retry and completion.
  *
@@ -64,7 +65,16 @@ export function ComposerAttachmentCard({ item, busy, retryClock, onRemove, onRet
             <img src={preview} alt={item.file.name} />
           </Dialog.Content>
         </Dialog.Portal>
-      </Dialog.Root> : <span className="chat-composer-attachment-filename" title={item.file.name}>{item.file.name}</span>}
+      </Dialog.Root> : <div className="chat-composer-attachment-document" title={item.file.name}>
+        <svg className="chat-composer-attachment-file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 13h8M8 17h6" />
+        </svg>
+        <span className="chat-composer-attachment-filename">
+          {item.attachment ? <AttachmentLink href={item.attachment.url} fileName={item.attachment.file_name ?? item.file.name}>
+            {item.file.name}
+          </AttachmentLink> : item.file.name}
+        </span>
+      </div>}
       {loading && <div className="chat-composer-attachment-loading" role="status" aria-label={`${loadingLabel}: ${item.file.name}`}>
         <span className="chat-composer-attachment-spinner" aria-hidden="true" />
       </div>}

@@ -2278,6 +2278,7 @@ body {
 
 .chat-composer-highlight-wrapper {
   flex: 1;
+  min-width: 0;
   position: relative;
 }
 
@@ -5863,9 +5864,44 @@ body {
 
 .chat-composer-attachment-filename {
   display: block;
-  padding: 30px 8px 8px;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
+}
+
+.chat-composer-attachment:not(.chat-composer-attachment--image) {
+  flex: 0 1 240px;
+  width: 240px;
+  max-width: 100%;
+}
+
+.chat-composer-attachment:not(.chat-composer-attachment--image) .chat-composer-attachment-preview {
+  height: 64px;
+}
+
+.chat-composer-attachment-document {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 10px 30px 10px 10px;
+}
+
+.chat-composer-attachment-file-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 28px;
+  color: var(--im-text-muted);
+}
+
+.chat-composer-attachment-filename > span,
+.chat-composer-attachment-filename .chat-attachment-name {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chat-composer-attachment--failed .chat-composer-attachment-preview {
