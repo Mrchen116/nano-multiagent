@@ -171,7 +171,7 @@ it.each([{interactive:true,found:true,same:true},{interactive:false,found:true,s
  const agents=[{agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread' as const,provider:'test',model:'test'}],options={nodeId:'n',ownerId:'owner',agents,store,runtime,relay,image:async()=>'',onError:()=>{}};
  const global=new GlobalAgent({...options,inbox}),single=new SingleThread(options);
  try{
-  const sending=global.call({method:'send_message',args:{target:'chat',text:'Card',...(interactive?{interactive:{format:'openui',catalog_version:'nano-1',source:'root = TextContent("card")'}}:{})},operationId:'main:send',callId:'send',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'});
+  const sending=global.call({method:'send_message',args:{target:'chat',text:'Card',...(interactive?{interactive:{format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("card")'}}:{})},operationId:'main:send',callId:'send',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'});
   if(found)expect(await sending).toMatchObject({status:'sent',message_id:'card'});else await expect(sending).rejects.toThrow('ACK lost');
   await single.recover();
   expect(frames.some(p=>p.final_content==='NO_REPLY')).toBe(!(found&&same));

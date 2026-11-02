@@ -241,7 +241,7 @@ export function apply(ctx) {
       const observed = await client.rpc.request('session.observe', { sessionId: config.agentId }) as { events: { type: string; data: any }[]; approvals: { source: string }[] };
       const results = observed.events.filter(event => event.type === 'tool/result');
       expect(results).toHaveLength(calls.length);
-      if (config.agentId === 'writes') expect(reviews.find(review=>review.name==='send_message')?.arguments.interactive).toEqual({source:'root = TextContent("Public card text")',format:'openui',catalog_version:'nano-1'});
+      if (config.agentId === 'writes') expect(reviews.find(review=>review.name==='send_message')?.arguments.interactive).toEqual({source:'root = TextContent("Public card text")',format:'openui',catalog_version:'nano-iui-1'});
       if (['writes', 'dsh'].includes(config.agentId)) {
         expect(new Set(reviews.map(review => `${review.name}:${review.action}`))).toEqual(new Set(calls.map(call => `${call.name}:${'action' in call.args ? call.args.action : null}`)));
         expect(results.every(event => event.data.message.isError)).toBe(true);

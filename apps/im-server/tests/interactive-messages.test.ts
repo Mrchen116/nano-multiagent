@@ -3,8 +3,9 @@ import { fixture } from './control-fixture.js';
 import { Messaging } from '../src/messaging.js';
 import { all, one } from '../src/context.js';
 
-const interactive = { format: 'openui', catalog_version: 'nano-1', source: `root = Stack([form])
-form = Form("draft", ContinueButton("send", "发送给林悦"), [FormControl("草稿", TextArea("body", "", 3, null, "周六见"))])` };
+const interactive = { format: 'openui', catalog_version: 'nano-iui-1', source: `$body = "周六见"
+root = Col([form])
+form = Form([TextArea($body, "草稿"), Button("发送给林悦", @ToAssistant("发送给林悦"))])` };
 function setup() {
   const {db,ctx} = fixture(); ctx.gateway.broadcast = vi.fn();
   const messaging = new Messaging(ctx); ctx.messaging = messaging;
@@ -12,7 +13,7 @@ function setup() {
   const card = messaging.insertMessage('chat','a1','agent','请先确认草稿',[],null,'completed',{interactive});
   const request = (user='u1', content?: string, state: Record<string,unknown> = {}, action_id: string|undefined = content ? undefined : 'send') => ({
     headers: {'x-user':user, 'idempotency-key':'same-key'}, params:{conversation_id:'chat',message_id:card.id}, query:{},
-    body:{sender_user_id:user, ...(content ? {content} : {}), interaction_reply:{source_message_id:card.id, ...(action_id ? {action_id} : {}), state}},
+    body:{sender_user_id:user, ...(content ? {content} : {}), interaction_reply:{source_message_id:card.id, ...(action_id ? {event:{type:"continue_conversation",label:"发送给林悦",message:"发送给林悦"}} : {}), state}},
   }) as any;
   return {db,ctx,messaging,card,request};
 }
@@ -20,7 +21,7 @@ describe('interactive message persistence', () => {
   it('publishes complete cards and keeps user draft revisions private', () => {
     const {messaging,card,ctx,request} = setup();
     expect(card.interactive).toMatchObject(interactive);
-    const req=request(); req.body={expected_draft_revision:0,state:{draft:{body:{value:'周日见'}}}};
+    const req=request(); req.body={expected_draft_revision:0,state:{'$body':'周日见'}};
     expect(messaging.interactions.writeDraft(req)).toMatchObject({draft_revision:1});
     expect(messaging.interactions.readDraft(request('u2'))).toMatchObject({state:{},draft_revision:0});
     expect(()=>messaging.interactions.writeDraft(req)).toThrow();
@@ -29,7 +30,7 @@ describe('interactive message persistence', () => {
   it('saves selection and one relay atomically even while the node is offline; retries do not enqueue again', async () => {
     const {messaging,card,db,request} = setup();
     const sent=await messaging.sendMessage(request());
-    expect(sent).toMatchObject({sender_user_id:'u1',content:'发送给林悦',delivery_status:'pending',interaction_reply:{source_message_id:card.id,action_label:'发送给林悦'}});
+    expect(sent).toMatchObject({sender_user_id:'u1',content:'发送给林悦',delivery_status:'pending',interaction_reply:{source_message_id:card.id,event:expect.objectContaining({label:'发送给林悦'})}});
     expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
     expect(await messaging.sendMessage(request())).toMatchObject({id:sent.id});
     expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
@@ -38,7 +39,7 @@ describe('interactive message persistence', () => {
   it('preserves handwritten content and rejects changed retries without discarding the prior result', async () => {
     const {messaging,card,db,request} = setup();
     db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
-    const state={draft:{body:{value:'林悦，周六11点断桥见'}}};
+    const state={'$body':'林悦，周六11点断桥见'};
     const sent=await messaging.sendMessage(request('u1','先别发送，把语气改得随意一点',state));
     expect(sent.content).toBe('先别发送，把语气改得随意一点');
     expect(sent.interaction_reply.fields[0].value).toContain('周六11点');
@@ -70,7 +71,7 @@ describe('interactive message persistence', () => {
   });
   it('copies public cards as read-only without copying viewer drafts', () => {
     const {messaging,card,db,request} = setup();
-    const req=request();req.body={expected_draft_revision:0,state:{draft:{body:{value:'仅我可见'}}}};
+    const req=request();req.body={expected_draft_revision:0,state:{'$body':'仅我可见'}};
     messaging.interactions.writeDraft(req);
     const copy=messaging.insertMessage('chat','a1','agent','复制的历史',[],null,'completed',{});
     messaging.interactions.copy(new Map([[card.id,copy.id]]));
@@ -90,9 +91,9 @@ describe('interactive message persistence', () => {
     const {messaging,request,db} = setup();
     db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
     const first=await messaging.sendMessage(request());
-    const draft=request();draft.body={expected_draft_revision:1,state:{draft:{body:{value:'周日见'}}}};
+    const draft=request();draft.body={expected_draft_revision:1,state:{'$body':'周日见'}};
     expect(messaging.interactions.writeDraft(draft)).toMatchObject({submission_message_id:null});
-    const next=request('u1','解释这次的变化',{draft:{body:{value:'周日见'}}}); next.headers['idempotency-key']='next-key';
+    const next=request('u1','解释这次的变化',{'$body':'周日见'}); next.headers['idempotency-key']='next-key';
     const second=await messaging.sendMessage(next);
     expect(second.id).not.toBe(first.id);
     expect(await messaging.sendMessage(next)).toMatchObject({id:second.id});
@@ -100,7 +101,7 @@ describe('interactive message persistence', () => {
   });
   it('merges a patch into a new immutable version and retains publication input', () => {
     const {messaging,card} = setup();
-    const patch={...interactive,source_mode:'patch',supersedes_message_id:card.id,source:'form = Form("draft", ContinueButton("send", "发送给林悦"), [FormControl("草稿", TextArea("body", "", 3, null, "周日见"))])'};
+    const patch={...interactive,source_mode:'patch',supersedes_message_id:card.id,source:'$body = "周日见"'};
     const next=messaging.insertMessage('chat','a1','agent','已改',[],null,'completed',{interactive:patch});
     expect(next.interactive.source).toContain('root =');
     expect(messaging.interactions.publication(next.id)).toEqual(patch);
@@ -112,7 +113,7 @@ describe('interactive message persistence', () => {
     const {messaging,request} = setup();
     const req=request();delete req.body.interaction_reply.action_id;
     req.body.interaction_reply.event={type:'continue_conversation',label:'解释当前结果',message:'分析参数',context:{kind:'comparison'}};
-    req.body.interaction_reply.state={'$scale':[3],draft:{body:{value:'修改后的稿子'}}};
+    req.body.interaction_reply.state={'$scale':[3],'$body':'修改后的稿子'};
     const sent=await messaging.sendMessage(req);
     expect(sent.content).toBe('解释当前结果');
     expect(sent.interaction_reply).toMatchObject({event:{message:'分析参数',context:{kind:'comparison'}},state:{'$scale':[3]},fields:[{label:'草稿',value:'修改后的稿子'}]});
@@ -128,7 +129,7 @@ it('freezes private-chat background in durable relays without publishing or subm
   db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
   ctx.gateway.send=()=>true;
   const req=request('u1','为什么这里不同？'); delete req.body.interaction_reply;
-  req.body.interaction_contexts=[{source_message_id:card.id,state:{draft:{body:{value:'仅私聊背景'}}}}];
+  req.body.interaction_contexts=[{source_message_id:card.id,state:{'$body':'仅私聊背景'}}];
   const sent=await messaging.sendMessage(req);
   const relay=JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json);
   expect(relay.metadata.interaction_contexts).toMatchObject([{source_message_id:card.id,fields:[{value:'仅私聊背景'}]}]);
@@ -137,7 +138,7 @@ it('freezes private-chat background in durable relays without publishing or subm
   expect(JSON.stringify(messaging.message(sent.id))).not.toContain('仅私聊背景');
   expect(all(db,'SELECT * FROM interaction_submissions')).toHaveLength(0);
   expect(messaging.interactions.readDraft(request()).draft_revision).toBe(0);
-  req.body.interaction_contexts[0].state.draft.body.value='后来修改';
+  req.body.interaction_contexts[0].state['$body']='后来修改';
   await expect(messaging.sendMessage(req)).rejects.toMatchObject({statusCode:409});
   expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
   expect(JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json).metadata.interaction_contexts[0].fields[0].value).toBe('仅私聊背景');
@@ -145,7 +146,7 @@ it('freezes private-chat background in durable relays without publishing or subm
 it('keeps group drafts invisible to every Agent until an explicit action is submitted', async () => {
   const {messaging,card,db,ctx,request}=setup();
   db.prepare("UPDATE conversations SET type='group' WHERE id='chat'").run(); ctx.gateway.send=()=>true;
-  const draft=request(); draft.body={expected_draft_revision:0,state:{draft:{body:{value:'不能共享'}}}};
+  const draft=request(); draft.body={expected_draft_revision:0,state:{'$body':'不能共享'}};
   messaging.interactions.writeDraft(draft);
   const plain=request('u1','解释一下');delete plain.body.interaction_reply;
   const sent=await messaging.sendMessage(plain);
@@ -153,10 +154,10 @@ it('keeps group drafts invisible to every Agent until an explicit action is subm
   expect(relay.metadata.mentioned_agent_ids).toEqual([]);
   expect(JSON.stringify(relay)).not.toContain('不能共享');expect(sent.interaction_reply).toBeNull();
   const leak=request('u1','普通文字');delete leak.body.interaction_reply;
-  leak.body.interaction_contexts=[{source_message_id:card.id,state:{draft:{body:{value:'不能共享'}}}}];
+  leak.body.interaction_contexts=[{source_message_id:card.id,state:{'$body':'不能共享'}}];
   await expect(messaging.sendMessage(leak)).rejects.toMatchObject({statusCode:422});
-  await expect(messaging.sendMessage(request('u1','隐式附带',{draft:{body:{value:'不能共享'}}}))).rejects.toMatchObject({statusCode:422});
-  const explicit=request('u1',undefined,{draft:{body:{value:'明确共享'}}});explicit.headers['idempotency-key']='explicit';
+  await expect(messaging.sendMessage(request('u1','隐式附带',{'$body':'不能共享'}))).rejects.toMatchObject({statusCode:422});
+  const explicit=request('u1',undefined,{'$body':'明确共享'});explicit.headers['idempotency-key']='explicit';
   const result=await messaging.sendMessage(explicit);
   expect(result.interaction_reply.fields[0].value).toBe('明确共享');
   const last=JSON.parse(all(db,'SELECT * FROM relay_tasks').at(-1)!.payload_json);

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { compositionExamples } from '../../frontend/src/features/chat/interactive/composition-examples';
+import { compositionExamples } from './fixtures/composition-examples';
 
 function runtime(source: string, state = {}) {
   // The packaged resource runs without Node, DOM, fetch, or credentials, as in JavaScriptCore.

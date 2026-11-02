@@ -30,7 +30,7 @@ it.each(['web','feishu'])('publishes immutable UI identities and text fallback f
   const product=new GlobalAgent({nodeId:'n',ownerId:'owner',store,inbox,agents,runtime:{onNotification:()=>()=>{},request:async()=>({events:[],durable:true})},
     relay:{async request(type,payload){if(type==='agent.session.ensure')throw new Error('invalid_scope');if(type==='agent.message'){sent.push(payload);return{type:'ack',payload:{message_id:'card',conversation_id:'c'}};}return{type:'result',payload:{ok:true,result:{type:'direct',channel}}};}},image:async()=>'',onError:error=>{throw error;}});
   store.recordEvents('main',[{seq:1,time:1,type:'tool/call',data:{turn:1,callId:'send-card',name:'send_message',arguments:'{}'}}]);
-  const interactive={format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("选项")])'};
+  const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Stack([TextContent("选项")])'};
   const call:ProductCall={method:'send_message',args:{target:'current',text:'摘要',interactive},operationId:'send-card',callId:'send-card',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
   try{
     agents[0].features.intelligent_ui=false;

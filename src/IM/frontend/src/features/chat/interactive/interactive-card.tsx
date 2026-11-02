@@ -4,6 +4,7 @@ import { ThemeProvider } from '@openuidev/react-ui';
 import '@openuidev/react-ui/defaults.css';
 import '@openuidev/react-ui/components.css';
 import { interactiveLibrary } from './catalog';
+import { runLibraryAction } from './open-intelligent-ui/actions';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
@@ -156,6 +157,8 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     },
   }), [message.id, message.conversation_id, t]);
   function onAction(action: ActionEvent) {
+    const handled = runLibraryAction(action);
+    if (handled) { void handled.then(ok => { if (!ok) setError('action'); }); return; }
     if (action.type === 'ComposeMessage') {
       if (typeof action.params.target === 'string' && typeof action.params.text === 'string') void composeMessage(action.params.target, action.params.text);
       else setError('action');

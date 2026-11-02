@@ -15,6 +15,3 @@
   .interactive-card { margin-top: 16px; }
   .chat-bubble-card:has(.interactive-card) { padding-block: 8px; }
 }
-
-/* Only constrain row wrapping; component appearance comes from OpenUI. */
-.interactive-card .nano-ui-card-row > div > .openui-card { flex: 1 1 16rem !important; }

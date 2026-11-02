@@ -1,3 +1,4 @@
+import { registerIntelligentUIResources } from './intelligent-ui-resources.js';
 import {registerWorkSyncRoutes,authenticateWorkSync} from './work-sync.js';
 import {registerMessageAttemptRoutes} from './message-attempts.js';
 import Fastify from "fastify";
@@ -177,7 +178,8 @@ export async function createServer(options: ServerOptions = {}) {
   registerControlRoutes(app, ctx);
   registerPersonalAgentRoutes(app, ctx);
   registerWorkRoutes(app, ctx);
-  await registerMediaRoutes(app, ctx);
+  await registerIntelligentUIResources(app, ctx);
+  registerMediaRoutes(app, ctx);
   registerSockets(app, ctx);
   registerTrajectorySockets(app, ctx);
   app.get("/im/v1/gateway/identity", (req) => {

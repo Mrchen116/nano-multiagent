@@ -475,7 +475,7 @@ describe("ChatWorkspacePage — integration", () => {
     let revision=1;
     let writable=false;
     const card={...FIXTURES.messagesC1[0],id:'reply-card',sender:{type:'agent',id:'a-planner',display_name:'Planner'},sender_user_id:'user-uuid-planner',sender_type:'agent',content:'Suggested reply',
-      interactive:{format:'openui',catalog_version:'nano-1',source:`$reply = "Initial reply"\nroot = Stack([TextArea("body", "Reply draft", 3, null, $reply), Button("Adopt", @ComposeMessage("${target}", $reply))])`}};
+      interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$reply = "Initial reply"\nroot = Col([TextArea($reply, null, "Reply draft"), Button("Adopt", @ComposeMessage("${target}", $reply))])`}};
     const customFetch=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
       const url=String(input);
       if(url.endsWith('/im/v1/personal-agent'))return jsonResponse({binding:{binding_id:'pa',agent_id:'a-planner',owner_id:'u-self',owner_user_id:'u-self',node_id:'node-prod',node_epoch:1,conversation_id:'c1',display_name:'Planner',status:'active'},policy:{revision:1,excluded_conversation_ids:[]}});

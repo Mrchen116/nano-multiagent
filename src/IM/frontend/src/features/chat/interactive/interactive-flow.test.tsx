@@ -7,8 +7,9 @@ import { readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Conversation, Message } from '../chat-types';
 vi.mock('../chat-api', () => ({readInteractionDraft:vi.fn(),saveInteractionDraft:vi.fn()}));
 const conversation={id:'chat',title:'Planner',type:'direct',direct_kind:'agent',participants:[{type:'agent',id:'a1',display_name:'Planner'}],participant_ids:['a1'],can_write:true} as Conversation;
-const card={id:'card',conversation_id:'chat',sender:{type:'agent',id:'a1',display_name:'Planner'},sender_user_id:'a1',sender_type:'agent',content:'请确认草稿',attachments:[],created_at:'2026-10-19T08:00:00Z',delivery_status:'completed',permission_requests:[],interactive:{format:'openui',catalog_version:'nano-1',source:`root = Stack([form])
-form = Form("draft", ContinueButton("send", "继续修改"), [FormControl("消息草稿", TextArea("body", "编辑草稿", 3, null, "周六见"))])`}} as Message;
+const card={id:'card',conversation_id:'chat',sender:{type:'agent',id:'a1',display_name:'Planner'},sender_user_id:'a1',sender_type:'agent',content:'请确认草稿',attachments:[],created_at:'2026-10-19T08:00:00Z',delivery_status:'completed',permission_requests:[],interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
+root = Col([form])
+form = Form([TextArea($body, "消息草稿", "编辑草稿"), Button("继续修改", @ToAssistant("继续修改"))])`}} as Message;
 beforeEach(()=>{
  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:0,state:{},submission_message_id:null});
  vi.mocked(saveInteractionDraft).mockResolvedValue({draft_revision:1,state:{},submission_message_id:null});
@@ -41,7 +42,7 @@ describe('interactive choices and handwritten requests',()=>{
   fireEvent.change(await screen.findByPlaceholderText('编辑草稿', {}, {timeout:5000}),{target:{value:'私聊新草稿'}});
   const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
   fireEvent.change(composer,{target:{value:'先别发送，帮我解释'}});fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(send).toHaveBeenCalledWith('先别发送，帮我解释',[],undefined,expect.any(String),[expect.objectContaining({source_message_id:'card',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'私聊新草稿'})})})})]));
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('先别发送，帮我解释',[],undefined,expect.any(String),[expect.objectContaining({source_message_id:'card',state:expect.objectContaining({'$body':'私聊新草稿'})})]));
   expect(screen.queryByText(/将附带当前选择|Current choices will be attached|草稿已保存|Draft saved/)).not.toBeInTheDocument();
   await waitFor(()=>expect(composer).toHaveValue(''));
   fireEvent.change(composer,{target:{value:'你好，换个话题'}});fireEvent.submit(composer.closest('form')!);
@@ -56,7 +57,7 @@ describe('interactive choices and handwritten requests',()=>{
   fireEvent.change(composer,{target:{value:'解释一下'}});fireEvent.submit(composer.closest('form')!);
   await waitFor(()=>expect(send).toHaveBeenCalledWith('解释一下',[],undefined,expect.any(String),[]));
   fireEvent.click(screen.getByRole('button',{name:'继续修改'}));
-  await waitFor(()=>expect(send).toHaveBeenLastCalledWith('',[],expect.objectContaining({action_id:'send',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'群内私人草稿'})})})}),expect.any(String)));
+  await waitFor(()=>expect(send).toHaveBeenLastCalledWith('',[],expect.objectContaining({event:expect.objectContaining({message:'继续修改'}),state:expect.objectContaining({'$body':'群内私人草稿'})}),expect.any(String)));
  });
  it('leaves typed input untouched when the card button is used',async()=>{
   const send=vi.fn().mockResolvedValue(undefined);
@@ -65,7 +66,7 @@ describe('interactive choices and handwritten requests',()=>{
   const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
   fireEvent.change(composer,{target:{value:'这是还没发出的补充'}});
   fireEvent.click(button);
-  await waitFor(()=>expect(send).toHaveBeenCalledWith('',[],expect.objectContaining({action_id:'send'}),expect.any(String)));
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('',[],expect.objectContaining({event:expect.objectContaining({message:'继续修改'})}),expect.any(String)));
   expect(composer).toHaveValue('这是还没发出的补充');
  });
 });
@@ -92,7 +93,7 @@ it('retries unchanged handwritten sends with the same key and treats edited cont
  fireEvent.submit(composer.closest('form')!);
  await waitFor(()=>expect(send).toHaveBeenCalledTimes(3));
  expect(send.mock.calls[2][3]).not.toBe(send.mock.calls[0][3]);
- expect(send.mock.calls[2][4][0].state.draft.body.value).toBe('继续在本地探索');
+ expect(send.mock.calls[2][4][0].state['$body']).toBe('继续在本地探索');
  expect(field).toHaveValue('继续在本地探索');
 });
 
@@ -111,7 +112,7 @@ it('keeps both private-chat card states and prioritizes the one most recently us
  await waitFor(()=>expect(send).toHaveBeenCalled());
  const contexts=send.mock.calls[0][4];
  expect(contexts.map((context:any)=>context.source_message_id)).toEqual(['card','other-card']);
- expect(contexts.map((context:any)=>context.state.draft.body.value)).toEqual(['第一张的修改','第二张的修改']);
+ expect(contexts.map((context:any)=>context.state['$body'])).toEqual(['第一张的修改','第二张的修改']);
  fireEvent.change(first,{target:{value:'发送后的修改'}});
- expect(contexts[0].state.draft.body.value).toBe('第一张的修改');
+ expect(contexts[0].state['$body']).toBe('第一张的修改');
 });

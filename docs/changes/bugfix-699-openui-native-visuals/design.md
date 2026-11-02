@@ -1,33 +1,33 @@
 # bugfix-699: As-built Design
 
-> 本文在实现后按实际 diff 整理；Agent 视觉自验已完成，用户确认仍未完成。
+> 实现后按最终范围整理；用户已要求从恢复样式扩大为接入 Open Intelligent UI，并明确不考虑后向兼容。用户视觉验收尚未完成。
 
 ## 实现范围
 
 - Base / executed_base: `95c6b3deb07c03e9edd3b78375cd0ae29e87558e`
 - Branch: `codex/openui-native-visuals`
-- 受影响：Web InteractiveCard、生成指导及其生成资产。
+- 上游：[thesysdev/open-intelligent-ui](https://github.com/thesysdev/open-intelligent-ui)，固定 commit `16ef26475999e3a021a50b1607a03717c0721255`，MIT；源码目录带 LICENSE，前端 UPSTREAM.md 记录适配。
 
-## 最终结构与决定
+## 最终结构与调用链
 
-- 删除 interactive/theme.ts；InteractiveCard 保留上游 ThemeProvider 的 scope/portal 支持，使用其默认 light theme，不注入 Nano token。
-- 删除卡片、文字控件字体与图表等额外皮肤覆盖。宿主仅保留聊天空间、只读可读性、状态提示以及 row/wrap 的最小列宽，避免手机挤成不可读的多列。
-- catalog.tsx 的 additionalRules 改为上游默认视觉与按参考自主组合；鼓励匹配密度、尺寸和真实图标，保持轴单位及示意流程/定量图表的区别，不能伪称不支持的 HTML/CSS 或组件可用。
-- 短常驻 policy 同步改为上游默认视觉与自主组合，避免在加载 Skill 之前仍要求 Nano theme。
-- 生成链不变：catalog.tsx → scripts/generate-interactive-ui.ts → integration prompt.md 与 PA nano-interactive-ui/SKILL.md。两条消费入口同时更新，组件 schema、工具、动作权限和持久化不变。
-- 未增加参考场景专用组件或固定模板；酒店和看板仅为本轮验证输入。
+- Web 的 `interactive/open-intelligent-ui/` 复用上游全部组件、样式、动作、通用布局/绘图和 prompt options。包含 Box/Grid/Row/Col、SVG shapes、HtmlView、地图、图片、图表与本地控件；没有酒店或广告看板专用模板。
+- 删除 Nano theme、组件皮肤覆盖及旧 Web composition examples。ThemeProvider 保留默认 light token；宿主只提供聊天阅读空间、状态与权限反馈。
+- 上游通用函数放在 product-contracts 的显式 `interactive-functions` 子入口，使用 lang-core 定义，Web registry 与 IM source validator 共享同一实现。IM/前端不跨包相对导入、不依赖 DSH。
+- catalog.tsx 在上游 library 上只增加 ComposeMessage，保留 Nano conversation_messages / continue_conversation 两个已接工具；不把上游 demo 数据工具伪装成真实业务工具。生成指导保留上游三个通用 worked examples，并补 Nano 消息/状态/授权协议、参考布局与百分比容器尺寸规则。
+- 生成链：catalog → generate-interactive-ui.ts → frontend types、product-contracts intelligent-ui-catalog、integration catalog/prompt、PA nano-interactive-ui Skill。生成器仅加载 schema，忽略 CSS 模块；auth 资源适配按需加载，生成时不执行浏览器登录逻辑。
+- 新协议版本 `nano-iui-1`，发布端自动填常量。Web/IM 使用新目录；未提供旧 Web DSL 转换/兼容。旧 native runtime 目录及其测试样例独立保留，iOS 本轮不重写视觉，新卡片按其既有版本检查显示摘要/不支持提示。
+- IM 用共享目录验证 source、绑定类型、已接 Query/Mutation 与 ComposeMessage 约束；提交/私聊背景从响应式输入产生可读字段，解析普通命名 label/options 与 Query defaults，原始完整 state 仍保留。
+- `/im/v1/intelligent-ui/api/{wiki,image-search,street-route}` 将上游固定公共资源处理函数接到现有身份认证与频率限制。前端通过现有 authFetch 请求；查询失败保持上游错误，不伪造照片或路线。
+- HtmlView 复用上游 opaque-origin sandbox/CSP，不获得宿主凭据/工具；内部编辑不进入 Nano 共享状态。需要保存或提交的选择使用响应式控件。
+- 非原生 Pressable 与 map marker selection 增加遵守宿主 disabled fieldset 的最小适配；既有服务器权限、私聊/群聊状态边界、幂等重试继续保留。
 
-## 兼容、风险与回滚
+## 风险与回滚
 
-- 历史卡片源码及私人状态不变，读取时获得上游默认视觉。
-- 官网定制示例不等于固定版本默认组件；依靠通用组合尽可能接近，具体限制在验证中披露，不承诺像素等价。
-- iOS 原生视觉不在本轮，生成指导的组件语义仍来自共享目录。
-- 回滚本次源码与生成资产提交即可恢复原主题；无需数据迁移或安装包发布。
+- 用户明确不要求后向兼容；旧 Web 程序不保证继续渲染，已发布文字摘要仍可阅读。没有数据迁移或安装包发布。
+- 远端公共图片/地图资源可失败；本机实际图片查询返回 502，酒店最终视觉测试使用事先验证可加载的演示照片 URL。不能将这当成图片查询成功。
+- 模型可以组合任意通用布局与绘图，不等于一次生成就忠实还原。真实模型首轮和反馈修正均保留证据，不用手写业务模板替代实际模型结果。
+- 回滚本轮源码、依赖锁和生成资产可恢复旧 registry；本轮没有改生产数据。
 
-## 验证定位
+## 验证与状态
 
-见 [validation.md](validation.md)。实际浏览器截图和原始模型/运行材料留本机 output/；不提交私人原图、凭据或 runtime。
-
-## Canonical 影响
-
-必要 delta 见 [specs/im/web-chat-ux.md](specs/im/web-chat-ux.md)。用户确认前不归并、不归档。
+见 [validation.md](validation.md) 和 [code-review.md](code-review.md)。用户确认前保留 Active，行为 delta 保留在本 unit，不提前归并 canonical。

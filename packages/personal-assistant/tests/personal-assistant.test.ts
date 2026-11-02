@@ -43,7 +43,7 @@ it('commits only the frozen proposal with host verdict and preserves actual rece
   const f=fixture('allow');
   try{
     f.config.features = {intelligent_ui: false};
-    f.call.args.interactive = {format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("Explicit card")])'};
+    f.call.args.interactive = {format:'openui',catalog_version:'nano-iui-1',source:'root = Stack([TextContent("Explicit card")])'};
     expect(await f.pa.send(f.config,f.binding,f.call)).toMatchObject({status:'sent',message_id:'m'});
     const commit=f.calls.find(x=>x.type==='pa.action.commit')!;
     expect(commit.payload).toMatchObject({proposal_ref:'p',verdict_ref:'v',binding_id:'binding',epoch:1});
@@ -132,7 +132,7 @@ it('changes sources directly with owner evidence, without an independent model d
 });
 it('freezes interactive content and sending identity into one publication identity',async()=>{
  const f=fixture('allow');
- const interactive={format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("Choose")])'};
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Stack([TextContent("Choose")])'};
  try {
   await f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive}});
   expect(f.calls.find(c=>c.type==='agent.message')!.payload).toMatchObject({interactive});

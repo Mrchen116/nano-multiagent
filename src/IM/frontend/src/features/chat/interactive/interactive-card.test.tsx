@@ -5,11 +5,12 @@ import { InteractionSubmissionError } from './submission-error';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 vi.mock('../chat-api', () => ({listMessages:vi.fn(),readInteractionDraft: vi.fn(), saveInteractionDraft: vi.fn()}));
-const message = {id:'card', conversation_id:'chat', content:'确认草稿', interactive:{format:'openui',catalog_version:'nano-1',source:`root = Stack([form])
-form = Form("draft", ContinueButton("send", "发送给林悦"), [FormControl("消息草稿", TextArea("body", "编辑", 3, null, "周六见"))])`}} as Message;
+const message = {id:'card', conversation_id:'chat', content:'确认草稿', interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
+root = Col([form])
+form = Form([TextArea($body, "消息草稿", "编辑"), Button("发送给林悦", @ToAssistant("发送给林悦"))])`}} as Message;
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:2,state:{draft:{body:{value:'周日见'}}},submission_message_id:null});
+  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:2,state:{'$body':'周日见'},submission_message_id:null});
   vi.mocked(saveInteractionDraft).mockResolvedValue({draft_revision:3,state:{},submission_message_id:null});
 });
 describe('private interactive reply', () => {
@@ -22,7 +23,7 @@ describe('private interactive reply', () => {
     await waitFor(()=>expect(select).toHaveBeenCalled());
     expect(send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button',{name:'发送给林悦'}));
-    await waitFor(()=>expect(send).toHaveBeenCalledWith(expect.objectContaining({source_message_id:'card',action_id:'send',state:expect.objectContaining({draft:expect.objectContaining({body:expect.objectContaining({value:'周日10点断桥见'})})})}),expect.any(String)));
+    await waitFor(()=>expect(send).toHaveBeenCalledWith(expect.objectContaining({source_message_id:'card',event:expect.objectContaining({message:'发送给林悦'}),state:expect.objectContaining({'$body':'周日10点断桥见'})}),expect.any(String)));
     expect(field).not.toBeDisabled();
   });
   it('retries an uncertain submission with the exact frozen request and identity', async () => {
@@ -67,25 +68,26 @@ it.each(['native', 'mutation'])('captures complete state after Set and separates
   const action=mode==='native' ? '@ToAssistant("分析参数", {kind:"comparison"})' : '@Run(ask)';
   const source=`$scale = [2]
 ask = Mutation("continue_conversation", {message:"分析参数",context:{kind:"comparison"}})
-root = Stack([TextContent("比例：" + $scale[0]), form])
-form = Form("draft", Buttons([Button("解释当前结果", Action([@Set($scale, [3]), ${action}]))]), [FormControl("草稿", TextArea("body", "", 3, null, "初稿"))])`;
+$body = "初稿"
+root = Col([Text("比例：" + $scale[0]), form])
+form = Form([Button("解释当前结果", Action([@Set($scale, [3]), ${action}])), TextArea($body, "草稿")])`;
   render(<InteractiveCard message={{...message,interactive:{...message.interactive!,source}}} onSend={send} onSelect={vi.fn()} />);
   fireEvent.change(await screen.findByRole('textbox'),{target:{value:'修改后的稿子'}});
   fireEvent.click(screen.getByRole('button',{name:'解释当前结果'}));
   await waitFor(()=>expect(send).toHaveBeenCalledTimes(1));
-  expect(send.mock.calls[0][0]).toMatchObject({event:{type:'continue_conversation',label:'解释当前结果',message:'分析参数',context:{kind:'comparison'}},state:{'$scale':[3],draft:{body:{value:'修改后的稿子'}}}});
+  expect(send.mock.calls[0][0]).toMatchObject({event:{type:'continue_conversation',label:'解释当前结果',message:'分析参数',context:{kind:'comparison'}},state:{'$scale':[3],'$body':'修改后的稿子'}});
   await waitFor(()=>expect(screen.getByRole('button',{name:'解释当前结果'})).not.toBeDisabled());
   fireEvent.change(screen.getByRole('textbox'),{target:{value:'再修改'}});
   fireEvent.click(screen.getByRole('button',{name:'解释当前结果'}));
   await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));
   expect(send.mock.calls[1][1]).not.toBe(send.mock.calls[0][1]);
-  expect(send.mock.calls[0][0].state.draft.body.value).toBe('修改后的稿子');
-  expect(send.mock.calls[1][0].state.draft.body.value).toBe('再修改');
+  expect(send.mock.calls[0][0].state['$body']).toBe('修改后的稿子');
+  expect(send.mock.calls[1][0].state['$body']).toBe('再修改');
 });
 
 it('connects native Query to the existing current-conversation reader', async () => {
   vi.mocked(listMessages).mockResolvedValue({items:[],next_before_message_id:null});
-  const source='data = Query("conversation_messages", {limit:5}, [])\nroot = TextContent("会话消息：" + @Count(data))';
+  const source='data = Query("conversation_messages", {limit:5}, [])\nroot = Text("会话消息：" + @Count(data))';
   render(<InteractiveCard message={{...message,interactive:{...message.interactive!,source}}} onSend={vi.fn()} onSelect={vi.fn()} />);
   await waitFor(()=>expect(listMessages).toHaveBeenCalledWith('chat',{limit:5}));
   expect(await screen.findByText('会话消息：0')).toBeVisible();
@@ -95,7 +97,7 @@ it('refreshes draft revision after a composer submission while keeping the explo
   const props={message,onSend:vi.fn(),onSelect:vi.fn()};
   const view=render(<InteractiveCard {...props} />);
   await screen.findByRole('textbox');
-  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:7,state:{draft:{body:{value:'周日见'}}},submission_message_id:'new-request'});
+  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:7,state:{'$body':'周日见'},submission_message_id:'new-request'});
   view.rerender(<InteractiveCard {...props} submittedMessageId="new-request" />);
   await waitFor(()=>expect(readInteractionDraft).toHaveBeenCalledTimes(2));
   fireEvent.change(screen.getByRole('textbox'),{target:{value:'继续探索'}});
@@ -110,7 +112,7 @@ it.each(['ws-first', 'post-first'])('keeps the authoritative draft revision afte
   const field = await screen.findByRole('textbox');
   fireEvent.click(screen.getByRole('button', {name:'发送给林悦'}));
   await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
-  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:3,state:{draft:{body:{value:'周日见'}}},submission_message_id:'request-1'});
+  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:3,state:{'$body':'周日见'},submission_message_id:'request-1'});
   const reflect = () => view.rerender(<InteractiveCard {...props} submittedMessageId="request-1" />);
   if (order === 'ws-first') {
     reflect();
@@ -127,7 +129,7 @@ it.each(['ws-first', 'post-first'])('keeps the authoritative draft revision afte
 
 
 it('adopts evaluated edits only after private save and fresh source access, without submitting', async () => {
-  const source='$reply = "Initial reply"\nroot = Stack([TextArea("body", "Reply draft", 3, null, $reply), Button("Adopt", @ComposeMessage("c_target", "Reply: " + $reply))])';
+  const source='$reply = "Initial reply"\nroot = Col([TextArea($reply, null, "Reply draft"), Button("Adopt", @ComposeMessage("c_target", "Reply: " + $reply))])';
   vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:2,state:{'$reply':'Saved reply'},submission_message_id:null,can_interact:true});
   vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({draft_revision:3,state:{'$reply':'Edited reply'},submission_message_id:null});
   const send=vi.fn(), adopt=vi.fn();
@@ -149,4 +151,15 @@ it('adopts evaluated edits only after private save and fresh source access, with
   await screen.findByRole('alert');
   expect(adopt).toHaveBeenCalledTimes(1);
   expect(field).toHaveValue('Edited reply');
+});
+
+
+it('keeps a Pressable drawing unchanged inside a read-only historical card', async () => {
+  const source='$n = 1\nroot = Col([Text("数量 " + $n), Pressable([Text("增加")], @Set($n, $n + 1))])';
+  const send=vi.fn();
+  render(<InteractiveCard message={{...message, interactive:{...message.interactive!,source}}} readOnly onSend={send} onSelect={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button',{name:'增加'}));
+  expect(await screen.findByText('数量 1')).toBeVisible();
+  expect(send).not.toHaveBeenCalled();
+  expect(saveInteractionDraft).not.toHaveBeenCalled();
 });

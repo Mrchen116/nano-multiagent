@@ -31,7 +31,7 @@ ctx.on('llm/stream',async function*(o){
   client.rpc.handle('product.call',value=>{const call=value as any;
    if(call.method==='send_message.context')return {target:'peer',sender:{type:'agent',agent_id:'pa'},recipient:{kind:'user'},channel:'web'};
    if(call.method==='pa.authorization'){authorityReads++;return {owner_messages:[{content:'DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT'.repeat(50000)}]};}
-   if(['send_message','send_user_message'].includes(call.method)){if(call.args.text==='OWNER_REPRESENTATION')expect(call.args.interactive).toEqual({source:'root = TextContent("Confirmed")',format:'openui',catalog_version:'nano-1'});sent.push(call.args.text);return {status:'sent',message_id:'actual'};}
+   if(['send_message','send_user_message'].includes(call.method)){if(call.args.text==='OWNER_REPRESENTATION')expect(call.args.interactive).toEqual({source:'root = TextContent("Confirmed")',format:'openui',catalog_version:'nano-iui-1'});sent.push(call.args.text);return {status:'sent',message_id:'actual'};}
    throw Error('Unexpected product call '+call.method);
   });
   const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'main',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},approval:{...approvalDefaults,globalRoot:home,rules,alwaysAllowTools:['send_user_message'],reviewer:{provider:'fixture',model:'review'}}};
@@ -102,7 +102,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
         if(personal){
           expect(names).toContain('personal_sources');
           expect(calls.find(call=>call.method==='personal_sources').args).toEqual({action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1});
-          expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-1',source:'root = TextContent("Draft")'});
+          expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
           expect(Object.keys(send.parameters.properties)).toEqual(['target','text','interactive']);

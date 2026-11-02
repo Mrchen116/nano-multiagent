@@ -50,3 +50,44 @@
 - 上游 FunnelChart 确实能画居中漏斗，但同样按实际数量缩放，后段很窄。手写通用 HTML/CSS 的阶段条能接近参考；条宽明确仅为流程示意，不伪装成真实数量比例。
 - 原因包含模型选图/语义判断与已开放表达范围两部分；不能全归给模型，也不能声称只登记 FunnelChart 就获得参考外观。验证页没有加入产品，也没有新增截图专用组件或模板。
 - 此证据补充不改变已审代码。扩展通用图形/布局表达能力不在已实现的“恢复默认视觉”代码范围内；用户仍未确认验收。
+
+## 最终扩展范围：接入 Open Intelligent UI（2026-11-02）
+
+前文是第一轮标准 react-ui 默认视觉修复及其调查的历史记录；下列证据对应用户随后明确要求的 open-intelligent-ui 接入，不能用前一轮测试替代。本轮未要求旧 Web DSL 兼容。
+
+### 实现与验证
+
+- 固定上游 `16ef26475999e3a021a50b1607a03717c0721255`：完整 56 项组件与 59 个通用函数；复用原组件/样式/动作/生成规则和三个通用示例。Nano 只接消息、状态、身份和资源路由，没有酒店/看板模板。
+- pnpm build、pnpm typecheck、前端 build、生成资产 --check 通过。构建有既有/完整库较大 chunk 警告，不冒充资源体积优化完成。
+- Web 全量 109 files / 1,036 tests 通过；随后修正 SVG 断言并新增只读 Pressable 回归，最窄 2 files / 15 tests 通过。未将后一次窄测冒充又跑过全量。
+- IM 全量最终 45 files / 269 tests 通过；PA 相关 4 files / 47 tests；DSH personal-security/approval 2 files / 17 tests 通过。
+- iOS runtime 生成一致性/类型检查通过，native 7 tests 通过；只移动其自有旧语言测试样例，不重写 native 视觉。
+- runtime dependency contract 13 tests 通过。新增白名单仅为前端/IM 对 product-contracts/interactive-functions 的公开子入口，不放宽 DSH 依赖边界。
+- docs-check 341 maintained Markdown sources / 68 required routes 通过。
+- 独立 full review 的两项成立问题均修复，closure `[]`；详情见 code-review.md。
+
+### 真实模型输入、反馈与交付
+
+- 隔离 daily 栈：runtime `output/runtime-openiui`，IM 127.0.0.1:62983；独立 node/data/workspace/identity。PA `pa_ffc9e810cab6`，`codexOAuth:gpt-6-astra` / medium。
+- 使用同一用户酒店/看板原图的放大截图。输入消息 `5908a16bea2c484a9044aa19e879e754`（酒店）与 `857e3cae5a1f49aeb874a97c29c5ab7e`（看板）。没有给目标 DSL 或业务模板。
+- 初轮交付酒店 `01c79eabe2fe4e7d88d2df682567562e`、看板 `153a4e3830ba412ea1a5fea35d976d2c`。酒店把照片改为 SVG，漏斗因 centered Col 内的 flex/百分比容器宽度为零而不可见；已据实保留，未算成功。
+- 实际视觉反馈后，模型自主将漏斗改为通用 SVG，并使用 SearchImage 重做酒店。资源查询本机实测返回 502（Wikipedia unavailable / Image search unavailable），仍显示占位，未算照片成功。
+- 再提供五个实际请求已验证 200 / image/jpeg 的 Unsplash 演示 URL，模型通过通用 Image 重新交付；没有把 URL 固化到代码。照片只为视觉演示，不表示对应真实酒店。
+- 后续目测发现上游 media Row 自动将拼贴大图压至 200px、看板过高；给模型实际布局反馈后，它用 Grid 调整拼贴并收紧看板。最终酒店 `856882c174c7424799368ff6360406da`；最终看板 `5fed85ffbf924a77bd61e3caaa1eeb89`。
+- 最终结果来自真实模型生成与反馈迭代；不是一次生成即像素复刻，也不是手写替换模型交付。
+
+### 最终浏览器操作与视觉观察
+
+- 最终构建重新加载，使用浏览器 screenshot API 保存实际页面，避免系统级截图在 viewport override 下比例不一致。
+- 桌面 1440×1000：酒店三张卡片等宽填满一行；三张照片约 316.7px 宽；下方大图 524px，右侧四小图各 260px，恢复左半/右半关系。所有 8 个显示图片实例 complete 且 naturalWidth > 0。
+- Book 实测 32px 高、999px 圆角、背景 rgb(13,13,13)，圆形收藏保留；点击收藏显示“已收藏 1”，点击第五缩略图后大图 alt 从“演示照片 2”改为“演示照片 5”。Reset 可恢复。
+- 看板具备四项 KPI、三色散点、四级居中色条与连续率；点击 Clicks 显示“Clicks · 310,000”；选择 Europe 后散点三组 opacity 为 0.12 / 1 / 0.12。未增加 Agent 调用或业务动作。
+- 手机 390×844：酒店卡片、照片拼贴与看板按窄屏堆叠，documentElement scrollWidth/clientWidth 均为 390，没有整页横向溢出。未另测真实地图/WebGL，未实测 HtmlView 游戏。
+- 最终截图本机 `output/playwright/openiui/`：`dashboard-desktop.png`、`dashboard-interaction.png`、`hotel-desktop-top.png`、`hotel-desktop-gallery.png`、`hotel-mobile.png`、`hotel-gallery-mobile.png`、`dashboard-mobile.png`。
+- 本机真实消息/source 快照 `output/iui-real-messages.json`，请求/资源探测与日志同 output/。不提交私人原图、截图、运行数据或凭据。未核验对应 provider 原始 wire payload；不据实际交付宣称 wire 保真。
+
+### 剩余边界
+
+- 最终布局/按钮/漏斗已实际改善；照片是替代示例，字体、选中态、比例仍非逐像素等价。
+- 公共图片查询在本机失败这一限制仍存在，通用 Image URL 路径已验证；不掩盖为“自动图片查询已验证通过”。
+- 未部署、未发布。用户尚未亲自确认本轮最终截图，unit 保留 Active，canonical spec 未提前归并。

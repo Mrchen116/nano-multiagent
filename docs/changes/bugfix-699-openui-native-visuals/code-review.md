@@ -26,3 +26,13 @@
 - validated_at: 最终 7-file 源码工作区 diff 加上述 unit 文档（记录事实的后续追加不改变代码）。
 - 审查后仅补充主会话实际测试、浏览器结果与本机原生日志 locator；未新增代码。
 - 首轮和 patch 均通过；真实 wire payload 未核验的限制保留。
+
+## 扩展范围 Full Review：Open Intelligent UI
+
+- 范围：上述 base 至全部本任务 commits + dirty diff；包含 vendored 上游组件/函数/公共资源、公开子入口、Web/server 目录、生成链/短 policy/Skill、协议版本与相关测试。
+- 独立 reviewer：`/root/openui_visual_review`，沿用 gpt-6.1-sol / high；调用 change-code-review 与 agent-context-review Implementation Review（Mode B）。未参与受审实现。
+- 两项 CONFIRMED / P2：snapshot 普通命名 label/options 未解析导致模型只收到 ID；Pressable 与地图 marker 的非原生点击绕过 disabled fieldset。
+- 修复：snapshot resolver 解析 named AST；Pressable 与 map selection 写入检查宿主 disabled fieldset。新增命名标签/选项与真 Renderer 只读回归。
+- Closure / patch 结论：`[]`，两项 closed，无其他成立问题。独立通过服务端 17 tests、组件 2 tests、只读 1 test、生成资产检查；地图禁用按代码链核实，未另跑真实地图。
+- 后续仅追加通用照片拼贴指导（Grid 避免媒体 Row 自动限宽）及本次实际验证事实，不引入业务模板/权限改动。
+- Context 观察：主会话真实模型已生成新目录的 Box/Svg/Pressable/本地函数交互，反馈后自行修改程序；不将这些行为或原生日志等同 provider wire payload。视觉和运行证据见 validation.md；用户验收仍未发生。

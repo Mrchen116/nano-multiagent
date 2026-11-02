@@ -211,11 +211,11 @@ it('persists one direct relay to the recipient Agent after reviewing the entire 
  db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES('b','o1','n','Receiver',datetime('now'),datetime('now'))").run();
  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a2')").run();
  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
- const interactive={format:'openui',catalog_version:'nano-1',source:'root = TextContent("Shared details")'};
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Text("Shared details")'};
  const input={...args,request_key:'to-agent',conversation_id:'peer',content:'Please coordinate',interactive};
  const p=service.actions.prepare(principal,input);
  expect(p.evidence.payload.interactive).toEqual(interactive);
- expect(()=>service.actions.prepare(principal,{...input,interactive:{...interactive,source:'root = TextContent("Private details")'}})).toThrow('operation_key_content_conflict');
+ expect(()=>service.actions.prepare(principal,{...input,interactive:{...interactive,source:'root = Text("Private details")'}})).toThrow('operation_key_content_conflict');
  const v=service.actions.review(principal,{...args,proposal_ref:p.proposal_ref,payload_digest:p.payload_digest,evidence_digest:p.evidence_digest,verdict:{decision:'allow'}});
  const sent=service.actions.commit(principal,{...args,proposal_ref:p.proposal_ref,verdict_ref:v.verdict_ref});
  const relays=db.prepare('SELECT * FROM relay_tasks WHERE message_id=?').all(sent.message_id) as any[];

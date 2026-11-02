@@ -1,14 +1,12 @@
+import { interactiveRuntimeFunctions } from '@nano/product-contracts/interactive-functions';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { autoClose, createLibrary, createParser, evaluate, evaluateRoot, parseExpression, split, tokenize, walkAST, type ASTNode, type ElementNode, type EvaluationContext } from '@openuidev/lang-core';
-import { interactiveCatalog, interactiveTools } from '@nano/product-contracts';
+import { autoClose, createParser, evaluate, parseExpression, split, tokenize, walkAST, type ASTNode, type EvaluationContext } from '@openuidev/lang-core';
+import { intelligentUICatalog as interactiveCatalog, interactiveTools } from '@nano/product-contracts';
 
 export interface InteractiveSchema { source: string; actions: Record<string, string> }
-const parser = createParser(interactiveCatalog, 'Stack');
-// Values are evaluated for a snapshot, without React components or reactive setters.
-const valueLibrary = createLibrary({components: []});
-const inputTypes = new Set(['Input', 'TextArea', 'Select', 'Slider', 'CheckBoxGroup', 'RadioGroup', 'Switch', 'DatePicker']);
+const parser = createParser(interactiveCatalog, 'Col');
 
-/** Validate a complete native program and record legacy continuation labels. */
+/** Validate a complete Open Intelligent UI program. */
 export function validateInteractiveSource(source: string): InteractiveSchema {
   if (Buffer.byteLength(source, 'utf8') > 65536 || autoClose(source).wasIncomplete) throw new Error('Interactive source is oversized or incomplete');
   const parsed = parser.parse(source);
@@ -19,7 +17,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
   const statements = sourceStatements.map(statement => parseExpression(statement.tokens));
   const named = new Map(sourceStatements.map((statement, index) => [statement.id, statements[index]]));
   const stringBindings = new Set<string>();
-  const context: EvaluationContext = {actions: interactiveCatalog.actions, getState: name => parsed.stateDeclarations[name],
+  const context: EvaluationContext = {actions: interactiveCatalog.actions, functions: interactiveRuntimeFunctions, getState: name => parsed.stateDeclarations[name],
     resolveRef: name => {
       const query = parsed.queryStatements.find(item => item.statementId === name);
       const value = query?.defaultsAST ?? named.get(name);
@@ -46,12 +44,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
       if (tool?.k !== 'Str' || !interactiveTools.some(item => item.name === tool.v && item.mode === (node.name === 'Query' ? 'read' : 'write')))
         throw new Error('Query/Mutation must use a registered tool of the matching read/write kind');
     }
-    if (node.name === 'ContinueButton') {
-      const [id, label] = node.args;
-      if (id?.k !== 'Str' || label?.k !== 'Str' || !id.v.trim() || !label.v.trim() || Object.hasOwn(actions, id.v))
-        throw new Error('Legacy ContinueButton requires unique literal id and visible literal label');
-      actions[id.v] = label.v;
-    }
+
   });
   const inspectAction = (node: ASTNode, visited = new Set<string>()): Set<string> => {
     const kinds = new Set<string>();
@@ -104,33 +97,32 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
   const state = JSON.parse(sortedJsonAscii(input)) as Record<string, unknown>;
   const parsed = parser.parse(schema.source);
   const unwrap = (value: unknown): unknown => value && typeof value === 'object' && 'value' in value ? value.value : value;
+  const named = new Map(split(tokenize(schema.source)).map(statement => [statement.id, parseExpression(statement.tokens)]));
   const ctx: EvaluationContext = {
     actions: interactiveCatalog.actions,
+    functions: interactiveRuntimeFunctions,
     getState: name => unwrap(Object.hasOwn(state, name) ? state[name] : parsed.stateDeclarations[name]),
-    resolveRef: name => { const query = parsed.queryStatements.find(item => item.statementId === name); return query?.defaultsAST ? evaluate(query.defaultsAST, ctx) : undefined; },
+    resolveRef: name => {
+      const query = parsed.queryStatements.find(item => item.statementId === name);
+      const expression = query?.defaultsAST ?? named.get(name);
+      return expression ? evaluate(expression, ctx) : undefined;
+    },
   };
-  const root = evaluateRoot(parsed, {ctx, library: valueLibrary, store:null});
-  const fields: {name:string;label:string;value:unknown;display_value?:string}[] = [];
-  function visit(value: unknown, form = '', label = ''): void {
-    if (Array.isArray(value)) { value.forEach(item => visit(item, form, label)); return; }
-    if (!value || typeof value !== 'object') return;
-    const node = value as ElementNode;
-    if (node.type !== 'element') { Object.values(value).forEach(item => visit(item, form, label)); return; }
-    if (node.typeName === 'Form') form = String(node.props.name ?? '');
-    if (node.typeName === 'FormControl') label = String(node.props.label ?? '');
-    if (inputTypes.has(node.typeName) && typeof node.props.name === 'string') {
-      const name = node.props.name;
-      const entry = form ? (state[form] as Record<string, unknown> | undefined)?.[name] : state[name];
-      const selected = unwrap(entry) ?? node.props.value ?? node.props.defaultValue ?? (node.typeName === 'CheckBoxGroup' ? {} : '');
-      const options = Array.isArray(node.props.items) ? Object.fromEntries(node.props.items.filter((item: ElementNode) => typeof item.props?.label === 'string')
-        .map((item: ElementNode) => [item.props.value ?? item.props.name, item.props.label])) : {};
-      const display = typeof selected === 'string' && Object.hasOwn(options, selected) ? options[selected]
-        : node.typeName === 'CheckBoxGroup' && selected && typeof selected === 'object'
-          ? Object.entries(selected).filter(([, checked]) => checked === true).map(([key]) => options[key] ?? key).join('、') || '—' : undefined;
-      fields.push({name, label:label || String(node.props.label ?? name),value:selected,...(display !== undefined ? {display_value:display} : {})});
-    }
-    Object.values(node.props).forEach(item => visit(item, form, label));
-  }
-  visit(root);
+  const labels: Record<string, number> = {Input:1, TextArea:1, Select:2, RadioGroup:2, Slider:4, Checkbox:1, DatePicker:1};
+  const fields: {name:string; label:string; value:unknown; display_value?:string}[] = [];
+  const seen = new Set<string>();
+  for (const statement of split(tokenize(schema.source))) walkAST(parseExpression(statement.tokens), node => {
+    if (node.k !== 'Comp' || !(node.name in labels || node.name === 'SegmentedControl')) return;
+    const binding = node.args[0];
+    if (binding?.k !== 'StateRef' || seen.has(binding.n)) return;
+    seen.add(binding.n);
+    const value = ctx.getState!(binding.n);
+    const labelNode = node.name in labels ? node.args[labels[node.name]] : undefined;
+    const label = labelNode ? evaluate(labelNode, ctx) : undefined;
+    const options = ['Select','RadioGroup','SegmentedControl'].includes(node.name) ? evaluate(node.args[1], ctx) : undefined;
+    const selected = Array.isArray(options) ? options.find(option => typeof option === 'string' ? option === value : option?.value === value) : undefined;
+    fields.push({name:binding.n, label:typeof label === 'string' ? label : binding.n.slice(1), value,
+      ...(selected ? {display_value:typeof selected === 'string' ? selected : selected.label} : {})});
+  });
   return {state, fields};
 }

@@ -97,7 +97,7 @@ export interface ModelRunProjection {
 
 export { encodeTrajectoryValue, TrajectoryValueDecoder } from './trajectory-wire.js';
 export * from './interactive.js';
-export { interactiveCatalog, interactiveTools } from './interactive-catalog.js';
+export { interactiveCatalog } from './interactive-catalog.js';
 
 export * from './work-sync.js';
 export * from './task-execution.js';
@@ -119,3 +119,5 @@ export * from './work-events.js';
 export {decodeWorkEvent, decodeWorkBatch, WorkEventError, workObject} from './work-event-codec.js';
 export * from './chat.js';
 export * from './chat-codec.js';
+
+export { intelligentUICatalog, interactiveTools } from './intelligent-ui-catalog.js';
