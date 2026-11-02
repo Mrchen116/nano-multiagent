@@ -321,7 +321,7 @@ export default class NanoRuntime {
     });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { observationOnly?: boolean; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       for (const agent of config.agents) {
         lifecycle.configure(agent.agentId, config.lifecycle?.[agent.agentId] ?? {revision: 1});
@@ -337,8 +337,10 @@ export default class NanoRuntime {
       await workflowFiber.await();
       await workflow;
       await knowledgeFiber.await();
-      await (await knowledge).recover();
-      for (const agent of config.agents) await lifecycle.prepare(agent.agentId, async () => {
+      // Archive readers must not replay recovery jobs whose saved paths point outside the copy.
+      if (config.observationOnly && config.agents.some(agent => !config.lifecycle?.[agent.agentId]?.disabled)) throw new RpcError(-32002, 'Observation-only initialization requires disabled agents');
+      if (!config.observationOnly) await (await knowledge).recover();
+      for (const agent of config.observationOnly ? [] : config.agents) await lifecycle.prepare(agent.agentId, async () => {
         await cancelPersisted(agent.agentId);
         await this.cron.skipMissed(agent.agentId, new Set(config.blockedScheduleIds ?? []));
       });

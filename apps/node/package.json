@@ -21,5 +21,11 @@
     "@types/js-yaml": "4.0.9",
     "@types/proper-lockfile": "4.1.4",
     "@types/ws": "8.18.1"
+  },
+  "exports": {
+    "./evaluation-archive": {
+      "types": "./lib/evaluation-archive.d.ts",
+      "default": "./lib/evaluation-archive.js"
+    }
   }
 }
