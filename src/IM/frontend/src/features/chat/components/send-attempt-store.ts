@@ -82,7 +82,7 @@ export async function prepareSendAttempt(userId: string, conversationId: string,
         && JSON.stringify({text:item.text,attachments:item.attachments,contexts:item.contexts}) === JSON.stringify(payload));
       if (existing) { result(existing); return; }
       for (const old of previous) if (old.retryable) store.put({...old,retryable:false});
-      const attempt: SendAttempt = structuredClone({userId,conversationId,key:crypto.randomUUID(),draft:{...draft,failed:[]},...payload,retryable:true});
+      const attempt: SendAttempt = structuredClone({userId,conversationId,key:crypto.randomUUID(),draft:{...draft,uploads:[]},...payload,retryable:true});
       store.add(attempt);
       result(attempt);
     };

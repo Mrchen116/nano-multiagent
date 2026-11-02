@@ -1961,7 +1961,6 @@ describe("MessagePane", () => {
         if (file === failed) throw failure;
         return imageAttachment(file);
       });
-      const onAttachmentUploadError = vi.fn();
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -1969,7 +1968,6 @@ describe("MessagePane", () => {
           mentionCandidates={[]}
           onSend={() => {}}
           uploadAttachment={uploadAttachment}
-          onAttachmentUploadError={onAttachmentUploadError}
         />
       );
       const composer = screen.getByRole("textbox");
@@ -1985,13 +1983,12 @@ describe("MessagePane", () => {
         "failed.png",
         "last-ok.png"
       ]);
-      expect(onAttachmentUploadError).toHaveBeenCalledOnce();
-      expect(onAttachmentUploadError).toHaveBeenCalledWith(failure);
       expect(screen.getAllByRole("img").map((img) => img.getAttribute("alt"))).toEqual([
         "first-ok.png",
+        "failed.png",
         "last-ok.png"
       ]);
-      expect(screen.queryByRole("img", { name: "failed.png" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     });
   });
 

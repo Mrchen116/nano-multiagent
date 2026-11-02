@@ -7,14 +7,21 @@ export type ComposerDraftMention = {
   target_id: string;
 };
 
-export type FailedAttachment = { id: string; file: File; code: string; retryAt: number };
+export type ComposerUpload = {
+  id: string;
+  file: File;
+  status: "queued" | "uploading" | "ready" | "failed";
+  attachment?: Attachment;
+  code?: string;
+  retryAt?: number;
+};
 
 export type ComposerSnapshot = {
   revision?: string;
   draft: string;
   draftMentions: ComposerDraftMention[];
   pending: Attachment[];
-  failed?: FailedAttachment[];
+  uploads?: ComposerUpload[];
   slashDismissed: boolean;
 };
 
@@ -22,7 +29,7 @@ export const EMPTY_COMPOSER_SNAPSHOT: ComposerSnapshot = {
   draft: "",
   draftMentions: [],
   pending: [],
-  failed: [],
+  uploads: [],
   slashDismissed: false
 };
 
@@ -32,7 +39,7 @@ export function cloneComposerSnapshot(live: ComposerSnapshot): ComposerSnapshot 
     draft: live.draft,
     draftMentions: [...live.draftMentions],
     pending: [...live.pending],
-    failed: [...(live.failed ?? [])],
+    uploads: [...(live.uploads ?? [])],
     slashDismissed: live.slashDismissed
   };
 }

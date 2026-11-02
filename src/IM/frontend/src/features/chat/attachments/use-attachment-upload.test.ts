@@ -73,3 +73,13 @@ test.each([[507, "capacity"], [429, "cooldown"]])("maps quota and cooldown respo
   vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: status as number, headers: { "Retry-After": "3" } })));
   await expect(uploadOneAttachment(makeFile("a.png", "image/png", 1), "chat")).rejects.toMatchObject({ code, status });
 });
+
+
+test("distinguishes invalid image contents from an unsupported format", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    detail: "image content does not match content type"
+  }), { status: 415 })));
+  await expect(uploadOneAttachment(makeFile("image.png", "image/png", 10), "chat")).rejects.toMatchObject({
+    code: "invalidImage", status: 415
+  });
+});

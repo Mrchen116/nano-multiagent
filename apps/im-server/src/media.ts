@@ -139,12 +139,12 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
         isImage = req.url.split("?")[0]!.endsWith("/images");
       if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(p,cId,q.agent_id);
       else {ctx.messaging.access(p, cId, q.agent_id, "write");if(p.kind==='gateway')requireLifecycle(db,q.agent_id,q.lifecycle_revision==null?undefined:Number(q.lifecycle_revision));}
-      const fileName = basename(String(q.file_name ?? "").trim()),
-        key = isImage
+      let fileName = basename(String(q.file_name ?? "").trim());
+      const key = isImage
           ? String(req.headers["idempotency-key"] ?? "").trim()
           : `upload:${randomUUID()}`;
       if (!fileName || !key) fail(400, "file_name and Idempotency-Key required");
-      const mime = (req.headers["content-type"] ?? "application/octet-stream")
+      let mime = (req.headers["content-type"] ?? "application/octet-stream")
         .split(";")[0]!
         .trim()
         .toLowerCase();
@@ -194,8 +194,17 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
         output.end();
         await once(output, "finish");
         if (!size) fail(400, "empty attachment");
-        if (IMAGES.has(mime) && imageType(head) !== mime)
-          fail(415, "image content does not match content type");
+        if (IMAGES.has(mime)) {
+          const detected = imageType(head);
+          if (!detected) fail(415, "image content does not match content type");
+          // Clipboard images may carry a PNG name/type while containing JPEG bytes.
+          // Store the detected encoding so previews and downloads agree with the bytes.
+          if (detected !== mime) {
+            mime = detected;
+            const extension = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" }[detected];
+            fileName = `${fileName.replace(/\.[^.]+$/, "")}.${extension}`;
+          }
+        }
         const fresh = ctx.messaging.principal(req);
         if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(fresh,cId,q.agent_id);
         else {ctx.messaging.access(fresh, cId, q.agent_id, "write");if(fresh.kind==='gateway')requireLifecycle(db,q.agent_id,q.lifecycle_revision==null?undefined:Number(q.lifecycle_revision));}

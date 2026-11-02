@@ -4,10 +4,11 @@
 // owns the lifecycle for the composer; here we just need the network call
 // + typed error mapping so the caller can render i18n'd toasts.
 
+import { readHttpError } from "../../auth/http-error";
 import { authFetch } from "../../auth/auth-fetch";
 import type { Attachment } from "../chat-types";
 
-export type AttachmentUploadErrorCode = "unsupportedType" | "tooLarge" | "network" | "capacity" | "cooldown";
+export type AttachmentUploadErrorCode = "unsupportedType" | "invalidImage" | "tooLarge" | "network" | "capacity" | "cooldown";
 
 export class AttachmentUploadError extends Error {
   readonly code: AttachmentUploadErrorCode;
@@ -32,10 +33,11 @@ export async function uploadOneAttachment(file: File, conversationId: string): P
     headers: { "Content-Type": file.type || "application/octet-stream" }
   });
   if (!res.ok) {
-    const detail = await res.text().catch(() => "");
+    const { detail } = await readHttpError(res);
     if (res.status === 507) throw new AttachmentUploadError("capacity", 507, detail);
     if (res.status === 429) throw new AttachmentUploadError("cooldown", 429, detail, Number(res.headers.get("Retry-After") || 2));
-    if (res.status === 415) throw new AttachmentUploadError("unsupportedType", 415, detail);
+    if (res.status === 415) throw new AttachmentUploadError(
+      detail === "image content does not match content type" ? "invalidImage" : "unsupportedType", 415, detail);
     if (res.status === 413) throw new AttachmentUploadError("tooLarge", 413, detail);
     throw new AttachmentUploadError("network", res.status, detail);
   }
