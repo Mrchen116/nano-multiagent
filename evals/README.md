@@ -4,7 +4,7 @@
 
 | Suite | 用途 | 入口 |
 |---|---|---|
-| Intelligent UI | 酒店、看板、会议确认、活动试算；每 case 独立空白上下文 | [intelligent-ui/](intelligent-ui/README.md) |
+| Intelligent UI | 酒店、看板、会议确认、广告分析；每 case 独立空白上下文 | [intelligent-ui/](intelligent-ui/README.md) |
 | Memory / LongMemEval | 完整历史准备记忆、冷上下文答题和固定评分；默认计划零模型调用 | [memory/](memory/README.md) |
 | Spec/design alignment | 比较需求对齐工作流的用户对齐负担与最终产物质量；当前包含 8 个历史回归和前瞻 pilot case | [spec_design_alignment/](spec_design_alignment/README.md) |
 

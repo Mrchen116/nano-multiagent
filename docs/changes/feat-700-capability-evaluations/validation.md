@@ -35,3 +35,11 @@
 - Node24：evals/ui 3文件4 tests及evals TypeScript检查通过；独立窄 patch review `[]`。仅扩充材料，不重跑产品运行时测试。
 - CUA 实际打开四例目录和新增 case，核对固定输入、从零上下文、步骤、判据及“未运行”状态。截图 `output/eval-ui-evidence/activity-budget-case.png`，不冒充候选完成或正式评分。
 - 当前公共入口更新为 <http://127.0.0.1:63351/609d5ed3-d53b-4919-a454-20b407ed6541/#activity-budget>，tmux `capability-eval-ui-v2`，日志 `output/eval-ui-viewer-v2.log`；最新 pid/url 仍在 `output/capability-eval-viewer/state.json`。旧版公共 viewer 已替换，原三个产品预览不停止。开发 worktree 和更新后的服务保留。
+
+## Dataset v3 自然广告分析替换
+
+- 用ad-analysis替换activity-budget，仍4题；固定候选输入只包含自然业务问题与本地CSV，无UI、图表、交互或组件要求。合成数据12行9列、两周三个地区两个渠道。
+- 依据用户最新纠正，分析、计算、业务归因不评分。使用按真实发布调用携带interactive.source的是/否记录，主观视觉质量单列，加载Skill或写代码不冒充使用；未跑/轨迹缺失未判定，调用失败与呈现失败区分。没有新增评分执行器或模型裁判。
+- evals/ui 3文件4tests、evals TypeScript通过；server测试覆盖CSV读取、缺token拒绝、未登记附件与路径越界拒绝。原三个case无变更。独立patch/closure审查 `[]`。
+- CUA实际查看四例目录、固定业务输入、附件下载入口、操作与判据；点击下载入口无页面错误，HTTP测试确认CSV读取，未宣称实际候选完成。截图 `output/eval-ui-evidence/ad-analysis-case.png`。
+- 当前入口 <http://127.0.0.1:64734/96c2a32c-6937-447d-8983-b6bf72243188/#ad-analysis>，tmux `capability-eval-ui-v3-final`，日志 `output/eval-ui-viewer-v3-final.log`；pid/url仍在 `output/capability-eval-viewer/state.json`。旧公共viewer已替换，保留最新服务、原三个产品预览与开发worktree。

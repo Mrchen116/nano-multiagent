@@ -15,3 +15,10 @@
 - Base/head：9c556188f；范围为其后的活动试算 case、dataset v2、目录/README、现有接线测试和 unit 文档增补，未改产品代码或运行器。
 - 沿用独立 /root/openui_visual_review（gpt-6.1-sol/high）按 change-code-review 执行窄 patch review，结论 `[]`。三个计算点正确，新 prompt 未点名工具、组件或泄漏判定答案；操作控制材料未注入候选输入；原三个 case 不变。独立相关2项接线测试通过。
 - 用户同意加第四个 case，会议保留是当前建议和默认处理，不写成用户已批准删除或已完成验收。未运行候选或评分。
+
+## 自然广告分析替换 patch review
+
+- Base/head：f4abfb0d7；范围为dataset v3的ad-analysis替换、固定CSV、公共附件下载、目录/说明/测试及unit增补。原三个case不变，没有增加第五题或运行器。
+- 用户最新要求只评是否主动使用UI和主观呈现质量，分析正确性不评分；prompt只含业务问题，固定CSV无输出示例、工具或组件提示。
+- 独立 /root/openui_visual_review 发现判定口径接缝：本产品没有独立名为Intelligent UI的工具，模糊描述不能客观地区分Skill加载与真实发布。核对global-mode及message-arguments后，明确只有本case实际send_message/send_user_message调用携带非空字符串interactive.source才记使用；发布或渲染失败仍是调用事实，质量另记失败。Skill加载、代码和普通消息不算，缺轨迹或未跑是未判定。
+- 修复后closure结论 `[]`，上述finding closed。附件鉴权/登记白名单与下载接线无新缺陷；独立窄测试和类型检查通过。未调用候选或评分。

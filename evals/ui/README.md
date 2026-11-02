@@ -28,6 +28,8 @@ pnpm eval-ui --memory-archive /absolute/path/to/experiment --output /absolute/pa
 
 这些是已有现场链接，页面明确标注不是本轮新执行。运行目录保存 state.json 供恢复入口，不存入 Git。Ctrl-C 关闭本查看器；不停止这些外部既有产品服务。用户明确要求保留预览时记录入口、目录及后续清理方式。
 
+输入附件可从 case 页面下载，读取与参考图一样需要本地 capability，且仅限登记在该 case 的文件。广告分析只提供固定CSV，不附UI范例；本轮没有执行候选或评分。
+
 ## 来源与边界
 
 页面布局和原生 MessagePort 桥来自本机 Memory 单题入口（`longmemeval-window-one-case-20261030-005908/viewer`）；原入口与轨迹原件保留。已去除题号、机器路径、固定阶段数及模型请求数等硬编码。共享目录在 `catalog.ts`，页面是 `index.html` / `app.js`，原生轨迹桥为 `native.js`，Memory 归档读取由 `apps/node/src/evaluation-archive.ts` 承担。

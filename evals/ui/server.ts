@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 import {root,catalog,type Suite} from './catalog.js';
 
 export interface ArchiveReader {sessions:Array<{sessionId:string;title:string;stage:string}>;request(input:Record<string,unknown>):Promise<unknown>;close():Promise<void>}
-const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.jpg':'image/jpeg','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf'};
+const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.csv':'text/csv; charset=utf-8','.jpg':'image/jpeg','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf'};
 export async function startViewer(options:{suites:Suite[];archive?:ArchiveReader;report?:string;statePath?:string}) {
   const token=randomUUID();const server=createServer(async(req,res)=>{
     const json=(status:number,value:unknown)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value))};
@@ -24,6 +24,11 @@ export async function startViewer(options:{suites:Suite[];archive?:ArchiveReader
       if(path==='/api/reference') {
         const name=new URL(req.url!,'http://localhost').searchParams.get('name');
         if(!options.suites.flatMap(s=>s.cases).some(c=>c.reference===name))throw new Error('Unknown reference');
+        await file(join(root,'evals/intelligent-ui/assets'),name!);return;
+      }
+      if(path==='/api/attachment') {
+        const name=new URL(req.url!,'http://localhost').searchParams.get('name');
+        if(!options.suites.flatMap(s=>s.cases).some(c=>c.attachments?.some(file=>file===name)))throw new Error('Unknown attachment');
         await file(join(root,'evals/intelligent-ui/assets'),name!);return;
       }
       if(path==='/api/report'){json(200,{text:options.report??'当前只建档 case，尚未启动正式评测。'});return}
