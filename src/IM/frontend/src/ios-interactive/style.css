@@ -1,0 +1,7 @@
+html, body { margin: 0; padding: 0; background: transparent; }
+*, *::before, *::after { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+#root, .native-card { width: 100%; min-width: 0; }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.native-card :is(input, textarea, select) { max-width: 100%; font-size: max(16px, 1em); }
+.native-card :disabled { -webkit-text-fill-color: currentColor; opacity: 1; }

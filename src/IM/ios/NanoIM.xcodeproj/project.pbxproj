@@ -21,6 +21,7 @@
 			"explicitFileTypes" = {
 			};
 			"explicitFolders" = (
+				"Resources/IntelligentUI",
 			);
 		};
 		"A00000000000000000000006" = {

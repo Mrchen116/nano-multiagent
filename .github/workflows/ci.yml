@@ -40,6 +40,10 @@ jobs:
           required = any(
               path == ".github/workflows/ci.yml"
               or (path.startswith("src/IM/ios/") and not path.endswith((".md", "/.gitignore")))
+              or path.startswith("src/IM/frontend/src/features/chat/interactive/")
+              or path.startswith("src/IM/frontend/src/ios-interactive/")
+              or path in ("src/IM/frontend/vite.ios.config.ts", "src/IM/frontend/package.json", "src/IM/frontend/package-lock.json")
+              or path.startswith("packages/product-contracts/src/interactive-")
               for path in paths
           )
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
@@ -61,6 +65,17 @@ jobs:
         run: |
           DEVICE_ID=$(xcrun simctl create 'NanoIM CI' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-26-4)
           echo "NANO_IOS_SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.1"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Install shared renderer dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          npm --prefix src/IM/frontend ci
 
       - name: Native regression tests
         run: ./src/IM/ios/scripts/build.sh test
