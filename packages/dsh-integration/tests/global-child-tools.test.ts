@@ -1,3 +1,4 @@
+import {createServer} from 'node:http';
 import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -103,75 +104,94 @@ ctx.on('llm/stream',async function*(o){
   finally { if (client) await client.shutdown(); await rm(home, { recursive: true, force: true }); }
 }, 40000);
 
-it.each([false,true])('gives Global workers native work tools without leaking root or second-level product roles (PA=%s)', async personal => {
+it.each([false,true])('gives Global workers native work tools and native nested context on the provider wire (PA=%s)', async personal => {
   const home=await mkdtemp(join(tmpdir(),'global-work-defaults-'));
   let client:RuntimeClient|undefined,logs='';
+  const wire:{id:string;depth:number;fork:boolean;tools:any[];system:any;messages:any[]}[]=[];
+  const seen=new Set<string>();let resumed=false;
+  const metadata=async():Promise<any[]> => (await readFile(join(home,'agents.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+  const server=createServer(async(req,res)=>{
+    let text='';for await(const chunk of req)text+=chunk;
+    const body=JSON.parse(text),id=String(req.headers['x-agent-session-id']);
+    const meta=(await metadata()).findLast(row=>row.id===id);
+    if(!meta){res.writeHead(500);res.end('Missing native session identity');return;}
+    wire.push({...meta,tools:body.tools.map((tool:any)=>({...tool,parameters:tool.input_schema})),system:body.system,messages:body.messages});
+    const fresh=!seen.has(id);seen.add(id);
+    const last=JSON.stringify(body.messages.at(-1));
+    let calls:any[]=[];
+    const resume=last.match(/resume:([a-z0-9-]+)/);
+    if(id==='root'&&resume&&!resumed){resumed=true;calls=[['send_message',{agent_id:resume[1],message:'Continue the original assignment'}]];}
+    else if(fresh&&meta.depth===0)calls=[['subagent',{prompt:'WHOLE_ASSIGNMENT_SENTINEL: prepare a complete finding',description:'whole task',run_in_background:true}]];
+    if(fresh&&meta.depth===1)calls=[['read',{file_path:join(home,'AGENTS.md')}],['subagent',{prompt:'CHILD_ASSIGNMENT_SENTINEL: check one fact',description:'one fact',run_in_background:true}],['subagent_fork',{prompt:'Check this delegated fact',description:'fork fact',run_in_background:false}]];
+    // The second-level continuation is steered only by its original direct parent.
+    if(meta.depth===1&&last.includes('Continue the original assignment')){
+      const nested=(await metadata()).find(row=>row.depth===2&&!row.fork);
+      calls=[['send_message',{agent_id:nested.id,message:'Recheck the same delegated fact'}]];
+    }
+    const blocks=calls.length?calls.map(([name,input],index)=>({type:'tool_use',id:id+'-'+wire.length+'-'+index,name,input})):[{type:'text',text:'Done'}];
+    res.writeHead(200,{'content-type':'text/event-stream'});
+    const emit=(type:string,data:object)=>res.write(`event: ${type}\ndata: ${JSON.stringify({type,...data})}\n\n`);
+    emit('message_start',{message:{id:'fixture',type:'message',role:'assistant',model:'fixture',content:[],stop_reason:null,usage:{input_tokens:20,output_tokens:0}}});
+    blocks.forEach((block:any,index:number)=>{
+      emit('content_block_start',{index,content_block:block.type==='tool_use'?{...block,input:{}}:block});
+      if(block.type==='tool_use')emit('content_block_delta',{index,delta:{type:'input_json_delta',partial_json:JSON.stringify(block.input)}});
+      emit('content_block_stop',{index});
+    });
+    emit('message_delta',{delta:{stop_reason:calls.length?'tool_use':'end_turn',stop_sequence:null},usage:{output_tokens:5}});emit('message_stop',{});res.end();
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const config={agentId:'worker-owner',displayName:'ROOT_IDENTITY_SENTINEL',revision:'1',mode:'global',workspace:home,
-    systemPrompt:'ROOT_PERSONA_SENTINEL',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['subagent','send_message'],
+    systemPrompt:'ROOT_PERSONA_SENTINEL',provider:'fixture',model:'fixture',toolAllowlist:['subagent','send_message'],
     features:{task_graph:true,intelligent_ui:true,memory_curation:false,skill_creation:false,heartbeat:true,cron_scheduling:false},
     approval:{dangerouslySkipPermissions:true},...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{})};
-  const requests=async():Promise<any[]> => (await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+  const withoutCache=(value:unknown)=>JSON.parse(JSON.stringify(value,(key,item)=>key==='cache_control'?undefined:item));
   try {
     await writeFile(join(home,'AGENTS.md'),'WORKSPACE_INSTRUCTIONS_SENTINEL');
     await writeFile(join(home,'fixture.mjs'),`import {appendFile} from 'node:fs/promises';
-export const name='work-defaults';export const inject=['tools','llm','agents'];
-export function apply(ctx){const seen=new Set();ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});
-ctx.on('llm/stream',async function*(o){const agent=ctx.agents.get(o.sessionId),depth=agent.session.header.delegationDepth??0;
-await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({id:agent.id,depth,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork',tools:ctx.tools.schemas(agent),system:o.messages.filter(m=>m.role==='system'||m.role==='developer'),messages:o.messages})+'\\n');
-const fresh=!seen.has(agent.id);seen.add(agent.id);
-const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);const input=user?.content?.map(b=>b.text??'').join('')??'';
-let calls=[];if(fresh&&depth===0)calls=input.startsWith('resume:')?[['send_message',{agent_id:input.slice(7),message:'Continue original assignment'}]]:[['subagent',{prompt:'WHOLE_ASSIGNMENT_SENTINEL: prepare a complete finding',description:'whole task',run_in_background:true}]];
-if(fresh&&depth===1&&!o.messages.some(m=>m.role==='assistant'&&m.content.some(b=>b.type==='tool-call'&&b.name==='read')))calls=[['read',{file_path:process.env.DSH_HOME+'/AGENTS.md'}],['subagent',{prompt:'CHILD_ASSIGNMENT_SENTINEL: check one fact',description:'one fact',run_in_background:true}],['subagent_fork',{prompt:'Check this delegated fact',description:'fork fact',run_in_background:false}]];
-if(calls.length){for(const[index,[name,args]]of calls.entries())yield{type:'block-end',index,block:{type:'tool-call',id:agent.id+'-'+index,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
-yield{type:'block-end',index:0,block:{type:'text',text:'Done'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
-    await prepareProfile(home,[{insert:[{id:'work-defaults',name:join(home,'fixture.mjs')}]}]);
-    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
-    client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
-    client.rpc.handle('product.call',()=>{throw Error('No product entry should be used');});
-    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
-    await client.rpc.request('session.ensure',{sessionId:'root',agentId:config.agentId,revision:'1',ownerId:'owner',cwd:home});
-    const caps=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
+export const name='work-defaults';export const inject=['tools','agents','llm'];
+export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});ctx.on('llm/stream',async function*(o,next){const agent=ctx.agents.get(o.sessionId);await appendFile(process.env.DSH_HOME+'/agents.jsonl',JSON.stringify({id:agent.id,depth:agent.session.header.delegationDepth??0,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork'})+'\\n');yield*next();});}`);
+    await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${(server.address() as any).port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:200000}],retryPolicy:{mode:'normal',maxRetries:0}}}}},{insert:[{id:'work-defaults',name:join(home,'fixture.mjs')}]}]);
+    const start=async()=>{
+      client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
+      client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
+      client.rpc.handle('product.call',()=>{throw Error('Internal coordination must not use product messaging');});
+      await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
+      await client.rpc.request('session.ensure',{sessionId:'root',agentId:config.agentId,revision:'1',ownerId:'owner',cwd:home});
+    };
+    await start();
+    const caps=await client!.rpc.request('session.capabilities',{sessionId:'root'}) as any;
     expect(caps.tools).not.toContain('subagent_fork');expect(caps.tools).not.toContain('read');
-    await client.rpc.request('session.submit',{sessionId:'root',inputId:'delegate',mode:'followup',content:[{type:'text',text:'Do one complete task'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'delegate'}});
-    await expect.poll(async()=>(await requests()).some(row=>row.depth===1)).toBe(true);
-    const first=(await requests()).find(row=>row.depth===1);
-    expect(first.tools.map((tool:any)=>tool.name)).toEqual(expect.arrayContaining(['read','write','bash','subagent','subagent_fork','send_message','list_agents','interrupt_agent']));
-    await expect.poll(async()=>(await requests()).some(row=>row.depth===2&&!row.fork&&JSON.stringify(row.messages).includes('CHILD_ASSIGNMENT_SENTINEL'))).toBe(true);
-    const second=(await requests()).find(row=>row.depth===2&&!row.fork&&JSON.stringify(row.messages).includes('CHILD_ASSIGNMENT_SENTINEL'));
-    const secondSystem=JSON.stringify(second.system);
-    expect(secondSystem).not.toContain('ROOT_IDENTITY_SENTINEL');expect(secondSystem).not.toContain('ROOT_PERSONA_SENTINEL');
-    expect(secondSystem).not.toContain('You are an internal execution agent');
-    expect(secondSystem).not.toContain('You execute an internal task for');
-    expect(secondSystem).not.toContain('main Agent owns public delivery');
-    expect(secondSystem).not.toContain('Heartbeat is a system wake');
-    expect(JSON.stringify(second.messages)).toContain('WORKSPACE_INSTRUCTIONS_SENTINEL');
-    expect(JSON.stringify(second.messages)).not.toContain('Role: personal assistant');
-    expect(JSON.stringify(second.messages)).not.toContain('Role: independent expert');
-    expect(JSON.stringify(second.messages)).toContain('Your parent agent id is');
+    const submit=(inputId:string,text:string)=>client!.rpc.request('session.submit',{sessionId:'root',inputId,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});
+    await submit('delegate','Do one complete task');
+    await expect.poll(()=>wire.some(row=>row.depth===1)).toBe(true);
+    const first=wire.find(row=>row.depth===1)!;
+    expect(first.tools.map(tool=>tool.name)).toEqual(expect.arrayContaining(['read','write','bash','subagent','subagent_fork','send_message','list_agents','interrupt_agent']));
+    await expect.poll(()=>wire.some(row=>row.depth===2&&!row.fork)).toBe(true);
+    const second=wire.find(row=>row.depth===2&&!row.fork)!;
+    const secondContext=JSON.stringify([second.system,second.messages]);
+    for(const forbidden of ['ROOT_IDENTITY_SENTINEL','ROOT_PERSONA_SENTINEL','You are an internal execution agent','You execute an internal task for','main Agent owns public delivery','Heartbeat is a system wake','Role: personal assistant','Role: independent expert'])expect(secondContext).not.toContain(forbidden);
+    expect(secondContext).toContain('WORKSPACE_INSTRUCTIONS_SENTINEL');expect(secondContext).toContain('Your parent agent id is');
     for(const row of [first,second]){
-      const names=row.tools.map((tool:any)=>tool.name);expect(names).not.toContain('inbox');expect(names).not.toContain('conversations');
+      const names=row.tools.map(tool=>tool.name);expect(names).not.toContain('inbox');expect(names).not.toContain('conversations');
       expect(names).not.toContain('send_user_message');expect(names).not.toContain('personal_sources');
-      expect(row.tools.find((tool:any)=>tool.name==='send_message').parameters.properties).not.toHaveProperty('target');
+      expect(row.tools.find(tool=>tool.name==='send_message').parameters.properties).not.toHaveProperty('target');
     }
-    const childId=first.id;
-    await expect.poll(async()=>(await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[]).filter(row=>row.events.some((e:any)=>e.type==='turn/end')).length).toBe(3);
-    const fork=(await requests()).find(row=>row.fork);
-    expect(fork.tools).toEqual(first.tools);
-    expect(fork.system.map((message:any)=>message.content)).toEqual(first.system.map((message:any)=>message.content));
-    const children=await client.rpc.request('session.descendants',{sessionId:'root'}) as any[];
-    expect(children.find(row=>row.id===childId).events.filter((e:any)=>e.type==='tool/result').every((e:any)=>!e.data.message.isError)).toBe(true);
-    const beforeResume=(await requests()).filter(row=>row.id===childId).length;
-    await client.shutdown();client=undefined;
-    client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
-    client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
-    client.rpc.handle('product.call',()=>{throw Error('Internal work must stay internal');});
-    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
-    await client.rpc.request('session.ensure',{sessionId:'root',agentId:config.agentId,revision:'1',ownerId:'owner',cwd:home});
-    await client.rpc.request('session.submit',{sessionId:'root',inputId:'resume-worker',mode:'followup',content:[{type:'text',text:'resume:'+childId}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'resume-worker'}});
-    await expect.poll(async()=>(await requests()).filter(row=>row.id===childId).length).toBeGreaterThan(beforeResume);
-    expect((await requests()).findLast(row=>row.id===childId).tools.map((tool:any)=>tool.name)).toContain('subagent_fork');
+    await expect.poll(async()=>(await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[]).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
+    const fork=wire.find(row=>row.fork)!;expect(fork.tools).toEqual(first.tools);expect(withoutCache(fork.system)).toEqual(withoutCache(first.system));
+    const children=await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
+    expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result').every((event:any)=>!event.data.message.isError)).toBe(true);
+    const beforeFirst=wire.filter(row=>row.id===first.id).length,beforeSecond=wire.filter(row=>row.id===second.id).length;
+    await client!.shutdown();client=undefined;await start();
+    await submit('resume-worker','resume:'+first.id);
+    await expect.poll(()=>wire.filter(row=>row.id===first.id).length).toBeGreaterThan(beforeFirst);
+    await expect.poll(()=>wire.filter(row=>row.id===second.id).length).toBeGreaterThan(beforeSecond);
+    const restoredFirst=wire.findLast(row=>row.id===first.id)!,restoredSecond=wire.findLast(row=>row.id===second.id)!;
+    expect(restoredFirst.tools.map(tool=>tool.name)).toContain('subagent_fork');
+    expect(JSON.stringify(restoredSecond.system)).not.toContain('ROOT_IDENTITY_SENTINEL');
+    expect(JSON.stringify(restoredSecond.messages)).toContain('Recheck the same delegated fact');
+    expect(new Set(wire.map(row=>row.id)).size).toBe(4);
   } catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
-  finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
+  finally {await client?.shutdown();server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await rm(home,{recursive:true,force:true});}
 },40_000);
 
 it('withdraws a root tool while its worker keeps the native capability and the root handles new input', async()=>{

@@ -29,3 +29,10 @@
 ## 尚待完成
 
 最终窄回归、完整 CI 等价检查、daily Global／PA 实测、独立产品审查、code review＋verification、delta 校正／current 归并、final sync、归档和 PR／远端 CI。当前不宣称已完成这些门禁，不部署或合并。
+
+## 最终请求与运行门禁补充
+
+- `/tmp/feat705-provider-wire2.log`：将新增 Global／PA 两个用例改为本地 Anthropic SSE recording provider（复用 llm-attribution 的公开适配路径），2/2 通过。断言直接消费 HTTP 请求体；metadata 仅从只观察、不替换响应的 llm/stream middleware 取得 native 身份。覆盖一级、普通二级、worker fork 的实际 wire system/tools/messages、原生父级 ID／AGENTS、fork system/tools 与父一级一致，以及同 ID 一级和二级冷恢复；总会话数保持4，没有重复创建。
+- 独立静态审查 `45cd9117c` 的 code findings=[]；verification 记录运行证据尚未完成及 delta 需修改旧身份条目。后者已在能力 delta 显式 MODIFIED 同名工具规则与子执行 Context 条目，保留 SingleThread／fork 行为；待独立校正复验。
+- 初次后端／前端／daily 构建并行造成多项跨进程和 DOM 超时，已保留 `/tmp/feat705-ci-test.log`、`/tmp/feat705-ci-frontend.log`，仅停止本轮两个过载 CI 及其后代，不作为通过证据。后续对同一完整测试集合限并发复跑，不改断言或超时标准。
+- Python 辅助／架构回归129 passed /28 deselected；ruff check、ruff format（97文件）及 docs-check 通过。最终 build、typecheck、packaged iOS runtime 检查通过。daily 真栈已ready，独立产品 reviewer 正在自然旅程验收；ready 不等于验收通过。
