@@ -1,7 +1,8 @@
-import { AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
+import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import "./agent-settings.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "../../auth/auth-store";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
@@ -11,6 +12,7 @@ import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar"
 import { AgentDetailPage } from "./agent-detail-page";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import { AgentWorkPanel } from "./agent-work-panel";
+import { workBase, workRequest, type WorkView } from "./agent-work-api";
 
 /** Public profile and Work never load another person's writable configuration. */
 export function AgentProfilePage() {
@@ -22,14 +24,31 @@ export function AgentProfilePage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const client = useQueryClient();
+  const workRequested = params.get("view") === "work";
+  const [detailsOpened, setDetailsOpened] = useState(!workRequested);
+  useEffect(() => { if (!workRequested) setDetailsOpened(true); }, [workRequested]);
+  useEffect(() => {
+    if (!workRequested || !agentId) return;
+    // Work has its own server authorization and does not depend on an editable
+    // configuration or a successful node capability inspection.
+    void client.prefetchInfiniteQuery({
+      queryKey: ["agent-work", agentId, "main"], initialPageParam: "",
+      staleTime: 1000,
+      queryFn: ({pageParam, signal}) => workRequest<WorkView>(`${workBase(agentId)}?view=summary${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ''}`, signal),
+      getNextPageParam: (page: WorkView) => page.next_cursor ?? undefined,
+    });
+  }, [agentId, workRequested, client]);
   const query = useQuery({ queryKey: ["contacts", self, "agents"], queryFn: () => listContacts("", "agent"), refetchInterval: 3000 });
   const agent = query.data?.find(a => a.agent_id === agentId);
   const send = useMutation({ mutationFn: () => createConversation({ type: "direct", title: agent!.display_name, participants: [contactActor(agent!)] }), onSuccess: async chat => { await client.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate(`/chat/${chat.id}`); } });
   if (query.isPending) return <section className="im-agent-panel im-agent-settings im-create-state"><p>{t("common.loading")}</p></section>;
   if (query.isError || !agent) return <section className="im-agent-panel im-agent-settings im-create-state"><p role="alert">{t("agents.loadError")}</p><button className="im-settings-action" onClick={() => void query.refetch()}>{t("agents.retry")}</button></section>;
-  if (agent.owner_id === self) return <AgentDetailPage personal={agent.role === "personal"} />;
-  const work = agent.work_mode === "global" && params.get("view") === "work";
-  return <div className="agents-overview">
+  const work = agent.work_mode === "global" && workRequested;
+  return <>
+    {agent.owner_id === self && <div hidden={work} style={{display:work ? 'none' : 'contents'}}>
+      {(!work || detailsOpened) && <AgentDetailPage key={agentId} personal={agent.role === "personal"} inactive={work} />}
+    </div>}
+    {(agent.owner_id !== self || work) && <div className="agents-overview">
     <AgentsRailDesktop activeId={agentId} />
     <section className="im-agent-panel im-agent-settings min-w-0">
       <header className="im-agent-panel-header">
@@ -59,13 +78,14 @@ export function AgentProfilePage() {
             </p>
           </div>
           <div className="im-agent-header-actions shrink-0">
+            <AgentLifecycleAction lifecycle={lifecycle} canManage={agent.owner_id === self} />
             <button
               type="button"
               className="im-settings-action"
               disabled={send.isPending}
               onClick={() => send.mutate()}
             >
-              {t("chat.contacts.message")}
+              {t(agent.owner_id === self ? "agents.detail.openChat" : "chat.contacts.message")}
             </button>
           </div>
         </div>
@@ -77,14 +97,21 @@ export function AgentProfilePage() {
         >
           {[
             ...(agent.work_mode === "global" ? [{ id: "work", label: t("agents.detail.sections.work") }] : []),
-            { id: "profile", label: t("agents.publicProfile") }
+            ...(agent.owner_id === self ? [
+              {id: "overview", label: t("agents.detail.sections.overview")},
+              {id: "config", label: t("agents.detail.sections.config")},
+              {id: "channels", label: t("agents.detail.sections.channels")},
+              {id: "skills", label: t("agents.detail.sections.skills")},
+              {id: "plugins", label: t("agents.detail.sections.plugins")},
+              {id: "sessions", label: t("agents.detail.sections.sessions")},
+            ] : [{ id: "profile", label: t("agents.publicProfile") }])
           ].map(section => (
             <button
               key={section.id}
               type="button"
 
               aria-pressed={(work ? "work" : "profile") === section.id}
-              onClick={() => setParams(section.id === "work" ? { view: "work" } : {})}
+              onClick={() => setParams(section.id === "work" || agent.owner_id === self ? { view: section.id } : {})}
             >
               {section.label}
             </button>
@@ -103,5 +130,6 @@ export function AgentProfilePage() {
         )}
       </div>
     </section>
-  </div>;
+  </div>}
+  </>;
 }

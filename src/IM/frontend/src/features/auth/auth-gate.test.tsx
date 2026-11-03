@@ -81,6 +81,16 @@ describe("auth gate", () => {
     expect(screen.queryByRole("heading", { name: /sign in/i })).not.toBeInTheDocument();
   });
 
+  it("uses the user just verified by cookie restoration without a second identity request", async () => {
+    useAuthStore.setState({hydrated:false});
+    vi.mocked(fetch).mockImplementation(async url => String(url).endsWith('/refresh')
+      ? new Response(JSON.stringify({access_token:'restored',user:SAMPLE_USER}),{status:200})
+      : new Response('',{status:503}));
+    renderAt('/chat');
+    expect(await screen.findByTestId('protected')).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url])=>String(url).endsWith('/auth/me'))).toBe(false);
+  });
+
   it("retries a temporary restoration failure without asking for a password", async () => {
     useAuthStore.setState({ hydrated: false });
     vi.mocked(fetch).mockResolvedValueOnce(new Response("", { status: 503 }));

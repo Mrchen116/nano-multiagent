@@ -35,8 +35,9 @@ interface AuthState {
   hydrated: boolean;
   hydrationError: boolean;
   revision: number;
+  verifiedAt: number | null;
   isAuthenticated(): boolean;
-  setSession(session: BrowserSession): void;
+  setSession(session: BrowserSession, serverVerified?: boolean): void;
   setTokens(tokens: { access_token: string }): void;
   replaceUser(user: AuthUser): boolean;
   clear(): void;
@@ -49,10 +50,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrated: false,
   hydrationError: false,
   revision: 0,
+  verifiedAt: null,
   isAuthenticated() { return Boolean(get().accessToken && get().user); },
-  setSession(session) {
+  setSession(session, serverVerified = false) {
     set({ accessToken: session.access_token, user: session.user, hydrated: true,
-      hydrationError: false, revision: get().revision + 1 });
+      hydrationError: false, revision: get().revision + 1, verifiedAt: serverVerified ? Date.now() : null });
   },
   setTokens(tokens) {
     if (get().user) set({ accessToken: tokens.access_token });
@@ -64,7 +66,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   clear() {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    set({ accessToken: null, user: null, hydrated: true, hydrationError: false, revision: get().revision + 1 });
+    set({ accessToken: null, user: null, hydrated: true, hydrationError: false, revision: get().revision + 1, verifiedAt: null });
   },
   async hydrate() {
     // Old script-readable credentials are deliberately discarded, never exchanged.

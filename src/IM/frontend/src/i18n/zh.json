@@ -894,6 +894,7 @@
       "unknown": "连接未确认 · 只读",
       "refreshing": "正在刷新 · 只读",
       "refreshingEditable": "正在刷新 · 可以编辑，确认后保存",
+      "failedEditable": "确认失败 · 可以继续编辑，重试确认后才能保存",
       "failed": "刷新失败",
       "pending": "保存结果待确认",
       "retry": "刷新状态",

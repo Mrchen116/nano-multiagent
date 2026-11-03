@@ -895,6 +895,7 @@
       "unknown": "Connection unconfirmed · Read-only",
       "refreshing": "Refreshing · Read-only",
       "refreshingEditable": "Refreshing · You can edit; save after confirmation",
+      "failedEditable": "Confirmation failed · You can keep editing; retry before saving",
       "failed": "Refresh failed",
       "pending": "Save awaiting confirmation",
       "retry": "Refresh status",

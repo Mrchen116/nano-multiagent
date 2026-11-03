@@ -657,7 +657,7 @@ export async function createNodeAgent(nodeId: string, next: NodeAgentCreateReque
  * Args:
  *   signal: Cancels reads superseded by a connection change.
  */
-export async function getAgentDetailState(agentId: string, signal?: AbortSignal): Promise<AgentDetailState> {
+export async function getAgentDetailState(agentId: string, signal?: AbortSignal, savedOnly = false): Promise<AgentDetailState> {
   const result = await requestJson<{
     config: Record<string, unknown>;
     node: {node_id: string; state: string};
@@ -665,7 +665,7 @@ export async function getAgentDetailState(agentId: string, signal?: AbortSignal)
     live_capabilities: AgentCapabilitiesWire | null;
     pending_operation: AgentDetailState["pendingOperation"];
     ready: boolean;
-  }>(`/im/v1/agents/${encodeURIComponent(agentId)}/settings`, {signal});
+  }>(`/im/v1/agents/${encodeURIComponent(agentId)}/settings${savedOnly ? '?view=saved' : ''}`, {signal});
   const config = normalizeAgentConfigResponse(result.config);
   const display = result.display.data;
   // Display labels may survive a disconnect; they are deliberately not a live catalogue.

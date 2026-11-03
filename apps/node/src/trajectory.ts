@@ -1,4 +1,6 @@
 import WebSocket from 'ws';
+import http from 'node:http';
+import https from 'node:https';
 import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, type RuntimePort, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
 
 const diagnose = (event: string, fields: Record<string, unknown> = {}) => {
@@ -19,7 +21,9 @@ export class NodeTrajectory {
     url.protocol = ['https:', 'wss:'].includes(url.protocol) ? 'wss:' : 'ws:';
     url.pathname = '/im/ws/node-trajectory'; url.search = ''; url.hash = '';
     url.searchParams.set('ticket', ticket);
-    const socket = new WebSocket(url, {handshakeTimeout: 12_000});
+    // Match the control relay: ws supplies createConnection and otherwise
+    // bypasses the global agent that owns this node's configured proxy.
+    const socket = new WebSocket(url, {agent:url.protocol === 'wss:' ? https.globalAgent : http.globalAgent, handshakeTimeout: 12_000});
     this.sockets.set(scope.observerId, socket);
     let initialized = false;
     const active = () => this.sockets.get(scope.observerId) === socket && this.options.valid(scope);

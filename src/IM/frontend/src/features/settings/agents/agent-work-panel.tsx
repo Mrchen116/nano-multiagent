@@ -89,7 +89,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const [saved, setSaved] = useState(() => readSaved(storageKey));
   const root = useRef<HTMLDivElement>(null);
   const restored = useRef(false);
-  const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main"], initialPageParam: "", queryFn: ({ pageParam, signal }) => workRequest<WorkView>(`${workBase(agentId)}?view=summary${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ""}`, signal), getNextPageParam: page => page.next_cursor ?? undefined });
+  const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main"], initialPageParam: "", staleTime: 1000, queryFn: ({ pageParam, signal }) => workRequest<WorkView>(`${workBase(agentId)}?view=summary${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ""}`, signal), getNextPageParam: page => page.next_cursor ?? undefined });
   const view = viewQuery.data?.pages[0];
   const nativeSession = search.get('execution') || view?.main_session_id || null;
   const [nativeSelectionVersion, setNativeSelectionVersion] = useState(0);

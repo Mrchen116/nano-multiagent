@@ -2,6 +2,7 @@ import { useAuthStore } from "./auth-store";
 import { withBase } from "./auth-api";
 import { forceRefreshSession } from "./auth-session";
 import { readHttpError } from "./http-error";
+import {takePageRead} from './page-bootstrap';
 
 function buildHeaders(init: RequestInit | undefined, token: string | null): Headers {
   const headers = new Headers(init?.headers ?? {});
@@ -27,6 +28,10 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
   const initialSession = useAuthStore.getState();
   const initialToken = initialSession.accessToken;
   const initialUserId = initialSession.user?.id;
+  if ((!init?.method || init.method === 'GET') && !init?.signal?.aborted) {
+    const saved = takePageRead(path,initialToken);
+    if (saved) return saved;
+  }
   const firstHeaders = buildHeaders(init, initialToken);
   const first = await fetch(url, { ...init, headers: firstHeaders });
   if (first.status !== 401) return first;

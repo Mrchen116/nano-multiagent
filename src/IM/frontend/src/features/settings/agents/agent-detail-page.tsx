@@ -1302,12 +1302,12 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   );
 }
 
-export function AgentDetailPage({ personal = false }: { personal?: boolean } = {}) {
+export function AgentDetailPage({ personal = false, inactive = false }: { personal?: boolean; inactive?: boolean } = {}) {
   const { agentId = "" } = useParams();
-  return <AgentDetailPageContent key={agentId} agentId={agentId} personal={personal} />;
+  return <AgentDetailPageContent key={agentId} agentId={agentId} personal={personal} inactive={inactive} />;
 }
 
-function AgentDetailPageContent({ agentId, personal }: { agentId: string; personal: boolean }) {
+function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: string; personal: boolean; inactive: boolean }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -1321,7 +1321,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeSection = (searchParams.get("view") ?? "config") as AgentDetailSection;
+  const activeSection = (inactive ? 'config' : searchParams.get("view") ?? "config") as AgentDetailSection;
   const setActiveSection = (section: AgentDetailSection) => setSearchParams({ view: section }, { replace: true });
   const savedResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1392,7 +1392,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
 
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
-      if (readOnly || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
+      if (readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
       const {
         updated_at: _updatedAt,
         owner_id: _ownerId,
@@ -1617,7 +1617,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     event.preventDefault();
     setHasAttemptedSave(true);
     setErrorMessage(null);
-    if (readOnly || detailQuery.isFetching || versionConflict || catalogInvalid || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
+    if (readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
     mutation.mutate(normalizedDraft);
   }
 
@@ -2093,7 +2093,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             <button
               className="im-btn im-btn-primary"
               type="submit"
-              disabled={readOnly || detailQuery.isFetching || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+              disabled={readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
             >
               {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>

@@ -302,7 +302,7 @@ export async function createServer(options: ServerOptions = {}) {
     else reply.header('Cache-Control', 'no-cache');
     return reply.type(mime[extname(file)] ?? 'application/octet-stream').send(createReadStream(file));
   });
-  app.setNotFoundHandler((req, reply) => {
+  app.setNotFoundHandler(async (req, reply) => {
     const path = req.url.split("?")[0]!;
     if (req.method !== "GET" || path.startsWith("/im/"))
       return reply.code(404).send({ detail: "not found" });
@@ -310,6 +310,8 @@ export async function createServer(options: ServerOptions = {}) {
     if (file.startsWith(dist + "/") && existsSync(file) && extname(file)) {
       // The HTML entrypoint must not retain a bundle with obsolete config semantics.
       if (extname(file) === ".html") reply.header("Cache-Control", "no-store");
+      else if (/^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/.test(path))
+        reply.header("Cache-Control", "public, max-age=31536000, immutable");
       return reply
         .type(mime[extname(file)] ?? "application/octet-stream")
         .send(createReadStream(file));
@@ -319,7 +321,27 @@ export async function createServer(options: ServerOptions = {}) {
       /^\/(chat|tasks|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/.test(path)
     ) {
       const index = join(dist, "index.html");
-      if (existsSync(index)) return reply.header("Cache-Control", "no-store").type("text/html").send(createReadStream(index));
+      if (existsSync(index)) {
+        reply.header('Cache-Control','private, no-store').header('Vary','Cookie');
+        const agentPage = /^\/settings\/agents\/([^/]+)$/.exec(path);
+        const cookie = req.headers.cookie?.split(';').map(value=>value.trim()).find(value=>value.startsWith('im_refresh='))?.slice('im_refresh='.length);
+        if (agentPage && cookie) {
+          try {
+            const session = ctx.identity.browserSession(cookie);
+            const base = `/im/v1/agents/${agentPage[1]}`;
+            const urls = ['/im/v1/contacts?q=&kind=agent', `${base}/settings?view=saved`, `${base}/lifecycle`,
+              ...(new URL(req.url,publicUrl).searchParams.get('view') === 'work' ? [`${base}/work?view=summary`] : [])];
+            // Reuse the actual API authorization and projections. Only local,
+            // saved reads belong in HTML; node inspection stays asynchronous.
+            const responses = await Promise.all(urls.map(url=>app.inject({url,headers:{authorization:`Bearer ${session.access_token}`}})));
+            const data = Object.fromEntries(responses.flatMap((response,index)=>response.statusCode===200 ? [[urls[index],response.json()]] : []));
+            ctx.identity.decode(cookie,'refresh');
+            const bootstrap = JSON.stringify({session,data}).replace(/</g,'\\u003c');
+            return reply.type('text/html').send(readFileSync(index,'utf8').replace('<div id="root">',`<script id="nano-page-bootstrap" type="application/json">${bootstrap}</script><div id="root">`));
+          } catch { /* Invalidated browser sessions use the normal login flow. */ }
+        }
+        return reply.type('text/html').send(createReadStream(index));
+      }
       return reply.redirect(dev.replace(/\/$/, "") + req.url);
     }
     return reply.code(404).send({ detail: "not found" });
