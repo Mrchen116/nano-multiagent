@@ -14,7 +14,7 @@
 - 删除 Nano theme、组件皮肤覆盖及旧 Web composition examples。ThemeProvider 保留默认 light token；宿主只提供聊天阅读空间、状态与权限反馈。
 - 上游通用函数放在 product-contracts 的显式 `interactive-functions` 子入口，使用 lang-core 定义，Web registry 与 IM source validator 共享同一实现。IM/前端不跨包相对导入、不依赖 DSH。
 - catalog.tsx 在上游 library 上只增加 ComposeMessage，保留 Nano conversation_messages / continue_conversation 两个已接工具；不把上游 demo 数据工具伪装成真实业务工具。生成指导保留上游三个通用 worked examples，并补 Nano 消息/状态/授权协议、参考布局与百分比容器尺寸规则。
-- 生成链：catalog → generate-interactive-ui.ts → frontend types、product-contracts intelligent-ui-catalog、integration catalog/prompt、PA nano-interactive-ui Skill。生成器仅加载 schema，忽略 CSS 模块；auth 资源适配按需加载，生成时不执行浏览器登录逻辑。
+- 生成链：catalog → generate-interactive-ui.ts → frontend types、product-contracts intelligent-ui-catalog、integration prompt、PA nano-interactive-ui Skill。生成器仅加载 schema，忽略 CSS 模块；auth 资源适配按需加载，生成时不执行浏览器登录逻辑。按用户要求移除没有运行时消费者的integration JSON catalog及其生成/检查条目；共享TS目录仍用于IM校验，Agent仍按需读取Skill，无spec delta。
 - 新协议版本 `nano-iui-1`，发布端自动填常量。Web/IM 使用新目录；未提供旧 Web DSL 转换/兼容。旧 native runtime 目录及其测试样例独立保留，iOS 本轮不重写视觉，新卡片按其既有版本检查显示摘要/不支持提示。
 - IM 用共享目录验证 source、绑定类型、已接 Query/Mutation 与 ComposeMessage 约束；提交/私聊背景从响应式输入产生可读字段，解析普通命名 label/options 与 Query defaults，原始完整 state 仍保留。
 - `/im/v1/intelligent-ui/api/{wiki,image-search,street-route}` 将上游固定公共资源处理函数接到现有身份认证与频率限制。前端通过现有 authFetch 请求；查询失败保持上游错误，不伪造照片或路线。

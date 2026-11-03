@@ -57,3 +57,8 @@
 - 修复：快照null-required不当确定错误，原程序显式非法null仍拒；非null计算类型/enum及官方runtime诊断保留。新增空绑定与并存已知错误回归。Closure：该finding **closed**；最终结构化结论 `[]`，无存活问题。
 - 独立复测60项通过；同时核共享PA明确拒绝、图片fixture迁移与CI依赖安装，无新问题。实际validated_at为上述最终working tree，后续仅追加本记录/验证事实；executed_base同上，没有混入额外main更新。
 - Context证据覆盖真实IM/WebSocket拒绝→修正成功，以及原生model stub下一次o.messages中的错误标记与定位字段。证明工具诊断实际交付，不证明真实模型自主修正、provider wire或视觉正确性。初始null和未返回Query数据的限制已在design/validation明示；用户验收仍未发生。
+
+## 无消费者JSON目录清理 patch（2026-11-03）
+
+- Base/head：`25ecd519839bccfd24db196cbcf856aee6d9e020` + 删除integration catalog.json、移除生成条目及同步生成链说明的dirty diff；后续仅补验证与本记录。
+- 同一独立reviewer按change-code-review窄审，结论 `[]`：无运行时或打包消费者遗漏，TS schema、prompt、Skill和其余生成产物不变；独立资产`--check`及diff检查通过。无实际Context变化，不重复模型验证。

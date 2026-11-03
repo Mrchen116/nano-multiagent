@@ -174,3 +174,8 @@
 - 本轮无产品前端改动，不重跑视觉评分；没有停止或重启用户保留的预览，未部署生产。unit继续Active，独立审查记录见code-review.md。
 - 独立审查发现初始快照误拒未初始化Input/TextArea/Checkbox，修复为不将快照null-required当作确定错误；原程序字面null仍拒绝，并存的非null错误仍拒绝。最终source+PA两文件47tests通过，覆盖空输入与共享PA明确拒绝。旧图片fixture迁移窄测4/4通过。
 - 同PR上一head的远端CI还暴露前端job仅npm ci、未安装新共享contracts的lang-core/zod依赖，编译失败。补pnpm frozen workspace安装步骤，保留原前端安装/编译/审计/测试；不改变产品代码或依赖版本。后端旧图片fixture失败与前述同因。此次提交不冒充此前远端CI已绿。
+
+## 无消费者JSON目录清理（2026-11-03）
+
+- 用户明确要求删除后，移除integration的3518行catalog.json及生成脚本对应输出/检查项。检索没有运行时或打包消费者；IM共享TS目录、Agent Skill和其他生成文件不改，无spec delta。
+- 生成资产`--check`、docs-check、git diff --check通过；删除路径在实现/脚本/配置中无剩余引用。不为纯产物清理新增测试或重复模型/视觉评测。预览服务与worktree保留，unit仍Active。
