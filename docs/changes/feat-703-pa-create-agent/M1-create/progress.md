@@ -25,3 +25,9 @@
 ## 待完成
 
 真实创建旅程、独立产品验收、代码审查/一致性验证、完整CI、契约归并与PR。所有运行数据、日志和原请求留本机，不提交。
+
+## 独立审查修复
+
+- 静态审查在 6a588bde1 确认：首次创建在 per-Agent 队列等待时，源 PA 被停用后仍能提交。接受此 finding，在共享 createAgent 的队列及目录等待之后、首次 operation insert 之前加入同步 admission callback，复核当前 binding、原执行代次和主人来源；已接受 operation 仍按原回执恢复。新增排队期间 disabled/binding/source 变化回归。
+- 自检真实模型的讨论/选项/创建全程主 session: 0b464064-b456-4264-b49d-c6cc1de5d625；主人确认消息 bd1d5916b6804ee0b1e080efe4583cf3，真实返回 english-speaking-703，Agent列表从4变5，聊天 c_wt9hukyw 的首任务未自动发送。模型 Astra/medium，Codex Auto审核。该自检先于异步权限修复；最终版本另由独立产品 reviewer 验收。
+- 完整后端：210 files / 1121 tests passed（.feat703-backend-tests.log）。Python129 passed /28 deselected；ruff check、format、typecheck通过。上述结果适用于未变部分，权限修复另跑窄回归。

@@ -25,7 +25,7 @@ const fields = {
 
 /** Bind PA requests to configuration receipts; configuration remains the lifecycle owner. */
 export class PersonalAgentCreation {
-  constructor(private readonly pa: PersonalAgents) {}
+  constructor(private readonly pa: PersonalAgents, private readonly admitCreate: () => void) {}
 
   /** Query options, submit agreed configuration, or recover one existing request.
    *
@@ -82,7 +82,8 @@ export class PersonalAgentCreation {
     if(operation?.status==='rejected')return {status:'rejected',request_key:args.request_key,
       error:{code:operation.error_code,message:operation.error_message}};
     try {
-      const agent=await createAgent(ctx,binding.owner_id,saved.node_id,parseConfigurationInput(JSON.parse(saved.configuration_json),true),saved.operation_id);
+      const agent=await createAgent(ctx,binding.owner_id,saved.node_id,parseConfigurationInput(JSON.parse(saved.configuration_json),true),saved.operation_id,
+        args.action==='create'?this.admitCreate:undefined);
       if(!agent)return {status:'pending',request_key:args.request_key};
       const chat=ctx.messaging.createConversation(ctx.identity.user(binding.owner_user_id)!,
         {type:'direct',title:agent.display_name,participants:[{type:'agent',id:agent.agent_id}]});

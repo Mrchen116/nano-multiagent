@@ -114,10 +114,11 @@ export async function readNodeCreationCapabilities(ctx: ImContext, id: string, o
  *   id: Target computer, independently authorized.
  *   b: Parsed public creation configuration.
  *   operationId: Optional host-reserved identity for a PA business request.
+ *   beforeCreate: Recheck the producer after queueing and candidate preparation.
  * Returns:
  *   Committed Agent profile; unconfirmed operations retain their original receipt.
  */
-export async function createAgent(ctx: ImContext, owner: string, id: string, b: CreateConfigurationInput, operationId?: string) {
+export async function createAgent(ctx: ImContext, owner: string, id: string, b: CreateConfigurationInput, operationId?: string, beforeCreate?: () => void) {
   requireOwnedNode(ctx,id,owner);
   const ops = configurationOperations(ctx);
   return ops.serialized(b.agent_id,async()=>{
@@ -183,6 +184,7 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
       return recovered;
     }
     if (operationId) requireSettingsNodeOnline(ctx,{owner_id:owner,node_id:id});
+    beforeCreate?.();
     const candidate = {...c, ...(b.skills === undefined ? {create_default_skills:skills ?? null} : {})};
     return ops.create(candidate, owner, id, operationId);
   });

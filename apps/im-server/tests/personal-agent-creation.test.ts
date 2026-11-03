@@ -2,6 +2,7 @@ import {expect, it} from 'vitest';
 import {personalFixture} from './personal-fixture.js';
 import {connectFixtureGateway} from './control-fixture.js';
 import {PersonalAgents} from '../src/personal-agent.js';
+import {configurationOperations} from '../src/configuration-assembly.js';
 
 const configuration = {agent_id:'english-coach',display_name:'English coach',group_reply_policy:'manual',
   custom_prompt:'Help the owner practise spoken English.',work_mode:'global',skills:[],tool_allowlist:[],
@@ -96,4 +97,19 @@ it('preserves rejected configuration reasons and never claims a conflicting exis
   const rejected=await f.call({...f.create,request_key:'directory-request',configuration:{...configuration,workspace_root:'/existing'}});
   expect(rejected).toMatchObject({status:'rejected',error:{code:'workspace_confirmation_required',message:'Confirm the existing directory'}});
   expect(await f.call({action:'status',request_key:'directory-request'})).toMatchObject({status:'rejected'});
+});
+
+it.each(['disabled','binding','source'])('rechecks PA %s authority after a creation waits behind another writer',async kind=>{
+  const f=setup();let release!:()=>void;
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  const occupied=configurationOperations(f.ctx).serialized(configuration.agent_id,()=>gate);
+  const creating=f.call({...f.create,lifecycle_revision:1});
+  await Promise.resolve();
+  if(kind==='disabled')expect(f.db.prepare("UPDATE agent_lifecycle SET desired='disabled',revision=2 WHERE agent_id='a'").run().changes).toBe(1);
+  else if(kind==='binding')f.db.prepare("UPDATE personal_agent_bindings SET node_epoch=2 WHERE binding_id='binding'").run();
+  else f.db.prepare("UPDATE pa_policies SET excluded_json='[\"chat\"]' WHERE binding_id='binding'").run();
+  release();await occupied;
+  await expect(creating).rejects.toMatchObject({statusCode:kind==='disabled'?409:403});
+  expect(f.receipts.size).toBe(0);
+  expect(f.db.prepare("SELECT 1 FROM agent_config_operations WHERE agent_id='english-coach'").get()).toBeUndefined();
 });

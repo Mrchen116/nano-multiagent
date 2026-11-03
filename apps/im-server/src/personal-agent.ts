@@ -2,7 +2,7 @@ import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
-import { lifecycle } from './agent-lifecycle.js';
+import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
 import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
@@ -400,7 +400,11 @@ export class PersonalAgents {
       case 'pa.state': return this.state(b.owner_id);
       case 'pa.sources': return this.sources(principal,args);
       case 'pa.agent.creation': {
-        const result=await new PersonalAgentCreation(this).handle(b,args);
+        const result=await new PersonalAgentCreation(this,()=>{
+          const current=this.authority(principal,args);
+          requireLifecycle(this.db,current.agent_id,args.lifecycle_revision);
+          this.ownerMessage(current,args.source_message_id);
+        }).handle(b,args);
         this.authority(principal,args);
         return result;
       }

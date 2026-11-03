@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-11-03 (M1-create): 将传输 unknown 与已接受操作 pending 区分；补清异步队列后、首次配置 operation 接受前的 PA binding/lifecycle/source 复核。均落实原有未确认结果与有效权限约束，不新增工具或恢复状态机。
+
 ## 现状分析
 
 ### 涉及范围
@@ -66,8 +68,8 @@ feat-616 的 PA 主人来源边界和现有创建恢复契约继续适用；refa
 
 1. 主 PA 因用户明确要求加载 Skill，调用 options；选项草稿和推荐值先在当前聊天与用户对齐，已明确的选择不重复询问。
 2. create 在 PA 产品层拒绝非根 session；服务端复核 binding、原始主人消息、节点 owner。目标缺省采用 PA 节点。
-3. 共享 per-Agent 队列内，冻结请求并分配持久 operation id；检查同 key 冲突和 ID 冲突。新操作在有效在线节点下才提交；先前已接受的 pending 操作沿既有恢复处理。
-4. 共用创建准备和 `ConfigOperations`。真实 Gateway apply 后 IM commit profile 才返回 created；ACK 丢失或结果不明返回 pending，后续查原请求。
+3. 共享 per-Agent 队列内，冻结请求并分配持久 operation id；检查同 key 冲突和 ID 冲突。新操作在有效在线节点下才提交；队列与目录 await 后、首次 operation insert 前同步复核发起 PA 的当前 binding、原执行 lifecycle revision 及主人来源，已接受操作的恢复不新建意图；先前已接受的 pending 操作沿既有恢复处理。
+4. 共用创建准备和 `ConfigOperations`。真实 Gateway apply 后 IM commit profile 才返回 created；Gateway ACK 丢失保留已接受操作 pending；PA 到 IM 的传输结果不明则返回 unknown，均查询原 request_key。
 5. 节点、目录、模型、路径或能力校验拒绝时，准确返回失败字段/原因，不改成成功、不生成新 key 自动绕过、不静默切换节点。已有目录仍需要主人的明确确认，且保留已有文件。
 
 ### Context 消费与生命周期
