@@ -1,11 +1,11 @@
-import {isOrdinaryChild} from '../child-role.js';
+import {isInternalExecution} from '../child-role.js';
 import type { Context } from '@deepseek-ai/cordis';
 export const name = 'nano-intelligent-ui';
 export const inject = ['systemPrompt'];
 /** Offers interactive replies while the Agent has Intelligent UI enabled. */
 export function apply(ctx: Context, config: {mode?: string}) {
   ctx.systemPrompt.section({ name: 'nano-interactive-replies', order: 808, text: ({agent}) => {
-    const internal = isOrdinaryChild(agent);
+    const internal = isInternalExecution(agent);
     return [`Choose the format that reduces the user's effort to understand and act. Prefer text for brief answers, emotional conversation, and writing intended for reuse. Respect requested formats.
 
 Proactively use Intelligent UI for complex information, comparisons, relationships, processes, and changes, even when not requested. Before building, decide what the user should understand first, then choose the structure, layout, and visualization that make it easiest.

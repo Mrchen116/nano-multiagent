@@ -33,3 +33,19 @@ it('holds Cron admission before checking schedules and retains the original sele
   expect(checked).toBe(true);
   expect(state.begin('new-schedule', 'a', {kind: 'tool', name: 'schedule_create'})).toBe(true);
 });
+
+
+it('keeps native worker calls accounted while allowing root-only selection withdrawal', async () => {
+  const state = new CapabilityState((value, names) => names.filter(name => value.toolAllowlist === undefined || value.toolAllowlist.includes(name)));
+  expect(state.begin('child-read', 'a', {kind:'tool', name:'read'}, true)).toBe(true);
+  expect(state.busy('a')).toContainEqual({kind:'tool', name:'read'});
+  const candidate = {...config, toolAllowlist:['memory','schedule_create']};
+  expect(await state.prepare({operationId:'root-only', fingerprint:'2', config:candidate}, config, catalog,
+    async () => ({active_schedules:0,busy:state.busy('a'),toolSelectionBusy:state.busy('a',true)}))).toMatchObject({ready:true});
+  expect(state.begin('root-read', 'a', {kind:'tool', name:'read'})).toBe(false);
+  expect(state.begin('later-child-read', 'a', {kind:'tool', name:'read'}, true)).toBe(true);
+  state.release('a','root-only');
+  expect(state.begin('child-skill', 'a', {kind:'skill', name:'shared-skill'})).toBe(true);
+  expect(await state.prepare({operationId:'skill', fingerprint:'3', config:{...config,skillSelection:{mode:'explicit_denylist',names:['shared-skill']}}}, config,
+    {...catalog,skills:['shared-skill']},async()=>({active_schedules:0,busy:state.busy('a'),toolSelectionBusy:state.busy('a',true)}))).toMatchObject({ready:false,blocks:[{code:'capability_busy',target:{kind:'skill',name:'shared-skill'}}]});
+});

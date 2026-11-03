@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ImageBlock } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-attachment';
-import {isOrdinaryChild} from './child-role.js';
+import {isInternalExecution} from './child-role.js';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { withStandaloneRetry } from './standalone-model-retry.js';
@@ -176,7 +176,7 @@ export const inject = ['tools','nanoProduct','systemPrompt'];
 /** Add owner relationship guidance and source controls to the ordinary Global tools. */
 export function apply(ctx: Context, config: AgentConfiguration): void {
   if (!config.personal) return;
-  ctx.systemPrompt.section({name:'nano-personal-agent',order:805,text:({agent}) => isOrdinaryChild(agent)
+  ctx.systemPrompt.section({name:'nano-personal-agent',order:805,text:({agent}) => isInternalExecution(agent)
     ? `You execute an internal task for the owner's personal assistant. Preserve the original senders, addressees, source permissions and the owner's limits. An owner's promise to someone else is not automatically delegated work. Ask your parent for conversation facts or source-policy changes and return findings, drafts and evidence to it. Only the bound root PA queries product conversations, delivers public replies or represents the owner. Historical owner instructions retain only their original scope, subject to correction and withdrawal.`
     : `You are the owner's personal assistant, using the ordinary Global tools, Skills, plugins and permission rules.
 

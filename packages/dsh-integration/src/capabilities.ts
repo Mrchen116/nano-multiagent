@@ -1,4 +1,4 @@
-import {isOrdinaryChild} from './child-role.js';
+import {globalWorkRole, isOrdinaryChild} from './child-role.js';
 import {fixedTools} from '@nano/product-contracts/capabilities';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
@@ -13,12 +13,15 @@ import { contextTools } from './agent-context.js';
 import { isHumanSource } from './input-source.js';
 
 export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
+const defaultOff = [...goalTools, 'subagent_fork'];
+const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode', 'exit_plan_mode', 'plugin_manager', 'workflow']);
 
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
   private readonly agents = new Map<Agent, { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }>();
   private changing = false;
-  constructor(ctx: Context, private readonly installed: (config: AgentConfiguration) => string[] = () => []) {
+  private nativeDefaults?: Set<string>;
+  constructor(private readonly ctx: Context, private readonly installed: (config: AgentConfiguration) => string[] = () => []) {
     ctx.on('tools/change', () => {
       if (this.changing) return;
       this.changing = true;
@@ -26,13 +29,19 @@ export class ToolSelection {
       finally { this.changing = false; }
     });
   }
+  /** Snapshot the loaded runtime before Nano mounts product or workspace contributions. */
+  captureDefaults(): void { this.nativeDefaults ??= new Set(this.ctx.tools.schemas().map(tool => tool.name)); }
+  /** Whether a Global child tool remains available independently of root selection. */
+  independentTool(agent: Agent, config: AgentConfiguration, name: string): boolean {
+    return !!globalWorkRole(agent, config) && !!this.nativeDefaults?.has(name) && !goalTools.includes(name) && !userEntryTools.has(name);
+  }
   /** Resolve the same configured and workspace-installed collection for dispatch and selection previews. */
-  selection(config: AgentConfiguration, names: string[]): string[] {
+  selection(config: AgentConfiguration, names: string[], agent?: Agent): string[] {
     const allow = config.toolAllowlist;
-    if (allow === undefined) return names.filter(name => !goalTools.includes(name));
+    if (allow === undefined) return names.filter(name => agent && this.independentTool(agent, config, name) || !defaultOff.includes(name));
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
     const selected = new Set([...allow, ...installed, ...contextTools]);
-    return names.filter(name => selected.has(name));
+    return names.filter(name => selected.has(name) || agent && this.independentTool(agent, config, name));
   }
   attach(agent: Agent, config: AgentConfiguration) {
     const state = { config }; this.agents.set(agent, state);
@@ -46,7 +55,7 @@ export class ToolSelection {
       state.dispose?.(); state.dispose = undefined;
       const schemas = agent.ctx.tools.schemas(agent);
       const installed = new Set(this.installed(state.config));
-      const selected = new Set(this.selection(state.config, schemas.map(tool => tool.name)));
+      const selected = new Set(this.selection(state.config, schemas.map(tool => tool.name), agent));
       return schemas.map(tool => installed.has(tool.name)
         ? { ...tool, source_group: 'workspace' as const, enabled: selected.has(tool.name) } : tool);
     }
@@ -64,17 +73,18 @@ export class ToolSelection {
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
     const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
-    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools);
-    if (isOrdinaryChild(agent)) disabled.push('conversations', 'personal_sources', 'schedule_run', 'schedule_history');
+    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
+    if (globalWorkRole(agent, state.config)) disabled.push(...userEntryTools);
+    if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'personal_sources', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
-    if (state.config.toolAllowlist?.length === 0) state.presentation = agent.ctx.tools.presentAs('native');
+    if (state.config.toolAllowlist?.length === 0 && !globalWorkRole(agent, state.config)) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
-    const fixed = fixedTools(state.config.mode, isOrdinaryChild(agent) ? 'subagent' : state.config.personal ? 'personal' : 'root');
+    const fixed = fixedTools(state.config.mode, isOrdinaryChild(agent) || globalWorkRole(agent, state.config) ? 'subagent' : state.config.personal ? 'personal' : 'root');
     // Root product tools are scope-local; DSH excludes local-only names from inherited masks.
-    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known]), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !(state.config.mode === 'global' && ['inbox', 'conversations'].includes(name)) && !disabled.includes(name)) });
+    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known], agent), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !(state.config.mode === 'global' && ['inbox', 'conversations'].includes(name)) && !disabled.includes(name)) });
   }
 }
 

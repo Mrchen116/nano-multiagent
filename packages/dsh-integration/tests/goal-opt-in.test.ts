@@ -33,12 +33,14 @@ ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator()
       {...base,agentId:'update-only',toolAllowlist:['update_goal']},
       {...base,agentId:'all',toolAllowlist:goalTools},
       {...base,agentId:'global',mode:'global'},
+      {...base,agentId:'fork-only',toolAllowlist:['subagent_fork']},
     ];
     await client.rpc.request('initialize',{protocol:1,agents,bindings:[]});
     for(const config of agents){
       await client.rpc.request('session.ensure',{sessionId:config.agentId,agentId:config.agentId,revision:'1',ownerId:'owner',cwd:home});
       const caps=await client.rpc.request('session.capabilities',{sessionId:config.agentId}) as {tools:string[];prompt:unknown};
       const expected=(config.toolAllowlist ?? []).filter(name=>goalTools.includes(name));
+      expect(caps.tools.includes('subagent_fork')).toBe(config.toolAllowlist?.includes('subagent_fork')??false);
       expect(caps.tools.filter(name=>goalTools.includes(name)).sort()).toEqual([...expected].sort());
       expect(JSON.stringify(caps.prompt).includes('create_goal may infer goal intent')).toBe(expected.length>0);
       await client.rpc.request('session.submit',{sessionId:config.agentId,inputId:'probe-'+config.agentId,mode:'followup',content:[{type:'text',text:'probe'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'probe-'+config.agentId}});
