@@ -54,3 +54,12 @@
 - 根因：原工具属于 fixedTools，不受白名单取消选择控制。改为新建 PA 显式默认选择，并在 PA 产品转发检查当前工具白名单；复用既有选择器、运行时收缩与 busy 占用保护，不增加开关字段或迁移。
 - 有意义红测：共享能力关闭、默认新建 PA 选择、产品侧取消选择三项均先失败；原生请求关闭后仍含工具也先失败。修正后4文件67项通过。原生 fixture 扩展为8次 HTTP序列化请求，关闭后无工具且强制旧调用失败、重开恢复原 schema；仅机制证据，不当真实模型证据。
 - 后续增量门禁与真栈配置页验收进行中。未变的创建/恢复/来源边界继续保留之前记录；用户关闭不撤销已接受操作，已开始工具占用继续遵循既有拒绝关闭规则。
+
+### 工具开关增量验证完成
+
+- 37b1a707 快照：独立code patch review空发现，delta/corrected-delta实现aligned；产品证据对账随后收口。设计R2 Approved。
+- 独立产品Round2通过：真实桌面Web 1280×720，新PA默认on；UI关闭、保存/刷新保持off且Skill仍on；真实PA告知工具不可用、列表4不变；UI重开后同聊天继续并真实创建morning-translator，总数5且仅一份。配置读回与截图定位见acceptance.md；不重复原9场景，也不作iOS/供应商缓存声明。
+- 本轮本地窄回归67+34项、设置选择器/面板26项均pass；Python129pass28deselected、ruff check/format pass。完整build/typecheck通过；build启动时源已是0a实现但release metadata取了旧b2 HEAD，实际源与37b产品diff为空，报告保留此限制。
+- 本轮隔离daily栈已e2e-down停止，PID/端口清理；本地产物不提交。current Gateway PA归并新增开关Scenario，需求归档位置保持。
+
+- 最终独立verification Round5：R4-E1 closed，PASS / corrected-delta aligned，0 CRITICAL/WARNING/SUGGESTION。origin/main仍492b72603，仅无关705设计文档；产品代码与37b快照无变化。最终docs-check284/68通过，archive与diff检查通过；PR远端CI更新中。

@@ -41,3 +41,14 @@
 | 结果未确认与继续处理 | pass | 目标网关未回执时明确待确认；用户追问后确认，只新增一个实体。 |
 
 **整体裁决：pass。** 该快照可通过当前聊天完成用户交办。阻塞 0，major 0，minor 0。故障注入已结束，第二台网关已恢复。本轮通过产品接口进行实测，未覆盖跨租户攻击、所有电脑同时离线、重启后长时间留存，也不对供应商 prompt 缓存、原生工具 schema 和 Skill 数量作产品黑盒断言。技术契约归独立验证门禁。
+
+## Round 2 · 2026-11-03 · Targeted · PA 配置页创建工具开关
+
+**裁决：pass。** 针对 spec.md 中 PR #455 后续补充验证默认开启、关闭后禁用及重新开启后的原聊天恢复。其余九个场景沿用 Round 1 对应记录。本轮阻塞 0，major 0，minor 0。
+
+- **快照与环境。** validated_at `37b1a70775c40f4162d6a3184658e12f29ec1802`，executed_base `492b72603cebc5f904f7001b12e3d4475ce55639`。调用方交接以产品提交 `0a11feaa9` 的源文件构建并启动的隔离日常栈；构建日志完成，installer 标记了当时的旧 HEAD `b2b9a8c0`。已核对从产品提交到验收 HEAD 的 apps/packages/src 无差异。使用新 PA `pa_d04baac8060f`、Astra/medium、Codex 审核和主人私聊 `c_0319b2a277c5`。
+- **默认开启、关闭并保存：pass。** 在 Chromium 1280 × 720 的真实 Web 设置页选择 PA，Capabilities 的 Tool Allowlist 初始显示 `agent_creation` 已选，Skills 中的 `nano-agent-creation` 也选中。点击工具按钮再点 Save Agent，页面显示 Saved。刷新后同一工具变灰且无 pressed 状态，Skill 仍有 pressed，页面显示 No changes。配置接口返回 v3，tool_allowlist 不含创建工具。当时列表为 4。
+- **关闭时明确要求创建：pass。** 主人消息 `7f35328bdf1b4478ba2a1dda463481ad` 明确要求在当前电脑创建独立「晨间译员」。PA 在 `2cae3af89eb74148920872e6a65019fe` 说明创建工具不可用、须在 PA 配置页开启，保留名字和职责；列表仍为 4，无新助手。
+- **重新开启并继续同一聊天：pass。** 在同一选择器重新选中工具并保存，刷新后显示绿色、pressed，配置接口返回 v4 且包含创建工具。主人在原私聊接受推荐设置并请 PA 继续（`61b14654d183417b9c78952a107c716c`）。PA 在 `8464eb0bc0f24b5ba042d240af2a160d` 说明模型、工作方式、权限与运行选项，在 `c2826630de4743499e79f59ae940a7c7` 回报成功并提供聊天和设置入口。公开列表从 4 增至 5，仅新增 `morning-translator`。配置读回确认位于指定电脑，single_thread、DeepSeek V4 Flash、仅消息回复工具、无额外运行 features。
+- **Skill 与工具独立。** 除关闭工具时 Skill 继续选中外，也在页面草稿中单独取消 Skill，观察工具仍为 pressed，再还原并关闭本轮浏览器。反向组合只验选择器状态，未提交 Skill 变更。
+- **UI 证据。** 1280 × 720 下，工具与 Skills 各有独立分组，保存按钮位于页底固定区。刷新后的两张隔离验收截图为 `output/playwright/feat703-toggle/off-after-reload.png` 和 `output/playwright/feat703-toggle/on-after-reload.png`，截图仅留本地。客户端复用既有选择器，本轮未做 iOS 端复测。

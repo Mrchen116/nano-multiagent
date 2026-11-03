@@ -93,3 +93,36 @@ Verdict: **R1-C1 closed; no remaining confirmed code findings.** Final real-mode
 ## Final snapshot retention
 
 At `e106b07bd1db3d20947682de7805ce1fe1d809ab` (rebased PR base `9762ad3b44ca3cb2eebd6f2025fe8f169a544de3`), product source/tests/dependencies/architecture have no diff against the reviewed `f8800afaa8a2b60b9a3577c4cc9ea85e681fd950` snapshot. R1 full review and R2 closure remain applicable; **R1-C1 closed, no surviving code findings**. The independent real-model/product report is now committed in `acceptance.md`; the prior product-evidence gap is closed in verification Round 3. The corrected-delta reconciliation is aligned. Historical findings and evidence limits above remain preserved.
+
+## Round 3 — 用户追加工具开关 · patch review
+
+- reviewer: `/root/static_review_703`，独立 reviewer。
+- review_mode: `patch`；`b2b9a8c0dbec963590c58b3847562bbf2e13502d..37b1a70775c40f4162d6a3184658e12f29ec1802`。
+- validated_at: `37b1a70775c40f4162d6a3184658e12f29ec1802`；实现提交 `0a11feaa9`。
+- executed_base: `492b72603cebc5f904f7001b12e3d4475ce55639`（本次 origin/main）。
+- 时间：2026-11-03 18:02 +08:00。范围仅用户追加的配置页独立关闭/重开及相关消费链；main 新增 feat-705 文档不属于本 patch 产品实现。
+- retained_from: 原 full review、R1-C1 closure、最终证据对账中未变的身份/来源/目标/请求恢复/创建语义。未重复完整审查或扩大为新架构审查。
+
+### Findings
+
+```json
+[]
+```
+
+### 检查结果
+
+- `packages/product-contracts/src/capabilities.ts:53-56` 将 agent_creation 移出 fixedTools，Web/iOS 继续消费同一 fixed_tools 目录和白名单。现有配置页选择器因此可撤回它；无需新增字段或控件。
+- `apps/im-server/src/personal-agent.ts:462` 在首次 PA candidate 的持久白名单显式加入 agent_creation。active PA/recovered operation 路径不会因启动或重试被补写。新建默认与后续主人取消选择职责清楚。
+- `PersonalAssistant.createAgent:117` 在转发前检查当前白名单；显式空数组同样拒绝。undefined 保留现有“未配置白名单”的发现语义，与 runtime ToolSelection 一致。主 PA 身份检查和既有 IM 来源/lifecycle 守卫保留。
+- 取消选择沿既有 `agent-config.ts:172-184` 收缩工具面；重开沿完整 configuration.apply；`capability-state.ts:45-70` 根据移除工具和真实 busy 保护拒绝不安全收缩。没有取消已接受配置操作或另建状态引擎。
+- Skill 的选择与正文不授予额外执行能力；新增指导要求工具关闭时说明配置页开启路径，禁止借其他工具绕过。工具切换不自动改写 Skill 选择。
+
+### Agent Context Review — Mode B（本次 delta）
+
+Consumer 为主 PA；Surface 为实际可调用工具集合/serialized schema、已加载 Skill 历史及产品派发准入。开启时短 schema 保持原定义，关闭/重开是用户主动配置变更，不混同创建流程内动态加载，也不承诺配置变更时前缀不变。
+
+核读 `packages/dsh-integration/tests/personal-security.test.ts:200-260` 与 `.feat703-toggle-tests.log`：4 文件 / 67 测试通过；fixture 经真实原生 DSH/HTTP 获得 **8 次序列化模型请求**。前4次保留原按需Skill与stable tools/system证明；关闭后第5/6次均无 agent_creation schema，受控模型强制旧调用产生 isError，product.call 数保持2；重开后第7/8次工具序列化值与初始完全相同，product.call 数变3。PA host测试另证明当前空白名单拒绝且没有转发；共享能力测试证明关闭/重开不改变已选择Skill；首次PA测试证明默认名单。
+
+这是实际组装与执行拒绝的机制证据；provider输出仍受控且fixture跳过审批，不能据此声称真实模型已经理解关闭提示或真实配置页旅程通过。该产品增量验收仍待独立 reviewer 报告，见 verification 对应 evidence 项。本次未发现可确认 Context接口缺陷。
+
+结论：**patch code review pass；无新增存活代码问题。** 真实配置页关闭/保存/重开证据 pending，不以静态审查代替。

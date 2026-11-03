@@ -170,3 +170,71 @@ verification_mode: `corrected-delta`; snapshot `e106b07bd1db3d20947682de7805ce1f
 None. Checked the full unit product diff for omitted public behavior: Web creation/catalog extraction preserves existing semantics; the new fixed PA-only entry, on-demand guide, real options, independent target selection, source/lifecycle authority, same-request recovery, transport-unknown guidance, truthful product links and default ordinary Agent identity are covered by these deltas or the explicitly reused current Agent creation/management contracts. Adding the IM wait-boundary clause records the required authority invariant; it does not redefine behavior to conceal the original defect.
 
 Outcome: **aligned**.
+
+## Round 4 — 用户追加工具开关 · delta verification
+
+- verification_mode: `delta` + 本轮新增 Scenario 的 `corrected-delta`。
+- validated_at: `37b1a70775c40f4162d6a3184658e12f29ec1802`；pre_fix_head: `b2b9a8c0dbec963590c58b3847562bbf2e13502d`。
+- executed_base: `492b72603cebc5f904f7001b12e3d4475ce55639`。
+- reviewer: `/root/static_review_703`；2026-11-03 18:02 +08:00。
+- requires_full_verification: false。本轮只核工具选择增量；原创建/恢复/来源/lifecycle与9/9产品旅程在未变部分保留，原 R1-C1 / R1-E1 闭环不重开。
+- 范围：用户新增“PA配置页可关闭/重开创建工具”，设计审查 Round 2 Approved。feat-705为main文档增量，无共享产品代码变更。
+
+| 新增契约 / 设计决定 | 实现与证据 | 结论 |
+|---|---|---|
+| 新PA默认选中，工具可单独关闭/重开 | `personal-agent.ts:462` 首次candidate持久白名单；`fixedTools:53-56`不再强制创建工具；IM首次PA测试 | implemented / aligned |
+| 关闭后不可调用，旧历史call不可绕过 | runtime按当前白名单筛选；`PersonalAssistant.createAgent:117`产品转发前拒绝；native请求5/6缺schema、强制call error且dispatch不增 | covered |
+| 重开恢复同一短定义 | native请求7/8与初始tools序列化值完全相同，dispatch恢复；不修改工具definition | covered |
+| Skill/工具分别选择 | shared changeCapability回归保留Skill；Skill正文不授予执行权限；新增不可绕过提示 | aligned |
+| 沿既有即时收缩、next-turn完整应用与busy占用保护 | `agent-config.ts:172-184`、configuration.apply既有实现；`capability-state.ts:45-70`现有移除目标/占用检查。本patch未新建开关状态或中断已接受操作 | aligned at existing seams |
+| 配置页真实关闭/保存/重开 | 沿用既有Web/iOS能力选择器；独立产品reviewer尚未提供本次增量旅程报告 | **pending evidence** |
+
+本轮 Mode B 由同一 code reviewer 完成并复用。核读 `.feat703-toggle-tests.log`：2026-11-03 17:59:28，4文件/67项通过（20.78秒）。8轮原生HTTP fixture证明最终序列化与强制旧call拒绝；不充当真实provider选择或配置页实操证据。新增 broader build/typecheck及相关回归由caller运行中，此处不提前登记成功。原门禁只在本次未变范围保留。
+
+### 本轮 corrected-delta 对账
+
+目标是归档 `specs/gateway/personal-agent.md` 新增“配置页独立关闭与重新开启”Scenario；原 Gateway/IM 已校正项目结论按未变实现保留，IM无本次新delta。
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| 配置页独立关闭/重开；新PA默认选择 | 首次PA白名单 + 移出fixedTools + 现有配置页选择/保存链 | IM默认测试、shared capability独立切换测试；真实页证据待补 | aligned（实现；产品证据待补） |
+| 关闭后不可调用、Skill独立 | native选择与PA产品白名单双层检查；Skill保持独立选择并说明不得绕过 | 8轮serialized HTTP请求；当前空名单host拒绝且零转发 | aligned |
+| 原生能力生效/占用保护；不撤销已接受操作 | 沿用原configuration preparation/busy与即时收缩；未改IM operation/receipt | 现有机制适用；未变创建恢复测试保留 | aligned |
+
+Uncovered Observable Behavior: **None**。新建默认选中、主人配置变更影响工具集合、旧调用拒绝与重开恢复均由新增Scenario和复用的current能力契约覆盖；无启动迁移、不回填已有主人选择与既有配置持久化约束一致。没有用delta修改掩盖源问题。
+
+Corrected-delta outcome: **aligned**（无 implementation-mismatch / delta-mismatch）。
+
+### 当前问题与结论
+
+- CRITICAL: **0**；确认的实现/设计偏离: **0**。
+- WARNING: **1 provisional evidence item — R4-E1**：`design.md`“本次增量验证”要求真实配置页关闭/保存/重开。补入独立产品reviewer的版本、当前配置与真实交互证据，再关闭本项；这不是已确认产品缺陷。
+- SUGGESTION: **0**。
+
+**本轮静态 delta / corrected-delta 对齐；整体增量 verification 暂待配置页产品证据。** 原历史结论保留。只追加两份审查报告，无代码/测试/设计修改，无提交，无本reviewer启动的服务。
+
+### 本轮追加验证证据
+
+随后核读 caller 完成日志：`.feat703-toggle-regression.log` **4文件/34项通过**（原生capabilities/busy/收缩、IM创建9项、config/catalog）；`.feat703-toggle-full-build.log` 完整build成功；`.feat703-toggle-typecheck.log` typecheck成功。build在产品提交0a11feaa9前启动、候选release metadata仍含旧b2，但caller确认其时本次产品源码已完成且之后未变；独立核对0a11feaa9到冻结37b1a707的产品source/tests/dependency diff为空，37b仅main文档同步。此处将metadata差异作为证据限制保留，不宣称是提交后启动的build。R4-E1仍仅等待独立真实配置页/聊天增量验收，不重复轮询或运行既有有效门禁。
+
+## Round 5 — R4-E1 产品证据收口（最终增量结论）
+
+- verification_mode: `targeted-closure`，仅关闭 R4-E1；不重复代码审查或测试。
+- validated_at: `37b1a70775c40f4162d6a3184658e12f29ec1802`；executed_base: `492b72603cebc5f904f7001b12e3d4475ce55639`。
+- reviewer: `/root/static_review_703`，2026-11-03 18:06 +08:00。
+- 冻结产品版本未变；本轮dirty仅验收/审查报告。requires_full_verification: false。
+
+已核读独立 `acceptance.md` Round 2。真实Chromium桌面Web配置页在同一PA完成 **默认选中 → 关闭/保存/刷新保持关闭 → 原聊天明确要求时不创建 → 重开/保存/刷新 → 原聊天承接并成功创建**。主PA为真实Astra/medium与Codex审核；独立报告保留实际配置v3/v4、消息、列表事实及两张刷新后截图定位。
+
+| R4-E1所缺证据 | 独立产品事实 | 结论 |
+|---|---|---|
+| 现有配置页能够真实关闭并持久保存 | 刷新后agent_creation无pressed，配置v3不含工具；Skill仍选中；off-after-reload.png | covered |
+| 关闭时实际聊天不绕过 | 主人消息 `7f35328bdf1b4478ba2a1dda463481ad`；PA回复 `2cae3af89eb74148920872e6a65019fe` 说明工具不可用及配置页开启路径，保留职责；列表仍4 | covered |
+| 重开后同聊天恢复使用 | 配置v4包含工具且刷新仍pressed；主人继续消息 `61b14654d183417b9c78952a107c716c`；成功回复 `c2826630de4743499e79f59ae940a7c7`；列表4→5，仅新增morning-translator；on-after-reload.png | covered |
+| Skill与工具独立 | 工具关闭保存后Skill仍on；另在未提交草稿里取消Skill时工具仍pressed；持久Skill反向组合未作产品声明 | covered at stated scope；独立选择持久机制由R4共享能力/native测试补充 |
+
+本轮对账同时核读 `.feat703-toggle-frontend.log`：现有能力编辑器/面板 **2文件26项通过**；`.feat703-toggle-python.log`：**129 passed / 28 deselected**。caller提供ruff check/format通过和本次docs-check **284 sources / 68 required routes**；最终canonical归并后另由caller复查，不提前声明已完成。R4已核读的67项、34项、完整build/typecheck及其旧installer metadata限制保持，不重跑或抹去限制。
+
+R4静态patch/ModeB/schema选择证据与本次真实UI/模型消费证据互补；固定短定义在工具开启时仍稳定，用户主动关/开会改变集合，未据此承诺缓存命中。未变的创建/恢复/主人来源/lifecycle与原9/9场景仍按原版本适用证据保留。本次复用既有客户端选择器，未新增iOS控件，独立报告也未声称完成iOS复测；此范围限制保留。
+
+**R4-E1 closed。最终delta verification PASS；corrected-delta outcome: aligned；CRITICAL 0 / WARNING 0 / SUGGESTION 0。** 原R1-C1、R1-E1保持closed，无新问题、无遗漏对外行为。后续canonical归并/提交/远端CI/交付由caller执行；本次只追加verification.md，无提交，无新服务。
