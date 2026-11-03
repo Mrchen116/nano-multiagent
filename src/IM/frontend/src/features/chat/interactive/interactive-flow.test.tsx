@@ -39,7 +39,10 @@ describe('interactive choices and handwritten requests',()=>{
  it('keeps direct-chat background silent and retains it across natural questions',async()=>{
   const send=vi.fn().mockResolvedValue(undefined);
   render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
-  fireEvent.change(await screen.findByPlaceholderText('编辑草稿', {}, {timeout:5000}),{target:{value:'私聊新草稿'}});
+  const field=await screen.findByPlaceholderText('编辑草稿', {}, {timeout:5000});
+  // The lazy renderer mounts the field before its initial state is hydrated.
+  await waitFor(()=>expect(field).toHaveValue('周六见'));
+  fireEvent.change(field,{target:{value:'私聊新草稿'}});
   const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
   fireEvent.change(composer,{target:{value:'先别发送，帮我解释'}});fireEvent.submit(composer.closest('form')!);
   await waitFor(()=>expect(send).toHaveBeenCalledWith('先别发送，帮我解释',[],undefined,expect.any(String),[expect.objectContaining({source_message_id:'card',state:expect.objectContaining({'$body':'私聊新草稿'})})]));

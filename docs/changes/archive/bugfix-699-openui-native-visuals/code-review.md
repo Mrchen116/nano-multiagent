@@ -67,3 +67,8 @@
 
 - Base / executed_base：`4b58b4704b729dc6d8c9ee982af75d3a5c1f05f0`；effective_base=`9cb67e17e`，无main增量。validated_at为两unit整体归档、canonical归并和索引更新的最终working tree；实现/Context未变，既有实现审查与测试保留。
 - 同一独立reviewer核实canonical六场景一致、Requirements仍31，初轮指出归档后Related链接与一句Active当前叙述遗漏，均已修复。Closure `[]`，无存活问题；旧视觉失败没有改写为通过。后续仅补本记录和CI实际状态。
+
+## 最终CI测试等待 patch
+
+- Base / executed_base=`1f5c41af5522e2507039b81ba35b5f7b8aaeacc9` + interactive-flow等待初始草稿恢复的窄测试diff，后续仅补验证/本记录。主干无新增量，实现与Context未变。
+- 同一独立reviewer结论 `[]`：合理异步前置等待，提交最新草稿和后续背景保留的严格断言未减弱，不覆盖初始化期间立即编辑。5次窄重复与完整前端回归通过，具体证据见validation.md。
