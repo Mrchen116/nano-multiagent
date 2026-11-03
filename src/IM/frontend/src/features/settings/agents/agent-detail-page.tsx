@@ -1343,6 +1343,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
   const detailQuery = settings.query;
   const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
   const readOnly = settings.readOnly || confirmationPending;
+  const settingsReason = confirmationPending && (!settings.reason || settings.reason === 'refreshingEditable') ? 'pending' : settings.reason;
 
   useEffect(() => {
     const config = detailQuery.data?.config;
@@ -1391,7 +1392,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
 
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
-      if (readOnly || versionConflict) throw new Error(t("agents.settings.refreshing"));
+      if (readOnly || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
       const {
         updated_at: _updatedAt,
         owner_id: _ownerId,
@@ -1616,7 +1617,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
     event.preventDefault();
     setHasAttemptedSave(true);
     setErrorMessage(null);
-    if (readOnly || versionConflict || catalogInvalid || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
+    if (readOnly || detailQuery.isFetching || versionConflict || catalogInvalid || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
     mutation.mutate(normalizedDraft);
   }
 
@@ -1721,10 +1722,10 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
         </nav>
       </header>
 
-      {settings.reason && <div className="im-settings-availability" role="status" data-testid="settings-availability">
-        <p className="text-sm text-slate-600">{t(`agents.settings.${settings.reason}`)}</p>
+      {settingsReason && <div className="im-settings-availability" role="status" data-testid="settings-availability">
+        <p className="text-sm text-slate-600">{t(`agents.settings.${settingsReason}`)}</p>
         <SettingsReadNotice read={detailQuery.data?.display} />
-        {confirmationPending && settings.reason !== "pending" && <p className="im-agent-field-help">{t("agents.settings.pending")}</p>}
+        {confirmationPending && settingsReason !== "pending" && <p className="im-agent-field-help">{t("agents.settings.pending")}</p>}
         <button type="button" className="im-settings-action" disabled={detailQuery.isFetching} onClick={() => void queryClient.invalidateQueries({queryKey: ["settings", "agents", agentId]})}>{t("agents.settings.retry")}</button>
       </div>}
       <div className={`im-agent-panel-body im-agent-detail-body ${activeSection === "work" ? "im-agent-work-body" : activeSection === "config" ? "im-settings-config" : ""}`}>
@@ -2092,7 +2093,7 @@ function AgentDetailPageContent({ agentId, personal }: { agentId: string; person
             <button
               className="im-btn im-btn-primary"
               type="submit"
-              disabled={readOnly || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+              disabled={readOnly || detailQuery.isFetching || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
             >
               {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>

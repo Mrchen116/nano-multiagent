@@ -32,11 +32,11 @@ it.each([false,true])('reads cold history without activation, including disabled
     await expect(client!.rpc.request('trajectory.prepare', { ...scope, observerId: 'wrong', rootAgentId: 'other' })).rejects.toThrow(/scope/i);
     expect(await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs' })).toEqual({ ok: true, value: [] });
     await expect(client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs', params: { args: { request: { sessionId: 'other' } } } })).rejects.toThrow(/scope/i);
-    const opened = await client!.rpc.request('trajectory.open', { observerId: 'viewer', method: 'session/follow', params: { args: { request: { assistantStream: true, maxMessages: 50 } } } }) as { streamId: string };
+    const opened = await client!.rpc.request('trajectory.open', { observerId: 'viewer', method: 'session/follow', params: { args: { request: { assistantStream: true, maxMessages: 50, turnWindow: {minMessages: 50, minTurns: 2} } } } }) as { streamId: string };
     const batch = await client!.rpc.request('trajectory.next', { observerId: 'viewer', streamId: opened.streamId }) as { frames: any[] };
     expect(batch.frames[0]).toMatchObject({ type: 'snapshot', header: { id: binding.sessionId }, assistantStream: { revision: 0 } });
     const cursor = batch.frames[0].cursor;
-    const page = await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'session/page', params: { args: { request: { throughSeq: cursor, maxMessages: 50 } } } }) as any;
+    const page = await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'session/page', params: { args: { request: { throughSeq: cursor, maxMessages: 50, turnWindow: {minMessages: 50, minTurns: 2} } } } }) as any;
     expect(page.ok).toBe(true);
     expect(page.value.records.length).toBeGreaterThan(0);
     const refs: string[] = [];

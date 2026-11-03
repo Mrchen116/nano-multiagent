@@ -1,6 +1,10 @@
 import WebSocket from 'ws';
 import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, type RuntimePort, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
 
+const diagnose = (event: string, fields: Record<string, unknown> = {}) => {
+  if (process.env.NANO_TRAJECTORY_DIAGNOSTICS === '1') console.info(JSON.stringify({component: 'trajectory', event, at_ms: Date.now(), ...fields}));
+};
+
 /** Owns outbound readers independently of the device's business ACK queue. */
 export class NodeTrajectory {
   private readonly sockets = new Map<string, WebSocket>();
@@ -8,29 +12,35 @@ export class NodeTrajectory {
 
   /** Pair a short-lived observer with the configured IM, never a supplied destination. */
   prepare(scope: TrajectoryScope, ticket: string): void {
+    diagnose('prepare', {observer: scope.observerId});
     this.close(scope.observerId);
     if (!this.options.valid(scope)) return;
     const url = new URL(this.options.imUrl);
     url.protocol = ['https:', 'wss:'].includes(url.protocol) ? 'wss:' : 'ws:';
     url.pathname = '/im/ws/node-trajectory'; url.search = ''; url.hash = '';
     url.searchParams.set('ticket', ticket);
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(url, {handshakeTimeout: 12_000});
     this.sockets.set(scope.observerId, socket);
     let initialized = false;
     const active = () => this.sockets.get(scope.observerId) === socket && this.options.valid(scope);
     const write = async (value: unknown) => {
       try {
+        const sent = performance.now();
         for (const part of encodeTrajectoryValue(value)) {
           const text = JSON.stringify(part), size = Buffer.byteLength(text);
-          if (!active() || socket.readyState !== WebSocket.OPEN) return;
-          if (size > TRAJECTORY_MAX_BYTES || socket.bufferedAmount + size > TRAJECTORY_MAX_BYTES) { this.close(scope.observerId); return; }
+          if (!active() || socket.readyState !== WebSocket.OPEN) { diagnose('send_unavailable', {observer: scope.observerId}); return; }
+          if (size > TRAJECTORY_MAX_BYTES || socket.bufferedAmount + size > TRAJECTORY_MAX_BYTES) { diagnose('send_overflow', {observer: scope.observerId, bytes: size, buffered: socket.bufferedAmount}); this.close(scope.observerId); return; }
           // Drain each fragment before sending the next on this dedicated observer socket.
           await new Promise<void>((resolve, reject) => socket.send(text, error => error ? reject(error) : resolve()));
+          diagnose('send_complete', {observer: scope.observerId, ms: Math.round(performance.now() - sent), bytes: size});
         }
-      } catch { this.close(scope.observerId); }
+      } catch { diagnose('send_error', {observer: scope.observerId}); this.close(scope.observerId); }
     };
     socket.once('open', () => {
+      const started = performance.now();
+      diagnose('socket_open', {observer: scope.observerId});
       void this.options.runtime.request('trajectory.prepare', scope).then(value => {
+        diagnose('runtime_ready', {observer: scope.observerId, ms: Math.round(performance.now() - started)});
         initialized = true;
         if (!active()) { void this.options.runtime.request('trajectory.close', { observerId: scope.observerId }).catch(() => {}); return; }
         void write({ type: 'ready', observerId: scope.observerId, ...value as object });
@@ -43,15 +53,18 @@ export class NodeTrajectory {
       try { request = JSON.parse(raw.toString()); }
       catch { this.close(scope.observerId); return; }
       if (!['call', 'open', 'next', 'abort'].includes(request.type) || typeof request.requestId !== 'string') { this.close(scope.observerId); return; }
+      const started = performance.now();
+      diagnose('request', {observer: scope.observerId, request: request.requestId, type: request.type, method: request.method});
       // A long next must not delay abort or another reader.
       void this.options.runtime.request(`trajectory.${request.type}`, {
         observerId: scope.observerId, method: request.method, params: request.params, streamId: request.streamId,
         ...((request as TrajectoryRequest & { attachmentAuthorized?: boolean }).attachmentAuthorized ? { attachmentAuthorized: true } : {}),
-      }).then(value => write({ type: 'result', observerId: scope.observerId, requestId: request.requestId, value }))
-        .catch(error => write({ type: 'error', observerId: scope.observerId, requestId: request.requestId,
-          code: String(error).includes('generation_changed') ? 'generation_changed' : 'trajectory_read_failed', message: error instanceof Error ? error.message : String(error) }));
+      }).then(value => { if (process.env.NANO_TRAJECTORY_DIAGNOSTICS === '1') diagnose('response', {observer: scope.observerId, request: request.requestId, ms: Math.round(performance.now() - started), bytes: Buffer.byteLength(JSON.stringify(value))}); return write({ type: 'result', observerId: scope.observerId, requestId: request.requestId, value }); })
+        .catch(error => { diagnose('error', {observer: scope.observerId, request: request.requestId, ms: Math.round(performance.now() - started)}); return write({ type: 'error', observerId: scope.observerId, requestId: request.requestId,
+          code: String(error).includes('generation_changed') ? 'generation_changed' : 'trajectory_read_failed', message: error instanceof Error ? error.message : String(error) });
+        });
     });
-    socket.on('error', () => this.close(scope.observerId));
+    socket.on('error', () => { diagnose('socket_error', {observer: scope.observerId}); this.close(scope.observerId); });
     socket.once('close', () => {
       if (this.sockets.get(scope.observerId) === socket) this.sockets.delete(scope.observerId);
       if (initialized) void this.options.runtime.request('trajectory.close', { observerId: scope.observerId }).catch(() => {});

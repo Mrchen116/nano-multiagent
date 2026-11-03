@@ -4,7 +4,7 @@ import {registerMessageAttemptRoutes} from './message-attempts.js';
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, createReadStream, mkdirSync } from "node:fs";
+import { existsSync, createReadStream, mkdirSync, readFileSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { PersonalAgents, registerPersonalAgentRoutes } from "./personal-agent.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
@@ -286,10 +286,20 @@ export async function createServer(options: ServerOptions = {}) {
     ".woff2": "font/woff2",
   };
   const trajectoryDist = resolve(options.trajectoryDistDir ?? process.env.IM_TRAJECTORY_DIST_DIR ?? 'packages/dsh-trajectory-viewer/dist');
+  let trajectoryRevision: string | undefined;
+  try { trajectoryRevision = JSON.parse(readFileSync(join(trajectoryDist, 'manifest.json'), 'utf8')).rev; } catch { /* viewer may not be installed */ }
   app.get('/trajectory/*', (req, reply) => {
     const relative = (req.params as { '*': string })['*'] || 'index.html';
     const file = resolve(trajectoryDist, relative);
     if (!file.startsWith(trajectoryDist + '/') || !existsSync(file) || !extname(file)) return reply.code(404).send({ detail: 'viewer asset not found' });
+    // Published DSH client bundles carry their package revision in the URL.
+    // The viewer shell and our own unversioned modules must always revalidate.
+    const rev = (req.query as Row).rev;
+    if (relative.startsWith('plugins/@deepseek-ai/') && typeof rev === 'string') {
+      if (rev !== trajectoryRevision) return reply.code(404).send({detail: 'viewer version unavailable'});
+      reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (/^chunk-[A-Z0-9]+\.js$/.test(relative)) reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    else reply.header('Cache-Control', 'no-cache');
     return reply.type(mime[extname(file)] ?? 'application/octet-stream').send(createReadStream(file));
   });
   app.setNotFoundHandler((req, reply) => {

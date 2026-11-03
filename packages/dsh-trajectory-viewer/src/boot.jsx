@@ -55,8 +55,14 @@ async function start(init, port) {
   if (!response.ok) throw new Error('无法读取轨迹组件清单');
   const manifest = await response.json();
   if (manifest.rev !== init.version) throw new Error('轨迹组件资源版本不一致');
-  for (const entry of manifest.modules) entry.url = new URL(entry.url, base).href;
-  await loadScript(new URL('plugins/@deepseek-ai/dsh-client-modules/client.js', base).href);
+  for (const entry of manifest.modules) {
+    entry.url = new URL(entry.url, base).href;
+    const preload = document.createElement('link');
+    preload.rel = 'preload'; preload.as = 'script'; preload.crossOrigin = 'anonymous';
+    preload.href = entry.url.replace('/plugins/??', '/plugins/').replace('&rev=', '?rev=');
+    document.head.append(preload);
+  }
+  await loadScript(new URL(`plugins/@deepseek-ai/dsh-client-modules/client.js?rev=${encodeURIComponent(manifest.rev)}`, base).href);
   const registration = target.pendingQueue.shift();
   const bootstrap = registration.factory(id => staticModules[id]);
   const modules = new bootstrap.ClientModuleSystem({
@@ -101,7 +107,9 @@ async function start(init, port) {
   await ctx.sessions.refresh();
   reference = ctx.sessions.retain(init.sessionId, { source: 'mainView' });
   await reference.ready;
-  if (Number.isInteger(init.position?.firstSeq)) await reference.binding.session.loadThrough(init.position.firstSeq);
+  // Render the latest window while a previous reading position is restored.
+  const historyRestore = (Number.isInteger(init.position?.firstSeq)
+    ? reference.binding.session.loadThrough(init.position.firstSeq) : Promise.resolve()).then(() => null, error => error);
   ctx.effect(() => reference.binding.session.subscribe(() => {
     const snapshot = reference.binding.session.getSnapshot();
     if (snapshot.openState === 'open') status('ready');
@@ -154,24 +162,39 @@ async function start(init, port) {
   document.addEventListener('scroll', publishPosition, true);
   const afterSelection = () => requestAnimationFrame(publishPosition);
   document.addEventListener('click', afterSelection);
-  const bookmark = new MutationObserver(() => {
+  const cancelRestore = event => {
+    if (!restoring || !event.isTrusted) return;
+    restoring = false;
+    publishPosition();
+  };
+  for (const type of ['wheel', 'pointerdown', 'touchstart', 'keydown']) document.addEventListener(type, cancelRestore, true);
+  let historyReady = false, alive = true;
+  const restoreBookmark = () => {
     const pane = document.querySelector('[data-trajectory-scroll]');
-    if (!pane?.querySelector('[data-scroll-ready]')) return;
+    if (!historyReady || !pane?.querySelector('[data-scroll-ready]')) return;
     bookmark.disconnect();
     if (restoring) requestAnimationFrame(() => {
+      if (!alive || !restoring) return;
       const row = [...pane.querySelectorAll('[data-trajectory-row-key]')].find(item => item.getAttribute('data-trajectory-row-key') === init.position.rowKey);
       row?.click();
       requestAnimationFrame(() => {
+        if (!alive || !restoring) return;
         if (init.position.detailTab) document.getElementById(init.position.detailTab)?.click();
         pane.scrollTop = init.position.top;
+        restoring = false;
+        pane.dispatchEvent(new Event('scroll'));
       });
       pane.scrollTop = init.position.top;
-      restoring = false;
-      pane.dispatchEvent(new Event('scroll'));
     });
-  });
+  };
+  const bookmark = new MutationObserver(restoreBookmark);
   bookmark.observe(document.getElementById('root'), { subtree: true, childList: true, attributes: true, attributeFilter: ['data-scroll-ready'] });
-  ctx.effect(() => () => { bookmark.disconnect(); document.removeEventListener('scroll', publishPosition, true); document.removeEventListener('click', afterSelection); });
+  void historyRestore.then(error => {
+    if (!alive) return;
+    if (error) { restoring = false; status('interrupted', error.message || '历史读取中断'); }
+    else { historyReady = true; restoreBookmark(); }
+  });
+  ctx.effect(() => () => { alive = false; bookmark.disconnect(); document.removeEventListener('scroll', publishPosition, true); document.removeEventListener('click', afterSelection); for (const type of ['wheel', 'pointerdown', 'touchstart', 'keydown']) document.removeEventListener(type, cancelRestore, true); });
   status('ready');
 }
 

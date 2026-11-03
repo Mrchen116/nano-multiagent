@@ -1,4 +1,5 @@
 import userEvent from "@testing-library/user-event";
+import {focusManager} from "@tanstack/react-query";
 import {act, fireEvent, screen, waitFor, within} from "@testing-library/react";
 import {afterEach, beforeEach, vi} from "vitest";
 import {useAuthStore} from "../../auth/auth-store";
@@ -117,6 +118,24 @@ it("blocks save when required fields are empty", async () => {
   expect(patches()).toHaveLength(0);
 });
 
+it("keeps a confirmed draft editable during a focus refresh but blocks save until it finishes", async () => {
+  open();
+  const input = await screen.findByLabelText("Display Name");
+  await waitFor(() => expect(input).toBeEnabled());
+  let finish!: (response: Response) => void;
+  settingsRead = () => new Promise(resolve => {finish = resolve;});
+  act(() => {focusManager.setFocused(false); focusManager.setFocused(true);});
+  await waitFor(() => expect(finish).toBeDefined());
+  expect(input).toBeEnabled();
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/You can edit/);
+  fireEvent.change(input, {target: {value: "During refresh"}});
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  await act(async () => {finish(json(settings()));});
+  await waitFor(() => expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeEnabled());
+  expect(input).toHaveValue("During refresh");
+  focusManager.setFocused(undefined);
+});
+
 it("surfaces a version conflict without replacing the draft or its base version", async () => {
   const user = userEvent.setup();
   save = () => json({detail: "profile_version conflict"}, 409);
@@ -134,6 +153,7 @@ it("confirms an accepted pending save without replaying it or losing its paired 
   open(); await user.selectOptions(await screen.findByLabelText("Reasoning effort"), "max");
   await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
   await waitFor(() => expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled());
+  expect(screen.getByTestId("settings-availability")).not.toHaveTextContent(/You can edit/);
   expect(screen.getByLabelText("Reasoning effort")).toHaveValue("max");
   config = {...config, reasoning_effort: "max", profile_version: 13}; pending = false;
   await waitFor(() => expect(screen.getByLabelText("Profile Version")).toHaveValue("v13"), {timeout: 2500});

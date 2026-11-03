@@ -63,8 +63,8 @@ export class Work {
   items(root: string, session: string, turn: string, after = 0, limit = 100) {
     return this.records.items(root, session, turn, after, limit);
   }
-  turns(root: string, session: string, before?: string, limit = 20) {
-    return this.records.turns(root, session, before, limit);
+  turns(root: string, session: string, before?: string, limit = 20, summary = false) {
+    return this.records.turns(root, session, before, limit, summary);
   }
   revision(root: string) { return this.records.revision(root); }
   append(node: string, input: unknown, historical = false): WorkAppendAck {
@@ -85,8 +85,8 @@ export class Work {
     }
     return ack;
   }
-  view(root: string, before?: string, limit = 20): WorkView {
-    const {node_id, ...view} = this.records.view(root, before, limit);
+  view(root: string, before?: string, limit = 20, summary = false): WorkView {
+    const {node_id, ...view} = this.records.view(root, before, limit, summary);
     const online = this.ctx.gateway.isOnline(node_id);
     return {...view,
       main_execution: !online && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
@@ -402,7 +402,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
   app.get("/im/v1/agents/:agent_id/work", (req) => {
     const p = profile(req),
       q = query(req);
-    return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))));
+    return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary');
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns", (req) => {
     profile(req);
@@ -413,6 +413,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       p.session_id,
       q.before_turn,
       Math.min(50, Math.max(1, Number(q.limit ?? 20))),
+      q.view === 'summary',
     );
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns/:turn_id/items", (req) => {

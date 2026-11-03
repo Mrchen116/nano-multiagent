@@ -88,7 +88,7 @@ export class NativeTrajectory {
       value = await controller.projections({ sessionId: SessionId(observer.scope.sessionId) }, signal);
     } else if (request.method === 'session/page') {
       if (!Number.isInteger(args.throughSeq) || args.throughSeq > observer.cursor) throw new Error('trajectory_invalid_history_cut');
-      value = await controller.page({ ...this.window(args), address: observer.address, throughSeq: args.throughSeq, beforeSeq: args.beforeSeq }, signal);
+      value = await controller.page({ ...this.window(args, 5), address: observer.address, throughSeq: args.throughSeq, beforeSeq: args.beforeSeq }, signal);
     } else if (request.method === 'trajectory/attachment-source') {
       const sources = [];
       let sessionId = observer.scope.sessionId;
@@ -113,9 +113,10 @@ export class NativeTrajectory {
   async open(request: Request) {
     const observer = this.observer(request.observerId), args = this.arguments(observer, request);
     if (!['session/follow', 'session/control'].includes(request.method)) throw new Error('trajectory_read_only_method_required');
+    const window = request.method === 'session/follow' ? this.window(args, 5) : undefined;
     const streamId = randomUUID();
     const stream = new TrajectoryStream(signal => request.method === 'session/follow'
-      ? this.follow(observer, { ...this.window(args), address: observer.address, assistantStream: true }, signal)
+      ? this.follow(observer, { ...window!, address: observer.address, assistantStream: true }, signal)
       : this.control(observer, signal));
     observer.streams.set(streamId, stream);
     return { streamId };
@@ -151,10 +152,13 @@ export class NativeTrajectory {
     return args;
   }
 
-  private window(args: Record<string, any>) {
+  private window(args: Record<string, any>, cap = 500) {
     const maxMessages = args.maxMessages ?? 500;
     if (!Number.isInteger(maxMessages) || maxMessages < 1 || maxMessages > 500) throw new Error('trajectory_invalid_window');
-    return { maxMessages, ...(args.turnWindow ? { turnWindow: args.turnWindow } : {}) };
+    const minMessages = args.turnWindow?.minMessages;
+    const turnWindow = args.turnWindow && Number.isSafeInteger(minMessages) && minMessages > 0 && minMessages <= maxMessages
+      ? {...args.turnWindow, minMessages: Math.min(minMessages, cap)} : args.turnWindow;
+    return { maxMessages: Math.min(maxMessages, cap), ...(turnWindow ? { turnWindow } : {}) };
   }
 
   private async *control(observer: Observer, signal: AbortSignal) {

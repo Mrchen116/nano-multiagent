@@ -1,6 +1,6 @@
 # bugfix-704: Agent 页面快速稳定加载 — 技术方案
 
-> 对齐: [incident.md](incident.md)；设计提案，实际网络结果与 Gate 2 审查未完成。
+> 对齐: [incident.md](incident.md)；本文件为先前设计提案。用户选择快修后，实际实现、与提案的差异、真实网络证据及未达目标见 [快修记录](fast-mode-evidence.md)，不能将本提案视为已经实现或通过验收。
 
 ## Changelog
 

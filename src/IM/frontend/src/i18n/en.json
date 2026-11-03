@@ -894,6 +894,7 @@
       "offline": "Computer offline · Read-only",
       "unknown": "Connection unconfirmed · Read-only",
       "refreshing": "Refreshing · Read-only",
+      "refreshingEditable": "Refreshing · You can edit; save after confirmation",
       "failed": "Refresh failed",
       "pending": "Save awaiting confirmation",
       "retry": "Refresh status",

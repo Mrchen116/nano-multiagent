@@ -52,9 +52,9 @@ export function useAgentSettingsState(agentId: string) {
   }, [agentId, client]);
   const nodeState = streamReady ? query.data?.config.node_status ?? "unknown" : "unknown";
   const connectionReadOnly = nodeState !== "online";
-  const readOnly = connectionReadOnly || query.isFetching || query.isError || !query.data?.ready;
+  const readOnly = connectionReadOnly || query.isError || !query.data?.ready;
   const reason = nodeState === "offline" ? "offline" : nodeState !== "online" ? "unknown"
-    : query.isFetching ? "refreshing" : query.data?.pendingOperation ? "pending"
+    : query.isFetching ? (readOnly ? "refreshing" : "refreshingEditable") : query.data?.pendingOperation ? "pending"
     : readOnly ? "failed" : null;
   return {query, nodeState, connectionReadOnly, readOnly, reason};
 }

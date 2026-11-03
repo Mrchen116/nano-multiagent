@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -23,4 +23,21 @@ it("never caches the frontend entrypoint on direct or SPA routes", async () => {
     await app.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+it("only caches native vendor assets under their actual revision", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "nano-trajectory-assets-"));
+  const vendor = join(dir, 'plugins/@deepseek-ai/example');
+  mkdirSync(vendor, {recursive: true});
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify({rev: 'current'}));
+  writeFileSync(join(dir, 'index.html'), 'viewer');
+  writeFileSync(join(vendor, 'client.js'), 'current');
+  const app = await createServer({dbPath: join(dir, 'im.sqlite3'), publicUrl: 'https://nano.example', trajectoryDistDir: dir});
+  try {
+    const current = await app.inject('/trajectory/plugins/@deepseek-ai/example/client.js?rev=current');
+    expect(current.statusCode).toBe(200);
+    expect(current.headers['cache-control']).toContain('immutable');
+    expect((await app.inject('/trajectory/plugins/@deepseek-ai/example/client.js?rev=old')).statusCode).toBe(404);
+    expect((await app.inject('/trajectory/')).headers['cache-control']).toBe('no-cache');
+  } finally { await app.close(); rmSync(dir, {recursive: true, force: true}); }
 });
