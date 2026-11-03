@@ -117,7 +117,7 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
     identity.rateLimit("login:target:" + accountName, 1, 1);
     let pair;
     try {
-      pair = await identity.login(username, password);
+      pair = await identity.login(username, password, request.headers["user-agent"] ?? "");
     } catch (error) {
       if (error instanceof IdentityError && error.statusCode === 401)
         identity.rateLimit(failureKey, 10, 900);

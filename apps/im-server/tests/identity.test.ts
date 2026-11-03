@@ -108,6 +108,31 @@ describe("durable identity compatibility", () => {
     expect(() => identity.refresh(replacement.refresh_token)).toThrow();
   });
 
+  it("keeps ten password login records across restart and extends sessions for thirty days", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "im-login-history-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { identity } = fixture(join(dir, "im.db"));
+    human(identity, "alice");
+    for (let index = 0; index < 10; index++) {
+      identity.run("INSERT INTO auth_login_events(user_id,logged_in_at,user_agent) VALUES(?,?,?)",
+        "alice", 1, `Chrome device ${index}`);
+    }
+    await identity.login("alice", "old-password", "Chrome device 10");
+    await expect(identity.login("alice", "wrong", "failed-device")).rejects.toThrow();
+    const restarted = fixture(join(dir, "im.db")).identity;
+    const records = restarted.all("SELECT * FROM auth_login_events ORDER BY id");
+    expect(records).toHaveLength(10);
+    expect(records[0].user_agent).toBe("Chrome device 1");
+    expect(records[9].user_agent).toBe("Chrome device 10");
+    expect(records[9].logged_in_at).toBeGreaterThan(0);
+    const session = await restarted.login("alice", "old-password", "Chrome");
+    const pair = restarted.refresh(session.refresh_token);
+    const payload = JSON.parse(Buffer.from(pair.refresh_token.split(".")[1]!, "base64url").toString());
+    expect(payload.exp - payload.iat).toBe(30 * 24 * 60 * 60);
+    expect(restarted.all("SELECT * FROM auth_login_events")).toHaveLength(10);
+    expect(restarted.get("SELECT user_agent FROM auth_login_events ORDER BY id DESC LIMIT 1")?.user_agent).toBe("Chrome");
+  });
+
   it("preserves browser Origin and Cookie-only refresh while new accounts can use their personal space", async () => {
     const { identity } = fixture(),
       app = await server(identity);
@@ -149,6 +174,13 @@ describe("durable identity compatibility", () => {
     ).toBe(422);
     const refreshed = await post(app, "/im/v1/auth/refresh", {}, { ...headers, cookie });
     expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.headers["set-cookie"]).toContain("Max-Age=2592000");
+    const signedIn = await post(app, "/im/v1/auth/login", {
+      username: payload.username, password: payload.password,
+    }, { ...headers, "user-agent": "Mozilla/5.0 Chrome test device" });
+    expect(signedIn.statusCode).toBe(200);
+    const record = identity.get("SELECT * FROM auth_login_events WHERE user_id=?", created.json().user.id);
+    expect(record?.user_agent).toBe("Mozilla/5.0 Chrome test device");
     expect((await post(app, "/im/v1/auth/refresh", {}, { ...headers, cookie })).statusCode).toBe(
       401,
     );

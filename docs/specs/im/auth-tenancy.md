@@ -44,6 +44,15 @@
 - **THEN** 响应仅含 access_token 与 user，refresh 通过 host-only、HttpOnly、SameSite=Strict Cookie 传送；HTTPS 部署带 Secure，页面可读持久存储不保存任何会话令牌。
 - **AND** 刷新页面及同源多标签续期通过 Cookie 恢复有效会话，保留一次性 refresh、退出、成员停用和临时故障重试语义。
 
+#### Scenario: 登录页恢复已有会话
+- **WHEN** 用户打开或刷新 /login，未主动退出且浏览器保留有效会话
+- **THEN** 自动恢复并进入 /chat；账号需准入处理时进入 /membership。没有有效会话才显示登录表单，临时服务故障显示重试入口，主动退出显示登录表单。
+
+#### Scenario: 三十天滚动续期与成功登录记录
+- **WHEN** 用户登录或成功续期
+- **THEN** refresh 有效期与浏览器 Cookie 有效期从本次成功起为 30 天，短期 access 保持原有效期，已有有效会话在下次续期时取得新期限。
+- **AND** IM 持久保存每账号最近 10 次密码登录成功的时间及客户端 User-Agent（最长 512 字符）。注册、失败登录和自动续期不产生成功登录记录；设备信息缺失时保存空字符串，不阻断登录。
+
 #### Scenario: 浏览器 Cookie 的跨站与原生接口边界
 - **WHEN** 非许可或缺少 Origin 的浏览器模式请求试图登录、注册、刷新或登出
 - **THEN** 拒绝且不更改 Cookie 会话；无浏览器标记的程序接口只接受显式提供的 refresh，不读取 Cookie、不设置 Cookie，继续使用 JSON token pair。
