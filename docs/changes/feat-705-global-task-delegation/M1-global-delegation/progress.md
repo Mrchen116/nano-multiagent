@@ -57,3 +57,11 @@
 - 已向用户异步澄清是否将现有目录阻塞的排查修复作为本轮前置一起推进；未收到答复不视为授权扩范围。分支保留、unit active，不归并 current、不归档、不创建 Ready PR、不合并或部署。
 - 恢复位置：本 worktree／unit/feat-705；先读 spec/design、R1 acceptance 和 R2静态报告。下一步是收取范围答复、处理／恢复能力检查前置，正常 daily 环境中重测 Root 先委派、同项目新独立产物与旧产物修订、fork开关，并补真实provider/upstream证据，完成剩余门禁及PR交付。
 - 本轮收尾：独立 IM／Node／DSH 栈已按 e2e-down 停止；独立模型日志代理已核对私有 cwd 后停止，其认证／上游配置副本已删除，56067无监听；本unit测试没有遗留native进程。开发worktree保留用于未完成M1，不依赖旧ready标记，恢复验收须重新准备私有模型配置与隔离栈。主工作区及其他服务未操作。
+
+## 2026-11-04 最新主干续验
+
+- 用户要求在最新 remote main 继续真实验收；同步 `3da78a00a7cc8ace9d172c0b0d59c5d6e7881e0b` 后冻结 `30eafa50c80182bb39cb2b26fe01c0729f3ba78b`。main 增量是 PA 专属出行 Skill 与 Dreaming 测试退出修复；无合并冲突。独立静态 R3 已核其分层交互，findings=[]，V1 等待证据。
+- `/tmp/feat705-r3-regressions.log`：4文件22例通过；`r3-build/typecheck/docs/python/ruff/ios-runtime/audit.log`：构建、类型、文档、129 Python、ruff、原生渲染检查与 critical audit 门禁通过。旧前端全量有效范围暂保留，后端最终全量待续跑。
+- 新 daily 环境正常 seed，node `wt-nano-multiagent-96298`、IM62948；未绕过同步或延长检查期限。独立私有模型代理沿官方 `--log` 记录本轮真实请求，不动共享代理或生产。
+- R2 产品报告 `ab8973f8b`：11 pass／2 fail／2 inconclusive。E 委派前重复读已消失，PA 同项目独立新成果与旧成果修订已正确归属并交付；E 收完整成果后又完整读四份原文做一遍核对，仍为 major。根指导补清全程（含交付后返回）由执行者调查验证，主按需看成品、覆盖和具体缺口，缺口交原执行者，禁止例行重新读原文审计；待新运行复验。
+- 设置保存检查仍复现7秒超时。定界于临时原生进程进入 Nano initialize 之前；离线同 profile／cwd／owner 环境启动约1–2秒，未确认唯一根因。临时只对检查进程做栈／CPU采样；用于定位的编译产物日志插桩已 finally 还原，不作为产品修复。带调试采样的一次开启成功不计自然验收；随后未调试的正常API关闭200／1.96秒，同栈fork已关闭，但仍需独立界面开关旅程，不称超时已修复。临时端口9229已随检查进程退出释放。
