@@ -47,3 +47,10 @@
 - 已停止本需求主隔离Node、第二隔离Node和IM。两处Gateway状态/PID文件与IM PID文件已确认移除；测试数据与原始合成证据保留本地输出，不提交。开发worktree在PR合入前保留。
 
 - 最终同步 origin/main 仍为 9762ad3b44ca3cb2eebd6f2025fe8f169a544de3；最终 docs-check：279 maintained Markdown sources / 68 required routes，archive checker 与 git diff --check 通过。归档/归并之后产品代码与 f8800afaa 完全相同，沿用上述有效门禁。
+
+## 用户追加：创建工具可关闭（PR #455 后续）
+
+- 用户明确要求 agent_creation 也可在 PA 配置页关闭；默认开启与 Skill 独立选择保持。Gate 2 增量审查见 design-review Round 2：Approved，0 CRITICAL/WARNING。
+- 根因：原工具属于 fixedTools，不受白名单取消选择控制。改为新建 PA 显式默认选择，并在 PA 产品转发检查当前工具白名单；复用既有选择器、运行时收缩与 busy 占用保护，不增加开关字段或迁移。
+- 有意义红测：共享能力关闭、默认新建 PA 选择、产品侧取消选择三项均先失败；原生请求关闭后仍含工具也先失败。修正后4文件67项通过。原生 fixture 扩展为8次 HTTP序列化请求，关闭后无工具且强制旧调用失败、重开恢复原 schema；仅机制证据，不当真实模型证据。
+- 后续增量门禁与真栈配置页验收进行中。未变的创建/恢复/来源边界继续保留之前记录；用户关闭不撤销已接受操作，已开始工具占用继续遵循既有拒绝关闭规则。

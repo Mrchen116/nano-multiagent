@@ -39,6 +39,9 @@ it('separates the creation target from trusted PA identity and preserves an unkn
   expect(f.calls.at(-1)).toMatchObject({type:'pa.agent.creation',payload:{node_id:'node',target_node_id:'other-computer',agent_id:'pa',binding_id:'binding',epoch:1}});
   await expect(f.pa.createAgent(f.config,f.binding,{...call,sessionId:'child'})).rejects.toThrow('main PA');
   await expect(f.pa.createAgent({...f.config,personal:undefined},f.binding,call)).rejects.toThrow('personal binding');
+  const before=f.calls.length;
+  await expect(f.pa.createAgent({...f.config,toolAllowlist:[]},f.binding,call)).rejects.toThrow('not enabled');
+  expect(f.calls).toHaveLength(before);
   f.relay.request=async()=>{throw new RelayDeliveryError('Lost ACK','unknown');};
   expect(await f.pa.createAgent(f.config,f.binding,{...call,args:{action:'create',request_key:'original'}})).toMatchObject({status:'unknown',request_key:'original'});
  }finally{f.inbox.close();f.store.close();}

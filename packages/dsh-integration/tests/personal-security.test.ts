@@ -205,7 +205,8 @@ it('loads creation guidance on demand while preserving the actual serialized too
   const attempt=requests.length;requests.push(JSON.parse(body));
   const steps=[{name:'skill',input:{name:'nano-agent-creation'}},
    {name:'agent_creation',input:{action:'options'}},
-   {name:'agent_creation',input:{action:'create',request_key:'owner-create',source_message_id:'owner-create',configuration:{agent_id:'coach'}}}];
+   {name:'agent_creation',input:{action:'create',request_key:'owner-create',source_message_id:'owner-create',configuration:{agent_id:'coach'}}},
+   undefined,{name:'agent_creation',input:{action:'options'}},undefined,{name:'agent_creation',input:{action:'options'}}];
   const tool=steps[attempt];
   res.writeHead(200,{'content-type':'text/event-stream'});
   const emit=(type:string,data:object)=>res.write(`event: ${type}\ndata: ${JSON.stringify({type,...data})}\n\n`);
@@ -222,7 +223,7 @@ it('loads creation guidance on demand while preserving the actual serialized too
   client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});registerNoopTaskHosts(client);
   client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);return call.args.action==='options'?{node_id:'node',configuration_fields:{agent_id:'Stable ID'},defaults:{work_mode:'single_thread'}}:{status:'created',agent:{agent_id:'coach'}};});
   const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'fixture',
-   personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},toolAllowlist:['skill'],
+   personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},toolAllowlist:['skill','agent_creation'],
    skillRoots:[{path:fileURLToPath(new URL('../../personal-assistant/assets/skills/',import.meta.url)),source:'builtin'}],
    skillSelection:{mode:'explicit_allowlist',names:['nano-agent-creation']},
    features:{intelligent_ui:false,task_graph:false,dreaming:false,cron_scheduling:false,heartbeat:false},approval:{dangerouslySkipPermissions:true}};
@@ -239,6 +240,22 @@ it('loads creation guidance on demand while preserving the actual serialized too
   expect(JSON.stringify(requests[2].messages)).toContain('configuration_fields');
   expect(JSON.stringify(requests[3].messages)).toContain('created');
   expect(calls.map(call=>call.method)).toEqual(['agent_creation','agent_creation']);
+  const submit=async(id:string)=>{
+   await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text:'Query creation options.'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
+   await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal,{timeout:10000}).toBeTruthy();
+  };
+  await client.rpc.request('configuration.apply',{...config,revision:'2',toolAllowlist:['skill']});
+  await submit('disabled');
+  expect(requests).toHaveLength(6);
+  expect(requests.slice(4).every(request=>!request.tools.some((tool:any)=>tool.name==='agent_creation'))).toBe(true);
+  expect(calls).toHaveLength(2);
+  const observation=await client.rpc.request('session.observe',{sessionId:'root'}) as any;
+  expect(observation.events.find((event:any)=>event.type==='tool/result'&&event.data.message.toolCallId==='call-4')?.data.message.isError).toBe(true);
+  await client.rpc.request('configuration.apply',{...config,revision:'3'});
+  await submit('reopened');
+  expect(requests).toHaveLength(8);
+  expect(requests.slice(6).every(request=>JSON.stringify(request.tools)===JSON.stringify(requests[0].tools))).toBe(true);
+  expect(calls).toHaveLength(3);
  }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
  finally{if(client)await client.shutdown().catch(()=>{});server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await rm(home,{recursive:true,force:true});}
 },20000);

@@ -114,6 +114,7 @@ export class PersonalAssistant {
   /** Preserve caller identity while forwarding a separately chosen creation target. */
   async createAgent(config: AgentConfiguration, binding: SessionBinding, call: ProductCall): Promise<unknown> {
     if (call.sessionId !== binding.sessionId) throw new Error('Only the main PA can create Agents');
+    if (config.toolAllowlist && !config.toolAllowlist.includes('agent_creation')) throw new Error('Agent creation tool is not enabled');
     const {node_id,...args}=call.args;
     try {
       return await this.request(config,'pa.agent.creation',{...args,target_node_id:node_id,lifecycle_revision:call.lifecycle_revision});

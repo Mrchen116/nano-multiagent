@@ -69,6 +69,16 @@ describe('capability selections', () => {
     expect(changeCapability(draft(), {kind: 'tool', name: 'notes', enabled: false}, {fixed_tools: ['notes']}).blocks[0].code).toBe('fixed_capability');
     expect(featureClosure(effectiveFeatures()).cron_scheduling).toBe(true);
   });
+  it('lets the PA creation tool close and reopen independently of its Skill', () => {
+    const initial = {...draft(),work_mode:'global',personal_agent:{},tool_allowlist:['agent_creation'],skills:['nano-agent-creation']};
+    const closed = changeCapability(initial,{kind:'tool',name:'agent_creation',enabled:false},{});
+    expect(closed.blocks).toEqual([]);
+    expect(closed.draft.tool_allowlist).not.toContain('agent_creation');
+    expect(closed.draft.skills).toEqual(initial.skills);
+    const reopened = changeCapability(closed.draft,{kind:'tool',name:'agent_creation',enabled:true},{});
+    expect(reopened.blocks).toEqual([]);
+    expect(reopened.draft.tool_allowlist).toContain('agent_creation');
+  });
   it('has only known, acyclic Feature dependencies', () => {
     const visit = (key: string, path: string[]) => {
       expect(path).not.toContain(key);
