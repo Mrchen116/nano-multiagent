@@ -124,7 +124,7 @@ final class InteractiveRuntimeTests: XCTestCase {
             if name == "hotel" {
                 // Network photos may arrive later; external availability is not a renderer assertion.
                 if ProcessInfo.processInfo.environment["NANO_IOS_VISUAL_NETWORK"] == "1" {
-                    try await waitFor(view, "document.images.length > 0 && Array.from(document.images).every(image => image.complete && image.naturalWidth > 0)")
+                    try await waitFor(view, "document.images[0]?.complete && document.images[0].naturalWidth > 0")
                 }
                 _ = try await view.evaluateJavaScript("Array.from(document.querySelectorAll('button,[role=button]')).find(button => button.textContent === 'Book').click()")
                 try await waitFor(view, "document.body.innerText.includes('预订交互演示')")
@@ -254,6 +254,40 @@ final class InteractiveRuntimeTests: XCTestCase {
         XCTAssertNil(runtime.error)
         oldView.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page)
         runtime.leave()
+    }
+
+    func testIntelligentUICardFitsNativeChatAndReceivesReadOnlyChanges() async throws {
+        let source = """
+        $slot = "周二 10:00"
+        root = Col([Title("安排项目评审"), Text("请选择时间，确认后再交给助手安排。"), Form([SegmentedControl($slot, ["周二 10:00", "周三 14:00"]), Text($slot), Button("确认安排", @ToAssistant("安排会议"))])])
+        """
+        let (runtime, _) = try await makeRuntime(source: source, catalog: "nano-iui-1")
+        var message = runtime.message; message.content = "请选择会议时间。"
+        func content(_ readOnly: Bool) -> AnyView {
+            AnyView(ScrollView { ChatMessageView(client: runtime.client, chat: runtime.chat, message: message,
+                selfID: "viewer", readOnly: readOnly, refreshed: {}).padding(16) })
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        let controller = UIHostingController(rootView: content(false)); window.rootViewController = controller
+        controller.view.backgroundColor = .white; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func webView(_ parent: UIView) -> WKWebView? {
+            (parent as? WKWebView) ?? parent.subviews.lazy.compactMap { webView($0) }.first
+        }
+        for _ in 0..<100 where webView(controller.view) == nil { try await Task.sleep(for: .milliseconds(20)) }
+        let view = try XCTUnwrap(webView(controller.view))
+        try await waitFor(view, "document.body.innerText.includes('确认安排')")
+        let measured = try await view.evaluateJavaScript("document.getElementById('root').getBoundingClientRect().height") as? Double
+        let contentHeight = try XCTUnwrap(measured)
+        for _ in 0..<100 where abs(view.bounds.height - contentHeight) > 2 { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(view.bounds.width, 361, accuracy: 1)
+        XCTAssertEqual(view.bounds.height, contentHeight, accuracy: 2, "The whole card must fit the native scroll flow")
+        // UIKit's CPU snapshot omits WebKit's separately composited surface.
+        let image = try await view.takeSnapshot(configuration: nil)
+        let attachment = XCTAttachment(image: try XCTUnwrap(image)); attachment.name = "iOS-native-chat-meeting-body"; attachment.lifetime = .keepAlways; add(attachment)
+        controller.rootView = content(true)
+        try await waitFor(view, "document.querySelector('fieldset').disabled")
     }
 
     private func waitFor(_ view: WKWebView, _ expression: String) async throws {

@@ -25,4 +25,4 @@ bugfix-699 / PR #452 升级了 Web 的协议和组件目录，但 iOS `Interacti
 
 ## 状态
 
-实现和验证进行中，尚无本次 iOS 用户验收，保留 active。没有部署或发布安装包。
+实现、相关回归和独立 code review 已完成，验证记录见 [validation.md](validation.md)。尚无本次 iOS 用户验收，保留 active。未发布安装包或部署生产。
