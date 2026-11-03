@@ -31,6 +31,18 @@ function fixture(decision = 'deny') {
   const call:ProductCall={method:'send_message',args:{target:'conversation:c_peer',text:'Private budget'},operationId:'op',callId:'tool',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
   return {pa,store,inbox,config,binding,calls,reviews,call,runtime,relay};
 }
+it('separates the creation target from trusted PA identity and preserves an unknown request',async()=>{
+ const f=fixture();
+ try {
+  const call={...f.call,method:'agent_creation',args:{action:'options',node_id:'other-computer'}};
+  await f.pa.createAgent(f.config,f.binding,call);
+  expect(f.calls.at(-1)).toMatchObject({type:'pa.agent.creation',payload:{node_id:'node',target_node_id:'other-computer',agent_id:'pa',binding_id:'binding',epoch:1}});
+  await expect(f.pa.createAgent(f.config,f.binding,{...call,sessionId:'child'})).rejects.toThrow('main PA');
+  await expect(f.pa.createAgent({...f.config,personal:undefined},f.binding,call)).rejects.toThrow('personal binding');
+  f.relay.request=async()=>{throw new RelayDeliveryError('Lost ACK','unknown');};
+  expect(await f.pa.createAgent(f.config,f.binding,{...call,args:{action:'create',request_key:'original'}})).toMatchObject({status:'unknown',request_key:'original'});
+ }finally{f.inbox.close();f.store.close();}
+});
 it('preserves private PA UI validation details and records a definite rejection', async () => {
   const f=fixture();
   const detail={code:'invalid_interactive_source',message:'Correct and retry.',errors:[{source:'runtime',code:'runtime-error',component:'Text',statementId:'heading',message:'Invalid function argument',hint:'Check text'}]};

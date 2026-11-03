@@ -13,6 +13,7 @@ import { conversationAccess } from './conversation-access.js';
 import { profileResponse } from './control.js';
 import { personalInputContext } from './personal-input-context.js';
 import { PersonalActions } from './personal-actions.js';
+import {PersonalAgentCreation} from './personal-agent-creation.js';
 
 // Both observation delivery and single-message access honor the current direct-contact block.
 const contactReadable = `(c.type='group' OR NOT EXISTS (
@@ -398,6 +399,11 @@ export class PersonalAgents {
     switch(type) {
       case 'pa.state': return this.state(b.owner_id);
       case 'pa.sources': return this.sources(principal,args);
+      case 'pa.agent.creation': {
+        const result=await new PersonalAgentCreation(this).handle(b,args);
+        this.authority(principal,args);
+        return result;
+      }
       case 'pa.authorization': return this.authorization(principal,args);
       case 'pa.runtime.status':
         if(typeof args.available!=='boolean')fail(422,'runtime_availability_required');

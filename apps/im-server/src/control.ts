@@ -203,6 +203,7 @@ export class ConfigOperations {
     expectedVersion: number | null,
     root: string | null = null,
     previousHash?: string,
+    operationId?: string,
   ): ConfigOperationRecord {
     this.authorize(owner, node, candidate.agent_id);
     const binding=configurationPersonalBinding(this.dependencies.db,candidate.agent_id,owner,node);
@@ -218,7 +219,7 @@ export class ConfigOperations {
       const kind = effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph ? 'feature' : 'tool';
       fail(409, {code:'capability_in_use', message:'Pause or finish active tasks before withdrawing Task capability', blocks:[{code:'active_tasks',target:{kind,name:'task_graph'}}]});
     }
-    const id = randomUUID().replaceAll("-", ""),
+    const id = operationId ?? randomUUID().replaceAll("-", ""),
       hash = candidateFingerprint(candidate);
     if (
       this.dependencies.db.prepare("SELECT 1 FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied')").get(candidate.agent_id)
@@ -338,10 +339,10 @@ export class ConfigOperations {
       throw error;
     }
   }
-  async create(candidate: ConfigurationCandidate, owner: string, node: string) {
+  async create(candidate: ConfigurationCandidate, owner: string, node: string, operationId?: string) {
     if (readAgentProfile(this.dependencies.db, candidate.agent_id))
       fail(409, "agent_id already exists");
-    const op = transaction(this.dependencies.db, () => this.insert(candidate, owner, node, "create", null, null));
+    const op = transaction(this.dependencies.db, () => this.insert(candidate, owner, node, "create", null, null, null, undefined, operationId));
     return this.commit(op, await this.resolve(op, await this.request(op)));
   }
   async update(profile: AgentProfileRecord, candidate: ConfigurationCandidate, owner: string) {

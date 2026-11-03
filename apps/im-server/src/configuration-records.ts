@@ -29,6 +29,8 @@ export interface AgentProfileRecord {
   is_stale: number;
 }
 export interface ConfigOperationRecord {
+  error_code: string | null;
+  error_message: string | null;
   operation_id: string;
   root_operation_id: string | null;
   agent_id: string;

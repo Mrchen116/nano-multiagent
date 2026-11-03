@@ -1,6 +1,8 @@
 import { mkdtemp, mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createServer} from 'node:http';
 import { expect, it } from 'vitest';
 import { reviewPersonal } from '../lib/personal-security.js';
 import { personalReviewAction } from '../src/personal-security.js';
@@ -95,7 +97,8 @@ export const name='capability-fixture';export const inject=['tools'];export func
         expect(results.every((entry:any)=>!entry.result.isError),JSON.stringify(results)).toBe(true);
         expect(JSON.stringify(results)).toContain('OWNER_EXTENSION_EXECUTED');expect(JSON.stringify(results)).toContain('SHELL_EXECUTED');
         const catalog=await client.rpc.request('configuration.catalog',{agentId:'agent',cwd:root}) as any;
-        const names=catalog.tools.map((tool:any)=>tool.name).sort();catalogs.push(names.filter((name:string)=>!['personal_sources','send_user_message'].includes(name)));
+        const names=catalog.tools.map((tool:any)=>tool.name).sort();catalogs.push(names.filter((name:string)=>!['personal_sources','send_user_message','agent_creation'].includes(name)));
+        if(!personal)expect(names).not.toContain('agent_creation');
         for(const name of ['bash','read','write','web_search','web_fetch','skill_manage','plugin_manager','owner_tool','task_graph'])expect(names).toContain(name);
         expect(catalog.skills.map((skill:any)=>skill.name)).toEqual(expect.arrayContaining(['owner-skill','nano-ongoing-work']));
         expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('持续推进已交办的工作');
@@ -115,6 +118,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
         if(personal)expect(JSON.stringify(after.prompt)).toContain('nano-personal-agent');
         if(personal){
           expect(names).toContain('personal_sources');
+          expect(names).toContain('agent_creation');
           expect(calls.find(call=>call.method==='personal_sources').args).toEqual({action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1});
           expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
@@ -192,3 +196,49 @@ it('delivers full current input and whole bounded history to the reviewer, never
  expect(await reviewPersonal(ctx as any,config,'input',{current:{id:'too-big',content:'secret '.repeat(20000)},previous:[]})).toMatchObject({decision:'unavailable'});
  expect(requests).toHaveLength(before);
 });
+
+it('loads creation guidance on demand while preserving the actual serialized tool definitions',async()=>{
+ const home=await mkdtemp(join(tmpdir(),'pa-creation-wire-'));
+ const requests:any[]=[];const calls:any[]=[];
+ const server=createServer(async(req,res)=>{
+  let body='';for await(const chunk of req)body+=chunk;
+  const attempt=requests.length;requests.push(JSON.parse(body));
+  const steps=[{name:'skill',input:{name:'nano-agent-creation'}},
+   {name:'agent_creation',input:{action:'options'}},
+   {name:'agent_creation',input:{action:'create',request_key:'owner-create',source_message_id:'owner-create',configuration:{agent_id:'coach'}}}];
+  const tool=steps[attempt];
+  res.writeHead(200,{'content-type':'text/event-stream'});
+  const emit=(type:string,data:object)=>res.write(`event: ${type}\ndata: ${JSON.stringify({type,...data})}\n\n`);
+  emit('message_start',{message:{id:`step-${attempt}`,type:'message',role:'assistant',model:'fixture',content:[],stop_reason:null,usage:{input_tokens:20,output_tokens:0}}});
+  emit('content_block_start',{index:0,content_block:tool?{type:'tool_use',id:`call-${attempt}`,name:tool.name,input:{}}:{type:'text',text:'Created coach'}});
+  if(tool)emit('content_block_delta',{index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify(tool.input)}});
+  emit('content_block_stop',{index:0});emit('message_delta',{delta:{stop_reason:tool?'tool_use':'end_turn'},usage:{output_tokens:5}});emit('message_stop',{});res.end();
+ });
+ await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ let client:RuntimeClient|undefined;let logs='';
+ try {
+  const port=(server.address() as {port:number}).port;
+  await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:100000}],retryPolicy:{mode:'normal',maxRetries:0}}}}}]);
+  client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});registerNoopTaskHosts(client);
+  client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);return call.args.action==='options'?{node_id:'node',configuration_fields:{agent_id:'Stable ID'},defaults:{work_mode:'single_thread'}}:{status:'created',agent:{agent_id:'coach'}};});
+  const config={agentId:'pa',revision:'1',workspace:home,mode:'global',provider:'fixture',model:'fixture',
+   personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1},toolAllowlist:['skill'],
+   skillRoots:[{path:fileURLToPath(new URL('../../personal-assistant/assets/skills/',import.meta.url)),source:'builtin'}],
+   skillSelection:{mode:'explicit_allowlist',names:['nano-agent-creation']},
+   features:{intelligent_ui:false,task_graph:false,dreaming:false,cron_scheduling:false,heartbeat:false},approval:{dangerouslySkipPermissions:true}};
+  await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
+  await client.rpc.request('session.ensure',{sessionId:'root',agentId:'pa',ownerId:'owner',revision:'1',cwd:home});
+  await client.rpc.request('session.submit',{sessionId:'root',inputId:'owner-create',mode:'followup',content:[{type:'text',text:'Create the agreed coach.'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'owner-create'}});
+  await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:'owner-create'}) as any).terminal,{timeout:10000}).toBeTruthy();
+  expect(requests).toHaveLength(4);
+  expect(requests.every(request=>JSON.stringify(request.tools)===JSON.stringify(requests[0].tools))).toBe(true);
+  expect(requests.every(request=>JSON.stringify(request.system)===JSON.stringify(requests[0].system))).toBe(true);
+  expect(JSON.stringify(requests[0].messages)).toContain('nano-agent-creation');
+  expect(JSON.stringify(requests[0].messages)).not.toContain('已有目录要求确认时');
+  expect(JSON.stringify(requests[1].messages)).toContain('已有目录要求确认时');
+  expect(JSON.stringify(requests[2].messages)).toContain('configuration_fields');
+  expect(JSON.stringify(requests[3].messages)).toContain('created');
+  expect(calls.map(call=>call.method)).toEqual(['agent_creation','agent_creation']);
+ }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
+ finally{if(client)await client.shutdown().catch(()=>{});server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));await rm(home,{recursive:true,force:true});}
+},20000);
