@@ -4,6 +4,7 @@ import { PersonalAssistant } from '../src/personal-assistant.js';
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import type { ProductCall } from '../src/global-agent.js';
+import { RelayDeliveryError } from '@nano/channels';
 
 function fixture(decision = 'deny') {
   const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
@@ -30,6 +31,26 @@ function fixture(decision = 'deny') {
   const call:ProductCall={method:'send_message',args:{target:'conversation:c_peer',text:'Private budget'},operationId:'op',callId:'tool',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
   return {pa,store,inbox,config,binding,calls,reviews,call,runtime,relay};
 }
+it('preserves private PA UI validation details and records a definite rejection', async () => {
+  const f=fixture();
+  const detail={code:'invalid_interactive_source',message:'Correct and retry.',errors:[{source:'runtime',code:'runtime-error',component:'Text',statementId:'heading',message:'Invalid function argument',hint:'Check text'}]};
+  const original=f.relay.request;
+  f.relay.request=async(type,payload)=>{if(type==='agent.message')throw new RelayDeliveryError('rejected','rejected','invalid_interactive_source',detail);return original(type,payload);};
+  try {
+    await expect(f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Summary',interactive:{format:'openui',catalog_version:'nano-iui-1',source:'root = Text("test")'}}})).rejects.toThrow(JSON.stringify(detail));
+    expect(f.inbox.publication('op')?.state).toBe('rejected');
+  } finally {f.inbox.close();f.store.close();}
+});
+it('keeps a reviewed shared UI rejection distinct from unknown delivery', async () => {
+  const f=fixture('allow');
+  const detail={code:'invalid_interactive_source',message:'UI was not published. Correct and retry.',errors:[{source:'parser',code:'type-mismatch',component:'Title',path:'/size',statementId:'heading',message:'Invalid size'}]};
+  const original=f.relay.request;
+  f.relay.request=async(type,payload)=>type==='pa.action.commit'?{type:'pa.action.commit.result',payload:{ok:false,error:detail}}:original(type,payload);
+  try {
+    await expect(f.pa.send(f.config,f.binding,{...f.call,args:{...f.call.args,interactive:{format:'openui',catalog_version:'nano-iui-1',source:'root = Title("Hello", "huge")'}}})).rejects.toThrow(JSON.stringify(detail));
+    expect(f.inbox.publication('op')?.state).toBe('rejected');
+  } finally {f.inbox.close();f.store.close();}
+});
 it.each(['deny','needs_owner','unavailable'])('never commits a %s disclosure and exposes no review tool',async decision=>{
   const f=fixture(decision);
   try{
@@ -43,7 +64,7 @@ it('commits only the frozen proposal with host verdict and preserves actual rece
   const f=fixture('allow');
   try{
     f.config.features = {intelligent_ui: false};
-    f.call.args.interactive = {format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("Explicit card")])'};
+    f.call.args.interactive = {format:'openui',catalog_version:'nano-iui-1',source:'root = Stack([TextContent("Explicit card")])'};
     expect(await f.pa.send(f.config,f.binding,f.call)).toMatchObject({status:'sent',message_id:'m'});
     const commit=f.calls.find(x=>x.type==='pa.action.commit')!;
     expect(commit.payload).toMatchObject({proposal_ref:'p',verdict_ref:'v',binding_id:'binding',epoch:1});
@@ -130,7 +151,7 @@ it('changes sources directly with owner evidence, without an independent model d
 });
 it('freezes interactive content and sending identity into one publication identity',async()=>{
  const f=fixture('allow');
- const interactive={format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("Choose")])'};
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Stack([TextContent("Choose")])'};
  try {
   await f.pa.send(f.config,f.binding,{...f.call,args:{target:'c_owner',text:'Your draft',interactive}});
   expect(f.calls.find(c=>c.type==='agent.message')!.payload).toMatchObject({interactive});

@@ -23,10 +23,18 @@
     "./serialization": {
       "types": "./lib/serialization.d.ts",
       "default": "./lib/serialization.js"
+    },
+    "./interactive-functions": {
+      "types": "./lib/interactive-functions/index.d.ts",
+      "default": "./lib/interactive-functions/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@openuidev/lang-core": "1.0.1",
+    "zod": "4.6.5"
   }
 }

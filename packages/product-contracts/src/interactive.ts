@@ -14,13 +14,13 @@ export function interactiveResponse(value: unknown): InteractiveResponse | undef
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('interactive must be an object');
   const input = value as Record<string, unknown>;
-  if (input.format !== 'openui' || input.catalog_version !== 'nano-1' || typeof input.source !== 'string' || !input.source.trim()
-    || new TextEncoder().encode(input.source).byteLength > 64 * 1024) throw new Error('interactive requires openui/nano-1 and source within 64 KiB');
+  if (input.format !== 'openui' || input.catalog_version !== 'nano-iui-1' || typeof input.source !== 'string' || !input.source.trim()
+    || new TextEncoder().encode(input.source).byteLength > 64 * 1024) throw new Error('interactive requires openui/nano-iui-1 and source within 64 KiB');
   if (input.supersedes_message_id !== undefined && (typeof input.supersedes_message_id !== 'string' || !input.supersedes_message_id))
     throw new Error('supersedes_message_id must be a message id');
   if (input.source_mode !== undefined && (input.source_mode !== 'patch' || !input.supersedes_message_id))
     throw new Error('patch requires supersedes_message_id');
-  return { format: 'openui', catalog_version: 'nano-1', source: input.source,
+  return { format: 'openui', catalog_version: 'nano-iui-1', source: input.source,
     ...(input.source_mode === 'patch' ? { source_mode: 'patch' as const } : {}),
     ...(input.supersedes_message_id ? { supersedes_message_id: input.supersedes_message_id as string } : {}) };
 }

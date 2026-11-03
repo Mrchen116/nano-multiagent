@@ -283,7 +283,7 @@ it('lets both real Agent owners observe existing direct history and events witho
   const personal = messaging.resolveTarget('private-left', 'agent:private-right');
   // These histories predate observation and do not require another Agent message.
   db.prepare("UPDATE conversations SET owner_id='legacy-orphan' WHERE id=?").run(cross);
-  const interactive = {format:'openui',catalog_version:'nano-1',source:'root = Stack([form])\nform = Form("draft", ContinueButton("send", "Continue"), [FormControl("Draft", TextArea("body", "Draft", 3, null, "Read only"))])'};
+  const interactive = {format:'openui',catalog_version:'nano-iui-1',source:'$body = "Read only"\nroot = Col([Form([TextArea($body, "Draft"), Button("Continue", @ToAssistant("Continue"))])])'};
   const histories = [cross, same, personal].map(id => messaging.insertMessage(id, id === personal ? 'agent-private-left' : 'agent-left', 'agent', 'existing history', [], null, 'completed', id === cross ? {interactive} : {}));
   const interactionPath = `/im/v1/conversations/${cross}/messages/${histories[0].id}/interaction-state`;
   db.prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(cross,alice.user.id);

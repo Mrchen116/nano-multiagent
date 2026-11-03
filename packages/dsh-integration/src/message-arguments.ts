@@ -20,5 +20,5 @@ export function normalizeMessageArguments(args: unknown): Record<string, unknown
   const violations = validateJsonSchemaValue({type:'object' as const,properties:publicMessageProperties,required:['target','text'],additionalProperties:false}, args);
   if (violations.length) throw new Error(`Invalid public message: ${violations.join('; ')}`);
   const input = args as Record<string, unknown>;
-  return input.interactive ? {...input,interactive:{...(input.interactive as Record<string,unknown>),format:'openui',catalog_version:'nano-1'}} : input;
+  return input.interactive ? {...input,interactive:{...(input.interactive as Record<string,unknown>),format:'openui',catalog_version:'nano-iui-1'}} : input;
 }

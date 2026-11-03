@@ -4,11 +4,33 @@ import { NodeStore } from '../src/store.js';
 import { SingleThread } from '../src/single-thread.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
+import { RelayDeliveryError } from '@nano/channels';
 
 const input: RelayInput = { agent_id:'a',conversation_id:'c',relay_task_id:'choice',idempotency_key:'choice',metadata:{conversation_type:'group',mentioned_agent_ids:['a']},
   message:{id:'choice',content:'先别发送，把语气改得随意一点',sender_type:'user',sender_user_id:'owner',attachments:[],interaction_reply:{
     source_message_id:'card',source_summary:'确认要发给林悦的消息',agent_id:'a',state:{},fields:[{name:'draft',label:'草稿',value:'林悦，周六11点断桥见'}],
   }} };
+it('returns compact upstream diagnostics for recovery and allows a corrected new publication', async () => {
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'c',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  const detail={code:'invalid_interactive_source',message:'Correct the errors and retry.',errors:[{source:'parser',code:'type-mismatch',component:'Title',statementId:'heading',path:'/size',message:'Invalid size',hint:'Use sm or md'}]};
+  let attempts=0;
+  const product=new GlobalAgent({nodeId:'n',ownerId:'owner',store,inbox,agents:[{agentId:'a',revision:'1',provider:'test',model:'test',mode:'single_thread'}],
+    runtime:{onNotification:()=>()=>{},request:async()=>({events:[],durable:true})},
+    relay:{async request(type){if(type==='agent.session.ensure')throw new Error('invalid_scope');if(type==='agent.message'){
+      if(++attempts===1)throw new RelayDeliveryError('rejected','rejected','invalid_interactive_source',detail);
+      return {type:'ack',payload:{message_id:'fixed',conversation_id:'c'}};
+    }return {type:'result',payload:{ok:true,result:{type:'direct',channel:'web'}}};}},image:async()=>'',onError:error=>{throw error;}});
+  const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Title("Hello", "huge")'};
+  const call:ProductCall={method:'send_message',args:{target:'current',text:'Summary',interactive},operationId:'invalid',callId:'invalid',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
+  try {
+    await expect(product.call(call)).rejects.toThrow(JSON.stringify(detail));
+    expect(inbox.publication('invalid')?.state).toBe('rejected');
+    const fixed={...call,operationId:'fixed',callId:'fixed',args:{...call.args,interactive:{...interactive,source:'root = Title("Hello", "md")'}}};
+    expect(await product.call(fixed)).toMatchObject({status:'sent',message_id:'fixed'});
+    expect(attempts).toBe(2);
+  } finally {await product.stop();store.close();inbox.close();}
+});
 it('preserves handwritten instructions and attached values in both Relay and Global Inbox', async () => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');const submissions:any[]=[];
   const product=new SingleThread({nodeId:'n',ownerId:'owner',store,agents:[{agentId:'a',revision:'1',mode:'single_thread',provider:'test',model:'test',workspace:'/tmp'}],
@@ -30,7 +52,7 @@ it.each(['web','feishu'])('publishes immutable UI identities and text fallback f
   const product=new GlobalAgent({nodeId:'n',ownerId:'owner',store,inbox,agents,runtime:{onNotification:()=>()=>{},request:async()=>({events:[],durable:true})},
     relay:{async request(type,payload){if(type==='agent.session.ensure')throw new Error('invalid_scope');if(type==='agent.message'){sent.push(payload);return{type:'ack',payload:{message_id:'card',conversation_id:'c'}};}return{type:'result',payload:{ok:true,result:{type:'direct',channel}}};}},image:async()=>'',onError:error=>{throw error;}});
   store.recordEvents('main',[{seq:1,time:1,type:'tool/call',data:{turn:1,callId:'send-card',name:'send_message',arguments:'{}'}}]);
-  const interactive={format:'openui',catalog_version:'nano-1',source:'root = Stack([TextContent("选项")])'};
+  const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Stack([TextContent("选项")])'};
   const call:ProductCall={method:'send_message',args:{target:'current',text:'摘要',interactive},operationId:'send-card',callId:'send-card',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
   try{
     agents[0].features.intelligent_ui=false;

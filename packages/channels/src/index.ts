@@ -59,7 +59,7 @@ export interface WebRelayOptions {
 }
 /** A failed send whose delivery status tells the durable owner whether reconciliation is needed. */
 export class RelayDeliveryError extends Error {
-  constructor(message: string, readonly delivery: 'not-sent' | 'unknown' | 'rejected', readonly code?: string) {
+  constructor(message: string, readonly delivery: 'not-sent' | 'unknown' | 'rejected', readonly code?: string, readonly detail?: unknown) {
     super(message); this.name = 'RelayDeliveryError';
   }
 }
@@ -292,7 +292,7 @@ export class WebRelayConnection {
       clearTimeout(pending.timer); this.pending.delete(String(pending.frame.payload.request_id));
       if (frame.type === 'error') {
         const code = String(frame.payload.code ?? 'error');
-        pending.reject(new RelayDeliveryError(`IM rejected the request: ${code}`, 'rejected', code));
+        pending.reject(new RelayDeliveryError(`IM rejected the request: ${code}`, 'rejected', code, frame.payload.detail));
         if (pending.frame.type === 'node.register') { this.disconnect(generation, false, 'IM rejected registration'); return; }
       } else pending.resolve(frame);
       this.pump(); return;

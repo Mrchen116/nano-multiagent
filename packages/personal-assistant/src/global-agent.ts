@@ -708,7 +708,7 @@ export class GlobalAgent {
     } catch (error) {
       if (interactive && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');
-        throw new Error(`Interactive reply rejected: ${error.code ?? error.message}`);
+        throw new Error(error.detail ? JSON.stringify(error.detail) : `Interactive reply rejected: ${error.code ?? error.message}`);
       }
       inbox.settlePublication(call.operationId, 'unknown');
       if(error instanceof RelayDeliveryError && error.delivery==='unknown') {

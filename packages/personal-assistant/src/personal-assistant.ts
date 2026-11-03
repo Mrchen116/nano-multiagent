@@ -2,7 +2,7 @@ import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { randomUUID } from 'node:crypto';
 import { interactiveResponse, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
-import type { ProtocolFrame } from '@nano/channels';
+import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
 import type { NodeStore } from './store.js';
 import type { InboxStore } from './inbox.js';
@@ -24,7 +24,7 @@ export class PersonalAssistant {
     if (!identity || identity.ownerId !== this.options.ownerId) throw new Error('Missing trusted personal binding');
     const response = await this.options.relay.request(method, { ...args, request_id: randomUUID(), node_id: this.options.nodeId,
       agent_id: config.agentId, binding_id: identity.bindingId, epoch: identity.epoch });
-    if (response.payload.ok !== true) throw new Error(JSON.stringify(response.payload.error ?? 'Personal source unavailable'));
+    if (response.payload.ok !== true) throw Object.assign(new Error(JSON.stringify(response.payload.error ?? 'Personal source unavailable')), {detail:response.payload.error});
     return response.payload.result as Data;
   }
 
@@ -205,7 +205,13 @@ export class PersonalAssistant {
         inbox.settlePublication(operationId,'confirmed',result);
         if(incident)await this.request(config,'pa.incident.receipt',{incident_ref:incident,message_id:response.payload.message_id});
         return result;
-      } catch(error) {if(inbox.publication(operationId)?.state!=='confirmed')inbox.settlePublication(operationId,'unknown');throw error;}
+      } catch(error) {
+        if (interactive && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+          inbox.settlePublication(operationId,'rejected');
+          throw new Error(error.detail ? JSON.stringify(error.detail) : error.code ?? error.message);
+        }
+        if(inbox.publication(operationId)?.state!=='confirmed')inbox.settlePublication(operationId,'unknown');throw error;
+      }
     }
     const proposal = await this.request(config,'pa.action.prepare',{request_key:operationId,representation,conversation_id:conversation,
       ...(incident?{incident_ref:incident}:{}),content:text,attachments:call.args.attachments ?? [],...(interactive ? {interactive} : {})});
@@ -232,7 +238,10 @@ export class PersonalAssistant {
       const result = {status:'sent',target,message_id:committed.message_id,conversation_id:committed.conversation_id};
       inbox.settlePublication(operationId,'confirmed',result);
       return result;
-    } catch(error) { inbox.settlePublication(operationId,'unknown'); throw error; }
+    } catch(error) {
+      const rejected=interactive && (error as {detail?:{code?:string}}).detail?.code==='invalid_interactive_source';
+      inbox.settlePublication(operationId,rejected?'rejected':'unknown'); throw error;
+    }
   }
 
   /** Freeze and consume a provider permit immediately before the real channel send. */

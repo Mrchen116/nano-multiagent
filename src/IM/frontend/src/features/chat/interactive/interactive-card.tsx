@@ -1,10 +1,10 @@
 import React, { Component, useEffect, useMemo, useRef, useState } from 'react';
 import { Renderer, type ActionEvent } from '@openuidev/react-lang';
 import { ThemeProvider } from '@openuidev/react-ui';
-import { interactiveTheme } from './theme';
 import '@openuidev/react-ui/defaults.css';
 import '@openuidev/react-ui/components.css';
 import { interactiveLibrary } from './catalog';
+import { runLibraryAction } from './open-intelligent-ui/actions';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
@@ -157,6 +157,8 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     },
   }), [message.id, message.conversation_id, t]);
   function onAction(action: ActionEvent) {
+    const handled = runLibraryAction(action);
+    if (handled) { void handled.then(ok => { if (!ok) setError('action'); }); return; }
     if (action.type === 'ComposeMessage') {
       if (typeof action.params.target === 'string' && typeof action.params.text === 'string') void composeMessage(action.params.target, action.params.text);
       else setError('action');
@@ -189,7 +191,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
       <fieldset disabled={readOnly || busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
-        <ThemeProvider mode="light" lightTheme={interactiveTheme} cssSelector=".interactive-card">
+        <ThemeProvider mode="light" cssSelector=".interactive-card">
         <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
           initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
           onParseResult={parsed => {

@@ -34,7 +34,7 @@ it('requires the selected author to have current write access and freezes the se
 
 it('keeps the PA as card executor while the owner is its public author and rechecks participation',()=>{
   const {ctx,db,service,principal,args}=personalFixture();
-  const interactive={format:'openui',catalog_version:'nano-1',source:'$draft = "Wednesday"\nroot = Stack([TextArea("draft", "", 3, null, $draft), ContinueButton("revise", "Revise")])'};
+  const interactive={format:'openui',catalog_version:'nano-iui-1',source:'$draft = "Wednesday"\nroot = Col([TextArea($draft), Button("Revise", @ToAssistant("Revise"))])'};
   const input={...args,representation:'owner',request_key:'card',conversation_id:'peer',content:'Please review',interactive};
   expect(()=>service.actions.prepare(principal,input)).toThrow('owner_interactive_requires_pa_participant');
   db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
@@ -49,7 +49,7 @@ it('keeps the PA as card executor while the owner is its public author and reche
   expect(source).toMatchObject({sender_user_id:'u1',executor_user_id:'a1',executor_agent_id:'a'});
   const req={headers:{'x-user':'u2'},params:{conversation_id:'peer',message_id:first.message_id},query:{}} as any;
   expect(ctx.messaging.interactions.readDraft(req)).toMatchObject({can_interact:true,read_only:false,superseded_by:null});
-  const click=ctx.messaging.interactions.prepare({id:'u2',username:'bob'},'peer',{interaction_reply:{source_message_id:first.message_id,action_id:'revise',state:{'$draft':'Friday'}}},'click');
+  const click=ctx.messaging.interactions.prepare({id:'u2',username:'bob'},'peer',{interaction_reply:{source_message_id:first.message_id,event:{type:'continue_conversation',label:'Revise',message:'Revise'},state:{'$draft':'Friday'}}},'click');
   expect(click.snapshot).toMatchObject({agent_id:'a',state:{'$draft':'Friday'}});
   expect(ctx.messaging.interactions.contexts({id:'u2',username:'bob'},'peer',[{source_message_id:first.message_id,state:{'$draft':'Friday'}}])[0].agent_id).toBe('a');
   const replacement=prepare({...input,request_key:'replacement',interactive:{...interactive,supersedes_message_id:first.message_id}});

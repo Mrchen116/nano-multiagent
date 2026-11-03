@@ -76,14 +76,14 @@ it('accepts the bound Feishu owner DM as original authority while keeping groups
 it('uses submitted UI choices as authorization while keeping unsubmitted edits private',async()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  const source=ctx.messaging.insertMessage('peer','u2','user','Can we meet Thursday?');
- const interactive={format:'openui',catalog_version:'nano-1',source:'$body = "Thursday works"\nroot = Stack([TextArea("body", "", 3, null, $body), ContinueButton("coordinate", "Coordinate")])'};
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'$body = "Thursday works"\nroot = Col([TextArea($body), Button("Coordinate", @ToAssistant("Coordinate"))])'};
  const card=ctx.messaging.insertMessage('chat','a1','agent','Suggested reply',[],null,'completed',{interactive});
  expect(card).not.toHaveProperty('reply_draft');
  const request={headers:{'x-user':'u1'},params:{conversation_id:'chat',message_id:card.id},query:{},body:{expected_draft_revision:0,state:{'$body':'Private unsubmitted wording'}}} as any;
  ctx.messaging.interactions.writeDraft(request);
  expect(JSON.stringify(service.authorization(principal,args))).not.toContain('Private unsubmitted wording');
  expect(db.prepare('SELECT count(*) n FROM messages WHERE conversation_id=?').get('peer')).toEqual({n:1});
- const sent=await ctx.messaging.sendMessage({...request,headers:{...request.headers,'idempotency-key':'selection'},body:{sender_user_id:'u1',interaction_reply:{source_message_id:card.id,action_id:'coordinate',state:{'$body':'Coordinate Thursday only'}}}});
+ const sent=await ctx.messaging.sendMessage({...request,headers:{...request.headers,'idempotency-key':'selection'},body:{sender_user_id:'u1',interaction_reply:{source_message_id:card.id,event:{type:'continue_conversation',label:'Coordinate',message:'Coordinate'},state:{'$body':'Coordinate Thursday only'}}}});
  const auth=service.authorization(principal,args);
  expect(auth.owner_messages).toContainEqual(expect.objectContaining({id:sent.id,interaction_reply:expect.objectContaining({source_message_id:card.id,state:{'$body':'Coordinate Thursday only'}})}));
  expect(auth.proposals).toContainEqual(expect.objectContaining({id:card.id,source:interactive.source}));
@@ -142,7 +142,7 @@ it('uses current PA membership and existing group addressing for source control 
 
 it('keeps card source and lifecycle in model history without wire constants',()=>{
  const {ctx,principal,args}=personalFixture();
- const interactive={format:'openui',catalog_version:'nano-1',source:'root = TextContent("Editable proposal")'};
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Text("Editable proposal")'};
  const card=ctx.messaging.insertMessage('chat','a1','agent','Proposal',[],null,'completed',{interactive});
  const model=new Work(ctx).query(principal,{...args,action:'read',target:'chat'}).messages.find((m:any)=>m.message_id===card.id);
  expect(model.interactive).toEqual({source:interactive.source});
