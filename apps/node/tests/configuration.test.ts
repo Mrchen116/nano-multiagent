@@ -3,7 +3,7 @@ import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { agentConfigurationFingerprint, canonicalAgentConfiguration } from '@nano/product-contracts';
-import {builtinSkillsRoot} from '@nano/personal-assistant';
+import {builtinSkillsRoot, personalSkillsRoot} from '@nano/personal-assistant';
 import { NodeConfiguration, type NodeConfigurationFile } from '../src/configuration.js';
 import { load } from 'js-yaml';
 
@@ -21,7 +21,8 @@ it('preserves default versus empty selections and ordered local/global Skill roo
     const personal=config.runtime({...agent,work_mode:'global',personal_agent:{bindingId:'binding',ownerId:'owner',conversationId:'c_owner',epoch:1}});
     const ordinary=config.runtime({...agent,work_mode:'global'});
     expect(personal.extensions).toEqual(ordinary.extensions);
-    expect(personal.skillRoots).toEqual(ordinary.skillRoots);
+    expect(personal.skillRoots).toEqual([...ordinary.skillRoots!, {path:personalSkillsRoot,source:'builtin'}]);
+    expect(config.runtime(agent).skillRoots).not.toContainEqual({path:personalSkillsRoot,source:'builtin'});
     expect(personal.knowledge).toEqual(ordinary.knowledge);
     expect(personal.toolAllowlist).toEqual(ordinary.toolAllowlist);
     expect(config.runtime({ ...agent, tool_allowlist: [], skills: [], skills_selection_mode: 'explicit_allowlist' })).toMatchObject({ toolAllowlist: [], skillSelection: { mode: 'explicit_allowlist', names: [] } });

@@ -29,7 +29,10 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
     toolAllowlist: ["workflow"],
   };
   const capabilities = projectCapabilities(catalog, node, agent);
-  expect(capabilities.skills.find(skill => skill.name === 'tripai-skill')).toMatchObject({source_group: 'builtin', default_on: true});
+  expect(capabilities.skills.find(skill => skill.name === 'tripai-skill')).toMatchObject({source_group: 'builtin', default_on: false});
+  expect(projectCapabilities(catalog, node, {...agent, mode:'global'}).skills.find(skill => skill.name === 'tripai-skill')?.default_on).toBe(false);
+  expect(projectCapabilities(catalog, node).skills.find(skill => skill.name === 'tripai-skill')?.default_on).toBe(false);
+  expect(projectCapabilities(catalog, node, {...agent, mode:'global', personal:{bindingId:'b',ownerId:'owner',conversationId:'dm',epoch:1}}).skills.find(skill => skill.name === 'tripai-skill')?.default_on).toBe(true);
   expect(capabilities.skills.find(skill => skill.name === 'other-skill')?.default_on).toBe(false);
   expect(capabilities.tools.find(tool => tool.name === "expense_summary")).toMatchObject({source_group: "workspace", enabled: true, default_on: false});
   expect(capabilities.features.find(feature => feature.key === "intelligent_ui")).toMatchObject({default_on: true, requires: {features: [], tools: ["send_message", "skill"], skills: ["nano-interactive-ui"]}, available: false});
