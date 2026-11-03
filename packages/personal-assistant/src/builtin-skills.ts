@@ -14,6 +14,9 @@ import lockfile from "proper-lockfile";
 export const builtinSkillsRoot = fileURLToPath(
   new URL("../assets/skills/", import.meta.url),
 );
+export const personalSkillsRoot = fileURLToPath(
+  new URL("../assets/personal-skills/", import.meta.url),
+);
 /** Refresh only packaged names; user-created Skills and original workspaces stay untouched. */
 export async function installBuiltinSkills(
   destination: string,
