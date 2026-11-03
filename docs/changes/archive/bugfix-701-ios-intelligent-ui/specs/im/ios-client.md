@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: 原生客户端承载既有业务
+### Requirement: iOS 独立客户端保持 IM 业务与权限契约
 IM SHALL 提供原生 iPhone 客户端。聊天、任务、Agent 和我的及其管理页面 SHALL 保持现有 IM 业务契约，内部业务页面 SHALL NOT 委托网页容器完成。Intelligent UI 回复内容允许使用随包共享渲染组件，原生宿主 SHALL 保持业务权限与交付权威。公共可见性 SHALL NOT 推导出管理权限。
 
 ### Requirement: 原生通用交互回复

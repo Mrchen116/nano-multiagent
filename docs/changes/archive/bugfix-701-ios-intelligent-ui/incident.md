@@ -2,8 +2,8 @@
 
 ## Relations
 
-- Related: [bugfix-699](../archive/bugfix-699-openui-native-visuals/incident.md)
-- Related: [feat-578](../archive/feat-578-ios-app/spec.md)
+- Related: [bugfix-699](../bugfix-699-openui-native-visuals/incident.md)
+- Related: [feat-578](../feat-578-ios-app/spec.md)
 
 ## 原始报告
 
@@ -25,4 +25,8 @@ bugfix-699 / PR #452 升级了 Web 的协议和组件目录，但 iOS `Interacti
 
 ## 状态
 
-实现、相关回归和独立 code review 已完成，验证记录见 [validation.md](validation.md)。尚无本次 iOS 用户验收，保留 active。未发布安装包或部署生产。
+实现、相关回归和独立 code review 已完成，验证记录见 [validation.md](validation.md)。用户于 2026-11-03 确认：
+
+> 模拟器验收过了就行，转成正式 PR，CI 过了就 merge 吧
+
+本次交付以已有模拟器验证为验收依据；已归并 canonical 契约并归档，PR #454 在远端 CI 全部通过后合并。真机未测保留为验证边界，不作为本次合并阻塞。未发布安装包或部署生产。
