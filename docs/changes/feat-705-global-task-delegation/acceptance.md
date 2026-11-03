@@ -89,3 +89,45 @@ R1 截止时训练卡已按选定受众交给原执行者制作；未将其最�
 | 保留已有选择和一次性语义 | pass | 保留 R1 已保存 fork 的重载及原生一次性行为证据；R2 超时未当作保存成功。 |
 
 验收只追加本报告。长期规格归并由实施方处理，隔离栈启停由主 Agent 管理。
+
+## R3 · targeted revalidation of full scope · 2026-11-04
+
+**Verdict — fail。** 用户在真实设置页完成了 fork 开关的保存与重载，R2 对应 major 关闭。全程委派的 major 未关闭：这次 E 根和一级均完整读取了同一组三份调查材料。
+
+主分支基线 `3da78a00a7cc8ace9d172c0b0d59c5d6e7881e0b`，受审 `f51486fd6a20ef81f633397ba270bfdc293318f5`，相对于 R2 的 `30eafa50c80182bb39cb2b26fe01c0729f3ba78b` 复验。全新 daily 节点 `wt-nano-multiagent-11618`、IM 54633，E 为 gpt-6.1-sol / high，审核为 gpt-6-luna，原 Persona、工具集和 Task 设置均沿用。临时增量为 E 私聊、合成项目的一份清单、P 的 fork 开关（完成后恢复）。PA 原提纲和独立比对的归属沿用 R2 真实旅程；本轮修正针对完整事项委派和成果核对，后两者直接复测 E。
+
+### 现有设置页
+
+1280×720 Chromium，进入 P 的 Config；首开看到 “No confirmed information / Refresh failed”，工具列表无 fork，不能保存。daily-product 请求 `d8f92e22-e518-4554-b024-863a5cb3a992` 的 inspection.done 为 timeout / 7344 ms。点击页面现有 Refresh status 一次后恢复（请求 `5722e865-0bf5-4603-a1c8-f4c066256217`，2311 ms）。P 的 fork 与 Goal 初始未勾选，点击 fork、Save Agent，profile v2 → v3；完整重载 fork 为选中。取消 fork、保存至 v4，再重载，fork 与三项 Goal 均为 false。全程只用产品界面，无调试或临时配置。截图 `/tmp/feat705-r3-initial-settings.png`、`/tmp/feat705-r3-fork-off.png`。本轮证明该开关可完成完整保存周期，首次检查超时仍实际发生。
+
+### E 的完整事项
+
+E 聊天 `c_6c1p6ig8`，根 `d2f229d5-afa6-4e91-a79b-578d3067aff6`，用户自然委托 `0f19b5aa5197` 要求依据项目简报、反馈、核实要求，独立产出 r3-qa.md 并交付反馈覆盖。Work 根 turn 1 在 Inbox 与成员核对后，先完整 read brief.md、feedback.md、checklist.md，均成功，随后回执并委派唯一一级 `9e1e9027-3912-45f5-825b-ed7012b9f666`。该一级 turn 1 再次 read 同组三份，各有实际工具结果。这一重复与用户要求“主不重复调查”直接冲突。执行中主人算时 `838818fa16da` 与清单补充 `fd6a8551ce89` 得到公开回复 `e9f6457235d0`（40 分钟），补充交给原一级。
+
+独立 56067 代理按上述根/子 x-agent-session-id 匹配 session req 与 raw/openai_codex upstream-req。根 00:25:01.609 的实际 system 同时含原 daily Persona 的“先读取”三份材料和候选规则“Delegate a complete independent matter before starting its investigation”，另有成果回传之后不应例行再读原始材料的指导。一级 00:25:34.461 的实际上游请求使用同一 gpt-6.1-sol / high，含父级完整委派和内部执行者职责；根无 subagent_fork，一级有 subagent_fork、read、send_message 且无 inbox。这里记录的是实际请求与执行顺序，没有据此断言是哪句提示导致模型选择。
+
+在最终交付阶段，根 turn 3 只读 r3-qa.md，然后在原聊天发送结果 `8a7e6773e521`。实际产物末节第 8 节列出 QA-07、QA-08 与对应的 QA-09 后续检查，归类与公开说明一致，九条均未被冒称为已运行的产品测试。未观察到 R2 那样在回传后重读原资料，当前失败定位在本次派单前。
+
+### R3 全部 Scenario 裁决
+
+以 spec.md 同名场景为判据。设置检查首开超时是复现事实，但本次可以通过一次界面内刷新恢复，完整开关结果已观察；依然阻塞本 unit 的实际产品问题是 E 对三份原材料的重复调查。
+
+| Scenario | 结果 | 观察或保留依据 |
+|---|---|---|
+| 整项交办与内部再分工 | fail | R3 根委派前完整读三份原材料，原一级随后再读三份。 |
+| 返回结果不足或执行能力不可用 | inconclusive | 保留 R2 缺原文的诚实阻塞、补料后由原一级交付；真实成果返回后存在遗漏或矛盾而需退补的触发条件仍无观察。未让模型故意交错成果。 |
+| 新工作与原事项更正 | pass | R3 清单补充回原一级；R2 同项目的新访谈比对独立于提纲，真实产生分开交付。 |
+| 内部普通进展无需父级续令 | pass | R2 已验证，R3 一级正常推进，除用户的新要求外未轮番等待根批准。 |
+| 一天内的小事与状态变化 | pass | R3 主直接回答算时，另保留 R2 PA 回应状态与并行日常。 |
+| 日常中出现独立交办 | pass | R2 PA 日常与提纲并行、另派新交付；本轮无证据推翻。 |
+| 决策与最终结果 | pass | R1 选型回路、R2 公开交付和阻塞、R3 用户补充回路与原聊天结果。 |
+| subagent 始终通过 Global 与用户沟通 | pass | R2 缺料→主问→主传回，R3 工程聊天仅主 Agent 对外。 |
+| 更正或停止一个独立事项 | pass | R1 仅停止练习卡未停止清单；R3 补充留在原事项。 |
+| 明确接续与原执行者不可用 | inconclusive | 保留 R1 停止后同 ID 接续以及 R2 缺原文后同 ID 接续；原执行者自身失联而需说明接手的分支未出现。未删除原生状态制造故障。 |
+| 主会话关闭 fork，一级仍可组织下级 | pass | R3 自然根/一级实际 wire 工具差异；原生二级组织能力沿用 R1 受控证据。 |
+| 初始上下文与责任不串层 | pass | 一级 system 和委派输入 R2/R3 真实 wire；二级身份、原生 fork 继承及冷恢复保留 R1 边界结论。 |
+| 新建与无显式选择 | pass | R3 daily P 首次成功显示时 fork 未选，E 根 wire 无 fork。 |
+| 手动开启与关闭 | pass | 真实 P Web 设置 v2→v3→v4，分别重载确认开、关，Goal 三项不联动。 |
+| 保留已有选择和一次性语义 | pass | R3 两次重载保留保存选择；一次性语义及旧配置沿用 R1 对应证据。 |
+
+本轮没有改动源码、角色或产品配置文件，仅追加验收报告。受控机制证据和自然行为分列，未触发的两项边界不记为产品故障。隔离服务交回主 Agent。
