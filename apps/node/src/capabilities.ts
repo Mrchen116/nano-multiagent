@@ -58,7 +58,7 @@ export function projectCapabilities(
       description: skill.description,
       location: skill.path,
       source_group: skill.source === "compat" ? "compatibility" : skill.source,
-      default_on: skill.source === "global" || (skill.source === "builtin" && skill.name === "nano-memory"),
+      default_on: skill.source === "global" || (skill.source === "builtin" && ["nano-memory", "tripai-skill"].includes(skill.name)),
     })),
     fixed_tools: fixedTools(agent?.mode, agent?.personal ? 'personal' : 'root', catalog.tools.some(tool => tool.name === 'new_context')),
     memory_mode: agent?.knowledge?.memoryMode ?? 'document',

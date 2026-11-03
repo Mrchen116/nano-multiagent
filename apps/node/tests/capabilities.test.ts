@@ -4,7 +4,10 @@ import type { NodeConfigurationFile } from "../src/configuration.js";
 it("exposes selectable effort and native Workflow commands without a duplicate slash", () => {
   const catalog = {
     tools: [{ name: "workflow", description: "workflow" }, {name: "expense_summary", description: "Expenses", source_group: "workspace" as const, enabled: true}],
-    skills: [],
+    skills: [
+      {name: 'tripai-skill', description: '携程问道', source: 'builtin'},
+      {name: 'other-skill', description: 'Optional', source: 'builtin'},
+    ],
     workflows: [{ name: "saved", description: "Saved workflow" }],
   };
   const node = {
@@ -26,6 +29,8 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
     toolAllowlist: ["workflow"],
   };
   const capabilities = projectCapabilities(catalog, node, agent);
+  expect(capabilities.skills.find(skill => skill.name === 'tripai-skill')).toMatchObject({source_group: 'builtin', default_on: true});
+  expect(capabilities.skills.find(skill => skill.name === 'other-skill')?.default_on).toBe(false);
   expect(capabilities.tools.find(tool => tool.name === "expense_summary")).toMatchObject({source_group: "workspace", enabled: true, default_on: false});
   expect(capabilities.features.find(feature => feature.key === "intelligent_ui")).toMatchObject({default_on: true, requires: {features: [], tools: ["send_message", "skill"], skills: ["nano-interactive-ui"]}, available: false});
   const commands = capabilities.commands;
