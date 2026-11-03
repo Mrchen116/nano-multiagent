@@ -36,3 +36,35 @@
 - 普通 Global 和 PA 的真实模型自然旅程、原事项补充／日常短问／真实公开交付仍待实施 owner 和产品 reviewer 提供定位；无证据支持“模型必定委派正确”或“模型一定误解”的断言。
 - 本轮新增普通一级／普通二级／worker fork 的最终 provider 请求（转换时含 upstream）尚未提供；适配前捕获、catalog preview、旧 fork wire 不替代此证据。
 - 普通二级同 ID 冷恢复及要求的共享撤回／深度边界最终证据、required CI 尚待收口。此处不把未完成检查伪装成代码 bug，也不凭 `[]` 放行 Gate。
+
+## Round 2 — patch，含 main 交互核查
+
+- `executed_base`：`aa0a3d126c5bf88a20af87c7c9db458706ea3c4e`（已同步的 feat-703 主干基线）。
+- `validated_at`：`9af20eae88a5f327ad9981d3a81eae029809fab2`。
+- 前次受审实现：`45cd9117cb6183f504cdf63bdb5c8aef4e882dd3`；本轮检查其后本 unit 的指导、测试和 delta 改动，以及 feat-703 合入后与角色／产品权限的实际交互。R1 full 覆盖保留，不重复审 feat-703 全部业务实现。
+- 现场 `origin/main` 已为 `43cc90051cf9f037b58658fea86bb6e041681fac`（bugfix-706 文档）；`git merge-base origin/main HEAD` 为上述 aa0。故 `origin/main...9af20eae8` 的实际分支 diff 仍从 aa0 起算，不把移动 ref 标为 aa0，也不切换现场。
+- `review_mode`：`patch`；Context 审查：Mode B — Implementation Review，沿本轮变化的组合／交付／恢复链复验。
+
+### Findings
+
+```json
+[]
+```
+
+R1 代码 findings=[] retained；本轮未发现新增确认代码缺陷，也无需要扩大为另一轮 full code review 的共享边界变化。产品报告 R1 的真实失败保留，不能用本结论代替其行为复验。
+
+### 实际复验
+
+| 变化／Surface | 本轮判断与直接证据 | 边界 |
+|---|---|---|
+| 根协调系统指导、Persona／AGENTS 组合 | `global-mode.ts:35` 明确完整独立事项先委派，把通用资料读取／实施／验证要求交执行者，根仍处理只有自己能取得的产品事实和用户决定；`:39` 按独立请求产物区分新事项与原成果修订。与 R4 的“不重复调查、不同事项各有一级”一致，不引入新 router／Task 流程。 | 源码确认已经针对 R1 行为修正；不证明真实模型已不重复阅读或已正确区分同主题新单。R1 acceptance 的失败未关闭。 |
+| 普通一级／二级最终 provider 请求 | `global-child-tools.test.ts:107-203` 在本地 HTTP server 直接读取 Anthropic `system/tools/messages`；llm/stream middleware 仅追加 native ID／depth／fork 元数据并 `yield*next()`，不替换模型回复。响应通过真实 SSE adapter 触发原生 read／subagent／fork。 | `/tmp/feat705-provider-wire2.log` 2/2；`/tmp/feat705-r2-narrow.log` 2 文件 7/7；此为真实运行时和最终 wire、受控 provider 响应，仍不属于自然模型选择证据。 |
+| 二级无身份、原生父 ID／AGENTS；worker fork 继承 | 直接断言二级 wire system＋messages 无根 Persona／Nano 身份／PA／一级职责，保留 AGENTS 与原生父 ID；worker fork tools 与一级相等，system 仅去除传输 cache_control 后相等，未裁改前缀正文。 | 替代 R1 的适配前捕获缺口；这是同一风险用例升级，没有新增平行镜像套件。 |
+| 一级＋普通二级冷恢复 | 用实际原生 send_message 从根回原一级，再由一级发原二级；runtime 重启前后两级原 ID 各有新增 HTTP 请求，总 native ID 集合保持 4，二级收到原父级的接续消息。 | 两级同 ID 恢复机制已补证；未声称覆盖每种真实模型／不可恢复失败。 |
+| feat-703 PA 创建长期 Agent 与工具投影 | `capabilities.ts:78` 合并保留 isOrdinaryChild／globalWorkRole 并增加 agent_creation；`personal-security.ts:179,209-213` 保留 internal execution 指导和创建工具注册。新增 wire 配置显式给 PA 根选择 agent_creation，一级／二级均断言不可见，worker fork 因与一级 tools 相等同样不可见。`product-bridge.ts:22` 及 `personal-assistant/global-agent.ts:477` 仍按可信 root 身份拒绝 child 创建，不依靠 Prompt。 | `/tmp/feat705-main-sync-regressions.log` 23 passed／2 failed；失败均为 personal-security 的目录检查超时，不把整个文件写成通过。新 wire child 权限与后端创建回归已通过。 |
+
+### 证据限制与退出
+
+- R1 acceptance 真实观察到根重复调查和 PA 新事项错误归属，新增指导仅证明修复已落实源码；必须等待自然旅程 R2 才能判行为关闭。R1 没有实际代理日志，上下游真实请求不可追补。
+- 同环境原主干 runtime 源对照的 `/tmp/feat705-main-baseline-catalog.log` 同样报 `Capability inspection deadline exceeded`；可排除“仅候选才出现超时”的判断，不能仅凭此证明环境是唯一根因或关闭设置开关场景。候选目录两项超时、daily bootstrap 阻塞及完整 CI 未收口继续记录在 verification。
+- 本轮没有起栈、重跑全量、改变测试阈值或源码；仅追加两份审查报告。没有新增 code finding，M1 仍未通过。

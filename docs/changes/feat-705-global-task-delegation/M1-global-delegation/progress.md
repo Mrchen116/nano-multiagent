@@ -44,3 +44,15 @@
 - 全量限并发结果暂不通过：184文件1089用例通过，25文件28项失败，绝大多数为超时，含临时检查清理未确认。现场发现本轮失败测试遗留7个独立DSH进程持续占CPU；仅按本unit路径与PPID=1清理它们，真实R1服务由e2e-down正常停止，其他现场未操作。失败集合保留 `/tmp/feat705-failed-tests.json`，后续逐文件低并发复验，不隐藏失败。
 - 清理后 R2 相关原生回归 `/tmp/feat705-r2-narrow.log`：Global child tools（含HTTP wire与两级冷恢复）＋Goal opt-in 2文件7用例通过，46.81s。
 - R1 当前共享4000代理未开日志。R2复用现有 LLM_PROXY 的官方 --log 独立实例，绑定127.0.0.1:56067；工作目录和日志均为本轮私有临时根，仅隔离daily配置指向它。生产共享代理、用户dev-host配置均不改；实例运行数据／认证／原始请求不提交。待R2自然旅程及upstream捕获后再结论。
+
+## 当前交接状态（仍未完成 M1）
+
+- 已同步 `origin/main@aa0a3d126c5bf88a20af87c7c9db458706ea3c4e` 的 feat-703；合并冲突只在内部工具排除集合，保留分层并排除 `agent_creation`。普通一级、二级和 worker fork 不取得该主 PA 产品能力。当前实现冻结 `9af20eae88a5f327ad9981d3a81eae029809fab2`，后续仅审查报告／本记录。
+- 独立 R2 静态复验（code-review.md／verification.md）：code findings=[]；旧 V2 关闭、delta aligned；HTTP wire 与普通二级同 ID 恢复缺口已关闭。V1 仍在，1 CRITICAL /0 WARNING，不能以静态通过宣布产品验收完成。
+- `/tmp/feat705-ci-rechecks.json`：原全量失败的25个文件逐文件串行复跑全部通过；此前全量其余184文件1089项通过。两份运行记录分别保留，不伪称同一次全绿运行。
+- `/tmp/feat705-ci-frontend-bounded.log`：111文件1056用例全部通过（maxWorkers=1）；interactive assets 检查通过。critical级别audit门禁通过，不声称依赖没有低于该门槛的报告。
+- 同步后 build/typecheck、docs-check通过；原Python129项、ruff、packaged iOS runtime检查仍适用。合并主干后的 Global child tools 和 PA 创建后端正常；personal-security 两项目录检查超时尚未转绿。
+- 对照实验 `/tmp/feat705-main-baseline-catalog.log`：同一环境临时将本unit改动的integration runtime源码全部还原到未修改 `origin/main`，重建并执行原目录用例，仍报 `Capability inspection deadline exceeded`。随后 finally 原样恢复候选源码并重建，git status 核实没有残留源码改动。它证明失败非候选独有，不足以断言环境是唯一根因。
+- R2 daily bootstrap 两次遭遇目录超时／配置准备不可用，未绕过默认工具同步、未延长检查期限、未关闭 Task 或降级验收。R1 两处行为问题已有指导修订，仍需在正常真栈中复测，不能标为已解决。设置 fork 的关闭旅程也未完成。
+- 已向用户异步澄清是否将现有目录阻塞的排查修复作为本轮前置一起推进；未收到答复不视为授权扩范围。分支保留、unit active，不归并 current、不归档、不创建 Ready PR、不合并或部署。
+- 恢复位置：本 worktree／unit/feat-705；先读 spec/design、R1 acceptance 和 R2静态报告。下一步是收取范围答复、处理／恢复能力检查前置，正常 daily 环境中重测 Root 先委派、同项目新独立产物与旧产物修订、fork开关，并补真实provider/upstream证据，完成剩余门禁及PR交付。
