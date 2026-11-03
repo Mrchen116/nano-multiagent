@@ -23,3 +23,9 @@ Final closure returned `findings: []`; prior implementation review retained. Nar
 - Final main base is now `6c072da43887ef8e144c0d1ef40ef3d7a2575fed`. Main only added the bugfix-707 first document since the prior review.
 - Integrated `unit/bugfix-707` at `b4a3b4612de0a23a4adbb8e9439bc106c5274a69`; it adds a separately reviewed test-fixture lifecycle wait and its evidence/archive, with no production or frontend changes.
 - Prior Web review and validation retained: frontend and product-contracts are unchanged from `a398b7d67570debb13f7a72c44a89215d99969de`; backend source/tests match the independently validated prerequisite branch. The original `validated_at`/`executed_base` remain execution facts; effective scope extends through this integration and subsequent unit-document/archive changes.
+
+## Merge-time main synchronization (2026-11-04)
+
+- PR #456 merged as `3da78a00a7cc8ace9d172c0b0d59c5d6e7881e0b`. Concurrent PR #458 had already advanced main to `5288d4d6e`; the new base therefore also contains feat-708 Skill defaults and its Node configuration tests.
+- `b0bba8d47d1e85d589da1238919e5468910e5582` integrates that main. Web frontend and product-contracts have no delta relative to the approved date tree, so Web review, screenshot acceptance, and frontend validation remain applicable. No date grouping, rendering, or interface changes were introduced by the Skill integration.
+- Effective base is `3da78a00a7cc8ace9d172c0b0d59c5d6e7881e0b`; original execution SHAs above remain historical facts. PR #457 now targets main. Backend validation is refreshed by the PR CI on the combined tree; this document-only record does not change the reviewed product scope.
