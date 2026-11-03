@@ -66,8 +66,8 @@ Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派�
 
 核对日期为 2026-11-03；Nano 基线为 `26ed162c5`，参考仓基线为 `6337fc823ce20251c8de8085948165c81aaa701e`。以下区分当前契约、源码观察和一次实际运行，不将参考仓实现作为本仓现状。
 
-- [Global 当前契约](../../specs/gateway/global-agent.md)只要求主 Agent 倾向按需委派，仍允许自行执行；`packages/dsh-integration/src/global-mode.ts` 的实际提示词采用可委派的表述，没有明确完整事项的单一执行责任及委派后的避免重复调查要求。
-- [PA 当前契约](../../specs/gateway/personal-agent.md)复用完整 Global 能力。`apps/im-server/src/personal-agent-defaults.ts` 的可编辑初始指导已区分日常小事与长事项；既有用户自定义配置不会因默认文案改变而自动回填。
+- [Global 当前契约](../../../specs/gateway/global-agent.md)只要求主 Agent 倾向按需委派，仍允许自行执行；`packages/dsh-integration/src/global-mode.ts` 的实际提示词采用可委派的表述，没有明确完整事项的单一执行责任及委派后的避免重复调查要求。
+- [PA 当前契约](../../../specs/gateway/personal-agent.md)复用完整 Global 能力。`apps/im-server/src/personal-agent-defaults.ts` 的可编辑初始指导已区分日常小事与长事项；既有用户自定义配置不会因默认文案改变而自动回填。
 - 用户提供的“禅”聊天中，一次代码对比请求被交给两个研究执行者；主 Agent 在两者运行期间仍大量阅读双方文档和代码。2026-11-03 的实际父子执行事件已核实；主会话为 `3143edc8-1ead-48ce-b7ca-1da50a7233bb`，两个子会话为 `01f60cb0-59e9-45e9-ae95-42c38a34f964`、`5aa5be4c-9856-4185-a27b-c025eb35b2af`。这里记录必要定位，不复制私人聊天或原始日志。
 - 用户提供的日常聊天抽样呈现状态交流、进展反馈、待办回顾与定时关心，包含已完成事项的后续反馈；该场景本身不能被解释为需要持续运行一整天的执行任务，也不能把倾诉或自述自动当作交办。
 - 参考仓 `prompts/orchestrator.md`、`prompts/dispatch.md` 明确主会话负责路由、不调查技术细节、不代写实施计划，并把原始请求交给 worker；`prompts/worker.md`、`prompts/work.md` 将范围判断、执行、验证及同事项后续交给 worker。`src/executor/dsh.ts` 为同一工单保留稳定 worker 会话，执行尝试与任务本身分离；本需求借鉴职责及接续原则，不引入其工单、Assignment 或 Thread 订阅系统。
@@ -75,7 +75,7 @@ Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派�
 - 当前源码中普通一级、二级都经 `agent-config.ts::attachAgent` 装配同一份 `registerChildGuidance`，未按层级区分完整事项责任；`ToolSelection` 同样使用产品 Agent 的配置筛选各层工具。DSH 的普通 spawn 使用新子会话，不复制父历史；fork 保留父前缀并由 Nano 补内部角色尾说明。以上是当前行为，不是本轮目标已实现。
 - 参考仓工具分层与上下文：`cordis.patch.yml` 为独立 Worker 会话裁剪 standard，显式将其下级配置为 standard；`src/app/sessions.ts` 为下级加工作工具限制；一级通过 `orchestrator_report` 回主会话。本轮借鉴完整执行者分工，保留 Nano 原生父子会话及 `send_message`，不照搬独立 Worker 或工单体系。
 
-- [随包持续工作指导](../../../packages/personal-assistant/assets/skills/nano-ongoing-work/SKILL.md)已有后台可接续执行者、原执行者接续、更正与停止的处理方法。本阶段统一主从职责及相关指引，复用这些现有机制，不引入另一份 Task 状态或执行循环。
+- [随包持续工作指导](../../../../packages/personal-assistant/assets/skills/nano-ongoing-work/SKILL.md)已有后台可接续执行者、原执行者接续、更正与停止的处理方法。本阶段统一主从职责及相关指引，复用这些现有机制，不引入另一份 Task 状态或执行循环。
 
 ## 用户场景
 

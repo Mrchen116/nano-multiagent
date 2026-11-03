@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-708
+> 对齐: feat-705
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -912,11 +912,11 @@ Skill 维护 SHALL 保留受控的 agent/global 写入范围。局部 patch 只�
 
 ### Requirement: Agent 工具集 SHALL 按工具选择兑现，Feature 保证完整依赖
 
-本条的静态工具选择规则适用于 `single_thread`。主 Agent 启用 `plugin_manager` 时，不与既有工具名冲突的 workspace 自建工具按本 area 的“Agent 可在 workspace 自助安装原生工具”有限并入有效集合；不扩大业务工具或子任务的数据权限。默认上下文机制启用时，所有 Agent（含子 Agent）固定保留 `notes/history/new_context/get_context_remaining` 四个仅管理当前执行会话的工具；停用机制即撤销其注册。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
+本条的静态工具选择规则适用于 `single_thread` 及 Global／PA 主会话的可配置工具；Global／PA 普通内部执行者遵循本 area 的分层工作能力条目，不套用主会话的普通工具名单。主 Agent 启用 `plugin_manager` 时，不与既有工具名冲突的 workspace 自建工具按本 area 的“Agent 可在 workspace 自助安装原生工具”有限并入有效集合；不扩大业务工具或子任务的数据权限。默认上下文机制启用时，所有 Agent（含子 Agent）固定保留 `notes/history/new_context/get_context_remaining` 四个仅管理当前执行会话的工具；停用机制即撤销其注册。global 主 Agent 的有效集为配置集合与固定基础四项的并集；其他工具仍按配置限制，能力特性联动规则不变。固定项及创建默认值以本 area 的“全局主 Agent 保留默认工具并具备固定基础能力”为准；子工具继续既有继承和角色限制，不因主工具固定而扩大数据权限。
 
 Feature 关闭不额外否决已选择工具，任务图、记忆、Skill 管理和定时工具均遵守同一规则。工具自己的操作、授权与必要服务保留；Feature 专属指导、主动注入、后台复盘或自动续跑不随单工具启用。
 
-Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：除上述四个上下文内部工具和 workspace 自建工具的有限增量外，非空时 Agent 静态业务工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式为空时该 Agent 没有可选业务工具，但启用中的上下文内部工具仍可用**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性启用时，完整 `requires` 中的工具经界面依赖展开已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——业务工具集按配置侧存储的 `tool_allowlist` 兑现；四个上下文内部工具按机制启停，预览、下发和实际执行保持一致。
+Gateway 为上述主会话构建可配置工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：除上述四个上下文内部工具和 workspace 自建工具的有限增量外，非空时 Agent 静态业务工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式为空时该 Agent 没有可选业务工具，但启用中的上下文内部工具仍可用**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性启用时，完整 `requires` 中的工具经界面依赖展开已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——业务工具集按配置侧存储的 `tool_allowlist` 兑现；四个上下文内部工具按机制启停，预览、下发和实际执行保持一致。
 
 #### Scenario: 用户禁用某默认工具后该工具不再提供
 - **GIVEN** 某 Agent 的合法 `tool_allowlist` 被设为不含某默认工具的非空显式集，且没有开启的 Feature 需要该工具
@@ -1227,12 +1227,16 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **THEN** 本轮遵守新要求，不将旧记忆登记为长期停用或永久删除；Dreaming 保留该情境范围。
 
 ### Requirement: 子执行上下文服从原生执行方式
+
 #### Scenario: 普通子 Agent
 - **WHEN** Global、PA 或 SingleThread 的普通内部子执行接到委派
-- **THEN** 使用明确内部身份与可调用工具，不继承父 Persona 的公开交付职责。
+- **THEN** Global／PA 一级采用 DSH 工作基础上下文与完整事项职责；其普通二级只采用 DSH 原生子 agent 上下文和父级子任务，不注入额外 Nano 身份或一级职责。
+- **AND** SingleThread 普通子执行保留明确内部身份与可调用工具；普通子会话均不复制父 Persona 的公开交付职责，产品权限按真实身份在宿主执行。
+
 #### Scenario: fork 子 Agent
 - **WHEN** fork 子执行开始或恢复
-- **THEN** 系统提示与工具定义保持父配置一致，在历史后追加任务/回传边界，继承前缀保持可复用；宿主权限验证不因工具可见而放宽。
+- **THEN** 系统提示与工具定义保持实际父级的有效工作配置一致，在历史后追加任务/回传边界，继承前缀保持可复用；父级可以是主会话或一级执行者，不能把一级 fork 重新解释为根职责。
+- **AND** 宿主权限验证不因工具可见而放宽，原生深度与返回语义保持。
 
 ### Requirement: Dreaming 只获得有消费用途的上下文
 #### Scenario: 提炼和整合
@@ -1250,3 +1254,37 @@ Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_all
 - **WHEN** 临时检查超过 deadline、取消或达到并发预算
 - **THEN** 调用有界失败，已有聊天和其他 Agent 执行进程不因该检查而重启；释放后允许新检查成功
 - **AND** 保存使用新检查验证真实候选，不以陈旧展示缓存扩大工具或 Skill 权限
+
+### Requirement: Global 的一级执行者获得独立工作能力，二级沿用原生子 agent
+
+#### Scenario: 主会话工具选择不缩减完整事项执行能力
+- **GIVEN** Global／PA 主会话的工具选择满足其日常和协调需要
+- **WHEN** 主会话把完整事项交给一级 subagent
+- **THEN** 一级以 DSH 默认工作能力为基础执行，可使用原生 fork、子 agent 及内部通信，不因主会话未勾选普通工作工具而失去这些能力。
+- **AND** 主会话自身仍按其有效选择执行；一级工作能力不反向开启主会话未选择的工具，也不恢复运行时未装载的能力。
+
+#### Scenario: 二级无额外产品身份
+- **WHEN** 一级创建普通二级 subagent
+- **THEN** 二级使用 DSH 原生子 agent 上下文与父级交办的子目标，不额外注入 Nano 身份或完整事项负责者职责，不自动复制父级历史。
+- **AND** fork 继续使用原生父上下文继承，不因该规则裁改其前缀；各级来源、审批、深度、workspace 与宿主产品权限限制仍有效，用户沟通逐级经过 Global。
+
+#### Scenario: 更新与恢复保持角色边界
+- **WHEN** 修改主会话工具选择，或恢复已有一级／二级会话
+- **THEN** 按该层职责恢复实际工作能力与上下文，原执行者身份和已有工作保留；主会话 fork 开关不撤销一级的原生 fork 能力。
+- **AND** 共享 Feature、Skill 与扩展的选择、撤回和权限继续生效；不将其他特定范围的子任务自动升级为完整工作执行者。
+
+### Requirement: 主会话 fork 默认关闭，可按现有工具规则开启
+
+#### Scenario: 新建和无显式工具选择
+- **WHEN** 新建 Global、PA 或 SingleThread 主 Agent，或主会话配置没有显式工具名单
+- **THEN** subagent_fork 默认不启用，仍可在现有工具目录发现并选择；普通 subagent 和 Global 固定基础能力不因此关闭。
+- **AND** 此主会话默认值不套用到 Global／PA 一级执行者的 DSH 工作工具。
+
+#### Scenario: 显式选择与撤回
+- **WHEN** 用户选中或取消主会话 fork 并保存
+- **THEN** 采用现有工具配置及生效规则，模型可调用能力和预览与有效设置一致；开启只增加原生工具，不增加专门身份提示、清理流程或新开关。
+- **AND** Goal 三工具仍各自选择、默认关闭，不因启用 fork 而启用 Goal 或注入 Goal 专属指导。
+
+#### Scenario: 保留已有选择
+- **WHEN** 已保存工具名单的 Agent 升级或恢复
+- **THEN** 名单保持，显式启用的 fork 仍可用，不按新默认值覆盖已有选择；原生返回和继承语义保持。

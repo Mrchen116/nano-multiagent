@@ -1,5 +1,7 @@
 # M1 实施记录
 
+> 当前状态：实现与适用验收完成，已归档。实际源码冻结 c46e35c43；PR 远端 CI 属于随后交付门禁，结果以 PR 为准。
+
 ## 基线与范围
 
 - 开发基线：`492b72603cebc5f904f7001b12e3d4475ce55639`（Gate 2 R4 已批准）。独立开发 worktree：`/Users/czj/.codex/worktrees/unit-feat-705/nano-multiagent`，分支 `unit/feat-705`。
@@ -66,3 +68,22 @@
 - R2 产品报告 `ab8973f8b`：11 pass／2 fail／2 inconclusive。E 委派前重复读已消失，PA 同项目独立新成果与旧成果修订已正确归属并交付；E 收完整成果后又完整读四份原文做一遍核对，仍为 major。根指导补清全程（含交付后返回）由执行者调查验证，主按需看成品、覆盖和具体缺口，缺口交原执行者，禁止例行重新读原文审计；待新运行复验。
 - 设置保存检查仍复现7秒超时。定界于临时原生进程进入 Nano initialize 之前；离线同 profile／cwd／owner 环境启动约1–2秒，未确认唯一根因。临时只对检查进程做栈／CPU采样；用于定位的编译产物日志插桩已 finally 还原，不作为产品修复。带调试采样的一次开启成功不计自然验收；随后未调试的正常API关闭200／1.96秒，同栈fork已关闭，但仍需独立界面开关旅程，不称超时已修复。临时端口9229已随检查进程退出释放。
 - R3 产品报告 `1a6c4a5c3`：12 pass／1 fail／2 条件分支未触发。fork 在一次页面刷新恢复后真实完成开、保存、重载、关、重载，三项 Goal 不联动；不声称已有偶发目录超时根治。E 回报后只读成品，交付阶段不重复原文已改善；但委派前仍读原三份材料，raw upstream 确含新指导，排除陈旧版本。进一步将既有主从职责置于 Global 指导首部，明确根协调身份、读材料前按请求产物定执行者，多来源调查并制作分析／文档／实现属于整项委派，即使工具步数少；Persona 的先读要求不作为根初始化清单。未修改或回填用户 Persona，工具权限未收紧，待 R4 真实复验。
+
+## 最终集成检查与 R4 运行
+
+- 已进一步同步 `origin/main@90efdd3dc2c1dda9efd5ffc0f2acbb01f5492dde`（706 Web 日期分隔），冻结源 `c46e35c43c12b744d4c05be160dc173d25bde499`。后端及 Context 无额外主干实现变化；新前端已真实构建，未改本 unit 的角色或 Persona 基线。
+- `/tmp/feat705-r4-backend-serial.log`：单worker完整后端 **210文件1129项全部通过**，732.20秒。开始于 f514 已构建 lib；期间 c46 新增的 Global 指导没有重建或混入该运行，90ef 相对3da的主干代码仅前端显示。因此该证据保留用于未变执行机制，不冒称其验证了新指导的自主行为。
+- 随后在 c46 构建／类型检查全过；`/tmp/feat705-r5-narrow.log`：4文件12项全部通过，覆盖 Global/PA 两级最终wire和同ID恢复、Goal/fork、Context revalidation provider、native communication。此为最新已构建指导的窄机制证据；自主行为由 R4 真栈另证。
+- `/tmp/feat705-r5-frontend-all.log`：最新前端完整 **112文件1059项全部通过**，含706新增日期用例；pretest interactive assets通过。`r5-frontend-audit.log` critical门禁通过（有低于门槛的既有报告），`r5-ios-runtime.log`原生渲染资产／类型检查通过。
+- `/tmp/feat705-r5-python.log`129 passed／28 deselected，ruff check与97文件format通过；docs-check通过。最终归并／归档后仍须再跑文档及unit归档门禁。
+- R4 fresh daily：node `wt-nano-multiagent-64076`、IM62610，c46构建后正常seed并ready，无期限放宽或同步绕过。独立产品 reviewer 按 E 主链复验，R2 PA、R3手动开关等有效具体结论保留。两个未自然触发条件按 design 的 worker原生机制与产品自然旅程分层记录，未故意删除状态或诱导错误，也不声称其模型分支已发生；不将故障注入额外强制为本轮自然验收门槛。
+
+## M1 退出与交付
+
+- R4 独立产品验收 `97edacf4a` 必验路径通过：根全程不读原三份资料、唯一一级负责、原ID补充、日常直接回应、只读成品并向原聊天实际交付。旧轮次反例完整保留，两个未自然触发条件不冒充模型分支已通过。
+- 最终独立 code review／Context findings=[]；verification Round6 targeted-closure PASS，V1 closed，0 CRITICAL／0 WARNING，delta aligned。实现冻结 c46、验收报告97ed，后续归并／归档不改运行源码。
+- 三份 delta 依最终核对归并 current Gateway Global／PA／能力 area，更新 Gateway 入口派生计数；Task 业务与客户端布局不在本unit改造范围。
+- 全部自建 IM／Node／DSH 与私有模型代理已停止；IM62610、模型56067和临时调试9229均无监听；tmux本轮session已清理。认证／上游配置私有副本已删除，合成日志本地保留不提交。开发worktree为后续PR审查保留，不部署、不合并。
+- M1 实现与适用本地验收完成；unit整套归档，最终文档/归档检查及PR远端CI随后由交付方执行。远端全绿前不声称PR已交付。
+
+- 归并／归档后 `scripts/docs-check` 通过（278 maintained Markdown／68 required routes），`check_change_unit_archived.py --head-ref unit/feat-705` 通过；`git diff --check` 通过。最终归档提交仅文档移动、相对链接校正与已审 delta 的机械归并，运行源码和测试未改变，既有门禁结论有效。
