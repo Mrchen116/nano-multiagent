@@ -36,3 +36,11 @@
 - 独立静态审查 `45cd9117c` 的 code findings=[]；verification 记录运行证据尚未完成及 delta 需修改旧身份条目。后者已在能力 delta 显式 MODIFIED 同名工具规则与子执行 Context 条目，保留 SingleThread／fork 行为；待独立校正复验。
 - 初次后端／前端／daily 构建并行造成多项跨进程和 DOM 超时，已保留 `/tmp/feat705-ci-test.log`、`/tmp/feat705-ci-frontend.log`，仅停止本轮两个过载 CI 及其后代，不作为通过证据。后续对同一完整测试集合限并发复跑，不改断言或超时标准。
 - Python 辅助／架构回归129 passed /28 deselected；ruff check、ruff format（97文件）及 docs-check 通过。最终 build、typecheck、packaged iOS runtime 检查通过。daily 真栈已ready，独立产品 reviewer 正在自然旅程验收；ready 不等于验收通过。
+
+## R1 产品问题与修正
+
+- 独立 R1 报告已保留于 acceptance.md（运行源45cd9117c）：E 委派前与一级重复读同三份资料、PA 把独立新产物并到已完成事项、fork设置刷新超时无法关闭，均不降为通过。
+- 根指导补明确：独立完整事项先委派；通用 Persona／workspace 的资料读取、实施、验证要求交给一级，不作为根先执行一遍的理由。按请求产物识别独立事项，另一个独立交付即使比较旧成果也新派一级，原成果路径只作上下文；旧目标的补齐／修订仍联系原执行者。不回写 Persona，不改 Task。
+- 全量限并发结果暂不通过：184文件1089用例通过，25文件28项失败，绝大多数为超时，含临时检查清理未确认。现场发现本轮失败测试遗留7个独立DSH进程持续占CPU；仅按本unit路径与PPID=1清理它们，真实R1服务由e2e-down正常停止，其他现场未操作。失败集合保留 `/tmp/feat705-failed-tests.json`，后续逐文件低并发复验，不隐藏失败。
+- 清理后 R2 相关原生回归 `/tmp/feat705-r2-narrow.log`：Global child tools（含HTTP wire与两级冷恢复）＋Goal opt-in 2文件7用例通过，46.81s。
+- R1 当前共享4000代理未开日志。R2复用现有 LLM_PROXY 的官方 --log 独立实例，绑定127.0.0.1:56067；工作目录和日志均为本轮私有临时根，仅隔离daily配置指向它。生产共享代理、用户dev-host配置均不改；实例运行数据／认证／原始请求不提交。待R2自然旅程及upstream捕获后再结论。
