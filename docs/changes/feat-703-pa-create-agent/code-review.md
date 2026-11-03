@@ -62,3 +62,30 @@ No separate confirmed Context-interface defect was found. R1-C1 is an execution-
 
 Verdict: one confirmed blocking finding. Final product acceptance evidence pending separately.
 
+## Round 2 — targeted closure of R1-C1
+
+- review_mode: `closure`
+- finding_origin_head / pre_fix_head: `6a588bde10f95b2bf8a408c80287b54595bb67ca`
+- validated_at: `f8800afaa8a2b60b9a3577c4cc9ea85e681fd950`
+- reviewed delta: `6a588bde10f95b2bf8a408c80287b54595bb67ca..f8800afaa8a2b60b9a3577c4cc9ea85e681fd950`, focused on the new admission callback, associated authority/receipt paths, three regressions and design clarification. R1 full-review coverage remains applicable to unchanged code.
+- reviewed at: 2026-11-03 17:06 +08:00.
+- focus finding: R1-C1 — **closed**.
+
+The shared service calls synchronous `beforeCreate?.()` at `apps/im-server/src/agent-creation.ts:187`, after the per-Agent queue and any omitted-Skills catalog await and before the first `ops.create`. The callback supplied at `personal-agent.ts:403-406` resolves current server authority, checks the original initiating lifecycle revision and rechecks current access to the original owner message. There is no intervening await before ConfigOperations synchronously authorizes and inserts the operation. This closes the demonstrated late first-acceptance/dispatch gap for disable, binding revocation and source revocation.
+
+An already associated pending/committed/rejected operation takes its existing recovery/result branch before the new callback. A status request without an accepted operation returns `not_started` before calling the shared service. Thus the fix does not turn historical result confirmation into a new creation intention or prevent truthful receipt recovery. The optional callback leaves existing Web creation behavior unchanged.
+
+Validation:
+- Independently ran `pnpm exec vitest run apps/im-server/tests/personal-agent-creation.test.ts --maxWorkers=1` on the frozen fix head: **1 file / 9 tests passed**, started 17:05:57, duration 606 ms.
+- Three new cases hold the real shared queue, revoke disabled/binding/source authority, then release; each rejects and asserts zero receipt dispatch and zero configuration operation. Existing pending/recreated-service recovery remains green.
+- Caller supplied 28 IM creation/config/catalog tests and IM build/typecheck passed; reused without duplicating its broader run.
+- Context Mode B delta: no tool/schema/Skill/model-visible result change. The fix enforces the trusted authority at the execution boundary; the prior serialized Context evidence remains applicable.
+- Design delta distinguishes transport `unknown` from accepted-operation `pending` and states the effective-authority invariant; it does not silently weaken the original contract.
+
+Surviving code findings in this closure:
+
+```json
+[]
+```
+
+Verdict: **R1-C1 closed; no remaining confirmed code findings.** Final real-model/product evidence remains pending separately; this code closure does not assert M1 product acceptance.

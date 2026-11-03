@@ -75,3 +75,34 @@ None.
 
 Verdict: **not pass** — one critical defect and one provisional evidence gap. No source, test, config or design changes; no reviewer-started services to clean.
 
+## Round 2 — targeted closure of R1-C1 / current static result
+
+- verification_mode: `targeted-closure`
+- review_round: 2
+- executed_base / fix_delta_range: `6a588bde10f95b2bf8a408c80287b54595bb67ca..f8800afaa8a2b60b9a3577c4cc9ea85e681fd950`
+- validated_at: `f8800afaa8a2b60b9a3577c4cc9ea85e681fd950`
+- focus_issues: R1-C1 and its associated new-operation authority invariant; R1-E1 evidence status carried forward.
+- requires_full_verification: false
+- prior report: Round 1 above; full static review remains applicable to unchanged implementation.
+- report status: **static implementation aligned; final product evidence provisional**.
+
+| Issue / invariant | Closure evidence | Result |
+|---|---|---|
+| R1-C1: first operation accepted only while initiating PA generation/binding/source are valid | `agent-creation.ts:187-189` invokes synchronous guard after all preparation waits; `personal-agent.ts:403-406` checks current authority, original lifecycle revision and original owner source | **closed** |
+| Already accepted operation keeps existing receipt/result recovery | `agent-creation.ts:125-134` exits through own operation recovery/result before new guard; `personal-agent-creation.ts:80-86` returns not_started for unaccepted status | aligned |
+| Existing Web creation and one authoritative apply state machine remain intact | Guard is optional and only PA first-create supplies it; existing `ConfigOperations.create` remains the insertion/apply owner | aligned |
+| New regression protection | Independently reran actual IM creation suite: 9/9 passed; queued disabled/binding/source cases assert no dispatch and no configuration operation; prior loss/restart recovery remains green | covered |
+| Design clarification preserves contract | Unknown transport versus accepted pending split and effective-authority clarification match implementation; no new tool/Skill surface or weakened permission contract | aligned |
+| R1-E1: final independent real-model/product evidence | Final fix-head stack is being rebuilt/reviewed; report not yet supplied | **pending; evidence gap, not asserted product defect** |
+
+The new guard executes synchronously immediately before configuration-operation creation, so a lifecycle/source change during queue or omitted-Skills catalog waiting is observed. The fix does not rely on prompt changes and does not introduce another state engine. No new implementation/spec/design mismatch or architecture violation found in the targeted delta. Agent Context Mode B checks from code-review Round 2 are reused; unchanged serialized tool/Skill evidence from R1 remains applicable.
+
+Independent command on frozen fix HEAD: `pnpm exec vitest run apps/im-server/tests/personal-agent-creation.test.ts --maxWorkers=1` → 1 file / 9 passed, 2026-11-03 17:05:57 +08:00, duration 606 ms. Caller reports 28 IM creation/config/catalog tests and IM build/typecheck passed.
+
+### Current issue totals (supersede R1 totals)
+
+- CRITICAL: **0** — R1-C1 closed.
+- WARNING: **1 provisional evidence item** — R1-E1 remains until final product report is reconciled.
+- SUGGESTION: **0**.
+
+Current verdict: **static closure passed; overall verification remains provisional pending final product evidence**. No source/test/design edits or commits; no reviewer-started services.
