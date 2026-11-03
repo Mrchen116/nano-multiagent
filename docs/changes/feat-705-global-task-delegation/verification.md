@@ -87,4 +87,3 @@ N/A。
 ### Uncovered Observable Behavior
 
 未发现 Task、产品 API、客户端布局或新的取消流程等额外对外行为。配置占用的根选择与内部真实工作区分已被能力 delta 的“更新与恢复保持角色边界”涵盖。能力 delta 在 V2 校正前不能直接归并 current。
-

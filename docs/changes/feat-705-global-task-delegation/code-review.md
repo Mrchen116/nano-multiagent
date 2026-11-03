@@ -36,4 +36,3 @@
 - 普通 Global 和 PA 的真实模型自然旅程、原事项补充／日常短问／真实公开交付仍待实施 owner 和产品 reviewer 提供定位；无证据支持“模型必定委派正确”或“模型一定误解”的断言。
 - 本轮新增普通一级／普通二级／worker fork 的最终 provider 请求（转换时含 upstream）尚未提供；适配前捕获、catalog preview、旧 fork wire 不替代此证据。
 - 普通二级同 ID 冷恢复及要求的共享撤回／深度边界最终证据、required CI 尚待收口。此处不把未完成检查伪装成代码 bug，也不凭 `[]` 放行 Gate。
-
