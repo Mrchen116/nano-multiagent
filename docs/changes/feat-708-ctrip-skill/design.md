@@ -17,7 +17,7 @@
 - `apps/node/tests/capabilities.test.ts`：扩展已有能力投影用例，核对 builtin 携程默认开启及无关 builtin 默认值不变。
 - 保留 `packages/personal-assistant/tests/builtin-skills.test.ts` 和 `packages/dsh-integration/tests/capabilities.test.ts` 既有覆盖，验证随包安装与显式 Skill 选择、加载链路。
 - 上述三文件共 12 项通过；全仓构建及类型检查通过。初次在新 worktree 构建前运行投影测试因缺少编译后的包入口失败，构建后同一测试通过。
-- 实际运行时探针、请求捕获与缺失凭证执行结果保存在本机 `/Users/czj/.codex/reports/ctrip-wendao-20261103/`；仅验证确定性接线，不使用真实模型或调用携程 API。
+- 实际运行时探针、加载后下一次 `llm/stream` 输入捕获与缺失凭证执行结果保存在本机 `/Users/czj/.codex/reports/ctrip-wendao-20261103/`；仅验证确定性接线，不证明 provider wire 序列化，不使用真实模型或调用携程 API。
 - 安装包归档包含 `tripai-skill/SKILL.md` 与来源记录；正文与固定上游版本逐字比较。
 - 用户实际验收：待确认。未部署，不把自动检查当作真实携程查询成功。
 
