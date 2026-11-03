@@ -474,6 +474,7 @@ export class GlobalAgent {
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
     if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'memory.conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
     if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
+    if(call.method==='agent_creation' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may create Agents');
     const references = this.options.store.toolReferences;
     const result = await this.execute({ ...call, args: call.method === 'memory.conversations' ? call.args : references.arguments(call.agentId, call.method, call.args) }, binding);
     if (call.method === 'memory.conversations') return result;
@@ -497,6 +498,10 @@ export class GlobalAgent {
         const result = await this.personal.tool(personalConfig,binding,call);
         if (['exclude', 'include'].includes(String(call.args.action))) await this.refreshPersonalSources(personalConfig);
         return result;
+      }
+      if (call.method === 'agent_creation') {
+        if (!personalConfig) throw new Error('Trusted personal identity required');
+        return this.personal.createAgent(personalConfig,binding,call);
       }
       if (call.method === 'inbox') {
         if (personalConfig) await this.refreshPersonalSources(personalConfig);

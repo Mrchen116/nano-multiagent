@@ -410,7 +410,7 @@ export class Gateway {
       this.requireAgent(c,p.agent_id);
       return ack({schedule_ids:all(db,'SELECT schedule_id FROM task_lifecycle_schedules WHERE agent_id=?',p.agent_id).map(row=>row.schedule_id)});
     }
-    const effect=type==='agent.message'||type==='agent.config.boundary'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)||['pa.source.admit','pa.incident.report','pa.action.prepare','pa.action.review-result','pa.action.commit'].includes(type);
+    const effect=type==='agent.message'||type==='agent.config.boundary'||type==='pa.agent.creation'&&p.action==='create'||type==='task_graph.command'&&['create','apply','delete'].includes(p.action)||['pa.source.admit','pa.incident.report','pa.action.prepare','pa.action.review-result','pa.action.commit'].includes(type);
     if(effect) {
       const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
       this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);

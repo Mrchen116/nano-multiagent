@@ -111,6 +111,20 @@ export class PersonalAssistant {
     return this.request(config,'pa.sources',call.args);
   }
 
+  /** Preserve caller identity while forwarding a separately chosen creation target. */
+  async createAgent(config: AgentConfiguration, binding: SessionBinding, call: ProductCall): Promise<unknown> {
+    if (call.sessionId !== binding.sessionId) throw new Error('Only the main PA can create Agents');
+    if (config.toolAllowlist && !config.toolAllowlist.includes('agent_creation')) throw new Error('Agent creation tool is not enabled');
+    const {node_id,...args}=call.args;
+    try {
+      return await this.request(config,'pa.agent.creation',{...args,target_node_id:node_id,lifecycle_revision:call.lifecycle_revision});
+    } catch(error) {
+      if(error instanceof RelayDeliveryError && error.delivery==='unknown')
+        return {status:'unknown',request_key:args.request_key,message:'Outcome unknown. Query status using the same request_key before retrying.'};
+      throw error;
+    }
+  }
+
   /** Private tasks continue through the ordinary command; shared writes review the complete command. */
   async task(config:AgentConfiguration,call:ProductCall,task:Data):Promise<unknown> {
     const proposal=await this.request(config,'pa.action.prepare',{request_key:call.operationId,task});

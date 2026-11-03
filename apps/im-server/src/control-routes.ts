@@ -1,4 +1,4 @@
-import {changeCapability, effectiveFeatures, featureDependencies} from '@nano/product-contracts/capabilities';
+import {allowlistOptions, modelOptions, featureOptions, readNodeCreationCapabilities, createAgent} from './agent-creation.js';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {all, one, fail, body, query, now, type ImContext, type Row} from './context.js';
 import {bearer, canAccessSpace, ownerAccount, requireCompanyAdmin} from './identity.js';
@@ -7,10 +7,10 @@ import {activeTaskCount, registerTaskGraphRoutes} from './task-graphs.js';
 import {registerChannelRoutes} from './channels.js';
 import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
   settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
-import {candidateFingerprint, profileResponse, fromProfile, gatewayKeys, optionalText, stringList, selection, copyConfigurationField} from './control.js';
+import {profileResponse, fromProfile, gatewayKeys, optionalText, stringList, selection, copyConfigurationField} from './control.js';
 import {configurationOperations} from './configuration-assembly.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
-import {parseConfigurationInput, storedConfigurationCandidate, controlRouteId, configurationSource, parseSkillsMigration, type ConfigurationCandidate} from './configuration-input.js';
+import {parseConfigurationInput, controlRouteId, configurationSource, parseSkillsMigration, type ConfigurationCandidate} from './configuration-input.js';
 import {gatewayRequest} from './node-rpc-request.js';
 import type {NodeCommand, NodeInput, NodeCapabilities} from './node-rpc-contracts.js';
 import {isRecord} from './node-rpc-values.js';
@@ -37,59 +37,6 @@ function nodeResponse(n: Row) {
     relay_enabled: !!n.relay_enabled,
     reporting_enabled: !!n.reporting_enabled,
   };
-}
-function allowlistOptions(value: unknown): Row[] {
-  return (Array.isArray(value) ? value : []).flatMap((item) => {
-    const entry = typeof item === "string" ? { name: item } : item;
-    if (!entry || !optionalText(entry.name)) return [];
-    return [
-      {
-        name: entry.name.trim(),
-        description: typeof entry.description === "string" ? entry.description.trim() : "",
-        default_on: !!entry.default_on,
-        ...(typeof entry.enabled === "boolean" ? {enabled: entry.enabled} : {}),
-        location: optionalText(entry.location),
-        source_group: ["workspace", "global", "compatibility"].includes(entry.source_group)
-          ? entry.source_group
-          : null,
-      },
-    ];
-  });
-}
-function modelOptions(value: unknown): Row[] {
-  return (Array.isArray(value) ? value : []).flatMap((item) => {
-    const entry = typeof item === "string" ? { name: item } : item;
-    if (!entry || !optionalText(entry.name)) return [];
-    const r = entry.reasoning;
-    let reasoning: Row | null = null;
-    if (r?.kind === "fixed") reasoning = { kind: "fixed" };
-    else if (r?.kind === "selectable") {
-      const levels = [...new Set(stringList(r.levels))];
-      if (levels.length && levels.includes(r.default))
-        reasoning = { kind: "selectable", levels, default: r.default };
-    }
-    return [
-      {
-        name: entry.name.trim(),
-        provider: typeof entry.provider === "string" ? entry.provider : "",
-        ...(optionalText(entry.display_name) ? {display_name: entry.display_name.trim()} : {}),
-        ...(optionalText(entry.provider_display_name) ? {provider_display_name: entry.provider_display_name.trim()} : {}),
-        reasoning,
-      },
-    ];
-  });
-}
-function featureOptions(value: unknown): Row[] {
-  return (Array.isArray(value) ? value : [])
-    .filter((x) => x && typeof x.key === "string" && x.key)
-    .map((x) => ({
-      key: x.key,
-      label_i18n: typeof x.label_i18n === "string" ? x.label_i18n : "",
-      help_i18n: typeof x.help_i18n === "string" ? x.help_i18n : "",
-      default_on: !!x.default_on,
-      available: x.available !== false,
-      requires: {features:stringList(x.requires?.features),tools:stringList(x.requires?.tools),skills:stringList(x.requires?.skills)},
-    }));
 }
 function agentCapabilities(profile: Row, capabilities: NodeCapabilities | undefined): Row {
   if (!capabilities || !(['models','skills','tools'] as const).every(key => Array.isArray(capabilities[key])))
@@ -202,28 +149,11 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const u = await user(req),
       id = controlRouteId(req, 'node_id');
     requireNode(ctx, id, u.owner_id);
-    const scope = catalogScope({owner_id:u.owner_id,node_id:id});
-    const result = await catalogs.read(scope,async (signal,requestId) => {
-      const response = await ctx.gateway.request(id,'node.capabilities.resolve',{request_id:requestId},signal);
-      if (!response?.capabilities) fail(502,'Node capabilities are unavailable');
-      return response.capabilities;
-    });
-    const currentUser = user(req);
-    requireNode(ctx,id,currentUser.owner_id);
-    if (currentUser.owner_id !== u.owner_id || !result.current()
-      || settingsConnection(ctx,{owner_id:u.owner_id,node_id:id}) !== scope.connection) fail(503,'Catalog read superseded');
-    const r = result.capabilities;
-    return {
-      node_id: id,
-      models: modelOptions(r.models),
-      skills: allowlistOptions(r.skills),
-      tools: allowlistOptions(r.tools),
-      features: featureOptions(r.features),
-      fixed_tools: stringList(r.fixed_tools),
-      inherited_approval_rules: r.inherited_approval_rules ?? null,
-      platform_default_model: r.platform_default_model ?? null,
-      default_workspace_template: r.default_workspace_template ?? null,
-    };
+    const result=await readNodeCreationCapabilities(ctx,id,u.owner_id);
+    const current=user(req);
+    requireNode(ctx,id,current.owner_id);
+    if(current.owner_id!==u.owner_id)fail(503,'Catalog read superseded');
+    return result;
   });
   app.post("/im/v1/nodes/:node_id/prompt-preview", async (req) => {
     const u = await user(req),
@@ -257,60 +187,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       id = controlRouteId(req, 'node_id'),
       b = parseConfigurationInput(req.body, true);
     requireNode(ctx, id, u.owner_id);
-    const result = await ops.serialized(b.agent_id, async () => {
-      const pending = one(ctx.db, `SELECT owner_id,node_id,operation_kind,candidate_json,candidate_fingerprint
-        FROM agent_config_operations WHERE agent_id=? AND status IN ('pending','gateway_applied') ORDER BY rowid DESC LIMIT 1`, b.agent_id);
-      if (pending && (pending.operation_kind !== 'create' || pending.owner_id !== u.owner_id || pending.node_id !== id))
-        fail(409, "agent_id already exists");
-      const stored = pending && storedConfigurationCandidate(pending.candidate_json);
-      // A retry with omitted skills must use the defaults chosen on its first submission.
-      const defaults = stored && 'create_default_skills' in stored ? stored.create_default_skills : undefined;
-      let skills = b.skills;
-      if (skills === undefined && (defaults === null || Array.isArray(defaults) && defaults.every(name => typeof name === 'string'))) {
-        skills = defaults ?? undefined;
-      } else if (skills === undefined) {
-        const capabilities = await gatewayRequest(ctx, id, "node.capabilities.resolve", {});
-        skills = capabilities
-          ? (capabilities.skills ?? []).filter(isRecord).filter(s => s.default_on).map(s => s.name).filter((name): name is string => typeof name === 'string')
-          : undefined;
-      }
-      const c: ConfigurationCandidate = {
-        agent_id: b.agent_id,
-        owner_id: u.owner_id,
-        display_name: b.display_name,
-        description: b.description ?? "",
-        features: b.features ?? {},
-        custom_prompt: b.custom_prompt ?? null,
-        tool_allowlist: b.tool_allowlist ?? [],
-        group_reply_policy: b.group_reply_policy,
-        default_model: b.default_model ?? null,
-        model_fallbacks: b.model_fallbacks ?? [],
-        reasoning_effort: b.reasoning_effort ?? null,
-        approval_mode: b.approval_mode ?? null,
-        work_mode: b.work_mode ?? "single_thread",
-        workspace_root: b.workspace_root ?? null,
-        heartbeat_json: null,
-        confirm_existing_workspace: b.confirm_existing_workspace === true,
-      };
-      if (skills !== undefined) {
-        c.skills = skills;
-        c.skills_selection_mode = b.skills_selection_mode ?? null;
-      }
-      if (b.features === undefined) {
-        const desired = effectiveFeatures();
-        c.features = Object.fromEntries(featureDependencies.map(feature => [feature.key,false]));
-        for (const feature of featureDependencies) if (desired[feature.key]) Object.assign(c, changeCapability(c,{kind:'feature',name:feature.key,enabled:true},{}).draft);
-      }
-      if (pending && stored) {
-        if (candidateFingerprint(c) !== pending.candidate_fingerprint || c.description !== (stored.description ?? "") ||
-            c.confirm_existing_workspace !== (stored.confirm_existing_workspace === true)) fail(409, "agent_id already exists");
-        const recovered = await ops.recover(b.agent_id, u.owner_id);
-        if (!recovered) fail(409, "agent_id already exists");
-        return recovered;
-      }
-      const candidate = {...c, ...(b.skills === undefined ? {create_default_skills:skills ?? null} : {})};
-      return ops.create(candidate, u.owner_id, id);
-    });
+    const result = await createAgent(ctx,u.owner_id,id,b);
     return reply.code(201).send(result);
   });
   app.get("/im/v1/agents", async (req) => {
