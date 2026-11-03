@@ -17,7 +17,7 @@ function message(id: string, date: Date, overrides: Partial<Message> = {}): Mess
     id, conversation_id: conversation.id,
     sender: { type: "user", id: "u1", display_name: "You" },
     sender_user_id: "u1", sender_type: "user", content: id, attachments: [],
-    delivery_status: "completed", created_at: date.toISOString(), ...overrides,
+    delivery_status: "completed", permission_requests: [], created_at: date.toISOString(), ...overrides,
   };
 }
 
