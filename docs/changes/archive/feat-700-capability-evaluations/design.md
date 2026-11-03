@@ -1,6 +1,6 @@
 # feat-700 As-built design
 
-本文在快速开发中据实际实现形成，用户验收尚未完成。
+本文在快速开发中据实际实现形成。用户已于2026-11-03授权合并当前实现范围，未将尚未通过的视觉结果改写为通过。
 
 - 工作分支：codex/openui-native-visuals；本轮开始 HEAD 1c493d000，随后合并 origin/main 9cb67e17，merge 5614b1fb，以复用已合入的 Memory 评测。原 UI 三个预览服务不停止。
 - 取号脚本原子保留 feat-700。新代码作用域以 merge 后 dirty diff 为准；496 项主干变更不冒充本任务实施。

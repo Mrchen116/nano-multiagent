@@ -1,10 +1,10 @@
 # bugfix-699: 恢复 OpenUI 默认视觉与参考图生成指导
 
-状态：Active；用户选择快速开发，后续扩大为接入 Open Intelligent UI。用户亲自验收尚未完成。
+状态：Archived。用户于2026-11-03明确要求合并当前PR；按已交付范围收尾，原始视觉失败与剩余限制保留，不改写为通过。
 
 ## Relations
 
-- Related: [feat-617](../archive/feat-617-agent-interactive-responses/spec.md)
+- Related: [feat-617](../feat-617-agent-interactive-responses/spec.md)
 
 ## 原始报告与要求
 
@@ -37,7 +37,7 @@
 
 ## 实际修复与验证
 
-见 [as-built design](design.md) 和 [验证记录](validation.md)。用户确认前保留 Active；不冒充用户验收完成。
+见 [as-built design](design.md) 和 [验证记录](validation.md)。用户已授权合并当前实现范围并归档；已知视觉失败和剩余限制保留。
 
 ## 后续用户确认：短常驻选择与设计指导
 

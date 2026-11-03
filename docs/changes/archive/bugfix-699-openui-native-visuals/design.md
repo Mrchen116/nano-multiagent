@@ -1,6 +1,6 @@
 # bugfix-699: As-built Design
 
-> 实现后按最终范围整理；用户已要求从恢复样式扩大为接入 Open Intelligent UI，并明确不考虑后向兼容。用户视觉验收尚未完成。
+> 实现后按最终范围整理；用户已要求从恢复样式扩大为接入 Open Intelligent UI，并明确不考虑后向兼容。用户已授权合并当前实现范围；视觉结果及限制仍以验证记录为准。
 
 ## 实现范围
 
@@ -30,7 +30,7 @@
 
 ## 验证与状态
 
-见 [validation.md](validation.md) 和 [code-review.md](code-review.md)。用户确认前保留 Active，行为 delta 保留在本 unit，不提前归并 canonical。
+见 [validation.md](validation.md) 和 [code-review.md](code-review.md)。用户授权合并当前实现范围后，行为delta已归并canonical，unit归档；保留各阶段原始结果与未解决限制。
 
 ## 后续 as-built：公共表达选择指导
 

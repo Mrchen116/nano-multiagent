@@ -1,6 +1,6 @@
 # feat-700 Validation
 
-日期：2026-11-02。本轮验证公共页面与 case 建档，不是正式能力评分。用户确认待完成。
+日期：2026-11-02起。本轮验证公共页面与case建档，不是正式能力评分。用户于2026-11-03授权合并当前范围；以下历史批次保留，当前交付边界见末尾合并收尾。
 
 ## 代码与边界
 
@@ -52,3 +52,9 @@
 - Session `34b7c04d-48b2-4a87-b3cc-2d1bbfca2b5f`，turn1；1条用户请求、1条确认、1条最终回复。现场 <http://127.0.0.1:51124/chat/c_2770889dcac4>，本地报告 `output/eval-ad-analysis-20261102-02/report.md`，截图/result/baseline/完整Work证据同目录。单次结果不证明普遍主动采用率，不擅自归因或修改生成指导。
 - 公共入口更新为 <http://127.0.0.1:51938/e221cd2d-79a5-4835-b746-9a43c2080253/#ad-analysis>，tmux `capability-eval-ui-v4`，日志 `output/eval-ui-viewer-v4.log`，已挂接本次真实聊天。CUA核对工作区文件说明、固定输入和现场链接，明确不是页面自行执行或自动评分。
 - evals/ui 3文件4tests、evals类型检查、独立窄审查通过；未更改候选产品代码。本轮用户要求保留服务，最新公共viewer、本轮运行、旧失败现场和原3个产品预览保留，开发worktree保留。
+
+## 合并收尾（2026-11-03）
+
+用户明确要求“merge 吧”，按当前PR实现范围交付；保留原失败结果与未解决项，不将合并授权写成像素还原或全部视觉通过。最终源码head为4b58b4704；同步origin/main后无增量，effective_base=9cb67e17e，既有实现及相关测试/独立审查结论保留。本轮仅归并行为说明与整体归档，无新增实现或模型行为变化；CI以最终归档提交的实际结果为准。
+
+no spec delta：评测执行/判定协议与公共入口长期说明仍由evals/README.md、evals/ui/README.md、evals/intelligent-ui/README.md维护。用户要求保留预览，因此合并后仍保留服务和开发worktree；后续停止预览并核对证据保存后再清理。

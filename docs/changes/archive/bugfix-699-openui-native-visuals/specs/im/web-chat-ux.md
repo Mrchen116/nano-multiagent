@@ -1,6 +1,6 @@
 # Web 交互回复 delta
 
-归并目标：docs/specs/im/web-chat-ux.md 的“交互回复的统一视觉和信息层级”。用户确认前不归并。
+归并目标：docs/specs/im/web-chat-ux.md 的“交互回复的统一视觉和信息层级”。已于2026-11-03按当前实现范围归并，已知限制仍见验证记录。
 
 ### Requirement: 交互回复复用 Open Intelligent UI 通用表达与视觉
 

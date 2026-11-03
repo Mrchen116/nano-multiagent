@@ -62,3 +62,8 @@
 
 - Base/head：`25ecd519839bccfd24db196cbcf856aee6d9e020` + 删除integration catalog.json、移除生成条目及同步生成链说明的dirty diff；后续仅补验证与本记录。
 - 同一独立reviewer按change-code-review窄审，结论 `[]`：无运行时或打包消费者遗漏，TS schema、prompt、Skill和其余生成产物不变；独立资产`--check`及diff检查通过。无实际Context变化，不重复模型验证。
+
+## 合并收尾文档 closure（2026-11-03）
+
+- Base / executed_base：`4b58b4704b729dc6d8c9ee982af75d3a5c1f05f0`；effective_base=`9cb67e17e`，无main增量。validated_at为两unit整体归档、canonical归并和索引更新的最终working tree；实现/Context未变，既有实现审查与测试保留。
+- 同一独立reviewer核实canonical六场景一致、Requirements仍31，初轮指出归档后Related链接与一句Active当前叙述遗漏，均已修复。Closure `[]`，无存活问题；旧视觉失败没有改写为通过。后续仅补本记录和CI实际状态。

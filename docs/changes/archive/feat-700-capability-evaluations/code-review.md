@@ -1,6 +1,6 @@
 # feat-700 Code review
 
-状态：独立审查完成，用户尚未验收，unit 保持 Active。
+状态：独立审查完成；用户于2026-11-03授权合并当前实现范围，unit归档。以下保留各轮实际审查版本与限制。
 
 - Base：5614b1fb2f29632b76248760af8ce7159b9f8309；受审为该 merge 后的本次 dirty diff（含新增 evals/ui、intelligent-ui、Node 归档读取、integration observationOnly、依赖和文档）。旧 bugfix-699 和主干 merge 不冒充本次新实现。
 - 角色：独立 /root/openui_visual_review，使用 change-code-review；其中归档初始化的 Context/执行副作用也纳入核验。未代替用户产品确认。
@@ -27,3 +27,8 @@
 
 - Base/head：791c9456e；范围为workspaceFiles、自然任务文件定位、操作员下载说明与白名单、已有接线测试及文档。用户纠正不应混入附件链路，未修改产品上传或附件处理代码。
 - 独立 /root/openui_visual_review 按change-code-review窄审查结论 `[]`；工作区预置、操作员下载与候选自然任务已区分，没有界面/工具提示或判据泄漏；原三题和两个评价维度不变。独立3项窄测试及类型检查通过，实际运行由主会话另行取证。
+
+## 合并收尾文档 closure（2026-11-03）
+
+- Base / executed_base=`4b58b4704b729dc6d8c9ee982af75d3a5c1f05f0`，effective_base=`9cb67e17e`，无main增量；validated_at为本次完整归档与索引更新的最终working tree。无实现、Context、case或评测协议变化，既有审查/验证保留。
+- 同一独立reviewer窄审归档状态及交付边界，最终 `[]`。用户合并授权不等同正式能力分数或全部视觉通过；无canonical产品spec delta。
