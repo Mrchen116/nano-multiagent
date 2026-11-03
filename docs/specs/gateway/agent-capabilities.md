@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: bugfix-678
+> 对齐: feat-708
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -10,6 +10,21 @@
 网页模型接入与真实验证、agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口和内置 skills 自举的 Gateway 契约。
 
 ## Requirements
+
+### Requirement: 携程问道 Skill 随安装版本仅向 PA 默认提供
+
+#### Scenario: 默认配置的 PA 使用旅行查询指导
+- **WHEN** PA 使用默认 Skill 发现配置
+- **THEN** 可发现并按需加载随包携程问道 Skill，无需另行安装，能力配置默认标记为开启
+- **AND** 显式 Skill 选择及实际工具权限继续生效
+
+#### Scenario: 其他 Agent 不默认启用
+- **WHEN** Agent 没有 PA 身份，包括其他 Global Agent
+- **THEN** 不默认装配本次随包携程 Skill，用户已有自建 Skill 配置保持
+
+#### Scenario: 沿用原版凭证配置
+- **WHEN** 用户按携程问道 Skill 发起查询
+- **THEN** 凭证配置和缺少凭证时的提示遵循随包原版说明，不提供共享的内置凭证或新增授权界面
 
 ### Requirement: 直接真人输入保留原生执行语义与可信来源
 

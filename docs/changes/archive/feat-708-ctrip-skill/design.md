@@ -21,7 +21,7 @@
 - 上述三文件共 12 项通过；全仓构建及类型检查通过。初次在新 worktree 构建前运行投影测试因缺少编译后的包入口失败，构建后同一测试通过。
 - 实际运行时探针、加载后下一次 `llm/stream` 输入捕获与缺失凭证执行结果保存在本机 `/Users/czj/.codex/reports/ctrip-wendao-20261103/`；仅验证确定性接线，不证明 provider wire 序列化，不使用真实模型或调用携程 API。
 - 安装包归档包含 `tripai-skill/SKILL.md` 与来源记录；正文与固定上游版本逐字比较。
-- 用户实际验收：待确认。未部署，不把自动检查当作真实携程查询成功。
+- 用户交付决定：在明确仅 PA 默认启用后要求“merge 吧”，按该指令收尾，不追加真人试用门禁；未执行真人试用或真实携程查询。未部署，不把自动检查或合并指令当作真实查询成功。
 
 最初 `65e367358` 把该资产放在所有 Agent 共用根。用户随后明确 PA 范围，本轮按上述专用根方案修正；最初对普通两模式可加载的证据只保留为历史，不用于证明修正后的 PA 范围。
 
@@ -29,4 +29,4 @@
 
 ## Canonical 影响
 
-最窄 delta 见 `specs/gateway/agent-capabilities.md`，归并目标为 `docs/specs/gateway/agent-capabilities.md`；待用户实际验收及快速收尾完成后归并，当前契约尚未改写。
+最窄 delta 见 `specs/gateway/agent-capabilities.md`，收尾归并至 `docs/specs/gateway/agent-capabilities.md`。
