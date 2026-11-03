@@ -17,3 +17,9 @@ Final closure returned `findings: []`; prior implementation review retained. Nar
 - `effective_base`: `43cc90051cf9f037b58658fea86bb6e041681fac` (origin/main unchanged at final fetch).
 - `effective_through`: `a398b7d67570debb13f7a72c44a89215d99969de` for the implementation/specification tree; subsequent unit evidence and archive commits only move or record documents and retain this review.
 - No main integration delta, runtime source changes, or unreviewed product changes. The corrected canonical Requirement and its index are covered by closure; lite requires no separate verifier.
+
+## Prerequisite integration
+
+- Final main base is now `6c072da43887ef8e144c0d1ef40ef3d7a2575fed`. Main only added the bugfix-707 first document since the prior review.
+- Integrated `unit/bugfix-707` at `b4a3b4612de0a23a4adbb8e9439bc106c5274a69`; it adds a separately reviewed test-fixture lifecycle wait and its evidence/archive, with no production or frontend changes.
+- Prior Web review and validation retained: frontend and product-contracts are unchanged from `a398b7d67570debb13f7a72c44a89215d99969de`; backend source/tests match the independently validated prerequisite branch. The original `validated_at`/`executed_base` remain execution facts; effective scope extends through this integration and subsequent unit-document/archive changes.

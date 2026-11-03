@@ -34,4 +34,10 @@ Web `message-pane.tsx` 的 `formatHM` 从 `86b07fee77` 起仅输出时分；时�
 - 独立 code review 及闭环见 `code-review.md`，无存活 finding。
 - 初次额外 root `pnpm test`：210 files 中 192 passed / 18 failed，1125 tests 中 1096 passed / 29 failed，另有 EPIPE。失败集中在未修改的 DSH/Node 原生运行时测试，包含 capability deadline 和测试超时；这不是全绿结果，不能仅凭改动范围断言根因。保留 `/tmp/bugfix706-runtime-tests.log`，仅对该批失败文件以 `--maxWorkers=2` 复跑，不修改后端或增加测试超时。
 - 降并发复跑仍有 `dreaming-runtime.test.ts` 的 `personal=false, automatic=true` 用例失败。随后在主仓 `main` / `43cc90051`（不含本修复）以单 worker 运行同一文件：5 passed / 1 failed，失败为同一用例并报 `RpcError: generation_changed`（`/tmp/bugfix706-main-baseline.log`）。据此确认至少该项是基线验证限制；不能据此把初次全部 29 项失败都归因于同一原因。停止剩余额外后端复跑，不扩大快修范围。
-- 交付状态：日期源码与受影响前端检查完成，分支已保存；由于本地整体 CI 未全绿，unit 保持 active，不归档、不宣称全部门禁通过，尚未创建 PR、合并或部署。恢复位置为 `unit/bugfix-706`，专属 worktree 保留。后续需处理或明确豁免独立的主分支后端验证限制后，再按既有门禁完成 PR 交付；日期功能无需重复实现。
+- 首轮交付状态（`b2c61c29d`）：日期源码与受影响前端检查完成，分支已保存；由于本地整体 CI 未全绿，当时 unit 保持 active，未创建 PR、合并或部署。独立的后端验证限制后续由 bugfix-707 接手，日期功能无需重复实现。
+
+### 后续验证与交付
+
+- 核实主分支 `43cc90051` 及前两次远端 CI 均成功，初次失败是本机验证结果，不能表述为 GitHub main CI 失败。bugfix-707 修正自动 Dreaming 回归的会话释放等待条件；生产代码和原断言/超时不变。
+- `b4a3b4612` 合入 bugfix-707 的测试修复作为交付前置；后端源码/测试与该分支一致，其完整运行 1123/1125 通过，余下两个文件串行隔离 12/12 通过的证据适用，保留完整失败记录。日期前端及 product-contracts 相对已审查 `a398b7d67` 无变化，原 1059 项前端测试、build 和真实页面证据继续有效。
+- 本 PR 以 `unit/bugfix-707` 为 base，单独呈现日期展示差异；测试修复先由 PR #456 审查。未授权合并或部署，两个开发 worktree 保留；关闭自己创建的临时服务和浏览器的事实不变。
