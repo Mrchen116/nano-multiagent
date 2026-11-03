@@ -11,8 +11,12 @@ struct InteractiveCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if runtime.loaded {
-                InteractiveNodeView(node: runtime.root, runtime: runtime)
-                    .disabled(runtime.busy || runtime.hasPending)
+                if runtime.usesWebRenderer {
+                    InteractiveWebView(runtime: runtime).id(runtime.webID)
+                } else {
+                    InteractiveNodeView(node: runtime.root, runtime: runtime)
+                        .disabled(runtime.busy || runtime.hasPending)
+                }
             } else if runtime.error == nil { ProgressView(L("载入交互内容…", "Loading interaction…")) }
             if runtime.readOnly { Text(L("历史回复，仅供阅读", "Historical reply · read only")).font(.caption).foregroundStyle(.secondary) }
             if runtime.busy { ProgressView(runtime.composing ? L("正在采用…", "Preparing draft…") : L("正在发送…", "Sending…")) }

@@ -11,6 +11,7 @@ struct ChatMessageView: View {
     let refreshed: () -> Void
     @State private var showProcess = false
     private var mine: Bool { message.sender.id == selfID }
+    private var intelligentUI: Bool { message.interactive?.catalog_version == "nano-iui-1" }
     private var senderName: String { message.sender.display_name ?? participants.first { ($0.user_id ?? $0.id) == message.sender.id }?.display_name ?? message.sender.id }
     var body: some View {
         if message.system_notice?["kind"].stringValue == "task_graph" {
@@ -18,6 +19,15 @@ struct ChatMessageView: View {
                 NanoTimestamp(value: message.created_at)
                 Text(taskNoticeText).font(.caption).multilineTextAlignment(.center).tint(NanoTheme.accent)
             }.font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity).padding(.vertical, 6).textSelection(.enabled)
+        } else if intelligentUI {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32)
+                    senderIdentity
+                }
+                messageContent
+                if hasMetadata { metadata }
+            }.frame(maxWidth: .infinity, alignment: .leading)
         } else { bubble }
     }
     private var taskNoticeText: AttributedString {
@@ -30,13 +40,7 @@ struct ChatMessageView: View {
             else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
             VStack(alignment: .leading, spacing: 6) {
                 if message.system_notice == nil && ((showSenderName && !mine) || message.pa_agent_id != nil || message.delegation != nil) {
-                    HStack(spacing: 6) {
-                        Text(senderName).fixedSize(horizontal: false, vertical: true)
-                        if message.pa_agent_id != nil { Text(L("PA 代发", "Sent by PA")).foregroundStyle(.secondary).fixedSize() }
-                        else if let label = message.delegation?["label"].stringValue { Text(label).foregroundStyle(.secondary) }
-                    }.font(.caption).foregroundStyle(NanoTheme.muted).padding(.horizontal, 4)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(message.pa_agent_id != nil ? senderName + L("，由 PA 代发", ", sent by PA") : senderName + (message.delegation?["label"].stringValue.map { ", " + $0 } ?? ""))
+                    senderIdentity
                 }
                 messageContent
                 if hasMetadata { metadata }
@@ -44,6 +48,15 @@ struct ChatMessageView: View {
             if !mine { Spacer(minLength: 14) }
             else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
         }
+    }
+    private var senderIdentity: some View {
+        HStack(spacing: 6) {
+            Text(senderName).fixedSize(horizontal: false, vertical: true)
+            if message.pa_agent_id != nil { Text(L("PA 代发", "Sent by PA")).foregroundStyle(.secondary).fixedSize() }
+            else if let label = message.delegation?["label"].stringValue { Text(label).foregroundStyle(.secondary) }
+        }.font(.caption).foregroundStyle(NanoTheme.muted).padding(.horizontal, 4)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(message.pa_agent_id != nil ? senderName + L("，由 PA 代发", ", sent by PA") : senderName + (message.delegation?["label"].stringValue.map { ", " + $0 } ?? ""))
     }
     private var messageContent: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -79,8 +92,8 @@ struct ChatMessageView: View {
             ForEach(message.permission_requests ?? []) { permission in
                 ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, readOnly: readOnly, refreshed: refreshed)
             }
-            }.padding(14).background(mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine ? Color.clear : NanoTheme.border, lineWidth: 1))
+            }.padding(intelligentUI ? 0 : 14).background(intelligentUI ? Color.clear : mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine || intelligentUI ? Color.clear : NanoTheme.border, lineWidth: 1))
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
     }
     private var hasMetadata: Bool {

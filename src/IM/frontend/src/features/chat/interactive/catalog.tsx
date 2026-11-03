@@ -1,15 +1,7 @@
-import { defineAction } from '@openuidev/react-lang';
-import { z } from 'zod';
-import { library } from './open-intelligent-ui/library';
+import { interactiveLibrary } from './renderer-library';
+export { ComposeMessage, interactiveLibrary } from './renderer-library';
 import { promptOptions } from './open-intelligent-ui/prompt-options';
 
-export const ComposeMessage = defineAction({
-  name: 'ComposeMessage',
-  description: 'Adopt text into the signed-in user’s composer for an explicit Nano IM conversation id. Does not send or ask an Agent.',
-  params: z.object({target: z.string(), text: z.string()}),
-});
-
-export const interactiveLibrary = library.extend({actions: {add: [ComposeMessage]}});
 export const interactiveTools = [
   { name: 'conversation_messages', mode: 'read', description: 'Read the current conversation as the signed-in viewer.', parameters: { type: 'object', properties: { limit: { type: 'integer' } } } },
   { name: 'continue_conversation', mode: 'write', description: 'Submit a user request with current UI state; returns delivery, not a completed business action.', parameters: { type: 'object', properties: { message: { type: 'string' }, context: {} }, required: ['message'] } },

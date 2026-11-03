@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import Observation
+import UIKit
 
 /// Runs the shipped OpenUI evaluator while Session remains the only network owner.
 @MainActor @Observable
@@ -33,6 +34,7 @@ final class InteractiveRuntime {
     @ObservationIgnored private var querySignatures: [String: String] = [:]
     @ObservationIgnored private var queries: [JSONValue] = []
     @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var webSequence = 0
     var openURL: ((URL) -> Void)?
 
     init(client: IMClient, message: ChatMessage, chat: ChatStore, readOnly: Bool) {
@@ -40,17 +42,30 @@ final class InteractiveRuntime {
         self.readOnly = readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
     }
     var hasPending: Bool { chat.interactionAttempt(message.conversation_id, sourceMessageID: message.id) != nil }
+    var usesWebRenderer: Bool { message.interactive?.catalog_version == "nano-iui-1" }
+    var webID: UUID { generation }
+    var webDisabled: Bool { readOnly || busy || hasPending || conflict }
 
     func load() async {
         let token = UUID(); generation = token
         sessionRevision = await client.session.revision()
         error = nil; conflict = false; loaded = false
         do {
-            guard let source = message.interactive, source.format == "openui", source.catalog_version == "nano-1" else {
+            guard let source = message.interactive, source.format == "openui", ["nano-1", "nano-iui-1"].contains(source.catalog_version) else {
                 throw APIError(status: 422, detail: L("此交互回复版本暂不支持，仍可阅读上方文字。", "This interactive version is unsupported. The text remains readable."))
             }
             let draft = try await client.interactionDraft(message.conversation_id, messageID: message.id)
             guard token == generation, await current() else { return }
+            revision = draft.draft_revision; submitted = draft.submission_message_id != nil
+            edited = 0; saved = 0; querySignatures = [:]; webSequence = 0
+            let formatter = ISO8601DateFormatter(); formatter.formatOptions.insert(.withFractionalSeconds)
+            editedAt = draft.updated_at.flatMap { formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }?.timeIntervalSince1970 ?? 0
+            editedAt *= 1000
+            if usesWebRenderer {
+                setReadOnly(readOnly || draft.read_only == true || draft.superseded_by != nil || draft.can_interact == false)
+                state = draft.state; loaded = true; select()
+                return
+            }
             guard let url = Bundle.main.url(forResource: "InteractiveRuntime", withExtension: "js"), let js = JSContext() else { throw URLError(.cannotDecodeContentData) }
             js.evaluateScript(try String(contentsOf: url, encoding: .utf8))
             if let exception = js.exception { throw runtimeError(exception.toString()) }
@@ -58,14 +73,74 @@ final class InteractiveRuntime {
             if let exception = js.exception { throw runtimeError(exception.toString()) }
             guard let instance, !instance.isUndefined else { throw URLError(.cannotParseResponse) }
             context = js; engine = instance
-            revision = draft.draft_revision; submitted = draft.submission_message_id != nil
-            edited = 0; saved = 0; querySignatures = [:]
-            let formatter = ISO8601DateFormatter(); formatter.formatOptions.insert(.withFractionalSeconds)
-            editedAt = draft.updated_at.flatMap { formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }?.timeIntervalSince1970 ?? 0
-            editedAt *= 1000
             try receive(call("snapshot")); loaded = true
             select(); refreshQueries(); pollQueries()
         } catch { if token == generation { self.error = error.localizedDescription } }
+    }
+    /// The bundled renderer supplies values, never credentials or arbitrary API access.
+    func webRequest(_ request: JSONValue, generation token: UUID) async throws -> JSONValue {
+        guard usesWebRenderer, loaded, token == generation, await current() else {
+            throw runtimeError("This card session is no longer active")
+        }
+        let type = request["type"].stringValue ?? ""
+        if type == "ready" {
+            return .object(["source": .string(message.interactive?.source ?? ""), "state": .object(state), "disabled": .bool(webDisabled)])
+        }
+        if type == "error" { error = request["message"].stringValue; return .null }
+        if let value = request["state"].objectValue, let sequence = request["sequence"].intValue,
+           sequence > webSequence, !webDisabled {
+            webSequence = sequence
+            let different = state != value
+            state = value
+            if different && request["touched"].boolValue == true { changed() } else { select() }
+        }
+        if type == "state" { return .null }
+        if type == "resource" {
+            guard let path = request["path"].stringValue, let parts = URLComponents(string: path),
+                  parts.scheme == nil, parts.host == nil, parts.fragment == nil,
+                  ["/im/v1/intelligent-ui/api/wiki", "/im/v1/intelligent-ui/api/image-search", "/im/v1/intelligent-ui/api/street-route"].contains(parts.path) else {
+                throw runtimeError("This resource is not connected")
+            }
+            return try await client.get(parts.path, query: parts.queryItems ?? [])
+        }
+        let action = type == "action" ? request["event"] : .null
+        let name = type == "tool" ? request["name"].stringValue : action["type"].stringValue
+        let args = type == "tool" ? request["args"] : action["params"]
+        if name == "conversation_messages", type == "tool" {
+            let limit = max(1, min(100, args["limit"].intValue ?? 20))
+            let page: MessagePage = try await client.get("/im/v1/conversations/\(message.conversation_id.pathComponent)/messages", query: [.init(name: "limit", value: String(limit))])
+            return .array(page.items.compactMap(\.message).map { .object(["id": .string($0.id), "sender": .string($0.sender.display_name ?? $0.sender.id), "content": .string($0.content), "delivery_status": .string($0.delivery_status)]) })
+        }
+        guard !webDisabled else { throw runtimeError("This card cannot perform actions right now") }
+        if name == "open_url" {
+            guard let text = args["url"].stringValue, let url = URL(string: text), ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { throw runtimeError("This link cannot be opened") }
+            openURL?(url); return .null
+        }
+        if name == "CopyToClipboard" {
+            guard let text = args["text"].stringValue else { throw runtimeError("text required") }
+            UIPasteboard.general.string = text; return .bool(true)
+        }
+        guard ["ComposeMessage", "continue_conversation"].contains(name ?? "") else { throw runtimeError("This action is not connected") }
+        busy = true; composing = name == "ComposeMessage"; error = nil
+        defer { if token == generation { busy = false; composing = false } }
+        await flush()
+        guard token == generation, await current(), !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
+        if name == "ComposeMessage" {
+            guard let target = args["target"].stringValue, let text = args["text"].stringValue else { throw runtimeError("target and text required") }
+            try await compose(target, text: text); return .null
+        }
+        guard let text = type == "tool" ? args["message"].stringValue : action["humanFriendlyMessage"].stringValue else { throw runtimeError("message required") }
+        var details: [String: JSONValue] = ["type": .string("continue_conversation"), "message": .string(text), "label": request["label"].stringValue.map(JSONValue.string) ?? .string(L("向 Agent 提问", "Ask Agent"))]
+        if args["context"] != .null { details["context"] = args["context"] }
+        if let form = action["formName"].stringValue { details["form_name"] = .string(form) }
+        var submittedState = state
+        if let form = action["formState"].objectValue { submittedState.merge(form) { _, new in new } }
+        let receipt = try await chat.submitInteraction(message.conversation_id,
+            input: InteractionReplyInput(source_message_id: message.id, event: .object(details), state: submittedState), key: UUID().uuidString)
+        guard token == generation, await current() else { throw runtimeError("This card session is no longer active") }
+        submitted = true; saved = edited
+        await syncRevision()
+        return .object(["message_id": .string(receipt.id), "delivery_status": .string(receipt.delivery_status)])
     }
     func setReadOnly(_ value: Bool) {
         readOnly = value || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
@@ -197,7 +272,7 @@ final class InteractiveRuntime {
         Task { await flush() }
     }
     func retryContent() async {
-        if !loaded || conflict { await load() }
+        if !loaded || conflict || usesWebRenderer { await load() }
         else { error = nil; querySignatures = [:]; refreshQueries(); await flush() }
     }
     private func changed() {

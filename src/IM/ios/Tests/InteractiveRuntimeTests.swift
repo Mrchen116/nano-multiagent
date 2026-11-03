@@ -1,4 +1,6 @@
 import XCTest
+import SwiftUI
+import WebKit
 @testable import NanoIM
 
 @MainActor
@@ -108,6 +110,138 @@ final class InteractiveRuntimeTests: XCTestCase {
         runtime.leave()
     }
 
+    func testIntelligentUIWebKitRendersReferenceCardsAndSVGAtPhoneWidth() async throws {
+        for name in ["hotel", "dashboard"] {
+            let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "json"))
+            let source = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: url))["source"].stringValue
+            let (runtime, transport) = try await makeRuntime(source: try XCTUnwrap(source), catalog: "nano-iui-1")
+            await runtime.load()
+            let (view, coordinator, window) = mount(runtime)
+            try await waitFor(view, "document.querySelectorAll('button').length > 0 && document.body.innerText.length > 100")
+            XCTAssertNil(runtime.error)
+            let width = try await view.evaluateJavaScript("document.documentElement.scrollWidth") as? Double
+            XCTAssertLessThanOrEqual(try XCTUnwrap(width), 394, "\(name) spills outside phone width")
+            if name == "hotel" {
+                // Network photos may arrive later; external availability is not a renderer assertion.
+                _ = try await view.evaluateJavaScript("Array.from(document.querySelectorAll('button,[role=button]')).find(button => button.textContent === 'Book').click()")
+                try await waitFor(view, "document.body.innerText.includes('预订交互演示')")
+            } else {
+                let count = try await view.evaluateJavaScript("document.querySelectorAll('svg path,svg circle,svg rect').length") as? Int
+                XCTAssertGreaterThan(try XCTUnwrap(count), 10, "Chart / funnel must contain real geometry")
+            }
+            let image = try await view.takeSnapshot(configuration: nil)
+            let attachment = XCTAttachment(image: try XCTUnwrap(image)); attachment.name = "iOS-\(name)-393px"; attachment.lifetime = .keepAlways
+            add(attachment)
+            let sends = await transport.sends
+            XCTAssertTrue(sends.isEmpty, "Local exploration must not call the Agent")
+            _ = coordinator
+            window.isHidden = true
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page)
+            runtime.leave()
+        }
+    }
+
+    func testIntelligentUIWebKitMeetingEditsRestoreAndExplicitlyContinue() async throws {
+        let source = """
+        $slot = "周二 10:00"
+        root = Col([Title("安排项目评审"), Form([SegmentedControl($slot, ["周二 10:00", "周三 14:00"]), Text($slot), Button("确认安排", @ToAssistant("按我的选择安排会议", {kind:"meeting"}))])])
+        """
+        let (runtime, transport) = try await makeRuntime(source: source, catalog: "nano-iui-1")
+        await runtime.load()
+        let (view, coordinator, window) = mount(runtime)
+        defer { window.isHidden = true; view.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page); runtime.leave() }
+        try await waitFor(view, "document.body.innerText.includes('确认安排')")
+        _ = try await view.evaluateJavaScript("Array.from(document.querySelectorAll('button')).find(button => button.textContent === '周三 14:00').click()")
+        try await waitFor(view, "document.querySelector('form').innerText.includes('周三 14:00')")
+        for _ in 0..<100 where runtime.state["$slot"] != .string("周三 14:00") { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(runtime.state["$slot"], .string("周三 14:00"))
+        XCTAssertEqual(runtime.chat.interactionSelections["card"]?.state["$slot"], .string("周三 14:00"))
+        await runtime.flush()
+        var sends = await transport.sends
+        XCTAssertTrue(sends.isEmpty)
+        _ = try await view.evaluateJavaScript("Array.from(document.querySelectorAll('button')).find(button => button.textContent === '确认安排').click()")
+        for _ in 0..<200 where !runtime.submitted { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(runtime.submitted, runtime.error ?? "Not submitted")
+        sends = await transport.sends
+        XCTAssertEqual(sends.count, 1)
+        XCTAssertEqual(sends.first?["interaction_reply"]["state"]["$slot"], .string("周三 14:00"))
+        XCTAssertEqual(sends.first?["interaction_reply"]["event"]["message"], .string("按我的选择安排会议"))
+        XCTAssertEqual(sends.first?["interaction_reply"]["event"]["label"], .string("确认安排"))
+        XCTAssertNil(runtime.error)
+        await runtime.load()
+        XCTAssertEqual(runtime.state["$slot"], .string("周三 14:00"))
+        do { _ = try await runtime.webRequest(.object(["type": .string("action")]), generation: coordinator.generation); XCTFail("Old page accepted after reload") } catch {}
+        let generation = runtime.webID
+        runtime.setReadOnly(true)
+        do {
+            _ = try await runtime.webRequest(.object(["type": .string("tool"), "name": .string("continue_conversation"), "args": .object(["message": .string("forbidden")])]), generation: generation)
+            XCTFail("Read-only submission accepted")
+        } catch {}
+        _ = await runtime.client.session.signOut()
+        do { _ = try await runtime.webRequest(.object(["type": .string("ready")]), generation: generation); XCTFail("Logged-out page accepted") } catch {}
+    }
+
+    private func mount(_ runtime: InteractiveRuntime) -> (WKWebView, InteractiveWebContent.Coordinator, UIWindow) {
+        let coordinator = InteractiveWebContent.Coordinator(runtime: runtime, height: .constant(800))
+        let view = coordinator.makeWebView()
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        let controller = UIViewController(); window.rootViewController = controller
+        controller.view.backgroundColor = .white
+        controller.view.addSubview(view); view.frame = CGRect(x: 0, y: 0, width: 393, height: 800)
+        window.makeKeyAndVisible()
+        return (view, coordinator, window)
+    }
+
+    func testIntelligentUIHtmlFrameCannotUseNativeAuthority() async throws {
+        let html = """
+        <p>Isolated content</p><script>addEventListener('message', async () => {
+          try { await window.webkit.messageHandlers.intelligentUI.postMessage({type:'tool',name:'continue_conversation',args:{message:'forbidden'}}); parent.postMessage('unexpected', '*'); }
+          catch { parent.postMessage('blocked', '*'); }
+        });</script>
+        """
+        let source = "root = Col([HtmlView(\(JSONValue.string(html).prettyPrinted), 140)])"
+        let (runtime, transport) = try await makeRuntime(source: source, catalog: "nano-iui-1")
+        await runtime.load()
+        let (view, coordinator, window) = mount(runtime)
+        defer { window.isHidden = true; view.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page); runtime.leave(); _ = coordinator }
+        try await waitFor(view, "document.querySelector('iframe') !== null")
+        _ = try await view.evaluateJavaScript("window.addEventListener('message', event => {if (['blocked','unexpected'].includes(event.data)) window.frameResult = event.data}); const frame = document.querySelector('iframe'); frame.addEventListener('load', () => frame.contentWindow.postMessage('try', '*')); frame.contentWindow.postMessage('try', '*')")
+        try await waitFor(view, "window.frameResult === 'blocked'")
+        let sends = await transport.sends
+        XCTAssertTrue(sends.isEmpty)
+    }
+
+    func testIntelligentUIConnectedToolsAndComposeStayInNativeSession() async throws {
+        let (runtime, transport) = try await makeRuntime(source: "root = Col([Text(\"Tools\")])", catalog: "nano-iui-1")
+        await runtime.load()
+        let generation = runtime.webID
+        let rows = try await runtime.webRequest(.object(["type": .string("tool"), "name": .string("conversation_messages"), "args": .object([:])]), generation: generation)
+        XCTAssertEqual(rows, .array([]))
+        _ = try await runtime.webRequest(.object(["type": .string("action"), "event": .object(["type": .string("ComposeMessage"), "params": .object(["target": .string("chat"), "text": .string("会议草稿")])])]), generation: generation)
+        XCTAssertEqual(runtime.chat.drafts["chat"], "会议草稿")
+        var sends = await transport.sends
+        XCTAssertTrue(sends.isEmpty)
+        _ = try await runtime.webRequest(.object(["type": .string("tool"), "name": .string("continue_conversation"), "args": .object(["message": .string("安排评审"), "context": .object(["kind": .string("meeting")])])]), generation: generation)
+        sends = await transport.sends
+        XCTAssertEqual(sends.count, 1)
+        XCTAssertEqual(sends.first?["interaction_reply"]["event"]["context"], .object(["kind": .string("meeting")]))
+        for path in ["https://outside.test/im/v1/intelligent-ui/api/wiki", "/im/v1/auth/refresh"] {
+            do { _ = try await runtime.webRequest(.object(["type": .string("resource"), "path": .string(path)]), generation: generation); XCTFail("Unregistered resource accepted") } catch {}
+        }
+        runtime.leave()
+    }
+
+    private func waitFor(_ view: WKWebView, _ expression: String) async throws {
+        for _ in 0..<300 {
+            if (try? await view.evaluateJavaScript(expression)) as? Bool == true { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTFail("WebKit did not satisfy: \(expression)")
+        throw NSError(domain: "InteractiveWebTest", code: 1)
+    }
+
     private func find(_ kind: String, _ value: JSONValue) -> JSONValue? {
         if value["typeName"].stringValue == kind { return value }
         for child in value.arrayValue ?? Array(value.objectValue?.values ?? [:].values) {
@@ -115,7 +249,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         }
         return nil
     }
-    private func makeRuntime(readOnly: Bool = false, source override: String? = nil) async throws -> (InteractiveRuntime, InteractiveTestTransport) {
+    private func makeRuntime(readOnly: Bool = false, source override: String? = nil, catalog: String = "nano-1") async throws -> (InteractiveRuntime, InteractiveTestTransport) {
         let user = AuthUser(id: "viewer", username: "viewer", display_name: "Viewer", owner_id: "viewer", locale: "zh", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let transport = InteractiveTestTransport(pair: try JSONEncoder().encode(pair))
@@ -126,7 +260,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         let client = IMClient(baseURL: session.baseURL, session: session)
         let chat = ChatStore(client: client, user: user)
         var message = try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"card","conversation_id":"chat","sender":{"type":"agent","id":"agent"},"sender_user_id":"agent","sender_type":"agent","content":"阅读安排","attachments":[],"delivery_status":"completed","created_at":"now"}"#.utf8))
-        message.interactive = MessageInteractive(format: "openui", catalog_version: "nano-1", source: override ?? source)
+        message.interactive = MessageInteractive(format: "openui", catalog_version: catalog, source: override ?? source)
         return (InteractiveRuntime(client: client, message: message, chat: chat, readOnly: readOnly), transport)
     }
 }
@@ -166,6 +300,8 @@ private actor InteractiveTestTransport: HTTPTransport {
             sends.append(try JSONDecoder().decode(JSONValue.self, from: request.httpBody!))
             revision += 1
             data = Data(#"{"id":"submitted","conversation_id":"chat","sender":{"type":"user","id":"viewer"},"sender_user_id":"viewer","sender_type":"user","content":"安排阅读","attachments":[],"delivery_status":"pending","created_at":"now"}"#.utf8)
+        } else if path.hasSuffix("/messages") {
+            data = Data(#"{"items":[],"next_cursor":null}"#.utf8)
         } else if path.hasSuffix("/conversations/chat") {
             if !targetWritable { return (Data(#"{"detail":"No write permission"}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!) }
             data = Data(#"{"id":"chat","title":"Chat","participants":[],"participant_ids":["viewer"],"type":"direct","owner_id":"viewer","creator_id":"viewer","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now","can_write":true}"#.utf8)

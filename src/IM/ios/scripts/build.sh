@@ -3,6 +3,8 @@ set -euo pipefail
 IOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 MODE="${1:-build}"
+pnpm --dir "$IOS_ROOT/../../.." --filter @nano/product-contracts build
+npm --prefix "$IOS_ROOT/../frontend" run build:ios-ui
 BUILD_REVISION="${NANO_IOS_BUILD_REVISION:-$(git -C "$IOS_ROOT" rev-parse --short=12 HEAD)}"
 BUILD_ROOT="${NANO_IOS_BUILD_ROOT:-/tmp/nano-ios-build}"
 case "$MODE" in
