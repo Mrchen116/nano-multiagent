@@ -153,9 +153,9 @@ final class InteractiveRuntimeTests: XCTestCase {
         await runtime.load()
         let (view, coordinator, window) = mount(runtime)
         defer { window.isHidden = true; view.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page); runtime.leave() }
-        try await waitFor(view, "document.body.innerText.includes('确认安排')")
+        try await waitFor(view, "document.querySelector('[role=radio][aria-checked=true]')?.textContent === '周二 10:00'")
         _ = try await view.evaluateJavaScript("Array.from(document.querySelectorAll('button')).find(button => button.textContent === '周三 14:00').click()")
-        try await waitFor(view, "document.querySelector('form').innerText.includes('周三 14:00')")
+        try await waitFor(view, "document.querySelector('[role=radio][aria-checked=true]')?.textContent === '周三 14:00'")
         for _ in 0..<100 where runtime.state["$slot"] != .string("周三 14:00") { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(runtime.state["$slot"], .string("周三 14:00"))
         XCTAssertEqual(runtime.chat.interactionSelections["card"]?.state["$slot"], .string("周三 14:00"))
