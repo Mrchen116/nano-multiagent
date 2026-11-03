@@ -71,6 +71,48 @@ describe("auth gate", () => {
     localStorage.clear();
   });
 
+  it("restores a cookie session opened directly at login and enters chat", async () => {
+    useAuthStore.setState({ hydrated: false });
+    vi.mocked(fetch).mockImplementation(async (url) => new Response(JSON.stringify(
+      String(url).endsWith("/refresh") ? { access_token: "restored", user: SAMPLE_USER } : SAMPLE_USER
+    ), { status: 200 }));
+    renderAt("/login");
+    expect(await screen.findByTestId("protected")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /sign in/i })).not.toBeInTheDocument();
+  });
+
+  it("retries a temporary restoration failure without asking for a password", async () => {
+    useAuthStore.setState({ hydrated: false });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("", { status: 503 }));
+    renderAt("/login");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^password/i)).not.toBeInTheDocument();
+    vi.mocked(fetch).mockImplementation(async (url) => new Response(JSON.stringify(
+      String(url).endsWith("/refresh") ? { access_token: "restored", user: SAMPLE_USER } : SAMPLE_USER
+    ), { status: 200 }));
+    await userEvent.click(screen.getByRole("button"));
+    expect(await screen.findByTestId("protected")).toBeInTheDocument();
+  });
+
+  it("shows the password form after an explicit logout even with a loaded session", async () => {
+    useAuthStore.getState().setSession({ access_token: "loaded", user: SAMPLE_USER });
+    const router = createMemoryRouter(
+      [{ path: "/login", element: <LoginPage /> }, { path: "/chat", element: <ProtectedHello /> }],
+      { initialEntries: [{ pathname: "/login", state: { signOut: true } }] },
+    );
+    render(<RouterProvider router={router} />);
+    expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+    await waitFor(() => expect(useAuthStore.getState().user).toBeNull());
+    expect(router.state.location.pathname).toBe("/login");
+  });
+
+  it("shows the password form when cookie restoration is rejected", async () => {
+    useAuthStore.setState({ hydrated: false });
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 401 }));
+    renderAt("/login");
+    expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+  });
+
   it("redirects to /login when unauthenticated", async () => {
     renderAt("/chat");
     expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();

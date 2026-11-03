@@ -323,6 +323,13 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
             expires_at INTEGER NOT NULL,
             revoked INTEGER NOT NULL DEFAULT 0
         );
+CREATE TABLE IF NOT EXISTS auth_login_events (
+            id INTEGER PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            logged_in_at INTEGER NOT NULL,
+            user_agent TEXT NOT NULL
+        );
+CREATE INDEX IF NOT EXISTS auth_login_events_user_id ON auth_login_events(user_id, id);
 CREATE TABLE IF NOT EXISTS auth_ws_tickets (
             ticket_hash TEXT PRIMARY KEY,
             session_id TEXT NOT NULL REFERENCES auth_sessions(session_id) ON DELETE CASCADE,

@@ -116,7 +116,7 @@ const publicKey = (encoded: string) => {
 
 /** Own persisted identity, session rotation and device proof state. */
 export class Identity {
-  readonly refreshTtl = 7 * 24 * 60 * 60;
+  readonly refreshTtl = 30 * 24 * 60 * 60;
   private passwordWorkers = 0;
   private readonly requestScopes = new WeakMap<object, Set<string>>();
   private readonly principalRequests = new WeakMap<object, object>();
@@ -251,7 +251,7 @@ export class Identity {
     }
     return this.issuePair(this.user(id)!);
   }
-  async login(username: string, password: string) {
+  async login(username: string, password: string, userAgent = "") {
     const snapshot = this.get("SELECT * FROM users WHERE username=?", username.trim());
     const verified = await this.passwordWork<boolean>(
       "compare",
@@ -267,7 +267,18 @@ export class Identity {
       fresh.auth_epoch !== snapshot?.auth_epoch
     )
       throw new IdentityError(401, "invalid credentials");
-    return this.issuePair(fresh);
+    return this.transaction(() => {
+      const pair = this.issuePair(fresh);
+      this.run(
+        "INSERT INTO auth_login_events(user_id,logged_in_at,user_agent) VALUES(?,?,?)",
+        fresh.id, now(), userAgent.slice(0, 512),
+      );
+      this.run(
+        "DELETE FROM auth_login_events WHERE user_id=? AND id NOT IN (SELECT id FROM auth_login_events WHERE user_id=? ORDER BY id DESC LIMIT 10)",
+        fresh.id, fresh.id,
+      );
+      return pair;
+    });
   }
   private sign(payload: Row) {
     const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");

@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../i18n";
 import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, validateLogin } from "./auth-form-feedback";
 import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
-import { accountEnabled } from "./auth-store";
+import { accountEnabled, useAuthStore } from "./auth-store";
 import { login, logout } from "./auth-session";
 
 import { safeReturnPath } from "./membership-page";
@@ -21,12 +21,17 @@ export function LoginPage() {
   const signOut = Boolean((location.state as { signOut?: boolean } | null)?.signOut);
   const from = safeReturnPath((location.state as { from?: string } | null)?.from);
   const cooldown = useAuthCooldown();
+  const hydrated = useAuthStore(state => state.hydrated);
+  const hydrationError = useAuthStore(state => state.hydrationError);
+  const user = useAuthStore(state => state.user);
+  const accessToken = useAuthStore(state => state.accessToken);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<LoginField>>({});
   const [formError, setFormError] = useState<AuthFeedbackCode | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const loginSubmitted = useRef(false);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 
@@ -35,6 +40,10 @@ export function LoginPage() {
       void logout().catch(() => setFormError("serviceUnavailable"));
     }
   }, [signOut]);
+
+  useEffect(() => {
+    if (!signOut && !hydrated) void useAuthStore.getState().hydrate();
+  }, [signOut, hydrated]);
 
   function feedback(code?: AuthFeedbackCode) {
     return code ? t(`auth.feedback.${code}`) : undefined;
@@ -59,16 +68,26 @@ export function LoginPage() {
 
     setFieldErrors({});
     setFormError(null);
+    loginSubmitted.current = true;
     setSubmitting(true);
     try {
       const pair = await login({ username: username.trim(), password });
       navigate(accountEnabled(pair.user) ? from : "/membership", { replace: true, state: { from } });
     } catch (error) {
+      loginSubmitted.current = false;
       if (error instanceof AuthApiError && error.status === 429) { cooldown.start(error.retryAfter); return; }
       setFormError(error instanceof AuthApiError && error.status === 401 ? "invalidCredentials" : "serviceUnavailable");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!signOut && !hydrated) {
+    if (hydrationError) return <div role="alert">{t("auth.feedback.serviceUnavailable")} <button onClick={() => void useAuthStore.getState().hydrate()}>{t("company.refresh")}</button></div>;
+    return null;
+  }
+  if (!signOut && !loginSubmitted.current && user && accessToken) {
+    return <Navigate to={accountEnabled(user) ? "/chat" : "/membership"} replace />;
   }
 
   return (
