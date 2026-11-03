@@ -1,0 +1,65 @@
+# M1-create implementation and evidence
+
+## 实施范围
+
+- Web 和 PA 共用 owner-scoped 节点目录及配置创建准备；既有 ConfigOperations 继续持有 apply、commit、恢复。
+- pa_agent_creations 只关联 binding/request key 到宿主 operation id，不复制 apply 状态机；目标 node_id 经 target_node_id 与 PA 传输身份分离。
+- 主 PA 固定 agent_creation 入口，options/create/status；随包 nano-agent-creation 按需加载，明确交办并对齐选项后提交。普通工具审批和根 PA 身份限制继续生效。
+- 传输无法判断是否已受理时返回 unknown（不同于已接受配置操作的 pending），两者均指导查询原 request_key。属已设计的未确认结果细化，不扩大恢复或授权范围。
+
+## 测试策略与既有保护
+
+- 新建 IM personal-agent-creation.test.ts：该产品语义此前没有 owner；保护独立长期创建、真实目录、跨自有节点、主人/观察来源、offline、key冲突及精确 operation 恢复。首次5项全部以 unsupported_personal_operation 失败，接入后通过。
+- control/configuration-edits/approval-configuration/catalog-reads 原覆盖 keep：共享提取继续由其保护 Web 创建、候选和回执语义。
+- 扩展现有 personal-assistant.test.ts：保护目标与传输身份分离、child/非PA拒绝和传输unknown。
+- 扩展现有 native personal-security.test.ts：保留 ordinary/PA catalog 对照，新增真实 DSH + HTTP stub 捕获；模型响应为受控机制fixture，不充作真实模型能力证据。
+
+## 已执行结果（实施工作树，随后由代码提交锁定版本）
+
+- narrow IM/PA/configuration/catalog: 72 tests passed。
+- native PA/context + PA host + contract selection: 50 tests passed。
+- pnpm build、pnpm typecheck passed（后续最终版本再核一次增量）。
+- 原生 HTTP fixture 共4次模型请求：首次只有 Skill摘要；下一次含实际 Skill正文；后续含 options 与 created 结果；所有请求 tools 和 system 的序列化值保持相同。没有真实 provider cache 命中率声明。
+- daily 真栈位于本 worktree：.e2e-daily.json；正常主人聊天“只是讨论，不要创建”得到澄清建议，Agent总数保持4。真实模型为模板 PA Astra/medium、Codex审批，Auto开启，未跳过权限。
+
+## 交付状态
+
+独立产品验收、最终一致性/校正delta对账、契约归并和归档均通过；PR/远端 CI 收尾中。所有运行数据、日志和原请求留本机，不提交。
+
+## 独立审查修复
+
+- 静态审查在 6a588bde1 确认：首次创建在 per-Agent 队列等待时，源 PA 被停用后仍能提交。接受此 finding，在共享 createAgent 的队列及目录等待之后、首次 operation insert 之前加入同步 admission callback，复核当前 binding、原执行代次和主人来源；已接受 operation 仍按原回执恢复。新增排队期间 disabled/binding/source 变化回归。
+- 自检真实模型的讨论/选项/创建全程主 session: 0b464064-b456-4264-b49d-c6cc1de5d625；主人确认消息 bd1d5916b6804ee0b1e080efe4583cf3，真实返回 english-speaking-703，Agent列表从4变5，聊天 c_wt9hukyw 的首任务未自动发送。模型 Astra/medium，Codex Auto审核。该自检先于异步权限修复；最终版本另由独立产品 reviewer 验收。
+- 完整后端：210 files / 1121 tests passed（.feat703-backend-tests.log）。Python129 passed /28 deselected；ruff check、format、typecheck通过。上述结果适用于未变部分，权限修复另跑窄回归。
+
+## 最终验证进展
+
+- 独立 code review R2：R1-C1 closed，0存活代码问题；独立重跑9项创建测试通过。修复后的创建/config/catalog组合28项通过；IM构建/typecheck通过。
+- 独立产品验收见 ../acceptance.md：f8800afaa 快照、真实 Astra/medium PA与Codex Auto审核、两个隔离节点、9/9场景pass。观察到pending后查询同笔仅创建一次，实际聊天及修改配置均成功，撤回和观察内容不创建；不将其作为跨租户或供应商缓存认证。
+- 前端完整初跑在 interactive-card.test.tsx 的 Set/ToAssistant 用例失败（send回调未在waitFor时限内发生）；该区域和用例未修改。单文件13/13通过，相同完整命令复跑111文件/1056测试通过。未通过重试修补源码，也未把首次失败归因到已证实原因；保留 .feat703-frontend-tests.log、.feat703-frontend-targeted.log 和 .feat703-frontend-repeat.log。
+- pnpm check:ios-runtime、frontend critical audit、docs-check均通过；backend完整1121、Python129、ruff/check/format、typecheck结果沿用有效未变部分，权限修复另有28项窄回归和独立9项复验。
+- final sync前检查：origin/main自1580df554仅增加feat-705需求文档9762ad3b4，未修改本需求产品代码/依赖或门禁范围；上述有效证据可保留。
+
+## 交付收尾
+
+- 静态最终 verification 在 e106b07bd 对账：产品代码/测试/依赖与 f8800afaa 相同；两份 corrected-delta aligned，R1-C1 与产品证据项均 closed，0 CRITICAL/WARNING/SUGGESTION。产品9/9与代码门禁有效。
+- Gateway/IM PA delta已归并到各自 current personal-agent.md，领域索引数量与顶层入口同步。仅文档归并/路径归档，不改变已验证行为。
+- 已停止本需求主隔离Node、第二隔离Node和IM。两处Gateway状态/PID文件与IM PID文件已确认移除；测试数据与原始合成证据保留本地输出，不提交。开发worktree在PR合入前保留。
+
+- 最终同步 origin/main 仍为 9762ad3b44ca3cb2eebd6f2025fe8f169a544de3；最终 docs-check：279 maintained Markdown sources / 68 required routes，archive checker 与 git diff --check 通过。归档/归并之后产品代码与 f8800afaa 完全相同，沿用上述有效门禁。
+
+## 用户追加：创建工具可关闭（PR #455 后续）
+
+- 用户明确要求 agent_creation 也可在 PA 配置页关闭；默认开启与 Skill 独立选择保持。Gate 2 增量审查见 design-review Round 2：Approved，0 CRITICAL/WARNING。
+- 根因：原工具属于 fixedTools，不受白名单取消选择控制。改为新建 PA 显式默认选择，并在 PA 产品转发检查当前工具白名单；复用既有选择器、运行时收缩与 busy 占用保护，不增加开关字段或迁移。
+- 有意义红测：共享能力关闭、默认新建 PA 选择、产品侧取消选择三项均先失败；原生请求关闭后仍含工具也先失败。修正后4文件67项通过。原生 fixture 扩展为8次 HTTP序列化请求，关闭后无工具且强制旧调用失败、重开恢复原 schema；仅机制证据，不当真实模型证据。
+- 后续增量门禁与真栈配置页验收进行中。未变的创建/恢复/来源边界继续保留之前记录；用户关闭不撤销已接受操作，已开始工具占用继续遵循既有拒绝关闭规则。
+
+### 工具开关增量验证完成
+
+- 37b1a707 快照：独立code patch review空发现，delta/corrected-delta实现aligned；产品证据对账随后收口。设计R2 Approved。
+- 独立产品Round2通过：真实桌面Web 1280×720，新PA默认on；UI关闭、保存/刷新保持off且Skill仍on；真实PA告知工具不可用、列表4不变；UI重开后同聊天继续并真实创建morning-translator，总数5且仅一份。配置读回与截图定位见acceptance.md；不重复原9场景，也不作iOS/供应商缓存声明。
+- 本轮本地窄回归67+34项、设置选择器/面板26项均pass；Python129pass28deselected、ruff check/format pass。完整build/typecheck通过；build启动时源已是0a实现但release metadata取了旧b2 HEAD，实际源与37b产品diff为空，报告保留此限制。
+- 本轮隔离daily栈已e2e-down停止，PID/端口清理；本地产物不提交。current Gateway PA归并新增开关Scenario，需求归档位置保持。
+
+- 最终独立verification Round5：R4-E1 closed，PASS / corrected-delta aligned，0 CRITICAL/WARNING/SUGGESTION。origin/main仍492b72603，仅无关705设计文档；产品代码与37b快照无变化。最终docs-check284/68通过，archive与diff检查通过；PR远端CI更新中。

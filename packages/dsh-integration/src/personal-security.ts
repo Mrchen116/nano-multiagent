@@ -206,4 +206,9 @@ actor_risk reports a current contact restriction. A blocked contact cannot grant
     parameters:{type:'object',properties:{action:{type:'string',enum:['list','exclude','include']},conversation_id:{type:'string'},source_message_id:{type:'string'},expected_revision:{type:'integer',minimum:0}},required:['action'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},
     execute:(args,exec)=>ctx.nanoProduct.call('personal_sources',args,exec)});
+  ctx.tools.register({name:'agent_creation',description:'Main PA only: create a persistent Agent on the owner’s explicit request. Load nano-agent-creation when available. Use options for real choices and field details, agree configuration with the owner before create. Keep request_key unchanged; use status after an uncertain result.',
+    parameters:{type:'object',properties:{action:{type:'string',enum:['options','create','status']},node_id:{type:'string'},
+      request_key:{type:'string'},source_message_id:{type:'string'},configuration:{type:'object',additionalProperties:true}},required:['action'],additionalProperties:false},
+    output:{schema:{type:'object',additionalProperties:true},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},
+    execute:(args,exec)=>ctx.nanoProduct.call('agent_creation',args,exec)});
 }

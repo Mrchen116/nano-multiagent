@@ -75,7 +75,7 @@ export class ToolSelection {
     const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
     if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
     if (globalWorkRole(agent, state.config)) disabled.push(...userEntryTools);
-    if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'personal_sources', 'schedule_run', 'schedule_history');
+    if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
