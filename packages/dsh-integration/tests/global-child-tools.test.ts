@@ -12,7 +12,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
   const calls: { method: string; sessionId: string }[] = [];
   const config = { agentId: 'a', revision: '1', mode, workspace: home,
     provider: 'deepseek-official', model: 'deepseek-flash',
-    toolAllowlist: ['subagent', 'subagent_fork', 'send_message', 'inbox', 'conversations', 'task_graph'],
+    toolAllowlist: ['subagent', 'subagent_fork', 'send_message', 'inbox', 'conversations', 'task_graph', ...(personal ? ['agent_creation'] : [])],
     features: { task_graph: true, intelligent_ui: true, memory_curation: false, skill_creation: false },
     approval: { dangerouslySkipPermissions: true },
     ...(personal ? { personal: { bindingId: 'binding', ownerId: 'owner', conversationId: 'dm', epoch: 1 } } : {}),
@@ -67,7 +67,7 @@ ctx.on('llm/stream',async function*(o){
       if (mode === 'single_thread') expect(JSON.stringify(row.system)).toContain('You are an internal execution agent');
       expect(JSON.stringify(row.system)).not.toContain('Your final prose is delivered to the current conversation.');
       expect(JSON.stringify(row.system)).not.toContain('In Global mode this requires send_message; private prose is not delivery.');
-      expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('send_user_message');
+      expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('send_user_message');expect(names).not.toContain('agent_creation');
       const send = row.schemas.find((tool: any) => tool.name === 'send_message');
       expect(send.parameters.properties).toHaveProperty('agent_id'); expect(send.parameters.properties).not.toHaveProperty('target');
       expect(JSON.stringify(row.tools)).not.toContain('"name":"inbox"');
@@ -141,7 +141,7 @@ it.each([false,true])('gives Global workers native work tools and native nested 
   });
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const config={agentId:'worker-owner',displayName:'ROOT_IDENTITY_SENTINEL',revision:'1',mode:'global',workspace:home,
-    systemPrompt:'ROOT_PERSONA_SENTINEL',provider:'fixture',model:'fixture',toolAllowlist:['subagent','send_message'],
+    systemPrompt:'ROOT_PERSONA_SENTINEL',provider:'fixture',model:'fixture',toolAllowlist:['subagent','send_message',...(personal?['agent_creation']:[])],
     features:{task_graph:true,intelligent_ui:true,memory_curation:false,skill_creation:false,heartbeat:true,cron_scheduling:false},
     approval:{dangerouslySkipPermissions:true},...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{})};
   const withoutCache=(value:unknown)=>JSON.parse(JSON.stringify(value,(key,item)=>key==='cache_control'?undefined:item));
@@ -173,7 +173,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     expect(secondContext).toContain('WORKSPACE_INSTRUCTIONS_SENTINEL');expect(secondContext).toContain('Your parent agent id is');
     for(const row of [first,second]){
       const names=row.tools.map(tool=>tool.name);expect(names).not.toContain('inbox');expect(names).not.toContain('conversations');
-      expect(names).not.toContain('send_user_message');expect(names).not.toContain('personal_sources');
+      expect(names).not.toContain('send_user_message');expect(names).not.toContain('personal_sources');expect(names).not.toContain('agent_creation');
       expect(row.tools.find(tool=>tool.name==='send_message').parameters.properties).not.toHaveProperty('target');
     }
     await expect.poll(async()=>(await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[]).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
