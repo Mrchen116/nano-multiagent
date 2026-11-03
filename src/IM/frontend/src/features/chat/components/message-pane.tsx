@@ -282,6 +282,7 @@ export function MessagePane({
   const zh = i18n.language.startsWith("zh");
   const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
+  const timeDividers = timelineTimeDividers(renderedTimeline, i18n.language);
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
   const backgrounds = useRef<Record<string, Record<string, InteractiveSelection>>>({});
   const [sendAttempts, setSendAttempts] = useState<Record<string, SendAttempt>>({});
@@ -1207,6 +1208,13 @@ export function MessagePane({
               }
               const m = item.message;
               return (
+                <React.Fragment key={m.id}>
+                  {timeDividers.has(m.id) && (
+                    <time dateTime={m.created_at} data-testid="chat-time-divider"
+                      className="block my-3 text-center text-xs text-[var(--im-text-muted)]">
+                      {timeDividers.get(m.id)}
+                    </time>
+                  )}
                 <MessageBubble
                     availableMessageIds={anchoredMessageIds}
                   key={m.id}
@@ -1234,6 +1242,7 @@ export function MessagePane({
                   onInteractionSelect={chooseInteraction}
                   onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
                 />
+                </React.Fragment>
               );
             })}
           </>
@@ -2190,6 +2199,26 @@ function renderInlineMarkdown(text: string) {
     }
     return <span key={idx}>{part}</span>;
   });
+}
+
+function timelineTimeDividers(items: TimelineItem[], locale: string): Map<string, string> {
+  const labels = new Map<string, string>();
+  const today = new Date().toDateString();
+  const timeOptions: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
+  const timeFormat = new Intl.DateTimeFormat(locale, timeOptions);
+  const dateFormat = new Intl.DateTimeFormat(locale, { ...timeOptions, year: "numeric", month: "numeric", day: "numeric" });
+  let previous: Date | undefined;
+  for (const item of items) {
+    if (item.type !== "message" || item.message.system_notice) continue;
+    const date = new Date(item.message.created_at);
+    if (Number.isNaN(date.getTime())) continue;
+    // Match iOS: notices do not reset the gap between ordinary messages.
+    if (!previous || date.toDateString() !== previous.toDateString() || date.getTime() - previous.getTime() >= 300_000) {
+      labels.set(item.message.id, (date.toDateString() === today ? timeFormat : dateFormat).format(date));
+    }
+    previous = date;
+  }
+  return labels;
 }
 
 function formatHM(iso: string): string {
