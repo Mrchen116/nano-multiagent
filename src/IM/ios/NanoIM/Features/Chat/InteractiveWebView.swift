@@ -42,6 +42,7 @@ struct InteractiveWebContent: UIViewRepresentable {
             let view = WKWebView(frame: .zero, configuration: config)
             view.isOpaque = false; view.backgroundColor = .clear
             view.scrollView.isScrollEnabled = false
+            view.scrollView.contentInsetAdjustmentBehavior = .never
             view.navigationDelegate = self; view.uiDelegate = self
             webView = view
             guard let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "IntelligentUI") else {
@@ -91,9 +92,11 @@ struct InteractiveWebContent: UIViewRepresentable {
             return nil
         }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            guard generation == runtime.webID else { return }
             runtime.error = error.localizedDescription
         }
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            guard generation == runtime.webID else { return }
             runtime.error = L("交互内容已停止，请读取最新内容。", "Interactive content stopped. Load the latest content.")
             runtime.loaded = false
         }

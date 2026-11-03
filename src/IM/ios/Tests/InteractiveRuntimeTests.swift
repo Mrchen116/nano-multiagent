@@ -123,6 +123,9 @@ final class InteractiveRuntimeTests: XCTestCase {
             XCTAssertLessThanOrEqual(try XCTUnwrap(width), 394, "\(name) spills outside phone width")
             if name == "hotel" {
                 // Network photos may arrive later; external availability is not a renderer assertion.
+                if ProcessInfo.processInfo.environment["NANO_IOS_VISUAL_NETWORK"] == "1" {
+                    try await waitFor(view, "document.images.length > 0 && Array.from(document.images).every(image => image.complete && image.naturalWidth > 0)")
+                }
                 _ = try await view.evaluateJavaScript("Array.from(document.querySelectorAll('button,[role=button]')).find(button => button.textContent === 'Book').click()")
                 try await waitFor(view, "document.body.innerText.includes('预订交互演示')")
             } else {
@@ -184,6 +187,7 @@ final class InteractiveRuntimeTests: XCTestCase {
     private func mount(_ runtime: InteractiveRuntime) -> (WKWebView, InteractiveWebContent.Coordinator, UIWindow) {
         let coordinator = InteractiveWebContent.Coordinator(runtime: runtime, height: .constant(800))
         let view = coordinator.makeWebView()
+        view.isOpaque = true; view.backgroundColor = .white
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
@@ -230,6 +234,25 @@ final class InteractiveRuntimeTests: XCTestCase {
         for path in ["https://outside.test/im/v1/intelligent-ui/api/wiki", "/im/v1/auth/refresh"] {
             do { _ = try await runtime.webRequest(.object(["type": .string("resource"), "path": .string(path)]), generation: generation); XCTFail("Unregistered resource accepted") } catch {}
         }
+        runtime.leave()
+    }
+
+    func testIntelligentUIReloadDoesNotLatchTemporaryAgentUnavailability() async throws {
+        let (runtime, transport) = try await makeRuntime(source: "root = Col([Text(\"Ready\")])", catalog: "nano-iui-1")
+        await transport.setCanInteract(false)
+        await runtime.load()
+        XCTAssertFalse(runtime.readOnly, "Temporary Agent unavailability does not turn a card into history")
+        await transport.setCanInteract(true)
+        await runtime.load()
+        XCTAssertFalse(runtime.readOnly)
+        let oldCoordinator = InteractiveWebContent.Coordinator(runtime: runtime, height: .constant(100))
+        let oldView = oldCoordinator.makeWebView()
+        await runtime.load()
+        oldCoordinator.webViewWebContentProcessDidTerminate(oldView)
+        oldCoordinator.webView(oldView, didFailProvisionalNavigation: nil, withError: URLError(.cancelled))
+        XCTAssertTrue(runtime.loaded)
+        XCTAssertNil(runtime.error)
+        oldView.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page)
         runtime.leave()
     }
 

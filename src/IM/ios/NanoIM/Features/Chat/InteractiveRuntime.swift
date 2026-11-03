@@ -35,10 +35,13 @@ final class InteractiveRuntime {
     @ObservationIgnored private var queries: [JSONValue] = []
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var webSequence = 0
+    @ObservationIgnored private var callerReadOnly: Bool
+    @ObservationIgnored private var draftReadOnly = false
     var openURL: ((URL) -> Void)?
 
     init(client: IMClient, message: ChatMessage, chat: ChatStore, readOnly: Bool) {
         self.client = client; self.message = message; self.chat = chat
+        callerReadOnly = readOnly
         self.readOnly = readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
     }
     var hasPending: Bool { chat.interactionAttempt(message.conversation_id, sourceMessageID: message.id) != nil }
@@ -62,7 +65,9 @@ final class InteractiveRuntime {
             editedAt = draft.updated_at.flatMap { formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }?.timeIntervalSince1970 ?? 0
             editedAt *= 1000
             if usesWebRenderer {
-                setReadOnly(readOnly || draft.read_only == true || draft.superseded_by != nil || draft.can_interact == false)
+                // An unavailable Agent still permits private edits, just as on Web.
+                draftReadOnly = draft.read_only == true || draft.superseded_by != nil
+                setReadOnly(callerReadOnly)
                 state = draft.state; loaded = true; select()
                 return
             }
@@ -143,7 +148,8 @@ final class InteractiveRuntime {
         return .object(["message_id": .string(receipt.id), "delivery_status": .string(receipt.delivery_status)])
     }
     func setReadOnly(_ value: Bool) {
-        readOnly = value || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
+        callerReadOnly = value
+        readOnly = value || draftReadOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
         if readOnly { saveTimer?.cancel(); chat.interactionSelections[message.id] = nil }
     }
     func fieldValue(_ node: JSONValue, form: String?, property: String = "value") -> JSONValue {
