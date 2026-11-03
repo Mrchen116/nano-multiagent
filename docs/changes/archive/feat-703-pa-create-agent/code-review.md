@@ -89,3 +89,7 @@ Surviving code findings in this closure:
 ```
 
 Verdict: **R1-C1 closed; no remaining confirmed code findings.** Final real-model/product evidence remains pending separately; this code closure does not assert M1 product acceptance.
+
+## Final snapshot retention
+
+At `e106b07bd1db3d20947682de7805ce1fe1d809ab` (rebased PR base `9762ad3b44ca3cb2eebd6f2025fe8f169a544de3`), product source/tests/dependencies/architecture have no diff against the reviewed `f8800afaa8a2b60b9a3577c4cc9ea85e681fd950` snapshot. R1 full review and R2 closure remain applicable; **R1-C1 closed, no surviving code findings**. The independent real-model/product report is now committed in `acceptance.md`; the prior product-evidence gap is closed in verification Round 3. The corrected-delta reconciliation is aligned. Historical findings and evidence limits above remain preserved.

@@ -19,9 +19,9 @@ Agent 解读：本需求是给 PA 增加按主人交办创建独立 Agent 的能
 
 ## 现状依据
 
-- [IM Agent 与节点契约](../../specs/im/agents-nodes.md)已定义在本人已绑定、在线节点上创建 Agent、配置职责与能力、取得真实创建结果及处理未确认结果的行为。
+- [IM Agent 与节点契约](../../../specs/im/agents-nodes.md)已定义在本人已绑定、在线节点上创建 Agent、配置职责与能力、取得真实创建结果及处理未确认结果的行为。
 - `apps/im-server/src/control-routes.ts` 的现有节点下创建入口经配置操作创建 Agent；当前需求是在与 PA 的聊天中完成这一用户目标。
-- [Gateway PA 契约](../../specs/gateway/personal-agent.md)区分主人直接交办与观察内容；观察到的消息不自动成为控制命令。
+- [Gateway PA 契约](../../../specs/gateway/personal-agent.md)区分主人直接交办与观察内容；观察到的消息不自动成为控制命令。
 
 以上是现状依据，不表示聊天创建能力已经实现，也不约定本需求的内部接口形态。
 

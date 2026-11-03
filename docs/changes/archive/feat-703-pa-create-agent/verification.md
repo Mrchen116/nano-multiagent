@@ -106,3 +106,67 @@ Independent command on frozen fix HEAD: `pnpm exec vitest run apps/im-server/tes
 - SUGGESTION: **0**.
 
 Current verdict: **static closure passed; overall verification remains provisional pending final product evidence**. No source/test/design edits or commits; no reviewer-started services.
+
+## Round 3 — final evidence reconciliation
+
+- verification_mode: `targeted-closure` of R1-E1, plus `corrected-delta` below for both delta files.
+- review_round: 3
+- validated_at: `e106b07bd1db3d20947682de7805ce1fe1d809ab`
+- current PR base: `9762ad3b44ca3cb2eebd6f2025fe8f169a544de3`.
+- product/code closure snapshot retained: `f8800afaa8a2b60b9a3577c4cc9ea85e681fd950`.
+- requires_full_verification: false.
+- independent reviewer: `/root/static_review_703`, 2026-11-03 17:24 +08:00.
+
+I checked `git diff f8800afaa8a2b60b9a3577c4cc9ea85e681fd950..e106b07bd1db3d20947682de7805ce1fe1d809ab -- apps packages src tests scripts package.json pnpm-lock.yaml SPEC.md`: **empty**. The rebase brings unrelated feat-705 requirement text; feat-703 product code, tests, dependencies and architecture are unchanged. R1 full static review, R2 code closure and the independent f8800afaa product run therefore remain applicable. No broad test rerun is justified by this documentation-only delta.
+
+### M1 exit criteria and acceptance evidence
+
+The committed independent `acceptance.md` supplies version, real Astra/medium PA with Codex approval, two isolated nodes and public message/list/config evidence. It reports **9/9 scenarios pass, 0 blockers/major/minor**. This closes the missing behavior evidence without treating the controlled native fixture as real model proof.
+
+| M1 / spec obligation | Final evidence | Reconciliation |
+|---|---|---|
+| Explicit creation and one acceptance of recommended configuration | `acceptance.md:11-13`, messages `2a3c7ffd3dce428d86ee98739e67c0d1` / `f0722103442242d18d72c017859c1556`; list 4 → 5 | covered; no duplicate approval or form refill |
+| Long-lived discoverable Agent, actual use and configuration | `acceptance.md:13`: unique morning-reading-buddy, independent reply `13f869d1732f4bb0a5887916a60bd380`, configuration PATCH 200 and GET readback | covered |
+| Discussion/observation and withdrawal do not create | `acceptance.md:9,27`; observed group name was subsequently correctly read; final list excludes withdrawn/observed names | covered |
+| Default own computer, explicit other owned computer, offline does not silently switch | `acceptance.md:11,17`: real target choices and actual owner-visible offline result, then creation on second node | covered |
+| Unconfirmed result reported truthfully; same-request continuation creates one entity | `acceptance.md:21`, messages `ab6af5fdb3c24849867e523b72e4be22` / `af84764dde524591b2048cbedeb4d55e`, list 6 → 7 with unique spelling-notebook; independent operation association/restart tests from R1/R2 | covered; public materialization does not claim a measured RPC count |
+| Configuration/ID conflict leaves original intact | `acceptance.md:23`: conflict message `f59d87727a3743cfa350cedc422509b1`, list stays 7 and prior saved responsibilities unchanged | covered |
+| Fixed schema, Skill on demand/selection, normal approval | Four native HTTP-request fixture + ordinary/PA catalog tests from R1; independent representative product behavior with real model/approval from `acceptance.md:5,9-13,27` | complementary mechanism and behavior evidence; no provider cache assertion |
+| Current owner/source/child/node/lifecycle boundaries; exact operation recovery | R1 full static coverage, R2 synchronous guard closure and 9/9 independent test rerun, worker 28 creation/config/catalog regression group | covered at applicable deterministic seams |
+
+### Validation and limits
+
+Retained valid results: backend **210 files / 1121 tests**, Python **129 passed / 28 deselected**, ruff check/format, typecheck, IM build, `check:ios-runtime`, frontend critical audit and docs-check as recorded in `M1-create/progress.md`. The 9-test independent guard closure and 28-test worker group cover the only product-code correction after the broad backend run.
+
+I also inspected the frontend repeat and targeted logs: unchanged single-file **13/13 passed**, then the same full command **111 files / 1056 passed**. The first full run's Set/ToAssistant failure remains recorded; no claim that its underlying cause was established or repaired. This is a disclosed test-run limitation, not evidence of a feat-703 regression after the unchanged code, focused pass and complete repeat.
+
+Product acceptance is a bounded real journey, not proof across all models or every concurrent failure. It intentionally does not claim all-computers-offline, adversarial cross-tenant or long-term-restart model behavior; owner/node/restart invariants are separately checked by implementation and deterministic tests. No viewport requirement applies because this unit changes no client UI. No provider cache rate is claimed.
+
+### Final issue reconciliation
+
+- R1-C1: **closed** by the reviewed f8800afaa admission guard; unchanged at final HEAD.
+- R1-E1: **closed** by committed independent real-model/product `acceptance.md`, reconciled above.
+- CRITICAL: **0**. WARNING: **0**. SUGGESTION: **0**.
+
+M1 implementation, applicable regression protection, independent code/context review and independent product acceptance are complete. Canonical delta merge/archive and PR/remote CI are subsequent delivery work owned by the caller; this result does not claim those actions already occurred.
+
+**Final verification verdict: PASS.**
+
+## Corrected Delta Reconciliation
+
+verification_mode: `corrected-delta`; snapshot `e106b07bd1db3d20947682de7805ce1fe1d809ab`. Both corrected delta files were checked in full against final implementation, unit spec/design/M1, prior static/context review and final applicable tests/product evidence.
+
+| Delta item | Implementation evidence | Test / acceptance evidence | Outcome |
+|---|---|---|---|
+| `specs/gateway/personal-agent.md:7` — 创建前对齐并交付 | bundled nano-agent-creation Skill lines 12-24; shared real options `personal-agent-creation.ts:40-56`, actual creation/links at 85-92 | `acceptance.md:11-17,33,36-38`; IM real options/owned second-node tests | aligned |
+| `specs/gateway/personal-agent.md:12` — 讨论与执行边界 | Skill intent/withdrawal rules; native child filter and root ProductBridge/PA host gates; original owner source authority | `acceptance.md:9,27,34-35`; native ordinary/PA catalogs and host/source tests | aligned |
+| `specs/gateway/personal-agent.md:16` — 固定工具与按需细节 | one fixed registration in `personal-security.ts`, fixedTools role list; existing selected Skill mechanism; ordinary create approval | four serialized native HTTP-request test (same tools/system, body only after load); real ordinary-versus-creation journeys | aligned |
+| `specs/im/personal-agent.md:7-10` — 创建可在现有产品中使用及原主人来源 | shared ConfigOperations commit/profile; current owner/node checks and `ownerMessage` rejects observation/other sender/represented messages | IM source/owner/target tests; `acceptance.md:13,17,27` actual list/chat/config | aligned |
+| `specs/im/personal-agent.md:11` — wait 后首次 operation 的 binding/lifecycle/source 仍有效；旧回执恢复 | `agent-creation.ts:125-134,187-189`; `personal-agent.ts:403-406`; status-not-started guard | three queued-revocation regressions; R2 independent 9/9; existing lost-ACK/service-recreation recovery | aligned |
+| `specs/im/personal-agent.md:13` — 同次请求恢复与冲突 | binding/request unique association + host operation ID; frozen node/config conflict check; truthful not_started/pending/created/rejected; PA transport unknown uses same key | IM conflict/rejection/recovery tests + host unknown test; `acceptance.md:17,21,23,40-41` | aligned |
+
+### Uncovered Observable Behavior
+
+None. Checked the full unit product diff for omitted public behavior: Web creation/catalog extraction preserves existing semantics; the new fixed PA-only entry, on-demand guide, real options, independent target selection, source/lifecycle authority, same-request recovery, transport-unknown guidance, truthful product links and default ordinary Agent identity are covered by these deltas or the explicitly reused current Agent creation/management contracts. Adding the IM wait-boundary clause records the required authority invariant; it does not redefine behavior to conceal the original defect.
+
+Outcome: **aligned**.

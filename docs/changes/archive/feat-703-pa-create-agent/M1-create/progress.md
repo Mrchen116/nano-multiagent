@@ -22,9 +22,9 @@
 - 原生 HTTP fixture 共4次模型请求：首次只有 Skill摘要；下一次含实际 Skill正文；后续含 options 与 created 结果；所有请求 tools 和 system 的序列化值保持相同。没有真实 provider cache 命中率声明。
 - daily 真栈位于本 worktree：.e2e-daily.json；正常主人聊天“只是讨论，不要创建”得到澄清建议，Agent总数保持4。真实模型为模板 PA Astra/medium、Codex审批，Auto开启，未跳过权限。
 
-## 待完成
+## 交付状态
 
-独立产品验收已完成；一致性最终对账、契约归并、归档和 PR/远端 CI 收尾中。所有运行数据、日志和原请求留本机，不提交。
+独立产品验收、最终一致性/校正delta对账、契约归并和归档均通过；PR/远端 CI 收尾中。所有运行数据、日志和原请求留本机，不提交。
 
 ## 独立审查修复
 
@@ -39,3 +39,11 @@
 - 前端完整初跑在 interactive-card.test.tsx 的 Set/ToAssistant 用例失败（send回调未在waitFor时限内发生）；该区域和用例未修改。单文件13/13通过，相同完整命令复跑111文件/1056测试通过。未通过重试修补源码，也未把首次失败归因到已证实原因；保留 .feat703-frontend-tests.log、.feat703-frontend-targeted.log 和 .feat703-frontend-repeat.log。
 - pnpm check:ios-runtime、frontend critical audit、docs-check均通过；backend完整1121、Python129、ruff/check/format、typecheck结果沿用有效未变部分，权限修复另有28项窄回归和独立9项复验。
 - final sync前检查：origin/main自1580df554仅增加feat-705需求文档9762ad3b4，未修改本需求产品代码/依赖或门禁范围；上述有效证据可保留。
+
+## 交付收尾
+
+- 静态最终 verification 在 e106b07bd 对账：产品代码/测试/依赖与 f8800afaa 相同；两份 corrected-delta aligned，R1-C1 与产品证据项均 closed，0 CRITICAL/WARNING/SUGGESTION。产品9/9与代码门禁有效。
+- Gateway/IM PA delta已归并到各自 current personal-agent.md，领域索引数量与顶层入口同步。仅文档归并/路径归档，不改变已验证行为。
+- 已停止本需求主隔离Node、第二隔离Node和IM。两处Gateway状态/PID文件与IM PID文件已确认移除；测试数据与原始合成证据保留本地输出，不提交。开发worktree在PR合入前保留。
+
+- 最终同步 origin/main 仍为 9762ad3b44ca3cb2eebd6f2025fe8f169a544de3；最终 docs-check：279 maintained Markdown sources / 68 required routes，archive checker 与 git diff --check 通过。归档/归并之后产品代码与 f8800afaa 完全相同，沿用上述有效门禁。
