@@ -50,7 +50,7 @@
 
 ## 更新 Mini 代码和前端
 
-需要更新公网 IM 或 Tunnel 运行服务时，在停服务前用 Mini 的 `~/.nanoassistant/runtime/tunnel-venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready` 检查已安装的路径。目标版本包含待更新 supervisor 时，先用 `git show <目标SHA>:scripts/prod_tunnel.py` 提取到本机临时文件，再用同一独立 Python 执行该临时文件的 `--ready`；这一步不切 live checkout，检查完成后移除临时文件。两项均通过后才允许停止服务和切换版本；目标版本未跟踪该脚本时保留已安装版本，不用未提交文件覆盖。脚本核对 QUIC/IPv6、受管 metrics 地址和 Mini en0 路由；失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准。
+需要更新公网 IM 或 Tunnel 运行服务时，在停服务前用 Mini 的 `~/.nanoassistant/runtime/tunnel-venv/bin/python ~/.nanoassistant/bin/prod-tunnel.py --ready` 检查已安装的路径。目标版本包含待更新 supervisor 时，先用 `git show <目标SHA>:scripts/prod_tunnel.py` 提取到本机临时文件，再用同一独立 Python 执行该临时文件的 `--ready`；这一步不切 live checkout，检查完成后移除临时文件。两项均通过后才允许停止服务和切换版本；目标版本未跟踪该脚本时保留已安装版本，不用未提交文件覆盖。脚本核对显式传输协议、IPv6、受管 metrics 地址和 Mini en0 路由；失败先恢复出口，不继续部署。当前路径与依赖以生产舰队的「源站与隧道」为准。
 
 以下为 Mini 版本更新顺序，由 Air SSH 发起。先确认目标 SHA、生产目录 clean/detached、迁移前提和回退点；准备阶段只 fetch，不切开发主仓。更新时先停 Gateway 与 IM，再切生产 checkout 并构建，不能在 live checkout 上边运行边覆盖产物。Tunnel 已有独立 Python，普通代码更新无需重启它。
 
@@ -117,9 +117,9 @@ ssh mini 'launchctl kickstart -k "gui/$(id -u)/io.github.mrchen116.nano-multiage
 
 ## Gateway 与代理
 
-### Tunnel QUIC/IPv6 路径与 supervisor
+### Tunnel IPv6 路径与 supervisor
 
-复用原 Tunnel 身份和 LaunchAgent。变更前备份 Tunnel YAML 与 plist，权限和配置中的密钥不得入 Git。使用生产舰队记录的 QUIC/IPv6 en0 路径；保持 `edge-ip-version` 为字符串。修改配置后先执行 ingress validate 和路径门禁，不能依赖系统代理设置、端口可连或未经验收的自动切换。常规部署不修改 Clash 配置。
+复用原 Tunnel 身份和 LaunchAgent。变更前备份 Tunnel YAML 与 plist，权限和配置中的密钥不得入 Git。使用生产舰队记录的 HTTP2/IPv6 en0 路径；QUIC/IPv6 只作明确授权的回退或对照；保持 `edge-ip-version` 为字符串。修改配置后先执行 ingress validate 和路径门禁，不能依赖系统代理设置、端口可连或未经验收的自动切换。常规部署不修改 Clash 配置。
 
 Mini 将本次已验证的 `scripts/prod_tunnel.py` 安装到 `~/.nanoassistant/bin/prod-tunnel.py`，原 Tunnel plist 的 `ProgramArguments` 使用独立 `~/.nanoassistant/runtime/tunnel-venv/bin/python`、该脚本、`--supervise`；保留原日志与 RunAtLoad/KeepAlive。用 SHA256 核对源文件与 runtime copy，更新脚本后重启原服务加载新代码。`bootout` 后需等原服务完全卸载，再 `bootstrap`；不能启动第二个长期 connector 来掩盖失败。
 
@@ -149,7 +149,7 @@ supervisor 或恢复机制变更的恢复演练优先在隔离环境完成；生
 1. 两 Gateway 先 stop，再写 gateway.environment 的大小写 HTTP_PROXY、HTTPS_PROXY、ALL_PROXY、NO_PROXY 与 NODE_USE_ENV_PROXY=1，保留身份；Mini IM launcher 使用同一环境。用固定 Node CLI restart，代理值不复制进 Gateway plist。
 2. 核对真实 Gateway/DSH/工具的代理连接与本机/内网直接连接；变量存在不能代替生效证据。工具是否支持代理须看其实际协议，不能把 HTTP_PROXY 视作所有 UDP 已代理。
 3. 公网探针默认读取服务 config，Mini 用已安装 prod-tunnel.py 完整采样，Air 用同一脚本 --public-only --seconds 30。--direct-diagnostic 必须与 --public-only 联用，只供独立诊断，不能代替业务验收。
-4. Tunnel 的 QUIC 健康独立检查；客户端 HTTPS 失败不统一归因 Cloudflare。普通发布不必更改或重启 Tunnel，若实际修改路径或恢复机制，须按 600 秒门禁验收。
+4. Tunnel 的传输健康独立检查；客户端 HTTPS 失败不统一归因 Cloudflare。普通发布不必更改或重启 Tunnel，若实际修改路径或恢复机制，须按 600 秒门禁验收。
 
 ### 固定生产 worktree
 
@@ -234,7 +234,7 @@ curl --proxy http://127.0.0.1:7890 --noproxy '' --max-time 15 -sS -D - -o /dev/n
 ## 恢复与故障定位
 
 - 官网失败、loopback 正常：先区分业务代理出口、Tunnel readiness 和实际代理连接链，再检查 Tunnel LaunchAgent、ingress、DNS/边缘规则及 `public-tunnel.log`；不要改回 Tailscale HTTP 当作恢复官网。
-- Tunnel 进程存在但 `/ready` 503：检查 supervisor 的恢复记录、IPv6 en0 路由与 UDP 7844 的实际握手。2026-10-09 的对比中，IPv4 代理 QUIC 有断连/502，TCP/HTTP2 有握手失败；不要未经连续验收改协议、IP 家族或引入代理。门禁失败即恢复工作未完成。
+- Tunnel 进程存在但 `/ready` 503：检查 supervisor 的恢复记录、IPv6 en0 路由与当前 HTTP2/TCP 7844 的实际握手（授权 QUIC 回退才检查 UDP）。2026-10-09 的对比中，IPv4 代理 QUIC 有断连/502，TCP/HTTP2 有握手失败；不要未经连续验收改协议、IP 家族或引入代理。门禁失败即恢复工作未完成。
 - 两端都失败：核对 `public-im.log`、launcher 的环境和路径、持久密钥、目标代码和依赖，不退回旧裸 uvicorn 命令。
 - 官网旧前端：核对 Mini dist 是否重建、官网 HTML 的资源名和浏览器缓存；不能只看 Git SHA。
 - Gateway 不在线：检查配置 URL、设备运行凭据、active owner、Gateway state/live process 及新日志。不要为了恢复在线自动换设备密钥或重新 bind。

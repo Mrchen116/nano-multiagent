@@ -38,7 +38,7 @@
 | 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [`product-tryout`](../.claude/skills/product-tryout/SKILL.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
-| 生产 Tunnel QUIC/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
+| 生产 Tunnel HTTP2/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
 | 配置两机普通公网代理与本地直连 | [生产出口](operations/prod-fleet.md#公网代理出口)；执行 [部署操作单](../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理) |
 | 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
 | 查看审核只读调查、原话保留、消息级准入与模型恢复 | [`gateway/agent-capabilities`](specs/gateway/agent-capabilities.md) → [`gateway/personal-agent`](specs/gateway/personal-agent.md) |

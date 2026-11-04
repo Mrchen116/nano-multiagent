@@ -1,5 +1,9 @@
 # 快修代码审查
 
+## 公网 Tunnel HTTP2 保活审查（2026-11-04）
+
+独立 Codex `gpt-6.1-sol/high` reviewer 对 `f96421156` 后的 supervisor、健康测试及运维文档增量执行 patch 审查，结论 `[]`。范围包括显式 HTTP2/QUIC IPv6 验证、四条 edge TCP 7844 识别、同 PID/HA=4 时端点变化检测、QUIC 原计数保护及操作/回退边界；没有模型可见 Context 变化。本机项目 venv 下新健康测试与既有真实 TLS CONNECT 公网探针共 9 项通过，ruff check/format 通过。reviewer 的系统 Python 没有 pytest，未声称独立重跑通过，复用上述有效证据。生产安装及 600 秒门禁另见快修记录，不以审查代替。
+
 ## 专用轨迹传输压缩审查（2026-11-04）
 
 独立 reviewer 对基线 `19e18297b` 后的 `server.ts` 与真实进程 `trajectory.test.ts` 增量执行 patch 审查，结论 `[]`。范围包括专用路由协商、普通业务 WS 保持原协商行为、解码上限、多 MB 分片及无压缩客户端兼容。此项不改模型可见上下文。实测更早历史 32.376 → 9.990 秒，仍未满足完整性能目标，不等于产品验收。
