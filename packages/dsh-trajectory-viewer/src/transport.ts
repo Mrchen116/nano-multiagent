@@ -11,10 +11,12 @@ interface Pending {
 /** Carry the official decoded RPC vocabulary over one parent-owned read capability. */
 export function createReadonlyTransport(port: MessagePort, options: {
   onGenerationChanged(): void;
+  initialCatalog?: { capturedAt: number; result: unknown };
   onInterrupted?(message: string): void;
 }) {
   let serial = 0;
   let disposed = false;
+  let initialCatalog = options.initialCatalog;
   const pending = new Map<string, Pending>();
   const responses = new TrajectoryValueDecoder();
   const active = new Set<string>();
@@ -51,7 +53,7 @@ export function createReadonlyTransport(port: MessagePort, options: {
     if (message.type === 'result') waiter.resolve(message.value);
     else {
       waiter.reject(new Error(`${message.code}: ${message.message}`));
-      if (message.code === 'generation_changed') options.onGenerationChanged();
+      if (message.code === 'generation_changed') { initialCatalog = undefined; options.onGenerationChanged(); }
       else options.onInterrupted?.(message.message);
     }
   };
@@ -68,6 +70,14 @@ export function createReadonlyTransport(port: MessagePort, options: {
   const rpc = {
     async call(endpoint: string, method: string, params: unknown, signal?: AbortSignal) {
       assertAllowed(endpoint, method, calls);
+      const query = (params as { args?: { request?: Record<string, unknown> } } | undefined)?.args?.request;
+      if (method === 'session/list' && initialCatalog && (!query || Object.keys(query).length === 0)) {
+        if (disposed) throw new Error('Viewer disposed');
+        signal?.throwIfAborted();
+        const catalog = initialCatalog;
+        initialCatalog = undefined;
+        if (Date.now() - catalog.capturedAt <= 5000) return catalog.result;
+      }
       return request('call', { method, params }, signal);
     },
     async *open(endpoint: string, method: string, params: unknown, signal: AbortSignal): AsyncGenerator<any> {
@@ -116,6 +126,7 @@ export function createReadonlyTransport(port: MessagePort, options: {
       if (disposed) return;
       for (const streamId of active) abortStream(streamId);
       disposed = true;
+      initialCatalog = undefined;
       for (const finish of localHolds) finish();
       for (const waiter of pending.values()) waiter.reject(new Error('Viewer disposed'));
       pending.clear();

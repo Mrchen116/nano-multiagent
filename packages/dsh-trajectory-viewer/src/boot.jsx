@@ -84,6 +84,7 @@ async function start(init, port) {
   const [renderer, conversation, session, trajectory, attachment, locale, theme, api, connection, gateway, typert] = exports;
   const ctx = new Cordis.Context();
   const transport = createReadonlyTransport(port, {
+    initialCatalog: init.initialCatalog,
     onGenerationChanged: () => { status('interrupted', '连接已更新，正在恢复…'); ctx.connection.reconnect(); },
     onInterrupted: message => status('interrupted', message),
   });

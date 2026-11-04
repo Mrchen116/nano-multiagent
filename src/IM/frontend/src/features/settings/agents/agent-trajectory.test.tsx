@@ -112,3 +112,15 @@ it.each([false, true])('uses a current prepared capability once, expired=%s', as
   expect(init).not.toHaveProperty('ticket');
   expect(init).not.toHaveProperty('access_token');
 });
+
+
+it('does not initialize a late iframe with catalog data after its read connection closes',async()=>{
+  const {container}=render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={()=>{}} />);
+  const frame=container.querySelector('iframe')!;
+  await waitFor(()=>expect(Socket.instances).toHaveLength(1));
+  const delivered=vi.spyOn(frame.contentWindow!,'postMessage').mockImplementation(()=>{});
+  act(()=>Socket.instances[0].onmessage?.({data:JSON.stringify({type:'ready',version:'0.2.1-alpha.1',initialCatalog:{capturedAt:Date.now(),result:{ok:true,value:{items:[{sessionId:'main'}]}}}})}));
+  act(()=>{Socket.instances[0].readyState=3;Socket.instances[0].onclose?.({code:1008,reason:'访问资格已失效'});});
+  message(frame,{type:'nano-trajectory-ready'});
+  expect(delivered).not.toHaveBeenCalled();
+});

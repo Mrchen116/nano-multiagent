@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import type { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import type { SessionAddress, SessionFollowRequest, SessionProjectionValues } from '@deepseek-ai/dsh-api-session-controller/types';
-import { TRAJECTORY_VERSION, type TrajectoryScope } from '@nano/product-contracts';
+import { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryScope } from '@nano/product-contracts';
 import type { AgentConfiguration, SessionBinding } from './index.js';
 import type { RpcPeer } from './rpc.js';
 import { TrajectoryStream } from './trajectory-stream.js';
@@ -67,7 +67,9 @@ export class NativeTrajectory {
       : { kind: 'session', sessionId: selected.header.id };
     this.close(scope.observerId);
     this.observers.set(scope.observerId, { scope, address, controller, streams: new Map(), cursor: -1 });
-    return { version: TRAJECTORY_VERSION };
+    const initialCatalog = { capturedAt: Date.now(), result: { ok: true, value: withoutInlineImages(this.catalog(selected)) } };
+    // Ready precedes the iframe RPC decoder; oversized catalogs use normal RPC fragmentation.
+    return { version: TRAJECTORY_VERSION, ...(Buffer.byteLength(JSON.stringify(initialCatalog)) <= TRAJECTORY_MAX_BYTES - 2048 ? { initialCatalog } : {}) };
   }
 
   /** Read one official DTO under a fixed session identity. */
@@ -80,10 +82,7 @@ export class NativeTrajectory {
       value = await this.ctx.nanoTrajectoryRuns.read(observer.scope.sessionId);
     } else if (request.method === 'session/list') {
       using cut = await this.ctx.sessionQuery.observeSession(SessionId(observer.scope.sessionId), { signal });
-      const agent = this.ctx.agents.get(cut.header.id);
-      value = { items: [{ sessionId: cut.header.id, agentAvailable: Boolean(agent), running: agent?.status === 'running', blank: cut.cursor < 0,
-        updatedAt: cut.header.createdAt, cwd: cut.header.cwd, origin: cut.header.origin, parentSessionId: cut.header.parentSession,
-        projections: { kind: 'sequenced', asOfSeq: cut.cursor, values: cut.projections?.values ?? {} } }] };
+      value = this.catalog(cut);
     } else if (request.method === 'session/projections') {
       value = await controller.projections({ sessionId: SessionId(observer.scope.sessionId) }, signal);
     } else if (request.method === 'session/page') {
@@ -136,6 +135,13 @@ export class NativeTrajectory {
   }
 
   dispose(): void { for (const id of this.observers.keys()) this.close(id); }
+
+  private catalog(cut: Awaited<ReturnType<Context['sessionQuery']['observeSession']>>) {
+    const agent = this.ctx.agents.get(cut.header.id);
+    return { items: [{ sessionId: cut.header.id, agentAvailable: Boolean(agent), running: agent?.status === 'running', blank: cut.cursor < 0,
+      updatedAt: cut.header.createdAt, cwd: cut.header.cwd, origin: cut.header.origin, parentSessionId: cut.header.parentSession,
+      projections: { kind: 'sequenced', asOfSeq: cut.cursor, values: cut.projections?.values ?? {} } }] };
+  }
 
   private observer(id: string): Observer {
     const observer = this.observers.get(id);

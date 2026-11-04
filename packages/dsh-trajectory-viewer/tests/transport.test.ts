@@ -6,7 +6,7 @@ import { createReadonlyTransport } from "../src/transport.js";
 const dispose: (() => void)[] = [];
 afterEach(() => { for (const close of dispose.splice(0)) close(); });
 
-function channel() {
+function channel(initialCatalog?: {capturedAt:number;result:unknown}) {
   const { port1, port2 } = new MessageChannel();
   const messages: Record<string, unknown>[] = [];
   const waiting: ((message: Record<string, unknown>) => void)[] = [];
@@ -17,6 +17,7 @@ function channel() {
   const generations: string[] = [];
   const transport = createReadonlyTransport(port1 as unknown as MessagePort, {
     onGenerationChanged: () => { generations.push("reconnect"); },
+    initialCatalog,
   });
   dispose.push(() => { transport.dispose(); port1.close(); port2.close(); });
   return {
@@ -48,6 +49,40 @@ describe("read-only native viewer transport", () => {
     expect(request).toMatchObject({ type: "call", method: "session/page", params: payload });
     c.respond(request, { ok: true, value: { records: [], hasMore: false } });
     await expect(result).resolves.toEqual({ ok: true, value: { records: [], hasMore: false } });
+  });
+
+  it('uses the prepared catalog once, then performs fresh remote reads', async () => {
+    const catalog={ok:true,value:{items:[{sessionId:'selected'}]}};
+    const c=channel({capturedAt:Date.now(),result:catalog});
+    await expect(c.transport.rpc.call('/api','session/list',{args:{request:{}}})).resolves.toEqual(catalog);
+    expect(c.messages).toHaveLength(0);
+    const sent=c.nextMessage(), fresh=c.transport.rpc.call('/api','session/list',{args:{request:{}}});
+    const request=await sent;c.respond(request,{ok:true,value:{items:[]}});
+    await expect(fresh).resolves.toEqual({ok:true,value:{items:[]}});
+  });
+
+  it('does not satisfy a differently scoped request from the prepared catalog', async () => {
+    const c=channel({capturedAt:Date.now(),result:{ok:true,value:{items:[{sessionId:'selected'}]}}});
+    const sent=c.nextMessage();
+    const result=c.transport.rpc.call('/api','session/list',{args:{request:{sessionId:'other'}}});
+    const denied=expect(result).rejects.toThrow('scope');
+    c.fail(await sent,'scope');await denied;
+  });
+
+  it.each(['expired','generation','disposed','aborted'])('does not reuse an invalid initial catalog: %s', async reason => {
+    const c=channel({capturedAt:Date.now()-(reason==='expired'?5001:0),result:{ok:true,value:{items:[]}}});
+    if(reason==='generation'){
+      const sent=c.nextMessage(), changed=c.transport.rpc.call('/api','session/projections',payload);
+      const rejected=expect(changed).rejects.toThrow('generation_changed');c.fail(await sent,'generation_changed');await rejected;
+    }
+    if(reason==='disposed')c.transport.dispose();
+    const signal=new AbortController();if(reason==='aborted')signal.abort(new Error('left'));
+    if(reason==='disposed'||reason==='aborted'){
+      await expect(c.transport.rpc.call('/api','session/list',{args:{request:{}}},signal.signal)).rejects.toThrow();return;
+    }
+    const sent=c.nextMessage(), result=c.transport.rpc.call('/api','session/list',{args:{request:{}}});
+    c.respond(await sent,{ok:true,value:{items:['fresh']}});
+    await expect(result).resolves.toEqual({ok:true,value:{items:['fresh']}});
   });
 
   it("pulls one bounded batch only after native iteration consumes the previous batch", async () => {

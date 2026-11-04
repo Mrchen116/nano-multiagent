@@ -35,6 +35,10 @@ preferences use an iframe-local, ephemeral Storage object because an opaque
 sandbox cannot access origin localStorage. This does not grant same-origin
 access or persist preferences.
 
+A ready capability may include its scoped initial Session catalog. The transport
+uses it once for an empty catalog read, within five seconds; later reads and new
+generations use ordinary RPC. Oversized catalogs retain that normal route.
+
 Each observation stream requests its first bounded batch with open, then pulls
 one bounded parent batch after its buffered frames have been consumed. Older
 carriers that return only a stream handle retain the separate first pull. `generation_changed` requests an official Connection

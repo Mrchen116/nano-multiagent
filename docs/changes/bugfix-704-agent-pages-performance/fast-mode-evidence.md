@@ -2,6 +2,42 @@
 
 状态：未完成性能验收，未部署生产。此前 [design.md](design.md) 是提案，以下记录当前实际实现及未完成项；未经用户实际验收，不归档。
 
+## 初始会话查询往返消除（2026-11-04）
+
+用户明确要求“不重测基线，网络环境没变化”，因此沿用上轮候选 `96d664a1f` 的对照：禅主轨迹 4.952 / 3.856 / 3.766 秒，中位数 3.856 秒，本轮没有再次运行旧版计时。仍使用同一 Air、Mini 51129 隔离 IM、测试账号、既有代理设置和同一真实轨迹/子执行副本。上轮临时隧道已关闭，本轮重建为 `https://analyze-films-javascript-ends.trycloudflare.com`；物理网络由用户确认未变，临时域名不同，因此保留入口差异，不宣称严格同入口 A/B 或所有时差均由代码造成。
+
+### 最终保留改动的实际页面时间
+
+沿用基线时段（北京时间）08:43:38–08:43:51；本轮候选测量 09:10:20–09:10:32。已登录、主应用资源已缓存，从整页导航到 iframe 第一条真实轨迹行可见，三个样本全部保留。
+
+| 指标 | 沿用基线 | 本轮候选 |
+| --- | --- | --- |
+| 启动时跨公网 session/list | 每次 1 次 | 三次均 0 次 |
+| 禅主轨迹首行可见（三次，秒） | 4.952 / 3.856 / 3.766 | 5.143 / 3.319 / 3.559 |
+| 页面显示时间中位数 | 3.856 秒 | 3.559 秒 |
+
+三次均为禅同一根会话、12 行真实首屏，原始压缩事件帧与前文 SHA-256 相同，没有换小会话或删减窗口。实际整页中位数只缩短约 0.297 秒，没有达到此前约 3.1 秒的估算；首次 5.143 秒不删除。协议记录确认省掉了原 0.689–0.793 秒的独立会话查询，但本轮连接 ready 中位数 2.185 秒（上轮 1.727 秒）、follow 首批往返中位数 1.238 秒（上轮 1.065 秒）；这些阶段变慢，抵消了部分收益。同网络也不能把不同批次全部差值当作纯代码净收益。
+
+### 实现
+
+- NativeTrajectory.prepare 复用已完成权限/父链核对的 selected observation 生成与正常 session/list 完全同形的会话信息，沿用同一字段选择和 inline-image 清理，不额外读取历史或激活 Agent。正常 session/list 也复用同一私有 catalog 构造函数，防止两个投影漂移。
+- 该信息随 ready 经原授权观察通道返回；父页面随固定 session 的 MessagePort 初始化交给 viewer。仍不向 iframe 传账号 token、ticket 或 Gateway 地址。
+- Transport 只对第一条空参数 session/list 复用，之后是正常 RPC；超过 capturedAt 五秒、不同查询、generation_changed、dispose 和取消按原读取/失败路径处理。没有信息的旧 carrier 保留原请求，不省略任何正式 Session Controller 操作。
+- ready 位于 iframe RPC decoder 初始化之前，因此仅在目录能容纳单个 carrier 帧时附带，超过现有传输限额减去 envelope 余量则回到支持分片的正常 RPC。大目录不截断、不丢字段。新增真实 Native 服务和边界回归验证。
+- 连接在 iframe 脚本就绪前关闭时，清除待交付信息与 version，initialize 另要求 socket 仍 OPEN；避免迟到 iframe 在读资格丢失后获得缓存内容。独立 patch 审查与该生命周期修订审查均为 `[]`。
+
+### 首批返回压缩实验（已撤回，不计成绩）
+
+为继续验证首批约 96 KB 的交付瓶颈，仅在隔离 IM 试启标准 permessage-deflate，未改记录或窗口。Chrome CDP 三次握手未观察到浏览器侧扩展协商成功，无法确认期望压缩效果；4.092 / 3.456 / 3.330 秒样本保留在 `catalog-compression-candidate.txt`，不将更快的这组替换正式结果。已撤回源码设置并恢复隔离服务；恢复后手动重试仍显示 12 行且保持连接。首批返回并未被证明进一步提速，不能宣称两项瓶颈全部解决。
+
+### 验证与证据
+
+- Native 冷读/禁用/代次真实运行时回归 4 项、viewer transport 14 项、大目录单帧与回退 2 项、前端轨迹/页面缓存 9 项、运行时依赖契约 13 项，共 42 项通过；相关类型检查、前端与 viewer 构建通过。Native 回归比较提前目录与正常 RPC 结果相同，检查无 inline 图片、无 Agent 激活。
+- 原始页面证据：`output/playwright/catalog-candidate.txt`、`catalog-compression-candidate.txt`（未保留的实验）、`catalog-restored-smoke.txt`。三次首屏 follow 直接与 control 同时发起，未再出现 session/list。
+- 配置与 Work 未在本轮再次计时，不沿用它们旧数字冒充本轮结果。未测本轮冷启动或 p95。
+
+本轮未部署生产；unit 仍 active。测试浏览器、Gateway、Mini IM 与临时隧道均已停止，51129 端口释放；私有日志和隔离数据保留复查。
+
 ## 连接准备并行优化（2026-11-04）
 
 继续优化前再次重测基线 `a29bce53c`，没有沿用上一轮数字。使用同一 Air、Mini 隔离 IM 端口 51129、同一新 Quick Tunnel `https://camping-duke-parents-angels.trycloudflare.com`、测试账户和禅的同一真实历史副本。Mini 生产服务未改，独立数据、workspace、node identity 和已有代理设置保持；仅更新隔离 IM 及其前端。浏览器已登录，主应用资源已缓存，候选先打开普通 Work 以保持相同主应用缓存条件；所有三次轨迹样本保留，不挑选最快值。两轮计时均未与测试或构建并行。

@@ -28,7 +28,10 @@ it.each([[false,false],[true,false],[false,true],[true,true]])('reads cold histo
     await client!.shutdown();
     const before = await readFile(join(home, 'created'), 'utf8');
     await start(disabled);
-    expect(await client!.rpc.request('trajectory.prepare', scope)).toMatchObject({ version: '0.2.1-alpha.1' });
+    const prepared = await client!.rpc.request('trajectory.prepare', scope) as any;
+    expect(prepared).toMatchObject({ version: '0.2.1-alpha.1', initialCatalog: { result: {ok:true,value:{items:[{sessionId:binding.sessionId}]}} } });
+    expect(prepared.initialCatalog.result).toEqual(await client!.rpc.request('trajectory.call',{observerId:'viewer',method:'session/list',params:{args:{request:{}}}}));
+    expect(JSON.stringify(prepared.initialCatalog)).not.toContain(imageData);
     await expect(client!.rpc.request('trajectory.prepare', { ...scope, observerId: 'wrong', rootAgentId: 'other' })).rejects.toThrow(/scope/i);
     expect(await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs' })).toEqual({ ok: true, value: [] });
     await expect(client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs', params: { args: { request: { sessionId: 'other' } } } })).rejects.toThrow(/scope/i);
