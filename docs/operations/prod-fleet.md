@@ -133,7 +133,7 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 | 改 Gateway 配置 | 目标机先 `stop`，改 config，再启动；运行中直接编辑可能被 token 回写覆盖，细节见 [`gateway.md`](gateway.md) |
 | 排障 | [`troubleshooting.md`](troubleshooting.md)；结合两边 `gateway.log` 与 IM `~/.nanoassistant/public-im.log` |
 
-mini 的 IM 签名密钥是生产持久状态：`~/.nanoassistant/im-jwt-secret`（权限 `0600`）。常规更新在停止 IM 前读取并复用它，不能临时生成。需要主动换钥时才覆盖这个文件；换钥会使 Web IM 既有登录态失效，它与 Gateway 的节点运行凭据是不同身份边界，不应因此自动重新 bind 或重建节点身份。首次从旧目录升级时，先执行 [`PA workspace layout migration`](pa-workspace-layout-migration.md)，再按 [`prod-fleet-deploy` skill](../../.claude/skills/prod-fleet-deploy/SKILL.md) 完成启停与验收。
+mini 的 IM 签名密钥是生产持久状态：`~/.nanoassistant/im-jwt-secret`（权限 `0600`）。常规更新在停止 IM 前读取并复用它，不能临时生成。需要主动换钥时才覆盖这个文件。换钥使既有 access JWT 和尚未升级的 JWT refresh 失效，已升级的稳定浏览器 Cookie 可按服务端会话状态恢复。强制退出应撤销相应会话。IM 签名密钥与 Gateway 节点运行凭据属于不同身份边界，不应因此自动重新 bind 或重建节点身份。首次从旧目录升级时，先执行 [`PA workspace layout migration`](pa-workspace-layout-migration.md)，再按 [`prod-fleet-deploy` skill](../../.claude/skills/prod-fleet-deploy/SKILL.md) 完成启停与验收。
 
 ## 可用性判断
 
