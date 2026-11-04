@@ -1120,7 +1120,7 @@ Gateway 为上述主会话构建可配置工具集时，以该 Agent 配置的 `
 
 #### Scenario: 新建、已有和旧配置升级
 - **WHEN** 普通长期 Agent 开始任务、恢复或升级配置
-- **THEN** 固定获得 skill-creator 的发现入口与短创建指导，按需加载全文；旧 skill_creation=false 或 allowlist/denylist 不关闭这一个产品资产，不使旧合法配置无法启动。
+- **THEN** 固定获得 skill-creator 的发现入口与简短学习触发指导，按需加载全文；旧 skill_creation=false 或 allowlist/denylist 不关闭这一个产品资产，不使旧合法配置无法启动。
 - **AND** 其他 Skill 选择和底层工具权限保留；禁用真实操作工具时如实说明限制，Dreaming 不获得创建能力。
 
 ### Requirement: Dreaming 按交流与任务经历组织记忆
@@ -1277,7 +1277,7 @@ Gateway 为上述主会话构建可配置工具集时，以该 Agent 配置的 `
 - **WHEN** 装配普通 Global、PA 及其内部执行者的模型请求
 - **THEN** 主人身份、participant／observer 和代表主人等 PA 专属说明只给 PA 根或适用的 PA 一级；普通 Global 及其一级不携带它们，普通二级继续不注入 Nano 指导。
 - **AND** 普通 Global 的 Inbox 只声明 check／read；review 和 message_id 仅声明给主 PA，实际权限检查仍由宿主执行。通用 pa_agent_id 来源归属仍适用于与 PA 的平等协作。
-- **AND** 一级只获得委派来源的最小授权边界和准备交互产物后回传父级的说明，不复制主会话的 Inbox／聊天交互操作流程；详细 UI 用法按需加载。Heartbeat 协议仅由已启用 Feature 向主会话提供，不进入内部执行者。 历史恢复不产生新授权的通用提醒由上下文组件在换窗时提供，主会话和一级不重复常驻注入。 Cron 也不追加通用的定时授权／交付常驻段，沿用原生提醒与各 Schedule 工具的操作说明。
+- **AND** 一级只获得委派来源的最小授权边界和准备交互产物后回传父级的说明，不复制主会话的 Inbox／聊天交互操作流程；详细 UI 用法按需加载。Heartbeat 协议仅由已启用 Feature 向主会话提供，不进入内部执行者。 历史恢复不产生新授权的通用提醒由上下文组件在换窗时提供，主会话和一级不重复常驻注入。 Cron 也不追加通用的定时授权／交付常驻段，沿用原生提醒与各 Schedule 工具的操作说明。 Skill 常驻仅提示修正已验证错漏、提议保存可靠可复用方法及不固化一次性细节／临时故障／未验证变通方案；编写细则按需加载 skill-creator。
 
 ### Requirement: 主会话 fork 默认关闭，可按现有工具规则开启
 

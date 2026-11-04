@@ -92,8 +92,8 @@ it.each([
     expect(visible).toContain('Automatic continuation does not grant authority');
     expect(visible).toContain(taskTitle);
     expect(visible).toContain('cron_disabled');
-    expect(visible).toContain('built-in skill-creator');
-    expect(visible).toContain('Use only enabled maintenance tools within their selected writable scopes.');
+    expect(visible).toContain('verified errors or missing steps');
+    expect(visible).toContain('unverified workarounds');
     expect(visible).toContain('<available_skills>');
     expect(visible).not.toContain('USER_CREATOR_REPLACEMENT_679');
     expect(visible).not.toContain('OPTIONAL_UNSELECTED_679');

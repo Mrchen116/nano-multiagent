@@ -54,7 +54,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     expect(JSON.stringify(latest.messages)).not.toContain('Source generation:');
     expect(JSON.stringify(latest.messages)).not.toContain('fs-observation-policy');
     expect(JSON.stringify(latest.messages)).toContain('knowledge/preferences.md');
-    expect(JSON.stringify(latest.messages)).toContain('built-in skill-creator');
+    expect(JSON.stringify(latest.messages)).toContain('verified errors or missing steps');
     expect((await client.rpc.request('knowledge.facts',{}) as {reviews:unknown[]}).reviews).toEqual([]);
     await client.shutdown();client=undefined;
   } catch(error) { throw new Error(`${String(error)}\n${logs}`,{cause:error}); }

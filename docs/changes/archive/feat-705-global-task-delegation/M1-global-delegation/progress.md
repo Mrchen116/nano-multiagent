@@ -171,3 +171,8 @@
 - 运行源码44a36ed30；`/tmp/feat705-denial-concise-build.log`构建、`denial-concise-tests.log`3文件18项（Global／PA两级wire及接续、fork前缀、审批）及文档／归档检查通过。
 - `denial-concise-tree-manifest.json`沿用main六份原始请求，重捕获PR两种Agent三层共六份首次真实请求；实际turn/end齐全且采样进程正常shutdown。原始哈希、上下游System和原生父子窗口均校验，属于受控上下文采样，不宣称新自然任务行为验收。
 - 两种主会话已收到三句新段；Global完整System3671→3628、PA4436→4393 tokens；一级／二级完整System与前版逐字一致。六组全行diff均能还原两侧全部原文，当前HTTP页面展示44a36，旧证据保存在denial-concise-before。预览Node正常重载，原IM聊天、Persona和轨迹保留。
+
+## Skill 学习常驻段精简（2026-11-04）
+
+- 用户确认保留三个学习触发／筛选句：修正已验证的Skill错漏；复杂或反复尝试产生可靠可复用方法时提议保存；不把一次性任务细节、临时故障或未验证变通方案固化。删除重复的creator入口、编写、命名和后台筛选细则；skill-creator发现和按需加载、工具范围与权限不变。
+- 沿用三个既有消费者测试的知识指导检查，以新学习语义替代已删除的路由／范围文案，仍检查实际模型输入中的指导及选择边界；不新建文本快照测试。current及本unit按消费者装配场景同步表述。

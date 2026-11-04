@@ -36,7 +36,7 @@ export function apply(ctx) { const steps=new Map(); ctx.on('llm/stream', async f
     expect(view.tools).not.toContain('schedule_list');
     expect(JSON.stringify(view.prompt)).not.toContain('nano-cron');
     expect(JSON.stringify(view.prompt)).not.toContain('nano-task-graphs');
-    expect(JSON.stringify(view.prompt)).toContain('built-in skill-creator');
+    expect(JSON.stringify(view.prompt)).toContain('verified errors or missing steps');
     await client!.rpc.request('session.submit', {sessionId: binding.sessionId, inputId: 'tool-only', mode: 'followup', content: [{type:'text',text:'Call the three selected tools'}], source:{kind:'human',actorId:'owner',channel:'test',messageId:'tool-only'}});
     await expect.poll(async () => (await client!.rpc.request('schedule.command', {agentId:'a',action:'catalog'}) as unknown[]).length).toBe(1);
     const [task] = await client!.rpc.request('schedule.command', {agentId:'a',action:'catalog'}) as {id:string}[];
