@@ -107,3 +107,130 @@ R1-W1、R1-W2 已在设计层关闭。此结论允许按修订方案实施，不
 ### Recommendations
 
 无新增建议；R1-R1 保留为归并前的非阻断格式建议。
+
+## Round 3
+
+### Metadata
+
+- reviewer: 独立 design reviewer `/root/design_review_711`；非 design / implementation author。
+- target: Nano implementation worktree `2ac60077e4988ab0db5789841b51f42bab02789c` 的 `design.md` 未提交 delta，以及相关插件公开剥离 API / 所有权元数据。插件读取时 HEAD `21ce6d7c1a3245347616318eebdc8ba12645e00a`。
+- review_mode: delta。
+- mode_reason: 原始正文保留的实现消歧采用专用 block 所有权元数据，且审批证据消费者新增一个公开归一化 seam；这是有界接口/消费者变化，需独立检查 affected chain，不能只据旧 Approved 放行。核心短编号、预算、恢复范围及 M1 任务目标未改。
+- agent_context_mode: Mode A；覆盖原始内容 → 自有标记 → 模型投影 / History 与结构化审批证据两条投影。
+- started_at: 2026-11-05T00:18:29+08:00。
+- completed_at: 2026-11-05T00:18:59+08:00。
+- duration: 30 秒；沿用既有完整审查及独立 code reviewer 的版本化复核证据，另查实际差异与源码。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+本次两个局部调整符合既有“只移除自身标记 / 不改变来源与授权语义”的目标；不需要扩大为新编号或审批协议。结论是设计 delta 通过，不代替 Nano 未完成测试与真实模型验收。
+
+### Coverage 与证据
+
+- retained_from: Round 1 / Round 2。短编号来源、原生 replacement 与 shadow pricing、safeBoundary、source_history seq、窗口/重启恢复、预算语义、授权范围和产品装配未发生设计变化，保留既有覆盖与 R1 问题关闭结论。
+- **所有权判别：** 插件 `src/item-id.ts:29-44,58-65` 的专用末尾 text block 带 `contextItemId`，剥离/幂等同时要求该字段与精确 marker text 匹配。仅正文形似 `[id: N]` 不再被当成插件标记，因此 legacy 原文与引用样例仍可恢复；去除一个自有块后仍保留原始同形块。`tests/short-ids.spec.ts:74-85` 包含该直接场景。
+- **模型成本与持久化：** 安装的 `dsh-llm/lib/index.js:29-30` 使用完整 structuredClone + deepFreeze，字段不因生成消息副本而丢失。pi-ai adapter 的 `flattenText / userContent` (`lib/index.js:1163-1164,1188-1213`) 取 `block.text` 构造模型内容，不把 contextItemId 额外序列化给模型。此处源级判断与独立 code-review Round 2 对 `ba81dc4` 的 JSON replay / 原文 / host seq / 幂等七项复核相符；未据此宣称捕获了真实 provider 请求。
+- **结构化证据修正有实证：** `/tmp/nano-id-projection-L6wMZV/approval-result.txt` 明确记录 `approval.test.ts:330` 的 send_message_result 从期望对象变为 `JSON 文本 + [id: 6]` 字符串。`policy/sources.ts:169-225` 从有效 surface 取工具正文，现有 parseJson 失败即返回字符串，证实这条影响链，不能只依赖“原始事件仍存在”来忽略它。
+- **最小正确落点：** `src/index.ts:1` 新公开 `stripContextItemId` 复用插件同一所有权规则；Nano `policy/sources.ts` 的 shared text helper 在原有拼接与 JSON parsing 之前调用它。metadata 与字段名只负责识别插件生成的展示块；这一步不修改 callId、source、isError、participant/observer、live/restored 或控制来源判断，不把任意正文中的 `[id:]` 批量删除。已有来源规则仍由原可信机制决定，不通过短编号增授权限。
+- **Validation 与限制：** 本轮读到实际失败，未重跑或宣称它已经修复通过。相同日志另有 `approval.test.ts:248` 的 raw tool/result 数量 9→18 失败；原生补标记 replacement 本来增加物理事件，本设计通过不等于该项测试已完成对账。现有 M1 的“必要集成测试 / 审批来源回归”仍需验证修正后的结构化对象和原有权限行为，连同 aggregate Nano 检查及真实模型证据一起在交付前完成。此处不新增生产验收，也不放宽门禁。
+- **架构判断：** marker 所有权与剥离规则由插件唯一维护，Nano 消费者通过公开导出复用，比在 policy/sources 再写一套文本正则更直接；类型投影在结构化读取前处理，属于 integration 职责，无 DSH private import 或 runtime patch。
+
+### 历史问题闭环
+
+- R1-W1 / R1-W2 保持 closed；本次未修改其 native replacement、计量或边界方案。
+- M1 code-review 的原文尾部 marker collision 属于既有设计要求的实现缺陷；独立 code reviewer 已在其 Round 2 以版本化复核证据关闭。本设计 Round 不覆盖或重写该实现结论，仅确认采用所有权字段落实要求的方向正确。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增建议；R1-R1 仍为归并前非阻断建议。
+
+## Round 4
+
+### Metadata
+
+- reviewer: 独立 design reviewer `/root/design_review_711`，非 author。
+- target: Nano worktree `2ac60077e4988ab0db5789841b51f42bab02789c` 的新增 TaskContextDriver 原文回执归一化设计；插件 `21ce6d7` 的公开 stripContextItemId 原则不变。
+- review_mode: delta。
+- mode_reason: R3 后仅新增 Task 消费证据的有界 integration 消费者；需核对严格匹配、持久化与停启去重影响，不重开未变化的编号/换窗/预算方案。
+- agent_context_mode: Mode A；Task 原文 → 带标记持久消息 / 模型输入 → 产品消费回执 → 停启恢复与去重。
+- started_at: 2026-11-05T00:23:04+08:00。
+- completed_at: 2026-11-05T00:23:17+08:00。
+- duration: 13 秒；复用 R3 的 marker 所有权与公开剥离 API 证据。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+在 TaskContextDriver 提交消费证据时还原业务正文，是已通过归一化原则的适当应用。R1/R2/R3 的其余决定与审查结论仍有效；不改变短 ID、持久日志、模型可见标记、来源、Task 控制或业务权限。
+
+### Coverage 与证据
+
+- retained_from: Round 1–3。完整事件日志派生短编号、native replacement 与计价、safeBoundary、History/source_history seq、marker 所有权、模型 text 投影及 policy/sources 归一化未变，本轮不重复完整审查。
+- **严格匹配的机制成立：** `packages/personal-assistant/src/task-context.ts:80-105` 在 prepare 时以原 message.content 生成 digest，commit 仅接纳 digest、inputId 与整型 turn/consumedSeq 匹配的证据；`inbox.ts:228-231` 仍严格比较 prepared.content 与回执 content。因此若回传带展示标记的正文，已读取消息也不能完成既有回执，静态代码直接支持本次实际失败的归因。
+- **修改 seam 正确且有界：** `packages/dsh-integration/src/task-context.ts:12-20` 从已 flush 的持久事件生成证据，限定 turn 内 nano-system / task-context 原消息；同一 evidence() 供 prepare (`:27-28`) 与 commit (`:60-61`) 使用。只对返回的 content 调用公开 stripContextItemId，保留 inputId、turn、consumedSeq 和既有身份绑定，不在产品端放宽 digest/原文核对，也不把 queue/ACK 当成已消费证据。
+- **Context / 控制语义：** 剥离只作用于回执副本，原始持久记录和模型请求仍带短引用；source、humanTaskControl、lifecycle_revision、来源撤销与 unavailable 阻断路径未改。原本的停/启原文仍由相同宿主来源进入模型；恢复与去重由真正的消费回执继续驱动，不把“看见标记”当作额外完成证据。
+- **所有权与原文保留：** 沿用 R3 确认的 metadata + 精确末尾 text 检查；原文中形似标记的普通 block 不会删除。无需复制正则或引入 Task 专用短编号规则。
+- **验证与限制：** 新 Changelog 明确覆盖停启恢复及已消费去重；`tests/task-context-sync.test.ts:109-125` 现有场景核对回执原文、重启后的单次事件、consumedSeq 与不重复摄取，后续 stop/resume 场景覆盖宿主控制来源。测试正在执行，本轮只确认设计与可验证 seam，不宣称这些测试或 M1 真实模型退出标准已经通过。调用方仍需完成相关回归和交付前整体核对。
+- **职责判断：** 展示标记的撤销位于生成业务证据的 integration adapter，保持产品原文严格匹配契约；比修改业务 digest、允许任意尾部文本或更改原始记录更直接，也保持既有包依赖方向。
+
+### 历史问题闭环
+
+R1-W1 / R1-W2 保持 closed；R3 的所有权与结构化审批归一化决定 retained。本次无新增未解决设计问题。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增建议；R1-R1 仍为归并前非阻断建议。
+
+## Round 5
+
+### Metadata
+
+- reviewer: 独立 design reviewer `/root/design_review_711`；非 author。
+- target: Nano unit worktree 的已保存 `design.md` Changelog 首条与决定 2：排除延后提交的 `skill-catalog` / `agent-instructions` 原生控制；插件旧候选 `21ce6d7` 的失败证据及新增回归设计。
+- review_mode: delta。
+- mode_reason: 实际产品暴露 pre-step 分配与原生日志提交顺序的确定性编号不一致；本轮仅复查这两个控制来源的短 ID / 自身 History 排除与宿主旧视图保留，不重开已通过的其他边界。
+- agent_context_mode: Mode A；首次 user 标记 → 原生控制提交 → 日志重建 → 跨窗/重启 History 读取。
+- started_at: 2026-11-05T00:34:34+08:00。
+- completed_at: 2026-11-05T00:35:44+08:00。
+- duration: 70 秒。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING（本次设计 delta）。**
+
+排除这两类非任务原生控制是适当的局部修正；既有编号/恢复设计其余决定仍有效。**此前真实候选的编号稳定性验证失败，不能据本设计通过把该候选视为产品验收通过。** 修订实现、锁定候选与真实模型重新验收仍需完成。
+
+### Coverage 与证据
+
+- retained_from: Round 1–4。用户/工具材料、assistant 占号允许间隔、原生 replacement 与计价、safeBoundary、所有权剥离、Task/审批回执和来源授权边界未变；只调整不应进入短编号域的两类原生控制。
+- **独立核对实际事件：** 本机 `/tmp/feat711-review/21d59bd7-22c9-4d73-ba3a-398a8edd3f98-before.jsonl` 记录 seq11 runtime-context、seq12 skill-catalog、seq13 agent-instructions 均无 owned marker；真正 user 在 seq14，末块为 `text="\\n[id: 1]", contextItemId="1"`。只读取事件类型、来源、序号与 marker 摘要用于报告，不复制私人任务/规则全文。
+- **机制与红测一致：** 旧 `itemIds` 在 pre-step 按已提交日志 + pending user 分配；稍后重建却把新提交控制的首次 message.id 也计入，原 user 遂从 1 变为 3。`/tmp/nano-id-projection-L6wMZV/late-controls-red.txt` 的新增 `keeps a first admitted input ID stable when native controls are committed before it` 明确失败：JSON replay 后 expected 1 / actual 3。此为实际引用错误，不是模型能力或未完成证据的推测。
+- **必要的一致范围：** 保存的决定 2 排除两类控制；Changelog 明确该排除同时作用于短编号及自身 History，并保留 createHistoryView 原 seq 视图。这样 pending 分配、已提交重建和 own short History 的 item 集合一致，read(1) 不会误指控制目录；不能只跳过标记或只在列表隐藏，否则映射仍漂移。
+- **宿主与来源边界：** 排除依赖真实 `source.kind`，不是解析正文 `<system-reminder>` 或按 role=user 泛化。原日志和当前模型所见 Skill 目录/工作区规则仍保留；宿主 createHistoryView 沿原 seq 投影继续原行为。Task 的 nano-system、真人/其他 Agent 材料及真实工具加载结果未被这一有限排除扩大删除，既有权限与 Skill 按需读取机制不变。
+- **职责与复杂度：** 控制来源选择属于插件的编号/自身恢复投影；复用同一排除规则保持两个时点一致即可。无需新持久索引、迁移、截短 UUID、custom event 或 DSH patch。未发布 draft rc.8 仍是失败候选，修正候选不得覆盖其真实证据。
+- **验证方案：** 插件回归在 markInputs 后、原 user append 前插入两类真实来源控制，JSON replay 后检查 user1 与自身 History 原文；Nano `context-short-ids.test.ts` 已加入实际 skillRoots / SKILL.md / AGENTS.md 注入，并计划在 compact / shutdown / restart 后分别恢复工具尾部与首用户1。其覆盖的是本次缺失的真实组装 seam，不靠预先注入正确 History 参数来证明模型自主恢复；真实模型仍须由产品 reviewer 对修正后的锁定候选另行验收。
+- **限制：** 本轮确认设计和失败证据，不宣称新增测试已经通过或新候选已修复产品表现。原始失败记录须保留；修正后的请求、重启/换窗与行为证据应独立记录，不能把 stub/replay 成功写成真实模型恢复成功。
+
+### 历史问题闭环
+
+- R1-W1 / R1-W2 保持设计层 closed；R3/R4 的归一化决定 retained。
+- 本次实际产品稳定性失败在设计层已明确修正方向与有效验证 seam；其实现及真实产品闭环由 M1 继续完成，本设计报告不提前关闭产品验收问题。
+- R1-R1 的 Scenario 格式建议现已落实于 delta-spec，作为非阻断建议关闭。
+
+### Issues
+
+无新增未解决设计问题。
+
+### Recommendations
+
+无。
