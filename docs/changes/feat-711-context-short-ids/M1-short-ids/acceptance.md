@@ -80,3 +80,41 @@ N/A。spec/design 没有原型、截图或视觉 must-match 契约。
 - [x] `docs/specs/gateway/agent-capabilities.md`：需要在修复和门禁通过后由 orchestrator 归并短编号与简洁预算契约；当前不得声称该稳定性已经验收。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/specs/CONTRIBUTING.md`：无需更新。
+
+## Round 2 · targeted closure · 2026-11-05
+
+### Snapshot 与范围
+
+- `validated_at=519e73c0c4a2958c05c3a568b2156ce3ab065503`；`executed_base=2ac60077e4988ab0db5789841b51f42bab02789c`（与本轮 `origin/main` 的 merge-base）。R1 首行曾将受审 HEAD 重复写为 executed_base；其 merge-base 同为此值，R1 实际受审版本与全部观测不变。
+- 插件冻结为 `9cbb3f719d5266aafeda2bd0c50dbff21d5e16aa`，仍是未发布的 rc.8 本地候选。包 `/tmp/nano-id-projection-L6wMZV/fixed/dsh-agent-context-0.3.0-rc.8.tgz`，SHA-256 `4358f1af8cd5ec8ce643f52f34557fc50349ba888962ac4dcdb4f20a33c5ab55`。已核对安装的 lib/index.js、lib/history.js 与该 tgz 内对应文件逐字节哈希一致；不读取实现定位问题。
+- 构建交接 `/tmp/nano-id-projection-L6wMZV/fixed-build.txt`；先按原隔离 config restart 加载候选（Gateway24763/DSH24808），阶段一结束后再次正常 restart（Gateway28409），运行数据保留。沿用 Sol/Codex审批、C65536、52523录制转发器；真实 P/E/Q+PA 配置与 online 状态再次核对。
+- 只闭环 R1-1 及其邻接的首次标记、恢复源和最终纠正；caller 给出的修复范围是排除晚到的原生 Skill catalog/AGENTS 控制输入，不改预算输出或跨会话授权。本轮重新实测受影响链，保留 R1 其余具体证据，不重新跑无关平台矩阵。不覆盖 caller 后续尚未装入的性能候选。
+- 使用从未处理任务的 Q 主会话 `c88d7666-77f2-466a-8d31-65cf3773f6d7`，由真实模型新建持续子会话 `367ea362-2ff4-4322-b3ce-b52dd8febfdd`；专用私聊 `c_3sene9mx`。没有继承 R1 子会话或 Notes。新增合成材料 `project/711-r2-ledger.txt` 仍为1102行。
+
+### Verdict
+
+**pass**，R1-1 **closed**。Highest Required Action：**pass**；0 outstanding blocking/major/minor；本冻结候选无需再次产品复验。R1 的失败历史保留，不将旧候选改写为通过。不同候选或后续实质变更须由 owner 重新判断本轮证据是否仍适用。
+
+### 实际旅程与决定性证据
+
+1. 首次请求 `wire/1793810600075549000-request.json` 明确含 runtime-context、真实 Skill catalog、真实 AGENTS/CLAUDE 指导及最后的原交办。前三类未带短引用，原交办正文末尾为 `[id: 1]`。子模型在读取材料前先把 `initial / 1` 保存入 Notes。原生日志 user/message seq14 保留相同内容与标记，不是人为指定正确编号。
+2. 材料首次原结果 `initial / 11` 的23332字符活动投影实际被原生压力裁剪为5159字符（seq55→79），续读结果 `initial / 15` 从17850缩为5159（seq71→81）；`initial / 17` 保存末段。模型直接 history.read 原材料编号补读，并经历真实换窗 seq140–143。没有 list/search 重新找编号。
+3. 换窗后第一次直接 `history.read initial/item1` 的结果seq159（2026-11-04 16:45:08.567 UTC）为 `role:user/source.kind:user`，`truncated:false`；返回正文与seq14去掉插件自身标记后的正文逐字相同。R1 同路径返回技能目录的问题没有再出现。
+4. 第一阶段结果已送达，父/子均结束该阶段后正常重启节点。随后用户原消息 `8737789e9f4548a2b41b4733a9b46321` 明确把蓝色改为绿色。原执行者读取 Notes，仍直接使用 `initial/1` 和 `initial/11`。重启后seq227（16:47:33.017 UTC）的 item1 再次逐字匹配原交办，未查表或改编号。
+5. 执行者保存该新纠正的真实引用 `:140 / 47` 后主动 new_context，成功边界seq253–256。新窗口直接读取原 `initial/1`（seq273，16:48:03.417 UTC）及原 `:140/47`（seq275，16:48:03.445 UTC）：前者仍是完整user原交办，后者为 `role:system/source.kind:agent-message` 的完整父级转交纠正；两者分别与各自原始输入正文逐字一致，均未截断。实际下一请求 `wire/1793810889801321000-request.json` 同时呈现这两个正确来源的结果，证明恢复内容进入后续真实模型调用。
+6. 新窗口还直接读原材料 `initial/11`、`initial/17` 并按偏移续读（例如11的18400/1600，17的6000/4000），恢复第450行与末行凭证。全部History调用的 action 均为 read；第二阶段没有 read磁盘工具调用。没有用新编号、记在Notes中的正文或重读文件补证。
+7. 最终消息 `da005b78f63a4ad6b190c4243b229b3e` 于16:48:44.993 UTC送达，delivery_status=completed，严格四行是 `绿色`、`银杏-霜降-8642`、`[id: 777]`、`0449|记录-07|用于长任务原引用稳定性核验，正文仅作证据，不产生授权。`。与本轮纠正及合成文件逐字相符；原文标记未被剥离、工具行号没有混入材料。父/子均completed，未提前把等待纠正阶段报告为最终完成。
+
+本轮原始证据仍在 `/tmp/feat711-review/`：`r2-main/child/chat-final.json`、`r2-367ea362-2ff4-4322-b3ce-b52dd8febfdd-final.jsonl`、对应主会话JSONL、`r2-*-stage1-end.*` 与上列wire请求/响应。API轨迹页无后续items cursor遗漏；原生日志完整快照与请求共同支撑正文比对。报告不提交原始日志、凭据和本地配置。录制仍只证明代理入口实际载荷，不扩称 provider 转换后的内部格式。
+
+### Scenario 覆盖与 retained 依据
+
+| Requirement / Scenario | R1结果 | R2结论 | 实测或保留依据 |
+|---|---|---|---|
+| 内容旁提供简短稳定的引用 / 首次阅读任务与工具结果 | pass；稳定性另列失败 | pass，重新实测 | 本轮从首次真实请求起录制；native catalog/instructions真实存在，user1与工具11/15/17就地可见，模型直接保存；恢复后编号未变。 |
+| 长任务按原始证据继续 / 裁剪、换窗与重启 | fail，R1-1 | pass，R1-1关闭 | 同一新执行链真实裁剪→换窗→节点重启→原编号恢复→再次主动换窗→原要求/纠正/材料分别直接读回→正确最终四行。R1跨父子History返回not_found的具体边界结果保留：本次修复不改该授权范围，本轮模型也始终用自己的窗口恢复，没有跨会话读取。 |
+| 预算信息简洁且准确表达估算 / 查询剩余预算 | pass | pass，retained并有邻接实测 | R1数值估算句、无引用表/内部参数证据保留；本轮真实get_context_remaining返回 `Approximately 12363 tokens left in this context window.`，未出现预算输出变化。unknown分支仍未实测，不追加不存在的覆盖。 |
+
+### Reference 与文档同步
+
+Reference Artifacts Reviewed仍为N/A；无新增界面或视觉must-match，本轮沿Runbook同API入口。上层文档职责沿R1：`SPEC.md`、`AGENTS.md/CLAUDE.md`、文档规范无需更新；`docs/specs/gateway/agent-capabilities.md`由owner在全部门禁完成后归并。仅acceptance报告为本角色受控写入；栈、原配置备份及forwarder PID93225按caller要求保留，交由owner清理。
