@@ -1,6 +1,6 @@
 # 快修阶段实现与验证记录
 
-状态：未完成整体性能验收，应用候选未部署生产；原公网 Tunnel 已按本轮明确授权采用 HTTP2/IPv6 并通过 600 秒门禁。[design.md](design.md) 已按本轮实际实现事后整理，以下保留各阶段测量及未完成项；未经用户实际验收，不归档。
+状态：本轮已获用户认可并完成清理交付归档，应用候选未部署生产；原公网 Tunnel 已按本轮明确授权采用 HTTP2/IPv6 并通过 600 秒门禁。[design.md](design.md) 已按本轮实际实现事后整理，以下保留各阶段测量及未完成项；早期阶段的未完成结论按当时事实保留，最终收口依据见 incident.md 的用户确认。
 
 ## 交付前清理与删除消融（2026-11-04）
 
@@ -45,7 +45,7 @@
 
 前端自身 runner 全套 112 文件/1073 项通过；后端针对 Node/IM 真 WS、tenancy、NativeTrajectory、catalog、慢读/背压、配置检查与维护冷历史、viewer transport 共 9 文件/54 项通过。独立 reviewer 的前端 50 项为子集，不重复累加。Native、IM、viewer 和前端构建通过，修改的 Node trajectory 单文件严格检查通过；本机借用依赖的 Node 全包仍报告未改动 main.ts:347 的 FeishuConnection 类型不匹配，不写成全包构建通过。最终 PR CI 使用干净依赖单独运行。
 
-隔离预览继续保留，原域名分流与生产 HTTP2/IPv6 保活维持原状。应用源码未部署生产，unit 保持 active。最终 PR 描述只列仍保留的设计，临时诊断不再作为交付能力。
+隔离预览继续保留，原域名分流与生产 HTTP2/IPv6 保活维持原状。应用源码未部署生产，unit 按本轮用户确认归档。最终 PR 描述只列仍保留的设计，临时诊断不再作为交付能力。
 
 ## 原域名公网 Tunnel 四组对照（2026-11-04）
 
@@ -156,7 +156,7 @@ Mini 自身经香港代理访问同一原 Tunnel 的一次样本落在 `conn_ind
 
 此前 Quick Tunnel 使用 HTTP2，正式命名 Tunnel 使用 QUIC/IPv6 en0；先前样本只证明对应临时链路的结果，不能用来证明原生产入口同样提速。用户已明确要求原域名换端口，本轮按此执行；不是重新选择临时域名。
 
-`https://im.nanoim.win:8443` 已经原命名 `nano-im-public` 接到 Mini 隔离 IM `51129`；默认 `443` 仍接正式 IM `8011`。共同的本地 `51130` HTTP/WS 分流器、持久管理及回收顺序见 [生产舰队](../../operations/prod-fleet.md#原域名隔离试用端口)。正式 IM PID 92641 未重启、未切换候选版本，测试 Gateway 为 `office-perf-704`，仍使用禅的原根会话 `3143edc8-1ead-48ce-b7ca-1da50a7233bb` 副本。两个公网入口的匿名 HTML 哈希已分别匹配其本机源站。原命名 Tunnel 重连后为 PID 58916，30 秒门禁四个样本均 HA=4、QUIC/IPv6 en0、closed_connections=0、HTTPS=200。此前自建 Quick Tunnel 已停止。
+`https://im.nanoim.win:8443` 已经原命名 `nano-im-public` 接到 Mini 隔离 IM `51129`；默认 `443` 仍接正式 IM `8011`。共同的本地 `51130` HTTP/WS 分流器、持久管理及回收顺序见 [生产舰队](../../../operations/prod-fleet.md#原域名隔离试用端口)。正式 IM PID 92641 未重启、未切换候选版本，测试 Gateway 为 `office-perf-704`，仍使用禅的原根会话 `3143edc8-1ead-48ce-b7ca-1da50a7233bb` 副本。两个公网入口的匿名 HTML 哈希已分别匹配其本机源站。原命名 Tunnel 重连后为 PID 58916，30 秒门禁四个样本均 HA=4、QUIC/IPv6 en0、closed_connections=0、HTTPS=200。此前自建 Quick Tunnel 已停止。
 
 | 浏览器打开到内容可见 | 首次访问该测试入口（09:51） | 再次打开（09:52–09:53） |
 | --- | --- | --- |
@@ -328,3 +328,12 @@ Mini 自身经香港代理访问同一原 Tunnel 的一次样本落在 `conn_ind
 ## 保留的风险
 
 空闲超时是兜底，并非根治所有慢消费者；特别是大型单帧的分片等待期间，上游 DSH 订阅缓冲没有本项目可证明的严格字节上限。诊断数据表明剩余时间包括初始化与跨公网多次往返，但尚不能分别归因到具体代理、链路或浏览器阶段。不能只根据上述改动宣布三个页面已快速稳定加载。
+
+
+## 最终集成与交付门禁（2026-11-04）
+
+`validated_at=03f8348915fff0dafe0fea18d239f577644e518e` 为远端 CI 实际 checkout 的 PR merge tree；`executed_base=c87b09c4eca17395d1d4b4a2976eca674b318504`。前端完整 CI、干净环境 build/typecheck、后端 211 文件/1149 项、Python 135 项及 ruff check/format 全通过，唯一红项为 active unit 尚未归档。运行号 41781255155，不将该 run 宣称整体绿色。
+
+同步 main 得到 `a8ae6546a2c8e0718808709ab45859962c7f2745`，与上述 CI merge tree 的 `git diff` 为空，故同树代码测试和构建证据 retained，不另做无意义全套复跑。main 增量涉及 PA 创建/能力、内置旅行 Skill、聊天日期及 Dreaming 测试生命周期；与本次唯一自动合并重叠处 control-routes 的创建实现抽离，saved settings/轨迹/Work 实现保持本任务结果。无本次新的用户可观察修改，原试用确认和清理复测 retained；实际独立代码审查记录另见 code-review.md。
+
+`effective_base=c87b09c4eca17395d1d4b4a2976eca674b318504`，`effective_through` 为 PR 最终归档提交（仅文档归并、索引、路径与收口事实变化），代码与 a8ae6546a 保持相同。canonical 只合并配置快读/草稿和 Work 摘要/独立读取/慢读边界，不把技术预取选项、缓存实现或一秒的跨网络保证写入行为契约。最终远端 CI 另行运行；用户要求保留的隔离服务和未合入 worktree 继续保留。

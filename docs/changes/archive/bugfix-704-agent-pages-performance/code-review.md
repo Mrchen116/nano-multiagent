@@ -55,3 +55,10 @@
 ## 初始目录复用审查
 
 独立 reviewer 审查 `96d664a1f` 后本轮 prepare 目录、ready 单帧边界、transport 一次性/时效/代次与父页面转交增量，结论 `[]`。随后针对“连接关闭而 iframe 迟到”补充 OPEN 准入及清除待交付字段，并经有界 patch 审查 `[]`；对应前端回归通过。实验性全局 WebSocket 压缩没有获得真实浏览器扩展协商证据，源码与隔离服务都已恢复，该设置不在交付 diff 内。
+
+
+## main 同步与最终文档归并审查
+
+`validated_at=03f8348915fff0dafe0fea18d239f577644e518e`，`executed_base=effective_base=c87b09c4eca17395d1d4b4a2976eca674b318504`；同步提交 a8ae6546a 的树与该 CI checkout 完全一致，独立 reviewer 实核 diff 为空，保留该树的构建/类型及完整功能检查结果。`effective_through` 为本次归档提交，PR head 给出完整值；之后未改应用源码。
+
+同一独立 reviewer 有界核对 main 自动合并与归档 dirty patch：control-routes 仅创建实现/能力抽离，saved settings 快读及完成后权限/连接/版本复核保留；main 其余变化不改本次配置/Work/原生读取旅程，用户快修确认及局部实测 retained。canonical 仅归并已实现行为，没有许诺冷启动/跨网络一秒或 p95。发现归档使证据到生产舰队链接少一层，已改为 ../../../operations/prod-fleet.md 并复核文件存在；无新增存活问题，结论 `[]`。项目 venv 下 docs-check 286 maintained Markdown/68 required routes 及归档门禁通过；系统 Python 缺 yaml 的首次尝试未执行检查，不算通过。

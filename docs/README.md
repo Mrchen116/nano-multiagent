@@ -16,6 +16,7 @@
 | 理解每个人的 PA、双身份聊天访问、原聊天协助与聊天创建独立 Agent | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
 | 理解角色化文档记忆、增量 Dreaming、来源失效与旧库回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；配置入口见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)，整理记录见 [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
+| 查看 Agent 页面性能与原公网 Tunnel 对照 | [bugfix-704 实测与限制](changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md)；当前契约见 [配置](specs/im/agents-nodes.md) 和 [Work](specs/im/agent-work.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
 | 理解 Feature 完整依赖、独立工具开关和关闭保护 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md) → [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |

@@ -107,7 +107,7 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 
 两个 plist 均位于 Mini `~/Library/LaunchAgents/`，启用 RunAtLoad/KeepAlive。常规发布复用 launcher、plist、Tunnel 凭据和 DNS；不得用旧 `nohup uvicorn --host 0.0.0.0` 替换。TLS 在边缘终止，源站 loopback HTTP 是预期拓扑。
 
-2026-11-04 用户授权公网传输矩阵后，四组各 30 次探针和禅真实历史对照选择 HTTP2/IPv6：同为 LAX 接入，256 KB 请求中位数实验约 9.06 → 0.99 秒、持久启动后 0.74 秒；更早历史页面中位数由约 14.02 降至持久复测 2.68 秒。IPv4 没有额外优势。区域未限制为 us，不引入直连产品入口。具体样本、恢复复测及本轮持续健康结果见 [bugfix-704 证据](../changes/bugfix-704-agent-pages-performance/fast-mode-evidence.md)。QUIC/IPv6 保留为显式回退配置，不自动切换或伪造 HTTP2 的 QUIC 指标。
+2026-11-04 用户授权公网传输矩阵后，四组各 30 次探针和禅真实历史对照选择 HTTP2/IPv6：同为 LAX 接入，256 KB 请求中位数实验约 9.06 → 0.99 秒、持久启动后 0.74 秒；更早历史页面中位数由约 14.02 降至持久复测 2.68 秒。IPv4 没有额外优势。区域未限制为 us，不引入直连产品入口。具体样本、恢复复测及本轮持续健康结果见 [bugfix-704 证据](../changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md)。QUIC/IPv6 保留为显式回退配置，不自动切换或伪造 HTTP2 的 QUIC 指标。
 
 ### 原域名隔离试用端口
 

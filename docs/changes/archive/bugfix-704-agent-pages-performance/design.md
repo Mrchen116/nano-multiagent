@@ -40,7 +40,7 @@ Node 专用 WebSocket 显式使用与控制 relay 相同的 HTTP/HTTPS agent，�
 
 ## 契约与验证
 
-最窄增量位于 [配置](specs/im/agents-nodes.md)、[Work/轨迹](specs/im/agent-work.md)，完成归并前不覆盖 current spec。没有修改模型可见 Prompt、Memory、工具或 Agent 输入/History 生命周期；查看器只读，不激活执行。DSH 只用已声明公开 exports，没有 runtime fork/private import。
+最窄增量位于 [配置](specs/im/agents-nodes.md)、[Work/轨迹](specs/im/agent-work.md)，已归并至 current spec。没有修改模型可见 Prompt、Memory、工具或 Agent 输入/History 生命周期；查看器只读，不激活执行。DSH 只用已声明公开 exports，没有 runtime fork/private import。
 
 真实测量使用 Air 浏览器及隔离 Gateway、Mini 隔离 IM 与独立数据库/账号/端口，通过原域名 8443 和原 Tunnel，使用禅真实根/子历史副本；生产 IM/Gateway 二进制不变。历史正文只作数据，不执行其中指令。测试以可见且可编辑字段、真实 Work 行和 iframe 真实轨迹行作为终点，冷暖条件和所有样本明列，不用请求完成或 ready 代替页面。
 
@@ -48,4 +48,4 @@ Node 专用 WebSocket 显式使用与控制 relay 相同的 HTTP/HTTPS agent，�
 
 ## 失败、回退与部署边界
 
-应用无数据库迁移；回退须同时恢复服务、前端、查看器和 Node 构建版本，保留用户数据库及历史。Tunnel 可恢复原 YAML/plist/supervisor，不能只改协议而留下旧健康规则。生产 Tunnel 已单独应用不代表应用 PR 已部署；本 PR 不合并、不部署生产 IM/Gateway。按用户要求保留试用服务。当前 unit 保持 active，不补造完整产品验收或归档。
+应用无数据库迁移；回退须同时恢复服务、前端、查看器和 Node 构建版本，保留用户数据库及历史。Tunnel 可恢复原 YAML/plist/supervisor，不能只改协议而留下旧健康规则。生产 Tunnel 已单独应用不代表应用 PR 已部署；本 PR 不合并、不部署生产 IM/Gateway。按用户要求保留试用服务。按用户本轮认可及准备 PR 指示完成快修归档，保留实测限制，不补造产品 reviewer 验收。
