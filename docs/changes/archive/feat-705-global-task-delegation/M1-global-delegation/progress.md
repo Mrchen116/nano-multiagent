@@ -205,3 +205,8 @@
 - 运行源码244dbb5f7；`/tmp/feat705-ui-routing-build.log`构建、`ui-routing-tests.log`既有Global／PA子级原生上下文6项及文档检查通过。无新测试、无追加iOS或全量验收。
 - `ui-actions-tree-manifest.json`仅重捕获Global／PA根首次真实provider/upstream请求各一份，未创建子级采样；原始哈希、上下游System和原生窗口核对，两个采样均实际turn/end并正常shutdown。main及PR一／二级原始记录保留，页面明确各次采样版本和父子ID不拼接。
 - 当前根System均无ComposeMessage adopts、本地计算或额外推理按钮句，Skill入口和私聊背景原文保留；其余四个PR层级System逐字不变。根System各减少83 tokens，Global3380、PA4157。全行diff能还原两侧完整原文，HTTP页面展示244dbb；旧页和请求保存在ui-actions-before。Skill文件未修改，预览Node正常重载，聊天／Persona／轨迹保留。
+
+## PA 记忆指引按模式投影（2026-11-04）
+
+- 用户要求按选中的document／legacy模式直接提供指引，不把两种条件分支一起交给Agent。PA来源策略和即时停止使用／更正保留，共同来源段与记忆处理段分开；document只保留Dreaming路径，legacy只提供当前memory工具路径，不改变写入／遗忘／来源机制。
+- 复用personal-security现有能力／配置生效用例：验证legacy的PA段不含Dreaming，切换到document后同一会话立即只包含Dreaming指引，无legacy分支。`/tmp/feat705-pa-memory-mode-red.log`旧实现此用例失败，其他9项未运行；只验证相关范围，不追加全量。

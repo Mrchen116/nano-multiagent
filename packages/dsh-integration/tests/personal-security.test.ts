@@ -108,14 +108,25 @@ export const name='capability-fixture';export const inject=['tools'];export func
         expect(preview.tools.sort()).toEqual(before.prompt.tools.map((tool:any)=>tool.name).sort());
         expect(preview.skills.map((skill:any)=>skill.name).sort()).toEqual(before.skills.map((skill:any)=>skill.name).sort());
         expect(preview.prompt).toContain('OWNER_EDITABLE_GUIDANCE');
-        if(personal)expect(preview.prompt).toContain(before.prompt.sections.find((section:any)=>section.name==='nano-personal-agent').text);
+        if(personal){
+          const guidance=before.prompt.sections.find((section:any)=>section.name==='nano-personal-agent').text;
+          expect(preview.prompt).toContain(guidance);
+          expect(guidance).not.toContain('Dreaming');
+          expect(guidance).not.toContain('In document mode');
+          expect(guidance).toContain('use the memory tool');
+        }
 
-        await client.rpc.request('configuration.apply',{...config,revision:'2',systemPrompt:'',skillSelection:{mode:'explicit_denylist',names:['nano-ongoing-work']}});
+        await client.rpc.request('configuration.apply',{...config,revision:'2',systemPrompt:'',knowledge:{...config.knowledge,memoryMode:personal?'document':'legacy'},skillSelection:{mode:'explicit_denylist',names:['nano-ongoing-work']}});
         const after=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
         expect(JSON.stringify(after.prompt)).not.toContain('OWNER_EDITABLE_GUIDANCE');
         expect(after.skills.map((skill:any)=>skill.name)).not.toContain('nano-ongoing-work');
         expect(after.skills.map((skill:any)=>skill.name)).toContain('owner-skill');
-        if(personal)expect(JSON.stringify(after.prompt)).toContain('nano-personal-agent');
+        if(personal){
+          const guidance=after.prompt.sections.find((section:any)=>section.name==='nano-personal-agent').text;
+          expect(guidance).toContain('Only Dreaming');
+          expect(guidance).not.toContain('legacy');
+          expect(guidance).not.toContain('In document mode');
+        }
         if(personal){
           expect(names).toContain('personal_sources');
           expect(names).toContain('agent_creation');
