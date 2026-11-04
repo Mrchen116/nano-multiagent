@@ -202,3 +202,6 @@
 
 - 用户确认删除从ComposeMessage adopts开始、包含local only／SendToChat／本地计算和额外推理按钮的整个常驻段。这些属于生成UI时的动作说明，已有nano-interactive-ui按需入口和动作描述；不补新句、不改Skill或交互功能。
 - Skill加载入口、私聊自然追问背景原文及内部执行者短指导保持。沿用户要求收敛验证，仅运行相关原生上下文检查；实际对照只重捕获受影响的Global／PA根请求，未受影响的各级原始捕获保留并标明来源。
+- 运行源码244dbb5f7；`/tmp/feat705-ui-routing-build.log`构建、`ui-routing-tests.log`既有Global／PA子级原生上下文6项及文档检查通过。无新测试、无追加iOS或全量验收。
+- `ui-actions-tree-manifest.json`仅重捕获Global／PA根首次真实provider/upstream请求各一份，未创建子级采样；原始哈希、上下游System和原生窗口核对，两个采样均实际turn/end并正常shutdown。main及PR一／二级原始记录保留，页面明确各次采样版本和父子ID不拼接。
+- 当前根System均无ComposeMessage adopts、本地计算或额外推理按钮句，Skill入口和私聊背景原文保留；其余四个PR层级System逐字不变。根System各减少83 tokens，Global3380、PA4157。全行diff能还原两侧完整原文，HTTP页面展示244dbb；旧页和请求保存在ui-actions-before。Skill文件未修改，预览Node正常重载，聊天／Persona／轨迹保留。
