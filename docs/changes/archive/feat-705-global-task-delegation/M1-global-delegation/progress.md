@@ -239,3 +239,11 @@
 - 运行源码4fe6ab6e5；dsh-integration与im-server构建、docs_check通过，日志/tmp/feat705-start-notice-build.log、/tmp/feat705-start-notice-pa-build.log、/tmp/feat705-start-notice-docs.log。仅改文案与对应契约，未重跑分层或完整行为回归。
 - start-notice-tree-manifest.json仅刷新Global／PA两个根会话真实首次provider/upstream请求，均实际turn/end且正常shutdown。最终System含启动告知、主动事项、静默例外与不等待重复批准；PA含Beyond the shared start notice。工具定义逐字一致，四份子级PR请求原始哈希保留，main及其他证据沿用原始版本，不拼成新执行链。
 - 实际捕获对照页已更新，逐行保留空行与未改行。Global根System 3146、PA根3928 tokens（o200k_base估算），旧页面及请求保存在start-notice-before。采样无业务任务或IM外发，不宣称已验证模型实际启动通知行为；原预览聊天、轨迹和服务保留。
+
+
+## 2026-11-04：专家 Dreaming 按角色选择反思文案
+
+- 用户确认精确前后文案后实施。consolidationPrompt 按已有可信 personal 标识选择反思段；PA 整理提示与原文逐字一致，专家仅替换已确认的两句为领域／项目变化、决定、环境、真实成败和多人协作的三句。共同主动沟通偏好、证据与权限要求不变，extractionPrompt 不变。
+- dreaming-agent 传入既有角色标识，不增加 Persona 输入或主 System 继承；长期定位输入缺口由 Issue #465 后续考虑。本次更新 provenance 记录与角色化整理契约。
+- dsh-integration build 通过。与变更前HEAD的生成提示逐字比较确认 PA 完全相同，专家差异仅为已确认替换。复用 dreaming-runtime 两个手动用例（专家／PA），在原生 llm/stream 的最终 messages 上断言只包含相应角色反思及共同规则；2项通过、4项未运行，日志/tmp/feat705-dreaming-role-tests.log。此为受控运行 fixture，不是外部真实模型行为验收。
+- docs_check通过。Global／PA 主会话和普通一级／二级上下文未受影响，保留原实际捕获对照页与原始证据；未重跑根会话采样或完整行为验收。原预览服务和轨迹保留。

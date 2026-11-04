@@ -33,6 +33,12 @@ official released Dreaming implementation. Nano paraphrases their content dimens
 it does not copy personal instances, create Muse's separate cards/schedulers, or
 claim knowledge of its hidden runtime prompt.
 
+Consolidation selects the reflection focus using the bound Agent's existing PA or
+expert role. The PA interaction-reflection wording is retained; the expert variant
+focuses on domain/project changes, environment conditions, verified work lessons
+and collaboration, following Nano's approved specialist-memory policy. Shared
+evidence and proactive-communication guidance remains unchanged.
+
 The retained source snapshots, hashes, implementation comparison and exact prompt
 diff are part of feat-676's review evidence. Runtime content and authority remain in
 Nano's approved design and current package specs.
