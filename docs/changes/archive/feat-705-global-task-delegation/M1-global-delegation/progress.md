@@ -184,3 +184,6 @@
 
 - 用户确认私聊自然追问附带背景先不动，先落实此前两项反馈：ToAssistant明确为向当前聊天提交用户消息和界面快照，并标记卡片Agent需要关注；删除Distinguish user inputs／A renderer is not a data source开头整段常驻真实性／授权细则，不迁入或修改UI Skill。
 - 当前群聊公开消息／选择快照、其他成员及Agent接收、卡片Agent关注的既有机制不变；仅修正模型表述。无产品契约delta，已有交互确认与群路由契约继续成立。私聊背景段原文、原生二级及Global一级既有短指导保留。复用原生上下文与fork前缀检查，最终模型输入以实际捕获为准，不新增文案快照测试。
+- 运行源码07bc0ba17；`/tmp/feat705-ui-concise-build.log`构建、`ui-concise-tests.log`3文件11项（Global／PA两级原生wire及接续、fork前缀、上下文重验证）、文档／归档及diff检查通过。
+- `ui-concise-tree-manifest.json`沿用main六份原始请求，重新采样PR两种Agent三层六份首次真实provider/upstream请求；所有层实际turn/end且采样进程正常shutdown，原始哈希、上下游System和原生窗口核对。Global／PA主会话新ToAssistant句各出现一次，长真实性段消失，私聊背景段逐字保留；两级worker完整System与前版逐字一致。属于受控上下文采样，不宣称新增自然模型／群聊行为验收。
+- 实际System：Global根3514→3462，PA根4279→4227；一级分别1016／1198，二级均672。六组全行diff可还原两侧完整原文、空行及未改动行，HTTP页面展示07bc0；旧页和原请求保存在ui-concise-before。UI Skill文件未修改，预览Node正常重载，原IM服务／代理、聊天、Persona及轨迹保留。
