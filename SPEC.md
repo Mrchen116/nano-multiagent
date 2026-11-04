@@ -2,7 +2,9 @@
 
 ## 产品与执行边界
 
-nano-multiagent 提供常驻个人助手和独立 IM 中心。用户从 Web IM、原生 iPhone App 或飞书与数字人交互。数字人由配置定义，拥有身份、workspace、模型和能力；内部 subagent 是一次工作的执行单元，不是新的公司成员。
+nano-multiagent 面向以 IM 为协作与工作主体的组织级 Agent 平台，由真人、各自的 PA 和承担专业职能的数字员工共同工作；长期职责、主动性、并行工作与记忆的产品方向见 [产品愿景](docs/product/vision.md)。本文定义当前跨包架构与执行边界。
+
+系统提供常驻 Agent 和独立 IM 中心。用户从 Web IM、原生 iPhone App 或飞书与数字人交互。数字人由配置定义，拥有身份、workspace、模型和能力；PA 的个人服务角色复用 Global 执行模式，内部 subagent 是一次工作的执行单元，不是新的公司成员。
 
 DSH 是唯一 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.1-alpha.1`。Nano 不维护第二套 Agent Loop，不复制 DSH 执行运行时源码，不导入其私有实现。浏览器轨迹 UI 的单包分叉例外见下文。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
 

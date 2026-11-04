@@ -7,7 +7,7 @@
 | 任务 | 先读 |
 |---|---|
 | 第一次了解项目 | [`../README.md`](../README.md) → [`../SPEC.md`](../SPEC.md) → 相关包的 [`specs/`](specs/README.md) |
-| 理解产品定位、目标用户或稳定体验原则 | [`product/`](product/README.md) |
+| 理解组织级平台、个人 PA、专业数字员工及长期主动工作方向 | [`product/vision.md`](product/vision.md) → [`product/`](product/README.md) |
 | 修改跨包职责、依赖方向或部署拓扑 | [`../SPEC.md`](../SPEC.md) |
 | 修改用户或外部消费者可观察行为 | 相关包的 [`specs/`](specs/README.md) → [`development/change-workflow.md`](development/change-workflow.md) |
 | 构建与使用原生 iPhone 客户端 | [`../src/IM/ios/README.md`](../src/IM/ios/README.md) → [`specs/im/ios-client.md`](specs/im/ios-client.md) |
@@ -64,7 +64,7 @@
 | 要回答的问题 | 权威位置 | 说明 |
 |---|---|---|
 | 产品是什么、如何最短启动 | [`../README.md`](../README.md) | 面向使用者的产品入口 |
-| 产品定位、目标用户和跨版本体验原则是什么 | [`product/`](product/README.md) | 产品 Truth 入口 |
+| 产品定位、目标用户和跨版本体验原则是什么 | [`product/`](product/README.md) | vision 维护组织级愿景、长期职责、主动性、并行与记忆；current 能力另查 specs |
 | 顶层包如何分工、允许怎样依赖、如何部署 | [`../SPEC.md`](../SPEC.md) | 跨包架构与不变量 |
 | 单包当前应该表现为什么 | [`specs/<package>/`](specs/README.md) | current 行为契约 |
 | 长青 spec 如何编写、delta-spec 如何归并 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) | 契约层内容规则 |
