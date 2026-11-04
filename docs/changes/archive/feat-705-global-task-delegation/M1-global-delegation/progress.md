@@ -179,3 +179,8 @@
 - 运行源码af562eac7；`/tmp/feat705-skill-concise-build.log`构建、`skill-concise-tests.log`5文件14项（Global／PA两级wire、fork前缀、上下文重验证、Cron及Memory运行时）通过，文档／归档与diff检查通过。
 - `skill-concise-tree-manifest.json`保留main六份原始请求，重新捕获PR两种Agent三层六份首次真实provider/upstream请求；原始哈希、上下游System及实际原生窗口核对，所有层均实际turn/end且采样进程正常shutdown。主／一级各一次包含完整确认的三句，旧长段已消失；二级完整System逐字不变。本次为受控上下文采样，不宣称新增自主维护Skill的自然行为验收。
 - 实际System：Global根3628→3514、一级1130→1016；PA根4393→4279、一级1312→1198；两种二级仍672。六组全行diff可还原两侧完整原文、空行与未改动行；HTTP页面展示af562，旧页及原请求保存在skill-concise-before。预览Node正常重载，原IM服务／模型代理及聊天、Persona、轨迹保持。
+
+## Intelligent UI 常驻语义精简（2026-11-04）
+
+- 用户确认私聊自然追问附带背景先不动，先落实此前两项反馈：ToAssistant明确为向当前聊天提交用户消息和界面快照，并标记卡片Agent需要关注；删除Distinguish user inputs／A renderer is not a data source开头整段常驻真实性／授权细则，不迁入或修改UI Skill。
+- 当前群聊公开消息／选择快照、其他成员及Agent接收、卡片Agent关注的既有机制不变；仅修正模型表述。无产品契约delta，已有交互确认与群路由契约继续成立。私聊背景段原文、原生二级及Global一级既有短指导保留。复用原生上下文与fork前缀检查，最终模型输入以实际捕获为准，不新增文案快照测试。
