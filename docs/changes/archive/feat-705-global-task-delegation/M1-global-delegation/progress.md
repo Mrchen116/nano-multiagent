@@ -210,3 +210,6 @@
 
 - 用户要求按选中的document／legacy模式直接提供指引，不把两种条件分支一起交给Agent。PA来源策略和即时停止使用／更正保留，共同来源段与记忆处理段分开；document只保留Dreaming路径，legacy只提供当前memory工具路径，不改变写入／遗忘／来源机制。
 - 复用personal-security现有能力／配置生效用例：验证legacy的PA段不含Dreaming，切换到document后同一会话立即只包含Dreaming指引，无legacy分支。`/tmp/feat705-pa-memory-mode-red.log`旧实现此用例失败，其他9项未运行；只验证相关范围，不追加全量。
+- 运行源码4bb470e11；构建、`pa-memory-mode-tests.log`同一窄用例及文档／diff检查通过。配置回调读取当前配置，实测legacy→document切换无需新增模式状态或推断逻辑。未重开全量或iOS验收。
+- `pa-memory-mode-tree-manifest.json`仅重捕获受影响PA根的一份真实首次provider/upstream请求，实际turn/end并正常shutdown；其余11份原始main／PR请求保留各自版本、时间、哈希和父子信息。真实PA System只有Only Dreaming路径，无In document mode／In legacy mode或legacy-memory guidance分支；共同来源和即时停止使用要求保留。PA System4157→4143 tokens，其余5个PR层级逐字不变。
+- 全行diff可还原两侧完整原文，当前HTTP页面展示4bb470，旧页和原请求保存在pa-memory-mode-before。预览Node正常重载；没有改变用户选择的实际记忆模式、持久记忆内容或权限机制，原聊天／Persona／轨迹保留。
