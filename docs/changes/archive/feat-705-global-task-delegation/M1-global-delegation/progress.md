@@ -1,6 +1,6 @@
 # M1 实施记录
 
-> 当前状态：实现与适用验收完成，已归档。实际源码冻结 c46e35c43；PR 远端 CI 属于随后交付门禁，结果以 PR 为准。
+> 当前状态：实现与适用验收完成，已归档。原始实现冻结 c46e35c43；开放 PR 默认值补充源码冻结 b628f3398。PR 远端 CI 属于随后交付门禁，结果以 PR 为准。
 
 ## 基线与范围
 
@@ -96,3 +96,6 @@
 - 初始上下文数据由真实 R4 上游请求重新计算核对，已创建 [Issue #460](https://github.com/Mrchen116/nano-multiagent/issues/460)，含完整22,200字符 System、36工具统计和18,701总构成。样本显式开启 exit，保持历史原文与计数，不回写成新默认；完整优化另议。
 - 用户已要求保留轨迹预览，隔离服务 http://127.0.0.1:62610 持续保留；不重置或重 seed 现有数据。此前退出时清理记录是历史状态，现为重新开放预览。
 - 本轮待独立 patch code/Context review、targeted verification、设置页 targeted 验收及新 head CI；其他指导、自然模型旅程和未改区域的既有证据保留，不机械重复全量验收。
+
+- R7 静态检查在用户停止 review 前已完成：findings=[]、delta aligned；用户停止后仅保存既有报告，提交 b05c46ffd。产品 R5 实际已在停止通知前完成并提交794f3293b：新建默认、手动开关保存重载、旧E显式开启保留和Goal/fork独立均pass。两报告通知到达顺序不同，verification追加事实校正，没有重新启动review。
+- 测试 Agent `r5-exit-settings` 保留为v3／exit关闭，无未保存更改；没有发送模型任务，旧E／原轨迹未改。正常CLI restart后Node ready，IM62610及对照页面HTTP200；用户要求的预览继续保留。
