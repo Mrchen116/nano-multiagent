@@ -6,7 +6,7 @@ import { createReadonlyTransport } from "../src/transport.js";
 const dispose: (() => void)[] = [];
 afterEach(() => { for (const close of dispose.splice(0)) close(); });
 
-function channel() {
+function channel(initialCatalog?: {capturedAt:number;result:unknown}) {
   const { port1, port2 } = new MessageChannel();
   const messages: Record<string, unknown>[] = [];
   const waiting: ((message: Record<string, unknown>) => void)[] = [];
@@ -17,6 +17,7 @@ function channel() {
   const generations: string[] = [];
   const transport = createReadonlyTransport(port1 as unknown as MessagePort, {
     onGenerationChanged: () => { generations.push("reconnect"); },
+    initialCatalog,
   });
   dispose.push(() => { transport.dispose(); port1.close(); port2.close(); });
   return {
@@ -50,6 +51,40 @@ describe("read-only native viewer transport", () => {
     await expect(result).resolves.toEqual({ ok: true, value: { records: [], hasMore: false } });
   });
 
+  it('uses the prepared catalog once, then performs fresh remote reads', async () => {
+    const catalog={ok:true,value:{items:[{sessionId:'selected'}]}};
+    const c=channel({capturedAt:Date.now(),result:catalog});
+    await expect(c.transport.rpc.call('/api','session/list',{args:{request:{}}})).resolves.toEqual(catalog);
+    expect(c.messages).toHaveLength(0);
+    const sent=c.nextMessage(), fresh=c.transport.rpc.call('/api','session/list',{args:{request:{}}});
+    const request=await sent;c.respond(request,{ok:true,value:{items:[]}});
+    await expect(fresh).resolves.toEqual({ok:true,value:{items:[]}});
+  });
+
+  it('does not satisfy a differently scoped request from the prepared catalog', async () => {
+    const c=channel({capturedAt:Date.now(),result:{ok:true,value:{items:[{sessionId:'selected'}]}}});
+    const sent=c.nextMessage();
+    const result=c.transport.rpc.call('/api','session/list',{args:{request:{sessionId:'other'}}});
+    const denied=expect(result).rejects.toThrow('scope');
+    c.fail(await sent,'scope');await denied;
+  });
+
+  it.each(['expired','generation','disposed','aborted'])('does not reuse an invalid initial catalog: %s', async reason => {
+    const c=channel({capturedAt:Date.now()-(reason==='expired'?5001:0),result:{ok:true,value:{items:[]}}});
+    if(reason==='generation'){
+      const sent=c.nextMessage(), changed=c.transport.rpc.call('/api','session/projections',payload);
+      const rejected=expect(changed).rejects.toThrow('generation_changed');c.fail(await sent,'generation_changed');await rejected;
+    }
+    if(reason==='disposed')c.transport.dispose();
+    const signal=new AbortController();if(reason==='aborted')signal.abort(new Error('left'));
+    if(reason==='disposed'||reason==='aborted'){
+      await expect(c.transport.rpc.call('/api','session/list',{args:{request:{}}},signal.signal)).rejects.toThrow();return;
+    }
+    const sent=c.nextMessage(), result=c.transport.rpc.call('/api','session/list',{args:{request:{}}});
+    c.respond(await sent,{ok:true,value:{items:['fresh']}});
+    await expect(result).resolves.toEqual({ok:true,value:{items:['fresh']}});
+  });
+
   it("pulls one bounded batch only after native iteration consumes the previous batch", async () => {
     const c = channel();
     const stream = c.transport.rpc.open!("/api", "session/follow", payload, new AbortController().signal)[Symbol.asyncIterator]();
@@ -73,7 +108,24 @@ describe("read-only native viewer transport", () => {
     await expect(last).resolves.toMatchObject({ done: true });
   });
 
-  it("reassembles multi-batch native snapshots and large unary pages before publishing them", async () => {
+  it("consumes the initial open batch before issuing another network pull", async () => {
+    const c = channel();
+    const stream = c.transport.rpc.open!("/api", "session/follow", payload, new AbortController().signal)[Symbol.asyncIterator]();
+    const opened = c.nextMessage(), first = stream.next();
+    const request = await opened;
+    expect(request.initialBatch).toBe(true);
+    c.respond(request, { streamId: "fast", initialBatch: { frames: [{ n: 1 }, { n: 2 }], done: false } });
+    await expect(first).resolves.toEqual({ value: { n: 1 }, done: false });
+    await expect(stream.next()).resolves.toEqual({ value: { n: 2 }, done: false });
+    expect(c.messages.filter(m => m.type === "next")).toHaveLength(0);
+    const pulled = c.nextMessage(), final = stream.next();
+    const pull = await pulled;
+    expect(pull).toMatchObject({ type: "next", streamId: "fast" });
+    c.respond(pull, { frames: [], done: true });
+    await expect(final).resolves.toMatchObject({ done: true });
+  });
+
+  it.each([false, true])("reassembles multi-batch native snapshots and large unary pages, initialBatch=%s", async initialBatch => {
     const c = channel();
     const opening = { type: "snapshot", records: [{ text: '历史😀"\\'.repeat(160_000) }] };
     const parts = [...encodeTrajectoryValue(opening)];
@@ -82,10 +134,10 @@ describe("read-only native viewer transport", () => {
     const opened = c.nextMessage(), first = stream.next();
     const open = await opened;
     let pulled = c.nextMessage();
-    c.respond(open, { streamId: "large" });
+    c.respond(open, { streamId: "large", ...(initialBatch ? { initialBatch: { frames: [parts[0]], done: false } } : {}) });
     let published = false;
     void first.then(() => { published = true; });
-    for (let i = 0; i < parts.length; i++) {
+    for (let i = initialBatch ? 1 : 0; i < parts.length; i++) {
       const request = await pulled;
       if (i + 1 < parts.length) pulled = c.nextMessage();
       expect(published).toBe(false);

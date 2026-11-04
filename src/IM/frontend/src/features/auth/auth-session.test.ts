@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { authFetch } from "./auth-fetch";
-import { ensureFreshSession, logout, login } from "./auth-session";
+import { ensureFreshSession, logout, login, adoptPageSession } from "./auth-session";
 import { useAuthStore, type AuthUser } from "./auth-store";
 
 const USER_A: AuthUser = {
@@ -42,6 +42,24 @@ describe("auth session readiness", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+  });
+
+  it("keeps document sessions subscribed to cross-tab logout",()=>{
+    adoptPageSession({access_token:accessToken(120),user:USER_A});
+    const other=new BroadcastChannel('im-session');
+    other.postMessage('logout');
+    expect(useAuthStore.getState().user).toBeNull();
+    other.close();
+  });
+
+  it('rejects HTML from before a completed login during document loading',async()=>{
+    vi.spyOn(globalThis,'fetch').mockResolvedValue(response(200,{access_token:'account-b',user:USER_B}));
+    await login({username:'bob',password:'password'});
+    // Simulate the new document whose listener missed that login broadcast.
+    useAuthStore.getState().clear();useAuthStore.setState({hydrated:false});
+    expect(adoptPageSession({access_token:'old-account-a',user:USER_A})).toBe(false);
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().hydrated).toBe(false);
   });
 
   it("returns a fresh access token without refreshing", async () => {

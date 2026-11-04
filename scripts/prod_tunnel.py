@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Supervise and verify the Mini's production Cloudflare QUIC/IPv6 path."""
+"""Supervise and verify the Mini's configured Cloudflare IPv6 transport."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -65,14 +66,17 @@ def public_probe(*, direct_diagnostic: bool = False) -> dict:
     return {"https": 200, "bytes": len(public.content), "public_egress": route}
 
 
-def _check_path() -> None:
+def _check_path() -> str:
     config = yaml.safe_load(TUNNEL_CONFIG.read_text())
+    protocol = config.get("protocol")
     if (
-        config.get("protocol") != "quic"
+        protocol not in {"quic", "http2"}
         or str(config.get("edge-ip-version")) != "6"
         or config.get("metrics") != "127.0.0.1:20241"
     ):
-        raise RuntimeError("Tunnel must use QUIC/IPv6 and the managed metrics endpoint")
+        raise RuntimeError(
+            "Tunnel must use explicit QUIC or HTTP2 over IPv6 and managed metrics"
+        )
     for address in EDGE_ADDRESSES:
         route = subprocess.check_output(
             ["/sbin/route", "-n", "get", "-inet6", address], text=True
@@ -80,6 +84,7 @@ def _check_path() -> None:
         interface = re.search(r"interface:\s*(\S+)", route)
         if interface is None or interface[1] != INTERFACE:
             raise RuntimeError("Tunnel IPv6 destination must use Mini's en0 route")
+    return protocol
 
 
 def _ready() -> bool:
@@ -92,7 +97,7 @@ def _ready() -> bool:
 
 
 def _snapshot() -> dict:
-    _check_path()
+    protocol = _check_path()
     pid = int(CHILD_PID.read_text())
     command = subprocess.check_output(
         ["ps", "-p", str(pid), "-o", "comm="], text=True
@@ -105,11 +110,19 @@ def _snapshot() -> dict:
     )
     if "n127.0.0.1:20241\n" not in listeners:
         raise RuntimeError("Production child does not own the metrics listener")
+    socket_args = ["-i6UDP"] if protocol == "quic" else ["-i6TCP", "-sTCP:ESTABLISHED"]
     sockets = subprocess.check_output(
-        ["lsof", "-nP", "-a", "-p", str(pid), "-i6UDP", "-Fn"], text=True
+        ["lsof", "-nP", "-a", "-p", str(pid), *socket_args, "-Fn"], text=True
     )
-    if len(re.findall(r"^n.*$", sockets, re.MULTILINE)) != 4:
-        raise RuntimeError("Production child must have four IPv6 QUIC sockets")
+    endpoints = re.findall(r"^n.*$", sockets, re.MULTILINE)
+    if protocol == "http2":
+        endpoints = [
+            endpoint for endpoint in endpoints if re.search(r"->.*:7844$", endpoint)
+        ]
+    if len(endpoints) != 4:
+        raise RuntimeError(
+            f"Production child must have four IPv6 {protocol.upper()} edge sockets"
+        )
     if not _ready():
         raise RuntimeError("Tunnel /ready is not 200")
     metrics = (
@@ -119,25 +132,37 @@ def _snapshot() -> dict:
     )
     if "cloudflared_tunnel_ha_connections 4\n" not in metrics:
         raise RuntimeError("Tunnel does not have four HA connections")
-    for direction in ["sent", "receive"]:
-        values = re.findall(
-            rf"^quic_client_{direction}_bytes\{{[^\n]+\}} (\S+)$", metrics, re.MULTILINE
-        )
-        if len(values) != 4 or any(float(value) <= 0 for value in values):
-            raise RuntimeError(
-                "Four production QUIC connections must have bidirectional traffic"
+    closed_count = None
+    if protocol == "quic":
+        for direction in ["sent", "receive"]:
+            values = re.findall(
+                rf"^quic_client_{direction}_bytes\{{[^\n]+\}} (\S+)$",
+                metrics,
+                re.MULTILINE,
             )
-    closed = re.search(r"^quic_client_closed_connections (\S+)$", metrics, re.MULTILINE)
-    if closed is None:
-        raise RuntimeError("Tunnel QUIC connection counter is missing")
-    # QUIC health and this HTTPS business request are independent checks.
+            if len(values) != 4 or any(float(value) <= 0 for value in values):
+                raise RuntimeError(
+                    "Four production QUIC connections must have bidirectional traffic"
+                )
+        closed = re.search(
+            r"^quic_client_closed_connections (\S+)$", metrics, re.MULTILINE
+        )
+        if closed is None:
+            raise RuntimeError("Tunnel QUIC connection counter is missing")
+        closed_count = int(float(closed[1]))
+    # TCP endpoints detect HTTP2 reconnections even if all four are healthy again
+    # between samples. QUIC additionally retains its transport close counter.
+    signature = hashlib.sha256("\n".join(sorted(endpoints)).encode()).hexdigest()
     public = public_probe()
     return {
         "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "pid": pid,
-        "ipv6_quic_ha": 4,
+        "protocol": protocol,
+        "ha_connections": 4,
+        "edge_ip_version": "6",
         "interface": INTERFACE,
-        "closed_connections": int(float(closed[1])),
+        "closed_connections": closed_count,
+        "connection_signature": signature,
         **public,
     }
 
@@ -238,7 +263,7 @@ def main() -> int:
     parser.add_argument(
         "--ready",
         action="store_true",
-        help="Check IPv6 path before starting Tunnel",
+        help="Check configured transport and IPv6 path before starting Tunnel",
     )
     parser.add_argument(
         "--seconds", type=int, default=0, help="Require continuous healthy samples"
@@ -272,8 +297,8 @@ def main() -> int:
             configure_business_proxy(args.gateway_config)
         while True:
             if args.ready:
-                _check_path()
-                print("Verified QUIC/IPv6 en0 path")
+                protocol = _check_path()
+                print(f"Verified {protocol.upper()}/IPv6 en0 path")
             elif args.public_only:
                 print(
                     json.dumps(
@@ -286,12 +311,16 @@ def main() -> int:
                 )
             else:
                 snapshot = _snapshot()
-                identity = (snapshot["pid"], snapshot["closed_connections"])
+                identity = (
+                    snapshot["pid"],
+                    snapshot["connection_signature"],
+                    snapshot["closed_connections"],
+                )
                 if baseline is None:
                     baseline = identity
                 elif identity != baseline:
                     raise RuntimeError(
-                        "Tunnel restarted or lost a QUIC connection during sampling"
+                        "Tunnel restarted or changed an edge connection during sampling"
                     )
                 print(json.dumps(snapshot, ensure_ascii=False), flush=True)
             if time.monotonic() >= deadline:

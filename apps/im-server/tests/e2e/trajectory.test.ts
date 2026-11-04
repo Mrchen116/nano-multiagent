@@ -1,16 +1,21 @@
 import { encodeTrajectoryValue, TrajectoryValueDecoder, TRAJECTORY_MAX_BYTES } from '@nano/product-contracts';
 import { expect, it } from 'vitest';
 import { once } from 'node:events';
+import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {openDatabase} from '../../src/db.js';
 import WebSocket from 'ws';
 import { bind, cleanups, Frames, start } from './helpers.js';
 
-it('pairs a shared Work reader separately from device traffic and revokes both observer ends', async () => {
+it.each([true, false])('pairs a shared Work reader separately from device traffic and revokes both observer ends, compression=%s', async compression => {
   const f = await start(), device = await bind(f);
+  expect(device.socket.extensions).toBe('');
   await device.frames.send('agent.work.append', { node_id: device.node, journal_id: 'native-work', from_seq: 1,
     events: [{ seq: 1, event_id: 'register', root_agent_id: 'global', session_id: 'main-native', type: 'session_registered', observed_at: new Date().toISOString(), payload: { scope: 'global_main' } },
       { seq: 2, event_id: 'maintenance-link', root_agent_id: 'global', session_id: 'main-native', type: 'session_linked', observed_at: new Date().toISOString(), payload: { parent_session_id: 'main-native', child_session_id: 'maintenance-native', title: '记忆与技能复盘' } }] });
   const ticket = await f.http('POST', '/im/v1/auth/ws-ticket', {}, f.tokens.bob);
-  const browser = new WebSocket(f.base.replace('http:', 'ws:') + `/im/ws/agent-trajectory?ticket=${ticket.body.ticket}&agent_id=global&session_id=maintenance-native`, { origin: 'http://127.0.0.1:8011' });
+  const browser = new WebSocket(f.base.replace('http:', 'ws:') + `/im/ws/agent-trajectory?ticket=${ticket.body.ticket}&agent_id=global&session_id=maintenance-native`, { origin: 'http://127.0.0.1:8011', perMessageDeflate: compression });
   cleanups.push(() => browser.terminate());
   const browserFrames = new Frames(browser);
   const prepare = await device.frames.next(frame => frame.type === 'trajectory.prepare');
@@ -19,12 +24,16 @@ it('pairs a shared Work reader separately from device traffic and revokes both o
   const node = new WebSocket(url), nodeFrames = new Frames(node);
   cleanups.push(() => node.terminate());
   await once(node, 'open');
+  expect(node.extensions).toBe('permessage-deflate');
   node.send(JSON.stringify({ type: 'ready', observerId: prepare.payload.scope.observerId, version: '0.2.1-alpha.1' }));
   expect((await browserFrames.next()).type).toBe('ready');
+  expect(browser.extensions).toBe(compression ? 'permessage-deflate' : '');
   const reused = new WebSocket(url); cleanups.push(() => reused.terminate());
   expect((await once(reused, 'close'))[0]).toBe(1008);
   browser.send(JSON.stringify({ type: 'call', requestId: 'read', method: 'session/list', params: {}, attachmentAuthorized: true }));
   expect(await nodeFrames.next()).toEqual({ type: 'call', requestId: 'read', method: 'session/list', params: {} });
+  browser.send(JSON.stringify({ type: 'open', requestId: 'fast', method: 'session/follow', params: {}, initialBatch: true, attachmentAuthorized: true }));
+  expect(await nodeFrames.next()).toEqual({ type: 'open', requestId: 'fast', method: 'session/follow', params: {}, initialBatch: true });
   // An observer waiting for a response cannot block the original heartbeat ACK.
   expect((await device.frames.send('node.heartbeat', { node_id: device.node })).type).toBe('ack');
   node.send(JSON.stringify({ type: 'result', observerId: prepare.payload.scope.observerId, requestId: 'read', value: { ok: true, value: { items: [] } } }));
@@ -87,3 +96,85 @@ it('rejects an execution outside the selected Work before asking the node', asyn
   expect((await frames.next()).type).toBe('failed');
   expect((await once(socket, 'close'))[0]).toBe(1008);
 }, 30_000);
+
+async function registeredMain(f: Awaited<ReturnType<typeof start>>) {
+  const device = await bind(f);
+  await device.frames.send('agent.work.append', { node_id: device.node, journal_id: 'prepared-work', from_seq: 1,
+    events: [{seq:1,event_id:'register-prepared',root_agent_id:'global',session_id:'prepared-main',type:'session_registered',observed_at:new Date().toISOString(),payload:{scope:'global_main'}}] });
+  return device;
+}
+
+it.each([false,true])('pairs an authorized prepared reader without repeating node preparation, nodeFirst=%s', async nodeFirst => {
+  const f = await start(), device = await registeredMain(f);
+  const grant = await f.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'prepared-main'},f.tokens.bob);
+  expect(grant.status,grant.body).toBe(200);
+  expect(grant.body.expires_at).toBeGreaterThan(Date.now());
+  const prepare = await device.frames.next(frame=>frame.type==='trajectory.prepare');
+  let node: WebSocket | undefined;
+  const pairNode = async () => {
+    node = new WebSocket(f.base.replace('http:','ws:')+`/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`);
+    cleanups.push(()=>node!.terminate());
+    await once(node,'open');
+    node.send(JSON.stringify({type:'ready',observerId:prepare.payload.scope.observerId,version:'0.2.1-alpha.1'}));
+  };
+  if(nodeFirst) await pairNode();
+  const url=f.base.replace('http:','ws:')+`/im/ws/agent-trajectory?ticket=${grant.body.ticket}&agent_id=global&session_id=prepared-main`;
+  const browser=new WebSocket(url,{origin:'http://127.0.0.1:8011'}), frames=new Frames(browser);
+  cleanups.push(()=>browser.terminate());
+  await once(browser,'open');
+  if(!nodeFirst) await pairNode();
+  expect(await frames.next()).toMatchObject({type:'ready',observerId:prepare.payload.scope.observerId});
+  const reused=new WebSocket(url,{origin:'http://127.0.0.1:8011'});cleanups.push(()=>reused.terminate());
+  expect((await once(reused,'close'))[0]).toBe(1008);
+  expect((await device.frames.send('node.heartbeat',{node_id:device.node})).type).toBe('ack');
+  expect(device.frames.queue.filter(frame=>frame.type==='trajectory.prepare')).toHaveLength(0);
+});
+
+it('refuses to retarget a prepared ticket and releases its node observation',async()=>{
+  const f=await start(),device=await registeredMain(f);
+  expect((await f.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'outside'},f.tokens.bob)).status).toBe(404);
+  const grant=await f.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'prepared-main'},f.tokens.bob);
+  const prepare=await device.frames.next(frame=>frame.type==='trajectory.prepare');
+  const node=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`);cleanups.push(()=>node.terminate());await once(node,'open');
+  const closed=once(node,'close');
+  const browser=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/agent-trajectory?ticket=${grant.body.ticket}&agent_id=global&session_id=outside`,{origin:'http://127.0.0.1:8011'});cleanups.push(()=>browser.terminate());
+  expect((await once(browser,'close'))[0]).toBe(1008);
+  expect((await closed)[0]).toBe(1008);
+});
+
+it('expires an unclaimed prepared reader even when the node has already paired',async()=>{
+  const f=await start(),device=await registeredMain(f);
+  const grant=await f.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'prepared-main'},f.tokens.bob);
+  const prepare=await device.frames.next(frame=>frame.type==='trajectory.prepare');
+  const node=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`);cleanups.push(()=>node.terminate());await once(node,'open');
+  node.send(JSON.stringify({type:'ready',observerId:prepare.payload.scope.observerId,version:'0.2.1-alpha.1'}));
+  expect((await once(node,'close'))[0]).toBe(1013);
+  const browser=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/agent-trajectory?ticket=${grant.body.ticket}&agent_id=global&session_id=prepared-main`,{origin:'http://127.0.0.1:8011'});cleanups.push(()=>browser.terminate());
+  expect((await once(browser,'close'))[0]).toBe(1008);
+},20000);
+
+
+it('embeds a scoped prepared capability in authenticated HTML and starts the node before browser admission',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'trajectory-html-'));
+  cleanups.push(()=>rmSync(dir,{recursive:true,force:true}));
+  writeFileSync(join(dir,'index.html'),'<html><body><div id="root"></div></body></html>');
+  const f=await start(undefined,{IM_FRONTEND_DIST_DIR:dir}),device=await registeredMain(f);
+  const registered=await f.http('POST','/im/v1/auth/register',{username:'html-reader',password:'secret-password',display_name:'Reader'},undefined,{'x-im-session':'browser',origin:'http://127.0.0.1:8011'});
+  expect(registered.status).toBe(201);
+  const db=openDatabase(f.dbPath);db.prepare("UPDATE users SET membership_status='active' WHERE id=?").run(registered.body.user.id);db.close();
+  const page=await f.http('GET','/settings/agents/global?view=work&work_view=trajectory&execution=prepared-main',undefined,undefined,{cookie:registered.headers.get('set-cookie')!.split(';')[0]});
+  expect(page.status).toBe(200);
+  expect(page.headers.get('cache-control')).toContain('no-store');
+  const bootstrap=JSON.parse(page.body.match(/<script id="nano-page-bootstrap" type="application\/json">(.*?)<\/script>/)[1]);
+  const capability=bootstrap.data['/im/v1/agents/global/trajectory/prepare?session_id=prepared-main'];
+  expect(capability.ticket).toEqual(expect.any(String));expect(capability.expires_at).toBeGreaterThan(Date.now());
+  const prepare=await device.frames.next(frame=>frame.type==='trajectory.prepare');
+  expect(prepare.payload.scope.sessionId).toBe('prepared-main');
+  // Logout must tear down even an unclaimed observation.
+  const node=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`);cleanups.push(()=>node.terminate());await once(node,'open');
+  const closed=once(node,'close');
+  const logout=await f.http('POST','/im/v1/auth/logout',{},undefined,{'x-im-session':'browser',origin:'http://127.0.0.1:8011',cookie:registered.headers.get('set-cookie')!.split(';')[0]});
+  expect(logout.status).toBe(200);expect((await closed)[0]).toBe(1008);
+  const browser=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/agent-trajectory?ticket=${capability.ticket}&agent_id=global&session_id=prepared-main`,{origin:'http://127.0.0.1:8011'});cleanups.push(()=>browser.terminate());
+  expect((await once(browser,'close'))[0]).toBe(1008);
+});

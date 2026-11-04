@@ -22,7 +22,7 @@ it('keeps idle readers open but expires an unconsumed batch', async () => {
     const waiting = empty.next();
     await vi.advanceTimersByTimeAsync(20_000);
     expect(await waiting).toEqual({ frames: [], done: false });
-    await expect(stale.next()).rejects.toThrow('trajectory_slow_consumer');
+    expect((await stale.next()).frames).toHaveLength(1);
   } finally { empty.close(); stale.close(); await Promise.all([empty.settled, stale.settled]); vi.useRealTimers(); }
 });
 

@@ -8,6 +8,7 @@ export type SessionReadiness =
   | { status: "signed_out" };
 const refreshFlights = new Map<number, Promise<SessionReadiness>>();
 let channel: BroadcastChannel | undefined;
+const SESSION_CHANGE_KEY = 'im_session_changed_at_v1';
 
 function sessionChannel() {
   if (!channel) {
@@ -22,6 +23,16 @@ function sessionChannel() {
     };
   }
   return channel;
+}
+
+/** Adopt a server-verified document while retaining cross-tab account invalidation. */
+export function adoptPageSession(session: BrowserSession):boolean {
+  sessionChannel();
+  // Another tab can change the Cookie while this document downloads its JS,
+  // before our BroadcastChannel listener exists. Persist only this fence.
+  if (Number(localStorage.getItem(SESSION_CHANGE_KEY)) > performance.timeOrigin) return false;
+  useAuthStore.getState().setSession(session,true);
+  return true;
 }
 
 async function withSessionLock<T>(operation: () => Promise<T>): Promise<T> {
@@ -55,7 +66,7 @@ function startRefresh(revision: number): Promise<SessionReadiness> {
     try {
       const session = await refreshTokens();
       if (useAuthStore.getState().revision !== revision) return { status: "retry" };
-      useAuthStore.getState().setSession(session);
+      useAuthStore.getState().setSession(session, true);
       return { status: "ready", userId: session.user.id, accessToken: session.access_token };
     } catch (error) {
       if (useAuthStore.getState().revision !== revision) return { status: "retry" };
@@ -99,7 +110,8 @@ async function establishSession(operation: () => Promise<BrowserSession>): Promi
     if (useAuthStore.getState().revision !== revision) throw new Error("Session changed");
     const session = await operation();
     if (useAuthStore.getState().revision !== revision) throw new Error("Session changed");
-    useAuthStore.getState().setSession(session);
+    useAuthStore.getState().setSession(session, true);
+    localStorage.setItem(SESSION_CHANGE_KEY,String(Date.now()));
     sessionChannel().postMessage("login");
     return session;
   });
@@ -115,6 +127,7 @@ export function logout(): Promise<void> {
   useAuthStore.getState().clear();
   return withSessionLock(async () => {
     await logoutApi();
+    localStorage.setItem(SESSION_CHANGE_KEY,String(Date.now()));
     sessionChannel().postMessage("logout");
   });
 }

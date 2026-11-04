@@ -21,6 +21,13 @@ export function RequireAuth({ children }: PropsWithChildren) {
     if (!hydrated || !userId) return;
     let disposed = false;
     setFailed(false);
+    // Cookie restoration/login already obtained the current user from the
+    // server. Do not immediately add a second serial identity round trip.
+    const verifiedAt = useAuthStore.getState().verifiedAt;
+    if (verifiedAt !== null && Date.now() - verifiedAt < 5000) {
+      setVerified(userId);
+      return;
+    }
     void authFetchJson<AuthUser>("/im/v1/auth/me").then(snapshot => {
       if (!disposed && useAuthStore.getState().replaceUser(snapshot)) setVerified(userId);
     }).catch(() => { if (!disposed) setFailed(true); });

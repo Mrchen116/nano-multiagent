@@ -233,7 +233,9 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     if (connection && pendingOperation) recoverSettings(profile);
     let live: Row | null = null;
     let display = readSettingsSnapshot(ctx,profile,'configuration');
-    if (connection && !pendingOperation) {
+    // A saved read must never wait for a node inspection. The full read still
+    // owns live capability confirmation and the existing mutation gates.
+    if (connection && !pendingOperation && (req.query as Row).view !== 'saved') {
       const before = profile;
       let catalog: CatalogRead | undefined;
       try {

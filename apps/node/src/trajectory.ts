@@ -1,4 +1,6 @@
 import WebSocket from 'ws';
+import http from 'node:http';
+import https from 'node:https';
 import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, type RuntimePort, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
 
 /** Owns outbound readers independently of the device's business ACK queue. */
@@ -14,7 +16,9 @@ export class NodeTrajectory {
     url.protocol = ['https:', 'wss:'].includes(url.protocol) ? 'wss:' : 'ws:';
     url.pathname = '/im/ws/node-trajectory'; url.search = ''; url.hash = '';
     url.searchParams.set('ticket', ticket);
-    const socket = new WebSocket(url);
+    // Match the control relay: ws supplies createConnection and otherwise
+    // bypasses the global agent that owns this node's configured proxy.
+    const socket = new WebSocket(url, {agent:url.protocol === 'wss:' ? https.globalAgent : http.globalAgent, handshakeTimeout: 12_000});
     this.sockets.set(scope.observerId, socket);
     let initialized = false;
     const active = () => this.sockets.get(scope.observerId) === socket && this.options.valid(scope);
@@ -46,6 +50,7 @@ export class NodeTrajectory {
       // A long next must not delay abort or another reader.
       void this.options.runtime.request(`trajectory.${request.type}`, {
         observerId: scope.observerId, method: request.method, params: request.params, streamId: request.streamId,
+        ...(request.type === 'open' && request.initialBatch === true ? { initialBatch: true } : {}),
         ...((request as TrajectoryRequest & { attachmentAuthorized?: boolean }).attachmentAuthorized ? { attachmentAuthorized: true } : {}),
       }).then(value => write({ type: 'result', observerId: scope.observerId, requestId: request.requestId, value }))
         .catch(error => write({ type: 'error', observerId: scope.observerId, requestId: request.requestId,

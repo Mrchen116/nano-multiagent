@@ -30,14 +30,14 @@ it("opens another person's global Agent Work without requesting management confi
     const url = String(input); calls.push(url);
     if (url.includes("/contacts?")) return response({items:[contact],next_cursor:null});
     if (url.endsWith("/conversations")) return response({items:[]});
-    if (url.endsWith("/work")) return response({root_agent_id:contact.agent_id,main_session_id:null,revision:1,node_connection_state:"online",main_execution:"idle",latest_main_usage:null,other_executions:[],turns:[],next_cursor:null});
+    if (url.includes("/work?view=summary")) return response({root_agent_id:contact.agent_id,main_session_id:null,revision:1,node_connection_state:"online",main_execution:"idle",latest_main_usage:null,other_executions:[],turns:[],next_cursor:null});
     return new Response(null,{status:404});
   }));
   view(<AgentProfilePage />);
   expect(await screen.findByRole("heading",{name:"Muse"})).toBeVisible();
   expect(screen.queryByRole("button",{name:"Config"})).toBeNull();
   await userEvent.click(screen.getByRole("button",{name:"Work"}));
-  await waitFor(() => expect(calls.some(url=>url.endsWith("/agents/colleague-agent/work"))).toBe(true));
+  await waitFor(() => expect(calls.some(url=>url.includes("/agents/colleague-agent/work?view=summary"))).toBe(true));
   expect(calls.some(url => /\/config|\/capabilities|\/nodes/.test(url))).toBe(false);
 });
 
@@ -72,4 +72,20 @@ it("finds a person on a later contacts page and keeps mixed group actors distinc
   await userEvent.click(screen.getByLabelText("Iris"));
   await userEvent.click(screen.getByRole("button",{name:/Create group/}));
   expect(create).toHaveBeenCalledWith({visibility:"public",agentIds:["own-agent"],userIds:["person-b"],name:"Bo, Iris"});
+});
+
+
+it("opens the owner's Work while configuration inspection is unavailable", async () => {
+  const calls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url=String(input); calls.push(url);
+    if(url.includes("/contacts?")) return response({items:[{...contact,owner_id:visitor.id}],next_cursor:null});
+    if(url.includes("/work?view=summary")) return response({root_agent_id:contact.agent_id,main_session_id:null,revision:1,node_connection_state:"online",main_execution:"idle",latest_main_usage:null,other_executions:[],turns:[],next_cursor:null});
+    if(url.endsWith("/conversations")) return response({items:[]});
+    return new Response(null,{status:503});
+  }));
+  view(<AgentProfilePage />, "/settings/agents/colleague-agent?view=work");
+  expect(await screen.findByRole("heading",{name:"Muse"})).toBeVisible();
+  expect(await screen.findByRole("button",{name:"Config"})).toBeVisible();
+  expect(calls.some(url=>url.includes("/settings") || url.includes("/capabilities"))).toBe(false);
 });

@@ -1,4 +1,5 @@
 import userEvent from "@testing-library/user-event";
+import {focusManager} from "@tanstack/react-query";
 import {act, fireEvent, screen, waitFor, within} from "@testing-library/react";
 import {afterEach, beforeEach, vi} from "vitest";
 import {useAuthStore} from "../../auth/auth-store";
@@ -26,6 +27,7 @@ let config: AgentConfig;
 let online: boolean;
 let pending: boolean;
 let settingsRead: () => Promise<Response>;
+let savedRead: (() => Promise<Response>) | undefined;
 let save: (body: Record<string, unknown>) => Response;
 function settings() {
   return {
@@ -53,20 +55,78 @@ beforeEach(() => {
     profile_version: 12, node_id: "node-1", node_name: "MacBook", updated_at: "2026-03-13T10:00:00Z",
   };
   settingsRead = async () => json(settings());
+  savedRead = undefined;
   save = body => {config = {...config, ...body, profile_version: config.profile_version + 1}; return json(config);};
   globalThis.fetch = fetchMock as typeof fetch;
   fetchMock.mockImplementation(async (input, init) => {
     const url = String(input);
     if (url === `${path}/capability-usage`) return json({checked_at: "now", active_tasks: 0, active_schedules: 0, busy: []});
     if (url === `${path}/settings`) return settingsRead();
+    if (url === `${path}/settings?view=saved` && savedRead) return savedRead();
     if (url === `${path}/config` && init?.method === "PATCH") return save(JSON.parse(init.body));
     if (url.includes("/settings/sections/")) return json({source: "current", captured_at: "2026-10-23T00:00:00Z", data: [], error: null});
-    if (url.includes("/im/v1/contacts?")) return json({items: [{user_id: "agent-user", kind: "agent", agent_id: config.agent_id, display_name: "Core Planner", owner_id: useAuthStore.getState().user?.id, work_mode: "single_thread", node_name: "MacBook", status: "online"}], next_cursor: null});
+    if (url.includes("/im/v1/contacts?")) return json({items: [{user_id: "agent-user", kind: "agent", agent_id: config.agent_id, display_name: "Core Planner", owner_id: useAuthStore.getState().user?.id, work_mode: config.work_mode ?? "single_thread", node_name: "MacBook", status: "online"}], next_cursor: null});
+    if (url.includes('/work?view=summary')) return json({root_agent_id:config.agent_id,main_session_id:null,revision:1,node_connection_state:'online',main_execution:'idle',latest_main_usage:null,other_executions:[],turns:[],next_cursor:null});
     if (url === "/im/v1/agents" || url === "/im/v1/nodes") return json([]);
     return new Response(null, {status: 404});
   });
 });
 afterEach(() => {vi.useRealTimers(); fetchMock.mockReset(); stream.subscribers.clear();});
+
+it("shows an editable saved draft during inspection and retains edits after confirmation", async () => {
+  let finish!: (value: Response) => void;
+  settingsRead = () => new Promise(resolve => {finish = resolve;});
+  savedRead = async () => json({...settings(), ready:false, live_capabilities:null});
+  open();
+  const input = await screen.findByLabelText("Display Name");
+  await waitFor(() => expect(input).toBeEnabled());
+  fireEvent.change(input, {target:{value:"Draft before confirmation"}});
+  expect(screen.getByRole("button", {name:/^Save Agent$/})).toBeDisabled();
+  await act(async () => finish(json(settings())));
+  expect(input).toHaveValue("Draft before confirmation");
+  await waitFor(() => expect(screen.getByRole("button", {name:/^Save Agent$/})).toBeEnabled());
+});
+
+it("retains an unsaved configuration draft when switching through the independent Work view",async()=>{
+  config.work_mode='global';
+  const user=userEvent.setup(); open();
+  fireEvent.change(await screen.findByLabelText('Display Name'),{target:{value:'Unsubmitted draft'}});
+  await user.click(screen.getByRole('button',{name:/^Work$/}));
+  expect(screen.queryByRole('textbox',{name:/^Display Name$/})).toBeNull();
+  await user.click(screen.getByRole('button',{name:/^Config$/}));
+  expect(await screen.findByRole('textbox',{name:/^Display Name$/})).toHaveValue('Unsubmitted draft');
+});
+
+it("keeps a freshly read online draft editable when capability confirmation fails, without allowing save",async()=>{
+  let finish!: (value:Response)=>void;
+  settingsRead=()=>new Promise(resolve=>{finish=resolve;});
+  savedRead=async()=>json({...settings(),ready:false,live_capabilities:null});
+  open();const input=await screen.findByLabelText('Display Name');
+  await waitFor(()=>expect(input).toBeEnabled());
+  await act(async()=>{
+    for(const subscriber of stream.subscribers) if(subscriber.onConnectionStatus && subscriber.onRecovery)
+      void Promise.resolve(subscriber.onRecovery()).catch(()=>{});
+    await new Promise(resolve=>setTimeout(resolve,0));
+  });
+  expect(input).toBeEnabled();
+  expect(fetchMock.mock.calls.filter(([url])=>url===`${path}/settings`)).toHaveLength(1);
+  fireEvent.change(input,{target:{value:'Keep my draft'}});
+  await act(async()=>finish(json({...settings(),ready:false,live_capabilities:null,display:{source:'unavailable',captured_at:null,data:null,error:{code:'timeout',message:'Confirmation failed'}}})));
+  await waitFor(()=>expect(screen.getByTestId('settings-availability')).toHaveTextContent(/Confirmation failed/));
+  expect(input).toBeEnabled();expect(input).toHaveValue('Keep my draft');
+  expect(screen.getByRole('button',{name:/^Save Agent$/})).toBeDisabled();
+});
+
+it.each([403,404])('locks a saved draft when confirmation reports access loss (%s)',async status=>{
+  let finish!: (value:Response)=>void;
+  settingsRead=()=>new Promise(resolve=>{finish=resolve;});
+  savedRead=async()=>json({...settings(),ready:false,live_capabilities:null});
+  open();const input=await screen.findByLabelText('Display Name');
+  await waitFor(()=>expect(input).toBeEnabled());
+  await act(async()=>finish(json({detail:'Resource not accessible'},status)));
+  await waitFor(()=>expect(input).toBeDisabled());
+  expect(screen.getByRole('button',{name:/^Save Agent$/})).toBeDisabled();
+});
 
 it("loads settings and saves edited profile, allowlists and the explicit model effort", async () => {
   const user = userEvent.setup(); open();
@@ -117,6 +177,24 @@ it("blocks save when required fields are empty", async () => {
   expect(patches()).toHaveLength(0);
 });
 
+it("keeps a confirmed draft editable during a focus refresh but blocks save until it finishes", async () => {
+  open();
+  const input = await screen.findByLabelText("Display Name");
+  await waitFor(() => expect(input).toBeEnabled());
+  let finish!: (response: Response) => void;
+  settingsRead = () => new Promise(resolve => {finish = resolve;});
+  act(() => {focusManager.setFocused(false); focusManager.setFocused(true);});
+  await waitFor(() => expect(finish).toBeDefined());
+  expect(input).toBeEnabled();
+  expect(screen.getByTestId("settings-availability")).toHaveTextContent(/You can edit/);
+  fireEvent.change(input, {target: {value: "During refresh"}});
+  expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled();
+  await act(async () => {finish(json(settings()));});
+  await waitFor(() => expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeEnabled());
+  expect(input).toHaveValue("During refresh");
+  focusManager.setFocused(undefined);
+});
+
 it("surfaces a version conflict without replacing the draft or its base version", async () => {
   const user = userEvent.setup();
   save = () => json({detail: "profile_version conflict"}, 409);
@@ -134,6 +212,7 @@ it("confirms an accepted pending save without replaying it or losing its paired 
   open(); await user.selectOptions(await screen.findByLabelText("Reasoning effort"), "max");
   await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
   await waitFor(() => expect(screen.getByRole("button", {name: /^Save Agent$/})).toBeDisabled());
+  expect(screen.getByTestId("settings-availability")).not.toHaveTextContent(/You can edit/);
   expect(screen.getByLabelText("Reasoning effort")).toHaveValue("max");
   config = {...config, reasoning_effort: "max", profile_version: 13}; pending = false;
   await waitFor(() => expect(screen.getByLabelText("Profile Version")).toHaveValue("v13"), {timeout: 2500});

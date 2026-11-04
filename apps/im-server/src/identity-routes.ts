@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isIP } from "node:net";
 import type { ImContext } from "./context.js";
 import { body, params, query } from "./context.js";
-import { IdentityError, bearer, requireCompanyAdmin, type User } from "./identity.js";
+import { IdentityError, bearer, browserSessionCookieName, requireCompanyAdmin, type User } from "./identity.js";
 
 type Row = Record<string, any>;
 function string(input: Row, key: string, minimum = 0, maximum = Infinity): string {
@@ -31,8 +31,9 @@ function account(user: User) {
 /** Register identity routes with the existing JSON and browser Cookie transports. */
 export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
   const identity = ctx.identity;
+  const cookiePrefix = `${browserSessionCookieName(ctx.publicUrl)}=`;
   const cookie = (value: string, age: number) =>
-    `im_refresh=${value}; Max-Age=${age}; Path=/; HttpOnly; SameSite=Strict${new URL(ctx.publicUrl).protocol === "https:" ? "; Secure" : ""}`;
+    `${cookiePrefix}${value}; Max-Age=${age}; Path=/; HttpOnly; SameSite=Strict${new URL(ctx.publicUrl).protocol === "https:" ? "; Secure" : ""}`;
   const respond = (pair: Row, request: FastifyRequest, reply: FastifyReply) => {
     reply.header("Cache-Control", "no-store");
     if (!browser(request)) return pair;
@@ -47,8 +48,8 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
       return request.headers.cookie
         ?.split(";")
         .map((v) => v.trim())
-        .find((v) => v.startsWith("im_refresh="))
-        ?.slice("im_refresh=".length);
+        .find((v) => v.startsWith(cookiePrefix))
+        ?.slice(cookiePrefix.length);
     }
     return string(payload, "refresh_token", 1);
   };

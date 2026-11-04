@@ -40,8 +40,8 @@ function turnTitle(turn: WorkTurn) {
   if (turn.scope === "workflow") return "Workflow 执行";
   if (type === "background_task") {
     const returns = turn.items.flatMap(item => Array.isArray(item.payload.background_returns) ? item.payload.background_returns.map(obj) : item.kind === "background_return" ? [item.payload] : []);
-    if (turn.scope === "subagent" && returns.length === 0 && !trigger.task_type) return turn.description || "子 Agent 执行";
-    const taskType = str(trigger.task_type) || str(returns[0]?.task_type);
+    if (turn.scope === "subagent" && returns.length === 0 && !turn.has_background_returns && !trigger.task_type) return turn.description || "子 Agent 执行";
+    const taskType = str(trigger.task_type) || str(returns[0]?.task_type) || str(turn.background_task_type);
     return ({ agent: "收到子 Agent 结果", subagent: "收到子 Agent 结果", bash: "收到后台 Bash 结果", workflow: "收到 Workflow 结果" }[taskType] ?? "收到后台结果");
   }
   return ({ human: "人工输入", user: "输入触发" }[type] ?? "执行轮次");
@@ -89,7 +89,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const [saved, setSaved] = useState(() => readSaved(storageKey));
   const root = useRef<HTMLDivElement>(null);
   const restored = useRef(false);
-  const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main"], initialPageParam: "", queryFn: ({ pageParam }) => workRequest<WorkView>(`${workBase(agentId)}${pageParam ? `?before_turn=${encodeURIComponent(pageParam)}` : ""}`), getNextPageParam: page => page.next_cursor ?? undefined });
+  const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main"], initialPageParam: "", staleTime: 1000, queryFn: ({ pageParam, signal }) => workRequest<WorkView>(`${workBase(agentId)}?view=summary${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ""}`, signal), getNextPageParam: page => page.next_cursor ?? undefined });
   const view = viewQuery.data?.pages[0];
   const nativeSession = search.get('execution') || view?.main_session_id || null;
   const [nativeSelectionVersion, setNativeSelectionVersion] = useState(0);
@@ -111,7 +111,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
     navigate({ search: next.toString() }, { replace: true });
     requestAnimationFrame(() => root.current?.closest('.im-agent-panel')?.scrollTo({ top: recordScroll.current }));
   };
-  const childQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "session", saved.selected], initialPageParam: "", enabled: Boolean(saved.selected), queryFn: ({ pageParam }) => workRequest<WorkTurnPage>(`${workBase(agentId)}/sessions/${encodeURIComponent(saved.selected!)}/turns${pageParam ? `?before_turn=${encodeURIComponent(pageParam)}` : ""}`), getNextPageParam: page => page.next_cursor ?? undefined });
+  const childQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "session", saved.selected], initialPageParam: "", enabled: Boolean(saved.selected) && !nativeMode, queryFn: ({ pageParam, signal }) => workRequest<WorkTurnPage>(`${workBase(agentId)}/sessions/${encodeURIComponent(saved.selected!)}/turns?view=summary${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ""}`, signal), getNextPageParam: page => page.next_cursor ?? undefined });
   const selected = view?.other_executions.find(s => s.session_id === saved.selected);
   const online = view?.node_connection_state === "online";
   const mainTurns = viewQuery.data?.pages.flatMap(p => p.turns) ?? [];
@@ -121,12 +121,20 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
     sessionStorage.setItem(storageKey, JSON.stringify({ ...saved, scroll, focus: document.activeElement?.id }));
   };
   useEffect(() => { sessionStorage.setItem(storageKey, JSON.stringify(saved)); }, [saved, storageKey]);
-  useEffect(() => subscribeUserStream({ onEvent: event => {
-    if ((event.eventType === "agent.work.updated" || event.eventType === "agent.status_changed") && event.payload.agent_id === agentId) void client.invalidateQueries({ queryKey: ["agent-work", agentId] });
-  }, onRecovery: async () => { await client.invalidateQueries({ queryKey: ["agent-work", agentId] }); } }), [agentId, client]);
   useEffect(() => {
-    const refreshVisible = () => { if (document.visibilityState !== "hidden") void client.invalidateQueries({ queryKey: ["agent-work", agentId] }); };
-    const timer = window.setInterval(refreshVisible, 3000);
+    let timer: number | undefined;
+    const schedule = () => {
+      if (timer !== undefined) return;
+      timer = window.setTimeout(() => { timer = undefined; void client.invalidateQueries({queryKey: ["agent-work", agentId]}, {cancelRefetch: false}); }, 500);
+    };
+    const unsubscribe = subscribeUserStream({onEvent: event => {
+      if ((event.eventType === "agent.work.updated" || event.eventType === "agent.status_changed") && event.payload.agent_id === agentId) schedule();
+    }, onRecovery: schedule});
+    return () => { unsubscribe(); window.clearTimeout(timer); };
+  }, [agentId, client]);
+  useEffect(() => {
+    const refreshVisible = () => { if (document.visibilityState !== "hidden") void client.invalidateQueries({ queryKey: ["agent-work", agentId] }, {cancelRefetch: false}); };
+    const timer = window.setInterval(refreshVisible, 15_000);
     document.addEventListener("visibilitychange", refreshVisible);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshVisible); };
   }, [agentId, client]);
@@ -188,12 +196,12 @@ function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refr
   const key = `${turn.session_id}:${turn.turn_id}`;
   const client = useQueryClient();
   const queryKey = ["agent-work", agentId, "items", turn.session_id, turn.turn_id];
-  const [loaded, setLoaded] = useState(() => Boolean(client.getQueryData(queryKey)));
+  const [loaded, setLoaded] = useState(() => Boolean(client.getQueryData(queryKey)) || Boolean(turn.items_deferred && expanded[key]));
   const pages = useInfiniteQuery({
     queryKey,
     enabled: loaded,
     initialPageParam: String(turn.items.at(-1)?.seq ?? 0),
-    queryFn: ({pageParam}) => workRequest<{items: WorkItem[]; next_cursor: string | null}>(`${workBase(agentId)}/sessions/${encodeURIComponent(turn.session_id)}/turns/${encodeURIComponent(turn.turn_id)}/items?after_seq=${pageParam}`),
+    queryFn: ({pageParam, signal}) => workRequest<{items: WorkItem[]; next_cursor: string | null}>(`${workBase(agentId)}/sessions/${encodeURIComponent(turn.session_id)}/turns/${encodeURIComponent(turn.turn_id)}/items?after_seq=${pageParam}`, signal),
     getNextPageParam: page => page.next_cursor ?? undefined,
   });
   const extra = pages.data?.pages.flatMap(page => page.items) ?? [];
@@ -212,9 +220,10 @@ function Turn({ turn, agentId, online, sessions, expanded, expand, onChild, refr
     const backgroundKey = `${itemKey}:background:${str(value.task_id) || index}`;
     return <WorkBackground key={backgroundKey} value={value as unknown as BackgroundReturn} expanded={expanded[backgroundKey] ?? false} onExpandedChange={open => expand(backgroundKey, open)} detailFooter={child && <button type="button" className="im-work-child-link" onClick={() => onChild(child.session_id)}>{tr("查看关联执行")} · {child.description || child.child_agent_id || child.session_id}</button>} />;
   })}</ul>;
-  return <details className="im-work-turn" open={expanded[key] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(key, event.currentTarget.open); }}>
-    <summary><strong>{tr(turnTitle(turn))}</strong><div className="im-work-turn-summary-meta"><span>{turn.started_at ? new Date(turn.started_at).toLocaleTimeString(i18n.language, {hour12:false}) : tr("时间未报告")}{turn.finished_at ? ` — ${new Date(turn.finished_at).toLocaleTimeString(i18n.language, {hour12:false})}` : ""}</span><span>{items.filter(item => item.kind === "tool").length}{cursor ? "+" : ""} {tr("次工具")}</span><span className={`im-work-status-label ${status}`}>{statusLabel(status)}</span></div></summary>
+  return <details className="im-work-turn" open={expanded[key] ?? false} onToggle={event => { if (event.target === event.currentTarget) { expand(key, event.currentTarget.open); if (event.currentTarget.open && turn.items_deferred) setLoaded(true); } }}>
+    <summary><strong>{tr(turnTitle(turn))}</strong><div className="im-work-turn-summary-meta"><span>{turn.started_at ? new Date(turn.started_at).toLocaleTimeString(i18n.language, {hour12:false}) : tr("时间未报告")}{turn.finished_at ? ` — ${new Date(turn.finished_at).toLocaleTimeString(i18n.language, {hour12:false})}` : ""}</span><span>{turn.tool_count ?? items.filter(item => item.kind === "tool").length}{turn.tool_count === undefined && cursor ? "+" : ""} {tr("次工具")}</span><span className={`im-work-status-label ${status}`}>{statusLabel(status)}</span></div></summary>
     <div className="im-work-turn-body"><div className="im-work-turn-meta"><code>{turn.turn_id}</code><span>{turn.model_id || tr("模型未报告")}</span></div>
+      {turn.items_deferred && pages.isLoading && <p role="status">{tr("正在加载工作记录…")}</p>}
       <ul className="im-work-items">{items.map(item => {
         const p = item.payload;
         if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind) && !str(p.reasoning_content) && !str(p.text) && !str(p.content) && !str(p.delta) && !(Array.isArray(p.background_returns) && p.background_returns.length)) return null;

@@ -3,7 +3,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { AgentTrajectory } from './agent-trajectory';
 import { useAuthStore } from '../../auth/auth-store';
 
-vi.mock('../../auth/auth-fetch', () => ({ authFetch: async () => new Response(JSON.stringify({ ticket: 'readonly-ticket' })) }));
+const reads = vi.hoisted(() => ({ cached: vi.fn(), prepare: vi.fn() }));
+vi.mock('../../auth/auth-fetch', () => ({ authFetch: (...args: unknown[]) => reads.prepare(...args) }));
+vi.mock('../../auth/page-bootstrap', () => ({ takePageRead: (...args: unknown[]) => reads.cached(...args) }));
 class Socket {
   static OPEN = 1;
   static instances: Socket[] = [];
@@ -26,11 +28,13 @@ async function connect(frame: HTMLIFrameElement, index: number) {
   message(frame, { type: 'nano-trajectory-ready' });
 }
 beforeEach(() => {
+  reads.cached.mockReset();
+  reads.prepare.mockReset().mockImplementation(async () => new Response(JSON.stringify({ ticket: 'readonly-ticket', expires_at: Date.now() + 15000 })));
   Socket.instances = [];
   channels.length = 0;
   vi.stubGlobal('WebSocket', Socket);
   vi.stubGlobal('MessageChannel', class { port1 = port(); port2 = port(); constructor() { channels.push(this); } });
-  useAuthStore.setState({ user: { id: 'reader' } as never, revision: 1 });
+  useAuthStore.setState({ user: { id: 'reader' } as never, accessToken: 'viewer-token', revision: 1 });
 });
 
 it('keeps each parent frame when entering nested runs and releases popped and revoked observations', async () => {
@@ -92,4 +96,31 @@ it.each([false, true])('keeps fragmented reads pending until the final fragment 
   act(() => Socket.instances[0].onclose?.({ code: 1011, reason: '断开' }));
   if (final) expect(channel.port1.postMessage).not.toHaveBeenCalled();
   else expect(channel.port1.postMessage).toHaveBeenCalledWith({ type: 'error', requestId: 'page', code: 'trajectory_disconnected', message: '断开' });
+});
+
+
+it.each([false, true])('uses a current prepared capability once, expired=%s', async expired => {
+  reads.cached.mockReturnValueOnce(new Response(JSON.stringify({ ticket: 'prepared-ticket', expires_at: Date.now() + (expired ? -1 : 15000) })));
+  const { container } = render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={() => {}} />);
+  const frame = container.querySelector('iframe')!;
+  await connect(frame, 0);
+  expect(reads.cached).toHaveBeenCalledWith('/im/v1/agents/agent/trajectory/prepare?session_id=main', 'viewer-token');
+  if (expired) expect(reads.prepare).toHaveBeenCalledWith('/im/v1/agents/agent/trajectory/prepare', { method: 'POST', body: JSON.stringify({session_id:'main'}) });
+  else expect(reads.prepare).not.toHaveBeenCalled();
+  expect(new URL(Socket.instances[0].url).searchParams.get('ticket')).toBe(expired ? 'readonly-ticket' : 'prepared-ticket');
+  const init = vi.mocked(frame.contentWindow!.postMessage).mock.calls[0][0];
+  expect(init).not.toHaveProperty('ticket');
+  expect(init).not.toHaveProperty('access_token');
+});
+
+
+it('does not initialize a late iframe with catalog data after its read connection closes',async()=>{
+  const {container}=render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={()=>{}} />);
+  const frame=container.querySelector('iframe')!;
+  await waitFor(()=>expect(Socket.instances).toHaveLength(1));
+  const delivered=vi.spyOn(frame.contentWindow!,'postMessage').mockImplementation(()=>{});
+  act(()=>Socket.instances[0].onmessage?.({data:JSON.stringify({type:'ready',version:'0.2.1-alpha.1',initialCatalog:{capturedAt:Date.now(),result:{ok:true,value:{items:[{sessionId:'main'}]}}}})}));
+  act(()=>{Socket.instances[0].readyState=3;Socket.instances[0].onclose?.({code:1008,reason:'访问资格已失效'});});
+  message(frame,{type:'nano-trajectory-ready'});
+  expect(delivered).not.toHaveBeenCalled();
 });

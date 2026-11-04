@@ -19,11 +19,12 @@ description: "用户明确要求部署、更新或重启个人生产公网 IM �
 - 合并、部署、更新或重启不包含发包授权。只有用户明确要求发布安装包时才按 [安装包发布规范](../../../docs/operations/local-stack.md#发布首次安装包) 使用确定的版本号发布；普通部署保留当前已验证的安装清单，不自动触发发布工作流或切换安装版本。
 
 - 当前拓扑与入口以 [生产舰队](../../../docs/operations/prod-fleet.md) 为准：官网经 Cloudflare Tunnel 到 Mini 的唯一 loopback IM；MacBook Air 不运行 IM。普通部署更新这套源站即更新官网，不另建公网实例。
-- Tunnel 必须使用生产舰队记录的已验证的 QUIC/IPv6 路径与健康 supervisor；涉及公网 IM 或 Tunnel 运行服务时，部署前用已安装的 `~/.nanoassistant/bin/prod-tunnel.py --ready` 检查现有路径，取得目标代码后再执行 `scripts/prod_tunnel.py --ready`，失败先修出口，不继续停 IM 或切换协议/IP 家族。系统代理设置和端口连通不算出口验收。
+- Tunnel 必须使用生产舰队记录的已验证的 HTTP2/IPv6 路径（QUIC/IPv6 仅用于明确授权的回退或对照）与健康 supervisor；涉及公网 IM 或 Tunnel 运行服务时，部署前用已安装的 `~/.nanoassistant/bin/prod-tunnel.py --ready` 检查现有路径，取得目标代码后再执行 `scripts/prod_tunnel.py --ready`，失败先修出口，不继续停 IM 或切换协议/IP 家族。系统代理设置和端口连通不算出口验收。
 - 生产部署统一由 Air 手动发起，接收已确认的精确 Git SHA；合并或两机开发不触发部署。两机开发主仓只 fetch 并保留 dirty/untracked，生产从各自固定 detached `prod-main` 运行。Mini IM 数据、安装清单与 Tunnel Python 也独立于开发主仓，实际路径以生产舰队为准。切换前停止受影响服务，再在生产 checkout 安装锁定依赖并构建；版本不编码进目录名。
 - Nano 使用生产舰队记录的固定 Node 运行时；升级时核对官方包哈希与 Brotli 补丁，更新 IM launcher、Gateway 自启及子进程 PATH，再验证 IM/Gateway/DSH 的 live executable。具体步骤见 [Node 运行时升级](references/runbook.md#node-运行时升级)。
 - 两机公网 HTTP/WS 与工具使用持久普通代理，本机/内网直连；不以 TUN 为前提，不修改用户 Clash 全局规则。验证实际链路，区分业务公网探针和独立 Tunnel 传输，见 [公网代理](references/runbook.md#公网代理)。
 - 复用现有 IM/Tunnel LaunchAgent 和公网 launcher；不退回旧 `nohup uvicorn`、内网访问入口或全网卡监听。保留 Cloudflare HTTPS 重定向，当前版本公网模式必须使用 `pnpm im public-server`；首次从旧 Python 切换先完成 `docs/operations/dsh-migration.md`。
+- 用户明确要求原域名不同端口隔离试用时，按 [生产舰队的临时试用端口](../../../docs/operations/prod-fleet.md#原域名隔离试用端口) 保留原命名 Tunnel、正式默认入口及独立测试身份，先验证端口分流与 Cookie 隔离；按该节顺序回收，不能先关正式流量依赖的分流器。
 - 常规部署复用 mini 持久 IM signing key、数据库、附件和各 Gateway 设备密钥/运行凭据；缺失先停止，不自动换钥、重新 bind 或初始化公司。Gateway config 先 stop 再改，防运行态回写；稳定环境写 config，不靠一次启动的 inline 设置。
 - 部署验收通过后，按 [备份轮转](references/runbook.md#备份轮转) 在各机保留最近 3 次部署备份和必要的迁移前快照；核实保留集可恢复、旧备份无引用后清理过期目录并留档。
 - 若仍是旧 PA 目录布局，先完成 [无覆盖迁移](../../../docs/operations/pa-workspace-layout-migration.md)，备份并保持密钥不变；迁移完成后不重复执行。

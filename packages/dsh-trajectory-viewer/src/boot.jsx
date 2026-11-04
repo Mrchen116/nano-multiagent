@@ -46,17 +46,13 @@ function loadScript(url) {
   });
 }
 
-async function start(init, port) {
-  if (init.version !== '0.2.1-alpha.1') throw new Error('轨迹组件版本不一致');
-  const base = new URL(init.assetBase, location.href);
+async function loadNativeModules() {
+  const base = new URL('./', location.href);
   const target = { mode: 'queue', pendingQueue: [], load(registration) { this.pendingQueue.push(registration); } };
   window.__ModuleLoader__ = target;
-  const response = await fetch(new URL('manifest.json', base));
-  if (!response.ok) throw new Error('无法读取轨迹组件清单');
-  const manifest = await response.json();
-  if (manifest.rev !== init.version) throw new Error('轨迹组件资源版本不一致');
+  const manifest = structuredClone(__NANO_TRAJECTORY_MANIFEST__);
   for (const entry of manifest.modules) entry.url = new URL(entry.url, base).href;
-  await loadScript(new URL('plugins/@deepseek-ai/dsh-client-modules/client.js', base).href);
+  await loadScript(new URL(`plugins/@deepseek-ai/dsh-client-modules/client.js?rev=${encodeURIComponent(manifest.rev)}`, base).href);
   const registration = target.pendingQueue.shift();
   const bootstrap = registration.factory(id => staticModules[id]);
   const modules = new bootstrap.ClientModuleSystem({
@@ -65,13 +61,30 @@ async function start(init, port) {
     loadBundle: url => loadScript(url.replace('/plugins/??', '/plugins/').replace('&rev=', '?rev=')),
   });
   const load = id => modules.import(`${id.startsWith('@') ? id : '@deepseek-ai/' + id}/client`);
-  const [renderer, conversation, session, trajectory, attachment, locale, theme, api, connection, gateway, typert] = await Promise.all([
+  const exports = await Promise.all([
     'dsh-client-ui-renderer', 'dsh-client-ui-conversation', 'dsh-client-ui-session',
     '@nano/trajectory-ui', 'dsh-client-ui-attachment', 'dsh-client-locale', 'dsh-client-ui-theme',
     'dsh-api-session-controller', 'dsh-client-connection', 'dsh-api-gateway', 'dsh-typert-registry',
   ].map(load));
+  performance.mark('nano-trajectory:modules-ready');
+  return { manifest, exports };
+}
+
+// Static code can load while the parent authenticates and pairs the node.
+// No read capability or native RPC exists until start receives its port.
+performance.mark('nano-trajectory:boot');
+const nativeModules = loadNativeModules();
+void nativeModules.catch(() => {}); // Initialization reports component failures.
+
+async function start(init, port) {
+  performance.mark('nano-trajectory:initialized');
+  if (init.version !== '0.2.1-alpha.1') throw new Error('轨迹组件版本不一致');
+  const { manifest, exports } = await nativeModules;
+  if (manifest.rev !== init.version) throw new Error('轨迹组件资源版本不一致');
+  const [renderer, conversation, session, trajectory, attachment, locale, theme, api, connection, gateway, typert] = exports;
   const ctx = new Cordis.Context();
   const transport = createReadonlyTransport(port, {
+    initialCatalog: init.initialCatalog,
     onGenerationChanged: () => { status('interrupted', '连接已更新，正在恢复…'); ctx.connection.reconnect(); },
     onInterrupted: message => status('interrupted', message),
   });
@@ -99,9 +112,13 @@ async function start(init, port) {
   ctx.provide('fileUpload', { upload: readonly });
   api.apply(ctx);
   await ctx.sessions.refresh();
+  performance.mark('nano-trajectory:catalog-ready');
   reference = ctx.sessions.retain(init.sessionId, { source: 'mainView' });
   await reference.ready;
-  if (Number.isInteger(init.position?.firstSeq)) await reference.binding.session.loadThrough(init.position.firstSeq);
+  performance.mark('nano-trajectory:first-window-ready');
+  // Render the latest window while a previous reading position is restored.
+  const historyRestore = (Number.isInteger(init.position?.firstSeq)
+    ? reference.binding.session.loadThrough(init.position.firstSeq) : Promise.resolve()).then(() => null, error => error);
   ctx.effect(() => reference.binding.session.subscribe(() => {
     const snapshot = reference.binding.session.getSnapshot();
     if (snapshot.openState === 'open') status('ready');
@@ -140,6 +157,7 @@ async function start(init, port) {
   trajectory.apply(ctx, { navigation: () => navigation });
   attachment.apply(ctx);
   unmount = ctx.uiRenderer.mount(document.getElementById('root'));
+  performance.mark('nano-trajectory:mounted');
   // Keep only a numeric reading bookmark in the host; history is always read afresh.
   let restoring = Number.isFinite(init.position?.top);
   const publishPosition = event => {
@@ -154,24 +172,39 @@ async function start(init, port) {
   document.addEventListener('scroll', publishPosition, true);
   const afterSelection = () => requestAnimationFrame(publishPosition);
   document.addEventListener('click', afterSelection);
-  const bookmark = new MutationObserver(() => {
+  const cancelRestore = event => {
+    if (!restoring || !event.isTrusted) return;
+    restoring = false;
+    publishPosition();
+  };
+  for (const type of ['wheel', 'pointerdown', 'touchstart', 'keydown']) document.addEventListener(type, cancelRestore, true);
+  let historyReady = false, alive = true;
+  const restoreBookmark = () => {
     const pane = document.querySelector('[data-trajectory-scroll]');
-    if (!pane?.querySelector('[data-scroll-ready]')) return;
+    if (!historyReady || !pane?.querySelector('[data-scroll-ready]')) return;
     bookmark.disconnect();
     if (restoring) requestAnimationFrame(() => {
+      if (!alive || !restoring) return;
       const row = [...pane.querySelectorAll('[data-trajectory-row-key]')].find(item => item.getAttribute('data-trajectory-row-key') === init.position.rowKey);
       row?.click();
       requestAnimationFrame(() => {
+        if (!alive || !restoring) return;
         if (init.position.detailTab) document.getElementById(init.position.detailTab)?.click();
         pane.scrollTop = init.position.top;
+        restoring = false;
+        pane.dispatchEvent(new Event('scroll'));
       });
       pane.scrollTop = init.position.top;
-      restoring = false;
-      pane.dispatchEvent(new Event('scroll'));
     });
-  });
+  };
+  const bookmark = new MutationObserver(restoreBookmark);
   bookmark.observe(document.getElementById('root'), { subtree: true, childList: true, attributes: true, attributeFilter: ['data-scroll-ready'] });
-  ctx.effect(() => () => { bookmark.disconnect(); document.removeEventListener('scroll', publishPosition, true); document.removeEventListener('click', afterSelection); });
+  void historyRestore.then(error => {
+    if (!alive) return;
+    if (error) { restoring = false; status('interrupted', error.message || '历史读取中断'); }
+    else { historyReady = true; restoreBookmark(); }
+  });
+  ctx.effect(() => () => { alive = false; bookmark.disconnect(); document.removeEventListener('scroll', publishPosition, true); document.removeEventListener('click', afterSelection); for (const type of ['wheel', 'pointerdown', 'touchstart', 'keydown']) document.removeEventListener(type, cancelRestore, true); });
   status('ready');
 }
 

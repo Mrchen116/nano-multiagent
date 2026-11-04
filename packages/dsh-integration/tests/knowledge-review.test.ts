@@ -61,9 +61,18 @@ it('keeps maintenance out of agent discovery while preserving its cold trajector
     const batch=await client!.rpc.request('trajectory.next',{observerId:'maintenance',streamId:opened.streamId}) as {frames:{type:string;cursor:number}[]};
     const snapshot=batch.frames.find(frame=>frame.type==='snapshot')!;
     expect(snapshot).toBeDefined();
-    const page=await client!.rpc.request('trajectory.call',{observerId:'maintenance',method:'session/page',params:{args:{request:{throughSeq:snapshot.cursor,maxMessages:50}}}});
-    expect(JSON.stringify(page)).toContain('Learn the verified method and my preference.');
-    expect(JSON.stringify(page)).toContain('The user prefers concise answers.');
+    const pages: unknown[] = [];
+    let beforeSeq: number | undefined;
+    while (true) {
+      const page=await client!.rpc.request('trajectory.call',{observerId:'maintenance',method:'session/page',params:{args:{request:{throughSeq:snapshot.cursor,beforeSeq,maxMessages:50}}}}) as {value:{records:{event:{seq:number}}[];hasMore:boolean}};
+      pages.push(page);
+      if (!page.value.hasMore) break;
+      const next = Math.min(...page.value.records.map(record=>record.event.seq));
+      expect(next).toBeLessThan(beforeSeq ?? snapshot.cursor + 1);
+      beforeSeq = next;
+    }
+    expect(JSON.stringify(pages)).toContain('Learn the verified method and my preference.');
+    expect(JSON.stringify(pages)).toContain('The user prefers concise answers.');
     const sessions=await client!.rpc.request('trajectory.call',{observerId:'maintenance',method:'session/list'}) as {value:{items:{agentAvailable:boolean}[]}};
     expect(sessions.value.items[0]!.agentAvailable).toBe(false);
     await client!.rpc.request('trajectory.close',{observerId:'maintenance'});

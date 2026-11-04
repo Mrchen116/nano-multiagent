@@ -1,11 +1,8 @@
 import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
+import {lazy, Suspense} from 'react';
 
-import { ModelsPage } from "../features/settings/models/models-page";
-import { OnboardingPage } from "../features/onboarding/onboarding-page";
 import { App } from "./App";
-import { TaskGraphsPage } from "../features/tasks/task-graphs-page";
 import { BindConfirmPage } from "../features/chat/bind-confirm-page";
-import { ChatWorkspacePage as ChatWorkspacePage } from "../features/chat/chat-workspace-page";
 import { LoginPage } from "../features/auth/login-page";
 import { RegisterPage } from "../features/auth/register-page";
 import { MembershipPage } from "../features/auth/membership-page";
@@ -20,8 +17,14 @@ import { NodesPage } from "../features/settings/nodes/nodes-page";
 import { PoliciesPage } from "../features/settings/policies/policies-page";
 import { SettingsPageShell } from "../features/settings/settings-page-shell";
 
+// Agent pages should not download the chat editor and task graph renderer.
+const ModelsPage=lazy(()=>import('../features/settings/models/models-page').then(m=>({default:m.ModelsPage})));
+const OnboardingPage=lazy(()=>import('../features/onboarding/onboarding-page').then(m=>({default:m.OnboardingPage})));
+const TaskGraphsPage=lazy(()=>import('../features/tasks/task-graphs-page').then(m=>({default:m.TaskGraphsPage})));
+const ChatWorkspacePage=lazy(()=>import('../features/chat/chat-workspace-page').then(m=>({default:m.ChatWorkspacePage})));
+
 export const appRoutes: RouteObject[] = [
-  { path: "/onboarding", element: <RequireAuth><OnboardingPage /></RequireAuth> },
+  { path: "/onboarding", element: <RequireAuth><Suspense fallback={null}><OnboardingPage /></Suspense></RequireAuth> },
   { path: "/membership", element: <MembershipPage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
@@ -35,11 +38,11 @@ export const appRoutes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: "bind/confirm", element: <BindConfirmPage /> },
-      { path: "chat", element: <ChatWorkspacePage /> },
-      { path: "chat/:conversationId", element: <ChatWorkspacePage /> },
+      { path: "chat", element: <Suspense fallback={null}><ChatWorkspacePage /></Suspense> },
+      { path: "chat/:conversationId", element: <Suspense fallback={null}><ChatWorkspacePage /></Suspense> },
       { path: "me", element: <MePage /> },
-      { path: "tasks", element: <TaskGraphsPage /> },
-      { path: "tasks/:graphId", element: <TaskGraphsPage /> },
+      { path: "tasks", element: <Suspense fallback={null}><TaskGraphsPage /></Suspense> },
+      { path: "tasks/:graphId", element: <Suspense fallback={null}><TaskGraphsPage /></Suspense> },
       {
         path: "settings",
         element: <SettingsPageShell />,
@@ -78,7 +81,7 @@ export const appRoutes: RouteObject[] = [
               }
             ]
           },
-          { path: "models", element: <ModelsPage /> },
+          { path: "models", element: <Suspense fallback={null}><ModelsPage /></Suspense> },
           { path: "company", element: <CompanyMembersPage /> },
           {
             path: "policies",

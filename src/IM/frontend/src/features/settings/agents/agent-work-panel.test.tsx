@@ -25,6 +25,17 @@ beforeEach(() => {
 });
 
 describe("Agent work view", () => {
+  it("loads a deferred turn only when opened and retains its complete tool details", async () => {
+    const items = view.turns[0].items;
+    view = {...view, turns: [{...view.turns[0], items: [], items_deferred: true, tool_count: 1}]};
+    mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : url.includes('/items?') ? {items, next_cursor: null} : view), {status: 200}));
+    renderWork();
+    await screen.findByText("Inbox 唤醒");
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/items?'))).toBe(false);
+    fireEvent.click(screen.getByText("Inbox 唤醒"));
+    expect(await screen.findByRole("button", {name: /inbox/})).toBeVisible();
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/items?after_seq=0'))).toBe(true);
+  });
   it("opens a task link from Agent prose within the current application", async () => {
     view = { ...view, turns: [{ ...view.turns[0], items: [{ item_id: "graph-reply", seq: 1, kind: "assistant_message", payload: { content: `[Saved task](${window.location.origin}/tasks/tg_one?scope=root&node=A)` } }] }] };
     const { router } = renderWork();
@@ -43,6 +54,12 @@ describe("Agent work view", () => {
     expect(await screen.findByText("Explain the joke")).toBeVisible();
     expect(screen.getByText("收到子 Agent 结果")).toBeVisible();
     expect(screen.queryByText("收到后台结果")).not.toBeInTheDocument();
+  });
+
+  it("keeps background result titles when the summary defers their items", async () => {
+    view = {...view, turns: [{...view.turns[0], scope: 'subagent', origin: 'background_task', trigger: undefined, items: [], items_deferred: true, has_background_returns: true, background_task_type: 'bash'}]};
+    renderWork();
+    expect(await screen.findByText('收到后台 Bash 结果')).toBeVisible();
   });
 
   it("updates the same tool row from durable refresh and retains expansion after real Chat navigation", async () => {
@@ -69,7 +86,7 @@ describe("Agent work view", () => {
     fireEvent.click(screen.getByTestId("process-background-return-toggle"));
     expect(screen.getByText("Actual child result")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "查看关联执行 · Research child" }));
-    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledWith("/im/v1/agents/global/work/sessions/child-session/turns"));
+    await waitFor(() => expect(mocks.fetch).toHaveBeenCalledWith("/im/v1/agents/global/work/sessions/child-session/turns?view=summary", expect.objectContaining({signal: expect.any(AbortSignal)})));
     expect(screen.getByRole("button", { name: "关闭子轨迹" })).toBeVisible();
   });
 

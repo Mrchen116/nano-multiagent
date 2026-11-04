@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import type { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import type { SessionAddress, SessionFollowRequest, SessionProjectionValues } from '@deepseek-ai/dsh-api-session-controller/types';
-import { TRAJECTORY_VERSION, type TrajectoryScope } from '@nano/product-contracts';
+import { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryScope } from '@nano/product-contracts';
 import type { AgentConfiguration, SessionBinding } from './index.js';
 import type { RpcPeer } from './rpc.js';
 import { TrajectoryStream } from './trajectory-stream.js';
@@ -16,7 +16,7 @@ interface Observer {
   streams: Map<string, TrajectoryStream>;
   cursor: number;
 }
-type Request = { observerId: string; method: string; params?: { args?: { request?: Record<string, any> } }; streamId?: string; attachmentAuthorized?: boolean };
+type Request = { observerId: string; method: string; params?: { args?: { request?: Record<string, any> } }; streamId?: string; initialBatch?: boolean; attachmentAuthorized?: boolean };
 
 /** Owns the native read boundary; callers cannot acquire an Agent through this service. */
 export class NativeTrajectory {
@@ -67,7 +67,9 @@ export class NativeTrajectory {
       : { kind: 'session', sessionId: selected.header.id };
     this.close(scope.observerId);
     this.observers.set(scope.observerId, { scope, address, controller, streams: new Map(), cursor: -1 });
-    return { version: TRAJECTORY_VERSION };
+    const initialCatalog = { capturedAt: Date.now(), result: { ok: true, value: withoutInlineImages(this.catalog(selected)) } };
+    // Ready precedes the iframe RPC decoder; oversized catalogs use normal RPC fragmentation.
+    return { version: TRAJECTORY_VERSION, ...(Buffer.byteLength(JSON.stringify(initialCatalog)) <= TRAJECTORY_MAX_BYTES - 2048 ? { initialCatalog } : {}) };
   }
 
   /** Read one official DTO under a fixed session identity. */
@@ -80,15 +82,12 @@ export class NativeTrajectory {
       value = await this.ctx.nanoTrajectoryRuns.read(observer.scope.sessionId);
     } else if (request.method === 'session/list') {
       using cut = await this.ctx.sessionQuery.observeSession(SessionId(observer.scope.sessionId), { signal });
-      const agent = this.ctx.agents.get(cut.header.id);
-      value = { items: [{ sessionId: cut.header.id, agentAvailable: Boolean(agent), running: agent?.status === 'running', blank: cut.cursor < 0,
-        updatedAt: cut.header.createdAt, cwd: cut.header.cwd, origin: cut.header.origin, parentSessionId: cut.header.parentSession,
-        projections: { kind: 'sequenced', asOfSeq: cut.cursor, values: cut.projections?.values ?? {} } }] };
+      value = this.catalog(cut);
     } else if (request.method === 'session/projections') {
       value = await controller.projections({ sessionId: SessionId(observer.scope.sessionId) }, signal);
     } else if (request.method === 'session/page') {
       if (!Number.isInteger(args.throughSeq) || args.throughSeq > observer.cursor) throw new Error('trajectory_invalid_history_cut');
-      value = await controller.page({ ...this.window(args), address: observer.address, throughSeq: args.throughSeq, beforeSeq: args.beforeSeq }, signal);
+      value = await controller.page({ ...this.window(args, 5), address: observer.address, throughSeq: args.throughSeq, beforeSeq: args.beforeSeq }, signal);
     } else if (request.method === 'trajectory/attachment-source') {
       const sources = [];
       let sessionId = observer.scope.sessionId;
@@ -113,11 +112,16 @@ export class NativeTrajectory {
   async open(request: Request) {
     const observer = this.observer(request.observerId), args = this.arguments(observer, request);
     if (!['session/follow', 'session/control'].includes(request.method)) throw new Error('trajectory_read_only_method_required');
+    const window = request.method === 'session/follow' ? this.window(args, 5) : undefined;
     const streamId = randomUUID();
     const stream = new TrajectoryStream(signal => request.method === 'session/follow'
-      ? this.follow(observer, { ...this.window(args), address: observer.address, assistantStream: true }, signal)
+      ? this.follow(observer, { ...window!, address: observer.address, assistantStream: true }, signal)
       : this.control(observer, signal));
     observer.streams.set(streamId, stream);
+    if (request.initialBatch === true) {
+      try { return { streamId, initialBatch: await stream.next() }; }
+      catch (error) { stream.close(); observer.streams.delete(streamId); throw error; }
+    }
     return { streamId };
   }
 
@@ -131,6 +135,13 @@ export class NativeTrajectory {
   }
 
   dispose(): void { for (const id of this.observers.keys()) this.close(id); }
+
+  private catalog(cut: Awaited<ReturnType<Context['sessionQuery']['observeSession']>>) {
+    const agent = this.ctx.agents.get(cut.header.id);
+    return { items: [{ sessionId: cut.header.id, agentAvailable: Boolean(agent), running: agent?.status === 'running', blank: cut.cursor < 0,
+      updatedAt: cut.header.createdAt, cwd: cut.header.cwd, origin: cut.header.origin, parentSessionId: cut.header.parentSession,
+      projections: { kind: 'sequenced', asOfSeq: cut.cursor, values: cut.projections?.values ?? {} } }] };
+  }
 
   private observer(id: string): Observer {
     const observer = this.observers.get(id);
@@ -151,10 +162,13 @@ export class NativeTrajectory {
     return args;
   }
 
-  private window(args: Record<string, any>) {
+  private window(args: Record<string, any>, cap = 500) {
     const maxMessages = args.maxMessages ?? 500;
     if (!Number.isInteger(maxMessages) || maxMessages < 1 || maxMessages > 500) throw new Error('trajectory_invalid_window');
-    return { maxMessages, ...(args.turnWindow ? { turnWindow: args.turnWindow } : {}) };
+    const minMessages = args.turnWindow?.minMessages;
+    const turnWindow = args.turnWindow && Number.isSafeInteger(minMessages) && minMessages > 0 && minMessages <= maxMessages
+      ? {...args.turnWindow, minMessages: Math.min(minMessages, cap)} : args.turnWindow;
+    return { maxMessages: Math.min(maxMessages, cap), ...(turnWindow ? { turnWindow } : {}) };
   }
 
   private async *control(observer: Observer, signal: AbortSignal) {

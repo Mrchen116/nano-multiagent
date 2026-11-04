@@ -43,11 +43,26 @@ for (const [id, { directory, metadata, external }] of modules) {
     inject: metadata.dsh?.client?.inject ?? [], external });
 }
 fs.writeFileSync(path.join(dist, 'manifest.json'), JSON.stringify(manifest));
-fs.copyFileSync(path.join(root, 'index.html'), path.join(dist, 'index.html'));
-await build({
+const result = await build({
   absWorkingDir: root, entryPoints: ['src/boot.jsx'], outdir: dist, bundle: true,
-  format: 'esm', platform: 'browser', splitting: true, minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' },
+  format: 'esm', platform: 'browser', splitting: true, minify: true, metafile: true,
+  define: { 'process.env.NODE_ENV': '"production"', '__NANO_TRAJECTORY_MANIFEST__': JSON.stringify(manifest) },
   loader: { '.woff2': 'file', '.woff': 'file', '.ttf': 'file', '.css': 'css' },
   logLevel: 'info',
 });
+
+// Discover static dependencies at build time, before the iframe downloads boot.js.
+// Registration bundles are preloaded, but still executed unchanged by the loader.
+const preloads = manifest.modules.map(entry => `<link rel="preload" as="script" href="./${entry.url.replace('plugins/??', 'plugins/').replace('&rev=', '?rev=')}" crossorigin="anonymous">`);
+const staticFiles = new Set();
+function preloadImports(file) {
+  for (const dependency of result.metafile.outputs[file]?.imports ?? []) {
+    if (dependency.external || dependency.kind !== 'import-statement' || staticFiles.has(dependency.path)) continue;
+    staticFiles.add(dependency.path);
+    preloadImports(dependency.path);
+  }
+}
+const entry = Object.keys(result.metafile.outputs).find(file => file.endsWith('/boot.js'));
+preloadImports(entry);
+for (const file of staticFiles) preloads.push(`<link rel="modulepreload" href="./${path.basename(file)}" crossorigin="anonymous">`);
+fs.writeFileSync(path.join(dist, 'index.html'), fs.readFileSync(path.join(root, 'index.html'), 'utf8').replace('</head>', preloads.join('\n') + '\n</head>'));

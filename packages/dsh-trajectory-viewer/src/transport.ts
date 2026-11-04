@@ -11,10 +11,12 @@ interface Pending {
 /** Carry the official decoded RPC vocabulary over one parent-owned read capability. */
 export function createReadonlyTransport(port: MessagePort, options: {
   onGenerationChanged(): void;
+  initialCatalog?: { capturedAt: number; result: unknown };
   onInterrupted?(message: string): void;
 }) {
   let serial = 0;
   let disposed = false;
+  let initialCatalog = options.initialCatalog;
   const pending = new Map<string, Pending>();
   const responses = new TrajectoryValueDecoder();
   const active = new Set<string>();
@@ -51,7 +53,7 @@ export function createReadonlyTransport(port: MessagePort, options: {
     if (message.type === 'result') waiter.resolve(message.value);
     else {
       waiter.reject(new Error(`${message.code}: ${message.message}`));
-      if (message.code === 'generation_changed') options.onGenerationChanged();
+      if (message.code === 'generation_changed') { initialCatalog = undefined; options.onGenerationChanged(); }
       else options.onInterrupted?.(message.message);
     }
   };
@@ -68,6 +70,14 @@ export function createReadonlyTransport(port: MessagePort, options: {
   const rpc = {
     async call(endpoint: string, method: string, params: unknown, signal?: AbortSignal) {
       assertAllowed(endpoint, method, calls);
+      const query = (params as { args?: { request?: Record<string, unknown> } } | undefined)?.args?.request;
+      if (method === 'session/list' && initialCatalog && (!query || Object.keys(query).length === 0)) {
+        if (disposed) throw new Error('Viewer disposed');
+        signal?.throwIfAborted();
+        const catalog = initialCatalog;
+        initialCatalog = undefined;
+        if (Date.now() - catalog.capturedAt <= 5000) return catalog.result;
+      }
       return request('call', { method, params }, signal);
     },
     async *open(endpoint: string, method: string, params: unknown, signal: AbortSignal): AsyncGenerator<any> {
@@ -86,20 +96,22 @@ export function createReadonlyTransport(port: MessagePort, options: {
       assertAllowed(endpoint, method, streams);
       // Complete open even if its caller leaves meanwhile, so the acquired
       // handle can still be released rather than leaked at the parent.
-      const { streamId } = await request('open', { method, params });
+      const { streamId, initialBatch } = await request('open', { method, params, initialBatch: true });
       active.add(streamId);
       const abort = () => abortStream(streamId);
       signal.addEventListener('abort', abort, { once: true });
       const frames = new TrajectoryValueDecoder();
       try {
+        let batch = initialBatch;
         while (!signal.aborted && !disposed) {
-          const batch = await request('next', { streamId }, signal);
+          batch ??= await request('next', { streamId }, signal);
           for (const frame of batch.frames) {
             if (signal.aborted || disposed) return;
             const complete = frames.push(frame);
             if (complete !== undefined) yield complete;
           }
           if (batch.done) { frames.finish(); return; }
+          batch = undefined;
         }
       } finally {
         frames.clear();
@@ -114,6 +126,7 @@ export function createReadonlyTransport(port: MessagePort, options: {
       if (disposed) return;
       for (const streamId of active) abortStream(streamId);
       disposed = true;
+      initialCatalog = undefined;
       for (const finish of localHolds) finish();
       for (const waiter of pending.values()) waiter.reject(new Error('Viewer disposed'));
       pending.clear();

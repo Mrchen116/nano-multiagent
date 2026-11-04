@@ -13,10 +13,12 @@ export function useUserTimezone(): void {
   useEffect(() => {
     if (!userId) return;
     let pending: string | undefined;
-    const refresh = () => {
+    const refresh = (event?: Event) => {
       if (document.visibilityState !== "visible") return;
       const timezone = browserTimezone();
       const user = useAuthStore.getState().user;
+      const verifiedAt=useAuthStore.getState().verifiedAt;
+      if (!event && verifiedAt !== null && Date.now()-verifiedAt<5000 && user?.timezone===timezone) return;
       // Another device may have changed the account timezone since this page was active.
       if (user?.id !== userId || pending === timezone) return;
       pending = timezone;

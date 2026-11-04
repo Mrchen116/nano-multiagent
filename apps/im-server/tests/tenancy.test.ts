@@ -160,7 +160,7 @@ it('filters live events, replay and native trajectory by current space after com
   expect(streams[1]!.frames).toEqual([]);
   const ticket = app.im.identity.issueTicket(app.im.identity.accessSession(b.access_token).sid);
   const rejected: any[] = [];
-  const socket: any = { send: (raw: string) => rejected.push(JSON.parse(raw)), close: (code: number) => rejected.push(code) };
+  const socket: any = { readyState: 1, send: (raw: string) => rejected.push(JSON.parse(raw)), close: (code: number) => rejected.push(code) };
   app.im.gateway.trajectory.browser(socket, ticket, 'stream-private', 'private-session');
   expect(rejected).toContain(1008);
   expect(rejected[0]).toMatchObject({type: 'failed'});

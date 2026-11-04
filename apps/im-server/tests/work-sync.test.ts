@@ -268,3 +268,20 @@ test('legacy aliases, omitted statistics and opaque extension payloads keep orig
   expect((await f.request('POST', `${prefix}/events`, {from_seq: 1, events})).json().through_seq).toBe(4);
   expect(f.db.prepare('SELECT count(*) n FROM agent_work_events').get()).toMatchObject({n: 4});
 });
+
+test('work summary defers tool payload while the existing complete view and item page retain it', async () => {
+  const f = await fixture();
+  const events = [event(1),
+    {...event(2), turn_id: '1', type: 'turn_start', payload: {model: null}},
+    {...event(3), turn_id: '1', type: 'tool_end', payload: {call_id: 'big', tool_name: 'read', arguments: {text: 'x'.repeat(32_000)}}},
+  ];
+  expect((await f.request('POST', `${prefix}/events`, {from_seq: 1, events})).statusCode).toBe(200);
+  const work = f.app.im.gateway.work;
+  work.register('root', 'main', 'node', {scope: 'global_main'});
+  const summary = work.view('root', undefined, 20, true);
+  expect(summary.turns[0]).toMatchObject({items: [], items_deferred: true, tool_count: 1});
+  expect(JSON.stringify(summary)).not.toContain('x'.repeat(100));
+  const full = work.view('root');
+  expect(JSON.stringify(full.turns[0]!.items)).toContain('x'.repeat(100));
+  expect(work.items('root', 'main', '1').items).toEqual(full.turns[0]!.items);
+});

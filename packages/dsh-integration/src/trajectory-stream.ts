@@ -59,9 +59,9 @@ export class TrajectoryStream {
           let batch = this.batches.at(-1);
           if (!batch || batch.bytes + bytes > budget) {
             if (this.batches.length === 2) {
+              // A live source can buffer without bound while its iterator is paused.
+              // Only wait for the remaining fragments of the current native frame.
               if (first) throw new Error('trajectory_slow_consumer');
-              // One large native DTO must be pulled over several bounded batches.
-              // Waiting within that DTO is not evidence of a slow observer.
               await new Promise<void>(resolve => { this.capacity = resolve; });
               this.capacity = undefined;
               if (this.controller.signal.aborted) return;
@@ -83,6 +83,6 @@ export class TrajectoryStream {
   private armDeadline() {
     clearTimeout(this.deadline);
     const oldest = this.batches[0];
-    if (oldest) this.deadline = setTimeout(() => this.close(new Error('trajectory_slow_consumer')), Math.max(0, oldest.created + 5000 - Date.now()));
+    if (oldest) this.deadline = setTimeout(() => this.close(new Error('trajectory_slow_consumer')), Math.max(0, oldest.created + 60_000 - Date.now()));
   }
 }

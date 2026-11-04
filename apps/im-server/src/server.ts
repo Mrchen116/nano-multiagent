@@ -4,14 +4,14 @@ import {registerMessageAttemptRoutes} from './message-attempts.js';
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, createReadStream, mkdirSync } from "node:fs";
+import { existsSync, createReadStream, mkdirSync, readFileSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { PersonalAgents, registerPersonalAgentRoutes } from "./personal-agent.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
 import { defaultReleaseDirectory, registerInstallRoutes } from "./install.js";
 import { registerNodeUpdateRoutes } from './node-updates.js';
 import { openDatabase } from "./db.js";
-import { createIdentity } from "./identity.js";
+import { browserSessionCookieName, createIdentity } from "./identity.js";
 import { registerIdentityRoutes } from "./identity-routes.js";
 import { Gateway, registerSockets } from "./gateway.js";
 import { registerTrajectorySockets } from './trajectory.js';
@@ -165,7 +165,22 @@ export async function createServer(options: ServerOptions = {}) {
       ...(e.retry_after ? { retry_after: e.retry_after } : {}),
     });
   });
-  await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
+  // Compression is negotiated only for the dedicated history sockets. Device
+  // ACKs and user events keep their existing transport and CPU cost.
+  app.addHook('onRequest', async request => {
+    if (request.headers.upgrade?.toLowerCase() === 'websocket'
+      && request.routeOptions.url !== '/im/ws/agent-trajectory'
+      && request.routeOptions.url !== '/im/ws/node-trajectory') {
+      delete request.raw.headers['sec-websocket-extensions'];
+    }
+  });
+  await app.register(websocket, { options: {
+    maxPayload: 2 * 1024 * 1024,
+    perMessageDeflate: {
+      serverNoContextTakeover: true, clientNoContextTakeover: true,
+      threshold: 1024, concurrencyLimit: 4, zlibDeflateOptions: { level: 3 },
+    },
+  } });
   const releaseDirectory = options.nodeReleaseDir ?? process.env.IM_NODE_RELEASE_DIR ?? defaultReleaseDirectory;
   registerInstallRoutes(app, ctx, releaseDirectory);
   registerNodeUpdateRoutes(app, ctx, releaseDirectory);
@@ -286,13 +301,23 @@ export async function createServer(options: ServerOptions = {}) {
     ".woff2": "font/woff2",
   };
   const trajectoryDist = resolve(options.trajectoryDistDir ?? process.env.IM_TRAJECTORY_DIST_DIR ?? 'packages/dsh-trajectory-viewer/dist');
+  let trajectoryRevision: string | undefined;
+  try { trajectoryRevision = JSON.parse(readFileSync(join(trajectoryDist, 'manifest.json'), 'utf8')).rev; } catch { /* viewer may not be installed */ }
   app.get('/trajectory/*', (req, reply) => {
     const relative = (req.params as { '*': string })['*'] || 'index.html';
     const file = resolve(trajectoryDist, relative);
     if (!file.startsWith(trajectoryDist + '/') || !existsSync(file) || !extname(file)) return reply.code(404).send({ detail: 'viewer asset not found' });
+    // Published DSH client bundles carry their package revision in the URL.
+    // The viewer shell and our own unversioned modules must always revalidate.
+    const rev = (req.query as Row).rev;
+    if (relative.startsWith('plugins/@deepseek-ai/') && typeof rev === 'string') {
+      if (rev !== trajectoryRevision) return reply.code(404).send({detail: 'viewer version unavailable'});
+      reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (/^chunk-[A-Z0-9]+\.js$/.test(relative)) reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    else reply.header('Cache-Control', 'no-cache');
     return reply.type(mime[extname(file)] ?? 'application/octet-stream').send(createReadStream(file));
   });
-  app.setNotFoundHandler((req, reply) => {
+  app.setNotFoundHandler(async (req, reply) => {
     const path = req.url.split("?")[0]!;
     if (req.method !== "GET" || path.startsWith("/im/"))
       return reply.code(404).send({ detail: "not found" });
@@ -300,6 +325,8 @@ export async function createServer(options: ServerOptions = {}) {
     if (file.startsWith(dist + "/") && existsSync(file) && extname(file)) {
       // The HTML entrypoint must not retain a bundle with obsolete config semantics.
       if (extname(file) === ".html") reply.header("Cache-Control", "no-store");
+      else if (/^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/.test(path))
+        reply.header("Cache-Control", "public, max-age=31536000, immutable");
       return reply
         .type(mime[extname(file)] ?? "application/octet-stream")
         .send(createReadStream(file));
@@ -309,7 +336,36 @@ export async function createServer(options: ServerOptions = {}) {
       /^\/(chat|tasks|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/.test(path)
     ) {
       const index = join(dist, "index.html");
-      if (existsSync(index)) return reply.header("Cache-Control", "no-store").type("text/html").send(createReadStream(index));
+      if (existsSync(index)) {
+        reply.header('Cache-Control','private, no-store').header('Vary','Cookie');
+        const agentPage = /^\/settings\/agents\/([^/]+)$/.exec(path);
+        const cookiePrefix = `${browserSessionCookieName(publicUrl!)}=`;
+        const cookie = req.headers.cookie?.split(';').map(value=>value.trim()).find(value=>value.startsWith(cookiePrefix))?.slice(cookiePrefix.length);
+        if (agentPage && cookie) {
+          try {
+            const session = ctx.identity.browserSession(cookie);
+            const base = `/im/v1/agents/${agentPage[1]}`;
+            const urls = ['/im/v1/contacts?q=&kind=agent', `${base}/settings?view=saved`, `${base}/lifecycle`,
+              ...(new URL(req.url,publicUrl).searchParams.get('view') === 'work' ? [`${base}/work?view=summary`] : [])];
+            // Reuse the actual API authorization and projections. Only local,
+            // saved reads belong in HTML; node inspection stays asynchronous.
+            const responses = await Promise.all(urls.map(url=>app.inject({url,headers:{authorization:`Bearer ${session.access_token}`}})));
+            const data: Row = Object.fromEntries(responses.flatMap((response,index)=>response.statusCode===200 ? [[urls[index],response.json()]] : []));
+            const search = new URL(req.url, publicUrl).searchParams;
+            const work = data[`${base}/work?view=summary`];
+            const selected = search.get('execution') || work?.main_session_id;
+            if (search.get('work_view') === 'trajectory' && typeof selected === 'string' && work) {
+              const prepared = await app.inject({ method: 'POST', url: `${base}/trajectory/prepare`,
+                headers: { authorization: `Bearer ${session.access_token}` }, payload: { session_id: selected } });
+              if (prepared.statusCode === 200) data[`${base}/trajectory/prepare?session_id=${encodeURIComponent(selected)}`] = prepared.json();
+            }
+            ctx.identity.decode(cookie,'refresh');
+            const bootstrap = JSON.stringify({session,data}).replace(/</g,'\\u003c');
+            return reply.type('text/html').send(readFileSync(index,'utf8').replace('<div id="root">',`<script id="nano-page-bootstrap" type="application/json">${bootstrap}</script><div id="root">`));
+          } catch { /* Invalidated browser sessions use the normal login flow. */ }
+        }
+        return reply.type('text/html').send(createReadStream(index));
+      }
       return reply.redirect(dev.replace(/\/$/, "") + req.url);
     }
     return reply.code(404).send({ detail: "not found" });

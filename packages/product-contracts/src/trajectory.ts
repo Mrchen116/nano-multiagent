@@ -17,6 +17,8 @@ export interface TrajectoryRequest {
   method?: string;
   params?: TrajectoryJson;
   streamId?: string;
+  /** Return the first bounded batch with open, avoiding a second network round trip. */
+  initialBatch?: boolean;
 }
 export type TrajectoryResponse =
   | { type: 'result'; requestId: string; value: TrajectoryJson }

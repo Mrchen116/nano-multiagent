@@ -409,7 +409,7 @@ export class WorkRecords {
    * Returns:
    *   Turns, control items and the next turn cursor.
    */
-  turns(root: string, session: string, before?: string, limit = 20): WorkTurnsPage {
+  turns(root: string, session: string, before?: string, limit = 20, summary = false): WorkTurnsPage {
     const registered = this.session(root, session);
     const anchor = before
       ? one(
@@ -429,12 +429,15 @@ export class WorkRecords {
     ) as WorkTurnRecord[];
     return {
       turns: rows.slice(0, limit).map((r) => {
-        const page = this.items(root, session, r.turn_id);
+        const page = summary ? {items: [], next_cursor: null} : this.items(root, session, r.turn_id);
+        const toolCount = summary ? (one(this.db, "SELECT COUNT(*) AS n FROM agent_work_items WHERE session_id=? AND turn_id=? AND kind='tool'", session, r.turn_id)?.n ?? 0) : undefined;
+        const background = summary ? one(this.db, "SELECT COALESCE(json_extract(payload,'$.task_type'), json_extract(payload,'$.background_returns[0].task_type')) AS task_type FROM agent_work_items WHERE session_id=? AND turn_id=? AND (kind='background_return' OR json_array_length(payload,'$.background_returns') > 0) ORDER BY seq LIMIT 1", session, r.turn_id) : undefined;
         return {
           ...(JSON.parse(r.payload) as WorkTurnData),
           scope: registered.scope,
           items: page.items,
           next_items_cursor: page.next_cursor,
+          ...(summary ? {items_deferred: true, tool_count: toolCount, has_background_returns: Boolean(background), background_task_type: background?.task_type ?? null} : {}),
         };
       }),
       control_items: this.items(root, session, "").items,
@@ -463,10 +466,10 @@ export class WorkRecords {
    * Returns:
    *   Persisted main/child records and the node identity for the outer live-state adapter.
    */
-  view(root: string, before?: string, limit = 20): WorkRecordView {
+  view(root: string, before?: string, limit = 20, summary = false): WorkRecordView {
     const sessions = all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root) as WorkSessionRecord[],
       main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
-    const page = main ? this.turns(root, main, before, limit) : { turns: [], next_cursor: null };
+    const page = main ? this.turns(root, main, before, limit, summary) : { turns: [], next_cursor: null };
     let latest = null;
     for (const r of main
       ? this.db.prepare("SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC").iterate(main)

@@ -16,6 +16,18 @@ const capabilities={models:[{name:'model',display_name:'Model',reasoning:{kind:'
   inherited_approval_rules:'codex',platform_default_model:'model',features:[{key:'heartbeat',default_on:true}],tools:[{name:'task_graph',description:'Tasks'},{name:'not-selected'}],
   skills:[{name:'enabled',source_group:'global'},{name:'excluded',source_group:'workspace'}]};
 
+it('returns saved settings without a node inspection or granting save readiness',async()=>{
+  const {app,ctx}=setup();
+  ctx.gateway.request=vi.fn(async()=>{throw new Error('Inspection unavailable');});
+  try {
+    const saved=await app.inject('/im/v1/agents/a/settings?view=saved');
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({config:{agent_id:'a'},node:{state:'online'},ready:false,live_capabilities:null});
+    expect(ctx.gateway.request).not.toHaveBeenCalled();
+    expect((await app.inject({url:'/im/v1/agents/a/settings?view=saved',headers:{'x-user':'u2'}})).statusCode).toBe(404);
+  } finally {await app.close();}
+});
+
 it('keeps older Gateway capabilities without optional Features editable',async()=>{
   const {app,ctx}=setup();
   const {features: _features,...legacy}=capabilities;

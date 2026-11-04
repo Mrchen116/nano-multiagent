@@ -34,7 +34,10 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-vi.mock("./public-agents", () => ({ listPublicAgents: apiMocks.listAgentSummariesMock }));
+vi.mock("../../chat/contacts-api", async importOriginal => ({
+  ...await importOriginal<typeof import("../../chat/contacts-api")>(),
+  listContacts: apiMocks.listAgentSummariesMock,
+}));
 
 vi.mock("../../chat/chat-api", () => ({
   listConversations: vi.fn().mockResolvedValue([]),

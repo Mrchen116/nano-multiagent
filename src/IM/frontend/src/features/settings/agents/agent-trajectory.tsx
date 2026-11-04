@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authFetch } from '../../auth/auth-fetch';
+import { takePageRead } from '../../auth/page-bootstrap';
 import { withBase } from '../../auth/auth-api';
 import { useAuthStore } from '../../auth/auth-store';
 import { tr } from './agent-work-text';
@@ -54,11 +55,12 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
     if (!sessionId || !userId) return;
     let disposed = false, socket: WebSocket | undefined, port: MessagePort | undefined;
     let iframeReady = false, version: string | undefined, initialized = false;
+    let initialCatalog: unknown;
     const positionKey = `${userId}:${revision}:${sessionId}:${target.runId ?? "session"}`;
     const requests = new Set<string>();
     setState('loading'); setMessage('正在连接节点并读取原生轨迹…');
     const initialize = () => {
-      if (disposed || initialized || !iframeReady || !version || !frame.current?.contentWindow) return;
+      if (disposed || initialized || !iframeReady || !version || socket?.readyState !== WebSocket.OPEN || !frame.current?.contentWindow) return;
       initialized = true;
       const channel = new MessageChannel(); port = channel.port1;
       port.onmessage = event => {
@@ -70,7 +72,7 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
         requests.add(request.requestId); socket.send(JSON.stringify(request));
       };
       port.start();
-      frame.current.contentWindow.postMessage({ type: 'nano-trajectory-init', sessionId, targetRunId: target.runId, parentSessionId: target.parentSessionId, active: activeRef.current, version, language: 'zh', theme: 'light', position: positions[positionKey], assetBase: new URL(withBase('/trajectory/'), location.href).href }, '*', [channel.port2]);
+      frame.current.contentWindow.postMessage({ type: 'nano-trajectory-init', sessionId, targetRunId: target.runId, parentSessionId: target.parentSessionId, active: activeRef.current, version, initialCatalog, language: 'zh', theme: 'light', position: positions[positionKey], assetBase: new URL(withBase('/trajectory/'), location.href).href }, '*', [channel.port2]);
     };
     const receive = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || disposed) return;
@@ -89,9 +91,15 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
     };
     window.addEventListener('message', receive);
     void (async () => {
-      const response = await authFetch('/im/v1/auth/ws-ticket', { method: 'POST', body: '{}', credentials: 'include' });
-      if (!response.ok) throw new Error(`无法建立轨迹连接 (${response.status})`);
-      const { ticket } = await response.json() as { ticket: string };
+      const path = `/im/v1/agents/${encodeURIComponent(agentId)}/trajectory/prepare`;
+      const cached = takePageRead(`${path}?session_id=${encodeURIComponent(sessionId)}`, useAuthStore.getState().accessToken);
+      let prepared = cached ? await cached.json() as { ticket: string; expires_at: number } : undefined;
+      if (!prepared || !(prepared.expires_at > Date.now())) {
+        const response = await authFetch(path, { method: 'POST', body: JSON.stringify({ session_id: sessionId }) });
+        if (!response.ok) throw new Error(`无法建立轨迹连接 (${response.status})`);
+        prepared = await response.json() as { ticket: string; expires_at: number };
+      }
+      const { ticket } = prepared;
       if (disposed) return;
       const url = new URL(withBase('/im/ws/agent-trajectory'), location.href);
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -100,7 +108,7 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
       socket.onmessage = event => {
         if (disposed) return;
         const value = JSON.parse(event.data);
-        if (value.type === 'ready') { version = value.version; initialize(); }
+        if (value.type === 'ready') { version = value.version; initialCatalog = value.initialCatalog; initialize(); }
         else if (value.type === 'failed') { setState('error'); setMessage(value.message); }
         else {
           if (value.type !== 'trajectory-fragment' || value.final) requests.delete(value.requestId);
@@ -109,6 +117,7 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
       };
       socket.onclose = event => {
         if (disposed) return;
+        initialCatalog = undefined; version = undefined;
         for (const requestId of requests) port?.postMessage({ type: 'error', requestId, code: 'trajectory_disconnected', message: event.reason || '更新已中断' });
         requests.clear();
         if (event.code === 1008 && initialized) { onRevoked(); }

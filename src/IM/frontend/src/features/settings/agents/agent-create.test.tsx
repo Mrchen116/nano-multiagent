@@ -31,7 +31,10 @@ vi.mock("./im-agent-config-api", () => ({
     error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "request failed",
 }));
 
-vi.mock("./public-agents", () => ({ listPublicAgents: apiMocks.listAgentSummariesMock }));
+vi.mock("../../chat/contacts-api", async importOriginal => ({
+  ...await importOriginal<typeof import("../../chat/contacts-api")>(),
+  listContacts: apiMocks.listAgentSummariesMock,
+}));
 
 import { AgentCreatePage } from "./agent-create-page";
 

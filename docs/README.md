@@ -16,6 +16,7 @@
 | 理解每个人的 PA、双身份聊天访问、原聊天协助与聊天创建独立 Agent | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
 | 理解角色化文档记忆、增量 Dreaming、来源失效与旧库回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；配置入口见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)，整理记录见 [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 维护本仓轨迹 UI 分叉及上游来源 | [`../packages/trajectory-ui/README.md`](../packages/trajectory-ui/README.md) |
+| 查看 Agent 页面性能与原公网 Tunnel 对照 | [bugfix-704 实测与限制](changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md)；当前契约见 [配置](specs/im/agents-nodes.md) 和 [Work](specs/im/agent-work.md) |
 | 构建原生轨迹与导航插件查看器 | [`../packages/dsh-trajectory-viewer/README.md`](../packages/dsh-trajectory-viewer/README.md) |
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
 | 理解 Feature 完整依赖、独立工具开关和关闭保护 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md) → [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
@@ -38,7 +39,7 @@
 | 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [`product-tryout`](../.claude/skills/product-tryout/SKILL.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
-| 生产 Tunnel QUIC/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
+| 生产 Tunnel HTTP2/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
 | 配置两机普通公网代理与本地直连 | [生产出口](operations/prod-fleet.md#公网代理出口)；执行 [部署操作单](../.claude/skills/prod-fleet-deploy/references/runbook.md#公网代理) |
 | 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
 | 查看审核只读调查、原话保留、消息级准入与模型恢复 | [`gateway/agent-capabilities`](specs/gateway/agent-capabilities.md) → [`gateway/personal-agent`](specs/gateway/personal-agent.md) |
