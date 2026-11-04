@@ -167,3 +167,21 @@ E 聊天 `c_6c1p6ig8`，根 `d2f229d5-afa6-4e91-a79b-578d3067aff6`，用户自�
 | 保留已有选择和一次性语义 | pass | R3 已保存配置重载后的选择、R1 原生一次性语义证据沿用。 |
 
 机制测试说明见 verification.md，与上述自然行为区分。R4 没有重跑完整后端回归，旧冻结点的全量结果不冒充本轮结果。验收仅追加本报告；服务启停交回主 Agent。
+
+## R5 · 2026-11-04 · exit_plan_mode 设置补充验收
+
+**Verdict — pass。** 受审源 `b628f3398240f49689a9ae501f959b65b9f8f193`，基线 `90efdd3dc2c1dda9efd5ffc0f2acbb01f5492dde`。范围为新增默认关闭要求、正常设置保存与已有显式选择保留。R4 主从旅程、R2 PA 归属、R3 fork 开关和既有未触发条件的限制继续保留。
+
+沿用 IM 62610、节点 wt-nano-multiagent-64076 和既有数据库。Web Chromium 1280×720，测试身份 nano。原 E Config 的 exit_plan_mode 在开始与结束两次查看时均为选中，未编辑 E 设置。
+
+从 Agents → Create agent 查看初始 Single thread 表单，exit_plan_mode、subagent_fork 和三项 Goal 均未选，切换 Global mode 仍未选。通过界面新建独立 `r5-exit-settings`（R5 Exit Settings），v1 的 exit_plan_mode=false。只点击 exit_plan_mode 后保存至 v2，重载为 true；取消并保存至 v3，重载为 false。两次重载中 fork 与三项 Goal 均保持 false。按钮状态、保存版本和重载结果一致，本轮没有能力目录超时。gateway.log 的对应 inspection.done 均为 current，最后一次 refresh_id 为 `7e69c2bd-6d90-45cf-83dd-7a0e50bef6dd`，1513 ms。
+
+| 本轮要求 | 结果 | 证据 |
+|---|---|---|
+| 新建默认关闭且仍可选择 | pass | Single thread、Global 新建表单及新 Agent v1 均未选。 |
+| 手动开启、保存、重载 | pass | r5-exit-settings v2，重载后 aria-pressed=true。 |
+| 手动关闭、保存、重载 | pass | 同 Agent v3，重载后 aria-pressed=false。 |
+| 已有显式选择保留 | pass | daily-engineering 开始和结束查看均为 true。 |
+| Goal 与 fork 独立 | pass | 临时 Agent 的 exit 开关两次保存重载后，四项始终为 false。 |
+
+定位为 `/settings/agents/new`、`/settings/agents/r5-exit-settings`、`/settings/agents/daily-engineering`。本地截图为 `/tmp/feat705-r5-new-default.png`、`/tmp/feat705-r5-exit-on.png`、`/tmp/feat705-r5-exit-off.png`、`/tmp/feat705-r5-existing-e.png`。临时 Agent 保留为 exit 关闭的 v3。未发送模型任务，预览服务和已有轨迹保留。仅追加本报告。
