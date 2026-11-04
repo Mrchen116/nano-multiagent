@@ -194,3 +194,6 @@
 - 扩展现有真实Renderer提交矩阵为SendToChat／旧ToAssistant／Mutation；旧解释器同一状态测试同时覆盖新旧名字。服务端现有源校验与ComposeMessage组合拒绝测试适配新动作并保留旧动作拒绝覆盖，不新增平行测试文件。`/tmp/feat705-send-to-chat-red.log`旧实现因不接受新动作出现2项失败，其余22项通过。
 - 首轮修复后`send-to-chat-backend.log`6文件71项通过，`send-to-chat-frontend.log`3文件23项通过；包含新旧名字、Set后的完整状态、字段校验、群内提交、PA表示来源、只读／权限及幂等边界。产品包及前端构建通过，生成资产和iOS解释器一致性检查通过；iOS原生模拟器测试继续执行。
 - 用户要求收敛验收；停止本轮整套iOS模拟器测试，已完成的71项服务端／旧解释器和23项Web窄检查作为本轮验证，不再追加全量。Xcode进程18072收到TERM，命令退出143；不能记作iOS整套测试通过。自启iPhone模拟器恢复关闭。此前frontend、backend构建及check:ios-runtime均通过。
+- 运行源码5c6fa1422；对照页仅重新捕获Global／PA主会话及一级四份实际首次provider/upstream请求；main六份和未受影响的原生二级两份沿用原始证据。`send-to-chat-tree-manifest.json`及页面标明各自版本、时间、哈希和二级保留原因，不把不同采样的父子ID拼成新执行链。所有本次采样均实际turn/end并正常shutdown，没有追加自然任务验收。
+- 当前PR各层System无ToAssistant；两种主会话均含SendToChat公开提交说明。实际System：Global根3463、一级1016，PA根4240、一级1198，二级均672。六组全行diff可还原两侧完整原文；HTTP当前页展示5c6fa，旧页和请求保存在send-to-chat-before。模型生成语法和Skill统一只教新名字，旧名字仅在SDK解释及兼容检查保留。
+- 隔离IM用原resume脚本正常重启，Node正常restart以加载新schema／提示；不重置数据库、聊天、Persona或原轨迹，预览metadata已更新。没有修改已保存卡片source或内部continue_conversation事件协议。
