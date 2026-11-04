@@ -1,5 +1,13 @@
 # 快修代码审查
 
+## 实验清理审查（2026-11-04）
+
+独立 Codex `gpt-6.1-sol/high` reviewer 对 `d77eb24a3` 之后的本任务源码/测试 dirty patch 审查；该源码固定提交为 `184fc9b4b`，涉及 12 个文件。检查 Node/IM 诊断删除、配置清理调试字段回退、Work 重复预取删除、联系人转换复用，以及旧 mock/真实 OPEN socket fixture/分页历史测试的修正，结论 `[]`。未改变模型可见 Context，不触发完整 Context Review。
+
+审查者独立运行前端自身 runner 的 profile/rail/create/detail 五文件 50 项，全部通过；沿实际调用验证 Work 面板仍持有正式分页查询、联系人字段逐项等价、取消/身份/队列与逐片发送路径未删除。主会话补充前端全套 1073 项及后端相关 54 项通过；knowledge-review 用 beforeSeq 一直读到 hasMore=false 并检查游标递减，保留原始祖先输入与维护工具证据断言，不删失败断言来过检查。另一个原 CI 的 task-context-sync 失败在未修改相关实现的定向复跑中通过，最终以本次 PR CI 为准。
+
+设计提案改为事后实际设计，真实公网消融与清理前后页面时间见快修记录。目录复用和连接准备删除后均变慢，已恢复；没有通过删除真实历史或放宽限流取得成绩。
+
 ## 公网 Tunnel HTTP2 保活审查（2026-11-04）
 
 独立 Codex `gpt-6.1-sol/high` reviewer 对 `f96421156` 后的 supervisor、健康测试及运维文档增量执行 patch 审查，结论 `[]`。范围包括显式 HTTP2/QUIC IPv6 验证、四条 edge TCP 7844 识别、同 PID/HA=4 时端点变化检测、QUIC 原计数保护及操作/回退边界；没有模型可见 Context 变化。本机项目 venv 下新健康测试与既有真实 TLS CONNECT 公网探针共 9 项通过，ruff check/format 通过。reviewer 的系统 Python 没有 pytest，未声称独立重跑通过，复用上述有效证据。生产安装及 600 秒门禁另见快修记录，不以审查代替。
