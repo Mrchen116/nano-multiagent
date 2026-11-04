@@ -1,6 +1,8 @@
 # nano-multiagent
 
-在自己的机器上运行多个长期个人助手，通过 Web IM、原生 iPhone App 或飞书与它们协作。每个 Agent 有独立身份、workspace、能力与配置，可按单聊天或跨聊天的 global 模式工作。
+以 IM 为协作与工作主体的组织级 Agent 平台：真人、每个人的 Personal Agent，以及承担专业职能的 Global Agent 数字员工共同工作。产品面向持续感知、主动履职、多事项并行和长期记忆积累，完整方向见 [产品愿景](docs/product/vision.md)。
+
+当前可在自己的机器上运行 Agent，通过 Web IM、原生 iPhone App 或飞书协作。每个 Agent 有独立身份、workspace、能力与配置，可按单聊天或跨聊天的 global 模式工作；PA 也复用 Global 执行能力。具体已具备的行为见 [current specs](docs/specs/README.md)。
 
 执行运行时使用未修改、锁定版本的 DeepSeek Harness（DSH）；Nano 负责产品身份、消息交付、权限规则、任务图与主动工作策略。旧 Python Kernel 和 Coding CLI 已退役。
 

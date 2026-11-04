@@ -16,11 +16,11 @@
 
 ### 可复用能力
 
-复用 [Global 跨聊天契约](../../specs/gateway/global-agent.md)、[PA 契约](../../specs/gateway/personal-agent.md)、[组织边界](../../specs/im/auth-tenancy.md)、[任务持续推进](../../specs/gateway/task-graphs.md)与 [Work](../../specs/im/agent-work.md)作为当前设计依据。PA 复用 Global 执行，故产品角色和执行模式分开说明，不构造两个互斥的技术类型。
+复用 [Global 跨聊天契约](../../../specs/gateway/global-agent.md)、[PA 契约](../../../specs/gateway/personal-agent.md)、[组织边界](../../../specs/im/auth-tenancy.md)、[任务持续推进](../../../specs/gateway/task-graphs.md)与 [Work](../../../specs/im/agent-work.md)作为当前设计依据。PA 复用 Global 执行，故产品角色和执行模式分开说明，不构造两个互斥的技术类型。
 
 ### 相关历史
 
-旧愿景由早期个人多 Agent 需求蒸馏，DSH 迁移只修订运行时内容。[feat-705](../feat-705-global-task-delegation/spec.md)仍为 active：只作为主从分工的后续设计入口，不将其未完成目标及暂缓 Task 联动加入 current 行为承诺。
+旧愿景由早期个人多 Agent 需求蒸馏，DSH 迁移只修订运行时内容。[feat-705](../../feat-705-global-task-delegation/spec.md)仍为 active：只作为主从分工的后续设计入口，不将其未完成目标及暂缓 Task 联动加入 current 行为承诺。
 
 ## 架构总览
 
