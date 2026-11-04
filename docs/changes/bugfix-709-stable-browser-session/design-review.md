@@ -87,3 +87,38 @@ R1-W1 已按 canonical Requirement 完整复制与修订场景到 specs/im/auth-
 ## Author Resolutions after R2
 
 MODIFIED Requirement 标题已恢复为 canonical 原标题，正文明确浏览器稳定凭据。
+
+## Round 3
+
+### Metadata
+
+- reviewer target: `/root/design_stable_session`，沿用 R1/R2 独立 reviewer。
+- review_mode: `closure`
+- mode_reason: 仅核对 R1-W1 在 R2 保留的同名归并锚点；本轮只有 delta 标题一行变化，核心协议与完整场景未变。
+- reviewed_tree: `7cad33379635a0e8d876d79c647d9f30cf1caf24`；核对时 checkout clean。
+- started_at: `2026-11-04T09:15:28+08:00`
+- completed_at: `2026-11-04T09:15:43+08:00`
+- duration: 15 秒。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+### Coverage 与证据
+
+- `specs/im/auth-tenancy.md:5` 现为“账号注册/登录走 JWT,刷新令牌轮换且可吊销”，与 canonical `docs/specs/im/auth-tenancy.md:14` 完全同名，可按规定定位并替换。
+- 对比 `ef6620981..7cad33379`，除审查历史与 Author Resolution 外，受审内容只改变上述一行标题；完整场景与新浏览器语义均未改变。
+- `retained_from: Round 2`：delta 路径、完整性、未改变场景保留及程序/浏览器语义区分仍有效。`retained_from: Round 1`：实际组装入口、协议、安全边界、职责、数据升级与单 M1 的证据仍有效。
+- 本轮为文档闭环，不代替实施测试、code review/verifier 或真实 Chrome 产品验收。
+
+### 历史问题闭环
+
+- **R1-W1 — closed。** Author Resolution 已恢复 canonical 原标题；本轮直接核对一行 diff 与 canonical，原完整性、路径和同名映射问题均已关闭。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增建议；R1-R1、R1-R2 仍为可选、非阻断建议。
