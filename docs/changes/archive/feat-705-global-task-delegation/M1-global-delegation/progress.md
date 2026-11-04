@@ -168,3 +168,6 @@
 
 - 用户确认逐句取舍后的三句版本：保留不换工具／通道／身份重复被拒动作、需用户介入时向来源聊天说明具体动作和理由、独立澄清或阻塞报告仍正常审核且不夹带被拒内容。删除与前段重复的替代方案、私有草稿和等待／去重要求；相应行为仍由已有协调、公开交付和持续执行段表达，不改变产品契约或权限机制。
 - 复用原生Global／PA上下文、fork前缀和审批相关测试，不添加文本快照测试。候选源码冻结后重新实际捕获，main原始请求与历史页面保持原样。
+- 运行源码44a36ed30；`/tmp/feat705-denial-concise-build.log`构建、`denial-concise-tests.log`3文件18项（Global／PA两级wire及接续、fork前缀、审批）及文档／归档检查通过。
+- `denial-concise-tree-manifest.json`沿用main六份原始请求，重捕获PR两种Agent三层共六份首次真实请求；实际turn/end齐全且采样进程正常shutdown。原始哈希、上下游System和原生父子窗口均校验，属于受控上下文采样，不宣称新自然任务行为验收。
+- 两种主会话已收到三句新段；Global完整System3671→3628、PA4436→4393 tokens；一级／二级完整System与前版逐字一致。六组全行diff均能还原两侧全部原文，当前HTTP页面展示44a36，旧证据保存在denial-concise-before。预览Node正常重载，原IM聊天、Persona和轨迹保留。
