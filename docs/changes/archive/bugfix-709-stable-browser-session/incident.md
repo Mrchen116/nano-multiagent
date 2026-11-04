@@ -55,3 +55,7 @@ identity.issuePair 在响应交付前覆盖 refresh_hash，旧 refresh 立即不
 ## 范围
 
 单 M1，后端鉴权和持久状态，Web 表单和信息组织不变。登录时间/设备记录沿用 bugfix-702。无 Agent Context 影响，无生产操作授权。
+
+## 实施与验证
+
+实施提交 8ece8ad0e。详情见 [M1-session/validation.md](M1-session/validation.md)、[verification.md](verification.md)、[regression.md](regression.md) 和 [M1-session/code-review.md](M1-session/code-review.md)。完整 delta 已归入 canonical auth-tenancy.md，保留所有不变场景。

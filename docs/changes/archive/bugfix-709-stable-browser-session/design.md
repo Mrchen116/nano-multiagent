@@ -31,3 +31,5 @@ logoutBrowser 与原 logout 复用同一撤销事务，删除会话 ticket。成
 稳定凭据在浏览器自动续期时不轮换。程序客户端维持一次性轮换。完整 delta 见 specs/im/auth-tenancy.md。
 
 ## Changelog
+
+- 8ece8ad0e 实现稳定浏览器凭据、现有数据库加列、重复升级与验证；无设计偏离。
