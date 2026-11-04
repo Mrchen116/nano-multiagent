@@ -7,7 +7,7 @@ import type { Message } from '../chat-types';
 vi.mock('../chat-api', () => ({listMessages:vi.fn(),readInteractionDraft: vi.fn(), saveInteractionDraft: vi.fn()}));
 const message = {id:'card', conversation_id:'chat', content:'确认草稿', interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
 root = Col([form])
-form = Form([TextArea($body, "消息草稿", "编辑"), Button("发送给林悦", @ToAssistant("发送给林悦"))])`}} as Message;
+form = Form([TextArea($body, "消息草稿", "编辑"), Button("发送给林悦", @SendToChat("发送给林悦"))])`}} as Message;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:2,state:{'$body':'周日见'},submission_message_id:null});
@@ -62,10 +62,10 @@ describe('private interactive reply', () => {
 });
 
 
-it.each(['native', 'mutation'])('captures complete state after Set and separates the visible label from generated %s content', async mode => {
+it.each(['chat', 'legacy', 'mutation'])('captures complete state after Set and separates the visible label from generated %s content', async mode => {
   vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:0,state:{},submission_message_id:null});
   const send=vi.fn().mockResolvedValue({id:'request-1',delivery_status:'pending'});
-  const action=mode==='native' ? '@ToAssistant("分析参数", {kind:"comparison"})' : '@Run(ask)';
+  const action=mode==='chat' ? '@SendToChat("分析参数", {kind:"comparison"})' : mode==='legacy' ? '@ToAssistant("分析参数", {kind:"comparison"})' : '@Run(ask)';
   const source=`$scale = [2]
 ask = Mutation("continue_conversation", {message:"分析参数",context:{kind:"comparison"}})
 $body = "初稿"

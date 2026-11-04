@@ -128,7 +128,7 @@ export class Interactions {
       || input.action_id || Buffer.byteLength(JSON.stringify(event), 'utf8') > 16384)) fail(422, 'Invalid native interaction event');
     const nativeEvent = event ? {type:'continue_conversation' as const,message:event.message,
       ...(event.context !== undefined ? {context:event.context} : {}), ...(event.label ? {label:event.label} : {}), ...(event.form_name ? {form_name:event.form_name} : {})} : undefined;
-    const content = input.action_id ? label! : nativeEvent ? nativeEvent.label || '向 Agent 提问' : request.content;
+    const content = input.action_id ? label! : nativeEvent ? nativeEvent.label || '发送到聊天' : request.content;
     if (typeof content !== 'string' || !content.trim()) fail(422, 'Handwritten content required');
     const semantic = sortedJsonAscii({source_message_id: source.message_id, action_id: input.action_id ?? null, typed_content: input.action_id || nativeEvent ? '' : content, canonical_state: state, ...(nativeEvent ? {event:nativeEvent} : {})});
     const previous = one(this.db, 'SELECT s.* FROM interaction_submissions s JOIN messages m ON m.id=s.message_id WHERE m.conversation_id=? AND m.caller_idempotency_key=?', cid, key);

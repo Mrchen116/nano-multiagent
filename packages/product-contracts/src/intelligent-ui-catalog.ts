@@ -1249,7 +1249,7 @@ export const intelligentUICatalog = {
         "children"
       ],
       "additionalProperties": false,
-      "description": "Groups fields; their values go with any @ToAssistant inside."
+      "description": "Groups fields; their values go with any @SendToChat inside."
     },
     "SearchImage": {
       "type": "object",
@@ -3492,6 +3492,22 @@ export const intelligentUICatalog = {
         },
         "required": [
           "text"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "SendToChat": {
+      "description": "Post a user message with submitted UI state to the current conversation and mark the card's Agent for attention. The optional context travels with the submitted message.",
+      "params": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "context": {}
+        },
+        "required": [
+          "message"
         ],
         "additionalProperties": false
       }

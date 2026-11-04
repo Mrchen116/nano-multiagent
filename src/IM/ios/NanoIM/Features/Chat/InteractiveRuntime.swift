@@ -125,7 +125,7 @@ final class InteractiveRuntime {
             guard let text = args["text"].stringValue else { throw runtimeError("text required") }
             UIPasteboard.general.string = text; return .bool(true)
         }
-        guard ["ComposeMessage", "continue_conversation"].contains(name ?? "") else { throw runtimeError("This action is not connected") }
+        guard ["ComposeMessage", "SendToChat", "continue_conversation"].contains(name ?? "") else { throw runtimeError("This action is not connected") }
         busy = true; composing = name == "ComposeMessage"; error = nil
         defer { if token == generation { busy = false; composing = false } }
         await flush()
@@ -134,8 +134,8 @@ final class InteractiveRuntime {
             guard let target = args["target"].stringValue, let text = args["text"].stringValue else { throw runtimeError("target and text required") }
             try await compose(target, text: text); return .null
         }
-        guard let text = type == "tool" ? args["message"].stringValue : action["humanFriendlyMessage"].stringValue else { throw runtimeError("message required") }
-        var details: [String: JSONValue] = ["type": .string("continue_conversation"), "message": .string(text), "label": request["label"].stringValue.map(JSONValue.string) ?? .string(L("向 Agent 提问", "Ask Agent"))]
+        guard let text = type == "tool" || name == "SendToChat" ? args["message"].stringValue : action["humanFriendlyMessage"].stringValue else { throw runtimeError("message required") }
+        var details: [String: JSONValue] = ["type": .string("continue_conversation"), "message": .string(text), "label": request["label"].stringValue.map(JSONValue.string) ?? .string(L("发送到聊天", "Send to chat"))]
         if args["context"] != .null { details["context"] = args["context"] }
         if let form = action["formName"].stringValue { details["form_name"] = .string(form) }
         var submittedState = state
@@ -197,7 +197,7 @@ final class InteractiveRuntime {
                             try await compose(target, text: text)
                         case "legacy", "mutation", "continue_conversation":
                             var input = InteractionReplyInput(source_message_id: message.id, state: event["state"].objectValue ?? state)
-                            let label = node["props"]["label"].stringValue ?? node["props"]["name"].stringValue ?? L("向 Agent 提问", "Ask Agent")
+                            let label = node["props"]["label"].stringValue ?? node["props"]["name"].stringValue ?? L("发送到聊天", "Send to chat")
                             if event["type"].stringValue == "legacy" { input.action_id = event["action_id"].stringValue }
                             else {
                                 let mutation = event["type"].stringValue == "mutation"

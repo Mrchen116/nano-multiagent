@@ -58,7 +58,7 @@ export const baseComponentGroups = [
       components: ["Button", "IconButton", "Pressable", "Input", "TextArea", "Select", "SegmentedControl", "Slider", "Checkbox", "RadioGroup", "DatePicker", "Timer", "Form"],
       notes: [
         "- An input's first argument is its value, usually a $variable that other statements read.",
-        '- Every input either changes something shown on the page, or sits in a Form whose submit Button sends a short first-person @ToAssistant ("Help me choose a bike"); the form values go with it. No dead inputs.',
+        '- Every input either changes something shown on the page, or sits in a Form whose submit Button sends a short first-person @SendToChat ("Help me choose a bike"); the form values go with it. No dead inputs.',
       ],
     },
     { name: "Media and data", components: ["SearchImage", "Image", "Icon", "Table", "Chart", "Map", "MapMarker", "YouTube"] },

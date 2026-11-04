@@ -30,21 +30,21 @@ describe('packaged native interactive evaluator', () => {
     }
   });
 
-  it('submits complete current form state after Set, preserving slider array types', () => {
-    const host = runtime('$scale = [2]\nroot = Stack([Slider("scale", "continuous", 0, 10, 1, [2], "倍率", {}, $scale), Form("note", Buttons([Button("解释当前结果", Action([@Set($scale, [3]), @ToAssistant("分析参数", {kind:"comparison"})]))]), [FormControl("备注", Input("text", "", "text"))])])');
+  it.each(['SendToChat', 'ToAssistant'])('submits complete current form state after Set through %s, preserving slider array types', action => {
+    const host = runtime(`$scale = [2]\nroot = Stack([Slider("scale", "continuous", 0, 10, 1, [2], "倍率", {}, $scale), Form("note", Buttons([Button("解释当前结果", Action([@Set($scale, [3]), @${action}("分析参数", {kind:"comparison"})]))]), [FormControl("备注", Input("text", "", "text"))])])`);
     host.engine.edit(host.find('Input').id, 'value', '最新备注');
     const result = JSON.parse(host.engine.activate(host.find('Button').id));
     expect(result.events).toEqual([expect.objectContaining({type:'continue_conversation',message:'分析参数',context:{kind:'comparison'},state:{'$scale':[3],note:{text:'最新备注'}}})]);
   });
 
   it('finishes the clicked action even when Set removes its button from the current view', () => {
-    const host = runtime('$show = true\nroot = $show ? Card([Button("继续", Action([@Set($show, false), @ToAssistant("继续")]))]) : TextContent("已隐藏")');
+    const host = runtime('$show = true\nroot = $show ? Card([Button("继续", Action([@Set($show, false), @SendToChat("继续")]))]) : TextContent("已隐藏")');
     const result = JSON.parse(host.engine.activate(host.find('Button').id));
     expect(result.events).toEqual([expect.objectContaining({type:'continue_conversation',message:'继续',state:{'$show':false}})]);
   });
 
   it('validates required fields before a continuation', () => {
-    const host = runtime('root = Form("details", Buttons([Button("继续", @ToAssistant("继续"))]), [FormControl("姓名", Input("name", "", "text", {required:true}))])');
+    const host = runtime('root = Form("details", Buttons([Button("继续", @SendToChat("继续"))]), [FormControl("姓名", Input("name", "", "text", {required:true}))])');
     expect(() => host.engine.activate(host.find('Button').id)).toThrow();
     host.engine.edit(host.find('Input').id,'value','陈');
     expect(JSON.parse(host.engine.activate(host.find('Button').id)).events[0].state).toEqual({details:{name:'陈'}});

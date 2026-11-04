@@ -2,9 +2,11 @@ import { createParser, createLibrary, defineComponent, markReactive, createStore
   isReactiveAssign, resolveStateField, validate, parseStructuredRules } from '@openuidev/lang-core';
 import { z } from 'zod';
 import { interactiveCatalog } from '../../../../packages/product-contracts/src/interactive-catalog';
+import { intelligentUICatalog } from '../../../../packages/product-contracts/src/intelligent-ui-catalog';
 
 // Agent source is parsed data. Only this bundled interpreter executes in JavaScriptCore.
-const parser = createParser(interactiveCatalog, 'Stack');
+const catalog = {...interactiveCatalog, actions: {...interactiveCatalog.actions, SendToChat: intelligentUICatalog.actions.SendToChat}};
+const parser = createParser(catalog, 'Stack');
 const controls = new Set(['Input','TextArea','Select','Slider','DatePicker','CheckBoxGroup','RadioGroup','SwitchGroup','Chips','OptionCards','EditableTable']);
 function reactive(schema: z.ZodType) { markReactive(schema); return schema; }
 const library = createLibrary({ components: Object.entries(interactiveCatalog.$defs).filter(([name]) => name !== 'ActionExpression').map(([name, schema]) =>
@@ -28,7 +30,7 @@ export function create(source: string, initial: Record<string, unknown>) {
   const nodes = new Map<string, {node: any; form?: string}>();
   const results = new Map<string, {signature: string; value: unknown}>();
   const ctx: any = {
-    actions: interactiveCatalog.actions,
+    actions: catalog.actions,
     getState: (name: string) => store.get(name),
     resolveRef(name: string): unknown {
       const query = parsed.queryStatements.find(item => item.statementId === name);
@@ -130,6 +132,8 @@ export function create(source: string, initial: Record<string, unknown>) {
             if (tool !== 'continue_conversation') throw new Error('This tool is not connected.');
             events.push({type:'mutation', id:step.statementId, args:mutation?.argsAST ? evaluate(mutation.argsAST, ctx) : {}, state:store.getSnapshot(), form:item.form});
           }
+        } else if (step.type === 'custom_action' && step.name === 'SendToChat') {
+          events.push({type:'continue_conversation', ...step.params, state:store.getSnapshot(), form:item.form});
         } else if (step.type === 'continue_conversation') events.push({...step, state:store.getSnapshot(), form:item.form});
         else if (step.type === 'open_url' || step.type === 'custom_action') events.push(step);
         else throw new Error('This action is not connected.');

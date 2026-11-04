@@ -1233,7 +1233,7 @@
       "retry": "Retry",
       "loadLatest": "Load latest draft",
       "choices": "Submitted choices",
-      "ask": "Ask the Agent",
+      "ask": "Send to chat",
       "actionError": "This action is not connected or this link type is unsupported.",
       "pendingRetry": "Delivery is unconfirmed. Send again to retry the original message."
     }

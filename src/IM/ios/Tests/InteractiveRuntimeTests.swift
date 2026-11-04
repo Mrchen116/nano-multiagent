@@ -7,7 +7,7 @@ import WebKit
 final class InteractiveRuntimeTests: XCTestCase {
     private let source = """
     $minutes = "20"
-    root = Stack([FormControl("每天阅读", Input("minutes", "", "number", {required:true}, $minutes)), TextContent(($minutes * 7) + " 分钟"), Button("安排阅读", Action([@Set($minutes, "30"), @ToAssistant("制定计划", {kind:"reading"})]))])
+    root = Stack([FormControl("每天阅读", Input("minutes", "", "number", {required:true}, $minutes)), TextContent(($minutes * 7) + " 分钟"), Button("安排阅读", Action([@Set($minutes, "30"), @SendToChat("制定计划", {kind:"reading"})]))])
     """
 
     func testNativeBindingAndContinuationUseCurrentStateAndAuthenticatedTransport() async throws {
@@ -147,7 +147,7 @@ final class InteractiveRuntimeTests: XCTestCase {
     func testIntelligentUIWebKitMeetingEditsRestoreAndExplicitlyContinue() async throws {
         let source = """
         $slot = "周二 10:00"
-        root = Col([Title("安排项目评审"), Form([SegmentedControl($slot, ["周二 10:00", "周三 14:00"]), Text($slot), Button("确认安排", @ToAssistant("按我的选择安排会议", {kind:"meeting"}))])])
+        root = Col([Title("安排项目评审"), Form([SegmentedControl($slot, ["周二 10:00", "周三 14:00"]), Text($slot), Button("确认安排", @SendToChat("按我的选择安排会议", {kind:"meeting"}))])])
         """
         let (runtime, transport) = try await makeRuntime(source: source, catalog: "nano-iui-1")
         await runtime.load()
@@ -259,7 +259,7 @@ final class InteractiveRuntimeTests: XCTestCase {
     func testIntelligentUICardFitsNativeChatAndReceivesReadOnlyChanges() async throws {
         let source = """
         $slot = "周二 10:00"
-        root = Col([Title("安排项目评审"), Text("请选择时间，确认后再交给助手安排。"), Form([SegmentedControl($slot, ["周二 10:00", "周三 14:00"]), Text($slot), Button("确认安排", @ToAssistant("安排会议"))])])
+        root = Col([Title("安排项目评审"), Text("请选择时间，确认后再交给助手安排。"), Form([SegmentedControl($slot, ["周二 10:00", "周三 14:00"]), Text($slot), Button("确认安排", @SendToChat("安排会议"))])])
         """
         let (runtime, _) = try await makeRuntime(source: source, catalog: "nano-iui-1")
         var message = runtime.message; message.content = "请选择会议时间。"

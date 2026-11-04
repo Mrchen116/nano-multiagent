@@ -1227,7 +1227,7 @@
       "retry": "重试",
       "loadLatest": "载入最新草稿",
       "choices": "已提交的选择",
-      "ask": "向 Agent 提问",
+      "ask": "发送到聊天",
       "actionError": "这个动作尚未接入，或链接类型不受支持。",
       "pendingRetry": "是否送达尚未确认。再次发送将重试原消息。"
     }

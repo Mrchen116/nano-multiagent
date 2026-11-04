@@ -187,3 +187,10 @@
 - 运行源码07bc0ba17；`/tmp/feat705-ui-concise-build.log`构建、`ui-concise-tests.log`3文件11项（Global／PA两级原生wire及接续、fork前缀、上下文重验证）、文档／归档及diff检查通过。
 - `ui-concise-tree-manifest.json`沿用main六份原始请求，重新采样PR两种Agent三层六份首次真实provider/upstream请求；所有层实际turn/end且采样进程正常shutdown，原始哈希、上下游System和原生窗口核对。Global／PA主会话新ToAssistant句各出现一次，长真实性段消失，私聊背景段逐字保留；两级worker完整System与前版逐字一致。属于受控上下文采样，不宣称新增自然模型／群聊行为验收。
 - 实际System：Global根3514→3462，PA根4279→4227；一级分别1016／1198，二级均672。六组全行diff可还原两侧完整原文、空行及未改动行，HTTP页面展示07bc0；旧页和原请求保存在ui-concise-before。UI Skill文件未修改，预览Node正常重载，原IM服务／代理、聊天、Persona及轨迹保留。
+
+## ToAssistant 统一改名为 SendToChat（2026-11-04）
+
+- 用户确认统一动作名。沿OpenUI公开defineAction扩展注册SendToChat(message,context?)，同步当前生成指南、示例、审核／PA／Global说明、Web、旧JavaScriptCore及新WebKit桥接；默认动作标签改为发送到聊天。事件和消息协议、状态／来源和审批机制不变，旧ToAssistant只保留已存卡片兼容，不改历史源。
+- 扩展现有真实Renderer提交矩阵为SendToChat／旧ToAssistant／Mutation；旧解释器同一状态测试同时覆盖新旧名字。服务端现有源校验与ComposeMessage组合拒绝测试适配新动作并保留旧动作拒绝覆盖，不新增平行测试文件。`/tmp/feat705-send-to-chat-red.log`旧实现因不接受新动作出现2项失败，其余22项通过。
+- 首轮修复后`send-to-chat-backend.log`6文件71项通过，`send-to-chat-frontend.log`3文件23项通过；包含新旧名字、Set后的完整状态、字段校验、群内提交、PA表示来源、只读／权限及幂等边界。产品包及前端构建通过，生成资产和iOS解释器一致性检查通过；iOS原生模拟器测试继续执行。
+- 用户要求收敛验收；停止本轮整套iOS模拟器测试，已完成的71项服务端／旧解释器和23项Web窄检查作为本轮验证，不再追加全量。Xcode进程18072收到TERM，命令退出143；不能记作iOS整套测试通过。自启iPhone模拟器恢复关闭。此前frontend、backend构建及check:ios-runtime均通过。

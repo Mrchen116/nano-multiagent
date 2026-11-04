@@ -206,3 +206,9 @@ flowchart LR
 - Global／PA 一级的 Intelligent UI 指导只说明按需加载 Skill、准备内容并回传父级，不重复用户聊天、ComposeMessage／ToAssistant 和背景交互流程；SingleThread 及主会话原有交互指导保持。
 
 更新既有 Global／PA HTTP wire 矩阵，直接核各层可见协议字段、根工具 schema 和一级 UI 工作范围；实际模型采样再核全组合。未因本次反馈改造子执行、取消、Task 或审核机制。
+
+## SendToChat 公开动作名（2026-11-04）
+
+用 OpenUI 公开 defineAction／library.extend 注册 SendToChat(message, context?)，Web与iOS均归入原有continue_conversation提交链，保持按钮可见标题、动作消息、context、完整表单状态和实际点击用户。内部事件／已保存消息格式不改。原生ToAssistant仅保留为已保存卡片的解释兼容，不向新模型提示列出；不patch SDK、不改写历史。
+
+当前catalog以公开toSpec／generateSystemPrompt派生提示：复用原生同签名步骤说明为SendToChat，避免双重列出自定义动作，替换成群聊公开提交的真实说明。生成脚本同步共享schema、Skill、Prompt和iOS打包解释器；旧原生catalog额外接入同一生成动作schema。ComposeMessage与任一新旧发送动作仍不能组合。Web直接消费SendToChat事件；旧JavaScriptCore解释器转换为现有continue_conversation，新WebKit桥接读取同名动作的message参数。Skill变化仅同步名字及准确动作说明，不新增前面已删除的通用真实性规则。
