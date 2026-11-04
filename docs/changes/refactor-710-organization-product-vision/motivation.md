@@ -33,7 +33,7 @@ Agent 解读（补充）：主动性覆盖全部长期 Agent，职责既支持�
 | [feat-394 Q1](../archive/feat-394-heartbeat-cron-redesign/spec.md#澄清记录) | “人不是只有你找他的时候才工作，有主动性” | 提炼后台主动工作的体验；不沿用其已被后续迁移替换的 cron 上下文及恢复设计 |
 | [feat-546 Q4/Q7](../archive/feat-546-agent-global-inbox/spec.md#澄清记录) | “一个上下文统筹”／“看这个员工的整体活动” | 跨聊天连续认知、统筹与执行分开、聊天与整体 Work 互补；旧 Task 暂不建设是当期范围 |
 | [feat-635](../archive/feat-635-task-driven-execution/spec.md) | “凡是进入了doing状态，都应该像DSH原本的goal那样保障推进，agent不能随便停下来了” | 持续工作对结果负责，当前 doing/waiting 语义仍查 current；愿景不规定调度实现 |
-| [feat-705](../feat-705-global-task-delegation/spec.md) | “一个完整任务交给一个subagent负责到底”／“主agent继续接新任务、处理必要决策和交付” | 多事项并行、稳定交接、沟通不中断；active 主从改造尚未当作 current，Task 联动继续暂缓 |
+| [feat-705](../feat-705-global-task-delegation/spec.md) | “一个完整任务交给一个 subagent 负责到底”／“主 agent 继续接新任务、处理必要决策和交付” | 多事项并行、稳定交接、沟通不中断；active 主从改造尚未当作 current，Task 联动继续暂缓 |
 | [feat-676](../archive/feat-676-role-memory-dreaming/spec.md#澄清记录) | “外层更多是和用户沟通的问题”／“一层subagent更多是做事得到的经验这类的信息” | 背景理解与执行经验共同支撑长期记忆；PA 与专家内容侧重不同，最终由 Dreaming 维护正式记忆 |
 | [feat-658](../archive/feat-658-pa-user-representation/spec.md) | “统一成PA代表用户发送，界面和Agent都认用户身份，正文自然用我的口吻” | PA 在授权内代表主人协作，身份与实际来源可辨认 |
 | [feat-617](../archive/feat-617-agent-interactive-responses/spec.md) | “agent觉得合理的场景都可以做交互式的形式” | IM 工作交流可按需要使用交互表达，服务判断与行动，不固定卡片或依赖用户提示才使用 |
