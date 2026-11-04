@@ -197,3 +197,8 @@
 - 运行源码5c6fa1422；对照页仅重新捕获Global／PA主会话及一级四份实际首次provider/upstream请求；main六份和未受影响的原生二级两份沿用原始证据。`send-to-chat-tree-manifest.json`及页面标明各自版本、时间、哈希和二级保留原因，不把不同采样的父子ID拼成新执行链。所有本次采样均实际turn/end并正常shutdown，没有追加自然任务验收。
 - 当前PR各层System无ToAssistant；两种主会话均含SendToChat公开提交说明。实际System：Global根3463、一级1016，PA根4240、一级1198，二级均672。六组全行diff可还原两侧完整原文；HTTP当前页展示5c6fa，旧页和请求保存在send-to-chat-before。模型生成语法和Skill统一只教新名字，旧名字仅在SDK解释及兼容检查保留。
 - 隔离IM用原resume脚本正常重启，Node正常restart以加载新schema／提示；不重置数据库、聊天、Persona或原轨迹，预览metadata已更新。没有修改已保存卡片source或内部continue_conversation事件协议。
+
+## UI 动作说明退出常驻（2026-11-04）
+
+- 用户确认删除从ComposeMessage adopts开始、包含local only／SendToChat／本地计算和额外推理按钮的整个常驻段。这些属于生成UI时的动作说明，已有nano-interactive-ui按需入口和动作描述；不补新句、不改Skill或交互功能。
+- Skill加载入口、私聊自然追问背景原文及内部执行者短指导保持。沿用户要求收敛验证，仅运行相关原生上下文检查；实际对照只重捕获受影响的Global／PA根请求，未受影响的各级原始捕获保留并标明来源。
