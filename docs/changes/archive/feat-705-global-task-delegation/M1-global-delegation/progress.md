@@ -135,3 +135,11 @@
 - 真实捕获、页面更新与新head CI待补；旧请求会保留历史快照，不以源码替换改写模型输入。
 
 - 最终补齐Heartbeat仅主会话装载的角色约束；新构建 `role-guidance-final-build.log` 通过，`role-guidance-final-wire.log` 2文件8项通过（含两级HTTP wire、fork前缀、同ID恢复、开启Heartbeat时根有quiet协议而一级无、Context revalidation）。`role-guidance-security.log` 2文件24项通过，覆盖独立来源审核与PA权限；先前 personal-child-delivery／native communication 的有效结果保留。
+
+## 角色收口后的实际请求（2026-11-04）
+
+- 同步main0287088be（仅bugfix709文档）后冻结运行源码5a97b6ce8。重新通过标准RuntimeClient／原生subagent采样Global／PA主会话、一级、二级共12份首次真实provider/upstream请求。没有替换输入或模型响应；四条链均记录实际turn/end并正常shutdown。与上轮一样为受控原生委派，不冒称模型自主选择分工或新IM自然任务验收。
+- `.cache/feat705-context-capture/role-guidance-tree-manifest.json` 与页面actual-provenance.json保存版本、父子ID、输入、原请求路径、SHA-256和实际原生完成事件；全部raw哈希和消息中的Current context window id逐份一致。普通根／一级无sender.is_owner和delivery=observer，PA根／一级仍有；普通Inbox实际schema不含review/message_id、PA仍保留；所有一级均不带ComposeMessage和Heartbeat协议，二级继续纯原生。
+- 完整System实际估算：普通Global main3785→PR3757，一级2274→1205，二级2274→672；PA主4560→4522，一级2373→1387，二级2373→672。相对上轮候选普通根3870→3757、一级1749→1205；PA根4552→4522、一级1848→1387。工具定义投影变化以原JSON／逐工具统计为准，不把System下降冒充总请求等量下降。
+- 对照页按新12份捕获重生成，6组main／PR差异逐行核对与两侧完整System完全一致，保留空行和全部未改动行。旧12份页面与请求归档到role-scope-before，未重写旧证据。原IM聊天／轨迹和用户Persona不改，当前预览待正常Node重载；自建采样进程已退出。
+- 合并main后文档／归档检查通过；main仅文档推进未失效本轮相同运行源码的窄检查。新head远端CI随后执行；不声称旧head全绿已证明本轮代码，也不将一次未复现的旧父子读取异常称为修复。
