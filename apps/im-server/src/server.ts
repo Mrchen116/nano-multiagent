@@ -165,7 +165,22 @@ export async function createServer(options: ServerOptions = {}) {
       ...(e.retry_after ? { retry_after: e.retry_after } : {}),
     });
   });
-  await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
+  // Compression is negotiated only for the dedicated history sockets. Device
+  // ACKs and user events keep their existing transport and CPU cost.
+  app.addHook('onRequest', async request => {
+    if (request.headers.upgrade?.toLowerCase() === 'websocket'
+      && request.routeOptions.url !== '/im/ws/agent-trajectory'
+      && request.routeOptions.url !== '/im/ws/node-trajectory') {
+      delete request.raw.headers['sec-websocket-extensions'];
+    }
+  });
+  await app.register(websocket, { options: {
+    maxPayload: 2 * 1024 * 1024,
+    perMessageDeflate: {
+      serverNoContextTakeover: true, clientNoContextTakeover: true,
+      threshold: 1024, concurrencyLimit: 4, zlibDeflateOptions: { level: 3 },
+    },
+  } });
   const releaseDirectory = options.nodeReleaseDir ?? process.env.IM_NODE_RELEASE_DIR ?? defaultReleaseDirectory;
   registerInstallRoutes(app, ctx, releaseDirectory);
   registerNodeUpdateRoutes(app, ctx, releaseDirectory);

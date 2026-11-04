@@ -8,13 +8,14 @@ import {openDatabase} from '../../src/db.js';
 import WebSocket from 'ws';
 import { bind, cleanups, Frames, start } from './helpers.js';
 
-it('pairs a shared Work reader separately from device traffic and revokes both observer ends', async () => {
+it.each([true, false])('pairs a shared Work reader separately from device traffic and revokes both observer ends, compression=%s', async compression => {
   const f = await start(), device = await bind(f);
+  expect(device.socket.extensions).toBe('');
   await device.frames.send('agent.work.append', { node_id: device.node, journal_id: 'native-work', from_seq: 1,
     events: [{ seq: 1, event_id: 'register', root_agent_id: 'global', session_id: 'main-native', type: 'session_registered', observed_at: new Date().toISOString(), payload: { scope: 'global_main' } },
       { seq: 2, event_id: 'maintenance-link', root_agent_id: 'global', session_id: 'main-native', type: 'session_linked', observed_at: new Date().toISOString(), payload: { parent_session_id: 'main-native', child_session_id: 'maintenance-native', title: '记忆与技能复盘' } }] });
   const ticket = await f.http('POST', '/im/v1/auth/ws-ticket', {}, f.tokens.bob);
-  const browser = new WebSocket(f.base.replace('http:', 'ws:') + `/im/ws/agent-trajectory?ticket=${ticket.body.ticket}&agent_id=global&session_id=maintenance-native`, { origin: 'http://127.0.0.1:8011' });
+  const browser = new WebSocket(f.base.replace('http:', 'ws:') + `/im/ws/agent-trajectory?ticket=${ticket.body.ticket}&agent_id=global&session_id=maintenance-native`, { origin: 'http://127.0.0.1:8011', perMessageDeflate: compression });
   cleanups.push(() => browser.terminate());
   const browserFrames = new Frames(browser);
   const prepare = await device.frames.next(frame => frame.type === 'trajectory.prepare');
@@ -23,8 +24,10 @@ it('pairs a shared Work reader separately from device traffic and revokes both o
   const node = new WebSocket(url), nodeFrames = new Frames(node);
   cleanups.push(() => node.terminate());
   await once(node, 'open');
+  expect(node.extensions).toBe('permessage-deflate');
   node.send(JSON.stringify({ type: 'ready', observerId: prepare.payload.scope.observerId, version: '0.2.1-alpha.1' }));
   expect((await browserFrames.next()).type).toBe('ready');
+  expect(browser.extensions).toBe(compression ? 'permessage-deflate' : '');
   const reused = new WebSocket(url); cleanups.push(() => reused.terminate());
   expect((await once(reused, 'close'))[0]).toBe(1008);
   browser.send(JSON.stringify({ type: 'call', requestId: 'read', method: 'session/list', params: {}, attachmentAuthorized: true }));
