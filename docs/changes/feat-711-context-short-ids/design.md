@@ -17,7 +17,7 @@
 ### 可复用能力
 
 - 用 freezeMessage 改写新输入副本，在原 pre-step 返回前入库；不修改 frozen request。
-- 用原生 tool/result 单节点 surface replacement 给最终工具结果补标记，保留 message.id、错误和元数据，引用被替换 seq。该机制用于原生裁剪，允许只改 content。
+- 用原生 tool/result 单节点 surface replacement 给最终工具结果补标记，保留 message.id、错误和元数据，引用被替换 seq。该机制用于原生裁剪，允许只改 content。每次替换必须同步相邻追加 compaction/prune 影子计价事件，shadowedTokenCount 使用 tokenMeter.estimateMessage(当前投影消息)，随后原生 replacement；此公共协议支持 signed delta，新增标记也须计价。
 - 用原始事件日志重建短编号，无自定义持久事件、旁路索引文件或进程内唯一状态。
 - 保留原生 pruner、换窗事务、预算硬线和溢出处理。
 
@@ -31,7 +31,7 @@ feat-627 采用按需引用，bugfix-629 防止动态快照自增长。新方案
 2. **首次模型可见之前附加。** 在同一个 pre-step 中，完成下游 decision 后先将待采纳 user 标记，再以最终被返回的批次测量预算；控制来源 runtime-context/compact-checkpoint/agent-context 排除。已有工具结果在原生压力裁剪后、返回模型前补标记；采用公开 tool/result replacement，覆盖正常、错误、取消和恢复产生的结果。若执行了换窗，被移出 surface 的工具无须再次标记；新输入仍需标记。工具最终格式化发生在前一 step，故无 post-execute 的分支覆盖问题。
 3. **只追加一个专用 text block。** 标记为 `\n[id: N]`。已有活动副本包含相同末尾专用 block 时不重复写；History 只剥离自身可识别的末尾标记，不对正文做全局正则替换。写入/剥离必须覆盖正文中原有 `[id:]`、多 text block、Unicode 和重复接纳。
 4. **恢复原文并隐藏物理副本。** 自身 history 的 item_id 改为短编号；按 message.id 合并物理副本，read 始终读取最早原记录并剥离其标记。只补标记不使原文变成可归档项：若当前副本去标记后的正文与原文相同，视为仍活动；真实裁剪移出的完整正文可恢复，换窗后整项可恢复。列表不重复显示补标记/裁剪副本；seq 保留用于排序、方向游标与原窗口归属。
-5. **保留宿主 API。** createHistoryView 默认继续返回 seq item_id，供 source_history 及记忆证据使用，不混入自身恢复短编号；共享正文归一化但显式选择编号模式。Nano 业务源码无须改。旧 Notes 的 seq 引用不提供兼容，保留原文件；旧日志仍可经新 list/search 取得短编号。
+5. **保留宿主 API。** createHistoryView 默认继续返回 seq item_id，供 source_history 及记忆证据使用，不混入自身恢复短编号；共享正文归一化但显式选择编号模式。Nano 的 source_history/证据编号不变；memory-source-view.safeBoundary 必须跳过合法 tool/result surface replace（不是新的调用完成），继续处理后续 step，真正无对应调用的 append 结果仍阻断。旧 Notes 的 seq 引用不提供兼容，保留原文件；旧日志仍可经新 list/search 取得短编号。
 6. **预算工具默认只给 tokens_left 和 estimated。** tokens_left=现有工作余量或 null；保留内部 budget() 用于引擎，不返回 references/T/W/H/C/O/B/R 等，不保留 references_cursor。普通模型 text 使用简短估算句，结构化值为 `{tokens_left, estimated:true}`。提示词只依赖就地标记与当前窗口身份。
 7. **容量策略不扩展。** 保留当前提醒距离的窗口约束、W/H 区间、硬线与 overflow，不承诺超硬线必给保存一步。此次不改 reminderTokens 默认值，避免将模型专用 6144 无条件扩成跨模型策略。
 
@@ -47,7 +47,7 @@ Consumer 为所有开启插件的 Agent。宿主生成 UUID 是内部身份，LL
 
 ## 风险与回退
 
-逐消息标记少量 token 必须进入最终 pre-step 测量；工具补标记增加的 token 经重新测量计入。以原始 message.id 去重保证重建稳定；物理补标记替换不能污染用户/助手配对、History 原文和分页。禁用后保留日志但不再追加标记；回滚到 rc.7 不删除数据。实际 API 与原始内容变动须覆盖审批来源回归。
+逐消息标记少量 token 必须进入最终 pre-step 测量；工具补标记增加的 token 经相邻影子计价协议及重新测量计入，并核对重放后的 meter.measure 结果一致。以原始 message.id 去重保证重建稳定；物理补标记替换不能污染用户/助手配对、History 原文和分页。禁用后保留日志但不再追加标记；回滚到 rc.7 不删除数据。实际 API 与原始内容变动须覆盖审批来源回归。
 
 ## 一次性部署迁移
 
@@ -61,4 +61,4 @@ Consumer 为所有开启插件的 Agent。宿主生成 UUID 是内部身份，LL
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-short-ids | 短引用与恢复闭环 | 无 | 串行 | 插件 src/tests/README 与固定包；Nano 依赖、必要集成测试及本 unit | [worker] 先取得首次入模/短 ID/工具失败/裁剪重复项/Unicode 续读/重启/换窗的失败证据，再通过窄测试、build/typecheck；createHistoryView 序号与预算简洁返回回归；最终实际模型请求有短标记且快照不随步数增长。[reviewer] 长任务在裁剪、换窗与重启后按最新要求正确交付，预算工具结果简洁，既有访问边界保留。 |
+| M1-short-ids | 短引用与恢复闭环 | 无 | 串行 | 插件 src/tests/README 与固定包；Nano 依赖、memory-source-view.safeBoundary、必要集成测试及本 unit | [worker] 先取得首次入模/短 ID/工具失败/裁剪重复项/Unicode 续读/重启/换窗的失败证据，再通过窄测试、build/typecheck；createHistoryView 序号与预算简洁返回回归；safeBoundary 对替换后后续完成步骤继续推进而真实未配对 append 仍阻断；标记 signed token delta 与重放一致；最终实际模型请求有短标记且快照不随步数增长。[reviewer] 长任务在裁剪、换窗与重启后按最新要求正确交付，预算工具结果简洁，既有访问边界保留。 |
