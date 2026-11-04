@@ -85,4 +85,4 @@ Web IM 与原生 iPhone App 承载日常协作，飞书等外部通道扩展触�
 
 ## 方向来源
 
-本版依据用户于 2026-11-04 明确的组织级定位，以及各 change unit 保存的产品原话整理。完整溯源及被后续决定替代的范围见 [refactor-710](../changes/refactor-710-organization-product-vision/motivation.md#历史原话溯源)；其中包括多人协作、PA 与独立专家、主动性、并行工作、长期记忆和交互表达。原始记录保留在各自 unit，技术方案与阶段范围不直接升格为长期原则。
+本版依据用户于 2026-11-04 明确的组织级定位，以及各 change unit 保存的产品原话整理。完整溯源及被后续决定替代的范围见 [refactor-710](../changes/archive/refactor-710-organization-product-vision/motivation.md#历史原话溯源)；其中包括多人协作、PA 与独立专家、主动性、并行工作、长期记忆和交互表达。原始记录保留在各自 unit，技术方案与阶段范围不直接升格为长期原则。

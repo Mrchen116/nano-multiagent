@@ -15,7 +15,7 @@
 
 产品原则说明“为什么”和长期取舍，不复制页面字段、API、状态机或实现结构；这些可观察行为由 current specs 维护。产品原则变化需要建立对应 change，并同步核对受影响的架构和行为契约。
 
-新版方向及历史 unit 用户原话的对应关系见 [refactor-710](../changes/refactor-710-organization-product-vision/motivation.md#历史原话溯源)。当前行为、活动设计、退役方案分别沿各自权威核对，不把愿景或历史提议当作已完成能力。
+新版方向及历史 unit 用户原话的对应关系见 [refactor-710](../changes/archive/refactor-710-organization-product-vision/motivation.md#历史原话溯源)。当前行为、活动设计、退役方案分别沿各自权威核对，不把愿景或历史提议当作已完成能力。
 
 ## 来源材料
 

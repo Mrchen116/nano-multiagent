@@ -117,3 +117,10 @@ N/A，无前端原型或 must-match 视觉契约。
 **no spec delta**。完整 diff 不改变 API、配置默认值、身份/权限、Prompt/工具、Task、Memory 或执行行为；`docs/specs/` 未修改，未发现需要 delta 覆盖却遗漏的运行可观察行为。无需 corrected-delta 空任务。
 
 All checks passed. Ready for PR.
+
+## Final integration and archive
+
+- effective_base: `c87b09c4eca17395d1d4b4a2976eca674b318504`
+- effective_through: final archived delivery tree (PR head).
+- Main has not advanced since the reviewed base. Subsequent changes only save this report and move the complete unit into archive, adjusting relative links and the two product source links. No product wording, requirement, design decision or runtime behavior changed after review. Gate 2 and independent static verification are retained on that basis.
+- no spec delta; no services started; no production operations or runtime acceptance performed.

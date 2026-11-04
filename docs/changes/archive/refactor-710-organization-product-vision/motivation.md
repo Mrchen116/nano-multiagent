@@ -26,29 +26,29 @@ Agent 解读（补充）：主动性覆盖全部长期 Agent，职责既支持�
 
 | 来源 | 用户原话短摘 | 本次提炼与状态边界 |
 |---|---|---|
-| [feat-554](../archive/feat-554-multi-user-multi-gateway-im/spec.md) | “我想真正像公司里一样，人和agent一起做很多事情。” | 真人与数字员工共同工作；不恢复早期严格单用户隔离，也不凭愿景新增团队资产权限 |
-| [feat-676 原始沟通第 11 轮](../archive/feat-676-role-memory-dreaming/input/chatgpt-conversation.md#round-11) | “一般的global agent是专家，他不依附任何一个用户，他是独立的存在，专业做某个方向的事情。” | 组织专家与服务个人的 PA 分工；真人和专家平等协作不等于无差别权限 |
-| [feat-616 原始需求](../archive/feat-616-personal-agent/research/superseded-r8-requirements.md#原始需求)及[最终确认](../archive/feat-616-personal-agent/spec.md) | “完全从用户的角度考虑事情，帮助用户完成用户的目标”／“PA能力怎么能比普通agent还弱啊。” | PA 协助主人自己的任务，兼顾工作和生活；旧专属目标引擎、逐动作审批已被替代，不恢复 |
-| [feat-623](../archive/feat-623-pa-message-context/spec.md) | “一个是PA要想我要干什么，一个是PA要想我读到了什么背景信息，以及我要帮助主人干什么” | 主人整体上下文与直接交办有不同含义；持续感知不意味着每条背景消息都要响应 |
-| [feat-394 Q1](../archive/feat-394-heartbeat-cron-redesign/spec.md#澄清记录) | “人不是只有你找他的时候才工作，有主动性” | 提炼后台主动工作的体验；不沿用其已被后续迁移替换的 cron 上下文及恢复设计 |
-| [feat-546 Q4/Q7](../archive/feat-546-agent-global-inbox/spec.md#澄清记录) | “一个上下文统筹”／“看这个员工的整体活动” | 跨聊天连续认知、统筹与执行分开、聊天与整体 Work 互补；旧 Task 暂不建设是当期范围 |
-| [feat-635](../archive/feat-635-task-driven-execution/spec.md) | “凡是进入了doing状态，都应该像DSH原本的goal那样保障推进，agent不能随便停下来了” | 持续工作对结果负责，当前 doing/waiting 语义仍查 current；愿景不规定调度实现 |
-| [feat-705](../feat-705-global-task-delegation/spec.md) | “一个完整任务交给一个 subagent 负责到底”／“主 agent 继续接新任务、处理必要决策和交付” | 多事项并行、稳定交接、沟通不中断；active 主从改造尚未当作 current，Task 联动继续暂缓 |
-| [feat-676](../archive/feat-676-role-memory-dreaming/spec.md#澄清记录) | “外层更多是和用户沟通的问题”／“一层subagent更多是做事得到的经验这类的信息” | 背景理解与执行经验共同支撑长期记忆；PA 与专家内容侧重不同，最终由 Dreaming 维护正式记忆 |
-| [feat-658](../archive/feat-658-pa-user-representation/spec.md) | “统一成PA代表用户发送，界面和Agent都认用户身份，正文自然用我的口吻” | PA 在授权内代表主人协作，身份与实际来源可辨认 |
-| [feat-617](../archive/feat-617-agent-interactive-responses/spec.md) | “agent觉得合理的场景都可以做交互式的形式” | IM 工作交流可按需要使用交互表达，服务判断与行动，不固定卡片或依赖用户提示才使用 |
+| [feat-554](../feat-554-multi-user-multi-gateway-im/spec.md) | “我想真正像公司里一样，人和agent一起做很多事情。” | 真人与数字员工共同工作；不恢复早期严格单用户隔离，也不凭愿景新增团队资产权限 |
+| [feat-676 原始沟通第 11 轮](../feat-676-role-memory-dreaming/input/chatgpt-conversation.md#round-11) | “一般的global agent是专家，他不依附任何一个用户，他是独立的存在，专业做某个方向的事情。” | 组织专家与服务个人的 PA 分工；真人和专家平等协作不等于无差别权限 |
+| [feat-616 原始需求](../feat-616-personal-agent/research/superseded-r8-requirements.md#原始需求)及[最终确认](../feat-616-personal-agent/spec.md) | “完全从用户的角度考虑事情，帮助用户完成用户的目标”／“PA能力怎么能比普通agent还弱啊。” | PA 协助主人自己的任务，兼顾工作和生活；旧专属目标引擎、逐动作审批已被替代，不恢复 |
+| [feat-623](../feat-623-pa-message-context/spec.md) | “一个是PA要想我要干什么，一个是PA要想我读到了什么背景信息，以及我要帮助主人干什么” | 主人整体上下文与直接交办有不同含义；持续感知不意味着每条背景消息都要响应 |
+| [feat-394 Q1](../feat-394-heartbeat-cron-redesign/spec.md#澄清记录) | “人不是只有你找他的时候才工作，有主动性” | 提炼后台主动工作的体验；不沿用其已被后续迁移替换的 cron 上下文及恢复设计 |
+| [feat-546 Q4/Q7](../feat-546-agent-global-inbox/spec.md#澄清记录) | “一个上下文统筹”／“看这个员工的整体活动” | 跨聊天连续认知、统筹与执行分开、聊天与整体 Work 互补；旧 Task 暂不建设是当期范围 |
+| [feat-635](../feat-635-task-driven-execution/spec.md) | “凡是进入了doing状态，都应该像DSH原本的goal那样保障推进，agent不能随便停下来了” | 持续工作对结果负责，当前 doing/waiting 语义仍查 current；愿景不规定调度实现 |
+| [feat-705](../../feat-705-global-task-delegation/spec.md) | “一个完整任务交给一个 subagent 负责到底”／“主 agent 继续接新任务、处理必要决策和交付” | 多事项并行、稳定交接、沟通不中断；active 主从改造尚未当作 current，Task 联动继续暂缓 |
+| [feat-676](../feat-676-role-memory-dreaming/spec.md#澄清记录) | “外层更多是和用户沟通的问题”／“一层subagent更多是做事得到的经验这类的信息” | 背景理解与执行经验共同支撑长期记忆；PA 与专家内容侧重不同，最终由 Dreaming 维护正式记忆 |
+| [feat-658](../feat-658-pa-user-representation/spec.md) | “统一成PA代表用户发送，界面和Agent都认用户身份，正文自然用我的口吻” | PA 在授权内代表主人协作，身份与实际来源可辨认 |
+| [feat-617](../feat-617-agent-interactive-responses/spec.md) | “agent觉得合理的场景都可以做交互式的形式” | IM 工作交流可按需要使用交互表达，服务判断与行动，不固定卡片或依赖用户提示才使用 |
 
-另核对 [feat-665 的退役决定](../retired/feat-665-general-personal-agent/spec.md)与 [feat-667 的后续澄清](../archive/feat-667-pa-service-guidance/spec.md)：通用 PA 的长期服务方向保留，整包旧实现未合入；独立观察者、聚合查询、文件交付与自动 Skill 复盘等不因此成为当前能力。开发工作流 feat-391 的“目标即职责”只作相关历史，不将其具体开发流程推广成全产品要求。
+另核对 [feat-665 的退役决定](../../retired/feat-665-general-personal-agent/spec.md)与 [feat-667 的后续澄清](../feat-667-pa-service-guidance/spec.md)：通用 PA 的长期服务方向保留，整包旧实现未合入；独立观察者、聚合查询、文件交付与自动 Skill 复盘等不因此成为当前能力。开发工作流 feat-391 的“目标即职责”只作相关历史，不将其具体开发流程推广成全产品要求。
 
 ## 现状痛点
 
 2026-11-04 核对基线 `0287088be`：
 
-- [产品愿景](../../product/vision.md)仍以“用户在自己的机器上运行多个 Agent”为定位；主体形成于 2026-07-30，2026-10-10 主要对齐 DSH 迁移。
-- [组织与权限](../../specs/im/auth-tenancy.md)已有私人/公司资源空间和公司准入；[个人助手](../../specs/im/personal-agent.md)已有固定主人关系，加入公司不公开私人聊天及 Work。
-- [Global 契约](../../specs/gateway/global-agent.md)已有跨聊天连续工作及内部委派；[工作视图](../../specs/im/agent-work.md)已有公司数字员工整体工作可见性。
-- [任务契约](../../specs/gateway/task-graphs.md)已有本人 doing 任务持续推进；这些机制为长期职能提供基础，但本次没有验证某一专业岗位的端到端履职效果。
-- [feat-705](../feat-705-global-task-delegation/spec.md)正在对齐主 Agent 与内部执行者分工，Task 体系改造暂缓。本次不能把其中的目标写成已实现行为或恢复其暂缓范围。
+- [产品愿景](../../../product/vision.md)仍以“用户在自己的机器上运行多个 Agent”为定位；主体形成于 2026-07-30，2026-10-10 主要对齐 DSH 迁移。
+- [组织与权限](../../../specs/im/auth-tenancy.md)已有私人/公司资源空间和公司准入；[个人助手](../../../specs/im/personal-agent.md)已有固定主人关系，加入公司不公开私人聊天及 Work。
+- [Global 契约](../../../specs/gateway/global-agent.md)已有跨聊天连续工作及内部委派；[工作视图](../../../specs/im/agent-work.md)已有公司数字员工整体工作可见性。
+- [任务契约](../../../specs/gateway/task-graphs.md)已有本人 doing 任务持续推进；这些机制为长期职能提供基础，但本次没有验证某一专业岗位的端到端履职效果。
+- [feat-705](../../feat-705-global-task-delegation/spec.md)正在对齐主 Agent 与内部执行者分工，Task 体系改造暂缓。本次不能把其中的目标写成已实现行为或恢复其暂缓范围。
 
 ## 目标状态
 

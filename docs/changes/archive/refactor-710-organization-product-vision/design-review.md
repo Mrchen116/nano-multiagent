@@ -35,10 +35,10 @@
 #### 当前事实与实际装配
 
 - 已读六份目标文档：根 README、SPEC、`docs/README.md`、`docs/product/README.md`、`docs/product/vision.md`、`docs/product/web-im-principles.md`。旧定位确实聚焦个人在自己的机器上运行多个助手；根 SPEC 已把数字人、内部 subagent、独立 IM 中心及 DSH 执行职责分开。本次只修订产品定位与摘要，不改变这些软件架构边界。
-- [IM PA](../../specs/im/personal-agent.md) 的固定主人、私人聊天与 Work，以及 [Gateway PA](../../specs/gateway/personal-agent.md) 的完整 Global 复用，与设计一致。实际创建入口 `apps/im-server/src/personal-agent.ts:462` 将 PA 配置为 `work_mode: 'global'` 并独立携带 `personal_agent`；`apps/node/src/configuration.ts:89` 将模式与个人身份分别传入运行配置，`apps/node/src/main.ts:334` 按模式路由至 Global。这支持“产品角色不是互斥技术类型”的设计决定。
-- [组织与权限](../../specs/im/auth-tenancy.md) 的资源空间、公司准入、聊天访问及配置 owner 边界，和 [Work](../../specs/im/agent-work.md) 的公司 Agent 整体轨迹可见性，为现状断言提供依据。Work 可见不等于源聊天可读或配置可管理；设计保留原权限且不承诺新增可见范围。
-- [Global](../../specs/gateway/global-agent.md) 的跨聊天连续工作、Inbox 条件接收及显式交付，以及 [Task](../../specs/gateway/task-graphs.md) 的本人 doing 责任持续推进，支持“已有机制可作为基础”，不支持声称任何专业岗位已通过端到端验收。设计保留了这一证据边界。
-- [feat-705](../feat-705-global-task-delegation/spec.md) 的“当前阶段”和最新澄清明确 Task 改造暂缓；设计只链接后续主从职责方向，不将自动记录、执行者绑定、Task 联动等未完成目标纳入 current 或本次范围。
+- [IM PA](../../../specs/im/personal-agent.md) 的固定主人、私人聊天与 Work，以及 [Gateway PA](../../../specs/gateway/personal-agent.md) 的完整 Global 复用，与设计一致。实际创建入口 `apps/im-server/src/personal-agent.ts:462` 将 PA 配置为 `work_mode: 'global'` 并独立携带 `personal_agent`；`apps/node/src/configuration.ts:89` 将模式与个人身份分别传入运行配置，`apps/node/src/main.ts:334` 按模式路由至 Global。这支持“产品角色不是互斥技术类型”的设计决定。
+- [组织与权限](../../../specs/im/auth-tenancy.md) 的资源空间、公司准入、聊天访问及配置 owner 边界，和 [Work](../../../specs/im/agent-work.md) 的公司 Agent 整体轨迹可见性，为现状断言提供依据。Work 可见不等于源聊天可读或配置可管理；设计保留原权限且不承诺新增可见范围。
+- [Global](../../../specs/gateway/global-agent.md) 的跨聊天连续工作、Inbox 条件接收及显式交付，以及 [Task](../../../specs/gateway/task-graphs.md) 的本人 doing 责任持续推进，支持“已有机制可作为基础”，不支持声称任何专业岗位已通过端到端验收。设计保留了这一证据边界。
+- [feat-705](../../feat-705-global-task-delegation/spec.md) 的“当前阶段”和最新澄清明确 Task 改造暂缓；设计只链接后续主从职责方向，不将自动记录、执行者绑定、Task 联动等未完成目标纳入 current 或本次范围。
 
 #### 架构、职责与复用判断
 
@@ -125,7 +125,7 @@ R1，无历史 finding 或 Author Resolution。
 
 R1 已核对的六份目标文档、角色/权限、Global 实际装配、唯一产品总纲和按需阅读路径未变；`20b1bb57a..23add7367` 只改本 unit 的 motivation/design，没有运行代码或 current spec 变化，相关证据保留。
 
-本轮新增核对 [能力契约](../../specs/gateway/agent-capabilities.md) 的角色化记忆、纠正、正式写入和 Dreaming 生命周期：当前纠正可立即影响会话与原执行者，正式记忆只由后续 Dreaming 写入，未整理不声称已保存或跨聊天即时同步。`packages/dsh-integration/src/knowledge/runtime.ts:54-57` 实际装配 DocumentMemory/Dreaming；`document-memory.ts:39-55` 明确正式库只读边界、当前纠正立即采用及 Dreaming 后续维护。设计关键决策 7 与此一致，没有恢复前台并行写者。
+本轮新增核对 [能力契约](../../../specs/gateway/agent-capabilities.md) 的角色化记忆、纠正、正式写入和 Dreaming 生命周期：当前纠正可立即影响会话与原执行者，正式记忆只由后续 Dreaming 写入，未整理不声称已保存或跨聊天即时同步。`packages/dsh-integration/src/knowledge/runtime.ts:54-57` 实际装配 DocumentMemory/Dreaming；`document-memory.ts:39-55` 明确正式库只读边界、当前纠正立即采用及 Dreaming 后续维护。设计关键决策 7 与此一致，没有恢复前台并行写者。
 
 继续按 `agent-context-review` Mode A 处理开发 Agent 的按需消费：新增内容要帮助开发者理解产品责任，而非改变已安装 Agent 的 Prompt、技能、工具或记忆加载时点。由 vision 保留产品原则，历史原话集中在 unit，current 细节仍链接 canonical specs，职责与消费层次清楚。未要求新增 Memory 系统、观察者或第二套执行循环，无架构维护代价增加。
 
