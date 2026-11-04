@@ -6,7 +6,7 @@ import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 const goalTools = ['create_goal', 'get_goal', 'update_goal'];
-it('defaults Goal tools off and honors each ordinary tool selection', async () => {
+it('defaults optional tools off and honors each ordinary tool selection', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-goal-'));
   let client: RuntimeClient | undefined; let logs = '';
   try {
@@ -20,7 +20,7 @@ if(agent.id==='default' && messages.some(m=>m.content.some(b=>b.type==='text'&&b
 }
 const result=await ctx.tools.execute({name:'get_goal',callId:'probe',arguments:{},agent,signal:new AbortController().signal});
 await writeFile(process.env.DSH_HOME+'/'+(agent.session.header.origin==='subagent'?'child':agent.id)+'.json',JSON.stringify(result));return next();});
-ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator();await writeFile(process.env.DSH_HOME+'/'+agent.id+'.request.json',JSON.stringify(o.messages));if(o.messages.findLast(m=>m.role==='user')?.id==='hold'){await new Promise(resolve=>o.signal.addEventListener('abort',resolve,{once:true}));return;}yield{type:'block-end',index:0,block:{type:'text',text:'ordinary reply'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
+ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator();await writeFile(process.env.DSH_HOME+'/'+agent.id+'.request.json',JSON.stringify(o.messages));await writeFile(process.env.DSH_HOME+'/'+agent.id+'.tools.json',JSON.stringify(o.tools));if(o.messages.findLast(m=>m.role==='user')?.id==='hold'){await new Promise(resolve=>o.signal.addEventListener('abort',resolve,{once:true}));return;}yield{type:'block-end',index:0,block:{type:'text',text:'ordinary reply'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home, [{insert: [{id: 'goal-probe', name: join(home, 'probe.mjs')}]}]);
     client = new RuntimeClient({home, cwd: home, onLog: text => {logs += text;}});
     registerNoopTaskHosts(client);
@@ -34,11 +34,14 @@ ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator()
       {...base,agentId:'all',toolAllowlist:goalTools},
       {...base,agentId:'global',mode:'global'},
       {...base,agentId:'fork-only',toolAllowlist:['subagent_fork']},
+      {...base,agentId:'plan-exit-only',toolAllowlist:['exit_plan_mode']},
+      {...base,agentId:'global-plan-exit',mode:'global',toolAllowlist:['exit_plan_mode']},
     ];
     await client.rpc.request('initialize',{protocol:1,agents,bindings:[]});
     for(const config of agents){
       await client.rpc.request('session.ensure',{sessionId:config.agentId,agentId:config.agentId,revision:'1',ownerId:'owner',cwd:home});
       const caps=await client.rpc.request('session.capabilities',{sessionId:config.agentId}) as {tools:string[];prompt:unknown};
+      expect(caps.tools.includes('exit_plan_mode')).toBe(config.toolAllowlist?.includes('exit_plan_mode')??false);
       const expected=(config.toolAllowlist ?? []).filter(name=>goalTools.includes(name));
       expect(caps.tools.includes('subagent_fork')).toBe(config.toolAllowlist?.includes('subagent_fork')??false);
       expect(caps.tools.filter(name=>goalTools.includes(name)).sort()).toEqual([...expected].sort());
@@ -49,6 +52,8 @@ ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator()
       if(expected.includes('get_goal')) expect(probe.isError, JSON.stringify(probe)).not.toBe(true);
       else expect(JSON.stringify(probe)).toContain('UNKNOWN_TOOL');
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:config.agentId,inputId:'probe-'+config.agentId}) as {terminal?:unknown}).terminal).toBeTruthy();
+      const modelTools=JSON.parse(await readFile(join(home,config.agentId+'.tools.json'),'utf8')) as {name:string}[];
+      expect(modelTools.some(tool=>tool.name==='exit_plan_mode')).toBe(config.toolAllowlist?.includes('exit_plan_mode')??false);
     }
     expect(await readFile(join(home,'child.json'),'utf8')).toContain('UNKNOWN_TOOL');
     await client.rpc.request('session.submit',{sessionId:'read-goal',inputId:'hold',mode:'followup',content:[{type:'text',text:'hold'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'hold'}});

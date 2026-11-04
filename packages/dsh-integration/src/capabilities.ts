@@ -13,7 +13,7 @@ import { contextTools } from './agent-context.js';
 import { isHumanSource } from './input-source.js';
 
 export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
-const defaultOff = [...goalTools, 'subagent_fork'];
+const defaultOff = [...goalTools, 'subagent_fork', 'exit_plan_mode'];
 const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode', 'exit_plan_mode', 'plugin_manager', 'workflow']);
 
 /** Filters the native callable view after preset contributions are assembled. */
@@ -73,7 +73,7 @@ export class ToolSelection {
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
     const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
-    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
+    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, 'exit_plan_mode', ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
     if (globalWorkRole(agent, state.config)) disabled.push(...userEntryTools);
     if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;

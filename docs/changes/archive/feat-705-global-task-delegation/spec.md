@@ -203,6 +203,18 @@ Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派�
 - **THEN** 原名单保持，不静默改写用户选择；fork 是否可调用取决于当前有效设置。
 - **AND** 开启只增加原生工具，保持原有返回模式，不增加专门提示词、清理轮次或取消机制。
 
+
+### Requirement: exit_plan_mode 默认关闭并保留显式选择
+
+#### Scenario: 新建、未配置与手动选择
+- **WHEN** 新建 Global、PA 或 SingleThread 主 Agent，或配置没有显式工具名单
+- **THEN** `exit_plan_mode` 默认不启用，仍在现有工具目录可手动选择；默认值、能力预览、实际下发和执行限制一致。
+- **AND** 手动开启或关闭沿用现有工具规则，不增加 Plan 模式入口、额外提示词或委派职责；内部执行者原有用户交互工具限制不变。
+
+#### Scenario: 已有显式选择不改写
+- **WHEN** 加载、更新或恢复已有显式工具名单
+- **THEN** 保留其 `exit_plan_mode` 选择；新默认值不覆盖已保存的开启或关闭，不迁移历史配置。
+
 ## 范围与非目标
 
 - 在范围：普通 Global 与 PA 的主从职责、完整事项委派、执行者内部进一步分工、主 Agent 继续接新输入、同事项更正及接续、聊天内的停止协调、日常小事直接处理、唯一用户沟通入口及真实交付。
@@ -227,3 +239,7 @@ Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派�
 8. 上轮模拟曾提出扩展现有 task_graph 增加 delegate 动作：接收原始交办来源，创建或复用 Task，启动后台可接续 subagent 并保存关联。这是候选接口示例，尚未定稿或实现；本阶段不新增该动作，后续设计需整体确定 Task 与执行者的联动方式。
 
 暂停前的完整场景、验收与现状证据保存在 [9fbe919db 的本文件](https://github.com/Mrchen116/nano-multiagent/blob/9fbe919db65d5274c201d04ac050b6c96daeecd6/docs/changes/feat-705-global-task-delegation/spec.md)。参考仓固定基线仍为 `6337fc823ce20251c8de8085948165c81aaa701e`；稳定 worker、执行与业务状态分开等思路可继续参考，但参考原型部分无报告停工被记为 waiting，不等于已满足上述 Task 续推目标。
+
+## 开放 PR 复核补充（2026-11-04）
+
+用户确认：“exit_plan_mode 默认关闭，保留手动开启，已有显式选择不改。纳入本unit。”按当前同一交付会话处理自包含默认值小修，不新增 milestone 或 Task 改造。初始上下文开销的完整 System 与逐工具 token 统计另记 [Issue #460](https://github.com/Mrchen116/nano-multiagent/issues/460)，本 unit 不实施全面压缩。

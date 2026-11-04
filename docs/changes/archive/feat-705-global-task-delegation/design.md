@@ -181,3 +181,7 @@ flowchart LR
 | M1-global-delegation | 完整事项负责者与分层工具／上下文 | 无 | 单阶段 | integration 的 agent-config、capabilities、global-mode、child-role；必要的现有配置／历史／capability reservation 接线；Node 工具默认；PA 默认说明；ongoing／proactive Skill；相关测试；三个 Gateway delta | [reviewer] 全部 Scenario：完整事项只有一个一级负责者，根不重复调查、继续日常与独立输入，更正／停止／接续归原事项，Global 唯一用户入口并实际交付。[reviewer] 根 fork 默认关闭、可手动选择且旧名单保持；一级按 DSH 工作，二级由一级自主组织。[worker] 实际 provider 请求证明一级 DSH 基础＋最小职责，普通二级无额外 Nano 身份／业务指导，fork 保留原生继承；根工具配置不误缩一级或反向放开根。[worker] 更新、占用校验、同 ID 冷恢复、Skill／Feature／扩展撤回、Goal 独立选择及审批／产品权限有效，Workflow／SingleThread 等非目标规则保持，原生深度不扩展。[worker] 原生通信 fixture 与 Global／PA 真实模型旅程证据分开；Task driver／动作／数据、客户端布局无变化，相关窄回归与 required CI 通过。 |
 
 窄回归复用 global-child-tools、goal-opt-in、communication-native、llm-attribution、task-child-context、native-human-source、配置占用／预览与 PA 默认说明测试；按角色新增实际请求与执行断言。保留独特旧回归，只调整被本设计明确改变的共享名单／二级身份预期，不写镜像文案测试。测试、真实模型和产品验收均属于实施阶段，本设计不宣称已通过。
+
+## 开放 PR 默认值补充（2026-11-04）
+
+按用户确认，将 `exit_plan_mode` 加入 Node 工具目录和 integration 的默认关闭集合。未配置名单的主会话不下发该工具；显式名单仍是选择来源，无配置迁移。Global／PA 内部执行者原有用户交互工具排除规则不变。DSH 以命令进入 Plan Mode，但本产品未提供相应入口；本轮仅调整工具默认值，不实现 Plan 入口或增加角色提示词。扩展既有 Node capabilities／原生 opt-in 矩阵，核默认、显式选择与 llm/stream 实际 Schema；已有主从自然旅程证据未失效，设置页做针对性独立复验。

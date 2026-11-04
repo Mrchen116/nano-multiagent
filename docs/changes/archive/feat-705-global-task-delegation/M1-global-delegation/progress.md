@@ -87,3 +87,12 @@
 - M1 实现与适用本地验收完成；unit整套归档，最终文档/归档检查及PR远端CI随后由交付方执行。远端全绿前不声称PR已交付。
 
 - 归并／归档后 `scripts/docs-check` 通过（278 maintained Markdown／68 required routes），`check_change_unit_archived.py --head-ref unit/feat-705` 通过；`git diff --check` 通过。最终归档提交仅文档移动、相对链接校正与已审 delta 的机械归并，运行源码和测试未改变，既有门禁结论有效。
+
+## 开放 PR 默认值复核（2026-11-04）
+
+- 用户明确授权 `exit_plan_mode` 默认关闭、可手动开启且旧显式名单不改，纳入本 unit；PR #459 核实仍 open／unmerged，基线 main 90ef 未推进。无需新增生命周期或 Task 机制。
+- `/tmp/feat705-plan-exit-red.log`：新增默认值断言在旧实现上确实失败（Node 默认标记、原生默认工具集各一处）；随后只修改两层默认选择及实际默认限制，不改已保存名单。
+- `/tmp/feat705-plan-exit-build.log` 构建通过；`/tmp/feat705-plan-exit-green.log` 3文件11项通过，含普通／Global 未配置默认关闭、显式开启、实际 llm/stream 工具列表，以及 Global／PA 两级 HTTP wire 和同 ID 恢复回归。llm/stream 的新增断言是录制 fixture，不冒充新增真实 provider 自主行为。
+- 初始上下文数据由真实 R4 上游请求重新计算核对，已创建 [Issue #460](https://github.com/Mrchen116/nano-multiagent/issues/460)，含完整22,200字符 System、36工具统计和18,701总构成。样本显式开启 exit，保持历史原文与计数，不回写成新默认；完整优化另议。
+- 用户已要求保留轨迹预览，隔离服务 http://127.0.0.1:62610 持续保留；不重置或重 seed 现有数据。此前退出时清理记录是历史状态，现为重新开放预览。
+- 本轮待独立 patch code/Context review、targeted verification、设置页 targeted 验收及新 head CI；其他指导、自然模型旅程和未改区域的既有证据保留，不机械重复全量验收。
