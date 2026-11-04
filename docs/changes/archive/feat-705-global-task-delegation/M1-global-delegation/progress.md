@@ -230,3 +230,12 @@
 - 运行源码 `62a522dbb`。dsh-integration、im-server build 通过；global-child-tools 的 provider wire 两项回归通过（其余4项未运行），日志 `/tmp/feat705-vision-context-tests.log`。docs_check 通过。
 - `vision-context-tree-manifest.json` 重新捕获 Global／PA 两份根会话真实首次 provider/upstream 请求，均实际 turn/end 并正常 shutdown，无业务任务或 IM 外发。最终 System 已包含新的长期职责、主动性与 PA 角色文案，工具定义与此前逐字一致；其余四份 PR 子级原始请求哈希与 main 原始证据保持。
 - 对照页逐行保留空行和未改行，页面来源版本为62a522dbb，先前页面保存在 vision-context-before。System tokens：Global根3124、PA根3901（o200k_base估算），一级／二级不变。这里只证明实际文案装配，没有重跑自然主动工作或完整事项验收；原测试聊天、轨迹与保留预览服务不动。
+
+
+## 2026-11-04：较大主动工作开始前简短告知
+
+- 用户要求适配 Super Agent 的明确启动沟通设计。参考本地原型6337fc8的prompts/admission.md:24和prompts/replies.md:13-22，只复用“先说明具体事项与预期结果、然后自主推进”的产品行为，不引入其工单、ack工具或宿主机制。
+- 共享启动告知从长时间真人交办扩展到既有职责与权限内主动开展的较大事项，告知发生在开始或委派前；用户或既定指引要求静默时省略，已授权工作不等待重复批准。日常小事直接处理，常规执行进展仍内部保留。PA默认Persona为共享启动告知保留例外；已有自定义Persona不回填。
+- 运行源码4fe6ab6e5；dsh-integration与im-server构建、docs_check通过，日志/tmp/feat705-start-notice-build.log、/tmp/feat705-start-notice-pa-build.log、/tmp/feat705-start-notice-docs.log。仅改文案与对应契约，未重跑分层或完整行为回归。
+- start-notice-tree-manifest.json仅刷新Global／PA两个根会话真实首次provider/upstream请求，均实际turn/end且正常shutdown。最终System含启动告知、主动事项、静默例外与不等待重复批准；PA含Beyond the shared start notice。工具定义逐字一致，四份子级PR请求原始哈希保留，main及其他证据沿用原始版本，不拼成新执行链。
+- 实际捕获对照页已更新，逐行保留空行与未改行。Global根System 3146、PA根3928 tokens（o200k_base估算），旧页面及请求保存在start-notice-before。采样无业务任务或IM外发，不宣称已验证模型实际启动通知行为；原预览聊天、轨迹和服务保留。
