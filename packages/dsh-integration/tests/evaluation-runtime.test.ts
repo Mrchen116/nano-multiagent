@@ -55,7 +55,7 @@ it('imports dialogue segments as restorable windows of one persistent Global ses
     const { identity } = JSON.parse(await readFile(result.preparedRef, 'utf8'));
     expect(saved.header.id).toBe(identity.rootSessionId);
     expect(new Set(calls.map((event: {data:{arguments:string}}) => JSON.parse(event.data.arguments).target))).toEqual(new Set([identity.conversationId]));
-    const firstRead = saved.events.find((event: {type:string}) => event.type === 'tool/result');
+    const firstRead = saved.events.find((event: {type:string}) => event.type === 'tool/result' && typeof event.surfaceOp !== 'object');
     expect(JSON.parse(firstRead.data.message.content[0].text)).toMatchObject({ conversation_type: 'direct', delivery: 'participant', channel: 'web',
       messages: [expect.objectContaining({ sender: { id: identity.ownerId, type: 'user', name: 'Owner', is_owner: true } }), expect.anything()] });
     for (const row of map) {

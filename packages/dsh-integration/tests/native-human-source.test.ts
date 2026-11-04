@@ -53,7 +53,7 @@ export function apply(ctx){
     expect(direct.find(e => e.type === 'user/message' && e.data.id === 'goal-human')?.data.source).toMatchObject({
       kind: 'user', actorId: 'owner', channel: 'test', messageId: 'goal-human', contextEnvelope: 'CONTEXT_ENVELOPE', background_returns: [{ sessionId: 'background' }],
     });
-    const effects = direct.filter(e => e.type === 'tool/result').map(e => e.data.message);
+    const effects = direct.filter(e => e.type === 'tool/result' && typeof e.surfaceOp !== 'object').map(e => e.data.message);
     expect(effects).toHaveLength(3);
     expect(effects.every(message => !message.isError)).toBe(true);
     expect(direct.filter(e => e.type === 'turn/start')).toHaveLength(1);
@@ -65,7 +65,7 @@ export function apply(ctx){
     }
     for (const sessionId of ['system', 'scheduled', 'peer']) {
       const observation = await observe(sessionId);
-      const results = observation.events.filter(e => e.type === 'tool/result').map(e => e.data.message);
+      const results = observation.events.filter(e => e.type === 'tool/result' && typeof e.surfaceOp !== 'object').map(e => e.data.message);
       expect(results, sessionId).toHaveLength(2);
       expect(results[0].isError ?? false).toBe(false);
       expect(results[1].isError).toBe(true);
@@ -172,7 +172,7 @@ it('still reviews and can deny a goal with native human source eligibility', asy
         source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: sessionId } });
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId, inputId: sessionId }) as { terminal?: unknown }).terminal).toBeTruthy();
       const observation = await client.rpc.request('session.observe', { sessionId }) as { events: any[] };
-      expect(observation.events.find(e => e.type === 'tool/result')?.data.message.isError).toBe(true);
+      expect(observation.events.find(e => e.type === 'tool/result' && typeof e.surfaceOp !== 'object')?.data.message.isError).toBe(true);
       expect(observation.events.some(e => e.type === 'goal/created')).toBe(false);
     }
     expect(requests).toEqual(['manual']);

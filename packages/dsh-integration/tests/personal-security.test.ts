@@ -58,7 +58,7 @@ ctx.on('llm/stream',async function*(o){
   }
   const observation=await client.rpc.request('session.observe',{sessionId:'root'}) as any;
   expect(observation.approvals.find((row:any)=>row.callId==='call-4')).toMatchObject({source:'product_disclosure_gate'});
-  const results=observation.events.filter((event:any)=>event.type==='tool/result').map((event:any)=>event.data.message);
+  const results=observation.events.filter((event:any)=>event.type==='tool/result' && typeof event.surfaceOp !== 'object').map((event:any)=>event.data.message);
   expect(sent,JSON.stringify(results)).toEqual(['CURRENT_OWNER_CHOICE chosen reservation','OWNER_REPRESENTATION']);expect(results[4].isError).not.toBe(true);expect(results[5].isError).toBe(true);expect(results[6].isError).toBe(true);expect(results[7].isError).toBe(true);expect(results[0].isError).not.toBe(true);expect(results[3].isError).toBe(true);expect(JSON.stringify(results[3])).toContain('Explicit restriction');expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBe(0);
   const mainInput=await readFile(join(home,'main-input.jsonl'),'utf8');
   expect(mainInput).toContain('Only Dreaming');
@@ -261,7 +261,7 @@ it('loads creation guidance on demand while preserving the actual serialized too
   expect(requests.slice(4).every(request=>!request.tools.some((tool:any)=>tool.name==='agent_creation'))).toBe(true);
   expect(calls).toHaveLength(2);
   const observation=await client.rpc.request('session.observe',{sessionId:'root'}) as any;
-  expect(observation.events.find((event:any)=>event.type==='tool/result'&&event.data.message.toolCallId==='call-4')?.data.message.isError).toBe(true);
+  expect(observation.events.find((event:any)=>event.type==='tool/result' && typeof event.surfaceOp !== 'object'&&event.data.message.toolCallId==='call-4')?.data.message.isError).toBe(true);
   await client.rpc.request('configuration.apply',{...config,revision:'3'});
   await submit('reopened');
   expect(requests).toHaveLength(8);

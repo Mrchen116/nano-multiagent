@@ -1,6 +1,7 @@
 import type {Context} from '@deepseek-ai/cordis';
 import type {Agent} from '@deepseek-ai/dsh-agent';
 import {freezeMessage,MessageId} from '@deepseek-ai/dsh-llm';
+import {stripContextItemId} from 'dsh-agent-context';
 import type {SessionBinding} from './index.js';
 import type {RpcPeer} from './rpc.js';
 interface Prepared {unavailable?:boolean;unavailableInputs?:{inputId:string;conversationId:string}[];messages:{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[];revoked:string[]}
@@ -15,7 +16,7 @@ export class TaskContextDriver {
         if(event.type==='turn/start')turn=event.data.turn;
         if(event.type==='turn/end')turn=undefined;
         return event.type==='user/message'&&event.data.source.kind==='nano-system'&&event.data.source.channel==='task-context'&&turn!==undefined
-          ? [{inputId:event.data.id,content:event.data.content,turn,consumedSeq:event.seq}]:[];
+          ? [{inputId:event.data.id,content:stripContextItemId(event.data.content),turn,consumedSeq:event.seq}]:[];
       });
     };
     const preparations=new WeakMap<Agent,{prepared:Prepared;consumed:Set<string>}>();

@@ -77,7 +77,7 @@ ctx.on('llm/stream',async function*(o){
     const descendants = await client!.rpc.request('session.descendants', { sessionId: 'root' }) as any[];
     for (const child of descendants) {
       expect(child.kind,JSON.stringify(child)).toBe('child');
-      const results = child.events.filter((event: any) => event.type === 'tool/result');
+      const results = child.events.filter((event: any) => event.type === 'tool/result' && typeof event.surfaceOp !== 'object');
       const continuable = child.events.find((event: any) => event.type === 'subagent/descriptor').data.mode === 'continuable';
       expect(results).toHaveLength(continuable ? (before.find(row => row.id === child.id)?.parent === 'root' ? 2 : 1) : 0);
       if (continuable) expect(results[0].data.message.isError, JSON.stringify(results[0].data.message)).not.toBe(true);
@@ -192,7 +192,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     await expect.poll(async()=>(await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[]).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
     const fork=wire.find(row=>row.fork)!;expect(fork.tools).toEqual(first.tools);expect(withoutCache(fork.system)).toEqual(withoutCache(first.system));
     const children=await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
-    expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result').every((event:any)=>!event.data.message.isError)).toBe(true);
+    expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result' && typeof event.surfaceOp !== 'object').every((event:any)=>!event.data.message.isError)).toBe(true);
     const beforeFirst=wire.filter(row=>row.id===first.id).length,beforeSecond=wire.filter(row=>row.id===second.id).length;
     await client!.shutdown();client=undefined;await start();
     await submit('resume-worker','resume:'+first.id);
@@ -243,7 +243,7 @@ yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'fini
     const children=await client.rpc.request('session.descendants',{sessionId:'root'}) as any[];
     await expect.poll(async()=>{
       const rows=await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
-      return rows[0]?.events.some((e:any)=>e.type==='tool/result'&&!e.data.message.isError);
+      return rows[0]?.events.some((e:any)=>e.type==='tool/result' && typeof e.surfaceOp !== 'object'&&!e.data.message.isError);
     }).toBe(true);
     expect(children).toHaveLength(1);
   } catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}

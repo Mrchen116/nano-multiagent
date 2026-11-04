@@ -51,7 +51,7 @@ export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async functi
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({method:tool,agentId:'allow',args});
     const denied=await client.rpc.request('session.observe',{sessionId:'deny'}) as {events:{type:string;data:any}[]};
-    expect(denied.events.some(event=>event.type==='tool/result'&&event.data.message.isError)).toBe(true);
+    expect(denied.events.some(event=>event.type==='tool/result' && typeof event.surfaceOp !== 'object'&&event.data.message.isError)).toBe(true);
     await client.shutdown();client=undefined;
   } catch(error) {throw new Error(`${error}\n${logs}`,{cause:error});}
   finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}

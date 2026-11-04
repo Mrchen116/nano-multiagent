@@ -244,7 +244,7 @@ export function apply(ctx) {
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: config.agentId, inputId: config.agentId }) as { terminal?: unknown }).terminal, { timeout: 10000 }).toBeTruthy();
       const reviews = (await reviewLog()).slice(prior);
       const observed = await client.rpc.request('session.observe', { sessionId: config.agentId }) as { events: { type: string; data: any }[]; approvals: { source: string }[] };
-      const results = observed.events.filter(event => event.type === 'tool/result');
+      const results = observed.events.filter(event => event.type === 'tool/result' && typeof event.surfaceOp !== 'object');
       expect(results).toHaveLength(calls.length);
       if (config.agentId === 'writes') expect(reviews.find(review=>review.name==='send_message')?.arguments.interactive).toEqual({source:'root = TextContent("Public card text")',format:'openui',catalog_version:'nano-iui-1'});
       if (['writes', 'dsh'].includes(config.agentId)) {

@@ -47,7 +47,7 @@ it('keeps maintenance out of agent discovery while preserving its cold trajector
     const listed=await client!.rpc.request('session.observe',{sessionId:binding.sessionId}) as typeof root;
     const call=listed.events.findLast(event=>event.type==='tool/call'&&event.data.name==='list_agents')!;
     expect(call).toBeDefined();
-    const result=listed.events.find(event=>event.type==='tool/result'&&event.data.message.toolCallId===call.data.callId)!;
+    const result=listed.events.find(event=>event.type==='tool/result' && typeof event.surfaceOp !== 'object'&&event.data.message.toolCallId===call.data.callId)!;
     expect(result.data.message.isError).not.toBe(true);
     expect(JSON.stringify(result.data.message.content)).toContain('(no subagents)');
     await client!.shutdown();client=undefined;await start();
