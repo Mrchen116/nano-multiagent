@@ -220,11 +220,8 @@ export function registerWorkflowTool(
     name: "nano-workflow",
     order: 805,
     text: ({ scope, agent }) =>
-      ctx.tools.get("workflow", scope)
-        ? instructions +
-          (agent
-            ? ` Size guideline: ${configuration(agent).workflow?.sizeGuideline ?? "medium"} (small: under 5 agents; medium: under 15; large: under 50; unrestricted: no size guidance). This is guidance, not an admission limit.`
-            : "")
+      ctx.tools.get("workflow", scope) && agent
+        ? `Workflow size guideline: ${configuration(agent).workflow?.sizeGuideline ?? "medium"} (small: under 5 agents; medium: under 15; large: under 50; unrestricted: no size guidance). This is guidance, not an admission limit.`
         : "",
   });
 }
