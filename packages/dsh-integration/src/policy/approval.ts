@@ -113,6 +113,7 @@ export class NanoApproval extends Service {
     if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
     // Source preferences use the original owner message and revision checked by the product host.
     if (config.personal && exec.name === 'personal_sources') return allow('owner_source_control');
+    if (config.personal && exec.name === 'agent_creation' && ['options','status'].includes(String((exec.arguments as {action?:unknown}).action))) return allow('owner_creation_query');
     if (policy.rules !== 'dsh' && (safeTools.has(exec.name)
       || exec.name === 'conversations' && ['list', 'info', 'read', 'search'].includes(String((exec.arguments as { action?: unknown }).action))
       || policy.enabled && (['schedule_list', 'schedule_history', 'get_goal', 'todo_write'].includes(exec.name)

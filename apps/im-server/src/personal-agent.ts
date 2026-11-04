@@ -2,7 +2,7 @@ import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
-import { lifecycle } from './agent-lifecycle.js';
+import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
 import { personalAgentDefaultInstructions } from './personal-agent-defaults.js';
 import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
@@ -13,6 +13,7 @@ import { conversationAccess } from './conversation-access.js';
 import { profileResponse } from './control.js';
 import { personalInputContext } from './personal-input-context.js';
 import { PersonalActions } from './personal-actions.js';
+import {PersonalAgentCreation} from './personal-agent-creation.js';
 
 // Both observation delivery and single-message access honor the current direct-contact block.
 const contactReadable = `(c.type='group' OR NOT EXISTS (
@@ -398,6 +399,15 @@ export class PersonalAgents {
     switch(type) {
       case 'pa.state': return this.state(b.owner_id);
       case 'pa.sources': return this.sources(principal,args);
+      case 'pa.agent.creation': {
+        const result=await new PersonalAgentCreation(this,()=>{
+          const current=this.authority(principal,args);
+          requireLifecycle(this.db,current.agent_id,args.lifecycle_revision);
+          this.ownerMessage(current,args.source_message_id);
+        }).handle(b,args);
+        this.authority(principal,args);
+        return result;
+      }
       case 'pa.authorization': return this.authorization(principal,args);
       case 'pa.runtime.status':
         if(typeof args.available!=='boolean')fail(422,'runtime_availability_required');
@@ -449,7 +459,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const resolved=await ctx.gateway.request(b.node_id,'node.capabilities.resolve',{});
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
-        const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.default_on||tool.name==='send_message').map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'personal_sources'])];
+        const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.default_on||tool.name==='send_message').map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'personal_sources','agent_creation'])];
         let candidate={agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,custom_prompt:personalAgentDefaultInstructions,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         await ops.create(candidate,u.owner_id,b.node_id);

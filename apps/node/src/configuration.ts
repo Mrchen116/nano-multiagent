@@ -1,5 +1,5 @@
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
-import {builtinSkillsRoot} from '@nano/personal-assistant';
+import {builtinSkillsRoot, personalSkillsRoot} from '@nano/personal-assistant';
 import { readFileSync } from 'node:fs';
 import { readFile, open, rename, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -109,6 +109,7 @@ export class NodeConfiguration {
         { path: join(homedir(), '.agents', 'skills'), source: 'global' },
         ...['.claude', '.codex'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'compat' })),
         {path:builtinSkillsRoot, source:'builtin'},
+        ...(canonical.personal_agent ? [{path:personalSkillsRoot, source:'builtin'}] : []),
       ],
     };
   }

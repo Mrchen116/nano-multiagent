@@ -467,6 +467,14 @@ CREATE TABLE IF NOT EXISTS pa_policies (
  revision INTEGER NOT NULL DEFAULT 1,
  excluded_json TEXT NOT NULL DEFAULT '[]', disclosure_revision INTEGER NOT NULL DEFAULT 0
 );
+-- PA request identity points to the existing configuration operation; it owns no apply state.
+CREATE TABLE IF NOT EXISTS pa_agent_creations (
+ binding_id TEXT NOT NULL REFERENCES personal_agent_bindings(binding_id),
+ request_key TEXT NOT NULL, node_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+ operation_id TEXT NOT NULL UNIQUE, source_message_id TEXT NOT NULL,
+ configuration_json TEXT NOT NULL, created_at TEXT NOT NULL,
+ PRIMARY KEY(binding_id,request_key)
+);
 CREATE TABLE IF NOT EXISTS conversation_participation_history (
  conversation_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY(conversation_id,user_id)
 );
