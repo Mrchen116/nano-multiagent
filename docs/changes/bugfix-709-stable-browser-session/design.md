@@ -26,4 +26,8 @@ logoutBrowser 与原 logout 复用同一撤销事务，删除会话 ticket。成
 
 隔离 IM 与专用测试账号足以验证本次身份协议，不启动 Agent/模型服务。原生语义由真实 HTTP JSON 接口验证，不变更 iOS UI。独立 code-review/verifier 核对协议及 delta；独立产品 reviewer 验证浏览器旅程。成功日志不作为所有历史掉线触发条件已确认的证据。
 
+## 关键决策
+
+稳定凭据在浏览器自动续期时不轮换。程序客户端维持一次性轮换。完整 delta 见 specs/im/auth-tenancy.md。
+
 ## Changelog
