@@ -66,3 +66,44 @@
 
 - R1-W1 accepted：按实际 safeBoundary 配对代码，原生替换不属于新完成。design 决策 5 及 M1 增加最小 Nano 修复与正反回归；不改变来源权限或证据编号。
 - R1-W2 accepted：按已安装 token-meter 的 signed shadow-price fold，design 可复用能力与风险/M1 明确同步相邻 compaction/prune + replacement，并测量 delta/replay。
+
+## Round 2
+
+### Metadata
+
+- reviewer: 独立 design reviewer `/root/design_review_711`；与 Round 1 相同，非 author。
+- target: Nano `a8387ed7b` 对 R1-W1 / R1-W2 的设计修订与 Author Resolutions。
+- review_mode: delta。
+- mode_reason: 修订限于原生 replacement 的计量协议、Nano 历史配对消费者及对应 M1 窄回归；新增一个明确的 integration 修改落点，因此除问题关闭外核对其影响。用户需求、编号算法、公开接口、单 milestone 的目标/依赖和真实模型验收策略均未改变，不需要重开 full。
+- agent_context_mode: Mode A；复查来源冻结边界和预算投影更新两条链路。
+- started_at: 2026-11-05T00:03:38+08:00。
+- completed_at: 2026-11-05T00:03:44+08:00。
+- duration: 6 秒；本轮复查复用 R1 的 API/源码证据。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R1-W1、R1-W2 已在设计层关闭。此结论允许按修订方案实施，不代表实现、计量重放或真实模型长任务已经验收。
+
+### Coverage 与证据
+
+- retained_from: Round 1。短编号与首次交付、History 原文及窗口归属、createHistoryView seq、来源与授权、guidance/预算语义、产品组装、隔离验收与非生产部署边界未改，沿用 R1 full 覆盖。
+- 独立检查 `git diff eef6c91c5 a8387ed7b -- design.md`：只有原生计价说明、safeBoundary 落点、相关风险和同一 M1 范围/窄回归发生实质变化，没有偷偷变更编号规则或缩减验收。
+- 复核当前 `memory-source-view.ts:58-69`，当前问题确仍需要实施修复；方案选择跳过合法原生 replacement、保留真正未配对 append 的阻断，准确作用于问题来源，不放宽业务来源或时间边界。该函数仍由现有 MemorySources/source_history 切片链路复用，没有新增旁路。
+- 复核安装的 `dsh-token-meter/lib/index.js:301-335`：相邻匹配范围 claim 才执行 signed delta。方案现在明确使用当前投影消息的 estimator 价格与紧邻同步追加的原生事件对，和现有 pruner 协议一致；新增标记增加 token 同样可表示，不需要第二套预算补偿。
+- M1 增加的验证分别守护“后续完成步骤能推进 / 真正未配对 append 仍阻断”以及“标记 signed token delta / 重放一致”，同时保留原文恢复、预算简洁、最终实际请求和真实模型任务退出标准。未把未完成的功能验证推迟到生产。
+- 限制：本轮只审设计 delta；没有新实现，未宣称新增回归已通过。R1 的可选契约 Scenario 格式建议仍可在实施归并前处理，不构成设计阻断。
+
+### 历史问题闭环
+
+- **R1-W1 — closed（设计层）**。Author Resolution 接受并修改决定 5：明确 safeBoundary 忽略合法 tool/result surface replace、继续后续步骤、真正未配对 append 仍阻断；M1 范围列出该文件与正反回归。已消除“仅升级插件即可、Nano 业务源码无须改”的错误实施方向。
+- **R1-W2 — closed（设计层）**。Author Resolution 接受并在可复用能力中明确 `compaction/prune` 计价事件与 replacement 同步相邻、旧价取当前投影消息；风险与 M1 明确增量与 replay 一致性。已消除“重新 measure 自动修正”的错误前提。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增建议；R1-R1 保留为归并前的非阻断格式建议。
