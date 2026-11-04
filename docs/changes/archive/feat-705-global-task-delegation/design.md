@@ -195,3 +195,12 @@ flowchart LR
 ## IM 角色身份措辞校正（2026-11-04）
 
 用户指出 `main coordinator and sole user-facing contact` 容易被理解为所有聊天／外部参与者的统筹者。改为对外单一且负责的 Agent：与人和其他 IM Agent 平等协作，对自身接受的工作和沟通负责；worker 仅属其内部执行方式。该身份边界写在根指导开头，去掉重复的外部 Agent 非下属句，不新增对外 router 身份；一级的父级通信边界仍只指内部层级。
+
+## 按消费者装载来源与交互指导（2026-11-04）
+
+- 通用来源说明移除 PA 主人观察协议；原文单独由 personal-security 的个人角色 section 注入，PA 根／一级仍能解释主人和观察关系，普通二级原有过滤有效。一级使用短的委派来源边界，保留原授权范围、撤回／更正和工具／子消息不产生新授权；宿主审核提示与权限逻辑不改。
+- GlobalMode 根据可信配置 personal 布尔值投影 Inbox 的 review／message_id 和 conversations 的主人字段说明；普通根不再声明不可用的 PA 复核操作。pa_agent_id 对普通 Global 识别其他 PA 的代表发送仍有意义，保留通用来源归属。
+- 通用主指导移除重复 PA 代发和 Heartbeat 协议句。PA 表达规则继续由个人角色 section 提供；Heartbeat quiet 协议只在启用该 Feature 的主会话装载，不注入一级。
+- Global／PA 一级的 Intelligent UI 指导只说明按需加载 Skill、准备内容并回传父级，不重复用户聊天、ComposeMessage／ToAssistant 和背景交互流程；SingleThread 及主会话原有交互指导保持。
+
+更新既有 Global／PA HTTP wire 矩阵，直接核各层可见协议字段、根工具 schema 和一级 UI 工作范围；实际模型采样再核全组合。未因本次反馈改造子执行、取消、Task 或审核机制。

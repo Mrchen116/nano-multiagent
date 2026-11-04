@@ -22,6 +22,12 @@
 - **THEN** 按该层职责恢复实际工作能力与上下文，原执行者身份和已有工作保留；主会话 fork 开关不撤销一级的原生 fork 能力。
 - **AND** 共享 Feature、Skill 与扩展的选择、撤回和权限继续生效；不将其他特定范围的子任务自动升级为完整工作执行者。
 
+#### Scenario: 按消费者角色加载指导
+- **WHEN** 装配普通 Global、PA 及其内部执行者的模型请求
+- **THEN** 主人身份、participant／observer 和代表主人等 PA 专属说明只给 PA 根或适用的 PA 一级；普通 Global 及其一级不携带它们，普通二级继续不注入 Nano 指导。
+- **AND** 普通 Global 的 Inbox 只声明 check／read；review 和 message_id 仅声明给主 PA，实际权限检查仍由宿主执行。通用 pa_agent_id 来源归属仍适用于与 PA 的平等协作。
+- **AND** 一级只获得委派来源的最小授权边界和准备交互产物后回传父级的说明，不复制主会话的 Inbox／聊天交互操作流程；详细 UI 用法按需加载。Heartbeat 协议仅由已启用 Feature 向主会话提供，不进入内部执行者。
+
 ### Requirement: 主会话 fork 默认关闭，可按现有工具规则开启
 
 #### Scenario: 新建和无显式工具选择

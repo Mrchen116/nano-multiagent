@@ -164,7 +164,20 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     const submit=(inputId:string,text:string)=>client!.rpc.request('session.submit',{sessionId:'root',inputId,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});
     await submit('delegate','Do one complete task');
     await expect.poll(()=>wire.some(row=>row.depth===1)).toBe(true);
+    const root=wire.find(row=>row.depth===0)!;
+    for(const row of [root,wire.find(row=>row.depth===1)!]){
+      const system=JSON.stringify(row.system);
+      expect(system.includes('sender.is_owner')).toBe(personal);
+      expect(system.includes('delivery=observer')).toBe(personal);
+    }
+    const inbox=root.tools.find(tool=>tool.name==='inbox');
+    expect(inbox.parameters.properties.action.enum.includes('review')).toBe(personal);
+    expect('message_id' in inbox.parameters.properties).toBe(personal);
     const first=wire.find(row=>row.depth===1)!;
+    expect(JSON.stringify(first.system)).not.toContain('ComposeMessage adopts');
+    expect(JSON.stringify(first.system)).toContain('nano-interactive-ui');
+    expect(JSON.stringify(root.system)).toContain('HEARTBEAT_OK');
+    expect(JSON.stringify(first.system)).not.toContain('HEARTBEAT_OK');
     expect(first.tools.map(tool=>tool.name)).toEqual(expect.arrayContaining(['read','write','bash','subagent','subagent_fork','send_message','list_agents','interrupt_agent']));
     await expect.poll(()=>wire.some(row=>row.depth===2&&!row.fork)).toBe(true);
     const second=wire.find(row=>row.depth===2&&!row.fork)!;

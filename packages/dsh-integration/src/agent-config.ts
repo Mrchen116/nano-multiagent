@@ -123,7 +123,7 @@ export class ConfigurationScopes extends Service {
     const scope: PresetScope = { agentId, ctx, features: new Map() };
     this.presets.add(scope); ctx.effect(() => () => { this.presets.delete(scope); });
     // Product chat tools must not be inherited through the shared Global preset.
-    if (config.mode !== 'global') await ctx.plugin(GlobalMode, { mode: config.mode }).await();
+    if (config.mode !== 'global') await ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
     await ctx.inject(['tools', 'nanoProduct', 'nanoKnowledge', 'skills'], child => {
       TaskGraphs.registerTool(child, agent => this.forAgent(agent)); MemoryCuration.registerTool(child); SkillCreation.registerTool(child); child.nanoKnowledge.documents.registerTool(child);
     }).await();
@@ -169,7 +169,7 @@ export class ConfigurationScopes extends Service {
     if (config.systemPrompt && !internal) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
     if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork');
-    else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode }).await();
+    else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
     if (config.personal && !internal) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
     await agent.ctx.plugin(ContextOrder).await();

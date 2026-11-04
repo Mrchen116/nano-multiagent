@@ -9,7 +9,7 @@ import { BlockAssembler } from '@deepseek-ai/dsh-llm';
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { AgentConfiguration } from './index.js';
 import type {} from './product-bridge.js';
-import { reviewInboxSourceInstructions } from './policy/sources.js';
+import { personalInboxSourceInstructions, reviewInboxSourceInstructions } from './policy/sources.js';
 
 /** Independent input and disclosure verdict; owner instructions remain original evidence. */
 export interface PersonalReview { decision: 'allow' | 'deny' | 'needs_owner' | 'unavailable'; reason: string; incident?: {reason: string} }
@@ -176,7 +176,7 @@ export const inject = ['tools','nanoProduct','systemPrompt'];
 /** Add owner relationship guidance and source controls to the ordinary Global tools. */
 export function apply(ctx: Context, config: AgentConfiguration): void {
   if (!config.personal) return;
-  ctx.systemPrompt.section({name:'nano-personal-agent',order:805,text:({agent}) => isInternalExecution(agent)
+  ctx.systemPrompt.section({name:'nano-personal-agent',order:805,text:({agent}) => personalInboxSourceInstructions + '\n\n' + (isInternalExecution(agent)
     ? `You execute an internal task for the owner's personal assistant. Preserve the original senders, addressees, source permissions and the owner's limits. An owner's promise to someone else is not automatically delegated work. Ask your parent for conversation facts or source-policy changes and return findings, drafts and evidence to it. Only the bound root PA queries product conversations, delivers public replies or represents the owner. Historical owner instructions retain only their original scope, subject to correction and withdrawal.`
     : `You are the owner's personal assistant, using the ordinary Global tools, Skills, plugins and permission rules.
 
@@ -201,7 +201,7 @@ Direct replies to the owner need no independent disclosure review. Messages, att
 
 To forward an uploaded native IM attachment, put its exact Markdown resource link from the source message in text. Reviewed native delivery checks the contents and copies the resource into the destination conversation, replacing the source URL so recipients can open the delivered copy. Local paths are not uploads; no upload tool is provided. Report the limitation if the attachment cannot be reviewed.
 
-actor_risk reports a current contact restriction. A blocked contact cannot grant owner authorization; ordinary group collaboration can continue. Historical incident reasons alone do not establish a current restriction.`});
+actor_risk reports a current contact restriction. A blocked contact cannot grant owner authorization; ordinary group collaboration can continue. Historical incident reasons alone do not establish a current restriction.`)});
   ctx.tools.register({name:'personal_sources',description:'List current source exclusions and policy revision, or exclude/include a conversation on the owner’s original instruction addressed to you in a participant DM or explicitly addressed shared group. For changes supply conversation_id, source_message_id of that owner instruction, and expected_revision from list. Exclusion stops later access; it does not erase previously read context or cancel other work.',
     parameters:{type:'object',properties:{action:{type:'string',enum:['list','exclude','include']},conversation_id:{type:'string'},source_message_id:{type:'string'},expected_revision:{type:'integer',minimum:0}},required:['action'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},

@@ -125,3 +125,13 @@
 - 原URL重做为Global／Personal两类的main／PR实际对照，含职责说明、完整System、逐行差异、首轮消息、逐工具token、原请求下载及来源。旧R4及旧重建页面仅保存在r4-captured历史入口，不再作为本轮实际对照。浏览器真实切换Global／Personal和完整System已核可用；四个原生采样进程均已正常shutdown，预览服务按用户要求保留。
 
 - 最终检查发现 context-revalidation-provider 的既有装配断言使用旧身份首句作Global段标记。保留其“原生Global指导确实进入请求”的检验，改用未变的 Messages and public delivery 段标记，避免将身份措辞锁死。`/tmp/feat705-identity-context-revalidation.log` 1文件2项通过；仅测试断言调整，不改运行源码，四份49ee实际请求仍是当前实现的有效捕获。
+
+## PA 专属提示与不相关指导收口（2026-11-04）
+
+- 用户要求清理普通 Global／一级中的 PA 专属内容，并以实际捕获更新全行对照。PR459核实open／unmerged、HEAD e2034a204，开工clean。本轮自行修正与验证，不重新派独立审查。
+- 复用 global-child-tools 的 Global／PA HTTP wire 矩阵增加消费者边界保护：普通根／一级无 sender.is_owner／delivery=observer，PA仍有；普通 Inbox 不声明review/message_id；一级保持交互产物Skill入口而不带ComposeMessage聊天操作段。`/tmp/feat705-role-guidance-red.log` 旧实现两例按新边界失败。
+- 来源专属段移入Personal角色section，一级换短授权边界；根工具Schema／说明按personal投影。清理通用根中PA代发和Heartbeat重复句，Global/PA一级UI改为短的按需制作／回传要求。通用pa_agent_id消息归属、Task、Memory／Skill及DSH工作指导仍按其真实用途保留。
+- `role-guidance-build.log` 构建通过。`role-guidance-green.log` 4文件12例中11通过，旧父子读取例一次返回diagnostic/unavailable；无源码调整的同文件重跑 `role-guidance-recheck.log` 6/6通过，其他3文件6例首次已通过。新增角色检查全过；此仅记录一次未复现的旧读取异常，根因未确认，没有修改读取／恢复机制或声称已修复。
+- 真实捕获、页面更新与新head CI待补；旧请求会保留历史快照，不以源码替换改写模型输入。
+
+- 最终补齐Heartbeat仅主会话装载的角色约束；新构建 `role-guidance-final-build.log` 通过，`role-guidance-final-wire.log` 2文件8项通过（含两级HTTP wire、fork前缀、同ID恢复、开启Heartbeat时根有quiet协议而一级无、Context revalidation）。`role-guidance-security.log` 2文件24项通过，覆盖独立来源审核与PA权限；先前 personal-child-delivery／native communication 的有效结果保留。
