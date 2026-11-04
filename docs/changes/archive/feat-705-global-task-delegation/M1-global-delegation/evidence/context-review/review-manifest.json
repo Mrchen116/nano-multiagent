@@ -1,0 +1,98 @@
+[
+  {
+    "role": "global",
+    "version": "main",
+    "review_file": "global/main.system.review.txt",
+    "line_count": 124,
+    "original_system_sha256": "076a1cd6df5e6200f0990bfa94cc745d73b8528092c03ce60ad8e7b3627e60f7",
+    "review_system_sha256": "17e372e8abec03828c71d6ee244902e8330be3666f3636928445d701855496cb"
+  },
+  {
+    "role": "global",
+    "version": "pr",
+    "review_file": "global/pr.system.review.txt",
+    "line_count": 118,
+    "original_system_sha256": "bb001a1d76d785db2017b93e259006d27eb9f713303e54d1b0f0820d128b778f",
+    "review_system_sha256": "d0c3cfd2e51ec6d9ad5a0d1ce90945c499c7b53ebd8a9ee8f77904a8b1eb4038"
+  },
+  {
+    "role": "global-l1",
+    "version": "main",
+    "review_file": "global-l1/main.system.review.txt",
+    "line_count": 75,
+    "original_system_sha256": "7c968b4e0106f37cd1fd1b254ab4c7af7c68577886cedbd45f0d51fda387d2e5",
+    "review_system_sha256": "7c968b4e0106f37cd1fd1b254ab4c7af7c68577886cedbd45f0d51fda387d2e5"
+  },
+  {
+    "role": "global-l1",
+    "version": "pr",
+    "review_file": "global-l1/pr.system.review.txt",
+    "line_count": 47,
+    "original_system_sha256": "621a451ddc5adeaaf5b747ae48662f7db388b341fa098102bfd1cf558aba565e",
+    "review_system_sha256": "621a451ddc5adeaaf5b747ae48662f7db388b341fa098102bfd1cf558aba565e"
+  },
+  {
+    "role": "global-l2",
+    "version": "main",
+    "review_file": "global-l2/main.system.review.txt",
+    "line_count": 75,
+    "original_system_sha256": "7c968b4e0106f37cd1fd1b254ab4c7af7c68577886cedbd45f0d51fda387d2e5",
+    "review_system_sha256": "7c968b4e0106f37cd1fd1b254ab4c7af7c68577886cedbd45f0d51fda387d2e5"
+  },
+  {
+    "role": "global-l2",
+    "version": "pr",
+    "review_file": "global-l2/pr.system.review.txt",
+    "line_count": 30,
+    "original_system_sha256": "833dac3cfb2c8037100533f3be4c091e128957c66412cd6f08ab612ec89a76b5",
+    "review_system_sha256": "833dac3cfb2c8037100533f3be4c091e128957c66412cd6f08ab612ec89a76b5"
+  },
+  {
+    "role": "personal",
+    "version": "main",
+    "review_file": "personal/main.system.review.txt",
+    "line_count": 148,
+    "original_system_sha256": "013080058956c57a6f066edc462808bea9023555caf7f204aca9e41667414992",
+    "review_system_sha256": "013080058956c57a6f066edc462808bea9023555caf7f204aca9e41667414992"
+  },
+  {
+    "role": "personal",
+    "version": "pr",
+    "review_file": "personal/pr.system.review.txt",
+    "line_count": 146,
+    "original_system_sha256": "2991da1dd1b9e8d89cad1f1bf00935292bf6a8cea53acc9fdb8f834d8401ae99",
+    "review_system_sha256": "2991da1dd1b9e8d89cad1f1bf00935292bf6a8cea53acc9fdb8f834d8401ae99"
+  },
+  {
+    "role": "personal-l1",
+    "version": "main",
+    "review_file": "personal-l1/main.system.review.txt",
+    "line_count": 77,
+    "original_system_sha256": "9b2db7813e6f63a6eec096f4d55c66fff334504b03ac31c0b63b7645ee2c43f0",
+    "review_system_sha256": "9b2db7813e6f63a6eec096f4d55c66fff334504b03ac31c0b63b7645ee2c43f0"
+  },
+  {
+    "role": "personal-l1",
+    "version": "pr",
+    "review_file": "personal-l1/pr.system.review.txt",
+    "line_count": 51,
+    "original_system_sha256": "01ccb8532dbcd6c9bd162ebf3668b3358288f29b795aa129657bc275f7ac23b9",
+    "review_system_sha256": "01ccb8532dbcd6c9bd162ebf3668b3358288f29b795aa129657bc275f7ac23b9"
+  },
+  {
+    "role": "personal-l2",
+    "version": "main",
+    "review_file": "personal-l2/main.system.review.txt",
+    "line_count": 77,
+    "original_system_sha256": "9b2db7813e6f63a6eec096f4d55c66fff334504b03ac31c0b63b7645ee2c43f0",
+    "review_system_sha256": "9b2db7813e6f63a6eec096f4d55c66fff334504b03ac31c0b63b7645ee2c43f0"
+  },
+  {
+    "role": "personal-l2",
+    "version": "pr",
+    "review_file": "personal-l2/pr.system.review.txt",
+    "line_count": 30,
+    "original_system_sha256": "833dac3cfb2c8037100533f3be4c091e128957c66412cd6f08ab612ec89a76b5",
+    "review_system_sha256": "833dac3cfb2c8037100533f3be4c091e128957c66412cd6f08ab612ec89a76b5"
+  }
+]

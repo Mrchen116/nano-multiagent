@@ -1,0 +1,326 @@
+{
+  "main-global": {
+    "system": 3785,
+    "instructions": 6,
+    "tools": 9294,
+    "tool_count": 36,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 492
+      },
+      {
+        "role": "user",
+        "tokens": 1770
+      },
+      {
+        "role": "user",
+        "tokens": 43
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2401,
+    "individual_tool_sum": 9327,
+    "total": 15486
+  },
+  "main-global-l1": {
+    "system": 2274,
+    "instructions": 6,
+    "tools": 8201,
+    "tool_count": 32,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 562
+      },
+      {
+        "role": "user",
+        "tokens": 1770
+      },
+      {
+        "role": "user",
+        "tokens": 168
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2596,
+    "individual_tool_sum": 8230,
+    "total": 13077
+  },
+  "main-global-l2": {
+    "system": 2274,
+    "instructions": 6,
+    "tools": 8201,
+    "tool_count": 32,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 560
+      },
+      {
+        "role": "user",
+        "tokens": 1770
+      },
+      {
+        "role": "user",
+        "tokens": 172
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2598,
+    "individual_tool_sum": 8230,
+    "total": 13079
+  },
+  "main-personal": {
+    "system": 4560,
+    "instructions": 6,
+    "tools": 9866,
+    "tool_count": 39,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 489
+      },
+      {
+        "role": "user",
+        "tokens": 1831
+      },
+      {
+        "role": "user",
+        "tokens": 43
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2459,
+    "individual_tool_sum": 9902,
+    "total": 16891
+  },
+  "main-personal-l1": {
+    "system": 2373,
+    "instructions": 6,
+    "tools": 8201,
+    "tool_count": 32,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 553
+      },
+      {
+        "role": "user",
+        "tokens": 1831
+      },
+      {
+        "role": "user",
+        "tokens": 172
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2652,
+    "individual_tool_sum": 8230,
+    "total": 13232
+  },
+  "main-personal-l2": {
+    "system": 2373,
+    "instructions": 6,
+    "tools": 8201,
+    "tool_count": 32,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 555
+      },
+      {
+        "role": "user",
+        "tokens": 1831
+      },
+      {
+        "role": "user",
+        "tokens": 172
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2654,
+    "individual_tool_sum": 8230,
+    "total": 13234
+  },
+  "pr-global-l2": {
+    "system": 672,
+    "instructions": 6,
+    "tools": 7515,
+    "tool_count": 30,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 202
+      },
+      {
+        "role": "user",
+        "tokens": 1770
+      },
+      {
+        "role": "user",
+        "tokens": 172
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2240,
+    "individual_tool_sum": 7542,
+    "total": 10433
+  },
+  "pr-personal-l2": {
+    "system": 672,
+    "instructions": 6,
+    "tools": 7515,
+    "tool_count": 30,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 196
+      },
+      {
+        "role": "user",
+        "tokens": 1831
+      },
+      {
+        "role": "user",
+        "tokens": 170
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2293,
+    "individual_tool_sum": 7542,
+    "total": 10486
+  },
+  "pr-global-l1": {
+    "system": 1016,
+    "instructions": 6,
+    "tools": 7515,
+    "tool_count": 30,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 562
+      },
+      {
+        "role": "user",
+        "tokens": 1770
+      },
+      {
+        "role": "user",
+        "tokens": 166
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2594,
+    "individual_tool_sum": 7542,
+    "total": 11131
+  },
+  "pr-personal-l1": {
+    "system": 1198,
+    "instructions": 6,
+    "tools": 7515,
+    "tool_count": 30,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 553
+      },
+      {
+        "role": "user",
+        "tokens": 1831
+      },
+      {
+        "role": "user",
+        "tokens": 174
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2654,
+    "individual_tool_sum": 7542,
+    "total": 11373
+  },
+  "pr-global": {
+    "system": 3146,
+    "instructions": 6,
+    "tools": 9257,
+    "tool_count": 36,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 494
+      },
+      {
+        "role": "user",
+        "tokens": 1770
+      },
+      {
+        "role": "user",
+        "tokens": 43
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2403,
+    "individual_tool_sum": 9290,
+    "total": 14812
+  },
+  "pr-personal": {
+    "system": 3928,
+    "instructions": 6,
+    "tools": 9866,
+    "tool_count": 39,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 481
+      },
+      {
+        "role": "user",
+        "tokens": 1831
+      },
+      {
+        "role": "user",
+        "tokens": 43
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2451,
+    "individual_tool_sum": 9902,
+    "total": 16251
+  }
+}

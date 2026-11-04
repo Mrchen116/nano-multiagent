@@ -1,0 +1,211 @@
+{
+  "summary": {
+    "system": 672,
+    "instructions": 6,
+    "tools": 7515,
+    "tool_count": 30,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 202
+      },
+      {
+        "role": "user",
+        "tokens": 1770
+      },
+      {
+        "role": "user",
+        "tokens": 172
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2240,
+    "individual_tool_sum": 7542,
+    "total": 10433
+  },
+  "tools": [
+    {
+      "name": "task_graph",
+      "description": 77,
+      "parameters": 1492,
+      "total": 1587
+    },
+    {
+      "name": "schedule_create",
+      "description": 79,
+      "parameters": 518,
+      "total": 615
+    },
+    {
+      "name": "schedule_update",
+      "description": 42,
+      "parameters": 502,
+      "total": 562
+    },
+    {
+      "name": "notes",
+      "description": 185,
+      "parameters": 306,
+      "total": 508
+    },
+    {
+      "name": "bash",
+      "description": 172,
+      "parameters": 293,
+      "total": 482
+    },
+    {
+      "name": "history",
+      "description": 155,
+      "parameters": 308,
+      "total": 480
+    },
+    {
+      "name": "skill_manage",
+      "description": 186,
+      "parameters": 229,
+      "total": 438
+    },
+    {
+      "name": "edit",
+      "description": 13,
+      "parameters": 213,
+      "total": 243
+    },
+    {
+      "name": "subagent_fork",
+      "description": 87,
+      "parameters": 113,
+      "total": 220
+    },
+    {
+      "name": "subagent",
+      "description": 88,
+      "parameters": 102,
+      "total": 208
+    },
+    {
+      "name": "todo_write",
+      "description": 68,
+      "parameters": 107,
+      "total": 193
+    },
+    {
+      "name": "memory_maintenance",
+      "description": 130,
+      "parameters": 37,
+      "total": 186
+    },
+    {
+      "name": "write",
+      "description": 11,
+      "parameters": 155,
+      "total": 183
+    },
+    {
+      "name": "glob",
+      "description": 46,
+      "parameters": 108,
+      "total": 171
+    },
+    {
+      "name": "grep",
+      "description": 40,
+      "parameters": 103,
+      "total": 160
+    },
+    {
+      "name": "list_agents",
+      "description": 57,
+      "parameters": 70,
+      "total": 145
+    },
+    {
+      "name": "job_output",
+      "description": 24,
+      "parameters": 94,
+      "total": 136
+    },
+    {
+      "name": "send_message",
+      "description": 37,
+      "parameters": 65,
+      "total": 120
+    },
+    {
+      "name": "read",
+      "description": 14,
+      "parameters": 76,
+      "total": 107
+    },
+    {
+      "name": "interrupt_agent",
+      "description": 40,
+      "parameters": 40,
+      "total": 98
+    },
+    {
+      "name": "web_fetch",
+      "description": 27,
+      "parameters": 47,
+      "total": 92
+    },
+    {
+      "name": "read_image",
+      "description": 36,
+      "parameters": 35,
+      "total": 89
+    },
+    {
+      "name": "job_kill",
+      "description": 8,
+      "parameters": 58,
+      "total": 85
+    },
+    {
+      "name": "get_context_remaining",
+      "description": 31,
+      "parameters": 29,
+      "total": 79
+    },
+    {
+      "name": "skill",
+      "description": 28,
+      "parameters": 31,
+      "total": 76
+    },
+    {
+      "name": "web_search",
+      "description": 19,
+      "parameters": 39,
+      "total": 76
+    },
+    {
+      "name": "schedule_delete",
+      "description": 25,
+      "parameters": 25,
+      "total": 68
+    },
+    {
+      "name": "job_list",
+      "description": 18,
+      "parameters": 12,
+      "total": 48
+    },
+    {
+      "name": "new_context",
+      "description": 18,
+      "parameters": 12,
+      "total": 48
+    },
+    {
+      "name": "schedule_list",
+      "description": 9,
+      "parameters": 12,
+      "total": 39
+    }
+  ]
+}

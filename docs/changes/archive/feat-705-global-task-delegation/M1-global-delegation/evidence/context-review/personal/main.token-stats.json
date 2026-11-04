@@ -1,0 +1,265 @@
+{
+  "summary": {
+    "system": 4560,
+    "instructions": 6,
+    "tools": 9866,
+    "tool_count": 39,
+    "messages": [
+      {
+        "role": "user",
+        "tokens": 489
+      },
+      {
+        "role": "user",
+        "tokens": 1831
+      },
+      {
+        "role": "user",
+        "tokens": 43
+      },
+      {
+        "role": "user",
+        "tokens": 96
+      }
+    ],
+    "initial_messages": 2459,
+    "individual_tool_sum": 9902,
+    "total": 16891
+  },
+  "tools": [
+    {
+      "name": "task_graph",
+      "description": 77,
+      "parameters": 1492,
+      "total": 1587
+    },
+    {
+      "name": "conversations",
+      "description": 136,
+      "parameters": 465,
+      "total": 619
+    },
+    {
+      "name": "schedule_create",
+      "description": 79,
+      "parameters": 518,
+      "total": 615
+    },
+    {
+      "name": "schedule_update",
+      "description": 42,
+      "parameters": 502,
+      "total": 562
+    },
+    {
+      "name": "notes",
+      "description": 185,
+      "parameters": 306,
+      "total": 508
+    },
+    {
+      "name": "workflow",
+      "description": 302,
+      "parameters": 165,
+      "total": 484
+    },
+    {
+      "name": "bash",
+      "description": 172,
+      "parameters": 293,
+      "total": 482
+    },
+    {
+      "name": "history",
+      "description": 155,
+      "parameters": 308,
+      "total": 480
+    },
+    {
+      "name": "skill_manage",
+      "description": 186,
+      "parameters": 229,
+      "total": 438
+    },
+    {
+      "name": "send_message",
+      "description": 101,
+      "parameters": 237,
+      "total": 356
+    },
+    {
+      "name": "plugin_manager",
+      "description": 208,
+      "parameters": 88,
+      "total": 314
+    },
+    {
+      "name": "send_user_message",
+      "description": 50,
+      "parameters": 226,
+      "total": 295
+    },
+    {
+      "name": "edit",
+      "description": 13,
+      "parameters": 213,
+      "total": 243
+    },
+    {
+      "name": "subagent",
+      "description": 88,
+      "parameters": 102,
+      "total": 208
+    },
+    {
+      "name": "todo_write",
+      "description": 68,
+      "parameters": 107,
+      "total": 193
+    },
+    {
+      "name": "memory_maintenance",
+      "description": 130,
+      "parameters": 37,
+      "total": 186
+    },
+    {
+      "name": "write",
+      "description": 11,
+      "parameters": 155,
+      "total": 183
+    },
+    {
+      "name": "glob",
+      "description": 46,
+      "parameters": 108,
+      "total": 171
+    },
+    {
+      "name": "grep",
+      "description": 40,
+      "parameters": 103,
+      "total": 160
+    },
+    {
+      "name": "list_agents",
+      "description": 57,
+      "parameters": 70,
+      "total": 145
+    },
+    {
+      "name": "personal_sources",
+      "description": 70,
+      "parameters": 57,
+      "total": 145
+    },
+    {
+      "name": "job_output",
+      "description": 24,
+      "parameters": 94,
+      "total": 136
+    },
+    {
+      "name": "agent_creation",
+      "description": 52,
+      "parameters": 65,
+      "total": 135
+    },
+    {
+      "name": "inbox",
+      "description": 40,
+      "parameters": 65,
+      "total": 123
+    },
+    {
+      "name": "exit_plan_mode",
+      "description": 54,
+      "parameters": 37,
+      "total": 110
+    },
+    {
+      "name": "read",
+      "description": 14,
+      "parameters": 76,
+      "total": 107
+    },
+    {
+      "name": "interrupt_agent",
+      "description": 40,
+      "parameters": 40,
+      "total": 98
+    },
+    {
+      "name": "web_fetch",
+      "description": 27,
+      "parameters": 47,
+      "total": 92
+    },
+    {
+      "name": "read_image",
+      "description": 36,
+      "parameters": 35,
+      "total": 89
+    },
+    {
+      "name": "job_kill",
+      "description": 8,
+      "parameters": 58,
+      "total": 85
+    },
+    {
+      "name": "get_context_remaining",
+      "description": 31,
+      "parameters": 29,
+      "total": 79
+    },
+    {
+      "name": "skill",
+      "description": 28,
+      "parameters": 31,
+      "total": 76
+    },
+    {
+      "name": "web_search",
+      "description": 19,
+      "parameters": 39,
+      "total": 76
+    },
+    {
+      "name": "schedule_delete",
+      "description": 25,
+      "parameters": 25,
+      "total": 68
+    },
+    {
+      "name": "schedule_run",
+      "description": 25,
+      "parameters": 19,
+      "total": 62
+    },
+    {
+      "name": "schedule_history",
+      "description": 20,
+      "parameters": 19,
+      "total": 57
+    },
+    {
+      "name": "job_list",
+      "description": 18,
+      "parameters": 12,
+      "total": 48
+    },
+    {
+      "name": "new_context",
+      "description": 18,
+      "parameters": 12,
+      "total": 48
+    },
+    {
+      "name": "schedule_list",
+      "description": 9,
+      "parameters": 12,
+      "total": 39
+    }
+  ]
+}

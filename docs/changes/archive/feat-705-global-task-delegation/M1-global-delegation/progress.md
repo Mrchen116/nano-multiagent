@@ -247,3 +247,10 @@
 - dreaming-agent 传入既有角色标识，不增加 Persona 输入或主 System 继承；长期定位输入缺口由 Issue #465 后续考虑。本次更新 provenance 记录与角色化整理契约。
 - dsh-integration build 通过。与变更前HEAD的生成提示逐字比较确认 PA 完全相同，专家差异仅为已确认替换。复用 dreaming-runtime 两个手动用例（专家／PA），在原生 llm/stream 的最终 messages 上断言只包含相应角色反思及共同规则；2项通过、4项未运行，日志/tmp/feat705-dreaming-role-tests.log。此为受控运行 fixture，不是外部真实模型行为验收。
 - docs_check通过。Global／PA 主会话和普通一级／二级上下文未受影响，保留原实际捕获对照页与原始证据；未重跑根会话采样或完整行为验收。原预览服务和轨迹保留。
+
+
+## 2026-11-04：对照网页纳入 unit 提交
+
+- 此前commit仅包含实施和验证记录，网页本体保存在仓外及本地dist；经用户要求，补充[可离线审阅副本](evidence/context-review/README.md)。包含六组main／PR主／子级对照、所有System行、空行与未改行、工具及token统计和初始消息审阅内容。
+- 本机路径前缀脱敏，原始请求日志、截图和历史页面不入Git；原始哈希及各份捕获版本保留，审阅清单另记脱敏前后System哈希和相同行数。当前根快照为4fe6ab6e5，后续Dreaming专项修改不影响本页六组主／子级上下文。
+- 确认所有页面相对链接与资源存在、十二份System行数不变、对照表行和完整文本面板未删除；对提交副本执行凭据模式扫描。原实时对照页和原轨迹保持。
