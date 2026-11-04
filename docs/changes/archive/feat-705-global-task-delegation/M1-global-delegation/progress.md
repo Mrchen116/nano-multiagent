@@ -123,3 +123,5 @@
 - 同角色workspace、AGENTS、模型、输入和工具／Feature显式选择固定；Global保持E Persona，Personal默认Persona按各版本实际模块加载。只使用对应版本打包Skill，不读私人全局扩展；Task宿主为空闲，产品写入拒绝。原始动态时间和ID不归一化，已有PA Persona与原IM聊天轨迹不改；采样不等于新的IM自然交办验收。
 - 实际完整System：Global3785→3870 tokens，Personal4560→4552；工具分别36／39，两侧保持。采样整体分别15487→15568、16884→16880；与原R4的18701是不同动态消息／AGENTS配置，不能把总量差异全算作压缩收益。
 - 原URL重做为Global／Personal两类的main／PR实际对照，含职责说明、完整System、逐行差异、首轮消息、逐工具token、原请求下载及来源。旧R4及旧重建页面仅保存在r4-captured历史入口，不再作为本轮实际对照。浏览器真实切换Global／Personal和完整System已核可用；四个原生采样进程均已正常shutdown，预览服务按用户要求保留。
+
+- 最终检查发现 context-revalidation-provider 的既有装配断言使用旧身份首句作Global段标记。保留其“原生Global指导确实进入请求”的检验，改用未变的 Messages and public delivery 段标记，避免将身份措辞锁死。`/tmp/feat705-identity-context-revalidation.log` 1文件2项通过；仅测试断言调整，不改运行源码，四份49ee实际请求仍是当前实现的有效捕获。
