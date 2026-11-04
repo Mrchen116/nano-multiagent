@@ -213,3 +213,11 @@
 - 运行源码4bb470e11；构建、`pa-memory-mode-tests.log`同一窄用例及文档／diff检查通过。配置回调读取当前配置，实测legacy→document切换无需新增模式状态或推断逻辑。未重开全量或iOS验收。
 - `pa-memory-mode-tree-manifest.json`仅重捕获受影响PA根的一份真实首次provider/upstream请求，实际turn/end并正常shutdown；其余11份原始main／PR请求保留各自版本、时间、哈希和父子信息。真实PA System只有Only Dreaming路径，无In document mode／In legacy mode或legacy-memory guidance分支；共同来源和即时停止使用要求保留。PA System4157→4143 tokens，其余5个PR层级逐字不变。
 - 全行diff可还原两侧完整原文，当前HTTP页面展示4bb470，旧页和原请求保存在pa-memory-mode-before。预览Node正常重载；没有改变用户选择的实际记忆模式、持久记忆内容或权限机制，原聊天／Persona／轨迹保留。
+
+
+## 2026-11-04：去掉重复的 Workflow 常驻用法
+
+- 按用户确认，仅从 System 中移除与 workflow 工具描述重复的通用启动规则、JavaScript 原语、预算、并发和恢复说明；完整用法仍由工具描述提供。当前配置的 Workflow 规模提示和 Ultracode 开启提醒保留。未调整 Task 或 Skill 选择规则。
+- 运行源码 `852cd7ac5`；dsh-integration build 与 workflow-native 回归（1 文件／1 测试）通过，日志 `/tmp/feat705-workflow-dedup-build.log`、`/tmp/feat705-workflow-dedup-tests.log`。
+- `workflow-dedup-tree-manifest.json` 仅重新捕获 Global／PA 两份根会话实际首次 provider/upstream 请求，均实际 turn/end 后正常 shutdown，无业务任务或 IM 外发。main 与全部一级／二级请求保留原有版本、时间、哈希和父子信息，不拼成新执行链。工具定义与此前逐字一致，重复操作说明不再出现于 System，配置规模提示保留。
+- 已更新实际捕获对照页，逐行保留空行和未变行；Global 根 System 3380→3079、PA 根 4143→3842 tokens，各减少301（o200k_base估算）。此前页面及请求保存在 workflow-dedup-before。没有重跑自然任务验收；用户要求保留的预览服务和原轨迹继续保留。
