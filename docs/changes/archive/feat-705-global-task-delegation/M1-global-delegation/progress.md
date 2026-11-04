@@ -109,3 +109,9 @@
 
 - `/tmp/feat705-concise-im-build.log` 和 `concise-pa-tests.log`：IM构建及2文件30项PA创建／默认／不回填回归通过。PA新建默认419→205 tokens。
 - 原上下文对照页面保留R4真实捕获，新增精简版源码及明确标记的同配置System重建下载，不覆盖旧请求或将其冒充新真实模型运行。最终System重建估算为3851 tokens（原4284）；完整工具／消息部分未因本轮文字精简改变。
+
+## 对外角色措辞与新对照页（2026-11-04）
+
+- 用户明确外部身份是一个负责的 IM Agent，与人和其他 IM Agent 平等协作；内部委派不使主会话成为所有聊天的总负责人。根开头移除 main coordinator／sole user-facing contact，改为同一对外角色及自身接受事项的责任；current／delta 用同一句边界，Requirement 数不变。
+- 调整后的 root 完整指导797 tokens（改前main712；上轮长版1211），协调正文208；一级100；PA新建默认205。`/tmp/feat705-identity-build.log` 构建及 `identity-tests.log` 2文件9项原生wire／恢复／通信通过，不冒称新增真实模型自主旅程。
+- 用户要求现有对照URL改为最新main与PR，并加入Personal Agent；main重新fetch仍为90ef。对照页会清楚区分原始真实捕获与两侧源码重建，并分别展示新建PA默认说明与既有Persona不回填。
