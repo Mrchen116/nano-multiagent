@@ -19,6 +19,11 @@ import { Worker } from "node:worker_threads";
 import { createRequire } from "node:module";
 
 type Row = Record<string, any>;
+/** Keep browser sessions separate when isolated IMs share a hostname on different ports. */
+export function browserSessionCookieName(publicUrl: string): string {
+  const port = new URL(publicUrl).port;
+  return port ? `im_refresh_${port}` : "im_refresh";
+}
 export type User = Row & {
   id: string;
   owner_id: string;

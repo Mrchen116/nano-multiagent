@@ -11,7 +11,7 @@ import { registerOnboardingRoutes } from "./onboarding.js";
 import { defaultReleaseDirectory, registerInstallRoutes } from "./install.js";
 import { registerNodeUpdateRoutes } from './node-updates.js';
 import { openDatabase } from "./db.js";
-import { createIdentity } from "./identity.js";
+import { browserSessionCookieName, createIdentity } from "./identity.js";
 import { registerIdentityRoutes } from "./identity-routes.js";
 import { Gateway, registerSockets } from "./gateway.js";
 import { registerTrajectorySockets } from './trajectory.js';
@@ -324,7 +324,8 @@ export async function createServer(options: ServerOptions = {}) {
       if (existsSync(index)) {
         reply.header('Cache-Control','private, no-store').header('Vary','Cookie');
         const agentPage = /^\/settings\/agents\/([^/]+)$/.exec(path);
-        const cookie = req.headers.cookie?.split(';').map(value=>value.trim()).find(value=>value.startsWith('im_refresh='))?.slice('im_refresh='.length);
+        const cookiePrefix = `${browserSessionCookieName(publicUrl!)}=`;
+        const cookie = req.headers.cookie?.split(';').map(value=>value.trim()).find(value=>value.startsWith(cookiePrefix))?.slice(cookiePrefix.length);
         if (agentPage && cookie) {
           try {
             const session = ctx.identity.browserSession(cookie);

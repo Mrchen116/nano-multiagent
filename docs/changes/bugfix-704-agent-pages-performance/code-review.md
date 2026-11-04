@@ -1,5 +1,9 @@
 # 快修代码审查
 
+## 原域名不同端口试用补充审查（2026-11-04）
+
+独立 reviewer 对 `928e89c41` 后端口 Cookie 命名、登录/refresh/logout/HTML bootstrap 使用及对应回归执行 patch 审查，并核对 Mini 的本地 HTTP/WS 分流脚本，结论 `[]`。默认端口保持原名，8443 使用独立名称；未发现明确破坏正式 443 请求的缺陷。实际原 Tunnel 下仍有显著性能等待，功能审查不等于性能达标，见 [快修记录](fast-mode-evidence.md#原域名与原命名-tunnel-纠正2026-11-04)。
+
 审查范围：以 `50f19d16d` 为基线的本任务实现和测试；不包含并行的 feat-705 文档。独立 reviewer：Codex `gpt-6.1-sol/high`。
 
 首次 full 审查确认：跨原生 frame 停止拉取可能使 DSH 上游订阅队列无界增长；摘要缺少后台结果的标题分类。修订后恢复跨 frame 队列满时的中断保护，补充真实摘要分类字段；closure 核实两项关闭。单个大 frame 内等待的上游既有限制仍在 [快修记录](fast-mode-evidence.md) 明列。

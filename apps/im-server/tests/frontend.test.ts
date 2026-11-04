@@ -28,15 +28,22 @@ it("never caches the frontend entrypoint on direct or SPA routes", async () => {
   }
 });
 
-it('bootstraps agent HTML with a current cookie session without rotating it or exposing refresh credentials',async()=>{
+it.each([
+  ['https://nano.example', 'im_refresh', 'im_refresh_8443'],
+  ['https://nano.example:8443', 'im_refresh_8443', 'im_refresh'],
+])('bootstraps agent HTML with its own cookie session at %s without rotating it or exposing refresh credentials',async(publicUrl, cookieName, otherCookieName)=>{
   const dir=mkdtempSync(join(tmpdir(),'nano-page-bootstrap-'));
   writeFileSync(join(dir,'index.html'),'<html><body><div id="root"></div></body></html>');
-  const app=await createServer({dbPath:join(dir,'im.sqlite3'),publicUrl:'https://nano.example',frontendDistDir:dir});
-  const headers={'x-im-session':'browser',origin:'https://nano.example'};
+  const app=await createServer({dbPath:join(dir,'im.sqlite3'),publicUrl,frontendDistDir:dir});
+  const headers={'x-im-session':'browser',origin:publicUrl};
   try {
     const registered=await app.inject({method:'POST',url:'/im/v1/auth/register',headers,payload:{username:'bootstrap-user',password:'password-123',display_name:'</script><img src=x>'}});
     expect(registered.statusCode).toBe(201);
     const cookie=String(registered.headers['set-cookie']).split(';')[0]!;
+    expect(cookie).toMatch(new RegExp(`^${cookieName}=`));
+    const wrongCookie=cookie.replace(`${cookieName}=`, `${otherCookieName}=`);
+    expect((await app.inject({url:'/settings/agents/missing',headers:{cookie:wrongCookie}})).body).not.toContain('nano-page-bootstrap');
+    expect((await app.inject({method:'POST',url:'/im/v1/auth/refresh',headers:{...headers,cookie:wrongCookie},payload:{}})).statusCode).toBe(401);
     const page=await app.inject({url:'/settings/agents/missing?view=work',headers:{cookie}});
     expect(page.headers['cache-control']).toContain('no-store');
     expect(page.headers.vary).toBe('Cookie');
@@ -51,6 +58,10 @@ it('bootstraps agent HTML with a current cookie session without rotating it or e
     expect((await app.inject({url:'/settings/agents/missing'})).body).not.toContain('nano-page-bootstrap');
     const refreshed=await app.inject({method:'POST',url:'/im/v1/auth/refresh',headers:{...headers,cookie},payload:{}});
     expect(refreshed.statusCode).toBe(200);
+    const refreshedCookie=String(refreshed.headers['set-cookie']).split(';')[0]!;
+    const loggedOut=await app.inject({method:'POST',url:'/im/v1/auth/logout',headers:{...headers,cookie:refreshedCookie},payload:{}});
+    expect(loggedOut.statusCode).toBe(200);
+    expect(loggedOut.headers['set-cookie']).toContain(`${cookieName}=; Max-Age=0;`);
     expect((await app.inject({url:'/settings/agents/missing',headers:{cookie}})).body).not.toContain('nano-page-bootstrap');
   } finally {await app.close();rmSync(dir,{recursive:true,force:true});}
 });
