@@ -78,6 +78,8 @@ flowchart LR
 
 `restrictSelection`、配置预览、History 配置恢复和 capability reservation 必须使用同一角色语义：主会话取消普通工具不撤销一级的 DSH 工作默认能力，也不把一级正在使用该能力误判成根选择不可保存的依赖；真正共享的 Feature、Skill、扩展或权限撤回仍按既有保护生效。占用仍按实际调用记账，不删除或重建子会话。无需公开 role 字段或另存工具名单。
 
+历史恢复的通用授权提醒沿用上下文组件的换窗提示；主会话与一级不另加同义常驻段。Task 控制来源及独立审批器的取证规则仍由各自消费者持有。
+
 **一级补工作职责，二级普通 subagent 不注入额外身份。** DSH 的工作指导与原生委派机制是底层；Nano 的自定义职责只写在根和一级各自局部 scope，不进入共享 preset 的可继承产品 Prompt。二级不注册 `nano-product-identity`、`nano-global-child`、`nano-inbox-source`、根 Persona、PA／Task／Heartbeat 等产品系统段，不追加“你是某数字人的内部员工”一类身份。权限检查仍由宿主按真实 lineage 执行，不能用删 Prompt 代替访问控制。
 
 **fork 开关只改变主会话可调用工具，不追加流程。** Node 创建目录和 integration 根默认选择均将 subagent_fork 默认关闭；显式名单优先，旧名单不重写，新增／撤回走原生生效规则。只有 Global／PA 根的默认集合变化；此前已确认的新建 SingleThread 主会话也使用这一默认值。一级按 DSH 工作配置可用 fork；不被根的默认关闭集合命中。不改变 Goal 集合或其指导。不开启 fork 专属系统段、主会话清理轮次或取消算法。

@@ -26,7 +26,7 @@
 - **WHEN** 装配普通 Global、PA 及其内部执行者的模型请求
 - **THEN** 主人身份、participant／observer 和代表主人等 PA 专属说明只给 PA 根或适用的 PA 一级；普通 Global 及其一级不携带它们，普通二级继续不注入 Nano 指导。
 - **AND** 普通 Global 的 Inbox 只声明 check／read；review 和 message_id 仅声明给主 PA，实际权限检查仍由宿主执行。通用 pa_agent_id 来源归属仍适用于与 PA 的平等协作。
-- **AND** 一级只获得委派来源的最小授权边界和准备交互产物后回传父级的说明，不复制主会话的 Inbox／聊天交互操作流程；详细 UI 用法按需加载。Heartbeat 协议仅由已启用 Feature 向主会话提供，不进入内部执行者。
+- **AND** 一级只获得委派来源的最小授权边界和准备交互产物后回传父级的说明，不复制主会话的 Inbox／聊天交互操作流程；详细 UI 用法按需加载。Heartbeat 协议仅由已启用 Feature 向主会话提供，不进入内部执行者。 历史恢复不产生新授权的通用提醒由上下文组件在换窗时提供，主会话和一级不重复常驻注入。
 
 ### Requirement: 主会话 fork 默认关闭，可按现有工具规则开启
 
