@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authFetch } from '../../auth/auth-fetch';
+import { takePageRead } from '../../auth/page-bootstrap';
 import { withBase } from '../../auth/auth-api';
 import { useAuthStore } from '../../auth/auth-store';
 import { tr } from './agent-work-text';
@@ -89,9 +90,15 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
     };
     window.addEventListener('message', receive);
     void (async () => {
-      const response = await authFetch('/im/v1/auth/ws-ticket', { method: 'POST', body: '{}', credentials: 'include' });
-      if (!response.ok) throw new Error(`无法建立轨迹连接 (${response.status})`);
-      const { ticket } = await response.json() as { ticket: string };
+      const path = `/im/v1/agents/${encodeURIComponent(agentId)}/trajectory/prepare`;
+      const cached = takePageRead(`${path}?session_id=${encodeURIComponent(sessionId)}`, useAuthStore.getState().accessToken);
+      let prepared = cached ? await cached.json() as { ticket: string; expires_at: number } : undefined;
+      if (!prepared || !(prepared.expires_at > Date.now())) {
+        const response = await authFetch(path, { method: 'POST', body: JSON.stringify({ session_id: sessionId }) });
+        if (!response.ok) throw new Error(`无法建立轨迹连接 (${response.status})`);
+        prepared = await response.json() as { ticket: string; expires_at: number };
+      }
+      const { ticket } = prepared;
       if (disposed) return;
       const url = new URL(withBase('/im/ws/agent-trajectory'), location.href);
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';

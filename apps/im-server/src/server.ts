@@ -334,7 +334,15 @@ export async function createServer(options: ServerOptions = {}) {
             // Reuse the actual API authorization and projections. Only local,
             // saved reads belong in HTML; node inspection stays asynchronous.
             const responses = await Promise.all(urls.map(url=>app.inject({url,headers:{authorization:`Bearer ${session.access_token}`}})));
-            const data = Object.fromEntries(responses.flatMap((response,index)=>response.statusCode===200 ? [[urls[index],response.json()]] : []));
+            const data: Row = Object.fromEntries(responses.flatMap((response,index)=>response.statusCode===200 ? [[urls[index],response.json()]] : []));
+            const search = new URL(req.url, publicUrl).searchParams;
+            const work = data[`${base}/work?view=summary`];
+            const selected = search.get('execution') || work?.main_session_id;
+            if (search.get('work_view') === 'trajectory' && typeof selected === 'string' && work) {
+              const prepared = await app.inject({ method: 'POST', url: `${base}/trajectory/prepare`,
+                headers: { authorization: `Bearer ${session.access_token}` }, payload: { session_id: selected } });
+              if (prepared.statusCode === 200) data[`${base}/trajectory/prepare?session_id=${encodeURIComponent(selected)}`] = prepared.json();
+            }
             ctx.identity.decode(cookie,'refresh');
             const bootstrap = JSON.stringify({session,data}).replace(/</g,'\\u003c');
             return reply.type('text/html').send(readFileSync(index,'utf8').replace('<div id="root">',`<script id="nano-page-bootstrap" type="application/json">${bootstrap}</script><div id="root">`));

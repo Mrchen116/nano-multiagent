@@ -25,3 +25,8 @@
 独立 reviewer 对 `2f6dded9d` 之后的工作树增量执行 patch 审查：查看器静态预加载与初始化并行、构建内嵌 manifest、只读 carrier opt-in initialBatch（IM/Node 转发、原生首批获取和前端消费）及其测试，结论 `[]`。追加审查实时 user stream 取票显式 JSON body 的单行改动，结论 `[]`。该改动由真实拓扑中空 POST 415 / JSON POST 200 的对照触发。
 
 前端首次用根目录 runner 执行时 matcher 来自另一依赖实例，出现 Invalid Chai property；改用前端自身 runner 后 44 项通过。Node 全包类型检查另有未修改的 `main.ts:347` FeishuConnection 类型不匹配，不能写成全包通过；本轮修改的 Node trajectory 单文件严格类型检查通过。其余具体检查和页面样本见快修记录。
+
+
+## 连接准备并行审查
+
+对 `a29bce53c` 之后的源码增量执行独立 patch 审查（同一 Codex reviewer）。确认 HTML 后 JS 超过 15 秒才消费缓存时会取到已失效 ticket；修订为服务端 deadline 同源 `expires_at`、客户端过期重新 prepare，新增前端回归。closure 确认 closed，结论 `[]`。错误目标的 Node 清理由默认正常关闭码改为 1008。服务端后续真实进程覆盖双方到达次序、一次性能力、错误范围、未接入超时、HTML 提前建链及退出撤销，全部通过。性能对照及仍存限制见快修记录。
