@@ -101,7 +101,7 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 | 健康恢复 | supervisor 每 5 秒检查配置和 IPv6 en0 路由；路径漂移则停止子进程，路径恢复后自动启动。`/ready` 连续失败 30 秒则重建 cloudflared；检查、终止及重新握手另需时间 |
 | Tunnel gate | `~/.nanoassistant/bin/prod-tunnel.py --ready` 检查启动条件；无该参数时核对 live 子 PID、metrics listener、四个已建立的 IPv6 TCP `7844` edge socket、HA=4、连接端点签名稳定，并验证公网 TLS/200 |
 | Tunnel 路径 | HTTP2 / IPv6，经 Mini `en0`；部署前执行已安装脚本的 `--ready`，普通服务部署采样 `--seconds 30`，路径、协议或恢复机制变更及故障恢复才采样 600 秒 |
-| ingress | `im.nanoim.win` → `http://127.0.0.1:51130` 本地端口分流，默认入口仍到 `8011`；`:8443` 到隔离测试 `51129`，最后兜底 404；临时路由及回收见下节 |
+| ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 `http_status:404`；无常驻试用分流器 |
 | HTTPS 强制规则 | Cloudflare Single Redirect `IM — Force HTTPS`：仅该主机 HTTP → HTTPS，308，保留路径/query/请求方法 |
 | 日志 | Mini `~/.nanoassistant/public-im.log`、`~/.nanoassistant/public-tunnel.log` |
 
@@ -111,11 +111,9 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 
 ### 原域名隔离试用端口
 
-2026-11-04 按用户明确要求，临时保留 `https://im.nanoim.win:8443` 供 bugfix-704 性能修复试用，与默认 `443` 共用上述原命名 Tunnel、HTTP2/IPv6 en0 出口。cloudflared ingress 不按主机端口匹配，本地 `127.0.0.1:51130` 依据保留的 Host 分流 HTTP/WS：`im.nanoim.win:8443` 到隔离 IM `51129`，其余到原生产 `8011`。两个入口的 HTML 哈希已分别与各自本机源站核对；正式 IM 进程、签名密钥和数据库未替换。两个入口都额外经过一次本地代理，后续性能对照须保持这一路由一致。
+2026-11-04 bugfix-704 完成并部署后，用户明确要求结束试用。已仅将 ingress 恢复到正式 `127.0.0.1:8011`，保留 HTTP2/IPv6、原 Tunnel 身份及 supervisor；原 LaunchAgent 重连并通过 30 秒门禁后，停止隔离 IM/Gateway、卸载 `perf704-port-router` LaunchAgent，核实 `51129`/`51130` 无监听。`:8443` 不再提供该隔离试用服务；这不代表关闭 Cloudflare 支持的边缘 HTTPS 端口。历史实验见 [bugfix-704 记录](../changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md)，其中当时的临时路径不再是当前运行入口。
 
-分流器为 Mini `~/.nanoassistant/perf704-preview/port-router.cjs`，由 KeepAlive LaunchAgent `io.github.mrchen116.nano-multiagent.perf704-port-router` 管理；原 Tunnel 仍由原 supervisor 管理。隔离 IM 使用独立账户、数据库、节点和工作区；非默认端口的浏览器 Cookie 单独命名为 `im_refresh_8443`，防止同主机默认入口的 Cookie 被覆盖。测试口令不使用公共 E2E 默认值，不写入仓库。
-
-试用结束须先把 `~/.cloudflared/nano-im-public.yml` 恢复到 `~/.nanoassistant/perf704-preview/original-tunnel.yml`（仅 ingress 回到 `8011`），由原 LaunchAgent 重连 Tunnel，核对默认入口和 30 秒健康门禁后，才停止并卸载分流器；不能先关分流器，否则默认入口也会中断。随后停止本任务隔离 IM/Gateway，核实端口释放，删除本节临时拓扑并恢复上表的直接 ingress。试用期间不能按一般测试清理提前停止这些服务。
+以后只有用户明确要求时才建立临时试用路由，保持独立身份、数据和 Cookie。回收时只恢复 ingress，不能整份覆盖可能含旧协议的历史 YAML；先核对正式入口和对应健康门禁，再卸载分流器与停止隔离服务。
 
 ### Tunnel 验收分级
 
