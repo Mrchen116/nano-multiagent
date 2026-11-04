@@ -1,0 +1,2 @@
+# Unified diff context markers preserve a leading space on empty lines.
+*/system.review.diff -whitespace
