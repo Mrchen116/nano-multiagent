@@ -159,3 +159,7 @@
 
 - 用户确认删除 Scheduled and manually triggered saved tasks 开头的整个System段，不换短版。删除 nano-cron section 及其不再使用的systemPrompt依赖；保留DSH原生Schedule工具、到期消息、Nano手动run/history工具说明和现有来源／审批机制。只改变工作模型常驻文案，不调整Task或Schedule业务状态。
 - 不新增文案快照测试；复用Cron生命周期、原生父子上下文wire及fork前缀检查。重新捕获PR两种Agent三层请求，沿用main原始请求并保留版本和时间，更新全行对照。
+- 运行源码冻结360ddf6e5。`/tmp/feat705-cron-prompt-build.log`构建通过；`cron-prompt-tests.log`3文件11项通过（Cron生命周期及崩溃投递证据、Global／PA两级原生wire及接续、fork前缀）；文档／归档与diff检查通过。
+- `cron-prompt-tree-manifest.json`保留main0287088be六份原始请求，PR六份首次真实请求按360dd重新捕获；两条链均实际turn/end并正常shutdown。全行diff逐份能还原两边全文、空行与未改动行。当前页面及HTTP实际响应展示360dd，旧页与原请求保存在cron-prompt-before。
+- System实际估算：Global根3727→3671、一级1186→1130；PA根4492→4436、一级1368→1312；两种二级仍672。当前PR六份System均无被删除Cron段。本次为受控实际上下文采样，不冒称新自然任务验收。预览Node正常restart，原IM／代理、聊天、Persona及轨迹保留。
+- 用户随后要求逐句讨论拒绝后处理段；此轮未修改该段，分开评估通用安全原则、必要用户通知与Nano公开发送拒绝后的澄清语义，不因上游有近似表达就整体删除。
