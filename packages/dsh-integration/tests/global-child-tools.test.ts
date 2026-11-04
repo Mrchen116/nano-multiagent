@@ -28,7 +28,7 @@ ctx.on('llm/stream',async function*(o){
  await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({id:agent.id,parent:agent.session.header.parentSession,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork',tools:o.tools,schemas:ctx.tools.schemas(agent),system:o.messages.filter(m=>m.role==='system'||m.role==='developer')})+'\\n');
  const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
  const key=agent.id+':'+(user?.id??'child');const fresh=!seen.has(key);seen.add(key);
- const text=user?.content.filter(b=>b.type==='text').map(b=>b.text).join('')??'';
+ const text=user?.content.find(b=>b.type==='text')?.text??'';
  let calls=[];
  if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[['send_message',{agent_id:text.slice(7),message:'Resume original work'}]]:[['subagent',{prompt:'Prepare findings',description:'Continuable work',run_in_background:true}],['subagent_fork',{prompt:'Check findings independently',description:'Fork work',run_in_background:false}]];
  if(fresh&&agent.id!=='root'&&agent.session.snapshotEvents().find(e=>e.type==='subagent/descriptor')?.data.mode==='continuable'){calls=[['send_message',{agent_id:agent.session.header.parentSession,message:'Findings ready for the parent to deliver'}]];if(agent.session.header.parentSession==='root')calls.push(['subagent',{prompt:'Verify one independent fact',description:'Second level',run_in_background:true}]);}
@@ -217,7 +217,7 @@ it('withdraws a root tool while its worker keeps the native capability and the r
 export const name='worker-selection';export const inject=['llm','agents','tools'];
 export function apply(ctx){let release;const gate=new Promise(resolve=>release=resolve);const seen=new Set();
 ctx.on('tools/pre-execute',async(exec,next)=>{const decision=await next();if(exec.name==='read'&&exec.agent?.session.header.origin==='subagent'){exec.signal.addEventListener('abort',release,{once:true});await writeFile(process.env.DSH_HOME+'/child-reading','yes');await gate;}return decision;});
-ctx.on('llm/stream',async function*(o){const agent=ctx.agents.get(o.sessionId);const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);const text=user?.content?.map(b=>b.text??'').join('')??'';
+ctx.on('llm/stream',async function*(o){const agent=ctx.agents.get(o.sessionId);const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);const text=user?.content?.find(b=>b.type==='text')?.text??'';
 if(agent.id==='root'&&text==='release'){release();await writeFile(process.env.DSH_HOME+'/root-received','yes');}
 const fresh=!seen.has(agent.id);seen.add(agent.id);let calls=[];
 if(fresh&&agent.id==='root')calls=[['subagent',{prompt:'Read the workspace instructions and return findings',description:'one complete task',run_in_background:true}]];
