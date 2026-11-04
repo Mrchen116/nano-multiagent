@@ -185,17 +185,13 @@ export class ConfigurationInspector {
     } finally {
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
-      let cleanupStage = 'terminate_worker';
       try {
         if (worker) await terminateWorker(worker);
-        cleanupStage = 'remove_home';
         if (home) await rm(home, {recursive:true,force:true});
         this.log('cleanup.done', {...trace,elapsed_ms:Date.now()-started});
-      } catch (error) {
+      } catch {
         failure = this.cleanupError = cleanupFailed();
-        this.log('cleanup.error', {...trace,inspection_home:home,
-          cleanup_stage:(error as {cleanupStage?:string}).cleanupStage ?? cleanupStage,
-          error_code:(error as NodeJS.ErrnoException).code ?? null});
+        this.log('cleanup.error', {...trace,inspection_home:home});
       }
       const elapsed = Date.now()-started;
       const outcome = failure instanceof InspectionError && failure.code === 'catalog_timeout' ? 'timeout'
@@ -251,7 +247,7 @@ async function terminateWorker(worker: RuntimeClient): Promise<void> {
   // group owned by this ChildProcess even when the leader has already exited.
   await delay(150);
   killGroup(worker.process.pid, 'SIGKILL');
-  if (!await Promise.race([worker.exited.then(()=>true), delay(500).then(()=>false)])) throw Object.assign(cleanupFailed(),{cleanupStage:'wait_for_worker_exit'});
+  if (!await Promise.race([worker.exited.then(()=>true), delay(500).then(()=>false)])) throw cleanupFailed();
   await waitForGroupExit(worker.process.pid);
 }
 async function groupAlive(pid: number): Promise<boolean> {
@@ -266,7 +262,7 @@ async function waitForGroupExit(pid: number): Promise<void> {
     if (!await groupAlive(pid)) return;
     await delay(50);
   }
-  throw Object.assign(cleanupFailed(),{cleanupStage:'wait_for_group_exit'});
+  throw cleanupFailed();
 }
 async function processInfo(pid: number): Promise<string | undefined> {
   try {

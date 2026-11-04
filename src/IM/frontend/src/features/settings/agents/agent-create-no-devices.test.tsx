@@ -11,7 +11,10 @@ vi.mock("./im-agent-config-api", async importOriginal => ({
   ...await importOriginal<typeof import("./im-agent-config-api")>(),
   ...api,
 }));
-vi.mock("./public-agents", () => ({ listPublicAgents: async () => [] }));
+vi.mock("../../chat/contacts-api", async importOriginal => ({
+  ...await importOriginal<typeof import("../../chat/contacts-api")>(),
+  listContacts: async () => [],
+}));
 
 function renderCreate() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

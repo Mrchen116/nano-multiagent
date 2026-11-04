@@ -12,7 +12,6 @@ import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar"
 import { AgentDetailPage } from "./agent-detail-page";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import { AgentWorkPanel } from "./agent-work-panel";
-import { workBase, workRequest, type WorkView } from "./agent-work-api";
 
 /** Public profile and Work never load another person's writable configuration. */
 export function AgentProfilePage() {
@@ -27,17 +26,6 @@ export function AgentProfilePage() {
   const workRequested = params.get("view") === "work";
   const [detailsOpened, setDetailsOpened] = useState(!workRequested);
   useEffect(() => { if (!workRequested) setDetailsOpened(true); }, [workRequested]);
-  useEffect(() => {
-    if (!workRequested || !agentId) return;
-    // Work has its own server authorization and does not depend on an editable
-    // configuration or a successful node capability inspection.
-    void client.prefetchInfiniteQuery({
-      queryKey: ["agent-work", agentId, "main"], initialPageParam: "",
-      staleTime: 1000,
-      queryFn: ({pageParam, signal}) => workRequest<WorkView>(`${workBase(agentId)}?view=summary${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ''}`, signal),
-      getNextPageParam: (page: WorkView) => page.next_cursor ?? undefined,
-    });
-  }, [agentId, workRequested, client]);
   const query = useQuery({ queryKey: ["contacts", self, "agents"], queryFn: () => listContacts("", "agent"), refetchInterval: 3000 });
   const agent = query.data?.find(a => a.agent_id === agentId);
   const send = useMutation({ mutationFn: () => createConversation({ type: "direct", title: agent!.display_name, participants: [contactActor(agent!)] }), onSuccess: async chat => { await client.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate(`/chat/${chat.id}`); } });

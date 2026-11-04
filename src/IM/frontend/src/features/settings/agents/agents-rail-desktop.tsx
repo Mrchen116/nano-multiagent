@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "../../../i18n";
 import { AgentLifecycleRow as AgentRow } from "./agent-lifecycle";
 import { PersonalAgentEntry, configuredPersonalAgent, usePersonalAgentEntry } from "./personal-agent-entry";
+import { publicAgentsFromContacts } from "./public-agents";
 import {listContacts} from '../../chat/contacts-api';
 import { useAuthStore } from "../../auth/auth-store";
 
@@ -20,8 +21,7 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
   const { t } = useTranslation();
   const self = useAuthStore(s => s.user?.id);
   const query = useQuery({ queryKey: ["contacts", self, "agents"], queryFn: () => listContacts('', 'agent'),
-    select: contacts => contacts.map(c => ({agent_id:c.agent_id!,user_id:c.user_id,display_name:c.display_name,
-      description:c.owner_display_name ?? '',owner_id:c.owner_id,node_name:c.node_name,node_status:c.status,work_mode:c.work_mode,role:c.role})),
+    select: publicAgentsFromContacts,
     refetchInterval: 3000, staleTime: 30_000 });
   const [search, setSearch] = useState("");
   const agents = query.data ?? [];

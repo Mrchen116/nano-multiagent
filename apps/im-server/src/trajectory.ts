@@ -6,10 +6,6 @@ import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, TrajectoryValueDecoder, ty
 import { one, body, params, fail, type ImContext, type Row } from './context.js';
 import type { Connection } from './gateway.js';
 
-const diagnose = (event: string, fields: Record<string, unknown> = {}) => {
-  if (process.env.NANO_TRAJECTORY_DIAGNOSTICS === '1') console.info(JSON.stringify({component: 'trajectory-im', event, at_ms: Date.now(), ...fields}));
-};
-
 interface Observer {
   scope: TrajectoryScope;
   browser?: WebSocket;
@@ -76,7 +72,6 @@ export class TrajectoryObservers {
     const device = this.ctx.gateway.nodes.get(selected.node_id);
     if (!device || device.socket.readyState !== 1 || !this.ctx.gateway.valid(device)) throw new Error('节点离线，原生轨迹暂不可读取');
     const id = randomUUID(), pairing = randomBytes(32).toString('base64url');
-    diagnose('observer_prepare', {observer: id});
     const expiresAt = Date.now() + 15_000;
     const observer: Observer = { scope: { observerId: id, rootAgentId: agentId, rootSessionId: root.session_id, sessionId, ownerId: profile.owner_id,
       nodeId: device.node_id, nodeEpoch: device.node_epoch }, userId: auth.user_id, sessionId: auth.session_id,
@@ -91,7 +86,6 @@ export class TrajectoryObservers {
   private attach(observer: Observer, socket: WebSocket): void {
     const id = observer.scope.observerId;
     observer.browser = socket;
-    diagnose('browser_open', {observer: id});
     if (observer.node) clearTimeout(observer.timer);
     socket.once('close', () => this.close(id));
     socket.on('error', () => this.close(id));
@@ -124,9 +118,7 @@ export class TrajectoryObservers {
     if (!observer || !this.valid(observer) || observer.node) { socket.close(1008); return; }
     if (observer.browser) clearTimeout(observer.timer);
     observer.node = socket;
-    diagnose('node_open', {observer: observer.scope.observerId});
     socket.on('message', raw => {
-      const started = performance.now();
       const size = Array.isArray(raw) ? raw.reduce((total, part) => total + part.byteLength, 0) : raw.byteLength;
       if (!this.valid(observer)) { this.close(observer.scope.observerId, 1008, '访问资格已失效'); return; }
       if (size > TRAJECTORY_MAX_BYTES) { this.close(observer.scope.observerId, 1009, '轨迹响应过大'); return; }
@@ -134,7 +126,6 @@ export class TrajectoryObservers {
         const part = JSON.parse(raw.toString()) as Row;
         if (part.observerId !== observer.scope.observerId) throw new Error('observer mismatch');
         const frame = observer.reader.push(part) as Row | undefined;
-        diagnose('node_frame', {observer: observer.scope.observerId, bytes: size, complete: Boolean(frame), ms: Math.round(performance.now() - started)});
         if (!frame) return;
         const attachment = observer.attachments.get(frame.requestId);
         if (attachment) {
@@ -172,14 +163,12 @@ export class TrajectoryObservers {
 
   private async write(observer: Observer, socket: WebSocket, frame: unknown): Promise<void> {
     try {
-      const started = performance.now();
       for (const part of encodeTrajectoryValue(frame)) {
         if (!this.observers.has(observer.scope.observerId) || !this.valid(observer)) return;
         const text = JSON.stringify(part), size = Buffer.byteLength(text);
         if (size > TRAJECTORY_MAX_BYTES || socket.bufferedAmount + size > TRAJECTORY_MAX_BYTES) { this.close(observer.scope.observerId, 1009, '轨迹读取积压'); return; }
         if (socket.readyState !== 1) return;
         await new Promise<void>((resolve, reject) => socket.send(text, error => error ? reject(error) : resolve()));
-        diagnose('send_complete', {observer: observer.scope.observerId, destination: socket === observer.browser ? 'browser' : 'node', bytes: size, ms: Math.round(performance.now() - started)});
       }
     } catch { this.close(observer.scope.observerId, 1011, '更新已中断'); }
   }

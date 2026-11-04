@@ -4,14 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
-const apiMocks = vi.hoisted(() => ({ listPublicAgents: vi.fn() }));
-vi.mock("./public-agents", () => apiMocks);
+const apiMocks = vi.hoisted(() => ({ listContacts: vi.fn() }));
+vi.mock("../../chat/contacts-api", () => apiMocks);
 
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 
 const SAMPLE_AGENTS = [
-  { agent_id: "agent-one", user_id: "user-one", owner_id: "owner-1", display_name: "Planner", description: "Planning", node_name: "Mini", node_status: "online", work_mode: "single_thread" },
-  { agent_id: "agent-two", user_id: "user-two", owner_id: "owner-2", display_name: "Researcher", description: "Research", node_name: "Laptop", node_status: "offline", work_mode: "global" }
+  { agent_id: "agent-one", user_id: "user-one", owner_id: "owner-1", display_name: "Planner", kind: "agent", owner_display_name: "Planning", node_name: "Mini", status: "online", work_mode: "single_thread" },
+  { agent_id: "agent-two", user_id: "user-two", owner_id: "owner-2", display_name: "Researcher", kind: "agent", owner_display_name: "Research", node_name: "Laptop", status: "offline", work_mode: "global" }
 ];
 
 function renderRail(onSelectAgent = vi.fn()) {
@@ -25,10 +25,10 @@ function renderRail(onSelectAgent = vi.fn()) {
   );
 }
 
-afterEach(() => apiMocks.listPublicAgents.mockReset());
+afterEach(() => apiMocks.listContacts.mockReset());
 
 it("pairs public Agent device fields with their rows and selects the clicked Agent", async () => {
-  apiMocks.listPublicAgents.mockResolvedValue(SAMPLE_AGENTS);
+  apiMocks.listContacts.mockResolvedValue(SAMPLE_AGENTS);
   const onSelect = vi.fn();
   renderRail(onSelect);
 
@@ -44,7 +44,7 @@ it("pairs public Agent device fields with their rows and selects the clicked Age
 });
 
 it("remains a desktop-only rail", async () => {
-  apiMocks.listPublicAgents.mockResolvedValue([]);
+  apiMocks.listContacts.mockResolvedValue([]);
   renderRail();
   expect(await screen.findByTestId("agents-rail-desktop")).toHaveClass("hidden", "lg:flex");
 });
