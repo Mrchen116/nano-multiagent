@@ -221,3 +221,12 @@
 - 运行源码 `852cd7ac5`；dsh-integration build 与 workflow-native 回归（1 文件／1 测试）通过，日志 `/tmp/feat705-workflow-dedup-build.log`、`/tmp/feat705-workflow-dedup-tests.log`。
 - `workflow-dedup-tree-manifest.json` 仅重新捕获 Global／PA 两份根会话实际首次 provider/upstream 请求，均实际 turn/end 后正常 shutdown，无业务任务或 IM 外发。main 与全部一级／二级请求保留原有版本、时间、哈希和父子信息，不拼成新执行链。工具定义与此前逐字一致，重复操作说明不再出现于 System，配置规模提示保留。
 - 已更新实际捕获对照页，逐行保留空行和未变行；Global 根 System 3380→3079、PA 根 4143→3842 tokens，各减少301（o200k_base估算）。此前页面及请求保存在 workflow-dedup-before。没有重跑自然任务验收；用户要求保留的预览服务和原轨迹继续保留。
+
+
+## 2026-11-04：按组织级产品愿景调整初始职责
+
+- 用户在审阅主仓新 vision 后确认实施。只读参考主仓 HEAD `5c7e7da5b`、vision 修订 `844bc70e9`；未改主仓内容。共享根职责从仅对已接请求负责，改为持续承担配置中的职责和目标，结合相关聊天、记忆与执行结果，在既有职责和权限内主动开展有价值的工作并接续已有事项。Memory 用于后续判断，实际写入边界不变。
+- PA 默认 Persona 明确辅助主人履职和追求目标，兼顾工作与生活；关注相关消息、主人自己的回复和执行结果，不限于已接工作。日常直接处理、整项委派、原执行者更正、唯一对外交付、观察来源与权限限制保持。已有保存 Persona 不回填；Task、工具选择和子级上下文未改。
+- 运行源码 `62a522dbb`。dsh-integration、im-server build 通过；global-child-tools 的 provider wire 两项回归通过（其余4项未运行），日志 `/tmp/feat705-vision-context-tests.log`。docs_check 通过。
+- `vision-context-tree-manifest.json` 重新捕获 Global／PA 两份根会话真实首次 provider/upstream 请求，均实际 turn/end 并正常 shutdown，无业务任务或 IM 外发。最终 System 已包含新的长期职责、主动性与 PA 角色文案，工具定义与此前逐字一致；其余四份 PR 子级原始请求哈希与 main 原始证据保持。
+- 对照页逐行保留空行和未改行，页面来源版本为62a522dbb，先前页面保存在 vision-context-before。System tokens：Global根3124、PA根3901（o200k_base估算），一级／二级不变。这里只证明实际文案装配，没有重跑自然主动工作或完整事项验收；原测试聊天、轨迹与保留预览服务不动。
