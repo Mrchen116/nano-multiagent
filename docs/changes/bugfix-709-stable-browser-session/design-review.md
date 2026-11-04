@@ -49,3 +49,41 @@
 ## Author Resolutions
 
 R1-W1 已按 canonical Requirement 完整复制与修订场景到 specs/im/auth-tenancy.md，删除摘要式 delta-spec.md。核心协议和范围不变。
+
+## Round 2
+
+### Metadata
+
+- reviewer target: `/root/design_stable_session`，沿用 R1 独立 reviewer。
+- review_mode: `closure`
+- mode_reason: 仅核对 R1-W1 的完整 canonical delta 与局部消歧；核心协议、需求与 M1 均未改变。
+- reviewed_tree: `ef66209817ba2f76938526393be6a1f94b59bf9c`。
+- started_at: `2026-11-04T09:14:31+08:00`
+- completed_at: `2026-11-04T09:14:47+08:00`
+- duration: 16 秒。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。**
+
+### Coverage 与证据
+
+- `retained_from: Round 1`：鉴权装配、稳定 secret、旧 JWT 升级、程序隔离、撤销/过期、安全边界与单 M1 方案均未改变。新增 design“关键决策”仅重述既有决定并指出新的 delta 路径，不使这些证据失效。
+- 已核对新 `specs/im/auth-tenancy.md` 与 canonical 首个 Requirement：原有 10 个场景均保留，程序轮换与浏览器稳定会话已有明确区分，并新增响应丢失、重启/失效与旧 JWT 升级场景。根目录摘要 delta 已删除，文件路径和完整性问题已解决。
+- 不涉及代码变更或新的产品验收；没有启动服务、操作生产或扩大检查范围。
+
+### 历史问题闭环
+
+- **R1-W1 — still-open（仅剩 Requirement 名称映射）。** Author Resolution 声明已完成完整 Requirement 迁移；本轮确认正文与场景完整，但 `specs/im/auth-tenancy.md:5` 将 MODIFIED Requirement 改名为“账号注册/登录走 JWT,程序刷新令牌轮换且浏览器会话稳定可吊销”，canonical `docs/specs/im/auth-tenancy.md:14` 仍名为“账号注册/登录走 JWT,刷新令牌轮换且可吊销”。`docs/specs/CONTRIBUTING.md` 规定按同名条目替换，delta 未声明旧名到新名的替换映射，无法直接按该规则定位。保留 canonical 原 heading、将新语义留在正文即可关闭；无需再次修改协议或场景。
+
+### Issues
+
+无新增 issue；R1-W1 的完整性与路径部分已关闭，同名归并锚点部分仍开放。若未修订，下游可能遗漏旧 Requirement 或保留两份冲突条目。
+
+### Recommendations
+
+无新增建议；R1-R1、R1-R2 保持非阻断建议。
+
+## Author Resolutions after R2
+
+MODIFIED Requirement 标题已恢复为 canonical 原标题，正文明确浏览器稳定凭据。

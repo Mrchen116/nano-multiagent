@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: 账号注册/登录走 JWT,程序刷新令牌轮换且浏览器会话稳定可吊销
+### Requirement: 账号注册/登录走 JWT,刷新令牌轮换且可吊销
 
 程序客户端经 `/im/v1/auth/*` 注册/登录获得一对令牌(短期 access + 长期 refresh);浏览器通过明确的浏览器会话模式取得内存 access 与稳定的 HttpOnly 会话 Cookie；程序 refresh 一次性轮换，浏览器续期只延长会话期限；退出后对应会话立即失效。错误凭证大声失败(401/拒绝),不静默成功,也不泄漏用户是否存在。
 
