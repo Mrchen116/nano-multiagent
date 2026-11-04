@@ -149,3 +149,7 @@
 
 - 用户确认没有 Nano 差异时不重复强调上游已有规则。核对 Super Agent 的 admission／subscriptions 及当前 dsh-agent-context checkpoint：换窗已有 recovered material 不产生授权的实际提醒。删除主会话 source 段的两句历史／恢复说明，以及一级 delegated source 的同义句；不改原生组件，不删 Task 控制的 Nano 特有来源语义或独立审核器规则。
 - 此次只删重复文案，不新增文本快照测试；复用既有 Global／PA 两级实际 wire、恢复与权限检查，并重新捕获候选请求更新全文对照。原 main 实际捕获保留，页面标明各自采样时间和版本。
+- 冻结运行源码 c376d7e37。`/tmp/feat705-history-dedup-build.log` 构建、`history-dedup-tests.log` 3文件30项（Global／PA两级原生wire及同ID恢复、来源审核、PA权限）、`history-dedup-docs.log` 文档检查与unit归档检查均通过。未新增模型行为任务或重开独立审查。
+- `.cache/feat705-context-capture/history-dedup-tree-manifest.json` 保留main0287088be六份原始请求，重新捕获PR六份真实首次请求；两条新链均有三层原生turn/end且正常shutdown。manifest明确main复用及原始时间／哈希，PR source_commit与c376一致；原始上下游System逐份一致。
+- 实际System：普通根3757→3727、一级1205→1186；PA根4522→4492、一级1387→1368；两种二级仍672且全文字节一致。主会话与一级已无本次删除的重复历史／恢复句。两种Agent各三层的全行diff均可还原main与PR完整原文，空行与未改动行不省略。页面history-dedup-before保留前一版原请求和统计；当前URL展示新版并在来源页说明main复用。浏览器已核对候选c376和Global一级全行对照。
+- 预览Node通过正常restart加载当前源码；IM／模型代理保持原进程，聊天、Persona与轨迹未重置。`.cache/feat705-preview/preview.json`已记录新进程。实际采样是受控原生委派，不冒称本轮新增自主派工验收；PR远端CI以最终head实际检查为准。
