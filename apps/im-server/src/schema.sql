@@ -320,6 +320,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
             user_id TEXT NOT NULL REFERENCES users(id),
             epoch INTEGER NOT NULL,
             refresh_hash TEXT NOT NULL,
+            browser_session INTEGER NOT NULL DEFAULT 0,
             expires_at INTEGER NOT NULL,
             revoked INTEGER NOT NULL DEFAULT 0
         );

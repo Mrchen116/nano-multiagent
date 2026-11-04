@@ -292,7 +292,7 @@ export class Identity {
       now(),
     );
   }
-  decode(token: string, type: "access" | "refresh"): Row {
+  decode(token: string, type: "access" | "refresh", browserUpgrade = false): Row {
     let payload: Row;
     try {
       const [header, body, signature, extra] = token.split(".");
@@ -329,7 +329,7 @@ export class Identity {
       !session ||
       session.user_id !== payload.sub ||
       session.epoch !== payload.epoch ||
-      (type === "refresh" && !equal(session.refresh_hash, digest(payload.jti)))
+      (type === "refresh" && ((!browserUpgrade && session.browser_session) || !equal(session.refresh_hash, digest(payload.jti))))
     )
       throw new IdentityError(401, "session revoked or expired");
     return payload;
@@ -392,15 +392,58 @@ export class Identity {
     }
     const common = { sub: user.id, sid, epoch: user.auth_epoch, iat: now() };
     return {
-      access_token: this.sign({
-        ...common,
-        type: "access",
-        exp: now() + 900,
-        jti: randomBytes(16).toString("hex"),
-      }),
+      access_token: this.issueAccess(user, sid),
       refresh_token: this.sign({ ...common, type: "refresh", exp, jti }),
       user: this.publicUser(user),
     };
+  }
+  private issueAccess(user: User, sid: string): string {
+    return this.sign({
+      sub: user.id, sid, epoch: user.auth_epoch, iat: now(),
+      type: "access", exp: now() + 900, jti: randomBytes(16).toString("hex"),
+    });
+  }
+  private browserCredential(token: string): { sid: string; jti: string; user: User } {
+    const parts = token.split(".");
+    let sid: string, jti: string;
+    if (parts.length === 3) {
+      // Upgrade must be repeatable if its Set-Cookie response never arrives.
+      const payload = this.decode(token, "refresh", true);
+      sid = payload.sid;
+      jti = payload.jti;
+    } else {
+      if (parts.length !== 2 || !parts[0] || !parts[1])
+        throw new IdentityError(401, "invalid browser session");
+      [sid, jti] = parts as [string, string];
+      const session = this.validSession(sid);
+      if (!session?.browser_session || !equal(session.refresh_hash, digest(jti)))
+        throw new IdentityError(401, "session revoked or expired");
+    }
+    return { sid, jti, user: this.user(this.validSession(sid)!.user_id)! };
+  }
+  /**
+   * Restore a browser session without consuming its Cookie credential.
+   *
+   * Args:
+   *   token: Stable Cookie or a currently valid legacy refresh JWT.
+   */
+  refreshBrowser(token: string) {
+    const { sid, jti, user } = this.browserCredential(token);
+    this.run("UPDATE auth_sessions SET browser_session=1,expires_at=? WHERE session_id=?", now() + this.refreshTtl, sid);
+    return {
+      access_token: this.issueAccess(user, sid),
+      refresh_token: `${sid}.${jti}`,
+      user: this.publicUser(user),
+    };
+  }
+  /**
+   * Revoke the browser session identified by its current Cookie.
+   *
+   * Args:
+   *   token: Stable Cookie or a currently valid legacy refresh JWT.
+   */
+  logoutBrowser(token: string): string {
+    return this.revokeSession(this.browserCredential(token).sid);
   }
   refresh(token: string) {
     const p = this.decode(token, "refresh");
@@ -408,11 +451,14 @@ export class Identity {
   }
   logout(token: string): string {
     const p = this.decode(token, "refresh");
+    return this.revokeSession(p.sid);
+  }
+  private revokeSession(sid: string): string {
     this.transaction(() => {
-      this.run("UPDATE auth_sessions SET revoked=1 WHERE session_id=?", p.sid);
-      this.run("DELETE FROM auth_ws_tickets WHERE session_id=?", p.sid);
+      this.run("UPDATE auth_sessions SET revoked=1 WHERE session_id=?", sid);
+      this.run("DELETE FROM auth_ws_tickets WHERE session_id=?", sid);
     });
-    return p.sid;
+    return sid;
   }
   issueTicket(sid: string): string {
     const ticket = secret();

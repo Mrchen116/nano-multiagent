@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   createHash,
@@ -10,6 +10,7 @@ import {
   hkdfSync,
 } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db.js";
@@ -25,6 +26,7 @@ const legacyRefresh =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsInNpZCI6InB5dGhvbi1zZXNzaW9uIiwiZXBvY2giOjAsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwLCJqdGkiOiJweXRob24tcmVmcmVzaCIsInR5cGUiOiJyZWZyZXNoIn0.uN2Ay187pl7YpiLAVPOibK0qAdQ29AkDTtXv8ymzvss";
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   for (const close of cleanups.splice(0)) await close();
 });
 function fixture(path = ":memory:", publishWithdrawals?: Parameters<typeof createIdentity>[2]) {
@@ -181,9 +183,9 @@ describe("durable identity compatibility", () => {
     expect(signedIn.statusCode).toBe(200);
     const record = identity.get("SELECT * FROM auth_login_events WHERE user_id=?", created.json().user.id);
     expect(record?.user_agent).toBe("Mozilla/5.0 Chrome test device");
-    expect((await post(app, "/im/v1/auth/refresh", {}, { ...headers, cookie })).statusCode).toBe(
-      401,
-    );
+    const retried = await post(app, "/im/v1/auth/refresh", {}, { ...headers, cookie });
+    expect(retried.statusCode).toBe(200);
+    expect(String(retried.headers["set-cookie"]).split(";")[0]).toBe(cookie);
     expect(
       (
         await post(
@@ -198,6 +200,64 @@ describe("durable identity compatibility", () => {
       ).statusCode,
     ).toBe(200);
     expect((await app.inject({ url: "/im/v1/auth/me", headers: access })).statusCode).toBe(401);
+  });
+
+  it("retries a lost browser upgrade response, preserves the cookie across restart and rolls thirty days", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "im-stable-browser-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, "im.db");
+    const legacyDb = new DatabaseSync(path);
+    legacyDb.exec("CREATE TABLE auth_sessions(session_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,epoch INTEGER NOT NULL,refresh_hash TEXT NOT NULL,expires_at INTEGER NOT NULL,revoked INTEGER NOT NULL DEFAULT 0)");
+    legacyDb.close();
+    const { identity } = fixture(path);
+    human(identity, "alice");
+    const legacy = await identity.login("alice", "old-password");
+    const app = await server(identity);
+    const headers = { "x-im-session": "browser", origin: "https://im.example.test", cookie: `im_refresh=${legacy.refresh_token}` };
+    // Discard the upgrade response and retry the exact pre-upgrade cookie.
+    const lost = await post(app, "/im/v1/auth/refresh", {}, headers);
+    const retry = await post(app, "/im/v1/auth/refresh", {}, headers);
+    expect(lost.statusCode).toBe(200);
+    expect(retry.statusCode).toBe(200);
+    const cookie = String(retry.headers["set-cookie"]).split(";")[0]!;
+    expect(String(lost.headers["set-cookie"]).split(";")[0]).toBe(cookie);
+    expect((await post(app, "/im/v1/auth/refresh", { refresh_token: legacy.refresh_token })).statusCode).toBe(401);
+    expect((await post(app, "/im/v1/auth/refresh", { refresh_token: cookie.slice("im_refresh=".length) })).statusCode).toBe(401);
+    const restarted = fixture(path).identity;
+    const reopened = await server(restarted);
+    const sid = identity.accessSession(retry.json().access_token).sid;
+    const previousExpiry = identity.get("SELECT expires_at FROM auth_sessions WHERE session_id=?", sid)!.expires_at;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
+    const simultaneous = await Promise.all([1, 2].map(() => post(reopened, "/im/v1/auth/refresh", {}, { ...headers, cookie })));
+    for (const response of simultaneous) {
+      expect(response.statusCode).toBe(200);
+      expect(String(response.headers["set-cookie"]).split(";")[0]).toBe(cookie);
+    }
+    expect(identity.get("SELECT expires_at FROM auth_sessions WHERE session_id=?", sid)!.expires_at).toBe(previousExpiry + 86400);
+    expect((await post(reopened, "/im/v1/auth/refresh", {}, { ...headers, cookie: cookie + "bad" })).statusCode).toBe(401);
+    vi.setSystemTime(Date.now() + 31 * 86400 * 1000);
+    expect((await post(reopened, "/im/v1/auth/refresh", {}, { ...headers, cookie })).statusCode).toBe(401);
+    vi.useRealTimers();
+    expect((await post(reopened, "/im/v1/auth/logout", {}, { ...headers, cookie })).statusCode).toBe(200);
+    expect((await post(reopened, "/im/v1/auth/refresh", {}, { ...headers, cookie })).statusCode).toBe(401);
+    expect((await app.inject({ url: "/im/v1/auth/me", headers: auth(retry.json().access_token) })).statusCode).toBe(401);
+  });
+
+  it("keeps consumed legacy tokens invalid and applies account revocation to stable browser sessions", async () => {
+    const { identity } = fixture();
+    human(identity, "alice");
+    const legacy = await identity.login("alice", "old-password");
+    const latest = identity.refresh(legacy.refresh_token);
+    const app = await server(identity);
+    const headers = { "x-im-session": "browser", origin: "https://im.example.test" };
+    expect((await post(app, "/im/v1/auth/refresh", {}, { ...headers, cookie: `im_refresh=${legacy.refresh_token}` })).statusCode).toBe(401);
+    const upgraded = await post(app, "/im/v1/auth/refresh", {}, { ...headers, cookie: `im_refresh=${latest.refresh_token}` });
+    expect(upgraded.statusCode).toBe(200);
+    const cookie = String(upgraded.headers["set-cookie"]).split(";")[0]!;
+    identity.run("UPDATE users SET auth_epoch=auth_epoch+1 WHERE id=?", "alice");
+    expect((await post(app, "/im/v1/auth/refresh", {}, { ...headers, cookie })).statusCode).toBe(401);
+    expect((await app.inject({ url: "/im/v1/auth/me", headers: auth(upgraded.json().access_token) })).statusCode).toBe(401);
   });
 
   it("rejects reserved and oversized passwords without creating humans and limits without extending cooldown", async () => {
@@ -327,7 +387,7 @@ describe("device possession and ownership transfer", () => {
     ctx.messaging=new Messaging(ctx);ctx.gateway=new Gateway(ctx);
     human(identity, "owner");
     human(identity, "receiver");
-    identity.run("INSERT INTO auth_sessions VALUES('transfer-browser','owner',0,'unused',?,0)",Math.floor(Date.now()/1000)+300);
+    identity.run("INSERT INTO auth_sessions(session_id,user_id,epoch,refresh_hash,expires_at,revoked) VALUES('transfer-browser','owner',0,'unused',?,0)",Math.floor(Date.now()/1000)+300);
     ctx.gateway.browsers.add({userId:"owner",sessionId:"transfer-browser",cursor:0,ready:true,socket:{readyState:1,bufferedAmount:0,send:(raw:string)=>{
       expect(identity.db.isTransaction).toBe(false);liveFrames.push(JSON.parse(raw));
     },close(){}}} as any);
