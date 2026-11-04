@@ -250,3 +250,22 @@ V1 当前必须完成的是已观察失败的交付前重复调查修复、设�
 能力目录偶发超时的唯一根因仍未确认；主干对照也发生、R3 现有刷新能恢复并完成开关。本 unit 未提交其修复或放宽检查期限。该现象没有被静默抹除，也不把已完成的 UI 开关场景重新标成从未成功。
 
 **Delta outcome：aligned。** Global／PA／能力 delta 与最终实现仍一致，V2 的两条同名 MODIFIED 已覆盖旧工具选择及子执行 Context，未发现遗漏的额外对外行为。可以由 owner 归并 current；Task 改造继续暂缓。归并归档、文档最终检查、PR 创建与远端 required CI 是接下来的交付阶段，不循环要求在 PR 创建之前已获得其远端结果。本次没有执行 merge、push、部署或发布，也不声称这些已完成。
+
+## Round 7 — exit_plan_mode targeted verification（用户要求停止）
+
+> Validation snapshot: `90efdd3dc2c1dda9efd5ffc0f2acbb01f5492dde → b628f3398240f49689a9ae501f959b65b9f8f193`
+
+- `verification_mode`：`delta`，targeted 范围为 `dfac30e89cb398ca51df1c4eb5097d5a834be52a..b628f3398240f49689a9ae501f959b65b9f8f193` 的10文件 patch；`requires_full_verification`：`false`。
+- 已完成静态／机制核对：实现 aligned，无确认代码问题；新增设置页 targeted 产品结论未收口。用户明确要求停止 review 后结束本轮，不再等待产品或追加验证；未完成状态来自停止指令，不是已确认产品缺陷。
+
+| 新增要求／证据 | 已完成核对与范围 |
+|---|---|
+| 新建／无显式名单默认关闭 | Node 工具 default_on=false；integration 默认选择与实际 restriction 同步排除 exit_plan_mode。新 PA 创建按同目录默认组装，普通／Global 原生矩阵有直接装配断言。 |
+| 手动启用、旧显式名单保留 | explicit allowlist 路径不变，普通／Global exit-only 矩阵同时验证 session.capabilities 和 llm/stream tools 可见；没有改写名单或历史迁移。保存／恢复代码未改，沿用原配置规则；新增 exit 设置页往返没有完成的产品结论。 |
+| 内部执行者边界／非目标 | 原有 userEntryTools 排除保留，未开放内部用户交互入口；无 Plan 入口／Prompt／Task 改造。Global／PA 两级 HTTP wire 与同 ID 冷恢复回归通过。 |
+| 测试与构建 | `/tmp/feat705-plan-exit-red.log` 旧实现2处失败；`plan-exit-green.log` 3文件11例通过；同前缀 build／node-build／typecheck／docs／archive 日志成功。新增 tools 断言是 fixture 的 llm/stream，不能写作新增真实 provider／自主模型证据。 |
+| Delta／current | 首文档、design 补充、能力 ADDED delta 与 current 的 exit_plan_mode 条目一致，Gateway 能力索引计数69；未发现遗漏的额外行为。**delta outcome：aligned**。 |
+
+历史 V1／V2 继续关闭，R6 对原主从范围的有效通过结论保留；本轮默认值变化没有失效根职责、分层权限、自然委派／日常／补充／交付证据。原 R4 请求的显式 exit 选择和历史统计不被追改为新默认；Issue #460 单独记录开销，不在本次实施压缩。
+
+本轮结论止于已完成的实现／delta 对齐与可信机制证据：没有新增 CRITICAL／WARNING 代码问题，没有宣称新增设置页验收通过、PR 新 head CI 通过或整个新范围产品验收完成。用户停止指令之后只保存、提交这两份报告，未继续核验源码、运行测试或操作环境。

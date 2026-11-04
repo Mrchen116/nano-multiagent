@@ -150,3 +150,22 @@ R3 自然验收已确认 f514 实际 upstream 仍发生根委派前重复读；�
 完整后端 210 文件1129项通过，执行的是 f514 已构建 lib；该轮不验证随后新增根指导。c46 的 build／typecheck、4 文件12项最新 wire／恢复／Goal／Context revalidation／native communication 窄回归与 R4 自然行为共同补足该指导差异。最新 main 前端112文件1059项通过；Python129项、ruff、docs、iOS runtime 与 critical audit 门槛按 verification 的定位复用，没有把分版本证据拼成一次全树单运行。
 
 closure 状态：V1 的实际产品阻断及缺失证据已关闭；V2 在 R2 已关闭，能力 delta 仍 aligned。未触发的“返回成品有实质缺口／原执行者失联”模型应对保留未观察，不伪称发生，也不要求破坏原生状态制造失败。能力目录偶发超时曾发生，R3 通过页面现有刷新恢复并完成开关；本次没有其根治声明。PR、远端 CI、部署状态不属于本次已完成事实。
+
+## Round 7 — exit_plan_mode 默认值 patch
+
+- `review_mode`：`patch`，含 Agent Context Implementation Review；`pre_fix_head`：`dfac30e89cb398ca51df1c4eb5097d5a834be52a`；`validated_at`：`b628f3398240f49689a9ae501f959b65b9f8f193`；`executed_base`：`90efdd3dc2c1dda9efd5ffc0f2acbb01f5492dde`。
+- 范围：本次10文件 patch，沿默认值、显式配置、保存／恢复和实际工具装配链审查；未重审原完整 diff、未派 agent 或重复全量。
+
+### Findings
+
+```json
+[]
+```
+
+已完成的静态检查没有存活代码问题。Node `capabilities.ts:53` 的 default_on、integration `capabilities.ts:16,39-44` 的默认选择及 `:76-87` 的实际 restriction 同步排除未显式选择的 exit_plan_mode。显式 allowlist 路径继续尊重保存值；配置装配／更新／历史恢复未新增名单迁移。新 PA 的创建沿目录 default_on 组装工具，未另行强加 exit。Global／PA 内部执行者原有 userEntryTools 排除保留，工作层权限和 fork／Goal 不扩张。
+
+Context 变化仅为默认实际工具集合，不新增 Plan 入口、Prompt 或 Task 行为；原工具 schema、角色系统段与业务权限不改。新增原生矩阵检查普通／Global 默认关闭、显式启用和 llm/stream tools；该捕获是 fixture 的适配前装配证据，不是新增 provider 实测或自然模型行为。已有 Global／PA 两级 HTTP wire 与同 ID 恢复用例仍通过。默认值小修不使 R4 主从自然旅程或其他未改区域的旧证据失效；R4 历史显式工具集不改写为本轮新默认。
+
+复用证据：`/tmp/feat705-plan-exit-red.log` 旧实现两处真实失败；`green.log` 3文件11项通过；同前缀 build、node-build、typecheck、docs、archive 日志通过。能力 delta／current 新条目一致，目录计数69；上下文统计 Issue #460 不属于本 patch 优化实现。
+
+用户随后明确要求停止 review（“review啥，别view了”）。本报告仅保存停止前已完成检查；设置页 targeted 产品复验未收口，停止后不再补证、追加审查或等待。无产品通过声明，前轮 V1／V2 关闭及其有效范围保留。
