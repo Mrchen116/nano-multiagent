@@ -153,3 +153,9 @@
 - `.cache/feat705-context-capture/history-dedup-tree-manifest.json` 保留main0287088be六份原始请求，重新捕获PR六份真实首次请求；两条新链均有三层原生turn/end且正常shutdown。manifest明确main复用及原始时间／哈希，PR source_commit与c376一致；原始上下游System逐份一致。
 - 实际System：普通根3757→3727、一级1205→1186；PA根4522→4492、一级1387→1368；两种二级仍672且全文字节一致。主会话与一级已无本次删除的重复历史／恢复句。两种Agent各三层的全行diff均可还原main与PR完整原文，空行与未改动行不省略。页面history-dedup-before保留前一版原请求和统计；当前URL展示新版并在来源页说明main复用。浏览器已核对候选c376和Global一级全行对照。
 - 预览Node通过正常restart加载当前源码；IM／模型代理保持原进程，聊天、Persona与轨迹未重置。`.cache/feat705-preview/preview.json`已记录新进程。实际采样是受控原生委派，不冒称本轮新增自主派工验收；PR远端CI以最终head实际检查为准。
+
+
+## 删除 Cron 常驻通用提示（2026-11-04）
+
+- 用户确认删除 Scheduled and manually triggered saved tasks 开头的整个System段，不换短版。删除 nano-cron section 及其不再使用的systemPrompt依赖；保留DSH原生Schedule工具、到期消息、Nano手动run/history工具说明和现有来源／审批机制。只改变工作模型常驻文案，不调整Task或Schedule业务状态。
+- 不新增文案快照测试；复用Cron生命周期、原生父子上下文wire及fork前缀检查。重新捕获PR两种Agent三层请求，沿用main原始请求并保留版本和时间，更新全行对照。
