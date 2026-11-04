@@ -25,6 +25,8 @@ it('pairs a shared Work reader separately from device traffic and revokes both o
   expect((await once(reused, 'close'))[0]).toBe(1008);
   browser.send(JSON.stringify({ type: 'call', requestId: 'read', method: 'session/list', params: {}, attachmentAuthorized: true }));
   expect(await nodeFrames.next()).toEqual({ type: 'call', requestId: 'read', method: 'session/list', params: {} });
+  browser.send(JSON.stringify({ type: 'open', requestId: 'fast', method: 'session/follow', params: {}, initialBatch: true, attachmentAuthorized: true }));
+  expect(await nodeFrames.next()).toEqual({ type: 'open', requestId: 'fast', method: 'session/follow', params: {}, initialBatch: true });
   // An observer waiting for a response cannot block the original heartbeat ACK.
   expect((await device.frames.send('node.heartbeat', { node_id: device.node })).type).toBe('ack');
   node.send(JSON.stringify({ type: 'result', observerId: prepare.payload.scope.observerId, requestId: 'read', value: { ok: true, value: { items: [] } } }));

@@ -18,3 +18,10 @@
 已确认并修复：切换 Work 丢失草稿；Owner 页签/动作入口回归；预取未保留分页参数；隐藏配置重复挂载轨迹；bootstrap 接纳前未初始化身份广播；403/404 后仍准许新草稿；文档下载期间其他页登录/退出可能接纳旧账号。最后一项用无凭据会话变更时间与普通 Cookie 恢复收口，补充回归；复审结论均为 `[]`。随后 contacts 查询合并、时区重复写入抑制与首次 stream 同步复用在途确认的有界 patch 复审也为 `[]`。
 
 功能审查通过不等于性能达标。最终实测和仍未满足的 1 秒目标见 [快修记录](fast-mode-evidence.md)。未经用户验收，不归档或宣称完成。
+
+
+## 公司网络继续优化审查（2026-11-04）
+
+独立 reviewer 对 `2f6dded9d` 之后的工作树增量执行 patch 审查：查看器静态预加载与初始化并行、构建内嵌 manifest、只读 carrier opt-in initialBatch（IM/Node 转发、原生首批获取和前端消费）及其测试，结论 `[]`。追加审查实时 user stream 取票显式 JSON body 的单行改动，结论 `[]`。该改动由真实拓扑中空 POST 415 / JSON POST 200 的对照触发。
+
+前端首次用根目录 runner 执行时 matcher 来自另一依赖实例，出现 Invalid Chai property；改用前端自身 runner 后 44 项通过。Node 全包类型检查另有未修改的 `main.ts:347` FeishuConnection 类型不匹配，不能写成全包通过；本轮修改的 Node trajectory 单文件严格类型检查通过。其余具体检查和页面样本见快修记录。

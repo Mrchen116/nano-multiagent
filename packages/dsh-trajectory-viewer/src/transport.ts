@@ -86,20 +86,22 @@ export function createReadonlyTransport(port: MessagePort, options: {
       assertAllowed(endpoint, method, streams);
       // Complete open even if its caller leaves meanwhile, so the acquired
       // handle can still be released rather than leaked at the parent.
-      const { streamId } = await request('open', { method, params });
+      const { streamId, initialBatch } = await request('open', { method, params, initialBatch: true });
       active.add(streamId);
       const abort = () => abortStream(streamId);
       signal.addEventListener('abort', abort, { once: true });
       const frames = new TrajectoryValueDecoder();
       try {
+        let batch = initialBatch;
         while (!signal.aborted && !disposed) {
-          const batch = await request('next', { streamId }, signal);
+          batch ??= await request('next', { streamId }, signal);
           for (const frame of batch.frames) {
             if (signal.aborted || disposed) return;
             const complete = frames.push(frame);
             if (complete !== undefined) yield complete;
           }
           if (batch.done) { frames.finish(); return; }
+          batch = undefined;
         }
       } finally {
         frames.clear();

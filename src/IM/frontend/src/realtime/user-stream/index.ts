@@ -15,7 +15,7 @@ export type { UserStreamConnectionStatus } from "./user-stream-runtime";
 const CURSOR_PREFIX = "im:user_stream_cursor:";
 
 async function resolveUserStreamUrl(_accessToken: string): Promise<string> {
-  const response = await authFetch("/im/v1/auth/ws-ticket", { method: "POST" });
+  const response = await authFetch("/im/v1/auth/ws-ticket", { method: "POST", body: "{}" });
   if (response.status === 429) {
     const seconds = Number(response.headers.get("Retry-After"));
     throw new UserStreamCooldownError(Number.isFinite(seconds) && seconds > 0 ? seconds : 30);

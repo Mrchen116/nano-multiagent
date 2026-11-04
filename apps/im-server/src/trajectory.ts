@@ -68,7 +68,8 @@ export class TrajectoryObservers {
             this.write(observer, observer.node, { type: 'call', requestId: input.requestId, method: 'trajectory/attachment-source', params: input.params }); return;
           }
           // Select transport fields explicitly: the browser cannot assert attachment authorization.
-          this.write(observer, observer.node, { type: input.type, requestId: input.requestId, method: input.method, params: input.params, streamId: input.streamId });
+          this.write(observer, observer.node, { type: input.type, requestId: input.requestId, method: input.method, params: input.params, streamId: input.streamId,
+            ...(input.type === 'open' && input.initialBatch === true ? { initialBatch: true } : {}) });
         } catch { this.close(id, 1003, '轨迹请求无效'); }
       });
       if (!this.ctx.gateway.send(device.node_id, { type: 'trajectory.prepare', payload: { scope: observer.scope, ticket: pairing } })) this.close(id, 1013, '节点离线');

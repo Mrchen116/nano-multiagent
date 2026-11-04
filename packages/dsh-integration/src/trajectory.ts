@@ -16,7 +16,7 @@ interface Observer {
   streams: Map<string, TrajectoryStream>;
   cursor: number;
 }
-type Request = { observerId: string; method: string; params?: { args?: { request?: Record<string, any> } }; streamId?: string; attachmentAuthorized?: boolean };
+type Request = { observerId: string; method: string; params?: { args?: { request?: Record<string, any> } }; streamId?: string; initialBatch?: boolean; attachmentAuthorized?: boolean };
 
 /** Owns the native read boundary; callers cannot acquire an Agent through this service. */
 export class NativeTrajectory {
@@ -119,6 +119,10 @@ export class NativeTrajectory {
       ? this.follow(observer, { ...window!, address: observer.address, assistantStream: true }, signal)
       : this.control(observer, signal));
     observer.streams.set(streamId, stream);
+    if (request.initialBatch === true) {
+      try { return { streamId, initialBatch: await stream.next() }; }
+      catch (error) { stream.close(); observer.streams.delete(streamId); throw error; }
+    }
     return { streamId };
   }
 

@@ -73,7 +73,24 @@ describe("read-only native viewer transport", () => {
     await expect(last).resolves.toMatchObject({ done: true });
   });
 
-  it("reassembles multi-batch native snapshots and large unary pages before publishing them", async () => {
+  it("consumes the initial open batch before issuing another network pull", async () => {
+    const c = channel();
+    const stream = c.transport.rpc.open!("/api", "session/follow", payload, new AbortController().signal)[Symbol.asyncIterator]();
+    const opened = c.nextMessage(), first = stream.next();
+    const request = await opened;
+    expect(request.initialBatch).toBe(true);
+    c.respond(request, { streamId: "fast", initialBatch: { frames: [{ n: 1 }, { n: 2 }], done: false } });
+    await expect(first).resolves.toEqual({ value: { n: 1 }, done: false });
+    await expect(stream.next()).resolves.toEqual({ value: { n: 2 }, done: false });
+    expect(c.messages.filter(m => m.type === "next")).toHaveLength(0);
+    const pulled = c.nextMessage(), final = stream.next();
+    const pull = await pulled;
+    expect(pull).toMatchObject({ type: "next", streamId: "fast" });
+    c.respond(pull, { frames: [], done: true });
+    await expect(final).resolves.toMatchObject({ done: true });
+  });
+
+  it.each([false, true])("reassembles multi-batch native snapshots and large unary pages, initialBatch=%s", async initialBatch => {
     const c = channel();
     const opening = { type: "snapshot", records: [{ text: '历史😀"\\'.repeat(160_000) }] };
     const parts = [...encodeTrajectoryValue(opening)];
@@ -82,10 +99,10 @@ describe("read-only native viewer transport", () => {
     const opened = c.nextMessage(), first = stream.next();
     const open = await opened;
     let pulled = c.nextMessage();
-    c.respond(open, { streamId: "large" });
+    c.respond(open, { streamId: "large", ...(initialBatch ? { initialBatch: { frames: [parts[0]], done: false } } : {}) });
     let published = false;
     void first.then(() => { published = true; });
-    for (let i = 0; i < parts.length; i++) {
+    for (let i = initialBatch ? 1 : 0; i < parts.length; i++) {
       const request = await pulled;
       if (i + 1 < parts.length) pulled = c.nextMessage();
       expect(published).toBe(false);

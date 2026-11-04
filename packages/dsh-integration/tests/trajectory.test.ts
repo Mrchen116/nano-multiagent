@@ -5,7 +5,7 @@ import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each([false,true])('reads cold history without activation, including disabled=%s, then follows explicit activation', async disabled => {
+it.each([[false,false],[true,false],[false,true],[true,true]])('reads cold history without activation, disabled=%s initialBatch=%s, then follows explicit activation', async (disabled, initialBatch) => {
   const home = await mkdtemp(join(tmpdir(), 'nano-trajectory-'));
   let client: RuntimeClient | undefined;
   let logs = '';
@@ -32,8 +32,9 @@ it.each([false,true])('reads cold history without activation, including disabled
     await expect(client!.rpc.request('trajectory.prepare', { ...scope, observerId: 'wrong', rootAgentId: 'other' })).rejects.toThrow(/scope/i);
     expect(await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs' })).toEqual({ ok: true, value: [] });
     await expect(client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/runs', params: { args: { request: { sessionId: 'other' } } } })).rejects.toThrow(/scope/i);
-    const opened = await client!.rpc.request('trajectory.open', { observerId: 'viewer', method: 'session/follow', params: { args: { request: { assistantStream: true, maxMessages: 50, turnWindow: {minMessages: 50, minTurns: 2} } } } }) as { streamId: string };
-    const batch = await client!.rpc.request('trajectory.next', { observerId: 'viewer', streamId: opened.streamId }) as { frames: any[] };
+    const opened = await client!.rpc.request('trajectory.open', { observerId: 'viewer', method: 'session/follow', initialBatch, params: { args: { request: { assistantStream: true, maxMessages: 50, turnWindow: {minMessages: 50, minTurns: 2} } } } }) as { streamId: string; initialBatch?: { frames: any[] } };
+    expect(opened.initialBatch !== undefined).toBe(initialBatch);
+    const batch = opened.initialBatch ?? await client!.rpc.request('trajectory.next', { observerId: 'viewer', streamId: opened.streamId }) as { frames: any[] };
     expect(batch.frames[0]).toMatchObject({ type: 'snapshot', header: { id: binding.sessionId }, assistantStream: { revision: 0 } });
     const cursor = batch.frames[0].cursor;
     const page = await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'session/page', params: { args: { request: { throughSeq: cursor, maxMessages: 50, turnWindow: {minMessages: 50, minTurns: 2} } } } }) as any;

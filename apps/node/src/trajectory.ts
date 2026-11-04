@@ -62,6 +62,7 @@ export class NodeTrajectory {
       // A long next must not delay abort or another reader.
       void this.options.runtime.request(`trajectory.${request.type}`, {
         observerId: scope.observerId, method: request.method, params: request.params, streamId: request.streamId,
+        ...(request.type === 'open' && request.initialBatch === true ? { initialBatch: true } : {}),
         ...((request as TrajectoryRequest & { attachmentAuthorized?: boolean }).attachmentAuthorized ? { attachmentAuthorized: true } : {}),
       }).then(value => { if (process.env.NANO_TRAJECTORY_DIAGNOSTICS === '1') diagnose('response', {observer: scope.observerId, request: request.requestId, ms: Math.round(performance.now() - started), bytes: Buffer.byteLength(JSON.stringify(value))}); return write({ type: 'result', observerId: scope.observerId, requestId: request.requestId, value }); })
         .catch(error => { diagnose('error', {observer: scope.observerId, request: request.requestId, ms: Math.round(performance.now() - started)}); return write({ type: 'error', observerId: scope.observerId, requestId: request.requestId,

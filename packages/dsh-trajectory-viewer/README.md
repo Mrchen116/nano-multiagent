@@ -6,7 +6,9 @@ one view with launch actions and execution scope. Official Connection, Typert,
 generated Remote, Session Controller, Conversation, Session and Attachment plugins
 remain version-pinned at `0.2.1-alpha.1`; their registration bundles are unchanged.
 Native events, assistant chunks, projections and attachment results cross the
-carrier unchanged. The viewer supplies a narrow read/navigation face to the local
+carrier unchanged. The build embeds its non-secret module manifest and preloads
+only static entry dependencies and registration bundles; component initialization
+overlaps the parent's authenticated connection setup. The viewer supplies a narrow read/navigation face to the local
 UI package and does not implement its own record renderer.
 
 `pnpm --filter @nano/dsh-trajectory-viewer build` creates `dist/`. Serve that
@@ -33,8 +35,9 @@ preferences use an iframe-local, ephemeral Storage object because an opaque
 sandbox cannot access origin localStorage. This does not grant same-origin
 access or persist preferences.
 
-Each observation stream pulls one bounded parent batch after its buffered frames
-have been consumed. `generation_changed` requests an official Connection
+Each observation stream requests its first bounded batch with open, then pulls
+one bounded parent batch after its buffered frames have been consumed. Older
+carriers that return only a stream handle retain the separate first pull. `generation_changed` requests an official Connection
 reconnect; Session Controller rebuilds the window in a new generation. Leaving
 unmounts React, releases the Session reference and Cordis fiber, aborts read
 streams and closes the port. A read-stream abort never invokes Agent cancel.
