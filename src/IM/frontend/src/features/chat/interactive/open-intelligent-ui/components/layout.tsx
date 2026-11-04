@@ -155,7 +155,7 @@ export const Spacer = defineComponent({
 export const Form = defineComponent({
   name: "Form",
   props: z.object({ children }),
-  description: "Groups fields; their values go with any @ToAssistant inside.",
+  description: "Groups fields; their values go with any @SendToChat inside.",
   component: function FormView({ props, renderNode, statementId }) {
     const id = useId();
     return (

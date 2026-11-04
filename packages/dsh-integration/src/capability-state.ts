@@ -21,17 +21,20 @@ export interface Preparation { ready: boolean; error_code?: string; message?: st
 export class CapabilityState {
   constructor(private readonly selection: (config: AgentConfiguration, names: string[]) => string[]) {}
   private readonly reservations = new Map<string, Reservation>();
-  private readonly calls = new Map<string, { agentId: string; target: CapabilityTarget }>();
+  private readonly calls = new Map<string, { agentId: string; target: CapabilityTarget; independentTool: boolean }>();
   held(agentId: string, target: CapabilityTarget): boolean {
     return this.reservations.get(agentId)?.targets.some(item => item.kind === target.kind && item.name === target.name) ?? false;
   }
-  begin(key: string, agentId: string, target: CapabilityTarget): boolean {
-    if (this.held(agentId, target) || target.kind === 'tool' && ['schedule_create', 'schedule_update', 'schedule_run'].includes(target.name) && this.held(agentId, {kind: 'feature', name: 'cron_scheduling'})) return false;
-    this.calls.set(key, {agentId, target}); return true;
+  /** Track every call, exempting independent worker tools only from root selection holds. */
+  begin(key: string, agentId: string, target: CapabilityTarget, independentTool = false): boolean {
+    const selectionHeld = !(independentTool && target.kind === 'tool') && this.held(agentId, target);
+    if (selectionHeld || target.kind === 'tool' && ['schedule_create', 'schedule_update', 'schedule_run'].includes(target.name) && this.held(agentId, {kind: 'feature', name: 'cron_scheduling'})) return false;
+    this.calls.set(key, {agentId, target, independentTool}); return true;
   }
   end(key: string): void { this.calls.delete(key); }
-  busy(agentId: string): CapabilityTarget[] {
-    return [...new Map([...this.calls.values()].filter(call => call.agentId === agentId).map(call => [`${call.target.kind}:${call.target.name}`, call.target])).values()];
+  /** Project all active calls, or only those depending on the root's selected capabilities. */
+  busy(agentId: string, selectionOnly = false): CapabilityTarget[] {
+    return [...new Map([...this.calls.values()].filter(call => call.agentId === agentId && (!selectionOnly || !call.independentTool)).map(call => [`${call.target.kind}:${call.target.name}`, call.target])).values()];
   }
   release(agentId: string, operationId: string): void {
     if (this.reservations.get(agentId)?.operationId === operationId) this.reservations.delete(agentId);
@@ -41,7 +44,7 @@ export class CapabilityState {
     return reservation?.operationId === operationId && reservation.fingerprint === fingerprint && reservation.candidate === JSON.stringify(config);
   }
   async prepare(input: { operationId: string; fingerprint: string; config: AgentConfiguration }, previous: AgentConfiguration | undefined,
-    catalog: CapabilityCatalog, usage: () => Promise<{active_schedules: number; busy: CapabilityTarget[]}>): Promise<Preparation> {
+    catalog: CapabilityCatalog, usage: () => Promise<{active_schedules: number; busy: CapabilityTarget[]; toolSelectionBusy?: CapabilityTarget[]}>): Promise<Preparation> {
     const {config, operationId, fingerprint} = input;
     const reject = (blocks: CapabilityBlock[], error_code = 'capability_in_use'): Preparation => ({ready: false, error_code, message: 'Capability configuration cannot be applied', blocks});
     const invalid = configurationBlocks(config, catalog);
@@ -66,7 +69,7 @@ export class CapabilityState {
     if (!targets.length) return {ready: true};
     try {
       const current = await usage();
-      const blocks: CapabilityBlock[] = targets.filter(target => current.busy.some(busy => busy.kind === target.kind && busy.name === target.name)).map(target => ({code: 'capability_busy', target}));
+      const blocks: CapabilityBlock[] = targets.filter(target => (target.kind === 'tool' ? current.toolSelectionBusy ?? current.busy : current.busy).some(busy => busy.kind === target.kind && busy.name === target.name)).map(target => ({code: 'capability_busy', target}));
       if (targets.some(target => target.kind === 'feature' && target.name === 'cron_scheduling') && current.active_schedules > 0) blocks.unshift({code: 'active_schedules', target: {kind: 'feature', name: 'cron_scheduling'}});
       if (blocks.length) { this.release(config.agentId, operationId); return reject(blocks); }
       return {ready: true};

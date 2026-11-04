@@ -1,6 +1,6 @@
 # Gateway Personal Agent Specification
 
-> 对齐: feat-703
+> 对齐: feat-705
 
 ## Purpose
 
@@ -9,9 +9,11 @@
 ## Requirements
 
 ### Requirement: PA 复用完整 Global 执行能力
+
 #### Scenario: 主人请求与普通工具
 - **WHEN** 主人交办工作或查询历史
 - **THEN** 直接进入 Global 主上下文，复用普通工具、Skills、插件、任务、子 Agent 与调度；不增加主人输入审核或 PA 目标引擎。
+- **AND** 日常直接处理、完整独立事项的单一内部执行责任、原执行者接续及主 Agent 唯一沟通交付均遵循 [Global 契约](global-agent.md)，不另设 PA 执行模型。
 
 ### Requirement: PA 双身份消息保留可信来源
 
@@ -43,6 +45,8 @@
 - **THEN** 不发送；可以按正常历史恢复路径取回原话后重新审核，记忆、摘要和助手的授权声明不能单独放行。
 
 ### Requirement: 默认服务指导复用普通配置和 Skill
+
+默认服务指导将 PA 定位为长期辅助主人履行职责、追求目标并兼顾工作与生活的助手，结合相关目标、偏好、关系、承诺和新事实判断有帮助的下一步；共享 Global 指引提供内部委派与对外交付分工，不将 PA 固定为只处理新请求的接单者。实际信息范围和行动权限仍沿用当前契约。
 
 #### Scenario: 用户调整服务方式
 - **WHEN** 主人修改或清空 PA 的 custom_prompt

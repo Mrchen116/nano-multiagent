@@ -9,6 +9,9 @@ it('preserves the upstream components, functions and worked examples', () => {
   expect(interactivePrompt).toContain('Svg(');
   expect(interactivePrompt).toContain('HtmlView(');
   expect(interactivePrompt).toContain('@Clamp');
+  expect(interactiveLibrary.actions).toHaveProperty('SendToChat');
+  expect(interactivePrompt).toContain('@SendToChat(message: string, context?: any)');
+  expect(interactivePrompt).not.toContain('ToAssistant');
 });
 it('restores edits, computes with upstream functions, and keeps drawing/actions local', async () => {
   const source = `$n = 1

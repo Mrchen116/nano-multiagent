@@ -50,7 +50,7 @@ export function projectCapabilities(
     tools: catalog.tools.filter(tool => tool.name !== 'memory').map((tool) => ({
       name: tool.name,
       description: tool.description,
-      default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "create_goal", "get_goal", "update_goal"].includes(tool.name),
+      default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "subagent_fork", "exit_plan_mode", "create_goal", "get_goal", "update_goal"].includes(tool.name),
       ...(tool.source_group === "workspace" ? {source_group: tool.source_group, enabled: tool.enabled} : {}),
     })),
     skills: catalog.skills.filter(skill => skill.name !== 'skill-creator').map((skill) => ({

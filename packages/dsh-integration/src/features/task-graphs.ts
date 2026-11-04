@@ -1,4 +1,4 @@
-import {isOrdinaryChild} from '../child-role.js';
+import {isInternalExecution} from '../child-role.js';
 import type { Context } from '@deepseek-ai/cordis';
 import type { AgentConfiguration } from '../index.js';
 import type { Agent } from '@deepseek-ai/dsh-agent';
@@ -10,7 +10,7 @@ export const inject = ['tools', 'nanoProduct', 'systemPrompt'];
 
 /** Feature guidance is independent of the callable Task tool. */
 export function apply(ctx: Context, config: {mode?: string}) {
-  ctx.systemPrompt.section({ name: 'nano-task-graphs', order: 810, text: ({agent}) => isOrdinaryChild(agent) ? 'You execute an internal delegated task. Read Task facts when needed and report findings, actual changes, blockers and evidence to your parent. The main Agent owns public delivery, waiting arrangements and ongoing Task responsibility. Inherited Task state is context, not a fresh assignment; respect corrections and stops. Do not fabricate human consent or claim completion from a draft or internal handoff.' : [
+  ctx.systemPrompt.section({ name: 'nano-task-graphs', order: 810, text: ({agent}) => isInternalExecution(agent) ? 'You execute an internal delegated task. Read Task facts when needed and report findings, actual changes, blockers and evidence to your parent. The main Agent owns public delivery, waiting arrangements and ongoing Task responsibility. Inherited Task state is context, not a fresh assignment; respect corrections and stops. Do not fabricate human consent or claim completion from a draft or internal handoff.' : [
     `Task ownership and changes
 Task graphs are durable plans and progress records in one fixed conversation within this Agent's fixed personal or company resource space. Joining a company never publishes personal-conversation Tasks. Eligible company members can read public-group Tasks; writing requires membership in the conversation.
 

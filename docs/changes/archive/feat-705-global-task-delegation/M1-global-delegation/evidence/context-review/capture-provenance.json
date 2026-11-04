@@ -1,0 +1,420 @@
+{
+  "kind": "twelve actual first provider requests across two roles, two versions and three native depth levels; not source reconstruction",
+  "main": "0287088bec1b646ac397b20ae3365d5e6962388e",
+  "pr": "4fe6ab6e5416dd429d7f98e4f51382daef9fdee0",
+  "estimator": "tiktoken o200k_base; compact JSON for tools; not billing tokens",
+  "scope": "Isolated RuntimeClient with real configured provider; quiescent Task host and disabled product side effects. Each version/role chain uses a fresh runtime; each depth has its own native session. No IM business task was performed.",
+  "configuration": "Global: same daily-engineering Persona and explicit tool/Feature choices. Personal: each version actual new-PA default Persona, with the same other explicit choices. Same per-role workspace, AGENTS, model, input, approval and skill selection. Packaged Skill files follow each source version.",
+  "unchanged_existing_pa": "Saved owner Persona is not backfilled. This Personal comparison tests NEW default Persona; it does not rewrite the preview PA.",
+  "method": "Refresh the two changed root requests without delegation or input/output rewriting; retain original main and all unaffected worker requests with their provenance.",
+  "retained_main_capture": "main requests retained unchanged from original role-guidance captures; original revisions, timestamps and hashes preserved",
+  "retained_unaffected_capture": "vision-context-tree-manifest.json; all main and all worker requests retain original provenance",
+  "runs": [
+    {
+      "role": "global",
+      "version": "main",
+      "source_commit": "0287088bec1b646ac397b20ae3365d5e6962388e",
+      "session_id": "140b7b75-e15f-4afb-a91b-e66c5b5edf11",
+      "started_at": "2026-11-04T02:51:39.837Z",
+      "finished_at": "2026-11-04T02:52:15.668Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_10-51-45_303-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "2dd9c3ee01f1e885273c9c7b26fbc2ef0f96017cb29ba44757b05671cc0bc308",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务任务。请仅在私有最终回复中写 CAPTURE_OK。不要调用工具、读取或修改文件，也不要发送任何 IM 消息。",
+      "system_tokens": 3785,
+      "tool_count": 36,
+      "model": "gpt-6.1-sol",
+      "reasoning": {
+        "effort": "high"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 27,
+        "time": 1793760729777,
+        "data": {
+          "turn": 2,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": null,
+      "root_session": "140b7b75-e15f-4afb-a91b-e66c5b5edf11",
+      "level": 0,
+      "controlled_delegation": true
+    },
+    {
+      "role": "global-l1",
+      "version": "main",
+      "source_commit": "0287088bec1b646ac397b20ae3365d5e6962388e",
+      "session_id": "9bd984ef-fc48-408d-8b1a-ec0b03f0f249",
+      "started_at": "2026-11-04T02:51:39.837Z",
+      "finished_at": "2026-11-04T02:52:15.672Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_10-51-55_300-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "e9e5cdba3dff1ce2fa34c3779ffbfa01ebac00a77a3d622b63c797faa16a536c",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 2274,
+      "tool_count": 32,
+      "model": "gpt-6.1-sol",
+      "reasoning": {
+        "effort": "high"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 26,
+        "time": 1793760728992,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "140b7b75-e15f-4afb-a91b-e66c5b5edf11",
+      "root_session": "140b7b75-e15f-4afb-a91b-e66c5b5edf11",
+      "level": 1,
+      "controlled_delegation": true
+    },
+    {
+      "role": "global-l2",
+      "version": "main",
+      "source_commit": "0287088bec1b646ac397b20ae3365d5e6962388e",
+      "session_id": "32d60360-87ee-4bce-afe4-3a73691b6e45",
+      "started_at": "2026-11-04T02:51:39.837Z",
+      "finished_at": "2026-11-04T02:52:15.682Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_10-52-01_441-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "f97f88449b504960b2f2d6425082d23fca1d4a7f930beb90667dfd5897943893",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 2274,
+      "tool_count": 32,
+      "model": "gpt-6.1-sol",
+      "reasoning": {
+        "effort": "high"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 25,
+        "time": 1793760735601,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "9bd984ef-fc48-408d-8b1a-ec0b03f0f249",
+      "root_session": "140b7b75-e15f-4afb-a91b-e66c5b5edf11",
+      "level": 2,
+      "controlled_delegation": true
+    },
+    {
+      "role": "personal",
+      "version": "main",
+      "source_commit": "0287088bec1b646ac397b20ae3365d5e6962388e",
+      "session_id": "7fa6e9b8-5c65-45da-a0c4-c10fb5648475",
+      "started_at": "2026-11-04T02:52:48.053Z",
+      "finished_at": "2026-11-04T02:53:32.799Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_10-52-49_267-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "59629c09ed199c82cd7dfe0071286077c77fc46f9aa2688e5f3eb50c3300eabd",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务任务。请仅在私有最终回复中写 CAPTURE_OK。不要调用工具、读取或修改文件，也不要发送任何 IM 消息。",
+      "system_tokens": 4560,
+      "tool_count": 39,
+      "model": "gpt-6-astra",
+      "reasoning": {
+        "effort": "medium"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 27,
+        "time": 1793760798106,
+        "data": {
+          "turn": 2,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": null,
+      "root_session": "7fa6e9b8-5c65-45da-a0c4-c10fb5648475",
+      "level": 0,
+      "controlled_delegation": true
+    },
+    {
+      "role": "personal-l1",
+      "version": "main",
+      "source_commit": "0287088bec1b646ac397b20ae3365d5e6962388e",
+      "session_id": "a64f4cf6-b09d-4b77-9235-0f76ba98ef92",
+      "started_at": "2026-11-04T02:52:48.053Z",
+      "finished_at": "2026-11-04T02:53:32.806Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_10-52-58_561-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "9298416e92736303b98ed7911bd85c83ce7ba8d8bab80631eadb6ba647a11e87",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 2373,
+      "tool_count": 32,
+      "model": "gpt-6-astra",
+      "reasoning": {
+        "effort": "medium"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 38,
+        "time": 1793760812697,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "7fa6e9b8-5c65-45da-a0c4-c10fb5648475",
+      "root_session": "7fa6e9b8-5c65-45da-a0c4-c10fb5648475",
+      "level": 1,
+      "controlled_delegation": true
+    },
+    {
+      "role": "personal-l2",
+      "version": "main",
+      "source_commit": "0287088bec1b646ac397b20ae3365d5e6962388e",
+      "session_id": "507875a8-98ee-467b-90f7-cc4b7c8a8bac",
+      "started_at": "2026-11-04T02:52:48.053Z",
+      "finished_at": "2026-11-04T02:53:32.812Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_10-53-09_118-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "8cf82177077ba31f96eb8c99d9c9d16f3c1f0b5333bc867ce8de954f900bb877",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 2373,
+      "tool_count": 32,
+      "model": "gpt-6-astra",
+      "reasoning": {
+        "effort": "medium"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 25,
+        "time": 1793760803867,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "a64f4cf6-b09d-4b77-9235-0f76ba98ef92",
+      "root_session": "7fa6e9b8-5c65-45da-a0c4-c10fb5648475",
+      "level": 2,
+      "controlled_delegation": true
+    },
+    {
+      "role": "global-l2",
+      "version": "pr",
+      "source_commit": "07bc0ba176ba259bc858cfbb63d672732b57749d",
+      "session_id": "3bdc101c-4d20-4954-8025-d1c2e475aed5",
+      "started_at": "2026-11-04T06:36:16.054Z",
+      "finished_at": "2026-11-04T06:37:02.104Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_14-36-41_181-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "12e02f1c88b3869c56375d87f71e7f7f07986ba87f9ff260325eddf607c37b9e",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 672,
+      "tool_count": 30,
+      "model": "gpt-6.1-sol",
+      "reasoning": {
+        "effort": "high"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 25,
+        "time": 1793774221997,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "8a960524-94c4-4885-8f52-ecb97d3b1243",
+      "root_session": "fc8c3bfa-96b5-4a7c-8670-6a2fe6b4d82e",
+      "level": 2,
+      "controlled_delegation": true
+    },
+    {
+      "role": "personal-l2",
+      "version": "pr",
+      "source_commit": "07bc0ba176ba259bc858cfbb63d672732b57749d",
+      "session_id": "12021817-f106-46f1-a3ac-d88d6bc9925f",
+      "started_at": "2026-11-04T06:37:02.426Z",
+      "finished_at": "2026-11-04T06:37:45.831Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_14-37-25_751-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "becae0d03d683351627692031fc68246a89474cd8993a6de4ab36a01bb414678",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 672,
+      "tool_count": 30,
+      "model": "gpt-6-astra",
+      "reasoning": {
+        "effort": "medium"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 25,
+        "time": 1793774265732,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "8c059805-a36f-4d2a-b40b-839d856d2bf4",
+      "root_session": "3c52145c-85eb-4056-857c-59df5daf10e8",
+      "level": 2,
+      "controlled_delegation": true
+    },
+    {
+      "role": "global-l1",
+      "version": "pr",
+      "source_commit": "5c6fa1422418ddccaa8a131df06e2d5f8f83af63",
+      "session_id": "f2f88a90-3f6f-40f5-9dbb-c423bfef60ff",
+      "started_at": "2026-11-04T06:49:53.485Z",
+      "finished_at": "2026-11-04T06:50:29.289Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_14-50-08_525-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "aac6110a0e6580ba3d88e71875a2594067b9bcf8eb7df0f9d57c4690ed5f4399",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 1016,
+      "tool_count": 30,
+      "model": "gpt-6.1-sol",
+      "reasoning": {
+        "effort": "high"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 25,
+        "time": 1793775029210,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "223fc27c-bc1e-4ead-b04c-986e003fb2ac",
+      "root_session": "223fc27c-bc1e-4ead-b04c-986e003fb2ac",
+      "level": 1,
+      "controlled_delegation": true
+    },
+    {
+      "role": "personal-l1",
+      "version": "pr",
+      "source_commit": "5c6fa1422418ddccaa8a131df06e2d5f8f83af63",
+      "session_id": "301f9970-e3d8-47ea-85ea-596e4f8ed65f",
+      "started_at": "2026-11-04T06:50:29.616Z",
+      "finished_at": "2026-11-04T06:50:52.530Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_14-50-39_406-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "16f2d614150dcad2ebfa4b6266ad3266e9f80ea64ace22e1b76f051ecb39d38e",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务执行任务。按原生回传方式向父级返回 CAPTURE_OK；不要读取或修改文件、发送 IM 消息，或自行创建新任务。",
+      "system_tokens": 1198,
+      "tool_count": 30,
+      "model": "gpt-6-astra",
+      "reasoning": {
+        "effort": "medium"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 25,
+        "time": 1793775052463,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": "ba8b433f-7fd2-4bb6-8b02-08145f9a1883",
+      "root_session": "ba8b433f-7fd2-4bb6-8b02-08145f9a1883",
+      "level": 1,
+      "controlled_delegation": true
+    },
+    {
+      "role": "global",
+      "version": "pr",
+      "source_commit": "4fe6ab6e5416dd429d7f98e4f51382daef9fdee0",
+      "session_id": "493ccbb0-29ab-4a47-9af3-eac19c8b7916",
+      "started_at": "2026-11-04T08:12:04.710Z",
+      "finished_at": "2026-11-04T08:12:22.409Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_16-12-13_766-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "904e5e9fd752e0f1ccf7b7b3e05753ec031af2f8e7e4191b88396eb1abcdda14",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务任务。请仅在私有最终回复中写 CAPTURE_OK。不要调用工具、读取或修改文件，也不要发送任何 IM 消息。",
+      "system_tokens": 3146,
+      "tool_count": 36,
+      "model": "gpt-6.1-sol",
+      "reasoning": {
+        "effort": "high"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 18,
+        "time": 1793779942365,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": null,
+      "root_session": "493ccbb0-29ab-4a47-9af3-eac19c8b7916",
+      "level": 0,
+      "controlled_delegation": true
+    },
+    {
+      "role": "personal",
+      "version": "pr",
+      "source_commit": "4fe6ab6e5416dd429d7f98e4f51382daef9fdee0",
+      "session_id": "4103024d-479f-4041-a821-2e212e4180ce",
+      "started_at": "2026-11-04T08:12:22.722Z",
+      "finished_at": "2026-11-04T08:12:34.378Z",
+      "upstream_source": "[TMP]/feat705-llm-proxy-1tlfvjjr/logs/raw/openai_codex/2026-11-04_16-12-24_405-upstream-req-anthropic_messages.json",
+      "upstream_sha256": "da3410fcfeadd13c12e8ec1d7800d918399cd9a8dee74171db7c01436699cee8",
+      "actual_capture": true,
+      "input": "这是隔离的初始上下文采样，没有业务任务。请仅在私有最终回复中写 CAPTURE_OK。不要调用工具、读取或修改文件，也不要发送任何 IM 消息。",
+      "system_tokens": 3928,
+      "tool_count": 39,
+      "model": "gpt-6-astra",
+      "reasoning": {
+        "effort": "medium"
+      },
+      "reply_terminal": {
+        "type": "turn/end",
+        "seq": 18,
+        "time": 1793779954342,
+        "data": {
+          "turn": 1,
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      },
+      "parent_session": null,
+      "root_session": "4103024d-479f-4041-a821-2e212e4180ce",
+      "level": 0,
+      "controlled_delegation": true
+    }
+  ],
+  "review_copy": {
+    "kind": "path-redacted review derivative; not original request logs",
+    "source_snapshot": "start-notice captures; unchanged by Dreaming-only commit 2d661b862",
+    "redactions": [
+      "home prefix",
+      "OS temporary directory prefix"
+    ],
+    "token_counts": "original unredacted capture estimates",
+    "original_requests": "retained outside Git; original hashes below"
+  }
+}

@@ -64,8 +64,8 @@ it("exposes selectable effort and native Workflow commands without a duplicate s
   ).not.toContain("ultracode");
 });
 
-it("lists Goal tools as individually selectable defaults without a feature", () => {
-  const tools = ['create_goal', 'get_goal', 'update_goal'];
+it("lists fork, Plan exit and Goal tools as individually selectable defaults without a feature", () => {
+  const tools = ['subagent_fork', 'exit_plan_mode', 'create_goal', 'get_goal', 'update_goal'];
   const node = {llm: {default_model: 'test', providers: []}} as unknown as NodeConfigurationFile;
   const capabilities = projectCapabilities({tools: tools.map(name => ({name, description: name})), skills: []}, node,
     {agentId: 'a', revision: '1', provider: 'test', model: 'test', toolAllowlist: tools});

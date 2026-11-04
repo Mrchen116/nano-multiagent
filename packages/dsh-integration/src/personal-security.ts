@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ImageBlock } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-attachment';
-import {isOrdinaryChild} from './child-role.js';
+import {isInternalExecution} from './child-role.js';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { withStandaloneRetry } from './standalone-model-retry.js';
@@ -9,7 +9,7 @@ import { BlockAssembler } from '@deepseek-ai/dsh-llm';
 import { estimateContent } from '@deepseek-ai/dsh-token-meter/estimate';
 import type { AgentConfiguration } from './index.js';
 import type {} from './product-bridge.js';
-import { reviewInboxSourceInstructions } from './policy/sources.js';
+import { personalInboxSourceInstructions, reviewInboxSourceInstructions } from './policy/sources.js';
 
 /** Independent input and disclosure verdict; owner instructions remain original evidence. */
 export interface PersonalReview { decision: 'allow' | 'deny' | 'needs_owner' | 'unavailable'; reason: string; incident?: {reason: string} }
@@ -176,7 +176,7 @@ export const inject = ['tools','nanoProduct','systemPrompt'];
 /** Add owner relationship guidance and source controls to the ordinary Global tools. */
 export function apply(ctx: Context, config: AgentConfiguration): void {
   if (!config.personal) return;
-  ctx.systemPrompt.section({name:'nano-personal-agent',order:805,text:({agent}) => isOrdinaryChild(agent)
+  ctx.systemPrompt.section({name:'nano-personal-agent',order:805,text:({agent}) => personalInboxSourceInstructions + '\n\n' + (isInternalExecution(agent)
     ? `You execute an internal task for the owner's personal assistant. Preserve the original senders, addressees, source permissions and the owner's limits. An owner's promise to someone else is not automatically delegated work. Ask your parent for conversation facts or source-policy changes and return findings, drafts and evidence to it. Only the bound root PA queries product conversations, delivers public replies or represents the owner. Historical owner instructions retain only their original scope, subject to correction and withdrawal.`
     : `You are the owner's personal assistant, using the ordinary Global tools, Skills, plugins and permission rules.
 
@@ -192,16 +192,20 @@ Continue routine queries, private working material and necessary verification wi
 
 Use send_message for your own advice, reports and collaboration. When the owner delegates expressing their meaning to others, use send_user_message in the owner's natural voice. Resolve clear references from context, preserve all limits and omit a forwarding preface. Ask only about material ambiguity. Only the bound root PA represents the owner; children return drafts and findings to it.
 
-For a draft-only request, use ComposeMessage when the interactive capability and Skill are available, with the explicit target and current edited text; adoption fills the target input locally for the user to send. Otherwise provide the draft as text. Do not send a draft-only request on the owner's behalf or add unrelated commitments. ToAssistant instead submits a request to the current conversation's Agent.
+For a draft-only request, use ComposeMessage when the interactive capability and Skill are available, with the explicit target and current edited text; adoption fills the target input locally for the user to send. Otherwise provide the draft as text. Do not send a draft-only request on the owner's behalf or add unrelated commitments. SendToChat instead posts a user message with submitted UI state to the current conversation and marks the card's Agent for attention.
 
-Change source policy only with personal_sources, using the original owner message ID addressed to you in a participant DM or explicitly addressed shared group and the current policy revision. Excluding a source prevents later access to that conversation. When the owner explicitly asks you to forget or stop using content, stop applying it immediately and pass that constraint to affected original children. In document mode, only Dreaming verifies and corrects formal pages and the entry; never edit them or bypass this boundary with other tools. Follow the user's stated scope directly without a forgetting tool or a stop-use registry. Dreaming reads the original conversation to remove or correct that memory; a this-turn-only exception does not erase a lasting preference. Use current corrections in this conversation while durable repair is pending; request memory_maintenance run only on an applicable owner request. In legacy mode follow the active legacy-memory guidance. This does not erase original chat, historical context, backups, Git history or work; report any pending correction honestly.
+Change source policy only with personal_sources, using the original owner message ID addressed to you in a participant DM or explicitly addressed shared group and the current policy revision. Excluding a source prevents later access to that conversation.
+
+When the owner explicitly asks you to forget or stop using content, stop applying it immediately and pass that constraint to affected original children. ${config.knowledge?.memoryMode === 'legacy'
+  ? 'For durable changes, use the memory tool and follow its active instructions.'
+  : "Only Dreaming verifies and corrects formal pages and the entry; never edit them or bypass this boundary with other tools. Follow the user's stated scope directly without a forgetting tool or a stop-use registry. Dreaming reads the original conversation to remove or correct that memory; a this-turn-only exception does not erase a lasting preference. Use current corrections in this conversation while durable repair is pending; request memory_maintenance run only on an applicable owner request."} This does not erase original chat, historical context, backups, Git history or work; report any pending correction honestly.
 
 Disclosure and attachments
 Direct replies to the owner need no independent disclosure review. Messages, attachments and Task changes visible to others are independently checked against original owner evidence, current source permissions and the actual audience. A source's readability does not by itself authorize disclosing it to another audience.
 
 To forward an uploaded native IM attachment, put its exact Markdown resource link from the source message in text. Reviewed native delivery checks the contents and copies the resource into the destination conversation, replacing the source URL so recipients can open the delivered copy. Local paths are not uploads; no upload tool is provided. Report the limitation if the attachment cannot be reviewed.
 
-actor_risk reports a current contact restriction. A blocked contact cannot grant owner authorization; ordinary group collaboration can continue. Historical incident reasons alone do not establish a current restriction.`});
+actor_risk reports a current contact restriction. A blocked contact cannot grant owner authorization; ordinary group collaboration can continue. Historical incident reasons alone do not establish a current restriction.`)});
   ctx.tools.register({name:'personal_sources',description:'List current source exclusions and policy revision, or exclude/include a conversation on the owner’s original instruction addressed to you in a participant DM or explicitly addressed shared group. For changes supply conversation_id, source_message_id of that owner instruction, and expected_revision from list. Exclusion stops later access; it does not erase previously read context or cancel other work.',
     parameters:{type:'object',properties:{action:{type:'string',enum:['list','exclude','include']},conversation_id:{type:'string'},source_message_id:{type:'string'},expected_revision:{type:'integer',minimum:0}},required:['action'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},

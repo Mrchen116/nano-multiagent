@@ -4,9 +4,9 @@ import type {} from '../knowledge/runtime.js';
 export const name = 'nano-skill-creation';
 export const inject = ['tools', 'skills', 'systemPrompt', 'nanoKnowledge'];
 export interface Config { agentId: string }
-/** Built-in creation guidance is independent from background evolution and tool permissions. */
+/** Foreground learning guidance is independent from background evolution and tool permissions. */
 export function apply(ctx: Context, config: Config) {
-  ctx.systemPrompt.section({ name: 'nano-skill-creation', order: 830, text: 'Use the built-in skill-creator when creating or improving a reusable Skill. Maintain a class-level Skill only when verified evidence supports a reusable improvement. There is no update quota. Prefer correcting an existing writable Skill in place. Read its current file before changing it. Keep each complete task rule in one Skill; personal preferences that apply across tasks belong in Memory. Preserve explicit user constraints. If the user defers maintenance or asks only for an acknowledgement this turn, do not create or modify a Skill in that turn. Sending a reply does not finish foreground work. Do not turn an Agent choice or a temporary workaround into a standing user requirement. For a workaround, state its conditions, resource owner, and cleanup. If these are unknown, skip the rule. New Skills use native kebab-case names. Use only enabled maintenance tools within their selected writable scopes.' });
+  ctx.systemPrompt.section({ name: 'nano-skill-creation', order: 830, text: 'When a Skill you use has verified errors or missing steps, update it. When difficult or iterative work yields a proven, reusable method, offer to save it as a Skill. Do not turn one-off task details, transient failures, or unverified workarounds into reusable instructions.' });
 
 }
 

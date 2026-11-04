@@ -91,7 +91,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
         if (typeof target !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(target)) throw new Error('ComposeMessage target must be an explicit Nano IM conversation id');
         if (typeof text !== 'string') throw new Error('ComposeMessage text must evaluate to a string');
       }
-      if (child.name === 'ToAssistant' || child.name === 'Mutation') kinds.add('send');
+      if (child.name === 'SendToChat' || child.name === 'ToAssistant' || child.name === 'Mutation') kinds.add('send');
       if (child.name === 'Run' && child.args[0]?.k === 'Ref') {
         const mutation = named.get(child.args[0].n);
         if (mutation?.k === 'Comp' && mutation.name === 'Mutation') kinds.add('send');
@@ -104,7 +104,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
     if (node.name === 'ComposeMessage') inspectAction(node);
     if (node.name === 'Action') {
       const kinds = inspectAction(node);
-      if (kinds.has('compose') && kinds.has('send')) throw new Error('ComposeMessage cannot be combined with ToAssistant or Mutation');
+      if (kinds.has('compose') && kinds.has('send')) throw new Error('ComposeMessage cannot be combined with SendToChat or Mutation');
     }
   });
   for (const statement of statements) walkAST(statement, node => {

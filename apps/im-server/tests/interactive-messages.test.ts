@@ -5,7 +5,7 @@ import { all, one } from '../src/context.js';
 
 const interactive = { format: 'openui', catalog_version: 'nano-iui-1', source: `$body = "周六见"
 root = Col([form])
-form = Form([TextArea($body, "草稿"), Button("发送给林悦", @ToAssistant("发送给林悦"))])` };
+form = Form([TextArea($body, "草稿"), Button("发送给林悦", @SendToChat("发送给林悦"))])` };
 function setup() {
   const {db,ctx} = fixture(); ctx.gateway.broadcast = vi.fn();
   const messaging = new Messaging(ctx); ctx.messaging = messaging;

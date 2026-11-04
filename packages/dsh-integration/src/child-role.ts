@@ -2,9 +2,12 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import type {Context} from '@deepseek-ai/cordis';
 import type {Agent} from '@deepseek-ai/dsh-agent';
 import {freezeMessage} from '@deepseek-ai/dsh-llm';
+import type {AgentConfiguration} from './index.js';
 
 const creatingFork = new AsyncLocalStorage<string>();
 const forks = new WeakSet<Agent>();
+const workerForks = new WeakSet<Agent>();
+const scopedChildren = new WeakSet<Agent>();
 
 /** Carry native tool creation intent until its durable descriptor exists. */
 export function trackForkCreation(ctx: Context): void {
@@ -13,13 +16,16 @@ export function trackForkCreation(ctx: Context): void {
 }
 
 /** Capture the execution role before prompt and tool registration, including empty forks. */
-export function attachChildRole(agent: Agent): void {
+export function attachChildRole(agent: Agent, config?: AgentConfiguration): void {
   if (agent.session.header.origin !== 'subagent') return;
+  // A root configuration update cannot promote a workflow's scoped child into a full worker.
+  if (config?.modelRouteFrozen) scopedChildren.add(agent);
   const descriptor = agent.session.snapshotEvents().findLast(event =>
     agent.session.isOwnSeq(event.seq) && event.type === 'subagent/descriptor');
   if (!agent.session.header.isSeeded && !(descriptor?.type === 'subagent/descriptor' && descriptor.data.provider === 'fork')
     && creatingFork.getStore() !== agent.session.header.parentSession) return;
   forks.add(agent);
+  if (config?.mode === 'global' && !config.modelRouteFrozen && agent.session.header.delegationDepth === 2) workerForks.add(agent);
   let first = !agent.session.snapshotEvents().some(event => agent.session.isOwnSeq(event.seq) && event.type === 'request/header');
   agent.ctx.on('agent/pre-step', async (_payload, next) => {
     const decision = await next();
@@ -38,4 +44,24 @@ export function attachChildRole(agent: Agent): void {
 /** Whether Nano should supply a standalone internal worker prompt and tool view. */
 export function isOrdinaryChild(agent?: Agent): boolean {
   return agent?.session.header.origin === 'subagent' && !forks.has(agent);
+}
+
+/** Resolve Global execution duties from native lineage, preserving scoped workflow routes.
+ *
+ * Args:
+ *   agent: Trusted native Agent, including a resumed child.
+ *   config: Host-resolved effective configuration, not model-supplied role text.
+ * Returns:
+ *   The complete-task worker, ordinary nested child, or inherited worker fork role.
+ */
+export function globalWorkRole(agent: Agent | undefined, config: AgentConfiguration): 'worker' | 'subagent' | 'worker-fork' | undefined {
+  if (!agent || config.mode !== 'global' || config.modelRouteFrozen || scopedChildren.has(agent) || agent.session.header.origin !== 'subagent') return;
+  const depth = agent.session.header.delegationDepth;
+  if (depth === 1 && isOrdinaryChild(agent)) return 'worker';
+  if (depth === 2) return isOrdinaryChild(agent) ? 'subagent' : 'worker-fork';
+}
+
+/** Keep product guidance internal for ordinary children and forks of Global workers. */
+export function isInternalExecution(agent?: Agent): boolean {
+  return isOrdinaryChild(agent) || !!agent && workerForks.has(agent);
 }

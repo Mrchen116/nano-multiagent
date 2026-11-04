@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { InteractiveSourceError, validateInteractiveSource, interactionState } from '../src/interactive-source.js';
 
 const source = `$body = "周六见"
-root = Col([Form([TextArea($body, "消息草稿"), Button("继续修改", @ToAssistant("继续修改"))])])`;
+root = Col([Form([TextArea($body, "消息草稿"), Button("继续修改", @SendToChat("继续修改"))])])`;
 
 describe('Open Intelligent UI source boundary', () => {
   it.each([
@@ -77,6 +77,10 @@ root = Text("消息数：" + @Count(data))`)).toThrow();
   });
 });
 
+it('keeps previously saved ToAssistant cards readable', () => {
+  expect(() => validateInteractiveSource(source.replaceAll('SendToChat', 'ToAssistant'))).not.toThrow();
+});
+
 describe('ComposeMessage local action', () => {
   const source = '$draft = "Hello"\nroot = Col([TextArea($draft), Button("Adopt", @ComposeMessage("c_target", $draft))])';
   it('accepts an explicit target and computed editable text', () => {
@@ -88,6 +92,7 @@ describe('ComposeMessage local action', () => {
     '@ComposeMessage("external:lark:chat", $draft)',
     '@ComposeMessage("", $draft)',
     '@ComposeMessage("c_target", 42)',
+    'Action([@ComposeMessage("c_target", $draft), @SendToChat("send")])',
     'Action([@ComposeMessage("c_target", $draft), @ToAssistant("send")])',
     'Action([@ComposeMessage("c_target", $draft), @Run(send)])',
   ])('rejects invalid or implicitly sending adoption: %s', action => {

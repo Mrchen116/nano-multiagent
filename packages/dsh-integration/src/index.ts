@@ -231,7 +231,7 @@ export default class NanoRuntime {
       const config = exec.agent && configurationService.forAgent(exec.agent);
       if (!config) return next();
       const key = `${exec.agent!.id}:${exec.callId}`;
-      if (!this.capabilities.begin(key, config.agentId, {kind: 'tool', name: exec.name})) return {kind: 'deny', reason: 'Capability is reserved by configuration'};
+      if (!this.capabilities.begin(key, config.agentId, {kind: 'tool', name: exec.name}, configurationService.independentTool(exec.agent!, exec.name))) return {kind: 'deny', reason: 'Capability is reserved by configuration'};
       const skill = exec.name === 'skill' && (exec.arguments as {name?: string}).name;
       if (skill && !this.capabilities.begin(`${key}:skill`, config.agentId, {kind: 'skill', name: skill})) { this.capabilities.end(key); return {kind: 'deny', reason: 'Skill is reserved by configuration'}; }
       try { return await next(); } catch (error) { this.capabilities.end(key); this.capabilities.end(`${key}:skill`); throw error; }
@@ -626,10 +626,10 @@ export default class NanoRuntime {
           }});
       } catch(error) {return {decision:'unavailable',reason:`Independent review unavailable: ${String(error)}`};}
     });
-    const usage = async (agentId: string) => {
+    const usage = async (agentId: string, selectionOnly = false) => {
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
       const schedules = await this.cron.command(agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
-      const busy: CapabilityTarget[] = [...this.capabilities.busy(agentId), ...(await knowledge).busyKinds(agentId).map(kind => ({kind: 'feature' as const, name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}))];
+      const busy: CapabilityTarget[] = [...this.capabilities.busy(agentId, selectionOnly), ...(await knowledge).busyKinds(agentId).map(kind => ({kind: 'feature' as const, name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}))];
       for (const binding of this.bindings.values()) {
         if (binding.agentId !== agentId) continue;
         const agent = ctx.agents.get(SessionId(binding.sessionId));
@@ -645,9 +645,10 @@ export default class NanoRuntime {
       const previous = [...this.configurations.values()].find(config => config.agentId === input.config.agentId);
       const catalog = await preview(input.config, input.config.workspace ?? previous?.workspace ?? process.cwd(), true) as {tools: {name: string}[]; skills: {name: string}[]};
       return this.capabilities.prepare(input, previous, {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)},
-        () => previous ? usage(input.config.agentId) : Promise.resolve({active_schedules: 0, busy: []}));
+        async () => previous ? {...await usage(input.config.agentId), toolSelectionBusy: this.capabilities.busy(input.config.agentId, true)} : {active_schedules: 0, busy: []});
     };
-    handle('configuration.usage', value => usage((value as {agentId: string}).agentId));
+    // The editor asks which selections are in use, not whether native workers are active.
+    handle('configuration.usage', value => usage((value as {agentId: string}).agentId, true));
     handle('configuration.prepare', value => prepare(value as Parameters<typeof prepare>[0]));
     handle('configuration.release', value => { const {agentId, operationId} = value as {agentId: string; operationId: string}; this.capabilities.release(agentId, operationId); return {released: true}; });
     handle('configuration.apply', async value => {

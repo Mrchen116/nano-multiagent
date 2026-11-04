@@ -85,15 +85,15 @@ it.each([
     expect(request.path).toMatch(/^\/v1\/messages(?:[?]|$)/);
     expect(request.body.model).toBe('fixture');
     // These packages come from native contributors, not test-created system messages.
-    expect(visible).toContain('You are one persistent Agent working across conversations.');
+    expect(visible).toContain('Messages and public delivery');
     for (const term of ['inbox_result', 'observation=live', 'observation=restored', 'external-user mapping', 'send_message_result', 'send_user_message_result']) expect(visible).not.toContain(term);
     expect(visible).toContain('WIRE_PERSONA_' + cell);
     expect(visible).toContain('Task ownership and changes');
     expect(visible).toContain('Automatic continuation does not grant authority');
     expect(visible).toContain(taskTitle);
     expect(visible).toContain('cron_disabled');
-    expect(visible).toContain('built-in skill-creator');
-    expect(visible).toContain('Use only enabled maintenance tools within their selected writable scopes.');
+    expect(visible).toContain('verified errors or missing steps');
+    expect(visible).toContain('unverified workarounds');
     expect(visible).toContain('<available_skills>');
     expect(visible).not.toContain('USER_CREATOR_REPLACEMENT_679');
     expect(visible).not.toContain('OPTIONAL_UNSELECTED_679');

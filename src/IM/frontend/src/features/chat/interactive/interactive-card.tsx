@@ -172,8 +172,10 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     if (action.type === 'nano_continue' && typeof action.params.action_id === 'string') {
       void submit({action_id:action.params.action_id}, action.formState).catch(() => undefined); return;
     }
-    if (action.type === 'continue_conversation') {
-      void submit({event:{type:'continue_conversation',message:action.humanFriendlyMessage,context:action.params.context,
+    if (action.type === 'SendToChat' || action.type === 'continue_conversation') {
+      const text = action.type === 'SendToChat' ? action.params.message : action.humanFriendlyMessage;
+      if (typeof text !== 'string') { setError('action'); return; }
+      void submit({event:{type:'continue_conversation',message:text,context:action.params.context,
         form_name:action.formName,label:actionLabel.current || t('chat.interactive.ask')}}, action.formState).catch(() => undefined); return;
     }
     setError('action');

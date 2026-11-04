@@ -62,12 +62,14 @@ Agent 解读：适用对象仍是所有 Global Agent，包括 PA。主 Agent 直
 
 Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派与返回上下文；Nano 只补一级的完整事项责任、必要父级协调和产品权限边界；二级普通 subagent 不注入额外身份或一级职责。普通一级、二级都不复制 Global／PA 的整段 Persona、Inbox、根历史或用户交付职责；fork 的父上下文继承仍走 DSH 原生路径。原话和必要资料由直接父级随交办提供，二级只承担一级交给它的范围，不被要求对整项用户目标负责。宿主权限检查仍按真实父子链执行，不靠身份提示词保证。具体注入与恢复见 design，不复制维护一套上游 Prompt。
 
+2026-11-04 用户要求参考主仓更新后的 vision 思考初始提示词，并确认实施：共享开头表达长期承担配置中的职责与目标，根据相关聊天、记忆与执行结果，在既有职责和授权内主动开展并接续工作；保留单一完整事项执行者和对外交付分工。PA 默认定位覆盖主人工作与生活，既有自定义 Persona 不回填；不改 Task 体系，不扩展工具、感知或权限。
+
 ## 现状依据
 
 核对日期为 2026-11-03；Nano 基线为 `26ed162c5`，参考仓基线为 `6337fc823ce20251c8de8085948165c81aaa701e`。以下区分当前契约、源码观察和一次实际运行，不将参考仓实现作为本仓现状。
 
-- [Global 当前契约](../../specs/gateway/global-agent.md)只要求主 Agent 倾向按需委派，仍允许自行执行；`packages/dsh-integration/src/global-mode.ts` 的实际提示词采用可委派的表述，没有明确完整事项的单一执行责任及委派后的避免重复调查要求。
-- [PA 当前契约](../../specs/gateway/personal-agent.md)复用完整 Global 能力。`apps/im-server/src/personal-agent-defaults.ts` 的可编辑初始指导已区分日常小事与长事项；既有用户自定义配置不会因默认文案改变而自动回填。
+- [Global 当前契约](../../../specs/gateway/global-agent.md)只要求主 Agent 倾向按需委派，仍允许自行执行；`packages/dsh-integration/src/global-mode.ts` 的实际提示词采用可委派的表述，没有明确完整事项的单一执行责任及委派后的避免重复调查要求。
+- [PA 当前契约](../../../specs/gateway/personal-agent.md)复用完整 Global 能力。`apps/im-server/src/personal-agent-defaults.ts` 的可编辑初始指导已区分日常小事与长事项；既有用户自定义配置不会因默认文案改变而自动回填。
 - 用户提供的“禅”聊天中，一次代码对比请求被交给两个研究执行者；主 Agent 在两者运行期间仍大量阅读双方文档和代码。2026-11-03 的实际父子执行事件已核实；主会话为 `3143edc8-1ead-48ce-b7ca-1da50a7233bb`，两个子会话为 `01f60cb0-59e9-45e9-ae95-42c38a34f964`、`5aa5be4c-9856-4185-a27b-c025eb35b2af`。这里记录必要定位，不复制私人聊天或原始日志。
 - 用户提供的日常聊天抽样呈现状态交流、进展反馈、待办回顾与定时关心，包含已完成事项的后续反馈；该场景本身不能被解释为需要持续运行一整天的执行任务，也不能把倾诉或自述自动当作交办。
 - 参考仓 `prompts/orchestrator.md`、`prompts/dispatch.md` 明确主会话负责路由、不调查技术细节、不代写实施计划，并把原始请求交给 worker；`prompts/worker.md`、`prompts/work.md` 将范围判断、执行、验证及同事项后续交给 worker。`src/executor/dsh.ts` 为同一工单保留稳定 worker 会话，执行尝试与任务本身分离；本需求借鉴职责及接续原则，不引入其工单、Assignment 或 Thread 订阅系统。
@@ -75,7 +77,7 @@ Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派�
 - 当前源码中普通一级、二级都经 `agent-config.ts::attachAgent` 装配同一份 `registerChildGuidance`，未按层级区分完整事项责任；`ToolSelection` 同样使用产品 Agent 的配置筛选各层工具。DSH 的普通 spawn 使用新子会话，不复制父历史；fork 保留父前缀并由 Nano 补内部角色尾说明。以上是当前行为，不是本轮目标已实现。
 - 参考仓工具分层与上下文：`cordis.patch.yml` 为独立 Worker 会话裁剪 standard，显式将其下级配置为 standard；`src/app/sessions.ts` 为下级加工作工具限制；一级通过 `orchestrator_report` 回主会话。本轮借鉴完整执行者分工，保留 Nano 原生父子会话及 `send_message`，不照搬独立 Worker 或工单体系。
 
-- [随包持续工作指导](../../../packages/personal-assistant/assets/skills/nano-ongoing-work/SKILL.md)已有后台可接续执行者、原执行者接续、更正与停止的处理方法。本阶段统一主从职责及相关指引，复用这些现有机制，不引入另一份 Task 状态或执行循环。
+- [随包持续工作指导](../../../../packages/personal-assistant/assets/skills/nano-ongoing-work/SKILL.md)已有后台可接续执行者、原执行者接续、更正与停止的处理方法。本阶段统一主从职责及相关指引，复用这些现有机制，不引入另一份 Task 状态或执行循环。
 
 ## 用户场景
 
@@ -203,6 +205,18 @@ Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派�
 - **THEN** 原名单保持，不静默改写用户选择；fork 是否可调用取决于当前有效设置。
 - **AND** 开启只增加原生工具，保持原有返回模式，不增加专门提示词、清理轮次或取消机制。
 
+
+### Requirement: exit_plan_mode 默认关闭并保留显式选择
+
+#### Scenario: 新建、未配置与手动选择
+- **WHEN** 新建 Global、PA 或 SingleThread 主 Agent，或配置没有显式工具名单
+- **THEN** `exit_plan_mode` 默认不启用，仍在现有工具目录可手动选择；默认值、能力预览、实际下发和执行限制一致。
+- **AND** 手动开启或关闭沿用现有工具规则，不增加 Plan 模式入口、额外提示词或委派职责；内部执行者原有用户交互工具限制不变。
+
+#### Scenario: 已有显式选择不改写
+- **WHEN** 加载、更新或恢复已有显式工具名单
+- **THEN** 保留其 `exit_plan_mode` 选择；新默认值不覆盖已保存的开启或关闭，不迁移历史配置。
+
 ## 范围与非目标
 
 - 在范围：普通 Global 与 PA 的主从职责、完整事项委派、执行者内部进一步分工、主 Agent 继续接新输入、同事项更正及接续、聊天内的停止协调、日常小事直接处理、唯一用户沟通入口及真实交付。
@@ -227,3 +241,15 @@ Agent 解读（初始上下文）：DSH 提供基础工作指导、原生委派�
 8. 上轮模拟曾提出扩展现有 task_graph 增加 delegate 动作：接收原始交办来源，创建或复用 Task，启动后台可接续 subagent 并保存关联。这是候选接口示例，尚未定稿或实现；本阶段不新增该动作，后续设计需整体确定 Task 与执行者的联动方式。
 
 暂停前的完整场景、验收与现状证据保存在 [9fbe919db 的本文件](https://github.com/Mrchen116/nano-multiagent/blob/9fbe919db65d5274c201d04ac050b6c96daeecd6/docs/changes/feat-705-global-task-delegation/spec.md)。参考仓固定基线仍为 `6337fc823ce20251c8de8085948165c81aaa701e`；稳定 worker、执行与业务状态分开等思路可继续参考，但参考原型部分无报告停工被记为 waiting，不等于已满足上述 Task 续推目标。
+
+## 开放 PR 复核补充（2026-11-04）
+
+用户确认：“exit_plan_mode 默认关闭，保留手动开启，已有显式选择不改。纳入本unit。”按当前同一交付会话处理自包含默认值小修，不新增 milestone 或 Task 改造。初始上下文开销的完整 System 与逐工具 token 统计另记 [Issue #460](https://github.com/Mrchen116/nano-multiagent/issues/460)，本 unit 不实施全面压缩。
+
+## 来源与功能指导的消费者范围补充（2026-11-04）
+
+用户明确要求：“普通 Global 和它的一级 worker 不要带 PA 专属提示。顺便检查下还有没有类似的无关段落，一并精简，再用实际捕获更新对照页，逐行不要省略。”本次按角色收口来源、工具说明及一级交互指导，不修改用户 Persona、Task 业务或实际权限。不重新开展此前已要求停止的独立 review；验证使用相关回归与 main／PR 的真实请求捕获，完整差异保留所有行。
+
+## 交互动作统一命名（2026-11-04）
+
+用户确认将 ToAssistant 统一改名为 SendToChat。新生成卡片、模型常驻／按需说明、动作目录、Web与iOS均使用 SendToChat(message, context?)，明确提交当前聊天消息和状态，而非私下只给一个助手。既有群消息可见性、卡片Agent关注、私聊背景、状态冻结和权限规则保持；已保存ToAssistant卡片仍可读取和提交，不改写历史消息。

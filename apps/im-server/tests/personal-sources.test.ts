@@ -76,7 +76,7 @@ it('accepts the bound Feishu owner DM as original authority while keeping groups
 it('uses submitted UI choices as authorization while keeping unsubmitted edits private',async()=>{
  const {ctx,db,service,principal,args}=personalFixture();
  const source=ctx.messaging.insertMessage('peer','u2','user','Can we meet Thursday?');
- const interactive={format:'openui',catalog_version:'nano-iui-1',source:'$body = "Thursday works"\nroot = Col([TextArea($body), Button("Coordinate", @ToAssistant("Coordinate"))])'};
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'$body = "Thursday works"\nroot = Col([TextArea($body), Button("Coordinate", @SendToChat("Coordinate"))])'};
  const card=ctx.messaging.insertMessage('chat','a1','agent','Suggested reply',[],null,'completed',{interactive});
  expect(card).not.toHaveProperty('reply_draft');
  const request={headers:{'x-user':'u1'},params:{conversation_id:'chat',message_id:card.id},query:{},body:{expected_draft_revision:0,state:{'$body':'Private unsubmitted wording'}}} as any;

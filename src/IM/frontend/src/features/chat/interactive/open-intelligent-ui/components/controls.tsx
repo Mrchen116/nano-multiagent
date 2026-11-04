@@ -16,7 +16,7 @@ import { bg, children, color, onColor, cx, option, radius, radiusSchema, space, 
 
 type Plan = Parameters<ReturnType<typeof useTriggerAction>>[2];
 
-/** Runs an action prop. With no action, a button sends its label to the assistant. */
+/** Runs an action prop. With no action, a button posts its label to the current chat. */
 function useRunAction() {
   const trigger = useTriggerAction();
   const formName = useFormName();

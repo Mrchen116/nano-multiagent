@@ -4,6 +4,12 @@
 
 ## Changelog
 
+- 2026-11-04：用户确认专家 Dreaming 整理反思文案。沿既有可信 personal 角色选择整理关注，PA 原文逐字保留，专家只替换已确认的反思句；共同规则与任务提炼不变。具体 Persona／长期定位的输入缺口已登记 Issue #465，后续考虑，不纳入本次实现。
+
+- 2026-11-04：参考 Super Agent 的启动确认设计，较大事项在开始或委派前简短说明具体工作和预期结果，涵盖职责与权限内主动开展的工作；明确静默时省略，已授权工作继续而不等待重复批准。通过既有 send_message 交付，不新增确认工具、工单或审批机制；PA 默认安静通知规则为这次启动告知保留例外。
+
+- 2026-11-04：按用户确认参考主仓 refactor-710 的产品愿景，根会话共享开头改为持续承担配置中的职责与目标，结合相关聊天、记忆和执行结果，在既有职责与权限内主动行动并接续工作；PA 默认 Persona 明确兼顾主人工作与生活。保留单一完整事项执行者、原事项更正、对外交付和既有 Memory 写入机制；不改 Task 系统，不扩展感知或权限，用户保存的 PA Persona 不回填。
+
 ## 现状分析
 
 ### 涉及范围
@@ -77,6 +83,8 @@ flowchart LR
 - 已授权 workspace 扩展、Skill 选择与禁用、来源／审批和 workspace 边界继续有效；不通过原生默认值自动启用被用户禁用的 Skill 或新装插件。
 
 `restrictSelection`、配置预览、History 配置恢复和 capability reservation 必须使用同一角色语义：主会话取消普通工具不撤销一级的 DSH 工作默认能力，也不把一级正在使用该能力误判成根选择不可保存的依赖；真正共享的 Feature、Skill、扩展或权限撤回仍按既有保护生效。占用仍按实际调用记账，不删除或重建子会话。无需公开 role 字段或另存工具名单。
+
+历史恢复的通用授权提醒沿用上下文组件的换窗提示；主会话与一级不另加同义常驻段。Task 控制来源及独立审批器的取证规则仍由各自消费者持有。
 
 **一级补工作职责，二级普通 subagent 不注入额外身份。** DSH 的工作指导与原生委派机制是底层；Nano 的自定义职责只写在根和一级各自局部 scope，不进入共享 preset 的可继承产品 Prompt。二级不注册 `nano-product-identity`、`nano-global-child`、`nano-inbox-source`、根 Persona、PA／Task／Heartbeat 等产品系统段，不追加“你是某数字人的内部员工”一类身份。权限检查仍由宿主按真实 lineage 执行，不能用删 Prompt 代替访问控制。
 
@@ -181,3 +189,32 @@ flowchart LR
 | M1-global-delegation | 完整事项负责者与分层工具／上下文 | 无 | 单阶段 | integration 的 agent-config、capabilities、global-mode、child-role；必要的现有配置／历史／capability reservation 接线；Node 工具默认；PA 默认说明；ongoing／proactive Skill；相关测试；三个 Gateway delta | [reviewer] 全部 Scenario：完整事项只有一个一级负责者，根不重复调查、继续日常与独立输入，更正／停止／接续归原事项，Global 唯一用户入口并实际交付。[reviewer] 根 fork 默认关闭、可手动选择且旧名单保持；一级按 DSH 工作，二级由一级自主组织。[worker] 实际 provider 请求证明一级 DSH 基础＋最小职责，普通二级无额外 Nano 身份／业务指导，fork 保留原生继承；根工具配置不误缩一级或反向放开根。[worker] 更新、占用校验、同 ID 冷恢复、Skill／Feature／扩展撤回、Goal 独立选择及审批／产品权限有效，Workflow／SingleThread 等非目标规则保持，原生深度不扩展。[worker] 原生通信 fixture 与 Global／PA 真实模型旅程证据分开；Task driver／动作／数据、客户端布局无变化，相关窄回归与 required CI 通过。 |
 
 窄回归复用 global-child-tools、goal-opt-in、communication-native、llm-attribution、task-child-context、native-human-source、配置占用／预览与 PA 默认说明测试；按角色新增实际请求与执行断言。保留独特旧回归，只调整被本设计明确改变的共享名单／二级身份预期，不写镜像文案测试。测试、真实模型和产品验收均属于实施阶段，本设计不宣称已通过。
+
+## 开放 PR 默认值补充（2026-11-04）
+
+按用户确认，将 `exit_plan_mode` 加入 Node 工具目录和 integration 的默认关闭集合。未配置名单的主会话不下发该工具；显式名单仍是选择来源，无配置迁移。Global／PA 内部执行者原有用户交互工具排除规则不变。DSH 以命令进入 Plan Mode，但本产品未提供相应入口；本轮仅调整工具默认值，不实现 Plan 入口或增加角色提示词。扩展既有 Node capabilities／原生 opt-in 矩阵，核默认、显式选择与 llm/stream 实际 Schema；已有主从自然旅程证据未失效，设置页做针对性独立复验。
+
+## 用户复核后的职责文字精简（2026-11-04）
+
+用户要求一并考虑既有段落，删除没有本产品场景依据的冗长提示。保留完整事项先交一个可接续执行者、日常直接处理、原执行者接更正、主会话供必要事实／决定并交付；合并重复的原文重读／验收要求，不再常驻回执、恢复笔记更新频率、逐次状态处理等细则。一级仅写端到端职责与父级用户入口；二级原生规则不变。PA 新建默认只保留个人助手特有行为与 Skill 入口，不再复制 Global 的整套主从规则；已有用户 Persona 不回填。结构、工具、权限、Task 业务均不变，详细跨轮次操作仍由既有按需 Skill 承担。
+
+这是用户明确要求的文字精简，不据静态 token 下降声称模型行为或延迟改善。保留此前自然任务作为原长版证据；精简版只跑受影响原生 wire／恢复／通信和 PA 创建回归。用户要求停止独立 review 后未重新派审查或产品复验。
+
+## IM 角色身份措辞校正（2026-11-04）
+
+用户指出 `main coordinator and sole user-facing contact` 容易被理解为所有聊天／外部参与者的统筹者。改为对外单一且负责的 Agent：与人和其他 IM Agent 平等协作，对自身接受的工作和沟通负责；worker 仅属其内部执行方式。该身份边界写在根指导开头，去掉重复的外部 Agent 非下属句，不新增对外 router 身份；一级的父级通信边界仍只指内部层级。
+
+## 按消费者装载来源与交互指导（2026-11-04）
+
+- 通用来源说明移除 PA 主人观察协议；原文单独由 personal-security 的个人角色 section 注入，PA 根／一级仍能解释主人和观察关系，普通二级原有过滤有效。一级使用短的委派来源边界，保留原授权范围、撤回／更正和工具／子消息不产生新授权；宿主审核提示与权限逻辑不改。
+- GlobalMode 根据可信配置 personal 布尔值投影 Inbox 的 review／message_id 和 conversations 的主人字段说明；普通根不再声明不可用的 PA 复核操作。pa_agent_id 对普通 Global 识别其他 PA 的代表发送仍有意义，保留通用来源归属。
+- 通用主指导移除重复 PA 代发和 Heartbeat 协议句。PA 表达规则继续由个人角色 section 提供；Heartbeat quiet 协议只在启用该 Feature 的主会话装载，不注入一级。
+- Global／PA 一级的 Intelligent UI 指导只说明按需加载 Skill、准备内容并回传父级，不重复用户聊天、ComposeMessage／ToAssistant 和背景交互流程；SingleThread 及主会话原有交互指导保持。
+
+更新既有 Global／PA HTTP wire 矩阵，直接核各层可见协议字段、根工具 schema 和一级 UI 工作范围；实际模型采样再核全组合。未因本次反馈改造子执行、取消、Task 或审核机制。
+
+## SendToChat 公开动作名（2026-11-04）
+
+用 OpenUI 公开 defineAction／library.extend 注册 SendToChat(message, context?)，Web与iOS均归入原有continue_conversation提交链，保持按钮可见标题、动作消息、context、完整表单状态和实际点击用户。内部事件／已保存消息格式不改。原生ToAssistant仅保留为已保存卡片的解释兼容，不向新模型提示列出；不patch SDK、不改写历史。
+
+当前catalog以公开toSpec／generateSystemPrompt派生提示：复用原生同签名步骤说明为SendToChat，避免双重列出自定义动作，替换成群聊公开提交的真实说明。生成脚本同步共享schema、Skill、Prompt和iOS打包解释器；旧原生catalog额外接入同一生成动作schema。ComposeMessage与任一新旧发送动作仍不能组合。Web直接消费SendToChat事件；旧JavaScriptCore解释器转换为现有continue_conversation，新WebKit桥接读取同名动作的message参数。Skill变化仅同步名字及准确动作说明，不新增前面已删除的通用真实性规则。

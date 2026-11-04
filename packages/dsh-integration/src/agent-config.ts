@@ -1,4 +1,4 @@
-import {attachChildRole, isOrdinaryChild, trackForkCreation} from './child-role.js';
+import {attachChildRole, globalWorkRole, isOrdinaryChild, trackForkCreation} from './child-role.js';
 import * as PersonalTools from './personal-security.js';
 import { assertPersonalConfiguration } from './personal-security.js';
 import { realpath } from 'node:fs/promises';
@@ -67,6 +67,10 @@ export class ConfigurationScopes extends Service {
   }
   async whenIdle(agentId: string) { await Promise.all([...this.agents.values()].filter(scope => scope.config.agentId === agentId).map(scope => scope.agent.whenIdle())); }
   catalog(agent: Agent) { return this.tools.catalog(agent); }
+  /** Keep native worker tools outside a root-only selection withdrawal. */
+  independentTool(agent: Agent, name: string): boolean {
+    const config = this.forAgent(agent); return !!config && this.tools.independentTool(agent, config, name);
+  }
   /** Apply owner plugin changes only while every Agent sharing the workspace is reserved idle. */
   managePlugins(config: AgentConfiguration, command: PluginCommand) {
     return this.extensions.manage(config, command, (workspace, job) => this.maintain(workspace, job));
@@ -108,6 +112,7 @@ export class ConfigurationScopes extends Service {
   async ready(agentId: string): Promise<void> { await Promise.all(this.presetReadiness.get(agentId) ?? []); }
   private async attachPreset(ctx: Context, agentId: string): Promise<void> {
     const config = this.config(agentId);
+    this.tools.captureDefaults();
     assertPersonalConfiguration(config);
     if (config.extensions?.global) {
       const path = config.extensions.global;
@@ -118,7 +123,7 @@ export class ConfigurationScopes extends Service {
     const scope: PresetScope = { agentId, ctx, features: new Map() };
     this.presets.add(scope); ctx.effect(() => () => { this.presets.delete(scope); });
     // Product chat tools must not be inherited through the shared Global preset.
-    if (config.mode !== 'global') await ctx.plugin(GlobalMode, { mode: config.mode }).await();
+    if (config.mode !== 'global') await ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
     await ctx.inject(['tools', 'nanoProduct', 'nanoKnowledge', 'skills'], child => {
       TaskGraphs.registerTool(child, agent => this.forAgent(agent)); MemoryCuration.registerTool(child); SkillCreation.registerTool(child); child.nanoKnowledge.documents.registerTool(child);
     }).await();
@@ -130,6 +135,10 @@ export class ConfigurationScopes extends Service {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const selected = agent && this.forAgent(agent); if (!selected) return assembly;
       const disabled = new Set<string>();
+      if (globalWorkRole(agent, selected) === 'subagent') {
+        // A nested native worker receives its assignment, not Nano's product identity or business duties.
+        for (const section of [...assembly.sections, ...assembly.contexts]) if (section.name.startsWith('nano-')) disabled.add(section.name);
+      }
       for (const [feature, section] of [['intelligent_ui', 'nano-interactive-replies'], ['task_graph', 'nano-task-graphs'], ['memory_curation', 'nano-memory']] as const) if (selected.features?.[feature] === false) disabled.add(section);
       if (!selected.features?.cron_scheduling) disabled.add('nano-cron');
       if (!selected.features?.heartbeat) disabled.add('nano-heartbeat');
@@ -142,24 +151,26 @@ export class ConfigurationScopes extends Service {
     }, { prepend: true });
   }
   async attachAgent(agent: Agent, config: AgentConfiguration): Promise<void> {
-    attachChildRole(agent);
+    attachChildRole(agent, config);
+    const role = globalWorkRole(agent, config);
+    const internal = isOrdinaryChild(agent) || role === 'worker-fork';
     const workspace = config.workspace ? await realpath(config.workspace) : undefined;
     while (workspace && this.maintenance.has(workspace)) await this.maintenance.get(workspace);
     const scope: AgentScope = { agent, config, workspace }; this.agents.set(agent, scope);
     agent.ctx.effect(() => () => { this.agents.delete(agent); });
-    agent.ctx.systemPrompt.section({ name: 'nano-product-identity', order: 5, interpolate: false, text: () => {
+    if (role !== 'subagent') agent.ctx.systemPrompt.section({ name: 'nano-product-identity', order: 5, interpolate: false, text: () => {
       const name = JSON.stringify(scope.config.displayName ?? scope.config.agentId);
       const id = JSON.stringify(scope.config.agentId);
-      return isOrdinaryChild(agent)
+      return internal
         ? `You are an internal subagent of this product Agent:\nAgent name: ${name}\nAgent ID: ${id}`
         : `Your Agent name: ${name}\nYour Agent ID: ${id}`;
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
-    if (config.systemPrompt && !isOrdinaryChild(agent)) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
+    if (config.systemPrompt && !internal) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
-    if (isOrdinaryChild(agent)) GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global');
-    else if (config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode }).await();
-    if (config.personal && !isOrdinaryChild(agent)) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
+    if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork');
+    else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
+    if (config.personal && !internal) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config);
     await agent.ctx.plugin(ContextOrder).await();
   }
@@ -184,7 +195,7 @@ export class ConfigurationScopes extends Service {
   async setConfiguration(next: AgentConfiguration): Promise<void> {
     for (const scope of this.agents.values()) if (scope.config.agentId === next.agentId && scope.config.systemPrompt !== next.systemPrompt) {
       await scope.persona?.dispose(); scope.persona = undefined;
-      if (next.systemPrompt && !isOrdinaryChild(scope.agent)) { scope.persona = scope.agent.ctx.plugin(Persona, { prefix: next.systemPrompt }); await scope.persona.await(); }
+      if (next.systemPrompt && !isOrdinaryChild(scope.agent) && globalWorkRole(scope.agent, scope.config) !== 'worker-fork') { scope.persona = scope.agent.ctx.plugin(Persona, { prefix: next.systemPrompt }); await scope.persona.await(); }
     }
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
       for (const key of Object.keys(config)) delete (config as unknown as Record<string, unknown>)[key];

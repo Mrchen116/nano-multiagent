@@ -52,6 +52,11 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     expect(names).toEqual(expect.arrayContaining(['read','write','edit','source_history','notes','history','new_context','get_context_remaining']));
     expect(names).not.toContain('finish');
     const initialText=JSON.stringify(maintenance[0].messages);
+    const personalReflection='Consider what recent interactions reveal about relevant changes in the user’s goals';
+    const expertReflection='Consider what recent work reveals about relevant domain and project changes';
+    expect(initialText).toContain(personal ? personalReflection : expertReflection);
+    expect(initialText).not.toContain(personal ? expertReflection : personalReflection);
+    expect(initialText).toContain('For proactive preferences distinguish what to raise');
     expect(initialText).not.toContain('source generation:');
     expect(initialText).not.toContain('Source exclusions (data)');
     expect(initialText).not.toContain('baseline');
