@@ -115,3 +115,11 @@
 - 用户明确外部身份是一个负责的 IM Agent，与人和其他 IM Agent 平等协作；内部委派不使主会话成为所有聊天的总负责人。根开头移除 main coordinator／sole user-facing contact，改为同一对外角色及自身接受事项的责任；current／delta 用同一句边界，Requirement 数不变。
 - 调整后的 root 完整指导797 tokens（改前main712；上轮长版1211），协调正文208；一级100；PA新建默认205。`/tmp/feat705-identity-build.log` 构建及 `identity-tests.log` 2文件9项原生wire／恢复／通信通过，不冒称新增真实模型自主旅程。
 - 用户要求现有对照URL改为最新main与PR，并加入Personal Agent；main重新fetch仍为90ef。对照页会清楚区分原始真实捕获与两侧源码重建，并分别展示新建PA默认说明与既有Persona不回填。
+
+## 四份实际请求与对照交付（2026-11-04）
+
+- 用户要求以真实捕获为准，已用 git archive main90ef 的integration源码重新编译（只在ignored cache内，不改主仓）；PR49ee独立已构建lib。两个版本分别通过标准prepareProfile／RuntimeClient启动新DSH进程。普通Global和Personal各一份首次provider/upstream请求，均走现有隔离56067代理和真实配置模型，各自产生恰好1次请求并completed；未替换或拼接System。
+- Global main session efe7d395-5eb4-42eb-9f77-8963d35a7851／PR 5f946929-b7bb-422d-a393-956d57f671b1；Personal main dabd9e92-c279-48c6-aaad-28f89ed1a912／PR 28188fc4-845f-4e11-b973-2bf7fd6a2002。原请求和SHA-256在本地 .cache/feat705-context-capture/actual-manifest.json、页面actual-provenance.json可复查。私有headers／凭据不复制进页面或提交。
+- 同角色workspace、AGENTS、模型、输入和工具／Feature显式选择固定；Global保持E Persona，Personal默认Persona按各版本实际模块加载。只使用对应版本打包Skill，不读私人全局扩展；Task宿主为空闲，产品写入拒绝。原始动态时间和ID不归一化，已有PA Persona与原IM聊天轨迹不改；采样不等于新的IM自然交办验收。
+- 实际完整System：Global3785→3870 tokens，Personal4560→4552；工具分别36／39，两侧保持。采样整体分别15487→15568、16884→16880；与原R4的18701是不同动态消息／AGENTS配置，不能把总量差异全算作压缩收益。
+- 原URL重做为Global／Personal两类的main／PR实际对照，含职责说明、完整System、逐行差异、首轮消息、逐工具token、原请求下载及来源。旧R4及旧重建页面仅保存在r4-captured历史入口，不再作为本轮实际对照。浏览器真实切换Global／Personal和完整System已核可用；四个原生采样进程均已正常shutdown，预览服务按用户要求保留。
