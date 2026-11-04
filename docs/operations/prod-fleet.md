@@ -101,19 +101,11 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 | 健康恢复 | supervisor 每 5 秒检查配置和 IPv6 en0 路由；路径漂移则停止子进程，路径恢复后自动启动。`/ready` 连续失败 30 秒则重建 cloudflared；检查、终止及重新握手另需时间 |
 | Tunnel gate | `~/.nanoassistant/bin/prod-tunnel.py --ready` 检查启动条件；无该参数时核对 live 子 PID、metrics listener、四个已建立的 IPv6 TCP `7844` edge socket、HA=4、连接端点签名稳定，并验证公网 TLS/200 |
 | Tunnel 路径 | HTTP2 / IPv6，经 Mini `en0`；部署前执行已安装脚本的 `--ready`，普通服务部署采样 `--seconds 30`，路径、协议或恢复机制变更及故障恢复才采样 600 秒 |
-| ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 `http_status:404`；无常驻试用分流器 |
+| ingress | `im.nanoim.win` → `http://127.0.0.1:8011`，最后兜底 `http_status:404` |
 | HTTPS 强制规则 | Cloudflare Single Redirect `IM — Force HTTPS`：仅该主机 HTTP → HTTPS，308，保留路径/query/请求方法 |
 | 日志 | Mini `~/.nanoassistant/public-im.log`、`~/.nanoassistant/public-tunnel.log` |
 
 两个 plist 均位于 Mini `~/Library/LaunchAgents/`，启用 RunAtLoad/KeepAlive。常规发布复用 launcher、plist、Tunnel 凭据和 DNS；不得用旧 `nohup uvicorn --host 0.0.0.0` 替换。TLS 在边缘终止，源站 loopback HTTP 是预期拓扑。
-
-2026-11-04 用户授权公网传输矩阵后，四组各 30 次探针和禅真实历史对照选择 HTTP2/IPv6：同为 LAX 接入，256 KB 请求中位数实验约 9.06 → 0.99 秒、持久启动后 0.74 秒；更早历史页面中位数由约 14.02 降至持久复测 2.68 秒。IPv4 没有额外优势。区域未限制为 us，不引入直连产品入口。具体样本、恢复复测及本轮持续健康结果见 [bugfix-704 证据](../changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md)。QUIC/IPv6 保留为显式回退配置，不自动切换或伪造 HTTP2 的 QUIC 指标。
-
-### 原域名隔离试用端口
-
-2026-11-04 bugfix-704 完成并部署后，用户明确要求结束试用。已仅将 ingress 恢复到正式 `127.0.0.1:8011`，保留 HTTP2/IPv6、原 Tunnel 身份及 supervisor；原 LaunchAgent 重连并通过 30 秒门禁后，停止隔离 IM/Gateway、卸载 `perf704-port-router` LaunchAgent，核实 `51129`/`51130` 无监听。`:8443` 不再提供该隔离试用服务；这不代表关闭 Cloudflare 支持的边缘 HTTPS 端口。历史实验见 [bugfix-704 记录](../changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md)，其中当时的临时路径不再是当前运行入口。
-
-以后只有用户明确要求时才建立临时试用路由，保持独立身份、数据和 Cookie。回收时只恢复 ingress，不能整份覆盖可能含旧协议的历史 YAML；先核对正式入口和对应健康门禁，再卸载分流器与停止隔离服务。
 
 ### Tunnel 验收分级
 
@@ -126,7 +118,7 @@ Air 的 `gateway.startup_timeout_seconds` 为 `600`，用于等待既有 DSH 会
 | 只更新 Gateway 或 LLM 代理，Tunnel 不变 | 核对受影响服务、节点连接及已有调用日志；模型调用验证在隔离环境完成，不例行发送生产探针；无需例行 Tunnel 连续采样 |
 | 修改 Tunnel 出口路由、协议/IP 家族、cloudflared 版本或 supervisor/恢复机制，或恢复已观察到的 Tunnel 故障 | 完成后 `scripts/prod_tunnel.py --seconds 600`；恢复机制演练优先在隔离环境完成，生产暂停与退出演练须有明确授权及限定窗口，随后开始连续采样 |
 
-30 秒用于发布后短时间健康核对；600 秒用于本次曾观察到间歇断连的隧道变更或故障恢复观察，两者都不是永久可用性的保证。采样窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 edge TCP 端点签名变化即失败。生产 PID 必须持有 metrics listener 和四个已建立的 IPv6 TCP `7844` edge socket；授权回退 QUIC 时另保留双向流量与断连计数检查；临时 connector 不能替代生产 PID 的门禁。常规发布保留持续运行的 supervisor，不必重启 Tunnel 或注入故障。
+30 秒用于发布后短时间健康核对；600 秒用于隧道变更或故障恢复后的持续观察，两者都不是永久可用性的保证。采样窗口内有公网失败、HA 不足、路由变化、子 PID 替换或 edge TCP 端点签名变化即失败。生产 PID 必须持有 metrics listener 和四个已建立的 IPv6 TCP `7844` edge socket；授权回退 QUIC 时另保留双向流量与断连计数检查；临时 connector 不能替代生产 PID 的门禁。常规发布保留持续运行的 supervisor，不必重启 Tunnel 或注入故障。
 
 公网规则不随 Git 代码发布而重建，但每次完整发布必须验证仍有效。308 不是 HSTS；当前未配置 HSTS，不得在验收中把二者混为一谈。账号准入、签名密钥、设备身份及数据库恢复是独立操作，普通 Feature 发布不重复首次迁移。
 

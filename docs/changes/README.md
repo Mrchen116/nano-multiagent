@@ -22,8 +22,6 @@ docs/changes/
 
 `docs/changes/` 的直属 unit 目录就是活动区，其中可以包含正在推进或暂停的工作。具体阶段由 unit 已有文档及其门禁内容判断，不维护另一份活动清单或状态快照。
 
-已交付的 Agent 页面性能与原公网 Tunnel 对照见 [bugfix-704 记录](archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md)。
-
 ## 是否建立 unit
 
 按 [`change-workflow.md`](../development/change-workflow.md#什么时候不建-unit) 判断：

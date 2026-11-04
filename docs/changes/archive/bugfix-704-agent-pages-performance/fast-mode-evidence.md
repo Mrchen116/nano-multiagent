@@ -337,3 +337,14 @@ Mini 自身经香港代理访问同一原 Tunnel 的一次样本落在 `conn_ind
 同步 main 得到 `a8ae6546a2c8e0718808709ab45859962c7f2745`，与上述 CI merge tree 的 `git diff` 为空，故同树代码测试和构建证据 retained，不另做无意义全套复跑。main 增量涉及 PA 创建/能力、内置旅行 Skill、聊天日期及 Dreaming 测试生命周期；与本次唯一自动合并重叠处 control-routes 的创建实现抽离，saved settings/轨迹/Work 实现保持本任务结果。无本次新的用户可观察修改，原试用确认和清理复测 retained；实际独立代码审查记录另见 code-review.md。
 
 `effective_base=c87b09c4eca17395d1d4b4a2976eca674b318504`，`effective_through` 为 PR 最终归档提交（仅文档归并、索引、路径与收口事实变化），代码与 a8ae6546a 保持相同。canonical 只合并配置快读/草稿和 Work 摘要/独立读取/慢读边界，不把技术预取选项、缓存实现或一秒的跨网络保证写入行为契约。最终远端 CI 另行运行；用户要求保留的隔离服务和未合入 worktree 继续保留。
+
+
+## 正式部署与临时环境回收（2026-11-04）
+
+用户授权 Air、Mini 更新并验证原域名工作页与禅真实轨迹，随后明确“8443 试用服务……不需要了，unit 开发完了”。两机固定生产 checkout 部署至合并提交 `dd7e19e2a8f8569d18ae058df2a350c34e09d5ad`；Mini IM 与两机 Gateway/DSH 就绪且节点在线、owner 一致，保留身份、签名密钥、数据及已发布安装清单，没有发布新安装包。
+
+原命名 Tunnel 只将 ingress 从本地 `51130` 分流恢复为直达正式 `8011`，HTTP2/IPv6 en0 和 supervisor 保持不变。由原 LaunchAgent 重连，HA=4、同 PID/端点签名及公网 HTTPS 的 30 秒门禁通过后，停止 `office-perf-704` Gateway、隔离 IM 并卸载 `perf704-port-router` LaunchAgent，核实 `51129`/`51130` 无监听。停止试用服务不表示关闭 Cloudflare 的边缘 HTTPS 端口。
+
+正式域名的既有工作记录可见；禅真实根会话 `3143edc8-1ead-48ce-b7ca-1da50a7233bb` 首屏 12 行，读取更早历史至 22 行，单次观察约 2.333 秒，保持“已连接 · 实时更新 · 只读”。首次自动化 locator 等待受驱动三秒限制而超时，随后 DOM 核实真实内容已加载；未据此虚报首屏耗时。全程仅作既有内容和运行状态的只读验证。
+
+部署与回退记录保留在两机私有 `~/.nanoassistant/deploy-backups/20261104-main-dd7e19e/`；各机保留最近三次普通部署备份与必要的迁移前快照。本节保存一次性过程，当前正式配置由 [生产舰队](../../../operations/prod-fleet.md) 维护，临时端口及退役经过不进入长期运维流程。
