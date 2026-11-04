@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
+import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each(['unread-write', 'failed-read-write', 'normal-stop', 'missing-index', 'model-error', 'cancelled'])(
@@ -81,7 +82,7 @@ export function apply(ctx) {
       expect(await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8')).toBe(original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
-      const status = (id: string) => JSON.parse(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('\n'));
+      const status = (id: string) => JSON.parse(stripContextItemId(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content).filter(block => block.type === 'text').map(block => block.text).join('\n'));
       expect(status('before').sourcesPending).toBe(false);
       expect(status('before').maintenance.backlog).toMatchObject({ state: 'pending', scope: 'frozen_sources' });
       expect(status('before').maintenance.backlog.global.pending).toBe(true);

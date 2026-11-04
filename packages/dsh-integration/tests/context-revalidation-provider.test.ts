@@ -7,6 +7,7 @@ import { Context } from '@deepseek-ai/cordis';
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local';
 import type { TaskExecutionSnapshot } from '@nano/product-contracts';
 import { expect, it } from 'vitest';
+import {stripContextItemId} from 'dsh-agent-context';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { MemoryDocuments } from '../src/knowledge/memory-documents.js';
 
@@ -120,7 +121,8 @@ it.each([
     const task = users.filter(message => message.id === item.inputId);
     expect(task).toHaveLength(1);
     expect(task[0]).toMatchObject({ source: { kind: 'nano-system', channel: 'task-context', actorId: 'wire-revalidation',
-      conversationId: item.conversationId, messageId: item.inputId }, content: item.content });
+      conversationId: item.conversationId, messageId: item.inputId } });
+    expect(stripContextItemId(task[0].content)).toEqual(item.content);
     expect(users.find(message => message.id === inputId)).toMatchObject({ source: { kind: 'user', actorId: 'wire-owner',
       conversationId: 'wire-human-chat', messageId: inputId } });
     expect(users.some(message => message.source?.kind === 'nano-system' && message.source.channel === 'task-reminder'
