@@ -4,6 +4,7 @@
 
 ## Changelog
 
+- 2026-11-05（Round 2 收口）: 补 `pending_sends` 的孤儿收敛路径（快照差分输入改为库内会话身份全集 + 显式丢弃，R2-W1）；补登录成功/换账号后的分区激活与 `ChatStorageState` 三态（R2-W2）；补三条设计承诺的证据位（R2-R1）、凭据失效的可执行构造（R2-R2）、`ChatMessage` 可空字段数更正为 13（R2-R3）、`publish(nil)` 的顺序裁定（R2-R4）。
 - 2026-11-05（追加）: 上级批准后把两处口径落到首文档：`spec.md`「会话访问被撤销」改为「已得知撤销」口径、「未确认发送记录迁移一条不丢」增「升级后首次启动的呈现」Scenario，两处均以「口径修正（design 阶段确认）」标注来源（Gate 2 W1 / C1）。design 与 delta 已与首文档一致。
 - 2026-11-05: Gate 2 R1 收口 — `pending_sends` 去掉会话外键并改显式删除（C1）；旧 JSON 目录在 U1 不改名不删除，迁移是否完成只由库内标记判定（C2）；补离线可读边界与撤销收敛口径（W1）、`membership_changed` 核对期间的呈现（W2）、四项不可 CI 验证项的落点与 M1⑤ 构造步骤（W3）、`ChatListPhase`/`ConnectionState` 状态口径与 401 purge 归属（W4）、草稿写入节流与单一串行写（W5）、`interaction_contexts` 边界（W6）、凭据校验前的呈现时序条款（W7），并吸收 R1–R6。
 
@@ -109,6 +110,8 @@ graph TB
   - 一次消息分页结果 → 一个事务（upsert 消息 + boundary + 会话投影 + 修剪超额消息）；
   - 一次用户意图（pending_sends 增删、已读边界写、草稿 flush）→ 各自一个事务。草稿**不是**逐键一个事务，见下方「草稿写入」。
 - 「不在权威集合里」的判定只取自**一次成功的全量 `/sync`**（HTTP 200 且拿到完整投影）：`/sync` 今天没有分页游标（`SyncSnapshot { items, max_event_id }`，`ChatModels.swift:123`），所以缺项即失去访问；单次 `/conversations` 页、失败的响应、或 WS 单事件都不作为删除依据。U4 若给 `/sync` 加增量参数，必须回头重审这条判据。
+- 差分的输入是**库内已存在的全部会话身份**，不是「会话行」：`conversations.id` ∪ `pending_sends.conversation_id` ∪ `revoked_conversations.conversation_id`（镜像今天 `ChatStore.reconcile` 把 `pending.keys` 并入撤销集的做法，`ChatStore.swift:190`）。迁移先于任何 `/sync`，所以 `pending_sends` 里的会话可能**没有任何会话行**；只用会话行做差分，这类记录就永远没有结论路径（只有 `purge()` 能删），计数与说明会永久残留。差集逐项走 D10 的 `revoke()`（唯一删除入口）。
+- 快照校正同时处理「会话在集合内但已不能写」：`can_write == false` 或 `dissolved_at != nil` 的会话 → 丢弃该会话的 pending 记录（镜像今天的第二个调用点 `ChatStore.swift:195-198`）。否则只读/已解散会话里的未确认发送同样永远残留。
 - 游标只增不减：一次成功快照后取 `max(库内 max_event_id, 响应 max_event_id)`。持久化游标不能让重连退回到更旧的 `after_event_id`；WS 的 `resync_required` 仍按既有路径回落全量（`ChatStore.swift:119`）。
 - 拒绝备选：把 `Database` 传给 `ChatStore` 就地查询（会重新出现「视图触发 IO」与主线程 IO）；多写者 + WAL（D2 已排除）。
 - 读投影：每个写 API **在同一事务内**返回更新后的投影（会话行 / 时间线页 / pending 列表），`ChatStore` 直接采用返回值。这既避免「写完再读一次」的二段竞态，也让 U1 不需要观察机制。
@@ -118,7 +121,7 @@ graph TB
   - 合并规则：只保留「最新快照」，由单一串行写任务依次提交（同一条等待链，后写胜出），因此不存在乱序，也不需要按版本号丢弃。
   - 损失窗口：进程被系统直接杀死时最多丢最近 1s 的草稿文本；退到后台已经 flush 过，正常路径不丢。这条写进 M1 证据，不伪装成零损失。
   - 与发送的原子性：发送前先 flush 草稿，`upsertPending` 在同一事务里清空该会话草稿行，因此不会出现「草稿还在 + 未确认发送也在」的双份内容，也不会出现两者都缺的空档。
-- 降级：仓储打不开（磁盘满、库损坏且重建也失败）时，`ChatStorageController` 返回「无仓储」，`ChatStore` 退化为今天的纯网络模式（`listPhase` 从 `loadingFirst` 起步，所有读写直连网络），App 仍可用；降级本身在界面可见为「本次没有本地缓存」，不伪装成正常首绘。
+- 仓储状态必须是三态，不能是「有/无」：`ChatStorageState = .opening | .ready(ChatRepository) | .degraded(reason)`。`.opening`（尚未打开，含登录成功后正在打开）**不是**降级，不显示「没有本地缓存」；只有 `.degraded` 才是降级。`.degraded` 时 `ChatStore` 退化为今天的纯网络模式（`listPhase` 从 `loadingFirst` 起步，所有读写直连网络），App 仍可用，但界面必须显示「本次没有本地缓存」并给重试入口，不伪装成正常首绘。
 - 主线程纪律：`ChatRepository` 的初始化、migrate、一次性导入全部在 actor 内（非 MainActor）；今天 `ChatStore.init` 里同步读 JSON（`ChatStore.swift:48,50-62`）的写法必须消失，M1 退出标准含「bootstrap 路径无同步文件/SQLite 调用」。
 
 **D4 — 写操作必须携带写上下文 `(partition, epoch, snapshotSeq)`；迟到结果在库层被拒绝，不只靠 UI 判断。**
@@ -129,7 +132,7 @@ graph TB
 
 **D5 — schema v1 用「promoted 列 + 原始 DTO JSON」的混合形状，按 U1 需要裁剪表集。**
 
-- 混合形状的理由：`ChatMessage` 有 16 个可空字段，其中 `interactive`/`thinking`/`tool_calls`/`permission_requests`/`delegation` 是随服务端演进的结构（`ChatModels.swift:84-107`）。逐列建表会让每个 UI 字段变更都变成一次 schema 迁移；只存 JSON 又无法可靠分页、排序与去重。因此：**排序/去重/列表投影需要的列提升为真实列，渲染需要的其余部分按服务端原始 DTO 存 `payload_json`，读时原样解码回 `ChatMessage`。**
+- 混合形状的理由：`ChatMessage` 有 13 个可空字段（9 个非可选 + 13 个 Optional，共 22 个，`ChatModels.swift:84-107`），其中 `interactive`/`thinking`/`tool_calls`/`permission_requests`/`delegation` 是随服务端演进的结构。逐列建表会让每个 UI 字段变更都变成一次 schema 迁移；只存 JSON 又无法可靠分页、排序与去重。因此：**排序/去重/列表投影需要的列提升为真实列，渲染需要的其余部分按服务端原始 DTO 存 `payload_json`，读时原样解码回 `ChatMessage`。**
 - 裁剪与理由：
   - 保留 `actors` + `conversation_members`（规范化，不用 JSON 存 `participants`）：`Conversation.category`/`avatarName` 与输入区的 `@` 候选都读参与者类型与名字（`ChatModels.swift:29-37`、`ChatListView.swift:32`），U8/U9 还会按成员查；JSON 列会让这些查询退化成全表解码。
   - 保留 `conversation_boundaries`：`TimelineItem` 里 boundary 是时间线的可见组成（「Agent 配置已更新」，`ConversationView.swift:75`）。不进库就等于离线看到的时间线与在线不一致，且 `TimelineMerge` 的锚定规则会失配。
@@ -142,10 +145,11 @@ graph TB
 
 - `AppModel.restore()` 拆为 `start()`：
   1. `Session.storedUser()`（新增，只读 Keychain，不刷新、不发请求）：无 → `ready = true`、`user = nil`、登录页（首次安装）。
-  2. 有 → 计算分区 → 打开 `ChatRepository`（非主线程，含 migrate + 一次性导入）→ 读引导快照（会话列表、草稿、pending **计数**、阶段初值）→ `user = stored.user`（暂定）→ `ready = true`。若 pending 计数 > 0，同一帧给出说明「N 条未确认的发送，连接后可在对应会话中核对」，不造占位会话行（D12）。
+  2. 有 → 计算分区 → 打开 `ChatRepository`（非主线程，含 migrate + 一次性导入）→ 读引导快照（会话列表、草稿、pending **计数**、阶段初值）→ `user = stored.user`（暂定）→ `ready = true`。若 pending 计数 > 0，同一帧给出说明「N 条未确认的发送；连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除」，不造占位会话行（D12）。
   3. 之后才做网络：`session.restore()`（refresh + `/auth/me`）→ 分类结果决定 `user` 与分区去留 → `ChatStore.run()` 用 `/sync` 校正并落库。
 - 代价与已知取舍：token 实际已失效（在别的设备改了密码等）时，本地内容会在 401 返回前短暂出现，之后才清除并回登录页。这与「本地优先」不可分割，且内容仍属该账号本人；记录为本决策的显式取舍与风险 R9，并在 delta 里写成可判定条款（W7）：本地内容可在凭据重新校验完成前呈现，服务端确认失效后立即停止展示并清理。缓解：本地记录过 `accountEnabled == false` 时不渲染内容，直接走准入页。
 - 拒绝备选：先渲染、再异步补 Keychain 读取（会先出现一帧登录页，正是 spec 要消灭的现象）；把 `restore()` 超时当未登录（现状缺陷）。
+- 登录成功后的分区打开（R2-W2）：本节只覆盖「启动时已有 stored user」。**首次登录与换账号**由 `ChatStorageController.activate(partition:)` 在凭据被接受、Keychain 已保存之后打开分区（见「仓储接口」末）；打开前是 `.opening`，不是降级。这是 M1 的持久化前提——漏掉它，全新安装的第一次会话一个字节都不落库，下一次（尤其断网）冷启动就没有本地内容，与 spec「断网冷启动」「打开就有上次内容」直接冲突。
 
 **D7 — `listLoaded` 被两个正交相位替换：内容相位 `ChatListPhase`（四态）与连接相位 `ConnectionState`（八态）。**
 
@@ -202,7 +206,7 @@ stateDiagram-v2
 - 取值：`.starting`（本地引导未完成）、`.localOnly`（有本地内容但本进程尚未成功校正过）、`.syncing`、`.online`、`.offline(attempt, nextRetryAt)`（传输失败/无网）、`.unavailable(status)`（服务暂时不可用）、`.unauthorized`（凭据确实失效）、`.deactivated`（账号不可用）。
 - 两个终态 `.unauthorized` / `.deactivated` 不留在聊天页：它们触发 `purge()` → `resetProjection()`，界面回到登录页/准入页，内容相位重置为 `loadingFirst`。
 - 不变量（进 M1 退出标准）：① `connectionText` 非空 ⟺ `connection != .online`；② `.online` 的进入条件是**一次成功的 `/sync`**，不是 TCP 连通或 WS 握手成功；③ 离线时展示的「上次更新」时间来自 `cache_meta.sync.last_full_at`，不是当前时间。
-- 谁负责 purge：`ChatStore` 不决定删除。`Session` 在既有清理点（`Session.swift:82,101,147,156`）维护 `termination: SessionTermination?`（`.signedOut` / `.credentials` / `.deactivated`）；`AppModel` 已在 `observe()` 里订阅 `session.updates()`（`NanoIMApp.swift:45-56`），收到 `nil` 时读该终止原因并调用 `ChatStorageController.purge(reason:)`，然后 `resetProjection()`。因此「已 `loaded` 之后才拿到 401」也有明确的归属点，不由 `ChatStore` 直接删库。
+- 谁负责 purge：`ChatStore` 不决定删除。`Session` 维护 `termination: SessionTermination?`（`.signedOut` / `.credentials` / `.deactivated`）：`.signedOut`/`.credentials` 在 `stored` 被清空的路径上**先写 termination 再 `publish(nil)`**（签出 `Session.swift:82-85`、refresh 仍 401 `:147-148`），`.deactivated` 由 `accountEnabled == false` 的非 nil 信号表达（`updateUser` 判停用后仍 `publish(user)`，`:101-102`；`install` 同理 `:156-159`），**不额外发 nil**。`AppModel` 已在 `observe()` 里订阅 `session.updates()`（`NanoIMApp.swift:45-56`）：`nil` → 按 termination `purge` + 回登录页；`user.accountEnabled == false` → `purge(.deactivated)` + 准入页。因此「已 `loaded` 之后才拿到 401」有明确归属点，也不由 `ChatStore` 直接删库。
 
 **D8 — 错误分类只有四类，只有两类会离开聊天内容。**
 
@@ -244,12 +248,15 @@ stateDiagram-v2
 2. **快照单调**：`applySnapshot` 只接受更大的 `snapshot_seq`；更早的慢响应无法把已删除的会话写回。
 3. **同事务删除**：应用一次快照时，在同一事务内先删掉「不在权威集合里」的会话（级联消息/成员/草稿/boundary/read_state，并**显式删除** `pending_sends`），再写可见会话。UI 只在事务提交后看到新投影，因此不存在「先显示不可访问的会话、下一帧再删掉」的中间帧。
 
-`pending_sends` 没有会话外键（见数据模型），所以它的删除只有**两个**显式入口，不多不少：
+`pending_sends` 没有会话外键（见数据模型），所以它的删除必须显式。收敛只有一条原语 `deletePending(conversationID:)`，三个调用者，不多不少：
 
-1. `ChatRepository.revoke(_:reason:write:)`：所有撤销来源（快照缺项、详情 403/404、`membership_changed` 核对失败）都汇聚到这一个方法，在同一事务里删该会话的 pending 行、删其余会话行、写 tombstone。语义镜像今天的 `discardConversationAttempts`（`ChatStore.swift:491-499`：撤销时丢弃未确认发送），因此升级前后行为一致。
-2. `purge()`：分区级清空。
+1. **`revoke(conversationID, reason:)`**——撤销。来源：快照差集缺项（**含「迁移进来但从未出现过会话行」的 `conversation_id`**，见 D3 的差分输入）、详情 403/404、`membership_changed` 核对失败。同事务删该会话的 pending 行、删其余会话行、写 tombstone（`reason` 区分 `snapshot_absent` / `detail_forbidden` / `membership_denied`）。语义镜像今天的 `discardConversationAttempts`（`ChatStore.swift:491-499`：撤销时丢弃未确认发送）。
+2. **快照校正的「不可写」分支**——会话仍在权威集合里但 `can_write == false` 或 `dissolved_at != nil`：只调 `deletePending`，不删会话行、不写 tombstone（镜像 `ChatStore.swift:195-198`）。
+3. **`purge()`**——分区级清空。
 
-快照差分**不直接**删 pending 行，它经 `revoke` 间接完成——两处各写一份删除逻辑就会出现「一处忘了删」的分叉。守卫单测：给一个有 pending 的会话走一次 revoke，断言消息/草稿/pending 在同一次提交后同时消失，且 tombstone 存在。
+**孤儿 pending 的结论路径（R2-W1）**：迁移进来、但对应会话从未出现在权威集合里的记录，在**第一次成功 `/sync`** 时命中第 1 条——`revoke` 删行并写 `revoked_conversations(reason='snapshot_absent')`，同时在 `migration_report` 记一行 `outcome='orphaned'`；`bootstrapSeed.pendingCount` 按行数计算，因此计数随删除递减到 0，不会永久残留。若该会话日后重新出现在快照里，tombstone 按既有规则清除（但被删的 pending 不会复活——它已经不具备可核对的会话）。
+
+快照差分**不直接**删 pending 行，它经 `revoke` 间接完成——两处各写一份删除逻辑就会出现「一处忘了删」的分叉。守卫单测：① 给一个有 pending 的会话走一次 revoke，断言消息/草稿/pending 在同一次提交后同时消失、tombstone 存在；② 构造「库里只有 pending、没有任何会话行」的分区（等价迁移后首启），跑一次不含该会话的快照，断言 pending 行被删、`pendingCount` 归零、不产生占位会话行。
 
 `purge()` 的顺序固定为「事务内清空所有表 → 关闭连接 → 删除分区目录」：即使文件删除失败（磁盘错误、连接未完全释放），下一次打开该分区也读不到任何行——「没有内容」由事务保证，不依赖文件系统操作成功。删除失败只作为诊断记录，不改变结论。
 
@@ -280,7 +287,7 @@ stateDiagram-v2
 **D12 — 一次性迁移在「打开分区」时执行；旧 JSON 原样保留，是否已迁移只由库内标记判定。**
 
 - 时机与网络无关：迁移只在 `ChatRepository.open` 内、migrator 之后、对外可用之前执行一次，**纯本地 IO、零网络**。所以「首启即断网」不会让迁移失败或半途而废——迁移会正常结束，只是记录的**可见性**要等第一次成功 `/sync`（见下一条）。
-- 迁移完成 ≠ 首帧可见（C1）：升级后首启时 `conversations` 表还是空的（迁移先于任何 `/sync`），因此首帧**只能给出 pending 计数**：`BootstrapSeed.pendingCount` + 一句诚实说明「N 条未确认的发送，连接后可在对应会话中核对」。这些记录在第一次成功 `/sync` 把会话写进库之后，就按会话出现在时间线里。**不造占位会话行**——那会在列表里出现一个点不开的假会话。首文档的「升级后首次启动的呈现」Scenario 已把这一时序写成验收口径。
+- 迁移完成 ≠ 首帧可见（C1）：升级后首启时 `conversations` 表还是空的（迁移先于任何 `/sync`），因此首帧**只能给出 pending 计数**：`BootstrapSeed.pendingCount` + 一句诚实说明「N 条未确认的发送；连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除」。这些记录在第一次成功 `/sync` 把会话写进库之后，就按会话出现在时间线里。**不造占位会话行**——那会在列表里出现一个点不开的假会话。首文档的「升级后首次启动的呈现」Scenario 已把这一时序写成验收口径。
 - 身份：`pending_sends` 主键 `(conversation_id, source_message_id, attempt_key)`，其中 `attempt_key` 就是 `PendingSend.key`，`source_message_id` 对普通发送用 `''`（服务端消息 id 非空，占位无歧义）。这与旧文件名 `sha256("conversationID\nsourceMessageID\nkey")` 一一对应。
 - 幂等：`INSERT OR IGNORE` + `cache_meta["migration.send_attempts_v1"]` 标记，两者叠加——重复执行不产生重复行，标记存在时整体跳过。**标记在库里，所以库丢了就等于「没迁移过」，会从保留下来的 JSON 重新导入**（这是选「库内标记」而不是「看目录是否存在」的直接原因）。
 - 无外键（C1）：`pending_sends.conversation_id` 刻意不建外键。迁移先于 `/sync`，`conversations` 表为空；GRDB 默认 `foreignKeysEnabled = true`，给这一列加外键会让每一行都 FK 违约，而 `INSERT OR IGNORE` 只吸收 UNIQUE/NOT NULL/CHECK/PK 冲突、不吸收 FK 违约——整批迁移会全部记为 `rejected`，「一条不丢」在真实升级路径上整体失效。删除因此改成显式两处（D10）。
@@ -380,14 +387,16 @@ actor ChatRepository {
 - `openChat(_:)` = 先读库（命中则立刻出图）→ 再 `refreshChat(_:)` 网络校正 → 落库 → 重投影。
 - `run()` 保留「/auth/me → /sync → WS」的现有骨架，但每一步的结果先落库；`membership_changed` 走 D11。
 
-`ChatStorageController`（`@MainActor`，`AppModel` 持有）是分区生命周期的唯一所有者，只做四件事，不含业务 SQL：
+`ChatStorageController`（`@MainActor`，`AppModel` 持有）是分区生命周期的唯一所有者，只做六件事，不含业务 SQL：
 
-1. `bootstrap() -> Bootstrap?`：由 `(client.baseURL, session.storedUser()?.id)` 求分区，open 仓储并返回引导快照；无凭据返回 nil（→ 登录页）。
-2. 持有与替换仓储实例：分区变化即换实例，旧实例关闭。
-3. `purge(reason:)`：`repository.purge()` + 目录清理。五个挂点（退出登录 / 换账号 / 切服务 / 账号失效 / 凭据失效）**不各自调用**它：`Session` 在这些既有清理点（`Session.swift:82,101,147,156`）写入 `termination` 并 `publish(nil)`，`AppModel.observe()` 收到 `nil` 后读原因再调用 `purge(reason:)` + `resetProjection()`。只有一个触发者，就不会出现「某条路径忘了删」。
-4. `resetProjection()`：把 `ChatStore` 的投影与阶段机重置到初始值（等价于今天的 `clear()`，`ChatStore.swift:84-89`），但不再手工清内存里的权威数据。
+1. `bootstrapOnLaunch() -> Bootstrap?`：启动时由 `(client.baseURL, session.storedUser()?.id)` 求分区、open 仓储并返回引导快照（D6 第 2 步）；无凭据返回 nil（→ 登录页）。
+2. `activate(partition:)`：**登录成功或分区变化时打开分区**（R2-W2）。调用点只有两个——`AppModel.authenticate()` 在 `session.login(...)` 返回且 Keychain 已保存之后立即调用（`NanoIMApp.swift:65-80`），并**在 `user =` 赋值之前完成状态登记**（置 `.opening`；打开完成后再交 `.ready`），因为 `RootTabs` 构造时会立刻 `ChatStore(...)`（`:115`），晚了就会先拿到一次「无仓储」；`AppModel.observe()` 发现 `user.id` 或 origin 与 `currentPartition` 不一致时。顺序固定为「先拿到被接受的凭据 → 再算分区 → 再打开」，不能反过来：分区身份来自已认证的 `user.id`，先建库会为未验证账号落盘。
+3. `state: ChatStorageState`（`.opening` / `.ready(ChatRepository)` / `.degraded(reason)`）与绑定：`.ready` 时把仓储交给 `ChatStore` 并重读 `bootstrapSeed` 重投影；`.opening` 期间 `ChatStore` 以纯网络方式工作但**不显示「没有本地缓存」**；只有 `.degraded` 显示该提示并给重试入口。分区变化时关闭旧实例再开新实例，旧实例关闭前先 `purge` 旧分区（D10）。
+4. `purge(reason:)`：`repository.purge()` + 目录清理。五个挂点**不各自调用**它，而由一个观察者统一触发：`Session` 在「`stored` 被清空」的路径（签出 `Session.swift:82`、refresh 后仍 401 `:147`）**先**写 `termination = .signedOut/.credentials`，**再**在同一同步块里 `publish(nil)`；账号停用（`:101,156`，`accountEnabled == false`）**不发 nil**，`user` 保持该账号并携带 `accountEnabled == false`。`AppModel.observe()` 因此只需两判：`user == nil` → 按 `termination` 选登录页并 `purge`；`user?.accountEnabled == false` → `purge(.deactivated)` + 准入页。**不新增 `publish(nil)`**（R2-R4）：nil 与 user 交替会让观察者先回登录页再回聊天页，停用态会闪一帧登录屏，而停用本来就有非 nil 的信号。
+5. `resetProjection()`：把 `ChatStore` 的投影与阶段机重置到初始值（等价于今天的 `clear()`，`ChatStore.swift:84-89`），但不再手工清内存里的权威数据。
+6. `retryOpen()`：`.degraded` 的重试触发点 = 用户点「重试」/ 下一次进入前台 / 下一次 `run()` 之前，三者取先到，每次都重走 `activate`；连续失败保持 `.degraded`，**不静默降级成「永远纯网络」**。
 
-`ChatStore` 只消费「有一个可用仓储或没有」，不决定删除时机。
+`ChatStore` 只消费 `ChatStorageState`，不决定删除时机，也不把 `.opening` 当降级。
 
 **刻意不持久化的内存状态**（避免被读成漏项）：
 
@@ -438,12 +447,14 @@ sequenceDiagram
 | 场景 | 呈现 | 实现落点 |
 |---|---|---|
 | 有本地数据冷启动 | 列表首帧即上次内容；无整屏加载态 | `ChatListPhase.loaded` + `ConnectionState.localOnly`；`NanoIMApp.swift:11` 的 `ProgressView` 只在内容相位 `loadingFirst` 时出现 |
+| 分区尚未打开（启动引导中或登录成功瞬间） | 正常聊天界面（可用网络），**不显示**「没有本地缓存」 | `ChatStorageState.opening`（D3/D6、`ChatStorageController.activate`） |
+| 分区打不开（磁盘满/损坏且重建失败） | 「本次没有本地缓存」+ 重试入口；网络仍可聊，不伪装正常首绘 | `ChatStorageState.degraded(reason)` + `retryOpen()`（触发点见 D3/控制器第 6 条） |
 | 首次安装 | 「正在加载聊天…」直到首次 `/sync` | `loadingFirst`；替代 `ChatListView.swift:20` 的 `!listLoaded` 判定 |
 | 首次结果为空 | 「暂无聊天」 | `empty`；替代 `ChatListView.swift:59` 的 `listLoaded` 判定 |
 | 无本地数据且失败 | 失败说明 + 重试按钮（不出现「暂无聊天」） | `failed` |
 | 离线 | 顶部「未连接，正在重试」，内容照常可读；内容相位**不变** | `ChatStore.connectionText`（非空 ⟺ `connection != .online`） |
 | 校正中 | 不整屏替换；只做行级更新 | 快照落库后重投影，视图 identity 不变（`RootTabs` 的 `.id` 仍绑 `baseURL-user.id`，`NanoIMApp.swift:15`） |
-| 升级后首次启动（有未确认发送） | 列表来自库（可能为空/首次加载态），另有一条诚实说明「N 条未确认的发送，连接后可在对应会话中核对」；**不出现占位会话行** | `BootstrapSeed.pendingCount` + 说明文案（D12）；首次成功 `/sync` 后记录按会话进入时间线 |
+| 升级后首次启动（有未确认发送） | 列表来自库（可能为空/首次加载态），另有一条诚实说明「N 条未确认的发送；连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除」；**不出现占位会话行** | `BootstrapSeed.pendingCount` + 说明文案（D12）；首次成功 `/sync` 后按会话进入时间线，不可访问的对应记录被清除、计数归零（D10 孤儿 pending） |
 | 凭据重校验未完成 | 同一账号本人的本地内容照常呈现；服务端明确拒绝后立即停止展示并清理 | D6 取舍 + `Session.termination` → `purge()`（D7/D10），对应 delta 的时序条款（W7） |
 | `membership_changed` 核对中（改名/加成员） | 列表行保留；进入该会话看到既有「正在确认聊天权限…」占位；200 后就地恢复时间线与标题，不重排、不重拉 | `ChatStore.checkingAccess` + `ConversationView.swift:100-101`（D11） |
 | `membership_changed` 核对中（已被移出/删除） | 列表行在 403/404 后消失；正在看时显示「此聊天已不可访问」 | D10 `revoke` + `ConversationView.swift:98-99` |
@@ -501,6 +512,17 @@ Gateway/Node 不是本 unit 的验收对象：本 unit 只验「列表与消息�
   5. `xcrun simctl install <udid> <新构建 .app>` 覆盖安装（**不卸载**），恢复流量，打开 App。
 
   因此 ⑤ 的判定不需要真机；需要的只是「旧构建确实写过一条 JSON」这一步证据。
+- **凭据失效的构造（M2 `[reviewer]` ⑦）**：`apps/im-server` 没有改密码路由（`apps/im-server/src/identity-routes.ts` 只有 register/login/refresh/logout/me/ws-ticket），所以直接改隔离服务的库。DB 在 `<worktree>/data/im_service.sqlite3`（`scripts/e2e-up.sh` 的 `IM_DB_PATH`）：
+
+  ```bash
+  uid=$(sqlite3 data/im_service.sqlite3 "SELECT id FROM users WHERE username='alice';")
+  # 手段 A：吊销该账号全部会话（下次 refresh 401）
+  sqlite3 data/im_service.sqlite3 "UPDATE auth_sessions SET revoked=1 WHERE user_id='$uid';"
+  # 手段 B（等价，且让现有 access token 一并失效）：bump 认证世代
+  sqlite3 data/im_service.sqlite3 "UPDATE users SET auth_epoch=auth_epoch+1 WHERE id='$uid';"
+  ```
+
+  预期：客户端下一次请求（含 refresh）得到 401 → `Session.termination = .credentials` → `purge()` → 登录页；本地聊天内容不再展示，重开也不再出现。构造后不用恢复：`e2e-down.sh` + `e2e-up.sh` 会重建库（`scripts/e2e-up.sh:255`）。
 - **无真机时不得判 pass 的项**：真机飞行模式冷启动与恢复（M1 ②/③、M2 ④）、文件保护与备份排除的**属性断言**（模拟器上 `URLResourceValues` 可能不返回 `fileProtection`，见 D9）。缺真机时这两类只能标「待真机证据」，不能用模拟器截流或 CI 绿替代。
 - **首绘读时延的证据形式（不靠主观感受）**：M1 `[worker]` 在 `bootstrapSeed()` 前后打 `os_signpost` 区间（或 Debug 下 `Logger` 打点），真机上取 ≥20 次冷启动的 p50/p95，落 `M1-local-first-paint/evidence/bootstrap-latency.md`；p95 > 16ms 时按 D2 的唯一演化口评估是否换 `DatabasePool`，并记录结论。
 
@@ -508,7 +530,7 @@ Gateway/Node 不是本 unit 的验收对象：本 unit 只验「列表与消息�
 
 | 层次 | 覆盖内容 | 在哪跑 |
 |---|---|---|
-| 单元（仓储 + 迁移） | schema v1 迁移幂等；JSON → `pending_sends` 的条数/字节保真/重复执行/拒绝记账；**在 `conversations` 表为空时迁移成功**（无外键）；`purge()` 后读不到行；`revoke()` 显式删 pending + tombstone；`revoked_conversations` 拒绝写入；旧 `WriteContext`/旧 `snapshot_seq` 被拒；派生上限修剪 + 被修剪锚点的 boundary 一并删除 + `trimmed_at`/`nextBefore`/`isAtLocalStart` 一致；草稿 flush 合并只保留最新快照（乱序不覆盖）；时间线排序与 `TimelineMerge` 同序；boundary/interactive 往返保真 | `xcodebuild test`（`./src/IM/ios/scripts/build.sh test`），CI 可跑；仓储测试用临时目录建库，不依赖服务端 |
+| 单元（仓储 + 迁移） | 孤儿 pending 收敛（只有 pending 行、无会话行时首快照后删行 + 计数归零 + tombstone/migration_report）；`read_state` 与 `backgroundContexts` 守卫；schema v1 迁移幂等；JSON → `pending_sends` 的条数/字节保真/重复执行/拒绝记账；**在 `conversations` 表为空时迁移成功**（无外键）；`purge()` 后读不到行；`revoke()` 显式删 pending + tombstone；`revoked_conversations` 拒绝写入；旧 `WriteContext`/旧 `snapshot_seq` 被拒；派生上限修剪 + 被修剪锚点的 boundary 一并删除 + `trimmed_at`/`nextBefore`/`isAtLocalStart` 一致；草稿 flush 合并只保留最新快照（乱序不覆盖）；时间线排序与 `TimelineMerge` 同序；boundary/interactive 往返保真 | `xcodebuild test`（`./src/IM/ios/scripts/build.sh test`），CI 可跑；仓储测试用临时目录建库，不依赖服务端 |
 | 单元（状态机 + 分类） | `ChatListPhase` 四态转换（含 purge 后回 `loadingFirst`）；`ConnectionState` 八态与三条不变量（非 `online` 必有未连接提示）；`ChatFailure` 四类映射；`recoverPending` 零 POST | 同上，桩 client |
 | 集成（真栈） | 首次安装加载→空态、`/sync` 校正落库、切账号/被移出群/改名（`membership_changed` 两条呈现分支）的真实服务端行为 | 模拟器 + `./scripts/e2e-up.sh` 隔离 IM（`NANO_IM_BASE_URL` 指向它） |
 | 真机 | 飞行模式冷启动与恢复、杀进程后首绘、首绘读时延 p50/p95、文件保护与备份排除的**属性断言** | 真机手工，**CI 无法验证** |
@@ -531,5 +553,5 @@ Gateway/Node 不是本 unit 的验收对象：本 unit 只验「列表与消息�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-local-first-paint | 本地库、发送尝试迁移与冷启动首绘 | — | — | GRDB 接入（pbxproj + pin）；schema v1 与 `DatabaseMigrator`；`ChatRepository` 的 open/seed/timeline/applySnapshot/applyPage/applyEvent/upsert/remove/purge 基础版；`SendAttemptStore` → `pending_sends` 一次性迁移；`AppModel` 两段式启动；`ChatStore` 投影化与 `ChatListPhase`；`ConnectionState` 与 `ChatFailure` 最小切面（offline/unavailable/unauthorized）；草稿 flush 策略（D3「草稿写入」）；`purge()` **原语**（只验「清空后重开读不到行」，五个触发点挂接全归 M2）；首次安装加载态 vs 空态 | **`[reviewer]`** ① 有本地数据的账号：杀进程后正常网络重开，列表立即呈现上次的会话/预览/时间/未读，全程不出现「恢复登录…」「正在加载聊天…」整屏；校正后内容更新且无整屏闪回（本片 `membership_changed` 仍走旧的「清空 + 全量重拉」，改名闪回不在本片判据内，见「归属裁定」）。② 真机飞行模式冷启动：同样呈现上次内容，明确显示未连接/正在重试，不出现登录表单、不显示成已同步。③ 飞行模式下点进此前打开过的会话：已存消息可读并显示未连接；点进从未打开过的会话：明确说明需要连接后才能读取，不显示为「没有消息」。④ 首次安装（本机无该账号数据）：聊天页显示加载中，不显示「暂无聊天」；仅当首次结果为空才显示空态。⑤ 升级前留有未确认发送的账号（构造步骤见 Runbook「升级前置的构造步骤」，**不需要真机**）：升级后打开该会话仍看到那条未确认记录（内容与附件一致）；升级后首启在看到会话之前只出现「N 条未确认的发送，连接后可在对应会话中核对」这条说明，不出现占位会话行；断网/重开/网络恢复都不会自动发出，只有显式重试才推进且仍只有一条。<br>**`[worker]`** ① 单测：schema v1 重复 migrate 幂等；迁移导入条数 = JSON 条数且 `request_body` 逐字节一致；重复执行不重复；`rejected == 0`；桩断言冷启动零 POST。② 单测：`ChatFailure` 四类映射（offline/unavailable/unauthorized/forbidden）、`ChatListPhase` 四态转换（含 purge 后回 `loadingFirst`）、`ConnectionState` 八态与三条不变量（非 `online` 必有未连接提示）。③ 单测：时间线排序与 `TimelineMerge` 同序；boundary 与 interactive 字段往返保真；派生上限修剪后仍能读出最新一页；被修剪锚点的 boundary 同事务删除且不再出现在顶部；`trimmed_at` 非空时 `isAtLocalStart` 报「更早消息需要连接」而非「已到最早」；草稿 flush 只落最新快照（连续 set 后库里是最后文本）。④ 主线程 IO 审计：列出 bootstrap/run 路径的所有仓储调用点，证明无 MainActor 同步文件或 SQLite 调用。⑤ 构建证据：`./src/IM/ios/scripts/build.sh build` 通过，`Package.resolved` 含 GRDB 7.12.0 pin；`build.sh test` 通过既有 `ChatStateTests`/`SendRecoveryTests`/`SessionTests`/`TimelineTests` 未放宽断言。⑥ 单测：仓储打不开时降级为纯网络模式（阶段从 `loadingFirst` 起、不崩溃、不显示成正常首绘）。⑦ 证据落 `M1-local-first-paint/evidence/`：飞行模式冷启动与首次安装加载态的真实客户端截图/录屏。⑧ 首绘读时延证据 `evidence/bootstrap-latency.md`（`os_signpost`/`Logger`，≥20 次冷启动 p50/p95，>16ms 记录 D2 演化口评估结论）；真机 Debug 下分区目录与库文件的 `URLResourceValues` 属性断言输出（`fileProtection == .complete`、`isExcludedFromBackup == true`）。 |
-| M2-partition-revocation | 分区隔离、访问撤销与迟到结果丢弃 | M1-local-first-paint | — | `Session.termination` 与五个 purge 触发点挂接（登出/换账号/切服务/账号失效/凭据失效）；`revoked_conversations` 与快照单调；迟到响应拒绝（分区 epoch + `snapshotSeq`）；`membership_changed` 定向核对替代清空；`checkingAccess`/`revokedChats` 呈现收口 | **`[reviewer]`** ① A 登出后登录 B：B 看不到 A 的任何会话、消息、草稿与未确认记录；离线打开同样。② 把服务地址切到另一台隔离 IM 并登录同一账号：只显示新服务内容。③ 改名/加成员（事件无法区分，见 W2）：在线改群名后该会话仍在列表；进入会话时最多看到 ≤1 RTT 的「正在确认聊天权限…」占位后恢复，时间线行数与内容不变、列表不重排、不重拉消息。④ 在线把当前用户移出群：该会话从列表消失、进不去，下一帧不闪回；随后断网冷启动仍不出现。⑤ 在线撤销访问后立刻断网冷启动：被撤销会话与其消息仍不出现。⑥ 离线期间被撤销 → 恢复联网：第一次成功 `/sync` 后该会话消失（含重启后），收敛上界与现有 30s 重试节奏一致；离线期间允许仍可见（D10 的边界）。⑦ 服务端吊销凭据（改密码或使 refresh 失效）后重开：回到登录页（不是聊天页），且本地聊天内容不再展示。<br>**`[worker]`** ① 单测：`purge()` 后重开该分区读不到任何行，正常路径下目录与库文件也已删除；拿着旧 `WriteContext` 的写被 `StaleWrite` 拒绝；更旧 `snapshot_seq` 的快照被拒。② 单测：`revoked_conversations` 生效后 `applyPage`/`appendEvent`/`upsertPending` 均被拒；该会话重新出现在权威快照后 tombstone 被清除；`revoke()` 在同一事务里删掉该会话的 `pending_sends` 行（无外键，显式删）。③ 单测：`membership_changed` 走定向核对时 200 不删除消息行、只重投影（改名/加成员后时间线行数与内容不变，且不触发整表重拉），403/404 时整会话行 + pending 被删并写 tombstone，传输失败时不判撤销。④ 单测：清理矩阵五个触发点各自删除范围正确、只影响目标分区（另一分区仍在）；`Session.termination` 是唯一入口——401/停用后 `ChatStorageController.purge` 被调用，`ChatStore` 不直接调 `purge()`。⑤ 构建与既有测试通过；证据落 `M2-partition-revocation/evidence/`：切账号、被移出群、离线期间撤销后联网收敛、改名占位恢复的真实客户端截图/录屏。 |
+| M1-local-first-paint | 本地库、发送尝试迁移与冷启动首绘 | — | — | GRDB 接入（pbxproj + pin）；schema v1 与 `DatabaseMigrator`；`ChatRepository` 的 open/seed/timeline/applySnapshot/applyPage/applyEvent/upsert/remove/purge 基础版；`SendAttemptStore` → `pending_sends` 一次性迁移；`AppModel` 两段式启动；`ChatStore` 投影化与 `ChatListPhase`；`ConnectionState` 与 `ChatFailure` 最小切面（offline/unavailable/unauthorized）；草稿 flush 策略（D3「草稿写入」）；`purge()` **原语**（只验「清空后重开读不到行」，五个触发点挂接全归 M2）；首次安装加载态 vs 空态 | **`[reviewer]`** ① 有本地数据的账号：杀进程后正常网络重开，列表立即呈现上次的会话/预览/时间/未读，全程不出现「恢复登录…」「正在加载聊天…」整屏；校正后内容更新且无整屏闪回（本片 `membership_changed` 仍走旧的「清空 + 全量重拉」，改名闪回不在本片判据内，见「归属裁定」）。② 真机飞行模式冷启动：同样呈现上次内容，明确显示未连接/正在重试，不出现登录表单、不显示成已同步。③ 飞行模式下点进此前打开过的会话：已存消息可读并显示未连接；点进从未打开过的会话：明确说明需要连接后才能读取，不显示为「没有消息」。④ 首次安装（本机无该账号数据）：聊天页显示加载中，不显示「暂无聊天」；仅当首次结果为空才显示空态。⑤ 升级前留有未确认发送的账号（构造步骤见 Runbook「升级前置的构造步骤」，**不需要真机**）：升级后打开该会话仍看到那条未确认记录（内容与附件一致）；升级后首启在看到会话之前只出现「N 条未确认的发送；连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除」这条说明，不出现占位会话行；断网/重开/网络恢复都不会自动发出，只有显式重试才推进且仍只有一条。<br>**`[worker]`** ① 单测：schema v1 重复 migrate 幂等；迁移导入条数 = JSON 条数且 `request_body` 逐字节一致；重复执行不重复；`rejected == 0`；桩断言冷启动零 POST。② 单测：`ChatFailure` 四类映射（offline/unavailable/unauthorized/forbidden）、`ChatListPhase` 四态转换（含 purge 后回 `loadingFirst`）、`ConnectionState` 八态与三条不变量（非 `online` 必有未连接提示）。③ 单测：时间线排序与 `TimelineMerge` 同序；boundary 与 interactive 字段往返保真；派生上限修剪后仍能读出最新一页；被修剪锚点的 boundary 同事务删除且不再出现在顶部；`trimmed_at` 非空时 `isAtLocalStart` 报「更早消息需要连接」而非「已到最早」；草稿 flush 只落最新快照（连续 set 后库里是最后文本）。④ 主线程 IO 与分区激活审计：列出 bootstrap/run 路径的所有仓储调用点，证明无 MainActor 同步文件或 SQLite 调用；并证明 `authenticate()` 成功后（`NanoIMApp.swift:65-80`）`ChatStorageController.activate(partition:)` 被调用、`ChatStore` 拿到的 `.opening` 不会显示成「没有本地缓存」。⑤ 构建证据：`./src/IM/ios/scripts/build.sh build` 通过，`Package.resolved` 含 GRDB 7.12.0 pin；`build.sh test` 通过既有 `ChatStateTests`/`SendRecoveryTests`/`SessionTests`/`TimelineTests` 未放宽断言。⑥ 单测：仓储打不开时降级为纯网络模式（阶段从 `loadingFirst` 起、不崩溃、不显示成正常首绘）。⑦ 首次登录即落库（R2-W2）：全新安装登录 → 收发各一条 → 杀进程 → 飞行模式冷启动，仍能看到该账号的会话与消息并显示未连接；同一次会话内 `ChatStore` 不因「分区尚未打开」而以纯网络模式跑完整个会话。⑧ 证据落 `M1-local-first-paint/evidence/`：飞行模式冷启动与首次安装加载态的真实客户端截图/录屏。⑨ 首绘读时延证据 `evidence/bootstrap-latency.md`（`os_signpost`/`Logger`，≥20 次冷启动 p50/p95，>16ms 记录 D2 演化口评估结论）；真机 Debug 下分区目录与库文件的 `URLResourceValues` 属性断言输出（`fileProtection == .complete`、`isExcludedFromBackup == true`）。⑩ 三条设计承诺的证据（R2-R1）：`read_state` 守卫单测（写 `read_state` 不改变任何列表投影）；`backgroundContexts` 守卫单测（300/派生窗口裁剪后候选仍是 3 条、按 `editedAt` 倒序、排除 superseded）；草稿损失窗口测量（输入中连杀 3 次，记录恢复文本与已输入文本的差，落 `evidence/draft-loss.md`，证明 ≤1s 窗口且不出现旧文本覆盖新文本）。 |
+| M2-partition-revocation | 分区隔离、访问撤销与迟到结果丢弃 | M1-local-first-paint | — | `Session.termination` 与五个 purge 触发点挂接（登出/换账号/切服务/账号失效/凭据失效）；`revoked_conversations` 与快照单调；迟到响应拒绝（分区 epoch + `snapshotSeq`）；`membership_changed` 定向核对替代清空；`checkingAccess`/`revokedChats` 呈现收口 | **`[reviewer]`** ① A 登出后登录 B：B 看不到 A 的任何会话、消息、草稿与未确认记录；离线打开同样。**且 B 在这次会话里收发的消息已落库**——杀进程 + 断网重开仍能看到 B 自己的内容（分区 A 不得漏进 B，B 也不得因为「登录后没打开分区」而整段不落库，R2-W2）。② 把服务地址切到另一台隔离 IM 并登录同一账号：只显示新服务内容。③ 改名/加成员（事件无法区分，见 W2）：在线改群名后该会话仍在列表；进入会话时最多看到 ≤1 RTT 的「正在确认聊天权限…」占位后恢复，时间线行数与内容不变、列表不重排、不重拉消息。④ 在线把当前用户移出群：该会话从列表消失、进不去，下一帧不闪回；随后断网冷启动仍不出现。⑤ 在线撤销访问后立刻断网冷启动：被撤销会话与其消息仍不出现。⑥ 离线期间被撤销 → 恢复联网：第一次成功 `/sync` 后该会话消失（含重启后），收敛上界与现有 30s 重试节奏一致；离线期间允许仍可见（D10 的边界）。⑦ 服务端吊销凭据（命令见 Runbook「凭据失效的构造」）：`sqlite3 data/im_service.sqlite3 "UPDATE auth_sessions SET revoked=1 WHERE user_id='<A 的 uid>';"`（或 `UPDATE users SET auth_epoch=auth_epoch+1 WHERE id='<A 的 uid>';`）→ 客户端下一次请求/refresh 得到 401 → 回到登录页（不是聊天页、不出现准入页），本地聊天内容不再展示、重开也不再出现。<br>**`[worker]`** ① 单测：`purge()` 后重开该分区读不到任何行，正常路径下目录与库文件也已删除；拿着旧 `WriteContext` 的写被 `StaleWrite` 拒绝；更旧 `snapshot_seq` 的快照被拒。② 单测：`revoked_conversations` 生效后 `applyPage`/`appendEvent`/`upsertPending` 均被拒；该会话重新出现在权威快照后 tombstone 被清除；`revoke()` 在同一事务里删掉该会话的 `pending_sends` 行（无外键，显式删）；**孤儿 pending 收敛**：库里只有 pending 行、没有任何会话行（等价迁移后首启），跑一次不含该会话的快照 → pending 行被删、`pendingCount` 归零、写 `revoked_conversations(reason='snapshot_absent')` 与 `migration_report(outcome='orphaned')`、不产生占位会话行；快照里 `can_write == false` / `dissolved_at != nil` 的会话只丢 pending、不丢会话行。③ 单测：`membership_changed` 走定向核对时 200 不删除消息行、只重投影（改名/加成员后时间线行数与内容不变，且不触发整表重拉），403/404 时整会话行 + pending 被删并写 tombstone，传输失败时不判撤销。④ 单测：清理矩阵五个触发点各自删除范围正确、只影响目标分区（另一分区仍在）；`Session.termination` 是唯一入口——401/停用后 `ChatStorageController.purge` 被调用，`ChatStore` 不直接调 `purge()`。⑤ 构建与既有测试通过；证据落 `M2-partition-revocation/evidence/`：切账号、被移出群、离线期间撤销后联网收敛、改名占位恢复的真实客户端截图/录屏。 |
