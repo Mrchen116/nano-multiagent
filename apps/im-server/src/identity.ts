@@ -456,9 +456,8 @@ export class Identity {
   }
   /** Verify an HTML navigation without consuming the shared browser refresh token. */
   browserSession(token: string) {
-    const p = this.decode(token, 'refresh');
-    return {access_token:this.sign({...p,type:'access',iat:now(),exp:now()+900,jti:randomBytes(16).toString('hex')}),
-      user:this.publicUser(this.user(p.sub)!)};
+    const { sid, user } = this.browserCredential(token);
+    return {access_token:this.issueAccess(user, sid), user:this.publicUser(user)};
   }
   logout(token: string): string {
     const p = this.decode(token, "refresh");

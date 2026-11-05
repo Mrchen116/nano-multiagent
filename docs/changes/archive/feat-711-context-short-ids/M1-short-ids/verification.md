@@ -335,3 +335,22 @@ Previously validated unchanged pruning/original Unicode/literal-marker recovery,
 - Corrected-delta groups (window-local first references; new successful windows/repeated IDs; original recovery and physical-copy behavior; unchanged business evidence/authorization/budget; explicit compatibility exclusion) remain **aligned**. No omitted new observable behavior found. Canonical contract equals the reviewed corrected delta.
 
 **All checks required for this targeted implementation/artifact verification pass. Ready for Nano PR and complete remote CI; no merge or deployment is claimed.**
+
+
+## Round 10 — main browser bootstrap CI regression / bounded patch verification
+
+- verification_mode: targeted integration-fix delta. Nano executed base `25421e6fb7ca36f22dba3d0e72c9a35a823141cf` plus two reviewed dirty product hunks; retain earlier plugin/code/artifact/actual-model conclusions. No numbering, context-surface, authorization policy or existing delta-spec behavior changed. No new spec delta: this restores existing current browser-session/bootstrap behavior after main709 integration.
+- findings: **0 CRITICAL /0 WARNING /0 SUGGESTION**. requires_full_verification: false. Implementation consistency: **aligned**. **Pass for the bounded bootstrap fix; complete new remote CI still pending.**
+
+| Existing contract / invariant | Actual patch / retained behavior | Evidence |
+|---|---|---|
+| Stable browser Cookie restores a valid browser session | browserSession delegates to main's browserCredential, accepting validated opaque sid.jti and eligible legacy JWT; issueAccess remains bound to valid session/user epoch | identity.ts patch, established helper, unchanged identity/frontend tests |
+| Navigation does not rotate Cookie or extend refresh lifetime | browserCredential is read-only; issueAccess signs only access; browserSession does not call refreshBrowser/issuePair or update auth_sessions | source inspection; both HTTPS bootstrap tests assert no Set-Cookie and no refresh disclosure |
+| HTML preloads only authorized API projections | unchanged app.inject routes/bearer access, response/resource gates and scoped trajectory preparation | server.ts surrounding flow; unchanged scoped HTML trajectory E2E |
+| Invalidation across async preload is rejected before final HTML | final browserSession validation stays after all awaits; uses validSession/credential hash and epoch checks; no await before send | source control-flow check; existing logout/epoch/capability revocation assertions |
+
+`/tmp/feat711-bootstrap-sync-tests.log` records3files/25tests passing without test edits or relaxed assertions; `/tmp/feat711-bootstrap-sync-build.log` records successful IM-server build. This is enough relevant evidence for the two-hunk patch; it is not a new full unit acceptance or a broad race stress claim. Current canonical browser contract already describes the intended behavior, so no spec correction is needed. The new fresh Web/IM trace being exercised by root is independent additional product evidence, pending in this snapshot.
+
+### Preserve remote failure boundaries
+
+Run41960919057 completed its aggregate:214files/1163tests,212files/1160tests passed and2files/3tests failed. The three failures all lacked HTML bootstrap after stable-Cookie main integration (frontend HTTPS default/custom port and trajectory HTML). The reader checked the stored CI failure log. They are addressed by this patch plus named local25pass; the original run remains failed history. Full remote CI must rerun on the committed patch before claiming delivery green. This does not reopen or alter final plugin76e7a42 numbering findings, canceled legacy-number compatibility, public-artifact identity or R4 fresh-Agent runtime evidence.

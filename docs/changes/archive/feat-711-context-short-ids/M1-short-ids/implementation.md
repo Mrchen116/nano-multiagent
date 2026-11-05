@@ -67,3 +67,10 @@
 - origin/main推进到 `fc447faee`（浏览器凭证稳定性709），已以merge同步；与编号/模型消费链无交集，原相关门禁按受影响范围保留。公共包最终运行时回归与远端CI结果待下文续记。
 
 - 最终交付树 code-review R10 无存活发现，verification R9 targeted pass / corrected-delta aligned；产品R4为全新Agent最终候选包实测。公网安装后真实进程回归1项、宿主审批/Task原文/History与Memory边界5文件22项均通过。新发布包、锁文件和canonical接线已由独立静态审查核对；下一步为Nano PR完整远端CI，不以窄复验替代全量结果。
+
+
+### Main 稳定 Cookie 接线的 CI 闭环
+
+远端 `41960919057` 完整 TS 回归：214 文件、1163 tests，1160 pass / 3 fail。失败均为 HTML bootstrap 缺失：main709 将浏览器 Cookie 改为稳定 sid.jti，但原 browserSession 和异步预读后的复验仍只 decode refresh JWT，导致被 catch 后不注入 bootstrap。按 main 意图复用 browserCredential 与 issueAccess；末尾在所有 await 完成后再次通过 browserSession 校验，既不旋转 Cookie、不延长 session，也不改 API 授权。未改测试断言，frontend/trajectory e2e/identity 三文件25项通过；独立 code-review R11 / verification R10通过。新完整远端CI需在本次修复提交后再运行，不改写原失败。
+
+用户要求直接查看Web真实轨迹后，已在原52521隔离栈用公开配置API创建全新Agent `window-visible-d71f6826`、空工作区及独立主会话 `75ebed1f-be78-42e8-b788-a771146d0a27`；没有导入R4或P/E/Q状态。当前通过实际Web/IM私聊、公开 /compact 命令及测试节点正常重启补充可见演示，原轨迹保留。该预览服务按用户要求持续运行；演示原始证据仅保留本机 `/tmp/feat711-web-visible/`。

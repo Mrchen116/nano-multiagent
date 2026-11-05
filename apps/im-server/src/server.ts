@@ -359,7 +359,7 @@ export async function createServer(options: ServerOptions = {}) {
                 headers: { authorization: `Bearer ${session.access_token}` }, payload: { session_id: selected } });
               if (prepared.statusCode === 200) data[`${base}/trajectory/prepare?session_id=${encodeURIComponent(selected)}`] = prepared.json();
             }
-            ctx.identity.decode(cookie,'refresh');
+            ctx.identity.browserSession(cookie);
             const bootstrap = JSON.stringify({session,data}).replace(/</g,'\\u003c');
             return reply.type('text/html').send(readFileSync(index,'utf8').replace('<div id="root">',`<script id="nano-page-bootstrap" type="application/json">${bootstrap}</script><div id="root">`));
           } catch { /* Invalidated browser sessions use the normal login flow. */ }
