@@ -94,8 +94,32 @@ export class MessageRecords {
   complete(m:ChatMessage,p:Extract<ChatStreamFact,{kind:'message_completed'}>):void {
     this.db.prepare('UPDATE messages SET content=?,delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?').run(p.final_content??m.content,p.delivery_status??'completed',p.token_usage?JSON.stringify(p.token_usage):null,p.elapsed_ms??null,p.kernel_message_id??null,m.id);
   }
-  /** Apply the existing provisional-message deletion semantics. */
-  discard(id:string):void {this.db.prepare('DELETE FROM messages WHERE id=?').run(id);}
+  /** Apply the existing provisional-message deletion semantics and roll back the projection it wrote on insert.
+   * Notes:
+   *   The caller owns the transaction that also stores the discard tombstone; an absent
+   *   row was already discarded together with its rollback, so a replay never rolls back twice.
+   */
+  discard(id:string):void {
+    const row=this.db.prepare('SELECT rowid AS row_id,conversation_id,sender_user_id FROM messages WHERE id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string}|undefined;
+    if(!row)return;
+    this.db.prepare('DELETE FROM messages WHERE id=?').run(id);
+    const latest=this.db.prepare('SELECT content,attachments_json,created_at FROM messages WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1').get(row.conversation_id) as unknown as {content:string;attachments_json:string;created_at:string}|undefined;
+    // Mirror insert() so the stored preview keeps the same shape as a normal last message.
+    const preview=latest?latest.content.trim().slice(0,120)||(JSON.parse(latest.attachments_json) as ChatAttachment[])[0]?.file_name||'':null;
+    this.db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(preview,latest?.created_at??null,row.conversation_id);
+    // unread_count is not a simple counter: read marks rewrite it from a watermark, so
+    // rolling back by one for everybody would erase real unread and could go negative.
+    for(const p of this.db.prepare('SELECT p.user_id,p.unread_count,p.last_read_message_id,(SELECT m.rowid FROM messages m WHERE m.id=p.last_read_message_id) AS read_row_id FROM conversation_participants p WHERE p.conversation_id=? AND p.user_id!=?').all(row.conversation_id,row.sender_user_id) as unknown as {user_id:string;unread_count:number;last_read_message_id:string|null;read_row_id:number|null}[]) {
+      // A participant who already marked something as read no longer counts this message;
+      // recompute from that watermark so unread that arrived later survives. Only a
+      // participant without a usable watermark still holds this message's own +1.
+      const watermark=p.last_read_message_id===null?null:p.last_read_message_id===id?Number(row.row_id):p.read_row_id;
+      const unread=watermark===null
+        ?Math.max(p.unread_count-1,0)
+        :(this.db.prepare('SELECT COUNT(*) AS count FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?').get(row.conversation_id,watermark,p.user_id) as unknown as {count:number}).count;
+      if(unread!==p.unread_count)this.db.prepare('UPDATE conversation_participants SET unread_count=? WHERE conversation_id=? AND user_id=?').run(unread,row.conversation_id,p.user_id);
+    }
+  }
   /** Persist the caller's sequence-deduplicated thinking projection. */
   thinking(id:string,items:ChatThinking[]):void {this.db.prepare('UPDATE messages SET thinking_json=? WHERE id=?').run(JSON.stringify(items),id);}
   /** Persist merged native tool data and derived approval badges. */
