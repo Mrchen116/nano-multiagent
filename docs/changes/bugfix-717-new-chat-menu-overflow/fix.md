@@ -29,8 +29,9 @@
 | 1072x444 | 40 | hidden | **53** | 否 | 否（`y=-27.4` / `y=-39`） |
 | 1440x900 | 40 | hidden | **53** | 否 | 否（`y=-27.4` / `y=-39`） |
 
-复现件与截图在 `/tmp/bugfix717/`（`shots/prefix-<视口>-open.png`），不进仓库；
-构建脚本与断言脚本同样只在 `/tmp`：`/tmp/bugfix717/verify.mjs`（Playwright + 真实 Chrome，见「验证」段）。
+复现脚本随 unit 提交：`M1-fix/evidence/harness/run-verification.mjs`（Playwright + 真实 Chrome，见「验证」段），
+一条命令即可重建两份 CSS 并复跑全部断言；它把构建产物与截图写进仓库外的临时目录（默认系统临时目录，
+可用 `--out` 指定，文件名如 `shots/prefix-<视口>-open.png`），不进仓库。
 
 用户报告的 1072x444 与 1440x900 落在同一个断点（>767px 的桌面侧栏 262px 宽、行高 40px），
 数值一致；375x600 属窄屏断点（行高 44px），把行滚走的是 55px。
@@ -113,17 +114,24 @@ commit `929a2ca3a`，单文件 `src/IM/frontend/src/styles/global.css`，净变�
 
 1. **真实浏览器复现→修复（不是断言）**：用仓库自己的 `vite` + `@tailwindcss/vite` 构建
    `global.css`（与 `vite.config.ts` 同插件，层叠与 preflight 同生产），复现页挂载**仓库里真实的
-   `NewConversationMenu` 组件**，Playwright 驱动本机 Chrome 156，在 375x600 / 1072x444 / 1440x900 三档各跑 19 条断言：
-   - 改动前：**15 条失败 / 42 通过**。行 `overflow=hidden`，点「+」后行 `scrollTop` = 53（375px 为 55），
-     标题 `y=-27.4`、`+` `y=-39` 均在视口外，菜单第 2/3 项 `elementFromPoint` 命不中自己——
-     与用户截图形态一致（`/tmp/bugfix717/shots/prefix-1072x444-open.png`）。
-   - 改动后：**57 条全部通过**。行 `overflow=visible`，行/侧栏/文档 `scrollTop` 均为 0，
-     浮层高度 142、三项都 `inViewport` 且可命中，标题与「+」回到视口内，第二项（创建群聊）可点并触发分组创建，
-     Esc 关闭后焦点回到「+」（`/tmp/bugfix717/shots/fixed-1072x444-open.png`）。
-   - 额外探针 1440x300 / 1072x200 / 768x400 / 767x444 / 320x480：同上，浮层始终落在侧栏宽度内。
-2. **搜索折叠动画没有被削弱**：进入/退出搜索的中间帧与终态（1072x444 与 375x600）——
-   进入后行高 0、`opacity 0`，退出后行高恢复 40/44、`opacity 1`、标题归位；中间帧无内容溢出的可见瑕疵。
-   改动前后该组断言都是通过的（这部分行为本就正确，未回归）。
+   `NewConversationMenu` 组件**，Playwright 驱动本机 Chrome 156。脚本已随 unit 提交，一条命令可复跑
+   （`M1-fix/evidence/harness/run-verification.mjs`，会自己重建「改动前」与「改动后」两份 CSS）：
+   375x600 / 1072x444 / 1440x900 三档主视口各 27 条、五档边界尺寸各 3 条，共 **96 条断言
+   （90 条行为 + 6 条实现属性）**，连跑 3 次结果一致。
+   改动前那份 CSS 的行为断言按「复现缺陷」方向断言，因此全绿的含义是「缺陷在旧 CSS 上复现、在新 CSS 上消失」。
+   - 改动前不成立的是 **12 条行为断言 + 3 条实现属性断言**（每档视口 4 + 1）：行 `overflow=hidden`，
+     点「+」后行 `scrollTop` = 53（375px 为 55），三项菜单只有首项可命中，标题 `y=-27.4`、`+` `y=-39`
+     均在视口外。行为层面是 4 个现象，不是 15 个独立故障。
+   - 改动后：行 `overflow=visible`，行/侧栏/文档 `scrollTop` 均为 0，浮层高度 142、三项都 `inViewport`
+     且可命中，标题与「+」回到视口内，第二项（创建群聊）可点并触发分组创建，Esc 关闭后焦点回到「+」。
+   - 五档边界尺寸 1440x300 / 1072x200 / 768x400 / 767x444 / 320x480：无任何滚动、
+     `documentElement.scrollWidth === clientWidth`、浮层右边界 ≤ 侧栏右边界（320px: `304 < 320`；
+     767px: `751 < 767`；桌面 `249 < 262`）。
+2. **搜索折叠动画没有被削弱**：用 `getAnimations()` + `pause()` + 固定 `currentTime` 冻结采样，
+   而不是墙钟等待（早先的 `waitForTimeout(30/90ms)` 采样会落在过渡起点之前，读数不可复现）。
+   三档视口：进入 `currentTime=40ms` 行高 26 / opacity 0.42，终态 0 / 0；退出 `currentTime=20ms`
+   行高 6 / opacity 0.22，终态行高 40（375px 为 44）/ opacity 1。中间帧的不可见溢出由
+   `.chat-search-input-row` 的定位绘制顺序盖住，机制与偶然耦合的说明见证据文件。
 3. **单测**：`cd src/IM/frontend && npx vitest run src/features/chat/components/conversation-sidebar.test.tsx`
    → 改动前后均 `21 passed (21)`。jsdom 没有布局，这条测试**不能**覆盖本次几何回归，
    仅证明菜单的存在/焦点契约未变。
@@ -136,12 +144,29 @@ commit `929a2ca3a`，单文件 `src/IM/frontend/src/styles/global.css`，净变�
 
 - 没有自动回归测试守住这条几何契约：jsdom 无法发现，仓库目前也没有 Playwright 测试约定
   （`playwright` 只是 `src/IM/frontend` 的 devDependency，没有 checked-in 的浏览器测试目录）。
+  `M1-fix/evidence/harness/` 是可复跑的**证据**，不被 `pnpm test` / CI 调用，也不应被当成基线。
   本次只在 `global.css` 该处留注释。若要长期守住，应另立 unit 建立前端布局回归测试基线。
-- 退出搜索的 160ms 展开动画期间，行内容不再被裁切。实测中间帧（行高 13.9、`opacity 0.47`）看不出瑕疵，
-  但如果以后有人把该行内容做得更高（远高于 44px），这段动画可能出现短暂溢出。
+- 退出搜索的 160ms 展开动画期间，行内容不再被裁切，它之所以看不见是**偶然耦合**：行内容被
+  `.chat-search-input-row`（`position: relative`，`global.css:1826`）这个后出现的定位兄弟节点盖住，
+  而不是因为 `opacity` 淡出（冻结帧 opacity 仍有 0.22）。若去掉该定位、或把行内容做得更高让重叠带
+  超出搜索框覆盖范围，同一处就会出现可见溢出。
 - 侧栏 `.chat-sidebar{overflow:hidden}` 仍是兜底：菜单当前 160px 宽、侧栏 262px 宽没有问题，
   但若菜单宽度涨到约 238px 以上会被侧栏裁切。同类隐患还有 `DirectConversationMenu`
   （`direct-conversation-menu.tsx`）复用的同一个 `.chat-conversation-menu-items`，它同样没有 portal。
 - 极矮视口（<约 270px 高）下浮层底部会超出视口，`.chat-sidebar` 自己也是 `overflow:hidden` 的滚动容器，
   理论上聚焦仍可能让它滚动几像素（1072x200 实测 `scrollHeight 202 / clientHeight 200`，未触发滚动）。
 
+## canonical spec 是否需要归并
+
+**决定：本次不改 canonical spec，也不新增 delta-spec。**
+
+依据：`docs/specs/im/web-chat-ux.md:561-565` 的 Requirement「协作入口沿用现有 IM 导航和语言设置」，
+其 Scenario「桌面和移动端寻找协作者」要求用户从新聊天入口使用的弹层「沿用现有导航、搜索与弹层，
+**能选择合法对象并开始沟通**」。菜单被裁到只剩首项碎片、第二、三项不可达，违反的正是这条既有契约；
+修复是恢复契约，不是引入新行为，所以没有需要归并的契约变化。
+
+已知边界（显式记录，不留给后来者猜）：该 Requirement 约束的是**结果**——能从该入口选到对象并开始沟通，
+它没有写「菜单必须以完整浮层展开、不得被祖先裁切」这类几何不变量。因此这条几何约束目前只由
+`src/IM/frontend/src/styles/global.css:1704-1706` 的注释与本文件守卫，既没有 spec 也没有自动化测试兜底。
+要把它变成可执行契约，需要另立 unit：在 `web-chat-ux.md` 增补对应的 Requirement/Scenario，并建立前端布局
+回归基线（本 unit 的 `M1-fix/evidence/harness/` 可作为起点，但它是证据、不是基线）。
