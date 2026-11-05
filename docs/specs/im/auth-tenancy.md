@@ -1,6 +1,6 @@
 # IM - Auth and Tenancy Specification
 
-> 对齐: bugfix-618
+> 对齐: bugfix-709
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -13,7 +13,7 @@
 
 ### Requirement: 账号注册/登录走 JWT,刷新令牌轮换且可吊销
 
-程序客户端经 `/im/v1/auth/*` 注册/登录获得一对令牌(短期 access + 长期 refresh);浏览器通过明确的浏览器会话模式取得内存 access 与 HttpOnly refresh Cookie;refresh 一次性轮换,旧 refresh 轮换或登出后立即失效。错误凭证大声失败(401/拒绝),不静默成功,也不泄漏用户是否存在。
+程序客户端经 `/im/v1/auth/*` 注册/登录获得一对令牌(短期 access + 长期 refresh);浏览器通过明确的浏览器会话模式取得内存 access 与稳定的 HttpOnly 会话 Cookie；程序 refresh 一次性轮换，浏览器续期只延长会话期限；退出后对应会话立即失效。错误凭证大声失败(401/拒绝),不静默成功,也不泄漏用户是否存在。
 
 #### Scenario: 注册返回令牌对且密码经哈希,弱口令/重名被拒
 - **WHEN** 终端用户 `POST /im/v1/auth/register {username,password,display_name,locale?}`
@@ -23,8 +23,8 @@
 - **WHEN** 终端用户以错误密码或未知用户名 `POST /im/v1/auth/login`
 - **THEN** 401(同一种失败语义,避免存在性预言机);凭证正确时返回新令牌对
 
-#### Scenario: refresh 轮换令牌,旧 refresh 失效;登出吊销 refresh
-- **WHEN** 用户 `POST /im/v1/auth/refresh` 用合法 refresh
+#### Scenario: 程序 refresh 轮换令牌,旧 refresh 失效;登出吊销 refresh
+- **WHEN** 程序客户端 `POST /im/v1/auth/refresh` 用合法 JSON refresh
 - **THEN** 返回新 access+refresh,且原 refresh 再次使用被拒;`POST /im/v1/auth/logout` 后该 refresh 也被拒
 
 #### Scenario: 保留运行身份不可用于真人注册
@@ -36,13 +36,13 @@
 - **THEN** 返回令牌、可用的个人空间和公司 none 状态；个人数据与绑定立即可用，公司资源在主动申请并获批前不可见；系统、Agent 和 shadow 身份不经真人公开注册取得公司资格。
 
 #### Scenario: refresh 并发、登出与重启
-- **WHEN** 同一 refresh 并发消费、登出后使用或服务正常重启后重试已消费令牌
+- **WHEN** 程序客户端同一 refresh 并发消费、登出后使用或服务正常重启后重试已消费令牌
 - **THEN** 至多一次轮换成功，已消费或吊销状态持久保持；登出后的对应会话不能继续读公司数据。
 
 #### Scenario: 浏览器令牌保存与页面恢复
 - **WHEN** 浏览器以 `X-IM-Session: browser` 和许可 Origin 调用注册、登录或刷新
 - **THEN** 响应仅含 access_token 与 user，refresh 通过 host-only、HttpOnly、SameSite=Strict Cookie 传送；HTTPS 部署带 Secure，页面可读持久存储不保存任何会话令牌。
-- **AND** 刷新页面及同源多标签续期通过 Cookie 恢复有效会话，保留一次性 refresh、退出、成员停用和临时故障重试语义。
+- **AND** 刷新页面及同源多标签续期通过 Cookie 恢复有效会话，保留稳定 Cookie、退出、成员停用和临时故障重试语义。
 
 #### Scenario: 登录页恢复已有会话
 - **WHEN** 用户打开或刷新 /login，未主动退出且浏览器保留有效会话
@@ -56,6 +56,19 @@
 #### Scenario: 浏览器 Cookie 的跨站与原生接口边界
 - **WHEN** 非许可或缺少 Origin 的浏览器模式请求试图登录、注册、刷新或登出
 - **THEN** 拒绝且不更改 Cookie 会话；无浏览器标记的程序接口只接受显式提供的 refresh，不读取 Cookie、不设置 Cookie，继续使用 JSON token pair。
+
+#### Scenario: 浏览器续期响应丢失后恢复
+- **WHEN** 有效稳定 Cookie 发起续期，响应丢失或页面关闭，随后刷新页面或其他标签页用原 Cookie 重试
+- **THEN** 继续恢复会话，无需输入密码；每次成功续期保持凭据不变，并将服务端及浏览器期限延长为 30 天。
+
+#### Scenario: 稳定会话重启与失效
+- **WHEN** 沿用同一数据库和配置重启 IM，浏览器再次打开 /login
+- **THEN** 有效 Cookie 自动恢复 /chat；主动退出、撤销、认证 epoch 变化、过期或篡改的 Cookie 被拒绝。
+
+#### Scenario: 已有浏览器 JWT Cookie 升级
+- **WHEN** 当前仍有效的旧 JWT Cookie 首次续期，或升级响应丢失后重试
+- **THEN** 返回相同稳定 Cookie；已被消费、过期或撤销的旧凭据保持拒绝，此类浏览器需要重新登录一次。
+- **AND** 稳定 Cookie 及已升级会话的旧 JWT 均不能通过程序 JSON refresh 接口消费。
 
 ### Requirement: Web 认证入口在提交前说清规则并给出可行动反馈
 

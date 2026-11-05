@@ -37,8 +37,11 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
   const respond = (pair: Row, request: FastifyRequest, reply: FastifyReply) => {
     reply.header("Cache-Control", "no-store");
     if (!browser(request)) return pair;
-    reply.header("Set-Cookie", cookie(pair.refresh_token, identity.refreshTtl));
-    return { access_token: pair.access_token, user: pair.user };
+    const session = pair.refresh_token.split(".").length === 3
+      ? identity.refreshBrowser(pair.refresh_token)
+      : pair;
+    reply.header("Set-Cookie", cookie(session.refresh_token, identity.refreshTtl));
+    return { access_token: session.access_token, user: session.user };
   };
   const credential = (request: FastifyRequest): string | undefined => {
     const payload = body(request);
@@ -131,12 +134,12 @@ export function registerIdentityRoutes(app: FastifyInstance, ctx: ImContext) {
     const token = credential(request);
     if (!token) throw new IdentityError(401, "missing refresh cookie");
     identity.rateLimit("refresh:credential:" + token, 20, 60);
-    return respond(identity.refresh(token), request, reply);
+    return respond(browser(request) ? identity.refreshBrowser(token) : identity.refresh(token), request, reply);
   });
   app.post("/im/v1/auth/logout", async (request, reply) => {
     const token = credential(request);
     try {
-      if (token) await ctx.gateway.closeSession(identity.logout(token));
+      if (token) await ctx.gateway.closeSession(browser(request) ? identity.logoutBrowser(token) : identity.logout(token));
     } catch (error) {
       if (!(error instanceof IdentityError) || !browser(request)) throw error;
     }
