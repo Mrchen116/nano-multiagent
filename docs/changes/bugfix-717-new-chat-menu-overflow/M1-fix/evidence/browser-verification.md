@@ -52,6 +52,10 @@ CSS_PATH=<built css> OUT_DIR=/tmp/bugfix717/shots LABEL=prefix node /tmp/bugfix7
 五档下，行/侧栏/文档 `scrollTop` 全为 0，三项菜单均命中，浮层右边界始终 ≤ 侧栏右边界
 （桌面 `right=249`，侧栏 262）。
 
+横向溢出（改动后，`/tmp/bugfix717/hscroll.mjs`，点开菜单后测量）：320/375/767/1072/1440 五档
+`documentElement.scrollWidth === clientWidth`（无横向滚动），浮层完全落在侧栏内——
+320px: `menuRight 304 < sidebarRight 320`；767px: `751 < 767`；桌面侧栏 `249 < 262`，`sidebarScrollWidth 261 === clientWidth 261`。
+
 ## 搜索折叠动画（`359109c98` 引入的体验）是否保住
 
 同一视口 1072x444 与 375x600，用 `/tmp/bugfix717/frames.mjs` 采样进入/退出搜索的中间帧：
