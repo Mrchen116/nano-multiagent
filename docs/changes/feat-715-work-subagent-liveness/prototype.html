@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>feat-715 原型 · Work 页一级子执行</title>
+<!--
+  仅演示用原型：不接后端、不实现产品逻辑。
+  · 产品区域（.prototype-product）复刻现有 Work 页的结构与样式，样式链接真实 agent-work.css；
+  · 新增部分只有「子执行」这条常驻状态带（.im-work-subagents）及其内部标记，其余画面是现有界面背景；
+  · 演示控制、状态说明与设计解释都在产品区域之外。
+  证据截图见 ./evidence/prototype-*.png。
+-->
+<link rel="stylesheet" href="../../../src/IM/frontend/src/features/settings/agents/agent-work.css">
+<style>
+  :root{--im-text:#1f2a2e;--im-border:#e2e8ea;--im-accent:#2f7d6d;--im-bg:#f4f6f7}
+  [hidden]{display:none!important}
+  body{margin:0;background:#eef1f2;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif;color:var(--im-text)}
+  .prototype-shell{max-width:1560px;margin:0 auto;padding:18px 20px 60px}
+  .prototype-legend{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:12px;color:#52616a;margin-bottom:10px}
+  .prototype-legend b{font-weight:600;color:var(--im-text)}
+  .prototype-legend .tag{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid #cbd6da;background:#fff}
+  .prototype-legend .tag.new{border-color:#9ecdc1;background:#eaf6f2;color:#28695c}
+  .prototype-legend .tag.old{border-color:#d5dde0;background:#f7f9fa;color:#5b6a72}
+  .prototype-legend .tag.demo{border-color:#e6d5ae;background:#fdf7e8;color:#8a6a24}
+  .prototype-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 14px;background:#fff;border:1px solid var(--im-border);border-radius:10px;margin-bottom:14px}
+  .prototype-controls strong{font-size:12px;color:#52616a;margin-right:4px}
+  .prototype-controls button{min-height:32px;padding:4px 12px;border:1px solid #cbd6da;border-radius:7px;background:#f7f9fa;font-size:12px;cursor:pointer;color:var(--im-text)}
+  .prototype-controls button[aria-pressed="true"]{background:var(--im-accent);border-color:var(--im-accent);color:#fff;font-weight:600}
+  .prototype-note{margin:0 0 14px;font-size:12px;color:#52616a}
+  .prototype-stage{background:var(--im-bg);border:1px solid var(--im-border);border-radius:14px;padding:0}
+  .prototype-panel{width:100%;max-width:1180px;margin:0 auto;padding:14px 0 40px}
+  .prototype-panel.narrow{max-width:430px}
+  .prototype-panel.narrow .im-work-grid.with-child{grid-template-columns:minmax(0,1fr)}
+  .prototype-panel .im-work{font-size:13px}
+  /* 本次新增：子执行状态带。始终占位，避免出现/消失时挤动下方主轨迹。 */
+  .im-work-subagents{margin-bottom:12px;padding:12px 16px;display:grid;gap:10px;min-height:56px;align-content:start}
+    .im-work-subagents-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px}
+  .im-work-subagents-head strong{font-size:15px;font-weight:650}
+  .im-work-subagents-head .im-work-muted{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .im-work-subagents-reason{margin:0;font-size:12px;color:#73808a}
+  .im-work-status-label.waiting_permission{background:#fdf3e0;color:#8a6a24}
+  .im-work-subagent-items{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+  .im-work-subagent-items>li{min-width:0}
+  .im-work-subagent{display:flex;align-items:center;gap:8px;max-width:100%;min-height:36px;padding:6px 10px;border:1px solid var(--im-border);border-radius:9px;background:#fff;font-size:13px;color:var(--im-text);text-align:left}
+  .im-work-subagent:hover{border-color:var(--im-accent);background:#f3faf7}
+  .im-work-subagent-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:22em}
+  .im-work-subagent time{color:#73808a;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .im-work-subagent .dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:#a9b6bc}
+  .im-work-subagent .dot.running{background:var(--im-accent)}
+  .im-work-subagent .dot.waiting_permission{background:#d9a12b}
+  .im-work-subagent .dot.unknown{background:#a9b6bc}
+  .im-work-subagent .im-work-status-label{margin-left:auto}
+  .im-work-subagent.unknown{background:#fbfcfc;color:#5b6a72}
+  .im-work-subagent-group{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding-top:2px}
+  .im-work-subagent-group>span{font-size:12px;color:#73808a}
+  @container(max-width:620px){.im-work-subagent-name{max-width:12em}}
+  @media(max-width:700px){
+    .im-work-subagents{padding:12px}
+    .im-work-subagents-head strong{font-size:14px}
+    .im-work-subagent-items{flex-direction:column}
+    .im-work-subagent{width:100%}
+    .im-work-subagents-head .im-work-muted{margin-left:0;width:100%}
+  }
+  /* 现有界面背景里被复刻的最小外壳 */
+  .im-work-latest{margin-bottom:12px;padding-top:0;padding-bottom:0}
+  .im-work-callout:first-child{margin-top:0}
+  .im-work-subagent-empty{display:flex;align-items:center;gap:8px;color:#73808a;font-size:13px;min-height:24px}
+</style>
+</head>
+<body>
+<div class="prototype-shell">
+  <div class="prototype-legend">
+    <span class="tag old">现有界面背景</span>
+    <span class="tag new">本次新增或修改</span>
+    <span class="tag demo">仅演示</span>
+    <b>feat-715</b> Work 页显示当前正在工作的一级子执行
+  </div>
+
+  <div class="prototype-controls" role="group" aria-label="演示状态">
+    <strong>演示状态</strong>
+    <button data-state="running" aria-pressed="true">3 个子执行在工作</button>
+    <button data-state="waiting" aria-pressed="false">2 运行 + 1 等待授权</button>
+    <button data-state="empty" aria-pressed="false">没有子执行在工作</button>
+    <button data-state="offline" aria-pressed="false">节点离线</button>
+    <button data-state="catching_up" aria-pressed="false">工作记录补齐中</button>
+    <button data-state="residue" aria-pressed="false">崩溃残留降级</button>
+    <button data-state="maintenance" aria-pressed="false">含后台维护</button>
+    <button data-state="failed" aria-pressed="false">读取失败</button>
+    <button data-state="narrow" aria-pressed="false">窄屏（420px）</button>
+  </div>
+
+  <p class="prototype-note">
+    产品区域复刻真实 Work 页：工具栏「工作记录 / 原生轨迹」、主 Agent 状态、离线与补齐提示、最近已报告上下文、主 Agent 轮次、底部「关联执行」。蓝色/绿色之外唯一的新增是常驻的<b>子执行状态带</b>，位于「最近已报告的主上下文」与「主 Agent」轮次之间。本页不接后端，点击条目只做选中演示。
+  </p>
+
+  <div class="prototype-stage">
+    <div class="im-agent-panel-body im-agent-detail-body im-agent-work-body prototype-panel" id="panel">
+      <div class="im-work">
+        <div class="im-work-state" id="page-failed" role="alert" hidden>工作记录读取失败 (503)<button type="button">重试</button></div>
+        <div class="im-work-toolbar">
+          <div class="im-work-view-switch" role="tablist" aria-label="工作查看方式">
+            <button role="tab" aria-selected="true">工作记录</button>
+            <button role="tab" aria-selected="false">原生轨迹</button>
+          </div>
+          <div class="im-work-toolbar-status">
+            <span>主 Agent · <span id="main-status">运行中</span></span>
+            <span class="im-work-error" id="offline-chip" hidden>节点离线</span>
+          </div>
+        </div>
+
+        <p class="im-work-callout" role="status" id="offline-callout" hidden>节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。</p>
+        <p class="im-work-callout" role="status" id="sync-callout" hidden></p>
+
+        <div class="im-work-latest im-work-card">
+          <details class="im-work-usage">
+            <summary>最近已报告的主上下文 <span class="im-work-usage-toggle">详情</span></summary>
+          </details>
+        </div>
+
+        <!-- 本次新增：子执行状态带 -->
+        <section class="im-work-card im-work-subagents" id="subagents" aria-live="polite"></section>
+
+        <div class="im-work-grid">
+          <section class="im-work-trace">
+            <header class="im-work-section-head"><h3>主 Agent</h3><small>最新轮次在前 · 轮次内部按实际顺序</small></header>
+            <details class="im-work-turn">
+              <summary><strong>输入触发</strong><div class="im-work-turn-summary-meta"><span>14:20 — 14:31</span><span>6 次工具</span><span class="im-work-status-label completed" id="main-turn-status">已完成</span></div></summary>
+              <div class="im-work-turn-body">
+                <div class="im-work-turn-meta"><code>turn-3</code><span>fixture-model</span></div>
+                <ul class="im-work-items">
+                  <li class="im-work-assistant"><strong>Agent 正文</strong><p>已把「整理周报」拆给两个子执行，其中一个在等授权。</p></li>
+                </ul>
+              </div>
+            </details>
+            <details class="im-work-turn">
+              <summary><strong>收到子 Agent 结果</strong><div class="im-work-turn-summary-meta"><span>14:12 — 14:19</span><span>2 次工具</span><span class="im-work-status-label completed">已完成</span></div></summary>
+            </details>
+            <details class="im-work-turn">
+              <summary><strong>Inbox 唤醒</strong><div class="im-work-turn-summary-meta"><span>13:58 — 14:06</span><span>5 次工具</span><span class="im-work-status-label completed">已完成</span></div></summary>
+            </details>
+            <details class="im-work-turn">
+              <summary><strong>近况同步</strong><div class="im-work-turn-summary-meta"><span>13:40 — 13:41</span><span>0 次工具</span><span class="im-work-status-label completed">已完成</span></div></summary>
+            </details>
+          </section>
+        </div>
+
+        <details class="im-work-other">
+          <summary>关联执行 · <span id="other-count">4</span></summary>
+          <button type="button">整理周报 · 数据核对 <small>child-a</small></button>
+          <button type="button">整理周报 · 排版 <small>child-b</small></button>
+          <button type="button">Dreaming · 自动整理记忆 <small>review-1</small></button>
+          <button type="button">Cron · 定时执行 · daily <small>cron-1</small></button>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const states = {
+  running: {
+    band: 'confirmed', headline: '当前 3 个子执行在工作', split: [['running','运行中 3']],
+    confirmedAt: '14:31',
+    items: [
+      {name:'数据核对', status:'running', age:'已工作 12 分钟'},
+      {name:'排版汇总', status:'running', age:'已工作 12 分钟'},
+      {name:'代码检索', status:'running', age:'已工作 4 分钟'},
+    ],
+    main:'运行中', turn:'运行中', turnClass:'running', other:4,
+  },
+  waiting: {
+    band: 'confirmed', headline: '当前 3 个子执行在工作', split: [['running','运行中 2'],['waiting_permission','等待授权 1']],
+    confirmedAt: '14:31',
+    items: [
+      {name:'数据核对', status:'running', age:'已工作 12 分钟'},
+      {name:'排版汇总', status:'running', age:'已工作 12 分钟'},
+      {name:'发送周报', status:'waiting_permission', age:'已等 3 分钟', label:'等待授权'},
+    ],
+    main:'运行中', turn:'运行中', turnClass:'running', other:4,
+  },
+  empty: {
+    band: 'confirmed', empty: '当前没有子执行在工作', confirmedAt: '14:31',
+    main:'空闲', turn:'已完成', turnClass:'completed', other:2,
+  },
+  offline: {
+    band: 'degraded', headline: '子执行状态未知', reason:'节点离线，无法确认现在的状态。',
+    last:'最近一次确认：2 个在运行（14:02）', offline:true,
+    items: [
+      {name:'数据核对', status:'unknown', age:'最后确认 14:02'},
+      {name:'排版汇总', status:'unknown', age:'最后确认 14:02'},
+    ],
+    main:'状态未知', turn:'已完成', turnClass:'completed', other:4,
+  },
+  catching_up: {
+    band: 'degraded', headline: '子执行状态未知', reason:'工作记录正在补齐，最新进度尚未确认。',
+    last:'最近一次确认：2 个在运行（14:29）',
+    items: [
+      {name:'数据核对', status:'unknown', age:'最后确认 14:29'},
+      {name:'排版汇总', status:'unknown', age:'最后确认 14:29'},
+    ],
+    main:'运行中', turn:'运行中', turnClass:'running', other:4, sync:'工作记录正在补齐，当前显示已保存内容。',
+  },
+  residue: {
+    band: 'confirmed', headline: '1 个子执行在工作 · 1 个状态未知', split:[['running','运行中 1'],['unknown','状态未知 1']],
+    confirmedAt: '14:31',
+    note: '节点连接重建后没有新的执行记录，无法确认这些执行的当前状态。',
+    items: [
+      {name:'数据核对', status:'running', age:'已工作 6 分钟'},
+      {name:'排版汇总', status:'unknown', age:'最后确认 14:24'},
+    ],
+    main:'空闲', turn:'已完成', turnClass:'completed', other:4,
+  },
+  maintenance: {
+    band: 'confirmed', headline: '当前 2 个子执行在工作', split:[['running','运行中 2']],
+    confirmedAt: '14:31', maintenance: true,
+    items: [
+      {name:'数据核对', status:'running', age:'已工作 12 分钟'},
+    ],
+    maintenanceItems: [
+      {name:'Dreaming · 自动整理记忆', status:'running', age:'已工作 2 分钟'},
+    ],
+    main:'空闲', turn:'已完成', turnClass:'completed', other:4,
+  },
+  failed: { band:'failed', main:'运行中', turn:'运行中', turnClass:'running', other:4 },
+  narrow: {
+    band: 'confirmed', headline: '当前 3 个子执行在工作', split: [['running','运行中 2'],['waiting_permission','等待授权 1']],
+    confirmedAt: '14:31', narrow:true,
+    items: [
+      {name:'数据核对 · 上周销售数据逐条核对', status:'running', age:'已工作 12 分钟'},
+      {name:'排版汇总', status:'running', age:'已工作 12 分钟'},
+      {name:'发送周报', status:'waiting_permission', age:'已等 3 分钟', label:'等待授权'},
+    ],
+    main:'运行中', turn:'运行中', turnClass:'running', other:4,
+  },
+};
+const label = {running:'运行中', waitter:''};
+const statusText = {running:'运行中', waiting_permission:'等待授权', unknown:'状态未知'};
+const panel = document.getElementById('panel');
+const band = document.getElementById('subagents');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function item(entry, extra='') {
+  return `<li><button type="button" class="im-work-subagent ${entry.status}" title="${esc(entry.note || '')}">`
+    + `<span class="dot ${entry.status}"></span><span class="im-work-subagent-name">${esc(entry.name)}</span>`
+    + `<time>${esc(entry.age)}</time>`
+    + (entry.label ? `<span class="im-work-status-label ${entry.status}">${esc(entry.label)}</span>` : '')
+    + `</button>${extra}</li>`;
+}
+function render(name) {
+  const s = states[name];
+  document.querySelectorAll('.prototype-controls button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.state === name)));
+  panel.classList.toggle('narrow', name === 'narrow');
+  document.getElementById('main-status').textContent = s.main;
+  document.getElementById('offline-chip').hidden = !s.offline;
+  document.getElementById('offline-callout').hidden = !s.offline;
+  const sync = document.getElementById('sync-callout');
+  sync.hidden = !s.sync; if (s.sync) sync.textContent = s.sync;
+  document.getElementById('other-count').textContent = s.other;
+  const turn = document.getElementById('main-turn-status');
+  turn.textContent = s.turn; turn.className = `im-work-status-label ${s.turnClass}`;
+
+  if (s.band === 'failed') {
+    // 读取失败沿用现有页面级错误态：不显示任何计数，也就不存在把 0 当事实。
+    for (const sel of ['.im-work-toolbar', '#offline-callout', '#sync-callout', '.im-work-latest', '#subagents', '.im-work-grid', '.im-work-other'])
+      document.querySelectorAll(sel).forEach(el => el.hidden = true);
+    document.getElementById('page-failed').hidden = false;
+    return;
+  }
+  for (const sel of ['.im-work-toolbar', '.im-work-latest', '#subagents', '.im-work-grid', '.im-work-other'])
+    document.querySelectorAll(sel).forEach(el => el.hidden = false);
+  document.getElementById('page-failed').hidden = true;
+  band.className = 'im-work-card im-work-subagents';
+  let html = '';
+  if (s.empty) {
+    html += `<div class="im-work-subagents-head"><strong class="im-work-subagent-empty"><span class="dot"></span>${esc(s.empty)}</strong><small class="im-work-muted">最近确认 ${esc(s.confirmedAt)}</small></div>`;
+  } else {
+    html += `<div class="im-work-subagents-head"><strong>${esc(s.headline)}</strong>`;
+    // 只有一个分档时不重复主句已经说过的数字。
+    if ((s.split || []).length > 1) for (const [k, v] of s.split) html += `<span class="im-work-status-label ${k}">${esc(v)}</span>`;
+    html += s.confirmedAt ? `<small class="im-work-muted">最近确认 ${esc(s.confirmedAt)}</small>` : '';
+    html += `</div>`;
+    const reasons = [s.reason, s.note, s.last].filter(Boolean);
+    if (reasons.length) html += `<p class="im-work-subagents-reason">${reasons.map(esc).join(' · ')}</p>`;
+    html += `<ul class="im-work-subagent-items">${(s.items || []).map(e => item(e)).join('')}</ul>`;
+    if (s.maintenanceItems?.length) {
+      html += `<div class="im-work-subagent-group"><span>后台维护（自动进行，不需要你处理）</span></div>`;
+      html += `<ul class="im-work-subagent-items">${s.maintenanceItems.map(e => item(e)).join('')}</ul>`;
+    }
+  }
+  band.innerHTML = html;
+}
+document.querySelectorAll('.prototype-controls button').forEach(b => b.addEventListener('click', () => render(b.dataset.state)));
+// 支持 ?state=xxx 直接打开某一状态，便于留证截图。
+const initial = new URLSearchParams(location.search).get('state');
+render(states[initial] ? initial : 'running');
+</script>
+</body>
+</html>
