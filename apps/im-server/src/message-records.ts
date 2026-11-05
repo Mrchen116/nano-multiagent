@@ -111,7 +111,7 @@ export class MessageRecords {
     this.db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(preview,latest?.created_at??null,row.conversation_id);
     // unread_count is not a simple counter: read marks rewrite it from a watermark, so
     // rolling back by one for everybody would erase real unread and could go negative.
-    for(const p of this.db.prepare('SELECT p.user_id,p.unread_count,p.last_read_message_id,(SELECT m.rowid FROM messages m WHERE m.id=p.last_read_message_id) AS read_row_id FROM conversation_participants p WHERE p.conversation_id=? AND p.user_id!=?').all(row.conversation_id,row.sender_user_id) as unknown as {user_id:string;unread_count:number;last_read_message_id:string|null;read_row_id:number|null}[]) {
+    for(const p of this.db.prepare('SELECT p.user_id,p.unread_count,p.last_read_message_id,(SELECT m.rowid FROM messages m WHERE m.id=p.last_read_message_id AND m.conversation_id=p.conversation_id) AS read_row_id FROM conversation_participants p WHERE p.conversation_id=? AND p.user_id!=?').all(row.conversation_id,row.sender_user_id) as unknown as {user_id:string;unread_count:number;last_read_message_id:string|null;read_row_id:number|null}[]) {
       // A participant who already marked something as read no longer counts this message;
       // recompute from that watermark so unread that arrived later survives. Only a
       // participant without a usable watermark still holds this message's own +1.
