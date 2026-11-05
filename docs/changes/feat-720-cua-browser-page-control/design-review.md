@@ -550,3 +550,104 @@ R3-C1 按审查给的三句话判定条件原样落地（未改判定骨架）�
 - `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`。
 - `git status --porcelain` → 干净；本轮改动与本节在同一个本地 commit 内（未 push）。
 - 未改代码、未执行 V1–V6；C1 的“归还前台”依据仍是证据 L549–554 的单次观察，发布仍由 V2 阻断。
+
+## Round 4 (closure)
+
+### Metadata
+
+- reviewer: 同一独立 delegated design reviewer（子 Agent `nano-manager`，未参与设计与修复；本轮只读文档与源码）
+- target: worktree `.worktrees/feat-720-cua-browser-page-control`，branch `unit/feat-720-cua-browser-page-control`，head `7d3a80e2d`，父 `99605970b`，审查开始时工作树干净，未 push
+- 受审 diff（`git show --numstat 7d3a80e2d`）：`design.md` +19/−18、`spec.md` +2/−2、`specs/gateway/agent-capabilities.md` +1/−1、`design-review.md` +25/−0（仅追加 Author Resolutions（Round 3））；`evidence/desktop-verification.md` 未改
+- review_mode: `closure`（Gate 2 收口轮：判定最后一个完整 Round 是否可落到 0 CRITICAL / 0 WARNING）
+- started_at: 约 2026-11-05T19:09（近似）
+- completed_at: 2026-11-05T19:14:00+08:00
+- duration: 约 6 分钟
+- 本地检查: `scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（写入后复跑，见末尾执行记录）
+- **纠错（对本系列报告自身）**：Round 3 Metadata 里写的 `completed_at: 2026-11-05T19:23:00+08:00` 是错的——Round 3 的提交 `99605970b` 发生在 `19:05:07`，实际完成时间约 `19:04`。时间戳按 commit 时间为准，历史 Round 不回改，在此订正。
+
+### Verdict
+
+**APPROVED（可实施）— 0 CRITICAL / 0 WARNING**。
+
+Gate 2 条件“最后一个完整 Round 为 Approved 且 0C/0W”在本轮成立：Round 3 的 1 项阻断（R3-C1）与 4 项顺手改（R3-1…R3-4）逐条落到文字并核过，没有新增阻断、没有新增 WARNING，三份文档与错误码表/已知限制/fixture 之间没有残留不一致。剩下的 7 条全部属于**实施期检查项**，它们不改变用户可观察行为、不涉及重新设计，按口径不记 WARNING（理由见“为什么这些不记 WARNING”）。
+
+### 逐项回答
+
+#### 1) R3-C1 的三条是否真的可判定、实现时不需要额外信息
+
+**是，三条都能从同一批内存事件得到，不需要任何外部信息**。逐字段核对（`@deepseek-ai/dsh-session` 类型 `lib/types/types.d.ts`）：
+
+- `turn/start` 的数据是 `{turn: number}`（L262–264），`turn/end` 是 `{turn, reason}`（L273），`turn` 号在同一会话内单调递增，因此“最后一个 `turn/start {turn}` 之后没有同号 `turn/end`”是**按号配对**即可判定，不需要计时器或额外状态；
+- `user/message` 事件的 `data` 是 `UserMessage`（含 `source`），`isHumanSource` 直接吃 `source`（`packages/dsh-integration/src/input-source.ts` L22–25）；
+- `event.time` 在事件信封上（`types.d.ts` L495，注释即“Unix epoch milliseconds”，由 runtime 在 append 时赋值），不需要另找时间源；
+- 事件来源：`agent.session.snapshotEvents()` 返回带 `seq`/`time` 的完整事件数组，`route()` 现在就是这么读的（`packages/dsh-integration/src/policy/approval.ts` L78–82），祖先 Agent 由 `ctx.agents.get(parentSession)` 取得后同样可读其 `session`。
+
+没有任何一条需要“实现时才知道”的信息。唯二需要写清的前提列在实施期检查项 V4-1（时钟前提）与 V4-2（判定顺序），两者都不补能力、不减少能力。
+
+#### 2) “最近一条人类消息 ≤300s”在“用户中途只说一句又继续等待”的场景下意味着什么
+
+意味着**窗口跟着最近一次发言滚动**：用户在 t0 说一句、t0+4min 又说一句，窗口刷新到 t0+4min+300s；若用户说完就沉默，t0+300s 之后同一轮次内再委派就拿不到新实例。这是刻意的收窄，后果已按 R3-C1-6 写进三处用户可读文本：
+
+- `spec.md` L109：“只有用户发起的轮次（包括该轮次里被委派的子 Agent）可能为此新开实例，且要求该轮次仍在进行、用户最近一次发言在约 5 分钟内；更早的委派或该轮次结束后再派生的子 Agent 只复用已有实例”；
+- delta L30：同义的行为叙述（已删掉“按请求上溯”的实现手法）；
+- `design.md` L435 已知限制：“**长轮次末端委派**（人类发言已超过 300 秒在场窗口）与**后台委派**（父轮次已结束）同样拿不到实例，只复用已有实例；按层判定恢复的仅是同轮次、300 秒内的同步/前台委派”。
+
+所以这条不算“未写进限制的副作用”。剩下的只是模型可见文案的措辞问题（V4-4）。
+
+#### 3) 把 `Date.now()` 写进判定算不算引入时钟依赖
+
+**算引入了时钟前提，但在本架构里不构成系统性偏斜，不需要改数据源**：`event.time` 由本节点的 DSH 进程在 append 时赋值，判定也在同一个进程里执行，`Date.now() - event.time` 是同一时钟内的差值，不是跨机器时间对比；会话由该节点的 DSH 持有（`RuntimeSupervisor` 每个 partition 一个子进程），不存在“事件由另一台机器产出”的常规路径。
+
+真正需要处理的只有两个边界，已列为实施期检查项 V4-1：① 会话若在别的机器上恢复（跨机恢复不是本 unit 行为，但会话文件是可搬的），时间的时钟源会变，需在 design L79 写明“事件时间来自同一 runtime 时钟”这一前提；② 时钟回拨会让 `Date.now() - event.time` 变成负数而“意外通过”，实现上按 `0 <= delta <= 300_000` 判定（负值即视为超窗拒绝）。这两点都不改变正常路径的用户可观察行为，因此按“实施期检查项”处理，不记 WARNING。
+
+#### 4) R3-1 / R3-2 是否可判定、M1 断言是否真能红
+
+**都能红，且都不需要浏览器或真实驱动**：
+
+- R3-1（启动期有界清理）落在 `design.md` L114（机制与范围）、L316（失败语义）、L329（Context 表述）、M1 L422 第 9 条：注入旧 `mtime` 的过期文件 + 超 20 张文件 → 只删本能力规则判定的；workspace 外放同名目录 → 不得被扫；目录不可读 → 记录并继续、启动不失败。断言任一实现偏差即红（“删了 workspace 外文件”“不可读时抛错”“没删过期文件”三种都能区分）。
+- R3-2（冷却）落在 L84（`failedAt + 300s` 惰性清除、不做 pid 探测）、L275（错误码表）、L313（恢复手法）、M1 L426 第 13 条：fake timer 下断言“300s 内每次调用直接返回同一错误且驱动客户端零调用”，把 timer 推过 300s 后断言状态清空、可再次按 TurnGate 决策。这条断言的“红”是结构性的——只要实现里出现 `ps`/驱动调用或没有到期清除，就红。
+
+#### 5) 还有没有残留 WARNING（三份文档一致性、错误码表、已知限制、fixture 覆盖）
+
+逐项核过，**没有 WARNING**，只剩 5 条实施期检查项：
+
+| 核对面 | 结果 |
+|---|---|
+| 三份文档的判定语义 | 一致：`design.md` L79 三条条件 ⇄ `spec.md` L109“该轮次仍在进行 + 最近一次发言约 5 分钟内” ⇄ delta L30 同义行为叙述（已无实现手法） |
+| 错误码表 | `browser_launch_requires_user_turn`（L269）已覆盖“轮次已结束 / 无人类消息 / 超 300s / 四类非用户来源 + 其派生子 Agent / 链断 / 环”，与 L79 的拒绝分支一一对应；`browser_foreground_release_failed`（L275）已改成“`failedAt + 300s` 冷却到期或新实例 `end_session` 成功” |
+| 已知限制 | L435 已补“长轮次末端委派 / 后台委派拿不到实例”；L436 起原有未验证清单未受影响 |
+| fixture 覆盖 | M1 L420 第 7 条覆盖 8 个分支（60s 允许 / 10min 拒绝 / 父轮次已关闭拒绝 / heartbeat·task-execution 拒绝 / 链断拒绝 / 构造环拒绝 / 子轮次 source 形状不参与 / 已有实例可只读）；L422 第 9 条覆盖启动期清理；L426 第 13 条覆盖冷却 |
+| 判定骨架 | 已确认“不回退硬闸门、不并存两套判定”落到 L79/L81：静态可解析就按在场窗口判定，解析不了直接拒；L81 明确 `ctx.agents` 是活注册表而非持久血缘 |
+| 旧口径残留 | `grep` 全仓三份文档：无“8 跳/上溯超过”“直到实例消失”“按请求上溯”残留；`design.md` 只剩一处“硬闸门”字样，出现在“为什么不采用”的解释句里（L81），属说明性引用，不是并存分支 |
+
+**为什么这些不记 WARNING**（沿用本系列已公布的口径）：WARNING 只给三类——会让用户桌面被抢、会让实质能力缺口被写进设计、会让未验证的东西看起来已验证；此外内部矛盾若会改变用户可观察行为也计 WARNING。下面 5 条都不属于：它们是**同一意图下的措辞/前提补写**（V4-1、V4-2、V4-4）、**冗余条款去重**（V4-3）、**事实性说明更正**（V4-5），实现时不写也不会改变放行/拒绝结果或用户可观察行为。反过来说，如果把它们升格成 WARNING，本期将永远无法收口，而 Gate 2 要挡的不是这类问题。
+
+### 实施期检查项（不阻断 M1 开工，不改变用户可观察行为）
+
+- **V4-1 时钟前提与负差值**：`design.md` L79 补一句“`event.time` 由同一 runtime 在 append 时赋值，判定与该时间同源”，实现按 `0 <= Date.now() - event.time <= 300_000` 判定（时钟回拨导致的负值按超窗拒绝，不得视为通过）。
+- **V4-2 判定顺序**：先判“轮次打开 + 该轮内存在人类消息 + 窗口”，再把“来源是 `schedule`/`heartbeat`/`task-execution`/`task-change`”写成“该轮没有人类消息”的等价说明；同一轮内同时出现人类消息与 `nano-system` 任务输入时以人类消息为准，并在 M1 第 7 条加一条 fixture 固定该优先级（避免实现自由解释成“一律拒绝”，把用户中途插话的合法场景挡掉）。
+- **V4-3 冷却清除条款去重**：L84 的“新实例 `end_session` 成功也清除”在“冷却期间所有调用都被拒 → 不可能有新实例”前提下不可达。实现时二选一：删掉该句、冷却是唯一清除条件（推荐），或显式写明“冷却只拦页面调用、`browser_prepare` 同样被拦”。**不要**实现成“冷却期间允许 prepare”，那会重新开窗。
+- **V4-4 模型可见文案**：`browser_launch_requires_user_turn` 的“模型应做什么”补超窗语境（“请用户再说一句话以刷新在场窗口”），现在统一写“需要在对话里发起”，对“刚说过但已过 5 分钟”的用户会误导；同时 `design.md` L332 的 Validation 必含句清单补“超窗/轮次已结束同样不能新开实例”。
+- **V4-5 文档事实更正**：Author Resolutions（Round 3）里“这些生命周期出口目前都没有现成的统一钩子”偏强——`agent/created`/`agent/disposed` 是可挂的，本仓已在用（如 `packages/dsh-integration/src/task-execution.ts` L99、`src/policy/approval.ts` L39）。真正的差异是“租约是进程内状态、崩溃即丢”而“按层判定可从事件日志复算”。改这一句即可，决策（不做租约）不变。
+- **V4-6 扫描方式**：TurnGate 每次工具调用会读 `snapshotEvents()`；建议只从尾部反向定位最后一个 `turn/start`（`findLast`）再向后取人类消息，不要正序遍历全量，避免长会话里的额外开销。实现选项，不是缺陷。
+- **V4-7 “pid 相等”只作账本**：`end_session` 前的 `owner_pid` 校验只是本地账本（不是存活证明）；实现时保持 R3-2 的“不做 pid 探测”承诺，别在别的分支又引入 `ps`。
+
+### 已接受限制（与 Round 3 一致，不再扩大）
+
+- 能力 v1 实际是“用户发起轮次 + 打开中的轮次 + 最近一次发言约 5 分钟 + 最近约 5 分钟内可复用实例”的按需/对话内能力；定时/心跳/任务续跑、长轮次末端委派、后台委派都拿不到新实例。
+- 真窗口出现后实例立即结束，继续操作需要新的用户轮次；无 `close` 动作；坐标与登录态不在范围。
+- V1/V2/V5/V6 仍是实施前的阻断验证；V2 未通过不发布。
+
+### 未验证声明
+
+- 本轮只读文档与源码（含主仓已安装 DSH `0.2.1-alpha.1` 的类型定义）；未执行 V1–V6，未启动驱动/浏览器/服务，未运行模型；TurnGate 的三条条件与冷却时序均未实测，只做了可判定性核对。
+- 证据副本未改（`git diff` 空）；C1 的“归还前台”仍是证据 L549–554 的单次观察，发布仍由 V2 阻断。
+- 本轮未改任何受审文件，只追加本 Round。
+
+### 本轮执行记录（Reviewer）
+
+- `git rev-parse HEAD` → `7d3a80e2dc5e9e57be9f78d489ced591035b5f0f`；`git status --porcelain` → 审查开始时为空。
+- `git show --numstat 7d3a80e2d` → `design-review.md` +25/−0、`design.md` +19/−18、`spec.md` +2/−2、`specs/gateway/agent-capabilities.md` +1/−1；`evidence/` 无改动。
+- 一致性检索：三份文档无“8 跳”“直到实例消失”“按请求上溯”残留；“硬闸门”仅出现在 `design.md` L81 的说明句。
+- 静态取证（可判定性）：`@deepseek-ai/dsh-session` 类型 `types.d.ts` L262–264（`turn/start {turn}`）、L273（`turn/end {turn, reason}`）、L493/L495（事件信封 `seq`/`time`）；`input-source.ts` L22–25（`isHumanSource`）；`approval.ts` L78–82（现有 `turn/start` 之后读取输入的同一实现）。
+- `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（本节写入后复跑，源文件数不变）。
