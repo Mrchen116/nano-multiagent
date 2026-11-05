@@ -1,9 +1,10 @@
 # feat-714: iOS 本地聊天库与冷启动首绘 — 技术方案
 
-> 对齐: spec.md（Gate 1 已通过）
+> 对齐: spec.md（Gate 1 已通过；2026-11-05 按上级决定增补两处「口径修正（design 阶段确认）」）
 
 ## Changelog
 
+- 2026-11-05（追加）: 上级批准后把两处口径落到首文档：`spec.md`「会话访问被撤销」改为「已得知撤销」口径、「未确认发送记录迁移一条不丢」增「升级后首次启动的呈现」Scenario，两处均以「口径修正（design 阶段确认）」标注来源（Gate 2 W1 / C1）。design 与 delta 已与首文档一致。
 - 2026-11-05: Gate 2 R1 收口 — `pending_sends` 去掉会话外键并改显式删除（C1）；旧 JSON 目录在 U1 不改名不删除，迁移是否完成只由库内标记判定（C2）；补离线可读边界与撤销收敛口径（W1）、`membership_changed` 核对期间的呈现（W2）、四项不可 CI 验证项的落点与 M1⑤ 构造步骤（W3）、`ChatListPhase`/`ConnectionState` 状态口径与 401 purge 归属（W4）、草稿写入节流与单一串行写（W5）、`interaction_contexts` 边界（W6）、凭据校验前的呈现时序条款（W7），并吸收 R1–R6。
 
 ## 现状分析
@@ -261,7 +262,7 @@ stateDiagram-v2
   1. **已得知撤销**（在线收到、或已落 tombstone）→ 此后即使离线、冷启动、重启，都不再展示；
   2. **离线期间发生的撤销** → 从恢复联网后**第一次成功 `/sync`** 起不再展示；到达上界就是现有重试节奏（`pow(2, attempt)` 上限 30s，`ChatStore.swift:122-129`），不含系统网络事件到重连的延迟（U7）。
 - 不做「猜测式隐藏」：不会因为「很久没联网」就隐藏会话，那会把「离线可读」变成「离线不可信」。
-- 首文档 `spec.md:102-106` 与 delta 里「离线状态同样不展示被撤销内容」统一按「本机已得知撤销」这一前提读（delta 的措辞已按此改写）。若产品要更强承诺（离线时也能即时知道撤销），需要服务端推送或访问租约，属 U4/U7，且必须先由 spec-author 修订首文档——本 unit 不伪造该能力。
+- 首文档与 delta 已按同一口径改写，不是「靠解释对齐」：`spec.md`「会话访问被撤销」的三条 AND（已得知撤销 → 离线/重启都不展示；离线期间发生 → 第一次成功 `/sync` 后收敛、上界 ≤30s；不做猜测式隐藏）与 delta 的同名 Scenario 一致。若产品要更强承诺（离线时也能即时知道撤销），需要服务端推送或访问租约，属 U4/U7，另立 unit；本 unit 不伪造该能力。
 
 **D11 — `conversation.membership_changed` 不再清空时间线，改成定向核对。**
 
@@ -279,7 +280,7 @@ stateDiagram-v2
 **D12 — 一次性迁移在「打开分区」时执行；旧 JSON 原样保留，是否已迁移只由库内标记判定。**
 
 - 时机与网络无关：迁移只在 `ChatRepository.open` 内、migrator 之后、对外可用之前执行一次，**纯本地 IO、零网络**。所以「首启即断网」不会让迁移失败或半途而废——迁移会正常结束，只是记录的**可见性**要等第一次成功 `/sync`（见下一条）。
-- 迁移完成 ≠ 首帧可见（C1）：升级后首启时 `conversations` 表还是空的（迁移先于任何 `/sync`），因此首帧**只能给出 pending 计数**：`BootstrapSeed.pendingCount` + 一句诚实说明「N 条未确认的发送，连接后可在对应会话中核对」。这些记录在第一次成功 `/sync` 把会话写进库之后，就按会话出现在时间线里。**不造占位会话行**——那会在列表里出现一个点不开的假会话。
+- 迁移完成 ≠ 首帧可见（C1）：升级后首启时 `conversations` 表还是空的（迁移先于任何 `/sync`），因此首帧**只能给出 pending 计数**：`BootstrapSeed.pendingCount` + 一句诚实说明「N 条未确认的发送，连接后可在对应会话中核对」。这些记录在第一次成功 `/sync` 把会话写进库之后，就按会话出现在时间线里。**不造占位会话行**——那会在列表里出现一个点不开的假会话。首文档的「升级后首次启动的呈现」Scenario 已把这一时序写成验收口径。
 - 身份：`pending_sends` 主键 `(conversation_id, source_message_id, attempt_key)`，其中 `attempt_key` 就是 `PendingSend.key`，`source_message_id` 对普通发送用 `''`（服务端消息 id 非空，占位无歧义）。这与旧文件名 `sha256("conversationID\nsourceMessageID\nkey")` 一一对应。
 - 幂等：`INSERT OR IGNORE` + `cache_meta["migration.send_attempts_v1"]` 标记，两者叠加——重复执行不产生重复行，标记存在时整体跳过。**标记在库里，所以库丢了就等于「没迁移过」，会从保留下来的 JSON 重新导入**（这是选「库内标记」而不是「看目录是否存在」的直接原因）。
 - 无外键（C1）：`pending_sends.conversation_id` 刻意不建外键。迁移先于 `/sync`，`conversations` 表为空；GRDB 默认 `foreignKeysEnabled = true`，给这一列加外键会让每一行都 FK 违约，而 `INSERT OR IGNORE` 只吸收 UNIQUE/NOT NULL/CHECK/PK 冲突、不吸收 FK 违约——整批迁移会全部记为 `rejected`，「一条不丢」在真实升级路径上整体失效。删除因此改成显式两处（D10）。
