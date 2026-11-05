@@ -33,7 +33,17 @@ struct ConversationView: View {
     }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
-    private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
+    private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
+    /// B1: this conversation has no local rows and the last attempt did not deliver. Saying
+    /// "nothing here" would turn "could not read" into "there is nothing".
+    private var needsConnection: Bool {
+        guard (store.timelines[conversationID] ?? []).isEmpty else { return false }
+        if store.errors[conversationID] != nil { return true }
+        switch store.connection {
+        case .offline, .unavailable: return true
+        default: return false
+        }
+    }
     var body: some View {
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
@@ -45,6 +55,24 @@ struct ConversationView: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
+                        if items.isEmpty {
+                            if needsConnection {
+                                VStack(spacing: 8) {
+                                    Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")
+                                        .font(.callout)
+                                    Text(L("这个会话还没有保存到本机。连上网络后会自动加载。", "This conversation is not saved on this device yet. It loads automatically once you are connected."))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
+                                }.frame(maxWidth: .infinity).padding(.vertical, 24)
+                            } else {
+                                ProgressView(L("正在加载聊天…", "Loading conversation…")).frame(maxWidth: .infinity).padding(.vertical, 24)
+                            }
+                        }
+                        if store.olderNeedsNetwork.contains(conversationID) {
+                            // B2: the local window was trimmed; offline scrolling must not be
+                            // mistaken for "this is the beginning of the conversation".
+                            Text(L("更早消息需要连接后才能读取", "Earlier messages need a connection")).font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
+                        }
                         if store.before[conversationID] != nil {
                             Button(L("更早的消息", "Earlier messages")) {
                                 let anchor = items.first?.id
@@ -143,7 +171,11 @@ struct ConversationView: View {
             focusRequest = ComposerFocusRequest(selection: NSRange(location: (request.text as NSString).length, length: 0))
             store.composeRequest = nil
         }
-        .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
+        .onDisappear {
+            if store.selectedID == conversationID { store.selectedID = nil }
+            // Leaving is a draft flush point: the next screen may be a different account.
+            Task { await store.flushDrafts() }
+        }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
         .onChange(of: draft.wrappedValue) { _, _ in dismissedCompletion = false }
         .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)

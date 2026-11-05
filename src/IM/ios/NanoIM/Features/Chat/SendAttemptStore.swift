@@ -30,6 +30,19 @@ struct SendAttemptStore: Sendable {
             .map { try JSONDecoder().decode(SendAttempt.self, from: Data(contentsOf: $0)) }
     }
 
+    /// Per-file view for the one-time import: one unreadable file must not block the rest,
+    /// and the migration has to book every file's outcome.
+    func attemptFiles(origin: URL, userID: String) -> [URL] {
+        let owner = ownerDirectory(origin, userID)
+        guard FileManager.default.fileExists(atPath: owner.path) else { return [] }
+        let entries = (try? FileManager.default.contentsOfDirectory(at: owner, includingPropertiesForKeys: nil)) ?? []
+        return entries.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    func attempt(at file: URL) throws -> SendAttempt {
+        try JSONDecoder().decode(SendAttempt.self, from: Data(contentsOf: file))
+    }
+
     /// Persist before POST; failure leaves the composer editable and sends nothing.
     func save(_ attempt: SendAttempt, origin: URL, userID: String) throws {
         guard attempt.draft.requestBody != nil else {

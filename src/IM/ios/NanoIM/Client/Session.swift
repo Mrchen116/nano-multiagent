@@ -1,5 +1,15 @@
 import Foundation
 
+/// Why the signed-in account stopped being usable.
+///
+/// It is written *before* the session publishes the change, because the observer's only job
+/// is to delete the local partition and it must not have to guess which screen to show.
+enum SessionTermination: Equatable, Sendable {
+    case signedOut
+    case credentials
+    case deactivated
+}
+
 /// Owns token rotation and prevents an old account's suspended requests from publishing.
 actor Session {
     nonisolated let baseURL: URL
@@ -9,6 +19,8 @@ actor Session {
     private var stored: StoredSession?
     private var access: String?
     private var generation = 0
+    /// Set before a `nil` publish (or a deactivated publish) so the observer can classify it.
+    private(set) var termination: SessionTermination?
     private var refreshFlight: (id: UUID, task: Task<TokenPair, Error>)?
     private var requests: [UUID: Task<(Data, HTTPURLResponse), Error>] = [:]
     private var observers: [UUID: AsyncStream<AuthUser?>.Continuation] = [:]
@@ -34,6 +46,15 @@ actor Session {
         if stored == nil { stored = try credentials.load() }
         guard stored != nil else { return nil }
         return try await refresh().user
+    }
+
+    /// The stored account, read from the Keychain only: no refresh, no request.
+    ///
+    /// The launch path needs a partition identity *before* any network round trip; a refresh
+    /// here would put the whole local-first start behind the thing it exists to avoid.
+    func storedUser() throws -> AuthUser? {
+        if stored == nil { stored = try credentials.load() }
+        return stored?.user
     }
     func currentUser() -> AuthUser? { stored?.user }
     func revision() -> Int { generation }
@@ -62,7 +83,7 @@ actor Session {
         clearSendAttempts()
         invalidateRequests()
         let expected = generation
-        stored = nil; access = nil
+        stored = nil; access = nil; termination = nil
         try credentials.remove()
         var fields = ["username": username, "password": password]
         if let displayName { fields["display_name"] = displayName; fields["locale"] = locale }
@@ -82,6 +103,7 @@ actor Session {
         invalidateRequests(); clearSendAttempts()
         stored = nil; access = nil; refreshFlight = nil
         let removed = (try? credentials.remove()) != nil
+        termination = .signedOut
         publish(nil)
         let rotated = try? await flight?.value
         guard let refresh = rotated?.refresh_token ?? old else { return removed }
@@ -98,7 +120,8 @@ actor Session {
         let user = try JSONDecoder().decode(AuthUser.self, from: data)
         guard expected == generation, let previous = stored, user.id == previous.user.id else { throw CancellationError() }
         let next = StoredSession(refresh_token: previous.refresh_token, user: user)
-        if !user.accountEnabled { clearSendAttempts(); invalidateRequests() }
+        if !user.accountEnabled { clearSendAttempts(); invalidateRequests(); termination = .deactivated }
+        else { termination = nil }
         try credentials.save(next); stored = next; publish(user)
         return user
     }
@@ -145,7 +168,11 @@ actor Session {
             if generation != expected { throw CancellationError() }
             if (error as? APIError)?.status == 401 {
                 invalidateRequests(); clearSendAttempts(); self.stored = nil; access = nil
-                try? credentials.remove(); publish(nil)
+                try? credentials.remove()
+                // Termination is written before the publish: the observer clears the partition
+                // on this signal, and a `nil` without a reason could only be guessed at.
+                termination = .credentials
+                publish(nil)
             }
             throw error
         }
@@ -154,6 +181,9 @@ actor Session {
     private func install(_ pair: TokenPair, expected: Int) throws {
         guard generation == expected else { throw CancellationError() }
         if stored?.user.id != pair.user.id || !pair.user.accountEnabled { clearSendAttempts() }
+        // An unavailable account keeps its `user` (no extra nil publish): the observer reads
+        // the reason from here and shows the access screen instead of a login form.
+        termination = pair.user.accountEnabled ? nil : .deactivated
         let next = StoredSession(refresh_token: pair.refresh_token, user: pair.user)
         try credentials.save(next)
         stored = next; access = pair.access_token; publish(pair.user)

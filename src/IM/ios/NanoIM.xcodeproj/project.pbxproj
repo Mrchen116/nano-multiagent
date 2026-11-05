@@ -71,6 +71,23 @@
 			"isa" = "PBXBuildFile";
 			"productRef" = "A00000000000000000000011";
 		};
+		"A00000000000000000000013" = {
+			"isa" = "XCRemoteSwiftPackageReference";
+			"repositoryURL" = "https://github.com/groue/GRDB.swift.git";
+			"requirement" = {
+				"kind" = "exactVersion";
+				"version" = "7.12.0";
+			};
+		};
+		"A00000000000000000000014" = {
+			"isa" = "XCSwiftPackageProductDependency";
+			"package" = "A00000000000000000000013";
+			"productName" = "GRDB";
+		};
+		"A00000000000000000000015" = {
+			"isa" = "PBXBuildFile";
+			"productRef" = "A00000000000000000000014";
+		};
 		"A00000000000000000000020" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = "2147483647";
@@ -83,6 +100,7 @@
 			"buildActionMask" = "2147483647";
 			"files" = (
 				"A00000000000000000000012",
+				"A00000000000000000000015",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -278,6 +296,7 @@
 			"productType" = "com.apple.product-type.application";
 			"packageProductDependencies" = (
 				"A00000000000000000000011",
+				"A00000000000000000000014",
 			);
 		};
 		"A00000000000000000000003" = {
@@ -326,6 +345,7 @@
 			);
 			"packageReferences" = (
 				"A00000000000000000000010",
+				"A00000000000000000000013",
 			);
 			"preferredProjectObjectVersion" = "77";
 		};

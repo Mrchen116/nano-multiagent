@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 
+/// Projection of the local chat store plus the user's intents.
+///
+/// The database is the durable truth; the arrays below are what the UI renders. Every write
+/// the user or the network produces goes through `ChatRepository` first and is re-projected
+/// from it, so a cold start can paint from disk before any request completes.
 @MainActor @Observable
 final class ChatStore {
     let client: IMClient
@@ -9,6 +14,8 @@ final class ChatStore {
     var inspectedConversation: Conversation?
     var timelines: [String: [TimelineItem]] = [:]
     var before: [String: String] = [:]
+    /// Conversations whose local window was trimmed: older history needs the network.
+    var olderNeedsNetwork: Set<String> = []
     var drafts: [String: String] = [:]
     var attachments: [String: [ChatAttachment]] = [:]
     var uploadDrafts: [String: [AttachmentUpload]] = [:]
@@ -26,9 +33,15 @@ final class ChatStore {
     }
     var composeRequest: ComposeRequest?
     var selectedID: String?
-    var connectionText = ""
+    /// Content phase: whether anything can be shown. Independent of the connection.
+    var listPhase: ChatListPhase = .loadingFirst
+    /// Connection phase: how the correction is going.
+    var connection: ConnectionState = .starting
+    /// Unconfirmed sends waiting for the first successful sync to resolve their conversation.
+    var pendingCount = 0
+    var lastFullAt: String?
+    var storage: ChatStorageState = .opening
     var listError: String?
-    var listLoaded = false
     var banner: ChatBanner?
     var checkingAccess: Set<String> = []
     private var cursor: Int?
@@ -41,24 +54,81 @@ final class ChatStore {
     private var dirtyChats: Set<String> = []
     private var needsList = false
     private var refreshTask: Task<Void, Never>?
+    private var draftFlush: Task<Void, Never>?
+    private var queuedDrafts: [String: String] = [:]
     private var notificationFloor = 0
+    private var storageController: ChatStorageController?
 
-    init(client: IMClient, user: AuthUser) {
-        self.client = client; self.user = user; self.stream = UserStream(client: client)
-        restoreAttempts()
+    var repository: ChatRepository? {
+        if case .ready(let repository) = storage { return repository }
+        return nil
     }
+    /// Non-empty exactly when the connection is not `.online`.
+    var connectionText: String { ChatConnectionText.describe(connection, lastFullAt: lastFullAt) }
+    var storageDegradedReason: String? {
+        if case .degraded(let reason) = storage { return reason }
+        return nil
+    }
+
+    init(client: IMClient, user: AuthUser, controller: ChatStorageController? = nil) {
+        self.client = client; self.user = user; self.stream = UserStream(client: client)
+        self.storageController = controller
+        if let controller { controller.attach(self) } else { restoreAttempts() }
+    }
+
+    /// Storage state transitions come from the controller only.
+    func bind(storage next: ChatStorageState) {
+        storage = next
+        guard case .ready = next else { return }
+        Task { await loadSeed() }
+    }
+
+    /// `.degraded` retry point: user tap, next foreground, or the next `run()`, whichever
+    /// comes first. It never silently becomes "pure network forever".
+    func retryStorage() async { await storageController?.retryOpen() }
+
+    /// Read the launcher projection. Merging (not replacing) keeps the ordering rule that a
+    /// slow partition open cannot overwrite content the network already painted (R3-R3).
+    func loadSeed() async {
+        guard let repository else { return }
+        guard let seed = try? await repository.bootstrapSeed() else { return }
+        if !seed.conversations.isEmpty || conversations.isEmpty { conversations = seed.conversations }
+        for (id, body) in seed.drafts where drafts[id] == nil || drafts[id]?.isEmpty == true { drafts[id] = body }
+        pendingCount = seed.pendingCount
+        lastFullAt = seed.connection.lastFullAt
+        if cursor == nil, seed.connection.maxEventID > 0 { cursor = seed.connection.maxEventID }
+        if listPhase == .loadingFirst, !conversations.isEmpty { listPhase = .loaded }
+        if connection == .starting, !conversations.isEmpty { connection = .localOnly }
+        if let revoked = try? await repository.revokedConversations() { revokedChats.formUnion(revoked) }
+    }
+
     private func restoreAttempts() {
         do {
             for attempt in try client.session.sendAttempts.load(origin: client.baseURL, userID: user.id) {
-                if let source = attempt.sourceMessageID {
-                    interactionPending[source] = attempt.draft; interactionConversations[source] = attempt.conversationID
-                } else {
-                    pending[attempt.conversationID] = attempt.draft
-                    if drafts[attempt.conversationID] == nil { drafts[attempt.conversationID] = attempt.draft.content }
-                    if attachments[attempt.conversationID] == nil { attachments[attempt.conversationID] = attempt.draft.attachments }
-                }
+                adopt(attempt)
             }
         } catch { listError = error.localizedDescription }
+    }
+
+    /// A restored attempt becomes a projection row only; nothing is submitted from here.
+    private func adopt(_ attempt: SendAttempt) {
+        if let source = attempt.sourceMessageID {
+            interactionPending[source] = attempt.draft; interactionConversations[source] = attempt.conversationID
+        } else {
+            pending[attempt.conversationID] = attempt.draft
+            if drafts[attempt.conversationID] == nil { drafts[attempt.conversationID] = attempt.draft.content }
+            if attachments[attempt.conversationID] == nil { attachments[attempt.conversationID] = attempt.draft.attachments }
+        }
+    }
+
+    /// Rebuild the pending projection from the store: the count shown at launch and the rows
+    /// that can be reconciled are the same durable source.
+    private func reloadPending() async {
+        guard let repository else { return }
+        guard let attempts = try? await repository.pendingAttempts() else { return }
+        pending = [:]; interactionPending = [:]; interactionConversations = [:]
+        for attempt in attempts { adopt(attempt) }
+        pendingCount = attempts.count
     }
 
     /// Check the target using the signed-in viewer before changing either local draft.
@@ -73,34 +143,72 @@ final class ChatStore {
         return (!draft.isEmpty && draft != text) || !(attachments[target] ?? []).isEmpty || !(uploadDrafts[target] ?? []).isEmpty
     }
     func adoptCompose(_ target: String, text: String) {
-        drafts[target] = text; attachments[target] = []; uploadDrafts[target] = []
+        setDraft(target, text); attachments[target] = []; uploadDrafts[target] = []
         composeRequest = ComposeRequest(target: target, text: text)
+    }
+
+    /// Composer edits land in memory only; the flush points below persist the newest text.
+    func setDraft(_ id: String, _ text: String) {
+        drafts[id] = text
+        // One serial writer keeps "last text wins": a fire-and-forget task per keystroke could
+        // commit an older snapshot after a newer one.
+        queuedDrafts[id] = text
+        guard draftFlush == nil else { return }
+        let token = epoch
+        draftFlush = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled, token == self.epoch else { return }
+            await self.flushDrafts()
+        }
+    }
+
+    /// Flush points: focus loss, switching conversations, backgrounding, before sending.
+    func flushDrafts() async {
+        draftFlush?.cancel(); draftFlush = nil
+        let writes = queuedDrafts; queuedDrafts = [:]
+        guard let repository, !writes.isEmpty else { return }
+        for (id, body) in writes {
+            // Only the newest text may win; a later edit during the flush stays queued.
+            guard queuedDrafts[id] == nil else { continue }
+            try? await repository.setDraft(id, body: body)
+        }
     }
 
     func stop() {
         epoch = UUID(); refreshTask?.cancel(); refreshTask = nil
         Task { await stream.stop() }
     }
-    func clear() {
+
+    /// Reset every projection to its initial value; durable rows are the controller's business.
+    func resetProjection() {
         sendEpoch = UUID()
-        stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []; inspectedConversation = nil
+        stop()
+        timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
+        inspectedConversation = nil; olderNeedsNetwork = []
         interactionPending = [:]; interactionConversations = [:]; interactionSelections = [:]; interactionSending = []; sending = []
-        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil; listLoaded = false
+        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil
+        listPhase = .loadingFirst; connection = .starting; pendingCount = 0; lastFullAt = nil; listError = nil
+        cursor = nil; needsList = false; dirtyChats = []
     }
+
     func run() async {
-        restoreAttempts()
+        // Foreground is one of the three retry points for an unopenable partition.
+        if case .degraded = storage { await storageController?.retryOpen() }
         let token = epoch
         var attempt = 0
         defer { Task { await stream.stop() } }
+        await loadSeed()
+        await reloadPending()
         while !Task.isCancelled && token == epoch {
             do {
-                connectionText = L("正在连接…", "Connecting…")
+                connection = listPhase == .loaded ? .syncing : .starting
                 let currentUser = try await client.session.updateUser()
                 guard token == epoch, !Task.isCancelled else { return }
-                guard currentUser.accountEnabled else { clear(); return }
+                guard currentUser.accountEnabled else { return }
                 let sync: SyncSnapshot = try await client.get("/im/v1/sync")
                 guard token == epoch, !Task.isCancelled else { return }
-                await reconcile(sync.items)
+                await applySnapshot(sync)
+                guard token == epoch, !Task.isCancelled else { return }
                 await recoverPending()
                 guard token == epoch, !Task.isCancelled else { return }
                 notificationFloor = sync.max_event_id
@@ -110,37 +218,244 @@ final class ChatStore {
                 if let selectedID { await loadChat(selectedID) }
                 let events = try await stream.connect(after: cursor ?? sync.max_event_id)
                 guard token == epoch, !Task.isCancelled else { return }
-                connectionText = ""; attempt = 0
+                // `.online` means one successful full sync, not a socket that accepted a ticket.
+                connection = .online; attempt = 0
                 for try await event in events {
                     guard token == epoch, !Task.isCancelled else { return }
                     if event.op == "membership_changed" {
-                        clear(); _ = try? await client.session.updateUser(); return
+                        if let id = event.data?["conversation_id"].stringValue {
+                            await verifyAccess(id)
+                        } else {
+                            needsList = true; scheduleRefresh()
+                        }
+                        continue
                     }
                     if event.op == "resync_required" { cursor = nil; break }
-                    if event.op == "event" { consume(event) }
+                    if event.op == "event" { await consume(event) }
                 }
             } catch {
                 guard token == epoch, !Task.isCancelled else { return }
-                connectionText = L("连接中断，正在重连", "Disconnected. Reconnecting")
-                if (error as? APIError)?.status == 401 { return }
+                let failure = ChatFailure.from(error)
+                if listPhase == .loadingFirst { listPhase = .failed }
+                switch failure {
+                case .unauthorized, .deactivated:
+                    connection = failure.connection ?? .unauthorized
+                    return
+                case .forbidden:
+                    // Conversation-scoped failures are handled where the conversation is known.
+                    connection = .offline(attempt: attempt, nextRetryAt: nil)
+                case .offline:
+                    connection = .offline(attempt: attempt, nextRetryAt: Date().addingTimeInterval(max((error as? APIError)?.retryAfter ?? 0, min(30, pow(2, Double(attempt))))))
+                case .unavailable(let status):
+                    connection = .unavailable(status: status)
+                }
                 let delay = max((error as? APIError)?.retryAfter ?? 0, min(30, pow(2, Double(attempt))))
                 attempt += 1
                 try? await Task.sleep(for: .seconds(delay))
             }
         }
     }
-    func consume(_ event: UserEvent) {
+
+    /// Writes the authoritative snapshot, then projects it. Only a successful full sync may
+    /// conclude that a conversation disappeared with it.
+    private func applySnapshot(_ sync: SyncSnapshot) async {
+        guard let repository else {
+            await reconcileNetwork(sync.items)
+            return
+        }
+        do {
+            let context = try await repository.writeContext()
+            let result = try await repository.applySnapshot(sync.items, maxEventID: sync.max_event_id,
+                                                            snapshotSeq: context.snapshotSeq + 1, write: context)
+            conversations = result.conversations
+            pendingCount = result.pendingCount
+            lastFullAt = (try? await repository.connectionSeed())?.lastFullAt ?? lastFullAt
+            for id in result.revoked {
+                clearConversationState(id)
+                revokedChats.insert(id)
+                errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+            }
+            for chat in result.conversations where chat.can_write == false || chat.dissolved_at != nil {
+                await discardConversationAttempts(chat.id)
+            }
+            if let selectedID, !result.conversations.contains(where: { $0.id == selectedID }) {
+                await inspectConversation(selectedID)
+            } else { inspectedConversation = nil }
+            revokedChats.formUnion(checkingAccess.subtracting(Set(result.conversations.map(\.id))))
+            revokedChats.formUnion(result.revoked)
+            checkingAccess = []
+            listPhase = result.conversations.isEmpty && pendingCount == 0 ? .empty : (result.conversations.isEmpty ? .loadingFirst : .loaded)
+            listError = nil
+        } catch {
+            let failure = ChatFailure.from(error)
+            if listPhase == .loadingFirst { listPhase = .failed }
+            connection = failure.connection ?? connection
+            listError = error.localizedDescription
+        }
+    }
+
+    /// Pure-network fallback used while the partition cannot be opened (design D3 degraded).
+    private func reconcileNetwork(_ values: [Conversation]) async {
+        if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
+        else { inspectedConversation = nil }
+        var allowed = Set(values.map(\.id))
+        if let inspectedConversation { allowed.insert(inspectedConversation.id) }
+        revokedChats.formUnion(checkingAccess.subtracting(allowed))
+        revokedChats.subtract(allowed)
+        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values) where !allowed.contains(id) {
+            // No partition behind this path, so there is nothing durable to book a tombstone in.
+            await revokeConversation(id, reason: nil)
+            errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+        }
+        for chat in values where chat.can_write == false || chat.dissolved_at != nil {
+            await discardConversationAttempts(chat.id)
+        }
+        checkingAccess = []
+        conversations = values
+        listPhase = values.isEmpty ? .empty : .loaded
+        listError = nil
+    }
+
+    func loadConversations() async {
+        let token = epoch
+        do {
+            let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations")
+            guard token == epoch, !Task.isCancelled else { return }
+            await applyConversationList(page.items)
+        } catch {
+            guard token == epoch, !(error is CancellationError) else { return }
+            let failure = ChatFailure.from(error)
+            if listPhase == .loadingFirst { listPhase = .failed }
+            connection = failure.connection ?? connection
+            listError = error.localizedDescription
+            if failure != .unauthorized { for id in checkingAccess { errors[id] = error.localizedDescription } }
+        }
+    }
+
+    /// A conversation page is not authority for absence: it may add rows, never revoke them.
+    /// Without a partition there is nothing durable to keep, so the page uses the same
+    /// pure-network reconcile a degraded launch uses (it inspects the open conversation and
+    /// drops rows the server no longer lists).
+    private func applyConversationList(_ items: [Conversation]) async {
+        guard let repository else {
+            await reconcileNetwork(items)
+            return
+        }
+        do {
+            let context = try await repository.writeContext()
+            let values = try await repository.applyConversationList(items, write: context)
+            conversations = values
+            listPhase = values.isEmpty && pendingCount == 0 ? .empty : (values.isEmpty ? .loadingFirst : .loaded)
+            listError = nil
+        } catch {
+            connection = ChatFailure.from(error).connection ?? connection
+            listError = error.localizedDescription
+        }
+    }
+
+    func inspectConversation(_ id: String) async {
+        let token = epoch
+        do {
+            let value: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
+            guard token == epoch, !Task.isCancelled else { return }
+            inspectedConversation = value; revokedChats.remove(id); checkingAccess.remove(id)
+            await persistConversation(value)
+        } catch {
+            guard token == epoch else { return }
+            inspectedConversation = nil
+            if [403, 404].contains((error as? APIError)?.status ?? 0) {
+                await revokeConversation(id, reason: .detailForbidden)
+                revokedChats.insert(id)
+                conversations.removeAll { $0.id == id }
+                errors[id] = L("此聊天已不可访问。", "This conversation is no longer accessible.")
+            } else {
+                connection = ChatFailure.from(error).connection ?? connection
+                errors[id] = error.localizedDescription
+            }
+        }
+    }
+
+    private func persistConversation(_ value: Conversation) async {
+        guard let repository else {
+            if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
+            return
+        }
+        do {
+            let context = try await repository.writeContext()
+            _ = try await repository.applyConversation(value, members: value.participants, write: context)
+            if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
+        } catch {
+            connection = ChatFailure.from(error).connection ?? connection
+        }
+    }
+
+    func loadChat(_ id: String, older: Bool = false) async {
+        guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+        let token = epoch
+        // Local first: an open conversation paints from disk before the request completes.
+        await loadLocalTimeline(id)
+        guard token == epoch, !Task.isCancelled else { return }
+        do {
+            var page = try await client.messages(id, before: older ? before[id] : nil)
+            let existing = Set((timelines[id] ?? []).map(\.id))
+            // Walk back to the cached boundary when a disconnect exceeded one page.
+            while !older, !existing.isEmpty, !page.items.contains(where: { existing.contains($0.id) }), let next = page.next_before_message_id {
+                guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+                let previous = try await client.messages(id, before: next)
+                page.items = TimelineMerge.merge(current: page.items, page: previous.items, older: true, discarded: discarded)
+                page.next_before_message_id = previous.next_before_message_id
+            }
+            guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+            await applyPage(id, page: page, older: older)
+            if older || before[id] == nil { before[id] = page.next_before_message_id }
+            errors[id] = nil
+            await recoverPending(id)
+        } catch {
+            guard token == epoch, !(error is CancellationError) else { return }
+            let failure = ChatFailure.from(error)
+            if [403, 404].contains((error as? APIError)?.status ?? 0) { await revokeConversation(id, reason: .detailForbidden) }
+            guard token == epoch else { return }
+            connection = failure.connection ?? connection
+            errors[id] = error.localizedDescription
+        }
+    }
+
+    /// Merge the durable window into the rendered projection. `TimelineMerge` supplies the
+    /// same `(created_at, id)` order the network merge uses, so a correction cannot reorder rows.
+    private func loadLocalTimeline(_ id: String) async {
+        guard let repository else { return }
+        guard let page = try? await repository.timeline(id) else { return }
+        if !page.items.isEmpty {
+            timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: false, discarded: discarded)
+        }
+        if page.olderNeedsNetwork, before[id] == nil { olderNeedsNetwork.insert(id) } else { olderNeedsNetwork.remove(id) }
+    }
+
+    private func applyPage(_ id: String, page: MessagePage, older: Bool) async {
+        if let repository {
+            do {
+                let context = try await repository.writeContext()
+                let result = try await repository.applyPage(id, items: page.items, write: context)
+                if result.olderNeedsNetwork, before[id] == nil { olderNeedsNetwork.insert(id) } else { olderNeedsNetwork.remove(id) }
+                timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: result.items, older: true, discarded: discarded)
+                return
+            } catch ChatRepositoryError.revokedConversation {
+                await revokeConversation(id, reason: .detailForbidden)
+                return
+            } catch {
+                connection = ChatFailure.from(error).connection ?? connection
+            }
+        }
+        timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
+    }
+
+    func consume(_ event: UserEvent) async {
         let data = event.data ?? .null
         let chat = data["conversation_id"].stringValue
         if event.event_type == "conversation.membership_changed" || event.event_type == "conversation.deleted" {
-            // The cursor-free frame also covers creation, rename and member addition.
-            // Hide private history until the membership-filtered list confirms access.
-            if let chat {
-                checkingAccess.insert(chat); timelines[chat] = nil; before[chat] = nil
-                if banner?.conversationID == chat { banner = nil }
-                dirtyChats.insert(chat)
-            }
-            needsList = true; scheduleRefresh()
+            // The cursor-free frame also covers creation, rename and member addition, so the
+            // event alone cannot tell "renamed" from "removed". Ask the server.
+            if let chat { await verifyAccess(chat) } else { needsList = true; scheduleRefresh() }
             return
         }
         guard let eventID = event.event_id, eventID > (cursor ?? 0) else { return }
@@ -160,8 +475,49 @@ final class ChatStore {
            UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {
             banner = ChatBanner(conversationID: chat)
         }
+        await persistEvent(event)
         scheduleRefresh()
     }
+
+    private func persistEvent(_ event: UserEvent) async {
+        guard let repository else { return }
+        guard let context = try? await repository.writeContext() else { return }
+        _ = try? await repository.applyEvent(event, write: context)
+    }
+
+    /// Targeted access check for `membership_changed` (design D11): keep the list row, hold the
+    /// timeline behind the existing "checking access" placeholder, and let the detail response
+    /// decide. A transport failure decides nothing — the next successful sync converges.
+    private func verifyAccess(_ id: String) async {
+        let token = epoch
+        checkingAccess.insert(id)
+        timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id)
+        if banner?.conversationID == id { banner = nil }
+        do {
+            let value: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
+            guard token == epoch, !Task.isCancelled else { return }
+            checkingAccess.remove(id); revokedChats.remove(id)
+            await persistConversation(value)
+            await loadLocalTimeline(id)
+            if timelines[id]?.isEmpty ?? true { await loadChat(id) }
+        } catch {
+            guard token == epoch, !Task.isCancelled else { return }
+            let failure = ChatFailure.from(error)
+            switch failure {
+            case .forbidden:
+                await revokeConversation(id, reason: .membershipDenied)
+                revokedChats.insert(id)
+                conversations.removeAll { $0.id == id }
+                errors[id] = L("此聊天已不可访问。", "This conversation is no longer accessible.")
+            case .unauthorized, .deactivated:
+                connection = failure.connection ?? connection
+            default:
+                connection = failure.connection ?? connection
+                errors[id] = error.localizedDescription
+            }
+        }
+    }
+
     private func scheduleRefresh() {
         guard refreshTask == nil else { return }
         let token = epoch
@@ -178,84 +534,14 @@ final class ChatStore {
             }
         }
     }
-    private func reconcile(_ values: [Conversation]) async {
-        let token = epoch
-        if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
-        else { inspectedConversation = nil }
-        guard token == epoch, !Task.isCancelled else { return }
-        var allowed = Set(values.map(\.id))
-        if let inspectedConversation { allowed.insert(inspectedConversation.id) }
-        revokedChats.formUnion(checkingAccess.subtracting(allowed))
-        revokedChats.subtract(allowed)
-        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values) where !allowed.contains(id) {
-            await revokeConversation(id)
-            guard token == epoch else { return }
-            errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
-        }
-        for chat in values where chat.can_write == false || chat.dissolved_at != nil {
-            await discardConversationAttempts(chat.id)
-            guard token == epoch else { return }
-        }
-        checkingAccess = []
-        conversations = values
-        listLoaded = true
-        listError = nil
-    }
-    func loadConversations() async {
-        let token = epoch
-        do {
-            let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations")
-            guard token == epoch, !Task.isCancelled else { return }; await reconcile(page.items)
-        } catch { if token == epoch, !(error is CancellationError) { listError = error.localizedDescription; for id in checkingAccess { errors[id] = error.localizedDescription } } }
-    }
-    func inspectConversation(_ id: String) async {
-        let token = epoch
-        do {
-            let value: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
-            guard token == epoch, !Task.isCancelled else { return }
-            inspectedConversation = value; revokedChats.remove(id); checkingAccess.remove(id)
-        } catch {
-            guard token == epoch else { return }
-            inspectedConversation = nil
-            if [403, 404].contains((error as? APIError)?.status ?? 0) {
-                await revokeConversation(id)
-                guard token == epoch else { return }
-                revokedChats.insert(id)
-                conversations.removeAll { $0.id == id }
-                errors[id] = L("此聊天已不可访问。", "This conversation is no longer accessible.")
-            } else { errors[id] = error.localizedDescription }
-        }
-    }
-    func loadChat(_ id: String, older: Bool = false) async {
-        guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
-        let token = epoch
-        do {
-            var page = try await client.messages(id, before: older ? before[id] : nil)
-            let existing = Set((timelines[id] ?? []).map(\.id))
-            // Walk back to the cached boundary when a disconnect exceeded one page.
-            while !older, !existing.isEmpty, !page.items.contains(where: { existing.contains($0.id) }), let next = page.next_before_message_id {
-                guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
-                let previous = try await client.messages(id, before: next)
-                page.items = TimelineMerge.merge(current: page.items, page: previous.items, older: true, discarded: discarded)
-                page.next_before_message_id = previous.next_before_message_id
-            }
-            guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
-            timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
-            if older || before[id] == nil { before[id] = page.next_before_message_id }
-            errors[id] = nil
-            await recoverPending(id)
-        } catch {
-            guard token == epoch, !(error is CancellationError) else { return }
-            if [403,404].contains((error as? APIError)?.status ?? 0) { await revokeConversation(id) }
-            guard token == epoch else { return }
-            errors[id] = error.localizedDescription
-        }
-    }
+
     func markRead(_ id: String, messageID: String) async {
         guard selectedID == id else { return }
         do {
             let updated: Conversation = try await client.send("/im/v1/conversations/\(id.pathComponent)/read", body: ["last_read_message_id": messageID])
             if let i = conversations.firstIndex(where: { $0.id == id }) { conversations[i] = updated }
+            // U1 records the confirmed boundary and never derives unread from it (U3 owns that).
+            try? await repository?.markReadBoundary(id, messageID: messageID)
         } catch { /* Reading stays usable; the next visible message retries the boundary. */ }
     }
     func addUpload(_ id: String, data: Data?, name: String, type: String, error: String? = nil) async {
@@ -287,7 +573,7 @@ final class ChatStore {
             guard let current = uploadDrafts[id]?.firstIndex(where: { $0.id == uploadID }) else { return }
             let api = error as? APIError
             if [403,404].contains(api?.status ?? 0) {
-                await revokeConversation(id)
+                await revokeConversation(id, reason: .detailForbidden)
                 errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
                 await loadConversations()
                 return
@@ -325,7 +611,7 @@ final class ChatStore {
                 let draft = try client.prepareMessage(PendingSend(content: content, attachments: files), userID: user.id,
                     participants: chat?.participants ?? [], contexts: backgroundContexts(id, chat: chat))
                 let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
-                try await client.session.saveSendAttempt(attempt, userID: user.id, revision: revision)
+                try await persistAttempt(attempt, revision: revision)
                 guard token == sendEpoch else { return }
                 pending[id] = draft
             } catch { errors[id] = error.localizedDescription; return }
@@ -362,7 +648,7 @@ final class ChatStore {
         try requireWritable(id)
         let draft = try client.prepareMessage(PendingSend(key: key, content: "", attachments: []), userID: user.id, interaction: input)
         let attempt = SendAttempt(conversationID: id, sourceMessageID: source, draft: draft)
-        try await client.session.saveSendAttempt(attempt, userID: user.id, revision: revision)
+        try await persistAttempt(attempt, revision: revision)
         guard token == sendEpoch else { throw CancellationError() }
         interactionPending[source] = draft; interactionConversations[source] = id
         guard let message = try await resolveAttempt(attempt, lookup: false, resend: true) else { throw APIError(status: 0, detail: unconfirmedText) }
@@ -381,6 +667,7 @@ final class ChatStore {
 
     /// Reopening queries durable attempts without submitting any new work.
     func recoverPending(_ id: String? = nil) async {
+        if repository != nil { await reloadPending() }
         let ordinary = pending.filter { id == nil || $0.key == id }.map { SendAttempt(conversationID: $0.key, sourceMessageID: nil, draft: $0.value) }
         let cards = interactionPending.compactMap { source, draft -> SendAttempt? in
             guard let chat = interactionConversations[source], id == nil || id == chat else { return nil }
@@ -449,14 +736,14 @@ final class ChatStore {
             try await client.session.assertOwner(user.id, revision: revision)
             guard isCurrent(attempt, token: token) else { throw CancellationError() }
             guard let message else { errors[id] = unconfirmedText; return nil }
-            try await client.session.removeSendAttempt(attempt, userID: user.id, revision: revision)
+            try await removeAttempt(attempt, revision: revision)
             guard isCurrent(attempt, token: token) else { throw CancellationError() }
-            timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: [TimelineItem(type: "message", message: message)], older: false, discarded: discarded)
+            await appendSent(message, attempt: attempt)
             if let source = attempt.sourceMessageID { interactionPending[source] = nil; interactionConversations[source] = nil }
             else {
                 pending[id] = nil
                 if drafts[id] == attempt.draft.content {
-                    drafts[id] = ""
+                    setDraft(id, "")
                 }
                 let sentIDs = Set(attempt.draft.attachments.map(\.id))
                 attachments[id]?.removeAll { sentIDs.contains($0.id) }
@@ -467,16 +754,49 @@ final class ChatStore {
             guard isCurrent(attempt, token: token), !(error is CancellationError) else { throw CancellationError() }
             try await client.session.assertOwner(user.id, revision: revision)
             if let api = error as? APIError, (400..<500).contains(api.status), ![408, 429].contains(api.status) {
-                try await client.session.removeSendAttempt(attempt, userID: user.id, revision: revision)
+                try await removeAttempt(attempt, revision: revision)
                 guard isCurrent(attempt, token: token) else { throw CancellationError() }
                 if let source = attempt.sourceMessageID { interactionPending[source] = nil; interactionConversations[source] = nil }
                 else { pending[id] = nil }
-                if [403, 404].contains(api.status) { await revokeConversation(id) }
+                if [403, 404].contains(api.status) { await revokeConversation(id, reason: .detailForbidden) }
                 errors[id] = api.detail
                 throw api
             }
             errors[id] = unconfirmedText
             throw APIError(status: 0, detail: unconfirmedText)
+        }
+    }
+
+    /// The confirmed message joins the durable window too, so the next first paint shows it.
+    private func appendSent(_ message: ChatMessage, attempt: SendAttempt) async {
+        let item = TimelineItem(type: "message", message: message)
+        if let repository, let context = try? await repository.writeContext(),
+           let page = try? await repository.applyPage(message.conversation_id, items: [item], write: context) {
+            timelines[message.conversation_id] = TimelineMerge.merge(current: timelines[message.conversation_id] ?? [], page: page.items, older: true, discarded: discarded)
+        } else {
+            timelines[message.conversation_id] = TimelineMerge.merge(current: timelines[message.conversation_id] ?? [], page: [item], older: false, discarded: discarded)
+        }
+        _ = attempt
+    }
+
+    private func persistAttempt(_ attempt: SendAttempt, revision: Int) async throws {
+        if let repository {
+            try await client.session.assertOwner(user.id, revision: revision)
+            let context = try await repository.writeContext()
+            try await repository.upsertPending(attempt, write: context)
+            if attempt.sourceMessageID == nil { drafts[attempt.conversationID] = "" ; queuedDrafts[attempt.conversationID] = nil }
+        } else {
+            try await client.session.saveSendAttempt(attempt, userID: user.id, revision: revision)
+        }
+    }
+
+    private func removeAttempt(_ attempt: SendAttempt, revision: Int) async throws {
+        if let repository {
+            try await client.session.assertOwner(user.id, revision: revision)
+            let context = try await repository.writeContext()
+            try await repository.removePending(attempt, write: context)
+        } else {
+            try await client.session.removeSendAttempt(attempt, userID: user.id, revision: revision)
         }
     }
 
@@ -489,19 +809,38 @@ final class ChatStore {
     }
 
     private func discardConversationAttempts(_ id: String) async {
-        guard let revision = try? await sessionRevision() else { return }
         pending[id] = nil
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
             interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
         }
         interactionSelections = interactionSelections.filter { $0.value.conversationID != id }
-        try? await client.session.removeConversationAttempts(id, userID: user.id, revision: revision)
+        if let repository {
+            if let context = try? await repository.writeContext() {
+                try? await repository.deletePending(conversationID: id, write: context)
+            }
+        } else if let revision = try? await sessionRevision() {
+            try? await client.session.removeConversationAttempts(id, userID: user.id, revision: revision)
+        }
     }
-    private func revokeConversation(_ id: String) async {
+
+    /// Removes one conversation's rendered state and books the revocation in the store, so a
+    /// restart or an offline launch cannot show it again once access is known to be gone.
+    private func revokeConversation(_ id: String, reason: ChatRevokeReason?) async {
         let token = epoch
         await discardConversationAttempts(id)
         guard token == epoch else { return }
-        timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
+        if let reason, let repository, let context = try? await repository.writeContext() {
+            try? await repository.revoke(id, reason: reason, write: context)
+        }
+        clearConversationState(id)
         revokedChats.insert(id)
+    }
+
+    private func clearConversationState(_ id: String) {
+        timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
+        olderNeedsNetwork.remove(id); pending[id] = nil
+        for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
+            interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
+        }
     }
 }

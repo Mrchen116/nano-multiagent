@@ -8,10 +8,13 @@ struct NanoIMApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if !model.ready { ProgressView(L("恢复登录…", "Restoring session…")) }
+                // `ready` now means "the local start finished", not "the network answered":
+                // the launch spinner is only the pre-bootstrap frame and carries no wording
+                // that could be mistaken for restoring a login.
+                if !model.ready { ProgressView() }
                 else if let user = model.user {
                     if user.accountEnabled {
-                        RootTabs(client: model.client, user: user, accountUpdated: { Task { await model.refreshUser() } }, signOut: { Task { await model.signOut() } })
+                        RootTabs(client: model.client, user: user, storage: model.storage, accountUpdated: { Task { await model.refreshUser() } }, signOut: { Task { await model.signOut() } })
                             .id("\(model.client.baseURL)-\(user.id)")
                     } else { MembershipView(model: model, user: user) }
                 } else { AuthView(model: model) }
@@ -19,7 +22,7 @@ struct NanoIMApp: App {
             .scrollContentBackground(.hidden).background(NanoTheme.canvas)
             .tint(NanoTheme.accent)
             .environment(\.locale, Locale(identifier: locale == "zh" ? "zh-Hans" : "en"))
-            .task { await model.restore() }
+            .task { await model.start() }
         }
     }
 }
@@ -32,7 +35,11 @@ final class AppModel {
     var error: String?
     var busy = false
     var retryUntil: Date?
+    /// The only owner of the local chat partition. Replaced together with `client`, because a
+    /// partition identity is `(origin, userID)` and a new origin must never reuse the old one.
+    var storage: ChatStorageController
     private var observation: Task<Void, Never>?
+    private var clientGeneration = 0
     init() {
         let saved = UserDefaults.standard.string(forKey: "nano.server") ?? "https://im.nanoim.win"
         #if DEBUG
@@ -41,27 +48,67 @@ final class AppModel {
         #else
         let origin = (try? ServerOrigin.parse(saved)) ?? URL(string: "https://im.nanoim.win")!
         #endif
-        client = IMClient(baseURL: origin)
+        let client = IMClient(baseURL: origin)
+        self.client = client
+        storage = ChatStorageController(client: client)
     }
     private func observe() {
         observation?.cancel()
         let current = client
+        let generation = clientGeneration
         observation = Task { [weak self] in
             for await user in await current.session.updates() {
-                guard !Task.isCancelled, let self else { return }
-                self.user = user
-                if let user { UserDefaults.standard.set(user.locale.hasPrefix("zh") ? "zh" : "en", forKey: "nano.locale") }
+                guard !Task.isCancelled, let self, self.clientGeneration == generation else { return }
+                await self.apply(user, from: current)
             }
         }
     }
-    func restore() async {
+
+    /// Turns one session publish into screen state. The partition is registered *before*
+    /// `user` is assigned so `RootTabs` can never attach a store to the previous account's
+    /// repository; deletion is only ever decided by `ChatStorageController`.
+    private func apply(_ user: AuthUser?, from client: IMClient) async {
+        guard let user else {
+            let termination = await client.session.termination
+            self.user = nil
+            await storage.purge(reason: termination == .credentials ? .credentials : .signedOut)
+            return
+        }
+        if user.accountEnabled {
+            await storage.activate(ChatPartition(origin: client.baseURL, userID: user.id))
+        } else {
+            await storage.purge(reason: .deactivated)
+        }
+        self.user = user
+        UserDefaults.standard.set(user.locale.hasPrefix("zh") ? "zh" : "en", forKey: "nano.locale")
+    }
+
+    /// Two phases on purpose: the local start must not wait for any network round trip, and a
+    /// network failure must not be reported as a missing login.
+    func start() async {
         guard !ready else { return }
         observe()
-        do { user = try await client.session.restore(); error = nil }
-        catch { self.error = error.localizedDescription }
+        do {
+            user = try await client.session.storedUser()
+        } catch {
+            // An unreadable credential behaves like no session: there is nothing to protect.
+            self.error = error.localizedDescription
+        }
+        await storage.bootstrapOnLaunch()
         ready = true
+        await correctSession()
     }
-    func retryRestore() async { ready = false; await restore() }
+
+    private func correctSession() async {
+        do {
+            if let user = try await client.session.restore() { self.user = user }
+        } catch is CancellationError {
+        } catch {
+            // Keep the local content and let `ChatStore.run()` report the connection: a
+            // transport failure says nothing about whether these credentials are valid.
+        }
+    }
+    func retryRestore() async { ready = false; await start() }
     func authenticate(server: String, username: String, password: String, displayName: String?) async {
         guard !busy else { return }; busy = true; error = nil
         defer { busy = false }
@@ -72,12 +119,25 @@ final class AppModel {
             let origin = try ServerOrigin.parse(server)
             #endif
             if origin != client.baseURL {
-                observation?.cancel(); _ = await client.session.signOut()
-                client = IMClient(baseURL: origin); observe()
+                observation?.cancel()
+                _ = await client.session.signOut()
+                // Switching destinations removes the previous origin's partition, not just
+                // its credentials: old content must not be readable under the new server.
+                await storage.purge(reason: .signedOut)
+                clientGeneration += 1
+                let next = IMClient(baseURL: origin)
+                client = next
+                storage = ChatStorageController(client: next)
+                observe()
             }
             UserDefaults.standard.set(origin.absoluteString, forKey: "nano.server")
-            user = try await client.session.login(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password,
+            let user = try await client.session.login(username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password,
                 displayName: displayName, locale: UserDefaults.standard.string(forKey: "nano.locale") ?? "zh")
+            // Open the partition before publishing the user: `RootTabs` builds `ChatStore`
+            // immediately, and a first session that never opens its store would persist
+            // nothing for the next (possibly offline) launch.
+            await storage.activate(ChatPartition(origin: client.baseURL, userID: user.id))
+            self.user = user
         } catch {
             switch (error as? APIError)?.status {
             case 429: self.error = L("请求过于频繁，请稍后重试。", "Too many requests. Wait before retrying.")
@@ -92,8 +152,8 @@ final class AppModel {
         catch { self.error = error.localizedDescription }
     }
     func signOut() async {
-        user = nil
         let revoked = await client.session.signOut()
+        user = nil
         if !revoked { error = L("已退出本机；服务器登录撤销尚未确认。", "Signed out locally; server revocation could not be confirmed.") }
     }
 }
@@ -101,6 +161,7 @@ final class AppModel {
 private struct RootTabs: View {
     let client: IMClient
     let user: AuthUser
+    let storage: ChatStorageController
     let accountUpdated: () -> Void
     let signOut: () -> Void
     @State private var chat: ChatStore
@@ -110,9 +171,9 @@ private struct RootTabs: View {
     @State private var taskNavigationID = UUID()
     @State private var agentLink: Contact?
     @Environment(\.scenePhase) private var scenePhase
-    init(client: IMClient, user: AuthUser, accountUpdated: @escaping () -> Void, signOut: @escaping () -> Void) {
-        self.client = client; self.user = user; self.accountUpdated = accountUpdated; self.signOut = signOut
-        _chat = State(initialValue: ChatStore(client: client, user: user))
+    init(client: IMClient, user: AuthUser, storage: ChatStorageController, accountUpdated: @escaping () -> Void, signOut: @escaping () -> Void) {
+        self.client = client; self.user = user; self.storage = storage; self.accountUpdated = accountUpdated; self.signOut = signOut
+        _chat = State(initialValue: ChatStore(client: client, user: user, controller: storage))
     }
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -180,8 +241,13 @@ private struct RootTabs: View {
         }
         .task(id: scenePhase) { if scenePhase == .active { await chat.run() } }
         .task(id: scenePhase) { if scenePhase == .active { try? await client.syncTimeZone() } }
-        .onChange(of: scenePhase) { _, value in if value != .active { chat.stop() } }
-        .onDisappear { chat.clear() }
+        .onChange(of: scenePhase) { _, value in
+            guard value != .active else { return }
+            // Backgrounding is a draft flush point: the process may not get another turn.
+            Task { await chat.flushDrafts() }
+            chat.stop()
+        }
+        .onDisappear { chat.resetProjection() }
         .onOpenURL { url in
             guard ServerOrigin.same(client.baseURL, url) else { return }
             let parts = url.path.split(separator: "/")
@@ -190,7 +256,7 @@ private struct RootTabs: View {
     }
     private func openChat(_ id: String) { selectedTab = 0; chatPath = [id] }
     private func reference(_ id: String, _ text: String) {
-        chat.drafts[id] = [chat.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        chat.setDraft(id, [chat.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n"))
         openChat(id)
     }
 }

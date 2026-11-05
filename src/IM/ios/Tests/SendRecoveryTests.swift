@@ -22,7 +22,7 @@ final class SendRecoveryTests: XCTestCase {
         await first.send("chat")
         let key = try XCTUnwrap(first.pending["chat"]?.key)
         let original = try XCTUnwrap(first.pending["chat"]?.requestBody)
-        first.stop(); first.clear()
+        first.stop(); first.resetProjection()
 
         // A fresh transport owner restores credentials and reads disk, as after process termination.
         let session = Session(baseURL: origin, transport: transport, credentials: vault, sendAttempts: disk)
@@ -50,7 +50,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertEqual(restored.attachments["chat"]?.map(\.id), [newAttachment.id])
         XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
         XCTAssertEqual(restored.timelines["chat"]?.map(\.id), ["sent"])
-        restored.clear()
+        restored.resetProjection()
     }
 
     func testRestoredCommittedCardUsesNamespacedLookupAndDoesNotResend() async throws {
@@ -59,7 +59,7 @@ final class SendRecoveryTests: XCTestCase {
         do { _ = try await first.submitInteraction("chat", input: input, key: "card-key"); XCTFail("Expected lost acknowledgement") } catch {}
         XCTAssertNil(first.pending["chat"])
         XCTAssertEqual(first.interactionAttempt("chat", sourceMessageID: "card")?.key, "card-key")
-        first.clear()
+        first.resetProjection()
         await transport.setLookup(status: 200)
         let session = Session(baseURL: origin, transport: transport, credentials: vault, sendAttempts: disk)
         _ = try await session.restore()
@@ -73,7 +73,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertEqual(restored.drafts["chat"], "keep this unrelated text")
         XCTAssertEqual(restored.timelines["chat"]?.map(\.id), ["sent"])
         XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
-        restored.clear()
+        restored.resetProjection()
     }
 
     func testUnknownCardRetryKeepsOriginalBytesAndRawPostKey() async throws {
@@ -90,7 +90,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertEqual(sent.map { $0.value(forHTTPHeaderField: "Idempotency-Key") }, ["raw", "raw"])
         XCTAssertEqual(lookups, ["interaction:user:raw", "interaction:user:raw"])
         XCTAssertNil(restored.interactionPending["card"])
-        first.clear(); restored.clear()
+        first.resetProjection(); restored.resetProjection()
     }
 
     func testWriteFailureDoesNotPostAndConflictChecksAuthoritativeReceipt() async throws {
@@ -103,7 +103,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertTrue(blockedRequests.isEmpty)
         XCTAssertNil(blocked.pending["chat"])
         XCTAssertEqual(blocked.drafts["chat"], "do not lose")
-        blocked.clear()
+        blocked.resetProjection()
         try FileManager.default.removeItem(at: directory)
 
         let (store, transport, _) = try await makeStore(firstPostStatus: 409)
@@ -115,7 +115,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertEqual(lookups.count, 1)
         XCTAssertNil(store.pending["chat"])
         XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["sent"])
-        store.clear()
+        store.resetProjection()
     }
 
     func testSignOutAndPermissionRevocationRemoveDiskAndRejectLateResult() async throws {
@@ -125,7 +125,7 @@ final class SendRecoveryTests: XCTestCase {
         await transport.waitForPost()
         XCTAssertEqual(try disk.load(origin: origin, userID: user.id).count, 1)
         _ = await store.client.session.signOut()
-        store.clear()
+        store.resetProjection()
         await transport.releasePost()
         await send.value
         XCTAssertTrue(store.timelines.isEmpty)
@@ -139,7 +139,7 @@ final class SendRecoveryTests: XCTestCase {
         await revoked.inspectConversation("chat")
         XCTAssertNil(revoked.pending["chat"])
         XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
-        revoked.clear()
+        revoked.resetProjection()
     }
 
     func testOriginAndAccountIsolationAndAccountIneligibilityCleanup() async throws {
@@ -153,7 +153,7 @@ final class SendRecoveryTests: XCTestCase {
         await transport.setCurrentUser(try JSONEncoder().encode(disabled))
         _ = try await store.client.session.updateUser()
         XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
-        store.clear()
+        store.resetProjection()
     }
 
     func testBackgroundStopKeepsUnknownAttemptAndLateConfirmationKeepsNewDraft() async throws {
@@ -169,10 +169,10 @@ final class SendRecoveryTests: XCTestCase {
             XCTAssertEqual(store.drafts["chat"], "new draft")
             XCTAssertEqual(store.pending["chat"] != nil, status == 0)
             XCTAssertEqual(try disk.load(origin: origin, userID: user.id).count, status == 0 ? 1 : 0)
-            store.clear()
+            store.resetProjection()
             let reopened = ChatStore(client: store.client, user: user)
             XCTAssertEqual(reopened.pending["chat"] != nil, status == 0)
-            reopened.clear()
+            reopened.resetProjection()
             try disk.remove(origin: origin, userID: user.id)
         }
     }
@@ -189,7 +189,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
         let next = ChatStore(client: store.client, user: user)
         XCTAssertTrue(next.pending.isEmpty)
-        store.clear(); next.clear()
+        store.resetProjection(); next.resetProjection()
     }
 
     func testPrivateBackgroundFiltersHistoryAndFreezesLatestThreeSelections() async throws {
@@ -216,7 +216,7 @@ final class SendRecoveryTests: XCTestCase {
             await store.send("chat", retry: true)
             let sent = await transport.sent()
             XCTAssertEqual(sent[1].httpBody, first)
-            store.clear()
+            store.resetProjection()
         }
     }
 
