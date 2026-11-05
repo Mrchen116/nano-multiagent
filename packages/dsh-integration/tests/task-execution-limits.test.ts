@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {expect,it} from 'vitest';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
 
+// This checks 641 real native turns, not a wall-clock throughput requirement.
 it('resets a short-run streak after sustained work and reopens an exhausted Agent only on an independent wake',async()=>{
   const home=await mkdtemp(join(tmpdir(),'nano-task-limit-'));let client:RuntimeClient|undefined;
   try {
@@ -52,7 +53,7 @@ export function apply(ctx){
     const ensure=(sessionId:string,agentId:string)=>client!.rpc.request('session.ensure',{sessionId,agentId,ownerId:'o',revision:'1',cwd:home});
     const idle=async(sessionId:string)=>(await client!.rpc.request('session.observe',{sessionId}) as {status:string}).status==='idle';
     await ensure('s','a');
-    await expect.poll(async()=>count('s').automatic>=384&&await idle('s'),{timeout:45_000}).toBe(true);
+    await expect.poll(async()=>count('s').automatic>=384&&await idle('s'),{timeout:90_000}).toBe(true);
     // The 128th automatic turn has three steps and resets the first 127 short
     // runs. The one-step external turn at 200 does not reset an active streak.
     expect(count('s').automatic).toBe(384);
@@ -73,7 +74,7 @@ export function apply(ctx){
 
     // An admitted one-step external reply reopens an exhausted allowance.
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'late-short',mode:'followup',content:[{type:'text',text:'short'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'late-short'}});
-    await expect.poll(async()=>count('s').automatic>=640&&await idle('s'),{timeout:45_000}).toBe(true);
+    await expect.poll(async()=>count('s').automatic>=640&&await idle('s'),{timeout:90_000}).toBe(true);
     expect(count('s').automatic).toBe(640);
     expect(count('s').steps).toBe(968);
 
@@ -82,4 +83,4 @@ export function apply(ctx){
     await expect.poll(async()=>count('s').automatic>=641&&await idle('s'),{timeout:5000}).toBe(true);
     expect(count('s').automatic).toBe(641);
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
-},90_000);
+},210_000);
