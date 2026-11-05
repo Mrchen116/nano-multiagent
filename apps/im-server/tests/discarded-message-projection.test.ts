@@ -17,7 +17,17 @@ function setup() {
   ctx.messaging = new Messaging(ctx);
   const connection = connectFixtureGateway(f);
   ctx.gateway = new Gateway(ctx);
-  const broadcast = vi.fn();
+  // Observe the discard broadcast itself: the seam that decides whether a rolled-back write
+  // could still be announced to online clients.
+  const announced: { open: boolean; row: boolean; tombstone: boolean }[] = [];
+  const broadcast = vi.fn((_readers: string[], frame: any) => {
+    if (frame.event_type !== 'message.discarded') return;
+    announced.push({
+      open: ctx.db.isTransaction,
+      row: Boolean(one(f.db, 'SELECT 1 FROM messages WHERE id=?', frame.data.message_id)),
+      tombstone: Boolean(one(f.db, 'SELECT 1 FROM conversation_events WHERE event_id=?', frame.event_id)),
+    });
+  });
   ctx.gateway.broadcast = broadcast;
   ctx.gateway.register(connection, { node_id: 'n', agents: ['a'], capabilities: { agent_lifecycle_v1: 1 } });
   const app = Fastify();
@@ -54,11 +64,11 @@ function setup() {
   const unread = (user: string) =>
     one(f.db, 'SELECT unread_count FROM conversation_participants WHERE conversation_id=? AND user_id=?', 'chat', user)
       ?.unread_count;
-  return { ...f, ctx, connection, app, broadcast, read, markRead, history, start, discard, unread };
+  return { ...f, ctx, connection, app, broadcast, announced, read, markRead, history, start, discard, unread };
 }
 
 it('restores unread, preview and timestamp to the remaining message when a placeholder is discarded', async () => {
-  const { db, ctx, broadcast, read, history, start, discard, unread } = setup();
+  const { db, ctx, broadcast, announced, read, history, start, discard, unread } = setup();
   db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','u2')").run();
   // Another conversation must never be part of the rollback.
   db.prepare("INSERT INTO conversations(id,title,created_at) VALUES('other','Other',?)").run(new Date().toISOString());
@@ -92,6 +102,8 @@ it('restores unread, preview and timestamp to the remaining message when a place
   expect(broadcast.mock.calls.map(([, frame]) => frame)).toContainEqual(
     expect.objectContaining({ event_type: 'message.discarded', data: expect.objectContaining({ message_id: placeholder, reason: 'no_reply' }) }),
   );
+  // It is announced only after the commit, with the row already gone and the tombstone stored.
+  expect(announced).toEqual([{ open: false, row: false, tombstone: true }]);
   // The unrelated conversation keeps its own projection.
   expect(one(db, 'SELECT last_message_preview,last_message_at FROM conversations WHERE id=?', 'other')).toMatchObject({
     last_message_preview: 'other conversation reply',
@@ -132,6 +144,42 @@ it('returns to the projection the previous insert wrote when message timestamps 
     last_message_at: '2025-12-01T00:00:00.000Z',
     unread_count: 0,
   });
+});
+
+it('treats a read mark left on a discarded message as no watermark instead of subtracting a real unread', async () => {
+  const { db, ctx, markRead, start, discard, unread } = setup();
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','u2')").run();
+  const first = (await start()).payload.message_id;
+  expect((await markRead('u2', first)).json()).toMatchObject({ unread_count: 0 });
+  await discard(first);
+  // u2's read mark still names the discarded message, so it can no longer be resolved.
+  expect(
+    one(db, 'SELECT last_read_message_id FROM conversation_participants WHERE conversation_id=? AND user_id=?', 'chat', 'u2')
+      ?.last_read_message_id,
+  ).toBe(first);
+  ctx.messaging.insertMessage('chat', 'u1', 'user', 'real reply after the discarded placeholder');
+  const second = (await start()).payload.message_id;
+  expect(await unread('u2')).toBe(2);
+
+  await discard(second);
+
+  // Only the second placeholder's own +1 is rolled back; the real reply stays unread.
+  expect(await unread('u2')).toBe(1);
+});
+
+it('restores the attachment or mention preview that the discarded placeholder had replaced', async () => {
+  const { db, ctx, read, start, discard } = setup();
+  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('u3','carol','Carol','o3',?)").run(new Date().toISOString());
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','u3')").run();
+  ctx.messaging.insertMessage('chat', 'u1', 'user', '', [{ file_name: 'report.pdf' }]);
+  const placeholder = (await start()).payload.message_id;
+  await discard(placeholder);
+  expect((await read('u1')).json().last_message_preview).toBe('report.pdf');
+  // A mention preview is resolved from the remaining message, never from the dropped body.
+  ctx.messaging.insertMessage('chat', 'u1', 'user', '<mention type="user" target_id="u3"/> please review');
+  const second = (await start()).payload.message_id;
+  await discard(second);
+  expect((await read('u1')).json().last_message_preview).toBe('@Carol please review');
 });
 
 it('returns to an empty projection when the placeholder was the only message in the conversation', async () => {

@@ -95,15 +95,21 @@ Agent 解读：这三条症状已随瘦身移交 U1（本地库与冷启动首�
 3. 「重复丢弃不回滚两次」失败在第二次丢弃后 `u2` 未读仍是 2（修前从未回滚，故也没被减）。
 4. 「已读水位之后又来真实消息」修前即通过——它是防「无脑减一」改法的守卫，不是本 bug 的红灯。
 5. 「时间戳非单调时回到上一次插入写下的投影」用于钉住 `rowid` 顺序：把实现临时换成 `created_at DESC` 后该用例失败（得到 `arrived first` / `2026-01-01`，期望 `backdated ingress` / `2025-12-01`），证明它确实在守这个选择。
+6. 「读标记留在已丢弃消息上」覆盖水位不可解析的回落分支：读占位→丢弃→真实消息→再丢弃后未读必须是 1（若把回落误做成重算成 0 就红）。
+7. 「附件名与 mention 预览」覆盖 preview 公式的两个回落：附件名 `report.pdf`，以及 mention 由剩余消息解析成 `@Carol please review` 而非原始标签。
 
-修后同一命令 5 passed。测试驱动真实 `Gateway.handle('node.streaming_delta')` 与真实 Fastify 路由（`GET /im/v1/conversations/:id`、`POST .../read`、`GET .../messages`），断言 HTTP 投影、参与者未读、消息行与历史、`message.discarded` 广播帧，以及另一会话不受影响。
+第 6、7 条与「广播只在提交后」的断言是 code review 后补的（见 `code-review.md`），补入时实现已定稿，因此没有对应的修前红灯。
+
+修后同一命令 7 passed。测试驱动真实 `Gateway.handle('node.streaming_delta')` 与真实 Fastify 路由（`GET /im/v1/conversations/:id`、`POST .../read`、`GET .../messages`），断言 HTTP 投影、参与者未读、消息行与历史、`message.discarded` 广播帧，以及另一会话不受影响。广播时序用广播回调内的 `db.isTransaction` + 消息行/tombstone 现场状态断言：把广播移回事务内后该用例失败（`open:true`），证明这条 seam 确有保护。
 
 实跑命令与结果：
 
-- `npx vitest run apps/im-server/tests/discarded-message-projection.test.ts` → 5 passed。
-- 相关面扩查 `npx vitest run apps/im-server/tests/{discarded-message-projection,messaging,message-attempts,relay-delivery,watchdog,chat-contracts,conversation-query-hot-path,personal-disclosure,task-context-live,task-context-revocations,task-context-migration}.test.ts` → 11 files / 69 tests passed。
+- `npx vitest run apps/im-server/tests/discarded-message-projection.test.ts` → 7 passed。
+- 相关面扩查 `npx vitest run apps/im-server/tests/{discarded-message-projection,messaging,message-attempts,relay-delivery,watchdog,chat-contracts,conversation-query-hot-path,personal-disclosure,task-context-live,task-context-revocations,task-context-migration}.test.ts` → 11 files / 71 tests passed。
 - 真实入口 e2e `npx vitest run apps/im-server/tests/e2e/{chat-boundaries,server,control-work}.test.ts` → 3 files / 9 tests passed。
 - 全量 `npx vitest run apps/im-server/tests` → 380 passed / 20 failed；失败集中在 `interactive-messages`、`interactive-source`、`personal-representation`、`personal-sources`、`tenancy`、`e2e/trajectory` 六个文件，全部在改动面之外。用 `git stash` 只回退本次 4 个源文件后复跑同一批文件，得到相同失败（`interactive-messages` 14/14、`interactive-source` 2、`personal-representation` 1、`personal-sources` 1、`tenancy` 1），确认为本机环境既有红灯（interactive catalog 校验与未构建的工作区包），与本 unit 无关。
 - 类型检查 `npx tsc -p apps/im-server/tsconfig.json --noEmit` 与 `-p tsconfig.contracts.json` 均只报一条既有错误 `src/trajectory.ts(109,46): Property 'initialBatch' does not exist`（依赖包 `lib/` 未构建的产物，非本次文件）。
 
 既有丢弃语义回归：新测试同时断言消息行确实被删除、历史接口不再返回该消息、`message.discarded` 帧仍广播（含 `message_id` 与 `reason`）。
+
+独立 code review（无 CONFIRMED/PLAUSIBLE 缺陷，APPROVE）的范围、非阻塞观察与处置见 `code-review.md`。
