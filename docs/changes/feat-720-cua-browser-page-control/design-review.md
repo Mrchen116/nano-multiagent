@@ -410,3 +410,118 @@
 - `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`。
 - `git status --porcelain` → 干净；本轮改动与本节在同一个本地 commit 内（未 push）。
 - 未执行 V1–V6：用户正在使用本机，且这些验证需要启动驱动与浏览器窗口；C1 的“归还前台”依据仍是证据 L549–554 的单次观察（已按 R2-8 降级措辞）。
+
+## Round 3 (closure)
+
+### Metadata
+
+- reviewer: 同一独立 delegated design reviewer（子 Agent `nano-manager`，未参与设计与修复；本轮只读文档、源码，以及主仓 `node_modules` 里已安装的 DSH `0.2.1-alpha.1` 类型与实现，用来回答“能不能静态确认”）
+- target: worktree `.worktrees/feat-720-cua-browser-page-control`，branch `unit/feat-720-cua-browser-page-control`，head `a8b91bf95`，父 `d9d728c00`，审查开始时工作树干净，未 push
+- 受审 diff（`git show --numstat a8b91bf95`）：`design.md` +39/−34、`spec.md` +8/−7、`specs/gateway/agent-capabilities.md` +10/−4、`design-review.md` +41/−0（仅追加 Author Resolutions）；`evidence/desktop-verification.md` 未改
+- review_mode: `closure`——核对 Round 2 的 9 项 + 3 条建议 + 判断 (c) 是否真闭合，并对本轮唯一实质性设计变更（R2-3 从“硬闸门”改为“按层判定”）做一次完整复核（含 DSH 侧可达性的静态核实）
+- started_at: 约 2026-11-05T18:57（近似，未精确取时）
+- completed_at: 2026-11-05T19:23:00+08:00
+- duration: 约 26 分钟（按工具调用估算，含 DSH 包静态取证）
+- 本地检查: `scripts/docs_check.py` → 见本节末尾执行记录
+
+### Verdict
+
+**CHANGES REQUESTED — 1 项阻断实施（R3-C1）/ 4 项实施时顺手改（R3-1…R3-4）**。
+
+其余 8 项（R2-1 主体、R2-4、R2-5、R2-6、R2-7、R2-8、R2-9、R2-R1…R3）**确认闭合**，逐条核对后没有被改写成长短不一的另一种说法；R2-2 的前置校验部分闭合、冷却清除机制部分仍不可判定（见 R3-2）。
+
+阻断项只归入三类之一：**R3-C1 属于“会让用户桌面被抢”**。现文本允许“祖先最近一次人类发言在 1 小时前、甚至该祖先的轮次已经结束”时由子 Agent 新开浏览器窗口，而 C1 的全部上界论证（准入 + 真窗口归还 + V2 阻断发布 + spec 承诺）都建立在“开窗时用户在场”。修法是三句话判定条件 + 一条 spec/delta 语义 + 一条 fixture，不涉及重新设计，也不需要再跑全流程复审。
+
+### 阻断实施（must-fix）
+
+#### R3-C1 — 按层判定把“在场”判成了“曾经在场”，缺轮次打开状态与时间绑定
+
+- 位置：`design.md` L79（判定条款）、L420（M1 第 7 条 fixture）、`spec.md` L109、delta L30。
+- 现文本（L79）：“……找到第一个 `origin !== 'subagent'` 的祖先后在那一层判定。判定条件是该会话本轮 `turn/start` 之后存在真实用户消息……”。缺陷有两点，都可复现：
+  1. **没有时间绑定**：只要求“存在”，不要求“刚刚”。祖先在 t0 收到人类消息、开一个长轮次，Agent 在 t0+60 分钟才把浏览任务委派给子 Agent，判定仍然通过——此时用户在不在桌前完全未知，窗口照开，`browser_prepare` 还可能把窗口带到前台（证据 L543–549，≥4 秒不恢复）。
+  2. **“本轮”未定义，轮次关闭后仍然通过**：原生后台委派（`delegation:'background'`）的子 Agent 可以在父轮次结束之后继续跑或被再次唤醒；父会话“最后一个 `turn/start` 之后”仍然存在那条人类消息，于是几小时后仍然通过。这与设计自己在别处的主张（“后台委派轮次只复用已有实例”，L79、delta L30）直接矛盾。
+- 为什么算阻断而不是顺手改：这两条路径的净效果就是“用户不在桌前时凭空弹窗并可能占前台”，属于本轮调用方划定的第一类阻断；它不是措辞问题，而是判定条件少了一半。
+- 修法（**仍然满足 L82“同步、无 I/O”的约束**，因为只读内存事件）：
+  1. 判定会话必须是**打开的轮次**：最后一个 `turn/start`（`data.turn`）之后没有同号的 `turn/end`；若最后一轮已关闭，按“不在场”拒绝（依据 `dsh-session` 的 `turn/start {turn}` / `turn/end {turn, reason}` 事件，见静态取证）。
+  2. 该打开轮次内存在 `isHumanSource` 的 `user/message`（沿用现有谓词）。
+  3. 该消息的 `event.time`（`SessionEvent.time`，epoch 毫秒）距本次请求 ≤ **在场窗口**；建议取 300 秒，与实例 `idle_expires_in_seconds: 300` 同一量级，也与本 unit 已知限制里“最近约 5 分钟”的说法一致。作者可另取常数，但必须在 design 里写明取值与理由。
+  4. 链断 / 超跳 / 无打开轮次 / 无人类消息 / 超窗 → 一律 `browser_launch_requires_user_turn`，**任何分支都不得回退为放行**（现文本 L79“一律拒绝”保持）。
+- 用户可见契约同步：`spec.md` L109 与 delta L30 现在只说“包括该轮次里被委派的子 Agent”，没有“窗口”。必须补一句用户可读的限制，例如“只有你最近一次发言后的几分钟内、且那一轮还没结束时委派的子 Agent 才可能新开窗口；更早的委派只复用已有实例”。否则用户按“委派就能开窗”预期使用会报 bug（与 R2-4 的同类后果并列，写进已知限制 L434）。
+- fixture（扩写 M1 L420 第 7 条，全部可单测、无浏览器）：
+  - 祖先轮次打开 + 人类消息 60 秒前 → 允许 `browser_prepare`；
+  - 祖先轮次打开 + 人类消息 10 分钟前（长循环后段委派）→ 拒绝；
+  - 祖先最后一轮已关闭、子 Agent 仍在运行 → 拒绝；
+  - 祖先 `heartbeat`/`task-execution` 轮次 → 拒绝（现有断言）；
+  - 链断 / 超跳 → 拒绝（现有断言）。
+
+### 逐项回答
+
+#### 1) 按层判定是否等价于“开窗绑定在同一轮次的在场证据上”
+
+**不等价**。现文本把绑定降成了“祖先历史上出现过人类消息”，缺“轮次仍打开”与“新鲜度”两个维度。三种方案在四种场景下的实际行为（“硬闸门”= R2 建议的子 Agent 一律禁止；“现设计”= L79 原文；“加绑定”= R3-C1 修法）：
+
+| 场景 | 硬闸门 | 现设计 | 加绑定（R3-C1） |
+|---|---|---|---|
+| 用户轮次内前台（同步）委派 | 不可用（能力缺口） | 可用 | 可用（消息在窗口内） |
+| 用户轮次内长循环 1 小时后才委派 | 不可用 | **可开窗（风险）** | 拒绝 |
+| 后台委派，父轮次已结束、子 Agent 继续跑 | 不可用 | **可开窗（风险）** | 拒绝 |
+| 定时/心跳/任务续跑派生的子 Agent | 拒绝 | 拒绝 | 拒绝 |
+
+两个洞的具体处置：(i) 需要“打开轮次 + 时间上界”，不能只判“有”——R3-C1 第 1、3 条；(ii) 断链默认行为现文本已经是**拒**（L79“祖先链断…→ 一律拒绝”），这一点写对了，但要把它固定成 fixture，并按第 3 问删掉“拿不到就退回硬闸门再决定”的模糊表述，避免实现时被读成“拿不到就放行”。
+
+#### 2) 硬闸门的被拒理由成立吗？有没有“父 Agent 传递在场证据”的替代？
+
+**理由成立**：子 Agent 的实例按 Agent 归属（D8 L192，label 按 agentId），不能借用父实例；在硬闸门下子 Agent 既无实例也不能建实例，“用户轮次里把页面任务委派给子 Agent”确实永远是缺口。这不是过度保守的推断，而是设计自身结构的直接结论。
+
+**替代方案可行，但成本不同**：在 `agent/created`（或 `subagents.start` 的包裹点）为子会话铸一个**带到期时间的在场租约**（`{childSessionId, expiresAt: parentHumanMsg.time + window}`），子 Agent 的 TurnGate 只认租约——技术上可行（本仓测试已经在 `agent/created` 里读 `agent.session.header.parentSession` 与 `delegationDepth`，见 `packages/dsh-integration/tests/schedule-deletion-native.test.ts` L23）。代价：多一份进程内状态要管生命周期（子会话结束/崩溃/恢复时清理）、要覆盖 fork 与 resident 子 Agent，且**仍然需要“到期”这个概念**——所以无论选哪条路，R3-C1 第 3 条的在场窗口都是共需成本，省不掉。收益：到期显式、可审计，不依赖祖先是否仍活着。
+
+**本 unit 的建议**：保留按层判定（不新增状态、无 I/O），但必须叠加 R3-C1 的轮次与时间绑定；如果作者更看重可审计性，可以改选租约方案，但要在 design 里二选一写清并给对应 fixture。**不要**让“硬闸门 / 按层判定”两套并存成一个实现期分支。附带一句必须承认的边界：无论哪种方案，“后台委派”都拿不到实例，所以按层判定带来的能力恢复只覆盖**同步/前台委派**，L80 的论证应把这句写进去。
+
+#### 3) 退路条件（`ctx.agents.get` 拿不到根会话）能否在实施前静态确认
+
+**能，已经确认；而且这条退路比需要的更悲观**。静态取证（主仓已安装的 DSH `0.2.1-alpha.1`，与 `packages/dsh-integration/package.json` 声明一致）：
+
+- `AgentRegistry.get(id: SessionId): Agent | undefined` 与 `list(): Agent[]` 存在（`@deepseek-ai/dsh-agent` 类型 `lib/types/index.d.ts` L343、L357）；
+- 本插件同一上下文已在用 `ctx.agents.list()`（`packages/dsh-integration/src/index.ts` L201），说明 `ctx.agents` 在这个 `tools/pre-execute` 所在的 ctx 上可用；
+- 子 Agent 创建时由 `childSessionMeta()` 写入 `parentSession: parentHeader.id`、`origin:'subagent'`、`delegationDepth`（`@deepseek-ai/dsh-subagent` `lib/index.js` L470–481），即 `parentSession` 就是**父 Agent 的会话 id**；
+- DSH 自己的 `liveLineage()` 就是用 `ctx.agents.get(parentSession)` 上溯（同文件 L1038–1049），并带 `seen` 环检测。
+
+结论：子 Agent 存活期间其父 Agent 在注册表里是活的（子 Agent 的运行时所有权挂在父上），链条在进程内可解析；“拿不到根会话”只会发生在父已被销毁/恢复后链条不可解析的边界情形，此时 deny 是正确行为。因此**不需要**为它新增 V7 阻断验证项（它是静态事实，不是待验证实验）。但要把现文本的“退路”改写成三条可执行的要求：① 静态可解析这一事实入 design（附上面证据）；② 链断即 deny（已有，补 fixture）；③ 用**环检测**替代固定“≤8 跳”（当前子 Agent 工具栏 `maxDepth` 默认 1，链通常只有 1 跳；固定跳数会掩盖环，DSH 自己的实现就是 `seen` 集合）。另需在 design 里点明：`ctx.agents.get` 是**活 Agent 注册表**而非持久血缘，这正是“轮次关闭后必须 deny”的同源理由。
+
+### 其余 8 项是否真闭合
+
+| 项 | 核对结果 |
+|---|---|
+| R2-1 截图生命周期 | **闭合（余项 R3-1）**。`design.md` L114、L316、L329、L355、L409、L422 与 delta L119 全部改成“只在写入新截图时按 TTL/上限清理，实例结束与 Agent 销毁都不删”，并写明理由；真窗口路径不再自相矛盾 |
+| R2-2 归还失败冷却 | **部分闭合**：label 归属 + `owner_pid` 预校验已写（L84、L275、L313，证据 L84 确有 `owner_pid`）；但“直到实例消失才清除”没有定义如何观察消失 → R3-2（现文本不可判定） |
+| R2-4 任务续跑枚举 | **闭合**。spec L54（场景七）、L109、delta L30/L49、已知限制 L434 都补了“任务续跑及其派生的子 Agent”，并写了“周期任务几乎拿不到实例” |
+| R2-5 V6 判据与目录 | **闭合**，且这次真的实施前可观测：判据不再依赖尚未实现的工具——在 workspace 放一张 PNG 后直接调用 `read_image` 即可；失败目录限定在“V6 实测可读且仍在 workspace 内”，明示不得落 `/tmp`、node home、仓库 |
+| R2-6 判定位置统一 | **闭合**。L188 把 `browser_launch_requires_user_turn` 与恢复态拒绝并入 `tools/pre-execute` 静态守卫；L296（读取页面）与 L297（打开 http(s) 页面）的“确定性拒绝”列都带上它；执行期只留 pid/窗口、`read` 后是否变化、标签是否唯一三项 |
+| R2-7 “会话”语义与场景一 | **闭合，不是两边都留**。spec L75 现在给出唯一定义（浏览器会话；Agent 销毁/真窗口归还/空闲回收会结束它；结束一段聊天不触发），scenario L83–86 与 delta L28、design D8 L192 同步，场景一 L36 加了例外注。残留只是叙述句强度（R3-3） |
+| R2-8 措辞强度 | **闭合**。L86“证据中观察到会归还前台”与 D6 L179“1 次观察，V2 复采确认后才作为机制依据” |
+| R2-9 无人值守可用面 | **闭合**。L324 现在是“不能新开实例；能复用实例时只读始终可用；页面动作仅在分类器明确放行时执行（不读 `unattendedFallback`）”，与 D7/L299 一致 |
+| R2-R1 / R2-R2 / R2-R3 | **闭合**。风险表新增“无人值守残留”行（L345）；V5 加 `in_viewport` 旁证、M1 第 8 条改为“评审只看目录与张数、TTL/上限由 worker 注入旧时间戳验证”（L391、L409）；验证顺序 V2→V1→V5→V4→V6→V3（L383）、V2 失败分支标注“本 unit 不实现”（L388） |
+
+### 实施时顺手改（不阻断 M1 开工；标 ★ 的须在实现该分支前先落文字）
+
+- **R3-1 ★ 进程启动清理的范围与失败语义**：位置 L114、L316。判断：这是**必要兜底，不是范围蔓延**——既然删掉了“实例结束/Agent 销毁时删除”，唯一剩下的清理触发点就是“写入新截图”，一个不再截图的 Agent 目录会永久残留，直接违背 spec 的“临时证据”与本 design L355 的风险处置。但现文本没限定范围：改法为“只扫描已配置 Agent workspace 下的 `.nanoassistant/browser/<agentId>/`，不遍历 home 或仓库；单次、有界、失败不阻塞进程启动（记录后继续）；只删本能力自己按 TTL/张数规则判定的文件”，并在 M1 L422 第 9 条补一条断言（现有断言只覆盖“写入时清理”）。
+- **R3-2 ★ 冷却清除机制**：位置 L84、L313、L275。现写法“直到实例消失（用户关闭或 300 秒空闲回收）”**不够可判定**：谁去观察消失？如果实现成“每次调用前 `ps` 查 pid”，那是进程 I/O（破坏 pre-execute 无 I/O 的前提）且 pid 会被复用；如果实现成“永不检查”，能力被永久锁死（这属于“实质能力缺口”）。改法：冷却状态带截止时间 `failedAt + 300s`（与驱动 `idle_expires_in_seconds` 同量级），到期惰性清除；若要保留“用户手动关窗后恢复”，用**新实例的 `end_session` 成功**作为清除条件，而不是 pid 探测。worker 测试固定：失败后 300 秒内每次调用都直接返回 `browser_foreground_release_failed` 且零驱动调用；到期后状态清空、可再次按 TurnGate 决策。
+- **R3-3 场景一叙述强度**：位置 `spec.md` L36。现在是“没有被打断输入”+ 例外注，读起来仍像绝对句；建议改为“没有被持续打断输入（启动那一下除外）”，与 L106 的披露同向。
+- **R3-4 契约层不写机制**：位置 delta L30 的“（判定按请求上溯到最近的用户会话）”。这是实现手法，不是用户可观察契约；建议删除该括注（机制留在 `design.md` L79），并按 R3-C1 补“在场窗口”这条**行为**语义。
+
+### 已接受限制（本轮新增）
+
+- 委派开窗只覆盖“同步/前台委派 + 该轮次仍打开 + 用户最近一次发言在约 5 分钟内”；后台委派（父轮次已结束）与长轮次末端委派都拿不到实例，只复用已有实例。这条要按 R3-C1 落进 spec/delta 与 L434。
+
+### 未验证声明
+
+- 本轮只读文档、源码与主仓 `node_modules` 中已安装的 DSH `0.2.1-alpha.1`（worktree 未安装依赖，未做 `pnpm install`）；静态取证只说明 API 与语义存在，不代表本 unit 已在运行时验证按层判定与在场窗口。
+- 未执行 V1–V6，未启动驱动/浏览器/服务，未运行模型；证据副本未改（`git diff` 空），C1 的“归还前台”仍是证据 L549–554 的单次观察。
+- 本轮未改任何受审文件，只追加本 Round。
+
+### 本轮执行记录（Reviewer）
+
+- `git rev-parse HEAD` → `a8b91bf95b100d9f16073b163996fcf96689ccad`；`git status --porcelain` → 审查开始时为空。
+- `git show --numstat a8b91bf95` → `design-review.md` +41/−0、`design.md` +39/−34、`spec.md` +8/−7、`specs/gateway/agent-capabilities.md` +10/−4。
+- 静态取证：`node_modules/@deepseek-ai/dsh-agent/lib/types/index.d.ts` L343/L357（`get`/`list`）、`node_modules/.pnpm/@deepseek-ai+dsh-subagent@…/lib/index.js` L470–481（`childSessionMeta`）、L1038–1049（`liveLineage`）、`@deepseek-ai/dsh-session` 类型 `types.d.ts` L262/L273（`turn/start`/`turn/end`）与 L493/L495（`seq`/`time` 信封）。
+- `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（本节写入后复跑，源文件数不变）。
