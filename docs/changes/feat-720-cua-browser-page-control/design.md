@@ -76,12 +76,12 @@
 
 1. 产品文案使用 spec 里的原句；任何设计、工具描述、审批文案、错误说明都不得出现“绝不打扰用户”一类绝对表述（写入工具描述与 review 检查项）。
 2. 我们只使用 `delivery_mode:"background"`；不提供、不透传 `foreground` 参数；不调用 `bring_to_front`/`hotkey`/`type_text`/`launch_app` 等会主动激活窗口的驱动工具。
-3. **首次启动实例只允许“用户发起的、且仍在场的轮次”，判定看请求来自哪一层**：静态守卫先找判定会话——请求来自普通会话（`header.origin !== 'subagent'`）时就是本会话；来自子 Agent 时沿 `header.parentSession` 用 `ctx.agents.get` 上溯到第一个 `origin !== 'subagent'` 的祖先，**用 `seen` 集合做环检测**（不设固定跳数：子 Agent 链通常只有 1 跳，固定跳数会掩盖环）。判定只读该会话的内存事件（`session.snapshotEvents()`），三条同时满足才允许 `browser_prepare`（`allow_launch:true` + `profile.mode:"isolated_new"`）：① 最后一个 `turn/start {turn}` 之后**没有同号 `turn/end`**（轮次仍打开；最后一轮已关闭 → 按不在场处理）；② 该打开轮次内存在 `isHumanSource` 的 `user/message`（复用 `route()` 的谓词：`kind === 'nano-human'`，或 `kind === 'user'` 且带 `actorId`/`channel`/`messageId`）；③ 该轮次里**最近一条**人类消息的 `event.time` 距本次请求 ≤ **300 秒在场窗口**（实现口径 `Date.now() - event.time <= 300_000`；取 300s 是因为与驱动 `idle_expires_in_seconds: 300` 同量级，也与已知限制里“最近约 5 分钟可复用实例”一致；换常数必须在这里写理由）。链断（父会话已不在活注册表）、检出环、无打开轮次、无人类消息、超窗、或来源是 `schedule`/`heartbeat`/`task-execution`/`task-change` → **一律** `browser_launch_requires_user_turn`，任何分支都不回退放行；已有实例时只复用。
+3. **首次启动实例只允许“用户发起的、且仍在场的轮次”，判定看请求来自哪一层**：静态守卫先找判定会话——请求来自普通会话（`header.origin !== 'subagent'`）时就是本会话；来自子 Agent 时沿 `header.parentSession` 用 `ctx.agents.get` 上溯到第一个 `origin !== 'subagent'` 的祖先，**用 `seen` 集合做环检测**（不设固定跳数：子 Agent 链通常只有 1 跳，固定跳数会掩盖环）。判定只读该会话的内存事件（`session.snapshotEvents()`），三条同时满足才允许 `browser_prepare`（`allow_launch:true` + `profile.mode:"isolated_new"`）：① 最后一个 `turn/start {turn}` 之后**没有同号 `turn/end`**（轮次仍打开；最后一轮已关闭 → 按不在场处理）；② 该打开轮次内存在 `isHumanSource` 的 `user/message`（复用 `route()` 的谓词：`kind === 'nano-human'`，或 `kind === 'user'` 且带 `actorId`/`channel`/`messageId`）；③ 该轮次里**最近一条**人类消息的 `event.time` 距本次请求 ≤ **300 秒在场窗口**（实现口径 `Date.now() - event.time <= 300_000`，前提：`event.time` 由本节点 DSH 进程在 append 事件时赋值、判定在同一进程内完成，不需要跨机同步；差值为负（时钟回拨）按**超窗拒绝**，不得因负值“意外通过”；取 300s 是因为与驱动 `idle_expires_in_seconds: 300` 同量级，也与已知限制里“最近约 5 分钟可复用实例”一致；换常数必须在这里写理由）。链断（父会话已不在活注册表）、检出环、无打开轮次、无人类消息、超窗、或来源是 `schedule`/`heartbeat`/`task-execution`/`task-change` → **一律** `browser_launch_requires_user_turn`，任何分支都不回退放行；已有实例时只复用。
     - 为什么按层判定，而不是“子 Agent 一律拒绝”：`route()` 里确实有 `agent.session.header.origin === 'subagent'` 早退（`approval.ts` L77），但子 Agent 有自己按 Agent 归属的实例，若一律拒绝，主 Agent 在用户轮次里把“看/点页面”委派给子 Agent 就永远不可用（子 Agent 既没有实例也不能建实例）。按层判定恢复的只是**同步/前台委派**（同一轮次、人类发言在 300 秒内）；**后台委派（那一轮已结束）与长轮次末端委派（人类发言已超窗）仍然拿不到实例**，只复用已有实例——这条限制同时写进 spec/delta 与已知限制，避免用户按“委派就能开窗”预期使用。
     - 为什么不用子 Agent 自己的轮次输入，以及为什么“拿不到就拒”而不是“拿不到再决定”：`isHumanSource` 的注释写明 native child 的首轮 prompt 也用 `user`（`input-source.ts` L21），子 Agent 自己的 source 形状不足以证明“用户在场”，所以只认祖先层，结论不依赖 DSH seed 的字段形状。`ctx.agents` 是**活 Agent 注册表而不是持久血缘**（DSH 自己的 `liveLineage()` 也是 `ctx.agents.get(parentSession)` + `seen` 环检测；子 Agent 的 `parentSession`/`delegationDepth` 由 `childSessionMeta()` 写入），所以“父轮次结束后仍可解析”本来就不成立：父 Agent 销毁或不在注册表时链断，deny 是正确结果。实现上不存在“拿不到就退回硬闸门再决定”的分支——静态可解析就按在场窗口判定，解析不了就直接拒。
     - 与审批路由的区别：`task-execution`/`task-change` 轮次在审批上算 interactive（用户能看卡片），但不代表用户此刻在场，因此**不**计入可启动轮次。判定在 `tools/pre-execute` 内同步完成：只读内存事件与 `ctx.agents.get`，不做文件或进程 I/O、不调用驱动；并从 `approval.ts` 复用同一事件读取实现（`currentTurnInputs`，另加只读的轮次打开状态与人类消息时间判定），避免两份语义漂移。
 4. 允许启动的那一次在结果里附固定说明：首次接入可能短暂占前台；这是唯一一次“启动即可能抢前台”的路径。说明里不写秒数。
-5. **页面动作后若分类出真实新窗口**（见约束三）：在完成本次回读与截图后立即 `end_session` 结束该 Agent 的浏览器实例，结果里返回 `foreground_released: true` 与 `events[]`；继续操作需要新的用户轮次（重新 prepare）。`end_session` 前先校验目标：session label 属于本 Agent（`nano-br-<8hex>`，按 agentId 记账）**且**实例 pid 仍等于 `browser_prepare` 返回的 `owner_pid`（证据 L84）；任一不符则不调用驱动、直接按失败处理。`end_session` 失败重试一次；仍失败返回 `browser_foreground_release_failed`，请用户手动关闭该窗口，并让该 Agent 进入**需人工恢复**状态：后续调用不派发任何驱动动作、直接返回同一错误，直到冷却到期。冷却用 `failedAt + 300s`（与驱动 `idle_expires_in_seconds` 同量级）**惰性清除**——每次调用只比较内存时间戳，不做 pid 探测（那是进程 I/O，且 pid 会被复用）；另外新实例的 `end_session` 成功（用户手动关窗后重新启动并成功收尾）也清除该状态。否则模型可以在同一用户轮次里反复动作、反复把窗口带回前台。证据 L556–558 是“关窗不波及用户窗口”的直接依据。
+5. **页面动作后若分类出真实新窗口**（见约束三）：在完成本次回读与截图后立即 `end_session` 结束该 Agent 的浏览器实例，结果里返回 `foreground_released: true` 与 `events[]`；继续操作需要新的用户轮次（重新 prepare）——同一轮次内的 relaunch 由静态守卫拒绝，直到出现新的 `turn/start`（实现期决定：记录被释放轮次的 `turn/start` seq）。`end_session` 前先校验目标：session label 属于本 Agent（`nano-br-<8hex>`，按 agentId 记账）**且**实例 pid 仍等于 `browser_prepare` 返回的 `owner_pid`（证据 L84）；任一不符则不调用驱动、直接按失败处理。`end_session` 失败重试一次；仍失败返回 `browser_foreground_release_failed`，请用户手动关闭该窗口，并让该 Agent 进入**需人工恢复**状态：后续调用不派发任何驱动动作、直接返回同一错误，直到冷却到期。冷却用 `failedAt + 300s`（与驱动 `idle_expires_in_seconds` 同量级）**惰性清除**——每次调用只比较内存时间戳，不做 pid 探测（那是进程 I/O，且 pid 会被复用）。冷却期内所有调用都先被静态守卫拒绝，因此不存在“新实例成功收尾清除状态”这条路径。否则模型可以在同一用户轮次里反复动作、反复把窗口带回前台。证据 L556–558 是“关窗不波及用户窗口”的直接依据。
 6. **v1 不做自动恢复用户前台 app**：恢复需要我们把用户前台 app 重新激活，既无验证证据，也会在用户正在操作时与用户抢；但“不恢复”不等于“无上界”——上界由第 3、5 条与 300 秒空闲回收共同保证。
 7. 不通过 `osascript`/System Events 采样前台 app：那会给节点进程引入新的 Automation 授权依赖，而检测“是否抢过前台”不是 v1 的产品承诺前提；`end_session` 是我们可以确定执行、且证据中观察到会归还前台的唯一动作（L549–554 为 1 次观察；V2 复采确认后才作为机制依据）。
 
@@ -115,7 +115,7 @@
 3. 不使用 `page`/`query_dom`；任何依赖 pid 归属的 AppleScript 路线一律不接。
 4. 驱动客户端的失败口径：非 0 退出、空 stdout、无法解析 JSON、缺少预期字段 → `browser_driver_malformed`（带截断的原始输出片段），**一律不当成功**；`browser_pointer` 的 scroll 参数在发请求前校验，缺 `ref` 或 `delta` 直接 `browser_arguments_invalid`。
 5. `open` 只接受 `http`/`https`（`file://` 由我们提前拒绝，不依赖驱动报错）；本地夹具在验证里用 `127.0.0.1` 静态服务（证据 L388–392）。
-6. 滚动只支持 `ref` 锚点（最近一次读取返回的元素 ref，驱动在该元素处滚动），不接受坐标；该用法本次未实测，列入实施前阻断验证（见 Milestones 前的验证清单）。
+6. 滚动只支持 `ref` 锚点，不接受坐标；锚点必须是最近一次读取里**声明了 `scroll` 或 `pointer` 动作**的 ref。实施期实测（V5）：`listitem`/静态文本 ref 被驱动拒绝（`browser_action_unavailable`，“does not declare the scroll or pointer action”），而 `button`/`link`/`textbox` 声明 `pointer`，`browser_pointer {action:"scroll", ref, delta_y:600}` 派发成功、截图前后对照位移与请求量一致。因此结果的 `refs[]` 必须带 `actions` 供模型选锚点，驱动 `browser_action_unavailable` 映射为结构化失败（保留 hint，提示换一个声明了 `pointer` 的 ref），不得吞成空结果。
 
 ### 约束五：一个实例只登记一个主窗口
 
@@ -125,11 +125,20 @@
 
 **实现约束。**
 
-1. `browser_prepare` 后立刻 `list_windows {pid}`，对每个候选窗口做一次 `get_browser_state`；`binding_quality: exact` 且至少一个 `http(s)` tab 的候选里，恰好一个 → 登记为**主窗口** `(pid, window_id)`；零个 → `browser_session_lost`；多个 → `browser_window_ambiguous`（列出候选并结束本次调用，不按顺序取第一个）。
+1. `browser_prepare` 后立刻 `list_windows {pid}`，对每个候选窗口做一次 `get_browser_state`；候选 = `binding_quality: exact` 的窗口（`pid` 已把窗口集合限定为本 Agent 的驱动实例）。恰好一个 → 登记为**主窗口** `(pid, window_id)`，**不要求该窗口已有 `http(s)` tab**：实施期实测新建实例的初始窗口只有 `about:blank`（`binding_quality: exact`），若要求 `http(s)` 则首次使用永远 0 候选、必然 `browser_session_lost`；噪声窗口（`284×87` 翻译气泡等）本来 bind 失败，真弹窗与主窗口并存时按“多个候选”判 `browser_window_ambiguous`。零个 → `browser_session_lost`；多个 → `browser_window_ambiguous`（列出候选并结束本次调用，不按顺序取第一个）。`http(s)` 判据只保留在新窗口事件分类（约束三）。
 2. 之后所有读取与动作都只解析主窗口；`browser_read` 结果里的 `tab.window_id` 是主窗口。请求可选 `window_id`，不等于主窗口 → `browser_window_not_registered`。
 3. 主窗口 bind 失败（实例还在但窗口句柄变了）时：重新 `list_windows {pid}` 并按第 1 条重新登记；仍失败 → `browser_session_lost`，旧 `read_id` 一律按 stale 处理。
 4. 新窗口（真窗口/噪声/未分类）都不登记为主窗口；真窗口在本次调用结束时按约束二结束实例，因此不存在“第二个可操作窗口”。
 5. 跨窗口不生效：`tab` 匹配器只在主窗口内匹配；匹配不到 → `browser_tab_not_found`，不跨窗口找。
+
+### 实施期实测补充（V1 / V5 / V4 主窗口登记）
+
+Gate 2 之后在实施期用本机 `cua-driver 0.38.0` 补跑了两项验证并纠正了一条设计判据；夹具与截图只在 `/tmp/desktop-verify/`，不入库。逐项结果、未执行项与驱动响应形状见 [M1-page-actions/evidence/real-driver-checks.md](M1-page-actions/evidence/real-driver-checks.md)。
+
+- **V1 PASS**：页面内 `browser_type {delivery_mode:"background"}` 写入 14 字符，回读 `value` 与输入一致，全程前台 app 未变。
+- **V5 PASS（带约束）**：`browser_pointer {action:"scroll", ref:<声明 pointer 的 ref>, delta_y:600}` 派发成功，截图前后对照位移与请求量一致，前台未变；用 `listitem`/静态文本当锚点会被驱动拒绝（见约束四第 6 条）。
+- **V4 主窗口登记纠正**：新建实例的初始窗口只有 `about:blank` 且 `binding_quality: exact`，因此“候选必须含 `http(s)` tab”会让首次使用永远 0 候选；登记判据改为“唯一 exact 绑定”（见约束五第 1 条）。另一处实现期纠正是页面文本来源：`semantic_v2` 的页面文本在顶层 `outline`，`snapshot` 只是元数据。
+- **未执行**：V2（`window.open` 后 `end_session` 是否把前台还给用户 app）、V4 的弹窗半边、V3 的完整独立采样——这些都要启动多个真实浏览器实例并抢前台，执行前被授权门禁拦下，记录在 evidence 文件；按设计 V2 未通过前不发布该能力，交付 PR 必须标注这一未验证项。
 
 ## 架构总览
 
@@ -185,14 +194,14 @@ driver-owned isolated Chrome（独立 profile；随浏览器会话/空闲结束�
   - **return_to_agent**（Global 根会话与子 Agent）：只有分类器放行才执行；分类器要求人工时**不出卡片**，直接拒绝（`NanoApprovalDenied`），模型须向用户说明“这一步需要在单聊里确认”。
   - **unattended**（`schedule`/`heartbeat`）：`browser_act` 加入无人值守回退排除集——分类器要求人工时一律拒绝，不因 `unattendedFallback: 'allow'` 自动放行；分类器明确放行的低风险动作仍可执行。理由是页面动作有外部副作用，没人看着时不应该用“回退允许”代替审批。
   - 唯一例外是用户显式开启 `dangerouslySkipPermissions`（既有产品语义，不为此新增分支）。
-- 静态守卫在 `tools/pre-execute` 提供无 I/O 的确定性拒绝：非 darwin、`open` 的 scheme 不是 http(s)、click 无 ref（v1 不支持坐标）、scroll 无 `ref` 或无 `delta`、输入文本超长（默认 4000 字符）、驱动路径不可执行、请求的 `window_id` 不是已登记主窗口、**需要新实例但 TurnGate 不通过**（`browser_launch_requires_user_turn`）、**该 Agent 处于前台归还失败的需人工恢复状态**（`browser_foreground_release_failed`）。守卫的拒绝经 `next()` 先到达审批层，因此先于分类器。执行期只复核依赖页面实时状态的事：“是不是我们的 pid/窗口”“`read` 之后页面是否变了”“标签是否仍唯一”。
+- 静态守卫在 `tools/pre-execute` 提供无 I/O 的确定性拒绝：非 darwin、`open` 的 scheme 不是 http(s)、click 无 ref（v1 不支持坐标）、scroll 无 `ref` 或无 `delta`、输入文本超长（默认 4000 字符）、请求的 `window_id` 不是已登记主窗口、**需要新实例但 TurnGate 不通过**（`browser_launch_requires_user_turn`）、**该 Agent 处于前台归还失败的需人工恢复状态**（`browser_foreground_release_failed`）。守卫的拒绝经 `next()` 先到达审批层，因此先于分类器。执行期只复核依赖页面实时状态的事：“是不是我们的 pid/窗口”“`read` 之后页面是否变了”“标签是否仍唯一”。
 - `browser_act` 的审批文案与工具描述必须写明：不登录、不提交表单、不下载；需要改动页面状态的动作要先读后做；不接受坐标点击。
 
 **D8：每个 Agent 一个驱动 session，串行、随 Agent 销毁结束。**
 session label 随机生成（`nano-br-<8hex>`），同进程内按 agentId 复用；所有动作在同一 label 下串行；`agent/disposed` 调 `end_session`（幂等，证据 L320–325）。除销毁外还有两条结束路径：真实新窗口后主动 `end_session` 归还前台（约束二第 5 条），以及驱动 `idle_expires_in_seconds: 300` 与 `profile_persists_after_session:false` 兜底回收。**不提供模型可调用的 `close` 动作**：靠模型自觉收尾不是机制，实例纪律由宿主生命周期负责。进程级最多 2 个实例，超出返回 `browser_busy`。不按“每个对话一个实例”：结束一段对话不结束实例（只有 Agent 销毁、真窗口归还前台、空闲回收会结束），一个 Agent 的多个会话应看到同一页面上下文，且驱动的 lifecycle session 本来就以 label 为界。
 
 **D9：驱动版本与宿主前置显式探测、只报告不修复。**
-启动后首次调用探测 `cua-driver --version`（要求 `0.38.x`，其他版本返回 `browser_driver_version_unsupported` 并拒绝执行）、`cua-driver status`（当前版本输出的是人类可读文本而不是 JSON，按退出码与 “daemon is running”/`permission mode` 文本判断；文本匹配失败时把该命令的原始输出片段（截断）一并放进错误，便于用户自查）、`permissions status --json`（Accessibility / Screen Recording 的结构化结果）。缺任何一项返回可操作的错误，不自动安装、不自动授权、不自动启动 daemon（启动 daemon 会改变机器状态并可能弹 TCC 提示）。驱动路径可由 `NANO_CUA_DRIVER` 覆盖，否则查 `PATH`。
+启动后首次调用探测 `cua-driver --version`（要求 `0.38.x`，其他版本返回 `browser_driver_version_unsupported` 并拒绝执行）、`cua-driver status`（当前版本输出的是人类可读文本而不是 JSON，按退出码与 “daemon is running”/`permission mode` 文本判断；文本匹配失败时把该命令的原始输出片段（截断）一并放进错误，便于用户自查）、`permissions status --json`（Accessibility / Screen Recording 的结构化结果）。缺任何一项返回可操作的错误，不自动安装、不自动授权、不自动启动 daemon（启动 daemon 会改变机器状态并可能弹 TCC 提示）。驱动路径可由 `NANO_CUA_DRIVER` 覆盖，否则查 `PATH`；路径不可执行属于驱动探测（`probe()`，运行时一次），不进无 I/O 的静态守卫。
 
 **D10：不新增 Feature，只做两项默认关闭的工具。**
 Feature 会进入 `featureDependencies`，需要在 `src/IM/frontend` 增 i18n 标签并触发前端原型/配置页设计；而本能力的开关语义就是“这两个工具选不选”，与 `skill_view`、Goal 工具同一模式。拒绝备选：`browser_control` Feature（requires 两个工具）—— 收益只是设置页多一个合并开关，代价是前端面、i18n 与原型门禁，与首版范围不成比例。将来若需要“一键开关”，可在不改本设计身份/审批层的前提下补 Feature。
@@ -214,7 +223,7 @@ Feature 会进入 `featureDependencies`，需要在 `src/IM/frontend` 增 i18n �
 | `screenshot` | boolean | 否 | 是否保存一张视口截图；路径是 workspace 相对路径，`width/height` 是设备像素 |
 | `max_chars` | integer | 否 | 文本上限，默认 8000，硬上限 20000 |
 
-返回：`{read_id, tab:{url,title,active,window_id}, text, refs:[{ref,role,name}], truncated, screenshot?:{path,width,height}, driver:{version}, events?:[], ignored?:[], foreground_released?:true}`。`foreground_released` 只在读动作期间出现真实新窗口并成功结束后返回。
+返回：`{read_id, tab:{url,title,active,window_id}, text, refs:[{ref,role,name,actions}], truncated, screenshot?:{path,width,height}, driver:{version}, events?:[], ignored?:[], foreground_released?:true}`。`foreground_released` 只在读动作期间出现真实新窗口并成功结束后返回。
 
 ### 工具：`browser_act`
 
@@ -225,7 +234,7 @@ Feature 会进入 `featureDependencies`，需要在 `src/IM/frontend` 增 i18n �
 | `action` | enum | 是 | `open` / `click` / `type` / `scroll` |
 | `url` | string | `open` 必填 | 只接受 `http`/`https` |
 | `read_id` | string | 除 `open` 外必填 | 最近一次读取的快照游标 |
-| `ref` | string | `click` 必填；`scroll` 必填 | 最近一次读取返回的 ref；`click` 只能用 ref，不接受坐标 |
+| `ref` | string | `click`/`type` 必填；`scroll` 必填 | 最近一次读取返回的 ref；`click` 只能用 ref，不接受坐标；`scroll` 的锚点必须是声明 `scroll`/`pointer` 动作的 ref |
 | `text` | string | `type` 必填 | 最长 4000 字符 |
 | `replace` | boolean | 否 | 透传驱动的整段替换语义 |
 | `delta_y` / `delta_x` | number | `scroll` 至少一个 | 滚动量（CSS px）；在 `ref` 元素处滚动 |
@@ -269,10 +278,10 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 | `browser_launch_requires_user_turn` | 需要新实例，但请求所属层不在场：轮次已结束、无真实用户消息、最近人类发言已超 300 秒在场窗口，或来源是 `schedule`/`heartbeat`/`task-execution`/`task-change` 及其派生的子 Agent；链断/环检测失败同样归此码 | 告知用户需要在对话里发起；不要重试开窗 | 否（本任务） |
 | `browser_session_lost` | bind 失败且重建一次仍失败 | 重新读取；持续失败则报告 | 一次 |
 | `browser_navigation_rejected` | 非 http(s) | 换合法地址 | 否 |
-| `browser_driver_refused` | 驱动结构化 refusal（含 `browser_tab_not_found`、foreground 拒绝） | 按 hint 处理，不原样重试 | 视 code |
+| `browser_driver_refused` | 驱动结构化 refusal（含 `browser_tab_not_found`、滚动锚点未声明 `pointer` 的 `browser_action_unavailable`、foreground 拒绝） | 按 hint 处理，不原样重试 | 视 code |
 | `browser_driver_timeout` | 子进程超时 | 报告并说明页面状态未知 | 一次 |
 | `browser_driver_malformed` | 空/非 JSON/缺字段 | 报告失败，不当成功 | 一次 |
-| `browser_foreground_release_failed` | 真窗口后 `end_session` 重试一次仍失败（含 label/pid 预校验不符）；失败后该 Agent 进入需人工恢复，后续调用直接返回本错误，直到 `failedAt + 300s` 冷却到期（或新实例 `end_session` 成功） | 请用户手动关闭该浏览器窗口；不再派发动作 | 否（自动） |
+| `browser_foreground_release_failed` | 真窗口后 `end_session` 重试一次仍失败（含 label/pid 预校验不符）；失败后该 Agent 进入需人工恢复，后续调用直接返回本错误，直到 `failedAt + 300s` 冷却到期（冷却期内所有调用直接拒绝，不新增“新实例成功清除”分支） | 请用户手动关闭该浏览器窗口；不再派发动作 | 否（自动） |
 | `browser_unexpected_event` | 未分类窗口 | 结束本次调用；先把事件告知用户，再决定是否继续 | 否（自动） |
 | `browser_busy` | 超过进程级实例上限 | 稍后再试或结束其他 Agent 的实例 | 是 |
 | `NanoApprovalDenied` | 审批拒绝，含无人工出口（Global 根/子 Agent/无人值守回退）被拒 | 说明被拒绝；需要用户确认时请在单聊里发起 | 否 |
@@ -310,7 +319,7 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 - **实例缺失但需要启动**：TurnGate 不通过 → `browser_launch_requires_user_turn`，不启动、不重试开窗；TurnGate 通过 → 允许重新 `browser_prepare` 一次；连续两次失败即停止并报告，不循环重建。
 - **会话丢失**：`browser_session_lost` 后清空本地登记；下一次调用按上一条重新 prepare（同样受 TurnGate 约束），旧 `read_id` 一律 stale。
 - **未分类事件**：结束本次调用、返回窗口证据与模型可见指导（先告知用户再决定是否继续）；不自动重试、不自动忽略，也不声称宿主“停止批次”。
-- **前台归还失败**：真实新窗口后 `end_session` 失败（含 label/pid 预校验不符）→ 重试一次；仍失败返回 `browser_foreground_release_failed`，请用户手动关闭，并让该 Agent 进入需人工恢复状态——后续调用不派发驱动动作、直接返回该错误，直到 `failedAt + 300s` 冷却到期（惰性清除，不做 pid 探测）；新实例 `end_session` 成功也清除该状态。兜底是驱动 300 秒空闲回收。
+- **前台归还失败**：真实新窗口后 `end_session` 失败（含 label/pid 预校验不符）→ 重试一次；仍失败返回 `browser_foreground_release_failed`，请用户手动关闭，并让该 Agent 进入需人工恢复状态——后续调用不派发驱动动作、直接返回该错误，直到 `failedAt + 300s` 冷却到期（惰性清除，不做 pid 探测）；冷却期内 prepare 也被拒绝，所以不需要“新实例成功收尾清除状态”的分支。兜底是驱动 300 秒空闲回收。
 - **驱动拒绝**：结构化 refusal 原样映射为 `browser_driver_refused`（保留 code 与 hint），由模型按 hint 处理；`background` 下被拒（如需要前台的路径）不得自动改 `foreground` 重试。
 - **审批拒绝**：返回 `NanoApprovalDenied`，不重试、不换工具绕过；需要用户确认时，模型说明“请在单聊里发起这一步”，由用户决定是否改变任务方向。
 - **进程/Agent 销毁**：`end_session` 幂等；截图不随实例结束或 Agent 销毁删除，只按 TTL 与数量上限在写入时清理（进程启动时补一次有界清理：只扫已配置 Agent workspace 下的 `.nanoassistant/browser/<agentId>/`，失败不阻塞启动）；进程崩溃时驱动按 300s 空闲回收实例，本地状态随进程消失，不需要持久恢复。
@@ -329,7 +338,7 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
   - 页面内容不长期持久化、不跨会话继承：实例结束即丢页面状态；截图只是临时证据（TTL 1 小时、最多 20 张，只在写入时清理 + 启动期有界补清，不随 Agent 销毁删除），不写 Memory/Skill，不进 Dreaming 材料。
   - 与压缩/换窗的关系：工具结果是普通 tool result，遵守既有裁剪；`read_id` 不跨上下文窗口承诺有效（新窗口后必须重新读）。
 - **Interactions**：审批分类器看到的是“参数 + 会话里最近一次读取的页面文本 + 用户原话”，不额外注入页面全文；`browser_read` 进入 `safeTools` 后不再重复走分类器（DSH 规则下仍走），但它的首次 `prepare` 由 TurnGate 决定，不靠审批。会话类型决定 `browser_act` 的出口（D7），错误文本必须把“为什么没执行、下一步该找谁”说清楚。
-- **Validation**：单测断言两条工具描述的必含句（承诺原句、read_id/ref 生命周期、只接受 ref 不接受坐标、截图用 `read_image` 读、不登录/不提交/不下载、噪声与失败区分、非用户发起轮次（含任务续跑）与后台委派不能新开实例）；断言结果为有界结构、截图路径在该 Agent workspace 内；断言未选择时不注册到可调用视图（`ToolSelection` 行为复用现有测试面）。
+- **Validation**：单测断言两条工具描述的必含句（承诺原句、read_id/ref 生命周期、只接受 ref 不接受坐标、截图用 `read_image` 读、不登录/不提交/不下载、噪声与失败区分、非用户发起轮次（含任务续跑）、超窗（最近人类发言超过 300 秒）、轮次已结束与后台委派不能新开实例）；断言结果为有界结构、截图路径在该 Agent workspace 内；断言未选择时不注册到可调用视图（`ToolSelection` 行为复用现有测试面）。
 
 ## 契约层增量 (delta-spec)
 
@@ -423,14 +432,14 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 10. 日志与结果不含页面正文、查询串、Cookie、绝对 home 路径等敏感内容（URL 只记 host）。
 11. 工具描述包含约定必含句（承诺原句、首次读取可能打开窗口并短暂占前台、read_id/ref 生命周期、只接受 ref、截图用 `read_image` 读、不登录/不提交/不下载、噪声与失败区分、非用户轮次不能新开实例），并有断言。
 12. `docs/development/agent-context-engineering.md` 要求的 Context 影响已按本 design 的 Consumer/Before-After/Validation 落地，并由 **code review 按 `agent-context-review` Implementation 模式**确认无未覆盖消费链（不新增独立门禁）。
-13. 前台归还失败冷却（fake timer，无浏览器）：`end_session` 失败 → `browser_foreground_release_failed`；`failedAt + 300s` 内每次调用都直接返回同一错误且**零驱动调用**（断言 driver client 未被调用、不做 `ps` 探测）；把 fake timer 推到 300s 后状态清空、可再次按 TurnGate 决策；新实例 `end_session` 成功也清除该状态。
+13. 前台归还失败冷却（fake timer，无浏览器）：`end_session` 失败 → `browser_foreground_release_failed`；`failedAt + 300s` 内每次调用都直接返回同一错误且**零驱动调用**（断言 driver client 未被调用、不做 `ps` 探测）；把 fake timer 推到 300s 后状态清空、可再次按 TurnGate 决策；冷却期内 prepare 同样被拒绝（不新增“新实例成功清除”分支）。
 
 ## 已知限制与未验证清单
 
 - `delivery_mode:"foreground"` 全部分支未实测（会抢前台，本次按边界不执行）；本设计不使用它。
 - `existing_profile` 接入未执行：当前驱动安装是 `standard` 权限模式，`browser_prepare` 的 existing-profile 需要显式启动授权（`--grant existing-profile` 或 embedding authorization host），普通 MCP/工具审批不能替代 profile 授权；本 unit 不实施该通道，spec 中的固定文案只在将来接入时使用。
-- 页面内文字输入（`browser_type`）在本机验证中**未执行**：证据只覆盖了地址栏的 `type_text`（AX 路线）。首版是否包含输入取决于 V1；V1 不通过则移除，不声称“输入可用”。
-- `ref` 锚点滚动未实测：本次滚动用的是 `x/y` 坐标（证据 L418）。首版是否包含滚动取决于 V5；V5 不通过则移除，不退回坐标滚动。
+- 页面内文字输入：**V1 已实测通过**（`delivery_mode:"background"` 写入 14 字符，DOM 回读 `value` 与输入一致，前台 app 未变）；验证只覆盖普通 `textbox`，`contenteditable`/富文本/受控组件未验证。
+- `ref` 锚点滚动：**V5 已实测通过**（锚点必须声明 `scroll`/`pointer`），截图对照位移与 `delta_y` 一致；水平滚动与嵌套滚动容器未验证，不退回坐标滚动。
 - 坐标点击不在 v1：读数不含元素几何、截图是设备像素，没有可用的 CSS px 坐标来源；不接受“按画面估算坐标”。
 - 本能力 v1 实际是“用户发起轮次 + 最近约 5 分钟内可复用实例”的按需/对话内能力：实例空闲 300 秒即回收，定时、心跳、任务续跑轮次（含其派生的子 Agent）都不会新开实例，因此“每小时巡检页面”这类周期任务几乎拿不到实例。**长轮次末端委派**（人类发言已超过 300 秒在场窗口）与**后台委派**（父轮次已结束）同样拿不到实例，只复用已有实例；按层判定恢复的仅是同轮次、300 秒内的同步/前台委派。
 - 多显示器、其它 Space、窗口在不同屏幕上的行为未验证；`window.open` 的前台占用在连续 4 次采样下 ≥4 秒，但未做时长分布；无人干预时驱动 300 秒空闲回收是兜底上界。
