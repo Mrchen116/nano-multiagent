@@ -13,7 +13,8 @@ import { contextTools } from './agent-context.js';
 import { isHumanSource } from './input-source.js';
 
 export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
-const defaultOff = [...goalTools, 'subagent_fork', 'exit_plan_mode'];
+export const defaultOffTools = [...goalTools, 'subagent_fork', 'exit_plan_mode', 'browser_read', 'browser_act'];
+const defaultOff = defaultOffTools;
 const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode', 'exit_plan_mode', 'plugin_manager', 'workflow']);
 
 /** Filters the native callable view after preset contributions are assembled. */

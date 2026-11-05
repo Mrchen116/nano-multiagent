@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import type { UserMessage } from '@deepseek-ai/dsh-llm';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
@@ -20,9 +19,18 @@ import type {} from './codex.js';
 import { contextTools } from '../agent-context.js';
 import { normalizeMessageArguments } from '../message-arguments.js';
 import { isHumanSource } from '../input-source.js';
+import { currentTurnInputs } from './turn.js';
+import { BROWSER_APPROVAL_REASON } from '../browser/contract.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
-const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
+export const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory', 'browser_read']);
+/** Page actions never inherit an unattended fallback allowance. */
+export const unattendedFallbackExcluded = new Set(['browser_act']);
+
+/** Shared unattended-fallback decision used by approval escalation. */
+export function unattendedFallbackAllows(route: 'interactive' | 'unattended' | 'return_to_agent', approval: ApprovalConfiguration, tool: string): boolean {
+  return route === 'unattended' && approval.unattendedFallback === 'allow' && !unattendedFallbackExcluded.has(tool);
+}
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
@@ -75,8 +83,7 @@ export class NanoApproval extends Service {
 
   private route(agent: Agent, config: AgentConfiguration): 'interactive' | 'unattended' | 'return_to_agent' {
     if (agent.session.header.origin === 'subagent') return 'return_to_agent';
-    const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
-    const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as UserMessage);
+    const { inputs } = currentTurnInputs(agent);
     if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
@@ -96,8 +103,9 @@ export class NanoApproval extends Service {
   }
   private async escalate(exec: ToolExecution, config: AgentConfiguration, reason: string, source: string): Promise<PreToolDecision> {
     const route = this.route(exec.agent!, config);
-    if (route === 'interactive') return { kind: 'ask', reason };
-    const allowed = route === 'unattended' && config.approval!.unattendedFallback === 'allow';
+    const askReason = exec.name === 'browser_act' ? `${reason}\n${BROWSER_APPROVAL_REASON}` : reason;
+    if (route === 'interactive') return { kind: 'ask', reason: askReason };
+    const allowed = unattendedFallbackAllows(route, config.approval!, exec.name);
     await this.record(exec, route, allowed ? 'allow' : 'deny', reason, config.approval!);
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
