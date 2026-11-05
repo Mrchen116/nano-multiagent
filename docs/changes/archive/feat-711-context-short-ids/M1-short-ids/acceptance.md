@@ -118,3 +118,64 @@ N/A。spec/design 没有原型、截图或视觉 must-match 契约。
 ### Reference 与文档同步
 
 Reference Artifacts Reviewed仍为N/A；无新增界面或视觉must-match，本轮沿Runbook同API入口。上层文档职责沿R1：`SPEC.md`、`AGENTS.md/CLAUDE.md`、文档规范无需更新；`docs/specs/gateway/agent-capabilities.md`由owner在全部门禁完成后归并。仅acceptance报告为本角色受控写入；栈、原配置备份及forwarder PID93225按caller要求保留，交由owner清理。
+
+## Round 3 · targeted window-local IDs · 2026-11-05
+
+### Snapshot、环境与 verdict
+
+**pass**；0 blocking、0 major、0 minor。仅复验 `window-local-ids.md` 的窗口内从1编号与同号跨窗恢复，未把此结论扩称 Web IM/UI 端到端验证。
+
+- Nano `validated_at=a4533edeaedf34595322ca313b359d2f196d247f`，现场另有本次设计与回归测试未提交变更；执行公开已构建 RuntimeClient。插件源码冻结 `1b35100f4559e2d319268209c4a0d0353f76eaff`，`0.3.0-rc.9`，通过临时正常 root-export 软链接加载已编译 lib；源码工作树 clean。独立记录 lib 文件哈希清单 `/tmp/feat711-window-review/candidate.json`，清单 SHA-256 `6bfd4c25f4667ee2bb6316b25f6513e03734761af13384312d8e6a90a10c0b0a`。本轮不是发布后安装包验证。
+- 独立 home/workspace `/tmp/feat711-window-review/home-3jOw2C`，唯一 session `window-review`；Node24.22.1。仅用公开 prepareProfile/RuntimeClient、initialize、session.ensure/submit/lookup/command compact/shutdown，每次 compact 后完整关闭并重建进程，共两个重启。
+- 真实 provider `anthropic`、请求 model `codexOAuth:gpt-6.1-sol`、真实响应 `responseModel=gpt-6.1-sol`，本地4000既有入口，contextWindow=258400。LLM middleware 仅写 options.messages 并 `yield* next()` 转发，未模拟响应、工具决策或 History。空 Task hosts 仅表明此隔离执行没有产品 Task 数据。
+- 未改动52521服务、原配置或既有聊天。全部自己启动的 RuntimeClient 已正常 shutdown，驱动进程84276已退出；原始证据留本机，不提交配置、凭据或日志。
+
+### 独立观察与判据
+
+| 受影响 Scenario / 来源 | 实测证据 | 结论 |
+|---|---|---|
+| 每个新窗口从1开始；用户/工具就地编号 / window-local-ids.md | 实际模型请求 `requests.jsonl` 第1、3、6行分别为窗口 initial、24、55的首次请求，三个新输入均只有一个 `[id: 1]`；第2、4、7行的首个 Notes 结果均为 `[id: 3]`。assistant 调用占用内部序位但无正文短标记。 | pass |
+| 已发原引用不变，同 item1 跨窗恢复不同原文 / window-local-ids.md；spec 长任务恢复 | 第一窗模型仅保存 initial/item1和等待状态。第二窗模型读取 Notes 后保存24/item1，未复制代号、颜色或核验码。第三窗模型先读 Notes，再直接 history read initial/item1、24/item1；没有 list/search。第9行真实请求含两条返回，分别逐字等于第一次交办129字符和第二次纠正110字符，均truncated=false。 | pass |
+| 重启后依据纠正完成 / spec 长任务恢复 | 原生事件 compaction/start/end 为seq24/27、55/58，两个边界后均重建RuntimeClient；最终 assistant/message seq91 输出严格三行 `海松-7319`、`绿色`、`冬潮-4826`，三个阶段 terminal均completed。 | pass |
+
+最终答案只能从两条原始输入恢复：Notes 无原文、第二阶段等待回复无答案、第三阶段新输入未重复答案。实际第三窗首次请求已无前两条任务正文，History结果进入第8/9行后续真实调用，分别保留各自窗口及item1，没有混窗。独立逐字比对结果为 `checks.json`。
+
+### Retained 与证据边界
+
+R2已关闭的首次用户引用稳定性在本轮再次实测；R2原生长工具裁剪、偏移续读、原文形似标记保留及R1跨父子拒绝边界继续 retained：本次有界变更只调整窗口内编号，不改裁剪正文、分页、预算或权限。本轮不重新制造压力裁剪，不声称实测失败事务、pending换窗或旧rc.8升级重放；这些由对应确定性回归和verifier负责。预算简洁展示沿R1/R2已验证结果保留。无新增UI或must-match视觉产物，Reference Artifacts Reviewed为N/A。
+
+本机证据：`/tmp/feat711-window-review/run.mjs` 为公开入口驱动；`home-3jOw2C/requests.jsonl` 为9次真实调用前消息快照；`notifications.jsonl` 与 `sessions/` 为真实流和原生日志；`stage1-terminal.json`、`stage2-terminal.json`、`stage3-terminal.json` 与 `checks.json` 为结束状态和逐字复核。仅证明公开RuntimeClient→真实LLM→Notes/History→重启恢复，不证明IM送达、Web/iOS视觉、最终不可变安装包或生产部署。
+
+## Round 4 · targeted final package / fresh Agent · 2026-11-05
+
+### Verdict 与受审版本
+
+**pass**；0 blocking、0 major、0 minor。按用户最新要求，最终实现不兼容旧版本编号；本轮从零创建 Agent 重新跑完整有界真实模型旅程。R3留作历史，不用其旧Agent/会话代替本轮证据。
+
+- Nano `validated_at=326663749da12f1e8f179eca330cb1e9b755479a`，现场受控文档、测试与最终依赖接线未提交；插件源码冻结 `76e7a421ec9191540ebb0fa3d0279a26c7070c96`，设计R8。
+- 本轮正常pnpm安装 `dsh-agent-context@0.3.0-rc.9`，解析到工作树 `node_modules/.pnpm/…/node_modules/dsh-agent-context`，不是插件源码软链。不可变候选 `/tmp/nano-feat711-window-local/dsh-agent-context-0.3.0-rc.9.tgz` SHA-256=`af18a7df4a852fe3c1517f4f30f305a1036ce7d2950f784bc1c4cc0ffab3a296`。
+- reviewer独立逐文件比对实际安装的全部lib与tgz，全部一致；lib哈希清单SHA-256=`c55706374f010d7e6ee6c1ecb0ef5a403a7263c3eb19f53c310d16408c8496f6`，记录在 `/tmp/feat711-fresh-review/candidate.json`。
+
+### 从零起点及真实入口
+
+- Agent ID=`fresh-review-8b2a1fc1-0554-4515-b794-d524096daddd`，revision=`ade3af52-deb3-4c01-957e-578e578deb4d`。
+- Session UUID=`6b927f06-ca3f-4271-a6bd-bca5cddeed27`；workspace/home=`/tmp/feat711-fresh-review/home-iqOJxx`。
+- `clean-start.json` 在2026-11-05T03:11:03.204Z、prepareProfile/initialize之前记录该新mkdtemp目录 `entries=[]`，因此 sessions、agent-context、Notes均不存在。驱动只读取原provider配置；没有复制任何session、Notes、History、旧材料或旧任务状态。全新材料使用云杉/星汐新值，未重用R2/R3内容。
+- 沿公开prepareProfile/RuntimeClient→initialize/ensure/submit→command compact→shutdown/restart，三阶段只有这一个连续任务。空Task hosts仅代表独立执行没有产品Task数据。LLM middleware只记录实际options.messages并next正常转发；没有stub、代拟模型调用或伪造工具回应。
+- 真实provider=`anthropic`、请求model=`codexOAuth:gpt-6.1-sol`、响应model=`gpt-6.1-sol`；本机4000现有入口、contextWindow=258400。未改52521预览、任何旧Agent、配置或聊天。
+
+### 决定性结果
+
+| 目标 / 来源 | 本轮实际结果与证据 | 结论 |
+|---|---|---|
+| 新窗独立从1开始 / window-local-ids.md | `requests.jsonl`第1、3、6行分别是initial、24、55窗口首次真实请求，唯一新用户正文标记均为1；第2、4、7行首个Notes工具结果均为3。 | pass |
+| 同号跨窗不混淆、原引用不漂移 / window-local-ids.md | 模型首窗保存initial/item1；第二窗保存24/item1，Notes只有引用与等待状态。第三窗读取Notes后直接history read这两个原引用，没有list/search。第8/9行实际后续请求分别含完整原交办和纠正；reviewer逐字断言与两条原输入相同，均item1、不同window，均未截断。 | pass |
+| 两次进程重启后按原文与纠正完成 / spec长任务恢复 | 公开compact成功边界seq24–27、55–58。三次RuntimeClient实例及PID分别18438、18806、19153；每个边界后关闭旧进程再创建新实例。最终seq91严格输出三行 `云杉-9264`、`紫色`、`星汐-5803`；三个stage terminal均completed。 | pass |
+
+本轮9次真实请求完整留存；Notes写入内容经核对不含代号、颜色或核验码；第三阶段用户输入未重复答案，最终答案由两个归档原文提供。`checks.json`记录窗口、首工具编号、逐字比对、真实响应模型和最终输出。全部三个RuntimeClient均正常shutdown，逐PID确认不存在，没有遗留本轮进程。
+
+### 证据与范围边界
+
+原始证据仅留本机 `/tmp/feat711-fresh-review/`：`clean-start.json`、`candidate.json`、公开入口驱动`run.mjs`、独立结果核对`check.py`，以及 `home-iqOJxx/requests.jsonl`、`notifications.jsonl`、`sessions/`、`processes.jsonl`、三个`stage*-terminal.json`和`checks.json`。旧R1–R3证据全部保留，没有读取旧会话内容作为本轮模型输入。
+
+本轮验证的是最终正常安装包、新Agent的独立RuntimeClient→真实模型→Notes/History→跨窗重启恢复链，**不是Web IM/UI端到端、IM送达或生产部署验收**。R2裁剪、偏移续读、形似标记正文保留、R1访问拒绝及预算简洁展示按R3明确的未变语义继续retained；未重新制造压力，未实测pending/失败事务（由确定性回归负责）。旧版本兼容已由用户取消，不是遗漏或本轮通过项。无视觉must-match，Reference Artifacts Reviewed=N/A。

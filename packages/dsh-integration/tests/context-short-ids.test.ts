@@ -61,7 +61,12 @@ export function apply(ctx){
     expect(await client!.rpc.request('session.command',{sessionId:binding.sessionId,id:'reset',action:'compact'})).toMatchObject({success:true});
     await client!.shutdown();client=undefined;await start();await submit('RESTORE');
     const final=(await requests()).at(-1)!;
+    const restoreInput=final.find(m=>m.content.some(b=>b.text==='RESTORE'))!;
+    expect(restoreInput.content.at(-1)!.text).toBe('\n[id: 1]');
+    const restoredWindow=/Current context window id: ([^\n<]+)/.exec(final.flatMap(m=>m.content.map(b=>b.text??'')).join('\n'))![1]!;
+    expect(restoredWindow).not.toBe('short-session:initial');
     const recovered=final.find(m=>m.toolCallId==='recover')!;
+    expect(recovered.content.at(-1)!.text).toBe('\n[id: 3]');
     const body=JSON.parse(recovered.content[0]!.text!);
     expect(body).toMatchObject({item_id:id,truncated:true,next_offset_chars:10150});
     expect(body.content).toContain('ORIGINAL_TAIL');
@@ -69,8 +74,14 @@ export function apply(ctx){
     await writeFile(join(home,'target.json'),JSON.stringify({action:'read',window_id:'short-session:initial',item_id:userId}));
     expect(await client!.rpc.request('session.command',{sessionId:binding.sessionId,id:'reset-user',action:'compact'})).toMatchObject({success:true});
     await client!.shutdown();client=undefined;await start();await submit('RESTORE_USER');
-    const original=(await requests()).at(-1)!.find(m=>m.toolCallId==='recover-user')!;
+    const restoredAgain=(await requests()).at(-1)!;
+    expect(restoredAgain.find(m=>m.content.some(b=>b.text==='RESTORE_USER'))!.content.at(-1)!.text).toBe('\n[id: 1]');
+    const original=restoredAgain.find(m=>m.toolCallId==='recover-user')!;
     expect(JSON.parse(original.content[0]!.text!)).toMatchObject({item_id:userId,role:'user',content:'USER_REQUEST'});
+    await writeFile(join(home,'target.json'),JSON.stringify({action:'read',window_id:restoredWindow,item_id:'1'}));
+    await submit('RESTORE_SECOND_WINDOW');
+    const secondWindowOriginal=(await requests()).at(-1)!.find(m=>m.toolCallId==='recover')!;
+    expect(JSON.parse(secondWindowOriginal.content[0]!.text!)).toMatchObject({item_id:'1',window_id:restoredWindow,role:'user',content:'RESTORE'});
   } catch(error) {throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally {if(client)await client.shutdown().catch(()=>{});await rm(home,{recursive:true,force:true});}
 },30000);

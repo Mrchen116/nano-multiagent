@@ -185,3 +185,72 @@ The old `/tmp/nano-id-projection-L6wMZV/` evidence directory was cleaned by the 
 ```
 
 **Pass: final artifact/handoff gate closed.** Public bytes equal the accepted candidate and HTTPS frozen installation passes recovery/stress validation. Ready for unchanged reviewed delta canonical merge, unit archive and Nano PR. Caller performs those document/delivery steps. No Nano PR exists yet, so no Nano remote CI result is claimed; plugin CI/local checks are not relabeled Nano CI. No production deployment is authorized or performed by this report.
+
+
+## Round 8 — window-local IDs follow-up / independent code review
+
+- review_mode: full specified plugin delta + targeted Nano follow-up, Agent Context Mode B. Reviewed plugin `2fa5911cb035caef2afb762d0715ed93d073079b..1b35100f4559e2d319268209c4a0d0353f76eaff` (12 files), and Nano `a4533edeaedf34595322ca313b359d2f196d247f` plus the uncommitted window-local spec/design/review/delta-spec and `packages/dsh-integration/tests/context-short-ids.test.ts`. Design R6 Approved is the target. Reviewer did not modify product source or tests.
+- Covered shared successful-window detection; logical first-occurrence grouping and physical replacement ownership; legacy persisted markers and unprinted assistant positions; pending-input reannotation after a same-step reset; guidance/reminder/fallback composition; paired History addressing; host seq view; restart/replay integration assertions. Existing source/error/provenance and authorization boundaries remain unchanged in this delta.
+- Reused execution evidence: `/tmp/feat711-window-ids-plugin-tests.log` records 41 plugin tests passing; `/tmp/feat711-window-ids-nano.log` records the real RuntimeClient subprocess restart fixture passing (stub LLM); `/tmp/feat711-legacy-window-replay.json` records the prior real child log's 77 logical IDs across three windows with zero changes. These are applicable evidence, but do not establish compatibility for every old-window shape.
+- New independent verification uses an isolated archive of the exact old plugin base at `/tmp/feat711-static-review-rc8`, with its original actual AgentLoop harness and the existing hard-cap-pressure script shape from `tests/safety.spec.ts`. The reviewer-only test `/tmp/feat711-static-review-rc8/tests/review-zero-anchor.spec.ts` compares the old plugin's History output against the candidate's reconstruction of that exact old event log. No preview, production process or caller model run was touched.
+- Evidence locator: `/tmp/feat711-static-review-legacy-zero-anchor.log:5-6` contains the old successful read, upgraded read failure and compact ID changes; `/tmp/feat711-static-review-legacy-zero-anchor.json` contains the summary; `/tmp/feat711-static-review-legacy-zero-anchor-events.json` retains the complete synthetic event log. The regression assertion is intentionally red (1 file / 1 failed test); this is new confirmed compatibility evidence, not a failing claimed candidate-suite execution.
+
+### Findings
+
+```json
+[
+  {
+    "file": "/Users/czj/Repos/opensource-hub/dsh-agent-context-feat-676/src/item-id.ts",
+    "line": 46,
+    "summary": "[P2] Preserve legacy IDs for windows without a persisted marker",
+    "failure_scenario": "Original rc.8 can produce a window containing only an assistant tool call and a result that triggers pressure before markToolResults runs, or a window containing only a final assistant response. Such a window has no contextItemId anchor. The old actual AgentLoop hard-cap script creates window review-legacy-hardcap:26 with History IDs assistant=6/tool=7, and :36 with assistant=8. Candidate reconstruction changes them to 1/2 and 1 because anchor<0 chooses base=0. Old History search/read returns :26/6 successfully; candidate read of that same saved pair returns not_found. Thus legacy references and unprinted assistant positions drift despite the explicit compatibility target.",
+    "review_mode": "full specified plugin delta; Agent Context Mode B",
+    "status": "CONFIRMED",
+    "surface": "History / Compaction durable short references and Notes recovery",
+    "expected": "Already-issued old window_id/item_id pairs and old rc.8 assistant positions remain stable; only windows created under the new numbering epoch restart at 1.",
+    "observed": "An old window without an inline-marker anchor is treated as a newly numbered window, although rc.8 History can already have issued its global IDs.",
+    "impact": "Saved references to valid archived actions/results fail recovery after upgrade; the current legacy assistant-only window also changes its numbering basis.",
+    "recommendation": "Distinguish old unanchored windows from new numbering windows using durable upgrade/numbering provenance, preserve the old global positions for the former, and add this actual rc.8 pressure/replay case to the compatibility regression.",
+    "severity": "WARNING",
+    "evidence": "/tmp/feat711-static-review-legacy-zero-anchor.log:5-6; /tmp/feat711-static-review-legacy-zero-anchor.json; /tmp/feat711-static-review-legacy-zero-anchor-events.json; synthetic actual rc.8 AgentLoop execution, not a real-provider behavior claim"
+  }
+]
+```
+
+**Changes required for the confirmed legacy-window finding.** The current candidate's ordinary new-window reset, anchored legacy windows and same-step pending-input behavior have relevant passing evidence. This review does not claim immutable release/integration delivery, canonical merge, final verifier or independent real-model acceptance are complete. The tracked Nano dependency remains rc.8 while the caller's candidate linkage/model verification is in progress; that declared unfinished step is not reported as an implementation defect.
+
+
+## Round 9 — final window-local rule / requirement-change closure
+
+- review_mode: patch + closure / Agent Context Mode B; fixed plugin `1b35100f4559e2d319268209c4a0d0353f76eaff..76e7a421ec9191540ebb0fa3d0279a26c7070c96`. Nano source base remains `a4533edea` plus the declared follow-up docs/test and in-progress package wiring. Design R8 Approved and the latest user instruction “不需要！不用兼容旧版本” supersede the legacy compatibility target.
+- R8-P2: **superseded by requirement change, not fixed**. The original rc.8 zero-anchor counterexample remains factually valid; preserving its old global IDs is outside the final scope. No migration metadata/epoch/fallback was implemented. The abandoned R7 compatibility design remains history.
+- Read all three patch files: `src/item-id.ts` removes published-marker anchors/group bases and uses next=1 at each shared successful compaction end, maintaining one global message.id dedup map; `tests/short-ids.spec.ts` removes only the canceled compatibility test; README explicitly disclaims old session-wide-reference migration while preserving logs/Notes. Remaining marker ownership, pending reset reannotation, physical replacement, History paired lookup, source/authorization, budget, host seq and guidance are unchanged from reviewed Round8.
+- Mechanically, a successful end is a non-message boundary, so resetting next before that event preserves History's subsequent-message window assignment. Replacements already in the global identity map consume no position in the new window. Failed/unclosed boundaries are absent from the same shared successfulCompactions result. Pending annotation does not participate in allocation; same-step reannotation strips the owned old block and creates one final block.
+- Reused `/tmp/feat711-window-ids-plugin-final.log`: 40 tests /10 files pass on final source. Reviewer independently reran `/tmp/feat711-new-model-replay.mjs`: the actual R3 new-session log's nine persisted markers across three windows all match final allocation, zero changes (`/tmp/feat711-final-model-replay.json`). The patch does not alter guidance, Notes/History schema, underlying content or tool selection; R3 true-model behavior is retained for the supported new-rule scope, without claiming R3 originally ran on final source.
+- Independently hashed local rc.9 tgz SHA-256 `af18a7df4a852fe3c1517f4f30f305a1036ce7d2950f784bc1c4cc0ffab3a296` and compared all33 packed lib files with Nano's normally installed candidate: zero mismatches, installed version0.3.0-rc.9. Read `/tmp/feat711-window-local-build-final.log`: normal peer-topology install builds successfully. The earlier temporary cross-repository symlink's duplicate DSH type identity error is not evidence of a product code defect, and its failure is not rewritten as success.
+
+### Findings / closure
+
+```json
+[]
+```
+
+No surviving finding in the fixed patch under the final authorized requirements. Source review / R8-P2 scope closure complete. Final anonymous HTTPS artifact, lock/integrity installation, applicable post-install runtime checks and canonical reconciliation remain separate pending handoff conditions; this report does not claim those steps complete or production deployment authorized.
+
+
+## Round 10 — public rc.9 artifact / final fixture delta closure
+
+- review_mode: targeted artifact + one-line fixture patch closure; retained source review R9 / Mode B. Validated at Nano `326663749da12f1e8f179eca330cb1e9b755479a` (merge parents `a4533edea`, main `fc447faee`) plus the declared current follow-up diff; plugin source/tag `76e7a421ec9191540ebb0fa3d0279a26c7070c96` / `v0.3.0-rc.9`.
+- Reviewer independently checked public tag and GitHub release API: tag resolves to the frozen source, draft=false, prerelease=true, named tgz asset present. Anonymous HTTPS download to `/tmp/feat711-review-public-rc9.tgz` yields SHA256 `af18a7df4a852fe3c1517f4f30f305a1036ce7d2950f784bc1c4cc0ffab3a296`; SHA512 `sha512-Ne3CiiV+n4D+R2wuN/xLYpxlqsWAZAUu4JqipcCuFoAlEkNKXYXKNcJreOxwZoIGlhMCbKdAR2ATZYxrYERflg==` exactly matches repository lock. All33 public packed lib files equal current normally installed HTTPS pnpm package bytes, versionrc.9. package.json and repository lock now use that HTTPS URL, with no local-tar pointer or cross-repository plugin linkage.
+- One-line fixture patch at `packages/dsh-integration/tests/agent-disable-native.test.ts:67` resolves the actual `@deepseek-ai/dsh/package.json` before constructing createRequire, instead of anchoring resolution to a literal node_modules symlink path. This uses standard package resolution and the same declared DSH dependencies; it changes no product source, assertions, timeout or subprocess behavior. Reviewer independently resolved both terminal packages through this exact new anchor, confirming terminal-bash is a declared DSH dependency. `/tmp/feat711-window-local-native-fixture.log`: seven tests pass. No new finding in this patch.
+- Final actual-model product R4 is fresh-state evidence, not merely retention of R3: acceptance.md R4 plus `/tmp/feat711-fresh-review/clean-start.json` establish empty newly allocated home before initialize, new Agent `fresh-review-8b2a1fc1-0554-4515-b794-d524096daddd` and session UUID `6b927f06-ca3f-4271-a6bd-bca5cddeed27`, without copied Notes/History. Final normally installed tgz bytes match the public release. `home-iqOJxx/checks.json` records nine real-model requests, input1/tool3 in all three windows, exact two-original recovery after two compact/process-restart boundaries, correct final result and all three processes exited. This is isolated RuntimeClient/real-model behavior, not IM/UI/provider-wire or production acceptance.
+- `/tmp/feat711-window-local-public-runtime.log`: public-package cross-process recovery fixture1pass. `/tmp/feat711-window-local-host-contracts.log`: five files/22 tests pass for approval sources, Task originals, Memory/source-history/Dreaming boundaries. Normal installed-tar build/typecheck evidence remains applicable to these identical published bytes; publication adds no source delta. Reviewer did not rerun blanket suites.
+- Current canonical short-reference Requirement independently compared byte-for-byte with corrected delta: equal. New-window scenario is present; existing original recovery/business evidence/authorization scenarios are retained.
+
+### Findings / final handoff
+
+```json
+[]
+```
+
+**Pass: scoped code-review and final artifact handoff closure.** R8-P2 remains superseded by the explicit requirement change, not repaired legacy compatibility. Public artifact content, normal HTTPS installation, affected runtime/host-contract checks and fresh-Agent actual-model behavior are now evidenced; canonical reconciliation is complete. The local full-suite attempt was stopped after a concurrent global-child-tools PA=true case failed; all three unchanged case combinations subsequently pass independently. Preserve both facts: this report does not call the interrupted aggregate green. Nano remote complete CI, PR creation/merge and deployment remain subsequent delivery steps, with production outside this review authorization. The inspected install log records a normal HTTPS install; no frozen-lockfile execution is inferred from it.

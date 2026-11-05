@@ -52,3 +52,18 @@
 - final sync：origin/main 仍为 `2ac60077e4988ab0db5789841b51f42bab02789c`，与既有门禁 base 一致，无新增主干差异。发布包与先前验收包字节一致，原独立模型验收和代码审查的语义范围保留；最终 artifact gate 见 verification.md 后续结论。
 
 最终 artifact 门禁独立通过（verification Round7），已审 delta 原样归并到 Gateway capability current spec，unit 整体归档供 PR 审查；上述验证后的收尾仅改文档，不改变运行代码或依赖字节。Nano 远端 CI 以本分支 PR 检查结果为准。
+
+
+## 窗口内编号后续修正 · 2026-11-05
+
+- 用户要求每窗从1开始，并明确“不需要！不用兼容旧版本”；不保留旧编号基数恢复、metadata迁移或fallback。设计R8 Approved；代码R8-P2按需求变更 superseded，非修复。
+- 插件冻结 `76e7a421ec9191540ebb0fa3d0279a26c7070c96`，PR https://github.com/Mrchen116/dsh-agent-context/pull/5；原生成功窗口识别共用 windows.ts，新窗 next=1，message.id去重，pending在成功换窗后重新标记，原文形似标记仍保留。40 tests、plugin build/typecheck通过。
+- 已发布不可变预发布 rc.9，公开URL已匿名下载；SHA256 `af18a7df4a852fe3c1517f4f30f305a1036ce7d2950f784bc1c4cc0ffab3a296`。正常公开HTTPS安装后的33个lib与下载包逐字一致，pnpm-lock的SHA512一致，详本机 `/tmp/feat711-window-local-public-artifact.json`。不使用开发目录软链或/tmp文件依赖交付。
+- 真实模型R4使用全新Agent/UUID会话与空白home，最终正常安装候选包完成三窗、两次进程重启、两个旧窗item1原文分别恢复。详acceptance.md R4；自建进程均退出，未触碰用户52521预览。
+- Nano跨进程回归新增每次重启后输入1/工具3，并分别读取不同窗口的item1。正常tar安装全仓build/typecheck、Python135 passed/28 deselected和iOS runtime检查通过。
+- 验证环境边界：初次跨仓源码软链导致重复DSH类型身份，build/typecheck失败；已改为正常tar安装后通过。首轮全量随后停止，不宣称完成。
+- 正常安装后本地全量发现 global-child-tools 的 PA=true 并发场景失败；三种mode/PA组合独立复验全部通过，未修改该用例或产品代码，全量未完成。保留 `/tmp/feat711-window-local-nano-final-suite.log` 与 `/tmp/feat711-window-local-fork-target.log`，最终CI另行记录。
+- 原生disable验证的测试fixture从字面软链路径创建require，无法读取DSH已声明的terminal-bash依赖；改为先公开resolve package.json再创建require。此单行改动不改断言或运行时；原失败1项、修正后原7项通过，日志 `/tmp/feat711-window-local-native-fixture.log`。
+- origin/main推进到 `fc447faee`（浏览器凭证稳定性709），已以merge同步；与编号/模型消费链无交集，原相关门禁按受影响范围保留。公共包最终运行时回归与远端CI结果待下文续记。
+
+- 最终交付树 code-review R10 无存活发现，verification R9 targeted pass / corrected-delta aligned；产品R4为全新Agent最终候选包实测。公网安装后真实进程回归1项、宿主审批/Task原文/History与Memory边界5文件22项均通过。新发布包、锁文件和canonical接线已由独立静态审查核对；下一步为Nano PR完整远端CI，不以窄复验替代全量结果。

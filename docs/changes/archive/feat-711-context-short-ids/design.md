@@ -32,8 +32,8 @@ feat-627 采用按需引用，bugfix-629 防止动态快照自增长。新方案
 
 ## 架构总览与关键决策
 
-1. **会话内短整数由日志确定。** 依原事件顺序，为 History 已收录的 user/assistant/tool 消息的首次 message.id 分配 1、2、3…；同 message.id 的裁剪/补标记副本复用编号。assistant 仍可被 History 列出与恢复，但正文不加标记，因此可见编号允许有间隔。候选新 user 按 decision.messages 顺序接在已提交编号后；取消前未提交的输入不保留号码。重启、换窗和 fork 由完整继承日志重建，不依赖压缩后的 surface，也不截取 UUID。
-2. **首次模型可见之前附加。** 在同一个 pre-step 中，完成下游 decision 后先将待采纳 user 标记，再以最终被返回的批次测量预算；控制来源 runtime-context/compact-checkpoint/agent-context/skill-catalog/agent-instructions 排除；后二者会在 pre-step 之后、待采纳 user 之前提交，不能占用短编号。已有工具结果在原生压力裁剪后、返回模型前补标记；采用公开 tool/result replacement，覆盖正常、错误、取消和恢复产生的结果。若执行了换窗，被移出 surface 的工具无须再次标记；新输入仍需标记。工具最终格式化发生在前一 step，故无 post-execute 的分支覆盖问题。
+1. **窗口内短整数由日志确定。** 2026-11-05 后续修正见 [窗口内编号补充设计](window-local-ids.md)。依原事件顺序，在每个成功完成的原生窗口中为 History 已收录的 user/assistant/tool 消息的首次 message.id 分配 1、2、3…；同 message.id 的裁剪/补标记副本复用编号。assistant 仍可被 History 列出与恢复，但正文不加标记，因此可见编号允许有间隔。候选新 user 按 decision.messages 顺序接在当前窗口已提交编号后；取消前未提交的输入不保留号码。重启、换窗和 fork 由完整继承日志重建，不依赖压缩后的 surface，也不截取 UUID。
+2. **首次模型可见之前附加。** 在同一个 pre-step 中，完成下游 decision 后先将待采纳 user 标记，再以最终被返回的批次测量预算；控制来源 runtime-context/compact-checkpoint/agent-context/skill-catalog/agent-instructions 排除；后二者会在 pre-step 之后、待采纳 user 之前提交，不能占用短编号。已有工具结果在原生压力裁剪后、返回模型前补标记；采用公开 tool/result replacement，覆盖正常、错误、取消和恢复产生的结果。若执行了换窗，被移出 surface 的工具无须再次标记；新输入必须在事务完成后按新窗口重新标记，替换旧的插件标记块而不叠加。工具最终格式化发生在前一 step，故无 post-execute 的分支覆盖问题。
 3. **只追加一个专用 text block。** 标记为 `\n[id: N]`。已有活动副本包含相同末尾专用 block 时不重复写；History 只剥离自身可识别的末尾标记，不对正文做全局正则替换。写入/剥离必须覆盖正文中原有 `[id:]`、多 text block、Unicode 和重复接纳。
 4. **恢复原文并隐藏物理副本。** 自身 history 的 item_id 改为短编号；按 message.id 合并物理副本，read 始终读取最早原记录并剥离其标记。只补标记不使原文变成可归档项：若当前副本去标记后的正文与原文相同，视为仍活动；真实裁剪移出的完整正文可恢复，换窗后整项可恢复。列表不重复显示补标记/裁剪副本；seq 保留用于排序、方向游标与原窗口归属。
 5. **保留宿主 API。** createHistoryView 默认继续返回 seq item_id，供 source_history 及记忆证据使用，不混入自身恢复短编号；共享正文归一化但显式选择编号模式。Nano policy/sources 消费有效结构化正文、TaskContextDriver 提交严格原文消费回执前使用插件公开的 stripContextItemId；Nano 的 source_history/证据编号不变；memory-source-view.safeBoundary 必须跳过合法 tool/result surface replace（不是新的调用完成），继续处理后续 step，真正无对应调用的 append 结果仍阻断。旧 Notes 的 seq 引用不提供兼容，保留原文件；旧日志仍可经新 list/search 取得短编号。

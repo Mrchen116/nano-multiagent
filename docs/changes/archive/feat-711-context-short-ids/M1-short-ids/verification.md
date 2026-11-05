@@ -262,3 +262,76 @@ The remaining condition is an external artifact/integration handoff, not an unco
 Round6's four corrected-delta groups remain **aligned**: first inline references; stable original recovery and physical-copy/activity semantics; unchanged approval/Task/source_history evidence/authorization; concise estimated budget. Published bytes implement the same reviewed behavior; no uncovered new external behavior or design deviation found. Completeness moves from pending external integration to all verification/artifact conditions closed; Correctness/Coherence retain pass.
 
 **All required implementation-verification and artifact handoff checks passed. Ready for canonical merge/archive and Nano PR.** This allows subsequent delivery steps; it does not claim they already occurred. No Nano PR exists yet, so Nano remote CI has not run; PR creation/CI, merge and production deployment are not completed facts in this report. Caller may merge the reviewed delta unchanged and archive while preserving executed/validated history, and must show effective_base/effective_through in the PR. Future substantive changes or main synchronization follow the existing gate invalidation rules.
+
+
+## Round 8 — window-local corrected delta / final-source reconciliation
+
+- verification_mode: corrected-delta + targeted closure for the window-local follow-up; final plugin `76e7a421ec9191540ebb0fa3d0279a26c7070c96`, Nano `a4533edea` plus the declared docs/test and in-progress package wiring. Final target is approved design R8 / `window-local-ids.md`, including the user's explicit cancellation of old-version compatibility.
+- requires_full_verification: false. Source findings: **0 CRITICAL /0 WARNING /0 SUGGESTION**. Source corrected-delta outcome: **aligned**. This is an implementation/evidence reconciliation; final public artifact/integration exit gate is still pending.
+
+### Completeness / correctness / coherence
+
+| Dimension | Targeted result |
+|---|---|
+| Completeness | Final source implements the bounded approved behavior; immutable public-artifact integration and canonical current-spec merge remain caller handoff work |
+| Correctness | New windows start at1; shared successful boundaries exclude failed/incomplete resets; original logical identities do not consume extra replacement numbers; paired recovery and restart have relevant deterministic and true-model evidence |
+| Coherence | Final design removes all legacy base inference/metadata/fallback. Plugin responsibility and public DSH interface boundaries remain unchanged; host seq API and authorization stay intact |
+
+### Corrected Delta Reconciliation
+
+| Delta item | Implementation evidence | Applicable execution evidence | Outcome |
+|---|---|---|---|
+| spec first-read / delta first-read: window-local ordered IDs | `item-id.ts::itemIds`, `markInputs`, `markToolResults`; existing control exclusion | final plugin40 tests; integration context-short-ids RuntimeClient fixture; R3 three input1/tool3 pairs | aligned |
+| spec/delta new-window scenario: repeat short IDs scoped by window_id | `windows.ts::successfulCompactions`, shared History boundaries; next reset and global message identity dedup; paired `readHistoryItem` lookup | final short-ids three-window replay; failed/incomplete-boundary regression; R3 recovers initial/1 and :24/1 as different exact originals | aligned |
+| new-rule references survive trim/restart/physical copies | unchanged canonical earliest original and marker stripping; message.id dedup; pending reannotation after successful perform | retained original-content/pricing/idempotence regressions; same-step safety assertion; RuntimeClient restart fixture; real-model R3 two restarts | aligned |
+| no old-version compatibility/migration | removed anchor/base inference, no new persistent state; README explicit old-reference limitation | old compatibility test removed as required; prior R8-P2 superseded by user requirement change, not fixed | aligned |
+| business evidence/authorization and concise budget unchanged | host createHistoryView seq allocation, normalizer, permissions and budget renderers unchanged by this follow-up | retain applicable earlier unit evidence; no new privilege/state/schema delta | aligned |
+
+Uncovered observable behavior in the specified follow-up: none found. R8-P2's old-session counterexample is deliberately outside the latest approved contract. Old logs and Notes remain untouched; preservation is not asserted to preserve their old global reference numbering.
+
+### Evidence retention and limits
+
+- Final plugin40 tests in `/tmp/feat711-window-ids-plugin-final.log` pass. This replaces the earlier41-test count after deliberate removal of the canceled compatibility test; no broader rerun is invented.
+- R3 actual provider behavior at plugin1b35100 is recorded in acceptance.md and `/tmp/feat711-window-review/home-3jOw2C/{requests.jsonl,checks.json,stage1-terminal.json,stage2-terminal.json,stage3-terminal.json}`. Reviewer independently reran final allocation against that exact log using `/tmp/feat711-new-model-replay.mjs`:9 persisted markers,3 windows,0 changed IDs. Therefore retain its new-rule selection/recovery behavior for the final removal-only patch. It is not labeled a new model journey on76e7a42 or provider-wire/IM-UI acceptance.
+- Local final package identity independently checked: SHA256 `af18a7df4a852fe3c1517f4f30f305a1036ce7d2950f784bc1c4cc0ffab3a296`; all33 lib files match actual normally installed Nano rc.9 candidate. Normal-install final build log passes. Public download bytes and final HTTPS frozen-install checks are not yet established in this round.
+- Existing historical full-suite failures and their recorded narrow closures remain historical, with their original scope/counts preserved. This bounded window-local delta does not justify rerunning unrelated platform suites.
+
+### Pending final handoff
+
+Keep final delivery open until public immutable URL/integrity and installed-byte identity plus applicable post-install build/typecheck/runtime evidence are recorded. The current local tarball wiring is deliberately intermediate, not a deliverable dependency. Canonical `docs/specs/gateway/agent-capabilities.md` still needs the approved new-window scenario before final archive/PR handoff. This report neither approves retaining a /tmp dependency nor declares those announced unfinished steps complete.
+
+
+## Round 9 — final public artifact / fresh-Agent evidence / canonical closure
+
+- verification_mode: targeted final artifact closure + corrected-delta reconciliation. Retain R8 source reconciliation and code-review R9/R10. Validated at Nano `326663749da12f1e8f179eca330cb1e9b755479a` plus the declared final follow-up diff; plugin `76e7a421ec9191540ebb0fa3d0279a26c7070c96` / public `v0.3.0-rc.9`. Main sync `fc447faee` is present as HEAD's second merge parent.
+- findings: **0 CRITICAL /0 WARNING /0 SUGGESTION**. requires_full_verification: false. Corrected-delta outcome: **aligned**.
+- **Verdict: pass for the bounded follow-up implementation, applicable validation, canonical reconciliation and final public-artifact handoff. Ready for Nano PR/remote CI.** This does not claim a complete local full-suite pass, remote CI pass, merge or production deployment.
+
+### Remaining conditions resolved
+
+| Prior remaining condition | Final direct evidence | Outcome |
+|---|---|---|
+| Public immutable release matches final reviewed source | independent ls-remote tag→76e7a42; release API draft=false/prerelease=true; named tgz asset | closed |
+| Anonymous download matches final candidate and lock | independent `/tmp/feat711-review-public-rc9.tgz` SHA256 af18a7df4a852fe3c1517f4f30f305a1036ce7d2950f784bc1c4cc0ffab3a296; recomputed SHA512 equals package lock | closed |
+| Actual normal package topology and HTTPS dependency | repository package/lock use publicrc.9; current installed pnpm package resolves to HTTPS entry; all33 packed lib files equal public tgz; no local tar/source-plugin linkage | closed |
+| Installed affected recovery and host contracts | public-runtime.log1pass; native-fixture.log7pass; host-contracts.log5files/22pass; normal-tar build/typecheck retained for byte-identical publication | closed |
+| Final implementation verified with genuinely new Agent | acceptance R4; clean-start empty directory before initialize; fresh Agent/session UUID; final installed-byte manifest; nine real-model requests across three windows and two complete process restarts; input1/tool3, exact two distinct item1 originals, correct final answer | closed |
+| Canonical spec agrees with corrected delta | independent full short-reference Requirement text comparison equals; new-window scenario added while recovery/business evidence/authorization remain | closed |
+| Additional one-line fixture change | standard package resolution anchors createRequire to real declared DSH package; both native terminal dependencies independently resolve; same seven assertions/tests pass | closed |
+
+The actual HTTPS install log is a normal package installation, not proof that `--frozen-lockfile` was executed. Its public URL/lock integrity/installed byte identity and subsequent runtime evidence are independently verified; no stronger command claim is made.
+
+### Fresh-state evidence and scope
+
+R4 supersedes reliance on R3 for final new-Agent acceptance. `/tmp/feat711-fresh-review/clean-start.json` records entries=[] and no session/agent-context/Notes, followed by Agent `fresh-review-8b2a1fc1-0554-4515-b794-d524096daddd` and UUID session `6b927f06-ca3f-4271-a6bd-bca5cddeed27`. `candidate.json` identifies the final tgz and matching normally installed lib bytes; `home-iqOJxx/checks.json` confirms input/tool numbering in all three windows, exact original recovery, Notes containing only references/status, real responseModel gpt-6.1-sol, correct final output and all three processes exited. Public release bytes equal that tested candidate. Thus final supported new-rule behavior has fresh actual-model evidence; no old Agent or state was substituted.
+
+Previously validated unchanged pruning/original Unicode/literal-marker recovery, offsets, access denials, concise budget and host-evidence semantics remain retained within their original scopes. Pending/failed transactions are covered by deterministic regression, not represented as newly observed model behavior. No UI/IM delivery or production verification is inferred.
+
+### Final result accounting and corrected delta
+
+- Final plugin40 tests pass; normal installed-tar build/typecheck, Python135 pass/28deselected and iOS runtime checks are reported in implementation.md. Native fixture7, public recovery1 and affected host contracts22 each have named logs; counts are not added as a fictitious aggregate.
+- Current local full-suite run encountered the unchanged concurrent global-child-tools PA=true failure and was stopped. The three mode/PA cases then pass independently without changing the case or product. This closes the bounded reproduction concern but does not turn the interrupted full command into a complete pass. Full Nano remote CI remains pending for PR delivery.
+- R8-P2 remains **superseded by requirement change**. Legacy logs/Notes are preserved, old global-ID compatibility is explicitly canceled, and no migration/epoch/fallback is shipped.
+- Corrected-delta groups (window-local first references; new successful windows/repeated IDs; original recovery and physical-copy behavior; unchanged business evidence/authorization/budget; explicit compatibility exclusion) remain **aligned**. No omitted new observable behavior found. Canonical contract equals the reviewed corrected delta.
+
+**All checks required for this targeted implementation/artifact verification pass. Ready for Nano PR and complete remote CI; no merge or deployment is claimed.**

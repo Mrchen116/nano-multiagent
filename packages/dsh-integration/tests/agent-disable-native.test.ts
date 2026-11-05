@@ -64,7 +64,7 @@ export function apply(ctx) {
     await writeFile(home+'/'+id+'-ready',JSON.stringify({child:child.id,grandchild:grandchild.id,continued:continued.childId,job}));
   }catch(error){await writeFile(process.env.DSH_HOME+'/error',String(error));}},0);});
 }`);
-    const native = createRequire(new URL('../node_modules/@deepseek-ai/dsh/package.json',import.meta.url));
+    const native = createRequire(createRequire(import.meta.url).resolve('@deepseek-ai/dsh/package.json'));
     await prepareProfile(home,[{insert:[{id:'terminals',name:native.resolve('@deepseek-ai/dsh-terminal')},{id:'terminal-bash',name:native.resolve('@deepseek-ai/dsh-terminal-bash')},{id:'disable-fixture',name:join(home,'fixture.mjs')}]}]);
     await supervisor.start();
     const pid=supervisor.process!.pid,instance=supervisor.processInstanceId;

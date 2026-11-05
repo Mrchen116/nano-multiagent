@@ -234,3 +234,140 @@ R1-W1 / R1-W2 保持 closed；R3 的所有权与结构化审批归一化决定 r
 ### Recommendations
 
 无。
+
+## Round 6
+
+### Metadata
+
+- reviewer: 独立 design reviewer `/root/design_review_711`；非本轮设计 author，不实施产品代码。
+- target: Nano `a4533edeaedf34595322ca313b359d2f196d247f` 上冻结的 `spec.md` / `design.md` 未提交修订与新增 `window-local-ids.md`；插件当前 `2fa5911`（已发布 rc.8 的实现链），尚无本次产品实现。
+- review_mode: full。
+- mode_reason: 尽管改动链路有界，用户已把编号命名空间从“会话”改为“窗口”，并增加已发布 rc.8 引用保留约束，属于核心编号不变量变化；故完整复核当前需求、编号/History/换窗消费链、宿主边界和 M1 补充退出标准。未变化的权限、预算和平台证据复用前轮，不增设门禁。
+- agent_context_mode: Mode A / Design Review。
+- started_at: 2026-11-05T10:53:09+08:00。
+- completed_at: 2026-11-05T10:54:34+08:00。
+- duration: 85 秒。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+窗口内重号、旧窗口基数恢复、成功换窗后的 pending 重新标记与现有成对寻址接口闭合，可以进入实施。结论仅为设计通过；不声称新的窗口编号实现、兼容回归或真实模型验收已经完成，也不将该规则归因于未经证实的 Codex 内部算法。
+
+### Coverage 与证据
+
+- **用户目标与兼容边界：** `spec.md` 明确新窗口从 1 开始、不同窗口允许重号、旧引用按原 window_id + item_id 恢复；`window-local-ids.md:5-7` 进一步明确正在运行的 rc.8 旧窗口保留基数，下一成功新窗口才重置。此前不支持旧 seq Notes 的非目标不等于可以重排已经发出的 rc.8 短引用；本补充设计正确区分两者。原文与 Notes 不需要迁移或回写。
+- **实际产品入口与发布现状：** Nano `packages/dsh-integration/package.json:87` 已固定不可变 rc.8 URL。`agent-context.ts`、`workspace-tools.ts:67,128` 和 `knowledge/dreaming-agent.ts:51` 仍组装同一插件；本次无需新增 Nano 编号实现或业务协议。补充设计要求新不可变版本与 integrity 接入，并保持生产部署另行授权。
+- **现有编号/History 接口：** 插件 `src/item-id.ts:16-27` 当前对完整日志的首次 message.id 分配会话级整数；`history.ts:88-165` 以首次原记录归属窗口，并以 seq 排序、游标及原文定位。`readHistoryItem():263-275` 本来同时匹配 windowId 和 itemId，因此不同窗口的 1 不存在接口歧义。`createHistoryView():298-309` 继续非 short 的宿主 seq 模式，不得把窗口短号混入获准来源的证据接口。
+- **窗口与成功事务共用事实：** `history.ts:37-69` 当前只把 start + summary + 无 error 的 end 识别为成功窗口；`rollover.ts:222-323` 使用同一事务写入 start / summary / checkpoint replacement / end，异常分支写 error end。`window-local-ids.md:11` 将这段窗口识别抽到内部 windows.ts、保留 history 导出，避免编号与恢复各自判断边界。失败、不完整事务不重置；正常 pruner 的 compaction/prune 也不成为新窗口。checkpoint.ts 与 countRollovers 的既有消费者可复用该唯一 owner，符合现有公开 DSH 边界。
+- **旧 rc.8 编号基数：** `window-local-ids.md:12` 不是把旧窗口重新从 1 排，而是以该窗持久自有 marker 的已发出号减去逻辑消息窗内位置恢复基数。示例：旧窗首个可见工具在窗内位置 3，原 marker 为 43，则基数 40；之前未打印的 assistant 位置 2 仍为 42。后续物理替换保持首次 message.id / 原窗口，不重复占位；后写入的 replacement marker 也应归其原逻辑消息所在窗口。新窗无已提交锚点时基数 0，后续首个持久 marker 又能把相同基数重建出来。现有 metadata + exact text 判定可区分宿主自有 marker 与原文伪标记，无需另建索引或解析正文号码。
+- **pending 输入与换窗时点：** 当前 `index.ts:134-175` 在 pre-step 早期 markInputs 后可能 perform 换窗；现行代码直接返回原 marked decision，因此仅改 itemIds 不足以兑现新规则。保存设计在 `window-local-ids.md:13` / `design.md` 决定 2 明确：成功事务后重新计算 pending，旧 pre-step marker 不是已提交锚点，先移除自有旧块再加新块。DSH agent-loop 的 `lib/index.js:1051-1066` 在决定返回后才追加接纳 user，故该 seam 能保证首次实际请求只见新窗口正确号，不篡改历史已提交消息。晚提交的 skill-catalog / agent-instructions 等控制继续不占位，R5 修正没有被撤销。
+- **重放、fork 与裁剪：** Session 公共接口允许从完整 seed replay/fork；`dsh-session/lib/types/fork.d.ts` 说明保留精确连续来源前缀并附 synthetic closers。按完整继承日志、逻辑首次出现、持久 marker 与成功窗口边界重建局部编号不依赖进程状态。局部编号不代表 fork 获得跨会话访问权；窗口身份仍沿现有 session/window 契约生成。设计保留原 window_id 和 seq 归属，裁剪副本不能因写入较晚而变成新窗新材料。
+- **模型消费与成本：** Consumer 仍是从 user/tool 正文旁读取短标记的 Agent。补充方案提供 A/1 与 B/1 的 Before/After，并要求 guidance 说明“只在窗口内有效”、Notes 成对保存窗口和短号。当前 guidance、reminder、fallback 已要求成对保存，可以局部消歧；不需要新查询步骤或常驻引用表。窗口身份来自可信 checkpoint/动态上下文，模型不需猜测 namespace。短号复用不影响来源、优先级、授权、失败状态、Task/审批证据归一化或 source_history seq。
+- **spec / canonical target 与 M1：** 变更仍锚定 gateway/agent-capabilities 的短引用 Requirement，原权限、原文保留和预算场景继续成立。`window-local-ids.md:21,25` 已把同号不同窗、旧引用、首个输入/工具、同一步 pending、失败事务、裁剪、旧 rc.8 与 assistant 的 JSON replay，以及隔离真实模型的旧引用恢复列入原 M1 的补充退出标准；实际 adapter 输入、重启与原文恢复均在范围内。没有增加前端变化或生产写入验证要求。归并前需同步 canonical 的新窗口场景，见非阻断建议 R6-R1。
+- **架构判断与保留证据：** 成功窗口事实由内部 windows 模块维护，短号由插件从日志派生，业务证据仍由 integration/产品原接口消费，职责方向合适。R1–R5 已确认的计量、safeBoundary、marker 所有权、原文/Task/审批归一化和控制来源排除保持有效。复用既有事件与 marker 比新增迁移状态或第二套持久映射更简单；本轮没有要求额外抽象、历史修补或无关平台矩阵。
+- **未验证项：** 没有运行新产品代码或新模型任务。当前源码仍是会话级编号；上述判断证明方案与实际 seam 一致，不证明新行为已交付。实际版本/integrity、受影响测试、code review / verifier 及真实模型窗口恢复证据由实施后回填。
+
+### 历史问题闭环
+
+- R1-W1 / R1-W2 保持设计层 closed；R3–R5 的原文归一化、控制排除与证据限制 retained。
+- 原 R1–R5 对当时会话级方案的结论不回写。本轮批准的是用户后续明确要求的窗口内方案；旧兼容基数不把这次用户决定伪装成原设计本就如此。
+
+### Issues
+
+无。
+
+### Recommendations
+
+- **R6-R1（非阻断）**：本次实施归并时，将“首次阅读”改为窗口内有序，并把 `spec.md` 的新窗口/旧引用 Scenario 同步到 canonical `docs/specs/gateway/agent-capabilities.md`；保留现有恢复原文、业务证据与授权场景。归档 unit 中旧 ADDED delta 属于此前交付记录，不应据它遗漏此次已确认的新行为。
+
+## Round 7
+
+### Metadata
+
+- reviewer: 独立 design reviewer `/root/design_review_711`；非 author，不修改产品实现。
+- target: `window-local-ids.md` 对 code-review R8-P2 的冻结设计修正：成功原生换窗 metadata 标识新编号规则，旧零 marker 窗口保留会话累计基数。
+- review_mode: delta（targeted compatibility correction）。
+- mode_reason: 新的真实 rc.8 AgentLoop 反例否定了“无 marker 即新窗”的兼容前提；本轮检查新增持久消歧及直接影响的恢复、事务、后续 provider 和验证范围，其余 R6 决定保留。
+- agent_context_mode: Mode A / Design Review。
+- baseline: Nano `a4533edeaedf34595322ca313b359d2f196d247f` 加冻结文档；失败候选插件 `1b35100`，本次修正尚未编码。
+- started_at: 2026-11-05T11:04:39+08:00。
+- completed_at: 2026-11-05T11:05:07+08:00。
+- duration: 28 秒；复用已检查的持久化与 adapter 投影契约。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING（修订设计）。**
+
+持久标明新规则的成功起点，能够消除无 marker 旧窗口的实际歧义；原记录与旧引用无须回写。**R6 对完全无锚旧窗口的兼容覆盖不足，该部分判断由本轮反证与修订取代；原历史报告保持不变。** code-review R8-P2 的实现关闭及修正候选验收仍待完成，不因本设计通过而提前关闭。
+
+### Coverage 与证据
+
+- retained_from: Round 6。窗口 + item 成对寻址、首次 message.id 去重、旧 marker 基数优先、同一步 pending 重新标记、控制来源排除、宿主 seq、预算与权限均未变。本轮仅改变无 marker 窗口的默认基数判据及其持久来源。
+- **反例已核实：** `/tmp/feat711-static-review-legacy-zero-anchor.log:5-6` 记录 rc.8 原 History 成功读取 `review-legacy-hardcap:26 / 6`，候选读同一对引用为 not_found；摘要 JSON 记录该窗 assistant 6→1、tool 7→2，后窗 assistant 8→1。完整原件为 `/tmp/feat711-static-review-legacy-zero-anchor-events.json`。这是原版 AgentLoop 的连续压力执行与候选重建比较，不是真实 provider 行为，但足以确认确定性兼容缺陷。不能把已有普通/有 marker 回归通过外推到这个实际形状。
+- **新增持久来源与选择规则：** 冻结补充设计规定在现有插件原生 checkpoint/summary text block 写自有 `contextItemWindowBase: 0`。成功窗口识别以同一 start + summary + 无 error end 为准，仅该成功边界激活新规则；初始窗原本就是 0。此前无锚旧窗回到 rc.8 原会话累计逻辑位置基数，有 marker 的窗仍优先保留已发基数。这能恢复反例的 6/7/8，并保护旧 assistant 的未打印位置，无须从旧 Notes 或任意正文猜测时代。
+- **生效与后续窗口：** 该 flag 标识编号规则从成功边界开始，而非只标识单个窗口。完整日志重放、fork 继承及之后其他 provider 的成功窗口都延续新规则；后继无 marker 窗不能再退回旧全会话基数。失败/未闭合事务里即使已有带 flag 的 summary，也不能激活规则。保存设计已明确这两个条件，避免把失败写入或“非本插件后续 provider”当成新旧判断空洞。
+- **事务 seam 与持久化：** 既有 `rollover.ts:265-307` 同步构造 checkpoint、summary、shadow pricing 和物理 replacement，再写成功 end；`windows.ts:11-22` 当前共享成功事务识别。将规则 metadata 附在既有自有块并随同一事务保存，符合该 seam；新 metadata 不是新事件、旁路文件或公开 WindowInfo 字段。编号消费者可读取内部成功边界信息，宿主窗口 API 的外部形状不变。
+- **Context Surface / 注意力与授权：** flag 只供宿主重建编号，不需要模型理解或提供；模型继续只看到原窗口文字与短号。已安装 pi-ai `flattenText/userContent`（`lib/index.js:1163-1164,1188-1198`）仅取 block.text；metadata 不追加正文 token。此前完整消息克隆/持久重放会保留字段的契约仍适用。成功事务与来源控制依旧由宿主判定，flag 不影响用户身份、Notes 内容、工具权限或 source_history seq。
+- **验证覆盖与限制：** 补充设计现已明确加入“真实 rc.8 零标记连续压力窗口”和“其他 provider 的后续成功窗口”，并保留原同号不同窗、pending、失败事务、裁剪、assistant、JSON replay、实际 adapter / 重启和真实模型恢复覆盖。实施回归应以原件旧 `:26/6` 仍可恢复为兼容断言，验证失败 flag 不激活及后续 provider 继续从 1；不需要扩大无关平台矩阵。本轮未执行修正代码或宣称新回归通过。
+- **架构判断：** 实际问题是在持久日志中缺少区分两套编号语义的事实。复用现有 checkpoint/summary 的私有 metadata 是针对该已确认问题的最小持久来源，代价小于新增 migration event、永久索引或公开接口字段；严格限定成功事务生效，保留原 shadow pricing 和恢复机制，职责仍在插件内。
+
+### 历史问题闭环
+
+- code-review R8-P2：设计修订已覆盖其失效机制；**实现问题仍待 code reviewer 依据修正候选与实际回归关闭**。
+- R6 的“无已提交锚点即基数 0”只对已知新规则范围成立；旧零 marker 兼容判断不再保留。其余 R6 / R1–R5 决定未受影响，沿用原证据。
+
+### Issues
+
+无新增未解决设计问题。
+
+### Recommendations
+
+无新增建议。
+
+## Round 8
+
+### Metadata
+
+- reviewer: 独立 design reviewer `/root/design_review_711`；非 author。
+- target: 用户明确“不需要！不用兼容旧版本”后冻结的 `spec.md`、`window-local-ids.md` 和 gateway delta-spec；Nano HEAD `a4533edea` 加当前文档修订。
+- review_mode: delta；只确认取消旧版兼容后的剩余设计闭合。
+- mode_reason: 新规则内的窗口编号与恢复语义未变；用户明确撤销兼容要求，R7 metadata / 旧基数回退尚未实施，本轮不追查已取消范围或增加替代兼容机制。
+- agent_context_mode: Mode A / Design Review。
+- started_at: 2026-11-05T11:07:31+08:00。
+- completed_at: 2026-11-05T11:08:02+08:00。
+- duration: 31 秒；复用 R6 已核对的成功事务、pending 提交和 History 成对寻址 seam。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+按用户最新裁决，最终简化方案可以实施；无需已发 marker 基数推断、迁移 flag 或旧窗口 fallback。此前旧版兼容缺陷属于 **superseded by requirement change**，不描述为已修复。
+
+### Coverage 与证据
+
+- **需求一致：** 首文档记录用户原话，补充设计明确只保证新规则内的引用稳定，保留旧日志与 Notes 原件但不保证旧会话级编号继续寻址；delta 同步同一边界。没有把保留原件误写为保留旧编号。
+- **剩余编号链闭合：** 完整日志按共享 successfulCompactions 判断成功 end，每成功边界将 next 重置为 1；失败/不完整事务不重置。message.id 在全日志去重，物理替换不占号且保留原逻辑消息的窗口与编号。不同窗口重号继续通过 window_id + item_id 区分。
+- **首次交付与恢复：** pending 在同一步成功换窗后重新计算，剥离自身旧块再写新号；控制来源排除、原始内容保留、裁剪/重启/JSON replay 的确定性重建，以及宿主 source_history seq 和授权语义保持原已审方案。无新持久状态或模型必填参数。
+- **验证范围适当：** 保存设计保留新规则的双窗同号原文恢复、pending、失败事务、裁剪和 JSON replay，以及独立 RuntimeClient 新会话两次公开换窗/进程重启后的两个 item1 恢复；取消旧版兼容测试符合明确需求。既有真实模型证据仅按未变化的新会话编号/文本复用，最终代码与包接线仍需适用验证，本轮不提前宣称交付通过。
+- retained_from: R6 的新规则寻址/事务/pending/权限判断、R1–R5 的来源与原文归一化。R6/R7 的旧版兼容约束及其推断/metadata 方案仅保留历史，不再作为实施或验收要求。
+
+### 历史问题闭环
+
+code-review R8-P2 的原始反例与证据仍成立，但用户已明确取消它所对应的旧版兼容要求，故按需求变更 superseded。R7 未实施的 metadata / 回退方案退役；不要求为其补实现或回归。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
+
+### Author Resolutions — Round 6
+
+- R6-R1 accepted：归并时在 canonical 恢复引用 Requirement 添加新窗口 Scenario，旧的裁剪恢复、业务证据和授权 Scenario 保留。设计无实质异议；按已冻结设计进入 M1 后续修正。
+
+### Author Resolutions — Round 8
+
+用户明确取消旧版本兼容，R8 无实质异议；R6/R7 的兼容建议仅保留历史，不实施迁移 metadata 或 fallback。最终实现按 R8 最小规则完成。新规则中的原窗口引用保持稳定；旧版会话级编号不再承诺兼容。
