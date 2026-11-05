@@ -117,6 +117,23 @@ it('keeps the unread a reader already cleared and the unread of messages that ar
   expect((await read('u2')).json()).toMatchObject({ last_message_preview: 'later real reply', unread_count: 1 });
 });
 
+it('returns to the projection the previous insert wrote when message timestamps are not monotonic', async () => {
+  const { ctx, read, start, discard } = setup();
+  // Ingress and event replay can store a message with an older created_at after a newer one,
+  // so "the message before the placeholder" is the last inserted row, not the newest timestamp.
+  ctx.messaging.insertMessage('chat', 'u1', 'user', 'arrived first', [], null, 'completed', { created_at: '2026-01-01T00:00:00.000Z' });
+  ctx.messaging.insertMessage('chat', 'u1', 'user', 'backdated ingress', [], null, 'completed', { created_at: '2025-12-01T00:00:00.000Z' });
+  const placeholder = (await start()).payload.message_id;
+
+  await discard(placeholder);
+
+  expect((await read('u1')).json()).toMatchObject({
+    last_message_preview: 'backdated ingress',
+    last_message_at: '2025-12-01T00:00:00.000Z',
+    unread_count: 0,
+  });
+});
+
 it('returns to an empty projection when the placeholder was the only message in the conversation', async () => {
   const { db, start, discard, unread } = setup();
   db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','u2')").run();

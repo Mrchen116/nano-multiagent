@@ -103,7 +103,9 @@ export class MessageRecords {
     const row=this.db.prepare('SELECT rowid AS row_id,conversation_id,sender_user_id FROM messages WHERE id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string}|undefined;
     if(!row)return;
     this.db.prepare('DELETE FROM messages WHERE id=?').run(id);
-    const latest=this.db.prepare('SELECT content,attachments_json,created_at FROM messages WHERE conversation_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1').get(row.conversation_id) as unknown as {content:string;attachments_json:string;created_at:string}|undefined;
+    // insert() writes the projection from the row it just stored, and ingress can backdate
+    // created_at, so insertion order (rowid) is what "the message before this one" means.
+    const latest=this.db.prepare('SELECT content,attachments_json,created_at FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1').get(row.conversation_id) as unknown as {content:string;attachments_json:string;created_at:string}|undefined;
     // Mirror insert() so the stored preview keeps the same shape as a normal last message.
     const preview=latest?latest.content.trim().slice(0,120)||(JSON.parse(latest.attachments_json) as ChatAttachment[])[0]?.file_name||'':null;
     this.db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(preview,latest?.created_at??null,row.conversation_id);
