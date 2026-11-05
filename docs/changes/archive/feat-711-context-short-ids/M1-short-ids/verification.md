@@ -1,6 +1,6 @@
 # Verification Report: feat-711-context-short-ids
 
-**当前结论（Round 6）：实现、设计、修正 delta-spec 对账及相关验证通过；最终可下载 artifact / 集成交付 pending。** 尚未通过公开下载、匿名 integrity、HTTPS 固定依赖 frozen install 与最终 artifact gate，因此不能标记 Full 全部门禁完成或交付完成。
+**当前结论（Round 7）：Full 实现验证与最终 artifact 接入门禁通过，修正 delta-spec 对账 aligned。可进入已审 delta 的 canonical 归并、unit 归档与 Nano PR 交付。** Nano 远端 CI 尚未运行；不宣称 PR 已创建、已合入或生产已部署。
 
 ## Round 1
 
@@ -227,3 +227,38 @@ Uncovered observable behavior: none found. Outcome: **aligned**.
 Draft release publication is awaiting user authorization. package.json and pnpm-lock.yaml now name the final rc.8 HTTPS release asset and matching locally verified integrity, without /tmp pointers, but node_modules still comes from the byte-identical local tested candidate. Public anonymous asset download/integrity check, frozen install from that URL and final artifact/integration gate are pending; no release publication, canonical current-spec merge/archive, final Nano PR/CI or production deployment is claimed by this report.
 
 The remaining condition is an external artifact/integration handoff, not an unconfirmed implementation finding. Keep the unit open until it is fulfilled and validated; do not mark all Full milestone exits complete from the implementation/validation pass above.
+
+## Round 7 — final artifact / integration handoff gate
+
+- verification_mode: targeted artifact/handoff closure; retain prior full, delta and corrected-delta applicable evidence.
+- executed_base: Nano `2ac60077e4988ab0db5789841b51f42bab02789c`.
+- validated_at: Nano `ebea3cf8da9b6dd28495741794faedd7f5bda175`; plugin `9a2a29078d264311a7d4327e1e4940d0c966f537` / `v0.3.0-rc.8`.
+- effective_base: Nano `2ac60077e4988ab0db5789841b51f42bab02789c`; current origin/main and merge-base independently equal this value, with no new main delta.
+- effective_through: Nano `ebea3cf8da9b6dd28495741794faedd7f5bda175`, including final HTTPS package/lock. This round only adds reports; no implementation/canonical edits.
+- requires_full_verification: false.
+- findings: **0 CRITICAL /0 WARNING /0 SUGGESTION**.
+- verdict: **pass — Full implementation verification and final artifact integration exit gate passed. Ready for canonical merge/archive and Nano PR.**
+
+### Artifact conditions closed
+
+| Round6 pending | Independently checked evidence | Outcome |
+|---|---|---|
+| Published release/tag matches frozen candidate | release API draft=false/prerelease=true; ls-remote v0.3.0-rc.8 → 9a2a290; PR4 CI completed/success with same headSha | closed |
+| Anonymous public bytes/integrity | reviewer unauthenticated curl SHA25694cea01fa13425aaa925e51789aea084072e1a24095c89263e889909461ad9a3; public.tgz recomputed SHA256/SHA512 matches Round6 candidate and lock | closed |
+| HTTPS fixed-dependency frozen install | package.json/repository lock/installed lock use public rc.8; install.txt downloaded1/added1, lock-up-to-date/policy passed; caller executed pnpm install --frozen-lockfile | closed |
+| Installed content equals public artifact | reviewer compared all30 packed lib files with node_modules, zero differences, package0.3.0-rc.8 | closed |
+| Post-install build/typecheck and recovery/stress | new build.txt/typecheck.txt successful; runtime-tests.txt two files/two tests pass, tests65.15s, unchanged thresholds | closed |
+
+### Retention and invalidation assessment
+
+- Current origin/main and merge-base still equal executed_base. `809113b89..ebea3cf8` contains reports/implementation records and reviewed package/lock integration, with no new product source, test semantics, interface or permission change. This publication/install round changes no implementation.
+- Public bytes equal Round6's frozen tested candidate. Retain plugin38 tests/typecheck/build, complete source review, owned-marker/original regression, native-control ordering/replay, token pricing and host seq protection. New installed-runtime tests separately close original recovery and automatic-turn performance boundaries.
+- Independent modelR2 pass and productR1-1closed at report809113b89 remain applicable: R5–R6 established that the final lazy performance delta preserves model semantics, and publication adds no byte delta. No fresh model run or trace on9a2a290 is claimed.
+- Retain original aggregate failure accounting and named narrow closures:213 files/1159 tests originally included207 files/1146 tests pass and6 files/13 tests fail. Each affected failure has its documented narrow closure. The original command remains failed history; no second full-suite execution is invented.
+- Old temporary evidence directory was cleaned by the environment. Previously committed versioned reports preserve valid actual execution and independent-review facts; their historical conclusions are not overturned by missing temporary raw logs. New evidence is `/tmp/nano-feat711-rc8-release/{public.tgz,install.txt,build.txt,typecheck.txt,runtime-tests.txt}`; raw local artifacts are not committed.
+
+### Final corrected-delta / completeness
+
+Round6's four corrected-delta groups remain **aligned**: first inline references; stable original recovery and physical-copy/activity semantics; unchanged approval/Task/source_history evidence/authorization; concise estimated budget. Published bytes implement the same reviewed behavior; no uncovered new external behavior or design deviation found. Completeness moves from pending external integration to all verification/artifact conditions closed; Correctness/Coherence retain pass.
+
+**All required implementation-verification and artifact handoff checks passed. Ready for canonical merge/archive and Nano PR.** This allows subsequent delivery steps; it does not claim they already occurred. No Nano PR exists yet, so Nano remote CI has not run; PR creation/CI, merge and production deployment are not completed facts in this report. Caller may merge the reviewed delta unchanged and archive while preserving executed/validated history, and must show effective_base/effective_through in the PR. Future substantive changes or main synchronization follow the existing gate invalidation rules.

@@ -1,6 +1,6 @@
 # Code Review — M1-short-ids
 
-**当前结论（Round 6）：实现与相关验证通过，代码 findings 为 `[]`；最终可下载 artifact / 集成交付 pending。** 本报告保留历史失败与闭环，不表示 Full 所有退出门禁已经通过。
+**当前结论（Round 7）：代码审查及最终发布接入门禁通过，findings 为 `[]`。可进入已审 delta 的 canonical 归并、unit 归档与 Nano PR 交付；不表示 Nano 远端 CI、合入或生产部署已完成。** 历史失败与 pending 按原执行时间保留。
 
 - Reviewer: independent `/root/static_review_711`; no implementation changes.
 - Mode: full code review plus agent-context-review Mode B.
@@ -155,3 +155,33 @@ Read `/tmp/nano-id-projection-L6wMZV/lazy-real-tests.txt`: 2 files /2 tests pass
 ```
 
 **Implementation and relevant validation pass. Final downloadable artifact / integration delivery remain pending.** Draft release is awaiting user publication authorization; anonymous HTTPS download/integrity verification, frozen install from the prepared public URL, final artifact gate and subsequent Nano delivery/CI are not complete. No Full-all-exit-gates pass, final PR readiness or completed delivery is asserted here.
+
+## Round 7 — public artifact and handoff gate closure
+
+- review_mode: targeted artifact/handoff closure; retained_from R1–R6, including Mode B.
+- executed_base: Nano `2ac60077e4988ab0db5789841b51f42bab02789c`.
+- validated_at: Nano `ebea3cf8da9b6dd28495741794faedd7f5bda175`; plugin `9a2a29078d264311a7d4327e1e4940d0c966f537` / `v0.3.0-rc.8`.
+- effective_base: Nano `2ac60077e4988ab0db5789841b51f42bab02789c`; current origin/main and merge-base independently checked equal this value.
+- effective_through: Nano `ebea3cf8da9b6dd28495741794faedd7f5bda175`, including final HTTPS package/lock. Only reports changed in this round; implementation/canonical untouched.
+
+### Independent checks
+
+- `git ls-remote` confirms public tag v0.3.0-rc.8 points to `9a2a29078d264311a7d4327e1e4940d0c966f537`. Release API returns draft=false, prerelease=true and that target. PR4 CI run41872361129 is completed/success with the same headSha.
+- Reviewer independently read the public HTTPS asset using unauthenticated curl. SHA-256 is `94cea01fa13425aaa925e51789aea084072e1a24095c89263e889909461ad9a3`, matching the accepted Round6 candidate. Public availability is directly checked, not inferred from the former draft/local file.
+- `/tmp/nano-feat711-rc8-release/public.tgz` has the same SHA-256. Independently computed SHA-512 is `sha512-ckYUAHiXyMksSaw0ngU/19ijcoTLY4dF+6t+W/tPudolQ2bXlNN8z/BF92Qd0s3gQinYhXnNS/O4vwflSHDs0Q==`, exactly matching committed rc.8 lock integrity. package.json, repository lock and installed lock use the same HTTPS asset, without file:/tmp dependency.
+- Read `install.txt`: lock up-to-date, downloaded1/added1 and supply-chain policy passed; caller records execution of `pnpm install --frozen-lockfile`. Independently compared every packed lib file against installed Nano node_modules: all30 byte-identical, version0.3.0-rc.8.
+- Read new `build.txt` and `typecheck.txt`: successful after HTTPS installation. `runtime-tests.txt` passes two files/two tests, tests65.15s (total65.51s): genuine native catalog/AGENTS first-user recovery across reset/process restart and unchanged-threshold Task automatic-turn stress. No full suite or real-model journey rerun by reviewer.
+
+### Retained gates and limits
+
+`809113b89..ebea3cf8` only adds existing reports/implementation evidence and the reviewed final package/lock integration; no new product source or test semantics. Publication/installation introduces no code delta. R6 review, corrected-delta alignment, plugin38 tests/typecheck/build, other named narrow closures and independent modelR2 therefore remain applicable. Original Nano aggregate207 files/1146 tests passed and6 files/13 tests failed remains recorded with its later individual closures, never rewritten as the original command all-green.
+
+The old `/tmp/nano-id-projection-L6wMZV/` evidence directory was cleaned by the environment. Previously reviewed and committed execution facts remain as recorded; absence of temporary raw logs neither reverses those valid historical findings nor implies reruns. New artifact/install/build/type/runtime evidence is in `/tmp/nano-feat711-rc8-release/`.
+
+### Findings / handoff
+
+```json
+[]
+```
+
+**Pass: final artifact/handoff gate closed.** Public bytes equal the accepted candidate and HTTPS frozen installation passes recovery/stress validation. Ready for unchanged reviewed delta canonical merge, unit archive and Nano PR. Caller performs those document/delivery steps. No Nano PR exists yet, so no Nano remote CI result is claimed; plugin CI/local checks are not relabeled Nano CI. No production deployment is authorized or performed by this report.

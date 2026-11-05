@@ -40,4 +40,15 @@
 
 隔离 daily 栈已通过 e2e-down 停止，录制转发器已停止，临时 Gateway 配置已恢复备份。主仓既有未跟踪内容未修改。两个开发 checkout 保留供审查。
 
-rc.8 尚为发布草稿，待用户确认发布；不部署生产。公开下载/匿名 integrity 校验、Nano 固定依赖最终安装、最终 verification、canonical 归并/归档及 Nano PR/CI 尚待该发布完成，不提前宣称交付完成。
+发布前状态：rc.8 尚为发布草稿，待用户确认发布；不部署生产。公开下载/匿名 integrity 校验、Nano 固定依赖最终安装、最终 verification、canonical 归并/归档及 Nano PR/CI 尚待该发布完成，不提前宣称交付完成。
+
+## 发布与 HTTPS 接入验证（2026-11-05）
+
+- 用户明确授权“发布 rc.8”后，已发布 [v0.3.0-rc.8](https://github.com/Mrchen116/dsh-agent-context/releases/tag/v0.3.0-rc.8) 预发布版本。tag 对应上述冻结插件提交；没有合并 PR 或部署生产。
+- 使用不携带 GitHub 认证的 curl 从 package.json 的公开 HTTPS 地址下载成功；SHA-256 与上述验收包相同，SHA-512 与 pnpm-lock.yaml 一致。
+- `pnpm install --frozen-lockfile` 实际从 HTTPS 安装成功；安装包的30个 lib 文件与公开下载包逐字一致。随后 build、typecheck 通过。
+- 同一 HTTPS 安装后运行未修改阈值的原生控制消息/首次 user1 恢复与进程重启测试、自动连续执行压力测试：2 files /2 tests 通过，测试执行65.15s。
+- 本轮证据在 `/tmp/nano-feat711-rc8-release/`：public.tgz、install.txt、build.txt、typecheck.txt、runtime-tests.txt。先前临时证据目录已被环境清理，已提交的历史报告与结果仍保留；没有把历史失败改称全量通过。
+- final sync：origin/main 仍为 `2ac60077e4988ab0db5789841b51f42bab02789c`，与既有门禁 base 一致，无新增主干差异。发布包与先前验收包字节一致，原独立模型验收和代码审查的语义范围保留；最终 artifact gate 见 verification.md 后续结论。
+
+最终 artifact 门禁独立通过（verification Round7），已审 delta 原样归并到 Gateway capability current spec，unit 整体归档供 PR 审查；上述验证后的收尾仅改文档，不改变运行代码或依赖字节。Nano 远端 CI 以本分支 PR 检查结果为准。
