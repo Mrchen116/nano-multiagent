@@ -369,3 +369,44 @@
 - `git rev-parse HEAD` → `07d3b84c766b4486ca6d216fe2d9cdd5ab259b4d`；审查开始时 `git status --porcelain` 为空。
 - `git show --numstat 07d3b84c7` → 上表所列四份文件；`git diff --stat -- evidence/` 为空。
 - `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（本节写入后复跑，源文件数不变，仍为 221）。
+
+### Author Resolutions（Round 2）
+
+下列处置对应本轮 9 项“实施时顺手改”与 3 条可选建议。标 ★ 的三项（R2-1/R2-2/R2-3）已在文字层落到实现对应路径之前；本轮只改文档，不改代码、不 push。
+
+| 编号 | 处置 | 落点 |
+|---|---|---|
+| R2-1 ★ 截图生命周期 | 统一为“只在写入新截图时按 TTL 1 小时与 20 张上限清理；实例结束（含真窗口后的 `end_session`）与 Agent 销毁都不立即删除”，并写明理由：真窗口路径要求“回读与截图后立即结束实例”，若结束时删图，模型下一次 `read_image` 就没有证据可读。补“进程启动时对截图根目录做一次过期清理”，覆盖已销毁 Agent 留下的文件。M1 第 8 条降为“评审只核对目录与当前张数”，TTL/20 张改由 worker 测试注入旧时间戳验证。 | `design.md` L114、L316、L329、L355、L409、L422；delta L119 |
+| R2-2 ★ 归还失败冷却 | 补 `end_session` 前置校验：session label 属于本 Agent **且** 实例 pid 仍等于 `browser_prepare` 返回的 `owner_pid`，任一不符则不调用驱动、直接按失败处理。失败后该 Agent 进入“需人工恢复”：后续调用不派发任何驱动动作、直接返回同一错误，直到实例消失（用户关闭或 300 秒回收）。证据 L556–558（用户 Chrome pid 660 仍是原 5 个窗口）引到约束二，作为“关窗不波及用户窗口”的直接依据。 | `design.md` L71、L84、L188、L275、L313 |
+| R2-3 ★ 子 Agent 判定依据 | **改判据、不改用法**：不采纳“子 Agent 一律不可新开实例”，改为“认请求来自哪一层”——普通会话看本会话；子 Agent 沿 `header.parentSession` 上溯（≤8 跳，经 `ctx.agents.get`）到最近的非子 Agent 祖先，要求**该祖先本轮**有真实用户消息；链断、超过 8 跳、或祖先本轮非用户发起即拒绝。理由：`approval.ts` L77 的 `origin === 'subagent'` 早退确实存在，但子 Agent 的实例按 Agent 归属，若一律禁止，“主 Agent 在用户轮次里把浏览任务委派给子 Agent”这条正常路径会永久不可用（子 Agent 既没有实例也不能建实例）；按层判定仍把“能否开窗”绑定在同一轮次的在场证据上，风险与不委派相同。审查意见的实质同时被保留：判定完全不读子 Agent 自己的 source（`input-source.ts` L21 注释写明 native child 首轮也用 `user`），因此 R2-3 的 PLAUSIBLE 依赖被移除，而不是被断言成已核实。fixture 覆盖：人类父轮次 → 允许；`heartbeat`/`task-execution` 祖先 → 拒绝；父会话缺失 → 拒绝；子轮次 source 无身份字段但父层有人类消息 → 允许。 | `design.md` L79–L82、L192、L221、L420；spec L109；delta L30、L54 |
+| R2-4 任务续跑枚举 | spec 场景七、首次接入场景、delta 的实例 Req 与无人值守场景都补“任务续跑（用户先前接受过的任务再次执行）及其派生的子 Agent”；已知限制写清“实例 300 秒空闲即回收，周期任务几乎拿不到实例，v1 实际是按需/对话内能力”。 | `spec.md` L54、L109；delta L30、L49；`design.md` L434、L345 |
+| R2-5 V6 判据与失败目录 | 判据改为“以该 workspace 相对路径调用 `read_image` 能读到文件内容（一次直接工具调用或最小 agent 轮次即可观测）”；失败目录限定为“V6 实测可读、仍在该 Agent workspace 内、保留 `resolve` 后前缀校验”，明示不得落 `/tmp`、node home 或仓库。 | `design.md` L392 |
+| R2-6 判定位置统一 | 统一到“审批前确定性拒绝”（`tools/pre-execute` 静态守卫，省一次分类器调用）；执行期清单删除“当轮是否有用户消息”，只留依赖页面实时状态的三项复核（pid/窗口、`read` 后页面是否变了、标签是否仍唯一）。 | `design.md` L188、L296、L310 |
+| R2-7 “会话”语义与场景一 | 定义“会话 = 该 Agent 的浏览器会话”：Agent 销毁、真窗口归还前台、空闲回收会结束它，结束一段聊天不会；design 同步。场景一补“实例刚启动那一下可能例外，见首次接入场景”。 | `spec.md` L36、L75、L83、L190；delta L28；`design.md` L192 |
+| R2-8 措辞强度 | 改为“证据中有 1 次观察（L549–554）；V2 复采确认后才作为机制依据”。 | `design.md` L86、L179 |
+| R2-9 无人值守可用面 | 改为“无人值守轮次不能新开实例；能复用已有实例时只读始终可用，页面动作仅在该动作被分类器明确放行时执行（不读 `unattendedFallback`）”，与 D7/审批表对齐。 | `design.md` L324 |
+
+**可选建议**
+
+| 编号 | 处置 |
+|---|---|
+| R2-R1 | 风险表新增一行“无人值守残留：无人在场时，分类器明确放行的页面动作仍会执行”；处置写明只有用户轮次（含其派生的子 Agent）能新开实例、残留窗口仅限最近用户轮次后约 5 分钟内、`unattendedFallback` 不参与放行、不改分类器判定。（`design.md` L345） |
+| R2-R2 | V5 加旁证判据“回读 `in_viewport` 至少同向变化（旁证，不替代截图）”；M1 第 8 条的 TTL/20 张改为 worker 测试注入旧时间戳，评审只核对目录与当前条数。（`design.md` L391、L409、L422） |
+| R2-R3 | 验证顺序写为 **V2 → V1 → V5 → V4 → V6 → V3**；V2 失败处置里的“同意流”分支标注**本 unit 不实现**（另立决策）。（`design.md` L383、L388） |
+
+**判断 (a)–(d) 的条件落实**
+
+- (a) 三个条件都已落：任务续跑进 spec/delta（R2-4）；“周期任务几乎拿不到实例”写进已知限制（`design.md` L434）；fixture 按 R2-3 的按层口径断言（`design.md` L420）——条件③的形态随判据调整：不再断言“子 Agent 首轮一定是非人类”，而是断言“子 Agent 自身 source 形状不参与判定、按祖先层判定”。
+- (b) 残留写进风险表（`design.md` L345），并修正了与 D7 相反的 Consumer 表述（L324）。
+- (c) V2 失败＝发布阻断保留；“另立同意流”标注本 unit 不实现（`design.md` L388）。
+- (d) V6 的目录条件与可观测判据已写入（`design.md` L392）。
+
+**R2-3 的取舍说明（供下一轮复核）**
+
+审查建议“叠加 `origin === 'subagent'` 硬闸门 + fixture 断言子 Agent 首轮被拒”。作者的判断是：这条闸门会连带否掉本能力最自然的用法（用户在对话里要求做一件事，主 Agent 把它委派给子 Agent 执行），而子 Agent 的浏览器实例本来就按 Agent 归属、不能借用父实例，所以硬闸门的净效果是“委派即不可用”，不是“更安全”。按层判定保留的正是被审查认可的风险边界（同一用户轮次、同一在场证据），并把“后台/任务续跑派生的子 Agent”继续挡在外面。若实施时发现 `ctx.agents.get` 在本进程内拿不到根会话（例如跨进程根），则按层判定无法成立，此时退回硬闸门（子 Agent 一律不可新开实例）、保持同一错误码，并在实现记录里说明原因。
+
+**本轮执行记录（Author）**
+
+- `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`。
+- `git status --porcelain` → 干净；本轮改动与本节在同一个本地 commit 内（未 push）。
+- 未执行 V1–V6：用户正在使用本机，且这些验证需要启动驱动与浏览器窗口；C1 的“归还前台”依据仍是证据 L549–554 的单次观察（已按 R2-8 降级措辞）。
