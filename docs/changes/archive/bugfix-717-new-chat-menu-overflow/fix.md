@@ -60,7 +60,7 @@
 **为什么这种错能进来**：
 
 - `359109c98` 的意图只是"切到搜索视图时表头平滑收起"（对应
-  [`docs/specs/im/web-chat-ux.md`](../../specs/im/web-chat-ux.md) 的「独立搜索视图」：
+  [`docs/specs/im/web-chat-ux.md`](../../../specs/im/web-chat-ux.md) 的「独立搜索视图」：
   桌面端侧栏切换为搜索视图，普通列表不与结果同时展示）。它把 `max-height/overflow:hidden/transition`
   加在一个**同时承载非 portal 浮层**的行上，而该次提交只检查了收起动画本身。
 - 现有单测 `features/chat/components/conversation-sidebar.test.tsx` 在 jsdom 中只断言菜单节点出现与焦点，
