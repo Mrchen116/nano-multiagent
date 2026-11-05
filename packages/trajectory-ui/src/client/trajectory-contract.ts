@@ -16,6 +16,7 @@ export interface TrajectoryRequestHeaderState {
 
 /** One independently assembled contribution to the legacy Trajectory ledger. */
 export type TrajectoryContribution =
+  | { readonly kind: 'hidden' }
   | { readonly kind: 'system-prompt'; readonly prompt: SystemPromptNode }
   | {
     readonly kind: 'node'
