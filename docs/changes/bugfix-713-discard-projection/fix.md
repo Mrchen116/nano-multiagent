@@ -65,7 +65,7 @@ Agent 解读：这三条症状已随瘦身移交 U1（本地库与冷启动首�
 
 改动范围（4 个源文件 + 1 个新测试文件）：
 
-- `apps/im-server/src/message-records.ts`：`discard()` 从「一条 DELETE」变为「删除消息行 + 恢复会话投影 + 回滚未读」。恢复前先读出被删消息的 `rowid` / `conversation_id` / `sender_user_id`；preview 与 `last_message_at` 按 `created_at DESC, rowid DESC` 取剩余最新消息，preview 沿用 `insert()` 的公式（`content.trim().slice(0,120)`，空正文回落到首个附件名），没有剩余消息时两项写 `NULL`（不是空串）。
+- `apps/im-server/src/message-records.ts`：`discard()` 从「一条 DELETE」变为「删除消息行 + 恢复会话投影 + 回滚未读」。恢复前先读出被删消息的 `rowid` / `conversation_id` / `sender_user_id`；preview 与 `last_message_at` 按 `rowid DESC` 取**最后插入**的剩余消息——`insert()` 写投影用的就是它刚插入的那一行，而 ingress / 事件重放会用 `extra.created_at` 回填更早的时间，所以「这条消息出现前」是插入顺序而不是时间戳顺序（按 `created_at` 取最大值会把投影跳到一条已被后续插入覆盖过的旧行，且与该行的时间戳不符）。preview 沿用 `insert()` 的公式（`content.trim().slice(0,120)`，空正文回落到首个附件名），没有剩余消息时两项写 `NULL`（不是空串）。
 - `apps/im-server/src/chat-streaming.ts`：`message_discarded` 分支把「删行 + 写 tombstone」包进一个 `transaction()`；tombstone 以 `publish=false` 写入，提交后再广播。
 - `apps/im-server/src/messaging.ts`：新增 `publishCommitted(frame)`，只广播已提交帧、不重跑 wake 策略（wake 已在事务内的 `event()` 跑过一次）。
 - `apps/im-server/src/gateway.ts`：把 `publishCommitted` 接进 `ChatStreaming` 的 ports。
@@ -88,19 +88,20 @@ Agent 解读：这三条症状已随瘦身移交 U1（本地库与冷启动首�
 
 ## 验证
 
-先写测试并确认修前红灯（`npx vitest run apps/im-server/tests/discarded-message-projection.test.ts`，修前 3 failed / 1 passed）：
+先写测试并确认修前红灯（`npx vitest run apps/im-server/tests/discarded-message-projection.test.ts`，修前 4 条用例 3 failed / 1 passed；第 5 条插入顺序用例在实现过程中补入）：
 
 1. 「丢弃后恢复到剩余消息」失败在 `unread_count` 1→期望 0、`last_message_preview` `""`→期望 `earlier real reply`、`last_message_at` 停在占位消息。
 2. 「占位是唯一消息」失败在 `last_message_preview` `""`/`last_message_at` 非空，期望均为 `NULL`。
 3. 「重复丢弃不回滚两次」失败在第二次丢弃后 `u2` 未读仍是 2（修前从未回滚，故也没被减）。
 4. 「已读水位之后又来真实消息」修前即通过——它是防「无脑减一」改法的守卫，不是本 bug 的红灯。
+5. 「时间戳非单调时回到上一次插入写下的投影」用于钉住 `rowid` 顺序：把实现临时换成 `created_at DESC` 后该用例失败（得到 `arrived first` / `2026-01-01`，期望 `backdated ingress` / `2025-12-01`），证明它确实在守这个选择。
 
-修后同一命令 4 passed。测试驱动真实 `Gateway.handle('node.streaming_delta')` 与真实 Fastify 路由（`GET /im/v1/conversations/:id`、`POST .../read`、`GET .../messages`），断言 HTTP 投影、参与者未读、消息行与历史、`message.discarded` 广播帧，以及另一会话不受影响。
+修后同一命令 5 passed。测试驱动真实 `Gateway.handle('node.streaming_delta')` 与真实 Fastify 路由（`GET /im/v1/conversations/:id`、`POST .../read`、`GET .../messages`），断言 HTTP 投影、参与者未读、消息行与历史、`message.discarded` 广播帧，以及另一会话不受影响。
 
 实跑命令与结果：
 
-- `npx vitest run apps/im-server/tests/discarded-message-projection.test.ts` → 4 passed。
-- 相关面扩查 `npx vitest run apps/im-server/tests/{discarded-message-projection,messaging,message-attempts,relay-delivery,watchdog,chat-contracts,conversation-query-hot-path,personal-disclosure,task-context-live,task-context-revocations,task-context-migration}.test.ts` → 11 files / 68 tests passed。
+- `npx vitest run apps/im-server/tests/discarded-message-projection.test.ts` → 5 passed。
+- 相关面扩查 `npx vitest run apps/im-server/tests/{discarded-message-projection,messaging,message-attempts,relay-delivery,watchdog,chat-contracts,conversation-query-hot-path,personal-disclosure,task-context-live,task-context-revocations,task-context-migration}.test.ts` → 11 files / 69 tests passed。
 - 真实入口 e2e `npx vitest run apps/im-server/tests/e2e/{chat-boundaries,server,control-work}.test.ts` → 3 files / 9 tests passed。
 - 全量 `npx vitest run apps/im-server/tests` → 380 passed / 20 failed；失败集中在 `interactive-messages`、`interactive-source`、`personal-representation`、`personal-sources`、`tenancy`、`e2e/trajectory` 六个文件，全部在改动面之外。用 `git stash` 只回退本次 4 个源文件后复跑同一批文件，得到相同失败（`interactive-messages` 14/14、`interactive-source` 2、`personal-representation` 1、`personal-sources` 1、`tenancy` 1），确认为本机环境既有红灯（interactive catalog 校验与未构建的工作区包），与本 unit 无关。
 - 类型检查 `npx tsc -p apps/im-server/tsconfig.json --noEmit` 与 `-p tsconfig.contracts.json` 均只报一条既有错误 `src/trajectory.ts(109,46): Property 'initialBatch' does not exist`（依赖包 `lib/` 未构建的产物，非本次文件）。
