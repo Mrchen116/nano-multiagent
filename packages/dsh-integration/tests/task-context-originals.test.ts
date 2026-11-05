@@ -2,6 +2,7 @@ import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect,it} from 'vitest';
+import {stripContextItemId} from 'dsh-agent-context';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
 interface Evidence {inputId:string;content:unknown[];turn:number;consumedSeq:number}
 async function fixture(){
@@ -26,7 +27,8 @@ it('records original IDs as native executed messages and repairs a lost product 
     c.rpc.handle('product.task_context.commit',()=>{throw new Error('simulate lost product receipt');});
     await f.start(c);await f.submit(c,'first human');
     const first=(await f.observe(c)).events.filter(event=>event.type==='user/message'&&event.data.id===original.inputId);
-    expect(first).toHaveLength(1);expect(first[0]!.data).toMatchObject({content:original.content,source:{kind:'nano-system',channel:'task-context',conversationId:'fixed-chat',messageId:original.inputId}});
+    expect(first).toHaveLength(1);expect(first[0]!.data).toMatchObject({source:{kind:'nano-system',channel:'task-context',conversationId:'fixed-chat',messageId:original.inputId}});
+    expect(stripContextItemId(first[0]!.data.content)).toEqual(original.content);
     expect(consumed).toBe(false);
     await c.shutdown();c=f.client();
     c.rpc.handle('product.task_context.prepare',value=>prepare(value as {evidence:Evidence[]}));c.rpc.handle('product.task_context.commit',()=>null);

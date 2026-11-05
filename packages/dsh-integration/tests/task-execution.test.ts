@@ -3,6 +3,7 @@ import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect,it} from 'vitest';
+import {stripContextItemId} from 'dsh-agent-context';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
 import type {TaskExecutionSnapshot} from '@nano/product-contracts';
 
@@ -234,7 +235,8 @@ export function apply(ctx){let call=0;
     const calls=(await readFile(join(home,'calls'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     expect(calls).toHaveLength(3);
     const change=calls[1].find((message:{id:string})=>message.id===original.inputId);
-    expect(change).toMatchObject({role:'user',content:original.content,source:{kind:'nano-system',channel:'task-context',messageId:original.inputId,conversationId:'c'}});
+    expect(change).toMatchObject({role:'user',source:{kind:'nano-system',channel:'task-context',messageId:original.inputId,conversationId:'c'}});
+    expect(stripContextItemId(change.content)).toEqual(original.content);
     expect(JSON.stringify(calls)).not.toContain('Task responsibility changed.');
     const observed=await client.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:{id?:string}}[]};
     expect(observed.events.filter(event=>event.type==='user/message'&&event.data.id===original.inputId)).toHaveLength(1);

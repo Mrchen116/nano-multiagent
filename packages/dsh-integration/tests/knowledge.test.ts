@@ -111,7 +111,7 @@ export function apply(ctx) {
  const seen=new Map();
  ctx.on('llm/stream',async function* (options) {
   const last=options.messages.findLast(m=>m.role==='user' && ['nano-human','user'].includes(m.source?.kind));
-  const prompt=last.content.filter(b=>b.type==='text').map(b=>b.text).join('');
+  const prompt=last.content.find(b=>b.type==='text').text;
   let name,args;
   const step=seen.get(last.id)||0;seen.set(last.id,step+1);
   if (step===0 || prompt.includes('consider saving to memory') && step<3) {

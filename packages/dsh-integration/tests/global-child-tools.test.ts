@@ -28,7 +28,7 @@ ctx.on('llm/stream',async function*(o){
  await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({id:agent.id,parent:agent.session.header.parentSession,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork',tools:o.tools,schemas:ctx.tools.schemas(agent),system:o.messages.filter(m=>m.role==='system'||m.role==='developer')})+'\\n');
  const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);
  const key=agent.id+':'+(user?.id??'child');const fresh=!seen.has(key);seen.add(key);
- const text=user?.content.filter(b=>b.type==='text').map(b=>b.text).join('')??'';
+ const text=user?.content.find(b=>b.type==='text')?.text??'';
  let calls=[];
  if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[['send_message',{agent_id:text.slice(7),message:'Resume original work'}]]:[['subagent',{prompt:'Prepare findings',description:'Continuable work',run_in_background:true}],['subagent_fork',{prompt:'Check findings independently',description:'Fork work',run_in_background:false}]];
  if(fresh&&agent.id!=='root'&&agent.session.snapshotEvents().find(e=>e.type==='subagent/descriptor')?.data.mode==='continuable'){calls=[['send_message',{agent_id:agent.session.header.parentSession,message:'Findings ready for the parent to deliver'}]];if(agent.session.header.parentSession==='root')calls.push(['subagent',{prompt:'Verify one independent fact',description:'Second level',run_in_background:true}]);}
@@ -77,7 +77,7 @@ ctx.on('llm/stream',async function*(o){
     const descendants = await client!.rpc.request('session.descendants', { sessionId: 'root' }) as any[];
     for (const child of descendants) {
       expect(child.kind,JSON.stringify(child)).toBe('child');
-      const results = child.events.filter((event: any) => event.type === 'tool/result');
+      const results = child.events.filter((event: any) => event.type === 'tool/result' && typeof event.surfaceOp !== 'object');
       const continuable = child.events.find((event: any) => event.type === 'subagent/descriptor').data.mode === 'continuable';
       expect(results).toHaveLength(continuable ? (before.find(row => row.id === child.id)?.parent === 'root' ? 2 : 1) : 0);
       if (continuable) expect(results[0].data.message.isError, JSON.stringify(results[0].data.message)).not.toBe(true);
@@ -192,7 +192,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     await expect.poll(async()=>(await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[]).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
     const fork=wire.find(row=>row.fork)!;expect(fork.tools).toEqual(first.tools);expect(withoutCache(fork.system)).toEqual(withoutCache(first.system));
     const children=await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
-    expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result').every((event:any)=>!event.data.message.isError)).toBe(true);
+    expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result' && typeof event.surfaceOp !== 'object').every((event:any)=>!event.data.message.isError)).toBe(true);
     const beforeFirst=wire.filter(row=>row.id===first.id).length,beforeSecond=wire.filter(row=>row.id===second.id).length;
     await client!.shutdown();client=undefined;await start();
     await submit('resume-worker','resume:'+first.id);
@@ -217,7 +217,7 @@ it('withdraws a root tool while its worker keeps the native capability and the r
 export const name='worker-selection';export const inject=['llm','agents','tools'];
 export function apply(ctx){let release;const gate=new Promise(resolve=>release=resolve);const seen=new Set();
 ctx.on('tools/pre-execute',async(exec,next)=>{const decision=await next();if(exec.name==='read'&&exec.agent?.session.header.origin==='subagent'){exec.signal.addEventListener('abort',release,{once:true});await writeFile(process.env.DSH_HOME+'/child-reading','yes');await gate;}return decision;});
-ctx.on('llm/stream',async function*(o){const agent=ctx.agents.get(o.sessionId);const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);const text=user?.content?.map(b=>b.text??'').join('')??'';
+ctx.on('llm/stream',async function*(o){const agent=ctx.agents.get(o.sessionId);const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);const text=user?.content?.find(b=>b.type==='text')?.text??'';
 if(agent.id==='root'&&text==='release'){release();await writeFile(process.env.DSH_HOME+'/root-received','yes');}
 const fresh=!seen.has(agent.id);seen.add(agent.id);let calls=[];
 if(fresh&&agent.id==='root')calls=[['subagent',{prompt:'Read the workspace instructions and return findings',description:'one complete task',run_in_background:true}]];
@@ -243,7 +243,7 @@ yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'fini
     const children=await client.rpc.request('session.descendants',{sessionId:'root'}) as any[];
     await expect.poll(async()=>{
       const rows=await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
-      return rows[0]?.events.some((e:any)=>e.type==='tool/result'&&!e.data.message.isError);
+      return rows[0]?.events.some((e:any)=>e.type==='tool/result' && typeof e.surfaceOp !== 'object'&&!e.data.message.isError);
     }).toBe(true);
     expect(children).toHaveLength(1);
   } catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}

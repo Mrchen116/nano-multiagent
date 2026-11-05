@@ -20,7 +20,7 @@
 | 理解首次 API 接入、日常模型服务管理和固定版本安装 | [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) → [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；实际发布见 [`operations/local-stack.md`](operations/local-stack.md#发布首次安装包) |
 | 理解 Feature 完整依赖、独立工具开关和关闭保护 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md) → [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
 | 理解 Memory/Skill 知识归属、联合复盘与非 Global 跨会话 F4 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；复盘展示见 [`specs/im/agent-work.md`](specs/im/agent-work.md) |
-| 理解所有 Agent 默认无摘要换窗、历史恢复与显式回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；插件操作见 [compaction 指导](../packages/personal-assistant/assets/skills/nano-plugin-development/references/compaction.md) |
+| 理解所有 Agent 默认无摘要换窗、稳定短引用、简洁预算、历史恢复与显式回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；插件操作见 [compaction 指导](../packages/personal-assistant/assets/skills/nano-plugin-development/references/compaction.md) |
 | 让 Agent 开发 workspace 插件、查询当前 API 与验证实际效果 | [随包插件开发 Skill](../packages/personal-assistant/assets/skills/nano-plugin-development/SKILL.md)；产品边界见 [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md) |
 | 更新已安装的电脑端、处理一次性旧版过渡或失败恢复 | [`operations/gateway.md`](operations/gateway.md#更新已安装的电脑端) |
 | 查看任务图、持续推进、一小时内等待复查与固定聊天反馈 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
@@ -132,3 +132,5 @@
 退役的 Python Kernel/Coding CLI 契约见 [`archive/pre-dsh-581/`](archive/pre-dsh-581/README.md)。
 
 累计五次自动拉黑与恢复通知的已验收变更见 [bugfix-678](changes/archive/bugfix-678-pa-permission-boundaries/incident.md)；当前行为以 [Gateway PA 契约](specs/gateway/personal-agent.md) 为准，归档不表示已部署。
+
+原生轨迹补历史恢复初始上下文的已验收修复见 [bugfix-712](changes/archive/bugfix-712-trajectory-history-prepend/acceptance.md)，随 feat-711 的 PR #466 一起交付。

@@ -60,6 +60,8 @@ export function safeBoundary(events: readonly SessionEvent[], cutoff = Infinity)
   const pending = new Set<string>();
   for (const event of events) {
     if (!Number.isFinite(event.time) || event.time > cutoff) break;
+    // Native replacements revise an already completed result; they do not settle another call.
+    if (event.type === 'tool/result' && typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace') continue;
     if (event.type === 'tool/call') pending.add(event.data.callId);
     if (event.type === 'tool/result') {
       if (!pending.delete(event.data.message.toolCallId)) break;

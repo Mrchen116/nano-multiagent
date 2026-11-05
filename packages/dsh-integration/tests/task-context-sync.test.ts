@@ -2,12 +2,14 @@ import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect,it} from 'vitest';
+import {stripContextItemId} from 'dsh-agent-context';
+import type {ContentBlock} from '@deepseek-ai/dsh-llm';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
 import type {TaskExecutionSnapshot} from '@nano/product-contracts';
 
 interface Original {inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}
 interface Evidence {inputId:string;content:unknown[];turn:number;consumedSeq:number}
-interface NativeMessage {id:string;role:string;content:{type:string;text?:string}[];source?:{kind:string;channel?:string;messageId?:string;conversationId?:string}}
+interface NativeMessage {id:string;role:string;content:ContentBlock[];source?:{kind:string;channel?:string;messageId?:string;conversationId?:string}}
 interface ProviderCall {sessionId:string;messages:NativeMessage[]}
 interface Observation {status:string;events:{type:string;seq:number;data:any}[]}
 const empty:TaskExecutionSnapshot={kind:'quiescent',tasks:[],repair_task_ids:[]};
@@ -40,7 +42,8 @@ export function apply(ctx){const attempted=new Set();ctx.on('llm/stream',async f
   const state={pending:[] as Original[],revoked:[] as string[],consumed:new Set<string>(),receipts:[] as Evidence[],
     unavailable:false,prepareReads:0,snapshotReads:0,productCalls:0,snapshot:empty,completeAfter:undefined as number|undefined,
     beforePrepare:undefined as (()=>Promise<void>)|undefined};
-  const calls=async():Promise<ProviderCall[]>=>{const text=await readFile(join(home,'calls'),'utf8').catch(()=>'');return text.trim()?text.trim().split('\n').map(line=>JSON.parse(line)):[];};
+  // These assertions compare business originals; the raw provider log retains inline IDs.
+  const calls=async():Promise<ProviderCall[]>=>{const text=await readFile(join(home,'calls'),'utf8').catch(()=>'');return text.trim()?text.trim().split('\n').map(line=>{const call:ProviderCall=JSON.parse(line);return {...call,messages:call.messages.map(message=>({...message,content:stripContextItemId(message.content)}))};}):[];};
   const reconcile=(evidence:Evidence[])=>{for(const item of evidence)if(state.pending.some(message=>message.inputId===item.inputId&&JSON.stringify(message.content)===JSON.stringify(item.content))){state.consumed.add(item.inputId);state.receipts.push(item);}};
   const client=()=>{
     const current=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
@@ -81,12 +84,12 @@ it.each([{outage:'source',taskGraph:true},{outage:'snapshot',taskGraph:true},{ou
     await f.start(client);await f.submit(client,'force-task-tool');
     await expect.poll(async()=>(await f.calls()).length).toBe(2);await f.idle(client);
     expect((await f.calls())[0]!.messages.some(message=>message.source?.channel==='task-context-limitation')).toBe(false);
-    const denied=(await f.observe(client)).events.find(event=>event.type==='tool/result'&&event.data.message.toolCallId==='task-probe-force-task-tool');
+    const denied=(await f.observe(client)).events.find(event=>event.type==='tool/result' && typeof event.surfaceOp !== 'object'&&event.data.message.toolCallId==='task-probe-force-task-tool');
     expect(denied?.data.message.isError).toBe(true);expect(JSON.stringify(denied)).toContain('unavailable');expect(f.state.productCalls).toBe(0);
     f.state.unavailable=false;f.state.snapshot=empty;
     await f.submit(client,'force-task-tool-after-revalidation');
     await expect.poll(()=>f.state.productCalls).toBe(1);await f.idle(client);
-    const accepted=(await f.observe(client)).events.find(event=>event.type==='tool/result'&&event.data.message.toolCallId==='task-probe-force-task-tool-after-revalidation');
+    const accepted=(await f.observe(client)).events.find(event=>event.type==='tool/result' && typeof event.surfaceOp !== 'object'&&event.data.message.toolCallId==='task-probe-force-task-tool-after-revalidation');
     expect(accepted?.data.message.isError).toBe(false);
   }catch(error){throw new Error(String(error)+'\n'+f.logs(),{cause:error});}
   finally{await client.shutdown();await rm(f.home,{recursive:true,force:true});}

@@ -84,7 +84,9 @@ function trajectorySystemMessageDefinition(inspect: SystemPromptInspector): Conv
       return prompt !== undefined && prompt.text !== ''
         && context.start?.event.type === 'system/message' && context.start.event.surfaceOp === 'append'
         ? trajectoryNode(context, prompt.seq, { kind: 'system-prompt', prompt })
-        : null
+        // A prepend can resolve an uncertain header into no visible contribution.
+        // Keep its identity: the assembler does not permit withdrawing a published node.
+        : trajectoryNode(context, context.start!.event.seq, { kind: 'hidden' })
     },
   }
 }

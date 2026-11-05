@@ -23,7 +23,7 @@ it.each([
     await writeFile(join(home,'fixture.mjs'), `export const name='task-permission-fixture';export const inject=['llm'];
 export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async function*(o){
  const human=o.messages.findLast(m=>m.role==='user'&&m.source.kind==='user'&&'actorId'in m.source);
- const text=human.content.filter(b=>b.type==='text').map(b=>b.text).join('');
+ const text=human.content.find(b=>b.type==='text').text;
  if(['对','直接删！'].includes(text)&&!seen.has(human.id)){
   seen.add(human.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:human.id+'-delete',name:${JSON.stringify(tool)},arguments:JSON.stringify(${JSON.stringify(args)})}};yield{type:'finish',reason:{kind:'tool-calls'}};
  }else{yield{type:'block-end',index:0,block:{type:'text',text:'Scope is the selected subtree.'}};yield{type:'finish',reason:{kind:'stop'}};}
@@ -51,7 +51,7 @@ export function apply(ctx){const seen=new Set();ctx.on('llm/stream',async functi
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({method:tool,agentId:'allow',args});
     const denied=await client.rpc.request('session.observe',{sessionId:'deny'}) as {events:{type:string;data:any}[]};
-    expect(denied.events.some(event=>event.type==='tool/result'&&event.data.message.isError)).toBe(true);
+    expect(denied.events.some(event=>event.type==='tool/result' && typeof event.surfaceOp !== 'object'&&event.data.message.isError)).toBe(true);
     await client.shutdown();client=undefined;
   } catch(error) {throw new Error(`${error}\n${logs}`,{cause:error});}
   finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
