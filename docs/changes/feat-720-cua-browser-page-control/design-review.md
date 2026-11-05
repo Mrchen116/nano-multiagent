@@ -525,3 +525,28 @@
 - `git show --numstat a8b91bf95` → `design-review.md` +41/−0、`design.md` +39/−34、`spec.md` +8/−7、`specs/gateway/agent-capabilities.md` +10/−4。
 - 静态取证：`node_modules/@deepseek-ai/dsh-agent/lib/types/index.d.ts` L343/L357（`get`/`list`）、`node_modules/.pnpm/@deepseek-ai+dsh-subagent@…/lib/index.js` L470–481（`childSessionMeta`）、L1038–1049（`liveLineage`）、`@deepseek-ai/dsh-session` 类型 `types.d.ts` L262/L273（`turn/start`/`turn/end`）与 L493/L495（`seq`/`time` 信封）。
 - `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（本节写入后复跑，源文件数不变）。
+
+### Author Resolutions（Round 3）
+
+R3-C1 按审查给的三句话判定条件原样落地（未改判定骨架），4 项顺手改逐条落文字；其余 8 项不再改动。本轮只改文档，不改代码、不 push。
+
+| 编号 | 处置 | 落点 |
+|---|---|---|
+| R3-C1 ★ 阻断：在场被放宽成“曾经在场” | TurnGate 改成三条同时满足：① 判定会话的最后一个 `turn/start {turn}` 之后没有同号 `turn/end`（轮次仍打开；最后一轮已关闭按不在场处理）；② 该打开轮次内存在 `isHumanSource` 的 `user/message`；③ 该轮次里**最近一条**人类消息的 `event.time` 距请求 ≤ **300 秒在场窗口**（实现口径 `Date.now() - event.time <= 300_000`；取 300s 的理由与驱动 `idle_expires_in_seconds: 300` 同量级、也与已知限制的“最近约 5 分钟”一致，已写在同一条）。链断 / 检出环 / 无打开轮次 / 无人类消息 / 超窗 / `schedule`·`heartbeat`·`task-execution`·`task-change` → 一律 `browser_launch_requires_user_turn`，**任何分支都不回退放行**。 | `design.md` L79、L269；`spec.md` L109；delta L30 |
+| R3-C1-5 环检测与活注册表 | 上溯改用 `seen` 集合环检测，删掉固定“≤8 跳”（子 Agent 链通常 1 跳，固定跳数会掩盖环）；并写明 `ctx.agents` 是**活 Agent 注册表不是持久血缘**（DSH `liveLineage()` 同款 `ctx.agents.get` + `seen`；`parentSession`/`delegationDepth` 由 `childSessionMeta()` 写入），因此父轮次结束/父 Agent 销毁后链断即 deny 是正确结果，不存在“拿不到就退回硬闸门再决定”的分支——静态可解析就按在场窗口判定，解析不了就直接拒。 | `design.md` L79、L81 |
+| R3-C1-6 能力边界写清 | L80 明说按层判定恢复的只是**同步/前台委派**（同一轮次、人类发言在 300 秒内）；后台委派（那一轮已结束）与长轮次末端委派（人类发言已超窗）**仍然拿不到实例**，只复用已有实例。已知限制同步写入“长轮次末端委派、后台委派都拿不到实例”。 | `design.md` L80、L435；`spec.md` L109；delta L30 |
+| R3-C1-7 fixture | M1 第 7 条扩写为：人类消息 60 秒前且轮次打开 → 允许；10 分钟前 → 拒绝；父轮次已关闭而后台子 Agent 仍在跑 → 拒绝；`heartbeat`/`task-execution` 祖先 → 拒绝；链断 → 拒绝；构造环（指向自身/互指）→ 拒绝且不无限循环；子 Agent 自身 seed source 形状不参与判定（无身份字段 + 人类父轮次在窗口内 → 允许）；已有实例时非用户轮次可只读。 | `design.md` L420 |
+| R3-1 ★ 启动期清理范围 | 现文本只写“进程启动时对截图根目录做一次过期清理”，已限定为：只扫**已配置 Agent 的 workspace** 下的 `.nanoassistant/browser/<agentId>/`，不遍历 home 或仓库；单次有界；失败只记录、不阻塞启动；只删本能力按 TTL/张数规则判定的文件。M1 第 9 条补对应断言（不再只覆盖“写入时清理”）。审查判定“必要兜底”的结论接受，保留该机制。 | `design.md` L114、L316、L329、L422 |
+| R3-2 ★ 冷却清除 | 改成 `failedAt + 300s`（与 `idle_expires_in_seconds` 同量级）**到期惰性清除**：每次调用只比较内存时间戳，不做 pid 探测（进程 I/O 且 pid 会复用），也不“永不检查”（那会把能力永久锁死）；另外**新实例 `end_session` 成功**作为“用户手动关窗后恢复”的清除条件。worker 新增第 13 条：fake timer 固定“300s 内每次调用直接返回同一错误且零驱动调用、到期恢复”。 | `design.md` L84、L275、L313、L426 |
+| R3-3 场景一叙述 | 改为“没有被持续打断输入（启动那一下除外）”，与 L106 的披露同向，不再读成绝对句。 | `spec.md` L36 |
+| R3-4 契约层不写机制 | delta 删除“（判定按请求上溯到最近的用户会话）”这条实现手法，改成行为语义：只有该轮次仍在进行、且用户最近一次发言在约 5 分钟内时，主 Agent 或它在这一轮里同步委派的子 Agent 才可能新开实例；更早的委派与后台委派只复用已有实例。机制留在 `design.md` L79。 | delta L30 |
+
+**关于“不做租约”的选择**
+
+接受审查的选择（不做租约），并说明理由而不是默认照办：租约方案要在 `agent/created` 处新增一份带到期时间的进程内状态，随之要覆盖子会话结束、崩溃、恢复、fork 与 resident 子 Agent 的清理面，而这些生命周期出口目前都没有现成的统一钩子；按层判定则完全由 `turn/start`、`turn/end`、`user/message.time` 三类既有事件推导——同一批事件既决定放行、也能在事后从事件日志复算出同一结论，不需要额外的状态回放。代价（同步/前台委派 + 打开轮次 + 300s 窗口之外的委派拿不到实例）已经按 R3-C1-6 写进 spec/delta 与已知限制，用户可观察的行为不再靠隐含假设。**不回退硬闸门、不并存两套判定**：静态可解析就按在场窗口判定，解析不了就拒。
+
+**本轮执行记录（Author）**
+
+- `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`。
+- `git status --porcelain` → 干净；本轮改动与本节在同一个本地 commit 内（未 push）。
+- 未改代码、未执行 V1–V6；C1 的“归还前台”依据仍是证据 L549–554 的单次观察，发布仍由 V2 阻断。
