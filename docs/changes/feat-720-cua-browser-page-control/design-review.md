@@ -190,3 +190,51 @@
 - `diff /tmp/desktop-verify/report.md docs/changes/feat-720-cua-browser-page-control/evidence/desktop-verification.md` → 空（逐字副本成立）
 - `sips -g pixelWidth -g pixelHeight /tmp/desktop-verify/shots/08-after-scroll.png` → 2400×1464（= 1200×732 CSS px，dpr=2）
 - `/Users/czj/Repos/nano-multiagent/.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 220 maintained Markdown sources, 68 required routes`（本报告写入后复跑结果同，见 commit 说明）
+
+### Author Resolutions
+
+- resolved_at: 2026-11-05T18:29:23+08:00
+- 修复范围：只改本 unit 文档（`spec.md`、`design.md`、`specs/gateway/agent-capabilities.md`）；未改代码、未启动浏览器或驱动、未 push。`evidence/desktop-verification.md` 保持逐字副本不变。
+- 修复提交：本轮文档修复与本节同属一个本地 commit（spec/design/delta + 本节）；未 push。
+- 用户指定的前台承诺原句未改：`spec.md` 前台 Req 的承诺句与 delta 的承诺句逐字保留；本轮只补机制、事实与验收口径。
+
+**逐条处置**
+
+| 编号 | 处置 | 主要落点 |
+|---|---|---|
+| R1-C1（前台占用无上界） | 采纳“给上界”，不采纳“自动恢复用户前台 app”。① 事实改为实测口径：新窗口后前台持续 ≥4 秒（连续 4 次采样）、直到 `end_session`；不干预时按 `idle_expires_in_seconds: 300` 兜底（约 5 分钟）。② 机制上界：**TurnGate**——只有当轮出现真实用户消息才允许首次 `browser_prepare`；无人值守/后台委派轮次只复用实例，否则 `browser_launch_requires_user_turn`。③ **真实新窗口**：完成本次回读与截图后立即 `end_session`，返回 `foreground_released:true`；失败重试一次，仍失败返回 `browser_foreground_release_failed` 并请用户手动关闭。④ 删除 `browser_act close`（模型自觉不是机制）。⑤ 300 秒只是兜底，不是正常路径。 | `spec.md` 场景二/七、前台 Req 的首次接入与真窗口场景、审批 Req；`design.md` 约束二 3–7、D6、D8、错误表、审批表、失败与恢复、风险表、M1 1/3/9、已知限制；delta 前台 Req 与 2 个新增场景 |
+| R1-C1 的建议 3（unattended 是否允许 prepare） | 不允许 `prepare`；已有实例的只读仍可复用（读不会新开窗口）。`browser_act` 另在审批层加入“无人值守回退不放行”排除集：分类器要求人工时一律拒绝，不读 `unattendedFallback`；分类器明确放行的低风险动作仍可执行。 | `design.md` D7、审批与边界、现状分析 approval 行；`approval.ts` 影响面已在“涉及范围”写明 |
+| R1-C1 与建议 2 的差异 | 没有把 `browser_read` 改成“只复用、不 prepare”。read 与 act 是两项**可独立选择**的能力，若 read 不能 prepare，只启用 read 的 Agent 永远读不到页面；改用 TurnGate 同时对两个工具的首次启动生效（比只约束 act 更强）。 | `design.md` 约束二 3、D7、browser_read/browser_act 接口、Agent Context；`spec.md` 前台 Req 的场景 |
+| R1-C2（坐标无可靠来源） | 采纳方案 ③：**v1 删除坐标点击**，`browser_act` 只接受 `ref`（无 `x/y` 字段）；滚动改为 `ref` 锚点并列为实施前阻断验证 V5（失败则移除滚动，不退回坐标）。截图尺寸写明是设备像素（2400×1464 = 1200×732 CSS px，dp=2），读数不提供几何，因此不接受“按画面估算坐标”。 | `spec.md` 范围/非目标、场景五；`design.md` 约束四、接口、错误表、审批表、D7、风险表、M1；delta 未含坐标能力 |
+| R1-W1（判定表语义含糊） | 改为**有序决策树**：① bind 成功 + 至少一个 http(s) tab → 真窗口；② 只有 bind 失败 **且** 无 target **且** 无 URL **且** 标题空/自带文案 **且** 尺寸属于 `284×87`/`1038×218` 才是噪声；③ 其余（含 bind 失败但证据不完整、`about:blank`）→ `browser_unexpected_event` 并结束本次调用。删除“停止本批次”的机制表述，改为模型可见指导（先告知用户再继续）。 | `design.md` 约束三、D4、失败与恢复、M1 worker 4；`spec.md` 噪声 Req 与真窗口场景；delta 噪声 Req |
+| R1-W2（delta 漏契约） | delta 新增 Requirement「浏览器页面结论 SHALL 以画面证据为准，读数不得冒充已验证」（含“只有读数时明示未验证”场景），并在审批 Req 下新增「超出边界的请求被拒绝并说明」场景；同时把首次启动边界、真实新窗口归还前台、无人工出口不放行补进前台/审批 Req。 | `specs/gateway/agent-capabilities.md` 全文；`design.md` 契约层增量 |
+| R1-W3（type 未实测） | 新增实施前验证 V1（后台写入 + DOM 回读 + 前台不变），M1 e2e 只在 V1 通过后包含输入；评审旅程第 3 条改为“导航/读取/点击（V1/V5 通过后再加输入/滚动）”；失败处置写明移除输入并同步 spec/delta/M1/旅程。 | `design.md` Milestones 前置表 V1、M1 reviewer 3、worker 8、已知限制；`spec.md`/delta 待 V1 失败时按处置同步 |
+| R1-W4（审批出口随会话类型） | D7 写清三种出口：interactive → 分类器/人工卡片；Global 根与子 Agent → 只有分类器放行，否则 `NanoApprovalDenied`（无卡片），模型须请用户在单聊确认；unattended → 回退不放行。spec 新增“没有人工审批出口时不自动放行”场景；M1 审批旅程明确在 interactive 单聊执行，并新增第 9 条检查；Consumer 不再写成“Global/子 Agent 可完整使用”。 | `design.md` D7、审批与边界、Agent Context、Runbook 验收前置、M1 6/9；`spec.md` 审批 Req 与新增场景；delta 审批 Req |
+| R1-W5（画面证据链） | 截图只写 `<agent workspace>/.nanoassistant/browser/<agentId>/`（resolve 后前缀校验，越界不写并返回 `screenshot_omitted:"outside_workspace"`）；返回 workspace 相对路径并写明用 `read_image` 读；每 Agent 最多 20 张、TTL 1 小时，Agent 销毁或实例结束时删除；把“页面内容不持久化”改为“不长期持久化，截图是临时证据”；新增 V6 验证 `read_image` 可读。 | `design.md` 约束四 2、失败与恢复、风险表、Agent Context、M1 reviewer 8/worker 9、V6、已知限制；`spec.md` 画面证据 Req；delta 画面证据 Req |
+| R1-W6（证据行号） | 改为 `L267–268`、`L543–549`、`L549–554`；`design.md` 证据引言的“行号一致”声明改为“引用的行号已逐条核对”（审查稿 L55）。这是作者错误（锚点写错且过度声明一致性），本轮已改正。 | `design.md` 约束二、验证结论引言 |
+| R1-W7（同 pid 多窗口） | v1 一个实例只登记**一个主窗口**：prepare 后 `list_windows {pid}` + 逐候选 bind，恰好一个 `exact` 且含 http(s) tab → 登记；零个 → `browser_session_lost`；多个 → `browser_window_ambiguous`。所有读写只解析主窗口；请求 `window_id` 非主窗口 → `browser_window_not_registered`；`tab` 匹配器只在主窗口内；新窗口不登记（真窗口还会结束实例）。`browser_read` 返回主窗口 `window_id`。 | `design.md` 新增“约束五”、架构图、错误表、身份表、接口、M1 worker 3；`spec.md`/delta 的身份 Req 已有“不按位置猜”覆盖 |
+
+**可选建议**
+
+| 编号 | 处置 |
+|---|---|
+| R1-R1 | 不改 evidence 副本。关键观测（窗口集合、bind 结果、前台变化、截图尺寸）已在报告正文；`/tmp` 依赖已在 `design.md` 证据引言标注为原始材料位置。 |
+| R1-R2 | M1 worker 8 增加“记录一次点击与一次输入的端到端延迟，并说明同 Agent 串行排队的超时口径”。 |
+| R1-R3 | 工具描述必含句新增“第一次读取可能打开一个浏览器窗口（可能短暂占前台）”，写入 M1 worker 11 与 Agent Context Validation。 |
+| R1-R4 | D9 增加“status 文本匹配失败时错误带原始输出片段（截断）”。 |
+| R1-R5 | M1 worker 12 改为“由 code review 按 `agent-context-review` Implementation 模式确认”，不新增门禁。 |
+| R1-R6 | 保留 `existing_profile` 文案原样（本 unit 不实施该通道）；“30 分钟空闲/8 小时总计”仍无本机证据，已在 spec 非目标中限定为将来接入时的固定文案。 |
+| R1-R7 | 删除空的 `## Changelog` 段。 |
+
+**需要 Round 2 复核的新增判断**
+
+1. TurnGate 把 `task-execution`/`task-change` 轮次排除在“可启动实例”之外（这些在审批上算 interactive，但不代表用户在场）。代价是：用户接受任务后，后续续跑轮次不能自己新开浏览器，只能复用首次用户轮次打开的实例。请复核这个收窄是否可接受。
+2. unattended 下仍允许“分类器明确放行”的页面动作（只排除回退放行）。理由是与既有“低风险可自动执行”语义一致；如果要求无人值守完全禁止页面动作，需要再收紧并同步 spec/delta。
+3. V2 把“`end_session` 不能归还前台”定为**发布阻断**（不是继续按披露发布），这是产品级取舍；请复核是否同意这种处理方式。
+4. V6 若 `read_image` 读不到 workspace 相对路径，处置是改截图目录位置（仍做前缀校验），会再改一次 spec/design 文案。
+
+**本轮执行记录（Author）**
+
+- `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（修复后复跑；221 比审查时的 220 多一份已入库的 `design-review.md`）。
+- `git status --porcelain` → 干净；本轮修复与本节在同一个本地 commit 内。
+- 未执行 V1–V6：用户正在使用本机，且这些验证需要启动驱动与浏览器窗口；C1 的“`end_session` 归还前台”依据仍是证据 L549–554 的单次观察，需 V2 复采。
