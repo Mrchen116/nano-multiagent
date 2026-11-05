@@ -14,7 +14,7 @@
 - Findings / Resolutions: 无存活 finding；核实锁定 assembler 的 same-key 契约、hidden 排除、start-only Definition 和分页测试。
 - Closure: N/A，无修复项。
 
-## 验证
+## 原修复阶段验证
 
 - 新增两个分页回归：原实现均失败，修复后通过。
 - trajectory-ui 与 dsh-trajectory-viewer typecheck/build：通过（先构建 product-contracts）。
@@ -27,3 +27,7 @@
 - pnpm check:ios-runtime：未通过，tsx 创建 Unix IPC socket 时环境拒绝 EPERM；未改变权限或绕过限制。前端独立 npm gate / 真实浏览器端到端没有运行。
 - git diff --check：通过。
 - 用户实际验收尚未完成，unit 保持 active；没有 push、PR 或部署。
+
+## 2026-11-05 归档时的有效性
+
+原修复提交 `35f43743a0384fc498d69f82711664deac86f3b8` 已包含于 PR #466；三个产品文件与分页回归没有因本次归档改变。原独立代码审查结论保留，本次只更新文档状态、验收记录与路径，不触发新的代码审查轮次。原阶段的失败、未完成测试和验收限制保留在上文，不改写为通过。真实工作页验收及交付范围见 [acceptance.md](acceptance.md)。

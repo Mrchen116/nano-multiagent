@@ -21,7 +21,7 @@ Definition 无显示内容时贡献 `{ kind: 'hidden' }`，保留 context key �
 - 既有 navigation / run-navigation 测试 keep；上游 tests/upstream 为参考，未修改或假报进入默认门禁。
 - 新建独立 history-paging.test.ts：其 owner 为分页组装公开 seam；现有两个测试文件只覆盖导航模型，不能暴露本问题。根 pnpm test 长期收集本测试。
 - 两个新增测试在原 Definition 上均以 withdrew materialized target 失败，修复后通过；覆盖每个分页切点、单条多页、重复页、不确定→已知及恢复后追加。
-- 用户验收待完成。未连接截图中的真实 Gateway；确定性组件验证不能替代真实浏览器工作页验收。
+- 原始修复阶段未连接截图中的真实 Gateway；该阶段的确定性组件验证不代表真实浏览器验收。2026-11-05 已在 feat-711 隔离服务上完成真实工作页验证并获得用户确认，见 [acceptance.md](acceptance.md)。
 
 ## Canonical 文档影响
 
@@ -29,4 +29,4 @@ Definition 无显示内容时贡献 `{ kind: 'hidden' }`，保留 context key �
 
 ## 收尾
 
-完整 code review 和验证记录见 code-review.md。未获用户实际验收，不归档，不创建 PR，不部署。云端分支保留供继续验收和交付。
+完整 code review 和原始验证记录见 [code-review.md](code-review.md)。用户已确认并授权归档；整个 unit 随 PR #466 交付，PR #467 是已集成的原修复来源。归档不表示 PR 合入或生产部署。

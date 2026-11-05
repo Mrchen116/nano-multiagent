@@ -203,6 +203,8 @@ describe("durable identity compatibility", () => {
   });
 
   it("retries a lost browser upgrade response, preserves the cookie across restart and rolls thirty days", async () => {
+    // Keep issuing and renewing the session on the same clock, even across slow setup.
+    vi.useFakeTimers({ toFake: ["Date"] });
     const dir = mkdtempSync(join(tmpdir(), "im-stable-browser-"));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, "im.db");
@@ -227,7 +229,6 @@ describe("durable identity compatibility", () => {
     const reopened = await server(restarted);
     const sid = identity.accessSession(retry.json().access_token).sid;
     const previousExpiry = identity.get("SELECT expires_at FROM auth_sessions WHERE session_id=?", sid)!.expires_at;
-    vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000);
     const simultaneous = await Promise.all([1, 2].map(() => post(reopened, "/im/v1/auth/refresh", {}, { ...headers, cookie })));
     for (const response of simultaneous) {

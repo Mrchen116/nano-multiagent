@@ -132,3 +132,5 @@
 退役的 Python Kernel/Coding CLI 契约见 [`archive/pre-dsh-581/`](archive/pre-dsh-581/README.md)。
 
 累计五次自动拉黑与恢复通知的已验收变更见 [bugfix-678](changes/archive/bugfix-678-pa-permission-boundaries/incident.md)；当前行为以 [Gateway PA 契约](specs/gateway/personal-agent.md) 为准，归档不表示已部署。
+
+原生轨迹补历史恢复初始上下文的已验收修复见 [bugfix-712](changes/archive/bugfix-712-trajectory-history-prepend/acceptance.md)，随 feat-711 的 PR #466 一起交付。

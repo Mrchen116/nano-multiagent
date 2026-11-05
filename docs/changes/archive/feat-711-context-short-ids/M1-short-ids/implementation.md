@@ -74,3 +74,9 @@
 远端 `41960919057` 完整 TS 回归：214 文件、1163 tests，1160 pass / 3 fail。失败均为 HTML bootstrap 缺失：main709 将浏览器 Cookie 改为稳定 sid.jti，但原 browserSession 和异步预读后的复验仍只 decode refresh JWT，导致被 catch 后不注入 bootstrap。按 main 意图复用 browserCredential 与 issueAccess；末尾在所有 await 完成后再次通过 browserSession 校验，既不旋转 Cookie、不延长 session，也不改 API 授权。未改测试断言，frontend/trajectory e2e/identity 三文件25项通过；独立 code-review R11 / verification R10通过。新完整远端CI需在本次修复提交后再运行，不改写原失败。
 
 用户要求直接查看Web真实轨迹后，已在原52521隔离栈用公开配置API创建全新Agent `window-visible-d71f6826`、空工作区及独立主会话 `75ebed1f-be78-42e8-b788-a771146d0a27`；没有导入R4或P/E/Q状态。当前通过实际Web/IM私聊、公开 /compact 命令及测试节点正常重启补充可见演示，原轨迹保留。该预览服务按用户要求持续运行；演示原始证据仅保留本机 `/tmp/feat711-web-visible/`。
+
+### 用户验收与 bugfix-712 一并归档
+
+上述 Web 实测完成两次手动换窗和两次节点重启，三个窗口首次工具返回均为3，最后用原窗口/5和第二窗口/7分别恢复两段原文，公开回复为 `青岚-6147`、`橙色`、`秋汀-3926` 三行。浏览器实际显示初始系统提示词、运行上下文、压缩记录、Notes 和 History 结果。用户确认“ok”，要求把已集成的 bugfix-712 随当前 PR 交付并归档；见 [712 验收记录](../../bugfix-712-trajectory-history-prepend/acceptance.md)。
+
+CI `41963461005` 的完整结果为214文件/1163项，1161通过、2失败：identity 的真实时钟跨秒令精确30天预期差1秒，task-execution-limits在并发负载下等待超时。两者连同 trajectory-ui 独立复跑5文件23项全部通过，原全量失败保留。本次仅将既有 identity 测试的 Date 固定提前到会话签发前，避免把夹具准备耗时混入30天断言；所有断言及 Task 测试不变，修正后identity13项通过。产品代码和既有门禁覆盖范围不变；归档文档/路径与该测试时钟夹具修正不新增产品设计或 Context delta，保留原独立静态审查结论。归档提交后的完整远端CI仍需另行确认。

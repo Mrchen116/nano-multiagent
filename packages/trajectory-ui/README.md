@@ -59,3 +59,6 @@ Port the affected tests as behavior is changed, alongside final viewer acceptanc
 Future upstream synchronization is deliberate: select a source commit, inspect
 its UI and dependency changes, then update the baseline and affected tests.
 Updating DSH runtime packages does not automatically overwrite this fork.
+
+The materialized-node history prepend fix and its acceptance record are archived in
+[bugfix-712](../../docs/changes/archive/bugfix-712-trajectory-history-prepend/acceptance.md).
