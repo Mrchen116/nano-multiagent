@@ -253,3 +253,42 @@ Round 1 的两条 CRITICAL 与七条 WARNING 全部以结构性改动闭环，�
 - **R2-R3（Recommendation）→ 采纳。** D5（`design.md:135`）改为「`ChatMessage` 有 13 个可空字段（9 个非可选 + 13 个 Optional，共 22 个，`ChatModels.swift:84-107`）」；结论（promoted 列 + 原始 DTO JSON 的混合形状）不变。
 - **R2-R4（Recommendation）→ 采纳，且裁定为「不加 `publish(nil)`」。** D7 的 purge 归属（`design.md:209`）与控制器第 4 条（`:395`）统一为：`.signedOut`/`.credentials` 在 `stored` 被清空的路径上**先写 termination 再 `publish(nil)`**（签出 `Session.swift:82-85`、refresh 仍 401 `:147-148`）；`.deactivated` 由 `accountEnabled == false` 的**非 nil** user 表达（`updateUser` 判停用后仍 `publish(user)`，`:101-102`；`install` 同理 `:156-159`），**不额外发 nil**。理由：`AppModel.observe()` 若在停用路径上也收到 nil，会先回登录页、再收到携带 `accountEnabled == false` 的 user 回聊天页——停用态会闪一帧登录屏，而 M1 ④ / M2 ⑦ 的「不出现登录表单」「回准入页」正好被自己的信号顺序打破。因此只加顺序约束、不新增信号。
 - **本轮改动面**：`design.md`（Changelog、D3、D5、D6、D7、D10、D12、仓储接口/控制器、呈现契约、Runbook、测试策略、M1/M2 轨道）、`spec.md`（`:142` 文案 + `:144` 新增 AND，无需求重新编号、未删任何既有断言）。Round 1/2 的结论、证据与被引用行号未回写。
+
+## Round 3
+
+- reviewer: 独立 `change-design-reviewer`（同一 reviewer；narrow：只核 Round 2 的两个 WARNING、两条已定口径的回归，以及本轮修订自身引入的缺陷）
+- reviewed_head: `unit/feat-714` @ `611074df6`，工作树 clean；范围 `2b3437c18..611074df6`（design.md +60/−20、spec.md +3/−1、design-review.md +22 追加）
+- review_mode: closure（narrow）
+- mode_reason: 只审 R2-W1 / R2-W2 的闭合与修订引入的问题，未重审无关章节
+- started_at: 2026-11-05T16:55:00+08:00
+- completed_at: 2026-11-05T17:07:00+08:00
+- duration: ≈12 min
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING**，另 4 条非阻断建议（均在本轮改动面内）。
+
+### 逐项核对
+
+| 项 | 状态 | 依据 |
+|---|---|---|
+| R2-W1 孤儿 pending 收敛 | **CLOSED** | mechanism 而不是措辞：design.md:113「差分的输入是**库内已存在的全部会话身份**……`conversations.id` ∪ `pending_sends.conversation_id` ∪ `revoked_conversations.conversation_id`」，:114 另补第二个调用点「`can_write == false` 或 `dissolved_at != nil` 的会话 → 丢弃该会话的 pending 记录」；:251「收敛只有一条原语 `deletePending(conversationID:)`，三个调用者」；:257「在**第一次成功 `/sync`** 时命中第 1 条——`revoke` 删行并写 `revoked_conversations(reason='snapshot_absent')`，同时在 `migration_report` 记一行 `outcome='orphaned'`；`bootstrapSeed.pendingCount` 按行数计算，因此计数随删除递减到 0」。**收敛穷举**：迁移后 pending 无会话行 → 差集命中 → 删；会话在集合内但只读/已解散 → 第二分支删；无成功 `/sync` → 属已声明的离线边界（D10:265-272），不是隐藏分支；tombstone 不是删除对象、`purge()` 仍是分区级兜底。因此「首次登录 pending 的会话永不出现」会在第一次成功 `/sync` 清零，没有我上轮担心的第三个不可达分支。可执行证据：M2 `[worker]` ②（:557）与测试策略 :533。首文档现在可证伪：spec.md:142「连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除」+ :144「该记录对应的会话在第一次成功 `/sync` 中已不可访问时，这条记录被清除、计数归零，不出现占位会话行」 |
+| R2-W2 登录后分区打开 | **CLOSED** | design.md:124 `ChatStorageState = .opening \| .ready(ChatRepository) \| .degraded(reason)`，明写 `.opening`（含登录成功后正在打开）**不是**降级；:152 D6 增「首次登录与换账号由 `ChatStorageController.activate(partition:)` 在凭据被接受、Keychain 已保存之后打开分区……打开前是 `.opening`，不是降级」；:393「调用点只有两个——`AppModel.authenticate()` 在 `session.login(...)` 返回且 Keychain 已保存之后立即调用……并**在 `user =` 赋值之前完成状态登记**（置 `.opening`；打开完成后再交 `.ready`），因为 `RootTabs` 构造时会立刻 `ChatStore(...)`（`:115`），晚了就会先拿到一次「无仓储」」；:394 `.ready` 时交仓储 + 重读 `bootstrapSeed` 重投影。**窗口判断**：打开是异步 I/O，`ChatStore` 仍会在 `user =` 之后、open 完成之前被构造——但那一刻的状态是 `.opening`（正常界面、纯网络、不显示「没有本地缓存」），并在 `.ready` 时被重新绑定与重投影，所以「整段会话纯网络、一个字节不落库」的缺陷被消除，剩余窗口有界且被显式建模。**账号切换变体有场景**：M2 `[reviewer]` ①（:557）「**且 B 在这次会话里收发的消息已落库**——杀进程 + 断网重开仍能看到 B 自己的内容（分区 A 不得漏进 B……）」；:394 同时写了「分区变化时关闭旧实例再开新实例，旧实例关闭前先 `purge` 旧分区」。M1 `[worker]` ④/⑦（:556）给了对应审计与首次登录即落库的步骤 |
+| 两条已定口径回归 | **未受影响** | spec.md:106-108「本机**已得知**这次撤销之后……离线期间不承诺不展示」与 :110 口径修正与 `a6ee1f364` 逐字一致（本轮 diff 未触及该段）；spec.md:139-146 的「计数 + 说明」让步仍在，只有文案与新增 AND 变化，让步语义（首次成功 `/sync` 前只给计数、不造占位会话行）不变；delta 本轮零改动 |
+| 编号与引用卫生 | **通过** | M1 `[worker]` 现为 ①–⑩ 连续无重复（脚本提取：`①②③④⑤⑥⑦⑧⑨⑩`；M1 `[reviewer]` ①–⑤、M2 `[reviewer]` ①–⑦ / `[worker]` ①–⑤ 未变）。design.md 除 Milestones 两行外没有按序号引用 `[worker]` 项（:227/:527/:543/:544 均为不带序号的引用）；:507 引用 M1 `[reviewer]` ⑤、:546 引用 M2 `[reviewer]` ⑦ / `[worker]` ④，均未受重排影响；spec.md 只引用 `[reviewer]` ⑤。`docs/` 内未发现指向旧 ⑦/⑧ 的引用（`design-review.md` 的 Round 2 正文是历史记录，按约定不回写） |
+| R2-R1 三条证据落位 | **已落** | M1 `[worker]` ⑩（:556）「`read_state` 守卫单测……`backgroundContexts` 守卫单测（300/派生窗口裁剪后候选仍是 3 条、按 `editedAt` 倒序、排除 superseded）；草稿损失窗口测量……落 `evidence/draft-loss.md`」；测试策略 :533 同步加了「`read_state` 与 `backgroundContexts` 守卫」 |
+| R2-R2 凭据失效构造 | **已落** | Runbook :515-524「凭据失效的构造（M2 `[reviewer]` ⑦）」给出 `UPDATE auth_sessions SET revoked=1 WHERE user_id=…` 与 `UPDATE users SET auth_epoch=auth_epoch+1`，M2 ⑦（:557）指向该节；依赖事实复核成立：`identity-routes.ts` 无改密码路由、`scripts/e2e-up.sh:255` 确实 `rm -f "$WT_ROOT/data/im_service.sqlite3"`（`IM_DB_PATH` 在 :270/:304） |
+| R2-R3 字段数 | **已落** | design.md:135「`ChatMessage` 有 13 个可空字段（9 个非可选 + 13 个 Optional，共 22 个，`ChatModels.swift:84-107`）」与代码一致 |
+| R2-R4 `publish(nil)` 顺序 | **已落** | design.md:209「`.signedOut`/`.credentials` 在 `stored` 被清空的路径上**先写 termination 再 `publish(nil)`**……`.deactivated` 由 `accountEnabled == false` 的非 nil 信号表达……**不额外发 nil**」「`nil` → 按 termination `purge` + 回登录页；`user.accountEnabled == false` → `purge(.deactivated)` + 准入页」；:395 复述「**不新增 `publish(nil)`**」。与 `Session.swift:101-103`（判停用后仍 `publish(user)`）与 `:156-159`（`install` 同理）一致 |
+| `docs_check` | **通过** | `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 219 maintained Markdown sources, 68 required routes` |
+
+### Recommendations（非阻断，均在本轮改动面内）
+
+- **R3-R1 反复 revoke 与记账重复**：差分输入含 `revoked_conversations.conversation_id`，而 tombstone 只在会话重新出现在快照时清除，所以每一次成功 `/sync` 都会对每个仍缺席的 tombstone 再调一次 `revoke`。若按 :257 字面「`revoke`……同时在 `migration_report` 记一行 `outcome='orphaned'`」，每轮快照都会追加一行，并把 `reason` 重写成 `snapshot_absent`、覆盖 `detail_forbidden` / `membership_denied` 的来源。建议补一句「仅当本次调用实际删除了 pending 行时才记 `migration_report`；已存在 tombstone 时 `revoke` 为幂等空操作，不重写 `reason`/`revoked_at`」，或把 tombstone id 从差分输入里去掉。无用户可见后果，不阻断。
+- **R3-R2 Runbook SQL 的占位与 cwd**：:517 用 `username='alice'`，但隔离栈不预置账号（`scripts/e2e-up.sh` 只建库，账号由 reviewer 自己注册），照抄会得到空 `uid`，随后 `WHERE user_id=''` 静默不吊销，⑦ 会「看起来执行了但没生效」。建议改成 `'<A 的 username>'` 并加 `[ -n "$uid" ] || …` 保护，同时注明 SQL 在 worktree 根目录执行。
+- **R3-R3 `.opening → .ready` 的重投影语义**：:394 只说「重读 `bootstrapSeed` 重投影」。首次登录时若打开分区慢于第一次 `/sync`，空 seed 会替换掉已渲染的网络结果。概率很低（本机 IO vs 至少一个网络往返），建议补半句「重投影是幂等合并，不用空 seed 覆盖已有投影」。
+- **R3-R4 spec.md:144 的 AND 落在 Scenario 的 WHEN 之外**：该 Scenario 的 WHEN 是「第一次成功 `/sync` 尚未完成」，新增 AND 描述的是首次成功 `/sync` 之后。建议拆成独立 Scenario（如「升级后对应会话已不可访问」）或并入「升级后未确认消息仍在」，让 Gate 3 能按 WHEN 直接构造该证据。
+
+### 结论
+
+两条已定口径与范围没有被本轮改动触碰，Round 2 的两个 WARNING 都以可验证机制关闭：孤儿 pending 有确定的删除入口与归零计数，登录后的分区激活有触发者、顺序与三态语义，并在 M1/M2 轨道各有一条可执行步骤。编号连续、无悬挂引用，`docs_check` 通过。剩余四条都是加法级澄清，不涉及任何产品决策；**文档集现在可以在不再需要产品决策的前提下进入实施（M1）**。
