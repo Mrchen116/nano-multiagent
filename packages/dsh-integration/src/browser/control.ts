@@ -140,7 +140,8 @@ export class BrowserControl {
     const state = this.state(agent.id);
     const cooldown = this.cooldownView(state);
     const needsLaunch = !state.instance;
-    return staticBrowserGuard({
+    const presence = needsLaunch ? this.presence(agent) : undefined;
+    const error = staticBrowserGuard({
       platform: process.platform,
       tool,
       args,
@@ -148,8 +149,13 @@ export class BrowserControl {
       ...(state.instance ? { instance: { windowId: state.instance.windows.get()!.windowId } } : {}),
       ...(cooldown ? { cooldown } : {}),
       needsLaunch,
-      turnAllowed: needsLaunch ? this.presence(agent).allowed : true,
+      turnAllowed: presence?.allowed ?? true,
     });
+    if (error) return error;
+    if (presence?.allowed && state.releasedTurn !== undefined && presence.turnStartSeq <= state.releasedTurn) {
+      return browserError('browser_launch_requires_user_turn', '真实新窗口已归还前台；继续操作需要新的用户轮次。');
+    }
+    return undefined;
   }
 
   /** Read a bounded snapshot from this Agent's own instance. */
