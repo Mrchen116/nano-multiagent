@@ -238,3 +238,134 @@
 - `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（修复后复跑；221 比审查时的 220 多一份已入库的 `design-review.md`）。
 - `git status --porcelain` → 干净；本轮修复与本节在同一个本地 commit 内。
 - 未执行 V1–V6：用户正在使用本机，且这些验证需要启动驱动与浏览器窗口；C1 的“`end_session` 归还前台”依据仍是证据 L549–554 的单次观察，需 V2 复采。
+
+## Round 2
+
+### Metadata
+
+- reviewer: 同一独立 delegated design reviewer（子 Agent `nano-manager`，未参与设计与修复；本轮只读文档与源码）
+- target: worktree `.worktrees/feat-720-cua-browser-page-control`，branch `unit/feat-720-cua-browser-page-control`，head `07d3b84c7`，上轮报告 `a506f5b6e`，审查开始时工作树干净
+- 受审 diff（`git show --numstat 07d3b84c7`）：`spec.md` +24/−12、`design.md` +159/−107、`specs/gateway/agent-capabilities.md` +45/−6、`design-review.md` +48/−0（仅追加 Author Resolutions，无删除）；`evidence/desktop-verification.md` 未改（`git diff` 空）
+- review_mode: `delta`
+- mode_reason: 有界设计变化——前台占用上界机制（TurnGate + 真窗口归还 `end_session`）、坐标点击移出 v1、新增“约束五 主窗口登记”、新增 V1–V6 验证门；职责归属、依赖方向、工具注册面、审批分层骨架与 milestone 数量未变。R1 已核且本轮未变的现状断言按 `retained_from: Round 1` 沿用，本轮只展开变化与其波及面。
+- started_at: 约 2026-11-05T18:31（近似，未精确取时）
+- completed_at: 2026-11-05T18:41:04+08:00
+- duration: 约 10 分钟（按工具调用估算；中途会话上下文中断后按 head `07d3b84c7` 重新核对行号与引用，结论未变）
+- 本地检查: `scripts/docs_check.py` → 见本节末尾执行记录
+
+### Verdict
+
+**Approved（可实施）— 0 CRITICAL / 0 WARNING**。
+
+9 项“实施时顺手改”（其中 3 项须在实现对应路径前先落文字），不阻断 M1 开工。严重度口径：按本轮调用方给出的阻断标准（会让用户桌面被抢 / 会让未验证能力进范围 / 会让“未验证”看起来像“已验证”）逐项判定，剩余问题全部是**局部文档措辞与列举完整性**，改法唯一、不涉及重新设计，因此不记 WARNING；若把其中任何一项拖到实现之后，风险最高的是 R2-1（截图在真窗口路径被提前删除）与 R2-2（归还失败后的冷却语义），两项已在下面限定为“实现该路径前先落文字”。
+
+### 历史问题闭环
+
+| 编号 | 本轮证据 | 状态 |
+|---|---|---|
+| R1-C1 前台无上界 | `design.md` L71（前台持续 ≥4 秒/连续 4 次采样、直到 `end_session`、`idle_expires_in_seconds:300` 兜底、无人干预上界约 5 分钟）、L79（TurnGate）、L81（真窗口后归还）、L82（v1 不做自动恢复 ≠ 无上界）、L341（风险表“最坏约 5 分钟”）、L430/L438；`spec.md` L104–108、L119–123；delta L28–30、L48–58 | closed（余项见 R2-1/R2-2/R2-4） |
+| R1-C2 坐标无来源 | `design.md` L185（静态守卫：click 无 ref 拒绝）、L220–231 参数表无 `x`/`y`、L225（click 只能用 ref）、L228（滚动以 ref 锚定）、L261、L295、L414、L429（坐标点击不在 v1 且无可靠来源）；`spec.md` L188、L194 | closed |
+| R1-W1 判定表语义 | `design.md` L92–97 有序决策树（噪声需同时满足五项证据，bind 失败但证据不全落“未分类”）、L170（不再声称宿主能阻止下一次调用）、L309 | closed |
+| R1-W2 delta 漏契约 | delta L111–123（画面证据 Requirement）、L62/L69–73（无人工出口）、L75–78（超出边界被拒） | closed |
+| R1-W3 type 未实测 | `design.md` L383（V1 + 失败处置“删 type 并同步 spec/delta/M1/旅程”）、L400（旅程条件化）、L417（e2e 条件化）、L427 | closed |
+| R1-W4 审批出口 | `design.md` L179–186、L293–299、L275（`NanoApprovalDenied` 含无人工出口）、L321、L406（M1 第 9 条）、L374（Runbook）；`spec.md` L143、L150–154；delta L62、L69–73 | closed（L321 措辞见 R2-9） |
+| R1-W5 画面证据链 | `design.md` L111（workspace 前缀校验、`read_image` 可读、20 张/1 小时）、L326、L351、L388（V6）、L405/L418 | closed（生命周期冲突见 R2-1） |
+| R1-W6 行号 | `design.md` L71 改为 `L267–268`、`L543–549`、`L549–554`；L53 声明改为“已逐条核对”。本轮抽查新增引用 L543–558、L320–325、L411–416、L418 均指向正确段落 | closed |
+| R1-W7 多窗口 | `design.md` 约束五 L117–129、身份表 L281、错误码 L264–265、V4 L386、M1 L412 | closed |
+| R1-R1…R7 | 逐条有落点（L53、L417、L420、L192、L421、L426、空 Changelog 已删） | closed |
+
+### Coverage（delta）
+
+- 逐条读全文：`spec.md`(201)、`design.md`(438)、delta `specs/gateway/agent-capabilities.md`(123)、Author Resolutions；`evidence/desktop-verification.md` 未变，R1 的行号核对与截图抽查（`08-after-scroll.png` 2400×1464、`Row 18–33`）继续有效。
+- `retained_from: Round 1`（未变、本轮未重核）：`capabilities.ts` `defaultOff`、`approval.ts` `safeTools`/`route`/`review` 行号、`index.ts` `tools/pre-execute` 装配、`apps/node` `default_on` 排除清单、`product-contracts` `featureDependencies` 形态、全仓无 `cua-driver` 命中、`RuntimeSupervisor` 拓扑。
+- 本轮新核：TurnGate 判定链（`packages/dsh-integration/src/input-source.ts` L21–25 的 `isHumanSource`、`policy/approval.ts` L76–83 的 `turn/start` 之后输入窗口与 L77 的 `origin === 'subagent'` 早退）、`end_session` 幂等（证据 L320–325）、错误码表 20 个码与正文互引、`browser_act` 参数表与 schema 断言、约束五与身份表/错误表/M1 测试项的互引、真窗口清理后用户 Chrome 5 个窗口未变（证据 L556–558）。
+- Context（Mode A，仅核变化面）：Consumer 已按会话类型收窄（L321）、Validation 增“只接受 ref / 截图用 `read_image` / 非用户轮次不能新开实例”（L329），描述必含句进 M1 L420。两条新增模型可见事实（TurnGate 与真窗口归还）都能在错误码表（L266、L272）与结果字段（`foreground_released` L214/L233）找到出口。
+
+### 逐项回答
+
+#### 1) C1 闭合度
+
+- **事实口径已改成实测口径**：`design.md` L71 写“前台持续 ≥4 秒不恢复（连续 4 次采样），直到 `end_session` 才回到用户 app（证据 L549–554）；不主动结束时按 `idle_expires_in_seconds: 300` 回收，所以无人干预时前台占用上界约 5 分钟”，风险表 L341 同步为“最坏约 5 分钟”，L430/L438 承认未做时长分布；全文不再出现“数秒”，也没把 300 秒当正常路径（L82 明确“300 秒只是兜底”）。
+- **TurnGate 是否可判定**：是。条件是“当轮 `turn/start` 之后存在 `isHumanSource` 输入”：`input-source.ts` L22–25 定义为 `kind === 'nano-human'`，或 `kind === 'user'` 且带 `actorId`/`channel`/`messageId`；`approval.ts` L76–83 用的正是同一批输入（`turn/start` 之后过滤 `user/message`）与同一函数，纯同步、无 I/O，实现上把它抽成 `currentTurnInputs` 是同处逻辑，不存在两套语义。`task-execution`/`task-change` 在 L82 被算作 interactive，但不满足 `isHumanSource`，因此被排除——这与 L79 写的“不计入可启动轮次”一致。
+- **是否只挡“首次 prepare”**：是。L79 写“只复用已有实例”，L204/L218 只在“本 Agent 还没有实例且当轮有真实用户消息”时要求 prepare，L293 的确定性拒绝只在“首次启动实例”一栏；已有实例时非用户轮次仍可读（M1 L416 第 7 条断言）。所以只读能力没有被整体挡掉，但代价必然存在：脚本/定时任务基本拿不到实例（见判断 (a)），设计没把这条后果写出来（R2-4）。
+- **“自动关窗”的动作边界**：结论是**当前设计下不会关掉用户自己的窗口**，四条同时成立：① 只用 `browser_prepare`（`allow_launch:true` + `isolated_new`）产生实例，之后一切窗口操作都以该次 prepare 返回的 pid 为准（L125、L281）；② `end_session` 只作用于本 Agent 的 session label（L189，`nano-br-<8hex>`，按 agentId 复用、不跨 Agent 共享）；③ 窗口集合来自 `list_windows {pid}`（L93），用户自己的 Chrome 是另一个 pid，既不在集合内也不会被判成真窗口；④ 证据里 `end_session` 后用户 Chrome（pid 660）仍是原来的 5 个窗口（证据 L556–558），作者只引了 L549–554 的前台归还，没引这一条。
+  仍需补两处硬化（R2-2）：`end_session` 前校验“label 属于本 Agent 且实例 pid 仍等于 prepare 返回值”；以及归还失败后的冷却语义（否则模型可在同一用户轮次反复动作、反复把窗口带回前台）。L556–558 这条“用户窗口未受影响”的清理核实值得直接引到约束二，它是“关窗不波及用户”的最直接证据。
+
+#### 2) C2 闭合度
+
+- 坐标能力确实移出 v1：参数表（L220–231）没有 `x`/`y`；`click` 只接受 ref（L225）；`scroll` 改为“在 `ref` 元素处滚动”（L228）；静态守卫（L185）、错误表（L261）、审批表（L295）、Context 必含句（L324/L329）、M1 单测（L414 断言 schema 不接受 `x`/`y`）全部对齐；`spec.md` L188 改为“点击元素（按最近一次读取返回的 ref）”，L194 把坐标点击写进非目标。
+- 残留检查：全文“坐标”字样只剩解释性语句（为什么不做）与证据叙述（L428/L429 说明本次实测用的是 `x/y`）。没有功能残留。
+- V5 可失败判据：L387“用最近一次读取的 ref 滚动成功；截图前后对照可见位移；前台不变”——ref 滚动若静默 no-op，截图对照可直接判失败，判据成立。建议补一条旁证“回读 `in_viewport` 至少同向变化”（不替代截图），因为截图对照依赖人工判读（R2-R2）。
+
+#### 3) V1–V6 六项阻断验证
+
+- 六项都是“验证 + 通过标准 + 失败处置”齐全，处置明确到**改范围**：V1 不通过→删 `type`（并同步 spec/delta/M1/旅程）；V5 不通过→删 `scroll`（不得退回坐标）；V2 不通过→不发布或另立同意流决策；V4 不通过→保留 `browser_window_ambiguous`、窗口选择 UI 另立 unit；V6 不通过→改截图目录并同步文案；V3 只影响措辞，不影响范围。这满足“不许带着未验证动作进 M1 验收”。
+- **V2 定为发布阻断合理**：C1 的“上界”完全建立在“真窗口后 `end_session` 会把前台还给用户”上，而现有依据只有一次观察（证据 L549–554），作者自己也写了需 V2 复采；若 V2 不成立，产品承诺就只剩“披露”，正是 R1-C1 判为阻断的形态。因此“找到可验证的归还手法前不发布”是比例适当的处置，不是过度保守。流程建议：V2 比 V1/V5 更便宜也更能定生死，应先跑（R2-R3）。
+- **V6 有两个问题**（R2-5）：① 判据“模型用返回的相对路径成功读图”在实施前无法完整执行——返回路径的是尚未实现的工具；应改为“以该 workspace 相对路径调用 `read_image` 能读到文件内容（一次直接工具调用或最小 agent 轮次即可观测）”。② 失败处置“改到 Agent 当前工作目录下的等价临时目录”没有限定位置，可能被实现成 `/tmp` 或 node home，直接违反“只写约定目录/不落仓库”与设计自己的前缀校验；须写成“改到 V6 实测可读、且仍在该 Agent workspace 内的根，保留解析后前缀校验”。
+
+#### 4) 四个新判断
+
+**(a) TurnGate 排除 `task-execution`/`task-change` 轮次——有条件接受。**
+理由：任务续跑轮次的输入是 host 生成的 `nano-system`（`task-context`/`task-execution`），它只证明“这条任务被用户接受过”，不证明用户此刻在机器前；而这条路径的失败后果恰好是 C1 要消除的“用户桌前凭空弹窗并占前台”，且夜间或离开时无人纠正。代价可控：首文档的场景一至七都发生在对话内，没有承诺“定时任务自己开浏览器”。因此收窄成立。
+条件：① spec/delta 必须把“任务续跑”写进被排除的轮次（现在只列定时/心跳/后台委派，见 R2-4），否则契约漏掉一条用户可观察限制；② 明确写下后果——“实例空闲 300 秒即回收，所以周期任务几乎永远拿不到实例，本能力 v1 实际是按需/对话内能力”，避免用户按“每小时巡检页面”的预期报 bug；③ TurnGate 依赖 `isHumanSource` 把 native child 首轮提示（`user` 但不一定带身份字段）判为非人类，这是 DSH 侧行为，本仓未能静态核实，需一条 fixture 断言固定（R2-3）。
+
+**(b) 无人值守仍允许“分类器明确放行”的页面动作——接受。**
+理由：① 与既有产品语义一致——`bash`/`write` 在无人值守下同样靠分类器判定，只把“需要人工”的判断交给 `unattendedFallback`；本 design 收紧的正是后者（L183、L299“不读 `unattendedFallback`”），没有引入新的放行分支。② 残留风险被 TurnGate 实质压小：无人值守轮次不能新建实例，只能复用“最近一次用户轮次留下的实例”，而该实例最多 300 秒后就回收，所以“无人在场时点页面”的窗口只有用户轮次后约 5 分钟。③ `spec.md` L143 的措辞是“无人值守轮次不会把‘没人在场’当作自动放行的理由；需要人工确认的动作被拒绝”，与该选择一致；若反过来“无人值守一律禁止页面动作”，必须改 spec/delta，且会让“用户在单聊里启动、随后由 Task 续跑完成点击”这类路径失效。
+条件：把这条残留写进风险表（R2-R1），并修正 L321“无人值守只能只读”的表述——它与 D7/L299 的实际口径相反（R2-9）。
+
+**(c) V2 失败＝发布阻断而非继续披露——接受。**
+理由见上（C1 的上界依赖它，且披露已被判定不足以承担承诺）。补充：失败处置里“改为动作前显式征得同意每次可能开窗的动作（需另立决策）”应明确标注“V2 失败时**不进入本 unit 实现**”，否则实施者可能自行设计一套同意流，超出本 unit 范围与审批语义（R2-R3）。
+
+**(d) V6 若 `read_image` 读不到则改截图目录并同步文案——有条件接受。**
+接受“改目录 + 同步文案”的方向（用户不可观察、改动局部）；条件见 R2-5：目录必须仍在该 Agent workspace 内、保留解析后前缀校验、判据改为实施前可观测的形式（直接工具调用或最小 agent 轮次），且不得写到仓库、`/tmp` 或 node home。
+
+#### 5) 范围纪律
+
+- 没有长出 v1 之外的东西：驱动白名单仍是同一组入口（L317），未加 `close`（`browser_act` 只有 `open`/`click`/`type`/`scroll`，L222）；没有坐标；没有多窗口并发或窗口选择 UI（约束五只登记一个主窗口，多候选即 `browser_window_ambiguous`，V4 失败处置明确“另立 unit”）；没有登录态（`existing_profile` 仍在非目标，L195/L426）。
+- 唯一新增的既有文件改动是 `src/policy/approval.ts` 抽出 `currentTurnInputs`（L16、L392），属同文件内重构，design 要求“行为不变 + 现有审批测试全绿”（M1 L416），不构成第二套审批或第二套 loop。
+- “未验证写成已验证”审计：唯一接近的是 L83“`end_session` 是…在证据里验证过会归还前台的唯一动作”——依据是 1 次观察，而同文档 L384（V2 要求 ≥2 次采样）与 L430（未做时长分布）已把不确定性与复核门写清，不构成误导，但建议改措辞（R2-8）。其余新增断言（TurnGate、归还、主窗口登记）都以“验证项/未验证清单”形式出现，没有伪装成已验证。
+
+#### 6) 三处（含波及面共六处）仍存在的原文不一致
+
+1. **非用户轮次的枚举不一致**：`design.md` L79 排除“无人值守（`schedule`/`heartbeat`）与后台委派（子 Agent）”，但把 `task-execution`/`task-change` 单独论述为“不计入可启动轮次”；`spec.md` L54（场景七）只写“定时任务、心跳或后台委派”，L108 只写“无人值守（定时/心跳）或后台委派”；delta L30/L48–52 同。→ 用户接受的任务续跑被挡，但用户契约里没有这一条。
+2. **“会话”语义不一致**：`spec.md` L75/L84–86“实例随会话结束或空闲回收…用户下次再用时是一个干净的、未登录的新实例”；`design.md` L189“不按‘每个对话一个实例’：一个 Agent 的多个会话应看到同一页面上下文”。→ 结束一段对话并不会结束实例（只有 Agent 销毁、真窗口归还、300 秒空闲会），双方需要一个共同定义。
+3. **场景一叙述与首次接入披露冲突**：`spec.md` L36“整个过程里用户的前台应用一直是他写文档的那个应用”，而 `spec.md` L106“启动过程可能把该窗口短暂带到前台”，`design.md` L80 也承认首次 prepare 可能抢前台。
+4. **`browser_launch_requires_user_turn` 的判定位置**：`design.md` L185 把它列在“执行期”静态守卫里，`design.md` L293 又列进“确定性拒绝（先于审批/执行）”。
+5. **截图清理时机**：`design.md` L111“Agent 销毁或实例结束时删除”，L326“随 Agent 销毁清理”，而 L81 要求在“完成本次回读与截图后立即 `end_session`”（真窗口路径）——按 L111，模型还没读那张截图，它就被删了。
+6. **无人值守可用面**：`design.md` L321“无人值守只能只读”与 D7 L183、审批表 L299（分类器明确放行仍可执行页面动作）相反。
+
+### 实施时顺手改（不阻断 M1 开工；标 ★ 的须在实现对应路径前先落文字）
+
+- **R2-1 ★ 截图生命周期与真窗口归还冲突**：位置 L81 / L111 / L326 / M1 L418。改法：统一为“只按 TTL（1 小时）与 20 张上限清理，实例结束不立即删除截图”，并说明理由（画面证据要在模型下一次 `read_image` 时仍可读）；M1 第 9 条断言同步。
+- **R2-2 ★ 归还失败后的冷却语义**：位置 L81、L310。现在只写“重试一次→`browser_foreground_release_failed`→不再派发动作”，没写同一 Agent 后续调用的行为，模型可在同一用户轮次再次触发动作把窗口带回前台。改法：失败后该 Agent 进入“需人工恢复”状态，后续调用直接返回该错误，直到实例消失（用户手动关闭或 300 秒回收）；`end_session` 前校验 session label 归属与实例 pid 仍等于 prepare 返回值；并把证据 L556–558 引到约束二，作为“关窗不波及用户窗口”的直接依据。
+- **R2-3 ★ TurnGate 对子 Agent 首轮的判定依据**：位置 L79、M1 L416。`isHumanSource`（`packages/dsh-integration/src/input-source.ts` L22–25）自身注释即写明“native child task prompts also use `user`”，因此子 Agent 的 seed 提示至少满足 `kind === 'user'`，能否启动全看它是否带 `actorId`/`channel`/`messageId`；本仓 `node_modules` 未安装，无法静态核实 DSH seed 形状，L79 的结论目前只能算 PLAUSIBLE。改法：不要只靠 source 形状——`approval.ts` L77 已有仓内可核实的现成闸门 `agent.session.header.origin === 'subagent'`，TurnGate 应叠加该判据（子 Agent 一律不可新开实例）+ `isHumanSource` 判用户轮次，再加一条 fixture 断言“子 Agent 首轮 → `browser_launch_requires_user_turn`”，并在 design 注明判定依赖 DSH seed source 形状。参考：`capabilities.ts` L134 在同类判定上额外要求 `kind === 'nano-human'`，说明本仓对“人类来源”存在更严口径；但直接照搬会连带排除 `nano-user`（真实用户）路径，本轮未核实实时输入的实际 kind，故不推荐改谓词，推荐叠加 origin 判据。
+- **R2-4 spec/delta 补“任务续跑”**：位置 `spec.md` L54、L108；delta L30、L48–52；并在已知限制写一句“空闲 300 秒即回收，周期任务几乎拿不到实例，本能力 v1 实际按需/对话内使用”。
+- **R2-5 V6 判据与失败目录**：位置 L388。判据改为“以 workspace 相对路径调用 `read_image` 能读到该文件（直接工具调用或最小 agent 轮次观测）”；失败目录限定“V6 实测可读且仍在该 Agent workspace 内，保留解析后前缀校验”，明示不得落 `/tmp`、node home 或仓库。
+- **R2-6 `browser_launch_requires_user_turn` 的判定位置统一**：位置 L185 与 L293。选一处（建议保留“审批前确定性拒绝”，理由是它不需要页面状态、可省一次分类器调用），另一处删掉或注明“执行期复核”。
+- **R2-7 “会话”语义与场景一叙述**：位置 `spec.md` L75/L84–86、L36；delta L28。改法：把“会话结束”明确为“该 Agent 的浏览器会话结束（Agent 销毁、真窗口归还或空闲回收）”；场景一补一句“（实例刚启动那一下可能例外，见首次接入场景）”。
+- **R2-8 措辞强度**：位置 L83。把“在证据里验证过会归还前台”改为“证据中有 1 次观察（L549–554）；V2 复采确认后作为机制依据”。
+- **R2-9 无人值守可用面表述**：位置 L321。把“无人值守只能只读”改为“无人值守不能新开实例；能复用已有实例时，只读始终可用，页面动作仅在该动作被分类器明确放行时执行（不读 `unattendedFallback`）”。
+
+### 建议（可选，不阻断）
+
+- R2-R1：风险表补一行“无人值守下分类器明确放行的页面动作仍会执行（无人工闸门；受 TurnGate 限制为最近用户轮次 300 秒内的实例）”，把判断 (b) 的残留显式化。
+- R2-R2：V5 加一条旁证判据“回读 `in_viewport` 至少同向变化”，减少对人工判图的依赖；M1 用户旅程第 8 条（L405）的“1 小时后/超过 20 张被清理”无法在一次评审里观察，建议改为 worker 测试（注入旧时间戳）+ 评审只核对目录与条数。
+- R2-R3：验证顺序建议 V2 → V1 → V5 → V4 → V6 → V3（先跑决定发布与否和范围的项）；并把 V2 失败处置里“另立决策”的分支标注为“本 unit 不实现”。
+
+### 已接受限制（本轮新增，随实施保留）
+
+- 页面能力 v1 实际是“用户发起轮次 + 最近 5 分钟内可复用实例”的能力：定时任务、心跳、任务续跑与后台委派都不会新开浏览器（spec 场景七要按 R2-4 补齐枚举）。
+- 真窗口出现后实例立即结束、继续操作需要新的用户轮次；`browser_act` 无 `close` 动作，实例寿命由宿主与驱动空闲回收决定。
+- 只接受 ref 点击/滚动；V1/V5 未通过时 `type`/`scroll` 不进首版；坐标点击在本 unit 内不再出现。
+
+### 未验证声明
+
+- 本轮只读文档与源码：未执行 V1–V6，未启动驱动/浏览器/服务，未运行模型；`node_modules` 未安装，DSH 原生子 Agent 的 seed source 形状无法静态核实（R2-3 记为 PLAUSIBLE，不作已确认缺陷）。
+- C1 的“归还前台”依据仍是证据 L549–554 的单次观察；本报告的闭合判断以“机制已就位 + V2 阻断发布”为准，不代表已实测。
+- 本轮未改任何受审文件，只追加本 Round。
+
+### 本轮执行记录（Reviewer）
+
+- `git rev-parse HEAD` → `07d3b84c766b4486ca6d216fe2d9cdd5ab259b4d`；审查开始时 `git status --porcelain` 为空。
+- `git show --numstat 07d3b84c7` → 上表所列四份文件；`git diff --stat -- evidence/` 为空。
+- `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（本节写入后复跑，源文件数不变，仍为 221）。
