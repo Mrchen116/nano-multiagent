@@ -31,6 +31,11 @@ export function openDatabase(path: string): DatabaseSync {
   db.exec("BEGIN IMMEDIATE");
   try {
     db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY)");
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='stable-browser-sessions-v1'").get()) {
+      if (!db.prepare("PRAGMA table_info(auth_sessions)").all().some(column => column.name === "browser_session"))
+        db.exec("ALTER TABLE auth_sessions ADD COLUMN browser_session INTEGER NOT NULL DEFAULT 0");
+      db.prepare("INSERT INTO schema_migrations VALUES('stable-browser-sessions-v1')").run();
+    }
     if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='interactive-replies-v1'").get()) {
       if (!db.prepare("PRAGMA table_info(interaction_drafts)").all().some(column => column.name === "updated_at"))
         db.exec("ALTER TABLE interaction_drafts ADD COLUMN updated_at TEXT");
