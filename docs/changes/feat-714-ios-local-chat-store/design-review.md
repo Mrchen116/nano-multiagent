@@ -133,18 +133,18 @@ Gate 2 未通过。两个 CRITICAL 都在"未确认发送记录迁移一条不�
 
 > 待 author 逐条核实后追加（author 只在本节追加，不回写上面的结论与证据）。
 
-- R1-C1：
-- R1-C2：
-- R1-W1：
-- R1-W2：
-- R1-W3：
-- R1-W4：
-- R1-W5：
-- R1-W6：
-- R1-W7：
-- R1-R1：
-- R1-R2：
-- R1-R3：
-- R1-R4：
-- R1-R5：
-- R1-R6：
+- R1-C1：**采纳方案一（不加外键 + 显式删除），并修正首帧可见性。** ① `pending_sends.conversation_id` 明确**不建外键**（design「数据模型」表已标注「刻意不建外键」，含 `foreignKeysEnabled = true`、`INSERT OR IGNORE` 不吸收 FK 违约、迁移先于任何 `/sync` 的根因）；② 删除改为两个显式入口：`revoke()`（所有撤销来源汇聚于此，镜像 `ChatStore.swift:491-499`）与 `purge()`（D10 新增「`pending_sends` 的删除只有两个入口」段 + 守卫单测）；③ 「pending 在首帧就在」改为「首帧只给**计数** + 说明」：`BootstrapSeed.pendingCount`、D6 步骤 2、D12「迁移完成 ≠ 首帧可见」、状态呈现契约新增一行、M1 `[reviewer]` ⑤ 同步；④ 两个必答场景写明：**首启即崩溃**——插入与标记同事务，标记已持久化，下次跳过导入（源数据仍在，跳过安全）；**首启即断网**——迁移是纯本地 IO、零网络，正常完成，只有可见性推迟到首次成功 `/sync`。
+- R1-C2：**采纳 (i)：不改名、不删除，只写库内标记。** D12 改写为「旧 JSON 原样保留，是否已迁移只由 `cache_meta["migration.send_attempts_v1"]` 判定」，并补「为什么用库内标记而不是探测目录」：库丢失即等同没迁移过，会从保留的 JSON 重新导入。删除判据明确写「U1 没有；退役留 U2 另立决策」。R1 的回退描述同步改为诚实口径：升级前的尝试回退后原样可读；升级后新产生的尝试只在库中，旧构建看不到——有界损失，**不承诺「零数据丢失」**。R1 风险行、D12「回退的真实覆盖」、「涉及范围」表中 `SendAttemptStore` 行均已改。
+- R1-W1：**采纳「补边界 + 收敛口径」。** D10 新增「离线可读边界与撤销收敛口径」：撤销只能通过网络得知；承诺两段（已得知撤销 → 离线/重启/冷启动都不展示；离线期间发生 → 恢复联网后第一次成功 `/sync` 起不展示）；收敛上界 = 现有 `pow(2, attempt)` 上限 30s（`ChatStore.swift:122-129`）；明确不做猜测式隐藏。delta 的「会话访问被撤销」Scenario 已按「本机已得知撤销」改写并写清收敛。`spec.md:102-106` 按同一前提解释（D10 点名）。**需上级/产品注意**：本次约束只允许改 design.md 与 delta，未改首文档；若产品要「离线也能即时知道撤销」，需服务端推送/访问租约（U4/U7）并先由 spec-author 修订 `spec.md`。
+- R1-W2：**按服务端事实设计，而不是按愿望设计。** 核对 `apps/im-server/src/messaging.ts:300-306`：`membership()` 只广播 `{conversation_id}`，改名（`:855-859`）、成员变更、删除（`:864-873`）共用同一帧，无 title/成员增量/event_id，客户端**无法**本地判别。D11 因此定为「收到即可能撤销」：列表行保留、该会话时间线先隐藏并显示既有占位（`ConversationView.swift:100-101`），三种情况分别定义——200 就地恢复（不重建整屏、不重排、不重拉消息）；403/404 或不在可见集合 → `revoke` + tombstone；传输失败/5xx → 不判撤销，随 `/sync` 收敛。状态呈现契约新增三行。明确接受代价：改名会看到 ≤1 RTT 占位。M2 `[reviewer]` ③/④ 分别验改名与被移出，`[worker]` ③ 补三条分支单测。
+- R1-W3：**四项全部落到步骤，不再靠自述。** 测试策略新增「必须在 milestone 轨道留证据」表，Runbook 补执行细节：(a) 首绘读时延 → M1 `[worker]` 用 `os_signpost`/`Logger` 取 ≥20 次冷启动 p50/p95，落 `evidence/bootstrap-latency.md`，>16ms 触发 D2 演化口评估（替代「主观感受」）；(b) 锁屏/文件保护 → U1 只验**属性**（真机 Debug 打印 `URLResourceValues`：`.completeFileProtection`），**行为**（锁屏不可读）明确不在 U1 判据、属 U5 后台路径；(c) 备份排除 → 同法断言 `isExcludedFromBackup == true` 并用 `simctl get_app_container` 核对位置；(d) 签名续期连续性 → **不纳入任何 milestone**（需 ≥7 天等待，重签不换容器），理由写明。M1 ⑤ 的前置写成可执行 5 步（旧构建 → 断网发送 → `get_app_container` 核对 `NanoIM/SendAttempts/<digest>/*.json` → `simctl install` 覆盖安装 → 打开），并写明无真机不得判 pass 的项。
+- R1-W4：**拆成正交两相位，补齐边并指定 purge 归属。** `ChatListPhase` = `.loadingFirst/.loaded/.empty/.failed`（内容呈现），`ConnectionState` = `.starting/.localOnly/.syncing/.online/.offline(attempt,nextRetryAt)/.unavailable(status)/.unauthorized/.deactivated`（连接），两幅状态图各自完整；补 `loaded → empty`、`empty → loaded`、`loaded → loadingFirst`（purge 重置）与 `localOnly/online → unauthorized/deactivated` 等边；不变量从 D8 收回 D7 单点维护，测试口径改为「四态 + 八态」。401/停用的 purge 归属：`Session` 在既有清理点维护 `termination: SessionTermination?`（`.signedOut/.credentials/.deactivated`），`AppModel.observe()`（已订阅 `session.updates()`，`NanoIMApp.swift:45-56`）收到 `nil` 后调 `ChatStorageController.purge(reason:)` + `resetProjection()`；`ChatStore` 不 purge。M2 `[worker]` ④ 加「401 后 purge 只被调用一次、ChatStore 不直接调」单测。
+- R1-W5：**草稿不逐键落库。** D3 新增「草稿写入」：`Binding.set` 只改内存；flush 点 = 失焦 / 切会话 / `scenePhase != .active` / 发送前 / `openChat` 切走；flush 点之外 1s 节流合并；只保留最新快照由**单一串行写任务**提交（后写胜出，无乱序）；损失窗口 ≤1s 并写进 M1 证据；发送前 flush + `upsertPending` 同事务清 draft，保证与 `textOnly`/pending 的原子性。D2 把「提交成本」单列并注明它是写入策略、不是连接类型判据（rollback journal 每 commit fsync）。
+- R1-W6：**采纳，结论从「无一受影响」改为「不组装输入，但候选窗口留痕」。** D14 标题改为「不组装任何模型输入……唯一要留痕的是 `interaction_contexts` 的候选窗口」，并补链路：`ChatStore.backgroundContexts`（`ChatStore.swift:414-424`，取最近 3 条）→ 随发送上送（`:325-326`）→ 服务端校验后放进 relay 载荷（`messaging.ts:512`、`:615`，`interactions.ts:59-61`）。D13 的窗口使「选择」阶段候选集变小，仅当会话本地消息超过窗口上限时触发；判断可接受（只取最近 3 条、按 `editedAt` 倒序），加守卫单测固定候选语义；若把窗口缩到 5 页以下，需回 Context Review。
+- R1-W7：**采纳，补成可判定条款。** delta 的 ADDED 新增 Scenario「本地内容先于凭据校验呈现」：可以先呈现该账号本人的本地内容、不因此显示登录表单；服务端明确拒绝凭据或账号不可用时**立即停止展示并清理**。D6 的取舍描述改为指向该条款（与 R9 对齐），MODIFIED 段未删任何既有断言。
+- R1-R1：**采纳。** 删除 D2 原「理由三」（WAL/`-wal`/`-shm` 与保护等级的说法不成立：rollback journal 同样产生 `-journal`，同目录同保护等级），结论不变；改为「理由三：本 unit 没有连接级并发的使用者」，并单列「提交成本约束（写入策略，不是选型判据）」。演化口（`DatabaseQueue → DatabasePool`）保持唯一。
+- R1-R2：**采纳，并顺带处理 (d) 的常量问题。** D13 增：① 同事务删除锚点被修剪的 boundary；② 读投影丢弃锚点不在窗口内的 boundary（引用 `ChatModels.swift:166-169` 的未锚定排序）；③ `conversations` 增列 `trimmed_at TEXT NULL`，`nextBefore`/`isAtLocalStart` 与修剪后窗口一致（`trimmed_at` 非空时报「更早消息需要连接」而非「已到最早」）；④ 单测清单补齐。上限从「300」改为派生值 `max(300, 5 × 当前分页尺寸)`，避免与 `ChatAPI.swift:4` 的 60 耦合失配。
+- R1-R3：**采纳。** Milestones 增「归属裁定」段：M1 只交付 `purge()` 原语并验「重开读不到行」，五个触发点全归 M2；M1 期间 `membership_changed` 仍走今天的「`clear()` + 全量重拉」，因此 M1 的「不整屏闪回」只覆盖 `/sync` 快照校正。M1 范围与 M2 范围已同步改写。
+- R1-R4：**采纳。** D5 写明 `read_state` 的唯一写入触发点：`ChatStore.markRead` 收到 200 后 `markReadBoundary(会话, last_read_message_id)`（现状 `ChatStore.swift:254-260` 不记录已报边界），失败不写、下次可见消息重报；保留「写 read_state 不改变列表投影」守卫测试。
+- R1-R5：**采纳。** delta 首句改为「已确认的会话与消息，以及本人的草稿与未确认发送记录」，修饰关系不再歧义。
+- R1-R6：**采纳。** D14 改为「七段消费链路（`agent-context-engineering.md:11`）」+「八种 Surface 的取舍原则（`:13`，按原文引用）」，不再混称「八个阶段」。
