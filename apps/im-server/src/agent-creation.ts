@@ -162,7 +162,7 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
       model_fallbacks: b.model_fallbacks ?? [],
       reasoning_effort: b.reasoning_effort ?? null,
       approval_mode: b.approval_mode ?? null,
-      work_mode: b.work_mode ?? "single_thread",
+      work_mode: b.work_mode ?? "global",
       workspace_root: b.workspace_root ?? null,
       heartbeat_json: null,
       confirm_existing_workspace: b.confirm_existing_workspace === true,

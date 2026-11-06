@@ -320,6 +320,8 @@ export class Gateway {
         c.node_id,
         id,
         p.agent_workspaces?.[id] ?? null,
+        // Missing modes mean a node that predates global mode; it only runs
+        // single_thread, so do not record its Agents as global.
         p.agent_work_modes?.[id] ?? "single_thread",
         JSON.stringify(p.agent_skills?.[id] ?? []),
         p.agent_skills_selection_modes?.[id] ?? null,

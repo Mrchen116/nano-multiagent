@@ -22,8 +22,10 @@ export function fixture() {
   db.prepare(
     "INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('n','o1','Node','online')",
   ).run();
+  // Pin the stored mode so assertions about "unchanged" fields do not depend on
+  // the column default, which is the creation default for new Agents.
   db.prepare(
-    "INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,tool_allowlist_json,workspace_root,created_at,updated_at) VALUES('a','o1','n','Agent','[\"task_graph\"]','/agent',?,?)",
+    "INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,tool_allowlist_json,workspace_root,work_mode,created_at,updated_at) VALUES('a','o1','n','Agent','[\"task_graph\"]','/agent','single_thread',?,?)",
   ).run(now, now);
   db.prepare("INSERT INTO conversations(id,title,created_at) VALUES('chat','Chat',?)").run(now);
   for (const user of ["u1", "a1"])

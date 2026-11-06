@@ -63,7 +63,11 @@ export function parseConfigurationInput(value: unknown, create = false): CreateC
   // to a business type. The earlier checks retain their existing error details.
   if (typeof displayName !== 'string' || typeof policy !== 'string') fail(422, 'invalid configuration fields');
   const input = {...fields, display_name:displayName, group_reply_policy:policy,
-    work_mode:p.work_mode === null ? null : fields.work_mode,
+    // Creation resolves an omitted mode to the product default; an update that
+    // omits it keeps the stored mode instead of resetting it.
+    work_mode: create
+      ? (p.work_mode == null ? 'global' : fields.work_mode)
+      : (p.work_mode === null ? null : (p.work_mode === undefined ? undefined : fields.work_mode)),
     features:p.features === null ? null : fields.features,
     ...(typeof p.description === 'string' ? {description:p.description} : {})};
   if (create) {
