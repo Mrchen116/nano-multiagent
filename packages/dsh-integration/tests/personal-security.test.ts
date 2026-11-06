@@ -164,11 +164,11 @@ it('projects the exact frozen disclosure and complete audience without backend g
   policy:{revision:12,excluded_conversation_ids:[]},sources:[{conversation_id:'old-read-chat',allowed:true}],recipient_risks:[],external_destination:null,
   payload:{content:text,attachments:[],attachment_snapshots:[]}};
  const original=JSON.stringify(frozen);
- expect(personalReviewAction(frozen)).toEqual({tool:'send_message',representation:'self',arguments:{target:'group',text},audience:{name:'Development',type:'group',channel:'web',members:[
+ expect(personalReviewAction(frozen)).toEqual({tool:'send_message',arguments:{target:'group',text},audience:{name:'Development',type:'group',channel:'web',members:[
   {id:'owner',name:'Owner',type:'user',is_owner:true},{id:'p',name:'P',type:'agent'},{id:'q',name:'Q',type:'agent'},{id:'e',name:'E',type:'agent'}]}});
  expect(JSON.stringify(frozen)).toBe(original);
  frozen.payload.representation='owner';
- expect(personalReviewAction(frozen)).toMatchObject({tool:'send_user_message',representation:'owner',arguments:{target:'group',text}});
+ expect(personalReviewAction(frozen)).toMatchObject({tool:'send_user_message',arguments:{target:'group',text}});
  const interactive={format:'openui',source:'root = TextContent("Full visible text")'};
  const attachment={url:'/file',text:'Actual full attachment body',sha256:'content-hash'};
  frozen.payload={...frozen.payload,interactive,attachments:[{url:'/file'}],attachment_snapshots:[attachment]};
