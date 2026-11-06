@@ -56,6 +56,8 @@ ctx.on('llm/stream',async function*(o){
  expect(executionEvidence[0]).toMatchObject({sessionId:result.child,kind:'action'});
  const reviewerInputs=await readFile(join(home,'reviews.jsonl'),'utf8');
  expect(reviewerInputs).toContain('Do not apply coding-tool low-risk auto-allow defaults');
+ expect(reviewerInputs).toContain('Use earlier cards and unsent edits only to interpret the owner');
+ expect(reviewerInputs).toContain('For representation=self, assess what the PA may say in its own voice');
  expect(reviewerInputs).toContain('Coordinate through a child');
  expect(reviewerInputs).toContain('Deliver the authorized coordination message');
  await expect(client.rpc.request('pa.evidence',{agentId:'different-agent',sessionId:result.child})).rejects.toThrow('Unknown personal evidence binding');
