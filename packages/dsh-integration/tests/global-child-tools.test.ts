@@ -170,6 +170,13 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
       expect(system.includes('sender.is_owner')).toBe(personal);
       expect(system.includes('delivery=observer')).toBe(personal);
     }
+    const rootSystem = JSON.stringify(root.system);
+    if (personal) {
+      expect(rootSystem).toContain('load nano-interactive-ui and use send_message to give the owner an editable TextArea');
+      expect(rootSystem).toContain('use send_user_message directly');
+      expect(rootSystem).toContain('A send_message rejection due to observer access applies to your own identity');
+    }
+    expect(rootSystem).toContain('Follow task-specific delivery guidance');
     const inbox=root.tools.find(tool=>tool.name==='inbox');
     expect(inbox.parameters.properties.action.enum.includes('review')).toBe(personal);
     expect('message_id' in inbox.parameters.properties).toBe(personal);
