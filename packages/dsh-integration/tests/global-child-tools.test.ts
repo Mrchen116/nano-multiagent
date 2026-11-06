@@ -173,6 +173,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     const rootSystem = JSON.stringify(root.system);
     if (personal) {
       expect(rootSystem).toContain('load nano-interactive-ui and use send_message to give the owner an editable TextArea');
+      expect(rootSystem).toContain('Deliver the draft card in your private Nano IM conversation with the owner');
       expect(rootSystem).toContain('continuing your own conversation after checking with the owner');
       expect(rootSystem).toContain('Use send_user_message when the owner delegates their reply');
       expect(rootSystem).toContain('Both tools use the same outbound review for messages to others');
