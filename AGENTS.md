@@ -55,5 +55,6 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 | hermes-agent | `self-evolution/hermes-agent` | 自进化、skills、子 agent、多终端 |
 | opencode | `opencode` | 多 provider/客户端、hook、共享 agent 内核 |
 | codex-cli | `codex` | coding agent core，与 Claude Code 对照 |
+| dsh-superagent-prototype | `dsh-superagent-prototype` | Global Agent 内部派工的设计参考 |
 
 参考项目是调研材料，不是本仓 current 契约；结论必须回到本仓代码、[SPEC.md](SPEC.md) 和 [docs/specs/](docs/specs/README.md) 核实。完整用途、基线记录规则和其他研究入口见 [docs/research/upstreams.md](docs/research/upstreams.md)。

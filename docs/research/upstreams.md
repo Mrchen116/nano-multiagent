@@ -10,6 +10,7 @@
 | hermes-agent | `~/Repos/opensource-hub/self-evolution/hermes-agent` | 自进化、skills、子 agent、多终端 |
 | opencode | `~/Repos/opensource-hub/opencode` | 多 provider/客户端、hook、共享 agent 内核 |
 | Better Harness | `~/Repos/opensource-hub/better-harness` | Repository Harness 的工作循环、环境、反馈、门禁与变更安全 |
+| dsh-superagent-prototype | `~/Repos/opensource-hub/dsh-superagent-prototype` | Global Agent 内部派工设计可参考其主会话路由、按 Ticket 分配独立执行会话、执行结果回报和中断恢复。 |
 
 ## 记录一次比较
 
