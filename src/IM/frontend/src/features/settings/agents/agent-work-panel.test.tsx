@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../../i18n";
@@ -83,11 +83,38 @@ describe("Agent work view", () => {
     mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : url.includes("/sessions/") ? { turns: [], next_cursor: null } : view), { status: 200 }));
     renderWork();
     fireEvent.click(await screen.findByText("Inbox 唤醒"));
+    expect(screen.getByRole("button", { name: "查看关联执行 · Research child" })).toBeVisible();
     fireEvent.click(screen.getByTestId("process-background-return-toggle"));
     expect(screen.getByText("Actual child result")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "查看关联执行 · Research child" }));
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledWith("/im/v1/agents/global/work/sessions/child-session/turns?view=summary", expect.objectContaining({signal: expect.any(AbortSignal)})));
     expect(screen.getByRole("button", { name: "关闭子轨迹" })).toBeVisible();
+  });
+
+  it("opens each consecutive return and agent message from its own message card", async () => {
+    const sources = ["child-a", "child-b", "child-a"];
+    view = { ...view, other_executions: [
+      { session_id: "child-a", scope: "subagent", description: "Research" },
+      { session_id: "child-b", scope: "subagent", description: "Review" }
+    ], turns: [{ ...view.turns[0], items: sources.map((source, index) => ({
+      item_id: `message:${index}`, seq: index + 1, kind: "assistant_message",
+      payload: { content: `Result ${index}`, source_kind: index === 2 ? "agent-message" : "subagent-settled", source_session_id: source }
+    })) }] };
+    mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+      url === "/im/v1/conversations" ? { items: [] } : url.includes("/sessions/") ? { turns: [], next_cursor: null } : view
+    )));
+    renderWork();
+    fireEvent.click(await screen.findByText("Inbox 唤醒"));
+    for (const [index, source] of sources.entries()) {
+      const card = screen.getByText(`Result ${index}`).closest(".im-work-assistant")!;
+      fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "查看关联执行" }));
+      await waitFor(() => expect(mocks.fetch).toHaveBeenCalledWith(
+        `/im/v1/agents/global/work/sessions/${source}/turns?view=summary`,
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      ));
+      expect(await screen.findByRole("heading", { name: source === "child-a" ? "Research" : "Review" })).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "关闭子轨迹" }));
+    }
   });
 
   it("shows a repeated background source once while retaining distinct task returns", async () => {

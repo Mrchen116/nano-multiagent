@@ -7,12 +7,14 @@
 | 任务 | 先读 |
 |---|---|
 | 判断是否建立 change unit、选择生命周期或 Full 的原流程/简化实施 | [`change-workflow.md`](change-workflow.md) |
+| 查询默认开发基线与 PR 目标 | [分支规则](change-workflow.md#开发基线与-pr-目标) |
+| 按需求选择能力、组合执行并统一收口 | [流程与能力组合](skill-composition.md) |
 | 提报 GitHub Issue、分诊和维护标签 | [`issues.md`](issues.md) |
 | 安装环境、运行常用命令、开发 Node 或前端 | [`local-development.md`](local-development.md) |
 | 切换 Air/Mini、检查本机模型入口、路径与飞书能力 | [本机开发配置](local-development.md#本机开发配置) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
 | 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
-| 设计或审查前端的具体取舍 | [共同体验标准](../../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
+| 设计或审查前端的具体取舍 | [共同体验标准](../../.claude/skills/frontend-experience-review/references/prototype-and-runbook.md) → [真实纠正案例](../../.claude/skills/frontend-experience-review/references/ui-decision-gotchas.md) |
 | 探索性试用产品，发现体验和后台运行问题并核实归因 | [`product-tryout`](../../.claude/skills/product-tryout/SKILL.md) |
 | 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md) |
 | 在 worktree 内启动隔离 IM、Gateway 或 Vite | [`worktree-runtime.md`](worktree-runtime.md) |
@@ -30,6 +32,7 @@
 | 文档 | 负责的事实 |
 |---|---|
 | [`change-workflow.md`](change-workflow.md) | 何时建 unit、生命周期、实施方式、角色和门禁 |
+| [`skill-composition.md`](skill-composition.md) | 流程、能力与项目规范分工；问题驱动选择、组合、结果与历史接手 |
 | [`issues.md`](issues.md) | GitHub 提报入口、标签使用与同步维护 |
 | [`local-development.md`](local-development.md) | Node/前端与 Python 辅助工具环境、本机路径/能力配置、常用命令、测试身份和提交格式 |
 | [`testing.md`](testing.md) | 测试选择、分层、命名、长期回归与临时证据边界 |

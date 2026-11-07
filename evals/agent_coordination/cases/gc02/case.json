@@ -1,0 +1,431 @@
+{
+  "version": 1,
+  "id": "gc02",
+  "title": "GC-02 · Computer use 多轮协调",
+  "description": "保留真实历史的原话、原图、范围决定与后续追问。由同一 DAG 预览和回放。",
+  "context": "长期负责 Nano 项目的 Global Agent；默认工具、Feature、Skill，gpt-6.1-sol high；独立仓库快照。",
+  "tasks": {
+    "desktop": "Computer use"
+  },
+  "attachments": {},
+  "nodes": [
+    {
+      "id": "U01",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "我们现在agent没有computer use的能力，帮我去找开源的comp",
+      "after": [],
+      "content": {
+        "text": "我们现在agent没有computer use的能力，帮我去找开源的computer use的项目，我想做到平替codex的computer use能力在mac系统的效果"
+      },
+      "source": "15:07，dc290ea1。开场删掉指向其他任务的「同时」。等待独立派工。"
+    },
+    {
+      "id": "D-desktop",
+      "type": "delegate",
+      "task": "desktop",
+      "title": "等待派工 · Computer use 调研",
+      "after": [
+        "U01"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "all": [],
+        "source_node": "U01"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "S01a",
+      "type": "worker_message",
+      "task": "desktop",
+      "title": "子 Agent 回报 · S01a",
+      "after": [
+        "D-desktop"
+      ],
+      "worker": "desktop",
+      "content": {
+        "text": "我在整理开源候选前有个范围问题。现在知道目标是 macOS 上接近 Codex 的体验，但你说的 Codex computer use，我还不确定是特指它操作本机其他 App 的效果，还是也要把浏览器操作纳入对标。这会影响要不要把浏览器专用工具列进来。公开资料可以用来核实 Codex 能做什么，但不能替用户确定他指的是哪一块。如果现有聊天没说清，请帮我问一下用户具体想对标哪种场景。"
+      },
+      "source": "U01 派工后由负责调研的子 Agent 发出。取材自 15:07 主 Agent 公开回复中「确认 Codex 的 computer use 到底是哪一层」，为评测改写成内部澄清问题。",
+      "final": false
+    },
+    {
+      "id": "Q-scope",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "主 Agent 公开问 Codex 范围",
+      "after": [
+        "S01a"
+      ],
+      "matcher": {
+        "all": [
+          "Codex|桌面|浏览器",
+          "哪|还是|指什么|对标什么",
+          "请|你|您|[？?]"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S01a"
+    },
+    {
+      "id": "U02",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "Codex 的 computer use，上网搜你就知道我说的是啥了",
+      "after": [
+        "Q-scope"
+      ],
+      "content": {
+        "text": "Codex 的 computer use，上网搜你就知道我说的是啥了"
+      },
+      "source": "15:08，f7dabea8。主 Agent 收到 S01a 并在用户聊天问到具体指哪类 Codex 能力后，才发这句原话。主 Agent 仅说明会查资料或在内部直接回答时，这句不触发。",
+      "order_after": [
+        "U01"
+      ]
+    },
+    {
+      "id": "R-scope",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U02",
+      "after": [
+        "U02"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U02"
+      }
+    },
+    {
+      "id": "S01b",
+      "type": "worker_message",
+      "task": "desktop",
+      "title": "子 Agent 回报 · S01b",
+      "after": [
+        "R-scope"
+      ],
+      "worker": "desktop",
+      "content": {
+        "text": "按公开描述，初步线索之一是用截图看界面，发出点击或输入，再截图核对结果。这里我只确认了截图能作为视觉观察材料，暂时还不能确认截图是不是主要的定位方式，也没排除结构化操作和其他通道。我会把看截图、定位元素和执行操作拆开核对，之后再按有证据的能力比较候选。"
+      },
+      "source": "取材自 15:10 的主 Agent 公开回复。给子 Agent 留出处理 U02 的机会后发。若同步给用户，仍按初步线索说明。",
+      "final": false
+    },
+    {
+      "id": "Q-screenshot",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "用户先看到截图操作说明",
+      "after": [
+        "S01b"
+      ],
+      "matcher": {
+        "all": [
+          "截图.{0,50}(点击|输入)|看界面.{0,30}点击"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S01b"
+    },
+    {
+      "id": "U03",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "它不仅仅是看截图这么简单的。",
+      "after": [
+        "Q-screenshot"
+      ],
+      "content": {
+        "text": "它不仅仅是看截图这么简单的。"
+      },
+      "source": "15:11，08b38ad7。用户实际看到截图操作的初步说明后才发。阶段截止仍未看到就停本侧回放。",
+      "order_after": [
+        "U02"
+      ]
+    },
+    {
+      "id": "R-correct",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U03",
+      "after": [
+        "U03"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U03"
+      }
+    },
+    {
+      "id": "U04",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "我不过多提醒，你继续去研究。",
+      "after": [
+        "U03"
+      ],
+      "content": {
+        "text": "我不过多提醒，你继续去研究。"
+      },
+      "source": "15:11，eaa929ad。紧随 U03，可由主 Agent 合并转发。"
+    },
+    {
+      "id": "R-continue",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U04",
+      "after": [
+        "U04"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U04"
+      }
+    },
+    {
+      "id": "S01",
+      "type": "worker_message",
+      "task": "desktop",
+      "title": "子 Agent 回报 · S01",
+      "after": [
+        "R-correct",
+        "R-continue"
+      ],
+      "worker": "desktop",
+      "content": {
+        "file": "../gc01/computer-use-report.md"
+      },
+      "source": "复用并行版的详细历史回报。给子 Agent 留出处理 U02–U04 的机会后发送，调研会话保持可收件。",
+      "final": true
+    },
+    {
+      "id": "Q-candidates",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "用户先看到调研候选",
+      "after": [
+        "S01"
+      ],
+      "matcher": {
+        "all": [
+          "agent-desktop|Cua Driver|UI.?TARS"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S01"
+    },
+    {
+      "id": "U05",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "computer use你说那几个项目，热度高吗，给我链接",
+      "after": [
+        "Q-candidates"
+      ],
+      "content": {
+        "text": "computer use你说那几个项目，热度高吗，给我链接"
+      },
+      "source": "15:38，fea6af30。主 Agent 在用户聊天里介绍候选后发送。阶段截止仍未介绍时，本条记前置未触发，并停这条任务链。",
+      "order_after": [
+        "U04"
+      ]
+    },
+    {
+      "id": "U06",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "vercel-labs/agent-desktop它也跟Codex一样，既支",
+      "after": [
+        "U05"
+      ],
+      "content": {
+        "text": "vercel-labs/agent-desktop它也跟Codex一样，既支持截图点击。也支持AX树是吧？"
+      },
+      "source": "15:42，50d98c80。用户看到主 Agent 介绍 agent-desktop 后发原话。若未介绍，改发「也帮我核对下 vercel-labs/agent-desktop，它支持截图点击和 AX 树吗？」",
+      "fallback": {
+        "text": "也帮我核对下 vercel-labs/agent-desktop，它支持截图点击和 AX 树吗？"
+      },
+      "when": {
+        "evidence_node": "Q-candidates",
+        "matcher": {
+          "all": [
+            "agent-desktop"
+          ]
+        }
+      },
+      "order_after": [
+        "Q-candidates"
+      ]
+    },
+    {
+      "id": "Q-visual",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "等待 IM 公开回复",
+      "after": [
+        "U06"
+      ],
+      "matcher": {
+        "all": [
+          "截图|留证|定位"
+        ]
+      },
+      "timeout": 120
+    },
+    {
+      "id": "U07",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "那很多时候是需要截图的呀。许可证不是重点，我们要的是最适用的。",
+      "after": [],
+      "content": {
+        "text": "那很多时候是需要截图的呀。许可证不是重点，我们要的是最适用的。"
+      },
+      "source": "15:43，6ac70ad7。用户看到上轮关于截图能力的答复后发原话。若阶段截止仍无相关答复，改发「Computer use 的候选里，我看重需要截图的场景能不能覆盖。许可证不是重点，我们要的是最适用的。」",
+      "order_after": [
+        "Q-visual",
+        "U06"
+      ],
+      "fallback": {
+        "text": "Computer use 的候选里，我看重需要截图的场景能不能覆盖。许可证不是重点，我们要的是最适用的。"
+      },
+      "when": {
+        "evidence_node": "Q-visual",
+        "matcher": {
+          "any": [
+            "截图|留证|定位"
+          ]
+        }
+      }
+    },
+    {
+      "id": "U08",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "那多系统支持呢？比如说Windows、Linux。",
+      "after": [
+        "U07"
+      ],
+      "content": {
+        "text": "那多系统支持呢？比如说Windows、Linux。"
+      },
+      "source": "15:46，bcc8065b。用户看到 macOS 候选的能力讨论后发原话。若阶段截止仍无该讨论，改发「Computer use 这条也看看 Windows、Linux 支持。」",
+      "fallback": {
+        "text": "Computer use 这条也看看 Windows、Linux 支持。"
+      },
+      "when": {
+        "evidence_node": "Q-candidates",
+        "matcher": {
+          "any": [
+            "agent-desktop|Cua Driver"
+          ]
+        }
+      },
+      "order_after": [
+        "Q-candidates"
+      ]
+    },
+    {
+      "id": "R-platforms",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U08",
+      "after": [
+        "U08"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U08"
+      }
+    },
+    {
+      "id": "S02",
+      "type": "worker_message",
+      "task": "desktop",
+      "title": "子 Agent 回报 · S02",
+      "after": [
+        "R-platforms"
+      ],
+      "worker": "desktop",
+      "content": {
+        "text": "macOS 可以继续比较前面几个候选。Windows 和 Linux 的本机桌面控制还要分别验证，能在虚拟机里运行不代表能操作宿主桌面。需要用户决定本期范围。A 是本期就要求三平台都能用。B 是 macOS 先做，给其他平台留扩展位置，Windows 和 Linux 另行安排。我建议 B，避免把节点跨平台也塞进这次调研。"
+      },
+      "source": "根据 15:46 的跨平台讨论改写成子 Agent 提问。给子 Agent 留出处理 U07、U08 的机会后发送。若主 Agent 已先提出等价问题，沿用那一轮询问。",
+      "final": false
+    },
+    {
+      "id": "Q-platform-choice",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "主 Agent 问三平台范围",
+      "after": [
+        "S02"
+      ],
+      "matcher": {
+        "all": [
+          "Windows",
+          "Linux",
+          "macOS",
+          "你选|你希望|请确认|你决定|哪种|[？?]"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S02"
+    },
+    {
+      "id": "U09",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "B",
+      "after": [
+        "Q-platform-choice"
+      ],
+      "content": {
+        "text": "B"
+      },
+      "source": "15:54，ede01c0a。收到明确以 B 指代「macOS 先做、其他平台留扩展位」的选项后发送。若主 Agent 用不同顺序或没有用字母，改发「macOS 先做，Windows 和 Linux 先留扩展位置，另外安排。」如果没问到用户，阶段截止后记前置未触发。评分核对实际发送的原话。",
+      "fallback": {
+        "text": "macOS 先做，Windows 和 Linux 先留扩展位置，另外安排。"
+      },
+      "when": {
+        "evidence_node": "Q-platform-choice",
+        "matcher": {
+          "all": [
+            "(?:^|\\n)[\\s*]*B[\\s*：:、.)-]+[^\\n]*macOS"
+          ]
+        }
+      },
+      "order_after": [
+        "U08"
+      ]
+    },
+    {
+      "id": "R-platform-decision",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U09",
+      "after": [
+        "U09"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U09"
+      }
+    }
+  ],
+  "worker_titles": {
+    "ios-start": "iOS 启动诊断",
+    "ios-unread": "未读诊断",
+    "ios-send": "弱网发送诊断",
+    "ios": "iOS 整体评估",
+    "docs-713": "713 首文档",
+    "docs-local": "本地库首文档",
+    "desktop": "Computer use 调研",
+    "work": "Work 页分析",
+    "card": "卡片背景分析",
+    "menu": "新建群聊菜单",
+    "attachments": "附件机制调研",
+    "implement": "附件实现"
+  }
+}

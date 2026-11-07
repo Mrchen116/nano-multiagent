@@ -66,6 +66,8 @@ describe('capability selections', () => {
     expect(changeCapability({...draft(),work_mode:'global',personal_agent:{}}, {kind:'tool',name:'send_user_message',enabled:false}, {}).blocks[0].code).toBe('fixed_capability');
     expect(fixedTools('global', 'subagent')).not.toContain('send_message');
     expect(fixedTools('single_thread', 'root', false)).toEqual([]);
+    // An absent mode describes an unknown or legacy Agent, not a new global one.
+    expect(fixedTools(undefined, 'root', false)).toEqual([]);
     expect(changeCapability(draft(), {kind: 'tool', name: 'notes', enabled: false}, {fixed_tools: ['notes']}).blocks[0].code).toBe('fixed_capability');
     expect(featureClosure(effectiveFeatures()).cron_scheduling).toBe(true);
   });

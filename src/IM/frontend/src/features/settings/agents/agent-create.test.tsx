@@ -239,11 +239,15 @@ describe("agent create page", () => {
 
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Global mode/ })).toBeChecked();
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global mode/ }));
       await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-2");
       await user.selectOptions(screen.getByLabelText(/Owning Node/i), "node-1");
       expect(screen.getByRole("radio", { name: /Global mode/ })).toBeChecked();
+    } else {
+      await user.click(screen.getByRole("radio", { name: /Single thread/ }));
+      expect(screen.getByRole("radio", { name: /Single thread/ })).toBeChecked();
     }
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
@@ -762,10 +766,12 @@ describe("agent create prompt preview", () => {
     const body = lastCall[1] as {
       skill_ids?: string[];
       agent_id_hint?: string;
+      work_mode?: string;
       workspace_mode?: string;
       workspace_root?: string | null;
     };
     expect(body).toHaveProperty("skill_ids");
+    expect(body.work_mode).toBe("global");
     expect(body.workspace_mode).toBe("default");
     expect(body.workspace_root).toBeNull();
   });

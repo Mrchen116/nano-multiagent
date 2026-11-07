@@ -110,7 +110,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   skills: [],
   skills_selection_mode: "explicit_denylist",
   tool_allowlist: [],
-  work_mode: "single_thread",
+  work_mode: "global",
   group_reply_policy: "MENTION",
   default_model: null,
   model_fallbacks: [],
@@ -173,7 +173,7 @@ function CreateBehaviorCard({
         features: effectiveFeatures,
         custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
-        ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
+        ...(draft.work_mode ? { work_mode: draft.work_mode } : {}),
         skill_ids: draft.skills ?? [],
         skills_selection_mode: draft.skills_selection_mode,
         agent_id_hint: draft.agent_id || undefined,
@@ -766,8 +766,8 @@ export function AgentCreatePage() {
         <section className="im-agent-card">
           <h3 className="im-agent-card-title">{t("agents.redesign.workMode")}</h3>
           <div className="im-create-modes">
-            {(["single_thread", "global"] as const).map(mode => <label key={mode} className="im-create-mode">
-              <input type="radio" name="work_mode" value={mode} checked={(draft.work_mode ?? "single_thread") === mode} onChange={() => { setDraft({ ...draft, work_mode: mode }); setIsDirty(true); }} />
+            {(["global", "single_thread"] as const).map(mode => <label key={mode} className="im-create-mode">
+              <input type="radio" name="work_mode" value={mode} checked={(draft.work_mode ?? "global") === mode} onChange={() => { setDraft({ ...draft, work_mode: mode }); setIsDirty(true); }} />
               <span><strong>{t(`agents.redesign.mode.${mode}`)}</strong><small>{t(`agents.redesign.modeHelp.${mode}`)}</small></span>
             </label>)}
           </div>

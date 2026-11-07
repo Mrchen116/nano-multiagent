@@ -38,6 +38,31 @@ def test_local_link_check_uses_markdown_ast_and_requires_tracked_target(
     assert "missing.md" not in problems[0].message
 
 
+def test_skill_reference_is_checked_through_the_repository_alias(
+    tmp_path: Path,
+) -> None:
+    source = _write(
+        tmp_path,
+        ".agents/skills/example/SKILL.md",
+        "[method](references/method.md)\n",
+    )
+    alias = tmp_path / ".claude/skills"
+    alias.parent.mkdir()
+    alias.symlink_to("../.agents/skills", target_is_directory=True)
+    entry = _write(tmp_path, "AGENTS.md", "[skill](.claude/skills/example/SKILL.md)\n")
+    tracked = {entry, source, Path(".claude/skills")}
+
+    problems = docs_check.check_local_links(tmp_path, tracked)
+
+    assert [(problem.code, problem.path) for problem in problems] == [
+        ("BROKEN_LINK", source)
+    ]
+    method = _write(
+        tmp_path, ".agents/skills/example/references/method.md", "# Method\n"
+    )
+    assert docs_check.check_local_links(tmp_path, tracked | {method}) == []
+
+
 def test_reachability_follows_explicit_index_chain(tmp_path: Path) -> None:
     agents = _write(tmp_path, "AGENTS.md", "[map](docs/README.md)\n")
     docs_index = _write(
