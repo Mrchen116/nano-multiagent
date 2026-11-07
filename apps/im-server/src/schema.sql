@@ -582,6 +582,14 @@ CREATE TABLE IF NOT EXISTS interaction_drafts (
     submission_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
     PRIMARY KEY(source_message_id,user_id)
 );
+-- Monotonic "left this conversation" watermark per viewer. It clears only drafts edited at
+-- or before it, so a late discard cannot erase newer edits from either device.
+CREATE TABLE IF NOT EXISTS interaction_background_discards (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    discarded_through TEXT NOT NULL,
+    PRIMARY KEY(conversation_id,user_id)
+);
 CREATE TABLE IF NOT EXISTS interaction_submissions (
     source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

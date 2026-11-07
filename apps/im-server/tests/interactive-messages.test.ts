@@ -127,12 +127,15 @@ describe('interactive message persistence', () => {
 });
 
 
-it('freezes private-chat background in durable relays without publishing or submitting it', async () => {
+it('freezes the centre-derived private background in durable relays without publishing or submitting it', async () => {
   const {messaging,card,db,ctx,request}=setup();
   db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
   ctx.gateway.send=()=>true;
+  // A real edit is the only source of a background now: rendering or restoring a card
+  // must never put anything into model input.
+  const draft=request(); draft.body={expected_draft_revision:0,state:{'$body':'仅私聊背景'}};
+  messaging.interactions.writeDraft(draft);
   const req=request('u1','为什么这里不同？'); delete req.body.interaction_reply;
-  req.body.interaction_contexts=[{source_message_id:card.id,state:{'$body':'仅私聊背景'}}];
   const sent=await messaging.sendMessage(req);
   const relay=JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json);
   expect(relay.metadata.interaction_contexts).toMatchObject([{source_message_id:card.id,fields:[{value:'仅私聊背景'}]}]);
@@ -140,12 +143,16 @@ it('freezes private-chat background in durable relays without publishing or subm
   expect(JSON.stringify(vi.mocked(ctx.gateway.broadcast).mock.calls)).not.toContain('仅私聊背景');
   expect(JSON.stringify(messaging.message(sent.id))).not.toContain('仅私聊背景');
   expect(all(db,'SELECT * FROM interaction_submissions')).toHaveLength(0);
-  expect(messaging.interactions.readDraft(request()).draft_revision).toBe(0);
-  req.body.interaction_contexts[0].state['$body']='后来修改';
-  await expect(messaging.sendMessage(req)).rejects.toMatchObject({statusCode:409});
-  expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
-  expect(JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json).metadata.interaction_contexts[0].fields[0].value).toBe('仅私聊背景');
+
+  // Carried once, then consumed: the next message has no background and no new injection.
+  const next=request('u1','那谁负责订场地？'); delete next.body.interaction_reply; next.headers['idempotency-key']='second';
+  await messaging.sendMessage(next);
+  const relays=all(db,'SELECT * FROM relay_tasks');
+  expect(relays).toHaveLength(2);
+  expect(JSON.parse(relays[1].payload_json).metadata.interaction_contexts).toBeUndefined();
+  expect(JSON.parse(relays[0].payload_json).metadata.interaction_contexts[0].fields[0].value).toBe('仅私聊背景');
 });
+
 it('keeps group drafts invisible to every Agent until an explicit action is submitted', async () => {
   const {messaging,card,db,ctx,request}=setup();
   db.prepare("UPDATE conversations SET type='group' WHERE id='chat'").run(); ctx.gateway.send=()=>true;
@@ -167,13 +174,17 @@ it('keeps group drafts invisible to every Agent until an explicit action is subm
   expect(last.metadata.mentioned_agent_ids).toContain('a');
 });
 
-it('does not accept background sourced from another conversation', async () => {
+it('ignores client background instead of trusting a source from another conversation', async () => {
   const {messaging,card,db,request}=setup();
   db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
   db.prepare("INSERT INTO conversations(id,title,created_at) VALUES('other','Other','now')").run();
   db.prepare("UPDATE messages SET conversation_id='other' WHERE id=?").run(card.id);
   const req=request('u1','解释'); delete req.body.interaction_reply;
   req.body.interaction_contexts=[{source_message_id:card.id,state:{}}];
-  await expect(messaging.sendMessage(req)).rejects.toMatchObject({statusCode:404});
-  expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(0);
+  // The client field is accepted and discarded, so a stale or hostile snapshot can no
+  // longer reach a model; the centre derives nothing because no draft exists.
+  const sent=await messaging.sendMessage(req);
+  expect(sent.content).toBe('解释');
+  expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
+  expect(JSON.parse(all(db,'SELECT * FROM relay_tasks')[0].payload_json).metadata.interaction_contexts).toBeUndefined();
 });

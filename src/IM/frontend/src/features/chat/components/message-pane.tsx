@@ -17,6 +17,8 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../i18n";
+import { awaitPendingDiscard, beginSend, useDraftFailures } from "../interaction-background";
+import { DraftFailureNotice } from "./draft-failure-notice";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
 import {
   classifyChatLink,
@@ -76,7 +78,6 @@ import {
   type ComposerSnapshot
 } from "./composer-draft-store";
 
-import type { InteractiveSelection } from "../interactive/interactive-card";
 const InteractiveCard = React.lazy(() => import("../interactive/interactive-card").then(module => ({default: module.InteractiveCard})));
 import type { InteractionReplyInput } from "../interactive/types";
 import { lookupMessageAttempt } from "../chat-api";
@@ -122,7 +123,7 @@ export interface MessagePaneProps {
   agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
-  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, interactionContexts?: import("../interactive/types").InteractionContextInput[]): void | Promise<void | Message>;
+  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string): void | Promise<void | Message>;
   /** Merge a previously committed send through the same message-id projection as HTTP success. */
   onRecovered?(message: Message): void;
   /** Route a local persistence failure through the existing send error owner. */
@@ -284,24 +285,18 @@ export function MessagePane({
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const timeDividers = timelineTimeDividers(renderedTimeline, i18n.language);
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
-  const backgrounds = useRef<Record<string, Record<string, InteractiveSelection>>>({});
   const [sendAttempts, setSendAttempts] = useState<Record<string, SendAttempt>>({});
-  const pendingInteraction = sendAttempts[conversation.id]?.contexts.length ? sendAttempts[conversation.id] : undefined;
+  // The unconfirmed-send notice must survive the removal of client-side background data.
+  const pendingInteraction = sendAttempts[conversation.id];
+  // A card whose edit has not reached the centre blocks this whole conversation: sending
+  // would silently produce a message without the change the user just made.
+  const unsavedCardEdits = useDraftFailures(conversation.id);
   function clearSendAttempt(cid: string, key?: string) {
     setSendAttempts(current => {
       if (key && current[cid]?.key !== key) return current;
       const next={...current}; delete next[cid]; return next;
     });
   }
-  const chooseInteraction = useCallback((next: InteractiveSelection) => {
-    const chat = backgrounds.current[next.conversationId] ??= {};
-    const previous = chat[next.source_message_id];
-    chat[next.source_message_id] = next;
-    if (previous && JSON.stringify(previous.state) !== JSON.stringify(next.state)
-      && displayedConversationIdRef.current === next.conversationId) {
-      liveComposerRef.current = {...liveComposerRef.current,revision:crypto.randomUUID()};
-    }
-  }, []);
   const submittedMessages = new Map(messages.filter(m => (m.sender.id === selfUserId || m.sender_user_id === selfUserId) && m.interaction_reply).map(m => [m.interaction_reply!.source_message_id, m.id]));
   const replacedIds = new Set(messages.flatMap(m => m.interactive?.supersedes_message_id ? [m.interactive.supersedes_message_id] : []));
 
@@ -699,6 +694,9 @@ export function MessagePane({
   const kind = classifyConversationKind(conversation);
   const avatarName = kind === "direct-user" ? directPersonAvatarName(conversation, selfUserId) : conversation.title;
   const isGroup = conversation.type === "group";
+  // Only a direct chat carries a background, so only there can an unsaved card edit be
+  // missing from the message; blocking group text would be friction with nothing to lose.
+  const blockOnUnsavedCardEdits = !isGroup && unsavedCardEdits.length > 0;
   const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
   const mentionQuery = mentionMatch?.[1] ?? null;
   const directControlCommand = /^\/(?:stop|new|compact)$/.test(draft.trim());
@@ -749,19 +747,36 @@ export function MessagePane({
     const trimmed = text.trim();
     if (!trimmed && (onlyText || pending.length === 0)) return;
     const sourceConversationId = displayedConversationIdRef.current;
-    const contexts = !isGroup ? messages.filter(message => message.interactive && !message.interactive.read_only
-      && !message.interactive.superseded_by && !replacedIds.has(message.id))
-      .flatMap((message,index) => {
-        const value = backgrounds.current[sourceConversationId]?.[message.id];
-        return value ? [{value,index}] : [];
-      }).sort((left,right) => right.value.editedAt-left.value.editedAt || right.index-left.index).slice(0,3)
-      .map(({value}) => ({source_message_id:value.source_message_id,state:structuredClone(value.state),
-        ...(value.editedAt ? {interacted_at:value.editedAt} : {})})) : [];
-    // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
-    const wireContent = reconstructWireContent(contexts.length ? text : trimmed, draftMentions);
+    // Capture the submitted composer before waiting for card saves: the user may type a
+    // newer draft or switch chats during that await. Confirmation belongs to this snapshot.
+    const wireContent = reconstructWireContent(trimmed, draftMentions);
     const submittedAttachments = onlyText ? [] : pending;
     const submittedDraft = cloneComposerSnapshot(liveComposerRef.current);
     const sourceOwner = selfUserId;
+    // Claim the send slot before the first await: sending now starts with a flush, and two
+    // quick presses must not both pass the pending-send guard above and POST twice.
+    sendInFlightRef.current = true;
+    sendingConversationIdRef.current = sourceConversationId;
+    // A background the user just edited must reach this message, so wait for the leave
+    // clear first and then let every card finish its debounce window. One card that cannot
+    // save blocks the whole conversation: sending would silently drop that edit.
+    if (!isGroup) {
+      await awaitPendingDiscard(sourceConversationId);
+      if (!await beginSend(sourceConversationId)) {
+        // Nothing was sent, so give the slot back: after the edit is saved the composer
+        // must be able to send without a reload.
+        if (sendingConversationIdRef.current === sourceConversationId) {
+          sendInFlightRef.current = false;
+          sendingConversationIdRef.current = null;
+        }
+        return;
+      }
+    }
+    if (currentOwnerRef.current !== sourceOwner) {
+      sendInFlightRef.current = false;
+      sendingConversationIdRef.current = null;
+      return;
+    }
     forceScrollToBottomRef.current = true;
     sendInFlightRef.current = true;
     sendingConversationIdRef.current = sourceConversationId;
@@ -773,15 +788,15 @@ export function MessagePane({
       const retry = prior?.draft.revision === submittedDraft.revision
         && JSON.stringify(prior.attachments) === JSON.stringify(submittedAttachments) ? prior : undefined;
       const payload = retry
-        ? {text:retry.text,attachments:retry.attachments,contexts:retry.contexts}
-        : {text:wireContent,attachments:structuredClone(submittedAttachments),contexts};
+        ? {text:retry.text,attachments:retry.attachments}
+        : {text:wireContent,attachments:structuredClone(submittedAttachments)};
       // Another tab may already have confirmed and removed the durable row.
       // The restored owner must still retry its original immutable identity.
       attempt = retry ?? (sourceOwner ? await prepareSendAttempt(sourceOwner,sourceConversationId,submittedDraft,payload)
         : {userId:'',conversationId:sourceConversationId,key:crypto.randomUUID(),draft:submittedDraft,...payload,retryable:true});
       if (currentOwnerRef.current !== sourceOwner) return;
       setSendAttempts(current => ({...current,[sourceConversationId]:attempt!}));
-      await onSend(attempt.text, attempt.attachments, undefined, attempt.key, attempt.contexts);
+      await onSend(attempt.text, attempt.attachments, undefined, attempt.key);
       if (sourceOwner) await removeSendAttempt(attempt).catch(()=>{});
       clearSendAttempt(sourceConversationId,attempt.key);
     } catch (error) {
@@ -1227,6 +1242,7 @@ export function MessagePane({
                   isMobile={isMobile}
                   participants={conversation.participants}
                   isDirectChat={isDirectChat}
+                  isGroup={isGroup}
                   agentOnline={agentOnline}
                   onFork={onFork}
                   forkPending={forkPending}
@@ -1239,7 +1255,6 @@ export function MessagePane({
                     writeComposerSnapshot(composerSnapshots, conversation.id, liveComposerRef.current);
                     await onComposeMessage?.(target, text);
                   }}
-                  onInteractionSelect={chooseInteraction}
                   onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
                 />
                 </React.Fragment>
@@ -1257,6 +1272,7 @@ export function MessagePane({
       </div>}
       {conversation.can_write !== false && <form className="chat-pane-composer" onSubmit={handleSubmit}>
         {pendingInteraction && !composerBusy && <div className="interactive-selection" role="status">{t('chat.interactive.pendingRetry')}</div>}
+        {!isGroup && <DraftFailureNotice conversationId={conversation.id} />}
         <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
           <div className="chat-composer-input">
           {(pending.length > 0 || uploads.length > 0) && <div className="chat-pane-composer-chips">
@@ -1323,7 +1339,7 @@ export function MessagePane({
             <button
               type="submit"
               className="chat-pane-composer-send"
-              disabled={composerBusy || uploading > 0 || failed.length > 0 || (!draft.trim() && pending.length === 0)}
+              disabled={composerBusy || uploading > 0 || failed.length > 0 || blockOnUnsavedCardEdits || (!draft.trim() && pending.length === 0)}
               aria-label="Send"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1671,13 +1687,13 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend, onComposeMessage,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false,
 }: {
   message: Message;
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
+  isGroup?: boolean;
   interactiveSubmissionId?: string;
-  onInteractionSelect(selection: InteractiveSelection): void;
   onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
   workAgentId?: string;
@@ -1923,8 +1939,8 @@ function MessageBubble({
                 : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
             </div>
           )}
-          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
-            onSelect={onInteractionSelect} onSend={onInteractionSend} onComposeMessage={onComposeMessage} /></React.Suspense>}
+          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} isGroup={isGroup} submittedMessageId={interactiveSubmissionId}
+            onSend={onInteractionSend} onComposeMessage={onComposeMessage} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>

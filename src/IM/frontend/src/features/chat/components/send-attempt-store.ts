@@ -1,11 +1,12 @@
 import type { Attachment } from '../chat-types';
-import type { InteractionContextInput } from '../interactive/types';
 import type { ComposerSnapshot } from './composer-draft-store';
+import { openChatDatabase } from '../chat-local-db';
 
+/** Frozen wire body. Private background is not part of it: the centre derives and freezes
+ * the background with the message, so a retry must resend exactly this payload. */
 export interface SendAttemptPayload {
   text: string;
   attachments: Attachment[];
-  contexts: InteractionContextInput[];
 }
 export interface SendAttempt extends SendAttemptPayload {
   userId: string;
@@ -20,21 +21,8 @@ function generation(userId: string, conversationId?: string) {
   return `${generations.get(userId) ?? 0}:${generations.get(JSON.stringify([userId,conversationId])) ?? 0}`;
 }
 
-function openAttempts(): Promise<IDBDatabase> {
-  return new Promise((resolve,reject) => {
-    const request = indexedDB.open('im-message-attempts',1);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore('attempts',{keyPath:['userId','conversationId','key']});
-      store.createIndex('conversation',['userId','conversationId']);
-      store.createIndex('user','userId');
-    };
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-  });
-}
-
 async function transact<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStore, result: (value:T)=>void) => void): Promise<T> {
-  const db = await openAttempts();
+  const db = await openChatDatabase();
   return new Promise((resolve,reject) => {
     const transaction = db.transaction('attempts',mode);
     let value: T;
@@ -67,7 +55,7 @@ export function listSendAttempts(userId: string, conversationId: string): Promis
  *   userId: Authenticated account owning the local snapshot.
  *   conversationId: Chat receiving this explicit send.
  *   draft: Submitted composer content and revision.
- *   payload: Frozen wire body, uploaded attachment references and private context.
+ *   payload: Frozen wire body: the content and attachment references that decide identity.
  * Returns:
  *   Existing matching attempt or a newly persisted UUID attempt.
  */
@@ -78,8 +66,12 @@ export async function prepareSendAttempt(userId: string, conversationId: string,
     request.onsuccess = () => {
       if (epoch !== generation(userId,conversationId)) { store.transaction.abort(); return; }
       const previous = request.result as SendAttempt[];
+      // Compare the fields that decide the message, not the whole stored row: rows written
+      // before this unit also carry a `contexts` field the centre now ignores, and treating
+      // them as a different payload would POST a second copy instead of retrying the original.
       const existing = previous.find(item => item.retryable && item.draft.revision === draft.revision
-        && JSON.stringify({text:item.text,attachments:item.attachments,contexts:item.contexts}) === JSON.stringify(payload));
+        && item.text === payload.text
+        && JSON.stringify(item.attachments) === JSON.stringify(payload.attachments));
       if (existing) { result(existing); return; }
       for (const old of previous) if (old.retryable) store.put({...old,retryable:false});
       const attempt: SendAttempt = structuredClone({userId,conversationId,key:crypto.randomUUID(),draft:{...draft,uploads:[]},...payload,retryable:true});

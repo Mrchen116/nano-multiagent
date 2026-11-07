@@ -1125,7 +1125,19 @@
       "selectConversationTitle": "选择一个会话",
       "selectConversationSubtitle": "挑一条会话开始与 agent 协作。",
       "attachmentCapacity": "暂时无法上传附件。",
-      "attachmentCooldown": "上传暂时受限，请等待重试倒计时结束。"
+      "attachmentCooldown": "上传暂时受限，请等待重试倒计时结束。",
+      "transientTitle": "卡片改动尚未保存，这个会话暂时不能发送",
+      "transientBody": "先保存「{{card}}」的改动再发送，否则这条不会带上你刚改的内容；同一会话的其他消息也要等它保存好。",
+      "transientOffline": "当前网络不可用，恢复后会自动放行。",
+      "retrySave": "重试保存",
+      "conflictTitle": "另一台设备更新了这张卡片，这个会话暂时不能发送",
+      "conflictBody": "「{{card}}」的草稿在另一台设备上改过；本机这次改动还没保存，所以现在发送不会带上它。",
+      "viewLatest": "查看最新改动",
+      "adoptRemote": "改用最新草稿（会放弃本机这次改动）",
+      "conflictField": "字段",
+      "conflictRemote": "另一台设备",
+      "conflictLocal": "我这台",
+      "untitledCard": "这张卡片"
     },
     "groupSettings": {
       "title": "群聊信息",

@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>feat-716 原型 · 发送前卡片改动尚未保存</title>
+<!--
+  仅演示用原型：静态 HTML，不接后端、不实现产品逻辑、不访问网络。
+  · 产品区域复刻现有会话页：左侧会话列表、消息列表、交互卡片、输入区（composer）与既有
+    「是否送达尚未确认」提示，样式按 global.css / interactive-card.css 的既有类名与
+    设计 token 复刻（--im-accent #0f766e、--im-danger #c44747 等），不另建视觉体系；
+  · 本次唯一的新增是输入框正上方的 role="alert" 条：卡片改动尚未保存时拦住发送（会话级），
+    说清“这次不会带上”。失败原因分两支——网络/临时失败给「重试保存」；409 草稿冲突不给
+    重试（旧 revision 只会再 409），先「查看最新改动」做只读字段对比，再「改用最新草稿」。
+    保存成功或改用最新成功后提示消失、发送恢复；
+  · 演示控制、状态说明与设计解释都在产品区域之外。
+  证据与判断见 ./evidence/prototype-walkthrough.md（截图 PNG 本地保留，不提交）。
+-->
+<style>
+  :root{
+    --im-bg:#f7f9fb; --im-surface:#fff; --im-surface-2:#f3f6f8; --im-topbar:#fff;
+    --im-accent:#0f766e; --im-accent-fg:#fff; --im-text:#243440; --im-text-muted:#60717e;
+    --im-text-sub:#8b98a3; --im-border:#e2e8ed; --im-border-strong:#c2cfd7;
+    --im-danger:#c44747; --im-warning:#aa6b1d;
+  }
+  [hidden]{display:none!important}
+  html,body{margin:0}
+  body{background:#eef1f2;color:var(--im-text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif}
+  .prototype-shell{max-width:1560px;margin:0 auto;padding:18px 20px 64px}
+
+  /* ---------- 原型外壳（不属于产品界面） ---------- */
+  .prototype-legend{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:12px;color:#52616a;margin-bottom:10px}
+  .prototype-legend b{font-weight:600;color:var(--im-text)}
+  .prototype-legend .tag{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid #cbd6da;background:#fff}
+  .prototype-legend .tag.new{border-color:#9ecdc1;background:#eaf6f2;color:#28695c}
+  .prototype-legend .tag.old{border-color:#d5dde0;background:#f7f9fa;color:#5b6a72}
+  .prototype-legend .tag.demo{border-color:#e6d5ae;background:#fdf7e8;color:#8a6a24}
+  .prototype-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 14px;background:#fff;
+    border:1px solid var(--im-border);border-radius:10px;margin-bottom:10px}
+  .prototype-controls strong{font-size:12px;color:#52616a;margin-right:4px}
+  .prototype-controls button{min-height:32px;padding:4px 12px;border:1px solid #cbd6da;border-radius:7px;
+    background:#f7f9fa;font-size:12px;cursor:pointer;color:var(--im-text)}
+  .prototype-controls button[aria-pressed="true"]{background:var(--im-accent);border-color:var(--im-accent);color:#fff;font-weight:600}
+  .prototype-note{margin:0 0 14px;font-size:12px;color:#52616a}
+  .prototype-demo{margin:12px 0 0;padding:10px 14px;border:1px dashed #e6d5ae;border-radius:10px;
+    background:#fdf7e8;color:#6b5313;font-size:12px;line-height:1.6}
+  .prototype-demo b{color:#8a6a24}
+  .prototype-stage{background:var(--im-bg);border:1px solid var(--im-border);border-radius:14px;padding:14px}
+  .prototype-panel{width:100%;max-width:1180px;margin:0 auto}
+  .prototype-panel.narrow{max-width:390px}
+
+  /* ---------- 会话页外壳（复刻现有布局） ---------- */
+  .chat-shell{display:flex;height:720px;overflow:hidden;background:var(--im-surface);
+    border:1px solid var(--im-border);border-radius:12px;box-shadow:0 1px 3px rgba(16,32,40,.06)}
+  .chat-sidebar{flex:0 0 244px;width:244px;padding:10px;border-right:1px solid var(--im-border);background:var(--im-surface-2)}
+  .chat-sidebar-title{margin:2px 6px 10px;font-size:12px;font-weight:600;color:var(--im-text-muted);letter-spacing:.02em}
+  .chat-sidebar-row{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:9px;font-size:13px}
+  .chat-sidebar-row.active{background:#e9f3f1}
+  .chat-sidebar-row .avatar{width:26px;height:26px}
+  .chat-sidebar-row small{display:block;font-size:11px;color:var(--im-text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chat-sidebar-row .name{font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chat-main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--im-surface)}
+  .chat-head{flex:0 0 auto;height:52px;display:flex;align-items:center;gap:9px;padding:0 16px;border-bottom:1px solid var(--im-border)}
+  .chat-head .name{font-weight:600;font-size:14px}
+  .chat-head .sub{font-size:12px;color:var(--im-text-muted)}
+  .chat-head .spacer{flex:1}
+  .avatar{width:32px;height:32px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:600;color:#fff;background:var(--im-accent)}
+  .avatar.agent{background:#115e59}
+  .chat-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:18px 20px;background:var(--im-bg)}
+  .msg{display:flex;gap:10px;min-width:0}
+  .msg-body{min-width:0;max-width:min(700px,100%)}
+  .msg-meta{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--im-text-muted);margin-bottom:4px}
+  .msg-meta strong{font-size:13px;color:var(--im-text)}
+  .bubble{padding:9px 13px;border-radius:12px;background:var(--im-surface);border:1px solid var(--im-border);
+    font-size:13.5px;line-height:1.6;overflow-wrap:anywhere}
+  .msg.user{flex-direction:row-reverse}
+  .msg.user .msg-body{max-width:min(520px,100%)}
+  .msg.user .msg-meta{justify-content:flex-end}
+  .msg.user .bubble{background:#e6f1ef;border-color:#d3e6e2}
+  .msg.user .avatar{background:#8b98a3}
+
+  /* ---------- 交互卡片（复刻 interactive-card 既有结构） ---------- */
+  .interactive-card{min-width:0;width:100%;margin-top:2px}
+  .interactive-card h4{margin:0 0 2px;font-size:14px;font-weight:650}
+  .interactive-card .card-sub{margin:0 0 12px;font-size:12px;color:var(--im-text-muted)}
+  .interactive-card-body{background:var(--im-surface);border:1px solid var(--im-border);border-radius:14px;
+    padding:14px 16px;display:grid;gap:12px;box-shadow:0 1px 2px rgba(16,32,40,.04)}
+  .field-row{display:grid;gap:5px}
+  .field-label{font-size:12px;color:var(--im-text-muted)}
+  .choice{display:flex;flex-wrap:wrap;gap:8px}
+  .choice label{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--im-border-strong);
+    border-radius:999px;font-size:12.5px;background:#fff;cursor:pointer}
+  .choice label:has(input:checked){border-color:var(--im-accent);background:#eaf6f2;color:#22584f;font-weight:550}
+  .choice input{margin:0;accent-color:var(--im-accent)}
+  .card-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:2px}
+  .card-action{border:0;border-radius:9px;background:var(--im-accent);color:var(--im-accent-fg);
+    font-size:13px;font-weight:600;padding:8px 14px;cursor:pointer}
+  .card-hint{font-size:12px;color:var(--im-text-muted)}
+  .interactive-card-status{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:#667085}
+  .interactive-card-status [role="alert"]{color:var(--im-danger)}
+  .interactive-card-status button{border:0;background:transparent;color:#2563eb;cursor:pointer;font-size:12px;padding:0}
+
+  /* ---------- 输入区（复刻 .chat-pane-composer 系列） ---------- */
+  .chat-pane-composer{flex:0 0 auto;border-top:1px solid var(--im-border);background:var(--im-surface)}
+
+  /* 本次新增：卡片改动尚未保存时的拦截提示，占 .interactive-selection 同一行位（输入框正上方）。 */
+  .chat-background-alert{display:flex;align-items:flex-start;gap:10px;margin:8px 10px 0;padding:9px 12px;
+    border:1px solid var(--im-danger);border-radius:10px;background:#fdf4f3}
+  .chat-background-alert .alert-body{min-width:0;flex:1}
+  .chat-background-alert strong{display:block;font-size:13px;font-weight:650;color:var(--im-danger)}
+  .chat-background-alert p{margin:2px 0 0;font-size:12px;line-height:1.55;color:#4b5563;overflow-wrap:anywhere}
+  .chat-background-alert .retry{align-self:center;flex:0 0 auto;border:1px solid var(--im-danger);border-radius:8px;
+    background:#fff;color:var(--im-danger);font-size:12px;font-weight:600;padding:5px 11px;cursor:pointer}
+  .chat-background-alert .retry:focus-visible{outline:2px solid var(--im-danger);outline-offset:2px}
+  .chat-background-alert .alert-actions{display:flex;flex-direction:column;gap:6px;flex:0 0 auto;align-self:flex-start}
+  .chat-background-alert .retry.adopt{border-color:var(--im-accent);color:var(--im-accent)}
+  .conflict-diff{margin:7px 0 0;overflow-x:auto}
+  .conflict-diff table{border-collapse:collapse;font-size:12px;color:#4b5563}
+  .conflict-diff th,.conflict-diff td{border:1px solid var(--im-border);padding:3px 8px;text-align:left;white-space:nowrap}
+  .conflict-diff tbody th{font-weight:400;color:var(--im-text-muted)}
+  .conflict-diff caption{caption-side:top;text-align:left;font-size:11px;color:var(--im-text-muted);padding-bottom:4px}
+
+  /* 既有：是否送达尚未确认（.interactive-selection） */
+  .interactive-selection{display:flex;align-items:center;gap:8px;margin:8px 10px 0;padding:8px 12px;
+    border-radius:10px;background:#eef4ff;font-size:12.5px;color:#2f4a67}
+
+  .chat-pane-composer-dropzone{display:flex;flex-direction:column;gap:.4rem;padding:.6rem .75rem}
+  .chat-composer-input{border:1px solid var(--im-border-strong);border-radius:16px;padding:5px;background:var(--im-surface)}
+  .chat-pane-composer-row{display:flex;align-items:flex-end;gap:.4rem;padding:5px;border-radius:12px;background:var(--im-surface)}
+  .chat-pane-composer-input{display:block;flex:1;min-width:0;border:1px solid transparent;border-radius:.6rem;
+    padding:.5rem .75rem;font:inherit;font-size:.9rem;line-height:1.5;color:var(--im-text);resize:none;
+    min-height:calc((1.5em * 2) + 1rem + 2px);max-height:calc((1.5em * 5) + 1rem)}
+  .chat-pane-composer-send{flex:0 0 auto;width:32px;height:32px;margin:3px;padding:0;border:0;border-radius:50%;
+    background:var(--im-accent);color:var(--im-accent-fg);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .chat-pane-composer-send:disabled{background:var(--im-surface-2);color:var(--im-text-muted);cursor:default}
+  .chat-pane-composer-help{margin:0;font-size:.7rem;color:var(--im-text-muted)}
+
+  /* 窄屏（390）：隐藏侧栏，发送按钮按既有手机尺寸放大 */
+  .prototype-panel.narrow .chat-shell{height:620px}
+  .prototype-panel.narrow .chat-sidebar{display:none}
+  .prototype-panel.narrow .chat-head{padding:0 12px}
+  .prototype-panel.narrow .chat-messages{padding:12px 12px 16px;gap:14px}
+  .prototype-panel.narrow .msg-body{max-width:100%}
+  .prototype-panel.narrow .chat-pane-composer-send{width:42px;height:42px}
+  .prototype-panel.narrow .chat-background-alert{margin:8px 8px 0}
+  .prototype-panel.narrow .chat-background-alert{flex-wrap:wrap}
+  .prototype-panel.narrow .chat-background-alert .retry{margin-left:auto;align-self:flex-start}
+  .prototype-panel.narrow .chat-background-alert .alert-actions{flex-direction:row;flex-wrap:wrap;align-self:flex-end}
+
+  /* ---------- iOS 语义版（may-adapt：同一语义，平台各自形态） ---------- */
+  .ios-frame{background:#fff;border:1px solid var(--im-border);border-radius:26px;overflow:hidden;
+    height:700px;display:flex;flex-direction:column;background:#f2f2f7}
+  .ios-nav{flex:0 0 auto;position:relative;display:flex;align-items:center;justify-content:center;height:46px;
+    background:#f9f9f9;border-bottom:.5px solid #c8c7cc;font-size:16px;font-weight:600;color:#1c1c1e}
+  .ios-nav .back{position:absolute;left:12px;top:0;bottom:0;display:flex;align-items:center;gap:2px;
+    color:#0f766e;font-size:15px;font-weight:400}
+  .ios-messages{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:12px}
+  .ios-bubble{max-width:82%;padding:8px 12px;border-radius:16px;font-size:14px;line-height:1.45}
+  .ios-bubble.agent{align-self:flex-start;background:#fff;color:#1c1c1e}
+  .ios-bubble.user{align-self:flex-end;background:#0f766e;color:#fff}
+  .ios-card{background:#fff;border-radius:14px;padding:12px;display:grid;gap:10px;max-width:92%}
+  .ios-card h4{margin:0;font-size:14px}
+  .ios-card .card-sub{margin:0;font-size:12px;color:#8e8e93}
+  .ios-field{display:grid;gap:6px}
+  .ios-field .field-label{font-size:12px;color:#8e8e93}
+  .ios-choice{display:flex;gap:8px;flex-wrap:wrap}
+  .ios-choice span{border:.5px solid #c7c7cc;border-radius:8px;padding:5px 10px;font-size:13px;background:#fff}
+  .ios-choice span.on{border-color:#0f766e;background:#eaf6f2;color:#0f5f57;font-weight:600}
+  /* 既有 ErrorNotice（UI/CommonViews.swift:7-14）：红色 Label + 重试 */
+  .ios-error-notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:13px;color:#c44747}
+  .ios-error-notice button{border:0;background:transparent;color:#0f766e;font-size:13px;font-weight:600;padding:0}
+  .ios-composer{flex:0 0 auto;border-top:.5px solid #c8c7cc;background:#f9f9f9;padding:8px 10px 12px;display:grid;gap:6px}
+  .ios-composer .ios-composer-alert{border:.5px solid #c44747;border-radius:10px;background:#fff;padding:8px 10px;display:grid;gap:2px}
+  .ios-composer .ios-composer-alert strong{font-size:13px;color:#c44747}
+  .ios-composer .ios-composer-alert p{margin:0;font-size:12px;color:#3a3a3c;line-height:1.4}
+  .ios-composer .ios-composer-alert button{justify-self:start;border:0;background:transparent;color:#0f766e;
+    font-size:13px;font-weight:600;padding:2px 0}
+  .ios-alert-actions{display:flex;flex-wrap:wrap;gap:4px 14px}
+  #ios-diff table{font-size:11.5px}
+  #ios-diff th,#ios-diff td{padding:2px 6px}
+  .ios-input-row{display:flex;align-items:flex-end;gap:8px}
+  .ios-input{flex:1;border:.5px solid #c7c7cc;border-radius:18px;background:#fff;padding:8px 12px;font:inherit;font-size:14px;
+    resize:none;min-height:38px;color:#1c1c1e}
+  .ios-send{flex:0 0 auto;width:34px;height:34px;border:0;border-radius:50%;background:#0f766e;color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer}
+  .ios-send:disabled{background:#d1d1d6;color:#8e8e93;cursor:default}
+</style>
+</head>
+<body>
+<div class="prototype-shell">
+  <div class="prototype-legend">
+    <span class="tag old">现有界面背景</span>
+    <span class="tag new">本次新增</span>
+    <span class="tag demo">仅演示</span>
+    <b>feat-716</b> 卡片改动尚未保存时，发送被拦下并说清“这次不会带上”
+  </div>
+
+  <div class="prototype-controls" role="group" aria-label="演示状态">
+    <strong>演示状态</strong>
+    <button data-state="normal" aria-pressed="true">正常 · 无提示</button>
+    <button data-state="blocked" aria-pressed="false">改动未保存 · 发送被拦</button>
+    <button data-state="offline" aria-pressed="false">离线 · 重试保存不可行</button>
+    <button data-state="conflict" aria-pressed="false">另一台设备改过 · 409 冲突</button>
+    <button data-state="saved" aria-pressed="false">保存成功后 · 发送恢复</button>
+    <button data-state="unconfirmed" aria-pressed="false">发送未确认（既有，不变）</button>
+    <button data-state="both" aria-pressed="false">两者同时 · 窄屏 390</button>
+    <button data-state="narrow" aria-pressed="false">窄屏 390 · 改动未保存</button>
+    <button data-state="ios" aria-pressed="false">iOS 390 · 改动未保存</button>
+    <button data-state="iosconflict" aria-pressed="false">iOS 390 · 409 冲突</button>
+  </div>
+
+  <p class="prototype-note">
+    产品区域复刻现有会话页（会话列表 / 消息列表 / 交互卡片 / 输入区）。<b>本次唯一的新增</b>是输入框正上方的
+    <code>role="alert"</code> 提示，以及它拦下的发送：网络/临时失败给「重试保存」，409 冲突给
+    「查看最新改动」→「改用最新草稿」。卡片底部的「草稿暂未保存」是现状、只在卡片可见时才看得到。
+    本页不接后端：输入、卡片控件、发送、保存与冲突对比都是演示。
+  </p>
+
+  <div class="prototype-stage">
+    <!-- ============ Web：桌面 1280 / 窄屏 390 ============ -->
+    <div class="prototype-panel" id="web-panel">
+      <div class="chat-shell">
+        <aside class="chat-sidebar" aria-label="会话列表">
+          <div class="chat-sidebar-title">聊天</div>
+          <div class="chat-sidebar-row active">
+            <span class="avatar agent" aria-hidden="true">会</span>
+            <span class="name">会议助手<small>周三那场我改到周四了</small></span>
+          </div>
+          <div class="chat-sidebar-row">
+            <span class="avatar" aria-hidden="true">周</span>
+            <span class="name">小周的团队群<small>投票：下季度团建地点</small></span>
+          </div>
+          <div class="chat-sidebar-row">
+            <span class="avatar agent" aria-hidden="true">预</span>
+            <span class="name">预算助手<small>预算表已更新</small></span>
+          </div>
+        </aside>
+
+        <div class="chat-main">
+          <header class="chat-head">
+            <span class="avatar agent" aria-hidden="true">会</span>
+            <div>
+              <div class="name">会议助手</div>
+              <div class="sub">Agent · 在线</div>
+            </div>
+            <span class="spacer"></span>
+          </header>
+
+          <div class="chat-messages">
+            <div class="msg">
+              <span class="avatar agent" aria-hidden="true">会</span>
+              <div class="msg-body">
+                <div class="msg-meta"><strong>会议助手</strong><span>14:02</span></div>
+                <div class="bubble">这周的评审我按参会人拉了个安排，时间你看下要不要挪。</div>
+
+                <section class="interactive-card" aria-label="交互回复">
+                  <h4>会议安排 · 周三产品评审</h4>
+                  <p class="card-sub">改动会自动保存为你的私人草稿，其他人看不到。</p>
+                  <div class="interactive-card-body">
+                    <div class="field-row">
+                      <span class="field-label">时间</span>
+                      <div class="choice">
+                        <label><input type="radio" name="slot" id="slot-wed">周三 14:00</label>
+                        <label><input type="radio" name="slot" id="slot-thu" checked>周四 14:00</label>
+                      </div>
+                    </div>
+                    <div class="field-row">
+                      <span class="field-label">参会人</span>
+                      <div class="choice">
+                        <label><input type="checkbox" id="p-zhou" checked>小周</label>
+                        <label><input type="checkbox" id="p-li">李雷</label>
+                        <label><input type="checkbox" id="p-han" checked>韩梅</label>
+                      </div>
+                    </div>
+                    <div class="card-foot">
+                      <button type="button" class="card-action">提交安排</button>
+                      <span class="card-hint">提交后才发回给 Agent</span>
+                    </div>
+                  </div>
+                  <div class="interactive-card-status" id="card-status" hidden>
+                    <span role="alert">草稿暂未保存。</span>
+                    <button type="button">重试</button>
+                  </div>
+                </section>
+              </div>
+            </div>
+
+            <div class="msg">
+              <span class="avatar agent" aria-hidden="true">会</span>
+              <div class="msg-body">
+                <div class="msg-meta"><strong>会议助手</strong><span>14:03</span></div>
+                <div class="bubble">定了的话我直接约会议室。要不要顺手把纪要模板也发出来？</div>
+              </div>
+            </div>
+          </div>
+
+          <form class="chat-pane-composer" onsubmit="return false">
+            <!-- 本次新增：卡片改动尚未保存时拦住发送（网络 / 临时失败） -->
+            <div class="chat-background-alert" id="web-alert" role="alert" hidden>
+              <div class="alert-body">
+                <strong>卡片改动尚未保存，这个会话暂时不能发送</strong>
+                <p id="web-alert-body">先保存「会议安排」的改动再发送，否则这条不会带上你刚改的周四和参会人；同一会话的其他消息也要等它保存好。</p>
+              </div>
+              <button type="button" class="retry" id="web-retry">重试保存</button>
+            </div>
+
+            <!-- 本次新增：草稿在多端冲突（409），重试保存不可能成功，给可成功的出口 -->
+            <div class="chat-background-alert" id="web-conflict" role="alert" hidden>
+              <div class="alert-body">
+                <strong>另一台设备更新了这张卡片，这个会话暂时不能发送</strong>
+                <p>「会议安排」的草稿在另一台设备上改过；本机这次改动还没保存，所以现在发送不会带上它。</p>
+                <div class="conflict-diff" id="web-diff" hidden>
+                  <table>
+                    <caption>只读对比 · 不会自动应用或合并</caption>
+                    <thead><tr><th>字段</th><th>另一台设备</th><th>我这台</th></tr></thead>
+                    <tbody>
+                      <tr><th>时间</th><td>周三 14:00</td><td>周四 14:00</td></tr>
+                      <tr><th>参会人</th><td>小周、李雷、韩梅</td><td>小周、韩梅</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="alert-actions">
+                <button type="button" class="retry" id="web-diff-toggle">查看最新改动</button>
+                <button type="button" class="retry adopt" id="web-adopt" hidden>改用最新草稿（会放弃本机这次改动）</button>
+              </div>
+            </div>
+
+            <!-- 既有：是否送达尚未确认 -->
+            <div class="interactive-selection" id="web-unconfirmed" role="status" hidden>是否送达尚未确认。再次发送将重试原消息。</div>
+
+            <div class="chat-pane-composer-dropzone">
+              <div class="chat-composer-input">
+                <div class="chat-pane-composer-row">
+                  <textarea class="chat-pane-composer-input" id="web-input" rows="2" aria-label="消息">这样还能排得下吗？</textarea>
+                  <button type="submit" class="chat-pane-composer-send" id="web-send" aria-label="Send">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
+                  </button>
+                </div>
+              </div>
+              <p class="chat-pane-composer-help">Enter 换行 · 点击箭头发送</p>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ iOS：同一语义，平台各自形态 ============ -->
+    <div class="prototype-panel narrow" id="ios-panel" hidden>
+      <div class="ios-frame">
+        <div class="ios-nav"><span class="back">‹ 聊天</span>会议助手</div>
+        <div class="ios-messages">
+          <div class="ios-bubble agent">这周的评审我按参会人拉了个安排，时间你看下要不要挪。</div>
+          <div class="ios-card" aria-label="交互回复">
+            <h4>会议安排 · 周三产品评审</h4>
+            <p class="card-sub">改动只保存为你的私人草稿</p>
+            <div class="ios-field">
+              <span class="field-label">时间</span>
+              <div class="ios-choice" id="ios-slot"><span data-slot="wed">周三 14:00</span><span data-slot="thu" class="on">周四 14:00</span></div>
+            </div>
+            <div class="ios-field">
+              <span class="field-label">参会人</span>
+              <div class="ios-choice" id="ios-people"><span data-person="zhou" class="on">小周</span><span data-person="li">李雷</span><span data-person="han" class="on">韩梅</span></div>
+            </div>
+            <div class="ios-error-notice" role="alert">
+              <span>草稿暂未保存。</span>
+              <button type="button">重试</button>
+            </div>
+          </div>
+        </div>
+        <div class="ios-composer">
+          <div class="ios-composer-alert" role="alert" id="ios-alert">
+            <strong id="ios-alert-title">卡片改动尚未保存，这个会话暂时不能发送</strong>
+            <p id="ios-alert-body">先保存改动再发送，否则这次不会带上你刚改的周四和参会人；同一会话的其他消息也要等它保存好。</p>
+            <div class="conflict-diff" id="ios-diff" hidden>
+              <table>
+                <caption>只读对比 · 不会自动合并</caption>
+                <thead><tr><th>字段</th><th>另一台设备</th><th>我这台</th></tr></thead>
+                <tbody>
+                  <tr><th>时间</th><td>周三 14:00</td><td>周四 14:00</td></tr>
+                  <tr><th>参会人</th><td>小周、李雷、韩梅</td><td>小周、韩梅</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="ios-alert-actions">
+              <button type="button" id="ios-retry">重试保存</button>
+              <button type="button" id="ios-diff-toggle" hidden>查看最新</button>
+              <button type="button" id="ios-adopt" hidden>改用最新草稿（放弃本机这次改动）</button>
+            </div>
+          </div>
+          <div class="ios-input-row">
+            <textarea class="ios-input" rows="1" aria-label="消息">这样还能排得下吗？</textarea>
+            <button type="button" class="ios-send" disabled aria-label="发送">↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="prototype-demo" id="demo-note"></p>
+</div>
+
+<script>
+  const webPanel = document.getElementById('web-panel');
+  const iosPanel = document.getElementById('ios-panel');
+  const webAlert = document.getElementById('web-alert');
+  const webAlertBody = document.getElementById('web-alert-body');
+  const webRetry = document.getElementById('web-retry');
+  const webConflict = document.getElementById('web-conflict');
+  const webDiff = document.getElementById('web-diff');
+  const webDiffToggle = document.getElementById('web-diff-toggle');
+  const webAdopt = document.getElementById('web-adopt');
+  const webUnconfirmed = document.getElementById('web-unconfirmed');
+  const webSend = document.getElementById('web-send');
+  const webInput = document.getElementById('web-input');
+  const cardStatus = document.getElementById('card-status');
+  const demoNote = document.getElementById('demo-note');
+  const iosAlertTitle = document.getElementById('ios-alert-title');
+  const iosAlertBody = document.getElementById('ios-alert-body');
+  const iosDiff = document.getElementById('ios-diff');
+  const iosRetry = document.getElementById('ios-retry');
+  const iosDiffToggle = document.getElementById('ios-diff-toggle');
+  const iosAdopt = document.getElementById('ios-adopt');
+
+  // 卡片的两份状态：本机改的（周四、去掉李雷）/ 另一台设备已保存的（周三、含李雷）。
+  const CARDS = {
+    local: {slot:'thu', people:['zhou','han']},
+    other: {slot:'wed', people:['zhou','li','han']},
+  };
+  function setCard(card) {
+    document.getElementById('slot-wed').checked = card.slot === 'wed';
+    document.getElementById('slot-thu').checked = card.slot === 'thu';
+    for (const [id, key] of [['p-zhou','zhou'], ['p-li','li'], ['p-han','han']])
+      document.getElementById(id).checked = card.people.includes(key);
+    document.querySelectorAll('#ios-slot span').forEach(el => el.classList.toggle('on', el.dataset.slot === card.slot));
+    document.querySelectorAll('#ios-people span').forEach(el => el.classList.toggle('on', card.people.includes(el.dataset.person)));
+  }
+
+  const states = {
+    normal: {
+      panel:'web', narrow:false, alert:'none', unconfirmed:false, cardError:false, sendDisabled:false, card:'local',
+      note: '基线：改动已保存、发送可用、输入框上方没有任何提示。既有“正常成功无保存提示”的约定在这里就是不出现任何新增元素。',
+    },
+    blocked: {
+      panel:'web', narrow:false, alert:'transient', unconfirmed:false, cardError:true, sendDisabled:true, card:'local',
+      note: '主状态：用户改完卡片立刻按发送，保存因网络/临时失败没有落地。发送被拦下（按钮为既有禁用样式），输入框正上方出现 alert：先说“这个会话暂时不能发送”，再说“这次不会带上”和原因，并说明同一会话的其他消息也要等它保存好（拦截范围是会话级）；右侧唯一动作「重试保存」。卡片底部的「草稿暂未保存」是现状提示，卡片此时可能已滚出视口——这正是把提示搬到发送处的原因。',
+    },
+    offline: {
+      panel:'web', narrow:false, alert:'transient', offline:true, unconfirmed:false, cardError:true, sendDisabled:true, card:'local',
+      note: '离线分支：与上一状态同一条提示，正文追加“当前网络不可用，恢复后会自动放行”。「重试保存」保留但仍会失败——不假装它会成功，也不提供“仍然发送”绕路（spec 非目标）。',
+    },
+    conflict: {
+      panel:'web', narrow:false, alert:'conflict', unconfirmed:false, cardError:true, sendDisabled:true, card:'local',
+      note: '409 分支：同一张卡在另一台设备上被改过，本机这次保存被服务端拒绝。这里**不给**「重试保存」——旧 revision 重试只会再 409。先给「查看最新改动」（只读），点开后才出现「改用最新草稿（会放弃本机这次改动）」；在此之前本机编辑与正文都没被丢弃。<br>原型在这一态下卡片底部仍画的是现状那一行「重试」：真实产品在该卡 409 时显示的是冲突文案 + 「读取最新」（<code>InteractiveCardView.swift:24-29</code> / <code>interactive-card.tsx:219-227</code>）。这一处只演示“卡片内提示不够、要搬到发送处”，卡片内的动作差异属于现状组件，不在本 unit 改动范围。',
+    },
+    saved: {
+      panel:'web', narrow:false, alert:'none', unconfirmed:false, cardError:false, sendDisabled:false, card:'local',
+      note: '点「重试保存」成功后的状态（模拟）：alert 与卡片内错误一起消失，没有新的“已保存”提示（沿用既有约定），发送恢复可用，输入正文原样保留。此时发送这条消息就会携带这次改动，且只携带一次。',
+    },
+    unconfirmed: {
+      panel:'web', narrow:false, alert:'none', unconfirmed:true, cardError:false, sendDisabled:false, card:'local',
+      note: '既有状态，本 unit 不改：删除客户端的背景缓存后，这条“是否送达尚未确认。再次发送将重试原消息。”必须仍在。它与新增 alert 不共用颜色和语义（蓝底 status vs 红框 alert），避免被读成同一件事。',
+    },
+    both: {
+      panel:'web', narrow:true, alert:'transient', unconfirmed:true, cardError:true, sendDisabled:true, card:'local',
+      note: '窄屏 390 且两者同时出现：alert 在上、既有 status 在下，各自整行、正文换行，不互相覆盖，输入框仍可编辑、发送按钮仍可见。顺序固定为“拦下这次发送”优先于“上次结果未确认”。',
+    },
+    narrow: {
+      panel:'web', narrow:true, alert:'transient', unconfirmed:false, cardError:true, sendDisabled:true, card:'local',
+      note: '窄屏 390：侧栏隐藏、发送按钮放大到既有手机尺寸。alert 折成多行（结论 + 原因 + 会话级范围 + 离线说明），「重试保存」落到右侧，仍在发送按钮的视线路径上，没有把输入框挤出首屏。',
+    },
+    ios: {
+      panel:'ios', narrow:true, alert:'transient', unconfirmed:false, cardError:true, sendDisabled:true, card:'local',
+      note: 'iOS 语义版（may-adapt，不做像素级对齐）：会话级 ErrorNotice 挂在输入区上方，文案与 Web 同义；卡片内仍是既有 ErrorNotice + 「重试」。发送按钮为既有禁用形态。保存成功后提示消失、发送恢复，与 Web 同结论。',
+    },
+    iosconflict: {
+      panel:'ios', narrow:true, alert:'conflict', unconfirmed:false, cardError:true, sendDisabled:true, card:'local',
+      note: 'iOS 的 409 分支：同一个 ErrorNotice 容器，动作换成「查看最新」→「改用最新草稿」，点「查看最新」后才出现字段对比与「改用最新草稿」；文案与 Web 同义，控件沿用原生形态。',
+    },
+  };
+
+  function render(name, opts = {}) {
+    const s = states[name];
+    document.querySelectorAll('.prototype-controls button')
+      .forEach(b => b.setAttribute('aria-pressed', String(b.dataset.state === name)));
+
+    const ios = s.panel === 'ios';
+    iosPanel.hidden = !ios;
+    webPanel.hidden = ios;
+    webPanel.classList.toggle('narrow', Boolean(s.narrow));
+    webAlert.hidden = s.alert !== 'transient';
+    webConflict.hidden = s.alert !== 'conflict';
+    webUnconfirmed.hidden = !s.unconfirmed;
+    cardStatus.hidden = !s.cardError;
+    webSend.disabled = Boolean(s.sendDisabled);
+    webAlertBody.textContent = '先保存「会议安排」的改动再发送，否则这条不会带上你刚改的周四和参会人；同一会话的其他消息也要等它保存好。'
+      + (s.offline ? '当前网络不可用，恢复后会自动放行。' : '');
+
+    // 每次切状态都回到“还没查看最新改动”的起点，只有用户点开才展开对比。
+    webDiff.hidden = true; webAdopt.hidden = true;
+    webDiffToggle.hidden = false;
+    iosDiff.hidden = true; iosAdopt.hidden = true;
+    iosRetry.hidden = s.alert !== 'transient';
+    iosDiffToggle.hidden = s.alert !== 'conflict';
+    iosAlertTitle.textContent = s.alert === 'conflict'
+      ? '另一台设备更新了这张卡片，这个会话暂时不能发送'
+      : '卡片改动尚未保存，这个会话暂时不能发送';
+    iosAlertBody.textContent = s.alert === 'conflict'
+      ? '「会议安排」的草稿在另一台设备上改过；本机这次改动还没保存，所以现在发送不会带上它。'
+      : '先保存改动再发送，否则这次不会带上你刚改的周四和参会人；同一会话的其他消息也要等它保存好。';
+
+    setCard(opts.card || CARDS[s.card]);
+    demoNote.innerHTML = s.note;
+  }
+
+  // 「重试保存」只在 transient 分支出现：模拟网络/临时失败恢复。
+  webRetry.addEventListener('click', () => render('saved'));
+  // 409 分支的两步：先只读对比，再明确放弃本机改动并采用服务端草稿。
+  webDiffToggle.addEventListener('click', () => { webDiff.hidden = false; webDiffToggle.hidden = true; webAdopt.hidden = false; });
+  webAdopt.addEventListener('click', () => {
+    render('saved', {card: CARDS.other});
+    demoNote.innerHTML = '<b>仅演示</b> — 已改用另一台设备的草稿（卡片回到 周三 14:00、参会人含李雷），本机那版被明确放弃。提示消失、发送恢复；这条消息随后携带的是最新草稿，且只携带一次。';
+  });
+
+  iosDiffToggle.addEventListener('click', () => { iosDiff.hidden = false; iosDiffToggle.hidden = true; iosAdopt.hidden = false; });
+  iosAdopt.addEventListener('click', () => {
+    render('saved', {card: CARDS.other});
+    demoNote.innerHTML = '<b>仅演示</b> — iOS 侧同样改用最新草稿后恢复发送；这里只演示语义，不做像素级形态。';
+  });
+  iosRetry.addEventListener('click', () => render('saved'));
+
+  // 发送在原型里只做演示：不产生消息，只在演示区说明接下来会发生什么。
+  webSend.addEventListener('click', () => {
+    demoNote.innerHTML = '<b>仅演示</b> — 这里会发出“这样还能排得下吗？”，并携带刚才那次「会议安排」改动一次；紧接着的下一条消息不再携带。';
+  });
+  webInput.addEventListener('input', () => { /* 正文可编辑，仅为演示手感 */ });
+
+  const params = new URLSearchParams(location.search);
+  const initial = params.get('state');
+  const stateName = states[initial] ? initial : 'normal';
+  render(stateName, params.get('card') === 'other' ? {card: CARDS.other} : {});
+  // 便于留证：冲突态直接展开对比（?state=conflict&diff=1），或用另一台设备的卡片（?card=other）。
+  if (params.get('diff') === '1' && states[stateName].alert === 'conflict') {
+    if (states[stateName].panel === 'ios') { iosDiff.hidden = false; iosDiffToggle.hidden = true; iosAdopt.hidden = false; }
+    else { webDiff.hidden = false; webDiffToggle.hidden = true; webAdopt.hidden = false; }
+  }
+  // 留证用：?state=saved&card=other&note=adopted 复现“改用最新草稿之后”的画面说明。
+  if (params.get('note') === 'adopted') {
+    demoNote.innerHTML = '<b>仅演示</b> — 已改用另一台设备的草稿（卡片回到 周三 14:00、参会人含李雷），本机那版被明确放弃。提示消失、发送恢复；这条消息随后携带的是最新草稿，且只携带一次。';
+  }
+</script>
+</body>
+</html>

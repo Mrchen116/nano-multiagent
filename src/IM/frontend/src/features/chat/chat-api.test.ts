@@ -6,6 +6,7 @@ import {
   createConversation,
   createDistillPrompt,
   createMessage,
+  discardInteractionBackground,
   deleteConversation,
   forkConversation,
   listConversations,
@@ -114,6 +115,10 @@ describe("chat-api", () => {
       attachments: [],
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
+    // The centre derives which card travels with this message, so the client has no field
+    // in which to express a choice any more.
+    expect(init.body as string).not.toContain("interaction_contexts");
+    expect(init.body as string).not.toMatch(/context/i);
   });
 
   it("finds the committed message when its POST response is lost", async () => {
@@ -326,5 +331,38 @@ describe("chat-api", () => {
     await expect(listConversations()).rejects.toThrow(
       "listConversations failed: 503 temporarily unavailable"
     );
+  });
+
+  describe("interaction background discard", () => {
+    it("posts this browser's confirmed watermark to the leave route", async () => {
+      const f = fetch as unknown as ReturnType<typeof vi.fn>;
+      f.mockResolvedValueOnce(jsonResponse({ discarded_through: "2026-05-01T00:00:01.000Z" }));
+
+      const out = await discardInteractionBackground("c 1", "2026-05-01T00:00:01.000Z");
+      const call = f.mock.calls[0]!;
+      expect(call[0]).toBe("/im/v1/conversations/c%201/interaction-background/discard");
+      const init = call[1] as RequestInit;
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toEqual({ through: "2026-05-01T00:00:01.000Z" });
+      expect(out).toEqual({ discarded_through: "2026-05-01T00:00:01.000Z" });
+    });
+
+    it.each([
+      ["an older server's missing route", 404],
+      ["an older server's unimplemented method", 501],
+      ["a conversation that cannot hold a background", 204]
+    ])("ignores %s instead of failing the leave", async (_label, status) => {
+      const f = fetch as unknown as ReturnType<typeof vi.fn>;
+      f.mockResolvedValueOnce(new Response(null, { status }));
+      // Silently ignored: no error surfaces to the user and nothing blocks sending.
+      await expect(discardInteractionBackground("c1", "2026-05-01T00:00:01.000Z")).resolves.toBeNull();
+    });
+
+    it("surfaces a server failure so the watermark is kept for the next leave", async () => {
+      const f = fetch as unknown as ReturnType<typeof vi.fn>;
+      f.mockResolvedValueOnce(new Response("boom", { status: 500 }));
+      await expect(discardInteractionBackground("c1", "2026-05-01T00:00:01.000Z"))
+        .rejects.toMatchObject({ status: 500 });
+    });
   });
 });

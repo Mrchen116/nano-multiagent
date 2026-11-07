@@ -7,13 +7,27 @@ import { fail, one, params, type ImContext, type Row } from './context.js';
 
 /** Freeze the normalized ordinary-send payload independently of transient delivery state.
  *
+ * Only fields that decide the message content belong here. Private background is derived
+ * by the centre and frozen with the message, so a client edit that cannot change the
+ * message must not turn a retry into a conflict.
+ *
  * Args:
  *   input: Request after content and attachment references have been normalized.
  * Returns:
  *   Canonical JSON used by the message creation transaction and retry comparison.
  */
-export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attachments'|'interaction_contexts'>): string {
-  return sortedJsonAscii({content:input.content ?? '', attachments:input.attachments ?? [], interaction_contexts:input.interaction_contexts ?? []});
+export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attachments'>): string {
+  return sortedJsonAscii({content:input.content ?? '', attachments:input.attachments ?? []});
+}
+
+/** Reduce a stored payload to the content-deciding fields, whatever else it froze.
+ *
+ * Rows written before the background rule contains `interaction_contexts`; comparing the
+ * subset keeps retries started across that deploy matching instead of failing with 409.
+ */
+function contentFields(payload: string): string {
+  const parsed = JSON.parse(payload) as Row;
+  return messageAttemptPayload({content:parsed.content ?? '', attachments:parsed.attachments ?? []});
 }
 
 /** Reject key reuse by another sender or with different immutable message data.
@@ -27,7 +41,8 @@ export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attach
  *   Error: HTTP 409 when the key identifies a different sender or payload.
  */
 export function assertMessageAttempt(existing: MessageRecord, senderId: string, senderType: string, payload: string): void {
-  const saved = existing.caller_payload_json ?? messageAttemptPayload({content:existing.content,attachments:JSON.parse(existing.attachments_json ?? '[]')});
+  const saved = existing.caller_payload_json ? contentFields(existing.caller_payload_json)
+    : messageAttemptPayload({content:existing.content,attachments:JSON.parse(existing.attachments_json ?? '[]')});
   if (existing.sender_user_id !== senderId || existing.sender_type !== senderType || saved !== payload) {
     fail(409, {code:'message_attempt_conflict', message:'This request key was already used with different message data'});
   }

@@ -56,11 +56,10 @@ export async function listMessages(
   return authFetchJson<ListMessagesResult>(url, opts.signal ? {signal:opts.signal} : undefined, "listMessages");
 }
 
-import type { InteractionDraft, InteractionReplyInput, InteractionContextInput } from "./interactive/types";
+import type { InteractionDraft, InteractionReplyInput } from "./interactive/types";
 
 export interface CreateMessageRequest {
   interactionReply?: InteractionReplyInput;
-  interactionContexts?: InteractionContextInput[];
   idempotencyKey?: string;
   conversationId: string;
   content: string;
@@ -92,8 +91,7 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     content: req.content,
     attachments: req.attachments ?? [],
     timezone: browserTimezone(),
-    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {}),
-    ...(req.interactionContexts?.length ? { interaction_contexts: req.interactionContexts } : {})
+    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {})
   };
   const request = { method: "POST", body: JSON.stringify(body), ...(req.idempotencyKey ? { headers: { "Idempotency-Key": req.idempotencyKey } } : {}) };
   const send = async (): Promise<Message> => {
@@ -320,4 +318,16 @@ export function readInteractionDraft(cid: string, mid: string): Promise<Interact
 }
 export function saveInteractionDraft(cid: string, mid: string, revision: number, state: Record<string, unknown>): Promise<InteractionDraft> {
   return authFetchJson(interactionPath(cid, mid), { method: "PUT", body: JSON.stringify({expected_draft_revision: revision, state}) });
+}
+/** Report the highest draft save this browser confirmed before leaving a conversation.
+ *
+ * The server clears only drafts saved at or before `through`, so a late request cannot
+ * erase an edit from another device. Older servers answer 404/501; callers ignore those.
+ */
+export async function discardInteractionBackground(cid: string, through: string): Promise<{ discarded_through: string | null } | null> {
+  const response = await authFetch(`/im/v1/conversations/${encodeURIComponent(cid)}/interaction-background/discard`,
+    { method: "POST", body: JSON.stringify({ through }) });
+  if (response.status === 404 || response.status === 501 || response.status === 204) return null;
+  if (!response.ok) throw Object.assign(new Error("discardInteractionBackground failed"), { status: response.status });
+  return response.json() as Promise<{ discarded_through: string | null }>;
 }
