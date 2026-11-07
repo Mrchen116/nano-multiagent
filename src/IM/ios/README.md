@@ -21,6 +21,25 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl list devic
 NANO_IOS_SIMULATOR_ID=<设备UDID> ./src/IM/ios/scripts/build.sh test
 ```
 
+## 显式 App UI 旅程
+
+`NanoIMJourney` 是独立标准 XCUITest scheme，不随 `NanoIM` 的单元测试自动运行，也不直接调用 App 内部方法或注入 JavaScript。先按 worktree runtime 准备获准的隔离合成服务，再执行：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project src/IM/ios/NanoIM.xcodeproj -scheme NanoIMJourney \
+  -destination 'platform=iOS Simulator,id=<设备UDID>' \
+  -derivedDataPath /tmp/nano-ios-journey -jobs 2 \
+  -parallel-testing-enabled NO build-for-testing
+```
+
+将生成的 `Build/Products/NanoIMJourney_*.xctestrun` 复制到同一目录中的本地专用文件，只在该副本的 `NanoIMUITests.EnvironmentVariables` 中填写以下输入，再使用 `test-without-building -xctestrun <副本> -only-testing:<目标case>`；普通 shell 环境不保证传入测试 runner。副本包含合成登录凭据，权限设为 `0600`，不得提交。
+
+- `NANO_UI_ORIGIN`：本 unit 的 loopback 隔离 IM origin；`NANO_UI_USERNAME` / `NANO_UI_PASSWORD`：专用合成账号；`NANO_UI_CHAT_TITLE`：实际会话标题。
+- `OneShotBackgroundUITests` 使用已由真实产品产生的会议卡，字段为可访问名称“参会人数”、状态键 `$participants`。409 case 另需 `NANO_UI_CONVERSATION_ID` / `NANO_UI_CARD_ID`，会通过另一正常认证客户端推进真实草稿版本，然后从 App 操作比较/采用。成功 case 输出唯一 `716_NATIVE_RUN`，需用该标记核对隔离服务中的第一/第二消息 relay；UI test 成功本身不证明背景已一次性消费。
+- 原生失败提示可能把原卡移出 lazy viewport，卡片和 composer 也可能同时提供同名恢复动作。测试只点击实际 hittable 的原生按钮，不以屏外字段查询或按钮数组顺序代替用户可操作性。
+- transient case 的 `NANO_UI_OUTAGE_EXPECTED=1` 只是测试前置，不是故障演练授权。必须先获得专用服务停启的明确人类授权，并准备独占服务、原数据库/端口恢复与自有进程清理；不在 preview/共享服务上运行，不自动建立故障注入或录制代理。没有授权或前置就不选择该 case，保留未验证结论。
+
 ## 设备产物
 
 ```bash
