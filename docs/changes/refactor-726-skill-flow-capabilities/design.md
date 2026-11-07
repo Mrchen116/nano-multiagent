@@ -4,7 +4,7 @@
 
 ## 现状分析
 
-基线为 `29e3f2947699fb92b382c5f61b4a1ef169a40ede`。`.agents/skills` 指向 `.claude/skills`，只改真实文件。现有 workflow 与 storage 分别管理生命周期和产物；orchestrator 的 validation、派发适配可复用。前端体验原则已有 prototype-and-runbook/ui-decision-gotchas，Context 规范和观测入口已有独立权威文档，不复制它们。
+基线为 `29e3f2947699fb92b382c5f61b4a1ef169a40ede`。`.agents/skills` 是受跟踪的真实目录，`.claude/skills` 是指向它的兼容 symlink，只改真实文件。现有 workflow 与 storage 分别管理生命周期和产物；orchestrator 的 validation、派发适配可复用。前端体验原则已有 prototype-and-runbook/ui-decision-gotchas，Context 规范和观测入口已有独立权威文档，不复制它们。
 
 用户批准在新 worktree 的 develop 上试验，覆盖旧流程默认首文档推 main 和交付 PR 的安排。保留隔离、真实证据、独立审查、不可静默改需求及生产授权边界；不修改其他 checkout。
 

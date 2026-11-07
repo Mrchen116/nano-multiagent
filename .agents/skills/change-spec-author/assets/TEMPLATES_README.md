@@ -4,17 +4,17 @@
 
 | 变更类型 | 首文档 |
 |---|---|
-| feat | `spec.md`, `design.md`, `acceptance.md` |
-| refactor / perf | `motivation.md`, `design.md`, `acceptance.md` |
+| feat | `spec.md` |
+| refactor / perf | `motivation.md` |
 | bugfix lite | `fix.md` |
-| bugfix full | `incident.md`, `regression.md` |
+| bugfix full | `incident.md` |
 
 此表只说明首文档模板；milestone 产物不在 spec 阶段创建。
 
 ## 填写硬约束（违反 = 打回）
 
 1. **原始需求/原始报告必须原样保留**。不要改写、翻译、概括。粘贴用户原话或截图。
-2. **澄清是交互式的**。`spec.md` / `incident.md` / `motivation.md` 的"澄清记录"段未与用户对完前，**禁止**生成下面的"用户场景/验收标准/根因/目标状态"等结论性内容。一轮一轮问，每轮记录 Q/A。
+2. **澄清是交互式的**。`spec.md` / `incident.md` / `motivation.md` 的"澄清记录"段未与用户对完前，**禁止**生成下面的"用户场景/验收标准/根因/目标状态"等结论性内容。已有对话中已确认的目标与授权直接沿用，只澄清仍影响范围的未决项。
 3. **不要越界**。每份模板顶部 `<!-- 模板说明 -->` 块写明禁止讨论什么。最常见越界：在 `spec.md` 阶段问"用什么库、放在哪个模块"——这些属于 design。
 4. **可自由发挥**。模板只列**必填骨架**。鼓励额外加：模块拓扑图、时序图、对比表、状态机、附录、示例对话等——任何让读者更快理解的内容都欢迎。骨架是地板不是天花板。
 5. **定稿后删除模板说明块**。`<!-- 模板说明 -->` 注释在文档稳定后删掉，避免噪音。

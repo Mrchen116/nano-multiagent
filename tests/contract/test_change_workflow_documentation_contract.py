@@ -12,30 +12,6 @@ def _read(relative: str) -> str:
     return (_ROOT / relative).read_text(encoding="utf-8")
 
 
-def _table_cells(line: str) -> tuple[str, ...] | None:
-    stripped = line.strip()
-    if not stripped.startswith("|") or not stripped.endswith("|"):
-        return None
-    return tuple(cell.strip() for cell in stripped.strip("|").split("|"))
-
-
-def _table_rows(
-    markdown: str,
-    columns: tuple[str, ...],
-) -> dict[str, tuple[str, ...]]:
-    lines = markdown.splitlines()
-    header_index = next(
-        index for index, line in enumerate(lines) if _table_cells(line) == columns
-    )
-    rows: dict[str, tuple[str, ...]] = {}
-    for line in lines[header_index + 2 :]:
-        cells = _table_cells(line)
-        if cells is None:
-            break
-        rows[cells[0]] = cells[1:]
-    return rows
-
-
 def test_spec_review_remains_optional() -> None:
     workflow = _read("docs/development/change-workflow.md")
     storage = _read("docs/changes/README.md")
@@ -48,38 +24,3 @@ def test_spec_review_remains_optional() -> None:
     ]
     assert any("可选" in line or "按需" in line for line in workflow_mentions)
     assert any("可选" in line or "按需" in line for line in storage_mentions)
-
-
-def test_selected_validation_gate_matrix_does_not_drift() -> None:
-    workflow = _read("docs/development/change-workflow.md")
-    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
-    simple_orchestrator = _read(".claude/skills/change-orchestrator-simple/SKILL.md")
-    workflow_rows = _table_rows(
-        workflow,
-        (
-            "Unit 类型",
-            "`change-verifier`",
-            "`change-reviewer`",
-            "`change-code-review`",
-        ),
-    )
-    orchestrator_rows = _table_rows(
-        orchestrator,
-        ("Unit", "Product reviewer", "Verifier", "Code review"),
-    )
-
-    row_pairs = {
-        "Full，存在用户可观察旅程": "Full，有用户可观察旅程",
-        "Full，零用户面": "Full，零用户面",
-        "Bugfix lite": "Bugfix lite",
-    }
-    for workflow_name, orchestrator_name in row_pairs.items():
-        verifier, reviewer, code_review = workflow_rows[workflow_name]
-        normalized = tuple(
-            "full" if value == "必须" else "skipped"
-            for value in (reviewer, verifier, code_review)
-        )
-        assert orchestrator_rows[orchestrator_name] == normalized
-    assert "不派产品 reviewer" in simple_orchestrator
-    assert "Bugfix lite：只执行 `$change-code-review`" in simple_orchestrator
-    assert "不派 verifier 或产品 reviewer" in simple_orchestrator

@@ -28,11 +28,12 @@
 | 判断是否建立 unit、选择生命周期或实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
 | 编写或执行 unit 的一次性部署迁移提示词 | [`deployment-prompt.md` 约定](changes/README.md#一次性部署提示词) → [部署检查与执行](../.claude/skills/prod-fleet-deploy/references/runbook.md#unit-部署提示词) |
+| 按需求选择能力、组合执行并统一收口 | [流程与能力组合](development/skill-composition.md) |
 | 提报 GitHub Issue、分诊和维护标签 | [`development/issues.md`](development/issues.md) |
 | 查已放弃或拆分接手的 change unit | [退役索引](changes/retired/README.md)（含 feat-625 审核重试、feat-665 通用 PA 的接手范围与后续去向） |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
 | 在 Air/Mini 切换开发、定位本机模型入口与能力 | [本机开发配置](development/local-development.md#本机开发配置) |
-| 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/change-design-author/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/change-design-author/references/ui-decision-gotchas.md) |
+| 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/frontend-experience-review/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/frontend-experience-review/references/ui-decision-gotchas.md) |
 | 设计或审查 Agent 实际消费的 Prompt、Skill、工具、消息、Memory 与历史链路 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
 | 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [`product-tryout`](../.claude/skills/product-tryout/SKILL.md) |
@@ -69,6 +70,7 @@
 | 单包当前应该表现为什么 | [`specs/<package>/`](specs/README.md) | current 行为契约 |
 | 长青 spec 如何编写、delta-spec 如何归并 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) | 契约层内容规则 |
 | change unit 如何选择、推进，如何选择实施方式，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
+| 流程如何选择、组合能力并接收判断 | [`development/skill-composition.md`](development/skill-composition.md) | 能力边界、按需加载、统一结果与历史接手 |
 | change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/README.md`](changes/README.md) | unit 存储与文件归属 |
 | 开发流程、环境、测试和联调文档如何进入 | [`development/`](development/README.md) | 开发任务地图 |
 | 本地环境、本机路径/能力、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |

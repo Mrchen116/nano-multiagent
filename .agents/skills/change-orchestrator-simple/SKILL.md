@@ -10,24 +10,22 @@ description: "实施已完成事前对齐的 Full 或 Bugfix lite change unit �
 ## 实施
 
 - 唯一解析 active unit；Full 需要未失效的 Gate 2，lite 需要已确认的现象与根因。恢复时核实 branch/head/dirty；保留主仓工作，不 reset 不明现场。
-- 从最新 origin/main 建立或恢复 `.worktrees/unit-<unit-id>` / `unit/<unit-id>`。lite 保持唯一 `M1-fix`，不因此强制创建 `tasks.md` 或 `progress.md`。
+- 沿用户指定基线与交付分支建立或恢复专属 worktree；未指定时基于最新 origin/main，分支使用 `codex/<unit-id>`。lite 保持唯一 `M1-fix`，不因此强制创建 `tasks.md` 或 `progress.md`。
 - 默认主 Agent 端到端实施与集成，首轮仅将可独立交付且收益足够的具体任务派给 subagent，不按层机械拆 worker。微小修复、环境命令和格式收尾直接完成。派发/复用遵循 workflow 的职责边界与下述派发适配；Codex 派发前读取 [适配表](../change-orchestrator/references/codex-execution-notes.md)；每个 milestone 退出标准须可从代码、测试、commits 和证据复核。
 - 按受影响区域读取相关实现、current specs、[测试规范](../../../docs/development/testing.md)；复用带版本、命令和结果的有效证据。先稳定 fixture 并完成窄测试，再跑本地全量与 CI，不因角色交接重复全量。
 - 对可测试的新行为/bug 取得有意义的失败复现，再实现并跑最窄验证。真实用户入口、跨进程链路、前端交互及适用原型对照须有真实证据；mock 不替代它们。
-- 界面实现按 [共同体验标准](../change-design-author/references/prototype-and-runbook.md#共同判断标准) 兑现设计，并按 [验证平台与深度](../change-design-author/references/prototype-and-runbook.md#验证平台与深度) 选择自检和验收范围，不默认双端实测。需要视觉或交互验证时走查受影响流程，平台控件与功能接通不能代替体验证据；设计缺口带证据交回 author。
-- 直接实施也按 [Context 影响规则](../../../docs/development/agent-context-engineering.md#范围与影响判断) 识别受影响链路，并按该规范验证最终模型输入与适用行为；不能仅用源码/内部 API/类型/UI/文件存在证明交付。使用 [现有观测入口](../../../docs/development/llm-integration.md#观察实际-agent-context)，向现有 code reviewer 明确交接 Implementation Review 的范围、证据和缺口；不额外派 Context reviewer。
+- 按本次执行安排使用选中能力自检并交接有效证据，记录实际范围与未验证项；界面、Context 等专项方法由对应能力维护，不能用文件存在或测试通过替代其必要观察。
+- 实施中发现新增影响时补充本次问题与能力选择；专项可与代码审查合并或按工作量分开，不能因最初未选而遗漏。
 - 服务按 [worktree-runtime](../../../docs/development/worktree-runtime.md) 隔离。lite 回填 fix 的修复/验证；关键设计变化交回 author，需求或范围变化重新与用户对齐。
 - 涉及一次性部署迁移时，按 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词) 核对 `deployment-prompt.md` 与最终实现；lite 由主 Agent 编写并从 fix 链接，Full 设计变化交回 author。隔离迁移验证在交付前完成，不把功能回归留给生产部署；提示词随最终 diff 交现有 code review，无迁移不生成。
-- 需要真实产品验收时，集中用 [固定日常模板](../../../docs/development/worktree-runtime.md#固定日常验收模板) 的 `--profile daily` 起栈，交接 `.e2e-daily.json`、版本和本次场景增量。复用固定 P/E/Q + PA 基线，每个需求独立实例；专项 profile 仅作为有明确目的的补充。
+- 选择的真实团队旅程需要起栈时，集中用 [固定日常模板](../../../docs/development/worktree-runtime.md#固定日常验收模板) 的 `--profile daily` 起栈，交接 `.e2e-daily.json`、版本和本次场景增量。复用固定 P/E/Q + PA 基线，每个需求独立实例；专项 profile 仅作为有明确目的的补充。
 
-## 门禁与交付
+## 审查与交付
 
-- Full 有用户旅程：独立 `$change-reviewer`、`$change-verifier` 和 `$change-code-review`。
-- Full 零用户面：verifier 和 code review，不派产品 reviewer。
-- Bugfix lite：只执行 `$change-code-review`，不派 verifier 或产品 reviewer。
+按 [workflow 的审查阶段](../../../docs/development/change-workflow.md#阶段-4selected-validation-gates) 执行当前生命周期底线，按 [能力组合](../../../docs/development/skill-composition.md) 将本次问题组合给未参与受审实现的审查者；不复制固定角色套餐。代码正确性、需求/设计覆盖和最终 delta 校对由同一次独立代码审查承接，专项按问题选择。
 
-默认向同一独立静态审查者明确派发 code review 与 verification 两项职责、范围及各自输出；产品 reviewer 独立于实现和静态审查。收到需追加核验的发现后，按风险、争议和未确认条件派发独立核验者。后续审查、验收、CI 或用户反馈的问题由主 Agent 修复，不新派或唤醒修复 worker；批量修复后冻结版本，一次复验失效范围；证据不足或边界不清时扩大，不以提交号变化机械触发全审。复验字段与 retained 证据见 [validation](../change-orchestrator/references/validation.md)。
+派发前读取 [输入与收口](../change-orchestrator/references/validation.md)，只给必要目标、版本、问题、能力和证据。执行者返回结果，由主 Agent 串行归集 `review.md`；不为等待另一项结果再启动复审。后续问题由主 Agent 修复，冻结后一次补验失效判断，不新派修复 worker。
 
-完成 final sync、门禁有效性判断、delta 校正（可并入静态审查；未覆盖的校正补做 corrected-delta，无 delta 记录 no spec delta）、canonical 归并、本地 CI 和完整 archive，再创建 Ready for review PR，正常交付不得使用 `--draft`。用户明确要求提前查看时可先 Draft，交付前 `gh pr ready` 并等 required CI 全绿。
+默认完成目标分支 sync、证据有效性判断、delta 校正与 canonical 归并、本地 CI、完整 archive，再创建 Ready for review PR 并等待 required CI 全绿。未覆盖的契约校正由代码审查者补 corrected-delta，无 delta 不空跑。用户指定试验分支、暂不 PR 或提前 Draft 时遵循其交付范围；尚待用户试验的 unit 保持 active，不能宣称试验通过。
 
 PR 提交后保留开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外。输出 PR、head、验证、worktree 保留/清理状态与剩余事项；不自动 merge。

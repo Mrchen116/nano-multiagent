@@ -1,22 +1,31 @@
-# 门禁输入与修复
+# 审查输入、复验与收口
 
-冻结 clean unit HEAD：`validated_at` 是实际验证的 unit tree；`executed_base` 是与当时 origin/main 的 merge-base。给角色 unit_id、unit_dir、branch、这两个 SHA 和普通轮次 review_round。
+按 [能力组合](../../../../docs/development/skill-composition.md) 选问题和执行者。冻结本次受审版本，提供目标/要求、unit 与 worktree、branch、`validated_at`（实际受审 tree）、`executed_base`（与目标集成分支的 merge-base）、本次问题/能力及必要证据、授权和输出位置。独立普通 diff review 可含明确列出的 dirty 范围；unit 交付审查使用冻结提交。
 
-- reviewer：unit_worktree_dir、mode=full、revalidation_mode=full|targeted；按 [验证平台与深度](../../change-design-author/references/prototype-and-runbook.md#验证平台与深度) 明确本轮平台、验证方法与范围依据，不默认双端实测；targeted 附 prior_acceptance_paths、focus_scenarios_or_issues、fix_delta_range。
-- verifier：verify_worktree_dir、verification_mode=full|targeted-closure|delta；复验附 prior_verification_path、fix_delta_range；closure 附 focus_issues。
-- code review：review_mode=full|patch|closure、diff_range、focus_findings。range 分别为 executed_base...validated_at、pre_fix_head..validated_at、finding_origin_head..validated_at。
-- corrected-delta：可与 code review/verification 同次派发；Full 校正并 push delta 后提供 unit、branch、verify_worktree_dir、validated_at/executed_base、verification_mode=corrected-delta；不要求普通复验字段。
+复验附实际 delta、历史问题与原证据。full 覆盖本次全部所选问题；patch/delta 检查新增影响；closure 定向关闭；corrected-delta 校对最终契约。只有证据不足或影响无法界定时扩大，不以新提交号机械重审。
 
-orchestrator 决定角色组合，在同一次派发中明确每项职责、对应 Skill、范围与输出；审查者不自行增加兼任角色。合并派发 code review 与 verification 时，保留各自证据与结论；校正后尚未覆盖的 delta 补查，未变已审部分保留，无 delta 记录 no spec delta。
+## 统一结果
 
-等 selected gates 返回再整合报告，确认报告来自本轮 SHA 且没有范围外写入。产品 reviewer 按 Skill 授权调整隔离临时测试配置不属于越界，不能改受版本控制的配置或扩大授权。发现越界使该角色本轮 verdict 失效，保留合法并行工作后移除越界 delta，修复并重验。
+使用 [review 模板](../assets/review.md)，删除不适用占位；各能力返回自身判断，owner 串行归集并保留执行者和原结论。只有被派发独占报告范围时 reviewer 才直接写；不要求审查者提交、rebase 或 push 报告，不让并行任务争抢同一文件。
 
-先合并相关修复、冻结版本后一次派发复验，不把同一小修机械派给多位静态 reviewer。测试证据附版本、命令、结果与定位，可信且覆盖当前范围的结果可复用；必要的关键复现仍独立执行。
+每个问题有版本/范围、判断、决定性证据及限制。一个缺陷只维护一个 ID，其他能力引用；修复者追加 resolution，独立复验者提供关闭依据。聚合输出不得把未验证改成通过，或把作者自检改成独立审查。
 
-每次修复前记录 pre_fix_head；判定问题是否成立、属于本 unit、阻塞交付、根因在哪里，合并同因项。后续修复统一由主 Agent 完成，不派新 worker 或唤醒原 worker 修补；独立复验按角色模型表派发。旧问题用 closure；新源码用 patch；可能偏离 spec/design 时 verifier delta；保留项注明 prior report、SHA、delta，以及旧证据具体支持的结论。代码未变仅说明对象未变；旧报告只有结构存在或功能成功时，可保留这些事实，不能连带继承体验通过。需求、判据或新反馈暴露证据缺口时，补验该判断，已有充分证据的部分无需重跑。
+- pending：该检查仍在运行，流程等待结果，不另派人对账。
+- inconclusive：必要观察无法取得，明确缺口，相关目标不能通过。
+- fail：实际缺陷或结果不满足目标，交 owner 判真与修复。
+- pass：本问题在声明范围内有充分证据。
+- retained：沿用旧结论，给 prior locator、原版本及未失效理由；不是重新执行。
 
-权限、持久化、迁移、协议、跨进程、共享运行时、并发或部署变化可能使整条链失效；无法界定影响时对适用 gate 做 full。final sync、冲突解决、文档/CI fix 同样判断影响；记录 effective_base/effective_through，保留原 executed_base/validated_at。
+记录 confirmed / plausible 等证据状态与严重度，二者不能混用。缺实现、关键路径失败、违反边界、实质契约/设计偏离以及妨碍目标的体验问题阻塞交付；可选改进不阻断。未知条件写明，不把假设直接报 confirmed。范围外发现保留关联与因果未知，不自动扩大需求；需要外部 issue 或操作时仍遵循当前授权。
 
-revise-design 依据用户目标、实际体验与 design 的具体矛盾提出，不要求先经历实施修复轮次；真实需求/关键设计变化交回 author。out-of-unit blocking 暂停交 triage，major 记录关联，minor 只记 side finding。
+## 修复与版本有效性
 
-同一 issue 经 5 个有效修复轮或 unit 经 7 个有效验收轮仍未收口，保留现场交人。轮次上限是停损保护，不要求做满轮数；不为可选润色反复审查。
+主 Agent 判真并合并同因问题，记录 pre_fix_head 后集中修复，不新派或唤醒修复 worker。独立复验只检查实际变化与必要关联；若反馈说明原判据或整体体验有误，重新检查受影响判断，不能只清掉旧 findings。
+
+可信测试/构建/运行证据可共享，必要关键条件仍独立观察。记录版本、方法、结果与 locator。代码未变只能证明对象未变，不能把从未观察的体验变成 pass。格式、报告或无关集成增量不触发唤醒；owner 记录 retained 依据。
+
+需求/关键设计变化交回 author；权限、持久化、迁移、协议、跨进程、共享运行时或并发变化可能使整条链失效，按影响扩大。final sync 和冲突解决同样判断范围；保留原 `executed_base` / `validated_at`，另记最终 `effective_base` / `effective_through`。
+
+收口时核目标和关键设计覆盖、阻塞问题关闭、必要证据充分、最终版本有效。最终 delta 与实现/测试由独立代码审查核对；未改已审部分保留，无 delta 不空跑。所有适用问题完成后才能交付；不另开 verifier 汇总一遍。
+
+同一 issue 经 5 个有效修复轮或 unit 经 7 个有效验收轮仍未收口，保留现场交人；上限不是目标，不为可选润色循环。历史报告按 [接手规则](../../../../docs/development/skill-composition.md#其他流程与历史接手) 保留。

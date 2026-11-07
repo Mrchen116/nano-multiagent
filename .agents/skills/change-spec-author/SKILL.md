@@ -25,4 +25,4 @@ description: "需要建立 change unit 并对齐需求、问题或重构目标�
 
 完成时原话、场景、范围和适用的根因/迁移/性能证据齐全，无待定结论或模板残留。Full 验收使用 Requirement/Scenario，每个 Requirement 至少一个可追溯的 WHEN/THEN Scenario；验收写用户可观察结果。无用户面时给依据，实施层标准留给 design。
 
-首文档在 `main` 上只提交并推送本 unit 文件，保留其他工作；non-fast-forward 按上述规则核对所有 type 的同数字目录，不 force-push。Full 交给 `change-design-author`；lite 只完成 fix 的“现象/复现、根因”，交给默认 `change-orchestrator-simple` 或用户点名的 `change-orchestrator` 回填“修复、验证”。
+用户指定基线或交付分支时沿用；默认首文档在 `main` 上只提交并推送本 unit 文件，保留其他工作；non-fast-forward 按上述规则核对所有 type 的同数字目录，不 force-push。Full 交给 `change-design-author`；lite 只完成 fix 的“现象/复现、根因”，交给默认 `change-orchestrator-simple` 或用户点名的 `change-orchestrator` 回填“修复、验证”。

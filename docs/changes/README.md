@@ -54,7 +54,7 @@ python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
 
 脚本同时扫描 active/archive/retired，并在 Git common dir 原子保留编号。已 reservation 但尚未建立目录的编号不复用。该保留只保证同一 clone/worktree 集合内唯一，不是跨机器锁；取号后尽快提交首文档。
 
-首文档与设计继续只提交本 unit 文档并推送 `main`。设计沿用已发布的 unit，不重新取号。推送遇到 non-fast-forward 时：
+用户指定试验/集成分支时，首文档、设计和实现沿用该分支及交付范围；默认首文档与设计只提交本 unit 文档并推送 `main`。设计沿用已发布的 unit，不重新取号。推送遇到 non-fast-forward 时：
 
 1. 重新 fetch，检查远端 active/archive/retired 中**所有 type 的同数字**目录，而不只查当前 `unit_id`；例如 `feat-676` 与 `refactor-676` 也算撞号。
 2. 无撞号时，保留其他本地工作，将本 unit 文档提交重放到最新 main 后再推送。
@@ -110,8 +110,7 @@ docs/changes/<unit-dir>/
 │   └── evidence/                        # 按验证需要
 ├── M2-<slice>/
 │   └── ...
-├── verification.md                   # verifier 产物
-└── acceptance.md | regression.md     # 产品验收产物
+└── review.md                         # 所选能力的结论、证据与流程收口
 ```
 
 `spec-review.md` 不是 Full 的必备文件。按需调用 `change-spec-reviewer` 且发现问题时才落盘；Approved 可以只保留在对话中。
@@ -123,6 +122,7 @@ docs/changes/<unit-dir>/
 ```text
 docs/changes/<unit-dir>/
 ├── fix.md
+├── review.md                         # 独立审查及必要专项
 └── M1-fix/
     ├── .gitkeep                    # 没有其他 milestone 记录时
     ├── tasks.md                    # 原流程 worker 固定创建；简化流程按需
@@ -142,10 +142,10 @@ docs/changes/<unit-dir>/
 ├── design.md                         # 实现后根据真实代码整理的 as-built design
 ├── specs/                            # 可选；对 canonical specs 的 delta
 │   └── <package>/<target>.md
-└── code-review.md                    # 强制 code review 的范围、finding 与闭环
+└── review.md                         # 代码/必要专项审查，引用已有用户验收
 ```
 
-快速开发 unit 不创建 milestone、`tasks.md`、`progress.md`、`design-review.md`、`verification.md` 或 reviewer 产出的 `acceptance.md`。用户已经亲自测试并确认结果是进入收尾的前提；没有发生过的过程不事后补造。
+快速开发 unit 不创建 milestone、`tasks.md`、`progress.md` 或 `design-review.md`，不补造独立产品验收。用户已经亲自测试并确认结果是进入收尾的前提；没有发生过的过程不事后补造。
 
 ## 文件归属
 
@@ -158,11 +158,9 @@ docs/changes/<unit-dir>/
 | `design-review.md` | `change-design-reviewer` + `change-design-author` | reviewer 逐轮追加审查，author 追加 resolutions |
 | `tasks.md`、`progress.md`、`evidence/**`、`fix.md` 后两部分 | 原流程为 `change-impl-worker`；简化流程为 `change-orchestrator-simple` | 原流程 worker 固定留下的简短计划/进展，以及按需 evidence；简化流程只记录实际发生的过程 |
 | 快速开发 `analysis.md`（可选） | `change-fast-close` / 当前实施会话 | 实现前后的取证、样本口径、观察与推论；不替代首文档或 as-built design |
-| `verification.md` | `change-verifier` | 实现与 spec/design/milestone 的一致性 |
-| `acceptance.md` / `regression.md` | `change-reviewer` | 用户旅程与产品可用性 |
-| `code-review.md` | `change-code-review`；快速开发由 `change-fast-close` 归集 | diff 的 review 范围、findings、修复和最终结论；可与 verification 同次产出 |
+| `review.md` | 当前编排/收尾 owner 串行归集，保留各独立审查者归属 | 本次问题、能力、实际版本/范围、结论、证据限制、findings/关闭及最终覆盖；不重复写三份报告 |
 
-模板由各 skill 的 `assets/` 提供，本文不复制模板正文。
+模板由各 skill 的 `assets/` 提供，本文不复制模板正文。实施审查使用 [统一 review 模板](../../.agents/skills/change-orchestrator/assets/review.md)。历史 verification/acceptance/regression/code-review 报告保留，接手后的新判断归 review.md 并引用原结论；不因格式变化重新验收。
 
 ## 一次性部署提示词
 
@@ -190,7 +188,7 @@ docs/changes/<unit-dir>/
 | `tasks.md` | 已派发 worker milestone 的实际实施块和验证 | 重新决定已经锁定的架构、固定数量 roadpoint |
 | `progress.md` | 已派发 worker milestone 的进展、必要决定和验证/evidence | 重复代码、首文档、design 或无关 `N/A` 清单 |
 | 快速开发 `analysis.md`（按需） | 取证方法、来源事实、观察、推论及其如何驱动本次变更 | 冒充需求、最终实现或 current 契约 |
-| acceptance/regression | 用户可观察旅程和 verdict | 用读源码代替真实产品体验 |
+| review.md | 所选问题的实际判断、证据/限制与收口 | 将作者自检当独立审查、用源码代替运行观察 |
 
 实现期发现 design 问题时，worker 按 workflow 暂停并升级，不能在 `progress.md` 中维护一套与 `design.md` 不同的影子方案。
 
@@ -201,7 +199,7 @@ docs/changes/<unit-dir>/
 1. 首文档说明目标、范围和 Gate 1 是否已经收口。
 2. `design.md`、`design-review.md` 和 milestone 骨架说明 Full unit 的设计与 Gate 2 状态；`fix.md` 说明 Bugfix lite 状态。
 3. milestone commits、worker 留下的 `tasks.md` / `progress.md` 和 evidence 说明实施进度；Full unit 的
-   验收报告和快速开发 unit 的 `code-review.md` 说明已经完成的门禁。
+   `review.md` 说明实际审查与未完成项；旧 unit 沿用旧报告定位，不重写历史。
 4. branch、worktree、PR 和 CI 通过 Git、`git worktree` 与 GitHub 实时查询，不写入手工快照。
 
 发生非显然暂停时，把原因和恢复条件写入当前阶段已经存在的记录，例如 `design-review.md`、milestone `progress.md`、验收报告、issue 或 PR；不为所有 unit 复制一份生命周期摘要。
@@ -263,7 +261,7 @@ unit_path=$unit_matches
 ## Evidence 与本地产物
 
 - 各类证据能证明什么、记录字段、保存位置和 promotion 规则见 [`docs/development/evidence.md`](../development/evidence.md)；
-- 可复查证据放在对应 milestone 的 `evidence/`，或 unit 根部的正式 review/verification 报告中；
+- 可复查证据放在对应 milestone 的 `evidence/`，或 unit 根部的正式 review 报告中；
 - 新证据不再写入根目录 `ACCEPTANCE/`；
 - PID、日志、SQLite、截图缓存、临时 config 和 worktree runtime 文件保持 gitignored；
 - 证据中提炼出的长期行为进入 `docs/specs/`，长期操作约束进入 runbook。

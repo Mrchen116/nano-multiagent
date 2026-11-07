@@ -26,7 +26,7 @@
 | 派发包到底要求了 worker 什么 | `dispatches <s>.jsonl` |
 | worker 和主 agent 有没有真对话 | `dialogue <session_dir>` |
 | worker 收尾真验了什么 / 是否吞阻塞 | 直接读 `<session_dir>/subagents/agent-*.jsonl` 尾部 |
-| 每轮验收实际验了/判了什么 | 读 unit 分支 `acceptance.md` / `verification.md` 逐轮段 |
+| 每轮验收实际验了/判了什么 | 读 unit 分支 `review.md`；旧 unit 保留的 `acceptance.md` / `verification.md` 等按实际历史核对 |
 | 每次 design 修订的真根因 | 读 unit 分支 `design.md` 的 `## Changelog` |
 
 `<session_dir>` = 去掉 `.jsonl` 的同名目录(`subagents/` 在其下)。

@@ -2,7 +2,7 @@
 
 本文记录 nano-multiagent 当前的开发变更生命周期，负责说明什么时候建立 change unit、Full、Bugfix lite 与快速开发如何选择、实施方式如何选择、各阶段怎样流转，以及每类 unit 需要经过哪些门禁。
 
-各 `change-*` skill 负责角色内部的具体执行方法；[`../changes/README.md`](../changes/README.md) 负责 unit 的目录、命名、文件归属和归档位置。
+流程与能力分工、按需加载和组合见 [skill-composition](skill-composition.md)。各流程 skill 组织阶段，选中的能力提供专业方法；[`../changes/README.md`](../changes/README.md) 负责 unit 的目录、命名、文件归属和归档位置。
 
 ## 什么时候不建 unit
 
@@ -18,9 +18,9 @@
 
 | 路径 | 适用条件 | 首文档 | 省略的阶段 |
 |---|---|---|---|
-| Bugfix lite | 单 milestone、影响面小、无独立设计决策、不需要独立回归矩阵的 bugfix | `fix.md` | 独立 design、verifier、产品 reviewer |
+| Bugfix lite | 单 milestone、影响面小、无独立设计决策、不需要独立回归矩阵的 bugfix | `fix.md` | 独立 design 和默认全产品旅程；专项按实际影响选择 |
 | Full | feat、refactor、perf；或跨多个 milestone、需要独立回归矩阵、根因横跨多个模块的 bugfix | `spec.md`、`motivation.md` 或 `incident.md` | 不省略下述 Full 门禁 |
-| 快速开发 | 用户明确选择边对齐、边实现、边测试，并在实现后补齐正式记录 | 实现后补 `spec.md`、`motivation.md` 或 `incident.md`，以及 as-built `design.md` | 事前 Gate 1/2、orchestrator/worker、verifier、产品 reviewer |
+| 快速开发 | 用户明确选择边对齐、边实现、边测试，并在实现后补齐正式记录 | 实现后补 `spec.md`、`motivation.md` 或 `incident.md`，以及 as-built `design.md` | 事前 Gate 1/2、orchestrator/worker、重复用户验收 |
 
 Bugfix 默认选择 lite；实施前发现影响面扩大时升级为 Full。快速开发必须由用户明确选择，Agent 不能因为想减少文档或门禁而自行切换。
 
@@ -36,7 +36,7 @@ Full
          → 选择实施方式
             ├─ 默认简化流程：change-orchestrator-simple → 自主组织实现
             └─ 用户点名原流程：change-orchestrator → 按需派发 change-impl-worker(s)
-         → 对应 validation gates
+         → 按本次问题组合独立审查能力
          → canonical spec 归并
          → 本地 CI
          → archive
@@ -47,7 +47,7 @@ Bugfix lite
     → 选择实施方式
        ├─ 默认简化流程：change-orchestrator-simple → 自主实施单个 M1-fix
        └─ 用户点名原流程：change-orchestrator → 按需派发单个 change-impl-worker
-    → change-code-review
+    → change-code-review + 按影响选择的能力
     → 必要的 canonical spec 归并
     → 本地 CI
     → archive
@@ -58,7 +58,7 @@ Bugfix lite
     → 用户亲自测试并确认结果
     → change-fast-close
        → 建立 unit，补首文档、as-built design 与必要的 delta-spec
-       → change-code-review
+       → change-code-review + 按影响选择的能力
        → canonical spec 归并
        → 本地 CI
        → archive
@@ -76,20 +76,25 @@ Bugfix lite
 - 只有用户可以明确选择快速开发；未选择时仍按 Full 或 Bugfix lite 判断；
 - 首文档来自原始对话和用户决定，不能只根据最终代码反推需求；
 - `design.md` 是标明事后形成的 as-built design，必须以实际代码、diff、测试和已确认决策为依据；
-- 不补造没有发生过的 milestone、`tasks.md`、`progress.md`、design review、verifier 或产品 reviewer 记录；
+- 不补造没有发生过的 milestone、`tasks.md`、`progress.md`、design review 或独立产品验收记录；
 - 用户亲自测试并确认结果后才能进入 `change-fast-close`；本路径不再重复产品验收；
-- `change-code-review` 是唯一独立质量门禁；review 修复改变用户可观察行为时，用户需要重新确认受影响旅程；
+- 保留独立代码审查，并按实际影响组合必要能力；用户已经充分确认的体验和旅程直接复用，不再默认另派产品验收。修复改变用户可观察行为时，用户重新确认受影响旅程；
 - 收尾未完成或用户尚未确认时，unit 保持 active。
 
 `change-fast-close` 负责锁定现有 diff、建立事后 unit、回填文档、执行 code review、归并 canonical spec 并按用户授权交付。
 
-## Agent Context 的条件接入
+## 按任务选择能力
 
-按 [Agent Context Engineering](agent-context-engineering.md#范围与影响判断) 判断模型可见信息及其选择、注入、加载、更新和恢复是否受影响；包括间接影响，不按文件名触发。纯 UI 样式和无 Context 影响的内部变化不触发完整审查。
+按 [流程与能力组合](skill-composition.md) 选择本次具体问题、能力和证据，不按角色套餐或文件名加载所有 skills。
 
-相关 Full 设计在原 design/milestone 中说明消费链与验证，原 design-reviewer 执行 [agent-context-review](../../.claude/skills/agent-context-review/SKILL.md) 的 Design Review；原 code reviewer 执行 Implementation Review，结果仍在原报告/输出。两个编排路径及 impl-worker 都需验证实际交付与适用行为，verifier 核一致性和证据并复用有效审查。lite 不补 design Gate；快速开发在既有 as-built design/code review 中承接。无 unit 的直接小修若实际影响 Context，也按相同原则自检，不因此强制新 Gate。
+- Full：在 design 中形成“本次审查安排”，设计 reviewer 检查重要目标与实际影响有无遗漏；能力的设计模式用于方案判断，实施模式用于最终产物。
+- Bugfix lite：在 fix 中说明受影响问题和证据，保留独立代码审查；需要 Context/体验等专项时组合执行，不补 Full design 或默认全产品验收。
+- 快速开发：开始时在已有记录中简述选择，随着实际改动更新；收尾在 as-built design 校正，不伪造事前计划，复用已发生且充分的用户验收。
+- 不建 unit 的小修：按实际影响自检，不因使用能力自动增加 unit 或独立门禁。
 
-新 Skill 是现有角色的审查方法，不是新角色或审批。只覆盖受影响链路及必要交互；证据不足如实说明，是否阻断仍按现有退出标准和严重度判断。模式、取证及 finding 内容由 Skill 和规范维护，本流程不复制细则。
+模型可见内容及其生命周期受影响时选择 [Agent Context](../../.agents/skills/agent-context-review/SKILL.md)，界面信息组织或交互受影响时选择 [前端体验](../../.agents/skills/frontend-experience-review/SKILL.md)。其余按具体目标选择。实施发现新增影响则补对应问题；不自动扩大成全能力审查，也不因最初漏选而放行缺口。
+
+用户明确指定开发基线、集成分支、暂不 PR 或试验期时，沿用该安排：首文档、设计和实现都提交到授权分支，不自动推 main、创建 PR 或宣布试验通过。后续任务继续前先确认该分支当前状态和用户指定基线；默认发布流程不能覆盖明确的试验交付边界。
 
 ## 阶段 1：首文档
 
@@ -111,7 +116,7 @@ Bugfix lite 在 `fix.md` 的“现象/复现”和“根因”两段完成后直
 
 Full unit 由 `change-design-author` 基于首文档、current specs 和真实代码产出：
 
-- `design.md`，包括现状、关键决策、接口与数据流、风险和回退；
+- `design.md`，包括现状、关键决策、接口与数据流、风险和回退，以及本次问题、能力和证据安排；
 - 前端相关 unit 的 `prototype.html`；
 - 面向 canonical specs 的 delta-spec；
 - milestone 表和仅含 `.gitkeep` 的 milestone 目录骨架。
@@ -132,7 +137,7 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 
 - 最后一个完整 Round 为 `Approved`；
 - `0 CRITICAL / 0 WARNING`；
-- author 核实所有 findings 和 recommendations 后确认没有实质问题；
+- author 核实所有 findings 和 recommendations 后确认没有实质问题，重要目标和影响没有漏选审查方法；
 - 最后一轮之后，首文档、design、delta-spec、prototype 和 milestone 骨架没有未经审查的实质变化；非实质变化有 retained 依据。
 
 设计复审按下述上下文选择规则复用或交接，记录旧/新 reviewer、原因及历史报告。替代者核实历史发现、差异与证据后自行决定范围；证据不足时 full，不能只凭上轮 Approved 放行。涉及职责或公共接口的设计需明确责任归属，并比较复用既有能力与新增机制，不能只检查依赖是否合法。
@@ -172,41 +177,39 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 ## 阶段 4：selected validation gates
 
-| Unit 类型 | `change-verifier` | `change-reviewer` | `change-code-review` |
-|---|---:|---:|---:|
-| Full，存在用户可观察旅程 | 必须 | 必须 | 必须 |
-| Full，零用户面 | 必须 | 跳过 | 必须 |
-| Bugfix lite | 跳过 | 跳过 | 必须 |
-| 快速开发 | 跳过 | 跳过；使用已记录的用户验收 | 必须 |
+两条实施流程共享本次执行安排与以下底线，不在各入口复制角色矩阵：
 
-Full 和 Bugfix lite 的门禁组合同时适用于原流程和简化流程。表格规定检查职责，不规定 Agent 数量；orchestrator 负责角色组合与模型配置，在派发中明确职责、范围和输出，执行角色不自行增加兼任职责：Full 默认由同一位未参与受审实现的独立静态审查者一次执行 `$change-code-review` 与 `$change-verifier`，分别保留代码审查结论和一致性报告；产品 reviewer 与实现、静态审查均独立。高风险或存在争议、关键条件无法确认的代码发现，再按具体问题追加独立候选核验；普通明确问题由静态审查者直接举证。
+| 路径 | 实施审查与证据 |
+|---|---|
+| Full | 独立代码审查包含需求/设计覆盖；按实际影响组合专项。存在用户旅程时须有真实入口与决定性结果的独立判断；零用户面不制造产品旅程 |
+| Bugfix lite | 独立代码审查与受影响问题的必要证据；不默认派完整产品旅程 |
+| 快速开发 | 独立代码审查及必要专项；复用已记录的用户验收，不重做已充分覆盖的体验与旅程 |
 
-- verifier 核对实现是否完整、正确且与 spec、design、milestone 一致；原流程的 worker milestone
-  应有 `tasks.md` / `progress.md` 作为补充记录，不能因其缺少实质证据而放行；
-- reviewer 走真实产品旅程，只验用户可观察结果；
-- code review 审查 unit diff；
-- 原流程与简化流程的后续修复均由主 Agent 直接完成：审查、产品验收、CI 或用户反馈发现的问题，不新派修复 worker，也不唤醒原实施 Agent 修补；不能借复杂根因调查重新外包修复。修复后的复验仍由独立角色按受影响范围执行；
-- 快速开发的 code review 发现问题后，由执行 `change-fast-close` 的主会话判真和修复；
-- 先合并相关修复并冻结版本，再按影响一次复验，避免同一小修反复派给设计、代码和一致性审查；实质设计变化仍须独立设计复审，按设计审查的模型策略独立派发并记录 Gate 2 结论。修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
-- 共享带被测版本、命令、结果与证据位置的有效测试结果；独立审查者核对覆盖和可信度，关键复现或证据不足时重跑。先稳定 fixture、完成窄测试，再运行本地全量与 CI；已有通过结果不因角色更换而重复执行。真实产品结果仍由产品 reviewer 独立观察，不能用共享单测结果替代。
+流程对同一冻结版本按 [组合规则](skill-composition.md#组合执行) 派发。审查者与受审对象作者分离；不同能力可以由同一人执行，不固定“一能力一 Agent”。同一独立审查者一次核实现正确性、需求遗漏与设计一致性，不另设 verifier。需要追加独立核验时，给出具体争议或未确认条件。
 
-所有适用门禁通过后才能收尾。
+能力返回问题、判断、实际版本、证据和限制；流程统一归集到 `review.md` 并保留归属，不让多个执行者并行编辑/提交同一报告。同一缺陷只记录一次；等待另一项结果属于 pending，不生成新的 WARNING。必要观察无法取得是 inconclusive，整体未齐不能报通过。
+
+后续问题由主 Agent 判真并修复，不派或唤醒修复 worker。批量修复后冻结版本，按真实 delta 一次复验失效问题；必要时扩大范围，不以提交号、报告或格式变化机械触发全审。真实需求/关键设计变化仍交回 author，快速开发的可观察变化交用户确认。
+
+共享可信版本、测试、构建和现场；独立审查者读取决定性证据，关键条件不足时补跑。先稳定 fixture、完成窄测试再扩大验证，不因换角色重复全量。代码未变不能使从未充分观察的体验自动通过。
+
+流程收口核对重要目标与关键设计均有对应结论、阻塞问题已关闭、必要证据充分且适用于最终版本。方法与统一模板见 [validation](../../.agents/skills/change-orchestrator/references/validation.md)。
 
 ## 收尾
 
 原流程由 `change-orchestrator` 收尾，简化流程由 `change-orchestrator-simple` 收尾，均按以下顺序完成交付：
 
-1. 同步最新 `origin/main`，比较 main 增量对 reviewer、verifier 和 code review 验证范围的影响；每道闸必须重跑、局部复验或记录 retained 依据，不能用“rebase 无冲突”或 CI 代替失效判断。
-2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。Full unit 由 `change-verifier` 对校正结果逐条核对实现与测试，可并入同一独立静态审查任务；校正后尚未审查的部分补做 corrected-delta，已覆盖且未变的结论保留，无 delta 时记录 no spec delta，不空跑。通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由当前实施流程补齐并直接归并。
-3. 按当前 CI 配置运行本地等价检查；归档前再次判断门禁后新增提交和 main 推进是否使结论失效。
+1. 同步目标集成分支（默认 `origin/main`，用户指定时沿用其分支），比较集成增量对各问题和能力证据的影响；受影响判断须重跑、局部复验或记录 retained 依据，不能用“rebase 无冲突”或 CI 代替失效判断。
+2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。由本次独立代码审查者对校正结果核对实现与测试，可并入同一任务；校正后尚未审查的部分补做 corrected-delta，已覆盖且未变的结论保留，无 delta 时记录 no spec delta，不空跑。通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由当前实施流程补齐并直接归并。
+3. 按当前 CI 配置运行本地等价检查；归档前再次判断门禁后新增提交和目标集成分支推进是否使结论失效。
 4. 将整个 unit 从 `docs/changes/<unit>/` 移入 `docs/changes/archive/<unit>/`。
 5. 创建 PR 并等待远端 CI；CI 或 review 小修改变代码后，重新执行受影响门禁。
 
 CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已达到可交付状态，不表示 PR 已合并。
 
-每次实际执行门禁都记录 `validated_at`（实际核对的 unit tree）和 `executed_base`（执行时的 main）；最终 sync 后再记录 `effective_base` 和 `effective_through`。PR 必须同时展示这些值，区分“在哪里真正执行过”和“经过失效判断后结论有效到哪里”。开放 PR 后若再次同步 main，重新执行同一套门禁失效判断。
+每次实际执行门禁都记录 `validated_at`（实际核对的 unit tree）和 `executed_base`（执行时与目标集成分支的 merge-base）；最终 sync 后再记录 `effective_base` 和 `effective_through`。PR 必须同时展示这些值，区分“在哪里真正执行过”和“经过失效判断后结论有效到哪里”。开放 PR 后若再次同步目标集成分支，重新执行同一套门禁失效判断。
 
-快速开发由 `change-fast-close` 收尾，继续使用已经记录的用户验收，不补 verifier 或产品 reviewer。若交付时需要在 code review 或用户确认后同步 main，同样必须判断 main 增量是否使 code review 或用户验收失效；内部变化重跑 code review，用户可观察行为可能变化时交回用户确认。
+快速开发由 `change-fast-close` 收尾，继续使用已经记录的用户验收，不补独立对账或重复产品验收。若交付时需要在 code review 或用户确认后同步 main，同样必须判断 main 增量是否使 code review 或用户验收失效；内部变化重跑 code review，用户可观察行为可能变化时交回用户确认。
 
 开放 PR 的同一交付会话可以继续处理自包含小修。会话退出后，恢复前必须核对 unit branch、PR head 和 clean worktree；需要修改 design 或新增 milestone 的反馈交由人判断，不能在 archive 中启动第二套生命周期。
 
@@ -231,14 +234,13 @@ CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已�
 | `change-orchestrator-simple` | 在 unit worktree 内自主组织实现，并负责适用门禁、契约归并、归档和 PR/CI | 改写已经确认的需求、设计或交付标准 |
 | `change-impl-worker` | 首轮已派发 milestone 的实现、测试和适用证据 | 擅自改写需求或绕过设计 |
 | `change-fast-close` | 为已完成的快速开发 diff 补 unit、as-built design、用户验收记录、code review、契约归并和归档 | 伪造事前流程、代替用户验收 |
-| `change-verifier` | 实现与 spec/design/milestone 的一致性 | 写代码、产品体验判断 |
-| `change-reviewer` | 用户旅程和产品可用性 | 写代码、用源码检查替代真实旅程 |
-| `change-code-review` | diff correctness 和维护风险 | 直接实施 finding |
+| `change-code-review` | diff 正确性、需求覆盖、设计一致性与 delta 校对 | 替代专项证据、直接修 finding |
+| 按需能力 | Context、前端体验、产品旅程、性能或架构的专业判断 | 自行新增 Gate、扩大授权或决定交付 |
 
 ## 权威边界
 
 - 本文负责是否建立 unit、Full/Bugfix lite/快速开发路径、实施方式、生命周期、角色组合和门禁选择。
-- 每个 `.claude/skills/change-*/SKILL.md` 负责该角色内部的动作、输入输出和恢复细节。
+- [skill-composition](skill-composition.md) 负责流程/能力/规范分工、选择、组合及结果交接；每个 `.agents/skills/*/SKILL.md` 只维护自身方法与约束。
 - [`../changes/README.md`](../changes/README.md) 负责 unit 的目录、命名、文件归属和归档位置。
 - [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) 负责 canonical spec 与 delta-spec 的内容规范。
 

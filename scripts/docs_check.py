@@ -168,7 +168,7 @@ def maintained_markdown_sources(tracked: set[Path]) -> set[Path]:
         if _is_active_unit_file(path):
             sources.add(path)
             continue
-        if _is_under(path, Path(".claude/skills")):
+        if _is_under(path, Path(".agents/skills")):
             sources.add(path)
     return sources
 

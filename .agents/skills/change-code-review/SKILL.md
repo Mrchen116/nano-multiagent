@@ -1,23 +1,25 @@
 ---
 name: change-code-review
-description: "用户要求审查代码 diff，或 change 流程进入独立 code-review 门禁时使用；不用于需求/设计文档评审或产品旅程验收。"
+description: "审查实现 diff 的正确性、需求遗漏、设计一致性与维护风险；也用于校对最终 delta-spec。不替代专项 Context、体验或产品旅程判断。"
 ---
 
 # Change Code Review
 
-发现 maintainer 会处理的具体缺陷。由未参与受审实现的独立审查者执行，按派发的范围与模式给出结论。
+由未参与受审实现的独立审查者检查本次 diff 及相关调用方。输入为目标/要求、实际 base/head、范围、适用设计和契约、已有证据；普通无 unit 的 review 不强制补 change 文档。
 
-## 范围与约束
+## 范围与方法
 
-- full 审指定完整 diff；patch 审 pre_fix_head..HEAD；closure 核 focus_findings 与 finding_origin_head..HEAD。未指定目标时确认合理 base，不能把空 upstream diff 当作无改动。
-- 包含属于本任务的未提交改动，保留用户其他工作。patch/closure 不自行扩大到整条分支；发现影响扩大时报告需 full。
-- 审查者关注正确性、被删除的不变量、实际调用方、复用/复杂度和运行代价，方法自主。候选需位置、具体触发场景与后果，不以数量凑 finding。
-- diff 直接或间接影响模型可见 Context 或其生命周期时，由本 reviewer 调用 [agent-context-review](../agent-context-review/SKILL.md) 的 Implementation Review 方法；除代码正确性，还检查模型不可获得的必填参数、错误状态/来源及组装不一致等接口设计缺陷。沿用本次输出格式，Context finding 附该 Skill 要求的证据字段；无 Context 影响不做完整 Context Review。
-- 普通明确问题由独立审查者直接举证。高风险或存在争议、关键条件无法确认的候选，注明需要追加核验的原因与条件，交 caller 安排；只做审查，不修改被审对象。
-- 审查者或追加核验者返回 CONFIRMED（直接证据）、PLAUSIBLE（机制有据但条件未证实）或 REFUTED（反证）。未确认的条件明确标出；不把假想边界或风格偏好报成缺陷。
+- full 审指定完整 diff；patch 审 pre_fix_head..HEAD；closure 核指定 finding 及其来源到当前的变化。包含本任务明确的未提交改动，保留其他工作；不能把空 upstream diff 当作无改动。发现影响扩大时说明需补审的范围。
+- 核对实现是否遗漏要求、违背关键设计/项目约束、删除不变量，检查真实调用方、失败恢复、授权和具体运行/维护代价。实现与设计一致不自动说明方案合理；设计问题交 owner，不建议改 spec 迎合错误实现。
+- 有 unit 时将重要要求、设计决定和退出标准与实现及有效测试对应；材料已有充分映射就引用，不再写第二份逐项报告。缺实现、实质偏离或必要回归保护缺失均须明确报告。
+- corrected-delta 只核最终校正的契约与实现/测试及遗漏的对外行为，给 aligned、delta-mismatch 或 implementation-mismatch；不符同时存在优先 implementation-mismatch。未变已审部分保留，无 delta 记录 no spec delta。
+- 复用版本、命令、结果和定位明确的可信证据，关键条件未证实才独立补跑。不因角色交接重跑全量。
+- 专项方法由 caller 按本次安排组合；发现未覆盖的 Context、前端或性能影响时明确交回补选，不能用本轮代码通过代替专项判断。只加载明确选择的能力，不默认内嵌全部专项。
 
-## 输出
+## 结果与完成
 
-返回 JSON 数组，字段为 `file`、`line`、`summary`、`failure_scenario`、`review_mode`、`status`（CONFIRMED/PLAUSIBLE），按严重度排序；无存活问题返回 `[]`。closure 另说明各 focus finding 的 closed/still_open/superseded，未关闭项不能漏掉。
+返回受审版本/范围、需求与设计覆盖摘要、证据/限制、未验证项及 findings。finding 使用 file、line、summary、failure_scenario、severity、status；status 为 CONFIRMED 或 PLAUSIBLE，反证项标 REFUTED 并从存活列表移除。closure 给各指定问题的 closed/still_open/superseded 和依据。无存活问题返回空 findings，同时保留范围与证据摘要。
 
-对派发的固定版本执行 patch/closure；复用可信且仍适用的测试证据，必要时独立复现关键条件。范围充分覆盖、问题有证据且适用的追加核验完成后结束，不为数量或推测反复审查。
+明确缺实现、违反边界或关键路径失败为阻塞；实质行为/契约偏离和必要回归缺失也须修复，可选维护改进不阻断。不把风格偏好或假想条件列为缺陷。高风险、有争议或关键条件无法确认时说明追加核验的具体问题，交 caller 安排，不能自行派发。
+
+只审查，不修受审对象或自行提交报告。覆盖充分、实际问题和证据缺口已交代就结束，流程负责归集与交付。
