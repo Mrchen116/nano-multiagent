@@ -30,4 +30,4 @@ Gate 2 首轮创建独立 `change-design-reviewer`，仅实质变化复审，后
 
 完成条件：需求与设计覆盖一致、接口和依赖闭合、适用验收资源已落实，最后完整 Round 为 `Approved` 且 `0 CRITICAL / 0 WARNING`，author 判真后无实质问题，受审产物此后无未经审查的实质变化；纯格式或归档变化记录 diff 与 retained 依据即可。常规修订自主完成；只有推翻用户决定才重新对齐。
 
-沿用已发布 unit 的编号，用户指定基线/交付分支时遵循其安排，否则在 `main` 只提交并推送本 unit 产物；non-fast-forward 按 [编号与跨机推送规则](../../../docs/changes/README.md#命名与编号) 同步，不重新分配已发布编号、不 force-push。交给默认 `change-orchestrator-simple` 或用户点名的 `change-orchestrator`。
+沿用已发布 unit 的编号，按 [分支规则](../../../docs/development/change-workflow.md#开发基线与-pr-目标)只提交并推送本 unit 产物；non-fast-forward 按 [编号与跨机推送规则](../../../docs/changes/README.md#命名与编号) 同步，不重新分配已发布编号、不 force-push。交给默认 `change-orchestrator-simple` 或用户点名的 `change-orchestrator`。

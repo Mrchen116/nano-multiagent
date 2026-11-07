@@ -25,6 +25,7 @@
 | 更新已安装的电脑端、处理一次性旧版过渡或失败恢复 | [`operations/gateway.md`](operations/gateway.md#更新已安装的电脑端) |
 | 查看任务图、持续推进、一小时内等待复查与固定聊天反馈 | [`specs/im/task-graphs.md`](specs/im/task-graphs.md) → [`specs/gateway/task-graphs.md`](specs/gateway/task-graphs.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
+| 查询默认开发基线与 PR 目标 | [分支规则](development/change-workflow.md#开发基线与-pr-目标) |
 | 判断是否建立 unit、选择生命周期或实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
 | 编写或执行 unit 的一次性部署迁移提示词 | [`deployment-prompt.md` 约定](changes/README.md#一次性部署提示词) → [部署检查与执行](../.claude/skills/prod-fleet-deploy/references/runbook.md#unit-部署提示词) |

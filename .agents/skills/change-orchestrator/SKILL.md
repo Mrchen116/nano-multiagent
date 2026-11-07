@@ -28,9 +28,9 @@ description: "用户点名 $change-orchestrator，要求按原流程实施已通
 
 ## 交付与恢复
 
-沿用户指定基线/交付分支（未指定时 origin/main）按 change-workflow 完成 final sync 与门禁有效性判断、delta 校正及适用的 corrected-delta 核对（可并入静态审查，无 delta 不空跑）、canonical 归并、本地 CI、完整 archive、PR 和 required CI。组装 PR 时读 [PR 模板](references/pr-body-templates.md)。有真实 Promotion Candidates 才归并到唯一权威位置，不强制生产新知识。
+沿 [分支规则](../../../docs/development/change-workflow.md#开发基线与-pr-目标)确定的基线/交付分支按 change-workflow 完成 final sync 与门禁有效性判断、delta 校正及适用的 corrected-delta 核对（可并入静态审查，无 delta 不空跑）、canonical 归并、本地 CI、完整 archive、PR 和 required CI。组装 PR 时读 [PR 模板](references/pr-body-templates.md)。有真实 Promotion Candidates 才归并到唯一权威位置，不强制生产新知识。
 
-用户指定试验分支或暂不 PR 时只完成授权交付，尚待试验的 unit 保持 active，不自动推 main 或创建 PR。
+用户明确要求仅推送试验分支或暂不 PR 时只完成授权交付，尚待试验的 unit 保持 active，不自动推 main 或创建 PR。
 
 PR 提交后保留 unit 开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外；阻塞时保留恢复证据并停掉自己启动的进程。milestone 临时现场仍由 worker 在集成后清理。未经授权不 merge。
 

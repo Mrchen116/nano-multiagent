@@ -7,6 +7,7 @@
 | 任务 | 先读 |
 |---|---|
 | 判断是否建立 change unit、选择生命周期或 Full 的原流程/简化实施 | [`change-workflow.md`](change-workflow.md) |
+| 查询默认开发基线与 PR 目标 | [分支规则](change-workflow.md#开发基线与-pr-目标) |
 | 按需求选择能力、组合执行并统一收口 | [流程与能力组合](skill-composition.md) |
 | 提报 GitHub Issue、分诊和维护标签 | [`issues.md`](issues.md) |
 | 安装环境、运行常用命令、开发 Node 或前端 | [`local-development.md`](local-development.md) |

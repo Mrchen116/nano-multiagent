@@ -21,6 +21,6 @@ description: "用户明确选择快速开发或事后补 unit，已有实现且�
 
 主会话按 [能力组合](../../../docs/development/skill-composition.md) 校正本次问题与证据安排，对完整本次 diff 派发独立 change-code-review，并组合实际影响需要的专项；用户已充分验收的体验/旅程直接复用，不另跑一套。将执行者、base/head、dirty 范围、结论/限制及 findings/resolutions 归集到 review.md。修复成立的阻塞项，运行适当验证，按实际 delta 做 patch/closure。改变用户可观察结果时重新取得受影响旅程的用户确认。
 
-用户验收、首文档/as-built design、code review、适用测试/本地 CI 和 canonical 归并均完成后，按 [change-workflow](../../../docs/development/change-workflow.md) 完整归档。提交、push、PR 做到当前授权范围；阻塞时留下事实、未完成项与恢复入口。
+用户验收、首文档/as-built design、code review、适用测试/本地 CI 和 canonical 归并均完成后，按 [change-workflow](../../../docs/development/change-workflow.md) 完整归档。基线与 PR base 按 [分支规则](../../../docs/development/change-workflow.md#开发基线与-pr-目标)确定，提交、push、PR 做到当前授权范围；阻塞时留下事实、未完成项与恢复入口。
 
 PR 提交后保留开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外。最终回复说明 worktree 保留/清理状态。

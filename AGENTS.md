@@ -29,6 +29,8 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 
 当前任务涉及用户可观察行为时，先读对应 `docs/specs/<package>/`；active change 描述目标状态，完成归并前不能覆盖 current spec。需要 change unit 的工作按 `change-workflow.md` 调用相应 `change-*` skills；符合“不建 unit”判据的小修可以直接实施。Full 完成设计或 Bugfix lite 完成实施前首文档后，默认使用 `change-orchestrator-simple`；用户点名 `$change-orchestrator` 时改用原流程。用户明确选择快速开发模式时可以边对齐边实现，但交付前必须调用 `change-fast-close` 补齐 unit 并完成 code review。
 
+试验期间默认基于 `origin/develop` 开发，PR 目标为 `develop`；无需用户逐次重申。完整分支与恢复规则见 [开发基线与 PR 目标](docs/development/change-workflow.md#开发基线与-pr-目标)。
+
 ## 工作红线
 
 - 先确认 checkout、branch 和 `git status`；保留用户已有 dirty/untracked 内容，只提交本任务明确修改的文件。换机或建立开发环境时，先按 [本机开发配置](docs/development/local-development.md#本机开发配置) 运行 `python3 scripts/dev_host.py check`，不把历史机器路径当作当前事实。

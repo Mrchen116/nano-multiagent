@@ -94,7 +94,11 @@ Bugfix lite
 
 模型可见内容及其生命周期受影响时选择 [Agent Context](../../.agents/skills/agent-context-review/SKILL.md)，界面信息组织或交互受影响时选择 [前端体验](../../.agents/skills/frontend-experience-review/SKILL.md)。其余按具体目标选择。实施发现新增影响则补对应问题；不自动扩大成全能力审查，也不因最初漏选而放行缺口。
 
-用户明确指定开发基线、集成分支、暂不 PR 或试验期时，沿用该安排：首文档、设计和实现都提交到授权分支，不自动推 main、创建 PR 或宣布试验通过。后续任务继续前先确认该分支当前状态和用户指定基线；默认发布流程不能覆盖明确的试验交付边界。
+## 开发基线与 PR 目标
+
+当前处于 skill 流程试验期：默认开发基线为最新 `origin/develop`，集成分支与 PR base 均为 `develop`，适用于首文档、设计、实施、快速开发收尾及后续任务，无需用户逐次重申。首文档与设计默认只提交本 unit 产物到 `develop`；实施分支从该基线建立，收尾同步该分支。创建 PR 时显式设置 base（CLI 使用 `--base develop`），不能依赖 GitHub 默认分支。
+
+用户对具体任务另有明确基线或交付安排时优先遵循；暂不 PR 或尚待试验时保留相应边界。只有用户明确通知试验结束并要求恢复时，才统一将本规则及各入口的默认值改回 `main`；不因单个任务完成、CI 全绿或会话结束自动恢复。目标分支不构成自动合并或部署授权。
 
 ## 阶段 1：首文档
 
@@ -199,17 +203,17 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 
 原流程由 `change-orchestrator` 收尾，简化流程由 `change-orchestrator-simple` 收尾，均按以下顺序完成交付：
 
-1. 同步目标集成分支（默认 `origin/main`，用户指定时沿用其分支），比较集成增量对各问题和能力证据的影响；受影响判断须重跑、局部复验或记录 retained 依据，不能用“rebase 无冲突”或 CI 代替失效判断。
+1. 同步目标集成分支（按[开发基线与 PR 目标](#开发基线与-pr-目标)确定），比较集成增量对各问题和能力证据的影响；受影响判断须重跑、局部复验或记录 retained 依据，不能用“rebase 无冲突”或 CI 代替失效判断。
 2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。由本次独立代码审查者对校正结果核对实现与测试，可并入同一任务；校正后尚未审查的部分补做 corrected-delta，已覆盖且未变的结论保留，无 delta 时记录 no spec delta，不空跑。通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由当前实施流程补齐并直接归并。
 3. 按当前 CI 配置运行本地等价检查；归档前再次判断门禁后新增提交和目标集成分支推进是否使结论失效。
 4. 将整个 unit 从 `docs/changes/<unit>/` 移入 `docs/changes/archive/<unit>/`。
-5. 创建 PR 并等待远端 CI；CI 或 review 小修改变代码后，重新执行受影响门禁。
+5. 显式设置约定的目标 base 创建 PR，并核对返回的 base 后等待远端 CI；CI 或 review 小修改变代码后，重新执行受影响门禁。
 
 CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已达到可交付状态，不表示 PR 已合并。
 
 每次实际执行门禁都记录 `validated_at`（实际核对的 unit tree）和 `executed_base`（执行时与目标集成分支的 merge-base）；最终 sync 后再记录 `effective_base` 和 `effective_through`。PR 必须同时展示这些值，区分“在哪里真正执行过”和“经过失效判断后结论有效到哪里”。开放 PR 后若再次同步目标集成分支，重新执行同一套门禁失效判断。
 
-快速开发由 `change-fast-close` 收尾，继续使用已经记录的用户验收，不补独立对账或重复产品验收。若交付时需要在 code review 或用户确认后同步 main，同样必须判断 main 增量是否使 code review 或用户验收失效；内部变化重跑 code review，用户可观察行为可能变化时交回用户确认。
+快速开发由 `change-fast-close` 收尾，继续使用已经记录的用户验收，不补独立对账或重复产品验收。若交付时需要在 code review 或用户确认后同步目标集成分支，同样必须判断其增量是否使 code review 或用户验收失效；内部变化重跑 code review，用户可观察行为可能变化时交回用户确认。
 
 开放 PR 的同一交付会话可以继续处理自包含小修。会话退出后，恢复前必须核对 unit branch、PR head 和 clean worktree；需要修改 design 或新增 milestone 的反馈交由人判断，不能在 archive 中启动第二套生命周期。
 

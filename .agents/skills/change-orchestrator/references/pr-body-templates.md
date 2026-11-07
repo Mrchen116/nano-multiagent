@@ -2,7 +2,7 @@
 
 从最终需求、实际实现和 review.md 提炼问题与结果，按变更大小控制篇幅；不逐条复制模板空项或全部证据。用户明确暂不 PR 时不创建。
 
-组装前读取实际 repository URL 与 PR head SHA。文档链接固定到该提交，不输出相对 docs 链接。Full 链接首文档/design/review，lite 链接 fix/review；快速开发说明 as-built 和实际用户验收，不补造事前阶段。
+组装前读取实际 repository URL 与 PR head SHA，并按 [分支规则](../../../../docs/development/change-workflow.md#开发基线与-pr-目标)显式设置和核对 PR base。文档链接固定到该提交，不输出相对 docs 链接。Full 链接首文档/design/review，lite 链接 fix/review；快速开发说明 as-built 和实际用户验收，不补造事前阶段。
 
 ```markdown
 ## Summary
