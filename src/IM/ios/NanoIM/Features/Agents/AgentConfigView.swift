@@ -40,7 +40,7 @@ struct AgentConfigView: View {
                     DisclosureGroup(L("配置归属", "Configuration")) {
                         LabeledContent("Agent ID", value: agentID)
                         LabeledContent(L("版本", "Version"), value: String(config.profile_version))
-                        LabeledContent(L("工作模式", "Work mode"), value: config.work_mode == "global" ? L("全局模式 · 实验", "Global · Experimental") : L("单会话", "Single conversation"))
+                        LabeledContent(L("工作模式", "Work mode"), value: config.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
                         Text(config.workspace_root ?? L("等待电脑确认工作目录", "Waiting for the computer to confirm the working directory")).textSelection(.enabled)
                         Text(L("工作模式和目录在创建后固定。", "Work mode and directory are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
                     }

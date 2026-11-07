@@ -11,7 +11,7 @@ import {requireSettingsNodeOnline} from './agent-settings.js';
 const fields = {
   agent_id:'Required stable unique Agent ID. Keep it unchanged while recovering this request.',
   display_name:'Required visible name.',description:'Short purpose description.',custom_prompt:'Complete agreed responsibilities and instructions; do not copy unrelated private history.',
-  work_mode:'single_thread (separate chat contexts) or global (one continuous cross-chat Agent).',
+  work_mode:'single_thread (separate chat contexts) or global (one continuous cross-chat Agent). Omit to use global.',
   default_model:'A model name from capabilities.models, or null to inherit platform_default_model.',
   model_fallbacks:'Ordered model names, excluding the primary model.',reasoning_effort:'A level declared by the chosen model, or null for its default.',
   approval_mode:'cc, codex, or null to follow the target computer.',
@@ -48,7 +48,7 @@ export class PersonalAgentCreation {
         return [feature.key,!!available?.default_on && available.available!==false];
       })));
       const dependencies=featureDependencies.filter(feature=>features[feature.key]);
-      const defaults={work_mode:'single_thread',group_reply_policy:'mention_only',default_model:null,
+      const defaults={work_mode:'global',group_reply_policy:'mention_only',default_model:null,
         model_fallbacks:[],reasoning_effort:null,approval_mode:null,workspace_root:null,features,
         skills_selection_mode:'explicit_allowlist',
         skills:[...new Set([...capabilities.skills.filter((s:Row)=>s.default_on).map((s:Row)=>s.name),...dependencies.flatMap(feature=>feature.requires.skills)])],

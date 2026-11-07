@@ -144,3 +144,24 @@ it.each(['current', 'legacy'])('only lets the original creation request claim it
     expect(operations.size).toBe(1);
   } finally { await app.close(); }
 });
+
+it('defaults a created Agent to global mode and keeps an explicit single_thread request', async () => {
+  const {app, ctx} = settings();
+  const original = {display_name:'Charlie',workspace_root:'/charlie',group_reply_policy:'manual'};
+  ctx.gateway.request = async (_node, command, payload) => {
+    if (command === 'node.capabilities.resolve') return {skills:[]};
+    if (command === 'agent.create') return {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent};
+    return {status:'pending'};
+  };
+  const create = (fields: Record<string, unknown>) => app.inject({
+    method:'POST',url:'/im/v1/nodes/n/agents',headers:{'x-user':'u1'},payload:{...original,...fields},
+  });
+  try {
+    const omitted = await create({agent_id:'default-mode'});
+    expect(omitted.statusCode,omitted.body).toBe(201);
+    expect(omitted.json().work_mode).toBe('global');
+    const explicit = await create({agent_id:'single-mode',work_mode:'single_thread'});
+    expect(explicit.statusCode,explicit.body).toBe(201);
+    expect(explicit.json().work_mode).toBe('single_thread');
+  } finally { await app.close(); }
+});

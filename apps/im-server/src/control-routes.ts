@@ -162,7 +162,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     const b = body(req);
     const r = await rpc(id, "node.prompt.preview.request", {
       ...previewInput(b),
-      work_mode: b.work_mode ?? "single_thread",
+      work_mode: b.work_mode ?? "global",
       workspace_mode: b.workspace_mode ?? "default",
       agent_id_hint: b.agent_id_hint ?? null,
       workspace_root: b.workspace_root ?? null,

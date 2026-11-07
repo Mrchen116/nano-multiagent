@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     model_fallbacks_json TEXT NOT NULL DEFAULT '[]',
     reasoning_effort TEXT,
     approval_mode TEXT CHECK (approval_mode IS NULL OR approval_mode IN ('cc', 'codex')),
+    -- Legacy default: every creation path writes an explicit mode, and rows
+    -- without one are pre-existing Agents that must not become global.
     work_mode TEXT NOT NULL DEFAULT 'single_thread',
     workspace_root TEXT,
     workspace_is_default INTEGER,

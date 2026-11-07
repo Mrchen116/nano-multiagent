@@ -32,6 +32,9 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   }
   return {
     ...(personal ? { personal_agent: personal } : {}),
+    // A record without a mode is a pre-existing one: keep normalizing it to
+    // single_thread so stored fingerprints and legacy receipts stay stable.
+    // New Agent creation resolves its own default to global before this point.
     agent_id: agentId, approval_mode: approvalMode as 'cc' | 'codex' | null, work_mode: text(payload.work_mode) ?? 'single_thread',
     display_name: text(payload.display_name) ?? agentId, skills, skills_selection_mode: mode,
     tool_allowlist: strings(payload.tool_allowlist), group_reply_policy: text(payload.group_reply_policy) ?? 'manual',
