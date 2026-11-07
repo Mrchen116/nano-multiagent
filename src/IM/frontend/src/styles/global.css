@@ -1697,15 +1697,18 @@ body {
   justify-content: space-between;
   margin-bottom: 10px;
   max-height: 44px;
-  overflow: hidden;
   opacity: 1;
   transition: max-height 160ms ease, margin-bottom 160ms ease, opacity 120ms ease;
 }
 
+/* The row hosts the "+" creation popover as an inline absolute child, so it must not clip or scroll
+   in its resting state: any overflow here cuts the popover in half and lets the opening focus() scroll
+   the menu out of the row. Only the search collapse clamps the row, and no popover can be open there. */
 .chat-sidebar--searching .chat-sidebar-header-row {
   max-height: 0;
   margin-bottom: 0;
   opacity: 0;
+  overflow: hidden;
 }
 
 .chat-sidebar-title {

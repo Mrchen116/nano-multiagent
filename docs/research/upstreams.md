@@ -11,6 +11,7 @@
 | opencode | `~/Repos/opensource-hub/opencode` | 多 provider/客户端、hook、共享 agent 内核 |
 | Better Harness | `~/Repos/opensource-hub/better-harness` | Repository Harness 的工作循环、环境、反馈、门禁与变更安全 |
 | dsh-superagent-prototype | `~/Repos/opensource-hub/dsh-superagent-prototype` | Global Agent 内部派工设计可参考其主会话路由、按 Ticket 分配独立执行会话、执行结果回报和中断恢复。 |
+| Raft | `~/Repos/opensource-hub/raft-source` | 内部子 Agent 的分工与交付，以及共享工作区中具名 Agent 的任务分配、领取和消息触达。 |
 
 ## 记录一次比较
 

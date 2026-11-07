@@ -34,6 +34,8 @@ it('queries real owner-scoped options and creates one durable independently usab
   const options=await f.call({action:'options'});
   expect(options).toMatchObject({node_id:'n',recommended_node_id:'n',capabilities:{platform_default_model:'model'}});
   expect(options.configuration_fields).toHaveProperty('custom_prompt');
+  // The PA-facing recommendation must match the creation default users get.
+  expect(options.defaults).toMatchObject({work_mode:'global'});
   expect(options.nodes.map((node:any)=>node.node_id)).toEqual(['n']);
   const created=await f.call(f.create);
   expect(created).toMatchObject({status:'created',request_key:'english-request',agent:{agent_id:'english-coach',node_id:'n',workspace_root:'/agents/english-coach'}});

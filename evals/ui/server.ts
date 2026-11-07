@@ -18,7 +18,9 @@ export async function startViewer(options:{suites:Suite[];archive?:ArchiveReader
     try {
       const path=new URL(req.url!,'http://localhost').pathname;
       if(path.startsWith('/trajectory/')){await file(join(root,'packages/dsh-trajectory-viewer/dist'),decodeURIComponent(path.slice(12))||'index.html',true);return}
-      if(path===`/${token}/`||path===`/${token}/app.js`||path===`/${token}/native.js`){await file(join(root,'evals/ui'),path.endsWith('app.js')?'app.js':path.endsWith('native.js')?'native.js':'index.html');return}
+      const assets=['app.js','native.js','dag.js','dag.css'];
+      const asset=path.split('/').at(-1);
+      if(path===`/${token}/`||(path.startsWith(`/${token}/`)&&assets.includes(asset!))){await file(join(root,'evals/ui'),path===`/${token}/`?'index.html':asset!);return}
       if(req.headers['x-viewer-token']!==token){json(403,{error:'Local viewer capability required'});return}
       if(path==='/api/catalog'){json(200,{suites:options.suites});return}
       if(path==='/api/reference') {
@@ -45,10 +47,10 @@ export async function startViewer(options:{suites:Suite[];archive?:ArchiveReader
   return {url,server,async close(){server.closeAllConnections();await new Promise<void>(done=>server.close(()=>done()));await options.archive?.close()}};
 }
 export async function main(args:string[]) {
-  const {values}=parseArgs({args,options:{'memory-archive':{type:'string'},'ui-evidence':{type:'string'},output:{type:'string'},help:{type:'boolean'}}});
+  const {values}=parseArgs({args,options:{'memory-archive':{type:'string'},'ui-evidence':{type:'string'},'coord-run':{type:'string'},output:{type:'string'},help:{type:'boolean'}}});
   if(values.help){console.log('pnpm eval-ui [--memory-archive EXPERIMENT_DIR] [--ui-evidence LINKS.json] [--output NEW_DIR]\nOnly reads cases and archived evidence; no evaluation/model execution.');return}
   const output=resolve(values.output??join(root,'output/eval-ui'));await mkdir(output,{recursive:true});
-  const suites=await catalog(values['ui-evidence']);let archive:ArchiveReader|undefined;let report:string|undefined;
+  const suites=await catalog(values['ui-evidence'],values['coord-run']);let archive:ArchiveReader|undefined;let report:string|undefined;
   if(values['memory-archive']){
     const path=resolve(values['memory-archive']);const scratch=await mkdtemp(join(output,'archive-'));
     // open() requires a new child so the original archived runtime remains untouched.

@@ -1,0 +1,7 @@
+{
+  "user_message": {"title":"用户发消息","from":"用户","to":"主 Agent","scripted":true,"checks":["原始请求、补充或决定有真实可见前文","正文与附件完整投递到 IM","按实际选择的原话或备用措辞核验"]},
+  "delegate": {"title":"主 Agent 派工","from":"主 Agent","to":"子 Agent","scripted":false,"checks":["观察实际委派，不替主 Agent 派工","正确执行者收到用户原话和可读附件","主 Agent 自己的判断有标明，避免额外详细执行计划"]},
+  "worker_message": {"title":"子 Agent 回报","from":"子 Agent","to":"主 Agent","scripted":true,"checks":["由实际承担该任务的子 Agent 发出","内容经真实内部消息工具送达","区分等待中、阶段回报和最终交付"]},
+  "user_reply": {"title":"主 Agent 回复用户","from":"主 Agent","to":"用户","scripted":false,"checks":["相关回报已进入根模型请求","原聊天真正收到提问或交付","已授权事项自主处理，未覆盖的决定交给用户"]},
+  "child_message": {"title":"主 Agent 续派","from":"主 Agent","to":"子 Agent","scripted":false,"checks":["补充送回实际对应执行者","原话、附件和判断备注分别核验","发送回执、排队与模型实际读取分别记录"]}
+}

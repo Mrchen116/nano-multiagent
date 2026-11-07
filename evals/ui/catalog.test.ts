@@ -1,7 +1,7 @@
 import {readFile,mkdtemp,writeFile,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {it,expect} from 'vitest';import {catalog,root} from './catalog.js';
 it('registers four separate UI cases with fixed references, workflow, rubric and a fresh-context requirement',async()=>{
- const suites=await catalog();expect(suites.map(s=>s.id)).toEqual(['memory','intelligent-ui']);const cases=suites[1].cases;
+ const suites=await catalog();expect(suites.map(s=>s.id)).toEqual(['memory','intelligent-ui','spec-design-alignment','agent-coordination']);const cases=suites[1].cases;
  expect(cases.map(c=>c.id)).toEqual(['hotel','dashboard','meeting-confirmation','ad-analysis']);
  for(const c of cases){expect(c.context).toContain('全新');expect(c.steps!.length).toBeGreaterThan(0);expect(c.criteria!.length).toBeGreaterThan(0);expect(c.stages).toEqual([]);if(c.reference)expect((await readFile(join(root,'evals/intelligent-ui/assets',c.reference))).length).toBeGreaterThan(1000)}
  const dataset=JSON.parse(await readFile(join(root,'evals/intelligent-ui/dataset.json'),'utf8'));

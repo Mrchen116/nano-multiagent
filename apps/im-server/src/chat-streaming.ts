@@ -1,8 +1,8 @@
 import { decodeChatStream, type ChatEvent, type ChatStreamFact, type ChatStreamReceipt } from '@nano/product-contracts';
 import type { DatabaseSync } from 'node:sqlite';
-import { MessageRecords, withHumanApproval } from './message-records.js';
+import { MessageRecords, withHumanApproval, type MessageEventFrame } from './message-records.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
-import { fail } from './context.js';
+import { fail, transaction } from './context.js';
 
 export interface ChatConnection {node_id:string; owner_id:string; node_epoch:number}
 interface Ports<C extends ChatConnection> {
@@ -12,6 +12,8 @@ interface Ports<C extends ChatConnection> {
   resolveTarget(agentId:string,target:string):string;
   access(connection:C,conversationId:string,agentId:string):void;
   groupReply(messageId:string):void;
+  /** Broadcast a frame whose durable event already committed. */
+  publishCommitted(frame:MessageEventFrame):void;
 }
 /** Apply authenticated stream facts without owning transport or the application container. */
 export class ChatStreaming<C extends ChatConnection> {
@@ -61,8 +63,17 @@ export class ChatStreaming<C extends ChatConnection> {
     switch(p.kind) {
       case 'message_completed':
         records.complete(m,p);event={type:'message.completed',data:{...records.message(m.id),content:p.final_content??m.content}};break;
-      case 'message_discarded':
-        records.discard(m.id);records.chatEvent(m.conversation_id,null,{type:'message.discarded',data:{message_id:m.id,reason:p.reason}});return {message_id:m.id};
+      case 'message_discarded': {
+        // The contract makes one committed fact of the row deletion, the replayable
+        // tombstone and the projection rollback; the online broadcast follows the commit
+        // so a rolled-back discard is never announced.
+        const tombstone=transaction(this.db,()=>{
+          records.discard(m.id);
+          return records.chatEvent(m.conversation_id,null,{type:'message.discarded',data:{message_id:m.id,reason:p.reason}},'completed',false);
+        });
+        ports.publishCommitted(tombstone);
+        return {message_id:m.id};
+      }
       case 'thinking_segment': {
         const items=m.thinking,item={seq:p.process_seq??items.length,text:p.text??''};
         if(!items.some(existing=>existing.seq===item.seq))items.push(item);

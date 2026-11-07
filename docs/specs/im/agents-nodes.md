@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: bugfix-704
+> 对齐: feat-723
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -715,9 +715,17 @@ Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅�
 
 ### Requirement: 新建时选择工作模式，已有 Agent 保持原行为
 
+创建页提供全局模式与单 Thread 两个选项，缺省选中全局模式；请求未携带模式时按全局模式创建。既有 Agent 的模式、聊天绑定与工具面板不因缺省值变化而改变。
+
 #### Scenario: 新建全局 Agent
 - **WHEN** 用户创建 Agent 并选择全局模式
 - **THEN** 创建结果保留该选择，后续跨聊天工作按全局方式进行
+
+#### Scenario: 未选择模式时的缺省结果
+- **GIVEN** 用户打开创建页未触碰工作模式，或创建请求未携带工作模式
+- **WHEN** 用户提交创建
+- **THEN** 创建出的 Agent 为全局模式，跨聊天工作按全局方式进行
+- **AND** 创建页的工作模式一栏在打开时即显示为选中的全局模式
 
 #### Scenario: 保留单 Thread 方式
 - **WHEN** 用户使用已有 Agent，或新建时选择单 Thread 模式

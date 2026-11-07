@@ -68,6 +68,8 @@ export function gatewayCandidate(c: AgentConfigurationFields): AgentConfiguratio
     model_fallbacks: stringList(c.model_fallbacks),
     reasoning_effort: optionalText(c.reasoning_effort),
     approval_mode: c.approval_mode ?? null,
+    // Normalization shared with candidate fingerprints: a candidate without a
+    // mode is a pre-existing record, so keep hashes comparable across upgrades.
     work_mode: c.work_mode || "single_thread",
     workspace_root: optionalText(c.workspace_root),
     features: Object.fromEntries(
