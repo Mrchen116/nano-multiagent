@@ -106,6 +106,45 @@ final class ChatStorageControllerTests: XCTestCase {
         XCTAssertNotNil(store.storageDegradedReason)
     }
 
+    func testConcurrentActivationCoalescesTheSamePartitionOpen() async throws {
+        let base = try XCTUnwrap(root)
+        let gate = OpenGate()
+        let controller = ChatStorageController(client: makeClient(), opener: { partition, location in
+            await gate.enter()
+            return try ChatRepository.open(partition, location: location)
+        }) { partition in ChatStorageLocation.directory(base.appendingPathComponent(partition.userID)) }
+        let first = Task { await controller.activate(makePartition("user")) }
+        await gate.waitUntilEntered()
+        let second = Task { await controller.activate(makePartition("user")) }
+        // This main-actor turn is a deterministic opportunity for the second caller to enter.
+        await Task.yield()
+        await gate.release()
+        await first.value; await second.value
+        let count = await gate.entries
+        XCTAssertEqual(count, 1, "login and its session observer must share one open, not purge each other")
+        XCTAssertEqual(controller.partition, makePartition("user"))
+        XCTAssertNotNil(controller.repository)
+    }
+
+    func testPurgeDuringOpenDrainsAndRemovesTheStalePartition() async throws {
+        let base = try XCTUnwrap(root)
+        let gate = OpenGate()
+        let controller = ChatStorageController(client: makeClient(), opener: { partition, location in
+            await gate.enter()
+            return try ChatRepository.open(partition, location: location)
+        }) { partition in ChatStorageLocation.directory(base.appendingPathComponent(partition.userID)) }
+        let first = Task { await controller.activate(makePartition("user")) }
+        await gate.waitUntilEntered()
+        let purge = Task { await controller.purge(reason: .signedOut) }
+        await Task.yield()
+        await gate.release()
+        await first.value; await purge.value
+        XCTAssertNil(controller.partition)
+        XCTAssertNil(controller.repository)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: base.appendingPathComponent("user").path),
+                       "an opener that completed after logout must not leave readable data behind")
+    }
+
     // MARK: - Helpers
 
     private func makeClient() -> IMClient { IMClient(baseURL: origin) }
@@ -134,5 +173,28 @@ final class ChatStorageControllerTests: XCTestCase {
              "sender_type":"user","content":"message \(n)","attachments":[],"delivery_status":"completed",
              "created_at":"2026-11-01T00:00:0\(n)Z"}
             """.utf8))
+    }
+}
+
+private actor OpenGate {
+    private(set) var entries = 0
+    private var released = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var observer: CheckedContinuation<Void, Never>?
+
+    func enter() async {
+        entries += 1
+        observer?.resume(); observer = nil
+        if released { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func waitUntilEntered() async {
+        if entries > 0 { return }
+        await withCheckedContinuation { observer = $0 }
+    }
+    func release() {
+        released = true
+        for waiter in waiters { waiter.resume() }
+        waiters = []
     }
 }

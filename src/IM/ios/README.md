@@ -21,6 +21,27 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl list devic
 NANO_IOS_SIMULATOR_ID=<设备UDID> ./src/IM/ios/scripts/build.sh test
 ```
 
+## 原生进程级缓存旅程
+
+`NanoIMJourney` 是单独的 XCUITest scheme，不混入不需要真实服务的 `NanoIM` 单测。它通过真实登录界面与服务 DTO 首次读取会话和历史，终止 App，再在**同一隔离 origin 不可达**时冷启动、打开缓存时间线并保存截图；不注入 SQLite 或直接调用 `ChatStore`。此路径不证明真机飞行模式、文件保护属性或性能达标。
+
+先按 [worktree runtime](../../../docs/development/worktree-runtime.md) 准备独立 IM 和测试账号，创建一条有普通文本消息的会话。该局部旅程不调用 Agent，不需要为它启动团队或 LLM。使用**专用模拟器**，不要清除个人模拟器的账号或数据。
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+xcodebuild build-for-testing -jobs 2 -project src/IM/ios/NanoIM.xcodeproj \
+  -scheme NanoIMJourney -destination "platform=iOS Simulator,id=$NANO_IOS_SIMULATOR_ID" \
+  -derivedDataPath /tmp/nano-ios-journey
+```
+
+在生成的 `Build/Products/NanoIMJourney_*.xctestrun` 的 `NanoIMUITests.EnvironmentVariables` 中注入下列本轮输入，另存于**同一目录**（相对产物路径依赖此位置）。此文件和测试凭据不提交：
+
+- `NANO_UI_ORIGIN`：本轮隔离服务的 loopback HTTP origin，不能使用生产地址。
+- `NANO_UI_USERNAME` / `NANO_UI_PASSWORD`：该服务的测试账号。
+- `NANO_UI_CHAT_TITLE` / `NANO_UI_MESSAGE`：已创建会话的唯一标题与消息文本。
+
+先用 `xcodebuild test-without-building -xctestrun <注入后的文件> -destination ... -only-testing:NanoIMUITests/LocalFirstLaunchUITests/testPrimeFromRealServer` 执行在线阶段；通过后，让**仅此测试 origin**不可达，再执行 `testOfflineRelaunchReadsListAndTimeline`。两个阶段分别使用不同的 `-resultBundlePath`，读取其中保留的在线/离线列表和时间线截图。两阶段必须使用同一模拟器、同一 origin 和同一构建；不能用全新缓存替代冷启动，也不能把另一个阶段的截图当作本次证据。最后停止自建服务并确认监听已释放。
+
 ## 设备产物
 
 ```bash

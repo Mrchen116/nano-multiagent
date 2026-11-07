@@ -126,7 +126,7 @@ struct ConversationView: View {
             if store.revokedChats.contains(conversationID) {
                 Text(L("此聊天已不可访问。", "This conversation is no longer accessible.")).font(.caption).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity).background(.bar)
             } else if store.checkingAccess.contains(conversationID) {
-                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.loadConversations(); await store.loadChat(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
+                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.retryAccess(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
             } else if let conversation, conversation.can_write == false {
                 VStack {
                     Text(conversation.is_observer == true ? L("Agent 协作 · 只读", "Agent collaboration · read only") : conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
@@ -149,9 +149,7 @@ struct ConversationView: View {
             ChatInfoView(store: store, conversationID: conversationID, openChat: openChat)
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
         .task(id: conversationID) {
-            store.selectedID = conversationID
-            await store.inspectConversation(conversationID)
-            await store.loadChat(conversationID)
+            await store.openConversation(conversationID)
             do { let result: ItemsPage<ChatCommandSet> = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)/commands"); commands = result.items }
             catch { /* Commands are optional when a target device is offline; message sending remains available. */ }
         }

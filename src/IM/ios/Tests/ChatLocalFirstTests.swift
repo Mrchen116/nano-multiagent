@@ -116,6 +116,87 @@ final class ChatLocalFirstTests: XCTestCase {
         XCTAssertTrue(actual2)
     }
 
+    func testLateListAndDetailCannotUndoNewerSnapshotRevocation() async throws {
+        for path in ["/im/v1/conversations", "/im/v1/conversations/chat"] {
+            let (store, stub) = try await makeStore()
+            await seed(store, conversations: ["chat"], messages: 1)
+            let row = try JSONEncoder().encode(try conversation("chat", title: "Old"))
+            let body = path.hasSuffix("/chat") ? row : Data("{\"items\":[\(String(decoding: row, as: UTF8.self))]}".utf8)
+            await stub.hold(path, body: body)
+            let request = Task {
+                if path.hasSuffix("/chat") { await store.inspectConversation("chat") }
+                else { await store.loadConversations() }
+            }
+            await stub.waitUntilHeld()
+            let repository = try XCTUnwrap(store.repository)
+            let context = try await repository.writeContext()
+            _ = try await repository.applySnapshot([], maxEventID: 20, snapshotSeq: context.snapshotSeq + 1, write: context)
+            await store.loadSeed()
+            await stub.release()
+            await request.value
+            XCTAssertTrue(store.conversations.isEmpty, "late \(path) must not repaint revoked content")
+            XCTAssertNil(store.inspectedConversation)
+            let revoked = try await repository.revokedConversations()
+            XCTAssertTrue(revoked.contains("chat"))
+            store.resetProjection()
+            await store.loadSeed()
+            XCTAssertTrue(store.conversations.isEmpty, "offline restart cannot revive the row")
+            try await repository.purge()
+        }
+    }
+
+    func testLatePageCannotFallBackToMemoryAfterPartitionCloses() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["chat"], messages: 0)
+        let row = try JSONEncoder().encode(TimelineItem(type: "message", message: try message(1, conversation: "chat")))
+        await stub.hold("/im/v1/conversations/chat/messages", body: Data("{\"items\":[\(String(decoding: row, as: UTF8.self))]}".utf8))
+        let request = Task { await store.loadChat("chat") }
+        await stub.waitUntilHeld()
+        let repository = try XCTUnwrap(store.repository)
+        try await repository.purge()
+        await stub.release()
+        await request.value
+        XCTAssertTrue(store.timelines["chat"]?.isEmpty ?? true, "failed durable write is not permission to paint raw network data")
+    }
+
+    func testDiscardSurvivesProjectionResetAndRepositoryReopen() async throws {
+        let (store, _) = try await makeStore()
+        await seed(store, conversations: ["chat"], messages: 2)
+        await store.consume(try JSONDecoder().decode(UserEvent.self, from: Data("""
+            {"op":"event","event_id":10,"event_type":"message.discarded","data":{"conversation_id":"chat","message_id":"m2"}}
+            """.utf8)))
+        store.stop()
+        store.resetProjection()
+        let repository = try XCTUnwrap(store.repository)
+        let reopened = try ChatRepository.open(repository.partition, location: repository.location)
+        let ids = try await reopened.timeline("chat").items.map(\.id)
+        XCTAssertEqual(ids, ["m1"], "discard must delete the durable row in the cursor transaction")
+    }
+
+    func testCachedChatEntryPaintsBeforeDetailResponse() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["chat"], messages: 2)
+        await stub.hold("/im/v1/conversations/chat", body: try JSONEncoder().encode(try conversation("chat")))
+        let entry = Task { await store.openConversation("chat") }
+        await stub.waitUntilHeld()
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1", "m2"], "detail timeouts must not gate local history")
+        await stub.release()
+        await entry.value
+    }
+
+    func testMembershipFailureCanRetryWithoutReconnect() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["chat"], messages: 1)
+        await stub.setDetail(nil, status: 503)
+        await store.consume(try membershipEvent("chat"))
+        XCTAssertTrue(store.checkingAccess.contains("chat"))
+        await stub.setDetail(try JSONEncoder().encode(try conversation("chat")))
+        await store.retryAccess("chat")
+        XCTAssertFalse(store.checkingAccess.contains("chat"))
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
+        store.stop()
+    }
+
     // MARK: - Helpers
 
     private func makeStore() async throws -> (ChatStore, StubTransport) {
@@ -188,6 +269,18 @@ private actor StubTransport: HTTPTransport {
     private var listFailure: URLError?
     private var postRequests: [URLRequest] = []
     private var messageReads = 0
+    private var heldPath: String?
+    private var heldBody = Data()
+    private var held: CheckedContinuation<Void, Never>?
+    private var didHold = false
+    private var waiting: CheckedContinuation<Void, Never>?
+
+    func hold(_ path: String, body: Data) { heldPath = path; heldBody = body; didHold = false }
+    func waitUntilHeld() async {
+        if didHold { return }
+        await withCheckedContinuation { waiting = $0 }
+    }
+    func release() { held?.resume(); held = nil }
 
     init(pair: Data) { self.pair = pair }
 
@@ -200,6 +293,13 @@ private actor StubTransport: HTTPTransport {
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = request.url!
+        if heldPath == url.path {
+            let body = heldBody
+            heldPath = nil; didHold = true
+            waiting?.resume(); waiting = nil
+            await withCheckedContinuation { held = $0 }
+            return (body, response(url, 200))
+        }
         if url.path.contains("/auth/") { return (pair, response(url, 200)) }
         if url.path.hasSuffix("/messages") {
             if request.httpMethod == "GET" { messageReads += 1 } else { postRequests.append(request) }

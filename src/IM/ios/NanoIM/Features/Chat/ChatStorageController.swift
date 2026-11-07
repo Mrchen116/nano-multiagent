@@ -21,13 +21,20 @@ final class ChatStorageController {
     private weak var store: ChatStore?
     private let client: IMClient
     private let makeLocation: (ChatPartition) -> ChatStorageLocation
+    private let opener: @Sendable (ChatPartition, ChatStorageLocation) async throws -> ChatRepository
     private var opening: Task<Void, Never>?
+    private var launchSeed: ChatBootstrapSeed?
     /// Launch-path timing for the first paint (design D2). One signpost interval per open, so
     /// `log stream`/Instruments can read it without a debugger attached.
     private static let signposter = OSSignposter(subsystem: "com.nanoim.app", category: "ChatStorage")
 
-    init(client: IMClient, location: ((ChatPartition) -> ChatStorageLocation)? = nil) {
+    init(client: IMClient,
+         opener: @escaping @Sendable (ChatPartition, ChatStorageLocation) async throws -> ChatRepository = { partition, location in
+             try ChatRepository.open(partition, location: location)
+         },
+         location: ((ChatPartition) -> ChatStorageLocation)? = nil) {
         self.client = client
+        self.opener = opener
         self.makeLocation = location ?? { ChatStorageLocation.standard(partition: $0) }
     }
 
@@ -41,7 +48,8 @@ final class ChatStorageController {
     /// merely still opening.
     func attach(_ store: ChatStore) {
         self.store = store
-        store.bind(storage: state)
+        store.bind(storage: state, seed: launchSeed)
+        launchSeed = nil
     }
 
     /// Launch path: open the partition of the account already stored in the Keychain.
@@ -91,8 +99,9 @@ final class ChatStorageController {
         let location = makeLocation(next)
         let signpostID = Self.signposter.makeSignpostID()
         let interval = Self.signposter.beginInterval("open", id: signpostID)
+        let opener = opener
         let task = Task.detached(priority: .userInitiated) { () -> Result<ChatRepository, Error> in
-            do { return .success(try ChatRepository.open(next, location: location)) }
+            do { return .success(try await opener(next, location)) }
             catch { return .failure(error) }
         }
         opening = Task { [weak self] in
@@ -100,6 +109,9 @@ final class ChatStorageController {
             guard !Task.isCancelled, let self, self.partition == next else { return }
             switch result {
             case .success(let repository):
+                let seed = try? await repository.bootstrapSeed()
+                guard !Task.isCancelled, self.partition == next else { return }
+                self.launchSeed = seed
                 self.publish(.ready(repository))
             case .failure(let error):
                 self.publish(.degraded(reason: error.localizedDescription))
@@ -124,6 +136,8 @@ final class ChatStorageController {
 
     private func publish(_ next: ChatStorageState) {
         state = next
-        store?.bind(storage: next)
+        if case .ready = next {} else { launchSeed = nil }
+        store?.bind(storage: next, seed: launchSeed)
+        if store != nil { launchSeed = nil }
     }
 }

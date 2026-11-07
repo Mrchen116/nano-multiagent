@@ -47,6 +47,30 @@ final class ChatStore {
     var checkingAccess: Set<String> = []
     private var cursor: Int?
     private var epoch = UUID()
+    private var projectionRevision = UUID()
+    /// Freeze the partition and snapshot generation before IO, never after a response arrives.
+    private struct ReadRequest {
+        let epoch: UUID
+        let revision: UUID
+        let repository: ChatRepository?
+        let context: ChatWriteContext?
+    }
+
+    private func readRequest() async throws -> ReadRequest {
+        let token = epoch, revision = projectionRevision, repository = repository
+        let context = try await repository?.writeContext()
+        guard token == epoch, revision == projectionRevision else { throw CancellationError() }
+        return ReadRequest(epoch: token, revision: revision, repository: repository, context: context)
+    }
+
+    private func isCurrent(_ request: ReadRequest) async -> Bool {
+        guard !Task.isCancelled, request.epoch == epoch, request.revision == projectionRevision,
+              request.repository === repository else { return false }
+        if let repository = request.repository {
+            guard let context = try? await repository.writeContext(), context == request.context else { return false }
+        }
+        return !Task.isCancelled && request.epoch == epoch && request.revision == projectionRevision
+    }
     private var sendEpoch = UUID()
     private var ownerRevision: Int?
     private var stream: UserStream
@@ -55,6 +79,7 @@ final class ChatStore {
     private var dirtyChats: Set<String> = []
     private var needsList = false
     private var refreshTask: Task<Void, Never>?
+    private var accessRecovery: Task<Void, Never>?
     private var draftFlush: Task<Void, Never>?
     private var queuedDrafts: [String: String] = [:]
     private var notificationFloor = 0
@@ -80,32 +105,43 @@ final class ChatStore {
     }
 
     /// Storage state transitions come from the controller only.
-    func bind(storage next: ChatStorageState) {
+    func bind(storage next: ChatStorageState, seed: ChatBootstrapSeed? = nil) {
+        let previous = repository
         storage = next
+        if previous !== repository { projectionRevision = UUID() }
         guard case .ready = next else { return }
-        Task { await loadSeed() }
+        if let seed { applySeed(seed) }
+        else { Task { await loadSeed() } }
     }
 
     /// `.degraded` retry point: user tap, next foreground, or the next `run()`, whichever
     /// comes first. It never silently becomes "pure network forever".
     func retryStorage() async { await storageController?.retryOpen() }
 
-    /// Read the launcher projection. Merging (not replacing) keeps the ordering rule that a
-    /// slow partition open cannot overwrite content the network already painted (R3-R3).
+    /// Read only the current partition generation; a slow seed cannot undo a newer snapshot.
     func loadSeed() async {
         guard let repository else { return }
         let signpostID = Self.signposter.makeSignpostID()
         let interval = Self.signposter.beginInterval("bootstrapSeed", id: signpostID)
         defer { Self.signposter.endInterval("bootstrapSeed", interval) }
-        guard let seed = try? await repository.bootstrapSeed() else { return }
-        if !seed.conversations.isEmpty || conversations.isEmpty { conversations = seed.conversations }
+        guard let request = try? await readRequest(),
+              let seed = try? await repository.bootstrapSeed(), await isCurrent(request) else { return }
+        applySeed(seed)
+        if let revoked = try? await repository.revokedConversations(), await isCurrent(request) {
+            revokedChats.formUnion(revoked)
+        }
+    }
+
+    /// The controller loads this before RootTabs exists, so its very first frame has rows.
+    /// This applies value types only; no synchronous file/SQLite work happens on MainActor.
+    private func applySeed(_ seed: ChatBootstrapSeed) {
+        conversations = seed.conversations
         for (id, body) in seed.drafts where drafts[id] == nil || drafts[id]?.isEmpty == true { drafts[id] = body }
         pendingCount = seed.pendingCount
         lastFullAt = seed.connection.lastFullAt
         if cursor == nil, seed.connection.maxEventID > 0 { cursor = seed.connection.maxEventID }
         if listPhase == .loadingFirst, !conversations.isEmpty { listPhase = .loaded }
         if connection == .starting, !conversations.isEmpty { connection = .localOnly }
-        if let revoked = try? await repository.revokedConversations() { revokedChats.formUnion(revoked) }
     }
 
     private func restoreAttempts() {
@@ -182,12 +218,14 @@ final class ChatStore {
 
     func stop() {
         epoch = UUID(); refreshTask?.cancel(); refreshTask = nil
+        accessRecovery?.cancel(); accessRecovery = nil
         Task { await stream.stop() }
     }
 
     /// Reset every projection to its initial value; durable rows are the controller's business.
     func resetProjection() {
-        sendEpoch = UUID()
+        sendEpoch = UUID(); projectionRevision = UUID()
+        draftFlush?.cancel(); draftFlush = nil; queuedDrafts = [:]
         stop()
         timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
         inspectedConversation = nil; olderNeedsNetwork = []
@@ -211,9 +249,10 @@ final class ChatStore {
                 let currentUser = try await client.session.updateUser()
                 guard token == epoch, !Task.isCancelled else { return }
                 guard currentUser.accountEnabled else { return }
+                let request = try await readRequest()
                 let sync: SyncSnapshot = try await client.get("/im/v1/sync")
-                guard token == epoch, !Task.isCancelled else { return }
-                await applySnapshot(sync)
+                guard await isCurrent(request) else { continue }
+                try await applySnapshot(sync, request: request)
                 guard token == epoch, !Task.isCancelled else { return }
                 await recoverPending()
                 guard token == epoch, !Task.isCancelled else { return }
@@ -264,15 +303,18 @@ final class ChatStore {
 
     /// Writes the authoritative snapshot, then projects it. Only a successful full sync may
     /// conclude that a conversation disappeared with it.
-    private func applySnapshot(_ sync: SyncSnapshot) async {
-        guard let repository else {
+    private func applySnapshot(_ sync: SyncSnapshot, request: ReadRequest) async throws {
+        guard await isCurrent(request) else { throw CancellationError() }
+        guard let repository = request.repository, let context = request.context else {
+            projectionRevision = UUID()
             await reconcileNetwork(sync.items)
             return
         }
         do {
-            let context = try await repository.writeContext()
             let result = try await repository.applySnapshot(sync.items, maxEventID: sync.max_event_id,
                                                             snapshotSeq: context.snapshotSeq + 1, write: context)
+            guard request.epoch == epoch, self.repository === repository else { throw CancellationError() }
+            projectionRevision = UUID()
             conversations = result.conversations
             pendingCount = result.pendingCount
             lastFullAt = (try? await repository.connectionSeed())?.lastFullAt ?? lastFullAt
@@ -297,6 +339,7 @@ final class ChatStore {
             if listPhase == .loadingFirst { listPhase = .failed }
             connection = failure.connection ?? connection
             listError = error.localizedDescription
+            throw error
         }
     }
 
@@ -323,13 +366,13 @@ final class ChatStore {
     }
 
     func loadConversations() async {
-        let token = epoch
+        guard let request = try? await readRequest() else { return }
         do {
             let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations")
-            guard token == epoch, !Task.isCancelled else { return }
-            await applyConversationList(page.items)
+            guard await isCurrent(request) else { return }
+            try await applyConversationList(page.items, request: request)
         } catch {
-            guard token == epoch, !(error is CancellationError) else { return }
+            guard await isCurrent(request), !(error is CancellationError) else { return }
             let failure = ChatFailure.from(error)
             if listPhase == .loadingFirst { listPhase = .failed }
             connection = failure.connection ?? connection
@@ -342,32 +385,28 @@ final class ChatStore {
     /// Without a partition there is nothing durable to keep, so the page uses the same
     /// pure-network reconcile a degraded launch uses (it inspects the open conversation and
     /// drops rows the server no longer lists).
-    private func applyConversationList(_ items: [Conversation]) async {
-        guard let repository else {
+    private func applyConversationList(_ items: [Conversation], request: ReadRequest) async throws {
+        guard let repository = request.repository, let context = request.context else {
             await reconcileNetwork(items)
             return
         }
-        do {
-            let context = try await repository.writeContext()
-            let values = try await repository.applyConversationList(items, write: context)
-            conversations = values
-            listPhase = values.isEmpty && pendingCount == 0 ? .empty : (values.isEmpty ? .loadingFirst : .loaded)
-            listError = nil
-        } catch {
-            connection = ChatFailure.from(error).connection ?? connection
-            listError = error.localizedDescription
-        }
+        let values = try await repository.applyConversationList(items, write: context)
+        guard await isCurrent(request) else { return }
+        conversations = values
+        listPhase = values.isEmpty && pendingCount == 0 ? .empty : (values.isEmpty ? .loadingFirst : .loaded)
+        listError = nil
     }
 
     func inspectConversation(_ id: String) async {
-        let token = epoch
+        guard let request = try? await readRequest() else { return }
         do {
             let value: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
-            guard token == epoch, !Task.isCancelled else { return }
+            guard await isCurrent(request) else { return }
+            try await persistConversation(value, request: request)
+            guard await isCurrent(request) else { return }
             inspectedConversation = value; revokedChats.remove(id); checkingAccess.remove(id)
-            await persistConversation(value)
         } catch {
-            guard token == epoch else { return }
+            guard await isCurrent(request) else { return }
             inspectedConversation = nil
             if [403, 404].contains((error as? APIError)?.status ?? 0) {
                 await revokeConversation(id, reason: .detailForbidden)
@@ -381,18 +420,22 @@ final class ChatStore {
         }
     }
 
-    private func persistConversation(_ value: Conversation) async {
-        guard let repository else {
-            if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
-            return
-        }
-        do {
-            let context = try await repository.writeContext()
+    private func persistConversation(_ value: Conversation, request: ReadRequest) async throws {
+        if let repository = request.repository, let context = request.context {
             _ = try await repository.applyConversation(value, members: value.participants, write: context)
-            if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
-        } catch {
-            connection = ChatFailure.from(error).connection ?? connection
         }
+        guard await isCurrent(request) else { throw CancellationError() }
+        if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
+    }
+
+    /// Entering a cached chat never waits for the detail request (including its timeout).
+    func openConversation(_ id: String) async {
+        selectedID = id
+        guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+        await loadLocalTimeline(id)
+        async let detail: Void = inspectConversation(id)
+        async let messages: Void = loadChat(id)
+        _ = await (detail, messages)
     }
 
     func loadChat(_ id: String, older: Bool = false) async {
@@ -401,6 +444,7 @@ final class ChatStore {
         // Local first: an open conversation paints from disk before the request completes.
         await loadLocalTimeline(id)
         guard token == epoch, !Task.isCancelled else { return }
+        guard let request = try? await readRequest() else { return }
         do {
             var page = try await client.messages(id, before: older ? before[id] : nil)
             let existing = Set((timelines[id] ?? []).map(\.id))
@@ -412,12 +456,13 @@ final class ChatStore {
                 page.next_before_message_id = previous.next_before_message_id
             }
             guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
-            await applyPage(id, page: page, older: older)
+            guard await isCurrent(request) else { return }
+            try await applyPage(id, page: page, older: older, request: request)
             if older || before[id] == nil { before[id] = page.next_before_message_id }
             errors[id] = nil
             await recoverPending(id)
         } catch {
-            guard token == epoch, !(error is CancellationError) else { return }
+            guard await isCurrent(request), !(error is CancellationError) else { return }
             let failure = ChatFailure.from(error)
             if [403, 404].contains((error as? APIError)?.status ?? 0) { await revokeConversation(id, reason: .detailForbidden) }
             guard token == epoch else { return }
@@ -429,30 +474,26 @@ final class ChatStore {
     /// Merge the durable window into the rendered projection. `TimelineMerge` supplies the
     /// same `(created_at, id)` order the network merge uses, so a correction cannot reorder rows.
     private func loadLocalTimeline(_ id: String) async {
-        guard let repository else { return }
-        guard let page = try? await repository.timeline(id) else { return }
+        guard !revokedChats.contains(id), !checkingAccess.contains(id),
+              let request = try? await readRequest(), let repository = request.repository,
+              let page = try? await repository.timeline(id), await isCurrent(request),
+              !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
         if !page.items.isEmpty {
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: false, discarded: discarded)
         }
         if page.olderNeedsNetwork, before[id] == nil { olderNeedsNetwork.insert(id) } else { olderNeedsNetwork.remove(id) }
     }
 
-    private func applyPage(_ id: String, page: MessagePage, older: Bool) async {
-        if let repository {
-            do {
-                let context = try await repository.writeContext()
-                let result = try await repository.applyPage(id, items: page.items, write: context)
-                if result.olderNeedsNetwork, before[id] == nil { olderNeedsNetwork.insert(id) } else { olderNeedsNetwork.remove(id) }
-                timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: result.items, older: true, discarded: discarded)
-                return
-            } catch ChatRepositoryError.revokedConversation {
-                await revokeConversation(id, reason: .detailForbidden)
-                return
-            } catch {
-                connection = ChatFailure.from(error).connection ?? connection
-            }
+    private func applyPage(_ id: String, page: MessagePage, older: Bool, request: ReadRequest) async throws {
+        if let repository = request.repository, let context = request.context {
+            let result = try await repository.applyPage(id, items: page.items, write: context)
+            guard await isCurrent(request) else { return }
+            if result.olderNeedsNetwork, before[id] == nil { olderNeedsNetwork.insert(id) } else { olderNeedsNetwork.remove(id) }
+            timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: result.items, older: true, discarded: discarded)
+        } else {
+            guard await isCurrent(request) else { return }
+            timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
         }
-        timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
     }
 
     func consume(_ event: UserEvent) async {
@@ -495,19 +536,20 @@ final class ChatStore {
     /// timeline behind the existing "checking access" placeholder, and let the detail response
     /// decide. A transport failure decides nothing — the next successful sync converges.
     private func verifyAccess(_ id: String) async {
-        let token = epoch
         checkingAccess.insert(id)
         timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id)
         if banner?.conversationID == id { banner = nil }
+        guard let request = try? await readRequest() else { return }
         do {
             let value: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
-            guard token == epoch, !Task.isCancelled else { return }
+            guard await isCurrent(request) else { return }
+            try await persistConversation(value, request: request)
+            guard await isCurrent(request) else { return }
             checkingAccess.remove(id); revokedChats.remove(id)
-            await persistConversation(value)
             await loadLocalTimeline(id)
             if timelines[id]?.isEmpty ?? true { await loadChat(id) }
         } catch {
-            guard token == epoch, !Task.isCancelled else { return }
+            guard await isCurrent(request), !(error is CancellationError) else { return }
             let failure = ChatFailure.from(error)
             switch failure {
             case .forbidden:
@@ -520,7 +562,39 @@ final class ChatStore {
             default:
                 connection = failure.connection ?? connection
                 errors[id] = error.localizedDescription
+                scheduleAccessRecovery()
             }
+        }
+    }
+
+    /// The placeholder's retry must recheck authority, not reload a list that cannot decide absence.
+    func retryAccess(_ id: String) async { await verifyAccess(id) }
+
+    /// A healthy socket may never reconnect. Resolve an inconclusive membership check with
+    /// bounded full-sync retries rather than leaving its placeholder there indefinitely.
+    private func scheduleAccessRecovery() {
+        guard accessRecovery == nil else { return }
+        let token = epoch
+        accessRecovery = Task { [weak self] in
+            guard let self else { return }
+            defer { self.accessRecovery = nil }
+            for delay in [1, 2, 4] {
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                guard token == self.epoch, !Task.isCancelled, !self.checkingAccess.isEmpty else { return }
+                do {
+                    let request = try await self.readRequest()
+                    let sync: SyncSnapshot = try await self.client.get("/im/v1/sync")
+                    guard await self.isCurrent(request) else { continue }
+                    try await self.applySnapshot(sync, request: request)
+                    if let id = self.selectedID { await self.loadLocalTimeline(id) }
+                    return
+                } catch {
+                    guard token == self.epoch, !(error is CancellationError) else { return }
+                    self.connection = ChatFailure.from(error).connection ?? self.connection
+                }
+            }
+            // A failed bounded recovery keeps the explicit retry available. It does not
+            // infer revocation, clear the cache or introduce U7's connection coordinator.
         }
     }
 
@@ -542,12 +616,13 @@ final class ChatStore {
     }
 
     func markRead(_ id: String, messageID: String) async {
-        guard selectedID == id else { return }
+        guard selectedID == id, let request = try? await readRequest() else { return }
         do {
             let updated: Conversation = try await client.send("/im/v1/conversations/\(id.pathComponent)/read", body: ["last_read_message_id": messageID])
-            if let i = conversations.firstIndex(where: { $0.id == id }) { conversations[i] = updated }
-            // U1 records the confirmed boundary and never derives unread from it (U3 owns that).
-            try? await repository?.markReadBoundary(id, messageID: messageID)
+            guard await isCurrent(request) else { return }
+            try await persistConversation(updated, request: request)
+            // U1 records only the confirmed boundary. U3 owns monotonic read semantics.
+            try? await request.repository?.markReadBoundary(id, messageID: messageID)
         } catch { /* Reading stays usable; the next visible message retries the boundary. */ }
     }
     func addUpload(_ id: String, data: Data?, name: String, type: String, error: String? = nil) async {
@@ -775,13 +850,9 @@ final class ChatStore {
 
     /// The confirmed message joins the durable window too, so the next first paint shows it.
     private func appendSent(_ message: ChatMessage, attempt: SendAttempt) async {
+        guard let request = try? await readRequest() else { return }
         let item = TimelineItem(type: "message", message: message)
-        if let repository, let context = try? await repository.writeContext(),
-           let page = try? await repository.applyPage(message.conversation_id, items: [item], write: context) {
-            timelines[message.conversation_id] = TimelineMerge.merge(current: timelines[message.conversation_id] ?? [], page: page.items, older: true, discarded: discarded)
-        } else {
-            timelines[message.conversation_id] = TimelineMerge.merge(current: timelines[message.conversation_id] ?? [], page: [item], older: false, discarded: discarded)
-        }
+        try? await applyPage(message.conversation_id, page: MessagePage(items: [item]), older: false, request: request)
         _ = attempt
     }
 
@@ -832,6 +903,7 @@ final class ChatStore {
     /// Removes one conversation's rendered state and books the revocation in the store, so a
     /// restart or an offline launch cannot show it again once access is known to be gone.
     private func revokeConversation(_ id: String, reason: ChatRevokeReason?) async {
+        projectionRevision = UUID()
         let token = epoch
         await discardConversationAttempts(id)
         guard token == epoch else { return }
@@ -843,6 +915,7 @@ final class ChatStore {
     }
 
     private func clearConversationState(_ id: String) {
+        queuedDrafts[id] = nil
         timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
         olderNeedsNetwork.remove(id); pending[id] = nil
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
