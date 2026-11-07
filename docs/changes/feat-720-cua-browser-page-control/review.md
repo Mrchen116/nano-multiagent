@@ -4,9 +4,9 @@
 
 ## 版本与有效范围
 
-- 当前冻结的实现/测试版本：`3da5cb40df9dc0795e4d29507029cb97051c256e`，分支 `codex/feat-720`。
+- 当前实现/测试版本：`a1fab20f4b1df6f17998cda55395281e3877e654`，分支 `codex/feat-720`；等待固定配置独立实施审查，尚非发布冻结。
 - 集成的 develop 基线：`eeaea47921806936da20e78c9ed96167716f5037`。最终交付前仍须重新核对目标分支增量及证据有效性。
-- 运行代码最后变更：`4804e785e3d90aae40931d3c9ac90a7036b32b52`；`3da5cb40d` 仅增加 native/PTC × root/child 的接线测试。
+- `a1fab20f4` 修复等待驱动 probe 期间资格失效仍会 prepare 的竞态，并按行为拆分 browser-control/lifecycle 测试。原隔离 daily 进程从 `4804e785e` 启动，未为此重启；不能据新 package build 把旧运行进程当作新版本产品验收。
 - Gate 2 R7 只批准 `9612ea5d1` 的设计，不是实现或真实旅程批准。
 - 本轮自检均由实施 owner 执行，不冒充独立 reviewer。
 
@@ -30,13 +30,28 @@ pnpm exec vitest run packages/dsh-integration/tests/browser-*.test.ts \
   --maxWorkers=1 --no-file-parallelism
 ```
 
-### 完整 CI 的受负载污染中断
+### 中断后的分组 CI 补验与有效性
 
-2026-11-08 +08，本机共享负载异常，其他执行者实测 load 达三位数，父级要求暂停本组及新增重型验证。该轮顺序命令为：workspace build → Node installer candidate → workspace typecheck → evals tsc → iOS runtime check → 根目录全部 Vitest（单 worker、无文件并行）。
+2026-11-08 +08，旧完整链在异常共享负载下中断：workspace build → Node installer candidate → workspace typecheck → evals tsc → iOS runtime check 已进入后续阶段；根 Vitest 原始输出 `/tmp/feat-720-backend-ci.log` 止于 L386，`capabilities.test.ts` 6 项中 2 项失败、无最终栈或总汇。旧链仍记为中断，不把后来补验改写为旧链 exit 0，也不增大 timeout 或跳过失败。
 
-原始输出 `/tmp/feat-720-backend-ci.log` 止于 L386：`capabilities.test.ts` 6 项中 2 项失败，其中首项用时 40007ms，末项 17642ms；没有最终失败栈、总汇或进程退出码。恢复核查时原生后台作业已不存在，亦无 Vitest/CI shell 进程。仅清理了经本 worktree 二进制和 `nano-review-lifecycle-*` 临时 cwd 双重核实的本轮孤儿 DSH 子进程。
+父级后续明确分配单组非 GUI 验证窗口；在 `5bc1cfbc2` 代码不变时顺序完成：
 
-**该轮整体记为中断 / 未完成，不判完整 CI 通过，也不把受负载污染且未有完整诊断的结果直接判成实现回归。** 不为消除红色输出而改测试或增大 timeout。恢复重型验证须由父级协调单组窗口；待资源可用后，先取得完整失败诊断，必要时作基线对照，再完成适用完整 CI。Python 非 E2E 测试、前端测试/审计及最终归档检查也尚未完成。
+| 范围 | 实际结果 | 本机原件定位 |
+|---|---|---|
+| 原 capabilities 失败重跑 | 6/6 通过，首项 12.53s、末项 5.374s。该窗口未复现旧失败；不因此证明负载是唯一根因或不存在间歇竞态 | `/tmp/feat-720-capabilities-isolated.log` |
+| 根 Vitest 剩余集合 | 190 files / 784 tests 全通过，exit 0；复用 33 个版本不变且完整通过文件的 464 tests，覆盖当时全部 223 files / 1248 tests。不是单次 fresh `pnpm test` 全量 exit 0 | `/tmp/feat-720-root-remaining.log` L3720–3726；逐文件版本与来源 `/tmp/feat-720-root-coverage-manifest.json` |
+| Python 非 E2E | 134 passed / 1 failed / 28 deselected；唯一失败为本分支新增 browser-control 测试 475 行超过 400 行。未豁免，后续按生命周期行为拆分 | `/tmp/feat-720-python-ci.log` |
+| 前端 | 113 files / 1078 tests 全通过、pretest interactive assets 检查通过、exit 0；`npm audit --audit-level=critical` 通过，但仍报 11 个非 critical 漏洞（4 low / 2 moderate / 5 high），不声称零漏洞 | `/tmp/feat-720-frontend-ci.log` L57、L7562–7568 |
+
+### 后续启动门禁竞态：有意义红测与最小修复
+
+owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver.probe()`，随后直接 prepare；该等待期间祖先轮次可能过期、关闭、换轮或被 sibling 的真窗口归还消费。无 GUI deferred-driver fixture 在修复前取得 **4 failed / 5 passed**：前三种错误地成功启动，第四种已越过 prepare 后才返回窗口歧义，均不是预计的资格拒绝（`/tmp/feat-720-launch-race-red.log`）。
+
+`a1fab20f4` 在 probe 后、prepare 前无额外 await 地重验同一祖先 session/turn seq、当前在场与消费锁；不借用后来的真人轮次。晚拒绝不调用 prepare 或对未准备 label 调用 end_session，finally 释放预留槽。既有生命周期/并发/冷却测试迁至 browser-lifecycle，browser-control 378 行、新 lifecycle 175 行；不改测试上限。
+
+修复后 **10 files / 106 tests** 全通过（browser 全集、approval-sources、PA inbox，单 worker/无文件并行），包括晚拒绝零 driver call、槽位可被新合格请求使用、等待期间 sibling 消费锁；`/tmp/feat-720-launch-race-green.log`。受影响 DSH typecheck/build、`NANO_TEST_BASE_REF=origin/develop ...pytest tests/contract/test_test_naming_and_size_contract.py -q` **2 passed**、`git diff --check` 均通过。该窄测不替代真实桌面验证。
+
+以上根/前端/Python 的分组证据具有各自版本边界：旧全集不是 `a1fab20f4` 的 fresh 全量证明；新增源码已补受影响窄测与构建，最终 sync、独立审查后须再判断哪些结果有效。Python 原失败已由未放宽规则的窄重验修复；最终归档检查尚未到可运行阶段。单组重型窗口已释放，未经重新协调不新增重型全量。
 
 ## 已观察到的真实产品链
 
@@ -53,7 +68,7 @@ pnpm exec vitest run packages/dsh-integration/tests/browser-*.test.ts \
 - **V2 ≥2 次真窗口后前台归还，是发布阻塞**；V3 ≥3 次独立启动采样及 V4 弹窗半边仍缺。本轮不能用“未测但已披露”替代。
 - 老版 V1/V5/V6 是直接驱动 / orchestrator workspace 证据，不是本轮真实产品节点等价性证明。仍需真实 IM→Node→DSH→驱动→结果→read_image 链路，以及默认关闭、身份、审批拒绝、无人值守、Global/native/PTC 与子 Agent 的代表性场景。
 - 物理桌面实验已向父级提交具体影响与有界窗口请求（最多 3 次独立启动、2 次 popup/归还），**尚未收到真人时间窗口许可**；不能把桌面锁定、用户空闲、通用继续开发或工具启用当作该许可。不得接用户已有 Chrome/profile/登录态。
-- 完整 CI 未完成，且当前重型窗口暂停；不新增全量运行。
+- 分组 CI 已补齐旧版本根/前端覆盖并定位、修复 Python 超长测试失败；当前有新的启动竞态修复与窄验证，最终版本证据有效性尚待 sync/独立审查收口。重型窗口已释放，不自行新增全量运行。
 - 独立实施审查、Context 实施审查、corrected-delta 与产品旅程结论均未取得。所要求的固定模型/effort 在原生派发接口中无参数，已由父级协调；不能把 inherited 配置或 daily Q 自动当作等价独立审查。
 
 ## 待独立审查核实的生命周期差异
