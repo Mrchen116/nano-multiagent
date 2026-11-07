@@ -190,6 +190,8 @@ final class ChatStore {
     }
     private func reconcile(_ values: [Conversation]) async {
         let token = epoch
+        await interactionDrafts.prepare()
+        guard token == epoch, !Task.isCancelled else { return }
         if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
         else { inspectedConversation = nil }
         guard token == epoch, !Task.isCancelled else { return }

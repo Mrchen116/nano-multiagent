@@ -2,6 +2,18 @@ import XCTest
 @testable import NanoIM
 
 extension InteractionDraftLifecycleTests {
+    func testImmediateDepartureRestoresStartupOwnershipBeforeDiscardWithoutForeground() async throws {
+        let (runtime, transport) = try await fixture()
+        try await edit(runtime, "thu"); _ = await runtime.flush()
+        let reopened = ChatStore(client: runtime.client, user: runtime.chat.user)
+        XCTAssertTrue(reopened.interactionDrafts.watermarks.isEmpty)
+        reopened.selectedID = "chat"; reopened.selectedID = "other"
+        await reopened.interactionDrafts.awaitPendingDiscard("chat")
+        let through = await transport.discards
+        XCTAssertEqual(through, ["2026-11-01T10:00:00.001Z"], "The leave barrier must restore ownership even before a foreground recovery pass")
+        reopened.clear(); runtime.chat.clear()
+    }
+
     func testClearingStoreAlsoFencesExplicitSubmissionWaitingForDraftFlush() async throws {
         let (runtime, transport) = try await fixture()
         await transport.gateNextSave(timestamp: "2026-11-01T10:00:00.002Z")

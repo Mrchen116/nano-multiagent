@@ -104,13 +104,14 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         let events = await transport.events, through = await transport.discards
         XCTAssertEqual(events, ["put:card", "saved:card", "discard:\(t2)"])
         XCTAssertEqual(through, [t2])
-        // The last response can be older than an earlier save; the owned watermark is max.
         runtime.chat.selectedID = "chat"
         await transport.setTimestamp(t1)
         try await edit(runtime, "fri")
         _ = await runtime.flush()
         XCTAssertEqual(runtime.chat.interactionDrafts.watermarks["chat"], t2)
         let reopened = ChatStore(client: runtime.client, user: runtime.chat.user)
+        XCTAssertTrue(reopened.interactionDrafts.watermarks.isEmpty, "Constructing the first-paint store must not synchronously load the card ledger")
+        await reopened.interactionDrafts.foreground(activeConversation: nil)
         XCTAssertEqual(reopened.interactionDrafts.watermarks["chat"], t2)
         reopened.selectedID = "chat"; reopened.selectedID = "other"
         await reopened.interactionDrafts.awaitPendingDiscard("chat")

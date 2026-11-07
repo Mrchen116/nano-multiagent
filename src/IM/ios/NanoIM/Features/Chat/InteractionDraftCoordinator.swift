@@ -48,12 +48,36 @@ final class InteractionDraftCoordinator {
     @ObservationIgnored private var lateDiscards: [UUID: (String, Task<Void, Never>)] = [:]
     @ObservationIgnored private var removed: Set<String> = []
     @ObservationIgnored private var epoch = UUID()
+    @ObservationIgnored private var hydration: Task<[String: String], Never>?
+    @ObservationIgnored private var restorationApplied = false
     var leaveTimeout: Duration = .seconds(10)
 
     init(client: IMClient, userID: String) {
         self.client = client; self.userID = userID
-        watermarks = (try? client.session.sendAttempts.loadDraftWatermarks(origin: client.baseURL, userID: userID)) ?? [:]
+        watermarks = [:]
     }
+    /// First paint never performs file I/O; saves and departures share the same startup snapshot.
+    private func restoreWatermarks() async -> [String: String] {
+        let token = epoch
+        if hydration == nil {
+            let session = client.session, owner = userID
+            hydration = Task {
+                let revision = await session.revision()
+                return (try? await session.draftWatermarks(userID: owner, revision: revision)) ?? [:]
+            }
+        }
+        let restored = await hydration!.value
+        guard token == epoch else { return [:] }
+        if !restorationApplied {
+            restorationApplied = true
+            for (cid, through) in restored where !removed.contains(cid) {
+                watermarks[cid] = max(watermarks[cid] ?? "", through)
+            }
+        }
+        return restored.filter { !removed.contains($0.key) }
+    }
+    /// Restore local ownership before membership reconciliation examines private state.
+    func prepare() async { _ = await restoreWatermarks() }
     func register(_ runtime: InteractiveRuntime) {
         guard runtime.isCurrentStore else { return }
         removed.remove(runtime.message.conversation_id)
@@ -82,6 +106,8 @@ final class InteractionDraftCoordinator {
     func noteSaved(_ runtime: InteractiveRuntime, serial: Int, updatedAt: String, revision: Int) async {
         let token = epoch, cid = runtime.message.conversation_id
         guard !removed.contains(cid) else { return }
+        _ = await restoreWatermarks()
+        guard token == epoch, !removed.contains(cid) else { return }
         do {
             _ = try await client.session.noteDraftSaved(cid, updatedAt: updatedAt, userID: userID, revision: revision)
             guard token == epoch, !removed.contains(cid) else { return }
@@ -103,6 +129,7 @@ final class InteractionDraftCoordinator {
         }
     }
     func flush(_ cid: String) async -> Bool {
+        _ = await restoreWatermarks()
         await awaitPendingDiscard(cid)
         let values = liveRuntimes(cid)
         for runtime in values {
@@ -120,10 +147,13 @@ final class InteractionDraftCoordinator {
         let values = liveRuntimes(cid)
         let departure = Departure(values, through: watermarks[cid])
         departures[cid, default: []].append(departure)
-        let previous = leaves[cid]?.1, token = epoch, timeout = leaveTimeout
+        let previous = leaves[cid]?.1, token = epoch, timeout = leaveTimeout, needsRestore = !restorationApplied
         let task = Task { [self] in
             if let previous { await previous.value }
+            let startup = await restoreWatermarks()
             guard token == epoch else { return }
+            // Only the startup snapshot is eligible here, never a new edit made after departure.
+            if needsRestore, let through = startup[cid] { departure.through = max(departure.through ?? "", through) }
             let writes = Task { @MainActor in
                 for runtime in values { _ = await runtime.flush(through: departure.cutoffs[ObjectIdentifier(runtime)]) }
             }
@@ -142,8 +172,12 @@ final class InteractionDraftCoordinator {
     }
     /// Retry explicit bounded leave intents, never infer a departure from a saved draft.
     func foreground(activeConversation: String?) async {
-        let pending = (try? client.session.sendAttempts.loadDraftDiscards(origin: client.baseURL, userID: userID)) ?? [:]
-        for (cid, through) in pending { await discard(cid, through: through, token: epoch) }
+        let token = epoch
+        _ = await restoreWatermarks()
+        let revision = await client.session.revision()
+        let pending = (try? await client.session.draftDiscardIntents(userID: userID, revision: revision)) ?? [:]
+        guard token == epoch else { return }
+        for (cid, through) in pending { await discard(cid, through: through, token: token) }
     }
     func remove(_ cid: String) {
         removed.insert(cid)
@@ -152,7 +186,7 @@ final class InteractionDraftCoordinator {
     }
     func clear() {
         epoch = UUID(); runtimes = [:]; retained = [:]; failures = [:]; watermarks = [:]
-        departures = [:]; leaves = [:]; lateDiscards = [:]; removed = []
+        departures = [:]; leaves = [:]; lateDiscards = [:]; removed = []; hydration = nil; restorationApplied = false
     }
     private func liveRuntimes(_ cid: String) -> [InteractiveRuntime] { runtimes[cid]?.values.compactMap(\.value) ?? [] }
     private func discard(_ cid: String, through: String?, token: UUID) async {
