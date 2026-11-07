@@ -33,7 +33,7 @@
 | 成果与进展 | 主 Agent 核对结果是否回应目标及证据是否可用，具体缺口交回执行者，不重做调查；普通进展内部消化，必要问题与可用成果送到正确会话，不重复交付。 |
 | 主动推进 | 依据既有职责和授权主动发起或继续工作，不能把观察、外部资料或自己的判断变成新增用户授权。 |
 
-实际文本位于 [Global 指引与内部执行者指引](../../../packages/dsh-integration/src/global-mode.ts) 和 [nano-ongoing-work](../../../packages/personal-assistant/assets/skills/nano-ongoing-work/SKILL.md)。本轮修改这两份文本，不新增执行运行时、派工工具字段或 Task 联动。
+实际文本位于 [Global 指引与内部执行者指引](../../../../packages/dsh-integration/src/global-mode.ts) 和 [nano-ongoing-work](../../../../packages/personal-assistant/assets/skills/nano-ongoing-work/SKILL.md)。本轮修改这两份文本，不新增执行运行时、派工工具字段或 Task 联动。
 
 ## 对照 Raft 与 Super Agent 后的取舍
 
@@ -90,3 +90,7 @@
 > 然后呢，评测的怎么合入，这个bugfix又怎么合入，前面由于没有按照skill进行，现在不知道怎么处理了
 
 评测 `feat-725` 与本修复分别交付，不将评测工具合入等同于 Prompt 已交付。本 unit 按 `change-fast-close` 保留用户验收与未测边界，补 [实际实现说明](design.md)、独立 code review 和相关工程检查；不补造未发生的事前门禁。初始主仓位置仅为历史 locator，不要求把 bugfix-713 分支的无关内容一起交付。
+
+## 当前交付位置
+
+本 unit 已从原主仓提取到独立 `codex/bugfix-722-global-delegation` 分支，已接受的两个文本文件与原现场逐字一致，原主仓对应未提交修改已移除并保存在此分支；其他 dirty/untracked 内容未改动。独立 code review 已通过，具体输入证据与未测边界见 [code-review.md](code-review.md)。归档保留全部历史文件，最终工程检查、同步及 PR 状态见 [delivery.md](delivery.md)；归档不代表已经合入 main 或上线。
