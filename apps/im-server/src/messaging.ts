@@ -47,6 +47,13 @@ export class Messaging {
     if(publish)this.ctx.gateway.broadcast(conversationReaderIds(this.db,frame.conversation_id),frame);
     for(const binding of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=?",frame.event_id))this.ctx.personal?.wake(binding);
   }
+  /** Broadcast a frame whose durable event already committed, without repeating the wake policy.
+   * Notes:
+   *   Transaction owners that must not announce a rolled-back write call this after commit.
+   */
+  publishCommitted(frame:MessageEventFrame):void {
+    this.ctx.gateway.broadcast(conversationReaderIds(this.db,frame.conversation_id),frame);
+  }
   get db() {
     return this.ctx.db;
   }
