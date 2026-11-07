@@ -129,7 +129,7 @@
 本机日志保留于仓外 `/Users/czj/.codex/reports/pr471-close-20261107/`；runtime、截图、DB、token 和构建 dist 不提交。
 
 
-## 最终集成、验收与交付有效性
+## 第一次最终集成、验收与交付有效性（至 c2b41c096）
 
 - `effective_base`: `c2b41c09645618ca1d406cf90ae91d60ecafcd2c`。
 - 最终同步提交：`b543e18e2999b3ea36b892457b1d43f2d30dc7e1`。其后仅本 unit 文档收尾、原 Requirement 的 canonical 归并及整个 unit 归档；精确最终 `effective_through` 在提交后写入 PR #471，避免把文档自身提交号递归写入文档。
@@ -144,10 +144,33 @@
 - 本轮没有数据迁移：既有 Agent 不改模式，库表默认不改，故不生成 deployment-prompt；交付不执行部署或发布安装包。
 
 
-### 提交前检查实际结果
+### 第一次交付提交前检查实际结果
 
 - 最终 CSS 内容指纹 UI 构建：passed，前端重新构建成功，trajectory 输入未变而复用；locator `final-ui-build.log`。
 - 归档后 `./scripts/docs-check`：passed。
 - `python3 scripts/check_change_unit_archived.py --head-ref unit/feat-723`：passed，unit 在 archive 唯一存在。
 - canonical 同名完整 Requirement 与最终 delta 逐字相等；未改变 Requirement 数量。
 - 本轮真实服务已执行 `e2e-down.sh`，Node/DSH 和 IM 停止，IM 端口 54056 已释放，tmux pr471-close 已关闭。runtime/截图保留在本地，开发 worktree 按开放 PR 规则保留。
+
+
+## 第二次 main 同步（#469，2026-11-07）
+
+第一次交付 head `699ef60100694c7716b7c1a41bb4283fbe73dee7` 的远端 CI（run 42353670814）4/4 checks success。最终 fresh check 时发现 main 又合入 `70d781d6197ccc918dd943f4743df5fe3bfc3719`，故继续同步，而非将上面的 c2b41c096 误写成最新 main。
+
+- 实际新集成树 / 本轮 `validated_at`：`a3ecccf991663e96176799b406ecc2af9eb2398c`。
+- 本轮 `executed_base`：`70d781d6197ccc918dd943f4743df5fe3bfc3719`。
+- main 增量：#469 的 message_discarded 事务与提交后广播、预览/未读投影恢复、相应 Gateway port 接入及 7 项回归。没有修改新建模式默认、旧记录读取、PA 创建协议、指纹或 immutable 校验。
+- 局部验证已实际完成：im-server build/typecheck passed；本 unit 原 6 个定向文件 + 新 discarded-message-projection 文件，**7 files / 70 tests passed**，5.11s；locator `final-main-build.log`、`final-main-tests.log`。
+- 前一次本地全量 214 files / 1164 tests 是旧树的有效历史证据；本轮不将其改称为新树的全量执行。新 head 将重新执行远端完整 CI。
+- 精确最终 `effective_base` / `effective_through` 仍在提交后更新到 PR #471；前述第一次交付字段只作为历史保留。
+
+
+### 独立增量复核与 retained 结论
+
+独立 `pr471_static_review` 对 `699ef60100694c7716b7c1a41bb4283fbe73dee7..a3ecccf991663e96176799b406ecc2af9eb2398c` 执行 targeted/closure，最终 JSON `[]`，无存活 finding。源码增量仅来自新 main 的 discard 四个模块；Gateway 新 publishCommitted port 正确使用已先初始化的 Messaging，与本 unit 模式、创建及权限边界没有冲突。discard 不在 PA source trigger 集合，未新增模型输入或 wake。
+
+- Code review / Context Implementation Review：**retained**，配置、PA 创建、fixedTools 与模型接口没有 delta。
+- 5 个真实产品 Scenario：**retained**。创建默认、显式选择、旧记录解释与 immutable 都不依赖 discarded 分支；已成功完成的单 Thread 聊天没有进入该恢复路径。没有将旧实测 SHA 改为新树，也不要求与本 unit 无关的完整产品重验。
+- 前端、iOS、Python 和依赖输入未因 #469 改动，保留其本地结果；后端真实发生变化的部分已有本轮 70 项局部复验，最终远端 CI 再覆盖完整集成树。
+- 本轮最终 `effective_base` 更新为 `70d781d6197ccc918dd943f4743df5fe3bfc3719`；精确 `effective_through` 为 PR #471 提交后的 head。后续文档提交仅记录本次真实复核和测试，没有新产品改动。
+- 证据：仓外 `final-main-retained-review.md`；旧 head699 完整远端 CI 见 run 42353670814，新 head 的实际远端结果以 PR Validation Summary 为准。
