@@ -370,8 +370,17 @@ export class BrowserControl {
     // cap check before either prepare resolves.
     state.launching = true;
     const label = `nano-br-${randomBytes(4).toString('hex')}`;
+    let prepareStarted = false;
     try {
       const probe: DriverProbe = await this.driver.probe();
+      // Probing yields to other Agents and turn updates. Revalidate the same
+      // admission immediately before launch; never borrow a newer human turn.
+      const current = this.presence(agent);
+      if (!current.allowed || current.sessionId !== presence.sessionId
+        || current.turnStartSeq !== presence.turnStartSeq || this.isConsumed(current)) {
+        throw browserError('browser_launch_requires_user_turn', '等待驱动期间用户轮次已失效或已归还前台；请在新的用户轮次中重试。');
+      }
+      prepareStarted = true;
       const prepared = await this.driver.call('browser_prepare', { session: label, allow_launch: true, profile: { mode: 'isolated_new' } });
       const pid = ownerPid(prepared);
       if (!pid) throw browserError('browser_driver_malformed', 'browser_prepare 响应缺少 owner_pid。');
@@ -382,8 +391,10 @@ export class BrowserControl {
       state.instance = instance;
       return instance;
     } catch (error) {
-      try { await this.driver.call('end_session', { session: label }); }
-      catch { /* Preserve the registration failure that brought us here. */ }
+      if (prepareStarted) {
+        try { await this.driver.call('end_session', { session: label }); }
+        catch { /* Preserve the registration failure that brought us here. */ }
+      }
       throw error;
     } finally {
       state.launching = false;
