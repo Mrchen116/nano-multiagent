@@ -1969,7 +1969,7 @@ function MessageBubble({
               />
             ))}
 
-          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work`}>{t("chat.viewWork")} →</Link>}
+          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work&message_id=${encodeURIComponent(message.id)}`}>{t("chat.viewWork")} →</Link>}
           {/* Desktop fine-pointer / keyboard toolbar. */}
           {hasMessageActions && (
             <div

@@ -732,6 +732,8 @@
       "Cron 实际投递": "Cron delivery",
       "投递聊天 · 原消息": "Delivery chat · Original message",
       "正在加载工作记录…": "Loading work records…",
+      "该回复的工作记录尚未同步或不可用。": "Work records for this reply have not synced yet or are unavailable.",
+      "查看最新轮次": "View latest turns",
       "重试": "Retry",
       "节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。": "Node offline. Showing saved records. Active execution status is unknown; permissions are unavailable.",
       "最近已报告的主上下文": "Latest reported main context",

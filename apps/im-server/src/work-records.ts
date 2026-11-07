@@ -406,17 +406,20 @@ export class WorkRecords {
    *   session: Registered execution identity.
    *   before: Exclusive turn identity cursor.
    *   limit: Maximum number of returned turns.
+   *   summary: Defer full item bodies until the turn is opened.
+   *   at: Inclusive initial turn, ignored when paging with before.
    * Returns:
    *   Turns, control items and the next turn cursor.
    */
-  turns(root: string, session: string, before?: string, limit = 20, summary = false): WorkTurnsPage {
+  turns(root: string, session: string, before?: string, limit = 20, summary = false, at?: string): WorkTurnsPage {
     const registered = this.session(root, session);
-    const anchor = before
+    const cursor = before ?? at;
+    const anchor = cursor
       ? one(
           this.db,
           "SELECT seq FROM agent_work_turns WHERE session_id=? AND turn_id=?",
           session,
-          before,
+          cursor,
         )?.seq
       : Number.MAX_SAFE_INTEGER;
     if (anchor === undefined) fail(400, "invalid_cursor");
@@ -424,7 +427,7 @@ export class WorkRecords {
       this.db,
       "SELECT * FROM agent_work_turns WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?",
       session,
-      anchor,
+      anchor + (!before && at ? 1 : 0),
       limit + 1,
     ) as WorkTurnRecord[];
     return {
@@ -463,13 +466,25 @@ export class WorkRecords {
    *   root: Authorized product Agent identity.
    *   before: Exclusive main-turn identity cursor.
    *   limit: Maximum number of main turns.
+   *   summary: Defer full item bodies until the turn is opened.
+   *   messageId: Start at the recorded main wake that actually sent this reply.
    * Returns:
    *   Persisted main/child records and the node identity for the outer live-state adapter.
    */
-  view(root: string, before?: string, limit = 20, summary = false): WorkRecordView {
+  view(root: string, before?: string, limit = 20, summary = false, messageId?: string): WorkRecordView {
     const sessions = all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root) as WorkSessionRecord[],
       main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
-    const page = main ? this.turns(root, main, before, limit, summary) : { turns: [], next_cursor: null };
+    // Delivery facts are durable and authoritative even for replies older than
+    // the first page. Never infer a wake from its title or the chat timestamp.
+    const focus = messageId ? one(this.db,
+      `SELECT e.session_id,e.turn_id FROM agent_work_events e
+       JOIN agent_work_sessions s ON s.session_id=e.session_id
+       JOIN agent_work_turns t ON t.session_id=e.session_id AND t.turn_id=e.turn_id
+       WHERE e.root_agent_id=? AND s.root_agent_id=? AND s.scope='global_main'
+       AND e.type='message_sent' AND json_extract(e.payload,'$.message_id')=?
+       ORDER BY e.revision LIMIT 1`, root, root, messageId) as {session_id: string; turn_id: string} | undefined : undefined;
+    const recordSession = focus?.session_id ?? main;
+    const page = recordSession ? this.turns(root, recordSession, before, limit, summary, focus?.turn_id) : { turns: [], next_cursor: null };
     let latest = null;
     for (const r of main
       ? this.db.prepare("SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC").iterate(main)
@@ -487,11 +502,13 @@ export class WorkRecords {
     }
     const agent = one(this.db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", root) as {node_id: string};
 
-    let state = page.turns[0]?.status ?? "idle";
+    const currentTurn = main ? one(this.db, "SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC LIMIT 1", main) : undefined;
+    let state = currentTurn ? (JSON.parse(currentTurn.payload) as WorkTurnData).status : "idle";
     if (["completed", "failed", "interrupted"].includes(state)) state = "idle";
     return {
       root_agent_id: root,
       main_session_id: main,
+      ...(messageId ? {focus: focus ?? null} : {}),
       revision: this.revision(root),
       latest_main_usage: latest,
       main_execution: state,

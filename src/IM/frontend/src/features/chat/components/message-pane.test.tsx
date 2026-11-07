@@ -1,5 +1,6 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import {MemoryRouter} from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../../i18n";
@@ -94,6 +95,16 @@ describe("MessagePane", () => {
       get: () => metrics.clientHeight,
     });
   }
+
+  it('links each Global reply to its own message anchor in the same Agent Work', () => {
+    const reply = SAMPLE_MESSAGES[1];
+    render(<MemoryRouter><MessagePane conversation={DIRECT_CONV} messages={[reply, {...reply, id: 'older/reply?', content: 'Older reply'}]} globalAgentIds={['a-planner']} mentionCandidates={[]} onSend={() => {}} /></MemoryRouter>);
+    const links = screen.getAllByRole('link', {name: /View Work|查看 Work/});
+    expect(links.map(link => link.getAttribute('href'))).toEqual([
+      '/settings/agents/a-planner?view=work&message_id=m2',
+      '/settings/agents/a-planner?view=work&message_id=older%2Freply%3F'
+    ]);
+  });
 
   it("renders the conversation title and each message content", () => {
     render(
