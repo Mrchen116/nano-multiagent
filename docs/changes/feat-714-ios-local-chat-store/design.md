@@ -254,7 +254,7 @@ stateDiagram-v2
 2. **快照校正的「不可写」分支**——会话仍在权威集合里但 `can_write == false` 或 `dissolved_at != nil`：只调 `deletePending`，不删会话行、不写 tombstone（镜像 `ChatStore.swift:195-198`）。
 3. **`purge()`**——分区级清空。
 
-**孤儿 pending 的结论路径（R2-W1）**：迁移进来、但对应会话从未出现在权威集合里的记录，在**第一次成功 `/sync`** 时命中第 1 条——`revoke` 删行并写 `revoked_conversations(reason='snapshot_absent')`，同时在 `migration_report` 记一行 `outcome='orphaned'`；`bootstrapSeed.pendingCount` 按行数计算，因此计数随删除递减到 0，不会永久残留。若该会话日后重新出现在快照里，tombstone 按既有规则清除（但被删的 pending 不会复活——它已经不具备可核对的会话）。
+**孤儿 pending 的结论路径（R2-W1）**：迁移进来、但对应会话从未出现在权威集合里的记录，在**第一次成功 `/sync`** 时命中第 1 条——`revoke` 删行并写 `revoked_conversations(reason='snapshot_absent')`，同时在 `migration_report` 记一行 `outcome='orphaned'`。**幂等边界（R3-R1）**：只有本次调用真的删掉了 pending 行才记这一行，已存在的 tombstone 不被重写——`reason`/`revoked_at` 保留第一次判定的来源（`detail_forbidden`/`membership_denied`），随后每一轮仍缺席的快照对这些会话是幂等空操作，不会每轮追加记账。`bootstrapSeed.pendingCount` 按行数计算，因此计数随删除递减到 0，不会永久残留。若该会话日后重新出现在快照里，tombstone 按既有规则清除（但被删的 pending 不会复活——它已经不具备可核对的会话）。
 
 快照差分**不直接**删 pending 行，它经 `revoke` 间接完成——两处各写一份删除逻辑就会出现「一处忘了删」的分叉。守卫单测：① 给一个有 pending 的会话走一次 revoke，断言消息/草稿/pending 在同一次提交后同时消失、tombstone 存在；② 构造「库里只有 pending、没有任何会话行」的分区（等价迁移后首启），跑一次不含该会话的快照，断言 pending 行被删、`pendingCount` 归零、不产生占位会话行。
 
@@ -391,7 +391,7 @@ actor ChatRepository {
 
 1. `bootstrapOnLaunch() -> Bootstrap?`：启动时由 `(client.baseURL, session.storedUser()?.id)` 求分区、open 仓储并返回引导快照（D6 第 2 步）；无凭据返回 nil（→ 登录页）。
 2. `activate(partition:)`：**登录成功或分区变化时打开分区**（R2-W2）。调用点只有两个——`AppModel.authenticate()` 在 `session.login(...)` 返回且 Keychain 已保存之后立即调用（`NanoIMApp.swift:65-80`），并**在 `user =` 赋值之前完成状态登记**（置 `.opening`；打开完成后再交 `.ready`），因为 `RootTabs` 构造时会立刻 `ChatStore(...)`（`:115`），晚了就会先拿到一次「无仓储」；`AppModel.observe()` 发现 `user.id` 或 origin 与 `currentPartition` 不一致时。顺序固定为「先拿到被接受的凭据 → 再算分区 → 再打开」，不能反过来：分区身份来自已认证的 `user.id`，先建库会为未验证账号落盘。
-3. `state: ChatStorageState`（`.opening` / `.ready(ChatRepository)` / `.degraded(reason)`）与绑定：`.ready` 时把仓储交给 `ChatStore` 并重读 `bootstrapSeed` 重投影；`.opening` 期间 `ChatStore` 以纯网络方式工作但**不显示「没有本地缓存」**；只有 `.degraded` 显示该提示并给重试入口。分区变化时关闭旧实例再开新实例，旧实例关闭前先 `purge` 旧分区（D10）。
+3. `state: ChatStorageState`（`.opening` / `.ready(ChatRepository)` / `.degraded(reason)`）与绑定：`.ready` 时把仓储交给 `ChatStore` 并重读 `bootstrapSeed` 重投影——**重投影是幂等合并**：只在库里有内容、或内存里还没有内容时才覆盖列表，草稿只补空缺，因此「分区打开慢于第一次 `/sync`」不会被空 seed 抹掉已渲染的网络结果（R3-R3）；`.opening` 期间 `ChatStore` 以纯网络方式工作但**不显示「没有本地缓存」**；只有 `.degraded` 显示该提示并给重试入口。分区变化时关闭旧实例再开新实例，旧实例关闭前先 `purge` 旧分区（D10）。
 4. `purge(reason:)`：`repository.purge()` + 目录清理。五个挂点**不各自调用**它，而由一个观察者统一触发：`Session` 在「`stored` 被清空」的路径（签出 `Session.swift:82`、refresh 后仍 401 `:147`）**先**写 `termination = .signedOut/.credentials`，**再**在同一同步块里 `publish(nil)`；账号停用（`:101,156`，`accountEnabled == false`）**不发 nil**，`user` 保持该账号并携带 `accountEnabled == false`。`AppModel.observe()` 因此只需两判：`user == nil` → 按 `termination` 选登录页并 `purge`；`user?.accountEnabled == false` → `purge(.deactivated)` + 准入页。**不新增 `publish(nil)`**（R2-R4）：nil 与 user 交替会让观察者先回登录页再回聊天页，停用态会闪一帧登录屏，而停用本来就有非 nil 的信号。
 5. `resetProjection()`：把 `ChatStore` 的投影与阶段机重置到初始值（等价于今天的 `clear()`，`ChatStore.swift:84-89`），但不再手工清内存里的权威数据。
 6. `retryOpen()`：`.degraded` 的重试触发点 = 用户点「重试」/ 下一次进入前台 / 下一次 `run()` 之前，三者取先到，每次都重走 `activate`；连续失败保持 `.degraded`，**不静默降级成「永远纯网络」**。
@@ -515,7 +515,9 @@ Gateway/Node 不是本 unit 的验收对象：本 unit 只验「列表与消息�
 - **凭据失效的构造（M2 `[reviewer]` ⑦）**：`apps/im-server` 没有改密码路由（`apps/im-server/src/identity-routes.ts` 只有 register/login/refresh/logout/me/ws-ticket），所以直接改隔离服务的库。DB 在 `<worktree>/data/im_service.sqlite3`（`scripts/e2e-up.sh` 的 `IM_DB_PATH`）：
 
   ```bash
-  uid=$(sqlite3 data/im_service.sqlite3 "SELECT id FROM users WHERE username='alice';")
+  # 在 worktree 根目录执行（data/im_service.sqlite3 是相对路径）；'<A 的 username>' 换成 reviewer 自己注册的账号。
+  uid=$(sqlite3 data/im_service.sqlite3 "SELECT id FROM users WHERE username='<A 的 username>';")
+  [ -n "$uid" ] || { echo "no such user" >&2; return 1; }   # 空 uid 会让下面的 UPDATE 静默不生效
   # 手段 A：吊销该账号全部会话（下次 refresh 401）
   sqlite3 data/im_service.sqlite3 "UPDATE auth_sessions SET revoked=1 WHERE user_id='$uid';"
   # 手段 B（等价，且让现有 access token 一并失效）：bump 认证世代

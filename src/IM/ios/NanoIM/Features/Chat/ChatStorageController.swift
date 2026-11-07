@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Owns the lifecycle of exactly one local chat partition at a time.
 ///
@@ -21,6 +22,9 @@ final class ChatStorageController {
     private let client: IMClient
     private let makeLocation: (ChatPartition) -> ChatStorageLocation
     private var opening: Task<Void, Never>?
+    /// Launch-path timing for the first paint (design D2). One signpost interval per open, so
+    /// `log stream`/Instruments can read it without a debugger attached.
+    private static let signposter = OSSignposter(subsystem: "com.nanoim.app", category: "ChatStorage")
 
     init(client: IMClient, location: ((ChatPartition) -> ChatStorageLocation)? = nil) {
         self.client = client
@@ -85,6 +89,8 @@ final class ChatStorageController {
         partition = next
         publish(.opening)
         let location = makeLocation(next)
+        let signpostID = Self.signposter.makeSignpostID()
+        let interval = Self.signposter.beginInterval("open", id: signpostID)
         let task = Task.detached(priority: .userInitiated) { () -> Result<ChatRepository, Error> in
             do { return .success(try ChatRepository.open(next, location: location)) }
             catch { return .failure(error) }
@@ -100,6 +106,7 @@ final class ChatStorageController {
             }
         }
         await opening?.value
+        Self.signposter.endInterval("open", interval)
     }
 
     private func closeAndPurge() async {

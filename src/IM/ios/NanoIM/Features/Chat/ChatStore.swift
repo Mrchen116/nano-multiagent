@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Projection of the local chat store plus the user's intents.
 ///
@@ -58,6 +59,8 @@ final class ChatStore {
     private var queuedDrafts: [String: String] = [:]
     private var notificationFloor = 0
     private var storageController: ChatStorageController?
+    /// First-paint read interval (design D2). `log stream`/Instruments read it in the field.
+    private static let signposter = OSSignposter(subsystem: "com.nanoim.app", category: "ChatStore")
 
     var repository: ChatRepository? {
         if case .ready(let repository) = storage { return repository }
@@ -91,6 +94,9 @@ final class ChatStore {
     /// slow partition open cannot overwrite content the network already painted (R3-R3).
     func loadSeed() async {
         guard let repository else { return }
+        let signpostID = Self.signposter.makeSignpostID()
+        let interval = Self.signposter.beginInterval("bootstrapSeed", id: signpostID)
+        defer { Self.signposter.endInterval("bootstrapSeed", interval) }
         guard let seed = try? await repository.bootstrapSeed() else { return }
         if !seed.conversations.isEmpty || conversations.isEmpty { conversations = seed.conversations }
         for (id, body) in seed.drafts where drafts[id] == nil || drafts[id]?.isEmpty == true { drafts[id] = body }
