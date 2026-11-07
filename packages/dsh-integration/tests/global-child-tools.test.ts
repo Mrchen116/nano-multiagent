@@ -170,6 +170,15 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
       expect(system.includes('sender.is_owner')).toBe(personal);
       expect(system.includes('delivery=observer')).toBe(personal);
     }
+    const rootSystem = JSON.stringify(root.system);
+    if (personal) {
+      expect(rootSystem).toContain('load nano-interactive-ui and use send_message to give the owner an editable TextArea');
+      expect(rootSystem).toContain('Deliver the draft card in your private Nano IM conversation with the owner');
+      expect(rootSystem).toContain('continuing your own conversation after checking with the owner');
+      expect(rootSystem).toContain('Use send_user_message when the owner delegates their reply');
+      expect(rootSystem).toContain('Both tools use the same outbound review for messages to others');
+    }
+    expect(rootSystem).toContain('Follow task-specific delivery guidance');
     const inbox=root.tools.find(tool=>tool.name==='inbox');
     expect(inbox.parameters.properties.action.enum.includes('review')).toBe(personal);
     expect('message_id' in inbox.parameters.properties).toBe(personal);
