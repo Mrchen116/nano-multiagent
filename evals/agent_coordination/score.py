@@ -1,6 +1,6 @@
 """Code evidence and one case-level blind review for any coordination DAG."""
+
 import argparse
-from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -12,44 +12,84 @@ from runtime import native_events, recipient_text, consumed_rows, read_wire
 
 
 def quoted(text, source):
-    if source == 'B':
-        return bool(re.search(r'(?<![A-Za-z0-9])B(?![A-Za-z0-9])', text))
+    if source == "B":
+        return bool(re.search(r"(?<![A-Za-z0-9])B(?![A-Za-z0-9])", text))
     compact = lambda s: re.sub(r"\s+", "", s)
     return compact(source) in compact(text)
 
 
 def evidence(run, arm, case, images):
-    observation = json.loads((run / f'{case["id"]}-{arm}.json').read_text())
-    root = native_events(run, observation['root'])
-    children = list(dict.fromkeys(e['data']['childId'] for e in root if e['type'] == 'subagent/catalog'))
+    observation = json.loads((run / f"{case['id']}-{arm}.json").read_text())
+    root = native_events(run, observation["root"])
+    children = list(
+        dict.fromkeys(
+            e["data"]["childId"] for e in root if e["type"] == "subagent/catalog"
+        )
+    )
     native = {child: native_events(run, child) for child in children}
-    wire = read_wire(run / 'wire.jsonl')
-    inboxes = {child: list(consumed_rows(events, wire, child)) for child, events in native.items()}
+    wire = read_wire(run / "wire.jsonl")
+    inboxes = {
+        child: list(consumed_rows(events, wire, child))
+        for child, events in native.items()
+    }
     handoffs = {}
-    for node in case['nodes']:
-        if node['type'] != 'user_message':
+    for node in case["nodes"]:
+        if node["type"] != "user_message":
             continue
-        sent = observation['nodes'][node['id']]
-        text = sent.get('text')
-        sent_at = sent.get('receipt', {}).get('at')
-        handoffs[node['id']] = {
-            'status': sent['status'], 'actual_text': text,
-            'receipts': [{'child': child, **row} for child, rows in inboxes.items() for row in rows
-                         if text and sent_at is not None and row['time'] >= sent_at * 1000 and quoted(row['text'], text)],
-            'queued': [{'child': child, 'seq': e['seq']} for child, events in native.items() for e in events
-                       if text and sent_at is not None and e.get('time', 0) >= sent_at * 1000 and e['type'] == 'agent/inbox/spliced'
-                       and quoted(json.dumps(e['data'].get('inserted', []), ensure_ascii=False), text)],
+        sent = observation["nodes"][node["id"]]
+        text = sent.get("text")
+        sent_at = sent.get("receipt", {}).get("at")
+        handoffs[node["id"]] = {
+            "status": sent["status"],
+            "actual_text": text,
+            "receipts": [
+                {"child": child, **row}
+                for child, rows in inboxes.items()
+                for row in rows
+                if text
+                and sent_at is not None
+                and row["time"] >= sent_at * 1000
+                and quoted(row["text"], text)
+            ],
+            "queued": [
+                {"child": child, "seq": e["seq"]}
+                for child, events in native.items()
+                for e in events
+                if text
+                and sent_at is not None
+                and e.get("time", 0) >= sent_at * 1000
+                and e["type"] == "agent/inbox/spliced"
+                and quoted(
+                    json.dumps(e["data"].get("inserted", []), ensure_ascii=False), text
+                )
+            ],
         }
     image_receipts = {}
     for key, path in images.items():
         digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        image_receipts[key] = [{'child': child, 'seq': e['seq'], 'type': e['type']} for child, events in native.items()
-                               for e in events if e['type'] in {'user/message', 'tool/result'}
-                               and digest in json.dumps(e['data'], ensure_ascii=False)]
-    return {'run': observation, 'handoffs': handoffs, 'images': image_receipts,
-            'child_inboxes': inboxes, 'root_received_worker_reports': list(recipient_text(root)),
-            'actions': [e for e in root if e['type'] in {'tool/call', 'tool/result'}
-                        and (e['data'].get('name') in {'subagent', 'send_message'} or e['type'] == 'tool/result')]}
+        image_receipts[key] = [
+            {"child": child, "seq": e["seq"], "type": e["type"]}
+            for child, events in native.items()
+            for e in events
+            if e["type"] in {"user/message", "tool/result"}
+            and digest in json.dumps(e["data"], ensure_ascii=False)
+        ]
+    return {
+        "run": observation,
+        "handoffs": handoffs,
+        "images": image_receipts,
+        "child_inboxes": inboxes,
+        "root_received_worker_reports": list(recipient_text(root)),
+        "actions": [
+            e
+            for e in root
+            if e["type"] in {"tool/call", "tool/result"}
+            and (
+                e["data"].get("name") in {"subagent", "send_message"}
+                or e["type"] == "tool/result"
+            )
+        ],
+    }
 
 
 def review_case(packet):
@@ -70,12 +110,18 @@ def review_case(packet):
     url = "http://127.0.0.1:4000/v1/messages"
     headers = {"anthropic-version": "2023-06-01", "x-api-key": "nano-local-proxy"}
     request = {
-        "model": "codexOAuth:gpt-6.1-sol", "max_tokens": 5000, "system": system,
-        "thinking": {"type": "adaptive"}, "output_config": {"effort": "high"},
-        "stream": True, "messages": [{"role": "user", "content": content}],
+        "model": "codexOAuth:gpt-6.1-sol",
+        "max_tokens": 5000,
+        "system": system,
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "high"},
+        "stream": True,
+        "messages": [{"role": "user", "content": content}],
     }
     text = []
-    with httpx.stream("POST", url, headers=headers, json=request, timeout=130) as response:
+    with httpx.stream(
+        "POST", url, headers=headers, json=request, timeout=130
+    ) as response:
         response.raise_for_status()
         for line in response.iter_lines():
             if not line.startswith("data: "):
@@ -94,29 +140,37 @@ def review_case(packet):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('run', type=Path)
-    parser.add_argument('--arms', default='AB')
-    parser.add_argument('--images', type=Path)
-    parser.add_argument('--code-only', action='store_true')
+    parser.add_argument("run", type=Path)
+    parser.add_argument("--arms", default="AB")
+    parser.add_argument("--images", type=Path)
+    parser.add_argument("--code-only", action="store_true")
     args = parser.parse_args()
-    case = json.loads((args.run / 'case.json').read_text())
+    case = json.loads((args.run / "case.json").read_text())
     images = json.loads(args.images.read_text()) if args.images else {}
     traces = {}
     for arm in args.arms:
         facts = evidence(args.run, arm, case, images)
-        (args.run / f'{case["id"]}-{arm}-code.json').write_text(json.dumps(facts, ensure_ascii=False, indent=2))
+        (args.run / f"{case['id']}-{arm}-code.json").write_text(
+            json.dumps(facts, ensure_ascii=False, indent=2)
+        )
         traces[arm] = facts
     order = list(args.arms)
     secrets.SystemRandom().shuffle(order)
-    mapping = dict(zip('XYZW', order))
-    packet = {'case': case, 'verified_default_environment': (args.run / 'defaults.json').exists(),
-              'review_checkpoints': PRIMITIVES, 'traces': {label: traces[arm] for label, arm in mapping.items()}}
-    (args.run / 'review-packet.json').write_text(json.dumps(packet, ensure_ascii=False, indent=2))
-    (args.run / 'review-mapping.json').write_text(json.dumps(mapping))
+    mapping = dict(zip("XYZW", order))
+    packet = {
+        "case": case,
+        "verified_default_environment": (args.run / "defaults.json").exists(),
+        "review_checkpoints": PRIMITIVES,
+        "traces": {label: traces[arm] for label, arm in mapping.items()},
+    }
+    (args.run / "review-packet.json").write_text(
+        json.dumps(packet, ensure_ascii=False, indent=2)
+    )
+    (args.run / "review-mapping.json").write_text(json.dumps(mapping))
     if not args.code_only:
-        (args.run / 'review.md').write_text(review_case(packet))
-    print(args.run / 'review-packet.json')
+        (args.run / "review.md").write_text(review_case(packet))
+    print(args.run / "review-packet.json")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
