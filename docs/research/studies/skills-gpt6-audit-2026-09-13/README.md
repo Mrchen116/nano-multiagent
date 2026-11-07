@@ -36,10 +36,10 @@ current-owner: .claude/skills and src/personal_assistant/builtin_skills
 | [change-orchestrator](../../../../.claude/skills/change-orchestrator/SKILL.md) | 19.43 → 3.13 | 340 → 37 |
 | [change-orchestrator-simple](../../../../.claude/skills/change-orchestrator-simple/SKILL.md) | 10.68 → 2.68 | 165 → 29 |
 | [change-retro](../../../../.claude/skills/change-retro/SKILL.md) | 12.79 → 1.71 | 167 → 22 |
-| [change-reviewer](../../../../.claude/skills/change-reviewer/SKILL.md) | 30.17 → 2.27 | 463 → 24 |
+| [change-reviewer](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-reviewer/SKILL.md) | 30.17 → 2.27 | 463 → 24 |
 | [change-spec-author](../../../../.claude/skills/change-spec-author/SKILL.md) | 21.96 → 2.24 | 330 → 26 |
 | [change-spec-reviewer](../../../../.claude/skills/change-spec-reviewer/SKILL.md) | 11.46 → 1.49 | 150 → 22 |
-| [change-verifier](../../../../.claude/skills/change-verifier/SKILL.md) | 17.69 → 2.03 | 311 → 27 |
+| [change-verifier](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-verifier/SKILL.md) | 17.69 → 2.03 | 311 → 27 |
 | [codebase-design](../../../../.claude/skills/codebase-design/SKILL.md) | 6.71 → 1.67 | 114 → 19 |
 | [improve-codebase-architecture](../../../../.claude/skills/improve-codebase-architecture/SKILL.md) | 6.91 → 1.77 | 85 → 19 |
 | [prod-fleet-deploy](../../../../.claude/skills/prod-fleet-deploy/SKILL.md) | 18.65 → 1.82 | 273 → 19 |

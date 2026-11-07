@@ -86,6 +86,8 @@ export class NodeConfiguration {
       if (!reviewer) throw new Error(`llm.tool_approval_model is not registered: ${this.value.llm.tool_approval_model}`);
       approval.reviewer = { provider: reviewer.name, model: reviewer.models.find(model => model.name === this.value.llm.tool_approval_model)!.id ?? this.value.llm.tool_approval_model };
     }
+    // A missing mode here is a pre-existing local record, not a new Agent: keep
+    // reading it as single_thread so an upgrade cannot silently convert it.
     return { agentId: agent.agent_id, displayName: String(('title' in agent ? agent.title : undefined) ?? agent.display_name ?? agent.agent_id), workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       ...(canonical.personal_agent ? {personal: canonical.personal_agent} : {}),
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,

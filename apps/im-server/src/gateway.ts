@@ -54,6 +54,7 @@ export class Gateway {
       requirePersonalConversation:(agentId,cid)=>{const binding=one(ctx.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);if(binding&&!ctx.personal!.ownerConversation(binding,cid))fail(403,'personal_reviewed_delivery_required');},
       agentUserId:id=>ctx.messaging.agentUser(id).id,resolveTarget:(id,target)=>ctx.messaging.resolveTarget(id,target),
       access:(connection,cid,id)=>{ctx.messaging.access({...connection,kind:'gateway'},cid,id,'write');},groupReply:id=>this.groupReply(id),
+      publishCommitted:frame=>ctx.messaging.publishCommitted(frame),
     });
     this.work = new Work(ctx);
     this.trajectory = new TrajectoryObservers(ctx);
@@ -320,6 +321,8 @@ export class Gateway {
         c.node_id,
         id,
         p.agent_workspaces?.[id] ?? null,
+        // Missing modes mean a node that predates global mode; it only runs
+        // single_thread, so do not record its Agents as global.
         p.agent_work_modes?.[id] ?? "single_thread",
         JSON.stringify(p.agent_skills?.[id] ?? []),
         p.agent_skills_selection_modes?.[id] ?? null,

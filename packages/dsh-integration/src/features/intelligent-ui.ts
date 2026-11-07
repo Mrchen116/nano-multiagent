@@ -7,7 +7,7 @@ export function apply(ctx: Context, config: {mode?: string}) {
   ctx.systemPrompt.section({ name: 'nano-interactive-replies', order: 808, text: ({agent}) => {
     const internal = isInternalExecution(agent);
     if (internal && config.mode === 'global') return `For an interactive deliverable, load nano-interactive-ui and follow the requested format. Return the prepared source and a short explanation to your parent for delivery. Use verified data; UI interactions do not grant business permissions.`;
-    return [`Choose the format that reduces the user's effort to understand and act. Prefer text for brief answers, emotional conversation, and writing intended for reuse. Respect requested formats.
+    return [`Choose the format that reduces the user's effort to understand and act. Follow task-specific delivery guidance and respect requested formats. Otherwise, prefer text for brief answers, emotional conversation, and standalone writing.
 
 Proactively use Intelligent UI for complex information, comparisons, relationships, processes, and changes, even when not requested. Before building, decide what the user should understand first, then choose the structure, layout, and visualization that make it easiest.
 

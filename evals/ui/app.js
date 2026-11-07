@@ -1,4 +1,5 @@
 import {mountNative} from './native.js';
+import {mountDag} from './dag.js';
 const token=location.pathname.split('/')[1];
 async function api(path,body){const response=await fetch('/api/'+path,{method:body?'POST':'GET',headers:{'x-viewer-token':token,...(body?{'content-type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});const value=await response.json();if(!response.ok)throw new Error(value.error||'读取失败');return value}
 const {suites}=await api('catalog');let release,referenceUrl,generation=0;
@@ -20,6 +21,7 @@ async function show(c){
  for(const b of nav.querySelectorAll('[data-case]'))b.classList.toggle('active',b.dataset.case===c.id);
  history.replaceState(null,'','#'+c.id);
  if(c.context){body.append(text('h3','上下文起点'),text('p',c.context))}
+ if(c.graph){mountDag(body,c);return}
  if(c.prompt){body.append(text('h3','固定输入'),text('pre',c.prompt))}
  if(c.attachments?.length||c.workspaceFiles?.length){body.append(text('h3',c.workspaceFiles?.length?'工作区文件（运行前放入 Agent 工作区）':'输入附件'));for(const name of [...(c.attachments??[]),...(c.workspaceFiles??[])]){const button=text('button','下载 '+name);button.onclick=async()=>{try{const response=await fetch('/api/attachment?name='+encodeURIComponent(name),{headers:{'x-viewer-token':token}});if(!response.ok)throw new Error('附件读取失败');const url=URL.createObjectURL(await response.blob());const link=text('a',name);link.href=url;link.download=name;body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}catch(error){button.textContent=error.message}};body.append(button)}}
  if(c.photoUrls?.length){body.append(text('h3','演示照片素材'));const list=document.createElement('ul');c.photoUrls.forEach(url=>list.append(text('li',url)));body.append(list)}

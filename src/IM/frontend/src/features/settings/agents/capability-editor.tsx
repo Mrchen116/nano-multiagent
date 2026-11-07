@@ -6,7 +6,7 @@ import { useTranslation } from "../../../i18n";
 import { getAgentCapabilityUsage, type CapabilitySnapshot } from "./im-agent-config-api";
 
 export function capabilityCatalog(caps: CapabilitySnapshot | undefined, mode?: string) {
-  return { features: caps?.features ?? [], tools: caps?.tools.map(x => x.name) ?? [], skills: caps?.skills.map(x => x.name) ?? [], fixed_tools: [...new Set([...(caps?.fixed_tools ?? []), ...fixedTools(mode ?? "single_thread", "root", false)])] };
+  return { features: caps?.features ?? [], tools: caps?.tools.map(x => x.name) ?? [], skills: caps?.skills.map(x => x.name) ?? [], fixed_tools: [...new Set([...(caps?.fixed_tools ?? []), ...fixedTools(mode, "root", false)])] };
 }
 
 export function restoreBlockedCapabilities<T extends CapabilityDraft>(draft: T, blocks: CapabilityBlock[], caps: CapabilitySnapshot | undefined): T {

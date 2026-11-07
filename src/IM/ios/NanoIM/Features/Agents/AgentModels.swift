@@ -56,7 +56,7 @@ struct AgentDraft: Equatable, Sendable {
     var default_model = ""
     var model_fallbacks: [String] = []
     var reasoning_effort = ""
-    var work_mode = "single_thread"
+    var work_mode = "global"
     var workspace_root = ""
     var skills: [String] = []
     var skills_selection_mode = "explicit_denylist"

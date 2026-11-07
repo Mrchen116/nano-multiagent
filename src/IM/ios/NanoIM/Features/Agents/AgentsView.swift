@@ -147,7 +147,7 @@ struct AgentProfileView: View {
             }
             Section(L("概览", "Overview")) {
                 LabeledContent(L("管理者", "Owner"), value: shownContact.owner_display_name ?? shownContact.owner_id ?? "—")
-                LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式 · 实验", "Global · Experimental") : L("单会话", "Single conversation"))
+                LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
             }
             if shownContact.work_mode == "global" {
                 Section { NavigationLink { AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat) } label: { Label(L("工作轨迹", "Work"), systemImage: "point.3.connected.trianglepath.dotted") } }
@@ -260,7 +260,7 @@ struct AgentCreateView: View {
                 Section {
                     DisclosureGroup(L("高级设置", "Advanced settings"), isExpanded: $advanced) {
                         VStack(alignment: .leading, spacing: 6) { Text(L("助手标识", "Assistant ID")).font(.caption).foregroundStyle(.secondary); TextField("Agent ID", text: $draft.agent_id).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                        Picker(L("工作模式", "Work mode"), selection: $draft.work_mode) { Text(L("单会话", "Single conversation")).tag("single_thread"); Text(L("全局模式 · 实验", "Global · Experimental")).tag("global") }
+                        Picker(L("工作模式", "Work mode"), selection: $draft.work_mode) { Text(L("全局模式", "Global")).tag("global"); Text(L("单会话", "Single conversation")).tag("single_thread") }
                         Text(L("工作模式和目录在创建后固定。", "Work mode and directory are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
                         Toggle(L("自定义工作目录", "Custom working directory"), isOn: $customWorkspace)
                         if customWorkspace { TextField(L("电脑上的绝对路径", "Absolute path on computer"), text: $draft.workspace_root).textInputAutocapitalization(.never).autocorrectionDisabled() }
