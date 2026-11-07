@@ -42,7 +42,7 @@ import {
 } from "./chat-stream-reducer";
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
-import { discardOnLeave, forgetInteractionBackground, loadWatermarks, resumeConversation } from "./interaction-background";
+import { discardOnLeave, forgetInteractionBackground, loadWatermarks, resumeConversation, retryPendingDiscards } from "./interaction-background";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
@@ -373,7 +373,11 @@ export function ChatWorkspacePage() {
   // survives. Watermarks are reloaded per account because they are per-account state.
   const previousConversationRef = useRef<string | null>(conversationId ?? null);
   useEffect(() => {
-    if (selfUserId) void loadWatermarks(selfUserId);
+    if (!selfUserId) return;
+    void loadWatermarks(selfUserId).then(retryPendingDiscards);
+    const foreground = () => { if (document.visibilityState === 'visible') void retryPendingDiscards(); };
+    document.addEventListener('visibilitychange', foreground);
+    return () => document.removeEventListener('visibilitychange', foreground);
   }, [selfUserId]);
   useEffect(() => {
     const previous = previousConversationRef.current;

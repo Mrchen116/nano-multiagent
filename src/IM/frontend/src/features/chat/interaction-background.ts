@@ -32,6 +32,8 @@ const watermarks = new Map<string, string>();
 const cleared = new Map<string, string>();
 /** Conversations this browser has left; a save that lands after that must also be cleared. */
 const leaving = new Set<string>();
+/** Failed explicit leave intents; a saved draft alone must never be cleared on foreground. */
+const pendingDiscards = new Map<string, string>();
 /** Tail of the per-conversation discard chain, so clears keep their order. */
 const discards = new Map<string, Promise<void>>();
 let accountId = '';
@@ -94,7 +96,10 @@ export function noteDraftSaved(cid: string, updatedAt: string | undefined, sessi
   const previous = watermarks.get(cid);
   if (previous && previous >= updatedAt) return;
   watermarks.delete(cid); watermarks.set(cid, updatedAt);
-  if (watermarks.size > LIMIT) watermarks.delete(watermarks.keys().next().value!);
+  if (watermarks.size > LIMIT) {
+    const oldest = watermarks.keys().next().value!;
+    watermarks.delete(oldest); pendingDiscards.delete(oldest);
+  }
   lastWrite = persistWatermark(accountId, cid, updatedAt, session).catch(() => undefined);
   // This save may have been in flight when the user left; the clear already sent cannot
   // cover it, so send a second one with the time this device itself confirmed.
@@ -117,7 +122,7 @@ export function draftWatermark(cid: string): string | undefined { return waterma
 
 export function resetInteractionBackground(nextAccountId = ''): void {
   generation += 1; conversationGenerations.clear();
-  handles.clear(); failures.clear(); watermarks.clear(); cleared.clear(); leaving.clear(); discards.clear();
+  handles.clear(); failures.clear(); watermarks.clear(); cleared.clear(); leaving.clear(); pendingDiscards.clear(); discards.clear();
   snapshotCache.clear();
   accountId = nextAccountId; hydrated = null; notify();
 }
@@ -190,6 +195,12 @@ export function discardOnLeave(cid: string, through = watermarks.get(cid)): Prom
   return enqueueDiscard(cid, through);
 }
 
+/** Retry only explicitly requested leaves when the browser returns to the foreground. */
+export async function retryPendingDiscards(): Promise<void> {
+  if (hydrated) await hydrated;
+  await Promise.all([...pendingDiscards].map(([cid, through]) => enqueueDiscard(cid, through)));
+}
+
 /** Mark a conversation active again so its earlier leave cannot clear a new edit.
  *
  * Without this, editing after coming back would be cleared by the late-save rule the
@@ -217,18 +228,20 @@ function enqueueDiscard(cid: string, through: string | undefined): Promise<void>
   if (!through) return Promise.resolve();
   if (cleared.get(cid) && cleared.get(cid)! >= through) return discards.get(cid) ?? Promise.resolve();
   const session = draftSession(cid), userId = accountId;
+  if (!pendingDiscards.get(cid) || pendingDiscards.get(cid)! < through) pendingDiscards.set(cid, through);
+  const intentWrite = persistWatermark(userId, cid, through, session, through).catch(() => undefined);
   const tail = (discards.get(cid) ?? Promise.resolve()).then(async () => {
+    await intentWrite;
     if (session !== draftSession(cid)) return;
     try {
       const result = await discardInteractionBackground(cid, through);
       if (!result || session !== draftSession(cid)) return;
       if (!cleared.get(cid) || cleared.get(cid)! < through) cleared.set(cid, through);
+      if ((pendingDiscards.get(cid) ?? '') <= through) pendingDiscards.delete(cid);
       const current = watermarks.get(cid);
-      if (!current || current <= through) {
-        watermarks.delete(cid);
-        await forgetWatermark(userId, cid, through, session);
-      }
-    } catch { /* Keep the watermark and retry on the next leave. */ }
+      if (!current || current <= through) watermarks.delete(cid);
+      await forgetWatermark(userId, cid, through, session);
+    } catch { /* Keep the explicit intent and retry on the next leave or foreground. */ }
   });
   discards.set(cid, tail);
   void tail.finally(() => { if (discards.get(cid) === tail) discards.delete(cid); });
@@ -243,7 +256,7 @@ export async function loadWatermarks(nextAccountId: string): Promise<void> {
   return hydrated;
 }
 
-interface WatermarkRow { userId: string; conversationId: string; through: string; at: number }
+interface WatermarkRow { userId: string; conversationId: string; through: string; at: number; pendingThrough?: string }
 const STORE = 'watermarks';
 const LIMIT = 128;
 let storageOrder = 0;
@@ -263,20 +276,22 @@ async function storage<T>(mode: IDBTransactionMode, operation: (store: IDBObject
 }
 
 async function hydrate(userId: string): Promise<void> {
-  const session = generation;
+  const session = generation, conversations = new Map(conversationGenerations);
   const rows = await storage<WatermarkRow[]>('readonly', (store, result) => {
     const request = store.index('user').getAll(userId);
     request.onsuccess = () => result(request.result as WatermarkRow[]);
   }).catch(() => undefined);
   if (session !== generation) return;
   for (const row of (rows ?? []).sort((a, b) => a.at - b.at).slice(-LIMIT)) {
+    if ((conversations.get(row.conversationId) ?? 0) !== (conversationGenerations.get(row.conversationId) ?? 0)) continue;
     storageOrder = Math.max(storageOrder, row.at);
     const previous = watermarks.get(row.conversationId);
     if (!previous || previous < row.through) watermarks.set(row.conversationId, row.through);
+    if (row.pendingThrough && (pendingDiscards.get(row.conversationId) ?? '') < row.pendingThrough) pendingDiscards.set(row.conversationId, row.pendingThrough);
   }
 }
 
-function persistWatermark(userId: string, cid: string, through: string, session: string): Promise<void> {
+function persistWatermark(userId: string, cid: string, through: string, session: string, pendingThrough?: string): Promise<void> {
   if (!userId) return Promise.resolve();
   return storage<void>('readwrite', store => {
     if (session !== draftSession(cid)) return;
@@ -287,7 +302,9 @@ function persistWatermark(userId: string, cid: string, through: string, session:
       if (session !== draftSession(cid)) return;
       const previous = request.result as WatermarkRow | undefined;
       storageOrder = Math.max(Date.now(), storageOrder + 1);
-      store.put({userId, conversationId: cid, through: previous && previous.through > through ? previous.through : through, at: storageOrder} satisfies WatermarkRow);
+      const intent = [previous?.pendingThrough, pendingThrough].filter((value): value is string => Boolean(value)).sort().at(-1);
+      store.put({userId, conversationId: cid, through: previous && previous.through > through ? previous.through : through, at: storageOrder,
+        ...(intent ? {pendingThrough: intent} : {})} satisfies WatermarkRow);
       const all = store.index('user').getAll(userId);
       all.onsuccess = () => {
         const rows = (all.result as WatermarkRow[]).sort((a, b) => b.at - a.at);
@@ -303,7 +320,12 @@ function forgetWatermark(userId: string, cid: string, through: string, session: 
     const request = store.get([userId, cid]);
     request.onsuccess = () => {
       const row = request.result as WatermarkRow | undefined;
-      if (session === draftSession(cid) && row && row.through <= through) store.delete([userId, cid]);
+      if (session !== draftSession(cid) || !row) return;
+      if (row.through <= through) store.delete([userId, cid]);
+      else if (row.pendingThrough && row.pendingThrough <= through) {
+        delete row.pendingThrough;
+        store.put(row);
+      }
     };
   });
 }
@@ -320,7 +342,7 @@ export async function forgetInteractionBackground(userId: string, cid?: string):
     else {
       conversationGenerations.set(cid, (conversationGenerations.get(cid) ?? 0) + 1);
       handles.delete(cid); failures.delete(cid); watermarks.delete(cid); cleared.delete(cid);
-      leaving.delete(cid); discards.delete(cid); notify();
+      leaving.delete(cid); pendingDiscards.delete(cid); discards.delete(cid); notify();
     }
   }
   await storage('readwrite', store => {

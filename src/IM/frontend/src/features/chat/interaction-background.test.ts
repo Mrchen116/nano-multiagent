@@ -19,6 +19,7 @@ import {
   resetInteractionBackground,
   resumeConversation,
   retryDraft,
+  retryPendingDiscards,
   type DraftHandle
 } from './interaction-background';
 
@@ -189,7 +190,7 @@ describe('leave watermark', () => {
     const clearing = deferred<{discarded_through: string}>();
     vi.mocked(discardInteractionBackground).mockReturnValueOnce(clearing.promise);
     const left = discardOnLeave('chat');
-    await Promise.resolve();
+    await vi.waitFor(() => expect(discardInteractionBackground).toHaveBeenCalledTimes(1));
     await loadWatermarks('u2');
     noteDraftSaved('chat', T1);
     await awaitWatermarkWrite();
@@ -214,6 +215,17 @@ describe('leave watermark', () => {
     await forgetInteractionBackground('u1');
     await loadWatermarks('u1');
     expect(draftWatermark('other')).toBeUndefined();
+  });
+
+  it('does not rehydrate ownership revoked while the database was opening', async () => {
+    await loadWatermarks('u1');
+    noteDraftSaved('chat', T1);
+    await awaitWatermarkWrite();
+    resetInteractionBackground();
+    const loading = loadWatermarks('u1');
+    const revoked = forgetInteractionBackground('u1', 'chat');
+    await Promise.all([loading, revoked]);
+    expect(draftWatermark('chat')).toBeUndefined();
   });
 
   it('bounds the stored watermarks so a long-lived browser cannot grow without limit', async () => {
@@ -264,6 +276,40 @@ describe('leave watermark', () => {
     expect(draftWatermark('chat')).toBeUndefined();
   });
 
+  it('does not discard a saved unsent edit on a foreground or a reload', async () => {
+    await loadWatermarks('u1');
+    noteDraftSaved('chat', T1);
+    await awaitWatermarkWrite();
+    await retryPendingDiscards();
+    resetInteractionBackground();
+    await loadWatermarks('u1');
+    await retryPendingDiscards();
+    expect(discardInteractionBackground).not.toHaveBeenCalled();
+    expect(draftWatermark('chat')).toBe(T1);
+  });
+
+  it('retries a failed explicit leave after reload without clearing a newer edit', async () => {
+    await loadWatermarks('u1');
+    noteDraftSaved('chat', T1);
+    await awaitWatermarkWrite();
+    vi.mocked(discardInteractionBackground).mockResolvedValueOnce(null);
+    await discardOnLeave('chat');
+    resetInteractionBackground();
+    await loadWatermarks('u1');
+    resumeConversation('chat');
+    noteDraftSaved('chat', T2);
+    await awaitWatermarkWrite();
+    vi.mocked(discardInteractionBackground).mockResolvedValueOnce({discarded_through: T1});
+    await retryPendingDiscards();
+    expect(discardInteractionBackground).toHaveBeenNthCalledWith(2, 'chat', T1);
+    expect(draftWatermark('chat')).toBe(T2);
+    resetInteractionBackground();
+    await loadWatermarks('u1');
+    await retryPendingDiscards();
+    expect(discardInteractionBackground).toHaveBeenCalledTimes(2);
+    expect(draftWatermark('chat')).toBe(T2);
+  });
+
   it('serialises clears and sends a second one for a save that lands after the leave', async () => {
     await loadWatermarks('u1');
     const first = deferred<{ discarded_through: string } | null>();
@@ -277,8 +323,7 @@ describe('leave watermark', () => {
     // The debounced PUT was already in flight when the user switched; its response (and this
     // device's own confirmed time) arrives after the clear was sent.
     noteDraftSaved('chat', T2);
-    await Promise.resolve();
-    expect(discardInteractionBackground).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(discardInteractionBackground).toHaveBeenCalledTimes(1));
 
     first.resolve({ discarded_through: T1 });
     await leaving;
