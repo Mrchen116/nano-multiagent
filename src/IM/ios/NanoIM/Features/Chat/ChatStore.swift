@@ -14,7 +14,9 @@ final class ChatStore {
     var uploadDrafts: [String: [AttachmentUpload]] = [:]
     var pending: [String: PendingSend] = [:]
     var interactionPending: [String: PendingSend] = [:]
-    var interactionSelections: [String: InteractionSelection] = [:]
+    let interactionDrafts: InteractionDraftCoordinator
+    private var draftBlockedChats: Set<String> = []
+    private(set) var interactionEpoch = UUID()
     var interactionSending: Set<String> = []
     private var interactionConversations: [String: String] = [:]
     var sending: Set<String> = []
@@ -25,7 +27,11 @@ final class ChatStore {
         let text: String
     }
     var composeRequest: ComposeRequest?
-    var selectedID: String?
+    var selectedID: String? {
+        didSet {
+            if let oldValue, oldValue != selectedID { interactionDrafts.leave(oldValue) }
+        }
+    }
     var connectionText = ""
     var listError: String?
     var listLoaded = false
@@ -45,6 +51,7 @@ final class ChatStore {
 
     init(client: IMClient, user: AuthUser) {
         self.client = client; self.user = user; self.stream = UserStream(client: client)
+        self.interactionDrafts = InteractionDraftCoordinator(client: client, userID: user.id)
         restoreAttempts()
     }
     private func restoreAttempts() {
@@ -82,9 +89,10 @@ final class ChatStore {
         Task { await stream.stop() }
     }
     func clear() {
-        sendEpoch = UUID()
+        sendEpoch = UUID(); interactionEpoch = UUID()
         stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []; inspectedConversation = nil
-        interactionPending = [:]; interactionConversations = [:]; interactionSelections = [:]; interactionSending = []; sending = []
+        interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
+        selectedID = nil; interactionDrafts.clear(); draftBlockedChats = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil; listLoaded = false
     }
     func run() async {
@@ -102,6 +110,8 @@ final class ChatStore {
                 guard token == epoch, !Task.isCancelled else { return }
                 await reconcile(sync.items)
                 await recoverPending()
+                await interactionDrafts.foreground(activeConversation: selectedID)
+                if let selectedID, interactionDrafts.failure(selectedID)?.reason == .transient { _ = await flushDrafts(selectedID) }
                 guard token == epoch, !Task.isCancelled else { return }
                 notificationFloor = sync.max_event_id
                 if cursor == nil { cursor = sync.max_event_id }
@@ -187,7 +197,7 @@ final class ChatStore {
         if let inspectedConversation { allowed.insert(inspectedConversation.id) }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
-        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values) where !allowed.contains(id) {
+        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values).union(interactionDrafts.watermarks.keys) where !allowed.contains(id) {
             await revokeConversation(id)
             guard token == epoch else { return }
             errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
@@ -311,19 +321,23 @@ final class ChatStore {
         let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
         guard chat?.can_write != false else { return }
         guard !sending.contains(id), !checkingAccess.contains(id), !revokedChats.contains(id) else { return }
+        let token = sendEpoch
         sending.insert(id)
-        defer { sending.remove(id) }
+        defer { if token == sendEpoch { sending.remove(id) } }
+        // This click owns this text/files, not edits made while the draft PUT is awaited.
+        let clickedContent = drafts[id] ?? "", clickedFiles = textOnly ? [] : attachments[id] ?? []
+        guard await flushDrafts(id), token == sendEpoch else { return }
         if !retry {
             guard pending[id] == nil, !(uploadDrafts[id] ?? []).contains(where: \.uploading),
                   textOnly || (uploadDrafts[id] ?? []).isEmpty else { return }
-            let content = drafts[id] ?? "", files = textOnly ? [] : attachments[id] ?? []
+            let content = clickedContent, files = clickedFiles
             guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return }
             do {
-                let token = sendEpoch, revision = try await sessionRevision()
+                let revision = try await sessionRevision()
                 guard token == sendEpoch else { return }
                 guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
                 let draft = try client.prepareMessage(PendingSend(content: content, attachments: files), userID: user.id,
-                    participants: chat?.participants ?? [], contexts: backgroundContexts(id, chat: chat))
+                    participants: chat?.participants ?? [])
                 let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
                 try await client.session.saveSendAttempt(attempt, userID: user.id, revision: revision)
                 guard token == sendEpoch else { return }
@@ -332,7 +346,6 @@ final class ChatStore {
         }
         guard let draft = pending[id] else { return }
         let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
-        let token = sendEpoch
         errors[id] = nil
         do {
             _ = try await resolveAttempt(attempt, lookup: retry, resend: true)
@@ -351,13 +364,16 @@ final class ChatStore {
 
     func submitInteraction(_ id: String, input: InteractionReplyInput, key: String) async throws -> ChatMessage {
         try requireWritable(id)
+        let token = sendEpoch
+        guard await flushDrafts(id) else { throw APIError(status: 0, detail: errors[id] ?? "Draft not saved") }
+        guard token == sendEpoch else { throw CancellationError() }
         let source = input.source_message_id
         guard interactionPending[source] == nil, !interactionSending.contains(source) else {
             throw APIError(status: 0, detail: unconfirmedText)
         }
         interactionSending.insert(source)
-        defer { interactionSending.remove(source) }
-        let token = sendEpoch, revision = try await sessionRevision()
+        defer { if token == sendEpoch { interactionSending.remove(source) } }
+        let revision = try await sessionRevision()
         guard token == sendEpoch else { throw CancellationError() }
         try requireWritable(id)
         let draft = try client.prepareMessage(PendingSend(key: key, content: "", attachments: []), userID: user.id, interaction: input)
@@ -411,16 +427,22 @@ final class ChatStore {
         }
     }
 
-    private func backgroundContexts(_ id: String, chat: Conversation?) -> [InteractionContextInput] {
-        guard chat?.type == "direct" else { return [] }
-        let messages = (timelines[id] ?? []).compactMap(\.message)
-        let replaced = Set(messages.compactMap { $0.interactive?.supersedes_message_id })
-        return messages.enumerated().compactMap { index, message -> (InteractionSelection, Int)? in
-            guard let card = message.interactive, card.read_only != true, card.superseded_by == nil, !replaced.contains(message.id),
-                  let selection = interactionSelections[message.id], selection.conversationID == id else { return nil }
-            return (selection, index)
-        }.sorted { $0.0.editedAt == $1.0.editedAt ? $0.1 > $1.1 : $0.0.editedAt > $1.0.editedAt }.prefix(3)
-            .map { InteractionContextInput(source_message_id: $0.0.source_message_id, state: $0.0.state, interacted_at: $0.0.editedAt == 0 ? nil : $0.0.editedAt) }
+    func draftFailureChanged(_ id: String) {
+        guard (inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id })?.type != "group" else { return }
+        if interactionDrafts.failure(id) != nil {
+            draftBlockedChats.insert(id)
+            errors[id] = L("卡片改动尚未保存，这个会话暂时不能发送。", "Card changes are not saved. This conversation cannot send yet.")
+        } else if draftBlockedChats.remove(id) != nil { errors[id] = nil }
+    }
+
+    @discardableResult
+    func flushDrafts(_ id: String) async -> Bool {
+        let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
+        // Group drafts remain private until explicit submission; they cannot affect an ordinary send.
+        guard chat?.type != "group" else { return true }
+        let success = await interactionDrafts.flush(id)
+        draftFailureChanged(id)
+        return success
     }
 
     private func isCurrent(_ attempt: SendAttempt, token: UUID) -> Bool {
@@ -494,7 +516,7 @@ final class ChatStore {
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
             interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
         }
-        interactionSelections = interactionSelections.filter { $0.value.conversationID != id }
+        interactionDrafts.remove(id); draftBlockedChats.remove(id)
         try? await client.session.removeConversationAttempts(id, userID: user.id, revision: revision)
     }
     private func revokeConversation(_ id: String) async {

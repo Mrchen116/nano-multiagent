@@ -44,6 +44,9 @@ final class InteractiveRuntimeTests: XCTestCase {
         XCTAssertEqual(puts, 1)
         await transport.setConflict(false)
         await runtime.load()
+        XCTAssertEqual(runtime.state["$minutes"], .string("45"), "Generic reload must not discard a conflicting local edit")
+        _ = try await runtime.describeConflict()
+        await runtime.adoptRemote()
         XCTAssertFalse(runtime.conflict)
         XCTAssertEqual(runtime.state["$minutes"], .string("20"))
         runtime.leave()
@@ -158,7 +161,6 @@ final class InteractiveRuntimeTests: XCTestCase {
         try await waitFor(view, "document.querySelector('[role=radio][aria-checked=true]')?.textContent === '周三 14:00'")
         for _ in 0..<100 where runtime.state["$slot"] != .string("周三 14:00") { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(runtime.state["$slot"], .string("周三 14:00"))
-        XCTAssertEqual(runtime.chat.interactionSelections["card"]?.state["$slot"], .string("周三 14:00"))
         await runtime.flush()
         var sends = await transport.sends
         XCTAssertTrue(sends.isEmpty)
