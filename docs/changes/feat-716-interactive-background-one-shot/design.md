@@ -333,7 +333,7 @@ sequenceDiagram
 
 ### Context 影响（`docs/development/agent-context-engineering.md`）
 
-**Consumer**：卡片作者 Agent 的 `single-thread` / `inbox` 输入组装（`single-thread.ts:152`、`inbox.ts:347`）；以及有该 Agent Work 空间权限的人在原生轨迹里核查。
+**Consumer**：卡片作者 Agent 的 `single-thread` / Global Inbox 输入组装；以及有该 Agent Work 空间权限的人在原生轨迹里核查。文本拼接仍由 `withInteractionContext` 完成：single-thread 进入用户输入文本，Global 模式经 `read_messages` 的工具结果进入下一模型步。恢复实施的真实 daily 栈使用 Global 模式，不能把其实际 `tool/result` 误记为顶层 `user/message`；这只校正消费面描述，不改变拼接、入口或 Work 呈现。
 
 **Context Lifecycle**（来源 → 选择 → 组装 → 消费 → 过期）：
 
@@ -359,7 +359,7 @@ After   消息 1 正文 = 同格式同字段、同一条用户文本块；差别
 **Validation**：
 - 字节形状：`withInteractionContext(用户原话, undefined, [派生背景])` 与现状函数在同一组输入下逐字节相等（worker 快照测试，证明拼接未改）。
 - 请求级：断言 `relay_tasks.payload_json.metadata.interaction_contexts` 在“改动→发送 1→发送 2”里只有发送 1 有值，且只出现在卡片作者的 relay 行。
-- 模型实际消费：抽查一次真实 run 的 DSH 请求（`docs/development/llm-integration.md` 的 `llm_logs`），确认注入块出现在第一条用户输入、第二条没有。
+- 模型实际消费：优先按 `docs/development/llm-integration.md` 读取真实请求。恢复实施时声明的 `llm_logs` 没有本次请求；事项负责人决定不新建采集代理，只读取精确隔离测试 session 的既有 native 输入和随后模型行为，并明确缺少 HTTP/provider 序列化证据。Global 模式观察 `read_messages` 的 `tool/result`：第一条被读取消息含一块、第二条不含新背景；历史第一块仍在上下文中是预期，不宣称抹去历史。独立审查需判断该证据对选择/一次性目标的充分性，详见实施 evidence。
 - 呈现：本 unit 不改，只需确认查看器对同一份会话数据仍能显示原文（回归抽样，不新增断言）。
 
 ### 客户端改动要点
