@@ -6,6 +6,7 @@ import { BrowserControl } from '../src/browser/control.js';
 import { browserError, type BrowserError } from '../src/browser/errors.js';
 import { BrowserFixtureDriver, event, fakeAgent, humanMessage } from './helpers/browser-fakes.js';
 import { liveTurnSession } from '../src/policy/turn.js';
+import { ApprovalSources } from '../src/policy/sources.js';
 
 const NOW = 1_000_000;
 const workspaces: string[] = [];
@@ -80,6 +81,37 @@ it('resolves a subagent launch through the live parent turn and denies a broken 
   const orphan = fakeAgent('orphan', [event(1, NOW - 500, 'turn/start', { turn: 1 })], { origin: 'subagent', parentSession: 'gone' });
   const error = await failure(control.read(orphan, undefined, {}));
   expect(error.browserCode).toBe('browser_launch_requires_user_turn');
+  expect(driver.count('browser_prepare')).toBe(1);
+});
+
+it.each([
+  ['native', false], ['native', true], ['ptc', false], ['ptc', true],
+] as const)('connects live %s Inbox presence to a browser launch (child=%s) without treating a wake as human', async (transport, child) => {
+  const events = [
+    event(1, NOW - 1_000, 'turn/start', { turn: 1 }),
+    event(2, NOW - 500, 'user/message', { source: { kind: 'nano-system', channel: 'inbox' } }),
+  ];
+  const parent = fakeAgent('parent', events);
+  const request = child
+    ? fakeAgent('child', [event(1, NOW - 500, 'turn/start', { turn: 1 })], { origin: 'subagent', parentSession: 'parent' })
+    : parent;
+  const sources = new ApprovalSources();
+  const driver = new BrowserFixtureDriver();
+  const control = new BrowserControl({
+    driver, now: () => NOW,
+    lookup: id => id === parent.id ? liveTurnSession(parent) : undefined,
+    liveHumanTimes: (id, seq) => id === parent.id ? sources.liveHumanTimes(parent, seq) : [],
+  });
+  expect((await failure(control.read(request, undefined, {}))).browserCode).toBe('browser_launch_requires_user_turn');
+  expect(driver.count('browser_prepare')).toBe(0);
+  const content = [{ type: 'text', text: JSON.stringify({ delivery: 'participant', messages: [{
+    sender: { type: 'user' }, created_at: new Date(NOW - 500).toISOString(),
+  }] }) }];
+  sources.recordInbox(parent.id, 'inbox-call');
+  events.push(transport === 'native'
+    ? event(3, NOW, 'tool/result', { message: { toolCallId: 'inbox-call', content } })
+    : event(3, NOW, 'tool/ptc-dispatch', { name: 'inbox', subCallId: 'inbox-call', content }));
+  await expect(control.read(request, undefined, {})).resolves.toMatchObject({ read_id: 'r1' });
   expect(driver.count('browser_prepare')).toBe(1);
 });
 
