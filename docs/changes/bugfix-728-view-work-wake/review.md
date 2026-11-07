@@ -8,16 +8,17 @@ Active，待用户真实试用确认；独立审查固定模型配置存在能�
 
 - 执行者：#473 主实施者（独立工作区，非用户验收者）。
 - executed_base: `eeaea47921806936da20e78c9ed96167716f5037`。
-- validated_at / effective_through：后续冻结提交与最终结果以本报告更新记录为准。
+- validated_at / effective_through：`606ad3da50b508f7c6fabb97091f61ccb298ad0c`；下述最终回归均在该冻结实现上执行，后续报告补充不改变实现。
 - 本任务 dirty 范围：Work API/records/types；Web message-pane 链接与测试、Work panel/API/测试、双语提示；本 unit 文档与 backend focus 回归。主 checkout 的用户修改未操作。
 
 ## 自动化与静态检查
 
 - 最窄 backend 真实进程/socket：`pnpm exec vitest run apps/im-server/tests/e2e/work-message-focus.test.ts` 通过1项，覆盖同Agent25轮、最新页之外的早期回复、两条不同回复/重复早期定位、续页、过程读取、缺失锚点及认证。
-- 初轮 Web 相关：message-pane102项 + Work panel27项通过；后续补充延迟body后滚动/刷新不抢阅读回归，以最终完整 Web 结果更新。
-- `pnpm build`、`pnpm typecheck` 通过；前端 `tsc -b && vite build` 通过。
-- 完整 pnpm test 曾在共享机器 load≈34 时出现无关 DSH 集成超时，已取消该全并发运行，不能声称完整 runtime suite 通过；本地原始输出 `output/backend-tests.log`。已改为低并发 IM 回归，结果待收集。
-- 完整 Web suite 低并发运行中，结果待收集。
+- 最终完整 IM 回归低并发通过：65文件 / 405项，`pnpm exec vitest run apps/im-server/tests --maxWorkers=1`，本地原始输出 `output/im-tests.log`。
+- 最终完整 Web suite 低并发通过：113文件 / 1082项（含 message-pane102项、Work panel28项；后者覆盖延迟body后滚动/刷新不抢阅读），本地原始输出 `output/frontend-tests.log`。
+- `pnpm build`、`pnpm typecheck` 通过；冻结实现后再次前端 `tsc -b && vite build` 通过（已有大chunk提示，不影响构建成功）。
+- helper/contract pytest：135 passed / 28 deselected（`python -m pytest -m 'not e2e' -q`）；`ruff check .`、`scripts/docs-check`（279 maintained sources / 69 routes）、`git diff --check` 通过。
+- 完整 pnpm test 曾在共享机器 load≈34 时出现无关 DSH 集成超时，已取消该全并发运行，不能声称完整 runtime suite 通过；本地原始输出 `output/backend-tests.log`。以上低并发 IM 回归是实际通过的范围，不替代全 runtime suite。
 
 ## 真实用户路径：作者自测
 
@@ -33,7 +34,7 @@ Active，待用户真实试用确认；独立审查固定模型配置存在能�
 最终滚动方案实测：A/B目标行均位于 viewport top≈47.8px（固定主栏下方），open=true，直接看到工具，而非仅验证URL。首次空摘要阶段滚动过早的自检发现已修正为首批过程就绪后滚动一次。
 
 本地原始产物（不提交）：
-- `output/playwright/reply-a-work-final.png`、`reply-b-work.png`：1200×732实际画面。
+- `output/playwright/reply-a-work-final.png`、`reply-b-work.png`：1200×732实际画面；冻结实现production build重新加载后 `reply-a-frozen-build.png` 仍准确展开A及实际bash输出。
 - `.playwright-cli/page-2026-11-07T17-51-33-103Z.yml`：重复点击A的真实快照。
 - `.playwright-cli/page-2026-11-07T17-52-21-258Z.yml`：A的实际bash内容。
 - `output/playwright/delivery-provenance.json`：测试DB中两条真实投递事实，无凭据。
@@ -53,7 +54,7 @@ Active，待用户真实试用确认；独立审查固定模型配置存在能�
 2. 找到 P 的“定位验收 A…”和“定位验收 B…”两条回复，分别点击 View Work。
 3. 每次应进入 P Work 并直接展开对应Inbox唤醒；浏览器返回聊天，再点较早A复验。
 
-预览保留于 tmux `fix473-preview`，运行数据仅在本worktree。停止：`./scripts/e2e-down.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/fix-473-view-work`。不要重新执行up而清空供用户试用的两条记录。PR未合入及用户待试用，开发worktree保留。
+作者自建的 `fix473` 浏览器已关闭，预览服务按待试用要求保留于 tmux `fix473-preview`，运行数据仅在本worktree。停止：`./scripts/e2e-down.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/fix-473-view-work`。不要重新执行up而清空供用户试用的两条记录。PR未合入及用户待试用，开发worktree保留。
 
 ## 未完成收口
 
