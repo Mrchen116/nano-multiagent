@@ -69,7 +69,7 @@
 - 旧节点（不上报 `agent_work_modes`）注册新 Agent：仍记为 `single_thread`，与其实际运行能力一致；升级节点后该 Agent 不会自动变 global（工作模式不可变）。
 - 滚动升级顺序：不需要“先升节点再升服务端”。`global` 是节点侧一直合法的工作模式（`apps/node/src/configuration.ts:120` 的白名单、`packages/dsh-integration/src/global-mode.ts` 的既有实现），旧节点收到 global 正常执行；本次改的只是新建时选哪个值。
 - 升级前未完成的创建/更新操作：候选里若没有模式，指纹仍按 `single_thread` 计算，重放结果与升级前一致。
-- **已知且接受的升级窗口影响**：PA 代创建用 `pa_agent_creations.configuration_json` 做请求幂等（`personal-agent-creation.ts:69`），冻结值里模式是显式写在 JSON 里的。若某条 PA 创建请求在升级前冻结（当时解析为 `single_thread`）、在升级后才用同一 `request_key` 重放，新解析出的 `global` 会与之不一致，返回 `409 creation_request_key_conflict`。影响面仅为这一次重放：PA 换一个 `request_key` 重试即可成功，不产生错误数据、不误改既有 Agent。没有加“忽略模式差异”的兼容分支，是因为那会让幂等校验长期对模式变更失去防护，收益不抵成本。
+- **已知且接受的升级窗口影响**：PA 代创建用 `pa_agent_creations.configuration_json` 做请求幂等（`personal-agent-creation.ts:69`），冻结值里模式是显式写在 JSON 里的。若某条 PA 创建请求在升级前冻结（当时解析为 `single_thread`）、在升级后才用同一 `request_key` 重放，新解析出的 `global` 会与之不一致，返回 `409 creation_request_key_conflict`。保留原 `request_key`，通过 `action=status` 沿已冻结配置查询或恢复；已创建或 pending 时换 key 会因同一 `agent_id` 已存在而 409，不能用换 key 作为通用恢复方法。若 status 为 `not_started` 且原配置操作尚未建立，应以原 key 和原冻结配置（显式 `single_thread`）重试，避免把旧请求改成新默认模式。该窗口不会自动迁移既有 Agent。没有加“忽略模式差异”的兼容分支，是因为那会让幂等校验长期对模式变更失去防护，收益不抵成本。
 - 只回滚代码不回滚数据：已按 global 创建的 Agent 保持 global（该模式是合法且受支持的），不影响回滚后的读写。
 - 用户可见影响（既有模式语义，非本次新增限制）：新建 Agent 默认跨聊天持续工作，因此 Web 聊天内不再有权限卡片（`chat-streaming.ts:84` 对非 single_thread 返回 400），会话蒸馏的候选来源只包含 single_thread Agent（`conversation-actions.ts:212`、`:233`、`:424`）。这两条是 `global` 本来就有的语义，本次只是让新建默认值落到它上面；用户已确认这属于预期行为，本 unit 不改这些筛选条件，若日后要让蒸馏覆盖 global 需单独开 unit。
 
@@ -80,7 +80,7 @@
 
 ## 验证定位
 
-- 用户验收：待用户在创建页确认默认选中全局模式（本轮实现由指令驱动，未事先取得屏幕验收）。
+- 验收安排（2026-11-07）：原 PR 的用户亲测尚未发生；用户本轮明确委托“你测就行了，我交给你。”由独立 Agent 通过真实 Web 入口验证创建默认 global、显式 single_thread、旧 Agent 保持及模式不可切换。实际结果与证据记入 `acceptance.md`；不将委托验收写成用户已亲测。iOS 属默认字段和既有控件文案变化，复用 CI 的编译与测试，共享创建语义在 Web 验证，不宣称 iOS 实机体验通过。
 - 自动化测试：
   - `apps/im-server/tests/configuration-edits.test.ts`（新增：省略模式创建为 global，显式 single_thread 保持）
   - `apps/im-server/tests/configuration-boundaries.test.ts`（更新语义：null 保持存储值）

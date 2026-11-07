@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: 新建时选择工作模式，未选择时缺省全局，已有 Agent 保持原行为
+### Requirement: 新建时选择工作模式，已有 Agent 保持原行为
 
 创建页提供全局模式与单 Thread 两个选项，缺省选中全局模式；请求未携带模式时按全局模式创建。既有 Agent 的模式、聊天绑定与工具面板不因缺省值变化而改变。
 
