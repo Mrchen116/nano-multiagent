@@ -651,3 +651,18 @@ Gate 2 条件“最后一个完整 Round 为 Approved 且 0C/0W”在本轮成�
 - 一致性检索：三份文档无“8 跳”“直到实例消失”“按请求上溯”残留；“硬闸门”仅出现在 `design.md` L81 的说明句。
 - 静态取证（可判定性）：`@deepseek-ai/dsh-session` 类型 `types.d.ts` L262–264（`turn/start {turn}`）、L273（`turn/end {turn, reason}`）、L493/L495（事件信封 `seq`/`time`）；`input-source.ts` L22–25（`isHumanSource`）；`approval.ts` L78–82（现有 `turn/start` 之后读取输入的同一实现）。
 - `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 221 maintained Markdown sources, 68 required routes`（本节写入后复跑，源文件数不变）。
+
+
+## Round 5 — 恢复后 design delta 独立审查
+
+受审 HEAD `502bb35cc44a0571fec7383c6afa86e1ad3b5e0c`，branch `codex/feat-720`；开始/结束 clean。独立 Reviewer `137e71bb-9693-4052-817a-1faa412b1f4a`，未参与创作；change-design-reviewer + agent-context-review 设计模式。设计审查允许继承模型，原生派发未暴露精确型号/effort，不声称显式设置。**ISSUES FOUND / CHANGES REQUESTED，0 CRITICAL / 3 WARNING**；不是实现或验收批准。未运行驱动、浏览器、服务、模型或测试，未修改文件。
+
+| ID | 独立发现（原受审行号） | Author resolution，待复验 |
+|---|---|---|
+| R5-W1 | CONFIRMED：design:128/140 接受初始唯一 exact/about:blank，但 V4:399 仍要求 http(s)，与记录的首次使用纠正矛盾。 | 接受，V4 同步唯一 exact，http(s) 仅事件分类，弹窗半边保留。 |
+| R5-W2 | CONFIRMED：design:130 重扫选举可能将唯一 surviving popup 提升主窗口，违反 :131。control:365–375 实际 rescan/adopt，真实触发频率未测。 | 接受，恢复只重试原窗口，仍失败分类后关闭自持实例，不采纳其它窗口；补 sole http(s)/about:blank popup fixture。 |
+| R5-W3 | CONFIRMED：Global/PA 只送系统 Inbox wake，真人正文为 live Inbox tool/result；TurnGate 仅认祖先 user/message，承诺的根/子启动路径不通。不能将系统提醒改标真人；现有来源 seam 缺原始时间及 participant/observer 条件。 | 接受，复用 ApprovalSources 的本进程 live 标记，当前轮完整 participant 直接真人按原始 created_at 的 0…300s 判定；拒绝 restored/partial/observer/代发/非真人，读取不刷新时间。补真形状 fixture 与实际 Global 旅程。 |
+
+其他增量设计层 PASS：refs[].actions 供滚动锚点选择，outline 解析有真实响应依据，同轮归还后 relaunch 锁为有效收紧；隔离/背景动作/禁止动作/承诺原句/无第二套循环保持。非阻断 R5-R1：补祖先轮次锁、同轮新真人/新子、异步回读期间超窗/关闭仍记录消费轮次的证据，author 已补 M1。
+
+仍 OPEN：V2 >=2 归还前台、V4 弹窗半边、完整 V3 采样。V2 阻断发布，PR 披露不代替通过。旧 V1/V5/V6 仅归属旧执行者证据，V6 产品节点等价性仍需实际证明。
