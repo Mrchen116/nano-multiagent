@@ -117,7 +117,7 @@ Bugfix lite 在 `fix.md` 的“现象/复现”和“根因”两段完成后直
 Full unit 由 `change-design-author` 基于首文档、current specs 和真实代码产出：
 
 - `design.md`，包括现状、关键决策、接口与数据流、风险和回退，以及本次问题、能力和证据安排；
-- 前端相关 unit 的 `prototype.html`；
+- 有待通过画面或交互对齐的设计决定时，按 [原型边界](../../.agents/skills/frontend-experience-review/references/prototype-and-runbook.md#原型的判断范围) 提供或复用原型；
 - 面向 canonical specs 的 delta-spec；
 - milestone 表和仅含 `.gitkeep` 的 milestone 目录骨架。
 

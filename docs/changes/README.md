@@ -101,7 +101,7 @@ docs/changes/<unit-dir>/
 ├── design.md
 ├── deployment-prompt.md              # 可选；一次性部署迁移提示词
 ├── design-review.md                  # Gate 2 的全部 Round 与 Author Resolutions
-├── prototype.html                    # 仅前端相关
+├── prototype.html                    # 可选；有需视觉/交互对齐的设计决定，可复用已有原型
 ├── specs/                            # 对 canonical specs 的 delta
 │   └── <package>/<target>.md
 ├── M1-<slice>/

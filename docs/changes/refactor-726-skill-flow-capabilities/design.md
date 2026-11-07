@@ -2,6 +2,8 @@
 
 ## Changelog
 
+- 2026-11-07 (M1)：按用户反馈明确原型触发为需要视觉/交互对齐的设计决定，同步作者、模板、审查与流程引用；已有适用原型可复用。
+
 ## 现状分析
 
 基线为 `29e3f2947699fb92b382c5f61b4a1ef169a40ede`。`.agents/skills` 是受跟踪的真实目录，`.claude/skills` 是指向它的兼容 symlink，只改真实文件。现有 workflow 与 storage 分别管理生命周期和产物；orchestrator 的 validation、派发适配可复用。前端体验原则已有 prototype-and-runbook/ui-decision-gotchas，Context 规范和观测入口已有独立权威文档，不复制它们。
