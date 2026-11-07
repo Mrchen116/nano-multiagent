@@ -31,3 +31,7 @@
 - 实际审查后仅发生上述同义文字校正与证据归集。有效结论保留，原实际版本不改写为重跑；最终 effective_through 由交付提交定位，effective_base 仍为上述 base。本轮未纳入额外 main 增量。
 - 用户指定 develop 试验分支、暂不 main PR/合并/部署；尚待后续自然需求验证，unit 保留 active，worktree 保留。
 - 远端 CI 不运行：当前 workflow 仅 main push 或 PR 触发，本次 develop push 不触发。TS/Web/iOS 产品套件与真实产品验收 not_run，不能用本轮静态校验冒称这些已通过。
+
+## 原型边界后续校正
+
+用户要求同步设计 skill、模板和审查规则，并保持简短。独立审查者 `/root/implementation_review_726` 对 `1bfc5599c^..1bfc5599c` 作 patch 审查，findings=[]：触发条件、已有原型复用、正反两类审查与必要体验验证一致，无阻断。主 Agent 的 docs-check（278 sources/69 routes）、三个入口 quick_validate、diff check 通过，现行入口未残留旧的“前端相关即需原型”条件。这里只验证规则接线，后续自然任务行为仍待 develop 试验。
