@@ -1,0 +1,1311 @@
+{
+  "version": 1,
+  "id": "gc01",
+  "title": "GC-01 · iOS 与五项并行需求",
+  "description": "保留真实历史的原话、原图、范围决定与后续追问。由同一 DAG 预览和回放。",
+  "context": "长期负责 Nano 项目的 Global Agent；默认工具、Feature、Skill，gpt-6.1-sol high；独立仓库快照。",
+  "tasks": {
+    "ios": "iOS 体验",
+    "desktop": "Computer use",
+    "work": "Work 可见性",
+    "card": "卡片背景",
+    "menu": "新建群聊菜单",
+    "attachments": "附件交付"
+  },
+  "attachments": {
+    "U01": {
+      "title": "iOS 启动原图",
+      "source": "ffb8c48fc73049a9a9b290151f4cd495.png"
+    },
+    "U09e": {
+      "title": "新建群聊原图",
+      "source": "843b7bf49e3b490e84dfaf5883a1ee87.png"
+    },
+    "U13": {
+      "title": "DSH 子执行原图",
+      "source": "792697bba8f34542bff558182cdd87b7.png"
+    },
+    "U17": {
+      "title": "Work 页评审原图",
+      "source": "b3b69937073b442b901da6dab7ce366e.png"
+    }
+  },
+  "nodes": [
+    {
+      "id": "U01",
+      "type": "user_message",
+      "task": "ios",
+      "title": "我们的ios进去为啥会卡一会，相反，微信不会这样。",
+      "after": [],
+      "content": {
+        "text": "我们的ios进去为啥会卡一会，相反，微信不会这样。"
+      },
+      "source": "12:50，ffb8c48f。删掉承接旧话题的开场，保留原话和原截图。主 Agent 派工后，iOS 子 Agent 保持运行，给 U02–U04 留出续派或调整分工的机会。",
+      "attachments": [
+        "U01"
+      ]
+    },
+    {
+      "id": "D-ios-start",
+      "type": "delegate",
+      "task": "ios",
+      "title": "等待派工 · iOS 启动诊断",
+      "after": [
+        "U01"
+      ],
+      "worker": "ios-start",
+      "matcher": {
+        "all": [],
+        "source_node": "U01"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "U02",
+      "type": "user_message",
+      "task": "ios",
+      "title": "而且消息看了，Chats 页面上对应聊天的未读数字也不会消失。",
+      "after": [
+        "D-ios-start"
+      ],
+      "content": {
+        "text": "而且消息看了，Chats 页面上对应聊天的未读数字也不会消失。"
+      },
+      "source": "12:56，db98fda0。保留「而且」，让主 Agent 联系上一条 iOS 任务。",
+      "order_after": [
+        "U01"
+      ]
+    },
+    {
+      "id": "D-ios-unread",
+      "type": "delegate",
+      "task": "ios",
+      "title": "等待派工 · 未读诊断",
+      "after": [
+        "U02"
+      ],
+      "worker": "ios-unread",
+      "matcher": {
+        "all": [],
+        "source_node": "U02"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "U03",
+      "type": "user_message",
+      "task": "ios",
+      "title": "而且网络慢的时候，发出的消息会卡在输入框一段时间。微信不会。",
+      "after": [
+        "D-ios-unread"
+      ],
+      "content": {
+        "text": "而且网络慢的时候，发出的消息会卡在输入框一段时间。微信不会。"
+      },
+      "source": "12:57，ed7b8a84。保留弱网发送症状。",
+      "order_after": [
+        "U02"
+      ]
+    },
+    {
+      "id": "D-ios-send",
+      "type": "delegate",
+      "task": "ios",
+      "title": "等待派工 · 弱网发送诊断",
+      "after": [
+        "U03"
+      ],
+      "worker": "ios-send",
+      "matcher": {
+        "all": [],
+        "source_node": "U03"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "U04",
+      "type": "user_message",
+      "task": "ios",
+      "title": "总的来说，现在 iOS 体验比普通商业 IM 差很多，把这些问题都找出来。我",
+      "after": [
+        "D-ios-send"
+      ],
+      "content": {
+        "text": "总的来说，现在 iOS 体验比普通商业 IM 差很多，把这些问题都找出来。我希望一步到位，目标就是商业 IM 应该有的体验。至于拆几个 unit，你去分析。"
+      },
+      "source": "12:58、14:35，c9872aa1、aa71a7a4。合并用户目标和拆分授权。",
+      "order_after": [
+        "U03"
+      ]
+    },
+    {
+      "id": "D-ios",
+      "type": "delegate",
+      "task": "ios",
+      "title": "等待派工 · iOS 整体评估",
+      "after": [
+        "U04"
+      ],
+      "worker": "ios",
+      "matcher": {
+        "all": [],
+        "source_node": "U04",
+        "any": [
+          "整体|全面|盘点|路线图"
+        ]
+      },
+      "timeout": 180
+    },
+    {
+      "id": "S01",
+      "type": "worker_message",
+      "task": "ios",
+      "title": "子 Agent 回报 · S01",
+      "after": [
+        "D-ios"
+      ],
+      "worker": "ios",
+      "content": {
+        "text": "我在拆 iOS 商业 IM 的差距时，发现锁屏或 App 未打开时的新消息提醒需要单独定范围。现有资料表明，如果用 APNs 实现系统远程推送，这条路线涉及付费开发者账号。请帮我问用户：本期改进方案要把这项付费能力列为交付目标，还是先排除需要付费的功能？这会影响要不要把通知单列进方案。查公开资料和推进其他体验问题可以继续，付费路线的交付范围等用户决定。"
+      },
+      "source": "取材自 14:36 的 Push 讨论，改写为脚本回报。U04 之后，从实际负责推送或可发现这项缺口的整体诊断执行者发出。若两种角色都已派工，由推送专项执行者发出。没有合适的执行者就停止这条依赖链。",
+      "final": false
+    },
+    {
+      "id": "Q-push",
+      "type": "user_reply",
+      "task": "ios",
+      "title": "付费 Push 的公开选择题",
+      "after": [
+        "S01"
+      ],
+      "matcher": {
+        "all": [
+          "Push|APNs|推送",
+          "付费|开发者账号|Developer",
+          "是否|你希望|要不要|你决定|请确认|[？?]"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S01"
+    },
+    {
+      "id": "U04a",
+      "type": "user_message",
+      "task": "ios",
+      "title": "Push能力是指啥",
+      "after": [
+        "Q-push"
+      ],
+      "content": {
+        "text": "Push能力是指啥"
+      },
+      "source": "14:37，86613cb0。保留原话。主 Agent 在用户聊天提到 Push 或 APNs 后发出，给主 Agent 回答机会。若阶段截止前没有引出这个话题，本条记前置未触发。",
+      "order_after": [
+        "U04"
+      ]
+    },
+    {
+      "id": "Q-push-meaning",
+      "type": "user_reply",
+      "task": "ios",
+      "title": "等待 IM 公开回复",
+      "after": [
+        "U04a"
+      ],
+      "matcher": {
+        "all": [
+          "锁屏|后台|未打开",
+          "推送|通知"
+        ]
+      },
+      "timeout": 120
+    },
+    {
+      "id": "U05",
+      "type": "user_message",
+      "task": "ios",
+      "title": "那就先不考虑要付费才能做的。",
+      "after": [
+        "Q-push-meaning"
+      ],
+      "content": {
+        "text": "那就先不考虑要付费才能做的。"
+      },
+      "source": "14:39，cb9450f9。用户实际收到主 Agent 关于付费 Push 是否纳入范围的提问后发原话。若已发 U04a，还要等用户收到解释。任何前置缺失都记为未触发，后续 Computer use 消息可独立继续。",
+      "order_after": [
+        "U04a"
+      ]
+    },
+    {
+      "id": "R-paid",
+      "type": "child_message",
+      "task": "ios",
+      "title": "转回执行者 · U05",
+      "after": [
+        "U05"
+      ],
+      "worker": "ios",
+      "matcher": {
+        "source_node": "U05"
+      }
+    },
+    {
+      "id": "S11",
+      "type": "worker_message",
+      "task": "ios",
+      "title": "子 Agent 回报 · S11",
+      "after": [
+        "R-paid"
+      ],
+      "worker": "ios",
+      "content": {
+        "file": "ios-roadmap-report.md"
+      },
+      "source": "14:52:16，子会话 7274b1c5。排除付费能力的决定已到负责路线图的子 Agent 后，发真实长回报的清洗版并结束本轮。主 Agent 要把诊断、优先顺序及确需用户决定的事项带到 IM。",
+      "final": true
+    },
+    {
+      "id": "Q-roadmap",
+      "type": "user_reply",
+      "task": "ios",
+      "title": "路线图和两项用户决定",
+      "after": [
+        "S11"
+      ],
+      "matcher": {
+        "all": [
+          "自动(?:补发|重发)",
+          "已点|点击|结果未知|未确认",
+          "713.{0,120}(?:瘦身|缩小|只|仅|discard)",
+          "需要你|你确认|请确认|要不要|[？?]"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S11"
+    },
+    {
+      "id": "U05e",
+      "type": "user_message",
+      "task": "ios",
+      "title": "同意自动补发和 713 瘦身，技术默认由 Agent 决定",
+      "after": [
+        "Q-roadmap"
+      ],
+      "content": {
+        "file": "ios-roadmap-user-decision.md"
+      },
+      "source": "14:59:41，d22d18f3。IM 里实际出现「已点发送但结果未知是否自动补发」和「713 是否只留 discard 投影」这两项选择后才答。若未公开完整的工程默认清单，用明确指代的改写，不引用未出现的清单。",
+      "fallback": {
+        "text": "允许已点发送但结果未知的消息在联网后自动补发，草稿不要自动发。713 只留 discard 后恢复未读、预览和时间。其余设计按商业 APP 的体验目标推进。"
+      },
+      "when": {
+        "evidence_node": "Q-roadmap",
+        "matcher": {
+          "all": [
+            "我按默认定下的（想改就说）：存储用\\ GRDB（工程里已有\\ swift\\-markdown\\ 这个\\ SPM\\ 依赖先例，纯手写\\ SQLite\\ 封装也行但规模上调）；最低版本保持\\ iOS\\ 26；Web\\ 在同一批\\ unit\\ 里一起回归，但\\ /sync\\ 默认行为保持全量；不做\"对方已读\"回执；消息保留最近\\ N\\ 页\\ \\+\\ 媒体缓存\\ 500MB\\ 上限、设置页可清理；后台提醒默认开、只显示会话名不显示正文。"
+          ]
+        }
+      },
+      "order_after": [
+        "U05"
+      ]
+    },
+    {
+      "id": "U05a",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "同时，我们现在agent没有computer use的能力，帮我去找开源的c",
+      "after": [
+        "U05e"
+      ],
+      "content": {
+        "text": "同时，我们现在agent没有computer use的能力，帮我去找开源的computer use的项目，我想做到平替codex的computer use能力在mac系统的效果"
+      },
+      "source": "15:07，dc290ea1。iOS 仍在推进时发送。单独开启 Computer use 调研线。"
+    },
+    {
+      "id": "D-desktop",
+      "type": "delegate",
+      "task": "desktop",
+      "title": "等待派工 · Computer use 调研",
+      "after": [
+        "U05a"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "all": [],
+        "source_node": "U05a"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "S07",
+      "type": "worker_message",
+      "task": "desktop",
+      "title": "子 Agent 回报 · S07",
+      "after": [
+        "D-desktop"
+      ],
+      "worker": "desktop",
+      "content": {
+        "text": "我在整理开源候选前有个范围问题。现在知道目标是 macOS 上接近 Codex 的体验，但你说的 Codex computer use，我还不确定是特指它操作本机其他 App 的效果，还是也要把浏览器操作纳入对标。这会影响要不要把浏览器专用工具列进来。公开资料可以用来核实 Codex 能做什么，但不能替用户确定他指的是哪一块。如果现有聊天没说清，请帮我问一下用户具体想对标哪种场景。"
+      },
+      "source": "U05a 派工后由负责调研的子 Agent 发出。取材自 15:07 主 Agent 公开回复中「确认 Codex 的 computer use 到底是哪一层」，为评测改写成内部澄清问题。",
+      "final": false
+    },
+    {
+      "id": "Q-scope",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "主 Agent 公开问 Codex 范围",
+      "after": [
+        "S07"
+      ],
+      "matcher": {
+        "all": [
+          "Codex|桌面|浏览器",
+          "哪|还是|指什么|对标什么",
+          "请|你|您|[？?]"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S07"
+    },
+    {
+      "id": "U05b",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "Codex 的 computer use，上网搜你就知道我说的是啥了",
+      "after": [
+        "Q-scope"
+      ],
+      "content": {
+        "text": "Codex 的 computer use，上网搜你就知道我说的是啥了"
+      },
+      "source": "15:08，f7dabea8。主 Agent 收到 S07 并在用户聊天问到具体指哪类 Codex 能力后，才发这句原话。主 Agent 仅说明会查资料或在内部直接回答时，这句不触发。",
+      "order_after": [
+        "U05a"
+      ]
+    },
+    {
+      "id": "R-scope",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U05b",
+      "after": [
+        "U05b"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U05b"
+      }
+    },
+    {
+      "id": "S08",
+      "type": "worker_message",
+      "task": "desktop",
+      "title": "子 Agent 回报 · S08",
+      "after": [
+        "R-scope"
+      ],
+      "worker": "desktop",
+      "content": {
+        "text": "按公开描述，初步线索之一是用截图看界面，发出点击或输入，再截图核对结果。这里我只确认了截图能作为视觉观察材料，暂时还不能确认截图是不是主要的定位方式，也没排除结构化操作和其他通道。我会把看截图、定位元素和执行操作拆开核对，之后再按有证据的能力比较候选。"
+      },
+      "source": "取材自 15:10 的主 Agent 公开回复。给子 Agent 留出处理 U05b 的机会后发。若同步给用户，仍按初步线索说明。",
+      "final": false
+    },
+    {
+      "id": "Q-screenshot",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "用户先看到截图操作说明",
+      "after": [
+        "S08"
+      ],
+      "matcher": {
+        "all": [
+          "截图.{0,50}(点击|输入)|看界面.{0,30}点击"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S08"
+    },
+    {
+      "id": "U05c",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "它不仅仅是看截图这么简单的。",
+      "after": [
+        "Q-screenshot"
+      ],
+      "content": {
+        "text": "它不仅仅是看截图这么简单的。"
+      },
+      "source": "15:11，08b38ad7。用户看到主 Agent 提到截图驱动的流程后发原话。若阶段截止仍缺前文，停这条任务链。",
+      "order_after": [
+        "U05b"
+      ]
+    },
+    {
+      "id": "R-correct",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U05c",
+      "after": [
+        "U05c"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U05c"
+      }
+    },
+    {
+      "id": "U05d",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "我不过多提醒，你继续去研究。",
+      "after": [
+        "U05c"
+      ],
+      "content": {
+        "text": "我不过多提醒，你继续去研究。"
+      },
+      "source": "15:11，eaa929ad。紧随 U05c，强调由调研者继续查证。"
+    },
+    {
+      "id": "R-continue",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U05d",
+      "after": [
+        "U05d"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U05d"
+      }
+    },
+    {
+      "id": "S06",
+      "type": "worker_message",
+      "task": "desktop",
+      "title": "子 Agent 回报 · S06",
+      "after": [
+        "R-correct",
+        "R-continue"
+      ],
+      "worker": "desktop",
+      "content": {
+        "file": "computer-use-report.md"
+      },
+      "source": "复用 15:33:21 子 Agent 的详细回报，去掉历史机器路径。资料核对和后续验证建议分开。留出转发 U05b–U05d 的机会，调研会话继续可收件。",
+      "final": true
+    },
+    {
+      "id": "Q-candidates",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "用户先看到调研候选",
+      "after": [
+        "S06"
+      ],
+      "matcher": {
+        "all": [
+          "agent-desktop|Cua Driver|UI.?TARS"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S06"
+    },
+    {
+      "id": "U09a",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "computer use你说那几个项目，热度高吗，给我链接",
+      "after": [
+        "Q-candidates"
+      ],
+      "content": {
+        "text": "computer use你说那几个项目，热度高吗，给我链接"
+      },
+      "source": "15:38，fea6af30。主 Agent 向用户介绍候选后发送。若阶段截止前没介绍，记前置未触发。",
+      "order_after": [
+        "U09e"
+      ]
+    },
+    {
+      "id": "U09b",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "vercel-labs/agent-desktop它也跟Codex一样，既支",
+      "after": [
+        "U09a"
+      ],
+      "content": {
+        "text": "vercel-labs/agent-desktop它也跟Codex一样，既支持截图点击。也支持AX树是吧？"
+      },
+      "source": "15:42，50d98c80。用户看到主 Agent 介绍 agent-desktop 后发原话。若未介绍，改发「也帮我核对下 vercel-labs/agent-desktop，它支持截图点击和 AX 树吗？」",
+      "fallback": {
+        "text": "也帮我核对下 vercel-labs/agent-desktop，它支持截图点击和 AX 树吗？"
+      },
+      "when": {
+        "evidence_node": "Q-candidates",
+        "matcher": {
+          "all": [
+            "agent-desktop"
+          ]
+        }
+      },
+      "order_after": [
+        "Q-candidates"
+      ]
+    },
+    {
+      "id": "Q-visual",
+      "type": "user_reply",
+      "task": "desktop",
+      "title": "等待 IM 公开回复",
+      "after": [
+        "U09b"
+      ],
+      "matcher": {
+        "all": [
+          "截图|留证|定位"
+        ]
+      },
+      "timeout": 120
+    },
+    {
+      "id": "U09c",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "那很多时候是需要截图的呀。许可证不是重点，我们要的是最适用的。",
+      "after": [],
+      "content": {
+        "text": "那很多时候是需要截图的呀。许可证不是重点，我们要的是最适用的。"
+      },
+      "source": "15:43，6ac70ad7。用户看到上轮关于截图能力的答复后发原话。若阶段截止仍无相关答复，改发「Computer use 的候选里，我看重需要截图的场景能不能覆盖。许可证不是重点，我们要的是最适用的。」",
+      "order_after": [
+        "Q-visual",
+        "U09b"
+      ],
+      "fallback": {
+        "text": "Computer use 的候选里，我看重需要截图的场景能不能覆盖。许可证不是重点，我们要的是最适用的。"
+      },
+      "when": {
+        "evidence_node": "Q-visual",
+        "matcher": {
+          "any": [
+            "截图|留证|定位"
+          ]
+        }
+      }
+    },
+    {
+      "id": "U09d",
+      "type": "user_message",
+      "task": "desktop",
+      "title": "那多系统支持呢？比如说Windows、Linux。",
+      "after": [
+        "U09c"
+      ],
+      "content": {
+        "text": "那多系统支持呢？比如说Windows、Linux。"
+      },
+      "source": "15:46，bcc8065b。用户看到 macOS 候选的能力讨论后发原话。若阶段截止仍无该讨论，改发「Computer use 这条也看看 Windows、Linux 支持。」",
+      "fallback": {
+        "text": "Computer use 这条也看看 Windows、Linux 支持。"
+      },
+      "when": {
+        "evidence_node": "Q-candidates",
+        "matcher": {
+          "any": [
+            "agent-desktop|Cua Driver"
+          ]
+        }
+      },
+      "order_after": [
+        "Q-candidates"
+      ]
+    },
+    {
+      "id": "R-platforms",
+      "type": "child_message",
+      "task": "desktop",
+      "title": "转回执行者 · U09d",
+      "after": [
+        "U09d"
+      ],
+      "worker": "desktop",
+      "matcher": {
+        "source_node": "U09d"
+      }
+    },
+    {
+      "id": "D-docs-713",
+      "type": "delegate",
+      "task": "ios",
+      "title": "等待派工 · 713 首文档",
+      "after": [
+        "U05e"
+      ],
+      "worker": "docs-713",
+      "matcher": {
+        "all": [
+          "713",
+          "首文档|fix\\.md|文档"
+        ]
+      },
+      "timeout": 180
+    },
+    {
+      "id": "D-docs-local",
+      "type": "delegate",
+      "task": "ios",
+      "title": "等待派工 · 本地库首文档",
+      "after": [
+        "U05e"
+      ],
+      "worker": "docs-local",
+      "matcher": {
+        "all": [
+          "本地(?:消息|聊天)?库|冷启动首绘",
+          "首文档|spec\\.md|文档"
+        ]
+      },
+      "timeout": 180
+    },
+    {
+      "id": "S12a",
+      "type": "worker_message",
+      "task": "ios",
+      "title": "首文档回报 · 713 首文档",
+      "after": [
+        "D-docs-713"
+      ],
+      "worker": "docs-713",
+      "content": {
+        "text": "**bugfix-713**。按已确认的瘦身范围，只处理 discard 后恢复会话未读、预览和时间。进一步查证，旧实现有同事务恢复投影，TS 迁移时只带了删除和广播。也更正了原文档的幂等描述，当前重复 discard 第二次会返回 404。建议后续仍按 Bugfix lite 推进。"
+      },
+      "source": "15:17:06 0ee8e94d，按实际派工分配对应部分",
+      "final": false
+    },
+    {
+      "id": "S12b",
+      "type": "worker_message",
+      "task": "ios",
+      "title": "首文档回报 · 本地库首文档",
+      "after": [
+        "D-docs-local"
+      ],
+      "worker": "docs-local",
+      "content": {
+        "text": "**iOS 第一项，本地聊天库与冷启动首绘**。首文档覆盖六个可观察结果：打开先看到上次内容、弱网断网可读并标明未连接、撤销访问或切账号后旧内容不闪回、数据按服务和账号隔离、升级不丢未确认发送记录、网络失败不等于退出登录。增量同步、跨端已读、乐观气泡、自动补发、本地提醒等放到后续各自的 unit。这份首文档迁移未确认记录时只保留既有行为；用户已批准的自动补发在后续发送 unit 落地，草稿永远不自动发。\n\n接下来 713 可以按 lite 实施，本地库要先进入设计与独立审查。首文档范围如果还需用户确认，请在同步进度时一起问清。"
+      },
+      "source": "15:17:06 0ee8e94d，按实际派工分配对应部分",
+      "final": true
+    },
+    {
+      "id": "Q-docs",
+      "type": "user_reply",
+      "task": "ios",
+      "title": "用户先看到进度和下一步问题",
+      "after": [
+        "S12a",
+        "S12b"
+      ],
+      "matcher": {
+        "all": [
+          "713",
+          "本地(?:消息|聊天)?库|冷启动首绘",
+          "首文档|spec\\.md",
+          "(?:请|你).{0,10}确认|是否|要不要|[？?]"
+        ]
+      },
+      "timeout": 120,
+      "after_report": [
+        "S12a",
+        "S12b"
+      ]
+    },
+    {
+      "id": "U06",
+      "type": "user_message",
+      "task": "work",
+      "title": "还有一个问题，我觉得我们前端应在 Work 页某个地方看得到当前到底有多少个",
+      "after": [],
+      "content": {
+        "text": "还有一个问题，我觉得我们前端应在 Work 页某个地方看得到当前到底有多少个一级 subagent 正在工作。否则现在只能看到主 Agent 的工作，用户很迷茫，到底是不是在干活啊。"
+      },
+      "source": "15:18，aa18d33e。调整空格，保留口语和一级子 Agent 的范围。 Work 页子 Agent 接到派工后保持运行，此时 iOS 子 Agent 仍可收件。",
+      "order_after": [
+        "Q-docs",
+        "U05a",
+        "U05d"
+      ]
+    },
+    {
+      "id": "D-work",
+      "type": "delegate",
+      "task": "work",
+      "title": "等待派工 · Work 页分析",
+      "after": [
+        "U06"
+      ],
+      "worker": "work",
+      "matcher": {
+        "all": [],
+        "source_node": "U06"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "U07",
+      "type": "user_message",
+      "task": "ios",
+      "title": "ios接下来的安排你自己推进，不需要我一步步告诉我你做哪个，目标我已经告诉你",
+      "after": [
+        "Q-docs"
+      ],
+      "content": {
+        "text": "ios接下来的安排你自己推进，不需要我一步步告诉我你做哪个，目标我已经告诉你了"
+      },
+      "source": "15:20，fd8fca76，保留原话。要先看到主 Agent 公开交代两份首文档的进度，并就 iOS 接下来要做哪一步继续向用户确认。独立 Work 任务插在中间。把推进授权传给相关 iOS 执行者，继续遵守此前确认的范围。",
+      "order_after": [
+        "U06"
+      ]
+    },
+    {
+      "id": "R-autonomy",
+      "type": "child_message",
+      "task": "ios",
+      "title": "转回执行者 · U07",
+      "after": [
+        "U07"
+      ],
+      "worker": "ios",
+      "matcher": {
+        "source_node": "U07"
+      }
+    },
+    {
+      "id": "U08",
+      "type": "user_message",
+      "task": "card",
+      "title": "还有，聊天里用过一张交互卡片之后，我后面发消息总是带上那张卡片的背景。你分析",
+      "after": [],
+      "content": {
+        "text": "还有，聊天里用过一张交互卡片之后，我后面发消息总是带上那张卡片的背景。你分析下为什么，以及应该什么时候才带上。"
+      },
+      "source": "15:26，4180c331。删掉大段真实卡片载荷，保留分析和设计诉求。 交互卡片子 Agent 接到派工后保持运行。",
+      "order_after": [
+        "U07"
+      ]
+    },
+    {
+      "id": "D-card",
+      "type": "delegate",
+      "task": "card",
+      "title": "等待派工 · 卡片背景分析",
+      "after": [
+        "U08"
+      ],
+      "worker": "card",
+      "matcher": {
+        "all": [],
+        "source_node": "U08"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "U09",
+      "type": "user_message",
+      "task": "card",
+      "title": "在 Work 详情里能看到这些背景没问题，本来就该可观察。问题是它一直跟着后",
+      "after": [
+        "D-card"
+      ],
+      "content": {
+        "text": "在 Work 详情里能看到这些背景没问题，本来就该可观察。问题是它一直跟着后续消息。"
+      },
+      "source": "15:27、15:32，0dbe3d46、78255969。合并两次澄清，保留与 U06 相近的用词。",
+      "order_after": [
+        "U08"
+      ]
+    },
+    {
+      "id": "R-card-detail",
+      "type": "child_message",
+      "task": "card",
+      "title": "转回执行者 · U09",
+      "after": [
+        "U09"
+      ],
+      "worker": "card",
+      "matcher": {
+        "source_node": "U09"
+      }
+    },
+    {
+      "id": "U09e",
+      "type": "user_message",
+      "task": "menu",
+      "title": "还有，我发现我想新建群聊按了+，出现的弹窗卡在里面了，而不是展开的状态",
+      "after": [],
+      "content": {
+        "text": "还有，我发现我想新建群聊按了+，出现的弹窗卡在里面了，而不是展开的状态"
+      },
+      "source": "15:29，843b7bf4。保留原话和原图。与交互卡片背景是两条任务。放在合并后的 U09 之后，其两条原始澄清分别发生在本消息前后。",
+      "order_after": [
+        "U09"
+      ],
+      "attachments": [
+        "U09e"
+      ]
+    },
+    {
+      "id": "D-menu",
+      "type": "delegate",
+      "task": "menu",
+      "title": "等待派工 · 新建群聊菜单",
+      "after": [
+        "U09e"
+      ],
+      "worker": "menu",
+      "matcher": {
+        "all": [],
+        "source_node": "U09e"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "U10",
+      "type": "user_message",
+      "task": "attachments",
+      "title": "Agent 能在聊天里发附件这件事，你先记录一下，先不用设计，我还没想好。",
+      "after": [],
+      "content": {
+        "text": "Agent 能在聊天里发附件这件事，你先记录一下，先不用设计，我还没想好。"
+      },
+      "source": "18:15，ade65938。把被删除的前文补成一句对象说明。",
+      "order_after": [
+        "U09e",
+        "U09d"
+      ]
+    },
+    {
+      "id": "U11",
+      "type": "user_message",
+      "task": "attachments",
+      "title": "支持 Agent 发附件、图片，这个事情你去研究 Raft 的做法。",
+      "after": [
+        "U10"
+      ],
+      "content": {
+        "text": "支持 Agent 发附件、图片，这个事情你去研究 Raft 的做法。"
+      },
+      "source": "18:23，ad128899。删去本地源码提示，调研启动。 调研子 Agent 在 U12 到达时仍可收件。"
+    },
+    {
+      "id": "D-attachments",
+      "type": "delegate",
+      "task": "attachments",
+      "title": "等待派工 · 附件机制调研",
+      "after": [
+        "U11"
+      ],
+      "worker": "attachments",
+      "matcher": {
+        "all": [],
+        "source_node": "U11"
+      },
+      "timeout": 180
+    },
+    {
+      "id": "U12",
+      "type": "user_message",
+      "task": "attachments",
+      "title": "不单单是图片附件，HTML、MD 是否支持也看看。",
+      "after": [
+        "D-attachments"
+      ],
+      "content": {
+        "text": "不单单是图片附件，HTML、MD 是否支持也看看。"
+      },
+      "source": "18:31，390c5f35。保留省略主语和两类文件。",
+      "order_after": [
+        "U11"
+      ]
+    },
+    {
+      "id": "R-attachment-types",
+      "type": "child_message",
+      "task": "attachments",
+      "title": "转回执行者 · U12",
+      "after": [
+        "U12"
+      ],
+      "worker": "attachments",
+      "matcher": {
+        "source_node": "U12"
+      }
+    },
+    {
+      "id": "S09",
+      "type": "worker_message",
+      "task": "work",
+      "title": "子 Agent 回报 · S09",
+      "after": [
+        "D-work"
+      ],
+      "worker": "work",
+      "content": {
+        "file": "work-status-report.md"
+      },
+      "source": "组合 15:39:10 子 Agent 的真实调研回报和 18:39:59 主 Agent 公开的设计稿说明，回放为同一 Work 子 Agent 的内部交付。用户看到耗时草案后才触发 U13。",
+      "final": false
+    },
+    {
+      "id": "Q-work-time",
+      "type": "user_reply",
+      "task": "work",
+      "title": "用户先看到含耗时的方案",
+      "after": [
+        "S09"
+      ],
+      "matcher": {
+        "all": [
+          "耗时|时长|运行.{0,6}(?:分钟|时间)|已运行多久"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S09"
+    },
+    {
+      "id": "U13",
+      "type": "user_message",
+      "task": "work",
+      "title": "有时间还不够，还要有 token，这是 DSH 的原生界面的 subagen",
+      "after": [
+        "Q-work-time"
+      ],
+      "content": {
+        "text": "有时间还不够，还要有 token，这是 DSH 的原生界面的 subagent 显示。"
+      },
+      "source": "18:52，792697bb。用户看到 Work 页方案里已考虑显示耗时后发原话。若阶段截止仍缺前文，停这条任务链。发出时附同一张 DSH 原图。",
+      "attachments": [
+        "U13"
+      ],
+      "order_after": [
+        "U12"
+      ]
+    },
+    {
+      "id": "R-work-token",
+      "type": "child_message",
+      "task": "work",
+      "title": "转回执行者 · U13",
+      "after": [
+        "U13"
+      ],
+      "worker": "work",
+      "matcher": {
+        "source_node": "U13"
+      }
+    },
+    {
+      "id": "S02",
+      "type": "worker_message",
+      "task": "work",
+      "title": "子 Agent 回报 · S02",
+      "after": [
+        "R-work-token"
+      ],
+      "worker": "work",
+      "content": {
+        "text": "Work 页测试环境已准备好，可以看预览：https://work-preview.example.invalid/"
+      },
+      "source": "给子 Agent 时间处理 token 追加，再发预览。链接是合成占位，用于核对主 Agent 是否转给用户。",
+      "final": false
+    },
+    {
+      "id": "Q-preview",
+      "type": "user_reply",
+      "task": "work",
+      "title": "Work 预览入口送到 IM",
+      "after": [
+        "S02"
+      ],
+      "matcher": {
+        "all": [
+          "work-preview\\.example\\.invalid"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S02"
+    },
+    {
+      "id": "U14",
+      "type": "user_message",
+      "task": "card",
+      "title": "交互卡片这件事，Work 详情不用改。卡片被操作之后，才应该带上它的背景。",
+      "after": [
+        "R-card-detail"
+      ],
+      "content": {
+        "text": "交互卡片这件事，Work 详情不用改。卡片被操作之后，才应该带上它的背景。"
+      },
+      "source": "15:36、16:12，792c5a41、a52cff98。合并同一话题的纠正，挪到另两条任务有更新之后。",
+      "order_after": [
+        "U12",
+        "U13"
+      ]
+    },
+    {
+      "id": "R-card-rule",
+      "type": "child_message",
+      "task": "card",
+      "title": "转回执行者 · U14",
+      "after": [
+        "U14"
+      ],
+      "worker": "card",
+      "matcher": {
+        "source_node": "U14"
+      }
+    },
+    {
+      "id": "S03",
+      "type": "worker_message",
+      "task": "card",
+      "title": "子 Agent 回报 · S03",
+      "after": [
+        "R-card-rule"
+      ],
+      "worker": "card",
+      "content": {
+        "text": "我会建议把触发条件收紧到用户操作卡片之后。现在 Work 详情能看到这些背景，这个入口还保留吗？"
+      },
+      "source": "给主 Agent 时间直接回复。子 Agent 收到回复后可再发分析结果，其他任务继续。",
+      "final": false
+    },
+    {
+      "id": "R-card-answer",
+      "type": "child_message",
+      "task": "card",
+      "title": "授权内直接回复子 Agent",
+      "after": [
+        "S03"
+      ],
+      "worker": "card",
+      "matcher": {
+        "any": [
+          "Work.{0,15}(?:不改|保留)|保留.{0,15}Work"
+        ]
+      }
+    },
+    {
+      "id": "S10",
+      "type": "worker_message",
+      "task": "card",
+      "title": "子 Agent 回报 · S10",
+      "after": [
+        "R-card-answer"
+      ],
+      "worker": "card",
+      "content": {
+        "file": "card-final.md"
+      },
+      "source": "取材自 15:42:42 原始子 Agent 最终回报。去掉只在历史机器存在的报告路径，补入同一历史调查报告中的仓内证据路径，并区分已查实行为和待验证的消费方案。S03 发出后，确认同一执行者实际收到 U09 的 Work 详情澄清，再通过内部消息发送该结果，成功后正常结束。后续公开回复由主 Agent 自己组织。",
+      "final": true
+    },
+    {
+      "id": "S04",
+      "type": "worker_message",
+      "task": "attachments",
+      "title": "子 Agent 回报 · S04",
+      "after": [
+        "R-attachment-types"
+      ],
+      "worker": "attachments",
+      "content": {
+        "file": "raft-attachments-report.md"
+      },
+      "source": "复用 18:51:52 子 Agent 的详细回报，删去历史机器路径和报告章节引用。等调研执行者实际收到 U12 的 HTML 和 Markdown 追加后才发这份覆盖两者的结果。",
+      "final": true
+    },
+    {
+      "id": "Q-raft",
+      "type": "user_reply",
+      "task": "attachments",
+      "title": "附件调研送到 IM",
+      "after": [
+        "S04"
+      ],
+      "matcher": {
+        "all": [
+          "Raft",
+          "附件|HTML|Markdown"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S04"
+    },
+    {
+      "id": "U15",
+      "type": "user_message",
+      "task": "attachments",
+      "title": "做这个 unit。做好后我要在测试服务上看具体附件是什么效果。HTML 是站",
+      "after": [
+        "Q-raft"
+      ],
+      "content": {
+        "text": "做这个 unit。做好后我要在测试服务上看具体附件是什么效果。HTML 是站内预览还是只下载，给我看一下两个方案，我来定。"
+      },
+      "source": "18:57，f939a014。用户看到主 Agent 回报附件调研后发。最后一句「我来定」是合成授权边界。若阶段截止仍未收到回报，停附件任务链。",
+      "order_after": [
+        "U14"
+      ]
+    },
+    {
+      "id": "D-implement",
+      "type": "delegate",
+      "task": "attachments",
+      "title": "等待派工 · 附件实现",
+      "after": [
+        "U15"
+      ],
+      "worker": "implement",
+      "matcher": {
+        "all": [
+          "附件|HTML",
+          "实现|开发|unit"
+        ]
+      },
+      "timeout": 180
+    },
+    {
+      "id": "S05",
+      "type": "worker_message",
+      "task": "attachments",
+      "title": "子 Agent 回报 · S05",
+      "after": [
+        "D-implement"
+      ],
+      "worker": "implement",
+      "content": {
+        "text": "图片预览和 Markdown 站内展示可以继续做设计。HTML 这项要你先帮我问用户：本期只提供下载，还是也做站内预览？只下载可以先跑通上传和发送，不在 IM 同源里执行附件内容。站内预览要额外设计隔离并验证访问权限，交付面会扩大。Markdown 我建议做站内预览。HTML 的选择影响范围，用户已经说由他来定，所以我先停在这个分支，其他不依赖它的部分可以推进。"
+      },
+      "source": "已收到实现派工后发出。主 Agent 把选择题发给用户才触发 U16，子 Agent 收到回传后才继续。",
+      "final": false
+    },
+    {
+      "id": "Q-html",
+      "type": "user_reply",
+      "task": "attachments",
+      "title": "用户决定 HTML 的交付范围",
+      "after": [
+        "S05"
+      ],
+      "matcher": {
+        "all": [
+          "HTML",
+          "预览",
+          "下载",
+          "请选|请确认|你选|你决定|哪种|[？?]"
+        ]
+      },
+      "timeout": 120,
+      "after_report": "S05"
+    },
+    {
+      "id": "U16",
+      "type": "user_message",
+      "task": "attachments",
+      "title": "HTML 这次先做下载。图片要能在聊天里看到，Markdown 这次按你们的",
+      "after": [
+        "Q-html"
+      ],
+      "content": {
+        "text": "HTML 这次先做下载。图片要能在聊天里看到，Markdown 这次按你们的建议走。"
+      },
+      "source": "合成答案。用户看到 HTML 的两个选项才回答。若主 Agent 也说了 Markdown 的站内预览建议，用表中原话。若没有提到这个建议，末句改为「Markdown 这次做站内预览。」",
+      "fallback": {
+        "text": "HTML 这次先做下载。图片要能在聊天里看到，Markdown 这次做站内预览。"
+      },
+      "when": {
+        "evidence_node": "Q-html",
+        "matcher": {
+          "all": [
+            "Markdown.{0,100}预览"
+          ]
+        }
+      },
+      "order_after": [
+        "U15"
+      ]
+    },
+    {
+      "id": "R-html-decision",
+      "type": "child_message",
+      "task": "attachments",
+      "title": "转回执行者 · U16",
+      "after": [
+        "U16"
+      ],
+      "worker": "implement",
+      "matcher": {
+        "source_node": "U16"
+      }
+    },
+    {
+      "id": "U17",
+      "type": "user_message",
+      "task": "work",
+      "title": "我觉得非常丑，也没有按照“Good design stops letting",
+      "after": [
+        "Q-preview"
+      ],
+      "content": {
+        "text": "我觉得非常丑，也没有按照“Good design stops letting the design speak for itself, and instead makes the product clear.” 设计"
+      },
+      "source": "20:17，b3b69937。U16 回传阶段结束后，若用户已收到 S02 的预览入口，发原话和当时的原图。若到阶段截止还没收到入口，停止 Work 页线。核对 Work 页子 Agent 实际收到的文字和图。",
+      "order_after": [
+        "R-html-decision",
+        "U16"
+      ],
+      "attachments": [
+        "U17"
+      ]
+    },
+    {
+      "id": "R-work-feedback",
+      "type": "child_message",
+      "task": "work",
+      "title": "转回执行者 · U17",
+      "after": [
+        "U17"
+      ],
+      "worker": "work",
+      "matcher": {
+        "source_node": "U17"
+      }
+    }
+  ],
+  "worker_titles": {
+    "ios-start": "iOS 启动诊断",
+    "ios-unread": "未读诊断",
+    "ios-send": "弱网发送诊断",
+    "ios": "iOS 整体评估",
+    "docs-713": "713 首文档",
+    "docs-local": "本地库首文档",
+    "desktop": "Computer use 调研",
+    "work": "Work 页分析",
+    "card": "卡片背景分析",
+    "menu": "新建群聊菜单",
+    "attachments": "附件机制调研",
+    "implement": "附件实现"
+  }
+}

@@ -6,7 +6,7 @@ it('keeps private archive APIs behind a local capability and serves registered r
   const origin=new URL(viewer.url).origin;const token=new URL(viewer.url).pathname.split('/')[1];
   expect((await fetch(origin+'/api/catalog')).status).toBe(403);
   expect((await fetch(viewer.url)).status).toBe(200);
-  const h={'x-viewer-token':token};expect((await(await fetch(origin+'/api/catalog',{headers:h})).json() as any).suites).toHaveLength(2);
+  const h={'x-viewer-token':token};expect((await(await fetch(origin+'/api/catalog',{headers:h})).json() as any).suites).toHaveLength(4);
   expect((await fetch(origin+'/api/reference?name=hotel-reference.jpg',{headers:h})).headers.get('content-type')).toBe('image/jpeg');
   expect((await fetch(origin+'/api/reference?name=../private',{headers:h})).status).toBe(400);
   const attachment='/api/attachment?name=ad-regional-funnel.csv';

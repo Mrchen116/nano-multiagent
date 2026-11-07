@@ -5,7 +5,7 @@ import {expect,it,vi} from 'vitest';
 
 it('keeps the latest case visible when an old native observer closes late',async()=>{
   const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
-  const source=(await readFile(new URL('./app.js',import.meta.url),'utf8')).replace("import {mountNative} from './native.js';",'');
+  const source=(await readFile(new URL('./app.js',import.meta.url),'utf8')).replace(/^import .*;$/gm,'');
   const dom=new JSDOM(html,{url:'http://localhost/token/',runScripts:'outside-only'});
   let finishClose!:()=>void;
   const closing=new Promise<void>(done=>{finishClose=done});
