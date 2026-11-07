@@ -46,7 +46,7 @@ docs/changes/
 
 示例：`feat-104-chat-mention-picker`、`bugfix-123-session-leak`。
 
-新建 unit 前先 `git fetch origin main`，核对本地修改并基于最新 `origin/main` 开始首文档。新编号统一执行：
+新建 unit 前先 `git fetch origin main`，核对本地修改和编号；按用户指定开发基线开始首文档，未指定时使用最新 `origin/main`。新编号统一执行：
 
 ```bash
 python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>

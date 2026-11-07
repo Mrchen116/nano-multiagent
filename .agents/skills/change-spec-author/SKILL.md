@@ -19,7 +19,7 @@ description: "需要建立 change unit 并对齐需求、问题或重构目标�
 
 ## 产物与完成
 
-新建前按 [编号与跨机推送规则](../../../docs/changes/README.md#命名与编号) fetch 并基于最新 main；随后在仓库根运行一次 [next_unit_id.py](scripts/next_unit_id.py) `<type>`，使用原子保留的编号；不重复调用来预览编号。命名与目录归属见 [changes](../../../docs/changes/README.md)。
+新建前按 [编号与跨机推送规则](../../../docs/changes/README.md#命名与编号) fetch 核对编号；开发基线沿用户指定分支，未指定时用最新 origin/main；随后在仓库根运行一次 [next_unit_id.py](scripts/next_unit_id.py) `<type>`，使用原子保留的编号；不重复调用来预览编号。命名与目录归属见 [changes](../../../docs/changes/README.md)。
 
 按类型选模板：新功能 [spec](assets/spec.md)，小 bug [fix](assets/fix.md)，Full bug [incident](assets/incident.md)，重构/性能 [motivation](assets/motivation.md)。填写时参考 [内容边界](references/authoring.md)，无需读取其他模板。
 

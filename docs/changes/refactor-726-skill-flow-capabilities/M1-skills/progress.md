@@ -19,3 +19,10 @@
 ## 交付边界
 
 本轮不启动 Nano 服务、不修改产品源码、不改生产；不运行 TS/Web/iOS 全套来替代 skill 验证。独立审查与有界演练结果归 ../review.md。develop 为用户自然需求试验基线，暂不创建 main PR，unit 保留 active；不能从静态校验推导 token 节省或真实需求可靠性。
+
+## 扩大检查
+
+- `pytest -m 'not e2e' -q` 首次：132 passed / 3 failed / 28 deselected（37.79s）。三个失败均为新 worktree 未安装 Node 依赖，公开 DSH export 检查明确报 Run pnpm install。
+- 用项目固定 Node 24.22.1 执行 `pnpm install --frozen-lockfile`，872 包从本机 store 复用，无 lockfile 修改；随后定向重跑三个 export 检查：3 passed / 10 deselected。没有把此定向结果写成第二次全套通过。
+- 全仓 `ruff check .` 与 `ruff format --check .`：通过，98 个 Python 文件格式符合。
+- 独立实现审查无存活 findings；非阻断提示为 design 模板旧注释仍把 worker 标准留给 PR 人审，已改为 review.md 承接。首文档入口同时消除“必须基于 main”与用户指定基线规则的文字歧义；不改变已审分支选择契约。
