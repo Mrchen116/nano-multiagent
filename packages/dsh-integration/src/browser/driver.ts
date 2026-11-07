@@ -195,7 +195,7 @@ export class DriverClient implements BrowserDriverLike {
           return;
         }
         if (!output.trim()) {
-          reject(browserError('browser_driver_malformed', `cua-driver ${args.join(' ')} 返回空 stdout。`));
+          reject(browserError('browser_driver_malformed', `cua-driver ${args.slice(0, 2).join(' ')} 返回空 stdout。`));
           return;
         }
         resolve({ stdout: output, stderr: errors, code });

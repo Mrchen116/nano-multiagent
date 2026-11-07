@@ -8,7 +8,7 @@ import { ReadRegistry, normalizeBoundWindow, selectTab, type BoundWindow, type D
 import { ScreenshotStore, pngSize } from './screenshots.js';
 import { WindowRegistry, choosePrimaryWindow, normalizeWindows, type BindProbe, type DriverWindow } from './windows.js';
 import { classifyNewWindows, type EventClassification } from './events.js';
-import { evaluateTurnGate, liveTurnSession, type TurnGateDecision, type TurnSession } from '../policy/turn.js';
+import { evaluateTurnGate, judgmentSession, openTurn, liveTurnSession, type TurnGateDecision, type TurnSession } from '../policy/turn.js';
 import { BROWSER_ACT_ACTIONS, DEFAULT_READ_CHARS, MAX_READ_CHARS, validateBrowserArguments, staticBrowserGuard } from './guard.js';
 
 const SESSION_LABEL = /^nano-br-[0-9a-f]{8}$/;
@@ -26,10 +26,12 @@ interface Instance {
 
 interface AgentState {
   instance?: Instance;
+  /** Original prepare ownership, independent of the mutable window registry. */
+  ownership?: { label: string; pid: string };
   /** A prepare is in flight; counts toward the process-wide instance cap. */
   launching?: boolean;
-  /** Turn in which a real-window release consumed the launch authorization. */
-  releasedTurn?: number;
+  /** Prevent new work from entering while queued disposal drains. */
+  disposing?: boolean;
   cooldown?: { failedAt: number; until: number; detail: string };
   queue: Promise<unknown>;
 }
@@ -38,6 +40,7 @@ export interface BrowserControlOptions {
   driver?: BrowserDriverLike;
   /** Live Agent registry used for subagent lineage; missing parents are chain breaks. */
   lookup: (id: string) => TurnSession | undefined;
+  liveHumanTimes?: (sessionId: string, afterSeq: number) => readonly number[];
   now?: () => number;
   screenshots?: ScreenshotStore;
   logger?: { warn: (...args: unknown[]) => void };
@@ -80,6 +83,7 @@ export interface BrowserReadResult {
   events?: EventClassification['events'];
   ignored?: EventClassification['ignored'];
   foreground_released?: true;
+  notice?: string;
 }
 
 export interface BrowserActResult {
@@ -94,7 +98,10 @@ export interface BrowserActResult {
   events?: EventClassification['events'];
   ignored?: EventClassification['ignored'];
   foreground_released?: true;
+  notice?: string;
 }
+
+interface TurnKey { sessionId: string; turnStartSeq: number }
 
 interface PageSnapshot {
   url: string;
@@ -114,10 +121,13 @@ export class BrowserControl {
   private readonly logger?: BrowserControlOptions['logger'];
   private readonly maxInstances: number;
   private readonly states = new Map<string, AgentState>();
+  private readonly consumedTurns = new Map<string, number>();
+  private readonly liveHumanTimes: NonNullable<BrowserControlOptions['liveHumanTimes']>;
 
   constructor(options: BrowserControlOptions) {
     this.driver = options.driver ?? new DriverClient();
     this.lookup = options.lookup;
+    this.liveHumanTimes = options.liveHumanTimes ?? (() => []);
     this.now = options.now ?? Date.now;
     this.screenshots = options.screenshots ?? new ScreenshotStore({ now: this.now });
     this.logger = options.logger;
@@ -152,27 +162,29 @@ export class BrowserControl {
       turnAllowed: presence?.allowed ?? true,
     });
     if (error) return error;
-    if (presence?.allowed && state.releasedTurn !== undefined && presence.turnStartSeq <= state.releasedTurn) {
+    if (needsLaunch && presence?.allowed && this.isConsumed(presence)) {
       return browserError('browser_launch_requires_user_turn', '真实新窗口已归还前台；继续操作需要新的用户轮次。');
     }
     return undefined;
   }
 
   /** Read a bounded snapshot from this Agent's own instance. */
-  async read(agent: Agent, workspace: string | undefined, args: BrowserReadArguments): Promise<BrowserReadResult> {
+  async read(agent: Agent, workspace: string | undefined, args: BrowserReadArguments, productAgentId: string = agent.id): Promise<BrowserReadResult> {
     const invalid = validateBrowserArguments('browser_read', args);
     if (invalid) throw invalid;
     return this.serial(agent.id, async () => {
       const state = this.assertUsable(agent.id);
+      const turn = this.requestTurn(agent);
+      const launched = !state.instance;
       const instance = await this.ensureInstance(agent, state);
       instance.windows.assertRequested(args.window_id);
-      const bound = await this.bindPrimary(instance);
+      const bound = await this.bindPrimary(state, instance, turn);
       const tab = selectTab(bound.tabs, args.tab);
       const page = await this.snapshot(instance, bound, tab, args.query, args.screenshot === true);
       const maxChars = Math.min(args.max_chars ?? DEFAULT_READ_CHARS, MAX_READ_CHARS);
       const text = page.text.slice(0, maxChars);
       const record = instance.reads.mint({ ...tab, url: page.url, title: page.title || tab.title }, page.text);
-      const screenshot = await this.saveScreenshot(workspace, agent.id, page.screenshot);
+      const screenshot = await this.saveScreenshot(workspace, productAgentId, page.screenshot);
       const events = await this.inspectWindows(instance);
       const base = {
         read_id: record.readId,
@@ -185,21 +197,24 @@ export class BrowserControl {
         ...(screenshot.omitted ? { screenshot_omitted: screenshot.omitted } : {}),
         ...(events.events.length ? { events: events.events } : {}),
         ...(events.ignored.length ? { ignored: events.ignored } : {}),
+        ...(launched ? { notice: '首次接入可能短暂占前台；不抢焦点地操作页面；新窗口或首次接入可能短暂占前台。' } : {}),
       } satisfies Omit<BrowserReadResult, 'foreground_released'>;
-      await this.finishEvents(agent, state, instance, events);
+      await this.finishEvents(state, instance, events, turn);
       return events.events.length ? { ...base, foreground_released: true } : base;
     });
   }
 
   /** Dispatch one page action after validating its snapshot cursor. */
-  async act(agent: Agent, workspace: string | undefined, args: BrowserActArguments): Promise<BrowserActResult> {
+  async act(agent: Agent, workspace: string | undefined, args: BrowserActArguments, productAgentId: string = agent.id): Promise<BrowserActResult> {
     const invalid = validateBrowserArguments('browser_act', args);
     if (invalid) throw invalid;
     return this.serial(agent.id, async () => {
       const state = this.assertUsable(agent.id);
+      const turn = this.requestTurn(agent);
+      const launched = !state.instance;
       const instance = await this.ensureInstance(agent, state);
       instance.windows.assertRequested(args.window_id);
-      const bound = await this.bindPrimary(instance);
+      const bound = await this.bindPrimary(state, instance, turn);
       const read = args.action === 'open'
         ? undefined
         : instance.reads.validate(args.read_id!, bound.tabs, args.tab);
@@ -237,17 +252,18 @@ export class BrowserControl {
         // The driver invalidates target/tab ids on every bind and may have
         // navigated during the action, so the readback starts from a fresh bind
         // and the current active tab.
-        const after = await this.bindPrimary(instance);
+        const after = await this.bindPrimary(state, instance, turn);
         const afterTab = selectTab(after.tabs);
         const readback = await this.snapshot(instance, after, afterTab, undefined, args.screenshot === true || args.action === 'scroll' && args.screenshot !== false);
         observed = { url: readback.url, title: readback.title, active: afterTab.active };
         textAfter = readback.text.slice(0, DEFAULT_READ_CHARS);
         screenshotBase64 = readback.screenshot;
         effect = readback.url !== baselineUrl || baselineText !== undefined && readback.text !== baselineText ? 'changed' : 'unchanged';
-      } catch {
+      } catch (error) {
+        if (isBrowserError(error) && ['browser_session_lost', 'browser_foreground_release_failed'].includes(error.browserCode)) throw error;
         effect = 'unverifiable';
       }
-      const screenshot = await this.saveScreenshot(workspace, agent.id, screenshotBase64);
+      const screenshot = await this.saveScreenshot(workspace, productAgentId, screenshotBase64);
       // A failed readback bind may already have cleared and ended the instance;
       // there is then nothing meaningful to classify.
       const events = instance.windows.get() ? await this.inspectWindows(instance) : { events: [], ignored: [], unclassified: [] };
@@ -263,8 +279,9 @@ export class BrowserControl {
         ...(screenshot.omitted ? { screenshot_omitted: screenshot.omitted } : {}),
         ...(events.events.length ? { events: events.events } : {}),
         ...(events.ignored.length ? { ignored: events.ignored } : {}),
+        ...(launched ? { notice: '首次接入可能短暂占前台；不抢焦点地操作页面；新窗口或首次接入可能短暂占前台。' } : {}),
       };
-      await this.finishEvents(agent, state, instance, events);
+      await this.finishEvents(state, instance, events, turn);
       return events.events.length ? { ...result, foreground_released: true } : result;
     });
   }
@@ -273,14 +290,19 @@ export class BrowserControl {
   async dispose(agentId: string): Promise<void> {
     const state = this.states.get(agentId);
     if (!state) return;
-    const instance = state.instance;
-    state.instance = undefined;
-    instance?.reads.clear();
-    this.states.delete(agentId);
-    if (instance) {
-      try { await this.driver.call('end_session', { session: instance.label }); }
-      catch { /* Disposal is best effort and must not surface as a tool failure. */ }
-    }
+    state.disposing = true;
+    const run = state.queue.then(async () => {
+      const instance = state.instance;
+      state.instance = undefined;
+      instance?.reads.clear();
+      if (instance) {
+        try { await this.driver.call('end_session', { session: instance.label }); }
+        catch { /* Disposal is best effort; idle expiry remains the fallback. */ }
+      }
+      this.states.delete(agentId);
+    });
+    state.queue = run;
+    await run;
   }
 
   /** One bounded, non-blocking cleanup over configured Agent workspaces only. */
@@ -296,6 +318,7 @@ export class BrowserControl {
 
   private serial<T>(agentId: string, action: () => Promise<T>): Promise<T> {
     const state = this.state(agentId);
+    if (state.disposing) return Promise.reject(browserError('browser_session_lost', '执行会话正在结束，请在新的用户轮次中重试。'));
     const run = state.queue.then(action, action);
     state.queue = run.then(() => undefined, () => undefined);
     return run;
@@ -315,7 +338,18 @@ export class BrowserControl {
   }
 
   private presence(agent: Agent): TurnGateDecision {
-    return evaluateTurnGate(liveTurnSession(agent), this.lookup, this.now());
+    return evaluateTurnGate(liveTurnSession(agent), this.lookup, this.now(), this.liveHumanTimes);
+  }
+
+  private requestTurn(agent: Agent): TurnKey | undefined {
+    const resolved = judgmentSession(liveTurnSession(agent), this.lookup);
+    if ('reason' in resolved) return undefined;
+    const turn = openTurn(resolved.session);
+    return turn.open ? { sessionId: resolved.session.id, turnStartSeq: turn.startSeq! } : undefined;
+  }
+
+  private isConsumed(turn: TurnKey): boolean {
+    return (this.consumedTurns.get(turn.sessionId) ?? -1) >= turn.turnStartSeq;
   }
 
   private instanceCount(): number {
@@ -329,7 +363,7 @@ export class BrowserControl {
     if (this.instanceCount() >= this.maxInstances) throw browserError('browser_busy', `进程级浏览器实例已达上限 ${this.maxInstances}。`);
     const presence = this.presence(agent);
     if (!presence.allowed) throw browserError('browser_launch_requires_user_turn', `当前轮次不能新开浏览器实例（${presence.reason}）。`);
-    if (state.releasedTurn !== undefined && presence.turnStartSeq <= state.releasedTurn) {
+    if (this.isConsumed(presence)) {
       throw browserError('browser_launch_requires_user_turn', '真实新窗口已归还前台；继续操作需要新的用户轮次。');
     }
     // Reserve the slot synchronously so concurrent Agents cannot both pass the
@@ -341,6 +375,7 @@ export class BrowserControl {
       const prepared = await this.driver.call('browser_prepare', { session: label, allow_launch: true, profile: { mode: 'isolated_new' } });
       const pid = ownerPid(prepared);
       if (!pid) throw browserError('browser_driver_malformed', 'browser_prepare 响应缺少 owner_pid。');
+      state.ownership = { label, pid };
       const registration = await this.scanPrimary(label, pid);
       const instance: Instance = { label, pid, version: probe.version, windows: new WindowRegistry(), reads: new ReadRegistry() };
       instance.windows.adopt(registration.pid, registration.windowId);
@@ -362,33 +397,25 @@ export class BrowserControl {
     return choosePrimaryWindow(pid, windows, windowId => probes.get(windowId) ?? { ok: false });
   }
 
-  private async bindPrimary(instance: Instance): Promise<BoundWindow> {
+  private async bindPrimary(state: AgentState, instance: Instance, turn?: TurnKey): Promise<BoundWindow> {
     const registered = instance.windows.get()!;
-    try {
-      const bound = await this.bindWindow(instance.label, instance.pid, registered.windowId);
-      if (bound.binding_quality === 'exact') return bound;
-    } catch { /* One registration retry follows the failed bind. */ }
-    try {
-      const registration = await this.scanPrimary(instance.label, instance.pid);
-      instance.windows.adopt(registration.pid, registration.windowId);
-      const bound = await this.bindWindow(instance.label, instance.pid, registration.windowId);
-      if (bound.binding_quality === 'exact') return bound;
-      throw browserError('browser_session_lost', '重新登记后主窗口仍无法 exact 绑定。');
-    } catch (error) {
-      instance.windows.clear();
-      instance.reads.clear();
-      const state = this.stateForInstance(instance);
-      if (state) state.instance = undefined;
-      try { await this.driver.call('end_session', { session: instance.label }); }
-      catch { /* The local registration is already cleared. */ }
-      if (isBrowserError(error) && ['browser_window_ambiguous', 'browser_session_lost'].includes(error.browserCode)) throw error;
-      throw browserError('browser_session_lost', `主窗口绑定失败：${String((error as Error)?.message ?? error)}`);
+    // Never promote a surviving popup. A retry only rebinds the same identity.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const bound = await this.bindWindow(instance.label, instance.pid, registered.windowId);
+        if (bound.binding_quality === 'exact') return bound;
+      } catch { /* One bounded read-only retry, never a page action replay. */ }
     }
-  }
-
-  private stateForInstance(instance: Instance): AgentState | undefined {
-    for (const state of this.states.values()) if (state.instance === instance) return state;
-    return undefined;
+    let events: EventClassification | undefined;
+    let inspectionError: unknown;
+    try { events = await this.inspectWindows(instance); }
+    catch (error) { inspectionError = error; }
+    await this.release(state, instance, turn);
+    throw browserError('browser_session_lost', '原主窗口无法绑定；已结束自持实例，未采纳其它窗口。', {
+      foreground_released: true,
+      ...(events ? { events: events.events, ignored: events.ignored, unclassified: events.unclassified } : {}),
+      ...(inspectionError ? { inspection_error: isBrowserError(inspectionError) ? inspectionError.browserCode : 'window_inspection_failed' } : {}),
+    });
   }
 
   private async listWindows(pid: string): Promise<DriverWindow[]> {
@@ -405,7 +432,8 @@ export class BrowserControl {
       const bound = await this.bindWindow(label, pid, windowId);
       return { ok: true, binding_quality: bound.binding_quality, target_id: bound.target_id, tabs: bound.tabs };
     } catch (error) {
-      return { ok: false, error: String((error as Error)?.message ?? error) };
+      if (!isBrowserError(error) || error.browserCode !== 'browser_driver_refused') throw error;
+      return { ok: false, error: error.message };
     }
   }
 
@@ -429,9 +457,7 @@ export class BrowserControl {
   }
 
   private async inspectWindows(instance: Instance): Promise<EventClassification> {
-    let windows: DriverWindow[];
-    try { windows = await this.listWindows(instance.pid); }
-    catch { return { events: [], ignored: [], unclassified: [] }; }
+    const windows = await this.listWindows(instance.pid);
     const known = instance.windows.get()?.windowId;
     const probes = new Map<string, BindProbe>();
     for (const window of windows) {
@@ -441,13 +467,14 @@ export class BrowserControl {
     return classifyNewWindows(known ? [known] : [], windows, windowId => probes.get(windowId) ?? { ok: false });
   }
 
-  private async finishEvents(agent: Agent, state: AgentState, instance: Instance, events: EventClassification): Promise<void> {
+  private async finishEvents(state: AgentState, instance: Instance, events: EventClassification, turn?: TurnKey): Promise<void> {
+    if (events.events.length) await this.release(state, instance, turn);
     if (events.unclassified.length) {
       throw browserError('browser_unexpected_event', `出现 ${events.unclassified.length} 个无法分类的新窗口。`, {
+        ...(events.events.length ? { foreground_released: true, events: events.events } : {}),
         windows: events.unclassified.map(window => ({ window_id: window.window_id, title: window.title, width: window.width, height: window.height })),
       });
     }
-    if (events.events.length) await this.release(agent, state, instance);
   }
 
   private async dispatch(action: () => Promise<Record<string, unknown>>): Promise<void> {
@@ -460,8 +487,11 @@ export class BrowserControl {
     }
   }
 
-  private async release(agent: Agent, state: AgentState, instance: Instance): Promise<void> {
-    if (!validReleaseTarget(instance.label, instance.pid, instance.label, instance.pid)) {
+  private async release(state: AgentState, instance: Instance, turn?: TurnKey): Promise<void> {
+    // Consume before I/O: expiry or ancestor closure during end_session must not
+    // reopen the same turn for root/sibling launches.
+    if (turn) this.consumedTurns.set(turn.sessionId, Math.max(this.consumedTurns.get(turn.sessionId) ?? -1, turn.turnStartSeq));
+    if (state.instance !== instance || !state.ownership || !validReleaseTarget(instance.label, instance.pid, state.ownership.label, state.ownership.pid)) {
       throw this.releaseFailed(state, `实例标识与账本不一致：${instance.label}/${instance.pid}`);
     }
     let lastError: unknown;
@@ -471,8 +501,6 @@ export class BrowserControl {
         state.instance = undefined;
         // A real-window release consumes this turn's launch authorization; a
         // later turn must re-establish presence before preparing again.
-        const presence = this.presence(agent);
-        if (presence.allowed) state.releasedTurn = presence.turnStartSeq;
         instance.reads.clear();
         instance.windows.clear();
         return;

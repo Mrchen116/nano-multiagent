@@ -64,6 +64,17 @@ it('ignores the child seed source shape and uses the human ancestor turn', () =>
   expect(evaluateTurnGate(child, id => registry.get(id), NOW)).toMatchObject({ allowed: true, sessionId: 'parent', deltaMs: 30_000 });
 });
 
+it('allows a Global root and synchronous child only through attested original Inbox times', () => {
+  const parent = turnSession('global', [openTurn(), systemMessage(2, NOW - 1_000, 'inbox')]);
+  const child = turnSession('child', [openTurn()], { origin: 'subagent', parentSession: 'global' });
+  const times = (sessionId: string, afterSeq: number) => sessionId === 'global' && afterSeq === 1 ? [NOW - 60_000] : [];
+  expect(evaluateTurnGate(parent, () => undefined, NOW, times)).toMatchObject({ allowed: true, sessionId: 'global', deltaMs: 60_000 });
+  expect(evaluateTurnGate(child, id => id === 'global' ? parent : undefined, NOW, times)).toMatchObject({ allowed: true, sessionId: 'global' });
+  expect(evaluateTurnGate(parent, () => undefined, NOW)).toMatchObject({ allowed: false, reason: 'no_human_message' });
+  expect(evaluateTurnGate(parent, () => undefined, NOW, () => [NOW - 600_000])).toMatchObject({ allowed: false, reason: 'outside_presence_window' });
+  expect(evaluateTurnGate(parent, () => undefined, NOW, () => [NaN])).toMatchObject({ allowed: false });
+});
+
 it('uses the latest human message when the user speaks twice in one turn', () => {
   const refreshed = turnSession('s', [openTurn(), humanMessage(2, NOW - 900_000), humanMessage(3, NOW - 10_000)]);
   expect(evaluateTurnGate(refreshed, () => undefined, NOW)).toMatchObject({ allowed: true, deltaMs: 10_000 });

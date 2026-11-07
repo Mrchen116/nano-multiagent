@@ -133,10 +133,11 @@ export function judgmentSession(
  *
  * The three conditions are: the judgment session's last turn is still open,
  * that turn contains a host-attested human message, and the latest such message
- * is within {@link PRESENCE_WINDOW_MS}. `event.time` is assigned by this local
- * DSH process when the event is appended and the gate runs in the same
- * process, so both sides of the delta share one clock. A negative delta means
- * the clock moved backwards and is rejected rather than treated as fresh.
+ * is within {@link PRESENCE_WINDOW_MS}. Direct inputs use local append time;
+ * live Inbox completions use the original host-created message time supplied
+ * by ApprovalSources. Reading or replaying a page never refreshes that time.
+ * Missing, invalid or future times cannot prove presence; cross-host clock
+ * skew fails closed instead of treating a new read as a new human message.
  *
  * Schedule, heartbeat, task-execution and task-change turns are not special
  * cased: those turns simply have no human message, which is the equivalent
@@ -147,14 +148,15 @@ export function evaluateTurnGate(
   start: TurnSession,
   agents: (id: string) => TurnSession | undefined,
   now: number,
+  liveHumanTimes: (sessionId: string, afterSeq: number) => readonly number[] = () => [],
 ): TurnGateDecision {
   const resolved = judgmentSession(start, agents);
   if ('reason' in resolved) return { allowed: false, reason: resolved.reason };
   const turn = openTurn(resolved.session);
   if (!turn.open) return { allowed: false, reason: 'no_open_turn' };
-  if (!turn.human.length) return { allowed: false, reason: 'no_human_message' };
-  const latest = turn.human.at(-1)!;
-  const deltaMs = now - latest.time;
+  const times = [...turn.human.map(input => input.time), ...liveHumanTimes(resolved.session.id, turn.startSeq!)].filter(Number.isFinite);
+  if (!times.length) return { allowed: false, reason: 'no_human_message' };
+  const deltaMs = now - Math.max(...times);
   if (deltaMs < 0 || deltaMs > PRESENCE_WINDOW_MS) return { allowed: false, reason: 'outside_presence_window' };
   return { allowed: true, sessionId: resolved.session.id, deltaMs, turnStartSeq: turn.startSeq! };
 }

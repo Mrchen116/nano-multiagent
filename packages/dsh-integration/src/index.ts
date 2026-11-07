@@ -235,6 +235,10 @@ export default class NanoRuntime {
     const browser = new BrowserControl({
       driver: new DriverClient(),
       lookup: id => { const parent = ctx.agents.get(SessionId(id)); return parent ? liveTurnSession(parent) : undefined; },
+      liveHumanTimes: (id, afterSeq) => {
+        const ancestor = ctx.agents.get(SessionId(id));
+        return ancestor ? ctx.nanoApproval.sources.liveHumanTimes(ancestor, afterSeq) : [];
+      },
       logger: { warn: (...args: unknown[]) => ctx.logger.warn(args.map(value => String(value)).join(' ')) },
     });
     browser.install(ctx);

@@ -666,3 +666,24 @@ Gate 2 条件“最后一个完整 Round 为 Approved 且 0C/0W”在本轮成�
 其他增量设计层 PASS：refs[].actions 供滚动锚点选择，outline 解析有真实响应依据，同轮归还后 relaunch 锁为有效收紧；隔离/背景动作/禁止动作/承诺原句/无第二套循环保持。非阻断 R5-R1：补祖先轮次锁、同轮新真人/新子、异步回读期间超窗/关闭仍记录消费轮次的证据，author 已补 M1。
 
 仍 OPEN：V2 >=2 归还前台、V4 弹窗半边、完整 V3 采样。V2 阻断发布，PR 披露不代替通过。旧 V1/V5/V6 仅归属旧执行者证据，V6 产品节点等价性仍需实际证明。
+
+
+## Round 6 — original Inbox time 与必要交互复审
+
+- 独立 Reviewer：`137e71bb-9693-4052-817a-1faa412b1f4a`，受审 HEAD `279b273598e35c6df5c0c3f73069148871c84d53`（author revision `49cf15ef7`），branch `codex/feat-720`。开始/结束检查 clean；产品代码相对 `502bb35cc` 无变化。继承原生模型配置，精确型号/effort 不可见，不声称显式设置。
+- **CHANGES REQUESTED — 0 CRITICAL / 1 WARNING**。R5-W1、R5-W2 设计层 CLOSED；R5-W3 PARTIALLY CLOSED。
+- **R6-W1 CONFIRMED**：design:81 仅消费 `tool/result`，遗漏已支持的 `tool/ptc-dispatch` Inbox 子调用。`policy/sources.ts:177–185` 注明 deriveMessages 排除 PTC 子结果并经 subCallId 恢复；`approval-sources.test.ts:124–137` 与 current capability:522 同样证明该原生形状。故 fresh/complete/participant 真人经 PTC 读取时仍无法提供在场时间。修正同一 callback seam 接受两种成功完成形状，沿用 live 标记、当前轮与来源/原始时间过滤，不解释 wrapper 正文或 dispatch-start。
+- 必要交互设计层 PASS：混合真实/未分类窗口先归还再报错；共享祖先 session+turn-start seq 在异步前捕获，超窗/关闭不抹消费标记；同轮新消息或 sibling 不绕过，新轮才重开；原生会话 dispose 入串行队列；截图按可信产品 Agent 身份归组并与启动 sweep 一致。非阻断建议：M1 文件范围显式列出 sources 与 PA inbox。
+- 未运行测试、服务、驱动、浏览器或模型，未改文件；不批准尚未修改的实现与产品验收。V2>=2、V4-popup、完整V3 及产品节点V1/V5/V6、代表性Global Context证据仍 OPEN。
+
+### Author resolutions
+
+接受 R6-W1，在 `9612ea5d1` 仅修 design 三行：:81 同时覆盖成功 `tool/result`/`tool/ptc-dispatch` live subCallId；:432 明确两种fixture、失败/非live拒绝以及同 run_code await Inbox 完成后的顺序；:408 补 sources、PA inbox 与测试范围。spec/delta 无变化。
+
+## Round 7 — PTC completion 点确认
+
+- 受审冻结 HEAD `9612ea5d1e98ff7479c1e5100dff7f0e863ed372`，branch `codex/feat-720`；同一独立 Reviewer，2026-11-08T01:54:21+08:00 核对 `279b27359..9612ea5d1` 实际 diff，仅 design 三行变化；当时 author-owned 三个红测文件 dirty，不在受审文档范围。
+- **APPROVED — 0 CRITICAL / 0 WARNING（DESIGN ONLY）**。
+- R6-W1 CLOSED：两种成功原生完成形状均由同一 live subcall 来源 seam 处理，完整性/来源/原始 created_at 过滤相同，wrapper/start 不产生在场证据。M1 fixture 明确同 run_code 顺序与负面来源。R5-W3 因而设计层 CLOSED；R5-W1/W2 及 R6 必要交互判断 retained_from R6，三行 diff 不改变其机制。
+- 没有剩余设计问题；M1 范围建议已落实。允许实施修订，不批准红测或产品实现，不代表真实旅程已验收。
+- 未改文件或运行测试/驱动/浏览器/服务/模型。V2>=2 归还前台仍阻断发布，披露不能代替通过；V4-popup、完整V3、产品节点V1/V5/V6 和代表性 Global native/PTC Context/行为证据仍须后续建立。执行者/模型配置限制不变，不虚构显式 effort。

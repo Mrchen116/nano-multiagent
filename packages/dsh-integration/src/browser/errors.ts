@@ -50,7 +50,9 @@ const guidance: Record<BrowserErrorCode, string> = {
 export class BrowserError extends HarnessError {
   constructor(readonly browserCode: BrowserErrorCode, detail: string, readonly details: Record<string, unknown> = {}) {
     const suffix = guidance[browserCode];
-    super(`[${browserCode}] ${detail}${suffix ? ` ${suffix}` : ''}`, browserCode);
+    // Native tool failures transport Error.message, not custom Error fields.
+    const evidence = Object.keys(details).length ? ` evidence=${excerpt(JSON.stringify(details), 6000)}` : '';
+    super(`[${browserCode}] ${detail}${suffix ? ` ${suffix}` : ''}${evidence}`, browserCode);
     this.name = 'BrowserError';
   }
 }

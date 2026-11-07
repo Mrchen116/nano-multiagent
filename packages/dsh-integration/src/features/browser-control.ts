@@ -92,7 +92,8 @@ export function installBrowserTools(ctx: Context, options: BrowserToolOptions): 
     async execute(args, exec) {
       const agent = exec.agent;
       if (!agent) throw new Error('browser_read requires an Agent session');
-      return options.control.read(agent, options.configuration(agent)?.workspace, args as BrowserReadArguments);
+      const config = options.configuration(agent);
+      return options.control.read(agent, config?.workspace, args as BrowserReadArguments, config?.agentId);
     },
   });
   ctx.tools.register({
@@ -103,7 +104,8 @@ export function installBrowserTools(ctx: Context, options: BrowserToolOptions): 
     async execute(args, exec) {
       const agent = exec.agent;
       if (!agent) throw new Error('browser_act requires an Agent session');
-      return options.control.act(agent, options.configuration(agent)?.workspace, args as BrowserActArguments);
+      const config = options.configuration(agent);
+      return options.control.act(agent, config?.workspace, args as BrowserActArguments, config?.agentId);
     },
   });
   return true;

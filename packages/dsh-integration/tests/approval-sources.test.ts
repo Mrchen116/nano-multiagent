@@ -199,6 +199,33 @@ it('distinguishes attested Task stop and UI resume from automatic Task reminders
 });
 
 
+it('projects only live complete participant Inbox original times for browser presence', () => {
+  const sources = new ApprovalSources();
+  const instant = '2026-10-25T01:00:00Z';
+  const message = { id: 'm', sender: { type: 'user' }, created_at: instant, content: [{ type: 'text', text: 'Open page' }] };
+  const event = (seq: number, callId: string, page: unknown, isError = false) => ({ seq, type: 'tool/result', data: { message: { toolCallId: callId, isError, content: [{ type: 'text', text: JSON.stringify(page) }] } } });
+  const events = [event(2, 'live', { delivery: 'participant', messages: [message] })];
+  const agent = fixture([], events);
+  sources.recordInbox('session', 'live');
+  expect(sources.liveHumanTimes(agent, 1)).toEqual([Date.parse(instant)]);
+  expect(sources.liveHumanTimes(agent, 2)).toEqual([]);
+  const ptc = { seq: 3, type: 'tool/ptc-dispatch', data: { name: 'inbox', subCallId: 'live', isError: false, content: [{ type: 'text', text: JSON.stringify({ messages: [message] }) }] } };
+  expect(sources.liveHumanTimes(fixture([], [ptc]), 1)).toEqual([Date.parse(instant)]);
+  expect(sources.liveHumanTimes(fixture([], [{ ...ptc, data: { ...ptc.data, isError: true } }]), 1)).toEqual([]);
+  expect(sources.liveHumanTimes(fixture([], [{ ...ptc, data: { ...ptc.data, subCallId: 'restored' } }]), 1)).toEqual([]);
+  expect(sources.liveHumanTimes(fixture([], [{ ...ptc, type: 'tool/ptc-dispatch-start' }]), 1)).toEqual([]);
+  for (const excluded of [{ partial: true }, { pa_agent_id: 'pa' }, { sender: { type: 'agent' } }, { created_at: undefined }, { created_at: 'invalid' }]) {
+    events[0] = event(2, 'live', { messages: [{ ...message, ...excluded }] });
+    expect(sources.liveHumanTimes(agent, 1)).toEqual([]);
+  }
+  events[0] = event(2, 'live', { delivery: 'observer', messages: [message] });
+  expect(sources.liveHumanTimes(agent, 1)).toEqual([]);
+  events[0] = event(2, 'live', { messages: [message] }, true);
+  expect(sources.liveHumanTimes(agent, 1)).toEqual([]);
+  events[0] = event(2, 'restored', { messages: [message] });
+  expect(sources.liveHumanTimes(agent, 1)).toEqual([]);
+});
+
 it('retains represented user provenance across live input, history reads and recovered review evidence', async () => {
   const message = {id:'original',sender:{type:'user',id:'owner'},pa_agent_id:'pa',created_at:'2026-10-25T01:00:00Z',content:[{type:'text',text:'Push branch report; do not merge or deploy.'}]};
   const page = {target:'group',messages:[message]};

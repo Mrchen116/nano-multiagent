@@ -76,6 +76,14 @@ it('maps non-zero exit, empty stdout, non-JSON, and missing fields to malformed'
   }
 });
 
+it('does not echo typed text or navigation query strings into empty-output diagnostics', async () => {
+  const client = new DriverClient({ spawn: fakeSpawn([{ stdout: ' ' }]).spawn });
+  const error = await client.call('browser_type', { ref: 'p1:0', text: 'PRIVATE_BROWSER_TEXT' }).catch(error => error);
+  expect(error.message).not.toContain('PRIVATE_BROWSER_TEXT');
+  const navigation = await client.call('browser_navigate', { url: 'https://example.test/?token=PRIVATE_QUERY' }).catch(error => error);
+  expect(navigation.message).not.toContain('PRIVATE_QUERY');
+});
+
 it('keeps structured refusals distinct and preserves code and hint', async () => {
   const client = new DriverClient({ spawn: fakeSpawn([{
     stdout: JSON.stringify({ status: 'refused', refusal: { code: 'browser_action_unavailable', message: 'no pointer action' }, hint: 'use another ref' }),

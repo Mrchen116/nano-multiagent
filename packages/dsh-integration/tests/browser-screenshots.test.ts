@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -77,6 +77,23 @@ it('sweeps only configured Agent workspaces once and tolerates missing directori
     const removed = await store.sweep([{ agentId: 'agent-a', workspace }, { agentId: 'gone', workspace: join(root, 'missing') }]);
     expect(removed).toBe(1);
     expect(await readdir(join(workspace, '.nanoassistant', 'browser', 'agent-a'))).toEqual([]);
+    expect(await readdir(outside)).toEqual(['screen-old.png']);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('never writes or sweeps through a screenshot directory symlink', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nano-shot-links-'));
+  const workspace = join(root, 'workspace');
+  const outside = join(root, 'outside');
+  try {
+    await mkdir(join(workspace, '.nanoassistant', 'browser'), { recursive: true });
+    await mkdir(outside);
+    await writeFile(join(outside, 'screen-old.png'), png(1, 1));
+    await utimes(join(outside, 'screen-old.png'), new Date(0), new Date(0));
+    await symlink(outside, join(workspace, '.nanoassistant', 'browser', 'agent-a'));
+    const store = new ScreenshotStore();
+    expect(await store.save({ workspace, agentId: 'agent-a', base64: png(1, 1).toString('base64') })).toEqual({ omitted: 'outside_workspace' });
+    expect(await store.sweep([{ workspace, agentId: 'agent-a' }])).toBe(0);
     expect(await readdir(outside)).toEqual(['screen-old.png']);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

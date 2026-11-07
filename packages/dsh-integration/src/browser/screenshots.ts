@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join, relative, resolve, sep } from 'node:path';
 
 export const SCREENSHOT_TTL_MS = 60 * 60 * 1000;
@@ -30,6 +30,21 @@ export function resolveScreenshotPath(workspace: string, agentId: string, name: 
   const target = resolve(root, name);
   const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
   return target.startsWith(prefix) ? { root, target } : undefined;
+}
+
+/** Resolve only real directories below the configured workspace; never follow a child symlink. */
+async function safeScreenshotRoot(workspace: string, agentId: string, create: boolean): Promise<string | undefined> {
+  let current = await realpath(workspace);
+  for (const part of ['.nanoassistant', 'browser', agentId]) {
+    current = join(current, part);
+    if (create) {
+      try { await mkdir(current); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+    }
+    const info = await lstat(current);
+    if (info.isSymbolicLink() || !info.isDirectory()) return undefined;
+  }
+  return current;
 }
 
 /** Read the device-pixel dimensions from a PNG IHDR chunk. */
@@ -66,11 +81,14 @@ export class ScreenshotStore {
     try {
       const payload = input.base64.replace(/^data:image\/png;base64,/, '');
       const png = Buffer.from(payload, 'base64');
-      await mkdir(resolved.root, { recursive: true });
-      await writeFile(resolved.target, png);
-      await this.cleanup(resolved.root);
+      const root = await safeScreenshotRoot(input.workspace, input.agentId, true);
+      if (!root) return { omitted: 'outside_workspace' };
+      const target = join(root, name);
+      // Exclusive creation cannot overwrite an existing file or follow a leaf symlink.
+      await writeFile(target, png, { flag: 'wx', mode: 0o600 });
+      await this.cleanup(root);
       const size = pngSize(png);
-      return { path: relative(input.workspace, resolved.target).split(sep).join('/'), ...size };
+      return { path: relative(await realpath(input.workspace), target).split(sep).join('/'), ...size };
     } catch {
       return { omitted: 'write_failed' };
     }
@@ -107,8 +125,10 @@ export class ScreenshotStore {
       if (!agent.workspace) continue;
       const resolved = resolveScreenshotPath(agent.workspace, agent.agentId, 'screen-probe.png');
       if (!resolved) continue;
-      try { removed += await this.cleanup(resolved.root); }
-      catch (error) { report?.(`browser screenshot sweep skipped ${basename(resolved.root)}: ${String(error)}`); }
+      try {
+        const root = await safeScreenshotRoot(agent.workspace, agent.agentId, false);
+        if (root) removed += await this.cleanup(root);
+      } catch (error) { report?.(`browser screenshot sweep skipped ${basename(resolved.root)}: ${(error as NodeJS.ErrnoException).code ?? 'unavailable'}`); }
     }
     return removed;
   }

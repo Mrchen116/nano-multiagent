@@ -1,7 +1,7 @@
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { BrowserControl } from '../src/browser/control.js';
 import { browserError, type BrowserError } from '../src/browser/errors.js';
 import { BrowserFixtureDriver, event, fakeAgent, humanMessage } from './helpers/browser-fakes.js';
@@ -290,7 +290,7 @@ it('blocks every call during the release cooldown and recovers after it expires 
   // The cooldown and the presence window are both 300s. A fresh user message is
   // what makes the post-cooldown retry eligible again. The real popup was
   // closed by hand in the meantime, leaving only the original window.
-  events.push(humanMessage(3, now));
+  events.push(event(3, now, 'turn/end', { turn: 1 }), event(4, now, 'turn/start', { turn: 2 }), humanMessage(5, now));
   driver.state.windows = driver.state.windows.filter(window => window.window_id === '10');
   const recovered = await control.act(agent, undefined, { action: 'open', url: 'https://example.com' });
   expect(recovered.action).toBe('open');
@@ -328,6 +328,104 @@ it('serializes concurrent calls for one Agent to a single in-flight driver call'
   expect(first.read_id).toBe('r1');
   expect(second.read_id).toBe('r2');
   expect(driver.maxInFlight).toBe(1);
+});
+
+it.each(['https://popup.example', 'about:blank'])('never adopts a surviving %s popup after primary bind loss', async url => {
+  const driver = new BrowserFixtureDriver();
+  const control = controlFor(driver);
+  const agent = openAgent('agent-a');
+  const read = await control.read(agent, undefined, {});
+  driver.state.windows = [{ window_id: '20', title: 'Popup', width: 520, height: 426 }];
+  driver.state.binds.set('20', { url, title: 'Popup', active: true, http: url.startsWith('https:') });
+  const original = driver.call.bind(driver);
+  vi.spyOn(driver, 'call').mockImplementation((tool, args, options) => {
+    if (tool === 'get_browser_state' && args.window_id === '10') return Promise.reject(browserError('browser_driver_refused', 'primary lost'));
+    return original(tool, args, options);
+  });
+  const error = await failure(control.act(agent, undefined, { action: 'click', read_id: read.read_id, ref: 'p1:0' }));
+  expect(error.browserCode).toBe('browser_session_lost');
+  expect(driver.count('browser_click')).toBe(0);
+  expect(driver.count('end_session')).toBe(1);
+});
+
+it('does not swallow a failed window listing as an event-free success', async () => {
+  const driver = new BrowserFixtureDriver();
+  const control = controlFor(driver);
+  const agent = openAgent('agent-a');
+  await control.read(agent, undefined, {});
+  const original = driver.call.bind(driver);
+  vi.spyOn(driver, 'call').mockImplementation((tool, args, options) => tool === 'list_windows'
+    ? Promise.reject(browserError('browser_driver_timeout', 'listing failed')) : original(tool, args, options));
+  expect((await failure(control.read(agent, undefined, {}))).browserCode).toBe('browser_driver_timeout');
+});
+
+it('consumes the captured ancestor turn across root and sibling after asynchronous release', async () => {
+  let now = NOW;
+  const driver = new BrowserFixtureDriver({ popup: { windowId: '20', url: 'https://popup.example', title: 'Popup' }, popupKind: 'real' });
+  const events = [event(1, NOW - 1_000, 'turn/start', { turn: 1 }), humanMessage(2, NOW - 500)];
+  const root = fakeAgent('root', events);
+  const child = fakeAgent('child', [], { origin: 'subagent', parentSession: 'root' });
+  const sibling = fakeAgent('sibling', [], { origin: 'subagent', parentSession: 'root' });
+  const control = new BrowserControl({ driver, lookup: id => id === 'root' ? liveTurnSession(root) : undefined, now: () => now });
+  const read = await control.read(child, undefined, {});
+  const original = driver.call.bind(driver);
+  vi.spyOn(driver, 'call').mockImplementation(async (tool, args, options) => {
+    if (tool === 'end_session') now += 301_000;
+    return original(tool, args, options);
+  });
+  await control.act(child, undefined, { action: 'click', read_id: read.read_id, ref: 'p1:0' });
+  events.push(humanMessage(3, now));
+  for (const agent of [root, child, sibling]) {
+    expect(control.precheck(agent, 'browser_read', {})?.browserCode).toBe('browser_launch_requires_user_turn');
+    expect((await failure(control.read(agent, undefined, {}))).browserCode).toBe('browser_launch_requires_user_turn');
+  }
+  expect(driver.count('browser_prepare')).toBe(1);
+});
+
+it('releases proven real windows before returning mixed unclassified evidence', async () => {
+  const driver = new BrowserFixtureDriver({ popup: { windowId: '20', url: 'https://popup.example', title: 'Popup' }, popupKind: 'real' });
+  const control = controlFor(driver);
+  const agent = openAgent('agent-a');
+  const read = await control.read(agent, undefined, {});
+  const original = driver.call.bind(driver);
+  vi.spyOn(driver, 'call').mockImplementation(async (tool, args, options) => {
+    const result = await original(tool, args, options);
+    if (tool === 'browser_click') {
+      driver.state.windows.push({ window_id: '30', title: 'Unknown', width: 700, height: 700 });
+      driver.state.binds.set('30', { url: 'about:blank', title: 'Unknown', active: true, http: false });
+    }
+    return result;
+  });
+  const error = await failure(control.act(agent, undefined, { action: 'click', read_id: read.read_id, ref: 'p1:0' }));
+  expect(error.browserCode).toBe('browser_unexpected_event');
+  expect(error.details).toMatchObject({ foreground_released: true, events: [expect.objectContaining({ window_id: '20' })] });
+  // Native toolErrorResult transports the message, not arbitrary Error fields.
+  expect(error.message).toContain('"foreground_released":true');
+  expect(error.message).toContain('"window_id":"30"');
+  expect(driver.count('end_session')).toBe(1);
+});
+
+it('waits for an in-flight prepare when disposing and leaves no instance', async () => {
+  const driver = new BrowserFixtureDriver();
+  driver.delayMs = 3;
+  const control = controlFor(driver);
+  const agent = openAgent('agent-a');
+  const reading = control.read(agent, undefined, {});
+  await Promise.resolve();
+  await control.dispose(agent.id);
+  await reading;
+  expect(driver.count('end_session')).toBe(1);
+  expect((control as any).states.get(agent.id)?.instance).toBeUndefined();
+});
+
+it('uses the configured product Agent screenshot group rather than the native session id', async () => {
+  const driver = new BrowserFixtureDriver({ screenshot: png(800, 600) });
+  const control = controlFor(driver);
+  const root = await workspace();
+  const read = await control.read(openAgent('native-session'), root, { screenshot: true }, 'product-agent');
+  expect(read.screenshot?.path).toMatch(/^\.nanoassistant\/browser\/product-agent\//);
+  await expect(access(join(root, read.screenshot!.path))).resolves.toBeUndefined();
+  expect(read.notice).toContain('首次接入可能短暂占前台');
 });
 
 it('ends the driver session on dispose but keeps screenshots readable', async () => {
