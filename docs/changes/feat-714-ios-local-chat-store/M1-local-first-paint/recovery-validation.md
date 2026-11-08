@@ -41,4 +41,16 @@
 - 原始产物：`/tmp/feat714-policy-integration-a65d35a7a.log:509-871`、`/tmp/feat714-policy-integration-a65d35a7a.xcresult`。前两次编译失败及首次运行失败如上保留，没有扩大超时、删断言或用旧 39 tests 冒充本批结果。
 - 资源释放：XCTest 已退出；专用模拟器 shutdown 请求报告 already Shutdown 后，`simctl list devices` 再实查为 Shutdown（exit 0）；无本批自建服务或残留重型作业。
 
-**当前结论仅为本地窄回归通过**。原生真实在线→终止→离线旅程尚需在最终版本重跑；真机飞行模式、保护属性和 ≥20 次首绘 p50/p95 仍无新增证据；独立实现审查未完成。不得据此宣布 M1/M2、完整 unit 或 PR 已交付。
+**该版本结论仅为本地窄回归通过**。原生真实在线→终止→离线旅程尚需在最终版本重跑；真机飞行模式、保护属性和 ≥20 次首绘 p50/p95 仍无新增证据；不得据此宣布 M1/M2、完整 unit 或 PR 已交付。
+
+## Round 1 六项实现修复 checkpoint：待运行与独立关闭
+
+`review.md` 的六项 WARNING 已全部接收，作者集中修复，不降低 delta 或把旧绿色证据覆盖到新版本：
+
+- W1：owner draft flush 使用单一等待链；写失败保留最新待写文本并显式降级，retry 的 seed 不覆盖未提交的清空/编辑。新增重叠 A/B flush 与真实 SQL DELETE 失败回归。
+- W2/W3：已接受的分区 purge 意图与 UI publication generation 分开；在任务创建/partition=nil 之前登记，未开始/失败/被新登录取代也必须在后续 seed 前补完；nil partition 可重试清理。disabled stored owner 从实际 AppModel 冷启入口显式提供目标分区，不要求曾经 open。新增 policy IO 失败后同账号重登、nil retry、未启动 purge 被同账号登录取代、disabled 冷启后 reenable 的临时 fixture 回归。
+- W4：完整消息端点分页把“仍有更早消息”的事实与页内容写在同一事务的 `cache_meta`，不增加 schema 迁移、不持久缓存网络 cursor；稀疏单消息校正不改变完整性，终止页可确认起点，已确认起点不被普通最新一页否定。分区/会话清理同步移除该事实。新增无 trim 的普通分页 close/reopen 与 owner reset/offline 反例。
+- W5：legacy 枚举只有真实 ENOENT 当空；目录/祖先被普通文件阻塞等 IO 抛错、回滚导入 marker，恢复后仍按原字节导入。单文件 IO 同样可重试，真正解码损坏仍逐件 rejected。新增真实 ENOTDIR fixture 验证 marker 缺席与恢复导入。
+- W6：会话首个成功消息结果与尚未加载分开，合法成功空页显示“还没有消息”，无缓存且失败仍说明需要连接。新增 held 首请求→成功空页→reset→离线失败状态回归；真实画面/操作仍需原生旅程补验。
+
+这些新回归在 checkpoint 时**未运行**，没有 typecheck/build/XCTest 红绿结论，也未由独立 reviewer 关闭。作者只做 Swift frontend parse 与 diff 静态检查；首次 docs check 使用系统 Python 缺少 PyYAML，改用项目已有 `.venv/bin/python` 后 docs check 283 sources / 69 routes 通过，不安装依赖、不改变环境。后续必须在协调的本地资源窗口实际运行，再交同一独立 reviewer 补验失效判断。此前 a65 的 92 tests 结果仍只归属原版本。

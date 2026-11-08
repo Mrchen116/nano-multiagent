@@ -22,15 +22,19 @@ extension ChatRepository {
         let store = SendAttemptStore(directory: legacyAttemptRoot)
         var imported = 0
         var rejected = 0
-        for file in store.attemptFiles(origin: partition.origin, userID: partition.userID) {
+        for file in try store.attemptFiles(origin: partition.origin, userID: partition.userID) {
             let attempt: SendAttempt
             do {
                 attempt = try store.attempt(at: file)
-            } catch {
+            } catch let error as DecodingError {
                 rejected += 1
                 try record(db: db, key: file.lastPathComponent, outcome: "rejected",
-                           detail: "unreadable: \(error.localizedDescription)", now: now)
+                           detail: "invalid JSON: \(error.localizedDescription)", now: now)
                 continue
+            } catch {
+                // An IO failure is not corrupt content: keep the marker absent so a later
+                // open can import the unchanged request after storage becomes readable.
+                throw error
             }
             let key = itemKey(conversationID: attempt.conversationID,
                               sourceMessageID: attempt.sourceMessageID, attemptKey: attempt.draft.key)

@@ -34,16 +34,6 @@ struct ConversationView: View {
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
     private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
-    /// B1: this conversation has no local rows and the last attempt did not deliver. Saying
-    /// "nothing here" would turn "could not read" into "there is nothing".
-    private var needsConnection: Bool {
-        guard (store.timelines[conversationID] ?? []).isEmpty else { return false }
-        if store.errors[conversationID] != nil { return true }
-        switch store.connection {
-        case .offline, .unavailable: return true
-        default: return false
-        }
-    }
     var body: some View {
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
@@ -56,7 +46,7 @@ struct ConversationView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         if items.isEmpty {
-                            if needsConnection {
+                            if store.timelinePhase(conversationID) == .needsConnection {
                                 VStack(spacing: 8) {
                                     Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")
                                         .font(.callout)
@@ -64,6 +54,11 @@ struct ConversationView: View {
                                         .font(.caption).foregroundStyle(.secondary)
                                     Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
                                 }.frame(maxWidth: .infinity).padding(.vertical, 24)
+                            } else if store.timelinePhase(conversationID) == .empty {
+                                Text(L("还没有消息", "No messages yet"))
+                                    .font(.callout).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 24)
+                                    .accessibilityIdentifier("conversation.empty")
                             } else {
                                 ProgressView(L("正在加载聊天…", "Loading conversation…")).frame(maxWidth: .infinity).padding(.vertical, 24)
                             }

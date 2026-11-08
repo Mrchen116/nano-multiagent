@@ -69,6 +69,37 @@ final class ChatRepositoryTests: XCTestCase {
         XCTAssertEqual(actual4, 2)
     }
 
+    func testLegacyEnumerationFailureDoesNotCommitMigrationMarkerAndRetriesExactBytes() async throws {
+        let owner = partition.legacyAttemptDirectory(root: legacyRoot)
+        try FileManager.default.createDirectory(at: legacyRoot, withIntermediateDirectories: true)
+        try Data("fixture: not a directory".utf8).write(to: owner)
+        let legacy = SendAttemptStore(directory: legacyRoot)
+        XCTAssertThrowsError(try legacy.attemptFiles(origin: origin, userID: partition.userID))
+        XCTAssertThrowsError(try legacy.load(origin: origin, userID: partition.userID))
+        XCTAssertThrowsError(try open(), "enumeration IO is not a successful empty import")
+        let location = ChatStorageLocation.directory(root.appendingPathComponent("db", isDirectory: true))
+        let queue = try DatabaseQueue(path: location.databaseURL.path)
+        let marker = try await queue.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: [ChatRepository.sendAttemptMigrationKey])
+        }
+        XCTAssertNil(marker)
+        try queue.close()
+        XCTAssertEqual(owner.deletingLastPathComponent(), legacyRoot)
+        try FileManager.default.removeItem(at: owner) // exactly the temporary blocker above
+        let body = Data(#"{"content":"frozen exact bytes","attachments":[]}"#.utf8)
+        let pending = SendAttempt(conversationID: "a", sourceMessageID: nil,
+                                  draft: PendingSend(key: "retry", content: "frozen exact bytes", attachments: [], requestBody: body))
+        try legacy.save(pending, origin: origin, userID: partition.userID)
+        let file = try XCTUnwrap(legacy.attemptFiles(origin: origin, userID: partition.userID).first)
+        let original = try Data(contentsOf: file)
+        let reopened = try open()
+        let attempts = try await reopened.pendingAttempts()
+        XCTAssertEqual(attempts.count, 1)
+        XCTAssertEqual(attempts.first?.draft.requestBody, body)
+        XCTAssertEqual(try Data(contentsOf: file), original)
+        try await reopened.close()
+    }
+
     func testOrphanedPendingConvergesWithFirstSnapshot() async throws {
         let legacy = SendAttemptStore(directory: legacyRoot)
         try legacy.save(SendAttempt(conversationID: "ghost", sourceMessageID: nil,
@@ -90,6 +121,35 @@ final class ChatRepositoryTests: XCTestCase {
         XCTAssertEqual(actual3, ["a"])
         let recorded = try await repo.migrationReport()
         XCTAssertTrue(recorded.contains { $0.outcome == "orphaned" })
+    }
+
+    func testOrdinaryPartialFirstPageRetainsHistoryBoundaryAcrossReopen() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        let newest = try (61...120).map { item(try message($0)) }
+        _ = try await repo.applyPage("a", items: newest, hasEarlierMessages: true, write: context)
+        // A sparse send/delivery correction is not authority for history completeness.
+        _ = try await repo.applyPage("a", items: [item(try message(121))], write: context)
+        try await repo.close()
+        let reopened = try open()
+        let local = try await reopened.timeline("a")
+        XCTAssertEqual(local.items.count, 61, "this never reached the 300-row trim threshold")
+        XCTAssertTrue(local.olderNeedsNetwork)
+        XCTAssertFalse(local.isAtLocalStart)
+        XCTAssertEqual(local.nextBefore, "m61")
+        let current = try await reopened.writeContext()
+        // A metadata refresh must preserve the local completeness fact too.
+        _ = try await reopened.applyConversation(conversation("a", title: "Renamed"), members: [], write: current)
+        let stillPartial = try await reopened.timeline("a")
+        XCTAssertTrue(stillPartial.olderNeedsNetwork)
+        let oldest = try (1...60).map { item(try message($0)) }
+        _ = try await reopened.applyPage("a", items: oldest, hasEarlierMessages: false, write: current)
+        _ = try await reopened.applyPage("a", items: newest, hasEarlierMessages: true, write: current)
+        let complete = try await reopened.timeline("a")
+        XCTAssertFalse(complete.olderNeedsNetwork, "a latest 60-row page cannot erase the previously reached start")
+        XCTAssertTrue(complete.isAtLocalStart)
+        try await reopened.close()
     }
 
     // MARK: - Snapshot and revocation
@@ -512,7 +572,7 @@ final class ChatRepositoryTests: XCTestCase {
     func testPurgeThenReopenCannotReimportLegacyButAcceptsANewRequest() async throws {
         let legacy = SendAttemptStore(directory: legacyRoot)
         try legacy.save(attempt("a", "legacy"), origin: origin, userID: partition.userID)
-        let files = legacy.attemptFiles(origin: origin, userID: partition.userID)
+        let files = try legacy.attemptFiles(origin: origin, userID: partition.userID)
         let original = try files.map { try Data(contentsOf: $0) }
         let repo = try open()
         let beforePurge = try await repo.pendingCount()

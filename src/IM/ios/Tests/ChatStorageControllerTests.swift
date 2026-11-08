@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import NanoIM
 
 /// Partition lifecycle. The controller is the only owner: these tests pin that `.opening` is
@@ -191,6 +192,85 @@ final class ChatStorageControllerTests: XCTestCase {
         XCTAssertEqual(page.items.map(\.id), ["m1"])
         XCTAssertEqual(pendingCount, 0)
         XCTAssertTrue(tombstones.isEmpty)
+    }
+
+    func testFailedPartitionPurgeRetriesBeforeSameOwnerCanSeed() async throws {
+        let controller = try makeController()
+        let partition = makePartition("user")
+        await controller.activate(partition)
+        let repository = try XCTUnwrap(controller.repository)
+        let context = try await repository.writeContext()
+        _ = try await repository.applyConversation(conversation("a"), members: [], write: context)
+        try await repository.setDraft("a", body: "old private draft")
+        try await repository.upsertPending(SendAttempt(conversationID: "a", sourceMessageID: nil,
+                                                       draft: PendingSend(key: "old", content: "private", attachments: [], requestBody: Data("{}".utf8))), write: context)
+        let store = makeStore(controller)
+        await store.loadSeed()
+        let blocker = repository.attemptPersistence.policyURL.deletingLastPathComponent()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blocker.path))
+        try Data("fixture blocks policy IO".utf8).write(to: blocker)
+        await controller.purge(reason: .signedOut)
+        guard case .degraded = controller.state else { return XCTFail("purge IO must fail honestly") }
+        XCTAssertNil(controller.partition)
+        XCTAssertTrue(store.conversations.isEmpty)
+        // This exact temporary fixture is the file created above, not production data.
+        XCTAssertEqual(blocker.deletingLastPathComponent(), root)
+        try FileManager.default.removeItem(at: blocker)
+        await controller.activate(partition)
+        let reopened = try XCTUnwrap(controller.repository)
+        let rows = try await reopened.conversations()
+        XCTAssertTrue(rows.isEmpty, "same-owner login must finish the failed purge before publishing a seed")
+        let draft = try await reopened.draft("a")
+        let attempts = try await reopened.pendingAttempts()
+        XCTAssertNil(draft)
+        XCTAssertTrue(attempts.isEmpty)
+        XCTAssertTrue(store.conversations.isEmpty)
+        XCTAssertNotNil(try reopened.attemptPersistence.policy().purgeGeneration)
+        try await reopened.close()
+    }
+
+    func testFailedPurgeCanRetryWhileLogicalPartitionIsNil() async throws {
+        let controller = try makeController()
+        await controller.activate(makePartition("user"))
+        let repository = try XCTUnwrap(controller.repository)
+        let blocker = repository.attemptPersistence.policyURL.deletingLastPathComponent()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blocker.path))
+        try Data().write(to: blocker)
+        await controller.purge(reason: .signedOut)
+        XCTAssertNil(controller.partition)
+        XCTAssertEqual(blocker.deletingLastPathComponent(), root)
+        try FileManager.default.removeItem(at: blocker)
+        await controller.retryOpen()
+        let directory = try location(makePartition("user")).directoryURL
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path), "nil partition is not evidence the failed cleanup completed")
+        XCTAssertNotNil(try repository.attemptPersistence.policy().purgeGeneration)
+    }
+
+    func testQueuedSignOutCannotBeSupersededBySameOwnerActivation() async throws {
+        let controller = try makeController()
+        let partition = makePartition("user")
+        await controller.activate(partition)
+        let repository = try XCTUnwrap(controller.repository)
+        let context = try await repository.writeContext()
+        _ = try await repository.applyConversation(conversation("a"), members: [], write: context)
+        // The partition's will-change callback enqueues login before move(nil) can create
+        // its child operation. This covers accepted authority with an unstarted purge.
+        let relogged = expectation(description: "same owner reactivated")
+        withObservationTracking {
+            _ = controller.partition
+        } onChange: {
+            Task { @MainActor in
+                await controller.activate(partition)
+                relogged.fulfill()
+            }
+        }
+        await controller.purge(reason: .signedOut)
+        await fulfillment(of: [relogged], timeout: 3)
+        let reopened = try XCTUnwrap(controller.repository)
+        let rows = try await reopened.conversations()
+        XCTAssertTrue(rows.isEmpty)
+        XCTAssertNotNil(try reopened.attemptPersistence.policy().purgeGeneration)
+        try await reopened.close()
     }
 
     // MARK: - Helpers

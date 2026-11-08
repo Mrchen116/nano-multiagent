@@ -14,6 +14,15 @@ enum ChatListPhase: Equatable, Sendable {
     case failed
 }
 
+/// A successful empty message response is content, not a request still in flight. No-cache
+/// offline failure remains a different claim, so the screen never presents it as an empty chat.
+enum ChatTimelinePhase: Equatable, Sendable {
+    case loadingFirst
+    case loaded
+    case empty
+    case needsConnection
+}
+
 /// How the connection stands, independent of what is on screen.
 ///
 /// `.online` is only entered after a successful `/sync`, never after a socket handshake.

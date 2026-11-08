@@ -315,6 +315,100 @@ final class ChatLocalFirstTests: XCTestCase {
         XCTAssertNil(store.pending["a"], "a late projection read cannot undo resolution")
     }
 
+    func testOverlappingDraftFlushesKeepTheNewerConversationSnapshot() async throws {
+        let (store, _) = try await makeStore()
+        await seed(store, conversations: ["a", "b"], messages: 0)
+        store.setDraft("a", "a0")
+        store.setDraft("b", "b0")
+        let gate = PendingReadGate()
+        let older = Task {
+            await store.flushDrafts { repository, id, body in
+                if id == "a" { await gate.enter() }
+                try await repository.setDraft(id, body: body)
+            }
+        }
+        await gate.waitUntilEntered()
+        store.setDraft("b", "b1")
+        let newerStarted = expectation(description: "newer flush entered the owner")
+        let newer = Task {
+            newerStarted.fulfill()
+            await store.flushDrafts()
+        }
+        await fulfillment(of: [newerStarted], timeout: 3)
+        await gate.release()
+        await older.value; await newer.value
+        let repository = try XCTUnwrap(store.repository)
+        let saved = try await repository.draft("b")
+        XCTAssertEqual(saved, "b1", "an earlier multi-conversation flush cannot overwrite a newer flush")
+        try await repository.close()
+    }
+
+    func testFailedDraftClearRemainsQueuedAndDoesNotReappearFromRetrySeed() async throws {
+        let (store, _) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        let repository = try XCTUnwrap(store.repository)
+        try await repository.setDraft("a", body: "previous saved draft")
+        await store.loadSeed()
+        let fixture = try DatabaseQueue(path: repository.location.databaseURL.path)
+        try await fixture.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_draft BEFORE DELETE ON drafts BEGIN SELECT RAISE(ABORT, 'isolated draft write failure'); END")
+        }
+        store.setDraft("a", "")
+        await store.flushDrafts()
+        XCTAssertNotNil(store.storageDegradedReason, "a failed flush is not a working local cache")
+        XCTAssertEqual(store.drafts["a"], "", "the user's cleared text stays authoritative in memory")
+        try await fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_draft") }
+        try fixture.close()
+        await store.retryStorage()
+        let retried = try XCTUnwrap(store.repository)
+        let saved = try await retried.draft("a")
+        XCTAssertNil(saved, "retry must persist the retained clear instead of restoring the older seed")
+        XCTAssertEqual(store.drafts["a"], "")
+        XCTAssertNil(store.storageDegradedReason)
+        try await retried.close()
+    }
+
+    func testSuccessfulEmptyPageFinishesFirstLoadInsteadOfSpinningForever() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        XCTAssertEqual(store.timelinePhase("a"), .loadingFirst)
+        await stub.hold("/im/v1/conversations/a/messages", body: Data(#"{"items":[]}"#.utf8))
+        let loading = Task { await store.loadChat("a") }
+        await stub.waitUntilHeld()
+        XCTAssertEqual(store.timelinePhase("a"), .loadingFirst)
+        await stub.release()
+        await loading.value
+        XCTAssertEqual(store.timelinePhase("a"), .empty, "the view must show No messages yet, not Loading conversation")
+        XCTAssertTrue(store.timelines["a"]?.isEmpty ?? true)
+        XCTAssertNil(store.errors["a"])
+        let repository = try XCTUnwrap(store.repository)
+        store.resetProjection()
+        await store.loadSeed()
+        XCTAssertEqual(store.timelinePhase("a"), .loadingFirst, "a new process has not received an empty result")
+        await stub.failMessages(URLError(.notConnectedToInternet))
+        await store.loadChat("a")
+        XCTAssertEqual(store.timelinePhase("a"), .needsConnection, "offline with no rows cannot claim an empty chat")
+        try await repository.close()
+    }
+
+    func testPartialPageWithoutTrimmingShowsNetworkBoundaryAfterStoreReset() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        let items = try (1...2).map { TimelineItem(type: "message", message: try message($0, conversation: "a")) }
+        await stub.setMessages(try JSONEncoder().encode(MessagePage(items: items, next_before_message_id: "m1")))
+        await store.loadChat("a")
+        XCTAssertEqual(store.timelines["a"]?.count, 2)
+        XCTAssertEqual(store.before["a"], "m1")
+        store.resetProjection()
+        await store.loadSeed()
+        await stub.failMessages(URLError(.notConnectedToInternet))
+        await store.loadChat("a")
+        XCTAssertNil(store.before["a"], "the offline hint must not depend on a volatile network cursor")
+        XCTAssertTrue(store.olderNeedsNetwork.contains("a"))
+        XCTAssertEqual(store.timelines["a"]?.count, 2)
+        try await store.repository?.close()
+    }
+
     // MARK: - Helpers
 
     private func makeStore() async throws -> (ChatStore, StubTransport) {
@@ -408,6 +502,8 @@ private actor StubTransport: HTTPTransport {
     private var listFailure: URLError?
     private var postRequests: [URLRequest] = []
     private var messageReads = 0
+    private var messageData = Data(#"{"items":[]}"#.utf8)
+    private var messageFailure: URLError?
     private var heldPath: String?
     private var heldBody = Data()
     private var held: CheckedContinuation<Void, Never>?
@@ -428,6 +524,8 @@ private actor StubTransport: HTTPTransport {
     func setDetail(_ data: Data?, status: Int = 200) { detailData = data; detailStatus = status }
     func failDetail(_ error: URLError?) { detailFailure = error }
     func failList(_ error: URLError?) { listFailure = error }
+    func setMessages(_ data: Data) { messageData = data }
+    func failMessages(_ error: URLError?) { messageFailure = error }
     func postPaths() -> [String] { postRequests.map { $0.url?.path ?? "" } }
     func messageReadCount() -> Int { messageReads }
 
@@ -447,7 +545,8 @@ private actor StubTransport: HTTPTransport {
         if url.path == "/im/v1/sync" { return (syncData, response(url, 200)) }
         if url.path.hasSuffix("/messages") {
             if request.httpMethod == "GET" { messageReads += 1 } else { postRequests.append(request) }
-            return (Data(#"{"items":[]}"#.utf8), response(url, 200))
+            if let messageFailure { throw messageFailure }
+            return (messageData, response(url, 200))
         }
         if url.path.contains("/message-attempts/") {
             return (Data(#"{"detail":"not found"}"#.utf8), response(url, 404))

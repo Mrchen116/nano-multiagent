@@ -78,10 +78,39 @@ final class AppLocalBootstrapTests: XCTestCase {
         XCTAssertNil(model.chat, "a stale local seed must not recreate the user/store after Session invalidation")
     }
 
-    private func makeModel(openGate: BootstrapOpenGate? = nil) async throws -> (AppModel, BootstrapTransport) {
+    func testDisabledStoredOwnerPurgesItsUnopenedPartitionBeforeLaterReenable() async throws {
+        let (model, transport) = try await makeModel(enabled: false)
+        let partition = ChatPartition(origin: origin, userID: "alice")
+        let location = ChatStorageLocation.directory(root.appendingPathComponent("partition"))
+        let legacy = SendAttemptStore(directory: root.appendingPathComponent("legacy"))
+        let attempt = SendAttempt(conversationID: "cached", sourceMessageID: nil,
+                                  draft: PendingSend(key: "old", content: "private", attachments: [], requestBody: Data("{}".utf8)))
+        try legacy.save(attempt, origin: origin, userID: "alice")
+        let file = try XCTUnwrap(legacy.attemptFiles(origin: origin, userID: "alice").first)
+        let original = try Data(contentsOf: file)
+        XCTAssertNil(model.storage.partition, "this models a fresh process after disabled credentials were saved")
+        await model.bootstrapLocal()
+        XCTAssertTrue(model.ready)
+        XCTAssertFalse(model.user?.accountEnabled ?? true)
+        XCTAssertNil(model.chat)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: location.directoryURL.path))
+        XCTAssertEqual(try Data(contentsOf: file), original, "legacy source remains read-only")
+        let requests = await transport.requests
+        XCTAssertEqual(requests, 0)
+        await model.storage.activate(partition)
+        let reopened = try XCTUnwrap(model.storage.repository)
+        let rows = try await reopened.conversations()
+        let pending = try await reopened.pendingAttempts()
+        XCTAssertTrue(rows.isEmpty)
+        XCTAssertTrue(pending.isEmpty, "reenable cannot import the disabled owner's old frozen request")
+        XCTAssertNotNil(try reopened.attemptPersistence.policy().purgeGeneration)
+        try await reopened.close()
+    }
+
+    private func makeModel(openGate: BootstrapOpenGate? = nil, enabled: Bool = true) async throws -> (AppModel, BootstrapTransport) {
         let base = try XCTUnwrap(root)
         let user = AuthUser(id: "alice", username: "alice", display_name: "Alice", owner_id: "alice", locale: "en",
-                            membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
+                            membership_status: enabled ? "active" : "inactive", is_company_admin: false, owned_node_ids: [], created_at: "now")
         let location = ChatStorageLocation.directory(base.appendingPathComponent("partition"))
         let repository = try ChatRepository.open(ChatPartition(origin: origin, userID: user.id), location: location,
                                                  legacyAttemptRoot: base.appendingPathComponent("legacy"))

@@ -23,20 +23,30 @@ struct SendAttemptStore: Sendable {
     }
 
     func load(origin: URL, userID: String) throws -> [SendAttempt] {
-        let owner = ownerDirectory(origin, userID)
-        guard FileManager.default.fileExists(atPath: owner.path) else { return [] }
-        return try FileManager.default.contentsOfDirectory(at: owner, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "json" }
-            .map { try JSONDecoder().decode(SendAttempt.self, from: Data(contentsOf: $0)) }
+        try attemptFiles(origin: origin, userID: userID).map { try attempt(at: $0) }
     }
 
-    /// Per-file view for the one-time import: one unreadable file must not block the rest,
-    /// and the migration has to book every file's outcome.
-    func attemptFiles(origin: URL, userID: String) -> [URL] {
-        let owner = ownerDirectory(origin, userID)
-        guard FileManager.default.fileExists(atPath: owner.path) else { return [] }
-        let entries = (try? FileManager.default.contentsOfDirectory(at: owner, includingPropertiesForKeys: nil)) ?? []
+    /// Per-file import view. Only a genuinely missing directory means no attempts; failed
+    /// enumeration must abort the import transaction instead of permanently recording empty.
+    func attemptFiles(origin: URL, userID: String) throws -> [URL] {
+        let entries: [URL]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(at: ownerDirectory(origin, userID), includingPropertiesForKeys: nil)
+        } catch {
+            if isMissing(error) { return [] }
+            throw error
+        }
         return entries.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private func isMissing(_ error: Error) -> Bool {
+        let value = error as NSError
+        if value.domain == NSPOSIXErrorDomain { return value.code == Int(POSIXErrorCode.ENOENT.rawValue) }
+        // Foundation can present ENOTDIR as a high-level "no such file" error. Inspect the
+        // underlying cause before accepting absence; a blocked ancestor is recoverable IO.
+        if let underlying = value.userInfo[NSUnderlyingErrorKey] as? NSError { return isMissing(underlying) }
+        return value.domain == NSCocoaErrorDomain
+            && (value.code == NSFileReadNoSuchFileError || value.code == NSFileNoSuchFileError)
     }
 
     func attempt(at file: URL) throws -> SendAttempt {

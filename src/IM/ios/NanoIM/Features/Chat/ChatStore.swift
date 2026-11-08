@@ -14,8 +14,9 @@ final class ChatStore {
     var conversations: [Conversation] = []
     var inspectedConversation: Conversation?
     var timelines: [String: [TimelineItem]] = [:]
+    private var receivedTimelineResults: Set<String> = []
     var before: [String: String] = [:]
-    /// Conversations whose local window was trimmed: older history needs the network.
+    /// Conversations with a known incomplete local window: older history needs the network.
     var olderNeedsNetwork: Set<String> = []
     var drafts: [String: String] = [:]
     var attachments: [String: [ChatAttachment]] = [:]
@@ -87,8 +88,10 @@ final class ChatStore {
     private var refreshTask: Task<Void, Never>?
     private var accessRecovery: Task<Void, Never>?
     @ObservationIgnored private var attemptRestore: Task<Void, Never>?
-    private var draftFlush: Task<Void, Never>?
-    private var queuedDrafts: [String: String] = [:]
+    @ObservationIgnored private var draftFlush: Task<Void, Never>?
+    @ObservationIgnored private var draftWriteTail: Task<Void, Never>?
+    @ObservationIgnored private var queuedDrafts: [String: String] = [:]
+    @ObservationIgnored private var dirtyDraftIDs: Set<String> = []
     private var notificationFloor = 0
     private var storageController: ChatStorageController?
     /// First-paint read interval (design D2). `log stream`/Instruments read it in the field.
@@ -103,6 +106,16 @@ final class ChatStore {
     var storageDegradedReason: String? {
         if case .degraded(let reason) = storage { return reason }
         return nil
+    }
+
+    func timelinePhase(_ id: String) -> ChatTimelinePhase {
+        if (timelines[id] ?? []).contains(where: { $0.message != nil }) { return .loaded }
+        if receivedTimelineResults.contains(id) { return .empty }
+        if errors[id] != nil { return .needsConnection }
+        switch connection {
+        case .offline, .unavailable: return .needsConnection
+        default: return .loadingFirst
+        }
     }
 
     init(client: IMClient, user: AuthUser, controller: ChatStorageController? = nil) {
@@ -128,7 +141,11 @@ final class ChatStore {
     /// `.degraded` retry point: user tap, next foreground, or the next `run()`, whichever
     /// comes first. It never silently becomes "pure network forever".
     func retryStorage() async {
-        if let storageController { await storageController.retryOpen(); return }
+        if let storageController {
+            await storageController.retryOpen()
+            await flushDrafts()
+            return
+        }
         do {
             let revision = try await sessionRevision()
             for (id, kind) in unpersistedCleanups.sorted(by: { $0.key < $1.key }) {
@@ -164,7 +181,7 @@ final class ChatStore {
     /// This applies value types only; no synchronous file/SQLite work happens on MainActor.
     private func applySeed(_ seed: ChatBootstrapSeed) {
         conversations = seed.conversations
-        for (id, body) in seed.drafts where drafts[id] == nil || drafts[id]?.isEmpty == true { drafts[id] = body }
+        for (id, body) in seed.drafts where !dirtyDraftIDs.contains(id) && (drafts[id] == nil || drafts[id]?.isEmpty == true) { drafts[id] = body }
         pendingCount = seed.pendingCount
         lastFullAt = seed.connection.lastFullAt
         if cursor == nil, seed.connection.maxEventID > 0 { cursor = seed.connection.maxEventID }
@@ -262,6 +279,7 @@ final class ChatStore {
         // One serial writer keeps "last text wins": a fire-and-forget task per keystroke could
         // commit an older snapshot after a newer one.
         queuedDrafts[id] = text
+        dirtyDraftIDs.insert(id)
         guard draftFlush == nil else { return }
         let token = epoch
         draftFlush = Task { [weak self] in
@@ -271,16 +289,48 @@ final class ChatStore {
         }
     }
 
-    /// Flush points: focus loss, switching conversations, backgrounding, before sending.
-    func flushDrafts() async {
+    /// Flush points share one waiting chain: a newer snapshot cannot commit before an older
+    /// flush finishes. The writer seam controls interleavings without replacing real storage.
+    func flushDrafts(write: @escaping @Sendable (ChatRepository, String, String) async throws -> Void = {
+        try await $0.setDraft($1, body: $2)
+    }) async {
         draftFlush?.cancel(); draftFlush = nil
-        let writes = queuedDrafts; queuedDrafts = [:]
-        guard let repository, !writes.isEmpty else { return }
-        for (id, body) in writes {
-            // Only the newest text may win; a later edit during the flush stays queued.
-            guard queuedDrafts[id] == nil else { continue }
-            try? await repository.setDraft(id, body: body)
+        guard !queuedDrafts.isEmpty else { await draftWriteTail?.value; return }
+        guard let repository else { return } // Keep edits queued while storage is unavailable.
+        let writes = queuedDrafts
+        queuedDrafts = [:]
+        let previous = draftWriteTail
+        // Network stop/backgrounding must not invalidate a draft flush. Only losing the
+        // account owner cancels this chain; resetProjection rotates sendEpoch.
+        let owner = sendEpoch
+        let task = Task { [weak self] in
+            await previous?.value
+            guard let self, owner == self.sendEpoch, !Task.isCancelled else { return }
+            var failure: String?
+            for (id, body) in writes.sorted(by: { $0.key < $1.key }) {
+                guard owner == self.sendEpoch, !Task.isCancelled else { return }
+                guard self.drafts[id] != nil, !self.revokedChats.contains(id) else { continue }
+                // A still-queued edit has not joined the chain yet. An already consumed newer
+                // flush is ordered after this task, so it will safely win without this guard.
+                guard self.queuedDrafts[id] == nil else { continue }
+                do {
+                    guard self.repository === repository else { throw ChatRepositoryError.databaseUnavailable("storage changed before draft flush") }
+                    try await write(repository, id, body)
+                    if self.drafts[id] == body, self.queuedDrafts[id] == nil { self.dirtyDraftIDs.remove(id) }
+                } catch {
+                    guard owner == self.sendEpoch else { return }
+                    if self.drafts[id] == body, self.queuedDrafts[id] == nil { self.queuedDrafts[id] = body }
+                    failure = error.localizedDescription
+                }
+            }
+            if let failure, owner == self.sendEpoch, self.repository === repository {
+                self.listError = failure
+                if let controller = self.storageController { controller.reportStorageFailure(failure) }
+                else { self.storage = .degraded(reason: failure) }
+            }
         }
+        draftWriteTail = task
+        await task.value
     }
 
     func stop() {
@@ -293,10 +343,12 @@ final class ChatStore {
     func resetProjection() {
         sendEpoch = UUID(); projectionRevision = UUID()
         attemptRestore?.cancel(); attemptRestore = nil
-        draftFlush?.cancel(); draftFlush = nil; queuedDrafts = [:]
+        draftFlush?.cancel(); draftFlush = nil
+        draftWriteTail?.cancel(); draftWriteTail = nil
+        queuedDrafts = [:]; dirtyDraftIDs = []
         stop()
         timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
-        inspectedConversation = nil; olderNeedsNetwork = []
+        inspectedConversation = nil; olderNeedsNetwork = []; receivedTimelineResults = []
         interactionPending = [:]; interactionConversations = [:]; interactionSelections = [:]; interactionSending = []; sending = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil
         listPhase = .loadingFirst; connection = .starting; pendingCount = 0; lastFullAt = nil; listError = nil
@@ -305,7 +357,7 @@ final class ChatStore {
 
     func run() async {
         // Foreground is one of the three retry points for an unopenable partition.
-        if case .degraded = storage { await storageController?.retryOpen() }
+        if case .degraded = storage { await retryStorage() }
         let token = epoch
         var attempt = 0
         defer { Task { await stream.stop() } }
@@ -544,6 +596,7 @@ final class ChatStore {
             guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
             guard await isCurrent(request) else { return }
             try await applyPage(id, page: page, older: older, request: request)
+            guard await isCurrent(request) else { return }
             if older || before[id] == nil { before[id] = page.next_before_message_id }
             errors[id] = nil
             await recoverPending(id)
@@ -570,9 +623,12 @@ final class ChatStore {
         if page.olderNeedsNetwork, before[id] == nil { olderNeedsNetwork.insert(id) } else { olderNeedsNetwork.remove(id) }
     }
 
-    private func applyPage(_ id: String, page: MessagePage, older: Bool, request: ReadRequest) async throws {
+    private func applyPage(_ id: String, page: MessagePage, older: Bool, request: ReadRequest,
+                           recordsHistory: Bool = true) async throws {
         if let repository = request.repository, let context = request.context {
-            let result = try await repository.applyPage(id, items: page.items, write: context)
+            let result = try await repository.applyPage(id, items: page.items,
+                                                        hasEarlierMessages: recordsHistory ? page.next_before_message_id != nil : nil,
+                                                        write: context)
             guard await isCurrent(request) else { return }
             if result.olderNeedsNetwork, before[id] == nil { olderNeedsNetwork.insert(id) } else { olderNeedsNetwork.remove(id) }
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: result.items, older: true, discarded: discarded)
@@ -580,6 +636,7 @@ final class ChatStore {
             guard await isCurrent(request) else { return }
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
         }
+        if recordsHistory { receivedTimelineResults.insert(id) }
     }
 
     func consume(_ event: UserEvent) async {
@@ -623,7 +680,7 @@ final class ChatStore {
     /// decide. A transport failure decides nothing — the next successful sync converges.
     private func verifyAccess(_ id: String) async {
         checkingAccess.insert(id)
-        timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id)
+        timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id)
         if banner?.conversationID == id { banner = nil }
         guard let request = try? await readRequest() else { return }
         do {
@@ -943,7 +1000,7 @@ final class ChatStore {
     private func appendSent(_ message: ChatMessage, attempt: SendAttempt) async {
         guard let request = try? await readRequest() else { return }
         let item = TimelineItem(type: "message", message: message)
-        try? await applyPage(message.conversation_id, page: MessagePage(items: [item]), older: false, request: request)
+        try? await applyPage(message.conversation_id, page: MessagePage(items: [item]), older: false, request: request, recordsHistory: false)
         _ = attempt
     }
 
@@ -958,7 +1015,10 @@ final class ChatStore {
             try await currentRepository.upsertPending(attempt, write: context)
             guard token == sendEpoch, projection == projectionRevision else { throw CancellationError() }
             try requireWritable(attempt.conversationID)
-            if attempt.sourceMessageID == nil { drafts[attempt.conversationID] = ""; queuedDrafts[attempt.conversationID] = nil }
+            if attempt.sourceMessageID == nil {
+                drafts[attempt.conversationID] = ""; queuedDrafts[attempt.conversationID] = nil
+                dirtyDraftIDs.remove(attempt.conversationID)
+            }
         } else {
             let stamp = try await client.session.reserveSendAttempt(attempt.conversationID, userID: user.id, revision: revision)
             guard token == sendEpoch, projection == projectionRevision else { throw CancellationError() }
@@ -1066,9 +1126,9 @@ final class ChatStore {
     }
 
     private func clearConversationState(_ id: String) {
-        queuedDrafts[id] = nil
+        queuedDrafts[id] = nil; dirtyDraftIDs.remove(id)
         timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
-        olderNeedsNetwork.remove(id); pending[id] = nil
+        olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id); pending[id] = nil
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
             interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
         }

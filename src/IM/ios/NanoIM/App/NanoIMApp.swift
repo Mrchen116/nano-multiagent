@@ -95,7 +95,7 @@ final class AppModel {
             await storage.activate(ChatPartition(origin: client.baseURL, userID: user.id))
         } else {
             clearChat()
-            await storage.purge(reason: .deactivated)
+            await storage.purge(reason: .deactivated, partition: ChatPartition(origin: client.baseURL, userID: user.id))
         }
         guard client === self.client, revision == (await client.session.revision()),
               (await client.session.currentUser())?.id == user.id else { return }
@@ -143,7 +143,9 @@ final class AppModel {
                 installChat(stored)
             } else {
                 clearChat()
-                if stored != nil { await storage.purge(reason: .deactivated) }
+                if let stored {
+                    await storage.purge(reason: .deactivated, partition: ChatPartition(origin: current.baseURL, userID: stored.id))
+                }
             }
             guard current === client, revision == (await current.session.revision()) else { return }
             user = stored

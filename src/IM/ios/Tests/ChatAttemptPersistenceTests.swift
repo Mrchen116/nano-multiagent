@@ -345,7 +345,7 @@ final class ChatAttemptPersistenceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: legacyFile), original)
         XCTAssertEqual(try Data(contentsOf: bareJSON), original)
         XCTAssertEqual(try Data(contentsOf: unrelated), Data("unrelated".utf8))
-        XCTAssertEqual(legacy.attemptFiles(origin: partition.origin, userID: partition.userID), [legacyFile])
+        XCTAssertEqual(try legacy.attemptFiles(origin: partition.origin, userID: partition.userID), [legacyFile])
     }
 
     func testFilesAndDirectoriesAreExcludedFromBackup() throws {

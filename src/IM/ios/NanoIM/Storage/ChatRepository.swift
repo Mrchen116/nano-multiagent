@@ -27,7 +27,7 @@ struct ChatTimelinePage: Sendable {
     var items: [TimelineItem]
     var nextBefore: String?
     var isAtLocalStart: Bool
-    /// The local window was trimmed, so older messages exist on the server but not here.
+    /// The retained window is known incomplete (pagination or retention), not the chat start.
     var olderNeedsNetwork: Bool
 }
 
@@ -348,8 +348,8 @@ actor ChatRepository {
         }
     }
 
-    /// The whole locally retained window, ascending. `nextBefore` is only offered when the
-    /// window was trimmed: otherwise the caller's network cursor decides whether more exists.
+    /// The whole retained window, ascending. A known incomplete first page and a trimmed
+    /// window both retain the honest network-needed boundary across process death.
     func timeline(_ id: String, limit: Int = ChatRepository.retentionLimit) throws -> ChatTimelinePage {
         try read { db in try Self.timelinePage(db, id: id, limit: limit) }
     }
@@ -478,7 +478,11 @@ actor ChatRepository {
                        arguments: ["policy.conversation.\(id)", generation])
     }
 
-    func applyPage(_ id: String, items: [TimelineItem], write context: ChatWriteContext) throws -> ChatTimelinePage {
+    /// `hasEarlierMessages` is only supplied for a complete endpoint page, never a sparse
+    /// message correction. A latest page cannot undo an already-proven start; a terminal
+    /// older page can prove it. Retention remains an independent reason for incompleteness.
+    func applyPage(_ id: String, items: [TimelineItem], hasEarlierMessages: Bool? = nil,
+                   write context: ChatWriteContext) throws -> ChatTimelinePage {
         try write { db in
             try validate(context, db: db)
             guard try Self.isRevoked(id, db: db) == false else { throw ChatRepositoryError.revokedConversation(id) }
@@ -495,6 +499,14 @@ actor ChatRepository {
                         INSERT OR REPLACE INTO conversation_boundaries(id, conversation_id, type, agent_id, before_message_id, applied_at)
                         VALUES(?,?,?,?,?,?)
                         """, arguments: [boundaryID, id, item.type, item.agent_id, item.before_message_id, item.applied_at])
+                }
+            }
+            if let hasEarlierMessages {
+                let key = "timeline.earlier_incomplete.\(id)"
+                if hasEarlierMessages {
+                    try db.execute(sql: "INSERT OR IGNORE INTO cache_meta(key,value) VALUES(?, '1')", arguments: [key])
+                } else {
+                    try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?, '0')", arguments: [key])
                 }
             }
             try Self.refreshConversationProjection(id, db: db)
@@ -651,6 +663,7 @@ actor ChatRepository {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
             try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0, snapshot_seq=0, updated_at=NULL WHERE id=1")
+            try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'timeline.%'")
         }
     }
 
@@ -714,7 +727,7 @@ actor ChatRepository {
             try db.execute(sql: "DELETE FROM \(table)")
         }
         try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0,snapshot_seq=snapshot_seq+1,updated_at=NULL WHERE id=1")
-        try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'sync.%' OR key LIKE 'handoff.%'")
+        try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'sync.%' OR key LIKE 'handoff.%' OR key LIKE 'timeline.%'")
     }
 
     private static func importHandoffs(_ handoffs: [ChatAttemptPersistence.Handoff], db: Database) throws {
@@ -763,6 +776,7 @@ actor ChatRepository {
     private static func revokeRows(_ id: String, reason: ChatRevokeReason, db: Database, now: Date) throws {
         try deletePendingRows(id, db: db, reason: reason)
         try db.execute(sql: "DELETE FROM discarded_messages WHERE conversation_id=?", arguments: [id])
+        try db.execute(sql: "DELETE FROM cache_meta WHERE key=?", arguments: ["timeline.earlier_incomplete.\(id)"])
         try db.execute(sql: "DELETE FROM conversations WHERE id=?", arguments: [id])
         let exists = try isRevoked(id, db: db)
         if !exists {
@@ -941,10 +955,12 @@ actor ChatRepository {
             items.append(TimelineItem(type: "message", message: message))
         }
         let trimmedAt = try String.fetchOne(db, sql: "SELECT trimmed_at FROM conversations WHERE id=?", arguments: [id])
+        let incomplete = try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: ["timeline.earlier_incomplete.\(id)"]) == "1"
+        let needsNetwork = trimmedAt != nil || incomplete
         return ChatTimelinePage(items: items,
-                                nextBefore: trimmedAt == nil ? nil : messages.first?.id,
-                                isAtLocalStart: trimmedAt == nil,
-                                olderNeedsNetwork: trimmedAt != nil)
+                                nextBefore: needsNetwork ? messages.first?.id : nil,
+                                isAtLocalStart: !needsNetwork,
+                                olderNeedsNetwork: needsNetwork)
     }
 
     private static func loadConversations(_ db: Database, only id: String? = nil) throws -> [Conversation] {
