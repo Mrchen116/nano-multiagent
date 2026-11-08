@@ -244,11 +244,12 @@ export class InboxStore {
   }
   /** List unread sources; personal projection omits host scheduling state. */
   check(agent: string, personal = false) {
-    const sources = new Map<string, { target: string; name: string; unread: number; mentions: number; requires_attention?: boolean; conversation_type?: string; delivery?: string }>();
+    const sources = new Map<string, { target: string; name: string; unread: number; mentions: number; conversation_type: string; requires_attention?: boolean; delivery?: string }>();
     for (const row of this.entries(agent)) {
       const input = JSON.parse(row.payload) as RelayInput;
       const source = sources.get(row.target) ?? { target: row.target, name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,
-        ...(personal ? {conversation_type:String(input.metadata.conversation_type),delivery:String(input.metadata.personal_delivery)} : {requires_attention:false}) };
+        conversation_type:String(input.metadata.conversation_type),
+        ...(personal ? {delivery:String(input.metadata.personal_delivery)} : {requires_attention:false}) };
       source.unread++;
       // Older card replies used the attention field for implicit addressing too.
       const mentions = input.metadata.explicit_mentioned_agent_ids

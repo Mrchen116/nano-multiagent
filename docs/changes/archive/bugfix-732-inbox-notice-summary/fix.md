@@ -43,3 +43,7 @@ DSH 既有待交付 Inbox 提醒替换机制未变；每个新 wake 都携带完
 ## PR 反馈精简
 
 用户指出 requires_attention 难理解，并要求删除通知中的 `bodies are not read`。提醒仅投影会话名称、可读引用、未读数和真实提及数（PA 另保留会话类型与参与/旁观关系），去掉旧触发配置聚合字段及被指出的文案。内部触发与 check 结果的原行为保留；既有 native 请求断言跟随提醒字段精简。
+
+## PR 反馈：统一会话类型
+
+用户确认“合理的格式应当是所有 Global 都带会话类型，PA 额外带参与/旁观关系”，并要求“改下”。Inbox check 与提醒中的每个来源现在统一带 conversation_type；delivery 仍只供 PA，来源元数据、触发、聚合和消费语义保留。既有 Inbox 与 native 提醒测试覆盖普通 Global 的 direct / group 及 PA 保留两字段。

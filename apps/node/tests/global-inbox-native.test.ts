@@ -61,14 +61,14 @@ it('coalesces Inbox notices during a model request and notifies again after cons
     await client.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: 'other-notice', mode: 'inject',
       content: [{ type: 'text', text: 'OTHER_NOTICE' }], source: { kind: 'system', actorId: 'a', channel: 'other', messageId: 'other-notice' } });
     const summary = (index: number) => JSON.parse(requests[index]!.messages.findLast(message => message.source?.channel === 'inbox').content[0].text.split('\n').at(-1));
-    expect(summary(0).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0 }]);
+    expect(summary(0).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct' }]);
     respond(0, summary(0).sources[0].target);
     await expect.poll(() => requests.length).toBe(2);
     expect(notices(1)).toBe(notices(0) + 1);
     expect(JSON.stringify(requests[1]!.messages)).toContain('OTHER_NOTICE');
     expect(summary(1).sources).toEqual([
-      { target: 'c_dm', name: 'Owner', unread: 2, mentions: 0 },
-      { target: expect.stringMatching(/^c_f_/), name: 'Team', unread: 2, mentions: 1 },
+      { target: 'c_dm', name: 'Owner', unread: 2, mentions: 0, conversation_type: 'direct' },
+      { target: expect.stringMatching(/^c_f_/), name: 'Team', unread: 2, mentions: 1, conversation_type: 'group' },
     ]);
     const notice = requests[1]!.messages.findLast(message => message.source?.channel === 'inbox');
     expect(JSON.stringify(notice)).not.toContain('BODY_');
@@ -80,7 +80,7 @@ it('coalesces Inbox notices during a model request and notifies again after cons
     respond(2, 'c_dm');
     await expect.poll(() => requests.length).toBe(4);
     expect(notices(3)).toBe(notices(2) + 1);
-    expect(summary(3).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0 }]);
+    expect(summary(3).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct' }]);
     expect(JSON.stringify(requests[3]!.messages)).toContain('BODY_later');
     respond(3);
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
@@ -226,7 +226,7 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     const noticeCount = (messages: any[]) => messages.filter(message => message.source?.channel === 'inbox').length;
     expect(noticeCount(captured[2])).toBe(noticeCount(captured[1]) + 1);
     const summary = JSON.parse(captured[2].findLast((message: any) => message.source?.channel === 'inbox').content[0].text.split('\n').at(-1));
-    expect(summary.sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 3, mentions: 0 }]);
+    expect(summary.sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 3, mentions: 0, conversation_type: 'direct' }]);
     expect(JSON.stringify(captured[2])).not.toContain(correction);
     expect(JSON.stringify(captured[2])).toContain('held_for_revalidation');
     expect(JSON.stringify(captured[3])).toContain(correction);
