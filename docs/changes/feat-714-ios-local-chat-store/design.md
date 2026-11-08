@@ -289,16 +289,49 @@ stateDiagram-v2
 - 时机与网络无关：迁移只在 `ChatRepository.open` 内、migrator 之后、对外可用之前执行一次，**纯本地 IO、零网络**。所以「首启即断网」不会让迁移失败或半途而废——迁移会正常结束，只是记录的**可见性**要等第一次成功 `/sync`（见下一条）。
 - 迁移完成 ≠ 首帧可见（C1）：升级后首启时 `conversations` 表还是空的（迁移先于任何 `/sync`），因此首帧**只能给出 pending 计数**：`BootstrapSeed.pendingCount` + 一句诚实说明「N 条未确认的发送；连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除」。这些记录在第一次成功 `/sync` 把会话写进库之后，就按会话出现在时间线里。**不造占位会话行**——那会在列表里出现一个点不开的假会话。首文档的「升级后首次启动的呈现」Scenario 已把这一时序写成验收口径。
 - 身份：`pending_sends` 主键 `(conversation_id, source_message_id, attempt_key)`，其中 `attempt_key` 就是 `PendingSend.key`，`source_message_id` 对普通发送用 `''`（服务端消息 id 非空，占位无歧义）。这与旧文件名 `sha256("conversationID\nsourceMessageID\nkey")` 一一对应。
-- 幂等：`INSERT OR IGNORE` + `cache_meta["migration.send_attempts_v1"]` 标记，两者叠加——重复执行不产生重复行，标记存在时整体跳过。**标记在库里，所以库丢了就等于「没迁移过」，会从保留下来的 JSON 重新导入**（这是选「库内标记」而不是「看目录是否存在」的直接原因）。
+- 幂等：`INSERT OR IGNORE` + `cache_meta["migration.send_attempts_v1"]` 标记，两者叠加——重复执行不产生重复行，标记存在时整体跳过。**未经过主动清理的范围**在库损坏重建、标记消失后可从保留的 JSON 重新导入；已主动清理的分区/会话必须先受下文「持久导入栅栏」约束，不能把「库不存在」误当作重新导入已丢弃请求的许可。库内 marker 只负责一次导入的幂等，不再兼任清理事实的持久来源。
 - 无外键（C1）：`pending_sends.conversation_id` 刻意不建外键。迁移先于 `/sync`，`conversations` 表为空；GRDB 默认 `foreignKeysEnabled = true`，给这一列加外键会让每一行都 FK 违约，而 `INSERT OR IGNORE` 只吸收 UNIQUE/NOT NULL/CHECK/PK 冲突、不吸收 FK 违约——整批迁移会全部记为 `rejected`，「一条不丢」在真实升级路径上整体失效。删除因此改成显式两处（D10）。
 - 失败与崩溃点（逐条写清，不让实现者猜）：
   - 逐条 reject（`requestBody == nil` 一类）：JSON 文件保留在原目录、不删、不清零，`migration_report` 记 `rejected`，证据里报条数。当前实现只在 `requestBody == nil` 时保存失败（`SendAttemptStore.swift:35-37`），所以理论值为 0。
   - 崩溃在事务内：整批回滚，标记不存在，下次打开重跑；幂等保证不重复。
   - **首启即崩溃**（提交之后、任何后续动作之前）：插入与标记同事务，标记已持久化，下次打开跳过导入——源数据本来就还在，跳过是安全的。
-  - 库文件被替换或损坏重建（R2）：标记随库消失 → 下次打开重新导入；重复行被 `INSERT OR IGNORE` 吸收。
+  - 库文件被替换或损坏重建（R2）：标记随库消失 → 下次打开先应用持久导入栅栏，再重新导入仍有资格的旧记录；重复行被 `INSERT OR IGNORE` 吸收。只有 SQLite 的 `CORRUPT` / `NOTADB` 证明损坏；权限、文件保护、空间、IO 或 schema 错误只降级，不借重建擦除可恢复请求。
 - 归档（C2）：**U1 不改名、不删除**旧目录 `NanoIM/SendAttempts/<digest>/`。旧构建按精确目录查找（`SendAttemptStore.swift:25-31`、`:62-67`），目录一改名它就读不到任何记录，R1 的回退路径同时失效；而且「保留一个发布周期」与「下次打开就删」本来就自相矛盾。因此 U1 的删除判据是**没有**：退役旧目录留给 U2（发送内核接管写入）另立 unit 决策，届时必须写清「回退不可用」的代价。
 - 回退的真实覆盖（诚实口径，替换原来的「零数据丢失」）：回退到旧构建时，**升级前**存在的尝试原样可读（目录未动、文件格式未变、语义未变）；**升级后**新产生的尝试只存在于库中，旧构建看不到——这部分在回退窗口内既读不到也无法核对。本 unit 接受这个有界损失，在证据里写明，不承诺「回退零损失」。
 - 语义不变：迁移过程零网络调用；`recoverPending()` 仍是 `lookup: true, resend: false`（`ChatStore.swift:383-403`）；只有用户显式重试才走 `resend: true`。M1 有「任何 POST 都失败」的桩测试断言冷启动零发送。交互卡片的 `source_message_id` 记录同样迁入，`interactionConversations` 的映射由库读出重建。
+
+### D12 补充：主动清理与旧源保留必须同时成立（恢复修订，待本轮独立复审）
+
+**修订依据与选择**：恢复核实发现 `Session.clearSendAttempts()` 仍删除旧 JSON，而 D12 明确承诺原样保留；只停删又会在 purge 删除 DB marker 后重新导入已清理记录。父级已选择「保留旧源 + 持久导入栅栏」，不增加「退出时可偷偷删旧源」例外。本修订不增加现有安装操作、服务端操作或自动发送，也不把旧 Gate 2 当作新设计的批准。
+
+**职责与唯一事实源**：新增小型 `LegacyAttemptImportPolicy`，路径 `ApplicationSupport/NanoIM/ChatImportPolicy/<partition.digest>.json`，不在被清理的 `Chat/<digest>/` 内。它只记录旧源永久失去导入资格的范围与代际，不保存消息、草稿、请求体或凭据，不是第二套聊天库。目录/文件同 `.completeFileProtection`、排除备份。状态包含：
+
+- `purgeGeneration: UUID?`：分区主动退出/换账号/换 origin/凭据或账号失效后产生；存在即永久禁止该分区旧 JSON 再导入。
+- `revocations: [conversationID: UUID]`：该会话被权威判定不可访问或不可写、其未确认发送被显式丢弃时产生。即使以后重新取得访问，也不恢复**旧**请求的资格；重新编辑/新请求仍走数据库或新 handoff，与旧源无关。
+- 文件不存在表示首次升级、尚无排除记录；文件不可读/无法解码或版本未知必须降级，不能按空策略继续导入。文件采用受保护的原子替换；代际不因 DB 损坏/重建而清零。
+
+**写入与崩溃顺序**：
+
+1. 需要清理时先把新的 policy 代际原子持久化，再在 DB 单事务中执行原有 revoke / pending 删除 / 分区清空；事务同时写 `cache_meta.policy.partition_generation` 或 `cache_meta.policy.conversation.<id>` 作为「此缓存已应用该代际」的回执。Policy 是旧源资格的唯一事实；DB 里的回执不是第二份裁决。
+2. 打开 DB 时，在旧 JSON 导入与首绘前对比这些回执。不匹配时先把清理补完并更新回执：分区代际变化清空旧聊天行与 sync 状态；会话代际变化删除该会话 pending/内容并写 tombstone。这样「policy 已提交、DB 清理前崩溃」不会让旧 DB 在下次启动闪回。
+3. DB 已清理、文件删除前崩溃：回执已一致且行已空，下次打开仍为空；整库已删除时，policy 仍在，旧源不会重新导入。
+4. Policy 写入失败不允许宣称清理完成，也不允许删除 DB 后丢失唯一剩余 marker。当前 owner 立即停止展示并进入明确的存储降级；保留原文件以重试，向调用者报告失败。Policy 可读性失败不能被 corruption rebuild 路径绕开。物理文件系统无法持久写入时不作成功承诺。
+5. 后续全量快照/成功详情可重新授权显示该会话，但不会撤销其旧源排除记录；这保证「重新入群」不会把之前已丢弃的旧发送复活。多次相同 tombstone / 不可写快照不重复旋转代际。
+
+`Session` 停止自动删除旧 JSON；生命周期信号仍由 Session 发出，分区清理由 controller 协调，业务行删除与 policy 回执只在 repository 内。`ChatStorageController` 的 opening / degraded 也可能已有磁盘目录：必须 drain detached opener，再经相同 policy 入口清理；同分区 activate 合并，旧 purge 不得发布到新世代。
+
+**降级新请求的 handoff**：不再写回旧源。新请求暂存到 `Chat/<digest>/<attempt-hash>.json`（与 DB 同一清理边界，只有冻结 JSON 请求，不含媒体字节）。打开/重试就绪时，先在同一 DB 事务中导入有效 handoff 并为该不可变 `(conversation, source, key)` 写交接 marker，再在事务成功后移除对应 handoff 文件；崩溃或文件删除失败会重走 marker 而不复活已处理行。ready 后若有新 handoff 在 opener 扫描后落盘，`reloadPending` 必须再做同样交接，不能用 DB 空数组覆盖尚未接管的内存记录。读取/交接失败保留文件与原投影，显式报错，绝不自动 POST。会话/分区清理同时覆盖新 handoff，不触碰旧源。
+
+**稳定首绘 owner**：`AppModel` 按 partition 强持有唯一 `ChatStore`，bootstrap 先取本地 seed 并绑定，再发布 ready/user；`RootTabs` 只接收引用。不得在 View 构造中 eager new/attach 临时 store、消费 seed 或启动文件读取。相同账号的 metadata publish 复用实例，换身份显式 reset/替换。controller 的编排字段不参与 UI Observation；seed 是可复用值，不是读一次就反写的事件。
+
+**回退与范围边界**：升级前旧 JSON 的字节仍原样可读；旧构建不知道本栅栏，因此它仍可能展示后来已被新构建丢弃的旧 pending，不能承诺旧构建继承本次清理决策。升级后新请求只在 DB/handoff，旧构建看不到，原有有界回退损失不变。没有服务器消息删除、自动重发或生产迁移脚本；这是 App 下一次启动的本地数据适配，仅在隔离副本/临时目录验收，不执行用户现有安装。
+
+**本轮追加验证（仍归 M1，不另拆 milestone）**：
+
+- worker：隔离临时旧 JSON 的字节摘要前后相同；首次导入/重复导入；未清理范围损坏重建可重导入；分区 purge→重新登录、会话 revoke→损坏重建均不重导入旧请求；重新授权不复活旧请求但允许新请求。
+- worker：构造 policy 已写而 DB 未清理、DB 已清理而文件尚在、handoff DB 提交而文件尚在三个崩溃点，重开后结果唯一且零发送；policy 解码/写入失败不能按成功继续；普通 schema/IO 错误不触发 quarantine。
+- worker：同分区并发 activate 一次 open；purge 等待 opener；旧 purge 不清新 partition；degraded→ready 的 handoff 冻结字节不丢；AppModel 本地 bootstrap 零 HTTP、同账号 publish 保持同一 UI store。
+- reviewer：组合独立 `change-code-review`（含最终 delta/契约校对）、`product-journey-review` / `frontend-experience-review`（共享真实原生首绘、杀进程、同 origin 不可达恢复及画面）、`performance-review`（原有真机 20 次 p50/p95 与主线程 IO 边界）。无模型 Context 增量。当前工具不支持指定原流程模型/effort，本轮已获用户允许以可用配置独立审查；记录实际差异，不降低审查内容。
 
 **D13 — 每个会话本地保留最近 `max(300, 5 × 当前分页尺寸)` 条消息，追加时在同一事务内修剪更旧的，并同步修剪 boundary 与只读窗口。**
 
