@@ -200,6 +200,22 @@ it('waits for an in-flight prepare when disposing and leaves no instance', async
   expect(driver.count('browser_prepare')).toBe(2);
 });
 
+it('does not prune an Agent whose disposal is queued behind an unstarted read', async () => {
+  const driver = new BrowserFixtureDriver();
+  const control = controlFor(driver, () => NOW, 2);
+  const readingB = control.read(openAgent('agent-b'), undefined, {});
+  const readingA = control.read(openAgent('agent-a'), undefined, {});
+  const disposingA = control.dispose('agent-a');
+  await Promise.all([readingB, readingA, disposingA]);
+  expect(driver.count('browser_prepare')).toBe(2);
+  expect(driver.count('end_session')).toBe(1);
+  const preparedA = driver.calls.filter(call => call.tool === 'browser_prepare')[1]!.args.session;
+  expect(driver.calls.find(call => call.tool === 'end_session')!.args.session).toBe(preparedA);
+  await control.read(openAgent('agent-c'), undefined, {});
+  expect((await failure(control.read(openAgent('agent-d'), undefined, {}))).browserCode).toBe('browser_busy');
+  expect(driver.count('browser_prepare') - driver.count('end_session')).toBe(2);
+});
+
 it('retains a failed disposal reservation without retrying cleanup during its cooldown', async () => {
   const driver = new BrowserFixtureDriver({ endSessionError: new Error('cannot close') });
   const control = controlFor(driver, () => NOW, 1);

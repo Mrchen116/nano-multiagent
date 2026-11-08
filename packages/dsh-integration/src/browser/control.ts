@@ -32,6 +32,8 @@ interface AgentState {
   launching?: boolean;
   /** Prevent new work from entering while queued disposal drains. */
   disposing?: boolean;
+  /** Only a settled disposal may leave an expiry-prunable ownership tombstone. */
+  disposalFinished?: boolean;
   cooldown?: { failedAt: number; until: number; detail: string };
   queue: Promise<unknown>;
 }
@@ -302,7 +304,8 @@ export class BrowserControl {
         try { await this.endOwned(state); }
         catch (error) { this.logger?.warn(String(error)); }
       }
-      if (!state.ownership) this.states.delete(agentId);
+      state.disposalFinished = true;
+      if (!state.ownership && this.states.get(agentId) === state) this.states.delete(agentId);
     });
     state.queue = run;
     await run;
@@ -364,7 +367,7 @@ export class BrowserControl {
     for (const [agentId, state] of this.states) {
       this.cooldownView(state);
       if (state.ownership || state.launching) count += 1;
-      else if (state.disposing) this.states.delete(agentId);
+      else if (state.disposalFinished) this.states.delete(agentId);
     }
     return count;
   }
