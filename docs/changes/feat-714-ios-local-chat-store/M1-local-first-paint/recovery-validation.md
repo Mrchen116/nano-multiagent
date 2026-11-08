@@ -106,3 +106,14 @@
 - 当前 `8a668d7c2` 产品的 IM API 重建与 `NanoIMJourney build-for-testing` 均实际 exit 0，日志 `/tmp/feat714-native-final-api-build-8a668d7c2.log`、`/tmp/feat714-native-final-build-8a668d7c2.log`。后续 W7 只改 App 单测，不以它重开未变产品问题；正式运行仍核对当前冻结构建。
 - 本轮新建唯一临时 runtime `/tmp/feat714-native-final-dphmlbb6`，新 loopback origin `http://127.0.0.1:53703`，合成 IM DB/JWT/账号独立于旧 fixture。首次 IM **exit 1、未监听、零 prime**，原因是排除继承 IM 环境时未声明当前 server 强制的 `IM_PUBLIC_URL`。原始 `server.log:1` 保留；实查端口 connect=61、557 Shutdown，无服务残留。该配置遗漏不是权限拒绝或新增数据范围。
 - Parent 明确允许同窗只补 `IM_PUBLIC_URL` 为本轮同 origin、自主恢复已定位且范围不变的测试配置遗漏；不引用生产配置、不换 DB/JWT/origin、不扩大 timeout/断言。后续真实旅程结果另记，不能把 build 或准备完成当作 prime/offline 通过。
+
+## 冻结版本真实原生旅程：online assertion FAIL，offline 未执行
+
+- 原 reviewer Round 4 独立关闭 W7，**0C/0W / live findings=[]**（范围仅 W7 closure，不把已关闭产品问题重审成全 unit 背书）。产品/UITest 未变，最终 `01f34d32e` build-for-testing 实际 exit 0，`/tmp/feat714-native-final-build-01f34d32e.log`。
+- 补本 origin 的 `IM_PUBLIC_URL` 后，唯一自有 IM 实际监听 53703（`server-configured.log:1`）；保留首次失败 `server.log` 不覆盖。health check 误用不存在的 `/openapi.json` 得到404、尚无登录/seed副作用；读取实际 `server.ts:285-286` 后改为 `/health` 明确健康。只纠正自有fixture检查URL，不改服务/客户端/断言。随后真实API创建一条 Product launch 群会话及普通工作消息，private输入与同目录 xctestrun 变体不提交。
+- 真实 UI prime 命令：`xcodebuild test-without-building -jobs 2 -parallel-testing-enabled NO -xctestrun /tmp/nano-ios-714-resume/Build/Products/Current714Journey-01f34d32e.xctestrun -destination 'platform=iOS Simulator,id=55763F8D-5385-47DF-A24F-F2461DCB2FFB' -only-testing:NanoIMUITests/LocalFirstLaunchUITests/testPrimeFromRealServer -resultBundlePath /tmp/feat714-native-final-dphmlbb6/online.xcresult`。**exit65 / 1 test / 1 assertion failure / 0 unexpected**；raw `online.log:123-131`。真实登录、列表读取与点击会话已发生，message整串CONTAINS在既定15秒未匹配，未执行成功后terminate步骤；**offline阶段未运行**，不把它标通过或使用此失败prime假造离线结果。
+- 已导出 xcresult 26个attachments（本地 `online-attachments/manifest.json`）。作者用 read_image 实际检查 `A6DF14CB-568B-4928-B7A5-6FED1FA54067.png`：原生 Chats 列表展示 Product launch、完整可辨认的消息预览、时间，无整屏加载；只证明这个online列表状态，不冒充冷启动离线或timeline画面。保留录屏与失败AX hierarchy；没有为截图再启动/重试App。
+- 决定性失败取证：`online-attachments/D1B7EA16-A07B-47AD-802B-7ADD25F0C1B1.txt:14-32` 显示已进入 Product launch，message正文完整存在，但AX label为 `Tomorrow’s design review is at 10:30. Bring the revised launch checklist.`（U+2019），fixture/测试输入为 ASCII `Tomorrow's ...`（U+0027）。当前测试用原文本整串CONTAINS，因此这处标点呈现差异足以解释该次选择器未匹配；不将日志里的“The real message endpoint must decode and render”断言标题反向当作端点未返回/未渲染的事实。此证据仍**不把失败改写成自动通过**，也未据此扩大为产品正文损坏结论或改变核心断言/timeout。
+- 按本轮真实旅程超时停止线停止该批，不忙重试、未跑offline。唯一IM job已收集SIGTERM退出，实查 `53703 connect=61` 无监听；精确557名称/UDID已核为Shutdown（exit0），未erase/delete/clone。所有本批构建与UI作业已收集，无自建服务/模型/Gateway/浏览器残留。
+
+当前代码 finding closure通过，复用的后六组与最终有序App6定向回归有效；但完整两阶段原生旅程仍 **FAIL / offline未验证**。需要后续获准窗口以避免标点呈现歧义的正常fixture文本或有等价性证明的选择器完成同一行为判据，不能通过放松内容断言或改timeout收口。成功空会话真实画面、真机flight/protection、≥20次首绘统计和完整CI依旧单列pending。

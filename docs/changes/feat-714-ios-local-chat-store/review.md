@@ -102,3 +102,12 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - Reviewer 已独立读取 `/tmp/feat714-app-fixture-8a668d7c2.log:213-242`：**App6 / 0 failures / 0 unexpected / TEST SUCCEEDED**，新 origin 与旧 same-account 都通过。因此“最后 fixture 未 typecheck/XCTest”缺口现已关闭；可以复用产品未变的后六组 + App6 定向补验，不改写前两次失败或声称七组同次 clean green。此 PASS 不反证 SDK 明确的 W7 hook 顺序，也不证明 EPERM 全部根因已闭合。
 - **no spec delta；本次受影响契约 corrected-delta = aligned**。D3 单链/冻结转移、D12显式失败/保留重试、readonly legacy、policy/handoff、零自动 POST 与隔离/撤权均未放宽。未重审未变全 unit，不重置已有效判断。
 - 本轮裁决是 **W1/W2 独立产品代码 closure、唯一新必须修项 W7**，不能无条件批准整个受审增量；不是七组单次全绿、fixture 根因全部已证、完整 Gate/unit/M1/M2 或原生体验通过。最终原生在线→终止→离线、成功空会话画面、真机 flight/protection、20 次首绘 p50/p95 与完整 CI 仍需对应证据；两次旧失败与取消 Journey build 保留。
+
+## Round 4 — W7 CLOSED / 本次 closure APPROVED（0 CRITICAL / 0 WARNING）
+
+- 同一 reviewer 只集中关闭 W7，未重审已关闭 W1–W6 或全 unit。`validated_at`：`01f34d32ec74acdbfddd94f93389d4813b2721df`；`executed_base` 仍 `eeaea4792`；增量 `8a668d7c2..01f34d32e`，3 files / +42/-2。确认整个 NanoIM 产品、UITests、project diff 为空，tracked clean，原 mock 排除。
+- 配置与只读方法沿用：未改文件/Git，未运行构建、测试、设备/sim、GUI、服务、模型、网络或子作业，不声称可选择精确模型/effort。
+- **W7 closed**：`AppLocalBootstrapTests.swift:15-23` 在同一个 async teardown 内 await 合成 owner signOut/控制器 purge，再释放引用，最后 throwing remove 自己的 root；同步 remove hook 已移除，顺序不再依赖 SDK 反证的跨 hook 假设。没有产品修改、host 目录修理、sleep、吞错、timeout/范围/内容断言变动。
+- Reviewer 独立读取 `/tmp/feat714-app-fixture-ordered.log:294-322`：**App6 / 0 failures / 0 unexpected / TEST SUCCEEDED**，新 origin 与旧 same-account 均 pass；对整份 log 独立搜索未见 vnode-unlinked、EPERM、Operation not permitted、TEST FAILED、error。该实际结果关闭 W7 确切顺序缺陷，不宣称旧 EPERM 全部根因已唯一证明或所有潜在竞态永久消失。
+- 先前 URL 等价断言、真实 EPERM 和 8a App6 虽 pass 仍有 vnode 的历史均忠实保留；本次是 App6 定向验证，不是七组同次全绿。未变产品的其余六组 99 total / 1 skip / 0 failures 依原版本映射复用，不因 reviewer 交接重跑。
+- **live findings=[]；no spec delta；此前产品契约 aligned 判断保持。** 本次 W7 closure 增量可批准，W1–W6 关闭判断保持；不把这一窄批准扩大成全 unit/Gate/M1/M2、UI、真机或性能验收。Journey 的前置构建和首次 IM 配置失败不是 prime/offline 证据；真实旅程、成功空会话 UI、真机 flight/protection、20 次首绘统计、完整 CI 按各自后续证据判断。
