@@ -1,12 +1,28 @@
 # feat-716: 交互卡片私人背景改为一次性携带 — 技术方案
 
-> 对齐: [spec.md](spec.md) v2（6 Requirements / 18 Scenarios：需求与验收由 spec 持有，本文只回答“怎么做”；呈现侧按「范围校准」不产生改动）
+> 对齐: [spec.md](spec.md) 当前多卡确认（需求与验收由 spec 持有；历史 R4 仅覆盖单卡版，本次实质增量须独立复审；Work/轨迹呈现不变）
+
+## 多卡增量与冻结边界
+
+本次只改变中心的候选集合及总量错误反馈，不恢复客户端选择缓存，不改草稿 CAS、全会话 flush/discard、既有 relay 与模型拼接。`pending(user,cid): InteractionContext[]` 返回自同一个 `floor` 之后编辑的所有有效草稿，每张仅一行最新状态；按保存时间升序、同毫秒按来源消息 `rowid` 升序稳定输出。不是按历史所有卡片重放，也不截取 N 张。卡片 B 失效只排除 B，仍有效的 A 不受影响。
+
+**总量边界**：对有效整组 `JSON.stringify(contexts)` 的 UTF-8 字节数设置 **65,536 bytes（64 KiB）** 上限（包含方括号、逗号、字段、来源、捕获时间、JSON 转义；不含保持不变的固定说明和用户正文）。依据：既有每卡私人 state 限制 16 KiB，模型背景还会重复投影成 `fields`；64 KiB 允许数张常见表单，且对无卡片数上限的集合给出确定的模型输入上界，与既有公开 interactive source 的 64 KiB 数量级相同，但不是 token 保证。ASCII/中文及转义按实际序列化字节计，不能用字符数或仅 state 长度。逐项累计 JSON 数组编码长度，超过就失败，不需在内存收齐无限集合。该阈值为工程默认，不是用户拍定的数字。
+
+**超限契约**：在 attempt 命中之后、任何新消息/attempt/relay 写入和 timezone 更新之前检查；超限抛出 HTTP 422 `detail.code=interaction_background_too_large`，`detail.message` 给出可恢复说明；消息不创建、窗口不消费、不静默少带、不自动重试。已存在幂等消息直接返回，后来的大草稿不能阻止恢复旧消息。显式 `interaction_reply` 保持原路径，既不补其他卡片，也不受普通消息总量检查影响，并照常推进共同消费边界。
+
+**复用反馈而非新增 UI**：Web 只在 `chat-api.ts` 识别该 code，映射本地化可读错误，沿用既有发送失败 toast 与关闭按钮；iOS 只在 `ChatAPI.swift` 识别该 code，抛同 status 的本地化 `APIError`，沿用 `ChatStore.errors` + 既有会话错误显示。两端使用同义文案：“待发送的卡片背景过大，消息尚未发送。请缩减卡片内容后重试；如需清除待发背景，请在做过改动的设备上离开此聊天。正文和卡片编辑都会保留。” 不新增附带选择、Detach、自动截取或确认弹窗；普通 4xx 既有路径解除失败 attempt、保留正文及附件，下一次真实发送重新派生整组。此增量无布局/新控件决定；既有错误容器是否能完整读到该文案仍需真实窄屏检查。离开清除仍只采用本端自己保存成功的水位；若多台设备分别编辑，需分别在对应设备离开，不承诺在只读过草稿的新设备离开即可清除全部，绝不为恢复超限拿远端观测到的时间推进 discard。
+
+**共享 iOS 接缝冻结**：预期产品增量仅 `Client/ChatAPI.swift` 的 `sendMessage` 错误 code 本地化；不动 714 的持久层/数据库/ChatStore 删除与恢复接缝，也不复制其 GRDB 逻辑。测试在 716 自己的 Tests/UITests 增补，target/scheme 沿用本分支 `1c17a7dbed`。由事项协调者向 714 owner 传达此冻结范围。
+
+**验证增量**：A、B→第一条两份最新状态→第二条零份→只改 A→第三条仅 A；同卡多次仍一份；B 只读/被取代/坏 state 不阻止 A；来源不混合、逐 Agent relay 过滤保留；超限时 messages/message-attempts/relays 与消费边界不变，缩减后完整成功；临界值/UTF-8/JSON 转义与 >3 张小卡不截断；旧 key 重试在新增大草稿后仍恢复原组；显式提交独立。Web/iOS 真实入口分别操作两卡并核对确切 relay，模型实际 `read_messages` 及下一模型步要看到首条数组两个来源、后条无新背景、仅重改 A 后只 A，历史块仍保留。原单卡 native/模型证据只保留未变机制，不当作此增量验收。
+
+**本次审查安排**：实质需求变更先独立 Gate 2 delta/full（新 reviewer 自定范围并读历史）；实现后代码+Context 深度审查与真实客户端体验/旅程判断按既有能力组合。固定实现审查型号/effort 的缺口仍是实际门禁阻塞，不用继承或自审替代。本次不含受拒的服务故障演练、provider 新采集或桌面前台操作。
 
 本方案把“哪张卡的私人背景跟着哪条消息走”从**两端各自缓存的客户端判定**改成**中心按草稿与本人消息时间关系派生**。模型输入文本形态、卡片渲染、Work 核查视图都不动；客户端只失去“决定带不带”的权力，并新增两件事：发送前等草稿落地、切换会话时报一次清除。下文 §关键决策 逐条对应 spec 的「交给 design 的决策点」与派发决策 D1–D7、D9。
 
 ## Changelog
 
-- 恢复实施时纠偏（事项负责人确认）：候选必须**先确定唯一最新编辑，再校验有效性**。原 SQL 把只读/被取代过滤放在 `LIMIT 1` 前，导致 A 编辑 → B 编辑替换 A → B 失效时错误复活 A，违反原 spec 的唯一替换与无残影要求。新增 `interactive-background.test.ts` 的 `does not resurrect the earlier card when the latest edit becomes read-only or superseded` 在修复前实际返回 A、期望 null（红测）；修正下文 SQL 与校验职责，不改变需求、消息输入格式或 Work 呈现。独立实现审查仍需覆盖此纠偏。
+- 历史单卡实施曾修正“先选唯一最新再校验”，防止当时需求下的 A 复活；该规则与旧测试已被本次负责人确认的多卡需求取代。新版本逐卡校验，B 失效不排除 A；不得保留旧 `LIMIT 1` 或把旧 null 期望当作新契约。
 
 ## 现状分析
 
@@ -90,7 +106,7 @@ graph TD
   subgraph 目标
     W2[Web] -->|不带背景| M2[POST /messages]
     I2[iOS] -->|不带背景| M2
-    DR[(interaction_drafts<br/>updated_at)] --> B[interaction-background<br/>（新增）派生 0 或 1 条]
+    DR[(interaction_drafts<br/>updated_at)] --> B[interaction-background<br/>（新增）派生 0 或多条]
     MSG[(messages<br/>本人消息时间)] --> B
     DSC[(interaction_background_discards<br/>（新增）)] --> B
     M2 --> B
@@ -99,7 +115,7 @@ graph TD
 ```
 
 before：两端各自缓存“屏幕上最近几张卡”，服务端只做规范化与转发，没有任何“已带过”的判据。
-after：客户端不再表达背景；中心从 `interaction_drafts` 与消息时间派生 0 或 1 条，写入与消息同一事务的 relay payload。模型输入文本、PA 组装、查看器都不变。
+after：客户端不再表达背景；中心从 `interaction_drafts` 与消息时间派生 0 或多条，写入与消息同一事务的 relay payload。模型输入文本、PA 组装、查看器都不变。
 
 **规则归属**（避免再出现“第一层/未知”式含糊）：
 
@@ -138,7 +154,7 @@ WHERE m.conversation_id = :cid AND m.sender_user_id = :uid
 | PA 经外部影子会话以主人身份发（`packages/personal-assistant/src/external.ts:353`，PA/node 里唯一这类 HTTP 调用点） | 同上，必带 `sender_source_id` | 同上 |
 | 任务/上下文通知（`task-context-access.ts:139`、`persistTaskNotice`） | `sender_type='system'` | `sender_type='user'` |
 | 历史导入（`evaluation.ts:97`，owner 身份 + 任意历史 `created_at`，无上界） | 只写**评测专用临时库**（`options.path` 自建、`publicUrl: evaluation.invalid`、无 listener），不会进生产库，也不可能有卡片/草稿 | 结构上不可能相遇；设计记录该事实以免被当成漏网 |
-| fork 副本（`conversation-actions.ts:315-336`，逐列复制发送者、`created_at` 重写为近期） | 目标会话的卡片全部 `read_only=1`（`interactions.ts:156-157`），且草稿不复制 | 派生选出最新候选后由 `background()` 的只读校验排除 |
+| fork 副本（`conversation-actions.ts:315-336`，逐列复制发送者、`created_at` 重写为近期） | 目标会话的卡片全部 `read_only=1`（`interactions.ts:156-157`），且草稿不复制 | 各候选均由 `background()` 的只读校验排除 |
 
 这正是 spec「决策点 1」点名要核实的三种情况，也是仓库里三份同类判断（`personal-actions.ts:70`、`task-graphs.ts:876`、`personal-agent.ts:133-135`）各漏一种的地方；本 unit 只保留这一份权威谓词。
 
@@ -255,12 +271,12 @@ stateDiagram-v2
 ### 派生谓词（`apps/im-server/src/interaction-background.ts`，新增）
 
 ```ts
-/** 该用户在私聊里此刻的待发背景：0 或 1 条，已按卡片状态与消费边界过滤。 */
-pending(user: Row, cid: string): InteractionContext | null
+/** 该用户在私聊里此刻的待发背景：0 或多条，已按卡片状态与消费边界过滤。 */
+pending(user: Row, cid: string): InteractionContext[]
 ```
 
 0. **调用点**：只在 `messaging.send()` 里、**人类 JWT** 的**普通文字发送**中调用（`messaging.ts:481` 之后、attempt 命中之后、与消息同一事务之前）。判据必须用仓库里既有的“人类查看者”测试 `p.kind !== 'gateway' && !p.username?.startsWith('agent:')`（`interactions.ts:60`、`:92`、`:100`、`:117` 四处同款），**不能写成 `p.kind === 'user'`**：人类 principal 根本没有 `kind` 字段——`SendPrincipal` 的人类分支是 `{id, username}` 且 `kind?:'user'` 只是可选字面量（`message-input.ts:5`），`principal()` 仅在 gateway 分支补 `kind`（`messaging.ts:56`，另一分支直接返回 `users` 行），`sendPrincipal()` 也只为 gateway 要求 `node_id/owner_id`（`message-input.ts:48-50`）。写成 `p.kind === 'user'` 会让**每一次真实发送**都派生不出背景，功能静默失效。gateway 身份（含 PA 代发、外部渠道镜像、`external.ts:353` 那条路径）与 agent 凭据不派生——它们的 `sender_user_id` 不是“用户亲手发送”，§D2 的边界已经把它们排除在消费侧之外；让它们也走派生只会用错误身份查草稿。
-1. 会话闸门：`type='direct'`、`external_source IS NULL`、`dissolved_at IS NULL`；否则返回 `null`。
+1. 会话闸门：`type='direct'`、`external_source IS NULL`、`dissolved_at IS NULL`；否则返回 `[]`。
 2. 边界 `floor = max(coalesce(localHumanAt,''), coalesce(discarded_through,''))`，其中 `localHumanAt` 是 §D2 的 SQL，`discarded_through` 来自：
 
 ```sql
@@ -268,7 +284,7 @@ SELECT discarded_through FROM interaction_background_discards
 WHERE conversation_id = :cid AND user_id = :uid
 ```
 
-3. 取唯一候选：
+3. 按时间顺序遍历全部待发候选（每卡的私人草稿只有一行，故天然只取最新状态）：
 
 ```sql
 SELECT d.source_message_id, d.updated_at, d.state_json, m.content AS source_content
@@ -278,14 +294,12 @@ JOIN message_interactive i ON i.message_id = d.source_message_id
 WHERE d.user_id = :uid AND m.conversation_id = :cid
   AND d.updated_at IS NOT NULL            -- 只由 submit 建行、从未改过的那一行不算
   AND d.submission_message_id IS NULL      -- 已显式提交的草稿不再作为背景
-  -- 先选唯一最新编辑；只读/被取代在 background() 中判无背景，不回退旧卡
   AND d.updated_at > :floor                -- 已被本人消息消费，或已被切换会话清除
-ORDER BY d.updated_at DESC, m.rowid DESC   -- 同毫秒时以消息位置稳定取最新
-LIMIT 1
+ORDER BY d.updated_at ASC, m.rowid ASC     -- 稳定保存顺序；只读/被取代逐卡校验，不截 N 张
 ```
 
-4. 用它去调新增的 public 缝 `Interactions.background(user, cid, sourceMessageId, stateJson)`。候选查询不必自己拼 `fields`／`agent_id`：该缝复用现状 `contexts()` 的同一套调用——`source(id, cid)`（`interactions.ts:15-23`，已 SELECT `i.*`，含 `source`、`registry_json`、`executor_agent_id`，并 JOIN 出 `content` 与代发标记）→ `interactionState({source:source.source, actions:JSON.parse(source.registry_json).actions}, state)` 得 `{state, fields}`。**校验失败不报错、不阻塞发送**，返回 `null` 按“没有待发背景”处理（草稿是客户端写的历史数据，不能用它否决用户的话）。缝内校验 `read_only`／`superseded_by`：最新卡失效直接返回 `null`，不回退已被它替换的旧卡（候选查询不得提前过滤这两项，见 Changelog 的红测纠偏），产出 `{source_message_id, source_summary: content.slice(0,160), agent_id: executor_agent_id, state, fields}`——与现状 `interactions.ts:60-69` 同一套字段与截断。这里**不传** `interactionState` 的 `withOptions`：这份 `fields` 会逐字节进模型输入，多一个键就破坏 §Context 影响 的字节快照。
-5. `interacted_at = Date.parse(updated_at)`（`background()` 不产出该字段，由派生层写入）。
+4. 对每个候选调用 public 缝 `Interactions.background(user, cid, sourceMessageId, stateJson)`。候选查询不必自己拼 `fields`／`agent_id`：该缝复用现状 `contexts()` 的同一套调用——`source(id, cid)`（`interactions.ts:15-23`，已 SELECT `i.*`，含 `source`、`registry_json`、`executor_agent_id`，并 JOIN 出 `content` 与代发标记）→ `interactionState({source:source.source, actions:JSON.parse(source.registry_json).actions}, state)` 得 `{state, fields}`。**校验失败不报错、不阻塞发送**，返回 `null` 按“没有待发背景”处理（草稿是客户端写的历史数据，不能用它否决用户的话）。缝内逐卡校验 `read_only`／`superseded_by`：该卡失效返回 `null` 并继续处理其他候选；合法卡产出 `{source_message_id, source_summary: content.slice(0,160), agent_id: executor_agent_id, state, fields}`——与现状 `interactions.ts:60-69` 同一套字段与截断。这里**不传** `interactionState` 的 `withOptions`：这份 `fields` 会逐字节进模型输入，多一个键就破坏 §Context 影响 的字节快照。
+5. 每条 `interacted_at = Date.parse(updated_at)`（`background()` 不产出该字段，由派生层写入）；累计完整编码长度，含数组标点，超 64 KiB 抛本节首部定义的可恢复 422，不返回部分集合。
 6. 结果作为 `contexts` 传给 `enqueueRelays(...)`；`messaging.ts:609-616` 的路由过滤（只给卡片作者）不变。若该卡片作者此刻不在会话的 relay 名单里，背景会随过滤丢弃，而边界仍前移（“携带即消费”按消息计，不按送达计）——这是直接沟通的单 Agent 场景之外的边界，写在此处以免被误认为漏判。
 
 时钟与格式：`messages.created_at`（`message-records.ts:159` → `now()`）与 `interaction_drafts.updated_at`（`interactions.ts:108` → 改为 `now()`）都是 `toISOString()` 的固定宽度 24 字符 UTC 文本，可直接字符串比较。除 `incomingExternal`、评测导入、fork 副本外无第三个 `created_at` 生产者，而这三者已被 §D2 的谓词排除。
@@ -309,7 +323,7 @@ sequenceDiagram
     Note over C,Card: 任一 flush 失败或 409 → 不发送，提示“改动尚未保存”
     C->>IM: POST /messages (Idempotency-Key, content, attachments)
     IM->>DB: attempt(cid, key) —— 命中则直接返回原消息（不重新派生）
-    IM->>DB: pending(user, cid) → 0/1 条背景
+    IM->>DB: pending(user, cid) → 全部有效待发背景；超限 422，不落库
     IM->>DB: INSERT messages + relay_tasks(payload.metadata.interaction_contexts) 同一事务
     IM-->>C: 201 消息投影
     IM->>PA: relay（背景只投给卡片作者）
@@ -340,7 +354,7 @@ sequenceDiagram
 | 阶段 | 现状 | 目标 |
 |---|---|---|
 | 来源 | 客户端缓存的“最近渲染过的卡” | `interaction_drafts`（真实改动）+ 服务端时钟 |
-| 选择 | 客户端按 `editedAt` 取前 3 | 中心取 0 或 1 条：最新一次改动、未被消费/清除、卡片仍可交互 |
+| 选择 | 客户端按 `editedAt` 取前 3 | 中心取全部有效待发卡片各自最新状态：未被消费/清除、仍可交互；整组超限则不发、不消费 |
 | 组装 | `withInteractionContext` 拼接进同一条用户文本 | **不变**（拼接、标记、字段、顺序都不动） |
 | 消费 | 无（每条消息重复注入） | 下一条本人消息即消费；界外无残留 |
 | 过期 | 只有 App 重启/刷新 | 消费、显式提交、切换会话、卡片只读/被取代四条显式路径 |
@@ -350,7 +364,7 @@ sequenceDiagram
 ```
 Before  消息 1 正文 = "...这样还能排得下吗？\n\n[Private interactive background captured when this message was sent. …]\n[{"source_message_id":"m1","source_summary":"…","state":{…},"fields":[…],"interacted_at":1.7e12}]"
         消息 2 正文 = "那谁负责订场地？\n\n[Private interactive background …]\n[{…同一批旧卡…}]"
-After   消息 1 正文 = 同格式同字段、同一条用户文本块；差别只有两个值：只含真正被改动的那一张，interacted_at 取服务端草稿时间
+After   消息 1 正文 = 同格式同字段、同一条用户文本块；只含全部真正改动且仍有效的待发卡片，各自保留来源与最新状态，interacted_at 取各自服务端草稿时间
         消息 2 正文 = "那谁负责订场地？"（无背景块）
 ```
 
@@ -453,10 +467,10 @@ delta 文件按 canonical 目录镜像（[CONTRIBUTING §放在哪里](../../spe
 
 | canonical | delta | 锚点（Requirement） | 增量计数与要点 |
 |---|---|---|---|
-| `docs/specs/im/conversations-messages.md` | [specs/im/conversations-messages.md](specs/im/conversations-messages.md) | `:549-569`「交互确认保留真实用户、原回复与选择语义」、`:571-579`「自然消息的交互背景保持准确且不改变路由」、`:581-602`「同一次普通 Web 发送在结果未知时幂等恢复」 | ADDED 0 · MODIFIED 3 · REMOVED 0；三条均为“改后的完整条目 + Scenario 级增删”：私聊自然文字至多携带一次、单张、四条失效条件（另注明清除由做过改动的那一端执行）、同一张卡再改一次、重载与换设备仍只携带一次、重试沿用已确定的背景、快照身份只含正文与附件 |
+| `docs/specs/im/conversations-messages.md` | [specs/im/conversations-messages.md](specs/im/conversations-messages.md) | `:549-569`「交互确认保留真实用户、原回复与选择语义」、`:571-579`「自然消息的交互背景保持准确且不改变路由」、`:581-602`「同一次普通 Web 发送在结果未知时幂等恢复」 | ADDED 0 · MODIFIED 3 · REMOVED 0；三条均为“改后的完整条目 + Scenario 级增删”：私聊自然文字整组携带一次、所有有效待发卡各取最新、超限明确不发不消费、四条失效条件（另注明清除由做过改动的那一端执行）、同一张卡再改一次、重载与换设备仍只携带一次、重试沿用已确定的背景、快照身份只含正文与附件 |
 | `docs/specs/im/ios-client.md` | [specs/im/ios-client.md](specs/im/ios-client.md) | `:82-103`「原生通用交互回复」 | ADDED 0 · MODIFIED 1 · REMOVED 0；「私聊文字携带背景」改为一次携带、随后失效、只由真实改动产生；新增两个 Scenario：发送前改动尚未保存（transient：会话级拦截 + 重试保存 + 离线说明）、发送前草稿在多端冲突（409：查看最新 → 改用最新草稿，不自动合并、不静默丢弃） |
 | `docs/specs/im/web-chat-ux.md` | [specs/im/web-chat-ux.md](specs/im/web-chat-ux.md) | `:627-645`「交互内容保持聊天阅读与操作连贯」 | ADDED 0 · MODIFIED 1 · REMOVED 0；补“不提供附带开关、至多携带一次”，新增两个 Scenario：发送前改动尚未保存（transient：贴发送按钮的 `role="alert"` + 「重试保存」+ 会话级范围 + 离线说明）、发送前草稿在多端冲突（409：字段级对比 + 明确放弃后才恢复），并给「手机与桌面」补窄屏不互相遮挡 |
-| `docs/specs/gateway/agent-capabilities.md` | [specs/gateway/agent-capabilities.md](specs/gateway/agent-capabilities.md) | `:794-802`「Agent 按用户话语理解交互背景」 | ADDED 0 · MODIFIED 1 · REMOVED 0；范围收窄为“这条消息携带的那一张卡”，新增 Scenario「未携带背景的追问」；只引用新语义、不复制失效条件 |
+| `docs/specs/gateway/agent-capabilities.md` | [specs/gateway/agent-capabilities.md](specs/gateway/agent-capabilities.md) | `:794-802`「Agent 按用户话语理解交互背景」 | ADDED 0 · MODIFIED 1 · REMOVED 0；范围为“这条消息实际携带的每张卡，各自保留来源”，新增 Scenario「未携带背景的追问」；只引用新语义、不复制失效条件 |
 | `docs/specs/im/agent-work.md` | **no spec delta** | — | 呈现按现状保留（spec「范围校准」已撤销原「Work 详情分开显示」要求，也没有任何查看器改动） |
 | `docs/specs/im/spec.md` | **无独立 delta 文件** | `:22` 的 area 摘要 | ADDED 0 · MODIFIED 0 · REMOVED 0；归并时只把摘要措辞改成“私聊一次性交互背景与群聊明确提交”，Requirement 计数不变（[CONTRIBUTING §delta 归并规则第 4 条](../../specs/CONTRIBUTING.md#delta-spec-归并规则)）|
 
@@ -487,7 +501,7 @@ delta 文件按 canonical 目录镜像（[CONTRIBUTING §放在哪里](../../spe
 
 **部署顺序与双向兼容**（实施时写进 PR 描述）：
 
-1. 先上 `im-server`：派生逻辑 + discard 路由 + 指纹归一化。旧 Web/iOS 仍在发 contexts，但中心已按派生结果注入 → 行为立即收敛到“单张、一次性”。
+1. 先上 `im-server`：派生逻辑 + discard 路由 + 指纹归一化。旧 Web/iOS 仍在发 contexts，但中心已按派生结果注入 → 行为收敛到“所有有效待发卡各取最新、整组一次性”，超限旧客户端至少得到明确 422，升级客户端提供本地化恢复说明。
 2. 再上客户端：停止发送 contexts、删除缓存、发送前 flush、切换会话发 discard。
 3. 旧客户端 × 新服务端：字段被接受但忽略；群聊仍 422；同键重试仍返回原消息（指纹归一化保证不误判 409）；**不会**发 discard → 切换会话不清除（降级：单会话内一次，不串会话）。
 4. 新客户端 × 旧服务端（客户端先上线或服务端回滚）：请求不再带 `interaction_contexts`，旧服务端派生不出背景 → **该消息不带背景**（功能降级而非报错）；`discard` 路由 404/501，客户端静默忽略；flush 与发送流程正常。因此客户端必须把 404/501 当“忽略”，不得弹错或阻塞发送。
@@ -509,5 +523,5 @@ delta 文件按 canonical 目录镜像（[CONTRIBUTING §放在哪里](../../spe
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-server-derived-background | 中心派生待发背景与清除水位 | — | A | `apps/im-server/src/interaction-background.ts`(新)、`interactions.ts`、`messaging.ts`、`message-attempts.ts`、`schema.sql`、`packages/product-contracts/src/interactive-types.ts`（`InteractionDraft.fields?`）、`generate-interactive-ui.ts` 产出的 Web 类型、iOS 手写 `InteractiveModels.swift` 的可选 `fields`（契约可解码性跟着契约走，只加字段）、相关测试 | `[reviewer]` ①私聊改一张卡后连发两条：第一条模型输入含该卡背景、第二条不含（用未升级的 Web 观察也成立，因为中心已接管）；②改两张卡只带后一张；③从未改动的卡不再出现在任何入站背景里；④卡片被新版本取代或转只读后不再注入；⑤显式提交后该卡不再作为背景出现，且提交消息内容与今天一致；⑥群聊普通文字仍不带背景（带背景的请求仍被拒绝）。`[worker]` ①`pending()` 谓词单测覆盖六类 owner-attributed 写点（代发／外部镜像／外部影子代发／system 通知／fork 副本／评测导入）与四个失效条件；②`relay_tasks.payload_json.metadata.interaction_contexts` 断言只在卡片作者的 relay 行、只在被携带的那条消息上；③`discard` 幂等/单调/迟到用例（含 `through` 缺失 no-op、非 direct 会话 204、无权限 403、会话删除级联清水位），并在服务端用 `pending()` 断言：迟到补发 `T'` 之后该草稿不再待发，而他端更晚保存（`T_B > T'`）的草稿**仍待发**；④`message-attempts` 用例：旧 payload（含 contexts）与新重试匹配、正文变化仍 409；⑤`withInteractionContext` 字节快照（证明拼接未改）；⑥同一张卡连续两次改动（不发送）：候选仍为 1 条、`state` 为最终合并状态、`updated_at` 前移，且只有一条背景注入；⑦`Interactions.background()` 用例：正常产出 `fields`/`agent_id`、`read_only`/`superseded_by` 复核、`state` 校验失败时降级为“无背景”且不抛错；同时断言 `readDraft()` 返回的 `fields` 与草稿 `state` 同源（同一个 `interactionState()`）、`withOptions` 默认关闭时 `interactionState()` 产物与现状逐字节相同（模型输入不因这次扩字段而变）、草稿 state 非法时降级为 `[]` 且仍 200；`options` 的字符串形式（`['wed','thu']` 之类）返回 `{label,value}` 对象，两端都能解码/渲染；断言用“包含该字段与取值”而不是整对象相等（`readDraft()` 同时是 GET 与 **PUT** 的响应体，`interactions.ts:111`，整对象相等会把纯增量契约变成假红）；Web 类型生成用 `pnpm exec tsx scripts/generate-interactive-ui.ts --check` 且生成文件与 `product-contracts/src/interactive-types.ts` 逐字节一致（`generate-ios-interactive.ts` 只打包 JS runtime、**不产 Swift**，不能拿它当类型生成的证据）；iOS 侧用手写的可选 `fields` + 一段含 `fields` 的 JSON 做解码测试并通过编译；⑧派生入口只对人类 JWT 生效：fixture 用**真实人类 principal 形状**（`{id, username}`，**没有 `kind`**）断言派生发生，另用 gateway principal（`{kind:'gateway',node_id,owner_id,…}`）与 `agent:` 凭据断言不派生——否则“写成 `p.kind === 'user'`”这类错误在测试里同样看不出来；⑨`pnpm --filter @nano/im-server test` 与 typecheck 通过 |
+| M1-server-derived-background | 中心派生待发背景与清除水位 | — | A | `apps/im-server/src/interaction-background.ts`(新)、`interactions.ts`、`messaging.ts`、`message-attempts.ts`、`schema.sql`、`packages/product-contracts/src/interactive-types.ts`（`InteractionDraft.fields?`）、`generate-interactive-ui.ts` 产出的 Web 类型、iOS 手写 `InteractiveModels.swift` 的可选 `fields`（契约可解码性跟着契约走，只加字段）、相关测试 | `[reviewer]` ①私聊改一张卡后连发两条：第一条模型输入含该卡背景、第二条不含（用未升级的 Web 观察也成立，因为中心已接管）；②改 A/B 后一起带各自最新状态，下一条零份，仅重改 A 后只 A；超限明确拒绝且消息/attempt/relay/消费边界不变，缩减后整组成功；③从未改动的卡不再出现在任何入站背景里；④卡片被新版本取代或转只读后不再注入；⑤显式提交后该卡不再作为背景出现，且提交消息内容与今天一致；⑥群聊普通文字仍不带背景（带背景的请求仍被拒绝）。`[worker]` ①`pending()` 谓词单测覆盖六类 owner-attributed 写点（代发／外部镜像／外部影子代发／system 通知／fork 副本／评测导入）与四个失效条件；②`relay_tasks.payload_json.metadata.interaction_contexts` 断言只在卡片作者的 relay 行、只在被携带的那条消息上；③`discard` 幂等/单调/迟到用例（含 `through` 缺失 no-op、非 direct 会话 204、无权限 403、会话删除级联清水位），并在服务端用 `pending()` 断言：迟到补发 `T'` 之后该草稿不再待发，而他端更晚保存（`T_B > T'`）的草稿**仍待发**；④`message-attempts` 用例：旧 payload（含 contexts）与新重试匹配、正文变化仍 409；⑤`withInteractionContext` 字节快照（证明拼接未改）；⑥同一张卡连续两次改动（不发送）：候选仍为 1 条、`state` 为最终合并状态、`updated_at` 前移，且只有一条背景注入；⑦`Interactions.background()` 用例：正常产出 `fields`/`agent_id`、`read_only`/`superseded_by` 复核、`state` 校验失败时降级为“无背景”且不抛错；同时断言 `readDraft()` 返回的 `fields` 与草稿 `state` 同源（同一个 `interactionState()`）、`withOptions` 默认关闭时 `interactionState()` 产物与现状逐字节相同（模型输入不因这次扩字段而变）、草稿 state 非法时降级为 `[]` 且仍 200；`options` 的字符串形式（`['wed','thu']` 之类）返回 `{label,value}` 对象，两端都能解码/渲染；断言用“包含该字段与取值”而不是整对象相等（`readDraft()` 同时是 GET 与 **PUT** 的响应体，`interactions.ts:111`，整对象相等会把纯增量契约变成假红）；Web 类型生成用 `pnpm exec tsx scripts/generate-interactive-ui.ts --check` 且生成文件与 `product-contracts/src/interactive-types.ts` 逐字节一致（`generate-ios-interactive.ts` 只打包 JS runtime、**不产 Swift**，不能拿它当类型生成的证据）；iOS 侧用手写的可选 `fields` + 一段含 `fields` 的 JSON 做解码测试并通过编译；⑧派生入口只对人类 JWT 生效：fixture 用**真实人类 principal 形状**（`{id, username}`，**没有 `kind`**）断言派生发生，另用 gateway principal（`{kind:'gateway',node_id,owner_id,…}`）与 `agent:` 凭据断言不派生——否则“写成 `p.kind === 'user'`”这类错误在测试里同样看不出来；⑨`pnpm --filter @nano/im-server test` 与 typecheck 通过 |
 | M2-clients-one-shot | 两端停止自决、发送前 flush、切换会话 discard | M1 | B | Web `message-pane.tsx`/`interactive-card.tsx`/`chat-api.ts`/`send-attempt-store.ts`/`chat-workspace-page.tsx`/新增 `interaction-background.ts`；iOS `InteractiveRuntime.swift`/`ChatStore.swift`/`ChatAPI.swift`/`InteractiveModels.swift`（消费 M1 的 `fields`）/`ConversationView.swift`；两端测试 | `[reviewer]` ①两端同结论：改卡→发送→再发送，只有第一条带；②只渲染不改动（打开/刷新/滚过/切走再回）后发送不带任何背景；③切换会话再回来发送不带（两端）；④卡片改动保存失败时两端都在输入区说明“这个会话暂时不能发送”且**没有**发出缺背景的消息——分两个子情形：**(a) transient**（断网/5xx）给「重试保存」，恢复后可重试成功；**(b) 409**（两台设备改同一张卡）给「查看最新改动」→ 字段对比可见 → 「改用最新草稿」后可发送，且点之前本机编辑与正文未被丢弃；⑤“是否送达尚未确认”的既有提示仍在；⑥换设备继续：甲改、**等甲的未保存提示消失**、乙发，乙那条带、之后不带；⑦**改卡→刷新页面→发送**：携带，且 `state` 是刷新前最后一次改动（服务端派生的直接证据，客户端内存状态已随刷新消失）；⑧改卡后 **<500ms 内立刻发送**（成功路径）：Work 原生轨迹里的注入内容是新状态，不是上一次保存的值；⑨同一张卡连续改两次后发送：只带一条、内容为两次改动后的最终状态。`[worker]` ①两端选择缓存与登记点全部删除（grep 断言：`backgrounds`、`interactionSelections`、`select(` 无残留，`interaction_contexts` 只在兼容注释/测试出现）；②flush 失败的阻塞路径单测（Web vitest、iOS 单测），**从 composer 侧驱动**：挂载卡片使其 `registerDraftHandle` 后再触发 flush 409 → `commit()` 不进发送、`useDraftFailures(cid)` 出现 conflict 条目、提示为 conflict 文案；点「查看最新改动」渲染三列（`describeConflict()` 返回的 `label`/`remote`/`local`，标签来自服务端 `fields`）；点「改用最新草稿」调 `adoptRemote()` 后条目消失、提示隐藏、发送可继续，且在此之前本机编辑与正文未被丢弃；transient 分支同路径改判「重试保存」；③Web 组件测试：flush 成功后请求不带 `interaction_contexts`，且 `wireContent` 统一走 `trimmed`；④切会话调用 discard 的组件测试：乱序保存响应取 `max`、刷新后水位从持久化恢复、无水位不发请求、404/501 静默；⑤iOS 单测：`leave()` 顺序为 flush → 水位 → discard，三种情形都覆盖——**(a)** flush 失败/超时：先用已有水位发一次 discard；**(b) 响应丢失但 PUT 已落库**：底层 task 迟到成功 → 断言发出**第二次** discard 且 `through == T'`（未补发则此断言红，这正是“只断言顺序”测不出来的判别式），重复发送幂等、水位不倒退；**(c) 不做观测式补发**：构造“他端更晚保存 + 本端水位较低”的场景，断言本端 `load()` 之后**没有**发出任何 discard（他端改动不被清除），直到本端下一次保存成功使水位越过 `T'`、随后切走才发 `discard(新水位)`；`pending()` 是服务端 SQL，不在 iOS 单测断言，见 M1 `[worker]` ③；⑥iOS 编译 + 相关单测；⑦旧 IndexedDB 行/旧 attempt body 重发不改字节 |
