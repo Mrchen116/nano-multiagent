@@ -33,3 +33,12 @@
 - 测试边界修正：backup exclusion 独立测试保留四条路径断言；complete protection 的四条原断言移入单独真机测试，模拟器明确 `XCTSkip`。这与设计已有「模拟器无法提供保护属性证据」条款一致，不是产品保护判据降低；真机保护属性仍 **pending**，不能将后续 simulator green/skip 当作它的 pass。
 - 同期作者发现已存在 SQL tombstone 不代表没有更晚的 handoff。补真实 SQL receipt 失败反例后，detail 再次拒绝、snapshot 再次缺席，以及没有 SQL 行的未导入 handoff 三条均复现：**exit 65 / 3 tests / 6 assertion failures**（`/tmp/feat714-repeat-revoke-red-split.log:216-246`；xcresult 同 basename）。前两条复用了旧 generation，重开恢复新近被拒绝的请求；第三条漏把独立 handoff 命名空间纳入 snapshot absence。
 - 修复范围：同一协调锁内检查新 pending/handoff，重复拒绝存在新请求时旋转 generation；snapshot 将未导入 handoff 的会话身份也纳入 accepted cleanup intents。无新请求的重复拒绝继续幂等；未变更发送策略、请求字节或零自动重发约束。后续七组补验结果单列。
+
+### 修复后七组实际补验
+
+- 受测版本：`a65d35a7a9f28f5db664bfe1da96602479493e62`；同一专用 iOS 模拟器、DerivedData、七组与 `-jobs 2 -parallel-testing-enabled NO`，无额外服务、GUI 或模型联调。
+- 实际结果：**exit 0 / TEST SUCCEEDED；92 tests / 1 explicit physical-device protection skip / 0 failures**。AppLocalBootstrap 4、AttemptPersistence 17（其中真机属性 1 skipped）、LocalFirst 16、Repository 30、StorageController 9、SendRecovery 9、Session 7。三条新 red 反例均在本次 Repository 组内通过。
+- 原始产物：`/tmp/feat714-policy-integration-a65d35a7a.log:509-871`、`/tmp/feat714-policy-integration-a65d35a7a.xcresult`。前两次编译失败及首次运行失败如上保留，没有扩大超时、删断言或用旧 39 tests 冒充本批结果。
+- 资源释放：XCTest 已退出；专用模拟器 shutdown 请求报告 already Shutdown 后，`simctl list devices` 再实查为 Shutdown（exit 0）；无本批自建服务或残留重型作业。
+
+**当前结论仅为本地窄回归通过**。原生真实在线→终止→离线旅程尚需在最终版本重跑；真机飞行模式、保护属性和 ≥20 次首绘 p50/p95 仍无新增证据；独立实现审查未完成。不得据此宣布 M1/M2、完整 unit 或 PR 已交付。
