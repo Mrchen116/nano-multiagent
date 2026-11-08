@@ -932,6 +932,7 @@
     }
   },
   "chat": {
+    "toast": { "newMessage": "New message", "member": "Member", "agent": "Agent" },
     "conversationMenu": {
       "label": "Conversation menu",
       "rename": "Rename",

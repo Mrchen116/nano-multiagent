@@ -1,5 +1,4 @@
 import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, vi } from "vitest";
 
@@ -14,15 +13,24 @@ describe("InAppToast", () => {
     vi.useRealTimers();
   });
 
-  it("renders sender name and message preview", () => {
+  it("renders the direct conversation title and message preview", () => {
     render(
       <MemoryRouter>
-        <InAppToast senderName="OpsBot" preview="CI is green after the fix." conversationId="conv-1" onDismiss={() => undefined} />
+        <InAppToast conversationTitle="周末出行计划" preview="CI is green after the fix." conversationId="conv-1" onDismiss={() => undefined} />
       </MemoryRouter>
     );
 
-    expect(screen.getByText("OpsBot")).toBeInTheDocument();
+    expect(screen.getByText("周末出行计划")).toBeInTheDocument();
     expect(screen.getByText("CI is green after the fix.")).toBeInTheDocument();
+  });
+
+  it("shows the group title and sender without replacing the message preview", () => {
+    render(<MemoryRouter>
+      <InAppToast conversationTitle="产品讨论群" senderName="项目助手" preview="方案已整理完成。" conversationId="group" onDismiss={() => undefined} />
+    </MemoryRouter>);
+    expect(screen.getByText("产品讨论群")).toBeInTheDocument();
+    expect(screen.getByText("项目助手")).toBeInTheDocument();
+    expect(screen.getByText("方案已整理完成。")).toBeInTheDocument();
   });
 
   it("calls onDismiss after the auto-dismiss timeout", () => {
@@ -30,7 +38,7 @@ describe("InAppToast", () => {
 
     render(
       <MemoryRouter>
-        <InAppToast senderName="OpsBot" preview="Hello" conversationId="conv-1" onDismiss={onDismiss} />
+        <InAppToast conversationTitle="周末出行计划" preview="Hello" conversationId="conv-1" onDismiss={onDismiss} />
       </MemoryRouter>
     );
 
@@ -48,7 +56,7 @@ describe("InAppToast", () => {
 
     render(
       <MemoryRouter>
-        <InAppToast senderName="OpsBot" preview="Hello" conversationId="conv-42" onDismiss={onDismiss} />
+        <InAppToast conversationTitle="周末出行计划" preview="Hello" conversationId="conv-42" onDismiss={onDismiss} />
       </MemoryRouter>
     );
 
@@ -65,7 +73,7 @@ describe("InAppToast", () => {
 
     render(
       <MemoryRouter>
-        <InAppToast senderName="OpsBot" preview="Hello" conversationId="conv-1" onDismiss={onDismiss} />
+        <InAppToast conversationTitle="周末出行计划" preview="Hello" conversationId="conv-1" onDismiss={onDismiss} />
       </MemoryRouter>
     );
 

@@ -5,8 +5,10 @@ import { Link } from "react-router-dom";
 const AUTO_DISMISS_MS = 4000;
 
 interface InAppToastProps {
-  /** Display name of the message sender. */
-  senderName: string;
+  /** Current name of the conversation that received the message. */
+  conversationTitle: string;
+  /** Group message sender; omitted for direct conversations. */
+  senderName?: string;
   /** Short preview text of the message. */
   preview: string;
   /** Conversation to navigate to when the toast is clicked. */
@@ -22,7 +24,7 @@ interface InAppToastProps {
  * Does not require browser Notification permission — purely in-app.
  * Auto-dismisses after AUTO_DISMISS_MS milliseconds.
  */
-export function InAppToast({ senderName, preview, conversationId, onDismiss }: InAppToastProps) {
+export function InAppToast({ conversationTitle, senderName, preview, conversationId, onDismiss }: InAppToastProps) {
   useEffect(() => {
     const timer = setTimeout(onDismiss, AUTO_DISMISS_MS);
     return () => clearTimeout(timer);
@@ -32,12 +34,12 @@ export function InAppToast({ senderName, preview, conversationId, onDismiss }: I
     <div
       role="status"
       aria-live="polite"
-      className="fixed left-4 top-4 z-50 flex max-w-xs items-start gap-3 rounded-2xl border border-[var(--im-border)] bg-white px-4 py-3 shadow-lg"
+      className="fixed left-4 top-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] items-start gap-3 rounded-2xl border border-[var(--im-border)] bg-white px-4 py-3 shadow-lg"
     >
       <div className="min-w-0 flex-1">
-        {/* Sender label so the user knows who sent the message */}
-        <p className="text-xs font-semibold text-slate-900">{senderName}</p>
-        <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">{preview}</p>
+        <p className="truncate text-xs font-semibold text-slate-900" title={conversationTitle}>{conversationTitle}</p>
+        {senderName && <p className="mt-0.5 truncate text-xs font-medium text-slate-600" title={senderName}>{senderName}</p>}
+        <p className="mt-0.5 line-clamp-2 break-words text-xs text-slate-600">{preview}</p>
         <Link
           to={`/chat/${conversationId}`}
           aria-label="View message"
