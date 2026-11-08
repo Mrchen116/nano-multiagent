@@ -70,13 +70,15 @@
 
 ### 原生编译证据与安全边界
 
-审查者另实际读取 `/tmp/feat716-native-multi-build.log`：IM server build 与 `NanoIMJourney build-for-testing`、jobs 2、`NANO_IM_BUILD_REVISION=fc5e19066046` 成功（exit 0），新多卡 case / fixture guard **已编译，未运行**。Swift 5 StrictConcurrency 对 XCTest setup / teardown 的 MainActor 调用仍有未来 Swift 6 错误警告；不宣称 warning-free，不把未来语言模式警告当作当前构建失败。422 `SendRecovery` 单测仍未执行。
+审查者另实际读取 `/tmp/feat716-native-multi-build.log`：IM server build 与 `NanoIMJourney build-for-testing`、jobs 2、`NANO_IM_BUILD_REVISION=fc5e19066046` 成功（exit 0），新多卡 case / fixture guard **已编译，未运行**。Swift 5 StrictConcurrency 对 XCTest setup / teardown 的 MainActor 调用仍有未来 Swift 6 错误警告；不宣称 warning-free，不把未来语言模式警告当作当前构建失败。
+
+后续同一独立审查者只读核对 `/tmp/feat716-native-multi-recovery.log:277-313` 及对应源码：同一冻结产品版本的 `NanoIMTests/SendRecoveryTests` **10/10 通过、0 failures、exit 0**，其中 422 用例 `testOversizedBackgroundKeepsDraftAndAttachmentsWithoutRetryingTheRejectedAttempt` 在 288–289 行通过。断言覆盖正文与附件保留、pending/磁盘 attempt 清理、不做 lookup，以及再次发送采用新幂等键并成功。xcresult：`/tmp/nano-ios-feat716/Logs/Test/Test-NanoIM-2026.11.09_01-09-54-+0800.xcresult`。因此关闭“原生 422 单测未执行”缺口；这是受控 transport 单测，不代替实际服务预算恢复、窄屏体验、多卡或模型 Context 观察。
 
 Manifest guard 不代表实际服务/数据库绑定，更不代表人类授权；执行前仍须 host 核对自有 PID/出生时间/cwd/端口、合成 owner 与新卡片来源、唯一聊天标题。被拒预算恢复 case 未写、未执行、不因本轮 Approved 获得新权限。
 
 ## 当前流程收口
 
 - 当前独立代码补验 **Approved / 存活 findings=[]**；静态 corrected-delta **aligned**。当前报告更新属 owner 串行记录，不改变受审产品代码。
-- Context 动态、真实双端多卡与原生 transient、双端预算窄屏/恢复、422 原生单测仍 pending / inconclusive；必要观察不足，整体实施验收不能通过。
+- 422 原生单测已由可信执行与独立只读核对关闭；Context 动态、真实双端多卡与原生 transient、双端预算窄屏/恢复仍 pending / inconclusive，必要观察不足，整体实施验收不能通过。
 - 旧单卡证据仅可就未变机制 retained，62814 保持不动；未建立新的真实多卡旅程证据。
 - 尚未最终 sync、canonical 归并、归档、PR / CI；不宣布交付。
