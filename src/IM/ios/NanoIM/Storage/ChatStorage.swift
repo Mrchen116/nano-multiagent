@@ -50,13 +50,6 @@ struct ChatStorageLocation: Sendable {
             .appendingPathComponent("NanoIM/SendAttempts", isDirectory: true)
     }
 
-    /// New degraded-mode requests live beside this partition's database, not in the legacy
-    /// migration source. A partition purge therefore clears them through the same boundary.
-    static var handoffAttemptRoot: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NanoIM/Chat", isDirectory: true)
-    }
-
     var directoryURL: URL { databaseURL.deletingLastPathComponent() }
 
     /// Create the directory and apply the protection/backup attributes that must hold for
@@ -112,4 +105,21 @@ enum ChatRepositoryError: Error, Equatable {
     case staleWrite
     case revokedConversation(String)
     case databaseUnavailable(String)
+}
+
+/// Authority was accepted, but its local cleanup could not finish. The owner must remember
+/// every intended scope across an in-process retry; a readable old policy is not completion.
+struct ChatCleanupFailure: Error, Sendable, LocalizedError {
+    struct Intent: Sendable {
+        let conversationID: String
+        let kind: ChatAttemptPersistence.CleanupKind
+    }
+    let intents: [Intent]
+    let reason: String
+    var errorDescription: String? { reason }
+
+    static func wrapping(_ error: Error, intents: [Intent]) -> Error {
+        if error as? ChatRepositoryError == .staleWrite || intents.isEmpty { return error }
+        return ChatCleanupFailure(intents: intents, reason: error.localizedDescription)
+    }
 }

@@ -25,6 +25,7 @@ final class ChatStorageController {
     @ObservationIgnored private var openedPartition: ChatPartition?
     @ObservationIgnored private var openedLocation: ChatStorageLocation?
     @ObservationIgnored private var launchSeed: ChatBootstrapSeed?
+    @ObservationIgnored private var pendingCleanups: [ChatPartition: [String: ChatAttemptPersistence.CleanupKind]] = [:]
     private static let signposter = OSSignposter(subsystem: "com.nanoim.app", category: "ChatStorage")
 
     init(client: IMClient,
@@ -77,6 +78,17 @@ final class ChatStorageController {
 
     func purge(reason: PurgeReason) async { await move(to: nil, reason: reason) }
 
+    /// A cleanup whose external intent could not persist is not a successful clear. Hide the
+    /// current owner and retain its files/connection for a non-destructive retry.
+    func reportCleanupFailure(_ reason: String, conversationID: String, kind: ChatAttemptPersistence.CleanupKind) {
+        if let partition {
+            let prior = pendingCleanups[partition]?[conversationID]
+            pendingCleanups[partition, default: [:]][conversationID] = prior == .revokeAccess ? .revokeAccess : kind
+        }
+        store?.blockForCleanup()
+        publish(.degraded(reason: reason))
+    }
+
     private static func describe(_ reason: PurgeReason) -> String {
         switch reason {
         case .signedOut, .credentials, .partitionChanged:
@@ -101,6 +113,10 @@ final class ChatStorageController {
             do {
                 if next == nil || (self.openedPartition != nil && self.openedPartition != next) {
                     try await self.clearOpenedPartition()
+                } else if let repository = self.activeRepository {
+                    // Retry after a reported failure closes, but never purges, this cache.
+                    try await repository.close()
+                    self.activeRepository = nil
                 }
                 guard token == self.generation else { return }
                 guard let next else {
@@ -108,15 +124,27 @@ final class ChatStorageController {
                     return
                 }
                 let location = self.makeLocation(next)
+                await self.client.session.useChatStorage(next, location: location)
+                guard token == self.generation else { return }
                 self.openedPartition = next
                 self.openedLocation = location
                 let opener = self.opener
+                let pending = self.pendingCleanups[next] ?? [:]
                 let signpostID = Self.signposter.makeSignpostID()
                 let interval = Self.signposter.beginInterval("open", id: signpostID)
                 defer { Self.signposter.endInterval("open", interval) }
                 let result = await Task.detached(priority: .userInitiated) {
-                    do { return Result<ChatRepository, Error>.success(try await opener(next, location)) }
-                    catch { return .failure(error) }
+                    do {
+                        let persistence = ChatAttemptPersistence.shared(partition: next, location: location)
+                        try persistence.coordinated {
+                            // A readable old policy is not evidence that the failed new
+                            // cleanup was applied. Retry those known intents before any seed.
+                            for (id, kind) in pending.sorted(by: { $0.key < $1.key }) {
+                                _ = try persistence.recordCleanup(id, kind: kind)
+                            }
+                        }
+                        return Result<ChatRepository, Error>.success(try await opener(next, location))
+                    } catch { return .failure(error) }
                 }.value
                 switch result {
                 case .success(let repository):
@@ -131,6 +159,10 @@ final class ChatStorageController {
                             try await self.clearOpenedPartition()
                             return
                         }
+                        guard (self.pendingCleanups[next] ?? [:]) == pending else {
+                            throw ChatRepositoryError.databaseUnavailable(L("本机内容仍需清理，请重试。", "Local cleanup is still pending; retry storage."))
+                        }
+                        self.pendingCleanups[next] = nil
                         self.launchSeed = seed
                         self.publish(.ready(repository))
                     } catch {
@@ -160,8 +192,14 @@ final class ChatStorageController {
     /// Also handles `.opening` and `.degraded`: their on-disk partition can exist even when
     /// no repository has been published. Earlier opener tasks have already been drained.
     private func clearOpenedPartition() async throws {
-        if let activeRepository { try await activeRepository.purge() }
-        if let openedLocation { try openedLocation.removeAll() }
+        if let activeRepository {
+            try await activeRepository.purge()
+        } else if let openedLocation, let openedPartition {
+            try await Task.detached(priority: .userInitiated) {
+                try ChatRepository.purgeFiles(partition: openedPartition, location: openedLocation)
+            }.value
+        }
+        if let openedPartition { pendingCleanups[openedPartition] = nil }
         activeRepository = nil
         openedPartition = nil
         openedLocation = nil

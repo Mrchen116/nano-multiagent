@@ -20,8 +20,11 @@ final class ChatStore {
     var drafts: [String: String] = [:]
     var attachments: [String: [ChatAttachment]] = [:]
     var uploadDrafts: [String: [AttachmentUpload]] = [:]
-    var pending: [String: PendingSend] = [:]
-    var interactionPending: [String: PendingSend] = [:]
+    var pending: [String: PendingSend] = [:] { didSet { pendingRevision = UUID() } }
+    var interactionPending: [String: PendingSend] = [:] { didSet { pendingRevision = UUID() } }
+    @ObservationIgnored private var pendingRevision = UUID()
+    @ObservationIgnored private var unpersistedCleanups: [String: ChatAttemptPersistence.CleanupKind] = [:]
+    @ObservationIgnored private var cleanupBlocked = false
     var interactionSelections: [String: InteractionSelection] = [:]
     var interactionSending: Set<String> = []
     private var interactionConversations: [String: String] = [:]
@@ -57,6 +60,9 @@ final class ChatStore {
     }
 
     private func readRequest() async throws -> ReadRequest {
+        guard !cleanupBlocked else {
+            throw ChatRepositoryError.databaseUnavailable(L("本机内容仍需清理，请重试。", "Local cleanup is still pending; retry storage."))
+        }
         let token = epoch, revision = projectionRevision, repository = repository
         let context = try await repository?.writeContext()
         guard token == epoch, revision == projectionRevision else { throw CancellationError() }
@@ -80,6 +86,7 @@ final class ChatStore {
     private var needsList = false
     private var refreshTask: Task<Void, Never>?
     private var accessRecovery: Task<Void, Never>?
+    @ObservationIgnored private var attemptRestore: Task<Void, Never>?
     private var draftFlush: Task<Void, Never>?
     private var queuedDrafts: [String: String] = [:]
     private var notificationFloor = 0
@@ -101,7 +108,7 @@ final class ChatStore {
     init(client: IMClient, user: AuthUser, controller: ChatStorageController? = nil) {
         self.client = client; self.user = user; self.stream = UserStream(client: client)
         self.storageController = controller
-        if let controller { controller.attach(self) } else { restoreAttempts() }
+        if let controller { controller.attach(self) } else { scheduleAttemptRestore() }
     }
 
     /// Storage state transitions come from the controller only.
@@ -109,14 +116,35 @@ final class ChatStore {
         let previous = repository
         storage = next
         if previous !== repository { projectionRevision = UUID() }
-        guard case .ready = next else { return }
+        guard case .ready = next else {
+            if case .degraded = next { scheduleAttemptRestore() }
+            return
+        }
+        cleanupBlocked = false
         if let seed { applySeed(seed) }
         else { Task { await loadSeed() } }
     }
 
     /// `.degraded` retry point: user tap, next foreground, or the next `run()`, whichever
     /// comes first. It never silently becomes "pure network forever".
-    func retryStorage() async { await storageController?.retryOpen() }
+    func retryStorage() async {
+        if let storageController { await storageController.retryOpen(); return }
+        do {
+            let revision = try await sessionRevision()
+            for (id, kind) in unpersistedCleanups.sorted(by: { $0.key < $1.key }) {
+                try await client.session.removeConversationAttempts(id, kind: kind, userID: user.id, revision: revision)
+                unpersistedCleanups[id] = nil
+            }
+            cleanupBlocked = false
+            scheduleAttemptRestore()
+            await attemptRestore?.value
+        } catch { listError = error.localizedDescription }
+    }
+
+    func blockForCleanup() {
+        cleanupBlocked = true
+        resetProjection()
+    }
 
     /// Read only the current partition generation; a slow seed cannot undo a newer snapshot.
     func loadSeed() async {
@@ -144,12 +172,40 @@ final class ChatStore {
         if connection == .starting, !conversations.isEmpty { connection = .localOnly }
     }
 
-    private func restoreAttempts() {
+    private func scheduleAttemptRestore() {
+        attemptRestore?.cancel()
+        attemptRestore = Task { [weak self] in
+            guard let self else { return }
+            await self.readRestoredAttempts()
+        }
+    }
+
+    /// Allows an entry point/test to await the constructor's single asynchronous restore.
+    func restoreAttempts() async {
+        if let attemptRestore { await attemptRestore.value }
+        else { await readRestoredAttempts() }
+    }
+
+    /// Degraded storage still restores frozen requests, off MainActor and through the same
+    /// policy/handoff boundary as SQLite. This is never an implicit resend.
+    private func readRestoredAttempts() async {
+        guard !cleanupBlocked, unpersistedCleanups.isEmpty else { return }
+        let token = epoch, revision = projectionRevision, pendingVersion = pendingRevision
         do {
-            for attempt in try client.session.sendAttempts.load(origin: client.baseURL, userID: user.id) {
-                adopt(attempt)
+            let owner = try await sessionRevision()
+            let attempts = try await client.session.loadSendAttempts(userID: user.id, revision: owner)
+            guard !Task.isCancelled, token == epoch, revision == projectionRevision,
+                  pendingVersion == pendingRevision, repository == nil else { return }
+            for attempt in attempts {
+                if let source = attempt.sourceMessageID {
+                    if interactionPending[source] == nil { adopt(attempt) }
+                } else if pending[attempt.conversationID] == nil { adopt(attempt) }
             }
-        } catch { listError = error.localizedDescription }
+            pendingCount = attempts.count
+        } catch {
+            guard token == epoch, revision == projectionRevision, !(error is CancellationError) else { return }
+            listError = error.localizedDescription
+        }
     }
 
     /// A restored attempt becomes a projection row only; nothing is submitted from here.
@@ -165,12 +221,23 @@ final class ChatStore {
 
     /// Rebuild the pending projection from the store: the count shown at launch and the rows
     /// that can be reconciled are the same durable source.
-    private func reloadPending() async {
-        guard let repository else { return }
-        guard let attempts = try? await repository.pendingAttempts() else { return }
-        pending = [:]; interactionPending = [:]; interactionConversations = [:]
-        for attempt in attempts { adopt(attempt) }
-        pendingCount = attempts.count
+    /// The read seam pins continuation interleavings in tests; production always reads the
+    /// repository. Local mutations after that snapshot invalidate it even without a new sync.
+    func reloadPending(read: @Sendable (ChatRepository) async throws -> [SendAttempt] = { try await $0.pendingAttempts() }) async {
+        let pendingVersion = pendingRevision
+        guard let request = try? await readRequest(), let repository = request.repository else { return }
+        do {
+            let attempts = try await read(repository)
+            guard await isCurrent(request), pendingVersion == pendingRevision else { return }
+            pending = [:]; interactionPending = [:]; interactionConversations = [:]
+            for attempt in attempts { adopt(attempt) }
+            pendingCount = attempts.count
+        } catch {
+            guard await isCurrent(request), !(error is CancellationError) else { return }
+            // Preserve unresolved memory while its handoff cannot be imported; an empty DB
+            // result is not permission to discard a frozen request that is still on disk.
+            listError = error.localizedDescription
+        }
     }
 
     /// Check the target using the signed-in viewer before changing either local draft.
@@ -225,6 +292,7 @@ final class ChatStore {
     /// Reset every projection to its initial value; durable rows are the controller's business.
     func resetProjection() {
         sendEpoch = UUID(); projectionRevision = UUID()
+        attemptRestore?.cancel(); attemptRestore = nil
         draftFlush?.cancel(); draftFlush = nil; queuedDrafts = [:]
         stop()
         timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
@@ -317,6 +385,7 @@ final class ChatStore {
             guard request.epoch == epoch, self.repository === repository else { throw CancellationError() }
             projectionRevision = UUID()
             conversations = result.conversations
+            revokedChats.subtract(Set(result.conversations.map(\.id)))
             pendingCount = result.pendingCount
             lastFullAt = (try? await repository.connectionSeed())?.lastFullAt ?? lastFullAt
             for id in result.revoked {
@@ -327,6 +396,7 @@ final class ChatStore {
             for chat in result.conversations where chat.can_write == false || chat.dissolved_at != nil {
                 await discardConversationAttempts(chat.id)
             }
+            guard request.epoch == epoch, self.repository === repository else { throw CancellationError() }
             if let selectedID, !result.conversations.contains(where: { $0.id == selectedID }) {
                 await inspectConversation(selectedID)
             } else { inspectedConversation = nil }
@@ -336,6 +406,8 @@ final class ChatStore {
             listPhase = result.conversations.isEmpty && pendingCount == 0 ? .empty : (result.conversations.isEmpty ? .loadingFirst : .loaded)
             listError = nil
         } catch {
+            guard request.epoch == epoch, request.repository === self.repository else { throw CancellationError() }
+            if let cleanup = error as? ChatCleanupFailure { handleCleanupFailure(cleanup) }
             let failure = ChatFailure.from(error)
             if listPhase == .loadingFirst { listPhase = .failed }
             connection = failure.connection ?? connection
@@ -346,6 +418,7 @@ final class ChatStore {
 
     /// Pure-network fallback used while the partition cannot be opened (design D3 degraded).
     private func reconcileNetwork(_ values: [Conversation]) async {
+        let token = epoch
         if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
         else { inspectedConversation = nil }
         var allowed = Set(values.map(\.id))
@@ -353,13 +426,14 @@ final class ChatStore {
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
         for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values) where !allowed.contains(id) {
-            // No partition behind this path, so there is nothing durable to book a tombstone in.
-            await revokeConversation(id, reason: nil)
+            // A degraded partition still has old JSON/handoff qualification to revoke.
+            await revokeConversation(id, reason: .snapshotAbsent)
             errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
         }
         for chat in values where chat.can_write == false || chat.dissolved_at != nil {
             await discardConversationAttempts(chat.id)
         }
+        guard token == epoch else { return }
         checkingAccess = []
         conversations = values
         listPhase = values.isEmpty ? .empty : .loaded
@@ -391,7 +465,13 @@ final class ChatStore {
             await reconcileNetwork(items)
             return
         }
-        let values = try await repository.applyConversationList(items, write: context)
+        let values: [Conversation]
+        do { values = try await repository.applyConversationList(items, write: context) }
+        catch {
+            guard request.epoch == epoch, request.repository === self.repository else { throw CancellationError() }
+            if let cleanup = error as? ChatCleanupFailure { handleCleanupFailure(cleanup) }
+            throw error
+        }
         guard await isCurrent(request) else { return }
         conversations = values
         listPhase = values.isEmpty && pendingCount == 0 ? .empty : (values.isEmpty ? .loadingFirst : .loaded)
@@ -423,7 +503,12 @@ final class ChatStore {
 
     private func persistConversation(_ value: Conversation, request: ReadRequest) async throws {
         if let repository = request.repository, let context = request.context {
-            _ = try await repository.applyConversation(value, members: value.participants, write: context)
+            do { _ = try await repository.applyConversation(value, members: value.participants, write: context) }
+            catch {
+                guard request.epoch == epoch, request.repository === self.repository else { throw CancellationError() }
+                if let cleanup = error as? ChatCleanupFailure { handleCleanupFailure(cleanup) }
+                throw error
+            }
         }
         guard await isCurrent(request) else { throw CancellationError() }
         if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
@@ -677,6 +762,7 @@ final class ChatStore {
         }
     }
     func send(_ id: String, retry: Bool = false, textOnly: Bool = false) async {
+        await attemptRestore?.value
         let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
         guard chat?.can_write != false else { return }
         guard !sending.contains(id), !checkingAccess.contains(id), !revokedChats.contains(id) else { return }
@@ -719,6 +805,7 @@ final class ChatStore {
     }
 
     func submitInteraction(_ id: String, input: InteractionReplyInput, key: String) async throws -> ChatMessage {
+        await attemptRestore?.value
         try requireWritable(id)
         let source = input.source_message_id
         guard interactionPending[source] == nil, !interactionSending.contains(source) else {
@@ -750,6 +837,7 @@ final class ChatStore {
 
     /// Reopening queries durable attempts without submitting any new work.
     func recoverPending(_ id: String? = nil) async {
+        await attemptRestore?.value
         if repository != nil { await reloadPending() }
         let ordinary = pending.filter { id == nil || $0.key == id }.map { SendAttempt(conversationID: $0.key, sourceMessageID: nil, draft: $0.value) }
         let cards = interactionPending.compactMap { source, draft -> SendAttempt? in
@@ -776,7 +864,8 @@ final class ChatStore {
 
     private func requireWritable(_ id: String) throws {
         let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
-        guard !revokedChats.contains(id), !checkingAccess.contains(id), chat?.can_write != false, chat?.dissolved_at == nil else {
+        guard !cleanupBlocked, unpersistedCleanups.isEmpty,
+              !revokedChats.contains(id), !checkingAccess.contains(id), chat?.can_write != false, chat?.dissolved_at == nil else {
             throw APIError(status: 403, detail: L("此聊天不能发送消息。", "This conversation does not allow sending."))
         }
     }
@@ -859,13 +948,26 @@ final class ChatStore {
     }
 
     private func persistAttempt(_ attempt: SendAttempt, revision: Int) async throws {
-        if let repository {
+        let token = sendEpoch, projection = projectionRevision
+        let currentRepository = repository
+        if let currentRepository {
             try await client.session.assertOwner(user.id, revision: revision)
-            let context = try await repository.writeContext()
-            try await repository.upsertPending(attempt, write: context)
-            if attempt.sourceMessageID == nil { drafts[attempt.conversationID] = "" ; queuedDrafts[attempt.conversationID] = nil }
+            let context = try await currentRepository.writeContext()
+            guard token == sendEpoch, projection == projectionRevision, currentRepository === repository else { throw CancellationError() }
+            try requireWritable(attempt.conversationID)
+            try await currentRepository.upsertPending(attempt, write: context)
+            guard token == sendEpoch, projection == projectionRevision else { throw CancellationError() }
+            try requireWritable(attempt.conversationID)
+            if attempt.sourceMessageID == nil { drafts[attempt.conversationID] = ""; queuedDrafts[attempt.conversationID] = nil }
         } else {
-            try await client.session.saveSendAttempt(attempt, userID: user.id, revision: revision)
+            let stamp = try await client.session.reserveSendAttempt(attempt.conversationID, userID: user.id, revision: revision)
+            guard token == sendEpoch, projection == projectionRevision else { throw CancellationError() }
+            try requireWritable(attempt.conversationID)
+            // A cleanup between this UI check and the file write invalidates the captured
+            // stamp under the shared lock. It cannot relabel this old request as a new one.
+            try await client.session.saveSendAttempt(attempt, stamp: stamp, userID: user.id, revision: revision)
+            guard token == sendEpoch, projection == projectionRevision else { throw CancellationError() }
+            try requireWritable(attempt.conversationID)
         }
     }
 
@@ -888,18 +990,50 @@ final class ChatStore {
     }
 
     private func discardConversationAttempts(_ id: String) async {
+        let token = epoch
         pending[id] = nil
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
             interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
         }
         interactionSelections = interactionSelections.filter { $0.value.conversationID != id }
-        if let repository {
-            if let context = try? await repository.writeContext() {
-                try? await repository.deletePending(conversationID: id, write: context)
+        do {
+            if let repository {
+                let context = try await repository.writeContext()
+                try await repository.deletePending(conversationID: id, write: context)
+            } else {
+                let revision = try await sessionRevision()
+                try await client.session.removeConversationAttempts(id, userID: user.id, revision: revision)
             }
-        } else if let revision = try? await sessionRevision() {
-            try? await client.session.removeConversationAttempts(id, userID: user.id, revision: revision)
+        } catch {
+            guard token == epoch else { return }
+            handleCleanupFailure(error, conversationID: id, kind: .discardPending)
         }
+    }
+
+    private func handleCleanupFailure(_ failure: ChatCleanupFailure) {
+        for intent in failure.intents {
+            handleCleanupFailure(failure, conversationID: intent.conversationID, kind: intent.kind)
+        }
+    }
+
+    private func handleCleanupFailure(_ error: Error, conversationID: String, kind: ChatAttemptPersistence.CleanupKind) {
+        if error is CancellationError { return }
+        if let repositoryError = error as? ChatRepositoryError {
+            switch repositoryError {
+            case .staleWrite, .revokedConversation: return
+            case .databaseUnavailable: break
+            }
+        }
+        let reason = error.localizedDescription
+        if let storageController {
+            storageController.reportCleanupFailure(reason, conversationID: conversationID, kind: kind)
+        } else {
+            let previous = unpersistedCleanups[conversationID]
+            unpersistedCleanups[conversationID] = previous == .revokeAccess ? .revokeAccess : kind
+            blockForCleanup()
+            storage = .degraded(reason: reason)
+        }
+        listError = reason
     }
 
     /// Removes one conversation's rendered state and books the revocation in the store, so a
@@ -907,13 +1041,28 @@ final class ChatStore {
     private func revokeConversation(_ id: String, reason: ChatRevokeReason?) async {
         projectionRevision = UUID()
         let token = epoch
-        await discardConversationAttempts(id)
-        guard token == epoch else { return }
-        if let reason, let repository, let context = try? await repository.writeContext() {
-            try? await repository.revoke(id, reason: reason, write: context)
-        }
+        // Stop rendering before IO. Access revocation must not first commit the weaker
+        // discardPending intent: a crash in that gap would retain readable revoked history.
         clearConversationState(id)
         revokedChats.insert(id)
+        conversations.removeAll { $0.id == id }
+        if inspectedConversation?.id == id { inspectedConversation = nil }
+        interactionSelections = interactionSelections.filter { $0.value.conversationID != id }
+        do {
+            if let reason, let repository {
+                let context = try await repository.writeContext()
+                guard token == epoch else { return }
+                try await repository.revoke(id, reason: reason, write: context)
+            } else if repository == nil, reason != nil {
+                let revision = try await sessionRevision()
+                guard token == epoch else { return }
+                try await client.session.removeConversationAttempts(id, kind: .revokeAccess,
+                                                                     userID: user.id, revision: revision)
+            }
+        } catch {
+            guard token == epoch else { return }
+            handleCleanupFailure(error, conversationID: id, kind: .revokeAccess)
+        }
     }
 
     private func clearConversationState(_ id: String) {

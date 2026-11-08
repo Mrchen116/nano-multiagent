@@ -70,13 +70,18 @@ actor ChatRepository {
     /// Regenerated when the partition is opened; every write must carry the current value.
     nonisolated let epoch = UUID()
 
+    nonisolated let attemptPersistence: ChatAttemptPersistence
     private let queue: DatabaseQueue
     private var closed = false
+    private var lastAppliedPolicy: ChatAttemptPersistence.Policy
 
-    private init(partition: ChatPartition, location: ChatStorageLocation, queue: DatabaseQueue) {
+    private init(partition: ChatPartition, location: ChatStorageLocation, queue: DatabaseQueue,
+                 attemptPersistence: ChatAttemptPersistence, policy: ChatAttemptPersistence.Policy) {
         self.partition = partition
         self.location = location
         self.queue = queue
+        self.attemptPersistence = attemptPersistence
+        self.lastAppliedPolicy = policy
     }
 
     /// Open (and migrate) the partition, rebuilding once if the file is unusable.
@@ -87,21 +92,27 @@ actor ChatRepository {
                      location: ChatStorageLocation,
                      legacyAttemptRoot: URL = ChatStorageLocation.legacyAttemptRoot,
                      now: Date = Date()) throws -> ChatRepository {
-        try location.prepare()
-        do {
-            return try openOnce(partition: partition, location: location, legacyAttemptRoot: legacyAttemptRoot, now: now)
-        } catch {
-            // IO, protection, full-disk and schema errors do not prove corruption. Rebuilding
-            // for those failures would silently replace recoverable local pending requests.
-            guard let databaseError = error as? DatabaseError,
-                  databaseError.resultCode == .SQLITE_CORRUPT || databaseError.resultCode == .SQLITE_NOTADB,
-                  location.quarantineCorruptDatabase() != nil else {
-                throw ChatRepositoryError.databaseUnavailable(error.localizedDescription)
-            }
+        let persistence = ChatAttemptPersistence.shared(partition: partition, location: location)
+        return try persistence.coordinated {
+            // Never let a broken qualification policy fall through to corruption recovery.
+            _ = try persistence.policy()
+            try location.prepare()
             do {
-                return try openOnce(partition: partition, location: location, legacyAttemptRoot: legacyAttemptRoot, now: now, rebuilt: true)
+                return try openOnce(partition: partition, location: location, legacyAttemptRoot: legacyAttemptRoot,
+                                    now: now, persistence: persistence)
             } catch {
-                throw ChatRepositoryError.databaseUnavailable(error.localizedDescription)
+                // IO, protection, full-disk and schema errors do not prove corruption.
+                guard let databaseError = error as? DatabaseError,
+                      databaseError.resultCode == .SQLITE_CORRUPT || databaseError.resultCode == .SQLITE_NOTADB,
+                      location.quarantineCorruptDatabase() != nil else {
+                    throw ChatRepositoryError.databaseUnavailable(error.localizedDescription)
+                }
+                do {
+                    return try openOnce(partition: partition, location: location, legacyAttemptRoot: legacyAttemptRoot,
+                                        now: now, persistence: persistence)
+                } catch {
+                    throw ChatRepositoryError.databaseUnavailable(error.localizedDescription)
+                }
             }
         }
     }
@@ -110,7 +121,7 @@ actor ChatRepository {
                                  location: ChatStorageLocation,
                                  legacyAttemptRoot: URL,
                                  now: Date,
-                                 rebuilt: Bool = false) throws -> ChatRepository {
+                                 persistence: ChatAttemptPersistence) throws -> ChatRepository {
         var configuration = Configuration()
         // A wiped database would hide migration defects; tests ask for a clean file explicitly.
         configuration.foreignKeysEnabled = true
@@ -129,15 +140,22 @@ actor ChatRepository {
                 """)
         }
         try migrator.migrate(queue)
-        let repository = ChatRepository(partition: partition, location: location, queue: queue)
+        let policy = try persistence.policy()
+        let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '2')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
-            try importSendAttempts(db: db, partition: partition, legacyAttemptRoot: legacyAttemptRoot, now: now)
+            try applyPolicy(policy, db: db)
+            try importSendAttempts(db: db, partition: partition, legacyAttemptRoot: legacyAttemptRoot, now: now, policy: policy)
+            try importHandoffs(handoffs, db: db)
         }
+        // The marker and insert are committed before removal. A removal failure leaves a
+        // recoverable file, never a ready state that silently drops its request.
+        for handoff in handoffs { try persistence.removeHandoff(handoff.attempt) }
         try location.protectDatabaseFile()
-        return repository
+        return ChatRepository(partition: partition, location: location, queue: queue,
+                              attemptPersistence: persistence, policy: policy)
     }
 
     // MARK: - Schema
@@ -303,15 +321,24 @@ actor ChatRepository {
     }
 
     func pendingAttempts() throws -> [SendAttempt] {
-        try read { db in
-            try Row.fetchAll(db, sql: "SELECT * FROM pending_sends ORDER BY conversation_id, source_message_id, attempt_key")
-                .compactMap { row in
-                    guard let body: Data = row["request_body"], let content: String = row["content"] else { return nil }
-                    let source: String = row["source_message_id"]
-                    let attachments = (try? Self.decode([ChatAttachment].self, from: row["attachments_json"] as String? ?? "[]")) ?? []
-                    let draft = PendingSend(key: row["attempt_key"], content: content, attachments: attachments, requestBody: body)
-                    return SendAttempt(conversationID: row["conversation_id"], sourceMessageID: source.isEmpty ? nil : source, draft: draft)
-                }
+        try attemptPersistence.coordinated {
+            guard !closed else { throw ChatRepositoryError.databaseUnavailable("closed") }
+            try ensurePolicyApplied()
+            let handoffs = try attemptPersistence.loadHandoffs()
+            if !handoffs.isEmpty {
+                try queue.write { db in try Self.importHandoffs(handoffs, db: db) }
+                for handoff in handoffs { try attemptPersistence.removeHandoff(handoff.attempt) }
+            }
+            return try queue.read { db in
+                try Row.fetchAll(db, sql: "SELECT * FROM pending_sends ORDER BY conversation_id, source_message_id, attempt_key")
+                    .compactMap { row in
+                        guard let body: Data = row["request_body"], let content: String = row["content"] else { return nil }
+                        let source: String = row["source_message_id"]
+                        let attachments = (try? Self.decode([ChatAttachment].self, from: row["attachments_json"] as String? ?? "[]")) ?? []
+                        let draft = PendingSend(key: row["attempt_key"], content: content, attachments: attachments, requestBody: body)
+                        return SendAttempt(conversationID: row["conversation_id"], sourceMessageID: source.isEmpty ? nil : source, draft: draft)
+                    }
+            }
         }
     }
 
@@ -331,7 +358,8 @@ actor ChatRepository {
 
     func applySnapshot(_ items: [Conversation], maxEventID: Int, snapshotSeq: Int,
                        write context: ChatWriteContext) throws -> ChatSnapshotResult {
-        try write { db in
+        var intents: [ChatCleanupFailure.Intent] = []
+        do { return try write { db in
             try validate(context, db: db)
             let current = try Self.snapshotSeq(db)
             guard snapshotSeq > current else { throw ChatRepositoryError.staleWrite }
@@ -341,13 +369,21 @@ actor ChatRepository {
             identities.formUnion(try String.fetchAll(db, sql: "SELECT DISTINCT conversation_id FROM pending_sends"))
             identities.formUnion(try String.fetchAll(db, sql: "SELECT conversation_id FROM revoked_conversations"))
             identities.formUnion(try String.fetchAll(db, sql: "SELECT DISTINCT conversation_id FROM discarded_messages"))
+            intents = identities.subtracting(authoritative).sorted().map {
+                ChatCleanupFailure.Intent(conversationID: $0, kind: .revokeAccess)
+            } + items.filter { $0.can_write == false || $0.dissolved_at != nil }.map {
+                ChatCleanupFailure.Intent(conversationID: $0.id, kind: .discardPending)
+            }
             var revoked: [String] = []
             for id in identities.subtracting(authoritative).sorted() {
                 // Only newly revoked conversations are reported: a tombstone is revisited by
                 // every later snapshot, and reporting it again would re-clear a row the store
                 // already dropped (or, worse, tell the UI something disappeared twice).
                 let known = try Self.isRevoked(id, db: db)
+                let policy = try attemptPersistence.recordCleanup(id, kind: .revokeAccess, forceNewGeneration: !known)
                 try Self.revokeRows(id, reason: .snapshotAbsent, db: db, now: Date())
+                try Self.acknowledgeCleanup(id, policy: policy, db: db)
+                try attemptPersistence.removeHandoffs(conversationID: id)
                 if !known { revoked.append(id) }
             }
             for item in items {
@@ -355,7 +391,7 @@ actor ChatRepository {
                 try db.execute(sql: "DELETE FROM revoked_conversations WHERE conversation_id=?", arguments: [item.id])
             }
             for item in items where item.can_write == false || item.dissolved_at != nil {
-                try Self.deletePendingRows(item.id, db: db)
+                try discardPendingRowsAndSources(item.id, db: db)
             }
             let stored = try Int.fetchOne(db, sql: "SELECT max_event_id FROM sync_cursor WHERE id=1") ?? 0
             try db.execute(sql: "UPDATE sync_cursor SET max_event_id=?, snapshot_seq=?, updated_at=? WHERE id=1",
@@ -364,16 +400,24 @@ actor ChatRepository {
             return ChatSnapshotResult(conversations: try Self.loadConversations(db), revoked: revoked,
                                       pendingCount: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_sends") ?? 0,
                                       snapshotSeq: snapshotSeq, maxEventID: max(stored, maxEventID))
-        }
+        } } catch { throw ChatCleanupFailure.wrapping(error, intents: intents) }
     }
 
     func applyConversation(_ value: Conversation, members: [ActorRef],
                            write context: ChatWriteContext) throws -> Conversation {
-        try write { db in
-            try validate(context, db: db)
-            try Self.upsertConversation(value, members: members, db: db)
-            try db.execute(sql: "DELETE FROM revoked_conversations WHERE conversation_id=?", arguments: [value.id])
-            return value
+        var accepted = false
+        do {
+            return try write { db in
+                try validate(context, db: db)
+                accepted = true
+                try Self.upsertConversation(value, members: members, db: db)
+                try db.execute(sql: "DELETE FROM revoked_conversations WHERE conversation_id=?", arguments: [value.id])
+                if value.can_write == false || value.dissolved_at != nil { try discardPendingRowsAndSources(value.id, db: db) }
+                return value
+            }
+        } catch {
+            guard accepted, value.can_write == false || value.dissolved_at != nil else { throw error }
+            throw ChatCleanupFailure.wrapping(error, intents: [.init(conversationID: value.id, kind: .discardPending)])
         }
     }
 
@@ -381,13 +425,24 @@ actor ChatRepository {
     /// deleted here. It may, however, prove access again (a tombstone the server contradicts).
     func applyConversationList(_ items: [Conversation],
                                write context: ChatWriteContext) throws -> [Conversation] {
-        try write { db in
-            try validate(context, db: db)
-            for item in items {
-                try Self.upsertConversation(item, db: db)
-                try db.execute(sql: "DELETE FROM revoked_conversations WHERE conversation_id=?", arguments: [item.id])
+        var accepted = false
+        do {
+            return try write { db in
+                try validate(context, db: db)
+                accepted = true
+                for item in items {
+                    try Self.upsertConversation(item, db: db)
+                    try db.execute(sql: "DELETE FROM revoked_conversations WHERE conversation_id=?", arguments: [item.id])
+                    if item.can_write == false || item.dissolved_at != nil { try discardPendingRowsAndSources(item.id, db: db) }
+                }
+                return try Self.loadConversations(db)
             }
-            return try Self.loadConversations(db)
+        } catch {
+            guard accepted else { throw error }
+            let intents = items.filter { $0.can_write == false || $0.dissolved_at != nil }.map {
+                ChatCleanupFailure.Intent(conversationID: $0.id, kind: .discardPending)
+            }
+            throw ChatCleanupFailure.wrapping(error, intents: intents)
         }
     }
 
@@ -397,8 +452,25 @@ actor ChatRepository {
     func deletePending(conversationID: String, write context: ChatWriteContext) throws {
         try write { db in
             try validate(context, db: db)
-            try Self.deletePendingRows(conversationID, db: db)
+            try discardPendingRowsAndSources(conversationID, db: db)
         }
+    }
+
+    private func discardPendingRowsAndSources(_ id: String, db: Database) throws {
+        let hasPending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_sends WHERE conversation_id=?", arguments: [id]) ?? 0
+        let previous = try attemptPersistence.policy().conversationCleanups[id]
+        let hasHandoff = try attemptPersistence.loadHandoffs().contains { $0.attempt.conversationID == id }
+        let policy = try attemptPersistence.recordCleanup(id, kind: .discardPending,
+                                                         forceNewGeneration: hasPending > 0 || hasHandoff || previous?.kind == .revokeAccess)
+        try Self.deletePendingRows(id, db: db)
+        try Self.acknowledgeCleanup(id, policy: policy, db: db)
+        try attemptPersistence.removeHandoffs(conversationID: id)
+    }
+
+    private static func acknowledgeCleanup(_ id: String, policy: ChatAttemptPersistence.Policy, db: Database) throws {
+        guard let generation = policy.conversationCleanups[id]?.generation.uuidString else { return }
+        try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)",
+                       arguments: ["policy.conversation.\(id)", generation])
     }
 
     func applyPage(_ id: String, items: [TimelineItem], write context: ChatWriteContext) throws -> ChatTimelinePage {
@@ -462,7 +534,11 @@ actor ChatRepository {
     func revoke(_ id: String, reason: ChatRevokeReason, write context: ChatWriteContext) throws {
         try write { db in
             try validate(context, db: db)
+            let known = try Self.isRevoked(id, db: db)
+            let policy = try attemptPersistence.recordCleanup(id, kind: .revokeAccess, forceNewGeneration: !known)
             try Self.revokeRows(id, reason: reason, db: db, now: Date())
+            try Self.acknowledgeCleanup(id, policy: policy, db: db)
+            try attemptPersistence.removeHandoffs(conversationID: id)
             // Detail denial is as authoritative as snapshot absence. Invalidate contexts
             // captured by older successful detail/list/page requests in this transaction.
             try db.execute(sql: "UPDATE sync_cursor SET snapshot_seq=snapshot_seq+1 WHERE id=1")
@@ -486,14 +562,9 @@ actor ChatRepository {
             guard try Self.isRevoked(attempt.conversationID, db: db) == false else {
                 throw ChatRepositoryError.revokedConversation(attempt.conversationID)
             }
-            guard let body = attempt.draft.requestBody else { throw ChatRepositoryError.staleWrite }
-            let attachments = (try? Self.encode(attempt.draft.attachments)) ?? Data("[]".utf8)
-            try db.execute(sql: """
-                INSERT OR REPLACE INTO pending_sends(conversation_id, source_message_id, attempt_key, content, attachments_json, request_body, created_at, last_error, updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?)
-                """, arguments: [attempt.conversationID, attempt.sourceMessageID ?? "", attempt.draft.key,
-                                 attempt.draft.content, String(decoding: attachments, as: UTF8.self), body,
-                                 Self.iso(Date()), nil, Self.iso(Date())])
+            let writable = try Int.fetchOne(db, sql: "SELECT can_write FROM conversations WHERE id=?", arguments: [attempt.conversationID])
+            guard writable != 0 else { throw ChatRepositoryError.revokedConversation(attempt.conversationID) }
+            try Self.upsertPendingRow(attempt, db: db)
             // The composer text moves into the frozen request, so keeping the draft too would
             // show the same content twice while the send stays unconfirmed.
             try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=?", arguments: [attempt.conversationID])
@@ -505,6 +576,10 @@ actor ChatRepository {
             try validate(context, db: db)
             try db.execute(sql: "DELETE FROM pending_sends WHERE conversation_id=? AND source_message_id=? AND attempt_key=?",
                            arguments: [attempt.conversationID, attempt.sourceMessageID ?? "", attempt.draft.key])
+            let marker = "handoff." + Self.itemKey(conversationID: attempt.conversationID,
+                                                   sourceMessageID: attempt.sourceMessageID, attemptKey: attempt.draft.key)
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?, '1')", arguments: [marker])
+            try attemptPersistence.removeHandoff(attempt)
         }
     }
 
@@ -520,18 +595,30 @@ actor ChatRepository {
     /// Partition-level cleanup: rows first (so a failed file removal cannot leave readable
     /// content), then the connection, then the directory.
     func purge() throws {
-        guard !closed else { return }
-        try queue.write { db in
-            for table in ["messages", "conversation_boundaries", "conversation_members", "actors", "drafts",
-                          "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "conversations"] {
-                try db.execute(sql: "DELETE FROM \(table)")
+        try attemptPersistence.coordinated {
+            let policy = try attemptPersistence.recordPurge()
+            if !closed {
+                try queue.write { db in try Self.applyPolicy(policy, db: db) }
+                lastAppliedPolicy = policy
+                try queue.close()
+                closed = true
             }
-            try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0, snapshot_seq=snapshot_seq+1, updated_at=NULL WHERE id=1")
-            try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'sync.%'")
+            // A previous attempt may have closed SQLite and then failed to remove files.
+            // Closed is not evidence of physical cleanup; every retry must finish this tail.
+            try attemptPersistence.removeHandoffs()
+            try location.removeAll()
         }
-        closed = true
-        try queue.close()
-        try location.removeAll()
+    }
+
+    /// Even a failed/opening partition may have old migration data. The external fence must
+    /// survive its directory removal and must precede any future open/import.
+    nonisolated static func purgeFiles(partition: ChatPartition, location: ChatStorageLocation) throws {
+        let persistence = ChatAttemptPersistence.shared(partition: partition, location: location)
+        try persistence.coordinated {
+            _ = try persistence.recordPurge()
+            try persistence.removeHandoffs()
+            try location.removeAll()
+        }
     }
 
     /// Release an unusable connection without deleting recoverable local requests.
@@ -560,13 +647,84 @@ actor ChatRepository {
     }
 
     private func read<T>(_ body: (Database) throws -> T) throws -> T {
-        guard !closed else { throw ChatRepositoryError.databaseUnavailable("closed") }
-        return try queue.read(body)
+        try attemptPersistence.coordinated {
+            guard !closed else { throw ChatRepositoryError.databaseUnavailable("closed") }
+            try ensurePolicyApplied()
+            return try queue.read(body)
+        }
     }
 
     private func write<T>(_ body: (Database) throws -> T) throws -> T {
-        guard !closed else { throw ChatRepositoryError.databaseUnavailable("closed") }
-        return try queue.write(body)
+        try attemptPersistence.coordinated {
+            guard !closed else { throw ChatRepositoryError.databaseUnavailable("closed") }
+            try ensurePolicyApplied()
+            let result = try queue.write(body)
+            lastAppliedPolicy = try attemptPersistence.policy()
+            return result
+        }
+    }
+
+    /// A policy may commit before SQLite fails. No later read may expose the pre-cleanup rows.
+    private func ensurePolicyApplied() throws {
+        let policy = try attemptPersistence.policy()
+        guard policy != lastAppliedPolicy else { return }
+        try queue.write { db in try Self.applyPolicy(policy, db: db) }
+        lastAppliedPolicy = policy
+    }
+
+    private static func applyPolicy(_ policy: ChatAttemptPersistence.Policy, db: Database) throws {
+        if let generation = policy.purgeGeneration?.uuidString {
+            let key = "policy.partition_generation"
+            if try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: [key]) != generation {
+                try clearRows(db)
+                try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'policy.conversation.%'")
+                try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: [key, generation])
+            }
+        }
+        for (id, cleanup) in policy.conversationCleanups.sorted(by: { $0.key < $1.key }) {
+            let key = "policy.conversation.\(id)", generation = cleanup.generation.uuidString
+            guard try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: [key]) != generation else { continue }
+            switch cleanup.kind {
+            case .discardPending: try deletePendingRows(id, db: db)
+            case .revokeAccess: try revokeRows(id, reason: .membershipDenied, db: db, now: Date())
+            }
+            try db.execute(sql: "UPDATE sync_cursor SET snapshot_seq=snapshot_seq+1 WHERE id=1")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: [key, generation])
+        }
+    }
+
+    private static func clearRows(_ db: Database) throws {
+        for table in ["messages", "conversation_boundaries", "conversation_members", "actors", "drafts",
+                      "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "conversations"] {
+            try db.execute(sql: "DELETE FROM \(table)")
+        }
+        try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0,snapshot_seq=snapshot_seq+1,updated_at=NULL WHERE id=1")
+        try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'sync.%' OR key LIKE 'handoff.%'")
+    }
+
+    private static func importHandoffs(_ handoffs: [ChatAttemptPersistence.Handoff], db: Database) throws {
+        for handoff in handoffs {
+            let attempt = handoff.attempt
+            let marker = "handoff." + itemKey(conversationID: attempt.conversationID,
+                                              sourceMessageID: attempt.sourceMessageID, attemptKey: attempt.draft.key)
+            guard try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: [marker]) == nil else { continue }
+            // Eligibility comes from the fixed creation stamp. A tombstone/read-only row
+            // replayed from an older intent cannot discard a genuinely new degraded-mode
+            // request created after reauthorization; keep it orphaned until the next sync.
+            try upsertPendingRow(attempt, db: db)
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?, '1')", arguments: [marker])
+        }
+    }
+
+    private static func upsertPendingRow(_ attempt: SendAttempt, db: Database) throws {
+        guard let body = attempt.draft.requestBody else { throw ChatRepositoryError.staleWrite }
+        let attachments = try encode(attempt.draft.attachments)
+        try db.execute(sql: """
+            INSERT OR IGNORE INTO pending_sends(conversation_id,source_message_id,attempt_key,content,attachments_json,request_body,created_at,last_error,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?)
+            """, arguments: [attempt.conversationID, attempt.sourceMessageID ?? "", attempt.draft.key,
+                             attempt.draft.content, String(decoding: attachments, as: UTF8.self), body,
+                             iso(Date()), nil, iso(Date())])
     }
 
     private static func snapshotSeq(_ db: Database) throws -> Int {

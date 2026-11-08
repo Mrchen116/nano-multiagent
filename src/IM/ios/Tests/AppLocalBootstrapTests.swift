@@ -43,7 +43,42 @@ final class AppLocalBootstrapTests: XCTestCase {
         displayed.stop()
     }
 
-    private func makeModel() async throws -> (AppModel, BootstrapTransport) {
+    func testSignOutFencesLegacyWithoutChangingItsBytesAtTheActualOwner() async throws {
+        let (model, _) = try await makeModel()
+        let legacy = SendAttemptStore(directory: root.appendingPathComponent("legacy"))
+        let attempt = SendAttempt(conversationID: "cached", sourceMessageID: nil,
+                                  draft: PendingSend(key: "old", content: "private", attachments: [], requestBody: Data("{}".utf8)))
+        try legacy.save(attempt, origin: origin, userID: "alice")
+        let file = try XCTUnwrap(legacy.attemptFiles(origin: origin, userID: "alice").first)
+        let bytes = try Data(contentsOf: file)
+        await model.bootstrapLocal()
+        await model.signOut()
+        XCTAssertNil(model.user)
+        XCTAssertNil(model.chat)
+        XCTAssertEqual(try Data(contentsOf: file), bytes)
+        let reopened = try ChatRepository.open(ChatPartition(origin: origin, userID: "alice"),
+                                               location: .directory(root.appendingPathComponent("partition")),
+                                               legacyAttemptRoot: root.appendingPathComponent("legacy"))
+        let pending = try await reopened.pendingAttempts()
+        XCTAssertTrue(pending.isEmpty, "the surviving legacy file is not permission to undo sign-out")
+        try await reopened.close()
+    }
+
+    func testLogoutWhileBootstrapOpensCannotPublishTheStoredAccountAfterward() async throws {
+        let gate = BootstrapOpenGate()
+        let (model, _) = try await makeModel(openGate: gate)
+        let bootstrap = Task { await model.bootstrapLocal() }
+        await gate.waitUntilEntered()
+        _ = await model.client.session.signOut()
+        await gate.release()
+        await bootstrap.value
+        await model.storage.purge(reason: .signedOut)
+        XCTAssertTrue(model.ready)
+        XCTAssertNil(model.user)
+        XCTAssertNil(model.chat, "a stale local seed must not recreate the user/store after Session invalidation")
+    }
+
+    private func makeModel(openGate: BootstrapOpenGate? = nil) async throws -> (AppModel, BootstrapTransport) {
         let base = try XCTUnwrap(root)
         let user = AuthUser(id: "alice", username: "alice", display_name: "Alice", owner_id: "alice", locale: "en",
                             membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
@@ -62,8 +97,30 @@ final class AppLocalBootstrapTests: XCTestCase {
                               credentials: BootstrapCredentials(StoredSession(refresh_token: "test", user: user)),
                               sendAttempts: SendAttemptStore(directory: base.appendingPathComponent("legacy")))
         let client = IMClient(baseURL: origin, session: session)
-        let controller = ChatStorageController(client: client) { _ in location }
+        let controller = ChatStorageController(client: client, opener: { partition, location in
+            if let openGate { await openGate.enter() }
+            return try ChatRepository.open(partition, location: location, legacyAttemptRoot: base.appendingPathComponent("legacy"))
+        }) { _ in location }
         return (AppModel(client: client, storage: controller), transport)
+    }
+}
+
+private actor BootstrapOpenGate {
+    private var entered = false
+    private var released = false
+    private var observer: CheckedContinuation<Void, Never>?
+    private var opener: CheckedContinuation<Void, Never>?
+    func enter() async {
+        entered = true
+        observer?.resume(); observer = nil
+        if !released { await withCheckedContinuation { opener = $0 } }
+    }
+    func waitUntilEntered() async {
+        if !entered { await withCheckedContinuation { observer = $0 } }
+    }
+    func release() {
+        released = true
+        opener?.resume(); opener = nil
     }
 }
 

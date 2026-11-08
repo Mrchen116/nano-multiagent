@@ -28,6 +28,7 @@ final class SendRecoveryTests: XCTestCase {
         let session = Session(baseURL: origin, transport: transport, credentials: vault, sendAttempts: disk)
         _ = try await session.restore()
         let restored = ChatStore(client: IMClient(baseURL: origin, session: session), user: user)
+        await restored.restoreAttempts()
         XCTAssertEqual(restored.pending["chat"]?.key, key)
         XCTAssertEqual(restored.attachments["chat"]?.first?.file_name, "kept.png")
         await restored.loadConversations()
@@ -48,7 +49,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertNil(restored.pending["chat"])
         XCTAssertEqual(restored.drafts["chat"], "new work")
         XCTAssertEqual(restored.attachments["chat"]?.map(\.id), [newAttachment.id])
-        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        XCTAssertTrue(try handoffAttempts().isEmpty)
         XCTAssertEqual(restored.timelines["chat"]?.map(\.id), ["sent"])
         restored.resetProjection()
     }
@@ -72,7 +73,7 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertNil(restored.interactionAttempt("chat", sourceMessageID: "card"))
         XCTAssertEqual(restored.drafts["chat"], "keep this unrelated text")
         XCTAssertEqual(restored.timelines["chat"]?.map(\.id), ["sent"])
-        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        XCTAssertTrue(try handoffAttempts().isEmpty)
         restored.resetProjection()
     }
 
@@ -123,22 +124,25 @@ final class SendRecoveryTests: XCTestCase {
         store.drafts["chat"] = "private"
         let send = Task { await store.send("chat") }
         await transport.waitForPost()
-        XCTAssertEqual(try disk.load(origin: origin, userID: user.id).count, 1)
+        XCTAssertEqual(try handoffAttempts().count, 1)
         _ = await store.client.session.signOut()
+        // This unit owns no AppModel observer. Apply its actual controller cleanup primitive
+        // explicitly; Session only publishes lifecycle and never deletes the legacy source.
+        try purgeHandoffs()
         store.resetProjection()
         await transport.releasePost()
         await send.value
         XCTAssertTrue(store.timelines.isEmpty)
         XCTAssertTrue(store.pending.isEmpty)
-        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        XCTAssertTrue(try handoffAttempts().isEmpty)
 
         let (revoked, _, _) = try await makeStore()
         revoked.drafts["chat"] = "remove with permission"
         await revoked.send("chat")
-        XCTAssertEqual(try disk.load(origin: origin, userID: user.id).count, 1)
+        XCTAssertEqual(try handoffAttempts().count, 1)
         await revoked.inspectConversation("chat")
         XCTAssertNil(revoked.pending["chat"])
-        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        XCTAssertTrue(try handoffAttempts().isEmpty)
         revoked.resetProjection()
     }
 
@@ -146,13 +150,14 @@ final class SendRecoveryTests: XCTestCase {
         let (store, transport, _) = try await makeStore()
         store.drafts["chat"] = "owner only"
         await store.send("chat")
-        XCTAssertEqual(try disk.load(origin: origin, userID: user.id).count, 1)
-        XCTAssertTrue(try disk.load(origin: URL(string: "https://other.example.test")!, userID: user.id).isEmpty)
-        XCTAssertTrue(try disk.load(origin: origin, userID: "other").isEmpty)
+        XCTAssertEqual(try handoffAttempts().count, 1)
+        XCTAssertTrue(try handoffAttempts(origin: URL(string: "https://other.example.test")!).isEmpty)
+        XCTAssertTrue(try handoffAttempts(userID: "other").isEmpty)
         var disabled = user; disabled.membership_status = "suspended"
         await transport.setCurrentUser(try JSONEncoder().encode(disabled))
         _ = try await store.client.session.updateUser()
-        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        try purgeHandoffs()
+        XCTAssertTrue(try handoffAttempts().isEmpty)
         store.resetProjection()
     }
 
@@ -168,12 +173,13 @@ final class SendRecoveryTests: XCTestCase {
             await send.value
             XCTAssertEqual(store.drafts["chat"], "new draft")
             XCTAssertEqual(store.pending["chat"] != nil, status == 0)
-            XCTAssertEqual(try disk.load(origin: origin, userID: user.id).count, status == 0 ? 1 : 0)
+            XCTAssertEqual(try handoffAttempts().count, status == 0 ? 1 : 0)
             store.resetProjection()
             let reopened = ChatStore(client: store.client, user: user)
+            await reopened.restoreAttempts()
             XCTAssertEqual(reopened.pending["chat"] != nil, status == 0)
             reopened.resetProjection()
-            try disk.remove(origin: origin, userID: user.id)
+            try purgeHandoffs()
         }
     }
 
@@ -185,10 +191,13 @@ final class SendRecoveryTests: XCTestCase {
         _ = try await store.client.session.login(username: "user", password: "test")
         await store.send("chat", retry: true)
         let sent = await transport.sent()
-        XCTAssertEqual(sent.count, 1)
-        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        XCTAssertEqual(sent.count, 1, "the old Session revision must not authorize another POST")
+        XCTAssertEqual(try handoffAttempts().count, 1, "same-account reauthentication alone is not an explicit discard")
         let next = ChatStore(client: store.client, user: user)
-        XCTAssertTrue(next.pending.isEmpty)
+        await next.restoreAttempts()
+        XCTAssertEqual(next.pending["chat"]?.key, store.pending["chat"]?.key)
+        let afterRestore = await transport.sent()
+        XCTAssertEqual(afterRestore.count, 1, "the new owner may restore, but never automatically resend")
         store.resetProjection(); next.resetProjection()
     }
 
@@ -218,6 +227,20 @@ final class SendRecoveryTests: XCTestCase {
             XCTAssertEqual(sent[1].httpBody, first)
             store.resetProjection()
         }
+    }
+
+    private func persistence(origin: URL? = nil, userID: String? = nil) -> ChatAttemptPersistence {
+        let partition = ChatPartition(origin: origin ?? self.origin, userID: userID ?? user.id)
+        let location = ChatStorageLocation.directory(directory.appendingPathComponent("Chat", isDirectory: true)
+            .appendingPathComponent(partition.digest, isDirectory: true))
+        return ChatAttemptPersistence.shared(partition: partition, location: location)
+    }
+    private func handoffAttempts(origin: URL? = nil, userID: String? = nil) throws -> [SendAttempt] {
+        try persistence(origin: origin, userID: userID).loadHandoffs().map(\.attempt)
+    }
+    private func purgeHandoffs() throws {
+        let persistence = persistence()
+        try ChatRepository.purgeFiles(partition: persistence.partition, location: persistence.location)
     }
 
     private func makeStore(firstPostStatus: Int = 0, gated: Bool = false) async throws -> (ChatStore, RecoveryTransport, RecoveryCredentials) {

@@ -15,7 +15,8 @@ extension ChatRepository {
         "\(conversationID)\n\(sourceMessageID ?? "")\n\(attemptKey)"
     }
 
-    static func importSendAttempts(db: Database, partition: ChatPartition, legacyAttemptRoot: URL, now: Date) throws {
+    static func importSendAttempts(db: Database, partition: ChatPartition, legacyAttemptRoot: URL, now: Date,
+                                   policy: ChatAttemptPersistence.Policy) throws {
         let marker = try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: [sendAttemptMigrationKey])
         guard marker == nil else { return }
         let store = SendAttemptStore(directory: legacyAttemptRoot)
@@ -33,6 +34,10 @@ extension ChatRepository {
             }
             let key = itemKey(conversationID: attempt.conversationID,
                               sourceMessageID: attempt.sourceMessageID, attemptKey: attempt.draft.key)
+            guard policy.purgeGeneration == nil, policy.conversationCleanups[attempt.conversationID] == nil else {
+                try record(db: db, key: key, outcome: "excluded", detail: "durable cleanup policy", now: now)
+                continue
+            }
             guard let body = attempt.draft.requestBody else {
                 // The current writer refuses to persist an attempt without its frozen request,
                 // so this is a defensive branch rather than an expected upgrade state.

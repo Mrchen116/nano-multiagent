@@ -24,6 +24,7 @@ actor Session {
     private var refreshFlight: (id: UUID, task: Task<TokenPair, Error>)?
     private var requests: [UUID: Task<(Data, HTTPURLResponse), Error>] = [:]
     private var observers: [UUID: AsyncStream<AuthUser?>.Continuation] = [:]
+    private var chatLocations: [String: ChatStorageLocation] = [:]
 
     init(baseURL: URL, transport: any HTTPTransport = LiveTransport(), credentials: (any CredentialStore)? = nil, sendAttempts: SendAttemptStore = SendAttemptStore()) {
         self.baseURL = baseURL
@@ -61,26 +62,72 @@ actor Session {
     func assertOwner(_ userID: String, revision: Int) throws {
         guard revision == generation, stored?.user.id == userID, stored?.user.accountEnabled == true else { throw CancellationError() }
     }
-    func saveSendAttempt(_ attempt: SendAttempt, userID: String, revision: Int) throws {
+    /// The controller registers the exact test/production location before starting its opener.
+    func useChatStorage(_ partition: ChatPartition, location: ChatStorageLocation) {
+        guard partition.origin == baseURL else { return }
+        chatLocations[partition.userID] = location
+    }
+
+    private func attemptStorage(_ userID: String) -> ChatAttemptPersistence {
+        let partition = ChatPartition(origin: baseURL, userID: userID)
+        let location: ChatStorageLocation
+        if let configured = chatLocations[userID] { location = configured }
+        else if sendAttempts.directory.standardizedFileURL == ChatStorageLocation.legacyAttemptRoot.standardizedFileURL {
+            location = .standard(partition: partition)
+        } else {
+            // Injected legacy fixtures must never spill new handoffs into a real installation.
+            location = .directory(sendAttempts.directory
+                .appendingPathComponent("Chat", isDirectory: true).appendingPathComponent(partition.digest, isDirectory: true))
+        }
+        return ChatAttemptPersistence.shared(partition: partition, location: location)
+    }
+
+    func reserveSendAttempt(_ conversationID: String, userID: String, revision: Int) throws -> ChatAttemptPersistence.Stamp {
         try assertOwner(userID, revision: revision)
-        try sendAttempts.save(attempt, origin: baseURL, userID: userID)
+        return try attemptStorage(userID).stamp(for: conversationID)
+    }
+    func saveSendAttempt(_ attempt: SendAttempt, stamp: ChatAttemptPersistence.Stamp, userID: String, revision: Int) throws {
+        try assertOwner(userID, revision: revision)
+        try attemptStorage(userID).save(attempt, stamp: stamp)
+    }
+    func loadSendAttempts(userID: String, revision: Int) throws -> [SendAttempt] {
+        try assertOwner(userID, revision: revision)
+        let persistence = attemptStorage(userID)
+        return try persistence.coordinated {
+            let policy = try persistence.policy()
+            var attempts: [SendAttempt] = []
+            if policy.purgeGeneration == nil {
+                attempts = try sendAttempts.load(origin: baseURL, userID: userID).filter {
+                    policy.conversationCleanups[$0.conversationID] == nil
+                }
+            }
+            let existing = Set(attempts.map { ChatRepository.itemKey(conversationID: $0.conversationID,
+                                                                     sourceMessageID: $0.sourceMessageID, attemptKey: $0.draft.key) })
+            attempts += try persistence.loadHandoffs().map(\.attempt).filter {
+                !existing.contains(ChatRepository.itemKey(conversationID: $0.conversationID,
+                                                          sourceMessageID: $0.sourceMessageID, attemptKey: $0.draft.key))
+            }
+            return attempts
+        }
     }
     func removeSendAttempt(_ attempt: SendAttempt, userID: String, revision: Int) throws {
         try assertOwner(userID, revision: revision)
-        try sendAttempts.remove(attempt, origin: baseURL, userID: userID)
+        try attemptStorage(userID).removeHandoff(attempt)
     }
-    func removeConversationAttempts(_ conversationID: String, userID: String, revision: Int) throws {
+    func removeConversationAttempts(_ conversationID: String, kind: ChatAttemptPersistence.CleanupKind = .discardPending,
+                                    userID: String, revision: Int) throws {
         try assertOwner(userID, revision: revision)
-        try sendAttempts.remove(origin: baseURL, userID: userID, conversationID: conversationID)
-    }
-    private func clearSendAttempts() {
-        if let user = stored?.user ?? (try? credentials.load())?.user {
-            try? sendAttempts.remove(origin: baseURL, userID: user.id)
+        let persistence = attemptStorage(userID)
+        try persistence.coordinated {
+            let hasHandoff = try persistence.loadHandoffs().contains { $0.attempt.conversationID == conversationID }
+            _ = try persistence.recordCleanup(conversationID, kind: kind,
+                                               forceNewGeneration: kind == .revokeAccess || hasHandoff)
+            try persistence.removeHandoffs(conversationID: conversationID)
         }
     }
 
     func login(username: String, password: String, displayName: String? = nil, locale: String = "zh") async throws -> AuthUser {
-        clearSendAttempts()
+        // Legacy JSON is a read-only migration source; the controller owns durable cleanup.
         invalidateRequests()
         let expected = generation
         stored = nil; access = nil; termination = nil
@@ -100,7 +147,7 @@ actor Session {
     func signOut() async -> Bool {
         let old = stored?.refresh_token
         let flight = refreshFlight?.task
-        invalidateRequests(); clearSendAttempts()
+        invalidateRequests()
         stored = nil; access = nil; refreshFlight = nil
         let removed = (try? credentials.remove()) != nil
         termination = .signedOut
@@ -120,7 +167,7 @@ actor Session {
         let user = try JSONDecoder().decode(AuthUser.self, from: data)
         guard expected == generation, let previous = stored, user.id == previous.user.id else { throw CancellationError() }
         let next = StoredSession(refresh_token: previous.refresh_token, user: user)
-        if !user.accountEnabled { clearSendAttempts(); invalidateRequests(); termination = .deactivated }
+        if !user.accountEnabled { invalidateRequests(); termination = .deactivated }
         else { termination = nil }
         try credentials.save(next); stored = next; publish(user)
         return user
@@ -167,7 +214,7 @@ actor Session {
         } catch {
             if generation != expected { throw CancellationError() }
             if (error as? APIError)?.status == 401 {
-                invalidateRequests(); clearSendAttempts(); self.stored = nil; access = nil
+                invalidateRequests(); self.stored = nil; access = nil
                 try? credentials.remove()
                 // Termination is written before the publish: the observer clears the partition
                 // on this signal, and a `nil` without a reason could only be guessed at.
@@ -180,7 +227,6 @@ actor Session {
 
     private func install(_ pair: TokenPair, expected: Int) throws {
         guard generation == expected else { throw CancellationError() }
-        if stored?.user.id != pair.user.id || !pair.user.accountEnabled { clearSendAttempts() }
         // An unavailable account keeps its `user` (no extra nil publish): the observer reads
         // the reason from here and shows the access screen instead of a login form.
         termination = pair.user.accountEnabled ? nil : .deactivated

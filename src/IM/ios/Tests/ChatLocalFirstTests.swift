@@ -1,5 +1,6 @@
 import XCTest
 import Observation
+import GRDB
 @testable import NanoIM
 
 /// The store on top of a real partition: local first paint, "network failure is not a sign-out",
@@ -236,21 +237,100 @@ final class ChatLocalFirstTests: XCTestCase {
         await run.value
     }
 
+    func testSnapshotCleanupFailureBlocksOldContentAndRetriesEveryConfirmedRevocation() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a", "b"], messages: 1)
+        let repository = try XCTUnwrap(store.repository)
+        let fixture = try DatabaseQueue(path: repository.location.databaseURL.path)
+        try fixture.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_cleanup BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT, 'isolated snapshot cleanup failure'); END")
+        }
+        await stub.setSync(Data(#"{"items":[],"max_event_id":9}"#.utf8))
+        let degraded = expectation(description: "the real full-sync entry blocks failed cleanup")
+        withObservationTracking { _ = store.storageDegradedReason } onChange: { degraded.fulfill() }
+        let run = Task { await store.run() }
+        await fulfillment(of: [degraded], timeout: 3)
+        run.cancel()
+        await run.value
+        XCTAssertTrue(store.conversations.isEmpty, "known revoked content is hidden even though local cleanup failed")
+        XCTAssertNil(store.repository)
+        XCTAssertNotNil(store.storageDegradedReason)
+        try fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_cleanup") }
+        try fixture.close()
+        await store.retryStorage()
+        let retried = try XCTUnwrap(store.repository)
+        let rows = try await retried.conversations()
+        let revoked = try await retried.revokedConversations()
+        XCTAssertTrue(rows.isEmpty)
+        XCTAssertTrue(store.conversations.isEmpty)
+        XCTAssertEqual(Set(revoked), ["a", "b"], "the first failure cannot lose later intents from the same authority result")
+    }
+
+    func testOlderPendingReloadCannotClearANewWriterThatFinishedAfterItsSnapshot() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        let gate = PendingReadGate()
+        let reload = Task {
+            await store.reloadPending { repository in
+                let snapshot = try await repository.pendingAttempts()
+                await gate.enter()
+                return snapshot
+            }
+        }
+        await gate.waitUntilEntered()
+        let repository = try XCTUnwrap(store.repository)
+        let request = SendAttempt(conversationID: "a", sourceMessageID: nil,
+                                  draft: PendingSend(key: "new", content: "new writer", attachments: [], requestBody: Data("{}".utf8)))
+        let context = try await repository.writeContext()
+        try await repository.upsertPending(request, write: context)
+        store.pending["a"] = request.draft
+        await gate.release()
+        await reload.value
+        XCTAssertEqual(store.pending["a"]?.key, "new", "an empty earlier snapshot cannot erase the later writer")
+        let posts = await stub.postPaths()
+        XCTAssertTrue(posts.isEmpty)
+    }
+
+    func testOlderPendingReloadCannotRestoreAnAttemptThatWasJustResolved() async throws {
+        let (store, _) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        try await seedPending(store)
+        await store.reloadPending()
+        let gate = PendingReadGate()
+        let reload = Task {
+            await store.reloadPending { repository in
+                let snapshot = try await repository.pendingAttempts()
+                await gate.enter()
+                return snapshot
+            }
+        }
+        await gate.waitUntilEntered()
+        let repository = try XCTUnwrap(store.repository)
+        let attempt = SendAttempt(conversationID: "a", sourceMessageID: nil, draft: try XCTUnwrap(store.pending["a"]))
+        let context = try await repository.writeContext()
+        try await repository.removePending(attempt, write: context)
+        store.pending["a"] = nil
+        await gate.release()
+        await reload.value
+        XCTAssertNil(store.pending["a"], "a late projection read cannot undo resolution")
+    }
+
     // MARK: - Helpers
 
     private func makeStore() async throws -> (ChatStore, StubTransport) {
         let base = try XCTUnwrap(root)
         let partition = ChatPartition(origin: origin, userID: user.id)
-        let controller = ChatStorageController(client: IMClient(baseURL: origin)) { _ in
-            ChatStorageLocation.directory(base.appendingPathComponent("partition", isDirectory: true))
-        }
-        await controller.activate(partition)
         let pair = TokenPair(access_token: "access", refresh_token: "refresh", user: user)
         let transport = StubTransport(pair: try JSONEncoder().encode(pair))
         let session = Session(baseURL: origin, transport: transport, credentials: TestCredentials(),
                               sendAttempts: SendAttemptStore(directory: base.appendingPathComponent("legacy")))
         _ = try await session.login(username: "user", password: "test")
-        let store = ChatStore(client: IMClient(baseURL: origin, session: session), user: user, controller: controller)
+        let client = IMClient(baseURL: origin, session: session)
+        let controller = ChatStorageController(client: client, opener: { partition, location in
+            try ChatRepository.open(partition, location: location, legacyAttemptRoot: base.appendingPathComponent("legacy"))
+        }) { _ in ChatStorageLocation.directory(base.appendingPathComponent("partition", isDirectory: true)) }
+        await controller.activate(partition)
+        let store = ChatStore(client: client, user: user, controller: controller)
         return (store, transport)
     }
 
@@ -296,6 +376,25 @@ final class ChatLocalFirstTests: XCTestCase {
              "sender_user_id":"user","sender_type":"user","content":"message \(n)","attachments":[],
              "delivery_status":"completed","created_at":"2026-11-01T00:00:0\(n)Z"}
             """.utf8))
+    }
+}
+
+private actor PendingReadGate {
+    private var entered = false
+    private var released = false
+    private var reader: CheckedContinuation<Void, Never>?
+    private var observer: CheckedContinuation<Void, Never>?
+    func enter() async {
+        entered = true
+        observer?.resume(); observer = nil
+        if !released { await withCheckedContinuation { reader = $0 } }
+    }
+    func waitUntilEntered() async {
+        if !entered { await withCheckedContinuation { observer = $0 } }
+    }
+    func release() {
+        released = true
+        reader?.resume(); reader = nil
     }
 }
 

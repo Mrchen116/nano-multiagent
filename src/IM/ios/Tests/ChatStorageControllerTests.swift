@@ -111,7 +111,7 @@ final class ChatStorageControllerTests: XCTestCase {
         let gate = OpenGate()
         let controller = ChatStorageController(client: makeClient(), opener: { partition, location in
             await gate.enter()
-            return try ChatRepository.open(partition, location: location)
+            return try ChatRepository.open(partition, location: location, legacyAttemptRoot: base.appendingPathComponent("legacy"))
         }) { partition in ChatStorageLocation.directory(base.appendingPathComponent(partition.userID)) }
         let first = Task { await controller.activate(makePartition("user")) }
         await gate.waitUntilEntered()
@@ -131,7 +131,7 @@ final class ChatStorageControllerTests: XCTestCase {
         let gate = OpenGate()
         let controller = ChatStorageController(client: makeClient(), opener: { partition, location in
             await gate.enter()
-            return try ChatRepository.open(partition, location: location)
+            return try ChatRepository.open(partition, location: location, legacyAttemptRoot: base.appendingPathComponent("legacy"))
         }) { partition in ChatStorageLocation.directory(base.appendingPathComponent(partition.userID)) }
         let first = Task { await controller.activate(makePartition("user")) }
         await gate.waitUntilEntered()
@@ -145,6 +145,54 @@ final class ChatStorageControllerTests: XCTestCase {
                        "an opener that completed after logout must not leave readable data behind")
     }
 
+    func testRetryPersistsAKnownFailedRevocationBeforePublishingAnyCachedSeed() async throws {
+        let controller = try makeController()
+        await controller.activate(makePartition("user"))
+        let repository = try XCTUnwrap(controller.repository)
+        let context = try await repository.writeContext()
+        _ = try await repository.applyConversation(conversation("a"), members: [], write: context)
+        _ = try await repository.applyPage("a", items: [TimelineItem(type: "message", message: try message(1))], write: context)
+        let store = makeStore(controller)
+        await store.loadSeed()
+        XCTAssertEqual(store.conversations.map(\.id), ["a"])
+        // The caller reports an actual cleanup-write failure through this interface. The old
+        // readable policy is deliberately unchanged, exactly as after an atomic write failed.
+        XCTAssertTrue(try repository.attemptPersistence.policy().conversationCleanups.isEmpty)
+        controller.reportCleanupFailure("fixture: policy write failed", conversationID: "a", kind: .revokeAccess)
+        XCTAssertTrue(store.conversations.isEmpty)
+        XCTAssertNil(controller.repository)
+        await controller.retryOpen()
+        let retried = try XCTUnwrap(controller.repository)
+        let conversations = try await retried.conversations()
+        let tombstones = try await retried.revokedConversations()
+        XCTAssertTrue(conversations.isEmpty)
+        XCTAssertTrue(store.conversations.isEmpty, "retry cannot bootstrap the cache whose cleanup previously failed")
+        XCTAssertEqual(tombstones, ["a"])
+    }
+
+    func testRetryOfFailedPendingDiscardKeepsReadableHistory() async throws {
+        let controller = try makeController()
+        await controller.activate(makePartition("user"))
+        let repository = try XCTUnwrap(controller.repository)
+        let context = try await repository.writeContext()
+        _ = try await repository.applyConversation(conversation("a"), members: [], write: context)
+        _ = try await repository.applyPage("a", items: [TimelineItem(type: "message", message: try message(1))], write: context)
+        let pending = SendAttempt(conversationID: "a", sourceMessageID: nil,
+                                  draft: PendingSend(key: "old", content: "uncertain", attachments: [], requestBody: Data("{}".utf8)))
+        try await repository.upsertPending(pending, write: context)
+        let store = makeStore(controller)
+        controller.reportCleanupFailure("fixture: policy write failed", conversationID: "a", kind: .discardPending)
+        await controller.retryOpen()
+        let retried = try XCTUnwrap(controller.repository)
+        let page = try await retried.timeline("a")
+        let pendingCount = try await retried.pendingCount()
+        let tombstones = try await retried.revokedConversations()
+        XCTAssertEqual(store.conversations.map(\.id), ["a"])
+        XCTAssertEqual(page.items.map(\.id), ["m1"])
+        XCTAssertEqual(pendingCount, 0)
+        XCTAssertTrue(tombstones.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeClient() -> IMClient { IMClient(baseURL: origin) }
@@ -154,7 +202,9 @@ final class ChatStorageControllerTests: XCTestCase {
     }
     private func makeController() throws -> ChatStorageController {
         let base = try XCTUnwrap(root)
-        return ChatStorageController(client: makeClient()) { partition in
+        return ChatStorageController(client: makeClient(), opener: { partition, location in
+            try ChatRepository.open(partition, location: location, legacyAttemptRoot: base.appendingPathComponent("legacy"))
+        }) { partition in
             ChatStorageLocation.directory(base.appendingPathComponent(partition.userID, isDirectory: true))
         }
     }

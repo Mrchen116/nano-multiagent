@@ -371,9 +371,209 @@ final class ChatRepositoryTests: XCTestCase {
         let actual = try await reopened.conversations().isEmpty
         XCTAssertTrue(actual)
         let actual2 = try await reopened.connectionSeed().snapshotSeq
-        XCTAssertEqual(actual2, 0)
+        XCTAssertGreaterThan(actual2, 0, "the surviving purge intent is applied before a new cache can be read")
         let actual3 = try await reopened.draft("a")
         XCTAssertNil(actual3)
+    }
+
+    func testPolicyCommittedBeforeSQLRollbackIsAppliedBeforeTheNextRead() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        let fixture = try DatabaseQueue(path: repo.location.databaseURL.path)
+        try fixture.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_cleanup BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT, 'isolated cleanup failure'); END")
+        }
+        do {
+            try await repo.revoke("a", reason: .detailForbidden, write: context)
+            XCTFail("the isolated SQL trigger must abort the cleanup transaction")
+        } catch {
+            XCTAssertNotNil(try repo.attemptPersistence.policy().conversationCleanups["a"])
+        }
+        try fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_cleanup") }
+        try fixture.close()
+        let afterRetry = try await repo.conversations()
+        let tombstones = try await repo.revokedConversations()
+        XCTAssertTrue(afterRetry.isEmpty, "even the same repository must replay the committed policy before reading old rows")
+        XCTAssertEqual(tombstones, ["a"])
+    }
+
+    func testNewHandoffAfterReauthorizationSurvivesReplayedOldTombstone() async throws {
+        let repo = try open()
+        _ = try repo.attemptPersistence.recordCleanup("a", kind: .revokeAccess)
+        let newAttempt = attempt("a", "new-after-network-regrant")
+        try repo.attemptPersistence.save(newAttempt, stamp: repo.attemptPersistence.stamp(for: "a"))
+        try await repo.close()
+        let reopened = try open()
+        let keys = try await reopened.pendingAttempts().map { $0.draft.key }
+        let conversations = try await reopened.conversations()
+        XCTAssertEqual(keys, [newAttempt.draft.key], "an old replayed tombstone is not a newer denial of the current-stamp request")
+        XCTAssertTrue(conversations.isEmpty, "the orphan pending is not a fabricated conversation")
+    }
+
+    func testRepeatedReadonlyCleanupRotatesForAnUnhandedOffNewRequestEvenIfSQLFails() async throws {
+        let repo = try open()
+        var context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a", canWrite: false), members: [], write: context)
+        let oldGeneration = try XCTUnwrap(repo.attemptPersistence.policy().conversationCleanups["a"]?.generation)
+        context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a", canWrite: true), members: [], write: context)
+        let pending = attempt("a", "new-between-readonly-events")
+        try repo.attemptPersistence.save(pending, stamp: repo.attemptPersistence.stamp(for: "a"))
+        let file = try XCTUnwrap(repo.attemptPersistence.loadHandoffs().first?.fileURL)
+        let fixture = try DatabaseQueue(path: repo.location.databaseURL.path)
+        try fixture.write { db in
+            try db.execute(sql: "CREATE TRIGGER fail_receipt BEFORE INSERT ON cache_meta WHEN NEW.key='policy.conversation.a' BEGIN SELECT RAISE(ABORT, 'isolated receipt failure'); END")
+        }
+        do {
+            _ = try await repo.applyConversation(conversation("a", canWrite: false), members: [], write: context)
+            XCTFail("the isolated receipt failure must abort the SQL transaction")
+        } catch {
+            XCTAssertNotEqual(try repo.attemptPersistence.policy().conversationCleanups["a"]?.generation, oldGeneration)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "the crash fixture retains the old handoff bytes")
+        }
+        try fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_receipt") }
+        try fixture.close()
+        try await repo.close()
+        let reopened = try open()
+        let remaining = try await reopened.pendingAttempts()
+        XCTAssertTrue(remaining.isEmpty, "the pre-cleanup file must be ineligible despite the older SQL receipt/state")
+    }
+
+    func testPurgeStillRemovesFilesWhenItsConnectionIsAlreadyClosed() async throws {
+        let repo = try open()
+        let directory = repo.location.directoryURL
+        try await repo.close()
+        // Deterministic residual-file fixture: this is also the state after a previous purge
+        // closed SQLite but filesystem removal failed. Closed must not bypass that tail.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+        try await repo.purge()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        XCTAssertNotNil(try repo.attemptPersistence.policy().purgeGeneration)
+    }
+
+    func testPurgeThenReopenCannotReimportLegacyButAcceptsANewRequest() async throws {
+        let legacy = SendAttemptStore(directory: legacyRoot)
+        try legacy.save(attempt("a", "legacy"), origin: origin, userID: partition.userID)
+        let files = legacy.attemptFiles(origin: origin, userID: partition.userID)
+        let original = try files.map { try Data(contentsOf: $0) }
+        let repo = try open()
+        let beforePurge = try await repo.pendingCount()
+        XCTAssertEqual(beforePurge, 1)
+        try await repo.purge()
+        let reopened = try open()
+        let afterPurge = try await reopened.pendingCount()
+        XCTAssertEqual(afterPurge, 0)
+        XCTAssertEqual(try files.map { try Data(contentsOf: $0) }, original, "legacy bytes remain read-only")
+        let context = try await reopened.writeContext()
+        _ = try await reopened.applyConversation(conversation("a"), members: [], write: context)
+        try await reopened.upsertPending(attempt("a", "new"), write: context)
+        let newKeys = try await reopened.pendingAttempts().map { $0.draft.key }
+        XCTAssertEqual(newKeys, ["new"])
+    }
+
+    func testCommittedDiscardIntentBeforeDBCleanupPreservesReadableHistoryAndDraft() async throws {
+        let legacy = SendAttemptStore(directory: legacyRoot)
+        try legacy.save(attempt("a", "legacy"), origin: origin, userID: partition.userID)
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        _ = try await repo.applyPage("a", items: [item(try message(1))], write: context)
+        try await repo.setDraft("a", body: "still editable local text")
+        try await repo.close()
+        // Isolated crash fixture: the external intent committed, the SQL transaction never ran.
+        _ = try repo.attemptPersistence.recordCleanup("a", kind: .discardPending)
+        let reopened = try open()
+        let count = try await reopened.pendingCount()
+        let conversations = try await reopened.conversations().map(\.id)
+        let timeline = try await reopened.timeline("a").items.map(\.id)
+        let draft = try await reopened.draft("a")
+        let revoked = try await reopened.revokedConversations()
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(conversations, ["a"])
+        XCTAssertEqual(timeline, ["m1"])
+        XCTAssertEqual(draft, "still editable local text")
+        XCTAssertTrue(revoked.isEmpty)
+        XCTAssertEqual(try legacy.load(origin: origin, userID: partition.userID).count, 1)
+    }
+
+    func testCommittedAccessRevocationBeforeDBCleanupRemovesAllReadableContent() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        _ = try await repo.applyPage("a", items: [item(try message(1))], write: context)
+        try await repo.setDraft("a", body: "private")
+        try await repo.upsertPending(attempt("a", "pending"), write: context)
+        try await repo.close()
+        _ = try repo.attemptPersistence.recordCleanup("a", kind: .revokeAccess)
+        let reopened = try open()
+        let conversations = try await reopened.conversations()
+        let timeline = try await reopened.timeline("a").items
+        let draft = try await reopened.draft("a")
+        let count = try await reopened.pendingCount()
+        let revoked = try await reopened.revokedConversations()
+        XCTAssertTrue(conversations.isEmpty)
+        XCTAssertTrue(timeline.isEmpty)
+        XCTAssertNil(draft)
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(revoked, ["a"])
+    }
+
+    func testRevocationSurvivesCorruptionWithoutExcludingAnotherConversationLegacy() async throws {
+        let legacy = SendAttemptStore(directory: legacyRoot)
+        for id in ["a", "b"] { try legacy.save(attempt(id, "old-\(id)"), origin: origin, userID: partition.userID) }
+        let repo = try open()
+        let context = try await repo.writeContext()
+        try await repo.revoke("a", reason: .detailForbidden, write: context)
+        let location = repo.location
+        try await repo.close()
+        try Data("actual corrupt sqlite fixture".utf8).write(to: location.databaseURL)
+        let rebuilt = try open()
+        let restoredIDs = try await rebuilt.pendingAttempts().map(\.conversationID)
+        XCTAssertEqual(restoredIDs, ["b"])
+        XCTAssertEqual(try legacy.load(origin: origin, userID: partition.userID).count, 2)
+        let newContext = try await rebuilt.writeContext()
+        _ = try await rebuilt.applyConversation(conversation("a"), members: [], write: newContext)
+        try await rebuilt.upsertPending(attempt("a", "new-after-regrant"), write: newContext)
+        let restoredKeys = try await rebuilt.pendingAttempts().map { $0.draft.key }
+        XCTAssertEqual(Set(restoredKeys), ["old-b", "new-after-regrant"])
+    }
+
+    func testPurgeWithCommittedReceiptAndResidualHandoffDoesNotResurrectIt() async throws {
+        let repo = try open()
+        let persistence = repo.attemptPersistence
+        let old = attempt("a", "old-handoff")
+        try persistence.save(old, stamp: persistence.stamp(for: "a"))
+        let handoff = try XCTUnwrap(persistence.loadHandoffs().first)
+        let bytes = try Data(contentsOf: handoff.fileURL)
+        try await repo.purge()
+        // Restore only the obsolete file, modelling a crash/file-deletion failure after the
+        // policy and SQL receipt committed. The external policy remains the current one.
+        try repo.location.prepare()
+        try bytes.write(to: handoff.fileURL)
+        let reopened = try open()
+        let oldAttempts = try await reopened.pendingAttempts()
+        XCTAssertTrue(oldAttempts.isEmpty)
+        let fresh = attempt("a", "new-handoff")
+        try persistence.save(fresh, stamp: persistence.stamp(for: "a"))
+        let freshKeys = try await reopened.pendingAttempts().map { $0.draft.key }
+        XCTAssertEqual(freshKeys, ["new-handoff"])
+    }
+
+    func testHandoffAfterOpenIsImportedOnceAndItsCommitMarkerSurvivesResolution() async throws {
+        let repo = try open()
+        let pending = attempt("a", "late-handoff")
+        let persistence = repo.attemptPersistence
+        try persistence.save(pending, stamp: persistence.stamp(for: "a"))
+        let file = try XCTUnwrap(persistence.loadHandoffs().first?.fileURL)
+        let bytes = try Data(contentsOf: file)
+        let restoredBody = try await repo.pendingAttempts().first?.draft.requestBody
+        XCTAssertEqual(restoredBody, pending.draft.requestBody)
+        let context = try await repo.writeContext()
+        try await repo.removePending(pending, write: context)
+        try bytes.write(to: file)
+        let remaining = try await repo.pendingAttempts()
+        XCTAssertTrue(remaining.isEmpty, "a leftover handed-off file cannot recreate a resolved DB row")
     }
 
     // MARK: - Helpers

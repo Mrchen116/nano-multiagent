@@ -78,8 +78,14 @@ final class AppModel {
     private func apply(_ user: AuthUser?, from client: IMClient) async {
         guard client === self.client else { return }
         let revision = await client.session.revision()
+        let actual = await client.session.currentUser()
+        // Stream entries carry values, not authority. A queued old nil/disabled publish must
+        // not tear down a newer login that already replaced it in Session.
+        guard actual?.id == user?.id, actual?.accountEnabled == user?.accountEnabled else { return }
         guard let user else {
             let termination = await client.session.termination
+            guard client === self.client, revision == (await client.session.revision()),
+                  await client.session.currentUser() == nil else { return }
             self.user = nil
             clearChat()
             await storage.purge(reason: termination == .credentials ? .credentials : .signedOut)
@@ -91,7 +97,8 @@ final class AppModel {
             clearChat()
             await storage.purge(reason: .deactivated)
         }
-        guard client === self.client, revision == (await client.session.revision()) else { return }
+        guard client === self.client, revision == (await client.session.revision()),
+              (await client.session.currentUser())?.id == user.id else { return }
         if user.accountEnabled { installChat(user) }
         self.user = user
         UserDefaults.standard.set(user.locale.hasPrefix("zh") ? "zh" : "en", forKey: "nano.locale")
@@ -125,21 +132,24 @@ final class AppModel {
         guard !ready else { return }
         observe()
         let current = client
+        let revision = await current.session.revision()
+        defer { if current === client { ready = true } }
         do {
             let stored = try await current.session.storedUser()
             if let stored, stored.accountEnabled {
                 await storage.activate(ChatPartition(origin: current.baseURL, userID: stored.id))
-                guard current === client else { return }
+                guard current === client, revision == (await current.session.revision()),
+                      (await current.session.currentUser())?.id == stored.id else { return }
                 installChat(stored)
             } else {
                 clearChat()
                 if stored != nil { await storage.purge(reason: .deactivated) }
             }
+            guard current === client, revision == (await current.session.revision()) else { return }
             user = stored
         } catch {
             self.error = error.localizedDescription
         }
-        ready = true
     }
 
     private func correctSession() async {
@@ -196,8 +206,13 @@ final class AppModel {
         catch { self.error = error.localizedDescription }
     }
     func signOut() async {
-        let revoked = await client.session.signOut()
+        let current = client
         user = nil
+        clearChat()
+        let revocation = Task { await current.session.signOut() }
+        await storage.purge(reason: .signedOut)
+        let revoked = await revocation.value
+        guard current === client else { return }
         if !revoked { error = L("已退出本机；服务器登录撤销尚未确认。", "Signed out locally; server revocation could not be confirmed.") }
     }
 }
