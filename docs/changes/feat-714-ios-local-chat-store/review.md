@@ -172,3 +172,10 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - **W9 WARNING/CONFIRMED（cf686实图）**：撤权详情同时给不可访问与连接后自动读取/Retry，误导用户做无法恢复资格的动作，属于状态语义冲突非纯风格。95923静态fix排除revoked通用empty分支、保留专用撤权和正常未revoked分支，两条requireFixture新增负断言不弱化原目标/正文/超时；静态0C0W/no spec delta，但当时仍画面pending。
 - 后补95923实际closure：独立read_image `membership-online-95923-attachments/1A2F862B-D38C-4C68-8D33-A4189AD9D97A.png`确认正文、中央错误连接/自动加载建议与Retry消失，专用撤权说明/返回可达保留。另核raw28-69真实完整路径和两新判据，71-85为1/0/0/成功，summary/manifest同557/同test/同原图。build339成功，实际Info与fresh runner独立核win.nanoim.ios/95923c3f5/同53703；不伪称已推进的Products仍cf686。**W9体验CLOSED；指定旅程与限定体验PASS，当前范围findings=[] / 0C0W。** 原cf686体验FAIL保留。
 - cf686 offline证据对95923继续有效：唯一产品修正只影响revoked detail空态，未改storage/tombstone/list/relaunch，offline不打开detail；不要求重复不相关矩阵。未证明全程每帧无瞬闪/≤1RTT，不关闭账号/服务/真实401/离线期间撤权/旧升级/物理保护/性能/其它CI或最终unit门禁。
+
+## Round 13 — 真实pending/升级UITest静态窄审APPROVED（0C/0W），未运行
+
+- 原非作者加载change-code-review，只读核95923..69ca74061，UITest+119及两docs共3files/+134/-6；产品不变，tracked clean/原mock不动。无build/test/parse/sim/设备/GUI/网络/服务/model/jobs/文件或Git写入。
+- 停服握手在run marker前同URL /health200并限定http/127.0.0.1/显式port；run ID硬校验、FileHandle直接stdout，随后截止时间/取消检查/200ms让出，仅cannotConnectToHost或networkConnectionLost才成功，不把HTTP500/其它响应或timeout当停服。未证不可达就throw、不按Send；host只停自有PID/argv须另有实际receipt。
+- 四phase真实UI操作，无内部store/JSON/cache注入，目标/全文/超时未弱化、requireFixture显式throw与defer terminate；optional reset需显式opt-in、精确旧fixture身份匹配、正常退出+确认硬guard。no spec delta/corrected-delta aligned，findings=[]。
+- 此为静态批准，不证明typecheck/运行/迁移通过。需原旧JSON真实非空、同bundle不卸载/container保留、实际App版本、离线完整画面、联网前零新消息和显式Retry唯一等证据。测试负断言仅无指定title、CONTAINS计数不替代全屏/精确SQL与JSON审计；pending可见不证明零messages POST；纯文字仅覆盖附件空集合。实际运行因随后权限拒绝而未开始，见M1记录，未降低原M1⑤前置。

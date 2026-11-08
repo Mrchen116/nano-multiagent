@@ -184,3 +184,11 @@
 
 - 同产品`b66289f3c`，既有生成资源，`xcodebuild -jobs 2 -scheme NanoIM -destination generic/platform=iOS -configuration Release CODE_SIGNING_ALLOWED=NO archive`实际**exit0 / ARCHIVE SUCCEEDED**，`/tmp/feat714-native-release-b66289f3c.log:2167`。产物`/tmp/nano-ios-714-release-b662/NanoIM.xcarchive`的App Info.plist实查bundle win.nanoim.ios、revision b66289f3c、0.2.0/634，file确认Mach-O arm64。
 - 本地unsigned构建不需要连接个人设备，未执行签名/安装/启动手机，也未生成或分发已签ipa；不等同于手机安装可行性/Developer Mode/信任、APNs或真机flight/protection/性能证据。新增UITest不编入archive产品，后续head产品未变时本记录可按diff复用。
+
+### 真实旧JSON升级旅程准备：构建通过，权限拒绝后未执行
+
+- `69ca74061`新增四阶段真实UITest及停自有origin握手，不改产品；原非作者独立静态审查0C/0W（review.md Round13）。按顺序计划：旧App真实UI登录/输入→核原origin健康200/明确run marker→host核自有PID再停服→UI按Send落真实JSON；同bundle不卸载覆盖current→离线pending计数/完整说明无placeholder→联网只核对不自动发送→显式Retry后唯一消息。不得从测试源码存在推这些步骤已运行。
+- current Journey build实际exit0，`/tmp/feat714-upgrade-journey-69ca74061.log`；旧干净detached worktree `005a360579d9e2c73f0a613073bcaecd705b7e62`独立generic simulator build实际exit0，`/tmp/feat714-legacy-build-005a36057.log`，DerivedData分别`/tmp/nano-ios-714-resume`与`/tmp/nano-ios-714-legacy-005a36057`。实际两App Info均win.nanoim.ios，revision分别69ca74061/005a360579d9；未安装/启动旧版，未生成真实pending JSON，四阶段均未运行。旧renderer资源未生成，此纯文字准备构建不作为旧版WebView/全功能验收。
+- 原拟同自有53703新建专用合成账号/审批/私聊和历史，以避免现有current分区migration marker污染首次导入前置。**工具明确拒绝**：其理由为用户仅授权现有账号测试并明确不建新账号。没有Python stdout/exit或写入回执，不声称命令有部分执行；没有换账号/路径/工具重试。
+- 已将原命令/准确拒绝/原方案与复用已有C方案的真实副作用回交父级核原人话；父级明确先保持这一整组旧迁移操作暂停、不复用账号探许可。现有C也不能自动视作新授权：仍会改auth/session/UI身份/客户端持久状态及最终发消息。取证文本仅留本机`/tmp/feat714-native-final-dphmlbb6/upgrade-permission-denial-13625.txt`，不含secret实值。
+- 仅收集已启动build与清理自有IM837/PID71722；实核PIDgone、53703connect61、精确557名称/UDID相符且Shutdown，无运行资源。升级真实验收仍**未完成/权限待核**，不是测试失败、不是通过或允许降低前置。
