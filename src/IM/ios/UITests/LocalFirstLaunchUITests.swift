@@ -144,7 +144,16 @@ final class LocalFirstLaunchUITests: XCTestCase {
         try openFixtureConversation()
         capture("credentials-before-server-revocation")
         try await waitForOwnedAccountCredentialsToBeRevoked()
+        try requireFixture(app.state == .runningForeground, "The original process must survive the revocation handshake")
         XCUIDevice.shared.press(.home)
+        let background = XCTNSPredicateExpectation(predicate: NSPredicate(format: "state == %@ OR state == %@",
+            NSNumber(value: XCUIApplication.State.runningBackground.rawValue),
+            NSNumber(value: XCUIApplication.State.runningBackgroundSuspended.rawValue)), object: app)
+        let backgroundResult = await XCTWaiter.fulfillment(of: [background], timeout: 5)
+        try requireFixture(backgroundResult == .completed, "The existing process must reach the background before reactivation")
+        // activate() otherwise auto-launches a terminated App, which would silently replace
+        // this active-401 journey with the separate cold-reopen case.
+        try requireFixture(app.state == .runningBackground || app.state == .runningBackgroundSuspended, "Do not relaunch a process that stopped while backgrounded")
         app.activate()
         try assertRejectedCredentials()
     }

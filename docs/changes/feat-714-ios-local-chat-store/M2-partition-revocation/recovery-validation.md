@@ -45,7 +45,9 @@
 - 在升级整组保持暂停的前提下，继续原授权的其它独立部分；不建新账号/会话/消息，不用已有C绕行升级。拟复用53703已存在A/B和同一Launch coordination群/完整唯一消息，用正常成员API恢复A后先真实读取并terminate；只停自有origin后离线新进程确认该群全文仍可读并terminate；恢复origin且A App仍不运行时由B正常移出A，随后A首次联网冷启收敛，最后再次停服/冷启确认已知撤权不回归。
 - 新增现有UITest文件内的真实读取、冷启收敛、已显示正文后401及后续重开登录四个方法，复用既有完整正文/实际UI/显式throw/defer terminate；未改产品。收敛test只停留列表，不tap已撤权详情或pull-to-refresh，避免把detail403或普通/conversations缺项冒充首个/sync权威差分；正向保留其它会话后15秒异步等目标消失，再核无登录/无降级/无目标全文。**源码存在及断言等待不是已验证≤30秒活跃重连，也不是从首次/sync起的精确计时证据。**
 - 401仍须按design既有自有合成DB的auth_epoch或会话吊销构造，再由客户端真实refresh401进入.credentials路径；host另行login/logout只撤其自己的sid、UI Sign out会提前本地清理，两者均不能替代本项。新增active方法先核真实全文，再用run-bound stdout marker与独立A control token `/auth/me`从200变401协调epoch已生效，随后Home→activate触发真实前后台重新核权，等待登录表单/旧内容消失；control请求不冒充App请求。后续重开方法复用同登录断言。仍需真实服务端App refresh401及重开/文件边界证据，不能仅凭登录页认定purge完成。
-- 本批准备尚未build/运行、未恢复成员/撤权/改认证DB，原非作者静态审查与真实产物另记；原升级拒绝和手机/公网未获答边界保持。
+- `92fb1218b` Journey build-for-testing实际exit0（`/tmp/feat714-crossci-92fb1218b/journey-build.log`）；真实UI仍未运行、未恢复成员/撤权/改认证DB。原非作者仅静态审查发现W10：active401直接activate可在原进程已死时自动冷launch，伪装同进程清理；owner核安装SDK公开XCUIApplication.h:65-72确认。最小修正增加协调后仍前台、有界等待后台/挂起、activate前仍运行的显式guard；实际验收还须核PID连续，不凭activate后foreground状态证明没重启。此最后guard的build/独立closure另记。
+- **新的实际权限拒绝**：尝试write临时observer脚本时被拒，准确理由为“该脚本会用已有验收数据库在原端口启动 IM 服务，并记录认证与同步请求状态；这涉及共享服务及账号会话行为，而现有授权要求的是隔离测试且禁止在未确认前启动服务，不能据此授权复用该数据库和原服务端口。” 脚本仅拟import未改产品createServer、同自有DB/53703、onResponse留时间/路径/状态、无token/body/新路由；write未成功，随后glob确认文件不存在，没有服务启动/API或DB副作用。本机完整参数/内容/拒绝回执保存在`/tmp/feat714-native-final-dphmlbb6/matrix-permission-denial-14960.txt`。
+- 两次实际拒绝相关本地组均保持停止，不去掉observer或换工具/端口/DB重试；父级已向真人合并询问具体本地fixture许可，**尚无人类答复，不是放行**。跨包CI和静态修正独立继续；升级、手机/公网原边界保持，不将新UI准备或静态审查当运行许可或通过。
 
 ## 未完成
 

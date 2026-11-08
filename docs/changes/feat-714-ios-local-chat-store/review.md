@@ -179,3 +179,11 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 停服握手在run marker前同URL /health200并限定http/127.0.0.1/显式port；run ID硬校验、FileHandle直接stdout，随后截止时间/取消检查/200ms让出，仅cannotConnectToHost或networkConnectionLost才成功，不把HTTP500/其它响应或timeout当停服。未证不可达就throw、不按Send；host只停自有PID/argv须另有实际receipt。
 - 四phase真实UI操作，无内部store/JSON/cache注入，目标/全文/超时未弱化、requireFixture显式throw与defer terminate；optional reset需显式opt-in、精确旧fixture身份匹配、正常退出+确认硬guard。no spec delta/corrected-delta aligned，findings=[]。
 - 此为静态批准，不证明typecheck/运行/迁移通过。需原旧JSON真实非空、同bundle不卸载/container保留、实际App版本、离线完整画面、联网前零新消息和显式Retry唯一等证据。测试负断言仅无指定title、CONTAINS计数不替代全屏/精确SQL与JSON审计；pending可见不证明零messages POST；纯文字仅覆盖附件空集合。实际运行因随后权限拒绝而未开始，见M1记录，未降低原M1⑤前置。
+
+## Round 14 — 独立剩余矩阵fixture静态审REQUEST CHANGES（0C/1W）
+
+- 同原非作者加载change-code-review，只读审`4dc09fcb6..92fb1218bfcf629b738b5de7ec6cef2232af200f`，3files/+94；产品未改，未重开任何原closed。无build/test/parse/服务/设备/GUI/网络/model/jobs/文件或Git写入。
+- **W10 WARNING/CONFIRMED（静态）**：active401方法Home后直接activate，没有拒绝原App已结束。安装SDK公开XCUIApplication.h:65-72规定activate在not-running时会自动launch，故可能用冷启bootstrap拒绝替代已显示正文后的同进程清理。需激活前明确仍运行的有界失败边界，并由实际产物核PID连续；仅激活后foreground状态不足。
+- 其余新增控制流静态通过：read-existing保留完整目标/nav/body；cold-convergence保留retained正向→15秒异步absent→retained/无登录/无降级/无正文，且不tap目标/不pullrefresh；依赖前阶段真offline全文、host在App停态DELETE及App首个/sync产物，源码absent本身不证明缓存前置或活跃重连30s。credential control helper先独立token `/auth/me`200→run-bound marker→只接受401，有界/错误或取消传播，不冒充App refresh401；共享登录断言不调用reset/signOut。no spec delta/corrected-delta aligned。
+- 原非作者独立核完整native summary175=174pass+1physicalskip/0fail、raw720-798的XCTest148含1skip/0fail/0unexpected+Swift27pass/TEST SUCCEEDED及Release原log2182成功，均只归产品4dc，不代替新UI运行。
+- 运行状态明确**尚未开始／当前权限阻塞**：临时observer write被拒，无服务/API/DB动作；准备与静态审不构成复用DB/port或启动/观察服务的许可。owner W10最小guard修正待集中closure，不因此运行被暂停矩阵。
