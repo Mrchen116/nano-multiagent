@@ -136,7 +136,8 @@ export class PersonalAgents {
   }
   private addressedAgents(message:Row):string[] {
     const reply=message.interaction_reply_json?JSON.parse(message.interaction_reply_json):message.interaction_reply;
-    return [...new Set([...this.ctx.messaging.mentionedAgents(message.conversation_id,message.content),...(reply?.agent_id?[reply.agent_id]:[])])];
+    const quoted=message.reply_to_json?JSON.parse(message.reply_to_json):message.reply_to;
+    return [...new Set([...this.ctx.messaging.mentionedAgents(message.conversation_id,message.content),...(reply?.agent_id?[reply.agent_id]:[]),...(quoted?.sender.type==='agent'?[quoted.sender.id]:[])])];
   }
   private representedBy(id:string):string|undefined {return one(this.db,'SELECT agent_id FROM pa_delegated_messages WHERE message_id=? AND representation_operation_id IS NOT NULL',id)?.agent_id;}
   private directOwnerMessage(b:Row,message:Row):boolean {
@@ -159,6 +160,7 @@ export class PersonalAgents {
         ...(message.sender_source_id?{source_id:message.sender_source_id}:{})},
       ...(original.pa_agent_id?{pa_agent_id:original.pa_agent_id}:{}),
       content:message.content,created_at:message.created_at,attachments:original.attachments,
+      ...(original.reply_to?{reply_to:original.reply_to}:{}),
       ...(original.interaction_reply?{interaction_reply:original.interaction_reply}:{}),
       ...(original.interactive?{interactive:original.interactive}:{})};
   }

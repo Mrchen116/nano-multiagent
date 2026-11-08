@@ -26,6 +26,8 @@ export function openDatabase(path: string): DatabaseSync {
     db.exec('ALTER TABLE messages ADD COLUMN caller_payload_json TEXT');
   if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'lifecycle_revision'))
     db.exec('ALTER TABLE messages ADD COLUMN lifecycle_revision INTEGER');
+  if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'reply_to_json'))
+    db.exec('ALTER TABLE messages ADD COLUMN reply_to_json TEXT');
   // CREATE TABLE does not upgrade deployed databases. Keep the old company rows
   // intact; new private inserts must choose their scope explicitly.
   db.exec("BEGIN IMMEDIATE");

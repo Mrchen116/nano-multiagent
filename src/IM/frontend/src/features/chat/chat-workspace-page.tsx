@@ -855,13 +855,14 @@ export function ChatWorkspacePage() {
   }
 
   const sendMutation = useMutation({
-    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
+    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; replyToMessageId?:string; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
       createMessage({
         conversationId: payload.conversationId,
         content: payload.text,
         attachments: payload.attachments,
         interactionReply: payload.interactionReply,
         idempotencyKey: payload.idempotencyKey,
+        replyToMessageId: payload.replyToMessageId,
         interactionContexts: payload.interactionContexts
       }),
     onSuccess: acceptCreatedMessage,
@@ -1215,10 +1216,10 @@ export function ChatWorkspacePage() {
             nodeUpdate={headerAgentContext.nodeUpdate}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments, interactionReply, idempotencyKey, interactionContexts) => sendMutation.mutateAsync({
+            onSend={(text, attachments, interactionReply, idempotencyKey, interactionContexts, replyToMessageId) => sendMutation.mutateAsync({
               conversationId: activeConversation.id,
               text,
-              attachments, interactionReply, idempotencyKey, interactionContexts
+              attachments, interactionReply, idempotencyKey, interactionContexts, replyToMessageId
             })}
             onRecovered={acceptCreatedMessage}
             onSendFailure={() => setWorkspaceError({

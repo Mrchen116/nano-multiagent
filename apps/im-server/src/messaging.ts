@@ -505,6 +505,7 @@ export class Messaging {
     if (b.interaction_contexts !== undefined && c.type !== 'direct') fail(422, 'Private interaction background is only supported in direct chats');
     if (c.type === 'group' && b.interaction_reply && !b.interaction_reply.action_id && !b.interaction_reply.event)
       fail(422, 'Group interaction state requires an explicit card action');
+    if (b.interaction_reply !== undefined && b.reply_to_message_id !== undefined) fail(422, 'Send quoted replies separately from card actions');
     if (b.interaction_reply !== undefined) return this.sendInteraction(p, id, b, key);
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
@@ -515,6 +516,14 @@ export class Messaging {
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
+    let replyTo:ChatMessage['reply_to'];
+    if (b.reply_to_message_id !== undefined) {
+      const original=this.records.find(b.reply_to_message_id);
+      if (!original || original.conversation_id !== id) fail(404,'reply target not found');
+      if (!['user','agent'].includes(original.sender_type) || !['completed','sent','pending'].includes(original.delivery_status)) fail(422,'reply target is not available');
+      const source=this.message(original.id);
+      replyTo={message_id:source.id,sender:source.sender,content:source.content,attachments:source.attachments};
+    }
     if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
     const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
     // Retries and history retain the timezone captured by the original send.
@@ -525,7 +534,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, publish:false });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, reply_to:replyTo, publish:false });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -617,7 +626,7 @@ export class Messaging {
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const payload = {lifecycle_revision:lifecycle(this.db,a.agent_id).revision,relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
-          conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
+          conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : []), ...(m.reply_to?.sender.type==='agent' ? [m.reply_to.sender.id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
           ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),

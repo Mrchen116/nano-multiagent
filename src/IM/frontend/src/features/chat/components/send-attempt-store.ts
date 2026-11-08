@@ -3,6 +3,7 @@ import type { InteractionContextInput } from '../interactive/types';
 import type { ComposerSnapshot } from './composer-draft-store';
 
 export interface SendAttemptPayload {
+  replyToMessageId?: string;
   text: string;
   attachments: Attachment[];
   contexts: InteractionContextInput[];
@@ -79,7 +80,7 @@ export async function prepareSendAttempt(userId: string, conversationId: string,
       if (epoch !== generation(userId,conversationId)) { store.transaction.abort(); return; }
       const previous = request.result as SendAttempt[];
       const existing = previous.find(item => item.retryable && item.draft.revision === draft.revision
-        && JSON.stringify({text:item.text,attachments:item.attachments,contexts:item.contexts}) === JSON.stringify(payload));
+        && JSON.stringify({text:item.text,attachments:item.attachments,contexts:item.contexts,...(item.replyToMessageId ? {replyToMessageId:item.replyToMessageId} : {})}) === JSON.stringify(payload));
       if (existing) { result(existing); return; }
       for (const old of previous) if (old.retryable) store.put({...old,retryable:false});
       const attempt: SendAttempt = structuredClone({userId,conversationId,key:crypto.randomUUID(),draft:{...draft,uploads:[]},...payload,retryable:true});

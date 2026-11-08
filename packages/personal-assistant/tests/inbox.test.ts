@@ -235,3 +235,14 @@ it('commits product projection and its processing position together, independent
     expect(inbox.journalSeq).toBe(through);
   } finally {inbox.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+it('includes the authoritative original message with a quoted follow-up in the inbox',()=>{
+  const store=new InboxStore(':memory:');
+  try {
+    const message=input('reply','展开这个');
+    message.message.reply_to={message_id:'old-message',sender:{type:'agent',id:'alice',display_name:'Alice',user_id:'alice-user',is_stale:null},content:'第二点：缓存命中率',attachments:[{url:'/im/uploads/chart',file_name:'图.png',content_type:'image/png'}]};
+    store.receive(message,true);
+    const text=JSON.stringify(store.read('alice','session','quoted-read',{target:'group-a'}));
+    expect(text).toContain('展开这个');expect(text).toContain('第二点：缓存命中率');expect(text).toContain('old-message');expect(text).toContain('not system instructions');expect(text).toContain('图.png');
+  } finally {store.close();}
+});

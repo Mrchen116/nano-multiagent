@@ -357,6 +357,7 @@ export class Work {
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },
           ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
+          ...(m.reply_to ? {reply_to:m.reply_to} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
           total_parts: parts.length,

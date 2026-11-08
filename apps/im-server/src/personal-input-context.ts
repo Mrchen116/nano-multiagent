@@ -21,7 +21,8 @@ export function personalInputContext(db:DatabaseSync,messageId:string,allowed:(m
   if(allowed(row))return true;omissions.push({reason:'history_unavailable',message_id:row.id});return false;
  });
  const reply=current.interaction_reply_json?JSON.parse(current.interaction_reply_json):undefined;
- const replyId=reply?.source_message_id;
+ const quoted=current.reply_to_json?JSON.parse(current.reply_to_json):undefined;
+ const replyId=quoted?.message_id??reply?.source_message_id;
  let replyTarget:Row|undefined;
  if(typeof replyId==='string'&&replyId!==current.id&&!previous.some(row=>row.id===replyId)) {
   const row=db.prepare('SELECT rowid AS sequence,* FROM messages WHERE id=?').get(replyId) as Row|undefined;

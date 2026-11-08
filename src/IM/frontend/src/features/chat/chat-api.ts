@@ -59,6 +59,7 @@ export async function listMessages(
 import type { InteractionDraft, InteractionReplyInput, InteractionContextInput } from "./interactive/types";
 
 export interface CreateMessageRequest {
+  replyToMessageId?: string;
   interactionReply?: InteractionReplyInput;
   interactionContexts?: InteractionContextInput[];
   idempotencyKey?: string;
@@ -90,6 +91,7 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
   const body = {
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
+    ...(req.replyToMessageId ? {reply_to_message_id:req.replyToMessageId} : {}),
     attachments: req.attachments ?? [],
     timezone: browserTimezone(),
     ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {}),
