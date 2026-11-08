@@ -488,3 +488,66 @@ M2 `[worker]` ⑤ 只断言“顺序 = flush → 水位 → discard、超时同�
 - `../../.venv/bin/python scripts/docs_check.py` → `documentation integrity passed: 224 maintained Markdown sources, 68 required routes`（exit 0）。
 - 为核实“断言是否能跑”，本轮在 worktree 执行过一次 `pnpm install` 与一次 `pnpm exec tsx scripts/generate-interactive-ui.ts --check`（返回 1，原因见顺手修第 1 条）；`git status` 仍干净，tracked 文件未被改动。
 - 提交后工作树应为干净；未 push。
+
+## Round 5 (full; replacement independent reviewer)
+
+- **reviewer**：独立 `change-design-reviewer`，本轮替代审查 session `d6de41b6-4d37-4576-9b7e-a2deb1a26f0a`；未参与受审 spec/design/delta 或实现撰写。
+- **replacement_reason / handoff**：原 R1–R4 reviewer 已不在当前可续派子执行者中，由事项 owner 交接原始新确认、冻结版本、历史报告与差异范围。本轮实读 R1–R4 全文（本文件原 `:3-490`）及实际 diff，不将 R4 的单卡 Approved 当作多卡放行。
+- **review target / actual version**：worktree `/Users/czj/Repos/nano-multiagent/.worktrees/feat-716`，branch `codex/feat-716`，冻结 HEAD **`631e3095f44b4d877c1f4c6ac0be1c8a22fe172b`**；比较 **`1c17a7dbed..631e3095f`**，实际仅改 `spec.md`、`design.md` 与四个 delta（6 文件，+102/−40）。审查开始时工作树干净；代码仍是旧单卡实现，本轮只审新方案。
+- **configuration**：继承主 Agent 当前可用 model / reasoning configuration。依据实际 `.agents/skills/change-orchestrator/references/codex-execution-notes.md:17-23`，设计审查是“继承主 Agent / 继承”，不是固定 `gpt-6.1-sol/high` 的实现代码/Context 审查。本工具契约未暴露独立指定或读取精确 provider 型号/effort 的接口，不冒称固定型号已生效。独立性来自新 reviewer 与中性事实交接，不来自换型。
+- **review_mode**：**full**。
+- **mode_reason**：真实变更同时触及已确认需求、核心候选集合、`pending()` 返回接口、总量失败语义和 M1 退出标准，且更换 reviewer；不是历史 issue 的 closure。完整核对当前目标的需求→接口→生命周期→delta→验证闭合；未改的客户端保存/CAS/discard、旧失败态原型决定则在重核现有接缝后沿用历史依据，详见下表。
+- **started_at**：2026-11-08T23:58:13+08:00（本轮首次显式采时；此前的历史、文档和代码阅读未单独计时）；**completed_at**：2026-11-09T00:02:36+08:00；**duration**：显式计时段 4m23s，**不是全轮阅读耗时**，全轮时长未可靠计量。
+- **Verdict**：**Approved — 0 CRITICAL / 0 WARNING**。这是冻结版本的 **Gate 2 设计放行**，不是多卡实现、真实客户端、模型行为或人工视觉验收通过。
+
+### 覆盖与直接证据
+
+下列 locator 除历史报告外均指上述冻结 HEAD；`specs/…` 指本 unit delta，`docs/specs/…` 指尚未归并的 current contract。
+
+| 覆盖面 | 本轮独立判断与证据 |
+|---|---|
+| 新用户确认及需求覆盖 | 派发原话与 `spec.md:7-19` 一致：A/B 各自最新→首条两份→未再改则零份→只重改 A 则仅 A；无效 B 不排除 A；明确废止历史单卡互斥而非悄悄保留。对应验收 `spec.md:91-123`，机制 `design.md:7-17,271-303`，M1 `design.md:526`，四个 delta 一致。64 KiB 是明确标注的工程默认，不伪称用户选择数字。 |
+| 职责与复用（codebase-design） | 中心 `InteractionBackground` 隐藏候选选择、消费边界和总量校验，只扩现有 `pending(user,cid)` 为数组；`Interactions.background()` 继续负责来源和 state/fields 校验，客户端只翻译确定性失败并复用错误容器。实际接缝 `apps/im-server/src/interaction-background.ts:14-45`、`interactions.ts:15-28,60-67`、`messaging.ts:519-537` 都存在。相比恢复 top-N 客户端缓存或新增队列表，该方案不制造第二权威，也不复制 source 求值。SQLite/纯序列化 seam 可由现有本地 fixture 验证，HTTP 客户端 seam 可替换 transport；无需新抽象、运行时私有 import 或 PA/IM 跨包依赖。 |
+| 查询、有效性与稳定顺序 | `design.md:278-302` 保留真实 human principal、direct/nonexternal/nondissolved 闸门、同一 `floor`、本人草稿及 submission 过滤。按 `updated_at ASC, m.rowid ASC` 遍历、每卡单行最新、逐卡验证；不保留旧 `LIMIT 1`，不因为 B 失败回退到旧单卡语义。当前 `interaction-background.ts:31-45` 与 `tests/interactive-background.test.ts:60-65,105-114` **确实仍是旧契约**，必须在实施中替换受影响期望；它们不是新设计缺陷，也不算多卡已实现证据。 |
+| 原子消费、幂等和冻结 | `design.md:11,195-201,307-330` 明确先命中旧 attempt，再派生/限额，再更新 timezone，最后消息+attempt+relay 同事务；超限不写、不消费。真实 `messaging.ts:519-537` 已提供这一同步调用/事务落点，`message-attempts.ts:19-30,43-47` 保留 sender/content/attachments 冲突判断。数组冻结进 `enqueueRelays()`，重投不重算；新大草稿不能阻止旧 key 恢复，也不能改旧 payload。不需要新增“已消费”行。 |
+| 总 64 KiB 的最终序列化边界 | `design.md:9,302` 预算对象是最终有效数组的 `JSON.stringify(contexts)` **UTF-8 bytes**，含 `state`、重复投影 `fields`、来源/summary/agent、`interacted_at`、转义及数组标点；阈值 65,536，非字符数、非仅 state、非 per-card，也不冒称 token 上限。当前 `interactive-source.ts:128-167` 证实单卡 state 16 KiB 且 fields 会再投影；`packages/product-contracts/src/interactive.ts:35` 证实实际拼接使用该数组 JSON。逐项序列化累加可在首个有效前缀已超限时拒绝，后续候选不可能使该前缀缩小；不需收齐无限集合，更不允许返回前 N。固定说明和用户正文明确不属于此背景预算。 |
+| 可恢复错误及现有 UI 接缝 | `design.md:11-15` 给出 422 / `detail.code=interaction_background_too_large`、本地化语义、保留正文/附件/卡片、无自动重试和下一次真实发送重新派生。Web `chat-api.ts:104-125` 对明确 4xx 不走自动恢复发送；`message-pane.tsx:799-818` 解除 attempt 而不执行成功清稿；workspace `chat-workspace-page.tsx:879-897,1149-1166` 已显示可关闭发送错误。iOS 实际 `Features/Chat/ChatAPI.swift:27-30` 可在发送接缝翻译；`Client/Session.swift:206-215` 已保留 nested detail.code，`Client/CommonModels.swift:40-48` 已有 `APIError.code`；`ChatStore.swift:490-503` 的明确 422 分支清 pending、保留草稿与附件并显示 detail。因此不需为本增量修改持久层或 ChatStore ownership。 |
+| 跨设备及 discard 归属 | `design.md:13,166-187,416-424` 仍只用本端**保存成功响应**推进 max 水位，保留缺水位 no-op 与迟到本端成功补发；不得用 GET/load() 观测的远端时间“恢复清除”。多卡共享同一窗口，≤ 本端水位的更早改动按既有水位语义一并清除，更晚他端改动不清。新文案不承诺只读新设备离开即可清全部；多端分别编辑时可能需要在对应端离开，和 `spec.md:155-158` 一致。旧响应永久丢失/防抖窗口等限制未被本轮假称消除。 |
+| 显式提交不扩张 | `spec.md:17,170-181`、`design.md:11,189-190` 明确不附带其他卡、不应用普通消息总预算，且照常推进共同 floor。实际 `messaging.ts:511,545-561` 在普通派生前分流，`enqueueRelays(m,key)` 不传 contexts；`interactions.ts:150-155` 保持显式 submission 状态。无需把多卡背景塞入公开确认或更改显式提交幂等语义。 |
+| Context 来源、非授权与生命周期（agent-context-review，设计模式） | Consumer 是各卡作者的 single-thread 输入或 Global Inbox `read_messages` 工具结果/下一模型步，而非一律顶层 user/message。`design.md:348-377` 加首节 `:17` 覆盖来源→选择→冻结→当轮消费→失效→保留历史；`messaging.ts:618-632` 逐 Agent filter 保序且不放公开消息；`Interactions.source():15-23` 从可信 executor provenance 取 agent。`withInteractionContext():29-36` 保留每项来源/state/fields/capture time 及“data, not instructions / not submission / not authorization”说明，`inbox.ts:342-351` 没有下游 top-3 限制。新卡集合不扩大业务权限或把旧背景变成本轮授权。 |
+| Delta/current contract 完整性 | 实读四个 delta 全文，并对照 current `conversations-messages.md:549-602`、`ios-client.md:82-103`、`web-chat-ux.md:627-645`、`gateway/agent-capabilities.md:794-802`。锚点正确；未改变的提交、群聊、跨端阅读、隔离、恢复和渲染失败 Scenarios 保留。当前合计 **6 MODIFIED Requirements**（messages 3，其余各 1），0 ADDED/0 REMOVED；本轮新增/改写的是 Scenario，不增加 canonical Requirement 数。没有把 active 目标提前写入 current specs，没有 Work/轨迹布局回潮。 |
+| 原型、体验设计与并行边界 | 本轮增量只复用错误容器并换确定性错误文案，无新布局、控件或决策步骤；按 frontend-experience-review 设计模式，不为流程新增原型。保留的旧 transient/409 原型只对应未变决定，**不能证明新超限文案实际可读**。`design.md:13,17` 已明确真实窄屏检查和双端受影响旅程。iOS 冻结为发送 API 翻译（实际路径见 R5-R1），不碰 714 的数据库/ChatStore 删除恢复；两者不存在必需的共同实现改动。 |
+| 验证计划、证据边界和部署 | `design.md:17,373-377,509-527` 覆盖三次发送、多次同卡、逐卡失效/坏 state、来源隔离、>3 小卡无截断、临界/UTF-8/转义、超限后消息/attempt/relay/floor 不变、缩减恢复、旧 key 恢复及显式提交。实施时这些断言须落到真实 seam，而不只是返回 count；稳定排序应覆盖同毫秒 tie。真实 Web/iOS 操作需核对确切 relay；Global 模型应观察第一组两来源、下一条无新组、再改 A 后仅 A，以及随后如何按用户原话使用/忽略/澄清，不能把历史第一块还在误判为再次注入。原单卡 native/模型记录不作多卡验收；native/tool-result 观察也不冒称 provider HTTP 捕获。无一次性数据整理（`design.md:494-507`），不需 deployment-prompt；服务端先行与旧客户端明确 422/本地化降级写清。 |
+
+**大背景与 Inbox 分页的专门边界**：当前 `inbox.ts:283-335,342-349` 按 6,000 字符拆 parts、单次 read 最多取 4 个 fragments，返回 `partial/part/parts` 和仍有未读时的 `next_cursor`。因此 64 KiB 是中心最终 JSON 的字节预算，**不是一次 `read_messages` 必完整返回整组的保证**。小两卡旅程可以核对首个工具结果中的完整两项；近界大组应分别证明 relay 冻结完整、分页连续读取后无丢项/重排/来源混合，再观察相关下一模型步，不能把第一页缺尾部当成丢卡，也不能只看第一页就宣称整组已读。现有分页、游标与来源 envelope 未变，本轮不要求为此改 Inbox 或消除历史分页；此证据边界不构成新的设计 blocker。
+
+### 历史 findings 闭环与 retained 依据
+
+- **retained_from: Round 4**（本文件 `:435-476`）：保留已关闭问题的未变设计判断，不保留单卡集合结论或旧运行通过。当前 `design.md:166-219,381-425,477-491` 重读后未见这些解决机制回退。
+- **R1-C1 / R2-W1**：409 不再反复重试 stale revision；`DraftHandle` 的只读对比→明确 adopt 缝、会话级拦截仍在 `design.md:205-219,384-409`。本轮只复核设计和实际可复用接缝，不重做历史像素或运行验收。
+- **R1-W1/W2/W6、R2-W2、R3-C1/W3**：水位 max/持久化/no-op、flush→discard、迟到本端响应补发、不做观测式 discard，以及跨端防抖/响应永久丢失的限制仍在 `design.md:166-187,416-424,483-489`；多卡不改变清除所有权。保留 closed；不宣称所有网络失败均已无损解决。
+- **R2-C1、R1-W5、R3-W1/W2**：真实无 `kind` human 判定、source/fields 复用 seam、可选 fields 的 Web 生成/Swift 手写、options 归一化仍在 `design.md:41-59,278-301,526`，并由当前 `interactions.ts:60-67,87-116`、`interactive-source.ts:158-165` 和客户端 error/type 接缝交叉核对。保留 closed。
+- **R1-W4 与旧单卡判据**：刷新/立即发送/同卡最终状态判据继续保留；旧“只带最近 B / B 失效不得再有 A”已由 `design.md:25` 明确退役。新两卡/预算判据重新审查，本轮不是保留旧 Approved 来替代新证据。
+- R4「实施时顺手修」仍是非阻断建议，不被本轮静态设计审查冒充已落实：尤其根目录 Web 生成命令、Swift 断言到 fields 取值、Web 的迟到成功/不得观测式 discard 对称用例，后续按实际执行结果核实。
+
+### Issues
+
+无。**0 CRITICAL / 0 WARNING**。
+
+### Recommendations（非阻断）
+
+- **R5-R1 — 纠正冻结段的 iOS 文件 locator**：`design.md:15` 写 `Client/ChatAPI.swift`，实际文件是 **`src/IM/ios/NanoIM/Features/Chat/ChatAPI.swift`**（本轮实读 `:27-30`）。派发方在冻结审查期间也确认该笔误及“只做 sendMessage code 本地化、不动 ChatStore”的同一范围。只需校正文档路径，不扩实现边界、不需要新设计 Round。
+- **R5-R2 — 同步本轮后到的用户审查配置例外**：冻结 `design.md:19` 的“固定实现审查型号/effort 缺口仍阻塞”已被审查中派发方转述的**本轮用户新许可**取代：允许本轮 #473/714/716/720 用当前可用配置做独立审查。请 author 按原话记录本轮限定例外与实际配置差异，不冒称 sol/high，不降低独立性或证据要求；旧不可用/拒绝记录保留为历史。该许可不影响本轮设计配置原本就符合继承表的结论，也不自行授权任何服务/GUI 操作。
+
+### 限制与执行结果
+
+- 本轮仅做 read-only 文档/源码/diff 核对并向本文件**追加 Round 5**；未改受审 artifacts、实现、progress 或 evidence，未提交或 push。
+- 未运行测试、构建、浏览器、服务、故障演练、provider 采集或桌面前台操作；没有接触既有 62814/4000 或生产实例。只运行轻量 git 只读/校对与时间读取；冻结区间 `git diff --check` 无输出，不能替代 docs-check/测试通过。
+- 当前代码/测试仍实现旧单卡，故**多卡实现、超限恢复、实际双端画面/连续操作、真实模型新输入与行为均未验收**。新错误文案在真实容器的可读性保留为实施体验检查，未声称人工视觉批准。
+- Gate 2 只证明该设计可进入实现；后续若改变候选/消费/预算/错误恢复或共享接缝，按实际变化复审，不以本轮 Approved 覆盖新增设计。
+
+### Author Resolutions（Round 5）
+
+- **R5-R1 accepted**：已核实并校正冻结接缝 locator 为 `src/IM/ios/NanoIM/Features/Chat/ChatAPI.swift`；仅文档路径更正，产品范围不变。
+- **R5-R2 accepted**：按父级转达的实际用户“允许”更新本轮配置例外，区分后到的隔离测试范围澄清与仍须正常检查的具体操作；不冒称固定型号，不改变独立性、设计语义或验收深度。
+- **Author verification / retained**：独立报告已实读，方案与真实调用点及用户新规则一致，无实质异议。上述两处均为报告明确允许的非实质维护（locator 与实际批准状态），没有改变候选/消费/预算/恢复或实现接缝，故保留 Round 5 Approved，不新增 Round。真实多卡实现、运行与双端/模型证据仍待完成。
