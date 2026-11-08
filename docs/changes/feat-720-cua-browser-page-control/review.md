@@ -4,9 +4,9 @@
 
 ## 版本与有效范围
 
-- 当前实现/测试版本：`a1fab20f4b1df6f17998cda55395281e3877e654`，分支 `codex/feat-720`；等待固定配置独立实施审查，尚非发布冻结。
+- 当前实现/测试版本：`fa6c7ad684d611526408aabb80520a80c0b34296`，分支 `codex/feat-720`；本轮配置例外已由人类批准，独立 code/Context/corrected-delta 审查进行中，尚非发布冻结。
 - 集成的 develop 基线：`eeaea47921806936da20e78c9ed96167716f5037`。最终交付前仍须重新核对目标分支增量及证据有效性。
-- `a1fab20f4` 修复等待驱动 probe 期间资格失效仍会 prepare 的竞态，并按行为拆分 browser-control/lifecycle 测试。原隔离 daily 进程从 `4804e785e` 启动，未为此重启；不能据新 package build 把旧运行进程当作新版本产品验收。
+- `a1fab20f4` 修复等待驱动 probe 期间资格失效仍会 prepare 的竞态，并按行为拆分 browser-control/lifecycle 测试。`de3b838a1` 再修复真实产品暴露的 Cordis 服务注入接线错误；`fa6c7ad68` 修复非作者 reviewer 发现的登记失败后 cleanup 失败却丢失占额漏洞。旧 daily 最初从 `4804e785e` 启动，首个失败产品样本确已加载 `a1fab20f4`；后续隔离 Node 已重启到 `de3b838a1` 并通过 UI 保存 Sol 配置，但尚未发起下一浏览器样本，须加载当前新修复后再验，不能拿旧进程当新版本验收。
 - Gate 2 R7 只批准 `9612ea5d1` 的设计，不是实现或真实旅程批准。
 - 本轮自检均由实施 owner 执行，不冒充独立 reviewer。
 
@@ -55,7 +55,7 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 
 ## 已观察到的真实产品链
 
-本轮从 `4804e785e` 构建的代码启动隔离 daily 栈，独立端口、数据库、Gateway config、runtime home、workspace 和节点身份；`3da5cb40d` 无运行代码变化。只使用 headless Playwright 操作本栈 Web IM；**没有调用本轮 browser_read/browser_act、没有 CuaDriver prepare/click，也没有操纵物理桌面**。
+最初从 `4804e785e` 构建的代码启动隔离 daily 栈，独立端口、数据库、Gateway config、runtime home、workspace 和节点身份；以下 1–3 为当时的默认态/接线观察。随后已重启本栈 Node/DSH 至 `a1fab20f4`、核实 profile 解析当前 package 与 `NANO_CUA_DRIVER`，再由 headless Playwright 经本栈 Web IM 发起真实产品浏览器尝试。该首次尝试在驱动前失败，**未调用 CuaDriver prepare/click，不是 V2 前台归还成功证据**。
 
 1. 在真实 PA 设置页看到 `browser_read` / `browser_act` 默认均未选中。禁用态的真实 PA 回复为“当前不可调用 browser_read 与 browser_act，没有启用浏览器能力。”；该轮没有浏览器或替代工具调用。另建的隔离 single-thread 测试 Agent 同样观察到两项默认未选中。
 2. 通过同一设置 UI 显式选择并保存后，仅发送可用性查询；真实测试 Agent 列出两项能力，未调用浏览器。此项只证明设置可发现/启用，不证明实际浏览器动作链。
@@ -63,19 +63,35 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 
 定位：worktree `.e2e-daily.json` 为本栈清单；默认态 snapshot 为 `.playwright-cli/page-2026-11-07T18-17-54-499Z.yml` L302–303；本轮提取的 PA 轨迹 `/tmp/feat-720-pa-session.jsonl`。以上均为本机测试产物，不提交日志、截图、配置、数据库或认证内容。
 
+### 本次已披露范围内的产品尝试与修复
+
+此前 2026-11-05 直接 CLI 的三启动/弹窗批次确被 `NanoApprovalDenied / classifier_block` 拒绝，原理由为发现抢前台后原授权未覆盖继续重复；旧拒绝没有被抹掉。本轮用户收到具体风险后追问“为什么不能直接去试”，父级结合既有“Chrome 必须验透（…新窗口）”与首次/新窗口可能占前台的原话，撤销其自行附加的 8 分钟预约条件，按已披露的最多 3 启动/2 弹窗范围直接接续，仍接受当前工具检查、意外即停；不是安装/TCC/用户既有 Chrome 的新增授权。共享物理 GUI 由父级在执行者间协调，不再要求用户另约空闲。
+
+首个产品样本（`a1fab20f4`）的 PA 原生 session `06040d4d-5e81-42f4-acab-62f2159ba26c` turn 3：fresh Inbox read seq93/94 保留本次 `created_at=2026-11-08T15:53:22.759Z` 和 user/participant 身份；`browser_act(open)` seq101/102 立即返回 `Error: cannot get property "nanoApproval" without inject`。模型随后把实际错误送回测试聊天并停止，未读取/点击/重开实例。证据 `/tmp/feat720-pa-sample1.jsonl` L96–120；只读前台元数据 `/tmp/feat720-fixture-20261108/foreground.jsonl` 430 个采样只见原 Chrome660/ChatGPT89352，未见新自持 Chrome。此错误不是在场 5 分钟拒绝、分类器判拒或 TCC 缺失。
+
+根因为 NanoRuntime 的同步 `liveHumanTimes` callback 直接从未 inject 的父 `ctx` 读取 `nanoApproval`。`de3b838a1` 改为捕获现有 `ctx.inject(['nanoApproval'])` 解析的服务引用；服务未就绪时返回空时间、仍 fail closed，不增资格或伪造来源。新增 actual installed DSH + probe-sentinel executable 回归先复现同样 Cordis 错误（`/tmp/feat720-inject-red-valid.log`）；该 fixture 从不启动真实 Chrome。修复后 system/heartbeat 轮次在驱动前被拒，host-human 测试输入只到 fake `--version` 探针。package build 和 browser/approval-sources/PA inbox **107 tests / 11 files 全通过**（`/tmp/feat720-inject-green.log`）。最初 fixture 的未知 provider 配置失败另存 `/tmp/feat720-inject-red.log`，不计作有意义红测。修复后的真实产品复验尚待下一内部 GUI 资源段，不冒充已闭环。
+
+### 首次登记失败后 cleanup 丢失占额：独立 finding 与修复
+
+非作者 reviewer 在 `de3b838a1` 用无 GUI fake 确认：prepare 已返回 owner pid，首次 `list_windows` 超时、`end_session` 又失败，旧实现吞掉 cleanup 错误并释放 launching 槽、未登记实例也不计 cap，连续三次 read 会在 max=2 时产生三份 prepare。owner 新增回归先取得 **2 failed / 9 passed**（`/tmp/feat720-registration-red.log`）：未返回人工恢复错误、cleanup 也没有一次重试；不把该红测当真实窗口实验。
+
+`fa6c7ad68` 从实际发出 prepare 前保存宿主生成的 label；准备超时/响应缺 pid/登记失败均只清理同一 label，重试一次。清理成功才释放 ownership 并保留原始错误；连续失败返回 `browser_foreground_release_failed`、明确手动关闭提示，保留进程占额直到 300 秒冷却惰性到期。销毁也不删除该占额或在冷却期间再发驱动；不做 pid 探测。新增 5 个故障场景覆盖 prepare 超时/缺 pid、登记失败、成功 cleanup 重试及失败销毁。
+
+修复后 browser 全集、approval-sources、PA inbox **112 tests / 11 files 全通过**（单 worker、无文件并行，2026-11-09 00:24 +08，命令同上）；DSH typecheck/build 与 diff check 同批 exit 0。该证据不替代真实桌面样本或最终全量 CI；待同一 reviewer 复核具体提交。
+
 ## 发布阻塞与待补验
 
 - **V2 ≥2 次真窗口后前台归还，是发布阻塞**；V3 ≥3 次独立启动采样及 V4 弹窗半边仍缺。本轮不能用“未测但已披露”替代。
 - 老版 V1/V5/V6 是直接驱动 / orchestrator workspace 证据，不是本轮真实产品节点等价性证明。仍需真实 IM→Node→DSH→驱动→结果→read_image 链路，以及默认关闭、身份、审批拒绝、无人值守、Global/native/PTC 与子 Agent 的代表性场景。
-- 物理桌面实验已向父级提交具体影响与有界窗口请求（最多 3 次独立启动、2 次 popup/归还），**尚未收到真人时间窗口许可**；不能把桌面锁定、用户空闲、通用继续开发或工具启用当作该许可。不得接用户已有 Chrome/profile/登录态。
+- 本轮已在用户新接续下开始限定产品验收，父级预约条件已撤销；首样本暴露并修复真实 inject 故障，V2/V3/V4 实测仍未完成。下一批只需与其他执行者内部协调 GUI，不得接用户已有 Chrome/profile/登录态；旧拒绝及新人类接续须如实保留，新的安全拒绝不自动重试。
 - 分组 CI 已补齐旧版本根/前端覆盖并定位、修复 Python 超长测试失败；当前有新的启动竞态修复与窄验证，最终版本证据有效性尚待 sync/独立审查收口。重型窗口已释放，不自行新增全量运行。
-- 独立实施审查、Context 实施审查、corrected-delta 与产品旅程结论均未取得。所要求的固定模型/effort 在原生派发接口中无参数，已由父级协调；不能把 inherited 配置或 daily Q 自动当作等价独立审查。
+- 独立实施/Context/corrected-delta 审查已接续原非作者 reviewer，真实产品旅程结论仍未取得。本轮用户明确允许 #473/714/716/720 使用当前可用配置做独立审查；reviewer 自述可观察模型为 `anthropic/codexOAuth:gpt-6.1-sol`，effort 不可观察，不声称 high，也不沿用旧版 flash 审查或以 daily Q 替代。例外仅本轮，不是未来通用规则。
 
-## 待独立审查核实的生命周期差异
+## 独立审查发现与经授权的契约校正
 
-这是 owner 静态自检发现的潜在契约差异，不是独立审查结果；父级明确要求保留到独立 Context 审查，**不授权直接删承诺或新增 Memory 屏蔽机制**。
+非作者 reviewer 在 `de3b838a1` 确认两项历史契约/机制不符：页面工具正文没有被现有记忆取材排除，官方 `read_image` 又会另存不受源 PNG TTL 控制的运行时附件。以下原句是当时审查的真实依据，保留，不把它们改写成已实现：
 
-原句：
+历史原句：
 
 - spec L181：`画面截图只是本次任务的临时证据，只保留有限时间，不向用户承诺长期保存，也不作为记忆内容。`
 - design L117：`截图不进 Memory/Skill/Dreaming。`
@@ -90,7 +106,9 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 | ③ 页面正文 | `control.ts` L183–194 / L257–277 返回有界正文与 `text_after`；`memory-sources.ts` L133–170 / L238 不排除此文本；`dreaming.ts` L339–346 和 `dreaming-agent.ts` L105–110 以 text 输入提交材料。 | 资格、启用基线、cutoff 和预算允许时，页面工具文本可进入 Dreaming 材料；本轮没有实际 Dreaming 输入或保存页面原文的观察。 |
 | ④ 可能提炼的长期事实 | `dreaming-agent.ts` L42–62 / L73–84 无 `read_image`；原始输入是 text，普通合格页面文本与 Agent 的文字结论可被取材，所检源码未有 browser-specific 排除。 | 没有证明已禁止从这些合格文本提炼事实，但也没有证明实际提炼/保存发生，更不等于原始页面或像素已经写入正式记忆。 |
 
-详细精确安装源码定位已补进同一中性审查包 `/tmp/feat720-review-package.md`。这只是只读源码核对，不是删除审计、真实 Dreaming 验收或人类隐私意图判断；聊天搜索未找到同句不构成撤销已有 spec/design 的依据。契约与机制的最终判断交独立审查，必要隐私取舍由父级再处理。
+详细安装源码定位已补进同一中性审查包 `/tmp/feat720-review-package.md`；本表是静态链路核对，不是删除审计或实际 Dreaming 保存观察。
+
+用户随后纠正：“我完全没get到，这跟我的记忆有半毛钱关系。而且这个设计稿也不是我写的，也是你写的。”协调者承认额外保证由我们自行添加，撤回让用户选择“严格隐私/普通留存”的问题，并决定由原事项修订同一 spec/design/delta：保留本能力的源 PNG TTL/20 张/写入与启动期有界清理，明确不覆盖既有工具历史、官方 `read_image` 附件或全部记忆取材；不新增通用 Memory 屏蔽、附件删除或运行时 patch，不改变原操作、secret 与无关内容保护边界。本次据此校正文档，不以聊天未检出同句为依据，也不是宣称旧保证已通过机制修复。两项历史 finding 的拟收口方式为 **superseded-by-authorized-scope-correction**，尚须同一独立 reviewer 对具体文档版本确认；不登记为 fixed-mechanism 或自动 Approved。
 
 ## 独立审查结论
 

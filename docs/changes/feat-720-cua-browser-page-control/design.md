@@ -114,7 +114,7 @@
 **实现约束。**
 
 1. `read` 的文本结果只用于内容与元素定位；工具描述明确写“不要用可见性标签判断滚动位置/是否可见”“截图尺寸是设备像素，不要据此换算或给坐标”。
-2. 提供 `screenshot: true` 时把 CDP 视口截图保存到该 Agent workspace 下的 `.nanoassistant/browser/<agentId>/`（先 `resolve` 再校验前缀，越界则不写文件、结果里返回 `screenshot_omitted:"outside_workspace"`），并返回 workspace 相对路径；工具描述与结果都写明“要看画面证据就用 `read_image` 读这个路径”。凡是“滚到某处/元素可见”的结论要求模型同时引用截图。滚动动作的默认返回附一张截图（见接口）。截图是页面内容的临时证据：每 Agent 保留最近 20 张、TTL 1 小时；**只在写入新截图时**按 TTL 与数量上限清理该 Agent 目录；进程启动时补一次**有界**清理（只扫已配置 Agent 的 workspace 下的 `.nanoassistant/browser/<agentId>/`，不遍历 home 或仓库，单次有界，失败只记录、不阻塞启动，只删本能力按 TTL/张数规则判定的文件），实例结束（含真窗口后的 `end_session`）与 Agent 销毁都不立即删除——真窗口路径要求“回读与截图后立即结束实例”，若结束时删图，模型下一次 `read_image` 就没有证据可读。截图不进 Memory/Skill/Dreaming。
+2. 提供 `screenshot: true` 时把 CDP 视口截图保存到该 Agent workspace 下的 `.nanoassistant/browser/<agentId>/`（先 `resolve` 再校验前缀，越界则不写文件、结果里返回 `screenshot_omitted:"outside_workspace"`），并返回 workspace 相对路径；工具描述与结果都写明“要看画面证据就用 `read_image` 读这个路径”。凡是“滚到某处/元素可见”的结论要求模型同时引用截图。滚动动作的默认返回附一张截图（见接口）。截图是页面内容的临时证据：每 Agent 保留最近 20 张、TTL 1 小时；**只在写入新截图时**按 TTL 与数量上限清理该 Agent 目录；进程启动时补一次**有界**清理（只扫已配置 Agent 的 workspace 下的 `.nanoassistant/browser/<agentId>/`，不遍历 home 或仓库，单次有界，失败只记录、不阻塞启动，只删本能力按 TTL/张数规则判定的文件），实例结束（含真窗口后的 `end_session`）与 Agent 销毁都不立即删除——真窗口路径要求“回读与截图后立即结束实例”，若结束时删图，模型下一次 `read_image` 就没有证据可读。这里的 TTL/数量清理只针对本能力生成的 workspace 源 PNG，不是定时删除保证，也不覆盖官方 `read_image` 另存的运行时附件。页面正文、工具结果与文字结论沿用底座现有会话历史/记忆取材规则；本 unit 不新增 Memory/Skill/Dreaming 浏览器内容屏蔽或附件副本清理机制。
 3. 不使用 `page`/`query_dom`；任何依赖 pid 归属的 AppleScript 路线一律不接。
 4. 驱动客户端的失败口径：非 0 退出、空 stdout、无法解析 JSON、缺少预期字段 → `browser_driver_malformed`（带截断的原始输出片段），**一律不当成功**；`browser_pointer` 的 scroll 参数在发请求前校验，缺 `ref` 或 `delta` 直接 `browser_arguments_invalid`。
 5. `open` 只接受 `http`/`https`（`file://` 由我们提前拒绝，不依赖驱动报错）；本地夹具在验证里用 `127.0.0.1` 静态服务（证据 L388–392）。
@@ -168,7 +168,7 @@ cua-driver daemon（宿主安装，0.38.x；TCC 身份 com.trycua.driver）
 driver-owned isolated Chrome（独立 profile；随浏览器会话/空闲结束）
 ```
 
-前：Agent 没有任何桌面/浏览器控制面，只有网络读写（`web_search`/`web_fetch`）。后：新增两项默认关闭的页面级工具；没有新进程模型（驱动 daemon 是宿主既有依赖）、没有新 HTTP 服务、没有长期持久化（只有有限保留的截图文件），没有第二套循环。
+前：Agent 没有任何桌面/浏览器控制面，只有网络读写（`web_search`/`web_fetch`）。后：新增两项默认关闭的页面级工具；没有新进程模型（驱动 daemon 是宿主既有依赖）、没有新 HTTP 服务或第二套循环。仅新增有限保留的 workspace 源 PNG 缓存；既有工具历史、官方 `read_image` 附件保存与记忆取材链沿用底座规则，不在本 unit 改造。
 
 ## 关键决策
 
@@ -201,7 +201,7 @@ driver-owned isolated Chrome（独立 profile；随浏览器会话/空闲结束�
 - `browser_act` 的审批文案与工具描述必须写明：不登录、不提交表单、不下载；需要改动页面状态的动作要先读后做；不接受坐标点击。
 
 **D8：每个 Agent 一个驱动 session，串行、随 Agent 销毁结束。**
-session label 随机生成（`nano-br-<8hex>`），同进程内按 agentId 复用；所有动作在同一 label 下串行；`agent/disposed` 调 `end_session`（幂等，证据 L320–325）。除销毁外还有两条结束路径：真实新窗口后主动 `end_session` 归还前台（约束二第 5 条），以及驱动 `idle_expires_in_seconds: 300` 与 `profile_persists_after_session:false` 兜底回收。**不提供模型可调用的 `close` 动作**：靠模型自觉收尾不是机制，实例纪律由宿主生命周期负责。进程级最多 2 个实例，超出返回 `browser_busy`。不按“每个对话一个实例”：结束一段对话不结束实例（只有 Agent 销毁、真窗口归还前台、空闲回收会结束），这里的执行 Agent 指 DSH 原生 session；同一 Global 根跨聊天共用该执行 session，普通 single_thread 的不同聊天与独立子 Agent 不共享实例。截图归属使用可信配置中的产品 agentId（不是原生 sessionId），因此写入路径与启动期按配置 Agent 清理的路径一致；同一产品 Agent 的多执行 session 共享 20 张上限。销毁必须与本 Agent 的串行队列收口，防止在 prepare/动作执行中销毁后又残留新实例。
+session label 随机生成（`nano-br-<8hex>`），同进程内按 agentId 复用；所有动作在同一 label 下串行；`agent/disposed` 调 `end_session`（幂等，证据 L320–325）。除销毁外还有两条结束路径：真实新窗口后主动 `end_session` 归还前台（约束二第 5 条），以及驱动 `idle_expires_in_seconds: 300` 与 `profile_persists_after_session:false` 兜底回收。**不提供模型可调用的 `close` 动作**：靠模型自觉收尾不是机制，实例纪律由宿主生命周期负责。进程级最多 2 个实例，超出返回 `browser_busy`；计数包括 prepare 中的预留，以及已发出 prepare 但登记/清理未获确认的自持 session。prepare 超时、响应缺少 pid 或首次登记失败时，只按宿主原先生成并发给 prepare 的同一 label 清理（不借用窗口扫描结果或用户 pid），`end_session` 失败重试一次。清理成功才释放计数并保留原始登记错误；连续失败则返回 `browser_foreground_release_failed`、提示手动关闭，并保留占额到 `failedAt + 300s` 惰性到期，冷却内零驱动调用。Agent 销毁也不能提前抹去失败占额；不使用 pid 探测证明窗口存活或已消失。不按“每个对话一个实例”：结束一段对话不结束实例（只有 Agent 销毁、真窗口归还前台、空闲回收会结束），这里的执行 Agent 指 DSH 原生 session；同一 Global 根跨聊天共用该执行 session，普通 single_thread 的不同聊天与独立子 Agent 不共享实例。截图归属使用可信配置中的产品 agentId（不是原生 sessionId），因此写入路径与启动期按配置 Agent 清理的路径一致；同一产品 Agent 的多执行 session 共享 20 张上限。销毁必须与本 Agent 的串行队列收口，防止在 prepare/动作执行中销毁后又残留新实例。
 
 **D9：驱动版本与宿主前置显式探测、只报告不修复。**
 启动后首次调用探测 `cua-driver --version`（要求 `0.38.x`，其他版本返回 `browser_driver_version_unsupported` 并拒绝执行）、`cua-driver status`（当前版本输出的是人类可读文本而不是 JSON，按退出码与 “daemon is running”/`permission mode` 文本判断；文本匹配失败时把该命令的原始输出片段（截断）一并放进错误，便于用户自查）、`permissions status --json`（Accessibility / Screen Recording 的结构化结果）。缺任何一项返回可操作的错误，不自动安装、不自动授权、不自动启动 daemon（启动 daemon 会改变机器状态并可能弹 TCC 提示）。驱动路径可由 `NANO_CUA_DRIVER` 覆盖，否则查 `PATH`；路径不可执行属于驱动探测（`probe()`，运行时一次），不进无 I/O 的静态守卫。
@@ -284,7 +284,7 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 | `browser_driver_refused` | 驱动结构化 refusal（含 `browser_tab_not_found`、滚动锚点未声明 `pointer` 的 `browser_action_unavailable`、foreground 拒绝） | 按 hint 处理，不原样重试 | 视 code |
 | `browser_driver_timeout` | 子进程超时 | 报告并说明页面状态未知 | 一次 |
 | `browser_driver_malformed` | 空/非 JSON/缺字段 | 报告失败，不当成功 | 一次 |
-| `browser_foreground_release_failed` | 真窗口后 `end_session` 重试一次仍失败（含 label/pid 预校验不符）；失败后该 Agent 进入需人工恢复，后续调用直接返回本错误，直到 `failedAt + 300s` 冷却到期（冷却期内所有调用直接拒绝，不新增“新实例成功清除”分支） | 请用户手动关闭该浏览器窗口；不再派发动作 | 否（自动） |
+| `browser_foreground_release_failed` | 真窗口后、首次 prepare/登记失败后或销毁时 `end_session` 重试一次仍失败（已登记实例含 label/pid 预校验不符）；失败后该 Agent 进入需人工恢复并保留进程占额，后续调用直接返回本错误，直到 `failedAt + 300s` 冷却到期（冷却期内所有调用直接拒绝，不新增“新实例成功清除”分支） | 请用户手动关闭该浏览器窗口；不再派发动作 | 否（自动） |
 | `browser_unexpected_event` | 未分类窗口 | 结束本次调用；先把事件告知用户，再决定是否继续 | 否（自动） |
 | `browser_busy` | 超过进程级实例上限 | 稍后再试或结束其他 Agent 的实例 | 是 |
 | `NanoApprovalDenied` | 审批拒绝，含无人工出口（Global 根/子 Agent/无人值守回退）被拒 | 说明被拒绝；需要用户确认时请在单聊里发起 | 否 |
@@ -322,7 +322,7 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 - **实例缺失但需要启动**：TurnGate 不通过 → `browser_launch_requires_user_turn`，不启动、不重试开窗；TurnGate 通过 → 允许重新 `browser_prepare` 一次；连续两次失败即停止并报告，不循环重建。
 - **会话丢失**：`browser_session_lost` 后清空本地登记；下一次调用按上一条重新 prepare（同样受 TurnGate 约束），旧 `read_id` 一律 stale。
 - **未分类事件**：结束本次调用、返回窗口证据与模型可见指导（先告知用户再决定是否继续）；不自动重试、不自动忽略，也不声称宿主“停止批次”。
-- **前台归还失败**：真实新窗口后 `end_session` 失败（含 label/pid 预校验不符）→ 重试一次；仍失败返回 `browser_foreground_release_failed`，请用户手动关闭，并让该 Agent 进入需人工恢复状态——后续调用不派发驱动动作、直接返回该错误，直到 `failedAt + 300s` 冷却到期（惰性清除，不做 pid 探测）；冷却期内 prepare 也被拒绝，所以不需要“新实例成功收尾清除状态”的分支。兜底是驱动 300 秒空闲回收。
+- **前台归还/清理失败**：真实新窗口后或首次 prepare/登记失败后的 `end_session` 失败 → 重试一次；已登记实例的 label/pid 预校验不符时不发驱动。仍失败返回 `browser_foreground_release_failed`，请用户手动关闭，并让该 Agent 进入需人工恢复状态、保留进程占额——后续调用不派发驱动动作、直接返回该错误，直到 `failedAt + 300s` 冷却到期（惰性清除，不做 pid 探测）；销毁不能丢失占额，也不在冷却内重试或延长冷却。冷却期内 prepare 同样被拒绝。到期可按新的 TurnGate 判定再试，只依赖驱动 300 秒空闲回收兜底，不宣称观察到旧窗口已经消失。
 - **驱动拒绝**：结构化 refusal 原样映射为 `browser_driver_refused`（保留 code 与 hint），由模型按 hint 处理；`background` 下被拒（如需要前台的路径）不得自动改 `foreground` 重试。
 - **审批拒绝**：返回 `NanoApprovalDenied`，不重试、不换工具绕过；需要用户确认时，模型说明“请在单聊里发起这一步”，由用户决定是否改变任务方向。
 - **进程/Agent 销毁**：`end_session` 幂等；截图不随实例结束或 Agent 销毁删除，只按 TTL 与数量上限在写入时清理（进程启动时补一次有界清理：只扫已配置 Agent workspace 下的 `.nanoassistant/browser/<agentId>/`，失败不阻塞启动）；进程崩溃时驱动按 300s 空闲回收实例，本地状态随进程消失，不需要持久恢复。
@@ -338,7 +338,7 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 - **Context Lifecycle**：
   - 工具描述必须自包含可操作语义：`read_id` 的生命周期、ref 一次性、只接受 ref（无坐标）、滚动以 ref 锚定、滚动结论要看截图（并用 `read_image` 读 workspace 相对路径）、噪声不算失败、失败码含义、前台承诺原句。不能依赖模型“记住”设计文档。
   - 结果有界：文本默认 8000 字符、ref 列表截断、截图只给路径；大页面靠 `query`/`max_chars` 收窄，不把整页塞进上下文。
-  - 页面内容不长期持久化、不跨会话继承：实例结束即丢页面状态；截图只是临时证据（TTL 1 小时、最多 20 张，只在写入时清理 + 启动期有界补清，不随 Agent 销毁删除），不写 Memory/Skill，不进 Dreaming 材料。
+  - 浏览器实例结束后不复用页面运行状态或登录态；这不删除已经返回的工具历史。源 PNG 缓存按 TTL 1 小时/每产品 Agent 最多 20 张在写入时清理，启动期有界补清，不随 Agent 销毁删除，不承诺到点自动清除。官方 `read_image` 可把读取的 PNG 另存为归一化运行时附件，该独立副本不在源 PNG 清理范围。页面正文、路径/附件元数据和文字结论可能按既有资格、cutoff 与预算进入记忆取材；当前 Dreaming 的文本材料不因包含附件引用就自动解引用像素。本 unit 不新增浏览器专用屏蔽、运行时附件删除或正式记忆写入路径，不把底座留存说成已清除，也不改变原有 secret/无关内容保护边界。
   - 与压缩/换窗的关系：工具结果是普通 tool result，遵守既有裁剪；`read_id` 不跨上下文窗口承诺有效（新窗口后必须重新读）。
 - **Interactions**：审批分类器看到的是“参数 + 会话里最近一次读取的页面文本 + 用户原话”，不额外注入页面全文；`browser_read` 进入 `safeTools` 后不再重复走分类器（DSH 规则下仍走），但它的首次 `prepare` 由 TurnGate 决定，不靠审批。会话类型决定 `browser_act` 的出口（D7），错误文本必须把“为什么没执行、下一步该找谁”说清楚。
 - **Validation**：单测断言两条工具描述的必含句（承诺原句、read_id/ref 生命周期、只接受 ref 不接受坐标、截图用 `read_image` 读、不登录/不提交/不下载、噪声与失败区分、非用户发起轮次（含任务续跑）、超窗（最近人类发言超过 300 秒）、轮次已结束与后台委派不能新开实例）；断言结果为有界结构、截图路径在该 Agent workspace 内；断言未选择时不注册到可调用视图（`ToolSelection` 行为复用现有测试面）。
@@ -432,12 +432,12 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 7. TurnGate（按来源层 + 在场窗口，全部用录制事件 fixture、无浏览器）：本会话无人类消息且无实例 → `browser_launch_requires_user_turn` 且未调用 `browser_prepare`；人类消息 60 秒前且轮次打开 → 允许 prepare；人类消息 10 分钟前（长轮次末端委派）→ 拒绝；父轮次已关闭（`turn/end`）而后台子 Agent 仍在跑 → 拒绝；`heartbeat`/`task-execution` 祖先 → 拒绝；链断（父会话不在 `ctx.agents`）→ 拒绝；构造环（`parentSession` 指向自身或互指）→ 拒绝且不无限循环；子 Agent 自身 seed source 形状不参与判定（子轮次 `kind:'user'` 无身份字段 + 人类父轮次仍在 300 秒窗口内 → 允许）；已有实例时非用户轮次可只读。直接输入的来源谓词继续复用 `isHumanSource`，审批路由的 `currentTurnInputs` 行为不变。补 Global 真形状 fixture：仅系统 Inbox wake 拒绝；分别用 `tool/result` 与 `tool/ptc-dispatch`（live `subCallId`）证明本进程成功读到 Inbox 的新鲜、完整、直接 participant 真人输入允许根/同步子请求；PTC 在同一 `run_code` 中 await Inbox 完成后可供后续 browser 子调用判定，但 dispatch-start、wrapper 正文、失败或非 live 完成都不产生时间；原始时间过期/未来/缺失、restored、partial、observer、PA 代发、Agent/system 均拒绝；读取时刻不刷新原始时间。
 8. 真实驱动 e2e（本机 0.38.0，隔离端口 8765 夹具）：prepare → navigate → read → ref click（计数器 0→1）→（V1 通过后）页面输入 →（V5 通过后）ref 锚点 scroll（截图前后对照）→ 宿主结束实例；全程 `delivery_mode:"background"`，不使用 `run_script`/`run_steps`/`hotkey`/`type_text`/`page`；记录一次点击与一次输入的端到端延迟（含多次 CLI spawn 的叠加），并说明同 Agent 串行排队时的超时口径。
 9. 只写约定目录与截图生命周期：截图路径落在该 Agent workspace 的 `.nanoassistant/browser/<agentId>/`（解析后前缀校验，越界拒绝）；注入旧时间戳与超额文件后，下一次写入只按 TTL 1 小时与 20 张上限清理；启动期有界清理只扫已配置 Agent workspace 下的 `.nanoassistant/browser/<agentId>/`（不遍历 home/仓库，路径不存在或无法读时记录并继续，不阻塞启动）；实例结束（真窗口 `end_session`）与 Agent 销毁都不删除截图；仓库 worktree 无新增未跟踪产物。
-10. 日志与结果不含页面正文、查询串、Cookie、绝对 home 路径等敏感内容（URL 只记 host）。
+10. 本能力新增的驱动诊断日志不主动记录页面正文、查询串、输入文本、Cookie 或绝对 home 路径；URL 诊断只记 host。正常工具结果有意返回有界页面正文与 workspace 相对截图路径，并沿用底座会话历史/附件/记忆取材规则（见 Context Lifecycle）；不能把诊断脱敏说成全部结果或历史不含页面内容。
 11. 工具描述包含约定必含句（承诺原句、首次读取可能打开窗口并短暂占前台、read_id/ref 生命周期、只接受 ref、截图用 `read_image` 读、不登录/不提交/不下载、噪声与失败区分、非用户轮次不能新开实例），并有断言。
 12. `docs/development/agent-context-engineering.md` 要求的 Context 影响已按本 design 的 Consumer/Before-After/Validation 落地，并由 **code review 按 `agent-context-review` Implementation 模式**确认无未覆盖消费链（不新增独立门禁）。
 13. 前台归还失败冷却（fake timer，无浏览器）：`end_session` 失败 → `browser_foreground_release_failed`；`failedAt + 300s` 内每次调用都直接返回同一错误且**零驱动调用**（断言 driver client 未被调用、不做 `ps` 探测）；把 fake timer 推到 300s 后状态清空、可再次按 TurnGate 决策；冷却期内 prepare 同样被拒绝（不新增“新实例成功清除”分支）。
 14. 归还后的消费轮次锁：根/子请求按同一判定祖先 session+seq 拒绝新开（包括同轮新真人消息、新派 sibling）；新的合格祖先轮次可启动。异步回读期间超窗/祖先关闭仍记录请求开始的消费轮次；真实窗口与未分类窗口同现时仍先归还，错误带证据。窗口列表失败不得当无事件成功。
-15. 原生执行 Agent 销毁与 prepare/动作串行收口，不残留实例；截图用产品 agentId 路径，启动 sweep 能清到同一路径，销毁不删除证据。
+15. 原生执行 Agent 销毁与 prepare/动作串行收口；清理确认成功才释放实例计数，失败保留占额到冷却惰性到期，不宣称没有残留窗口。故障注入覆盖 prepare 超时/缺 pid、首次登记超时 + 两次 end_session 失败，后续本 Agent 调用零驱动、跨 Agent 最多两份占额、销毁不丢占额、到期后新合格轮次可再次按门禁判定；成功重试清理时保留原始登记错误。截图用产品 agentId 路径，启动 sweep 能清到同一路径，销毁不删除证据。
 
 ## 已知限制与未验证清单
 
