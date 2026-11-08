@@ -292,3 +292,85 @@ Round 1 的两条 CRITICAL 与七条 WARNING 全部以结构性改动闭环，�
 ### 结论
 
 两条已定口径与范围没有被本轮改动触碰，Round 2 的两个 WARNING 都以可验证机制关闭：孤儿 pending 有确定的删除入口与归零计数，登录后的分区激活有触发者、顺序与三态语义，并在 M1/M2 轨道各有一条可执行步骤。编号连续、无悬挂引用，`docs_check` 通过。剩余四条都是加法级澄清，不涉及任何产品决策；**文档集现在可以在不再需要产品决策的前提下进入实施（M1）**。
+
+## Round 4
+
+- reviewer: 新任独立 `change-design-reviewer`，执行子 Agent `db5da8a2-a5d4-4902-9c59-bf34f66ce34e`；未参与受审设计或实现，不是 Round 1–3 reviewer，亦非作者换上下文自审。
+- review_target: 冻结提交 `32c0421b825715fe90d800cf6c495ae317f19ec4`；增量 `1ee83e940..32c0421b8` 的 `design.md` D12 幂等/损坏修订、D12 补充与 `specs/im/ios-client.md` 新增迁移 Requirement，以及这些修改直接波及的 D3/D4/D10、回退与 M1/M2 边界。
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/feat-714`，branch `codex/feat-714`，HEAD 为上述冻结提交；审查开始及报告写入前，unit 文档相对冻结提交均无未提交修改。
+- source_boundary: 源码已有并行的未提交独立缺陷修复；本轮只读必要调用链，用于核实落点与现有不变量，不把 dirty source 或测试文件的存在当作本次设计已实施、编译或通过测试的证据。
+- review_mode: delta（narrow Gate 2）
+- mode_reason: 外置 policy、跨两持久层清理及 handoff 是实质设计增量，不能作为 Round 3 closure 或 retained 直接放行；其影响可限定在迁移/清理/恢复、真实首绘 owner 及新增 delta。未重开首文档、未扩大为全 unit 重审。
+- retained_from: Round 3。此前 GRDB 选型、schema/投影基本形状、离线撤销的已知边界、首启只给计数、不自动重发以及 M1/M2 的原有真实原生/真机证据要求仍保留；这是沿用历史审查范围，不声称本轮重跑此前 probe、docs_check 或产品验收。
+- configuration: 使用当前可用的 DSH 独立子 Agent。工具不提供选择原流程指定模型/effort 的参数，当前会话也未暴露可核实的具体模型版本/effort 值，故不宣称复现原配置；用户已在本轮明确批准此配置差异。独立性、内容范围与门禁标准不降低。
+- started_at: 2026-11-09T00:05:43+08:00（首个记录时间戳）
+- completed_at: 2026-11-09T00:09:29+08:00（证据核对完成；随后追加本报告）
+- duration: ≈4 min（证据核对，不含报告追加）
+
+### Verdict
+
+**Issues Found（Changes requested）— 0 CRITICAL / 3 WARNING。**
+
+父级选定的 A（旧 `SendAttempts` JSON 原样只读保留 + 持久导入栅栏）方向可实现，不需要另立 unit、改变原验收或请求新的产品取舍。但本次新增方案尚有两条清理恢复边未闭合，并有一处损坏恢复指令冲突。Round 3 的 Approved 不覆盖这些新决定；本轮不批准该设计增量进入已批准状态。
+
+### Coverage 与证据
+
+| 本轮问题 | 核对与判断 |
+|---|---|
+| 新机制的职责与复用 | `LegacyAttemptImportPolicy` 只承载旧源资格/清理代际，放在 `Chat/<digest>/` 外是必要的存活边界；复用既有 partition digest、受保护原子 JSON 与 GRDB 事务，不另建聊天事实源。Session 发生命周期信号、controller 排序 opener/purge、repository 执行业务 SQL/应用回执的分工可成立；没有 DSH、服务端或 Web 依赖增量。 |
+| 真实组装入口 | 只读 `NanoIMApp.swift:63-140,153-180,202-217`：`AppModel`/`bootstrapLocal`/`installChat` 与接收 `chat` 引用的 `RootTabs` 确是实际入口，不是仅测试手工装配。稳定 owner、metadata publish 复用、seed 为值、View 构造零 IO 的设计要求落点正确。源码为 dirty 状态，未据此宣称行为已经兑现。 |
+| 旧源与 fallback | `Session.swift:64-79,82-107,169-189` 仍有 legacy 保存/删除及 `clearSendAttempts` 删除挂点；`ChatStore.swift` 的 persist/remove/discard fallback 仍调用这些接口；`SendAttemptStore.swift:25-30,47-81` 按精确旧目录读写。新设计要求必须贯穿这些挂点，不能只停一处 purge 删除。D12:321/323 已要求只读旧源、新请求去独立 handoff；不把这些待改代码另记为设计已实施的缺陷。 |
+| policy/DB 事务与失败 | policy 先持久化、DB 只存应用回执，open 在导入/首绘前补未应用清理，可防止单靠 DB marker 丢失复活旧 JSON。不可读/未知版本 fail-closed、写失败不声称完成、drain detached opener、旧世代不能发布均有明确要求。清理动作粒度及 handoff 文件资格仍有 R4-W1/W2。D4 的 epoch/seq 拒绝仍须约束任何 policy 副作用，不能只在 policy 写成后的 DB 事务里才拒绝旧结果；本轮没有把旧有效性约束视为已取消。 |
+| delta/current spec | canonical target 为 `docs/specs/im/ios-client.md`，新增迁移 Requirement 补足首文档已有需求；原 MODIFIED 两个 Scenario 未在本增量删除。迁移冻结身份、计数时序、零 POST 与已清理旧源不复活对齐首文档及 current 不确定发送/退出隔离。只读仍可见边与 R4-W1 冲突。 |
+| 回退与范围 | D12:327 诚实区分「保留旧源字节」与「旧构建理解新 policy」；不承诺旧构建继承清理，升级后 DB/handoff 新请求旧构建不可见，原有有界回退损失未扩大为零损失承诺。不涉及服务器删除、自动重发、现有安装清理或部署。设备内自动适配不需要 `deployment-prompt.md`（本轮也未发现该文件），design:520-522 的判断保留。 |
+| 验证与能力 | 加载 `codebase-design`、`frontend-experience-review`（设计模式）与 `performance-review`（设计模式）补核职责、首绘与证据方法。新增恢复/清理不要求为流程制造 HTML 原型；实际画面、真机文件保护/备份属性、飞行模式与原有 ≥20 次 p50/p95 仍是实施证据，不以本轮只读审查替代。D12:329-334 的独立 code review/原生旅程/体验/性能安排覆盖重要目标，新增 worker 验证仍归 M1；需补 findings 所列反例，而非另加 Gate。无新的模型输入/选择链改动，D14 原边界保留。 |
+
+关键源码反证（均仅静态阅读）：`ChatRepository.swift:332-359` 将不可见差集撤销与可见但不可写的 pending 删除分开，`:394-400` 明确只读不写 tombstone，`:522-534` 是先 DB 清空再目录删除；`ChatStorage.swift:53-58,97-99` 只给 handoff 同目录位置和目录删除，没有跨文件/DB 原子提交能力；`ChatStorageController.swift:89-168` 是实际 opener/clear 编排落点。测试 `ChatRepositoryTests.swift:177-190` 已固定「只读只删 pending、保留会话且无 tombstone」，本轮未执行它。
+
+### 历史问题与交接
+
+- Round 1/2 的 CRITICAL/WARNING 按 Round 3 的已关闭记录保留，不回写旧结论。新增 policy 是对旧「旧源保留 + 仅 DB marker」方案必要但尚待审定的扩展，不能用旧 R1-C2 CLOSED 证明本增量已通过。
+- Round 3 的 R3-R1 幂等口径在 D10:257 仍在；本轮新增「重复相同 tombstone/不可写快照不旋转代际」方向一致。R3-R2 Runbook、R3-R3 合并投影及 R3-R4 首文档 Scenario 的历史修订不是本轮新问题。
+- 父级在收到 R4-W1 的提前通知后确认问题成立并表示将补 cleanup kind；冻结设计尚未修改。此意向不是闭环证据，本轮仍为 open，统一修订后再复审。
+
+### Issues
+
+#### R4-W1（WARNING）— 一个无类型会话代际同时表示不可访问与不可写，崩溃补清理把只读历史错删成撤权
+
+- **位置**：`design.md:310`（不可访问或不可写都写 `revocations: [conversationID: UUID]`）、`:315-316`（未应用会话代际统一删 pending/内容并写 tombstone）；相冲突的既有决定是 `:114,254` 与 M2 `[worker]` ②（`:592`，不可写只丢 pending、不丢会话）。current `docs/specs/im/ios-client.md:74-80` 也要求只读聊天可查看。
+- **触发/证据**：仍有读取权限的会话变为 `can_write == false`，库内有历史与 pending；客户端按新规则先持久化该会话 UUID，随后在 DB 清理事务前崩溃。下次 open 发现回执不匹配，按 :316 一律删除内容并写 tombstone。policy 只存 UUID，没有资料能辨别本次应执行「丢 pending」还是「撤销访问」。这不是权限可见性可由离线重新查询解决的问题。
+- **根因与后果**：旧源永久排除资格与 DB cleanup kind 被合并成同一个无类型值；恢复过程因此放大原授权事件的删除范围。用户离线重开会丢掉仍有权阅读的会话/历史，且该 tombstone 会拒绝本应允许的消息投影。
+- **闭合要求**：为持久清理意图保留可区分的动作（例如 `discardPending` 与 `revokeAccess`，或等价且可证明的结构），恢复按原范围补做；只丢 pending 时不删可读内容、不写撤权 tombstone，但旧源排除仍永久有效。加入「不可写 policy 提交后、DB 应用前崩溃 → 离线重开」断言：pending/旧源资格被清理，原会话与历史保留，真正访问撤销仍完整删除。无需产品改口径。
+
+#### R4-W2（WARNING）— handoff 的文件清理与 DB 应用回执缺少提交顺序，回执已匹配时仍可重新导入退出前的残留文件
+
+- **位置**：`design.md:315-317`（DB 清理事务同时写应用回执，允许 DB 已清理但文件尚在的崩溃点）、`:323`（新 handoff 放 `Chat/<digest>/*.json`、open/reloadPending 导入有效文件）；`:309-311` 的永久栅栏只定义旧 JSON 资格，没有 handoff 代际/旧文件资格规则。
+- **反例**：降级期间新请求 H 已持久到 handoff，尚未交给 DB。purge 先写 policy，再清空 DB 并提交匹配回执；在删除目录/文件前崩溃，或文件删除失败。下次 open 按 :316 看到回执已匹配而不补清理，随后按 :323 把仍有冻结内容的 H 当有效 handoff 导入。分区 purge 后 DB 中没有撤权 tombstone/交接 marker 能排除 H，而 policy 禁的只是 legacy。H 在同账号重新登录后可能作为旧 pending 复活；零自动 POST 不能消除这项内容恢复错误。
+- **根因**：同目录只是删除范围，不是 SQLite 与 JSON 的原子性；DB 应用回执当前证明的只是业务行已清空，没有证明待接管文件已失去资格。不能笼统用「清理同时覆盖 handoff」跳过这个已声明的崩溃窗口。
+- **闭合要求**：定义可证明的 handoff 清理/资格与回执顺序：例如持久意图之后先完成目标 handoff 清理再确认应用完成，任何残留/删除失败不放行 ready/import；或让 handoff 带可校验的创建代际并由 policy 拒绝旧代际。还须覆盖新文件在扫描后落盘的 writer/drain 边界，不能为了禁旧文件误禁重新授权后的新请求。加入隔离测试「退出前 handoff 尚未交接 → policy/DB 已提交而文件仍在 → 重开/重新登录」及相应失败重试，断言旧 H 不进入投影、新请求仍可用、零自动发送。
+
+#### R4-W3（WARNING）— D12 限定损坏错误后，风险 R2 仍命令对任意 open 失败侧移重建
+
+- **位置**：新 `design.md:298`（只接受 `CORRUPT` / `NOTADB` 证明损坏）、`:332`（普通 schema/IO 错误不触发 quarantine），与仍保留的风险表 R2 `:510`（「库打开失败/损坏（磁盘满、异常中断）」→「`open` 失败时把 `chat.sqlite` 侧移……重建空库」）。
+- **根因/后果**：同一恢复操作仍有两条相反触发指令。按 R2 实施/回退会把文件保护、磁盘满或 schema 问题误当损坏，侧移可恢复的库并在重建成功后丢失仅存在于库中的新 pending；旧 JSON 留存不能恢复这些升级后请求。当前 dirty `ChatRepository.open:94-104` 已体现窄分类，但不能用尚未审定/验证的实现消解冻结设计文本冲突。
+- **闭合要求**：同步 R2 的触发条件、保留文件与降级结果，明确非损坏错误不侧移/不重建，真正损坏才按 policy/handoff 资格恢复；保留 :332 的分类测试要求即可，不新增部署或运行试验。
+
+### Recommendations
+
+无额外非阻断建议。上述三个问题修订后可按改动范围做 narrow closure，不要求重开既有首文档或全量 Gate 2。
+
+### 未验证事实与执行边界
+
+- 本轮只执行只读 Git/时间查询和文件阅读；没有运行构建、XCTest、模拟器/GUI、服务、HTTP 探针或脚本检查，也没有读取/操作用户现有安装数据。
+- 所有崩溃序列是对冻结方案的静态反例，不是宣称已在运行中复现。现有 dirty tests 只用于辨明既有语义，未运行，不能据存在而称通过。
+- 原生首帧、杀进程、离线/同 origin 不可达恢复、性能分位数、文件保护/备份属性与真实清理效果均未由本轮验证；原有实施验收要求不降低。
+- 本 reviewer 的实际文件改动仅为向本 `design-review.md` 追加 Round 4，保留 Round 1–3 的报告与结论，不改源码、design、delta 或其他文档。
+
+## Round 4 — Author Resolutions
+
+以下为作者统一修订后的回应，不回写 reviewer 的 Issues Found 结论；三项是否闭合交回同一独立 reviewer 判定。未实施新增 policy/handoff 产品机制，也未把此前 dirty source 视为验证。
+
+- **R4-W1 → 采纳**：D12 的会话 policy 改成带 `generation` 与 `kind` 的 `conversationCleanups`。`discardPending` 补清理只删 pending、保留可读会话/历史/草稿且不写 tombstone；`revokeAccess` 才删除全部并写 tombstone。两者永久排除旧 JSON。补充动作升级/重新授权后再次清理的代际规则、以及只读与真正撤权两个 policy 提交后崩溃测试。
+- **R4-W2 → 采纳代际资格方案**：handoff 采用版本化 envelope，保留创建时分区/会话代际；每次导入无论 DB 回执是否匹配都核对两个值。清理先旋转 policy，旧遗留文件即使未删也不能导入；旧请求不得重贴新代际。repository/controller/fallback 共用分区串行协调，捕获/写文件与清理排序，生命周期 drain writer/opener。新增 policy/DB 已提交但文件仍在及删除失败重试、交错 writer 和重新登录后新请求可交接的反例测试。DB 回执只证明 DB 应用，不再被描述为文件删除证明。
+- **R4-W3 → 采纳**：风险 R2 与 D12 同步为仅 `CORRUPT` / `NOTADB` 可 quarantine/rebuild，其他错误保留库并降级；写明仅库内升级后 pending 不能从 `/sync` 重建。相关风险 R3 同步去掉任意写错误可自动 purge 的绕过入口。D12 标题同步区分「库内导入幂等」与「库外主动清理资格」。原分类测试要求保留。
+- 本次修订只改变设计文档及本回应；新增 delta 的可观察语义未变，首文档、视觉取舍、原验收与非目标不变。不请求产品重新决策，不新增部署/现有安装操作。

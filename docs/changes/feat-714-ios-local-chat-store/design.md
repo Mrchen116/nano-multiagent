@@ -284,7 +284,7 @@ stateDiagram-v2
 - 兜底 `/sync` 的代价：改名不触发全量重拉（时间线来自本地库），但兜底 `/sync` 仍会跑一次——收益在「不清空时间线、不整屏闪回」，不在「少一次请求」。
 - 不做：服务端事件类型细分与事件回放（U4）。这里只用现有接口，不新增协议。
 
-**D12 — 一次性迁移在「打开分区」时执行；旧 JSON 原样保留，是否已迁移只由库内标记判定。**
+**D12 — 一次性迁移在「打开分区」时执行；旧 JSON 原样保留，导入幂等由库内标记判定，主动清理后的源资格由库外持久策略限定。**
 
 - 时机与网络无关：迁移只在 `ChatRepository.open` 内、migrator 之后、对外可用之前执行一次，**纯本地 IO、零网络**。所以「首启即断网」不会让迁移失败或半途而废——迁移会正常结束，只是记录的**可见性**要等第一次成功 `/sync`（见下一条）。
 - 迁移完成 ≠ 首帧可见（C1）：升级后首启时 `conversations` 表还是空的（迁移先于任何 `/sync`），因此首帧**只能给出 pending 计数**：`BootstrapSeed.pendingCount` + 一句诚实说明「N 条未确认的发送；连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除」。这些记录在第一次成功 `/sync` 把会话写进库之后，就按会话出现在时间线里。**不造占位会话行**——那会在列表里出现一个点不开的假会话。首文档的「升级后首次启动的呈现」Scenario 已把这一时序写成验收口径。
@@ -307,20 +307,22 @@ stateDiagram-v2
 **职责与唯一事实源**：新增小型 `LegacyAttemptImportPolicy`，路径 `ApplicationSupport/NanoIM/ChatImportPolicy/<partition.digest>.json`，不在被清理的 `Chat/<digest>/` 内。它只记录旧源永久失去导入资格的范围与代际，不保存消息、草稿、请求体或凭据，不是第二套聊天库。目录/文件同 `.completeFileProtection`、排除备份。状态包含：
 
 - `purgeGeneration: UUID?`：分区主动退出/换账号/换 origin/凭据或账号失效后产生；存在即永久禁止该分区旧 JSON 再导入。
-- `revocations: [conversationID: UUID]`：该会话被权威判定不可访问或不可写、其未确认发送被显式丢弃时产生。即使以后重新取得访问，也不恢复**旧**请求的资格；重新编辑/新请求仍走数据库或新 handoff，与旧源无关。
+- `conversationCleanups: [conversationID: {generation: UUID, kind: discardPending | revokeAccess}]`：不可写/已解散但仍可读，或显式丢弃该会话未确认发送时，记录 `discardPending`；权威确认失去读取访问时记录 `revokeAccess`。两者都永久排除该会话的旧 JSON，唯有后者删除可读会话/历史并写撤权 tombstone。即使以后重新取得访问，也不恢复**旧**请求的资格；重新编辑/新请求仍走数据库或新 handoff，与旧源无关。相同动作已应用且没有新数据时幂等；`discardPending` 升级为 `revokeAccess`、或重新授权后再次发生清理时生成新代际，不能因旧排除项已经存在而跳过新的业务清理。
 - 文件不存在表示首次升级、尚无排除记录；文件不可读/无法解码或版本未知必须降级，不能按空策略继续导入。文件采用受保护的原子替换；代际不因 DB 损坏/重建而清零。
 
 **写入与崩溃顺序**：
 
-1. 需要清理时先把新的 policy 代际原子持久化，再在 DB 单事务中执行原有 revoke / pending 删除 / 分区清空；事务同时写 `cache_meta.policy.partition_generation` 或 `cache_meta.policy.conversation.<id>` 作为「此缓存已应用该代际」的回执。Policy 是旧源资格的唯一事实；DB 里的回执不是第二份裁决。
-2. 打开 DB 时，在旧 JSON 导入与首绘前对比这些回执。不匹配时先把清理补完并更新回执：分区代际变化清空旧聊天行与 sync 状态；会话代际变化删除该会话 pending/内容并写 tombstone。这样「policy 已提交、DB 清理前崩溃」不会让旧 DB 在下次启动闪回。
-3. DB 已清理、文件删除前崩溃：回执已一致且行已空，下次打开仍为空；整库已删除时，policy 仍在，旧源不会重新导入。
+1. 需要清理时先校验 D4 的请求上下文/epoch/seq，拒绝迟到结果后才允许产生 policy 副作用；在同一分区的串行操作内把新代际与清理种类原子持久化，再在 DB 单事务中执行原有 revoke / pending 删除 / 分区清空。事务同时写 `cache_meta.policy.partition_generation` 或 `cache_meta.policy.conversation.<id>` 作为「此缓存已应用该代际」的回执。Policy 是源资格与清理意图的唯一事实；DB 里的回执不是第二份裁决。校验、policy 写入与 DB 应用之间不允许另一次分区操作穿插。
+2. 打开 DB 时，在旧 JSON/handoff 导入与首绘前对比回执。不匹配时先按原动作补完并更新回执：分区代际变化清空旧聊天行与 sync 状态；`discardPending` 只删该会话 pending，**保留会话、历史、草稿且不写撤权 tombstone**；`revokeAccess` 才删除该会话全部内容/pending 并写 tombstone。这样「policy 已提交、DB 清理前崩溃」既不闪回已撤权内容，也不把可读只读历史扩大删除。
+3. DB 已清理、handoff 文件删除前崩溃：回执只证明 DB 应用完成，**不证明文件已删除**；遗留 handoff 仍须逐件通过下文创建代际校验，旧代际一律不得导入。整库已删除时同样先应用 policy；旧源被永久排除，旧 handoff 被代际拒绝。文件删除失败须报告并保留重试，不得把失败描述为物理清理成功，但已失去资格的文件不能因回执匹配而恢复。
 4. Policy 写入失败不允许宣称清理完成，也不允许删除 DB 后丢失唯一剩余 marker。当前 owner 立即停止展示并进入明确的存储降级；保留原文件以重试，向调用者报告失败。Policy 可读性失败不能被 corruption rebuild 路径绕开。物理文件系统无法持久写入时不作成功承诺。
-5. 后续全量快照/成功详情可重新授权显示该会话，但不会撤销其旧源排除记录；这保证「重新入群」不会把之前已丢弃的旧发送复活。多次相同 tombstone / 不可写快照不重复旋转代际。
+5. 后续全量快照/成功详情可重新授权显示该会话，但不会撤销旧源排除记录；新请求捕获**当前**代际，旧请求不得重贴新代际。这保证「重新入群」不复活旧发送、也不误禁重新授权后的新请求。只有仍处于同一清理状态且没有新数据的重复 tombstone / 不可写快照可复用代际。
 
 `Session` 停止自动删除旧 JSON；生命周期信号仍由 Session 发出，分区清理由 controller 协调，业务行删除与 policy 回执只在 repository 内。`ChatStorageController` 的 opening / degraded 也可能已有磁盘目录：必须 drain detached opener，再经相同 policy 入口清理；同分区 activate 合并，旧 purge 不得发布到新世代。
 
-**降级新请求的 handoff**：不再写回旧源。新请求暂存到 `Chat/<digest>/<attempt-hash>.json`（与 DB 同一清理边界，只有冻结 JSON 请求，不含媒体字节）。打开/重试就绪时，先在同一 DB 事务中导入有效 handoff 并为该不可变 `(conversation, source, key)` 写交接 marker，再在事务成功后移除对应 handoff 文件；崩溃或文件删除失败会重走 marker 而不复活已处理行。ready 后若有新 handoff 在 opener 扫描后落盘，`reloadPending` 必须再做同样交接，不能用 DB 空数组覆盖尚未接管的内存记录。读取/交接失败保留文件与原投影，显式报错，绝不自动 POST。会话/分区清理同时覆盖新 handoff，不触碰旧源。
+**降级新请求的 handoff**：不再写回旧源。新请求暂存到 `Chat/<digest>/<attempt-hash>.json`（与 DB 同一物理清理边界，不含媒体字节）。版本化 envelope 包含冻结请求、不可变 `(conversation, source, key)`、创建时的 `purgeGeneration` 与该会话 cleanup generation（无值也明确编码）；不是只存裸 PendingSend。新请求开始持久化时从分区串行协调器取得创建代际，后续保存/补交接沿用同一值，不得在清理后重新读取新代际给旧请求盖章。policy 读改写、handoff 资格捕获/写入与清理由同一分区串行协调器排序（repository/controller/fallback 复用同一个实例；文件 IO 不在 MainActor），不能存在 policy 更新前捕获、更新后以新资格落盘的未受控 writer。生命周期清理先冻结旧 owner 并 drain 已启动 writer/opener；迟到的旧请求被 owner epoch 或其旧 envelope 代际拒绝。
+
+打开/重试就绪及每次 `reloadPending` 时，先确认 envelope 的两个创建代际与当前 policy **都相等**，才在 DB 同事务中导入并为该不可变身份写交接 marker，再于提交后删除该文件。代际不匹配的遗留文件绝不导入，删除失败保留为无资格文件、显式报告并可重试；DB 回执匹配不能跳过资格校验。有效文件在 DB 提交后删除失败时由交接 marker 防止重复导入；无效/未知版本不能按新请求处理。扫描、交接及其后的新 writer 共用串行入口；opener 扫描后才排队的新有效 handoff 必须由下一次 `reloadPending` 接管，不能用 DB 空数组覆盖未接管的内存记录。读取/交接失败保留文件与原投影、显式报错，绝不自动 POST。分区 purge 或会话 cleanup 必须先旋转相应代际再清理 DB/文件；重新登录/重新授权后创建的新请求使用当前代际，仍可正常交接。旧源不被触碰。
 
 **稳定首绘 owner**：`AppModel` 按 partition 强持有唯一 `ChatStore`，bootstrap 先取本地 seed 并绑定，再发布 ready/user；`RootTabs` 只接收引用。不得在 View 构造中 eager new/attach 临时 store、消费 seed 或启动文件读取。相同账号的 metadata publish 复用实例，换身份显式 reset/替换。controller 的编排字段不参与 UI Observation；seed 是可复用值，不是读一次就反写的事件。
 
@@ -329,7 +331,7 @@ stateDiagram-v2
 **本轮追加验证（仍归 M1，不另拆 milestone）**：
 
 - worker：隔离临时旧 JSON 的字节摘要前后相同；首次导入/重复导入；未清理范围损坏重建可重导入；分区 purge→重新登录、会话 revoke→损坏重建均不重导入旧请求；重新授权不复活旧请求但允许新请求。
-- worker：构造 policy 已写而 DB 未清理、DB 已清理而文件尚在、handoff DB 提交而文件尚在三个崩溃点，重开后结果唯一且零发送；policy 解码/写入失败不能按成功继续；普通 schema/IO 错误不触发 quarantine。
+- worker：构造 `discardPending` policy 已写而 DB 未清理的崩溃点，离线重开保留只读会话/历史/草稿、不写 tombstone、pending 及旧源资格清除；`revokeAccess` 同崩溃点仍完整删除并写 tombstone。构造分区 policy/DB 回执已提交而旧 handoff 文件仍在、有效 handoff DB 提交而文件尚在，重开/重新登录时旧文件不复活，删除失败后重试仍不复活，新请求可交接，零发送；覆盖 policy 旋转与 writer 入队交错、旧请求不得重贴新代际。policy 解码/写入失败不能按成功继续；普通 schema/IO 错误不触发 quarantine。
 - worker：同分区并发 activate 一次 open；purge 等待 opener；旧 purge 不清新 partition；degraded→ready 的 handoff 冻结字节不丢；AppModel 本地 bootstrap 零 HTTP、同账号 publish 保持同一 UI store。
 - reviewer：组合独立 `change-code-review`（含最终 delta/契约校对）、`product-journey-review` / `frontend-experience-review`（共享真实原生首绘、杀进程、同 origin 不可达恢复及画面）、`performance-review`（原有真机 20 次 p50/p95 与主线程 IO 边界）。无模型 Context 增量。当前工具不支持指定原流程模型/effort，本轮已获用户允许以可用配置独立审查；记录实际差异，不降低审查内容。
 
@@ -507,8 +509,8 @@ sequenceDiagram
 | # | 风险 | 缓解 | 回退 |
 |---|---|---|---|
 | R1 | **迁移丢未确认发送**（直接破坏「不重复、不自动重发、重启可核对」三条既有保证） | 唯一键 + `INSERT OR IGNORE` 幂等；插入与标记同事务；`pending_sends` 不建会话外键（C1）；旧 JSON 在 U1 不改名不删除（C2）；逐条 `migration_report`；M1 单测逐字节比对 `request_body` 与条数，并用「任何 POST 都失败」的桩断言零发送 | 旧 JSON 目录**原样保留**（U1 无删除判据）：升级前的尝试在回退后仍可读；升级后新产生的尝试只在库中，旧构建看不到——这部分损失被明确接受并写进证据，**不承诺「回退零数据丢失」** |
-| R2 | 库打开失败/损坏（磁盘满、异常中断） | `open` 失败时把 `chat.sqlite` 侧移为 `chat.corrupt-<ts>`、重建空库、**不动**旧 JSON（U1 本来就不改名不删除），因此未确认发送仍可再次导入；失败原因写入 `cache_meta` 与日志 | 同上：空库只是丢本地缓存，服务端全量 `/sync` 即可重建；用户可见退化为「无本地数据的首次加载」。重建也失败时按 D3 的降级走纯网络模式，App 仍可用 |
-| R3 | 并发写导致数据错乱 | 单连接 `DatabaseQueue` + actor 串行；写只经仓储；事务边界固定为「一次网络结果/一次用户意图」；UI 不持有 `Database` | 无需数据回退：出错时可整分区 `purge()` 重建（本地数据可重建） |
+| R2 | 库不可打开，或 SQLite 明确报告损坏 | 仅 `CORRUPT` / `NOTADB` 才把原库保留为 `chat.corrupt-<ts>` 后重建；旧 JSON 原样保留，但只恢复 policy 允许的旧源及通过创建代际校验的 handoff。权限/文件保护/磁盘满/IO/schema 错误不侧移、不重建，保留可恢复库并报错降级；失败原因记安全日志，不能要求在打不开的库内成功记账 | 真正损坏可能丢失只存在于原库中的升级后 pending，不能声称 `/sync` 能重建未知冻结请求；保留原库供恢复、诚实提示存储故障。重建失败及非损坏打开失败均按 D3 明确降级并允许重试，不以空库冒充成功清理 |
+| R3 | 并发写导致数据错乱 | 单连接 `DatabaseQueue` + actor 串行；写只经仓储；事务边界固定为「一次网络结果/一次用户意图」；UI 不持有 `Database`；跨 policy/handoff 操作也按分区串行 | 写失败保留库与冻结请求、明确降级后重试；不能把任意错误当作可自动 `purge()` 的授权，主动清理只走既有生命周期/访问/显式丢弃入口及持久 policy |
 | R4 | 访问撤销后仍闪回（违反 `ios-client.md:35`） | D10 三层防护 + tombstone + 定向核对；M2 单测覆盖「旧 seq 快照被拒」「revoked 会话拒绝写入」，真机覆盖「离线冷启动仍不出现」 | 单个函数回退：`membership_changed` 回到「清空 + 全量重拉」（会闪一下，但不泄露） |
 | R5 | GRDB 引入成本（供应链、构建时长、二进制体积、CI 联网解析） | 精确 pin + 提交 `Package.resolved`；首次构建实测通过（D1）；CI 与 `swift-markdown` 共用同一条 SPM 解析路径 | 撤销 pbxproj 与 `Package.resolved` 即可；无用户数据格式变化 |
 | R6 | 牵连 Web/服务端 | 本 unit 明确不改 `apps/im-server/**` 与 `src/IM/frontend/**`；PR 范围以路径自证，`/sync` 不新增参数 | 不需要：没有跨端改动可回退 |
