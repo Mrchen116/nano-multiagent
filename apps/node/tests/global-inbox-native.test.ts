@@ -34,7 +34,11 @@ it('coalesces Inbox notices during a model request and notifies again after cons
       runtime: client.rpc, image: async () => '', onError: error => errors.push(error),
       relay: { request: async (type, payload: any) => {
         if (type === 'agent.work.append') return { type: 'ack', payload: { through_seq: payload.events.at(-1).seq } };
-        if (type === 'conversation.query' && payload.action === 'describe') return { type: 'ack', payload: { ok: true, result: { conversations: payload.targets.map((target: string) => ({ target, name: target === 'external:team' ? 'Team' : 'Owner' })) } } };
+        if (type === 'conversation.query' && payload.action === 'describe') {
+          // Match production routing: only an all-external query is handled locally.
+          expect(new Set(payload.targets.map((target: string) => target.startsWith('external:'))).size).toBe(1);
+          return { type: 'ack', payload: { ok: true, result: { conversations: payload.targets.map((target: string) => ({ target, name: target === 'external:team' ? 'Team' : 'Owner' })) } } };
+        }
         return { type: 'ack', payload: { ok: true, result: { target: payload.target, name: payload.target === 'external:team' ? 'Team' : 'Owner', type: payload.target === 'external:team' ? 'group' : 'direct', channel: 'web', members: [{ type: 'user', user_id: 'owner' }] } } };
       } },
     });

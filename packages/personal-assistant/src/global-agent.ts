@@ -258,8 +258,13 @@ export class GlobalAgent {
     const sources = this.options.inbox.check(config.agentId).sources;
     // Offline nodes can still process their persisted Inbox using the last known names.
     if (sources.length && this.options.relay.ready !== false) {
-      const descriptions = await this.query(binding, { action: 'describe', targets: sources.map(source => source.target) });
-      for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(config.agentId, source.target, source.name);
+      // External sources are described locally; IM cannot resolve their routing IDs.
+      for (const external of [false, true]) {
+        const targets = sources.filter(source => source.target.startsWith('external:') === external).map(source => source.target);
+        if (!targets.length) continue;
+        const descriptions = await this.query(binding, { action: 'describe', targets });
+        for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(config.agentId, source.target, source.name);
+      }
     }
     return this.options.inbox.check(config.agentId, !!config.personal);
   }

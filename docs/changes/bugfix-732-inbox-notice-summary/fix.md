@@ -37,3 +37,5 @@ DSH 既有待交付 Inbox 提醒替换机制未变；每个新 wake 都携带完
 ### 独立审查修正
 
 初轮独立审查确认 `mentioned_agent_ids` 原本还包含卡片回复的隐式寻址。IM relay 与 PA observation 现额外提供 `explicit_mentioned_agent_ids`，摘要优先使用该真实提及字段，原触发字段保持不变；已有未携带该字段的卡片回复和系统触发不冒充显式 @。内部 Workflow 返回明确无显式提及，避免继承旧触发信号。服务层已有交互/PA 测试补保护无 @ 卡片回复，Inbox 测试区分旧卡片、显式 @ 卡片与其他 Agent 的提及。修正后这三文件窄回归 38 passed。
+
+宿主 describe 按内置 IM 与 external 路由分组：现有 external router 只在全部 target 属于本地外部聊天时处理 describe，混合转发会遗漏外部名称。通知现在分别查询两类来源，再复用同一摘要/短引用投影；native 跨来源测试的 describe fixture 明确保护此路由前提。
