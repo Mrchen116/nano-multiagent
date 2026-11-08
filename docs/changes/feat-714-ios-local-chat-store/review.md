@@ -151,3 +151,15 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 原静态结论APPROVED0C/0W：正常PATCH/DELETE真实API与membership发布契约吻合，A非creator/另合成operator有write前置正确；ID限ASCII字母数字下划线、http/127.0.0.1/显式port、专用Authorization token；async URLSession让出actor；完整正文/目标/15秒和5秒未弱化，无内部store/SQL/cache注入。阶段必须在线真实成功并terminate后再停止origin做offline，不以test排序假定前置。
 - 原reviewer明确限定：静态通过不能证明新旅程PASS、每帧不闪回/≤1RTT/无瞬间重排或准确归因WebSocket而非其它sync。M2运行缺口仍pending。
 - **实跑更正（已回到原reviewer且其明确接受）**：b18 online exit65在rename断言失败后仍继续后续操作，原报告「continueAfterFailure=false使async guard/assertion失败立即结束、不继续外发」论断撤回；不得再用该断言作为已证控制边界。原报告保留历史，但当前判定为online FAIL、offline未执行，失败后步骤不计有效验收。需要显式guard/throw，修后独立复核另记。详见[M2运行与RED证据](M2-partition-revocation/recovery-validation.md)。
+
+## Round 10 — 可见detail修正与显式async边界窄审 REQUEST CHANGES（0C/1W）
+
+- 原非作者只读审b18..1441ea83共6files/+70/-16；原rename路径根因与测试吻合，同ID/nil边界及async显式guard→XCTFail→throw、try传播/defer terminate静态通过，不再依赖continueAfterFailure。正文与超时未放宽；真实FAIL与offline未跑如实保留。
+- **W8 CONFIRMED（静态）**：新增共享persistConversation的inspected同步也接受迟到/read旧DTO。membership成功不推进同代projectionRevision/snapshotSeq，旧/read仍过guard，将刚Renamed的可见detail回退Original。需正确发布边界及hold/read交错保护。此时65条修后测试绿不能关闭未覆盖竞态。
+
+## Round 11 — W8集中代码closure APPROVED（0C/0W），runtime待证
+
+- 同原非作者加载change-code-review，只读核`1441ea83..cf6869499c6e793f18ff45fd5c06e3112dfc093f`，2files/+16/-3；无build/test/服务/设备/GUI/网络/模型/jobs/文件或Git写入。不重审其它unit或已closed项。
+- persistConversation恢复只处理原持久化/list投影；verifyAccess在权威GET成功、落库且第二次isCurrent通过后，仅对同ID inspected发布，赋值到清checking之间无await。其它目标或nil不覆盖/创建，inspectConversation原发布不变。因此保留rename校正且切断本次新增late/read detail回退。
+- 既有rename测试保留全部原断言，新增真实markRead挂起旧/read→membership→release/await→detail仍Renamed，并查read_state=m3避免靠跳过boundary凑绿。复用hold seam，未删断言/扩大timeout/改生产API。独立核原RED日志295-303唯一late/read detail断言失败，1test/1failure/0unexpected，TEST FAILED保留；diagnostics utility72在测试后。
+- **W8代码层CLOSED，findings=[]，no spec delta，corrected-delta aligned**。仅关闭新增可见detail回退，不宣称既有/read对list/持久化DTO语义或所有同代元数据竞态已解决。1441 async显式边界静态结论沿用；修后GREEN、invalid-token实际fail-fast、正常membership+offline尚待统一证据，不能据此称全unit或当前head全量通过。

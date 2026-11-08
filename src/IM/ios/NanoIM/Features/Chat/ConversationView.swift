@@ -45,7 +45,9 @@ struct ConversationView: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
-                        if items.isEmpty {
+                        // A confirmed access loss is not a missing cache or a connection
+                        // problem; the dedicated revocation notice below owns that state.
+                        if items.isEmpty && !store.revokedChats.contains(conversationID) {
                             if store.timelinePhase(conversationID) == .needsConnection {
                                 VStack(spacing: 8) {
                                     Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")

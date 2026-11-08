@@ -92,6 +92,8 @@ final class LocalFirstLaunchUITests: XCTestCase {
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: message(content))
         let hiddenResult = await XCTWaiter.fulfillment(of: [hidden], timeout: 5)
         try requireFixture(hiddenResult == .completed, "Revoked message content must stop being visible")
+        try requireFixture(!app.staticTexts["A connection is needed to read this conversation"].exists, "A confirmed revocation must not suggest that reconnecting restores access")
+        try requireFixture(!app.buttons["Retry"].exists, "Do not offer the missing-cache retry after access is revoked")
         capture("membership-revoked-timeline")
         app.navigationBars.buttons.element(boundBy: 0).tap()
         try requireFixture(!app.staticTexts[renamed].exists, "The revoked group must also leave the list")
