@@ -54,3 +54,12 @@
 - W6：会话首个成功消息结果与尚未加载分开，合法成功空页显示“还没有消息”，无缓存且失败仍说明需要连接。新增 held 首请求→成功空页→reset→离线失败状态回归；真实画面/操作仍需原生旅程补验。
 
 这些新回归在 checkpoint 时**未运行**，没有 typecheck/build/XCTest 红绿结论，也未由独立 reviewer 关闭。作者只做 Swift frontend parse 与 diff 静态检查；首次 docs check 使用系统 Python 缺少 PyYAML，改用项目已有 `.venv/bin/python` 后 docs check 283 sources / 69 routes 通过，不安装依赖、不改变环境。后续必须在协调的本地资源窗口实际运行，再交同一独立 reviewer 补验失效判断。此前 a65 的 92 tests 结果仍只归属原版本。
+
+### 六项定向 RED（真实执行）
+
+- 基准为 `cc6e1572e01822093bfb57146d7d0864204ec7a9` 的七个相关产品文件，测试保留 `47ed3dc11ccf7a09573a2ad0167925fe6b4395fc` 新增十条。为使新测试在旧实现编译，只补三处 compatibility adapters：旧 draft flush 接收同一真实仓储 writer seam、按排序选择一种原本合法的字典迭代顺序（仍无等待链/错误保留）；消息 phase 查询镜像旧 View 的实际分支（不补成功空结果状态）；仓储接受但忽略新分页完整性可选参数。`ChatTimelinePhase` enum 仅作编译桥接。**这是明确适配的 baseline RED fixture，不是宣称纯 cc6 head 的新测试可直接编译。**
+- 实际结果：**exit 65 / 10 tests / 26 assertion failures / 0 unexpected**；十条全部失败，分别复现旧 draft 覆盖/失败清空丢失、三条 partition purge 问题、disabled 冷启未清理、两条普通分页完整性缺失、legacy ENOTDIR 被吞并永久写空 marker，以及成功空页仍 loading。
+- 原始产物：`/tmp/feat714-review-red-rkrfn_wi/targeted-red.log:685-744`、同目录 `targeted-red.xcresult`；`manifest.json`、`repair-product.patch`、`red-vs-47ed.patch` 保留精确源差异。测试完成后 Xcode 诊断收集另报 simctl utility 72（日志 745-746），发生在十条测试与 26 条断言已明确执行之后，不将它冒充上述断言根因，也不隐藏。
+- RED 同时揭出 `resetProjection` 漏清内存 `before` cursor：它不是新的进程状态，不能拿仍残留的 cursor 假装重开。修复该真实遗漏，保留离线 hint 断言；同时增强两条 purge fixture，让旧 draft 与 pending 同时存在、disabled 冷启旧库确有 pending，不删除或弱化原断言。恢复所有 RED 产品文件到修复版后才运行后续七组。
+
+本组仍使用确由 714 早先 `simctl create feat-714-native-acceptance` 返回的新设备 `55763F8D-5385-47DF-A24F-F2461DCB2FFB`（原 receipt `/tmp/feat714-native-18vslzip/device`）。这是 hosted XCTest：会安装/更新同 bundle `win.nanoim.ios` 并写该测试设备的正常 App sandbox，**不是“不碰 App sandbox”或“零网络尝试”**；原生 fixture 的旧 loopback 51396 refresh 失败按日志保留。仅临时 fixture，无生产/个人设备、其它模拟器或新增 GUI 旅程、模型、真实服务操作。

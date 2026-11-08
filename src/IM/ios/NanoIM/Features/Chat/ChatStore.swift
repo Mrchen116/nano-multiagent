@@ -348,7 +348,7 @@ final class ChatStore {
         queuedDrafts = [:]; dirtyDraftIDs = []
         stop()
         timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
-        inspectedConversation = nil; olderNeedsNetwork = []; receivedTimelineResults = []
+        inspectedConversation = nil; before = [:]; olderNeedsNetwork = []; receivedTimelineResults = []
         interactionPending = [:]; interactionConversations = [:]; interactionSelections = [:]; interactionSending = []; sending = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil
         listPhase = .loadingFirst; connection = .starting; pendingCount = 0; lastFullAt = nil; listError = nil

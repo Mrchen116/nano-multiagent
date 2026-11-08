@@ -201,9 +201,9 @@ final class ChatStorageControllerTests: XCTestCase {
         let repository = try XCTUnwrap(controller.repository)
         let context = try await repository.writeContext()
         _ = try await repository.applyConversation(conversation("a"), members: [], write: context)
-        try await repository.setDraft("a", body: "old private draft")
         try await repository.upsertPending(SendAttempt(conversationID: "a", sourceMessageID: nil,
                                                        draft: PendingSend(key: "old", content: "private", attachments: [], requestBody: Data("{}".utf8))), write: context)
+        try await repository.setDraft("a", body: "old private draft")
         let store = makeStore(controller)
         await store.loadSeed()
         let blocker = repository.attemptPersistence.policyURL.deletingLastPathComponent()

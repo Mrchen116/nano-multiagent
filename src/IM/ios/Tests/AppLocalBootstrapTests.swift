@@ -88,6 +88,12 @@ final class AppLocalBootstrapTests: XCTestCase {
         try legacy.save(attempt, origin: origin, userID: "alice")
         let file = try XCTUnwrap(legacy.attemptFiles(origin: origin, userID: "alice").first)
         let original = try Data(contentsOf: file)
+        // The terminated process may already have imported an unresolved request. Seed it
+        // without ever registering this new controller's partition, as on the real cold path.
+        let prior = try ChatRepository.open(partition, location: location, legacyAttemptRoot: root.appendingPathComponent("legacy"))
+        let context = try await prior.writeContext()
+        try await prior.upsertPending(attempt, write: context)
+        try await prior.close()
         XCTAssertNil(model.storage.partition, "this models a fresh process after disabled credentials were saved")
         await model.bootstrapLocal()
         XCTAssertTrue(model.ready)
