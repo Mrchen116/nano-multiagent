@@ -228,7 +228,11 @@ export default class NanoRuntime {
     ctx.plugin(CodexApproval);
     const codex = new Promise<CodexApproval>(resolve => { ctx.inject(['codexApproval'], child => { resolve(child.codexApproval); }); });
     const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
-    const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
+    let approvalService: NanoApproval | undefined;
+    const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => {
+      approvalService = child.nanoApproval;
+      resolve(approvalService);
+    }); });
     // The guard is installed after approval so its prepend hook runs before the
     // classifier; registration is macOS-only, while the guard itself is inert
     // when the tools are absent.
@@ -237,7 +241,9 @@ export default class NanoRuntime {
       lookup: id => { const parent = ctx.agents.get(SessionId(id)); return parent ? liveTurnSession(parent) : undefined; },
       liveHumanTimes: (id, afterSeq) => {
         const ancestor = ctx.agents.get(SessionId(id));
-        return ancestor ? ctx.nanoApproval.sources.liveHumanTimes(ancestor, afterSeq) : [];
+        // Cordis services are accessible only through an injected context. The
+        // guard stays synchronous and fails closed until that service is ready.
+        return ancestor ? approvalService?.sources.liveHumanTimes(ancestor, afterSeq) ?? [] : [];
       },
       logger: { warn: (...args: unknown[]) => ctx.logger.warn(args.map(value => String(value)).join(' ')) },
     });
