@@ -564,9 +564,6 @@ final class ChatStore {
         }
         guard await isCurrent(request) else { throw CancellationError() }
         if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
-        // The open view prefers its inspected detail over the list row. Keep both
-        // projections on the same authoritative response after a membership change.
-        if inspectedConversation?.id == value.id { inspectedConversation = value }
     }
 
     /// Entering a cached chat never waits for the detail request (including its timeout).
@@ -691,6 +688,9 @@ final class ChatStore {
             guard await isCurrent(request) else { return }
             try await persistConversation(value, request: request)
             guard await isCurrent(request) else { return }
+            // The open view prefers inspected detail. Publish the access check here,
+            // not in the shared writer: a late /read DTO must not replace that detail.
+            if inspectedConversation?.id == id { inspectedConversation = value }
             checkingAccess.remove(id); revokedChats.remove(id)
             await loadLocalTimeline(id)
             if timelines[id]?.isEmpty ?? true { await loadChat(id) }

@@ -69,6 +69,10 @@ final class ChatLocalFirstTests: XCTestCase {
         await store.openConversation("chat")
         XCTAssertEqual(store.inspectedConversation?.title, "Original", "Exercise the detail projection used by the open conversation view")
         XCTAssertEqual(store.timelines["chat"]?.count, 3)
+        // A read acknowledgement can carry metadata captured before the rename.
+        await stub.hold("/im/v1/conversations/chat/read", body: try JSONEncoder().encode(try conversation("chat", title: "Original")))
+        let read = Task { await store.markRead("chat", messageID: "m3") }
+        await stub.waitUntilHeld()
         await stub.setDetail(try JSONEncoder().encode(try conversation("chat", title: "Renamed")))
 
         await store.consume(try membershipEvent("chat"))
@@ -82,6 +86,15 @@ final class ChatLocalFirstTests: XCTestCase {
         let repository = try XCTUnwrap(store.repository)
         let actual = try await repository.timeline("chat").items.count
         XCTAssertEqual(actual, 3, "the rows were kept, not re-fetched")
+
+        await stub.release()
+        await read.value
+        XCTAssertEqual(store.inspectedConversation?.title, "Renamed", "A late read acknowledgement must not roll back the authoritative visible detail")
+        let fixture = try DatabaseQueue(path: repository.location.databaseURL.path)
+        let boundary = try await fixture.read { db in
+            try String.fetchOne(db, sql: "SELECT last_read_message_id FROM read_state WHERE conversation_id = ?", arguments: ["chat"])
+        }
+        XCTAssertEqual(boundary, "m3", "The confirmed read boundary is still recorded")
     }
 
     func testMembershipRemovalRevokesAndWritesATombstone() async throws {
