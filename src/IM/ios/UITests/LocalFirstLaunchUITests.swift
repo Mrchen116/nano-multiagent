@@ -18,6 +18,9 @@ final class LocalFirstLaunchUITests: XCTestCase {
         let title = try required("NANO_UI_CHAT_TITLE")
         let content = try required("NANO_UI_MESSAGE")
         app.launch()
+        if ProcessInfo.processInfo.environment["NANO_UI_RESET_OWNED_SESSION"] == "1" {
+            try resetOwnedSessionForLogin()
+        }
         let username = app.textFields["Enter your username"]
         XCTAssertTrue(username.waitForExistence(timeout: 10), "Use a dedicated simulator with no existing session")
         username.tap(); username.typeText(try required("NANO_UI_USERNAME"))
@@ -47,6 +50,21 @@ final class LocalFirstLaunchUITests: XCTestCase {
         XCTAssertTrue(message(content).waitForExistence(timeout: 5), "Cached history must appear before network timeouts")
         capture("offline-timeline")
         app.terminate()
+    }
+
+    private func resetOwnedSessionForLogin() throws {
+        // An interrupted prime can leave this dedicated fixture signed in. Use the
+        // public sign-out flow, never erase a simulator or bypass genuine login.
+        if app.textFields["Enter your username"].waitForExistence(timeout: 10) { return }
+        let me = app.tabBars.buttons["Me"]
+        XCTAssertTrue(me.waitForExistence(timeout: 10), "Only reset the dedicated fixture's visible session")
+        me.tap()
+        let identity = app.staticTexts["@" + (try required("NANO_UI_USERNAME"))]
+        XCTAssertTrue(identity.waitForExistence(timeout: 10), "Do not sign out an unexpected account")
+        app.buttons["Sign out"].tap()
+        let confirmation = app.sheets.buttons["Sign out"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5), "The normal sign-out confirmation must be visible")
+        confirmation.tap()
     }
 
     private func message(_ content: String) -> XCUIElement {

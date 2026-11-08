@@ -117,3 +117,9 @@
 - 按本轮真实旅程超时停止线停止该批，不忙重试、未跑offline。唯一IM job已收集SIGTERM退出，实查 `53703 connect=61` 无监听；精确557名称/UDID已核为Shutdown（exit0），未erase/delete/clone。所有本批构建与UI作业已收集，无自建服务/模型/Gateway/浏览器残留。
 
 当前代码 finding closure通过，复用的后六组与最终有序App6定向回归有效；但完整两阶段原生旅程仍 **FAIL / offline未验证**。需要后续获准窗口以避免标点呈现歧义的正常fixture文本或有等价性证明的选择器完成同一行为判据，不能通过放松内容断言或改timeout收口。成功空会话真实画面、真机flight/protection、≥20次首绘统计和完整CI依旧单列pending。
+
+### 同一 fixture 的呈现比较修正（尚未重跑）
+
+- 逐字符读取原 private 输入与上述原始 AX label，两串长度均73，唯一差异为 index8 U+0027→U+2019；替换该字符后全文完全相同。保留原 server 消息、原输入、原 FAIL/xcresult 不覆盖；新私有输入只将完整预期改为实际呈现的弯引号，仍匹配完整73字符、同一目标会话，不调整15秒/5秒断言或产品代码。
+- 中断的 prime 已通过正常登录，会在同一自有 origin 留下合成会话。新增显式 opt-in `NANO_UI_RESET_OWNED_SESSION=1` 仅用于该 fixture 的重新 prime：如已经登录，走公开 Me → 验证精确 `@<fixture username>` → Sign out → 正常确认，随后原完整用户名/密码登录流程仍必须成功。不删除设备/安装/Keychain/宿主目录，不绕过真实认证；未 opt-in 与 offline 阶段不执行此准备。身份不符或确认未出现则 fail，不签出未知账号。该正常退出会清理本轮同 origin 的本地缓存，随后必须再次从真实API prime；不能用旧缓存伪造本轮online成功。
+- 当前仅 Swift parse/diff check 通过；必要独立 fixture 审查、当前 build 和完整两阶段运行结果另记。不能将这次针对已证选择器差异的修正冒充旧 FAIL 自动变绿。
