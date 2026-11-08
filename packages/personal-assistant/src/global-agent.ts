@@ -270,8 +270,10 @@ export class GlobalAgent {
   }
   private async inboxSummary(config: AgentConfiguration, binding: SessionBinding): Promise<string> {
     const { sources } = await this.checkInbox(config, binding);
-    return 'Unread conversation snapshot (mentions counts messages that @ you; bodies are not read):\n'
-      + JSON.stringify(this.options.store.toolReferences.result(config.agentId, 'inbox', { sources }));
+    return 'Unread conversation snapshot (mentions counts messages that @ you):\n'
+      + JSON.stringify(this.options.store.toolReferences.result(config.agentId, 'inbox', {
+        sources: sources.map(({ requires_attention: _attention, ...source }) => source),
+      }));
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
     if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
