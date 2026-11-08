@@ -157,8 +157,19 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
     focusedNavigation.current = location.key;
     restored.current = true;
     const key = `${focus.session_id}:${focus.turn_id}`;
-    setSaved(current => ({...current, selected: null, expanded: {...current.expanded, [key]: true}}));
-  }, [messageId, view?.focus?.session_id, view?.focus?.turn_id, nativeMode, location.key]);
+    setSaved(current => ({...current, selected: focus.session_id === view.main_session_id ? null : focus.session_id, expanded: {...current.expanded, [key]: true}}));
+  }, [messageId, view?.focus?.session_id, view?.focus?.turn_id, view?.main_session_id, nativeMode, location.key]);
+  useEffect(() => {
+    const focus = view?.focus;
+    if (!messageId || !focus || nativeMode) return;
+    // Keep the ordinary newest-first list. Older anchors load its summary pages
+    // in order instead of replacing the list with a target-only history slice.
+    const inMain = focus.session_id === view.main_session_id;
+    if (!inMain && saved.selected !== focus.session_id) return;
+    const turns = inMain ? mainTurns : childTurns;
+    const query = inMain ? viewQuery : childQuery;
+    if (!turns.some(turn => turn.session_id === focus.session_id && turn.turn_id === focus.turn_id) && query.hasNextPage && !query.isFetching && !query.isFetchNextPageError) void query.fetchNextPage();
+  }, [messageId, view, nativeMode, saved.selected, mainTurns, childTurns, viewQuery, childQuery]);
   const expand = (key: string, open: boolean) => setSaved(current => ({ ...current, expanded: { ...current.expanded, [key]: open } }));
   const refresh = () => { void client.invalidateQueries({ queryKey: ["agent-work", agentId] }); };
   const selectChild = (id: string | null) => {

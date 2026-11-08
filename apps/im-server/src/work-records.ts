@@ -407,19 +407,17 @@ export class WorkRecords {
    *   before: Exclusive turn identity cursor.
    *   limit: Maximum number of returned turns.
    *   summary: Defer full item bodies until the turn is opened.
-   *   at: Inclusive initial turn, ignored when paging with before.
    * Returns:
    *   Turns, control items and the next turn cursor.
    */
-  turns(root: string, session: string, before?: string, limit = 20, summary = false, at?: string): WorkTurnsPage {
+  turns(root: string, session: string, before?: string, limit = 20, summary = false): WorkTurnsPage {
     const registered = this.session(root, session);
-    const cursor = before ?? at;
-    const anchor = cursor
+    const anchor = before
       ? one(
           this.db,
           "SELECT seq FROM agent_work_turns WHERE session_id=? AND turn_id=?",
           session,
-          cursor,
+          before,
         )?.seq
       : Number.MAX_SAFE_INTEGER;
     if (anchor === undefined) fail(400, "invalid_cursor");
@@ -427,7 +425,7 @@ export class WorkRecords {
       this.db,
       "SELECT * FROM agent_work_turns WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?",
       session,
-      anchor + (!before && at ? 1 : 0),
+      anchor,
       limit + 1,
     ) as WorkTurnRecord[];
     return {
@@ -467,7 +465,7 @@ export class WorkRecords {
    *   before: Exclusive main-turn identity cursor.
    *   limit: Maximum number of main turns.
    *   summary: Defer full item bodies until the turn is opened.
-   *   messageId: Start at the recorded main wake that actually sent this reply.
+   *   messageId: Identify the reply's recorded wake without filtering the Work list.
    * Returns:
    *   Persisted main/child records and the node identity for the outer live-state adapter.
    */
@@ -483,8 +481,8 @@ export class WorkRecords {
        WHERE e.root_agent_id=? AND s.root_agent_id=? AND s.scope='global_main'
        AND e.type='message_sent' AND json_extract(e.payload,'$.message_id')=?
        ORDER BY e.revision LIMIT 1`, root, root, messageId) as {session_id: string; turn_id: string} | undefined : undefined;
-    const recordSession = focus?.session_id ?? main;
-    const page = recordSession ? this.turns(root, recordSession, before, limit, summary, focus?.turn_id) : { turns: [], next_cursor: null };
+    // A message selects where to expand, not which records exist in Work.
+    const page = main ? this.turns(root, main, before, limit, summary) : { turns: [], next_cursor: null };
     let latest = null;
     for (const r of main
       ? this.db.prepare("SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC").iterate(main)

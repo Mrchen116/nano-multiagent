@@ -32,12 +32,14 @@ describe("Agent work view", () => {
     mocks.fetch.mockImplementation(async (url: string) => {
       const turnId = url.includes('message_id=older') ? 'old-turn' : 'new-turn';
       return new Response(JSON.stringify(url === '/im/v1/conversations' ? {items: []} : url.includes('/items?') ? {items, next_cursor: null} : {
-        ...view, focus: {session_id: 'main', turn_id: turnId}, turns: [{...view.turns[0], turn_id: turnId, items: [], items_deferred: true}]
+        ...view, focus: {session_id: 'main', turn_id: turnId}, turns: ['new-turn', 'old-turn'].map(id => ({...view.turns[0], turn_id: id, items: [], items_deferred: true}))
       }));
     });
     sessionStorage.setItem('agent-work:global', JSON.stringify({selected: 'stale-child', expanded: {}, scroll: 999}));
     const {router} = renderWork('/settings/agents/global?view=work&message_id=older');
     await waitFor(() => expect(document.getElementById('work-turn-main-old-turn')).toHaveAttribute('open'));
+    expect(document.getElementById('work-turn-main-new-turn')).toBeInTheDocument();
+    expect(document.getElementById('work-turn-main-new-turn')).not.toHaveAttribute('open');
     expect(await screen.findByRole('button', {name: /inbox/})).toBeVisible();
     await waitFor(() => expect(scroll).toHaveBeenCalled());
     expect(screen.queryByRole('button', {name: '关闭子轨迹'})).not.toBeInTheDocument();
@@ -46,6 +48,41 @@ describe("Agent work view", () => {
     await act(() => router.navigate('/settings/agents/global?view=work&message_id=older'));
     await waitFor(() => expect(document.getElementById('work-turn-main-old-turn')).toHaveAttribute('open'));
     expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/turns/old-turn/items?'))).toBe(true);
+  });
+
+  it('loads summary pages through an older anchor without dropping newer or still-earlier turns', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const template = view.turns[0];
+    mocks.fetch.mockImplementation(async (url: string) => {
+      const before = new URL(url, 'http://nano.test').searchParams.get('before_turn');
+      const ids = before === '5' ? ['4', '3'] : before === '3' ? ['2', '1'] : ['6', '5'];
+      return new Response(JSON.stringify(url === '/im/v1/conversations' ? {items: []} : url.includes('/items?') ? {items: [{item_id: 'body', seq: 1, kind: 'message', payload: {text: 'Target historical execution'}}], next_cursor: null} : {
+        ...view, focus: {session_id: 'main', turn_id: '3'}, next_cursor: ids[1] === '1' ? null : ids[1],
+        turns: ids.map(turn_id => ({...template, turn_id, items: [], items_deferred: true}))
+      }));
+    });
+    renderWork('/settings/agents/global?view=work&message_id=older');
+    expect(await screen.findByText('Target historical execution')).toBeVisible();
+    expect(document.getElementById('work-turn-main-3')).toHaveAttribute('open');
+    for (const id of ['6', '5', '4']) {
+      expect(document.getElementById(`work-turn-main-${id}`)).toBeInTheDocument();
+      expect(document.getElementById(`work-turn-main-${id}`)).not.toHaveAttribute('open');
+    }
+    expect(document.getElementById('work-turn-main-2')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: '更早轮次'}));
+    await waitFor(() => expect(document.getElementById('work-turn-main-1')).toBeInTheDocument());
+    expect([...document.querySelectorAll('.im-work-trace > details')].map(turn => turn.id)).toEqual(['6', '5', '4', '3', '2', '1'].map(id => `work-turn-main-${id}`));
+  });
+
+  it('keeps current main records when a reply belongs to a retired main execution', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const template = view.turns[0];
+    view = {...view, focus: {session_id: 'retired', turn_id: 'old'}, other_executions: [{session_id: 'retired', scope: 'global_main'}]};
+    mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === '/im/v1/conversations' ? {items: []} : url.includes('/sessions/retired/turns?') ? {turns: [{...template, session_id: 'retired', turn_id: 'old'}], next_cursor: null} : view)));
+    renderWork('/settings/agents/global?view=work&message_id=old-reply');
+    await waitFor(() => expect(document.getElementById('work-turn-retired-old')).toHaveAttribute('open'));
+    expect(document.getElementById('work-turn-main-turn')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: '关闭子轨迹'})).toBeVisible();
   });
 
   it('waits for the deferred body before scrolling and does not pull readers back on refresh', async () => {

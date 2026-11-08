@@ -20,13 +20,19 @@ it('resolves each delivered reply to its exact persisted wake beyond the latest 
     const focused = await read(`&message_id=reply-${turn}&limit=2`);
     expect(focused.status, focused.body).toBe(200);
     expect(focused.body.focus).toEqual({session_id: 'focus-main', turn_id: String(turn)});
-    expect(focused.body.turns[0]).toMatchObject({session_id: 'focus-main', turn_id: String(turn), items_deferred: true});
+    // A reply is an expansion/scroll anchor, never a filter on the Work list.
+    expect(focused.body.turns.map((t: any) => t.turn_id)).toEqual(['25', '24']);
+    expect(focused.body.turns[0]).toMatchObject({session_id: 'focus-main', items_deferred: true});
     expect(focused.body.main_execution).toBe('running'); // Historical completion is not current Agent state.
-    if (turn === 24) {
-      expect(focused.body.next_cursor).toBe('23');
-      const earlier = await read('&message_id=reply-24&before_turn=23&limit=2');
-      expect(earlier.body.turns.map((t: any) => t.turn_id)).toEqual(['22', '21']);
+    const allTurns = [...focused.body.turns];
+    let cursor = focused.body.next_cursor;
+    while (cursor) {
+      const earlier = await read(`&message_id=reply-${turn}&before_turn=${cursor}&limit=2`);
+      expect(earlier.status).toBe(200);
+      allTurns.push(...earlier.body.turns);
+      cursor = earlier.body.next_cursor;
     }
+    expect(allTurns.map((t: any) => t.turn_id)).toEqual(Array.from({length: 25}, (_, i) => String(25 - i)));
   }
   const items = await f.http('GET', '/im/v1/agents/global/work/sessions/focus-main/turns/1/items', undefined, f.tokens.alice);
   expect(items.body.items[0].payload.work_facts[0]).toMatchObject({type: 'message_sent', message_id: 'reply-1'});
