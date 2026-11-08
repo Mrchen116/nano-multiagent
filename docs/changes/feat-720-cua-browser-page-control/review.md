@@ -4,7 +4,7 @@
 
 ## 版本与有效范围
 
-- 当前实现/测试版本：`fa6c7ad684d611526408aabb80520a80c0b34296`，分支 `codex/feat-720`；本轮配置例外已由人类批准，独立 code/Context/corrected-delta 审查进行中，尚非发布冻结。
+- 当前实现/测试版本：`054ab52ea381dd9740f4c41fe4dbe58f48da24b9`，分支 `codex/feat-720`；本轮配置例外已由人类批准，独立 code/Context/corrected-delta 审查进行中，尚非发布冻结。
 - 集成的 develop 基线：`eeaea47921806936da20e78c9ed96167716f5037`。最终交付前仍须重新核对目标分支增量及证据有效性。
 - `a1fab20f4` 修复等待驱动 probe 期间资格失效仍会 prepare 的竞态，并按行为拆分 browser-control/lifecycle 测试。`de3b838a1` 再修复真实产品暴露的 Cordis 服务注入接线错误；`fa6c7ad68` 修复非作者 reviewer 发现的登记失败后 cleanup 失败却丢失占额漏洞。旧 daily 最初从 `4804e785e` 启动，首个失败产品样本确已加载 `a1fab20f4`；后续隔离 Node 已重启到 `de3b838a1` 并通过 UI 保存 Sol 配置，但尚未发起下一浏览器样本，须加载当前新修复后再验，不能拿旧进程当新版本验收。
 - Gate 2 R7 只批准 `9612ea5d1` 的设计，不是实现或真实旅程批准。
@@ -77,7 +77,13 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 
 `fa6c7ad68` 从实际发出 prepare 前保存宿主生成的 label；准备超时/响应缺 pid/登记失败均只清理同一 label，重试一次。清理成功才释放 ownership 并保留原始错误；连续失败返回 `browser_foreground_release_failed`、明确手动关闭提示，保留进程占额直到 300 秒冷却惰性到期。销毁也不删除该占额或在冷却期间再发驱动；不做 pid 探测。新增 5 个故障场景覆盖 prepare 超时/缺 pid、登记失败、成功 cleanup 重试及失败销毁。
 
-修复后 browser 全集、approval-sources、PA inbox **112 tests / 11 files 全通过**（单 worker、无文件并行，2026-11-09 00:24 +08，命令同上）；DSH typecheck/build 与 diff check 同批 exit 0。该证据不替代真实桌面样本或最终全量 CI；待同一 reviewer 复核具体提交。
+修复后 browser 全集、approval-sources、PA inbox **112 tests / 11 files 全通过**（单 worker、无文件并行，2026-11-09 00:24 +08，命令同上）；DSH typecheck/build 与 diff check 同批 exit 0。该证据不替代真实桌面样本或最终全量 CI；同一 reviewer 已在 `fa6c7ad68` 独立复核三类故障 fake，确认原 F3 **closed**；此结论不掩盖后续 F4。
+
+### 后续独立复核：已排队销毁状态被提前回收（F4）
+
+reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步入队，B 的计数先删掉尚未起跑但标记 disposing 的 A state；A 读取重建新 state、启动实例，销毁仍只处理旧 state，因此没有 end_session 且会再丢失 cap 账本。owner 不加 sleep 的同序回归先取得 **1 failed / 14 passed**，实际 end_session 为 0 而期望 1（`/tmp/feat720-disposal-pruning-red.log`）。
+
+`054ab52ea` 把“销毁已请求”与“销毁队列已收口”分开，只有后者的过期 tombstone 可由计数惰性回收；销毁删除时校验同一 state identity，不能删除后来重建的账本。后续单 worker browser/approval-sources/PA inbox 批次中 **112 passed / 1 timeout**：新 lifecycle 15 项及其余 9 个文件全部通过，唯一 installed-runtime-wiring 测试触及 25 秒整体 timeout（`/tmp/feat720-disposal-pruning-green.log`），不是全集绿。该批 transform 127.5 秒、import 170.35 秒、总 218.95 秒，随后只读现场 load 86.17/107.07/64.05，并见其他 worktree frontend Vitest 与系统 Storage/du 并发；此前同批约 7 秒。共享负载是待验证线索，不据此认定唯一根因；未加 timeout、未跳过测试，typecheck/build 因 `&&` 未执行。真实 GUI 仍未开始，待短低负载段补验/构建后再加载修复。独立静态复核待精确新提交。
 
 ## 发布阻塞与待补验
 
@@ -108,7 +114,7 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 
 详细安装源码定位已补进同一中性审查包 `/tmp/feat720-review-package.md`；本表是静态链路核对，不是删除审计或实际 Dreaming 保存观察。
 
-用户随后纠正：“我完全没get到，这跟我的记忆有半毛钱关系。而且这个设计稿也不是我写的，也是你写的。”协调者承认额外保证由我们自行添加，撤回让用户选择“严格隐私/普通留存”的问题，并决定由原事项修订同一 spec/design/delta：保留本能力的源 PNG TTL/20 张/写入与启动期有界清理，明确不覆盖既有工具历史、官方 `read_image` 附件或全部记忆取材；不新增通用 Memory 屏蔽、附件删除或运行时 patch，不改变原操作、secret 与无关内容保护边界。本次据此校正文档，不以聊天未检出同句为依据，也不是宣称旧保证已通过机制修复。两项历史 finding 的拟收口方式为 **superseded-by-authorized-scope-correction**，尚须同一独立 reviewer 对具体文档版本确认；不登记为 fixed-mechanism 或自动 Approved。
+用户随后纠正：“我完全没get到，这跟我的记忆有半毛钱关系。而且这个设计稿也不是我写的，也是你写的。”协调者承认额外保证由我们自行添加，撤回让用户选择“严格隐私/普通留存”的问题，并决定由原事项修订同一 spec/design/delta：保留本能力的源 PNG TTL/20 张/写入与启动期有界清理，明确不覆盖既有工具历史、官方 `read_image` 附件或全部记忆取材；不新增通用 Memory 屏蔽、附件删除或运行时 patch，不改变原操作、secret 与无关内容保护边界。本次据此校正文档，不以聊天未检出同句为依据，也不是宣称旧保证已通过机制修复。同一独立 reviewer 已亲读 `fb297cba9` 的 spec/design/delta/review 增量，确认两项历史 finding 均为 **superseded-by-authorized-scope-correction**；不登记为 fixed-mechanism，也不据此自动批准产品旅程或整体发布。
 
 ## 独立审查结论
 
