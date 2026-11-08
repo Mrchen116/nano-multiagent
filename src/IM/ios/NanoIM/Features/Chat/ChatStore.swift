@@ -564,6 +564,9 @@ final class ChatStore {
         }
         guard await isCurrent(request) else { throw CancellationError() }
         if let index = conversations.firstIndex(where: { $0.id == value.id }) { conversations[index] = value }
+        // The open view prefers its inspected detail over the list row. Keep both
+        // projections on the same authoritative response after a membership change.
+        if inspectedConversation?.id == value.id { inspectedConversation = value }
     }
 
     /// Entering a cached chat never waits for the detail request (including its timeout).

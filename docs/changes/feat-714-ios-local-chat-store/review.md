@@ -144,3 +144,10 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 独立核51条affected实际0fail、原4WebKit身份均PASS；full-assets summary **175=174pass+1physicalskip+0fail / Passed**，raw580-658对应XCTest148含1skip、SwiftTesting27pass。原日期及四WebKit身份亦在full实际PASS，唯一skip明确需要physical fileProtection。关闭前轮对应修后运行缺口，不改写首次full真实FAIL，不把skip变pass。
 - 本批stop/PIDgone/connect61/557Shutdown复用owner当时receipt，不伪称reviewer实时操作。da47两阶段历史限定PASS保持；系统diagnostics warning没有被描述为不存在。
 - **findings=[] / 0C0W / no spec delta**。本轮仅新增证据审查，不重审全unit、不重开W1–W7；旧构建升级与M2其它真实客户端矩阵、真机flight/protection/20次trace、Release与其它仓库CI、最终unit门禁/归并/归档/PR仍各自待证，不因本次PASS全部关闭。
+
+## Round 9 — Membership UITest/helper静态窄审；async fail-fast论断后被实跑撤回
+
+- 原非作者加载change-code-review，只读审`089d58db5..b18edba2b13e56c6e36ab93fc90537fc8fee5bd9`，3files/+84（UITest+68、docs+16），产品/project未变，当前可用非作者配置/无资源边界沿用。不重审全unit或已closed问题。
+- 原静态结论APPROVED0C/0W：正常PATCH/DELETE真实API与membership发布契约吻合，A非creator/另合成operator有write前置正确；ID限ASCII字母数字下划线、http/127.0.0.1/显式port、专用Authorization token；async URLSession让出actor；完整正文/目标/15秒和5秒未弱化，无内部store/SQL/cache注入。阶段必须在线真实成功并terminate后再停止origin做offline，不以test排序假定前置。
+- 原reviewer明确限定：静态通过不能证明新旅程PASS、每帧不闪回/≤1RTT/无瞬间重排或准确归因WebSocket而非其它sync。M2运行缺口仍pending。
+- **实跑更正（已回到原reviewer且其明确接受）**：b18 online exit65在rename断言失败后仍继续后续操作，原报告「continueAfterFailure=false使async guard/assertion失败立即结束、不继续外发」论断撤回；不得再用该断言作为已证控制边界。原报告保留历史，但当前判定为online FAIL、offline未执行，失败后步骤不计有效验收。需要显式guard/throw，修后独立复核另记。详见[M2运行与RED证据](M2-partition-revocation/recovery-validation.md)。

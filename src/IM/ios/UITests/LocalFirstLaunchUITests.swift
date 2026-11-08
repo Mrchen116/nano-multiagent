@@ -72,29 +72,30 @@ final class LocalFirstLaunchUITests: XCTestCase {
         let chatID = try fixtureID("NANO_UI_MEMBER_CHAT_ID")
         let userID = try fixtureID("NANO_UI_MEMBER_USER_ID")
         app.launch()
+        defer { app.terminate() }
         let chat = app.staticTexts[title].firstMatch
-        XCTAssertTrue(chat.waitForExistence(timeout: 20), "The joined fixture group must be present before changing membership")
+        try requireFixture(chat.waitForExistence(timeout: 20), "The joined fixture group must be present before changing membership")
         chat.tap()
-        XCTAssertTrue(message(content).waitForExistence(timeout: 15))
+        try requireFixture(message(content).waitForExistence(timeout: 15), "The original complete fixture message must be visible")
         capture("membership-before-rename")
 
         // A second synthetic member changes the real server while this client remains open.
         // This exercises its WebSocket/access-check path, not a local store injection.
         try await fixtureChange("/im/v1/conversations/\(chatID)", method: "PATCH", body: ["title": renamed], status: 200)
-        XCTAssertTrue(app.navigationBars[renamed].waitForExistence(timeout: 15))
-        XCTAssertTrue(message(content).waitForExistence(timeout: 5), "A harmless membership change must retain the complete timeline")
-        XCTAssertFalse(app.staticTexts["This conversation is no longer accessible."].exists)
+        try requireFixture(app.navigationBars[renamed].waitForExistence(timeout: 15), "The renamed title must reach the visible conversation")
+        try requireFixture(message(content).waitForExistence(timeout: 5), "A harmless membership change must retain the complete timeline")
+        try requireFixture(!app.staticTexts["This conversation is no longer accessible."].exists, "A rename is not a revocation")
         capture("membership-after-rename")
 
         try await fixtureChange("/im/v1/conversations/\(chatID)/participants/\(userID)", method: "DELETE", status: 204)
-        XCTAssertTrue(app.staticTexts["This conversation is no longer accessible."].waitForExistence(timeout: 15))
+        try requireFixture(app.staticTexts["This conversation is no longer accessible."].waitForExistence(timeout: 15), "Removal must report that access is revoked")
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: message(content))
-        await fulfillment(of: [hidden], timeout: 5)
+        let hiddenResult = await XCTWaiter.fulfillment(of: [hidden], timeout: 5)
+        try requireFixture(hiddenResult == .completed, "Revoked message content must stop being visible")
         capture("membership-revoked-timeline")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertFalse(app.staticTexts[renamed].exists, "The revoked group must also leave the list")
+        try requireFixture(!app.staticTexts[renamed].exists, "The revoked group must also leave the list")
         capture("membership-revoked-list")
-        app.terminate()
     }
 
     func testRevokedConversationStaysAbsentOnOfflineRelaunch() throws {
@@ -111,16 +112,15 @@ final class LocalFirstLaunchUITests: XCTestCase {
 
     private func fixtureID(_ name: String) throws -> String {
         let value = try required(name)
-        XCTAssertTrue(value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }, "Use only a dedicated fixture identifier")
+        try requireFixture(value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }, "Use only a dedicated fixture identifier")
         return value
     }
 
     private func fixtureChange(_ path: String, method: String, body: [String: String]? = nil, status: Int) async throws {
         let origin = try required("NANO_UI_ORIGIN")
         let url = try XCTUnwrap(URL(string: origin + path))
-        XCTAssertEqual(url.scheme, "http")
-        XCTAssertEqual(url.host, "127.0.0.1", "Fixture mutations must never target a public or production service")
-        XCTAssertNotNil(url.port)
+        try requireFixture(url.scheme == "http" && url.host == "127.0.0.1" && url.port != nil,
+                           "Fixture mutations must only target a dedicated HTTP loopback port")
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 10
@@ -130,7 +130,17 @@ final class LocalFirstLaunchUITests: XCTestCase {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         let (_, response) = try await URLSession.shared.data(for: request)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, status, "The real fixture operation must succeed before checking its UI consequence")
+        try requireFixture((response as? HTTPURLResponse)?.statusCode == status, "The real fixture operation must succeed before checking its UI consequence")
+    }
+
+    private func requireFixture(_ condition: @autoclosure () -> Bool, _ reason: String,
+                                file: StaticString = #filePath, line: UInt = #line) throws {
+        // XCTest's async failure recording can return to the method even with
+        // continueAfterFailure=false. A thrown error also prevents later fixture writes.
+        guard condition() else {
+            XCTFail(reason, file: file, line: line)
+            throw NSError(domain: "NanoIMUITests", code: 2, userInfo: [NSLocalizedDescriptionKey: reason])
+        }
     }
 
     private func resetOwnedSessionForLogin() throws {

@@ -65,13 +65,16 @@ final class ChatLocalFirstTests: XCTestCase {
     func testMembershipRenameRechecksWithoutClearingTheTimeline() async throws {
         let (store, stub) = try await makeStore()
         await seed(store, conversations: ["chat"], messages: 3)
-        await store.loadChat("chat")
+        await stub.setDetail(try JSONEncoder().encode(try conversation("chat", title: "Original")))
+        await store.openConversation("chat")
+        XCTAssertEqual(store.inspectedConversation?.title, "Original", "Exercise the detail projection used by the open conversation view")
         XCTAssertEqual(store.timelines["chat"]?.count, 3)
         await stub.setDetail(try JSONEncoder().encode(try conversation("chat", title: "Renamed")))
 
         await store.consume(try membershipEvent("chat"))
         XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1", "m2", "m3"], "a rename must not empty the timeline")
         XCTAssertEqual(store.conversations.first?.title, "Renamed")
+        XCTAssertEqual(store.inspectedConversation?.title, "Renamed", "The visible detail must not override the updated list with its stale title")
         XCTAssertTrue(store.revokedChats.isEmpty)
 
         let reads = await stub.messageReadCount()

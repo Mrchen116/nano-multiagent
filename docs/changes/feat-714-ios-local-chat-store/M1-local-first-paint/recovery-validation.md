@@ -178,4 +178,9 @@
 - 实际运行`testSuccessfulEmptyConversationStopsLoading`，`/tmp/feat714-native-final-dphmlbb6/empty-b662.log:22-60`、`.xcresult`：真实launch→20秒目标列表谓词→进入Release planning→15秒既有conversation.empty正向断言→同NavigationBar标题→无Loading conversation indicator→capture→terminate，**exit0 / 1 test / 0 failures / 0 unexpected / 9.295s / TEST EXECUTE SUCCEEDED**。复用已有真实登录，不冒称此test重新登录；9.295s是test总时长，不是首绘性能。
 - 作者与原非作者各自用read_image实际打开原始attachment`empty-b662-attachments/F542CB6D-F7C5-47E7-BB08-642722738716.png`（1206×2622px / 402×874pt）：标题明确、No messages yet可辨、无spinner/离线错误/需要连接占位，底部输入区保留。连续操作log与图共同证明正确目标的成功空结果已完成，不是只凭静止图或绿test推体验。原reviewer裁决**指定旅程/限定体验PASS，findings=[] / 0C0W，W6真实画面pending关闭**，见review.md Round8。
 - 停止仅本IM job并收集SIGTERM，实查PIDgone、53703connect61、精确557Shutdown；全部本批jobs收集，无其它服务/Gateway/模型。独立reviewer复用这些owner receipt，不伪称其实时探测。
-- 仍须原契约其它真实路径：旧构建实际未确认JSON→覆盖升级、账号/服务隔离及membership/撤权/401客户端矩阵；真机flight/protection与≥20次trace；Release与跨包CI、最终unit门禁。空会话PASS不替代这些项。
+- 仍须原契约其它真实路径：旧构建实际未确认JSON→覆盖升级、账号/服务隔离及membership/撤权/401客户端矩阵；真机flight/protection与≥20次trace；跨包CI、最终unit门禁。空会话PASS不替代这些项。
+
+### 无签名Release设备架构归档：PASS（未连接/安装手机）
+
+- 同产品`b66289f3c`，既有生成资源，`xcodebuild -jobs 2 -scheme NanoIM -destination generic/platform=iOS -configuration Release CODE_SIGNING_ALLOWED=NO archive`实际**exit0 / ARCHIVE SUCCEEDED**，`/tmp/feat714-native-release-b66289f3c.log:2167`。产物`/tmp/nano-ios-714-release-b662/NanoIM.xcarchive`的App Info.plist实查bundle win.nanoim.ios、revision b66289f3c、0.2.0/634，file确认Mach-O arm64。
+- 本地unsigned构建不需要连接个人设备，未执行签名/安装/启动手机，也未生成或分发已签ipa；不等同于手机安装可行性/Developer Mode/信任、APNs或真机flight/protection/性能证据。新增UITest不编入archive产品，后续head产品未变时本记录可按diff复用。
