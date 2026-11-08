@@ -63,3 +63,13 @@
 - RED 同时揭出 `resetProjection` 漏清内存 `before` cursor：它不是新的进程状态，不能拿仍残留的 cursor 假装重开。修复该真实遗漏，保留离线 hint 断言；同时增强两条 purge fixture，让旧 draft 与 pending 同时存在、disabled 冷启旧库确有 pending，不删除或弱化原断言。恢复所有 RED 产品文件到修复版后才运行后续七组。
 
 本组仍使用确由 714 早先 `simctl create feat-714-native-acceptance` 返回的新设备 `55763F8D-5385-47DF-A24F-F2461DCB2FFB`（原 receipt `/tmp/feat714-native-18vslzip/device`）。这是 hosted XCTest：会安装/更新同 bundle `win.nanoim.ios` 并写该测试设备的正常 App sandbox，**不是“不碰 App sandbox”或“零网络尝试”**；原生 fixture 的旧 loopback 51396 refresh 失败按日志保留。仅临时 fixture，无生产/个人设备、其它模拟器或新增 GUI 旅程、模型、真实服务操作。
+
+### 六项修复后七组补验（真实执行）
+
+- 受测版本：`7d7e455aaadfe6c90e898c84b8e3ab898eb79f7d`；包含 `47ed3dc11` 的集中修复、RED 揭出的 volatile cursor reset 修复和增强 fixture。RED 临时适配已完整撤销，开跑前产品 diff 相对修复提交为空，没有兼容 adapter 残留。
+- 命令与环境沿用本记录七组：`xcodebuild test -jobs 2 -parallel-testing-enabled NO -scheme NanoIM -destination 'platform=iOS Simulator,id=55763F8D-5385-47DF-A24F-F2461DCB2FFB' -derivedDataPath /tmp/nano-ios-714-resume`，逐组选中 Repository、StorageController、LocalFirst、AppLocalBootstrap、AttemptPersistence、SendRecovery、Session。
+- 实际结果：**exit 0 / TEST SUCCEEDED；102 total = 101 passed + 1 explicit physical-device protection skip / 0 failures**。AppLocalBootstrap 5、AttemptPersistence 17（真机属性 1 skipped）、LocalFirst 20、Repository 32、StorageController 12、SendRecovery 9、Session 7。十条新增回归都包含在这七组内通过。
+- 原始产物：`/tmp/feat714-review-fixes-7d7e455aa.log:643-997`、`/tmp/feat714-review-fixes-7d7e455aa.xcresult`。此前 baseline RED 的失败、compatibility adapters、诊断收集报错和强化 fixture 均如上保留，不删除断言、不扩大超时。
+- 资源释放：两个 xcodebuild job 均已退出；`simctl list devices --json` 精确核对 557 名称 `feat-714-native-acceptance` 且 before/after 均为 Shutdown（exit 0），未删除或重置设备。无本批自建服务/模型/GUI 旅程。
+
+本结果仅关闭“尚未 typecheck/build/XCTest”的证据空缺，不代表六项独立审查已关闭；由原 reviewer 针对冻结版本集中补验。原生真实在线→终止→离线旅程、真机飞行模式/保护属性、≥20 次首绘 p50/p95 与最终完整 CI 仍未新增证据。
