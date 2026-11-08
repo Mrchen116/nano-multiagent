@@ -41,3 +41,20 @@ feat-617 原本提供任意 Agent 的通用交互表达，保留组件能力和�
 - 真实模型：daily 模板的 P（gpt-6.1-sol / high），主 session `614f7a9d-e6b2-4ffa-a13b-4bc1b0b7a2ea`，来源消息 `fee1c517722b42a6a8f124fd96c29622`，交付卡片 `b5728179bd5045c496448ecc62a0c8fc`；消息正文长度为 0，UI 内有必要说明、费用表和趋势图。此前单独发出 52 字长任务确认，不是卡片的外部摘要；没有改变既有长任务确认规则。实际远端 provider raw 日志不可用，不以 preview 补证。
 - Web 作者自检：本轮隔离入口 `http://127.0.0.1:53674/chat/c_m4rb4os8`，真实卡片完整显示且刷新后仍可读。对滑块的 CUA 自动化未取得费用联动的决定性状态变化，不声称真实滑块联动通过；现有编辑/提交路径回归通过，渲染器业务逻辑本轮未改。原生设备 UI 未实测。
 - 独立代码/契约审查及 closure 见 [review.md](review.md)。
+
+
+## 验收证据更正（2026-11-09）
+
+用户指出测试名称泄露目标：“你给Agent命的名字就是这个，Agent知道自己的名字啊，你不是提示了他了吗？”核对后，原 Agent 显示名为 P · 产品与体验，但测试会话标题确为“无摘要 UI 验证”，来源工作目录也带 `ui-without-summary`；两者都有潜在的目标提示。不能用该次运行证明未受额外暗示的自然行为，撤回这一解释，保留原始卡片及日志。原卡片仍只证明当时成功交付/显示；受控 wire、确定性机制回归、独立代码审查和 CI 的证据类别不变。
+
+正在独立中性 checkout 的全新隔离环境补测：新 Agent“助手”、新会话“讨论”、新工作区和 owner 根，无旧历史、记忆或额外禁止摘要指令。只通过透明的本地只读 LLM observer 记录实际模型输入，不能由 preview 推断没有名称泄露。补测结果单独追加，不覆盖首轮记录。
+
+
+### 中性环境补测的实际观察
+
+- 受测源码仍为 `ddbd7e610`；独立 checkout `/Users/czj/.codex/worktrees/assistant-session/nano-multiagent`，IM `http://127.0.0.1:64078`，新的 node/owner 和工作区。通用 Agent `assistant` 显示名“助手”，description/custom_prompt 为空；全新会话“讨论”。
+- 使用与首轮完全相同的费用比较原话，没有增加 UI、摘要或验收指令。首次真实请求只有产品 system、空 Expert memory、Skill catalog、仓库通用指令和 Inbox 唤醒；首次 check 结果中的来源名为“讨论”，read 结果仅有该条用户原话。未带首轮名称、旧目录、聊天记录或记忆。
+- 产品 system 中更新后的 UI 指导是被测实现，本轮没有另加测试要求。透明的 workspace observer 只记录 `llm/stream` 的 messages/tools 并 `yield* next()`；记录是实际 provider 调用前的原生输入，不冒称最终远端 raw wire。
+- 主 session `102f9a0d-cfc0-4da6-b83b-e30123fee983`，5 次实际模型请求，路径为 Inbox check → read → Skill → send_message → 私有收尾。用户消息 `7b35d887fedb4e2490f5d754eb4d3b72`；公开消息 `89009a2acb474363aeddbbc188ac188b` 正文为空，含完整 UI。实际 send_message 参数省略 text；回执 `status=sent`；没有另发确认或摘要。
+- 原始请求与结果保存在中性 worktree `output/requests.jsonl`、`output/messages.json`，observer 源在该 Agent 的 `.nanoassistant/trace.mjs`；均不提交。原预览保留为首轮受污染证据，新预览供用户检查。
+- 本次只能支持这一条中性场景的观察结果，不能外推所有场景或稳定采用率。独立 Context 证据复核由原 reviewer `/root/review_ui_summary`（gpt-6.1-sol / high，未参与实现与新试验）完成：未发现额外试验目标提示；用户原话逐字一致，实际加载 Skill 与受测 HEAD 相同，发送参数确实省略 text、回执及公开消息一致。结论仅限 Global Agent / gpt-6.1-sol 的这个单次场景，不覆盖 PA、其他模型、最终 provider wire 或视觉/交互。
