@@ -2,13 +2,14 @@
 
 ## 状态
 
-Active。用户已亲自试用首版并明确否定：点A展开但B被截去。修订保留完整Work列表，消息锚点仅控制展开/滚动；非作者独立审查已APPROVED，原生视图往返finding已修复并closed。尚待用户重新确认及最终CI，不得把作者自测或待审PR当作用户验收/完整归档。审查使用用户明确批准的当前可用配置，不冒称指定了未公开的model/effort。
+Completed / archived。首版被用户真实试用否定后，修订保留完整Work列表、消息锚点仅控制展开/滚动；用户对同一A/B入口完成连续复验并明确确认“Good job，我觉得我的真实测试没问题了”。非作者独立审查APPROVED，原生视图往返finding已修复并closed，新版远端CI实际success；canonical已按审过delta归并。归档不代表PR已合并或生产部署。审查使用用户明确批准的当前可用配置，不冒称指定了未公开的model/effort。
 
 ## 版本与范围
 
 - 执行者：#473 主实施者（独立工作区，非用户验收者）。
 - executed_base: `eeaea47921806936da20e78c9ed96167716f5037`。
-- 本轮 validated_at / effective_through：`adaac2666bbbb87abe51c798aad9f4f971b94370`；`87be58c187ae3071561edfb32ec4941e8d631228`冻结完整列表修正并取得真实浏览器证据，最终提交仅修复独立审查发现的内部视图往返恢复并补窄回归。预览已重建最终源码；列表/样式未再改变，既有真实图像证据保留。后续记录提交不改变实现。
+- 本轮源码validated_at：`adaac2666bbbb87abe51c798aad9f4f971b94370`；`87be58c187ae3071561edfb32ec4941e8d631228`冻结完整列表修正并取得真实浏览器证据，最终代码提交仅修复独立审查发现的内部视图往返恢复并补窄回归。预览已重建最终源码；列表/样式未再改变，既有真实图像证据保留。报告9db9a5bed不改源码。
+- 归档前effective_base：`00972141a836c24bc574a7cef90b1c6efd8c8832`；sync commit `0a80622a70710186b0a31f5a060a51ce246941d6`。相对已验证9db9a5bed仅新增bugfix-729/731的3份独立unit文档，没有源码/配置/测试/current spec变化；本次代码审查、测试和用户路径证据retained。最终归档提交再只改验收记录、按原文归并已审delta和路径/索引，不改变产品行为；effective_through由PR实际head标识，不倒写为曾执行全量测试的版本。
 - 首版历史验证版本：`606ad3da50b508f7c6fabb97091f61ccb298ad0c`（报告补充至`739378ee3`）；其“仅目标展开”的自测不构成完整旅程通过，已被用户真实反例否定。
 - 本任务 dirty 范围：Work API/records/types；Web message-pane 链接与测试、Work panel/API/测试、双语提示；本 unit 文档与 backend focus 回归。主 checkout 的用户修改未操作。
 
@@ -91,17 +92,24 @@ F1已判真并修复；新增同路径组件红测在87be58c上复现目标被�
 
 - 独立全内存运行真实AgentWorkPanel与React Router/Query（网络及展示子组件stub），验证首次定位→折叠→320px→native→records仍折叠/320px/scroll仅1；真实A→B→A导航计数1→2→3；同一A从聊天重新挂载仍定位，计数4；missing关联迟到后定位，计数5。没有改文件、启服务、操作浏览器或数据库；不将jsdom当真实像素证据。
 - 独立核看`reply-a-repeat-refreshed-complete-list.png`，并结合已核看的A/B完整列表及邻近B展开截图，完整列表、分别点击A/B、重复A/刷新为PASS。图像在87be58c产生；closure仅改入口token，不改列表、样式或首次呈现，证据retained；R1重复/刷新inconclusive已由追加证据补齐。native返回仅有代码/组件核验，未另称真实浏览器native画面已实测。
-- 原完整Web两轮各1083通过/1失败及根因未明的限制不变；用户确认、最终CI和canonical归并/归档仍须后续据实完成。
+- 原完整Web两轮各1083通过/1失败及根因未明的历史限制不变；R2时用户确认、CI和canonical收口尚未发生，随后取得的实际结果见下文，不倒写为R2已经验证。
 
-## 人类试用与恢复入口
+## 人类实际验收与保留预览
 
-须在运行节点同机浏览器打开（loopback不是远程可访问链接）：
+用户对原有A/B消息入口亲自走完“点A保留B→返回聊天点B保留A→再点A并刷新”后反馈：“这个流程做了一遍。我看到应该没问题。”随后询问并确认现有展开/折叠记忆范围（事实查询，不是新需求），最后明确：“Good job，我觉得我的真实测试没问题了”。此为本事项修订路径的人类验收通过，不涵盖其他并行事项、不授权merge/deploy，不再要求重复试用。
+
+当前记忆事实由源码轻量核查：同一origin/tab的sessionStorage按Agent保存各轮展开/折叠；A已展开时点B只将B设为展开，不收起A；A手动折叠后点B保留A折叠。本次新回复入口会强制展开其目标，native内部往返及后台数据刷新不重新强制。没有代码级TTL或跨设备同步承诺；关tab/浏览器后的恢复由浏览器会话机制决定，不承诺永久保存。未新增GUI、模型调用或功能变更。
+
+预览继续按原要求保留；须在运行节点同机浏览器打开（loopback不是远程可访问链接）：
 1. 打开 `http://127.0.0.1:58054/chat/c_iy796v97`，隔离测试账号 `nano / nano1234`。
 2. 找到 P 的“定位验收 A…”和“定位验收 B…”两条回复，分别点击 View Work。
 3. 点A时A展开，较新B仍是同一完整列表的另一行且可手动展开；点B时B展开，A仍保留在下方。浏览器返回聊天再点较早A并刷新，不能丢失任一记录；未命中的行无需自动展开。
 
-作者自建的 `fix473` 浏览器已关闭，预览服务按待试用要求保留于 tmux `fix473-preview`，运行数据仅在本worktree。停止：`./scripts/e2e-down.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/fix-473-view-work`。不要重新执行up而清空供用户试用的两条记录。PR未合入及用户待试用，开发worktree保留。
+作者自建的 `fix473` 浏览器已关闭，预览服务按原要求保留于 tmux `fix473-preview`，运行数据仅在本worktree。停止：`./scripts/e2e-down.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/fix-473-view-work`。不要重新执行up而清空用户已经验收的两条记录。PR未合入，开发worktree保留；合入后按工作流核对预览保留要求再清理。
 
-## 未完成收口
+## CI与快修收口
 
-独立代码审查及finding closure已完成。用户实际重新确认、最终CI结果、canonical delta归并和归档仍须据真实事实继续。无合并/生产部署授权。
+- 新版CI [run42498850342](https://github.com/Mrchen116/nano-multiagent/actions/runs/42498850342) 在`9db9a5bed9a920cbe6bed22bd5e6e9aee3409a0c`实际completed/success；TypeScript backend/tooling、Frontend checks、iOS检测success，iOS构建因未变iOS路径skipped。Frontend的完整vitest步骤success；后端native runtime/IM及helper/architecture、build/typecheck、ruff、docs步骤均success。不拿首版旧绿CI代替，不覆盖本地两次完整Web失败及根因未明的历史事实。
+- 本地受影响窄回归、IM完整回归、typecheck/build、helper/contract、文档与diff检查已通过；完整Web在该远端干净CI通过提供补充的完整套件证据，不能称本机失败已被诊断或修复。没有修改无关Task/ChatWorkspace。
+- 已审corrected delta按原文归并至canonical Agent Work，IM入口计数14→15，完整unit整体归档；验收及路径/索引更新不改变实现，不机械新增审查round或重跑人类旅程。归档后已通过文档完整性（281 maintained sources / 69 routes）、逐字delta归并及15条requirement计数断言、whitespace检查；最终PR head的远端CI结果以实际run回执交付。
+- 独立代码审查、finding closure及本事项人类验收均已完成。PR仍需人审查合并；没有合并或生产部署授权。

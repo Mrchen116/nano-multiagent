@@ -1,6 +1,6 @@
 # bugfix-728: As-built Design
 
-> 本文在实现后根据代码和实际验证整理，不是事前 Gate 2 设计。首版被用户真实试用否定；本文按其“Work永远全量，锚点只控制展开”的更正修订，unit 保持 active。
+> 本文在实现后根据代码和实际验证整理，不是事前 Gate 2 设计。首版被用户真实试用否定；按其“Work永远全量，锚点只控制展开”更正后，用户已亲自复验并明确确认通过；本unit随快修收口归档，不表示PR已合并或部署。
 
 ## 实现范围
 
@@ -58,11 +58,11 @@
 | 必须回答的问题 | 能力与所需证据 | 证据与缺口 |
 |---|---|---|
 | 多次同名唤醒能否按真实消息分别定位；完整列表/历史分页是否正确；资格不扩张 | 独立 change-code-review，diff + 真实socket回归 | 自动化包含25轮所有锚点的最新页和完整连续分页、重复定位、缺失、items与授权；固定模型派发能力差异见 review |
-| 真实聊天点击能否看到目标记录及工具，同时保留其他轮次；重复历史点击/返回是否稳定 | 作者前端体验自检，保留的daily真实模型A/B + Chromium连续点击/截图 | 点击A核B仍在且可展开，点击B核A仍在；真实证据见review。作者自测不代替用户重新确认 |
+| 真实聊天点击能否看到目标记录及工具，同时保留其他轮次；重复历史点击/返回是否稳定 | 作者前端体验自检，保留的daily真实模型A/B + Chromium连续点击/截图；用户亲自复验 | 点击A核B仍在且可展开，点击B核A仍在，再点A/刷新；用户已对同一入口亲自复验并明确通过。原始反馈及证据见review |
 
 ## 验证定位
 
-- 用户验收：已真实试用首版并否定，修订后待重新确认；禁止归档或标完成。
+- 用户验收：首版否定后已对修订完整路径亲自复验，并明确确认“Good job，我觉得我的真实测试没问题了”；不重复要求试用，不将技术检查替换为人类确认。
 - 自动化：`work-message-focus.test.ts`、`agent-work-panel.test.tsx`、`message-pane.test.tsx`；完整结果见 review。
 - 运行证据：隔离 daily 栈、浏览器及本地输出见 review；本地日志/截图不提交。
 - 无一次性部署迁移，不生成 deployment-prompt。
@@ -70,4 +70,4 @@
 ## Canonical 文档影响
 
 - Delta: [specs/im/agent-work.md](specs/im/agent-work.md)。
-- 待审查及用户确认后归并 `docs/specs/im/agent-work.md`，当前尚不覆盖 current spec。
+- 独立reviewer已对corrected delta核对ALIGNED，用户已确认；上述ADDED requirement按原文归并 `docs/specs/im/agent-work.md`，同步IM入口计数；不增加此次事实查询以外的新状态持久化需求。
