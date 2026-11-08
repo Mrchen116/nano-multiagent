@@ -65,6 +65,74 @@ final class LocalFirstLaunchUITests: XCTestCase {
         app.terminate()
     }
 
+    func testMembershipRenameThenRemovalUpdatesVisibleConversation() async throws {
+        let title = try required("NANO_UI_MEMBER_CHAT_TITLE")
+        let renamed = try required("NANO_UI_MEMBER_RENAMED_TITLE")
+        let content = try required("NANO_UI_MEMBER_MESSAGE")
+        let chatID = try fixtureID("NANO_UI_MEMBER_CHAT_ID")
+        let userID = try fixtureID("NANO_UI_MEMBER_USER_ID")
+        app.launch()
+        let chat = app.staticTexts[title].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 20), "The joined fixture group must be present before changing membership")
+        chat.tap()
+        XCTAssertTrue(message(content).waitForExistence(timeout: 15))
+        capture("membership-before-rename")
+
+        // A second synthetic member changes the real server while this client remains open.
+        // This exercises its WebSocket/access-check path, not a local store injection.
+        try await fixtureChange("/im/v1/conversations/\(chatID)", method: "PATCH", body: ["title": renamed], status: 200)
+        XCTAssertTrue(app.navigationBars[renamed].waitForExistence(timeout: 15))
+        XCTAssertTrue(message(content).waitForExistence(timeout: 5), "A harmless membership change must retain the complete timeline")
+        XCTAssertFalse(app.staticTexts["This conversation is no longer accessible."].exists)
+        capture("membership-after-rename")
+
+        try await fixtureChange("/im/v1/conversations/\(chatID)/participants/\(userID)", method: "DELETE", status: 204)
+        XCTAssertTrue(app.staticTexts["This conversation is no longer accessible."].waitForExistence(timeout: 15))
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: message(content))
+        await fulfillment(of: [hidden], timeout: 5)
+        capture("membership-revoked-timeline")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertFalse(app.staticTexts[renamed].exists, "The revoked group must also leave the list")
+        capture("membership-revoked-list")
+        app.terminate()
+    }
+
+    func testRevokedConversationStaysAbsentOnOfflineRelaunch() throws {
+        let retained = try required("NANO_UI_CHAT_TITLE")
+        let revoked = try required("NANO_UI_MEMBER_RENAMED_TITLE")
+        app.launch()
+        XCTAssertTrue(app.staticTexts[retained].firstMatch.waitForExistence(timeout: 5), "The same user's other cached group must still load offline")
+        XCTAssertFalse(app.textFields["Enter your username"].exists)
+        XCTAssertFalse(app.staticTexts[revoked].exists, "A known revoked group must not return from disk")
+        XCTAssertFalse(message(try required("NANO_UI_MEMBER_MESSAGE")).exists)
+        capture("membership-revoked-offline-list")
+        app.terminate()
+    }
+
+    private func fixtureID(_ name: String) throws -> String {
+        let value = try required(name)
+        XCTAssertTrue(value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }, "Use only a dedicated fixture identifier")
+        return value
+    }
+
+    private func fixtureChange(_ path: String, method: String, body: [String: String]? = nil, status: Int) async throws {
+        let origin = try required("NANO_UI_ORIGIN")
+        let url = try XCTUnwrap(URL(string: origin + path))
+        XCTAssertEqual(url.scheme, "http")
+        XCTAssertEqual(url.host, "127.0.0.1", "Fixture mutations must never target a public or production service")
+        XCTAssertNotNil(url.port)
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 10
+        request.setValue("Bearer " + (try required("NANO_UI_FIXTURE_OPERATOR_TOKEN")), forHTTPHeaderField: "Authorization")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, status, "The real fixture operation must succeed before checking its UI consequence")
+    }
+
     private func resetOwnedSessionForLogin() throws {
         // An interrupted prime can leave this dedicated fixture signed in. Use the
         // public sign-out flow, never erase a simulator or bypass genuine login.

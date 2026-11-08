@@ -136,3 +136,11 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 新空会话UITest以正常登录fixture为前置，从真实列表进入专用title，正向等待既有conversation.empty，再核目标navigation title、无loading、capture与terminate，未改prime/offline全文、目标或timeout，无内部store/SQL注入。View仅成功empty状态提供该ID；静态通过不证明AX实际命中或真实画面。
 - 独立核对原完整scheme175=169pass+5failedTests+1skip，保留TEST FAILED；4条WebKit缺资源控制流与既有build.sh生成前置相符，不能在修后运行前关闭。原da47四图/两阶段历史PASS可复用为当时指定路径证据，不冒称b662新实测，不验证空会话/性能/完整CI。
 - **findings=[] / no spec delta / aligned**。本次仅窄代码与测量设计APPROVED；后续运行结果由owner另记，不把静态审查扩大为全unit交付。
+
+## Round 8 — 成功空会话与完整native运行证据独立审查 PASS（0C/0W）
+
+- 原非作者加载product-journey-review + frontend-experience-review，先实际read_image原始空会话图，再核rawlog/manifest/runner/build metadata/full测试summary；全程只读，无build/test/sim/设备/GUI/服务/网络/模型/文件或Git写入。`validated_at=089d58db54632b97ee7293e129d8fae883a69433`，b662→该head仅docs/+21，产品UITest实际b662，binaryInfo bundle/revision独立核实。
+- **指定成功空会话旅程与限定体验PASS**：同53703/557、真实已有登录session、专用Release planning/c_drj7ef6y，正常API seed前置按owner receipt复用；runner无reset。empty-b662.log:22-60真实列表→进入→empty正向→标题→无loading→截图→terminate，1test/0fail/0unexpected/9.295s，不把test总时长当渲染耗时。实际原图与attachment manifest归属一致；标题与No messages yet清晰、无spinner或离线/需要连接占位、输入区保留，用户能分辨成功空结果而非仍等待。**W6真实画面pending关闭**，不只是静止截图猜导航或由绿test推体验；未扩为空会话发送/离线等其它场景。
+- 独立核51条affected实际0fail、原4WebKit身份均PASS；full-assets summary **175=174pass+1physicalskip+0fail / Passed**，raw580-658对应XCTest148含1skip、SwiftTesting27pass。原日期及四WebKit身份亦在full实际PASS，唯一skip明确需要physical fileProtection。关闭前轮对应修后运行缺口，不改写首次full真实FAIL，不把skip变pass。
+- 本批stop/PIDgone/connect61/557Shutdown复用owner当时receipt，不伪称reviewer实时操作。da47两阶段历史限定PASS保持；系统diagnostics warning没有被描述为不存在。
+- **findings=[] / 0C0W / no spec delta**。本轮仅新增证据审查，不重审全unit、不重开W1–W7；旧构建升级与M2其它真实客户端矩阵、真机flight/protection/20次trace、Release与其它仓库CI、最终unit门禁/归并/归档/PR仍各自待证，不因本次PASS全部关闭。

@@ -171,3 +171,11 @@
 
 - 同一冻结产品`b66289f3c`、557/derivedData执行完整NanoIM scheme，既有资源前置与上述51条窄测先通过后再扩大。`/tmp/feat714-native-full-assets-b66289f3c.log:580-658`与`.xcresult`，实际**exit0 / TEST SUCCEEDED**；summary`/tmp/feat714-native-full-assets-b66289f3c-summary.json`为**175 total = 174 passed + 1 physical-device protection skip + 0 failed**。XCTest148含1 skip/0 failures/0 unexpected，另SwiftTesting27 pass。原日期与4条WebKit身份本run均通过；原首次175总FAIL不覆盖/删除。
 - 随后相同产品`NanoIMJourney build-for-testing`成功，`/tmp/feat714-native-journey-b66289f3c.log:251`；Info.plist revision实查b66289f3c。本次完整原生测试通过，不等同于Release archive、后端/前端完整CI、真机属性/flight或20次性能通过。
+
+### 成功空会话真实原生路径：PASS（独立产物审查通过）
+
+- 同53703原DB/JWT与真实登录session，唯一自有IM新日志server-empty-b662.log/PID89862，实查argv与health200。通过正常API登录原合成账号，创建专用空group **Release planning / c_drj7ef6y**，GET messages确认items=[]；不写客户端SQL/cache。保留原Product launch与旧运行结果；新的private input/runner另存0600，不含reset opt-in。empty-manifest-b662.json绑定b662产品、同557/origin/新chat与runner，binaryInfo revision实查b66289f3c。
+- 实际运行`testSuccessfulEmptyConversationStopsLoading`，`/tmp/feat714-native-final-dphmlbb6/empty-b662.log:22-60`、`.xcresult`：真实launch→20秒目标列表谓词→进入Release planning→15秒既有conversation.empty正向断言→同NavigationBar标题→无Loading conversation indicator→capture→terminate，**exit0 / 1 test / 0 failures / 0 unexpected / 9.295s / TEST EXECUTE SUCCEEDED**。复用已有真实登录，不冒称此test重新登录；9.295s是test总时长，不是首绘性能。
+- 作者与原非作者各自用read_image实际打开原始attachment`empty-b662-attachments/F542CB6D-F7C5-47E7-BB08-642722738716.png`（1206×2622px / 402×874pt）：标题明确、No messages yet可辨、无spinner/离线错误/需要连接占位，底部输入区保留。连续操作log与图共同证明正确目标的成功空结果已完成，不是只凭静止图或绿test推体验。原reviewer裁决**指定旅程/限定体验PASS，findings=[] / 0C0W，W6真实画面pending关闭**，见review.md Round8。
+- 停止仅本IM job并收集SIGTERM，实查PIDgone、53703connect61、精确557Shutdown；全部本批jobs收集，无其它服务/Gateway/模型。独立reviewer复用这些owner receipt，不伪称其实时探测。
+- 仍须原契约其它真实路径：旧构建实际未确认JSON→覆盖升级、账号/服务隔离及membership/撤权/401客户端矩阵；真机flight/protection与≥20次trace；Release与跨包CI、最终unit门禁。空会话PASS不替代这些项。
