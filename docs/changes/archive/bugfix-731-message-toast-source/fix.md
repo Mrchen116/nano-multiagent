@@ -124,3 +124,8 @@ Agent 解读：用户需要从会话外的新消息弹窗直接判断消息来�
 - 已人工查看两张实际截图：来源名称清楚、摘要完整、没有 UUID 标题。截图裁取真实视口左上 760 × 340 区域，另保留完整视口截图。未实测手机布局，不声称移动端体验验收通过。
 - 截图与测试日志保存在本机 `/Users/czj/.codex/reports/bugfix-731-toast-source-20261109/`：`direct-toast.png`、`group-toast.png`、对应 `*-full.png`；`browser-evidence.json` 保留会话类型、成员数与实际持久消息。截图与运行数据不提交。
 - 环境限制：`e2e-up.sh --profile daily` 两次在 `daily-engineering/capabilities` 目录同步阶段返回 504；因此未声称 daily 模板完整 ready。已在线的 IM/Node/测试 Agent 可用，以上两条通知路径在该实际服务上独立完成。未扩大本次修复去改变目录检查超时或草稿采用功能。
+
+
+### 收尾验证
+
+用户确认后由独立 reviewer 审查完整 diff 与最终 delta，返回无 findings、delta aligned。类型检查、共享 iOS runtime 检查、135 项 Python 测试、ruff、文档与 critical audit 通过。完整运行时 1173 passed / 1 过期时序用例超时；该用例单独复跑通过，没有修改超时或代码。完整前端的既有草稿失败仍保留。原样归并经审 delta 后归档供 PR 审查，未宣称整仓本地套件全绿，未合并或部署。完整版本与限制见 `review.md`。
