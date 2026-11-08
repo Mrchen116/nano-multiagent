@@ -40,6 +40,13 @@
 - 额外同源正常empty回归`empty-95923.log/.xcresult`实际1test/0fail/0unexpected/exit0；作者实际read_image `empty-95923-attachments/6A533628-9A8E-40C9-91E1-85E2B0470852.png`：Release planning/No messages yet/composer正常，无spinner或缺缓存提示。新revoked排除未破坏正常成功空态。
 - 本批自有IM819/PID53681已停止并收集SIGTERM，实核PIDgone、53703connect61、精确557名称与UDID相符且Shutdown，无本批运行资源残留。该receipt不是reviewer独立实时探测，更不是物理flight证明。
 
+## 独立剩余矩阵准备：尚未运行
+
+- 在升级整组保持暂停的前提下，继续原授权的其它独立部分；不建新账号/会话/消息，不用已有C绕行升级。拟复用53703已存在A/B和同一Launch coordination群/完整唯一消息，用正常成员API恢复A后先真实读取并terminate；只停自有origin后离线新进程确认该群全文仍可读并terminate；恢复origin且A App仍不运行时由B正常移出A，随后A首次联网冷启收敛，最后再次停服/冷启确认已知撤权不回归。
+- 新增现有UITest文件内的真实读取、冷启收敛、已显示正文后401及后续重开登录四个方法，复用既有完整正文/实际UI/显式throw/defer terminate；未改产品。收敛test只停留列表，不tap已撤权详情或pull-to-refresh，避免把detail403或普通/conversations缺项冒充首个/sync权威差分；正向保留其它会话后15秒异步等目标消失，再核无登录/无降级/无目标全文。**源码存在及断言等待不是已验证≤30秒活跃重连，也不是从首次/sync起的精确计时证据。**
+- 401仍须按design既有自有合成DB的auth_epoch或会话吊销构造，再由客户端真实refresh401进入.credentials路径；host另行login/logout只撤其自己的sid、UI Sign out会提前本地清理，两者均不能替代本项。新增active方法先核真实全文，再用run-bound stdout marker与独立A control token `/auth/me`从200变401协调epoch已生效，随后Home→activate触发真实前后台重新核权，等待登录表单/旧内容消失；control请求不冒充App请求。后续重开方法复用同登录断言。仍需真实服务端App refresh401及重开/文件边界证据，不能仅凭登录页认定purge完成。
+- 本批准备尚未build/运行、未恢复成员/撤权/改认证DB，原非作者静态审查与真实产物另记；原升级拒绝和手机/公网未获答边界保持。
+
 ## 未完成
 
 账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、真机flight/protection/20次trace及其它CI/最终unit收口。以上不由限定membership/empty PASS自动关闭。

@@ -112,6 +112,62 @@ final class LocalFirstLaunchUITests: XCTestCase {
         app.terminate()
     }
 
+    func testReadExistingFixtureHistory() throws {
+        app.launch()
+        defer { app.terminate() }
+        try openFixtureConversation()
+        capture("existing-history-before-offline-revocation")
+    }
+
+    func testOfflineRevocationConvergesOnNextOnlineLaunch() async throws {
+        let retained = try required("NANO_UI_CHAT_TITLE")
+        let revoked = try required("NANO_UI_MEMBER_RENAMED_TITLE")
+        let content = try required("NANO_UI_MEMBER_MESSAGE")
+        app.launch()
+        defer { app.terminate() }
+        // The preceding offline phase read this exact group. The host removed access only
+        // after that process terminated, so the cached seed cannot already know the change.
+        try requireFixture(app.staticTexts[retained].firstMatch.waitForExistence(timeout: 5), "Keep the same account's other cached history visible")
+        let absent = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.staticTexts[revoked].firstMatch)
+        let result = await XCTWaiter.fulfillment(of: [absent], timeout: 15)
+        try requireFixture(result == .completed, "The first online launch must converge after a revocation learned while offline")
+        try requireFixture(app.staticTexts[retained].firstMatch.exists, "Keep unrelated cached history after the authoritative correction")
+        try requireFixture(!app.textFields["Enter your username"].exists, "A group revocation must not sign out the account")
+        try requireFixture(!app.staticTexts["No local cache this time"].exists, "Do not mistake degraded network-only mode for durable revocation")
+        try requireFixture(!message(content).exists, "The revoked group's preview must not remain visible")
+        capture("offline-revocation-converged-list")
+    }
+
+    func testCredentialRevocationClearsAnAlreadyVisibleConversation() async throws {
+        app.launch()
+        defer { app.terminate() }
+        try openFixtureConversation()
+        capture("credentials-before-server-revocation")
+        try await waitForOwnedAccountCredentialsToBeRevoked()
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        try assertRejectedCredentials()
+    }
+
+    func testRejectedCredentialsShowLoginWithoutCachedHistory() throws {
+        app.launch()
+        defer { app.terminate() }
+        try assertRejectedCredentials()
+    }
+
+    private func assertRejectedCredentials() throws {
+        let title = try required("NANO_UI_CHAT_TITLE")
+        let content = try required("NANO_UI_MESSAGE")
+        // The host revokes only this synthetic account on the owned server. No normal UI
+        // sign-out participates: the actual refresh 401 must drive the credentials path.
+        try requireFixture(app.textFields["Enter your username"].waitForExistence(timeout: 20), "Rejected credentials must return to the sign-in form")
+        try requireFixture(app.secureTextFields["Enter your password"].exists, "Show login, not an account-admission screen")
+        try requireFixture(!app.tabBars.buttons["Chats"].exists, "The old signed-in root must stop being displayed")
+        try requireFixture(!app.staticTexts[title].exists, "Do not retain the previous account's cached conversation on screen")
+        try requireFixture(!message(content).exists, "Do not retain the previous cached message on screen")
+        capture("credentials-rejected-login")
+    }
+
     func testSubmitUnconfirmedSendAfterOriginStops() async throws {
         let content = try required("NANO_UI_PENDING_CONTENT")
         app.launch()
@@ -220,6 +276,29 @@ final class LocalFirstLaunchUITests: XCTestCase {
             try await Task.sleep(for: .milliseconds(200))
         }
         try requireFixture(false, "The owned origin must become transport-unreachable before Send is tapped")
+    }
+
+    private func waitForOwnedAccountCredentialsToBeRevoked() async throws {
+        let origin = try required("NANO_UI_ORIGIN")
+        let url = try XCTUnwrap(URL(string: origin + "/im/v1/auth/me"))
+        try requireFixture(url.scheme == "http" && url.host == "127.0.0.1" && url.port != nil, "Only coordinate an owned loopback account")
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        request.setValue("Bearer " + (try required("NANO_UI_FIXTURE_ACCOUNT_ACCESS_TOKEN")), forHTTPHeaderField: "Authorization")
+        let (_, initial) = try await URLSession.shared.data(for: request)
+        try requireFixture((initial as? HTTPURLResponse)?.statusCode == 200, "Confirm the synthetic account is valid before requesting revocation")
+        let run = try fixtureID("NANO_UI_REVOKE_RUN_ID")
+        FileHandle.standardOutput.write(Data("NANO_UI_READY_TO_REVOKE_OWNED_ACCOUNT:\(run)\n".utf8))
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            try Task.checkCancellation()
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode
+            if status == 401 { return }
+            try requireFixture(status == 200, "Only an actual credential rejection is the revocation handshake")
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        try requireFixture(false, "The host must revoke the owned account before testing the App's refresh path")
     }
 
     private func fixtureID(_ name: String) throws -> String {

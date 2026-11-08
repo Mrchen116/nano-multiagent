@@ -192,3 +192,11 @@
 - 原拟同自有53703新建专用合成账号/审批/私聊和历史，以避免现有current分区migration marker污染首次导入前置。**工具明确拒绝**：其理由为用户仅授权现有账号测试并明确不建新账号。没有Python stdout/exit或写入回执，不声称命令有部分执行；没有换账号/路径/工具重试。
 - 已将原命令/准确拒绝/原方案与复用已有C方案的真实副作用回交父级核原人话；父级明确先保持这一整组旧迁移操作暂停、不复用账号探许可。现有C也不能自动视作新授权：仍会改auth/session/UI身份/客户端持久状态及最终发消息。取证文本仅留本机`/tmp/feat714-native-final-dphmlbb6/upgrade-permission-denial-13625.txt`，不含secret实值。
 - 仅收集已启动build与清理自有IM837/PID71722；实核PIDgone、53703connect61、精确557名称/UDID相符且Shutdown，无运行资源。升级真实验收仍**未完成/权限待核**，不是测试失败、不是通过或允许降低前置。
+
+### 后续产品修改后的完整原生scheme：PASS（保留真机skip与诊断）
+
+- 冻结`4dc09fcb67c58657bf2eef1060c7c1f789e6028c`；本批独立于暂停的升级组，只运行同557的完整NanoIM scheme，未启动服务、创建账号/会话/消息或启动旧版/升级旅程。既有ignored renderer资源存在，`-jobs 2 -parallel-testing-enabled NO`、同`/tmp/nano-ios-714-resume`。
+- `/tmp/feat714-native-full-4dc09fcb6.log:720-798`、`.xcresult`与导出`-summary.json`实际 **TEST SUCCEEDED / 175 total = 174 passed + 1 physical-device protection skip + 0 failed**；XCTest148含1skip/0failures/0unexpected，另SwiftTesting27pass。Debug App实际Info实查win.nanoim.ios/revision4dc09fcb6。该结果覆盖cf686可见detail发布与95923撤权空态产品增量，不以旧b662完整绿代替新执行。
+- 原始log:318/326/331/335仍有LocalFirst临时fixture的vnode-unlinked SQLite诊断，WebKit ProcessSuspension及AppIntents metadata warning也保留。断言均通过不能解释成零诊断、全局fixture生命周期已修好或实际产品库损坏；此前失败与修复记录不覆盖。
+- 随后同冻结产品`xcodebuild archive -jobs 2 -scheme NanoIM -destination generic/platform=iOS -configuration Release CODE_SIGNING_ALLOWED=NO`实际 **exit0 / ARCHIVE SUCCEEDED**（`/tmp/feat714-native-release-4dc09fcb6.log:2182`）；`/tmp/nano-ios-714-release-4dc09fcb6/NanoIM.xcarchive`内实际Info为win.nanoim.ios/4dc09fcb6/0.2.0/634，file确认Mach-O arm64。未签名、未接手机、未安装或分发ipa。完整测试与归档串行job841已收集exit0。
+- 本批收尾实核精确557名称/UDID相符且Shutdown，53703 connect61；无本批服务、模型或GUI旅程。此完整scheme不包含显式分阶段NanoIMJourney运行，**不关闭**升级、账号/服务隔离、真实401/离线期间撤权、物理flight/protection/20次trace、跨包CI或最终unit门禁。
