@@ -35,7 +35,7 @@ it('requires the selected author to have current write access and freezes the se
 it('keeps the PA as card executor while the owner is its public author and rechecks participation',()=>{
   const {ctx,db,service,principal,args}=personalFixture();
   const interactive={format:'openui',catalog_version:'nano-iui-1',source:'$draft = "Wednesday"\nroot = Col([TextArea($draft), Button("Revise", @SendToChat("Revise"))])'};
-  const input={...args,representation:'owner',request_key:'card',conversation_id:'peer',content:'Please review',interactive};
+  const input={...args,representation:'owner',request_key:'card',conversation_id:'peer',content:'',interactive};
   expect(()=>service.actions.prepare(principal,input)).toThrow('owner_interactive_requires_pa_participant');
   db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
   const prepare=(value:any)=>{

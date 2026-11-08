@@ -651,7 +651,7 @@ export class GlobalAgent {
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
     const publicationBody = interactive ? sortedJsonAscii({text, interactive}) : text;
-    if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
+    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);
     if (previous) {
@@ -678,6 +678,7 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
     let correction = false;
     if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {

@@ -31,21 +31,24 @@ it('returns compact upstream diagnostics for recovery and allows a corrected new
     expect(attempts).toBe(2);
   } finally {await product.stop();store.close();inbox.close();}
 });
-it('preserves handwritten instructions and attached values in both Relay and Global Inbox', async () => {
+it.each([
+  {incoming:input, expected:'林悦，周六11点断桥见', label:'Attached choices'},
+  {incoming:{...input,message:{...input.message,content:'',interaction_reply:undefined,interactive:{format:'openui',catalog_version:'nano-iui-1',source:'root = Col([Text("周六11点断桥见")])'}}}, expected:'周六11点断桥见', label:'Public interactive reply'},
+])('preserves public message content and $label in both Relay and Global Inbox', async ({incoming,expected,label}) => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');const submissions:any[]=[];
   const product=new SingleThread({nodeId:'n',ownerId:'owner',store,agents:[{agentId:'a',revision:'1',mode:'single_thread',provider:'test',model:'test',workspace:'/tmp'}],
     runtime:{onNotification:()=>()=>{},async request(method,args){if(method==='session.submit')submissions.push(args);if(method==='session.lookup')return{accepted:false};return{events:[],durable:true};}},
     relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>{throw error;}});
   try{
-    await product.receive(input);inbox.receive(input,true);
+    await product.receive(incoming);inbox.receive(incoming,true);
     const page=inbox.read('a','main','read',{target:'c'});
     for(const content of [JSON.stringify(submissions[0].content),JSON.stringify(page)]) {
-      expect(content).toContain(input.message.content);expect(content).toContain('林悦，周六11点断桥见');expect(content).toContain('Attached choices');
+      expect(content).toContain(incoming.message.content);expect(content).toContain(expected);expect(content).toContain(label);
     }
-    expect(store.inputs(store.bindingFor('a','c')!.sessionId)[0].input.message.content).toBe(input.message.content);
+    expect(store.inputs(store.bindingFor('a','c')!.sessionId)[0].input.message.content).toBe(incoming.message.content);
   }finally{await product.stop();store.close();inbox.close();}
 });
-it.each(['web','feishu'])('publishes immutable UI identities and text fallback for %s', async channel => {
+it.each([['web',''],['web','摘要'],['feishu','摘要']])('publishes immutable UI identities for %s with optional text %j', async (channel,text) => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');const sent:any[]=[];
   store.bind({agentId:'a',sessionId:'main',conversationId:'c',ownerId:'owner',cwd:'/tmp',revision:'1'});
   const agents=[{agentId:'a',revision:'1',provider:'test',model:'test',mode:'single_thread' as const,features:{intelligent_ui:true}}];
@@ -53,12 +56,12 @@ it.each(['web','feishu'])('publishes immutable UI identities and text fallback f
     relay:{async request(type,payload){if(type==='agent.session.ensure')throw new Error('invalid_scope');if(type==='agent.message'){sent.push(payload);return{type:'ack',payload:{message_id:'card',conversation_id:'c'}};}return{type:'result',payload:{ok:true,result:{type:'direct',channel}}};}},image:async()=>'',onError:error=>{throw error;}});
   store.recordEvents('main',[{seq:1,time:1,type:'tool/call',data:{turn:1,callId:'send-card',name:'send_message',arguments:'{}'}}]);
   const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Stack([TextContent("选项")])'};
-  const call:ProductCall={method:'send_message',args:{target:'current',text:'摘要',interactive},operationId:'send-card',callId:'send-card',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
+  const call:ProductCall={method:'send_message',args:{target:'current',text,interactive},operationId:'send-card',callId:'send-card',sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'};
   try{
     agents[0].features.intelligent_ui=false;
     await product.call(call);await product.call(call);expect(sent).toHaveLength(1);
     expect(store.command('interactive-delivered:main:1')).toBeTruthy();
-    expect(sent[0].text).toBe('摘要');expect(sent[0].interactive).toEqual(channel==='web'?interactive:undefined);
+    expect(sent[0].text).toBe(text);expect(sent[0].interactive).toEqual(channel==='web'?interactive:undefined);
     await expect(product.call({...call,args:{...call.args,interactive:{...interactive,source:'root = Stack([TextContent("不同选项")])'}}})).rejects.toThrow('identity conflict');
   }finally{await product.stop();store.close();inbox.close();}
 });

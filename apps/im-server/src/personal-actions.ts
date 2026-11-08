@@ -110,8 +110,9 @@ export class PersonalActions {
       if(destination===b.conversation_id)return {owner_private:true,conversation_id:destination};
       args={...args,conversation_id:destination,content:'Shared task change',task:{action:command.action,arguments:command.arguments,...(command.source_message_id?{source_message_id:command.source_message_id}:{})}};
     }
-    if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim())fail(422,'concrete_proposal_required');
+    if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim()&&args.interactive===undefined)fail(422,'concrete_proposal_required');
     if(!this.pa.sourceAllowed(b,args.conversation_id,'write'))fail(403,'destination_not_accessible');
+    if(args.transport&&!args.content.trim())fail(422,'external_text_required');
     if(args.transport&&args.attachments?.length)fail(409,'external_attachment_adapter_unavailable');
     let interactive;try{interactive=interactiveResponse(args.interactive);}catch(error){fail(422,(error as Error).message);}
     if(interactive?.source_mode==='patch') {

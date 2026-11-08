@@ -55,7 +55,7 @@ final class InteractiveRuntime {
         error = nil; conflict = false; loaded = false
         do {
             guard let source = message.interactive, source.format == "openui", ["nano-1", "nano-iui-1"].contains(source.catalog_version) else {
-                throw APIError(status: 422, detail: L("此交互回复版本暂不支持，仍可阅读上方文字。", "This interactive version is unsupported. The text remains readable."))
+                throw APIError(status: 422, detail: L("此交互回复版本暂不支持，请更新客户端或在聊天中要求重新发送。", "This interactive version is unsupported. Update the app or ask for a new reply in the chat."))
             }
             let draft = try await client.interactionDraft(message.conversation_id, messageID: message.id)
             guard token == generation, await current() else { return }

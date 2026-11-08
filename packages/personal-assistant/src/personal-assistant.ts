@@ -147,9 +147,9 @@ export class PersonalAssistant {
     const {inbox} = this.options;
     const target = String(call.args.target ?? '');
     const text = String(call.args.text ?? '');
-    if (!target || !text.trim()) throw new Error('Sending requires target and nonempty text');
     if(call.args.reply_draft!==undefined)throw new Error('reply_draft is retired; use an interactive ComposeMessage action');
     const interactive = interactiveResponse(call.args.interactive);
+    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const incident=typeof call.args.incident_ref==='string'?call.args.incident_ref:undefined;
     if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
     const representation=call.method==='send_user_message'?'owner':'self';

@@ -1,4 +1,4 @@
-Write OpenUI inside send_message.interactive.source (or send_user_message for authorized PA representation). Provide source only; the host supplies format and catalog_version. Keep text an independently readable summary. Use the Open Intelligent UI primitives and visual language below to compose the requested answer.
+Write OpenUI inside send_message.interactive.source (or send_user_message for authorized PA representation). Provide source only; the host supplies format and catalog_version. Make the UI a complete answer and put necessary explanation inside it. text is optional; do not duplicate the UI in a separate summary or preface. Use the Open Intelligent UI primitives and visual language below to compose the requested answer.
 
 ## Syntax Rules
 

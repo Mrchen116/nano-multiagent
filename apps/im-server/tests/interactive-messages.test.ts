@@ -27,6 +27,16 @@ describe('interactive message persistence', () => {
     expect(()=>messaging.interactions.writeDraft(req)).toThrow();
     expect(ctx.gateway.broadcast).toHaveBeenCalledTimes(1);
   });
+  it('accepts UI-only gateway HTTP messages, keeps retries idempotent and rejects empty or invalid sends', async () => {
+    const {messaging,ctx} = setup();
+    ctx.gateway.authenticate=()=>({node_id:'n',owner_id:'o1',node_epoch:1}) as any;
+    const req={headers:{authorization:'Bearer fixture','idempotency-key':'ui-only'},params:{conversation_id:'chat'},query:{agent_id:'a'},body:{sender_type:'agent',interactive}} as any;
+    const first=await messaging.sendMessage(req);
+    expect(first).toMatchObject({content:'',interactive});
+    expect(await messaging.sendMessage(req)).toMatchObject({id:first.id});
+    await expect(messaging.sendMessage({...req,body:{sender_type:'agent'}})).rejects.toThrow();
+    await expect(messaging.sendMessage({...req,headers:{...req.headers,'idempotency-key':'invalid'},body:{sender_type:'agent',interactive:{...interactive,source:'root = Unknown("x")'}}})).rejects.toThrow();
+  });
   it('saves selection and one relay atomically even while the node is offline; retries do not enqueue again', async () => {
     const {messaging,card,db,request} = setup();
     const sent=await messaging.sendMessage(request());

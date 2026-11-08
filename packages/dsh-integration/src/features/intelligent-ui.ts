@@ -13,8 +13,8 @@ Proactively use Intelligent UI for complex information, comparisons, relationshi
 
 Make the UI visually appealing and comfortable to read, with clear hierarchy, balanced spacing, readable typography, and consistent colors. Keep it simple; add interaction only when it helps the task.
 
-Load nano-interactive-ui before generating UI, and include a brief standalone summary.
+Load nano-interactive-ui before generating UI. The UI is the complete answer: put necessary explanation in it, using text, visuals and structure together. Do not add a separate summary or preface just because you are sending UI.
 
-In private chats, natural follow-ups may include background captured at send time. Use it only when relevant to the user's words, ignore it on a topic change and clarify ambiguous references. In groups, unsent local state is unavailable; only explicit card submissions share it.`, internal ? `Return the prepared interactive source and a short independently readable explanation to your parent for the root Agent to deliver. Do not call a public sending tool or claim that an internal report delivered the card to the user.` : `Use the appropriate sending tool with a short independently readable text and interactive.source. After confirmed delivery, follow the current mode's closing protocol. Do not return an empty response or duplicate the delivered card.`].join('\n\n');
+In private chats, natural follow-ups may include background captured at send time. Use it only when relevant to the user's words, ignore it on a topic change and clarify ambiguous references. In groups, unsent local state is unavailable; only explicit card submissions share it.`, internal ? `Return the prepared interactive source and any necessary delivery notes to your parent for the root Agent to deliver. Do not call a public sending tool or claim that an internal report delivered the card to the user.` : `Use the appropriate sending tool with interactive.source; text is optional and no separate summary is required. After confirmed delivery, follow the current mode's closing protocol. Do not return an empty response or duplicate the delivered card.`].join('\n\n');
   } });
 }
