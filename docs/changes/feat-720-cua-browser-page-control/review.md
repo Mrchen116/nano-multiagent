@@ -83,7 +83,15 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 
 reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步入队，B 的计数先删掉尚未起跑但标记 disposing 的 A state；A 读取重建新 state、启动实例，销毁仍只处理旧 state，因此没有 end_session 且会再丢失 cap 账本。owner 不加 sleep 的同序回归先取得 **1 failed / 14 passed**，实际 end_session 为 0 而期望 1（`/tmp/feat720-disposal-pruning-red.log`）。
 
-`054ab52ea` 把“销毁已请求”与“销毁队列已收口”分开，只有后者的过期 tombstone 可由计数惰性回收；销毁删除时校验同一 state identity，不能删除后来重建的账本。后续单 worker browser/approval-sources/PA inbox 批次中 **112 passed / 1 timeout**：新 lifecycle 15 项及其余 9 个文件全部通过，唯一 installed-runtime-wiring 测试触及 25 秒整体 timeout（`/tmp/feat720-disposal-pruning-green.log`），不是全集绿。该批 transform 127.5 秒、import 170.35 秒、总 218.95 秒，随后只读现场 load 86.17/107.07/64.05，并见其他 worktree frontend Vitest 与系统 Storage/du 并发；此前同批约 7 秒。共享负载是待验证线索，不据此认定唯一根因；未加 timeout、未跳过测试，typecheck/build 因 `&&` 未执行。真实 GUI 仍未开始，待短低负载段补验/构建后再加载修复。同一 reviewer 直接 import `054ab52ea` 当前 src（不使用旧 lib、不构建），独立轻量 fake 复核精确顺序的 cleanup 成功/失败两路：成功只结束 A 且槽位可复用；失败两次结束尝试、占额保留，后续均 busy。F4 **closed**，该局部无新具体 finding；不据此抹去安装 runtime 的 timeout 或宣称新构建产品通过。
+`054ab52ea` 把“销毁已请求”与“销毁队列已收口”分开，只有后者的过期 tombstone 可由计数惰性回收；销毁删除时校验同一 state identity，不能删除后来重建的账本。后续单 worker browser/approval-sources/PA inbox 批次中 **112 passed / 1 timeout**：新 lifecycle 15 项及其余 9 个文件全部通过，唯一 installed-runtime-wiring 测试触及 25 秒整体 timeout（`/tmp/feat720-disposal-pruning-green.log`），不是全集绿。该批 transform 127.5 秒、import 170.35 秒、总 218.95 秒，随后只读现场 load 86.17/107.07/64.05，并见其他 worktree frontend Vitest 与系统 Storage/du 并发；此前同批约 7 秒。共享负载是待验证线索，不据此认定唯一根因；未加 timeout、未跳过测试，typecheck/build 因 `&&` 未执行。该批未开始真实 GUI；后续补验/构建与加载结果见下段。同一 reviewer 直接 import `054ab52ea` 当前 src（不使用旧 lib、不构建），独立轻量 fake 复核精确顺序的 cleanup 成功/失败两路：成功只结束 A 且槽位可复用；失败两次结束尝试、占额保留，后续均 busy。F4 **closed**，该局部无新具体 finding；不据此抹去安装 runtime 的 timeout 或宣称新构建产品通过。
+
+### 当前构建补验与新的入口拒绝
+
+2026-11-09 00:55 +08，协调者根据实际 load 下降分配单组低并发补验，未把主机称为完全健康。owner 对 `054ab52ea` 源码/当时 HEAD `281582874` 顺序运行 DSH typecheck、package build 和唯一缺口 `browser-runtime-wiring.test.ts --maxWorkers=1`，全部 exit 0；该测试 1/1 通过、测试 7.08 秒、transform 216ms / import 258ms，未改 25 秒 timeout、未跳过原失败（`/tmp/feat720-current-runtime-recheck.log`）。前一批 112 个通过测试与本次 installed-runtime 测试分别保留原件，不伪称同一次全集绿。
+
+随后仅重启本事项隔离 Node（pid 51690/runtime 51786），核实新进程的 driver 路径、PA profile 的 package 链接解析至本 worktree、当前 lib 包含 `disposalFinished`。真实设置页 v4 显示 Sol selected / fallbacks unset / No changes，Gateway 所有 default/approval 模型为 Sol、fallbacks 均空。以上是构建/加载及有效配置证据，尚无配置更正后的实际新模型响应。
+
+真正物理开始前已通知协调者；只读前台元数据 sampler 启动后，向 headless Playwright 提交拟给受测 PA 的本地 popup 合成任务时，**外层工具拒绝 fill+Enter，任务未输入/提交**。拒绝理由为拟提交文本要求“只用 browser、不用 Playwright”，且 parent relay 不构成可推翻此限制的可信人类授权。该限制原拟约束受测 PA，不由 owner 擅自判为误拒绝绕过：已立即停止本批、停止 sampler、释放物理窗口并将原理由交协调者核对原始授权与操作者入口边界，未改文案/工具重试。`/tmp/feat720-fixture-20261108/foreground-repaired.jsonl` 为本次无新 CU Chrome 的只读采样，不是成功启动/前台归还证据。**本次实际新增 Chrome 启动数为 0、popup 数为 0，V2/V3/V4 仍 Pending。**
 
 ## 发布阻塞与待补验
 
@@ -126,4 +134,4 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 `054ab52ea` 源码、`fb297cba9` 契约的非作者增量复核：F1/F2 **superseded-by-authorized-scope-correction**，F3/F4 **closed**，静态存活 findings 为空；**corrected-delta = aligned（静态源码/契约范围）**。本轮配置例外及实际模型/effort 边界见上文。
 
-**实施/产品旅程整体仍 Pending。** 安装 runtime 测试需按最终构建补验，实际 Sol Context 和 V2 等真实旅程尚未闭环；没有可以登记的整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。待当前资源条件恢复后沿同一事项/worktree继续，不再要求用户选择已撤回的隐私问题或额外预约。
+**实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过，实际 Sol Context 和 V2 等真实旅程仍未闭环，最新 UI 提交入口拒绝已停止并交协调者核对；没有可以登记的整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
