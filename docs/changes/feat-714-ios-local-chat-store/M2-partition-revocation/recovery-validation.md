@@ -32,6 +32,14 @@
 - 作者实际read_image四张online原图及一张offline原图。前后rename全文可读、标题确已更新；online/offline列表保留两条其它会话，无已撤权群，offline有未连接+更新时间。**但online撤权画面`membership-online-cf686-attachments/7E83AA5D-9E18-4617-9507-EBBC79D60991.png`同时出现红色不可访问与中央“连接后自动读取”/Retry。** 用户已确定失去权限，却被建议靠重连恢复，属于真实体验FAIL，不能由功能测试绿盖掉。
 - 原因：revocation清timeline并设置errors后，通用empty分支把`timelinePhase.needsConnection`当作缺缓存，未排除revoked。最小修正仅在已revoked时不画通用empty/needsConnection占位，保留专用撤权说明/正文隐藏；原正常empty/无缓存offline不变。既有membership UITest增强“不出现连接恢复建议/Retry”的真实画面断言。此修正以实际截图为失败证据，修后构建与对应旅程/独立体验复核待执行。
 
+## 95923实际复验与独立限定closure
+
+- 95923c3f5 Journey build实际exit0（`/tmp/feat714-membership-journey-95923c3f5.log:339`）；沿同origin/DB/JWT正常B登录恢复A+原群名，核三成员/同一全文唯一消息。新私有input/runner0600，原产物保留。
+- `membership-online-95923.log:28-85`与`.xcresult`/summary实际 **1test/0failure/0unexpected/exit0**；完整改名/撤权/返回列表过程未弱化，新增无错误连接建议/无Retry断言在capture前实际通过。作者和原reviewer分别read_image `membership-online-95923-attachments/1A2F862B-D38C-4C68-8D33-A4189AD9D97A.png`：专用撤权说明保留、正文隐藏，中央假恢复建议与Retry消失，返回可达。
+- 同原reviewer加载产品旅程+体验+代码能力，独立核新版image/rawlog/summary/manifest/fresh runner/buildInfo，同ID/bundle win.nanoim.ios/revision95923c3f5，**W9实际CLOSED / 指定旅程与限定体验PASS / 0C0W**，见Round12。cf686 offline列表证据可复用：本次仅影响revoked detail空态，未改storage/tombstone/list/relaunch，且offline测试不打开detail。不推全程每帧无闪回或≤1RTT。
+- 额外同源正常empty回归`empty-95923.log/.xcresult`实际1test/0fail/0unexpected/exit0；作者实际read_image `empty-95923-attachments/6A533628-9A8E-40C9-91E1-85E2B0470852.png`：Release planning/No messages yet/composer正常，无spinner或缺缓存提示。新revoked排除未破坏正常成功空态。
+- 本批自有IM819/PID53681已停止并收集SIGTERM，实核PIDgone、53703connect61、精确557名称与UDID相符且Shutdown，无本批运行资源残留。该receipt不是reviewer独立实时探测，更不是物理flight证明。
+
 ## 未完成
 
-新撤权恢复建议画面修正的实际复验与独立closure、账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、真机flight/protection/20次trace及其它CI/最终unit收口。以上不由原174pass、空态图或cf686两个功能测试绿自动关闭。
+账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、真机flight/protection/20次trace及其它CI/最终unit收口。以上不由限定membership/empty PASS自动关闭。

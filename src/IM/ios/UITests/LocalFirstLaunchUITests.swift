@@ -112,6 +112,116 @@ final class LocalFirstLaunchUITests: XCTestCase {
         app.terminate()
     }
 
+    func testSubmitUnconfirmedSendAfterOriginStops() async throws {
+        let content = try required("NANO_UI_PENDING_CONTENT")
+        app.launch()
+        defer { app.terminate() }
+        if ProcessInfo.processInfo.environment["NANO_UI_RESET_OWNED_SESSION"] == "1" {
+            try resetOwnedSessionForLogin()
+        }
+        if ProcessInfo.processInfo.environment["NANO_UI_SIGN_IN"] == "1" {
+            try signInFixture()
+        }
+        try openFixtureConversation()
+        let composer = app.textViews["Message"]
+        try requireFixture(composer.waitForExistence(timeout: 5), "Use the real editable message composer")
+        try requireFixture(!app.staticTexts["Awaiting delivery confirmation"].exists, "Do not replace an existing pending attempt")
+        composer.tap(); composer.typeText(content)
+        try requireFixture(composer.value as? String == content, "Preserve the complete pending content")
+        try requireFixture(app.buttons["Send"].isEnabled, "The user must explicitly submit the prepared content")
+        capture("pending-ready-to-stop-origin")
+        try await waitForOwnedOriginToStop()
+        app.buttons["Send"].tap()
+        try requireFixture(app.staticTexts["Awaiting delivery confirmation"].waitForExistence(timeout: 15), "The failed submission must remain visibly unconfirmed")
+        try requireFixture(app.buttons["Retry"].exists, "Only an explicit retry may advance this attempt")
+        try requireFixture(composer.value as? String == content, "The frozen content must remain visible in the composer")
+        capture("pending-after-transport-failure")
+    }
+
+    func testUpgradeOfflineShowsPendingBeforeConversationRows() throws {
+        app.launch()
+        defer { app.terminate() }
+        let notice = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 unconfirmed sends")).firstMatch
+        try requireFixture(notice.waitForExistence(timeout: 5), "A real legacy attempt must be imported before the first successful sync")
+        try requireFixture(app.staticTexts["Checked once connected: sends in conversations you can still access stay visible, the rest are cleared."].exists, "Explain the pending-only state without inventing a conversation")
+        try requireFixture(!app.textFields["Enter your username"].exists, "An unreachable service is not a sign-out")
+        let title = try required("NANO_UI_CHAT_TITLE")
+        try requireFixture(!app.staticTexts[title].exists, "A pending-only migration must not invent a placeholder conversation")
+        capture("upgrade-offline-pending-count")
+    }
+
+    func testRecoveredPendingWaitsForExplicitRetry() throws {
+        app.launch()
+        defer { app.terminate() }
+        try openFixtureConversation()
+        try assertPendingFixture()
+        capture("upgrade-online-pending-unchanged")
+    }
+
+    func testExplicitRetryCompletesTheRecoveredSend() throws {
+        let content = try required("NANO_UI_PENDING_CONTENT")
+        app.launch()
+        defer { app.terminate() }
+        try openFixtureConversation()
+        try assertPendingFixture()
+        app.buttons["Retry"].tap()
+        try requireFixture(message(content).waitForExistence(timeout: 15), "Explicit retry must deliver the original complete content")
+        try requireFixture(!app.staticTexts["Awaiting delivery confirmation"].exists, "A confirmed send must no longer be pending")
+        try requireFixture(app.textViews["Message"].value as? String == "", "The confirmed frozen content must leave the composer")
+        capture("upgrade-explicit-retry-confirmed")
+    }
+
+    private func signInFixture() throws {
+        let username = app.textFields["Enter your username"]
+        try requireFixture(username.waitForExistence(timeout: 10), "Begin with the dedicated fixture's sign-in form")
+        username.tap(); username.typeText(try required("NANO_UI_USERNAME"))
+        let password = app.secureTextFields["Enter your password"]
+        password.tap(); password.typeText(try required("NANO_UI_PASSWORD"))
+        app.buttons["Sign in"].tap()
+    }
+
+    private func openFixtureConversation() throws {
+        let title = try required("NANO_UI_CHAT_TITLE")
+        let chat = app.staticTexts[title].firstMatch
+        try requireFixture(chat.waitForExistence(timeout: 20), "The real service must supply this fixture conversation")
+        chat.tap()
+        try requireFixture(app.navigationBars[title].waitForExistence(timeout: 5), "Open the intended conversation")
+        let content = try required("NANO_UI_MESSAGE")
+        try requireFixture(message(content).waitForExistence(timeout: 15), "Read the complete existing fixture message")
+    }
+
+    private func assertPendingFixture() throws {
+        let content = try required("NANO_UI_PENDING_CONTENT")
+        try requireFixture(app.staticTexts["Awaiting delivery confirmation"].waitForExistence(timeout: 10), "Recovery must not automatically resend an unconfirmed attempt")
+        try requireFixture(app.buttons["Retry"].exists, "Preserve the explicit recovery action")
+        try requireFixture(app.textViews["Message"].value as? String == content, "Recover the complete immutable content")
+        try requireFixture(!app.buttons["Send"].isEnabled, "Do not offer a second ordinary send for a pending attempt")
+        try requireFixture(!app.buttons["Remove attachment"].exists, "This text-only fixture must retain its empty attachment set")
+    }
+
+    private func waitForOwnedOriginToStop() async throws {
+        let origin = try required("NANO_UI_ORIGIN")
+        let url = try XCTUnwrap(URL(string: origin + "/health"))
+        try requireFixture(url.scheme == "http" && url.host == "127.0.0.1" && url.port != nil, "Only coordinate an owned loopback fixture")
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 1
+        let (_, response) = try await URLSession.shared.data(for: request)
+        try requireFixture((response as? HTTPURLResponse)?.statusCode == 200, "Confirm the same origin is healthy before requesting its stop")
+        let run = try fixtureID("NANO_UI_STOP_RUN_ID")
+        // A flushed, run-bound marker lets the host stop only its verified fixture process.
+        // An attachment name alone is not a reliable real-time synchronization signal.
+        FileHandle.standardOutput.write(Data("NANO_UI_READY_TO_STOP_OWNED_ORIGIN:\(run)\n".utf8))
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            try Task.checkCancellation()
+            do { _ = try await URLSession.shared.data(for: request) }
+            catch let error as URLError where [.cannotConnectToHost, .networkConnectionLost].contains(error.code) { return }
+            catch { if error is CancellationError { throw error } }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        try requireFixture(false, "The owned origin must become transport-unreachable before Send is tapped")
+    }
+
     private func fixtureID(_ name: String) throws -> String {
         let value = try required(name)
         try requireFixture(value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }, "Use only a dedicated fixture identifier")
@@ -150,13 +260,14 @@ final class LocalFirstLaunchUITests: XCTestCase {
         // public sign-out flow, never erase a simulator or bypass genuine login.
         if app.textFields["Enter your username"].waitForExistence(timeout: 10) { return }
         let me = app.tabBars.buttons["Me"]
-        XCTAssertTrue(me.waitForExistence(timeout: 10), "Only reset the dedicated fixture's visible session")
+        try requireFixture(me.waitForExistence(timeout: 10), "Only reset the dedicated fixture's visible session")
         me.tap()
-        let identity = app.staticTexts["@" + (try required("NANO_UI_USERNAME"))]
-        XCTAssertTrue(identity.waitForExistence(timeout: 10), "Do not sign out an unexpected account")
+        let expected = try ProcessInfo.processInfo.environment["NANO_UI_RESET_USERNAME"] ?? required("NANO_UI_USERNAME")
+        let identity = app.staticTexts["@" + expected]
+        try requireFixture(identity.waitForExistence(timeout: 10), "Do not sign out an unexpected account")
         app.buttons["Sign out"].tap()
         let confirmation = app.sheets.buttons["Sign out"]
-        XCTAssertTrue(confirmation.waitForExistence(timeout: 5), "The normal sign-out confirmation must be visible")
+        try requireFixture(confirmation.waitForExistence(timeout: 5), "The normal sign-out confirmation must be visible")
         confirmation.tap()
     }
 
