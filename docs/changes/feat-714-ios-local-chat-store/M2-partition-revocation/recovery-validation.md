@@ -49,6 +49,12 @@
 - **新的实际权限拒绝**：尝试write临时observer脚本时被拒，准确理由为“该脚本会用已有验收数据库在原端口启动 IM 服务，并记录认证与同步请求状态；这涉及共享服务及账号会话行为，而现有授权要求的是隔离测试且禁止在未确认前启动服务，不能据此授权复用该数据库和原服务端口。” 脚本仅拟import未改产品createServer、同自有DB/53703、onResponse留时间/路径/状态、无token/body/新路由；write未成功，随后glob确认文件不存在，没有服务启动/API或DB副作用。本机完整参数/内容/拒绝回执保存在`/tmp/feat714-native-final-dphmlbb6/matrix-permission-denial-14960.txt`。
 - 两次实际拒绝相关本地组均保持停止，不去掉observer或换工具/端口/DB重试；父级已向真人合并询问具体本地fixture许可，**尚无人类答复，不是放行**。跨包CI和静态修正独立继续；升级、手机/公网原边界保持，不将新UI准备或静态审查当运行许可或通过。
 
+## W10最后guard：独立静态closure与当前构建通过，真实UI仍暂停
+
+- 原非作者对`d0eb4c825`最小9行guard集中复核，W10静态CLOSED、APPROVED0C/0W、findings=[]，见review.md Round15；不将公开state等同于PID身份、App refresh401或清理证据。
+- owner串行job856第一阶段仅执行当前`NanoIMJourney build-for-testing -jobs 2 -parallel-testing-enabled NO`，**exit0 / TEST BUILD SUCCEEDED**（`/tmp/feat714-independent-recheck-d0eb4c825/journey-build.log:250`）；实际Debug App Info为win.nanoim.ios/revision d0eb4c825，覆盖最后guard的typecheck。保留旧setUp actor-isolation/Swift6及scheme/AppIntents warning，不称无warning。未执行任何Journey UI或启动IM；后续阶段为独立后端单例CI。
+- job856全部已收集exit0。实核精确557名称feat-714-native-acceptance/UDID匹配且Shutdown、53703connect61；未恢复成员、改认证DB或运行升级。上述构建/静态结果不解除两次拒绝相关本地组暂停。
+
 ## 未完成
 
-账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、真机flight/protection/20次trace及其它CI/最终unit收口。以上不由限定membership/empty PASS自动关闭。
+账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、真机flight/protection/20次trace、跨包CI真实失败的收口及最终target sync/完整unit门禁。以上不由限定membership/empty PASS、最后guard构建或单例补验自动关闭。

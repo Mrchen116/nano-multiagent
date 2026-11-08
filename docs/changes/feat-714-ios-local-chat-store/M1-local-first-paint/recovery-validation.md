@@ -200,3 +200,18 @@
 - 原始log:318/326/331/335仍有LocalFirst临时fixture的vnode-unlinked SQLite诊断，WebKit ProcessSuspension及AppIntents metadata warning也保留。断言均通过不能解释成零诊断、全局fixture生命周期已修好或实际产品库损坏；此前失败与修复记录不覆盖。
 - 随后同冻结产品`xcodebuild archive -jobs 2 -scheme NanoIM -destination generic/platform=iOS -configuration Release CODE_SIGNING_ALLOWED=NO`实际 **exit0 / ARCHIVE SUCCEEDED**（`/tmp/feat714-native-release-4dc09fcb6.log:2182`）；`/tmp/nano-ios-714-release-4dc09fcb6/NanoIM.xcarchive`内实际Info为win.nanoim.ios/4dc09fcb6/0.2.0/634，file确认Mach-O arm64。未签名、未接手机、未安装或分发ipa。完整测试与归档串行job841已收集exit0。
 - 本批收尾实核精确557名称/UDID相符且Shutdown，53703 connect61；无本批服务、模型或GUI旅程。此完整scheme不包含显式分阶段NanoIMJourney运行，**不关闭**升级、账号/服务隔离、真实401/离线期间撤权、物理flight/protection/20次trace、跨包CI或最终unit门禁。
+
+### 跨包本地CI：后端2项真实FAIL，其它阶段通过
+
+- 冻结`92fb1218bfcf629b738b5de7ec6cef2232af200f`，串行job848完整收集**exit1**。Node24.22.1/Python3.12.9/pnpm11.7环境，`/tmp/feat714-crossci-92fb1218b/summary.json`保存11阶段的精确argv/退出码/耗时，各rawlog同目录。没有执行被暂停的IM/迁移/撤权fixture操作。
+- `python3 scripts/dev_host.py check`、Journey build、`pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime`均exit0；Python `pytest -m 'not e2e' -q`为**135pass/28deselected/20.72s**；ruff check与format --check均exit0。frontend tests为**113files/1078tests PASS/118.31s**，原始stderr含mock404及runtime warning，不称零诊断。
+- frontend `npm audit --audit-level=critical` exit0只证明本次无critical阻断；raw报告仍有**11 vulnerabilities（4low/2moderate/5high）**，未autofix/改依赖，不写成零漏洞。
+- **后端真实FAIL**：`pnpm test --maxWorkers=2` exit1，backend-tests.log:4106-4216为**216files=214pass+2fail，1174tests=1172pass+2fail，862.42s**。两个失败精确为personal-security的ordinary Global完整fixture，以及workspace-tools的安装/隔离/失败重试/重启完整fixture；均`RpcError -32000: Temporary inspection cleanup could not be confirmed`。日志先完成catalog.built与DSH内层cleanup.done，再报外层cleanup.error；不是30秒或120秒test timeout，也不是已证明的skill标题断言错误。
+- 源码`packages/dsh-integration/src/configuration-inspector.ts:188-194`将terminateWorker或rm(home)任一失败统一替换该错误，原日志没有下层cause，故**尚不能确定清理哪一分支/底层原因**。未扩大714范围修DSH、改timeout、删断言或吞错。merge-base三点diff为空不代表精确当前target相同：当时缓存origin/develop为`1fc7455d554f319d8a822933500f765cb4f86ad2`，精确比较仍有global-mode prompt与global-inbox-native测试上游差异；未sync/rebase，不宣称当前target同树或已证baseline flake。
+
+### 最小串行复查：两例均PASS，只证明本次未复现
+
+- 不更新依赖、不改产品/fixture/timeout/内容断言，后续`d0eb4c825`仅比92fb新增UITest guard及文档；后端源码与built lib不变。串行job856先通过当前最后guard的Journey build，再依次执行两个原失败**完整fixture**：`pnpm exec vitest run <原file> -t <原完整test名> --maxWorkers=1 --no-file-parallelism --reporter=verbose`。精确argv/退出码/耗时见`/tmp/feat714-independent-recheck-d0eb4c825/summary.json`，三个阶段均exit0。
+- personal-security-isolated.log:6,15-18为**1pass/9按-t未选skip/24.08s**；workspace-tools-isolated.log:4-9为**1pass/77.86s**。不是将完整fixture裁成preview，也不是全后端或全CI补跑；单次隔离绿**不证明并发负载就是根因、不关闭原全量FAIL、不证明已修复**，保留两份原红log。
+- 两批job已收集；实核原失败fixture根目录`pa-global-capabilities-TbxCcI`、`nano-workspace-tools-AXzwuf`均不存在，进程表对这些精确路径/同fixture前缀及本批714临时路径无匹配。该一次收尾观察不反推失败当时已清理或证明永无孤儿。精确557为Shutdown、53703connect61；无自建IM/模型/GUI运行，保留待许可恢复的worktree和私有产物。
+- 当前仍**不能宣布完整CI/全unit通过或归档交PR**：原后端全量失败原因未闭合；目标分支sync及最终证据有效性/归并门禁未执行；两次权限拒绝相关本地真实矩阵、真机flight/protection和≥20次trace仍分别未完成。独立单例/构建通过不改变这些状态。

@@ -187,3 +187,10 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 其余新增控制流静态通过：read-existing保留完整目标/nav/body；cold-convergence保留retained正向→15秒异步absent→retained/无登录/无降级/无正文，且不tap目标/不pullrefresh；依赖前阶段真offline全文、host在App停态DELETE及App首个/sync产物，源码absent本身不证明缓存前置或活跃重连30s。credential control helper先独立token `/auth/me`200→run-bound marker→只接受401，有界/错误或取消传播，不冒充App refresh401；共享登录断言不调用reset/signOut。no spec delta/corrected-delta aligned。
 - 原非作者独立核完整native summary175=174pass+1physicalskip/0fail、raw720-798的XCTest148含1skip/0fail/0unexpected+Swift27pass/TEST SUCCEEDED及Release原log2182成功，均只归产品4dc，不代替新UI运行。
 - 运行状态明确**尚未开始／当前权限阻塞**：临时observer write被拒，无服务/API/DB动作；准备与静态审不构成复用DB/port或启动/观察服务的许可。owner W10最小guard修正待集中closure，不因此运行被暂停矩阵。
+
+## Round 15 — W10静态CLOSED / 窄增量APPROVED（0C/0W）
+
+- 同原非作者加载change-code-review，只读核`92fb1218b..d0eb4c825b5fe2500cee345ac08e76fcdd7037ef`的3files/+20/-1；UITest仅新增9行，产品不变、tracked clean、原mock未动。独立核diff、实际源码与安装SDK公开state枚举；无文件/Git写入或build/test/parse/服务/设备/GUI/网络/model/jobs操作。
+- **W10静态CLOSED，findings=[]**：协调后先硬guard原App仍runningForeground；Home后只接受公开runningBackground/runningBackgroundSuspended，5秒有界XCTWaiter必须completed否则throw；activate前再次硬guard仍在这两个运行态。guard到activate之间无await，不再靠activate后的foreground状态反推未重启。完整正文、15秒收敛/20秒登录判据及旧helper未改。
+- 公开state为异步观察，不是PID身份receipt。真实同进程401仍须运行产物证明PID连续、App自身request/refresh401、purge及重开；静态closure不称这些已通过。随后owner独立build-only实际通过当前d0eb最后guard，见[M2运行证据](M2-partition-revocation/recovery-validation.md)，不是reviewer执行或真实UI通过。
+- **no spec delta / corrected-delta aligned；本次窄静态APPROVED0C/0W**。两次实际权限拒绝及整组暂停保持；人类未答不是许可，不复用/换工具重试、不重开其它closed，不扩大为全unit或最终门禁PASS。跨包CI真实失败与隔离单例未复现的边界另见[M1证据](M1-local-first-paint/recovery-validation.md)。
