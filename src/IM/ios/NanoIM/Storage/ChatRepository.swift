@@ -87,11 +87,15 @@ actor ChatRepository {
                      location: ChatStorageLocation,
                      legacyAttemptRoot: URL = ChatStorageLocation.legacyAttemptRoot,
                      now: Date = Date()) throws -> ChatRepository {
-        try? location.prepare()
+        try location.prepare()
         do {
             return try openOnce(partition: partition, location: location, legacyAttemptRoot: legacyAttemptRoot, now: now)
         } catch {
-            guard location.quarantineCorruptDatabase() != nil else {
+            // IO, protection, full-disk and schema errors do not prove corruption. Rebuilding
+            // for those failures would silently replace recoverable local pending requests.
+            guard let databaseError = error as? DatabaseError,
+                  databaseError.resultCode == .SQLITE_CORRUPT || databaseError.resultCode == .SQLITE_NOTADB,
+                  location.quarantineCorruptDatabase() != nil else {
                 throw ChatRepositoryError.databaseUnavailable(error.localizedDescription)
             }
             do {
@@ -114,18 +118,25 @@ actor ChatRepository {
         var migrator = DatabaseMigrator()
         migrator.eraseDatabaseOnSchemaChange = false
         migrator.registerMigration("v1") { db in try createSchema(db) }
+        migrator.registerMigration("v2_discarded_messages") { db in
+            // Discard can precede a cached conversation or overlap an older page. Keep its
+            // identity independently of messages so neither case can resurrect the row.
+            try db.execute(sql: """
+                CREATE TABLE discarded_messages(
+                    conversation_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    PRIMARY KEY(conversation_id, message_id));
+                """)
+        }
         try migrator.migrate(queue)
         let repository = ChatRepository(partition: partition, location: location, queue: queue)
         try queue.write { db in
-            let recordedVersion = try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key='schema.version'")
-            if rebuilt || recordedVersion == nil {
-                try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '1')")
-            }
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '2')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try importSendAttempts(db: db, partition: partition, legacyAttemptRoot: legacyAttemptRoot, now: now)
         }
-        try? location.protectDatabaseFile()
+        try location.protectDatabaseFile()
         return repository
     }
 
@@ -329,6 +340,7 @@ actor ChatRepository {
             var identities = Set(try String.fetchAll(db, sql: "SELECT id FROM conversations"))
             identities.formUnion(try String.fetchAll(db, sql: "SELECT DISTINCT conversation_id FROM pending_sends"))
             identities.formUnion(try String.fetchAll(db, sql: "SELECT conversation_id FROM revoked_conversations"))
+            identities.formUnion(try String.fetchAll(db, sql: "SELECT DISTINCT conversation_id FROM discarded_messages"))
             var revoked: [String] = []
             for id in identities.subtracting(authoritative).sorted() {
                 // Only newly revoked conversations are reported: a tombstone is revisited by
@@ -395,11 +407,13 @@ actor ChatRepository {
             guard try Self.isRevoked(id, db: db) == false else { throw ChatRepositoryError.revokedConversation(id) }
             let writtenAt = Self.iso(Date())
             var incoming = Set<String>()
+            let discarded = Set(try String.fetchAll(db, sql: "SELECT message_id FROM discarded_messages WHERE conversation_id=?", arguments: [id]))
             for item in items {
                 if let message = item.message {
+                    guard !discarded.contains(message.id) else { continue }
                     try Self.upsertMessage(message, writtenAt: writtenAt, db: db)
                     incoming.insert(message.id)
-                } else if let boundaryID = item.boundaryID {
+                } else if let boundaryID = item.boundaryID, !discarded.contains(item.before_message_id ?? "") {
                     try db.execute(sql: """
                         INSERT OR REPLACE INTO conversation_boundaries(id, conversation_id, type, agent_id, before_message_id, applied_at)
                         VALUES(?,?,?,?,?,?)
@@ -422,6 +436,19 @@ actor ChatRepository {
             if let conversation, try Self.isRevoked(conversation, db: db) {
                 return .revoked(conversationID: conversation)
             }
+            if event.event_type == "message.discarded", let conversation,
+               let messageID = event.data?["message_id"].stringValue {
+                try db.execute(sql: "INSERT OR IGNORE INTO discarded_messages(conversation_id, message_id) VALUES(?,?)",
+                               arguments: [conversation, messageID])
+                try Self.deleteMessages([messageID], conversationID: conversation, db: db)
+                try db.execute(sql: "DELETE FROM conversation_boundaries WHERE conversation_id=? AND before_message_id=?",
+                               arguments: [conversation, messageID])
+                try Self.refreshConversationProjection(conversation, db: db)
+                if try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM messages WHERE conversation_id=?", arguments: [conversation]) == 0 {
+                    try db.execute(sql: "UPDATE conversations SET last_message_preview=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?",
+                                   arguments: [conversation])
+                }
+            }
             if let eventID = event.event_id {
                 let stored = try Int.fetchOne(db, sql: "SELECT max_event_id FROM sync_cursor WHERE id=1") ?? 0
                 if eventID > stored {
@@ -436,6 +463,9 @@ actor ChatRepository {
         try write { db in
             try validate(context, db: db)
             try Self.revokeRows(id, reason: reason, db: db, now: Date())
+            // Detail denial is as authoritative as snapshot absence. Invalidate contexts
+            // captured by older successful detail/list/page requests in this transaction.
+            try db.execute(sql: "UPDATE sync_cursor SET snapshot_seq=snapshot_seq+1 WHERE id=1")
         }
     }
 
@@ -493,22 +523,29 @@ actor ChatRepository {
         guard !closed else { return }
         try queue.write { db in
             for table in ["messages", "conversation_boundaries", "conversation_members", "actors", "drafts",
-                          "read_state", "pending_sends", "revoked_conversations", "migration_report", "conversations"] {
+                          "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "conversations"] {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
             try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0, snapshot_seq=snapshot_seq+1, updated_at=NULL WHERE id=1")
             try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'sync.%'")
         }
         closed = true
-        try? queue.close()
-        location.removeAll()
+        try queue.close()
+        try location.removeAll()
+    }
+
+    /// Release an unusable connection without deleting recoverable local requests.
+    func close() throws {
+        guard !closed else { return }
+        try queue.close()
+        closed = true
     }
 
     /// Diagnostics and tests: empty rows, keep the file.
     func reset() throws {
         try queue.write { db in
             for table in ["messages", "conversation_boundaries", "conversation_members", "actors", "drafts",
-                          "read_state", "pending_sends", "revoked_conversations", "migration_report", "conversations"] {
+                          "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "conversations"] {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
             try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0, snapshot_seq=0, updated_at=NULL WHERE id=1")
@@ -552,6 +589,7 @@ actor ChatRepository {
     /// conversation is unusable; a dismissed tombstone drops its reason, a repeat keeps it.
     private static func revokeRows(_ id: String, reason: ChatRevokeReason, db: Database, now: Date) throws {
         try deletePendingRows(id, db: db, reason: reason)
+        try db.execute(sql: "DELETE FROM discarded_messages WHERE conversation_id=?", arguments: [id])
         try db.execute(sql: "DELETE FROM conversations WHERE id=?", arguments: [id])
         let exists = try isRevoked(id, db: db)
         if !exists {

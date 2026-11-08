@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 @testable import NanoIM
 
 /// Repository-level contracts: the store is the durable truth, so these tests talk to SQLite
@@ -154,14 +155,15 @@ final class ChatRepositoryTests: XCTestCase {
         let actual5 = try await repo.revokedConversations()
         XCTAssertEqual(actual5, ["a"])
 
+        let revokedContext = try await repo.writeContext()
         do {
-            _ = try await repo.applyPage("a", items: [item(try message(2))], write: context)
+            _ = try await repo.applyPage("a", items: [item(try message(2))], write: revokedContext)
             XCTFail("a revoked conversation must refuse a late page")
         } catch { XCTAssertEqual(error as? ChatRepositoryError, .revokedConversation("a")) }
         do {
             try await repo.upsertPending(SendAttempt(conversationID: "a", sourceMessageID: nil,
                                                      draft: PendingSend(key: "k2", content: "y", attachments: [], requestBody: Data("{}".utf8))),
-                                         write: context)
+                                         write: revokedContext)
             XCTFail("a revoked conversation must refuse a new pending send")
         } catch { XCTAssertEqual(error as? ChatRepositoryError, .revokedConversation("a")) }
 
@@ -198,6 +200,76 @@ final class ChatRepositoryTests: XCTestCase {
         XCTAssertEqual(actual4, 0)
         let actual5 = try await repo.conversations().map(\.id).sorted()
         XCTAssertEqual(actual5, ["a", "b"])
+    }
+
+    func testDetailRevocationInvalidatesOlderSuccessfulListAndDetailContexts() async throws {
+        let repo = try open()
+        let old = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: old)
+        try await repo.revoke("a", reason: .detailForbidden, write: old)
+        for isList in [true, false] {
+            do {
+                if isList { _ = try await repo.applyConversationList([conversation("a")], write: old) }
+                else { _ = try await repo.applyConversation(conversation("a"), members: [], write: old) }
+                XCTFail("an older HTTP 200 cannot undo a newer authoritative denial")
+            } catch { XCTAssertEqual(error as? ChatRepositoryError, .staleWrite) }
+        }
+        let rows = try await repo.conversations()
+        let revoked = try await repo.revokedConversations()
+        XCTAssertTrue(rows.isEmpty)
+        XCTAssertEqual(revoked, ["a"])
+    }
+
+    func testDiscardDeletesMessageAndBoundaryAndBlocksOlderPageAfterReopen() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        let boundary = TimelineItem(type: "boundary", boundaryID: "b2", conversation_id: "a",
+                                    agent_id: "agent", before_message_id: "m2", applied_at: "now")
+        let page = [item(try message(1)), item(try message(2)), boundary]
+        _ = try await repo.applyPage("a", items: page, write: context)
+        let event = try JSONDecoder().decode(UserEvent.self, from: Data("""
+            {"op":"event","event_id":20,"event_type":"message.discarded","data":{"conversation_id":"a","message_id":"m2"}}
+            """.utf8))
+        _ = try await repo.applyEvent(event, write: context)
+        let cursor = try await repo.connectionSeed().maxEventID
+        XCTAssertEqual(cursor, 20)
+        let reopened = try open()
+        let current = try await reopened.writeContext()
+        _ = try await reopened.applyPage("a", items: page, write: current)
+        let ids = try await reopened.timeline("a").items.map(\.id)
+        XCTAssertEqual(ids, ["m1"], "a cached old page must not resurrect discarded content or its boundary")
+    }
+
+    func testSchemaFailureDoesNotQuarantineAValidDatabase() throws {
+        let location = ChatStorageLocation.directory(root.appendingPathComponent("schema-error"))
+        try location.prepare()
+        let queue = try DatabaseQueue(path: location.databaseURL.path)
+        try queue.write { db in
+            try db.execute(sql: "CREATE TABLE cache_meta(unexpected TEXT)")
+            try db.execute(sql: "INSERT INTO cache_meta(unexpected) VALUES('recoverable')")
+        }
+        try queue.close()
+        XCTAssertThrowsError(try open(location))
+        let preserved = try DatabaseQueue(path: location.databaseURL.path)
+        let value = try preserved.read { db in try String.fetchOne(db, sql: "SELECT unexpected FROM cache_meta") }
+        XCTAssertEqual(value, "recoverable")
+        try preserved.close()
+        let files = try FileManager.default.contentsOfDirectory(atPath: location.directoryURL.path)
+        XCTAssertFalse(files.contains { $0.contains("corrupt") }, "schema/IO failures are not evidence of corruption")
+    }
+
+    func testCorruptDatabaseIsQuarantinedAndRebuilt() async throws {
+        let location = ChatStorageLocation.directory(root.appendingPathComponent("corrupt"))
+        try location.prepare()
+        let original = Data("not a SQLite database".utf8)
+        try original.write(to: location.databaseURL)
+        let repo = try open(location)
+        let seed = try await repo.bootstrapSeed()
+        XCTAssertTrue(seed.conversations.isEmpty)
+        let files = try FileManager.default.contentsOfDirectory(at: location.directoryURL, includingPropertiesForKeys: nil)
+        let quarantine = try XCTUnwrap(files.first { $0.lastPathComponent.contains("corrupt-") })
+        XCTAssertEqual(try Data(contentsOf: quarantine), original)
     }
 
     // MARK: - Timeline

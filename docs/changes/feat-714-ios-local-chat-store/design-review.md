@@ -374,3 +374,50 @@ Round 1 的两条 CRITICAL 与七条 WARNING 全部以结构性改动闭环，�
 - **R4-W2 → 采纳代际资格方案**：handoff 采用版本化 envelope，保留创建时分区/会话代际；每次导入无论 DB 回执是否匹配都核对两个值。清理先旋转 policy，旧遗留文件即使未删也不能导入；旧请求不得重贴新代际。repository/controller/fallback 共用分区串行协调，捕获/写文件与清理排序，生命周期 drain writer/opener。新增 policy/DB 已提交但文件仍在及删除失败重试、交错 writer 和重新登录后新请求可交接的反例测试。DB 回执只证明 DB 应用，不再被描述为文件删除证明。
 - **R4-W3 → 采纳**：风险 R2 与 D12 同步为仅 `CORRUPT` / `NOTADB` 可 quarantine/rebuild，其他错误保留库并降级；写明仅库内升级后 pending 不能从 `/sync` 重建。相关风险 R3 同步去掉任意写错误可自动 purge 的绕过入口。D12 标题同步区分「库内导入幂等」与「库外主动清理资格」。原分类测试要求保留。
 - 本次修订只改变设计文档及本回应；新增 delta 的可观察语义未变，首文档、视觉取舍、原验收与非目标不变。不请求产品重新决策，不新增部署/现有安装操作。
+
+## Round 5
+
+- reviewer: Round 4 同一独立 `change-design-reviewer`，执行子 Agent `db5da8a2-a5d4-4902-9c59-bf34f66ce34e`；未参与受审设计/实现，只提出审查发现，不代作者选择或修改方案。
+- review_target: 冻结提交 `022e3c67465aeb6ae64e147d2c6e641ea7ce9ede`；closure 范围 `32c0421b825715fe90d800cf6c495ae317f19ec4..022e3c67465aeb6ae64e147d2c6e641ea7ce9ede` 中的 R4-W1/W2/W3 修订、Author Resolutions 及这些修订自身引入的边界。
+- checkout: `/Users/czj/Repos/nano-multiagent/.worktrees/feat-714`，branch `codex/feat-714`，HEAD 为冻结提交；报告追加前 unit 文档相对该提交无未提交变化。源文件仍有并行未提交修复，不属于本次设计 closure 的实施证据。
+- review_mode: closure（narrow）
+- mode_reason: 三个 WARNING 的结构性收口及局部消歧；未改首文档、delta、核心产品范围、UI 决定或 milestone，闭环证据足以限定范围，不需要重新 full review。
+- retained_from: Round 4 的未受影响 coverage/实际组装入口核对、范围及证据边界，并经 Round 4 沿用 Round 3 的既有结论；不是凭此前 Approved 自动放行本轮。
+- configuration: 仍为用户已明确批准的当前可用 DSH 独立子 Agent；工具不能指定原流程要求的模型/effort，当前会话未暴露可核实的具体配置值，不宣称原配置已复现，内容与独立性标准不降低。
+- started_at: 2026-11-09T00:16:40+08:00
+- completed_at: 2026-11-09T00:17:28+08:00（证据核对完成；随后追加本报告）
+- duration: ≈1 min（narrow closure 证据核对，不含报告追加）
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+R4-W1、R4-W2、R4-W3 **全部 CLOSED**。冻结文本已给出可兑现的清理动作、文件资格和失败边界，未以降级需求或将验收推迟到上线来闭环。此批准针对设计增量，不是新增 policy/handoff 已实施、测试通过或 M1 产品验收通过的声明。
+
+### 逐项闭环
+
+| 原问题 | Author Resolution | 本轮独立证据与结论 |
+|---|---|---|
+| **R4-W1** 不可写被扩大成撤权 | `conversationCleanups` 携带 `generation + kind`；按原动作恢复，并补两个崩溃场景 | **CLOSED**。`design.md:310` 将 `discardPending` / `revokeAccess` 分开，`:316` 明确前者只删 pending，保留会话、历史、草稿且不写 tombstone；后者才整会话删除并写 tombstone。`:334` 给出 policy 已写/DB 未清理时两种动作的独立断言。因此离线 open 不再需要猜测权限来决定删除范围，与 D10:254、M2 不可写只丢 pending 以及 current iOS 只读可查看契约一致。`:310,319` 还明确动作升级、重新授权后再次清理必须产生新代际，不会因旧排除项存在而跳过新的撤权。 |
+| **R4-W2** handoff 残留文件因回执匹配复活 | 版本化 envelope 固定创建时双代际；每次交接校验；同分区共享串行协调与 drain | **CLOSED**。`:323` 要求持久捕获 `purgeGeneration` 与会话 cleanup generation（包括 nil），旧请求不能重贴新代际；`:325` 要求 open/retry/每次 reload 都检查双代际，明确 DB 回执匹配不能跳过。故原反例「H 的创建代际 G0 → purge 持久旋转 G1 → DB 清理回执成功但 H 文件未删 → reopen」中 H 因 G0≠G1 被拒，删除失败只形成无资格残留，不会回投影。重新登录/授权后的真正新请求捕获 G1，仍允许交接，不将旧源永久排除错误扩到新请求。`:317` 不再把 DB 回执当文件删除证明；`:323,325` 的共享分区协调、owner 冻结/drain、扫描后新 writer 由 reload 接管，闭合捕获/清理交错与扫描窗口。`:334-335` 加入残留文件、删除失败重试、writer 交错与新请求继续可用的测试要求。 |
+| **R4-W3** 损坏恢复触发指令相反 | 同步 R2，相关 R3 去掉任意失败自动 purge | **CLOSED**。`:512` 与 D12:298 均限定仅 `CORRUPT` / `NOTADB` 可 quarantine/rebuild，权限/保护/磁盘满/IO/schema 错误保留库、报错降级并重试；`:513` 取消任意写失败自动 purge 的旁路，且跨 policy/handoff 按分区串行。R2 不再宣称 `/sync` 能恢复仅库内未知冻结请求，也不要求无法打开的库必须成功记账。`:334` 仍保留非损坏错误不 quarantine 的测试约束。 |
+
+### 修订自身与未受影响面
+
+- **上下文资格先于持久副作用**：`:315` 新增 D4 epoch/seq 校验在 policy 更新之前，且校验→policy→DB 应用之间不允许同分区操作穿插。它保留原有迟到结果拒绝语义，不会出现 DB 最后拒绝了旧响应、policy 却已将其错误清理决定持久化的旁路。
+- **两层状态的职责**：D12 标题 `:287` 区分库内幂等与库外源资格；`:315-317` 的 policy 是清理意图/源资格，cache_meta 是 DB 应用回执，handoff envelope 是创建身份与代际。三者不是互相覆盖的聊天事实源。实现可在原有 controller/repository 生命周期中共享小型分区协调器，文件 IO 保持非 MainActor；不需要新增服务或第二套数据库。
+- **失败/崩溃组合**：policy 已持久但 DB 失败时，仍按 kind 补清理；DB 已应用但文件未删时，文件每次按双代际验证；有效 handoff 提交后删除失败时，以交接 marker 幂等；policy 无法解码/写入仍 fail-closed，不借损坏重建绕开。上述是设计上的恢复规则成立，不声称运行中已复现。
+- **契约与范围 retained**：Git diff 只涉及 `design.md` 与同文件追加报告/Author Resolutions，首文档与 `specs/im/ios-client.md` 无变化。本轮重读 delta:70-85，冻结身份、首启计数、零自动 POST、已清理旧源不因重建复活仍被满足；`:329` 的旧构建回退限制没有被新规则掩盖。无新产品裁决、服务端删除、现有安装清理或部署；一次性迁移仍由设备内产品路径完成，不新增 deployment prompt。
+- **真实入口与实施差距 retained**：Round 4 已核对 AppModel→controller→repository→RootTabs 的实际组装链，本轮没有把 dirty source 改成方案完成的证据。再次只读 `Session.swift:59-79`，legacy 写/删与 `clearSendAttempts` 仍存在，说明后续实施必须贯通改造这些实际挂点，不能把设计批准误写为运行清理已完成。
+- **验证充分性**：新增反例验证明确仍归 M1，与原独立 code/原生旅程/体验/性能安排衔接；原真机、真实原生首绘、≥20 次 p50/p95、保护/备份属性等缺口与判据全部保留。修订没有新增布局或模型可见链路，沿用 Round 4 的专项设计判断，不因 closure 人为加原型/全量审查。
+
+### Issues / Recommendations
+
+无新增 CRITICAL、WARNING 或非阻断建议。没有仍为 partial/open 的 R4 问题；后续变更如影响上述冻结规则，应按真实增量判断复审范围。
+
+### 证据与执行限制
+
+- 本轮独立执行的是只读 Git diff/status、时间查询和文本阅读；未运行构建、XCTest、GUI/模拟器、服务、HTTP 或现有安装迁移，也未修改源码、design、delta 或其他文档。
+- 作者提供的 `docs_check` 282/69 与 `git diff --check` 通过属作者证据，本 reviewer 没有重跑；并行本地 XCTest 无论结果如何，都不证明尚未实施的 policy/handoff 已兑现。
+- 设计成立与实现正确分别验收；首绘/清理效果、崩溃恢复、并发交错和真机属性仍待后续实施证据，不降低原验收。
+- 本轮实际改动仅为本 `design-review.md` 追加 Round 5；Round 4 的 Issues Found、全部历史 Round 与作者回应原样保留。

@@ -50,6 +50,13 @@ struct ChatStorageLocation: Sendable {
             .appendingPathComponent("NanoIM/SendAttempts", isDirectory: true)
     }
 
+    /// New degraded-mode requests live beside this partition's database, not in the legacy
+    /// migration source. A partition purge therefore clears them through the same boundary.
+    static var handoffAttemptRoot: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NanoIM/Chat", isDirectory: true)
+    }
+
     var directoryURL: URL { databaseURL.deletingLastPathComponent() }
 
     /// Create the directory and apply the protection/backup attributes that must hold for
@@ -76,8 +83,7 @@ struct ChatStorageLocation: Sendable {
     /// Move an unusable database aside so the next open starts from an empty file while
     /// leaving the legacy JSON source untouched (it is re-imported by the migration marker).
     func quarantineCorruptDatabase() -> URL? {
-        let stamp = Int(Date().timeIntervalSince1970)
-        let target = directoryURL.appendingPathComponent("chat.corrupt-\(stamp).sqlite")
+        let target = directoryURL.appendingPathComponent("chat.corrupt-\(UUID().uuidString).sqlite")
         for suffix in ["", "-wal", "-shm", "-journal"] {
             let source = URL(fileURLWithPath: databaseURL.path + suffix)
             guard FileManager.default.fileExists(atPath: source.path) else { continue }
@@ -88,8 +94,9 @@ struct ChatStorageLocation: Sendable {
         return FileManager.default.fileExists(atPath: target.path) ? target : nil
     }
 
-    func removeAll() {
-        try? FileManager.default.removeItem(at: directoryURL)
+    func removeAll() throws {
+        guard FileManager.default.fileExists(atPath: directoryURL.path) else { return }
+        try FileManager.default.removeItem(at: directoryURL)
     }
 }
 

@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import NanoIM
 
 /// The store on top of a real partition: local first paint, "network failure is not a sign-out",
@@ -197,6 +198,44 @@ final class ChatLocalFirstTests: XCTestCase {
         store.stop()
     }
 
+    func testMembershipFailureAutomaticallyRecoversFromFullSyncWithoutReconnect() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["chat"], messages: 1)
+        store.selectedID = "chat"
+        await stub.setDetail(nil, status: 503)
+        let row = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try conversation("chat")))
+        await stub.hold("/im/v1/sync", body: try JSONSerialization.data(withJSONObject: ["items": [row], "max_event_id": 20]))
+        await store.consume(try membershipEvent("chat"))
+        await stub.waitUntilHeld()
+        XCTAssertTrue(store.checkingAccess.contains("chat"))
+        let recovered = expectation(description: "the full-sync result releases the access placeholder")
+        let pageRestored = expectation(description: "the selected local page is projected again")
+        withObservationTracking { _ = store.checkingAccess } onChange: { recovered.fulfill() }
+        withObservationTracking { _ = store.timelines["chat"] } onChange: { pageRestored.fulfill() }
+        await stub.release()
+        await fulfillment(of: [recovered, pageRestored], timeout: 3)
+        XCTAssertFalse(store.checkingAccess.contains("chat"))
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
+        let reads = await stub.messageReadCount()
+        XCTAssertEqual(reads, 0, "full sync restores the local page without fetching its history again")
+        store.stop()
+    }
+
+    func testFullSyncPublishesOnlineBeforeASocketTicketReturns() async throws {
+        let (store, stub) = try await makeStore()
+        let row = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try conversation("chat")))
+        await stub.setSync(try JSONSerialization.data(withJSONObject: ["items": [row], "max_event_id": 20]))
+        // Invalid ticket body ensures releasing the canceled task cannot open a real socket.
+        await stub.hold("/im/v1/auth/ws-ticket", body: Data("{}".utf8))
+        let run = Task { await store.run() }
+        await stub.waitUntilHeld()
+        XCTAssertEqual(store.connection, .online, "a successful durable sync is not gated by another connection stage")
+        XCTAssertEqual(store.conversations.map(\.id), ["chat"])
+        run.cancel(); store.stop()
+        await stub.release()
+        await run.value
+    }
+
     // MARK: - Helpers
 
     private func makeStore() async throws -> (ChatStore, StubTransport) {
@@ -263,6 +302,7 @@ final class ChatLocalFirstTests: XCTestCase {
 private actor StubTransport: HTTPTransport {
     private let pair: Data
     private var listData = Data(#"{"items":[]}"#.utf8)
+    private var syncData = Data(#"{"items":[],"max_event_id":0}"#.utf8)
     private var detailData: Data?
     private var detailStatus = 200
     private var detailFailure: URLError?
@@ -285,6 +325,7 @@ private actor StubTransport: HTTPTransport {
     init(pair: Data) { self.pair = pair }
 
     func setList(_ data: Data) { listData = data }
+    func setSync(_ data: Data) { syncData = data }
     func setDetail(_ data: Data?, status: Int = 200) { detailData = data; detailStatus = status }
     func failDetail(_ error: URLError?) { detailFailure = error }
     func failList(_ error: URLError?) { listFailure = error }
@@ -300,7 +341,11 @@ private actor StubTransport: HTTPTransport {
             await withCheckedContinuation { held = $0 }
             return (body, response(url, 200))
         }
+        if url.path == "/im/v1/auth/me" {
+            return (try JSONEncoder().encode(JSONDecoder().decode(TokenPair.self, from: pair).user), response(url, 200))
+        }
         if url.path.contains("/auth/") { return (pair, response(url, 200)) }
+        if url.path == "/im/v1/sync" { return (syncData, response(url, 200)) }
         if url.path.hasSuffix("/messages") {
             if request.httpMethod == "GET" { messageReads += 1 } else { postRequests.append(request) }
             return (Data(#"{"items":[]}"#.utf8), response(url, 200))

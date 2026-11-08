@@ -254,6 +254,9 @@ final class ChatStore {
                 guard await isCurrent(request) else { continue }
                 try await applySnapshot(sync, request: request)
                 guard token == epoch, !Task.isCancelled else { return }
+                // Content correction completed. An unrelated lookup or WebSocket ticket must
+                // not keep a successfully synchronized list labeled "Connecting" forever.
+                connection = .online; attempt = 0
                 await recoverPending()
                 guard token == epoch, !Task.isCancelled else { return }
                 notificationFloor = sync.max_event_id
@@ -263,8 +266,6 @@ final class ChatStore {
                 if let selectedID { await loadChat(selectedID) }
                 let events = try await stream.connect(after: cursor ?? sync.max_event_id)
                 guard token == epoch, !Task.isCancelled else { return }
-                // `.online` means one successful full sync, not a socket that accepted a ticket.
-                connection = .online; attempt = 0
                 for try await event in events {
                     guard token == epoch, !Task.isCancelled else { return }
                     if event.op == "membership_changed" {
@@ -586,6 +587,7 @@ final class ChatStore {
                     let sync: SyncSnapshot = try await self.client.get("/im/v1/sync")
                     guard await self.isCurrent(request) else { continue }
                     try await self.applySnapshot(sync, request: request)
+                    self.connection = .online
                     if let id = self.selectedID { await self.loadLocalTimeline(id) }
                     return
                 } catch {
