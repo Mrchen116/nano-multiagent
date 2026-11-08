@@ -17,8 +17,8 @@ final class AppLocalBootstrapTests: XCTestCase {
         // synthetic session before removing its directory so no enabled owner can reopen it.
         for model in models { await model.signOut() }
         models = []
-    }
-    override func tearDownWithError() throws {
+        // XCTest runs its synchronous error hook before this async hook. Keep removal here
+        // so the awaited owner invalidation/drain necessarily precedes directory deletion.
         if let root, FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
     }
 

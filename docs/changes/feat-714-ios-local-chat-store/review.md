@@ -75,3 +75,30 @@ Reviewer 结论：**implementation-mismatch，不是 delta-mismatch**。delta �
 - 最终原生在线→终止→离线、成功空会话真实画面、真机 flight/protection、≥20 次首绘 p50/p95 与完整 CI 仍 pending（七组未含 ChatPhase/ChatState/Timeline 等）。本轮不批准实现 closure，不宣布完整 unit/M1/M2 通过。
 
 Owner 接收两项剩余真实 caller 缺陷，先集中补 owner 回归与实现，再冻结交同一 reviewer 一次 closure；旧版本 Journey build 已取消，未拿旧构建运行旅程。
+
+## Round 3 — W1/W2 CLOSED；REQUEST CHANGES（0 CRITICAL / 1 WARNING，仅 fixture）
+
+- 同一独立非作者 reviewer 集中关闭 W1/W2，并核对实际小增量 caller/delta；不是新全量审查。
+- `validated_at`：`8a668d7c2175050a6f2739e5036c8aad9764d04b`；`executed_base` 仍 `eeaea4792`。增量 `7bce604c1..8a668d7c2`，9 files / +200/-18；tracked clean，原 M1/mock untracked 排除。
+- 实际配置与只读边界沿用本轮批准的非作者 DSH 配置；不声称可选择精确模型/effort。无文件/Git修改或构建、测试、sim/设备、GUI、服务、网络、模型、子作业操作。
+
+| ID | 独立判断 | 决定性依据 |
+|---|---|---|
+| W1 | **closed** | `ChatStore.swift:1007-1034` 的真实 persistAttempt 先 flush，再捕获当时最新 tail，把 pending transaction 自身接链；以后 flush 排在其后，先进入的新 flush 被一起等待。冻结请求不因等待重建，owner/session/context/epoch/projection/repository/权限检查仍在，失败不推进 POST。`ChatRepository.swift:586-601` 与 RAM 仅消费匹配普通文本，newer draft/interaction composer 独立。真实 held A/B→send 的 RED 复现 premature POST + b0回写，修后 log:547-548 PASS；事务新增回归 :589-590 PASS。 |
+| W2 | **closed** | `ChatStorageController.swift:88-95` 明确报告全部 retained purge/物理 close 完成；`NanoIMApp.swift:177-191` 失败 guard 早于 generation/client/storage replacement，保留唯一 intent owner、恢复原 observer并向认证界面报错。恢复后同 origin login 由同 controller retry-before-seed。新 owner 反例 RED 的两 identity 断言实际失败，补验 log:213-214 PASS；URL等价误判与后续EPERM未伪称通过。其它 purge caller 不替换 controller，忽略返回值不丢 intent。 |
+
+W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/tmp/feat714-review-round2-owner-recheck.log`。W3–W5 保留 Round 2 closed，W6 保留代码/状态层 closed、真实画面待验。**产品 live findings=[]；本轮增量 live findings=[W7 fixture WARNING]**。本节使用 reviewer 吸收最新 App6 与 hook-order 证据后的最终集中报告，取代其先前未吸收更新的临时报送，不重开已关闭产品问题。
+
+### W7 — WARNING / CONFIRMED：fixture 删除顺序仍错误
+
+- 受审 `AppLocalBootstrapTests.swift:15-22` 把 signOut 放 async tearDown，却仍在同步 tearDownWithError 删除 root。Reviewer 独立读取安装 SDK 公开 `XCTest.framework/Headers/XCAbstractTest.h:118-134`：同步 error hook 在同步 tearDown 后，async teardown 在两者之后。因此实际为 **remove root → async signOut/purge**，不是注释所述的预清理。
+- 测试结束仍有 repository 或 enabled session publish 时，可先 unlink 活跃 SQLite，再由 async hook 清理；最新 App6 PASS 的 log:220-225 仍有临时 fixture vnode-unlinked，与错误顺序一致，但不证明 EPERM 全部根因或产品库损坏。
+- 必须把目录删除与 await signOut/drain 移到同一个 async teardown，直接按代码顺序表达，移除竞争的同步 remove hook。不得吞 EPERM、sleep、扩大 timeout 或删除内容断言。Owner 已接收，集中修正后只补 App 组并交原 reviewer 关闭。
+
+### 证据与 delta 裁决
+
+- Reviewer 独立核对原产品直接加入两反例的 **2 tests / 4 assertion failures / 0 unexpected**，无 compatibility adapters；附加事务测试未单独声称 RED。
+- Reviewer 独立读取首次修后七组 **105 total / 1 skip / 1 assertion failure / 0 unexpected，整体失败**；仅非 App 的六组 **99 total = 98 pass + 1 skip / 0 failures** 可复用。又核对 App6 补验的新 origin 已 pass、旧 same-account teardown 真实 EPERM / 1 unexpected，不将其归成产品损坏或默认已修。
+- Reviewer 已独立读取 `/tmp/feat714-app-fixture-8a668d7c2.log:213-242`：**App6 / 0 failures / 0 unexpected / TEST SUCCEEDED**，新 origin 与旧 same-account 都通过。因此“最后 fixture 未 typecheck/XCTest”缺口现已关闭；可以复用产品未变的后六组 + App6 定向补验，不改写前两次失败或声称七组同次 clean green。此 PASS 不反证 SDK 明确的 W7 hook 顺序，也不证明 EPERM 全部根因已闭合。
+- **no spec delta；本次受影响契约 corrected-delta = aligned**。D3 单链/冻结转移、D12显式失败/保留重试、readonly legacy、policy/handoff、零自动 POST 与隔离/撤权均未放宽。未重审未变全 unit，不重置已有效判断。
+- 本轮裁决是 **W1/W2 独立产品代码 closure、唯一新必须修项 W7**，不能无条件批准整个受审增量；不是七组单次全绿、fixture 根因全部已证、完整 Gate/unit/M1/M2 或原生体验通过。最终原生在线→终止→离线、成功空会话画面、真机 flight/protection、20 次首绘 p50/p95 与完整 CI 仍需对应证据；两次旧失败与取消 Journey build 保留。

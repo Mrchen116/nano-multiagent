@@ -93,3 +93,16 @@
 - 所有本批 xcodebuild job 已收集退出；精确核对 557 名称与状态，before/after 均 Shutdown（exit 0）。没有新建/clone/erase 设备，没有自建 IM/Gateway/模型/浏览器，未访问生产或真实设备。hosted 测试仍有正常 sandbox 写入和旧 51396 refresh 失败，不宣传“零网络尝试”。
 
 本批源修复及已运行反例交原 reviewer 集中静态 closure；完整绿色、最终原生旅程、成功空会话画面、真机 flight/protection、性能统计与完整 CI 均按各自缺口保留，未归档/未交付 PR。
+
+## 受影响 App 组补验与 W7 fixture 收口
+
+- `8a668d7c2` 的最后 fixture 实际补验：`/tmp/feat714-app-fixture-8a668d7c2.log:213-242`、同 basename `.xcresult`，**AppLocalBootstrap 6 / 0 failures / 0 unexpected / TEST SUCCEEDED，exit 0**。新 origin 与旧 same-account 均 pass。产品相对七组受测工作树未变，只有 App 测试的路径 guard / 生命周期修改，故其它六组 99 total / 1 skip / 0 failures 结果可复用；这不是伪称重新运行七组同次全绿。
+- 原 reviewer 独立吸收新结果后维持 W1/W2 产品代码 closed / corrected delta aligned，新增 W7：安装 SDK 公开 `XCTest.framework/Headers/XCAbstractTest.h:118-134` 明确同步 tearDownWithError 在 async teardown **之前**。所以原分成两个 hook 的清理不能建立 await signOut→remove root 的顺序，单次 App6 PASS 不反证此契约；该次 log:220-225 仍有临时 fixture vnode-unlinked。Owner 亦独立读取同 header 核实；不将这个确定顺序缺陷夸成此前 EPERM 的唯一根因。
+- W7 定点修正：将目录删除移入**同一个 async tearDown**，在 await 合成 model.signOut/控制器 purge 后执行，移除同步删除 hook。内容断言、timeout、错误传播均不变，不加 sleep、不吞清理错误、不从 host 修理失败目录。无产品源变化。
+- 修正后只补受影响 App 组：`/tmp/feat714-app-fixture-ordered.log:297-322`、同 basename `.xcresult`，**6 / 0 failures / 0 unexpected / TEST SUCCEEDED，exit 0**。本次 raw log 搜索未见 vnode-unlinked 或 EPERM；这是此次实际结果，不宣称全部潜在 teardown 竞态或历史 EPERM 已唯一证明修复。等待同一 reviewer 对 W7 集中 closure。
+
+### 原生旅程前置的真实结果
+
+- 当前 `8a668d7c2` 产品的 IM API 重建与 `NanoIMJourney build-for-testing` 均实际 exit 0，日志 `/tmp/feat714-native-final-api-build-8a668d7c2.log`、`/tmp/feat714-native-final-build-8a668d7c2.log`。后续 W7 只改 App 单测，不以它重开未变产品问题；正式运行仍核对当前冻结构建。
+- 本轮新建唯一临时 runtime `/tmp/feat714-native-final-dphmlbb6`，新 loopback origin `http://127.0.0.1:53703`，合成 IM DB/JWT/账号独立于旧 fixture。首次 IM **exit 1、未监听、零 prime**，原因是排除继承 IM 环境时未声明当前 server 强制的 `IM_PUBLIC_URL`。原始 `server.log:1` 保留；实查端口 connect=61、557 Shutdown，无服务残留。该配置遗漏不是权限拒绝或新增数据范围。
+- Parent 明确允许同窗只补 `IM_PUBLIC_URL` 为本轮同 origin、自主恢复已定位且范围不变的测试配置遗漏；不引用生产配置、不换 DB/JWT/origin、不扩大 timeout/断言。后续真实旅程结果另记，不能把 build 或准备完成当作 prime/offline 通过。
