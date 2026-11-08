@@ -381,7 +381,7 @@ final class ChatRepositoryTests: XCTestCase {
         let context = try await repo.writeContext()
         _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
         let fixture = try DatabaseQueue(path: repo.location.databaseURL.path)
-        try fixture.write { db in
+        try await fixture.write { db in
             try db.execute(sql: "CREATE TRIGGER fail_cleanup BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT, 'isolated cleanup failure'); END")
         }
         do {
@@ -390,7 +390,7 @@ final class ChatRepositoryTests: XCTestCase {
         } catch {
             XCTAssertNotNil(try repo.attemptPersistence.policy().conversationCleanups["a"])
         }
-        try fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_cleanup") }
+        try await fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_cleanup") }
         try fixture.close()
         let afterRetry = try await repo.conversations()
         let tombstones = try await repo.revokedConversations()
@@ -422,7 +422,7 @@ final class ChatRepositoryTests: XCTestCase {
         try repo.attemptPersistence.save(pending, stamp: repo.attemptPersistence.stamp(for: "a"))
         let file = try XCTUnwrap(repo.attemptPersistence.loadHandoffs().first?.fileURL)
         let fixture = try DatabaseQueue(path: repo.location.databaseURL.path)
-        try fixture.write { db in
+        try await fixture.write { db in
             try db.execute(sql: "CREATE TRIGGER fail_receipt BEFORE INSERT ON cache_meta WHEN NEW.key='policy.conversation.a' BEGIN SELECT RAISE(ABORT, 'isolated receipt failure'); END")
         }
         do {
@@ -432,7 +432,7 @@ final class ChatRepositoryTests: XCTestCase {
             XCTAssertNotEqual(try repo.attemptPersistence.policy().conversationCleanups["a"]?.generation, oldGeneration)
             XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "the crash fixture retains the old handoff bytes")
         }
-        try fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_receipt") }
+        try await fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_receipt") }
         try fixture.close()
         try await repo.close()
         let reopened = try open()
