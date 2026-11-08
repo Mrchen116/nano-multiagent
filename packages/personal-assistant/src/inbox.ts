@@ -250,7 +250,9 @@ export class InboxStore {
       const source = sources.get(row.target) ?? { target: row.target, name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,
         ...(personal ? {conversation_type:String(input.metadata.conversation_type),delivery:String(input.metadata.personal_delivery)} : {requires_attention:false}) };
       source.unread++;
-      const mentions = input.metadata.mentioned_agent_ids;
+      // Older card replies used the attention field for implicit addressing too.
+      const mentions = input.metadata.explicit_mentioned_agent_ids
+        ?? (input.message.interaction_reply || input.message.sender_type === 'system' ? [] : input.metadata.mentioned_agent_ids);
       if (Array.isArray(mentions) && mentions.includes(agent)) source.mentions++;
       if (!personal) source.requires_attention ||= !!row.attention;
       sources.set(row.target, source);

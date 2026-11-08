@@ -433,7 +433,7 @@ export class GlobalAgent {
               }
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,source_policy_revision:event.policy_revision},
+                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
                   attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,sender:message.sender}},true);
             } else {

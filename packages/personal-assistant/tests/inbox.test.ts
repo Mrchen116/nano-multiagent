@@ -244,11 +244,18 @@ it('counts actual mentions separately from attention without consuming unread me
     const other = input('other', 'another body');
     other.metadata.mentioned_agent_ids = ['bob'];
     store.receive(mentioned, true); store.receive(other, true);
-    store.receive(input('reply', 'reply without mention'), true);
+    const reply = input('reply', 'reply without mention');
+    reply.metadata.mentioned_agent_ids = ['alice'];
+    reply.message.interaction_reply = { source_message_id: 'card', agent_id: 'alice', action_id: 'confirm', action_label: 'Confirm', fields: [] };
+    store.receive(reply, true);
+    const explicitReply = structuredClone(reply);
+    explicitReply.message.id = 'explicit-reply';
+    explicitReply.metadata.explicit_mentioned_agent_ids = ['alice'];
+    store.receive(explicitReply, true);
     expect(store.check('alice').sources).toEqual([
-      { target: 'group-a', name: 'group-a', unread: 3, mentions: 1, requires_attention: true },
+      { target: 'group-a', name: 'group-a', unread: 4, mentions: 2, requires_attention: true },
     ]);
-    expect(store.check('alice', true).sources[0]).toMatchObject({ unread: 3, mentions: 1 });
-    expect(store.read('alice', 'main', 'read', { target: 'group-a' }).messages).toHaveLength(3);
+    expect(store.check('alice', true).sources[0]).toMatchObject({ unread: 4, mentions: 2 });
+    expect(store.read('alice', 'main', 'read', { target: 'group-a' }).messages).toHaveLength(4);
   } finally { store.close(); }
 });
