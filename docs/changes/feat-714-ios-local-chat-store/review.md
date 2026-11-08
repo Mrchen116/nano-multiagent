@@ -127,3 +127,12 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - **指定旅程PASS**：真实公开签出合成身份→真实用户名/密码登录→API列表/完整73字消息→terminate→owner只停原53703 IM→同bundle新PID冷启→5秒列表/全文谓词通过且无登录页→terminate。独立读取 online-reprime.log:64-148 和 offline-reprime.log:25-54，均1 test/0 failures/0 unexpected/exit0；offline未调用prime专用reset。服务停止/PID消失/connect61及收尾Shutdown依据owner当时工具回执复用，reviewer没有伪称自己事后实时探测。
 - **限定体验PASS**：独立看同runtime四张实际命名附件（详见recovery-validation截图表）：online列表会话名/预览/时间可辨，timeline完整正文三行无截断遮挡；offline同内容保留，列表和timeline都有“Offline. Retrying · Updated 03:12”，timeline另有真实connection error。错误未挡住正文、未把离线谎称同步成功，用户可进入和阅读全文。重复反馈的风格合并是可选取舍，不在本场景列阻塞finding。并非只因测试绿或控件存在而推体验成立。
 - **findings=[] / 0C0W**；只覆盖同fixture单会话单完整工作消息的停止origin跨进程阅读。保留旧729 FAIL/offline当时未执行历史；不证明第一帧无白屏/闪回、从图标到首绘耗时/20次p50p95、滚动/大窗口分页、网络恢复、空会话、发送/撤权全契约、真机flight/protection、完整CI或最终unit交付。原始log中的launch measurement warning也不是性能测量。其余缺口继续按独立证据处理。
+
+## Round 7 — 日期/测量边界/空会话测试最小增量静态 APPROVED（0C/0W）
+
+- 原非作者仅审 `1b6281022..b66289f3c08da896a2dec643aa250a07a08b8d53`，6 files/+49/-4；加载change-code-review与performance-review。只读源码、相关caller、既有原始log与文档，无新build/test/设备/服务/网络/模型/文件或Git写入；不重审全unit与已closed W1–W7。
+- 日期修正正确使用传入now及同calendar比较当天、按calendar day减一天判断昨天，不用固定秒数，保留原HH:mm/Yesterday/旧日期文案。原RED及断言保留，新增精确昨天/older断言；不是把fixture改到host当天。默认真实caller仍用当前Date/Calendar.current。
+- repository bootstrapSeed在函数体入口begin、defer end、唯一signpostID，覆盖controller首次seed及store后续seed。包含coordinated锁获取、policy读取/必要补应用、GRDB读取及DTO组装；不含进入actor前排队、open/migrate/legacy导入、UI发布/首帧或网络。与controller.open及旧store span存在包含关系，不能相加；后续需区分首次/后续、成功/失败，不能把失败短span当成功首绘。静态测量边界通过，性能目标仍UNVERIFIED。
+- 新空会话UITest以正常登录fixture为前置，从真实列表进入专用title，正向等待既有conversation.empty，再核目标navigation title、无loading、capture与terminate，未改prime/offline全文、目标或timeout，无内部store/SQL注入。View仅成功empty状态提供该ID；静态通过不证明AX实际命中或真实画面。
+- 独立核对原完整scheme175=169pass+5failedTests+1skip，保留TEST FAILED；4条WebKit缺资源控制流与既有build.sh生成前置相符，不能在修后运行前关闭。原da47四图/两阶段历史PASS可复用为当时指定路径证据，不冒称b662新实测，不验证空会话/性能/完整CI。
+- **findings=[] / no spec delta / aligned**。本次仅窄代码与测量设计APPROVED；后续运行结果由owner另记，不把静态审查扩大为全unit交付。

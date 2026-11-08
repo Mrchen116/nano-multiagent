@@ -159,3 +159,15 @@
 - 为W6成功空会话真实画面扩展现有永久生命周期UITest，不新建文件：`testSuccessfulEmptyConversationStopsLoading`从同登录fixture真实列表进入专用空会话，等待既有`conversation.empty`标识、核同会话标题、断言不残留loading indicator并capture；仍需正常API seed并真实运行，不用内部store/SQLite注入。此条待独立增量审查/运行。
 - 真机性能准备的实际缺口：首次seed已移到`ChatStorageController:181`，旧`ChatStore.loadSeed`区间只覆盖后续读，不能拿后续读当首绘读。新增位于`ChatRepository.bootstrapSeed`实际函数体内的`com.nanoim.app / ChatRepository / bootstrapSeed`只诊断signpost，覆盖两个caller且不包含open/migrate/network；旧controller.open与ChatStore区间不混作该指标。尚无真机trace/20次统计，不因加入打点声称达标。
 - 本组后自有557精确名称/UDID before/after均Shutdown，53703 connect61，所有自身作业收集，无新服务。只读设备发现现在已配对手机available；这不是操作个人手机、签名/独立App或临时HTTPS入口许可。父级已向真人询问最小具体许可，尚无答复，不启动真机/隧道；模拟器与自有fixture可继续。
+
+### 定点修后验证：51条PASS，原完整失败保留
+
+- 产品/测试冻结`b66289f3c`，原reviewer最小增量静态APPROVED0C/0W（review.md Round7），不替代运行/性能验收。
+- 先执行既有`pnpm --filter @nano/product-contracts build`与`npm --prefix src/IM/frontend run build:ios-ui`，均exit0；日志`/tmp/feat714-contracts-b66289f3c.log`、`/tmp/feat714-ios-assets-b66289f3c.log:31-42`，实际生成IntelligentUI/index.html与assets。保留bundler的大chunk/annotation提示，不将它们称无warning；ignored产物不提交。
+- `xcodebuild test -jobs 2 -parallel-testing-enabled NO -scheme NanoIM`仅选ChatPhaseTests、ChatRepositoryTests、InteractiveRuntimeTests，同557与derivedData，结果`/tmp/feat714-native-affected-b66289f3c.log`、`.xcresult`，**exit0 / 51 tests / 0 failures / 0 unexpected / TEST SUCCEEDED**（:795-848）。日期7、repository33、InteractiveRuntime11全部通过，原4条WebKit DOM失败身份均实际PASS（:802-828），未改变断言/timeout/skip。此为定点修后绿，不追认原175总FAIL为成功或冒充完整scheme/CI。
+- 收集本批job；精确557实际名称feat-714-native-acceptance/UDID匹配，实查Shutdown，53703 connect61。初次资源核验误用预期设备名称守卫而exit1，在任何变更前中止；读取返回实际名称后仅重做只读核验exit0，没有误操作其它设备。
+
+### 生成资源后的完整原生scheme：PASS（保留真机skip）
+
+- 同一冻结产品`b66289f3c`、557/derivedData执行完整NanoIM scheme，既有资源前置与上述51条窄测先通过后再扩大。`/tmp/feat714-native-full-assets-b66289f3c.log:580-658`与`.xcresult`，实际**exit0 / TEST SUCCEEDED**；summary`/tmp/feat714-native-full-assets-b66289f3c-summary.json`为**175 total = 174 passed + 1 physical-device protection skip + 0 failed**。XCTest148含1 skip/0 failures/0 unexpected，另SwiftTesting27 pass。原日期与4条WebKit身份本run均通过；原首次175总FAIL不覆盖/删除。
+- 随后相同产品`NanoIMJourney build-for-testing`成功，`/tmp/feat714-native-journey-b66289f3c.log:251`；Info.plist revision实查b66289f3c。本次完整原生测试通过，不等同于Release archive、后端/前端完整CI、真机属性/flight或20次性能通过。
