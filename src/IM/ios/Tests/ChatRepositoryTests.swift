@@ -405,6 +405,27 @@ final class ChatRepositoryTests: XCTestCase {
         XCTAssertNil(actual2)
     }
 
+    func testPendingTransactionOnlyConsumesItsMatchingOrdinaryComposerDraft() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        let ordinary = SendAttempt(conversationID: "a", sourceMessageID: nil,
+                                   draft: PendingSend(key: "frozen", content: "sent text", attachments: [], requestBody: Data("{}".utf8)))
+        try await repo.setDraft("a", body: "later edit")
+        try await repo.upsertPending(ordinary, write: context)
+        let later = try await repo.draft("a")
+        XCTAssertEqual(later, "later edit", "the pending request cannot consume a newer composer draft")
+        let interaction = SendAttempt(conversationID: "a", sourceMessageID: "card", draft: ordinary.draft)
+        try await repo.setDraft("a", body: ordinary.draft.content)
+        try await repo.upsertPending(interaction, write: context)
+        let independent = try await repo.draft("a")
+        XCTAssertEqual(independent, ordinary.draft.content, "a card reply does not consume ordinary composer text")
+        try await repo.upsertPending(ordinary, write: context)
+        let consumed = try await repo.draft("a")
+        XCTAssertNil(consumed)
+        try await repo.close()
+    }
+
     func testReadBoundaryDoesNotChangeConversationProjection() async throws {
         let repo = try open()
         let context = try await repo.writeContext()

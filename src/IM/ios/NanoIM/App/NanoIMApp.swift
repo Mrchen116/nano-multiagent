@@ -181,7 +181,10 @@ final class AppModel {
                 _ = await client.session.signOut()
                 // Switching destinations removes the previous origin's partition, not just
                 // its credentials: old content must not be readable under the new server.
-                await storage.purge(reason: .signedOut)
+                guard await storage.purge(reason: .signedOut) else {
+                    observe()
+                    throw ChatRepositoryError.databaseUnavailable(L("本机聊天内容尚未清理，请重试后切换服务。", "Local chat cleanup is incomplete. Retry before switching servers."))
+                }
                 clientGeneration += 1
                 let next = IMClient(baseURL: origin)
                 client = next

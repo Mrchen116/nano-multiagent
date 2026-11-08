@@ -592,9 +592,12 @@ actor ChatRepository {
             let writable = try Int.fetchOne(db, sql: "SELECT can_write FROM conversations WHERE id=?", arguments: [attempt.conversationID])
             guard writable != 0 else { throw ChatRepositoryError.revokedConversation(attempt.conversationID) }
             try Self.upsertPendingRow(attempt, db: db)
-            // The composer text moves into the frozen request, so keeping the draft too would
-            // show the same content twice while the send stays unconfirmed.
-            try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=?", arguments: [attempt.conversationID])
+            // Only this frozen ordinary message consumes matching composer text. A newer
+            // draft (or an interaction reply) is independent and must survive the transaction.
+            if attempt.sourceMessageID == nil {
+                try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=? AND body=?",
+                               arguments: [attempt.conversationID, attempt.draft.content])
+            }
         }
     }
 

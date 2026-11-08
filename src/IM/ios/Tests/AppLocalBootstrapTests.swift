@@ -5,11 +5,18 @@ import XCTest
 @MainActor
 final class AppLocalBootstrapTests: XCTestCase {
     private var root: URL!
+    private var models: [AppModel] = []
     private let origin = URL(string: "https://im.example.test")!
 
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+    override func tearDown() async throws {
+        // Refresh publications may still be queued when an assertion ends. Invalidate the
+        // synthetic session before removing its directory so no enabled owner can reopen it.
+        for model in models { await model.signOut() }
+        models = []
     }
     override func tearDownWithError() throws {
         if let root, FileManager.default.fileExists(atPath: root.path) { try FileManager.default.removeItem(at: root) }
@@ -113,6 +120,46 @@ final class AppLocalBootstrapTests: XCTestCase {
         try await reopened.close()
     }
 
+    func testOriginReplacementCannotDiscardAControllerWithFailedAcceptedPurge() async throws {
+        let (model, _) = try await makeModel()
+        await model.bootstrapLocal()
+        let originalClient = model.client, originalController = model.storage
+        let repository = try XCTUnwrap(originalController.repository)
+        let context = try await repository.writeContext()
+        let attempt = SendAttempt(conversationID: "cached", sourceMessageID: nil,
+                                  draft: PendingSend(key: "old", content: "private", attachments: [], requestBody: Data("{}".utf8)))
+        try await repository.upsertPending(attempt, write: context)
+        try await repository.setDraft("cached", body: "old private draft")
+        let blocker = repository.attemptPersistence.policyURL.deletingLastPathComponent()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blocker.path))
+        try Data("fixture blocks policy IO".utf8).write(to: blocker)
+        // A refused loopback port also makes a broken implementation fail promptly instead
+        // of allowing this regression to contact any external origin after replacement.
+        await model.authenticate(server: "http://127.0.0.1:1", username: "alice", password: "test", displayName: nil)
+        XCTAssertTrue(model.client === originalClient, "failed cleanup must block replacement, preserving the only retained intent")
+        XCTAssertTrue(model.storage === originalController)
+        XCTAssertNotNil(model.error)
+        guard model.client === originalClient, model.storage === originalController else {
+            try await repository.close()
+            return
+        }
+        guard blocker.deletingLastPathComponent().standardizedFileURL.path == root.standardizedFileURL.path else {
+            return XCTFail("only this test's exact temporary policy blocker may be removed")
+        }
+        try FileManager.default.removeItem(at: blocker)
+        await model.authenticate(server: origin.absoluteString, username: "alice", password: "test", displayName: nil)
+        let reopened = try XCTUnwrap(model.storage.repository)
+        let rows = try await reopened.conversations()
+        let pending = try await reopened.pendingAttempts()
+        let draft = try await reopened.draft("cached")
+        XCTAssertTrue(rows.isEmpty, "returning to the original origin must finish accepted cleanup before any seed")
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertNil(draft)
+        XCTAssertTrue(model.chat?.conversations.isEmpty ?? false)
+        XCTAssertNotNil(try reopened.attemptPersistence.policy().purgeGeneration)
+        try await reopened.close()
+    }
+
     private func makeModel(openGate: BootstrapOpenGate? = nil, enabled: Bool = true) async throws -> (AppModel, BootstrapTransport) {
         let base = try XCTUnwrap(root)
         let user = AuthUser(id: "alice", username: "alice", display_name: "Alice", owner_id: "alice", locale: "en",
@@ -136,7 +183,9 @@ final class AppLocalBootstrapTests: XCTestCase {
             if let openGate { await openGate.enter() }
             return try ChatRepository.open(partition, location: location, legacyAttemptRoot: base.appendingPathComponent("legacy"))
         }) { _ in location }
-        return (AppModel(client: client, storage: controller), transport)
+        let model = AppModel(client: client, storage: controller)
+        models.append(model)
+        return (model, transport)
     }
 }
 
@@ -175,7 +224,7 @@ private actor BootstrapTransport: HTTPTransport {
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests += 1
         let data: Data
-        if request.url!.path.hasSuffix("/refresh") {
+        if request.url!.path.hasSuffix("/refresh") || request.url!.path.hasSuffix("/login") {
             data = try JSONEncoder().encode(TokenPair(access_token: "test", refresh_token: "test", user: user))
         } else if request.url!.path.hasSuffix("/me") { data = try JSONEncoder().encode(user) }
         else { throw URLError(.notConnectedToInternet) }

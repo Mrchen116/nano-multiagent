@@ -39,3 +39,39 @@ Reviewer 结论：**implementation-mismatch，不是 delta-mismatch**。delta �
 ## Owner disposition
 
 六项均接收为待修复问题；先做定向反例与集中实现修复，再按资源协调运行，交同一独立 reviewer 复验受影响范围。当前完整 unit 未通过、未归档、未交付 PR。
+
+## Round 2 — REQUEST CHANGES（0 CRITICAL / 2 WARNING）
+
+- 同一独立非作者 reviewer 对六项做集中 closure + 实际修复 delta review，不是新全量审查；owner 串行归集。
+- `validated_at`：`7bce604c12ff130973ed42d4eed97bc11ac8b1aa`；`executed_base` 不变。增量 `cc6e1572e..7bce604c1`，15 files / +568/-90，连同真实调用者审查。
+- 方法、当前可用配置与排除项沿用 Round 1；reviewer 全程只读，无构建、测试、设备、GUI、服务、模型、网络、文件或 Git 操作，也未启动后台作业。
+
+### Closure disposition
+
+| ID | 独立判断 | 决定性依据 |
+|---|---|---|
+| W1 | **still_open，部分修复** | flush-vs-flush 单链和失败保留已修，但真实 `send` 未进入等待链，旧 flush 仍能在 pending 事务删除 draft 后回写。详见下表。 |
+| W2 | **still_open，部分修复** | 同 controller 的 failed purge / nil retry / superseded intent 已修；真实切 origin 路径会丢弃唯一 retained intent。详见下表。 |
+| W3 | **closed** | AppModel disabled publish / 冷启显式传目标分区，fresh controller 无须曾打开即可清理。`AppLocalBootstrapTests.swift:81-115` 真实旧 pending、legacy 原字节、零 HTTP、reenable 不复活回归；green log:630-631。 |
+| W4 | **closed** | 完整分页的不完整事实与页内容同事务持久化；普通小于 trim 阈值的分页可跨 reopen 恢复，sparse append 不标完整，terminal page 与独立 trim 状态相容。repo:484-517,955-963；store:626-639,1000-1003；green log:740-741,776-777。 |
+| W5 | **closed** | 枚举仅真实 missing 接受空；ENOTDIR / IO 退出导入事务不写 marker，DecodingError 才逐文件 rejected。真实恢复 fixture 保留 frozen body 和 legacy 原字节；green log:768-771。 |
+| W6 | **closed，仅代码/状态层** | 成功空页有首结果完成状态，View 显示 No messages yet，未加载/离线无缓存分开；held→empty→reset→offline 回归 green log:744-745。**真实画面/操作仍 pending**。 |
+
+以上 green 定位均指 `/tmp/feat714-review-fixes-7d7e455aa.log`。Round 1 表保留当时 open 的历史判断，以本轮 disposition 为当前关闭结果。
+
+### 存活 findings（CONFIRMED 静态控制流）
+
+| ID | 严重度 | 决定性位置与 failure_scenario | 状态 |
+|---|---|---|---|
+| W1 | WARNING | `ChatStore.swift:310-318,821-843,1015-1020`，`ChatRepository.swift:586-598`。F1 取走 A=a0/B=b0 并停在写 A；真实 send B 不等 tail，pending insert + DELETE draft 后 owner 置 `drafts[B]=""`、queued nil；F1 恢复处理 B 时 guard 仍成立，又写回 b0，重开形成 frozen pending 与旧 draft 双份。design D3:120-123 已要求发送前 flush 与单链。原两条新测试只覆盖 flush-vs-flush / 写失败，未覆盖此 caller。 | open |
+| W2 | WARNING | `ChatStorageController.swift:35,202-204,215-232`，`NanoIMApp.swift:177-189`，`ChatAttemptPersistence.swift:140-145`。A 的 purge 在 policy write 前发生可恢复 IO 故障，requiredPurges 只在原 controller；authenticate 无条件替换 controller。故障恢复后返回原 origin，同账号可从无 purge fence 的旧库 seed 内容与 pending。D12:318 要求保留可重试意图并向 caller 报错，不能丢掉唯一 intent。原三个新 controller 回归均复用同一实例，不能反证此路径。 | open |
+
+### 证据审计、delta 与剩余验证
+
+- 独立读取 baseline-compatible RED 的 raw log:685-744、manifest 和精确 patch，确认 10 tests / 26 assertion failures / 0 unexpected；compile adapters 与合法排序披露准确，**不是纯 cc6 head**。后来的增强 fixture 新断言不能冒称已逐条 RED；:745-746 的 diagnostics utility 72 未混作断言根因。
+- 独立读取 green log:627-997 与 summary，确认 **102 total = 101 passed + 1 explicit physical-device protection skip / 0 failed / TEST SUCCEEDED**；7d7e..validated_at 只改证据文档，产品/测试证据有效，不覆盖上述两个 caller 变体。
+- hosted XCTest 同 bundle 安装更新与正常 sandbox 写入、旧 51396 refresh 失败、自有设备 Shutdown 的边界披露准确；不得宣传零网络尝试或不碰 sandbox。临时 fixture vnode-unlinked 仍为非阻塞 teardown 建议，不夸成产品库损坏。
+- **no spec delta；corrected-delta result 仍为 implementation-mismatch（W1/W2），不是 delta-mismatch**。未受影响原判断保留；不降低 spec/design/delta 合理化存活问题。
+- 最终原生在线→终止→离线、成功空会话真实画面、真机 flight/protection、≥20 次首绘 p50/p95 与完整 CI 仍 pending（七组未含 ChatPhase/ChatState/Timeline 等）。本轮不批准实现 closure，不宣布完整 unit/M1/M2 通过。
+
+Owner 接收两项剩余真实 caller 缺陷，先集中补 owner 回归与实现，再冻结交同一 reviewer 一次 closure；旧版本 Journey build 已取消，未拿旧构建运行旅程。

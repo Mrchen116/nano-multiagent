@@ -343,6 +343,36 @@ final class ChatLocalFirstTests: XCTestCase {
         try await repository.close()
     }
 
+    func testSendWaitsForOlderMultiConversationFlushBeforeMovingDraftToPending() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a", "b"], messages: 0)
+        store.setDraft("a", "a0"); store.setDraft("b", "b0")
+        let gate = PendingReadGate()
+        let flushing = Task {
+            await store.flushDrafts { repository, id, body in
+                if id == "a" { await gate.enter() }
+                try await repository.setDraft(id, body: body)
+            }
+        }
+        await gate.waitUntilEntered()
+        let prematurePost = expectation(description: "send must wait for the held draft writer")
+        prematurePost.isInverted = true
+        await stub.observePost { prematurePost.fulfill() }
+        await stub.failMessages(URLError(.notConnectedToInternet))
+        let sending = Task { await store.send("b") }
+        await fulfillment(of: [prematurePost], timeout: 1)
+        await stub.observePost(nil)
+        await gate.release()
+        await flushing.value; await sending.value
+        let repository = try XCTUnwrap(store.repository)
+        let pending = try await repository.pendingAttempts()
+        let draft = try await repository.draft("b")
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.draft.content, "b0")
+        XCTAssertNil(draft, "the older flush cannot recreate a draft already moved into a frozen pending request")
+        try await repository.close()
+    }
+
     func testFailedDraftClearRemainsQueuedAndDoesNotReappearFromRetrySeed() async throws {
         let (store, _) = try await makeStore()
         await seed(store, conversations: ["a"], messages: 0)
@@ -501,6 +531,7 @@ private actor StubTransport: HTTPTransport {
     private var detailFailure: URLError?
     private var listFailure: URLError?
     private var postRequests: [URLRequest] = []
+    private var postObserver: (@Sendable () -> Void)?
     private var messageReads = 0
     private var messageData = Data(#"{"items":[]}"#.utf8)
     private var messageFailure: URLError?
@@ -526,6 +557,7 @@ private actor StubTransport: HTTPTransport {
     func failList(_ error: URLError?) { listFailure = error }
     func setMessages(_ data: Data) { messageData = data }
     func failMessages(_ error: URLError?) { messageFailure = error }
+    func observePost(_ observer: (@Sendable () -> Void)?) { postObserver = observer }
     func postPaths() -> [String] { postRequests.map { $0.url?.path ?? "" } }
     func messageReadCount() -> Int { messageReads }
 
@@ -544,7 +576,8 @@ private actor StubTransport: HTTPTransport {
         if url.path.contains("/auth/") { return (pair, response(url, 200)) }
         if url.path == "/im/v1/sync" { return (syncData, response(url, 200)) }
         if url.path.hasSuffix("/messages") {
-            if request.httpMethod == "GET" { messageReads += 1 } else { postRequests.append(request) }
+            if request.httpMethod == "GET" { messageReads += 1 }
+            else { postRequests.append(request); postObserver?() }
             if let messageFailure { throw messageFailure }
             return (messageData, response(url, 200))
         }

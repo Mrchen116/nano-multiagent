@@ -1008,17 +1008,30 @@ final class ChatStore {
         let token = sendEpoch, projection = projectionRevision
         let currentRepository = repository
         if let currentRepository {
-            try await client.session.assertOwner(user.id, revision: revision)
-            let context = try await currentRepository.writeContext()
-            guard token == sendEpoch, projection == projectionRevision, currentRepository === repository else { throw CancellationError() }
-            try requireWritable(attempt.conversationID)
-            try await currentRepository.upsertPending(attempt, write: context)
-            guard token == sendEpoch, projection == projectionRevision else { throw CancellationError() }
-            try requireWritable(attempt.conversationID)
-            if attempt.sourceMessageID == nil {
-                drafts[attempt.conversationID] = ""; queuedDrafts[attempt.conversationID] = nil
-                dirtyDraftIDs.remove(attempt.conversationID)
+            // The pending transaction consumes composer text, so it belongs to the same
+            // chain as every draft writer, not merely to the repository's SQLite queue.
+            // Freeze the request before waiting; newer composer edits remain separate.
+            await flushDrafts()
+            let previous = draftWriteTail
+            let task = Task { [weak self] in
+                await previous?.value
+                guard let self, token == self.sendEpoch, projection == self.projectionRevision,
+                      currentRepository === self.repository else { throw CancellationError() }
+                try await self.client.session.assertOwner(self.user.id, revision: revision)
+                let context = try await currentRepository.writeContext()
+                guard token == self.sendEpoch, projection == self.projectionRevision,
+                      currentRepository === self.repository else { throw CancellationError() }
+                try self.requireWritable(attempt.conversationID)
+                try await currentRepository.upsertPending(attempt, write: context)
+                guard token == self.sendEpoch, projection == self.projectionRevision else { throw CancellationError() }
+                try self.requireWritable(attempt.conversationID)
+                if attempt.sourceMessageID == nil, self.drafts[attempt.conversationID] == attempt.draft.content {
+                    self.drafts[attempt.conversationID] = ""; self.queuedDrafts[attempt.conversationID] = nil
+                    self.dirtyDraftIDs.remove(attempt.conversationID)
+                }
             }
+            draftWriteTail = Task { _ = try? await task.value }
+            try await task.value
         } else {
             let stamp = try await client.session.reserveSendAttempt(attempt.conversationID, userID: user.id, revision: revision)
             guard token == sendEpoch, projection == projectionRevision else { throw CancellationError() }

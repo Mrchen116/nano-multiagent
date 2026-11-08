@@ -73,3 +73,23 @@
 - 资源释放：两个 xcodebuild job 均已退出；`simctl list devices --json` 精确核对 557 名称 `feat-714-native-acceptance` 且 before/after 均为 Shutdown（exit 0），未删除或重置设备。无本批自建服务/模型/GUI 旅程。
 
 本结果仅关闭“尚未 typecheck/build/XCTest”的证据空缺，不代表六项独立审查已关闭；由原 reviewer 针对冻结版本集中补验。原生真实在线→终止→离线旅程、真机飞行模式/保护属性、≥20 次首绘 p50/p95 与最终完整 CI 仍未新增证据。
+
+## Round 2 存活 caller 修复与本批停止点
+
+同一 reviewer 独立关闭 W3–W6（W6 限代码/状态层），W1/W2 仍有真实 caller 变体，原结论见 `review.md` Round 2。原生 Journey 的旧版本 build-for-testing 刚启动即因这一结论取消（SIGTERM）；未启动新 IM、prime 或离线阶段，未拿旧构建完成旅程。
+
+### 新增真实 RED 与集中修复
+
+- 在原产品 `7bce604c1` 上只加两条真实 owner 反例：held A/B draft flush 与实际 send B；实际 AppModel origin replacement 遇 policy IO 失败。**exit 65 / 2 tests / 4 assertion failures / 0 unexpected**，没有 baseline compatibility adapters。`/tmp/feat714-review-round2-red.log:292-307`、同 basename `.xcresult`。W1 实际在 held writer 时已 POST，恢复后 durable draft=b0 与 pending 双份；W2 实际替换了应保留的 client/controller。为使坏实现也只尝试 loopback 而非外部服务，切换目标固定为拒绝连接的 `127.0.0.1:1`；失败事实保留。
+- W1：`persistAttempt` 先 flush，再把 pending 事务接到同一 draft write tail；请求在等待前冻结，owner/epoch/repository checks 保留。仓储只消费普通 frozen request 匹配的 composer text，较新的 draft 与 interaction 的普通 composer 独立保留。新增仓储事务回归覆盖这三种情况；该附加回归没有单独声称 RED。
+- W2：`purge` 以 Bool 明确报告是否已完成全部 accepted intent/物理 close；失败 origin switch 不替换唯一保留 intent 的 controller，恢复其 session observer 并在 AuthView 报错。IO 恢复后，原 origin 登录会先重试清理再 seed。既有忽略返回值的非替换 caller 仍由原 controller 保留 intent。
+
+### 修复后实际执行与异常停止
+
+- 同一 557 / DerivedData、`-jobs 2 -parallel-testing-enabled NO`，七组实际执行 **105 tests / 1 explicit physical-device protection skip / 1 assertion failure / 0 unexpected，exit 65**。原始产物 `/tmp/feat714-review-round2-green.log:451-798`、同 basename `.xcresult`。唯一失败是新增 owner fixture 把同一物理临时目录的 URL（有/无末尾 `/`）当不同值；不是内容/pending/fence 断言失败。其它六组 99 tests / 1 skip / 0 failures，包含 W1 send 反例和仓储新增回归，结果可复用但不能称本次七组全绿。
+- 将该 fixture 的精确删除前置检查改为 standardized path guard，保留/加强“仅此测试 root 下的 blocker 可移除”，不修改产品、超时或内容断言。只重跑受影响 AppLocalBootstrap 六条，**exit 65 / 6 tests / 1 unexpected failure**，原始 `/tmp/feat714-review-round2-owner-recheck.log:209-243`、同 basename `.xcresult`。新 origin 反例已 PASS（:213-214）；既有 same-account 测试在 teardown 删除自身临时 root 时抛 NSCocoa513 / underlying EPERM（:221-224）。不得省略此失败或把累计回归写成 clean green。
+- 本批按异常停止线不忙重试，不改 timeout/断言、不再启动 IM/原生旅程。只读 lstat 看到出错 root、partition、chat.sqlite 均本用户所有、0755/0644、flags=0；未从 host 删除/修理该目录。日志还含前一 fixture 的 vnode-unlinked，真实 same-account fixture 在多次 refresh 后仍可有有效 session update 未消费；这是异步 fixture teardown 的可疑边界，不将它先验定性成产品库损坏或已确认的 EPERM 根因。
+- 仅追加 fixture 生命周期修正：保留本测试创建的 model，在 async teardown 先对合成 session signOut/完成 controller purge，再让原同步 teardown 删除自己的目录，避免 enabled owner 的迟到 refresh 重新打开已删目录。**此最后 fixture 修正尚未 typecheck/XCTest；后续必须在新协调窗口补验，不能用之前的新反例 PASS 覆盖它。**
+- 所有本批 xcodebuild job 已收集退出；精确核对 557 名称与状态，before/after 均 Shutdown（exit 0）。没有新建/clone/erase 设备，没有自建 IM/Gateway/模型/浏览器，未访问生产或真实设备。hosted 测试仍有正常 sandbox 写入和旧 51396 refresh 失败，不宣传“零网络尝试”。
+
+本批源修复及已运行反例交原 reviewer 集中静态 closure；完整绿色、最终原生旅程、成功空会话画面、真机 flight/protection、性能统计与完整 CI 均按各自缺口保留，未归档/未交付 PR。

@@ -86,9 +86,13 @@ final class ChatStorageController {
     }
 
     /// A disabled stored owner can require cleanup before this controller has opened any DB.
-    func purge(reason: PurgeReason, partition target: ChatPartition? = nil) async {
+    /// False retains accepted intents here: callers must not replace this owner until retry
+    /// succeeds, because a failed policy write has not created a durable fence yet.
+    @discardableResult
+    func purge(reason: PurgeReason, partition target: ChatPartition? = nil) async -> Bool {
         if let target { requirePurge(target) }
         await move(to: nil, reason: reason)
+        return requiredPurges.isEmpty && activeRepository == nil && openedPartition == nil
     }
 
     private func requirePurge(_ target: ChatPartition) {
