@@ -4,12 +4,25 @@ import XCTest
 @MainActor
 final class OneShotBackgroundUITests: XCTestCase {
     private var app: XCUIApplication!
+    private var fixture: JourneyFixture!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
         executionTimeAllowance = 120
+        // A locally verified fresh-runtime manifest is mandatory. Loopback alone could
+        // still be the existing preview or another task's service.
+        fixture = try JSONDecoder().decode(JourneyFixture.self, from: Data(required("NANO_UI_FIXTURE_JSON").utf8))
+        let origin = try required("NANO_UI_ORIGIN")
+        let url = try XCTUnwrap(URL(string: origin)), port = try XCTUnwrap(url.port)
+        XCTAssertNotNil(UUID(uuidString: fixture.runID))
+        XCTAssertEqual(url.scheme, "http"); XCTAssertEqual(url.host, "127.0.0.1")
+        XCTAssertGreaterThanOrEqual(port, 49152); XCTAssertNotEqual(port, 62814)
+        XCTAssertEqual(origin, fixture.origin)
+        XCTAssertEqual(try required("NANO_UI_USERNAME"), fixture.username)
+        XCTAssertEqual(try required("NANO_UI_CONVERSATION_ID"), fixture.conversationID)
+        XCTAssertEqual(try required("NANO_UI_CHAT_TITLE"), fixture.chatTitle)
         app = XCUIApplication()
-        app.launchEnvironment["NANO_IM_BASE_URL"] = try required("NANO_UI_ORIGIN")
+        app.launchEnvironment["NANO_IM_BASE_URL"] = origin
         app.launchArguments = ["-nano.locale", "en"]
     }
     override func tearDownWithError() throws { app?.terminate() }
@@ -49,6 +62,46 @@ final class OneShotBackgroundUITests: XCTestCase {
         app.buttons["Send"].tap()
         XCTAssertTrue(app.staticTexts[second].firstMatch.waitForExistence(timeout: 20))
         capture("716-native-two-messages-sent")
+    }
+
+    func testTwoEditedCardsAreConsumedTogetherThenOnlyReeditedCardReturns() throws {
+        let labelA = try required("NANO_UI_CARD_A_LABEL"), labelB = try required("NANO_UI_CARD_B_LABEL")
+        let cardA = try openMeetingCard(fieldLabel: labelA)
+        let firstCount = try replaceCount(cardA, preferred: "7")
+        let cardB = try revealCardField(labelB, towardLatest: true)
+        let secondCount = try replaceCount(cardB, preferred: "8")
+        let run = UUID().uuidString
+        print("716_NATIVE_MULTI_RUN \(run) A=\(firstCount) B=\(secondCount)")
+        capture("716-native-multi-both-edited")
+        try sendText("716-native-multi-first-\(run): Read both edited cards and confirm their counts only. Do not create anything.")
+        try sendText("716-native-multi-second-\(run): Reply received only. Do not reuse any card.")
+        let revisited = try revealCardField(labelA)
+        let thirdCount = try replaceCount(revisited, preferred: "9")
+        print("716_NATIVE_MULTI_REEDIT \(run) A=\(thirdCount)")
+        try sendText("716-native-multi-third-\(run): Read only the newly edited card and confirm its count only. Do not create anything.")
+        capture("716-native-multi-three-messages-sent")
+    }
+
+    private func replaceCount(_ field: XCUIElement, preferred: String) throws -> String {
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let old = try XCTUnwrap(field.value as? String)
+        let value = old == preferred ? String((Int(preferred) ?? 7) + 1) : preferred
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + value)
+        XCTAssertEqual(field.value as? String, value, "A real accessible edit must establish each pending background")
+        return value
+    }
+
+    private func sendText(_ text: String) throws {
+        let composer = app.textViews["Message"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        composer.tap(); composer.typeText(text)
+        XCTAssertTrue(app.buttons["Send"].isEnabled)
+        app.buttons["Send"].tap()
+        let latest = app.buttons["Latest messages"]
+        if latest.exists { latest.tap() }
+        XCTAssertTrue(app.staticTexts[text].firstMatch.waitForExistence(timeout: 20))
+        expectation(for: NSPredicate(format: "value == nil OR value == ''"), evaluatedWith: composer)
+        waitForExpectations(timeout: 10)
     }
 
     func testNativeConflictComparisonAndExplicitAdoption() async throws {
@@ -159,6 +212,11 @@ final class OneShotBackgroundUITests: XCTestCase {
     private func request(_ path: String, method: String = "GET", token: String? = nil, body: [String: Any]? = nil) async throws -> [String: Any] {
         let origin = try required("NANO_UI_ORIGIN")
         let url = try XCTUnwrap(URL(string: origin + path))
+        XCTAssertEqual(origin, fixture.origin)
+        if path != "/im/v1/auth/login" {
+            let allowed = fixture.cardIDs.map { "/im/v1/conversations/\(fixture.conversationID)/messages/\($0)/interaction-state" }
+            XCTAssertTrue(allowed.contains(path), "Only card objects bound to this fresh fixture may be read or updated")
+        }
         XCTAssertEqual(url.host, "127.0.0.1", "Only this unit's isolated loopback service is allowed")
         var request = URLRequest(url: url); request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -170,7 +228,7 @@ final class OneShotBackgroundUITests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func openMeetingCard() throws -> XCUIElement {
+    private func openMeetingCard(fieldLabel: String = "参会人数") throws -> XCUIElement {
         app.launch()
         let username = app.textFields["Enter your username"]
         if username.waitForExistence(timeout: 8) {
@@ -190,17 +248,22 @@ final class OneShotBackgroundUITests: XCTestCase {
         XCTAssertTrue(chat.waitForExistence(timeout: 20), "The real isolated service must supply the PA conversation")
         capture("716-app-chat-list")
         chat.tap()
-        // The conversation opens at its newest message. Scroll only its native timeline;
-        // do not call the app runtime or evaluate JavaScript to fabricate an editable field.
-        let people = app.webViews.textFields["参会人数"].firstMatch
+        return try revealCardField(fieldLabel)
+    }
+
+    private func revealCardField(_ label: String, towardLatest: Bool = false) throws -> XCUIElement {
+        XCTAssertTrue(fixture.cardLabels.contains(label), "Only accessible fields bound to the fixture may be edited")
+        // Move through the actual native timeline, not the App runtime or JS.
+        let field = app.webViews.textFields[label].firstMatch
         for _ in 0..<8 {
-            if people.exists && people.isHittable { break }
-            app.scrollViews.firstMatch.swipeDown()
+            if field.exists && field.isHittable { break }
+            if towardLatest { app.scrollViews.firstMatch.swipeUp() }
+            else { app.scrollViews.firstMatch.swipeDown() }
         }
         capture("716-app-card-probe")
-        XCTAssertTrue(people.waitForExistence(timeout: 10), "WK field accessibility is a prerequisite, not an assumed journey pass")
-        XCTAssertTrue(people.isHittable, "The visible card field must be directly tappable")
-        return people
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "WK field accessibility is a prerequisite, not an assumed journey pass")
+        XCTAssertTrue(field.isHittable, "The visible card field must be directly tappable")
+        return field
     }
     private func required(_ name: String) throws -> String {
         guard let value = ProcessInfo.processInfo.environment[name], !value.isEmpty else {
@@ -214,4 +277,15 @@ final class OneShotBackgroundUITests: XCTestCase {
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+/// Produced only after the host runner checks the owned process and read-only fixture DB.
+private struct JourneyFixture: Decodable {
+    let runID: String
+    let origin: String
+    let username: String
+    let conversationID: String
+    let chatTitle: String
+    let cardIDs: [String]
+    let cardLabels: [String]
 }

@@ -42,7 +42,7 @@ import {
 } from "./chat-stream-reducer";
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
-import { discardOnLeave, forgetInteractionBackground, loadWatermarks, resumeConversation, retryPendingDiscards } from "./interaction-background";
+import { discardOnLeave, forgetInteractionBackground, loadWatermarks, resumeConversation, retryPendingDiscards, retryTransientDrafts } from "./interaction-background";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
@@ -375,16 +375,25 @@ export function ChatWorkspacePage() {
   useEffect(() => {
     if (!selfUserId) return;
     void loadWatermarks(selfUserId).then(retryPendingDiscards);
-    const foreground = () => { if (document.visibilityState === 'visible') void retryPendingDiscards(); };
+    const foreground = () => {
+      if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
+      void retryPendingDiscards();
+      const active = conversationIdRef.current;
+      if (active) void retryTransientDrafts(active);
+    };
     document.addEventListener('visibilitychange', foreground);
-    return () => document.removeEventListener('visibilitychange', foreground);
+    window.addEventListener('online', foreground);
+    return () => {
+      document.removeEventListener('visibilitychange', foreground);
+      window.removeEventListener('online', foreground);
+    };
   }, [selfUserId]);
   useEffect(() => {
     const previous = previousConversationRef.current;
     // Coming back must cancel the earlier leave, otherwise this device's next edit would be
     // cleared by the late-save rule instead of being carried by the next message.
     if (conversationId) resumeConversation(conversationId);
-    if (previous && conversationId && previous !== conversationId) void discardOnLeave(previous);
+    if (previous && previous !== conversationId) void discardOnLeave(previous);
     previousConversationRef.current = conversationId ?? null;
   }, [conversationId]);
   const historyRequestRef = useRef<{ conversationId: string; cursor: string; controller: AbortController } | null>(null);

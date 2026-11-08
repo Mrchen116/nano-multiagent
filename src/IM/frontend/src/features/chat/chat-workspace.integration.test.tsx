@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { ChatWorkspacePage } from "./chat-workspace-page";
-import { awaitWatermarkWrite, loadWatermarks, noteDraftSaved, resetInteractionBackground } from "./interaction-background";
+import { awaitWatermarkWrite, loadWatermarks, noteDraftFailed, noteDraftSaved, registerDraftHandle, resetInteractionBackground } from "./interaction-background";
 import type { Conversation } from "./chat-types";
 import { composerStoreFor, EMPTY_COMPOSER_SNAPSHOT } from "./components/composer-draft-store";
 import type { UserStreamEvent } from "../../realtime/user-stream";
@@ -1762,6 +1762,34 @@ describe("ChatWorkspacePage — integration", () => {
     // A conversation this browser never saved in is never cleared: it cannot name what it
     // would erase, and a later re-entry must still be able to carry an edit.
     expect(fetchSpy.mock.calls.some(([input]) => /\/c2\/interaction-background\/discard$/.test(input.toString()))).toBe(false);
+  });
+
+  it("clears its confirmed background when mobile Back returns to the chat list", async () => {
+    const width = vi.spyOn(window, "innerWidth", "get").mockReturnValue(390);
+    try {
+      const user = userEvent.setup();
+      await loadWatermarks("u-self");
+      noteDraftSaved("c1", "2026-05-01T00:00:05.000Z");
+      await awaitWatermarkWrite();
+      renderAtRoute("/chat/c1");
+      await user.click(await screen.findByRole("button", {name:"Back"}));
+      await waitFor(() => expect(fetchSpy.mock.calls.some(([input, init]) =>
+        /\/c1\/interaction-background\/discard$/.test(input.toString()) && init?.method === "POST"
+      )).toBe(true));
+    } finally { width.mockRestore(); }
+  });
+
+  it.each(["online", "visibilitychange"])("automatically recovers a transient saved-card failure on %s without retrying conflicts", async event => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const flush = vi.fn(async () => ({updatedAt:"2026-05-01T00:00:05.000Z"}));
+    const conflictFlush = vi.fn(async () => ({reason:"conflict" as const}));
+    registerDraftHandle("c1", "transient", {flush, describeConflict:async()=>({columns:[]}), adoptRemote:async()=>{}});
+    registerDraftHandle("c1", "conflict", {flush:conflictFlush, describeConflict:async()=>({columns:[]}), adoptRemote:async()=>{}});
+    act(() => { noteDraftFailed("c1", "transient", "transient"); noteDraftFailed("c1", "conflict", "conflict"); });
+    act(() => { (event === "online" ? window : document).dispatchEvent(new Event(event)); });
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
+    expect(conflictFlush).not.toHaveBeenCalled();
   });
 
   it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {
