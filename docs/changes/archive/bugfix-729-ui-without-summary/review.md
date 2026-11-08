@@ -37,3 +37,10 @@
 补测独立复核：`/root/review_ui_summary`，gpt-6.1-sol / high，读取5份实际 pre-adapter 请求、observer 源、公开消息及受测 Skill。未发现额外目标提示或输入改写；确认仅一条 UI 公开消息、实际参数省略 text、回执及持久化 source 一致。该单次中性 case 的声明范围通过，原污染 case 继续排除。产品指导本身是被测实现，不能用此结果证明没有新版指导时也会自然如此。
 
 本次后续只更正验收记录与 PR 描述；产品源码、Skill、构建输出与已审契约未改，原代码审查及源码 CI 的结论保留。中性环境因用户请求查看效果而保留，原预览同样继续运行；两个环境各自端口、node、owner、数据和 workspace 独立。
+
+
+## 接收机制演示与群聊修复追加审查（2026-11-09）
+
+独立 reviewer `/root/review_ui_summary` 复核 `2433d6328..6e36e82fca46a9aa2b950a5cbe7e13f97e5e510b`，findings 为空，最终 delta aligned。只将已持久化有效 UI 纳入群回复内容条件；群类型、Agent 作者、completed、NO_REPLY、成员/空间/lifecycle/PA 限制及原有提醒策略保持。纯 UI 不自动获得 mention；幂等键与原逻辑一致。修前0条relay的失败和修后16/16已核。另独立核对私聊演示原始请求及 Work tool item，公开 UI source 一致且接收方正确算出425/75。
+
+作者补验：IM 完整64文件406项通过（`/tmp/nano-729-group-server-tests.log`）；IM build 与 docs-check 通过。其他源码与既有证据未受此一行群转发修复影响。真实私聊演示与群聊修复的证据范围分开，不把显式要求“只发UI”的机制演示当作自然选择行为证据。
