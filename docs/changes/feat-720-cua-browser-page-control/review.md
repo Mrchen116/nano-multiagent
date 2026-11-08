@@ -5,7 +5,7 @@
 ## 版本与有效范围
 
 - 当前实现/测试版本：`054ab52ea381dd9740f4c41fe4dbe58f48da24b9`，分支 `codex/feat-720`；本轮配置例外已由人类批准，独立 code/Context/corrected-delta 审查进行中，尚非发布冻结。
-- 集成的 develop 基线：`eeaea47921806936da20e78c9ed96167716f5037`。最终交付前仍须重新核对目标分支增量及证据有效性。
+- 集成的 develop 基线：最初为 `eeaea47921806936da20e78c9ed96167716f5037`；现已用 merge `a904d32faf813430ef620bb19af18ec2331c41f4` 无冲突集成 `94d663626`。该段仅新增 bugfix-729/731/732 三项 unit 文档、无源码/配置/锁文件变化，既有源测试证据不因该 merge 失效；最终 PR 前仍须核对目标分支后续增量。
 - `a1fab20f4` 修复等待驱动 probe 期间资格失效仍会 prepare 的竞态，并按行为拆分 browser-control/lifecycle 测试。`de3b838a1` 再修复真实产品暴露的 Cordis 服务注入接线错误；`fa6c7ad68` 修复非作者 reviewer 发现的登记失败后 cleanup 失败却丢失占额漏洞。旧 daily 最初从 `4804e785e` 启动，首个失败产品样本确已加载 `a1fab20f4`；后续隔离 Node 已重启到 `de3b838a1` 并通过 UI 保存 Sol 配置，但尚未发起下一浏览器样本，须加载当前新修复后再验，不能拿旧进程当新版本验收。
 - Gate 2 R7 只批准 `9612ea5d1` 的设计，不是实现或真实旅程批准。
 - 本轮自检均由实施 owner 执行，不冒充独立 reviewer。
@@ -83,7 +83,7 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 
 reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步入队，B 的计数先删掉尚未起跑但标记 disposing 的 A state；A 读取重建新 state、启动实例，销毁仍只处理旧 state，因此没有 end_session 且会再丢失 cap 账本。owner 不加 sleep 的同序回归先取得 **1 failed / 14 passed**，实际 end_session 为 0 而期望 1（`/tmp/feat720-disposal-pruning-red.log`）。
 
-`054ab52ea` 把“销毁已请求”与“销毁队列已收口”分开，只有后者的过期 tombstone 可由计数惰性回收；销毁删除时校验同一 state identity，不能删除后来重建的账本。后续单 worker browser/approval-sources/PA inbox 批次中 **112 passed / 1 timeout**：新 lifecycle 15 项及其余 9 个文件全部通过，唯一 installed-runtime-wiring 测试触及 25 秒整体 timeout（`/tmp/feat720-disposal-pruning-green.log`），不是全集绿。该批 transform 127.5 秒、import 170.35 秒、总 218.95 秒，随后只读现场 load 86.17/107.07/64.05，并见其他 worktree frontend Vitest 与系统 Storage/du 并发；此前同批约 7 秒。共享负载是待验证线索，不据此认定唯一根因；未加 timeout、未跳过测试，typecheck/build 因 `&&` 未执行。真实 GUI 仍未开始，待短低负载段补验/构建后再加载修复。独立静态复核待精确新提交。
+`054ab52ea` 把“销毁已请求”与“销毁队列已收口”分开，只有后者的过期 tombstone 可由计数惰性回收；销毁删除时校验同一 state identity，不能删除后来重建的账本。后续单 worker browser/approval-sources/PA inbox 批次中 **112 passed / 1 timeout**：新 lifecycle 15 项及其余 9 个文件全部通过，唯一 installed-runtime-wiring 测试触及 25 秒整体 timeout（`/tmp/feat720-disposal-pruning-green.log`），不是全集绿。该批 transform 127.5 秒、import 170.35 秒、总 218.95 秒，随后只读现场 load 86.17/107.07/64.05，并见其他 worktree frontend Vitest 与系统 Storage/du 并发；此前同批约 7 秒。共享负载是待验证线索，不据此认定唯一根因；未加 timeout、未跳过测试，typecheck/build 因 `&&` 未执行。真实 GUI 仍未开始，待短低负载段补验/构建后再加载修复。同一 reviewer 直接 import `054ab52ea` 当前 src（不使用旧 lib、不构建），独立轻量 fake 复核精确顺序的 cleanup 成功/失败两路：成功只结束 A 且槽位可复用；失败两次结束尝试、占额保留，后续均 busy。F4 **closed**，该局部无新具体 finding；不据此抹去安装 runtime 的 timeout 或宣称新构建产品通过。
 
 ## 发布阻塞与待补验
 
@@ -116,6 +116,14 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 用户随后纠正：“我完全没get到，这跟我的记忆有半毛钱关系。而且这个设计稿也不是我写的，也是你写的。”协调者承认额外保证由我们自行添加，撤回让用户选择“严格隐私/普通留存”的问题，并决定由原事项修订同一 spec/design/delta：保留本能力的源 PNG TTL/20 张/写入与启动期有界清理，明确不覆盖既有工具历史、官方 `read_image` 附件或全部记忆取材；不新增通用 Memory 屏蔽、附件删除或运行时 patch，不改变原操作、secret 与无关内容保护边界。本次据此校正文档，不以聊天未检出同句为依据，也不是宣称旧保证已通过机制修复。同一独立 reviewer 已亲读 `fb297cba9` 的 spec/design/delta/review 增量，确认两项历史 finding 均为 **superseded-by-authorized-scope-correction**；不登记为 fixed-mechanism，也不据此自动批准产品旅程或整体发布。
 
+## 真实 Context 证据方法与边界
+
+当前共享 `127.0.0.1:4000` 代理的实际启动命令没有 `--log`；源代码默认关闭请求记录，dev-host 所指 session/raw 仅有旧日期日志，因此本轮无新的转换后 provider wire 原件可用。不重启或改共享代理。owner 曾提议仅供隔离 daily 的完整 HTTP 请求/响应录制转发夹具，准备脚本的 write 已被工具明确拒绝：受限浏览器验证与 `/tmp` 写入不等于授权记录这些具体数据；随后协调者也明确禁止该旁路。脚本未创建、未运行、未改上游、未记录请求或响应，不换工具重试。
+
+同一 reviewer 接受按具体 CU claim 评估真实 native journal、有效配置/实际模型与 fallback 状态、tool call/result 顺序和随后实际动作、用户可见结果及独立页面/前台观察；这可支持模型能否找到入口、正确使用 read_id/ref、理解失败/归还事件及读图后作受支持结论的判断，不把 journal 称为转换后请求。只有必要 claim 本身涉及转换层而现有原件不足时，才指出具体缺口与最低字段交协调者核对，不把缺笼统 wire 变成统一新增捕获门禁。
+
 ## 独立审查结论
 
-**Pending。** 当前没有可以登记的实施 Approved / 产品旅程 Approved；未归档、未创建交付 PR、未合并、未部署生产。待授权、资源与审查配置条件满足后，沿同一事项和 worktree 继续。
+`054ab52ea` 源码、`fb297cba9` 契约的非作者增量复核：F1/F2 **superseded-by-authorized-scope-correction**，F3/F4 **closed**，静态存活 findings 为空；**corrected-delta = aligned（静态源码/契约范围）**。本轮配置例外及实际模型/effort 边界见上文。
+
+**实施/产品旅程整体仍 Pending。** 安装 runtime 测试需按最终构建补验，实际 Sol Context 和 V2 等真实旅程尚未闭环；没有可以登记的整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。待当前资源条件恢复后沿同一事项/worktree继续，不再要求用户选择已撤回的隐私问题或额外预约。
