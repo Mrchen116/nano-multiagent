@@ -123,3 +123,28 @@
 - 逐字符读取原 private 输入与上述原始 AX label，两串长度均73，唯一差异为 index8 U+0027→U+2019；替换该字符后全文完全相同。保留原 server 消息、原输入、原 FAIL/xcresult 不覆盖；新私有输入只将完整预期改为实际呈现的弯引号，仍匹配完整73字符、同一目标会话，不调整15秒/5秒断言或产品代码。
 - 中断的 prime 已通过正常登录，会在同一自有 origin 留下合成会话。新增显式 opt-in `NANO_UI_RESET_OWNED_SESSION=1` 仅用于该 fixture 的重新 prime：如已经登录，走公开 Me → 验证精确 `@<fixture username>` → Sign out → 正常确认，随后原完整用户名/密码登录流程仍必须成功。不删除设备/安装/Keychain/宿主目录，不绕过真实认证；未 opt-in 与 offline 阶段不执行此准备。身份不符或确认未出现则 fail，不签出未知账号。该正常退出会清理本轮同 origin 的本地缓存，随后必须再次从真实API prime；不能用旧缓存伪造本轮online成功。
 - 当前仅 Swift parse/diff check 通过；必要独立 fixture 审查、当前 build 和完整两阶段运行结果另记。不能将这次针对已证选择器差异的修正冒充旧 FAIL 自动变绿。
+
+## 同 origin / 同冻结产品的两阶段原生补验：PASS（限定本路径）
+
+- `validated_at=da47a48e5a30ece2364a968d427b3a5e48cb10bc`，只有上述helper/evidence增量，NanoIM产品/project未变。原reviewer独立窄审 **0C/0W / findings=[] / no spec delta**；全文预期等价、显式公开reset和fail-fast成立，但不据静态审查宣称运行成功，见 `review.md` Round5。
+- 当前 `NanoIMJourney build-for-testing -jobs 2 -parallel-testing-enabled NO` 实际 **exit0 / TEST BUILD SUCCEEDED**，`/tmp/feat714-native-build-da47a48e5.log:255`；产物Info.plist的NanoIMBuildRevision实查为`da47a48e5`。私有runner `/tmp/nano-ios-714-resume/Build/Products/Current714Journey-da47a48e5.xctestrun` 与产品同目录，使用原53703 origin、同DB/JWT/账号/会话/原server消息，不新建或修改seed，不覆盖原input/FAIL；新private输入另存0600。
+- 只恢复原自有IM，清除继承IM变量，只显式添加本fixture的JWT及同origin IM_PUBLIC_URL；新 `server-reprime.log` 保留旧日志。实查PID52499完整argv属于本worktree、本DB、127.0.0.1:53703，`/health` HTTP200；精确557名称/UDID在运行前Shutdown。
+- **在线prime实际PASS**：`/tmp/feat714-native-final-dphmlbb6/online-reprime.log:64-148`、同basename`.xcresult`，**1 test / 0 failures / 0 unexpected / exit0 / TEST EXECUTE SUCCEEDED**。公开Me→精确@nano→Sign out→sheet确认实际走通（:64-90），之后原用户名/密码真实登录（:91-126）。列表截图:128、点Product launch:129、完整73字消息15秒谓词通过:135-139、终止App:140均实际执行；不能借此次成功追认原729通过。
+- 在线PASS后只停止上述自有IM job，收集SIGTERM退出；实查原PID消失，`127.0.0.1:53703 connect=61`。**离线冷启实际PASS**：`/tmp/feat714-native-final-dphmlbb6/offline-reprime.log:25-54`、同basename`.xcresult`，**1 test / 0 failures / 0 unexpected / exit0 / TEST EXECUTE SUCCEEDED**。与在线同simulator/origin/构建/安装数据；无SQLite注入或进程内store调用。5秒列表谓词通过且登录表单不存在（:29-34），点同会话（:35），完整消息5秒谓词通过并截图（:41-45），随后终止App（:46）。offline未调用reset helper；不是新origin或新缓存替代冷启动。
+
+### 作者实际画面自检与证据边界
+
+四张均由作者用read_image打开原始xcresult导出图，原生viewport402×874pt（导出1206×2622px），未做缩略/修图或当成原型。文件位于同runtime，不提交：
+
+| 阶段 | 本地导出附件 | 实际可见与判断 |
+|---|---|---|
+| online list | `online-reprime-attachments/D71CBAE8-207B-48F1-AE96-7BE8787EAEC9.png` | Chats原生列表，Product launch标题、单行省略的正常消息预览、3:01 AM时间可辨；不是整屏加载占位。预览不是全文，全文在下一页。 |
+| online timeline | `online-reprime-attachments/514E31C8-0868-4288-91BF-7FB07D444D3B.png` | 同会话标题、3:01 AM分隔，完整73字工作消息在气泡内分三行可读，底部输入区保留，无加载占位。 |
+| offline list | `offline-reprime-attachments/02813AF3-C9AD-4EB5-98F2-5E5A2B78A8DD.png` | 上方明确“Offline. Retrying · Updated 03:12”；同会话/预览/时间仍可读，未变登录页/空列表，离线提示没有替换内容。 |
+| offline timeline | `offline-reprime-attachments/B86BA392-7DA0-469C-B4EC-3396ED49A915.png` | 同完整消息仍可阅读；顶部有上述离线/上次更新时间及“Could not connect to the server.”，不谎称当前同步成功，错误没有挡住正文。 |
+
+- **作者限定结论**：真实登录→从API读列表/历史→terminate→仅停该origin→同构建离线冷启→读取本地列表与完整正文的指定路径PASS；离线可读与状态可辨的这四个实际画面自检PASS。独立产品/体验判断另交既有非作者依据这些原始产物作出，不以作者自检冒充独立验收。
+- 截图是四个命名状态，成功运行只导出这些保留附件；`app.launch`返回/首次XCTest轮询时刻不等于从图标打开到首绘耗时。不能由这两条test总时长或5秒谓词宣称首帧无白屏/无加载闪回、p50/p95达标；不证明网络恢复自动校正、多条滚动历史、空会话、真机flight/protection或全量契约均通过。模拟器状态栏Wi-Fi图标不代表此origin可达；离线前/后connect61及停止PID为此路径边界依据。
+- 所有本批build/UI/server jobs已收集。精确557名称/UDID在收尾before/after均Shutdown，无erase/delete/clone；53703仍connect61。没有自建Gateway/模型/浏览器或其它服务；正常hosted安装/sandbox影响不宣称为零。重型/GUI窗口已释放。
+
+**仍pending**：成功空会话真实UI、独立产品/体验的本次产物判断、真机飞行模式与四路径保护属性、≥20次首绘p50/p95、完整CI及最终unit门禁/归并/归档/PR。当前两阶段局部PASS不把它们一并关闭。

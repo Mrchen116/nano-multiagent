@@ -111,3 +111,11 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - Reviewer 独立读取 `/tmp/feat714-app-fixture-ordered.log:294-322`：**App6 / 0 failures / 0 unexpected / TEST SUCCEEDED**，新 origin 与旧 same-account 均 pass；对整份 log 独立搜索未见 vnode-unlinked、EPERM、Operation not permitted、TEST FAILED、error。该实际结果关闭 W7 确切顺序缺陷，不宣称旧 EPERM 全部根因已唯一证明或所有潜在竞态永久消失。
 - 先前 URL 等价断言、真实 EPERM 和 8a App6 虽 pass 仍有 vnode 的历史均忠实保留；本次是 App6 定向验证，不是七组同次全绿。未变产品的其余六组 99 total / 1 skip / 0 failures 依原版本映射复用，不因 reviewer 交接重跑。
 - **live findings=[]；no spec delta；此前产品契约 aligned 判断保持。** 本次 W7 closure 增量可批准，W1–W6 关闭判断保持；不把这一窄批准扩大成全 unit/Gate/M1/M2、UI、真机或性能验收。Journey 的前置构建和首次 IM 配置失败不是 prime/offline 证据；真实旅程、成功空会话 UI、真机 flight/protection、20 次首绘统计、完整 CI 按各自后续证据判断。
+
+## Round 5 — 同 fixture UITest/helper 窄增量 APPROVED（0 CRITICAL / 0 WARNING）
+
+- 同一独立非作者 reviewer 只审 `adfe4d4ce..da47a48e5` 的2文件/+24，`validated_at=da47a48e5a30ece2364a968d427b3a5e48cb10bc`；产品与project diff为空，tracked clean，原mock排除。配置/只读边界沿用，无测试/构建/设备/GUI/服务/网络/模型/文件或Git修改，不重审已关闭问题/全unit。
+- 独立读取原/新private输入、原失败AX全文并逐字符核实：73字符唯一index8 U+0027→U+2019，新预期与原AX全文相等，旧输入和FAIL保留。完整正文CONTAINS、目标会话、真实用户名密码登录、online15秒/offline5秒与terminate路径不变；不是短关键词、server改文或追认旧FAIL通过。
+- 显式opt-in reset仅prime调用，offline不调用；Me存在→精确fixture用户名→公开Sign out→确认的顺序成立。SDK公开 `XCTestCase.h:136-148` 与现有 `continueAfterFailure=false` 证明身份断言失败立即停止，不会继续签出未知账号。无erase/delete/Keychain注入/内部store调用；正常签出清缓存后仍需真实API重新prime。
+- `app.sheets.buttons["Sign out"]` 的实际AX定位仅可由后续运行验证，reviewer没有把静态源码当运行PASS。原 `online.log:123-131` 的1 test/1 assertion failure/0 unexpected及offline未执行保留；reviewer未核并行build与未来运行。
+- **findings=[]，no spec delta，窄fixture审查通过**，W1–W7关闭判断保持。不是两阶段旅程、成功空会话UI、真机flight/protection、20次统计、完整CI或unit验收通过。
