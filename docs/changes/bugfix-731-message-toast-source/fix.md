@@ -109,4 +109,14 @@ Agent 解读：用户需要从会话外的新消息弹窗直接判断消息来�
 - `pnpm build` 通过。隔离启动时的前端 `tsc -b && vite build` 也已通过。
 - 首轮完整前端测试与构建同时运行出现 13 项失败；随后使用 `npm test -- --maxWorkers=2` 完整重跑，114 文件中 113 通过；1082 项中 1081 通过，剩余 1 项为既有问题。
 - 剩余失败为 `chat-workspace.integration.test.tsx` 的 `adopts edited text into c1 with access checks, explicit replacement and no send`，找不到 `Reply draft` 输入。使用 `00972141a` 的未修改前端源码 archive、同一已安装依赖，在独立临时目录单独运行该测试也失败（1 failed / 59 skipped）。因此不把完整套件报告为全绿，也不扩大本次范围修改该回复草稿问题。
-- 本轮截图使用独立 IM、Gateway、测试账号与真实 Web 客户端，不使用生产实例。截图和收发结果在实际完成后追加；用户尚未验收，不归档 unit。
+- 本轮截图使用独立 IM、Gateway、测试账号与真实 Web 客户端，不使用生产实例。用户尚未验收，不归档 unit。
+
+
+### 真实 Web 验证与截图
+
+- 已验证代码版本：`cd24971fb`；真实 IM + Node/DSH，测试 Agent `daily-product`（显示名 `P · 产品与体验`），浏览器入口 `/settings/agents/daily-product?view=work`，1440 × 900。通过真实 API 创建测试会话并发消息，由测试 Agent 实际回复；未注入 DOM、虚构 WS 事件或替换服务端响应。
+- 私聊 `c_kfgxe8vm`：标题已改为“周末出行计划”。弹窗只显示会话名与“周六的出行方案已整理好，随时可以查看。”；点击 `View message` 已进入该私聊。
+- 两成员群 `c_q8mkk0xj`：弹窗分别显示“产品讨论群”、“P · 产品与体验”及“讨论结论已整理完成，请大家查看。”；点击已进入该群。后台会话类型为 `group`，没有按人数误判为私聊。
+- 已人工查看两张实际截图：来源名称清楚、摘要完整、没有 UUID 标题。截图裁取真实视口左上 760 × 340 区域，另保留完整视口截图。未实测手机布局，不声称移动端体验验收通过。
+- 截图与测试日志保存在本机 `/Users/czj/.codex/reports/bugfix-731-toast-source-20261109/`：`direct-toast.png`、`group-toast.png`、对应 `*-full.png`；`browser-evidence.json` 保留会话类型、成员数与实际持久消息。截图与运行数据不提交。
+- 环境限制：`e2e-up.sh --profile daily` 两次在 `daily-engineering/capabilities` 目录同步阶段返回 504；因此未声称 daily 模板完整 ready。已在线的 IM/Node/测试 Agent 可用，以上两条通知路径在该实际服务上独立完成。未扩大本次修复去改变目录检查超时或草稿采用功能。
