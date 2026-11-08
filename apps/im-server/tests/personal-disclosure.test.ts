@@ -373,3 +373,17 @@ it('checks native waiting evidence after PA review and before committing the fro
  expect(await service.actions.commitChecked(principal,commit)).toMatchObject({state:'confirmed',result:{revision:2}});
  expect(ctx.gateway.tasks.execute({kind:'user',id:'u1'},'get',{graph_id:task.graph_id,view:'all'}).nodes[0]).toMatchObject({status:'waiting',wait:{session_id:'main'}});
 });
+
+it('freezes quoted original content in the independent PA review and delivers the approved quote',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();ctx.gateway.groupReply=vi.fn();
+ db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+ ctx.messaging.insertMessage('chat','u1','user','请回应 Bob 刚才在群里的那条安排');
+ const original=ctx.messaging.insertMessage('peer','u2','user','周三下午讨论方案');
+ const proposal=service.actions.prepare(principal,{...args,request_key:'quote',conversation_id:'peer',content:'收到，周三下午讨论。',reply_to_message_id:original.id});
+ expect(proposal.evidence.payload.reply_to).toMatchObject({message_id:original.id,content:original.content,sender:{id:'u2'}});
+ const verdict=service.actions.review(principal,{...args,proposal_ref:proposal.proposal_ref,payload_digest:proposal.payload_digest,evidence_digest:proposal.evidence_digest,verdict:{decision:'allow'}});
+ const sent=service.actions.commit(principal,{...args,proposal_ref:proposal.proposal_ref,verdict_ref:verdict.verdict_ref});
+ expect(ctx.messaging.message(sent.message_id)).toMatchObject({sender_type:'agent',reply_to:proposal.evidence.payload.reply_to});
+ const privateMessage=ctx.messaging.insertMessage('chat','u1','user','私聊内容');
+ expect(()=>service.actions.prepare(principal,{...args,request_key:'cross',conversation_id:'peer',content:'不应发送',reply_to_message_id:privateMessage.id})).toThrow('reply target not found');
+});

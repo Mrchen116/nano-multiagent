@@ -34,3 +34,14 @@
 按用户要求保留预览、独立 worktree 和 tmux `nano-reply-web`。停止命令为本分支 `scripts/e2e-down.sh --wt /tmp/nano-feat730-web`，再结束该 tmux session；不停止其他任务的预览。
 
 当前为 Web 可试用版本，等待用户实际验收；原生 iOS、change-fast-close、独立代码审查、canonical 归并及 PR 尚未执行。未合并、未部署。
+
+## 第二轮增量：Agent 主动引用与图标对齐
+
+- 已新增公开 `send_message` 的可选 `reply_to_message_id`，明确从 Inbox 或 conversations 的真实消息身份选择当前目标聊天内的原消息。服务端解析原消息内容，调用方不能伪造引用作者或原文。内部子执行消息和外部 channel 不接受此字段，避免静默退化成普通消息。
+- 单线程与 Global 公开发送均保留引用身份及重试指纹；服务端重复 publication 如更换引用目标会拒绝。Agent 回复另一名 Agent 时，既有 relay 的 attention 元数据也携带被回复的 Agent。
+- PA 私聊公开发送接入相同能力；对外自述及代主人发送仍经过原审核链，准备阶段冻结原消息，审核可见引用原文，最终提交使用同一快照。
+- 工具条 Reply、Copy、GitFork 改用同一套 SVG，统一16×16、1.8描边、28×28按钮，分支动作也遵循相同居中规则。实际 Chrome 测得回复和复制的按钮与 SVG y 坐标分别完全相同。截图 `/tmp/feat730-evidence/icons-aligned.png`。
+- `pnpm build`、IM 增量 build、`pnpm typecheck` 通过。六文件窄回归89项中首次88项通过，唯一失败为旧 schema 字段枚举尚未包含新增字段；校正该预期后 personal-security 全10项通过。其余已通过的五文件未变。Web message-pane、message-replies、message-pane-fork 共110项通过。
+- 真实 Sol 6.1 群聊：用户自然要求引用较早的“这份资料收到了。”并发送“资料已确认”，未提供消息ID。Agent 首次用 current 搜索历史遇到既有 target_not_accessible，随后自行采用真实 conversation id 搜索、获得原消息身份，调用 send_message 成功，实际消息为 `786128118be14ba3882281a4f0442450`，引用原消息 `e5bcf823fa354954aa3cba785cca5f36`；浏览器点击 Agent 的引用已定位到该用户旧消息。原生 session `17e5da24-a7d4-4be7-9d66-a5fd4b941c80` 的 tool/call seq56 和 sent result seq57 可复查。截图 `/tmp/feat730-evidence/agent-quote-delivered.png`。
+- 预览保留同一账号、数据库、端口与模型，仅重启本任务的 IM/Node 使新发送工具和后端生效。未重建或清空试用历史。
+- Global Sol 6.1 另在 `c_hcahe1up` 真实直聊按自然语言要求引用当前消息，最终发送 `f0d01952fd0443ae8c24f4279bebe009`，引用 `4146b9de275a4dce9d34262a6601b5b4`，正文“Global引用已确认”，未产生普通文本代替引用。截图 `/tmp/feat730-evidence/global-agent-quote.png` 与 `agent-quote-with-aligned-icons.png`。PA 审核链本轮为上述确定性回归覆盖，不冒称运行过新的真实 PA 模型旅程。

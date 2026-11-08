@@ -31,3 +31,19 @@ it('persists authoritative quotes, relays the addressed Agent, and keeps retries
     expect((await send(system.id,'system')).statusCode).toBe(422);
   } finally {await app.close();}
 });
+
+it('publishes an Agent quote from server-owned history and rejects a changed target on retry',()=>{
+  const {ctx,db}=fixture();ctx.gateway.broadcast=()=>{};ctx.gateway.groupReply=()=>{};
+  ctx.messaging=new Messaging(ctx);
+  const original=ctx.messaging.insertMessage('chat','u1','user','请逐条回应这一条');
+  const other=ctx.messaging.insertMessage('chat','u1','user','另一条');
+  const principal={kind:'gateway' as const,node_id:'n',owner_id:'o1',node_epoch:1};
+  const publication={to:'conversation:chat',from_session_id:'a|tool_call:quote',text:'这条我来处理。',reply_to_message_id:original.id};
+  const receipt=ctx.messaging.publishAgent(principal,'a','quote',publication);
+  expect(ctx.messaging.message(receipt.message_id)).toMatchObject({sender_type:'agent',reply_to:{message_id:original.id,content:original.content,sender:{id:'u1'}}});
+  expect(ctx.messaging.publishAgent(principal,'a','quote',publication)).toEqual(receipt);
+  expect(()=>ctx.messaging.publishAgent(principal,'a','quote',{...publication,reply_to_message_id:other.id})).toThrow('identity conflict');
+  db.prepare("INSERT INTO conversations(id,title,created_at) VALUES('hidden','Hidden',datetime('now'))").run();
+  const hidden=ctx.messaging.insertMessage('hidden','u2','user','PRIVATE');
+  expect(()=>ctx.messaging.publishAgent(principal,'a','cross',{...publication,reply_to_message_id:hidden.id})).toThrow('reply target not found');
+});

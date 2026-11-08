@@ -28,7 +28,7 @@ export function personalEvidenceMessages(agent: Agent) {
 type DisclosureFacts = {
   owner_user_id: string;
   recipient: {conversation_id:string;name:string;conversation_type:string;channel:string;members:{id:string;user_id:string;display_name:string;type:string;is_stale?:boolean|null}[]};
-  payload: {content:string;attachments?:unknown[];attachment_snapshots?:unknown[];interactive?:unknown;representation?:'self'|'owner';
+  payload: {content:string;reply_to?:unknown;attachments?:unknown[];attachment_snapshots?:unknown[];interactive?:unknown;representation?:'self'|'owner';
     task?:{action:string;arguments:Record<string,unknown>;source_message_id?:string};
     transport?:{kind:string;destination:Record<string,unknown>;card?:unknown}};
   policy?: {excluded_conversation_ids?:string[]};
@@ -57,6 +57,7 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
   const args:Record<string,unknown>=payload.task?{...payload.task.arguments,action:payload.task.action,
     ...(payload.task.source_message_id?{source_message_id:payload.task.source_message_id}:{})}
     :{target:recipient.conversation_id,text:payload.content,
+      ...(payload.reply_to?{reply_to:payload.reply_to}:{}),
       ...(payload.interactive?{interactive:payload.interactive}:{}),
       ...(payload.attachment_snapshots?.length?{attachments:payload.attachment_snapshots.map(row=>{const {base64,...manifest}=row as Record<string,unknown>;return manifest;})}:{}),
       ...(transport?.card?{card:transport.card}:{})};

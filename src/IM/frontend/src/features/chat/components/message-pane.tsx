@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { Copy, GitFork, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -1552,7 +1553,7 @@ function MessageActionList({
     <div className={`chat-message-actions chat-message-actions--${layout}`} role="group" aria-label={t("chat.messagePane.messageActions")} data-testid={`message-actions-${message.id}`}>
       {onReply && <button type="button" role={itemRole} className="chat-message-action" data-testid={`message-reply-${message.id}`}
         onClick={onReply} aria-label={t('chat.messagePane.reply','回复')} title={t('chat.messagePane.reply','回复')}>
-        {surface === 'toolbar' ? '↩' : t('chat.messagePane.reply','回复')}
+        {surface === 'toolbar' ? <Reply size={16} strokeWidth={1.8} aria-hidden="true" /> : t('chat.messagePane.reply','回复')}
       </button>}
       {copyAvailable && (
         <button
@@ -1564,7 +1565,7 @@ function MessageActionList({
           aria-label={t("chat.messagePane.copyMessage")}
           title={t("chat.messagePane.copyMessage")}
         >
-          {surface === "toolbar" ? "⎘" : t("chat.messagePane.copyMessage")}
+          {surface === "toolbar" ? <Copy size={16} strokeWidth={1.8} aria-hidden="true" /> : t("chat.messagePane.copyMessage")}
         </button>
       )}
       {forkEligible && (
@@ -1578,7 +1579,7 @@ function MessageActionList({
           aria-label={t("chat.messagePane.branchFromHere")}
           title={forkReason ?? t("chat.messagePane.branchFromHere")}
         >
-          {surface === "toolbar" ? "⑂" : t("chat.messagePane.branchFromHere")}
+          {surface === "toolbar" ? <GitFork size={16} strokeWidth={1.8} aria-hidden="true" /> : t("chat.messagePane.branchFromHere")}
           {isCompact && forkReason && (
             <span className="chat-message-action-reason">{forkReason}</span>
           )}

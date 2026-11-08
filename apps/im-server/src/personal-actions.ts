@@ -123,7 +123,9 @@ export class PersonalActions {
     if(args.incident_ref&&(interactive||args.attachments?.length||args.task))fail(403,'invalid_security_notice');
     const attachments=this.attachments(b,args.conversation_id,args.attachments??[],args.content+(interactive?.source??''),images);
     const securityNotice=args.incident_ref?this.securityNotice(b,args.incident_ref,args.conversation_id,args.content):undefined;
-    const payload={representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
+    if(args.transport&&args.reply_to_message_id!==undefined)fail(422,'external_quoted_reply_unavailable');
+    const replyTo=this.pa.ctx.messaging.replyReference(args.conversation_id,args.reply_to_message_id);
+    const payload={...(replyTo?{reply_to:replyTo}:{}),representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
     if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
     this.destination(b,args.conversation_id,payload);
     const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
@@ -240,7 +242,7 @@ export class PersonalActions {
       const rewrite=(value:string)=>value.replace(/\/im\/v1\/conversations\/([^/\s]+)\/(images|attachments)\/([\w-]+)/g,(url:string)=>copies.get(url)??url);
       const owner=payload.representation==='owner';
       const interactive=payload.interactive?{...payload.interactive,source:rewrite(payload.interactive.source)}:undefined;
-      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive,
+      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive,...(payload.reply_to?{reply_to:payload.reply_to}:{}),
         ...(op.conversation_id!==b.conversation_id?{personal_source:{binding_id:b.binding_id,agent_id:b.agent_id,owner_user_id:b.owner_user_id,display_name:b.display_name,operation_id:owner?op.operation_id:null}}:{})});
       if(owner)s.queueRepresentedRelays(message,b.agent_id);
       else {s.queueDirectAgentRelays(message);this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});}

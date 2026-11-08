@@ -470,3 +470,23 @@ it('replays a child terminal when model fallback completes at the already acknow
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toHaveLength(1);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
+
+it('carries an explicit quote through Global publication and freezes its retry identity',async()=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ const binding=store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ const sent:any[]=[];
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
+ runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+ relay:{request:async(type,payload)=>{
+  if(type==='conversation.query')return {type:'conversation.query.result',payload:{ok:true,result:{type:'group',channel:'web',target:'c_group'}}};
+  if(type==='agent.message'){sent.push(payload);return {type:'ack',payload:{message_id:'sent',conversation_id:'c_group'}};}
+  return {type:'ack',payload:{}};
+ }},image:async()=>'',onError:e=>{throw e;}});
+ const call:ProductCall={method:'send_message',args:{target:'c_group',text:'收到',reply_to_message_id:'original'},operationId:'quoted',callId:'quoted',sessionId:binding.sessionId,rootSessionId:binding.sessionId,agentId:'a',ownerId:'owner'};
+ try {
+  expect(await product.call(call)).toMatchObject({status:'sent'});
+  expect(sent).toHaveLength(1);expect(sent[0]).toMatchObject({reply_to_message_id:'original',text:'收到'});
+  expect(await product.call(call)).toMatchObject({status:'sent'});expect(sent).toHaveLength(1);
+  await expect(product.call({...call,args:{...call.args,reply_to_message_id:'different'}})).rejects.toThrow('identity conflict');
+ } finally {await product.stop();inbox.close();store.close();}
+});

@@ -43,7 +43,8 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
       const immediate = source ? undefined : preceding;
       preceding = partial ? undefined : message;
       if ((sender?.type ?? sender?.kind) !== 'user' || !eligible(sender)) continue;
-      const replyId = message.reply_to ?? message.reply_to_message_id;
+      const quote=record(message.reply_to);
+      const replyId = quote?.message_id ?? message.reply_to ?? message.reply_to_message_id;
       const reply = replyId ? messages.get(`${conversation ?? ''}:${replyId}`) : undefined;
       const unit = {id: key, original_message: message,
         context: {conversation_id: conversation, conversation_type: source?.conversation_type ?? page.conversation_type, delivery: source?.delivery ?? page.delivery, observation},

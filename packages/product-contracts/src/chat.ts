@@ -59,6 +59,7 @@ export type ChatStreamFact = ChatTurnStart
   | (MessageStream & {kind: 'run_heartbeat'; source?: string});
 export interface ChatStreamReceipt {kind?: ChatStreamFact['kind']; run_id?: string; message_id?: string; conversation_id?: string}
 export interface AgentPublication {
+  reply_to_message_id?: string;
   node_id?: string;
   lifecycle_revision?: number | null;
   from_session_id: string;

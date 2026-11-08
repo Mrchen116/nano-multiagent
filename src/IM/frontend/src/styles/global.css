@@ -2643,6 +2643,8 @@ body {
 }
 
 .chat-message-actions--horizontal .chat-message-action {
+  flex-direction: row;
+  align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;

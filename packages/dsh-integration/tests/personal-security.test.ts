@@ -134,7 +134,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
           expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
-          expect(Object.keys(send.parameters.properties)).toEqual(['target','text','incident_ref','attachments','interactive']);
+          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','interactive']);
           expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
           expect(await readFile(join(root,'.nanoassistant','memory-legacy','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');

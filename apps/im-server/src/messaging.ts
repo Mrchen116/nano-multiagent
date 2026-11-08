@@ -404,6 +404,25 @@ export class Messaging {
       sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,
     });
   }
+  /** Resolve an original message only inside the caller's authorized destination.
+   *
+   * Args:
+   *   conversationId: Destination whose access was already checked by the caller.
+   *   messageId: Optional original IM message identity.
+   * Returns:
+   *   Server-owned original content and sender, or undefined for an ordinary message.
+   * Raises:
+   *   Error: The target is absent, belongs to another chat, or cannot be replied to.
+   */
+  replyReference(conversationId:string,messageId?:string):ChatMessage['reply_to'] {
+    if(messageId===undefined)return;
+    if(typeof messageId!=='string'||!messageId)fail(422,'invalid reply target');
+    const original=this.records.find(messageId);
+    if(!original||original.conversation_id!==conversationId)fail(404,'reply target not found');
+    if(!['user','agent'].includes(original.sender_type)||!['completed','sent','pending'].includes(original.delivery_status))fail(422,'reply target is not available');
+    const source=this.message(original.id);
+    return {message_id:source.id,sender:source.sender,content:source.content,attachments:source.attachments};
+  }
   /** Commit a validated explicit publication under its existing dispatch identity. */
   publishAgent(principal:Extract<SendPrincipal,{kind:'gateway'}>,agentId:string,operationId:string|undefined,p:AgentPublication):ChatPublicationReceipt {
     const db=this.db;
@@ -417,7 +436,7 @@ export class Messaging {
       this.access(principal, previous.conversation_id, agentId);
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
-      if (saved.content !== p.text.trim() || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
+      if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.content !== p.text.trim() || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
         conversation_id: previous.conversation_id,
@@ -431,6 +450,7 @@ export class Messaging {
     const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",agentId);
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
+    const replyTo=this.replyReference(id,p.reply_to_message_id);
     const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
     const targetUser = one(
       db,
@@ -454,7 +474,7 @@ export class Messaging {
       p.attachments ?? [],
       key,
       'completed',
-      { interactive, publish: false },
+      { interactive, reply_to:replyTo, publish: false },
     );
     if (p.background_returns)
       this.records.background(created.id,p.background_returns);
@@ -516,14 +536,7 @@ export class Messaging {
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
-    let replyTo:ChatMessage['reply_to'];
-    if (b.reply_to_message_id !== undefined) {
-      const original=this.records.find(b.reply_to_message_id);
-      if (!original || original.conversation_id !== id) fail(404,'reply target not found');
-      if (!['user','agent'].includes(original.sender_type) || !['completed','sent','pending'].includes(original.delivery_status)) fail(422,'reply target is not available');
-      const source=this.message(original.id);
-      replyTo={message_id:source.id,sender:source.sender,content:source.content,attachments:source.attachments};
-    }
+    const replyTo=this.replyReference(id,b.reply_to_message_id);
     if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
     const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
     // Retries and history retain the timezone captured by the original send.

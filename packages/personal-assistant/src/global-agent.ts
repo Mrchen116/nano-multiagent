@@ -650,7 +650,8 @@ export class GlobalAgent {
     if(config?.personal) return this.personal.send(config,binding,call);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
-    const publicationBody = interactive ? sortedJsonAscii({text, interactive}) : text;
+    const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
+    const publicationBody = interactive || replyTo ? sortedJsonAscii({text,...(interactive?{interactive}:{}),...(replyTo?{reply_to_message_id:replyTo}:{})}) : text;
     if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);
@@ -678,6 +679,7 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    if(replyTo && info?.channel && info.channel!=='web')throw new Error('Quoted replies require a Nano IM destination');
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
     let correction = false;
     if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {
@@ -707,6 +709,7 @@ export class GlobalAgent {
     inbox.settlePublication(call.operationId, 'sending');
     try {
       const response = await this.publishMessage({ node_id: this.options.nodeId, text,
+        ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload);
