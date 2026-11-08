@@ -5,6 +5,7 @@ import { InteractionSubmissionError } from "./interactive/submission-error";
 import { authFetch, authFetchJson } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { browserTimezone } from "../auth/user-timezone";
+import { i18n } from "../../i18n";
 import type {
   Actor,
   Attachment,
@@ -103,6 +104,13 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     self.assert();
     if (!response.ok) {
       const text = await response.text();
+      if (response.status === 422) {
+        let detail: {code?: string} = {};
+        try { detail = JSON.parse(text).detail ?? {}; } catch { /* Keep unrelated failures in their original form. */ }
+        if (detail.code === "interaction_background_too_large") {
+          throw Object.assign(new Error(i18n.t("chat.interactive.backgroundTooLarge")), {status:422});
+        }
+      }
       if (req.interactionReply && response.status === 409) {
         let detail: {code?: string; submission_message_id?: string} = {};
         try { detail = JSON.parse(text).detail ?? {}; } catch { /* Preserve the original response below. */ }

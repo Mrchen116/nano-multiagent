@@ -147,6 +147,14 @@ describe("chat-api", () => {
     expect(new Headers((posts[1]![1] as RequestInit).headers).get("Idempotency-Key")).toBe("attempt-1");
   });
 
+  it("reports an oversized background as recoverable without retrying the rejected send", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse({ detail: { code: "interaction_background_too_large", message: "raw-server-detail" } }, 422));
+    await expect(createMessage({ conversationId: "c1", content: "keep my draft", idempotencyKey: "oversized" }))
+      .rejects.toMatchObject({ status: 422, message: expect.stringContaining("not sent") });
+    expect(f.mock.calls).toHaveLength(1);
+  });
+
   it("bounds automatic recovery to one lookup and one same-key resend", async () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(jsonResponse({}, 503));

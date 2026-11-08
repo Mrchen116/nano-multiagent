@@ -521,8 +521,7 @@ export class Messaging {
     // Must stay after the attempt hit: a retry returns the original message, so a carried
     // background can never reappear as a second injection or vanish from a retried send.
     // Client-supplied `interaction_contexts` are accepted but ignored; the centre decides.
-    const background = this.background.pending(p, id);
-    const contexts = background ? [background] : [];
+    const contexts = this.background.pending(p, id);
     // Retries and history retain the timezone captured by the original send.
     const timezone = p.kind === "gateway" ? b.timezone ?? null
       : b.timezone === undefined ? one(this.db, "SELECT timezone FROM users WHERE id=?", p.id)?.timezone ?? null

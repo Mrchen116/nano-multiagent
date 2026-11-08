@@ -26,8 +26,14 @@ extension IMClient {
     }
     func sendMessage(_ id: String, draft: PendingSend, userID: String, participants: [ActorRef] = []) async throws -> ChatMessage {
         let frozen = try prepareMessage(draft, userID: userID, participants: participants)
-        return try await request("/im/v1/conversations/\(id.pathComponent)/messages", method: "POST",
-                                 body: frozen.requestBody, headers: ["Idempotency-Key": frozen.key])
+        do {
+            return try await request("/im/v1/conversations/\(id.pathComponent)/messages", method: "POST",
+                                     body: frozen.requestBody, headers: ["Idempotency-Key": frozen.key])
+        } catch let error as APIError where error.status == 422 && error.code == "interaction_background_too_large" {
+            throw APIError(status: error.status, detail: L(
+                "待发送的卡片背景过大，消息尚未发送。请缩减卡片内容后重试；如需清除待发背景，请在做过改动的设备上离开此聊天。正文和卡片编辑都会保留。",
+                "Card background is too large; the message was not sent. Reduce card content and retry, or leave this chat on the devices where you edited cards to clear their pending backgrounds. Your message and card edits are kept."), code: error.code)
+        }
     }
     /// Older servers and revoked conversations do not make leaving a chat fail visibly.
     func discardInteractionBackground(_ id: String, through: String) async throws -> Bool {

@@ -210,6 +210,32 @@ final class SendRecoveryTests: XCTestCase {
         store.clear(); restored.clear()
     }
 
+    func testOversizedBackgroundKeepsDraftAndAttachmentsWithoutRetryingTheRejectedAttempt() async throws {
+        let (store, transport, _) = try await makeStore(firstPostStatus: 422)
+        await store.loadConversations()
+        store.drafts["chat"] = "keep my message"
+        let attachment = ChatAttachment(url: "/im/v1/uploads/kept", content_type: "image/png", file_name: "kept.png")
+        store.attachments["chat"] = [attachment]
+        await store.send("chat")
+        let rejected = await transport.sent()
+        XCTAssertEqual(rejected.count, 1)
+        XCTAssertTrue(store.errors["chat"]?.contains("not sent") == true)
+        XCTAssertNil(store.pending["chat"])
+        XCTAssertEqual(store.drafts["chat"], "keep my message")
+        XCTAssertEqual(store.attachments["chat"]?.map(\.id), [attachment.id])
+        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        let lookups = await transport.lookupKeys()
+        XCTAssertTrue(lookups.isEmpty)
+        // A real second send is a new identity and can pick up a reduced background.
+        await store.send("chat")
+        let sent = await transport.sent()
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertNotEqual(sent.first?.value(forHTTPHeaderField: "Idempotency-Key"), sent.last?.value(forHTTPHeaderField: "Idempotency-Key"))
+        XCTAssertNil(store.pending["chat"])
+        XCTAssertEqual(store.drafts["chat"], "")
+        store.clear()
+    }
+
     private func makeStore(firstPostStatus: Int = 0, gated: Bool = false) async throws -> (ChatStore, RecoveryTransport, RecoveryCredentials) {
         let pair = try JSONEncoder().encode(TokenPair(access_token: "token", refresh_token: "refresh", user: user))
         let transport = RecoveryTransport(pair: pair, user: try JSONEncoder().encode(user), firstPostStatus: firstPostStatus, gated: gated)
@@ -262,7 +288,9 @@ private actor RecoveryTransport: HTTPTransport {
             if gated { await withCheckedContinuation { release = $0; postStarted = true; start?.resume(); start = nil } }
             if posts.count == 1, firstPostStatus == 0 { throw URLError(.networkConnectionLost) }
             status = posts.count == 1 ? firstPostStatus : 200
-            data = status == 200 ? message : Data(#"{"detail":{"code":"message_attempt_conflict","message":"conflict"}}"#.utf8)
+            data = status == 200 ? message : status == 422
+                ? Data(#"{"detail":{"code":"interaction_background_too_large","message":"raw-server-detail"}}"#.utf8)
+                : Data(#"{"detail":{"code":"message_attempt_conflict","message":"conflict"}}"#.utf8)
         } else if path.hasSuffix("/messages") { data = Data(#"{"items":[]}"#.utf8) }
         else if path == "/im/v1/conversations" { data = list }
         else { status = 404; data = Data(#"{"detail":"not found"}"#.utf8) }

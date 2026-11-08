@@ -4,7 +4,10 @@ import type { InteractionContext } from '@nano/product-contracts';
 import { fail, now, one, type Row } from './context.js';
 import type { Interactions } from './interactions.js';
 
-/** Derive the single pending private background for one human in one conversation.
+/** Maximum UTF-8 size of the complete JSON background array, not just draft state. */
+export const MAX_INTERACTION_BACKGROUND_BYTES = 64 * 1024;
+
+/** Derive the pending private backgrounds for one human in one conversation.
  *
  * Ownership: the centre is the only place that can see private drafts, the user's own
  * sent messages and the leave watermark at once, so "carry this card once" is decided
@@ -14,35 +17,45 @@ import type { Interactions } from './interactions.js';
 export class InteractionBackground {
   constructor(private readonly db: DatabaseSync, private readonly interactions: Interactions) {}
 
-  /** The one card this user may still carry into their next message, or null.
+  /** Collect every valid card edited since this user's common consumption boundary.
    *
    * Args:
    *   user: Authenticated human principal (`{id, username}`, no `kind` — do not test for one).
    *   cid: Conversation being written to; already access-checked by the sender.
    * Returns:
-   *   At most one background, already filtered by card state and the consumption boundary.
+   *   One latest state per pending card, in stable server save order.
+   * Throws:
+   *   Error: A recoverable 422 when the complete serialized group exceeds its budget.
    */
-  pending(user: Row, cid: string): InteractionContext | null {
-    if (user.kind === 'gateway' || user.username?.startsWith('agent:')) return null;
+  pending(user: Row, cid: string): InteractionContext[] {
+    if (user.kind === 'gateway' || user.username?.startsWith('agent:')) return [];
     const conversation = one(this.db, 'SELECT type,external_source,dissolved_at FROM conversations WHERE id=?', cid);
     // A shadow conversation has no client, so nobody sent anything by hand there.
-    if (!conversation || conversation.type !== 'direct' || conversation.external_source || conversation.dissolved_at) return null;
+    if (!conversation || conversation.type !== 'direct' || conversation.external_source || conversation.dissolved_at) return [];
     const floor = [this.localHumanAt(user.id, cid), this.discardedThrough(user.id, cid)].filter(value => typeof value === 'string' && value).sort().at(-1) ?? '';
-    const candidate = one(this.db, `SELECT d.source_message_id,d.updated_at,d.state_json FROM interaction_drafts d
+    const candidates = this.db.prepare(`SELECT d.source_message_id,d.updated_at,d.state_json FROM interaction_drafts d
       JOIN messages m ON m.id=d.source_message_id
       JOIN message_interactive i ON i.message_id=d.source_message_id
       WHERE d.user_id=? AND m.conversation_id=?
         AND d.updated_at IS NOT NULL AND d.submission_message_id IS NULL
         AND d.updated_at>?
-      ORDER BY d.updated_at DESC, m.rowid DESC LIMIT 1`, user.id, cid, floor);
-    if (!candidate) return null;
-    // The newest edit replaces all earlier cards, even if it later becomes invalid. Choose
-    // it before checking validity; filtering first would resurrect the previously replaced
-    // card when the newest is read-only or superseded.
-    const background = this.interactions.background(user, cid, candidate.source_message_id, candidate.state_json);
-    // Reported time is the server-side save time, so both clients agree and the local
-    // `Date.now()`/`updated_at` clock mix disappears.
-    return background ? {...background, interacted_at: Date.parse(candidate.updated_at)} : null;
+      ORDER BY d.updated_at ASC, m.rowid ASC`).iterate(user.id, cid, floor);
+    const contexts: InteractionContext[] = [];
+    let bytes = 2; // The surrounding JSON array is part of the model-visible budget.
+    for (const candidate of candidates) {
+      const background = this.interactions.background(user, cid, String(candidate.source_message_id), String(candidate.state_json));
+      if (!background) continue; // One invalid card must not suppress other pending edits.
+      const context = {...background, interacted_at: Date.parse(String(candidate.updated_at))};
+      bytes += Buffer.byteLength(JSON.stringify(context), 'utf8') + (contexts.length ? 1 : 0);
+      // Fail before any message is created: silently returning a prefix would consume the
+      // omitted cards as well. Iterate instead of loading an unbounded group into memory.
+      if (bytes > MAX_INTERACTION_BACKGROUND_BYTES) fail(422, {
+        code: 'interaction_background_too_large',
+        message: 'Card background is too large; the message was not sent. Reduce card content and retry, or leave this chat on the devices where you edited cards to clear their pending backgrounds. Your message and card edits are kept.',
+      });
+      contexts.push(context);
+    }
+    return contexts;
   }
 
   /** Advance the "left this conversation" watermark; monotonic and never retroactive.
