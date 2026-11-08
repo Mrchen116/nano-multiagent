@@ -19,3 +19,17 @@ feat-546 建立跨聊天 Inbox 主动摄取；bugfix-693 在 DSH 公开队列上
 ## 本次审查安排
 
 独立 `change-code-review` 核对实现、需求及最终 current spec；组合 `agent-context-review` 核对真实 DSH 子进程受控 provider 请求中的摘要、来源、可用读取引用及聚合行为。扩展已有 Inbox / native Inbox 测试，不把受控请求结果表述为真实模型选择验证。无前端修改、无迁移或生产操作。
+
+## 修复
+
+通知生成前由宿主复用原 check 的 conversation describe 查询，补齐各会话真实名称；离线仍使用已保存名称。Inbox 摘要新增 `mentions`（按服务端 `mentioned_agent_ids` 统计未读消息数），并沿用工具的稳定短引用，使通知里的 target 可以直接 read。普通提醒与 PA 背景提醒都附完整未读快照；PA 保留 participant / observer 关系。常驻指导和通知都移除强制先 check。
+
+DSH 既有待交付 Inbox 提醒替换机制未变；每个新 wake 都携带完整快照，最终只保留最新待交付提醒与 durable inputId，不合并或删除已进入历史的提醒。当前契约增量直接见本分支 `docs/specs/gateway/global-agent.md` 与 `personal-agent.md`，交独立审查同时校对。
+
+## 验证
+
+- Red：既有 Inbox 测试扩展后，在旧实现得到 13 passed / 2 failed，失败均为缺少提及计数。
+- 最终窄回归：`pnpm exec vitest run apps/node/tests/global-inbox-native.test.ts packages/personal-assistant/tests --maxWorkers=2`，32 files / 270 tests passed。
+- 原生 DSH 子进程 + 受控 `llm/stream` 捕获：模型请求期间跨私聊/外部群聊来信只新增一条摘要；两会话计数准确，其他 Agent 的 @ 不计入自身；摘要短引用直接 read，无 check；后续批次仍唤醒；工具执行期间三条来信合为一条，发送复核继续拦住旧草稿；PA 背景到期不打断忙碌执行，空闲只通知一次并明确观察关系。
+- `pnpm -r --if-present build`、最终受影响包重建、`pnpm typecheck`、文档完整性检查通过。完整本地 CI 结果在 review 中汇总。
+- 证据仅证明确定性装配与既有运行时行为；未调用真实模型，不声称已测模型选择质量、Token 节省量、生产或飞书平台端到端。

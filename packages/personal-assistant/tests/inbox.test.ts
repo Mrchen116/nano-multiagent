@@ -124,7 +124,7 @@ it('projects one conversation context per PA page and preserves ordered ingestio
     store.receive(personalInput('peer'), false);
     store.receive(personalInput('owner'), false);
     store.receive(personalInput('joined', 'participant'), true);
-    expect(store.check('alice', true).sources).toEqual([{target:'owner-chat',name:'A conversation',unread:3,conversation_type:'direct',delivery:'observer'}]);
+    expect(store.check('alice', true).sources).toEqual([{target:'owner-chat',name:'A conversation',unread:3,mentions:0,conversation_type:'direct',delivery:'observer'}]);
     const page = store.read('alice','main','observed',{target:'owner-chat'});
     expect(page).toMatchObject({target:'owner-chat',name:'A conversation',channel:'web',conversation_type:'direct',delivery:'observer',messages:[
       {id:'peer',sender:{is_owner:false}}, {id:'owner',sender:{is_owner:true}},
@@ -234,4 +234,21 @@ it('commits product projection and its processing position together, independent
     expect(inbox.workCheckpoints('main').child.throughSeq).toBe(8);
     expect(inbox.journalSeq).toBe(through);
   } finally {inbox.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+it('counts actual mentions separately from attention without consuming unread messages', () => {
+  const store = new InboxStore(':memory:');
+  try {
+    const mentioned = input('mention', 'private body');
+    mentioned.metadata.mentioned_agent_ids = ['alice'];
+    const other = input('other', 'another body');
+    other.metadata.mentioned_agent_ids = ['bob'];
+    store.receive(mentioned, true); store.receive(other, true);
+    store.receive(input('reply', 'reply without mention'), true);
+    expect(store.check('alice').sources).toEqual([
+      { target: 'group-a', name: 'group-a', unread: 3, mentions: 1, requires_attention: true },
+    ]);
+    expect(store.check('alice', true).sources[0]).toMatchObject({ unread: 3, mentions: 1 });
+    expect(store.read('alice', 'main', 'read', { target: 'group-a' }).messages).toHaveLength(3);
+  } finally { store.close(); }
 });

@@ -36,7 +36,7 @@ it.each(['interrupted','user','completed','consumed','partially-consumed'])('rec
    if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
    if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
    return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};
-  }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:e=>{throw e;}});
+  }},relay:{request:async(type,args:any)=>({type:'ack',payload:type==='conversation.query'?{ok:true,result:{conversations:args.targets.map((target:string)=>({target,name:target}))}}:{}})},image:async()=>'',onError:e=>{throw e;}});
  try {
   await product.recover();await product.recover();
   expect(submitted).toEqual(recover?[`${base}:recovery:10`]:[]);
@@ -250,7 +250,7 @@ it.each([
       if (method === 'session.submit') submitted.push(value as Record<string, unknown>);
       if (method === 'session.cancel') { cancellations++; return { wasRunning: true }; }
       return method === 'session.descendants' ? [] : { events: [], durable: true, status };
-    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : {} }) }, image: async () => '', onError: error => { throw error; } });
+    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : type === 'conversation.query' ? {ok:true,result:{conversations:(payload.targets as string[]).map(target=>({target,name:target}))}} : {} }) }, image: async () => '', onError: error => { throw error; } });
   const input: RelayInput = { agent_id: 'a', conversation_id: 'c_group', relay_task_id: 'task-event', idempotency_key: 'task-event', metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [] }, message: { id: 'task-event', content: 'Assignment changed <mention type="user" target_id="a"/>', sender_type: 'system', sender_user_id: 'actor', attachments: [] } };
   try {
     await product.receive(input); await product.receive(input);
@@ -367,7 +367,7 @@ it('notifies about messages received during an in-flight busy notification witho
     runtime: { onNotification: () => () => {}, request: async (method, value) => {
       if (method === 'session.submit') { submitted.push(value as Record<string, unknown>); if (submitted.length === 1) await held; }
       return method === 'session.descendants' ? [] : { events: [], durable: true, status: 'running' };
-    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : {} }) }, image: async () => '', onError: error => { throw error; } });
+    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : type === 'conversation.query' ? {ok:true,result:{conversations:(payload.targets as string[]).map(target=>({target,name:target}))}} : {} }) }, image: async () => '', onError: error => { throw error; } });
   const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c_dm', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'direct' }, message: { id, content: id, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
   try {
     const first = product.receive(input('first'));
@@ -395,7 +395,7 @@ it('replays a Feishu owner observation once with its original sender, channel an
   runtime:{onNotification:()=>()=>{},request:async(method)=>{calls.push(method);return {events:[],durable:true,status:'idle'};}},
   relay:{ready:true,request:async(type,payload:any)=>{
    if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};
-   return {type:'result',payload:{ok:true,result:type==='pa.observations.read'?{items:[event]}:type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:'participant',conversation_type:'direct',channel:'feishu'}:{}}};
+   return {type:'result',payload:{ok:true,result:type==='pa.observations.read'?{items:[event]}:type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:'participant',conversation_type:'direct',channel:'feishu'}:type==='conversation.query'?{conversations:payload.targets.map((target:string)=>({target,name:'Owner Feishu'}))}:{}}};
   }}});
  try {
   await product.recoverPersonalObservations();await product.recoverPersonalObservations();
