@@ -242,7 +242,7 @@ final class ChatLocalFirstTests: XCTestCase {
         await seed(store, conversations: ["a", "b"], messages: 1)
         let repository = try XCTUnwrap(store.repository)
         let fixture = try DatabaseQueue(path: repository.location.databaseURL.path)
-        try fixture.write { db in
+        try await fixture.write { db in
             try db.execute(sql: "CREATE TRIGGER fail_cleanup BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT, 'isolated snapshot cleanup failure'); END")
         }
         await stub.setSync(Data(#"{"items":[],"max_event_id":9}"#.utf8))
@@ -255,7 +255,7 @@ final class ChatLocalFirstTests: XCTestCase {
         XCTAssertTrue(store.conversations.isEmpty, "known revoked content is hidden even though local cleanup failed")
         XCTAssertNil(store.repository)
         XCTAssertNotNil(store.storageDegradedReason)
-        try fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_cleanup") }
+        try await fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_cleanup") }
         try fixture.close()
         await store.retryStorage()
         let retried = try XCTUnwrap(store.repository)
