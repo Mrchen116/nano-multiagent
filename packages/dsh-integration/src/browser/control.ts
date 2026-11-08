@@ -26,8 +26,8 @@ interface Instance {
 
 interface AgentState {
   instance?: Instance;
-  /** Original prepare ownership, independent of the mutable window registry. */
-  ownership?: { label: string; pid: string };
+  /** Retained until confirmed cleanup or idle-expiry cooldown, even before registration. */
+  ownership?: { label: string; pid?: string };
   /** A prepare is in flight; counts toward the process-wide instance cap. */
   launching?: boolean;
   /** Prevent new work from entering while queued disposal drains. */
@@ -295,11 +295,14 @@ export class BrowserControl {
       const instance = state.instance;
       state.instance = undefined;
       instance?.reads.clear();
-      if (instance) {
-        try { await this.driver.call('end_session', { session: instance.label }); }
-        catch { /* Disposal is best effort; idle expiry remains the fallback. */ }
+      // A failed registration may own a launched session without an Instance.
+      // Disposal must not erase that reservation or restart its expiry clock.
+      const cooldown = this.cooldownView(state);
+      if (state.ownership && !cooldown) {
+        try { await this.endOwned(state); }
+        catch (error) { this.logger?.warn(String(error)); }
       }
-      this.states.delete(agentId);
+      if (!state.ownership) this.states.delete(agentId);
     });
     state.queue = run;
     await run;
@@ -326,7 +329,11 @@ export class BrowserControl {
 
   private cooldownView(state: AgentState): { failedAt: number; until: number; message: string } | undefined {
     if (!state.cooldown) return undefined;
-    if (this.now() >= state.cooldown.until) { state.cooldown = undefined; return undefined; }
+    if (this.now() >= state.cooldown.until) {
+      state.cooldown = undefined;
+      state.ownership = undefined;
+      return undefined;
+    }
     return { failedAt: state.cooldown.failedAt, until: state.cooldown.until, message: state.cooldown.detail };
   }
 
@@ -354,7 +361,11 @@ export class BrowserControl {
 
   private instanceCount(): number {
     let count = 0;
-    for (const state of this.states.values()) if (state.instance || state.launching) count += 1;
+    for (const [agentId, state] of this.states) {
+      this.cooldownView(state);
+      if (state.ownership || state.launching) count += 1;
+      else if (state.disposing) this.states.delete(agentId);
+    }
     return count;
   }
 
@@ -381,6 +392,9 @@ export class BrowserControl {
         throw browserError('browser_launch_requires_user_turn', '等待驱动期间用户轮次已失效或已归还前台；请在新的用户轮次中重试。');
       }
       prepareStarted = true;
+      // A timed-out/malformed prepare may still have launched Chrome. The
+      // host-created label is sufficient to clean up that exact driver session.
+      state.ownership = { label };
       const prepared = await this.driver.call('browser_prepare', { session: label, allow_launch: true, profile: { mode: 'isolated_new' } });
       const pid = ownerPid(prepared);
       if (!pid) throw browserError('browser_driver_malformed', 'browser_prepare 响应缺少 owner_pid。');
@@ -391,10 +405,7 @@ export class BrowserControl {
       state.instance = instance;
       return instance;
     } catch (error) {
-      if (prepareStarted) {
-        try { await this.driver.call('end_session', { session: label }); }
-        catch { /* Preserve the registration failure that brought us here. */ }
-      }
+      if (prepareStarted) await this.endOwned(state);
       throw error;
     } finally {
       state.launching = false;
@@ -502,18 +513,23 @@ export class BrowserControl {
     // Consume before I/O: expiry or ancestor closure during end_session must not
     // reopen the same turn for root/sibling launches.
     if (turn) this.consumedTurns.set(turn.sessionId, Math.max(this.consumedTurns.get(turn.sessionId) ?? -1, turn.turnStartSeq));
-    if (state.instance !== instance || !state.ownership || !validReleaseTarget(instance.label, instance.pid, state.ownership.label, state.ownership.pid)) {
+    if (state.instance !== instance || !state.ownership?.pid || !validReleaseTarget(instance.label, instance.pid, state.ownership.label, state.ownership.pid)) {
       throw this.releaseFailed(state, `实例标识与账本不一致：${instance.label}/${instance.pid}`);
     }
+    await this.endOwned(state);
+    instance.reads.clear();
+    instance.windows.clear();
+  }
+
+  private async endOwned(state: AgentState): Promise<void> {
+    const label = state.ownership?.label;
+    if (!label || !SESSION_LABEL.test(label)) throw this.releaseFailed(state, '缺少自持 session label。');
     let lastError: unknown;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        await this.driver.call('end_session', { session: instance.label });
+        await this.driver.call('end_session', { session: label });
         state.instance = undefined;
-        // A real-window release consumes this turn's launch authorization; a
-        // later turn must re-establish presence before preparing again.
-        instance.reads.clear();
-        instance.windows.clear();
+        state.ownership = undefined;
         return;
       } catch (error) { lastError = error; }
     }
@@ -522,7 +538,7 @@ export class BrowserControl {
 
   private releaseFailed(state: AgentState, detail: string) {
     const failedAt = this.now();
-    const message = `前台归还失败（failedAt=${new Date(failedAt).toISOString()}）。${detail}`;
+    const message = `前台归还失败（failedAt=${new Date(failedAt).toISOString()}）。${detail} 请手动关闭本 Agent 的浏览器窗口；冷却期间不会继续派发动作。`;
     state.instance = undefined;
     state.cooldown = { failedAt, until: failedAt + COOLDOWN_MS, detail: message };
     return browserError('browser_foreground_release_failed', message, { failedAt });

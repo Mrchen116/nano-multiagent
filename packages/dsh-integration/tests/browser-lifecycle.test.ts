@@ -88,6 +88,65 @@ it('caps the process at two instances and reports browser_busy for a third Agent
   expect(driver.probeCalls).toBe(2);
 });
 
+it.each(['registration', 'prepare-timeout', 'prepare-malformed'] as const)('retains failed %s cleanup in the cap and blocks retries until lazy expiry', async stage => {
+  let now = NOW;
+  const driver = new BrowserFixtureDriver();
+  const original = driver.call.bind(driver);
+  vi.spyOn(driver, 'call').mockImplementation(async (tool, args, options) => {
+    if (tool === 'browser_prepare' && stage === 'prepare-malformed') {
+      driver.calls.push({ tool, args, options });
+      return {};
+    }
+    if (tool === 'list_windows' || tool === 'end_session' || tool === 'browser_prepare' && stage === 'prepare-timeout') {
+      driver.calls.push({ tool, args, options });
+      throw new Error(`${tool} timed out`);
+    }
+    return original(tool, args, options);
+  });
+  const control = controlFor(driver, () => now, 2);
+  const agent = openAgent('agent-a');
+  const failed = await failure(control.read(agent, undefined, {}));
+  expect(failed.browserCode).toBe('browser_foreground_release_failed');
+  expect(failed.message).toContain('手动关闭');
+  expect(driver.count('end_session')).toBe(2);
+  expect(new Set(driver.calls.map(call => call.args.session).filter(Boolean)).size).toBe(1);
+  const calls = driver.calls.length;
+  expect(control.precheck(agent, 'browser_read', {})?.browserCode).toBe('browser_foreground_release_failed');
+  expect((await failure(control.read(agent, undefined, {}))).browserCode).toBe('browser_foreground_release_failed');
+  expect(driver.calls).toHaveLength(calls);
+
+  await failure(control.read(openAgent('agent-b'), undefined, {}));
+  expect((await failure(control.read(openAgent('agent-c'), undefined, {}))).browserCode).toBe('browser_busy');
+  expect(driver.count('browser_prepare')).toBe(2);
+  await control.dispose(agent.id);
+  expect((await failure(control.read(openAgent('agent-d'), undefined, {}))).browserCode).toBe('browser_busy');
+  expect(driver.count('browser_prepare')).toBe(2);
+
+  now += 301_000;
+  // The driver idle-expiry fallback, not a process liveness probe, bounds the
+  // retained reservation. A fresh eligible turn may use the slot after expiry.
+  await failure(control.read(fakeAgent('fresh', [event(1, now, 'turn/start', { turn: 1 }), humanMessage(2, now)]), undefined, {}));
+  expect(driver.count('browser_prepare')).toBe(3);
+});
+
+it('preserves registration errors only when cleanup succeeds within one retry', async () => {
+  const driver = new BrowserFixtureDriver();
+  const original = driver.call.bind(driver);
+  let cleanupAttempts = 0;
+  vi.spyOn(driver, 'call').mockImplementation(async (tool, args, options) => {
+    if (tool === 'list_windows' || tool === 'end_session' && cleanupAttempts++ === 0) {
+      driver.calls.push({ tool, args, options });
+      throw new Error(`${tool} timed out`);
+    }
+    return original(tool, args, options);
+  });
+  const control = controlFor(driver, () => NOW, 1);
+  await expect(control.read(openAgent('agent-a'), undefined, {})).rejects.toThrow('list_windows timed out');
+  expect(driver.count('end_session')).toBe(2);
+  await expect(control.read(openAgent('agent-b'), undefined, {})).rejects.toThrow('list_windows timed out');
+  expect(driver.count('browser_prepare')).toBe(2);
+});
+
 it('serializes concurrent calls for one Agent to a single in-flight driver call', async () => {
   const driver = new BrowserFixtureDriver();
   driver.delayMs = 3;
@@ -139,6 +198,19 @@ it('waits for an in-flight prepare when disposing and leaves no instance', async
   expect(driver.count('end_session')).toBe(1);
   await control.read(agent, undefined, {});
   expect(driver.count('browser_prepare')).toBe(2);
+});
+
+it('retains a failed disposal reservation without retrying cleanup during its cooldown', async () => {
+  const driver = new BrowserFixtureDriver({ endSessionError: new Error('cannot close') });
+  const control = controlFor(driver, () => NOW, 1);
+  const agent = openAgent('agent-a');
+  await control.read(agent, undefined, {});
+  await control.dispose(agent.id);
+  expect(driver.count('end_session')).toBe(2);
+  await control.dispose(agent.id);
+  expect(driver.count('end_session')).toBe(2);
+  expect((await failure(control.read(openAgent('agent-b'), undefined, {}))).browserCode).toBe('browser_busy');
+  expect(driver.count('browser_prepare')).toBe(1);
 });
 
 it('blocks every call during the release cooldown and recovers after it expires lazily', async () => {
