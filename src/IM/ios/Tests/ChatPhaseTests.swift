@@ -56,6 +56,10 @@ final class ChatPhaseTests: XCTestCase {
         XCTAssertNotNil(yesterday)
         XCTAssertTrue(yesterday?.hasSuffix("23:40") == true, "\(yesterday ?? "nil")")
         XCTAssertTrue(yesterday?.count ?? 0 > 5, "yesterday carries a day marker, not only a clock")
+        XCTAssertEqual(yesterday, L("昨天 23:40", "Yesterday 23:40"), "Use the injected calendar day, not the test host's date")
+
+        let older = ChatConnectionText.absoluteTimestamp("2026-11-03T15:40:00Z", now: now, calendar: calendar)
+        XCTAssertEqual(older, "11-03 23:40")
 
         XCTAssertNil(ChatConnectionText.absoluteTimestamp(nil, now: now, calendar: calendar))
         XCTAssertNil(ChatConnectionText.absoluteTimestamp("not a date", now: now, calendar: calendar))

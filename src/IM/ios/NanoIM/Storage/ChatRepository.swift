@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 
 enum ChatRevokeReason: String, Sendable {
     case snapshotAbsent = "snapshot_absent"
@@ -58,6 +59,8 @@ enum ChatEventResult: Sendable, Equatable {
 /// writes share one `DatabaseQueue` on purpose: the invariant this unit relies on is a
 /// single writer, so concurrent reads are not offered as an accidental capability.
 actor ChatRepository {
+    private static let seedSignposter = OSSignposter(subsystem: "com.nanoim.app", category: "ChatRepository")
+
     /// Page size the message endpoint asks for; the retained window is derived from it.
     static let pageSize = 60
     /// Local window: at least five pages, so scrolling "two screens back" stays offline-readable.
@@ -278,7 +281,10 @@ actor ChatRepository {
     }
 
     func bootstrapSeed() throws -> ChatBootstrapSeed {
-        try read { db in
+        // Measure the actual first-paint read too: the controller seeds before ChatStore exists.
+        let interval = Self.seedSignposter.beginInterval("bootstrapSeed", id: Self.seedSignposter.makeSignpostID())
+        defer { Self.seedSignposter.endInterval("bootstrapSeed", interval) }
+        return try read { db in
             let conversations = try Self.loadConversations(db)
             var drafts: [String: String] = [:]
             for row in try Row.fetchAll(db, sql: "SELECT conversation_id, body FROM drafts") {

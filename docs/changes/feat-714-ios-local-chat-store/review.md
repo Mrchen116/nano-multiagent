@@ -119,3 +119,11 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 显式opt-in reset仅prime调用，offline不调用；Me存在→精确fixture用户名→公开Sign out→确认的顺序成立。SDK公开 `XCTestCase.h:136-148` 与现有 `continueAfterFailure=false` 证明身份断言失败立即停止，不会继续签出未知账号。无erase/delete/Keychain注入/内部store调用；正常签出清缓存后仍需真实API重新prime。
 - `app.sheets.buttons["Sign out"]` 的实际AX定位仅可由后续运行验证，reviewer没有把静态源码当运行PASS。原 `online.log:123-131` 的1 test/1 assertion failure/0 unexpected及offline未执行保留；reviewer未核并行build与未来运行。
 - **findings=[]，no spec delta，窄fixture审查通过**，W1–W7关闭判断保持。不是两阶段旅程、成功空会话UI、真机flight/protection、20次统计、完整CI或unit验收通过。
+
+## Round 6 — 指定两阶段路径独立产物审查 PASS（产品旅程 / 限定体验，0C/0W）
+
+- 原非作者reviewer加载 `product-journey-review` + `frontend-experience-review`，先独立read_image实际四图，再核raw log、attachment manifest、runner与binary App Info.plist；未修改文件/Git或启动任何构建/测试/设备/sim/GUI/服务/网络/模型/子作业，不是作者自检复述或全unit代码重审。
+- `validated_at=1b62810227a0df8bb3233fbb0113d3ea8c550556`；实际受测`da47a48e5`，两者只有docs/+33、产品/UITests/project diff为空，tracked clean、原mock排除。独立核build log:255成功、binary bundle win.nanoim.ios/revision da47a48e5、两条raw命令指同runner/557UDID。旧journey-manifest.json是01f首轮产物，不冒充本轮；本轮由新raw命令、runner、build metadata及各attachments manifest交叉归属。
+- **指定旅程PASS**：真实公开签出合成身份→真实用户名/密码登录→API列表/完整73字消息→terminate→owner只停原53703 IM→同bundle新PID冷启→5秒列表/全文谓词通过且无登录页→terminate。独立读取 online-reprime.log:64-148 和 offline-reprime.log:25-54，均1 test/0 failures/0 unexpected/exit0；offline未调用prime专用reset。服务停止/PID消失/connect61及收尾Shutdown依据owner当时工具回执复用，reviewer没有伪称自己事后实时探测。
+- **限定体验PASS**：独立看同runtime四张实际命名附件（详见recovery-validation截图表）：online列表会话名/预览/时间可辨，timeline完整正文三行无截断遮挡；offline同内容保留，列表和timeline都有“Offline. Retrying · Updated 03:12”，timeline另有真实connection error。错误未挡住正文、未把离线谎称同步成功，用户可进入和阅读全文。重复反馈的风格合并是可选取舍，不在本场景列阻塞finding。并非只因测试绿或控件存在而推体验成立。
+- **findings=[] / 0C0W**；只覆盖同fixture单会话单完整工作消息的停止origin跨进程阅读。保留旧729 FAIL/offline当时未执行历史；不证明第一帧无白屏/闪回、从图标到首绘耗时/20次p50p95、滚动/大窗口分页、网络恢复、空会话、发送/撤权全契约、真机flight/protection、完整CI或最终unit交付。原始log中的launch measurement warning也不是性能测量。其余缺口继续按独立证据处理。

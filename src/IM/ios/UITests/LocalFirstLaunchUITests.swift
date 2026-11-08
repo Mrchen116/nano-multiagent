@@ -52,6 +52,19 @@ final class LocalFirstLaunchUITests: XCTestCase {
         app.terminate()
     }
 
+    func testSuccessfulEmptyConversationStopsLoading() throws {
+        let title = try required("NANO_UI_EMPTY_CHAT_TITLE")
+        app.launch()
+        let chat = app.staticTexts[title].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 20), "The real server must supply the dedicated empty conversation")
+        chat.tap()
+        XCTAssertTrue(app.staticTexts["conversation.empty"].waitForExistence(timeout: 15), "A successful empty message page must finish loading")
+        XCTAssertTrue(app.navigationBars[title].exists, "Verify the empty state belongs to the target conversation")
+        XCTAssertFalse(app.progressIndicators["Loading conversation…"].exists, "A successful empty result is not a request still in flight")
+        capture("online-empty-timeline")
+        app.terminate()
+    }
+
     private func resetOwnedSessionForLogin() throws {
         // An interrupted prime can leave this dedicated fixture signed in. Use the
         // public sign-out flow, never erase a simulator or bypass genuine login.

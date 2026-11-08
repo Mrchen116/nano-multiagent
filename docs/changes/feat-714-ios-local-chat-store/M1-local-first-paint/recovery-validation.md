@@ -147,4 +147,15 @@
 - 截图是四个命名状态，成功运行只导出这些保留附件；`app.launch`返回/首次XCTest轮询时刻不等于从图标打开到首绘耗时。不能由这两条test总时长或5秒谓词宣称首帧无白屏/无加载闪回、p50/p95达标；不证明网络恢复自动校正、多条滚动历史、空会话、真机flight/protection或全量契约均通过。模拟器状态栏Wi-Fi图标不代表此origin可达；离线前/后connect61及停止PID为此路径边界依据。
 - 所有本批build/UI/server jobs已收集。精确557名称/UDID在收尾before/after均Shutdown，无erase/delete/clone；53703仍connect61。没有自建Gateway/模型/浏览器或其它服务；正常hosted安装/sandbox影响不宣称为零。重型/GUI窗口已释放。
 
-**仍pending**：成功空会话真实UI、独立产品/体验的本次产物判断、真机飞行模式与四路径保护属性、≥20次首绘p50/p95、完整CI及最终unit门禁/归并/归档/PR。当前两阶段局部PASS不把它们一并关闭。
+原非作者后续已独立实际打开四图并交叉核log/manifest/runner/binary版本，判定**指定产品旅程PASS、限定可读性/离线可辨体验PASS，findings=[] / 0C0W**，完整范围与限制见 `review.md` Round6；服务停止/PID/connect61/Shutdown依据作者当时工具回执复用，不冒称独立实时操作。
+
+**仍pending**：成功空会话真实UI、真机飞行模式与四路径保护属性、≥20次首绘p50/p95、完整CI及最终unit门禁/归并/归档/PR。当前两阶段局部PASS不把它们一并关闭。
+
+## 完整原生scheme首次执行：失败保留，定点处理
+
+- 冻结`1b6281022`以`xcodebuild test -jobs 2 -parallel-testing-enabled NO -scheme NanoIM`在同557执行，原始 `/tmp/feat714-native-full-1b6281022.log`、`.xcresult`，**exit65 / TEST FAILED**。xcresulttool summary独立导出 `/tmp/feat714-native-full-1b6281022-summary.json`：**175 total = 169 pass + 5 failed tests + 1明确真机保护skip**；其中raw XCTest为148条、10个assertion failures（4 unexpected），另有27条Swift Testing。不得将断言次数混成failedTests，或把完整scheme失败写成完整CI通过。当前七组105条都已在这次整体失败的run中通过，但这不消除其它5条失败。
+- **日期函数真实RED**：`ChatPhaseTests/testAbsoluteTimestampUsesHoursAndMinutesOnly`的固定now为2026-11-05，raw log:414-416得到`11-05 23:40`而非`23:40`，2个assertion失败。源码`absoluteTimestamp`接受now却用Calendar.isDateInToday/Yesterday（系统当天）忽略它，当前host为11月9日。修正为按传入now比较同一天/前一天，保持已签核HH:mm/昨天/旧日期文案；保留原断言并加强精确昨天及旧日期断言，不改timeout或用当前日期伪造fixture。修后实际窄测待执行。
+- **另4条WebKit测试**：源码Resources与实际`.app`中均不存在`IntelligentUI/index.html`；`InteractiveWebView.swift:48-50`资源缺失直接返回空view。直接xcodebuild漏掉`build.sh:6-7`现有共享contracts/`npm run build:ios-ui`前置生成资源，4条raw:729-792均在等待WebKit DOM时失败。当前frontend/node_modules已存在，须按既有前置生成ignored资源后重建验证，不改四条DOM断言/等待，不直接归成业务回归或声称已修成功。
+- 为W6成功空会话真实画面扩展现有永久生命周期UITest，不新建文件：`testSuccessfulEmptyConversationStopsLoading`从同登录fixture真实列表进入专用空会话，等待既有`conversation.empty`标识、核同会话标题、断言不残留loading indicator并capture；仍需正常API seed并真实运行，不用内部store/SQLite注入。此条待独立增量审查/运行。
+- 真机性能准备的实际缺口：首次seed已移到`ChatStorageController:181`，旧`ChatStore.loadSeed`区间只覆盖后续读，不能拿后续读当首绘读。新增位于`ChatRepository.bootstrapSeed`实际函数体内的`com.nanoim.app / ChatRepository / bootstrapSeed`只诊断signpost，覆盖两个caller且不包含open/migrate/network；旧controller.open与ChatStore区间不混作该指标。尚无真机trace/20次统计，不因加入打点声称达标。
+- 本组后自有557精确名称/UDID before/after均Shutdown，53703 connect61，所有自身作业收集，无新服务。只读设备发现现在已配对手机available；这不是操作个人手机、签名/独立App或临时HTTPS入口许可。父级已向真人询问最小具体许可，尚无答复，不启动真机/隧道；模拟器与自有fixture可继续。

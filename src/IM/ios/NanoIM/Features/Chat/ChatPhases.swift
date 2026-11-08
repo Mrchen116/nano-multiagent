@@ -127,8 +127,11 @@ enum ChatConnectionText {
     static func absoluteTimestamp(_ value: String?, now: Date = Date(), calendar: Calendar = .current) -> String? {
         guard let value, let date = nanoDate(value) else { return nil }
         let time = clock(date, calendar: calendar)
-        if calendar.isDateInToday(date) { return time }
-        if calendar.isDateInYesterday(date) { return L("昨天 \(time)", "Yesterday \(time)") }
+        if calendar.isDate(date, inSameDayAs: now) { return time }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) {
+            return L("昨天 \(time)", "Yesterday \(time)")
+        }
         let day = dayStamp(date, calendar: calendar)
         return L("\(day) \(time)", "\(day) \(time)")
     }
