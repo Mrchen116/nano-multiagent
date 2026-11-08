@@ -132,6 +132,8 @@ it('uses current PA membership and existing group addressing for source control 
  const events=service.observations(principal,args).items;
  expect(events.find((e:any)=>e.message_id===addressed.id).mentioned_agent_ids).toEqual(['a']);
  expect(events.find((e:any)=>e.message_id===reply.id).mentioned_agent_ids).toEqual(['a']);
+ expect(events.find((e:any)=>e.message_id===addressed.id).explicit_mentioned_agent_ids).toEqual(['a']);
+ expect(events.find((e:any)=>e.message_id===reply.id).explicit_mentioned_agent_ids).toEqual([]);
  const history=new Work(ctx).query(principal,{...args,action:'read',target:'peer'}).messages;
  expect(history.find((m:any)=>m.message_id===ordinary.id)).toMatchObject({sender:{is_owner:true},source:{delivery:'participant',conversation_type:'group',channel:'web'}});
  db.prepare("DELETE FROM conversation_participants WHERE conversation_id='peer' AND user_id='a1'").run();
