@@ -9,11 +9,12 @@ import type { WorkView } from "./agent-work-api";
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), subscribe: vi.fn() }));
 vi.mock("../../auth/auth-fetch", () => ({ authFetch: mocks.fetch }));
 vi.mock("../../../realtime/user-stream", () => ({ subscribeUserStream: mocks.subscribe }));
+vi.mock('./agent-trajectory', () => ({AgentTrajectory: () => <p>Native trajectory</p>}));
 let view: WorkView;
 function ChatTarget() { const location = useLocation(); const navigate = useNavigate(); return <div><p>Real chat route</p><button onClick={() => navigate(location.state.workReturnUrl)}>Return to work</button></div>; }
 function renderWork(entry = "/settings/agents/global?view=work") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createMemoryRouter([{ path: "/settings/agents/global", element: <AgentWorkPanel agentId="global" /> }, { path: "/chat/:id", element: <ChatTarget /> }, { path: "/tasks/:id", element: <p>Task graph route</p> }], { initialEntries: [entry] });
+  const router = createMemoryRouter([{ path: "/settings/agents/global", element: <div className="im-agent-panel"><AgentWorkPanel agentId="global" /></div> }, { path: "/chat/:id", element: <ChatTarget /> }, { path: "/tasks/:id", element: <p>Task graph route</p> }], { initialEntries: [entry] });
   return { ...render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>), router };
 }
 beforeEach(() => {
@@ -83,6 +84,25 @@ describe("Agent work view", () => {
     await waitFor(() => expect(document.getElementById('work-turn-retired-old')).toHaveAttribute('open'));
     expect(document.getElementById('work-turn-main-turn')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: '关闭子轨迹'})).toBeVisible();
+  });
+
+  it('retains manual folding and reading position across native-view switches after applying a reply anchor', async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    view = {...view, focus: {session_id: 'main', turn_id: 'turn'}};
+    const {container} = renderWork('/settings/agents/global?view=work&message_id=reply');
+    const scroller = container.querySelector<HTMLElement>('.im-agent-panel')!;
+    scroller.scrollTo = vi.fn((options?: ScrollToOptions | number) => {if (typeof options === 'object') scroller.scrollTop = options.top ?? 0;});
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText('Inbox 唤醒'));
+    expect(screen.getByText('Inbox 唤醒').closest('details')).not.toHaveAttribute('open');
+    scroller.scrollTop = 320;
+    fireEvent.click(screen.getByRole('tab', {name: '原生轨迹'}));
+    expect(await screen.findByText('Native trajectory')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', {name: '工作记录'}));
+    await waitFor(() => expect(scroller.scrollTop).toBe(320));
+    expect(screen.getByText('Inbox 唤醒').closest('details')).not.toHaveAttribute('open');
+    expect(scroll).toHaveBeenCalledTimes(1);
   });
 
   it('waits for the deferred body before scrolling and does not pull readers back on refresh', async () => {

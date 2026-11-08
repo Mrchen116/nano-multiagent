@@ -81,6 +81,11 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const search = new URLSearchParams(location.search);
   const nativeMode = search.get('work_view') === 'trajectory';
   const messageId = search.get('message_id');
+  const replyNavigation = useRef({agentId, messageId, token: location.key});
+  // Internal record/trajectory switches replace the URL too, but must not apply
+  // the same reply anchor again over the reader's folding and scroll position.
+  if (replyNavigation.current.agentId !== agentId || replyNavigation.current.messageId !== messageId) replyNavigation.current = {agentId, messageId, token: location.key};
+  const replyFocusToken = replyNavigation.current.token;
   const focusedNavigation = useRef<string | null>(null);
   const recordScroll = useRef(0);
   const nativePositions = useRef<Record<string, { top: number; firstSeq?: number; rowKey?: string; detailTab?: string }>>({});
@@ -153,12 +158,12 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   }, [view, saved, messageId, nativeMode]);
   useEffect(() => {
     const focus = view?.focus;
-    if (!messageId || !focus || nativeMode || focusedNavigation.current === location.key) return;
-    focusedNavigation.current = location.key;
+    if (!messageId || !focus || nativeMode || focusedNavigation.current === replyFocusToken) return;
+    focusedNavigation.current = replyFocusToken;
     restored.current = true;
     const key = `${focus.session_id}:${focus.turn_id}`;
     setSaved(current => ({...current, selected: focus.session_id === view.main_session_id ? null : focus.session_id, expanded: {...current.expanded, [key]: true}}));
-  }, [messageId, view?.focus?.session_id, view?.focus?.turn_id, view?.main_session_id, nativeMode, location.key]);
+  }, [messageId, view?.focus?.session_id, view?.focus?.turn_id, view?.main_session_id, nativeMode, replyFocusToken]);
   useEffect(() => {
     const focus = view?.focus;
     if (!messageId || !focus || nativeMode) return;
@@ -180,7 +185,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
       if (scroller) scroller.scrollTop = id ? 0 : mainScroll;
     });
   };
-  const renderTurn = (turn: WorkTurn) => <Turn key={`${turn.session_id}:${turn.turn_id}`} turn={turn} agentId={agentId} online={online} sessions={view?.other_executions ?? []} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh} focusToken={!nativeMode && view?.focus?.session_id === turn.session_id && view?.focus?.turn_id === turn.turn_id ? location.key : undefined} />;
+  const renderTurn = (turn: WorkTurn) => <Turn key={`${turn.session_id}:${turn.turn_id}`} turn={turn} agentId={agentId} online={online} sessions={view?.other_executions ?? []} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh} focusToken={!nativeMode && view?.focus?.session_id === turn.session_id && view?.focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
     <div ref={root} className="im-work" data-testid="agent-work-panel">
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError ? <div role="alert" className="im-work-state">{viewQuery.error.message}<button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></div> : view && <>
