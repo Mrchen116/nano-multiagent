@@ -348,17 +348,31 @@ final class ChatAttemptPersistenceTests: XCTestCase {
         XCTAssertEqual(legacy.attemptFiles(origin: partition.origin, userID: partition.userID), [legacyFile])
     }
 
-    func testFilesAndDirectoriesAreExcludedFromBackupAndProtected() throws {
+    func testFilesAndDirectoriesAreExcludedFromBackup() throws {
         try persistence.recordPurge()
         try persistence.save(attempt(), stamp: persistence.stamp(for: "a"))
         let handoff = try XCTUnwrap(persistence.loadHandoffs().first?.fileURL)
         for url in [persistence.policyURL, persistence.policyURL.deletingLastPathComponent(), handoff, location.directoryURL] {
             XCTAssertEqual(try url.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
-            #if os(iOS)
+        }
+    }
+
+    func testFilesAndDirectoriesUseCompleteProtectionOnDevice() throws {
+        #if targetEnvironment(simulator)
+        // Simulator returns nil for these attributes. The approved design requires physical
+        // device evidence; a green simulator suite must not pretend to provide that evidence.
+        throw XCTSkip("File protection attributes require a physical iOS device; device evidence remains pending.")
+        #elseif os(iOS)
+        try persistence.recordPurge()
+        try persistence.save(attempt(), stamp: persistence.stamp(for: "a"))
+        let handoff = try XCTUnwrap(persistence.loadHandoffs().first?.fileURL)
+        for url in [persistence.policyURL, persistence.policyURL.deletingLastPathComponent(), handoff, location.directoryURL] {
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             XCTAssertEqual(attributes[.protectionKey] as? FileProtectionType, .complete)
-            #endif
         }
+        #else
+        throw XCTSkip("File protection attributes require a physical iOS device.")
+        #endif
     }
 
     private func attempt(conversation: String = "a", key: String = "key") -> SendAttempt {

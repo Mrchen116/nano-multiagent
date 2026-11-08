@@ -440,6 +440,63 @@ final class ChatRepositoryTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty, "the pre-cleanup file must be ineligible despite the older SQL receipt/state")
     }
 
+    func testKnownDetailRevocationRotatesForANewHandoffEvenWhenItsReceiptFails() async throws {
+        try await assertKnownRevocationRotates(snapshot: false)
+    }
+
+    func testKnownSnapshotRevocationRotatesForANewHandoffEvenWhenItsReceiptFails() async throws {
+        try await assertKnownRevocationRotates(snapshot: true)
+    }
+
+    private func assertKnownRevocationRotates(snapshot: Bool) async throws {
+            let location = ChatStorageLocation.directory(root.appendingPathComponent(snapshot ? "snapshot" : "detail"))
+            let repo = try open(location)
+            var context = try await repo.writeContext()
+            _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+            try await repo.revoke("a", reason: .detailForbidden, write: context)
+            let oldGeneration = try XCTUnwrap(repo.attemptPersistence.policy().conversationCleanups["a"]?.generation)
+            // A degraded network regrant can create a new handoff while the unavailable SQL
+            // cache still has its older tombstone. A later denial must qualify this request too.
+            let pending = attempt("a", "new-between-denials")
+            try repo.attemptPersistence.save(pending, stamp: repo.attemptPersistence.stamp(for: "a"))
+            let file = try XCTUnwrap(repo.attemptPersistence.loadHandoffs().first?.fileURL)
+            context = try await repo.writeContext()
+            let fixture = try DatabaseQueue(path: repo.location.databaseURL.path)
+            try await fixture.write { db in
+                try db.execute(sql: "CREATE TRIGGER fail_receipt BEFORE INSERT ON cache_meta WHEN NEW.key='policy.conversation.a' BEGIN SELECT RAISE(ABORT, 'isolated repeated denial failure'); END")
+            }
+            do {
+                if snapshot {
+                    _ = try await repo.applySnapshot([], maxEventID: 20, snapshotSeq: context.snapshotSeq + 1, write: context)
+                } else {
+                    try await repo.revoke("a", reason: .detailForbidden, write: context)
+                }
+                XCTFail("the isolated receipt failure must abort the SQL transaction")
+            } catch {
+                XCTAssertNotEqual(try repo.attemptPersistence.policy().conversationCleanups["a"]?.generation, oldGeneration)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "the crash fixture retains the pre-denial file")
+            }
+            try await fixture.write { db in try db.execute(sql: "DROP TRIGGER fail_receipt") }
+            try fixture.close()
+            try await repo.close()
+            let reopened = try open(location)
+            let remaining = try await reopened.pendingAttempts()
+            XCTAssertTrue(remaining.isEmpty, "neither a known tombstone nor an old receipt may qualify the newly denied request")
+            try await reopened.close()
+    }
+
+    func testSnapshotAbsenceIncludesAnUnimportedHandoffWithoutASQLRow() async throws {
+        let repo = try open()
+        let pending = attempt("a", "not-yet-handed-off")
+        try repo.attemptPersistence.save(pending, stamp: repo.attemptPersistence.stamp(for: "a"))
+        let context = try await repo.writeContext()
+        _ = try await repo.applySnapshot([], maxEventID: 20, snapshotSeq: context.snapshotSeq + 1, write: context)
+        let handoffs = try repo.attemptPersistence.loadHandoffs()
+        let remaining = try await repo.pendingAttempts()
+        XCTAssertTrue(handoffs.isEmpty, "an authoritative absence also qualifies the separate fallback namespace")
+        XCTAssertTrue(remaining.isEmpty, "a late import cannot restore a request already excluded by the snapshot")
+    }
+
     func testPurgeStillRemovesFilesWhenItsConnectionIsAlreadyClosed() async throws {
         let repo = try open()
         let directory = repo.location.directoryURL

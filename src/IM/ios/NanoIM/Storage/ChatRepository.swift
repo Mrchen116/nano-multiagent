@@ -84,10 +84,10 @@ actor ChatRepository {
         self.lastAppliedPolicy = policy
     }
 
-    /// Open (and migrate) the partition, rebuilding once if the file is unusable.
+    /// Open and migrate the partition, rebuilding once only for proven SQLite corruption.
     ///
-    /// A corrupt or half-written database is moved aside rather than deleted: the legacy
-    /// send-attempt JSON stays untouched, so the recreated database re-imports it.
+    /// The corrupt database is moved aside rather than deleted. Legacy send-attempt JSON
+    /// stays untouched; the surviving import policy qualifies any re-import into the new cache.
     static func open(_ partition: ChatPartition,
                      location: ChatStorageLocation,
                      legacyAttemptRoot: URL = ChatStorageLocation.legacyAttemptRoot,
@@ -374,16 +374,21 @@ actor ChatRepository {
             } + items.filter { $0.can_write == false || $0.dissolved_at != nil }.map {
                 ChatCleanupFailure.Intent(conversationID: $0.id, kind: .discardPending)
             }
+            // A fallback may commit after the last pending-row import. Its identity is still
+            // covered by this snapshot, even if SQLite has never had a row for the request.
+            let handoffIDs = Set(try attemptPersistence.loadHandoffs().map { $0.attempt.conversationID })
+            intents += handoffIDs.subtracting(identities).subtracting(authoritative).sorted().map {
+                ChatCleanupFailure.Intent(conversationID: $0, kind: .revokeAccess)
+            }
+            identities.formUnion(handoffIDs)
             var revoked: [String] = []
             for id in identities.subtracting(authoritative).sorted() {
                 // Only newly revoked conversations are reported: a tombstone is revisited by
                 // every later snapshot, and reporting it again would re-clear a row the store
                 // already dropped (or, worse, tell the UI something disappeared twice).
                 let known = try Self.isRevoked(id, db: db)
-                let policy = try attemptPersistence.recordCleanup(id, kind: .revokeAccess, forceNewGeneration: !known)
-                try Self.revokeRows(id, reason: .snapshotAbsent, db: db, now: Date())
-                try Self.acknowledgeCleanup(id, policy: policy, db: db)
-                try attemptPersistence.removeHandoffs(conversationID: id)
+                try revokeRowsAndSources(id, reason: .snapshotAbsent, known: known,
+                                         hasHandoff: handoffIDs.contains(id), db: db)
                 if !known { revoked.append(id) }
             }
             for item in items {
@@ -535,14 +540,24 @@ actor ChatRepository {
         try write { db in
             try validate(context, db: db)
             let known = try Self.isRevoked(id, db: db)
-            let policy = try attemptPersistence.recordCleanup(id, kind: .revokeAccess, forceNewGeneration: !known)
-            try Self.revokeRows(id, reason: reason, db: db, now: Date())
-            try Self.acknowledgeCleanup(id, policy: policy, db: db)
-            try attemptPersistence.removeHandoffs(conversationID: id)
+            let hasHandoff = try attemptPersistence.loadHandoffs().contains { $0.attempt.conversationID == id }
+            try revokeRowsAndSources(id, reason: reason, known: known, hasHandoff: hasHandoff, db: db)
             // Detail denial is as authoritative as snapshot absence. Invalidate contexts
             // captured by older successful detail/list/page requests in this transaction.
             try db.execute(sql: "UPDATE sync_cursor SET snapshot_seq=snapshot_seq+1 WHERE id=1")
         }
+    }
+
+    private func revokeRowsAndSources(_ id: String, reason: ChatRevokeReason, known: Bool,
+                                      hasHandoff: Bool, db: Database) throws {
+        let hasPending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_sends WHERE conversation_id=?", arguments: [id]) ?? 0
+        // A repeated denial is idempotent only while no newer request exists. Reusing the
+        // older generation would qualify that request if SQL/file cleanup failed mid-flight.
+        let policy = try attemptPersistence.recordCleanup(id, kind: .revokeAccess,
+                                                         forceNewGeneration: !known || hasPending > 0 || hasHandoff)
+        try Self.revokeRows(id, reason: reason, db: db, now: Date())
+        try Self.acknowledgeCleanup(id, policy: policy, db: db)
+        try attemptPersistence.removeHandoffs(conversationID: id)
     }
 
     func setDraft(_ id: String, body: String) throws {
