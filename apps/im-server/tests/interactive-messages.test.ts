@@ -34,7 +34,9 @@ describe('interactive message persistence', () => {
     const first=await messaging.sendMessage(req);
     expect(first).toMatchObject({content:'',interactive});
     expect(await messaging.sendMessage(req)).toMatchObject({id:first.id});
-    await expect(messaging.sendMessage({...req,body:{sender_type:'agent'}})).rejects.toThrow();
+    for (const empty of [undefined,null,false,'',0]) {
+      await expect(messaging.sendMessage({...req,body:{sender_type:'agent',interactive:empty}})).rejects.toThrow();
+    }
     await expect(messaging.sendMessage({...req,headers:{...req.headers,'idempotency-key':'invalid'},body:{sender_type:'agent',interactive:{...interactive,source:'root = Unknown("x")'}}})).rejects.toThrow();
   });
   it('saves selection and one relay atomically even while the node is offline; retries do not enqueue again', async () => {
