@@ -43,3 +43,10 @@
 - validated_at：`a1085e6bff546e09dcfef7509b9040eafa40b670`；patch base `05696b6fc`，executed_base / effective_base 仍为 `94d663626`。
 - 独立 reviewer `inbox_summary_review` 对 3 文件 delta 的 code + Context patch 审查通过，无 findings；通知仅移除 requires_attention 和指定短语，PA 两字段保留，无 spec delta。内部 check/触发/持久状态未改，原聚合、读取、消费及发送复核结论 retained。
 - 受影响包重建、完整 native Inbox 文件 4 tests passed（15.21s）。之前 `05696b6fc` 的远端完整 CI 通过；本 patch 推送后的 CI 独立运行，不将旧绿状态表述为新 head 已通过。
+
+## PR 反馈：所有 Global 提供会话类型
+
+- validated_at / effective_through（产品树）：`d1d0ad5e81501052727f083f93878f7dafb3eb13`；patch base `a06014597`，executed_base / effective_base 仍为 `94d663626`。
+- 独立 `inbox_summary_review` 对 5 文件 code + Context patch 审查通过，无 findings；conversation_type 来自原入站元数据，所有 Global 一致提供 direct / group，PA 额外保留 delivery，提醒继续过滤 requires_attention。
+- corrected-delta aligned；Global spec 两处增量与实现一致。聚合、消费、短引用和发送复核链路未改，原结论 retained。
+- 受影响包重建、32 files / 270 tests 与文档完整性检查通过。最终 push 仅在产品提交之后补审查记录，新 head CI 单独运行。
