@@ -9,7 +9,7 @@
 - 配置差异：当前派工工具未提供固定模型/effort参数或实际值。依据用户仅限本轮 #473、714、716、720 的例外，使用当前可用配置做独立审查；不冒称指定配置，也不豁免作者与审查者分离。
 - `effective_base` / `effective_through`：尚未完成最终 sync 与实施验收，不给出最终有效性结论。
 
-## 审查结果
+## 首轮审查结果（5adda98f5）
 
 | 问题 / 要求 | 能力、执行者与模式 | 判断 | 决定性证据 / 限制 |
 |---|---|---|---|
@@ -41,7 +41,7 @@
 - 草稿 PUT 离线失败后 Send 禁用；网络恢复、用户不再编辑且不手点 Retry 时无恢复调用，不能兑现文案与 delta 的“自动放行”。仅有 discard 的 foreground 重试并不足够。
 - Author resolution：新增当前会话 transient-only、有界一次、同时 online/foreground 合并的恢复入口；不自动重试 conflict，不循环。新增 workspace 两个事件场景的修复前有效红测均为 flush 0（`/tmp/feat716-workspace-leave-recovery-red.log`）；增加协调器范围/并发合并测试。2 项协调器范围/并发测试及 2 项实际 workspace 事件入口场景均通过，见 `/tmp/feat716-lifecycle-green.log`；尚未独立关闭。
 
-## 流程收口
+## 首轮后的待办（历史；当前状态见第二轮）
 
 - 三项 findings 的作者修复已通过上述最窄绿色验证，待冻结后交原独立审查者补验；尚未宣布关闭。
 - 当前可信窄证据：`/tmp/feat716-multi-regressions.log` server 75/75；`/tmp/feat716-web-multi-regressions.log` Web 36/36；server full tsc noEmit、frontend tsc-b、interactive assets check exit 0。这些均适用于 `5adda98f5`，不自动覆盖后续修复。
@@ -49,4 +49,34 @@
 - 多卡实际模型输入：须证明首条 A+B、次条无新块、仅重改 A 后只 A；历史块保留，不将历史当作新注入。Global Inbox 每部分 6000 字符、每次最多 4 fragments，有 `partial` / `next_cursor`；不得宣称 64 KiB 一次读取保证完整。当前未取得该增量的动态观察。
 - Web/iOS 超限窄屏可读性与恢复、原生 transient 保存失败恢复仍未观察。新增原生预算恢复 case 的 edit 被权限工具拒绝，未写入、未执行、未换路径重试；父级要求先修正测试对象与自有隔离实例的可靠绑定，再据具体对象处理权限，不把环境变量 + loopback 等同合成数据证明。
 - 旧 62814 单卡预览保持不动；旧单卡 native/模型证据仅可按未变机制 retained，不用于当前多卡验收。
-- 最终 delta 校对为 implementation-mismatch；未归并 canonical、未归档、未创建 PR，不能宣布交付。
+- 首轮最终 delta 校对为 implementation-mismatch；当时未归并 canonical、未归档、未创建 PR，不能宣布交付。
+
+## 第二轮独立补验（fc5e19066，当前结论）
+
+同一独立审查者沿原线程执行 closure + patch / corrected-delta：实际核对 `5adda98f5..fc5e19066046920f8a6bfa3245bd63a9f718d8ed` 的全部 8 文件及相关调用方，保留前次完整审查；`executed_base` 仍为 `eeaea47921806936da20e78c9ed96167716f5037`，本轮 `validated_at` 为 `fc5e19066046920f8a6bfa3245bd63a9f718d8ed`。模型/effort 仍未提供，沿本轮例外如实记录。未修改文件、报告或提交，未起服务/GUI/LLM，未接触其他 checkout 或旧预览。
+
+| 问题 / 要求 | 能力与模式 | 独立判断 | 决定性证据 / 限制 |
+|---|---|---|---|
+| F716-CR1 | code review closure | **closed** | `chat-workspace-page.tsx:391-398` 包含 previous→undefined 的显式 leave；mobile Back 实际按钮集成验证清除 c1；可信 3 项 workspace 窄绿 |
+| F716-CR2 | code review closure + Context 生命周期 | **closed** | `interaction-background.ts:207-217,234-243,303-319,367-374` 启动快照带 session、send 屏障、回访后 T2 不被清、hydrate 中/后撤权；5 项新回归及 22 项既有协调器全绿 |
+| F716-CR3（Web） | code review closure | **closed** | online / visible foreground 当前 cid 恢复；transient-only 一次 pass，promise 合并并发，不重试 conflict，不循环；2 项恢复与 2 项事件入口场景绿 |
+| 3 项修复与 test-only 新影响 | code review patch | **Approved，存活 findings=[]** | 全部 8 文件与调用链静态核对；复用 29+3 窄绿及 tsc-b，保留 React act 警告，不重复全量 |
+| 四份最终 delta | corrected-delta | **aligned**（实现/契约静态层） | 既有 implementation-mismatch 已由实现补齐，不缩改契约迁就遗漏；未变服务端预算/attempt/source/per-Agent 结论及可信 75+36 窄测试保留 |
+| 实际多卡消费与模型输入 | agent-context-review 实施动态目标 | **pending / inconclusive** | 真实双端、relay 三消息 A+B/空/A、实际 `read_messages` 与下一模型步等尚未取得本增量观察；代码 Approved 不等于整体门禁通过 |
+
+### iOS 自动恢复 lead 的核对
+
+作者仅看 coordinator 的 grep 曾提出 iOS 是否同因缺少自动重试；独立核对为 **refuted，不列 finding**。`ChatStore.run:113-114` 每次正常 sync / stream 重连前，对当前会话 transient 调用 `flushDrafts`；`ConversationView:131-135` 每次 active 同样有 bounded 恢复，`NanoIMApp:181-183` 确实按 scenePhase 启停 run。`InteractiveRuntime.flush:276-277` 对 conflict 直接返回，不自动合并/丢弃；成功路径清 failure 并通知 composer。混合 conflict 时优先呈现冲突，会话依法仍被显式冲突阻塞；现无证据足以另认定契约失败。
+
+### 原生编译证据与安全边界
+
+审查者另实际读取 `/tmp/feat716-native-multi-build.log`：IM server build 与 `NanoIMJourney build-for-testing`、jobs 2、`NANO_IM_BUILD_REVISION=fc5e19066046` 成功（exit 0），新多卡 case / fixture guard **已编译，未运行**。Swift 5 StrictConcurrency 对 XCTest setup / teardown 的 MainActor 调用仍有未来 Swift 6 错误警告；不宣称 warning-free，不把未来语言模式警告当作当前构建失败。422 `SendRecovery` 单测仍未执行。
+
+Manifest guard 不代表实际服务/数据库绑定，更不代表人类授权；执行前仍须 host 核对自有 PID/出生时间/cwd/端口、合成 owner 与新卡片来源、唯一聊天标题。被拒预算恢复 case 未写、未执行、不因本轮 Approved 获得新权限。
+
+## 当前流程收口
+
+- 当前独立代码补验 **Approved / 存活 findings=[]**；静态 corrected-delta **aligned**。当前报告更新属 owner 串行记录，不改变受审产品代码。
+- Context 动态、真实双端多卡与原生 transient、双端预算窄屏/恢复、422 原生单测仍 pending / inconclusive；必要观察不足，整体实施验收不能通过。
+- 旧单卡证据仅可就未变机制 retained，62814 保持不动；未建立新的真实多卡旅程证据。
+- 尚未最终 sync、canonical 归并、归档、PR / CI；不宣布交付。
