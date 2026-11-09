@@ -648,6 +648,9 @@ CREATE INDEX IF NOT EXISTS conversation_events_by_chat ON conversation_events(co
 
 CREATE INDEX IF NOT EXISTS pa_source_events_event ON pa_source_events(source_event_id,binding_id);
 CREATE INDEX IF NOT EXISTS agent_work_events_root ON agent_work_events(root_agent_id);
+CREATE INDEX IF NOT EXISTS agent_work_events_reply
+  ON agent_work_events(root_agent_id,json_extract(payload,'$.message_id'),revision)
+  WHERE type='message_sent';
 
 CREATE TABLE IF NOT EXISTS agent_deletions (
   agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(agent_id),
