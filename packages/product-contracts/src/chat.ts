@@ -84,17 +84,19 @@ export interface ChatReplyReference {
  * Args:
  *   reply: Original message snapshot resolved by IM.
  * Returns:
- *   Display identity, a bounded excerpt, and the IM identity for exact lookup.
+ *   Author, complete text or an excerpt, and the IM identity for exact lookup.
  */
 export function projectChatReplyContext(reply: ChatReplyReference) {
   const maxExcerptLength = 1200;
+  const text = reply.content.length > maxExcerptLength
+    ? `${reply.content.slice(0, maxExcerptLength)}\n\n[Rest of original message omitted.]`
+    : reply.content;
   const attachmentNames = reply.attachments.map(attachment =>
     attachment.file_name || (attachment.content_type?.startsWith('image/') ? 'Image' : 'File'));
   return {
     message_id: reply.message_id,
     sender: { name: reply.sender.display_name, type: reply.sender.type },
-    ...(reply.content ? { text: reply.content.slice(0, maxExcerptLength) } : {}),
-    ...(reply.content.length > maxExcerptLength ? { truncated: true } : {}),
+    ...(text ? { text } : {}),
     ...(attachmentNames.length ? { attachment_names: attachmentNames } : {}),
   };
 }

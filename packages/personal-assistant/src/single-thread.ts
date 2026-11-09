@@ -165,13 +165,13 @@ export class SingleThread {
         content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
       }
       if (input.message.reply_to) {
-        const quote = projectChatReplyContext(input.message.reply_to);
+        const original = input.message.reply_to;
+        const quote = projectChatReplyContext(original);
         const name = quote.sender.name.replace(/[\r\n]+/g, ' ');
-        const label = quote.truncated ? 'Excerpt from earlier message' : 'Quoted earlier message';
-        const lines = [`${label} from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
+        const lines = [`Quoted earlier message from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
         if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
         if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
-        if (!quote.text || quote.truncated || quote.attachment_names) {
+        if (quote.text !== original.content || quote.attachment_names) {
           lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
         }
         // Some model adapters concatenate adjacent text parts without separators.

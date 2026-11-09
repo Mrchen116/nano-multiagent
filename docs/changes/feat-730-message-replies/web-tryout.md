@@ -60,3 +60,8 @@
 - Global 群聊 `c_l9wj4rjh` 从 Web 右键引用「试运行配额：21 个，代号白榆。」，@ Agent 并请它加 8 后引用同一条。原生轨迹第 4 轮直接 `inbox(read)`，结果含分开的 `reply_to` 和 `content`。随后 `send_message` 使用同一原消息 ID，收到 `status: sent`。实际群消息为「29 个，代号白榆。」，点击引用回到原消息。主 session `e5df36ca-cf0d-4df6-816e-62f8b93d2203` 中对应工具事件为 seq 119、126、127。
 - 单线程群聊 `c_uq2gg3bm` 通过真实 IM API 投递同类请求，引用配额 16、代号水杉。原生 session `b8ecf2fc-50cb-4eb7-a272-9f0172b5430d` 的 seq 12 是实际输入，seq 17–18 为发送调用和回执。实际群消息为「新配额：24 个，代号水杉。」，引用目标为原消息。两组原消息均先写入聊天并未提前投递给 Agent。
 - 本轮证据见 `/tmp/feat730-evidence/develop-*.json`。浏览器留在 Global 原生轨迹的 Inbox 结果面板。受控录制栈已退出并回收，原隔离预览 `http://127.0.0.1:55895` 保留给用户看本轮轨迹，由本任务在 Web 验收结束时回收。
+
+## 长引用的省略提示
+
+- 用户要求直接在 `reply_to.text` 末尾备注省略。长引用在前 1200 个字符后另起一行加 `[Rest of original message omitted.]`，短引用保留完整正文。Inbox 和历史读取共用这个投影。
+- 39 项相关回归通过。真实 Global Sol 6.1 在群聊 `c_mxedik5q` 读到有省略提示的引文，按 ID 回查原消息，答出原文第 1446 个字符才开始出现的代号「玄汐-7486」。主 session `e5df36ca-cf0d-4df6-816e-62f8b93d2203` 第 5 轮可查看 `inbox`、`conversations` 和 `send_message`，本机证据见 `/tmp/feat730-evidence/long-quote-probe.json`。
