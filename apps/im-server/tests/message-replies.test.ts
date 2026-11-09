@@ -16,7 +16,7 @@ it('persists authoritative quotes, relays the addressed Agent, and keeps retries
     const quote={message_id:original.id,sender:original.sender,content:original.content,attachments:[]};
     expect(sent.json().reply_to).toEqual(quote);
     const queued=db.prepare('SELECT payload_json FROM relay_tasks WHERE message_id=?').get(sent.json().id)!;
-    expect(JSON.parse(String(queued.payload_json))).toMatchObject({message:{reply_to:quote},metadata:{mentioned_agent_ids:['a']}});
+    expect(JSON.parse(String(queued.payload_json))).toMatchObject({message:{reply_to:quote},metadata:{mentioned_agent_ids:['a'],explicit_mentioned_agent_ids:[]}});
     expect((await send(original.id)).json().id).toBe(sent.json().id);
     expect((await send(other.id)).statusCode).toBe(409);
     const read=await app.inject('/im/v1/conversations/chat/messages');

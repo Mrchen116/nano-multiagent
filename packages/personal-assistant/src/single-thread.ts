@@ -149,7 +149,7 @@ export class SingleThread {
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
     if (!evidence.accepted) {
-      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts);
+      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
       const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
       const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
       const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
@@ -171,7 +171,7 @@ export class SingleThread {
         const lines = [`${label} from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
         if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
         if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
-        if (quote.truncated || quote.attachment_names) {
+        if (!quote.text || quote.truncated || quote.attachment_names) {
           lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
         }
         // Some model adapters concatenate adjacent text parts without separators.

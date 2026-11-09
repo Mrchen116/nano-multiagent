@@ -4,11 +4,14 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools';
 export const publicMessageProperties = {
   target: {type:'string' as const,description:'A conversation, user or IM Agent target. Use conversations info to resolve current members before addressing a particular participant.'},
   reply_to_message_id: {type:'string' as const,minLength:1,description:'Optional quote reply to one original message in the destination Nano IM conversation. Obtain its message_id/id from inbox or conversations read/search; do not guess IDs or paste a quote body. The sent message shows a clickable original-message reference. Not supported for external-channel delivery or native internal child messages.'},
-  text: {type:'string' as const,description:'Message body. To address a specific Agent in a group, include <mention type="user" target_id="IM_USER_ID"/> using its actual user_id from conversations info; a plain name or Agent ID does not notify mention-only Agents.'},
+  text: {type:'string' as const,description:'Message text. Optional with interactive UI. Required for plain-text delivery. To address a specific Agent in a group, include <mention type="user" target_id="IM_USER_ID"/> using its actual user_id from conversations info; a plain name or Agent ID does not notify mention-only Agents.'},
   incident_ref: {type:'string' as const,description:'Bound main PA only: incident reference for the owner notice or subsequent refusal in its original conversation.'},
   attachments: {type:'array' as const,maxItems:5,items:{type:'object' as const,properties:{url:{type:'string' as const}},required:['url'],additionalProperties:false}},
   interactive: {type:'object' as const,properties:{source:{type:'string' as const,maxLength:65536},supersedes_message_id:{type:'string' as const},source_mode:{type:'string' as const,enum:['patch']}},required:['source'],additionalProperties:false},
 };
+
+export const publicMessageParameters = {type:'object' as const,properties:publicMessageProperties,required:['target'],
+  anyOf:[{required:['text']},{required:['interactive']}],additionalProperties:false};
 
 /** Normalize public content before product hashing and either independent review.
  *
@@ -18,8 +21,9 @@ export const publicMessageProperties = {
  *   Complete wire payload with the fixed interactive format and catalog.
  */
 export function normalizeMessageArguments(args: unknown): Record<string, unknown> {
-  const violations = validateJsonSchemaValue({type:'object' as const,properties:publicMessageProperties,required:['target','text'],additionalProperties:false}, args);
+  const violations = validateJsonSchemaValue(publicMessageParameters, args);
   if (violations.length) throw new Error(`Invalid public message: ${violations.join('; ')}`);
-  const input = args as Record<string, unknown>;
+  const input: Record<string, unknown> = {text:'', ...args as Record<string, unknown>};
+  if (!(input.text as string).trim() && input.interactive === undefined) throw new Error('A message requires text or interactive content');
   return input.interactive ? {...input,interactive:{...(input.interactive as Record<string,unknown>),format:'openui',catalog_version:'nano-iui-1'}} : input;
 }

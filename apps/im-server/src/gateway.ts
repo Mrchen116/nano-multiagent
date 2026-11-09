@@ -742,7 +742,7 @@ export class Gateway {
       c?.type !== "group" ||
       m.sender_type !== "agent" ||
       m.delivery_status !== "completed" ||
-      !m.content.trim() ||
+      (!m.content.trim() && !m.interactive) ||
       m.content.trim() === "NO_REPLY"
     )
       return;
