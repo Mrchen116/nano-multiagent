@@ -2,7 +2,7 @@
 
 ## 范围与授权
 
-沿用design.md M2产品判据，不新增目标。当前按[用户最新更正与本轮模拟器范围](../M1-local-first-paint/recovery-validation.md#当前执行范围用户更正后仅模拟器)执行：已披露的隔离服务/合成账号DB/成员与凭据失效矩阵直接接续，旧拒绝与“未答”仅属历史，不再作为当前许可阻塞。仅自有557/loopback/合成数据，无生产或手机/tunnel。父级随后已给714单批窗口；原升级准备遇新的实际工具拒绝，未运行UI即停服并交出窗口给720，详见[新窗口实际拒绝与回收](../M1-local-first-paint/recovery-validation.md#新窗口尝试新实际拒绝不是旅程执行或待用户重新许可)。父级处理工具判断/上下文接续异常，不再向用户重复请批；当前只做独立静态/材料，被拒升级组不动，其它真实矩阵另协调窗口。
+沿用design.md M2产品判据，不新增目标。当前按[用户最新更正与本轮模拟器范围](../M1-local-first-paint/recovery-validation.md#当前执行范围用户更正后仅模拟器)执行：已披露的隔离服务/合成账号DB/成员与凭据失效矩阵直接接续，旧拒绝与“未答”仅属历史，不再作为当前许可阻塞。仅自有557/loopback/合成数据，无生产或手机/tunnel。父级随后已给714单批窗口；原升级准备遇新的实际工具拒绝，未运行UI即停服并交出窗口给720，详见[新窗口实际拒绝与回收](../M1-local-first-paint/recovery-validation.md#新窗口尝试新实际拒绝不是旅程执行或待用户重新许可)。独立审批上下文缺陷由用户另修，不纳入714或重复实施；没有修复已加载的真实新事实前，被拒升级组不重试、不探测，不再向用户重复请批。其它原unit独立部分继续静态准备；716当前占native窗口，其它真实矩阵另协调窗口。
 
 ## 首次真实membership旅程：online FAIL / offline未执行
 
@@ -55,8 +55,16 @@
 - owner串行job856第一阶段仅执行当前`NanoIMJourney build-for-testing -jobs 2 -parallel-testing-enabled NO`，**exit0 / TEST BUILD SUCCEEDED**（`/tmp/feat714-independent-recheck-d0eb4c825/journey-build.log:250`）；实际Debug App Info为win.nanoim.ios/revision d0eb4c825，覆盖最后guard的typecheck。保留旧setUp actor-isolation/Swift6及scheme/AppIntents warning，不称无warning。未执行任何Journey UI或启动IM；后续阶段为独立后端单例CI。
 - job856全部已收集exit0。实核精确557名称feat-714-native-acceptance/UDID匹配且Shutdown、53703connect61；未恢复成员、改认证DB或运行升级。上述构建/静态结果不解除两次拒绝相关本地组暂停。
 
+## 账号／服务切换的独立静态准备（不是运行证据）
+
+- 原M2判据仍完整保留：A正常登出→B登录后，A的会话、完整消息、草稿与未确认发送不出现；B本次会话实际收发的两条完整内容须在终止进程、仅停止其origin后离线重开仍可读。当前380行`LocalFirstLaunchUITests`只有正常登录/离线读取、成员与401、旧JSON升级方法，没有账号切换与完整B收发的专用断言；不能用现有membership绿或单一列表缺席代替该证据。
+- 已静态核对真实入口：`MeView`的Me→`@username`身份确认→Sign out→sheet确认；`AuthView`的用户名/密码/Sign in。下一实际批次须先证明A的专属可见内容、草稿及未确认记录真实存在，再走正常退出与B登录；不得直接改Keychain、清容器、UI注入缓存或把B本来无权限的群恰好不在误作完整隔离。B自身正向的完整发送/接收/离线持久化与A四类负向检查必须同批留证；现有helper的显式guard→throw边界继续适用。
+- 服务切换入口不是Me内隐藏设置：当前真实`AuthView`通过`Connection settings`展开`Server URL`，`AppModel.authenticate`只在新origin不同后执行原client登出、旧分区purge及client替换。下一批需实际操作该字段、登录另一自有隔离origin的同名账号，完整读取仅属于新服务的内容并排除旧服务内容；必须分别核origin和服务端身份/数据归属，不因用户名相同认作同一分区。
+- **冷启环境陷阱已确认**：Debug `AppModel.init`优先用`NANO_IM_BASE_URL`而不是保存的`nano.server`；现有UITest的setUp每次固定该env为`NANO_UI_ORIGIN`。因此服务切换后的冷启不能继续固定旧origin，否则会主动切回旧服务；也不能只改launch env来冒充真实UI切服务。后续harness应先通过真实字段保存新origin，再为持久化重开移除该专用override（不删除UserDefaults），并独立核读取的是新服务；未写或运行这一新harness，本条仅是已核代码约束。
+- 本次仅阅读current spec及上述原生源文件、整理完整原判据与证据缺口；无账号/会话/消息创建、服务/API/DB操作、原生构建或UI执行，也未触及另由用户修复的审批组件。不得从这份准备宣称账号／服务隔离PASS。下一批按父级串行资源窗口执行；被拒升级动作继续独立等待真实修复加载事实，不以本计划绕行。
+
 ## 当前未完成
 
-账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、最终target sync/适用集成门禁及交付；CI历史两红未知保持如实披露，按最终版本评估有效CI，不盲重复核因。以上不由限定membership/empty PASS、最后guard构建或单例补验自动关闭。旧文暂停已由最新用户澄清解除，不再等用户重复给测试许可；本次新实际工具拒绝及回收状态以上方当前范围链接为准，原升级组停待父级工具上下文调查，其余真实矩阵再协调窗口。
+账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、最终target sync/适用集成门禁及交付；CI历史两红未知保持如实披露，按最终版本评估有效CI，不盲重复核因。以上不由限定membership/empty PASS、最后guard构建或单例补验自动关闭。旧文暂停已由最新用户澄清解除，不再等用户重复给测试许可；本次新实际工具拒绝及回收状态以上方当前范围链接为准，原升级组待用户另修的工具缺陷有真实加载事实后再按原恢复位置接续，其余独立部分不因此暂停，真实矩阵再协调窗口。
 
 真机flight/protection/20次真机trace仍UNVERIFIED、本轮不执行，不作为本轮模拟器交付门禁，也不冒称由模拟器证明。
