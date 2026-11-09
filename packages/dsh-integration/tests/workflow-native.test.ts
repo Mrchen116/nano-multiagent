@@ -144,6 +144,7 @@ export async function apply(ctx) {
     const rootCut=await client!.rpc.request('session.observe',{sessionId:'workflow'});
     const descendantCuts=await workDescendants(client!.rpc, {sessionId:'workflow'}) as any[];
     expect(descendantCuts.filter(item=>item.kind==='child')).toHaveLength(4);
+    expect(descendantCuts.every(item=>item.workflowRunId===first.id)).toBe(true);
     const cuts=[{id:'workflow',...rootCut},...descendantCuts.filter(item=>item.kind==='child')];
     const positions={sessionId:'workflow',cursors:Object.fromEntries(cuts.map(item=>[item.id,item.throughSeq])),modelVersions:Object.fromEntries(cuts.map(item=>[item.id,item.modelVersion]))};
     await client!.shutdown();
@@ -153,6 +154,8 @@ export async function apply(ctx) {
     expect(await client!.rpc.request('session.work.check',{sessionId:'workflow',afterSeq:positions.cursors.workflow,modelVersion:positions.modelVersions.workflow})).toEqual({rootSettled:true});
     const unchanged=await workDescendants(client!.rpc, positions) as any[];
     expect(unchanged.filter(item=>item.kind==='child').every(item=>item.events.length===0)).toBe(true);
+    const target=await client!.rpc.request('session.work.targets',{sessionId:'workflow',childId:descendantCuts[0].id});
+    expect(target).toMatchObject({children:[{id:descendantCuts[0].id,parentId:'workflow',workflowRunId:first.id}]});
     expect(await readFile(join(home,'body-reads.jsonl'),'utf8')).toBe('');
     await client!.shutdown();client=undefined;
     const changedChild=descendantCuts.find(item=>item.kind==='child')!.id;

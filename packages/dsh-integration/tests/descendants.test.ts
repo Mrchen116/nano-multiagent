@@ -37,8 +37,9 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   const restarted=new DescendantReader(context());
   expect(await catalog(restarted)).toMatchObject([{id:child,throughSeq:99}]);
   expect(reads).toEqual([]);
-  await expect(restarted.page(SessionId('other-root'),child,98,()=>false,()=>{throw Error('unauthorized read');})).rejects.toThrow('trusted Work lineage');
-  const project=(afterSeq:number)=>restarted.page(root,child,afterSeq,()=>false,cut=>workPage({
+  const cold=()=>{throw Error('fixture only has cold sessions');};
+  await expect(restarted.eventPage(SessionId('other-root'),child,98,false,cold,cold)).rejects.toThrow('trusted Work lineage');
+  const project=(afterSeq:number)=>restarted.eventPage(root,child,afterSeq,false,cold,cut=>workPage({
     afterSeq,firstOwn:cut.inheritedEventCount,head:cut.cursor,eventAt:seq=>cut.events[seq],
     present:async event=>event,model:()=>undefined,modelVersion:'none',
   }));
@@ -46,6 +47,7 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   expect(tail).toMatchObject({throughSeq:99,more:false,events:[event(99)]});
   expect(reads).toEqual([child]);
   expect(await project(99)).toBeUndefined();
+  expect(reads).toEqual([child]);
   records.set(child,{...records.get(child),revision:'c2',sizeBytes:201,cursor:100,children:[entry(grandchild)],events:[...records.get(child).events,event(100)]});
   expect(await catalog(restarted)).toMatchObject([{id:child,throughSeq:100},{id:grandchild,kind:'diagnostic',reason:'unavailable'}]);
   expect(await project(99)).toMatchObject({throughSeq:100,events:[event(100)]});
@@ -62,4 +64,30 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   expect(await recovered.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
   expect(await recovered.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
   expect(reads).toEqual([child]);
+});
+
+it.each([1000,10_000])('reads only the hot child with %i old siblings and requires its parent catalog flush', async count => {
+  const root=SessionId('root'), child=SessionId('changed');
+  const histories=Array.from({length:count},(_,i)=>({id:SessionId(`old-${i}`),createdAt:1,mode:'one-shot'}));
+  const storage=[[Buffer.from(root).toString('base64url'),{rootId:root,active:false,cursor:0,children:histories}]];
+  const parent={id:root,seq:4,isOwnSeq:()=>true};
+  const target={id:child,seq:8};
+  const lookups:string[]=[];
+  const writes:string[]=[];
+  let durable=false;
+  const reader=new DescendantReader({
+    effect:()=>{}, storageDomain:{open:async()=>({table:()=>({entries:()=>storage,put:async(id:string)=>writes.push(id)})})},
+    sessions:{get:(id:string)=>{lookups.push(id);return id===root ? parent : id===child ? target : undefined;},
+      flush:async(session:{id:string})=>session.id===root ? durable : true},
+    sessionQuery:{observeSession:()=>{throw Error('hot read materialized history');}},
+  } as unknown as Context);
+  await reader.ready;
+  reader.remember(parent as never,{type:'subagent/catalog',seq:3,time:1,data:{version:0,mode:'one-shot',childId:child,childCreatedAt:1}} as never,root);
+  await expect(reader.targets(root,child)).rejects.toThrow('Parent catalog has no persistence barrier');
+  durable=true;
+  expect(await reader.targets(root,child)).toMatchObject([{id:child,parentId:root,throughSeq:7}]);
+  const response={durable:true,events:[],modelRuns:[],modelVersion:'none',throughSeq:7,more:false} as const;
+  await expect(reader.eventPage(root,child,4,false,async()=>({...response,events:[],modelRuns:[]}),async()=>{throw Error('cold read');})).resolves.toMatchObject({throughSeq:7});
+  expect(lookups).toEqual([root,root,child,child]);
+  expect(writes).toEqual([]);
 });
