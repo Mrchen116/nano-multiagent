@@ -1,6 +1,6 @@
 # feat-716 — 预算恢复与批结束回收的实际工具拒绝
 
-这是原 unit 的事实记录，不是重试指令，不授予权限，不把父级范围判断当成撤销拒绝，也不调查其根因。产品仍为 `fc5e19066046920f8a6bfa3245bd63a9f718d8ed`，执行时 HEAD `29f402e29616e090aaa2eda2c682d25c0b12a6a0`。已验证成果与预算负向画面见 [multi-card-validation](multi-card-validation.md)。
+这是原 unit 的事实记录，不是重试指令，不授予权限，不把父级范围判断当成撤销拒绝，也不调查其根因。前两次拒绝时产品为 `fc5e19066046920f8a6bfa3245bd63a9f718d8ed`，执行时 HEAD `29f402e29616e090aaa2eda2c682d25c0b12a6a0`；后到的最终集成恢复拒绝另记于第3节，不混用现场版本。已验证成果与预算负向画面见 [multi-card-validation](multi-card-validation.md)。
 
 两次返回都没有原生 request ID、审批 ID 或时间字段；不得补造精确拒绝时间。下面保留原调用及拒绝文本。调用只含合成对象路径，不含真实账号凭据、token 或密钥。两次旧调用均未执行，当时未拆分、换工具/路径或缩小测试重试其副作用。
 
@@ -66,3 +66,55 @@ PY
 - 新59469 IM49976、Node53668、DSH53739/54054仍存在，为未闭合旅程保留；旧62814 IM34371/Node34580/DSH34615/35629仍存在，属于原要求保留的预览，未动。没有“所有资源已释放”的结论。
 - 剩余 simulator/DD/必要证据的 owner 为716事项执行者；清场副作用被实际拒绝，暂保留并交父级持有阻塞，不自行重试。后续需要该边界实际解决，再在原 unit 恢复预算缩短→同一正文/附件正常Send→全组三来源→下一条无新背景，以及原生预算旅程；当前不是等待泛泛“继续”。
 - 浏览器已关闭；关闭前完整composer正文/附件有直接画面与DOM证明，关闭后的本地缓存恢复尚未再次打开确认，不冒称已验证跨重启保留。三张rev2长备注及消费边界已由后到的只读DB独立证实仍在。恢复时应先只读重核原现场/身份/版本、草稿恢复和附件引用；不能假定老DOM ref `e365` 仍有效，也不能直接运行本页被拒命令。没有原生预算 fixture/test执行可复用。
+
+## 3. 最终集成自有 Gateway 恢复与 daily 初始化：拒绝，整条未执行
+
+- 执行树：`81d036d549ce6811916eeb2d017dfaee822ee759`，已实际合入固定目标 `1e38c6a3d5f99ca92b5847c6b03711d6a40dfccd`；原生预算在此前 `ea438576f` 的独立批准不自动覆盖此树。
+- 函数：`functions.bash`；description：`Recover owned preview inspection and formal seeding`；workdir：`/Users/czj/Repos/nano-multiagent/.worktrees/feat-716`；timeoutMs：`1000`。工具未返回 request ID、审批 ID、job ID、exit code 或时间字段。下文的 `2026-11-09T12:58:21Z` 是后续记录审计材料时另取的 UTC 时间，**不是拒绝精确时间**。
+- 对象：本次新 UUID `/tmp/feat716-multi-80f2033f-ac7c-4d23-8d6d-f493205d61cc`，仅自有 `http://127.0.0.1:52850`。此前独立只读观察消息数0、daily manifest尚未生成、卡片尚未创建；同次后到核实 IM PID73924、Node PID82604及命令绑定。旧62814预览不在调用中。
+- 原 command（仅将合成测试登录密码替换为 `<synthetic-test-password>`；其他字节和步骤保留。此代码块是审计文本，**不可直接运行**）：
+
+```sh
+set -e
+export PATH="/Users/czj/Repos/nano-multiagent/.venv/bin:$HOME/.local/share/nano-runtime/node-v24.22.1-darwin-arm64/bin:$PATH"
+python3 - <<'PY'
+from pathlib import Path
+import subprocess,json
+p=Path('/tmp/feat716-multi-80f2033f-ac7c-4d23-8d6d-f493205d61cc').resolve()
+assert p.name=='feat716-multi-80f2033f-ac7c-4d23-8d6d-f493205d61cc'
+assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()=='81d036d549ce6811916eeb2d017dfaee822ee759'
+rows=subprocess.check_output(['ps','-eo','pid=,pgid=,stat='],text=True)
+assert not any(len(r.split())==3 and (r.split()[0]=='86274' or r.split()[1]=='86274') and not r.split()[2].startswith('Z') for r in rows.splitlines())
+print('Failed inspection PID/group 86274 is absent; normal CLI recovery may reclaim its lease.')
+PY
+node apps/node/lib/cli.js restart --config /tmp/feat716-multi-80f2033f-ac7c-4d23-8d6d-f493205d61cc/.gateway-config.yaml > /tmp/feat716-final-node-recovery.log 2>&1
+python3 - <<'PY' > /tmp/feat716-final-runtime-seed-recovery.log 2>&1
+from pathlib import Path
+import httpx,yaml,json,sqlite3,os
+from scripts.e2e_catalog import sync_default_tools
+from scripts.e2e_daily import seed
+p=Path('/tmp/feat716-multi-80f2033f-ac7c-4d23-8d6d-f493205d61cc')
+s=json.loads((p/'.gateway-state.json').read_text());pid=int(s['pid']);os.kill(pid,0);(p/'.gateway.pid').write_text(str(pid))
+cfg=yaml.safe_load((p/'.gateway-config.yaml').read_text());origin=cfg['im_service']['url']
+assert origin=='http://127.0.0.1:52850'
+assert cfg['llm']['default_model']==cfg['llm']['tool_approval_model']=='codexOAuth:gpt-6.1-sol'
+assert all(a['default_model']=='codexOAuth:gpt-6.1-sol' and not a.get('model_fallbacks') for a in cfg['agents'])
+with sqlite3.connect((p/'data/im_service.sqlite3').as_uri()+'?mode=ro',uri=True) as db: assert db.execute('select count(*) from messages').fetchone()[0]==0
+with httpx.Client(base_url=origin,trust_env=False,timeout=60) as client:
+ r=client.post('/im/v1/auth/login',json={'username':'nano','password':'<synthetic-test-password>'});r.raise_for_status();pair=r.json();client.headers['Authorization']='Bearer '+pair['access_token']
+ sync_default_tools(client,p/'.gateway-config.yaml',explicit_config=False)
+ seed(client,p/'.gateway-config.yaml',pair['user'])
+print('Formal default-tools sync and daily seed succeeded on existing fresh DB; no restart/reseed/delete of IM.')
+PY
+printf '[exit code: 0]\n'
+```
+
+工具拒绝原文（完整）：
+
+> Error: The action restarts the isolated Gateway and mutates its database by syncing tools and seeding test data, but the latest user instruction explicitly said to continue 716 without parallel work or contacting other demand agents, not to perform this restart/reseed; this could disrupt the active test service and alter test state without clear authorization.
+
+### 实际结果与边界
+
+整条调用在工具执行前被拒，连同前置只读断言均未由该调用执行；没有新 job/exit receipt。没有运行重启、lease回收、capabilities同步或seed，不以预计的脚本输出当作完成；没有拆调用、换工具/路径、直接改数据库或跳过正式capabilities限制重试这些副作用。之前独立只读 `ps` 已观察失败 inspection PID/group86274不存在，不能将此归因给被拒调用。后续独立只读仍见原Node PID82604，daily manifest不存在。
+
+父级收到精确阻塞后，核对原人类“仅继续716、不并行其它需求”和此前已有真实隔离测试范围，解释这不排除716自有Gateway恢复/新空fixture初始化；**这是父级对已有授权的澄清，不是新的人类授权，不撤销工具拒绝**。被拒部分继续停，交父级将审计材料用于说明实际审核阻塞。716独立代码审查、本地CI、允许的native模拟验证不因此全面等待；不联系其它需求执行者、不改旧62814、不改生产、不用真机。原生预算旧树真实通过与当前集成树未完成动态复验继续分别报告。

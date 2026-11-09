@@ -1,12 +1,15 @@
 # feat-716 — 恢复实施记录
 
-> 本页下文为早期单卡集成与恢复阶段的历史记录，不代表当前多卡增量状态。当前独立结论见 [review](review.md)；新隔离59469的 Web/原生完整多卡三消息、实际 `inbox(action=read)`/后续模型步、原生transient真实保存恢复，以及Web73,021-byte预算拒绝的限定独立支持见 [多卡验证](evidence/multi-card-validation.md)。用户更新工具策略后已正常执行新context的Web连续失败/保留正文附件/缩短重发/nextnone，并获原reviewer限定SUPPORTED；原生预算连续失败/同正文同图片恢复/nextnone现已真实绿色，待原reviewer冻结补验，整体未验收/交付。[两次精确拒绝与恢复点](evidence/budget-tool-refusals.md)保留旧未执行调用及当时资源状态，不倒算旧清场成功。旧58项待验、旧模型配置缺口等历史描述不得覆盖 review 中后到的实际结果。
+> 本页下文为早期单卡集成与恢复阶段的历史记录，不代表当前多卡增量状态。当前独立结论见 [review](review.md)；新隔离59469的 Web/原生完整多卡三消息、实际 `inbox(action=read)`/后续模型步、原生transient真实保存恢复，以及Web73,021-byte预算拒绝的限定独立支持见 [多卡验证](evidence/multi-card-validation.md)。用户更新工具策略后已正常执行新context的Web连续失败/保留正文附件/缩短重发/nextnone，并获原reviewer限定SUPPORTED；原生预算连续失败/同正文同图片恢复/nextnone真实绿色已获原reviewer冻结ea438576f APPROVED；后续最终集成树仍待独立补验/交付。[两次精确拒绝与恢复点](evidence/budget-tool-refusals.md)保留旧未执行调用及当时资源状态，不倒算旧清场成功。旧58项待验、旧模型配置缺口等历史描述不得覆盖 review 中后到的实际结果。
 
 ## 当前恢复节点（2026-11-09）
 
-- 交互卡片背景一次性消费（716）已自行解除父级后到明确撤回的泛化资源等待；本轮仅推进本事项，不联系或并行其他需求。原生正常Photos选择自制图、真实73,021-byte拒绝、同正文图片保留、正常CAS缩短、不重填重选重发、nextnone已实际完成：host `c5de4112-95fb-40be-b9c7-0520741040f4`，1 test / 0 failures / 57.915s / exit0。helper仅修异步精确回执等待，产品fc5不变；真实relay/Inbox/模型步与画面证据已补入多卡验证，待原独立reviewer冻结补验。旧失败与工具拒绝继续保留历史，不追改为通过。
-- 最终目标同步尚未发生。对已获取的 `origin/develop` `68e65a880625cc0d19b034213c90f46fee3062c0` 作不改变 branch/index/worktree 的 `git merge-tree --write-tree HEAD origin/develop` 预演，返回 1（内容冲突，不是已执行的 merge 失败）：27 个共同修改路径中有 9 个冲突路径，覆盖服务端幂等/消息创建、Web composer/卡片、iOS ChatStore/InteractiveRuntime。当前 HEAD 仍为 `29f402e29616e090aaa2eda2c682d25c0b12a6a0`。旧完整旅程不能直接声称适用于该最终集成树，须实际解决冲突并按影响复验。
-- 集成时保留新基线的引用回复、消息列表/附件可见性、执行清理等既有行为，同时保留本 unit 的中心派生背景、原请求幂等、会话级保存屏障与显式冲突采用；`merge-tree` 无冲突的文件同样需要语义核对。冻结与实际同步前不改运行 fixture 的版本绑定，不把预演对象当成执行过的最终版本。
+- 交互卡片背景一次性消费（716）已自行解除父级后到明确撤回的泛化资源等待；本轮仅推进本事项，不联系或并行其他需求。原生正常Photos选择自制图、真实73,021-byte拒绝、同正文图片保留、正常CAS缩短、不重填重选重发、nextnone已实际完成：host `c5de4112-95fb-40be-b9c7-0520741040f4`，1 test / 0 failures / 57.915s / exit0。helper仅修异步精确回执等待，产品fc5不变；真实relay/Inbox/模型步与画面证据已补入多卡验证，原reviewer对冻结ea438576f已APPROVED/findings=[]、原生预算缺口CLOSED；此结论不覆盖后续sync树。旧失败与工具拒绝继续保留历史，不追改为通过。
+- 最终目标已实际同步：固定目标 `1e38c6a3d5f99ca92b5847c6b03711d6a40dfccd`，merge commit `81d036d549ce6811916eeb2d017dfaee822ee759`，27共同修改路径/9内容冲突均已解决。保留引用回复身份与冻结重试、message-list/附件可见性、执行清理，同时保留716中心派生/会话保存屏障/显式采用。新增服务器及Web store引用目标+旧背景兼容保护，reply UI接线测试改为移除旧contexts参数后的真实签名。
+- 此集成树 server 4 files/50 tests、Web 8 files/135 tests及contracts/server/frontend类型检查已实际通过；一条frontend tsc初命令cwd错误失败，仅改为正确包workdir后exit0，不当代码缺陷。缺失路径筛选不算已执行：draft-failure/hydration后续完整套件覆盖。完整本地CI正在运行，原生/真实入口受影响复验及原独立reviewer集成delta+corrected-delta补验尚未完成；旧完整旅程不直接迁移到最终树。
+- 已正常停止自有59469栈、PID49976退出/端口关闭，原DB/proof保留；CC5实际Shutdown，暂留供post-sync验证。旧62814预览不动，不改旧creator记录绑定去冒充新代码现场。
+- 当前本地完整检查：build/typecheck/ios-runtime及Python135 passed/28 deselected、ruff均通过；docs-check 302 sources/69 routes通过。完整backend尚在执行；完整Web 119/120 files、1151/1152 tests，唯一旧历史分页场景5000ms timeout，同文件此前窄回归通过，原因未确认，待单组复验，不提高等待来遮掩。
+- 最终树新UUID 52850 daily尚未ready（消息0/未建卡）；正常catalog构建后Node侧cleanup失败且锁存，原因未确认。自有Gateway正常CLI恢复+正式capabilities同步/seed被新的精确工具拒绝，整条未执行，未拆分/换路径/数据库绕过；完整脱敏调用与逐字返回见[拒绝审计第3节](evidence/budget-tool-refusals.md#3-最终集成自有-gateway-恢复与-daily-初始化拒绝整条未执行)。已交父级说明实际审核阻塞；其对已有授权范围的澄清不当作撤销拒绝。其余716代码/CI/允许的native模拟验证继续，不联系其他需求，不套用旧树动态批准。
 
 ## 版本与范围
 

@@ -139,9 +139,16 @@ Manifest guard 不代表实际服务/数据库绑定，更不代表人类授权�
 - 409read→410/413 item102，raw/projected首text字节相同且1195byte组逐项等relay；同read两fragment分别正文+完整背景、附件，无nextcursor。416/417实际模型send三卡2→418/421 sent b01…，DB09:25:33.494 completed；441read→442/445 item110无新块→448/449 send received→450/453 sent f892…，DB09:27:16.830 completed、458turn/end，无held。不称provider wire；人数与初始2相同，不能仅据回复断言数值只可能来自新背景。
 - 最终390×844图（SHA8ecc26e1…）完整同时呈现正文+已发同附件、三卡回复、next正文/received、空composer。上方XXXX仅旧大备注渲染，未声称外设备CAS后UI已刷新short；旧阅读位置空composer图不当成功消息画面。browser本批已close、未新建native资源。
 
+## 冻结树 ea438576f 的独立关闭
+
+原reviewer沿原线程对 clean `ea438576f91b14ecca9c54aeadcc531522233eec`（patch `29f402e..ea438576f` 8 files，仅helper/报告，产品fc5）完成 **APPROVED / findings=[]；corrected-delta aligned，无新增产品契约delta**。CR1/2/3继续CLOSED；既有full code及Web/native多卡、native transient手动恢复、Web预算结论retained；新增原生预算连续恢复缺口 **CLOSED，限定旅程/体验PASS、Context SUPPORTED**。这是本冻结树已选目标齐备，不是未来sync树或交付批准。
+
+- 实际核对helper SHA862b8128…及全部test-only diff、真实build日志/host-record/xcode/delivery/model/readable proof、两决定图，并mode=ro独立读取原59469 im_service与node SQLite。完整57.915s/1 test/0fail/exit0支持真实Photos→73021拒绝→同正文/同图片保留→1387缩短→不重填/重选Send→真实next。拒绝31/31/16、floor/discard/draft/image精确不变；恢复三来源完整，next无contexts。
+- 实际505→506/509与relay逐项等，513/514三卡2拟回复被515/519 **held，未送达**；532→533/536仅next→540 send received→541/544 sent bbee…，原DB12:16:55.341Z completed，549 turn/end。runtime实际消费/下一模型步，不称provider wire、人数唯一因果或所有64KiB分页保证。native来源由XCTest/marker/时序，不改通用channel=web。
+- 拒绝图完整错误/恢复建议、正文控件/蓝图保留（尾部内部滚动）；最终图完整first/sentphoto/next/空composer，不含后续agent回复；卡片仍上一run短备注。唯一持久upload不证明HTTP从不重试，PNG→App JPEG→模型JPEG正常转码，不声称逐层hash相同。旧c0 receipt失败保留，单次绿不证明旧空白唯一根因。
+- helper async fulfillment、精确label、最多一次Latest、photo唯一AX/实际可见中心tap、guard throw/flush静态clean；120 allowance、receipt20、composer10不变。新helper未重跑所有旧case；旧多卡9ac8/transient6df执行hash不迁移。MainActor setup/teardown未来Swift6警告仍保留，不称warning-free。配置未暴露例外不变。Reviewer只读，无新资源/写入/worker，未碰62814或其他事项。
+
 ## 当前流程收口
 
-- 冻结产品独立代码补验仍为 **Approved / 存活 findings=[]**，静态 corrected-delta **aligned**；后续限定只读预复核本范围 clean，不代替最终冻结后的 unit gate。
-- 422原生单测已由可信执行与独立只读核对关闭；Web两卡/实际Global消费、原生完整多卡/实际消费、原生transient手动保存恢复与Web预算完整失败/恢复/nextnone均获上述限定独立支持。原生预算后到真实绿色（host c5de4112…，1 test / 0 failures / 57.915s / exit0）、完整同正文图片恢复及nextnone/relay/实际Inbox已由owner补入[多卡验证](evidence/multi-card-validation.md#原生预算连续恢复后到的真实绿色执行)，**待原reviewer冻结补验**，不把作者证据冒充独立关闭；整体尚未完成最终集成验收。
-- 旧单卡证据仅可就未变机制 retained，62814 保持不动；新多卡证据仅按其实际覆盖范围使用。
-- 尚未最终 sync、canonical 归并、归档、PR / CI；不宣布交付。
+- 已在后续 `81d036d549ce6811916eeb2d017dfaee822ee759` 实际合入固定develop目标 `1e38c6a3d5f99ca92b5847c6b03711d6a40dfccd`，解决9处内容冲突；此集成树**尚未独立补验**，不套用ea438批准。目标集成增量与受影响复验记录随后补齐。
+- canonical、archive、本地完整CI及Ready PR/远端CI尚未完成，不宣布交付；旧62814人类预览保护不动。已停止本次59469栈且核实PID49976退出/端口关闭，DB和必要证据保留；自有CC5已核实Shutdown，暂留待最终集成验证。

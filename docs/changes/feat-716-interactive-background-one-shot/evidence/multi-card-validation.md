@@ -184,4 +184,4 @@
 
 ## 当前未关闭范围
 
-原生完整三消息、transient手动保存恢复、Web预算连续恢复已有原reviewer限定SUPPORTED；原生预算本次真实绿色与上述精确证据现已取得，**待原reviewer对冻结helper/新增证据作独立关闭**。最终sync及受影响复验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。
+原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；受影响复验/独立集成delta补验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。
