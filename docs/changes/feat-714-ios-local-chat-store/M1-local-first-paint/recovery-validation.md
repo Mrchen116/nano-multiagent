@@ -6,7 +6,7 @@
 
 - 已披露的714真实隔离范围直接接续：原自建loopback服务/合成DB与自有模拟器，服务启停复用和切换；合成迁移账号/会话/消息、真实旧JSON→同bundle覆盖升级→显式Retry；成员移除/恢复、精确合成账号旧凭据失效/真实401及去敏接口状态日志。新的实际拒绝仍立即停被拒动作、完整回报，不换工具/对象绕行；不将常规隔离验收重新包装成待用户批准事项。
 - **本轮仅模拟器**：不连接或操作手机、不安装真机App、不启动真机HTTPS公网tunnel。真机flight、complete file protection属性、≥20次真机首绘trace/p50/p95保持**UNVERIFIED／本轮不执行**，不得用模拟器不可达origin或skip冒称真机PASS，也不再作为本轮模拟器交付阻塞。backup exclusion等已在模拟器实际通过的独立结果仍按各自证据保留；产品保护实现要求不因此删除。
-- 父级随后已明确释放714一个串行native/heavy窗口；原升级准备命令遇**新的实际工具拒绝**后立即停止该组并回收本批唯一服务、交出窗口给720（详见下节）。不沿用旧拒绝当当前阻塞，也不绕过这次新拒绝；父级已核为独立审批上下文缺陷；用户对是否并入本轮明确回复「不用，我在修这个问题了」。该修复不纳入714，不改审批/策略节点，也不重复实施或探测。被拒升级组保留恢复位置；没有真实新事实证明修复已加载前不重试、不换工具/对象绕过，不再要求用户重复批准已披露隔离范围。其它独立原unit部分继续；当前716占native窗口，714仅推进轻量材料，其余真实矩阵需后续协调窗口。真实模型如需仍用Sol6.1，本unit当前矩阵不需要模型。
+- 原升级准备曾遇新的实际工具拒绝后立即停组、回收唯一服务并交出窗口（见下节历史），独立审批上下文缺陷由用户另修，不纳入714、不改审批/策略节点。用户随后给出真实新事实：「工具审核策略已经更新了，应该不会被拒绝了」。原组可在更新后正常工具审查下接续，**不是保证allow或绕过**，有新实际拒绝仍停报；不再探测策略或重查已完成审批调查。当前父级先给716 native/模型/heavy窗口，714仅现场/版本/原方案轻量准备，不开服务/API造账号、模拟器、build或模型；待父级沿原通道释放下一窗口后接同一升级manualRetry与M2矩阵。真实模型如需仍用Sol6.1，本unit当前矩阵不需要模型。
 - 仍须完成本轮适用的真实模拟器升级/账号/服务/未见撤权/同进程401矩阵、独立复核及最终target sync/集成/交付。CI历史两红原因未知及一次诊断未复现均如实保留；不盲重复已耗尽诊断或擅扩unit外修复。下文“真机仍pending”等旧门禁描述须结合本节当前执行范围阅读，不据旧文恢复手机工作。
 
 ## 新窗口尝试：新实际拒绝，不是旅程执行或待用户重新许可
@@ -16,6 +16,15 @@
 - 完整toolcall/返回及当前人类原话、父级窗口原文、可见上下文说明保存在本机0600 `/tmp/feat714-native-final-dphmlbb6/upgrade-permission-denial-resumed-17095.txt`。人类原话在worker会话与本记录可见，但未重复嵌进被拒bash命令/description/justification或紧邻说明；随后仅从既有结果元数据补取真实拒绝时间 `2026-11-09T03:13:09.856Z`、`NanoApprovalDenied / classifier_block` 及原生call/result定位到上述本机证据，无API/模型/权限探测或重试。未返回approval request ID、独立classifier trace或reviewer prompt/context，不能从worker可见性推reviewer实际所见。父级接手按执行工具判断/上下文接续异常调查，明确不再要求用户重复批准本已披露隔离动作。
 - 按准确main.js/loopback/db argv核准后，仅SIGTERM自有PID34092并收集bash-39 **exit0**；实查PIDgone、53703connect61、精确557为Shutdown。预期四个新private文件及两个runner均不存在；未查API用户/消息来探部分执行。首次资源核验漏设DEVELOPER_DIR导致simctl查找exit72，仅补正确Xcode环境后只读核验exit0，不隐藏该命令失败。
 - 已通过原通道实际交出本窗口给720。**零XCTest执行、无新增UI证据、升级四阶段仍未完成**；仅启动服务不算旅程进展。当前保留已记录的下一窗口前置资源，由714负责，不因这一新工具拒绝自动销毁旧→新升级前置；待父级调查结论或取消时重新核保留必要性。
+
+## 策略更新后的轻量恢复准备（未开始旅程）
+
+- 用户「工具审核策略已经更新了，应该不会被拒绝了」由父级原通道转交；这是接续事实，不是新的隔离测试请批、保证工具allow或把另修审批问题并入714。当前只按父级716优先资源安排准备，未重提交旧被拒命令，也没有API/模型/策略探测。
+- 实查分支`codex/feat-714`、HEAD `ba60a9acb`，tracked clean（原untracked mock保留）；同bundle `win.nanoim.ios`两份App仍在：current Info revision `d0eb4c825`、可执行SHA256 `6d985e7088162506e401ebd9dfa04994a7c82b1945dd008d63c8802703774040`；legacy Info `005a360579d9`、SHA256 `e5b0eb7203fdaba71cd510571cd0f463b741c64febc88d82be5c8e3f3b466d67`。旧detached worktree HEAD `005a360579d9e2c73f0a613073bcaecd705b7e62`且clean，不重建。
+- 原Journey runner SHA256 `82e9a4af3518653ae99daafae1eb900e9a4e55a33df1d5e6664d07b4d65e9287`不变；只读plist核其`UITargetAppPath`和`DependentProductPaths`均指当前App。后续生成legacy自有runner时须**同时**把目标App与对应dependent App路径指向真实旧App，保留已构建当前UI runner/测试bundle，且安装后再核App容器Info确为legacy；不能仅改target却让dependency安装覆盖为current，再误称旧版实际写JSON。此处只识别并记录配置约束，尚未生成/运行新runner。
+- 原fixture DB/JWT/input与peer资料文件实查存在（未输出secret）；四个先前被拒准备输出仍absent。原53703 TCP connect_ex=61，无HTTP调用、未起服务，未调用simctl或操作任何设备。文件存在不当作账号不存在或App现有session的证据；下一真实窗口仍须用正常fixture/API与UI身份guard检查，不盲目假定中断现场。
+- 下一批仍是同一完整升级方案：正常API建合成迁移身份和direct/history→旧App正常UI登录/完整输入/显式Send且自有origin真正不可达→核真实非空legacy JSON与不可变请求身份/完整字节→同bundle覆盖current、不uninstall/erase→离线仅pending说明、无虚构会话→原origin在线恢复全文与原pending、零自动发送→显式Retry仅产生一条原内容新消息并清pending。每段保留原断言/正常API前后计数和真实画面；新的实际拒绝/失败立即停该段与收资源，不换工具/账号绕过、不放宽超时。
+- 以上仅前置与方案就绪，不把原175 native测试、旧offline/membership结果扩成升级PASS；历史CI两次cleanup失败原因未知仍未知。下一动作由父级真实释放串行窗口触发，而不是重问许可或反复检查策略。
 
 ## 当前临时资源责任与回收（2026-11-09，适用新回收规则）
 
