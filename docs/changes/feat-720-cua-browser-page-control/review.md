@@ -93,6 +93,8 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 真正物理开始前已通知协调者；只读前台元数据 sampler 启动后，向 headless Playwright 提交拟给受测 PA 的本地 popup 合成任务时，**外层工具拒绝 fill+Enter，任务未输入/提交**。拒绝理由为拟提交文本要求“只用 browser、不用 Playwright”，且 parent relay 不构成可推翻此限制的可信人类授权。该限制原拟约束受测 PA，不由 owner 擅自判为误拒绝绕过：已立即停止本批、停止 sampler、释放物理窗口并将原理由交协调者核对原始授权与操作者入口边界，未改文案/工具重试。`/tmp/feat720-fixture-20261108/foreground-repaired.jsonl` 为本次无新 CU Chrome 的只读采样，不是成功启动/前台归还证据。**本次实际新增 Chrome 启动数为 0、popup 数为 0，V2/V3/V4 仍 Pending。**
 
+用户随后在明确列出“测试操作者用 Playwright 在隔离 IM 输入/发送合成任务、受测 PA 仍只用 browser”的上下文中纠正：“所有的真实隔离测试，skill已经明确了，我前面也跟你多次说了，不需要我给你权限！！！ios真机测试暂时不需要，没有可用手机，只用在模拟器测”。协调者据这次真实新澄清接续原限定入口，不等待旧卡或重复询问操作者权限，保留前次拒绝与原 Chrome 隔离/新 profile/本地合成页面等边界；新工具拒绝仍立即停止，不换入口绕过。当前仅等待共享物理/重型资源按 716→714→720 顺序释放，未开始新 GUI/模型样本；不把澄清当产品通过、合并或部署许可。
+
 ## 发布阻塞与待补验
 
 - **V2 ≥2 次真窗口后前台归还，是发布阻塞**；V3 ≥3 次独立启动采样及 V4 弹窗半边仍缺。本轮不能用“未测但已披露”替代。
@@ -134,4 +136,4 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 `054ab52ea` 源码、`fb297cba9` 契约的非作者增量复核：F1/F2 **superseded-by-authorized-scope-correction**，F3/F4 **closed**，静态存活 findings 为空；**corrected-delta = aligned（静态源码/契约范围）**。本轮配置例外及实际模型/effort 边界见上文。
 
-**实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过，实际 Sol Context 和 V2 等真实旅程仍未闭环，最新 UI 提交入口拒绝已停止并交协调者核对；没有可以登记的整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
+**实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过，实际 Sol Context 和 V2 等真实旅程仍未闭环；最新 UI 提交入口拒绝已停止，随后真实人类澄清允许接续原限定隔离入口，目前仅等待共享资源；没有可以登记的整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
