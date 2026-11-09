@@ -1,6 +1,7 @@
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { zstdCompressSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import { RuntimeClient, prepareProfile } from '../src/client.js';
 import type { SessionDeletionPlan } from '../src/agent-deletion.js';
@@ -42,6 +43,20 @@ it('purges cold A history and projection cache while B executes and reads in the
       const home=process.env.DSH_HOME;
       export const inject=['llm','sessionProjectionCache','sessionPersistence'];
       export function apply(ctx) {
+        const present = name => access(home+'/'+name).then(()=>true,()=>false);
+        const timer = setInterval(async () => {
+          if (!await present('a-want-lease') || await present('a-released')) return;
+          clearInterval(timer);
+          try {
+            const {header} = await ctx.sessionPersistence.stat('root-a');
+            const lease = await ctx.sessionPersistence.acquireWriteLease(header);
+            await writeFile(home+'/a-held','');
+            while (!await present('a-release')) await new Promise(resolve=>setTimeout(resolve,20));
+            await lease.release();
+            await writeFile(home+'/a-released','');
+          } catch(err) { await writeFile(home+'/fixture-error',String(err)); }
+        },20);
+        timer.unref();
         ctx.on('llm/stream', async function*(o) {
           if (o.sessionId==='root-b') {
             await writeFile(home+'/b-started','');
@@ -69,19 +84,43 @@ it('purges cold A history and projection cache while B executes and reads in the
     await expect.poll(() => access(file('b-started')).then(() => true, () => false), {timeout: 5000}).toBe(true);
     const pid = runtime!.process.pid;
     await expect(rpc.request('agent.disable', operation)).resolves.toMatchObject({confirmed: true});
+    const project = (await readdir(file('sessions')))[0]!;
+    const childDirectory = file(`sessions/${project}/a-child`);
+    const corruptDirectory = file(`sessions/${project}/a-corrupt`);
+    await mkdir(childDirectory);
+    await mkdir(corruptDirectory);
+    const childLog = join(childDirectory, 'session.v3.jsonl.zstd');
+    const oldHeader = {type:'session', version:3, id:'a-child', createdAt:0, cwd:home, isSeeded:false, origin:'subagent', parentSession:'root-a', delegationDepth:1};
+    await writeFile(childLog, zstdCompressSync(Buffer.from(JSON.stringify(oldHeader) + '\n')));
+    await writeFile(join(corruptDirectory, 'session.v4.jsonl.zstd'), '{corrupt');
+    await expect(rpc.request('agent.deletion.plan', {...operation, knownSessionIds:['a-corrupt']})).rejects.toThrow('a-corrupt');
+    await rm(corruptDirectory, {recursive:true});
     const plan = await rpc.request('agent.deletion.plan', operation) as SessionDeletionPlan;
-    expect(plan.sessionIds).toEqual(['root-a']);
-    const [target] = plan.entries;
+    expect(plan.sessionIds).toEqual(['a-child','root-a']);
+    expect(plan.entries.find(entry => entry.header.id === 'a-child')?.artifacts.map(artifact => artifact.name)).toEqual(['session.v3.jsonl.zstd']);
+    const target = plan.entries.find(entry => entry.header.id === 'root-a');
     expect(target!.artifacts.length).toBeGreaterThan(0);
     const log = join(home, 'sessions', target!.directory, target!.artifacts[0]!.name);
     const cache = file('storages/session_projcache/sessions/root-a.json');
     await expect(access(log)).resolves.toBeUndefined();
     await expect(access(cache)).resolves.toBeUndefined();
+    await writeFile(file('a-want-lease'), '');
+    await expect.poll(() => access(file('a-held')).then(() => true, () => false), {timeout: 5000}).toBe(true);
+    const lockPath = join(home, 'sessions', target!.directory, 'session.lock');
+    const lockInode = (await stat(lockPath)).ino;
+    await expect(rpc.request('agent.deletion.purge', {...operation, plan})).rejects.toThrow('root-a');
+    await expect(access(log)).resolves.toBeUndefined();
+    await expect(access(childLog)).rejects.toHaveProperty('code', 'ENOENT');
+    expect(await readdir(file('deletion-staging/ZGVsZXRlLWE'))).toEqual(['a-child-session.v3.jsonl.zstd']);
+    await writeFile(file('a-release'), '');
+    await expect.poll(() => access(file('a-released')).then(() => true, () => false), {timeout: 5000}).toBe(true);
     const purge = rpc.request('agent.deletion.purge', {...operation, plan});
     await expect(rpc.request('session.submit', submit('root-b', 'b-new', 'inject'))).resolves.toMatchObject({accepted: true});
     await expect(rpc.request('session.observe', {sessionId: 'root-b'})).resolves.toMatchObject({events: expect.any(Array)});
-    await expect(purge).resolves.toMatchObject({purged: true, sessionIds: ['root-a']});
+    await expect(purge).resolves.toMatchObject({purged: true, sessionIds: ['a-child','root-a']});
     await expect(access(log)).rejects.toHaveProperty('code', 'ENOENT');
+    await expect(access(childLog)).rejects.toHaveProperty('code', 'ENOENT');
+    expect((await stat(lockPath)).ino).toBe(lockInode);
     await expect(access(cache)).rejects.toHaveProperty('code', 'ENOENT');
     await expect(access(file('exports/cm9vdC1h.jsonl'))).rejects.toHaveProperty('code', 'ENOENT');
     expect(await readdir(file('deletion-staging'))).toEqual([]);
@@ -104,4 +143,4 @@ it('purges cold A history and projection cache while B executes and reads in the
     await kill();
     await rm(home, {recursive: true, force: true});
   }
-}, 30_000);
+}, 90_000);

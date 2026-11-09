@@ -179,11 +179,11 @@ export class KnowledgeRuntime extends Service {
   }
   async facts() { return [...(await this.state).table('facts').entries()].map(([, value]) => value).filter(value => !value.cancelledByDisable); }
   async acknowledge(id: string) { await (await this.state).table('facts').delete(storageKey(id)); this.undelivered.delete(id); }
-  async recover() {
-    await this.dreaming.recover();
-    for (const fact of await this.facts()) this.undelivered.add(fact.id);
+  async recover(retired: (agentId: string) => boolean = () => false) {
+    await this.dreaming.recover(retired);
+    for (const fact of await this.facts()) if (!retired(fact.agentId)) this.undelivered.add(fact.id);
     const reviews = (await this.state).table('reviews');
-    for (const [id, review] of reviews.entries()) if (review.status === 'running') await reviews.put(id, { ...review, status: 'interrupted' });
+    for (const [id, review] of reviews.entries()) if (!retired(review.agentId) && review.status === 'running') await reviews.put(id, { ...review, status: 'interrupted' });
     return this.reviews();
   }
   /** Preserve stopped review and notification evidence without re-emitting old work. */

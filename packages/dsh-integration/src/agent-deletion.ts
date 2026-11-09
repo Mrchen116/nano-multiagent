@@ -9,9 +9,9 @@ import DeletionCache from './deletion-cache.js';
 import type { SessionBinding } from './index.js';
 
 const retirement = z.object({ revision: z.number().int(), sessionIds: z.array(z.string()) });
-const domain = defineDomain({ name: 'nano_agent_deletion', version: 1, tables: { owners: domainTable(retirement), reviewers: domainTable(z.string()) } });
-const safeId = z.string().regex(/^[a-zA-Z0-9_-]+$/);
-const generationPattern = /^session(?:\.v(\d+))?\.jsonl(?:\.zstd)?$/;
+const domain = defineDomain({ name: 'nano_agent_deletion', version: 1, layout: 'per-record', tables: { owners: domainTable(retirement), reviewers: domainTable(z.string()) } });
+const safeId = z.string().regex(/^(?!\.{1,2}$)[a-zA-Z0-9._-]+$/);
+const generationPattern = /^session(?:\.v([1-9]\d*))?\.jsonl(?:\.zstd)?$/;
 const headerSchema = z.object({
   id: safeId, version: z.literal(SESSION_FORMAT_VERSION), cwd: z.string().optional(), createdAt: z.number(),
   isSeeded: z.boolean(), parentSession: safeId.optional(), origin: z.literal('subagent').optional(),
@@ -49,6 +49,7 @@ function fromHeader(header: Entry['header']): SessionHeader {
 }
 
 async function syncDirectory(path: string): Promise<void> {
+  if (process.platform === 'win32') return;
   const directory = await open(path, 'r');
   try { await directory.sync(); } finally { await directory.close(); }
 }
@@ -72,7 +73,10 @@ export class SessionDeletion {
   static forRuntime(ctx: Context, home: string): SessionDeletion | undefined {
     const cache = ctx.get('sessionProjectionCache');
     const storage = ctx.sessionPersistence;
-    if (cache instanceof DeletionCache && storage instanceof JsonlSessionPersistence)
+    const query = ctx.sessionQuery as typeof ctx.sessionQuery & {config?: {openAt?: string}};
+    // The supported profile never opens an FTS index. The optional SQLite
+    // service exposes no scoped purge operation in this pinned version.
+    if (cache instanceof DeletionCache && storage instanceof JsonlSessionPersistence && query.config?.openAt === 'never')
       return new SessionDeletion(ctx, cache, storage, home);
   }
 
@@ -232,6 +236,11 @@ export class SessionDeletion {
           const artifacts = await this.artifacts(directory);
           if (artifacts.some(artifact => !entry.artifacts.some(prior => prior.name === artifact.name && prior.witness === artifact.witness)))
             throw new Error(`Session artifacts changed after deletion planning: ${id}`);
+          if (artifacts.length) {
+            const header = (await this.storage.stat(sessionId))?.header;
+            if (!header || header.cwd !== entry.header.cwd || header.createdAt !== entry.header.createdAt)
+              throw new Error(`Could not verify session under its writer lease: ${id}`);
+          }
           if (artifacts.length) await mkdir(staging, { recursive: true, mode: 0o700 });
           for (const {name} of artifacts) {
             const staged = join(staging, `${id}-${name}`);
@@ -248,6 +257,7 @@ export class SessionDeletion {
     }
     await this.removeCacheBackups(ids);
     await rm(staging, { recursive: true, force: true });
+    await syncDirectory(dirname(staging)).catch(error => { if (error.code !== 'ENOENT') throw error; });
     const reviewers = (await this.state).table('reviewers');
     for (const id of ids) await reviewers.delete(id);
     return plan.sessionIds;

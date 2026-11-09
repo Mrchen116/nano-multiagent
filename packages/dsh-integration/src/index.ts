@@ -332,7 +332,8 @@ export default class NanoRuntime {
       await deletion?.restore();
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       for (const agent of config.agents) {
-        lifecycle.configure(agent.agentId, config.lifecycle?.[agent.agentId] ?? {revision: 1});
+        const retired = deletion?.retiredRevision(agent.agentId);
+        lifecycle.configure(agent.agentId, retired === undefined ? config.lifecycle?.[agent.agentId] ?? {revision: 1} : {revision: retired, disabled: true, disabledThroughRevision: retired});
         this.cron.block(agent.agentId, lifecycle.current(agent.agentId).disabled === true);
       }
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
@@ -347,8 +348,9 @@ export default class NanoRuntime {
       await knowledgeFiber.await();
       // Archive readers must not replay recovery jobs whose saved paths point outside the copy.
       if (config.observationOnly && config.agents.some(agent => !config.lifecycle?.[agent.agentId]?.disabled)) throw new RpcError(-32002, 'Observation-only initialization requires disabled agents');
-      if (!config.observationOnly) await (await knowledge).recover();
+      if (!config.observationOnly) await (await knowledge).recover(agentId => deletion?.retired(agentId) === true);
       for (const agent of config.observationOnly ? [] : config.agents) await lifecycle.prepare(agent.agentId, async () => {
+        if (deletion?.retired(agent.agentId)) return;
         await cancelPersisted(agent.agentId);
         await this.cron.skipMissed(agent.agentId, new Set(config.blockedScheduleIds ?? []));
       });
@@ -359,6 +361,7 @@ export default class NanoRuntime {
       const personal = config.agents.filter(agent => agent.personal);
       if (personal.length && (config.agents.length !== 1 || config.bindings.some(binding => binding.agentId !== personal[0]!.agentId || binding.ownerId !== personal[0]!.personal!.ownerId))) throw new RpcError(-32002, 'Personal runtime must contain only its trusted binding');
       for (const agent of config.agents) {
+        if (deletion?.retired(agent.agentId)) continue;
         assertPersonalConfiguration(agent);
         await ctx.llm.resolveModelInfo(agent.provider, agent.model);
         const revisions = new Set([agent.revision, ...config.bindings.filter(binding => binding.agentId === agent.agentId).map(binding => binding.revision)]);
@@ -374,9 +377,9 @@ export default class NanoRuntime {
       for(const sessionId of config.taskStops??[])this.tasks.block(sessionId,true);
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
-      for (const pending of config.pendingConfigurations ?? []) await prepare(pending);
+      for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
       this.accepting = true;
-      for (const agent of config.agents) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
+      for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
     });
     handle('session.ensure', value => this.ensure(value as SessionBinding));
