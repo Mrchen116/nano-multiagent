@@ -241,8 +241,8 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 修正fixture后的最终完整原生scheme实际 **exit0 / TEST SUCCEEDED**；xcresult summary为 **196 total = 195 passed + 1 explicit physical-device protection skipped / 0 failed**，其中XCTest169、Swift Testing27。受测产品与W16静态closure一致；此结果关闭该批源码的运行空缺，不替代真实cleanup UI、旧升级Retry/401或完整跨包CI。合并工作树的依赖安装、TypeScript build/typecheck、当前iOS内嵌前端构建、文档完整性和十三条运行时依赖边界测试也分别实际通过；尚无最终Release归档或PR交付结论。
 - 新三阶段cleanup UI helper的独立静态审查未发现新增副作用越界，但指出阅读位置未同进程保持、命令消失缺正对照、负向Process检查缺可见目标约束。运行前修正可见性与mention输入，并明确排除未覆盖的命令/阅读anchor结论；真实模型来源及所属IM不可达仍须外部收据。此静态审查不是运行PASS；旧升级Retry与真实401拒绝边界不变。
 
-## Round 22 — 新执行清理旅程失败与停止边界：待独立产物核查
+## Round 22 — 新执行清理旅程失败与停止边界：独立产物核查完成
 
 - 原非作者随后亲核最终helper及完整原生summary/raw，W16运行空缺关闭，**0C/0W、findings为空**；mention改用Agent ID符合当前token/过滤器，旧anchor及commands排除项不变。仅收口源码与原生测试，不批准完整unit。
 - 真实prime随后一测试、一失败、exit65：正常登录、普通完整正文及公开Send已发生，但预期Agent回复在既定等待内未出现，Process正对照尚未建立；永久清理、候选收敛与offline两个phase未运行。Node日志`agent_disabled`仍只作线索，不先定为cache回归或已核模型根因。只读认证诊断遇新实际工具拒绝后立即停相应动作及依赖路径，没有换工具、数据来源或凭据绕过。完整匿名观察与资源边界见[M2最新执行清理结果](M2-partition-revocation/recovery-validation.md#目标分支集成后的执行清理旅程prime失败后续未执行)。
-- 真实FAIL、AX/脱敏log/summary与所属栈停止收据交原非作者一次集中核查；本节此时不预写其运行裁决。源码门禁通过不替代本条必要真实路径；unit保持active，不归档、不宣称Ready PR。
+- 原非作者已直接核对真实FAIL、完整AX/脱敏log/summary/run/manifest、指定Node日志及所属栈停止收据，并核D15和匿名M1/M2记录：**prime实跑FAIL；后续NOT RUN，永久执行清理、mention收敛与清理后offline的产品验证为INCONCLUSIVE／未验证；根因INCONCLUSIVE**。源码及native closure保留，不被本次失败自动推翻，也不替代真实旅程；完整unit未批准、保持active，不归档、不宣称Ready PR。认证诊断拒绝依据owner原始操作回执复用，reviewer未为独立证明而读取凭据、调用API或重试。

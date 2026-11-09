@@ -281,5 +281,5 @@
 
 - 新基线执行清理世代与预览/已删除成员字段进入同一仓储；真实旧schema升级不擦库、重开字段保真、旧分页/旧发送资格、bridge/older一致性及draft/pending不误清均有确定性测试。独立审查揭出的W11–W16含跨会话删除知识、未知最新预览的discard与在途旧list/detail/snapshot变体，均经实质RED、集中修正和同一非作者closure，源码存活findings为空。
 - 完整原生scheme最终实际 **196 total / 195 passed / 0 failed / 1 physical-device-only skipped / exit0**。一项skip仍是物理设备文件保护属性，本轮仅模拟器不改为PASS。首次完整失败与循环fixture、WebKit窄补验均保留；最终GREEN不是用旧结果拼接。未将系统诊断表述成无warning。
-- 当前依赖安装、TypeScript build/typecheck、当前iOS内嵌前端build、Journey build-for-testing、文档完整性及十三条运行时依赖contract测试分别实际通过。真实执行清理与离线重开仍由独立真实旅程补验，不从unit测试推运行PASS；同进程阅读anchor与无正对照的命令移除明确不在本次helper的证明范围。
+- 当前依赖安装、TypeScript build/typecheck、当前iOS内嵌前端build、Journey build-for-testing、文档完整性及十三条运行时依赖contract测试分别实际通过。最新真实旅程prime已失败，后续清理与离线phase未执行；相应产品验证仍未完成，详见[M2最新结果](../M2-partition-revocation/recovery-validation.md#目标分支集成后的执行清理旅程prime失败后续未执行)。不从unit测试推运行PASS；同进程阅读anchor与无正对照的命令移除明确不在本次helper的证明范围。
 - 旧升级显式Retry及服务端唯一性、真实401仍受各自实际拒绝阻塞，本批独立工作不绕行、不重试这些动作。历史跨包CI红因未知、最终适用跨包CI/Release归档和完整unit交付仍单列，不以本次原生GREEN宣布归档或Ready PR。
