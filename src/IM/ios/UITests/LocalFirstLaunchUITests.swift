@@ -191,7 +191,8 @@ final class LocalFirstLaunchUITests: XCTestCase {
         let composer = app.textViews["Message"]
         try requireFixture(composer.waitForExistence(timeout: 5), "Use the real editable message composer")
         try requireFixture(!app.staticTexts["Awaiting delivery confirmation"].exists, "Do not replace an existing pending attempt")
-        composer.tap(); composer.typeText(content)
+        composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        composer.typeText(content)
         try requireFixture(composer.value as? String == content, "Preserve the complete pending content")
         try requireFixture(app.buttons["Send"].isEnabled, "The user must explicitly submit the prepared content")
         capture("pending-ready-to-stop-origin")
@@ -373,10 +374,16 @@ final class LocalFirstLaunchUITests: XCTestCase {
     func testPrimeRealExecutionForPermanentCleanup() throws {
         app.launch()
         defer { app.terminate() }
-        try signInFixture()
+        if app.textFields["Enter your username"].waitForExistence(timeout: 3) {
+            try signInFixture()
+        }
         try openFixtureConversation()
         let composer = app.textViews["Message"]
-        composer.tap(); composer.typeText(try required("NANO_UI_CLEANUP_TASK"))
+        let task = try required("NANO_UI_CLEANUP_TASK")
+        // The visible UITextView can report no XCTest hit point in a fresh simulator.
+        composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        composer.typeText(task)
+        try requireFixture(composer.value as? String == task && app.buttons["Send"].isEnabled, "Submit the complete read-only task from the visible composer")
         app.buttons["Send"].tap()
         let reply = message(try required("NANO_UI_CLEANUP_REPLY"))
         try requireFixture(reply.waitForExistence(timeout: 150), "The synthetic Sol agent must actually read the owned fixture and reply")
@@ -399,7 +406,8 @@ final class LocalFirstLaunchUITests: XCTestCase {
         let composer = app.textViews["Message"]
         // Completion tokens cannot contain whitespace; the immutable Agent ID is a valid unique query.
         let mentionQuery = "@" + agent
-        composer.tap(); composer.typeText(mentionQuery)
+        composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        composer.typeText(mentionQuery)
         try requireFixture(composer.value as? String == mentionQuery, "Use the fixture's exact Agent ID as the mention query")
         try requireFixture(app.staticTexts[displayName].firstMatch.waitForExistence(timeout: 5), "The soon-to-be-deleted member must positively exist as a mention candidate")
         capture("cleanup-candidate-before")

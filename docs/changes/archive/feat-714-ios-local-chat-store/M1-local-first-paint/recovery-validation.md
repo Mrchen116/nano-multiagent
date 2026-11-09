@@ -282,4 +282,12 @@
 - 新基线执行清理世代与预览/已删除成员字段进入同一仓储；真实旧schema升级不擦库、重开字段保真、旧分页/旧发送资格、bridge/older一致性及draft/pending不误清均有确定性测试。独立审查揭出的W11–W16含跨会话删除知识、未知最新预览的discard与在途旧list/detail/snapshot变体，均经实质RED、集中修正和同一非作者closure，源码存活findings为空。
 - 完整原生scheme最终实际 **196 total / 195 passed / 0 failed / 1 physical-device-only skipped / exit0**。一项skip仍是物理设备文件保护属性，本轮仅模拟器不改为PASS。首次完整失败与循环fixture、WebKit窄补验均保留；最终GREEN不是用旧结果拼接。未将系统诊断表述成无warning。
 - 当前依赖安装、TypeScript build/typecheck、当前iOS内嵌前端build、Journey build-for-testing、文档完整性及十三条运行时依赖contract测试分别实际通过。最新真实旅程prime已失败，后续清理与离线phase未执行；相应产品验证仍未完成，详见[M2最新结果](../M2-partition-revocation/recovery-validation.md#目标分支集成后的执行清理旅程prime失败后续未执行)。不从unit测试推运行PASS；同进程阅读anchor与无正对照的命令移除明确不在本次helper的证明范围。
-- 旧升级显式Retry及服务端唯一性、真实401仍受各自实际拒绝阻塞，本批独立工作不绕行、不重试这些动作。历史跨包CI红因未知、最终适用跨包CI/Release归档和完整unit交付仍单列，不以本次原生GREEN宣布归档或Ready PR。
+- 旧升级显式Retry及服务端唯一性、真实401仍受各自实际拒绝阻塞，本批独立工作不绕行、不重试这些动作。历史跨包CI红因未知、最终适用跨包CI和完整unit交付仍单列，不以本次原生GREEN宣布归档或Ready PR。
+- 相同产品源码、后续仅文档同步的冻结版本，实际无签名设备架构Release归档 **exit0 / ARCHIVE SUCCEEDED**；App版本/bundle与可执行/Info哈希已核验。未连接或安装手机。提取非敏感构建收据后已删除本轮新建专属archive/DerivedData，实核目录缺席，回收约0.766GiB allocated数据；这不删除旧升级恢复构建。
+- 旧升级恢复所保留的当前模拟器构建根仍在。拟仅回收其四个intermediates/cache目录、保留产品和原恢复数据的命令遇新的实际工具拒绝，理由是工作树外递归删除更广的构建/缓存可能支持其它恢复；命令未执行，不换路径或工具重试。该根与既有pending/401设备、合成状态仍由714执行者负责；相关拒绝边界有有效处置或该矩阵明确取消后重新核回收，不能宣称已全部清场。本批新cleanup runtime/凭据runner/专属设备与新Release专属根则已实际回收，详见M2最新结果。
+
+## 接手后用新隔离环境完成真实升级矩阵
+
+- **旧版冻结、离线迁移、联网不自动发、显式重试：四个阶段各 1/1 PASS。** 旧 App `005a360579d9` 在自己的模拟器以正常账户登录，通过公开输入区输入全文；真实停掉所属 IM 后点击 Send，出现未确认状态与重试入口。只读检查确认磁盘有一条旧 JSON，请求完整，服务端未有该消息。首次运行在刚登录进详情时遇 XCTest 输入焦点失败，发生在输入和停服之前；同一旧 App 持久会话冷启后走通，保留失败记录。
+- 原容器覆盖安装新版，两个已安装代码组件与冻结产品 `962283a2047dd9b8faac0e180baed6becbad16e1` 的构建哈希一致。原 IM 仍不可达时，冷启只显示一条未确认的提示，无登录或假会话；同一 IM 恢复后，真实会话中的旧全文、Retry 及禁用 Send 仍在，服务器仍无该消息。两阶段各有一条 pending，导入标记 `imported=1;rejected=0`，冻结字节、幂等键及空附件集合与旧 JSON 相等。
+- 显式点击 Retry 后同一条完整正文进入历史，输入区清空，pending 行从 1 变 0；真实 IM 数据库同一会话与发送者下恰有一条已完成消息，幂等键与旧 JSON 相同，旧文件仍保留供回滚。测试用文本，不从空附件推论真实媒体迁移；真机飞行模式、文件保护与真机冷启采样按用户限定未执行。

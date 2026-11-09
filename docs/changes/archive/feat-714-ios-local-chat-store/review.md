@@ -238,7 +238,7 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 后续核查确认 **W12仍有list更新已查看另一会话/degraded知识丢失变体**，另有 **W15 discard最新消息无法回退剩余预览**。补五测试实际RED为五测试、九断言失败（其中非最新discard原已通过），修后相关三组八十二测试、零失败。已知最新身份删除才重建剩余预览；未知服务端预览删除后等待新服务端投影，不让普通旧分页晋升。删除知识在同owner投影消失后仍保留、切owner清空。
 - **W16**：discard前在途list/detail/snapshot仍可恢复旧预览。新增真实RED为两测试、十断言失败；源码修正将持久snapshot序列推进与discard放在同一事务，并使用独立discard read revision阻止ready/degraded旧响应发布，避免误取消正常冻结发送；正常资格过期重取而非报离线。原非作者集中审查相关caller后判 **源码CLOSED、0C/0W、存活findings为空**，不是完整unit批准。
 - 首次完整原生运行的XCTest部分实际一百六十九测试、一项明确真机保护skip、六断言失败：新循环fixture重复事件游标造成四条断言失败，另有既有WebKit history图片两条。前者改为每分支唯一递增事件ID，保留原内容/存储断言，不改产品；后者重建当前受支持的iOS内嵌前端产物后，两个受影响测试实际补验均通过。不能据此声称已唯一证明WebKit失败根因或首次完整run通过。
-- 修正fixture后的最终完整原生scheme实际 **exit0 / TEST SUCCEEDED**；xcresult summary为 **196 total = 195 passed + 1 explicit physical-device protection skipped / 0 failed**，其中XCTest169、Swift Testing27。受测产品与W16静态closure一致；此结果关闭该批源码的运行空缺，不替代真实cleanup UI、旧升级Retry/401或完整跨包CI。合并工作树的依赖安装、TypeScript build/typecheck、当前iOS内嵌前端构建、文档完整性和十三条运行时依赖边界测试也分别实际通过；尚无最终Release归档或PR交付结论。
+- 修正fixture后的最终完整原生scheme实际 **exit0 / TEST SUCCEEDED**；xcresult summary为 **196 total = 195 passed + 1 explicit physical-device protection skipped / 0 failed**，其中XCTest169、Swift Testing27。受测产品与W16静态closure一致；此结果关闭该批源码的运行空缺，不替代真实cleanup UI、旧升级Retry/401或完整跨包CI。合并工作树的依赖安装、TypeScript build/typecheck、当前iOS内嵌前端构建、文档完整性和十三条运行时依赖边界测试也分别实际通过；后续在相同产品源码上、仅追加文档后的冻结版本实际完成无签名设备架构Release归档，exit0、ARCHIVE SUCCEEDED；核对App版本、bundle与可执行/Info哈希后已回收本次专属archive/DerivedData，未连接或安装手机。PR仍未交付。
 - 新三阶段cleanup UI helper的独立静态审查未发现新增副作用越界，但指出阅读位置未同进程保持、命令消失缺正对照、负向Process检查缺可见目标约束。运行前修正可见性与mention输入，并明确排除未覆盖的命令/阅读anchor结论；真实模型来源及所属IM不可达仍须外部收据。此静态审查不是运行PASS；旧升级Retry与真实401拒绝边界不变。
 
 ## Round 22 — 新执行清理旅程失败与停止边界：独立产物核查完成
@@ -246,3 +246,9 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 原非作者随后亲核最终helper及完整原生summary/raw，W16运行空缺关闭，**0C/0W、findings为空**；mention改用Agent ID符合当前token/过滤器，旧anchor及commands排除项不变。仅收口源码与原生测试，不批准完整unit。
 - 真实prime随后一测试、一失败、exit65：正常登录、普通完整正文及公开Send已发生，但预期Agent回复在既定等待内未出现，Process正对照尚未建立；永久清理、候选收敛与offline两个phase未运行。Node日志`agent_disabled`仍只作线索，不先定为cache回归或已核模型根因。只读认证诊断遇新实际工具拒绝后立即停相应动作及依赖路径，没有换工具、数据来源或凭据绕过。完整匿名观察与资源边界见[M2最新执行清理结果](M2-partition-revocation/recovery-validation.md#目标分支集成后的执行清理旅程prime失败后续未执行)。
 - 原非作者已直接核对真实FAIL、完整AX/脱敏log/summary/run/manifest、指定Node日志及所属栈停止收据，并核D15和匿名M1/M2记录：**prime实跑FAIL；后续NOT RUN，永久执行清理、mention收敛与清理后offline的产品验证为INCONCLUSIVE／未验证；根因INCONCLUSIVE**。源码及native closure保留，不被本次失败自动推翻，也不替代真实旅程；完整unit未批准、保持active，不归档、不宣称Ready PR。认证诊断拒绝依据owner原始操作回执复用，reviewer未为独立证明而读取凭据、调用API或重试。
+
+## Round 23 — 接手后冻结产品的独立收口
+
+- `validated_at=962283a2047dd9b8faac0e180baed6becbad16e1`（冻结产品；运行 helper 的变动仅在 UITest），`executed_base=56c5083770805182832fc52543b0c35aef5a430c`。W11–W16 保持关闭，无新增 finding。独立 reviewer 对照现行原生实现、已审测试和正式规范归并候选：三项新增、一项替换与 delta 逐项一致，其余条目保持，**corrected-delta aligned**。
+- 独立直接读取决定性截图、测试日志与结构化结果，复核[凭据及永久清理](M2-partition-revocation/recovery-validation.md#接手后的独立模拟器复验)和[旧版升级重试](M1-local-first-paint/recovery-validation.md#接手后用新隔离环境完成真实升级矩阵)：**九个真实模拟器阶段各 1/1 PASS，0 失败、0 跳过**。服务端 401、实际 Node 删除、工具轨迹清零、真实旧 JSON、冻结请求及幂等键、显式重试后的服务端唯一消息和本地 pending 清零均有各自证据。没有读取凭据、重跑旅程或将较早失败改写为通过。
+- 原生全套 195 通过、真机文件保护一项跳过及无签名 Release 归档对冻结产品仍有效。按用户限定不执行真机飞行模式、文件保护或二十次真机冷启采样。此次真实清理不证明没有正对照的命令候选或同进程阅读锚点；真实升级使用无附件的文本。前后端产品源码与目标分支相同；本机全量后端重跑在共享宿主出现多项超时，已停止该次运行，不能称本地全绿。以 GitHub CI 完成跨包校验。
