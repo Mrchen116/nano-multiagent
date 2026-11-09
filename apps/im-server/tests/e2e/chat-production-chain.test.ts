@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { join } from 'node:path';
 import { start, bind, cleanups } from './helpers.js';
 import { NodeStore } from '../../../../packages/personal-assistant/src/store.js';
+import { InboxStore } from '../../../../packages/personal-assistant/src/inbox.js';
 import { SingleThread } from '../../../../packages/personal-assistant/src/single-thread.js';
 import type { RuntimeEvent, RuntimePort } from '@nano/product-contracts';
 
@@ -54,5 +55,26 @@ it('preserves real SingleThread facts through relay and persistent chat history'
     { type: 'text', text: '展开这个' },
   ]));
   expect(JSON.stringify(delivered)).not.toContain('is_stale');
+
+  const source = 'root = Title("周六值班：木槿")';
+  const card = await node.frames.send('agent.message', {node_id:node.node,to:`conversation:${cid}`,text:'',
+    from_session_id:'assistant|tool_call:card',interactive:{format:'openui',catalog_version:'nano-iui-1',source}});
+  expect(card.payload.message_id).toEqual(expect.any(String));
+  const cardReply = await center.http('POST', `/im/v1/conversations/${cid}/messages`, {
+    sender_user_id: 'alice', content: '这张卡片里的代号是什么？', reply_to_message_id: card.payload.message_id,
+  }, center.tokens.alice);
+  expect(cardReply.status, cardReply.body).toBe(201);
+  const cardInput = await node.frames.next(frame => frame.type === 'relay.message' && frame.payload.message.id === cardReply.body.id);
+  const inbox = new InboxStore(':memory:'); cleanups.push(() => inbox.close());
+  inbox.receive(cardInput.payload, true);
+  const page = inbox.read('assistant', 'inbox-session', 'card-read', {target:cid});
+  expect(page.messages[0].reply_to).toEqual({message_id:card.payload.message_id,
+    sender:{name:cardReply.body.reply_to.sender.display_name,type:'agent'},interactive:{source}});
+  expect(page.messages[0].content).toEqual([{type:'text',text:'这张卡片里的代号是什么？'}]);
+  await product.receive(cardInput.payload);
+  expect(submitted.at(-1)!.content).toEqual(expect.arrayContaining([
+    {type:'text',text:expect.stringContaining(`[Interactive UI content from the quoted message]\n${JSON.stringify({source})}`)},
+    {type:'text',text:'这张卡片里的代号是什么？'},
+  ]));
   expect(errors).toEqual([]);
 }, 20000);

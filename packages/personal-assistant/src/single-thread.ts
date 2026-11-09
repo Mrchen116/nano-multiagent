@@ -170,8 +170,10 @@ export class SingleThread {
         const name = quote.sender.name.replace(/[\r\n]+/g, ' ');
         const lines = [`Quoted earlier message from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
         if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
+        if (quote.interactive) lines.push('[Interactive UI content from the quoted message]', JSON.stringify(quote.interactive));
         if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
-        if (quote.text !== original.content || quote.attachment_names) {
+        const textOmitted = (quote.text ?? '') !== original.content;
+        if (textOmitted || quote.attachment_names || (!quote.text && !quote.interactive)) {
           lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
         }
         // Some model adapters concatenate adjacent text parts without separators.

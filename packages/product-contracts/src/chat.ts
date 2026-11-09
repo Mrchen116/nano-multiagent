@@ -78,13 +78,14 @@ export interface ChatReplyReference {
   sender: ChatActor;
   content: string;
   attachments: ChatAttachment[];
+  interactive?: Pick<MessageInteractive, 'source' | 'supersedes_message_id' | 'superseded_by'>;
 }
 /** Project the original message for model consumption inside its current chat.
  *
  * Args:
  *   reply: Original message snapshot resolved by IM.
  * Returns:
- *   Author, complete text or an excerpt, and the IM identity for exact lookup.
+ *   Author, public text and card content, and the IM identity for exact lookup.
  */
 export function projectChatReplyContext(reply: ChatReplyReference) {
   const maxExcerptLength = 1200;
@@ -97,6 +98,7 @@ export function projectChatReplyContext(reply: ChatReplyReference) {
     message_id: reply.message_id,
     sender: { name: reply.sender.display_name, type: reply.sender.type },
     ...(text ? { text } : {}),
+    ...(reply.interactive ? { interactive: reply.interactive } : {}),
     ...(attachmentNames.length ? { attachment_names: attachmentNames } : {}),
   };
 }

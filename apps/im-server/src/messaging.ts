@@ -1,5 +1,5 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { interactiveResponse, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
+import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
 import { messageInput, messageMetadata, sendPrincipal, type MessageInput, type SendPrincipal, type SendMessageCommand } from './message-input.js';
 import { MessageRecords, type MessageMetadata, type MessageEventFrame, type MessageRelayRecord } from './message-records.js';
 import type { ChatAttachment, ChatMessage } from '@nano/product-contracts';
@@ -433,7 +433,8 @@ export class Messaging {
     if(!original||original.conversation_id!==conversationId)fail(404,'reply target not found');
     if(!['user','agent'].includes(original.sender_type)||!['completed','sent','pending'].includes(original.delivery_status))fail(422,'reply target is not available');
     const source=this.message(original.id);
-    return {message_id:source.id,sender:source.sender,content:source.content,attachments:source.attachments};
+    return {message_id:source.id,sender:source.sender,content:source.content,attachments:source.attachments,
+      ...(source.interactive ? {interactive:modelInteractiveContent(source.interactive)} : {})};
   }
   /** Commit a validated explicit publication under its existing dispatch identity. */
   publishAgent(principal:Extract<SendPrincipal,{kind:'gateway'}>,agentId:string,operationId:string|undefined,p:AgentPublication):ChatPublicationReceipt {

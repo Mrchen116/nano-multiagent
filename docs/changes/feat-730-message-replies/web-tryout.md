@@ -65,3 +65,9 @@
 
 - 用户要求直接在 `reply_to.text` 末尾备注省略。长引用在前 1200 个字符后另起一行加 `[Rest of original message omitted.]`，短引用保留完整正文。Inbox 和历史读取共用这个投影。
 - 39 项相关回归通过。真实 Global Sol 6.1 在群聊 `c_mxedik5q` 读到有省略提示的引文，按 ID 回查原消息，答出原文第 1446 个字符才开始出现的代号「玄汐-7486」。主 session `e5df36ca-cf0d-4df6-816e-62f8b93d2203` 第 5 轮可查看 `inbox`、`conversations` 和 `send_message`，本机证据见 `/tmp/feat730-evidence/long-quote-probe.json`。
+
+## 引用纯 UI 消息
+
+- 同步 `origin/develop` 的 `fa3380f6e`，包含纯 UI 的历史回读、搜索与审核投影。引用快照使用同一投影，保留完整的公开卡片源码和适用的替换关系。Global Inbox 和历史返回在 `reply_to.interactive` 中提供卡片，单线程在引用段中提供同样的内容。新旧消息从当前聊天原消息建立引用，渲染字段和私有草稿不进入快照。
+- 两个隔离群由另一名 Sol 6.1 Agent 先公开发送没有正文的 UI 卡片，再加入接收方。Web 群 `c_9ysja8t8` 用卡片气泡的回复按钮引用原卡片 `0df5cd5033d24a73bf54acd8acbd63c3`。Global 主轨迹第 6 轮从 Inbox 直接读到 `reply_to.interactive.source`，随后发送「柚林-A613」，期间无历史查询。单线程群 `c_ecc5x5ce` 通过真实 IM API 投递同类引用，原生输入带卡片源码，答出「铜雀-B258」。本机原生事件和消息回执见 `/tmp/feat730-evidence/ui-quote-probes.json`。
+- 构建及 Web 135 项相关回归通过。后端定向 110 项首跑通过，1 项 PA 能力目录超时，单独重跑通过。隔离预览保留给用户检查原生轨迹。
