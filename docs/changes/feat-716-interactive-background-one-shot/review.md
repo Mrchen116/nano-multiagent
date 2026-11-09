@@ -190,7 +190,25 @@ c91f限定关闭后，作者补核“draft已clean、动作POST已准入、等�
 - reviewer实际读取同case红2断言/0.451s→绿0.034s及完整82/另27日志，复用已归集exit65/0，不重跑；执行标签c91f+dirty三hash边界明确。gate在调用原mock base transport前等待，故证据限于native发送链准入/transport边界的确定性测试，**不是实际服务端已接单、真实HTTP回执或App旅程**。原c91f closure保留其原范围，四份delta未改、无新mismatch，其它未变结论retained，不改变动态缺口。reviewer只读、无写文件/HTTP/测试/GUI/服务/模型/worker/jobs或新资源，配置例外不变。
 - 新Release device archive由作者另行执行并已实际exit0（日志`/tmp/feat716-final-native-receipt-device-archive.log:1640`），不是本次reviewer执行/独立验归档的结论；不得与scoped code approval合并成整体动态/CI批准。
 
+## 最终集成双端核心与Context的限定独立复验（e4ba9fb5 / native4ae43）
+
+同一原reviewer已实际读取新原始SQLite/node journal、版本/fixture、当前App/测试配置、完整XCTest日志及决定图片；**双端核心三消息链PASS（限定实际场景）；current Native真实回访卡片→重编辑→再Send PASS；Context SUPPORTED；窄屏正常编辑/阅读PASS**。不是整体gate：已知Web409内部remount丢local/failure仍OPEN、恢复旅程不能写PASS，c91f/4ae43代码closure保留其范围。
+
+- 独立核HEAD e4ba9fb5与native4ae43 runtime07c5bc49…/helper862b8128…；实读App plist4ae43b4f867e/iphonesimulator/win.nanoim.ios、binary f0ebbb6a…及xctestrun指向同App。creator81d→e4ba的server/Web/PA/contracts源码diff为空；本轮dirty docs/新增Web失败测试不冒充冻结产品。原两份session原件hash各与proof一致。
+- 原SQLite direct会话owner u_x65cjzvw/external_source null、PA provenance和两卡实际source/catalog逐项匹配。原node journal实际32 send_message(interactive A)→33/36 sent8c681…、40 interactive B→41/44 sentc84…，不只信manifest。六条human自然正文不含人数答案或公开背景，caller_payload与会话/UTC相符，各仅一个completed relay，完整source/state/fields/time数组精确为Web A7B8→[]→A9、Native A8B8→[]→A9。
+- reviewer直接读node.sqlite3：Web inbox read56→raw57/proj60 item13→request62 Sol medium→model63/send64→65/68 sent6ef126…；80→81/84 item19→87/88→89/92 sent670da9…；104→105/108 item25→111/112→113/116 sent719d12…。Native152→153/156 item37→159/160→161/164 sent314f9f…；174→175/178 item43→181/182→183/186 sentf055f7…；198→199/202 item49→205/206→207/210 sent634f0a…。六条agent回复也在原IM DB completed，此次没有held-for-revalidation。Native first/second同turn6的step2/5，third turn7step2，准确称三个read后的模型步，不称三个独立turn。
+- 每个完整背景数组逐项等relay；首/三自然正文后仅一块data/not-instructions/not-submission/not-business-authorization说明，second仅原话。raw/proj第一text逐字节相等，proj仅加context ID。proof nextModel省略原journal.data.stream，reviewer独立对比确认其余完全一致，不冒称输入差异。组原文964/687及983/706bytes，小两卡无pagination，非provider wire、不推广64KiB边界。
+- 实读当前Web三份DOM、390×844图16-13-06（771861…）：A9/B8字段/分组清晰、无横溢/composer可达，不称三消息同屏。实读Native diagnostic.log1–378，正常App入口、A8/B8真实输入/断言、两次完整receipt/空composer、历史回访A8图后type9/marker、第三Send/空composer；1pass114.966s，allowance120未改，总testexecute185.750s，后置CLT72非case失败。图320FB…（4b6d1afe…）实际含三完整正文、前两回复/空composer，第三回复由journal/DB证明；D3A5…（6a5226…）为pre-edit A8，不说成A9。UI日志未记录ObjectIdentifier/onDisappear次数，准确写“真实回访/重编辑 + 已关闭同runtime确定性单测支持”，不另开live追对象指针。
+- reviewer也实际读首native失败log230–234（AX busy30s/allowance超时、仅首Send）与greenrun sample；单次green不倒推首失败唯一原因已修复。新正常ALLOW/daily ready是作者恢复事实，不由reviewer执行或冒充功能通过。
+
+### 新存活问题 F716-WEB-REATTACH
+
+当前Web409图16-20-02（5e0e19…）实际显示local A9/完整备注、完整正文、disabled Send与清楚错误/恢复入口，支持窄屏初始阻断/保留，但不是恢复成功。未点采用后local/notice丢失的事件仍OPEN；同期401不能单独证明唯一auth触发。原reviewer实际读作者最低层`internal-remount-red.log`，1failed/5skipped，local预期却读到remote周日见，不能提前批准dirty修复。
+
+需要随后冻结真实修复delta，补独立code closure及窄屏“比较→不采用/内部重挂仍保持→显式采用→Send恢复”的决定证据；真实leave/logout/revoke及在途PUT所有权的必要确定性保护跟随该delta。旧预算/连续恢复、native transient等仍按原hash/机制未变的历史直接证据retained，不迁移为当前重跑；当前core图未展示附件/fallback失败，不标它们当前PASS，也不因这次Web修复自动重开native预算全矩阵。本次reviewer全程只读、无文件修改/GUI/HTTP/测试/服务/模型/worker/jobs或资源，配置例外不变。
+
 ## 当前流程收口
 
-- 最终固定目标已实际合入并有上述独立补验；原reviewer已分别限定关闭c91f MERGE-1及4ae43动作回执busy缺口，APPROVED/findings=[]、corrected-delta aligned。作者分别执行81项/82项及各自Release device archive通过；不要把作者归档事实说成reviewer亲验归档。当前Web完整120 files/1152 tests已全绿；backend单组configuration-inspector/personal-security/task-execution通过，PA=true单case亦通过，但此前file-group poll与workspace-tools外层timeout仍未归因、不称本地全绿。当前动态缺口和精确工具拒绝仍在，不套用ea438动态批准。
-- canonical、archive、本地完整CI及Ready PR/远端CI尚未完成，不宣布交付；旧62814人类预览保护不动。已停止本次59469栈且核实PID49976退出/端口关闭，DB和必要证据保留；自有CC5已核实Shutdown，暂留待最终集成验证。
+- 最终固定目标已实际合入并有c91f MERGE-1及4ae43 busy的限定APPROVED/findings=[]、corrected-delta aligned。作者完整Native82/另27及新Release device archive通过，不称reviewer亲验归档。当前新双端普通核心/实际Context/正常窄屏有上述独立支持；已知Web内部重挂恢复缺口仍在修复，不套用旧ea438整体动态批准。
+- Web完整120 files/1152 tests全绿属于新Web修复前的版本；修后须跑受影响检查。backend workspace-tools未改runtime边界已定位configuration.apply cleanup.error，尚未证明所有失败同因或独立target baseline，不称本地全绿、不混入716修复。
+- canonical、archive、本地完整CI及Ready PR/远端CI未完成，不宣布交付。自有52850 IM73924/Node86686与feat716final浏览器供本批Web修复验证保留；reviewer读完原件后作者已把原生决定证据复制到主仓gitignored `output/feat-716-80f2033f/native-reviewed`；CC5已Shutdown并删除、独占DD/凭据/本批两完整xcresult已核对删除，最小绑定/日志/图保留，旧62814保护不动。

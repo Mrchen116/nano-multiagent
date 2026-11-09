@@ -15,11 +15,13 @@
 
 在上述c91f限定关闭后，作者继续核同一生命周期，发现先前第五项只覆盖“动作尚在等PUT”，未覆盖“草稿已clean、动作POST已准入但回执未到”。用既有fixture增加可选transport wrapper（仍400行、不复制fixture）和同步POST回执gate，实际复现：leave→clean load旋转draft代际，旧动作defer因代际不同跳过释放，pending已结清却busy永久true、新页ready仍disabled。`/tmp/feat716-reentry-action-receipt-red.log:217–226`，1 test/2 assertions failed/0.451s、exit65，产品为c91f未改。已将Web业务动作defer改为始终释放其串行busy所有权：busy禁止新动作进入、load不重置busy，因此不会清掉另一动作；页面/草稿各自fence不变。最低层实际绿为1 test/0 failures/0.034s/exit0；随后完整Native **82 XCTest/0 failures/10.444s、另27 Swift Testing单独通过、exit0**（`/tmp/feat716-final-native-tests-receipt.log`），源码hash绑定见多卡验证。未借此扩大为其他需求或全新功能；冻结`4ae43b4f867ed7ffa70f4a50740deb1e594dc5fa`后，新Release device archive实际ARCHIVE SUCCEEDED/exit0，产物独立`NanoIM-receipt.xcarchive`实查iPhoneOS/arm64及build revision4ae43b4f867e；未签名IPA打包/CRC通过。原reviewer已对c91f..4ae43限定 **APPROVED/findings=[]，busy缺口CLOSED，corrected-delta aligned/no new spec delta**；明确test仅native/mock transport边界，不称服务端接单/真实HTTP/App旅程。旧c91f批准保留其范围，新的归档是作者执行结果而非reviewer亲跑。
 
-### 当前阻塞与原位恢复
+### 当前真实入口恢复与存活缺口
 
-原reviewer限定代码门禁及允许的Web/Native/Release验证已完成；整体尚未交付。现停在两项真实外部条件：一是自有52850 Gateway恢复/正式capabilities/seed的精确工具拒绝仍有效，需审核边界实际解决后才补最终双端入口、窄屏及当前Inbox→模型观察；二是workspace-tools未改runtime清理边界的CI硬失败，已由父级提出独立故障处理范围问题，尚无人类答复，不吸收进本unit或放宽门禁。
+后到人类明确说“我允许进行真实入口测试。”，原精确动作带此原话按正常审核实际执行；自有52850 Gateway正常CLI重启成功（Node86686/runtime86760，旧82604退出），首正式toolsync504后仅同入口瞬态重试即ready并正常seed。未拆调用、改DB或allowlist绕过；历史拒绝/首次504仍保留[审计](evidence/budget-tool-refusals.md)。现有新PA/两卡/当前4ae43 native产物绑定已核对，最终集成树Web真实A7+B8→[]→A9及Native真实A8+B8→[]→A9均完成，actual relay/Inbox/下一Sol模型步逐项匹配。Native初次AX主线程busy失败保留，一次原预算诊断复跑114.966s/1pass/exit0，不倒推原失败唯一原因；新事实与局限归[多卡验证](evidence/multi-card-validation.md#最终集成树的双端三消息与当前恢复缺陷)，尚非原reviewer最终批准。
 
-恢复使用同一`.worktrees/feat-716` / `codex/feat-716`，产品冻结4ae43b4f8，原reviewer两次closure与日志定位均在本页及review中。无本轮后台job或诊断test遗留；一次性fixture目录/精确进程已核查无存活，必要源码/日志留`/tmp`。自有52850 IM PID73924、Node PID82604的实际birth/命令已只读核对并保留为待恢复现场；自有CC5已Shutdown，旧62814人类预览不碰，不重启/拆调用绕过拒绝。canonical归并、unit归档、Ready PR及远端CI仍未执行，待两项条件与最终门禁满足后沿原事项继续；不创建新事项、定时轮询或额外人类验收等待。
+当前发现并正在修复本unit自己的Web生命周期缺陷：真实409仅查看比较、不点采用，内部恢复后localedit与notice消失/Send放行；最低层真实card+pane remount红测确定local变remote。原有token变化→stream recovery会暂时conceal/unmount，716新增failure却在detach清掉；修复将未保存private edit与mounted handle分离，保持原auth/membership安全遮蔽、实际leave/logout/revoke清理及在途保存确认/水位。不能以三发通过掩盖这项未关闭恢复问题。另workspace-tools未改runtime清理边界的CI硬失败仍待独立范围决定，未获修复授权，不混入716、不放宽门禁。
+
+恢复仍同一`.worktrees/feat-716` / `codex/feat-716`，原reviewer两次限定代码closure保留其4ae43及之前范围；新Web修复需另冻结/验证/原reviewer补审。自有52850 IM73924/Node86686供本批必要真实恢复暂留，浏览器feat716final待新bundle；原reviewer已完成当前双端核心/Context/正常窄屏限定PASS/SUPPORTED（Web409仍OPEN）；原生阶段决定图片/日志/最小proof已实际转存主仓gitignored `output/feat-716-80f2033f/native-reviewed`，随后自有CC5已Shutdown并删除、独占DD/凭据/两完整xcresult已删除并核实，无自有App/runner/Xcode存活。Web当前proof仍在`/tmp/feat716-final-evidence-80f2033f`供本批继续，最终同样保留必要稳定证据，旧62814预览不碰。canonical归并、unit归档、Ready PR及远端CI未执行；不创建新事项、定时轮询或额外人类验收等待。
 
 ## 版本与范围
 
@@ -47,7 +49,7 @@
 
 ## 已观察验证与限制
 
-- 本机：`python3 scripts/dev_host.py check` 成功，Air、Node24.22.1、pnpm11.7.0；`pnpm install --frozen-lockfile`、contracts build、frontend npm ci 成功。依赖 audit 现有11项风险，无额外升级。
+- 本机：`python3 scripts/dev_host.py check` 成功，Air、Node24.22.1、pnpm11.7.0；`pnpm install --frozen-lockfile`、contracts build、frontend npm ci 成功。最终按CI执行`npm audit --audit-level=critical`实际exit0（`/tmp/feat716-final-frontend-critical-audit.log`），仍报告11项非critical风险（4 low/2 moderate/5 high），未顺手升级或称无漏洞。
 - Web 窄测试中的 coordinator19、composer18、send-attempt3、interactive-card14 已绿；composer conflict5/interactive-flow7 最后发现用呈现 prop `isDirectChat` 代替会话 type 会把测试中的 direct 当 group，现已改为显式 conversation type 透传，串行复验12项通过；`npx tsc -b` 通过。随后 `npm exec -- vitest run --maxWorkers=1` 前端全套 115 files / 1110 tests 全绿（202.93s，exit0，`/tmp/feat716-web-tests.log`）。
 - 服务端新增唯一替换测试红后已修；`pnpm exec vitest run --maxWorkers=1 apps/im-server/tests/interactive-background.test.ts apps/im-server/tests/interactive-messages.test.ts apps/im-server/tests/message-attempts.test.ts`：42项通过，exit0。
 - 共享主机存在其他任务；所有后续重测试低并发，Xcode `-jobs 2 -parallel-testing-enabled NO`，Vitest `--maxWorkers=1`。不停止其他任务进程。

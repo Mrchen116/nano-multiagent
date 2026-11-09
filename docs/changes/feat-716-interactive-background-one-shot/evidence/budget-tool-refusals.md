@@ -117,4 +117,12 @@ printf '[exit code: 0]\n'
 
 整条调用在工具执行前被拒，连同前置只读断言均未由该调用执行；没有新 job/exit receipt。没有运行重启、lease回收、capabilities同步或seed，不以预计的脚本输出当作完成；没有拆调用、换工具/路径、直接改数据库或跳过正式capabilities限制重试这些副作用。之前独立只读 `ps` 已观察失败 inspection PID/group86274不存在，不能将此归因给被拒调用。后续独立只读仍见原Node PID82604，daily manifest不存在。
 
-父级收到精确阻塞后，核对原人类“仅继续716、不并行其它需求”和此前已有真实隔离测试范围，解释这不排除716自有Gateway恢复/新空fixture初始化；**这是父级对已有授权的澄清，不是新的人类授权，不撤销工具拒绝**。被拒部分继续停，交父级将审计材料用于说明实际审核阻塞。716独立代码审查、本地CI、允许的native模拟验证不因此全面等待；不联系其它需求执行者、不改旧62814、不改生产、不用真机。原生预算旧树真实通过与当前集成树未完成动态复验继续分别报告。
+父级收到精确阻塞后，核对原人类“仅继续716、不并行其它需求”和此前已有真实隔离测试范围，解释这不排除716自有Gateway恢复/新空fixture初始化；**这是父级对已有授权的澄清，不是新的人类授权，不撤销当时的工具拒绝**。当时被拒部分继续停，交父级将审计材料用于说明实际审核阻塞。716独立代码审查、本地CI、允许的native模拟验证不因此全面等待；不联系其它需求执行者、不改旧62814、不改生产、不用真机。原生预算旧树真实通过与当前集成树未完成动态复验继续分别报告。
+
+### 后到真实人类授权与正常执行（不追改旧拒绝）
+
+父级随后转达用户原话 **“我允许进行真实入口测试。”**；用户已获知此前第一项阻塞具体为自有隔离Gateway恢复、工具同步和测试数据初始化。此新授权覆盖716本次隔离真实入口及必要准备，不扩入尚未答复的独立runtime故障修复。作者先重新核对clean报告HEAD `e4ba9fb5a2b1bf1e7f4129207e1bc1df1376b62f`、产品冻结 `4ae43b4f867ed7ffa70f4a50740deb1e594dc5fa`、52850 IM73924/原Node82604的实际命令/出生时间及UUID creator record；没有修改旧creator代码绑定来伪装现场。
+
+原精确副作用组合带上此新原话、当前HEAD断言后，正常接受工具审核并**实际放行执行**。`/tmp/feat716-final-node-recovery-authorized.log`证实正常CLI restart成功、新Node86686；原锁存inspection的lease由正常startup回收。随后正式`sync_default_tools`在第一个`daily-engineering/capabilities`实际HTTP504，整条exit1，seed未执行；`/tmp/feat716-final-runtime-seed-recovery-authorized.log`。本次refresh `bf3702eb-c57c-4f45-847a-857319622cc2`在7219ms `cleanup.done`、7221ms `result=timeout`，不是旧cleanup.error，不将两者混因。
+
+该可恢复timeout冷却后，仅经原正式sync+seed再试一次，**实际exit0**；`/tmp/feat716-final-runtime-seed-transient-retry.log`证实daily ready。没有再restart、延长时限、改源码/直接写数据库、跳过capabilities或改allowlist。新PA `pa_1da21f073700`，私聊 `c_d36608025086`，群 `c_wfau8mgr`；全部工作/审核模型仍Sol，`.e2e-daily.json`为实际结果。旧62814和生产未动。后续真实双端旅程单列其执行结果，不以template ready当功能通过；旧拒绝仍为当时未执行事实，不倒写成已批准或已执行。

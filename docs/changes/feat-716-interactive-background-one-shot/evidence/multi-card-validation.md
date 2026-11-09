@@ -212,6 +212,36 @@ c91f的第五项保护“动作尚在等PUT”时离场；作者继续核对后�
 - **新Release device archive**：冻结4ae43b4f8后的`generic/platform=iOS`/Release/jobs2/无签名实际成功，`/tmp/feat716-final-native-receipt-device-archive.log:1640` ARCHIVE SUCCEEDED、exit0；新产物独立放`/tmp/nano-ios-feat716/NanoIM-receipt.xcarchive`，实查iphoneos/iPhoneOS、Mach-O arm64、Info.plist `NanoIMBuildRevision=4ae43b4f867e`。CI同`ditto`步骤实际打包`NanoIM-unsigned-feat716-4ae43b4f.ipa`（6,622,555 bytes），zip CRC及Payload/NanoIM.app/NanoIM入口检查通过、exit0；自有stage核对后已删除，未覆盖c91旧产物。不是实机安装/验收，warning保留。
 - **原reviewer实际closure**：冻结`4ae43b4f867ed7ffa70f4a50740deb1e594dc5fa`、c91f..4ae43、6文件，实查clean、三源码hash、完整产品delta/178行Reentry/400行Lifecycle与调用方、全部决定红绿/82及27日志，**scoped APPROVED / findings=[]；新增busy缺口CLOSED；corrected-delta aligned、no new spec delta**。@MainActor guard→持有busy无await，load/leave不清busy，所有其它业务入口先挡busy，因此defer释放当前连续所有权无跨操作覆盖；renderer/draft/发送结清原语义保留。reviewer未跑新archive、不将作者归档执行当独立批准；全程只读、无资源。当前docs-check亦以已有venv302 sources/69 routes通过、exit0。
 
+## 最终集成树的双端三消息与当前恢复缺陷
+
+后到人类明确说“我允许进行真实入口测试。”后，先前精确拒绝的自有Gateway恢复/正式toolsync/seed按正常工具审核实际执行；首次正式同步504，只有一次同入口瞬态重试后daily ready，详情见[拒绝审计](budget-tool-refusals.md)。不是改数据库、allowlist或拆调用绕过。以下是新作者事实，尚非原reviewer最终批准。
+
+- 自有runtime仍`/tmp/feat716-multi-80f2033f-ac7c-4d23-8d6d-f493205d61cc`、origin52850，IM73924未换；Node正常CLI重启为86686/runtime86760。daily新合成owner`u_x65cjzvw`、PA`pa_1da21f073700`、私聊`c_d36608025086`（`PA · 个人助手`）。实际核对出生时间/command/cwd/listener、本地DB/owner/direct非external、卡片executor provenance、Sol工作/审批配置。原creator记录81d不改写；新增`.feat716-final-version-binding.json`明确当前报告HEAD e4ba9fb5、产品冻结4ae43及creator后server/Web源码未变、Swift hash07c5bc49…，不将旧creator字段冒充当前HEAD。
+- A/B由真实Web composer请求PA生成，来源`8c6812830dbd4052a19e9eec211b8fed` / `c84ba25d42004342b9a8f7eaffcb05cb`，UTC2026-11-09 16:07:20.966 / 16:07:29.936。独立`A参会人数/$aPeople`、`B参会人数/$bPeople`及各自空备注；本地`.feat716-final-native-fixture.json`逐项绑定，不直接造卡。
+
+| 当前客户端 | 消息 ID / UTC（2026-11-09） | completed relay / 精确背景 | 实际模型下一步 |
+|---|---|---|---|
+| Web1 | `ee4ae1ed5c534094ae291384e54d8ff2` / 16:08:32.000 | `6ea5e62a500e453d9354d25f93df1f09` / A7+B8 | 确认A7/B8 |
+| Web2 | `f00c9a31ab9248ce94fbf02efe5458a6` / 16:09:52.570 | `3858385239ac469db13617c14b731def` / [] | received |
+| Web3 | `4cb0c5f93d164c63b90db5103d81921c` / 16:10:52.729 | `14e5753aea5c424080302b76425bcbfd` / A9 | 确认A9 |
+| Native1 | `f2544f887bd44e14ad06da68b5a445e8` / 16:29:40.947 | `1f82b3129e7a4dd083445d140ee74480` / A8+B8 | 确认A8/B8 |
+| Native2 | `892b01f6ca544f459a76ad4c86c7d0ee` / 16:29:50.448 | `298c44eeb50a4f98870c03d84de2f297` / [] | received |
+| Native3 | `f0aabb4f4618446e86f8395ba19e5f54` / 16:30:16.885 | `7360a63b86834a009c9c0689df435d94` / A9 | 确认A9 |
+
+Web真实session`feat716final`、正常登录与DOM输入/Send；390×844实际图`page-2026-11-09T16-13-06-177Z.png`可读两卡字段/正文框，无横溢，不冒充所有消息同时在屏。Native使用本事项自建CC5、当前4ae43 App（plist revision `4ae43b4f867e`、binary SHA256 `f0ebbb6a4ce21dc206474cdb30afe4984caf93b6b82726f57a7cffdb44a36834`）、原helper SHA862b8128…、0600 xctestrun。未改产品或测试预算。`/tmp/feat716-final-native-multi-diagnostic.log:179,317,359–376`，run`96392936-C85B-407E-88A4-24ED1C006238`，**1 test / 0 failures / 114.966s / exit0**；完整正文回执、空composer和重访A实际通过。作者读过最终图`native-core-attachments/320FB8B0-8F6C-40AA-A908-A5075B2CC49F.png`（SHA4b6d1afe…）：三条完整自然正文、前两回复及空composer；第三条后回复不在该画面。重访A图D3A5EEB7…显示A8，真实输入断言与relay证明改9，不把这张pre-edit图说成9。
+
+当前实际session`180829c3-5e54-4359-b11d-ac04c186d361`。最小本地proof `/tmp/feat716-final-evidence-80f2033f/web-core-context.json`、`native-core-context.json`含版本绑定、精确relay、原raw/projected结果及下一模型步，作者实际读取并断言source/state/fields/time数组逐项相等、正文未变、首/三各仅一块data/not-instructions/not-submission/not-business-authorization说明、第二只有自然正文。Web raw/projected→next model为57/60→63、81/84→87、105/108→111；Native为153/156→159、175/178→181、199/202→205，实际Sol medium。仍是native journal实际Inbox与下一真实模型步，**不是provider wire**；不由小两卡推近64KiB分页完整性。Native来源由XCTest真实操作、marker/时间/唯一消息关联，通用Inbox channel=web不改称专用native channel。另只读实际conversation行确认三条模型回复均completed：`314f9fe2f38d4b938d7c715e69488558` @16:29:48.564（A8/B8）、`f055f7a30e5c46b5812cb78cafcfe872` @16:29:58.518（received）、`634f0aeaa18e4d93aab3657428dbd258` @16:30:23.916（A9）；最小proof `native-delivered-replies.json`。不把仅拟send或held状态当实际回复。
+
+### 保留的失败与未关闭恢复问题
+
+- Native本次首次run`185FCCF0-5DA2-4D42-A889-426E7018B1EC`确已正常编辑A7/B9并Send：message`9426cff14d044c8f873a587df152d325`、UTC16:13:16.381、completed relay精确[A7,B9]；随后AX精确回执查询报`main thread busy for 30.0s`，120s allowance exceeded，exit65/1failed，未发第二/三。原log`/tmp/feat716-final-native-multi-80f2033f.log:230–234`与xcresult保留。只做一次同预算诊断复跑，上表完整通过；该run的3s App sample主线程117/138样本为Mach wait、21为XCTest AX，不是首失败现场，**不倒推首失败唯一根因已证实或已修复**。独立post-test xcrun诊断CLT路径error72也保留，不称诊断warning-free。共享主机一次load417/197/139为观测而非因果证明，没有终止他人进程或升预算。
+- Web窄屏真实409后，local A9/备注`Local note for explicit comparison`、完整正文和Send disabled均实际保留；仅点击View latest即可读remote7/local9三列与显式采用按钮。实际图`page-2026-11-09T16-20-02-536Z.png`支持初始失败/恢复入口。但**未点击采用**，数分钟后notice消失/Send绿色、卡变remote7空备注，正文仍在；同期console五401，不能把该路径写为恢复通过。只读溯源发现原auth token更新→user-stream reconnect→membershipReady=false会暂时unmount pane；新716 unregister却清failure，remount GET覆盖local。触发这次具体事件的成功refresh未捕获，属于强支持机制，不仅凭401下结论。
+- 作者在真实card+MessagePane最低层新增内部unmount/remount保护，产品4ae43未改，`/tmp/feat716-web-internal-remount-red.log:4–20` **1 failed / 5 skipped / 1914ms / exit1**，预期保留local却读到remote，确定本unit的detach/显式采用集成缺口。正在将未保存编辑所有权与mounted handle分离，维持membership隐私遮蔽、真实leave/logout/revoke清理及在途PUT确认/水位；不通过改auth/realtime安全门或吞失败让它变绿。此修复及真实恢复补验仍未关闭。
+
+### 本批原生阶段回收与稳定证据
+
+同一原reviewer完成上述原DB/journal/App/日志/图片直接读取后，已将决定日志、两张当前核心图、首失败四图/summary、native核心/实际回复proof与Debug/Release plist/hash/file最小绑定复制到主仓gitignored稳定目录`output/feat-716-80f2033f/native-reviewed/`（已实际git check-ignore）。随后逐项核对自建CC5名称/UDID/Shutdown与各临时绝对路径，**已删除CC5、独占`/tmp/nano-ios-feat716`（含凭据xctestrun、Debug/Release构建和未签名IPA）、本批两个完整xcresult**，实际list/目录均确认不存在；App/runner/Xcode均已退出。文中这些旧产物路径只说明原执行位置，现复查使用稳定最小证据，不宣称完整App/xcresult仍在。未改/删除其他模拟器、共享缓存、旧62814；52850与浏览器暂留给本批Web修复，仍由716执行者负责最终回收。
+
 ## 当前未关闭范围
 
-原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；MERGE-1及后续动作回执busy变体已分别实际红绿/完整Native unit及各自Release device archive通过，并获原reviewer对c91f、4ae43两个真实冻结范围的限定CLOSED/APPROVED；当前双端核心真实旅程仍缺。受影响复验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。
+原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；MERGE-1及后续动作回执busy变体已分别实际红绿/完整Native unit及各自Release device archive通过，并获原reviewer对c91f、4ae43两个真实冻结范围的限定CLOSED/APPROVED。当前双端三消息有上述新作者执行证据，Web内部重挂丢本机冲突已真实红测，仍在修复/独立复核前。未改runtime的workspace-tools CI硬失败另待范围处理，不吸收进本unit。受影响恢复复验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。
