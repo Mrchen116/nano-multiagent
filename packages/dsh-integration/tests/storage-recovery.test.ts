@@ -26,7 +26,7 @@ syncBuiltinESMExports();
 `;
 }
 
-it('retries the original unread Global Inbox wake after model-run storage becomes writable', async () => {
+it.each([false, true])('recovers an unread Global Inbox wake after storage becomes writable (stopped=%s)', async stopped => {
   const home = await mkdtemp(join(tmpdir(), 'nano-storage-recovery-'));
   const store = new NodeStore(':memory:', 'owner');
   const inbox = new InboxStore(':memory:');
@@ -70,8 +70,9 @@ export function apply(ctx) {
       runtime: {
         onNotification: runtime.rpc.onNotification.bind(runtime.rpc),
         request: async (method, params) => {
+          const result = await runtime.rpc.request(method, params);
           if (method === 'session.submit') submissions.push((params as {inputId: string}).inputId);
-          return runtime.rpc.request(method, params);
+          return result;
         },
       },
       relay: { request: async (type, payload) => ({
@@ -102,7 +103,16 @@ export function apply(ctx) {
     await expect(readFile(join(home, 'model-requests'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
     expect(submissions).toEqual(['inbox-wake:a:1']);
 
+    if (stopped) await runtime.rpc.request('session.cancel', {sessionId: 'main'});
     await rm(fault);
+    if (stopped) {
+      await expect.poll(() => submissions.length).toBeGreaterThan(1);
+      const retry = await runtime.rpc.request('session.lookup', {sessionId: 'main', inputId: submissions[1]});
+      expect(retry).toMatchObject({accepted: false});
+      expect(inbox.unreadAttention('a')).toBe(1);
+      await expect(readFile(join(home, 'model-requests'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+      return;
+    }
     await expect.poll(() => inbox.unreadAttention('a'), {timeout: 8_000}).toBeUndefined();
     await global.recover();
     expect(submissions).toEqual(['inbox-wake:a:1', expect.stringMatching(/^inbox-wake:a:1:recovery:\d+$/)]);

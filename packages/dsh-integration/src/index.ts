@@ -90,6 +90,7 @@ interface Submit {
   inputId: string;
   mode: 'followup' | 'steer' | 'inject';
   onlyIfIdle?: boolean;
+  recoveredWakeSeq?: number;
   content: PromptContentPart[];
   source: { kind: 'human' | 'system'; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
 }
@@ -946,17 +947,25 @@ export default class NanoRuntime {
     this.lifecycle.assertEnabled(agentId);
     if ((input.lifecycle_revision ?? input.source.lifecycle_revision ?? revision) !== revision) throw new RpcError(-32003, 'stale_lifecycle');
     const agent = await this.agent(input.sessionId);
-    if (!inputEvidence(agent.session.snapshotEvents(), input.inputId).accepted) {
+    const events = agent.session.snapshotEvents();
+    if (!inputEvidence(events, input.inputId).accepted) {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
+      const recoveredWake = input.recoveredWakeSeq === undefined
+        ? undefined : events.find(event => event.seq === input.recoveredWakeSeq);
+      if (input.recoveredWakeSeq !== undefined && (!recoveredWake || input.source.kind !== 'system' || input.source.channel !== 'inbox'))
+        throw new RpcError(-32602, 'Invalid Inbox recovery evidence');
       const content = await this.ctx.attachments.admitPromptContent(input.content);
       if (input.attachmentSources) await this.ctx.nanoTrajectoryAttachments.record(input.sessionId, content, input.attachmentSources);
       const config = this.configurations.get(agent.session.header.agentPreset!);
       if (input.source.channel === 'heartbeat' && config && this.capabilities.held(config.agentId, {kind: 'feature', name: 'heartbeat'})) return {accepted: false, busy: true};
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
-      (await this.models).fallback.interrupt(agent);
+      const fallback = (await this.models).fallback;
+      // Recheck the original admission against /stop at the point of submission.
+      if (recoveredWake && this.tasks.stoppedSince(input.sessionId, recoveredWake.time)) return {accepted: false};
+      fallback.interrupt(agent);
       this.lifecycle.assertEnabled(agentId);
       if (this.lifecycle.current(agentId).revision !== revision) throw new Error('stale_lifecycle');
-      const source = {...input.source, admittedAt:Date.now(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
+      const source = {...input.source, admittedAt:recoveredWake?.time ?? Date.now(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
       const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
         source: input.source.kind === 'human' ? { ...source, kind: 'user' as const } : { ...source, kind: 'nano-system' as const } });
       if (input.mode === 'followup') agent.followup(message);

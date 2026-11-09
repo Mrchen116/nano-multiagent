@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: feat-705
+> 对齐: bugfix-734
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -309,6 +309,7 @@
 - **GIVEN** 节点已持久接收交办，唤醒在进入模型前因磁盘空间不足失败，交办仍未读
 - **WHEN** 本地存储恢复可写
 - **THEN** Agent 自动续跑原交办，用户无需重发。此前失败的记录写入和 Work 观察可以继续。
+- **AND** 用户在恢复前主动停止时，旧唤醒不再自动执行。
 
 ### Requirement: 查询回复与必要控制不受无关轨迹积压阻塞
 
