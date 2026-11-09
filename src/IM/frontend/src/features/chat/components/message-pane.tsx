@@ -704,7 +704,7 @@ export function MessagePane({
 
 
   function replyToMessage(message:Message) {
-    if (composerBusy) return;
+    if (composerBusy || conversation.can_write === false) return;
     closeActionSurface("branch");
     setReplyTo({message_id:message.id,sender:message.sender,content:message.content,attachments:message.attachments});
     requestAnimationFrame(()=>composerRef.current?.focus());
@@ -1400,7 +1400,7 @@ export function MessagePane({
         >
           <MessageActionList
             message={activeMessage}
-            onReply={!composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
+            onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
             copyAvailable={activeSurface.bodyElement !== null}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
@@ -1451,7 +1451,7 @@ export function MessagePane({
             {activeMessage && activeSurface && (
               <MessageActionList
                 message={activeMessage}
-                onReply={!composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
+                onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
                 copyAvailable={activeSurface.bodyElement !== null}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}

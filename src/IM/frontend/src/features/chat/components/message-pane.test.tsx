@@ -1006,6 +1006,19 @@ describe("MessagePane", () => {
       }
     });
 
+    it("offers copy and hides reply in the read-only context menu and action sheet", () => {
+      render(<MessagePane conversation={{...DIRECT_CONV,can_write:false}} messages={SAMPLE_MESSAGES} mentionCandidates={[]} onSend={() => {}} />);
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      expect(screen.getByRole("menuitem", { name: /^Copy$/i })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /^Reply$/i })).not.toBeInTheDocument();
+      fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+      fireEvent.click(screen.getByTestId("message-more-m2"));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^Copy$/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Reply$/i })).not.toBeInTheDocument();
+    });
+
     it("does not open a custom menu on mobile long-press", () => {
       render(
         <MessagePane

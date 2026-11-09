@@ -387,3 +387,21 @@ it('freezes quoted original content in the independent PA review and delivers th
  const privateMessage=ctx.messaging.insertMessage('chat','u1','user','私聊内容');
  expect(()=>service.actions.prepare(principal,{...args,request_key:'cross',conversation_id:'peer',content:'不应发送',reply_to_message_id:privateMessage.id})).toThrow('reply target not found');
 });
+
+it('reuses the frozen quoted card when the original is superseded between retries',()=>{
+ const {ctx,db,service,principal,args}=personalFixture();
+ db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Title("Original")'};
+ const card=ctx.messaging.insertMessage('peer','a1','agent','',[],null,'completed',{interactive});
+ const request={...args,request_key:'quoted-card',conversation_id:'peer',content:'收到',reply_to_message_id:card.id};
+ const proposal=service.actions.prepare(principal,request);
+ const replacement=ctx.messaging.insertMessage('peer','a1','agent','',[],null,'completed',{
+   interactive:{...interactive,source:'root = Title("Updated")',supersedes_message_id:card.id},
+ });
+ expect(ctx.messaging.message(card.id).interactive?.superseded_by).toBe(replacement.id);
+ const retry=service.actions.prepare(principal,request);
+ expect(retry.proposal_ref).toBe(proposal.proposal_ref);
+ expect(retry.payload_digest).toBe(proposal.payload_digest);
+ expect(retry.evidence.payload.reply_to).toEqual(proposal.evidence.payload.reply_to);
+ expect(()=>service.actions.prepare(principal,{...request,reply_to_message_id:replacement.id})).toThrow('operation_key_content_conflict');
+});

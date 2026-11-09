@@ -10,7 +10,7 @@ import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
-import { logicalEvents } from './presentation.js';
+import { argumentsObject, logicalEvents } from './presentation.js';
 import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
@@ -816,9 +816,15 @@ export class GlobalAgent {
     for(const publication of this.options.inbox.pendingPublications(binding.sessionId)) {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
-      let text=publication.body;
-      try{const body=JSON.parse(publication.body);if(body.interactive||body.attachments){text=body.text;}}catch{ /* Plain text publications need no envelope. */ }
-      this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
+      const callId = publication.id.slice(binding.sessionId.length + 1);
+      const call = this.options.store.events(binding.sessionId).find(event => event.type === 'tool/call' && event.data.callId === callId);
+      const args = argumentsObject(call?.data.arguments);
+      // Tool arguments distinguish a plain JSON message from a stored publication envelope.
+      const body = argumentsObject(publication.body);
+      const savedText = typeof body?.text === 'string' && (body.interactive || body.attachments || body.reply_to_message_id)
+        ? body.text : publication.body;
+      const text = typeof args?.text === 'string' ? args.text : savedText;
+      this.confirmPublication(binding,{operationId:publication.id,callId,sessionId:binding.sessionId},publication.target,text,status.payload);
     }
   }
   private workPositions(root:string) {

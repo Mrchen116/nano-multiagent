@@ -4,10 +4,17 @@ import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
-it.each([true,false])('reconciles a cold uncertain publication by status without resending (found=%s)',async found=>{
+const quotedPublication = JSON.stringify({reply_to_message_id:'original',text:'收到'});
+it.each([
+ {found:true,body:'already reviewed reply',text:'already reviewed reply'},
+ {found:false,body:'already reviewed reply',text:'already reviewed reply'},
+ {found:true,body:quotedPublication,text:'收到'},
+ {found:true,body:quotedPublication,text:quotedPublication,callText:quotedPublication},
+])('reconciles a cold uncertain publication without resending (%#)',async ({found,body,text,callText})=>{
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
- inbox.preparePublication('main:call','c','already reviewed reply');inbox.settlePublication('main:call','sending');
+ if (callText) store.recordEvents('main',[{seq:1,time:1,type:'tool/call',data:{turn:1,callId:'call',name:'send_message',arguments:JSON.stringify({target:'c',text:callText})}}]);
+ inbox.preparePublication('main:call','c',body);inbox.settlePublication('main:call','sending');
  const requests:string[]=[];
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
   runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
@@ -17,7 +24,7 @@ it.each([true,false])('reconciles a cold uncertain publication by status without
   expect(inbox.publication('main:call')?.state).toBe(found?'confirmed':'sending');
   expect(requests.filter(type=>type==='agent.message.status')).toHaveLength(found?1:2);
   expect(requests).not.toContain('agent.message');
-  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toHaveLength(found?1:0);
+  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toMatchObject(found?[{payload:{text}}]:[]);
  }finally{await product.stop();inbox.close();store.close();}
 });
 

@@ -146,15 +146,17 @@ export class PersonalActions {
     const attachments=this.attachments(b,args.conversation_id,args.attachments??[],args.content+(interactive?.source??''),images);
     const securityNotice=args.incident_ref?this.securityNotice(b,args.incident_ref,args.conversation_id,args.content):undefined;
     if(args.transport&&args.reply_to_message_id!==undefined)fail(422,'external_quoted_reply_unavailable');
-    const replyTo=this.pa.ctx.messaging.replyReference(args.conversation_id,args.reply_to_message_id);
+    const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
+    const oldPayload=previous ? JSON.parse(previous.payload_json) : undefined;
+    if(previous && (previous.conversation_id!==args.conversation_id || oldPayload.reply_to?.message_id!==args.reply_to_message_id))
+      fail(409,'operation_key_content_conflict');
+    const replyTo=previous ? oldPayload.reply_to : this.pa.ctx.messaging.replyReference(args.conversation_id,args.reply_to_message_id);
     const payload={...(replyTo?{reply_to:replyTo}:{}),representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
     if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
     this.destination(b,args.conversation_id,payload);
-    const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
     if(previous) {
-      const oldPayload=JSON.parse(previous.payload_json);
       const samePayload=previous.payload_digest===hash || oldPayload.representation===undefined && digest({representation:'self',...oldPayload})===hash;
-      if(!samePayload||previous.conversation_id!==args.conversation_id)fail(409,'operation_key_content_conflict');
+      if(!samePayload)fail(409,'operation_key_content_conflict');
       if(['confirmed','sending','unknown','deny','needs_owner'].includes(previous.state)) {
         if(['deny','needs_owner'].includes(previous.state))this.validate(b,previous);
         return {...this.project(previous),message_id:previous.message_id,result:previous.result_json?JSON.parse(previous.result_json):undefined,conversation_id:previous.conversation_id};
