@@ -45,6 +45,10 @@ final class ChatStore {
     private var discarded: Set<String> = []
     private(set) var revokedChats: Set<String> = []
     private var dirtyChats: Set<String> = []
+    private var executionCleanupRevisions: [String: Int] = [:]
+    private var readingPositions: [String: String] = [:]
+    private var pendingReadingPositions: [String: String] = [:]
+    var restoreReadingPositions: [String: String] = [:]
     private var needsList = false
     private var refreshTask: Task<Void, Never>?
     private var notificationFloor = 0
@@ -94,6 +98,7 @@ final class ChatStore {
         interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
         selectedID = nil; interactionDrafts.clear(); draftBlockedChats = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil; listLoaded = false
+        executionCleanupRevisions = [:]; readingPositions = [:]; pendingReadingPositions = [:]; restoreReadingPositions = [:]
     }
     func run() async {
         restoreAttempts()
@@ -108,6 +113,9 @@ final class ChatStore {
                 guard currentUser.accountEnabled else { clear(); return }
                 let sync: SyncSnapshot = try await client.get("/im/v1/sync")
                 guard token == epoch, !Task.isCancelled else { return }
+                for (id, revision) in sync.execution_cleanup_revisions ?? [:] {
+                    observeExecutionCleanup(id, revision: revision)
+                }
                 await reconcile(sync.items)
                 await recoverPending()
                 await interactionDrafts.foreground(activeConversation: selectedID)
@@ -142,6 +150,15 @@ final class ChatStore {
     func consume(_ event: UserEvent) {
         let data = event.data ?? .null
         let chat = data["conversation_id"].stringValue
+        if event.event_type == "conversation.execution_cleanup" {
+            if let eventID = event.event_id { cursor = max(cursor ?? 0, eventID) }
+            if let chat, observeExecutionCleanup(chat, revision: data["execution_cleanup_revision"].intValue ?? 0) {
+                dirtyChats.insert(chat)
+                needsList = true
+                scheduleRefresh()
+            }
+            return
+        }
         if event.event_type == "conversation.membership_changed" || event.event_type == "conversation.deleted" {
             // The cursor-free frame also covers creation, rename and member addition.
             // Hide private history until the membership-filtered list confirms access.
@@ -192,6 +209,7 @@ final class ChatStore {
         let token = epoch
         await interactionDrafts.prepare()
         guard token == epoch, !Task.isCancelled else { return }
+        for chat in values { _ = observeExecutionCleanup(chat.id, revision: chat.execution_cleanup_revision ?? 0) }
         if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
         else { inspectedConversation = nil }
         guard token == epoch, !Task.isCancelled else { return }
@@ -225,6 +243,7 @@ final class ChatStore {
         do {
             let value: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
             guard token == epoch, !Task.isCancelled else { return }
+            _ = observeExecutionCleanup(id, revision: value.execution_cleanup_revision ?? 0)
             inspectedConversation = value; revokedChats.remove(id); checkingAccess.remove(id)
         } catch {
             guard token == epoch else { return }
@@ -238,22 +257,57 @@ final class ChatStore {
             } else { errors[id] = error.localizedDescription }
         }
     }
+    /// Keep the scroll anchor, while discarding all process-bearing pages from the old revision.
+    func recordReadingPosition(_ messageID: String?, in conversationID: String) {
+        readingPositions[conversationID] = messageID
+    }
+
+    @discardableResult
+    private func observeExecutionCleanup(_ id: String, revision: Int) -> Bool {
+        guard revision > (executionCleanupRevisions[id] ?? 0) else { return false }
+        executionCleanupRevisions[id] = revision
+        pendingReadingPositions[id] = readingPositions[id] ?? pendingReadingPositions[id]
+        timelines[id] = nil
+        before[id] = nil
+        return true
+    }
+
     func loadChat(_ id: String, older: Bool = false) async {
-        guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+        guard !revokedChats.contains(id), !checkingAccess.contains(id), !older || before[id] != nil else { return }
         let token = epoch
         do {
             var page = try await client.messages(id, before: older ? before[id] : nil)
-            let existing = Set((timelines[id] ?? []).map(\.id))
-            // Walk back to the cached boundary when a disconnect exceeded one page.
-            while !older, !existing.isEmpty, !page.items.contains(where: { existing.contains($0.id) }), let next = page.next_before_message_id {
-                guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+            guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+            let revision = page.execution_cleanup_revision ?? 0
+            let advanced = observeExecutionCleanup(id, revision: revision)
+            guard revision == (executionCleanupRevisions[id] ?? 0) else { return }
+            if advanced && older {
+                dirtyChats.insert(id)
+                scheduleRefresh()
+                return
+            }
+            let anchor = pendingReadingPositions[id]
+            let boundary = anchor.map { Set([$0]) } ?? Set((timelines[id] ?? []).map(\.id))
+            // Walk back to the cached boundary or reading position using only the current revision.
+            while !older, !boundary.isEmpty, !page.items.contains(where: { boundary.contains($0.id) }), let next = page.next_before_message_id {
                 let previous = try await client.messages(id, before: next)
+                guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+                if observeExecutionCleanup(id, revision: previous.execution_cleanup_revision ?? 0) {
+                    dirtyChats.insert(id)
+                    scheduleRefresh()
+                    return
+                }
+                guard revision == (executionCleanupRevisions[id] ?? 0), (previous.execution_cleanup_revision ?? 0) == revision else { return }
                 page.items = TimelineMerge.merge(current: page.items, page: previous.items, older: true, discarded: discarded)
                 page.next_before_message_id = previous.next_before_message_id
             }
-            guard token == epoch, !Task.isCancelled, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+            guard revision == (executionCleanupRevisions[id] ?? 0) else { return }
             timelines[id] = TimelineMerge.merge(current: timelines[id] ?? [], page: page.items, older: older, discarded: discarded)
             if older || before[id] == nil { before[id] = page.next_before_message_id }
+            if !older, let anchor {
+                pendingReadingPositions[id] = nil
+                if page.items.contains(where: { $0.id == anchor }) { restoreReadingPositions[id] = anchor }
+            }
             errors[id] = nil
             await recoverPending(id)
         } catch {

@@ -18,9 +18,14 @@ export class UserStreamCooldownError extends Error {
   constructor(readonly retryAfter: number) { super("Real-time updates temporarily rate limited"); }
 }
 
+export interface UserStreamSync {
+  maxEventId: number;
+  executionCleanupRevisions?: Readonly<Record<string, number>>;
+}
+
 export interface UserStreamSubscriber {
   onEvent(event: UserStreamEvent): void;
-  onRecovery?(): void | Promise<void>;
+  onRecovery?(snapshot?: UserStreamSync): void | Promise<void>;
   onConnectionStatus?(status: UserStreamConnectionStatus): void;
 }
 
@@ -46,7 +51,7 @@ export interface UserStreamRuntimeDependencies {
   createSocket(url: string): UserStreamSocket;
   readCursor(userId: string): number;
   writeCursor(userId: string, cursor: number): void;
-  sync(): Promise<{ maxEventId: number }>;
+  sync(): Promise<UserStreamSync>;
   reportError(error: unknown): void;
   resolveUrl(accessToken: string): string | Promise<string>;
   onMembershipChanged?(): void;
@@ -153,7 +158,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     persistCursor(userId, cursor);
   }
 
-  async function signalRecovery(currentGeneration: number): Promise<void> {
+  async function signalRecovery(currentGeneration: number, snapshot?: UserStreamSync): Promise<void> {
     if (currentGeneration !== generation) return;
     if (recoveryInFlight) return recoveryInFlight;
     const task = (async () => {
@@ -161,7 +166,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
         [...subscribers].map(async (subscriber) => {
           if (!subscriber.onRecovery) return;
           try {
-            await subscriber.onRecovery();
+            await subscriber.onRecovery(snapshot);
           } catch (error) {
             reportSubscriberError(error);
           }
@@ -185,8 +190,9 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
       || resyncInFlightGeneration === currentGeneration
     ) return;
     resyncInFlightGeneration = currentGeneration;
+    let result: UserStreamSync;
     try {
-      const result = await dependencies.sync();
+      result = await dependencies.sync();
       if (currentGeneration !== generation) return;
       const current = readCursor(userId);
       if (reason === "cursor_ahead_of_event_store") {
@@ -206,7 +212,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
         resyncInFlightGeneration = null;
       }
     }
-    await signalRecovery(currentGeneration);
+    await signalRecovery(currentGeneration, result);
   }
 
   function parseEvent(frame: Record<string, unknown>): UserStreamEvent | null {
@@ -326,7 +332,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
       if (currentGeneration !== generation || subscribers.size === 0) return;
       if (!baselinedCursorUsers.has(readiness.userId) && initialCursor === 0) replaceCursor(readiness.userId, baseline.maxEventId);
       baselinedCursorUsers.add(readiness.userId);
-      await signalRecovery(currentGeneration);
+      await signalRecovery(currentGeneration, baseline);
       if (currentGeneration !== generation || subscribers.size === 0) return;
     } catch (error) {
       if (currentGeneration !== generation) return;

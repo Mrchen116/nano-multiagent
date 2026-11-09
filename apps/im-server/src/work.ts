@@ -1,3 +1,4 @@
+import {rejectDeletedExecution} from './agent-deletion.js';
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -14,7 +15,7 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
-import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, formatLocalTime } from "@nano/product-contracts";
+import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
 import type { Connection } from './gateway.js';
 import { WorkRecords } from './work-records.js';
 import type { WorkView } from './work-record-types.js';
@@ -85,8 +86,8 @@ export class Work {
     }
     return ack;
   }
-  view(root: string, before?: string, limit = 20, summary = false): WorkView {
-    const {node_id, ...view} = this.records.view(root, before, limit, summary);
+  view(root: string, before?: string, limit = 20, summary = false, messageId?: string): WorkView {
+    const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId);
     const online = this.ctx.gateway.isOnline(node_id);
     return {...view,
       main_execution: !online && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
@@ -321,12 +322,14 @@ export class Work {
           ...a,
         })),
       );
-      while (part < parts.length && page.length < limit) {
-        const content = parts[part]!,
-          cost = content.text?.length ?? 0;
-        if (cost > budget || (content.type === "image" && images >= 4)) break;
+      // A UI-only message needs one result row for its interactive payload.
+      const partCount = Math.max(1, parts.length);
+      while (part < partCount && page.length < limit) {
+        const content = parts[part],
+          cost = content?.text?.length ?? 0;
+        if (cost > budget || (content?.type === "image" && images >= 4)) break;
         budget -= cost;
-        if (content.type === "image") images++;
+        if (content?.type === "image") images++;
         if(personal && !memory) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
@@ -357,15 +360,16 @@ export class Work {
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
           },
           ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
+          ...(m.reply_to ? {reply_to:projectChatReplyContext(m.reply_to)} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
-          total_parts: parts.length,
-          content: [content],
-          complete_message: parts.length === 1,
+          total_parts: partCount,
+          content: content ? [content] : [],
+          complete_message: partCount === 1,
         });
         part++;
       }
-      if (part < parts.length) break;
+      if (part < partCount) break;
       offset++;
       part = 0;
     }
@@ -397,14 +401,17 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     const personal=one(db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",id);
     if (!p || (owner && p.owner_id !== user.owner_id) || (personal && personal.owner_user_id!==user.id)) fail(404, "agent_not_accessible");
     ctx.identity.requireSpace(user, p.space_id);
+    if (one(db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',id)) fail(409,'agent_deletion_requested');
     return p;
   }
   app.get("/im/v1/agents/:agent_id/work", (req) => {
-    const p = profile(req),
-      q = query(req);
-    return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary');
+    const q = query(req), agentId = params(req).agent_id;
+    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),agentId,q.message_id ? 'message' : 'agent',q.message_id ?? agentId);
+    const p = profile(req);
+    return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary', q.message_id);
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns", (req) => {
+    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),params(req).agent_id,'session',params(req).session_id);
     profile(req);
     const p = params(req),
       q = query(req);
@@ -417,6 +424,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     );
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns/:turn_id/items", (req) => {
+    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),params(req).agent_id,'session',params(req).session_id);
     profile(req);
     const p = params(req),
       q = query(req);

@@ -5,6 +5,7 @@ import { openChatDatabase } from '../chat-local-db';
 /** Frozen wire body. Private background is not part of it: the centre derives and freezes
  * the background with the message, so a retry must resend exactly this payload. */
 export interface SendAttemptPayload {
+  replyToMessageId?: string;
   text: string;
   attachments: Attachment[];
 }
@@ -70,6 +71,7 @@ export async function prepareSendAttempt(userId: string, conversationId: string,
       // before this unit also carry a `contexts` field the centre now ignores, and treating
       // them as a different payload would POST a second copy instead of retrying the original.
       const existing = previous.find(item => item.retryable && item.draft.revision === draft.revision
+        && item.replyToMessageId === payload.replyToMessageId
         && item.text === payload.text
         && JSON.stringify(item.attachments) === JSON.stringify(payload.attachments));
       if (existing) { result(existing); return; }

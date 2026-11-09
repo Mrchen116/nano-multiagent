@@ -136,7 +136,8 @@ export class PersonalAgents {
   }
   private addressedAgents(message:Row):string[] {
     const reply=message.interaction_reply_json?JSON.parse(message.interaction_reply_json):message.interaction_reply;
-    return [...new Set([...this.ctx.messaging.mentionedAgents(message.conversation_id,message.content),...(reply?.agent_id?[reply.agent_id]:[])])];
+    const quoted=message.reply_to_json?JSON.parse(message.reply_to_json):message.reply_to;
+    return [...new Set([...this.ctx.messaging.mentionedAgents(message.conversation_id,message.content),...(reply?.agent_id?[reply.agent_id]:[]),...(quoted?.sender.type==='agent'?[quoted.sender.id]:[])])];
   }
   private representedBy(id:string):string|undefined {return one(this.db,'SELECT agent_id FROM pa_delegated_messages WHERE message_id=? AND representation_operation_id IS NOT NULL',id)?.agent_id;}
   private directOwnerMessage(b:Row,message:Row):boolean {
@@ -159,6 +160,7 @@ export class PersonalAgents {
         ...(message.sender_source_id?{source_id:message.sender_source_id}:{})},
       ...(original.pa_agent_id?{pa_agent_id:original.pa_agent_id}:{}),
       content:message.content,created_at:message.created_at,attachments:original.attachments,
+      ...(original.reply_to?{reply_to:original.reply_to}:{}),
       ...(original.interaction_reply?{interaction_reply:original.interaction_reply}:{}),
       ...(original.interactive?{interactive:original.interactive}:{})};
   }
@@ -261,7 +263,7 @@ export class PersonalAgents {
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
         return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
-          ...(message?{mentioned_agent_ids:this.addressedAgents(message)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
+          ...(message?{mentioned_agent_ids:this.addressedAgents(message),explicit_mentioned_agent_ids:this.ctx.messaging.mentionedAgents(message.conversation_id,message.content)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);
@@ -420,6 +422,7 @@ export class PersonalAgents {
       case 'pa.observations.ack': return this.acknowledge(principal,args);
       case 'pa.incident.report': return this.incident(principal,args);
       case 'pa.incident.receipt': return this.incidentReceipt(principal,args);
+      case 'pa.action.status': return this.actions.status(b,args);
       case 'pa.action.prepare': return this.actions.prepareChecked(principal,args);
       case 'pa.action.review-result': return this.actions.review(principal,args);
       case 'pa.action.commit': return this.actions.commitChecked(principal,args);

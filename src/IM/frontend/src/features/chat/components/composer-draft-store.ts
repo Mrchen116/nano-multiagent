@@ -18,6 +18,7 @@ export type ComposerUpload = {
 
 export type ComposerSnapshot = {
   revision?: string;
+  replyTo?: import("../chat-types").ReplyReference;
   draft: string;
   draftMentions: ComposerDraftMention[];
   pending: Attachment[];
@@ -36,6 +37,7 @@ export const EMPTY_COMPOSER_SNAPSHOT: ComposerSnapshot = {
 export function cloneComposerSnapshot(live: ComposerSnapshot): ComposerSnapshot {
   return {
     revision: live.revision,
+    replyTo: live.replyTo,
     draft: live.draft,
     draftMentions: [...live.draftMentions],
     pending: [...live.pending],

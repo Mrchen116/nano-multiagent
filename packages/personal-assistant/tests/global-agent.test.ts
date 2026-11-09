@@ -4,10 +4,17 @@ import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
-it.each([true,false])('reconciles a cold uncertain publication by status without resending (found=%s)',async found=>{
+const quotedPublication = JSON.stringify({reply_to_message_id:'original',text:'收到'});
+it.each([
+ {found:true,body:'already reviewed reply',text:'already reviewed reply'},
+ {found:false,body:'already reviewed reply',text:'already reviewed reply'},
+ {found:true,body:quotedPublication,text:'收到'},
+ {found:true,body:quotedPublication,text:quotedPublication,callText:quotedPublication},
+])('reconciles a cold uncertain publication without resending (%#)',async ({found,body,text,callText})=>{
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
- inbox.preparePublication('main:call','c','already reviewed reply');inbox.settlePublication('main:call','sending');
+ if (callText) store.recordEvents('main',[{seq:1,time:1,type:'tool/call',data:{turn:1,callId:'call',name:'send_message',arguments:JSON.stringify({target:'c',text:callText})}}]);
+ inbox.preparePublication('main:call','c',body);inbox.settlePublication('main:call','sending');
  const requests:string[]=[];
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
   runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
@@ -17,7 +24,7 @@ it.each([true,false])('reconciles a cold uncertain publication by status without
   expect(inbox.publication('main:call')?.state).toBe(found?'confirmed':'sending');
   expect(requests.filter(type=>type==='agent.message.status')).toHaveLength(found?1:2);
   expect(requests).not.toContain('agent.message');
-  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toHaveLength(found?1:0);
+  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toMatchObject(found?[{payload:{text}}]:[]);
  }finally{await product.stop();inbox.close();store.close();}
 });
 
@@ -36,7 +43,7 @@ it.each(['interrupted','user','completed','consumed','partially-consumed'])('rec
    if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
    if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
    return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};
-  }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:e=>{throw e;}});
+  }},relay:{request:async(type,args:any)=>({type:'ack',payload:type==='conversation.query'?{ok:true,result:{conversations:args.targets.map((target:string)=>({target,name:target}))}}:{}})},image:async()=>'',onError:e=>{throw e;}});
  try {
   await product.recover();await product.recover();
   expect(submitted).toEqual(recover?[`${base}:recovery:10`]:[]);
@@ -250,7 +257,7 @@ it.each([
       if (method === 'session.submit') submitted.push(value as Record<string, unknown>);
       if (method === 'session.cancel') { cancellations++; return { wasRunning: true }; }
       return method === 'session.descendants' ? [] : { events: [], durable: true, status };
-    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : {} }) }, image: async () => '', onError: error => { throw error; } });
+    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : type === 'conversation.query' ? {ok:true,result:{conversations:(payload.targets as string[]).map(target=>({target,name:target}))}} : {} }) }, image: async () => '', onError: error => { throw error; } });
   const input: RelayInput = { agent_id: 'a', conversation_id: 'c_group', relay_task_id: 'task-event', idempotency_key: 'task-event', metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [] }, message: { id: 'task-event', content: 'Assignment changed <mention type="user" target_id="a"/>', sender_type: 'system', sender_user_id: 'actor', attachments: [] } };
   try {
     await product.receive(input); await product.receive(input);
@@ -367,7 +374,7 @@ it('notifies about messages received during an in-flight busy notification witho
     runtime: { onNotification: () => () => {}, request: async (method, value) => {
       if (method === 'session.submit') { submitted.push(value as Record<string, unknown>); if (submitted.length === 1) await held; }
       return method === 'session.descendants' ? [] : { events: [], durable: true, status: 'running' };
-    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : {} }) }, image: async () => '', onError: error => { throw error; } });
+    } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : type === 'conversation.query' ? {ok:true,result:{conversations:(payload.targets as string[]).map(target=>({target,name:target}))}} : {} }) }, image: async () => '', onError: error => { throw error; } });
   const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c_dm', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'direct' }, message: { id, content: id, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
   try {
     const first = product.receive(input('first'));
@@ -395,7 +402,7 @@ it('replays a Feishu owner observation once with its original sender, channel an
   runtime:{onNotification:()=>()=>{},request:async(method)=>{calls.push(method);return {events:[],durable:true,status:'idle'};}},
   relay:{ready:true,request:async(type,payload:any)=>{
    if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};
-   return {type:'result',payload:{ok:true,result:type==='pa.observations.read'?{items:[event]}:type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:'participant',conversation_type:'direct',channel:'feishu'}:{}}};
+   return {type:'result',payload:{ok:true,result:type==='pa.observations.read'?{items:[event]}:type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:'participant',conversation_type:'direct',channel:'feishu'}:type==='conversation.query'?{conversations:payload.targets.map((target:string)=>({target,name:'Owner Feishu'}))}:{}}};
   }}});
  try {
   await product.recoverPersonalObservations();await product.recoverPersonalObservations();
@@ -469,4 +476,24 @@ it('replays a child terminal when model fallback completes at the already acknow
     expect(acknowledgements.at(-1)).toMatchObject({cursors:{child:6},modelVersions:{child:'completed'}});
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toHaveLength(1);
   } finally { await product.stop(); inbox.close(); store.close(); }
+});
+
+it('carries an explicit quote through Global publication and freezes its retry identity',async()=>{
+ const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+ const binding=store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ const sent:any[]=[];
+ const product=new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
+ runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+ relay:{request:async(type,payload)=>{
+  if(type==='conversation.query')return {type:'conversation.query.result',payload:{ok:true,result:{type:'group',channel:'web',target:'c_group'}}};
+  if(type==='agent.message'){sent.push(payload);return {type:'ack',payload:{message_id:'sent',conversation_id:'c_group'}};}
+  return {type:'ack',payload:{}};
+ }},image:async()=>'',onError:e=>{throw e;}});
+ const call:ProductCall={method:'send_message',args:{target:'c_group',text:'收到',reply_to_message_id:'original'},operationId:'quoted',callId:'quoted',sessionId:binding.sessionId,rootSessionId:binding.sessionId,agentId:'a',ownerId:'owner'};
+ try {
+  expect(await product.call(call)).toMatchObject({status:'sent'});
+  expect(sent).toHaveLength(1);expect(sent[0]).toMatchObject({reply_to_message_id:'original',text:'收到'});
+  expect(await product.call(call)).toMatchObject({status:'sent'});expect(sent).toHaveLength(1);
+  await expect(product.call({...call,args:{...call.args,reply_to_message_id:'different'}})).rejects.toThrow('identity conflict');
+ } finally {await product.stop();inbox.close();store.close();}
 });

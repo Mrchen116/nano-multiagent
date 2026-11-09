@@ -1,20 +1,22 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
+import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
-import { interactiveResponse } from '@nano/product-contracts';
+import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
-import { logicalEvents } from './presentation.js';
+import { argumentsObject, logicalEvents } from './presentation.js';
 import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
+  uploadScreenshot?: ScreenshotUploader;
   onError(error: unknown): void;
   onWork?(): void;
   authorityEpoch?(): number | undefined;
@@ -248,10 +250,32 @@ export class GlobalAgent {
     })().finally(() => { this.waking.delete(config.agentId); this.armBackground(); });
     this.waking.set(config.agentId, task); return task;
   }
-  private submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
+  private async submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
+    const summary = await this.inboxSummary(config, binding);
     return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
-      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work and decide when to handle them. When you do, first check the current unread sources, then read and handle relevant messages. This is a system notification, not human permission.'}],
+      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work or read relevant sources directly using their target. Check is optional when you need a refreshed list. This is a system notification, not human permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
+  }
+  private async checkInbox(config: AgentConfiguration, binding: SessionBinding) {
+    const sources = this.options.inbox.check(config.agentId).sources;
+    // Offline nodes can still process their persisted Inbox using the last known names.
+    if (sources.length && this.options.relay.ready !== false) {
+      // External sources are described locally; IM cannot resolve their routing IDs.
+      for (const external of [false, true]) {
+        const targets = sources.filter(source => source.target.startsWith('external:') === external).map(source => source.target);
+        if (!targets.length) continue;
+        const descriptions = await this.query(binding, { action: 'describe', targets });
+        for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(config.agentId, source.target, source.name);
+      }
+    }
+    return this.options.inbox.check(config.agentId, !!config.personal);
+  }
+  private async inboxSummary(config: AgentConfiguration, binding: SessionBinding): Promise<string> {
+    const { sources } = await this.checkInbox(config, binding);
+    return 'Unread conversation snapshot (mentions counts messages that @ you):\n'
+      + JSON.stringify(this.options.store.toolReferences.result(config.agentId, 'inbox', {
+        sources: sources.map(({ requires_attention: _attention, ...source }) => source),
+      }));
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
     if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
@@ -346,8 +370,9 @@ export class GlobalAgent {
       if(!prior.accepted) {inbox.admitBackground(config.agentId,batch.watermark,Date.now(),false);this.waitingForIdle.delete(config.agentId);return;}
     }
     inbox.prepareBackground(config.agentId,batch.watermark);
+    const summary=await this.inboxSummary(config,binding);
     const result=await runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',onlyIfIdle:true,
-      content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Read the accumulated updates and assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.'}],
+      content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Select relevant sources and read directly using their target; check is optional to refresh the list. Assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox-background',messageId:inputId}}) as {accepted:boolean;durable?:boolean;busy?:boolean};
     if(result.accepted && result.durable) {
       inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);
@@ -417,9 +442,9 @@ export class GlobalAgent {
               }
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,source_policy_revision:event.policy_revision},
+                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
-                  attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,sender:message.sender}},true);
+                  attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,reply_to:message.reply_to,sender:message.sender}},true);
             } else {
               this.options.store.lifecycle.assert(config.agentId,event.lifecycle_revision??1);
               const binding=await this.main(config);
@@ -519,10 +544,8 @@ export class GlobalAgent {
           return {...result,other_admitted_inputs_available:true};
         }
         if (call.args.action === 'check') {
-          const sources = this.options.inbox.check(call.agentId).sources;
-          const descriptions = await this.query(binding, { action: 'describe', targets: sources.map(source => source.target) });
-          for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(call.agentId, source.target, source.name);
-          return {...this.options.inbox.check(call.agentId,!!personalConfig),...(personalConfig?{security_incidents:(await this.personal.request(personalConfig,'pa.incidents.pending')).items}:{})};
+          const config = this.options.agents.find(agent => agent.agentId === call.agentId)!;
+          return {...await this.checkInbox(config,binding),...(personalConfig?{security_incidents:(await this.personal.request(personalConfig,'pa.incidents.pending')).items}:{})};
         }
         if (call.args.action !== 'read' || typeof call.args.target !== 'string') throw new Error('Inbox read needs a target');
         const info = await this.query(binding, { action: 'info', target: call.args.target });
@@ -647,11 +670,16 @@ export class GlobalAgent {
     const { inbox, store, runtime } = this.options;
     const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
     const global = config?.mode === 'global';
-    if(config?.personal) return this.personal.send(config,binding,call);
+    if (typeof call.args.receipt_of === 'string') return this.screenshotReceipt(binding, call, config);
+    if(config?.personal) return this.personal.send(config,binding,call,signal);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
-    const publicationBody = interactive ? sortedJsonAscii({text, interactive}) : text;
-    if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
+    const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
+    const quote = replyTo ? { reply_to_message_id: replyTo } : {};
+    const paths = call.args.local_images as string[] | undefined;
+    const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote})
+      : interactive || replyTo ? sortedJsonAscii({text, interactive, ...quote}) : text;
+    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);
     if (previous) {
@@ -678,42 +706,64 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    if(replyTo && info?.channel && info.channel!=='web')throw new Error('Quoted replies require a Nano IM destination');
+    if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
+    if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
-    let correction = false;
-    if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {
+    const currentSingleGroup = !global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web';
+    const refreshTurnEvidence = async () => {
       for (const input of store.inputs(binding.sessionId)) {
-        const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId: input.id }) as { accepted: boolean; turn?: number; terminal?: unknown };
+        const evidence = await runtime.request('session.lookup', {sessionId:binding.sessionId, inputId:input.id}) as {accepted:boolean;turn?:number;terminal?:unknown};
         store.inputEvidence(input.id, evidence);
       }
-      const inputs = store.inputs(binding.sessionId);
-      const position = inputs.findLastIndex(input => input.turn === turn);
-      correction = inputs.slice(position + 1).some(input => !input.input.metadata.context_only);
-    }
-    signal.throwIfAborted();
-    // Receive and dispatch admission are synchronous in this node's event loop.
-    inbox.preparePublication(call.operationId, target, publicationBody,binding.agentId);
-    // External conversations and their IM mirrors share one delivery target.
-    const inboxTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
-    const revalidate = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
-    const unreadTargets = global && revalidate ? [...new Set(inboxTargets)].filter((target): target is string => typeof target === 'string' && inbox.blocking(binding.agentId, target)) : [];
-    if (revalidate && (global ? unreadTargets.length > 0 : correction)) {
-      const result = { status: 'held_for_revalidation', target, ...(global ? { inbox_targets: unreadTargets } : {}), message: global
+    };
+    const revalidate = () => {
+      signal.throwIfAborted();
+      const inputs = currentSingleGroup ? store.inputs(binding.sessionId) : [];
+      const correction = inputs.slice(inputs.findLastIndex(input => input.turn === turn) + 1).some(input => !input.input.metadata.context_only);
+      const targets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
+      const check = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
+      const unread = global && check ? [...new Set(targets)].filter((id): id is string => typeof id === 'string' && inbox.blocking(binding.agentId, id)) : [];
+      if (!check || !(global ? unread.length : correction)) return undefined;
+      const result = {status:'held_for_revalidation', target, ...(global ? {inbox_targets:unread} : {}), message:global
         ? 'Nothing was sent. Read the new messages from inbox_targets and reconsider before sending with a new call.'
-        : 'Read the new messages in this conversation and reconsider before sending.' };
+        : 'Read the new messages in this conversation and reconsider before sending.'};
       inbox.settlePublication(call.operationId, 'held', result);
-      if (global) this.append(binding, `publication:${call.operationId}`, {type: 'draft_withheld', payload: { call_id: call.callId, target, text }}, turn);
+      if (global) this.append(binding, `publication:${call.operationId}`, {type:'draft_withheld', payload:{call_id:call.callId,target,text}}, turn);
       return result;
+    };
+    if (currentSingleGroup) await refreshTurnEvidence();
+    signal.throwIfAborted();
+    inbox.preparePublication(call.operationId, target, publicationBody, binding.agentId);
+    const held = revalidate();
+    if (held) return held;
+
+    const attachments = paths ? await prepareScreenshots(this.options.uploadScreenshot, {
+      agentId:binding.agentId, conversationId:reviewConversation!, operationId:call.operationId,
+      lifecycleRevision:store.lifecycle.assert(binding.agentId), signal,
+    }, paths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);
+    if (paths) {
+      if (global) await this.reconcileRoot(binding);
+      if (currentSingleGroup) await refreshTurnEvidence();
+      const changed = revalidate();
+      if (changed) return changed;
     }
     inbox.settlePublication(call.operationId, 'sending');
     try {
-      const response = await this.publishMessage({ node_id: this.options.nodeId, text,
+      const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
+        ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload);
     } catch (error) {
-      if (interactive && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+      if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
+        const result = {status:'not_sent',target,reason:error.message};
+        inbox.settlePublication(call.operationId, 'rejected', result);
+        return result;
+      }
+      if ((interactive || paths) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');
-        throw new Error(error.detail ? JSON.stringify(error.detail) : `Interactive reply rejected: ${error.code ?? error.message}`);
+        throw new Error(error.detail ? JSON.stringify(error.detail) : `Message rejected: ${error.code ?? error.message}`);
       }
       inbox.settlePublication(call.operationId, 'unknown');
       if(error instanceof RelayDeliveryError && error.delivery==='unknown') {
@@ -724,9 +774,29 @@ export class GlobalAgent {
           }
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }
+      if (paths && !(error instanceof RelayDeliveryError && error.delivery === 'rejected'))
+        return unknownScreenshotReceipt(target, call.operationId);
       throw error;
     }
   }
+
+  private async screenshotReceipt(binding: SessionBinding, call: ProductCall, config?: AgentConfiguration): Promise<unknown> {
+    const id = String(call.args.receipt_of), target = String(call.args.target);
+    const original = this.options.inbox.publication(id);
+    if (!id.startsWith(`${binding.sessionId}:`) || !original || original.target !== target)
+      throw new Error('No screenshot operation for this Agent and target');
+    let body: {text?:string; local_images?:unknown} | undefined;
+    try { body = JSON.parse(original.body); } catch { /* Legacy text publications have no envelope. */ }
+    if (!Array.isArray(body?.local_images)) throw new Error('No screenshot operation for this Agent and target');
+    if (original.result) return JSON.parse(original.result);
+    if (!['sending','unknown'].includes(original.state)) return {status:'not_sent', target};
+    const result = config?.personal ? await this.personal.screenshotReceipt(config, target, id)
+      : (await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:id})).payload;
+    if (result.found === true) return this.confirmPublication(binding,
+      {operationId:id,callId:id.slice(binding.sessionId.length+1),sessionId:binding.sessionId}, target, body?.text ?? '', result);
+    return unknownScreenshotReceipt(target,id);
+  }
+
   private async publishMessage(publication: AgentPublication): Promise<ProtocolFrame & {payload: {message_id: string}}> {
     const response = await this.options.relay.request('agent.message', {...publication});
     if (typeof response.payload.message_id !== 'string' || !response.payload.message_id) throw new Error('Agent publication has no message identity');
@@ -746,9 +816,15 @@ export class GlobalAgent {
     for(const publication of this.options.inbox.pendingPublications(binding.sessionId)) {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
-      let text=publication.body;
-      try{const body=JSON.parse(publication.body);if(body.interactive){text=body.text;}}catch{ /* Plain text publications need no envelope. */ }
-      this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
+      const callId = publication.id.slice(binding.sessionId.length + 1);
+      const call = this.options.store.events(binding.sessionId).find(event => event.type === 'tool/call' && event.data.callId === callId);
+      const args = argumentsObject(call?.data.arguments);
+      // Tool arguments distinguish a plain JSON message from a stored publication envelope.
+      const body = argumentsObject(publication.body);
+      const savedText = typeof body?.text === 'string' && (body.interactive || body.attachments || body.reply_to_message_id)
+        ? body.text : publication.body;
+      const text = typeof args?.text === 'string' ? args.text : savedText;
+      this.confirmPublication(binding,{operationId:publication.id,callId,sessionId:binding.sessionId},publication.target,text,status.payload);
     }
   }
   private workPositions(root:string) {

@@ -90,5 +90,9 @@ export class ConfigurationOperations {
       if (receipt.status === 'pending') await this.handle(receipt.kind as 'apply' | 'create', receipt.intent);
     }
   }
+  /** Drop receipts with the retired Agent's configuration. */
+  purgeAgent(agentId:string):void {
+    this.db.prepare("DELETE FROM operations WHERE json_extract(receipt,'$.candidate.agent_id')=?").run(agentId);
+  }
   async close(): Promise<void> { await Promise.all(this.chains.values()); this.db.close(); }
 }

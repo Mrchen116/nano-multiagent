@@ -52,6 +52,19 @@ describe('message creation key reuse', () => {
     expect(() => assertMessageAttempt({sender_user_id:'u1',sender_type:'user',caller_payload_json:oldRow}, 'u1', 'user', payload)).not.toThrow();
   });
 
+  it('keeps quoted reply identity while ignoring legacy client background', () => {
+    const quoted = {content:'hello',attachments:[],reply_to_message_id:'original'};
+    const stored = {...saved,caller_payload_json:JSON.stringify({...quoted,
+      interaction_contexts:[{source_message_id:'old-card',state:{a:1}}]})};
+    expect(() => assertMessageAttempt(stored,'u1','user',messageAttemptPayload(quoted))).not.toThrow();
+    for (const reply_to_message_id of [undefined,'another']) {
+      expect(() => assertMessageAttempt(stored,'u1','user',messageAttemptPayload({...quoted,reply_to_message_id})))
+        .toThrowError(expect.objectContaining({statusCode:409}));
+    }
+    expect(() => assertMessageAttempt({...saved,caller_payload_json:messageAttemptPayload({content:'hello'})},
+      'u1','user',messageAttemptPayload(quoted))).toThrowError(expect.objectContaining({statusCode:409}));
+  });
+
   it.each([
     ['another sender', 'u2', payload],
     ['new content', 'u1', messageAttemptPayload({content:'changed'})],

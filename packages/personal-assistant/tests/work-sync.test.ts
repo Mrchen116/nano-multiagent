@@ -165,3 +165,47 @@ test('reports processing separately from upload ACK, including completion with n
   expect(f.calls.at(-1)).toMatchObject({method:'GET',produced:'1'});
   expect(f.inbox.journalSeq).toBe(1);expect(f.errors).toEqual([]);
 });
+
+test('redaction refreshes a stale partial cursor and preserves a following peer event', async () => {
+  let receivedGet!: () => void, replyGet!: () => void;
+  const getStarted = new Promise<void>(resolve => { receivedGet = resolve; });
+  const releaseGet = new Promise<void>(resolve => { replyGet = resolve; });
+  let remote = 0, oldCursor = true;
+  const target = event(1, 'private'.repeat(6000));
+  const peer = { ...event(2, 'still working'), root_agent_id: 'peer' };
+  const f = await fixture(async (call, response) => {
+    if (call.method === 'GET' && oldCursor) {
+      oldCursor = false;
+      const raw = Buffer.from(JSON.stringify({ ...target, seq: 1 }));
+      receivedGet();
+      await releaseGet;
+      json(response, { through_seq: 0, expected_seq: 1, pending_event: {
+        seq: 1, event_id: target.event_id, sha256: sha(raw),
+        total_parts: Math.ceil(raw.length / 16384), received_parts: [0],
+      } });
+      return;
+    }
+    if (call.method === 'POST') {
+      expect(call.body.events).toEqual([
+        { seq: 1, event_id: target.event_id, root_agent_id: 'root', session_id: 'redacted', type: 'work_redacted', payload: {} },
+        { ...peer, seq: 2 },
+      ]);
+      remote = 2;
+    }
+    json(response, { through_seq: remote, expected_seq: remote + 1 });
+  });
+  f.inbox.append(target);
+  f.inbox.append(peer);
+  f.sync.start();
+  await getStarted;
+  try {
+    expect(f.inbox.deletionWork('root')).toEqual({ journal_id: f.inbox.journalId, entries: [{ seq: 1, event_id: target.event_id }] });
+    f.inbox.append(event(3, 'late target'));
+    f.inbox.purgeAgent('root', ['session']);
+    f.sync.redacted();
+  } finally { replyGet(); }
+  await expect.poll(() => f.inbox.throughSeq).toBe(2);
+  expect(f.inbox.journalSeq).toBe(2);
+  expect(f.calls.slice(0, 3).map(call => call.method)).toEqual(['GET', 'GET', 'POST']);
+  expect(f.errors).toEqual([]);
+});

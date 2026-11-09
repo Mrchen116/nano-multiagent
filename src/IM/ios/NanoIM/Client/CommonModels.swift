@@ -25,6 +25,7 @@ struct Contact: Codable, Identifiable, Sendable, Hashable {
     var node_name: String?
     var status: String?
     var work_mode: String?
+    var role: String?
     var id: String { user_id }
     var actor: ActorRef { ActorRef(type: kind == "agent" ? "agent" : "user", id: agent_id ?? user_id) }
 }
@@ -35,6 +36,7 @@ struct ActorRef: Codable, Sendable, Hashable {
     var display_name: String?
     var user_id: String?
     var is_stale: Bool?
+    var is_deleted: Bool?
 }
 
 struct APIError: Error, LocalizedError, Sendable {

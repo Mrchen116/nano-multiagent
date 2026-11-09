@@ -49,6 +49,16 @@ describe('durable composer send attempts', () => {
     expect(await listSendAttempts('u1','chat')).toHaveLength(1);
   });
 
+  it('preserves a quoted legacy attempt key but separates a changed or removed reply target', async () => {
+    const quoted = {...payload,replyToMessageId:'original'};
+    await putLegacyAttempt({userId:'u1',conversationId:'chat',key:'legacy-quoted',draft,...quoted,retryable:true,
+      contexts:[{source_message_id:'old-card',state:{a:1}}]});
+    expect((await prepareSendAttempt('u1','chat',draft,quoted)).key).toBe('legacy-quoted');
+    const changed = await prepareSendAttempt('u1','chat',draft,{...quoted,replyToMessageId:'another'});
+    expect(changed.key).not.toBe('legacy-quoted');
+    expect((await prepareSendAttempt('u1','chat',draft,payload)).key).not.toBe(changed.key);
+  });
+
   it('isolates accounts and conversations and removes persisted snapshots on revoke and logout', async () => {
     await prepareSendAttempt('u1','chat',draft,payload);
     await prepareSendAttempt('u1','other',draft,payload);

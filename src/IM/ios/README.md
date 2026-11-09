@@ -63,4 +63,6 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 旧 `openui/nano-1` 继续用随包 `lang-core` 1.0.1 在 JavaScriptCore 中求值并以 SwiftUI/Swift Charts 呈现。`Runtime/interactive-runtime.ts` 或旧目录改变后，在根目录运行 `pnpm exec tsx scripts/generate-ios-interactive.ts` 更新资源与许可证；`pnpm check:ios-runtime` 检查一致性。
 
+本机测试前记录模拟器 UDID、是否本轮新建及原运行状态，并为本轮设置独占 `NANO_IOS_BUILD_ROOT`。`build.sh` 只构建/测试，不代管模拟器和构建目录；结束（含失败）后按 [测试资源回收](../../../docs/development/worktree-runtime.md#测试资源回收) 处理，临时专用模拟器须关闭并删除，借用设备恢复原状态。
+
 真实服务必须按仓库 [worktree runtime](../../../docs/development/worktree-runtime.md) 隔离。行为契约见 [iOS Client](../../../docs/specs/im/ios-client.md)，本版交付范围与证据见 [feat-578](../../../docs/changes/archive/feat-578-ios-app/release-acceptance.md)。模拟器 UI 与 API 验证不代替真机的中文输入、VoiceOver、免费续签和到期恢复；这些剩余实证跟进 [#327](https://github.com/Mrchen116/nano-multiagent/issues/327)。

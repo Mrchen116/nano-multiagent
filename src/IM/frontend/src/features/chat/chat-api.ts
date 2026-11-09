@@ -41,6 +41,7 @@ export interface ListMessagesOptions {
 }
 
 export interface ListMessagesResult {
+  execution_cleanup_revision?: number;
   items: TimelineItem[];
   next_before_message_id: string | null;
 }
@@ -60,6 +61,7 @@ export async function listMessages(
 import type { InteractionDraft, InteractionReplyInput } from "./interactive/types";
 
 export interface CreateMessageRequest {
+  replyToMessageId?: string;
   interactionReply?: InteractionReplyInput;
   idempotencyKey?: string;
   conversationId: string;
@@ -90,6 +92,7 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
   const body = {
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
+    ...(req.replyToMessageId ? {reply_to_message_id:req.replyToMessageId} : {}),
     attachments: req.attachments ?? [],
     timezone: browserTimezone(),
     ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {})

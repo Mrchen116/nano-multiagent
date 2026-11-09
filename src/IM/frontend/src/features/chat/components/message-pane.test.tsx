@@ -1,5 +1,6 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import {MemoryRouter} from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../../i18n";
@@ -95,6 +96,16 @@ describe("MessagePane", () => {
     });
   }
 
+  it('links each Global reply to its own message anchor in the same Agent Work', () => {
+    const reply = SAMPLE_MESSAGES[1];
+    render(<MemoryRouter><MessagePane conversation={DIRECT_CONV} messages={[reply, {...reply, id: 'older/reply?', content: 'Older reply'}]} globalAgentIds={['a-planner']} mentionCandidates={[]} onSend={() => {}} /></MemoryRouter>);
+    const links = screen.getAllByRole('link', {name: /View Work|查看 Work/});
+    expect(links.map(link => link.getAttribute('href'))).toEqual([
+      '/settings/agents/a-planner?view=work&message_id=m2',
+      '/settings/agents/a-planner?view=work&message_id=older%2Freply%3F'
+    ]);
+  });
+
   it("renders the conversation title and each message content", () => {
     render(
       <MessagePane
@@ -181,7 +192,7 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
   });
 
-  it("keeps a deep-linked historical message away from automatic bottom hydration", () => {
+  it("preserves a deep-linked position until the conversation is opened normally", () => {
     const props={conversation:DIRECT_CONV,messages:[] as Message[],selfUserId:"u1",mentionCandidates:[],onSend:vi.fn(),focusMessageId:"m1"};
     const {container,rerender}=render(<MessagePane {...props}/>);
     const scroller=container.querySelector(".chat-pane-messages") as HTMLElement;
@@ -189,8 +200,11 @@ describe("MessagePane", () => {
     setScrollMetrics(scroller,metrics);
     rerender(<MessagePane {...props} messages={SAMPLE_MESSAGES}/>);
     expect(scroller.scrollTop).toBe(0);
-    rerender(<MessagePane {...props} messages={[...SAMPLE_MESSAGES,{...SAMPLE_MESSAGES[1],id:"m3"}]}/>);
+    const refreshed = [...SAMPLE_MESSAGES, {...SAMPLE_MESSAGES[1], id: "m3"}];
+    rerender(<MessagePane {...props} messages={refreshed}/>);
     expect(scroller.scrollTop).toBe(0);
+    rerender(<MessagePane {...props} messages={refreshed} focusMessageId={null}/>);
+    expect(scroller.scrollTop).toBe(1800);
   });
 
   describe("history pagination scroll trigger (feat-451 R1)", () => {
@@ -956,7 +970,7 @@ describe("MessagePane", () => {
 
       expect(screen.getByRole("menu")).toBeInTheDocument();
       expect(screen.queryByRole("menuitem", { name: /^Cancel$/i })).not.toBeInTheDocument();
-      await user.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+      await user.click(screen.getByRole("menuitem", { name: /^Copy$/i }));
 
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("Hi back"));
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
@@ -996,6 +1010,19 @@ describe("MessagePane", () => {
       }
     });
 
+    it("offers copy and hides reply in the read-only context menu and action sheet", () => {
+      render(<MessagePane conversation={{...DIRECT_CONV,can_write:false}} messages={SAMPLE_MESSAGES} mentionCandidates={[]} onSend={() => {}} />);
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      expect(screen.getByRole("menuitem", { name: /^Copy$/i })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /^Reply$/i })).not.toBeInTheDocument();
+      fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+      fireEvent.click(screen.getByTestId("message-more-m2"));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^Copy$/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Reply$/i })).not.toBeInTheDocument();
+    });
+
     it("does not open a custom menu on mobile long-press", () => {
       render(
         <MessagePane
@@ -1030,7 +1057,7 @@ describe("MessagePane", () => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /^Cancel$/i })).not.toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: /Copy message/i }));
+      await user.click(screen.getByRole("button", { name: /^Copy$/i }));
 
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("Hi back"));
     });
@@ -1087,7 +1114,7 @@ describe("MessagePane", () => {
       expect(screen.queryByTestId("message-copy-m-empty-forkable")).not.toBeInTheDocument();
       await user.click(screen.getByTestId("message-more-m-empty-forkable"));
       expect(screen.getByRole("dialog")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /Copy message/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Copy$/i })).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /Branch from here/i }));
       expect(onFork).toHaveBeenCalledWith("m-empty-forkable");
     });
@@ -1119,7 +1146,7 @@ describe("MessagePane", () => {
       );
 
       expect(screen.getByRole("menu")).toBeInTheDocument();
-      expect(screen.queryByRole("menuitem", { name: /Copy message/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /^Copy$/i })).not.toBeInTheDocument();
       await user.click(screen.getByRole("menuitem", { name: /Branch from here/i }));
       expect(onFork).toHaveBeenCalledWith("m-empty-forkable-context");
     });
@@ -1143,7 +1170,7 @@ describe("MessagePane", () => {
 
       const bubble = screen.getByTestId("message-bubble-m2");
       fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
-      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Copy$/i }));
 
       expect(writeText).toHaveBeenCalledWith("Hi back");
       expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
@@ -1183,7 +1210,7 @@ describe("MessagePane", () => {
 
       const bubble = screen.getByTestId("message-bubble-m2");
       fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
-      const copyItem = screen.getByRole("menuitem", { name: /Copy message/i });
+      const copyItem = screen.getByRole("menuitem", { name: /^Copy$/i });
       await user.click(copyItem);
 
       await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
@@ -1215,8 +1242,9 @@ describe("MessagePane", () => {
       // 首项自动聚焦,ArrowDown 应能把焦点移到 aria-disabled 的 Branch 上
       // (可聚焦以发现 disabled 原因,激活仍由 action model 拒绝)。
       await waitFor(() =>
-        expect(screen.getByRole("menuitem", { name: /Copy message/i })).toHaveFocus()
+        expect(screen.getByRole("menuitem", { name: /^Reply$/i })).toHaveFocus()
       );
+      fireEvent.keyDown(menu, { key: "ArrowDown" });
       fireEvent.keyDown(menu, { key: "ArrowDown" });
       const branch = screen.getByRole("menuitem", { name: /Branch from here/i });
       expect(branch).toHaveFocus();
@@ -1242,7 +1270,7 @@ describe("MessagePane", () => {
 
       const bubble = screen.getByTestId("message-bubble-m2");
       fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
-      await user.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+      await user.click(screen.getByRole("menuitem", { name: /^Copy$/i }));
 
       // Remove the bubble before the copy settles.
       rerender(
@@ -1287,7 +1315,7 @@ describe("MessagePane", () => {
 
       const bubble = screen.getByTestId("message-bubble-m2");
       fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
-      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Copy$/i }));
       // First copy is in-flight; menu is still open because promise is pending.
       expect(screen.getByRole("menu")).toBeInTheDocument();
 
@@ -1318,7 +1346,7 @@ describe("MessagePane", () => {
 
       const bubble = screen.getByTestId("message-bubble-m2");
       fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
-      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Copy$/i }));
 
       // Switch conversation before the promise resolves.
       rerender(
@@ -1350,7 +1378,7 @@ describe("MessagePane", () => {
 
       const bubble = screen.getByTestId("message-bubble-m2");
       fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
-      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Copy$/i }));
 
       rerender(
         <MessagePane
@@ -1624,7 +1652,7 @@ describe("MessagePane", () => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
 
       // Dialog should trap focus: first action is focused.
-      expect(screen.getByRole("button", { name: /Copy message/i })).toHaveFocus();
+      expect(screen.getByRole("button", { name: /^Reply$/i })).toHaveFocus();
 
       await user.keyboard("{Escape}");
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

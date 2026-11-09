@@ -71,6 +71,7 @@ export class AgentLifecycles {
     let withdrawals: ReturnType<typeof revokeLostTaskContextAccess> = [];
     const state=transaction(this.ctx.db,()=>{
       const current=lifecycle(this.ctx.db,agentId);
+      if (one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',agentId)) fail(409,'agent_deletion_requested');
       const prior=one(this.ctx.db,'SELECT * FROM agent_lifecycle_requests WHERE agent_id=? AND request_id=?',agentId,input.request_id);
       if(prior) {
         if(prior.intent!==intent)fail(409,'request_id_reused');
@@ -88,6 +89,9 @@ export class AgentLifecycles {
         this.ctx.db.prepare(`UPDATE agent_lifecycle SET desired=?,revision=?,disabled_through_revision=?,request_id=?,actor_user_id=?,requested_at=?,observed=?,confirmed_at=NULL,error_code=?,error_detail=? WHERE agent_id=?`).run(
           intent,revision,intent==='disabled'?revision:current.disabled_through_revision,input.request_id,userId,now(),intent==='enabled'?'enabling':unsupported?'stop_unconfirmed':'stopping',unsupported?'node_upgrade_required':null,unsupported?'Update this node to confirm all managed execution has stopped':null,agentId);
         withdrawals=revokeLostTaskContextAccess(this.ctx.db,before,userId);
+      }
+      if(retry&&current.observed==='stop_unconfirmed'&&current.error_code!=='node_upgrade_required') {
+        this.ctx.db.prepare("UPDATE agent_lifecycle SET observed='stopping',error_code=NULL,error_detail=NULL WHERE agent_id=?").run(agentId);
       }
       const saved=lifecycle(this.ctx.db,agentId);
       this.ctx.db.prepare('INSERT INTO agent_lifecycle_requests VALUES(?,?,?,?)').run(agentId,input.request_id,intent,saved.revision);

@@ -9,6 +9,8 @@ import {
   unlinkSync,
   renameSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { decodePersonalImages } from "./personal-images.js";
 import { basename, dirname, join } from "node:path";
 import { once } from "node:events";
 import type { Readable } from "node:stream";
@@ -25,6 +27,9 @@ const ALLOWED = new Set([
   "text/markdown",
   "application/json",
 ]);
+function screenshotKey(agent: string, key: string): string {
+  return `screenshot:${agent}:${key}`;
+}
 function imageType(bytes: Buffer) {
   if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
     return "image/png";
@@ -129,6 +134,19 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       conversation_id: ctx.messaging.resolveTarget(b.agent_id, b.target),
     };
   });
+  app.get("/im/v1/conversations/:conversation_id/images", (req) => {
+    const principal = ctx.messaging.principal(req), q = query(req), id = params(req).conversation_id;
+    if (principal.kind !== "gateway") fail(401, "gateway credential required");
+    ctx.messaging.access(principal, id, q.agent_id, "write");
+    requireLifecycle(db, q.agent_id, Number(q.lifecycle_revision));
+    if (typeof q.upload_key !== "string" || !q.upload_key) fail(400, "upload_key required");
+    const resource = one(db, "SELECT * FROM message_images WHERE conversation_id=? AND source_key=?",
+      id, screenshotKey(q.agent_id, q.upload_key));
+    return {attachment: resource ? {
+      url: `/im/v1/conversations/${id}/images/${resource.image_id}`,
+      file_name: resource.file_name, content_type: resource.content_type,
+    } : null};
+  });
   await app.register(async (uploads) => {
     uploads.removeAllContentTypeParsers();
     uploads.addContentTypeParser("*", (req, payload, done) => done(null, payload));
@@ -140,10 +158,14 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(p,cId,q.agent_id);
       else {ctx.messaging.access(p, cId, q.agent_id, "write");if(p.kind==='gateway')requireLifecycle(db,q.agent_id,q.lifecycle_revision==null?undefined:Number(q.lifecycle_revision));}
       let fileName = basename(String(q.file_name ?? "").trim());
-      const key = isImage
+      const screenshot = q.screenshot === "1";
+      if (screenshot && (p.kind !== "gateway" || !isImage || q.external_incoming === "1")) fail(403, "invalid screenshot upload");
+      const suppliedKey = isImage
           ? String(req.headers["idempotency-key"] ?? "").trim()
           : `upload:${randomUUID()}`;
-      if (!fileName || !key) fail(400, "file_name and Idempotency-Key required");
+      if (!fileName || !suppliedKey) fail(400, "file_name and Idempotency-Key required");
+      if (!screenshot && suppliedKey.startsWith("screenshot:")) fail(400, "reserved upload key");
+      const key = screenshot ? screenshotKey(q.agent_id, suppliedKey) : suppliedKey;
       let mime = (req.headers["content-type"] ?? "application/octet-stream")
         .split(";")[0]!
         .trim()
@@ -204,6 +226,10 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
             const extension = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" }[detected];
             fileName = `${fileName.replace(/\.[^.]+$/, "")}.${extension}`;
           }
+        }
+        if (screenshot) {
+          if (mime === "image/gif") fail(415, "unsupported screenshot type");
+          await decodePersonalImages([{bytes: await readFile(temporary), byte_size: size, content_type: mime}]);
         }
         const fresh = ctx.messaging.principal(req);
         if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(fresh,cId,q.agent_id);

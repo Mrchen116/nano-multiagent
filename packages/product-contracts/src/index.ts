@@ -1,6 +1,7 @@
 import type { PersonalAgentIdentity } from './personal-agent.js';
 export * from './personal-agent.js';
 export * from './agent-lifecycle.js';
+export * from './agent-deletion.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
   agentId: string;
@@ -46,6 +47,7 @@ export interface RelayInput {
   message: {
     id: string;
     content: string;
+    reply_to?: import('./chat.js').ChatReplyReference;
     interactive?: import('./interactive.js').MessageInteractive;
     interaction_reply?: import('./interactive.js').InteractionSnapshot;
     sender_user_id: string;

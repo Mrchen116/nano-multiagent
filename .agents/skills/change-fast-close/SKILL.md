@@ -23,4 +23,4 @@ description: "用户明确选择快速开发或事后补 unit，已有实现且�
 
 用户验收、首文档/as-built design、code review、适用测试/本地 CI 和 canonical 归并均完成后，按 [change-workflow](../../../docs/development/change-workflow.md) 完整归档。基线与 PR base 按 [分支规则](../../../docs/development/change-workflow.md#开发基线与-pr-目标)确定，提交、push、PR 做到当前授权范围；阻塞时留下事实、未完成项与恢复入口。
 
-PR 提交后保留开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外。最终回复说明 worktree 保留/清理状态。
+PR 提交后保留开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束按 [测试资源回收](../../../docs/development/worktree-runtime.md#测试资源回收) 回收本轮资源并核实；例外保留须交代 owner 和回收触发。最终回复说明 worktree 保留/清理状态。
