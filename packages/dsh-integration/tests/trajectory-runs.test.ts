@@ -172,7 +172,10 @@ it('preserves failed/cancelled terminals and reports a killed process run as unk
     expect(resumed.map(request => request.sessionId)).toEqual(['root']);
     expect(resumed[0].messages.filter((message: any) => message.source?.channel === 'subagent-recovery')).toEqual([expect.objectContaining({
       source: expect.objectContaining({kind: 'nano-system'}),
-      content: expect.arrayContaining([{type: 'text', text: expect.stringContaining(`${child} was interrupted`)}]),
+      content: expect.arrayContaining([
+        {type: 'text', text: `Background subagent ${child} ended abnormally (interrupted) before it finished.`},
+        {type: 'text', text: 'It left no closing message.'},
+      ]),
     })]);
     f.client().process.kill('SIGKILL'); await f.client().exited;
     await f.start(false);

@@ -37,7 +37,11 @@ export class SubagentRecovery {
       const notices = pending.map(child => {
         const id = noticeId(child);
         return freezeMessage({id: MessageId(id), role: 'user' as const,
-          content: [{type: 'text', text: `System recovery notice: subagent ${child.id} was interrupted when the execution runtime stopped. Check any available results before deciding how to handle the delegation.`}],
+          // DSH's settlement formatter is private. Match its abnormal ending and empty closing message.
+          content: [
+            {type: 'text', text: `Background subagent ${child.id} ended abnormally (interrupted) before it finished.`},
+            {type: 'text', text: 'It left no closing message.'},
+          ],
           source: {kind: 'nano-system' as const, channel: subagentRecoveryChannel, actorId: owner.agentId,
             messageId: id, lifecycle_revision: owner.revision},
         });
