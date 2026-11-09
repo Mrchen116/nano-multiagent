@@ -241,6 +241,10 @@
 .iui-image > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s ease; }
 .iui-image.is-contain > img { object-fit: contain; }
 .iui-image.is-loaded > img { opacity: 1; }
+.iui-attachment-image { position: relative; display: grid; place-items: center; width: 100%; min-width: 0; min-height: 4rem; border-radius: var(--iui-radius-lg); overflow: hidden; background: var(--iui-photo-empty); }
+.iui-attachment-preview { display: grid; place-items: center; width: 100%; border-radius: inherit; cursor: zoom-in; }
+.iui-attachment-preview img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; }
+.iui-attachment-preview:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
 .iui-image-empty { width: 26px; height: 26px; color: var(--iui-photo-empty-icon); }
 
 /* A framed table: 14px corners, a surface header row, hover rows. */

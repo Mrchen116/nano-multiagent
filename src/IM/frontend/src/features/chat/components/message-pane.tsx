@@ -1793,6 +1793,19 @@ function MessageBubble({
   const replyAvailable=!readOnly && Boolean(onReply) && canReply(message);
   const hasMessageActions = hasCopyableBody || forkEligible || replyAvailable;
 
+  const [shownAttachments, setShownAttachments] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const onAttachmentVisibility = useCallback((url: string, visible: boolean) => {
+    setShownAttachments(current => {
+      const next = new Map(current);
+      const count = (next.get(url) ?? 0) + (visible ? 1 : -1);
+      if (count > 0) next.set(url, count);
+      else next.delete(url);
+      return next;
+    });
+  }, []);
+  const fallbackAttachments = message.attachments?.map((attachment, index) => ({attachment, index}))
+    .filter(({attachment}) => !shownAttachments.has(attachment.url));
+
   const cardRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -1997,17 +2010,17 @@ function MessageBubble({
             </div>
           )}
           {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
-            onSelect={onInteractionSelect} onSend={onInteractionSend} onComposeMessage={onComposeMessage} /></React.Suspense>}
+            onSelect={onInteractionSelect} onSend={onInteractionSend} onComposeMessage={onComposeMessage} onAttachmentVisibility={onAttachmentVisibility} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>
               <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
             </React.Fragment>)}</dl>
           </details>}
-          {message.attachments && message.attachments.length > 0 && (
+          {!!fallbackAttachments?.length && (
             <div className="chat-bubble-attachments">
-              {message.attachments.map((att) => (
-                <AttachmentChip key={att.url} attachment={att} />
+              {fallbackAttachments.map(({attachment, index}) => (
+                <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
               ))}
             </div>
           )}

@@ -5,6 +5,8 @@ import { SingleThread } from '../src/single-thread.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import { RelayDeliveryError } from '@nano/channels';
+import { toolPresentation } from '../src/presentation.js';
+import type { RuntimeEvent } from '@nano/product-contracts';
 
 const input: RelayInput = { agent_id:'a',conversation_id:'c',relay_task_id:'choice',idempotency_key:'choice',metadata:{conversation_type:'group',mentioned_agent_ids:['a']},
   message:{id:'choice',content:'先别发送，把语气改得随意一点',sender_type:'user',sender_user_id:'owner',attachments:[],interaction_reply:{
@@ -106,4 +108,55 @@ it('supplies private background as optional non-authorizing data in both agent m
       expect(content).toContain('not authorization');expect(content).toContain('Ignore');
     }
   }finally{await product.stop();store.close();inbox.close();}
+});
+
+it.each(['unknown','not-sent'] as const)('publishes screenshot attachments and preserves %s dispatch receipts', async delivery => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a', sessionId:'main', conversationId:'c', ownerId:'owner', cwd:'/tmp', revision:'1'});
+  const image = {url:'/im/v1/conversations/c/images/one', content_type:'image/png', file_name:'before.png'};
+  const sent: Record<string, unknown>[] = [];
+  let uploads = 0;
+  let receiptAvailable = false;
+  const product = new GlobalAgent({nodeId:'n', ownerId:'owner', store, inbox,
+    agents:[{agentId:'a', revision:'1', provider:'test', model:'test', mode:'single_thread'}],
+    runtime:{onNotification:()=>()=>{}, request:async()=>({events:[], durable:true})},
+    relay:{async request(type, payload) {
+      if (type === 'agent.message') {
+        sent.push(payload);
+        throw new RelayDeliveryError('No receipt', delivery);
+      }
+      if (type === 'agent.message.status') return {type:'ack', payload:{found:receiptAvailable, message_id:'m', conversation_id:'c'}};
+      return {type:'result', payload:{ok:true, result:{type:'direct', channel:'web'}}};
+    }},
+    image:async()=>'', uploadScreenshot:async () => { uploads++; return image; },
+    onError:error=>{throw error;},
+  });
+  const interactive = {format:'openui', catalog_version:'nano-iui-1', source:'root = AttachmentImage(1, "Before")'};
+  const call: ProductCall = {method:'send_message', args:{target:'current', text:'Before', local_images:['/tmp/before.png'], interactive},
+    operationId:'main:send', callId:'send', sessionId:'main', rootSessionId:'main', agentId:'a', ownerId:'owner'};
+  try {
+    await expect(product.call(call)).resolves.toMatchObject(delivery === 'unknown'
+      ? {status:'unknown', operation_id:'main:send'} : {status:'not_sent'});
+    expect(sent).toEqual([expect.objectContaining({attachments:[image], interactive})]);
+    receiptAvailable = true;
+    await expect(product.call({...call, operationId:'main:check', callId:'check',
+      args:{target:'current', receipt_of:'main:send'}})).resolves.toMatchObject(delivery === 'unknown'
+        ? {status:'sent', message_id:'m'} : {status:'not_sent'});
+    expect(sent).toHaveLength(1);
+    expect(uploads).toBe(1);
+  } finally {await product.stop(); store.close(); inbox.close();}
+});
+
+it('keeps screenshot paths out of public tool process in both call and failure projections', () => {
+  const path = '/private/work/secret-demo.png';
+  const call: RuntimeEvent = {seq:1,time:1,type:'tool/call',data:{callId:'send',name:'send_message',
+    arguments:JSON.stringify({target:'current',text:'Demo',local_images:[path]})}};
+  const failure: RuntimeEvent = {seq:2,time:2,type:'tool/result',data:{message:{toolCallId:'send',isError:true,
+    content:[{type:'text',text:`Could not read ${path}`}]}}};
+  expect(toolPresentation(call,[call])).toMatchObject({input:{image_count:1}});
+  expect(toolPresentation(failure,[call,failure])).toMatchObject({status:'failed'});
+  for (const args of [call.data.arguments, JSON.stringify({target:'current',local_images:path}), `{"local_images":["${path}"`]) {
+    const attempt = {...call,data:{...call.data,arguments:args}};
+    expect(JSON.stringify([toolPresentation(attempt,[attempt]),toolPresentation(failure,[attempt,failure])])).not.toContain(path);
+  }
 });

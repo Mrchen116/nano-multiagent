@@ -13,17 +13,39 @@ export const publicMessageProperties = {
 export const publicMessageParameters = {type:'object' as const,properties:publicMessageProperties,required:['target'],
   anyOf:[{required:['text']},{required:['interactive']}],additionalProperties:false};
 
+export const screenshotMessageProperties = {
+  ...publicMessageProperties,
+  local_images: {type:'array' as const, minItems:1, maxItems:5, items:{type:'string' as const},
+    description:'Absolute paths of PNG, JPEG or WebP images to attach to this Nano IM message. Existing attachments come first. Combined limit: five attachments.'},
+  receipt_of: {type:'string' as const, description:'With target and no other fields, check the original operation_id from an unknown screenshot send. This does not send again.'},
+};
+export const screenshotMessageParameters = {
+  ...publicMessageParameters, properties:screenshotMessageProperties,
+  anyOf:[...publicMessageParameters.anyOf, {required:['receipt_of']}],
+};
+
 /** Normalize public content before product hashing and either independent review.
  *
  * Args:
  *   args: Public tool arguments without host protocol or identity fields.
+ *   screenshots: Whether this is a self-authored send_message call.
  * Returns:
  *   Complete wire payload with the fixed interactive format and catalog.
  */
-export function normalizeMessageArguments(args: unknown): Record<string, unknown> {
-  const violations = validateJsonSchemaValue(publicMessageParameters, args);
+export function normalizeMessageArguments(args: unknown, screenshots = false): Record<string, unknown> {
+  const violations = validateJsonSchemaValue(screenshots ? screenshotMessageParameters : publicMessageParameters, args);
   if (violations.length) throw new Error(`Invalid public message: ${violations.join('; ')}`);
-  const input: Record<string, unknown> = {text:'', ...args as Record<string, unknown>};
+  const supplied = args as Record<string, unknown>;
+  if (supplied.receipt_of !== undefined) {
+    if (!supplied.receipt_of || Object.keys(supplied).some(key => key !== 'target' && key !== 'receipt_of'))
+      throw new Error('Check a receipt with only target and receipt_of');
+    return supplied;
+  }
+  const localImages = supplied.local_images as string[] | undefined;
+  if (localImages && (localImages.length + ((supplied.attachments as unknown[] | undefined)?.length ?? 0) > 5
+      || localImages.some(path => !path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path)) || supplied.incident_ref))
+    throw new Error('Provide absolute screenshot paths and at most five attachments for a regular message');
+  const input: Record<string, unknown> = {text:'', ...supplied};
   if (!(input.text as string).trim() && input.interactive === undefined) throw new Error('A message requires text or interactive content');
   return input.interactive ? {...input,interactive:{...(input.interactive as Record<string,unknown>),format:'openui',catalog_version:'nano-iui-1'}} : input;
 }

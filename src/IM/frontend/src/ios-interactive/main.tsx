@@ -1,4 +1,4 @@
-import React, { Component, useState } from 'react';
+import React, { Component, useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Renderer, type ActionEvent } from '@openuidev/react-lang';
 import { ThemeProvider } from '@openuidev/react-ui';
@@ -6,6 +6,8 @@ import '@openuidev/react-ui/defaults.css';
 import '@openuidev/react-ui/components.css';
 import { interactiveLibrary } from '../features/chat/interactive/renderer-library';
 import { nativeRequest } from './bridge';
+import { CardAttachmentImage } from '../features/chat/interactive/open-intelligent-ui/attachment-images';
+import { NativeAttachmentImage } from './attachment-image';
 import './style.css';
 
 interface Configuration {source: string; state: Record<string, unknown>; disabled: boolean}
@@ -25,24 +27,50 @@ function Card({config}: {config: Configuration}) {
   const state = React.useRef(config.state);
   const touched = React.useRef(false);
   const sequence = React.useRef(0);
+  const visibleImages = React.useRef(new Map<number, number>());
+  const [canPreview, setCanPreview] = useState(false);
+  const onAttachmentVisibility = useCallback((index: number, visible: boolean) => {
+    const current = visibleImages.current;
+    const previous = current.get(index) ?? 0;
+    const count = previous + (visible ? 1 : -1);
+    if (count > 0) current.set(index, count);
+    else current.delete(index);
+    if ((previous > 0) !== (count > 0)) {
+      void nativeRequest({type: 'attachment-visible', index, visible: count > 0}).catch(() => undefined);
+    }
+    setCanPreview(current.size > 0);
+  }, []);
+  function allowInput(event: React.SyntheticEvent) {
+    if (event.target instanceof Element && event.target.closest('[data-attachment-preview]')) return false;
+    if (disabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    }
+    touched.current = true;
+    return true;
+  }
   function report() {
     return {state: state.current, touched: touched.current, sequence: ++sequence.current};
   }
   async function action(event: ActionEvent) {
+    if (disabled) return;
     try { await nativeRequest({type: 'action', event, label: label.current, ...report()}); }
     catch (error) { await nativeRequest({type: 'error', message: String(error)}); }
   }
   const tools = React.useMemo(() => Object.fromEntries(['conversation_messages', 'continue_conversation'].map(name => [name,
     (args: Record<string, unknown>) => nativeRequest({type: 'tool', name, args, label: label.current, ...report()}),
   ])), []);
-  return <section className="native-card" onPointerDownCapture={() => {touched.current = true;}}
-    onKeyDownCapture={() => {touched.current = true;}} onChangeCapture={() => {touched.current = true;}}
+  return <section className="native-card" onPointerDownCapture={allowInput}
+    onKeyDownCapture={event => { if (event.key !== 'Tab') allowInput(event); }} onChangeCapture={allowInput}
     onClickCapture={event => {
-      touched.current = true;
+      if (!allowInput(event)) return;
       const target = event.target instanceof Element ? event.target.closest('button,[role="button"],a') : null;
       label.current = (target?.getAttribute('aria-label') || target?.textContent || '').trim();
     }}>
-    <fieldset disabled={disabled} inert={disabled}>
+    <fieldset disabled={disabled} inert={disabled && !canPreview}>
+      <CardAttachmentImage.Provider value={(index, alt) =>
+        <NativeAttachmentImage key={index} index={index} alt={alt} onVisibility={onAttachmentVisibility} />}>
       <ThemeProvider mode="light" cssSelector=".native-card">
         <Renderer response={config.source} library={interactiveLibrary} initialState={config.state}
           toolProvider={tools} publishObservability={false}
@@ -56,6 +84,7 @@ function Card({config}: {config: Configuration}) {
             if (errors.length) void nativeRequest({type: 'error', message: errors.map(error => error.message).join('\n')});
           }} />
       </ThemeProvider>
+      </CardAttachmentImage.Provider>
     </fieldset>
   </section>;
 }

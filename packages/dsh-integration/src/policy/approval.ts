@@ -23,6 +23,8 @@ import { isHumanSource } from '../input-source.js';
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
 
+const privateScreenshotApproval = 'Screenshot delivery needs approval with private evidence. Nothing was uploaded. Ask the owner to send the attachment directly or use an authorized approval mode.';
+
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
   static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain', 'nanoProduct', 'ccApproval', 'codexApproval'];
@@ -104,17 +106,24 @@ export class NanoApproval extends Service {
   }
   private async escalate(exec: ToolExecution, config: AgentConfiguration, reason: string, source: string): Promise<PreToolDecision> {
     const route = this.route(exec.agent!, config);
-    if (route === 'interactive') return { kind: 'ask', reason };
+    if (route === 'interactive') {
+      if (exec.name === 'send_message' && Array.isArray((exec.arguments as {local_images?:unknown}).local_images))
+        return {kind:'deny', reason:privateScreenshotApproval};
+      return { kind: 'ask', reason };
+    }
     const allowed = route === 'unattended' && config.approval!.unattendedFallback === 'allow';
     await this.record(exec, route, allowed ? 'allow' : 'deny', reason, config.approval!);
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
-    if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments)};
+    if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments, exec.name === 'send_message')};
     const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
-    if (!agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return next();
     const downstream = await next();
-    if (downstream.kind !== 'allow') return downstream;
+    const message = exec.name === 'send_message' ? exec.arguments as {local_images?: unknown; receipt_of?:unknown} : undefined;
+    if (downstream.kind === 'ask' && Array.isArray(message?.local_images))
+      return {kind:'deny', reason:privateScreenshotApproval};
+    if (downstream.kind !== 'allow' || !agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return downstream;
+    if (typeof message?.receipt_of === 'string') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
     // Session-local continuation must work with Auto off; downstream denials still win.
     if (contextTools.has(exec.name)) return allow('internal_context');

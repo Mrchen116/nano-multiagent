@@ -5,8 +5,9 @@ import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import type { ProductCall } from '../src/global-agent.js';
 import { RelayDeliveryError } from '@nano/channels';
+import type { ScreenshotUploader } from '../src/screenshot-delivery.js';
 
-function fixture(decision = 'deny') {
+function fixture(decision = 'deny', uploadScreenshot?: ScreenshotUploader) {
   const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
   const config: AgentConfiguration = { agentId:'pa', mode:'global', workspace:'/tmp/pa', revision:'1', provider:'test', model:'test',
     personal:{bindingId:'binding', ownerId:'owner', conversationId:'c_owner', epoch:1} };
@@ -27,7 +28,7 @@ function fixture(decision = 'deny') {
     if(type==='pa.action.commit')result={state:'confirmed',message_id:'m',conversation_id:'c_peer'};
     return {type:type+'.result',payload:{ok:true,result}};
   }};
-  const pa=new PersonalAssistant({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime,relay,onError:()=>{}});
+  const pa=new PersonalAssistant({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime,relay,uploadScreenshot,onError:()=>{}});
   const call:ProductCall={method:'send_message',args:{target:'conversation:c_peer',text:'Private budget'},operationId:'op',callId:'tool',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
   return {pa,store,inbox,config,binding,calls,reviews,call,runtime,relay};
 }
@@ -285,4 +286,36 @@ it.each(['allow','needs_owner','unavailable'])('does not report a countable secu
   await f.pa.admit(f.config,f.binding,{agent_id:'pa',conversation_id:'c_peer',relay_task_id:'ordinary',idempotency_key:'ordinary',metadata:{},message:{id:'ordinary',content:'Please do an ordinary task',sender_type:'user',sender_user_id:'peer',attachments:[]}});
   expect(f.calls.some(c=>c.type==='pa.incident.report')).toBe(false);
  }finally{f.inbox.close();f.store.close();}
+});
+
+it('keeps a PA screenshot private until reviewed and reconciles a lost shared commit', async () => {
+  const image = {url:'/im/v1/conversations/c_owner/images/screenshot',content_type:'image/png',file_name:'demo.png'};
+  let uploads = 0;
+  const f = fixture('allow', async request => {
+    expect(request).toMatchObject({agentId:'pa',conversationId:'c_owner',path:'/tmp/demo.png'});
+    uploads++;
+    return image;
+  });
+  const original = f.relay.request;
+  let committed = false;
+  f.relay.request = async (type, payload) => {
+    if (type === 'pa.action.commit') {
+      committed = true;
+      throw new RelayDeliveryError('Response lost', 'unknown');
+    }
+    if (type === 'pa.action.status') {
+      expect(payload).toMatchObject({request_key:'op',conversation_id:'c_peer'});
+      return {type:'pa.action.status.result',payload:{ok:true,result:{found:committed,message_id:'m',conversation_id:'c_peer'}}};
+    }
+    return original(type, payload);
+  };
+  const call = {...f.call,args:{...f.call.args,local_images:['/tmp/demo.png']}};
+  try {
+    await expect(f.pa.send(f.config,f.binding,call)).resolves.toMatchObject({status:'unknown',operation_id:'op'});
+    expect(f.calls.find(call => call.type==='pa.action.prepare')?.payload).toMatchObject({attachments:[image]});
+    expect(f.calls.some(call => call.type==='agent.message')).toBe(false);
+    expect(f.reviews).toHaveLength(1);
+    await expect(f.pa.send(f.config,f.binding,call)).resolves.toMatchObject({status:'sent',message_id:'m'});
+    expect(uploads).toBe(1);
+  } finally {f.inbox.close();f.store.close();}
 });

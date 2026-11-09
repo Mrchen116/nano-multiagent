@@ -16,7 +16,7 @@ struct ProtectedImageView: View {
             } else if let error { ErrorNotice(message: error) }
             else { ProgressView().frame(minHeight: 70) }
         }.task(id: source) { await load() }
-            .sheet(isPresented: $preview) { NavigationStack { ScrollView { if let image { Image(uiImage: image).resizable().scaledToFit().padding() } }.navigationTitle(L("图片", "Image")).toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { preview = false } } } } }
+            .sheet(isPresented: $preview) { if let image { ImagePreview(image: image) } }
     }
     private func load() async {
         do {
@@ -32,6 +32,21 @@ struct ProtectedImageView: View {
         } catch is CancellationError {} catch { self.error = error.localizedDescription }
     }
 }
+
+struct ImagePreview: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            ScrollView { Image(uiImage: image).resizable().scaledToFit().padding() }
+                .navigationTitle(L("图片", "Image"))
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { dismiss() } }
+                }
+        }
+    }
+}
+
 struct AttachmentView: View {
     let client: IMClient
     let attachment: ChatAttachment
