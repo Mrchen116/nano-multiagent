@@ -127,12 +127,22 @@ export class Messaging {
     if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
     const lastMessage = c.last_message_at ? one(this.db,
-      "SELECT content, system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
+      `SELECT m.content, m.system_notice_json, m.sender_type, m.sender_display_name, m.sender_source_id,
+              u.display_name AS account_display_name, i.message_id AS card_id, i.preview_title,
+              CASE WHEN i.message_id IS NOT NULL THEN json_extract(m.attachments_json, '$[0].file_name') END AS card_attachment_name
+       FROM messages m LEFT JOIN message_interactive i ON i.message_id=m.id
+       LEFT JOIN users u ON u.id=m.sender_user_id
+       WHERE m.conversation_id=? AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
       id, c.last_message_at,
     ) : undefined;
     // Stored previews can end inside a mention tag. Resolve from the full message
     // before truncating so existing conversations also recover on refresh.
-    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || c.last_message_preview : c.last_message_preview;
+    const storedPreview = c.last_message_preview || lastMessage?.card_attachment_name || c.last_message_preview;
+    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || storedPreview : storedPreview;
+    const senderName = c.type === "group" && !lastMessage?.system_notice_json
+      && (lastMessage?.sender_type === "user" || lastMessage?.sender_type === "agent")
+      ? lastMessage.sender_display_name?.trim() || lastMessage.sender_source_id || lastMessage.account_display_name?.trim() || null
+      : null;
     const prefs =
       one(
         this.db,
@@ -176,6 +186,8 @@ export class Messaging {
       is_muted: !!prefs.is_muted,
       unread_count: prefs.unread_count ?? 0,
       last_message_preview: preview,
+      last_message_sender_name: senderName,
+      last_message_card: !preview && lastMessage?.card_id ? {title: lastMessage.preview_title} : null,
       last_message_system_notice: JSON.parse(lastMessage?.system_notice_json ?? "null"),
       run_state: one(
         this.db,
@@ -776,7 +788,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       } catch { fail(400, 'invalid_cursor'); }
     }
     const targets = [...readableConversationIds(db, user)];
-    const matches = searchMessages(db, {targets, kind, terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
+    const term = q.q.trim(), needle = term.toLowerCase();
+    const matches = searchMessages(db, {targets, kind, terms:[term], action:'search', sort:'recent', cursor, limit:limit+1});
     const conversations = new Map<string, Row>();
     const messages = matches.slice(0,limit).map(row => {
       const message = s.message(row.id), id = message.conversation_id;
@@ -785,9 +798,11 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         chat = s.conversation(id, user.id);
         conversations.set(id, chat);
       }
-      const content = readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
-      const position = Math.max(0, content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
-      const start = Math.max(0, position - 40), end = Math.min(content.length, position + q.q.trim().length + 80);
+      const content = !message.content.toLowerCase().includes(needle) && row.interactive_search_text
+        ? String(row.interactive_search_text)
+        : readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
+      const position = Math.max(0, content.toLowerCase().indexOf(needle));
+      const start = Math.max(0, position - 40), end = Math.min(content.length, position + term.length + 80);
       return {message_id:message.id, conversation_id:message.conversation_id, conversation_name:chat.title,
         sender_name:row.sender_source_id ? row.sender_display_name || row.sender_source_id : message.sender.display_name, created_at:message.created_at,
         snippet:`${start ? '…' : ''}${content.slice(start,end)}${end < content.length ? '…' : ''}`};

@@ -321,12 +321,14 @@ export class Work {
           ...a,
         })),
       );
-      while (part < parts.length && page.length < limit) {
-        const content = parts[part]!,
-          cost = content.text?.length ?? 0;
-        if (cost > budget || (content.type === "image" && images >= 4)) break;
+      // A UI-only message needs one result row for its interactive payload.
+      const partCount = Math.max(1, parts.length);
+      while (part < partCount && page.length < limit) {
+        const content = parts[part],
+          cost = content?.text?.length ?? 0;
+        if (cost > budget || (content?.type === "image" && images >= 4)) break;
         budget -= cost;
-        if (content.type === "image") images++;
+        if (content?.type === "image") images++;
         if(personal && !memory) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
         page.push({
           message_id: m.id,
@@ -359,13 +361,13 @@ export class Work {
           ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
-          total_parts: parts.length,
-          content: [content],
-          complete_message: parts.length === 1,
+          total_parts: partCount,
+          content: content ? [content] : [],
+          complete_message: partCount === 1,
         });
         part++;
       }
-      if (part < parts.length) break;
+      if (part < partCount) break;
       offset++;
       part = 0;
     }
