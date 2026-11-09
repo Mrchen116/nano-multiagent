@@ -6,7 +6,7 @@
 
 - 当前实现/测试版本：`054ab52ea381dd9740f4c41fe4dbe58f48da24b9`，分支 `codex/feat-720`；本轮配置例外已由人类批准，独立 code/Context/corrected-delta 审查进行中，尚非发布冻结。
 - 集成的 develop 基线：最初为 `eeaea47921806936da20e78c9ed96167716f5037`；现已用 merge `a904d32faf813430ef620bb19af18ec2331c41f4` 无冲突集成 `94d663626`。该段仅新增 bugfix-729/731/732 三项 unit 文档、无源码/配置/锁文件变化，既有源测试证据不因该 merge 失效；最终 PR 前仍须核对目标分支后续增量。
-- `a1fab20f4` 修复等待驱动 probe 期间资格失效仍会 prepare 的竞态，并按行为拆分 browser-control/lifecycle 测试。`de3b838a1` 再修复真实产品暴露的 Cordis 服务注入接线错误；`fa6c7ad68` 修复非作者 reviewer 发现的登记失败后 cleanup 失败却丢失占额漏洞。旧 daily 最初从 `4804e785e` 启动，首个失败产品样本确已加载 `a1fab20f4`；后续隔离 Node 已重启到 `de3b838a1` 并通过 UI 保存 Sol 配置，但尚未发起下一浏览器样本，须加载当前新修复后再验，不能拿旧进程当新版本验收。
+- `a1fab20f4` 修复等待驱动 probe 期间资格失效仍会 prepare 的竞态，并按行为拆分 browser-control/lifecycle 测试。`de3b838a1` 再修复真实产品暴露的 Cordis 服务注入接线错误；`fa6c7ad68` 修复非作者 reviewer 发现的登记失败后 cleanup 失败却丢失占额漏洞；`054ab52ea` 再修复已排队销毁状态被提前回收。旧 daily 最初从 `4804e785e` 启动，首个失败产品样本确已加载 `a1fab20f4`；最新 Sol 样本 A 已核实加载当前 `054ab52ea` package 构建，不拿旧进程当新版本验收。
 - Gate 2 R7 只批准 `9612ea5d1` 的设计，不是实现或真实旅程批准。
 - 本轮自检均由实施 owner 执行，不冒充独立 reviewer。
 
@@ -69,7 +69,7 @@ owner 静态核对发现 `ensureInstance` 在初次在场判定后 await `driver
 
 首个产品样本（`a1fab20f4`）的 PA 原生 session `06040d4d-5e81-42f4-acab-62f2159ba26c` turn 3：fresh Inbox read seq93/94 保留本次 `created_at=2026-11-08T15:53:22.759Z` 和 user/participant 身份；`browser_act(open)` seq101/102 立即返回 `Error: cannot get property "nanoApproval" without inject`。模型随后把实际错误送回测试聊天并停止，未读取/点击/重开实例。证据 `/tmp/feat720-pa-sample1.jsonl` L96–120；只读前台元数据 `/tmp/feat720-fixture-20261108/foreground.jsonl` 430 个采样只见原 Chrome660/ChatGPT89352，未见新自持 Chrome。此错误不是在场 5 分钟拒绝、分类器判拒或 TCC 缺失。
 
-根因为 NanoRuntime 的同步 `liveHumanTimes` callback 直接从未 inject 的父 `ctx` 读取 `nanoApproval`。`de3b838a1` 改为捕获现有 `ctx.inject(['nanoApproval'])` 解析的服务引用；服务未就绪时返回空时间、仍 fail closed，不增资格或伪造来源。新增 actual installed DSH + probe-sentinel executable 回归先复现同样 Cordis 错误（`/tmp/feat720-inject-red-valid.log`）；该 fixture 从不启动真实 Chrome。修复后 system/heartbeat 轮次在驱动前被拒，host-human 测试输入只到 fake `--version` 探针。package build 和 browser/approval-sources/PA inbox **107 tests / 11 files 全通过**（`/tmp/feat720-inject-green.log`）。最初 fixture 的未知 provider 配置失败另存 `/tmp/feat720-inject-red.log`，不计作有意义红测。修复后的真实产品复验尚待下一内部 GUI 资源段，不冒充已闭环。
+根因为 NanoRuntime 的同步 `liveHumanTimes` callback 直接从未 inject 的父 `ctx` 读取 `nanoApproval`。`de3b838a1` 改为捕获现有 `ctx.inject(['nanoApproval'])` 解析的服务引用；服务未就绪时返回空时间、仍 fail closed，不增资格或伪造来源。新增 actual installed DSH + probe-sentinel executable 回归先复现同样 Cordis 错误（`/tmp/feat720-inject-red-valid.log`）；该 fixture 从不启动真实 Chrome。修复后 system/heartbeat 轮次在驱动前被拒，host-human 测试输入只到 fake `--version` 探针。package build 和 browser/approval-sources/PA inbox **107 tests / 11 files 全通过**（`/tmp/feat720-inject-green.log`）。最初 fixture 的未知 provider 配置失败另存 `/tmp/feat720-inject-red.log`，不计作有意义红测。后续当前构建已完成 Sol 样本 A 的真实 open，未再现注入错误；popup 与截图消费仍未闭环，见后文。
 
 ### 首次登记失败后 cleanup 丢失占额：独立 finding 与修复
 
@@ -89,11 +89,32 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 2026-11-09 00:55 +08，协调者根据实际 load 下降分配单组低并发补验，未把主机称为完全健康。owner 对 `054ab52ea` 源码/当时 HEAD `281582874` 顺序运行 DSH typecheck、package build 和唯一缺口 `browser-runtime-wiring.test.ts --maxWorkers=1`，全部 exit 0；该测试 1/1 通过、测试 7.08 秒、transform 216ms / import 258ms，未改 25 秒 timeout、未跳过原失败（`/tmp/feat720-current-runtime-recheck.log`）。前一批 112 个通过测试与本次 installed-runtime 测试分别保留原件，不伪称同一次全集绿。
 
-随后仅重启本事项隔离 Node（pid 51690/runtime 51786），核实新进程的 driver 路径、PA profile 的 package 链接解析至本 worktree、当前 lib 包含 `disposalFinished`。真实设置页 v4 显示 Sol selected / fallbacks unset / No changes，Gateway 所有 default/approval 模型为 Sol、fallbacks 均空。以上是构建/加载及有效配置证据，尚无配置更正后的实际新模型响应。
+随后仅重启本事项隔离 Node（pid 51690/runtime 51786），核实新进程的 driver 路径、PA profile 的 package 链接解析至本 worktree、当前 lib 包含 `disposalFinished`。真实设置页 v4 显示 Sol selected / fallbacks unset / No changes，Gateway 所有 default/approval 模型为 Sol、fallbacks 均空。这些原为构建/加载及有效配置证据；后续 Sol 样本 A 已补实际单 attempt 模型响应，身份结论不再仅依赖配置。
 
 真正物理开始前已通知协调者；只读前台元数据 sampler 启动后，向 headless Playwright 提交拟给受测 PA 的本地 popup 合成任务时，**外层工具拒绝 fill+Enter，任务未输入/提交**。拒绝理由为拟提交文本要求“只用 browser、不用 Playwright”，且 parent relay 不构成可推翻此限制的可信人类授权。该限制原拟约束受测 PA，不由 owner 擅自判为误拒绝绕过：已立即停止本批、停止 sampler、释放物理窗口并将原理由交协调者核对原始授权与操作者入口边界，未改文案/工具重试。`/tmp/feat720-fixture-20261108/foreground-repaired.jsonl` 为本次无新 CU Chrome 的只读采样，不是成功启动/前台归还证据。**本次实际新增 Chrome 启动数为 0、popup 数为 0，V2/V3/V4 仍 Pending。**
 
-用户随后在明确列出“测试操作者用 Playwright 在隔离 IM 输入/发送合成任务、受测 PA 仍只用 browser”的上下文中纠正：“所有的真实隔离测试，skill已经明确了，我前面也跟你多次说了，不需要我给你权限！！！ios真机测试暂时不需要，没有可用手机，只用在模拟器测”。协调者据这次真实新澄清接续原限定入口，不等待旧卡或重复询问操作者权限，保留前次拒绝与原 Chrome 隔离/新 profile/本地合成页面等边界；新工具拒绝仍立即停止，不换入口绕过。当前仅等待共享物理/重型资源按 716→714→720 顺序释放，未开始新 GUI/模型样本；不把澄清当产品通过、合并或部署许可。
+用户随后在明确列出“测试操作者用 Playwright 在隔离 IM 输入/发送合成任务、受测 PA 仍只用 browser”的上下文中纠正：“所有的真实隔离测试，skill已经明确了，我前面也跟你多次说了，不需要我给你权限！！！ios真机测试暂时不需要，没有可用手机，只用在模拟器测”。协调者据这次真实新澄清接续原限定入口，不等待旧卡或重复询问操作者权限，保留前次拒绝与原 Chrome 隔离/新 profile/本地合成页面等边界；新工具拒绝仍立即停止，不换入口绕过。后续共享资源已实际分配给 720 并完成下述样本 A；不把澄清当产品通过、合并或部署许可。
+
+### 当前构建的真实 Sol 样本 A：局部消费通过，popup 未确认
+
+获得实际资源段后，owner 只恢复原有隔离 DB/config/profile 与已验构建，不重新 seed 或安装依赖。核实 Node/DSH ready、package 解析当前 worktree、driver 0.38.0 路径与有效 Sol v4 配置。测试操作者按新真人澄清通过 headless Playwright 在隔离 IM 提交原合成任务；受测 PA 仍只用 browser 工具。先前拒绝保留，不靠改任务文案或换入口消除。
+
+真实 PA session `06040d4d-5e81-42f4-acab-62f2159ba26c` turn 4 的既有 `nano_model_runs` 记录只有一个 attempt：`anthropic/codexOAuth:gpt-6.1-sol`、medium、completed；各步原生 assistant 的 `source/replayState.responseModel` 同为 Sol。没有 DeepSeek attempt/fallback。原生轨迹从既有 journal 提取至 `/tmp/feat720-pa-sol-A.jsonl`，相关工具描述与原始 call/result 的聚焦副本为 `/tmp/feat720-sol-A-focused-native.json`；两者不是转换后 provider wire，也未新建 HTTP 录制机制。
+
+| 实际步骤 | 原生证据与结果 | 可确认边界 |
+|---|---|---|
+| 新鲜输入与 open | seq139/142 的 owner participant Inbox 原始 `created_at=2026-11-09T03:22:31.583Z`；seq146/147 于 03:22:44.395–49.931 UTC 打开 `http://127.0.0.1:64519/page.html` 成功 | system wake 本身不是人类许可；本样本 live Inbox→门禁→page open 路径可用，未再现 Cordis 注入错误，不代表所有 native/PTC/root/child 组合 |
+| query 与 ref 消费 | seq154/155 读取 popup 按钮，得到 `read_id=r1`、`ref=p36:0`、click/pointer；下一模型 seq161/162 精确使用二者点击一次 | 实际模型能理解并消费当前参数入口，不是只验 JSON schema |
+| click 回读 | seq162/163 于 03:23:00.487–06.301 UTC，返回 `dispatched=true / effect=changed`、原页全文与 ignored 翻译气泡；无 `events / foreground_released` | 没有确认真实 popup、没有确认 host 检测并 end_session；不能据此认定 window.open 未执行、被阻止或分类漏检 |
+| 报告与停止 | seq169/170 明确无法确认 popup 或归还、区分翻译噪声；到 seq179 turn/end 没有更多 browser、替代工具、Task 或委派 | 没把 effect 当业务成功，遵守仅一次点击与停止；尚未触发 screenshot/read_image |
+
+只读前台原件 `/tmp/feat720-fixture-20261108/foreground-sol-product.jsonl` 共 1074 个采样，覆盖约 341 秒。自有 CU Chrome78610 在 03:22:48.731 首次被采为前台，03:22:50.455 采回 ChatGPT，是 **1 个 startup-associated 样本**；不知道回切由谁触发，不称 end_session 归还，也不把 open call 的 0.5/2 秒代替实际 prepare 计时。click 发出、约 +0.5/+2 秒及返回附近所采应用均为 ChatGPT；采样只有应用元数据且有间隙，不能证明窗口不存在或排除瞬态。后续其他应用/Chrome 不归因、不检查用户内容。**本批实际 1 启动、1 次 popup 点击尝试，真实 popup 未确认；V2 inconclusive，V3 部分，V4 popup 部分仍缺。** 意外结果出现后本批立即停止，没有第二次点击或另起 B 样本。
+
+离线根因核对只确认两项诊断局限：`control.ts:233` 丢弃 raw `browser_click` 返回，`:263` 将 query-filtered baseline 与无 query 全文回读比较，故本例 changed 可仅来自读取范围差异。夹具按钮确为同步 `window.open('/popup.html','fixture-popup','width=640,height=480')`，popup 文件存在；公开 driver 描述默认 trusted route，只有新 snapshot/navigation 才明确失效 ref，不能据 bind 本身猜定原因。仍缺本次有限 action outcome、当时窗口 census/bind 分类元数据及 handler 触发事实，不改猜测补丁、不重放旧动作。需要的最低后续诊断材料是 status/refusal/hint/delivery/route、窗口身份/绑定与时间，不是模型全文或新 wire 捕获；任何新增验证仍须服从当前资源分配。
+
+原非作者 reviewer 已亲读上述原件、前台样本及当前源码，确认真实 Context 的 **open→query/ref→click→谨慎报告并停止局部通过**，无新 confirmed 存活实现 finding；未把该局部结论登记为整体 Approved。
+
+样本结束后，owner 停止并收齐 sampler job，配对 e2e-down 停止本栈服务、关闭自有 headless、终止自有 fixture。实际核实 IM56535 / Node56676 / runtime57407 / headless59115 / 自有 CU Chrome78610 均不存在，64483/64519 无监听、driver sessions count=0。用户/他线 Chrome 未触碰。物理窗口已释放给 716，当前只做离线原件/源码复核，不自行启动服务、模型或 GUI。
 
 ### 测试资源回收与暂留责任
 
@@ -106,15 +127,15 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 |---|---|---|
 | 本 worktree 的隔离 Gateway/IM 配置、凭据、数据库、`.dsh-runtime/`、`.gateway-workspace/` 与端口/daily 清单（数据目录合计约 9 MiB；不在仓库提交内容） | 尚待同一产品旅程继续，保留既有 Sol 配置/profile/native session 身份及决定性原件；下个窗口只恢复同一栈，不重新 seed | feat-720 实施 owner；真实样本与原独立 reviewer 取证结束后，或取消/确认不再需要时，提取必要脱敏证据并删除独占运行数据和凭据 |
 | 本 worktree 当前已验 package `lib/`、主前端 `dist/`（约 13.5 MiB）与 root 依赖（约 766 MiB；frontend 依赖已删除） | 恢复当前受审构建、不在磁盘阻塞期间重复 build/install；此为有限后续保留，不是长期缓存承诺 | 同一 owner；本事项验证结束且不再需要原构建后删除独占构建/依赖产物，不动共享缓存 |
-| 本机 `/tmp/feat720*` / `/tmp/feat-720*` 必要失败日志、native 原件、前台采样、夹具源文件与 `.playwright-cli/` 必要 snapshot | 供同一独立审查确认历史失败、实际版本与新样本对照；sampler 已全部停止，下一脚本尚未运行 | 同一 owner；原 reviewer 核完相关证据后仅保留仓库内必要脱敏结论，再删本事项独占临时原件 |
+| 本机 `/tmp/feat720*` / `/tmp/feat-720*` 必要失败日志、native 原件、前台采样、夹具源文件与 `.playwright-cli/` 必要 snapshot | 供同一独立审查确认历史失败、实际版本与样本 A 对照，并定位尚未解决的 popup 盲区；sampler 已全部停止，未开始后续诊断 | 同一 owner；原 reviewer 核完相关证据后仅保留仓库内必要脱敏结论，再删本事项独占临时原件 |
 
-下次获分配资源后须恢复服务并复核 ready/同一版本/有效 Sol 配置；当前清单与历史 PID 不构成在线证明。未交接清理责任，创建者继续负责最终核实进程退出、端口释放与独占目录移除。
+样本 A 已按本方式恢复并再次完全停止；后续获实际资源后仍须复核 ready/同一版本/有效 Sol 配置，历史 PID 不构成在线证明。当前离线数据和构建继续有限保留用于未闭环的 popup 诊断。未交接清理责任，创建者继续负责最终核实进程退出、端口释放与独占目录移除。
 
 ## 发布阻塞与待补验
 
 - **V2 ≥2 次真窗口后前台归还，是发布阻塞**；V3 ≥3 次独立启动采样及 V4 弹窗半边仍缺。本轮不能用“未测但已披露”替代。
 - 老版 V1/V5/V6 是直接驱动 / orchestrator workspace 证据，不是本轮真实产品节点等价性证明。仍需真实 IM→Node→DSH→驱动→结果→read_image 链路，以及默认关闭、身份、审批拒绝、无人值守、Global/native/PTC 与子 Agent 的代表性场景。
-- 本轮已在用户新接续下开始限定产品验收，父级预约条件已撤销；首样本暴露并修复真实 inject 故障，V2/V3/V4 实测仍未完成。下一批只需与其他执行者内部协调 GUI，不得接用户已有 Chrome/profile/登录态；旧拒绝及新人类接续须如实保留，新的安全拒绝不自动重试。
+- 本轮已在用户新接续下开始限定产品验收，父级预约条件已撤销；首样本暴露并修复真实 inject 故障，后续 Sol 样本 A open 成功但 popup 未确认，V2/V3/V4 实测仍未完成。协调者允许离线准备仅本事项 local fixture 状态与透明 driver 最小诊断，下一批明确限定 1 startup / 最多 1 popup click attempt；实际启动仍等待其他执行者清场。累计按 attempt 计数，不为凑成功自动追加，不降低两次真 popup/三次 startup 的现有验收。不得接用户已有 Chrome/profile/登录态；旧拒绝及新人类接续如实保留，新的安全拒绝不自动重试。
 - 分组 CI 已补齐旧版本根/前端覆盖并定位、修复 Python 超长测试失败；当前有新的启动竞态修复与窄验证，最终版本证据有效性尚待 sync/独立审查收口。重型窗口已释放，不自行新增全量运行。
 - 独立实施/Context/corrected-delta 审查已接续原非作者 reviewer，真实产品旅程结论仍未取得。本轮用户明确允许 #473/714/716/720 使用当前可用配置做独立审查；reviewer 自述可观察模型为 `anthropic/codexOAuth:gpt-6.1-sol`，effort 不可观察，不声称 high，也不沿用旧版 flash 审查或以 daily Q 替代。例外仅本轮，不是未来通用规则。
 
@@ -151,4 +172,4 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 `054ab52ea` 源码、`fb297cba9` 契约的非作者增量复核：F1/F2 **superseded-by-authorized-scope-correction**，F3/F4 **closed**，静态存活 findings 为空；**corrected-delta = aligned（静态源码/契约范围）**。本轮配置例外及实际模型/effort 边界见上文。
 
-**实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过，实际 Sol Context 和 V2 等真实旅程仍未闭环；最新 UI 提交入口拒绝已停止，随后真实人类澄清允许接续原限定隔离入口，目前仅等待共享资源；没有可以登记的整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
+**实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过；实际 Sol 样本 A 的 open/ref 消费与谨慎报告局部已由原 reviewer 确认，但 popup 因果仍未知，截图/read_image、V2/V3/V4 等真实旅程未闭环。最新一次实际 UI 入口在真实人类澄清后成功；旧拒绝仍保留。当前 720 服务/浏览器全部停止，离线准备有判别力的最小诊断，实际启动等待协调者资源通知；没有整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
