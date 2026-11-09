@@ -618,6 +618,7 @@ export class Messaging {
       const payload = {lifecycle_revision:lifecycle(this.db,a.agent_id).revision,relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
           conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
+          explicit_mentioned_agent_ids:this.mentionedAgents(c.id,m.content),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
           ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),

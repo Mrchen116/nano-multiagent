@@ -195,6 +195,7 @@ it('keeps group drafts invisible to every Agent until an explicit action is subm
   expect(result.interaction_reply.fields[0].value).toBe('明确共享');
   const last=JSON.parse(all(db,'SELECT * FROM relay_tasks').at(-1)!.payload_json);
   expect(last.metadata.mentioned_agent_ids).toContain('a');
+  expect(last.metadata.explicit_mentioned_agent_ids).toEqual([]);
 });
 
 it('does not accept background sourced from another conversation', async () => {
