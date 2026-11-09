@@ -205,3 +205,28 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - **U3 PASS（限本窗口）**：正常联网恢复目标与既有全文，pending原文/Retry不变、未点Retry；亲读`DEE0F575-…png`无残留离线提示、无成功消息伪装。约09:45:18–09:45:28 UTC的App refresh/me/sync/messages GET200；native request/response.finish observer不改响应/路由，窗口内未记录完成messages POST。shutdown后只读SQL摘要仍pending1/同key与bodySHA/imported1/conv1/msg1。1pass/0fail/0skip、exit0。
 - 身份由公开登录log+manifest user/chat/origin+分区+配置交叉支持，不凭故意无token/header/body的audit单独证明。reviewer核既有摘要字节/SHA/比较结果，未重读原SQLite或重新hash旧JSON；zero POST不外推无限时/全部底层发包。09:46:15 GET401在App已结束后来自host旧token，不能归App refresh/sync失败；旧版diagnostics72与SDK等warning保留。
 - **前三段内无新阻断性产品问题；不扩大为完整upgrade或unit PASS。** 新host登录/token落盘拒绝后未换账号/工具/UI绕行；显式Retry、发送后服务端唯一消息、清pending及host最终计数均未验证，空attachments不证明媒体迁移。owner清场回执复用而非reviewer实时探测；真实pending保留获准恢复。完整证据路径/停止边界见[M1最新升级记录](M1-local-first-paint/recovery-validation.md#真实升级前三段限定pass显式retry因新拒绝未执行)。
+
+## Round 17 — 账号／服务旅程fixture静态窄审
+
+- 原非作者独立审查新增的真实账号切换、完整新账号收发、离线新开、真实设置切服务与持久偏好验证方法，并对照实际认证、个人页、会话和消息鉴权源代码；产品代码未变。**APPROVED，findings为空**，不代表运行PASS。
+- 身份guard、正常退出确认、旧未确认与独立草稿正向前置、当次完整收发及旧内容负向组合合理；服务字段替换前后完整值guard不会掩盖输入失败，离线重开移除调试覆盖而非预填新服务；显式throw保留async失败后停止控制流。运行前仍须落实真正peer token与sender相等、原完整消息正向映射、全新隔离资源和精确停服绑定；构建与实际画面尚待运行。
+
+## Round 18 — active pending冻结正文显示：静态修正成立
+
+- 原非作者独立读取真实失败日志、summary与只读SQL摘要，并审查最小getter与对应测试差异，**APPROVED，存活findings为空**。原失败中未确认状态已出现但composer全文失败，库中完整pending与匹配ordinary draft消费符合源码因果；不应撤销消费或把冻结正文重写成普通草稿。
+- pending正文优先的只读投影不改setter、请求身份或持久化；协调器程序性更新guard避免回写，确认后仅匹配普通草稿清理使较新内容保留，空正文pending不错误回退；原pending期间编辑、普通Send和附件禁用不变。完整内容断言未放宽，提前截图及任意pending-count负向检查增强证据。该轮仅静态批准，不先关闭真实RED。
+
+## Round 19 — 独立M2三项目标真实证据复核：限定PASS
+
+- 同一原非作者以产品旅程与前端体验方法亲读决定性原图、脱敏日志、summary、运行与精确停服回执、fixture归属；补读仅含请求状态/时间的原生observer审计，未运行API、服务、模拟器、构建或测试，未写源码/DB/Git。匿名运行结论见[M2本轮结果](M2-partition-revocation/recovery-validation.md#独立m2真实回归限定结果)。
+- **active pending修正PASS**：原一失败结果保留；修后实际完整冻结正文、未确认说明、Retry与禁用Send可辨，一通过、零失败。结合已审getter修正与后续冷启原pending/独立完整草稿，显示缺陷关闭；修后新pending未取得新SQL，不声明payload hash复核。
+- **正常账号退出→新账号收发→离线持久化PASS**：先正向证明旧专属history/pending/另一完整draft，经公开个人页、精确身份、正常退出确认与新登录；新列表/详情/composer无旧四类内容，当次公开发送与对方正常POST均完整出现，审计两次消息POST成功与UI顺序一致。仅停所属origin并终止后新开，两条完整消息及旧内容缺席成立，离线未强制退出。
+- **同名账号真实切服务与离线偏好恢复PASS**：两个服务端身份与数据归属不同，真实连接设置完整替换地址后只见第二服务内容；两origin均停后只移除调试override、不预填偏好，新开仍只见第二内容。所有五个修后阶段各一通过、零失败、零跳过；存活产品findings为空。
+- 独立审查发现安全输入事件的密码截断prefix漏脱敏，owner已整行清理全部相关SecureTextField事件并修正生成脚本；reviewer核修正版，无prefix写入仓库，不改原始测试结果。测试后的diagnostics警告保留。本轮不是全unit批准，不覆盖硬件、媒体、升级Retry/唯一性、401或离线撤权。
+
+## Round 20 — 离线期间撤权与再次离线：限定PASS
+
+- 原非作者直接阅读在线读取、离线读取、首次联网冷启自动收敛、再次离线四阶段的原图、脱敏log/summary/run、精确停服、正常成员API前后状态及只读cache摘要；四阶段各一通过、零失败、零跳过。受审实现未变，未执行API/服务/native/build/test或写文件/DB/Git。**本旅程PASS，存活findings为空**，不是全unit批准。
+- 在线完整正文与真实停服后的离线完整正文均成立；App终止期间正常成员移除使目标访问从成功变为明确无权。首次联网冷启无目标点击、手动刷新或重登录，原其它群保留、目标自动消失。请求元数据中refresh/me/sync成功与库更新时间对应；目标conversation/message实际缺席并写snapshot_absent tombstone，另一群完整消息仍在，因此不是只做画面临时隐藏。再次实核两服务不可达后新进程离线仍不复现目标、不退出账号。
+- 四张原图支持本范围体验：离线旧内容完整且离线状态明确；获知撤权后目标入口消失，其他聊天可辨，不要求用户手动刷新或重新登录。中间服务因runtime中断停止，不冒称主动停服或推测时刻；之后另有实际不可达核验，原始结果保留。
+- 不声明observer包含同步snapshot正文，不外推30秒active reconnect保证、精确RTT、逐帧无闪回或媒体清理。新实际拒绝阻塞的401脚本与依赖旅程仍未执行、不通过，本结果不替代它。
