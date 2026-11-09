@@ -117,9 +117,13 @@ it('repairs either outstanding product acknowledgement on replay without changin
     inbox.commitSystemContext('a','s',first!.inputId,first!.content,2);
     const row=store.systemContextInputs('a').find(item=>item.input_id===second!.inputId)!;
     store.commitSystemContext('s',row.input_id,row.digest,1);
-    expect(await service.commit({...identity,evidence})).toEqual({confirmed:evidence.map(({inputId,consumedSeq})=>({
-      inputId,consumedSeq,status:'consumed',
-    }))});
+    expect(await service.commit({...identity,evidence})).toEqual({confirmed:[
+      {inputId:first!.inputId,consumedSeq:evidence[0]!.consumedSeq,status:'consumed'},
+    ]});
+    expect(inbox.systemContextIngested('a','s',second!.inputId,2)).toBe(false);
+    expect(await service.commit({...identity,evidence:[{...evidence[1]!,turn:1}]})).toEqual({confirmed:[
+      {inputId:second!.inputId,consumedSeq:evidence[1]!.consumedSeq,status:'consumed'},
+    ]});
     expect(await service.prepare(identity)).toEqual({messages:[],revoked:[]});
     expect(inbox.prepareSystemContext('a','s')).toHaveLength(0);
     expect(store.systemContextInputs('a')).toEqual(expect.arrayContaining([

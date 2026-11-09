@@ -99,7 +99,7 @@ export class TaskContext {
     for(const {inputId,content,turn,consumedSeq} of identity.evidence) {
       if(!Number.isSafeInteger(turn)||!Number.isSafeInteger(consumedSeq)||consumedSeq<0)continue;
       const row=store.systemContextInput(agentId,inputId);
-      if(!row||row.digest!==digest(content))continue;
+      if(!row||row.digest!==digest(content)||row.state==='consumed'&&row.turn!==turn)continue;
       if(row.session_id!==sessionId&&!retired)continue;
       const ingested=inbox.systemContextIngested(agentId,sessionId,inputId,turn);
       if(ingested || (row.session_id===sessionId && row.state!=='revoked' && !retired &&

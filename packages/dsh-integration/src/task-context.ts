@@ -50,6 +50,7 @@ export class TaskContextDriver {
   private readonly cuts = new WeakMap<Session,Promise<EvidenceCut>>();
   private readonly starting = new WeakMap<Session,EvidenceCut>();
   private readonly tails = new WeakMap<Session,Promise<EvidenceCut>>();
+  private readonly liveIndependent = new WeakMap<Session,boolean>();
 
   constructor(private readonly ctx:Context,private readonly options:{
     bindings:Map<string,SessionBinding>;peer:RpcPeer;
@@ -59,8 +60,15 @@ export class TaskContextDriver {
     const preparations = new WeakMap<Agent,{prepared:Prepared;cut?:EvidenceCut}>();
     ctx.on('session/event', (session, event) => {
       const cut = this.starting.get(session);
-      if (cut?.starting) cut.starting.push(event);
-      else if (cut) observeEvent(cut, event);
+      if (cut && !cut.starting) {
+        observeEvent(cut,event);
+        return;
+      }
+      if (!options.bindings.has(session.id)) return;
+      cut?.starting?.push(event);
+      // Keep the live turn's authorization even if its first history read fails.
+      if (event.type === 'turn/start') this.liveIndependent.set(session,false);
+      if (event.type === 'user/message' && independent(event.data)) this.liveIndependent.set(session,true);
     });
     ctx.on('system-prompt/assemble', async (_assembly,context,next) => {
       const agent = context.agent ?? context.scope as Agent | undefined;
@@ -95,7 +103,10 @@ export class TaskContextDriver {
         !revoked.has(message.id) && (!taskOriginal(message) || authorized.has(message.id))));
       if (prepared.unavailable) {
         messages.splice(0,messages.length,...messages.filter(independent));
-        if (!messages.length && !cut?.independent && !this.starting.get(agent.session)?.independent) return {kind:'reject'};
+        if (!messages.length) {
+          const observed = cut ?? this.starting.get(agent.session);
+          if (!(observed?.independent ?? this.liveIndependent.get(agent.session))) return {kind:'reject'};
+        }
       }
       for (const message of prepared.messages) if (authorized.has(message.inputId) && !messages.some(existing => existing.id === message.inputId)) {
         agent.inbox.remove(MessageId(message.inputId));
