@@ -37,3 +37,4 @@
 
 - `80469e186`：公开发信按会话和 call ID 取一次原始工具证据，发送与回执共用轮次。`/root/code_review` 独立核对旧库建索引、重复 call ID 仍取首条、会话隔离、重试及恢复，无新增 findings；7 项发信回归通过。实施方定向 84 项及真实中心链路 2 项通过；[发信探针](M1-runtime-work/evidence/publication-latency.md)记录测量和局限。产品契约未变。
 - `b3686c057`：首次远端 CI 的唯一失败是原生模型 fallback 强杀恢复；本地也复现。原生失败轮次在 publication check 之前落盘，使它与已经持久的 fallback 状态同时可恢复，保留既有 fallback 行为。fallback 和真实中心链路 17 项通过；`/root/code_review` 核对现有公开持久化屏障、恢复和取消边界。这不新增被中断任务的自动续跑机制。
+- 同步 `develop` `1e38c6a3d`（#496）：保留启动时旁路捕获中断通知的逻辑，子页仍只产出有界增量。旧目录没有中断字段时首次需要读子日志，之后使用同一冷 cut。原生轨迹、冷目录、Work 分页、stdio 与 fallback 共 22 项通过，覆盖被动通知的去重和不唤醒。

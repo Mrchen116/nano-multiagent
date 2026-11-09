@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Domain, DomainSpec, KvTable } from '@deepseek-ai/dsh-storage-domain';
 import { descendantDomain } from './descendants.js';
+import { subagentRecoveryDomain } from './subagent-recovery.js';
 import { historyDomain } from './history.js';
 import { dreamingDomain } from './knowledge/dreaming-state.js';
 import { knowledgeDomain } from './knowledge/state.js';
@@ -71,6 +72,7 @@ export async function purgeDerived(ctx: Context, home: string, agentId: string, 
     remove(history.table('overrides'), key => owned(decode(key))),
     remove(history.table('forks'), (_, row) => row.sessionId ? owned(row.sessionId) : owned(row.source)),
     remove(mounted(ctx, descendantDomain).table('sessions'), key => owned(decode(key))),
+    remove(mounted(ctx, subagentRecoveryDomain).table('sessions'), key => owned(key)),
     remove(models.table('sessions'), key => owned(decode(key))),
     remove(models.table('commands'), (_, row) => owned(row.sessionId)),
     remove(mounted(ctx, modelRunsDomain).table('runs'), (_, row) => owned(row.sessionId)),

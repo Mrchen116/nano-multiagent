@@ -4,7 +4,7 @@ import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-ses
 import type { SessionPersistenceRevision, SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence';
 import { defineDomain, domainTable, type DomainSpec, type DomainTableSpec } from '@deepseek-ai/dsh-storage-domain';
 import { SubagentError, type SubagentCatalogEntry, type SubagentDescendantListEntry } from '@deepseek-ai/dsh-subagent';
-import type { SessionObservation } from '@deepseek-ai/dsh-session-query';
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query';
 import type { RuntimeWorkPage } from '@nano/product-contracts';
 import { z } from 'zod';
 import { RpcError } from './rpc.js';
@@ -15,11 +15,13 @@ interface Catalog {
   cursor: number;
   children: SubagentCatalogEntry[];
   active: boolean;
+  interruptedTurnEnd?: number | null;
   witness?: Witness;
 }
 interface CatalogDomain extends DomainSpec { tables: { sessions: DomainTableSpec<string, Catalog> } }
 export const descendantDomain: CatalogDomain = defineDomain({name:'nano_work_catalog',version:1,layout:'per-record',tables:{
   sessions:domainTable(z.object({rootId:z.string(),cursor:z.number(),children:z.array(z.custom<SubagentCatalogEntry>()),active:z.boolean(),
+    interruptedTurnEnd:z.number().nullable().optional(),
     witness:z.object({header:z.string(),eventCount:z.number().optional(),sizeBytes:z.number().optional()}).optional()})),
 }});
 type Descendant = SubagentDescendantListEntry & { throughSeq?: number };
@@ -74,6 +76,25 @@ export class DescendantReader {
       this.owners.set(event.data.childId,rootId);
   }
 
+  /** Read the latest crash interruption of each supported direct child without activating it. */
+  async interruptedChildren(rootId: SessionId): Promise<{id: SessionId; turnEnd: number}[]> {
+    const {catalog} = await this.observe(rootId, rootId);
+    const interrupted: {id: SessionId; turnEnd: number}[] = [];
+    for (const child of catalog.children) {
+      if (child.mode === 'unknown') continue;
+      try {
+        const {catalog: observed} = await this.observe(child.id, rootId, {requireInterruption: true});
+        if (observed.interruptedTurnEnd != null && !this.ctx.agents.get(child.id)) {
+          interrupted.push({id: child.id, turnEnd: observed.interruptedTurnEnd});
+        }
+      } catch (error) {
+        if (!(error instanceof SessionQueryError)) throw error;
+        this.ctx.logger.warn(`Cannot inspect subagent ${child.id} for interruption: ${error.message}`);
+      }
+    }
+    return interrupted;
+  }
+
   /** Check saved cuts without hydrating Agents or opening history bodies.
    *
    * Args:
@@ -105,7 +126,7 @@ export class DescendantReader {
     project: (cut: SessionObservation) => Promise<RuntimeWorkPage>): Promise<RuntimeWorkPage | undefined> {
     await this.ready;
     if (id === rootId || this.rootOf(id) !== rootId) throw new RpcError(-32004, 'Child has no trusted Work lineage');
-    return (await this.observe(id, rootId, cursor, refresh, project)).page;
+    return (await this.observe(id, rootId, {cursor, refresh, project})).page;
   }
 
   private async *scan(rootId: SessionId): AsyncGenerator<Descendant> {
@@ -149,9 +170,15 @@ export class DescendantReader {
     return !!snapshot && (prior?.identity===persistence.identity && prior.revision===snapshot.revision || sameWitness(cached.witness,snapshot));
   }
 
-  private async observe(id: SessionId, rootId: SessionId, cursor?: number, refresh?: (id: SessionId) => boolean, project?: (cut: SessionObservation) => Promise<RuntimeWorkPage>): Promise<{ catalog: Catalog; page?: RuntimeWorkPage }> {
+  private async observe(id: SessionId, rootId: SessionId, {cursor, refresh, project, requireInterruption}: {
+    cursor?: number;
+    refresh?: (id: SessionId) => boolean;
+    project?: (cut: SessionObservation) => Promise<RuntimeWorkPage>;
+    requireInterruption?: boolean;
+  } = {}): Promise<{ catalog: Catalog; page?: RuntimeWorkPage }> {
     const cached=this.catalogs.get(id);
-    if(cached?.rootId===rootId && (!cached.active || this.ctx.agents?.get(id)?.status==='running') && await this.unchanged(id,cached) && (!refresh || cursor===cached.cursor && !refresh(id)))
+    if(cached?.rootId===rootId && (!requireInterruption || cached.interruptedTurnEnd !== undefined) &&
+      (!cached.active || this.ctx.agents?.get(id)?.status==='running') && await this.unchanged(id,cached) && (!refresh || cursor===cached.cursor && !refresh(id)))
       return {catalog:cached};
     const live=this.ctx.sessions.get(id);
     if(live && !await this.ctx.sessions.flush(live))throw new RpcError(-32005,'Child Session has no persistence barrier');
@@ -161,7 +188,8 @@ export class DescendantReader {
     if(!children)throw new SubagentError('Descendant reads require the subagentCatalog projection','SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE');
     const page = await project?.(observation);
     const agent=this.ctx.agents?.get(id);
-    const lastBoundary=agent ? undefined : observation.events.findLast(event=>event.seq>=observation.inheritedEventCount && (event.type==='turn/start'||event.type==='turn/end'));
+    const lastBoundary=observation.events.findLast(event=>event.seq>=observation.inheritedEventCount && (event.type==='turn/start'||event.type==='turn/end'));
+    const interruptedTurnEnd=lastBoundary?.type==='turn/end' && lastBoundary.data.reason.kind==='interrupted' ? lastBoundary.seq : null;
     const inbox=observation.projections?.values.inbox;
     const active=(agent ? agent.status==='running' : lastBoundary?.type==='turn/start') || !inbox || inbox['next-turn'].length>0 || inbox['next-step'].length>0;
     // An observation can acquire later live events than the first flush. Certify
@@ -170,7 +198,7 @@ export class DescendantReader {
     const after=await this.ctx.sessionPersistence.stat(id);
     const stable=before && after && before.revision===after.revision &&
       (observation.source==='live' ? live?.seq===observation.cursor+1 : observation.revision===after.revision);
-    const catalog:Catalog={rootId,cursor:observation.cursor,children,active:!!active,...(stable?{witness:witness(after)}:{})};
+    const catalog:Catalog={rootId,cursor:observation.cursor,children,active:!!active,interruptedTurnEnd,...(stable?{witness:witness(after)}:{})};
     this.catalogs.set(id,catalog);this.owners.set(id,rootId);
     if(stable)this.revisions.set(id,{identity:this.ctx.sessionPersistence.identity,revision:after.revision});
     else this.revisions.delete(id);

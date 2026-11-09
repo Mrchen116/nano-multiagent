@@ -18,6 +18,7 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
     effect:()=>{},
     storageDomain:{open:async()=>({table:()=>({entries:()=>stored.entries(),put:async(id:string,row:unknown)=>stored.set(id,row)}),close:async()=>{}})},
     sessions:{get:()=>undefined},
+    agents:{get:()=>undefined},
     sessionPersistence:{identity:Symbol(),stat:async(id:string)=>records.has(id)?{...records.get(id),header:{id,createdAt:1,version:1,isSeeded:false}}:undefined},
     sessionQuery:{observeSession:async(id:string)=>{
       reads.push(id);const row=records.get(id);
@@ -48,4 +49,17 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   records.set(child,{...records.get(child),revision:'c2',sizeBytes:201,cursor:100,children:[entry(grandchild)],events:[...records.get(child).events,event(100)]});
   expect(await catalog(restarted)).toMatchObject([{id:child,throughSeq:100},{id:grandchild,kind:'diagnostic',reason:'unavailable'}]);
   expect(await project(99)).toMatchObject({throughSeq:100,events:[event(100)]});
+
+  const current=records.get(child);
+  records.set(child,{...current,revision:'c3',sizeBytes:202,events:[...current.events.slice(0,-1),
+    {seq:100,type:'turn/end',data:{turn:1,reason:{kind:'interrupted'}}}]});
+  expect(await restarted.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
+  const saved=stored.get(Buffer.from(child).toString('base64url')) as {interruptedTurnEnd?:number};
+  delete saved.interruptedTurnEnd; // An older catalog has a durable cut but no interruption witness.
+  reads.length=0;
+  const recovered=new DescendantReader(context());
+  await recovered.ready;
+  expect(await recovered.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
+  expect(await recovered.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
+  expect(reads).toEqual([child]);
 });

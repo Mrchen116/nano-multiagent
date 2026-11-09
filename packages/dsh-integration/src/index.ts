@@ -53,6 +53,7 @@ import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
+import { SubagentRecovery } from './subagent-recovery.js';
 import { SessionDeletion } from './agent-deletion.js';
 import { ownedLinks, purgeDerived } from './agent-deletion-derived.js';
 
@@ -255,6 +256,11 @@ export default class NanoRuntime {
     // Both hooks prepend: register catch-up last so its authority cut precedes Task decisions.
     new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
     ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
+    const subagentRecovery = new SubagentRecovery(ctx, agent => {
+      const binding = this.bindings.get(agent.id);
+      if (!binding || configurationService.forAgent(agent)?.mode !== 'global') return;
+      return {agentId: binding.agentId, revision: lifecycle.current(binding.agentId).revision};
+    });
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -351,6 +357,7 @@ export default class NanoRuntime {
       await approvalFiber.await();
       await modelFiber.await();
       await descendantReader.ready;
+      await subagentRecovery.ready;
       await (await models).fallback.ready;
       await webFiber.await();
       await workflowFiber.await();
@@ -388,6 +395,17 @@ export default class NanoRuntime {
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
       for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
+      for (const binding of config.bindings) {
+        if (lifecycle.current(binding.agentId).disabled ||
+          this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') continue;
+        try {
+          if (!await ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;
+          const interrupted = await descendantReader.interruptedChildren(SessionId(binding.sessionId));
+          if (interrupted.length) await subagentRecovery.record(binding.sessionId, interrupted);
+        } catch (error) {
+          ctx.logger.warn(`Cannot recover subagent notices for ${binding.sessionId}: ${String(error)}`);
+        }
+      }
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
