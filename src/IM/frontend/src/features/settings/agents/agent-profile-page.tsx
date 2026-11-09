@@ -1,8 +1,10 @@
+import { AgentExecutionDeletedError, workBase, workRequest } from "./agent-work-api";
+import { useAgentDeletion } from "./agent-deletion";
 import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import "./agent-settings.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuthStore } from "../../auth/auth-store";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
@@ -18,7 +20,8 @@ export function AgentProfilePage() {
   const { agentId } = useParams();
   const lifecycle = useAgentLifecycle(agentId ?? "");
   const self = useAuthStore(s => s.user?.id);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const l = (zh: string, en: string) => i18n.language.startsWith("zh") ? zh : en;
   const isMobile = useIsMobile();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -28,8 +31,39 @@ export function AgentProfilePage() {
   useEffect(() => { if (!workRequested) setDetailsOpened(true); }, [workRequested]);
   const query = useQuery({ queryKey: ["contacts", self, "agents"], queryFn: () => listContacts("", "agent"), refetchInterval: 3000 });
   const agent = query.data?.find(a => a.agent_id === agentId);
+  const scope = params.get("execution");
+  const messageId = params.get("message_id");
+  const historical = useQuery({
+    queryKey: ["agent-work", agentId, "historical", scope, messageId],
+    enabled: query.isSuccess && !agent && !!agentId && workRequested,
+    retry: false,
+    queryFn: ({signal}) => workRequest(
+      scope
+        ? `${workBase(agentId!)}/sessions/${encodeURIComponent(scope)}/turns?view=summary`
+        : `${workBase(agentId!)}?view=summary${messageId ? `&message_id=${encodeURIComponent(messageId)}` : ""}`,
+      signal
+    ),
+  });
+  const stopped = lifecycle.query.data;
+  const deletion = useAgentDeletion(agentId ?? "", query.isSuccess && (!!agent
+    ? agent.owner_id === self && agent.role !== "personal" && workRequested && stopped?.desired === "disabled" && stopped.observed === "disabled" && stopped.applied_revision === stopped.revision
+    : !workRequested && !!self));
+  const deletionState = deletion.query.data?.operation?.state;
+  const managing = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (agent?.owner_id === self && !workRequested) managing.current = agentId;
+    if (!agent && !workRequested && managing.current === agentId && deletionState === "deleted") {
+      navigate("/settings/agents", { replace: true });
+    }
+  }, [agent, agentId, deletionState, navigate, self, workRequested]);
   const send = useMutation({ mutationFn: () => createConversation({ type: "direct", title: agent!.display_name, participants: [contactActor(agent!)] }), onSuccess: async chat => { await client.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate(`/chat/${chat.id}`); } });
-  if (query.isPending) return <section className="im-agent-panel im-agent-settings im-create-state"><p>{t("common.loading")}</p></section>;
+  if (historical.error instanceof AgentExecutionDeletedError || (!agent && !workRequested && deletionState === "deleted")) {
+    return <section className="im-agent-panel im-agent-settings im-create-state">
+      <p role="status">{workRequested ? l("执行记录已删除", "Execution record deleted") : l("Agent 已删除", "Agent deleted")}</p>
+      <Link className="im-settings-action" to="/settings/agents">{t("agents.title")}</Link>
+    </section>;
+  }
+  if (query.isPending || (query.isSuccess && !agent && (historical.isFetching || deletion.query.isFetching))) return <section className="im-agent-panel im-agent-settings im-create-state"><p>{t("common.loading")}</p></section>;
   if (query.isError || !agent) return <section className="im-agent-panel im-agent-settings im-create-state"><p role="alert">{t("agents.loadError")}</p><button className="im-settings-action" onClick={() => void query.refetch()}>{t("agents.retry")}</button></section>;
   const work = agent.work_mode === "global" && workRequested;
   return <>
@@ -66,7 +100,7 @@ export function AgentProfilePage() {
             </p>
           </div>
           <div className="im-agent-header-actions shrink-0">
-            <AgentLifecycleAction lifecycle={lifecycle} canManage={agent.owner_id === self} />
+            <AgentLifecycleAction lifecycle={lifecycle} canManage={agent.owner_id === self && !deletionState} />
             <button
               type="button"
               className="im-settings-action"

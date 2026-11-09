@@ -1,3 +1,4 @@
+import { AgentDeletionControls, useAgentDeletion } from "./agent-deletion";
 import { formatSchedule } from "./schedule-display";
 import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import { useAuthStore } from '../../auth/auth-store';
@@ -1340,9 +1341,12 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   );
   const self = useAuthStore(s => s.user?.id);
   const settings = useAgentSettingsState(agentId);
+  const deletion = useAgentDeletion(agentId, !personal && !!self && settings.query.data?.config.owner_id === self
+    && lifecycleState?.desired === "disabled" && lifecycleState.observed === "disabled" && lifecycleState.revision === lifecycleState.applied_revision);
+  const deleting = Boolean(deletion.query.data?.operation);
   const detailQuery = settings.query;
   const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
-  const readOnly = settings.readOnly || confirmationPending;
+  const readOnly = settings.readOnly || confirmationPending || deleting;
   const settingsReason = confirmationPending && (!settings.reason || settings.reason === 'refreshingEditable') ? 'pending' : settings.reason;
 
   useEffect(() => {
@@ -1673,7 +1677,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             </p>
           </div>
           <div className="im-agent-header-actions">
-              <AgentLifecycleAction lifecycle={lifecycle} canManage={!!self && draft.owner_id === self} />
+              <AgentLifecycleAction lifecycle={lifecycle} canManage={!deleting && !!self && draft.owner_id === self} />
               <button
                 type="button"
                 className="im-settings-action"
@@ -1686,6 +1690,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             </div>
         </div>
         {showLifecycleNotice && <AgentLifecycleStatus lifecycle={lifecycle} online={displayedNodeStatus === "online"} />}
+        {!personal && !!self && draft.owner_id === self && <AgentDeletionControls deletion={deletion} name={detailQuery.data?.config.display_name || agentId} online={displayedNodeStatus === "online"} active={!inactive} />}
         {errorMessage ? (
           <p
             data-testid={openDirectChatMutation.isError ? "open-chat-error" : "agent-save-error"}

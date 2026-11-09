@@ -13,6 +13,7 @@ declare module '@deepseek-ai/cordis' { interface Context { nanoTrajectoryAttachm
 export class TrajectoryAttachments extends Service {
   private readonly domain;
   private writes = Promise.resolve();
+  private readonly pending = new Map<string, Promise<void>>();
   constructor(ctx: Context) {
     super(ctx, 'nanoTrajectoryAttachments');
     this.domain = ctx.storageDomain.open(trajectorySourcesDomain);
@@ -23,7 +24,7 @@ export class TrajectoryAttachments extends Service {
       if (!path) return;
       const sessionId = exec.agent.id, cwd = exec.agent.session.header.cwd;
       const content = result.content;
-      this.enqueue(async () => {
+      this.enqueue(sessionId, async () => {
         const root = await realpath(cwd), target = await realpath(resolve(cwd, path));
         const inside = relative(root, target);
         if (inside.startsWith('..') || isAbsolute(inside)) return;
@@ -34,8 +35,7 @@ export class TrajectoryAttachments extends Service {
 
   /** Record trusted admission metadata alongside the normalized native attachment references. */
   record(sessionId: string, content: readonly unknown[], sources: readonly (AttachmentSource | null)[]): Promise<void> {
-    this.enqueue(() => this.put(sessionId, content, sources));
-    return this.writes;
+    return this.enqueue(sessionId, () => this.put(sessionId, content, sources));
   }
 
   async read(sessionId: string, attachmentId: string): Promise<AttachmentSource[]> {
@@ -44,10 +44,17 @@ export class TrajectoryAttachments extends Service {
   }
 
   private key(sessionId: string, attachmentId: string) { return Buffer.from(JSON.stringify([sessionId, attachmentId])).toString('base64url'); }
-  private enqueue(write: () => Promise<void>): void {
+  /** Wait for provenance writes already accepted for the retired Sessions. */
+  async settle(ids: Iterable<string>): Promise<void> {
+    await Promise.all([...ids].map(id => this.pending.get(id)));
+  }
+  private enqueue(sessionId: string, write: () => Promise<void>): Promise<void> {
     // Provenance is an auxiliary read gate: a missing/deleted source denies its
     // preview, but must never poison admission of subsequent business inputs.
-    this.writes = this.writes.then(write).catch(error => this.ctx.logger.warn('Trajectory attachment provenance unavailable: %s', String(error)));
+    const task = this.writes = this.writes.then(write).catch(error => this.ctx.logger.warn('Trajectory attachment provenance unavailable: %s', String(error)));
+    this.pending.set(sessionId, task);
+    void task.finally(() => { if (this.pending.get(sessionId) === task) this.pending.delete(sessionId); });
+    return task;
   }
   private async put(sessionId: string, content: readonly unknown[], sources: readonly (AttachmentSource | null)[]) {
     const table = (await this.domain).table('sources');

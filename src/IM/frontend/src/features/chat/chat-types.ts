@@ -27,6 +27,7 @@ export interface Actor {
    */
   user_id?: string | null;
   is_stale?: boolean | null;
+  is_deleted?: boolean;
   role?: "personal";
 }
 
@@ -242,6 +243,7 @@ export type TimelineItem =
     };
 
 export interface Conversation {
+  execution_cleanup_revision?: number;
   visibility?: "public" | "private";
   dissolved_at?: string | null;
   is_member?: boolean;

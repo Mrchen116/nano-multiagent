@@ -57,6 +57,15 @@ export class DescendantReader {
   /** Resolve known lineage after live ancestors unload. */
   rootOf(id: string): string | undefined { return this.owners.get(id); }
 
+  /** Forget the retired identities after their readers have settled. */
+  forget(ids: Iterable<string>): void {
+    for (const id of ids) {
+      this.owners.delete(id);
+      this.catalogs.delete(SessionId(id));
+      this.revisions.delete(SessionId(id));
+    }
+  }
+
   /** Remember live ownership without consuming inherited catalog events. */
   remember(session: Session, event: SessionEvent, rootId: string): void {
     this.owners.set(session.id,rootId);

@@ -71,6 +71,7 @@ export class AgentLifecycles {
     let withdrawals: ReturnType<typeof revokeLostTaskContextAccess> = [];
     const state=transaction(this.ctx.db,()=>{
       const current=lifecycle(this.ctx.db,agentId);
+      if (one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',agentId)) fail(409,'agent_deletion_requested');
       const prior=one(this.ctx.db,'SELECT * FROM agent_lifecycle_requests WHERE agent_id=? AND request_id=?',agentId,input.request_id);
       if(prior) {
         if(prior.intent!==intent)fail(409,'request_id_reused');

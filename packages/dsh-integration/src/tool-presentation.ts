@@ -12,7 +12,10 @@ interface ToolViewDomain extends DomainSpec {tables: {calls: DomainTableSpec<str
 export const toolViewsDomain: ToolViewDomain = defineDomain({name:'nano_tool_views',version:1,layout:'per-record',tables:{calls:domainTable(z.object({callId:z.string(),call:z.any().optional(),result:z.any().optional(),childSessionId:z.string().optional(),delegationKind:z.string().optional()}))}});
 
 /** Freeze public presenter output in a Nano domain; native logs accept no external event vocabulary. */
-export function recordToolPresentations(ctx: Context): (sessionId: string, events: readonly SessionEvent[]) => Promise<SessionEvent[]> {
+export function recordToolPresentations(ctx: Context): {
+  (sessionId: string, events: readonly SessionEvent[]): Promise<SessionEvent[]>;
+  forget(match: (key: string) => boolean): Promise<void>;
+} {
   const domain = ctx.storageDomain.open(toolViewsDomain);
   const writes = new RecordWrites<ToolView>(async (key, snapshot) => {
     await (await domain).table('calls').put(key, snapshot);
@@ -58,7 +61,7 @@ export function recordToolPresentations(ctx: Context): (sessionId: string, event
       void writes.put(key, snapshot);
     }
   });
-  return async (sessionId: string, events: readonly SessionEvent[]) => {
+  const read = async (sessionId: string, events: readonly SessionEvent[]) => {
     await writes.wait();
     const table = (await domain).table('calls');
     return events.map(event => {
@@ -70,4 +73,5 @@ export function recordToolPresentations(ctx: Context): (sessionId: string, event
       return {...event, data:{...event.data, nanoToolView:view}};
     });
   };
+  return Object.assign(read, {forget: (match: (key: string) => boolean) => writes.forget(match)});
 }

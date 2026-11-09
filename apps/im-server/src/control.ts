@@ -208,6 +208,7 @@ export class ConfigOperations {
     operationId?: string,
   ): ConfigOperationRecord {
     this.authorize(owner, node, candidate.agent_id);
+    if (this.dependencies.db.prepare('SELECT 1 FROM agent_deletions WHERE agent_id=?').get(candidate.agent_id)) fail(409,'agent_deletion_requested');
     const binding=configurationPersonalBinding(this.dependencies.db,candidate.agent_id,owner,node);
     if(binding) {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};

@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: bugfix-731
+> 对齐: feat-738
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、原生 iPhone 客户端、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
 
@@ -26,7 +26,7 @@
 | [Agent Work](agent-work.md) | 按 Agent 空间可读的全局主工作轨迹、关联子执行、明细与持久回看、增量恢复及补齐状态、只读原生轨迹及父子执行范围导航、独立 Dreaming 整理回执与历史复盘用途、卡片内关联入口、回复定位展开且保留完整列表 | 15 |
 | [Workflows](workflows.md) | Workflow 在既有 tool、permission、slash 与普通消息 surface 中的呈现和开关 | 2 |
 | [Response Metrics](response-metrics.md) | 墙钟耗时、气泡指标、缓存命中率 | 3 |
-| [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置与独立停用/重新启用、创建工作模式、Feature依赖联动与轻提示、Dreaming 自动整理控制、能力选择、公开联系人与管理入口、节点绑定、设备归属标注、Workflow tool pill、Goal 显式开启、workspace 插件管理及真实概览/关联会话 | 50 |
+| [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置与独立停用/重新启用、已停止 Agent 永久删除、创建工作模式、Feature依赖联动与轻提示、Dreaming 自动整理控制、能力选择、公开联系人与管理入口、节点绑定、设备归属标注、Workflow tool pill、Goal 显式开启、workspace 插件管理及真实概览/关联会话 | 51 |
 | [Gateway Relay](gateway-relay.md) | 消息中继与回执、更新切换时持久等待、配置边界、两种工作模式的投递与过程归属、后台返回持久化和重放去重 | 15 |
 | [Task Graphs](task-graphs.md) | 会话归属与访问、分层进度和独立加载、创建者与负责人、领取和明确删除、通知回聊、依赖与衍生、七状态与等待/真实运行分离及原生统一编辑 | 19 |
 | [Personal Agent](personal-agent.md) | 固定主人、双身份历史、消息协助、用户主身份代发、来源限制与对外披露边界、双端本人配置入口、按主人明确要求聊天创建独立 Agent；通用能力复用 Global | 8 |

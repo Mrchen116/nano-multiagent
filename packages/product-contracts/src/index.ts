@@ -1,6 +1,7 @@
 import type { PersonalAgentIdentity } from './personal-agent.js';
 export * from './personal-agent.js';
 export * from './agent-lifecycle.js';
+export * from './agent-deletion.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
   agentId: string;

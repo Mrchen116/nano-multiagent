@@ -667,7 +667,8 @@ export class Identity {
         "personal_agent_bindings",
       ].map((table) => [
         table,
-        this.all(`SELECT * FROM ${table} WHERE node_id=? ORDER BY rowid`, nodeId),
+        this.all(`SELECT * FROM ${table} WHERE node_id=?${table==='agent_profiles'
+          ? " AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted')" : ''} ORDER BY rowid`, nodeId),
       ]),
     );
   }
@@ -881,6 +882,8 @@ export class Identity {
         (state?.node_epoch ?? 0) !== op.expected_epoch
       )
         throw new IdentityError(409, "node ownership changed");
+      if (op.expected_owner!==user.owner_id && this.get("SELECT 1 FROM agent_deletions WHERE node_id=? AND state!='deleted'",op.node_id))
+        throw new IdentityError(409, "Agent deletion still pending");
       const snapshot = this.snapshot(op.node_id);
       if (serializeIdentityJson(snapshot) !== op.snapshot_json)
         throw new IdentityError(409, "node configuration changed; prepare again");
@@ -923,11 +926,12 @@ export class Identity {
         "agent_channel_removals",
         "node_credential_keys",
       ])
-        this.run(`UPDATE ${table} SET owner_id=? WHERE node_id=?`, user.owner_id, op.node_id);
+        this.run(`UPDATE ${table} SET owner_id=? WHERE node_id=?${table==='agent_profiles'
+          ? " AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted')" : ''}`, user.owner_id, op.node_id);
       if (snapshot.agent_profiles.some((profile: Row) => profile.space_id.startsWith("personal:")))
         this.run("UPDATE users SET personal_space_enabled=1 WHERE id=?", user.id);
-      this.run("UPDATE agent_profiles SET space_id=? WHERE node_id=? AND space_id LIKE 'personal:%'", `personal:${user.owner_id}`, op.node_id);
-      this.run("UPDATE users SET owner_id=? WHERE username IN (SELECT 'agent:'||agent_id FROM agent_profiles WHERE node_id=?)", user.owner_id, op.node_id);
+      this.run("UPDATE agent_profiles SET space_id=? WHERE node_id=? AND space_id LIKE 'personal:%' AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted')", `personal:${user.owner_id}`, op.node_id);
+      this.run("UPDATE users SET owner_id=? WHERE username IN (SELECT 'agent:'||agent_id FROM agent_profiles WHERE node_id=? AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted'))", user.owner_id, op.node_id);
       this.run(
         "UPDATE channel_manifest_heads SET manifest_revision=manifest_revision+1 WHERE node_id=?",
         op.node_id,
@@ -1009,6 +1013,8 @@ export class Identity {
         op.node_id,
       );
       this.rotatePersonalEpoch(op.node_id,row.owner_id,row.node_epoch+1);
+      this.run("UPDATE agent_deletions SET node_epoch=? WHERE node_id=? AND owner_id=? AND node_epoch=? AND state!='deleted'",
+        row.node_epoch+1,op.node_id,row.owner_id,row.node_epoch);
       this.run(
         "UPDATE node_binding_operations SET state='committed',target_user_id=?,target_owner=?,runtime_token=? WHERE operation_id=?",
         row.user_id,

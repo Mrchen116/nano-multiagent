@@ -10,24 +10,24 @@ import { useAuthStore } from "../auth/auth-store";
 import { ChatWorkspacePage } from "./chat-workspace-page";
 import type { Conversation } from "./chat-types";
 import { composerStoreFor, EMPTY_COMPOSER_SNAPSHOT } from "./components/composer-draft-store";
-import type { UserStreamEvent } from "../../realtime/user-stream";
+import type { UserStreamEvent, UserStreamSync } from "../../realtime/user-stream";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
 // chat-workspace-page 订阅 user-scoped SSE/WS 流（node.status_changed /
 // agent.status_changed / message.*）时会调用此函数。测试通过 capturedStatusHandler
 // 直接注入事件，通过 capturedResyncHandler 断言 onResyncRequired 已注册。
 let capturedStatusHandler: ((ev: UserStreamEvent) => void) | null = null;
-let capturedResyncHandler: (() => Promise<void>) | null = null;
-const streamSubscribers = new Set<{onEvent:(ev:UserStreamEvent)=>void;onRecovery?:()=>Promise<void>}>();
+let capturedResyncHandler: ((snapshot?: UserStreamSync) => Promise<void>) | null = null;
+const streamSubscribers = new Set<{onEvent:(ev:UserStreamEvent)=>void;onRecovery?:(snapshot?:UserStreamSync)=>Promise<void>}>();
 
 vi.mock("../../realtime/user-stream", () => ({
     subscribeUserStream: (input: {
       onEvent: (ev: UserStreamEvent) => void;
-      onRecovery?: () => Promise<void>;
+      onRecovery?: (snapshot?: UserStreamSync) => Promise<void>;
     }) => {
       streamSubscribers.add(input);
       capturedStatusHandler = event => { for (const subscriber of streamSubscribers) subscriber.onEvent(event); };
-      capturedResyncHandler = async () => { await Promise.all([...streamSubscribers].map(subscriber=>subscriber.onRecovery?.())); };
+      capturedResyncHandler = async snapshot => { await Promise.all([...streamSubscribers].map(subscriber=>subscriber.onRecovery?.(snapshot))); };
       return () => {
         streamSubscribers.delete(input);
         if (!streamSubscribers.size) { capturedStatusHandler = null; capturedResyncHandler = null; }
@@ -1951,6 +1951,49 @@ describe("ChatWorkspacePage — integration", () => {
   });
 
   // ─── feat-438-M1 R4: ⚙ entry dispatch by conversation kind ────────────────
+
+  it.each(["stream", "reconnect"] as const)("retires an old execution page after %s and discards its late response", async source => {
+    const baseFetch = fetchSpy;
+    let revision = 0;
+    let finishOlder: ((response: Response) => void) | undefined;
+    const latest = historyMessage("anchor", 2, "Published answer stays readable");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/im/v1/conversations")) {
+        return jsonResponse({ items: FIXTURES.conversations.map(chat => chat.id === "c1" ? { ...chat, execution_cleanup_revision: revision } : chat) });
+      }
+      if (url.includes("/im/v1/conversations/c1/messages")) {
+        if (url.includes("before_message_id=anchor") && revision === 0) {
+          return new Promise<Response>(resolve => { finishOlder = resolve; });
+        }
+        return jsonResponse({ execution_cleanup_revision: revision, items: [latest], next_before_message_id: revision ? null : "anchor" });
+      }
+      return baseFetch(input, init);
+    }));
+    renderAtRoute("/chat/c1");
+    await screen.findByText(latest.content);
+    const scroller = document.querySelector<HTMLElement>(".chat-pane-messages")!;
+    Object.defineProperties(scroller, {
+      scrollTop: { configurable: true, value: 200, writable: true },
+      scrollHeight: { configurable: true, value: 1200 },
+      clientHeight: { configurable: true, value: 300 },
+    });
+    act(() => fireEvent.scroll(scroller));
+    await waitFor(() => expect(finishOlder).toBeDefined());
+
+    revision = 1;
+    if (source === "stream") {
+      act(() => emitSharedChatEvent({ type: "conversation.execution_cleanup", conversation_id: "c1", execution_cleanup_revision: 1 }));
+    } else {
+      await act(async () => { await capturedResyncHandler?.({ maxEventId: 101, executionCleanupRevisions: { c1: 1 } }); });
+    }
+    await screen.findByText(latest.content);
+    await act(async () => {
+      finishOlder?.(jsonResponse({ execution_cleanup_revision: 0, items: [historyMessage("old", 1, "Old execution-only page")], next_before_message_id: null }));
+    });
+    expect(screen.queryByText("Old execution-only page")).not.toBeInTheDocument();
+    expect(screen.getByText(latest.content)).toBeVisible();
+  });
 
   it("loads older messages with a before cursor when the message list enters the upper third", async () => {
     const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`new-${idx + 1}`, idx + 50));

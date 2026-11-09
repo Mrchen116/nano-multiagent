@@ -15,9 +15,9 @@ declare module '@deepseek-ai/cordis' { interface Context { codexApproval: CodexA
 export class CodexApproval extends Service {
   static inject=['agents','tools','systemPrompt','llm','approval'];
   private readonly sessions: ReviewSession;
-  constructor(ctx:Context) {
+  constructor(ctx:Context, recordOwner?: (parentId: string, reviewerId: string) => Promise<void>) {
     super(ctx,'codexApproval');
-    this.sessions=new ReviewSession(ctx);
+    this.sessions=new ReviewSession(ctx, recordOwner);
     ctx.on('agent/disposed',({agent})=>this.release(agent.id));
     ctx.effect(()=>()=>this.sessions.dispose());
   }

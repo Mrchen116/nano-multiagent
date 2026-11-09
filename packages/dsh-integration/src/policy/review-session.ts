@@ -46,7 +46,7 @@ const imagesIn=(messages:readonly {content:readonly unknown[]}[])=>messages.flat
 export class ReviewSession {
   private readonly trunks=new Map<string,Trunk>();
   private readonly active=new Set<Reviewer>();
-  constructor(private readonly ctx:Context) {}
+  constructor(private readonly ctx:Context, private readonly recordOwner?: (parentId: string, reviewerId: string) => Promise<void>) {}
 
   /** Discard reusable sessions; busy callers cannot publish into a removed trunk. */
   async release(sessionId:string):Promise<void>{
@@ -171,7 +171,9 @@ export class ReviewSession {
   private async discard(reviewer:Reviewer){await reviewer.handle.dispose();this.active.delete(reviewer);}
   private async create(plan:ReviewPlan<unknown>,system:string,checkpoint:Checkpoint|undefined,limit:number,overhead:number,effort:ReasoningEffortId|undefined):Promise<Reviewer>{
     const reviewer={start:checkpoint?.events.length??0,input:'',first:true} as Reviewer;
-    const handle=await this.ctx.agents.create({sessionId:SessionId(`nano-codex-${randomUUID()}`),
+    const sessionId=SessionId(`nano-codex-${randomUUID()}`);
+    await this.recordOwner?.(plan.parent.id, sessionId);
+    const handle=await this.ctx.agents.create({sessionId,
       meta:{cwd:plan.parent.session.header.cwd,agentPreset:'nano-codex-reviewer',...(checkpoint?{parentSession:SessionId(checkpoint.sessionId),isSeeded:true}:{})},
       ...(checkpoint?{seed:checkpoint.events,inheritedEventCount:SessionLogOffset(checkpoint.events.length)}:{}),
       agentOptions:{...plan.reviewer,...(effort?{reasoningEffort:effort}:{}),maxTokens:outputReserve},

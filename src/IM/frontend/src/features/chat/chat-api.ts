@@ -40,6 +40,7 @@ export interface ListMessagesOptions {
 }
 
 export interface ListMessagesResult {
+  execution_cleanup_revision?: number;
   items: TimelineItem[];
   next_before_message_id: string | null;
 }

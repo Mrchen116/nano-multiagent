@@ -69,7 +69,10 @@ struct ConversationView: View {
                                         let frame = geometry.frame(in: .global)
                                         return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
                                     } action: { _, visible in
-                                        if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
+                                        if visible {
+                                            if !bottomVisible { store.recordReadingPosition(message.id, in: conversationID) }
+                                            Task { await store.markRead(conversationID, messageID: message.id) }
+                                        }
                                     }
                             } else {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
@@ -84,12 +87,19 @@ struct ConversationView: View {
                     geometry.visibleRect.maxY >= geometry.contentSize.height - 24
                 } action: { _, visible in
                     bottomVisible = visible
+                    if visible { store.recordReadingPosition(nil, in: conversationID) }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if !bottomVisible { Button { scroll.scrollTo("bottom", anchor: .bottom) } label: { Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle()) }.padding().accessibilityLabel(L("最新消息", "Latest messages")) }
                 }
                 .onChange(of: items.count) { _, _ in
                     if bottomVisible || !firstLoaded { scroll.scrollTo("bottom", anchor: .bottom); firstLoaded = true }
+                }
+                .onChange(of: store.restoreReadingPositions[conversationID]) { _, anchor in
+                    if let anchor {
+                        scroll.scrollTo(anchor, anchor: .center)
+                        store.restoreReadingPositions[conversationID] = nil
+                    }
                 }
                 .onChange(of: items.last?.message?.content) { _, _ in if bottomVisible { scroll.scrollTo("bottom", anchor: .bottom) } }
             }

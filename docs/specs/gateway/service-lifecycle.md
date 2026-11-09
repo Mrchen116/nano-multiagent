@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-596
+> 对齐: feat-738
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -370,3 +370,21 @@ Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打�
 #### Scenario: 已提交的外部动作
 - **WHEN** 停用前外部系统已经接受动作，或进程已超出 DSH 可管理范围
 - **THEN** 保留真实结果或未知状态，不把停止描述成副作用回滚；不扩展到其他独立 Agent 或远端服务
+
+### Requirement: Agent 永久删除只清理目标独占数据，并以持久结果确认
+
+#### Scenario: 完成已确认的清理
+- **GIVEN** 产品确认目标普通或 Global Agent 已停止，所有者授权永久删除
+- **WHEN** 节点确认完成删除
+- **THEN** 该 Agent 的独占原生会话、子会话、轨迹、执行记录及自动触发已移除，旧会话无法继续或恢复
+- **AND** 按原确认结果删除或保留专用工作区，其他 Agent 及共享资源继续可用
+
+#### Scenario: 中断后的重试
+- **WHEN** 已确认的清理因中断或失败重试
+- **THEN** 节点保留禁止目标运行的状态，按已确认范围继续，未确认清理完成时返回等待或失败原因
+- **AND** 重启不重新创建或注册已删除的身份
+
+#### Scenario: 同节点的其他 Agent 持续运行
+- **GIVEN** 目标 Agent 已确认停止，同节点其他 Agent 正在执行
+- **WHEN** 节点清理目标 Agent 的数据
+- **THEN** 清理可与其他 Agent 的执行并行完成，共享运行时持续服务，其他 Agent 的在途执行、接收新工作及读取历史继续按原路径进行

@@ -1,12 +1,30 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { decodeWorkEvent, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
+import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
 import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkRecordView } from './work-record-types.js';
 
+/** Look up a removed Work position and reject incompatible retries.
+ * Args:
+ *   root: The decoded product Agent when the transport carries an event body.
+ * Returns:
+ *   The root identity if the position is covered by a deletion receipt.
+ */
+export function workRedaction(db: DatabaseSync, node: string, journal: string, seq: number, eventId: string, root?: string): string | undefined {
+  const row = one(db, 'SELECT * FROM work_sync_redactions WHERE (node_id=? AND journal_id=? AND seq=?) OR event_id=?', node, journal, seq, eventId);
+  if (!row) return undefined;
+  if (row.node_id !== node || row.journal_id !== journal || row.seq !== seq || row.event_id !== eventId || (root !== undefined && row.root_agent_id !== root))
+    fail(409, 'event_identity_conflict');
+  return row.root_agent_id;
+}
+
 /** Own the atomic Work journal and its persisted public projection. */
 export class WorkRecords {
   constructor(readonly db: DatabaseSync) {
+    db.exec(`CREATE TABLE IF NOT EXISTS work_sync_redactions (
+      node_id TEXT NOT NULL, journal_id TEXT NOT NULL, seq INTEGER NOT NULL,
+      event_id TEXT NOT NULL UNIQUE, root_agent_id TEXT NOT NULL, operation_id TEXT NOT NULL,
+      PRIMARY KEY(node_id,journal_id,seq));`);
     for (const r of all(db, "SELECT session_id,turn_id,payload FROM agent_work_turns") as Pick<WorkTurnRecord, "session_id" | "turn_id" | "payload">[]) {
       const p: WorkTurnData = JSON.parse(r.payload);
       if (["running", "waiting_permission"].includes(p.status))
@@ -102,6 +120,12 @@ export class WorkRecords {
     transaction(this.db, () => {
       for (const [i, e] of p.events.entries()) {
         if (e.seq !== p.from_seq + i) fail(400, "invalid_sequence");
+        if (workRedaction(this.db, node, p.journal_id, e.seq, e.event_id, e.root_agent_id)) {
+          if (e.seq > through + 1) fail(400, 'invalid_sequence');
+          through = Math.max(through, e.seq);
+          continue;
+        }
+        if (e.type === workRedactedType) fail(409, 'work_redaction_required');
         const profile = one(
           this.db,
           "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=? AND work_mode='global' AND is_stale=0",

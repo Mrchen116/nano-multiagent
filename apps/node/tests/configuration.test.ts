@@ -179,3 +179,38 @@ it('keeps E2E preset tools enabled through configuration sync and provides both 
     expect(modes).toEqual(new Set(['single_thread', 'global']));
   } finally { await rm(home, {recursive: true, force: true}); }
 });
+
+it('checks an in-flight Agent workspace reservation before removing an exclusive workspace', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-workspace-delete-'));
+  try {
+    const path=join(home,'node.json');
+    await writeFile(path,JSON.stringify({
+      node:{workspace_base:join(home,'workspaces')},agents:[],
+      llm:{default_model:'test',providers:[{name:'test',models:[{name:'test'}]}]},
+    }));
+    const config=await NodeConfiguration.read(path);
+    const features={intelligent_ui:false,task_graph:false,dreaming:false};
+    const target=await config.resolve(canonicalAgentConfiguration({agent_id:'a',features}),true);
+    await config.persist(target);
+    config.releaseWorkspace('a');
+    const witness=await config.deletionWorkspace('a',[]);
+    expect(witness?.path).toBeDefined();
+    const peer=await config.resolve(canonicalAgentConfiguration({agent_id:'b',features,workspace_root:join(target.workspace_root!,'peer')}),true);
+    await writeFile(join(peer.workspace_root!,'sentinel'),'peer work');
+    await expect(config.removeAgent('a','op',witness,()=>[])).rejects.toThrow('Workspace is no longer exclusive');
+    expect(await readFile(join(peer.workspace_root!,'sentinel'),'utf8')).toBe('peer work');
+    await config.persist(peer);
+    config.releaseWorkspace('b');
+    await config.removeAgent('a','op',undefined,()=>[]);
+    expect(config.current('a')).toBeUndefined();
+    expect(await readFile(join(peer.workspace_root!,'sentinel'),'utf8')).toBe('peer work');
+    const exclusive=await config.resolve(canonicalAgentConfiguration({agent_id:'c',features}),true);
+    await config.persist(exclusive);
+    config.releaseWorkspace('c');
+    const selected=await config.deletionWorkspace('c',[]);
+    expect(selected).toBeDefined();
+    await config.removeAgent('c','op-c',selected,()=>[]);
+    await expect(stat(exclusive.workspace_root!)).rejects.toMatchObject({code:'ENOENT'});
+    expect((await NodeConfiguration.read(path)).current('b')).toBeDefined();
+  } finally { await rm(home,{recursive:true,force:true}); }
+});

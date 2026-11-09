@@ -35,3 +35,11 @@ export interface WorkSyncPart {
   part_sha256: string;
   data: string;
 }
+
+/** Marker retaining the shared journal position after its execution data is erased. */
+export const workRedactedType = 'work_redacted';
+
+export interface WorkRedactionManifest {
+  journal_id: string;
+  entries: { seq: number; event_id: string }[];
+}

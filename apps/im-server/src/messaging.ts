@@ -8,6 +8,7 @@ import { lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.
 import { captureTaskContextAccess, revokeLostTaskContextAccess, taskContextEligible, taskContextEntryAllowed, taskContextRevocation } from './task-context-access.js';
 import {RelayDelivery} from './relay-delivery.js';
 import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
+import { executionCleanupRevision } from './agent-deletion.js';
 import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -77,11 +78,11 @@ export class Messaging {
     }
     return { ...u!, owner_id: a.owner_id, space_id: a.space_id };
   }
-  actor(u:Row) {return this.records.actor({id:u.id,username:u.username,display_name:u.display_name,is_stale:u.is_stale});}
+  actor(u:Row) {return {...this.records.actor({id:u.id,username:u.username,display_name:u.display_name,is_stale:u.is_stale}), ...(u.is_deleted ? {is_deleted:true} : {})};}
   members(id: string): Row[] {
     return all(
       this.db,
-      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username GLOB 'agent:*' AND ap.agent_id=substr(u.username,7) WHERE cp.conversation_id=? ORDER BY cp.rowid`,
+      `SELECT u.*,ap.is_stale,d.state='deleted' AS is_deleted FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username GLOB 'agent:*' AND ap.agent_id=substr(u.username,7) LEFT JOIN agent_deletions d ON d.agent_id=ap.agent_id WHERE cp.conversation_id=? ORDER BY cp.rowid`,
       id,
     );
   }
@@ -162,6 +163,7 @@ export class Messaging {
       title: access.is_observer && !c.title_is_custom ? members.map(u => u.display_name).join(" ↔ ") : c.title,
       visibility:c.visibility, dissolved_at:c.dissolved_at,
       is_member:access.is_member,is_observer:access.is_observer,can_write:access.can_write,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
+      execution_cleanup_revision: executionCleanupRevision(this.ctx,id),
       participants: members.map((u) => this.actor(u)),
       participant_ids: members.map((u) => u.id),
       direct_kind:
@@ -825,7 +827,9 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const cursorOnly = query(req).view === "cursor";
     if (cursorOnly && !qualifiedUser(db, p.id)) fail(403, "account access required");
     const max_event_id = one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n;
-    return cursorOnly ? { max_event_id } : { items: s.conversations(p.id), max_event_id };
+    const execution_cleanup_revisions = Object.fromEntries(all(db,'SELECT * FROM conversation_execution_cleanup')
+      .filter(row=>conversationAccess(db,row.conversation_id,p.id)).map(row=>[row.conversation_id,row.revision]));
+    return cursorOnly ? {max_event_id,execution_cleanup_revisions} : {items:s.conversations(p.id),max_event_id,execution_cleanup_revisions};
   });
   app.get("/im/v1/conversations/:conversation_id", (req) => {
     const p = s.principal(req),
@@ -975,6 +979,6 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         });
       items.push({ type: "message", message: s.message(row.id) });
     }
-    return { items, next_before_message_id: more ? page[0]!.id : null };
+    return { items, next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
   });
 }

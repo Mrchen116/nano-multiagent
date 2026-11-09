@@ -153,3 +153,29 @@ it('keeps only old Task schedules frozen and releases the specific human-resumed
   tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:2,request_key:'resume-one',change_note:'Resume',operations:[{op:'update_task',node_id:'n1',patch:{status:'doing'}}]});
   expect((await frozen()).payload.schedule_ids).toEqual([]);
 });
+
+it('requires confirmed stop, preserves chat history and rejects re-registration after deletion', async()=>{
+  const f=setup();
+  f.connection.agent_deletion_v1=true;
+  const path='/im/v1/agents/a/deletion';
+  const confirm={request_id:'delete-a',expected_revision:2,expected_profile_version:1};
+  const start=await f.ctx.gateway.handle(f.connection,'node.streaming_delta',{node_id:'n',agent_id:'a',conversation_id:'chat',kind:'turn_start',lifecycle_revision:1});
+  const messageId=start.payload.message_id;
+  f.db.prepare("UPDATE messages SET content='Published result',thinking_json='[{}]' WHERE id=?").run(messageId);
+  const del=(payload:object,user='u1')=>f.app.inject({method:'POST',url:path,headers:{'x-user':user},payload});
+  expect((await del(confirm)).statusCode).toBe(409);
+  expect((await del(confirm,'u2')).statusCode).toBe(403);
+  await f.report(1,'enabling');await f.report(1,'enabled');
+  await f.http('PUT',{enabled:false,request_id:'off',expected_revision:1});
+  expect((await del(confirm)).statusCode).toBe(409);
+  await f.report(2,'disabled');
+  const accepted=await del(confirm);
+  expect(accepted.statusCode,accepted.body).toBe(202);
+  const operation_id=accepted.json().operation.operation_id;
+  expect((await f.http('PUT',{enabled:true,request_id:'on',expected_revision:2})).statusCode).toBe(409);
+  await f.ctx.gateway.handle(f.connection,'agent.deletion.report',{node_id:'n',agent_id:'a',operation_id,state:'deleted'});
+  expect(f.ctx.messaging.message(messageId)).toMatchObject({content:'Published result',thinking:[]});
+  expect(f.ctx.messaging.conversation('chat','u1')).toMatchObject({execution_cleanup_revision:1});
+  expect(f.ctx.gateway.register(f.connection,{node_id:'n',agents:['a'],capabilities:{agent_lifecycle_v1:true,agent_deletion_v1:true}}).agent_lifecycles).toEqual([]);
+  expect((await f.app.inject({url:path,headers:{'x-user':'u1'}})).json().operation.state).toBe('deleted');
+});

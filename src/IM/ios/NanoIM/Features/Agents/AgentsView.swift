@@ -112,6 +112,7 @@ struct NativePersonalAgentState: Decodable, Sendable {
 
 struct AgentProfileView: View {
     let client: IMClient; let user: AuthUser; let contact: Contact; let onOpenChat: @MainActor (String) -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var error: String?
     @State private var openingChat = false
     @State private var refreshedContact: Contact?
@@ -154,7 +155,9 @@ struct AgentProfileView: View {
             }
             if owned {
                 Section(L("管理", "Manage")) {
-                    NavigationLink { AgentConfigView(client: client, agentID: agentID) } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
+                    NavigationLink {
+                        AgentConfigView(client: client, agentID: agentID, onDeleted: shownContact.role == "personal" ? nil : { dismiss() })
+                    } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
                     NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: { Label(L("外部通道", "Channels"), systemImage: "antenna.radiowaves.left.and.right") }
                     NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: shownContact.work_mode == "global", onOpenChat: onOpenChat) } label: { Label(L("Skills 使用情况", "Skill usage"), systemImage: "sparkles") }
                 }

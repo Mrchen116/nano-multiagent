@@ -644,3 +644,20 @@ CREATE INDEX IF NOT EXISTS conversation_events_time ON conversation_events(creat
 
 CREATE INDEX IF NOT EXISTS pa_source_events_event ON pa_source_events(source_event_id,binding_id);
 CREATE INDEX IF NOT EXISTS agent_work_events_root ON agent_work_events(root_agent_id);
+
+CREATE TABLE IF NOT EXISTS agent_deletions (
+  agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(agent_id),
+  operation_id TEXT UNIQUE NOT NULL, request_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL, node_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
+  revision INTEGER NOT NULL, profile_version INTEGER NOT NULL, workspace_json TEXT,
+  state TEXT NOT NULL, error_detail TEXT
+);
+CREATE INDEX IF NOT EXISTS agent_deletions_node ON agent_deletions(node_id,state);
+CREATE TABLE IF NOT EXISTS deleted_agent_work_links (
+  agent_id TEXT NOT NULL, kind TEXT NOT NULL, target_id TEXT NOT NULL,
+  conversation_id TEXT, PRIMARY KEY(agent_id,kind,target_id)
+);
+CREATE TABLE IF NOT EXISTS conversation_execution_cleanup (
+  conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL
+);

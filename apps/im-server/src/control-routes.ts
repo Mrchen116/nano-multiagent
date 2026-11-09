@@ -2,6 +2,7 @@ import {allowlistOptions, modelOptions, featureOptions, readNodeCreationCapabili
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {all, one, fail, body, query, now, type ImContext, type Row} from './context.js';
 import {bearer, canAccessSpace, ownerAccount, requireCompanyAdmin} from './identity.js';
+import {registerAgentDeletionRoutes} from './agent-deletion.js';
 import {registerAgentLifecycleRoutes} from './agent-lifecycle.js';
 import {activeTaskCount, registerTaskGraphRoutes} from './task-graphs.js';
 import {registerChannelRoutes} from './channels.js';
@@ -71,6 +72,7 @@ function requiredWorkspace(p: Row) {
 }
 export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   registerAgentLifecycleRoutes(app,ctx);
+  registerAgentDeletionRoutes(app,ctx);
   app.addHook('onRequest', async (req, reply) => {
     if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
       reply.header('Cache-Control','private, no-store');

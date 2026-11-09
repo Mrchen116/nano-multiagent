@@ -1,15 +1,15 @@
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import {builtinSkillsRoot, personalSkillsRoot} from '@nano/personal-assistant';
 import { readFileSync } from 'node:fs';
-import { readFile, open, rename, mkdir } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { readFile, open, rename, mkdir, realpath, lstat, rm } from 'node:fs/promises';
+import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { ModelSetupError, type ModelConfiguration } from './model-types.js';
 import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
 import { defaultReasoning } from './providers.js';
 import { readApproval } from './approval.js';
-import { normalizeKnowledge, canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration } from '@nano/product-contracts';
+import { normalizeKnowledge, canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration, type AgentWorkspaceWitness } from '@nano/product-contracts';
 
 export interface LocalAgent extends Record<string, unknown> {
   agent_id: string; workspace_root: string; work_mode?: 'single_thread' | 'global';
@@ -33,13 +33,20 @@ export class NodeConfiguration {
   onModelsChanged?: () => void;
   private readonly policies = new Map<string, AgentConfiguration['approval']>();
   get ownerRoot() { return this.value.gateway?.environment?.NANO_OWNER_CONFIG_ROOT ?? process.env.NANO_OWNER_CONFIG_ROOT ?? join(homedir(), '.nanoassistant'); }
-  private persistence: Promise<void> = Promise.resolve();
+  private persistence: Promise<unknown> = Promise.resolve();
+  private readonly preparedWorkspaces = new Map<string, {path:string; created?:AgentWorkspaceWitness}>();
+  private serialize<T>(action: () => Promise<T>): Promise<T> {
+    const task = this.persistence.then(action);
+    this.persistence = task.catch(()=>{});
+    return task;
+  }
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
-  static async read(path: string) {
+  static async read(path: string, deletions: ReadonlyMap<string,boolean> = new Map()) {
     const value=load(await readFile(path,'utf8')) as NodeConfigurationFile;const config=new NodeConfiguration(path,value);
+    value.agents=value.agents.filter(agent=>deletions.get(agent.agent_id)!==true);
     for (const agent of value.agents) {
       agent.workspace_root=resolve(agent.workspace_root??config.defaultWorkspace(agent.agent_id));
-      await mkdir(agent.workspace_root,{recursive:true});
+      if (!deletions.has(agent.agent_id)) await mkdir(agent.workspace_root,{recursive:true});
       agent.knowledge=normalizeKnowledge(agent.knowledge, agent.features, config.evolution(agent.workspace_root));
       agent.features={dreaming:true,...canonicalAgentConfiguration(agent).features};
     }
@@ -131,13 +138,66 @@ export class NodeConfiguration {
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);
     // Runtime preparation mounts this directory before the configuration is committed.
-    await mkdir(resolved.workspace_root, { recursive: true });
+    await this.serialize(async()=>{
+      const path = resolved.workspace_root;
+      await mkdir(dirname(path),{recursive:true});
+      const created = await mkdir(path).then(()=>true,error=>{
+        if (error.code!=='EEXIST') throw error;
+        return false;
+      });
+      const canonical = await realpath(path);
+      if (!(await lstat(canonical)).isDirectory()) throw new Error('Workspace must be a directory');
+      const identity = created && creating ? await workspaceIdentity(canonical) : undefined;
+      this.preparedWorkspaces.set(candidate.agent_id,{path:canonical,...(identity ? {created:identity} : {})});
+    });
     return resolved;
   }
   persist(candidate: CanonicalAgentConfiguration): Promise<void> {
-    const task = this.persistence.then(() => { this.runtime(candidate); return this.write(candidate); });
-    this.persistence = task.catch(() => {}); return task;
+    return this.serialize(async()=>{ this.runtime(candidate); await this.write(candidate); });
   }
+  releaseWorkspace(agentId: string): void { this.preparedWorkspaces.delete(agentId); }
+
+  /** Offer removal only for directories this node created specifically for this Agent. */
+  deletionWorkspace(agentId: string, pending: CanonicalAgentConfiguration[]): Promise<AgentWorkspaceWitness | undefined> {
+    return this.serialize(()=>this.exclusiveWorkspace(agentId,pending));
+  }
+
+  private async exclusiveWorkspace(agentId:string,pending:CanonicalAgentConfiguration[]):Promise<AgentWorkspaceWitness|undefined> {
+    const agent = this.value.agents.find(item=>item.agent_id===agentId);
+    const created = agent?.workspace_deletion_identity as AgentWorkspaceWitness | undefined;
+    if (!created || !agent || !created.witness || await realpath(agent.workspace_root).catch(()=>undefined)!==created.path) return;
+    const current = await workspaceIdentity(created.path);
+    if (current?.witness!==created.witness) return;
+    const other = [...this.value.agents,...pending].filter(item=>item.agent_id!==agentId).map(item=>item.workspace_root);
+    for (const [id,value] of this.preparedWorkspaces) if (id!==agentId) other.push(value.path);
+    for (const path of other) if (path && overlaps(created.path,await realpath(path).catch(()=>resolve(path)))) return;
+    return current;
+  }
+
+  /** Detach the verified workspace while holding configuration ownership, then reclaim it outside the queue. */
+  async removeAgent(agentId:string,operationId:string,workspace:AgentWorkspaceWitness|undefined,pending:()=>CanonicalAgentConfiguration[]):Promise<void> {
+    const stash = workspace && join(dirname(workspace.path),`.nano-delete-${operationId}`);
+    await this.serialize(async()=>{
+      if (workspace && stash) {
+        const detached = await workspaceIdentity(stash);
+        if (detached?.witness!==workspace.witness && await lstat(stash).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;}))
+          throw new Error('Unexpected workspace cleanup directory');
+        if (!detached && this.value.agents.some(item=>item.agent_id===agentId)) {
+          const current = await this.exclusiveWorkspace(agentId,pending());
+          if (current?.path!==workspace.path || current.witness!==workspace.witness) throw new Error('Workspace is no longer exclusive');
+          await rename(workspace.path,stash);
+        }
+      }
+      const agents = this.value.agents.filter(item=>item.agent_id!==agentId);
+      const channels = this.value.channels?.filter(channel=>channel.name!==`feishu:${agentId}`);
+      if (agents.length===this.value.agents.length && channels?.length===this.value.channels?.length) return;
+      await this.writeFile({...this.value,agents,channels});
+      this.value.agents=agents;
+      this.value.channels=channels;
+    });
+    if (stash) await rm(stash,{recursive:true,force:true});
+  }
+
   /** A persistent version also fences key-only edits and survives node restarts. */
   get modelRevision(): string {
     return this.value.llm.revision ?? createHash('sha256').update(JSON.stringify(this.value.llm)).digest('hex');
@@ -194,6 +254,9 @@ export class NodeConfiguration {
       custom_prompt: candidate.custom_prompt ?? undefined, reasoning_effort: candidate.reasoning_effort ?? undefined,
       heartbeat: candidate.heartbeat_json ? JSON.parse(candidate.heartbeat_json) as Record<string, unknown> : undefined };
     delete agent.heartbeat_json;
+    const created = this.preparedWorkspaces.get(agent.agent_id)?.created;
+    if (created) agent.workspace_deletion_identity=created;
+    else if (previous?.workspace_root!==agent.workspace_root) delete agent.workspace_deletion_identity;
     const agents = this.value.agents.filter(item => item.agent_id !== candidate.agent_id).concat(agent);
     await mkdir(agent.workspace_root, { recursive: true });
     await this.writeFile({ ...this.value, agents });
@@ -207,4 +270,19 @@ export class NodeConfiguration {
     const directory = await open(dirname(this.path), 'r');
     try { await directory.sync(); } finally { await directory.close(); }
   }
+}
+
+
+async function workspaceIdentity(path:string):Promise<AgentWorkspaceWitness|undefined> {
+  const entry=await lstat(path,{bigint:true}).catch(error=>{if(error.code==='ENOENT')return undefined;throw error;});
+  if (!entry?.isDirectory() || await realpath(path)!==path) return;
+  return {path,witness:`${entry.dev}:${entry.ino}:${entry.birthtimeNs}`};
+}
+
+function overlaps(a:string,b:string):boolean {
+  const contains = (root:string,path:string) => {
+    const difference=relative(root,path);
+    return difference==='' || !isAbsolute(difference) && difference!=='..' && !difference.startsWith(`..${sep}`);
+  };
+  return contains(a,b)||contains(b,a);
 }

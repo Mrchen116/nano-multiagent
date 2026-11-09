@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { workSyncLimits as limits, workSyncPrefix, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart } from '@nano/product-contracts';
+import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart } from '@nano/product-contracts';
 import type { InboxStore } from './inbox.js';
 
 interface Options {
@@ -24,6 +24,7 @@ export class WorkSync {
   private task?: Promise<void>;
   private lifetime = new AbortController();
   private backoff = 1_000;
+  private redactionGeneration = 0;
 
   constructor(private readonly options: Options) {
     this.base = new URL(options.url);
@@ -48,6 +49,13 @@ export class WorkSync {
     });
   }
 
+  /** Re-read the cursor after a deletion replaced local bodies with acknowledged markers. */
+  redacted(): void {
+    this.redactionGeneration++;
+    this.paused = false;
+    this.signal();
+  }
+
   /** Cancel HTTP and backoff, leaving every unconfirmed source event intact. */
   async stop(): Promise<void> {
     this.started = false; this.dirty = false; this.lifetime.abort(); await this.task;
@@ -56,11 +64,13 @@ export class WorkSync {
   private async run(): Promise<void> {
     while (this.started && (this.options.available?.() ?? true)) {
       this.dirty = false;
+      const generation = this.redactionGeneration;
       try {
         await this.synchronize();
         if (!this.dirty) return;
       } catch (error) {
         if (!this.started) return;
+        if (generation !== this.redactionGeneration) continue;
         this.options.onError(error);
         if (error instanceof SyncError && error.pause) { this.paused = true; return; }
         const wait = Math.max(error instanceof SyncError ? error.retryAfterMs : 0, Math.min(30_000, this.backoff * (0.8 + Math.random() * 0.4)));
@@ -125,6 +135,13 @@ export class WorkSync {
     while (this.started && (this.options.available?.() ?? true) && cursor.through_seq < inbox.journalSeq) {
       const first = inbox.journal(cursor.through_seq, 1)[0];
       if (!first || first.seq !== cursor.through_seq + 1) throw new SyncError('work_sync_local_journal_gap', true);
+      if (first.type === workRedactedType && cursor.pending_event?.event_id === first.event_id) {
+        // A response issued before the redaction may still advertise the old partial.
+        const previous = cursor.through_seq;
+        cursor = await this.request('GET');
+        this.acknowledge(cursor);
+        if (cursor.through_seq !== previous) continue;
+      }
       const from = Number(first.seq), events = [first];
       const firstBody = JSON.stringify({ from_seq: from, events });
       const previous = cursor.through_seq;

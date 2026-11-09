@@ -1,7 +1,9 @@
+import {registerWorkRedactions} from './work-sync.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { NodeRpc } from './node-rpc.js';
 import { catalogReads } from './catalog-reads.js';
 import { isRecord } from './node-rpc-values.js';
+import {reportAgentDeletion, requireDeletionOperation, resumableAgentDeletions} from './agent-deletion.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
 import { conversationAccess } from './conversation-access.js';
 import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
@@ -25,6 +27,7 @@ export type Connection = {
   token: string;
   lastSeen: number;
   agent_lifecycle_v1?: boolean;
+  agent_deletion_v1?: boolean;
 };
 type Browser = {
   socket: WebSocket;
@@ -272,6 +275,7 @@ export class Gateway {
       fail(400, "agents must be strings");
     // A restored PA no longer belongs to this node; keep its ordinary Agents reconnectable.
     p={...p,agents:p.agents.filter((id:string)=>{
+      if (one(db,"SELECT 1 FROM agent_deletions WHERE agent_id=? AND state='deleted'",id)) return false;
       const b=one(db,'SELECT owner_id,node_id FROM personal_agent_bindings WHERE agent_id=?',id);
       return !b || b.owner_id!==c.owner_id || b.node_id===c.node_id;
     })};
@@ -299,6 +303,7 @@ export class Gateway {
     const old = this.nodes.get(c.node_id);
     if (old && old.socket !== c.socket) old.socket.close(1008, "connection replaced");
     c.agent_lifecycle_v1=p.capabilities?.agent_lifecycle_v1===true;
+    c.agent_deletion_v1=p.capabilities?.agent_deletion_v1===true;
     this.nodes.set(c.node_id, c);
     db.prepare(
       `INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES(?,?,?,'online',?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_name=excluded.node_name,status='online',last_error=NULL,last_heartbeat_at=excluded.last_heartbeat_at,agent_count=excluded.agent_count,version=excluded.version`,
@@ -369,6 +374,7 @@ export class Gateway {
       message_type: "node.register",
       relay_request_ids:1, work_sync_http:1,
       agent_lifecycle_v1:1, agent_lifecycles:p.agents.map((id:string)=>lifecycle(db,id)),
+      ...(c.agent_deletion_v1 ? {agent_deletions:resumableAgentDeletions(this.ctx,c.node_id,c.owner_id,c.node_epoch)} : {}),
       im_user_url: this.ctx.publicUrl,
       node_id: c.node_id,
       node_epoch: c.node_epoch,
@@ -404,6 +410,18 @@ export class Gateway {
     if (this.nodes.get(c.node_id) !== c || !this.valid(c) || p.node_id !== c.node_id)
       fail(403, "node_not_registered");
     c.lastSeen = Date.now();
+    if (type==='agent.deletion.work') {
+      if (!c.agent_deletion_v1) fail(409,'node_upgrade_required');
+      const operation=requireDeletionOperation(this.ctx,c,p);
+      if (operation.state==='deleted') return ack();
+      await registerWorkRedactions(this.ctx,c,{agent_id:operation.agent_id,operation_id:operation.operation_id},p.manifest);
+      return ack();
+    }
+    if (type==='agent.deletion.report') {
+      if (!c.agent_deletion_v1) fail(409,'node_upgrade_required');
+      reportAgentDeletion(this.ctx,requireDeletionOperation(this.ctx,c,p),p);
+      return ack();
+    }
     if(type==='agent.lifecycle.report') {
       this.requireAgent(c,p.agent_id);
       if(!c.agent_lifecycle_v1)fail(409,'node_upgrade_required');
