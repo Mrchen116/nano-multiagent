@@ -117,7 +117,7 @@ export class GlobalAgent {
     for(const [id,owner] of this.callAgents)if(owner===agentId)this.calls.get(id)?.abort();
     for(const binding of this.options.store.bindings().filter(b=>b.agentId===agentId)) {
       const root = binding.sessionId;
-      this.childCatchup.delete(root);
+      this.childCatchup.delete(root);this.coldRoots.delete(root);
       this.dirty.delete(root);this.childrenDirty.delete(root);this.childTargets.delete(root);this.failedChildren.delete(root);
       clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
       this.options.inbox.workPending(root,false);
@@ -483,8 +483,7 @@ export class GlobalAgent {
     }
     await this.main(config);
     await this.recoverRoot(binding);
-    try {await this.wake(config,binding,true);}
-    finally {this.catchUpChildWork(binding);}
+    await this.wake(config,binding,true);
   }
   private recoverRoot(binding: SessionBinding): Promise<void> {
     const id = binding.sessionId;
@@ -495,7 +494,10 @@ export class GlobalAgent {
       this.options.inbox.workPending(id, true);
       await this.controls.recover(binding.agentId);
       await this.reconcileRoot(binding);
-      if (this.coldRoots.get(id) === outage) this.coldRoots.delete(id);
+      if (this.coldRoots.get(id) === outage) {
+        this.coldRoots.delete(id);
+        this.catchUpChildWork(binding);
+      }
     })().finally(() => this.foregroundRecovery.delete(id));
     this.foregroundRecovery.set(id, task);
     return task;
@@ -976,7 +978,7 @@ export class GlobalAgent {
     }
   }
   private updateWorkPending(root: string): void {
-    const pending=this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
+    const pending=this.coldRoots.has(root) || this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
       this.childCatchup.has(root) || this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
     this.options.inbox.workPending(root,pending);
     if (!pending) {

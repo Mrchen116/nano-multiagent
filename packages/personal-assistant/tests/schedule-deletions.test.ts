@@ -292,6 +292,10 @@ it('retries an incomplete deletion receipt without blocking an unrelated Agent',
     await failing;
     expect(store.scheduleDeletion(identity.operationId)).toMatchObject({changeNotified:false,repairNotified:true});
     current.failures.change = undefined;
+    const save=vi.spyOn(store,'saveScheduleDeletion').mockImplementationOnce(()=>{throw new Error('receipt storage unavailable');});
+    await expect(current.service.recover(['a'])).rejects.toThrow('pending delivery receipts');
+    expect(store.scheduleDeletion(identity.operationId)).toMatchObject({changeNotified:false,repairNotified:true});
+    save.mockRestore();
     await current.service.recover(['a']);
     expect(store.scheduleDeletion(identity.operationId)).toMatchObject({changeNotified:true,repairNotified:true});
     expect(current.repairs).toHaveLength(1);

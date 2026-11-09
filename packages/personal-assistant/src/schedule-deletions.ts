@@ -51,8 +51,8 @@ export class ScheduleDeletions {
    intent.phase='deleted';intent.deletedAt=new Date().toISOString();this.options.store.saveScheduleDeletion(intent);
   }
   // The two receipts are independent. A crash retries their stable native IDs.
-  if(!intent.changeNotified)try{await this.options.notify(intent);intent.changeNotified=true;this.options.store.saveScheduleDeletion(intent);}catch(error){this.options.onError(error);}
-  if(!intent.repairNotified)try{await this.options.repair(intent);intent.repairNotified=true;this.options.store.saveScheduleDeletion(intent);}catch(error){this.options.onError(error);}
+  if(!intent.changeNotified)try{await this.options.notify(intent);this.options.store.saveScheduleDeletion({...intent,changeNotified:true});intent.changeNotified=true;}catch(error){this.options.onError(error);}
+  if(!intent.repairNotified)try{await this.options.repair(intent);this.options.store.saveScheduleDeletion({...intent,repairNotified:true});intent.repairNotified=true;}catch(error){this.options.onError(error);}
  }
  /** Reconcile pending deletion and each unfinished notification after runtime recovery. */
  async recover(agentIds:string[]):Promise<void>{
