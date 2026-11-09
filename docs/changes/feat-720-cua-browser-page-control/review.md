@@ -128,6 +128,14 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 本批 paired e2e-down、fixture 停止和 headless close 均 exit 0；最终核实 IM10511 / Node10667 / runtime10810 / operator12961 均不存在，64483/64519 无监听、own tmux 无，关闭后的 operator daemon 已自然退出、未发 kill。B 的 driver/front/stop 文件均未创建，全部 job 已收齐。**B 未形成模型/浏览器试验，不算产品失败，也不消耗启动或 popup attempt；累计仍为 A 的 1 startup / 1 attempt。** 当前再次离线，原准备材料与既有同栈数据依下表有限暂留；实际恢复由协调者核实资源后触发，不自行轮询、循环试到成功或降低 V2/V3/V4。
 
+### 后续一次恢复就绪失败：B 仍未执行
+
+2026-11-09 12:46 +08，协调者在实际定时触发后分配一次当前资源/自身就绪复查，可用才接同一 B。只读快照见 load 375.89/354.62/342.97，活跃 Node 约 98/95/93%、另有 swift-frontend 83.7/36%、WindowServer 44.2%、StorageManagementService 41.5%；任务归属未知，未读他线内容或停改他线，不把历史 load、这些 CPU 或累计 swap 视为硬阈值或已证根因。恢复同一 DB/config/构建，无 seed/build；IM42551 已监听，随后 `node apps/node/lib/cli.js start --config <同一副本>` 实际返回 **Gateway startup timed out / exit 1**，立即停止本次接续，不刷新、重启或增大超时。
+
+一次有界现有材料定位：本副本 `gateway.autostart=false`、未覆盖启动时限，故使用 lifecycle 的默认 60 秒 background `waitReady`；该循环只等 `ownedState.ready`，不等待 `connected`。`gateway.log` L1108–1111 在 04:47:50Z 记录 relay connecting/registering/ready 和 `Node … ready; DSH hosts=2`，后者只是 main 初始化输出，并非 lifecycle/runtime 就绪证明；L1112–1122 另有 `DSH runtime unavailable` 的 execution→global-agent 栈，无时间戳、无 partition 标识。CLI 失败后、清场前实际读到 `.gateway-state.json`：Node43319、runtime45729、`ready=true / connected=false`。源码中 ordinary runtime 的 onReady 恢复尾部才写 ready，relay onState 先 synchronize/runtime.start 后才写 connected。因此只能确认 **CLI 在其 deadline 内未观察到 ready，但稍后读取 state 已标 ready、connected 仍为 false，并存在明确 runtime-unavailable 错误**；不能把它说成所有阶段从未 ready、纯无错误 deadline、已证子进程崩溃，或已定位具体 partition/退出原因。现有日志不足以判定晚就绪/错误的确切时序与根因，本次不扩成另项修复。
+
+配对 e2e-down **exit 0**；最终核实 IM42551 / Node43319 / runtime45729 不存在，64483/64519 无监听、own fixture/daily tmux 与 PID/birth 文件均无。restore 在 Node start 失败即退出，未走到 fixture 启动；本次未打开 operator、未提交 PA、未启动 sampler/driver/CU Chrome，B 的 driver/front/stop 文件仍未创建。**累计仍为 A 的 1 startup / 1 popup attempt，B 未形成模型或浏览器样本。** 所有本次 job 已收齐，继续离线保留同一配置/数据库、当前构建、原 native 和 B 准备材料，责任与清理时点仍如下表；后续由协调者安排有限复查，不自行循环恢复。
+
 ### 测试资源回收与暂留责任
 
 共享主机随后出现其他线报告的 ENOSPC，协调者要求保持不启动新 GUI/模型/重型验证并按更新后的[测试资源回收规则入口](../../development/worktree-runtime.md)先回收己有资源。owner 实际执行并核实：
