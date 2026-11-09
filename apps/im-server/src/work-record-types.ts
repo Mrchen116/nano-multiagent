@@ -30,7 +30,8 @@ export interface WorkItemData {
 }
 export interface WorkItemView {item_id: string; seq: number; kind: string; observed_at: string | null; revision: number; payload: WorkItemData}
 export interface WorkItemsPage {items: WorkItemView[]; next_cursor: string | null}
-export interface WorkTurnView extends WorkTurnData {scope: string; items: WorkItemView[]; next_items_cursor: string | null; items_deferred?: boolean; tool_count?: number; has_background_returns?: boolean; background_task_type?: string | null}
+export interface WorkTurnView extends WorkTurnData {seq: number; scope: string; items: WorkItemView[]; next_items_cursor: string | null; items_deferred?: boolean; tool_count?: number; has_background_returns?: boolean; background_task_type?: string | null}
+export interface WorkFocus {turn: WorkTurnView; newer_turn_id: string | null}
 export interface WorkTurnsPage {turns: WorkTurnView[]; control_items: WorkItemView[]; next_cursor: string | null}
 export interface WorkRecordView {
   root_agent_id: string; main_session_id: string | null; revision: number;

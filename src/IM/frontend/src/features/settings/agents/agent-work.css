@@ -50,3 +50,11 @@
 .im-work-link-footer{padding:0 12px 5px}
 .im-work-background>.im-work-link-footer{padding:4px 0 0}
 @media(max-width:700px){.im-work-child-link{min-height:40px}}
+
+.im-work-gap {
+  margin: 0.5rem 0;
+  border-block-start: 1px dashed var(--im-border);
+  padding-top: 0.5rem;
+  color: #73808a;
+  font-size: 0.8125rem;
+}

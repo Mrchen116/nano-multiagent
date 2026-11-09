@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
-import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkRecordView } from './work-record-types.js';
+import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkTurnView, WorkFocus, WorkRecordView } from './work-record-types.js';
 
 /** Look up a removed Work position and reject incompatible retries.
  * Args:
@@ -453,22 +453,48 @@ export class WorkRecords {
       limit + 1,
     ) as WorkTurnRecord[];
     return {
-      turns: rows.slice(0, limit).map((r) => {
-        const page = summary ? {items: [], next_cursor: null} : this.items(root, session, r.turn_id);
-        const toolCount = summary ? (one(this.db, "SELECT COUNT(*) AS n FROM agent_work_items WHERE session_id=? AND turn_id=? AND kind='tool'", session, r.turn_id)?.n ?? 0) : undefined;
-        const background = summary ? one(this.db, "SELECT COALESCE(json_extract(payload,'$.task_type'), json_extract(payload,'$.background_returns[0].task_type')) AS task_type FROM agent_work_items WHERE session_id=? AND turn_id=? AND (kind='background_return' OR json_array_length(payload,'$.background_returns') > 0) ORDER BY seq LIMIT 1", session, r.turn_id) : undefined;
-        return {
-          ...(JSON.parse(r.payload) as WorkTurnData),
-          scope: registered.scope,
-          items: page.items,
-          next_items_cursor: page.next_cursor,
-          ...(summary ? {items_deferred: true, tool_count: toolCount, has_background_returns: Boolean(background), background_task_type: background?.task_type ?? null} : {}),
-        };
-      }),
+      turns: rows.slice(0, limit).map(row => this.turnView(root, registered.scope, row, summary)),
       control_items: this.items(root, session, "").items,
       next_cursor: rows.length > limit ? rows[limit - 1]!.turn_id : null,
     };
   }
+  private turnView(root: string, scope: string, row: WorkTurnRecord, summary: boolean): WorkTurnView {
+    const turn = {...JSON.parse(row.payload) as WorkTurnData, scope, seq: row.seq};
+    if (!summary) {
+      const page = this.items(root, row.session_id, row.turn_id);
+      return {...turn, items: page.items, next_items_cursor: page.next_cursor};
+    }
+    const toolCount = one(this.db, "SELECT COUNT(*) AS n FROM agent_work_items WHERE session_id=? AND turn_id=? AND kind='tool'", row.session_id, row.turn_id)?.n ?? 0;
+    const background = one(this.db, "SELECT COALESCE(json_extract(payload,'$.task_type'), json_extract(payload,'$.background_returns[0].task_type')) AS task_type FROM agent_work_items WHERE session_id=? AND turn_id=? AND (kind='background_return' OR json_array_length(payload,'$.background_returns') > 0) ORDER BY seq LIMIT 1", row.session_id, row.turn_id);
+    return {...turn, items: [], next_items_cursor: null, items_deferred: true, tool_count: toolCount,
+      has_background_returns: Boolean(background), background_task_type: background?.task_type ?? null};
+  }
+
+  private replyTurn(root: string, messageId: string): (WorkTurnRecord & {scope: string}) | undefined {
+    // Only a committed delivery fact can identify a reply's actual wake.
+    return one(this.db,
+      `SELECT t.*,s.scope FROM agent_work_events e
+       JOIN agent_work_sessions s ON s.session_id=e.session_id
+       JOIN agent_work_turns t ON t.session_id=e.session_id AND t.turn_id=e.turn_id
+       WHERE e.root_agent_id=? AND s.root_agent_id=? AND s.scope='global_main'
+       AND e.type='message_sent' AND json_extract(e.payload,'$.message_id')=?
+       ORDER BY e.revision LIMIT 1`, root, root, messageId) as (WorkTurnRecord & {scope: string}) | undefined;
+  }
+
+  /** Read one reply's durable turn summary and its nearest newer neighbor.
+   * Args:
+   *   root: Authorized product Agent identity.
+   *   messageId: Published chat reply identity.
+   * Returns:
+   *   The exact turn and its newer neighbor, or null while the delivery is unavailable.
+   */
+  focus(root: string, messageId: string): WorkFocus | null {
+    const row = this.replyTurn(root, messageId);
+    if (!row) return null;
+    const newer = one(this.db, "SELECT turn_id FROM agent_work_turns WHERE session_id=? AND seq>? ORDER BY seq ASC LIMIT 1", row.session_id, row.seq);
+    return {turn: this.turnView(root, row.scope, row, true), newer_turn_id: newer?.turn_id ?? null};
+  }
+
   /** Read the committed revision used for client invalidation.
    * Args:
    *   root: Product Agent identity.
@@ -496,15 +522,7 @@ export class WorkRecords {
   view(root: string, before?: string, limit = 20, summary = false, messageId?: string): WorkRecordView {
     const sessions = all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root) as WorkSessionRecord[],
       main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
-    // Delivery facts are durable and authoritative even for replies older than
-    // the first page. Never infer a wake from its title or the chat timestamp.
-    const focus = messageId ? one(this.db,
-      `SELECT e.session_id,e.turn_id FROM agent_work_events e
-       JOIN agent_work_sessions s ON s.session_id=e.session_id
-       JOIN agent_work_turns t ON t.session_id=e.session_id AND t.turn_id=e.turn_id
-       WHERE e.root_agent_id=? AND s.root_agent_id=? AND s.scope='global_main'
-       AND e.type='message_sent' AND json_extract(e.payload,'$.message_id')=?
-       ORDER BY e.revision LIMIT 1`, root, root, messageId) as {session_id: string; turn_id: string} | undefined : undefined;
+    const reply = messageId ? this.replyTurn(root, messageId) : undefined;
     // A message selects where to expand, not which records exist in Work.
     const page = main ? this.turns(root, main, before, limit, summary) : { turns: [], next_cursor: null };
     let latest = null;
@@ -530,7 +548,7 @@ export class WorkRecords {
     return {
       root_agent_id: root,
       main_session_id: main,
-      ...(messageId ? {focus: focus ?? null} : {}),
+      ...(messageId ? {focus: reply ? {session_id: reply.session_id, turn_id: reply.turn_id} : null} : {}),
       revision: this.revision(root),
       latest_main_usage: latest,
       main_execution: state,

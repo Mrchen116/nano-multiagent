@@ -742,6 +742,7 @@
       "新统计尚未报告时沿用最近轮次": "Showing the latest reported turn until new statistics arrive",
       "最新轮次在前 · 轮次内部按实际顺序": "Latest turns first · Events in execution order",
       "暂无工作记录。符合配置的新消息会进入收件箱。": "No work records yet. Eligible new messages will enter the inbox.",
+      "中间轮次尚未加载": "Some turns in between have not been loaded",
       "更早轮次": "Earlier turns",
       "← 返回主轨迹": "← Back to main trace",
       "关闭子轨迹": "Close child trace",
