@@ -489,7 +489,16 @@ export default class NanoRuntime {
       const { sessionId, inputId } = value as { sessionId: string; inputId: string };
       const agent = await this.agent(sessionId);
       await this.flush(agent);
-      return (await models).fallback.evidence(agent, inputId);
+      const fallback = (await models).fallback;
+      const evidence = fallback.evidence(agent, inputId);
+      const terminal = evidence.terminal as {kind?: string; error?: {code?: string; message?: string}} | undefined;
+      if (inputId.startsWith('inbox-wake:') && evidence.consumedSeq === undefined && terminal?.kind === 'error'
+        && (terminal.error?.code === 'ENOSPC' || terminal.error?.message?.startsWith('ENOSPC:'))) {
+        // Confirm writes can progress before the host requeues this unconsumed notice.
+        await fallback.checkpoint();
+        return {...evidence, retryableStorageFailure: true};
+      }
+      return evidence;
     });
     handle('session.work.check', async value => {
       const {sessionId, cursors = {}, modelVersions = {}} = value as {sessionId:string;cursors?:Record<string,number>;modelVersions?:Record<string,string>};
