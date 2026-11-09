@@ -116,6 +116,18 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 样本结束后，owner 停止并收齐 sampler job，配对 e2e-down 停止本栈服务、关闭自有 headless、终止自有 fixture。实际核实 IM56535 / Node56676 / runtime57407 / headless59115 / 自有 CU Chrome78610 均不存在，64483/64519 无监听、driver sessions count=0。用户/他线 Chrome 未触碰。物理窗口已释放给 716，当前只做离线原件/源码复核，不自行启动服务、模型或 GUI。
 
+### 诊断 B 准备与启动前资源异常：未形成新样本
+
+协调者将可见 handler 状态与最小 driver 业务元数据诊断明确纳入原隔离验证：夹具保留原 named target/尺寸与一次同步 window.open，仅增加 calls/result 的可见状态；记录仅含 status/refusal code/结构化 hint code、delivery/route、窗口身份/几何/绑定、本地夹具 URL 和时间，不记录完整参数、页面正文、图像或模型数据，不重试已拒 HTTP recorder。句柄不等于独立新窗口已确认。
+
+临时 shim 初稿由原 reviewer 发现 `Popen` 隔层会使 host 的 SIGKILL 只命中 Python、真实 CLI 可能继续执行，全缓冲也妨碍原输出上限；初稿未用于真实 driver。新稿改为主进程 exec 固定 CLI、保持 host child PID，fork 子进程仅即时透传两流，诊断内存副本超限只丢副本，EOF 先关闭 host 输出后再写白名单元数据。owner 的 8 项 inert subprocess 检查全部通过（2.720s），包含 PID/参数/原字节/退出码、首 chunk 先到、SIGKILL 与 forwarder EOF、诊断 cap、日志/exec 失败及脱敏。原 reviewer 只读确认所报准备缺陷闭合；不声称零调度开销、对恶意 driver schema 的语义安全或产品通过。
+
+获分配实际窗口后恢复同一栈，无 seed/build。Node/runtime ready、当前 package 链接及诊断 driver 环境已核实；own IM 登录第一次因 owner 旧笔记用户名错误失败，核对原成功记录后用正确专用账号恢复。设置 catalog 首次 8.295s timeout / Refresh failed，一次明确只读 Refresh 后恢复，实际显示 Sol medium / fallbacks unset / v4。此时尚未向 PA 提交诊断任务、未运行前台 sampler 或 driver 页面调用。
+
+12:20 +08 观察到 load 282.12/247.11/169.41，owner 在提交前停止，协调者认可并要求一次窄资源快照而非固定 load 阈值。12:30:37 的快照 load 272.31/470.13/376.56；Node 两种进程类别共 72 个、ps CPU 合计约 512.9%，另见 StorageManagementService 51%、WindowServer 34.4% 等活跃 CPU，非仅凭历史 load 尾巴判断。主要 Node 的具体任务归属未确认，不归咎他线。24 GiB 主机 swap used 13904.94 MiB、compressor 约 5.46 GiB；memory_pressure 同时报 free 60%，口径不同且无增量换页率/critical 证据，不声称当前 OOM、持续交换或这些指标是 catalog timeout 唯一根因。只查非敏感进程元数据，未停改他线或系统进程。
+
+本批 paired e2e-down、fixture 停止和 headless close 均 exit 0；最终核实 IM10511 / Node10667 / runtime10810 / operator12961 均不存在，64483/64519 无监听、own tmux 无，关闭后的 operator daemon 已自然退出、未发 kill。B 的 driver/front/stop 文件均未创建，全部 job 已收齐。**B 未形成模型/浏览器试验，不算产品失败，也不消耗启动或 popup attempt；累计仍为 A 的 1 startup / 1 attempt。** 当前再次离线，原准备材料与既有同栈数据依下表有限暂留；实际恢复由协调者核实资源后触发，不自行轮询、循环试到成功或降低 V2/V3/V4。
+
 ### 测试资源回收与暂留责任
 
 共享主机随后出现其他线报告的 ENOSPC，协调者要求保持不启动新 GUI/模型/重型验证并按更新后的[测试资源回收规则入口](../../development/worktree-runtime.md)先回收己有资源。owner 实际执行并核实：
