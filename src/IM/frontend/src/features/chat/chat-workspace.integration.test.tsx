@@ -469,8 +469,8 @@ describe("ChatWorkspacePage — integration", () => {
     let detailRequests = 0;
     const fetchChat = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/im/v1/conversations")) return sidebar.promise;
-      if (url.endsWith("/im/v1/conversations/c1")) return conversation.promise;
+      if (url.endsWith("/im/v1/conversations")) return sidebar.promise.then(response=>response.clone());
+      if (url.endsWith("/im/v1/conversations/c1")) return conversation.promise.then(response=>response.clone());
       if (url.includes("/im/v1/conversations/c1/messages?")) {
         expect(url).toContain("view=summary");
         return jsonResponse({ items: [{ type: "message", message: { ...message, process_summary: process } }], next_before_message_id: null });
@@ -487,8 +487,11 @@ describe("ChatWorkspacePage — integration", () => {
     renderAtRoute("/chat/c1");
     await waitFor(() => expect(fetchChat.mock.calls.some(([input]) => String(input).includes("/c1/messages?"))).toBe(true));
     expect(screen.queryByText(message.content)).not.toBeInTheDocument();
+    let recovery!: Promise<void>;
+    await act(async () => { recovery = capturedResyncHandler!({maxEventId:0}); });
     await act(async () => conversation.resolve(jsonResponse(FIXTURES.conversations.find(chat => chat.id === "c1"))));
     await screen.findByText(message.content);
+    await act(async () => recovery);
     const toggle = screen.getByRole("button", { name: /Process.*1 thinking/ });
     expect(detailRequests).toBe(0);
     await user.click(toggle);

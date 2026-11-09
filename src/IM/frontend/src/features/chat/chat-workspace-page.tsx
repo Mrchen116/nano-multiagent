@@ -41,6 +41,7 @@ import {
   toChatWsEvent,
   type ConversationState
 } from "./chat-stream-reducer";
+import { retireChatReadCache } from "./chat-read-cache";
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { subscribeUserStream } from "../../realtime/user-stream";
@@ -322,8 +323,10 @@ export function ChatWorkspacePage() {
   const queryClient = useQueryClient();
   useEffect(() => { queryClient.setQueryDefaults(['chat', 'sidebar-search'], {gcTime:Infinity}); }, [queryClient]);
   const { t, i18n } = useTranslation();
-  const [membershipReady, setMembershipReady] = useState(true);
+  const [checkingMembership, setCheckingMembership] = useState<string | null>(null);
+  const membershipReady = checkingMembership !== conversationId;
   const deniedConversation = useRef<string | undefined>(undefined);
+  const membershipCheck = useRef(0);
   const [showNewChat, setShowNewChat] = useState(false);
   const [showPersonalAgentSetup, setShowPersonalAgentSetup] = useState(false);
   const [showPublicGroups, setShowPublicGroups] = useState(false);
@@ -580,9 +583,7 @@ export function ChatWorkspacePage() {
       if (usage.conversationId === id) tokenUsageCache.current.delete(messageId);
     }
     // Old query generations can never seed the active stream again.
-    for (const resource of ["messages", "message-process"]) {
-      queryClient.removeQueries({ queryKey: ["chat", resource, id], predicate: query => (Number(query.queryKey[3]) || 0) < revision });
-    }
+    retireChatReadCache(queryClient, id, revision);
     if (conversationIdRef.current === id) {
       const messageId = priorAnchor ?? visibleReadingAnchor();
       setCleanupAnchor(messageId ? { conversationId: id, messageId } : null);
@@ -747,11 +748,7 @@ export function ChatWorkspacePage() {
   sendersByIdRef.current = sendersById;
 
   function retireConversationReads(id: string) {
-    for (const resource of ["conversation-detail", "messages", "message-process"]) {
-      const filter = { queryKey: ["chat", resource, id] };
-      void queryClient.cancelQueries(filter);
-      queryClient.removeQueries(filter);
-    }
+    retireChatReadCache(queryClient, id);
     if (historyRequestRef.current?.conversationId === id) {
       historyRequestRef.current.controller.abort();
       historyRequestRef.current = null;
@@ -778,33 +775,49 @@ export function ChatWorkspacePage() {
     navigate("/chat", { replace: true });
   }
 
-  async function reconcileMembership(conversations: Conversation[], priorAnchor?: string | null) {
+  async function refreshSidebarMembership(priorAnchor?: string | null) {
+    const key = ["chat", "conversations"];
+    const cached = queryClient.getQueryData<Conversation[]>(key) ?? [];
+    const account = useAuthStore.getState().user?.id;
+    const conversations = await queryClient.fetchQuery({ queryKey: key, queryFn: listConversations, retry: false });
+    if (useAuthStore.getState().user?.id !== account) return;
     for (const chat of conversations) observeExecutionCleanup(chat.id, chat.execution_cleanup_revision, priorAnchor);
     const allowed = new Set(conversations.map(c => c.id));
-    const cached = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]) ?? [];
     for (const previous of cached) {
-      if (allowed.has(previous.id)) continue;
+      if (allowed.has(previous.id) || conversationIdRef.current === previous.id) continue;
       retireConversationReads(previous.id);
-      forgetComposerConversation(composerStoreFor(useAuthStore.getState().user?.id ?? null), previous.id);
+      forgetComposerConversation(composerStoreFor(account ?? null), previous.id);
     }
-    restoreComposerMembership(composerStoreFor(useAuthStore.getState().user?.id ?? null), allowed);
-    queryClient.setQueryData(["chat", "conversations"], conversations);
+    restoreComposerMembership(composerStoreFor(account ?? null), allowed);
+  }
+
+  async function recheckActiveMembership() {
     const active = conversationIdRef.current;
-    if (!active) return;
     const account = useAuthStore.getState().user?.id;
-    if (!account) return;
+    const check = ++membershipCheck.current;
+    if (!active || !account) {
+      setCheckingMembership(null);
+      return;
+    }
+    const current = () => membershipCheck.current === check &&
+      conversationIdRef.current === active && useAuthStore.getState().user?.id === account;
+    setCheckingMembership(active);
+    const key = ["chat", "conversation-detail", active, account];
+    await queryClient.cancelQueries({ queryKey: key });
+    if (membershipCheck.current !== check) return;
     try {
       await queryClient.fetchQuery({
-        queryKey: ["chat", "conversation-detail", active, account],
+        queryKey: key,
         queryFn: ({signal}) => getConversation(active, signal),
         staleTime: 0,
         retry: false
       });
     } catch (error) {
-      if (conversationIdRef.current === active && useAuthStore.getState().user?.id === account && isAccessDenied(error)) closeDeniedConversation(active);
-      return;
+      if (current() && isAccessDenied(error)) closeDeniedConversation(active);
+      else if (current()) throw error;
     }
-    if (conversationIdRef.current === active) await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
+    if (membershipCheck.current === check) setCheckingMembership(null);
+    if (current()) await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
   }
 
   useEffect(() => {
@@ -822,16 +835,11 @@ export function ChatWorkspacePage() {
         for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) {
           observeExecutionCleanup(id, revision, priorAnchor);
         }
-        setMembershipReady(false);
-        const active = conversationIdRef.current;
-        if (active) await queryClient.cancelQueries({ queryKey: ["chat", "conversation-detail", active] });
-        const conversations = await listConversations();
-        await reconcileMembership(conversations, priorAnchor);
-        setMembershipReady(true);
+        // The selected chat is reauthorized independently before stream replay.
+        void refreshSidebarMembership(priorAnchor).catch(() => {});
+        await recheckActiveMembership();
         await queryClient.invalidateQueries({ queryKey: ["contacts"] });
         await queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
-        const id = conversationIdRef.current;
-        if (id && conversations.some(c => c.id === id)) await queryClient.invalidateQueries({ queryKey: ["chat", "messages", id] });
       },
       onEvent: (event) => {
         if (event.eventType === "conversation.execution_cleanup") {
@@ -845,12 +853,13 @@ export function ChatWorkspacePage() {
         if (event.eventType === "conversation.membership_changed" || event.eventType === "conversation.deleted") {
           const id = event.payload.conversation_id;
           if (typeof id === "string") {
-            if (id === conversationIdRef.current) setMembershipReady(false);
+            if (id === conversationIdRef.current) setCheckingMembership(id);
             // Drop visible private content before the membership refresh, including
             // mounted blob previews. Remaining members reload from the server.
             retireConversationReads(id);
             queryClient.removeQueries({ queryKey: ["chat", "slash-candidates"] });
-            void listConversations().then(async rows => { await reconcileMembership(rows); setMembershipReady(true); }).catch(() => undefined);
+            if (id === conversationIdRef.current) void recheckActiveMembership().catch(() => {});
+            void refreshSidebarMembership().catch(() => {});
           }
           return;
         }
