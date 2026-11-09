@@ -13,8 +13,9 @@ it('routes external search and anchored reads to the authorized shadow while lab
     im: async path => ({ id: path.endsWith('find-or-create') ? 'shadow' : 'mirror' }),
     receive: async input => { accepted.push(input); }, permission: async () => {}, onError: () => {},
   });
-  external.add('a', { config: { appId: 'app' }, send: async () => 'sent', thinking: async () => undefined,
-    image: async () => ({ data: Buffer.alloc(0), mediaType: 'image/png' }), updateCard: async () => {} });
+  const connection = { config: { appId: 'app' }, send: async () => 'sent', thinking: async () => undefined,
+    image: async () => ({ data: Buffer.alloc(0), mediaType: 'image/png' }), updateCard: async () => {} };
+  external.add('a',connection);
   try {
     await external.receive('a', { messageId: 'input', chatId: 'group', senderId: 'ou-one', senderName: 'Alice', isGroup: true, mentioned: true, time: '1000', parts: [{ type: 'text', text: '发布' }] });
     const target = accepted[0]!.conversation_id;
@@ -28,6 +29,10 @@ it('routes external search and anchored reads to the authorized shadow while lab
     await external.request('conversation.query', { agent_id: 'a', action: 'read', target, around_message_id: 'mirror' });
     expect(forwarded.at(-1)).toMatchObject({ target: 'shadow', around_message_id: 'mirror' });
     expect((await external.request('conversation.query', { agent_id: 'a', action: 'read', target })).payload.result).toMatchObject({ messages: [{ source: { message_id: 'mirror' } }] });
+    expect(external.canRecoverConversation('a',target)).toBe(true);
+    external.add('a',{...connection,config:{appId:'replacement'}});
+    expect(external.available('a')).toBe(true);
+    expect(external.canRecoverConversation('a',target)).toBe(false);
   } finally { await external.stop(); store.close(); }
 });
 

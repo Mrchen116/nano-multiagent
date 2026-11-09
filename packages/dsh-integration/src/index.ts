@@ -114,6 +114,7 @@ export default class NanoRuntime {
   private readonly approvals = new Map<string, (answer: ApprovalOutcome, reason?: string) => void>();
   private readonly unregisterPresets: (() => Promise<void>)[] = [];
   private accepting = false;
+  private markRecovery = false;
   private readonly lifecycle: ColdLifecycleBarrier;
   private readonly owned: OwnedSessions;
   private readonly ownerOf: (sessionId: string) => string | undefined;
@@ -151,7 +152,10 @@ export default class NanoRuntime {
     ctx.inject(['terminals'], child => { terminals = child.terminals; child.effect(() => () => { terminals = undefined; }); });
     const lifecycle = this.lifecycle = new ColdLifecycleBarrier(ctx);
     const deletion = !inspection && config?.agentDeletion ? SessionDeletion.forRuntime(ctx, process.env.DSH_HOME!) : undefined;
-    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId));
+    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId), async binding => {
+      if (this.markRecovery && this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode === 'single_thread')
+        await this.peer.request('session.recovery.mark', {sessionId: binding.sessionId, agentId: binding.agentId});
+    });
     ctx.provide('nanoSessions', this.owned);
     installStandaloneModelRetry(ctx);
     installLlmAttribution(ctx, sessionId => {
@@ -344,7 +348,7 @@ export default class NanoRuntime {
     });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { observationOnly?: boolean; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { recoveryMarkers?: boolean; observationOnly?: boolean; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       await deletion?.restore();
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       for (const agent of config.agents) {
@@ -353,6 +357,7 @@ export default class NanoRuntime {
         this.cron.block(agent.agentId, lifecycle.current(agent.agentId).disabled === true);
       }
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
+      this.markRecovery = config.recoveryMarkers === true;
       await this.sessionController;
       await approvalFiber.await();
       await modelFiber.await();
@@ -411,6 +416,11 @@ export default class NanoRuntime {
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
     });
     handle('session.ensure', value => this.ensure(value as SessionBinding));
+    handle('session.recovery.probe', value => {
+      const {sessionId, afterSeq, localWork} = value as {sessionId: string; afterSeq: number; localWork: boolean};
+      if (!Number.isSafeInteger(afterSeq) || afterSeq < -1) throw new RpcError(-32602, 'Invalid recovery cursor');
+      return this.owned.recoveryProbe(sessionId, afterSeq, localWork);
+    });
     handle('session.submit', value => {
       const input = value as Submit;
       const key = `${input.sessionId}\0${input.inputId}`;

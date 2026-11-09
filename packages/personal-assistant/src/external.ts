@@ -73,6 +73,14 @@ export class ExternalChannels {
   /** Purge local copies without contacting the external platform. */
   purgeAgent(agentId:string):void { this.remove(agentId); this.state.purgeAgent(agentId); }
   available(agentId: string): boolean { return this.connections.has(agentId); }
+  /** A replacement App cannot resume a conversation owned by its predecessor. */
+  canRecoverConversation(agentId: string, conversationId: string): boolean {
+    const connection = this.connections.get(agentId);
+    if (!connection) return false;
+    const chat = this.state.chatById(conversationId);
+    return chat?.agentId === agentId && chat.appId === connection.config.appId;
+  }
+
 
   receive(agentId: string, message: FeishuMessage): Promise<void> {
     const connection = this.connections.get(agentId); if (!connection) throw new Error('No channel for Agent');

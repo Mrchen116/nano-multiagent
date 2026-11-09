@@ -5,6 +5,11 @@ import type { DeliveryState, RelayInput, RuntimeEvent, SessionBinding } from '@n
 import { ToolReferences } from './tool-references.js';
 import { AgentLifecycleAuthority } from './agent-lifecycle.js';
 
+interface RecoveryCandidate { binding: SessionBinding; generation: string | null | undefined }
+const receiptIdentity = "coalesce(json_extract(payload,'$.metadata.runtime_input_id'),input_id)";
+const inputReceiptIdentity = "coalesce(json_extract(i.payload,'$.metadata.runtime_input_id'),i.input_id)";
+const activeDelivery = "state IN ('prepared','sending','completing')";
+
 interface SystemContextInput {message_id:string;conversation_id:string;session_id:string|null;input_id:string;digest:string;state:'prepared'|'consumed'|'revoked';turn:number|null}
 
 type InputRow = {
@@ -116,9 +121,100 @@ export class NodeStore {
       CREATE INDEX IF NOT EXISTS inputs_unsubmitted ON inputs(session_id) WHERE accepted=0 AND (terminal IS NULL OR terminal='');`);
     this.toolReferences = new ToolReferences(this.db);
     this.lifecycle = new AgentLifecycleAuthority(this.db);
+    this.installRecoveryHeads();
     if(!(this.db.prepare('PRAGMA table_info(group_background)').all() as {name:string}[]).some(c=>c.name==='cancelled'))this.db.exec('ALTER TABLE group_background ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0');
     if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles SELECT s.agent_id,json_extract(i.payload,'$.message.id'),coalesce(json_extract(i.payload,'$.lifecycle_revision'),1) FROM inputs i JOIN sessions s USING(session_id)");
     if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles SELECT agent_id,json_extract(payload,'$.message.id'),coalesce(json_extract(payload,'$.lifecycle_revision'),1) FROM group_background");
+  }
+
+  private installRecoveryHeads(): void {
+    if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_recovery'").get()) return;
+    // Maintain missing receipts in the same transaction as their source facts.
+    // The one-time backfill is the only global walk over terminal deliveries.
+    this.db.exec(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE session_recovery(session_id TEXT PRIMARY KEY REFERENCES sessions(session_id) ON DELETE CASCADE,generation TEXT);
+      CREATE TABLE recovery_delivery_inputs(input_id TEXT PRIMARY KEY REFERENCES inputs(input_id) ON DELETE CASCADE, session_id TEXT NOT NULL, turn INTEGER NOT NULL);
+      CREATE INDEX recovery_delivery_session ON recovery_delivery_inputs(session_id,turn);
+      CREATE INDEX recovery_active_deliveries ON deliveries(session_id) WHERE ${activeDelivery};
+      CREATE INDEX recovery_receipt_identity ON inputs(${receiptIdentity}) WHERE turn IS NOT NULL;
+      CREATE INDEX recovery_stop ON control_intents(json_extract(intent,'$.binding.sessionId'))
+        WHERE json_extract(intent,'$.action')='task-stop' AND coalesce(json_extract(intent,'$.text'),'')='';
+      CREATE VIEW unresolved_delivery_inputs AS
+        SELECT i.input_id,i.session_id,i.turn,${inputReceiptIdentity} AS receipt_id FROM inputs i
+        WHERE i.turn IS NOT NULL AND i.terminal IS NOT '{"kind":"cancelled_by_disable"}'
+        AND NOT EXISTS(
+          SELECT 1 FROM sessions s JOIN agent_lifecycle l USING(agent_id) WHERE s.session_id=i.session_id
+          AND coalesce(json_extract(i.payload,'$.lifecycle_revision'),1) <= coalesce(json_extract(l.state,'$.disabled_through_revision'),0)
+        )
+        AND NOT EXISTS(
+          SELECT 1 FROM deliveries d LEFT JOIN input_receipts r ON r.input_id=${inputReceiptIdentity}
+          WHERE d.session_id=i.session_id AND d.turn=i.turn AND (d.state='cancelled_by_disable' OR
+            r.status=CASE WHEN d.state IN ('confirmed','withheld') THEN 'completed' WHEN d.state IN ('failed','unknown') THEN 'failed' END)
+        );
+      INSERT INTO recovery_delivery_inputs SELECT input_id,session_id,turn FROM unresolved_delivery_inputs;
+      CREATE TRIGGER recovery_input_insert AFTER INSERT ON inputs WHEN NEW.turn IS NOT NULL BEGIN
+        INSERT INTO recovery_delivery_inputs SELECT input_id,session_id,turn FROM unresolved_delivery_inputs WHERE input_id=NEW.input_id;
+      END;
+      CREATE TRIGGER recovery_input_update AFTER UPDATE OF turn,terminal ON inputs
+        WHEN NEW.turn IS NOT OLD.turn OR NEW.terminal IS NOT OLD.terminal BEGIN
+        DELETE FROM recovery_delivery_inputs WHERE input_id=NEW.input_id;
+        INSERT INTO recovery_delivery_inputs SELECT input_id,session_id,turn FROM unresolved_delivery_inputs WHERE input_id=NEW.input_id;
+      END;
+      CREATE TRIGGER recovery_delivery_update AFTER UPDATE OF state ON deliveries WHEN NEW.state IS NOT OLD.state BEGIN
+        DELETE FROM recovery_delivery_inputs WHERE session_id=NEW.session_id AND turn=NEW.turn;
+        INSERT INTO recovery_delivery_inputs SELECT input_id,session_id,turn FROM unresolved_delivery_inputs WHERE session_id=NEW.session_id AND turn=NEW.turn;
+      END;
+      CREATE TRIGGER recovery_receipt_insert AFTER INSERT ON input_receipts BEGIN
+        DELETE FROM recovery_delivery_inputs WHERE input_id IN (SELECT input_id FROM inputs WHERE turn IS NOT NULL AND ${receiptIdentity}=NEW.input_id);
+        INSERT INTO recovery_delivery_inputs SELECT input_id,session_id,turn FROM unresolved_delivery_inputs WHERE receipt_id=NEW.input_id;
+      END;
+      CREATE TRIGGER recovery_receipt_update AFTER UPDATE OF status ON input_receipts WHEN NEW.status IS NOT OLD.status BEGIN
+        DELETE FROM recovery_delivery_inputs WHERE input_id IN (SELECT input_id FROM inputs WHERE turn IS NOT NULL AND ${receiptIdentity}=NEW.input_id);
+        INSERT INTO recovery_delivery_inputs SELECT input_id,session_id,turn FROM unresolved_delivery_inputs WHERE receipt_id=NEW.input_id;
+      END;
+      COMMIT;
+    `);
+  }
+
+  /** Record the current runtime instance before a bound root can become writable. */
+  markSessionWritable(sessionId: string, generation: string): void {
+    this.db.prepare('INSERT INTO session_recovery VALUES(?,?) ON CONFLICT(session_id) DO UPDATE SET generation=excluded.generation')
+      .run(sessionId,generation);
+  }
+
+  /** Close an absent or retired marker only if admission has not replaced it. */
+  confirmColdSession(sessionId: string, generation: string | null | undefined): void {
+    if (generation === undefined) this.db.prepare('INSERT OR IGNORE INTO session_recovery VALUES(?,NULL)').run(sessionId);
+    else if (generation !== null) this.db.prepare('UPDATE session_recovery SET generation=NULL WHERE session_id=? AND generation=?').run(sessionId,generation);
+  }
+
+  /** Find root bindings with unverified native history or local delivery obligations. */
+  recoveryCandidates(agentIds: string[]): RecoveryCandidate[] {
+    return (this.db.prepare(`
+      SELECT s.binding,r.generation,r.session_id AS marked FROM sessions s LEFT JOIN session_recovery r USING(session_id)
+      WHERE s.agent_id IN (SELECT value FROM json_each(?))
+      AND (r.session_id IS NULL OR r.generation IS NOT NULL OR ${this.localRecoveryWork('s.session_id')})
+      ORDER BY s.rowid
+    `).all(JSON.stringify(agentIds)) as {binding:string;generation:string|null;marked:string|null}[])
+      .map(row => ({binding: JSON.parse(row.binding) as SessionBinding,generation: row.marked === null ? undefined : row.generation}));
+  }
+
+  private localRecoveryWork(session: string): string {
+    return `EXISTS(SELECT 1 FROM inputs WHERE session_id=${session} AND evidence_final=0)
+      OR EXISTS(SELECT 1 FROM deliveries WHERE session_id=${session} AND ${activeDelivery})
+      OR EXISTS(SELECT 1 FROM recovery_delivery_inputs WHERE session_id=${session})`;
+  }
+
+  /** Check current durable obligations again after an asynchronous native probe. */
+  hasRecoveryWork(sessionId: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM sessions s WHERE s.session_id=? AND (${this.localRecoveryWork('s.session_id')})`).get(sessionId);
+  }
+
+  /** A pending human stop remains authoritative until the host confirms it. */
+  recoveryStopped(sessionId: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM control_intents WHERE json_extract(intent,'$.binding.sessionId')=?
+      AND json_extract(intent,'$.action')='task-stop' AND coalesce(json_extract(intent,'$.text'),'')='' LIMIT 1`).get(sessionId);
   }
 
   /** Preserve the original epoch even when transport retries omit their admission metadata. */
@@ -143,6 +239,7 @@ export class NodeStore {
       this.db.prepare("UPDATE inputs SET terminal=?,evidence_final=1 WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?) AND evidence_final=0")
         .run(JSON.stringify({kind:'cancelled_by_disable'}),agentId);
       this.db.prepare("UPDATE deliveries SET state=CASE WHEN state IN ('sending','completing') THEN 'unknown' ELSE 'cancelled_by_disable' END WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?) AND state IN ('prepared','sending','completing')").run(agentId);
+      this.db.prepare('DELETE FROM recovery_delivery_inputs WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?)').run(agentId);
       this.db.prepare('UPDATE group_background SET cancelled=1 WHERE agent_id=?').run(agentId);
       this.db.prepare("UPDATE control_intents SET intent=json_set(intent,'$.delivered',json('true'),'$.text','cancelled_by_disable') WHERE json_extract(intent,'$.binding.agentId')=? AND coalesce(json_extract(intent,'$.delivered'),0)=0").run(agentId);
       this.db.exec('COMMIT');
@@ -379,17 +476,12 @@ export class NodeStore {
    */
   deliveryInputs(sessionId: string, noticeTurns: number[]) {
     const rows = this.db.prepare(`
-      SELECT i.input_id,i.payload,i.accepted,i.turn,i.terminal FROM inputs i
-      WHERE i.session_id=? AND i.turn IS NOT NULL AND (
-        i.turn IN (SELECT value FROM json_each(?)) OR NOT EXISTS (
-          SELECT 1 FROM deliveries d JOIN input_receipts r
-            ON r.input_id=coalesce(json_extract(i.payload,'$.metadata.runtime_input_id'),i.input_id)
-          WHERE d.session_id=i.session_id AND d.turn=i.turn AND r.status=CASE
-            WHEN d.state IN ('confirmed','withheld') THEN 'completed'
-            WHEN d.state IN ('failed','unknown') THEN 'failed' END
-        )
+      SELECT i.input_id,i.payload,i.accepted,i.turn,i.terminal FROM inputs i WHERE i.input_id IN (
+        SELECT input_id FROM recovery_delivery_inputs WHERE session_id=?
+        UNION
+        SELECT input_id FROM inputs WHERE session_id=? AND turn IN (SELECT value FROM json_each(?))
       ) ORDER BY i.rowid
-    `).all(sessionId, JSON.stringify(noticeTurns)) as InputRow[];
+    `).all(sessionId, sessionId, JSON.stringify(noticeTurns)) as InputRow[];
     return rows.map(decodeInput);
   }
   inputForTurn(sessionId: string, turn: number) { return this.inputs(sessionId, turn)[0]; }
@@ -420,7 +512,7 @@ export class NodeStore {
   private runtimeInput(sessionId: string, message: RuntimeInput, inserted: boolean): void {
     const source = message.source;
     if (source?.kind !== 'schedule' && !(source?.kind === 'nano-system' && ['heartbeat','task-execution','task-change'].includes(String(source.channel)))) return;
-    const binding = this.bindings().find(binding => binding.sessionId === sessionId)!;
+    const binding = this.bindingForSession(sessionId)!;
     // Schedule publishes its native insertion before the integration can stamp
     // the same message through public Inbox.replace. Do not bind that transient
     // unversioned representation to epoch 1 after a stop/enable transition.

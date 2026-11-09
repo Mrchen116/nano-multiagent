@@ -31,8 +31,8 @@ export class SessionControls {
     return task;
   }
   async wait(sessionId: string) { await this.tails.get(sessionId); }
-  async recover(agentId: string) {
-    for (const intent of this.options.store.pendingControls(agentId)) if (this.options.store.lifecycle.allowed(agentId,intent.input.lifecycle_revision??1) && intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered) await this.run(intent.binding, intent.input, intent.action, intent.argument);
+  async recover(agentId: string, allowed = (_binding: SessionBinding) => true) {
+    for (const intent of this.options.store.pendingControls(agentId)) if (this.options.store.lifecycle.allowed(agentId,intent.input.lifecycle_revision??1) && intent.action!=='task-stop' && intent.binding.agentId === agentId && !intent.delivered && allowed(intent.binding)) await this.run(intent.binding, intent.input, intent.action, intent.argument);
   }
   private async perform(intent: ControlIntent) {
     const { store, runtime, relay, nodeId } = this.options; const { binding, input } = intent;

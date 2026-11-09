@@ -61,6 +61,11 @@ export class ExternalStore {
     const row = this.db.prepare('SELECT body FROM chats WHERE id=? OR json_extract(body,\'$.shadowId\')=? ORDER BY rowid LIMIT 1').get(id, shadowId) as { body: string } | undefined;
     return row && JSON.parse(row.body) as ExternalChat;
   }
+  /** Read the exact conversation identity without looking through shadow aliases. */
+  chatById(id: string): ExternalChat | undefined {
+    const row = this.db.prepare('SELECT body FROM chats WHERE id=?').get(id) as {body:string}|undefined;
+    return row && JSON.parse(row.body) as ExternalChat;
+  }
   /** Resolve the first durable external source within its owning Agent. */
   chatForSource(agentId: string, sourceId: string): ExternalChat | undefined {
     const row=this.db.prepare("SELECT body FROM chats WHERE agent_id=? AND json_extract(body,'$.sourceId')=? ORDER BY rowid LIMIT 1").get(agentId,sourceId) as {body:string}|undefined;
