@@ -6,7 +6,7 @@ import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['model', 'audit'])('refreshes delegated Inbox authorization and handles a withdrawal during %s', async stall => {
+it.each(['model', 'audit allow', 'audit deny'])('refreshes delegated Inbox authorization and handles a withdrawal during %s', async stall => {
   const home = await mkdtemp(join(tmpdir(), 'nano-delegated-approval-'));
   let client: RuntimeClient | undefined;
   let logs = '';
@@ -23,15 +23,17 @@ export async function apply(ctx) {
     while (!await readFile(home+'/'+name, 'utf8').catch(() => '')) await setTimeout(15, undefined, { signal });
   };
   const stall = ${JSON.stringify(stall)};
-  if (stall === 'audit') {
+  if (stall.startsWith('audit')) {
     const table = (await ctx.nanoApproval.audit).table('sessions');
     const update = table.update.bind(table);
     table.update = async (...args) => {
       const entries = await update(...args);
-      if (entries.at(-1)?.reason === 'fixture verdict second') {
+      const latest = entries.at(-1);
+      if (latest?.reason === 'fixture verdict second') {
         await log('audit-ready', true);
         await wait('release-review');
       }
+      if (latest?.source === 'classifier_unavailable') await log('audit-final', entries.filter(row => row.callId === latest.callId));
       return entries;
     };
   }
@@ -56,7 +58,8 @@ export async function apply(ctx) {
       await log('reviews', { phase, original, input, callId:action.id });
       if (stall === 'model' && phase === 'second' && !original.includes('ROOT_WITHDRAWAL')) await wait('release-review', options.signal);
       text = JSON.stringify({
-        risk_level:'high', outcome:original.includes('ROOT_GRANT') && !original.includes('ROOT_WITHDRAWAL') ? 'allow' : 'deny',
+        risk_level:'high',
+        outcome:original.includes('ROOT_GRANT') && !original.includes('ROOT_WITHDRAWAL') && !(stall === 'audit deny' && phase === 'second') ? 'allow' : 'deny',
         rationale:'fixture verdict '+phase,
       });
     } else {
@@ -138,7 +141,7 @@ export async function apply(ctx) {
     expect(second.original).not.toContain('ROOT_WITHDRAWAL');
     expect(await lines('effects')).toEqual(['first']);
 
-    if (stall === 'audit') await expect.poll(() => lines('audit-ready'), { timeout:8000 }).toEqual([true]);
+    if (stall.startsWith('audit')) await expect.poll(() => lines('audit-ready'), { timeout:8000 }).toEqual([true]);
     inboxMessage = { id:'late-withdrawal', text:'ROOT_WITHDRAWAL: stop creating fixture records.' };
     await submit('root', 'read-withdrawal', 'read Inbox');
     await writeFile(join(home, 'release-review'), 'go');
@@ -157,6 +160,9 @@ export async function apply(ctx) {
     }, { timeout:8000 }).toBeTruthy();
     expect(result?.error?.code).toBe(stall === 'model' ? 'classifier_block' : 'classifier_unavailable');
     expect(await lines('effects')).toEqual(['first']);
+    if (stall.startsWith('audit')) expect(await lines('audit-final')).toEqual([[expect.objectContaining({
+      callId:second.callId, source:'classifier_unavailable', decision:'no_verdict', consecutive:0, total:0,
+    })]]);
   } catch (error) {
     throw new Error(String(error)+'\n'+logs, { cause:error });
   } finally {
