@@ -3,7 +3,7 @@
 ## 方案
 
 - 中心复用 `qualifiedUser` 和 `readableConversationIds` 得到当前可读会话，包括成员、公共群、获准的观察者和仍可读的解散历史。浏览器身份由既有鉴权入口持有。
-- 固定原有全局 high water。用 `conversation_events(conversation_id,event_id)` 索引在 `(cursor, top]` 内取任意最多 2,001 个可见事件头，超限探测不排序，找到第 2,001 个即停止。超过 2,000 个可见待补事件时返回原有 `gap_too_large`。正游标若有任何可见待补事件早于 15 分钟截止点，返回原有 `replay_window_expired`，即使所有待补均过期；无可见待补事件时不降级。零游标（显式 resume 与兜底）仍免时间判断，数量按可见事件计。
+- 固定原有全局 high water。用 `conversation_events(conversation_id,event_id,created_at)` 覆盖索引在 `(cursor, top]` 内取任意最多 2,001 个可见事件头，超限探测不排序，找到第 2,001 个即停止。超过 2,000 个可见待补事件时返回原有 `gap_too_large`。正游标若有任何可见待补事件早于 15 分钟截止点，返回原有 `replay_window_expired`，即使所有待补均过期；无可见待补事件时不降级。零游标（显式 resume 与兜底）仍免时间判断，数量按可见事件计。
 - 仅在可以回放时按选定事件 ID 批量读取正文并按全局 ID 排序，超限与过期均不读正文。一次同步查询与发送之间无 await。回放结束仍推进连接内游标到固定 high water 并发送现有在线状态快照。保留 HTTP 重新鉴权和跨标签去重。可见窗口及降级结果见 [用户事件契约增量](specs/im/agents-nodes.md)。
 
 ## 验证安排
