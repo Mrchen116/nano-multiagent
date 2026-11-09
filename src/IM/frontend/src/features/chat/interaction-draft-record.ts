@@ -77,7 +77,8 @@ export class InteractionDraftRecord {
 
   async load(adopting = false): Promise<boolean> {
     if (!this.current) return false;
-    if (this.pending || (!adopting && this.unsaved)) return this.loaded;
+    if (this.pending) return !adopting && this.loaded;
+    if (!adopting && this.unsaved) return this.loaded;
     if (!adopting && this.reading) return this.reading;
     const readVersion = ++this.readVersion, editVersion = this.editVersion;
     this.loadFailed = false;
@@ -88,7 +89,8 @@ export class InteractionDraftRecord {
         if (!this.current || readVersion !== this.readVersion) return false;
         const draft = await readInteractionDraft(this.conversationId, this.messageId);
         if (!this.current || readVersion !== this.readVersion || editVersion !== this.editVersion) return false;
-        if (this.pending || (!adopting && this.unsaved)) return this.loaded;
+        if (this.pending) return !adopting && this.loaded;
+        if (!adopting && this.unsaved) return this.loaded;
         this.state = draft.state;
         this.revision = draft.draft_revision;
         this.loaded = true;
@@ -170,6 +172,7 @@ export class InteractionDraftRecord {
     if (this.sending) throw new Error('A request is already pending');
     const pending = this.pending ??= {input: input(), key: crypto.randomUUID()};
     this.sending = true;
+    this.readVersion += 1;
     this.notify();
     return pending;
   }

@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { readInteractionDraft, saveInteractionDraft, discardInteractionBackground } from './chat-api';
 import {
-  attachDraftRecord, awaitPendingDiscard, discardOnLeave, draftFailures, draftWatermark,
+  adoptRemoteDraft, attachDraftRecord, awaitPendingDiscard, discardOnLeave, draftFailures, draftWatermark,
   forgetInteractionBackground, interactionDraftRecord, registerDraftHandle, resetInteractionBackground,
   resumeConversation, retryDraft,
 } from './interaction-background';
@@ -113,6 +113,19 @@ it('allows a StrictMode detach/reattach lease without duplicating the initial GE
   expect(interactionDraftRecord('chat', 'card')).toBe(record);
   expect(readInteractionDraft).toHaveBeenCalledTimes(1);
   release();
+});
+
+it('keeps the conflict when adoption is attempted during a pending submission', async () => {
+  const {record} = await open();
+  record.update({'$body':'local'}, true);
+  vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('409 conflict'));
+  await record.save();
+  record.beginSubmission(() => ({source_message_id:'card', state:record.state}));
+
+  await expect(adoptRemoteDraft('chat', 'card')).rejects.toThrow();
+  expect(draftFailures('chat')).toEqual([{messageId:'card', reason:'conflict'}]);
+  expect(record.state).toEqual({'$body':'local'});
+  expect(readInteractionDraft).toHaveBeenCalledTimes(1);
 });
 
 it('does not apply a stale adoption read over input edited while it was in flight', async () => {
