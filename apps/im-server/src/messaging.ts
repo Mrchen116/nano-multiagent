@@ -509,8 +509,8 @@ export class Messaging {
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
     if (attachments.length > 5) fail(400, "too many attachments");
-    if (!b.content?.trim() && !attachments.length)
-      fail(400, "message content or attachments required");
+    if (!b.content?.trim() && !attachments.length && !b.interactive)
+      fail(400, "message content, attachments or interactive reply required");
     b.content = this.validateReferences(p, id, b.content ?? "", agentId);
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;

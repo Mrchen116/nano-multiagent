@@ -181,7 +181,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     setError('action');
   }
   const fallback = <p role="status">{t('chat.interactive.fallback')}</p>;
-  return <section className="interactive-card" aria-label={t('chat.interactive.title')}
+  return <section className={`interactive-card${message.content.trim() ? "" : " interactive-card--standalone"}`} aria-label={t('chat.interactive.title')}
     onClickCapture={event => {
       touched.current = true;
       const target = event.target instanceof Element ? event.target.closest('button,[role="button"],a,[tabindex]') : null;

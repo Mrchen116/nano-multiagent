@@ -1219,7 +1219,7 @@
     "viewWork": "View Work",
     "interactive": {
       "title": "Interactive reply",
-      "fallback": "This reply cannot be displayed interactively. Use the text summary above.",
+      "fallback": "This interactive reply cannot be displayed. Ask the Agent to regenerate it in the chat.",
       "loading": "Restoring your choices…",
       "submitted": "Choices submitted",
       "queued": "Saved, waiting for Agent",
