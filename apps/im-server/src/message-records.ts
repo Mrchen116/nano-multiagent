@@ -156,9 +156,16 @@ export class MessageRecords {
         FROM messages WHERE conversation_id=? AND id=?
       )
       SELECT id,conversation_id,sender_user_id,sender_type,lifecycle_revision,content,attachments_json,
-        delivery_status,created_at,sender_display_name,sender_source_id,timezone,permission_request_json,
+        delivery_status,created_at,sender_display_name,sender_source_id,timezone,
         token_usage_json,system_notice_json,interaction_reply_json,reply_to_json,elapsed_ms,kernel_message_id,
         awaiting_permission_at,
+        CASE WHEN summarized THEN (
+          SELECT json_group_array(json(CASE WHEN permission.value->>'status'='resolved' THEN
+            json_object('request_id',permission.value->>'request_id','call_id',permission.value->>'call_id',
+              'status','resolved','decision',permission.value->>'decision','decided_by',permission.value->>'decided_by')
+            ELSE permission.value END) ORDER BY permission.key)
+          FROM json_each(scoped.permission_request_json) permission
+        ) ELSE permission_request_json END AS permission_request_json,
         CASE WHEN NOT summarized THEN tool_calls_json END AS tool_calls_json,
         CASE WHEN NOT summarized THEN thinking_json END AS thinking_json,
         CASE WHEN NOT summarized THEN background_returns_json END AS background_returns_json,

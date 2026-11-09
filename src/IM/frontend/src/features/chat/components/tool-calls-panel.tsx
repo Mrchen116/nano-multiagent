@@ -216,8 +216,9 @@ export function ToolCallsPanel({
 
       {expanded && (
         <div className="chat-tool-calls-panel chat-tool-calls-panel--open">
-          {summary && historyDetail
-            ? <HistoryProcessRows detail={historyDetail} toolCalls={toolCalls} thinking={segments} backgroundReturns={returns}
+          {historyDetail
+            ? <HistoryProcessRows detail={historyDetail} summarized={Boolean(summary)} liveTimeline={timeline}
+                toolCalls={toolCalls} thinking={segments} backgroundReturns={returns}
                 replyProcess={replies} availableMessageIds={availableMessageIds} onNavigateMessage={onNavigateMessage} />
             : <ProcessRows timeline={timeline} availableMessageIds={availableMessageIds} onNavigateMessage={onNavigateMessage} />}
         </div>
@@ -248,24 +249,29 @@ function mergeProcessItems<T>(stored: T[] | undefined, live: T[] | undefined, ke
   return [...byId.values()];
 }
 
-function HistoryProcessRows({detail, toolCalls, thinking, backgroundReturns, replyProcess, ...navigation}:
+function HistoryProcessRows({detail, summarized, liveTimeline, toolCalls, thinking, backgroundReturns, replyProcess, ...navigation}:
   Pick<ToolCallsPanelProps, 'toolCalls' | 'thinking' | 'backgroundReturns' | 'replyProcess'> &
-  ProcessNavigation & {detail: NonNullable<ToolCallsPanelProps['historyDetail']>}) {
+  ProcessNavigation & {detail: NonNullable<ToolCallsPanelProps['historyDetail']>; summarized: boolean; liveTimeline: ProcessItem[]}) {
   const { t } = useTranslation();
-  const query = useQuery({ queryKey: detail.key, queryFn: ({signal}) => detail.load(signal), staleTime: Infinity, retry: false });
-  if (query.isFetching) return <p role="status">{t("common.loading")}</p>;
-  if (!query.data) return <div role="alert">{t("chat.messagePane.processLoadError")}{" "}
-    <button type="button" onClick={() => void query.refetch()}>{t("common.retry")}</button>
-  </div>;
-  const timeline = buildTimeline(
-    mergeProcessItems(query.data.tool_calls, toolCalls, item => item.id, (stored, live) =>
+  const query = useQuery({
+    queryKey: detail.key, queryFn: ({signal}) => detail.load(signal), enabled: summarized, staleTime: Infinity, retry: false
+  });
+  const stored = summarized ? query.data : undefined;
+  const timeline = stored ? buildTimeline(
+    mergeProcessItems(stored.tool_calls, toolCalls, item => item.id, (stored, live) =>
       stored.status !== "running" && live.status === "running" ? mergeToolCall(live, stored) : mergeToolCall(stored, live)),
-    mergeProcessItems(query.data.thinking, thinking, item => item.seq),
-    mergeProcessItems(query.data.background_returns, backgroundReturns, item => item.task_id),
-    mergeProcessItems(query.data.reply_process, replyProcess, item => item.item_id, (stored, live) =>
+    mergeProcessItems(stored.thinking, thinking, item => item.seq),
+    mergeProcessItems(stored.background_returns, backgroundReturns, item => item.task_id),
+    mergeProcessItems(stored.reply_process, replyProcess, item => item.item_id, (stored, live) =>
       stored.status !== "running" && live.status === "running" ? stored : live),
-  );
-  return <ProcessRows timeline={timeline} {...navigation} />;
+  ) : liveTimeline;
+  return <>
+    {timeline.length > 0 && <ProcessRows timeline={timeline} {...navigation} />}
+    {summarized && query.isFetching && <p role="status">{t("common.loading")}</p>}
+    {summarized && query.isError && !query.isFetching && <div role="alert">{t("chat.messagePane.processLoadError")}{" "}
+      <button type="button" onClick={() => void query.refetch()}>{t("common.retry")}</button>
+    </div>}
+  </>;
 }
 
 function ReplyProcessRow({value, availableMessageIds, onNavigateMessage}: {

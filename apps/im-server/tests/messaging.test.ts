@@ -121,10 +121,22 @@ it("keeps heavy terminal process out of the opt-in history page and scopes full 
   const toolCalls = [{ id: "allow", name: "read", status: "completed", output: longOutput },
     { id: "legacy-deny", name: "bash", status: "failed", reason: "denied" }];
   const thinking = [{ seq: 0, text: longOutput }];
-  const permissions = [{ request_id: "p", call_id: "allow", status: "resolved", decision: "allow_once", decided_by: "u1" }];
+  const resolved = { request_id: "p", call_id: "allow", status: "resolved", decision: "allow_once", decided_by: "u1" };
+  const open = ["pending", "submitted"].map(status => ({
+    request_id: status, call_id: status, status, tool_input: { command: status }, question: "Please review"
+  }));
+  const permissions = [{ ...resolved, tool_input: { command: "large approval arguments ".repeat(8_000) }, question: longOutput }, ...open];
   db.prepare("UPDATE messages SET tool_calls_json=?,thinking_json=?,permission_request_json=? WHERE id=?")
     .run(JSON.stringify(toolCalls), JSON.stringify(thinking), JSON.stringify(permissions), message.id);
-  db.prepare("UPDATE messages SET thinking_json=? WHERE id=?").run(JSON.stringify(thinking), running.id);
+  db.prepare("UPDATE messages SET thinking_json=?,permission_request_json=? WHERE id=?")
+    .run(JSON.stringify(thinking), JSON.stringify([{ ...resolved, tool_input: { command: longOutput } }]), running.id);
+  const insertApprovalHistory = db.prepare(`
+    INSERT INTO messages(id,conversation_id,sender_user_id,sender_type,content,delivery_status,created_at,permission_request_json)
+    VALUES (?,'chat','a1','agent','approval-only history','completed',?,?)
+  `);
+  for (let index = 0; index < 48; index++) {
+    insertApprovalHistory.run(`approval-history-${index}`, new Date().toISOString(), JSON.stringify([permissions[0]]));
+  }
   db.exec("INSERT INTO conversations(id,title,type,owner_id,creator_id,space_id,created_at) SELECT 'other','Other',type,owner_id,creator_id,space_id,created_at FROM conversations WHERE id='chat'; INSERT INTO conversation_participants(conversation_id,user_id) VALUES('other','u1')");
   const app = Fastify();
   registerMessagingRoutes(app, ctx);
@@ -134,8 +146,12 @@ it("keeps heavy terminal process out of the opt-in history page and scopes full 
     const summary = await app.inject(path + "?view=summary");
     const rows = summary.json().items.map((item: { message: unknown }) => item.message);
     const legacyRows = legacy.json().items.map((item: { message: unknown }) => item.message);
-    expect(rows[0]).toMatchObject({ id: message.id, content: "final reply", permission_requests: permissions,
+    expect(rows).toHaveLength(50);
+    expect(rows[0]).toMatchObject({ id: message.id, content: "final reply",
       process_summary: { tool_count: 2, thinking_count: 1, approval_allow_count: 1, approval_deny_count: 1 } });
+    expect(rows[0].permission_requests).toEqual([resolved, ...open]);
+    expect(summary.body).not.toContain("large approval arguments");
+    expect(legacy.body).toContain("large approval arguments");
     expect(rows[0].tool_calls ?? []).toEqual([]);
     expect(rows[0].thinking ?? []).toEqual([]);
     expect(rows[1]).toEqual(legacyRows[1]);
