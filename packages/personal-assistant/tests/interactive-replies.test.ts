@@ -33,7 +33,7 @@ it('returns compact upstream diagnostics for recovery and allows a corrected new
 });
 it.each([
   {incoming:input, expected:'林悦，周六11点断桥见', label:'Attached choices'},
-  {incoming:{...input,message:{...input.message,content:'',interaction_reply:undefined,interactive:{format:'openui',catalog_version:'nano-iui-1',source:'root = Col([Text("周六11点断桥见")])'}}}, expected:'周六11点断桥见', label:'Public interactive reply'},
+  {incoming:{...input,message:{...input.message,content:'',interaction_reply:undefined,interactive:{format:'openui',catalog_version:'nano-iui-1',source:'root = Col([Text("周六11点断桥见")])',supersedes_message_id:'previous-card',read_only:true}}}, expected:'周六11点断桥见', label:'Interactive UI content from the message sender'},
 ])('preserves public message content and $label in both Relay and Global Inbox', async ({incoming,expected,label}) => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');const submissions:any[]=[];
   const product=new SingleThread({nodeId:'n',ownerId:'owner',store,agents:[{agentId:'a',revision:'1',mode:'single_thread',provider:'test',model:'test',workspace:'/tmp'}],
@@ -44,6 +44,10 @@ it.each([
     const page=inbox.read('a','main','read',{target:'c'});
     for(const content of [JSON.stringify(submissions[0].content),JSON.stringify(page)]) {
       expect(content).toContain(incoming.message.content);expect(content).toContain(expected);expect(content).toContain(label);
+      if ('interactive' in incoming.message) {
+        expect(content).toContain('previous-card');
+        expect(content).not.toMatch(/catalog_version|nano-iui-1|openui|read_only/);
+      }
     }
     expect(store.inputs(store.bindingFor('a','c')!.sessionId)[0].input.message.content).toBe(incoming.message.content);
   }finally{await product.stop();store.close();inbox.close();}
