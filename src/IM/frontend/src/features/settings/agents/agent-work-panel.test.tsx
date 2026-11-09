@@ -488,3 +488,101 @@ it.each([
   if(text)expect(callouts[0]).toHaveTextContent(text);
   expect(result.container.querySelector('.im-work-latest')).toHaveTextContent('42');
 });
+
+it("refreshes only the separate head and opened active detail, and fills a new history gap on demand", async () => {
+  const turn = (id: number, status = "completed", session = "main") => ({
+    ...view.turns[0], session_id: session, turn_id: String(id), seq: id * 5, status,
+    items: [], items_deferred: true,
+  });
+  const requested: string[] = [];
+  let newest = 10;
+  let revision = 20;
+  let main = "main";
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url === "/im/v1/conversations") return new Response(JSON.stringify({items: []}));
+    requested.push(url);
+    const q = new URL(url, "http://nano.test").searchParams;
+    if (url.includes("/items?")) {
+      const delta = q.has("after_revision");
+      const older = q.get("after_seq") === "1";
+      const item = (second: boolean, changed = false) => ({
+        item_id: second ? "second" : "first", seq: second ? 2 : 1, revision: changed ? 21 : second ? 20 : 19,
+        kind: "message", payload: {text: changed ? "Updated same item" : second ? "Original second item" : "First item"},
+      });
+      return new Response(JSON.stringify(delta ? {items: revision > 20 && q.get("after_revision") === "20" ? [item(true, true)] : [], revision, next_cursor: null}
+        : {items: [item(older)], revision: 20, next_cursor: older ? null : "1"}));
+    }
+    if (url.endsWith("/sessions/main")) return new Response(JSON.stringify({session_id: "main", scope: "global_main"}));
+    const retired = url.includes("/sessions/main/");
+    const id = retired ? "main" : main;
+    const before = q.get("before_turn");
+    const head = before ? Number(before) - 1 : retired ? 16 : newest;
+    return new Response(JSON.stringify({
+      ...view, catalog: "separate", main_session_id: id, revision,
+      turns: [turn(head, head === 10 ? "running" : "completed", id), turn(head - 1, "completed", id)],
+      next_cursor: String(head - 1), next_turn_id: String(head - 2),
+    }));
+  });
+  renderWork();
+  const card = (id: number, session = "main") => document.getElementById(`work-turn-${session}-${id}`);
+  const notify = () => act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: "agent.work.updated", payload: {agent_id: "global"}}));
+  await waitFor(() => expect(card(10)).toBeInTheDocument());
+  fireEvent.click(card(10)!.querySelector("summary")!);
+  expect(await screen.findByText("First item")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "加载更多过程"}));
+  expect(await screen.findByText("Original second item")).toBeVisible();
+
+  for (const id of [8, 6, 4]) {
+    fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+    await waitFor(() => expect(card(id)).toBeInTheDocument());
+  }
+  const oldRequests = () => requested.filter(url => url.includes("before_turn=") || url.includes("after_seq=")).length;
+  const originalReadCount = oldRequests();
+  revision = 21;
+  notify();
+  expect(await screen.findByText("Updated same item")).toBeVisible();
+  expect(screen.queryByText("Original second item")).not.toBeInTheDocument();
+  expect(oldRequests()).toBe(originalReadCount);
+
+  newest = 16;
+  notify();
+  await waitFor(() => expect(card(16)).toBeInTheDocument());
+  expect(card(10)).toHaveAttribute("open");
+  expect(card(4)).toBeInTheDocument();
+  expect(await screen.findByText("中间轮次尚未加载")).toBeInTheDocument();
+  expect(oldRequests()).toBe(originalReadCount);
+  fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+  await waitFor(() => expect(card(14)).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+  await waitFor(() => expect(card(12)).toBeInTheDocument());
+  expect(screen.queryByText("中间轮次尚未加载")).not.toBeInTheDocument();
+  expect(requested.filter(url => url.includes("before_turn=")).every(url => url.includes("/sessions/main/turns?"))).toBe(true);
+
+  main = "replacement";
+  newest = 10;
+  notify();
+  await waitFor(() => expect(card(10, "replacement")).toBeInTheDocument());
+  expect(card(10)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+  await waitFor(() => expect(card(8, "replacement")).toBeInTheDocument());
+  expect(requested.at(-1)).toContain("/sessions/replacement/turns?");
+});
+
+it("opens a separate execution directly, without looking it up in the catalog", async () => {
+  const calls: string[] = [];
+  view = {...view, catalog: "separate", turns: [{...view.turns[0], items: [], items_deferred: true}]};
+  mocks.fetch.mockImplementation(async (url: string) => {
+    calls.push(url);
+    return new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []}
+      : url.includes("/items?") ? {items: [{item_id: "sender", seq: 5, kind: "message", payload: {text: "Child message", source_session_id: "old-direct-child"}}], revision: 5, next_cursor: null}
+      : url.includes("/sessions/old-direct-child/turns") ? {turns: [], next_cursor: null}
+      : url.endsWith("/sessions/old-direct-child") ? {session_id: "old-direct-child", scope: "subagent", description: "A deeply archived execution"}
+      : view));
+  });
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  fireEvent.click(await screen.findByRole("button", {name: "查看关联执行"}));
+  expect(await screen.findByText("A deeply archived execution")).toBeVisible();
+  expect(calls.some(url => url.includes("/sessions/old-direct-child/turns?view=summary&catalog=separate"))).toBe(true);
+  expect(calls.some(url => url.includes("/work/sessions?"))).toBe(false);
+});
