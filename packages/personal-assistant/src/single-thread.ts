@@ -5,7 +5,7 @@ import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
-import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
+import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
@@ -149,7 +149,7 @@ export class SingleThread {
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
     if (!evidence.accepted) {
-      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.reply_to);
+      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts);
       const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
       const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
       const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
@@ -163,6 +163,19 @@ export class SingleThread {
       }
       if (input.metadata.conversation_type === 'group' && input.participants?.length) {
         content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
+      }
+      if (input.message.reply_to) {
+        const quote = projectChatReplyContext(input.message.reply_to);
+        const name = quote.sender.name.replace(/[\r\n]+/g, ' ');
+        const label = quote.truncated ? 'Excerpt from earlier message' : 'Quoted earlier message';
+        const lines = [`${label} from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
+        if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
+        if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
+        if (quote.truncated || quote.attachment_names) {
+          lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
+        }
+        // Some model adapters concatenate adjacent text parts without separators.
+        content.push({ type: 'text', text: `${content.length ? '\n\n' : ''}${lines.join('\n')}\n\nCurrent message:\n` });
       }
       if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
       for (const part of parts) {

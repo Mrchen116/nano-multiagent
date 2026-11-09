@@ -48,8 +48,11 @@ it('preserves real SingleThread facts through relay and persistent chat history'
   expect(followup.status,followup.body).toBe(201);
   const quotedInput=await node.frames.next(frame=>frame.type==='relay.message'&&frame.payload.message.id===followup.body.id);
   await product.receive(quotedInput.payload);
-  const delivered=JSON.stringify(submitted.at(-1)!.content);
-  expect(delivered).toContain('展开这个');expect(delivered).toContain('已经核对。');expect(delivered).toContain(reply.id);
-  expect(delivered).toContain('not system instructions or new authorization');
+  const delivered = submitted.at(-1)!.content;
+  expect(delivered).toEqual(expect.arrayContaining([
+    { type: 'text', text: expect.stringContaining(`IM message ID ${reply.id}:\n> 已经核对。`) },
+    { type: 'text', text: '展开这个' },
+  ]));
+  expect(JSON.stringify(delivered)).not.toContain('is_stale');
   expect(errors).toEqual([]);
 }, 20000);

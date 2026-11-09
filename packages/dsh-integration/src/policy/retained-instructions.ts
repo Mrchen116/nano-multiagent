@@ -44,11 +44,11 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
       preceding = partial ? undefined : message;
       if ((sender?.type ?? sender?.kind) !== 'user' || !eligible(sender)) continue;
       const quote=record(message.reply_to);
-      const replyId = quote?.message_id ?? message.reply_to ?? message.reply_to_message_id;
+      const replyId = quote?.message_id ?? (typeof message.reply_to === 'string' ? message.reply_to : message.reply_to_message_id);
       const reply = replyId ? messages.get(`${conversation ?? ''}:${replyId}`) : undefined;
       const unit = {id: key, original_message: message,
         context: {conversation_id: conversation, conversation_type: source?.conversation_type ?? page.conversation_type, delivery: source?.delivery ?? page.delivery, observation},
-        ...(replyId ? {reply_target: reply ?? {id: replyId, unavailable: true}} : immediate ? {preceding_message:immediate} : {})};
+        ...(replyId ? {reply_target: reply ?? quote ?? {id: replyId, unavailable: true}} : immediate ? {preceding_message:immediate} : {})};
       if (!partial) { units.push(unit); continue; }
       // Inbox pages number individual parts; conversations can coalesce a range per page.
       const range = record(message.partial);

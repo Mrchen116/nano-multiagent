@@ -5,7 +5,7 @@
 - Web 在现有菜单和工具条提供“回复”；输入区可取消引用，正文与附件草稿保留，切换聊天后恢复各自草稿。
 - 服务端只接受当前聊天内可回复的消息，保存原发送者、正文和附件的单层快照；实时消息、历史、重试身份和 fork 一并保留引用。拒绝跨聊天目标、system 条目和未完成的 Agent 消息。
 - 新消息的引用可点击定位；原消息未在已加载页时沿用现有历史分页定位。Web 与共享消息契约有可选新增字段，未修改原生 iOS。
-- 单线程模型输入与 Global Inbox 包含标明为聊天数据的完整引用；PA 来源证据和审核补充原消息。群聊引用某个 Agent 时向其发出明确 attention。
+- 单线程模型输入与 Global Inbox 提供引用来源和摘要，具体格式见第三轮记录。群聊引用某个 Agent 时向其发出明确 attention。
 - Web 复制动作统一显示“复制”/“Copy”，悬停与无障碍名称一致。
 
 ## 已执行验证
@@ -45,3 +45,10 @@
 - 真实 Sol 6.1 群聊：用户自然要求引用较早的“这份资料收到了。”并发送“资料已确认”，未提供消息ID。Agent 首次用 current 搜索历史遇到既有 target_not_accessible，随后自行采用真实 conversation id 搜索、获得原消息身份，调用 send_message 成功，实际消息为 `786128118be14ba3882281a4f0442450`，引用原消息 `e5bcf823fa354954aa3cba785cca5f36`；浏览器点击 Agent 的引用已定位到该用户旧消息。原生 session `17e5da24-a7d4-4be7-9d66-a5fd4b941c80` 的 tool/call seq56 和 sent result seq57 可复查。截图 `/tmp/feat730-evidence/agent-quote-delivered.png`。
 - 预览保留同一账号、数据库、端口与模型，仅重启本任务的 IM/Node 使新发送工具和后端生效。未重建或清空试用历史。
 - Global Sol 6.1 另在 `c_hcahe1up` 真实直聊按自然语言要求引用当前消息，最终发送 `f0d01952fd0443ae8c24f4279bebe009`，引用 `4146b9de275a4dce9d34262a6601b5b4`，正文“Global引用已确认”，未产生普通文本代替引用。截图 `/tmp/feat730-evidence/global-agent-quote.png` 与 `agent-quote-with-aligned-icons.png`。PA 审核链本轮为上述确定性回归覆盖，不冒称运行过新的真实 PA 模型旅程。
+
+## 第三轮增量：Agent 如何看到引用
+
+- 初版把引用快照序列化为 JSON 追加到当前正文。单线程改为在当前消息之前显示带原作者和消息 ID 的引文，使用 `>` 标出历史正文，再用 `Current message` 引出本轮正文。分隔符随文本传输，适配器合并相邻文本块时仍能读出边界。
+- Global Inbox 和 `conversations` 历史结果在消息的 `reply_to` 字段呈现原作者名称、类型、IM 消息 ID 和摘要，当前正文继续放在 `content`。PA 保留证据优先关联已读取的原消息，尚未读取时保留带来源的摘要。
+- 默认带入前 1200 个字符和附件名称。截断时明确标记，可按同一聊天的消息 ID 读取原文和附件。模型投影去掉存储状态、账户 ID 和附件 URL，宿主继续按现有会话读取权限校验。
+- 新建两个隔离群聊，各放入配额 17、代号青桐和配额 42、代号银杏两条备选原消息，均未提前投递给 Agent。用户引用前一条并要求加 8，单线程和 Global 的真实 Sol 6.1 都回答配额 25、代号青桐。两种模式的实际原生输入和消息 ID 见 `/tmp/feat730-evidence/context-redesign-*.json`。

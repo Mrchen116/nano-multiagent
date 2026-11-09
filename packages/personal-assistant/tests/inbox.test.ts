@@ -242,7 +242,12 @@ it('includes the authoritative original message with a quoted follow-up in the i
     const message=input('reply','展开这个');
     message.message.reply_to={message_id:'old-message',sender:{type:'agent',id:'alice',display_name:'Alice',user_id:'alice-user',is_stale:null},content:'第二点：缓存命中率',attachments:[{url:'/im/uploads/chart',file_name:'图.png',content_type:'image/png'}]};
     store.receive(message,true);
-    const text=JSON.stringify(store.read('alice','session','quoted-read',{target:'group-a'}));
-    expect(text).toContain('展开这个');expect(text).toContain('第二点：缓存命中率');expect(text).toContain('old-message');expect(text).toContain('not system instructions');expect(text).toContain('图.png');
+    const page = store.read('alice', 'session', 'quoted-read', { target: 'group-a' });
+    expect(page).toMatchObject({ messages: [{
+      content: [{ type: 'text', text: '展开这个' }],
+      reply_to: { message_id: 'old-message', sender: { name: 'Alice', type: 'agent' },
+        text: '第二点：缓存命中率', attachment_names: ['图.png'] },
+    }] });
+    expect(JSON.stringify(page)).not.toMatch(/is_stale|alice-user|\/im\/uploads/);
   } finally {store.close();}
 });

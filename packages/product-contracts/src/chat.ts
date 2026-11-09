@@ -79,6 +79,26 @@ export interface ChatReplyReference {
   content: string;
   attachments: ChatAttachment[];
 }
+/** Project the original message for model consumption inside its current chat.
+ *
+ * Args:
+ *   reply: Original message snapshot resolved by IM.
+ * Returns:
+ *   Display identity, a bounded excerpt, and the IM identity for exact lookup.
+ */
+export function projectChatReplyContext(reply: ChatReplyReference) {
+  const maxExcerptLength = 1200;
+  const attachmentNames = reply.attachments.map(attachment =>
+    attachment.file_name || (attachment.content_type?.startsWith('image/') ? 'Image' : 'File'));
+  return {
+    message_id: reply.message_id,
+    sender: { name: reply.sender.display_name, type: reply.sender.type },
+    ...(reply.content ? { text: reply.content.slice(0, maxExcerptLength) } : {}),
+    ...(reply.content.length > maxExcerptLength ? { truncated: true } : {}),
+    ...(attachmentNames.length ? { attachment_names: attachmentNames } : {}),
+  };
+}
+
 export interface ChatMessage {
   id: string; conversation_id: string; sender_user_id: string; sender_type: string; lifecycle_revision: number | null;
   content: string; delivery_status: string; created_at: string; timezone: string | null; elapsed_ms: number | null; kernel_message_id: string | null;
