@@ -95,6 +95,21 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 用户随后在明确列出“测试操作者用 Playwright 在隔离 IM 输入/发送合成任务、受测 PA 仍只用 browser”的上下文中纠正：“所有的真实隔离测试，skill已经明确了，我前面也跟你多次说了，不需要我给你权限！！！ios真机测试暂时不需要，没有可用手机，只用在模拟器测”。协调者据这次真实新澄清接续原限定入口，不等待旧卡或重复询问操作者权限，保留前次拒绝与原 Chrome 隔离/新 profile/本地合成页面等边界；新工具拒绝仍立即停止，不换入口绕过。当前仅等待共享物理/重型资源按 716→714→720 顺序释放，未开始新 GUI/模型样本；不把澄清当产品通过、合并或部署许可。
 
+### 测试资源回收与暂留责任
+
+共享主机随后出现其他线报告的 ENOSPC，协调者要求保持不启动新 GUI/模型/重型验证并按更新后的[测试资源回收规则入口](../../development/worktree-runtime.md)先回收己有资源。owner 实际执行并核实：
+
+- 关闭 task-owned `feat720-product` headless session；旧 headless pid 8243 已不存在。执行配对 `e2e-down.sh --wt <本 worktree>` 停止本栈 Node/DSH/IM，旧 pid 51690/51786 已不存在；64483（IM）与 64519（fixture）均无监听。仅终止自己创建的 `feat720-daily` / `feat720-fixture` 两个 tmux 会话，两者均已消失；无正在运行的本事项测试 job 或 CU Chrome。
+- 删除前解析并核实本 worktree 的 `src/IM/frontend/node_modules` 为独占非 symlink 目录，原 `du -sk` 为 440672 KiB；删除 exit 0 并核实路径不存在。未触及 root/pnpm 共享缓存、用户浏览器、其他 worktree 或他线服务。最后 `df` 的 Available 为 15746272 KiB，只报告该时点状态，不将全机空闲变化归因于本次删除。
+
+| 明确保留的离线资源 | 原因 | 负责人及回收时点 |
+|---|---|---|
+| 本 worktree 的隔离 Gateway/IM 配置、凭据、数据库、`.dsh-runtime/`、`.gateway-workspace/` 与端口/daily 清单（数据目录合计约 9 MiB；不在仓库提交内容） | 尚待同一产品旅程继续，保留既有 Sol 配置/profile/native session 身份及决定性原件；下个窗口只恢复同一栈，不重新 seed | feat-720 实施 owner；真实样本与原独立 reviewer 取证结束后，或取消/确认不再需要时，提取必要脱敏证据并删除独占运行数据和凭据 |
+| 本 worktree 当前已验 package `lib/`、主前端 `dist/`（约 13.5 MiB）与 root 依赖（约 766 MiB；frontend 依赖已删除） | 恢复当前受审构建、不在磁盘阻塞期间重复 build/install；此为有限后续保留，不是长期缓存承诺 | 同一 owner；本事项验证结束且不再需要原构建后删除独占构建/依赖产物，不动共享缓存 |
+| 本机 `/tmp/feat720*` / `/tmp/feat-720*` 必要失败日志、native 原件、前台采样、夹具源文件与 `.playwright-cli/` 必要 snapshot | 供同一独立审查确认历史失败、实际版本与新样本对照；sampler 已全部停止，下一脚本尚未运行 | 同一 owner；原 reviewer 核完相关证据后仅保留仓库内必要脱敏结论，再删本事项独占临时原件 |
+
+下次获分配资源后须恢复服务并复核 ready/同一版本/有效 Sol 配置；当前清单与历史 PID 不构成在线证明。未交接清理责任，创建者继续负责最终核实进程退出、端口释放与独占目录移除。
+
 ## 发布阻塞与待补验
 
 - **V2 ≥2 次真窗口后前台归还，是发布阻塞**；V3 ≥3 次独立启动采样及 V4 弹窗半边仍缺。本轮不能用“未测但已披露”替代。
