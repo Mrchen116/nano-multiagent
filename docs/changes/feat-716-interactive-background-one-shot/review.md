@@ -174,12 +174,21 @@ Manifest guard 不代表实际服务/数据库绑定，更不代表人类授权�
 - target改变Web scroll wrapper及native附件fallback/阅读位置，最终窄屏的必要失败/恢复画面与可操作结果须直接观察，可嵌入有界核心旅程；旧完整画面不能直接覆盖。确定性当前引用+背景/unknown retry保护保留。
 - 新52850 fixture未ready且恢复/seed实际工具拒绝，审计第3节保留整条未执行；这是验证缺口/工具阻塞，不改成产品失败，不绕过。最终CI失败归因与Web分页单组复验仍待。reviewer全程只读、未写文件/运行GUI/服务/模型/worker，不触碰旧62814或其它事项。
 
-## MERGE-1 作者修复与待独立关闭
+## MERGE-1 修复与原reviewer独立关闭（c91f7e858）
 
-- 已实际补最低层clean、503、409和gated PUT四项红→绿；漏复位导致四项均422失败，修后4/4通过。load在保留未保存/冲突之前恢复active，独立renderer代际撤销旧页面但不撤销在途draft确认；业务defer仍按draft代际清busy。另补动作等待保存时重挂的旧页拒绝/未发送/busy释放保护，最终完整Native unit **81 tests / 0 failures / 10.277s / exit0**。具体日志、执行树dirty说明与源码hash见[最低层红绿](evidence/multi-card-validation.md#最终集成-merge-1-的最低层红绿)。此处是作者已执行事实，**不是原reviewerclosure**；原REQUEST CHANGES保留至其实际复验。
-- Release device archive和其它全量CI失败单组归因仍在处理；新的真实双端入口/模型观察仍受精确工具拒绝阻塞，不以mock或旧树旅程代替，不套用ea438动态批准。
+- 已实际补最低层clean、503、409和gated PUT四项红→绿；漏复位导致四项均422失败，修后4/4通过。load在保留未保存/冲突之前恢复active，独立renderer代际撤销旧页面但不撤销在途draft确认；业务defer仍按draft代际清busy。另补动作等待保存时重挂的旧页拒绝/未发送/busy释放保护，最终完整Native unit **81 tests / 0 failures / 10.277s / exit0**。具体日志、执行树dirty说明与源码hash见[最低层红绿](evidence/multi-card-validation.md#最终集成-merge-1-的最低层红绿)。此处先记录作者执行事实；下述为原reviewer随后真实复验结论，二者不混用。
+- **同一原reviewer在冻结c91f7e85898b3eca7b6e1f457267027683aa84d1、范围375d11416..c91f7e858完成MERGE-1 CLOSED；scoped code APPROVED；findings=[]；corrected-delta aligned，本patch无新增spec delta。** 实查HEAD/branch/clean、5文件diff及diff--check；独立计算runtime30ba3486…/testf191261e…并读取完整runtime、新122行测试、原fixture/gate、CardView/WebView调用方与决定红绿/81项日志。不重跑共享重型测试；只复用已归集bash exit65/0，并区分四项red和第五项green、构建标签375d与实际dirty源码hash。Swift Testing另27项不混入81 XCTest。
+- load有效store先复位left再保留unsaved/conflict；renderer fence独立撤销ready/state/action/附件，draft代际保留成功PUT/水位，业务busy按draft代际清理；coordinator复用和View webID接线支持真实调用路径。原finding造成的implementation-mismatch部分解除；四份delta未改，原两处集成文本aligned判断retained，CR1/2/3继续CLOSED。并未将局部closure扩为final target全量新审或动态批准。
+- Release device archive作者已实际通过（generic iOS/Release/jobs2/exit0，warning保留），不是原reviewer执行结果；其它全量CI失败单组归因仍在处理。新的真实双端入口/模型观察仍受精确工具拒绝阻塞，不以mock或旧树旅程代替，不套用ea438动态批准。reviewer全程只读、无新进程/GUI/HTTP/模型/worker/文件写入，无资源需回收，配置例外不变。
+
+## 同生命周期动作回执补充保护（作者红绿，待closure）
+
+c91f限定关闭后，作者补核“draft已clean、动作POST已准入、等待回执中离场→clean load”的另一异步边界。实际红测1项/2断言失败：operationGeneration随load失效，busy未释放，新页在attempt结清后仍disabled。修复仅将Web业务动作defer改为释放它在整个串行操作期间持有的busy/composing；busy未释放前新动作不能准入、load不重置busy，页面/保存fence与真实已准入消息处理不变。不是改变spec来迁就缺陷。
+
+- 实际同一项红0.451s/exit65→绿0.034s/exit0，随后完整Native **82 XCTest/0失败/10.444s，另27 Swift Testing通过、exit0**；复用原fixture并只增加可选transport wrapper、私有响应gate。日志、源码hash与执行标签/dirty区别见[动作回执补验](evidence/multi-card-validation.md#同生命周期的已准入动作回执补验)。
+- 原c91f的MERGE-1 scoped approval保留其实际范围，不自动覆盖此新增补丁。新Release device archive与原reviewer限定delta closure待执行；其余未变结论retained，不重新打开无关目标或改变动态缺口。
 
 ## 当前流程收口
 
-- 最终固定目标已实际合入并有上述独立补验；MERGE-1已作者修复/红绿/完整81项通过，原reviewerclosure与当前动态/CI缺口尚未关闭，不套用ea438批准。
+- 最终固定目标已实际合入并有上述独立补验；MERGE-1的c91f修复/81项及Release device archive已获原reviewer限定CLOSED/APPROVED、corrected-delta aligned。后续动作回执补丁已实际红绿/完整82项通过，新的Release与原reviewerclosure待执行。当前Web完整120 files/1152 tests已全绿；backend单组复验仍有global-child-tools PA=true poll及workspace-tools外层timeout未归因，不称本地全绿。当前动态缺口和精确工具拒绝仍在，不套用ea438动态批准。
 - canonical、archive、本地完整CI及Ready PR/远端CI尚未完成，不宣布交付；旧62814人类预览保护不动。已停止本次59469栈且核实PID49976退出/端口关闭，DB和必要证据保留；自有CC5已核实Shutdown，暂留待最终集成验证。

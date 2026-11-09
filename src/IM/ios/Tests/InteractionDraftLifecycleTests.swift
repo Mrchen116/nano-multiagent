@@ -304,12 +304,12 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         let sequence = runtime.editSerial + 1
         _ = try await runtime.webRequest(.object(["type": .string("state"), "sequence": .number(Double(sequence)), "touched": .bool(true), "state": .object(["$slot": .string(slot)])]), generation: runtime.webID)
     }
-    func fixture() async throws -> (InteractiveRuntime, DraftLifecycleTransport) {
+    func fixture(wrapping wrap: ((DraftLifecycleTransport) -> any HTTPTransport)? = nil) async throws -> (InteractiveRuntime, DraftLifecycleTransport) {
         let user = AuthUser(id: "viewer", username: "viewer", display_name: "Viewer", owner_id: "viewer", locale: "zh", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
         let transport = DraftLifecycleTransport(pair: try JSONEncoder().encode(TokenPair(access_token: "t", refresh_token: "r", user: user)))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
-        let session = Session(baseURL: URL(string: "https://draft.example.test")!, transport: transport, credentials: DraftLifecycleCredentials(), sendAttempts: SendAttemptStore(directory: directory))
+        let session = Session(baseURL: URL(string: "https://draft.example.test")!, transport: wrap?(transport) ?? transport, credentials: DraftLifecycleCredentials(), sendAttempts: SendAttemptStore(directory: directory))
         _ = try await session.login(username: "viewer", password: "test")
         let client = IMClient(baseURL: session.baseURL, session: session), chat = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
         await chat.loadConversations(); chat.selectedID = "chat"

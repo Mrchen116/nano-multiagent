@@ -191,12 +191,25 @@
 - 409后保留本机编辑和冲突；重挂仍disabled，必须先只读比较才能显式采用远端。
 - gated PUT在离场/重挂后成功，真实ack仍推进自有水位，行回收不产生会话discard；旧页面被拒绝。
 
-**实际红测**：产品未改的375d11416 + 新测试，`/tmp/feat716-merge-reentry-red.log:862–879`，四项全部执行且均以422 `This card session is no longer active`失败，0.736s、xcodebuild exit65。日志随后独立的xcrun CLT路径诊断错误不改变四项已执行断言；未修改全局xcode-select。只读bundler构建先已通过。
+**实际红测**：产品未改的375d11416 + 新测试，`/tmp/feat716-merge-reentry-red.log:862–879`，四项全部执行且均以422 `This card session is no longer active`失败，0.736s、xcodebuild exit65。日志随后独立的xcrun CLT路径诊断错误不改变四项已执行断言；未修改全局xcode-select。bundler构建先已通过。
 
 **产品修复**：有效store内load先复位left，再执行保留未保存/冲突的guard；渲染页面token与draft/engine代际分开，leave仅撤销页面token和序号，不旋转draft token，避免真实在途PUT确认/水位丢失。异步附件和业务回执仍检查页面token；业务busy/composing清理绑定操作所处draft代际，不能因页面撤销而永久busy。未改变公开API、自动采用规则或会话discard所有权。
 
-**实际绿测**：相同四项、相同自有CC5与derived data、Xcode `-jobs 2 -parallel-testing-enabled NO`，`/tmp/feat716-merge-reentry-green.log:381–402`，4 tests / 0 failures / 0.063s、exit0。随后完整Native unit target `/tmp/feat716-final-native-tests.log:318–320,396`，80 tests / 0 failures / 10.134s、exit0。再补一项同gate的业务动作保护：在动作等待PUT时离场/重挂，旧页动作拒绝、未发送、busy/composing释放、新页ready恢复可用；此增量不改产品runtime。最终完整Native unit `/tmp/feat716-final-native-tests-actions.log:264–265,401–403,479`，**81 tests / 0 failures / 10.277s、TEST SUCCEEDED、exit0**（执行时间含建置/启动则更长，不将test时间当总时长）。当前runtime SHA256 `30ba3486f9869a6be9aee15d8b6104ff133d4b43fcadc902a59ef19668689015`，新测试最终SHA256 `f191261e4528e2a948e55b277360ba6e5bf42fbca0a24724f3481f60bbe599b6`；四项红绿时测试hash为30aa1b37…，不把后加的第五项说成已红测。测试构建标签375d但以上两文件为工作树增量，**不是clean375d实测**。完整unit包含WK mock，不冒称当前真实App入口旅程或工具拒绝已解除；修复仍待原reviewerclosure。
+**实际绿测**：相同四项、相同自有CC5与derived data、Xcode `-jobs 2 -parallel-testing-enabled NO`，`/tmp/feat716-merge-reentry-green.log:381–402`，4 tests / 0 failures / 0.063s、exit0。随后完整Native unit target `/tmp/feat716-final-native-tests.log:318–320,396`，80 tests / 0 failures / 10.134s、exit0。再补一项同gate的业务动作保护：在动作等待PUT时离场/重挂，旧页动作拒绝、未发送、busy/composing释放、新页ready恢复可用；此增量不改产品runtime。最终完整Native unit `/tmp/feat716-final-native-tests-actions.log:264–265,401–403,479`，**81 tests / 0 failures / 10.277s、TEST SUCCEEDED、exit0**（执行时间含建置/启动则更长，不将test时间当总时长）。当前runtime SHA256 `30ba3486f9869a6be9aee15d8b6104ff133d4b43fcadc902a59ef19668689015`，新测试最终SHA256 `f191261e4528e2a948e55b277360ba6e5bf42fbca0a24724f3481f60bbe599b6`；四项红绿时测试hash为30aa1b37…，不把后加的第五项说成已红测。测试构建标签375d但以上两文件为工作树增量，**不是clean375d实测**。同日志`:471`另一个Swift Testing runner有27 tests passed，不混入81项XCTest。完整unit包含WK mock，不冒称当前真实App入口旅程或工具拒绝已解除。
+
+Release验证选用与CI等价的`generic/platform=iOS`、Release、`CODE_SIGNING_ALLOWED=NO`、自有derived data与`-jobs 2`：`/tmp/feat716-final-native-device-archive.log:1852` **ARCHIVE SUCCEEDED、exit0**。产物`/tmp/nano-ios-feat716/NanoIM.xcarchive/Products/Applications/NanoIM.app`实查平台iPhoneOS/iphoneos、binary Mach-O arm64；随后按CI相同`ditto`步骤实际打包未签名IPA `/tmp/nano-ios-feat716/NanoIM-unsigned-feat716-c91f.ipa`（6,622,289 bytes）、exit0，核对stage所有权后已删除stage。仅为未签名建置/打包，不是实机安装/验收。此前误选simulator archive已主动取消SIGTERM，不作通过。编译保留WK delegate、actor/Sendable及AppIntents等warning，不宣称warning-free。新文档首次用系统Python因缺yaml失败；改用已有仓库venv后`/tmp/feat716-merge-reentry-docs-check-venv.log`实际302 sources/69 routes passed、exit0，没有安装/修改全局Python。
+
+原reviewer已对冻结`c91f7e85898b3eca7b6e1f457267027683aa84d1`只读核对完整patch、实算hash和全部决定红绿日志，**MERGE-1 CLOSED / scoped code APPROVED / findings=[] / corrected-delta aligned，无新增spec delta**；原implementation-mismatch由本finding造成的部分解除。并未运行/批准当前真实旅程或放行工具拒绝。
+
+## 同生命周期的已准入动作回执补验
+
+c91f的第五项保护“动作尚在等PUT”时离场；作者继续核对后补充另一个确切边界：draft已clean、POST已准入但回执未到时离场→clean load会旋转draft代际。原`operationGeneration == generation`的defer因此不释放busy，虽pending已结清，新页面仍永久disabled。此项不是将旧审查结果改成通过，也不是另起需求。
+
+- 测试仍复用原`InteractionDraftLifecycleTests.fixture`，仅增加可选transport wrapper（原文件仍400行）；新Reentry测试内的私有actor gate只拦POST/messages响应，GET/其它请求原样转交既有transport，不改产品接口或生产权限。真实触发顺序为：准入一次POST→gate→leave/load→release→旧页面回执被fence拒绝、持久attempt结清、断言busy释放/新页enabled/恰好一次已准入POST；不取消或重发已经准入的发送。
+- **实际红**：产品c91f原30ba3486…未变；`/tmp/feat716-reentry-action-receipt-red.log:217–226`，1 test、2 assertion failures、0.451s、exit65，具体为busy仍true及ready.disabled仍true。日志随后独立simctl诊断问题不是断言失败原因。
+- **修复与实际绿**：busy本身串行业务动作，load不重置它，故当前动作无论页面/draft代际如何变化都必须在退出时释放自己的busy/composing；不引入第三代际，不清掉另一动作，因为busy未释放前另一动作不能准入。renderer/draft fencing、真实PUT确认、水位及已准入消息处理均不改。`/tmp/feat716-reentry-action-receipt-green.log:223–238`，同一项1 test/0 failures/0.034s/exit0。
+- **完整原生**：`/tmp/feat716-final-native-tests-receipt.log:208–209,324–326,394,402`，**82 XCTest / 0 failures / 10.444s、另27 Swift Testing独立通过、TEST SUCCEEDED、exit0**。仍为mock native gate，不替代真实App入口。执行构建标签c91f，实际dirty产品hash `07c5bc49d86092689628b50bb1ac1478a7f9834b161856eb516f82365d5356dc`、Reentry测试 `4b40a273a75c73d09a680148b783503dbf5f5c3a3446b1940b5ed913c5d03e56`、Lifecycle fixture `9d16a3e8bc6147d62c4d503a146e34d1bb8a1fb30c74b91acec87dfa092302a7`，不冒称clean c91f运行。此增量仍须Release device archive与原reviewer限定delta closure；之前81项/归档/closure为其各自历史版本。
 
 ## 当前未关闭范围
 
-原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；MERGE-1已实际红绿/完整Native unit通过，仍待独立关闭及当前双端核心真实旅程。受影响复验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。
+原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；MERGE-1已实际红绿/完整Native unit及Release device archive通过，并获原reviewer限定CLOSED/APPROVED；当前双端核心真实旅程仍缺。受影响复验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。

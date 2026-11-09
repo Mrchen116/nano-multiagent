@@ -152,8 +152,8 @@ final class InteractiveRuntime {
         }
         guard ["ComposeMessage", "SendToChat", "continue_conversation"].contains(name ?? "") else { throw runtimeError("This action is not connected") }
         busy = true; composing = name == "ComposeMessage"; error = nil
-        let operationGeneration = generation
-        defer { if operationGeneration == generation { busy = false; composing = false } }
+        // Busy serializes actions across reloads; replacing a page must not strand its owner.
+        defer { busy = false; composing = false }
         await flush()
         guard token == rendererGeneration, await current(), !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
         if name == "ComposeMessage" {

@@ -88,6 +88,36 @@ extension InteractionDraftLifecycleTests {
         XCTAssertTrue(posts.isEmpty)
     }
 
+    func testReattachingDuringAnAdmittedActionReceiptDoesNotStrandTheNewPageBusy() async throws {
+        var gate: ReentryActionReceiptGate!
+        let (runtime, transport) = try await fixture(wrapping: { base in
+            let wrapped = ReentryActionReceiptGate(base: base)
+            gate = wrapped
+            return wrapped
+        })
+        defer { runtime.chat.clear() }
+        let detached = runtime.webID
+        let action = Task {
+            try await runtime.webRequest(.object(["type": .string("tool"), "name": .string("SendToChat"), "args": .object(["message": .string("already admitted before detaching")])]), generation: detached)
+        }
+        let started = await gate.waitForRequest()
+        XCTAssertTrue(started)
+        XCTAssertTrue(runtime.busy)
+        runtime.leave()
+        await runtime.load()
+        await gate.release()
+        do {
+            _ = try await action.value
+            XCTFail("The detached page consumed the action receipt")
+        } catch {}
+        XCTAssertNil(runtime.chat.interactionAttempt("chat", sourceMessageID: "card"), "The real receipt has already settled the pending send")
+        XCTAssertFalse(runtime.busy, "A clean reload must not strand the previous action's busy flag")
+        let ready = try await runtime.webRequest(.object(["type": .string("ready")]), generation: runtime.webID)
+        XCTAssertEqual(ready["disabled"], .bool(false))
+        let posts = await transport.posts
+        XCTAssertEqual(posts.count, 1, "The already admitted send is not cancelled or resent by row recycling")
+    }
+
     func testReattachingDuringSavePreservesItsSuccessfulOwnershipWatermark() async throws {
         let (runtime, transport) = try await fixture()
         defer { runtime.chat.clear() }
@@ -118,5 +148,31 @@ extension InteractionDraftLifecycleTests {
         let discarded = await transport.discards
         XCTAssertTrue(discarded.isEmpty, "Recycling a row is not a conversation departure")
         XCTAssertNil(runtime.chat.interactionDrafts.failure("chat"))
+    }
+}
+
+private actor ReentryActionReceiptGate: HTTPTransport {
+    let base: DraftLifecycleTransport
+    private var started = false, released = false
+    private var requestStart: CheckedContinuation<Bool, Never>?
+    private var responseRelease: CheckedContinuation<Void, Never>?
+    init(base: DraftLifecycleTransport) { self.base = base }
+
+    func waitForRequest() async -> Bool {
+        if started { return true }
+        return await withCheckedContinuation { continuation in
+            requestStart = continuation
+            Task { try? await Task.sleep(for: .seconds(2)); requestStart?.resume(returning: false); requestStart = nil }
+        }
+    }
+    func release() { released = true; responseRelease?.resume(); responseRelease = nil }
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        if request.httpMethod == "POST", request.url?.path.hasSuffix("/messages") == true, !released {
+            await withCheckedContinuation { continuation in
+                responseRelease = continuation; started = true
+                requestStart?.resume(returning: true); requestStart = nil
+            }
+        }
+        return try await base.data(for: request)
     }
 }
