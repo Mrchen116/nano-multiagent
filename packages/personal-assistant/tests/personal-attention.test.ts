@@ -4,7 +4,7 @@ import { GlobalAgent } from '../src/global-agent.js';
 import { InboxStore } from '../src/inbox.js';
 import { NodeStore } from '../src/store.js';
 
-function fixture(onObserve?: () => void) {
+function fixture(onStatus?: () => void) {
   const store=new NodeStore(':memory:','owner'), inbox=new InboxStore(':memory:');
   const config:AgentConfiguration={agentId:'pa',mode:'global',workspace:'/tmp/pa',revision:'1',provider:'p',model:'m',groupReplyPolicy:'mention_only',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}};
   const submitted:Record<string,any>[]=[];const methods:string[]=[];const seen=new Set<string>();
@@ -23,7 +23,7 @@ function fixture(onObserve?: () => void) {
       }
       if(method==='session.lookup')return {accepted:seen.has(args.inputId)};
       if(method==='session.work.children')return {children:[]};
-      if(method==='session.work.root')onObserve?.();
+      if(method==='session.status')onStatus?.();
       return {events:[],status:running?'running':'idle',durable:true};
     }},
     relay:{ready:true,request:async(type,args:any)=>{
