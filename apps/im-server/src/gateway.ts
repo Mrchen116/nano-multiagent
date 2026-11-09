@@ -711,6 +711,7 @@ export class Gateway {
             .filter((p: Row) => p.type === "agent")
             .map((p: Row) => p.id),
           mentioned_agent_ids: s.mentionedAgents(m.conversation_id, m.content),
+          ...(m.reply_to?.sender.type==='agent'?{reply_to_agent_id:m.reply_to.sender.id}:{}),
           node_epoch:
             one(db, "SELECT node_epoch FROM node_binding_state WHERE node_id=?", a.node_id)
               ?.node_epoch ?? 0,

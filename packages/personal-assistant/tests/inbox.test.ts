@@ -236,6 +236,23 @@ it('commits product projection and its processing position together, independent
   } finally {inbox.close();rmSync(dir,{recursive:true,force:true});}
 });
 
+it.each([
+  ['第二点：缓存命中率', '第二点：缓存命中率'],
+  ['甲'.repeat(1200) + '只在原文出现的尾注', '甲'.repeat(1200) + '\n\n[Rest of original message omitted.]'],
+])('projects quoted text or an excerpt in the inbox (%#)', (original, expected) => {
+  const store=new InboxStore(':memory:');
+  try {
+    const message=input('reply','展开这个');
+    message.message.reply_to={message_id:'old-message',sender:{type:'agent',id:'alice',display_name:'Alice',user_id:'alice-user',is_stale:null},content:original,attachments:[{url:'/im/uploads/chart',file_name:'图.png',content_type:'image/png'}]};
+    store.receive(message,true);
+    const page = store.read('alice', 'session', 'quoted-read', { target: 'group-a' });
+    expect(page.messages[0].content).toEqual([{ type: 'text', text: '展开这个' }]);
+    expect(page.messages[0].reply_to).toEqual({ message_id: 'old-message', sender: { name: 'Alice', type: 'agent' },
+      text: expected, attachment_names: ['图.png'] });
+    expect(JSON.stringify(page)).not.toMatch(/is_stale|alice-user|\/im\/uploads/);
+  } finally {store.close();}
+});
+
 it('counts actual mentions separately from attention without consuming unread messages', () => {
   const store = new InboxStore(':memory:');
   try {

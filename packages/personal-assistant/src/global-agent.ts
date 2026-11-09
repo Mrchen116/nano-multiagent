@@ -10,7 +10,7 @@ import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
-import { logicalEvents } from './presentation.js';
+import { argumentsObject, logicalEvents } from './presentation.js';
 import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
@@ -444,7 +444,7 @@ export class GlobalAgent {
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
                 metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
-                  attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,sender:message.sender}},true);
+                  attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,reply_to:message.reply_to,sender:message.sender}},true);
             } else {
               this.options.store.lifecycle.assert(config.agentId,event.lifecycle_revision??1);
               const binding=await this.main(config);
@@ -674,9 +674,11 @@ export class GlobalAgent {
     if(config?.personal) return this.personal.send(config,binding,call,signal);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
+    const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
+    const quote = replyTo ? { reply_to_message_id: replyTo } : {};
     const paths = call.args.local_images as string[] | undefined;
-    const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? []})
-      : interactive ? sortedJsonAscii({text, interactive}) : text;
+    const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote})
+      : interactive || replyTo ? sortedJsonAscii({text, interactive, ...quote}) : text;
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);
@@ -704,6 +706,7 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    if(replyTo && info?.channel && info.channel!=='web')throw new Error('Quoted replies require a Nano IM destination');
     if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
@@ -748,6 +751,7 @@ export class GlobalAgent {
     inbox.settlePublication(call.operationId, 'sending');
     try {
       const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
+        ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload);
@@ -812,9 +816,15 @@ export class GlobalAgent {
     for(const publication of this.options.inbox.pendingPublications(binding.sessionId)) {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
-      let text=publication.body;
-      try{const body=JSON.parse(publication.body);if(body.interactive||body.attachments){text=body.text;}}catch{ /* Plain text publications need no envelope. */ }
-      this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
+      const callId = publication.id.slice(binding.sessionId.length + 1);
+      const call = this.options.store.events(binding.sessionId).find(event => event.type === 'tool/call' && event.data.callId === callId);
+      const args = argumentsObject(call?.data.arguments);
+      // Tool arguments distinguish a plain JSON message from a stored publication envelope.
+      const body = argumentsObject(publication.body);
+      const savedText = typeof body?.text === 'string' && (body.interactive || body.attachments || body.reply_to_message_id)
+        ? body.text : publication.body;
+      const text = typeof args?.text === 'string' ? args.text : savedText;
+      this.confirmPublication(binding,{operationId:publication.id,callId,sessionId:binding.sessionId},publication.target,text,status.payload);
     }
   }
   private workPositions(root:string) {

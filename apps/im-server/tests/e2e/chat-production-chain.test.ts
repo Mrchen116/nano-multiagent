@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { join } from 'node:path';
 import { start, bind, cleanups } from './helpers.js';
 import { NodeStore } from '../../../../packages/personal-assistant/src/store.js';
+import { InboxStore } from '../../../../packages/personal-assistant/src/inbox.js';
 import { SingleThread } from '../../../../packages/personal-assistant/src/single-thread.js';
 import type { RuntimeEvent, RuntimePort } from '@nano/product-contracts';
 
@@ -44,5 +45,53 @@ it('preserves real SingleThread facts through relay and persistent chat history'
   expect(reply.token_usage.total).toBeUndefined();
   await product.recover();
   expect((await read()).body.items).toEqual(first.body.items);
+  const followup=await center.http('POST',`/im/v1/conversations/${cid}/messages`,{sender_user_id:'alice',content:'展开这个',reply_to_message_id:reply.id},center.tokens.alice,{'Idempotency-Key':'quoted-followup'});
+  expect(followup.status,followup.body).toBe(201);
+  const quotedInput=await node.frames.next(frame=>frame.type==='relay.message'&&frame.payload.message.id===followup.body.id);
+  await product.receive(quotedInput.payload);
+  const delivered = submitted.at(-1)!.content;
+  expect(delivered).toEqual(expect.arrayContaining([
+    { type: 'text', text: expect.stringContaining(`IM message ID ${reply.id}:\n> 已经核对。`) },
+    { type: 'text', text: '展开这个' },
+  ]));
+  expect(JSON.stringify(delivered)).not.toContain('is_stale');
+
+  const shortCard = 'root = Title("周六值班：木槿")';
+  const row = `Text("${'值班登记待复核。'.repeat(18)}"),`;
+  const longCard = `root = Col([${row.repeat(12)}Title("最终代号：玉兰")])`;
+  const cases = [
+    { key: 'short-card', source: shortCard, quotedSource: shortCard },
+    { key: 'long-card', source: longCard, quotedSource: longCard.slice(0, 1200) + '\n\n[Rest of original message omitted.]' },
+  ];
+  const inbox = new InboxStore(':memory:'); cleanups.push(() => inbox.close());
+  for (const {key, source, quotedSource} of cases) {
+    const card = await node.frames.send('agent.message', {node_id:node.node,to:`conversation:${cid}`,text:'',
+      from_session_id:`assistant|tool_call:${key}`,interactive:{format:'openui',catalog_version:'nano-iui-1',source}});
+    const messageId = card.payload.message_id;
+    expect(messageId).toEqual(expect.any(String));
+    const cardReply = await center.http('POST', `/im/v1/conversations/${cid}/messages`, {
+      sender_user_id: 'alice', content: '这张卡片里的代号是什么？', reply_to_message_id: messageId,
+    }, center.tokens.alice);
+    expect(cardReply.status, cardReply.body).toBe(201);
+    const cardInput = await node.frames.next(frame => frame.type === 'relay.message' && frame.payload.message.id === cardReply.body.id);
+    inbox.receive(cardInput.payload, true);
+    const page = inbox.read('assistant', 'inbox-session', key, {target:cid});
+    const quote = page.messages.find((message: {id:string}) => message.id === cardReply.body.id)!;
+    expect(quote.reply_to).toEqual({message_id:messageId,
+      sender:{name:cardReply.body.reply_to.sender.display_name,type:'agent'},interactive:{source:quotedSource}});
+    expect(quote.content).toEqual([{type:'text',text:'这张卡片里的代号是什么？'}]);
+    await product.receive(cardInput.payload);
+    expect(submitted.at(-1)!.content).toEqual(expect.arrayContaining([
+      {type:'text',text:expect.stringContaining(`[Interactive UI content from the quoted message]\n${JSON.stringify({source:quotedSource})}`)},
+      {type:'text',text:'这张卡片里的代号是什么？'},
+    ]));
+    if (quotedSource !== source) {
+      expect(JSON.stringify(submitted.at(-1)!.content)).toContain(`message_id=${messageId}`);
+      const history = await node.frames.send('conversation.query', {
+        node_id:node.node,agent_id:'assistant',session_id:'history',request_id:key,action:'read',target:cid,message_id:messageId,
+      });
+      expect(history.payload).toMatchObject({ok:true,result:{messages:[{message_id:messageId,interactive:{source},content:[]}]}});
+    }
+  }
   expect(errors).toEqual([]);
 }, 20000);

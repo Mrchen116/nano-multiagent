@@ -135,7 +135,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
           expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
-          expect(Object.keys(send.parameters.properties)).toEqual(['target','text','incident_ref','attachments','interactive']);
+          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','interactive']);
           expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
           expect(await readFile(join(root,'.nanoassistant','memory-legacy','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');
@@ -222,6 +222,13 @@ it('delivers full current input and whole bounded history to the reviewer, never
  expect(cardEvidence.previous[0].interactive).toEqual(projected);
  expect(cardEvidence.reply_target.interactive).toEqual(projected);
  expect(card.interactive).toEqual(interactive);
+ const largeOriginal = {id:'large-original',content:'Original body '.repeat(50000)};
+ const quoted = {id:'quoted',content:'Please confirm',reply_to:{message_id:largeOriginal.id,content:largeOriginal.content}};
+ await reviewPersonal(ctx as any,config,'input',{current:quoted,previous:[],reply_target:largeOriginal});
+ const quoteEvidence=JSON.parse(requests[2].messages[0].content[0].text);
+ expect(quoteEvidence.current).toEqual({...quoted,reply_to:{message_id:largeOriginal.id}});
+ expect(quoteEvidence).not.toHaveProperty('reply_target');
+ expect(quoteEvidence.omissions).toContainEqual({reason:'reply_target_budget',message_id:largeOriginal.id});
  const before=requests.length;
  expect(await reviewPersonal(ctx as any,config,'input',{current:{id:'too-big',content:'secret '.repeat(20000)},previous:[]})).toMatchObject({decision:'unavailable'});
  expect(requests).toHaveLength(before);

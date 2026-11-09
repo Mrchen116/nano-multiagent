@@ -161,6 +161,7 @@ export class PersonalAssistant {
     const interactive = interactiveResponse(call.args.interactive);
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const paths = call.args.local_images as string[] | undefined;
+    const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
     const incident=typeof call.args.incident_ref==='string'?call.args.incident_ref:undefined;
     if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
     const representation=call.method==='send_user_message'?'owner':'self';
@@ -169,6 +170,7 @@ export class PersonalAssistant {
     const deliveryTarget=this.options.store.canonicalConversation(config.agentId,target.replace(/^conversation:/,''));
     if (paths && deliveryTarget.startsWith('external:')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if(deliveryTarget.startsWith('external:')&&representation==='owner')throw new Error('Owner representation requires a native IM conversation');
+    if(replyTo && deliveryTarget.startsWith('external:'))throw new Error('Quoted replies require a Nano IM destination');
     const conversation = deliveryTarget.startsWith('external:')?target.replace(/^conversation:/,''):await this.resolve(config,target);
     if(incident) {
       const event=await this.request(config,'pa.incident.read',{incident_ref:incident,conversation_id:conversation});
@@ -177,7 +179,7 @@ export class PersonalAssistant {
     }
     const incidentKey=incident?`pa-incident:${incident}:${conversation===config.personal!.conversationId?'owner':'peer'}`:undefined;
     let operationId=incidentKey??call.operationId;
-    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {})});
+    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {})});
     const incidentPrevious=incidentKey?inbox.incidentPublication(incidentKey):undefined;
     let previous = incidentPrevious??inbox.publication(operationId);
     if(incidentKey&&incidentPrevious&&previous) {
@@ -247,7 +249,7 @@ export class PersonalAssistant {
       inbox.settlePublication(operationId,'sending');
       try {
         const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
-          attachments,...(interactive ? {interactive} : {}),
+          attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}),
           ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
         if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
         const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
@@ -270,7 +272,7 @@ export class PersonalAssistant {
       }
     }
     const proposal = await this.request(config,'pa.action.prepare',{request_key:operationId,representation,conversation_id:conversation,
-      ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {})});
+      ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {})});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string') {
       const result={status:'sent',target,message_id:proposal.message_id,conversation_id:proposal.conversation_id};
       inbox.settlePublication(operationId,'confirmed',result); return result;
