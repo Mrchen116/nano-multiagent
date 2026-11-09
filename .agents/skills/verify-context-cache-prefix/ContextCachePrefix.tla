@@ -9,15 +9,16 @@ Header(agent) == [system |-> <<agent, "persona">>,
                   tools |-> <<"common", agent, "optional">>,
                   route |-> "primary"]
 
-Init ==
-    \E agent \in Agents :
-        s = [agent |-> agent, stage |-> "idle",
+InitialState(agent) ==
+            [agent |-> agent, stage |-> "idle",
              header |-> Header(agent), expected |-> Header(agent),
              history |-> <<>>, protected |-> <<>>, bad |-> {},
              config |-> "initial", changes |-> {}, compaction |-> "native",
              pending |-> "", first |-> 0, count |-> 0,
              settled |-> [i \in 1..2 |-> ""],
              requests |-> 0, toolCalls |-> 0]
+
+Init == \E agent \in Agents : s = InitialState(agent)
 
 CanUse(change) == change \notin s.changes /\ Cardinality(s.changes) < MaxChanges
 Use(change) == s.changes \cup {change}

@@ -1,11 +1,11 @@
 ---
 name: verify-context-cache-prefix
-description: Model-check and replay cache prefix changes for Global and Personal Agent root requests, including recovery and adapter effects.
+description: Model-check and replay cache prefixes for Global and Personal Agent roots and ordinary subagents.
 ---
 
 # Verify the context cache prefix
 
-Use this check when changing the inputs to consecutive Global or PA root requests, how DSH replays them, or how a provider adapter serializes them.
+Use this check when changing the inputs to consecutive Global or PA requests in the same root or ordinary subagent session.
 
 ## Run
 
@@ -15,15 +15,22 @@ With Java 11 or newer and the [TLC v1.7.4 release jar](https://github.com/tlaplu
 TLA2TOOLS=/absolute/path/to/tla2tools.jar python3 .agents/skills/verify-context-cache-prefix/check.py
 ```
 
-The default run checks `baseline`, `mixed`, and `image` and exits nonzero if the property fails. Pass one case name to rerun it or `--agent Global` or `--agent PA` to isolate an identity. To render a trace, use pstack's `/statechart` with the module and its scenario configuration in scratch space.
+The default run checks `baseline`, `mixed`, `image`, and `subagent`. The strict subagent checks currently return counterexamples for events awaiting a policy decision, so the full command exits nonzero. To isolate one trigger and level, run:
+
+```sh
+TLA2TOOLS=/absolute/path/to/tla2tools.jar python3 .agents/skills/verify-context-cache-prefix/check.py subagent --event rename --level 1
+```
+
+Pass `--agent Global` or `--agent PA` to isolate an owner. The subagent command runs each event separately so an early counterexample cannot hide another trigger. For pstack's `/statechart`, copy both TLA+ modules and the subagent config into scratch space, then set `Scenario` and `Depth` in the config.
 
 Replay the key traces through the actual DSH runtime and Anthropic Messages serializer, to an isolated local server:
 
 ```sh
 pnpm exec vitest run packages/dsh-integration/tests/context-cache-prefix-provider.test.ts
+pnpm exec vitest run packages/dsh-integration/tests/global-child-tools.test.ts
 ```
 
-The replay checks successive requests with images within the default route budget.
+The replays compare in-budget image requests and record which fields actually changed for ordinary child sessions. A replay can pass while the strict model reports its verified change as a counterexample.
 
 ## Property and bounds
 
@@ -32,6 +39,19 @@ The replay checks successive requests with images within the default route budge
 Image requests are in scope when all Base64 image data in the assembled request, including historical images, totals at most 20 MiB before recovery. Within this budget the existing image blocks must stay in the prefix. Requests that trigger DSH image offload by exceeding that budget are outside this property.
 
 The root model enumerates both identities. `baseline` allows four model requests, four calls in batches of one or two, and two distinct change or recovery events. `mixed` allows three requests, two calls, and four distinct change or recovery events. `image` allows three requests, two calls, and two distinct change or recovery events, with image input enabled. Payload identity and ordered schema shape are symbolic, and the image case assumes its assembled requests fit the budget. Each change or recovery event class is used at most once per run. Independent tools can settle in either order, with success, error or abort. Intermediate durable writes before the batch is complete are collapsed because the next request waits for the exchange. The model assumes a durable restart at a quiescent boundary, and abstracts pressure eligibility and the safe cut of an already committed rebuild. One incoming environment batch stands for Skill, runtime, and other ordinary injected inputs. A PA state notice has its own next-turn admission. The model does not interpret arbitrary installed plugin code or prove every production adapter implements the same projection. For a new writer or adapter, map its effects to a modeled transition and replay its actual output before treating it as verified. The wire replay ignores `cache_control` annotations. Cache hit policy and proxy/provider behavior beyond the captured endpoint are outside the property.
+
+`SubagentPrefixPreserved` compares two successive requests from the **same ordinary child**, for both Global and PA owners and both delegation levels. The first child request establishes its own baseline. The strict check records differences in route, system prompt, tool definitions, or previously sent message content. It applies no new child exceptions to configuration or compaction events. Each scenario allows three requests, two tool calls, and two distinct change or recovery events. It reuses the main request and tool lifecycle, with one selected configuration or context event per scenario. Parent messages are modeled between turns. Feature withdrawal can also interleave with tool execution because the runtime applies the restriction before waiting for idle. Request fields and eligibility for pressure compaction are symbolic. Forks, workflow children, and in-flight Gateway restart are outside this check.
+
+| Trigger | Ordinary L1 | Ordinary L2 | Evidence |
+|---|---|---|---|
+| Tool returns, parent followup and same-config DSH restart | Prefix kept | Prefix kept for the replayed followup/restart | Child wire replay groups requests by durable child ID. |
+| Root Persona edit and root-only `write` withdrawal | Prefix kept | Prefix kept | Ordinary children do not mount the root Persona and retain independent native work tools. [ConfigurationScopes](../../../packages/dsh-integration/src/agent-config.ts), [ToolSelection](../../../packages/dsh-integration/src/capabilities.ts), child wire replay. |
+| Rename the owning Agent | **System prompt changes** | Prefix kept | L1 renders the owner's display name in its identity section. L2 filters Nano identity sections. [ConfigurationScopes](../../../packages/dsh-integration/src/agent-config.ts), child wire replay. |
+| Turn off shared Intelligent UI | **System prompt changes** | Prefix kept | L1 loses its UI guidance. L2 already filters that Nano section. [ConfigurationScopes](../../../packages/dsh-integration/src/agent-config.ts), child wire replay. |
+| Change selected Skills or edit workspace `AGENTS.md` | Prefix kept | Prefix kept | The tested changes were appended as fresh catalog/runtime context in the same child session. Child wire replay. |
+| Disable the workspace's `dsh-agent-context` plugin | **System prompt and tool list change** | **System prompt and tool list change** | The workspace contribution supplies context guidance and context tools. [WorkspaceExtensions](../../../packages/dsh-integration/src/workspace-tools.ts), child wire replay. |
+| Change the parent's model | **Route changes** | **Route changes** | Ordinary children inherit their live parent's route. The replay changed model ID on the same adapter and retained the prior system prompt, tools, and messages. [ModelPolicy](../../../packages/dsh-integration/src/model-policy.ts), child wire replay. |
+| Prune an already-sent tool result, roll the active window, or commit a legacy summary | **Old messages change** | **Old messages change** | TLC models the shared native compaction operations. These three child pressure paths were not separately replayed on the wire. |
 
 ## Code and replay
 
