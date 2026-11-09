@@ -196,3 +196,12 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - **W10静态CLOSED，findings=[]**：协调后先硬guard原App仍runningForeground；Home后只接受公开runningBackground/runningBackgroundSuspended，5秒有界XCTWaiter必须completed否则throw；activate前再次硬guard仍在这两个运行态。guard到activate之间无await，不再靠activate后的foreground状态反推未重启。完整正文、15秒收敛/20秒登录判据及旧helper未改。
 - 公开state为异步观察，不是PID身份receipt。真实同进程401仍须运行产物证明PID连续、App自身request/refresh401、purge及重开；静态closure不称这些已通过。随后owner独立build-only实际通过当前d0eb最后guard，见[M2运行证据](M2-partition-revocation/recovery-validation.md)，不是reviewer执行或真实UI通过。
 - **no spec delta / corrected-delta aligned；本次窄静态APPROVED0C/0W**。两次实际权限拒绝及整组暂停保持；人类未答不是许可，不复用/换工具重试、不重开其它closed，不扩大为全unit或最终门禁PASS。跨包CI真实失败与隔离单例未复现的边界另见[M1证据](M1-local-first-paint/recovery-validation.md)。
+
+## Round 16 — 升级前三段独立证据复核：各自限定PASS，整体仍PENDING
+
+- 原非作者 `42a5c67d-5805-4598-b6d5-41ccd63bd851`只读核本次三张原始image、三组脱敏log/summary、安装/迁移/SQL摘要、完整7行audit与observer脚本；补充仅提取legacy/current xctestrun的TestHostPath/UITargetAppPath/DependentProductPaths，不读secret环境。无文件/DB/Git写入、服务/API/sim/build/test执行或凭据替代；owner执行时HEAD `ad68106602d4bc2e081524825cb06b1bc803adf4`，产品与UITest沿用d0eb。
+- **U1 PASS**：实际legacy005a同bundle，target及dependent产品App均指旧App；当前TestHost仅是UITest runner。公开退出旧合成身份→正常登录迁移身份→目标全文→完整输入→owned origin停止/不可达→Send→未确认/Retry→terminate，1pass/0fail/0skip、exit0。亲读原图`413900B0-…png`确认既有全文与未确认正文/composer/Retry，未伪装为发送成功；真实旧JSON非空401bytes有SHA/key，而非空fixture。
+- **U2 PASS**：正常覆盖currentd0eb、无uninstall/erase，旧401bytes/SHA保真；UUID改变不等于丢数据，原路径相等误断言保留。新版runner target/dependent均指current；离线UI与SQL摘要一致pending1/conv0/imported1/rejected0、同key及158bytes请求。亲读`C66817C5-…png`：1 unconfirmed sends、联网核验说明、离线错误可辨，空列表无虚构Upgrade rehearsal。对应1pass/0fail/0skip、exit0。
+- **U3 PASS（限本窗口）**：正常联网恢复目标与既有全文，pending原文/Retry不变、未点Retry；亲读`DEE0F575-…png`无残留离线提示、无成功消息伪装。约09:45:18–09:45:28 UTC的App refresh/me/sync/messages GET200；native request/response.finish observer不改响应/路由，窗口内未记录完成messages POST。shutdown后只读SQL摘要仍pending1/同key与bodySHA/imported1/conv1/msg1。1pass/0fail/0skip、exit0。
+- 身份由公开登录log+manifest user/chat/origin+分区+配置交叉支持，不凭故意无token/header/body的audit单独证明。reviewer核既有摘要字节/SHA/比较结果，未重读原SQLite或重新hash旧JSON；zero POST不外推无限时/全部底层发包。09:46:15 GET401在App已结束后来自host旧token，不能归App refresh/sync失败；旧版diagnostics72与SDK等warning保留。
+- **前三段内无新阻断性产品问题；不扩大为完整upgrade或unit PASS。** 新host登录/token落盘拒绝后未换账号/工具/UI绕行；显式Retry、发送后服务端唯一消息、清pending及host最终计数均未验证，空attachments不证明媒体迁移。owner清场回执复用而非reviewer实时探测；真实pending保留获准恢复。完整证据路径/停止边界见[M1最新升级记录](M1-local-first-paint/recovery-validation.md#真实升级前三段限定pass显式retry因新拒绝未执行)。
