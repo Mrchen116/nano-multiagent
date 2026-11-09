@@ -21,3 +21,5 @@ description: "已观察到 bug、异常测试失败、运行时故障或 flaky �
 按问题选择参考：坏值源头不明用 [root-cause-tracing](references/root-cause-tracing.md)；真实独立边界需要额外保护时用 [defense-in-depth](references/defense-in-depth.md)；异步/flaky 用 [condition-based-waiting](references/condition-based-waiting.md)。
 
 交付根因与证据、修复范围、实际验证及仍未解决的限制；环境阻塞时保留可恢复现场，不宣称已修复。
+
+若本次启动或创建了验证资源，结束时按 [测试资源回收](../../../docs/development/worktree-runtime.md#测试资源回收) 处理，并返回回收结果或明确的保留交接。

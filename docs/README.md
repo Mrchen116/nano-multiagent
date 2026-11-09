@@ -6,6 +6,7 @@
 
 | 任务 | 先读 |
 |---|---|
+| 回收测试服务、模拟器、浏览器会话和临时产物 | [测试资源回收](development/worktree-runtime.md#测试资源回收) |
 | 第一次了解项目 | [`../README.md`](../README.md) → [`../SPEC.md`](../SPEC.md) → 相关包的 [`specs/`](specs/README.md) |
 | 理解组织级平台、个人 PA、专业数字员工及长期主动工作方向 | [`product/vision.md`](product/vision.md) → [`product/`](product/README.md) |
 | 修改跨包职责、依赖方向或部署拓扑 | [`../SPEC.md`](../SPEC.md) |

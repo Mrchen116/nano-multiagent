@@ -32,6 +32,6 @@ description: "用户点名 $change-orchestrator，要求按原流程实施已通
 
 用户明确要求仅推送试验分支或暂不 PR 时只完成授权交付，尚待试验的 unit 保持 active，不自动推 main 或创建 PR。
 
-PR 提交后保留 unit 开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束停止自建测试服务，用户明确要求保留预览时例外；阻塞时保留恢复证据并停掉自己启动的进程。milestone 临时现场仍由 worker 在集成后清理。未经授权不 merge。
+PR 提交后保留 unit 开发 worktree；确认 PR 合入后，由执行合并或接手后续工作的 Agent 在本轮结束前按 [合入后清理规则](../../../docs/development/change-workflow.md#pr-合入后的-worktree-清理)完成清理并核实结果。验证结束按 [测试资源回收](../../../docs/development/worktree-runtime.md#测试资源回收) 回收本轮资源并核实；例外保留须交代 owner 和回收触发；阻塞时保留恢复证据并停掉自己启动的进程。milestone 临时现场仍由 worker 在集成后清理。未经授权不 merge。
 
 开放 PR 恢复和现场规则见 [recovery](references/recovery.md)；在 Codex 派发且需工具适配时读 [execution notes](references/codex-execution-notes.md)。输出 PR、最终 head、有效门禁摘要、worktree 保留/清理状态和残留事项；required CI 未绿不报完成。

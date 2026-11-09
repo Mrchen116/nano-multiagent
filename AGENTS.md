@@ -38,7 +38,7 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 - PR 提交后保留开发 worktree；确认 PR 合入后，执行合并或接手同一任务后续工作的 Agent 须在本轮结束前按 [合入后清理规则](docs/development/change-workflow.md#pr-合入后的-worktree-清理)清理并核实结果，或报告具体保留原因；不等待用户停止聊天。
 - 保持 diff 小而可审；代码修改后先跑最窄相关测试，再按风险扩大。测试规则见 [docs/development/testing.md](docs/development/testing.md)。
 - public API 使用 Google 风格 docstring；注释写“为什么/约束”，不复述代码。完整规则见 [docs/development/coding-guidelines.md](docs/development/coding-guidelines.md)。
-- worktree 内真实服务必须隔离端口、Gateway config、运行数据、workspace 和 node identity，并清理自己启动的进程。优先使用 `./scripts/e2e-up.sh` / `./scripts/e2e-down.sh`，完整契约见 [docs/development/worktree-runtime.md](docs/development/worktree-runtime.md)。
+- worktree 内真实服务必须隔离端口、Gateway config、运行数据、workspace 和 node identity，并按 [测试资源回收](docs/development/worktree-runtime.md#测试资源回收) 回收本轮临时资源。优先使用 `./scripts/e2e-up.sh` / `./scripts/e2e-down.sh`，完整契约见 [docs/development/worktree-runtime.md](docs/development/worktree-runtime.md)。
 - `src/IM/frontend/dist/` 是本地构建产物，不提交。
 - 不提交 secret、本机 config、日志、PID、数据库、截图缓存或 worktree runtime 文件。
 - 同一项长期事实只在一个权威位置完整维护；其他文档只写必要摘要并链接过去。新增、移动或退役长期文档时，同步更新 [docs/README.md](docs/README.md) 和对应领域入口。
