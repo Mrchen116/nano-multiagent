@@ -356,6 +356,9 @@ export class ModelFallback {
       if (!valid()) return;
       await agent.runMaintenance(async (signal) => {
         if (!valid() || signal.aborted) return;
+        // Recovery must see the failed native turn as well as its switching sidecar.
+        if (!(await this.ctx.sessions.flush(agent.session)))
+          throw new Error('Fallback turn has no persistence barrier');
         await this.checkpoint();
         if (!valid() || signal.aborted) return;
         const published = await this.host.check(agent, run);
