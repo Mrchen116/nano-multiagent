@@ -162,6 +162,7 @@ it('requires confirmed stop, preserves chat history and rejects re-registration 
   const start=await f.ctx.gateway.handle(f.connection,'node.streaming_delta',{node_id:'n',agent_id:'a',conversation_id:'chat',kind:'turn_start',lifecycle_revision:1});
   const messageId=start.payload.message_id;
   f.db.prepare("UPDATE messages SET content='Published result',thinking_json='[{}]' WHERE id=?").run(messageId);
+  f.ctx.messaging.event('chat',messageId,'permission.submitted',{request_id:'approval',decision:'allow_once'},'running');
   const del=(payload:object,user='u1')=>f.app.inject({method:'POST',url:path,headers:{'x-user':user},payload});
   expect((await del(confirm)).statusCode).toBe(409);
   expect((await del(confirm,'u2')).statusCode).toBe(403);
@@ -173,9 +174,16 @@ it('requires confirmed stop, preserves chat history and rejects re-registration 
   expect(accepted.statusCode,accepted.body).toBe(202);
   const operation_id=accepted.json().operation.operation_id;
   expect((await f.http('PUT',{enabled:true,request_id:'on',expected_revision:2})).statusCode).toBe(409);
+  const cursor = Number(f.db.prepare('SELECT MAX(event_id) AS id FROM conversation_events').get()!.id);
   await f.ctx.gateway.handle(f.connection,'agent.deletion.report',{node_id:'n',agent_id:'a',operation_id,state:'deleted'});
   expect(f.ctx.messaging.message(messageId)).toMatchObject({content:'Published result',thinking:[]});
   expect(f.ctx.messaging.conversation('chat','u1')).toMatchObject({execution_cleanup_revision:1});
+  expect(f.db.prepare("SELECT event_id FROM conversation_events WHERE event_type='permission.submitted' AND message_id=?").get(messageId)).toBeUndefined();
+  const replayed: any[] = [];
+  f.ctx.gateway.replay({socket:{readyState:1,bufferedAmount:0,send:(frame:string)=>replayed.push(JSON.parse(frame))},
+    userId:'u1',cursor,ready:false} as any,cursor);
+  expect(replayed).toContainEqual(expect.objectContaining({event_type:'conversation.execution_cleanup',
+    conversation_id:'chat',data:expect.objectContaining({execution_cleanup_revision:1})}));
   expect(f.ctx.gateway.register(f.connection,{node_id:'n',agents:['a'],capabilities:{agent_lifecycle_v1:true,agent_deletion_v1:true}}).agent_lifecycles).toEqual([]);
   expect((await f.app.inject({url:path,headers:{'x-user':'u1'}})).json().operation.state).toBe('deleted');
 });

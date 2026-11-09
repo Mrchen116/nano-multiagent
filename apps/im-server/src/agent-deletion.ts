@@ -4,7 +4,7 @@ import type { AgentDeletionIntent, AgentDeletionView, AgentWorkspaceWitness } fr
 import { all, body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
 import { lifecycle } from './agent-lifecycle.js';
 import { canAccessSpace } from './identity.js';
-import { conversationAccess } from './conversation-access.js';
+import { conversationAccess, conversationReaderIds } from './conversation-access.js';
 
 export function deletionIntent(row: Row): AgentDeletionIntent {
   return {agent_id:row.agent_id, operation_id:row.operation_id, revision:row.revision,
@@ -40,7 +40,7 @@ export function rejectDeletedExecution(ctx: ImContext, user: Row, agentId: strin
 }
 
 const executionFields = ['tool_calls','thinking','background_returns','reply_process','token_usage','permission_requests','awaiting_permission_at','elapsed_ms','kernel_message_id'];
-const executionEvents = ['tool_call.upserted','tool_call.completed','thinking.segment','reply_process.upserted','reply_process.updated','background_return.updated','run.heartbeat','permission.request','permission.resolved'];
+const executionEvents = ['tool_call.upserted','tool_call.completed','thinking.segment','reply_process.upserted','reply_process.updated','background_return.updated','run.heartbeat','permission.request','permission.submitted','permission.resolved'];
 
 function purgeCenterExecution(ctx: ImContext, id: string): string[] {
   const db = ctx.db, sender=`agent:${id}`;
@@ -85,16 +85,16 @@ export function reportAgentDeletion(ctx: ImContext, operation: Row, input: Row):
   if (!['deleting','failed','deleted'].includes(input.state)) fail(422, 'invalid_agent_deletion_state');
   if (operation.state === 'deleted') return;
   if (operation.state === 'failed' && input.state !== 'deleted') return;
-  const affected = transaction(ctx.db, () => {
+  const frames = transaction(ctx.db, () => {
     const conversations = input.state === 'deleted' ? purgeCenterExecution(ctx, operation.agent_id) : [];
     ctx.db.prepare('UPDATE agent_deletions SET state=?,error_detail=? WHERE operation_id=?')
       .run(input.state,typeof input.error_detail === 'string' && input.state === 'failed' ? input.error_detail.slice(0,500) : null,operation.operation_id);
-    return conversations;
+    // A cleanup between the client's sync snapshot and WebSocket resume must be replayable.
+    return conversations.map(id=>ctx.messaging.event(id,null,'conversation.execution_cleanup',
+      {conversation_id:id,execution_cleanup_revision:executionCleanupRevision(ctx,id)},'completed',false));
   });
-  for (const id of affected) {
-    const users = all(ctx.db, "SELECT id FROM users WHERE username NOT LIKE 'agent:%'").filter(u=>conversationAccess(ctx.db,id,u.id)).map(u=>u.id);
-    ctx.gateway.broadcast(users,{op:'event',event_type:'conversation.execution_cleanup',
-      data:{conversation_id:id,execution_cleanup_revision:executionCleanupRevision(ctx,id)}});
+  for (const frame of frames) {
+    ctx.gateway.broadcast(conversationReaderIds(ctx.db,frame.conversation_id),frame);
   }
 }
 
