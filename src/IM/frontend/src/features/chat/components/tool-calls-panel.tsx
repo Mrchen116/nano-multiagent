@@ -1,10 +1,9 @@
 import { type ReactNode, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { ChatProcessSummary } from "@nano/product-contracts";
 
 import { useTranslation } from "../../../i18n";
 import { mergeToolCall } from "../chat-stream-reducer";
-import type { BackgroundReturn, Message, ReplyProcessItem, ThinkingSegment, ToolCall } from "../chat-types";
+import type { BackgroundReturn, ChatProcessSummary, Message, ReplyProcessItem, ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
 import {
   collapsedSummary,

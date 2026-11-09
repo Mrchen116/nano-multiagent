@@ -187,7 +187,16 @@ export interface SystemNotice {
 }
 
 import type { MessageInteractive, InteractionSnapshot } from "./interactive/types";
-import type { ChatProcessSummary } from "@nano/product-contracts";
+
+export interface ChatProcessSummary {
+  tool_count: number;
+  thinking_count: number;
+  background_return_count: number;
+  reply_process_counts: Partial<Record<ReplyProcessItem["kind"], number>>;
+  has_running_tool: boolean;
+  approval_allow_count: number;
+  approval_deny_count: number;
+}
 
 export interface PersonalDelegation {
   agent_id: string; authorized_by: string; display_name: string; label: string;
