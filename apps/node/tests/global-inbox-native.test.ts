@@ -247,12 +247,12 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     if (stallWork) {
       expect(workWaiting).toBe(true);
       expect(inbox.workCut(binding.sessionId)).toBeUndefined();
+      expect(inbox.journal(0).filter(event => ['inbox_read_committed', 'draft_withheld', 'message_sent'].includes(event.type))).toEqual([]);
     }
+    releaseWork();
+    await expect.poll(() => inbox.journal(0).filter(event => event.type === 'message_sent')).toHaveLength(1);
     expect(inbox.journal(0).filter(event => event.type === 'inbox_read_committed' || event.type === 'message_sent').map(event => event.type))
       .toEqual(['inbox_read_committed', 'inbox_read_committed', 'message_sent']);
-    releaseWork();
-    await expect.poll(() => inbox.workCut(binding.sessionId)).toBeDefined();
-    expect(inbox.journal(0).filter(event => event.type === 'inbox_read_committed')).toHaveLength(2);
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
     expect(errors).toEqual([]);
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }

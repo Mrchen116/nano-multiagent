@@ -136,7 +136,7 @@ export interface RuntimeWorkCatalog {
 /** Durable publication facts, separate from Work presentation and its checkpoint. */
 export interface RuntimePublicationEvidence {
   durable: true;
-  turn?: number;
+  call?: {turn: number; seq: number};
   reads: RuntimeEvent[];
   throughSeq: number;
   head: number;

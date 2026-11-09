@@ -36,6 +36,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS work_checkpoints(session_id TEXT PRIMARY KEY,root_session_id TEXT NOT NULL,checkpoint TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS work_checkpoint_roots ON work_checkpoints(root_session_id);
       CREATE TABLE IF NOT EXISTS work_open_events(session_id TEXT NOT NULL,seq INTEGER NOT NULL,event TEXT NOT NULL,PRIMARY KEY(session_id,seq));
+      CREATE TABLE IF NOT EXISTS work_waiting_facts(session_id TEXT NOT NULL,seq INTEGER NOT NULL,event_id TEXT NOT NULL,event TEXT NOT NULL,PRIMARY KEY(session_id,seq,event_id));
       CREATE TABLE IF NOT EXISTS work_recovery(root_session_id TEXT PRIMARY KEY,pending INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
       CREATE TABLE IF NOT EXISTS read_content(session_id TEXT,call_id TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
@@ -114,7 +115,7 @@ export class InboxStore {
       }
       for (const sessionId of sessionIds) {
         this.db.prepare('INSERT OR IGNORE INTO inbox_deleted_sessions VALUES(?)').run(sessionId);
-        for (const table of ['reads', 'read_content', 'ingestions']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+        for (const table of ['reads', 'read_content', 'ingestions', 'work_waiting_facts']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
         this.db.prepare('DELETE FROM work_open_events WHERE session_id IN (SELECT session_id FROM work_checkpoints WHERE session_id=? OR root_session_id=?)').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_checkpoints WHERE session_id=? OR root_session_id=?').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_recovery WHERE root_session_id=?').run(sessionId);
@@ -527,12 +528,22 @@ export class InboxStore {
    *   checkpoint: Position covered by the supplied projection facts.
    *   events: Product facts carrying their stable source identities.
    *   native: Newly received child events, kept only while their logical turn is open.
+   *   positioned: Root facts with their native position, for merging pending delivery facts.
    */
-  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:WorkDraft[],native?: RuntimeEvent[]):void {
+  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:WorkDraft[],native?: RuntimeEvent[],positioned: {seq: number; event: WorkDraft}[] = []):void {
     if (this.deletedSession(checkpoint.rootSessionId)) return;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for(const event of events)this.append(event);
+      const waiting = sessionId === checkpoint.rootSessionId ? this.db.prepare('SELECT seq,event FROM work_waiting_facts WHERE session_id=? AND seq<=? ORDER BY seq,rowid')
+        .all(sessionId, checkpoint.throughSeq) as {seq: number; event: string}[] : [];
+      let next = 0;
+      for (const fact of positioned) {
+        while (waiting[next] && waiting[next]!.seq < fact.seq) this.append(JSON.parse(waiting[next++]!.event) as WorkDraft);
+        this.append(fact.event);
+      }
+      while (waiting[next]) this.append(JSON.parse(waiting[next++]!.event) as WorkDraft);
+      if (waiting.length) this.db.prepare('DELETE FROM work_waiting_facts WHERE session_id=? AND seq<=?').run(sessionId, checkpoint.throughSeq);
       if (native) {
         this.db.prepare('DELETE FROM work_open_events WHERE session_id=? AND seq<?').run(sessionId,checkpoint.replayFrom);
         const put=this.db.prepare('INSERT OR REPLACE INTO work_open_events VALUES(?,?,?)');
@@ -548,7 +559,15 @@ export class InboxStore {
     if (this.deletedSession(rootSessionId)) return;
     this.db.prepare('INSERT INTO work_recovery VALUES(?,?) ON CONFLICT(root_session_id) DO UPDATE SET pending=excluded.pending WHERE pending!=excluded.pending').run(rootSessionId,Number(pending));
   }
-  get workProcessingPending():boolean {return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 LIMIT 1').get();}
+  get workProcessingPending():boolean {
+    return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 UNION ALL SELECT 1 FROM work_waiting_facts LIMIT 1').get();
+  }
+  /** Keep delivery facts behind their native Work position so they cannot create a newer turn first. */
+  appendAfterWork(event: WorkDraft, seq?: number): void {
+    if (this.deletedAgent(event.root_agent_id)) return;
+    if (seq === undefined || (this.workCut(event.session_id)?.throughSeq ?? -1) >= seq) this.append(event);
+    else this.db.prepare('INSERT OR IGNORE INTO work_waiting_facts VALUES(?,?,?,?)').run(event.session_id, seq, event.event_id, JSON.stringify(event));
+  }
   append(event: WorkDraft): void {
     if (this.deletedAgent(event.root_agent_id)) return;
     if (this.db.prepare('SELECT 1 FROM journal WHERE event_id=?').get(event.event_id)) return;
@@ -563,14 +582,23 @@ export class InboxStore {
   /** Read uncertain sends owned by this execution session without replaying them. */
   /** Find the current incident attempt, preserving uncertain delivery across wording changes. */
   incidentPublication(prefix: string): ({id:string} & NonNullable<ReturnType<InboxStore['publication']>>) | undefined {
-    return this.db.prepare('SELECT id,target,body,state,result FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
+    return this.db.prepare('SELECT id,target,body,state,result,source FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
   }
   pendingPublications(session: string): {id:string;target:string;body:string;source:string|null}[] { return this.db.prepare("SELECT id,target,body,source FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string;source:string|null}[]; }
-  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; text: string}): void {
+  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; seq?: number; text: string}): void {
     this.db.prepare(`INSERT INTO publications(id,target,body,state,result,agent_id,source) VALUES(?,?,?,'prepared',NULL,?,?)
       ON CONFLICT(id) DO UPDATE SET source=excluded.source WHERE publications.source IS NULL AND excluded.source IS NOT NULL`)
       .run(id, target, body, agentId ?? null, source ? JSON.stringify(source) : null);
   }
   settlePublication(id: string, state: string, result?: unknown): void { this.db.prepare('UPDATE publications SET state=?,result=? WHERE id=?').run(state, result === undefined ? null : JSON.stringify(result), id); }
+  /** Persist the send outcome and its future Work fact together, even when Work is still behind. */
+  settlePublicationWithWork(id: string, state: string, result: unknown, event: WorkDraft, seq?: number): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.settlePublication(id, state, result);
+      this.appendAfterWork(event, seq);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   close(): void { this.db.close(); }
 }

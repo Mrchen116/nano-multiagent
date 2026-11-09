@@ -568,11 +568,11 @@ export default class NanoRuntime {
       const head = Math.min(session.seq - 1, upper ?? Infinity);
       const first = Math.max(session.inheritedEventCount, afterSeq + 1);
       const slice = (from: number, to: number) => session.snapshotEvents(SessionLogOffset(from), SessionLogOffset(to));
-      let turn: number | undefined;
-      if (callId !== undefined) for (let end = head + 1; end > first && turn === undefined;) {
+      let call: RuntimePublicationEvidence['call'];
+      if (callId !== undefined) for (let end = head + 1; end > first && !call;) {
         const start = Math.max(first, end - workPageItems);
-        const call = slice(start, end).findLast(event => event.type === 'tool/call' && event.data.callId === callId);
-        if (call?.type === 'tool/call') turn = call.data.turn;
+        const event = slice(start, end).findLast(event => event.type === 'tool/call' && event.data.callId === callId);
+        if (event?.type === 'tool/call') call = {turn: event.data.turn, seq: event.seq};
         end = start;
       }
       if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Publication has no persistence barrier');
@@ -595,7 +595,7 @@ export default class NanoRuntime {
           throughSeq = event.seq;
         }
       }
-      return {durable:true, turn, reads, throughSeq, head} satisfies RuntimePublicationEvidence;
+      return {durable:true, call, reads, throughSeq, head} satisfies RuntimePublicationEvidence;
     }, {pull:'publication'});
     handle('session.work.root', async value => {
       const input = value as WorkRead;

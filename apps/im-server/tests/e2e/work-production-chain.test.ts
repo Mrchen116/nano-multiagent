@@ -103,17 +103,31 @@ it('writes one plain-text Global message and attributes the actual relay receipt
     title:'Publication receipt',type:'direct',participants:[{type:'agent',id:'global'}],
   },center.tokens.alice);
   expect(chat.status,chat.body).toBe(201);
-  const store=new NodeStore(join(center.dir,'publication-node.db'),'alice'),inbox=new InboxStore(join(center.dir,'publication-inbox.db'));
+  const store=new NodeStore(join(center.dir,'publication-node.db'),'alice');
+  const inboxPath = join(center.dir,'publication-inbox.db');
+  let inbox = new InboxStore(inboxPath);
   cleanups.push(()=>store.close(),()=>inbox.close());
   store.bind({agentId:'global',sessionId:'publication-root',conversationId:'global:global',ownerId:'alice',cwd:center.dir,revision:'1'});
-  const product=new GlobalAgent({nodeId:node.node,ownerId:'alice',agents:[{agentId:'global',workspace:center.dir,revision:'1',provider:'fixture',model:'fixture',mode:'global'}],
+  const events: RuntimeEvent[] = [
+    {seq:1,time:1,type:'turn/start',data:{turn:1}},
+    {seq:2,time:2,type:'turn/end',data:{turn:1,reason:{kind:'completed'}}},
+    {seq:4,time:4,type:'turn/start',data:{turn:3}},
+    {seq:5,time:5,type:'tool/call',data:{turn:3,callId:'send',name:'send_message',arguments:'{}'}},
+    {seq:6,time:6,type:'turn/end',data:{turn:3,reason:{kind:'completed'}}},
+  ];
+  const makeProduct = () => new GlobalAgent({nodeId:node.node,ownerId:'alice',agents:[{agentId:'global',workspace:center.dir,revision:'1',provider:'fixture',model:'fixture',mode:'global'}],
     store,inbox,image:async()=>'',onError:error=>{throw error;},
     runtime:{onNotification:()=>()=>{},request:async (method, params) => {
-      expect(method).toBe('session.publication');
-      expect(params).toMatchObject({sessionId:'publication-root',callId:'send',afterSeq:-1});
-      return {durable:true,turn:3,reads:[],throughSeq:4,head:4};
+      if (method === 'session.publication') {
+        expect(params).toMatchObject({sessionId:'publication-root',callId:'send',afterSeq:-1});
+        return {durable:true,call:{turn:3,seq:5},reads:[],throughSeq:5,head:5};
+      }
+      if (method === 'session.work.root') return {durable:true,events,throughSeq:6,more:false,modelRuns:[],modelVersion:'done'};
+      if (method === 'session.work.children') return {children:[]};
+      return {status:'idle'};
     }},
     relay:{request:(type,payload)=>node.frames.send(type,payload)}});
+  let product = makeProduct();
   cleanups.push(()=>product.stop());
   const text='已收到，按原计划执行。';
   const call={method:'send_message',args:{target:chat.body.id,text},operationId:'publication-root:send',callId:'send',
@@ -126,5 +140,17 @@ it('writes one plain-text Global message and attributes the actual relay receipt
   const messages=await center.http('GET',`/im/v1/conversations/${chat.body.id}/messages`,undefined,center.tokens.alice);
   expect(messages.status,messages.body).toBe(200);
   expect(messages.body.items).toMatchObject([{type:'message',message:{id:(receipt as {message_id:string}).message_id,content:text}}]);
+  expect(inbox.journal(0)).toEqual([]);
+
+  await product.stop(); inbox.close();
+  inbox = new InboxStore(inboxPath);
+  product = makeProduct();
+  await product.recover();
   expect(inbox.journal(0).filter(row=>row.type==='message_sent')).toMatchObject([{turn_id:'3',payload:{text,call_id:'send'}}]);
+  const upload = await center.http('POST', `/im/v1/gateway/work-sync/journals/${inbox.journalId}/events`,
+    {from_seq:1,events:inbox.journal(0)}, node.runtime);
+  expect(upload.status, upload.body).toBe(200);
+  const work = await center.http('GET', '/im/v1/agents/global/work', undefined, center.tokens.alice);
+  expect(work.status, work.body).toBe(200);
+  expect(work.body.turns.map((turn: {turn_id:string}) => turn.turn_id)).toEqual(['3','1']);
 },20_000);
