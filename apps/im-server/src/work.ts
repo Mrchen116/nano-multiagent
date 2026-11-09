@@ -85,8 +85,8 @@ export class Work {
     }
     return ack;
   }
-  view(root: string, before?: string, limit = 20, summary = false): WorkView {
-    const {node_id, ...view} = this.records.view(root, before, limit, summary);
+  view(root: string, before?: string, limit = 20, summary = false, messageId?: string): WorkView {
+    const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId);
     const online = this.ctx.gateway.isOnline(node_id);
     return {...view,
       main_execution: !online && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
@@ -402,7 +402,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
   app.get("/im/v1/agents/:agent_id/work", (req) => {
     const p = profile(req),
       q = query(req);
-    return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary');
+    return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary', q.message_id);
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns", (req) => {
     profile(req);
