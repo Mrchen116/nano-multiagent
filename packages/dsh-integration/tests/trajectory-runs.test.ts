@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -12,13 +12,16 @@ async function fixture() {
   const configuration = { protocol: 1, agents: [{ agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test',
     toolAllowlist: ['subagent', 'subagent_fork', 'send_message', 'fixture_drain', 'fixture_release'], knowledge: { enabled: false } }], bindings: [binding] };
   let client: RuntimeClient, logs = '';
-  await writeFile(join(home, 'fixture.mjs'), `export const name='run-facts-fixture';export const inject=['llm','tools','agents','subagents'];export function apply(ctx){
+  const requestsPath = join(home, 'requests.jsonl');
+  await writeFile(join(home, 'fixture.mjs'), `import {appendFile} from 'node:fs/promises';
+  export const name='run-facts-fixture';export const inject=['llm','tools','agents','subagents'];export function apply(ctx){
     ctx.tools.register({name:'fixture_drain',description:'Release resident fixture',parameters:{type:'object',properties:{id:{type:'string'}},required:['id']},
       output:{schema:{},render:()=>[{type:'text',text:'released'}]},execute:async(args,exec)=>{await ctx.subagents.drainContinuableChildren(exec.agent,[args.id]);return {};}});
     const held=new Map();ctx.tools.register({name:'fixture_release',description:'Release fixture work',parameters:{type:'object',properties:{}},output:{schema:{},render:()=>[{type:'text',text:'released'}]},execute:async()=>{for(const release of held.values())release();held.clear();return {};}});
     const concurrent=new Map();
     const seen=new Set();
     ctx.on('llm/stream',async function*(o){
+      await appendFile(${JSON.stringify(requestsPath)},JSON.stringify({sessionId:o.sessionId,messages:o.messages})+'\\n');
       const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind!=='runtime-context');
       const text=user?.content.find(b=>b.type==='text')?.text??'';
       const key=o.sessionId+':'+user?.id;
@@ -38,7 +41,8 @@ async function fixture() {
         if(text.startsWith('wake:'))calls=[call(user.id+'-wake','send_message',{agent_id:text.slice(5),message:'resident-again'})];
         if(text==='release')calls=[call(user.id+'-release','fixture_release',{})];
         if(text.startsWith('drain:'))calls=[call(user.id+'-drain','fixture_drain',{id:text.slice(6)})];
-        if(['fail','cancel','crash'].includes(text))calls=[call(text+'-call','subagent_fork',{prompt:'child-'+({fail:'fail',cancel:'cancel',crash:'hold'})[text],description:text,run_in_background:text==='crash'})];
+        if(['fail','cancel'].includes(text))calls=[call(text+'-call','subagent_fork',{prompt:'child-'+text,description:text,run_in_background:false})];
+        if(text==='crash')calls=[call('crash-call','subagent',{prompt:'child-hold',description:text,run_in_background:true,backgroundMode:'continuable'})];
       }
       if(calls.length){for(const item of calls)yield item;yield{type:'finish',reason:{kind:'tool-calls'}};return;}
       yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
@@ -61,8 +65,9 @@ async function fixture() {
     await expect.poll(async () => (await client.rpc.request('session.lookup', { sessionId: 'root', inputId }) as any).terminal, { timeout: 10000 }).toBeTruthy();
   };
   const events = async (sessionId: string) => sessionId === 'root' ? (await client.rpc.request('session.observe', { sessionId }) as { events: any[] }).events : (await client.rpc.request('session.descendants', { sessionId: 'root' }) as { id: string; events: any[] }[]).find(child => child.id === sessionId)!.events;
+  const requests = async () => (await readFile(requestsPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   await start(); await prepare();
-  return { start, prepare, runs, submit, events, logs: () => logs, client: () => client,
+  return { start, prepare, runs, submit, events, requests, logs: () => logs, client: () => client,
     close: async () => { if (client.process.exitCode === null) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); } };
 }
 
@@ -144,9 +149,29 @@ it('preserves failed/cancelled terminals and reports a killed process run as unk
     await expect.poll(async () => (await f.runs()).length).toBe(3);
     const before = await f.runs();
     expect(before.at(-1)).toMatchObject({ state: 'running', delegation: 'background' });
+    const child = before.at(-1)!.sessionId;
+    await expect.poll(async () => (await f.events(child)).some(event => event.type === 'request/header')).toBe(true);
     f.client().process.kill('SIGKILL'); await f.client().exited;
+    const requestsBeforeRestart = (await f.requests()).length;
     await f.start(false); await f.prepare();
     expect(await f.runs()).toEqual(before.map(run => run.state === 'running' ? { ...run, state: 'unknown' } : run));
+    const notices = async () => (await f.events('root')).flatMap(event => event.data.inserted ?? [])
+      .filter(message => message.source?.channel === 'subagent-recovery');
+    expect(await notices()).toEqual([expect.objectContaining({
+      content: [{type: 'text', text: expect.stringContaining(child)}],
+      source: expect.objectContaining({kind: 'nano-system'}),
+    })]);
+    f.client().process.kill('SIGKILL'); await f.client().exited;
+    await f.start(false);
+    expect(await notices()).toHaveLength(1);
+    expect(await f.requests()).toHaveLength(requestsBeforeRestart);
+    await f.submit('new user trigger');
+    const resumed = (await f.requests()).slice(requestsBeforeRestart);
+    expect(resumed.map(request => request.sessionId)).toEqual(['root']);
+    expect(resumed[0].messages.filter((message: any) => message.source?.channel === 'subagent-recovery')).toEqual([expect.objectContaining({
+      id: (await notices())[0].id,
+      content: expect.arrayContaining([{type: 'text', text: expect.stringContaining(`${child} was interrupted`)}]),
+    })]);
   } catch (error) { throw new Error(`${error}\n${f.logs()}`, { cause: error }); }
   finally { await f.close(); }
 }, 30000);

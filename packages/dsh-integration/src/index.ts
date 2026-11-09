@@ -384,6 +384,16 @@ export default class NanoRuntime {
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
       for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
+      for (const binding of config.bindings) {
+        if (lifecycle.current(binding.agentId).disabled ||
+          this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') continue;
+        try {
+          if (!await ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;
+          await this.queueChildInterruptions(binding, descendantReader);
+        } catch (error) {
+          ctx.logger.warn(`Cannot recover subagent notices for ${binding.sessionId}: ${String(error)}`);
+        }
+      }
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
@@ -983,6 +993,26 @@ export default class NanoRuntime {
   private async agent(sessionId: string): Promise<Agent> {
     if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
     return this.owned.resolve(sessionId);
+  }
+
+  private async queueChildInterruptions(binding: SessionBinding, reader: DescendantReader): Promise<void> {
+    const interrupted = await reader.interruptedChildren(SessionId(binding.sessionId));
+    if (!interrupted.length) return;
+    const parent = await this.agent(binding.sessionId);
+    const events = parent.session.snapshotEvents();
+    for (const {id, turnEnd} of interrupted) {
+      const inputId = `subagent-recovery:${id}:${turnEnd}`;
+      const evidence = inputEvidence(events, inputId);
+      // A crash can claim the queue entry before it reaches the model's history.
+      if (evidence.accepted && (evidence.pending || evidence.consumedSeq !== undefined ||
+        (evidence.terminal as {kind?: string} | undefined)?.kind !== 'interrupted')) continue;
+      parent.inject(freezeMessage({id: MessageId(inputId), role: 'user' as const,
+        content: [{type: 'text', text: `System recovery notice: subagent ${id} was interrupted when the execution runtime stopped. Review its recorded progress before deciding how to handle the delegation.`}],
+        source: {kind: 'nano-system' as const, channel: 'subagent-recovery', actorId: binding.agentId,
+          messageId: inputId, lifecycle_revision: this.lifecycle.current(binding.agentId).revision},
+      }));
+    }
+    await this.flush(parent);
   }
 
   private async configureSchedules(config: AgentConfiguration) {
