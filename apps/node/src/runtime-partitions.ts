@@ -287,7 +287,7 @@ export class RuntimePartitions implements RuntimePort {
       if (generation !== partition.generation) throw new Error('trajectory generation_changed');
       this.observers.set(id, {partition, generation}); return result;
     }
-    const readOnly = method.startsWith('configuration.') || ['session.export', 'session.work.check', 'session.descendants', 'task.execution.state', 'knowledge.usage'].includes(method);
+    const readOnly = method.startsWith('configuration.') || ['session.export', 'session.work.check', 'session.work.children', 'session.work.child', 'task.execution.state', 'knowledge.usage'].includes(method);
     const result = await this.invoke(partition, method, params, readOnly);
     if (method === 'configuration.apply' && object(result).effective === true) {
       const {operationId: _operationId, fingerprint: _fingerprint, ...applied} = value;

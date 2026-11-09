@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -85,7 +86,7 @@ it('retains inherited Task context and the parent system on fork wire and cold r
     await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId }) as any).terminal, { timeout: 15_000 }).toBeTruthy();
   };
   const observe = async (): Promise<Event[]> => (await client!.rpc.request('session.observe', { sessionId: 'root' }) as any).events;
-  const descendants = async (): Promise<{ id: string; kind:string;mode?:string;events?:Event[] }[]> => await client!.rpc.request('session.descendants', { sessionId: 'root' }) as any;
+  const descendants = async (): Promise<{ id: string; kind:string;mode?:string;events?:Event[] }[]> => await workDescendants(client!.rpc, { sessionId: 'root' }) as any;
   const canonical=async(id:string):Promise<Event[]>=>JSON.parse(await readFile(join(home,id+'.canonical.json'),'utf8'));
   const omissions = (events: Event[]) => events.filter(event => event.type === 'system/message' && event.data.message.content.length === 0 && event.sourceEventSeqs?.length === 1 && events.some(target => target.seq === event.sourceEventSeqs![0] && target.type === 'user/message' && privateChannels.includes(target.data.source?.channel)));
   const assertWire = (request: Request, events: Event[]) => {

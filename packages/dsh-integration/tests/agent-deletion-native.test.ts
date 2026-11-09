@@ -39,9 +39,9 @@ it('purges cold A history and projection cache while B executes and reads in the
   };
   try {
     await writeFile(file('fixture.mjs'), `
-      import {access,writeFile} from 'node:fs/promises';
+      import {access,mkdir,writeFile} from 'node:fs/promises';
       const home=process.env.DSH_HOME;
-      export const inject=['llm','sessionProjectionCache','sessionPersistence'];
+      export const inject=['llm','sessionPersistence'];
       export function apply(ctx) {
         const present = name => access(home+'/'+name).then(()=>true,()=>false);
         const timer = setInterval(async () => {
@@ -69,7 +69,12 @@ it('purges cold A history and projection cache while B executes and reads in the
         });
         ctx.on('session/event', (session,event)=>{
           if(session.id==='root-a' && event.type==='turn/end')
-            void ctx.sessionProjectionCache.write(session).then(()=>writeFile(home+'/a-cached','')).catch(err=>writeFile(home+'/fixture-error',String(err)));
+            void (async()=>{
+              const directory=home+'/storages/session_projcache/sessions';
+              await mkdir(directory,{recursive:true});
+              await writeFile(directory+'/root-a.json',JSON.stringify({version:7,record:{identity:{createdAt:1},rows:{}}}));
+              await writeFile(home+'/a-cached','');
+            })().catch(err=>writeFile(home+'/fixture-error',String(err)));
         });
       }
     `);

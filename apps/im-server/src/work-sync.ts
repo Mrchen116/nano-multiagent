@@ -130,7 +130,9 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
       db.prepare('DELETE FROM work_sync_uploads WHERE id=?').run(row.id);
       removeFiles(row.id);
     }
-    for (const row of all(db, `SELECT DISTINCT u.id FROM work_sync_parts p JOIN work_sync_uploads u ON u.id=p.upload_id
+    // Drive cleanup from staged bytes, not the cumulative immutable receipts.
+    for (const row of all(db, `SELECT u.id FROM (SELECT DISTINCT upload_id FROM work_sync_parts) p
+      CROSS JOIN work_sync_uploads u ON u.id=p.upload_id
       WHERE u.committed=1 AND NOT EXISTS (SELECT 1 FROM work_sync_redactions r WHERE r.node_id=u.node_id AND r.journal_id=u.journal_id AND r.seq=u.seq)`)) {
       // Keep the small immutable hash receipt after deleting the unconfirmed bytes.
       db.prepare('DELETE FROM work_sync_parts WHERE upload_id=?').run(row.id);

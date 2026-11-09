@@ -1,3 +1,5 @@
+import { workDescendants } from './helpers/work-history.js';
+import type { RuntimeWorkPage } from '@nano/product-contracts';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -74,11 +76,13 @@ export function apply(ctx) {
       await expect.poll(()=>content(id+'-pty')).toContain('tick');
     }
     const before=await content('root-b-bash');
-    const stopped=await supervisor.disableAgent('a',2,{root:0});
+    const stopped=await supervisor.disableAgent('a',2);
     expect(stopped,logs).toMatchObject({confirmed:true,processInstanceId:instance});
-    expect(stopped.history).toHaveLength(4);
-    expect(stopped.history!.every(row=>row.rootSessionId==='root')).toBe(true);
-    expect(stopped.history!.some(row=>row.events.some(event=>event.type==='turn/end'))).toBe(true);
+    const cut=await supervisor.request('session.work.root',{sessionId:'root',stoppedRevision:2,afterSeq:0}) as RuntimeWorkPage;
+    const children=await workDescendants(supervisor,{sessionId:'root',stoppedRevision:2});
+    expect(children.filter(row=>row.kind==='child')).toHaveLength(3);
+    expect([cut,...children].some(row=>row.events.some(event=>event.type==='turn/end'))).toBe(true);
+    await expect(supervisor.request('session.work.root',{sessionId:'root',stoppedRevision:3})).rejects.toThrow('confirmed runtime stop');
     const bash=await content('root-bash'),pty=await content('root-pty');
     await new Promise(resolve=>setTimeout(resolve,200));
     expect(await content('root-bash')).toBe(bash);expect(await content('root-pty')).toBe(pty);
@@ -103,8 +107,8 @@ it('returns durable stop history for cold disabled roots after a Node restart wi
     await expect.poll(async()=>await client!.rpc.request('session.observe',{sessionId:'root'})).toMatchObject({status:'running'});
     await client.shutdown();
     client=new RuntimeClient({home,cwd:home});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle:{a:{revision:2,disabled:true,disabledThroughRevision:2}}});
-    const result=await client.rpc.request('agent.disable',{agentId:'a',revision:2}) as {confirmed:boolean;history:{sessionId:string;events:{type:string}[]}[]};
-    expect(result).toMatchObject({confirmed:true,history:[{sessionId:'root',events:expect.arrayContaining([expect.objectContaining({type:'turn/end'})])}]});
+    expect(await client.rpc.request('agent.disable',{agentId:'a',revision:2})).toEqual({confirmed:true});
+    expect(await client.rpc.request('session.work.root',{sessionId:'root',stoppedRevision:2})).toMatchObject({durable:true,events:expect.arrayContaining([expect.objectContaining({type:'turn/end'})])});
     expect(await readFile(join(home,'created'),'utf8')).toBe('root\n');
   } finally {if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
 },15000);

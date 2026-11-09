@@ -79,3 +79,24 @@
 ### Issues
 
 无。本轮判断为设计可实施；运行证据留在 M1 隔离验收。
+
+## Round 4
+
+- Reviewer target: `/root/design_review`，独立复审 `eac2f5b56`。
+- review_mode: delta
+- mode_reason: Work 页生成从一条串行通路改为根与子两条通路。复核根取证、页驻留和共享写出屏障。
+- retained_from: Round 3（审计、存储、游标、停用恢复、delta-spec 及此前问题闭环）。
+- started_at: 2026-11-09T20:04:23+08:00
+- completed_at: 2026-11-09T20:04:53+08:00
+- duration: 30 s
+- Verdict: Approved，0 CRITICAL / 0 WARNING
+
+### Coverage
+
+- `global-agent.ts:599`、`:693` 的 Global Task Graph 和发消息仍等待 `reconcileRoot`。其实际请求 `session.work.root` 与目录、子事件读在 `packages/dsh-integration/src/index.ts:544` 分配到不同通路。根处理可以在子会话等待冷读时开始。权限和持久切点约定沿用已批准版本。
+- `packages/dsh-integration/src/rpc.ts:157` 将各通路的占位保留到共享 FIFO 的写出屏障完成，`:109` 在写端阻塞时停止后续序列化。根与子各最多物化一页，实际写入仍受同一个 writable 的 drain 约束；反向调用、控制处理和关闭恢复沿用原方案。更新后的 `rpc-backpressure.test.ts` 覆盖输出停住时根页仍能生成、同一子通路的下一页仍等待以及 FIFO 次序。本轮以源码和验收方法为设计证据。
+- R1-W1 至 R1-W4 保留已关闭状态。未发现新的设计问题。
+
+### Issues
+
+无。

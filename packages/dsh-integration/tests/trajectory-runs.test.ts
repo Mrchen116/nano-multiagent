@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -67,7 +68,7 @@ async function fixture() {
     })).toMatchObject({accepted: true});
     await expect.poll(async () => (await client.rpc.request('session.lookup', { sessionId: 'root', inputId }) as any).terminal, { timeout: 10000 }).toBeTruthy();
   };
-  const events = async (sessionId: string) => sessionId === 'root' ? (await client.rpc.request('session.observe', { sessionId }) as { events: any[] }).events : (await client.rpc.request('session.descendants', { sessionId: 'root' }) as { id: string; events: any[] }[]).find(child => child.id === sessionId)!.events;
+  const events = async (sessionId: string) => sessionId === 'root' ? (await client.rpc.request('session.observe', { sessionId }) as { events: any[] }).events : (await workDescendants(client.rpc, { sessionId: 'root' }) as { id: string; events: any[] }[]).find(child => child.id === sessionId)!.events;
   const requests = async () => (await readFile(requestsPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   const notices = async () => JSON.parse(await readFile(join(home, 'storages/nano_subagent_recovery/sessions/root.json'), 'utf8')).record;
   await start(); await prepare();

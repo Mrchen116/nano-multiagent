@@ -146,6 +146,8 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
               knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover()]);
           }
         });
+        for (const agent of partition.agents) if (store.lifecycle.snapshot(agent.agentId)?.desired==='disabled')
+          void agentLifecycle.recoverStop(agent.agentId).catch(reportError);
         if (partition.key === 'ordinary') await lifecycle.ready(supervisor.process!.pid!);
       },
       onError: reportError,
@@ -524,12 +526,12 @@ agentLifecycle = new NodeAgentLifecycle({
     const supervisor = supervisors.get(runtime.forAgent(agentId).key)!;
     return {get available() {return supervisor.available;}, get processInstanceId() {return supervisor.processInstanceId;}, disable: async () => {
       await runtime.startAgent(agentId);
-      const cursors = Object.fromEntries(store.bindings().filter(binding => binding.agentId === agentId).flatMap(binding => {
-        const cuts = inbox.workCheckpoints(binding.sessionId);
-        return [[binding.sessionId, store.cursor(binding.sessionId)], ...Object.entries(cuts).map(([id, cut]) => [id, cut.replayFrom - 1])];
-      }));
-      const result = await supervisor.disableAgent(agentId, store.lifecycle.snapshot(agentId)!.revision, cursors);
-      if (result.confirmed) globalProduct.recordStopped(agentId, result.history ?? []);
+      const revision=store.lifecycle.snapshot(agentId)!.revision;
+      const result=await supervisor.disableAgent(agentId,revision);
+      if (result.confirmed) {
+        agentLifecycle.recordCleanup(agentId,revision,result.processInstanceId);
+        await globalProduct.recordStopped(agentId,revision,supervisor.request.bind(supervisor));
+      }
       return result;
     }};
   },

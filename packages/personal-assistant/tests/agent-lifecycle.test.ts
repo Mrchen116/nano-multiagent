@@ -115,8 +115,13 @@ it('commits final stopped Work history and checkpoints without opening execution
     relay:{request:async()=>{calls++;throw new Error('Must not publish');}},onError:()=>{}});
   const events=[{seq:1,time:1,type:'turn/start',data:{turn:1}},{seq:2,time:2,type:'user/message',data:{source:{kind:'human'},content:[{type:'text',text:'Old task'}]}},{seq:3,time:3,type:'turn/end',data:{turn:1,reason:{kind:'cancelled'}}}];
   try {
-    const history=[{sessionId:'a',rootSessionId:'a',events,modelRuns:[],throughSeq:3},{sessionId:'child',rootSessionId:'a',parentSessionId:'a',events,modelRuns:[],throughSeq:3}];
-    product.recordStopped('a',history);product.recordStopped('a',history);
+    const read=async (method:string, args:Record<string,unknown>)=>{
+      expect(args.stoppedRevision).toBe(2);
+      if(method==='session.work.children')return {children:[{kind:'child',id:'child',parentId:'a',throughSeq:3,modelVersion:'stopped'}]};
+      return {durable:true,events:events.filter(e=>e.seq>Number(args.afterSeq??-1)),modelRuns:[],modelVersion:'stopped',throughSeq:3,more:false};
+    };
+    await product.recordStopped('a',2,read);
+    await product.recordStopped('a',2,read);
     expect(calls).toBe(0);expect(inbox.workCheckpoints('a').child?.throughSeq).toBe(3);
     expect(inbox.journal(0).filter(event=>event.type==='turn_end')).toHaveLength(2);
     expect(inbox.journal(0).filter(event=>event.type==='turn_end').every(event=>(event.payload as {status:string}).status==='interrupted')).toBe(true);

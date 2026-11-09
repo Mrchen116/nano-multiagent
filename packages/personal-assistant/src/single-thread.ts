@@ -442,7 +442,7 @@ export class SingleThread {
     if (!delivery?.messageId) throw new Error('Approval has no product output binding');
     pending.messageId = delivery.messageId;
     this.options.store.saveCommand(`task-approval-visible:${request.sessionId}:${input!.turn}`,'visible');
-    const call = this.options.store.events(request.sessionId).find(event => event.type === 'tool/call' && event.data.callId === request.callId);
+    const call = request.callId === undefined ? undefined : this.options.store.toolCall(request.sessionId,request.callId);
     await this.delta({ kind: 'permission_request', message_id: delivery.messageId, session_id: request.sessionId,
       agent_id: this.binding(request.sessionId).agentId, run_id: request.sessionId,
       permission_request: { request_id: request.requestId, tool_name: request.toolName, reason: request.reason, call_id: request.callId,
