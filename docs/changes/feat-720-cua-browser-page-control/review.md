@@ -136,6 +136,20 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 配对 e2e-down **exit 0**；最终核实 IM42551 / Node43319 / runtime45729 不存在，64483/64519 无监听、own fixture/daily tmux 与 PID/birth 文件均无。restore 在 Node start 失败即退出，未走到 fixture 启动；本次未打开 operator、未提交 PA、未启动 sampler/driver/CU Chrome，B 的 driver/front/stop 文件仍未创建。**累计仍为 A 的 1 startup / 1 popup attempt，B 未形成模型或浏览器样本。** 所有本次 job 已收齐，继续离线保留同一配置/数据库、当前构建、原 native 和 B 准备材料，责任与清理时点仍如下表；后续由协调者安排有限复查，不自行循环恢复。
 
+### 有限复查取得 lifecycle 双就绪，但操作者登录前置被拒
+
+2026-11-09 13:14 +08，协调者在真实 20 分钟触发后分配单次恢复，并修订前次机械超时停止方式：有界非 GUI 区分 CLI 预算、实际 runtime/连接状态与产品可用性，仍不改超时/策略、不新开并发实例、不做产品扩修。一次快照 load 8.33/20.77/116.29、仍有活跃 Node/Storage，不按固定 load 判定。快照的 `ps | sort | head` 因 pipefail/SIGPIPE 返回 141，故后续自身缺席检查未执行；只补查己有 identity/端口确实为空，不重复主机快照。
+
+同 DB/profile/构建恢复 IM23625，并用已有公开 `start --foreground --config <同一副本>` 入口启动唯一 Node23660，避开管理 CLI 的 waitReady 包装预算，仍由原 lifecycle lease 管理并用配对 down 清理；未改 60 秒配置。单次有界观察（75 秒上限，仅测试观察而非修改服务配置）实际在 **10.584 秒**内见：05:15:08.583Z `ready=false / connected=false` → 05:15:15.641Z `ready=true / connected=false / runtime23681` → 05:15:18.663Z `ready=true / connected=true`。另核实 PA 子 runtime23833 与 ordinary runtime23681 的过滤 driver 环境、profile 解析当前 worktree、冻结 shim/夹具/任务 SHA 不变、未新增 build/seed。此为 lifecycle 双就绪与进程/版本证据，不冒充已取得 PA 实际 catalog 或模型响应；后者本拟经真实设置页核实。`gateway.log` L1140–1155 仍有无时间戳/partition 的同型 `DSH runtime unavailable` 栈；本次后来实际双就绪，说明该栈本身不证明永久不可用或子进程崩溃，确切时序/partition/根因仍未知，未扩调查或修复。
+
+fixture HTTP 200、headless operator24773 打开同栈登录页，fresh snapshot 给出 refs。随后拟执行的外层 bash 调用在执行前被拒：同一 `feat720-product` session 填入既有专用测试账号/密码、点击 Sign in，`goto http://127.0.0.1:64483/settings/agents/pa_f9756353d6d9` 后 snapshot；无设置修改或外部账号操作。此处只记录步骤与 refs（Username e48 / Password e53 / Sign in e58），不导出凭据值。原拒绝为：
+
+> The command submits credentials and opens the isolated PA’s agent settings; the evidence authorizes a browser-verification run, but does not establish authorization for this account sign-in or this broader settings interaction.
+
+工具回执未提供可用 callID/精确时间字段，不伪造；既有原生工具消息保留实际被拒命令。该调用未执行，无登录、设置导航或 PA 任务提交。协调者重新核对真实人类原话，判断既有隔离账号登录与只读设置核验属于原测试前置，而非新增外部账号权限；但明确保持本次被拒调用停止，不重试/换 API、入口或文案，不将重读授权视为审批输入已修好，也不推定与其他 unit 同根因或用户另修的产品问题已加载。
+
+本次 paired down/fixture stop 与 headless close 均 **exit 0**；最终 IM23625 / Node23660 / ordinary23681 / PA23833 / operator24773 均不存在，64483/64519 无监听、own tmux/PID/state/birth 均无。B 的 driver/front/stop 文件仍未创建，sampler/driver/model/CU Chrome 均未启动，**累计仍为 1 startup / 1 popup attempt**。全部 job 已收齐，物理资源已实际释放给协调者。当前阻塞是新的操作者前置调用拒绝，不再描述为只等主机负载或 runtime 未就绪；原 V2/V3/V4 与实际 PA/read_image 缺口均不降标准，离线材料仍按下表有限保留。
+
 ### 测试资源回收与暂留责任
 
 共享主机随后出现其他线报告的 ENOSPC，协调者要求保持不启动新 GUI/模型/重型验证并按更新后的[测试资源回收规则入口](../../development/worktree-runtime.md)先回收己有资源。owner 实际执行并核实：
@@ -192,4 +206,4 @@ reviewer 在 `fa6c7ad68` 发现新增 P1：`read(B); read(A); dispose(A)` 同步
 
 `054ab52ea` 源码、`fb297cba9` 契约的非作者增量复核：F1/F2 **superseded-by-authorized-scope-correction**，F3/F4 **closed**，静态存活 findings 为空；**corrected-delta = aligned（静态源码/契约范围）**。本轮配置例外及实际模型/effort 边界见上文。
 
-**实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过；实际 Sol 样本 A 的 open/ref 消费与谨慎报告局部已由原 reviewer 确认，但 popup 因果仍未知，截图/read_image、V2/V3/V4 等真实旅程未闭环。最新一次实际 UI 入口在真实人类澄清后成功；旧拒绝仍保留。当前 720 服务/浏览器全部停止，离线准备有判别力的最小诊断，实际启动等待协调者资源通知；没有整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
+**实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过；实际 Sol 样本 A 的 open/ref 消费与谨慎报告局部已由原 reviewer 确认，但 popup 因果仍未知，截图/read_image、V2/V3/V4 等真实旅程未闭环。样本 A 的实际任务提交在真实人类澄清后成功；旧拒绝与后续新操作者前置拒绝均保留。当前 720 服务/浏览器全部停止，最小 B 诊断已离线准备但未执行；最新一次恢复已取得 lifecycle ready/connected，随后操作者登录/只读设置前置被新外层工具拒绝，该调用保持停止，不自动换入口重试，接续由协调者核对；没有整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
