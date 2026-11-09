@@ -10,20 +10,43 @@ from tempfile import TemporaryDirectory
 
 
 SUBAGENT_SCENARIOS = (
-    "stable", "root-choices", "rename", "feature", "skill", "workspace", "context-plugin",
-    "route", "prune", "rollover", "summary",
+    "stable",
+    "root-choices",
+    "rename",
+    "feature",
+    "skill",
+    "workspace",
+    "context-plugin",
+    "route",
+    "prune",
+    "rollover",
+    "summary",
 )
 
 
 def run_tlc(jar: Path, module: str, work: Path) -> int:
     """Run one scenario and preserve TLC's exit status."""
-    command = [os.environ.get("JAVA", "java"), "-XX:+UseParallelGC", "-cp", str(jar),
-               "tlc2.TLC", "-workers", "1", module]
+    command = [
+        os.environ.get("JAVA", "java"),
+        "-XX:+UseParallelGC",
+        "-cp",
+        str(jar),
+        "tlc2.TLC",
+        "-workers",
+        "1",
+        module,
+    ]
     return subprocess.run(command, cwd=work, check=False).returncode
 
 
-def check_subagents(jar: Path, assets: Path, owners: str, label: str,
-                    levels: tuple[int, ...], scenarios: tuple[str, ...]) -> int:
+def check_subagents(
+    jar: Path,
+    assets: Path,
+    owners: str,
+    label: str,
+    levels: tuple[int, ...],
+    scenarios: tuple[str, ...],
+) -> int:
     """Run each trigger independently so one counterexample cannot hide another."""
     result = 0
     for level in levels:
@@ -45,12 +68,34 @@ def check_subagents(jar: Path, assets: Path, owners: str, label: str,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("case", nargs="?", default="all", choices=(
-        "all", "baseline", "mixed", "image", "subagent", "parallel", "pa-event", "restart", "configuration",
-    ))
+    parser.add_argument(
+        "case",
+        nargs="?",
+        default="all",
+        choices=(
+            "all",
+            "baseline",
+            "mixed",
+            "image",
+            "subagent",
+            "parallel",
+            "pa-event",
+            "restart",
+            "configuration",
+        ),
+    )
     parser.add_argument("--agent", choices=("Global", "PA"))
-    parser.add_argument("--level", type=int, choices=(1, 2), help="Limit the subagent checks to one delegation level.")
-    parser.add_argument("--event", choices=SUBAGENT_SCENARIOS, help="Limit the subagent checks to one event.")
+    parser.add_argument(
+        "--level",
+        type=int,
+        choices=(1, 2),
+        help="Limit the subagent checks to one delegation level.",
+    )
+    parser.add_argument(
+        "--event",
+        choices=SUBAGENT_SCENARIOS,
+        help="Limit the subagent checks to one event.",
+    )
     args = parser.parse_args()
     assets = Path(__file__).resolve().parent
     jar = Path(os.environ["TLA2TOOLS"]).resolve()
@@ -58,7 +103,11 @@ if __name__ == "__main__":
     if hashlib.sha256(jar.read_bytes()).hexdigest() != digest:
         raise SystemExit("TLA2TOOLS must point to the pinned TLC v1.7.4 release jar.")
 
-    cases = ("baseline", "mixed", "image", "subagent") if args.case == "all" else (args.case,)
+    cases = (
+        ("baseline", "mixed", "image", "subagent")
+        if args.case == "all"
+        else (args.case,)
+    )
     result = 0
     agents = (args.agent,) if args.agent else ("Global", "PA")
     owners = "{" + ", ".join(f'"{agent}"' for agent in agents) + "}"
@@ -66,7 +115,9 @@ if __name__ == "__main__":
         if case == "subagent":
             levels = (args.level,) if args.level else (1, 2)
             scenarios = (args.event,) if args.event else SUBAGENT_SCENARIOS
-            code = check_subagents(jar, assets, owners, ", ".join(agents), levels, scenarios)
+            code = check_subagents(
+                jar, assets, owners, ", ".join(agents), levels, scenarios
+            )
             result = result or code
             continue
         with TemporaryDirectory(prefix="nano-context-cache-prefix-") as work:
