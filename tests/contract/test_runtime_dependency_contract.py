@@ -16,6 +16,7 @@ ALLOWED = {
     "packages/personal-assistant": {
         "@nano/product-contracts",
         "@nano/product-contracts/serialization",
+        "@nano/product-contracts/work-detail-worker",
         "@nano/channels",
     },
     "packages/dsh-integration": {
@@ -37,6 +38,7 @@ ALLOWED = {
     "apps/im-server": {
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/serialization",
+        "@nano/product-contracts/work-detail-worker",
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",
     },
