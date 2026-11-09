@@ -112,4 +112,22 @@ F1已判真并修复；新增同路径组件红测在87be58c上复现目标被�
 - 新版CI [run42498850342](https://github.com/Mrchen116/nano-multiagent/actions/runs/42498850342) 在`9db9a5bed9a920cbe6bed22bd5e6e9aee3409a0c`实际completed/success；TypeScript backend/tooling、Frontend checks、iOS检测success，iOS构建因未变iOS路径skipped。Frontend的完整vitest步骤success；后端native runtime/IM及helper/architecture、build/typecheck、ruff、docs步骤均success。不拿首版旧绿CI代替，不覆盖本地两次完整Web失败及根因未明的历史事实。
 - 本地受影响窄回归、IM完整回归、typecheck/build、helper/contract、文档与diff检查已通过；完整Web在该远端干净CI通过提供补充的完整套件证据，不能称本机失败已被诊断或修复。没有修改无关Task/ChatWorkspace。
 - 已审corrected delta按原文归并至canonical Agent Work，IM入口计数14→15，完整unit整体归档；验收及路径/索引更新不改变实现，不机械新增审查round或重跑人类旅程。归档后已通过文档完整性（281 maintained sources / 69 routes）、逐字delta归并及15条requirement计数断言、whitespace检查；最终PR head的远端CI结果以实际run回执交付。
-- 独立代码审查、finding closure及本事项人类验收均已完成。PR仍需人审查合并；没有合并或生产部署授权。
+- 首次交付时独立代码审查、finding closure及本事项人类验收均已完成，尚无合并/部署授权；后续用户明确授权解冲突后合并的接续记录如下，仍不授权部署。
+
+## Post-PR integration closure
+
+用户后续原话：“https://github.com/Mrchen116/nano-multiagent/pull/480 有个冲突，解了之后可以merge了”。本轮只接续#473，解决集成冲突、验证后合并并回收所属worktree/临时资源，不部署、不改其他PR。原A/B/A人类验收不重做；用户原先保留的58054预览现随本次收尾回收，保留必要非敏感证据，精确清理结果以PR实际回执归集。
+
+### 范围与静态复核
+
+- pre_sync_head：`e1274c94b32899ac7a3adc4be4101c2ea4358530`；本轮executed/effective_base：`3b8fecea69a147f75fe80ddee0ccc08196a0c2da`；受审/窄测试validated_at：`970e809e57c60c3419b86a465807d84f4254c5f9`。后续只补本段事实，不改变实现；最终effective_through与CI以PR实际head标识。
+- 唯一冲突为`docs/specs/im/spec.md`顶部对齐标记728/731；采用target较新731，完整保留本PRAgent Work15条和上游WebChatUX33条。无产品代码冲突，中英文自动合并未删除Work提示、上游toast keys或新版fallback。canonical的已审delta仍逐字一致。
+- 原独立reviewer `a6792933-c9a4-4996-9eeb-985c129c1283`只读检查完整target..head、本次merge两亲及双方索引/双语/相邻调用链，integration closure **APPROVED；findings=[]；F1仍CLOSED；corrected-delta ALIGNED**。本轮仅静态git/read/grep，不冒称动态重验；配置例外同R1/R2，未虚构显式model/effort。
+- Work panel/API/CSS/测试、message-pane/测试、backend Work/types/routes/socket、鉴权及WorkThreadLink/user-stream相对已接受版本未变。上游App仅toast入参、chat会话缓存不覆盖agent-work缓存/路由token；interactive-only发送仍从真实call/turn追加同一message_sent身份，View Work不依赖正文非空；CSS不影响Work行。原完整列表/正常分页/邻居展开与折叠/native往返及权限结论、已接受真实旅程retained，无证据要求新增模型/浏览器或重复人类验收。
+
+### 本轮实际测试与限制
+
+- 在父级协调的串行1worker窗口中，真实socket1项PASS（25轮、1/24/1锚点与完整分页/权限），Work31项PASS，message-pane90项PASS/12项FAIL；合计Web121通过/12失败。#473链接用例通过。11项5秒timeout、1项missing dialog，分布在未改composer/menu，日志`post-conflict-socket.log`、`post-conflict-web.log`原样保存，不报133全绿。
+- reviewer逐一核失败用例：直接render MessagePane，不挂App/toast、不传globalAgentIds、不含interactive payload，onSend/onFork为mock；涉及实现/测试及依赖版本未变。静态未发现与本次merge或#473的实质执行链关联，但根因仍UNKNOWN；测试后观察到高load及共享主机磁盘事件不等于已证明原因，不将红测改写为环境已确认。
+- 一次区分实验拟筛原失败force-scroll case；npm脚本shell包装拆散多词regex，实际匹配17项，原case在636ms输出PASS，17项输出PASS/85项skip。随后文件报告后超过7分钟未给总汇或退出，已SIGTERM取消并收回job；该命令不是PASS，不提高timeout、不重复跑整个102项或扩修无关功能。部分输出`post-conflict-isolated-case.log`保留。
+- 本轮合并实现未改，文档完整性282 maintained sources/69 routes与diff检查通过。最终完整CI须取当前PR head的实际结果，不使用旧绿或用户验收覆盖此轮技术红测；若当前CI仍红，继续最窄定位/target对照，不强行merge。
