@@ -66,7 +66,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
   private writes = Promise.resolve();
   private pendingWrites = 0;
   private readonly undelivered = new Set<string>();
-  private readonly ready: Promise<void>;
+  readonly ready: Promise<void>;
   private stopping = false;
   constructor(
     ctx: Context,

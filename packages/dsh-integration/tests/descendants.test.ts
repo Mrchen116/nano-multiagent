@@ -69,7 +69,11 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
 it.each([1000,10_000])('reads only the hot child with %i old siblings and requires its parent catalog flush', async count => {
   const root=SessionId('root'), child=SessionId('changed');
   const histories=Array.from({length:count},(_,i)=>({id:SessionId(`old-${i}`),createdAt:1,mode:'one-shot'}));
-  const storage=[[Buffer.from(root).toString('base64url'),{rootId:root,active:false,cursor:0,children:histories}]];
+  const storage=[
+    [Buffer.from(root).toString('base64url'),{rootId:root,active:false,cursor:0,children:histories}],
+    [Buffer.from(child).toString('base64url'),{rootId:root,active:false,cursor:0,
+      children:histories.map(entry=>({...entry,id:SessionId('grand-'+entry.id)}))}],
+  ];
   const parent={id:root,seq:4,isOwnSeq:()=>true};
   const target={id:child,seq:8};
   const lookups:string[]=[];
@@ -90,4 +94,25 @@ it.each([1000,10_000])('reads only the hot child with %i old siblings and requir
   await expect(reader.eventPage(root,child,4,false,async()=>({...response,events:[],modelRuns:[]}),async()=>{throw Error('cold read');})).resolves.toMatchObject({throughSeq:7});
   expect(lookups).toEqual([root,root,child,child]);
   expect(writes).toEqual([]);
+});
+
+it('does not accept an unflushed live cut acquired during a cold read', async () => {
+  const root=SessionId('root'), child=SessionId('child'), reads: unknown[]=[];
+  let attached=false, flushed=false;
+  const reader=new DescendantReader({
+    effect:()=>{},storageDomain:{open:async()=>({table:()=>({entries:()=>[[Buffer.from(root).toString('base64url'),
+      {rootId:root,active:false,cursor:0,children:[{id:child,createdAt:1,mode:'one-shot'}]}]]})})},
+    sessions:{get:()=>attached ? {seq:5} : undefined,flush:async()=>flushed},
+    sessionQuery:{observeSession:async(_id:string, options:unknown)=>{
+      reads.push(options);attached=true;return {source:'live',[Symbol.dispose](){}};
+    }},
+  } as unknown as Context);
+  await reader.ready;
+  const read=()=>reader.eventPage(root,child,0,false,async(_session,head)=>({
+    durable:true,events:[],modelRuns:[],modelVersion:'none',throughSeq:head,more:false,
+  }),async()=>{throw Error('unflushed live cut accepted');});
+  await expect(read()).rejects.toThrow('Child Session has no persistence barrier');
+  flushed=true;
+  await expect(read()).resolves.toMatchObject({throughSeq:4});
+  expect(reads).toEqual([{projectionMode:'none'}]);
 });

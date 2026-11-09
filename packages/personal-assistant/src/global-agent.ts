@@ -48,6 +48,8 @@ export class GlobalAgent {
   private readonly childDrains = new Map<string, Promise<void>>();
   private readonly childrenDirty = new Set<string>();
   private readonly childTargets = new Map<string, Set<string>>();
+  private readonly failedChildren = new Map<string, {discover:boolean; targets:Set<string>}>();
+  private readonly workBackoff = new Map<string,number>();
   private readonly workRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly calls = new Map<string, AbortController>();
   private readonly callAgents = new Map<string,string>();
@@ -97,8 +99,8 @@ export class GlobalAgent {
     for(const [id,owner] of this.callAgents)if(owner===agentId)this.calls.get(id)?.abort();
     for(const binding of this.options.store.bindings().filter(b=>b.agentId===agentId)) {
       const root = binding.sessionId;
-      this.dirty.delete(root);this.childrenDirty.delete(root);this.childTargets.delete(root);
-      clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);
+      this.dirty.delete(root);this.childrenDirty.delete(root);this.childTargets.delete(root);this.failedChildren.delete(root);
+      clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
       this.options.inbox.workPending(root,false);
     }
     this.armBackground();
@@ -884,23 +886,35 @@ export class GlobalAgent {
     }
   }
   private updateWorkPending(root: string): void {
-    this.options.inbox.workPending(root,this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
-      this.childDrains.has(root) || !!this.childTargets.get(root)?.size);
+    const pending=this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
+      this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
+    this.options.inbox.workPending(root,pending);
+    if (!pending) {
+      clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
+    }
     this.options.onWork?.();
   }
   private retryWork(binding: SessionBinding): void {
     const root = binding.sessionId;
     if (this.stopped || this.workRetries.has(root) || !this.options.store.lifecycle.allowed(binding.agentId)) return;
+    const delay=this.workBackoff.get(root) ?? 1000;
+    this.workBackoff.set(root,Math.min(delay*2,30_000));
     const timer=setTimeout(()=>{
       this.workRetries.delete(root);
+      const failed=this.failedChildren.get(root);
+      if (failed) {
+        this.failedChildren.delete(root);
+        if (failed.discover) this.childrenDirty.add(root);
+        if (failed.targets.size) this.childTargets.set(root,new Set([...(this.childTargets.get(root) ?? []),...failed.targets]));
+      }
       if (this.dirty.has(root)) this.reconcileRoot(binding).catch(this.options.onError);
       if (this.childrenDirty.has(root) || this.childTargets.get(root)?.size) this.drainChildren(binding).catch(this.options.onError);
-    },1000);
+    },delay);
     timer.unref();this.workRetries.set(root,timer);
   }
   private async reconcile(binding: SessionBinding, childrenOnly=false): Promise<void> {
     this.childrenDirty.add(binding.sessionId);
-    await Promise.all([childrenOnly?this.drains.get(binding.sessionId):this.reconcileRoot(binding),this.drainChildren(binding)]);
+    await Promise.all([childrenOnly?this.drains.get(binding.sessionId):this.reconcileRoot(binding),this.drainChildren(binding).catch(this.options.onError)]);
   }
   // Separate drains let Work recover root and child histories independently.
   private reconcileRoot(binding: SessionBinding): Promise<void> {
@@ -968,30 +982,36 @@ export class GlobalAgent {
     const prior = this.childDrains.get(root); if (prior) return prior;
     const task = (async () => {
       const failed = new Set<string>();
+      let retryDiscovery=false;
       try {
         for (;;) {
           const discover = this.childrenDirty.delete(root);
           const targets = this.childTargets.get(root);
           if (!discover && !targets?.size) break;
           this.childTargets.delete(root);
+          let failedDiscovery: unknown;
           if (discover) {
-            try {await this.projectChildren(binding);} catch (error) {
-              this.childrenDirty.add(root);
-              for (const id of targets ?? []) failed.add(id);
-              throw error;
+            try {await this.projectChildren(binding,this.options.runtime.request,undefined,failed);} catch (error) {
+              retryDiscovery=true;
+              failedDiscovery=error;
             }
           }
           for (const id of targets ?? []) {
             try {
               const catalog=await this.options.runtime.request('session.work.targets',{sessionId:root,childId:id}) as RuntimeWorkCatalog;
               await this.projectChildRows(binding,catalog,this.options.runtime.request);
+              failed.delete(id);this.failedChildren.get(root)?.targets.delete(id);
             } catch(error) {failed.add(id);this.options.onError(error);}
           }
+          if (failedDiscovery) throw failedDiscovery;
         }
       } finally {
         if (this.options.store.lifecycle.allowed(binding.agentId)) {
-          if (failed.size) this.childTargets.set(root,new Set([...(this.childTargets.get(root) ?? []),...failed]));
-          if (this.childrenDirty.has(root) || failed.size) this.retryWork(binding);
+          const deferred=this.failedChildren.get(root);
+          if (retryDiscovery || failed.size || deferred?.discover || deferred?.targets.size) {
+            this.failedChildren.set(root,{discover:retryDiscovery || !!deferred?.discover,targets:new Set([...(deferred?.targets ?? []),...failed])});
+            this.retryWork(binding);
+          } else this.failedChildren.delete(root);
         }
       }
     })().finally(() => {this.childDrains.delete(root);this.updateWorkPending(root);});
@@ -1007,52 +1027,63 @@ export class GlobalAgent {
     }
     return facts;
   }
-  private async projectChildren(root: SessionBinding, read = this.options.runtime.request, stoppedRevision?: number): Promise<void> {
+  private async projectChildren(root: SessionBinding, read: Options['runtime']['request'], stoppedRevision?: number, failed?: Set<string>): Promise<void> {
     let afterId:string|undefined, incomplete=false;
     do {
       const catalog=await read('session.work.children',{sessionId:root.sessionId,afterId,stoppedRevision}) as RuntimeWorkCatalog;
-      incomplete=await this.projectChildRows(root,catalog,read,stoppedRevision) || incomplete;
+      incomplete=await this.projectChildRows(root,catalog,read,stoppedRevision,failed) || incomplete;
       afterId=catalog.next;
     } while (afterId!==undefined);
     if (incomplete) throw new Error('Work descendant records are not yet available');
   }
-  private async projectChildRows(root: SessionBinding, catalog: RuntimeWorkCatalog, read: Options['runtime']['request'], stoppedRevision?: number): Promise<boolean> {
-    const {inbox}=this.options;
+  private async projectChildRows(root: SessionBinding, catalog: RuntimeWorkCatalog, read: Options['runtime']['request'], stoppedRevision?: number, failed?: Set<string>): Promise<boolean> {
     let incomplete=false;
     for (const child of catalog.children) {
       if (child.kind!=='child') { if(child.reason!=='unsupported') incomplete=true; continue; }
-      const binding={...root,sessionId:child.id};
-      const registered=this.workEvent(binding,'registered',{type:'session_registered',payload:{
-        scope:child.workflowRunId?'workflow':'subagent',workflow_run_id:child.workflowRunId,parent_session_id:child.parentId,
-        child_agent_id:child.id,title:child.label??child.id,description:child.label,
-      }});
-      let prior=inbox.workCut(child.id);
-      if (prior && child.throughSeq!==undefined && prior.throughSeq===child.throughSeq && prior.modelVersion===child.modelVersion) continue;
-      let more:boolean;
-      do {
-        // Old checkpoints did not keep the open child prefix locally.
-        const afterSeq=prior && (prior.localReplay ? prior.throughSeq : prior.replayFrom-1);
-        const page=await read('session.work.child',{sessionId:root.sessionId,childId:child.id,afterSeq,
-          replayFrom:prior?.replayFrom,modelVersion:prior?.modelVersion,stoppedRevision}) as RuntimeWorkPage;
-        if (!page.durable) throw new Error('No durable child event barrier');
-        more=page.more;
-        if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
-        const facts=[registered,...this.modelNotices(binding,page.modelRuns)];
-        const raw=[...inbox.workOpenEvents(child.id),...page.events];
-        const events=logicalEvents(workSuffix(raw,prior),page.modelRuns,true);
-        for (const event of events) {
-          const projected=projectWorkEvent(child.id,event,events,true);
-          if (projected) {
-            const {turn,...fact}=projected;
-            facts.push(this.workEvent(binding,`runtime:${event.seq}`,fact,turn,event.time));
-          }
-        }
-        prior={...workCheckpoint(root.sessionId,page.throughSeq,events,page.modelVersion),localReplay:true};
-        inbox.commitWork(child.id,prior,facts,page.events);
-        this.options.onWork?.();
-      } while (more);
+      if (failed?.has(child.parentId)) {failed.add(child.id);continue;}
+      try {
+        await this.projectChild(root,child,read,stoppedRevision);
+      } catch (error) {
+        if (!failed) throw error;
+        failed.add(child.id);this.options.onError(error);
+      }
     }
     return incomplete;
+  }
+
+  private async projectChild(root: SessionBinding, child: RuntimeWorkCatalog['children'][number],
+    read: Options['runtime']['request'], stoppedRevision?:number): Promise<void> {
+    const {inbox}=this.options;
+    const binding={...root,sessionId:child.id};
+    const registered=this.workEvent(binding,'registered',{type:'session_registered',payload:{
+      scope:child.workflowRunId?'workflow':'subagent',workflow_run_id:child.workflowRunId,parent_session_id:child.parentId,
+      child_agent_id:child.id,title:child.label??child.id,description:child.label,
+    }});
+    let prior=inbox.workCut(child.id);
+    if (prior && child.throughSeq!==undefined && prior.throughSeq===child.throughSeq && prior.modelVersion===child.modelVersion) return;
+    let more:boolean;
+    do {
+      // Old checkpoints did not keep the open child prefix locally.
+      const afterSeq=prior && (prior.localReplay ? prior.throughSeq : prior.replayFrom-1);
+      const page=await read('session.work.child',{sessionId:root.sessionId,childId:child.id,afterSeq,
+        replayFrom:prior?.replayFrom,modelVersion:prior?.modelVersion,stoppedRevision}) as RuntimeWorkPage;
+      if (!page.durable) throw new Error('No durable child event barrier');
+      more=page.more;
+      if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
+      const facts=[registered,...this.modelNotices(binding,page.modelRuns)];
+      const raw=[...inbox.workOpenEvents(child.id),...page.events];
+      const events=logicalEvents(workSuffix(raw,prior),page.modelRuns,true);
+      for (const event of events) {
+        const projected=projectWorkEvent(child.id,event,events,true);
+        if (projected) {
+          const {turn,...fact}=projected;
+          facts.push(this.workEvent(binding,`runtime:${event.seq}`,fact,turn,event.time));
+        }
+      }
+      prior={...workCheckpoint(root.sessionId,page.throughSeq,events,page.modelVersion),localReplay:true};
+      inbox.commitWork(child.id,prior,facts,page.events);
+      this.options.onWork?.();
+    } while (more);
   }
 
   /** Pull final durable facts after native stop, without activating the target or sending receipts. */

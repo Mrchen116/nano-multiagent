@@ -27,7 +27,7 @@ import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
 import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
-import { jsonBytes, workPage, workPageBytes, workPageItems } from './work-page.js';
+import { jsonBytes, workPage, workPageBytes, workPageItems, WorkCatalogPages } from './work-page.js';
 import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
@@ -643,48 +643,22 @@ export default class NanoRuntime {
         depth:entry.depth,activity:entry.activity,hasChildren:entry.hasChildren,modelVersion:policy.fallback.workVersion(entry.id),
         ...(workflowRunId ? {workflowRunId} : {})};
     };
-    const catalogs = new Map<string, {iterator:AsyncIterator<CatalogEntry>; stoppedRevision?:number; last?:RuntimeWorkCatalog;
-      input?:string; pending?:RuntimeWorkChild}>();
+    const catalogs = new WorkCatalogPages();
     handle('session.work.children', async value => {
       const input = value as WorkRead & {afterId?: string};
       await workBinding(input);
-      const root = SessionId(input.sessionId), reply:RuntimeWorkCatalog={children:[]};
-      let state = catalogs.get(root);
-      if (input.afterId !== undefined) {
-        if (!state || state.stoppedRevision !== input.stoppedRevision) throw new RpcError(-32005,'Work catalog position changed');
-        if (state.input === input.afterId && state.last) return state.last;
-        if (state.last?.next !== input.afterId) throw new RpcError(-32005,'Work catalog position changed');
-      } else {
-        await state?.iterator.return?.(); catalogs.delete(root);
-        if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return reply;
-        state={iterator:descendantReader.catalog(root)[Symbol.asyncIterator](),stoppedRevision:input.stoppedRevision};
-        catalogs.set(root,state);
-      }
-      const policy = await models, engine = await workflow;
-      try {
-        let bytes=128;
-        for (;;) {
-          if (!state.pending) {
-            const next = await state.iterator.next();
-            if (next.done) break;
-            state.pending=workChild(next.value,policy,engine);
-          }
-          const size=jsonBytes(state.pending);
-          if (reply.children.length && (reply.children.length >= workPageItems || bytes+size > workPageBytes)) {
-            reply.next=randomUUID(); break;
-          }
-          reply.children.push(state.pending); state.pending=undefined; bytes+=size;
-        }
-        state.last=reply; state.input=input.afterId;
-        return reply;
-      } catch (error) {
-        catalogs.delete(root); await state.iterator.return?.(); throw error;
-      }
+      const root = SessionId(input.sessionId), policy = await models, engine = await workflow;
+      await engine.ready;
+      return catalogs.read(root,input.afterId,input.stoppedRevision,async function* () {
+        if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return;
+        for await (const entry of descendantReader.catalog(root)) yield workChild(entry,policy,engine);
+      });
     }, {pull:'work-descendants'});
     handle('session.work.targets', async value => {
       const input = value as WorkRead & {childId:string};
       await workBinding(input);
       const policy = await models, engine = await workflow;
+      await engine.ready;
       const targets = await descendantReader.targets(SessionId(input.sessionId),SessionId(input.childId));
       return {children:targets.map(target=>workChild(target,policy,engine))} satisfies RuntimeWorkCatalog;
     }, {pull:'work-descendants'});
@@ -985,7 +959,7 @@ export default class NanoRuntime {
         await purgeDerived(ctx, process.env.DSH_HOME!, agentId, sessionIds);
         descendantReader.forget(ids);
         (await workflow).forgetWorkChildren(ids);
-        for (const id of ids) {await catalogs.get(id)?.iterator.return?.();catalogs.delete(id);}
+        for (const id of ids) await catalogs.forget(id);
         await this.cron.disposeAgent(agentId, true);
         for (const id of sessionIds) if (this.bindings.get(id)?.agentId === agentId) this.bindings.delete(id);
         for (const [preset, item] of this.configurations) if (item.agentId === agentId) this.configurations.delete(preset);

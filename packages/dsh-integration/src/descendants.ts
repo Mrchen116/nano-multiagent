@@ -193,16 +193,24 @@ export class DescendantReader {
     const edge = this.edges.get(id);
     if (!edge || edge.root !== root) throw new RpcError(-32004,'Child has no trusted Work lineage');
     await this.confirm(edge);
+    const readLive = async (session: Session) => {
+      const head = session.seq - 1;
+      if (!await this.ctx.sessions.flush(session)) throw new RpcError(-32005,'Child Session has no persistence barrier');
+      return livePage(session,head);
+    };
     const live = this.ctx.sessions.get(id);
-    if (live) {
-      const head = live.seq - 1;
-      if (!await this.ctx.sessions.flush(live)) throw new RpcError(-32005,'Child Session has no persistence barrier');
-      return livePage(live,head);
-    }
+    if (live) return readLive(live);
     const cached = this.catalogs.get(id);
-    if (!modelChanged && cached && !cached.active && cached.cursor === afterSeq && await this.unchanged(id,cached)) return;
-    // Cold reads share the prepared native observation with recovery discovery.
-    using cut = await this.ctx.sessionQuery.observeSession(id);
+    const covered = cached && await this.unchanged(id,cached);
+    if (!modelChanged && covered && !cached.active && cached.cursor === afterSeq) return;
+    // Recovery discovery has already prepared this cut. A targeted cold miss
+    // needs the events only and must not rebuild a historical child catalog.
+    using cut = await this.ctx.sessionQuery.observeSession(id,covered ? undefined : {projectionMode:'none'});
+    if (cut.source === 'live') {
+      const activated = this.ctx.sessions.get(id);
+      if (!activated) throw new RpcError(-32005,'Child Session changed during Work observation');
+      return readLive(activated);
+    }
     return coldPage(cut);
   }
 
@@ -267,10 +275,12 @@ export class DescendantReader {
     const active=(agent ? agent.status==='running' : lastBoundary?.type==='turn/start') || !inbox || inbox['next-turn'].length>0 || inbox['next-step'].length>0;
     // An observation can acquire later live events than the first flush. Certify
     // that immutable cut too; never advance the consumer over unflushed events.
-    if(observation.source==='live' && live && !await this.ctx.sessions.flush(live))throw new RpcError(-32005,'Child Session has no persistence barrier');
+    const observedLive = observation.source === 'live' ? this.ctx.sessions.get(id) : undefined;
+    if (observation.source === 'live' && (!observedLive || observedLive.seq <= observation.cursor ||
+      !await this.ctx.sessions.flush(observedLive))) throw new RpcError(-32005,'Child Session has no persistence barrier');
     const after=await this.ctx.sessionPersistence.stat(id);
     const stable=before && after && before.revision===after.revision &&
-      (observation.source==='live' ? live?.seq===observation.cursor+1 : observation.revision===after.revision);
+      (observation.source==='live' ? observedLive?.seq===observation.cursor+1 : observation.revision===after.revision);
     const catalog:Catalog={rootId,cursor:observation.cursor,children,active:!!active,interruptedTurnEnd,...(stable?{witness:witness(after)}:{})};
     this.catalogs.set(id,catalog);this.owners.set(id,rootId);
     this.indexEdges(id,catalog);
