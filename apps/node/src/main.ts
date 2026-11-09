@@ -34,6 +34,7 @@ const configuration = await NodeConfiguration.read(configPath,deletionLedger.sta
 const config = configuration.value;
 const release = await loadNodeRelease();
 let updateHolding: string | undefined;
+let relayRecoveryTimer: ReturnType<typeof setTimeout> | undefined;
 let admissions = 0;
 async function admitted<T>(action: () => Promise<T>): Promise<T> {
   if (updateHolding) throw new Error('Computer is preparing to update');
@@ -124,15 +125,14 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           const state = store.lifecycle.snapshot(agent.agentId)!;
           return [agent.agentId, {revision:state.revision, disabled:state.desired==='disabled', disabledThroughRevision:state.disabled_through_revision}];
         }));
-        await rpc.request('initialize', { protocol: 1, blockedScheduleIds: frozen.flatMap(frame => frame.payload.schedule_ids ?? []), lifecycle: states, taskStopFences:store.controls().filter(i=>i.action==='task-stop'&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>({sessionId:i.binding.sessionId,stoppedAt:i.stoppedAt??i.input.message.created_at})), taskStops:store.controls().filter(i=>i.action==='task-stop'&&!i.text&&partition.agents.some(a=>a.agentId===i.binding.agentId)).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
+        const stops = store.controls().filter(intent => intent.action === 'task-stop' && partition.agents.some(agent => agent.agentId === intent.binding.agentId));
+        await rpc.request('initialize', { protocol: 1, recoveryMarkers: true, blockedScheduleIds: frozen.flatMap(frame => frame.payload.schedule_ids ?? []), lifecycle: states, taskStopFences:stops.map(i=>({sessionId:i.binding.sessionId,stoppedAt:i.stoppedAt??i.input.message.created_at})), taskStops:stops.filter(i=>!i.text).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
           providers: providerProfiles(config.llm).providers,
           pendingConfigurations: operations?.pending().filter(item => partition.agents.some(agent => agent.agentId === item.candidate.agent_id)).map(item => ({operationId: item.intent.operation_id, fingerprint: item.intent.candidate_fingerprint, config: configuration.runtime(item.candidate)})) ?? [],
           bindings: store.bindings().filter(binding => partition.agents.some(agent => agent.agentId === binding.agentId)).map(({ conversationId: _, ...binding }) => binding) });
       },
       onReady: async () => {
-        for (const agent of partition.agents) if (agentLifecycle.allowed(agent.agentId)) await agentLifecycle.ready(agent.agentId, supervisor.processInstanceId!);
         installPartitionConsumers(partition);
-        await reportPersonalAvailability(partition,true);
         if (!updateHolding) await admitted(async () => {
           if (partition.key === 'ordinary') await modelSetup.recover();
           if (operations) {
@@ -141,11 +141,21 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           }
           if (relay.ready) await knowledgeByPartition.get(partition.key)?.migrateSkills();
           if (product) {
-            if(relay.ready){await tasks.recoverStops(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));await scheduleDeletions.recover(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));await tasks.recover(partition.agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));}
-            await settlePartitions([product.recover(!relay.ready), globalProduct.recover(), external.recover(),
+            const scope = partition.agents.filter(agent => runtime.availableFor(agent.agentId)).map(agent => agent.agentId);
+            if (relay.ready) {
+              await tasks.recoverStops(scope);
+              await scheduleDeletions.recover(scope);
+              await tasks.recover(scope);
+            }
+            await product.recover(!relay.ready, scope);
+            await settlePartitions([globalProduct.recover(), external.recover(),
               knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover()]);
           }
         });
+        for (const agent of partition.agents) if (store.lifecycle.snapshot(agent.agentId)?.desired==='disabled')
+          void agentLifecycle.recoverStop(agent.agentId).catch(reportError);
+        for (const agent of partition.agents) if (agentLifecycle.allowed(agent.agentId)) await agentLifecycle.ready(agent.agentId, supervisor.processInstanceId!);
+        await reportPersonalAvailability(partition,true);
         if (partition.key === 'ordinary') await lifecycle.ready(supervisor.process!.pid!);
       },
       onError: reportError,
@@ -287,29 +297,59 @@ const relay = new WebRelayConnection({
     } finally { admissions--; }
   },
   onState: async state => {
-    if (state !== 'ready') capabilityRequests.cancelAll();
-    if(state==='ready') {
-      lifecycleSync = agentLifecycle.synchronize(relay.registration?.agent_lifecycles as AgentLifecycleSnapshot[]);
-      await lifecycleSync;
-      await runtime.start();
-      for (const intent of (relay.registration?.agent_deletions ?? []) as AgentDeletionIntent[])
-        void deletions.apply(intent).catch(reportError);
-      workAvailable=true;workSync.signal();
-      if(typeof relay.registration?.owner_timezone==='string')store.setOwnerTimezone(relay.registration.owner_timezone);
+    clearTimeout(relayRecoveryTimer);
+    if (state !== 'ready') {
+      capabilityRequests.cancelAll();
+      await lifecycle.connected(false);
+      trajectory?.closeAll();
+      if (state === 'revoked') { workAvailable=false; managed.revoke(); }
+      return;
     }
-    await lifecycle.connected(state==='ready');
-    if(state!=='ready')trajectory?.closeAll();
-    if(state==='revoked') {workAvailable=false;managed.revoke();}
-    if(state==='ready' && !updateHolding)await admitted(async()=>{
-      await tasks.recoverStops(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
-      await scheduleDeletions.recover(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
-      await tasks.recover(agents.filter(a=>runtime.availableFor(a.agentId)).map(a=>a.agentId));
-      await settlePartitions([globalProduct.recover(), (async()=>{
-        for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available);
-        await knowledge.migrateSkills();await managed.flush();await external.recover();await product.recover();
-        await knowledge.recover();await workflows.recover();
-      })()]);
-    });
+    const registration = relay.registration;
+    if (!registration) return;
+    const current = () => !stopping && relay.ready && relay.registration === registration;
+    let initialized = false;
+    let delay = 1000;
+    const recover = async () => {
+      if (!current()) return;
+      try {
+        if (!initialized) {
+          lifecycleSync = agentLifecycle.synchronize(registration.agent_lifecycles as AgentLifecycleSnapshot[]);
+          await lifecycleSync;
+          if (!current()) return;
+          await runtime.start();
+          if (!current()) return;
+          for (const intent of (registration.agent_deletions ?? []) as AgentDeletionIntent[])
+            void deletions.apply(intent).catch(reportError);
+          workAvailable=true; workSync.signal();
+          if (typeof registration.owner_timezone === 'string') store.setOwnerTimezone(registration.owner_timezone);
+          initialized = true;
+        }
+        if (!updateHolding) await admitted(async () => {
+          const scope = agents.filter(agent => runtime.availableFor(agent.agentId)).map(agent => agent.agentId);
+          await tasks.recoverStops(scope);
+          await scheduleDeletions.recover(scope);
+          await tasks.recover(scope);
+          await product.recover();
+          await settlePartitions([globalProduct.recover(), (async()=>{
+            for (const partition of runtime.partitions.values()) await reportPersonalAvailability(partition,partition.runtime.available);
+            await knowledge.migrateSkills(); await managed.flush(); await external.recover();
+            await knowledge.recover(); await workflows.recover();
+          })()]);
+        });
+        if (current()) await lifecycle.connected(true);
+      } catch (error) {
+        reportError(error);
+        // The transport reports callback failures but keeps the connection. Retry
+        // the durable cut on this registration before reporting it recovered.
+        if (current()) {
+          relayRecoveryTimer = setTimeout(() => { void recover(); },delay);
+          relayRecoveryTimer.unref();
+          delay = Math.min(delay * 2,30_000);
+        }
+      }
+    };
+    await recover();
   },
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
@@ -372,6 +412,19 @@ tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,
 product = new SingleThread({
   nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime, relay: external, onError: reportError,
   image: downloadImage, taskStop:(binding,input)=>tasks.stop(binding,input),
+  recoveryGeneration: binding => {
+    const channelAvailable = binding.conversationId.startsWith('external:') ? external.canRecoverConversation(binding.agentId,binding.conversationId) : relay.ready;
+    if (!stopping && !updateHolding && channelAvailable && runtime.availableFor(binding.agentId))
+      return supervisors.get(runtime.forAgent(binding.agentId).key)?.processInstanceId;
+  },
+});
+runtime.handle('session.recovery.mark', value => {
+  const {sessionId, agentId} = value as {sessionId: string; agentId: string};
+  const binding = store.bindingForSession(sessionId);
+  const generation = supervisors.get(runtime.forAgent(agentId).key)?.processInstanceId;
+  if (!generation || binding?.agentId !== agentId) throw new Error('Invalid writable Session recovery identity');
+  store.markSessionWritable(sessionId, generation);
+  return {marked: true};
 });
 let workAvailable=false;
 const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_service.url,credentials:()=>config.im_service.token,available:()=>workAvailable,onError:reportError});
@@ -464,6 +517,7 @@ const updater = new NodeUpdater(configuration, {
     if (runtime.available) await runtime.request('update.release', {operationId});
     updateHolding = undefined;
     if (runtime.available && !stopping) await admitted(async () => {
+      if (relay.ready) await tasks.recoverStops(agents.filter(agent => runtime.availableFor(agent.agentId)).map(agent => agent.agentId));
       await external.recover(); await product.recover(!relay.ready); await globalProduct.recover();
       await knowledge.recover(); await workflows.recover();
     });
@@ -524,12 +578,12 @@ agentLifecycle = new NodeAgentLifecycle({
     const supervisor = supervisors.get(runtime.forAgent(agentId).key)!;
     return {get available() {return supervisor.available;}, get processInstanceId() {return supervisor.processInstanceId;}, disable: async () => {
       await runtime.startAgent(agentId);
-      const cursors = Object.fromEntries(store.bindings().filter(binding => binding.agentId === agentId).flatMap(binding => {
-        const cuts = inbox.workCheckpoints(binding.sessionId);
-        return [[binding.sessionId, store.cursor(binding.sessionId)], ...Object.entries(cuts).map(([id, cut]) => [id, cut.replayFrom - 1])];
-      }));
-      const result = await supervisor.disableAgent(agentId, store.lifecycle.snapshot(agentId)!.revision, cursors);
-      if (result.confirmed) globalProduct.recordStopped(agentId, result.history ?? []);
+      const revision=store.lifecycle.snapshot(agentId)!.revision;
+      const result=await supervisor.disableAgent(agentId,revision);
+      if (result.confirmed) {
+        agentLifecycle.recordCleanup(agentId,revision,result.processInstanceId);
+        await globalProduct.recordStopped(agentId,revision,supervisor.request.bind(supervisor));
+      }
       return result;
     }};
   },
@@ -540,6 +594,10 @@ agentLifecycle = new NodeAgentLifecycle({
     const supervisor = supervisors.get(runtime.forAgent(agentId).key)!;
     await supervisor.request('agent.enable', {agentId, revision:state.revision, disabledThroughRevision:state.disabled_through_revision, blockedScheduleIds:frozen.payload.schedule_ids ?? []});
     await agentLifecycle.launching(agentId, supervisor.processInstanceId!);
+    if (!updateHolding) await admitted(async () => {
+      if (relay.ready) await tasks.recoverStops([agentId]);
+      await product.recover(!relay.ready, [agentId]);
+    });
     await agentLifecycle.ready(agentId, supervisor.processInstanceId!);
   },
   cancel: agentId => { store.cancelAgent(agentId); inbox.cancelAgent(agentId); product.cancelAgent(agentId); globalProduct.cancelAgent(agentId); },
@@ -561,6 +619,7 @@ process.stdout.write(`Node ${config.node.node_id} ready; DSH hosts=${runtime.par
 async function stop() {
   if (stopping) return;
   stopping = true;
+  clearTimeout(relayRecoveryTimer);
   clearInterval(taskWatch);
   trajectory.closeAll();
   try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }

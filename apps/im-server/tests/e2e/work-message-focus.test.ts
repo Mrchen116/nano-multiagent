@@ -1,44 +1,78 @@
+import {DatabaseSync} from 'node:sqlite';
 import {expect, it} from 'vitest';
 import {start, bind} from './helpers.js';
 
-it('resolves each delivered reply to its exact persisted wake beyond the latest page', async () => {
+it('reads one exact reply summary across a thousand persisted wakes and a retired main execution', async () => {
   const f = await start();
   const g = await bind(f, 'focus-node');
   let seq = 0;
-  const events: any[] = [];
-  const add = (type: string, payload: object, turn_id?: string) => events.push({seq: ++seq, event_id: `focus-${seq}`, root_agent_id: 'global', session_id: 'focus-main', type, payload, ...(turn_id ? {turn_id} : {})});
+  const events: Array<{seq: number; event_id: string; root_agent_id: string; session_id: string; type: string; payload: object; turn_id?: string}> = [];
+  const add = (type: string, payload: object, turn_id?: string, session_id = 'focus-main') => events.push({
+    seq: ++seq, event_id: `focus-${seq}`, root_agent_id: 'global', session_id, type, payload, ...(turn_id ? {turn_id} : {}),
+  });
+  const append = async () => {
+    while (events.length) {
+      const batch = events.splice(0, 100);
+      expect((await g.frames.send('agent.work.append', {
+        node_id: g.node, journal_id: 'focus', from_seq: batch[0]!.seq, events: batch,
+      })).payload.through_seq).toBe(batch.at(-1)!.seq);
+    }
+  };
   add('session_registered', {scope: 'global_main'});
-  for (let turn = 1; turn <= 25; turn++) {
+  for (let turn = 1; turn <= 1000; turn++) {
     add('turn_start', {origin: 'inbox'}, String(turn));
     add('message_sent', {call_id: `send-${turn}`, message_id: `reply-${turn}`, conversation_id: 'chat', text: `Reply ${turn}`}, String(turn));
-    if (turn < 25) add('turn_end', {completed: true}, String(turn));
+    if (turn < 1000) add('turn_end', {completed: true}, String(turn));
   }
-  expect((await g.frames.send('agent.work.append', {node_id: g.node, journal_id: 'focus', from_seq: 1, events})).payload.through_seq).toBe(seq);
-  const read = (query = '') => f.http('GET', `/im/v1/agents/global/work?view=summary${query}`, undefined, f.tokens.alice);
-  expect((await read()).body.turns.map((t: any) => t.turn_id)).not.toContain('1');
-  for (const turn of [1, 24, 1]) {
-    const focused = await read(`&message_id=reply-${turn}&limit=2`);
-    expect(focused.status, focused.body).toBe(200);
-    expect(focused.body.focus).toEqual({session_id: 'focus-main', turn_id: String(turn)});
-    // A reply is an expansion/scroll anchor, never a filter on the Work list.
-    expect(focused.body.turns.map((t: any) => t.turn_id)).toEqual(['25', '24']);
-    expect(focused.body.turns[0]).toMatchObject({session_id: 'focus-main', items_deferred: true});
-    expect(focused.body.main_execution).toBe('running'); // Historical completion is not current Agent state.
-    const allTurns = [...focused.body.turns];
-    let cursor = focused.body.next_cursor;
-    while (cursor) {
-      const earlier = await read(`&message_id=reply-${turn}&before_turn=${cursor}&limit=2`);
-      expect(earlier.status).toBe(200);
-      allTurns.push(...earlier.body.turns);
-      cursor = earlier.body.next_cursor;
-    }
-    expect(allTurns.map((t: any) => t.turn_id)).toEqual(Array.from({length: 25}, (_, i) => String(25 - i)));
-  }
-  const items = await f.http('GET', '/im/v1/agents/global/work/sessions/focus-main/turns/1/items', undefined, f.tokens.alice);
-  expect(items.body.items[0].payload.work_facts[0]).toMatchObject({type: 'message_sent', message_id: 'reply-1'});
-  expect((await read('&message_id=not-synced')).body.focus).toBeNull();
-  // A delivery belonging to this Agent never resolves through a different root.
-  const other = await f.http('GET', '/im/v1/agents/assistant/work?message_id=reply-1', undefined, f.tokens.alice);
-  expect(other.status).toBe(404);
-  expect((await f.http('GET', '/im/v1/agents/global/work?message_id=reply-1')).status).toBe(401);
+  // A duplicate delivery identity must continue to resolve to the first fact.
+  add('message_sent', {call_id: 'later', message_id: 'reply-1', conversation_id: 'chat'}, '1000');
+  await append();
+
+  const base = '/im/v1/agents/global/work';
+  const read = (path: string, token = f.tokens.alice) => f.http('GET', path, undefined, token);
+  const focus = (id: string) => read(`${base}/focus?message_id=${id}`);
+  const direct = await focus('reply-1');
+  expect(direct.status).toBe(200);
+  expect(direct.body).toEqual({focus: {newer_turn_id: '2', older_turn_id: null, turn: expect.objectContaining({
+    session_id: 'focus-main', turn_id: '1', seq: expect.any(Number), items: [], items_deferred: true,
+  })}});
+  expect((await focus('reply-999')).body.focus).toMatchObject({newer_turn_id: '1000', older_turn_id: '998', turn: {turn_id: '999'}});
+  expect((await focus('reply-1000')).body.focus).toMatchObject({newer_turn_id: null, turn: {turn_id: '1000'}});
+  expect((await focus('not-synced')).body).toEqual({focus: null});
+
+  // Exercise the legacy scan over the identical history to count requests and summaries.
+  let cursor: string | null = null;
+  let pages = 0;
+  const allTurns: string[] = [];
+  do {
+    const response = await read(`${base}?view=summary&message_id=reply-1${cursor ? `&before_turn=${cursor}` : ''}`);
+    expect(response.status).toBe(200);
+    expect(response.body.focus).toEqual({session_id: 'focus-main', turn_id: '1'});
+    expect(response.body.main_execution).toBe('running');
+    allTurns.push(...response.body.turns.map((turn: {turn_id: string}) => turn.turn_id));
+    cursor = response.body.next_cursor;
+    expect(response.body.next_turn_id).toBe(cursor ? String(Number(cursor) - 1) : null);
+    pages++;
+  } while (cursor && pages < 51);
+  expect(pages).toBe(50);
+  expect(allTurns).toEqual(Array.from({length: 1000}, (_, i) => String(1000 - i)));
+  expect((await read(`${base}/sessions/focus-main/turns/1/items`)).body.items[0].payload.work_facts[0]).toMatchObject({
+    type: 'message_sent', message_id: 'reply-1',
+  });
+
+  // Seed the retained identity that an actual session replacement would leave.
+  const db = new DatabaseSync(f.dbPath);
+  try {
+    db.exec("UPDATE agent_work_sessions SET payload=json_set(payload,'$.retired',json('true')) WHERE session_id='focus-main'");
+    db.exec("UPDATE users SET membership_status='pending',personal_space_enabled=1 WHERE id='outsider'");
+  } finally { db.close(); }
+  add('session_registered', {scope: 'global_main'}, undefined, 'new-main');
+  add('turn_start', {origin: 'inbox'}, '1', 'new-main');
+  await append();
+  const ordinary = await read(`${base}?view=summary`);
+  expect(ordinary.body).toMatchObject({main_session_id: 'new-main', other_executions: [{session_id: 'focus-main', retired: true}]});
+  expect((await focus('reply-1')).body).toEqual(direct.body);
+  expect((await read('/im/v1/agents/assistant/work/focus?message_id=reply-1')).status).toBe(404);
+  expect((await read(`${base}/focus?message_id=reply-1`, f.tokens.outsider)).status).toBe(404);
+  expect((await f.http('GET', `${base}/focus?message_id=reply-1`)).status).toBe(401);
 });

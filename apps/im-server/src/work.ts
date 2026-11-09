@@ -68,6 +68,7 @@ export class Work {
     return this.records.turns(root, session, before, limit, summary);
   }
   revision(root: string) { return this.records.revision(root); }
+  focus(root: string, messageId: string) { return this.records.focus(root, messageId); }
   append(node: string, input: unknown, historical = false): WorkAppendAck {
     const batch = readWorkBatch(input);
     const {ack, appliedRoots} = this.records.append(node, batch, historical);
@@ -409,6 +410,13 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),agentId,q.message_id ? 'message' : 'agent',q.message_id ?? agentId);
     const p = profile(req);
     return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary', q.message_id);
+  });
+  app.get("/im/v1/agents/:agent_id/work/focus", (req) => {
+    const messageId = query(req).message_id, agentId = params(req).agent_id;
+    const user = ctx.identity.authenticateRequest(req);
+    if (typeof messageId !== "string" || !messageId) fail(400, "invalid_arguments");
+    rejectDeletedExecution(ctx, user, agentId, 'message', messageId);
+    return {focus: w.focus(profile(req).agent_id, messageId)};
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns", (req) => {
     rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),params(req).agent_id,'session',params(req).session_id);

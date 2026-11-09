@@ -105,15 +105,41 @@ export { interactiveCatalog } from './interactive-catalog.js';
 export * from './work-sync.js';
 export * from './task-execution.js';
 
-/** Final durable incremental history returned by a stopped execution host. */
-export interface RuntimeStopHistory {
-  sessionId: string;
-  rootSessionId: string;
-  parentSessionId?: string;
+/** Private runtime Work protocol; a page advances only over the included durable prefix. */
+export interface RuntimeWorkPage {
+  durable: true;
   events: RuntimeEvent[];
   modelRuns: ModelRunProjection[];
-  modelVersion?: string;
+  modelVersion: string;
   throughSeq: number;
+  more: boolean;
+}
+export interface RuntimeWorkChild {
+  kind: 'child' | 'diagnostic';
+  id: string;
+  parentId: string;
+  label?: string;
+  reason?: string;
+  workflowRunId?: string;
+  mode?: string;
+  depth?: number;
+  activity?: string;
+  hasChildren?: boolean;
+  throughSeq?: number;
+  modelVersion?: string;
+}
+export interface RuntimeWorkCatalog {
+  children: RuntimeWorkChild[];
+  next?: string;
+}
+
+/** Durable publication facts, separate from Work presentation and its checkpoint. */
+export interface RuntimePublicationEvidence {
+  durable: true;
+  call?: {turn: number; seq: number};
+  reads: RuntimeEvent[];
+  throughSeq: number;
+  head: number;
 }
 
 export type { AgentConfigurationFields, ConfigurationIntent, ConfigurationResult } from './configuration-rpc.js';

@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,7 +70,7 @@ export function apply(ctx) {
       await client.rpc.request('session.submit', { sessionId, inputId: scenario, mode: 'followup', content: [{ type: 'text', text: 'launch '+scenario }],
         source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: scenario } });
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId, inputId: scenario }) as any).terminal, { timeout: 10000 }).toBeTruthy();
-      const descendants = async () => await client!.rpc.request('session.descendants', { sessionId }) as any[];
+      const descendants = async () => await workDescendants(client!.rpc, { sessionId }) as any[];
       let child: any;
       // Assert against the completed observation, before a later cold read can race disposal.
       await expect.poll(async () => {

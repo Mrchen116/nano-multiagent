@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
-import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest } from '@nano/product-contracts';
+import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
@@ -22,6 +22,7 @@ export class InboxStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS inbox(seq INTEGER PRIMARY KEY,agent_id TEXT,target TEXT,message_id TEXT,payload TEXT,attention INTEGER,consumed INTEGER DEFAULT 0,UNIQUE(agent_id,message_id));
+      CREATE INDEX IF NOT EXISTS inbox_blocking_target ON inbox(agent_id,target) WHERE consumed=0 AND attention=1;
       CREATE TABLE IF NOT EXISTS imported_parts(seq INTEGER,part INTEGER,body TEXT,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS fragments(seq INTEGER,part INTEGER,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,data TEXT);
@@ -34,6 +35,8 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS inbox_deleted_sessions(session_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS work_checkpoints(session_id TEXT PRIMARY KEY,root_session_id TEXT NOT NULL,checkpoint TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS work_checkpoint_roots ON work_checkpoints(root_session_id);
+      CREATE TABLE IF NOT EXISTS work_open_events(session_id TEXT NOT NULL,seq INTEGER NOT NULL,event TEXT NOT NULL,PRIMARY KEY(session_id,seq));
+      CREATE TABLE IF NOT EXISTS work_waiting_facts(session_id TEXT NOT NULL,seq INTEGER NOT NULL,event_id TEXT NOT NULL,event TEXT NOT NULL,PRIMARY KEY(session_id,seq,event_id));
       CREATE TABLE IF NOT EXISTS work_recovery(root_session_id TEXT PRIMARY KEY,pending INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
       CREATE TABLE IF NOT EXISTS read_content(session_id TEXT,call_id TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
@@ -45,7 +48,9 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
     `);
     this.reviews = new InboxReviews(this.db);
-    if(!(this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).some(c=>c.name==='agent_id'))this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
+    const publicationColumns = (this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).map(column => column.name);
+    if (!publicationColumns.includes('agent_id')) this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
+    if (!publicationColumns.includes('source')) this.db.exec('ALTER TABLE publications ADD COLUMN source TEXT');
     this.db.prepare('INSERT OR IGNORE INTO metadata VALUES(?,?)').run('journal', randomUUID());
     this.journalId = (this.db.prepare('SELECT value FROM metadata WHERE key=?').get('journal') as { value: string }).value;
   }
@@ -110,7 +115,8 @@ export class InboxStore {
       }
       for (const sessionId of sessionIds) {
         this.db.prepare('INSERT OR IGNORE INTO inbox_deleted_sessions VALUES(?)').run(sessionId);
-        for (const table of ['reads', 'read_content', 'ingestions']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+        for (const table of ['reads', 'read_content', 'ingestions', 'work_waiting_facts']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+        this.db.prepare('DELETE FROM work_open_events WHERE session_id IN (SELECT session_id FROM work_checkpoints WHERE session_id=? OR root_session_id=?)').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_checkpoints WHERE session_id=? OR root_session_id=?').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_recovery WHERE root_session_id=?').run(sessionId);
         this.db.prepare('DELETE FROM publications WHERE agent_id IS NULL AND substr(id,1,?)=?').run(sessionId.length + 1, `${sessionId}:`);
@@ -294,17 +300,24 @@ export class InboxStore {
         +(!revoked&&attested.human_control?'\n'+"Application-attested human Task control follows. Apply it only to the identified Task or scope. Inputs queued before a stop cannot resume its paused Tasks. Only a later explicit human resume supersedes that pause; it grants no additional tool permission. Unrelated work may continue."+'\n'+JSON.stringify(attested.human_control):'');
       return [{inputId:input.message.id,conversationId:input.conversation_id,...(!revoked&&human_control&&typeof human_control==='object'?{humanControl:human_control as Record<string,unknown>}:{}),content:[{type:'text' as const,text}]}];
   }
+  /** Look up an exact durable ingestion, which revocation alone cannot create. */
+  systemContextIngested(agentId:string,sessionId:string,inputId:string,turn:number):boolean {
+    return !!this.db.prepare(`SELECT 1 FROM inbox i JOIN ingestions d ON d.seq=i.seq
+      WHERE i.agent_id=? AND i.message_id=? AND d.session_id=? AND d.turn=?`).get(agentId,inputId,sessionId,turn);
+  }
+
   /** Mark direct reading only after matching native durable execution evidence. */
-  commitSystemContext(agentId:string,sessionId:string,inputId:string,content:{type:string;text?:string}[],turn:number):void {
+  commitSystemContext(agentId:string,sessionId:string,inputId:string,content:{type:string;text?:string}[],turn:number):boolean {
     const row=this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND message_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0").get(agentId,inputId) as unknown as Entry|undefined;
     const prepared=row&&this.systemContextEntry(agentId,row)[0];
-    if(!row||!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))throw new Error('Unmatched system context execution evidence');
+    if(!row||!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))return false;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(row.seq);
       this.db.prepare(`DELETE FROM reads WHERE EXISTS(SELECT 1 FROM json_each(reads.fragments) part WHERE json_extract(part.value,'$.seq')=?)`).run(row.seq);
       this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(row.seq,sessionId,turn);
       this.db.exec('COMMIT');
+      return true;
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   /** Retire unread context while preserving its raw journal/history and consumed history. */
@@ -333,7 +346,10 @@ export class InboxStore {
   private targetName(agent: string, target: string, input: RelayInput): string {
     return (this.db.prepare('SELECT name FROM targets WHERE agent_id=? AND target=?').get(agent,target) as {name:string}|undefined)?.name ?? String(input.metadata.conversation_title ?? target);
   }
-  blocking(agent: string, target: string): boolean { return this.entries(agent, target).some(row => !!row.attention); }
+  blocking(agent: string, target: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM inbox WHERE agent_id=? AND target=? AND consumed=0 AND attention=1
+      AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 LIMIT 1`).get(agent, target);
+  }
   watermark(agent: string): number { return Number((this.db.prepare("SELECT coalesce(max(seq),0) AS seq FROM inbox WHERE agent_id=? AND attention=1 AND review_state='admitted'").get(agent) as { seq: number }).seq); }
   /** Return only admitted unread work; consumed or unclassified inputs cannot restart a turn. */
   unreadAttention(agent: string): number | undefined { return this.entries(agent).filter(row=>row.attention).at(-1)?.seq; }
@@ -458,6 +474,15 @@ export class InboxStore {
   reviewTargets(session: string, turn: number): string[] {
     return (this.db.prepare('SELECT DISTINCT i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq WHERE g.session_id=? AND g.turn=? AND i.consumed=1').all(session, turn) as { target: string }[]).map(row => row.target);
   }
+
+  /** Find saved reads that could still consume an unread fragment in the destination. */
+  pendingReadCalls(session: string, targets: string[]): string[] {
+    return (this.db.prepare(`SELECT call_id FROM reads r WHERE session_id=? AND EXISTS (
+      SELECT 1 FROM json_each(r.fragments) fragment JOIN inbox i ON i.seq=json_extract(fragment.value,'$.seq')
+      LEFT JOIN fragments f ON f.seq=i.seq AND f.part=json_extract(fragment.value,'$.part')
+      WHERE i.attention=1 AND i.consumed=0 AND f.seq IS NULL AND i.target IN (SELECT value FROM json_each(?))
+    )`).all(session, JSON.stringify(targets)) as {call_id: string}[]).map(row => row.call_id);
+  }
   completedInputs(session: string, turn: number): { seq: number; input: RelayInput }[] {
     return (this.db.prepare('SELECT i.seq,i.payload FROM inbox i JOIN ingestions g ON g.seq=i.seq LEFT JOIN receipts r ON r.seq=i.seq WHERE g.session_id=? AND g.turn=? AND r.seq IS NULL').all(session, turn) as { seq: number; payload: string }[]).map(row => ({ seq: row.seq, input: JSON.parse(row.payload) as RelayInput }));
   }
@@ -491,18 +516,46 @@ export class InboxStore {
     return Object.fromEntries((this.db.prepare('SELECT session_id,checkpoint FROM work_checkpoints WHERE root_session_id=?').all(rootSessionId) as {session_id:string;checkpoint:string}[])
       .map(row=>[row.session_id,JSON.parse(row.checkpoint) as WorkCheckpoint]));
   }
+  /** Look up one durable execution position without loading its siblings. */
+  workCut(sessionId:string):WorkCheckpoint|undefined {
+    const row=this.db.prepare('SELECT checkpoint FROM work_checkpoints WHERE session_id=?').get(sessionId) as {checkpoint:string}|undefined;
+    return row ? JSON.parse(row.checkpoint) as WorkCheckpoint : undefined;
+  }
+
+  /** Read the child events still needed to pair its open logical turn. */
+  workOpenEvents(sessionId: string): RuntimeEvent[] {
+    return (this.db.prepare('SELECT event FROM work_open_events WHERE session_id=? ORDER BY seq').all(sessionId) as {event:string}[])
+      .map(row=>JSON.parse(row.event) as RuntimeEvent);
+  }
+
   /** Commit display facts and their processing cut in one local transaction.
    *
    * Args:
    *   sessionId: Execution whose own events were processed.
    *   checkpoint: Position covered by the supplied projection facts.
    *   events: Product facts carrying their stable source identities.
+   *   native: Newly received child events, kept only while their logical turn is open.
+   *   positioned: Root facts with their native position, for merging pending delivery facts.
    */
-  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:WorkDraft[]):void {
+  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:WorkDraft[],native?: RuntimeEvent[],positioned: {seq: number; event: WorkDraft}[] = []):void {
     if (this.deletedSession(checkpoint.rootSessionId)) return;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for(const event of events)this.append(event);
+      const waiting = sessionId === checkpoint.rootSessionId ? this.db.prepare('SELECT seq,event FROM work_waiting_facts WHERE session_id=? AND seq<=? ORDER BY seq,rowid')
+        .all(sessionId, checkpoint.throughSeq) as {seq: number; event: string}[] : [];
+      let next = 0;
+      for (const fact of positioned) {
+        while (waiting[next] && waiting[next]!.seq < fact.seq) this.append(JSON.parse(waiting[next++]!.event) as WorkDraft);
+        this.append(fact.event);
+      }
+      while (waiting[next]) this.append(JSON.parse(waiting[next++]!.event) as WorkDraft);
+      if (waiting.length) this.db.prepare('DELETE FROM work_waiting_facts WHERE session_id=? AND seq<=?').run(sessionId, checkpoint.throughSeq);
+      if (native) {
+        this.db.prepare('DELETE FROM work_open_events WHERE session_id=? AND seq<?').run(sessionId,checkpoint.replayFrom);
+        const put=this.db.prepare('INSERT OR REPLACE INTO work_open_events VALUES(?,?,?)');
+        for (const event of native) if (event.seq>=checkpoint.replayFrom) put.run(sessionId,event.seq,JSON.stringify(event));
+      }
       this.db.prepare('INSERT INTO work_checkpoints VALUES(?,?,?) ON CONFLICT(session_id) DO UPDATE SET root_session_id=excluded.root_session_id,checkpoint=excluded.checkpoint WHERE checkpoint!=excluded.checkpoint')
         .run(sessionId,checkpoint.rootSessionId,JSON.stringify(checkpoint));
       this.db.exec('COMMIT');
@@ -513,7 +566,15 @@ export class InboxStore {
     if (this.deletedSession(rootSessionId)) return;
     this.db.prepare('INSERT INTO work_recovery VALUES(?,?) ON CONFLICT(root_session_id) DO UPDATE SET pending=excluded.pending WHERE pending!=excluded.pending').run(rootSessionId,Number(pending));
   }
-  get workProcessingPending():boolean {return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 LIMIT 1').get();}
+  get workProcessingPending():boolean {
+    return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 UNION ALL SELECT 1 FROM work_waiting_facts LIMIT 1').get();
+  }
+  /** Keep delivery facts behind their native Work position so they cannot create a newer turn first. */
+  appendAfterWork(event: WorkDraft, seq?: number): void {
+    if (this.deletedAgent(event.root_agent_id)) return;
+    if (seq === undefined || (this.workCut(event.session_id)?.throughSeq ?? -1) >= seq) this.append(event);
+    else this.db.prepare('INSERT OR IGNORE INTO work_waiting_facts VALUES(?,?,?,?)').run(event.session_id, seq, event.event_id, JSON.stringify(event));
+  }
   append(event: WorkDraft): void {
     if (this.deletedAgent(event.root_agent_id)) return;
     if (this.db.prepare('SELECT 1 FROM journal WHERE event_id=?').get(event.event_id)) return;
@@ -524,14 +585,27 @@ export class InboxStore {
   get journalSeq(): number {return Number((this.db.prepare('SELECT coalesce(max(seq),0) seq FROM journal').get() as {seq:number}).seq);}
   get throughSeq(): number { return Number((this.db.prepare('SELECT value FROM metadata WHERE key=?').get('through') as { value: string } | undefined)?.value ?? 0); }
   acknowledge(seq: number): void { this.db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('through', String(seq)); }
-  publication(id: string): { target: string; body: string; state: string; result: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null } | undefined; }
+  publication(id: string): { target: string; body: string; state: string; result: string | null; source: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result,source FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null; source: string | null } | undefined; }
   /** Read uncertain sends owned by this execution session without replaying them. */
   /** Find the current incident attempt, preserving uncertain delivery across wording changes. */
   incidentPublication(prefix: string): ({id:string} & NonNullable<ReturnType<InboxStore['publication']>>) | undefined {
-    return this.db.prepare('SELECT id,target,body,state,result FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
+    return this.db.prepare('SELECT id,target,body,state,result,source FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
   }
-  pendingPublications(session: string): {id:string;target:string;body:string}[] { return this.db.prepare("SELECT id,target,body FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string}[]; }
-  preparePublication(id: string, target: string, body: string, agentId?: string): void { this.db.prepare("INSERT OR IGNORE INTO publications(id,target,body,state,result,agent_id) VALUES(?,?,?,'prepared',NULL,?)").run(id, target, body, agentId??null); }
+  pendingPublications(session: string): {id:string;target:string;body:string;source:string|null}[] { return this.db.prepare("SELECT id,target,body,source FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string;source:string|null}[]; }
+  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; seq?: number; text: string}): void {
+    this.db.prepare(`INSERT INTO publications(id,target,body,state,result,agent_id,source) VALUES(?,?,?,'prepared',NULL,?,?)
+      ON CONFLICT(id) DO UPDATE SET source=excluded.source WHERE publications.source IS NULL AND excluded.source IS NOT NULL`)
+      .run(id, target, body, agentId ?? null, source ? JSON.stringify(source) : null);
+  }
   settlePublication(id: string, state: string, result?: unknown): void { this.db.prepare('UPDATE publications SET state=?,result=? WHERE id=?').run(state, result === undefined ? null : JSON.stringify(result), id); }
+  /** Persist the send outcome and its future Work fact together, even when Work is still behind. */
+  settlePublicationWithWork(id: string, state: string, result: unknown, event: WorkDraft, seq?: number): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.settlePublication(id, state, result);
+      this.appendAfterWork(event, seq);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   close(): void { this.db.close(); }
 }

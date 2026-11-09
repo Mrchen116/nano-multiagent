@@ -10,12 +10,12 @@ export class AgentLifecycleAuthority {
     db.exec('CREATE TABLE IF NOT EXISTS agent_cleanup_proofs(agent_id TEXT PRIMARY KEY,proof TEXT NOT NULL)');
   }
   /** Read the last durable cleanup evidence separately from idempotent command receipts. */
-  proof(agentId: string): {boot:string;processInstanceId:string|null;stopped:boolean} | undefined {
+  proof(agentId: string): {boot:string;processInstanceId:string|null;stopped:boolean;cleanupRevision?:number} | undefined {
     const row=this.db.prepare('SELECT proof FROM agent_cleanup_proofs WHERE agent_id=?').get(agentId) as {proof:string}|undefined;
     return row ? JSON.parse(row.proof) : undefined;
   }
   /** Replace evidence on each launch and confirmed cleanup before another start. */
-  saveProof(agentId:string,proof:{boot:string;processInstanceId:string|null;stopped:boolean}):void {
+  saveProof(agentId:string,proof:{boot:string;processInstanceId:string|null;stopped:boolean;cleanupRevision?:number}):void {
     this.db.prepare('INSERT INTO agent_cleanup_proofs VALUES(?,?) ON CONFLICT(agent_id) DO UPDATE SET proof=excluded.proof').run(agentId,JSON.stringify(proof));
   }
   /** Identity captured at admission, retained across asynchronous product calls. */

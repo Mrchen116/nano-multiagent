@@ -1,6 +1,6 @@
 import type { AgentLifecycleSnapshot, AgentLifecycleReport } from '@nano/product-contracts';
 
-interface Proof { boot: string; processInstanceId: string | null; stopped: boolean }
+interface Proof { boot: string; processInstanceId: string | null; stopped: boolean; cleanupRevision?: number }
 interface Host {
   readonly available: boolean;
   readonly processInstanceId?: string;
@@ -99,12 +99,26 @@ export class NodeAgentLifecycle {
     const proof=this.options.proof(agentId);
     if(proof)this.options.saveProof(agentId,{...proof,stopped:true});
   }
+  /** Persist cleanup from the original process before pulling final Work pages. */
+  recordCleanup(agentId: string, revision: number, processInstanceId?: string): void {
+    const state = this.options.snapshot(agentId), proof = this.options.proof(agentId);
+    if (state?.desired==='disabled' && state.revision===revision && proof && proof.processInstanceId===processInstanceId)
+      this.options.saveProof(agentId,{...proof,cleanupRevision:revision});
+  }
+
+  /** Retry an unconfirmed stop after its replacement runtime has finished starting. */
+  async recoverStop(agentId: string): Promise<void> {
+    await this.applying.get(agentId)?.task.catch(() => {});
+    const state = this.options.snapshot(agentId);
+    if (state?.desired==='disabled' && state.observed!=='disabled') await this.apply(state);
+  }
+
   private async stop(state: AgentLifecycleSnapshot, stopping: Promise<{confirmed:boolean;processInstanceId?:string;errorDetail?:string}>): Promise<void> {
     const proof = this.options.proof(state.agent_id);
     const result = await stopping.catch(error => ({confirmed:false, processInstanceId:this.options.host(state.agent_id).processInstanceId, errorDetail:String(error)}));
     if (this.options.snapshot(state.agent_id)?.revision !== state.revision) return;
     const processId = result.processInstanceId ?? proof?.processInstanceId ?? state.process_instance_id;
-    const priorSettled = proof ? proof.stopped || proof.boot !== this.options.boot || proof.processInstanceId === result.processInstanceId : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
+    const priorSettled = proof ? proof.stopped || proof.cleanupRevision === state.revision || proof.boot !== this.options.boot || proof.processInstanceId === result.processInstanceId : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
     const confirmed = result.processInstanceId ? result.confirmed && priorSettled : proof ? proof.stopped || proof.boot !== this.options.boot : !state.process_instance_id;
     // Disabled intent still names the last execution host at the center. A new
     // shared management host cannot replace that identity via an enabling report.

@@ -157,7 +157,7 @@ function isEmptyValue(v: unknown): boolean {
   return false;
 }
 
-function mergeToolCall(prev: ToolCall, next: ToolCall): ToolCall {
+export function mergeToolCall(prev: ToolCall, next: ToolCall): ToolCall {
   // bugfix-416 #111: a later event (e.g. a timed-out tool's reconcile) may carry
   // fewer fields than the upsert. A naive {...prev, ...next} lets an empty
   // input/output clobber the real command/description shown at tool_start. Keep the

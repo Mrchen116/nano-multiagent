@@ -152,6 +152,19 @@ it('keeps disabled configuration, previews, model settings and history on the sh
   await expect(runtime.request('session.submit',{agentId:'a',sessionId:'root-a'})).rejects.toThrow('agent_disabled');
 });
 
+it('fences an in-flight root Work page when its Agent is disabled before reply',async()=>{
+  const host=new Host();
+  const binding={agentId:'a',sessionId:'root-a',ownerId:'owner',cwd:'/tmp',revision:'1'} as SessionBinding;
+  let allowed=true,finish!:(value:unknown)=>void;
+  host.result['session.work.root']=new Promise(resolve=>finish=resolve);
+  const runtime=new RuntimePartitions({agents:[config('a')],bindings:()=>[binding],allowed:()=>allowed,create:()=>host,onError:()=>{}});
+  const page=runtime.request('session.work.root',{sessionId:'root-a'});
+  expect(host.calls.at(-1)?.method).toBe('session.work.root');
+  allowed=false;
+  finish({durable:true,events:[],throughSeq:3});
+  await expect(page).rejects.toThrow('agent_disabled');
+});
+
 it('fences A callbacks and collections without blocking B in their shared host',async()=>{
   const host=new Host(),errors:unknown[]=[],received:unknown[]=[];
   const bindings=['a','b'].map(agentId=>({agentId,sessionId:'root-'+agentId,ownerId:'owner',cwd:'/tmp',revision:'1'} as SessionBinding));

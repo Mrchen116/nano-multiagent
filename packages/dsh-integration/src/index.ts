@@ -1,13 +1,13 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { personalEvidenceMessages, personalReviewAction, personalReviewImages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { OwnedSessions, OwnedSessionController } from './owned-sessions.js';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
-import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
+import { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
@@ -26,7 +26,8 @@ import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
-import type { RuntimeStopHistory } from '@nano/product-contracts';
+import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
+import { jsonBytes, workPage, workPageBytes, workPageItems } from './work-page.js';
 import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
@@ -54,7 +55,7 @@ import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attac
 import { DescendantReader } from './descendants.js';
 import { SubagentRecovery } from './subagent-recovery.js';
 import { SessionDeletion } from './agent-deletion.js';
-import { ownedLinks, purgeDerived, tupleOwner } from './agent-deletion-derived.js';
+import { ownedLinks, purgeDerived } from './agent-deletion-derived.js';
 
 export interface AgentConfiguration {
   personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
@@ -105,14 +106,15 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['jobs', 'agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'sessionPersistence', 'sessionProjectionCache', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', ...SessionController.inject];
-  private readonly peer = new RpcPeer(process.stdin, process.stdout);
+  static inject = ['jobs', 'agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'sessionPersistence', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', ...SessionController.inject];
+  private readonly peer = new RpcPeer(process.stdin, process.stdout, () => process.kill(process.pid, 'SIGTERM'));
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
   private readonly inputs = new Map<string, Promise<unknown>>();
   private readonly approvals = new Map<string, (answer: ApprovalOutcome, reason?: string) => void>();
   private readonly unregisterPresets: (() => Promise<void>)[] = [];
   private accepting = false;
+  private markRecovery = false;
   private readonly lifecycle: ColdLifecycleBarrier;
   private readonly owned: OwnedSessions;
   private readonly ownerOf: (sessionId: string) => string | undefined;
@@ -124,7 +126,7 @@ export default class NanoRuntime {
   private tasks!: TaskExecutionDriver;
   private readonly sessionController: Promise<SessionController>;
 
-  constructor(private readonly ctx: Context) {
+  constructor(private readonly ctx: Context, config?: {agentDeletion?: boolean}) {
     const inspection = process.env.NANO_CONFIGURATION_INSPECTION_ID;
     const inspectionAbort = new AbortController();
     if (inspection) {
@@ -149,8 +151,11 @@ export default class NanoRuntime {
     let terminals: Context['terminals'] | undefined;
     ctx.inject(['terminals'], child => { terminals = child.terminals; child.effect(() => () => { terminals = undefined; }); });
     const lifecycle = this.lifecycle = new ColdLifecycleBarrier(ctx);
-    const deletion = inspection ? undefined : SessionDeletion.forRuntime(ctx, process.env.DSH_HOME!);
-    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId));
+    const deletion = !inspection && config?.agentDeletion ? SessionDeletion.forRuntime(ctx, process.env.DSH_HOME!) : undefined;
+    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId), async binding => {
+      if (this.markRecovery && this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode === 'single_thread')
+        await this.peer.request('session.recovery.mark', {sessionId: binding.sessionId, agentId: binding.agentId});
+    });
     ctx.provide('nanoSessions', this.owned);
     installStandaloneModelRetry(ctx);
     installLlmAttribution(ctx, sessionId => {
@@ -189,7 +194,6 @@ export default class NanoRuntime {
       await (await workflow).cancelPersisted(owns);
       await (await knowledge).cancelPersisted(agentId);
     };
-    const modelVersion = (runs: unknown) => createHash('sha256').update(JSON.stringify(runs)).digest('hex');
     const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { this.peer.notify('model.changed', { sessionId, rootSessionId: boundRoot(sessionId) }); } });
     const webFiber = ctx.plugin(NanoWeb);
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
@@ -212,7 +216,7 @@ export default class NanoRuntime {
     });
     // Track in-flight RPCs before their first await. Read paths resolving an
     // Agent can also restore durable inbox work, so they share admission.
-    const handle = (method: string, action: (value: unknown) => unknown) => this.peer.handle(method, async value => {
+    const handle = (method: string, action: (value: unknown) => unknown, options?: {pull?: string}) => this.peer.handle(method, async value => {
       if (update.held && method !== 'approval.answer') throw new RpcError(-32003, 'Runtime is held for update');
       this.admissions++;
       try {
@@ -220,7 +224,7 @@ export default class NanoRuntime {
         const owner = input?.agentId ?? input?.config?.agentId ?? (input?.sessionId ? this.ownerOf(input.sessionId) : undefined);
         return await (deletion ? deletion.admit(owner, () => action(value)) : action(value));
       } finally { this.admissions--; }
-    });
+    }, options);
     const modelSetup = new NativeModelSetup(ctx, { handle, notify: (method, value) => this.peer.notify(method, value) });
     this.peer.handle('update.prepare', async value => {
       const operationId = (value as { operationId: string }).operationId;
@@ -254,7 +258,7 @@ export default class NanoRuntime {
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
     this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled});
     // Both hooks prepend: register catch-up last so its authority cut precedes Task decisions.
-    new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
+    const taskContext = new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
     ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
     const subagentRecovery = new SubagentRecovery(ctx, agent => {
       const binding = this.bindings.get(agent.id);
@@ -286,11 +290,15 @@ export default class NanoRuntime {
       if (agentId) lifecycle.assertEnabled(agentId);
       liveAgents.add(agent);
     });
-    const toolViews = recordToolPresentations(ctx);
+    const toolViews = recordToolPresentations(ctx, process.env.DSH_HOME!);
     ctx.on('session/event', (session, event) => {
       const rootSessionId = boundRoot(session.id);
       if (rootSessionId) descendantReader.remember(session,event,rootSessionId);
-      this.peer.notify('session.event', { sessionId: session.id, rootSessionId, event });
+      const source = event.type === 'user/message' ? event.data.source : undefined;
+      const hint = {seq:event.seq, type:event.type, time:event.time, data: event.type === 'user/message'
+        ? {id:event.data.id, source:source && {kind:source.kind, ...('channel' in source ? {channel:source.channel} : {})}} : {}};
+      this.peer.notify('session.event', {sessionId:session.id, rootSessionId, event:hint},
+        ['user/message','turn/end','step/start'].includes(event.type) ? undefined : `session.event:${session.id}:changed`);
     });
     const liveness = setInterval(() => {
       for (const sessionId of this.bindings.keys()) {
@@ -340,7 +348,7 @@ export default class NanoRuntime {
     });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { observationOnly?: boolean; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { recoveryMarkers?: boolean; observationOnly?: boolean; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
       await deletion?.restore();
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       for (const agent of config.agents) {
@@ -349,6 +357,7 @@ export default class NanoRuntime {
         this.cron.block(agent.agentId, lifecycle.current(agent.agentId).disabled === true);
       }
       if (config.protocol !== 1) throw new RpcError(-32002, 'Unsupported Nano runtime protocol');
+      this.markRecovery = config.recoveryMarkers === true;
       await this.sessionController;
       await approvalFiber.await();
       await modelFiber.await();
@@ -407,6 +416,11 @@ export default class NanoRuntime {
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
     });
     handle('session.ensure', value => this.ensure(value as SessionBinding));
+    handle('session.recovery.probe', value => {
+      const {sessionId, afterSeq, localWork} = value as {sessionId: string; afterSeq: number; localWork: boolean};
+      if (!Number.isSafeInteger(afterSeq) || afterSeq < -1) throw new RpcError(-32602, 'Invalid recovery cursor');
+      return this.owned.recoveryProbe(sessionId, afterSeq, localWork);
+    });
     handle('session.submit', value => {
       const input = value as Submit;
       const key = `${input.sessionId}\0${input.inputId}`;
@@ -526,46 +540,133 @@ export default class NanoRuntime {
       await this.flush(agent);
       return (await models).fallback.evidence(agent, inputId);
     });
+    type WorkRead = {sessionId:string; afterSeq?:number; replayFrom?:number; modelVersion?:string; stoppedRevision?:number};
+    const disabling = new Map<string, Promise<{confirmed: boolean}>>();
+    const workBinding = async ({sessionId, stoppedRevision}: WorkRead) => {
+      const binding = this.bindings.get(sessionId);
+      if (!binding) throw new RpcError(-32004, 'Session has no trusted product binding');
+      if (stoppedRevision === undefined) lifecycle.assertEnabled(binding.agentId);
+      else {
+        const state = lifecycle.current(binding.agentId);
+        if (!state.disabled || state.revision !== stoppedRevision || !(await disabling.get(binding.agentId))?.confirmed)
+          throw new RpcError(-32004, 'Work requires a confirmed runtime stop at this revision');
+      }
+      return binding;
+    };
+    const projectPage = async (input: WorkRead, firstOwn: number, head: number, eventAt: (seq: number) => SessionEvent | undefined, modelPolicy: ModelPolicy) => {
+      const {sessionId, afterSeq = -1, replayFrom} = input;
+      const fallback = modelPolicy.fallback;
+      return workPage({afterSeq, replayFrom, firstOwn, head, eventAt,
+        present:event=>toolViews.one(sessionId,event), model:turn=>fallback.workModel(sessionId,turn), modelVersion:fallback.workVersion(sessionId)});
+    };
     handle('session.work.check', async value => {
-      const {sessionId, cursors = {}, modelVersions = {}} = value as {sessionId:string;cursors?:Record<string,number>;modelVersions?:Record<string,string>};
-      if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
-      const fallback = (await models).fallback;
-      const refresh = (id:SessionId) => {
-        const runs=fallback.list(id);
-        return runs.some(run=>run.state!=='completed') || modelVersions[id]!==modelVersion(runs);
-      };
-      const rootSettled=await descendantReader.settled(SessionId(sessionId),cursors,refresh,false);
-      const settled=rootSettled && await descendantReader.settled(SessionId(sessionId),cursors,refresh);
-      return {settled,rootSettled};
+      const input = value as WorkRead;
+      await workBinding(input);
+      const id = SessionId(input.sessionId), fallback = (await models).fallback;
+      const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
+        fallback.list(id).some(run=>run.state!=='completed') || input.modelVersion!==fallback.workVersion(id), false);
+      return {rootSettled};
     });
+    handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
+    // The send path needs durable native facts, not frozen tool cards or Work projection.
+    handle('session.publication', async value => {
+      const {sessionId, afterSeq, callId, readIds, head: upper} = value as {
+        sessionId: string; afterSeq: number; callId?: string; readIds: string[]; head?: number;
+      };
+      await workBinding({sessionId});
+      const {session} = await this.agent(sessionId);
+      const head = Math.min(session.seq - 1, upper ?? Infinity);
+      const first = Math.max(session.inheritedEventCount, afterSeq + 1);
+      const slice = (from: number, to: number) => session.snapshotEvents(SessionLogOffset(from), SessionLogOffset(to));
+      let call: RuntimePublicationEvidence['call'];
+      if (callId !== undefined) for (let end = head + 1; end > first && !call;) {
+        const start = Math.max(first, end - workPageItems);
+        const event = slice(start, end).findLast(event => event.type === 'tool/call' && event.data.callId === callId);
+        if (event?.type === 'tool/call') call = {turn: event.data.turn, seq: event.seq};
+        end = start;
+      }
+      if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Publication has no persistence barrier');
+      lifecycle.assertEnabled(this.bindings.get(sessionId)!.agentId);
+      const reads: RuntimePublicationEvidence['reads'] = [];
+      const pending = new Set(readIds);
+      const fallback = pending.size ? (await models).fallback : undefined;
+      let throughSeq = first - 1, bytes = 128;
+      if (!pending.size) throughSeq = head;
+      scan: for (let start = first; pending.size && start <= head; start += workPageItems) {
+        for (const event of slice(start, Math.min(start + workPageItems, head + 1))) {
+          if (event.type === 'tool/result' && !event.data.message.isError && pending.has(event.data.message.toolCallId)) {
+            const {type, seq, time, data:{turn, message}} = event;
+            const read = {type, seq, time, data:{turn:fallback?.workModel(sessionId,turn)?.turn ?? turn, message}};
+            const size = jsonBytes(read);
+            if (reads.length && (bytes + size > workPageBytes || reads.length >= workPageItems)) break scan;
+            reads.push(read);
+            bytes += size;
+          }
+          throughSeq = event.seq;
+        }
+      }
+      return {durable:true, call, reads, throughSeq, head} satisfies RuntimePublicationEvidence;
+    }, {pull:'publication'});
+    handle('session.work.root', async value => {
+      const input = value as WorkRead;
+      await workBinding(input);
+      const id = SessionId(input.sessionId), policy = await models;
+      if (input.stoppedRevision !== undefined) {
+        if (!await ctx.sessionPersistence.stat(id))
+          return projectPage(input, 0, -1, () => undefined, policy);
+        using cut = await ctx.sessionQuery.observeSession(id, {projectionMode:'none'});
+        return await projectPage(input, cut.inheritedEventCount, cut.cursor, seq => cut.events[seq], policy);
+      }
+      const {session} = await this.agent(id);
+      const head = session.seq - 1;
+      if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Root Session has no persistence barrier');
+      return projectPage(input, session.inheritedEventCount, head,
+        seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
+    }, {pull:'work-root'});
+    handle('session.work.children', async value => {
+      const input = value as WorkRead & {afterId?: string};
+      await workBinding(input);
+      const root = SessionId(input.sessionId), reply:RuntimeWorkCatalog={children:[]};
+      if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return reply;
+      const fallback = (await models).fallback;
+      const workflowRuns = await (await workflow).relationships(root);
+      let seeking = input.afterId !== undefined, bytes = 128;
+      for await (const entry of descendantReader.catalog(root)) {
+        if (seeking) { if (entry.id === input.afterId) seeking = false; continue; }
+        const linked = entry.kind === 'child' && workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===entry.id)));
+        const child:RuntimeWorkChild = entry.kind === 'child'
+          ? {kind:'child', id:entry.id, parentId:entry.parentId, label:entry.label, throughSeq:entry.throughSeq,
+            mode:entry.mode, depth:entry.depth, activity:entry.activity, hasChildren:entry.hasChildren,
+            modelVersion:fallback.workVersion(entry.id), ...(linked ? {workflowRunId:linked.id} : {})}
+          : {kind:'diagnostic', id:entry.id, parentId:entry.parentId, reason:entry.reason};
+        const size = jsonBytes(child);
+        if (reply.children.length && (reply.children.length >= workPageItems || bytes+size > workPageBytes)) {
+          reply.next = reply.children.at(-1)!.id;
+          return reply;
+        }
+        reply.children.push(child);
+        bytes += size;
+      }
+      if (seeking) throw new RpcError(-32005, 'Work catalog position changed');
+      return reply;
+    }, {pull:'work-descendants'});
+    handle('session.work.child', async value => {
+      const input = value as WorkRead & {childId: string};
+      await workBinding(input);
+      const id = SessionId(input.childId), policy = await models;
+      const version = () => policy.fallback.workVersion(id);
+      const page = await descendantReader.page(SessionId(input.sessionId), id, input.afterSeq ?? -1,
+        () => input.modelVersion !== version(), cut =>
+          projectPage({...input,sessionId:id}, cut.inheritedEventCount, cut.cursor, seq=>cut.events[seq], policy));
+      return page ?? {durable:true,events:[],modelRuns:[],modelVersion:version(),throughSeq:input.afterSeq ?? -1,more:false} satisfies RuntimeWorkPage;
+    }, {pull:'work-descendants'});
     handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
       const agent = await this.agent(sessionId);
       const events = agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq) && event.seq > afterSeq);
       await this.flush(agent);
       const runs = structuredClone((await models).fallback.list(sessionId));
-      return { status: agent.status, events: await toolViews(sessionId, events), modelRuns: runs, modelVersion: modelVersion(runs), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
-    });
-    handle('session.descendants', async value => {
-      const { sessionId, cursors = {}, modelVersions = {} } = value as { sessionId: string; cursors?: Record<string, number>; modelVersions?: Record<string, string> };
-      if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
-      const root = SessionId(sessionId);
-      const fallback = (await models).fallback;
-      const snapshots = new Map<string, { modelRuns: ReturnType<typeof fallback.list>; modelVersion: string }>();
-      const children = await descendantReader.read(root, cursors, id => {
-        const modelRuns = structuredClone(fallback.list(id));
-        const version = modelVersion(modelRuns);
-        snapshots.set(id, { modelRuns, modelVersion: version });
-        return modelVersions[id] !== version;
-      });
-      const workflowRuns = await (await workflow).relationships(root);
-      const descendants = [];
-      for (const child of children) {
-        if (child.kind !== 'child') { descendants.push(child); continue; }
-        const workflowRun = workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===child.id)));
-        descendants.push({ ...child, ...(workflowRun?{workflowRunId:workflowRun.id}:{}), ...snapshots.get(child.id), events: await toolViews(child.id, child.events ?? []) });
-      }
-      return descendants;
+      return { status: agent.status, events: await toolViews(sessionId, events), modelRuns: runs, modelVersion: (await models).fallback.workVersion(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
     });
     handle('workflow.pending', async () => (await workflow).pending());
     handle('workflow.acknowledge', async value => { await (await workflow).acknowledge((value as {runId:string}).runId); return {acknowledged:true}; });
@@ -593,7 +694,7 @@ export default class NanoRuntime {
     handle('task.execution.changed', value=>{this.tasks.changed((value as {agentId:string}).agentId,(value as {reset?:boolean}).reset!==false);return {ok:true};});
     handle('task.execution.block', value=>{const {sessionId,blocked}=value as {sessionId:string;blocked:boolean};this.tasks.block(sessionId,blocked);return {ok:true};});
     handle('session.cancel', async value => {
-      const { sessionId,stoppedAt } = value as { sessionId: string;stoppedAt?:string };
+      const { sessionId,stoppedAt,settleTaskContext } = value as { sessionId: string;stoppedAt?:string;settleTaskContext?:boolean };
       this.tasks.interrupt(sessionId,stoppedAt);
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
@@ -603,6 +704,7 @@ export default class NanoRuntime {
       agent.cancel({ kind: 'user' }, { keepInbox: true });
       await agent.whenIdle();
       await this.flush(agent);
+      if (settleTaskContext) await taskContext.reconcile(agent);
       return { stopped: true, wasRunning };
     });
     handle('approval.answer', value => {
@@ -809,7 +911,6 @@ export default class NanoRuntime {
       }
       return this.cron.command(agentId, sessionId, action, args);
     });
-    const disabling = new Map<string, Promise<{confirmed: boolean; history: RuntimeStopHistory[]}>>();
     const deleting = new Set<string>();
     const removeAgentExecution = async (value: unknown, purge: boolean) => {
       const {agentId, revision, operationId, plan, knownSessionIds = []} = value as {
@@ -840,7 +941,7 @@ export default class NanoRuntime {
           (await models).fallback.forget(ids),
           ctx.nanoTrajectoryRuns.forget(ids),
           ctx.nanoTrajectoryAttachments.settle(ids),
-          toolViews.forget(key => {const owner = tupleOwner(key); return owner !== undefined && ids.has(owner);}),
+          toolViews.purge(ids),
         ]);
         await purgeDerived(ctx, process.env.DSH_HOME!, agentId, sessionIds);
         descendantReader.forget(ids);
@@ -854,8 +955,8 @@ export default class NanoRuntime {
     this.peer.handle('agent.deletion.plan', value => removeAgentExecution(value, false));
     this.peer.handle('agent.deletion.purge', value => removeAgentExecution(value, true));
     this.peer.handle('agent.disable', value => {
-      const {agentId, revision, cursors = {}} = value as {agentId: string; revision: number; cursors?: Record<string, number>};
-      if (deletion?.retiredRevision(agentId) === revision) return {confirmed: true, history: []};
+      const {agentId, revision} = value as {agentId: string; revision: number};
+      if (deletion?.retiredRevision(agentId) === revision) return {confirmed: true};
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new Error('Unknown product Agent');
       if (revision < lifecycle.current(agentId).revision) throw new Error('stale_lifecycle');
       // Admission closes before the first await; shared services and B remain alive.
@@ -869,7 +970,6 @@ export default class NanoRuntime {
         task = (async () => {
           await this.owned.settle(agentId);
           const agents = ctx.agents.list().filter(agent => this.ownerOf(agent.id) === agentId);
-          const stopped = agents.map(agent => ({agent, rootSessionId: boundRoot(agent.id), parentSessionId: agent.session.header.parentSession}));
           for (const agent of agents) agent.cancel({kind: 'user'});
           // Close owned terminals before cancelling their Jobs. Cancelling a
           // send first can race an exited foreground group and poison native
@@ -903,32 +1003,7 @@ export default class NanoRuntime {
           await lifecycle.prepare(agentId, () => cancelPersisted(agentId));
           if (ctx.agents.list().some(agent => this.ownerOf(agent.id) === agentId)) throw new Error('Managed Agents remain after cleanup');
           if (errors.length) throw new Error(`Runtime cleanup failed: ${errors[0]}`);
-          const snapshot = async (sessionId: string, rootSessionId: string, parentSessionId: string | undefined, events: SessionEvent[], throughSeq: number) => {
-            const modelRuns = structuredClone((await models).fallback.list(sessionId));
-            return {sessionId, rootSessionId, parentSessionId,
-              events: (await toolViews(sessionId, events)).map(event => ({...event, data: {...event.data}})),
-              modelRuns, modelVersion: modelVersion(modelRuns), throughSeq};
-          };
-          const finalHistory = await Promise.all(stopped.flatMap(({agent, rootSessionId, parentSessionId}) => {
-            const afterSeq = cursors[agent.id] ?? -1;
-            const events = agent.session.ownEvents().filter(event => event.seq > afterSeq);
-            return rootSessionId ? [snapshot(agent.id, rootSessionId, parentSessionId, events, events.at(-1)?.seq ?? afterSeq)] : [];
-          }));
-          // An offline disable can arrive after the old host already stopped.
-          // Reconcile its durable end events without restoring disabled Agents.
-          for (const binding of this.bindings.values()) {
-            if (binding.agentId !== agentId || stopped.some(item => item.agent.id === binding.sessionId)) continue;
-            const rootId = SessionId(binding.sessionId);
-            if (!await ctx.sessionPersistence.stat(rootId)) continue;
-            using observation = await ctx.sessionQuery.observeSession(rootId);
-            const events = observation.events.slice(observation.inheritedEventCount).filter(event => event.seq > (cursors[rootId] ?? -1));
-            finalHistory.push(await snapshot(rootId, rootId, observation.header.parentSession, events, observation.cursor));
-            for (const child of await descendantReader.read(rootId, cursors, () => false)) if (child.kind === 'child') {
-              const events = (child.events ?? []).filter(event => event.seq > (cursors[child.id] ?? -1));
-              finalHistory.push(await snapshot(child.id, rootId, child.parentId, events, child.throughSeq ?? cursors[child.id] ?? -1));
-            }
-          }
-          return {confirmed: true, history: finalHistory};
+          return {confirmed: true};
         })();
         disabling.set(agentId, task);
         void task.catch(() => {

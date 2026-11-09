@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -13,7 +13,7 @@ import { tr } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
-import { AgentExecutionDeletedError, workBase, workRequest, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
+import { AgentExecutionDeletedError, workBase, workRequest, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
 import "./agent-work.css";
 import { AgentTrajectory } from './agent-trajectory';
 
@@ -26,6 +26,39 @@ const statusLabel = (status: string) => tr({ running: "运行中", waiting_permi
 function readSaved(key: string): SavedView {
   try { return JSON.parse(sessionStorage.getItem(key) ?? "null") ?? { selected: null, expanded: {}, scroll: 0 }; }
   catch { return { selected: null, expanded: {}, scroll: 0 }; }
+}
+
+function WorkTurnList({ turns, anchors, renderTurn, nextTurnId, earlier }: {
+  turns: WorkTurn[];
+  anchors: WorkFocus[];
+  renderTurn(turn: WorkTurn): ReactNode;
+  nextTurnId?: string | null;
+  earlier?: {loading: boolean; load(): void};
+}) {
+  const ordinary = new Set(turns.map(turn => turn.turn_id));
+  const extra = new Map(anchors.filter(anchor => !ordinary.has(anchor.turn.turn_id)).map(anchor => [anchor.turn.turn_id, anchor]));
+  const merged = extra.size ? [...turns, ...[...extra.values()].map(anchor => anchor.turn)].sort((a, b) => b.seq - a.seq) : turns;
+  const olderByTurn = new Map(turns.map((turn, i) => [turn.turn_id, turns[i + 1]?.turn_id ?? nextTurnId]));
+  const gaps = merged.map((turn, i) => {
+    const anchor = extra.get(turn.turn_id);
+    if (!anchor) return false;
+    const previous = merged[i - 1];
+    // An inactive anchor may have been newest when cached. The preceding
+    // card's older neighbor still identifies the boundary after newer turns arrive.
+    const precedingAnchor = previous && extra.get(previous.turn_id);
+    const older = precedingAnchor ? precedingAnchor.older_turn_id : previous && olderByTurn.get(previous.turn_id);
+    return older !== undefined ? older !== turn.turn_id : anchor.newer_turn_id !== (previous?.turn_id ?? null);
+  });
+  const firstGap = gaps.indexOf(true);
+  const more = earlier && <button className="im-work-earlier" type="button" disabled={earlier.loading} onClick={earlier.load}>{tr("更早轮次")}</button>;
+  return <>
+    {merged.map((turn, i) => <Fragment key={turn.turn_id}>
+      {firstGap === i && more}
+      {gaps[i] && <p className="im-work-gap">{tr("中间轮次尚未加载")}</p>}
+      {renderTurn(turn)}
+    </Fragment>)}
+    {firstGap === -1 && more}
+  </>;
 }
 
 const Usage = WorkUsage;
@@ -97,9 +130,19 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const [saved, setSaved] = useState(() => readSaved(storageKey));
   const root = useRef<HTMLDivElement>(null);
   const restored = useRef(false);
-  const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main", messageId], initialPageParam: "", staleTime: 1000, queryFn: ({ pageParam, signal }) => workRequest<WorkView>(`${workBase(agentId)}?view=summary${messageId ? `&message_id=${encodeURIComponent(messageId)}` : ""}${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ""}`, signal), getNextPageParam: page => page.next_cursor ?? undefined });
+  const viewQuery = useInfiniteQuery({ queryKey: ["agent-work", agentId, "main"], initialPageParam: "", staleTime: 1000, queryFn: ({ pageParam, signal }) => workRequest<WorkView>(`${workBase(agentId)}?view=summary${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ""}`, signal), getNextPageParam: page => page.next_cursor ?? undefined });
   const view = viewQuery.data?.pages[0];
-  const nativeSession = search.get('execution') || view?.focus?.session_id || view?.main_session_id || null;
+  const focusPrefix = ["agent-work", agentId, "focus"];
+  const focusQuery = useQuery({
+    queryKey: [...focusPrefix, messageId], enabled: Boolean(messageId), staleTime: 1000, retry: false,
+    queryFn: async ({signal}) => (await workRequest<{focus: WorkFocus | null}>(`${workBase(agentId)}/focus?message_id=${encodeURIComponent(messageId!)}`, signal)).focus,
+  });
+  const focus = focusQuery.isSuccess ? focusQuery.data?.turn : undefined;
+  // The ordinary pages own their cursors. Visited reply summaries share the
+  // account's query cache and supplement those pages until pagination reaches them.
+  const anchors = (viewQuery.isSuccess ? client.getQueriesData<WorkFocus | null>({queryKey: focusPrefix}) : []).flatMap(([key, data]) =>
+    data && client.getQueryState(key)?.status === "success" ? [data] : []);
+  const nativeSession = search.get('execution') || focus?.session_id || view?.main_session_id || null;
   const [nativeSelectionVersion, setNativeSelectionVersion] = useState(0);
   const [activeNative, setActiveNative] = useState<{base: string | null; sessionId: string; label?: string} | null>(null);
   const onActiveNative = useCallback((sessionId: string, label?: string) => setActiveNative({base:nativeSession,sessionId,label}), [nativeSession]);
@@ -124,6 +167,8 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const online = view?.node_connection_state === "online";
   const mainTurns = viewQuery.data?.pages.flatMap(p => p.turns) ?? [];
   const childTurns = childQuery.data?.pages.flatMap(p => p.turns) ?? [];
+  const mainAnchors = anchors.filter(anchor => anchor.turn.session_id === view?.main_session_id);
+  const childAnchors = anchors.filter(anchor => anchor.turn.session_id === saved.selected);
   const save = () => {
     const scroll = root.current?.closest(".im-agent-panel")?.scrollTop ?? 0;
     sessionStorage.setItem(storageKey, JSON.stringify({ ...saved, scroll, focus: document.activeElement?.id }));
@@ -147,7 +192,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refreshVisible); };
   }, [agentId, client]);
   useEffect(() => {
-    if (!view || restored.current || (messageId && view.focus && !nativeMode)) return;
+    if (!view || restored.current || (focus && !nativeMode)) return;
     restored.current = true;
     const frame = requestAnimationFrame(() => {
       const scroller = root.current?.closest(".im-agent-panel");
@@ -155,26 +200,14 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
       if (saved.focus) document.getElementById(saved.focus)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
-  }, [view, saved, messageId, nativeMode]);
+  }, [view, saved, focus, nativeMode]);
   useEffect(() => {
-    const focus = view?.focus;
-    if (!messageId || !focus || nativeMode || focusedNavigation.current === replyFocusToken) return;
+    if (!view || !focus || nativeMode || focusedNavigation.current === replyFocusToken) return;
     focusedNavigation.current = replyFocusToken;
     restored.current = true;
     const key = `${focus.session_id}:${focus.turn_id}`;
     setSaved(current => ({...current, selected: focus.session_id === view.main_session_id ? null : focus.session_id, expanded: {...current.expanded, [key]: true}}));
-  }, [messageId, view?.focus?.session_id, view?.focus?.turn_id, view?.main_session_id, nativeMode, replyFocusToken]);
-  useEffect(() => {
-    const focus = view?.focus;
-    if (!messageId || !focus || nativeMode) return;
-    // Keep the ordinary newest-first list. Older anchors load its summary pages
-    // in order instead of replacing the list with a target-only history slice.
-    const inMain = focus.session_id === view.main_session_id;
-    if (!inMain && saved.selected !== focus.session_id) return;
-    const turns = inMain ? mainTurns : childTurns;
-    const query = inMain ? viewQuery : childQuery;
-    if (!turns.some(turn => turn.session_id === focus.session_id && turn.turn_id === focus.turn_id) && query.hasNextPage && !query.isFetching && !query.isFetchNextPageError) void query.fetchNextPage();
-  }, [messageId, view, nativeMode, saved.selected, mainTurns, childTurns, viewQuery, childQuery]);
+  }, [focus, view, nativeMode, replyFocusToken]);
   const expand = (key: string, open: boolean) => setSaved(current => ({ ...current, expanded: { ...current.expanded, [key]: open } }));
   const refresh = () => { void client.invalidateQueries({ queryKey: ["agent-work", agentId] }); };
   const selectChild = (id: string | null) => {
@@ -185,32 +218,42 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
       if (scroller) scroller.scrollTop = id ? 0 : mainScroll;
     });
   };
-  const renderTurn = (turn: WorkTurn) => <Turn key={`${turn.session_id}:${turn.turn_id}`} turn={turn} agentId={agentId} online={online} sessions={view?.other_executions ?? []} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh} focusToken={!nativeMode && view?.focus?.session_id === turn.session_id && view?.focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
+  const renderTurn = (turn: WorkTurn) => <Turn key={`${turn.session_id}:${turn.turn_id}`} turn={turn} agentId={agentId} online={online} sessions={view?.other_executions ?? []} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh} focusToken={!nativeMode && focus?.session_id === turn.session_id && focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
     <div ref={root} className="im-work" data-testid="agent-work-panel">
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
         <div className="im-work-toolbar">
-          <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode} onClick={showRecords}>{tr('工作记录')}</button><button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || view.focus?.session_id || view.main_session_id)}>{tr('原生轨迹')}</button></div>
+          <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode} onClick={showRecords}>{tr('工作记录')}</button><button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || focus?.session_id || view.main_session_id)}>{tr('原生轨迹')}</button></div>
           {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={shownNative ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{view.other_executions.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id === shownNative && activeNative?.base === nativeSession && activeNative.label ? activeNative.label : tr(sessionTitle(session))}</option>)}{shownNative && shownNative !== view.main_session_id && !view.other_executions.some(session => session.session_id === shownNative) && <option value={shownNative}>{activeNative?.label || tr('关联执行')}</option>}</select></label>}
           <div className="im-work-toolbar-status">{!nativeMode && <span>{tr("主 Agent")} · {statusLabel(online ? view.main_execution : "unknown")}</span>}{!online && <span className="im-work-error">{tr("节点离线")}</span>}</div>
         </div>
         {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeSession === view.main_session_id ? tr('主 Agent') : tr(sessionTitle(view.other_executions.find(item => item.session_id === nativeSession)))} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
         <div hidden={nativeMode}>
-        {messageId && view.focus === null && <p className="im-work-callout" role="status">{tr("该回复的工作记录尚未同步或不可用。")}</p>}
-        {view.focus && <button type="button" onClick={() => { const next = new URLSearchParams(location.search); next.delete('message_id'); navigate({search: next.toString()}); }}>{tr("查看最新轮次")}</button>}
+        {messageId && (focusQuery.isError || focusQuery.data === null) && <p className="im-work-callout" role="status">{focusQuery.error instanceof AgentExecutionDeletedError ? focusQuery.error.message : tr("该回复的工作记录尚未同步或不可用。")}</p>}
+        {focus && <button type="button" onClick={() => {
+          const next = new URLSearchParams(location.search);
+          next.delete('message_id');
+          navigate({search: next.toString()});
+          setSaved(current => ({...current, selected: null}));
+          const scroller = root.current?.closest(".im-agent-panel");
+          if (scroller) scroller.scrollTop = 0;
+        }}>{tr("查看最新轮次")}</button>}
         {!online && <p className="im-work-callout" role="status">{tr("节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。")}</p>}
         {online && view.record_sync_state !== "current" && <p className="im-work-callout" role="status">{tr(view.record_sync_state === "catching_up" ? "工作记录正在补齐，当前显示已保存内容。" : "当前显示已保存记录，最新进度尚未确认。")}</p>}
         <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
           <section className="im-work-trace"><header className="im-work-section-head"><h3>{tr("主 Agent")}</h3><small>{tr("最新轮次在前 · 轮次内部按实际顺序")}</small></header>
-            {mainTurns.length ? mainTurns.map(renderTurn) : <p className="im-work-state">{tr("暂无工作记录。符合配置的新消息会进入收件箱。")}</p>}
-            {viewQuery.hasNextPage && <button type="button" disabled={viewQuery.isFetchingNextPage} onClick={() => void viewQuery.fetchNextPage()}>{tr("更早轮次")}</button>}
+            {mainTurns.length || mainAnchors.length ? <WorkTurnList turns={mainTurns} anchors={mainAnchors} renderTurn={renderTurn} nextTurnId={viewQuery.data?.pages.at(-1)?.next_turn_id}
+              earlier={viewQuery.hasNextPage ? {loading: viewQuery.isFetchingNextPage, load: () => void viewQuery.fetchNextPage()} : undefined} />
+              : <p className="im-work-state">{tr("暂无工作记录。符合配置的新消息会进入收件箱。")}</p>}
           </section>
           {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr("← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
             <button type="button" onClick={() => showNative(saved.selected)}>{tr('查看原生轨迹')}</button>
-            {childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : childQuery.isError ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p> : childTurns.length ? childTurns.map(renderTurn) : <p>{tr("尚未报告执行轮次")}</p>}
-            <SessionFacts items={childQuery.data?.pages[0]?.control_items} />
-            {childQuery.hasNextPage && <button type="button" disabled={childQuery.isFetchingNextPage} onClick={() => void childQuery.fetchNextPage()}>{tr("更早轮次")}</button>}
+            {childQuery.isError ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p>
+              : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}
+                earlier={childQuery.hasNextPage ? {loading: childQuery.isFetchingNextPage, load: () => void childQuery.fetchNextPage()} : undefined} />
+              : childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : <p>{tr("尚未报告执行轮次")}</p>}
+            {!childQuery.isError && <SessionFacts items={childQuery.data?.pages[0]?.control_items} />}
           </aside>}
         </div>
         <SessionFacts items={view.control_items} title={tr("控制记录")} />

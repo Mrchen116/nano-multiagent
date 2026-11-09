@@ -166,6 +166,45 @@ it('filters live events, replay and native trajectory by current space after com
   expect(rejected[0]).toMatchObject({type: 'failed'});
 });
 
+it('applies the replay count and age limits only to the signed-in user’s visible events', async () => {
+  const {app, db, register, request} = await fixture();
+  const [reader, other] = await Promise.all([register('replay-reader'), register('replay-other')]);
+  async function privateChat(account: typeof reader, suffix: string) {
+    agent(db, suffix, account.user.id, `personal:${account.user.id}`);
+    const response = await request(account.access_token, 'POST', '/im/v1/conversations',
+      {title: suffix, type: 'direct', participants: [{type: 'agent', id: suffix}]});
+    expect(response.statusCode).toBe(201);
+    return response.json().id as string;
+  }
+  const first = await privateChat(reader, 'replay-first');
+  const second = await privateChat(reader, 'replay-second');
+  const hidden = await privateChat(other, 'replay-hidden');
+  const record = db.prepare(`INSERT INTO conversation_events(conversation_id,event_type,delivery_status,payload_json,created_at)
+    VALUES(?,'message.completed','completed',?,?)`);
+  const add = (chat: string, content: string, at = new Date().toISOString()) => Number(record.run(chat, JSON.stringify({content}), at).lastInsertRowid);
+  const start = add(first, 'already seen');
+  const frames: {op: string; reason?: string; event_id?: number; conversation_id?: string}[] = [];
+  const browser = {socket: {readyState:1, bufferedAmount:0, send: (raw: string) => frames.push(JSON.parse(raw))} as any,
+    userId:reader.user.id, sessionId:app.im.identity.accessSession(reader.access_token).sid, ready:false, cursor:start};
+  const relevantFirst = add(second, 'first missed');
+  db.exec('BEGIN');
+  for (let i = 0; i < 2001; i++) add(hidden, 'unrelated', '2000-01-01T00:00:00.000Z');
+  db.exec('COMMIT');
+  const relevantSecond = add(first, 'second missed');
+  const replay = (cursor: number) => { frames.length = 0; app.im.gateway.replay(browser, cursor); return frames.filter(frame => frame.op === 'resync_required' || frame.conversation_id); };
+  expect(replay(start).map(frame => frame.event_id)).toEqual([relevantFirst, relevantSecond]);
+  expect(browser.cursor).toBe(relevantSecond);
+  const irrelevantOnly = add(hidden, 'only unrelated');
+  expect(replay(relevantSecond)).toEqual([]);
+  const expired = add(second, 'missed and old', '2000-01-01T00:00:00.000Z');
+  expect(replay(irrelevantOnly)).toEqual([{op:'resync_required', reason:'replay_window_expired'}]);
+  expect(replay(0).map(frame => frame.event_id)).toContain(expired);
+  db.exec('BEGIN');
+  for (let i = 0; i < 2001; i++) add(i % 2 ? first : second, 'visible');
+  db.exec('COMMIT');
+  expect(replay(expired)).toEqual([{op:'resync_required', reason:'gap_too_large'}]);
+});
+
 it('does not replay old private task mutation receipts after the Agent changes private owner', async () => {
   const { app, db, register, request } = await fixture();
   const before = await register('before-transfer'), after = await register('after-transfer');
@@ -285,7 +324,8 @@ it('lets both real Agent owners observe existing direct history and events witho
   db.prepare("UPDATE conversations SET owner_id='legacy-orphan' WHERE id=?").run(cross);
   const interactive = {format:'openui',catalog_version:'nano-iui-1',source:'$body = "Read only"\nroot = Col([Form([TextArea($body, "Draft"), Button("Continue", @SendToChat("Continue"))])])'};
   const histories = [cross, same, personal].map(id => messaging.insertMessage(id, id === personal ? 'agent-private-left' : 'agent-left', 'agent', 'existing history', [], null, 'completed', id === cross ? {interactive} : {}));
-  const interactionPath = `/im/v1/conversations/${cross}/messages/${histories[0].id}/interaction-state`;
+  const messagePath = `/im/v1/conversations/${cross}/messages/${histories[0].id}`;
+  const interactionPath = `${messagePath}/interaction-state`;
   db.prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(cross,alice.user.id);
   const upload = await app.inject({method:'POST',url:`/im/v1/uploads?conversation_id=${cross}&file_name=history.txt`,payload:'historical attachment',headers:{authorization:`Bearer ${alice.access_token}`,'content-type':'text/plain'}});
   expect(upload.statusCode).toBe(201);
@@ -297,6 +337,7 @@ it('lets both real Agent owners observe existing direct history and events witho
     expect(detail.statusCode).toBe(200);
     expect(detail.json()).toMatchObject({is_observer: true, is_member: false, can_write: false, can_join: false, title: 'left ↔ right', participant_ids: ['agent-left', 'agent-right']});
     expect((await request(pair.access_token, 'GET', `/im/v1/conversations/${cross}/messages`)).json().items[0].message.content).toBe('existing history');
+    expect((await request(pair.access_token, 'GET', messagePath)).json().message.content).toBe('existing history');
     const ids = (await request(pair.access_token, 'GET', '/im/v1/conversations')).json().items.map((c: any) => c.id);
     expect(ids.filter((id: string) => id === cross)).toHaveLength(1);
     expect((await request(pair.access_token, 'GET', '/im/v1/sync')).json().items.map((c: any) => c.id)).toContain(cross);
@@ -314,6 +355,7 @@ it('lets both real Agent owners observe existing direct history and events witho
     expect((await app.inject({method:'POST', url:`/im/v1/uploads?conversation_id=${cross}&file_name=note.txt`, payload:'blocked',headers:{authorization:`Bearer ${pair.access_token}`,'content-type':'text/plain'}})).statusCode).toBe(404);
   }
   expect((await request(outsider.access_token, 'GET', media)).statusCode).toBe(404);
+  expect((await request(outsider.access_token, 'GET', messagePath)).statusCode).toBe(404);
   expect((await request(outsider.access_token, 'GET', interactionPath)).statusCode).toBe(404);
   expect(db.prepare('SELECT COUNT(*) n FROM interaction_drafts').get()).toEqual({n:0});
   expect((await request(outsider.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(404);

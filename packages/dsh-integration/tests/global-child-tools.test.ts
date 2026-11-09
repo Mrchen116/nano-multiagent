@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import {createServer} from 'node:http';
 import {registerNoopTaskContext} from './helpers/noop-task-context.js';
 import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
@@ -49,7 +50,7 @@ ctx.on('llm/stream',async function*(o){
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId: id }) as any).terminal, { timeout: 15000 }).toBeTruthy();
     };
     await start(); await submit('work', 'Delegate independent work');
-    await expect.poll(async () => { const rows = await client!.rpc.request('session.descendants', {sessionId:'root'}) as any[]; return rows.filter(row => row.events.some((event: any) => event.type === 'turn/end')).length; }).toBe(3);
+    await expect.poll(async () => { const rows = await workDescendants(client!.rpc, {sessionId:'root'}) as any[]; return rows.filter(row => row.events.some((event: any) => event.type === 'turn/end')).length; }).toBe(3);
     const before = await snapshots();
     const children = [...new Set(before.filter(row => row.id !== 'root').map(row => row.id))];
     expect(children).toHaveLength(3);
@@ -74,7 +75,7 @@ ctx.on('llm/stream',async function*(o){
       expect(JSON.stringify(row.tools)).not.toContain('"name":"conversations"');
     }
     expect(calls).toEqual([]);
-    const descendants = await client!.rpc.request('session.descendants', { sessionId: 'root' }) as any[];
+    const descendants = await workDescendants(client!.rpc, { sessionId: 'root' }) as any[];
     for (const child of descendants) {
       expect(child.kind,JSON.stringify(child)).toBe('child');
       const results = child.events.filter((event: any) => event.type === 'tool/result' && typeof event.surfaceOp !== 'object');
@@ -204,9 +205,9 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
       expect(names).not.toContain('send_user_message');expect(names).not.toContain('personal_sources');expect(names).not.toContain('agent_creation');
       expect(row.tools.find(tool=>tool.name==='send_message').parameters.properties).not.toHaveProperty('target');
     }
-    await expect.poll(async()=>(await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[]).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
+    await expect.poll(async()=>(await workDescendants(client!.rpc, {sessionId:'root'}) as any[]).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
     const fork=wire.find(row=>row.fork)!;expect(fork.tools).toEqual(first.tools);expect(withoutCache(fork.system)).toEqual(withoutCache(first.system));
-    const children=await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
+    const children=await workDescendants(client!.rpc, {sessionId:'root'}) as any[];
     expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result' && typeof event.surfaceOp !== 'object').every((event:any)=>!event.data.message.isError)).toBe(true);
     const beforeFirst=wire.filter(row=>row.id===first.id).length,beforeSecond=wire.filter(row=>row.id===second.id).length;
     await client!.shutdown();client=undefined;await start();
@@ -238,10 +239,10 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     const settle = async () => {
       await expect.poll(async () => {
         const root = await client!.rpc.request('session.observe',{sessionId:'root'}) as any;
-        const children = await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
-        const cursors = Object.fromEntries([['root',root.throughSeq],...children.map(row=>[row.id,row.throughSeq])]);
-        const modelVersions = Object.fromEntries([['root',root.modelVersion],...children.map(row=>[row.id,row.modelVersion])]);
-        return (await client!.rpc.request('session.work.check',{sessionId:'root',cursors,modelVersions}) as any).settled;
+        const children = await workDescendants(client!.rpc, {sessionId:'root'}) as any[];
+        const check=await client!.rpc.request('session.work.check',{sessionId:'root',afterSeq:root.throughSeq,modelVersion:root.modelVersion}) as {rootSettled:boolean};
+        return check.rootSettled && children.every(row=>row.events.findLast((event:any)=>event.type==='turn/start'||event.type==='turn/end')?.type==='turn/end'
+          && row.modelRuns.every((run:any)=>run.state==='completed'));
       },{timeout:15_000}).toBe(true);
     };
     await settle();
@@ -336,9 +337,9 @@ yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'fini
     await expect.poll(()=>readFile(join(home,'root-received'),'utf8').catch(()=>'' )).toBe('yes');
     await applying;
     expect(JSON.parse(await readFile(join(home,'child-tools.json'),'utf8'))).toContain('read');
-    const children=await client.rpc.request('session.descendants',{sessionId:'root'}) as any[];
+    const children=await workDescendants(client.rpc, {sessionId:'root'}) as any[];
     await expect.poll(async()=>{
-      const rows=await client!.rpc.request('session.descendants',{sessionId:'root'}) as any[];
+      const rows=await workDescendants(client!.rpc, {sessionId:'root'}) as any[];
       return rows[0]?.events.some((e:any)=>e.type==='tool/result' && typeof e.surfaceOp !== 'object'&&!e.data.message.isError);
     }).toBe(true);
     expect(children).toHaveLength(1);

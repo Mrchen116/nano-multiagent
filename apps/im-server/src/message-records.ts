@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { ChatActor, ChatAttachment, ChatEvent, ChatMessage, ChatPermission, ChatProcessItem, ChatStreamFact, ChatThinking, ChatToolCall, InteractionSnapshot, MessageInteractive } from '@nano/product-contracts';
+import type { ChatActor, ChatAttachment, ChatEvent, ChatHistoryMessage, ChatMessage, ChatPermission, ChatProcessItem, ChatProcessSummary, ChatStreamFact, ChatThinking, ChatToolCall, InteractionSnapshot, MessageInteractive } from '@nano/product-contracts';
 import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
 
@@ -140,6 +140,73 @@ export class MessageRecords {
    */
   message(id:string):ChatMessage {
     const m=this.find(id);if(!m)fail(404,'message not found');
+    return this.projectMessage(m);
+  }
+  /** Read one full message within its already-authorized conversation. */
+  conversationMessage(conversationId:string,id:string):ChatMessage {
+    const m=this.db.prepare('SELECT * FROM messages WHERE conversation_id=? AND id=?').get(conversationId,id) as unknown as MessageRecord|undefined;
+    if(!m)fail(404,'message not found');
+    return this.projectMessage(m);
+  }
+  /** Project collapsed process facts in SQLite so terminal bodies never cross into JS. */
+  historySummary(conversationId:string,id:string):ChatHistoryMessage {
+    const m=this.db.prepare(`
+      WITH scoped AS (
+        SELECT *,sender_type='agent' AND delivery_status IN ('completed','failed') AS summarized
+        FROM messages WHERE conversation_id=? AND id=?
+      )
+      SELECT id,conversation_id,sender_user_id,sender_type,lifecycle_revision,content,attachments_json,
+        delivery_status,created_at,sender_display_name,sender_source_id,timezone,
+        token_usage_json,system_notice_json,interaction_reply_json,reply_to_json,elapsed_ms,kernel_message_id,
+        awaiting_permission_at,
+        CASE WHEN summarized THEN (
+          SELECT json_group_array(json(CASE WHEN permission.value->>'status'='resolved' THEN
+            json_object('request_id',permission.value->>'request_id','call_id',permission.value->>'call_id',
+              'status','resolved','decision',permission.value->>'decision','decided_by',permission.value->>'decided_by')
+            ELSE permission.value END) ORDER BY permission.key)
+          FROM json_each(scoped.permission_request_json) permission
+        ) ELSE permission_request_json END AS permission_request_json,
+        CASE WHEN NOT summarized THEN tool_calls_json END AS tool_calls_json,
+        CASE WHEN NOT summarized THEN thinking_json END AS thinking_json,
+        CASE WHEN NOT summarized THEN background_returns_json END AS background_returns_json,
+        CASE WHEN NOT summarized THEN reply_process_json END AS reply_process_json,
+        CASE WHEN summarized THEN (
+          SELECT json_group_array(json_object('id', tool.value->>'id','status',tool.value->>'status',
+            'approval',tool.value->>'approval','reason',CASE WHEN tool.value->>'reason'='denied' THEN 'denied' END))
+          FROM json_each(scoped.tool_calls_json) tool
+        ) END AS tool_facts,
+        CASE WHEN summarized THEN coalesce(json_array_length(thinking_json),0) END AS thinking_count,
+        CASE WHEN summarized THEN coalesce(json_array_length(background_returns_json),0) END AS background_return_count,
+        CASE WHEN summarized THEN (
+          SELECT json_group_object(kind, item_count) FROM (
+            SELECT item.value->>'kind' AS kind, count(*) AS item_count
+            FROM json_each(scoped.reply_process_json) item
+            WHERE item.value->>'kind' IN ('draft','revalidation','segment_handoff')
+            GROUP BY kind
+          )
+        ) END AS reply_process_counts
+      FROM scoped
+    `).get(conversationId,id) as unknown as Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'> & {
+      tool_facts: string|null; thinking_count: number|null; background_return_count: number|null; reply_process_counts: string|null;
+    } | undefined;
+    if(!m)fail(404,'message not found');
+    const message=this.projectMessage(m);
+    if(m.tool_facts===null)return message;
+    const tools=(JSON.parse(m.tool_facts) as ChatToolCall[])
+      .map(call=>withHumanApproval(call,message.permission_requests));
+    const summary:ChatProcessSummary={
+      tool_count:tools.length,
+      thinking_count:m.thinking_count!,
+      background_return_count:m.background_return_count!,
+      reply_process_counts:JSON.parse(m.reply_process_counts??'{}'),
+      has_running_tool:tools.some(call=>call.status==='running'),
+      approval_allow_count:tools.filter(call=>call.approval==='user_allow').length,
+      approval_deny_count:tools.filter(call=>call.approval!=='user_allow'&&(call.approval==='user_deny'||call.reason==='denied')).length,
+    };
+    return {...message,process_summary:summary};
+  }
+  private projectMessage(m:Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'>):ChatMessage {
+    const {id}=m;
     const u=this.db.prepare('SELECT * FROM users WHERE id=?').get(m.sender_user_id) as unknown as MessageUser;
     const delegation=this.db.prepare('SELECT * FROM pa_delegated_messages WHERE message_id=?').get(id) as unknown as MessageDelegation|undefined;
     const deletedWork=m.sender_type==='agent' && this.db.prepare(`SELECT 1 FROM deleted_agent_work_links w

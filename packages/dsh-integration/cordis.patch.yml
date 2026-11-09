@@ -4,6 +4,8 @@
 # Only this plugin writes protocol frames to stdout. Official CLI owns the host.
 - id: compaction-basic
   disabled: true
+- id: session-projection-cache
+  disabled: true
 - id: session-title-llm
   disabled: true
 - id: skill-filesystem

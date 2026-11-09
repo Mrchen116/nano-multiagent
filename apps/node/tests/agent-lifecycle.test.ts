@@ -42,6 +42,22 @@ it.each([true,false])('reports the prior execution identity after a host restart
   expect(f.lifecycle.allowed('a')).toBe(false);
 });
 
+it('resumes an unconfirmed stop on the same boot using the original process cleanup receipt', async()=>{
+  const f=fixture();
+  const disabled={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    observed:'stopping' as const,process_instance_id:'original-host'};
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'original-host',stopped:false});
+  f.setStop({confirmed:false,processInstanceId:'original-host'});
+  await f.lifecycle.synchronize([disabled]);
+  f.lifecycle.recordCleanup('a',2,'original-host');
+  expect(f.proofs.get('a')).toMatchObject({stopped:false,cleanupRevision:2});
+  expect(f.reports.at(-1)?.observed).toBe('stop_unconfirmed');
+  f.setStop({confirmed:true,processInstanceId:'replacement-host'});
+  await f.lifecycle.recoverStop('a');
+  expect(f.reports.at(-1)).toMatchObject({observed:'disabled',process_instance_id:'original-host'});
+  expect(f.proofs.get('a')).toMatchObject({stopped:true,processInstanceId:'original-host'});
+});
+
 it('repairs an already-confirmed disable after reconnecting with a stale local observation',async()=>{
   const f=fixture();
   const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,

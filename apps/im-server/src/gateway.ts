@@ -5,7 +5,7 @@ import { catalogReads } from './catalog-reads.js';
 import { isRecord } from './node-rpc-values.js';
 import {reportAgentDeletion, requireDeletionOperation, resumableAgentDeletions} from './agent-deletion.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
-import { conversationAccess } from './conversation-access.js';
+import { conversationAccess, qualifiedUser, readableConversationIds } from './conversation-access.js';
 import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import type { ChatMessage } from '@nano/product-contracts';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
@@ -221,24 +221,24 @@ export class Gateway {
   replay(b: Browser, cursor: number) {
     const db = this.ctx.db;
     const top = one(db, "SELECT COALESCE(MAX(event_id),0) n FROM conversation_events")!.n;
-    const earliest = top - cursor > 2000 || cursor <= 0 || cursor >= top ? null : one(
-      db,
-      "SELECT MIN(event_id) n FROM conversation_events INDEXED BY conversation_events_time WHERE created_at>=?",
-      new Date(Date.now() - 15 * 60000).toISOString(),
-    )?.n;
-    if (top - cursor > 2000 || (cursor > 0 && earliest && cursor < earliest - 1)) {
+    const user = qualifiedUser(db, b.userId);
+    const heads = user && cursor < top ? all(db, `SELECT event_id, created_at FROM conversation_events
+      WHERE conversation_id IN (SELECT value FROM json_each(?)) AND event_id>? AND event_id<=? LIMIT 2001`,
+      JSON.stringify([...readableConversationIds(db, user)]), cursor, top) : [];
+    // Check the bounded visible cut before loading or ordering any event bodies.
+    const cutoff = new Date(Date.now() - 15 * 60000).toISOString();
+    const expired = cursor > 0 && heads.some(e => e.created_at < cutoff);
+    if (heads.length > 2000 || expired) {
       this.write(b.socket, {
         op: "resync_required",
-        reason: top - cursor > 2000 ? "gap_too_large" : "replay_window_expired",
+        reason: heads.length > 2000 ? "gap_too_large" : "replay_window_expired",
       });
-    } else
+    } else if (heads.length)
       for (const e of all(
         db,
-        "SELECT * FROM conversation_events WHERE event_id>? AND event_id<=? ORDER BY event_id",
-        cursor,
-        top,
+        "SELECT * FROM conversation_events WHERE event_id IN (SELECT value FROM json_each(?)) ORDER BY event_id",
+        JSON.stringify(heads.map(e => e.event_id)),
       )) {
-        if (!conversationAccess(db,e.conversation_id,b.userId)) continue;
         const data = JSON.parse(e.payload_json);
         this.write(b.socket, {
           op: "event",

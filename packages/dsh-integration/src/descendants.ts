@@ -4,7 +4,8 @@ import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-ses
 import type { SessionPersistenceRevision, SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence';
 import { defineDomain, domainTable, type DomainSpec, type DomainTableSpec } from '@deepseek-ai/dsh-storage-domain';
 import { SubagentError, type SubagentCatalogEntry, type SubagentDescendantListEntry } from '@deepseek-ai/dsh-subagent';
-import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query';
+import type { RuntimeWorkPage } from '@nano/product-contracts';
 import { z } from 'zod';
 import { RpcError } from './rpc.js';
 
@@ -23,7 +24,7 @@ export const descendantDomain: CatalogDomain = defineDomain({name:'nano_work_cat
     interruptedTurnEnd:z.number().nullable().optional(),
     witness:z.object({header:z.string(),eventCount:z.number().optional(),sizeBytes:z.number().optional()}).optional()})),
 }});
-type Descendant = SubagentDescendantListEntry & { events?: SessionEvent[]; throughSeq?: number };
+type Descendant = SubagentDescendantListEntry & { throughSeq?: number };
 const key = (id: string) => Buffer.from(id).toString('base64url');
 const witness = (snapshot?: SessionPersistenceSnapshot): Witness | undefined => snapshot?.header &&
   (snapshot.eventCount !== undefined || snapshot.sizeBytes !== undefined)
@@ -82,7 +83,7 @@ export class DescendantReader {
     for (const child of catalog.children) {
       if (child.mode === 'unknown') continue;
       try {
-        const {catalog: observed} = await this.observe(child.id, rootId, undefined, undefined, true);
+        const {catalog: observed} = await this.observe(child.id, rootId, {requireInterruption: true});
         if (observed.interruptedTurnEnd != null && !this.ctx.agents.get(child.id)) {
           interrupted.push({id: child.id, turnEnd: observed.interruptedTurnEnd});
         }
@@ -117,46 +118,47 @@ export class DescendantReader {
     return true;
   }
 
-  /** Read reachable descendants in native catalog order.
-   *
-   * Args:
-   *   rootId: Trusted root already resolved by the runtime's binding checks.
-   *   cursors: Consumer-confirmed native positions; absent means full replay.
-   *   refresh: Synchronous model-version check at the observation cut.
-   * Returns:
-   *   Changed children with own events, unchanged children with empty events,
-   *   and native diagnostics for unavailable branches.
-   */
-  async read(rootId: SessionId, cursors: Record<string, number> = {}, refresh: (id: SessionId) => boolean = () => false): Promise<Descendant[]> {
+  /** Walk native lineage without attaching event bodies to catalog rows. */
+  catalog(rootId: SessionId): AsyncIterable<Descendant> { return this.scan(rootId); }
+
+  /** Observe an authorized child only after discovery through the same trusted root. */
+  async page(rootId: SessionId, id: SessionId, cursor: number, refresh: (id: SessionId) => boolean,
+    project: (cut: SessionObservation) => Promise<RuntimeWorkPage>): Promise<RuntimeWorkPage | undefined> {
+    await this.ready;
+    if (id === rootId || this.rootOf(id) !== rootId) throw new RpcError(-32004, 'Child has no trusted Work lineage');
+    return (await this.observe(id, rootId, {cursor, refresh, project})).page;
+  }
+
+  private async *scan(rootId: SessionId): AsyncGenerator<Descendant> {
     await this.ready;
     const root = await this.observe(rootId,rootId);
     const stack = root.catalog.children.map(entry => ({ entry, parentId: rootId, depth: 1 })).reverse();
     const visited = new Set([rootId]);
-    const result: Descendant[] = [];
     for (let position = stack.pop(); position; position = stack.pop()) {
       const { entry, parentId, depth } = position;
       if (visited.has(entry.id)) continue;
       visited.add(entry.id);
-      if(entry.mode!=='unknown')this.owners.set(entry.id,rootId);
+      if (entry.mode === 'unknown') {
+        yield {kind:'diagnostic',id:entry.id,parentId,depth,reason:'unsupported'};
+        continue;
+      }
+      this.owners.set(entry.id,rootId);
       let read;
-      try { read = await this.observe(entry.id,rootId,cursors[entry.id],refresh); }
+      try { read = await this.observe(entry.id,rootId); }
       catch (error) {
         if (error instanceof SubagentError || error instanceof RpcError) throw error;
         const code = (error as { code?: string })?.code;
-        result.push({ kind: 'diagnostic', id: entry.id, parentId, depth,
-          reason: code === 'SESSION_QUERY_CORRUPT_SESSION' || code === 'SESSION_QUERY_SOURCE_CONFLICT' ? 'corrupt' : 'unavailable' });
+        yield { kind: 'diagnostic', id: entry.id, parentId, depth,
+          reason: code === 'SESSION_QUERY_CORRUPT_SESSION' || code === 'SESSION_QUERY_SOURCE_CONFLICT' ? 'corrupt' : 'unavailable' };
         continue;
       }
-      if (entry.mode === 'unknown') result.push({ kind: 'diagnostic', id: entry.id, parentId, depth, reason: 'unsupported' });
-      else {
-        const { createdAt: _, ...identity } = entry;
-        result.push({ ...identity, kind: 'child', parentId, depth,
-          activity: this.ctx.sessions.get(entry.id) ? 'running' : 'inactive',
-          hasChildren: read.catalog.children.length > 0, throughSeq: read.catalog.cursor, events: read.events });
-      }
+      const { createdAt: _, ...identity } = entry;
+      yield { ...identity, kind: 'child', parentId, depth,
+        activity: this.ctx.sessions.get(entry.id) ? 'running' : 'inactive',
+        hasChildren: read.catalog.children.length > 0, throughSeq: read.catalog.cursor };
+
       for (const child of [...read.catalog.children].reverse()) stack.push({ entry: child, parentId: entry.id, depth: depth + 1 });
     }
-    return result;
   }
 
   private async unchanged(id: SessionId, cached: Catalog): Promise<boolean> {
@@ -168,20 +170,23 @@ export class DescendantReader {
     return !!snapshot && (prior?.identity===persistence.identity && prior.revision===snapshot.revision || sameWitness(cached.witness,snapshot));
   }
 
-  private async observe(id: SessionId, rootId: SessionId, cursor?: number, refresh?: (id: SessionId) => boolean, requireInterruption = false): Promise<{ catalog: Catalog; events: SessionEvent[] }> {
+  private async observe(id: SessionId, rootId: SessionId, {cursor, refresh, project, requireInterruption}: {
+    cursor?: number;
+    refresh?: (id: SessionId) => boolean;
+    project?: (cut: SessionObservation) => Promise<RuntimeWorkPage>;
+    requireInterruption?: boolean;
+  } = {}): Promise<{ catalog: Catalog; page?: RuntimeWorkPage }> {
     const cached=this.catalogs.get(id);
     if(cached?.rootId===rootId && (!requireInterruption || cached.interruptedTurnEnd !== undefined) &&
       (!cached.active || this.ctx.agents?.get(id)?.status==='running') && await this.unchanged(id,cached) && (!refresh || cursor===cached.cursor && !refresh(id)))
-      return {catalog:cached,events:[]};
+      return {catalog:cached};
     const live=this.ctx.sessions.get(id);
     if(live && !await this.ctx.sessions.flush(live))throw new RpcError(-32005,'Child Session has no persistence barrier');
     const before=await this.ctx.sessionPersistence.stat(id);
     using observation=await this.ctx.sessionQuery.observeSession(id);
-    // Capture model state at the same cut, before the subsequent durability await.
-    const replay=refresh?.(id)??false;
     const children=observation.projections?.values.subagentCatalog;
     if(!children)throw new SubagentError('Descendant reads require the subagentCatalog projection','SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE');
-    const events=refresh && (replay || cursor!==observation.cursor) ? observation.events.slice(observation.inheritedEventCount) : [];
+    const page = await project?.(observation);
     const agent=this.ctx.agents?.get(id);
     const lastBoundary=observation.events.findLast(event=>event.seq>=observation.inheritedEventCount && (event.type==='turn/start'||event.type==='turn/end'));
     const interruptedTurnEnd=lastBoundary?.type==='turn/end' && lastBoundary.data.reason.kind==='interrupted' ? lastBoundary.seq : null;
@@ -198,6 +203,6 @@ export class DescendantReader {
     if(stable)this.revisions.set(id,{identity:this.ctx.sessionPersistence.identity,revision:after.revision});
     else this.revisions.delete(id);
     await (await this.storage).table('sessions').put(key(id),catalog);
-    return {catalog,events};
+    return {catalog,page};
   }
 }

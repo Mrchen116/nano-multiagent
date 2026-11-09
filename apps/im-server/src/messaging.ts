@@ -1006,6 +1006,11 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     if (!result.applied) { reply.code(204).send(); return; }
     return {discarded_through: result.discarded_through};
   });
+  app.get('/im/v1/conversations/:conversation_id/messages/:message_id', req => {
+    const {conversation_id, message_id}=params(req);
+    s.access(s.principal(req),conversation_id,query(req).agent_id);
+    return {message:s.records.conversationMessage(conversation_id,message_id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
+  });
   app.get("/im/v1/conversations/:conversation_id/messages", (req) => {
     const p = s.principal(req),
       id = params(req).conversation_id,
@@ -1045,7 +1050,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
           before_message_id: row.id,
           applied_at: b.applied_at,
         });
-      items.push({ type: "message", message: s.message(row.id) });
+      items.push({ type: "message", message: q.view === "summary" ? s.records.historySummary(id,row.id) : s.message(row.id) });
     }
     return { items, next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
   });

@@ -58,6 +58,11 @@ it('retains cancelled input and journal evidence while retiring only the disable
     store.bind(binding());store.bind(binding('b'));
     store.receive('a',input('old'));store.receive('b',input('other','b'));
     store.bufferGroup(input('parked'));store.prepareDelivery('a',1);
+    const completed=store.receive('a',input('confirmed-without-receipt'));
+    store.inputEvidence(completed,{accepted:true,turn:2,terminal:{kind:'completed'}},true);
+    store.updateDelivery(store.prepareDelivery('a',2).operationId,'confirmed','already-visible','saved');
+    store.confirmColdSession('a',undefined);
+    expect(store.hasRecoveryWork('a')).toBe(true);
     inbox.acceptRelay(input('old'),true);inbox.acceptRelay(input('control'),false,true);
     inbox.acceptRelay(input('other','b'),true);inbox.preparePublication('a:call','chat','draft','a');
     inbox.append({event_id:'history',root_agent_id:'a',session_id:'main',type:'message',payload:{text:'kept'}});inbox.acknowledge(1);
@@ -66,9 +71,11 @@ it('retains cancelled input and journal evidence while retiring only the disable
     expect(store.inputs('a')[0]).toMatchObject({input:{message:{content:'hello'}},terminal:'{"kind":"cancelled_by_disable"}'});
     expect(store.lookupInputIds('a')).toEqual([]);expect(store.lookupInputIds('b')).toEqual(['b:other']);
     expect(store.delivery('a',1)?.state).toBe('cancelled_by_disable');
+    expect(store.delivery('a',2)?.state).toBe('confirmed');
+    expect(store.hasRecoveryWork('a')).toBe(false);
     expect(()=>store.admitInput(input('old'))).toThrow('stale_lifecycle');
     expect(()=>store.admitInput(input('parked'))).toThrow('stale_lifecycle');
-    store.takeGroup(binding());expect(store.inputs('a')).toHaveLength(1);
+    store.takeGroup(binding());expect(store.inputs('a')).toHaveLength(2);
     expect(inbox.check('a').sources).toEqual([]);expect(inbox.check('b').sources).toHaveLength(1);
     expect(inbox.wakePending('a')).toBeUndefined();expect(inbox.pendingControls()).toEqual([]);
     expect(inbox.publication('a:call')?.state).toBe('cancelled_by_disable');
@@ -115,8 +122,13 @@ it('commits final stopped Work history and checkpoints without opening execution
     relay:{request:async()=>{calls++;throw new Error('Must not publish');}},onError:()=>{}});
   const events=[{seq:1,time:1,type:'turn/start',data:{turn:1}},{seq:2,time:2,type:'user/message',data:{source:{kind:'human'},content:[{type:'text',text:'Old task'}]}},{seq:3,time:3,type:'turn/end',data:{turn:1,reason:{kind:'cancelled'}}}];
   try {
-    const history=[{sessionId:'a',rootSessionId:'a',events,modelRuns:[],throughSeq:3},{sessionId:'child',rootSessionId:'a',parentSessionId:'a',events,modelRuns:[],throughSeq:3}];
-    product.recordStopped('a',history);product.recordStopped('a',history);
+    const read=async (method:string, args:Record<string,unknown>)=>{
+      expect(args.stoppedRevision).toBe(2);
+      if(method==='session.work.children')return {children:[{kind:'child',id:'child',parentId:'a',throughSeq:3,modelVersion:'stopped'}]};
+      return {durable:true,events:events.filter(e=>e.seq>Number(args.afterSeq??-1)),modelRuns:[],modelVersion:'stopped',throughSeq:3,more:false};
+    };
+    await product.recordStopped('a',2,read);
+    await product.recordStopped('a',2,read);
     expect(calls).toBe(0);expect(inbox.workCheckpoints('a').child?.throughSeq).toBe(3);
     expect(inbox.journal(0).filter(event=>event.type==='turn_end')).toHaveLength(2);
     expect(inbox.journal(0).filter(event=>event.type==='turn_end').every(event=>(event.payload as {status:string}).status==='interrupted')).toBe(true);

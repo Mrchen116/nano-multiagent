@@ -95,6 +95,7 @@ export type { ComposerSnapshot };
 
 export interface MessagePaneProps {
   conversation: Conversation;
+  historyProcess?: { accountId: string; revision: number; load: (id: string, signal: AbortSignal) => Promise<Message> };
   /** Owner-only collaboration summary, within the existing scrollable chat. */
   collaborationContent?: React.ReactNode;
   lifecycleNotice?: React.ReactNode;
@@ -233,6 +234,7 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  */
 export function MessagePane({
   conversation,
+  historyProcess,
   collaborationContent,
   lifecycleNotice,
   headerActions,
@@ -1267,6 +1269,7 @@ export function MessagePane({
                       availableMessageIds={anchoredMessageIds}
                     key={m.id}
                     message={m}
+                    historyProcess={historyProcess}
                     selfUserId={selfUserId}
                     workAgentId={m.sender.type === "agent" && (m.work_record_deleted || globalAgentIds.includes(m.sender.id)) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
                     nodeName={agentNodeNames[m.sender.id]}
@@ -1730,6 +1733,7 @@ function ContextMenu({
 
 function MessageBubble({
   message,
+  historyProcess,
   selfUserId,
   workAgentId,
   nodeName,
@@ -1749,6 +1753,7 @@ function MessageBubble({
   interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false,
 }: {
   message: Message;
+  historyProcess?: MessagePaneProps["historyProcess"];
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
   isGroup?: boolean;
@@ -2041,7 +2046,8 @@ function MessageBubble({
             </div>
           )}
           {isAgent &&
-            ((message.tool_calls && message.tool_calls.length > 0) ||
+            (message.process_summary ||
+              (message.tool_calls && message.tool_calls.length > 0) ||
               (message.thinking && message.thinking.length > 0) ||
               (message.background_returns && message.background_returns.length > 0) ||
               (message.reply_process && message.reply_process.length > 0)) && (
@@ -2050,6 +2056,11 @@ function MessageBubble({
                 thinking={message.thinking}
                 backgroundReturns={message.background_returns}
                 replyProcess={message.reply_process}
+                summary={message.process_summary}
+                historyDetail={historyProcess && {
+                  key: ["chat", "message-process", conversationId, historyProcess.revision, historyProcess.accountId, message.id],
+                  load: signal => historyProcess.load(message.id, signal)
+                }}
                 availableMessageIds={availableMessageIds}
                 onNavigateMessage={(id) => document.getElementById(`chat-message-${id}`)?.scrollIntoView({block: "center", behavior: "smooth"})}
               />

@@ -652,9 +652,13 @@ CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,sche
 CREATE INDEX IF NOT EXISTS agent_work_turns_sequence ON agent_work_turns(session_id,seq DESC);
 CREATE INDEX IF NOT EXISTS agent_work_items_sequence ON agent_work_items(session_id,turn_id,seq);
 CREATE INDEX IF NOT EXISTS conversation_events_time ON conversation_events(created_at);
+CREATE INDEX IF NOT EXISTS conversation_events_by_chat ON conversation_events(conversation_id,event_id,created_at);
 
 CREATE INDEX IF NOT EXISTS pa_source_events_event ON pa_source_events(source_event_id,binding_id);
 CREATE INDEX IF NOT EXISTS agent_work_events_root ON agent_work_events(root_agent_id);
+CREATE INDEX IF NOT EXISTS agent_work_events_reply
+  ON agent_work_events(root_agent_id,json_extract(payload,'$.message_id'),revision)
+  WHERE type='message_sent';
 
 CREATE TABLE IF NOT EXISTS agent_deletions (
   agent_id TEXT PRIMARY KEY REFERENCES agent_profiles(agent_id),
