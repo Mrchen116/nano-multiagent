@@ -204,7 +204,8 @@ private struct AgentDeletionControl: View {
     private var path: String { agentPath(agentID) + "/deletion" }
 
     var body: some View {
-        Group {
+        // Keep the refresh task mounted before the first deletion snapshot arrives.
+        VStack(alignment: .leading, spacing: 8) {
             if let operation = snapshot?.operation {
                 Text(statusTitle(operation.state)).font(.subheadline.weight(.medium))
                 if let detail = operation.error_detail { ErrorNotice(message: detail) }
