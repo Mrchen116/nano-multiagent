@@ -1,10 +1,10 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InteractiveCard } from './interactive-card';
 import { InteractionSubmissionError } from './submission-error';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
-import { resetInteractionBackground } from '../interaction-background';
+import { adoptRemoteDraft, draftFailures, resetInteractionBackground } from '../interaction-background';
 vi.mock('../chat-api', () => ({listMessages:vi.fn(),readInteractionDraft: vi.fn(), saveInteractionDraft: vi.fn()}));
 const message = {id:'card', conversation_id:'chat', content:'确认草稿', interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
 root = Col([form])
@@ -54,6 +54,23 @@ describe('private interactive reply', () => {
     fireEvent.change(screen.getByRole('textbox'), {target:{value:'提交后的新编辑'}});
     await waitFor(() => expect(saveInteractionDraft).toHaveBeenCalledWith('chat','card',3,{'$body':'提交后的新编辑'}));
     expect(saveInteractionDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the retry for an uncertain submission if the user attempts to adopt the remote draft', async () => {
+    vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('409 conflict'));
+    const send = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({});
+    render(<InteractiveCard message={message} onSend={send} />);
+    const field = await screen.findByRole('textbox');
+    await waitFor(() => expect(field).toHaveValue('周日见'));
+    fireEvent.change(field,{target:{value:'本机冲突稿'}});
+    await waitFor(() => expect(draftFailures('chat')).toEqual([{messageId:'card', reason:'conflict'}]));
+    fireEvent.click(screen.getByRole('button',{name:'发送给林悦'}));
+    await screen.findByRole('button',{name:/重试|Retry/});
+
+    await act(async () => { await expect(adoptRemoteDraft('chat', 'card')).rejects.toThrow(); });
+    fireEvent.click(screen.getByRole('button',{name:/重试|Retry/}));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
   });
 
   it('retries an uncertain submission with the exact frozen request and identity', async () => {

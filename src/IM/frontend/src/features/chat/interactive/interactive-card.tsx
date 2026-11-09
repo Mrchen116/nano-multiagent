@@ -52,8 +52,8 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   const pending = record.hasPendingSubmission;
   const [applyingDraft, setApplyingDraft] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
-  const [actionError, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
-  const error = actionError ?? (pending && !busy ? 'send' : record.failure === 'conflict' ? 'conflict' : record.failure ? 'save' : record.loadFailed ? 'load' : null);
+  const [actionError, setError] = useState<'load'|'save'|'conflict'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
+  const error = pending && !busy ? 'send' : actionError ?? (record.failure === 'conflict' ? 'conflict' : record.failure ? 'save' : record.loadFailed ? 'load' : null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
   const touched = useRef(false);
   const viewActive = useRef(true);
@@ -79,7 +79,7 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     setError(null);
     const success = await record.load(adopting);
     if (success) touched.current = false;
-    else if (adopting && record.current) setError('conflict');
+    else if (adopting && record.current && !record.hasPendingSubmission) setError('conflict');
     return success;
   }
   useEffect(() => {
@@ -155,7 +155,7 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
       if (e instanceof InteractionSubmissionError) {
         outcome = 'rejected';
         setSubmissionConflict(e); setError(e.reason);
-      } else setError('send');
+      }
       throw e;
     }
     finally { record.finishSubmission(outcome); }
