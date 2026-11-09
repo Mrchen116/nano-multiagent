@@ -10,13 +10,13 @@ vi.mock('../../../realtime/user-stream', () => ({ subscribeUserStream: () => () 
 const snapshot = (desired = 'enabled', observed = desired, revision = 1) => ({ agent_id: 'a', desired, observed, revision, applied_revision: observed === desired ? revision : 0, error_detail: observed === 'stop_unconfirmed' ? 'Cleanup timed out' : null });
 function Surface({ owner = true, online = false }) {
   const lifecycle = useAgentLifecycle('a');
-  return <><input aria-label="Draft" defaultValue="Unsaved name" /><AgentLifecycleAction lifecycle={lifecycle} canManage={owner} /><AgentLifecycleStatus lifecycle={lifecycle} online={online} /></>;
+  return <><input aria-label="Draft" defaultValue="Unsaved name" /><AgentLifecycleAction lifecycle={lifecycle} canManage={owner} online={online} /><AgentLifecycleStatus lifecycle={lifecycle} online={online} /></>;
 }
-function mount(owner = true) {
+function mount(owner = true, online = false) {
   setLanguage('en');
   useAuthStore.setState({ user: { id: 'u' } as never });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><Surface owner={owner} /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><Surface owner={owner} online={online} /></QueryClientProvider>);
   return client;
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -33,16 +33,20 @@ it('stops while offline without saving a draft and cannot enable until cleanup i
     return Response.json(state);
   });
   vi.stubGlobal('fetch', fetch); mount();
-  await userEvent.click(await screen.findByRole('button', { name: 'Disable' }));
-  await screen.findByText('Disable requested; waiting for the node to confirm.');
-  expect(screen.getByRole('button', { name: 'Stopping…' })).toBeDisabled();
+  await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
+  await screen.findByText('The computer is offline. Closing will continue when it reconnects.');
+  expect(screen.getByRole('button', { name: 'Closing…' })).toBeDisabled();
+  expect(screen.queryByText('Closed')).toBeNull();
   expect(screen.getByLabelText('Draft')).toHaveValue('Unsaved name');
   expect(fetch.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(1);
 });
 it('retries only stopping and never enables an unconfirmed stop', async () => {
   const fetch = vi.fn(async (_url, init) => Response.json(snapshot('disabled', init?.method === 'POST' ? 'stopping' : 'stop_unconfirmed', 2)));
-  vi.stubGlobal('fetch', fetch); mount();
-  await userEvent.click(await screen.findByRole('button', { name: 'Retry stop' }));
+  vi.stubGlobal('fetch', fetch); mount(true, true);
+  await screen.findByText('Closing did not finish.');
+  expect(screen.queryByText('Stop unconfirmed')).toBeNull();
+  expect(screen.queryByText('Cleanup timed out')).toBeNull();
+  await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => String(url).endsWith('/lifecycle/retry') && init?.method === 'POST')).toBe(true));
   expect(fetch.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
 });
@@ -53,7 +57,7 @@ it('rereads a disable conflict and resubmits the same intent at the latest revis
     return Response.json(snapshot('enabled', 'enabled', ++reads === 1 ? 1 : 3));
   });
   vi.stubGlobal('fetch', fetch); mount();
-  await userEvent.click(await screen.findByRole('button', { name: 'Disable' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
   await waitFor(() => expect(writes).toBe(2));
   const bodies = fetch.mock.calls.filter(([,init]) => init?.method === 'PUT').map(([,init]) => JSON.parse(init.body));
   expect(bodies.map(b => [b.enabled, b.expected_revision])).toEqual([[false,1],[false,3]]);
@@ -65,8 +69,8 @@ it('refreshes an enable conflict without resubmitting and shows nonowners only s
     if (init?.method === 'PUT') { writes++; return Response.json({detail:'revision_conflict'}, {status:409}); }
     return Response.json(snapshot('disabled', 'disabled', 2));
   }));
-  mount(); await userEvent.click(await screen.findByRole('button', {name:'Enable'}));
+  mount(); await userEvent.click(await screen.findByRole('button', {name:'Turn on'}));
   await screen.findByRole('alert'); expect(writes).toBe(1);
   cleanup(); mount(false);
-  await screen.findByText('Disabled'); expect(screen.queryByRole('button')).toBeNull();
+  await screen.findByText('Closed'); expect(screen.queryByRole('button')).toBeNull();
 });

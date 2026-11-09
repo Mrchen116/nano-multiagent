@@ -64,12 +64,17 @@ function useLabels() {
 function confirmedDisabled(state: AgentLifecycleSnapshot) {
   return state.desired === 'disabled' && state.observed === 'disabled' && state.applied_revision === state.revision;
 }
-export function AgentLifecycleAction({lifecycle, canManage, name}: {lifecycle:Lifecycle; canManage:boolean; name?:string}) {
+export function AgentLifecycleAction({lifecycle, canManage, online, name}: {lifecycle:Lifecycle; canManage:boolean; online:boolean; name?:string}) {
   const l = useLabels();
   if (!canManage) return null;
   const state = lifecycle.query.data;
-  const action = state?.desired === 'enabled' ? 'disable' : state?.observed === 'stop_unconfirmed' ? 'retry' : state && confirmedDisabled(state) ? 'enable' : null;
-  const label = lifecycle.mutation.isPending ? l('提交中…','Submitting…') : action === 'disable' ? l('停用','Disable') : action === 'retry' ? l('重试停止','Retry stop') : action === 'enable' ? l('启用','Enable') : state ? l('停止中…','Stopping…') : l('读取状态…','Loading state…');
+  const action = state?.desired === 'enabled' ? 'disable' : state && confirmedDisabled(state) ? 'enable'
+    : online && state?.observed === 'stop_unconfirmed' && state.error_code !== 'node_upgrade_required' ? 'retry' : null;
+  const closing = l('正在关闭…','Closing…');
+  const label = lifecycle.mutation.isPending
+    ? lifecycle.mutation.variables === 'enable' ? l('正在开启…','Turning on…') : closing
+    : action === 'disable' ? l('关闭','Close') : action === 'retry' ? l('重试','Retry') : action === 'enable' ? l('开启','Turn on')
+      : state ? closing : l('读取状态…','Loading state…');
   return <button type="button" className={`im-settings-action im-agent-lifecycle-action ${action === 'retry' ? 'danger' : ''}`} disabled={!action || lifecycle.mutation.isPending || lifecycle.query.isError} aria-label={name ? `${label} ${name}` : label} onClick={() => action && lifecycle.mutation.mutate(action)}>{label}</button>;
 }
 export function AgentLifecycleStatus({lifecycle, online, compact = false}: {lifecycle:Lifecycle; online:boolean; compact?:boolean}) {
@@ -78,16 +83,21 @@ export function AgentLifecycleStatus({lifecycle, online, compact = false}: {life
   const failed = state?.observed === 'stop_unconfirmed';
   const disabled = state && confirmedDisabled(state);
   const stopping = state?.desired === 'disabled' && !disabled;
-  const title = failed ? l('停止未确认','Stop unconfirmed') : disabled ? l('已停用','Disabled') : stopping ? l('停止中','Stopping') : state?.observed === 'enabling' ? l('启用中','Enabling') : l('已启用','Enabled');
-  const detail = failed ? l('仍禁止新工作。请重试停止。','New work remains blocked. Retry stopping.') : disabled ? l('启用后只接收新工作，旧任务仍暂停。','Enabling allows new work; old tasks remain paused.') : stopping ? online ? l('正在停止全部受管执行，尚未确认停止。','Stopping managed execution; stop is not confirmed yet.') : l('已请求停用，等待节点确认。','Disable requested; waiting for the node to confirm.') : state && state.revision > 1 ? l('可接收新工作，旧任务仍暂停。','Ready for new work; old tasks remain paused.') : '';
   const error = lifecycle.mutation.error ?? lifecycle.query.error;
-  const showState = state && (state.desired !== 'enabled' || state.observed !== 'enabled');
-  // Reserve the extra row for transitions, disabled state, and failures.
-  if (!error && !showState) return null;
-  if (compact) return <span className={`im-agent-lifecycle-badge ${failed || stopping || error ? 'warning' : ''}`} aria-live="polite" title={error ? l('状态未确认，打开详情重试。','State not confirmed. Open details to retry.') : detail}>{error ? l('状态未确认','State unknown') : title}</span>;
-  return <div className={`im-agent-lifecycle-status ${failed || stopping ? 'warning' : ''}`} aria-live="polite">
-    {showState && <><strong>{title}</strong>{!compact && detail && <span>{detail}</span>}{failed && !compact && state.error_detail && <span>{state.error_detail}</span>}</>}
-    {error && <span role="alert">{l('状态未确认，请刷新后重试。','State not confirmed. Refresh and try again.')}</span>}
+  const closedLabel = l('已关闭','Closed');
+  const closedDetail = l('重新开启后可以接收新工作，旧任务继续暂停。','Turning it back on allows new work. Previous tasks stay paused.');
+  if (compact) return disabled && !error ? <span className="im-agent-lifecycle-badge" aria-live="polite" title={closedDetail}>{closedLabel}</span> : null;
+  const detail = !stopping ? '' : !online
+    ? l('电脑离线，联网后会继续关闭。','The computer is offline. Closing will continue when it reconnects.')
+    : state.error_code === 'node_upgrade_required' ? l('请更新电脑上的 Nano 后再关闭。','Update Nano on the computer to finish closing.')
+      : failed && !lifecycle.mutation.isPending ? l('关闭还没完成。','Closing did not finish.') : '';
+  if (!disabled && !detail && !error) return null;
+  return <div className={`im-agent-lifecycle-status ${stopping ? 'im-agent-lifecycle-feedback warning' : ''}`} aria-live="polite">
+    {disabled && !error && <><strong>{closedLabel}</strong><span>{closedDetail}</span></>}
+    {detail && <span>{detail}</span>}
+    {error && <span role="alert">{lifecycle.query.isError
+      ? l('无法读取开关状态，请刷新后重试。','Could not read the current status. Refresh and try again.')
+      : l('操作未完成，请重试。','The action did not finish. Try again.')}</span>}
     {lifecycle.query.isError && <button type="button" className="im-settings-action" onClick={() => void lifecycle.query.refetch()}>{l('刷新状态','Refresh state')}</button>}
   </div>;
 }

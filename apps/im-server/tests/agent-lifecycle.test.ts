@@ -37,7 +37,7 @@ it('persists human intent with CAS and request identity, separately confirms sto
   await expect(f.report(1,'enabled')).rejects.toThrow();
   await expect(f.report(2,'disabled','stale-process')).rejects.toThrow();
   await f.report(2,'stop_unconfirmed');
-  expect((await f.http('POST',{request_id:'retry'})).json()).toMatchObject({revision:2,desired:'disabled'});
+  expect((await f.http('POST',{request_id:'retry'})).json()).toMatchObject({revision:2,desired:'disabled',observed:'stopping'});
   await f.report(2,'disabled');
   expect((await f.http('PUT',off)).statusCode).toBe(200);
   expect((await f.http('PUT',{enabled:true,request_id:'on',expected_revision:2})).json()).toMatchObject({revision:3,desired:'enabled',disabled_through_revision:2});

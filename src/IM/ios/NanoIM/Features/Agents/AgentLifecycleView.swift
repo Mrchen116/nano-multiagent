@@ -17,17 +17,11 @@ struct AgentLifecycleSnapshot: Decodable, Sendable {
         if observed == "stop_unconfirmed" { return .retry }
         return canEnable ? .enable : nil
     }
-    var title: String {
-        if observed == "stop_unconfirmed" { return L("停止未确认", "Stop unconfirmed") }
-        if canEnable { return L("已停用", "Disabled") }
-        if desired == "disabled" { return L("停止中", "Stopping") }
-        return observed == "enabling" ? L("启用中", "Enabling") : L("已启用", "Enabled")
-    }
-    func explanation(online: Bool) -> String {
-        if observed == "stop_unconfirmed" { return L("仍禁止新工作。请重试停止。", "New work remains blocked. Retry stopping.") }
-        if canEnable { return L("重新启用只接收新工作，旧任务仍暂停。", "Enabling allows new work; old tasks remain paused.") }
-        if desired == "disabled" { return online ? L("尚未确认全部停止。", "Stopping is not yet confirmed.") : L("已请求停用，等待节点确认。", "Disable requested; waiting for the node to confirm.") }
-        return revision > 1 ? L("可接收新工作，旧任务仍暂停。", "Ready for new work; old tasks remain paused.") : ""
+    func closingFeedback(online: Bool) -> String? {
+        guard desired == "disabled", !canEnable else { return nil }
+        if !online { return L("电脑离线，联网后会继续关闭。", "The computer is offline. Closing will continue when it reconnects.") }
+        if error_code == "node_upgrade_required" { return L("请更新电脑上的 Nano 后再关闭。", "Update Nano on the computer to finish closing.") }
+        return observed == "stop_unconfirmed" ? L("关闭还没完成。", "Closing did not finish.") : nil
     }
 }
 struct AgentLifecycleChange: Encodable, Sendable {
@@ -81,33 +75,38 @@ struct AgentLifecycleControls: View {
     @State private var requestGeneration = 0
     private var deleting: Bool { deletionInProgress.wrappedValue }
     private var path: String { agentPath(agentID) + "/lifecycle" }
-    private var action: AgentLifecycleAction? { state?.action }
+    private var action: AgentLifecycleAction? {
+        if state?.action == .retry && (!online || state?.error_code == "node_upgrade_required") { return nil }
+        return state?.action
+    }
     private var actionLabel: String {
-        if busy { return L("提交中…", "Submitting…") }
+        if busy { return action == .enable ? L("正在开启…", "Turning on…") : L("正在关闭…", "Closing…") }
         switch action {
-        case .disable: return L("停用", "Disable")
-        case .enable: return L("重新启用", "Enable again")
-        case .retry: return L("重试停止", "Retry stop")
-        case nil: return state == nil ? L("读取状态…", "Loading state…") : L("停止中…", "Stopping…")
+        case .disable: return L("关闭", "Close")
+        case .enable: return L("开启", "Turn on")
+        case .retry: return L("重试", "Retry")
+        case nil: return state == nil ? L("读取状态…", "Loading state…") : L("正在关闭…", "Closing…")
         }
     }
     var body: some View {
         if canManage && !deleting {
-            if configuration {
-                Toggle(L("启用 Agent", "Enable Agent"), isOn: Binding(get: { state?.desired == "enabled" }, set: { enabled in Task { await change(enabled ? .enable : .disable) } }))
-                    .disabled(busy || readFailed || action == nil || action == .retry)
+            if configuration && !busy && (action == .disable || action == .enable) {
+                Toggle(L("开启 Agent", "Turn on Agent"), isOn: Binding(get: { state?.desired == "enabled" }, set: { enabled in Task { await change(enabled ? .enable : .disable) } }))
+                    .disabled(readFailed)
                     .frame(minHeight: 44)
-                if action == .retry { actionButton }
             } else { actionButton }
         }
         VStack(alignment: .leading, spacing: 4) {
-            if let state {
-                Text(state.title).font(.subheadline.weight(.medium))
-                let explanation = state.explanation(online: online)
-                if !compact && !explanation.isEmpty { Text(explanation).font(.caption).foregroundStyle(.secondary) }
-                if !compact && state.observed == "stop_unconfirmed", let detail = state.error_detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+            if state?.canEnable == true && !readFailed {
+                Text(L("已关闭", "Closed")).font(.subheadline.weight(.medium))
+                if !compact {
+                    Text(L("重新开启后可以接收新工作，旧任务继续暂停。", "Turning it back on allows new work. Previous tasks stay paused.")).font(.caption).foregroundStyle(.secondary)
+                }
             }
-            if let error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+            if !compact && !busy, let detail = state?.closingFeedback(online: online) {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            if !compact, let error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             if readFailed && !compact { Button(L("刷新状态", "Refresh state")) { Task { await refresh() } }.frame(minHeight: 44) }
         }.fixedSize(horizontal: false, vertical: true).accessibilityElement(children: .contain)
             .task(id: scenePhase) {
@@ -133,7 +132,8 @@ struct AgentLifecycleControls: View {
             if error != nil { error = nil }
         } catch {
             guard !Task.isCancelled, generation == requestGeneration else { return }
-            readFailed = true; self.error = agentError(error)
+            readFailed = true
+            self.error = L("无法读取开关状态，请刷新后重试。", "Could not read the current status. Refresh and try again.")
         }
     }
     private func change(_ action: AgentLifecycleAction) async {
@@ -158,7 +158,7 @@ struct AgentLifecycleControls: View {
             }
             guard !Task.isCancelled else { return }
             self.state = result
-        } catch { if !Task.isCancelled { self.error = agentError(error) } }
+        } catch { if !Task.isCancelled { self.error = L("操作未完成，请重试。", "The action did not finish. Try again.") } }
     }
 }
 

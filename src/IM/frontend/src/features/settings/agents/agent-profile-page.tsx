@@ -100,7 +100,7 @@ export function AgentProfilePage() {
             </p>
           </div>
           <div className="im-agent-header-actions shrink-0">
-            <AgentLifecycleAction lifecycle={lifecycle} canManage={agent.owner_id === self && !deletionState} />
+            <AgentLifecycleAction lifecycle={lifecycle} canManage={agent.owner_id === self && !deletionState} online={agent.status === "online"} />
             <button
               type="button"
               className="im-settings-action"
