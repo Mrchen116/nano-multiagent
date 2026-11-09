@@ -260,6 +260,7 @@ export interface Conversation {
   is_muted: boolean;
   unread_count: number;
   last_message_preview: string | null;
+  last_message_sender_name?: string | null;
   last_message_card?: { title: string | null } | null;
   last_message_system_notice?: SystemNotice | null;
   last_message_at: string | null;

@@ -188,11 +188,12 @@ describe("useGlobalMessageToast", () => {
     expect(result.current.toast?.id).toBe("message:m-1");
   });
 
-  it("toasts an external shadow user message from its canonical created event", async () => {
+  it("uses the external group sender and attachment filename from the canonical created event", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(["chat", "conversations"], [
       conversation("conv-external", {
         title: "Feishu chat",
+        type: "group",
         external_source: "feishu",
         external_chat_id: "oc_external"
       })
@@ -213,18 +214,23 @@ describe("useGlobalMessageToast", () => {
       payload: {
         message_id: "external-1",
         sender_type: "user",
-        sender_user_id: "user-a",
-        sender_display_name: "Alice from Feishu",
-        content: "hello from feishu",
+        sender_user_id: "self-user",
+        sender: { display_name: "Local account" },
+        sender_display_name: "ou-peer",
+        content: "",
+        attachments: [{ file_name: "budget.pdf" }],
         created_at: "2026-07-13T00:00:00Z"
       }
     });
 
     expect(result.current.toast).toMatchObject({
       id: "message:external-1",
-      senderName: "Alice from Feishu",
-      preview: "hello from feishu"
+      senderName: "ou-peer",
+      preview: "budget.pdf"
     });
+    expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
+      expect.objectContaining({ last_message_sender_name: "ou-peer", last_message_preview: "budget.pdf" })
+    ]);
     expect(hasLocalUnreadFeedback("conv-external")).toBe(true);
   });
 
@@ -633,8 +639,10 @@ describe("useGlobalMessageToast", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(["chat", "conversations"], [
       conversation("conv-1", {
+        type: "group",
         last_message_preview: "",
         last_message_card: { title: "Earlier card" },
+        last_message_sender_name: "Earlier sender",
         last_message_at: "2026-03-26T00:00:00Z"
       })
     ]);
@@ -649,6 +657,7 @@ describe("useGlobalMessageToast", () => {
         message_id: "m-1",
         sender_type: "user",
         sender_user_id: "user:self-user",
+        sender: { display_name: "Self" },
         content: "my own message",
         created_at: "2026-03-26T00:01:00Z"
       }
@@ -657,7 +666,9 @@ describe("useGlobalMessageToast", () => {
     expect(result.current.toast).toBeNull();
     expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
       conversation("conv-1", {
+        type: "group",
         last_message_preview: "my own message",
+        last_message_sender_name: "Self",
         last_message_card: null,
         last_message_at: "2026-03-26T00:01:00Z"
       })
@@ -767,8 +778,8 @@ describe("useGlobalMessageToast", () => {
 
   it.each(["agent", "user"])("notifies once and refreshes the sidebar title for a completed pure card from %s", async senderType => {
     const queryClient = new QueryClient();
-    const initial = [conversation("conv-card")];
-    const refreshed = [conversation("conv-card", { last_message_preview: "", last_message_card: { title: "Plan" } })];
+    const initial = [conversation("conv-card", { type: "group" })];
+    const refreshed = [conversation("conv-card", { type: "group", last_message_preview: "", last_message_card: { title: "Plan" }, last_message_sender_name: "Planner" })];
     const queryFn = vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(refreshed);
     const { result } = renderHook(() => useGlobalMessageToast(), {
       wrapper: buildRefetchingWrapper(queryClient, queryFn, "/chat/other")
@@ -783,7 +794,7 @@ describe("useGlobalMessageToast", () => {
     expect(result.current.toast).toMatchObject({ id: "message:card-1", conversationId: "conv-card", senderName: "Planner" });
     expect(result.current.toast?.preview).toMatch(/互动卡片|Interactive card/);
     expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
-      expect.objectContaining({ last_message_preview: "", last_message_card: { title: null } })
+      expect.objectContaining({ last_message_preview: "", last_message_card: { title: null }, last_message_sender_name: "Planner" })
     ]);
     await waitFor(() => expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(refreshed));
     act(() => result.current.dismiss());

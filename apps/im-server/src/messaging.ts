@@ -127,9 +127,11 @@ export class Messaging {
     if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
     const lastMessage = c.last_message_at ? one(this.db,
-      `SELECT m.content, m.system_notice_json, i.message_id AS card_id, i.preview_title,
+      `SELECT m.content, m.system_notice_json, m.sender_type, m.sender_display_name, m.sender_source_id,
+              u.display_name AS account_display_name, i.message_id AS card_id, i.preview_title,
               CASE WHEN i.message_id IS NOT NULL THEN json_extract(m.attachments_json, '$[0].file_name') END AS card_attachment_name
        FROM messages m LEFT JOIN message_interactive i ON i.message_id=m.id
+       LEFT JOIN users u ON u.id=m.sender_user_id
        WHERE m.conversation_id=? AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
       id, c.last_message_at,
     ) : undefined;
@@ -137,6 +139,10 @@ export class Messaging {
     // before truncating so existing conversations also recover on refresh.
     const storedPreview = c.last_message_preview || lastMessage?.card_attachment_name || c.last_message_preview;
     const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || storedPreview : storedPreview;
+    const senderName = c.type === "group" && !lastMessage?.system_notice_json
+      && (lastMessage?.sender_type === "user" || lastMessage?.sender_type === "agent")
+      ? lastMessage.sender_display_name?.trim() || lastMessage.sender_source_id || lastMessage.account_display_name?.trim() || null
+      : null;
     const prefs =
       one(
         this.db,
@@ -180,6 +186,7 @@ export class Messaging {
       is_muted: !!prefs.is_muted,
       unread_count: prefs.unread_count ?? 0,
       last_message_preview: preview,
+      last_message_sender_name: senderName,
       last_message_card: !preview && lastMessage?.card_id ? {title: lastMessage.preview_title} : null,
       last_message_system_notice: JSON.parse(lastMessage?.system_notice_json ?? "null"),
       run_state: one(

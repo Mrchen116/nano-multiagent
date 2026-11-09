@@ -83,11 +83,11 @@ function extractPreview(payload: Record<string, unknown>): string | null {
   if (content) {
     return content;
   }
-  const fileName = normalizeText(payload.file_name);
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const fileName = normalizeText(payload.file_name) ?? normalizeText(attachments[0]?.file_name);
   if (fileName) {
     return fileName;
   }
-  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   if (attachments.length > 0) {
     return "Attachment";
   }
@@ -97,8 +97,8 @@ function extractPreview(payload: Record<string, unknown>): string | null {
 function extractSenderName(payload: Record<string, unknown>): string {
   const sender = payload.sender as { display_name?: unknown } | undefined;
   return (
-    normalizeText(sender?.display_name) ??
     normalizeText(payload.sender_display_name) ??
+    normalizeText(sender?.display_name) ??
     normalizeText(payload.sender_name) ??
     normalizeText(payload.display_name) ??
     normalizeText(payload.agent_display_name) ??
@@ -109,7 +109,7 @@ function extractSenderName(payload: Record<string, unknown>): string {
 function patchConversationPreview(
   items: Conversation[] | undefined,
   conversationId: string,
-  { preview, createdAt, cardOnly }: NotificationCandidate,
+  { preview, createdAt, cardOnly, senderName }: NotificationCandidate,
   markUnread = false
 ) {
   if (!items) {
@@ -127,6 +127,7 @@ function patchConversationPreview(
     return {
       ...item,
       last_message_preview: cardOnly ? "" : preview,
+      ...(item.type === "group" ? { last_message_sender_name: senderName } : {}),
       last_message_card: cardOnly
         ? (createdAt === item.last_message_at ? item.last_message_card : null) ?? { title: null }
         : null,

@@ -178,12 +178,16 @@ export function ConversationSidebar({
       .finally(() => { if (!signal?.aborted) setSearchLoading(false); });
   };
 
-  const previews = useMemo(() => new Map(searchConversations.map((c) => [
-    c.id, formatSystemNotice(t, c.last_message_system_notice, c.type === "direct")
-      ?? (c.last_message_card
-        ? [t("chat.toast.card"), c.last_message_card.title].filter(Boolean).join(" · ")
-        : mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants)))
-  ])), [searchConversations, t]);
+  const previews = useMemo(() => new Map(searchConversations.map((c) => {
+    const notice = formatSystemNotice(t, c.last_message_system_notice, c.type === "direct");
+    if (notice) return [c.id, notice];
+    const content = c.last_message_card
+      ? [t("chat.toast.card"), c.last_message_card.title].filter(Boolean).join(" · ")
+      : mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants));
+    return [c.id, content && c.type === "group" && c.last_message_sender_name
+      ? `${c.last_message_sender_name}: ${content}`
+      : content];
+  })), [searchConversations, t]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

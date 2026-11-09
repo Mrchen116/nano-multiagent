@@ -17,6 +17,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var is_muted: Bool
     var unread_count: Int
     var last_message_preview: String?
+    var last_message_sender_name: String?
     var last_message_card: ChatCardPreview?
     var last_message_at: String?
     var created_at: String

@@ -8,9 +8,15 @@ struct ChatListView: View {
     @State private var newChat = false
     @State private var distill = false
     private func preview(_ chat: Conversation) -> String? {
-        guard let card = chat.last_message_card else { return chat.last_message_preview }
-        let label = L("互动卡片", "Interactive card")
-        return card.title.map { "\(label) · \($0)" } ?? label
+        let content: String?
+        if let card = chat.last_message_card {
+            let label = L("互动卡片", "Interactive card")
+            content = card.title.map { "\(label) · \($0)" } ?? label
+        } else {
+            content = chat.last_message_preview
+        }
+        guard chat.type == "group", let sender = chat.last_message_sender_name, let content, !content.isEmpty else { return content }
+        return "\(sender): \(content)"
     }
     var filtered: [Conversation] {
         store.conversations.filter { (category == "all" || $0.category == category) && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || (preview($0) ?? "").localizedCaseInsensitiveContains(search)) }
