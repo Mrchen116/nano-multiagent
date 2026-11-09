@@ -763,9 +763,18 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 - **WHEN** 用户提出知识讲解、条件探索、方案比较、草稿修改或信息提醒
 - **THEN** Agent 能组合适合的交互形式，并理解用户实际选择；不要求进入专用业务页面。
 
+#### Scenario: 用 UI 表达答复
+- **WHEN** Agent 选择用交互 UI 回答
+- **THEN** Agent 按内容选择便于读者理解的结构、图形或交互方式；普通、Global 与 PA 均可单独发送有效 UI。
+- **AND** 接收 Agent 的上下文将公开 UI 标为发送方的消息内容，提供源码和适用的消息替换引用，省略渲染协议元数据；无 UI、无正文的空回复仍被拒绝，既有权限、审核与回执语义不变。
+
+#### Scenario: 群内纯 UI 回复可投递
+- **WHEN** Agent 向群聊发布正文为空的有效 UI 回复
+- **THEN** 其他群内 Agent 按既有接收与提醒策略获得这条公开 UI，不因没有摘要而漏送；空白流式占位消息仍不作为回复转发。
+
 #### Scenario: 不支持交互的渠道
-- **WHEN** Agent 向其他客户端或外部 channel 交付包含交互的内容
-- **THEN** 用户得到可读文字摘要，原始界面源码不作为回复泄露。
+- **WHEN** Agent 向不支持交互的外部 channel 交付
+- **THEN** 使用可读文字答复；没有文字时明确拒绝，不把 UI 静默丢弃后发送空内容，也不泄露界面源码。
 
 ### Requirement: Intelligent UI Feature 可配置
 
@@ -778,7 +787,7 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 - **GIVEN** Intelligent UI Feature 关闭，send_message 仍为固定或独立启用
 - **WHEN** 普通、Global 或 Personal Agent 使用显式合法 interactive 参数发布
 - **THEN** 不因 Feature 关闭而拒绝新卡片，仍执行既有 schema、身份权限、审批和交付检查；不反向恢复额外交互生成指导
-- **AND** 不支持交互的渠道保留文字摘要降级，历史卡片权限与提交行为不变
+- **AND** 不支持交互的外部渠道使用文字答复；支持交互的聊天不要求独立摘要，历史卡片权限与提交行为不变
 
 ### Requirement: 普通提问能主动获得适用交互表达
 

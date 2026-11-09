@@ -6,6 +6,8 @@ Context 相关验证按 [Agent Context Engineering](agent-context-engineering.md
 
 > 适用面：本指南适用于本仓所有新增、修改、删除的自动化测试与测试门禁。
 
+测试创建的进程、模拟器、浏览器会话与临时产物按 [测试资源回收](worktree-runtime.md#测试资源回收) 管理；验证结束即处理，不等 PR 合入。
+
 ## 1) 永久测试的准入与停止条件（核心）
 
 一项测试只有同时满足以下条件，才值得进入长期套件：

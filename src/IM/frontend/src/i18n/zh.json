@@ -933,6 +933,7 @@
     }
   },
   "chat": {
+    "toast": { "newMessage": "新消息", "member": "成员", "agent": "Agent" },
     "conversationMenu": {
       "label": "会话菜单",
       "rename": "重命名",
@@ -1215,7 +1216,7 @@
     "viewWork": "查看 Work",
     "interactive": {
       "title": "交互回复",
-      "fallback": "此内容暂时无法交互，请查看上方文字摘要。",
+      "fallback": "此交互内容暂时无法显示，可在聊天中要求 Agent 重新生成。",
       "loading": "正在恢复你的选择…",
       "submitted": "选择已提交",
       "queued": "已保存，等待 Agent 处理",

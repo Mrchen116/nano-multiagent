@@ -6,7 +6,7 @@ it('rejects invalid initial UI props with upstream diagnostics before publicatio
   const created=await f.http('POST','/im/v1/conversations',{title:'UI preflight',type:'direct',participants:[{type:'agent',id:'assistant'}]},f.tokens.alice);
   expect(created.status).toBe(201);
   const id=created.body.id;
-  const send=(key:string,source:string)=>g.frames.send('agent.message',{node_id:g.node,to:`conversation:${id}`,text:'UI summary',
+  const send=(key:string,source:string)=>g.frames.send('agent.message',{node_id:g.node,to:`conversation:${id}`,text:'',
     from_session_id:`assistant|tool_call:${key}`,interactive:{format:'openui',catalog_version:'nano-iui-1',source}});
   const invalid=await send('bad','$size = "huge"\nheading = Title("Hello", $size)\nroot = Col([heading])');
   expect(invalid).toMatchObject({type:'error',payload:{detail:{code:'invalid_interactive_source',errors:[expect.objectContaining({source:'parser',code:'type-mismatch',statementId:'heading',component:'Title',path:'/size'})]}}});

@@ -20,7 +20,8 @@ export function App() {
       {toast && (
         <InAppToast
           key={toast.id}
-          senderName={toast.senderName}
+          conversationTitle={toast.conversationTitle}
+          senderName={toast.isGroup ? toast.senderName : undefined}
           preview={toast.preview}
           conversationId={toast.conversationId}
           onDismiss={dismiss}

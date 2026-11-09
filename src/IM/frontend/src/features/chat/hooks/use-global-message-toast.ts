@@ -1,10 +1,11 @@
 import { mentionNameMap, mentionPlainText } from "../components/mention-parser";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
 import type { Conversation } from "../chat-types";
-import { listConversations } from "../chat-api";
+import { getConversation, listConversations } from "../chat-api";
+import { i18n } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
 import {
@@ -92,13 +93,14 @@ function extractPreview(payload: Record<string, unknown>): string | null {
 }
 
 function extractSenderName(payload: Record<string, unknown>): string {
+  const sender = payload.sender as { display_name?: unknown } | undefined;
   return (
+    normalizeText(sender?.display_name) ??
     normalizeText(payload.sender_display_name) ??
     normalizeText(payload.sender_name) ??
     normalizeText(payload.display_name) ??
     normalizeText(payload.agent_display_name) ??
-    normalizeText(payload.agent_id) ??
-    (payload.sender_type === "agent" ? "Agent" : "New message")
+    i18n.t(payload.sender_type === "agent" ? "chat.toast.agent" : "chat.toast.member")
   );
 }
 
@@ -359,5 +361,25 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
 
   const dismiss = useCallback(() => setToast(null), []);
 
-  return { toast, dismiss, agentCompletionCandidate };
+  const cachedConversation = queryClient.getQueryData<Conversation[]>(["chat", "conversations"])
+    ?.find((item) => item.id === toast?.conversationId);
+  // Settings pages may never have loaded the chat list. Resolve just the
+  // incoming chat rather than requiring the user to visit Chat first.
+  const { data: fetchedConversation } = useQuery({
+    queryKey: ["chat", "conversation-detail", toast?.conversationId],
+    queryFn: () => getConversation(toast!.conversationId),
+    enabled: Boolean(toast && !cachedConversation),
+    retry: false
+  });
+  const toastConversation = cachedConversation ?? fetchedConversation;
+
+  return {
+    toast: toast ? {
+      ...toast,
+      conversationTitle: toastConversation?.title || i18n.t("chat.toast.newMessage"),
+      isGroup: toastConversation?.type === "group"
+    } : null,
+    dismiss,
+    agentCompletionCandidate
+  };
 }

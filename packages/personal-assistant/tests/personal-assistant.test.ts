@@ -46,6 +46,18 @@ it('separates the creation target from trusted PA identity and preserves an unkn
   expect(await f.pa.createAgent(f.config,f.binding,{...call,args:{action:'create',request_key:'original'}})).toMatchObject({status:'unknown',request_key:'original'});
  }finally{f.inbox.close();f.store.close();}
 });
+it.each([['c_owner','send_message'],['c_peer','send_message'],['c_peer','send_user_message']])('delivers a UI-only PA reply to %s through %s', async (target,method) => {
+  const f=fixture('allow');
+  const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Col([Text("必要说明")])'};
+  try {
+    const call={...f.call,method,args:{target,interactive}};
+    expect(await f.pa.send(f.config,f.binding,call)).toMatchObject({status:'sent'});
+    const publication=f.calls.find(call=>call.type===(target==='c_owner'?'agent.message':'pa.action.prepare'))!.payload;
+    expect(publication).toMatchObject({[target==='c_owner'?'text':'content']:'',interactive});
+    if(target!=='c_owner')expect(f.reviews).toHaveLength(1);
+    await expect(f.pa.send(f.config,f.binding,{...call,operationId:'empty',args:{target,text:' '}})).rejects.toThrow();
+  } finally {f.inbox.close();f.store.close();}
+});
 it('preserves private PA UI validation details and records a definite rejection', async () => {
   const f=fixture();
   const detail={code:'invalid_interactive_source',message:'Correct and retry.',errors:[{source:'runtime',code:'runtime-error',component:'Text',statementId:'heading',message:'Invalid function argument',hint:'Check text'}]};

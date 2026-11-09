@@ -248,10 +248,32 @@ export class GlobalAgent {
     })().finally(() => { this.waking.delete(config.agentId); this.armBackground(); });
     this.waking.set(config.agentId, task); return task;
   }
-  private submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
+  private async submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
+    const summary = await this.inboxSummary(config, binding);
     return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
-      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work and decide when to handle them. When you do, first check the current unread sources, then read and handle relevant messages. This is a system notification, not human permission.'}],
+      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work or read relevant sources directly using their target. Check is optional when you need a refreshed list. This is a system notification, not human permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
+  }
+  private async checkInbox(config: AgentConfiguration, binding: SessionBinding) {
+    const sources = this.options.inbox.check(config.agentId).sources;
+    // Offline nodes can still process their persisted Inbox using the last known names.
+    if (sources.length && this.options.relay.ready !== false) {
+      // External sources are described locally; IM cannot resolve their routing IDs.
+      for (const external of [false, true]) {
+        const targets = sources.filter(source => source.target.startsWith('external:') === external).map(source => source.target);
+        if (!targets.length) continue;
+        const descriptions = await this.query(binding, { action: 'describe', targets });
+        for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(config.agentId, source.target, source.name);
+      }
+    }
+    return this.options.inbox.check(config.agentId, !!config.personal);
+  }
+  private async inboxSummary(config: AgentConfiguration, binding: SessionBinding): Promise<string> {
+    const { sources } = await this.checkInbox(config, binding);
+    return 'Unread conversation snapshot (mentions counts messages that @ you):\n'
+      + JSON.stringify(this.options.store.toolReferences.result(config.agentId, 'inbox', {
+        sources: sources.map(({ requires_attention: _attention, ...source }) => source),
+      }));
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
     if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
@@ -346,8 +368,9 @@ export class GlobalAgent {
       if(!prior.accepted) {inbox.admitBackground(config.agentId,batch.watermark,Date.now(),false);this.waitingForIdle.delete(config.agentId);return;}
     }
     inbox.prepareBackground(config.agentId,batch.watermark);
+    const summary=await this.inboxSummary(config,binding);
     const result=await runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',onlyIfIdle:true,
-      content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Read the accumulated updates and assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.'}],
+      content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Select relevant sources and read directly using their target; check is optional to refresh the list. Assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox-background',messageId:inputId}}) as {accepted:boolean;durable?:boolean;busy?:boolean};
     if(result.accepted && result.durable) {
       inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);
@@ -417,7 +440,7 @@ export class GlobalAgent {
               }
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,source_policy_revision:event.policy_revision},
+                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
                   attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,sender:message.sender}},true);
             } else {
@@ -519,10 +542,8 @@ export class GlobalAgent {
           return {...result,other_admitted_inputs_available:true};
         }
         if (call.args.action === 'check') {
-          const sources = this.options.inbox.check(call.agentId).sources;
-          const descriptions = await this.query(binding, { action: 'describe', targets: sources.map(source => source.target) });
-          for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(call.agentId, source.target, source.name);
-          return {...this.options.inbox.check(call.agentId,!!personalConfig),...(personalConfig?{security_incidents:(await this.personal.request(personalConfig,'pa.incidents.pending')).items}:{})};
+          const config = this.options.agents.find(agent => agent.agentId === call.agentId)!;
+          return {...await this.checkInbox(config,binding),...(personalConfig?{security_incidents:(await this.personal.request(personalConfig,'pa.incidents.pending')).items}:{})};
         }
         if (call.args.action !== 'read' || typeof call.args.target !== 'string') throw new Error('Inbox read needs a target');
         const info = await this.query(binding, { action: 'info', target: call.args.target });
@@ -651,7 +672,7 @@ export class GlobalAgent {
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
     const publicationBody = interactive ? sortedJsonAscii({text, interactive}) : text;
-    if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
+    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);
     if (previous) {
@@ -678,6 +699,7 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
     let correction = false;
     if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {

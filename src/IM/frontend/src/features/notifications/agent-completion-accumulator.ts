@@ -1,4 +1,5 @@
 import type { UserStreamEvent } from "../../realtime/user-stream";
+import { i18n } from "../../i18n";
 
 const STORAGE_PREFIX = "im.agent-completion.pending.v1";
 
@@ -38,13 +39,14 @@ function text(value: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function senderName(payload: Record<string, unknown>, senderUserId: string): string {
-  return text(payload.sender_display_name)
+function senderName(payload: Record<string, unknown>): string {
+  const sender = payload.sender as { display_name?: unknown } | undefined;
+  return text(sender?.display_name)
+    ?? text(payload.sender_display_name)
     ?? text(payload.sender_name)
     ?? text(payload.display_name)
     ?? text(payload.agent_display_name)
-    ?? text(payload.agent_id)
-    ?? senderUserId;
+    ?? i18n.t("chat.toast.agent");
 }
 
 function withoutPending(state: AgentCompletionState, messageId: string): AgentCompletionState {
@@ -76,7 +78,7 @@ export function reduceAgentCompletionEvent(
           [messageId]: {
             conversationId,
             senderUserId,
-            senderName: senderName(payload, senderUserId),
+            senderName: senderName(payload),
             ...(text(payload.created_at) ? { createdAt: text(payload.created_at)! } : {})
           }
         }

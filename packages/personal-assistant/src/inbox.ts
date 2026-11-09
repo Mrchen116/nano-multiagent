@@ -244,12 +244,19 @@ export class InboxStore {
   }
   /** List unread sources; personal projection omits host scheduling state. */
   check(agent: string, personal = false) {
-    const sources = new Map<string, { target: string; name: string; unread: number; requires_attention?: boolean; conversation_type?: string; delivery?: string }>();
+    const sources = new Map<string, { target: string; name: string; unread: number; mentions: number; conversation_type: string; requires_attention?: boolean; delivery?: string }>();
     for (const row of this.entries(agent)) {
       const input = JSON.parse(row.payload) as RelayInput;
-      const source = sources.get(row.target) ?? { target: row.target, name: this.targetName(agent,row.target,input), unread: 0,
-        ...(personal ? {conversation_type:String(input.metadata.conversation_type),delivery:String(input.metadata.personal_delivery)} : {requires_attention:false}) };
-      source.unread++; if (!personal) source.requires_attention ||= !!row.attention; sources.set(row.target, source);
+      const source = sources.get(row.target) ?? { target: row.target, name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,
+        conversation_type:String(input.metadata.conversation_type),
+        ...(personal ? {delivery:String(input.metadata.personal_delivery)} : {requires_attention:false}) };
+      source.unread++;
+      // Older card replies used the attention field for implicit addressing too.
+      const mentions = input.metadata.explicit_mentioned_agent_ids
+        ?? (input.message.interaction_reply || input.message.sender_type === 'system' ? [] : input.metadata.mentioned_agent_ids);
+      if (Array.isArray(mentions) && mentions.includes(agent)) source.mentions++;
+      if (!personal) source.requires_attention ||= !!row.attention;
+      sources.set(row.target, source);
     }
     return { sources: [...sources.values()], ...(personal?{review_failures:this.reviews.failures(agent).map(({event_id,event_delivered,...failure})=>failure)}:{}) };
   }
@@ -344,7 +351,7 @@ export class InboxStore {
       const imported = this.db.prepare('SELECT body FROM imported_parts WHERE seq=? ORDER BY part').all(seq) as {body: string}[];
       if (imported.length) return imported.map(row => JSON.parse(row.body) as Record<string, unknown>[]);
     }
-    const text = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts);
+    const text = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
     const result: Record<string, unknown>[][] = [];
     for (let start = 0; start < text.length || start === 0; start += 6000) result.push([{ type: 'text', text: text.slice(start, start + 6000) }]);
     for (const attachment of input.message.attachments) result.push([{ type: 'attachment', ...attachment }]);
