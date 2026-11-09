@@ -104,10 +104,8 @@ export class NodeAgentLifecycle {
     const result = await stopping.catch(error => ({confirmed:false, processInstanceId:this.options.host(state.agent_id).processInstanceId, errorDetail:String(error)}));
     if (this.options.snapshot(state.agent_id)?.revision !== state.revision) return;
     const processId = result.processInstanceId ?? proof?.processInstanceId ?? state.process_instance_id;
-    const priorStopped = proof?.processInstanceId === state.process_instance_id && (proof.stopped || proof.boot !== this.options.boot);
-    const priorSettled = proof ? priorStopped || proof.processInstanceId === result.processInstanceId
-      : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
-    const confirmed = result.processInstanceId ? result.confirmed && priorSettled : proof ? priorStopped : !state.process_instance_id;
+    const priorSettled = proof ? proof.stopped || proof.boot !== this.options.boot || proof.processInstanceId === result.processInstanceId : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
+    const confirmed = result.processInstanceId ? result.confirmed && priorSettled : proof ? proof.stopped || proof.boot !== this.options.boot : !state.process_instance_id;
     // Disabled intent still names the last execution host at the center. A new
     // shared management host cannot replace that identity via an enabling report.
     const executionId = state.process_instance_id ?? processId;

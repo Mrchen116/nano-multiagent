@@ -61,11 +61,23 @@ it.each([undefined,'other-host'])('still requires runtime confirmation without m
   const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
     applied_revision:2,observed:'disabled' as const,process_instance_id:'prior-host'};
   if(proofProcess)f.proofs.set('a',{boot:'boot-one',processInstanceId:proofProcess,stopped:true});
-  f.setStop({confirmed:true,processInstanceId:'new-shared-host'});
+  f.setStop({confirmed:false,processInstanceId:'new-shared-host'});
   const sync=f.lifecycle.synchronize([confirmed]);
   expect(f.states.get('a')?.observed).not.toBe('disabled');
   await sync;
   expect(f.reports.at(-1)?.observed).toBe('stop_unconfirmed');
+});
+
+it('can still confirm cleanup when an older proof named the shared management host',async()=>{
+  const f=fixture();
+  const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    applied_revision:2,observed:'disabled' as const,process_instance_id:'execution-host'};
+  f.states.set('a',confirmed);
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'old-management-host',stopped:true});
+  f.setStop({confirmed:true,processInstanceId:'new-management-host'});
+  await f.lifecycle.synchronize([confirmed]);
+  expect(f.reports.at(-1)).toMatchObject({observed:'disabled',process_instance_id:'execution-host'});
+  expect(f.proofs.get('a')).toMatchObject({stopped:true,processInstanceId:'execution-host'});
 });
 
 it('resumes cleanup after a durable native purge without rebuilding the plan', async()=>{
