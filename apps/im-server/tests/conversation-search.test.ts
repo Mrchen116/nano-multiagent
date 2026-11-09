@@ -57,6 +57,30 @@ it('finds multiple literal clues, ranks relevance or recency and reads around a 
   expect(query({ action: 'read', target: 'peer', around_message_id: match.id }).messages.map((m: any) => m.message_id)).toEqual([prior.id, match.id, next.id, recent.id]);
 });
 
+it('reads a UI-only message by ID and as one complete history item', () => {
+  const { ctx, principal, args } = personalFixture();
+  const older = ctx.messaging.insertMessage('chat', 'u1', 'user', 'Earlier message');
+  const source = 'root = Text("Editable proposal")';
+  const card = ctx.messaging.insertMessage('chat', 'a1', 'agent', '', [], null, 'completed', {
+    interactive: { format: 'openui', catalog_version: 'nano-iui-1', source },
+  });
+  ctx.messaging.insertMessage('chat', 'a1', 'agent', '', [], null, 'running');
+  const work = new Work(ctx);
+  const read = (input: Record<string, unknown>) => work.query(principal, { ...args, action: 'read', target: 'chat', ...input });
+
+  const exact = read({ message_id: card.id });
+  expect(exact.messages).toEqual([expect.objectContaining({
+    message_id: card.id, content: [], part_key: '0', total_parts: 1, complete_message: true,
+  })]);
+  expect(exact.messages[0].interactive).toEqual({ source });
+  expect(exact.next_cursor).toBeNull();
+
+  const first = read({ limit: 1 });
+  expect(first.messages).toEqual(exact.messages);
+  expect(first.next_cursor).toBeTruthy();
+  expect(read({ limit: 1, cursor: first.next_cursor }).messages.map((message: { message_id: string }) => message.message_id)).toEqual([older.id]);
+});
+
 it('keeps snapshot order and rechecks current permissions on every page', () => {
   const { ctx, db, service, principal, args } = personalFixture();
   const older = ctx.messaging.insertMessage('peer', 'u1', 'user', '发布方案', [], null, 'completed', { created_at: '2026-01-01T00:00:00Z' });
