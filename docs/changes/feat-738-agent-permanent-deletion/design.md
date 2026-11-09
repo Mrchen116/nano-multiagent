@@ -113,7 +113,7 @@ Web Agent 详情的所有者管理区沿用启停状态和[渠道删除](../../.
 
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
-| 隔离 IM 与 Node/DSH | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `./scripts/e2e-up.sh --profile daily --wt "$WT_ROOT"` | 读取本轮 `.e2e-ports.env`，检查 IM `openapi.json`、节点进程和测试 owner 的节点在线 |
+| 隔离 IM 与 Node/DSH | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `./scripts/e2e-up.sh --profile daily --wt "$WT_ROOT"` | 读取本轮 `.e2e-ports.env`，检查 IM `/health`、节点进程和测试 owner 的节点在线 |
 
 从 Web 详情完成删除和故障恢复，保留 B 作为同节点对照；iOS 用本地模拟器验证新增确认 sheet 与返回。使用 daily 提供的测试 owner 与隔离节点，准备普通/Global、主子冷会话、共享群、消息附件、共享任务、专用及共享目录。上游真实包、同文件系统的受管目录、iOS 模拟器和测试模型配置须在 Gate 2 记录可用性。验证结束回收隔离资源。
 
