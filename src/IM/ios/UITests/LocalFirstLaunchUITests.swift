@@ -236,6 +236,139 @@ final class LocalFirstLaunchUITests: XCTestCase {
         capture("upgrade-explicit-retry-confirmed")
     }
 
+    func testPrepareSeparateAccountDraft() throws {
+        app.launch()
+        defer { app.terminate() }
+        try openFixtureConversation()
+        let composer = app.textViews["Message"]
+        try requireFixture(composer.waitForExistence(timeout: 5), "Use the previous account's real composer")
+        let draft = try required("NANO_UI_DRAFT_CONTENT")
+        composer.tap(); composer.typeText(draft)
+        try requireFixture(composer.value as? String == draft, "Keep the complete separate draft before account switching")
+        capture("account-a-separate-draft")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+    }
+
+    func testSwitchAccountIsolatesPreviousContentAndPersistsNewMessages() async throws {
+        app.launch()
+        defer { app.terminate() }
+        let previousTitle = try required("NANO_UI_PREVIOUS_CHAT_TITLE")
+        let previousPending = try required("NANO_UI_PREVIOUS_PENDING_CONTENT")
+        let previousDraftTitle = try required("NANO_UI_PREVIOUS_DRAFT_CHAT_TITLE")
+        let previousDraft = try required("NANO_UI_PREVIOUS_DRAFT_CONTENT")
+        let previousChat = app.staticTexts[previousTitle].firstMatch
+        try requireFixture(previousChat.waitForExistence(timeout: 20), "First prove the previous account's pending conversation exists")
+        previousChat.tap()
+        try requireFixture(app.staticTexts["Awaiting delivery confirmation"].waitForExistence(timeout: 10), "Do not test isolation without a genuine previous pending attempt")
+        try requireFixture(app.textViews["Message"].value as? String == previousPending, "Prove the complete previous frozen pending content")
+        capture("account-a-pending-before-switch")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let draftChat = app.staticTexts[previousDraftTitle].firstMatch
+        try requireFixture(draftChat.waitForExistence(timeout: 5), "Keep the previous draft in its separate real conversation")
+        draftChat.tap()
+        try requireFixture(app.textViews["Message"].waitForExistence(timeout: 5), "Read the previous account's persisted composer")
+        try requireFixture(app.textViews["Message"].value as? String == previousDraft, "Prove the previous draft survived process termination")
+        capture("account-a-draft-before-switch")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        try resetOwnedSessionForLogin()
+        try signInFixture()
+        try requireFixture(app.staticTexts[try required("NANO_UI_CHAT_TITLE")].firstMatch.waitForExistence(timeout: 20), "The new account's own list must arrive before checking isolation")
+        try assertPreviousAccountAbsent()
+        capture("account-b-isolated-list")
+        try openFixtureConversation()
+        try assertPreviousAccountAbsent()
+        let composer = app.textViews["Message"]
+        try requireFixture(composer.waitForExistence(timeout: 5), "The new account must have its own composer")
+        try requireFixture(composer.value as? String == "", "Do not inherit the previous account's draft or frozen content")
+        let sent = try required("NANO_UI_SENT_MESSAGE")
+        composer.tap(); composer.typeText(sent)
+        try requireFixture(composer.value as? String == sent && app.buttons["Send"].isEnabled, "Send the complete new account message through the public composer")
+        app.buttons["Send"].tap()
+        try requireFixture(message(sent).waitForExistence(timeout: 15), "The new account's explicit Send must produce its complete message")
+        let received = try required("NANO_UI_RECEIVED_MESSAGE")
+        let peer = try fixtureID("NANO_UI_FIXTURE_PEER_USER_ID")
+        let chatID = try fixtureID("NANO_UI_CHAT_ID")
+        try await fixtureChange("/im/v1/conversations/\(chatID)/messages", method: "POST", body: [
+            "sender": ["type": "user", "id": peer], "content": received,
+            "attachments": [], "client_msg_id": UUID().uuidString,
+        ], status: 201)
+        try requireFixture(message(received).waitForExistence(timeout: 15), "Receive the peer's complete real message during this login session")
+        try requireFixture(!app.staticTexts["Awaiting delivery confirmation"].exists, "A confirmed new-account send must not inherit the previous pending state")
+        capture("account-b-new-send-and-receive")
+    }
+
+    func testNewAccountOfflineRelaunchKeepsOnlyItsOwnMessages() throws {
+        app.launch()
+        defer { app.terminate() }
+        let title = try required("NANO_UI_CHAT_TITLE")
+        let chat = app.staticTexts[title].firstMatch
+        try requireFixture(chat.waitForExistence(timeout: 5), "The new account's cached list must load with its origin stopped")
+        try assertPreviousAccountAbsent()
+        capture("account-b-offline-list")
+        chat.tap()
+        try requireFixture(message(try required("NANO_UI_SENT_MESSAGE")).waitForExistence(timeout: 5), "Keep the complete message sent in the new account session")
+        try requireFixture(message(try required("NANO_UI_RECEIVED_MESSAGE")).waitForExistence(timeout: 5), "Keep the complete message received in the new account session")
+        try requireFixture(!app.textFields["Enter your username"].exists, "An offline origin must not sign out the new account")
+        try requireFixture(app.textViews["Message"].value as? String == "", "Do not restore either previous composer value offline")
+        try assertPreviousAccountAbsent()
+        capture("account-b-offline-full-messages")
+    }
+
+    func testSwitchServiceThroughConnectionSettings() throws {
+        app.launch()
+        defer { app.terminate() }
+        let oldTitle = try required("NANO_UI_CHAT_TITLE")
+        try requireFixture(app.staticTexts[oldTitle].firstMatch.waitForExistence(timeout: 20), "Begin with the known primary service account")
+        try resetOwnedSessionForLogin()
+        let settings = app.buttons["Connection settings"]
+        try requireFixture(settings.waitForExistence(timeout: 5), "Switch the server through the real authentication settings")
+        settings.tap()
+        let server = app.textFields["Server URL"]
+        try requireFixture(server.waitForExistence(timeout: 5), "Use the editable server URL field")
+        let current = server.value as? String ?? ""
+        try requireFixture(current == (try required("NANO_UI_ORIGIN")) || current == (try required("NANO_UI_ORIGIN")) + "/", "Only replace this matrix's known primary origin")
+        // Tap past the visible short loopback URL so deletion begins at its end,
+        // rather than guessing where a center tap positions the insertion point.
+        server.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        server.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        server.typeText(try required("NANO_UI_SECOND_ORIGIN"))
+        try requireFixture(server.value as? String == (try required("NANO_UI_SECOND_ORIGIN")), "Preserve the complete isolated second origin")
+        try signInFixture()
+        try requireFixture(app.staticTexts[try required("NANO_UI_SECOND_CHAT_TITLE")].firstMatch.waitForExistence(timeout: 20), "The second service must authenticate this same username and supply its own list")
+        try assertSecondServiceContent()
+        capture("same-username-second-service")
+    }
+
+    func testPersistedSecondServiceSurvivesOfflineReopen() throws {
+        // The previous test saved this value through AuthView. Remove only the Debug
+        // override; setting the second origin here would hide a broken saved preference.
+        app.launchEnvironment.removeValue(forKey: "NANO_IM_BASE_URL")
+        app.launch()
+        defer { app.terminate() }
+        try assertSecondServiceContent()
+        capture("persisted-second-service-offline-reopen")
+    }
+
+    private func assertPreviousAccountAbsent() throws {
+        for key in ["NANO_UI_PREVIOUS_CHAT_TITLE", "NANO_UI_PREVIOUS_DRAFT_CHAT_TITLE", "NANO_UI_PREVIOUS_MESSAGE", "NANO_UI_PREVIOUS_PENDING_CONTENT", "NANO_UI_PREVIOUS_DRAFT_CONTENT"] {
+            try requireFixture(!message(try required(key)).exists, "Do not expose previous-account content: \(key)")
+        }
+        try requireFixture(!app.staticTexts["Awaiting delivery confirmation"].exists, "Do not expose a previous-account pending state")
+        try requireFixture(!app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 unconfirmed sends")).firstMatch.exists, "Do not inherit the previous pending-only count")
+    }
+
+    private func assertSecondServiceContent() throws {
+        let title = try required("NANO_UI_SECOND_CHAT_TITLE")
+        let chat = app.staticTexts[title].firstMatch
+        try requireFixture(chat.waitForExistence(timeout: 5), "The saved second service must provide its own cached conversation")
+        try requireFixture(!app.staticTexts[try required("NANO_UI_CHAT_TITLE")].exists, "The primary service's conversation must not appear on the second service")
+        try assertPreviousAccountAbsent()
+        chat.tap()
+        try requireFixture(message(try required("NANO_UI_SECOND_MESSAGE")).waitForExistence(timeout: 5), "Read the complete content belonging only to the second service")
+        try requireFixture(!message(try required("NANO_UI_SENT_MESSAGE")).exists && !message(try required("NANO_UI_RECEIVED_MESSAGE")).exists, "The same username must not merge content across services")
+        try requireFixture(app.textViews["Message"].value as? String == "", "Do not import a composer across services")
+    }
+
     private func signInFixture() throws {
         let username = app.textFields["Enter your username"]
         try requireFixture(username.waitForExistence(timeout: 10), "Begin with the dedicated fixture's sign-in form")
@@ -316,7 +449,7 @@ final class LocalFirstLaunchUITests: XCTestCase {
         return value
     }
 
-    private func fixtureChange(_ path: String, method: String, body: [String: String]? = nil, status: Int) async throws {
+    private func fixtureChange(_ path: String, method: String, body: [String: Any]? = nil, status: Int) async throws {
         let origin = try required("NANO_UI_ORIGIN")
         let url = try XCTUnwrap(URL(string: origin + path))
         try requireFixture(url.scheme == "http" && url.host == "127.0.0.1" && url.port != nil,
@@ -333,11 +466,11 @@ final class LocalFirstLaunchUITests: XCTestCase {
         try requireFixture((response as? HTTPURLResponse)?.statusCode == status, "The real fixture operation must succeed before checking its UI consequence")
     }
 
-    private func requireFixture(_ condition: @autoclosure () -> Bool, _ reason: String,
+    private func requireFixture(_ condition: @autoclosure () throws -> Bool, _ reason: String,
                                 file: StaticString = #filePath, line: UInt = #line) throws {
         // XCTest's async failure recording can return to the method even with
         // continueAfterFailure=false. A thrown error also prevents later fixture writes.
-        guard condition() else {
+        guard try condition() else {
             XCTFail(reason, file: file, line: line)
             throw NSError(domain: "NanoIMUITests", code: 2, userInfo: [NSLocalizedDescriptionKey: reason])
         }
