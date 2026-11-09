@@ -934,6 +934,7 @@
     }
   },
   "chat": {
+    "deletedAgent": "Agent 已删除",
     "toast": { "newMessage": "新消息", "member": "成员", "agent": "Agent" },
     "conversationMenu": {
       "label": "会话菜单",

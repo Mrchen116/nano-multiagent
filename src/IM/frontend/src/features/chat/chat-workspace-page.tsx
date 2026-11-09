@@ -417,7 +417,7 @@ export function ChatWorkspacePage() {
 
   const mentionCandidates = useMemo(() => {
     if (!activeConversation) return [];
-    return activeConversation.participants.filter((p) => p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
+    return activeConversation.participants.filter((p) => !p.is_deleted && p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
       user_id: p.user_id || p.id,
       agent_id: p.type === "agent" ? p.id : undefined,
       display_name: p.display_name || p.user_id || p.id,
@@ -428,7 +428,7 @@ export function ChatWorkspacePage() {
 
   const slashCandidatesQuery = useQuery({
     enabled: !!activeConversation,
-    queryKey: ["chat", "slash-candidates", selfUserId, conversationId],
+    queryKey: cleanupRevision ? ["chat", "slash-candidates", selfUserId, conversationId, cleanupRevision] : ["chat", "slash-candidates", selfUserId, conversationId],
     queryFn: async () => {
       const agents = await getConversationCommands(conversationId!);
       return {

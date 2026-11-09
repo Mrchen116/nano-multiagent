@@ -935,6 +935,7 @@
     }
   },
   "chat": {
+    "deletedAgent": "Agent deleted",
     "toast": { "newMessage": "New message", "member": "Member", "agent": "Agent" },
     "conversationMenu": {
       "label": "Conversation menu",

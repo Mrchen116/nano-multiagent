@@ -1157,7 +1157,7 @@ export function MessagePane({
                   <span
                     key={p.id}
                     className={p.is_stale ? "opacity-40" : undefined}
-                    title={p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
+                    title={p.is_deleted ? t("chat.deletedAgent") : p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
                   >
                     {p.display_name ?? p.id}
                     {i < conversation.participants.length - 1 ? " · " : ""}

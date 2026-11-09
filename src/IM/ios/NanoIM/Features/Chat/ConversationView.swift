@@ -241,7 +241,8 @@ struct ConversationView: View {
         let insertion: String
     }
     private func commandChoices(_ query: String) -> [CommandChoice] {
-        commands.flatMap { group in
+        let deletedAgents = Set((conversation?.participants ?? []).filter { $0.is_deleted == true }.map(\.id))
+        return commands.filter { !deletedAgents.contains($0.agent_id) }.flatMap { group in
             group.commands.map { command in
                 CommandChoice(id: "\(group.agent_id)/\(command.name)", label: "/" + command.name, source: group.display_name, description: command.description, insertion: ChatText.command(command.name, agentID: conversation?.type == "group" ? group.agent_id : nil).trimmingCharacters(in: .whitespaces))
             } + group.skills.map { skill in
@@ -256,7 +257,7 @@ struct ConversationView: View {
     }
     private func completionPanel(_ completion: ChatText.Completion) -> some View {
         let members = (conversation?.participants ?? []).filter {
-            ($0.user_id ?? $0.id) != store.user.id && (completion.query.isEmpty || ($0.display_name ?? $0.id).localizedCaseInsensitiveContains(completion.query) || $0.id.localizedCaseInsensitiveContains(completion.query))
+            $0.is_deleted != true && ($0.user_id ?? $0.id) != store.user.id && (completion.query.isEmpty || ($0.display_name ?? $0.id).localizedCaseInsensitiveContains(completion.query) || $0.id.localizedCaseInsensitiveContains(completion.query))
         }
         let choices = commandChoices(completion.query)
         let height = min(220, max(1, Double(completion.kind == .mention ? members.count : choices.count)) * (completion.kind == .mention ? mentionRowHeight : commandRowHeight))

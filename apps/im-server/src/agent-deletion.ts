@@ -45,7 +45,9 @@ const executionEvents = ['tool_call.upserted','tool_call.completed','thinking.se
 function purgeCenterExecution(ctx: ImContext, id: string): string[] {
   const db = ctx.db, sender=`agent:${id}`;
   const targetMessages="SELECT m.id FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE u.username=?";
-  const affected=all(db,`SELECT DISTINCT conversation_id FROM messages WHERE id IN (${targetMessages})`,sender).map(row=>String(row.conversation_id));
+  const affected=all(db,`SELECT conversation_id FROM messages WHERE id IN (${targetMessages})
+    UNION SELECT cp.conversation_id FROM conversation_participants cp JOIN users u ON u.id=cp.user_id WHERE u.username=?`,
+    sender,sender).map(row=>String(row.conversation_id));
   db.prepare(`INSERT OR IGNORE INTO deleted_agent_work_links
     SELECT ?,'message',id,conversation_id FROM messages WHERE id IN (${targetMessages})`).run(id,sender);
   db.prepare(`UPDATE messages SET tool_calls_json=NULL,thinking_json=NULL,background_returns_json=NULL,reply_process_json=NULL,

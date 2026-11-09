@@ -163,6 +163,8 @@ it('requires confirmed stop, preserves chat history and rejects re-registration 
   const messageId=start.payload.message_id;
   f.db.prepare("UPDATE messages SET content='Published result',thinking_json='[{}]' WHERE id=?").run(messageId);
   f.ctx.messaging.event('chat',messageId,'permission.submitted',{request_id:'approval',decision:'allow_once'},'running');
+  f.db.prepare("INSERT INTO conversations(id,title,created_at) VALUES('empty','No Agent replies',datetime('now'))").run();
+  f.db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('empty','u1'),('empty','a1')").run();
   const del=(payload:object,user='u1')=>f.app.inject({method:'POST',url:path,headers:{'x-user':user},payload});
   expect((await del(confirm)).statusCode).toBe(409);
   expect((await del(confirm,'u2')).statusCode).toBe(403);
@@ -184,6 +186,8 @@ it('requires confirmed stop, preserves chat history and rejects re-registration 
     userId:'u1',cursor,ready:false} as any,cursor);
   expect(replayed).toContainEqual(expect.objectContaining({event_type:'conversation.execution_cleanup',
     conversation_id:'chat',data:expect.objectContaining({execution_cleanup_revision:1})}));
+  expect(replayed).toContainEqual(expect.objectContaining({event_type:'conversation.execution_cleanup',conversation_id:'empty'}));
+  expect(f.ctx.messaging.conversation('empty','u1').participants).toContainEqual(expect.objectContaining({id:'a',is_deleted:true}));
   expect(f.ctx.gateway.register(f.connection,{node_id:'n',agents:['a'],capabilities:{agent_lifecycle_v1:true,agent_deletion_v1:true}}).agent_lifecycles).toEqual([]);
   expect((await f.app.inject({url:path,headers:{'x-user':'u1'}})).json().operation.state).toBe('deleted');
 });
