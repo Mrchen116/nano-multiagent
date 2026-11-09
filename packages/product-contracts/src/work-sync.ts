@@ -50,6 +50,7 @@ export const workDetailLimits = {
   chunkBytes: 256 * 1024,
   maxBytes: 64 * 1024 * 1024,
   projectionBytes: 24 * 1024,
+  structureTokens: 100_000,
   stagingBytes: 256 * 1024 * 1024,
   retainedBytes: 4 * 1024 * 1024 * 1024,
   workerTimeoutMs: 60_000,
@@ -58,6 +59,7 @@ export const workDetailLimits = {
 export interface WorkDetailManifest {
   total_bytes: number;
   sha256: string | null;
+  resource_limited?: true;
   projection: import('./work-events.js').WorkJournalEvent;
 }
 

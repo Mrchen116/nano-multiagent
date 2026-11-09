@@ -686,7 +686,7 @@ CREATE TABLE IF NOT EXISTS work_detail_uploads (
  id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, node_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
  journal_id TEXT NOT NULL, seq INTEGER NOT NULL, event_id TEXT UNIQUE NOT NULL,
  root_agent_id TEXT NOT NULL, session_id TEXT NOT NULL, turn_id TEXT,
- total_bytes INTEGER NOT NULL, sha256 TEXT, projection_hash TEXT NOT NULL,
+ total_bytes INTEGER NOT NULL, sha256 TEXT, projection_json TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0,
  offset INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, state TEXT NOT NULL,
  revision INTEGER REFERENCES agent_work_events(revision) ON DELETE CASCADE,
  UNIQUE(node_id,journal_id,seq));

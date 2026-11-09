@@ -13,7 +13,7 @@ const active = "state IN ('uploading','verifying')";
 interface ManifestRow {
   id: number; owner_id: string; node_id: string; node_epoch: number; journal_id: string;
   seq: number; event_id: string; root_agent_id: string; session_id: string; turn_id: string | null;
-  total_bytes: number; sha256: string; projection_hash: string; offset: number;
+  total_bytes: number; sha256: string; projection_json: string; generation: number; offset: number;
   state: WorkDetailProgress['state']; revision: number | null; updated_at: number;
 }
 
@@ -41,8 +41,11 @@ export class WorkDetailSync {
 
   begin(identity: RuntimeIdentity, journal: string, seq: number, input: unknown): WorkDetailProgress | undefined {
     if (workObject(input) && input.resume === true) return this.resume(identity, journal, seq, input);
+    const resourceLimited = workObject(input) && input.resource_limited === true;
     if (!workObject(input) || !Number.isSafeInteger(input.total_bytes) || Number(input.total_bytes) <= workSyncLimits.eventMaxBytes ||
-      typeof input.allow_defer !== 'boolean' || (Number(input.total_bytes) <= limits.maxBytes ? !digest(input.sha256) : input.sha256 !== null) ||
+      typeof input.allow_defer !== 'boolean' ||
+      (Number(input.total_bytes) > limits.maxBytes ? input.sha256 !== null
+        : !digest(input.sha256) && !(resourceLimited && input.sha256 === null)) ||
       Buffer.byteLength(JSON.stringify(input.projection ?? null)) > limits.projectionBytes) fail(400, 'invalid_detail_manifest');
     const {total_bytes, sha256, allow_defer} = input as unknown as WorkDetailManifest & {allow_defer: boolean};
     const [event] = readWorkBatch({journal_id: journal, from_seq: seq, events: [input.projection]}).events;
@@ -58,16 +61,18 @@ export class WorkDetailSync {
     }
     const profile = this.profile(identity, event.root_agent_id);
     const old = this.manifest(node, journal, seq);
-    const projectionHash = hash(JSON.stringify(event));
+    const projection = JSON.stringify(event);
     if (old) {
       if (old.owner_id !== owner || old.event_id !== event.event_id || old.total_bytes !== total_bytes ||
-          old.sha256 !== sha256 || old.projection_hash !== projectionHash) fail(409, 'event_identity_conflict');
+          old.sha256 !== sha256 || old.root_agent_id !== event.root_agent_id || old.session_id !== event.session_id ||
+          old.turn_id !== (event.turn_id ?? null) || (!resourceLimited && old.projection_json !== projection)) fail(409, 'event_identity_conflict');
       if (old.state === 'complete' || old.state === 'local') return this.progress(old);
       if (old.node_epoch !== epoch) {
         if (old.revision !== null) return {state: 'discarded', offset: 0};
         this.db.prepare('DELETE FROM work_detail_uploads WHERE id=?').run(old.id);
         return this.begin(identity, journal, seq, input);
       }
+      if (resourceLimited) return {state: this.retainLocal(old) ? 'local' : 'pending', offset: 0};
       return this.progress(old);
     }
     if (seq <= through) {
@@ -84,15 +89,15 @@ export class WorkDetailSync {
       return {state: 'discarded', offset: 0};
     }
     const insert = (state: string, revision: number | null) => this.db.prepare(`INSERT INTO work_detail_uploads
-      (owner_id,node_id,node_epoch,journal_id,seq,event_id,root_agent_id,session_id,turn_id,total_bytes,sha256,projection_hash,updated_at,state,revision)
+      (owner_id,node_id,node_epoch,journal_id,seq,event_id,root_agent_id,session_id,turn_id,total_bytes,sha256,projection_json,updated_at,state,revision)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(owner, node, epoch, journal, seq, event.event_id, event.root_agent_id,
-      event.session_id, event.turn_id ?? null, total_bytes, sha256, projectionHash, Date.now(), state, revision);
-    if (sha256 && this.canReserve(identity, total_bytes)) {
+      event.session_id, event.turn_id ?? null, total_bytes, sha256, projection, Date.now(), state, revision);
+    if (sha256 && !resourceLimited && this.canReserve(identity, total_bytes)) {
       insert('uploading', null);
       return {state: 'uploading', offset: 0};
     }
     if (!allow_defer) return {state: 'pending', offset: 0};
-    const state = sha256 ? 'pending' : 'local';
+    const state = sha256 && !resourceLimited ? 'pending' : 'local';
     this.append(identity, journal, event, () => {
       const revision = this.revision(node, journal, event);
       if (revision !== undefined) insert(state, revision);
@@ -109,7 +114,8 @@ export class WorkDetailSync {
     if (workRedaction(this.db, row.node_id, journal, seq, row.event_id, row.root_agent_id)) return {state: 'discarded', offset: 0};
     const profile = this.profile(identity, row.root_agent_id);
     if (row.state !== 'pending' || !agentAvailable(this.db, profile) || !this.canReserve(identity, row.total_bytes)) return this.progress(row);
-    this.db.prepare("UPDATE work_detail_uploads SET state='uploading',updated_at=? WHERE id=?").run(Date.now(), row.id);
+    // Deferred previews retain their manifest ID when a stage is discarded.
+    this.db.prepare("UPDATE work_detail_uploads SET state='uploading',generation=generation+1,updated_at=? WHERE id=?").run(Date.now(), row.id);
     return {state: 'uploading', offset: 0};
   }
 
@@ -182,9 +188,9 @@ export class WorkDetailSync {
   }
   private reset(row: ManifestRow, state: 'pending' | 'rejected'): void {
     transaction(this.db, () => {
-      if (row.revision === null && state === 'pending') {
-        this.db.prepare('DELETE FROM work_detail_uploads WHERE id=?').run(row.id);
-      } else {
+      if (!one(this.db, 'SELECT 1 FROM work_detail_uploads WHERE id=? AND generation=? AND state=?', row.id, row.generation, row.state)) return;
+      if (row.revision === null && state === 'pending') this.resetUncommitted(row);
+      else {
         this.db.prepare('DELETE FROM work_detail_parts WHERE manifest_id=?').run(row.id);
         this.db.prepare('UPDATE work_detail_uploads SET offset=0,state=?,updated_at=? WHERE id=?').run(state, Date.now(), row.id);
       }
@@ -197,6 +203,49 @@ export class WorkDetailSync {
         this.reset(row, 'pending');
     }
   }
+  private isVerifying(row: ManifestRow): boolean {
+    return !!one(this.db, "SELECT 1 FROM work_detail_uploads WHERE id=? AND generation=? AND state='verifying'", row.id, row.generation);
+  }
+
+  private complete(row: ManifestRow, revision: number, state: 'complete' | 'local'): void {
+    const result = this.db.prepare(`UPDATE work_detail_uploads SET state=?,revision=?,offset=?,updated_at=?
+      WHERE id=? AND generation=? AND state=?`).run(state, revision, state === 'local' ? 0 : row.offset, Date.now(), row.id, row.generation, row.state);
+    if (result.changes !== 1) fail(409, 'detail_attempt_changed');
+    if (state === 'local') this.db.prepare('DELETE FROM work_detail_parts WHERE manifest_id=?').run(row.id);
+  }
+
+  private retainLocal(row: ManifestRow): boolean {
+    if (!this.binding(row) || !agentAvailable(this.db, this.findProfile(row, row.root_agent_id)) ||
+      workRedaction(this.db, row.node_id, row.journal_id, row.seq, row.event_id, row.root_agent_id)) {
+      this.reset(row, 'pending');
+      return false;
+    }
+    if (row.revision !== null) {
+      transaction(this.db, () => this.complete(row, row.revision!, 'local'));
+      this.ctx.gateway.work.notifyUpdated(row.root_agent_id);
+      return true;
+    }
+    if (this.through(row.node_id, row.journal_id) >= row.seq) { this.reset(row, 'pending'); return false; }
+    // The claim may advance a local-only preview. Unverified bytes never become downloadable.
+    const event = JSON.parse(row.projection_json) as WorkJournalEvent;
+    this.append(row, row.journal_id, event, () => {
+      const revision = this.revision(row.node_id, row.journal_id, event);
+      if (revision === undefined) this.resetUncommitted(row);
+      else this.complete(row, revision, 'local');
+    });
+    return true;
+  }
+
+  private resetUncommitted(row: ManifestRow): void {
+    this.db.prepare('DELETE FROM work_detail_uploads WHERE id=? AND generation=? AND state=?').run(row.id, row.generation, row.state);
+  }
+
+  private retryVerification(row: ManifestRow, error: unknown): void {
+    this.logError(error);
+    this.db.prepare("UPDATE work_detail_uploads SET updated_at=? WHERE id=? AND generation=? AND state='verifying'")
+      .run(Date.now() + 10_000, row.id, row.generation);
+  }
+
   private scheduleVerification(): void {
     if (this.closed || this.verifying) return;
     this.verifying = true;
@@ -209,7 +258,7 @@ export class WorkDetailSync {
       try {
         const result = await this.worker.run({kind: 'verify', dbPath: this.ctx.dbPath, id: row.id, totalBytes: row.total_bytes, sha256: row.sha256});
         if (this.closed) return;
-        if (!one(this.db, "SELECT 1 FROM work_detail_uploads WHERE id=? AND state='verifying'", row.id)) continue;
+        if (!this.isVerifying(row)) continue;
         if (!this.binding(row)) { this.reset(row, 'pending'); continue; }
         if (workRedaction(this.db, row.node_id, row.journal_id, row.seq, row.event_id, row.root_agent_id)) {
           this.db.prepare('DELETE FROM work_detail_uploads WHERE id=?').run(row.id);
@@ -218,13 +267,12 @@ export class WorkDetailSync {
         const event = result.projection;
         if (event.seq !== row.seq || event.event_id !== row.event_id || event.root_agent_id !== row.root_agent_id ||
           event.session_id !== row.session_id || (event.turn_id ?? null) !== row.turn_id ||
-          hash(JSON.stringify(event)) !== row.projection_hash) {
+          JSON.stringify(event) !== row.projection_json) {
           this.reset(row, 'rejected');
           continue;
         }
         const profile = this.profile(row, event.root_agent_id);
-        const complete = (revision: number) => this.db.prepare("UPDATE work_detail_uploads SET state='complete',revision=?,updated_at=? WHERE id=?")
-          .run(revision, Date.now(), row.id);
+        const complete = (revision: number) => this.complete(row, revision, 'complete');
         if (row.revision !== null) {
           if (!agentAvailable(this.db, profile)) { this.reset(row, 'pending'); continue; }
           // The initial transaction already validated the session and committed this exact projection.
@@ -234,20 +282,19 @@ export class WorkDetailSync {
           if (this.through(row.node_id, row.journal_id) >= row.seq) { this.reset(row, 'pending'); continue; }
           this.append(row, row.journal_id, event, () => {
             const revision = this.revision(row.node_id, row.journal_id, event);
-            if (revision === undefined) this.db.prepare('DELETE FROM work_detail_uploads WHERE id=?').run(row.id);
+            if (revision === undefined) this.resetUncommitted(row);
             else complete(revision);
           });
         }
       } catch (error) {
         if (this.closed) return;
-        const current = one(this.db, "SELECT 1 FROM work_detail_uploads WHERE id=? AND state='verifying'", row.id);
-        if (!current) continue;
-        const code = error as {validation?: boolean; statusCode?: number};
-        if (code.validation || (code.statusCode && code.statusCode < 500)) this.reset(row, 'rejected');
-        else {
-          this.logError(error);
-          this.db.prepare('UPDATE work_detail_uploads SET updated_at=? WHERE id=?').run(Date.now() + 10_000, row.id);
-        }
+        if (!this.isVerifying(row)) continue;
+        const code = error as {validation?: boolean; statusCode?: number; code?: string; message?: string};
+        if (code.code === 'ERR_WORKER_OUT_OF_MEMORY' || code.message === 'detail_structure_limit') {
+          try { this.retainLocal(row); }
+          catch (error) { this.retryVerification(row, error); }
+        } else if (code.validation || (code.statusCode && code.statusCode < 500)) this.reset(row, 'rejected');
+        else this.retryVerification(row, error);
       }
     }
   }

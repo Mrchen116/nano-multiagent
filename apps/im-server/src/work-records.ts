@@ -426,6 +426,7 @@ export class WorkRecords {
     } else if (fact?.type === "message_delta" || fact?.type === "text_delta")
       payload.text = (payload.text ?? "") + (fact.payload.text ?? fact.payload.delta ?? "");
     else Object.assign(payload, p);
+    if (p.large_detail_preview === true) payload.large_detail_preview = true;
     payload.seq = old?.seq ?? revision;
     this.db
       .prepare(

@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { projectWorkDetail } from '@nano/product-contracts/work-detail-worker';
-import { decodeWorkEvent, workRedactedType, workDetailLimits } from '@nano/product-contracts';
+import { decodeWorkEvent, workRedactedType, workSyncLimits } from '@nano/product-contracts';
 import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 
@@ -588,7 +588,7 @@ export class InboxStore {
     const seq = (this.db.prepare('SELECT coalesce(max(seq),0)+1 AS seq FROM journal').get() as { seq: number }).seq;
     const record = {...event, seq}, raw = JSON.stringify(record);
     this.db.prepare('INSERT INTO journal VALUES(?,?,?)').run(seq, event.event_id, raw);
-    if (raw.length > workDetailLimits.maxBytes / 3 && Buffer.byteLength(raw) > workDetailLimits.maxBytes)
+    if (raw.length > workSyncLimits.eventMaxBytes / 3 && Buffer.byteLength(raw) > workSyncLimits.eventMaxBytes)
       this.db.prepare('INSERT INTO work_detail_local VALUES(?,?)').run(seq, JSON.stringify(projectWorkDetail(decodeWorkEvent(record).event)));
   }
   journal(after: number, limit = 100): WorkJournalEvent[] { return (this.db.prepare('SELECT event FROM journal WHERE seq>? ORDER BY seq LIMIT ?').all(after,limit) as { event: string }[]).map(row => decodeWorkEvent(JSON.parse(row.event)).event); }

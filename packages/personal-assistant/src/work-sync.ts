@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { open, rm } from 'node:fs/promises';
-import { WorkDetailWorker } from '@nano/product-contracts/work-detail-worker';
+import { WorkDetailWorker, type PreparedWorkDetail } from '@nano/product-contracts/work-detail-worker';
 import { workSyncLimits as limits, workSyncPrefix, workRedactedType, workDetailLimits as detailLimits, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart } from '@nano/product-contracts';
 import type { InboxStore } from './inbox.js';
 
@@ -15,6 +15,7 @@ interface Options {
 class SyncError extends Error {
   constructor(readonly code: string, readonly pause = false, readonly retryAfterMs = 0) { super(code); }
 }
+type JournalEntry = {seq: number; event_id: string; bytes: number};
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
 /** Own the recoverable Work stream without using or reconnecting the chat socket. */
@@ -34,6 +35,8 @@ export class WorkSync {
   private detailNeedsCleanup = false;
   private detailInFlight?: Promise<WorkSyncCursor>;
   private detailAbort?: AbortController;
+  private detailRedaction?: Promise<void>;
+  private preparedDetail?: {entry: JournalEntry; value: PreparedWorkDetail};
 
   private get detailPath() { return `${this.options.inbox.path}.work-detail.tmp`; }
 
@@ -67,10 +70,17 @@ export class WorkSync {
     this.redactionGeneration++;
     const active = this.detailInFlight;
     this.detailAbort?.abort();
-    if (active) {
-      await this.detailWorker.close();
-      await active.catch(() => {});
-    }
+    const previous = this.detailRedaction;
+    const cleanup = this.detailRedaction = (async () => {
+      await previous;
+      if (active) {
+        await this.detailWorker.close();
+        await active.catch(() => {});
+      }
+      await this.clearPreparedDetail();
+    })();
+    try { await cleanup; }
+    finally { if (this.detailRedaction === cleanup) this.detailRedaction = undefined; }
     this.paused = false;
     this.signal();
   }
@@ -81,7 +91,8 @@ export class WorkSync {
     clearTimeout(this.detailRetry); this.detailRetry = undefined;
     await this.detailWorker.close();
     await this.task;
-    await rm(this.detailPath, { force: true });
+    await this.detailRedaction;
+    await this.clearPreparedDetail();
   }
 
   private async run(): Promise<void> {
@@ -153,7 +164,8 @@ export class WorkSync {
   private async synchronize(): Promise<void> {
     const inbox = this.options.inbox;
     if (!Number.isSafeInteger(inbox.throughSeq) || inbox.throughSeq < 0 || inbox.throughSeq > inbox.journalSeq) throw new SyncError('work_sync_invalid_local_cursor', true);
-    if (this.detailNeedsCleanup) { await rm(this.detailPath, {force: true}); this.detailNeedsCleanup = false; }
+    await this.detailRedaction;
+    if (this.detailNeedsCleanup) { await this.clearPreparedDetail(); this.detailNeedsCleanup = false; }
     let cursor = await this.request('GET');
     if (cursor.through_seq > inbox.throughSeq) this.backoff = 1_000;
     this.acknowledge(cursor);
@@ -200,7 +212,9 @@ export class WorkSync {
       await new Promise<void>(resolve => setImmediate(resolve));
     }
     if (this.started && !this.detailRetry && cursor.large_detail === 1 && cursor.through_seq === inbox.journalSeq) {
-      let pending = inbox.pendingWorkDetail(this.detailAfter, cursor.through_seq);
+      const prepared = this.preparedDetail?.entry.seq;
+      const active = prepared === undefined ? undefined : inbox.pendingWorkDetail(prepared - 1, prepared);
+      let pending = active ?? inbox.pendingWorkDetail(this.detailAfter, cursor.through_seq);
       if (!pending && this.detailAfter) {
         this.detailAfter = 0;
         pending = inbox.pendingWorkDetail(0, cursor.through_seq);
@@ -210,7 +224,10 @@ export class WorkSync {
         const entry = inbox.nextJournalEntry(pending.seq - 1);
         if (entry?.seq === pending.seq && entry.event_id === pending.event_id && entry.bytes > limits.eventMaxBytes)
           await this.uploadDetail(entry, true, pending.sha256);
-        else inbox.confirmWorkDetail(pending.seq);
+        else {
+          inbox.confirmWorkDetail(pending.seq);
+          if (prepared === pending.seq) await this.clearPreparedDetail();
+        }
         if (!inbox.pendingWorkDetail(pending.seq - 1, pending.seq)) this.detailBackoff = 5_000;
         if (inbox.pendingWorkDetail(0, cursor.through_seq)) this.scheduleDetailRetry();
       }
@@ -227,43 +244,59 @@ export class WorkSync {
     this.detailRetry.unref();
   }
 
-  private async uploadDetail(entry: {seq: number; event_id: string; bytes: number}, background: boolean, digest?: string): Promise<WorkSyncCursor> {
+  private async uploadDetail(entry: JournalEntry, background: boolean, digest?: string): Promise<WorkSyncCursor> {
+    await this.detailRedaction;
+    if (!this.started) throw new SyncError('work_sync_stopped');
     const cancel = this.detailAbort = new AbortController();
     const transfer = this.detailInFlight = this.transferDetail(entry, background, digest, cancel.signal);
     try { return await transfer; }
     finally { this.detailInFlight = undefined; this.detailAbort = undefined; }
   }
 
-  private async transferDetail(entry: {seq: number; event_id: string; bytes: number}, background: boolean, digest: string | undefined, signal: AbortSignal): Promise<WorkSyncCursor> {
+  private async transferDetail(entry: JournalEntry, background: boolean, digest: string | undefined, signal: AbortSignal): Promise<WorkSyncCursor> {
     const { inbox } = this.options;
     const generation = this.redactionGeneration;
     const path = `/large/${entry.seq}`;
-    let resumed: WorkSyncCursor | undefined;
-    if (background) {
-      resumed = await this.request('POST', path, {resume: true, event_id: entry.event_id, sha256: digest}, signal);
-      if (resumed.detail?.state !== 'uploading') {
-        if (resumed.detail?.state === 'complete' || resumed.detail?.state === 'discarded' || resumed.detail?.state === 'rejected')
-          inbox.confirmWorkDetail(entry.seq);
-        return resumed;
-      }
-    }
+    let preempted = false;
     try {
+      if (this.preparedDetail && (this.preparedDetail.entry.seq !== entry.seq || this.preparedDetail.entry.event_id !== entry.event_id ||
+        this.preparedDetail.entry.bytes !== entry.bytes || (digest && digest !== this.preparedDetail.value.sha256))) await this.clearPreparedDetail();
+      let resumed: WorkSyncCursor | undefined;
+      if (background) {
+        resumed = await this.request('POST', path, {resume: true, event_id: entry.event_id, sha256: digest}, signal);
+        if (resumed.detail?.state !== 'uploading') {
+          if (resumed.detail?.state === 'complete' || resumed.detail?.state === 'discarded' || resumed.detail?.state === 'rejected' || resumed.detail?.state === 'local')
+            inbox.confirmWorkDetail(entry.seq);
+          return resumed;
+        }
+      }
       signal.throwIfAborted();
-      const { projection, sha256 } = await this.detailWorker.run({
-        kind: 'prepare', dbPath: inbox.path, seq: entry.seq, totalBytes: entry.bytes, tempPath: this.detailPath,
-      });
+      const value = this.preparedDetail?.value ?? await this.prepareDetail(entry, signal);
+      const { projection, sha256, resourceLimited } = value;
       if (!this.started || generation !== this.redactionGeneration) throw new SyncError('work_detail_source_changed');
-      if (projection.seq !== entry.seq || projection.event_id !== entry.event_id || (digest && digest !== sha256))
+      if (projection.seq !== entry.seq || projection.event_id !== entry.event_id || (digest && !resourceLimited && digest !== sha256))
         throw new SyncError('work_sync_event_identity_conflict', true);
       if (sha256) inbox.rememberWorkDetail(entry.seq, entry.event_id, sha256);
-      const manifest = { total_bytes: entry.bytes, projection, sha256: sha256 ?? null, allow_defer: !background };
+      if (sha256) this.preparedDetail = {entry, value};
+      const priorDigest = resourceLimited ? inbox.pendingWorkDetail(entry.seq - 1, entry.seq)?.sha256 : undefined;
+      const manifest = {total_bytes: entry.bytes, projection, sha256: sha256 ?? priorDigest ?? null,
+        resource_limited: resourceLimited, allow_defer: true};
+      if (background && resourceLimited) {
+        const local = await this.request('POST', path, manifest, signal);
+        if (local.detail?.state === 'local') inbox.confirmWorkDetail(entry.seq);
+        return local;
+      }
       const begin = () => this.request('POST', path, manifest, signal);
       let cursor = resumed ?? await begin();
       const file = sha256 && cursor.detail?.state === 'uploading' ? await open(this.detailPath, 'r') : undefined;
       try {
         while (cursor.detail?.state === 'uploading') {
           if (!this.started || generation !== this.redactionGeneration) throw new SyncError('work_detail_source_changed');
-          if (background && cursor.through_seq < inbox.journalSeq) return cursor;
+          if (background && cursor.through_seq < inbox.journalSeq) {
+            // A later ordinary event can interrupt upload without discarding this immutable source.
+            preempted = true;
+            return cursor;
+          }
           const offset = cursor.detail.offset;
           if (!file || !Number.isSafeInteger(offset) || offset < 0 || offset >= entry.bytes || offset % detailLimits.chunkBytes !== 0)
             throw new SyncError('work_sync_invalid_detail_cursor', true);
@@ -284,9 +317,24 @@ export class WorkSync {
         } while (cursor.detail?.state === 'verifying' && this.started && generation === this.redactionGeneration);
       }
       if (cursor.detail?.state === 'rejected') throw new SyncError('work_detail_rejected', true);
-      if (cursor.detail?.state === 'complete' || cursor.detail?.state === 'discarded') inbox.confirmWorkDetail(entry.seq);
+      if (cursor.detail?.state === 'complete' || cursor.detail?.state === 'discarded' || cursor.detail?.state === 'local') inbox.confirmWorkDetail(entry.seq);
       return cursor;
-    } finally { await rm(this.detailPath, { force: true }); }
+    } finally { if (!preempted) await this.clearPreparedDetail(); }
+  }
+
+  private async prepareDetail(entry: JournalEntry, signal: AbortSignal): Promise<PreparedWorkDetail> {
+    const job = {kind: 'prepare' as const, dbPath: this.options.inbox.path, seq: entry.seq, totalBytes: entry.bytes, tempPath: this.detailPath};
+    try { return await this.detailWorker.run(job); }
+    catch (error) {
+      signal.throwIfAborted();
+      if ((error as {code?: string}).code !== 'ERR_WORKER_OUT_OF_MEMORY') throw error;
+      return this.detailWorker.run({...job, previewOnly: true});
+    }
+  }
+
+  private async clearPreparedDetail(): Promise<void> {
+    this.preparedDetail = undefined;
+    await rm(this.detailPath, {force: true});
   }
 
   private async uploadEvent(event: WorkJournalEvent, cursor: WorkSyncCursor): Promise<WorkSyncCursor> {

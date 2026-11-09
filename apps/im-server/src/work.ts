@@ -485,8 +485,11 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     if (!Number.isSafeInteger(after) || after < 0 || (turn_id !== undefined && typeof turn_id !== 'string'))
       fail(400, 'invalid_cursor');
     const rows = all(db, `SELECT d.revision,d.event_id,e.type,e.observed_at,d.total_bytes,
-      CASE WHEN d.state IN ('complete','local') THEN d.state ELSE 'pending' END AS state
+      CASE WHEN d.state='complete' THEN 'complete'
+        WHEN d.state IN ('local','rejected') OR b.node_epoch IS NOT d.node_epoch THEN 'local'
+        ELSE 'pending' END AS state
       FROM work_detail_uploads d JOIN agent_work_events e ON e.revision=d.revision
+      LEFT JOIN node_binding_state b ON b.node_id=d.node_id
       WHERE d.root_agent_id=? AND d.session_id=? AND d.turn_id IS ? AND d.revision>?
       ORDER BY d.revision LIMIT 33`, agent_id, session_id, turn_id ?? null, after) as WorkDetailEntry[];
     reply.header('Cache-Control', 'private, no-store');

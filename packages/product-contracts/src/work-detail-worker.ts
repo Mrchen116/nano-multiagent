@@ -4,15 +4,21 @@ import type { WorkJournalEvent } from './work-events.js';
 
 export { projectWorkDetail } from './work-detail-projection.js';
 
+export interface PreparedWorkDetail {
+  projection: WorkJournalEvent;
+  sha256?: string | null;
+  resourceLimited?: true;
+}
+
 export type WorkDetailJob =
-  | { kind: 'prepare'; dbPath: string; seq: number; totalBytes: number; tempPath: string }
+  | { kind: 'prepare'; dbPath: string; seq: number; totalBytes: number; tempPath: string; previewOnly?: true }
   | { kind: 'verify'; dbPath: string; id: number; totalBytes: number; sha256: string };
 
 /** Own one reusable reader so JSON decode and hashing stay outside the serving loop. */
 export class WorkDetailWorker {
   private worker?: Worker;
 
-  run(job: WorkDetailJob): Promise<{ projection: WorkJournalEvent; sha256?: string | null }> {
+  run(job: WorkDetailJob): Promise<PreparedWorkDetail> {
     const worker = this.worker ??= new Worker(new URL('./work-detail-worker-entry.js', import.meta.url), {
       resourceLimits: {maxOldGenerationSizeMb: 384},
     });
@@ -31,7 +37,7 @@ export class WorkDetailWorker {
         reject(reason);
       };
       const exit = () => error(new Error('detail_worker_exited'));
-      const message = (result: { projection: WorkJournalEvent; sha256?: string | null; error?: string; retryable?: boolean }) => {
+      const message = (result: PreparedWorkDetail & { error?: string; retryable?: boolean }) => {
         cleanup();
         if (result.error) reject(Object.assign(new Error(result.error), { validation: !result.retryable }));
         else resolve(result);

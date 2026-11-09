@@ -96,8 +96,8 @@ struct AgentWorkView: View {
             if separate, let executionID {
                 Section(L("控制记录", "Control records")) { AgentWorkControls(client: client, base: base, sessionID: executionID).id(executionID) }
             }
-            if let execution = sessionID ?? root?.main_session_id, root != nil {
-                AgentWorkOriginals(client: client, agentID: agentID, sessionID: execution)
+            if let executionID, root != nil {
+                AgentWorkOriginals(client: client, agentID: agentID, sessionID: executionID).id(executionID)
             }
             if !controls.isEmpty {
                 Section(L("控制记录", "Control records")) {
@@ -506,6 +506,10 @@ struct AgentWorkItemView: View {
             else {
                 DisclosureGroup(item.kind) { JSONDetailView(value: .object(p)) }
                 if !text("conversation_id").isEmpty { chatLink(text("conversation_id")) }
+            }
+            if p["large_detail_preview"] == .bool(true) {
+                Text(L("部分内容为预览，可查看大型原文的可用状态", "Preview. See large originals for availability."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if let observed = item.observed_at { NanoTimestamp(value: observed) }
             if let navigationError { ErrorNotice(message: navigationError) }

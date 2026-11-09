@@ -1,18 +1,18 @@
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { backup, DatabaseSync } from 'node:sqlite';
 import { workDetailLimits, type WorkJournalEvent } from '@nano/product-contracts';
-import { projectWorkDetail } from '@nano/product-contracts/work-detail-worker';
+import { projectWorkDetail, WorkDetailWorker } from '@nano/product-contracts/work-detail-worker';
 import { InboxStore } from '../../../packages/personal-assistant/src/inbox.js';
 import { WorkSync } from '../../../packages/personal-assistant/src/work-sync.js';
 import { createServer } from '../src/server.js';
 import { browserSessionCookieName, digest } from '../src/identity.js';
 
 const cleanups: (() => unknown | Promise<unknown>)[] = [];
-afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+afterEach(async () => { try { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); } finally { vi.restoreAllMocks(); } });
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const originalPath = '/im/v1/agents/root/work/sessions/main/originals';
 const token = 'isolated-node-key';
@@ -160,7 +160,7 @@ test('quota defers one original across Gateway restart and completes the same re
   inbox.append({...root, event_id: 'deferred', type: 'recording_degraded', payload: {text: 'a'.repeat(17 * 1024 * 1024)}});
   inbox.append({...root, event_id: 'after', type: 'recording_degraded', payload: {text: 'later normal record'}});
   center.db.prepare(`INSERT INTO work_detail_uploads
-    (owner_id,node_id,node_epoch,journal_id,seq,event_id,root_agent_id,session_id,total_bytes,sha256,projection_hash,updated_at,state)
+    (owner_id,node_id,node_epoch,journal_id,seq,event_id,root_agent_id,session_id,total_bytes,sha256,projection_json,updated_at,state)
     VALUES(?,'node',1,'older',1,'reservation','root','main',?,'hash','hash',?,'uploading')`).run(owner, workDetailLimits.maxBytes, Date.now());
   const errors: unknown[] = [];
   const start = (source: InboxStore) => {
@@ -179,13 +179,34 @@ test('quota defers one original across Gateway restart and completes the same re
   center.db.prepare("DELETE FROM work_detail_uploads WHERE event_id='reservation'").run();
   const reopened = new InboxStore(inbox.path);
   cleanups.push(() => reopened.close());
-  start(reopened);
-  await expect.poll(manifest, {timeout: 12_000}).toEqual({...before, state: 'complete'});
-  await expect.poll(() => reopened.pendingWorkDetail(0, 3), {timeout: 10_000}).toBeUndefined();
-  expect(center.db.prepare('SELECT count(*) AS n FROM agent_work_events').get()).toEqual({n: 3});
-  expect(center.db.prepare('SELECT through_seq FROM agent_work_journals').get()).toEqual({through_seq: 3});
+  const workerCalls = vi.spyOn(WorkDetailWorker.prototype, 'run');
+  const transport = globalThis.fetch;
+  const offsets: number[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    const response = await transport(url, init);
+    const offset = /\/large\/2\/(\d+)$/.exec(String(url))?.[1];
+    if (offset !== undefined && init?.method === 'PUT') {
+      offsets.push(Number(offset));
+      if (offsets.length === 1) {
+        reopened.append({...root, event_id: 'preempt', type: 'recording_degraded', payload: {text: 'ordinary Work during deferred upload'}});
+        resumed.signal();
+      }
+    }
+    return response;
+  });
+  const resumed = start(reopened);
+  await expect.poll(() => reopened.throughSeq, {timeout: 10_000}).toBe(4);
+  expect(offsets).toEqual([0]);
+  expect(existsSync(`${inbox.path}.work-detail.tmp`)).toBe(true);
+  await expect.poll(manifest, {timeout: 15_000}).toEqual({...before, state: 'complete'});
+  await expect.poll(() => reopened.pendingWorkDetail(0, 4), {timeout: 15_000}).toBeUndefined();
+  expect(offsets.slice(0, 2)).toEqual([0, workDetailLimits.chunkBytes]);
+  expect(workerCalls.mock.calls.filter(([job]) => job.kind === 'prepare')).toHaveLength(1);
+  expect(existsSync(`${inbox.path}.work-detail.tmp`)).toBe(false);
+  expect(center.db.prepare('SELECT count(*) AS n FROM agent_work_events').get()).toEqual({n: 4});
+  expect(center.db.prepare('SELECT through_seq FROM agent_work_journals').get()).toEqual({through_seq: 4});
   expect(errors).toEqual([]);
-}, 25_000);
+}, 35_000);
 
 test('a valid full hash cannot attach private-root bytes to a company Work event', async () => {
   const {center, send} = await fixture();
@@ -206,3 +227,87 @@ test('a valid full hash cannot attach private-root bytes to a company Work event
   expect(center.db.prepare('SELECT count(*) AS n FROM work_detail_parts').get()).toEqual({n: 0});
   expect(center.db.prepare('SELECT count(*) AS n FROM agent_work_events').get()).toEqual({n: 1});
 }, 20_000);
+
+test('verification from a revoked staging attempt cannot certify different bytes on the same deferred manifest', async () => {
+  const {center, send, owner, user} = await fixture();
+  const root = {root_agent_id: 'root', session_id: 'main'};
+  const registration = {...root, seq: 1, event_id: 'registered', type: 'session_registered', payload: {scope: 'global_main'}};
+  expect((await send(center.base, '/events', 'POST', {from_seq: 1, events: [registration]})).status).toBe(200);
+  const event: WorkJournalEvent = {...root, seq: 2, event_id: 'replace', type: 'recording_degraded', payload: {text: 'v'.repeat(17 * 1024 * 1024)}};
+  const {raw, manifest} = wire(event);
+  center.db.prepare(`INSERT INTO work_detail_uploads
+    (owner_id,node_id,node_epoch,journal_id,seq,event_id,root_agent_id,session_id,total_bytes,sha256,projection_json,updated_at,state)
+    VALUES(?,'node',1,'older',1,'reservation','root','main',?,'hash','{}',?,'uploading')`).run(owner, workDetailLimits.maxBytes, Date.now());
+  expect((await send(center.base, '/large/2', 'POST', manifest)).body).toMatchObject({through_seq: 2, detail: {state: 'pending'}});
+  center.db.prepare("DELETE FROM work_detail_uploads WHERE event_id='reservation'").run();
+  const resume = {resume: true, event_id: event.event_id, sha256: manifest.sha256};
+  const state = () => center.db.prepare("SELECT id,revision,generation,state FROM work_detail_uploads WHERE event_id='replace'").get();
+  const original = state();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  cleanups.push(release);
+  let verified = false;
+  const verify = WorkDetailWorker.prototype.run;
+  vi.spyOn(WorkDetailWorker.prototype, 'run').mockImplementation(async function (this: WorkDetailWorker, job) {
+    const result = await verify.call(this, job);
+    if (!verified && job.kind === 'verify') {
+      verified = true;
+      await gate;
+    }
+    return result;
+  });
+  const upload = async () => {
+    expect((await send(center.base, '/large/2', 'POST', resume)).body).toMatchObject({detail: {state: 'uploading', offset: 0}});
+    for (let offset = 0; offset < raw.length; offset += workDetailLimits.chunkBytes)
+      expect((await send(center.base, `/large/2/${offset}`, 'PUT', part(raw, offset))).status).toBe(200);
+  };
+  await upload();
+  await expect.poll(() => verified).toBe(true);
+  const eligibility = center.db.prepare('UPDATE users SET membership_status=? WHERE id=?');
+  eligibility.run('pending', owner);
+  const reset = await send(center.base, '/large/2/0', 'PUT', part(raw, 0));
+  expect(reset.body).toMatchObject({detail: {state: 'pending', offset: 0}});
+  eligibility.run('active', owner);
+  raw[workDetailLimits.chunkBytes] ^= 1;
+  await upload();
+  expect(state()).toEqual({...original, generation: 2, state: 'verifying'});
+  release();
+  await expect.poll(state).toEqual({...original, generation: 2, state: 'rejected'});
+  expect(center.db.prepare('SELECT count(*) AS n FROM work_detail_parts').get()).toEqual({n: 0});
+  expect(center.db.prepare('SELECT through_seq FROM agent_work_journals').get()).toEqual({through_seq: 2});
+  const list = await fetch(center.base + originalPath, {headers: {authorization: `Bearer ${user}`}});
+  expect(await list.json()).toMatchObject({items: [{event_id: 'replace', state: 'local'}]});
+}, 25_000);
+
+test('records over the JSON structure budget remain local while later Work advances', async () => {
+  const {center, inbox, user, send} = await fixture();
+  const root = {root_agent_id: 'root', session_id: 'main'};
+  inbox.append({...root, event_id: 'registered', type: 'session_registered', payload: {scope: 'global_main'}});
+  const argumentsValue = {content: 'x'.repeat(17 * 1024 * 1024), rows: Array(110_000).fill({n: 1})};
+  inbox.append({...root, turn_id: 'turn', event_id: 'complex', type: 'tool_start',
+    payload: {call_id: 'tool', tool_name: 'writer', arguments: argumentsValue}});
+  inbox.append({...root, turn_id: 'turn', event_id: 'normal', type: 'tool_end', payload: {call_id: 'tool'}});
+  const errors: unknown[] = [];
+  const sync = new WorkSync({nodeId: 'node', inbox, url: center.base, credentials: () => token, onError: error => errors.push(error)});
+  cleanups.push(() => sync.stop());
+  sync.start();
+  await expect.poll(() => inbox.throughSeq, {timeout: 8_000}).toBe(3);
+  expect(errors).toEqual([]);
+  expect((inbox.journal(1, 1)[0]!.payload.arguments as {rows: unknown[]}).rows).toHaveLength(110_000);
+  const auth = {authorization: `Bearer ${user}`};
+  const before = await fetch(center.base + originalPath + '?turn_id=turn', {headers: auth});
+  expect(await before.json()).toMatchObject({items: [{event_id: 'complex', state: 'local'}]});
+  const items = await fetch(center.base + '/im/v1/agents/root/work/sessions/main/turns/turn/items', {headers: auth});
+  expect(await items.json()).toMatchObject({items: [{item_id: 'tool:tool', payload: {large_detail_preview: true, status: 'completed'}}]});
+  await sync.stop();
+
+  // A sender that still uploads these bytes reaches the same budget at verification.
+  const {raw, manifest} = wire({...root, seq: 4, turn_id: 'turn', event_id: 'complex-uploaded', type: 'tool_end',
+    payload: {call_id: 'tool', arguments: argumentsValue}});
+  expect((await send(center.base, '/large/4', 'POST', manifest)).body).toMatchObject({detail: {state: 'uploading'}});
+  for (let offset = 0; offset < raw.length; offset += workDetailLimits.chunkBytes)
+    expect((await send(center.base, `/large/4/${offset}`, 'PUT', part(raw, offset))).status).toBe(200);
+  await expect.poll(async () => (await send(center.base, '/large/4', 'POST', manifest)).body)
+    .toMatchObject({through_seq: 4, detail: {state: 'local', offset: 0}});
+  expect(center.db.prepare('SELECT count(*) AS n FROM work_detail_parts').get()).toEqual({n: 0});
+}, 25_000);

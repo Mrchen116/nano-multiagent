@@ -9,7 +9,7 @@ export const workDetailFields = [
   'finished_at', 'lifecycle_revision', 'status', 'stop_reason', 'completed', 'elapsed_ms', 'duration_ms',
   'context_window', 'call_id', 'tool_call_id', 'tool_name', 'name', 'reason_code', 'is_error',
   'request_id', 'message_id', 'role', 'source_kind', 'source_session_id', 'native_turn',
-  'target', 'submission_id', 'review_id', 'job_id', 'command', 'delivery_state', 'user_message_count',
+  'target', 'conversation_id', 'submission_id', 'review_id', 'job_id', 'command', 'delivery_state', 'user_message_count',
   'trigger', 'usage', 'error', 'presentation', 'permission_request', 'options', 'source_refs',
   'background_returns', 'updated_targets', 'title', 'description', 'text', 'delta', 'reasoning_content',
   'content', 'summary', 'arguments',
@@ -47,7 +47,7 @@ export function projectWorkDetail(event: WorkJournalEvent): WorkJournalEvent {
     const input = event.payload[key];
     // Preserve the truthiness used to derive tool/turn failure, even for opaque errors.
     const value = key === 'error' && input ? bounded(input, 2) || true
-      : identityFields.has(key) && typeof input === 'string' && input.length <= 1024 ? input : bounded(input, 3);
+      : identityFields.has(key) && typeof input === 'string' ? (input.length <= 1024 ? input : undefined) : bounded(input, 3);
     if (value === undefined) continue;
     const size = Buffer.byteLength(JSON.stringify([key, value])) + 1;
     if (bytes + size > workDetailLimits.projectionBytes) continue;
