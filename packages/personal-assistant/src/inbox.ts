@@ -3,7 +3,8 @@ import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
+import { projectWorkDetail } from '@nano/product-contracts/work-detail-worker';
+import { decodeWorkEvent, workRedactedType, workDetailLimits } from '@nano/product-contracts';
 import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 
@@ -18,7 +19,7 @@ export class InboxStore {
   readonly journalId: string;
   readonly reviews: InboxReviews;
   private readonly db: DatabaseSync;
-  constructor(path: string) {
+  constructor(readonly path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS inbox(seq INTEGER PRIMARY KEY,agent_id TEXT,target TEXT,message_id TEXT,payload TEXT,attention INTEGER,consumed INTEGER DEFAULT 0,UNIQUE(agent_id,message_id));
@@ -30,6 +31,12 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS wakes(agent_id TEXT PRIMARY KEY,watermark INTEGER);
       CREATE TABLE IF NOT EXISTS background_wakes(agent_id TEXT PRIMARY KEY,last_notified_at INTEGER,due_at INTEGER,notified_through_seq INTEGER DEFAULT 0,submitting_through_seq INTEGER);
       CREATE TABLE IF NOT EXISTS journal(seq INTEGER PRIMARY KEY,event_id TEXT UNIQUE,event TEXT);
+      CREATE TABLE IF NOT EXISTS work_detail_local(seq INTEGER PRIMARY KEY, projection TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS work_detail_pending(seq INTEGER PRIMARY KEY, event_id TEXT NOT NULL, sha256 TEXT NOT NULL);
+      CREATE TRIGGER IF NOT EXISTS work_detail_local_redacted AFTER UPDATE OF event ON journal BEGIN
+        DELETE FROM work_detail_local WHERE seq=OLD.seq;
+        DELETE FROM work_detail_pending WHERE seq=OLD.seq;
+      END;
       CREATE INDEX IF NOT EXISTS journal_root_agent ON journal(json_extract(event,'$.root_agent_id'));
       CREATE TABLE IF NOT EXISTS inbox_deleted_agents(agent_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS inbox_deleted_sessions(session_id TEXT PRIMARY KEY);
@@ -579,9 +586,25 @@ export class InboxStore {
     if (this.deletedAgent(event.root_agent_id)) return;
     if (this.db.prepare('SELECT 1 FROM journal WHERE event_id=?').get(event.event_id)) return;
     const seq = (this.db.prepare('SELECT coalesce(max(seq),0)+1 AS seq FROM journal').get() as { seq: number }).seq;
-    this.db.prepare('INSERT INTO journal VALUES(?,?,?)').run(seq, event.event_id, JSON.stringify({ ...event, seq }));
+    const record = {...event, seq}, raw = JSON.stringify(record);
+    this.db.prepare('INSERT INTO journal VALUES(?,?,?)').run(seq, event.event_id, raw);
+    if (raw.length > workDetailLimits.maxBytes / 3 && Buffer.byteLength(raw) > workDetailLimits.maxBytes)
+      this.db.prepare('INSERT INTO work_detail_local VALUES(?,?)').run(seq, JSON.stringify(projectWorkDetail(decodeWorkEvent(record).event)));
   }
   journal(after: number, limit = 100): WorkJournalEvent[] { return (this.db.prepare('SELECT event FROM journal WHERE seq>? ORDER BY seq LIMIT ?').all(after,limit) as { event: string }[]).map(row => decodeWorkEvent(JSON.parse(row.event)).event); }
+  /** Peek at the UTF-8 byte length without loading the journal TEXT into JavaScript. */
+  nextJournalEntry(after: number): {seq: number; event_id: string; bytes: number} | undefined {
+    return this.db.prepare('SELECT seq,event_id,octet_length(event) bytes FROM journal WHERE seq>? ORDER BY seq LIMIT 1').get(after) as ReturnType<InboxStore['nextJournalEntry']>;
+  }
+  /** Record recovery intent before the center can confirm a preview without the original. */
+  rememberWorkDetail(seq: number, eventId: string, sha256: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO work_detail_pending VALUES(?,?,?)').run(seq, eventId, sha256);
+  }
+  /** Enumerate one deferred original after ordinary journal progress has caught up. */
+  pendingWorkDetail(after: number, through: number): {seq: number; event_id: string; sha256: string} | undefined {
+    return this.db.prepare('SELECT * FROM work_detail_pending WHERE seq>? AND seq<=? ORDER BY seq LIMIT 1').get(after, through) as ReturnType<InboxStore['pendingWorkDetail']>;
+  }
+  confirmWorkDetail(seq: number): void { this.db.prepare('DELETE FROM work_detail_pending WHERE seq=?').run(seq); }
   get journalSeq(): number {return Number((this.db.prepare('SELECT coalesce(max(seq),0) seq FROM journal').get() as {seq:number}).seq);}
   get throughSeq(): number { return Number((this.db.prepare('SELECT value FROM metadata WHERE key=?').get('through') as { value: string } | undefined)?.value ?? 0); }
   acknowledge(seq: number): void { this.db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('through', String(seq)); }

@@ -10,7 +10,7 @@ actor Session {
     private var access: String?
     private var generation = 0
     private var refreshFlight: (id: UUID, task: Task<TokenPair, Error>)?
-    private var requests: [UUID: Task<(Data, HTTPURLResponse), Error>] = [:]
+    private var requests: [UUID: @Sendable () -> Void] = [:]
     private var observers: [UUID: AsyncStream<AuthUser?>.Continuation] = [:]
 
     init(baseURL: URL, transport: any HTTPTransport = LiveTransport(), credentials: (any CredentialStore)? = nil, sendAttempts: SendAttemptStore = SendAttemptStore()) {
@@ -105,20 +105,50 @@ actor Session {
 
     func request(path: String, method: String = "GET", body: Data? = nil,
                  query: [URLQueryItem] = [], headers: [String: String] = [:]) async throws -> (Data, HTTPURLResponse) {
+        var request = try makeRequest(path: path, method: method, body: body, query: query)
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        return try await authenticated(request) { request, expected in
+            try await tracked(request, expected: expected)
+        }
+    }
+
+    /// Download a protected file to disk using the same account and cancellation boundary as requests.
+    func download(path: String, to destination: URL) async throws {
+        var request = try makeRequest(path: path, method: "GET", body: nil)
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        do {
+            try await authenticated(request) { request, expected in
+                let transport = self.transport
+                try await track(expected: expected) {
+                    let (file, response) = try await transport.download(for: request)
+                    defer { try? FileManager.default.removeItem(at: file) }
+                    guard response.statusCode == 200 else {
+                        throw APIError(status: response.statusCode, detail: HTTPURLResponse.localizedString(forStatusCode: response.statusCode))
+                    }
+                    try Task.checkCancellation()
+                    try FileManager.default.moveItem(at: file, to: destination)
+                }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+    }
+
+    private func authenticated<T: Sendable>(_ original: URLRequest, perform: (URLRequest, Int) async throws -> T) async throws -> T {
         let expected = generation
         if stored == nil { stored = try credentials.load() }
         guard stored != nil else { throw APIError(status: 401, detail: L("请重新登录。", "Please sign in again.")) }
         if access == nil { _ = try await refresh() }
         guard generation == expected else { throw CancellationError() }
-        var request = try makeRequest(path: path, method: method, body: body, query: query)
-        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        var request = original
         request.setValue("Bearer \(access ?? "")", forHTTPHeaderField: "Authorization")
-        do { return try await tracked(request, expected: expected) }
+        do { return try await perform(request, expected) }
         catch let error as APIError where error.status == 401 {
             _ = try await refresh()
             guard generation == expected else { throw CancellationError() }
             request.setValue("Bearer \(access ?? "")", forHTTPHeaderField: "Authorization")
-            return try await tracked(request, expected: expected)
+            return try await perform(request, expected)
         }
     }
 
@@ -160,15 +190,19 @@ actor Session {
     }
     private func invalidateRequests() {
         generation += 1
-        requests.values.forEach { $0.cancel() }; requests.removeAll()
+        requests.values.forEach { $0() }; requests.removeAll()
     }
     private func tracked(_ request: URLRequest, expected: Int) async throws -> (Data, HTTPURLResponse) {
-        let id = UUID(), transport = self.transport
-        let task = Task { try await Self.perform(request, transport: transport) }
-        requests[id] = task
+        let transport = self.transport
+        return try await track(expected: expected) { try await Self.perform(request, transport: transport) }
+    }
+    private func track<T: Sendable>(expected: Int, operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        let id = UUID(), task = Task { try await operation() }
+        requests[id] = { task.cancel() }
         defer { requests.removeValue(forKey: id) }
         let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         guard expected == generation else { throw CancellationError() }
+        try Task.checkCancellation()
         return result
     }
     private func makeRequest(path: String, method: String, body: Data?, query: [URLQueryItem] = []) throws -> URLRequest {

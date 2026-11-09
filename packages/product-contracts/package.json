@@ -20,6 +20,10 @@
       "types": "./lib/agent-lifecycle.d.ts",
       "default": "./lib/agent-lifecycle.js"
     },
+    "./work-detail-worker": {
+      "types": "./lib/work-detail-worker.d.ts",
+      "default": "./lib/work-detail-worker.js"
+    },
     "./serialization": {
       "types": "./lib/serialization.d.ts",
       "default": "./lib/serialization.js"

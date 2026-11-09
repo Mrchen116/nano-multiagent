@@ -128,11 +128,11 @@ test('device revocation and expired partials discard unconfirmed bytes without a
   const path = `${prefix}/events/1/parts/0`;
   expect((await f.request('PUT', path, chunks[0])).statusCode).toBe(200);
   f.db.prepare('UPDATE work_sync_uploads SET updated_at=0 WHERE committed=0').run();
-  expect((await f.request('GET')).json()).toEqual({ through_seq: 0, expected_seq: 1 });
+  expect((await f.request('GET')).json()).toEqual({ through_seq: 0, expected_seq: 1, large_detail: 1 });
   expect((await f.request('PUT', path, chunks[0])).statusCode).toBe(200);
   f.db.prepare('UPDATE node_binding_state SET node_epoch=2,runtime_token_hash=? WHERE node_id=?').run(digest('new-secret'), 'node');
   expect((await f.request('PUT', `${prefix}/events/1/parts/1`, chunks[1])).statusCode).toBe(401);
-  expect((await f.request('GET', prefix, undefined, 'new-secret')).json()).toEqual({ through_seq: 0, expected_seq: 1 });
+  expect((await f.request('GET', prefix, undefined, 'new-secret')).json()).toEqual({ through_seq: 0, expected_seq: 1, large_detail: 1 });
   expect(f.db.prepare('SELECT count(*) count FROM agent_work_events').get()).toMatchObject({ count: 0 });
 });
 
@@ -361,5 +361,5 @@ test('redacting an upload in flight preserves the shared sequence for the next A
   ]);
   expect(f.db.prepare('SELECT 1 FROM work_sync_uploads WHERE seq=2').get()).toBeUndefined();
   expect(existsSync(directory)).toBe(false);
-  expect((await f.request('GET')).json()).toEqual({ through_seq: 3, expected_seq: 4 });
+  expect((await f.request('GET')).json()).toEqual({ through_seq: 3, expected_seq: 4, large_detail: 1 });
 });

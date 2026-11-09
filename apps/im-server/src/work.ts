@@ -1,3 +1,6 @@
+import { Readable } from 'node:stream';
+import { setImmediate as yieldToIO } from 'node:timers/promises';
+import { browserSessionCookieName } from './identity.js';
 import {rejectDeletedExecution} from './agent-deletion.js';
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
@@ -15,7 +18,7 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
-import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
+import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, workDetailLimits, type WorkDetailEntry, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
 import type { Connection } from './gateway.js';
 import { WorkRecords } from './work-records.js';
 import type { WorkCatalogFilter, WorkView } from './work-record-types.js';
@@ -75,10 +78,13 @@ export class Work {
   }
   revision(root: string) { return this.records.revision(root); }
   focus(root: string, messageId: string, separate = false) { return this.records.focus(root, messageId, separate); }
-  append(node: string, input: unknown, historical = false): WorkAppendAck {
+  append(node: string, input: unknown, historical = false, commitDetail?: () => void): WorkAppendAck {
     const batch = readWorkBatch(input);
-    const {ack, appliedRoots} = this.records.append(node, batch, historical);
-    for (const root of appliedRoots) {
+    const {ack, appliedRoots} = this.records.append(node, batch, historical, commitDetail);
+    for (const root of appliedRoots) this.notifyUpdated(root);
+    return ack;
+  }
+  notifyUpdated(root: string): void {
       const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
       const space = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id;
       const users = all(
@@ -90,8 +96,6 @@ export class Work {
         event_type: "agent.work.updated",
         data: { agent_id: root, revision: this.revision(root) },
       });
-    }
-    return ack;
   }
   private connection(node: string) {
     return {
@@ -466,6 +470,65 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     return w.items(readable(req, p.session_id), p.session_id, p.turn_id, integer(q.after_seq, 0),
       boundedLimit(q.limit, q.catalog === 'separate' ? 20 : 100, 200),
       q.after_revision === undefined ? undefined : integer(q.after_revision, 0), q.catalog === 'separate');
+  });
+  const details = "/im/v1/agents/:agent_id/work/sessions/:session_id/originals";
+  const originalAccess = (req: import('fastify').FastifyRequest) => {
+    const {agent_id, session_id} = params(req);
+    rejectDeletedExecution(ctx, ctx.identity.authenticateRequest(req), agent_id, 'session', session_id);
+    profile(req);
+    w.session(agent_id, session_id);
+  };
+  app.get(details, (req, reply) => {
+    originalAccess(req);
+    const {agent_id, session_id} = params(req), {turn_id, after_revision} = query(req);
+    const after = Number(after_revision ?? 0);
+    if (!Number.isSafeInteger(after) || after < 0 || (turn_id !== undefined && typeof turn_id !== 'string'))
+      fail(400, 'invalid_cursor');
+    const rows = all(db, `SELECT d.revision,d.event_id,e.type,e.observed_at,d.total_bytes,
+      CASE WHEN d.state IN ('complete','local') THEN d.state ELSE 'pending' END AS state
+      FROM work_detail_uploads d JOIN agent_work_events e ON e.revision=d.revision
+      WHERE d.root_agent_id=? AND d.session_id=? AND d.turn_id IS ? AND d.revision>?
+      ORDER BY d.revision LIMIT 33`, agent_id, session_id, turn_id ?? null, after) as WorkDetailEntry[];
+    reply.header('Cache-Control', 'private, no-store');
+    return {items: rows.slice(0, 32), next_cursor: rows.length === 33 ? rows[31]!.revision : null};
+  });
+  let downloads = 0;
+  app.get(`${details}/:revision`, {preValidation: async req => {
+    if (req.headers.authorization !== undefined) return;
+    const prefix = `${browserSessionCookieName(ctx.publicUrl)}=`;
+    const cookie = req.headers.cookie?.split(';').map(value => value.trim()).find(value => value.startsWith(prefix))?.slice(prefix.length);
+    if (cookie) req.headers.authorization = `Bearer ${ctx.identity.browserSession(cookie).access_token}`;
+  }}, (req, reply) => {
+    const {agent_id, session_id, revision: rawRevision} = params(req);
+    const revision = Number(rawRevision);
+    if (!Number.isSafeInteger(revision) || revision < 1) fail(404, 'work_original_not_found');
+    const authorize = () => {
+      originalAccess(req);
+      const stored = one(db, `SELECT d.id,d.total_bytes FROM work_detail_uploads d JOIN agent_work_events e ON e.revision=d.revision
+        WHERE d.revision=? AND d.root_agent_id=? AND d.session_id=? AND d.state='complete'`, revision, agent_id, session_id);
+      if (!stored) fail(404, 'work_original_not_found');
+      return stored;
+    };
+    const first = authorize();
+    if (downloads >= 16) fail(429, 'work_download_busy');
+    const chunks = Readable.from((async function* () {
+      for (let offset = 0; offset < first.total_bytes; offset += workDetailLimits.chunkBytes) {
+        if (reply.raw.destroyed) return;
+        const stored = authorize();
+        if (stored.id !== first.id) fail(404, 'work_original_not_found');
+        const part = one(db, 'SELECT bytes FROM work_detail_parts WHERE manifest_id=? AND offset=?', stored.id, offset);
+        if (!part) fail(404, 'work_original_not_found');
+        yield part.bytes as Uint8Array;
+        // A slow download keeps no SQLite read transaction across yields.
+        await yieldToIO();
+      }
+    })(), {objectMode: false, highWaterMark: workDetailLimits.chunkBytes});
+    downloads++;
+    chunks.once('close', () => { downloads--; });
+    return reply.type('application/octet-stream')
+      .header('Cache-Control', 'private, no-store').header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Disposition', `attachment; filename="work-${revision}.json"`)
+      .header('Content-Length', String(first.total_bytes)).send(chunks);
   });
   app.post("/im/v1/agents/:agent_id/work/permissions/:request_id", async (req) => {
     const a = profile(req, true),

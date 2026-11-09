@@ -17,6 +17,7 @@ import { AgentExecutionDeletedError, workBase, workCatalogPath, workRequest, wor
 import "./agent-work.css";
 import { useWorkHistory } from './agent-work-history';
 import { LegacyWorkLinks, WorkLink } from './agent-work-links';
+import { WorkOriginals } from "./agent-work-originals";
 import { AgentTrajectory } from './agent-trajectory';
 
 type SavedView = { selected: string | null; expanded: Record<string, boolean>; scroll: number; mainScroll?: number; focus?: string };
@@ -330,10 +331,14 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
               : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} history={separate ? childHistory : undefined} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}
                 earlier={childQuery.hasNextPage ? {loading: childQuery.isFetchingNextPage, load: () => void childQuery.fetchNextPage()} : undefined} />
               : childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : <p>{tr("尚未报告执行轮次")}</p>}
-            {!childQuery.isError && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
+            {!childQuery.isError && !metadata.isError && <>
+              {separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />}
+              <WorkOriginals key={`originals:${saved.selected}`} agentId={agentId} sessionId={saved.selected} />
+            </>}
           </aside>}
         </div>
         {separate && view.main_session_id ? <SessionControls key={view.main_session_id} agentId={agentId} sessionId={view.main_session_id} title="控制记录" /> : <SessionFacts items={view.control_items} title="控制记录" />}
+        {view.main_session_id && <WorkOriginals key={`originals:${view.main_session_id}`} agentId={agentId} sessionId={view.main_session_id} />}
         {(separate || sessions.length > 0) && <details className="im-work-other" onToggle={event => {if (event.target === event.currentTarget) setCatalogOpen(event.currentTarget.open);}}>
           <summary>{tr("关联执行")}{!separate && ` · ${sessions.length}`}</summary>
           {sessions.map(session => <button type="button" key={session.session_id} onClick={() => selectChild(session.session_id)}>{tr(sessionTitle(session))} <small>{session.session_id}</small></button>)}
@@ -470,6 +475,7 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
         return null;
       })}</ul>
       {turn.error?.message && <p className="im-work-error">{turn.error.code && `${turn.error.code}: `}{turn.error.message}</p>}
+      {expanded[key] && <WorkOriginals agentId={agentId} sessionId={turn.session_id} turnId={turn.turn_id} />}
       <footer className="im-work-turn-footer"><Usage value={turn.usage} label="本轮统计" />{typeof turn.elapsed_ms === "number" && <small>{formatDuration(turn.elapsed_ms)}</small>}</footer>
       {separate && (changes.data?.next_cursor || changes.isError) && <button type="button" disabled={changes.isFetching} onClick={() => void changes.refetch()}>{tr(changes.isError ? "重试" : "加载更多更新")}</button>}
       {cursor && <button type="button" disabled={pages.isFetching} onClick={load}>{tr("加载更多过程")}</button>}{pages.error && <p role="alert">{pages.error.message}<button type="button" onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}

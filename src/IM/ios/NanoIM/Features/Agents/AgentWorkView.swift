@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 
 /// Refresh visible Work only; original chat navigation still requires server authorization.
 struct AgentWorkView: View {
@@ -94,6 +95,9 @@ struct AgentWorkView: View {
             }
             if separate, let executionID {
                 Section(L("控制记录", "Control records")) { AgentWorkControls(client: client, base: base, sessionID: executionID).id(executionID) }
+            }
+            if let execution = sessionID ?? root?.main_session_id, root != nil {
+                AgentWorkOriginals(client: client, agentID: agentID, sessionID: execution)
             }
             if !controls.isEmpty {
                 Section(L("控制记录", "Control records")) {
@@ -249,6 +253,7 @@ struct AgentWorkTurnView: View {
                     AgentWorkItemView(client: client, agentID: agentID, sessionID: turn.session_id, item: item, sessions: sessions, online: online, canManage: canManage, onOpenChat: onOpenChat, separate: separate)
                     Divider()
                 }
+                if expanded { AgentWorkOriginals(client: client, agentID: agentID, sessionID: turn.session_id, turnID: turn.turn_id) }
                 AgentWorkUsage(value: turn.usage, title: L("本轮统计", "Turn statistics"))
                 if let elapsed = turn.elapsed_ms { LabeledContent(L("耗时", "Duration"), value: String(format: "%.2f s", elapsed / 1000)) }
                 if (didLoad ? extraCursor : turn.next_items_cursor) != nil { Button(L("加载更多过程", "Load more process")) { Task { await loadMore() } }.disabled(busy) }
@@ -303,6 +308,126 @@ struct AgentWorkTurnView: View {
             self.revision = page.revision ?? revision
             moreChanges = page.next_cursor != nil; wasActive = active; changesError = nil
         } catch { changesError = agentError(error) }
+    }
+}
+
+private struct WorkOriginalEntry: Decodable, Identifiable, Sendable {
+    let revision: Int
+    let type: String
+    let observed_at: String?
+    let total_bytes: Int
+    let state: String
+    var id: Int { revision }
+}
+private struct WorkOriginalPage: Decodable, Sendable {
+    let items: [WorkOriginalEntry]
+    let next_cursor: Int?
+}
+
+private struct AgentWorkOriginals: View {
+    let client: IMClient
+    let agentID: String
+    let sessionID: String
+    var turnID: String? = nil
+    @State private var expanded = false
+    @State private var page: [WorkOriginalEntry] = []
+    @State private var cursor: Int?
+    @State private var error: String?
+    @State private var loading = false
+    private var path: String { agentPath(agentID) + "/work/sessions/" + agentSegment(sessionID) + "/originals" }
+
+    var body: some View {
+        DisclosureGroup(L("大型原文", "Large originals"), isExpanded: $expanded) {
+            if expanded {
+                ForEach(page) { entry in
+                    AgentWorkOriginal(client: client, entry: entry, path: path + "/" + String(entry.revision))
+                }
+                if loading { ProgressView() }
+                else if let error {
+                    ErrorNotice(message: error)
+                    Button(L("重试", "Retry")) { Task { await load() } }
+                } else if page.isEmpty { Text(L("没有大型原文", "No large originals")) }
+                if let cursor { Button(L("加载更多原文", "Load more originals")) { Task { await load(after: cursor) } }.disabled(loading) }
+            }
+        }.task(id: expanded) { if expanded { await load() } }
+    }
+
+    private func load(after: Int? = nil) async {
+        loading = true; defer { loading = false }
+        var query: [URLQueryItem] = []
+        if let turnID { query.append(.init(name: "turn_id", value: turnID)) }
+        if let after { query.append(.init(name: "after_revision", value: String(after))) }
+        do {
+            let result: WorkOriginalPage = try await client.get(path, query: query)
+            try Task.checkCancellation()
+            if after == nil { page = result.items } else { page += result.items }
+            cursor = result.next_cursor; error = nil
+        } catch is CancellationError {} catch {
+            page = []; cursor = nil; self.error = agentError(error)
+        }
+    }
+}
+
+private struct AgentWorkOriginal: View {
+    let client: IMClient
+    let entry: WorkOriginalEntry
+    let path: String
+    @State private var download: Task<Void, Never>?
+    @State private var file: URL?
+    @State private var viewer: URL?
+    @State private var excerpt: String?
+    @State private var error: String?
+    var body: some View {
+        VStack(alignment: .leading) {
+            HStack {
+                Text(entry.type)
+                Text(String(format: "%.1f MiB", Double(entry.total_bytes) / 1048576))
+                if let observed = entry.observed_at { NanoDateTime(value: observed) }
+            }.font(.caption)
+            if entry.state == "complete" {
+                if let file {
+                    Button(L("打开原文文件", "Open original file")) { viewer = file }
+                    ShareLink(item: file) { Label(L("保存原文", "Save original"), systemImage: "square.and.arrow.up") }
+                    if let excerpt {
+                        DisclosureGroup(L("原文开头", "Beginning of original")) {
+                            Text(excerpt).font(.caption.monospaced()).textSelection(.enabled)
+                        }
+                    }
+                } else if download != nil {
+                    ProgressView()
+                    Button(L("取消", "Cancel")) { download?.cancel() }
+                } else {
+                    Button(L("下载原文", "Download original")) { download = Task { await open() } }
+                }
+            } else {
+                Text(entry.state == "pending"
+                    ? L("原文待补齐，可在网页版 Work 的原生轨迹中查看", "Mirror pending. Open the native trajectory in Work on the web.")
+                    : L("原文仅在节点，可在网页版 Work 的原生轨迹中查看", "Stored on the node. Open the native trajectory in Work on the web."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let error { ErrorNotice(message: error) }
+        }.quickLookPreview($viewer)
+            .onDisappear {
+                download?.cancel()
+                if let file { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+                file = nil; viewer = nil; excerpt = nil
+            }
+    }
+
+    private func open() async {
+        error = nil
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("nano-work-" + UUID().uuidString, isDirectory: true)
+        let destination = dir.appendingPathComponent("work-\(entry.revision).json")
+        defer { download = nil; if file == nil { try? FileManager.default.removeItem(at: dir) } }
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try await client.session.download(path: path, to: destination)
+            try Task.checkCancellation()
+            let handle = try FileHandle(forReadingFrom: destination)
+            defer { try? handle.close() }
+            excerpt = String(decoding: try handle.read(upToCount: 8192) ?? Data(), as: UTF8.self)
+            file = destination
+        } catch is CancellationError {} catch { self.error = agentError(error) }
     }
 }
 
