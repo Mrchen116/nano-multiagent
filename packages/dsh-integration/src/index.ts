@@ -52,6 +52,7 @@ import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
+import { SubagentRecovery } from './subagent-recovery.js';
 import { SessionDeletion } from './agent-deletion.js';
 import { ownedLinks, purgeDerived, tupleOwner } from './agent-deletion-derived.js';
 
@@ -255,6 +256,11 @@ export default class NanoRuntime {
     // Both hooks prepend: register catch-up last so its authority cut precedes Task decisions.
     new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
     ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
+    const subagentRecovery = new SubagentRecovery(ctx, agent => {
+      const binding = this.bindings.get(agent.id);
+      if (!binding || configurationService.forAgent(agent)?.mode !== 'global') return;
+      return {agentId: binding.agentId, revision: lifecycle.current(binding.agentId).revision};
+    });
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -347,6 +353,7 @@ export default class NanoRuntime {
       await approvalFiber.await();
       await modelFiber.await();
       await descendantReader.ready;
+      await subagentRecovery.ready;
       await (await models).fallback.ready;
       await webFiber.await();
       await workflowFiber.await();
@@ -389,7 +396,8 @@ export default class NanoRuntime {
           this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') continue;
         try {
           if (!await ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;
-          await this.queueChildInterruptions(binding, descendantReader);
+          const interrupted = await descendantReader.interruptedChildren(SessionId(binding.sessionId));
+          if (interrupted.length) await subagentRecovery.record(binding.sessionId, interrupted);
         } catch (error) {
           ctx.logger.warn(`Cannot recover subagent notices for ${binding.sessionId}: ${String(error)}`);
         }
@@ -993,26 +1001,6 @@ export default class NanoRuntime {
   private async agent(sessionId: string): Promise<Agent> {
     if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
     return this.owned.resolve(sessionId);
-  }
-
-  private async queueChildInterruptions(binding: SessionBinding, reader: DescendantReader): Promise<void> {
-    const interrupted = await reader.interruptedChildren(SessionId(binding.sessionId));
-    if (!interrupted.length) return;
-    const parent = await this.agent(binding.sessionId);
-    const events = parent.session.snapshotEvents();
-    for (const {id, turnEnd} of interrupted) {
-      const inputId = `subagent-recovery:${id}:${turnEnd}`;
-      const evidence = inputEvidence(events, inputId);
-      // A crash can claim the queue entry before it reaches the model's history.
-      if (evidence.accepted && (evidence.pending || evidence.consumedSeq !== undefined ||
-        (evidence.terminal as {kind?: string} | undefined)?.kind !== 'interrupted')) continue;
-      parent.inject(freezeMessage({id: MessageId(inputId), role: 'user' as const,
-        content: [{type: 'text', text: `System recovery notice: subagent ${id} was interrupted when the execution runtime stopped. Review its recorded progress before deciding how to handle the delegation.`}],
-        source: {kind: 'nano-system' as const, channel: 'subagent-recovery', actorId: binding.agentId,
-          messageId: inputId, lifecycle_revision: this.lifecycle.current(binding.agentId).revision},
-      }));
-    }
-    await this.flush(parent);
   }
 
   private async configureSchedules(config: AgentConfiguration) {

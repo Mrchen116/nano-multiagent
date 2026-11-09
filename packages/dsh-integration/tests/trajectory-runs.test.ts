@@ -59,15 +59,19 @@ async function fixture() {
   const prepare = (sessionId = 'root') => client.rpc.request('trajectory.prepare', { observerId: sessionId, rootAgentId: 'a', rootSessionId: 'root', sessionId, ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
   const runs = async (sessionId = 'root') => (await client.rpc.request('trajectory.call', { observerId: sessionId, method: 'trajectory/runs' }) as { value: TrajectoryRun[] }).value;
   let counter = 0;
-  const submit = async (text: string) => {
+  const submit = async (text: string, channel = 'test') => {
     const inputId = `input-${++counter}`;
-    await client.rpc.request('session.submit', { sessionId: 'root', inputId, mode: 'followup', content: [{ type: 'text', text }], source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: inputId } });
+    const heartbeat = channel === 'heartbeat';
+    expect(await client.rpc.request('session.submit', { sessionId: 'root', inputId, mode: 'followup', onlyIfIdle: heartbeat,
+      content: [{ type: 'text', text }], source: { kind: heartbeat ? 'system' : 'human', actorId: 'owner', channel, messageId: inputId },
+    })).toMatchObject({accepted: true});
     await expect.poll(async () => (await client.rpc.request('session.lookup', { sessionId: 'root', inputId }) as any).terminal, { timeout: 10000 }).toBeTruthy();
   };
   const events = async (sessionId: string) => sessionId === 'root' ? (await client.rpc.request('session.observe', { sessionId }) as { events: any[] }).events : (await client.rpc.request('session.descendants', { sessionId: 'root' }) as { id: string; events: any[] }[]).find(child => child.id === sessionId)!.events;
   const requests = async () => (await readFile(requestsPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  const notices = async () => JSON.parse(await readFile(join(home, 'storages/nano_subagent_recovery/sessions/root.json'), 'utf8')).record;
   await start(); await prepare();
-  return { start, prepare, runs, submit, events, requests, logs: () => logs, client: () => client,
+  return { start, prepare, runs, submit, events, requests, notices, logs: () => logs, client: () => client,
     close: async () => { if (client.process.exitCode === null) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); } };
 }
 
@@ -155,23 +159,26 @@ it('preserves failed/cancelled terminals and reports a killed process run as unk
     const requestsBeforeRestart = (await f.requests()).length;
     await f.start(false); await f.prepare();
     expect(await f.runs()).toEqual(before.map(run => run.state === 'running' ? { ...run, state: 'unknown' } : run));
-    const notices = async () => (await f.events('root')).flatMap(event => event.data.inserted ?? [])
-      .filter(message => message.source?.channel === 'subagent-recovery');
-    expect(await notices()).toEqual([expect.objectContaining({
-      content: [{type: 'text', text: expect.stringContaining(child)}],
-      source: expect.objectContaining({kind: 'nano-system'}),
-    })]);
+    const notice = {id: child, turnEnd: expect.any(Number)};
+    expect(await f.notices()).toMatchObject({pending: [notice]});
     f.client().process.kill('SIGKILL'); await f.client().exited;
     await f.start(false);
-    expect(await notices()).toHaveLength(1);
+    expect(await f.notices()).toMatchObject({pending: [notice]});
+    expect(await f.client().rpc.request('update.prepare', {operationId: 'pending-notice'})).toEqual({ready: true});
+    expect(await f.client().rpc.request('update.release', {operationId: 'pending-notice'})).toEqual({released: true});
     expect(await f.requests()).toHaveLength(requestsBeforeRestart);
-    await f.submit('new user trigger');
+    await f.submit('normal heartbeat trigger', 'heartbeat');
     const resumed = (await f.requests()).slice(requestsBeforeRestart);
     expect(resumed.map(request => request.sessionId)).toEqual(['root']);
     expect(resumed[0].messages.filter((message: any) => message.source?.channel === 'subagent-recovery')).toEqual([expect.objectContaining({
-      id: (await notices())[0].id,
+      source: expect.objectContaining({kind: 'nano-system'}),
       content: expect.arrayContaining([{type: 'text', text: expect.stringContaining(`${child} was interrupted`)}]),
     })]);
+    f.client().process.kill('SIGKILL'); await f.client().exited;
+    await f.start(false);
+    await f.submit('new user trigger');
+    expect(await f.notices()).toMatchObject({pending: [], delivered: {[child]: expect.any(Number)}});
+    expect((await f.events('root')).filter(event => event.type === 'user/message' && event.data.source.channel === 'subagent-recovery')).toHaveLength(1);
   } catch (error) { throw new Error(`${error}\n${f.logs()}`, { cause: error }); }
   finally { await f.close(); }
 }, 30000);

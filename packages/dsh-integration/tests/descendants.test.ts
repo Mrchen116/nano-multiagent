@@ -65,7 +65,7 @@ it('captures projection state after an awaited observation and re-captures on co
         await Promise.resolve();
         modelVersion = childReads===1?'initial':'completed';
       }
-      return {revision:'same',cursor:2,inheritedEventCount:0,events:[{seq:2,type:'turn/end'}],
+      return {revision:'same',cursor:2,inheritedEventCount:0,events:[{seq:2,type:'turn/end',data:{turn:1,reason:{kind:'completed'}}}],
         projections:{values:{subagentCatalog:id==='root'?[{id:'child',mode:'one-shot',createdAt:1}]:[]}},[Symbol.dispose](){}};
     }},
   } as unknown as Context;
@@ -84,7 +84,7 @@ it('restores catalog ownership and processed cold cuts without body reads, then 
   const stored = new Map<string, unknown>();
   const records = new Map<string, any>([
     ['root', {revision:'r1',sizeBytes:100,cursor:0,children:[{id:'child',mode:'one-shot',createdAt:1}],events:[]}],
-    ['child', {revision:'c1',sizeBytes:200,cursor:2,children:[],events:[{seq:0,type:'turn/start',data:{turn:1}},{seq:1,type:'assistant/message',data:{}},{seq:2,type:'turn/end',data:{turn:1}}]}],
+    ['child', {revision:'c1',sizeBytes:200,cursor:2,children:[],events:[{seq:0,type:'turn/start',data:{turn:1}},{seq:1,type:'assistant/message',data:{}},{seq:2,type:'turn/end',data:{turn:1,reason:{kind:'completed'}}}]}],
   ]);
   const reads: string[] = [];
   const context = () => ({
