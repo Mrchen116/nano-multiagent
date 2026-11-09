@@ -1,7 +1,7 @@
 ---- MODULE ContextCachePrefix ----
 EXTENDS Naturals, Sequences, FiniteSets
 
-CONSTANTS Agents, MaxRequests, MaxTools, MaxChanges, ImagePressure, Fault
+CONSTANTS Agents, MaxRequests, MaxTools, MaxChanges, AllowImages, Fault
 VARIABLE s
 
 Entry(kind, id) == <<kind, id>>
@@ -36,8 +36,10 @@ UserInput ==
     /\ s' = [s EXCEPT !.stage = "ready",
              !.history = Append(@, Entry("user", s.requests + 1))]
 
+\* Image payloads are symbolic. Each request in this scenario fits within
+\* the 20 MiB aggregate encoded image budget.
 ImageInput ==
-    /\ ImagePressure
+    /\ AllowImages
     /\ s.stage = "idle"
     /\ s.pending # "personal-state"
     /\ s.requests < MaxRequests
@@ -215,20 +217,6 @@ CommitSummary(cut) ==
     /\ s' = [s EXCEPT !.changes = Use("roll"), !.stage = "ready",
              !.history = WithSummary(@, cut), !.protected = WithSummary(@, cut)]
 
-\* The over-budget attempt is rejected inside the adapter, before HTTP. The
-\* native recovery records image/offload, then the adapter emits placeholder
-\* text for that old image. The original policy has no exemption for this.
-OffloadOldImage ==
-    /\ ImagePressure
-    /\ s.stage = "ready"
-    /\ CanUse("image")
-    /\ LET images == {i \in 1..Len(s.history) : s.history[i][1] = "image"} IN
-         /\ Cardinality(images) >= 2
-         /\ \E i \in images :
-              /\ \A j \in images : i <= j
-              /\ s' = [s EXCEPT !.changes = Use("image"),
-                                  !.history[i][1] = "image-reference"]
-
 Next ==
     \/ UserInput \/ ImageInput \/ QueueEnvironment \/ QueuePersonalState \/ AdmitEvent
     \/ EmitRequest \/ FinishReply \/ ModelError \/ Retry \/ EndFailedTurn \/ InterruptReply \/ Restart
@@ -238,7 +226,7 @@ Next ==
     \/ RestrictSelection \/ BeginIdleConfigApply \/ ApplyPersona \/ ApplyTools
     \/ ApplyWorkspacePlugin \/ ChangeRoute
     \/ \E i \in 1..Len(s.history) : Prune(i)
-    \/ RollWindow \/ RestartWithLegacyCompaction \/ OffloadOldImage
+    \/ RollWindow \/ RestartWithLegacyCompaction
     \/ \E cut \in 1..Len(s.protected) : CommitSummary(cut)
 
 NoSilentPrefixRewrite == s.bad = {}

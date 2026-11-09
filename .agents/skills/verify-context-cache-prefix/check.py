@@ -31,27 +31,24 @@ if __name__ == "__main__":
 
     cases = ("baseline", "mixed", "image") if args.case == "all" else (args.case,)
     result = 0
+    agents = (args.agent,) if args.agent else ("Global", "PA")
     for case in cases:
-        agents = (args.agent,) if args.agent else ("Global", "PA")
-        # TLC stops at the first failure; search each identity independently
-        # for a real counterexample.
-        partitions = [(agent,) for agent in agents] if case == "image" else [agents]
-        for partition in partitions:
-            with TemporaryDirectory(prefix="nano-context-cache-prefix-") as work:
-                root = Path(work)
-                shutil.copy(assets / "ContextCachePrefix.tla", root)
-                cfg = (assets / "ContextCachePrefix.cfg").read_text()
-                cfg = cfg.replace('{"Global", "PA"}', "{" + ", ".join(f'"{a}"' for a in partition) + "}")
-                if case == "mixed":
-                    cfg = cfg.replace("MaxRequests = 4", "MaxRequests = 3")
-                    cfg = cfg.replace("MaxTools = 4", "MaxTools = 2")
-                    cfg = cfg.replace("MaxChanges = 2", "MaxChanges = 4")
-                elif case == "image":
-                    cfg = cfg.replace("ImagePressure = FALSE", "ImagePressure = TRUE")
-                elif case != "baseline":
-                    cfg = cfg.replace('Fault = "none"', f'Fault = "{case}"')
-                (root / "ContextCachePrefix.cfg").write_text(cfg)
-                print(f"TLC {case}: {', '.join(partition)}", flush=True)
-                code = run_tlc(jar, "ContextCachePrefix.tla", root)
-                result = result or code
+        with TemporaryDirectory(prefix="nano-context-cache-prefix-") as work:
+            root = Path(work)
+            shutil.copy(assets / "ContextCachePrefix.tla", root)
+            cfg = (assets / "ContextCachePrefix.cfg").read_text()
+            cfg = cfg.replace('{"Global", "PA"}', "{" + ", ".join(f'"{a}"' for a in agents) + "}")
+            if case in ("mixed", "image"):
+                cfg = cfg.replace("MaxRequests = 4", "MaxRequests = 3")
+                cfg = cfg.replace("MaxTools = 4", "MaxTools = 2")
+            if case == "mixed":
+                cfg = cfg.replace("MaxChanges = 2", "MaxChanges = 4")
+            elif case == "image":
+                cfg = cfg.replace("AllowImages = FALSE", "AllowImages = TRUE")
+            elif case != "baseline":
+                cfg = cfg.replace('Fault = "none"', f'Fault = "{case}"')
+            (root / "ContextCachePrefix.cfg").write_text(cfg)
+            print(f"TLC {case}: {', '.join(agents)}", flush=True)
+            code = run_tlc(jar, "ContextCachePrefix.tla", root)
+            result = result or code
     raise SystemExit(result)

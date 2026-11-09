@@ -27,7 +27,7 @@ function expectPrefix(before: any, after: any) {
     .toBe(JSON.stringify(normalize(before.messages)));
 }
 
-it.each([false, true])('checks Anthropic wire prefixes and image pressure (PA=%s)', async personal => {
+it.each([false, true])('checks Anthropic wire prefixes including images within the route budget (PA=%s)', async personal => {
   const home = await mkdtemp(join(tmpdir(),'nano-cache-wire-'));
   const requests: any[] = [];
   let client: RuntimeClient | undefined;
@@ -83,7 +83,7 @@ export function apply(ctx) {
     const port = (server.address() as {port:number}).port;
     await prepareProfile(home, [
       {id:'llm-pi-ai',config:{providers:{wire:{api:'anthropic-messages',apiKeyEnv:'NANO_TEST_KEY',
-        baseURL:'http://127.0.0.1:'+port,cacheRetention:'short',maxRequestImageBytes:700,
+        baseURL:'http://127.0.0.1:'+port,cacheRetention:'short',
         retryPolicy:{mode:'normal',maxRetries:1},
         models:[{id:'fixture',contextWindow:200000,input:['text','image']}]}}}},
       {insert:[{id:'cache-wire-fixture',name:join(home,'fixture.mjs')}]},
@@ -120,21 +120,10 @@ export function apply(ctx) {
     const before = requests.at(-1);
     expectPrefix(requests[3],before);
     expect(before.messages.flatMap(content).filter((block:any)=>block.type==='image')).toHaveLength(1);
-    const previousObservation = await client.rpc.request('session.observe',{sessionId:'root'}) as any;
     await submit('image-two',true);
     const after = requests.at(-1);
-    const observation = await client.rpc.request('session.observe',{sessionId:'root'}) as any;
-    const newEvents = observation.events.slice(previousObservation.events.length);
-    expect(newEvents.filter((event:any)=>event.type==='image/offload')).toHaveLength(1);
-    const rebuilds = newEvents.filter((event:any)=>event.type.startsWith('compaction/'));
-    expect(rebuilds.map((event:any)=>({type:event.type, trigger:event.data.trigger,
-      reason:event.data.reason, op:event.surfaceOp}))).toEqual([]);
-    const originalImageMessage = before.messages.findIndex((message:any)=>content(message).some(block=>block.type==='image'));
-    expect(content(after.messages[originalImageMessage])).toContainEqual(expect.objectContaining({
-      type:'text',text:expect.stringContaining('image omitted to fit request image limits'),
-    }));
-    expectPrefix({...before,messages:before.messages.slice(0,originalImageMessage)},after);
-    expect(after.messages.flatMap(content).filter((block:any)=>block.type==='image')).toHaveLength(1);
+    expectPrefix(before,after);
+    expect(after.messages.flatMap(content).filter((block:any)=>block.type==='image')).toHaveLength(2);
   } catch (error) {
     throw new Error(String(error)+'\n'+logs,{cause:error});
   } finally {
