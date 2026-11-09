@@ -22,7 +22,8 @@ it("moves the original-message highlight when another work source opens in the s
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     const data = url.includes("/room/messages") ? {items:messages,next_before_message_id:null}
-      : url.endsWith("/conversations") ? {items:[conversation]} : [];
+      : url.endsWith("/conversations") ? {items:[conversation]}
+      : url.endsWith("/conversations/room") ? conversation : [];
     return new Response(JSON.stringify(data), {status:200,headers:{"Content-Type":"application/json"}});
   }));
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});

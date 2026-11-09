@@ -1081,6 +1081,7 @@
       "toolCalls": "tool calls",
       "process": "Process",
       "thinking": "Thinking",
+      "processLoadError": "Could not load the process.",
       "thinkingCount": "{{count}} thinking",
       "toolCount_one": "{{count}} tool",
       "toolCount_other": "{{count}} tools",

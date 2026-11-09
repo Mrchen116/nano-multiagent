@@ -124,6 +124,18 @@ export interface ChatMessage {
   awaiting_permission_at?: string | null;
   sender_source_id?: string | null;
 }
+/** Counts displayed by the collapsed process panel before its details are read. */
+export interface ChatProcessSummary {
+  tool_count: number;
+  thinking_count: number;
+  background_return_count: number;
+  reply_process_counts: Partial<Record<'draft' | 'revalidation' | 'segment_handoff', number>>;
+  has_running_tool: boolean;
+  approval_allow_count: number;
+  approval_deny_count: number;
+}
+export type ChatHistoryMessage = ChatMessage & { process_summary?: ChatProcessSummary };
+
 export type ChatEvent =
   | {type: 'message.created'; data: ChatMessage & {message_id: string}}
   | {type: 'message.delta'; data: {delta: string; delta_text: string; idempotency_key?: string}}
