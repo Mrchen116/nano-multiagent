@@ -219,7 +219,7 @@ final class SendRecoveryTests: XCTestCase {
         await store.send("chat")
         let rejected = await transport.sent()
         XCTAssertEqual(rejected.count, 1)
-        XCTAssertTrue(store.errors["chat"]?.contains("not sent") == true)
+        XCTAssertTrue(store.errors["chat"]?.contains(L("消息尚未发送", "not sent")) == true)
         XCTAssertNil(store.pending["chat"])
         XCTAssertEqual(store.drafts["chat"], "keep my message")
         XCTAssertEqual(store.attachments["chat"]?.map(\.id), [attachment.id])
