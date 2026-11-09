@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
@@ -46,65 +46,6 @@ it.each(['interrupted','user','completed','consumed','partially-consumed'])('rec
    expect(submitted).toEqual([`${base}:recovery:10`,`${base}:recovery:21`]);
   }
  }finally{await product.stop();inbox.close();store.close();}
-});
-
-it('retries an Inbox wake when storage recovers during another Agent’s slow recovery', async () => {
-  vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
-  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
-  const agents = ['a', 'b'].map(agentId => ({
-    agentId, workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global' as const,
-  }));
-  for (const {agentId} of agents) store.bind({
-    agentId, sessionId: agentId, conversationId: `global:${agentId}`, ownerId: 'owner', cwd: '/tmp', revision: '1',
-  });
-  inbox.acceptRelay({
-    agent_id: 'a', conversation_id: 'c', relay_task_id: 'r', idempotency_key: 'k',
-    metadata: {conversation_type: 'direct'},
-    message: {id: 'm', content: 'do work', sender_type: 'user', sender_user_id: 'owner', attachments: []},
-  }, true);
-  inbox.admitWake('a', 1);
-  const slow = Promise.withResolvers<void>(), failed = Promise.withResolvers<void>();
-  const submissions: string[] = [];
-  let writable = false;
-  const product = new GlobalAgent({
-    nodeId: 'node', ownerId: 'owner', agents, store, inbox, image: async () => '',
-    onError: () => failed.resolve(),
-    runtime: {
-      onNotification: () => () => {},
-      request: async (method, args: any) => {
-        if (method === 'session.ensure' && args.sessionId === 'b') await slow.promise;
-        if (method === 'session.lookup' && args.inputId === 'inbox-wake:a:1') {
-          if (!writable) throw new Error('ENOSPC');
-          return {accepted: true, acceptedSeq: 10, retryableStorageFailure: true};
-        }
-        if (method === 'session.lookup') return {accepted: false};
-        if (method === 'session.submit') submissions.push(args.inputId);
-        return method === 'session.descendants' ? [] : {events: [], durable: true, status: 'idle'};
-      },
-    },
-    relay: {request: async (type, args: any) => ({
-      type: 'ack', payload: type === 'conversation.query'
-        ? {ok: true, result: {conversations: args.targets.map((target: string) => ({target, name: target}))}} : {},
-    })},
-  });
-  const recovery = product.recover();
-  try {
-    await failed.promise;
-    writable = true;
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(submissions).toEqual([]);
-    slow.resolve();
-    await recovery;
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(submissions).toEqual(['inbox-wake:a:1:recovery:10']);
-  } finally {
-    slow.resolve();
-    await recovery;
-    await product.stop();
-    inbox.close();
-    store.close();
-    vi.useRealTimers();
-  }
 });
 
 it.each([

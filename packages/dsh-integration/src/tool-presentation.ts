@@ -18,9 +18,16 @@ export function recordToolPresentations(ctx: Context): (sessionId: string, event
     await (await domain).table('calls').put(key, snapshot);
   });
   ctx.effect(() => async () => {
-    try { await writes.flush(); }
-    finally { await (await domain).close(); }
+    await writes.settled();
+    await (await domain).close();
   });
+  ctx.on('agent/pre-step', async ({agent, step, signal}, next) => {
+    const decision = await next();
+    // A new turn can recover prior snapshots before its first model or tool call.
+    if (decision.kind !== 'reject' && !signal.aborted && step === 1
+      && writes.busy && agent.session.header.agentPreset?.startsWith('nano:')) await writes.flush();
+    return decision;
+  }, {prepend: true});
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (exec.agent?.session.header.agentPreset?.startsWith('nano:')) {
       const call = ctx.tools.get(exec.name, exec.agent)?.presentCall?.(exec.arguments);
@@ -48,11 +55,11 @@ export function recordToolPresentations(ctx: Context): (sessionId: string, event
     if (view.call || view.result || view.childSessionId || view.delegationKind) {
       const key = keyOf(exec.agent.id, exec.callId);
       const snapshot = JSON.parse(JSON.stringify(view));
-      void writes.put(key, snapshot); // Observation retries any failed durable presentation write.
+      void writes.put(key, snapshot);
     }
   });
   return async (sessionId: string, events: readonly SessionEvent[]) => {
-    await writes.flush();
+    await writes.wait();
     const table = (await domain).table('calls');
     return events.map(event => {
       if (event.type !== 'tool/result' && event.type !== 'tool/call') return event;

@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import type { RelayInput } from '@nano/product-contracts';
 import { GlobalAgent, type ProductCall } from '../../personal-assistant/src/global-agent.js';
+import { Heartbeat } from '../../personal-assistant/src/heartbeat.js';
 import { InboxStore } from '../../personal-assistant/src/inbox.js';
 import { NodeStore } from '../../personal-assistant/src/store.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
@@ -26,13 +27,14 @@ syncBuiltinESMExports();
 `;
 }
 
-it.each([false, true])('recovers an unread Global Inbox wake after storage becomes writable (stopped=%s)', async stopped => {
+it.each(['user message', 'heartbeat'])('resumes model writes on the next %s', async activation => {
   const home = await mkdtemp(join(tmpdir(), 'nano-storage-recovery-'));
   const store = new NodeStore(':memory:', 'owner');
   const inbox = new InboxStore(':memory:');
   const fault = join(home, 'fail-writes');
   let client: RuntimeClient | undefined;
   let product: GlobalAgent | undefined;
+  let heartbeat: Heartbeat | undefined;
   const errors: string[] = [];
   const submissions: string[] = [];
   try {
@@ -41,13 +43,18 @@ export const inject = ['llm'];
 export function apply(ctx) {
   ctx.on('llm/stream', async function* (request) {
     await fs.appendFile(${JSON.stringify(join(home, 'model-requests'))}, 'model called\\n');
+    if (request.messages.some(message => message.source?.channel === 'heartbeat')) {
+      yield {type: 'block-end', index: 0, block: {type: 'text', text: 'HEARTBEAT_OK'}};
+      yield {type: 'finish', reason: {kind: 'stop'}};
+      return;
+    }
     const read = request.messages.find(message => message.role === 'tool');
-    if (read && !JSON.stringify(read).includes('Please handle this')) {
-      throw new Error('Original Inbox content missing from recovered model context');
+    if (read && !JSON.stringify(read).includes('New work')) {
+      throw new Error('New Inbox content missing from model context');
     }
     const block = read
-      ? {type: 'text', text: 'Handled the original Inbox message'}
-      : {type: 'tool-call', id: 'read-original', name: 'inbox', arguments: JSON.stringify({action: 'read', target: 'c_test'})};
+      ? {type: 'text', text: 'Handled the new Inbox message'}
+      : {type: 'tool-call', id: 'read-inbox', name: 'inbox', arguments: JSON.stringify({action: 'read', target: 'c_test'})};
     yield {type: 'block-end', index: 0, block};
     yield {type: 'finish', reason: {kind: read ? 'stop' : 'tool-calls'}};
   });
@@ -57,24 +64,26 @@ export function apply(ctx) {
     registerNoopTaskHosts(runtime);
     const config = {
       agentId: 'a', workspace: home, revision: '1', mode: 'global' as const,
-      provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['inbox'],
+      provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['inbox', 'read'],
+      features: {heartbeat: true},
       approval: {dangerouslySkipPermissions: true},
     };
     const binding = {
       agentId: 'a', sessionId: 'main', conversationId: 'global:a', ownerId: 'owner', cwd: home, revision: '1',
     };
     store.bind(binding);
+    const port = {
+      onNotification: runtime.rpc.onNotification.bind(runtime.rpc),
+      request: async (method: string, params: unknown) => {
+        const result = await runtime.rpc.request(method, params);
+        if (method === 'session.submit') submissions.push((params as {inputId: string}).inputId);
+        return result;
+      },
+    };
     const global = product = new GlobalAgent({
       nodeId: 'node', ownerId: 'owner', agents: [config], store, inbox, image: async () => '',
       onError: error => errors.push(String(error)),
-      runtime: {
-        onNotification: runtime.rpc.onNotification.bind(runtime.rpc),
-        request: async (method, params) => {
-          const result = await runtime.rpc.request(method, params);
-          if (method === 'session.submit') submissions.push((params as {inputId: string}).inputId);
-          return result;
-        },
-      },
+      runtime: port,
       relay: { request: async (type, payload) => ({
         type: 'ack', payload: type === 'conversation.query'
           ? {ok: true, result: payload.action === 'describe'
@@ -103,28 +112,39 @@ export function apply(ctx) {
     await expect(readFile(join(home, 'model-requests'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
     expect(submissions).toEqual(['inbox-wake:a:1']);
 
-    if (stopped) await runtime.rpc.request('session.cancel', {sessionId: 'main'});
     await rm(fault);
-    if (stopped) {
-      await expect.poll(() => submissions.length).toBeGreaterThan(1);
-      const retry = await runtime.rpc.request('session.lookup', {sessionId: 'main', inputId: submissions[1]});
-      expect(retry).toMatchObject({accepted: false});
-      expect(inbox.unreadAttention('a')).toBe(1);
-      await expect(readFile(join(home, 'model-requests'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
-      return;
-    }
-    await expect.poll(() => inbox.unreadAttention('a'), {timeout: 8_000}).toBeUndefined();
     await global.recover();
-    expect(submissions).toEqual(['inbox-wake:a:1', expect.stringMatching(/^inbox-wake:a:1:recovery:\d+$/)]);
+    expect(submissions).toEqual(['inbox-wake:a:1']);
+    await expect(readFile(join(home, 'model-requests'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+
+    if (activation === 'user message') {
+      await global.receive({...input, relay_task_id: 'relay-2', idempotency_key: 'new',
+        message: {...input.message, id: 'new', content: 'New work'}});
+      await expect.poll(() => inbox.unreadAttention('a')).toBeUndefined();
+    } else {
+      await mkdir(join(home, '.nanoassistant'), {recursive: true});
+      await writeFile(join(home, '.nanoassistant/HEARTBEAT.md'), 'Check the heartbeat fixture');
+      heartbeat = new Heartbeat(':memory:', {
+        agents: [config], runtime: port, settings: () => ({every: '10m'}),
+        available: () => true, binding: agent => global.heartbeatBinding(agent),
+        onError: error => errors.push(String(error)),
+      });
+      heartbeat.subscription('a', true);
+      await heartbeat.tick(undefined, false, 1_200_000);
+    }
+    expect(submissions).toEqual(['inbox-wake:a:1', activation === 'user message'
+      ? 'inbox-wake:a:2' : expect.stringMatching(/^heartbeat:a:1200000:/)]);
     await expect.poll(async () => {
       const result = await runtime.rpc.request('session.observe', {sessionId: 'main'}) as {modelRuns: {terminal?: unknown}[]};
       return result.modelRuns.at(-1)?.terminal;
     }).toEqual({kind: 'completed'});
-    expect(await readFile(join(home, 'model-requests'), 'utf8')).toBe('model called\nmodel called\n');
+    expect(await readFile(join(home, 'model-requests'), 'utf8'))
+      .toBe('model called\n'.repeat(activation === 'user message' ? 2 : 1));
   } catch (error) {
     throw new Error(`${error}\n${errors.slice(-8).join('\n')}`, {cause: error});
   } finally {
     await rm(fault, {force: true});
+    await heartbeat?.stop();
     await product?.stop();
     if (client) {
       client.process.kill('SIGKILL');
@@ -186,6 +206,15 @@ export function apply(ctx) {
     await expect(observe()).rejects.toThrow('ENOSPC');
 
     await rm(fault);
+    await expect(observe()).rejects.toThrow('ENOSPC');
+    await runtime.rpc.request('session.submit', {
+      sessionId: 's', inputId: 'next', mode: 'followup', content: [{type: 'text', text: 'New request'}],
+      source: {kind: 'human', actorId: 'owner', channel: 'test', messageId: 'next'},
+    });
+    await expect.poll(async () => {
+      const evidence = await runtime.rpc.request('session.lookup', {sessionId: 's', inputId: 'next'}) as {terminal?: unknown};
+      return evidence.terminal;
+    }).toEqual({kind: 'completed'});
     await expect(observe()).resolves.toMatchObject({events: expect.arrayContaining([
       expect.objectContaining({type: 'tool/result', data: expect.objectContaining({
         nanoToolView: {callId: 'probe-call', call: {card: 'generic', title: 'Tool started'}, result: {card: 'generic', title: 'Tool finished'}},

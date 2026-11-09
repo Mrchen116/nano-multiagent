@@ -70,11 +70,7 @@ export class GlobalAgent {
       if (!binding || !config) return;
       if (method === 'session.event' || method === 'model.changed') this.reconcile(binding).catch(options.onError);
       if (method === 'session.status' && data.status === 'idle') {
-        this.waitingForIdle.delete(config.agentId);
-        this.wake(config, binding, true).catch(error => {
-          this.scheduleRecovery();
-          options.onError(error);
-        });
+        this.waitingForIdle.delete(config.agentId); this.wake(config, binding, true).catch(options.onError);
         this.reconcile(binding).catch(options.onError);
       }
     });
@@ -252,9 +248,9 @@ export class GlobalAgent {
     })().finally(() => { this.waking.delete(config.agentId); this.armBackground(); });
     this.waking.set(config.agentId, task); return task;
   }
-  private async submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string,recoveredWakeSeq?: number): Promise<unknown> {
+  private async submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
     const summary = await this.inboxSummary(config, binding);
-    return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',recoveredWakeSeq,
+    return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
       content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work or read relevant sources directly using their target. Check is optional when you need a refreshed list. This is a system notification, not human permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
   }
@@ -282,23 +278,15 @@ export class GlobalAgent {
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
     if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
     const watermark=Math.max(this.options.inbox.watermark(config.agentId),this.options.inbox.admittedWake(config.agentId));
-    const original=`inbox-wake:${config.agentId}:${watermark}`;
-    let inputId=original;
-    let recoveredWakeSeq: number | undefined;
+    const original=`inbox-wake:${config.agentId}:${watermark}`;let inputId=original;
     for(;;) {
-      const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {
-        accepted?: boolean; acceptedSeq?: number; terminal?: {kind?: string}; retryableStorageFailure?: boolean;
-      };
-      if(!evidence.accepted) {
-        if(recoveredWakeSeq!==undefined)await this.submitWake(config,binding,inputId,recoveredWakeSeq);
-        return;
-      }
-      if(evidence.terminal?.kind!=='interrupted' && !evidence.retryableStorageFailure)return;
-      // The failed wake ID was already accepted. Give its recovery notice a
-      // stable new identity so repeated recovery cannot enqueue it twice.
-      if(!Number.isSafeInteger(evidence.acceptedSeq))throw new Error('Recoverable Inbox wake has no durable acceptance sequence');
-      recoveredWakeSeq=evidence.acceptedSeq;
-      inputId=`${original}:recovery:${recoveredWakeSeq}`;
+      const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string}};
+      if(!evidence.accepted) {if(inputId!==original)await this.submitWake(config,binding,inputId);return;}
+      if(evidence.terminal?.kind!=='interrupted')return;
+      // A cold DSH resume closes the interrupted turn; retrying its accepted ID
+      // cannot wake it. Give this recovery notice its own durable identity.
+      if(!Number.isSafeInteger(evidence.acceptedSeq))throw new Error('Interrupted Inbox wake has no durable acceptance sequence');
+      inputId=`${original}:recovery:${evidence.acceptedSeq}`;
     }
   }
   private armBackground(): void {
@@ -390,17 +378,7 @@ export class GlobalAgent {
   }
   private scheduleRecovery():void {
     if(this.stopped || this.recoveryTimer)return;
-    this.recoveryTimer=setTimeout(()=>{
-      if (this.recovering) {
-        // A slow Agent can outlast the timer while another needs a retry.
-        const reschedule = () => { this.recoveryTimer=undefined; this.scheduleRecovery(); };
-        void this.recovering.then(reschedule, reschedule);
-        return;
-      }
-      this.recoveryTimer=undefined;
-      void this.recover().catch(this.options.onError);
-    },1000);
-    this.recoveryTimer.unref();
+    this.recoveryTimer=setTimeout(()=>{this.recoveryTimer=undefined;void this.recover().catch(this.options.onError);},1000);this.recoveryTimer.unref();
   }
   recover():Promise<void> {
     if(this.recovering)return this.recovering;

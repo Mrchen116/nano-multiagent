@@ -14,16 +14,19 @@ export class RecordWrites<T> {
 
   flush(): Promise<void> {
     if (!this.busy) return this.tail;
-    const attempt = this.tail.then(async () => {
+    const attempt = this.settled().then(async () => {
       for (const [key, value] of this.pending) {
         await this.write(key, value);
         // A newer snapshot can arrive while this write is in flight.
         if (this.pending.get(key) === value) this.pending.delete(key);
       }
     });
-    this.tail = attempt.catch(() => {});
+    this.tail = attempt;
+    void attempt.catch(() => {}); // The current writer and observers can still see the failure.
     return attempt;
   }
 
-  settled(): Promise<void> { return this.tail; }
+  wait(): Promise<void> { return this.tail; }
+
+  settled(): Promise<void> { return this.tail.catch(() => {}); }
 }

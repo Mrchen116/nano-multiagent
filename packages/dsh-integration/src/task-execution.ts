@@ -286,8 +286,4 @@ export class TaskExecutionDriver {
     // Releasing a stop fence permits a future wake; queued context is not a wake request.
   }
   interrupt(sessionId:string,stoppedAt?:string):void {const state=this.state(sessionId);this.hold(state,'cancelled');const at=stoppedAt?Date.parse(stoppedAt):NaN;state.stoppedAt=Math.max(state.stoppedAt??-Infinity,Number.isFinite(at)?at:Date.now());}
-  /** Check an old admission against the current or restored user stop fence. */
-  stoppedSince(sessionId: string, admittedAt: number): boolean {
-    return (this.states.get(sessionId)?.stoppedAt ?? -Infinity) >= admittedAt;
-  }
 }
