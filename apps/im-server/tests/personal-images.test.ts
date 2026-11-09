@@ -64,3 +64,32 @@ it('requires the PA itself to be allowed to post before preparing a screenshot',
   db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
   await expect(service.handle(principal,'pa.action.status',check)).resolves.toEqual({found:false});
 });
+
+it('requires a new image review when nonparticipants gain access to the destination', async () => {
+  const {ctx, db, service, principal, args} = personalFixture();
+  ctx.gateway.groupReply = vi.fn();
+  db.prepare("UPDATE conversations SET type='group', visibility='private' WHERE id='peer'").run();
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+  const root = mkdtempSync(join(tmpdir(), 'pa-image-audience-'));
+  ctx.dbPath = join(root, 'im.db');
+  mkdirSync(join(root, 'message-images'));
+  try {
+    const bytes = await sharp({create:{width:2,height:2,channels:3,background:'red'}}).png().toBuffer();
+    writeFileSync(join(root, 'message-images', 'original'), bytes);
+    db.prepare('INSERT INTO message_images VALUES(?,?,?,?,?,?,?,?)').run(
+      'image', 'chat', 'uploaded', createHash('sha256').update(bytes).digest('hex'), 'image/png', 'photo.png', bytes.length, 'original');
+    const input = {...args, request_key:'photo-audience', conversation_id:'peer', content:'Image',
+      attachments:[{url:'/im/v1/conversations/chat/images/image'}]};
+    const privateProposal = await service.actions.prepareChecked(principal, input);
+    const verdict = service.actions.review(principal, {...args, proposal_ref:privateProposal.proposal_ref,
+      payload_digest:privateProposal.payload_digest, evidence_digest:privateProposal.evidence_digest, verdict:{decision:'allow'}});
+    db.prepare("UPDATE conversations SET visibility='public' WHERE id='peer'").run();
+    expect(await service.actions.commitChecked(principal, {...args, proposal_ref:privateProposal.proposal_ref,
+      verdict_ref:verdict.verdict_ref})).toMatchObject({state:'not_sent', changed_reason:'audience_changed'});
+    const publicProposal = await service.actions.prepareChecked(principal, input);
+    expect(publicProposal.evidence.recipient).toMatchObject({additional_readers:'eligible_company_members_outside_group'});
+    expect(db.prepare("SELECT count(*) n FROM messages WHERE conversation_id='peer'").get()!.n).toBe(0);
+  } finally {
+    rmSync(root, {recursive:true, force:true});
+  }
+});
