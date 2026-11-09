@@ -2,6 +2,8 @@ import { expect, it } from 'vitest';
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent } from '../src/global-agent.js';
+import { logicalEvents } from '../src/presentation.js';
+import { projectWorkEvent } from '../src/work-projection.js';
 
 it('retains child processing positions when the GlobalAgent is recreated, without treating Work ACK as processing', async () => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
@@ -87,4 +89,38 @@ it('repairs a root projection crash after native receipt and preserves open-turn
     await product.recover();
     expect(inbox.journal(0).find(event=>event.type==='turn_started'&&event.turn_id==='2')).toMatchObject({payload:{model:'retained-model'}});
   }finally{await product.stop();inbox.close();store.close();}
+});
+
+it('projects an observed cold interruption even when its native fallback run never resumed', () => {
+  const start={seq:7,time:1,type:'turn/start',data:{turn:1}};
+  const stale={seq:13,time:2,type:'turn/end',data:{turn:1,reason:{kind:'error'}}};
+  const interrupted={seq:17,time:3,type:'turn/end',data:{turn:2,reason:{kind:'interrupted'}}};
+  const events=logicalEvents([start,stale,interrupted],[{id:'child:1',sessionId:'child',turn:1,state:'running',
+    attempts:[{turn:1,route:{provider:'p',model:'primary'}},{turn:2,route:{provider:'p',model:'backup'}}]}],true);
+  expect(events.map(event=>event.seq)).toEqual([7,17]);
+  expect(projectWorkEvent('child',events[1]!,events,true)).toMatchObject({type:'turn_end',turn:1,payload:{status:'interrupted',stop_reason:'interrupted'}});
+});
+
+it('does not mark the root current when only a child hint succeeds after a root read failure', async()=>{
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let notify!:(method:string,value:unknown)=>void;
+  const errors:unknown[]=[];
+  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,image:async()=>'',onError:error=>errors.push(error),
+    agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
+    relay:{request:async()=>({type:'ack',payload:{}})},
+    runtime:{onNotification:listener=>{notify=listener;return ()=>{};},request:async method=>{
+      if(method==='session.work.root')throw new Error('no root barrier');
+      if(method==='session.work.children')return {children:[]};
+      throw new Error(method);
+    }}});
+  try {
+    notify('session.event',{sessionId:'main'});
+    await expect.poll(()=>errors.length).toBe(1);
+    expect(inbox.workProcessingPending).toBe(true);
+    notify('session.event',{sessionId:'child',rootSessionId:'main'});
+    await expect.poll(()=>errors.length).toBe(2);
+    expect(inbox.workProcessingPending).toBe(true);
+    expect(inbox.workCut('main')).toBeUndefined();
+  } finally {await product.stop();inbox.close();store.close();}
 });

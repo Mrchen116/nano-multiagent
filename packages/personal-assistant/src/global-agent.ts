@@ -70,7 +70,7 @@ export class GlobalAgent {
       const binding = options.store.bindingForSession(data.rootSessionId ?? data.sessionId);
       const config = options.agents.find(agent => agent.agentId === binding?.agentId && agent.mode === 'global');
       if (!binding || !config) return;
-      if (method === 'session.event' || method === 'model.changed') this.reconcile(binding, data.sessionId !== binding.sessionId).catch(options.onError);
+      if (method === 'session.event' || method === 'model.changed') this.reconcile(binding).catch(options.onError);
       if (method === 'session.status' && data.status === 'idle') {
         this.waitingForIdle.delete(config.agentId); this.wake(config, binding, true).catch(options.onError);
         this.reconcile(binding).catch(options.onError);
@@ -854,7 +854,7 @@ export class GlobalAgent {
     if (this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode!=='global') return;
     const prior=inbox.workCut(binding.sessionId);
     const throughSeq=result.throughSeq ?? store.cursor(binding.sessionId);
-    const events=logicalEvents(workSuffix(store.events(binding.sessionId,(prior?.replayFrom??0)-1,throughSeq),prior),result.modelRuns ?? []);
+    const events=logicalEvents(workSuffix(store.events(binding.sessionId,(prior?.replayFrom??0)-1,throughSeq),prior),result.modelRuns ?? [],true);
     const facts=this.modelNotices(binding, result.modelRuns ?? []);
     for (const event of events) {
       const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
@@ -927,7 +927,7 @@ export class GlobalAgent {
           if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
           const facts=[registered,...this.modelNotices(binding,page.modelRuns)];
           const raw=[...inbox.workOpenEvents(child.id),...page.events];
-          const events=logicalEvents(workSuffix(raw,prior),page.modelRuns);
+          const events=logicalEvents(workSuffix(raw,prior),page.modelRuns,true);
           for (const event of events) {
             const projected=projectWorkEvent(child.id,event,events,true);
             if (projected) {

@@ -102,7 +102,7 @@ export class NodeAgentLifecycle {
   /** Persist cleanup from the original process before pulling final Work pages. */
   recordCleanup(agentId: string, revision: number, processInstanceId?: string): void {
     const state = this.options.snapshot(agentId), proof = this.options.proof(agentId);
-    if (state?.desired==='disabled' && state.revision===revision && proof?.processInstanceId===processInstanceId && proof)
+    if (state?.desired==='disabled' && state.revision===revision && proof && proof.processInstanceId===processInstanceId)
       this.options.saveProof(agentId,{...proof,cleanupRevision:revision});
   }
 
