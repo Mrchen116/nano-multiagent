@@ -160,6 +160,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       },
       onError: reportError,
       onUnavailable: async () => {
+        globalProduct?.runtimeUnavailable(partition.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
         await reportPersonalAvailability(partition,false);
         for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
         if (partition.key === 'ordinary') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }

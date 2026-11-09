@@ -52,11 +52,12 @@ export class SubagentRecovery {
   }
 
   /** Journal each interruption once without materializing or waking the parent. */
-  async record(sessionId: string, children: InterruptedChild[]): Promise<void> {
+  async record(sessionId: string, children: InterruptedChild[], assertCurrent: () => void): Promise<void> {
     const table = (await this.ready).table('sessions');
     const queue = table.get(sessionId) ?? {pending: [], delivered: {}};
     const known = new Set(queue.pending.map(noticeId));
     const added = children.filter(child => (queue.delivered[child.id] ?? -1) < child.turnEnd && !known.has(noticeId(child)));
+    assertCurrent();
     if (added.length) await table.put(sessionId, {...queue, pending: [...queue.pending, ...added]});
   }
 

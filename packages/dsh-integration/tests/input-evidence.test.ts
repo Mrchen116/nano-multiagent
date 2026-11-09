@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session';
+import { SessionLogOffset, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm';
-import { inputEvidence, inputIdsForTurn } from '../src/input-evidence.js';
+import { InputEvidenceIndex, inputEvidence, inputIdsForTurn } from '../src/input-evidence.js';
 
 describe('durable input evidence', () => {
   const message = freezeMessage({ id: MessageId('inbound-1'), role: 'user' as const, content: [{ type: 'text' as const, text: 'hello' }], source: { kind: 'user' as const } });
@@ -51,6 +51,12 @@ describe('turn input attribution', () => {
     { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
     { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message('c')] } },
     { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } },
+    { type: 'turn/start', data: { turn: 3 } },
+    { type: 'agent/inbox/spliced', data: { target: 'next-step', start: 0, inserted: [message('a'), message('a')] } },
+    { type: 'agent/inbox/spliced', data: { target: 'next-step', start: 0, removedCount: 1, inserted: [] } },
+    { type: 'agent/inbox/spliced', data: { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } },
+    { type: 'user/message', data: message('a') },
+    { type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } },
     { type: 'user/message', data: message('a') },
     { type: 'turn/start', data: { turn: 3 } },
     { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } },
@@ -68,6 +74,18 @@ describe('turn input attribution', () => {
     expect(inputIdsForTurn(history, 1)).toEqual(['c', 'e']);
     expect(inputIdsForTurn(history, 2)).toEqual(['nano-fallback:r:1']);
     expect(inputIdsForTurn(history, 3)).toEqual(['b']);
+  });
+
+  it('matches the original evidence and attribution at each incremental cut', () => {
+    const index = new InputEvidenceIndex();
+    const ids = ['a', 'b', 'c', 'd', 'e', 'transcript-only', 'nano-fallback:r:1', 'never-admitted'];
+    for (let end = 0; end <= history.length; end++) {
+      const prefix = history.slice(0, end);
+      index.update({seq: SessionLogOffset(end), snapshotEvents: from => prefix.slice(from)});
+      for (const id of ids) expect(index.evidence(id), `prefix=${end}, input=${id}`).toEqual(inputEvidence(prefix, id));
+      for (const turn of [1, 2, 3])
+        expect(index.idsForTurn(turn), `prefix=${end}, turn=${turn}`).toEqual(inputIdsForTurn(prefix, turn));
+    }
   });
 
   it('visits long history once rather than once per historical input', () => {

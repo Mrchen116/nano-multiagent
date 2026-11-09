@@ -58,6 +58,8 @@ export class GlobalAgent {
   private receiptBackoff=1000;
   private recoveryTimer?: ReturnType<typeof setTimeout>;
   private recovering?:Promise<void>;
+  private readonly coldRoots = new Map<string, symbol>();
+  private readonly foregroundRecovery = new Map<string, Promise<void>>();
   private readonly controlTasks=new Map<string,Promise<void>>();
   private readonly authorities = new Set<string>();
   private readonly accepting = new Map<string,Promise<void>>();
@@ -67,7 +69,7 @@ export class GlobalAgent {
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
       runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
     this.options=options;
-    for(const binding of options.store.bindings())if(options.agents.some(agent=>agent.agentId===binding.agentId && agent.mode==='global'))options.inbox.workPending(binding.sessionId,true);
+    this.runtimeUnavailable(options.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
     this.controls = new SessionControls(options);
     this.personal = new PersonalAssistant(options);
     this.unsubscribe = options.runtime.onNotification((method, params) => {
@@ -92,6 +94,16 @@ export class GlobalAgent {
       }
     });
   }
+  /** Require each affected root to reconcile durable input before its next wake. */
+  runtimeUnavailable(agentIds: readonly string[]): void {
+    const cut = Symbol('runtime outage');
+    for (const binding of this.options.store.bindings()) {
+      if (!agentIds.includes(binding.agentId) || !this.options.store.lifecycle.allowed(binding.agentId)) continue;
+      this.coldRoots.set(binding.sessionId, cut);
+      this.options.inbox.workPending(binding.sessionId, true);
+    }
+  }
+
   /** Close queued wakes and abort this Agent's product calls without waiting for runtime teardown. */
   cancelAgent(agentId:string):void {
     this.options.inbox.cancelAgent(agentId,this.options.store.bindings().filter(b=>b.agentId===agentId).map(b=>b.sessionId));
@@ -252,6 +264,7 @@ export class GlobalAgent {
       await this.controlTasks.get(config.agentId);
       if(this.options.inbox.pendingControls().some(input=>input.agent_id===config.agentId))throw new Error('Pending control intent');
       await this.controls.wait(binding.sessionId);
+      while (this.coldRoots.has(binding.sessionId)) await this.recoverRoot(binding);
       do {
       await this.recoverInterruptedWake(config,binding);
       let watermark: number | undefined;
@@ -422,18 +435,43 @@ export class GlobalAgent {
           store.controls().some(intent=>intent.binding.agentId===config.agentId && !intent.delivered) || store.lookupInputIds(binding.sessionId).length>0;
         if(checkpoint && !obligations) {
           const cut=checkpoint;
+          const outage = this.coldRoots.get(binding.sessionId);
           const check=await runtime.request('session.work.check',{sessionId:binding.sessionId,afterSeq:cut.throughSeq,modelVersion:cut.modelVersion}) as {rootSettled?:boolean};
           if(check.rootSettled) {
             await this.ensureAuthority(binding);
-            await this.reconcile(binding,true);
+            if (this.coldRoots.get(binding.sessionId) === outage) this.coldRoots.delete(binding.sessionId);
+            this.catchUpChildWork(binding);
             this.armBackground();return;
           }
         }
-        await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
+        await this.main(config);
+        await this.recoverRoot(binding);
+        try { await this.wake(config,binding,true); }
+        finally { this.catchUpChildWork(binding); }
       } catch(error) {this.scheduleRecovery();this.options.onError(error);}
     })));
     await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();await publications;
   }
+  private recoverRoot(binding: SessionBinding): Promise<void> {
+    const id = binding.sessionId;
+    const active = this.foregroundRecovery.get(id);
+    if (active) return active;
+    const outage = this.coldRoots.get(id);
+    const task = (async () => {
+      this.options.inbox.workPending(id, true);
+      await this.controls.recover(binding.agentId);
+      await this.reconcileRoot(binding);
+      if (this.coldRoots.get(id) === outage) this.coldRoots.delete(id);
+    })().finally(() => this.foregroundRecovery.delete(id));
+    this.foregroundRecovery.set(id, task);
+    return task;
+  }
+
+  private catchUpChildWork(binding: SessionBinding): void {
+    if (!this.stopped && this.options.store.lifecycle.allowed(binding.agentId))
+      void this.reconcile(binding, true).catch(this.options.onError);
+  }
+
   /** Consume persisted source events without changing the owner's read receipts. */
   recoverPersonalObservations(): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();

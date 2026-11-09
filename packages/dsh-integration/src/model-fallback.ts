@@ -14,7 +14,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { z } from 'zod';
 import type { AgentConfiguration } from './index.js';
 import type { ModelRoute } from './model-policy.js';
-import { inputEvidence, inputIdsForTurn } from './input-evidence.js';
+import { indexedInputs, inputEvidence, inputIdsForTurn } from './input-evidence.js';
+import { ModelRunIndex } from './model-run-index.js';
 import { RecordWrites } from './record-writes.js';
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -112,10 +113,11 @@ interface Host {
 export class ModelFallback {
   private readonly storage: Promise<Domain<RunDomain>>;
   private readonly runs = new Map<string, ModelRun>();
-  private readonly runsBySession = new Map<string, Map<string, ModelRun>>();
+  private readonly runsBySession = new Map<string, ModelRunIndex>();
   private readonly workModels = new Map<string, {byTurn: Map<number, ModelRunProjection>; hashes: Map<string, bigint>; digest: bigint}>();
   readonly ready: Promise<void>;
   private readonly agents = new Map<string, { agent: Agent; config: AgentConfiguration }>();
+  private readonly attachedSessions = new Set<string>();
   private readonly tasks = new Map<string, Promise<void>>();
   private readonly epochs = new Map<string, number>();
   private readonly writes: RecordWrites<ModelRun>;
@@ -128,19 +130,28 @@ export class ModelFallback {
     this.writes = new RecordWrites(async (id, snapshot) => {
       await (await this.storage).table('runs').put(key(id), snapshot);
     });
-    this.ready = this.storage.then(storage => { for (const [,record] of storage.table('runs').entries()) { const run=this.runs.get(record.id) ?? record; this.remember(run); this.updateWorkModel(run); } });
+    this.ready = this.storage.then(storage => {
+      for (const [, record] of storage.table('runs').entries()) {
+        const run = this.runs.get(record.id) ?? record;
+        this.remember(run);
+        this.updateWorkModel(run);
+      }
+    });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
       if (item) this.observe(item.agent, item.config, event);
     });
   }
   /** Includes continuation work that may outlive the public Agent running state. */
-  get busy(): boolean { return this.writes.busy || this.tasks.size > 0 || [...this.runs.values()].some(run => run.state !== 'completed'); }
+  get busy(): boolean {
+    // Cold sidecars are historical evidence until their Session attaches.
+    return this.writes.busy || this.tasks.size > 0 || [...this.attachedSessions].some(id => this.hasActive(id));
+  }
   async attach(agent: Agent, config: AgentConfiguration) {
     this.agents.set(agent.id, { agent, config });
     await this.ready;
-    for (const run of this.list(agent.id)) this.runs.set(run.id, run);
-    const active = this.list(agent.id).findLast((run) => run.state !== 'completed');
+    this.attachedSessions.add(agent.id);
+    const active = this.runsBySession.get(agent.id)?.latestActive(() => true);
     if (active) {
       const history = agent.session.snapshotEvents();
       const end = history.findLast(
@@ -148,12 +159,14 @@ export class ModelFallback {
       );
       if (active.revision !== config.revision) this.finish(active, { kind: 'cancelled' });
       else if (active.pending) {
-        const evidence = active.pending.messages.map((message) => inputEvidence(history, message.id));
+        const inputs = config.mode === 'global' ? indexedInputs(agent.session) : undefined;
+        const evidence = active.pending.messages.map((message) => inputs?.evidence(message.id) ?? inputEvidence(history, message.id));
         const consumed = evidence.find((item) => item.turn !== undefined && item.turn !== active.attempts.at(-1)?.turn);
         if (consumed) {
           active.attempts.push({ turn: consumed.turn!, route: active.pending.route });
           active.state = 'running';
           delete active.pending;
+          this.remember(active);
           this.updateWorkModel(active);
           const terminal = history.findLast((event) => event.type === 'turn/end' && event.data.turn === consumed.turn);
           if (terminal) this.observe(agent, config, terminal);
@@ -173,12 +186,18 @@ export class ModelFallback {
     });
   }
   list(sessionId: string) {
-    return [...(this.runsBySession.get(sessionId)?.values() ?? [])];
+    return this.runsBySession.get(sessionId)?.all() ?? [];
   }
+
+  hasActive(sessionId: string): boolean {
+    return this.runsBySession.get(sessionId)?.hasActive ?? false;
+  }
+
   private remember(run: ModelRun) {
+    this.runs.set(run.id, run);
     let runs = this.runsBySession.get(run.sessionId);
-    if (!runs) { runs = new Map(); this.runsBySession.set(run.sessionId, runs); }
-    runs.set(run.id, run);
+    if (!runs) this.runsBySession.set(run.sessionId, runs = new ModelRunIndex());
+    runs.update(run);
   }
 
   /** Return immutable Work metadata, excluding the retry's model input and other internal state. */
@@ -208,8 +227,8 @@ export class ModelFallback {
   }
 
   evidence(agent: Agent, inputId: string) {
-    const evidence = inputEvidence(agent.session.snapshotEvents(), inputId);
-    const run = this.list(agent.id).findLast((run) => run.inputs.includes(inputId));
+    const evidence = this.nativeEvidence(agent, inputId);
+    const run = this.runsBySession.get(agent.id)?.forInput(inputId);
     return run
       ? {
           ...evidence,
@@ -219,9 +238,15 @@ export class ModelFallback {
         }
       : evidence;
   }
+  nativeEvidence(agent: Agent, inputId: string) {
+    return this.agents.get(agent.id)?.config.mode === 'global'
+      ? indexedInputs(agent.session).evidence(inputId)
+      : inputEvidence(agent.session.snapshotEvents(), inputId);
+  }
+
   interrupt(agent: Agent) {
     this.epochs.set(agent.id, (this.epochs.get(agent.id) ?? 0) + 1);
-    for (const run of this.list(agent.id))
+    for (const run of this.runsBySession.get(agent.id)?.active() ?? [])
       if (
         run.state === 'switching' ||
         (run.state === 'running' &&
@@ -243,10 +268,11 @@ export class ModelFallback {
     await this.writes.flush();
   }
   allowed(agent: Agent, messages: UserMessage[]) {
-    const runs = this.list(agent.id);
-    return messages.filter((message) => !runs.some((run) => run.withdrawn?.includes(message.id)));
+    const runs = this.runsBySession.get(agent.id);
+    return messages.filter((message) => !runs?.wasWithdrawn(message.id));
   }
   private save(run: ModelRun) {
+    this.remember(run);
     this.updateWorkModel(run);
     return this.writes.put(run.id, structuredClone(run));
   }
@@ -260,8 +286,9 @@ export class ModelFallback {
     );
   }
   private observe(agent: Agent, config: AgentConfiguration, event: SessionEvent) {
+    const runs = this.runsBySession.get(agent.id);
     if (event.type === 'turn/start') {
-      const pending = this.list(agent.id).findLast((run) => run.state === 'switching' && run.pending);
+      const pending = runs?.latestActive(run => run.state === 'switching' && !!run.pending);
       if (pending) {
         pending.attempts.push({
           turn: event.data.turn,
@@ -281,17 +308,17 @@ export class ModelFallback {
           attempts: [{ turn: event.data.turn, route: this.host.route(agent) }],
           state: 'running',
         };
-        this.runs.set(run.id, run);
-        this.remember(run);
         void this.save(run);
       }
       return;
     }
     if (event.type !== 'turn/end') return;
-    const run = this.list(agent.id).findLast((run) => run.attempts.some((attempt) => attempt.turn === event.data.turn));
+    const run = runs?.forAttempt(event.data.turn);
     if (!run || run.state === 'completed') return;
-    const history = agent.session.snapshotEvents();
-    for (const id of inputIdsForTurn(history, event.data.turn))
+    const ids = config.mode === 'global'
+      ? indexedInputs(agent.session).idsForTurn(event.data.turn)
+      : inputIdsForTurn(agent.session.snapshotEvents(), event.data.turn);
+    for (const id of ids)
       if (!id.startsWith('nano-fallback:') && !run.inputs.includes(id)) run.inputs.push(id);
     const attempt = run.attempts.at(-1)!;
     const reason = event.data.reason;
@@ -306,7 +333,7 @@ export class ModelFallback {
       candidates.length &&
       !newer &&
       !this.stopped &&
-      !history.some(event => event.type === 'tool/call' && run.attempts.some(attempt => attempt.turn === event.data.turn))
+      !agent.session.snapshotEvents().some(event => event.type === 'tool/call' && run.attempts.some(attempt => attempt.turn === event.data.turn))
     ) {
       run.state = 'switching';
       run.terminal = reason;
@@ -404,7 +431,7 @@ export class ModelFallback {
         }
         this.host.select(agent, run.pending.route);
         for (const message of run.pending.messages) {
-          const evidence = inputEvidence(agent.session.snapshotEvents(), message.id);
+          const evidence = this.nativeEvidence(agent, message.id);
           if (!evidence.pending && evidence.consumedSeq === undefined) agent.followup(freezeMessage(message));
         }
         if (!(await this.ctx.sessions.flush(agent.session)))
@@ -433,7 +460,7 @@ export class ModelFallback {
       const run = this.runs.get(id);
       return run && owns(run.sessionId);
     }).map(([, task]) => task));
-    for (const runs of this.runsBySession.values()) for (const run of runs.values()) {
+    for (const runs of this.runsBySession.values()) for (const run of runs.active()) {
       if (owns(run.sessionId) && run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
     }
     await this.checkpoint();
@@ -444,6 +471,7 @@ export class ModelFallback {
     for (const id of sessionIds) {
       for (const run of this.list(id)) this.runs.delete(run.id);
       this.runsBySession.delete(id);
+      this.attachedSessions.delete(id);
       this.workModels.delete(id);
       this.epochs.delete(id);
     }

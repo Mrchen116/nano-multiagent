@@ -469,13 +469,16 @@ it('replays a child terminal when model fallback completes at the already acknow
     }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:()=>{}});
   try {
     await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toEqual([]);
     complete = true;
     await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(acknowledgements.at(-1)).toMatchObject({afterSeq:6,modelVersion:'switching'});
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toMatchObject([{turn_id:'1',payload:{status:'completed',elapsed_ms:6}}]);
     expect(inbox.journal(0).find(e=>e.type==='tool_end')).toMatchObject({payload:{tool_name:'read',duration_ms:1}});
     await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(acknowledgements).toHaveLength(2);
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toHaveLength(1);
   } finally { await product.stop(); inbox.close(); store.close(); }
