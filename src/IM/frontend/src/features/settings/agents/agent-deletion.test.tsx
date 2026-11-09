@@ -33,14 +33,20 @@ it.each([false, true])("requires confirmation and sends a workspace witness only
   const user = userEvent.setup();
   const entry = await screen.findByRole("button", { name: "Permanently delete Agent" });
   await user.click(entry);
-  let dialog = screen.getByRole("dialog", { name: "Permanently delete Atlas" });
+  let dialog = screen.getByRole("dialog", { name: "Permanently delete Agent" });
+  expect(within(dialog).getByText("Atlas")).toBeVisible();
+  expect(within(dialog).queryByText("/owner/atlas")).not.toBeInTheDocument();
+  const workspaceOption = within(dialog).getByRole("checkbox");
+  expect(workspaceOption).not.toBeChecked();
+  await user.click(workspaceOption);
   expect(within(dialog).getByText("/owner/atlas")).toBeVisible();
-  expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
   await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(writes).toHaveLength(0);
   await user.click(entry);
-  dialog = screen.getByRole("dialog", { name: "Permanently delete Atlas" });
-  if (includeWorkspace) await user.click(within(dialog).getByRole("checkbox"));
+  dialog = screen.getByRole("dialog", { name: "Permanently delete Agent" });
+  const reopenedWorkspaceOption = within(dialog).getByRole("checkbox");
+  expect(reopenedWorkspaceOption).not.toBeChecked();
+  if (includeWorkspace) await user.click(reopenedWorkspaceOption);
   await user.click(within(dialog).getByRole("button", { name: "Confirm permanent deletion" }));
   expect(await screen.findByRole("heading", { name: "Agent list" })).toBeVisible();
   expect(writes).toEqual([{

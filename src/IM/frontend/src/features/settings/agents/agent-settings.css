@@ -165,6 +165,50 @@
 .im-agent-lifecycle-status.warning strong { color: #8c5b16; }
 .im-agent-lifecycle-badge { flex-shrink: 0; padding: 1px 5px; border-radius: 4px; background: var(--im-hover); color: var(--im-text-muted); font-size: 10px; line-height: 16px; font-weight: 500; white-space: nowrap; }
 .im-agent-lifecycle-badge.warning { color: #8c5b16; background: #fff5df; }
+
+.im-agent-delete-trigger {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--im-text-muted);
+  cursor: pointer;
+}
+.im-agent-delete-trigger:hover:not(:disabled) { background: var(--im-surface-2); color: var(--im-danger); }
+.im-agent-delete-trigger:disabled { opacity: .45; cursor: not-allowed; }
+.im-agent-delete-dialog .chat-modal-header h2 { margin: 0; }
+.im-agent-delete-dialog .chat-modal-body { gap: 14px; padding-block: 16px; font-size: 14px; line-height: 1.55; }
+.im-agent-delete-dialog p { margin: 0; overflow-wrap: anywhere; }
+.im-agent-delete-description { display: grid; gap: 6px; }
+.im-agent-delete-description p + p { color: var(--im-text-muted); }
+.im-agent-delete-workspace {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--im-border);
+  border-radius: 8px;
+  background: var(--im-surface-2);
+  cursor: pointer;
+}
+.im-agent-delete-workspace input { flex: none; width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--im-accent); }
+.im-agent-delete-workspace > span { min-width: 0; }
+.im-agent-delete-workspace strong { font-weight: 600; }
+.im-agent-delete-workspace :is(small, code) { display: block; margin-top: 2px; color: var(--im-text-muted); font-size: 12px; }
+.im-agent-delete-workspace code { font-family: var(--im-font-mono); overflow-wrap: anywhere; }
+.im-agent-delete-dialog [role="alert"] { color: var(--im-danger); }
+.im-agent-delete-dialog .chat-modal-btn-primary { background: var(--im-danger); color: white; }
+.im-agent-delete-dialog .chat-modal-btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--im-danger), black 10%); }
+@media (max-width: 767px) {
+  .im-agent-delete-trigger { width: 44px; height: 44px; }
+  .im-agent-delete-dialog .chat-modal-header { padding-top: 0; }
+  .im-agent-delete-dialog .chat-modal-footer button { min-height: 44px; }
+}
 @media (max-width: 440px) {
   .im-agent-panel-header-row { flex-wrap: wrap; }
   .im-agent-header-actions { flex-wrap: wrap; flex-basis: 100%; justify-content: flex-end; }

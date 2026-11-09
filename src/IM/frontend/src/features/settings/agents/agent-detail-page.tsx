@@ -1,4 +1,4 @@
-import { AgentDeletionControls, useAgentDeletion } from "./agent-deletion";
+import { AgentDeletionControls, AgentDeletionStatus, useAgentDeletion } from "./agent-deletion";
 import { formatSchedule } from "./schedule-display";
 import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import { useAuthStore } from '../../auth/auth-store';
@@ -1686,11 +1686,12 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
               >
                 {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
               </button>
+              {!personal && !!self && draft.owner_id === self && <AgentDeletionControls deletion={deletion} name={detailQuery.data?.config.display_name || agentId} online={displayedNodeStatus === "online"} active={!inactive} />}
               {activeSection === "config" && isDirty && <span className="im-settings-save-state">{t("agents.detail.unsavedChanges")}</span>}
             </div>
         </div>
         {showLifecycleNotice && <AgentLifecycleStatus lifecycle={lifecycle} online={displayedNodeStatus === "online"} />}
-        {!personal && !!self && draft.owner_id === self && <AgentDeletionControls deletion={deletion} name={detailQuery.data?.config.display_name || agentId} online={displayedNodeStatus === "online"} active={!inactive} />}
+        {!inactive && !personal && !!self && draft.owner_id === self && <AgentDeletionStatus deletion={deletion} online={displayedNodeStatus === "online"} />}
         {errorMessage ? (
           <p
             data-testid={openDirectChatMutation.isError ? "open-chat-error" : "agent-save-error"}
