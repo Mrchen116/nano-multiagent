@@ -11,12 +11,12 @@ import {
   resetLocalUnreadFeedback
 } from "../../notifications/local-unread-feedback";
 
-const { listConversationsMock } = vi.hoisted(() => ({
-  listConversationsMock: vi.fn()
+const { listConversationsMock, getConversationMock } = vi.hoisted(() => ({
+  listConversationsMock: vi.fn(), getConversationMock: vi.fn()
 }));
 
 vi.mock("../chat-api", () => ({
-  listConversations: listConversationsMock
+  listConversations: listConversationsMock, getConversation: getConversationMock
 }));
 
 let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
@@ -119,6 +119,7 @@ describe("useGlobalMessageToast", () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     resetLocalUnreadFeedback();
+    getConversationMock.mockResolvedValue(undefined);
     listConversationsMock.mockReset();
     listConversationsMock.mockResolvedValue([]);
     useAuthStore.getState().setSession({

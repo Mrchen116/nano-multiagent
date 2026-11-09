@@ -931,6 +931,7 @@
     }
   },
   "chat": {
+    "toast": { "newMessage": "新消息", "member": "成员", "agent": "Agent" },
     "conversationMenu": {
       "label": "会话菜单",
       "rename": "重命名",

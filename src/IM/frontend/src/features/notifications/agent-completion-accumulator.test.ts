@@ -16,7 +16,7 @@ const created: UserStreamEvent = {
     message_id: "msg-1",
     sender_user_id: "agent:planner",
     sender_type: "agent",
-    sender_display_name: "Planner",
+    sender: { id: "agent-user-uuid", type: "agent", display_name: "Planner" },
     content: "",
     created_at: "2026-07-13T08:00:00Z"
   }
