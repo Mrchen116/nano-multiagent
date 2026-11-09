@@ -14,7 +14,7 @@
 
 **共享 iOS 接缝冻结**：预期产品增量仅 `src/IM/ios/NanoIM/Features/Chat/ChatAPI.swift` 的 `sendMessage` 错误 code 本地化；不动 714 的持久层/数据库/ChatStore 删除与恢复接缝，也不复制其 GRDB 逻辑。测试在 716 自己的 Tests/UITests 增补，target/scheme 沿用本分支 `1c17a7dbed`。由事项协调者向 714 owner 传达此冻结范围。
 
-**验证增量**：A、B→第一条两份最新状态→第二条零份→只改 A→第三条仅 A；同卡多次仍一份；B 只读/被取代/坏 state 不阻止 A；来源不混合、逐 Agent relay 过滤保留；超限时 messages/message-attempts/relays 与消费边界不变，缩减后完整成功；临界值/UTF-8/JSON 转义与 >3 张小卡不截断；旧 key 重试在新增大草稿后仍恢复原组；显式提交独立。Web/iOS 真实入口分别操作两卡并核对确切 relay，模型实际 `read_messages` 及下一模型步要看到首条数组两个来源、后条无新背景、仅重改 A 后只 A，历史块仍保留。原单卡 native/模型证据只保留未变机制，不当作此增量验收。
+**验证增量**：A、B→第一条两份最新状态→第二条零份→只改 A→第三条仅 A；同卡多次仍一份；B 只读/被取代/坏 state 不阻止 A；来源不混合、逐 Agent relay 过滤保留；超限时 messages/message-attempts/relays 与消费边界不变，缩减后完整成功；临界值/UTF-8/JSON 转义与 >3 张小卡不截断；旧 key 重试在新增大草稿后仍恢复原组；显式提交独立。Web/iOS 真实入口分别操作两卡并核对确切 relay，模型实际 `inbox(action=read)` 及下一模型步要看到首条数组两个来源、后条无新背景、仅重改 A 后只 A，历史块仍保留。原单卡 native/模型证据只保留未变机制，不当作此增量验收。
 
 **本次审查安排**：实质需求变更先独立 Gate 2 delta/full（新 reviewer 自定范围并读历史）；实现后代码+Context 深度审查与真实客户端体验/旅程判断按既有能力组合。用户在本轮审查期间明确回答“允许”，批准本轮 #473、714、716、720 使用当前可用配置做独立审查，作为固定型号/effort 无法指定的本轮限定例外。后续实施审查记录原生当前可用配置、精确型号/effort 未暴露的差异，不冒称 sol/high，不降低非作者独立性与证据要求，不扩为未来通用规则。此前固定配置不可用及故障演练被拒记录保留为历史；此批准自身不授予服务/GUI 操作。故障演练仅在用户随后明确澄清的合成库副本、新独占本地服务、仅停启自己测试进程并恢复清理范围内，携带新原话及旧拒绝事实走正常权限检查；既有62814/4000/生产和真实数据不在范围，仍拒绝即停。本设计复审与非GUI实施不包含桌面前台操作，须由事项协调者另行释放前台窗口。
 
@@ -347,7 +347,7 @@ sequenceDiagram
 
 ### Context 影响（`docs/development/agent-context-engineering.md`）
 
-**Consumer**：卡片作者 Agent 的 `single-thread` / Global Inbox 输入组装；以及有该 Agent Work 空间权限的人在原生轨迹里核查。文本拼接仍由 `withInteractionContext` 完成：single-thread 进入用户输入文本，Global 模式经 `read_messages` 的工具结果进入下一模型步。恢复实施的真实 daily 栈使用 Global 模式，不能把其实际 `tool/result` 误记为顶层 `user/message`；这只校正消费面描述，不改变拼接、入口或 Work 呈现。
+**Consumer**：卡片作者 Agent 的 `single-thread` / Global Inbox 输入组装；以及有该 Agent Work 空间权限的人在原生轨迹里核查。文本拼接仍由 `withInteractionContext` 完成：single-thread 进入用户输入文本，Global 模式经 `inbox(action=read)` 的工具结果进入下一模型步。恢复实施的真实 daily 栈使用 Global 模式，不能把其实际 `tool/result` 误记为顶层 `user/message`；这只校正消费面描述，不改变拼接、入口或 Work 呈现。
 
 **Context Lifecycle**（来源 → 选择 → 组装 → 消费 → 过期）：
 
@@ -373,7 +373,7 @@ After   消息 1 正文 = 同格式同字段、同一条用户文本块；只含
 **Validation**：
 - 字节形状：`withInteractionContext(用户原话, undefined, [派生背景])` 与现状函数在同一组输入下逐字节相等（worker 快照测试，证明拼接未改）。
 - 请求级：断言 `relay_tasks.payload_json.metadata.interaction_contexts` 在“改动→发送 1→发送 2”里只有发送 1 有值，且只出现在卡片作者的 relay 行。
-- 模型实际消费：优先按 `docs/development/llm-integration.md` 读取真实请求。恢复实施时声明的 `llm_logs` 没有本次请求；事项负责人决定不新建采集代理，只读取精确隔离测试 session 的既有 native 输入和随后模型行为，并明确缺少 HTTP/provider 序列化证据。Global 模式观察 `read_messages` 的 `tool/result`：第一条被读取消息含一块、第二条不含新背景；历史第一块仍在上下文中是预期，不宣称抹去历史。独立审查需判断该证据对选择/一次性目标的充分性，详见实施 evidence。
+- 模型实际消费：优先按 `docs/development/llm-integration.md` 读取真实请求。恢复实施时声明的 `llm_logs` 没有本次请求；事项负责人决定不新建采集代理，只读取精确隔离测试 session 的既有 native 输入和随后模型行为，并明确缺少 HTTP/provider 序列化证据。Global 模式观察 `inbox(action=read)` 的 `tool/result`：第一条被读取消息含一块、第二条不含新背景；历史第一块仍在上下文中是预期，不宣称抹去历史。独立审查需判断该证据对选择/一次性目标的充分性，详见实施 evidence。
 - 呈现：本 unit 不改，只需确认查看器对同一份会话数据仍能显示原文（回归抽样，不新增断言）。
 
 ### 客户端改动要点

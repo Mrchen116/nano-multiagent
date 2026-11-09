@@ -1,5 +1,13 @@
 # feat-716 — 恢复实施记录
 
+> 本页下文为早期单卡集成与恢复阶段的历史记录，不代表当前多卡增量状态。当前独立结论见 [review](review.md)；新隔离59469的 Web/原生完整多卡三消息、实际 `inbox(action=read)`/后续模型步、原生transient真实保存恢复，以及Web73,021-byte预算拒绝的限定独立支持见 [多卡验证](evidence/multi-card-validation.md)。用户更新工具策略后已正常执行新context的Web连续失败/保留正文附件/缩短重发/nextnone，并获原reviewer限定SUPPORTED；原生预算连续失败/同正文同图片恢复/nextnone现已真实绿色，待原reviewer冻结补验，整体未验收/交付。[两次精确拒绝与恢复点](evidence/budget-tool-refusals.md)保留旧未执行调用及当时资源状态，不倒算旧清场成功。旧58项待验、旧模型配置缺口等历史描述不得覆盖 review 中后到的实际结果。
+
+## 当前恢复节点（2026-11-09）
+
+- 交互卡片背景一次性消费（716）已自行解除父级后到明确撤回的泛化资源等待；本轮仅推进本事项，不联系或并行其他需求。原生正常Photos选择自制图、真实73,021-byte拒绝、同正文图片保留、正常CAS缩短、不重填重选重发、nextnone已实际完成：host `c5de4112-95fb-40be-b9c7-0520741040f4`，1 test / 0 failures / 57.915s / exit0。helper仅修异步精确回执等待，产品fc5不变；真实relay/Inbox/模型步与画面证据已补入多卡验证，待原独立reviewer冻结补验。旧失败与工具拒绝继续保留历史，不追改为通过。
+- 最终目标同步尚未发生。对已获取的 `origin/develop` `68e65a880625cc0d19b034213c90f46fee3062c0` 作不改变 branch/index/worktree 的 `git merge-tree --write-tree HEAD origin/develop` 预演，返回 1（内容冲突，不是已执行的 merge 失败）：27 个共同修改路径中有 9 个冲突路径，覆盖服务端幂等/消息创建、Web composer/卡片、iOS ChatStore/InteractiveRuntime。当前 HEAD 仍为 `29f402e29616e090aaa2eda2c682d25c0b12a6a0`。旧完整旅程不能直接声称适用于该最终集成树，须实际解决冲突并按影响复验。
+- 集成时保留新基线的引用回复、消息列表/附件可见性、执行清理等既有行为，同时保留本 unit 的中心派生背景、原请求幂等、会话级保存屏障与显式冲突采用；`merge-tree` 无冲突的文件同样需要语义核对。冻结与实际同步前不改运行 fixture 的版本绑定，不把预演对象当成执行过的最终版本。
+
 ## 版本与范围
 
 - 当前集成基线：`origin/develop` `eeaea47921806936da20e78c9ed96167716f5037`，PR 目标 `develop`。旧 `unit/feat-716` `6e42f0fd8` 与全部 dirty 留在 `.worktrees/feat-715-integrated-bg`，额外备份 `/tmp/feat716-recovery.rXzQ9G`。新专属树 `.worktrees/feat-716`，分支 `codex/feat-716`，三方干净应用本 unit 已有提交差异和 Web WIP；没有 reset 或改主树用户 dirty。
@@ -30,7 +38,7 @@
 - Web 窄测试中的 coordinator19、composer18、send-attempt3、interactive-card14 已绿；composer conflict5/interactive-flow7 最后发现用呈现 prop `isDirectChat` 代替会话 type 会把测试中的 direct 当 group，现已改为显式 conversation type 透传，串行复验12项通过；`npx tsc -b` 通过。随后 `npm exec -- vitest run --maxWorkers=1` 前端全套 115 files / 1110 tests 全绿（202.93s，exit0，`/tmp/feat716-web-tests.log`）。
 - 服务端新增唯一替换测试红后已修；`pnpm exec vitest run --maxWorkers=1 apps/im-server/tests/interactive-background.test.ts apps/im-server/tests/interactive-messages.test.ts apps/im-server/tests/message-attempts.test.ts`：42项通过，exit0。
 - 共享主机存在其他任务；所有后续重测试低并发，Xcode `-jobs 2 -parallel-testing-enabled NO`，Vitest `--maxWorkers=1`。不停止其他任务进程。
-- 已起真实隔离 daily 栈并按用户要求保留 preview：`.e2e-daily.json`，`http://127.0.0.1:62814/chat/c_4db28b34c71b`。真实 Web 改卡立即发→再发、双浏览器真实409→只读三列→显式采用、503拦截→手动重试、390窄屏实际画面已有证据。实际 Global native `read_messages` 输入与随后模型步支持一次性选择；没有本次HTTP/provider序列化抓包，方法调整由负责人明确决定，详见 [implementation-validation](evidence/implementation-validation.md)。iOS真实SwiftUI/WK只读渲染不替代完整App点击旅程，后者仍缺。当前独立门禁、canonical归并/归档/PR仍未完成。
+- 已起真实隔离 daily 栈并按用户要求保留 preview：`.e2e-daily.json`，`http://127.0.0.1:62814/chat/c_4db28b34c71b`。真实 Web 改卡立即发→再发、双浏览器真实409→只读三列→显式采用、503拦截→手动重试、390窄屏实际画面已有证据。实际 Global native `inbox(action=read)` 输入与随后模型步支持一次性选择；没有本次HTTP/provider序列化抓包，方法调整由负责人明确决定，详见 [implementation-validation](evidence/implementation-validation.md)。iOS真实SwiftUI/WK只读渲染不替代完整App点击旅程，后者仍缺。当前独立门禁、canonical归并/归档/PR仍未完成。
 - 独立门禁配置阻塞：可用 native subagent 接口没有 `model`/`reasoning_effort` 参数，不能显式选择当前适配表要求的固定审查模型。已向主 PA 报告，其明确：继承 + 记录差异不能等价门禁，不自审或造 CLI 替代协议；冻结时交事实包和具体配置缺口，由主 PA 处理所需的人类决定。
 
 ## 当前冻结与恢复条件

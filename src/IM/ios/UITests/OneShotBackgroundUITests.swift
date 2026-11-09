@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 
 /// Genuine cross-process App entry. Inputs must name this unit's isolated synthetic service.
 @MainActor
@@ -64,7 +65,7 @@ final class OneShotBackgroundUITests: XCTestCase {
         capture("716-native-two-messages-sent")
     }
 
-    func testTwoEditedCardsAreConsumedTogetherThenOnlyReeditedCardReturns() throws {
+    func testTwoEditedCardsAreConsumedTogetherThenOnlyReeditedCardReturns() async throws {
         let labelA = try required("NANO_UI_CARD_A_LABEL"), labelB = try required("NANO_UI_CARD_B_LABEL")
         let cardA = try openMeetingCard(fieldLabel: labelA)
         let firstCount = try replaceCount(cardA, preferred: "7")
@@ -73,13 +74,62 @@ final class OneShotBackgroundUITests: XCTestCase {
         let run = UUID().uuidString
         print("716_NATIVE_MULTI_RUN \(run) A=\(firstCount) B=\(secondCount)")
         capture("716-native-multi-both-edited")
-        try sendText("716-native-multi-first-\(run): Read both edited cards and confirm their counts only. Do not create anything.")
-        try sendText("716-native-multi-second-\(run): Reply received only. Do not reuse any card.")
+        try await sendText("716-native-multi-first-\(run): Read both edited cards and confirm their counts only. Do not create anything.")
+        try await sendText("716-native-multi-second-\(run): Reply received only. Do not reuse any card.")
         let revisited = try revealCardField(labelA)
         let thirdCount = try replaceCount(revisited, preferred: "9")
         print("716_NATIVE_MULTI_REEDIT \(run) A=\(thirdCount)")
-        try sendText("716-native-multi-third-\(run): Read only the newly edited card and confirm its count only. Do not create anything.")
+        try await sendText("716-native-multi-third-\(run): Read only the newly edited card and confirm its count only. Do not create anything.")
         capture("716-native-multi-three-messages-sent")
+    }
+
+    func testNativeBudgetFailureRetainsAttachmentAndRecovers() async throws {
+        try openConversation()
+        app.buttons["Add attachment"].tap(); app.buttons["Photos"].tap()
+        // Bind the synthetic blue photo by its observed picker AX label, not a sample-library index.
+        let photos = app.images.matching(NSPredicate(format: "identifier == 'PXGGridLayout-Info' AND label == %@", try required("NANO_UI_OWNED_PHOTO_LABEL")))
+        guard photos.firstMatch.waitForExistence(timeout: 5), photos.count == 1 else { XCTFail("The owned photo must be unique"); throw NSError(domain: "OneShotBackgroundUITests", code: 4) }
+        // The Photos image's AX hit point is -1 despite the visible tile; use its observed centre.
+        photos.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let attachment = app.buttons["Remove attachment"]
+        guard attachment.waitForExistence(timeout: 10) else { XCTFail("The real upload must finish before host preparation"); throw NSError(domain: "OneShotBackgroundUITests", code: 5) }
+        let composer = app.textViews["Message"], run = UUID().uuidString
+        let text = "716-native-budget-\(run): Keep this full message and my attachment. Confirm all three card counts only; do not create anything."
+        composer.tap(); composer.typeText(text); XCTAssertEqual(composer.value as? String, text)
+        capture("716-native-budget-before-send")
+        let auth = try await request("/im/v1/auth/login", method: "POST", body: ["username": required("NANO_UI_USERNAME"), "password": required("NANO_UI_PASSWORD")])
+        let token = try XCTUnwrap(auth["access_token"] as? String)
+        let mid = try XCTUnwrap(fixture.cardIDs.last)
+        print("716_BUDGET_READY run=\(run)"); fflush(stdout)
+        try await waitForBudgetNote(mid, token: token, expanded: true)
+        XCTAssertTrue(app.buttons["Send"].isEnabled); app.buttons["Send"].tap()
+        let detail = "Card background is too large; the message was not sent. Reduce card content and retry, or leave this chat on the devices where you edited cards to clear their pending backgrounds. Your message and card edits are kept."
+        let error = app.staticTexts.matching(NSPredicate(format: "label == %@", detail)).firstMatch
+        guard error.waitForExistence(timeout: 10), composer.value as? String == text, attachment.exists else { XCTFail("Budget refusal must keep the full message and photo"); throw NSError(domain: "OneShotBackgroundUITests", code: 6) }
+        capture("716-native-budget-rejected-retains-body-photo")
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "716-native-budget-rejected-AX"; tree.lifetime = .keepAlways; add(tree)
+        print("716_BUDGET_REJECTED run=\(run)"); fflush(stdout)
+        try await waitForBudgetNote(mid, token: token, expanded: false)
+        XCTAssertEqual(composer.value as? String, text); XCTAssertTrue(attachment.exists)
+        try await sendText(text, alreadyComposed: true)
+        XCTAssertFalse(attachment.exists)
+        try await sendText("716-native-budget-next-\(run): Reply received only. Do not reuse any card.")
+        capture("716-native-budget-recovered-and-next-sent")
+    }
+
+    private func waitForBudgetNote(_ mid: String, token: String, expanded: Bool) async throws {
+        let path = "/im/v1/conversations/\(fixture.conversationID)/messages/\(mid)/interaction-state"
+        let recovery = try required("NANO_UI_BUDGET_RECOVERY_NOTE"), expansion = try required("NANO_UI_BUDGET_EXPANSION_PREFIX")
+        for _ in 0..<30 {
+            let value = try await request(path, token: token), state = try XCTUnwrap(value["state"] as? [String: Any])
+            let fields = try XCTUnwrap(value["fields"] as? [[String: Any]])
+            let key = try XCTUnwrap(fields.first(where: { ($0["label"] as? String)?.hasSuffix("备注") == true })?["name"] as? String)
+            let note = try XCTUnwrap(state[key] as? String)
+            if expanded ? note.utf8.count == 12000 && note.hasPrefix(expansion) : note == recovery { return }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        XCTFail("Owned host did not prepare the bound draft checkpoint"); throw NSError(domain: "OneShotBackgroundUITests", code: 3)
     }
 
     private func replaceCount(_ field: XCUIElement, preferred: String) throws -> String {
@@ -91,17 +141,32 @@ final class OneShotBackgroundUITests: XCTestCase {
         return value
     }
 
-    private func sendText(_ text: String) throws {
+    private func sendText(_ text: String, alreadyComposed: Bool = false) async throws {
         let composer = app.textViews["Message"]
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
-        composer.tap(); composer.typeText(text)
+        if alreadyComposed { XCTAssertEqual(composer.value as? String, text) }
+        else { composer.tap(); composer.typeText(text) }
         XCTAssertTrue(app.buttons["Send"].isEnabled)
         app.buttons["Send"].tap()
         let latest = app.buttons["Latest messages"]
-        if latest.exists { latest.tap() }
-        XCTAssertTrue(app.staticTexts[text].firstMatch.waitForExistence(timeout: 20))
-        expectation(for: NSPredicate(format: "value == nil OR value == ''"), evaluatedWith: composer)
-        waitForExpectations(timeout: 10)
+        // XCTest's identifier subscript rejects strings longer than 128 characters.
+        // Match the exact visible message label without weakening the receipt check.
+        let sent = app.staticTexts.matching(NSPredicate(format: "label == %@", text)).firstMatch
+        var jumpedToLatest = false
+        let receipt = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            if sent.exists { return true }
+            // The jump control can appear after the asynchronous Send returns.
+            // Use it once within the original receipt wait, not just before it.
+            if !jumpedToLatest && latest.exists && latest.isHittable {
+                jumpedToLatest = true; latest.tap()
+            }
+            return sent.exists
+        }, object: nil)
+        let receiptResult = await XCTWaiter.fulfillment(of: [receipt], timeout: 20)
+        capture("716-native-send-receipt")
+        guard receiptResult == .completed else { XCTFail("The exact sent message receipt must appear"); throw NSError(domain: "OneShotBackgroundUITests", code: 7) }
+        let empty = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == nil OR value == ''"), object: composer)
+        await fulfillment(of: [empty], timeout: 10)
     }
 
     func testNativeConflictComparisonAndExplicitAdoption() async throws {
@@ -165,13 +230,19 @@ final class OneShotBackgroundUITests: XCTestCase {
     func testNativeTransientSaveBlocksAndRecovers() async throws {
         guard try required("NANO_UI_OUTAGE_EXPECTED") == "1" else { throw XCTSkip("Requires a dedicated owned IM outage, never the preview") }
         let text = "716-native-transient: Keep this message while saving recovers."
-        let people = try openMeetingCard()
+        let fieldLabel = try XCTUnwrap(fixture.cardLabels.first)
+        let people = try openMeetingCard(fieldLabel: fieldLabel)
         let composer = app.textViews["Message"]
         let auth = try await request("/im/v1/auth/login", method: "POST", body: [
             "username": try required("NANO_UI_USERNAME"), "password": try required("NANO_UI_PASSWORD")
         ])
         let token = try XCTUnwrap(auth["access_token"] as? String)
         let cid = try required("NANO_UI_CONVERSATION_ID"), mid = try required("NANO_UI_CARD_ID")
+        XCTAssertEqual(mid, fixture.cardIDs.first)
+        let baseline = try await request("/im/v1/conversations/\(cid)/messages/\(mid)/interaction-state", token: token)
+        let fields = try XCTUnwrap(baseline["fields"] as? [[String: Any]])
+        let stateKey = try XCTUnwrap(fields.first(where: { $0["label"] as? String == fieldLabel })?["name"] as? String)
+        XCTAssertNotNil((baseline["state"] as? [String: Any])?[stateKey] as? Int)
         print("716_OUTAGE_READY")
         try await waitForService(available: false)
         people.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
@@ -191,7 +262,7 @@ final class OneShotBackgroundUITests: XCTestCase {
         XCTAssertEqual(composer.value as? String, text)
         let saved = try await request("/im/v1/conversations/\(cid)/messages/\(mid)/interaction-state", token: token)
         let savedState = try XCTUnwrap(saved["state"] as? [String: Any])
-        XCTAssertEqual(savedState["$participants"] as? Int, Int(newCount))
+        XCTAssertEqual(savedState[stateKey] as? Int, Int(newCount))
         capture("716-native-transient-recovered")
     }
 
@@ -229,6 +300,10 @@ final class OneShotBackgroundUITests: XCTestCase {
     }
 
     private func openMeetingCard(fieldLabel: String = "参会人数") throws -> XCUIElement {
+        try openConversation()
+        return try revealCardField(fieldLabel)
+    }
+    private func openConversation() throws {
         app.launch()
         let username = app.textFields["Enter your username"]
         if username.waitForExistence(timeout: 8) {
@@ -237,33 +312,58 @@ final class OneShotBackgroundUITests: XCTestCase {
             password.tap(); password.typeText(try required("NANO_UI_PASSWORD"))
             app.buttons["Sign in"].tap()
         }
-        // iOS may offer to store the synthetic password after login. Decline in the
-        // simulator instead of letting an invisible interruption swallow the chat tap.
+        let chat = app.staticTexts[try required("NANO_UI_CHAT_TITLE")].firstMatch
+        let chatReadyDeadline = Date().addingTimeInterval(20)
+        XCTAssertTrue(chat.waitForExistence(timeout: 20), "The real isolated service must supply the PA conversation")
+        // A fresh simulator presents the password prompt after the authenticated list
+        // loads. Checking before list readiness can finish before the sheet appears.
         let passwordSheet = app.sheets.matching(NSPredicate(format: "label IN %@", ["保存密码？", "Save Password?"])).firstMatch
         if passwordSheet.waitForExistence(timeout: 3) {
             let later = passwordSheet.buttons.matching(NSPredicate(format: "label IN %@", ["以后", "Not Now", "Later"])).firstMatch
             XCTAssertTrue(later.exists); later.tap()
         }
-        let chat = app.staticTexts[try required("NANO_UI_CHAT_TITLE")].firstMatch
-        XCTAssertTrue(chat.waitForExistence(timeout: 20), "The real isolated service must supply the PA conversation")
+        // A system sheet may still be dismissing when tap returns. Wait for the
+        // real entry condition using only the remainder of the original 20s budget.
+        let entryReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: chat)
+        let entryResult = XCTWaiter.wait(for: [entryReady], timeout: max(0, chatReadyDeadline.timeIntervalSinceNow))
         capture("716-app-chat-list")
+        XCTAssertEqual(entryResult, .completed, "A system prompt must not cover the authenticated conversation entry")
         chat.tap()
-        return try revealCardField(fieldLabel)
+        XCTAssertTrue(app.textViews["Message"].waitForExistence(timeout: 5))
     }
 
     private func revealCardField(_ label: String, towardLatest: Bool = false) throws -> XCUIElement {
         XCTAssertTrue(fixture.cardLabels.contains(label), "Only accessible fields bound to the fixture may be edited")
-        // Move through the actual native timeline, not the App runtime or JS.
+        // WK accessibility can report an offscreen field as hittable while another
+        // card owns the keyboard. Finish that edit and verify the actual viewport.
+        let done = app.buttons["Done"]
+        if done.exists && done.isHittable { done.tap() }
         let field = app.webViews.textFields[label].firstMatch
         for _ in 0..<8 {
-            if field.exists && field.isHittable { break }
-            if towardLatest { app.scrollViews.firstMatch.swipeUp() }
-            else { app.scrollViews.firstMatch.swipeDown() }
+            if isVisibleCardField(field) { break }
+            let viewport = cardViewport()
+            let top = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * 0.2))
+            let bottom = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + viewport.height * 0.8))
+            if towardLatest { bottom.press(forDuration: 0.05, thenDragTo: top) }
+            else { top.press(forDuration: 0.05, thenDragTo: bottom) }
         }
         capture("716-app-card-probe")
         XCTAssertTrue(field.waitForExistence(timeout: 10), "WK field accessibility is a prerequisite, not an assumed journey pass")
-        XCTAssertTrue(field.isHittable, "The visible card field must be directly tappable")
+        XCTAssertTrue(isVisibleCardField(field), "The card field must be inside the visible timeline, not under the keyboard or composer")
         return field
+    }
+
+    private func cardViewport() -> CGRect {
+        let window = app.frame
+        let top = app.navigationBars.firstMatch.frame.maxY
+        let bottom = app.textViews["Message"].frame.minY
+        return CGRect(x: window.minX, y: top, width: window.width, height: max(0, bottom - top))
+    }
+
+    private func isVisibleCardField(_ field: XCUIElement) -> Bool {
+        guard field.exists && field.isHittable else { return false }
+        let frame = field.frame
+        return frame.width > 0 && frame.height > 0 && cardViewport().contains(frame)
     }
     private func required(_ name: String) throws -> String {
         guard let value = ProcessInfo.processInfo.environment[name], !value.isEmpty else {

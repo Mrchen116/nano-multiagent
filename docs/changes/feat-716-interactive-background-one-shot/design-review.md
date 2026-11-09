@@ -551,3 +551,4 @@ M2 `[worker]` ⑤ 只断言“顺序 = flush → 水位 → discard、超时同�
 - **R5-R1 accepted**：已核实并校正冻结接缝 locator 为 `src/IM/ios/NanoIM/Features/Chat/ChatAPI.swift`；仅文档路径更正，产品范围不变。
 - **R5-R2 accepted**：按父级转达的实际用户“允许”更新本轮配置例外，区分后到的隔离测试范围澄清与仍须正常检查的具体操作；不冒称固定型号，不改变独立性、设计语义或验收深度。
 - **Author verification / retained**：独立报告已实读，方案与真实调用点及用户新规则一致，无实质异议。上述两处均为报告明确允许的非实质维护（locator 与实际批准状态），没有改变候选/消费/预算/恢复或实现接缝，故保留 Round 5 Approved，不新增 Round。真实多卡实现、运行与双端/模型证据仍待完成。
+- **后续作者术语勘误（非新增独立审查）**：R5 表格及分页段的 `read_messages` 是公开工具名称误记；新隔离 session 的实际 call 为 `inbox`、`action=read`。当前 design / implementation evidence 已校正为 `inbox(action=read)`。此处保留原审查文字并附勘误，不追改当时 verdict，不改变 consumer/分页/证据边界，也不代表实现动态验收通过。
