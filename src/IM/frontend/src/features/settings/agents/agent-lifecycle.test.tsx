@@ -33,20 +33,20 @@ it('stops while offline without saving a draft and cannot enable until cleanup i
     return Response.json(state);
   });
   vi.stubGlobal('fetch', fetch); mount();
-  await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
-  await screen.findByText('The computer is offline. Closing will continue when it reconnects.');
-  expect(screen.getByRole('button', { name: 'Closing…' })).toBeDisabled();
-  expect(screen.queryByText('Closed')).toBeNull();
+  await userEvent.click(await screen.findByRole('button', { name: 'Disable Agent' }));
+  await screen.findByText('The computer is offline. Disabling will continue when it reconnects.');
+  expect(screen.getByRole('button', { name: 'Disabling…' })).toBeDisabled();
+  expect(screen.queryByText('Disabled')).toBeNull();
   expect(screen.getByLabelText('Draft')).toHaveValue('Unsaved name');
   expect(fetch.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(1);
 });
 it('retries only stopping and never enables an unconfirmed stop', async () => {
   const fetch = vi.fn(async (_url, init) => Response.json(snapshot('disabled', init?.method === 'POST' ? 'stopping' : 'stop_unconfirmed', 2)));
   vi.stubGlobal('fetch', fetch); mount(true, true);
-  await screen.findByText('Closing did not finish.');
+  await screen.findByText('Disabling did not finish.');
   expect(screen.queryByText('Stop unconfirmed')).toBeNull();
   expect(screen.queryByText('Cleanup timed out')).toBeNull();
-  await userEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Retry disabling' }));
   await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => String(url).endsWith('/lifecycle/retry') && init?.method === 'POST')).toBe(true));
   expect(fetch.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
 });
@@ -57,7 +57,7 @@ it('rereads a disable conflict and resubmits the same intent at the latest revis
     return Response.json(snapshot('enabled', 'enabled', ++reads === 1 ? 1 : 3));
   });
   vi.stubGlobal('fetch', fetch); mount();
-  await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Disable Agent' }));
   await waitFor(() => expect(writes).toBe(2));
   const bodies = fetch.mock.calls.filter(([,init]) => init?.method === 'PUT').map(([,init]) => JSON.parse(init.body));
   expect(bodies.map(b => [b.enabled, b.expected_revision])).toEqual([[false,1],[false,3]]);
@@ -69,8 +69,8 @@ it('refreshes an enable conflict without resubmitting and shows nonowners only s
     if (init?.method === 'PUT') { writes++; return Response.json({detail:'revision_conflict'}, {status:409}); }
     return Response.json(snapshot('disabled', 'disabled', 2));
   }));
-  mount(); await userEvent.click(await screen.findByRole('button', {name:'Turn on'}));
+  mount(); await userEvent.click(await screen.findByRole('button', {name:'Enable Agent'}));
   await screen.findByRole('alert'); expect(writes).toBe(1);
   cleanup(); mount(false);
-  await screen.findByText('Closed'); expect(screen.queryByRole('button')).toBeNull();
+  await screen.findByText('Disabled'); expect(screen.queryByRole('button')).toBeNull();
 });

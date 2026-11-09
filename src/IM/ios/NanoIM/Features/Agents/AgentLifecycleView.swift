@@ -17,11 +17,11 @@ struct AgentLifecycleSnapshot: Decodable, Sendable {
         if observed == "stop_unconfirmed" { return .retry }
         return canEnable ? .enable : nil
     }
-    func closingFeedback(online: Bool) -> String? {
+    func disablingFeedback(online: Bool) -> String? {
         guard desired == "disabled", !canEnable else { return nil }
-        if !online { return L("电脑离线，联网后会继续关闭。", "The computer is offline. Closing will continue when it reconnects.") }
-        if error_code == "node_upgrade_required" { return L("请更新电脑上的 Nano 后再关闭。", "Update Nano on the computer to finish closing.") }
-        return observed == "stop_unconfirmed" ? L("关闭还没完成。", "Closing did not finish.") : nil
+        if !online { return L("电脑离线，联网后会继续停用。", "The computer is offline. Disabling will continue when it reconnects.") }
+        if error_code == "node_upgrade_required" { return L("请更新电脑上的 Nano 后再停用。", "Update Nano on the computer to finish disabling.") }
+        return observed == "stop_unconfirmed" ? L("停用还没完成。", "Disabling did not finish.") : nil
     }
 }
 struct AgentLifecycleChange: Encodable, Sendable {
@@ -80,30 +80,30 @@ struct AgentLifecycleControls: View {
         return state?.action
     }
     private var actionLabel: String {
-        if busy { return action == .enable ? L("正在开启…", "Turning on…") : L("正在关闭…", "Closing…") }
+        if busy { return action == .enable ? L("正在启用…", "Enabling…") : L("正在停用…", "Disabling…") }
         switch action {
-        case .disable: return L("关闭", "Close")
-        case .enable: return L("开启", "Turn on")
-        case .retry: return L("重试", "Retry")
-        case nil: return state == nil ? L("读取状态…", "Loading state…") : L("正在关闭…", "Closing…")
+        case .disable: return L("停用 Agent", "Disable Agent")
+        case .enable: return L("启用 Agent", "Enable Agent")
+        case .retry: return L("重试停用", "Retry disabling")
+        case nil: return state == nil ? L("读取状态…", "Loading state…") : L("正在停用…", "Disabling…")
         }
     }
     var body: some View {
         if canManage && !deleting {
             if configuration && !busy && (action == .disable || action == .enable) {
-                Toggle(L("开启 Agent", "Turn on Agent"), isOn: Binding(get: { state?.desired == "enabled" }, set: { enabled in Task { await change(enabled ? .enable : .disable) } }))
+                Toggle(L("启用 Agent", "Enable Agent"), isOn: Binding(get: { state?.desired == "enabled" }, set: { enabled in Task { await change(enabled ? .enable : .disable) } }))
                     .disabled(readFailed)
                     .frame(minHeight: 44)
             } else { actionButton }
         }
         VStack(alignment: .leading, spacing: 4) {
             if state?.canEnable == true && !readFailed {
-                Text(L("已关闭", "Closed")).font(.subheadline.weight(.medium))
+                Text(L("已停用", "Disabled")).font(.subheadline.weight(.medium))
                 if !compact {
-                    Text(L("重新开启后可以接收新工作，旧任务继续暂停。", "Turning it back on allows new work. Previous tasks stay paused.")).font(.caption).foregroundStyle(.secondary)
+                    Text(L("重新启用后可以接收新工作，旧任务继续暂停。", "Re-enabling allows new work. Previous tasks stay paused.")).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if !compact && !busy, let detail = state?.closingFeedback(online: online) {
+            if !compact && !busy, let detail = state?.disablingFeedback(online: online) {
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             if !compact, let error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
@@ -133,7 +133,7 @@ struct AgentLifecycleControls: View {
         } catch {
             guard !Task.isCancelled, generation == requestGeneration else { return }
             readFailed = true
-            self.error = L("无法读取开关状态，请刷新后重试。", "Could not read the current status. Refresh and try again.")
+            self.error = L("无法读取 Agent 状态，请刷新后重试。", "Could not read the Agent status. Refresh and try again.")
         }
     }
     private func change(_ action: AgentLifecycleAction) async {

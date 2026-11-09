@@ -238,8 +238,8 @@ describe("agent detail page", () => {
       const name = await screen.findByDisplayValue("Core Planner");
       await userEvent.clear(name);
       await userEvent.type(name, "Unsaved emergency edit");
-      await userEvent.click(await screen.findByRole("button", {name: "Close"}));
-      expect(await screen.findByRole("button", {name: "Closing…"})).toBeDisabled();
+      await userEvent.click(await screen.findByRole("button", {name: "Disable Agent"}));
+      expect(await screen.findByRole("button", {name: "Disabling…"})).toBeDisabled();
       expect(name).toHaveValue("Unsaved emergency edit");
       expect(apiMocks.updateAgentConfigMock).not.toHaveBeenCalled();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -262,8 +262,8 @@ describe("agent detail page", () => {
     const view = renderDetailPage();
     try {
       expect(await screen.findByRole("button", {name: "Permanently delete Agent"})).toBeVisible();
-      await userEvent.click(screen.getByRole("button", {name: "Turn on"}));
-      await screen.findByRole("button", {name: "Close"});
+      await userEvent.click(screen.getByRole("button", {name: "Enable Agent"}));
+      await screen.findByRole("button", {name: "Disable Agent"});
       expect(screen.queryByRole("button", {name: "Permanently delete Agent"})).not.toBeInTheDocument();
     } finally { view.unmount(); vi.unstubAllGlobals(); useAuthStore.setState({user: original}); }
   });
