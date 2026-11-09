@@ -97,14 +97,16 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
     expect(inbox.commitRead('main', 'last', [{ type: 'text', text: JSON.stringify(last) }], false, 1)).toBe(true);
     expect(await call(product, 'send_message', { target, text: 'draft' }, 'draft')).toMatchObject({ status: 'held_for_revalidation', target, inbox_targets: [target] });
     expect(sent).toBe(0);
-    expect(inbox.journal(0).find(event => event.type === 'inbox_read_committed')).toMatchObject({
-      payload: { source_refs: [{ conversation_id: external, message_id: 'first' }] },
-    });
+    expect(inbox.journal(0).find(event => event.type === 'inbox_read_committed')).toBeUndefined();
     const correction = await call(product, 'inbox', { action: 'read', target }, 'correction');
     expect(inbox.commitRead('main', 'correction', [{ type: 'text', text: JSON.stringify(correction) }], false, 1)).toBe(true);
     expect(await call(product, 'send_message.context', { target })).toMatchObject({ target: external, channel: 'feishu', recipient: { kind: 'owner' } });
     expect(await call(product, 'conversations', { action: 'info', target })).toMatchObject({ target, name: 'Owner' });
     expect(await call(product, 'task_graph', { action: 'create', target, title: 'Plan', mode: 'dag', request_key: 'plan' })).toMatchObject({ ok: true });
+    // Task Graph has drained the root Work cut. The persisted image read keeps its canonical source.
+    expect(inbox.journal(0).find(event => event.type === 'inbox_read_committed')).toMatchObject({
+      payload: { source_refs: [{ conversation_id: external, message_id: 'first' }] },
+    });
     const sentResult = await call(product, 'send_message', { target, text: 'done' }, 'send');
     expect(sentResult).toEqual({ status: 'sent', target, message_id: 'sent-1' });
     expect(await call(product, 'send_message', { target: external, text: 'done' }, 'send')).toEqual(sentResult);
