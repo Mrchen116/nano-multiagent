@@ -63,7 +63,9 @@ export class NodeAgentDeletions {
   private async run(intent: AgentDeletionIntent): Promise<void> {
     const d = this.dependencies;
     const saved = this.ledger.read(intent.agent_id);
-    if (saved && JSON.stringify(saved.intent)!==JSON.stringify(intent)) throw new Error('Agent deletion scope changed');
+    if (saved && (saved.intent.operation_id!==intent.operation_id || saved.intent.revision!==intent.revision ||
+      !saved.complete && JSON.stringify(saved.intent.workspace)!==JSON.stringify(intent.workspace)))
+      throw new Error('Agent deletion scope changed');
     const receipt = saved ?? {intent};
     if (receipt.complete) { await d.report(intent,'deleted'); return; }
     try {
@@ -80,8 +82,8 @@ export class NodeAgentDeletions {
         this.ledger.save(receipt);
       }
       await d.finalize(intent,receipt.plan);
-      receipt.complete = true;
-      this.ledger.save(receipt);
+      const {agent_id,operation_id,revision} = intent;
+      this.ledger.save({intent:{agent_id,operation_id,revision},complete:true});
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       await d.report(intent,'failed',detail);

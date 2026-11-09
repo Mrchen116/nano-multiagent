@@ -48,7 +48,7 @@ it('resumes cleanup after a durable native purge without rebuilding the plan', a
   const {tmpdir}=await import('node:os');
   const {join}=await import('node:path');
   const dir=await mkdtemp(join(tmpdir(),'nano-node-delete-'));
-  const path=join(dir,'deletions.sqlite3'),intent={agent_id:'a',operation_id:'a-operation',revision:2};
+  const path=join(dir,'deletions.sqlite3'),intent={agent_id:'a',operation_id:'a-operation',revision:2,workspace:{path:'/owned/a',witness:'owned'}};
   const stages:string[]=[];
   let failFinalize=true;
   const dependencies={
@@ -68,9 +68,11 @@ it('resumes cleanup after a durable native purge without rebuilding the plan', a
     expect(stages).toEqual(['stop','deleting','plan','purge','failed']);
     await agent.close();
     failFinalize=false;
-    agent=new NodeAgentDeletions(new AgentDeletionLedger(path),dependencies);
+    const ledger = new AgentDeletionLedger(path);
+    agent=new NodeAgentDeletions(ledger,dependencies);
     await agent.apply(intent);
     await agent.apply(intent);
     expect(stages).toEqual(['stop','deleting','plan','purge','failed','deleting','finalize','deleted','deleted']);
+    expect(ledger.read('a')).toEqual({intent:{agent_id:'a',operation_id:'a-operation',revision:2},complete:true});
   } finally { await agent.close(); await rm(dir,{recursive:true,force:true}); }
 });

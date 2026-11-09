@@ -91,6 +91,8 @@ export function reportAgentDeletion(ctx: ImContext, operation: Row, input: Row):
     const conversations = input.state === 'deleted' ? purgeCenterExecution(ctx, operation.agent_id) : [];
     ctx.db.prepare('UPDATE agent_deletions SET state=?,error_detail=? WHERE operation_id=?')
       .run(input.state,typeof input.error_detail === 'string' && input.state === 'failed' ? input.error_detail.slice(0,500) : null,operation.operation_id);
+    if (input.state==='deleted' && operation.workspace_json)
+      ctx.db.prepare("UPDATE agent_deletions SET workspace_json=json_remove(workspace_json,'$.path') WHERE operation_id=?").run(operation.operation_id);
     // A cleanup between the client's sync snapshot and WebSocket resume must be replayable.
     return conversations.map(id=>ctx.messaging.event(id,null,'conversation.execution_cleanup',
       {conversation_id:id,execution_cleanup_revision:executionCleanupRevision(ctx,id)},'completed',false));
