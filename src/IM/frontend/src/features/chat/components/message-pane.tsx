@@ -280,6 +280,7 @@ export function MessagePane({
 }: MessagePaneProps) {
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
+  const hasFocusedMessage = Boolean(focusMessageId);
   const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const timeDividers = timelineTimeDividers(renderedTimeline, i18n.language);
@@ -1022,12 +1023,12 @@ export function MessagePane({
   useEffect(() => {
     lastMessageIdRef.current = null;
     lastReadRef.current = null;
-    nearBottomRef.current = !focusMessageId;
+    nearBottomRef.current = !hasFocusedMessage;
     forceScrollToBottomRef.current = false;
     historyWasLoadingRef.current = false;
     historyAnchorRef.current = null;
     skipNextMessageAutoScrollRef.current = false;
-  }, [conversation.id]);
+  }, [conversation.id, hasFocusedMessage]);
 
   useEffect(() => {
     if (sendError) forceScrollToBottomRef.current = false;
@@ -1039,9 +1040,9 @@ export function MessagePane({
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    if(focusMessageId&&!forceScrollToBottomRef.current) {
-      lastMessageIdRef.current=messages.at(-1)?.id??null;
-      nearBottomRef.current=false;
+    if (hasFocusedMessage && !forceScrollToBottomRef.current) {
+      lastMessageIdRef.current = messages.at(-1)?.id ?? null;
+      nearBottomRef.current = false;
       return;
     }
     if (skipNextMessageAutoScrollRef.current) {
@@ -1058,7 +1059,7 @@ export function MessagePane({
       (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
     const isInitialHydration = lastMessageIdRef.current === null;
     const shouldFollowBottom =
-      (isInitialHydration && !focusMessageId)
+      (isInitialHydration && !hasFocusedMessage)
       || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
       || nearBottomRef.current;
     lastMessageIdRef.current = lastMessageId;
@@ -1068,12 +1069,12 @@ export function MessagePane({
       reportReadBoundary();
     }
     forceScrollToBottomRef.current = false;
-  }, [messages]);
+  }, [messages, conversation.id, hasFocusedMessage]);
 
   useLayoutEffect(() => {
     const scroller = messagesContainerRef.current;
     const list = messageListRef.current;
-    if (!scroller || !list || focusMessageId || typeof ResizeObserver === "undefined") return;
+    if (!scroller || !list || hasFocusedMessage || typeof ResizeObserver === "undefined") return;
 
     // Cards and media can grow after the message data has already rendered.
     const observer = new ResizeObserver(() => {
@@ -1084,7 +1085,7 @@ export function MessagePane({
     observer.observe(list);
     observer.observe(scroller);
     return () => observer.disconnect();
-  }, [focusMessageId]);
+  }, [hasFocusedMessage]);
 
   useEffect(() => {
     document.addEventListener("visibilitychange", reportReadBoundary);
