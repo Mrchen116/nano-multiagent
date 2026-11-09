@@ -313,15 +313,22 @@ struct AgentWorkItemView: View {
     private var p: [String: JSONValue] { item.payload }
     private func text(_ key: String) -> String { p[key]?.agentString ?? "" }
     let separate: Bool
-    private var toolLinks: some View {
+    @ViewBuilder private func toolLinks(late: Bool = false) -> some View {
         let detail = p["detail"]?.agentObject ?? [:]
         let input = (p["input"] ?? p["arguments"])?.agentObject ?? [:]
         let id = [text("child_session_id"), detail["child_session_id"]?.agentString ?? ""].first { !$0.isEmpty } ?? ""
         let call = [text("id"), text("call_id"), text("tool_call_id")].first { !$0.isEmpty } ?? ""
         let agent = [detail["agent_id"]?.agentString, input["agent_id"]?.agentString].compactMap { $0 }.first { !$0.isEmpty } ?? ""
         let name = text("name") + text("tool_name")
-        return links(id: id, parent: sessionID, call: call, agent: agent,
-            canResolve: item.has_exact_child == true || !agent.isEmpty || name.contains("agent") || name.contains("workflow"))
+        let known = item.has_exact_child == true || !agent.isEmpty || name.contains("agent") || name.contains("workflow")
+        if late {
+            // An exact link can arrive after this historical item was loaded.
+            if separate, id.isEmpty, !known, !call.isEmpty {
+                links(id: "", parent: sessionID, call: call)
+            }
+        } else {
+            links(id: id, parent: sessionID, call: call, agent: agent, canResolve: known)
+        }
     }
     @ViewBuilder private func links(id: String, parent: String = "", call: String = "", agent: String = "", canResolve: Bool = true) -> some View {
         if !id.isEmpty {
@@ -333,7 +340,7 @@ struct AgentWorkItemView: View {
         } else if !separate {
             let exact = sessions.filter { !call.isEmpty && $0.parent_session_id == parent && $0.parent_tool_call_id == call }
             let candidates = exact.isEmpty ? sessions.filter { !agent.isEmpty && $0.child_agent_id == agent && (parent.isEmpty || $0.parent_session_id == parent) } : exact
-            ForEach(candidates) { child in childLink(child.id, label: child.label) }
+            ForEach(candidates) { child in childLink(child.id, label: candidates.count > 1 ? child.distinctLabel : child.label) }
         }
     }
     var body: some View {
@@ -347,6 +354,7 @@ struct AgentWorkItemView: View {
                     DisclosureGroup(L("技术详情", "Technical details")) {
                         if let input = p["input"] ?? p["arguments"] { Text(L("参数", "Arguments")).font(.caption); JSONDetailView(value: input) }
                         if let detail = p["detail"] { JSONDetailView(value: detail) }
+                        toolLinks(late: true)
                     }.font(.subheadline)
                     if let approval = p["approval"] { DisclosureGroup(L("授权结果", "Approval result")) { JSONDetailView(value: approval) } }
                     if let duration = p["duration_ms"] ?? p["elapsed_ms"] { LabeledContent(L("耗时（毫秒）", "Duration (ms)"), value: duration.prettyPrinted) }
@@ -355,7 +363,7 @@ struct AgentWorkItemView: View {
                     Text(L("工具结果与聊天发送分别记录。", "Tool results and chat deliveries are recorded separately.")).font(.caption).foregroundStyle(.secondary)
                     workFacts
                 } label: { Text((text("name").isEmpty ? text("tool_name") : text("name")) + " · " + (text("status") == "completed" ? L("调用完成", "Call completed") : agentWorkStatus(text("status").isEmpty ? "unknown" : text("status")))) }
-                toolLinks
+                toolLinks()
             } else if ["message", "message_delta", "text_delta", "assistant_message", "thinking", "thinking_delta", "reasoning"].contains(item.kind) {
                 if !text("reasoning_content").isEmpty { DisclosureGroup(L("思考", "Reasoning")) { Text(text("reasoning_content")).textSelection(.enabled) } }
                 let body = [text("text"), text("content"), text("delta")].first { !$0.isEmpty } ?? ""

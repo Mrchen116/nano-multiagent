@@ -621,3 +621,24 @@ it("reads final item revisions after an older active request completes", async (
   expect(await screen.findByText("Final result after pending fetch")).toBeVisible();
   expect(deltas).toBe(2);
 });
+
+it("finds a late exact child on demand for an already loaded tool", async () => {
+  const calls: string[] = [];
+  view = {...view, catalog: "separate", turns: [{...view.turns[0], items: [], items_deferred: true}]};
+  mocks.fetch.mockImplementation(async (url: string) => {
+    calls.push(url);
+    return new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []}
+      : url.includes("/items?") ? {items: [{item_id: "tool:read", seq: 5, kind: "tool", payload: {id:"read", name:"read", status:"completed"}}], revision: 5}
+      : url.includes("/work/sessions?") ? {sessions: [{session_id:"late-child"}], match_mode:"exact"}
+      : url.includes("/sessions/late-child/turns") ? {turns: [], next_cursor: null}
+      : url.endsWith("/sessions/late-child") ? {session_id:"late-child", scope:"subagent", description:"Late exact child"}
+      : view));
+  });
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  fireEvent.click(await screen.findByRole("button", {name: /read.*调用完成/}));
+  expect(calls.some(url => url.includes("/work/sessions?"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", {name: "查看子执行"}));
+  expect(await screen.findByText("Late exact child")).toBeVisible();
+  expect(calls.find(url => url.includes("/work/sessions?"))).toContain("tool_call_id=read");
+});

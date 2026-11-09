@@ -427,7 +427,7 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
     const children = childId ? sessions.filter(s => s.session_id === childId) : sessions.filter(s => agent && s.child_agent_id === agent);
     const link = childId ? <WorkLink id={childId} session={children[0]} label="查看关联执行" onChild={onChild} />
       : separate && agent ? <LegacyWorkLinks agentId={agentId} filter={{child_agent_id: agent}} onChild={onChild} label="查看关联执行" />
-      : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看关联执行" onChild={onChild} />);
+      : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看关联执行" distinguish={children.length > 1} onChild={onChild} />);
     const backgroundKey = `${itemKey}:background:${str(value.task_id) || index}`;
     return <WorkBackground key={backgroundKey} value={value as unknown as BackgroundReturn} expanded={expanded[backgroundKey] ?? false} onExpandedChange={open => expand(backgroundKey, open)} detailFooter={link} />;
   })}</ul>;
@@ -451,8 +451,12 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
           const delegation = item.has_exact_child || agent || /agent|workflow/.test(call.name ?? "");
           const link = childId ? <WorkLink id={childId} session={children[0]} label="查看子执行" onChild={onChild} />
             : separate && delegation && (callId || agent) ? <LegacyWorkLinks agentId={agentId} filter={filter} onChild={onChild} label="查看子执行" />
-            : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看子执行" onChild={onChild} />);
-          return <WorkTool key={item.item_id} call={call} expanded={expanded[itemKey] ?? false} onExpandedChange={open => expand(itemKey, open)} detailFooter={<WorkFacts facts={p.work_facts} />} childLink={link} />;
+            : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看子执行" distinguish={children.length > 1} onChild={onChild} />);
+          // An exact link can arrive after this historical item was loaded.
+          const lateLink = separate && !childId && !delegation && callId
+            ? <LegacyWorkLinks agentId={agentId} filter={{parent_session_id: turn.session_id, tool_call_id: callId}} onChild={onChild} label="查看子执行" />
+            : null;
+          return <WorkTool key={item.item_id} call={call} expanded={expanded[itemKey] ?? false} onExpandedChange={open => expand(itemKey, open)} detailFooter={<><WorkFacts facts={p.work_facts} />{lateLink}</>} childLink={link} />;
         }
         if (item.kind === "permission") return <li key={item.item_id}><PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;
         if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li className="im-work-body" key={item.item_id}>{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta) || str(p.source_session_id)) && <div className="im-work-assistant"><header className="im-work-message-head"><strong>{tr(p.source_kind === "subagent-settled" ? "子执行返回" : p.source_kind === "agent-message" ? "Agent 消息" : "Agent 正文")}</strong>{str(p.source_session_id) && <button type="button" className="im-work-child-link" onClick={() => onChild(str(p.source_session_id))}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}</header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}</li>;
