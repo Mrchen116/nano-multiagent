@@ -5,7 +5,7 @@ import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
 import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest } from '@nano/product-contracts';
-import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
+import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
 interface Background { last_notified_at: number | null; due_at: number | null; notified_through_seq: number; submitting_through_seq: number | null }
@@ -403,6 +403,7 @@ export class InboxStore {
         ...(personal ? {is_owner:input.metadata.personal_is_owner === true} : {}) }, time: instant === undefined ? null : formatLocalTime(instant as string | number, input.message.timezone),
         ...(!personal && input.metadata.channel ? {channel:input.metadata.channel} : {}),
         ...(input.metadata.personal_actor_risk ? {actor_risk:personal ? this.actorRisk(input) : input.metadata.personal_actor_risk} : {}),
+        ...(input.message.reply_to ? { reply_to: projectChatReplyContext(input.message.reply_to) } : {}),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = selected.length ? snapshot.fragments.indexOf(selected.at(-1)!)+1 : snapshot.fragments.length;

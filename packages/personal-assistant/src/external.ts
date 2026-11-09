@@ -195,6 +195,7 @@ export class ExternalChannels {
       const publication = decodeAgentPublication(payload);
       const target = String(publication.to).replace(/^conversation:/, ''); const chat = this.state.chat(target);
       if (chat) {
+        if(publication.reply_to_message_id!==undefined)throw new Error('Quoted replies require a Nano IM destination');
         const agentId = String(publication.from_session_id).split('|')[0];
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
         const output = this.state.prepare(chat.id, String(publication.from_session_id), 'explicit',Number(publication.lifecycle_revision??1));

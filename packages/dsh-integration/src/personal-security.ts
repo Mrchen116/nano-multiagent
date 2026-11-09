@@ -30,7 +30,7 @@ type DisclosureFacts = {
   owner_user_id: string;
   recipient: {conversation_id:string;name:string;conversation_type:string;channel:string;additional_readers?:'eligible_company_members_outside_group';
     members:{id:string;user_id:string;display_name:string;type:string;is_stale?:boolean|null}[]};
-  payload: {content:string;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;representation?:'self'|'owner';
+  payload: {content:string;reply_to?:unknown;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;representation?:'self'|'owner';
     task?:{action:string;arguments:Record<string,unknown>;source_message_id?:string};
     transport?:{kind:string;destination:Record<string,unknown>;card?:unknown}};
   policy?: {excluded_conversation_ids?:string[]};
@@ -60,6 +60,7 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
   const args:Record<string,unknown>=payload.task?{...payload.task.arguments,action:payload.task.action,
     ...(payload.task.source_message_id?{source_message_id:payload.task.source_message_id}:{})}
     :{target:recipient.conversation_id,text:payload.content,
+      ...(payload.reply_to?{reply_to:payload.reply_to}:{}),
       ...(payload.interactive?{interactive:modelInteractiveContent(payload.interactive)}:{}),
       ...(payload.interactive&&payload.attachments?.length?{attachment_positions:payload.attachments.map(item=>item.url)}:{}),
       ...(payload.attachment_snapshots?.length?{attachments:payload.attachment_snapshots.map(row=>{const {base64,...manifest}=row as Record<string,unknown>;return manifest;})}:{}),
@@ -134,12 +135,16 @@ export function parsePersonalDecision(raw: string): PersonalReview | undefined {
 
 /** Keep complete current evidence while removing oldest whole history items to fit. */
 export function inputReviewEvidence(evidence:unknown,policy:string,contextWindow:number):string {
-  type ReviewMessage = Record<string, unknown> & {interactive?: MessageInteractive};
+  type ReviewMessage = Record<string, unknown> & {interactive?: MessageInteractive; reply_to?: {message_id:string}};
   const source=evidence as {current?:ReviewMessage;previous?:ReviewMessage[];reply_target?:ReviewMessage;omissions?:unknown[];source?:unknown};
   if(!source.current || typeof source.current.content!=='string' || !Array.isArray(source.previous))throw new Error('Missing authenticated input review context');
   if(Array.isArray(source.current.attachments)&&source.current.attachments.length)throw new Error('Input review attachment projection is unavailable');
-  const project = (message: ReviewMessage): Record<string, unknown> => message.interactive
-    ? {...message, interactive:modelInteractiveContent(message.interactive)} : message;
+  // The original message comes through the access-checked, budgeted history.
+  const project = ({interactive, reply_to, ...message}: ReviewMessage): Record<string, unknown> => ({
+    ...message,
+    ...(interactive ? {interactive:modelInteractiveContent(interactive)} : {}),
+    ...(reply_to ? {reply_to:{message_id:reply_to.message_id}} : {}),
+  });
   const current=project(source.current),previous=source.previous.slice(-20).map(project),omissions=[...(source.omissions??[])];
   if(source.previous.length>20)omissions.push({reason:'history_window',limit:20});
   let replyTarget=source.reply_target ? project(source.reply_target) : undefined;

@@ -1,5 +1,5 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { interactiveResponse, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
+import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
 import { messageInput, messageMetadata, sendPrincipal, type MessageInput, type SendPrincipal, type SendMessageCommand } from './message-input.js';
 import { MessageRecords, type MessageMetadata, type MessageEventFrame, type MessageRelayRecord } from './message-records.js';
 import type { ChatAttachment, ChatMessage } from '@nano/product-contracts';
@@ -418,6 +418,27 @@ export class Messaging {
       sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,
     });
   }
+  /** Resolve an original message only inside the caller's authorized destination.
+   *
+   * Args:
+   *   conversationId: Destination whose access was already checked by the caller.
+   *   messageId: Optional original IM message identity.
+   * Returns:
+   *   Server-owned original content and sender, or undefined for an ordinary message.
+   * Raises:
+   *   Error: The target is absent, belongs to another chat, or cannot be replied to.
+   */
+  replyReference(conversationId:string,messageId?:string):ChatMessage['reply_to'] {
+    if(messageId===undefined)return;
+    if(typeof messageId!=='string'||!messageId)fail(422,'invalid reply target');
+    const original=this.records.find(messageId);
+    if(!original||original.conversation_id!==conversationId)fail(404,'reply target not found');
+    if(!['user','agent'].includes(original.sender_type)||!['completed','sent','pending'].includes(original.delivery_status))fail(422,'reply target is not available');
+    const source=this.message(original.id);
+    return {message_id:source.id,sender:source.sender,content:source.content,attachments:source.attachments,
+      ...(source.interactive ? {interactive:modelInteractiveContent(source.interactive)} : {})};
+  }
+
   private publicationAttachments(id: string, attachments: AgentPublication['attachments']) {
     const submitted = attachments ?? [];
     if (submitted.length > 5) fail(422, 'too many attachments');
@@ -443,7 +464,7 @@ export class Messaging {
       this.access(principal, previous.conversation_id, agentId);
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
-      if (saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
+      if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
         || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
@@ -459,6 +480,7 @@ export class Messaging {
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
     const attachments = this.publicationAttachments(id, p.attachments);
+    const replyTo=this.replyReference(id,p.reply_to_message_id);
     const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
     const targetUser = one(
       db,
@@ -482,7 +504,7 @@ export class Messaging {
       attachments,
       key,
       'completed',
-      { interactive, publish: false },
+      { interactive, reply_to:replyTo, publish: false },
     );
     if (p.background_returns)
       this.records.background(created.id,p.background_returns);
@@ -533,6 +555,7 @@ export class Messaging {
     if (b.interaction_contexts !== undefined && c.type !== 'direct') fail(422, 'Private interaction background is only supported in direct chats');
     if (c.type === 'group' && b.interaction_reply && !b.interaction_reply.action_id && !b.interaction_reply.event)
       fail(422, 'Group interaction state requires an explicit card action');
+    if (b.interaction_reply !== undefined && b.reply_to_message_id !== undefined) fail(422, 'Send quoted replies separately from card actions');
     if (b.interaction_reply !== undefined) return this.sendInteraction(p, id, b, key);
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
@@ -543,6 +566,7 @@ export class Messaging {
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
+    const replyTo=this.replyReference(id,b.reply_to_message_id);
     if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
     const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
     // Retries and history retain the timezone captured by the original send.
@@ -553,7 +577,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, publish:false });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, reply_to:replyTo, publish:false });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -645,7 +669,7 @@ export class Messaging {
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const payload = {lifecycle_revision:lifecycle(this.db,a.agent_id).revision,relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
-          conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
+          conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : []), ...(m.reply_to?.sender.type==='agent' ? [m.reply_to.sender.id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
           explicit_mentioned_agent_ids:this.mentionedAgents(c.id,m.content),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),

@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS messages (
     timezone TEXT,
     token_usage_json TEXT,
     interaction_reply_json TEXT,
+    reply_to_json TEXT,
     -- feat-439-M2: 整轮多段思考（过程时间线），nullable JSON。无思考的轮 / 旧行为 NULL。
     thinking_json TEXT,
     -- feat-517: terminal subagent/workflow results shown as process items.

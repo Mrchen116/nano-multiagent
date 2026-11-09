@@ -47,6 +47,7 @@ export interface RelayInput {
   message: {
     id: string;
     content: string;
+    reply_to?: import('./chat.js').ChatReplyReference;
     interactive?: import('./interactive.js').MessageInteractive;
     interaction_reply?: import('./interactive.js').InteractionSnapshot;
     sender_user_id: string;

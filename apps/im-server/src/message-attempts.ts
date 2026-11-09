@@ -12,8 +12,8 @@ import { fail, one, params, type ImContext, type Row } from './context.js';
  * Returns:
  *   Canonical JSON used by the message creation transaction and retry comparison.
  */
-export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attachments'|'interaction_contexts'>): string {
-  return sortedJsonAscii({content:input.content ?? '', attachments:input.attachments ?? [], interaction_contexts:input.interaction_contexts ?? []});
+export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attachments'|'interaction_contexts'|'reply_to_message_id'>): string {
+  return sortedJsonAscii({...(input.reply_to_message_id !== undefined ? {reply_to_message_id:input.reply_to_message_id} : {}),content:input.content ?? '', attachments:input.attachments ?? [], interaction_contexts:input.interaction_contexts ?? []});
 }
 
 /** Reject key reuse by another sender or with different immutable message data.
