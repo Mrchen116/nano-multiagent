@@ -181,14 +181,16 @@ Manifest guard 不代表实际服务/数据库绑定，更不代表人类授权�
 - load有效store先复位left再保留unsaved/conflict；renderer fence独立撤销ready/state/action/附件，draft代际保留成功PUT/水位，业务busy按draft代际清理；coordinator复用和View webID接线支持真实调用路径。原finding造成的implementation-mismatch部分解除；四份delta未改，原两处集成文本aligned判断retained，CR1/2/3继续CLOSED。并未将局部closure扩为final target全量新审或动态批准。
 - Release device archive作者已实际通过（generic iOS/Release/jobs2/exit0，warning保留），不是原reviewer执行结果；其它全量CI失败单组归因仍在处理。新的真实双端入口/模型观察仍受精确工具拒绝阻塞，不以mock或旧树旅程代替，不套用ea438动态批准。reviewer全程只读、无新进程/GUI/HTTP/模型/worker/文件写入，无资源需回收，配置例外不变。
 
-## 同生命周期动作回执补充保护（作者红绿，待closure）
+## 同生命周期动作回执补充保护（4ae43b4f8 独立关闭）
 
 c91f限定关闭后，作者补核“draft已clean、动作POST已准入、等待回执中离场→clean load”的另一异步边界。实际红测1项/2断言失败：operationGeneration随load失效，busy未释放，新页在attempt结清后仍disabled。修复仅将Web业务动作defer改为释放它在整个串行操作期间持有的busy/composing；busy未释放前新动作不能准入、load不重置busy，页面/保存fence与真实已准入消息处理不变。不是改变spec来迁就缺陷。
 
 - 实际同一项红0.451s/exit65→绿0.034s/exit0，随后完整Native **82 XCTest/0失败/10.444s，另27 Swift Testing通过、exit0**；复用原fixture并只增加可选transport wrapper、私有响应gate。日志、源码hash与执行标签/dirty区别见[动作回执补验](evidence/multi-card-validation.md#同生命周期的已准入动作回执补验)。
-- 原c91f的MERGE-1 scoped approval保留其实际范围，不自动覆盖此新增补丁。新Release device archive与原reviewer限定delta closure待执行；其余未变结论retained，不重新打开无关目标或改变动态缺口。
+- **原reviewer对冻结4ae43b4f867ed7ffa70f4a50740deb1e594dc5fa、范围c91f..4ae43限定APPROVED / findings=[]；该动作回执busy缺口CLOSED；corrected-delta仍aligned、no new spec delta。** 实查clean/HEAD/6文件diff与三源码hash；Reentry实际178行、Lifecycle400行。@MainActor的webDisabled含busy，guard144→busy=true154之间无await，load/leave不清busy，retry/原engine activate也先挡busy，且无外部生产调用直接改runtime.busy；因此defer释放自己连续持有的flag不会覆盖另一动作。renderer fence仍拒旧页面消费，ChatStore先结清原sendAttempt及消息，未取消/重发已准入native链的请求。未扩改旧engine路径。
+- reviewer实际读取同case红2断言/0.451s→绿0.034s及完整82/另27日志，复用已归集exit65/0，不重跑；执行标签c91f+dirty三hash边界明确。gate在调用原mock base transport前等待，故证据限于native发送链准入/transport边界的确定性测试，**不是实际服务端已接单、真实HTTP回执或App旅程**。原c91f closure保留其原范围，四份delta未改、无新mismatch，其它未变结论retained，不改变动态缺口。reviewer只读、无写文件/HTTP/测试/GUI/服务/模型/worker/jobs或新资源，配置例外不变。
+- 新Release device archive由作者另行执行并已实际exit0（日志`/tmp/feat716-final-native-receipt-device-archive.log:1640`），不是本次reviewer执行/独立验归档的结论；不得与scoped code approval合并成整体动态/CI批准。
 
 ## 当前流程收口
 
-- 最终固定目标已实际合入并有上述独立补验；MERGE-1的c91f修复/81项及Release device archive已获原reviewer限定CLOSED/APPROVED、corrected-delta aligned。后续动作回执补丁已实际红绿/完整82项通过，新的Release与原reviewerclosure待执行。当前Web完整120 files/1152 tests已全绿；backend单组复验仍有global-child-tools PA=true poll及workspace-tools外层timeout未归因，不称本地全绿。当前动态缺口和精确工具拒绝仍在，不套用ea438动态批准。
+- 最终固定目标已实际合入并有上述独立补验；原reviewer已分别限定关闭c91f MERGE-1及4ae43动作回执busy缺口，APPROVED/findings=[]、corrected-delta aligned。作者分别执行81项/82项及各自Release device archive通过；不要把作者归档事实说成reviewer亲验归档。当前Web完整120 files/1152 tests已全绿；backend单组configuration-inspector/personal-security/task-execution通过，PA=true单case亦通过，但此前file-group poll与workspace-tools外层timeout仍未归因、不称本地全绿。当前动态缺口和精确工具拒绝仍在，不套用ea438动态批准。
 - canonical、archive、本地完整CI及Ready PR/远端CI尚未完成，不宣布交付；旧62814人类预览保护不动。已停止本次59469栈且核实PID49976退出/端口关闭，DB和必要证据保留；自有CC5已核实Shutdown，暂留待最终集成验证。
