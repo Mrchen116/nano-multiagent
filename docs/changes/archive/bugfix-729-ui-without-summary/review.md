@@ -49,3 +49,8 @@
 
 - `validated_at=30a46c77e`，`executed_base=1fc7455d5`。独立 reviewer `/root/review_ui_summary` 核对 `9d0bc4eb7` 和合入后的上下文链路，findings 为空，最终契约 aligned。#482 的 Inbox 通知不带消息正文，Inbox/read 继续使用与 SingleThread 共用的投影。
 - 作者补验：构建和文档检查通过，六份接收、Inbox 与 IM 回归共111项通过。受控 DSH 的 Inbox/read 后续 pre-adapter 请求含新标签、源码和被替换消息的引用，省略渲染元数据。捕获文件为 `output/729-ui-projection-native-input.json`，不作为远端 provider raw wire。真实预览中 Work 第三轮亦确认新投影和成功回复，见 [fix.md](fix.md#接收上下文措辞与字段精简2026-11-09)。
+
+## UI 指导措辞追加审查（2026-11-09）
+
+- `validated_at=4e6cf860f`，`executed_base=1fc7455d5`。独立 reviewer `/root/review_ui_summary` 核对运行时、工具描述、生成资产及 child 交付边界。发现 Web current spec 残留文字位置要求，`939a25da3` 修正后独立 closure 通过，最终契约 aligned。
+- 作者补验：生成检查、文档检查、DSH build 和17项相关回归通过。受控真实 DSH 经 Anthropic adapter 发往本地 fixture 的首个请求、加载 Skill 后的下一请求和发送工具定义均已核对。旧说明要求已移除，卡片可独立交付。实际 wire 保存在 `output/729-ui-reader-guidance-wire.json`。fixture 证明交付的提示和参数通路，不证明模型的表达选择。

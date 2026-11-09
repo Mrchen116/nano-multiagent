@@ -75,3 +75,7 @@ feat-617 原本提供任意 Agent 的通用交互表达，保留组件能力和�
 用户确认标签为 `[Interactive UI content from the message sender]`，并要求移除 `catalog_version` 这类渲染元数据。SingleThread 和 Inbox/read 共用的投影只提供 UI 源码及适用的消息替换引用。IM 持久化和客户端渲染仍使用完整协议。
 
 隔离服务升级至 `30a46c77e` 后，发送方实际交付纯 UI 卡片「读书会预算」`8fc58c14299b46989aaef888fc832a4a`。接收方 Work 第三轮 Inbox/read 工具项 `tool:call_3ae904b0cd31401d8788ad0ee7fc7a28` 包含新标签和卡片源码，没有目录版本。接收方回复总费用396元、余额124元。原始证据在中性 worktree 的 `output/ui-context-followup-work.json`。
+
+## 以读者理解为目标的 UI 指导（2026-11-09）
+
+用户澄清，UI 应按内容选择更容易理解的表达方式，文字自然参与表达。原先 `necessary explanation` 及类似措辞可能诱导模型添加一段本无必要的说明。运行时、发送工具、OpenUI 目录和生成的 Skill 统一移除这种要求。目录引导模型用组件和视觉语言让读者更容易理解，发送指导只说明卡片可单独发送。子 Agent 仍将准备好的源码交给父 Agent 公开交付。
