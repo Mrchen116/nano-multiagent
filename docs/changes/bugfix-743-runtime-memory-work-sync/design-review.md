@@ -57,3 +57,25 @@
 - W1 accepted：分页目录与单目标事件请求分开，根探测只带根 cut。
 - W2 accepted：保持既有可处理记录能力，超常规预算的单项独占，不引入会阻断后续取证的新门槛。
 - W3 accepted：本机保存原执行进程的 revision-scoped cleanup receipt，先于分页且独立于已停证明；就绪后异步重试，以免等待正在启动分区的同一停用任务。
+
+## Round 3
+
+- Reviewer target: `/root/design_review`，独立复审 `80a0fb55f`。
+- review_mode: delta
+- mode_reason: 复核 Round 2 留项及相应目录请求、页预算和本机停用回执改动。
+- retained_from: Round 1（历史驻留、审计与 delta-spec）；Round 2（响应包络、stdio 故障恢复及 R1-W4）。
+- started_at: 2026-11-09T19:38:01+08:00
+- completed_at: 2026-11-09T19:39:00+08:00
+- duration: 59 s
+- Verdict: Approved，0 CRITICAL / 0 WARNING
+
+### Coverage 与历史问题闭环
+
+- **R1-W1 — closed。** Author Resolution 将目录发现与单子会话分页分开。`design.md:12` 规定目录请求只带当前 anchor、子事件请求只带可信 child ID 和单会话位置，`session.work.check` 只带根位置。方案消除了 `global-agent.ts:830` 的全量位置表进入 Work 检查和补传请求的路径；Round 2 确认的回复预算保留。验收仍须用宽目录检验双向帧边界。
+- **R1-W2 — closed。** Author Resolution 移除了新硬上限。`design.md:13` 允许超过常规页预算的完整单条独占一页，消除历史记录被新门槛拒绝后阻断 Global 工具证据路径的问题。单线程及非 Global 维持原证据契约，中心 16 MiB 规则照旧。实现验收应覆盖后页业务证据、单条超常规页预算及中心行为。
+- **R1-W3 — closed。** `design.md:15` 要求冷页前先保存与原执行进程和停用 revision 对应的本机 cleanup receipt。旧执行进程 cleanup 成功的证据由此能跨 DSH 重启保留，仍按 `apps/node/src/agent-lifecycle.ts:102` 的安全意图验证原身份；新管理进程可从已提交 cut 接续，最后一页提交前不写最终已停证明。分区 runtime 就绪后异步重试未确认 revision，不等待 relay 重连，也不会将等待当前启动的停用操作放回启动屏障。实现验收须覆盖同一次机器启动、原进程 cleanup 成功且第一页已提交后 DSH 断线，以及旧进程没有 cleanup 证据时仍不确认的原边界。
+- **R1-W4 — closed，retained from Round 2。** Transport 约定未变。
+
+### Issues
+
+无。本轮判断为设计可实施；运行证据留在 M1 隔离验收。
