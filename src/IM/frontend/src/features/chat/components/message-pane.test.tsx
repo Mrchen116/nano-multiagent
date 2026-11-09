@@ -181,7 +181,7 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
   });
 
-  it("keeps a deep-linked historical message away from automatic bottom hydration", () => {
+  it("preserves a deep-linked position until the conversation is opened normally", () => {
     const props={conversation:DIRECT_CONV,messages:[] as Message[],selfUserId:"u1",mentionCandidates:[],onSend:vi.fn(),focusMessageId:"m1"};
     const {container,rerender}=render(<MessagePane {...props}/>);
     const scroller=container.querySelector(".chat-pane-messages") as HTMLElement;
@@ -189,8 +189,11 @@ describe("MessagePane", () => {
     setScrollMetrics(scroller,metrics);
     rerender(<MessagePane {...props} messages={SAMPLE_MESSAGES}/>);
     expect(scroller.scrollTop).toBe(0);
-    rerender(<MessagePane {...props} messages={[...SAMPLE_MESSAGES,{...SAMPLE_MESSAGES[1],id:"m3"}]}/>);
+    const refreshed = [...SAMPLE_MESSAGES, {...SAMPLE_MESSAGES[1], id: "m3"}];
+    rerender(<MessagePane {...props} messages={refreshed}/>);
     expect(scroller.scrollTop).toBe(0);
+    rerender(<MessagePane {...props} messages={refreshed} focusMessageId={null}/>);
+    expect(scroller.scrollTop).toBe(1800);
   });
 
   describe("history pagination scroll trigger (feat-451 R1)", () => {
