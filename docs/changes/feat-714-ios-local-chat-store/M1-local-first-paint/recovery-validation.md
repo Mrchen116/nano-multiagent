@@ -6,8 +6,26 @@
 
 - 已披露的714真实隔离范围直接接续：原自建loopback服务/合成DB与自有模拟器，服务启停复用和切换；合成迁移账号/会话/消息、真实旧JSON→同bundle覆盖升级→显式Retry；成员移除/恢复、精确合成账号旧凭据失效/真实401及去敏接口状态日志。新的实际拒绝仍立即停被拒动作、完整回报，不换工具/对象绕行；不将常规隔离验收重新包装成待用户批准事项。
 - **本轮仅模拟器**：不连接或操作手机、不安装真机App、不启动真机HTTPS公网tunnel。真机flight、complete file protection属性、≥20次真机首绘trace/p50/p95保持**UNVERIFIED／本轮不执行**，不得用模拟器不可达origin或skip冒称真机PASS，也不再作为本轮模拟器交付阻塞。backup exclusion等已在模拟器实际通过的独立结果仍按各自证据保留；产品保护实现要求不因此删除。
-- 当前716先占本轮native/heavy窗口，714只轻量恢复材料，暂不启IM/UI/heavy；父级沿原通道明确释放下一窗口后按同一fixture方案执行，无需再向用户约窗或请批。真实模型如需仍用Sol6.1，本unit当前矩阵不需要模型。
+- 父级随后已明确释放714一个串行native/heavy窗口；原升级准备命令遇**新的实际工具拒绝**后立即停止该组并回收本批唯一服务、交出窗口给720（详见下节）。不沿用旧拒绝当当前阻塞，也不绕过这次新拒绝；父级按执行工具判断/上下文接续异常调查，不再要求用户重复批准已披露隔离范围。当前714仅静态/材料，其余真实矩阵需后续协调窗口。真实模型如需仍用Sol6.1，本unit当前矩阵不需要模型。
 - 仍须完成本轮适用的真实模拟器升级/账号/服务/未见撤权/同进程401矩阵、独立复核及最终target sync/集成/交付。CI历史两红原因未知及一次诊断未复现均如实保留；不盲重复已耗尽诊断或擅扩unit外修复。下文“真机仍pending”等旧门禁描述须结合本节当前执行范围阅读，不据旧文恢复手机工作。
+
+## 新窗口尝试：新实际拒绝，不是旅程执行或待用户重新许可
+
+- 父级明确给下一串行窗口后，作者只读核既有runner与两份真实App：同bundle `win.nanoim.ios`，current built revision `d0eb4c825`、legacy `005a360579d9`，各可执行SHA256已记录；当前runner来自已通过的Journey build。未重建、不安装、不启动模拟器。
+- 仅启动原自有53703、原DB/JWT服务（job bash-39，PID34092）。随后提交原已披露方案的正常API准备：fresh `review714legacy` / Riley Review、join/approve、与既有合成B建direct/history、0600输入及旧/current两runner。**新的实际工具拒绝**全文：「这会在本机测试服务创建并审批新的用户、会话和消息记录，超出已授权的仅模拟器/自有 fixture 测试范围；此前这组升级测试因实际权限拒绝而停下，现有确认并未明确批准这些新增服务端副作用。」没有Python stdout/exit回执，不能声称部分创建。被拒组立即停，不换账号/工具/路径、不发API探权限。
+- 完整toolcall/返回及当前人类原话、父级窗口原文、可见上下文说明保存在本机0600 `/tmp/feat714-native-final-dphmlbb6/upgrade-permission-denial-resumed-17095.txt`。人类原话在worker会话与本记录可见，但未重复嵌进被拒bash命令/description/justification或紧邻说明；随后仅从既有结果元数据补取真实拒绝时间 `2026-11-09T03:13:09.856Z`、`NanoApprovalDenied / classifier_block` 及原生call/result定位到上述本机证据，无API/模型/权限探测或重试。未返回approval request ID、独立classifier trace或reviewer prompt/context，不能从worker可见性推reviewer实际所见。父级接手按执行工具判断/上下文接续异常调查，明确不再要求用户重复批准本已披露隔离动作。
+- 按准确main.js/loopback/db argv核准后，仅SIGTERM自有PID34092并收集bash-39 **exit0**；实查PIDgone、53703connect61、精确557为Shutdown。预期四个新private文件及两个runner均不存在；未查API用户/消息来探部分执行。首次资源核验漏设DEVELOPER_DIR导致simctl查找exit72，仅补正确Xcode环境后只读核验exit0，不隐藏该命令失败。
+- 已通过原通道实际交出本窗口给720。**零XCTest执行、无新增UI证据、升级四阶段仍未完成**；仅启动服务不算旅程进展。当前保留已记录的下一窗口前置资源，由714负责，不因这一新工具拒绝自动销毁旧→新升级前置；待父级调查结论或取消时重新核保留必要性。
+
+## 当前临时资源责任与回收（2026-11-09，适用新回收规则）
+
+负责人仍为714原执行者；父级只协调716→714的串行资源窗口，不接管清理。按主仓 `docs/development/worktree-runtime.md` 的新「测试资源回收」规则，结束包括失败、取消、阻塞；不能再仅以 Shutdown 或“本机证据”概括永久保留。
+
+- **已实际回收**：确认两份原始 `ARCHIVE SUCCEEDED` 日志及实际 archive App Info/hash后，删除自有 `/tmp/nano-ios-714-release-4dc09fcb6` 与 `/tmp/nano-ios-714-release-b662`，不删除当前/旧版模拟器构建。job bash-22 exit0、两精确目录 absent，删除前 allocated 合计 **895,668,224 bytes（约0.834GiB）**；同时刻全盘free采样16,143,380,480→16,704,032,768 bytes，仅为采样净变，受其它任务写入影响，不与allocated混同。去敏receipt `/tmp/feat714-release-cleanup-20261109.json`（0600）保留版本、bundle、可执行与archive Info SHA256；两份原始归档日志仍在本机。随后只删当前DD中不再需要的 `/tmp/nano-ios-714-resume/Build/Intermediates.noindex/ArchiveIntermediates`（170,258,432 bytes，独立0600 receipt `/tmp/feat714-archive-intermediates-cleanup-20261109.json`，exact absent）；保留simulator Build/Products、其它intermediates和SourcePackages。累计移除 **1,065,926,656 allocated bytes（约0.993GiB）**。此删除不撤回已有归档PASS，也不代表真机测试。
+- **下一窗口必需、暂留**：精确自有模拟器 `55763F8D-5385-47DF-A24F-F2461DCB2FFB`（上次实查Shutdown）、`/tmp/nano-ios-714-resume` 当前App/runner、`/tmp/nano-ios-714-legacy-005a36057` 旧App，以及 detached `/tmp/feat714-legacy-005a36057` 源码/旧runner来源。理由是旧真实JSON→同bundle覆盖升级及现有会话分区矩阵尚须复用，不能提前 erase/卸载破坏前置。完成本轮适用矩阵、提取必要证据后，由714执行者关闭并**删除**自建557，验证设备list不再含UDID；删除两独占DerivedData，按git worktree规则移除旧detached worktree。若本轮取消/再次阻塞须重新核此例外必要性，不自动无限续留。
+- **合成凭据/DB暂留**：`/tmp/feat714-native-final-dphmlbb6` 的原自有53703 fixture DB/JWT、private input与manifest需正常API续接历史和账号/服务隔离；不复制到其它服务或生产，不提交原文。完成矩阵或明确取消后停止精确自有服务，核PIDgone/53703释放，保存去敏证据后删除整个独占root（含secret、数据库、截图/xcresult、runner临时配置）。不因证据用途而永久保留凭据。
+- **原始失败与审查证据暂留**：现有 `/tmp/feat714-*` 原红/绿rawlog、xcresult/attachments、`feat714-crossci-92fb1218b`、`feat714-review-red-rkrfn_wi`、宿主诊断root及小型receipt仅用于尚未结束的独立复核与历史CI红因判断。先提取足够的去敏可引用证据、关闭相应复核后，在本轮最终收口前删除这些独占本地产物；诊断config/生成模块不安装、不留永久hook。历史红的关键原始证据不可为腾盘提前抹除，若仍需带到下一轮，由714执行者在此明确剩余审查问题/下一回收触发点。
+- 本次只处理714确属不再需要的产物，不动716、用户/生产/其它模拟器、共享缓存或原有untracked mock。后续窗口已按上节实际释放：只启动并停止本批自有IM，未启动UI/XCTest/验证探权限；不再占native/heavy资源。后续实际清理须逐路径核归属/绝对路径并记录完成核验，以上暂留计划不是已清理声明。
 
 ## 2026-11-09：独立缺陷修复窄回归
 
