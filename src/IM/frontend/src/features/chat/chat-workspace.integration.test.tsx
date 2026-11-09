@@ -530,6 +530,26 @@ describe("ChatWorkspacePage — integration", () => {
     expect(client.getQueryData(["chat", "messages", "c1"])).toBeUndefined();
   });
 
+  it("keeps recovery access closed after a transient detail error and lets the user retry", async () => {
+    const baseFetch = fetchSpy;
+    let unavailable = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/im/v1/conversations/c1") && unavailable) {
+        return jsonResponse({ detail: "temporary failure" }, { status: 503 });
+      }
+      return baseFetch(input, init);
+    }));
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    unavailable = true;
+    await act(async () => { await expect(capturedResyncHandler!()).rejects.toThrow(); });
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" });
+    unavailable = false;
+    await userEvent.click(retry);
+    expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
+  });
+
   it.each(['active', 'unavailable'])('opens the existing Agent configuration directly for an already-created %s PA', async (status) => {
     const baseFetch = fetchSpy;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

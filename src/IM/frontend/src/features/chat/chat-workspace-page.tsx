@@ -804,7 +804,10 @@ export function ChatWorkspacePage() {
     setCheckingMembership(active);
     const key = ["chat", "conversation-detail", active, account];
     await queryClient.cancelQueries({ queryKey: key });
-    if (membershipCheck.current !== check) return;
+    if (!current()) {
+      if (membershipCheck.current === check) setCheckingMembership(null);
+      return;
+    }
     try {
       await queryClient.fetchQuery({
         queryKey: key,
@@ -1406,6 +1409,12 @@ export function ChatWorkspacePage() {
                   : undefined
             }
           />
+        ) : conversationId && conversationDetailQuery.isError && !isAccessDenied(conversationDetailQuery.error) ? (
+          <div className="chat-empty-pane" role="alert">
+            <p className="chat-empty-pane-title">{t("chat.messagePane.accessErrorTitle")}</p>
+            <button type="button" className="im-btn im-btn-primary" disabled={conversationDetailQuery.isFetching}
+              onClick={() => void recheckActiveMembership().catch(() => {})}>{t("common.retry")}</button>
+          </div>
         ) : (
           !isMobile && (
             <div className="chat-empty-pane">
