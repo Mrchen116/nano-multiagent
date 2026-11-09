@@ -32,3 +32,8 @@
 - 构建、TypeScript、iOS 共享运行时检查、文档完整性、Python 135 项、ruff 及 Web 1,105 项通过。iOS 原生应用文件未变。
 - 后端本地等价检查：第一次全量 204 个文件通过，22 个文件包含 29 个失败（并行期间机器负载很高，多个能力检查/fixture 超时，另有需要迁移的旧 RPC fixture）。针对 22 个文件低并发复跑后，19 个文件整文件通过，余下三条在单独运行最终实现时通过：Global worker provider、ordinary Global capability，以及迁移到停用冷页后的 legacy Schedule。未将第一次全量记为全绿；远端 CI 重新执行整套。
 - 已退出隔离子进程并移除其临时 runtime home，无生产部署或重启。开发 worktree 保留至 PR 合入；脱敏数值和复现脚本另存本机报告。
+
+## 同一 PR 的后续修正
+
+- `80469e186`：公开发信按会话和 call ID 取一次原始工具证据，发送与回执共用轮次。`/root/code_review` 独立核对旧库建索引、重复 call ID 仍取首条、会话隔离、重试及恢复，无新增 findings；7 项发信回归通过。实施方定向 84 项及真实中心链路 2 项通过；[发信探针](M1-runtime-work/evidence/publication-latency.md)记录测量和局限。产品契约未变。
+- `b3686c057`：首次远端 CI 的唯一失败是原生模型 fallback 强杀恢复；本地也复现。原生失败轮次在 publication check 之前落盘，使它与已经持久的 fallback 状态同时可恢复，保留既有 fallback 行为。fallback 和真实中心链路 17 项通过；`/root/code_review` 核对现有公开持久化屏障、恢复和取消边界。这不新增被中断任务的自动续跑机制。
