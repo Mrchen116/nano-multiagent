@@ -70,7 +70,7 @@ async function harness() {
       ...(stop === 'interrupted' ? {taskStopFences: ['root']} : {})});
   };
   const call = async <T = any>(method: string, input: unknown): Promise<T> => await client!.rpc.request(method, input) as T;
-  const descendants = () => workDescendants(client!.rpc, {sessionId:'root'}) as Promise<Child[]>;
+  const descendants = (stoppedRevision?: number) => workDescendants(client!.rpc, {sessionId:'root',stoppedRevision}) as Promise<Child[]>;
   const history = async (id: string) => id === 'root' ? (await call<{events: Event[]}>('session.observe', {sessionId: id})).events : (await descendants()).find(child => child.id === id)!.events;
   const notify = (sessionId: string, inputId: string, agentId = 'a') => call('schedule.deleted.notify', {agentId, sessionId, inputId,
     content: [{type: 'text', text: 'Schedule deleted by the user. This notice changes no Task status or authority.'}]});
@@ -148,7 +148,8 @@ it('deletes a legacy child Schedule and restores only its original native lineag
     await h.call('session.ensure', h.bindings[1]);
     const stopped = await h.call('agent.disable', {agentId: 'a', revision: 2});
     expect(stopped, h.logs()).toMatchObject({confirmed: true});
-    expect(stopped.history.map((row: any) => row.sessionId)).toEqual(expect.arrayContaining(['root', ids.parent, ids.child]));
+    await expect(h.call('session.work.root',{sessionId:'root',stoppedRevision:2})).resolves.toMatchObject({durable:true});
+    expect((await h.descendants(2)).map(row=>row.id)).toEqual(expect.arrayContaining([ids.parent,ids.child]));
     await expect(h.notify(ids.child, 'schedule-deleted:disabled')).rejects.toThrow('agent_disabled');
     expect(await h.notify('root-b', 'schedule-deleted:b-still-enabled', 'b')).toMatchObject({durable: true});
   } catch (error) {throw new Error(String(error) + '\n' + h.logs(), {cause: error});}
