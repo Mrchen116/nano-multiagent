@@ -14,7 +14,15 @@ const messages = (body: any) => body.messages.map((m: any) => ({...m,
 }));
 const system = (body: any) => body.system.map(({cache_control: _hint,...block}: any) => block);
 
-it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'single_thread',personal:false}])('preserves parent system, tools and wire history in empty, seeded and restored forks ($mode, PA=$personal)', async ({mode,personal}) => {
+function expectWirePrefix(before: unknown[], after: unknown[], field: string) {
+  expect(after.length, field).toBeGreaterThanOrEqual(before.length);
+  before.forEach((entry, index) => {
+    // Keep ordering within the serialized entries, including tool arguments.
+    expect(JSON.stringify(after[index]), `${field}[${index}]`).toBe(JSON.stringify(entry));
+  });
+}
+
+it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'single_thread',personal:false}])('preserves wire prefixes across root requests and empty, seeded and restored forks ($mode, PA=$personal)', async ({mode,personal}) => {
   const home=await mkdtemp(join(tmpdir(),'nano-fork-prefix-'));
   const requests: Array<{session:string;body:any}>=[], issued=new Set<string>();
   let client: RuntimeClient|undefined, logs='';
@@ -53,7 +61,9 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     const offset=requests.length;
     await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text:'PREFIX_COMMAND_'+id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
     await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal,{timeout:15000}).toBeTruthy();
-    const round=requests.slice(offset),parent=round.find(r=>r.session==='root')!,child=round.find(r=>r.session!=='root');
+    const round=requests.slice(offset),root=round.filter(r=>r.session==='root'),child=round.find(r=>r.session!=='root');
+    expect(root.length, `root requests after fork tool call for ${id}`).toBeGreaterThanOrEqual(2);
+    const parent=root[0]!;
     expect(child,JSON.stringify({round,session:await client!.rpc.request('session.observe',{sessionId:'root'})})+logs).toBeDefined();
     expect(child!.body.tools).toEqual(parent.body.tools);
     expect(system(child!.body)).toEqual(system(parent.body));
@@ -74,6 +84,21 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     await client!.shutdown();client=undefined;await start();
     const restored=await submit('restored');
     expect(messages(restored.child).slice(0,messages(beforeRestart).length)).toEqual(messages(beforeRestart));
+
+    // The root also reuses its own prior request across tool returns, new user
+    // turns and a process restart with the same configuration. Child requests
+    // have their own history and are checked at the fork boundary above.
+    const rootRequests = requests.filter(request => request.session === 'root');
+    for (let index = 1; index < rootRequests.length; index++) {
+      const before = rootRequests[index - 1]!.body, after = rootRequests[index]!.body;
+      const pair = `root requests ${index} → ${index + 1}`;
+      expect(after.model, pair).toBe(before.model);
+      expect(after.tools.length, `${pair}.tools`).toBe(before.tools.length);
+      expect(after.system.length, `${pair}.system`).toBe(before.system.length);
+      expectWirePrefix(before.tools, after.tools, `${pair}.tools`);
+      expectWirePrefix(system(before), system(after), `${pair}.system`);
+      expectWirePrefix(messages(before), messages(after), `${pair}.messages`);
+    }
   }catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally{if(client)await client.shutdown();await new Promise<void>(resolve=>{server.close(()=>resolve());server.closeAllConnections();});await rm(home,{recursive:true,force:true});}
 },60000);
