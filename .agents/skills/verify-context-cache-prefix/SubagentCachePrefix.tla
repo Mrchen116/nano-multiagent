@@ -84,15 +84,6 @@ SwitchParentModel ==
     /\ s' = [s EXCEPT !.changes = Base!Use("route"), !.header.route = "secondary",
              !.config = "route-notice"]
 
-\* Pressure pruning still has no exception for an already-sent child result.
-PruneChildToolResult(i) ==
-    /\ Scenario = "prune"
-    /\ s.stage = "ready"
-    /\ Base!CanUse("prune")
-    /\ s.history[i][1] = "tool-result"
-    /\ s' = [s EXCEPT !.changes = Base!Use("prune"),
-             !.history[i][1] = "pruned-result"]
-
 RollChildWindow ==
     /\ Scenario = "rollover"
     /\ s.compaction = "native"
@@ -123,7 +114,8 @@ Next ==
     \/ Base!FinishBatch \/ Base!CancelBatch
     \/ ApplyRootChoices \/ RenameOwner \/ DisableSharedFeature \/ RefreshSkillCatalog
     \/ RefreshWorkspaceInstructions \/ DisableContextPlugin \/ SwitchParentModel
-    \/ \E i \in 1..Len(s.history) : PruneChildToolResult(i)
+    \/ /\ Scenario = "prune"
+       /\ \E i \in 1..Len(s.history) : Base!Prune(i)
     \/ RollChildWindow
     \/ \E cut \in 1..Len(s.protected) : CommitChildSummary(cut)
 
