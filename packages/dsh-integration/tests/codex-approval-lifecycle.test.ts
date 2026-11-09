@@ -16,7 +16,7 @@ function harness(run:(turn:{events:any[];input:string;cancelled:Promise<void>})=
       whenIdle:()=>pending,cancel:()=>cancelled.resolve()};
     return{agent,dispose:async()=>{cancelled.resolve();await pending;await Promise.resolve();disposed.push(agent.id);}};
   }} as any);
-  const plugin=new CodexApproval(ctx);
+  const plugin=new CodexApproval(ctx,{boundRoot:()=>undefined});
   const controller=new AbortController();
   const request={exec:{agent:{id:'parent',session:{header:{cwd:'/tmp'},snapshotEvents:()=>[],requestHeader:()=>undefined}},callId:'pending',name:'edit',arguments:{path:'a',text:'complete'},signal:controller.signal},config:{agentId:'a',revision:'1',approval:{...approvalDefaults,rules:'codex'}},reviewer:{provider:'fixture',model:'fixture'},sources:{history:async()=>rows,restoreEntries:(r:any)=>r},inherited:[]} as unknown as ApprovalReviewRequest;
   return{plugin,request,controller,disposed,inputs,optionsSeen,setRows:(next:any[])=>rows=next,close:()=>ctx.fiber.dispose()};

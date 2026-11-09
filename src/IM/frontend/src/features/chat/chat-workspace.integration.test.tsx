@@ -9,25 +9,25 @@ import { setLanguage } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { ChatWorkspacePage } from "./chat-workspace-page";
 import type { Conversation } from "./chat-types";
-import { composerStoreFor, EMPTY_COMPOSER_SNAPSHOT } from "./components/composer-draft-store";
-import type { UserStreamEvent } from "../../realtime/user-stream";
+import { composerStoreFor, EMPTY_COMPOSER_SNAPSHOT, forgetComposerUser } from "./components/composer-draft-store";
+import type { UserStreamEvent, UserStreamSync } from "../../realtime/user-stream";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
 // chat-workspace-page 订阅 user-scoped SSE/WS 流（node.status_changed /
 // agent.status_changed / message.*）时会调用此函数。测试通过 capturedStatusHandler
 // 直接注入事件，通过 capturedResyncHandler 断言 onResyncRequired 已注册。
 let capturedStatusHandler: ((ev: UserStreamEvent) => void) | null = null;
-let capturedResyncHandler: (() => Promise<void>) | null = null;
-const streamSubscribers = new Set<{onEvent:(ev:UserStreamEvent)=>void;onRecovery?:()=>Promise<void>}>();
+let capturedResyncHandler: ((snapshot?: UserStreamSync) => Promise<void>) | null = null;
+const streamSubscribers = new Set<{onEvent:(ev:UserStreamEvent)=>void;onRecovery?:(snapshot?:UserStreamSync)=>Promise<void>}>();
 
 vi.mock("../../realtime/user-stream", () => ({
     subscribeUserStream: (input: {
       onEvent: (ev: UserStreamEvent) => void;
-      onRecovery?: () => Promise<void>;
+      onRecovery?: (snapshot?: UserStreamSync) => Promise<void>;
     }) => {
       streamSubscribers.add(input);
       capturedStatusHandler = event => { for (const subscriber of streamSubscribers) subscriber.onEvent(event); };
-      capturedResyncHandler = async () => { await Promise.all([...streamSubscribers].map(subscriber=>subscriber.onRecovery?.())); };
+      capturedResyncHandler = async snapshot => { await Promise.all([...streamSubscribers].map(subscriber=>subscriber.onRecovery?.(snapshot))); };
       return () => {
         streamSubscribers.delete(input);
         if (!streamSubscribers.size) { capturedStatusHandler = null; capturedResyncHandler = null; }
@@ -205,6 +205,11 @@ function mockFetch(opts: {
 
     if (url.endsWith("/im/v1/conversations") && (!init || init.method === undefined || init.method === "GET")) {
       return jsonResponse({ items: conversations });
+    }
+    const detailId = url.match(/\/im\/v1\/conversations\/([^/?]+)$/)?.[1];
+    if (detailId && (!init?.method || init.method === "GET")) {
+      const detail = conversations.find(chat => chat.id === detailId);
+      if (detail) return jsonResponse(detail);
     }
     if (url.endsWith("/im/v1/conversations/distill-prompt") && init?.method === "POST") {
       if (distillPromptError) {
@@ -451,6 +456,102 @@ describe("ChatWorkspacePage — integration", () => {
     (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = originalWS;
     vi.unstubAllGlobals();
     useAuthStore.getState().clear();
+    forgetComposerUser("u-self");
+  });
+
+  it("loads the selected chat while the sidebar is pending and fetches its process only after expansion", async () => {
+    const sidebar = deferredResponse();
+    const conversation = deferredResponse();
+    const message = historyMessage("process-message", 1, "Answer from the independent history request");
+    const process = { tool_count: 0, thinking_count: 1, background_return_count: 0, reply_process_counts: {},
+      has_running_tool: false, approval_allow_count: 0, approval_deny_count: 0 };
+    const baseFetch = fetchSpy;
+    let detailRequests = 0;
+    const fetchChat = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/im/v1/conversations")) return sidebar.promise.then(response=>response.clone());
+      if (url.endsWith("/im/v1/conversations/c1")) return conversation.promise.then(response=>response.clone());
+      if (url.includes("/im/v1/conversations/c1/messages?")) {
+        expect(url).toContain("view=summary");
+        return jsonResponse({ items: [{ type: "message", message: { ...message, process_summary: process } }], next_before_message_id: null });
+      }
+      if (url.endsWith("/im/v1/conversations/c1/messages/process-message")) {
+        if (++detailRequests === 1) return jsonResponse({ detail: "temporary failure" }, { status: 503 });
+        return jsonResponse({ message: { ...message, thinking: [{ seq: 1, text: "Complete historical thinking" }] }, execution_cleanup_revision: 0 });
+      }
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchChat);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await waitFor(() => expect(fetchChat.mock.calls.some(([input]) => String(input).includes("/c1/messages?"))).toBe(true));
+    expect(screen.queryByText(message.content)).not.toBeInTheDocument();
+    let recovery!: Promise<void>;
+    await act(async () => { recovery = capturedResyncHandler!({maxEventId:0}); });
+    await act(async () => conversation.resolve(jsonResponse(FIXTURES.conversations.find(chat => chat.id === "c1"))));
+    await screen.findByText(message.content);
+    await act(async () => recovery);
+    const toggle = screen.getByRole("button", { name: /Process.*1 thinking/ });
+    expect(detailRequests).toBe(0);
+    await user.click(toggle);
+    await screen.findByText("Could not load the process.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(await screen.findByTestId("process-thinking-toggle"));
+    expect(screen.getByTestId("process-thinking-body")).toHaveTextContent("Complete historical thinking");
+    await user.click(toggle);
+    await user.click(toggle);
+    await screen.findByTestId("process-thinking-toggle");
+    expect(detailRequests).toBe(2);
+    await act(async () => sidebar.resolve(jsonResponse({ items: FIXTURES.conversations })));
+  });
+
+  it("keeps an early history response hidden when detail denies access despite a cached sidebar entry", async () => {
+    const conversation = deferredResponse();
+    const secret = "History from a revoked conversation";
+    const baseFetch = fetchSpy;
+    const fetchChat = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/im/v1/conversations/c1")) return conversation.promise;
+      if (url.includes("/im/v1/conversations/c1/messages?")) {
+        return jsonResponse({ items: [historyMessage("revoked", 1, secret)], next_before_message_id: null });
+      }
+      return baseFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchChat);
+    const client = new QueryClient();
+    client.setQueryData(["chat", "conversations"], FIXTURES.conversations);
+    renderAtRoute("/chat/c1", client);
+    await waitFor(() => expect(fetchChat.mock.calls.some(([input]) => String(input).includes("/c1/messages?"))).toBe(true));
+    expect(screen.queryByText(secret)).not.toBeInTheDocument();
+    await act(async () => conversation.resolve(jsonResponse({ detail: "conversation_id not found" }, { status: 404 })));
+    await screen.findByText("This conversation is no longer accessible.");
+    expect(screen.queryByText(secret)).not.toBeInTheDocument();
+    expect(client.getQueryData(["chat", "messages", "c1"])).toBeUndefined();
+  });
+
+  it.each(["initial cached view", "stream recovery"])("keeps %s closed after a transient detail error and lets the user retry", async (phase) => {
+    const baseFetch = fetchSpy;
+    let unavailable = phase === "initial cached view";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/im/v1/conversations/c1") && unavailable) {
+        return jsonResponse({ detail: "temporary failure" }, { status: 503 });
+      }
+      return baseFetch(input, init);
+    }));
+    const client = new QueryClient();
+    if (unavailable) client.setQueryData(["chat", "conversation-detail", "c1", "u-self"], FIXTURES.conversations.find(chat => chat.id === "c1"));
+    renderAtRoute("/chat/c1", client);
+    if (!unavailable) {
+      await screen.findByText("Hi Planner");
+      unavailable = true;
+      await act(async () => { await expect(capturedResyncHandler!()).rejects.toThrow(); });
+    }
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" });
+    unavailable = false;
+    await userEvent.click(retry);
+    expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
   });
 
   it.each(['active', 'unavailable'])('opens the existing Agent configuration directly for an already-created %s PA', async (status) => {
@@ -474,6 +575,7 @@ describe("ChatWorkspacePage — integration", () => {
     let privateState: Record<string,unknown>={'$reply':'Saved reply'};
     let revision=1;
     let writable=false;
+    let sourceOpened=false;
     const card={...FIXTURES.messagesC1[0],id:'reply-card',sender:{type:'agent',id:'a-planner',display_name:'Planner'},sender_user_id:'user-uuid-planner',sender_type:'agent',content:'Suggested reply',
       interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$reply = "Initial reply"\nroot = Col([TextArea($reply, null, "Reply draft"), Button("Adopt", @ComposeMessage("${target}", $reply))])`}};
     const customFetch=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
@@ -485,6 +587,10 @@ describe("ChatWorkspacePage — integration", () => {
         return jsonResponse({draft_revision:revision,state:privateState,submission_message_id:null,can_interact:true});
       }
       if(url.includes('/conversations/c1/messages')&&(!init?.method||init.method==='GET'))return jsonResponse({items:[{type:'message',message:card}],next_before_message_id:null});
+      if(url.endsWith("/im/v1/conversations/c1") && !sourceOpened) {
+        sourceOpened=true;
+        return jsonResponse({...FIXTURES.conversations.find(c=>c.id==="c1"),can_write:true});
+      }
       if(url.endsWith(`/im/v1/conversations/${target}`)) return jsonResponse({...FIXTURES.conversations.find(c=>c.id===target),can_write:writable});
       return baseFetch(input,init);
     });
@@ -1349,6 +1455,10 @@ describe("ChatWorkspacePage — integration", () => {
     const baseFetch = mockFetch();
     fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/im/v1/conversations/c1")) {
+        const detail = FIXTURES.conversations.find(item => item.id === "c1");
+        return jsonResponse(recovered ? { ...detail, title: "Recovered Planner" } : detail);
+      }
       if (url.endsWith("/im/v1/conversations") && (!init || init.method === undefined || init.method === "GET")) {
         return jsonResponse({
           items: recovered
@@ -1951,6 +2061,64 @@ describe("ChatWorkspacePage — integration", () => {
   });
 
   // ─── feat-438-M1 R4: ⚙ entry dispatch by conversation kind ────────────────
+
+  it.each(["stream", "reconnect"] as const)("retires an old execution page after %s and discards its late response", async source => {
+    const baseFetch = fetchSpy;
+    let revision = 0;
+    let finishOlder: ((response: Response) => void) | undefined;
+    let processSignal: AbortSignal | null | undefined;
+    const pendingProcess = deferredResponse();
+    const latest = historyMessage("anchor", 1, "Published answer stays readable");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/im/v1/conversations")) {
+        return jsonResponse({ items: FIXTURES.conversations.map(chat => chat.id === "c1" ? { ...chat, execution_cleanup_revision: revision } : chat) });
+      }
+      if (url.endsWith("/im/v1/conversations/c1/messages/anchor")) {
+        processSignal = init?.signal;
+        return pendingProcess.promise;
+      }
+      if (url.includes("/im/v1/conversations/c1/messages")) {
+        if (url.includes("before_message_id=anchor") && revision === 0) {
+          return new Promise<Response>(resolve => { finishOlder = resolve; });
+        }
+        return jsonResponse({ execution_cleanup_revision: revision, items: [{ type: "message", message: revision ? latest : {
+          ...latest, process_summary: { tool_count: 0, thinking_count: 1, background_return_count: 0, reply_process_counts: {},
+            has_running_tool: false, approval_allow_count: 0, approval_deny_count: 0 }
+        } }], next_before_message_id: revision ? null : "anchor" });
+      }
+      return baseFetch(input, init);
+    }));
+    renderAtRoute("/chat/c1");
+    await screen.findByText(latest.content);
+    fireEvent.click(screen.getByRole("button", {name: /Process.*1 thinking/}));
+    await waitFor(() => expect(processSignal).toBeDefined());
+    const scroller = document.querySelector<HTMLElement>(".chat-pane-messages")!;
+    Object.defineProperties(scroller, {
+      scrollTop: { configurable: true, value: 200, writable: true },
+      scrollHeight: { configurable: true, value: 1200 },
+      clientHeight: { configurable: true, value: 300 },
+    });
+    act(() => fireEvent.scroll(scroller));
+    await waitFor(() => expect(finishOlder).toBeDefined());
+
+    revision = 1;
+    if (source === "stream") {
+      act(() => emitSharedChatEvent({ type: "conversation.execution_cleanup", conversation_id: "c1", execution_cleanup_revision: 1 }));
+    } else {
+      await act(async () => { await capturedResyncHandler?.({ maxEventId: 101, executionCleanupRevisions: { c1: 1 } }); });
+    }
+    await screen.findByText(latest.content);
+    await act(async () => {
+      finishOlder?.(jsonResponse({ execution_cleanup_revision: 0, items: [historyMessage("old", 1, "Old execution-only page")], next_before_message_id: null }));
+      pendingProcess.resolve(jsonResponse({ execution_cleanup_revision: 0,
+        message: { ...latest, thinking: [{ seq: 0, text: "Old execution-only process" }] } }));
+    });
+    expect(processSignal?.aborted).toBe(true);
+    expect(screen.queryByText("Old execution-only page")).not.toBeInTheDocument();
+    expect(screen.queryByText("Old execution-only process")).not.toBeInTheDocument();
+    expect(screen.getByText(latest.content)).toBeVisible();
+  });
 
   it("loads older messages with a before cursor when the message list enters the upper third", async () => {
     const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`new-${idx + 1}`, idx + 50));

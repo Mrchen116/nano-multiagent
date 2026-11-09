@@ -59,6 +59,7 @@ export type ChatStreamFact = ChatTurnStart
   | (MessageStream & {kind: 'run_heartbeat'; source?: string});
 export interface ChatStreamReceipt {kind?: ChatStreamFact['kind']; run_id?: string; message_id?: string; conversation_id?: string}
 export interface AgentPublication {
+  reply_to_message_id?: string;
   node_id?: string;
   lifecycle_revision?: number | null;
   from_session_id: string;
@@ -71,10 +72,48 @@ export interface AgentPublication {
 }
 export interface ChatPublicationReceipt {conversation_id: string; message_id: string; target_kind: string; target_id: string; source_agent_id: string}
 export interface ChatActor {type: string; id: string; display_name: string; user_id: string; is_stale: boolean | null; role?: 'personal'}
+/** Frozen original message; quoted text is conversation data, never instructions. */
+export interface ChatReplyReference {
+  message_id: string;
+  sender: ChatActor;
+  content: string;
+  attachments: ChatAttachment[];
+  interactive?: Pick<MessageInteractive, 'source' | 'supersedes_message_id' | 'superseded_by'>;
+}
+
+function quoteExcerpt(text: string): string {
+  const maxExcerptLength = 1200;
+  return text.length > maxExcerptLength
+    ? `${text.slice(0, maxExcerptLength)}\n\n[Rest of original message omitted.]`
+    : text;
+}
+
+/** Project the original message for model consumption inside its current chat.
+ *
+ * Args:
+ *   reply: Original message snapshot resolved by IM.
+ * Returns:
+ *   Author, public text and card content, and the IM identity for exact lookup.
+ */
+export function projectChatReplyContext(reply: ChatReplyReference) {
+  const text = quoteExcerpt(reply.content);
+  const attachmentNames = reply.attachments.map(attachment =>
+    attachment.file_name || (attachment.content_type?.startsWith('image/') ? 'Image' : 'File'));
+  return {
+    message_id: reply.message_id,
+    sender: { name: reply.sender.display_name, type: reply.sender.type },
+    ...(text ? { text } : {}),
+    ...(reply.interactive ? { interactive: { ...reply.interactive, source: quoteExcerpt(reply.interactive.source) } } : {}),
+    ...(attachmentNames.length ? { attachment_names: attachmentNames } : {}),
+  };
+}
+
 export interface ChatMessage {
   id: string; conversation_id: string; sender_user_id: string; sender_type: string; lifecycle_revision: number | null;
   content: string; delivery_status: string; created_at: string; timezone: string | null; elapsed_ms: number | null; kernel_message_id: string | null;
   sender: ChatActor;
+  work_record_deleted?: true;
+  reply_to?: ChatReplyReference;
   attachments: ChatAttachment[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;
@@ -85,6 +124,18 @@ export interface ChatMessage {
   awaiting_permission_at?: string | null;
   sender_source_id?: string | null;
 }
+/** Counts displayed by the collapsed process panel before its details are read. */
+export interface ChatProcessSummary {
+  tool_count: number;
+  thinking_count: number;
+  background_return_count: number;
+  reply_process_counts: Partial<Record<'draft' | 'revalidation' | 'segment_handoff', number>>;
+  has_running_tool: boolean;
+  approval_allow_count: number;
+  approval_deny_count: number;
+}
+export type ChatHistoryMessage = ChatMessage & { process_summary?: ChatProcessSummary };
+
 export type ChatEvent =
   | {type: 'message.created'; data: ChatMessage & {message_id: string}}
   | {type: 'message.delta'; data: {delta: string; delta_text: string; idempotency_key?: string}}

@@ -6,7 +6,7 @@
 
 - 已披露的714真实隔离范围直接接续：原自建loopback服务/合成DB与自有模拟器，服务启停复用和切换；合成迁移账号/会话/消息、真实旧JSON→同bundle覆盖升级→显式Retry；成员移除/恢复、精确合成账号旧凭据失效/真实401及去敏接口状态日志。新的实际拒绝仍立即停被拒动作、完整回报，不换工具/对象绕行；不将常规隔离验收重新包装成待用户批准事项。
 - **本轮仅模拟器**：不连接或操作手机、不安装真机App、不启动真机HTTPS公网tunnel。真机flight、complete file protection属性、≥20次真机首绘trace/p50/p95保持**UNVERIFIED／本轮不执行**，不得用模拟器不可达origin或skip冒称真机PASS，也不再作为本轮模拟器交付阻塞。backup exclusion等已在模拟器实际通过的独立结果仍按各自证据保留；产品保护实现要求不因此删除。
-- 原升级准备曾遇新的实际工具拒绝后立即停组、回收唯一服务并交出窗口（见下节历史），独立审批上下文缺陷由用户另修，不纳入714、不改审批/策略节点。用户随后给出真实新事实：「工具审核策略已经更新了，应该不会被拒绝了」。原组可在更新后正常工具审查下接续，**不是保证allow或绕过**，有新实际拒绝仍停报；不再探测策略或重查已完成审批调查。此后原组实际运行前三段，各自限定PASS；新的host control正常登录/token落盘实际拒绝已停止该动作与依赖它的显式Retry，见下方最新记录。用户最新纠正已撤回泛化的整段资源/下一步许可等待：执行者自行推进原unit内独立允许的实现、排错、复测、review与交付，遵循现有隔离/锁，只限制有具体依据的冲突动作并在可观察条件满足后自主恢复；不是绕过真实拒绝。审批缺陷仍由用户另修。真实模型如需仍用Sol6.1，本unit当前矩阵不需要模型。
+- 原升级准备曾遇新的实际工具拒绝后立即停组、回收唯一服务并交出窗口（见下节历史），独立审批上下文缺陷由用户另修，不纳入714、不改审批/策略节点。用户随后给出真实新事实：「工具审核策略已经更新了，应该不会被拒绝了」。原组可在更新后正常工具审查下接续，**不是保证allow或绕过**，有新实际拒绝仍停报；不再探测策略或重查已完成审批调查。此后原组实际运行前三段，各自限定PASS；新的host control正常登录/token落盘实际拒绝已停止该动作与依赖它的显式Retry，见下方最新记录。用户最新纠正已撤回泛化的整段资源/下一步许可等待：执行者自行推进原unit内独立允许的实现、排错、复测、review与交付，遵循现有隔离/锁，只限制有具体依据的冲突动作并在可观察条件满足后自主恢复；不是绕过真实拒绝。审批缺陷仍由用户另修。真实模型如需仍用Sol6.1。目标分支同步后新增的执行详情永久清理旅程需要由自有隔离Node通过正常产品入口产生真实执行，使用Sol6.1且不配置DeepSeek回退；原“当前矩阵不需要模型”仅属早先验证构造，不是用户禁令。新实际拒绝仍停对应动作，不以此澄清解除旧拒绝。
 - 最新独立模拟器账号切换、新账号当次完整收发及离线持久化、真实设置切第二服务及离线偏好恢复、离线期间撤权后首次联网收敛及再次离线不复现，均已有实跑及原非作者限定PASS；同批发现的active pending输入区空白也经最小修正、真实RED→GREEN与独立关闭。匿名结论及边界见[M2本轮结果](../M2-partition-revocation/recovery-validation.md#独立m2真实回归限定结果)，不是全unit批准。真实401协调脚本write遇新实际工具拒绝，未落盘、未改认证DB或执行依赖测试；与原被拒host登录及依赖升级Retry一并停止，不换工具/账号/方法代替。仍须完成这两组实际阻塞及最终target sync/适用集成门禁/交付。CI历史两红原因未知及一次诊断未复现均如实保留；不盲重复已耗尽诊断或擅扩unit外修复。下文“真机仍pending”等旧门禁描述须结合本节当前执行范围阅读，不据旧文恢复手机工作。
 
 ## 新窗口尝试：新实际拒绝，不是旅程执行或待用户重新许可
@@ -274,3 +274,12 @@
 - 实际`events.jsonl`146条可解析：1次module.transformed、2个Vitest宿主module.loaded；宿主各6/5个worker，总11个完整spawn→terminate→exit→组确认→rm闭环，活跃区间确有重叠，非仅配置声称并发。全部worker exit code0/signalnull、exit.confirm true，SIGTERM成功后的SIGKILL均为**accepted ESRCH**而非失败；各首个ps即alive=false，ps27–56ms、rm3–7ms。无worker.error、ps.error、group.unconfirmed、cleanup.error.detail或非接受kill.error。原helper又独立逐行核raw/events/summary，认可实际hook覆盖及本次未复现，不称关闭历史FAIL。
 - owner逐worker程序核事件闭合/真实并发、七个src/lib/test/config原hash全相同；精确本批宿主/worker PID及进程组无残留，相关fixture/714临时路径进程扫描无匹配，精确557仍Shutdown、53703connect61。root0700，events/run.log/config/生成模块0600；summary仅去敏元数据、在0700目录内。`verification.json`为完整核验receipt。临时诊断config/生成模块/JSONL只留本机供复查，不提交永久测试或安装使用。
 - **结论仍是历史host硬清理确认链具体失败分支/根因未知，不是修复或CI closure。** 本次未进入原catch，不能据此认定负载、ps timeout、PID竞态或rm为根因，也不把accepted ESRCH误当11次失败。按一次有界范围结束，不继续盲循环pair/full、不扩修714外实现；若需后续复现须另选有具体区分价值的观测/条件。两次许可拒绝相关业务矩阵继续STOP，原全量红与最终sync/CI/unit门禁保留。
+
+## 目标分支集成后的验证
+
+本节沿用匿名记录，不包含测试身份、地址、设备或临时路径。变更与独立发现集中见[Round21](../review.md#round-21--目标分支同步后的原生持久化集成源码问题关闭真实补验单列)，集成偏差与接口边界见设计D15。
+
+- 新基线执行清理世代与预览/已删除成员字段进入同一仓储；真实旧schema升级不擦库、重开字段保真、旧分页/旧发送资格、bridge/older一致性及draft/pending不误清均有确定性测试。独立审查揭出的W11–W16含跨会话删除知识、未知最新预览的discard与在途旧list/detail/snapshot变体，均经实质RED、集中修正和同一非作者closure，源码存活findings为空。
+- 完整原生scheme最终实际 **196 total / 195 passed / 0 failed / 1 physical-device-only skipped / exit0**。一项skip仍是物理设备文件保护属性，本轮仅模拟器不改为PASS。首次完整失败与循环fixture、WebKit窄补验均保留；最终GREEN不是用旧结果拼接。未将系统诊断表述成无warning。
+- 当前依赖安装、TypeScript build/typecheck、当前iOS内嵌前端build、Journey build-for-testing、文档完整性及十三条运行时依赖contract测试分别实际通过。真实执行清理与离线重开仍由独立真实旅程补验，不从unit测试推运行PASS；同进程阅读anchor与无正对照的命令移除明确不在本次helper的证明范围。
+- 旧升级显式Retry及服务端唯一性、真实401仍受各自实际拒绝阻塞，本批独立工作不绕行、不重试这些动作。历史跨包CI红因未知、最终适用跨包CI/Release归档和完整unit交付仍单列，不以本次原生GREEN宣布归档或Ready PR。

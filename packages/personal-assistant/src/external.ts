@@ -70,7 +70,17 @@ export class ExternalChannels {
       updateCard:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.updateCard(...args);}});
   }
   remove(agentId: string): void { this.connections.delete(agentId); }
+  /** Purge local copies without contacting the external platform. */
+  purgeAgent(agentId:string):void { this.remove(agentId); this.state.purgeAgent(agentId); }
   available(agentId: string): boolean { return this.connections.has(agentId); }
+  /** A replacement App cannot resume a conversation owned by its predecessor. */
+  canRecoverConversation(agentId: string, conversationId: string): boolean {
+    const connection = this.connections.get(agentId);
+    if (!connection) return false;
+    const chat = this.state.chatById(conversationId);
+    return chat?.agentId === agentId && chat.appId === connection.config.appId;
+  }
+
 
   receive(agentId: string, message: FeishuMessage): Promise<void> {
     const connection = this.connections.get(agentId); if (!connection) throw new Error('No channel for Agent');
@@ -193,6 +203,7 @@ export class ExternalChannels {
       const publication = decodeAgentPublication(payload);
       const target = String(publication.to).replace(/^conversation:/, ''); const chat = this.state.chat(target);
       if (chat) {
+        if(publication.reply_to_message_id!==undefined)throw new Error('Quoted replies require a Nano IM destination');
         const agentId = String(publication.from_session_id).split('|')[0];
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
         const output = this.state.prepare(chat.id, String(publication.from_session_id), 'explicit',Number(publication.lifecycle_revision??1));

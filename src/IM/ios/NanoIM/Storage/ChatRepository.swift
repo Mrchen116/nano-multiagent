@@ -30,6 +30,7 @@ struct ChatTimelinePage: Sendable {
     var isAtLocalStart: Bool
     /// The retained window is known incomplete (pagination or retention), not the chat start.
     var olderNeedsNetwork: Bool
+    var executionCleanupRevision: Int = 0
 }
 
 struct ChatSnapshotResult: Sendable {
@@ -142,11 +143,18 @@ actor ChatRepository {
                     PRIMARY KEY(conversation_id, message_id));
                 """)
         }
+        migrator.registerMigration("v3_execution_cleanup_and_previews") { db in
+            try db.execute(sql: """
+                ALTER TABLE conversations ADD COLUMN last_message_sender_name TEXT;
+                ALTER TABLE conversations ADD COLUMN last_message_card_json TEXT;
+                ALTER TABLE actors ADD COLUMN is_deleted INTEGER;
+                """)
+        }
         try migrator.migrate(queue)
         let policy = try persistence.policy()
         let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
-            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '2')")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '3')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try applyPolicy(policy, db: db)
@@ -313,6 +321,10 @@ actor ChatRepository {
         try read { db in Set(try String.fetchAll(db, sql: "SELECT conversation_id FROM revoked_conversations")) }
     }
 
+    func executionCleanupRevision(_ id: String) throws -> Int {
+        try read { db in try Self.executionCleanupRevision(id, db: db) }
+    }
+
     func pendingCount() throws -> Int {
         try read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_sends") ?? 0 }
     }
@@ -363,6 +375,7 @@ actor ChatRepository {
     // MARK: - Snapshot
 
     func applySnapshot(_ items: [Conversation], maxEventID: Int, snapshotSeq: Int,
+                       executionCleanupRevisions: [String: Int] = [:],
                        write context: ChatWriteContext) throws -> ChatSnapshotResult {
         var intents: [ChatCleanupFailure.Intent] = []
         do { return try write { db in
@@ -397,7 +410,11 @@ actor ChatRepository {
                                          hasHandoff: handoffIDs.contains(id), db: db)
                 if !known { revoked.append(id) }
             }
-            for item in items {
+            for (id, revision) in executionCleanupRevisions {
+                try Self.applyExecutionCleanup(id, revision: revision, db: db)
+            }
+            for var item in items {
+                item.execution_cleanup_revision = max(item.execution_cleanup_revision ?? 0, executionCleanupRevisions[item.id] ?? 0)
                 try Self.upsertConversation(item, db: db)
                 try db.execute(sql: "DELETE FROM revoked_conversations WHERE conversation_id=?", arguments: [item.id])
             }
@@ -424,7 +441,7 @@ actor ChatRepository {
                 try Self.upsertConversation(value, members: members, db: db)
                 try db.execute(sql: "DELETE FROM revoked_conversations WHERE conversation_id=?", arguments: [value.id])
                 if value.can_write == false || value.dissolved_at != nil { try discardPendingRowsAndSources(value.id, db: db) }
-                return value
+                return try Self.loadConversations(db, only: value.id).first ?? value
             }
         } catch {
             guard accepted, value.can_write == false || value.dissolved_at != nil else { throw error }
@@ -488,10 +505,14 @@ actor ChatRepository {
     /// message correction. A latest page cannot undo an already-proven start; a terminal
     /// older page can prove it. Retention remains an independent reason for incompleteness.
     func applyPage(_ id: String, items: [TimelineItem], hasEarlierMessages: Bool? = nil,
-                   write context: ChatWriteContext) throws -> ChatTimelinePage {
+                   executionCleanupRevision: Int = 0, write context: ChatWriteContext) throws -> ChatTimelinePage {
         try write { db in
             try validate(context, db: db)
             guard try Self.isRevoked(id, db: db) == false else { throw ChatRepositoryError.revokedConversation(id) }
+            guard executionCleanupRevision >= (try Self.executionCleanupRevision(id, db: db)) else {
+                throw ChatRepositoryError.staleWrite
+            }
+            try Self.applyExecutionCleanup(id, revision: executionCleanupRevision, db: db)
             let writtenAt = Self.iso(Date())
             var incoming = Set<String>()
             let discarded = Set(try String.fetchAll(db, sql: "SELECT message_id FROM discarded_messages WHERE conversation_id=?", arguments: [id]))
@@ -531,18 +552,33 @@ actor ChatRepository {
             if let conversation, try Self.isRevoked(conversation, db: db) {
                 return .revoked(conversationID: conversation)
             }
+            if event.event_type == "conversation.execution_cleanup", let conversation {
+                try Self.applyExecutionCleanup(conversation, revision: event.data?["execution_cleanup_revision"].intValue ?? 0, db: db)
+            }
             if event.event_type == "message.discarded", let conversation,
                let messageID = event.data?["message_id"].stringValue {
                 try db.execute(sql: "INSERT OR IGNORE INTO discarded_messages(conversation_id, message_id) VALUES(?,?)",
                                arguments: [conversation, messageID])
+                let identityKey = "preview.message_id.\(conversation)"
+                let previewID = try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: [identityKey])
                 try Self.deleteMessages([messageID], conversationID: conversation, db: db)
                 try db.execute(sql: "DELETE FROM conversation_boundaries WHERE conversation_id=? AND before_message_id=?",
                                arguments: [conversation, messageID])
-                try Self.refreshConversationProjection(conversation, db: db)
-                if try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM messages WHERE conversation_id=?", arguments: [conversation]) == 0 {
-                    try db.execute(sql: "UPDATE conversations SET last_message_preview=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?",
+                if previewID == nil || previewID == messageID {
+                    // Discard is authority to invalidate a preview, not to promote an unknown
+                    // older window over the server's latest. Reset ordering as well as text.
+                    try db.execute(sql: "UPDATE conversations SET last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?",
                                    arguments: [conversation])
+                    try db.execute(sql: "DELETE FROM cache_meta WHERE key=?", arguments: [identityKey])
+                    if previewID == messageID { try Self.refreshConversationProjection(conversation, db: db) }
+                    else {
+                        try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?, '1')",
+                                       arguments: ["preview.awaiting_server.\(conversation)"])
+                    }
                 }
+                // In-flight server projections can still name the discarded latest row.
+                // Retire their captured qualification in this same authoritative transaction.
+                try db.execute(sql: "UPDATE sync_cursor SET snapshot_seq=snapshot_seq+1 WHERE id=1")
             }
             if let eventID = event.event_id {
                 let stored = try Int.fetchOne(db, sql: "SELECT max_event_id FROM sync_cursor WHERE id=1") ?? 0
@@ -672,7 +708,7 @@ actor ChatRepository {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
             try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0, snapshot_seq=0, updated_at=NULL WHERE id=1")
-            try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'timeline.%'")
+            try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'timeline.%' OR key LIKE 'execution.cleanup_revision.%' OR key LIKE 'preview.%'")
         }
     }
 
@@ -736,7 +772,7 @@ actor ChatRepository {
             try db.execute(sql: "DELETE FROM \(table)")
         }
         try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0,snapshot_seq=snapshot_seq+1,updated_at=NULL WHERE id=1")
-        try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'sync.%' OR key LIKE 'handoff.%' OR key LIKE 'timeline.%'")
+        try db.execute(sql: "DELETE FROM cache_meta WHERE key LIKE 'sync.%' OR key LIKE 'handoff.%' OR key LIKE 'timeline.%' OR key LIKE 'execution.cleanup_revision.%' OR key LIKE 'preview.%'")
     }
 
     private static func importHandoffs(_ handoffs: [ChatAttemptPersistence.Handoff], db: Database) throws {
@@ -785,7 +821,7 @@ actor ChatRepository {
     private static func revokeRows(_ id: String, reason: ChatRevokeReason, db: Database, now: Date) throws {
         try deletePendingRows(id, db: db, reason: reason)
         try db.execute(sql: "DELETE FROM discarded_messages WHERE conversation_id=?", arguments: [id])
-        try db.execute(sql: "DELETE FROM cache_meta WHERE key=?", arguments: ["timeline.earlier_incomplete.\(id)"])
+        try db.execute(sql: "DELETE FROM cache_meta WHERE key IN (?,?,?)", arguments: ["timeline.earlier_incomplete.\(id)", "preview.message_id.\(id)", "preview.awaiting_server.\(id)"])
         try db.execute(sql: "DELETE FROM conversations WHERE id=?", arguments: [id])
         let exists = try isRevoked(id, db: db)
         if !exists {
@@ -822,13 +858,17 @@ actor ChatRepository {
     /// from `conversations(id)`, so a title refresh would silently drop the whole timeline.
     /// `trimmed_at` keeps its first value; everything else follows the freshest projection.
     private static func upsertConversation(_ item: Conversation, members: [ActorRef]? = nil, db: Database) throws {
+        let revision = item.execution_cleanup_revision ?? 0
+        guard revision >= (try executionCleanupRevision(item.id, db: db)) else { throw ChatRepositoryError.staleWrite }
+        try applyExecutionCleanup(item.id, revision: revision, db: db)
+        let card = try item.last_message_card.map { String(decoding: try encode($0), as: UTF8.self) }
         let participantIDs = (try? encode(item.participant_ids)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
         try db.execute(sql: """
             INSERT INTO conversations(id, title, type, direct_kind, owner_id, creator_id, is_pinned, is_muted,
                 unread_count, last_message_preview, last_message_at, created_at, run_state, source_agent_id, source_node_id,
                 external_source, external_chat_id, visibility, dissolved_at, is_member, can_write, is_observer,
-                can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+                can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at, last_message_sender_name, last_message_card_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title, type=excluded.type, direct_kind=excluded.direct_kind,
                 owner_id=excluded.owner_id, creator_id=excluded.creator_id, is_pinned=excluded.is_pinned,
@@ -842,7 +882,8 @@ actor ChatRepository {
                 can_change_visibility=excluded.can_change_visibility,
                 participant_ids_json=excluded.participant_ids_json,
                 sort_at=MAX(conversations.sort_at, excluded.sort_at),
-                refreshed_at=excluded.refreshed_at
+                refreshed_at=excluded.refreshed_at, last_message_sender_name=excluded.last_message_sender_name,
+                last_message_card_json=excluded.last_message_card_json
             """, arguments: [item.id, item.title, item.type, item.direct_kind, item.owner_id, item.creator_id,
                              item.is_pinned ? 1 : 0, item.is_muted ? 1 : 0, item.unread_count,
                              item.last_message_preview, item.last_message_at, item.created_at, item.run_state,
@@ -850,16 +891,19 @@ actor ChatRepository {
                              item.visibility, item.dissolved_at, item.is_member.map { $0 ? 1 : 0 },
                              item.can_write.map { $0 ? 1 : 0 }, item.is_observer.map { $0 ? 1 : 0 },
                              item.can_change_visibility.map { $0 ? 1 : 0 }, participantIDs,
-                             item.last_message_at ?? item.created_at, iso(Date())])
+                             item.last_message_at ?? item.created_at, iso(Date()), item.last_message_sender_name, card])
+        // A server list/detail refresh supplies time and preview but no identity; do not
+        // associate its card title with a previously cached row merely by equal timestamp.
+        try db.execute(sql: "DELETE FROM cache_meta WHERE key IN (?,?)", arguments: ["preview.message_id.\(item.id)", "preview.awaiting_server.\(item.id)"])
         let participants = members ?? item.participants
         for (position, actor) in participants.enumerated() {
             // Same reason as above: an actor row is referenced by `conversation_members`, so a
             // REPLACE would have to delete a row that other conversations still point at.
             try db.execute(sql: """
-                INSERT INTO actors(id, type, display_name, user_id, is_stale, updated_at) VALUES(?,?,?,?,?,?)
+                INSERT INTO actors(id, type, display_name, user_id, is_stale, updated_at, is_deleted) VALUES(?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET type=excluded.type, display_name=excluded.display_name,
-                    user_id=excluded.user_id, is_stale=excluded.is_stale, updated_at=excluded.updated_at
-                """, arguments: [actor.id, actor.type, actor.display_name, actor.user_id, actor.is_stale.map { $0 ? 1 : 0 }, iso(Date())])
+                    user_id=excluded.user_id, is_stale=excluded.is_stale, updated_at=excluded.updated_at, is_deleted=CASE WHEN actors.is_deleted=1 THEN 1 ELSE excluded.is_deleted END
+                """, arguments: [actor.id, actor.type, actor.display_name, actor.user_id, actor.is_stale.map { $0 ? 1 : 0 }, iso(Date()), actor.is_deleted.map { $0 ? 1 : 0 }])
             try db.execute(sql: "INSERT OR REPLACE INTO conversation_members(conversation_id, actor_id, position) VALUES(?,?,?)",
                            arguments: [item.id, actor.id, position])
         }
@@ -872,6 +916,25 @@ actor ChatRepository {
         where !keep.contains(row) {
             try db.execute(sql: "DELETE FROM conversation_members WHERE conversation_id=? AND actor_id=?", arguments: [item.id, row])
         }
+    }
+
+    private static func executionCleanupRevision(_ id: String, db: Database) throws -> Int {
+        let raw = try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: ["execution.cleanup_revision.\(id)"])
+        return raw.flatMap(Int.init) ?? 0
+    }
+
+    /// Execution cleanup is not access revocation: discard only the old cached window, never
+    /// the user's draft/pending or ordinary message identities. New revision pages refill it.
+    @discardableResult
+    private static func applyExecutionCleanup(_ id: String, revision: Int, db: Database) throws -> Bool {
+        guard revision > (try executionCleanupRevision(id, db: db)) else { return false }
+        try db.execute(sql: "DELETE FROM messages WHERE conversation_id=?", arguments: [id])
+        try db.execute(sql: "DELETE FROM conversation_boundaries WHERE conversation_id=?", arguments: [id])
+        try db.execute(sql: "UPDATE conversations SET trimmed_at=NULL, last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?", arguments: [id])
+        try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?, '1')", arguments: ["timeline.earlier_incomplete.\(id)"])
+        try db.execute(sql: "DELETE FROM cache_meta WHERE key IN (?,?)", arguments: ["preview.message_id.\(id)", "preview.awaiting_server.\(id)"])
+        try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: ["execution.cleanup_revision.\(id)", String(revision)])
+        return true
     }
 
     private static func upsertMessage(_ message: ChatMessage, writtenAt: String, db: Database) throws {
@@ -890,14 +953,27 @@ actor ChatRepository {
 
     /// Keeps the list row consistent with a freshly loaded page without inventing unread state.
     private static func refreshConversationProjection(_ id: String, db: Database) throws {
+        guard try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: ["preview.awaiting_server.\(id)"]) == nil else { return }
         guard let row = try Row.fetchOne(db, sql: """
             SELECT payload_json, created_at FROM messages WHERE conversation_id=? ORDER BY sort_key DESC LIMIT 1
             """, arguments: [id]) else { return }
         guard let message = try? decode(ChatMessage.self, from: row["payload_json"] as String) else { return }
+        let latestAt = try String.fetchOne(db, sql: "SELECT last_message_at FROM conversations WHERE id=?", arguments: [id])
+        let identityKey = "preview.message_id.\(id)"
+        let latestID = try String.fetchOne(db, sql: "SELECT value FROM cache_meta WHERE key=?", arguments: [identityKey])
+        // A list DTO has no last-message ID. Equal timestamps therefore cannot qualify a
+        // different cached row, and older windows must never rewrite a newer server preview.
+        if let latestAt {
+            guard message.created_at > latestAt || (message.created_at == latestAt && latestID == message.id) else { return }
+        }
         try db.execute(sql: """
-            UPDATE conversations SET last_message_at=?, last_message_preview=COALESCE(?, last_message_preview),
-                sort_at=MAX(sort_at, ?), refreshed_at=? WHERE id=?
-            """, arguments: [message.created_at, preview(of: message), message.created_at, iso(Date()), id])
+            UPDATE conversations SET last_message_preview=?, last_message_sender_name=?,
+                last_message_card_json=CASE WHEN ? THEN '{}' ELSE NULL END,
+                last_message_at=?, sort_at=MAX(sort_at, ?), refreshed_at=? WHERE id=?
+            """, arguments: [preview(of: message), message.sender.display_name ?? message.sender.id,
+                             message.interactive != nil && preview(of: message) == nil,
+                             message.created_at, message.created_at, iso(Date()), id])
+        try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: [identityKey, message.id])
     }
 
     private static func preview(of message: ChatMessage) -> String? {
@@ -969,7 +1045,7 @@ actor ChatRepository {
         return ChatTimelinePage(items: items,
                                 nextBefore: needsNetwork ? messages.first?.id : nil,
                                 isAtLocalStart: !needsNetwork,
-                                olderNeedsNetwork: needsNetwork)
+                                olderNeedsNetwork: needsNetwork, executionCleanupRevision: try executionCleanupRevision(id, db: db))
     }
 
     private static func loadConversations(_ db: Database, only id: String? = nil) throws -> [Conversation] {
@@ -982,14 +1058,15 @@ actor ChatRepository {
         guard !rows.isEmpty else { return [] }
         var members: [String: [(Int, ActorRef)]] = [:]
         for row in try Row.fetchAll(db, sql: """
-            SELECT m.conversation_id, m.position, a.id, a.type, a.display_name, a.user_id, a.is_stale
+            SELECT m.conversation_id, m.position, a.id, a.type, a.display_name, a.user_id, a.is_stale, a.is_deleted
             FROM conversation_members m JOIN actors a ON a.id = m.actor_id
             """) {
             let actor = ActorRef(type: row["type"], id: row["id"], display_name: row["display_name"],
-                                 user_id: row["user_id"], is_stale: (row["is_stale"] as Int?).map { $0 == 1 })
+                                 user_id: row["user_id"], is_stale: (row["is_stale"] as Int?).map { $0 == 1 },
+                                 is_deleted: (row["is_deleted"] as Int?).map { $0 == 1 })
             members[row["conversation_id"], default: []].append((row["position"], actor))
         }
-        return rows.map { row in
+        return try rows.map { row in
             let chatID: String = row["id"]
             let participants = (members[chatID] ?? []).sorted { $0.0 < $1.0 }.map(\.1)
             let participantIDs = (try? decode([String].self, from: row["participant_ids_json"] as String? ?? "[]")) ?? []
@@ -999,13 +1076,16 @@ actor ChatRepository {
                                 owner_id: row["owner_id"], creator_id: row["creator_id"],
                                 is_pinned: (row["is_pinned"] as Int? ?? 0) == 1, is_muted: (row["is_muted"] as Int? ?? 0) == 1,
                                 unread_count: row["unread_count"] ?? 0, last_message_preview: row["last_message_preview"],
-                                last_message_at: row["last_message_at"], created_at: row["created_at"],
+                                last_message_sender_name: row["last_message_sender_name"],
+                                 last_message_card: (row["last_message_card_json"] as String?).flatMap { try? decode(ChatCardPreview.self, from: $0) },
+                                 last_message_at: row["last_message_at"], created_at: row["created_at"],
                                 run_state: row["run_state"], source_agent_id: row["source_agent_id"],
                                 source_node_id: row["source_node_id"], external_source: row["external_source"],
                                 external_chat_id: row["external_chat_id"], visibility: row["visibility"],
                                 dissolved_at: row["dissolved_at"], is_member: flag("is_member"),
                                 can_write: flag("can_write"), is_observer: flag("is_observer"),
-                                can_change_visibility: flag("can_change_visibility"))
+                                can_change_visibility: flag("can_change_visibility"),
+                                 execution_cleanup_revision: try executionCleanupRevision(chatID, db: db))
         }
     }
 

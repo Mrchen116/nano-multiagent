@@ -10,7 +10,7 @@ import {
 } from "./user-stream-runtime";
 
 export type { UserStreamEvent, UserStreamSubscriber };
-export type { UserStreamConnectionStatus } from "./user-stream-runtime";
+export type { UserStreamConnectionStatus, UserStreamSync } from "./user-stream-runtime";
 
 const CURSOR_PREFIX = "im:user_stream_cursor:";
 
@@ -46,11 +46,11 @@ const runtime = createUserStreamRuntime({
   },
   writeCursor: (userId, cursor) => window.sessionStorage.setItem(`${CURSOR_PREFIX}${userId}`, String(cursor)),
   sync: async () => {
-    const result = await authFetchJson<{ max_event_id: number }>("/im/v1/sync?view=cursor");
+    const result = await authFetchJson<{ max_event_id: number; execution_cleanup_revisions?: Record<string, number> }>("/im/v1/sync?view=cursor");
     if (!Number.isFinite(result.max_event_id) || result.max_event_id < 0) {
       throw new Error("GET /im/v1/sync returned an invalid max_event_id");
     }
-    return { maxEventId: result.max_event_id };
+    return { maxEventId: result.max_event_id, executionCleanupRevisions: result.execution_cleanup_revisions };
   },
   reportError: (error) => console.error("user stream runtime error", error),
   onMembershipChanged: () => {

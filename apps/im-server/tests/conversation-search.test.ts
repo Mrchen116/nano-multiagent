@@ -1,4 +1,10 @@
 import { expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { openDatabase } from '../src/db.js';
+import { searchMessages } from '../src/message-search.js';
 import Fastify from 'fastify';
 import { Work } from '../src/work.js';
 import { registerMessagingRoutes } from '../src/messaging.js';
@@ -28,6 +34,56 @@ it('searches messages using the signed-in user’s current read access and pagin
   } finally { await app.close(); }
 });
 
+it('finds visible pure card text in Web and Agent history without matching actions or unrendered statements', async () => {
+  const { ctx, principal, args } = personalFixture();
+  const app = Fastify(); registerMessagingRoutes(app, ctx);
+  try {
+    const source = [
+      'root = Col([Title($heading), Table(["方案"], [["预算对照", "overflow-secret"]]), Svg([SvgText("分流节点", 20, 20, 12)], "0 0 80 40"), Map([MapMarker("云桥公园", 31, 121)]), Chart("bar", [{region: "华东区域", budget: 18, note: "chart-secret"}], "region", ["budget"]), Button("复制", @CopyToClipboard("action-secret"))])',
+      '$heading = "周五安排"',
+      'unused = Text("unused-secret")',
+    ].join('\n');
+    const card = ctx.messaging.insertMessage('chat', 'a1', 'agent', '', [], null, 'completed', {
+      interactive: { format:'openui', catalog_version:'nano-iui-1', source },
+    });
+    const query = (keyword: string) => app.inject({url:`/im/v1/messages/search?q=${encodeURIComponent(keyword)}`, headers:{'x-user':'u1'}});
+    for (const keyword of ['周五安排', '预算对照', '分流节点', '云桥公园', '华东区域']) {
+      const response = await query(keyword);
+      expect(response.statusCode).toBe(200);
+      expect(response.json().messages).toEqual([expect.objectContaining({message_id:card.id,snippet:expect.stringContaining(keyword)})]);
+    }
+    for (const keyword of ['action-secret','unused-secret','overflow-secret','chart-secret','CopyToClipboard']) expect((await query(keyword)).json().messages).toEqual([]);
+    const work = new Work(ctx);
+    const other = ctx.messaging.insertMessage('chat','u1','user','预算对照');
+    const result = work.query(principal, {...args,action:'search',target:'chat',keywords:['周五安排','预算对照']});
+    expect(result.messages.map((m: {message_id:string})=>m.message_id)).toEqual([card.id,other.id]);
+    expect(result.messages[0]).toMatchObject({interactive:{source},content:[],complete_message:true});
+  } finally { await app.close(); }
+});
+
+it('backfills existing cards for keyword search and list previews when opening an older database', () => {
+  const { ctx, db } = personalFixture();
+  const source = 'root = Col([Title("Existing plan"), Text("Old card content")])';
+  const card = ctx.messaging.insertMessage('chat','a1','agent','',[],null,'completed',{
+    interactive:{format:'openui',catalog_version:'nano-iui-1',source},
+  });
+  const directory = mkdtempSync(join(tmpdir(),'nano-card-search-'));
+  const path = join(directory,'im.sqlite');
+  try {
+    db.prepare('VACUUM INTO ?').run(path);
+    const legacy = new DatabaseSync(path);
+    try {
+      legacy.exec("ALTER TABLE message_interactive DROP COLUMN search_text; ALTER TABLE message_interactive DROP COLUMN preview_title; DELETE FROM schema_migrations WHERE version='interactive-card-text-v1'");
+    } finally { legacy.close(); }
+    const migrated = openDatabase(path);
+    try {
+      expect(searchMessages(migrated,{targets:['chat'],terms:['Old card content'],action:'search'}).map(row=>row.id)).toEqual([card.id]);
+      expect(migrated.prepare('SELECT source,preview_title FROM message_interactive WHERE message_id=?').get(card.id))
+        .toEqual({source,preview_title:'Existing plan'});
+    } finally { migrated.close(); }
+  } finally { rmSync(directory,{recursive:true,force:true}); }
+});
+
 it('shows readable mentions and preserves a Feishu sender when display name is missing', async () => {
   const { ctx, db } = personalFixture();
   const app = Fastify(); registerMessagingRoutes(app, ctx);
@@ -55,6 +111,30 @@ it('finds multiple literal clues, ranks relevance or recency and reads around a 
   expect(query({ action: 'search', keywords: ['发布'], target: 'peer', participant_id: 'u1', after: '2026-02-01T00:00:00Z' }).messages.map((m: any) => m.message_id)).toEqual([recent.id]);
   expect(() => query({ action: 'search', query: '发布', keywords: ['方案'] })).toThrow();
   expect(query({ action: 'read', target: 'peer', around_message_id: match.id }).messages.map((m: any) => m.message_id)).toEqual([prior.id, match.id, next.id, recent.id]);
+});
+
+it('reads a UI-only message by ID and as one complete history item', () => {
+  const { ctx, principal, args } = personalFixture();
+  const older = ctx.messaging.insertMessage('chat', 'u1', 'user', 'Earlier message');
+  const source = 'root = Text("Editable proposal")';
+  const card = ctx.messaging.insertMessage('chat', 'a1', 'agent', '', [], null, 'completed', {
+    interactive: { format: 'openui', catalog_version: 'nano-iui-1', source },
+  });
+  ctx.messaging.insertMessage('chat', 'a1', 'agent', '', [], null, 'running');
+  const work = new Work(ctx);
+  const read = (input: Record<string, unknown>) => work.query(principal, { ...args, action: 'read', target: 'chat', ...input });
+
+  const exact = read({ message_id: card.id });
+  expect(exact.messages).toEqual([expect.objectContaining({
+    message_id: card.id, content: [], part_key: '0', total_parts: 1, complete_message: true,
+  })]);
+  expect(exact.messages[0].interactive).toEqual({ source });
+  expect(exact.next_cursor).toBeNull();
+
+  const first = read({ limit: 1 });
+  expect(first.messages).toEqual(exact.messages);
+  expect(first.next_cursor).toBeTruthy();
+  expect(read({ limit: 1, cursor: first.next_cursor }).messages.map((message: { message_id: string }) => message.message_id)).toEqual([older.id]);
 });
 
 it('keeps snapshot order and rechecks current permissions on every page', () => {

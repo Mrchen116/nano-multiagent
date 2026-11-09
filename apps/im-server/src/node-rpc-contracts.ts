@@ -1,5 +1,5 @@
 import type { AgentConfigurationFields, ConfigurationIntent, ConfigurationResult } from '@nano/product-contracts';
-import type { TaskWaitInspection } from '@nano/product-contracts';
+import type { AgentWorkspaceWitness, TaskWaitInspection } from '@nano/product-contracts';
 
 /** Catalog entries belong to runtime providers; only the catalog envelope is stable. */
 export interface NodeCapabilities {
@@ -75,6 +75,7 @@ export interface NodeCommandMap {
   'node.distill.prompt.request': {input: {sources: {conversation_id: string; [key: string]: unknown}[]; execution_agent_id: string; target_scope: string}; output: {prompt?: string; message?: string; error_code?: string}};
   'session.fork.request': {input: {source_conversation_id: string; new_conversation_id: string; agent_id: string; fork_point: {message_id: string}; source_external_source?: string; source_external_chat_id?: string}; output: {ok?: boolean; error?: string; id_map?: Record<string, string>}};
   'agent.work.permission': {input: {root_agent_id: string; lifecycle_revision?: number; session_id: string; decision: string; reason: string}; output: {ok?: boolean; error?: string}};
+  'agent.deletion.preview': {input: {agent_id: string}; output: {workspace?: AgentWorkspaceWitness}};
   'task.execution.state': {input: {agent_id: string}; output: {state?: string}};
   'task.wait.validate': {input: {agent_id: string; conversation_id: string; graph_id: string; node_id: string; schedule_id: string}; output: Partial<TaskWaitInspection> & {error?: string}};
 }
@@ -108,6 +109,7 @@ export const nodeResponseTypes = {
   'node.distill.prompt.request': 'node.distill.prompt',
   'session.fork.request': 'session.fork.result',
   'agent.work.permission': 'agent.work.permission.result',
+  'agent.deletion.preview': 'agent.deletion.preview.result',
   'task.execution.state': 'task.execution.state.result',
   'task.wait.validate': 'task.wait.validate.result',
 } as const satisfies Record<NodeCommand, string>;

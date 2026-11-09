@@ -36,10 +36,12 @@ export function searchMessages(query: string, kind: string, cursor?: string, sig
 export interface ListMessagesOptions {
   limit?: number;
   beforeMessageId?: string;
+  view?: "summary";
   signal?: AbortSignal;
 }
 
 export interface ListMessagesResult {
+  execution_cleanup_revision?: number;
   items: TimelineItem[];
   next_before_message_id: string | null;
 }
@@ -51,14 +53,23 @@ export async function listMessages(
   const params = new URLSearchParams();
   if (opts.limit) params.set("limit", String(opts.limit));
   if (opts.beforeMessageId) params.set("before_message_id", opts.beforeMessageId);
+  if (opts.view) params.set("view", opts.view);
   const qs = params.toString();
   const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
   return authFetchJson<ListMessagesResult>(url, opts.signal ? {signal:opts.signal} : undefined, "listMessages");
 }
 
+export function getMessageDetail(conversationId: string, messageId: string, signal: AbortSignal) {
+  return authFetchJson<{message: Message; execution_cleanup_revision: number}>(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { signal }, "getMessageDetail"
+  );
+}
+
 import type { InteractionDraft, InteractionReplyInput, InteractionContextInput } from "./interactive/types";
 
 export interface CreateMessageRequest {
+  replyToMessageId?: string;
   interactionReply?: InteractionReplyInput;
   interactionContexts?: InteractionContextInput[];
   idempotencyKey?: string;
@@ -90,6 +101,7 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
   const body = {
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
+    ...(req.replyToMessageId ? {reply_to_message_id:req.replyToMessageId} : {}),
     attachments: req.attachments ?? [],
     timezone: browserTimezone(),
     ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {}),
@@ -301,8 +313,8 @@ export async function getConversationCommands(conversationId: string): Promise<C
   return (await authFetchJson<{items: ConversationCommands[]}>(`/im/v1/conversations/${encodeURIComponent(conversationId)}/commands`)).items;
 }
 
-export function getConversation(id: string): Promise<Conversation> {
-  return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}`);
+export function getConversation(id: string, signal?: AbortSignal): Promise<Conversation> {
+  return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}`, { signal }, "getConversation");
 }
 export function joinConversation(id: string): Promise<Conversation> {
   return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}/join`, { method: "POST", body: "{}" });

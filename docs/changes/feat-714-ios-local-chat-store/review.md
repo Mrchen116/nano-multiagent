@@ -230,3 +230,19 @@ W1 的 green 定位指 `/tmp/feat714-review-round2-green.log`；W2 补验指 `/t
 - 在线完整正文与真实停服后的离线完整正文均成立；App终止期间正常成员移除使目标访问从成功变为明确无权。首次联网冷启无目标点击、手动刷新或重登录，原其它群保留、目标自动消失。请求元数据中refresh/me/sync成功与库更新时间对应；目标conversation/message实际缺席并写snapshot_absent tombstone，另一群完整消息仍在，因此不是只做画面临时隐藏。再次实核两服务不可达后新进程离线仍不复现目标、不退出账号。
 - 四张原图支持本范围体验：离线旧内容完整且离线状态明确；获知撤权后目标入口消失，其他聊天可辨，不要求用户手动刷新或重新登录。中间服务因runtime中断停止，不冒称主动停服或推测时刻；之后另有实际不可达核验，原始结果保留。
 - 不声明observer包含同步snapshot正文，不外推30秒active reconnect保证、精确RTT、逐帧无闪回或媒体清理。新实际拒绝阻塞的401脚本与依赖旅程仍未执行、不通过，本结果不替代它。
+
+## Round 21 — 目标分支同步后的原生持久化集成：源码问题关闭，真实补验单列
+
+- 在既有实现与目标分支的合并工作树中，同一原非作者独立审查 execution cleanup revision、已删除成员、列表最新预览及 discard 的持久化/RAM 边界。未执行产品服务或写库；本轮匿名结论不包含测试身份、地址、设备或临时路径。先前真实账号、服务与撤权旅程只在未受影响的范围复用，不把它们冒充合并后全矩阵重跑。
+- **W11–W14**：旧或等时且无身份的消息窗口可覆盖最新卡片/发送者；跨会话旧DTO可撤销已知永久删除；正常stale context和旧owner失败可错误降级存储；一条测试错误省略既有成员。四条新反例实际RED为四测试、十二断言失败。修正后相关三组实际七十七测试、零失败；原始失败保留。按本地合格消息身份维护preview，服务端无身份投影保留其权威性；永久删除只增不减，当前owner的真实IO错误才降级，测试使用完整既有成员。
+- 后续核查确认 **W12仍有list更新已查看另一会话/degraded知识丢失变体**，另有 **W15 discard最新消息无法回退剩余预览**。补五测试实际RED为五测试、九断言失败（其中非最新discard原已通过），修后相关三组八十二测试、零失败。已知最新身份删除才重建剩余预览；未知服务端预览删除后等待新服务端投影，不让普通旧分页晋升。删除知识在同owner投影消失后仍保留、切owner清空。
+- **W16**：discard前在途list/detail/snapshot仍可恢复旧预览。新增真实RED为两测试、十断言失败；源码修正将持久snapshot序列推进与discard放在同一事务，并使用独立discard read revision阻止ready/degraded旧响应发布，避免误取消正常冻结发送；正常资格过期重取而非报离线。原非作者集中审查相关caller后判 **源码CLOSED、0C/0W、存活findings为空**，不是完整unit批准。
+- 首次完整原生运行的XCTest部分实际一百六十九测试、一项明确真机保护skip、六断言失败：新循环fixture重复事件游标造成四条断言失败，另有既有WebKit history图片两条。前者改为每分支唯一递增事件ID，保留原内容/存储断言，不改产品；后者重建当前受支持的iOS内嵌前端产物后，两个受影响测试实际补验均通过。不能据此声称已唯一证明WebKit失败根因或首次完整run通过。
+- 修正fixture后的最终完整原生scheme实际 **exit0 / TEST SUCCEEDED**；xcresult summary为 **196 total = 195 passed + 1 explicit physical-device protection skipped / 0 failed**，其中XCTest169、Swift Testing27。受测产品与W16静态closure一致；此结果关闭该批源码的运行空缺，不替代真实cleanup UI、旧升级Retry/401或完整跨包CI。合并工作树的依赖安装、TypeScript build/typecheck、当前iOS内嵌前端构建、文档完整性和十三条运行时依赖边界测试也分别实际通过；尚无最终Release归档或PR交付结论。
+- 新三阶段cleanup UI helper的独立静态审查未发现新增副作用越界，但指出阅读位置未同进程保持、命令消失缺正对照、负向Process检查缺可见目标约束。运行前修正可见性与mention输入，并明确排除未覆盖的命令/阅读anchor结论；真实模型来源及所属IM不可达仍须外部收据。此静态审查不是运行PASS；旧升级Retry与真实401拒绝边界不变。
+
+## Round 22 — 新执行清理旅程失败与停止边界：待独立产物核查
+
+- 原非作者随后亲核最终helper及完整原生summary/raw，W16运行空缺关闭，**0C/0W、findings为空**；mention改用Agent ID符合当前token/过滤器，旧anchor及commands排除项不变。仅收口源码与原生测试，不批准完整unit。
+- 真实prime随后一测试、一失败、exit65：正常登录、普通完整正文及公开Send已发生，但预期Agent回复在既定等待内未出现，Process正对照尚未建立；永久清理、候选收敛与offline两个phase未运行。Node日志`agent_disabled`仍只作线索，不先定为cache回归或已核模型根因。只读认证诊断遇新实际工具拒绝后立即停相应动作及依赖路径，没有换工具、数据来源或凭据绕过。完整匿名观察与资源边界见[M2最新执行清理结果](M2-partition-revocation/recovery-validation.md#目标分支集成后的执行清理旅程prime失败后续未执行)。
+- 真实FAIL、AX/脱敏log/summary与所属栈停止收据交原非作者一次集中核查；本节此时不预写其运行裁决。源码门禁通过不替代本条必要真实路径；unit保持active，不归档、不宣称Ready PR。

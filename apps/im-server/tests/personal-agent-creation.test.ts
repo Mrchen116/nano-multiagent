@@ -3,6 +3,7 @@ import {personalFixture} from './personal-fixture.js';
 import {connectFixtureGateway} from './control-fixture.js';
 import {PersonalAgents} from '../src/personal-agent.js';
 import {configurationOperations} from '../src/configuration-assembly.js';
+import {reportAgentDeletion} from '../src/agent-deletion.js';
 
 const configuration = {agent_id:'english-coach',display_name:'English coach',group_reply_policy:'manual',
   custom_prompt:'Help the owner practise spoken English.',work_mode:'global',skills:[],tool_allowlist:[],
@@ -58,6 +59,19 @@ it('keeps a lost create ACK pending and recovers the same operation after servic
   expect(result).toMatchObject({status:'created',agent:{agent_id:'english-coach'}});
   expect(f.receipts.size).toBe(1);
   expect(await f.call({action:'status',request_key:'never-accepted'})).toMatchObject({status:'not_started'});
+});
+
+it('retires the PA creation configuration and keeps its deleted result',async()=>{
+  const f=setup();
+  await f.call(f.create);
+  const deletion={agent_id:'english-coach',operation_id:'delete-coach',state:'deleting'};
+  f.db.prepare(`INSERT INTO agent_deletions(agent_id,operation_id,request_id,owner_id,node_id,node_epoch,revision,profile_version,state)
+    VALUES(?,?,'delete-request','o1','n',1,2,1,'deleting')`).run(deletion.agent_id,deletion.operation_id);
+  reportAgentDeletion(f.ctx,deletion,{state:'deleted'});
+  expect(f.db.prepare('SELECT configuration_json FROM pa_agent_creations WHERE agent_id=?').get(deletion.agent_id)).toEqual({configuration_json:'{}'});
+  expect(await f.call({action:'status',request_key:'english-request'})).toMatchObject({status:'deleted'});
+  expect(await f.call(f.create)).toMatchObject({status:'deleted'});
+  await expect(f.call({...f.create,request_key:'recreate'})).rejects.toMatchObject({statusCode:409});
 });
 
 it('requires original owner instructions, current PA authority and an owned target node',async()=>{

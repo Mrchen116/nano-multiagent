@@ -64,7 +64,7 @@ it('orders native environment updates on Anthropic HTTP wire without rewriting r
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'local-fixture-only' }, onLog: value => { logs += value; } });
     // These are intentional no-op product hosts, not MethodNotFound fallbacks.
     client.rpc.handle('product.task_context.prepare', () => { prepareCalls++; return { messages: [], revoked: [] }; });
-    client.rpc.handle('product.task_context.commit', () => { commitCalls++; return { committed: true }; });
+    client.rpc.handle('product.task_context.commit', () => { commitCalls++; return { confirmed: [] }; });
     client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [], repair_task_ids: [] }));
     await client.rpc.request('initialize', { protocol: 1, agents: [current], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
@@ -162,7 +162,8 @@ it('orders native environment updates on Anthropic HTTP wire without rewriting r
       expect(request).toMatchObject({ method: 'POST', path: expect.stringMatching(new RegExp('^/v1/messages(?:[?]|$)')), root: binding.sessionId, session: binding.sessionId });
       expect(body(request).model).toBe('fixture');
     }
-    expect(prepareCalls).toBeGreaterThanOrEqual(4); expect(commitCalls).toBeGreaterThanOrEqual(4);
+    expect(prepareCalls).toBeGreaterThanOrEqual(4);
+    expect(commitCalls).toBe(0);
     expect(logs).not.toContain('Method not found');
   } catch (error) {
     throw new Error(String(error) + '\n' + logs + '\nHTTP requests: ' + JSON.stringify(requests.map(request => ({ ...request, raw: JSON.stringify({ ...body(request), tools: undefined }) }))), { cause: error });

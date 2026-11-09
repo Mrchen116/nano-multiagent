@@ -1,6 +1,6 @@
 # Worktree Runtime Isolation
 
-本文负责在 worktree 或临时目录中运行真实 IM、Gateway 和可选 Vite 时的隔离、观察与清理。这里的服务用于开发和 E2E 验证，生命周期随本次任务结束；独立生产 checkout 中的持久服务见 [`../operations/`](../operations/README.md)。
+本文负责开发与验证中临时服务、模拟器、浏览器会话和运行产物的隔离、观察与回收。这里的服务用于开发和 E2E 验证，生命周期随本次任务结束；独立生产 checkout 中的持久服务见 [`../operations/`](../operations/README.md)。
 
 ## 适用场景
 
@@ -16,10 +16,17 @@
 1. worktree 不使用主实例的 IM 端口 `8011` 或常用 Vite 端口 `5173`，所有监听服务分配空闲高位端口。
 2. Gateway 必须使用 worktree 内的 config 副本，不能让验证过程读写用户的 `~/.nanoassistant/config.yaml`。
 3. IM 数据库、JWT secret、Gateway runtime state、agent workspace 和 node identity 必须属于本次运行。
-4. 谁启动进程，谁负责记录进程身份、停止进程并确认端口已经释放。
+4. 谁创建或启动资源，谁负责按 [测试资源回收](#测试资源回收) 记录归属、回收并核实结果；共享现场须交接清理责任。
 5. config 副本、secret、PID、日志、数据库、凭据和 workspace 都是本地运行数据，不提交。
 6. Node 管理独立 DSH 子进程，只经 stdio 通信；两者都不监听独立业务端口。DSH home 与 owner 配置根也必须隔离。
 7. up/down 在任何文件修改或进程停止前检查生产保护路径与 `.nano-production` 标记；拒绝时另选独立目录，不删除标记绕过。配置与判定规则见 [本机开发配置](local-development.md#本机开发配置)。
+
+## 测试资源回收
+
+- 谁创建谁回收。验证结束（含失败、取消、阻塞）后，保存必要证据，停止本轮进程，关闭测试浏览器会话，删除独占的临时数据、凭据和构建产物；不等 PR 合入或 worktree 删除。
+- 本轮新建的模拟器按 UDID 关闭并删除，不能只 Shutdown；借用设备恢复原状态。按精确标识核对归属，只清本轮资源，不动用户、生产、共享缓存或其他任务现场。
+- 确需保留或交接时，在已有记录中写明资源、原因、负责人和回收时点；接手前仍由创建者负责。
+- 收尾核实进程退出、端口释放、临时设备和目录已移除；简要报告回收结果及残留项。
 
 ## 前置条件
 
@@ -136,7 +143,7 @@ curl -fsS "$IM_URL/openapi.json" >/dev/null
 | `.gateway-workspace/` | 本次 agent workspace | 保留用于排障 |
 | `data/im_service.sqlite3` 及 Gateway SQLite state | 本次运行数据 | 保留或由下次 E2E 启动重建 |
 
-保留下来的内容仍然是本地运行数据。提交前检查 `git status`；需要删除时先解析并确认具体 worktree 路径，不对仓库根或不明确变量执行递归删除。
+`e2e-down.sh` 只停止服务并暂留现场，不负责删除运行数据；上表描述的是脚本执行后的状态，不是永久保留策略。按 [测试资源回收](#测试资源回收) 在本轮不再需要时提取必要证据并删除独占运行产物。提交前检查 `git status`；需要删除时先解析并确认具体 worktree 路径，不对仓库根或不明确变量执行递归删除。
 
 ## 如何确认当前栈仍然有效
 
@@ -192,7 +199,7 @@ Vite 绑定 loopback 的独立空闲端口并使用 `--strictPort`。`/im` 的 H
 加入 IM 的 `IM_BROWSER_ORIGINS`，不使用通配符或关闭安全校验。up 清除继承的其他
 origin 白名单。`.vite.pid`、`.vite.process-start` 和 `.vite.log` 属于本轮目录；down
 核对进程出生时间后仅停止该实例，不扫描端口杀进程，也不停止调用者手工启动的 Vite。
-若启动失败，仍须对同一目录运行 down；日志、配置及数据库作为证据保留。
+若启动失败，仍须对同一目录运行 down；提取必要排障证据后按 [测试资源回收](#测试资源回收) 处理日志、配置及数据库。
 
 ## 手工调试时必须保持的契约
 
@@ -237,12 +244,12 @@ fi
 
 `e2e-down.sh` 先向 Gateway 发送 SIGTERM 并等待在途任务收口，超时后强制停止，再关闭 IM。脚本可以重复执行。
 
-unit 完成或 worktree 删除前，还要确认：
+每轮验证收口时，还要确认：
 
 - 没有本次 IM、Gateway、Vite 监听端口。
 - 没有本次 PID 对应的存活进程或相关 `tmux` session。
-- 配置、secret 和 channel 凭据仅保留在本轮隔离目录，不能提交或当作新一轮运行状态。
-- 保留的日志、数据库和 workspace 没有被暂存或提交。
+- 本轮模拟器、浏览器会话及独占运行/构建产物已按 [测试资源回收](#测试资源回收) 处理。
+- 例外保留项有精确标识、原因、owner 和回收触发；本地状态与凭据没有被暂存或提交。
 
 ## 常见失败
 

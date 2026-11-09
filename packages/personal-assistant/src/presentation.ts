@@ -26,10 +26,23 @@ export function tokenUsage(events: RuntimeEvent[], turn: number): Record<string,
 
 type NativeToolView = {call?: Record<string, unknown>; result?: Record<string, unknown>; childSessionId?: string; delegationKind?: string};
 
+function screenshotProcess(call: RuntimeEvent, state: 'running' | 'completed' | 'failed', result?: RuntimeEvent) {
+  if (call.data.name !== 'send_message') return undefined;
+  const args = argumentsObject(call.data.arguments);
+  // Invalid model arguments are written before schema validation and must also stay private.
+  if (args && typeof args === 'object' && !Array.isArray(args) && !Object.hasOwn(args,'raw') && !Object.hasOwn(args,'local_images'))
+    return undefined;
+  const count = Array.isArray(args?.local_images) ? args.local_images.length : undefined;
+  return {id:typeof call.data.callId === 'string' ? call.data.callId : undefined,
+    name:'send_message',status:state,input:count === undefined ? {} : {image_count:count},detail:undefined,
+    output:state === 'failed' ? 'Message delivery failed' : count === undefined ? 'Message delivery' : `Screenshot delivery (${count})`,
+    ...(result ? {duration_ms:result.time-call.time} : {})};
+}
+
 /** Project durable tool events using their original names and stable call identity. */
 export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
   const data = event.data;
-  if (event.type === 'tool/call') return {
+  if (event.type === 'tool/call') return screenshotProcess(event, 'running') ?? {
     id: typeof data.callId === 'string' ? data.callId : undefined, name: typeof data.name === 'string' ? data.name : undefined, input: argumentsObject(data.arguments), status: 'running', output: toolSummary(data.name, argumentsObject(data.arguments), data.nanoToolView as NativeToolView | undefined), detail: {native_view: (data.nanoToolView as NativeToolView | undefined)?.call ?? {card: 'generic'}, native_call: (data.nanoToolView as NativeToolView | undefined)?.call}, ...workflowDetail(data.name,argumentsObject(data.arguments)),
   };
   if (event.type === 'tool/result') {
@@ -38,6 +51,8 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
     const call = events.find(item => item.type === 'tool/call' && item.data.callId === message.toolCallId);
     if (!call) return undefined;
+    const screenshot = screenshotProcess(call, message.isError ? 'failed' : 'completed', event);
+    if (screenshot) return screenshot;
     const output = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('');
     const view = data.nanoToolView as NativeToolView | undefined;
     let detail: Record<string, unknown> | undefined;
@@ -81,7 +96,7 @@ export function argumentsObject(raw: unknown): Record<string, unknown> {
 }
 
 /** Intermediate failed native turns remain facts but cannot close the product reply. */
-export function logicalEvents(events: RuntimeEvent[], runs: ModelRunProjection[]): RuntimeEvent[] {
+export function logicalEvents(events: RuntimeEvent[], runs: ModelRunProjection[], preserveInterruption = false): RuntimeEvent[] {
   const byAttempt = new Map<number, ModelRunProjection>();
   for (const run of runs) for (const attempt of run.attempts) {
     if (!byAttempt.has(attempt.turn)) byAttempt.set(attempt.turn, run);
@@ -90,8 +105,12 @@ export function logicalEvents(events: RuntimeEvent[], runs: ModelRunProjection[]
     const run = typeof event.data.turn === 'number' ? byAttempt.get(event.data.turn) : undefined;
     if (!run) return [event];
     if (event.type === 'turn/start' && event.data.turn !== run.turn) return [];
-    if (event.type === 'turn/end' && (run.state !== 'completed' || event.data.turn !== run.attempts.at(-1)?.turn)) return [];
-    return [{ ...event, data: { ...event.data, turn: run.turn, ...(event.type === 'turn/end' ? { reason: run.terminal } : {}) } }];
+    // A cold native observation closes a crashed turn even if no attached
+    // Agent has advanced the persisted fallback record since the interruption.
+    const interrupted = preserveInterruption && event.type === 'turn/end' && event.data.turn === run.attempts.at(-1)?.turn
+      && (event.data.reason as {kind?:string} | undefined)?.kind === 'interrupted';
+    if (event.type === 'turn/end' && !interrupted && (run.state !== 'completed' || event.data.turn !== run.attempts.at(-1)?.turn)) return [];
+    return [{ ...event, data: { ...event.data, turn: run.turn, ...(event.type === 'turn/end' && !interrupted ? { reason: run.terminal } : {}) } }];
   });
 }
 

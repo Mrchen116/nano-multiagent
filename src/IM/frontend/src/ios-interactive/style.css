@@ -5,3 +5,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .native-card :is(input, textarea, select) { max-width: 100%; font-size: max(16px, 1em); }
 .native-card :disabled { -webkit-text-fill-color: currentColor; opacity: 1; }
+/* A historical card only accepts local attachment preview. */
+.native-card fieldset:disabled { pointer-events: none; }
+.native-card fieldset:disabled [data-attachment-preview] { pointer-events: auto; }

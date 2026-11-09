@@ -21,6 +21,7 @@ type Request = { observerId: string; method: string; params?: { args?: { request
 /** Owns the native read boundary; callers cannot acquire an Agent through this service. */
 export class NativeTrajectory {
   private readonly observers = new Map<string, Observer>();
+  private readonly closing = new Map<string, Set<Promise<void>>>();
 
   constructor(private readonly ctx: Context, private readonly options: {
     controller: Promise<SessionController>;
@@ -29,17 +30,22 @@ export class NativeTrajectory {
   }) {}
 
   /** Register the private carrier operations with the existing runtime peer. */
-  register(peer: Pick<RpcPeer, 'handle'>): void {
-    peer.handle('trajectory.prepare', value => this.prepare(value as TrajectoryScope));
-    peer.handle('trajectory.call', value => this.call(value as Request));
-    peer.handle('trajectory.open', value => this.open(value as Request));
-    peer.handle('trajectory.next', value => {
-      const request = value as Request;
-      return this.stream(request).next();
+  register(peer: Pick<RpcPeer, 'handle'>, admit: (agentId: string, action: () => unknown) => unknown = (_agentId, action) => action()): void {
+    peer.handle('trajectory.prepare', value => {
+      const scope = value as TrajectoryScope;
+      return admit(scope.rootAgentId, () => this.prepare(scope));
     });
+    const read = (value: unknown, action: (request: Request) => unknown) => {
+      const request = value as Request;
+      return admit(this.observer(request.observerId).scope.rootAgentId, () => action(request));
+    };
+    peer.handle('trajectory.call', value => read(value, request => this.call(request)));
+    peer.handle('trajectory.open', value => read(value, request => this.open(request)));
+    peer.handle('trajectory.next', value => read(value, request => this.stream(request).next()));
     peer.handle('trajectory.abort', value => {
       const request = value as Request, observer = this.observer(request.observerId);
-      observer.streams.get(request.streamId!)?.close();
+      const stream = observer.streams.get(request.streamId!);
+      if (stream) this.closeStream(observer.scope.rootAgentId, stream);
       observer.streams.delete(request.streamId!);
       return {};
     });
@@ -120,7 +126,7 @@ export class NativeTrajectory {
     observer.streams.set(streamId, stream);
     if (request.initialBatch === true) {
       try { return { streamId, initialBatch: await stream.next() }; }
-      catch (error) { stream.close(); observer.streams.delete(streamId); throw error; }
+      catch (error) { this.closeStream(observer.scope.rootAgentId, stream); observer.streams.delete(streamId); throw error; }
     }
     return { streamId };
   }
@@ -130,11 +136,26 @@ export class NativeTrajectory {
     if (!observer) return;
     this.observers.delete(id);
     observer.controller.abort();
-    for (const stream of observer.streams.values()) stream.close();
+    for (const stream of observer.streams.values()) this.closeStream(observer.scope.rootAgentId, stream);
     observer.streams.clear();
   }
 
+  private closeStream(agentId: string, stream: TrajectoryStream): void {
+    stream.close();
+    const closing = this.closing.get(agentId) ?? new Set<Promise<void>>();
+    this.closing.set(agentId, closing);
+    closing.add(stream.settled);
+    const forget = () => { closing.delete(stream.settled); if (!closing.size) this.closing.delete(agentId); };
+    void stream.settled.then(forget, forget);
+  }
+
   dispose(): void { for (const id of this.observers.keys()) this.close(id); }
+
+  /** Close just this Agent's observers and wait for the native read leases. */
+  async closeAgent(agentId: string): Promise<void> {
+    for (const observer of this.observers.values()) if (observer.scope.rootAgentId === agentId) this.close(observer.scope.observerId);
+    await Promise.all(this.closing.get(agentId) ?? []);
+  }
 
   private catalog(cut: Awaited<ReturnType<Context['sessionQuery']['observeSession']>>) {
     const agent = this.ctx.agents.get(cut.header.id);

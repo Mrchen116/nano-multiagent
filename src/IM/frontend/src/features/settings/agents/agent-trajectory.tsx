@@ -1,3 +1,5 @@
+import { readHttpError } from "../../auth/http-error";
+import { AgentExecutionDeletedError } from "./agent-work-api";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authFetch } from '../../auth/auth-fetch';
 import { takePageRead } from '../../auth/page-bootstrap';
@@ -96,6 +98,10 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
       let prepared = cached ? await cached.json() as { ticket: string; expires_at: number } : undefined;
       if (!prepared || !(prepared.expires_at > Date.now())) {
         const response = await authFetch(path, { method: 'POST', body: JSON.stringify({ session_id: sessionId }) });
+        if (response.status === 410) {
+          const error = await readHttpError(response);
+          if (error.code === "agent_execution_deleted" || error.detail === "agent_execution_deleted") throw new AgentExecutionDeletedError();
+        }
         if (!response.ok) throw new Error(`无法建立轨迹连接 (${response.status})`);
         prepared = await response.json() as { ticket: string; expires_at: number };
       }

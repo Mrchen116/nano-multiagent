@@ -2,6 +2,8 @@ import { expect, it } from 'vitest';
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent } from '../src/global-agent.js';
+import { logicalEvents } from '../src/presentation.js';
+import { projectWorkEvent } from '../src/work-projection.js';
 
 it('retains child processing positions when the GlobalAgent is recreated, without treating Work ACK as processing', async () => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
@@ -13,14 +15,16 @@ it('retains child processing positions when the GlobalAgent is recreated, withou
     {seq:4,time:4,type:'turn/end',data:{turn:1,reason:{kind:'completed'}}}];
   const create=()=>new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
     runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
-      if(method==='session.descendants'){calls.push(structuredClone(args));return [{kind:'child',id:'child',parentId:'main',events:args.cursors.child===4?[]:events,throughSeq:4,modelVersion:'done'}];}
+      if(method==='session.work.children')return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'}]};
+      if(method==='session.work.child'){calls.push(structuredClone(args));return {durable:true,events,throughSeq:4,modelVersion:'done',modelRuns:[]};}
       return {events:[],durable:true,status:'idle'};
     }},relay:{ready:false,request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>{throw error;}});
   let product=create();
   try {
     await product.recover(); await product.stop(); product=create();
     await product.recover();
-    expect(calls.at(-1)).toMatchObject({cursors:{child:4},modelVersions:{child:'done'}});
+    expect(calls).toHaveLength(1);
+    expect(inbox.workCheckpoints('main').child).toMatchObject({throughSeq:4,modelVersion:'done'});
     expect(inbox.throughSeq).toBe(0);
     expect(inbox.journal(0).filter(event=>event.type==='turn_end')).toHaveLength(1);
     expect(inbox.journal(0).find(event=>event.type==='turn_end')).toMatchObject({payload:{usage:{context_used:12,output:3,cache_read_tokens:2}}});
@@ -36,16 +40,17 @@ it.each(['settled','changed-child','active-child'])('uses metadata recovery for 
   const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
     runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
       calls.push(method);
-      if(method==='session.work.check')return {rootSettled:true,settled:state==='settled'||state==='changed-child'&&args.cursors.child===5};
-      if(method==='session.descendants')return [{kind:'child',id:'child',parentId:'main',throughSeq:5,modelVersion:'m',events:[]}];
+      if(method==='session.work.check')return {rootSettled:state!=='active-child'};
+      if(method==='session.work.children')return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:state==='settled'?3:5,modelVersion:'m'}]};
+      if(method==='session.work.child')return {durable:true,throughSeq:5,modelVersion:'m',events:[],modelRuns:[]};
       return {events:[],durable:true,status:'idle',throughSeq:5,modelVersion:'m'};
     }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>{throw error;}});
   try {
     expect(inbox.workProcessingPending).toBe(true);
     await product.recover();
     expect(calls.includes('session.ensure')).toBe(state==='active-child');
-    expect(calls.includes('session.observe')).toBe(state==='active-child');
-    expect(calls.includes('session.descendants')).toBe(state!=='settled');
+    expect(calls.includes('session.work.root')).toBe(state==='active-child');
+    expect(calls.includes('session.work.child')).toBe(state!=='settled');
     expect(inbox.workProcessingPending).toBe(false);
   }finally{await product.stop();inbox.close();store.close();}
 });
@@ -63,7 +68,7 @@ it('repairs a root projection crash after native receipt and preserves open-turn
   ];
   const errors:unknown[]=[];
   const create=()=>new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
-    runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>method==='session.descendants'?[]:{events:source.filter(event=>event.seq>(args.afterSeq??-1)),durable:true,status:'idle',throughSeq:source.at(-1).seq}},
+    runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>method==='session.work.children'?{children:[]}:{events:source.filter(event=>event.seq>(args.afterSeq??-1)),durable:true,status:'idle',throughSeq:source.at(-1).seq}},
     relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>{errors.push(error);}});
   const commit=inbox.commitWork.bind(inbox);let fail=true;
   inbox.commitWork=(...args)=>{if(fail){fail=false;throw new Error('simulated local projection crash');}commit(...args);};
@@ -84,4 +89,38 @@ it('repairs a root projection crash after native receipt and preserves open-turn
     await product.recover();
     expect(inbox.journal(0).find(event=>event.type==='turn_started'&&event.turn_id==='2')).toMatchObject({payload:{model:'retained-model'}});
   }finally{await product.stop();inbox.close();store.close();}
+});
+
+it('projects an observed cold interruption even when its native fallback run never resumed', () => {
+  const start={seq:7,time:1,type:'turn/start',data:{turn:1}};
+  const stale={seq:13,time:2,type:'turn/end',data:{turn:1,reason:{kind:'error'}}};
+  const interrupted={seq:17,time:3,type:'turn/end',data:{turn:2,reason:{kind:'interrupted'}}};
+  const events=logicalEvents([start,stale,interrupted],[{id:'child:1',sessionId:'child',turn:1,state:'running',
+    attempts:[{turn:1,route:{provider:'p',model:'primary'}},{turn:2,route:{provider:'p',model:'backup'}}]}],true);
+  expect(events.map(event=>event.seq)).toEqual([7,17]);
+  expect(projectWorkEvent('child',events[1]!,events,true)).toMatchObject({type:'turn_end',turn:1,payload:{status:'interrupted',stop_reason:'interrupted'}});
+});
+
+it('does not mark the root current when only a child hint succeeds after a root read failure', async()=>{
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let notify!:(method:string,value:unknown)=>void;
+  const errors:unknown[]=[];
+  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,image:async()=>'',onError:error=>errors.push(error),
+    agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
+    relay:{request:async()=>({type:'ack',payload:{}})},
+    runtime:{onNotification:listener=>{notify=listener;return ()=>{};},request:async method=>{
+      if(method==='session.work.root')throw new Error('no root barrier');
+      if(method==='session.work.children')return {children:[]};
+      throw new Error(method);
+    }}});
+  try {
+    notify('session.event',{sessionId:'main'});
+    await expect.poll(()=>errors.length).toBe(1);
+    expect(inbox.workProcessingPending).toBe(true);
+    notify('session.event',{sessionId:'child',rootSessionId:'main'});
+    await expect.poll(()=>errors.length).toBe(2);
+    expect(inbox.workProcessingPending).toBe(true);
+    expect(inbox.workCut('main')).toBeUndefined();
+  } finally {await product.stop();inbox.close();store.close();}
 });

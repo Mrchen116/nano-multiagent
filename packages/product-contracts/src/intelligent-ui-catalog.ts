@@ -111,6 +111,9 @@ export const intelligentUICatalog = {
     "Image": {
       "$ref": "#/$defs/Image"
     },
+    "AttachmentImage": {
+      "$ref": "#/$defs/AttachmentImage"
+    },
     "Icon": {
       "$ref": "#/$defs/Icon"
     },
@@ -206,6 +209,7 @@ export const intelligentUICatalog = {
     "Form",
     "SearchImage",
     "Image",
+    "AttachmentImage",
     "Icon",
     "Table",
     "Chart",
@@ -1334,6 +1338,25 @@ export const intelligentUICatalog = {
       ],
       "additionalProperties": false,
       "description": "Photo from a URL the user or a tool gave; if it fails, a photo is found for alt."
+    },
+    "AttachmentImage": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "alt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "alt"
+      ],
+      "additionalProperties": false,
+      "description": "An image at a one-based attachment position in this message. Tap to open the original."
     },
     "Icon": {
       "type": "object",

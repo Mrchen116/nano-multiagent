@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import {mkdtemp, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -40,23 +41,23 @@ it('preserves native presenter output and actual child identity across configura
     const child=views.find(e=>e.callId==='child-call')?.childSessionId;
     expect(child).toBeTruthy();
     expect(views.find(e=>e.callId==='child-call')?.delegationKind).toBe('foreground');
-    const children=await client!.rpc.request('session.descendants',{sessionId:'view'}) as any[];
+    const children=await workDescendants(client!.rpc, {sessionId:'view'}) as any[];
     const detail=children.find(item=>item.id===child);
     expect(detail).toBeTruthy();
     expect(JSON.stringify(detail)).toContain('CHILD_VIEW');
-    const unchanged=await client!.rpc.request('session.descendants',{sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:detail.modelVersion}}) as any[];
+    const unchanged=await workDescendants(client!.rpc, {sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:detail.modelVersion}}) as any[];
     expect(unchanged.find(item=>item.id===child)?.events).toEqual([]);
-    const modelChanged=await client!.rpc.request('session.descendants',{sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:'earlier-model-state'}}) as any[];
-    expect(modelChanged.find(item=>item.id===child)?.events).toEqual(detail.events);
+    const modelChanged=await workDescendants(client!.rpc, {sessionId:'view',cursors:{[child]:detail.throughSeq},modelVersions:{[child]:'earlier-model-state'}}) as any[];
+    expect(modelChanged.find(item=>item.id===child)?.events).toEqual([]);
     config={...config,revision:'2',toolAllowlist:[]};
     await client!.rpc.request('configuration.apply',config);
     await client!.shutdown();client=undefined;
     await start();
     expect((await observe()).filter(e=>e.data.nanoToolView).map(e=>e.data.nanoToolView)).toEqual(views);
-    const restored=await client!.rpc.request('session.descendants',{sessionId:'view'}) as any[];
+    const restored=await workDescendants(client!.rpc, {sessionId:'view'}) as any[];
     const restoredDetail=restored.find(item=>item.id===child);
     expect(restoredDetail).toMatchObject({id:detail.id,throughSeq:detail.throughSeq,events:detail.events});
-    expect(await client!.rpc.request('session.descendants',{sessionId:'view'})).toEqual(restored);
+    expect(await workDescendants(client!.rpc, {sessionId:'view'})).toEqual(restored);
     await client!.shutdown();client=undefined;
   }catch(error){throw new Error(`${error}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}

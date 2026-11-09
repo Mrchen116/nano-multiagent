@@ -5,7 +5,6 @@ import { mkdir, symlink, writeFile, readlink, unlink, readFile } from 'node:fs/p
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { RuntimeStopHistory } from '@nano/product-contracts';
 import { RpcPeer } from './rpc.js';
 import {load as loadYaml} from 'js-yaml';
 import {ConfigurationInspector, type ConfigurationInspection} from './configuration-inspector.js';
@@ -15,7 +14,7 @@ const require = createRequire(import.meta.url);
 const integrationRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Prepare a standard profile whose bundle resolution uses this locked install. */
-export async function prepareProfile(home: string, providerPatch: unknown[] = []): Promise<void> {
+export async function prepareProfile(home: string, providerPatch: unknown[] = [], options: { agentDeletion?: boolean } = {}): Promise<void> {
   const profile = join(home, 'profiles', 'nano');
   await mkdir(join(profile, 'node_modules', '@nano'), { recursive: true });
   await link(integrationRoot, join(profile, 'node_modules', '@nano', 'dsh-integration'));
@@ -26,7 +25,8 @@ export async function prepareProfile(home: string, providerPatch: unknown[] = []
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@nano/dsh-integration'] } },
   }, null, 2));
   // JSON is a YAML subset, so runtime configuration needs no custom serializer.
-  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify([{id: 'subagent', config: {maxDepth: 2}}, {id: 'web', config: {searchProvider: process.env.DSH_WEB_SEARCH_PROVIDER ?? (process.env.SEARXNG_URL ? 'searxng' : 'duckduckgo')}}, ...providerPatch], null, 2));
+  const deletionPatch = [{id: 'nano-runtime', config: {agentDeletion: options.agentDeletion === true}}];
+  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify([{id: 'subagent', config: {maxDepth: 2}}, {id: 'web', config: {searchProvider: process.env.DSH_WEB_SEARCH_PROVIDER ?? (process.env.SEARXNG_URL ? 'searxng' : 'duckduckgo')}}, ...providerPatch, ...deletionPatch], null, 2));
 }
 
 async function link(target: string, path: string) {
@@ -58,7 +58,7 @@ export class RuntimeClient {
       cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
       env: { ...process.env, ...options.env, DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1', ...(options.inspectionWorker ? {NANO_CONFIGURATION_INSPECTION_ID:options.inspectionWorker.id, NANO_CONFIGURATION_INSPECTION_DEADLINE:String(options.inspectionWorker.deadlineAt), NANO_CONFIGURATION_INSPECTION_REQUEST:options.inspectionWorker.requestId} : {}) },
     });
-    this.rpc = new RpcPeer(this.process.stdout, this.process.stdin);
+    this.rpc = new RpcPeer(this.process.stdout, this.process.stdin, () => this.process.kill('SIGTERM'));
     if (this.inspector) {
       this.rpc.handle('configuration.inspect', async value => {
         const input = value as ConfigurationInspection;
@@ -186,12 +186,12 @@ export class RuntimeSupervisor {
     if (!this.stopping) this.options.onError(new Error('DSH restart limit reached; node requires restart'));
   }
   /** Stop one Agent through DSH without changing the shared host lifecycle. */
-  async disableAgent(agentId: string, revision: number, cursors: Record<string, number> = {}): Promise<{confirmed: boolean; processInstanceId?: string; errorDetail?: string; history?: RuntimeStopHistory[]}> {
+  async disableAgent(agentId: string, revision: number): Promise<{confirmed: boolean; processInstanceId?: string; errorDetail?: string}> {
     const processInstanceId = this.processInstanceId;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
-        this.request('agent.disable', {agentId, revision, cursors}).then(result => ({...result as {confirmed: boolean; history?: RuntimeStopHistory[]}, processInstanceId})),
+        this.request('agent.disable', {agentId, revision}).then(result => ({...result as {confirmed: boolean}, processInstanceId})),
         new Promise<{confirmed: false; processInstanceId?: string; errorDetail: string}>(resolve => {
           timer = setTimeout(() => resolve({confirmed: false, processInstanceId, errorDetail: 'Managed cleanup did not finish within the stop deadline.'}), this.options.stopTimeoutMs ?? 5000);
         }),

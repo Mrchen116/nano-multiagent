@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { ChatActor, ChatAttachment, ChatEvent, ChatMessage, ChatPermission, ChatProcessItem, ChatStreamFact, ChatThinking, ChatToolCall, InteractionSnapshot, MessageInteractive } from '@nano/product-contracts';
+import type { ChatActor, ChatAttachment, ChatEvent, ChatHistoryMessage, ChatMessage, ChatPermission, ChatProcessItem, ChatProcessSummary, ChatStreamFact, ChatThinking, ChatToolCall, InteractionSnapshot, MessageInteractive } from '@nano/product-contracts';
 import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
 
@@ -11,6 +11,7 @@ export interface MessageRecord {
   caller_payload_json:string|null; sender_display_name:string|null; sender_source_id:string|null; timezone:string|null;
   tool_calls_json:string|null; thinking_json:string|null; background_returns_json:string|null; reply_process_json:string|null;
   permission_request_json:string|null; token_usage_json:string|null; system_notice_json:string|null; interaction_reply_json:string|null;
+  reply_to_json:string|null;
   elapsed_ms:number|null; kernel_message_id:string|null; awaiting_permission_at:string|null;
 }
 interface MessageDelegation {agent_id:string;authorized_by:string;display_name:string;representation_operation_id:string|null}
@@ -19,6 +20,7 @@ interface MessageAuthorName {display_name:string}
 export interface PublicationRecord {dispatch_request_key:string;source_agent_id:string;target_kind:string;target_id:string;conversation_id:string;message_id:string;created_at:string}
 interface MessageUser {id:string; username:string; display_name:string; is_stale?:number}
 export interface MessageMetadata {
+  reply_to?:ChatMessage['reply_to'];
   created_at?:string; sender_display_name?:string; sender_source_id?:string; timezone?:string|null;
   system_notice?:unknown; interactive?:unknown; interaction_reply?:InteractionSnapshot; publish?:boolean;
   personal_source?:{binding_id:string; agent_id:string; owner_user_id:string; display_name:string; operation_id?:string|null};
@@ -138,8 +140,78 @@ export class MessageRecords {
    */
   message(id:string):ChatMessage {
     const m=this.find(id);if(!m)fail(404,'message not found');
+    return this.projectMessage(m);
+  }
+  /** Read one full message within its already-authorized conversation. */
+  conversationMessage(conversationId:string,id:string):ChatMessage {
+    const m=this.db.prepare('SELECT * FROM messages WHERE conversation_id=? AND id=?').get(conversationId,id) as unknown as MessageRecord|undefined;
+    if(!m)fail(404,'message not found');
+    return this.projectMessage(m);
+  }
+  /** Project collapsed process facts in SQLite so terminal bodies never cross into JS. */
+  historySummary(conversationId:string,id:string):ChatHistoryMessage {
+    const m=this.db.prepare(`
+      WITH scoped AS (
+        SELECT *,sender_type='agent' AND delivery_status IN ('completed','failed') AS summarized
+        FROM messages WHERE conversation_id=? AND id=?
+      )
+      SELECT id,conversation_id,sender_user_id,sender_type,lifecycle_revision,content,attachments_json,
+        delivery_status,created_at,sender_display_name,sender_source_id,timezone,
+        token_usage_json,system_notice_json,interaction_reply_json,reply_to_json,elapsed_ms,kernel_message_id,
+        awaiting_permission_at,
+        CASE WHEN summarized THEN (
+          SELECT json_group_array(json(CASE WHEN permission.value->>'status'='resolved' THEN
+            json_object('request_id',permission.value->>'request_id','call_id',permission.value->>'call_id',
+              'status','resolved','decision',permission.value->>'decision','decided_by',permission.value->>'decided_by')
+            ELSE permission.value END) ORDER BY permission.key)
+          FROM json_each(scoped.permission_request_json) permission
+        ) ELSE permission_request_json END AS permission_request_json,
+        CASE WHEN NOT summarized THEN tool_calls_json END AS tool_calls_json,
+        CASE WHEN NOT summarized THEN thinking_json END AS thinking_json,
+        CASE WHEN NOT summarized THEN background_returns_json END AS background_returns_json,
+        CASE WHEN NOT summarized THEN reply_process_json END AS reply_process_json,
+        CASE WHEN summarized THEN (
+          SELECT json_group_array(json_object('id', tool.value->>'id','status',tool.value->>'status',
+            'approval',tool.value->>'approval','reason',CASE WHEN tool.value->>'reason'='denied' THEN 'denied' END))
+          FROM json_each(scoped.tool_calls_json) tool
+        ) END AS tool_facts,
+        CASE WHEN summarized THEN coalesce(json_array_length(thinking_json),0) END AS thinking_count,
+        CASE WHEN summarized THEN coalesce(json_array_length(background_returns_json),0) END AS background_return_count,
+        CASE WHEN summarized THEN (
+          SELECT json_group_object(kind, item_count) FROM (
+            SELECT item.value->>'kind' AS kind, count(*) AS item_count
+            FROM json_each(scoped.reply_process_json) item
+            WHERE item.value->>'kind' IN ('draft','revalidation','segment_handoff')
+            GROUP BY kind
+          )
+        ) END AS reply_process_counts
+      FROM scoped
+    `).get(conversationId,id) as unknown as Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'> & {
+      tool_facts: string|null; thinking_count: number|null; background_return_count: number|null; reply_process_counts: string|null;
+    } | undefined;
+    if(!m)fail(404,'message not found');
+    const message=this.projectMessage(m);
+    if(m.tool_facts===null)return message;
+    const tools=(JSON.parse(m.tool_facts) as ChatToolCall[])
+      .map(call=>withHumanApproval(call,message.permission_requests));
+    const summary:ChatProcessSummary={
+      tool_count:tools.length,
+      thinking_count:m.thinking_count!,
+      background_return_count:m.background_return_count!,
+      reply_process_counts:JSON.parse(m.reply_process_counts??'{}'),
+      has_running_tool:tools.some(call=>call.status==='running'),
+      approval_allow_count:tools.filter(call=>call.approval==='user_allow').length,
+      approval_deny_count:tools.filter(call=>call.approval!=='user_allow'&&(call.approval==='user_deny'||call.reason==='denied')).length,
+    };
+    return {...message,process_summary:summary};
+  }
+  private projectMessage(m:Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'>):ChatMessage {
+    const {id}=m;
     const u=this.db.prepare('SELECT * FROM users WHERE id=?').get(m.sender_user_id) as unknown as MessageUser;
     const delegation=this.db.prepare('SELECT * FROM pa_delegated_messages WHERE message_id=?').get(id) as unknown as MessageDelegation|undefined;
+    const deletedWork=m.sender_type==='agent' && this.db.prepare(`SELECT 1 FROM deleted_agent_work_links w
+      JOIN agent_profiles a ON a.agent_id=w.agent_id AND a.work_mode='global'
+      WHERE w.agent_id=? AND w.kind='message' AND w.target_id=?`).get(u.username.slice(6),id);
     const updateWait=this.ports.messageWait?.(id),permissions:ChatPermission[]=JSON.parse(m.permission_request_json??'[]');
     // Retain the established wire property order as well as the original stored JSON values.
     const result:ChatMessage={
@@ -147,8 +219,10 @@ export class MessageRecords {
       lifecycle_revision:m.lifecycle_revision,content:m.content,delivery_status:m.delivery_status,created_at:m.created_at,
       timezone:m.timezone,elapsed_ms:m.elapsed_ms,kernel_message_id:m.kernel_message_id,
       sender:{...this.actor(u),type:m.sender_type,display_name:m.sender_display_name??u.display_name},
+      ...(deletedWork ? {work_record_deleted:true} : {}),
       ...(updateWait!==undefined?{update_wait:updateWait}:{}),
       ...(delegation?.representation_operation_id?{pa_agent_id:delegation.agent_id}:delegation?{delegation:{agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${(this.db.prepare('SELECT display_name FROM users WHERE id=?').get(delegation.authorized_by) as MessageAuthorName|undefined)?.display_name??delegation.display_name}的 PA`}}:{}),
+      ...(m.reply_to_json?{reply_to:JSON.parse(m.reply_to_json)}:{}),
       attachments:JSON.parse(m.attachments_json??'[]'),
       tool_calls:(JSON.parse(m.tool_calls_json??'[]') as ChatToolCall[]).map(call=>withHumanApproval(call,permissions)),
       thinking:JSON.parse(m.thinking_json??'[]'),background_returns:JSON.parse(m.background_returns_json??'[]'),
@@ -223,8 +297,13 @@ export class MessageRecords {
       this.ports.interactions.record(id, cId, extra.personal_source?.operation_id ? this.ports.agentUserId(extra.personal_source.agent_id) : sender, extra.interactive);
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
+    if (extra.reply_to) this.db.prepare('UPDATE messages SET reply_to_json=? WHERE id=?').run(JSON.stringify(extra.reply_to),id);
     const m = this.message(id);
-    this.chatEvent(cId, id, {type:"message.created", data:{...m,message_id:id}}, status, extra.publish !== false);
+    // Shadow messages store under the local owner even when the provider has no display name.
+    const data = {...m,message_id:id,...(extra.sender_source_id
+      ? {sender_display_name:extra.sender_display_name?.trim() || extra.sender_source_id}
+      : {})};
+    this.chatEvent(cId, id, {type:"message.created", data}, status, extra.publish !== false);
     return m;
   }
 }

@@ -15,7 +15,7 @@ orchestrator 在派发前决定是否值得交给独立实现 owner。派发给 
 完成它，不再重新路由。
 
 派发只需说明 assignment、unit/milestone 的位置，以及 unit worktree 和 worker worktree/branch。worker
-从 unit worktree 当前分支创建或安全恢复自己的现场，只在其中修改；提交、集成并 push 到 unit branch，完成后清理自己创建的 worktree、branch 和运行资源。输入、现场或权限无法安全使用时回报 `BLOCKED`，不覆盖或 reset。
+从 unit worktree 当前分支创建或安全恢复自己的现场，只在其中修改；提交、集成并 push 到 unit branch，完成后清理自己创建的 worktree、branch；测试资源在验证不再需要时即按 [测试资源回收](../../../docs/development/worktree-runtime.md#测试资源回收) 回收，不等集成。输入、现场或权限无法安全使用时回报 `BLOCKED`，不覆盖或 reset。
 
 ## 实施
 

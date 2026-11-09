@@ -126,10 +126,11 @@ export class CronOwners {
   /** Release a temporary catalog owner, or close a durable owner at shutdown. */
   async disposeAgent(agentId: string, removeData = false): Promise<void> {
     const pending = this.owners.get(agentId);
-    if (!pending) return;
-    const owner = await pending; await owner.chain; await owner.fiber?.dispose();
-    for (const fiber of owner.storageFibers) await fiber.dispose();
-    this.owners.delete(agentId);
+    if (pending) {
+      const owner = await pending; await owner.chain; await owner.fiber?.dispose();
+      for (const fiber of owner.storageFibers) await fiber.dispose();
+      this.owners.delete(agentId);
+    }
     if (removeData) await rm(join(this.home, 'schedules', createHash('sha256').update(agentId).digest('hex')), { recursive: true, force: true });
   }
   async dispose(): Promise<void> {

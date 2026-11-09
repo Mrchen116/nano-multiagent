@@ -38,7 +38,7 @@ export interface NanoEvaluationProduct {
   /** Admit a question through the product and return its actual wake input ID. */
   submit(question: EvaluationQuestion): Promise<string>;
   /** Use the product's pre-step source synchronization and consumption receipts. */
-  taskContext: { prepare(value: unknown): Promise<unknown>; commit(value: unknown): Promise<void> };
+  taskContext: { prepare(value: unknown): Promise<unknown>; commit(value: unknown): Promise<unknown> };
   call(value: unknown): Promise<unknown>;
   close(): Promise<void>;
 }

@@ -1,4 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
+import { Copy, GitFork, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -41,6 +42,7 @@ import {
   type Conversation,
   type MentionCandidate,
   type Message,
+  type ReplyReference,
   type TimelineItem
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName } from "./avatar";
@@ -92,6 +94,7 @@ export type { ComposerSnapshot };
 
 export interface MessagePaneProps {
   conversation: Conversation;
+  historyProcess?: { accountId: string; revision: number; load: (id: string, signal: AbortSignal) => Promise<Message> };
   /** Owner-only collaboration summary, within the existing scrollable chat. */
   collaborationContent?: React.ReactNode;
   lifecycleNotice?: React.ReactNode;
@@ -122,7 +125,7 @@ export interface MessagePaneProps {
   agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
-  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, interactionContexts?: import("../interactive/types").InteractionContextInput[]): void | Promise<void | Message>;
+  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, interactionContexts?: import("../interactive/types").InteractionContextInput[], replyToMessageId?: string): void | Promise<void | Message>;
   /** Merge a previously committed send through the same message-id projection as HTTP success. */
   onRecovered?(message: Message): void;
   /** Route a local persistence failure through the existing send error owner. */
@@ -230,6 +233,7 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  */
 export function MessagePane({
   conversation,
+  historyProcess,
   collaborationContent,
   lifecycleNotice,
   headerActions,
@@ -280,6 +284,7 @@ export function MessagePane({
 }: MessagePaneProps) {
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
+  const hasFocusedMessage = Boolean(focusMessageId);
   const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const timeDividers = timelineTimeDividers(renderedTimeline, i18n.language);
@@ -311,6 +316,7 @@ export function MessagePane({
   // 从仓库起状态：StrictMode 会先卸再挂，cleanup 若读到空初始 state 会把已存草稿盖掉。
   const initialSnapshot = composerSnapshots.get(conversation.id);
   const [draft, setDraft] = useState(initialSnapshot?.draft ?? "");
+  const [replyTo, setReplyTo] = useState<ReplyReference | undefined>(initialSnapshot?.replyTo);
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>(
     () => (initialSnapshot ? [...initialSnapshot.draftMentions] : [])
   );
@@ -336,6 +342,7 @@ export function MessagePane({
   const displayedConversationIdRef = useRef(conversation.id);
   const sendingConversationIdRef = useRef<string | null>(null);
   const liveComposerRef = useRef<ComposerSnapshot>({
+    replyTo: initialSnapshot?.replyTo,
     revision: initialSnapshot?.revision,
     draft: initialSnapshot?.draft ?? "",
     draftMentions: initialSnapshot ? [...initialSnapshot.draftMentions] : [],
@@ -343,8 +350,8 @@ export function MessagePane({
     slashDismissed: initialSnapshot?.slashDismissed ?? false
   });
   const previousComposer = liveComposerRef.current;
-  const sameDraft = JSON.stringify([previousComposer.draft,previousComposer.draftMentions,previousComposer.pending,previousComposer.uploads?.map(item => item.id) ?? []]) === JSON.stringify([draft,draftMentions,pending,uploads.map(item => item.id)]);
-  liveComposerRef.current = { draft, draftMentions, pending, uploads, slashDismissed,
+  const sameDraft = JSON.stringify([previousComposer.replyTo?.message_id,previousComposer.draft,previousComposer.draftMentions,previousComposer.pending,previousComposer.uploads?.map(item => item.id) ?? []]) === JSON.stringify([replyTo?.message_id,draft,draftMentions,pending,uploads.map(item => item.id)]);
+  liveComposerRef.current = { draft, draftMentions, pending, uploads, slashDismissed, replyTo,
     revision: sameDraft ? previousComposer.revision ?? crypto.randomUUID() : crypto.randomUUID() };
   const currentOwnerRef = useRef(selfUserId);
   currentOwnerRef.current = selfUserId;
@@ -353,6 +360,7 @@ export function MessagePane({
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
   const slashWrapRef = useRef<HTMLDivElement | null>(null);
   const historyWasLoadingRef = useRef(false);
   const historyAnchorRef = useRef<{
@@ -438,6 +446,7 @@ export function MessagePane({
 
   function applyComposerSnapshot(next: ComposerSnapshot) {
     liveComposerRef.current = next;
+    setReplyTo(next.replyTo);
     setDraft(next.draft);
     setDraftMentions([...next.draftMentions]);
     setPending([...next.pending]);
@@ -504,7 +513,7 @@ export function MessagePane({
       ? liveComposerRef.current : composerSnapshots.get(cid);
     if (!current || current.revision !== attempt.draft.revision) return;
     const submittedUrls = new Set(attempt.attachments.map(item => item.url));
-    const cleared = {...current,draft:'',draftMentions:[],pending:current.pending.filter(item=>!submittedUrls.has(item.url)),uploads:current.uploads?.filter(item=>!item.attachment || !submittedUrls.has(item.attachment.url)),revision:crypto.randomUUID()};
+    const cleared = {...current,replyTo:undefined,draft:'',draftMentions:[],pending:current.pending.filter(item=>!submittedUrls.has(item.url)),uploads:current.uploads?.filter(item=>!item.attachment || !submittedUrls.has(item.attachment.url)),revision:crypto.randomUUID()};
     writeComposerSnapshot(composerSnapshots,cid,cleared);
     if (mountedRef.current && displayedConversationIdRef.current === cid) applyComposerSnapshot(cleared);
   }
@@ -696,6 +705,13 @@ export function MessagePane({
   }
 
 
+  function replyToMessage(message:Message) {
+    if (composerBusy || conversation.can_write === false) return;
+    closeActionSurface("branch");
+    setReplyTo({message_id:message.id,sender:message.sender,content:message.content,attachments:message.attachments});
+    requestAnimationFrame(()=>composerRef.current?.focus());
+  }
+
   const kind = classifyConversationKind(conversation);
   const avatarName = kind === "direct-user" ? directPersonAvatarName(conversation, selfUserId) : conversation.title;
   const isGroup = conversation.type === "group";
@@ -773,15 +789,17 @@ export function MessagePane({
       const retry = prior?.draft.revision === submittedDraft.revision
         && JSON.stringify(prior.attachments) === JSON.stringify(submittedAttachments) ? prior : undefined;
       const payload = retry
-        ? {text:retry.text,attachments:retry.attachments,contexts:retry.contexts}
-        : {text:wireContent,attachments:structuredClone(submittedAttachments),contexts};
+        ? {text:retry.text,attachments:retry.attachments,contexts:retry.contexts,...(retry.replyToMessageId?{replyToMessageId:retry.replyToMessageId}:{})}
+        : {text:wireContent,attachments:structuredClone(submittedAttachments),contexts,...(submittedDraft.replyTo?{replyToMessageId:submittedDraft.replyTo.message_id}:{})};
       // Another tab may already have confirmed and removed the durable row.
       // The restored owner must still retry its original immutable identity.
       attempt = retry ?? (sourceOwner ? await prepareSendAttempt(sourceOwner,sourceConversationId,submittedDraft,payload)
         : {userId:'',conversationId:sourceConversationId,key:crypto.randomUUID(),draft:submittedDraft,...payload,retryable:true});
       if (currentOwnerRef.current !== sourceOwner) return;
       setSendAttempts(current => ({...current,[sourceConversationId]:attempt!}));
-      await onSend(attempt.text, attempt.attachments, undefined, attempt.key, attempt.contexts);
+      const sendArgs:Parameters<typeof onSend>=[attempt.text,attempt.attachments,undefined,attempt.key,attempt.contexts];
+      if (attempt.replyToMessageId) sendArgs.push(attempt.replyToMessageId);
+      await onSend(...sendArgs);
       if (sourceOwner) await removeSendAttempt(attempt).catch(()=>{});
       clearSendAttempt(sourceConversationId,attempt.key);
     } catch (error) {
@@ -1021,12 +1039,12 @@ export function MessagePane({
   useEffect(() => {
     lastMessageIdRef.current = null;
     lastReadRef.current = null;
-    nearBottomRef.current = !focusMessageId;
+    nearBottomRef.current = !hasFocusedMessage;
     forceScrollToBottomRef.current = false;
     historyWasLoadingRef.current = false;
     historyAnchorRef.current = null;
     skipNextMessageAutoScrollRef.current = false;
-  }, [conversation.id]);
+  }, [conversation.id, hasFocusedMessage]);
 
   useEffect(() => {
     if (sendError) forceScrollToBottomRef.current = false;
@@ -1038,9 +1056,9 @@ export function MessagePane({
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    if(focusMessageId&&!forceScrollToBottomRef.current) {
-      lastMessageIdRef.current=messages.at(-1)?.id??null;
-      nearBottomRef.current=false;
+    if (hasFocusedMessage && !forceScrollToBottomRef.current) {
+      lastMessageIdRef.current = messages.at(-1)?.id ?? null;
+      nearBottomRef.current = false;
       return;
     }
     if (skipNextMessageAutoScrollRef.current) {
@@ -1057,7 +1075,7 @@ export function MessagePane({
       (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
     const isInitialHydration = lastMessageIdRef.current === null;
     const shouldFollowBottom =
-      (isInitialHydration && !focusMessageId)
+      (isInitialHydration && !hasFocusedMessage)
       || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
       || nearBottomRef.current;
     lastMessageIdRef.current = lastMessageId;
@@ -1067,7 +1085,23 @@ export function MessagePane({
       reportReadBoundary();
     }
     forceScrollToBottomRef.current = false;
-  }, [messages]);
+  }, [messages, conversation.id, hasFocusedMessage]);
+
+  useLayoutEffect(() => {
+    const scroller = messagesContainerRef.current;
+    const list = messageListRef.current;
+    if (!scroller || !list || hasFocusedMessage || typeof ResizeObserver === "undefined") return;
+
+    // Cards and media can grow after the message data has already rendered.
+    const observer = new ResizeObserver(() => {
+      if (nearBottomRef.current && !historyAnchorRef.current) {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
+    });
+    observer.observe(list);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [hasFocusedMessage]);
 
   useEffect(() => {
     document.addEventListener("visibilitychange", reportReadBoundary);
@@ -1139,7 +1173,7 @@ export function MessagePane({
                   <span
                     key={p.id}
                     className={p.is_stale ? "opacity-40" : undefined}
-                    title={p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
+                    title={p.is_deleted ? t("chat.deletedAgent") : p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
                   >
                     {p.display_name ?? p.id}
                     {i < conversation.participants.length - 1 ? " · " : ""}
@@ -1178,76 +1212,80 @@ export function MessagePane({
       {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
-        {messages.length === 0 ? (
-          <div className="chat-pane-empty">
-            <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
-            <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
-            <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
-            {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
-              {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
-                setDraft(t(`pa.examples.${key}`));
-                composerRef.current?.focus();
-              }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
-            </div>}
-          </div>
-        ) : (
-          <>
-            {(isLoadingHistory || hasMoreHistory === false) && (
-              <div className="chat-history-status" role="status">
-                {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
-                {isLoadingHistory
-                  ? t("chat.messagePane.historyLoading")
-                  : t("chat.messagePane.historyEnd")}
-              </div>
-            )}
-            {renderedTimeline.map((item) => {
-              if (item.type === "agent_config_changed") {
-                return anchoredMessageIds.has(item.before_message_id)
-                  ? <ConfigurationBoundaryDivider key={item.id} />
-                  : null;
-              }
-              const m = item.message;
-              return (
-                <React.Fragment key={m.id}>
-                  {timeDividers.has(m.id) && (
-                    <time dateTime={m.created_at} data-testid="chat-time-divider"
-                      className="block my-3 text-center text-xs text-[var(--im-text-muted)]">
-                      {timeDividers.get(m.id)}
-                    </time>
-                  )}
-                <MessageBubble
-                    availableMessageIds={anchoredMessageIds}
-                  key={m.id}
-                  message={m}
-                  selfUserId={selfUserId}
-                  workAgentId={m.sender.type === "agent" && globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
-                  nodeName={agentNodeNames[m.sender.id]}
-                  conversationId={conversation.id}
-                  readOnly={conversation.can_write === false}
-                  isMobile={isMobile}
-                  participants={conversation.participants}
-                  isDirectChat={isDirectChat}
-                  agentOnline={agentOnline}
-                  onFork={onFork}
-                  forkPending={forkPending}
-                  onCopyRequest={requestCopy}
-                  onMenuRequest={requestMessageMenu}
-                  onSheetRequest={requestActionSheet}
-                  interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
-                  interactiveSubmissionId={submittedMessages.get(m.id)}
-                  onComposeMessage={async (target, text) => {
-                    writeComposerSnapshot(composerSnapshots, conversation.id, liveComposerRef.current);
-                    await onComposeMessage?.(target, text);
-                  }}
-                  onInteractionSelect={chooseInteraction}
-                  onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
-                />
-                </React.Fragment>
-              );
-            })}
-          </>
-        )}
-        {collaborationContent}
+        <div ref={messageListRef} className="chat-pane-message-list">
+          {messages.length === 0 ? (
+            <div className="chat-pane-empty">
+              <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
+              <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
+              <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
+              {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
+                {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
+                  setDraft(t(`pa.examples.${key}`));
+                  composerRef.current?.focus();
+                }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
+              </div>}
+            </div>
+          ) : (
+            <>
+              {(isLoadingHistory || hasMoreHistory === false) && (
+                <div className="chat-history-status" role="status">
+                  {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
+                  {isLoadingHistory
+                    ? t("chat.messagePane.historyLoading")
+                    : t("chat.messagePane.historyEnd")}
+                </div>
+              )}
+              {renderedTimeline.map((item) => {
+                if (item.type === "agent_config_changed") {
+                  return anchoredMessageIds.has(item.before_message_id)
+                    ? <ConfigurationBoundaryDivider key={item.id} />
+                    : null;
+                }
+                const m = item.message;
+                return (
+                  <React.Fragment key={m.id}>
+                    {timeDividers.has(m.id) && (
+                      <time dateTime={m.created_at} data-testid="chat-time-divider"
+                        className="block my-3 text-center text-xs text-[var(--im-text-muted)]">
+                        {timeDividers.get(m.id)}
+                      </time>
+                    )}
+                  <MessageBubble
+                      availableMessageIds={anchoredMessageIds}
+                    key={m.id}
+                    message={m}
+                    historyProcess={historyProcess}
+                    selfUserId={selfUserId}
+                    workAgentId={m.sender.type === "agent" && (m.work_record_deleted || globalAgentIds.includes(m.sender.id)) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
+                    nodeName={agentNodeNames[m.sender.id]}
+                    conversationId={conversation.id}
+                    readOnly={conversation.can_write === false}
+                    isMobile={isMobile}
+                    participants={conversation.participants}
+                    isDirectChat={isDirectChat}
+                    agentOnline={agentOnline}
+                    onReply={composerBusy ? undefined : replyToMessage}
+                    onFork={onFork}
+                    forkPending={forkPending}
+                    onCopyRequest={requestCopy}
+                    onMenuRequest={requestMessageMenu}
+                    onSheetRequest={requestActionSheet}
+                    interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
+                    interactiveSubmissionId={submittedMessages.get(m.id)}
+                    onComposeMessage={async (target, text) => {
+                      writeComposerSnapshot(composerSnapshots, conversation.id, liveComposerRef.current);
+                      await onComposeMessage?.(target, text);
+                    }}
+                    onInteractionSelect={chooseInteraction}
+                    onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
+                  />
+                  </React.Fragment>
+                );
+              })}
+            </>
+          )}
+          {collaborationContent}
+        </div>
       </div>
 
       {lifecycleNotice}
@@ -1256,6 +1294,11 @@ export function MessagePane({
         <span>{t("chat.messagePane.observerDescription")}</span>
       </div>}
       {conversation.can_write !== false && <form className="chat-pane-composer" onSubmit={handleSubmit}>
+        {replyTo && <div className="chat-composer-reply" data-testid="composer-reply">
+          <div><strong>{zh ? `回复 ${replyTo.sender.display_name ?? replyTo.sender.id}` : `Reply to ${replyTo.sender.display_name ?? replyTo.sender.id}`}</strong>
+          <span>{replyPreview(replyTo,conversation.participants,zh)}</span></div>
+          <button type="button" disabled={composerBusy} aria-label={zh?"取消回复":"Cancel reply"} onClick={()=>{setReplyTo(undefined);composerRef.current?.focus();}}>×</button>
+        </div>}
         {pendingInteraction && !composerBusy && <div className="interactive-selection" role="status">{t('chat.interactive.pendingRetry')}</div>}
         <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
           <div className="chat-composer-input">
@@ -1360,6 +1403,7 @@ export function MessagePane({
         >
           <MessageActionList
             message={activeMessage}
+            onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
             copyAvailable={activeSurface.bodyElement !== null}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
@@ -1410,6 +1454,7 @@ export function MessagePane({
             {activeMessage && activeSurface && (
               <MessageActionList
                 message={activeMessage}
+                onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
                 copyAvailable={activeSurface.bodyElement !== null}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}
@@ -1434,6 +1479,16 @@ export function MessagePane({
       </Dialog.Root>
     </section>
   );
+}
+
+function canReply(message:Message):boolean {
+  return message.sender.type !== 'system' && ['completed','sent','pending'].includes(message.delivery_status);
+}
+
+function replyPreview(reply:ReplyReference,participants:Actor[]|undefined,zh:boolean):React.ReactNode {
+  const text=reply.content.trim();
+  return text ? renderInlineContent(text.slice(0,180),participants)
+    : reply.attachments.map(attachment=>attachment.file_name || (attachment.content_type?.startsWith('image/') ? (zh?'[图片]':'[Image]') : (zh?'[文件]':'[File]'))).join(' · ') || (zh?'[消息]':'[Message]');
 }
 
 function ConfigurationBoundaryDivider() {
@@ -1478,6 +1533,7 @@ function MessageActionList({
   surface = "context-menu",
   onCopy,
   onFork,
+  onReply,
 }: {
   message: Message;
   copyAvailable?: boolean;
@@ -1485,6 +1541,7 @@ function MessageActionList({
   agentOnline?: boolean;
   forkPending?: boolean;
   surface?: "toolbar" | "context-menu" | "action-sheet";
+  onReply?: () => void;
   onCopy: () => void;
   onFork: () => void;
 }) {
@@ -1517,6 +1574,10 @@ function MessageActionList({
 
   return (
     <div className={`chat-message-actions chat-message-actions--${layout}`} role="group" aria-label={t("chat.messagePane.messageActions")} data-testid={`message-actions-${message.id}`}>
+      {onReply && <button type="button" role={itemRole} className="chat-message-action" data-testid={`message-reply-${message.id}`}
+        onClick={onReply} aria-label={t('chat.messagePane.reply','回复')} title={t('chat.messagePane.reply','回复')}>
+        {surface === 'toolbar' ? <Reply size={16} strokeWidth={1.8} aria-hidden="true" /> : t('chat.messagePane.reply','回复')}
+      </button>}
       {copyAvailable && (
         <button
           type="button"
@@ -1527,7 +1588,7 @@ function MessageActionList({
           aria-label={t("chat.messagePane.copyMessage")}
           title={t("chat.messagePane.copyMessage")}
         >
-          {surface === "toolbar" ? "⎘" : t("chat.messagePane.copyMessage")}
+          {surface === "toolbar" ? <Copy size={16} strokeWidth={1.8} aria-hidden="true" /> : t("chat.messagePane.copyMessage")}
         </button>
       )}
       {forkEligible && (
@@ -1541,7 +1602,7 @@ function MessageActionList({
           aria-label={t("chat.messagePane.branchFromHere")}
           title={forkReason ?? t("chat.messagePane.branchFromHere")}
         >
-          {surface === "toolbar" ? "⑂" : t("chat.messagePane.branchFromHere")}
+          {surface === "toolbar" ? <GitFork size={16} strokeWidth={1.8} aria-hidden="true" /> : t("chat.messagePane.branchFromHere")}
           {isCompact && forkReason && (
             <span className="chat-message-action-reason">{forkReason}</span>
           )}
@@ -1656,6 +1717,7 @@ function ContextMenu({
 
 function MessageBubble({
   message,
+  historyProcess,
   selfUserId,
   workAgentId,
   nodeName,
@@ -1667,6 +1729,7 @@ function MessageBubble({
   isDirectChat = false,
   agentOnline = false,
   onFork,
+  onReply,
   forkPending = false,
   onCopyRequest,
   onMenuRequest,
@@ -1674,6 +1737,7 @@ function MessageBubble({
   interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend, onComposeMessage,
 }: {
   message: Message;
+  historyProcess?: MessagePaneProps["historyProcess"];
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
   interactiveSubmissionId?: string;
@@ -1690,6 +1754,7 @@ function MessageBubble({
   isDirectChat?: boolean;
   agentOnline?: boolean;
   onFork?(messageId: string): void;
+  onReply?(message:Message):void;
   forkPending?: boolean;
   onCopyRequest(payload: {
     conversationId: string;
@@ -1730,7 +1795,21 @@ function MessageBubble({
     Boolean(message.kernel_message_id);
   const forkAvailable = forkEligible && agentOnline && !forkPending;
   const hasCopyableBody = Boolean(message.content);
-  const hasMessageActions = hasCopyableBody || forkEligible;
+  const replyAvailable=!readOnly && Boolean(onReply) && canReply(message);
+  const hasMessageActions = hasCopyableBody || forkEligible || replyAvailable;
+
+  const [shownAttachments, setShownAttachments] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const onAttachmentVisibility = useCallback((url: string, visible: boolean) => {
+    setShownAttachments(current => {
+      const next = new Map(current);
+      const count = (next.get(url) ?? 0) + (visible ? 1 : -1);
+      if (count > 0) next.set(url, count);
+      else next.delete(url);
+      return next;
+    });
+  }, []);
+  const fallbackAttachments = message.attachments?.map((attachment, index) => ({attachment, index}))
+    .filter(({attachment}) => !shownAttachments.has(attachment.url));
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -1809,7 +1888,7 @@ function MessageBubble({
     y: number
   ): boolean {
     const body = bodyRef.current;
-    const interactionRoot = body ?? (forkEligible ? cardRef.current : null);
+    const interactionRoot = body ?? (hasMessageActions ? cardRef.current : null);
     if (!interactionRoot) return false;
     // Hold and right-click share native selection/link handling and the same menu.
     if (shouldKeepNativeContextMenu(modality, interactionRoot, target, x, y, window.getSelection(), document)) {
@@ -1913,6 +1992,18 @@ function MessageBubble({
           onContextMenu={handleContextMenu}
           tabIndex={-1}
         >
+          {message.reply_to && <Link className="chat-message-quote" to={`/chat/${encodeURIComponent(conversationId)}?message_id=${encodeURIComponent(message.reply_to.message_id)}`}
+            aria-label={t('chat.messagePane.viewOriginal','查看原消息')} onClick={event=>{
+              const original=document.getElementById(`chat-message-${message.reply_to!.message_id}`);
+              if (!original) return;
+              event.preventDefault();
+              document.querySelectorAll('.im-work-message-target').forEach(node=>node.classList.remove('im-work-message-target'));
+              original.scrollIntoView?.({block:'center',behavior:'smooth'});original.classList.add('im-work-message-target');
+              original.tabIndex=-1;original.focus({preventScroll:true});
+            }}>
+            <strong>{message.reply_to.sender.display_name ?? message.reply_to.sender.id}</strong>
+            <span>{replyPreview(message.reply_to,participants,t('chat.messagePane.reply','回复')==='回复')}</span>
+          </Link>}
           {message.content && (
             <div
               ref={bodyRef}
@@ -1924,22 +2015,23 @@ function MessageBubble({
             </div>
           )}
           {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
-            onSelect={onInteractionSelect} onSend={onInteractionSend} onComposeMessage={onComposeMessage} /></React.Suspense>}
+            onSelect={onInteractionSelect} onSend={onInteractionSend} onComposeMessage={onComposeMessage} onAttachmentVisibility={onAttachmentVisibility} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>
               <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
             </React.Fragment>)}</dl>
           </details>}
-          {message.attachments && message.attachments.length > 0 && (
+          {!!fallbackAttachments?.length && (
             <div className="chat-bubble-attachments">
-              {message.attachments.map((att) => (
-                <AttachmentChip key={att.url} attachment={att} />
+              {fallbackAttachments.map(({attachment, index}) => (
+                <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
               ))}
             </div>
           )}
           {isAgent &&
-            ((message.tool_calls && message.tool_calls.length > 0) ||
+            (message.process_summary ||
+              (message.tool_calls && message.tool_calls.length > 0) ||
               (message.thinking && message.thinking.length > 0) ||
               (message.background_returns && message.background_returns.length > 0) ||
               (message.reply_process && message.reply_process.length > 0)) && (
@@ -1948,6 +2040,11 @@ function MessageBubble({
                 thinking={message.thinking}
                 backgroundReturns={message.background_returns}
                 replyProcess={message.reply_process}
+                summary={message.process_summary}
+                historyDetail={historyProcess && {
+                  key: ["chat", "message-process", conversationId, historyProcess.revision, historyProcess.accountId, message.id],
+                  load: signal => historyProcess.load(message.id, signal)
+                }}
                 availableMessageIds={availableMessageIds}
                 onNavigateMessage={(id) => document.getElementById(`chat-message-${id}`)?.scrollIntoView({block: "center", behavior: "smooth"})}
               />
@@ -1969,7 +2066,7 @@ function MessageBubble({
               />
             ))}
 
-          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work`}>{t("chat.viewWork")} →</Link>}
+          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work&message_id=${encodeURIComponent(message.id)}`}>{t("chat.viewWork")} →</Link>}
           {/* Desktop fine-pointer / keyboard toolbar. */}
           {hasMessageActions && (
             <div
@@ -1985,6 +2082,7 @@ function MessageBubble({
                 agentOnline={agentOnline}
                 forkPending={forkPending}
                 surface="toolbar"
+                onReply={replyAvailable ? ()=>onReply?.(message) : undefined}
                 onCopy={handleCopy}
                 onFork={handleFork}
               />

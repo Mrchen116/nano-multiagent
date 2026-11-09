@@ -18,6 +18,7 @@ interface Options {
   create(partition: RuntimePartition): PartitionRuntime;
   onError(error: unknown): void;
   allowed?(agentId: string): boolean;
+  retired?(agentId: string): boolean;
   execution?<T>(agentId: string, action: () => T, revision?: number): T;
 }
 const object = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -69,6 +70,19 @@ export class RuntimePartitions implements RuntimePort {
       return readOnly ? result : this.execution(value, () => result);
     };
     return readOnly ? call() : this.execution(value, call, typeof value.lifecycle_revision === 'number' ? value.lifecycle_revision : undefined);
+  }
+  /** Drop one completed deletion from the shared host's future initialization set. */
+  removeAgent(agentId: string): void {
+    const partition=this.agents.get(agentId);
+    if (partition) {
+      const index=partition.agents.findIndex(agent=>agent.agentId===agentId);
+      if (index!==-1) partition.agents.splice(index,1);
+    }
+    this.agents.delete(agentId);
+    for (const [id,owner] of this.sessionAgents) if (owner===agentId) {
+      this.sessionAgents.delete(id);
+      this.sessions.delete(id);
+    }
   }
   forAgent(agentId: string): RuntimePartition {
     const partition = this.agents.get(agentId);
@@ -208,6 +222,8 @@ export class RuntimePartitions implements RuntimePort {
   }
   async request(method: string, params: unknown): Promise<unknown> {
     const value = object(params);
+    const owner=this.agentId(value);
+    if (owner && this.options.retired?.(owner)) throw new Error('agent_deletion_requested');
     if (['knowledge.facts', 'knowledge.acknowledge', 'workflow.pending', 'workflow.acknowledge'].includes(method)) throw new Error('Collection operations require a scoped runtime port');
     if (method === 'update.prepare') {
       const prepared: RuntimePartition[] = [];
@@ -271,7 +287,7 @@ export class RuntimePartitions implements RuntimePort {
       if (generation !== partition.generation) throw new Error('trajectory generation_changed');
       this.observers.set(id, {partition, generation}); return result;
     }
-    const readOnly = method.startsWith('configuration.') || ['session.export', 'session.work.check', 'session.descendants', 'task.execution.state', 'knowledge.usage'].includes(method);
+    const readOnly = method.startsWith('configuration.') || ['session.export', 'session.work.check', 'session.work.children', 'session.work.child', 'task.execution.state', 'knowledge.usage'].includes(method);
     const result = await this.invoke(partition, method, params, readOnly);
     if (method === 'configuration.apply' && object(result).effective === true) {
       const {operationId: _operationId, fingerprint: _fingerprint, ...applied} = value;

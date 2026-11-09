@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fixture } from './control-fixture.js';
 import { Messaging } from '../src/messaging.js';
+import { Gateway } from '../src/gateway.js';
 import { all, one } from '../src/context.js';
 
 const interactive = { format: 'openui', catalog_version: 'nano-iui-1', source: `$body = "周六见"
@@ -18,6 +19,28 @@ function setup() {
   return {db,ctx,messaging,card,request};
 }
 describe('interactive message persistence', () => {
+  it('uses the first visible card title for a pure card preview and keeps ordinary previews', () => {
+    const {messaging} = setup();
+    const preview = () => messaging.conversation('chat','u1');
+    const addCard = (source: string, content = '') =>
+      messaging.insertMessage('chat','a1','agent',content,[],null,'completed',{interactive:{...interactive,source}});
+    addCard('root = Col([Popover(Icon("info"), Table(["列"], [[Title("隐藏说明")]])), Flashcard("正面", Title("背面")), Title("读书会预算"), Title("预算明细")])');
+    expect(preview()).toMatchObject({last_message_preview:'',last_message_card:{title:'读书会预算'}});
+    addCard('root = Text("周六见")\nunused = Title("未显示的标题")');
+    expect(preview()).toMatchObject({last_message_preview:'',last_message_card:{title:null}});
+    addCard('root = Title("读书会预算")', '已更新预算');
+    expect(preview()).toMatchObject({last_message_preview:'已更新预算',last_message_card:null});
+  });
+
+  it('keeps a card attachment name even when a historical fork stored only the empty body', () => {
+    const {messaging,db} = setup();
+    messaging.insertMessage('chat','a1','agent','',[{url:'/im/files/plan.pdf',content_type:'application/pdf',file_name:'plan.pdf'}],null,'completed',{
+      interactive:{...interactive,source:'root = Title("Read the plan")'},
+    });
+    db.prepare("UPDATE conversations SET last_message_preview='' WHERE id='chat'").run();
+    expect(messaging.conversation('chat','u1')).toMatchObject({last_message_preview:'plan.pdf',last_message_card:null});
+  });
+
   it('publishes complete cards and keeps user draft revisions private', () => {
     const {messaging,card,ctx,request} = setup();
     expect(card.interactive).toMatchObject(interactive);
@@ -26,6 +49,35 @@ describe('interactive message persistence', () => {
     expect(messaging.interactions.readDraft(request('u2'))).toMatchObject({state:{},draft_revision:0});
     expect(()=>messaging.interactions.writeDraft(req)).toThrow();
     expect(ctx.gateway.broadcast).toHaveBeenCalledTimes(1);
+  });
+  it('accepts UI-only gateway HTTP messages, keeps retries idempotent and rejects empty or invalid sends', async () => {
+    const {messaging,ctx} = setup();
+    ctx.gateway.authenticate=()=>({node_id:'n',owner_id:'o1',node_epoch:1}) as any;
+    const req={headers:{authorization:'Bearer fixture','idempotency-key':'ui-only'},params:{conversation_id:'chat'},query:{agent_id:'a'},body:{sender_type:'agent',interactive}} as any;
+    const first=await messaging.sendMessage(req);
+    expect(first).toMatchObject({content:'',interactive});
+    expect(await messaging.sendMessage(req)).toMatchObject({id:first.id});
+    for (const empty of [undefined,null,false,'',0]) {
+      await expect(messaging.sendMessage({...req,body:{sender_type:'agent',interactive:empty}})).rejects.toThrow();
+    }
+    await expect(messaging.sendMessage({...req,headers:{...req.headers,'idempotency-key':'invalid'},body:{sender_type:'agent',interactive:{...interactive,source:'root = Unknown("x")'}}})).rejects.toThrow();
+  });
+  it('relays a UI-only group reply to peers without relaying an empty stream placeholder', () => {
+    const {messaging,ctx,db} = setup();
+    db.prepare("UPDATE conversations SET type='group' WHERE id='chat'").run();
+    db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES('b','o1','n','Colleague','now','now')").run();
+    const peer=messaging.agentUser('b');
+    db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat',?)").run(peer.id);
+    const gateway=new Gateway(ctx);
+    const empty=messaging.insertMessage('chat','a1','agent','');
+    gateway.groupReply(empty.id,{deferDelivery:true});
+    expect(all(db,'SELECT * FROM relay_tasks WHERE message_id=?',empty.id)).toHaveLength(0);
+    const card=messaging.insertMessage('chat','a1','agent','',[],null,'completed',{interactive});
+    gateway.groupReply(card.id,{deferDelivery:true});
+    gateway.groupReply(card.id,{deferDelivery:true});
+    const deliveries=all(db,'SELECT payload_json FROM relay_tasks WHERE message_id=?',card.id);
+    expect(deliveries).toHaveLength(1);
+    expect(JSON.parse(deliveries[0]!.payload_json)).toMatchObject({agent_id:'b',message:{id:card.id,content:'',interactive}});
   });
   it('saves selection and one relay atomically even while the node is offline; retries do not enqueue again', async () => {
     const {messaging,card,db,request} = setup();
@@ -165,6 +217,7 @@ it('keeps group drafts invisible to every Agent until an explicit action is subm
   expect(result.interaction_reply.fields[0].value).toBe('明确共享');
   const last=JSON.parse(all(db,'SELECT * FROM relay_tasks').at(-1)!.payload_json);
   expect(last.metadata.mentioned_agent_ids).toContain('a');
+  expect(last.metadata.explicit_mentioned_agent_ids).toEqual([]);
 });
 
 it('does not accept background sourced from another conversation', async () => {

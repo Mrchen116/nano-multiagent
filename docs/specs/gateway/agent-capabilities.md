@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-705
+> 对齐: bugfix-734
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -51,6 +51,14 @@
 - **THEN** 同一输入提及同一 Skill 的原生与兼容语法时只加载一次，普通 `/name` 使用原生识别
 - **AND** 未启用的 Skill 不因显式调用而重新获得访问权，重启或重复提交已消费输入不重复加载
 
+
+### Requirement: 写盘失败后由下一次正常激活恢复执行
+
+#### Scenario: 磁盘空间恢复后处理新一轮
+- **GIVEN** Agent 因本地记录写入失败暂时无法正常执行，之后本地存储恢复可写
+- **WHEN** 用户发送触发 Agent 的新消息，或符合既有调度条件的 Heartbeat 到期
+- **THEN** Agent 在同一运行进程内正常处理本轮，先前未落盘的记录可继续写入
+- **AND** 空闲期间不发起专门的磁盘恢复检查或补跑失败的轮次。Inbox 待读和 Heartbeat 调度沿用原有规则。
 
 ### Requirement: 主模型因可用性失败时按有序备用链换模型，本轮继续回复
 
@@ -763,9 +771,18 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 - **WHEN** 用户提出知识讲解、条件探索、方案比较、草稿修改或信息提醒
 - **THEN** Agent 能组合适合的交互形式，并理解用户实际选择；不要求进入专用业务页面。
 
+#### Scenario: 用 UI 表达答复
+- **WHEN** Agent 选择用交互 UI 回答
+- **THEN** Agent 按内容选择便于读者理解的结构、图形或交互方式；普通、Global 与 PA 均可单独发送有效 UI。
+- **AND** 接收 Agent 的上下文将公开 UI 标为发送方的消息内容，提供源码和适用的消息替换引用，省略渲染协议元数据；无 UI、无正文的空回复仍被拒绝，既有权限、审核与回执语义不变。
+
+#### Scenario: 群内纯 UI 回复可投递
+- **WHEN** Agent 向群聊发布正文为空的有效 UI 回复
+- **THEN** 其他群内 Agent 按既有接收与提醒策略获得这条公开 UI，不因没有摘要而漏送；空白流式占位消息仍不作为回复转发。
+
 #### Scenario: 不支持交互的渠道
-- **WHEN** Agent 向其他客户端或外部 channel 交付包含交互的内容
-- **THEN** 用户得到可读文字摘要，原始界面源码不作为回复泄露。
+- **WHEN** Agent 向不支持交互的外部 channel 交付
+- **THEN** 使用可读文字答复；没有文字时明确拒绝，不把 UI 静默丢弃后发送空内容，也不泄露界面源码。
 
 ### Requirement: Intelligent UI Feature 可配置
 
@@ -778,7 +795,7 @@ Agent 启用 `plugin_manager` 后，可以在可信配置确定的 workspace 创
 - **GIVEN** Intelligent UI Feature 关闭，send_message 仍为固定或独立启用
 - **WHEN** 普通、Global 或 Personal Agent 使用显式合法 interactive 参数发布
 - **THEN** 不因 Feature 关闭而拒绝新卡片，仍执行既有 schema、身份权限、审批和交付检查；不反向恢复额外交互生成指导
-- **AND** 不支持交互的渠道保留文字摘要降级，历史卡片权限与提交行为不变
+- **AND** 不支持交互的外部渠道使用文字答复；支持交互的聊天不要求独立摘要，历史卡片权限与提交行为不变
 
 ### Requirement: 普通提问能主动获得适用交互表达
 
@@ -1077,6 +1094,11 @@ Gateway 为上述主会话构建可配置工具集时，以该 Agent 配置的 `
 - **WHEN** 审核经历长历史、子 Agent 委派、fork 或上下文重建
 - **THEN** 独立保留有界的完整真人原话与必要问答/回复背景、可信来源及顺序；对照实际模型可见上下文补送缺失单元，后续限制/撤回同样适用。
 - **AND** 父 Agent 转述、历史摘要、记忆和旧 allow 不产生新真人授权。
+
+#### Scenario: 子 Agent 启动后收到新授权或撤回
+- **WHEN** 原生子 Agent 的工具调用进入 Codex Auto 审核
+- **THEN** 从其绑定的根会话补入已接收的有界真人原话，保留消息来源和作用范围，覆盖委派之后收到的授权、限制和撤回。其他根会话的证据不参与该审核。
+- **AND** 模型审核期间这份证据发生变化时，旧判定失效，在现有预算内使用更新后的证据重审。无法确认所属根会话、无法完成重审或审核记录落盘期间证据再次变化时，按审核无结论处理。
 
 #### Scenario: 不完整原话
 - **WHEN** 原始指令无法在预算内完整提供或来源不全

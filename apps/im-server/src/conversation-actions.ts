@@ -334,6 +334,15 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           ids.set(m.id, copy.id);
         }
         for(const [source,target] of ids)db.prepare('INSERT INTO pa_delegated_messages(message_id,binding_id,agent_id,authorized_by,display_name,representation_operation_id) SELECT ?,binding_id,agent_id,authorized_by,display_name,representation_operation_id FROM pa_delegated_messages WHERE message_id=?').run(target,source);
+        for (const [source,target] of ids) {
+          const original=history.find(message=>message.id===source)!;
+          if (!original.reply_to_json) continue;
+          const quoted=JSON.parse(original.reply_to_json);
+          quoted.message_id=ids.get(quoted.message_id);
+          quoted.content=s.copyReferences(id,branch.id,quoted.content);
+          quoted.attachments=quoted.attachments.map((attachment:Row)=>({...attachment,url:s.copyReferences(id,branch.id,attachment.url)}));
+          db.prepare('UPDATE messages SET reply_to_json=? WHERE id=?').run(quoted.message_id?JSON.stringify(quoted):null,target);
+        }
         s.interactions.copy(ids);
         for (const [source, target] of ids) {
           const m = history.find((x) => x.id === source)!;

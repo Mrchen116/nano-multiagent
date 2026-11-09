@@ -1,3 +1,4 @@
+import {rejectDeletedExecution} from './agent-deletion.js';
 import { agentAvailable, canAccessSpace, bearer } from "./identity.js";
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
@@ -61,8 +62,9 @@ export class TrajectoryObservers {
   }
 
   private create(auth: Row, agentId: string, sessionId: string): Observer {
+    rejectDeletedExecution(this.ctx,this.ctx.identity.user(auth.user_id) ?? {},agentId,'session',sessionId);
     const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
-    if (!profile || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(this.ctx.identity.user(auth.user_id), profile.space_id)) throw new Error('该执行不可访问');
+    if (!profile || one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',agentId) || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(this.ctx.identity.user(auth.user_id), profile.space_id)) throw new Error('该执行不可访问');
     const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",agentId);
     if(personal && personal.owner_user_id!==auth.user_id)throw new Error("该执行不可访问");
     const selected = this.ctx.gateway.work.session(agentId, sessionId);
@@ -148,7 +150,7 @@ export class TrajectoryObservers {
 
   valid(observer: Observer): boolean {
     const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", observer.scope.rootAgentId);
-    if (!profile || !agentAvailable(this.ctx.db, profile) || profile.owner_id !== observer.scope.ownerId || !canAccessSpace(this.ctx.identity.user(observer.userId), profile.space_id)) return false;
+    if (!profile || one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',observer.scope.rootAgentId) || !agentAvailable(this.ctx.db, profile) || profile.owner_id !== observer.scope.ownerId || !canAccessSpace(this.ctx.identity.user(observer.userId), profile.space_id)) return false;
     const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",observer.scope.rootAgentId);
     if(personal && personal.owner_user_id!==observer.userId)return false;
     return this.ctx.gateway.nodes.get(observer.device.node_id) === observer.device && observer.device.socket.readyState === 1
@@ -156,6 +158,7 @@ export class TrajectoryObservers {
   }
 
   check(): void { for (const observer of this.observers.values()) if (!this.valid(observer)) this.close(observer.scope.observerId, 1008, '访问资格已失效'); }
+  closeAgent(id: string): void { for (const observer of this.observers.values()) if (observer.scope.rootAgentId === id) this.close(observer.scope.observerId, 1008, '执行记录正在清理'); }
   closeUser(id: string): void { for (const observer of this.observers.values()) if (observer.userId === id) this.close(observer.scope.observerId, 1008, '访问资格已失效'); }
   closeSession(id: string): void { for (const observer of this.observers.values()) if (observer.sessionId === id) this.close(observer.scope.observerId, 1008, '访问资格已失效'); }
   closeDevice(device: Connection): void { for (const observer of this.observers.values()) if (observer.device === device) this.close(observer.scope.observerId, 1011, '节点连接已中断'); }
@@ -206,6 +209,7 @@ export function registerTrajectorySockets(app: FastifyInstance, ctx: ImContext):
     const session = ctx.identity.accessSession(bearer(request));
     const sessionId = body(request).session_id;
     if (typeof sessionId !== 'string' || !sessionId) fail(422, 'session_id required');
+    rejectDeletedExecution(ctx,user,params(request).agent_id,'session',sessionId);
     ctx.identity.rateLimit('ws-ticket:' + session.sid, 10, 60);
     try { return ctx.gateway.trajectory.prepare({ user_id: user.id, session_id: session.sid }, params(request).agent_id, sessionId); }
     catch { fail(404, '该执行不可访问或节点离线'); }

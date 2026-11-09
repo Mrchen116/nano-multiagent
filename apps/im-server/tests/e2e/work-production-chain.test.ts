@@ -36,9 +36,15 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const runtime: RuntimePort = {
     onNotification: () => () => {},
     request: async (method, input) => {
-      const args = input as {afterSeq?: number; cursors?: Record<string, number>};
-      if (method === 'session.descendants') return [{kind: 'child', id: 'child', parentId: 'main', throughSeq: 4, modelVersion: 'done', events: child.filter(event => event.seq > (args.cursors?.child ?? -1))}];
-      return {events: source.filter(event => event.seq > (args.afterSeq ?? -1)), durable: true, status: 'idle', throughSeq: 7};
+      const args = input as {afterSeq?: number};
+      if (method === 'session.work.check') return {rootSettled:true};
+      if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'}]};
+      const isChild=method==='session.work.child';
+      const events=isChild ? child : source;
+      const after=args.afterSeq??-1;
+      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:7);
+      return {events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
+        modelRuns:[],modelVersion:'done',throughSeq,more:throughSeq<events.at(-1)!.seq};
     },
   };
   const makeProduct = (online: boolean) => new GlobalAgent({nodeId: node.node, ownerId: 'alice', agents: [{agentId: 'global', workspace: center.dir, revision: '1', provider: 'fixture', model: 'fixture-model', mode: 'global'}],
@@ -90,3 +96,61 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   expect(restored.body.revision).toBe(first.body.revision);
   expect(errors).toEqual([]);
 }, 30000);
+
+it('writes one plain-text Global message and attributes the actual relay receipt to its original turn', async () => {
+  const center=await start(),node=await bind(center);
+  const chat=await center.http('POST','/im/v1/conversations',{
+    title:'Publication receipt',type:'direct',participants:[{type:'agent',id:'global'}],
+  },center.tokens.alice);
+  expect(chat.status,chat.body).toBe(201);
+  const store=new NodeStore(join(center.dir,'publication-node.db'),'alice');
+  const inboxPath = join(center.dir,'publication-inbox.db');
+  let inbox = new InboxStore(inboxPath);
+  cleanups.push(()=>store.close(),()=>inbox.close());
+  store.bind({agentId:'global',sessionId:'publication-root',conversationId:'global:global',ownerId:'alice',cwd:center.dir,revision:'1'});
+  const events: RuntimeEvent[] = [
+    {seq:1,time:1,type:'turn/start',data:{turn:1}},
+    {seq:2,time:2,type:'turn/end',data:{turn:1,reason:{kind:'completed'}}},
+    {seq:4,time:4,type:'turn/start',data:{turn:3}},
+    {seq:5,time:5,type:'tool/call',data:{turn:3,callId:'send',name:'send_message',arguments:'{}'}},
+    {seq:6,time:6,type:'turn/end',data:{turn:3,reason:{kind:'completed'}}},
+  ];
+  const makeProduct = () => new GlobalAgent({nodeId:node.node,ownerId:'alice',agents:[{agentId:'global',workspace:center.dir,revision:'1',provider:'fixture',model:'fixture',mode:'global'}],
+    store,inbox,image:async()=>'',onError:error=>{throw error;},
+    runtime:{onNotification:()=>()=>{},request:async (method, params) => {
+      if (method === 'session.publication') {
+        expect(params).toMatchObject({sessionId:'publication-root',callId:'send',afterSeq:-1});
+        return {durable:true,call:{turn:3,seq:5},reads:[],throughSeq:5,head:5};
+      }
+      if (method === 'session.work.root') return {durable:true,events,throughSeq:6,more:false,modelRuns:[],modelVersion:'done'};
+      if (method === 'session.work.children') return {children:[]};
+      return {status:'idle'};
+    }},
+    relay:{request:(type,payload)=>node.frames.send(type,payload)}});
+  let product = makeProduct();
+  cleanups.push(()=>product.stop());
+  const text='已收到，按原计划执行。';
+  const call={method:'send_message',args:{target:chat.body.id,text},operationId:'publication-root:send',callId:'send',
+    sessionId:'publication-root',rootSessionId:'publication-root',agentId:'global',ownerId:'alice'};
+  const receipt=await product.call(call);
+  expect(receipt).toMatchObject({status:'sent',message_id:expect.any(String)});
+  expect(inbox.workCut(call.sessionId)).toBeUndefined();
+  expect(JSON.parse(inbox.publication(call.operationId)!.result!)).toMatchObject({conversation_id:chat.body.id});
+  expect(await product.call(call)).toEqual(receipt);
+  const messages=await center.http('GET',`/im/v1/conversations/${chat.body.id}/messages`,undefined,center.tokens.alice);
+  expect(messages.status,messages.body).toBe(200);
+  expect(messages.body.items).toMatchObject([{type:'message',message:{id:(receipt as {message_id:string}).message_id,content:text}}]);
+  expect(inbox.journal(0)).toEqual([]);
+
+  await product.stop(); inbox.close();
+  inbox = new InboxStore(inboxPath);
+  product = makeProduct();
+  await product.recover();
+  expect(inbox.journal(0).filter(row=>row.type==='message_sent')).toMatchObject([{turn_id:'3',payload:{text,call_id:'send'}}]);
+  const upload = await center.http('POST', `/im/v1/gateway/work-sync/journals/${inbox.journalId}/events`,
+    {from_seq:1,events:inbox.journal(0)}, node.runtime);
+  expect(upload.status, upload.body).toBe(200);
+  const work = await center.http('GET', '/im/v1/agents/global/work', undefined, center.tokens.alice);
+  expect(work.status, work.body).toBe(200);
+  expect(work.body.turns.map((turn: {turn_id:string}) => turn.turn_id)).toEqual(['3','1']);
+},20_000);

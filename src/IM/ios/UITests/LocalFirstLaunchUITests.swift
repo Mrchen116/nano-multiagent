@@ -370,6 +370,120 @@ final class LocalFirstLaunchUITests: XCTestCase {
         try requireFixture(app.textViews["Message"].value as? String == "", "Do not import a composer across services")
     }
 
+    func testPrimeRealExecutionForPermanentCleanup() throws {
+        app.launch()
+        defer { app.terminate() }
+        try signInFixture()
+        try openFixtureConversation()
+        let composer = app.textViews["Message"]
+        composer.tap(); composer.typeText(try required("NANO_UI_CLEANUP_TASK"))
+        app.buttons["Send"].tap()
+        let reply = message(try required("NANO_UI_CLEANUP_REPLY"))
+        try requireFixture(reply.waitForExistence(timeout: 150), "The synthetic Sol agent must actually read the owned fixture and reply")
+        let process = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Process (")).firstMatch
+        try requireFixture(process.waitForExistence(timeout: 15), "Prime real execution details, not merely synthetic ordinary text")
+        process.tap()
+        capture("cleanup-real-execution-before")
+        // This phase ends the process; it does not assert preservation of a reading anchor.
+    }
+
+    func testPermanentCleanupWhileCandidateConversationRemainsOpen() async throws {
+        let agent = try fixtureID("NANO_UI_CLEANUP_AGENT_ID")
+        let displayName = try required("NANO_UI_CLEANUP_AGENT_NAME")
+        app.launch()
+        defer { app.terminate() }
+        let candidateTitle = try required("NANO_UI_CANDIDATE_CHAT_TITLE")
+        let candidate = app.staticTexts[candidateTitle].firstMatch
+        try requireFixture(candidate.waitForExistence(timeout: 15), "The separate candidate conversation must be available")
+        candidate.tap()
+        let composer = app.textViews["Message"]
+        // Completion tokens cannot contain whitespace; the immutable Agent ID is a valid unique query.
+        let mentionQuery = "@" + agent
+        composer.tap(); composer.typeText(mentionQuery)
+        try requireFixture(composer.value as? String == mentionQuery, "Use the fixture's exact Agent ID as the mention query")
+        try requireFixture(app.staticTexts[displayName].firstMatch.waitForExistence(timeout: 5), "The soon-to-be-deleted member must positively exist as a mention candidate")
+        capture("cleanup-candidate-before")
+
+        let lifecycle = try await fixtureJSON("/im/v1/agents/\(agent)/lifecycle")
+        let revision = try XCTUnwrap(lifecycle["revision"] as? Int)
+        try await fixtureChange("/im/v1/agents/\(agent)/lifecycle", method: "PUT",
+                                body: ["request_id": "cleanup714-stop", "enabled": false, "expected_revision": revision], status: 202)
+        var stopped = false
+        let stopDeadline = Date().addingTimeInterval(40)
+        while Date() < stopDeadline {
+            let state = try await fixtureJSON("/im/v1/agents/\(agent)/lifecycle")
+            if state["desired"] as? String == "disabled", state["observed"] as? String == "disabled",
+               state["applied_revision"] as? Int == state["revision"] as? Int { stopped = true; break }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        try requireFixture(stopped, "The real owning Node must confirm stop before deletion")
+        let scope = try await fixtureJSON("/im/v1/agents/\(agent)/deletion")
+        try requireFixture(scope["eligible"] as? Bool == true, "Only the owned synthetic Agent is eligible")
+        try await fixtureChange("/im/v1/agents/\(agent)/deletion", method: "POST", body: [
+            "request_id": "cleanup714-delete", "expected_revision": try XCTUnwrap(scope["revision"] as? Int),
+            "expected_profile_version": try XCTUnwrap(scope["profile_version"] as? Int)
+        ], status: 202)
+        var deleted = false
+        let deleteDeadline = Date().addingTimeInterval(60)
+        while Date() < deleteDeadline {
+            let state = try await fixtureJSON("/im/v1/agents/\(agent)/deletion")
+            if (state["operation"] as? [String: Any])?["state"] as? String == "deleted" { deleted = true; break }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        try requireFixture(deleted, "Actual Node cleanup must complete; a submitted request is not success")
+        try requireFixture(app.staticTexts["No matching members"].waitForExistence(timeout: 20), "An already open conversation must stop offering the deleted Agent")
+        capture("cleanup-candidate-after")
+        // This fixture proves mention removal, not command removal without a loaded-command positive control.
+        composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: mentionQuery.count))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let chat = app.staticTexts[try required("NANO_UI_CHAT_TITLE")].firstMatch
+        try requireFixture(chat.waitForExistence(timeout: 10), "Cleanup preserves access and conversation identity")
+        chat.tap()
+        try assertExecutionCleaned()
+        capture("cleanup-online-timeline-after")
+    }
+
+    func testOfflineRelaunchCannotReviveDeletedExecution() throws {
+        app.launch()
+        defer { app.terminate() }
+        let chat = app.staticTexts[try required("NANO_UI_CHAT_TITLE")].firstMatch
+        try requireFixture(chat.waitForExistence(timeout: 5), "The cleaned conversation remains available from disk")
+        try requireFixture(!app.textFields["Enter your username"].exists, "Offline cleanup is not an account sign-out")
+        capture("cleanup-offline-list")
+        chat.tap()
+        try assertExecutionCleaned()
+        capture("cleanup-offline-timeline")
+    }
+
+    private func assertExecutionCleaned() throws {
+        let reply = message(try required("NANO_UI_CLEANUP_REPLY"))
+        for _ in 0..<6 {
+            if reply.exists && reply.isHittable { break }
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        try requireFixture(reply.waitForExistence(timeout: 10) && reply.isHittable, "Retain the full ordinary Agent reply visibly after execution cleanup")
+        try requireFixture(!app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Process (")).firstMatch.exists,
+                           "Old thinking and tool process must not reappear beside the retained reply")
+        let ordinary = message(try required("NANO_UI_MESSAGE"))
+        for _ in 0..<10 {
+            if ordinary.exists && ordinary.isHittable { break }
+            app.scrollViews.firstMatch.swipeDown()
+        }
+        try requireFixture(ordinary.exists && ordinary.isHittable, "Keep earlier ordinary chat history visibly readable as well as the latest reply")
+    }
+
+    private func fixtureJSON(_ path: String) async throws -> [String: Any] {
+        let origin = try required("NANO_UI_ORIGIN")
+        let url = try XCTUnwrap(URL(string: origin + path))
+        try requireFixture(url.scheme == "http" && url.host == "127.0.0.1" && url.port != nil, "Only query the owned loopback fixture")
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("Bearer " + (try required("NANO_UI_FIXTURE_OPERATOR_TOKEN")), forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try requireFixture((response as? HTTPURLResponse)?.statusCode == 200, "Read the real fixture's business status")
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
     private func signInFixture() throws {
         let username = app.textFields["Enter your username"]
         try requireFixture(username.waitForExistence(timeout: 10), "Begin with the dedicated fixture's sign-in form")

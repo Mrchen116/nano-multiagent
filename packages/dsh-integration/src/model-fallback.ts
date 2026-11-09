@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import type { ModelRunProjection } from '@nano/product-contracts';
 import {
   defineDomain,
   domainTable,
@@ -13,6 +15,7 @@ import { z } from 'zod';
 import type { AgentConfiguration } from './index.js';
 import type { ModelRoute } from './model-policy.js';
 import { inputEvidence, inputIdsForTurn } from './input-evidence.js';
+import { RecordWrites } from './record-writes.js';
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -110,27 +113,29 @@ export class ModelFallback {
   private readonly storage: Promise<Domain<RunDomain>>;
   private readonly runs = new Map<string, ModelRun>();
   private readonly runsBySession = new Map<string, Map<string, ModelRun>>();
+  private readonly workModels = new Map<string, {byTurn: Map<number, ModelRunProjection>; hashes: Map<string, bigint>; digest: bigint}>();
   readonly ready: Promise<void>;
   private readonly agents = new Map<string, { agent: Agent; config: AgentConfiguration }>();
   private readonly tasks = new Map<string, Promise<void>>();
   private readonly epochs = new Map<string, number>();
-  private writes: Promise<void> = Promise.resolve();
-  private pendingWrites = 0;
-  private failure: unknown;
+  private readonly writes: RecordWrites<ModelRun>;
   private stopped = false;
   constructor(
     private readonly ctx: Context,
     private readonly host: Host,
   ) {
     this.storage = ctx.storageDomain.open(modelRunsDomain);
-    this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.remember(this.runs.get(run.id) ?? run); });
+    this.writes = new RecordWrites(async (id, snapshot) => {
+      await (await this.storage).table('runs').put(key(id), snapshot);
+    });
+    this.ready = this.storage.then(storage => { for (const [,record] of storage.table('runs').entries()) { const run=this.runs.get(record.id) ?? record; this.remember(run); this.updateWorkModel(run); } });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
       if (item) this.observe(item.agent, item.config, event);
     });
   }
   /** Includes continuation work that may outlive the public Agent running state. */
-  get busy(): boolean { return this.pendingWrites > 0 || this.tasks.size > 0 || [...this.runs.values()].some(run => run.state !== 'completed'); }
+  get busy(): boolean { return this.writes.busy || this.tasks.size > 0 || [...this.runs.values()].some(run => run.state !== 'completed'); }
   async attach(agent: Agent, config: AgentConfiguration) {
     this.agents.set(agent.id, { agent, config });
     await this.ready;
@@ -149,6 +154,7 @@ export class ModelFallback {
           active.attempts.push({ turn: consumed.turn!, route: active.pending.route });
           active.state = 'running';
           delete active.pending;
+          this.updateWorkModel(active);
           const terminal = history.findLast((event) => event.type === 'turn/end' && event.data.turn === consumed.turn);
           if (terminal) this.observe(agent, config, terminal);
         } else if (
@@ -174,6 +180,33 @@ export class ModelFallback {
     if (!runs) { runs = new Map(); this.runsBySession.set(run.sessionId, runs); }
     runs.set(run.id, run);
   }
+
+  /** Return immutable Work metadata, excluding the retry's model input and other internal state. */
+  workModel(sessionId: string, turn: number): ModelRunProjection | undefined {
+    return this.workModels.get(sessionId)?.byTurn.get(turn);
+  }
+
+  /** Order-independent version of the projected model runs, stable across reload. */
+  workVersion(sessionId: string): string {
+    const state = this.workModels.get(sessionId);
+    return `work:${state?.hashes.size ?? 0}:${state?.digest.toString(16) ?? '0'}`;
+  }
+
+  private updateWorkModel(run: ModelRun): void {
+    const {id, sessionId, turn, state, attempts, terminal, switched} = run;
+    const projection: ModelRunProjection = structuredClone({id, sessionId, turn, state, terminal, switched,
+      attempts: attempts.map(({turn, route:{provider, model}, error}) => ({turn, route:{provider, model}, error}))});
+    let index = this.workModels.get(sessionId);
+    if (!index) {
+      index = {byTurn:new Map(), hashes:new Map(), digest:0n};
+      this.workModels.set(sessionId, index);
+    }
+    const hash = BigInt('0x' + createHash('sha256').update(JSON.stringify(projection)).digest('hex'));
+    index.digest ^= (index.hashes.get(id) ?? 0n) ^ hash;
+    index.hashes.set(id, hash);
+    for (const attempt of projection.attempts) index.byTurn.set(attempt.turn, projection);
+  }
+
   evidence(agent: Agent, inputId: string) {
     const evidence = inputEvidence(agent.session.snapshotEvents(), inputId);
     const run = this.list(agent.id).findLast((run) => run.inputs.includes(inputId));
@@ -207,24 +240,15 @@ export class ModelFallback {
       }
   }
   async checkpoint() {
-    await this.writes;
-    if (this.failure) throw this.failure;
+    await this.writes.flush();
   }
   allowed(agent: Agent, messages: UserMessage[]) {
     const runs = this.list(agent.id);
     return messages.filter((message) => !runs.some((run) => run.withdrawn?.includes(message.id)));
   }
   private save(run: ModelRun) {
-    this.pendingWrites++;
-    const snapshot = structuredClone(run);
-    const task = this.writes.then(async () => {
-      if (this.failure) throw this.failure;
-      await (await this.storage).table('runs').put(key(run.id), snapshot);
-    }).finally(() => { this.pendingWrites--; });
-    this.writes = task.catch((error) => {
-      this.failure ??= error;
-    });
-    return task;
+    this.updateWorkModel(run);
+    return this.writes.put(run.id, structuredClone(run));
   }
   private finish(run: ModelRun, terminal: unknown) {
     run.state = 'completed';
@@ -309,7 +333,7 @@ export class ModelFallback {
       run.switched = route.model;
       this.host.select(agent, undefined);
       this.finish(run, reason);
-      await this.writes;
+      await this.writes.settled();
     })().catch((error) => {
       this.finish(run, { kind: 'error', error: { code: 'PERSISTENCE', message: String(error) } });
     });
@@ -332,6 +356,9 @@ export class ModelFallback {
       if (!valid()) return;
       await agent.runMaintenance(async (signal) => {
         if (!valid() || signal.aborted) return;
+        // Recovery must see the failed native turn as well as its switching sidecar.
+        if (!(await this.ctx.sessions.flush(agent.session)))
+          throw new Error('Fallback turn has no persistence barrier');
         await this.checkpoint();
         if (!valid() || signal.aborted) return;
         const published = await this.host.check(agent, run);
@@ -411,11 +438,21 @@ export class ModelFallback {
     }
     await this.checkpoint();
   }
+  /** Discard snapshots and in-memory records for the retired Sessions. */
+  async forget(sessionIds: ReadonlySet<string>): Promise<void> {
+    await this.writes.forget((_, run) => sessionIds.has(run.sessionId));
+    for (const id of sessionIds) {
+      for (const run of this.list(id)) this.runs.delete(run.id);
+      this.runsBySession.delete(id);
+      this.workModels.delete(id);
+      this.epochs.delete(id);
+    }
+  }
   async stop() {
     this.stopped = true;
     for (const { agent } of this.agents.values()) this.interrupt(agent);
     await Promise.allSettled(this.tasks.values());
-    await this.writes;
+    await this.writes.settled();
     await (await this.storage).close();
   }
 }

@@ -716,12 +716,12 @@ final class ChatRepositoryTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func open(_ location: ChatStorageLocation? = nil) throws -> ChatRepository {
+    func open(_ location: ChatStorageLocation? = nil) throws -> ChatRepository {
         try ChatRepository.open(partition, location: location ?? ChatStorageLocation.directory(root.appendingPathComponent("db", isDirectory: true)),
                                 legacyAttemptRoot: legacyRoot)
     }
 
-    private func conversation(_ id: String, title: String = "Chat", canWrite: Bool = true,
+    func conversation(_ id: String, title: String = "Chat", canWrite: Bool = true,
                               dissolvedAt: String? = nil, unread: Int = 0) -> Conversation {
         let actor = ActorRef(type: "user", id: "u1", display_name: "U1", user_id: "u1", is_stale: nil)
         return Conversation(id: id, title: title, participants: [actor], participant_ids: ["u1"],
@@ -732,14 +732,14 @@ final class ChatRepositoryTests: XCTestCase {
                             is_member: true, can_write: canWrite)
     }
 
-    private func item(_ message: ChatMessage) -> TimelineItem { TimelineItem(type: "message", message: message) }
+    func item(_ message: ChatMessage) -> TimelineItem { TimelineItem(type: "message", message: message) }
 
-    private func attempt(_ conversationID: String, _ key: String) -> SendAttempt {
+    func attempt(_ conversationID: String, _ key: String) -> SendAttempt {
         SendAttempt(conversationID: conversationID, sourceMessageID: nil,
                     draft: PendingSend(key: key, content: "unsent", attachments: [], requestBody: Data("{}".utf8)))
     }
 
-    private func message(_ n: Int, createdAt: String? = nil, conversation: String = "a",
+    func message(_ n: Int, createdAt: String? = nil, conversation: String = "a",
                          extra: [String: Any] = [:]) throws -> ChatMessage {
         var payload: [String: Any] = ["id": "m\(n)", "conversation_id": conversation,
                                       "sender": ["type": "user", "id": "u1", "display_name": "U1"],

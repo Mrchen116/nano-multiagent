@@ -16,6 +16,7 @@ import { useTranslation } from "../../i18n";
 import { colorForAgent } from "./components/avatar";
 import {
   getConversation,
+  getMessageDetail,
   joinConversation,
   listPublicConversations,
   addParticipants,
@@ -40,6 +41,7 @@ import {
   toChatWsEvent,
   type ConversationState
 } from "./chat-stream-reducer";
+import { retireChatReadCache } from "./chat-read-cache";
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { subscribeUserStream } from "../../realtime/user-stream";
@@ -84,6 +86,10 @@ import { InteractionSubmissionError } from "./interactive/submission-error";
 
 const HISTORY_PAGE_SIZE = 50;
 
+function isAccessDenied(error: unknown): boolean {
+  return [401, 403, 404].includes((error as { status?: number } | null)?.status ?? 0);
+}
+
 type ChatWorkspaceError = {
   conversationId: string;
   kind: "send" | "access";
@@ -110,6 +116,9 @@ function mergeBackgroundReturns(
 
 export function mergeMessageWithExisting(message: Message, existing?: Message): Message {
   let out = message;
+  if (message.process_summary && existing) {
+    out = { ...out, tool_calls: existing.tool_calls, thinking: existing.thinking };
+  }
   if (!message.token_usage && existing?.token_usage) {
     out = {
       ...out,
@@ -159,9 +168,11 @@ function streamReducer(
   action:
     | { type: "reset"; conversationId: string; timeline: TimelineItem[]; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
     | { type: "prepend_history"; timeline: TimelineItem[] }
+    | { type: "retire_history"; conversationId: string }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
     | { type: "append_optimistic"; message: Message }
 ): ConversationState {
+  if (action.type === "retire_history") return { ...emptyConversationState, conversation_id: action.conversationId };
   if (action.type === "reset" || action.type === "prepend_history") {
     const targetConversationId = action.type === "reset" ? action.conversationId : state.conversation_id;
     if (targetConversationId === null) return state;
@@ -301,7 +312,9 @@ export function ChatWorkspacePage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const locatorMessageId = new URLSearchParams(location.search).get("message_id");
+  const explicitLocator = new URLSearchParams(location.search).get("message_id");
+  const [cleanupAnchor, setCleanupAnchor] = useState<{conversationId: string; messageId: string} | null>(null);
+  const locatorMessageId = explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
   const workReturnUrl = typeof location.state?.workReturnUrl === "string" ? location.state.workReturnUrl : null;
   const [locatorNotice, setLocatorNotice] = useState("");
   const locatedRef = useRef("");
@@ -310,7 +323,10 @@ export function ChatWorkspacePage() {
   const queryClient = useQueryClient();
   useEffect(() => { queryClient.setQueryDefaults(['chat', 'sidebar-search'], {gcTime:Infinity}); }, [queryClient]);
   const { t, i18n } = useTranslation();
-  const [membershipReady, setMembershipReady] = useState(true);
+  const [checkingMembership, setCheckingMembership] = useState<string | null>(null);
+  const membershipReady = checkingMembership !== conversationId;
+  const deniedConversation = useRef<string | undefined>(undefined);
+  const membershipCheck = useRef(0);
   const [showNewChat, setShowNewChat] = useState(false);
   const [showPersonalAgentSetup, setShowPersonalAgentSetup] = useState(false);
   const [showPublicGroups, setShowPublicGroups] = useState(false);
@@ -349,20 +365,30 @@ export function ChatWorkspacePage() {
   const localConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
 
   const publicGroupsQuery = useQuery({ queryKey: ["chat", "public-groups"], queryFn: listPublicConversations, enabled: showPublicGroups });
-  const conversationDetailQuery = useQuery({ queryKey: ["chat", "conversation-detail", conversationId], queryFn: () => getConversation(conversationId!), enabled: Boolean(conversationId && membershipReady && conversationsQuery.isSuccess && !conversationsQuery.data?.some(chat => chat.id === conversationId)), refetchInterval: () => document.visibilityState === "visible" ? 3000 : false, retry: false });
-  const activeConversation: Conversation | null = useMemo(() => {
-    if (!conversationId || !membershipReady) return null;
-    return conversationsQuery.data?.find((c) => c.id === conversationId) ?? (conversationDetailQuery.isError ? null : conversationDetailQuery.data ?? null);
-  }, [conversationId, conversationsQuery.data, conversationDetailQuery.data, conversationDetailQuery.isError, membershipReady]);
-
-  const messagesQuery = useQuery({
-    enabled: Boolean(conversationId && activeConversation),
-    queryKey: ["chat", "messages", conversationId],
-    queryFn: ({signal}) => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, signal }),
-    refetchInterval: () => activeConversation?.is_member === false && document.visibilityState === "visible" ? 3000 : false,
-    refetchOnWindowFocus: false,
-    retry: (count, error) => ![403,404].includes((error as Error & {status?: number}).status ?? 0) && count < 3
+  const conversationDetailQuery = useQuery({
+    queryKey: ["chat", "conversation-detail", conversationId, selfUserId],
+    queryFn: ({signal}) => getConversation(conversationId!, signal),
+    enabled: Boolean(conversationId && selfUserId && membershipReady && deniedConversation.current !== conversationId),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchInterval: query => query.state.data?.is_member === false && document.visibilityState === "visible" ? 3000 : false,
+    retry: false
   });
+
+  const cleanupRevisions = useRef(new Map<string, number>());
+  const [observedCleanup, setObservedCleanup] = useState<Record<string, number>>({});
+  const cleanupRevision = conversationId ? observedCleanup[conversationId] ?? 0 : 0;
+  const messagesQuery = useQuery({
+    enabled: Boolean(conversationId && selfUserId && membershipReady && deniedConversation.current !== conversationId && !isAccessDenied(conversationDetailQuery.error)),
+    queryKey: cleanupRevision ? ["chat", "messages", conversationId, cleanupRevision] : ["chat", "messages", conversationId],
+    queryFn: ({signal}) => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, view: "summary", signal }),
+    refetchInterval: () => conversationDetailQuery.data?.is_member === false && document.visibilityState === "visible" ? 3000 : false,
+    refetchOnWindowFocus: false,
+    retry: (count, error) => !isAccessDenied(error) && count < 3
+  });
+  const accessDenied = isAccessDenied(conversationDetailQuery.error) || isAccessDenied(messagesQuery.error);
+  const activeConversation = membershipReady && deniedConversation.current !== conversationId && !accessDenied && conversationDetailQuery.isFetchedAfterMount && conversationDetailQuery.isSuccess
+    ? conversationDetailQuery.data ?? null : null;
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState<boolean | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -410,7 +436,7 @@ export function ChatWorkspacePage() {
 
   const mentionCandidates = useMemo(() => {
     if (!activeConversation) return [];
-    return activeConversation.participants.filter((p) => p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
+    return activeConversation.participants.filter((p) => !p.is_deleted && p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
       user_id: p.user_id || p.id,
       agent_id: p.type === "agent" ? p.id : undefined,
       display_name: p.display_name || p.user_id || p.id,
@@ -421,7 +447,7 @@ export function ChatWorkspacePage() {
 
   const slashCandidatesQuery = useQuery({
     enabled: !!activeConversation,
-    queryKey: ["chat", "slash-candidates", selfUserId, conversationId],
+    queryKey: cleanupRevision ? ["chat", "slash-candidates", selfUserId, conversationId, cleanupRevision] : ["chat", "slash-candidates", selfUserId, conversationId],
     queryFn: async () => {
       const agents = await getConversationCommands(conversationId!);
       return {
@@ -509,7 +535,7 @@ export function ChatWorkspacePage() {
         isSelf: p.type === "user" && userId === selfUserId,
         isCreator: userId != null && userId === activeConversation.creator_id,
         status,
-        isStale: p.is_stale ?? null
+        isStale: p.is_deleted || p.is_stale || null
       };
     });
   }, [activeConversation, contactsQuery.data, selfUserId]);
@@ -535,23 +561,66 @@ export function ChatWorkspacePage() {
   // browser tabs — which triggers React Query refetchOnWindowFocus — does not
   // wipe token chips.  REST history never carries token_usage; only WS
   // message.completed provides it.  The cache survives across resets.
-  const tokenUsageCache = useRef(new Map<string, { token_usage: NonNullable<Message["token_usage"]>; delivery_status: Message["delivery_status"] }>());
+  const tokenUsageCache = useRef(new Map<string, { conversationId: string; token_usage: NonNullable<Message["token_usage"]>; delivery_status: Message["delivery_status"] }>());
+
+  function visibleReadingAnchor() {
+    const viewport = chatRootRef.current?.querySelector(".chat-pane-messages");
+    if (!viewport || viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 80) return null;
+    const top = viewport.getBoundingClientRect().top;
+    return Array.from(viewport.querySelectorAll<HTMLElement>("[data-message-id]"))
+      .find(row => row.getBoundingClientRect().bottom > top)?.dataset.messageId ?? null;
+  }
+
+  function observeExecutionCleanup(id: string, revision = 0, priorAnchor?: string | null) {
+    if (!Number.isSafeInteger(revision) || revision <= (cleanupRevisions.current.get(id) ?? 0)) return false;
+    cleanupRevisions.current.set(id, revision);
+    setObservedCleanup(current => ({ ...current, [id]: revision }));
+    if (historyRequestRef.current?.conversationId === id) {
+      historyRequestRef.current.controller.abort();
+      historyRequestRef.current = null;
+    }
+    for (const [messageId, usage] of tokenUsageCache.current) {
+      if (usage.conversationId === id) tokenUsageCache.current.delete(messageId);
+    }
+    // Old query generations can never seed the active stream again.
+    retireChatReadCache(queryClient, id, revision);
+    if (conversationIdRef.current === id) {
+      const messageId = priorAnchor ?? visibleReadingAnchor();
+      setCleanupAnchor(messageId ? { conversationId: id, messageId } : null);
+      pendingLiveMessageIdsRef.current.clear();
+      pendingDiscardedMessageIdsRef.current.clear();
+      setHistoryCursor(null);
+      setHasMoreHistory(null);
+      setIsLoadingHistory(false);
+      dispatch({ type: "retire_history", conversationId: id });
+    }
+    return true;
+  }
 
   // Whenever the stream receives a completed message with token_usage, write
   // it into the persistent cache.
   useEffect(() => {
     for (const m of streamState.messages) {
       if (m.token_usage && m.delivery_status === "completed") {
-        tokenUsageCache.current.set(m.id, { token_usage: m.token_usage, delivery_status: m.delivery_status });
+        tokenUsageCache.current.set(m.id, { conversationId: m.conversation_id, token_usage: m.token_usage, delivery_status: m.delivery_status });
       }
     }
   }, [streamState.messages]);
 
-  const visibleTimeline = streamState.conversation_id === conversationId
+  useEffect(() => {
+    for (const chat of conversationsQuery.data ?? []) observeExecutionCleanup(chat.id, chat.execution_cleanup_revision);
+    if (activeConversation) observeExecutionCleanup(activeConversation.id, activeConversation.execution_cleanup_revision);
+  }, [conversationsQuery.data, activeConversation]);
+
+  const visibleTimeline = streamState.conversation_id === conversationId &&
+    (activeConversation?.execution_cleanup_revision ?? 0) <= cleanupRevision &&
+    (messagesQuery.data?.execution_cleanup_revision ?? 0) <= cleanupRevision
     ? streamState.timeline ?? []
     : [];
 
   useEffect(() => {
+    historyRequestRef.current?.controller.abort();
+    if (deniedConversation.current !== conversationId) deniedConversation.current = undefined;
     conversationIdRef.current = conversationId;
     setHistoryCursor(null);
     setHasMoreHistory(null);
@@ -568,7 +637,9 @@ export function ChatWorkspacePage() {
   // historical fetch changes.  Prefer the persistent cache, then fallback to
   // the current reducer state.
   useEffect(() => {
-    if (!conversationId || !messagesQuery.data) return;
+    if (!conversationId || !activeConversation || !messagesQuery.data) return;
+    const pageRevision = messagesQuery.data.execution_cleanup_revision ?? 0;
+    if (observeExecutionCleanup(conversationId, pageRevision) || pageRevision !== (cleanupRevisions.current.get(conversationId) ?? 0)) return;
     setHistoryCursor(messagesQuery.data.next_before_message_id);
     setHasMoreHistory(messagesQuery.data.next_before_message_id !== null);
     const restored = messagesQuery.data.items.map((item): TimelineItem => {
@@ -592,10 +663,10 @@ export function ChatWorkspacePage() {
     dispatch({ type: "reset", conversationId, timeline: restored, preserveMessageIds, discardedMessageIds });
     pendingLiveMessageIdsRef.current.clear();
     pendingDiscardedMessageIdsRef.current.clear();
-  }, [conversationId, messagesQuery.data]);
+  }, [conversationId, Boolean(activeConversation), messagesQuery.data]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!conversationId || !historyCursor || hasMoreHistory !== true || isLoadingHistory) return;
+    if (!conversationId || !activeConversation || !historyCursor || hasMoreHistory !== true || isLoadingHistory) return;
     const request = historyRequestRef.current;
     if (request?.conversationId === conversationId && request.cursor === historyCursor) return;
     const controller = new AbortController();
@@ -605,9 +676,12 @@ export function ChatWorkspacePage() {
       const page = await listMessages(conversationId, {
         limit: HISTORY_PAGE_SIZE,
         beforeMessageId: historyCursor,
+        view: "summary",
         signal: controller.signal
       });
       if (conversationIdRef.current !== conversationId || controller.signal.aborted) return;
+      const pageRevision = page.execution_cleanup_revision ?? 0;
+      if (observeExecutionCleanup(conversationId, pageRevision) || pageRevision !== (cleanupRevisions.current.get(conversationId) ?? 0)) return;
       dispatch({ type: "prepend_history", timeline: page.items });
       setHistoryCursor(page.next_before_message_id);
       setHasMoreHistory(page.next_before_message_id !== null);
@@ -624,7 +698,7 @@ export function ChatWorkspacePage() {
         setIsLoadingHistory(false);
       }
     }
-  }, [conversationId, hasMoreHistory, historyCursor, isLoadingHistory]);
+  }, [conversationId, Boolean(activeConversation), hasMoreHistory, historyCursor, isLoadingHistory, queryClient]);
 
   useEffect(() => {
     locatedRef.current = "";
@@ -636,10 +710,10 @@ export function ChatWorkspacePage() {
 
   useEffect(() => {
     if (!locatorMessageId || !conversationId || locatedRef.current === `${conversationId}:${locatorMessageId}`) return;
-    if (messagesQuery.isError || (conversationsQuery.isSuccess && !activeConversation)) {
+    if (messagesQuery.isError || conversationDetailQuery.isError) {
       setLocatorNotice("无法读取此聊天"); return;
     }
-    if (messagesQuery.isLoading || hasMoreHistory === null || isLoadingHistory) return;
+    if (!activeConversation || messagesQuery.isLoading || hasMoreHistory === null || isLoadingHistory) return;
     const messageExists = streamState.messages.some(message => message.id === locatorMessageId);
     if (!messageExists) {
       if (hasMoreHistory) {
@@ -654,62 +728,104 @@ export function ChatWorkspacePage() {
       const element = Array.from(chatRootRef.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(node => node.dataset.messageId === locatorMessageId);
       if (!element) return;
       element.scrollIntoView?.({ block: "center", behavior: "instant" });
-      element.classList.add("im-work-message-target");
-      element.tabIndex = -1;
-      element.focus({ preventScroll: true });
       locatedRef.current = `${conversationId}:${locatorMessageId}`;
-      setLocatorNotice("已定位原消息");
+      if (explicitLocator) {
+        element.classList.add("im-work-message-target");
+        element.tabIndex = -1;
+        element.focus({ preventScroll: true });
+        setLocatorNotice("已定位原消息");
+      } else {
+        setLocatorNotice("");
+        setCleanupAnchor(null);
+      }
     });
     return () => cancelAnimationFrame(frame);
-  }, [locatorMessageId, conversationId, messagesQuery.isError, messagesQuery.isLoading, messagesQuery.data, conversationsQuery.isSuccess, activeConversation, hasMoreHistory, isLoadingHistory, streamState.messages, loadOlderMessages]);
+  }, [locatorMessageId, explicitLocator, conversationId, messagesQuery.isError, messagesQuery.isLoading, messagesQuery.data, conversationDetailQuery.isError, activeConversation, hasMoreHistory, isLoadingHistory, streamState.messages, loadOlderMessages]);
 
   // Captures the latest sendersById via a ref so a fresh agents fetch becomes
   // visible to in-flight reducer dispatches without recreating the user stream.
   const sendersByIdRef = useRef(sendersById);
   sendersByIdRef.current = sendersById;
 
-  async function reconcileMembership(conversations: Conversation[]) {
+  function retireConversationReads(id: string) {
+    retireChatReadCache(queryClient, id);
+    if (historyRequestRef.current?.conversationId === id) {
+      historyRequestRef.current.controller.abort();
+      historyRequestRef.current = null;
+    }
+    for (const [messageId, usage] of tokenUsageCache.current) {
+      if (usage.conversationId === id) tokenUsageCache.current.delete(messageId);
+    }
+    if (conversationIdRef.current !== id) return;
+    pendingLiveMessageIdsRef.current.clear();
+    pendingDiscardedMessageIdsRef.current.clear();
+    setHistoryCursor(null);
+    setHasMoreHistory(null);
+    setIsLoadingHistory(false);
+    dispatch({ type: "retire_history", conversationId: id });
+  }
+
+  function closeDeniedConversation(id: string) {
+    deniedConversation.current = id;
+    retireConversationReads(id);
+    queryClient.setQueryData<Conversation[]>(["chat", "conversations"], rows => rows?.filter(c => c.id !== id));
+    forgetComposerConversation(composerStoreFor(useAuthStore.getState().user?.id ?? null), id);
+    setShowGroupSettings(false);
+    setWorkspaceError({ conversationId: "", kind: "access", message: i18n.language.startsWith("zh") ? "此聊天已不可访问。" : "This conversation is no longer accessible." });
+    navigate("/chat", { replace: true });
+  }
+
+  async function refreshSidebarMembership(priorAnchor?: string | null) {
+    const key = ["chat", "conversations"];
+    const cached = queryClient.getQueryData<Conversation[]>(key) ?? [];
+    const account = useAuthStore.getState().user?.id;
+    const conversations = await queryClient.fetchQuery({ queryKey: key, queryFn: listConversations, retry: false });
+    if (useAuthStore.getState().user?.id !== account) return;
+    for (const chat of conversations) observeExecutionCleanup(chat.id, chat.execution_cleanup_revision, priorAnchor);
     const allowed = new Set(conversations.map(c => c.id));
-    const cached = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]) ?? [];
     for (const previous of cached) {
-      if (allowed.has(previous.id)) continue;
-      if (historyRequestRef.current?.conversationId === previous.id) { historyRequestRef.current.controller.abort(); historyRequestRef.current = null; }
-      await queryClient.cancelQueries({ queryKey: ["chat", "messages", previous.id] });
-      queryClient.removeQueries({ queryKey: ["chat", "messages", previous.id] });
-      forgetComposerConversation(composerStoreFor(useAuthStore.getState().user?.id ?? null), previous.id);
+      if (allowed.has(previous.id) || conversationIdRef.current === previous.id) continue;
+      retireConversationReads(previous.id);
+      forgetComposerConversation(composerStoreFor(account ?? null), previous.id);
     }
-    restoreComposerMembership(composerStoreFor(useAuthStore.getState().user?.id ?? null), allowed);
-    queryClient.setQueryData(["chat", "conversations"], conversations);
+    restoreComposerMembership(composerStoreFor(account ?? null), allowed);
+  }
+
+  async function recheckActiveMembership() {
     const active = conversationIdRef.current;
-    if (active && !allowed.has(active)) {
-      try {
-        const readable = await getConversation(active);
-        queryClient.setQueryData(["chat", "conversation-detail", active], readable);
-        await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
-        return;
-      } catch {
-        queryClient.removeQueries({ queryKey: ["chat", "conversation-detail", active] });
-      }
-      tokenUsageCache.current.clear();
-      pendingLiveMessageIdsRef.current.clear();
-      pendingDiscardedMessageIdsRef.current.clear();
-      dispatch({ type: "reset", conversationId: active, timeline: [] });
-      setShowGroupSettings(false);
-      navigate("/chat", { replace: true });
-    } else if (active) {
-      await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
+    const account = useAuthStore.getState().user?.id;
+    const check = ++membershipCheck.current;
+    if (!active || !account) {
+      setCheckingMembership(null);
+      return;
     }
+    const current = () => membershipCheck.current === check &&
+      conversationIdRef.current === active && useAuthStore.getState().user?.id === account;
+    setCheckingMembership(active);
+    const key = ["chat", "conversation-detail", active, account];
+    await queryClient.cancelQueries({ queryKey: key });
+    if (!current()) {
+      if (membershipCheck.current === check) setCheckingMembership(null);
+      return;
+    }
+    try {
+      await queryClient.fetchQuery({
+        queryKey: key,
+        queryFn: ({signal}) => getConversation(active, signal),
+        staleTime: 0,
+        retry: false
+      });
+    } catch (error) {
+      if (current() && isAccessDenied(error)) closeDeniedConversation(active);
+      else if (current()) throw error;
+    }
+    if (membershipCheck.current === check) setCheckingMembership(null);
+    if (current()) await queryClient.invalidateQueries({ queryKey: ["chat", "messages", active] });
   }
 
   useEffect(() => {
-    if (!activeConversation?.is_observer || ![403,404].includes((messagesQuery.error as (Error & {status?: number}) | null)?.status ?? 0)) return;
-    // Owner changes keep the login valid, so a denied read must retire cached content too.
-    void listConversations().catch(() => (queryClient.getQueryData<Conversation[]>(["chat", "conversations"]) ?? []).filter(c => c.id !== activeConversation.id)).then(async chats => {
-      if (conversationIdRef.current !== activeConversation.id) return;
-      await reconcileMembership(chats);
-      setWorkspaceError({ conversationId: "", kind: "access", message: i18n.language.startsWith("zh") ? "此聊天已不可访问。" : "This conversation is no longer accessible." });
-    }).catch(() => undefined);
-  }, [messagesQuery.error, activeConversation?.id, activeConversation?.is_observer]);
+    if (conversationId && membershipReady && accessDenied) closeDeniedConversation(conversationId);
+  }, [accessDenied, conversationId, membershipReady]);
 
   // Subscribe to owner-scoped status events so all node/agent status indicators
   // in the Chat workspace (Node chip, sidebar status dot, mention candidate
@@ -717,28 +833,36 @@ export function ChatWorkspacePage() {
   // Mirrors the pattern used by nodes-page.tsx and agent-status-ws-consumer.ts.
   useEffect(() => {
     const dispose = subscribeUserStream({
-      onRecovery: async () => {
-        setMembershipReady(false);
-        const conversations = await listConversations();
-        await reconcileMembership(conversations);
-        setMembershipReady(true);
+      onRecovery: async snapshot => {
+        const priorAnchor = visibleReadingAnchor();
+        for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) {
+          observeExecutionCleanup(id, revision, priorAnchor);
+        }
+        // The selected chat is reauthorized independently before stream replay.
+        void refreshSidebarMembership(priorAnchor).catch(() => {});
+        await recheckActiveMembership();
         await queryClient.invalidateQueries({ queryKey: ["contacts"] });
         await queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
-        const id = conversationIdRef.current;
-        if (id && conversations.some(c => c.id === id)) await queryClient.invalidateQueries({ queryKey: ["chat", "messages", id] });
       },
       onEvent: (event) => {
+        if (event.eventType === "conversation.execution_cleanup") {
+          const { conversation_id: id, execution_cleanup_revision: revision } = event.payload;
+          if (typeof id === "string" && typeof revision === "number" && observeExecutionCleanup(id, revision)) {
+            void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+            void queryClient.invalidateQueries({ queryKey: ["chat", "conversation-detail", id] });
+          }
+          return;
+        }
         if (event.eventType === "conversation.membership_changed" || event.eventType === "conversation.deleted") {
           const id = event.payload.conversation_id;
           if (typeof id === "string") {
-            if (id === conversationIdRef.current) setMembershipReady(false);
+            if (id === conversationIdRef.current) setCheckingMembership(id);
             // Drop visible private content before the membership refresh, including
             // mounted blob previews. Remaining members reload from the server.
-            if (id === conversationIdRef.current) dispatch({ type: "reset", conversationId: id, timeline: [] });
-            void queryClient.cancelQueries({ queryKey: ["chat", "messages", id] });
-            queryClient.removeQueries({ queryKey: ["chat", "messages", id] });
+            retireConversationReads(id);
             queryClient.removeQueries({ queryKey: ["chat", "slash-candidates"] });
-            void listConversations().then(async rows => { await reconcileMembership(rows); setMembershipReady(true); }).catch(() => undefined);
+            if (id === conversationIdRef.current) void recheckActiveMembership().catch(() => {});
+            void refreshSidebarMembership().catch(() => {});
           }
           return;
         }
@@ -855,13 +979,14 @@ export function ChatWorkspacePage() {
   }
 
   const sendMutation = useMutation({
-    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
+    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; replyToMessageId?:string; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
       createMessage({
         conversationId: payload.conversationId,
         content: payload.text,
         attachments: payload.attachments,
         interactionReply: payload.interactionReply,
         idempotencyKey: payload.idempotencyKey,
+        replyToMessageId: payload.replyToMessageId,
         interactionContexts: payload.interactionContexts
       }),
     onSuccess: acceptCreatedMessage,
@@ -1182,10 +1307,32 @@ export function ChatWorkspacePage() {
       {showDetail && (
         activeConversation ? (
           <MessagePane
-            lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} />)}
+            lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} deleted={actor.is_deleted} />)}
             onJoin={async () => { await joinConversation(activeConversation.id); await queryClient.invalidateQueries({ queryKey: ["chat"] }); }}
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}
+            historyProcess={selfUserId ? {
+              accountId: selfUserId,
+              revision: cleanupRevision,
+              load: async (messageId, signal) => {
+                const id = activeConversation.id;
+                try {
+                  const detail = await getMessageDetail(id, messageId, signal);
+                  signal.throwIfAborted();
+                  observeExecutionCleanup(id, detail.execution_cleanup_revision);
+                  if (detail.execution_cleanup_revision !== cleanupRevision ||
+                      conversationIdRef.current !== id || useAuthStore.getState().user?.id !== selfUserId) {
+                    throw new Error("Message detail belongs to an obsolete conversation view");
+                  }
+                  return detail.message;
+                } catch (error) {
+                  if (isAccessDenied(error) && !signal.aborted) {
+                    void queryClient.invalidateQueries({ queryKey: ["chat", "conversation-detail", id] });
+                  }
+                  throw error;
+                }
+              }
+            } : undefined}
             timeline={visibleTimeline}
             focusMessageId={locatorMessageId}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
@@ -1200,10 +1347,14 @@ export function ChatWorkspacePage() {
               if (activeConversation.is_member === false) return;
               void markConversationRead(activeConversation.id, messageId).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] })).catch(() => undefined);
             }}
-            onPreferenceChange={patch => updateConversation(activeConversation.id, patch).then(() => queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }))}
+            onPreferenceChange={patch => updateConversation(activeConversation.id, patch).then(updated => {
+              queryClient.setQueryData(["chat", "conversation-detail", activeConversation.id, selfUserId], updated);
+              return queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+            })}
             agentNodeNames={Object.fromEntries(publicAgents.filter(a => a.node_name).map(a => [a.agent_id!, a.node_name!]))}
             globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||a.owner_id===selfUserId)).map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
+            composerStore={composerStoreFor(selfUserId)}
             draftSeed={draftSeed}
             onComposeMessage={handleComposeMessage}
             slashSkills={slashSkills}
@@ -1215,10 +1366,10 @@ export function ChatWorkspacePage() {
             nodeUpdate={headerAgentContext.nodeUpdate}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments, interactionReply, idempotencyKey, interactionContexts) => sendMutation.mutateAsync({
+            onSend={(text, attachments, interactionReply, idempotencyKey, interactionContexts, replyToMessageId) => sendMutation.mutateAsync({
               conversationId: activeConversation.id,
               text,
-              attachments, interactionReply, idempotencyKey, interactionContexts
+              attachments, interactionReply, idempotencyKey, interactionContexts, replyToMessageId
             })}
             onRecovered={acceptCreatedMessage}
             onSendFailure={() => setWorkspaceError({
@@ -1258,6 +1409,12 @@ export function ChatWorkspacePage() {
                   : undefined
             }
           />
+        ) : conversationId && conversationDetailQuery.isError && !isAccessDenied(conversationDetailQuery.error) ? (
+          <div className="chat-empty-pane" role="alert">
+            <p className="chat-empty-pane-title">{t("chat.messagePane.accessErrorTitle")}</p>
+            <button type="button" className="im-btn im-btn-primary" disabled={conversationDetailQuery.isFetching}
+              onClick={() => void recheckActiveMembership().catch(() => {})}>{t("common.retry")}</button>
+          </div>
         ) : (
           !isMobile && (
             <div className="chat-empty-pane">

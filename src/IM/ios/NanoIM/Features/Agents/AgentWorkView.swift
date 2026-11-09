@@ -11,6 +11,7 @@ struct AgentWorkView: View {
     @State private var cursor: String?
     @State private var loaded = false
     @State private var error: String?
+    @State private var executionDeleted = false
     @State private var loadingMore = false
     @State private var pageCount = 1
     private var base: String { agentPath(agentID) + "/work" }
@@ -42,7 +43,8 @@ struct AgentWorkView: View {
                 }
                 AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online)
             }
-            if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
+            if executionDeleted { Text(L("执行记录已删除", "Execution record deleted")).foregroundStyle(.secondary) }
+            else if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
             if !loaded { ProgressView() }
             if let root {
                 if !(root.other_executions ?? []).isEmpty {
@@ -61,7 +63,7 @@ struct AgentWorkView: View {
                 ForEach(turns) { turn in
                     AgentWorkTurnView(client: client, agentID: agentID, turn: turn, sessions: root?.other_executions ?? [], online: online, canManage: canManage, onOpenChat: onOpenChat)
                 }
-                if loaded && turns.isEmpty { Text(L("尚未报告执行轮次", "No reported turns")) }
+                if loaded && turns.isEmpty && !executionDeleted { Text(L("尚未报告执行轮次", "No reported turns")) }
                 if cursor != nil { Button(L("更早轮次", "Earlier turns")) { Task { await loadMore() } }.disabled(loadingMore) }
             }
             if !controls.isEmpty {
@@ -87,16 +89,20 @@ struct AgentWorkView: View {
                     let ids = Set(all.map(\.id)); all += older.turns.filter { !ids.contains($0.id) }; nextCursor = older.next_cursor
                 }
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !executionDeleted else { return }
             root = nextRoot; controls = page.control_items ?? []
             turns = all; cursor = nextCursor
             loaded = true; error = nil
-        } catch { if !Task.isCancelled { self.error = agentError(error); loaded = true; if let api = error as? APIError, [401, 403, 404].contains(api.status) { root = nil; turns = []; controls = [] } } }
+        } catch { if !Task.isCancelled { self.error = agentError(error); loaded = true; if let api = error as? APIError, [401, 403, 404, 410].contains(api.status) {
+                root = nil; turns = []; controls = []; cursor = nil
+                executionDeleted = api.status == 410 && (api.code == "agent_execution_deleted" || api.detail == "agent_execution_deleted")
+            } } }
     }
     private func loadMore() async {
         guard let cursor else { return }; loadingMore = true; defer { loadingMore = false }
         do {
             let page: AgentWorkPage = try await client.get(path, query: [URLQueryItem(name: "before_turn", value: cursor)])
+            guard !executionDeleted else { return }
             let existing = Set(turns.map(\.id)); turns += page.turns.filter { !existing.contains($0.id) }; self.cursor = page.next_cursor; pageCount += 1
         } catch { self.error = agentError(error) }
     }

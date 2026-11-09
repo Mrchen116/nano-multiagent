@@ -1,5 +1,5 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { interactiveResponse, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
+import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
 import { messageInput, messageMetadata, sendPrincipal, type MessageInput, type SendPrincipal, type SendMessageCommand } from './message-input.js';
 import { MessageRecords, type MessageMetadata, type MessageEventFrame, type MessageRelayRecord } from './message-records.js';
 import type { ChatAttachment, ChatMessage } from '@nano/product-contracts';
@@ -8,6 +8,7 @@ import { lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.
 import { captureTaskContextAccess, revokeLostTaskContextAccess, taskContextEligible, taskContextEntryAllowed, taskContextRevocation } from './task-context-access.js';
 import {RelayDelivery} from './relay-delivery.js';
 import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
+import { executionCleanupRevision } from './agent-deletion.js';
 import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -77,11 +78,11 @@ export class Messaging {
     }
     return { ...u!, owner_id: a.owner_id, space_id: a.space_id };
   }
-  actor(u:Row) {return this.records.actor({id:u.id,username:u.username,display_name:u.display_name,is_stale:u.is_stale});}
+  actor(u:Row) {return {...this.records.actor({id:u.id,username:u.username,display_name:u.display_name,is_stale:u.is_stale}), ...(u.is_deleted ? {is_deleted:true} : {})};}
   members(id: string): Row[] {
     return all(
       this.db,
-      `SELECT u.*,ap.is_stale FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username GLOB 'agent:*' AND ap.agent_id=substr(u.username,7) WHERE cp.conversation_id=? ORDER BY cp.rowid`,
+      `SELECT u.*,ap.is_stale,d.state='deleted' AS is_deleted FROM conversation_participants cp JOIN users u ON u.id=cp.user_id LEFT JOIN agent_profiles ap ON u.username GLOB 'agent:*' AND ap.agent_id=substr(u.username,7) LEFT JOIN agent_deletions d ON d.agent_id=ap.agent_id WHERE cp.conversation_id=? ORDER BY cp.rowid`,
       id,
     );
   }
@@ -127,12 +128,22 @@ export class Messaging {
     if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
     const lastMessage = c.last_message_at ? one(this.db,
-      "SELECT content, system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
+      `SELECT m.content, m.system_notice_json, m.sender_type, m.sender_display_name, m.sender_source_id,
+              u.display_name AS account_display_name, i.message_id AS card_id, i.preview_title,
+              CASE WHEN i.message_id IS NOT NULL THEN json_extract(m.attachments_json, '$[0].file_name') END AS card_attachment_name
+       FROM messages m LEFT JOIN message_interactive i ON i.message_id=m.id
+       LEFT JOIN users u ON u.id=m.sender_user_id
+       WHERE m.conversation_id=? AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
       id, c.last_message_at,
     ) : undefined;
     // Stored previews can end inside a mention tag. Resolve from the full message
     // before truncating so existing conversations also recover on refresh.
-    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || c.last_message_preview : c.last_message_preview;
+    const storedPreview = c.last_message_preview || lastMessage?.card_attachment_name || c.last_message_preview;
+    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || storedPreview : storedPreview;
+    const senderName = c.type === "group" && !lastMessage?.system_notice_json
+      && (lastMessage?.sender_type === "user" || lastMessage?.sender_type === "agent")
+      ? lastMessage.sender_display_name?.trim() || lastMessage.sender_source_id || lastMessage.account_display_name?.trim() || null
+      : null;
     const prefs =
       one(
         this.db,
@@ -162,6 +173,7 @@ export class Messaging {
       title: access.is_observer && !c.title_is_custom ? members.map(u => u.display_name).join(" ↔ ") : c.title,
       visibility:c.visibility, dissolved_at:c.dissolved_at,
       is_member:access.is_member,is_observer:access.is_observer,can_write:access.can_write,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
+      execution_cleanup_revision: executionCleanupRevision(this.ctx,id),
       participants: members.map((u) => this.actor(u)),
       participant_ids: members.map((u) => u.id),
       direct_kind:
@@ -176,6 +188,8 @@ export class Messaging {
       is_muted: !!prefs.is_muted,
       unread_count: prefs.unread_count ?? 0,
       last_message_preview: preview,
+      last_message_sender_name: senderName,
+      last_message_card: !preview && lastMessage?.card_id ? {title: lastMessage.preview_title} : null,
       last_message_system_notice: JSON.parse(lastMessage?.system_notice_json ?? "null"),
       run_state: one(
         this.db,
@@ -404,6 +418,39 @@ export class Messaging {
       sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,
     });
   }
+  /** Resolve an original message only inside the caller's authorized destination.
+   *
+   * Args:
+   *   conversationId: Destination whose access was already checked by the caller.
+   *   messageId: Optional original IM message identity.
+   * Returns:
+   *   Server-owned original content and sender, or undefined for an ordinary message.
+   * Raises:
+   *   Error: The target is absent, belongs to another chat, or cannot be replied to.
+   */
+  replyReference(conversationId:string,messageId?:string):ChatMessage['reply_to'] {
+    if(messageId===undefined)return;
+    if(typeof messageId!=='string'||!messageId)fail(422,'invalid reply target');
+    const original=this.records.find(messageId);
+    if(!original||original.conversation_id!==conversationId)fail(404,'reply target not found');
+    if(!['user','agent'].includes(original.sender_type)||!['completed','sent','pending'].includes(original.delivery_status))fail(422,'reply target is not available');
+    const source=this.message(original.id);
+    return {message_id:source.id,sender:source.sender,content:source.content,attachments:source.attachments,
+      ...(source.interactive ? {interactive:modelInteractiveContent(source.interactive)} : {})};
+  }
+
+  private publicationAttachments(id: string, attachments: AgentPublication['attachments']) {
+    const submitted = attachments ?? [];
+    if (submitted.length > 5) fail(422, 'too many attachments');
+    return submitted.map(({url}) => {
+      const match = url?.match(/^\/im\/v1\/conversations\/([^/]+)\/(?:images|attachments)\/([\w-]+)$/);
+      if (!match || match[1] !== id) fail(422, 'attachment must belong to the destination conversation');
+      const row = one(this.db, 'SELECT file_name,content_type FROM message_images WHERE conversation_id=? AND image_id=?', id, match[2]);
+      if (!row) fail(404, 'attachment not found');
+      return {url, file_name:row.file_name, content_type:row.content_type};
+    });
+  }
+
   /** Commit a validated explicit publication under its existing dispatch identity. */
   publishAgent(principal:Extract<SendPrincipal,{kind:'gateway'}>,agentId:string,operationId:string|undefined,p:AgentPublication):ChatPublicationReceipt {
     const db=this.db;
@@ -417,7 +464,8 @@ export class Messaging {
       this.access(principal, previous.conversation_id, agentId);
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
-      if (saved.content !== p.text.trim() || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
+      if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
+        || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
         conversation_id: previous.conversation_id,
@@ -431,6 +479,8 @@ export class Messaging {
     const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",agentId);
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
+    const attachments = this.publicationAttachments(id, p.attachments);
+    const replyTo=this.replyReference(id,p.reply_to_message_id);
     const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
     const targetUser = one(
       db,
@@ -451,10 +501,10 @@ export class Messaging {
       this.agentUser(agentId).id,
       "agent",
       p.text.trim(),
-      p.attachments ?? [],
+      attachments,
       key,
       'completed',
-      { interactive, publish: false },
+      { interactive, reply_to:replyTo, publish: false },
     );
     if (p.background_returns)
       this.records.background(created.id,p.background_returns);
@@ -505,16 +555,18 @@ export class Messaging {
     if (b.interaction_contexts !== undefined && c.type !== 'direct') fail(422, 'Private interaction background is only supported in direct chats');
     if (c.type === 'group' && b.interaction_reply && !b.interaction_reply.action_id && !b.interaction_reply.event)
       fail(422, 'Group interaction state requires an explicit card action');
+    if (b.interaction_reply !== undefined && b.reply_to_message_id !== undefined) fail(422, 'Send quoted replies separately from card actions');
     if (b.interaction_reply !== undefined) return this.sendInteraction(p, id, b, key);
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
     if (attachments.length > 5) fail(400, "too many attachments");
-    if (!b.content?.trim() && !attachments.length)
-      fail(400, "message content or attachments required");
+    if (!b.content?.trim() && !attachments.length && !b.interactive)
+      fail(400, "message content, attachments or interactive reply required");
     b.content = this.validateReferences(p, id, b.content ?? "", agentId);
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
+    const replyTo=this.replyReference(id,b.reply_to_message_id);
     if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
     const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
     // Retries and history retain the timezone captured by the original send.
@@ -525,7 +577,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, publish:false });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, reply_to:replyTo, publish:false });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -617,7 +669,8 @@ export class Messaging {
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const payload = {lifecycle_revision:lifecycle(this.db,a.agent_id).revision,relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
-          conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
+          conversation_type:c.type,mentioned_agent_ids:[...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : []), ...(m.reply_to?.sender.type==='agent' ? [m.reply_to.sender.id] : [])])],participant_agent_ids:agents.map(a=>a.agent_id),
+          explicit_mentioned_agent_ids:this.mentionedAgents(c.id,m.content),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
           ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),
@@ -775,7 +828,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       } catch { fail(400, 'invalid_cursor'); }
     }
     const targets = [...readableConversationIds(db, user)];
-    const matches = searchMessages(db, {targets, kind, terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
+    const term = q.q.trim(), needle = term.toLowerCase();
+    const matches = searchMessages(db, {targets, kind, terms:[term], action:'search', sort:'recent', cursor, limit:limit+1});
     const conversations = new Map<string, Row>();
     const messages = matches.slice(0,limit).map(row => {
       const message = s.message(row.id), id = message.conversation_id;
@@ -784,9 +838,11 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         chat = s.conversation(id, user.id);
         conversations.set(id, chat);
       }
-      const content = readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
-      const position = Math.max(0, content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
-      const start = Math.max(0, position - 40), end = Math.min(content.length, position + q.q.trim().length + 80);
+      const content = !message.content.toLowerCase().includes(needle) && row.interactive_search_text
+        ? String(row.interactive_search_text)
+        : readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
+      const position = Math.max(0, content.toLowerCase().indexOf(needle));
+      const start = Math.max(0, position - 40), end = Math.min(content.length, position + term.length + 80);
       return {message_id:message.id, conversation_id:message.conversation_id, conversation_name:chat.title,
         sender_name:row.sender_source_id ? row.sender_display_name || row.sender_source_id : message.sender.display_name, created_at:message.created_at,
         snippet:`${start ? '…' : ''}${content.slice(start,end)}${end < content.length ? '…' : ''}`};
@@ -824,7 +880,9 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const cursorOnly = query(req).view === "cursor";
     if (cursorOnly && !qualifiedUser(db, p.id)) fail(403, "account access required");
     const max_event_id = one(db, "SELECT COALESCE(MAX(event_id),0) AS n FROM conversation_events")!.n;
-    return cursorOnly ? { max_event_id } : { items: s.conversations(p.id), max_event_id };
+    const cleanup = all(db,'SELECT * FROM conversation_execution_cleanup').filter(row=>conversationAccess(db,row.conversation_id,p.id));
+    const snapshot = {max_event_id,...(cleanup.length ? {execution_cleanup_revisions:Object.fromEntries(cleanup.map(row=>[row.conversation_id,row.revision]))} : {})};
+    return cursorOnly ? snapshot : {items:s.conversations(p.id),...snapshot};
   });
   app.get("/im/v1/conversations/:conversation_id", (req) => {
     const p = s.principal(req),
@@ -933,6 +991,11 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.get('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.readDraft(req));
   app.put('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.writeDraft(req));
+  app.get('/im/v1/conversations/:conversation_id/messages/:message_id', req => {
+    const {conversation_id, message_id}=params(req);
+    s.access(s.principal(req),conversation_id,query(req).agent_id);
+    return {message:s.records.conversationMessage(conversation_id,message_id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
+  });
   app.get("/im/v1/conversations/:conversation_id/messages", (req) => {
     const p = s.principal(req),
       id = params(req).conversation_id,
@@ -972,8 +1035,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
           before_message_id: row.id,
           applied_at: b.applied_at,
         });
-      items.push({ type: "message", message: s.message(row.id) });
+      items.push({ type: "message", message: q.view === "summary" ? s.records.historySummary(id,row.id) : s.message(row.id) });
     }
-    return { items, next_before_message_id: more ? page[0]!.id : null };
+    return { items, next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
   });
 }

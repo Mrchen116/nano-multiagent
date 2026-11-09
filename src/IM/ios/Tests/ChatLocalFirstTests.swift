@@ -457,7 +457,7 @@ final class ChatLocalFirstTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeStore() async throws -> (ChatStore, StubTransport) {
+    func makeStore() async throws -> (ChatStore, StubTransport) {
         let base = try XCTUnwrap(root)
         let partition = ChatPartition(origin: origin, userID: user.id)
         let pair = TokenPair(access_token: "access", refresh_token: "refresh", user: user)
@@ -474,7 +474,7 @@ final class ChatLocalFirstTests: XCTestCase {
         return (store, transport)
     }
 
-    private func seed(_ store: ChatStore, conversations: [String], messages: Int) async {
+    func seed(_ store: ChatStore, conversations: [String], messages: Int) async {
         guard let repository = store.repository else { return }
         guard var context = try? await repository.writeContext() else { return }
         _ = try? await repository.applySnapshot(conversations.map { try? conversation($0) }.compactMap { $0 },
@@ -503,14 +503,14 @@ final class ChatLocalFirstTests: XCTestCase {
             """.utf8))
     }
 
-    private func conversation(_ id: String, title: String? = nil) throws -> Conversation {
+    func conversation(_ id: String, title: String? = nil) throws -> Conversation {
         try JSONDecoder().decode(Conversation.self, from: Data("""
             {"id":"\(id)","title":"\(title ?? id)","participants":[],"participant_ids":["user"],"type":"group",
              "owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}
             """.utf8))
     }
 
-    private func message(_ n: Int, conversation: String) throws -> ChatMessage {
+    func message(_ n: Int, conversation: String) throws -> ChatMessage {
         try JSONDecoder().decode(ChatMessage.self, from: Data("""
             {"id":"m\(n)","conversation_id":"\(conversation)","sender":{"type":"user","id":"user"},
              "sender_user_id":"user","sender_type":"user","content":"message \(n)","attachments":[],
@@ -538,7 +538,7 @@ private actor PendingReadGate {
     }
 }
 
-private actor StubTransport: HTTPTransport {
+actor StubTransport: HTTPTransport {
     private let pair: Data
     private var listData = Data(#"{"items":[]}"#.utf8)
     private var syncData = Data(#"{"items":[],"max_event_id":0}"#.utf8)
@@ -550,6 +550,7 @@ private actor StubTransport: HTTPTransport {
     private var postObserver: (@Sendable () -> Void)?
     private var messageReads = 0
     private var messageData = Data(#"{"items":[]}"#.utf8)
+    private var messagePages: [String: Data] = [:]
     private var messageFailure: URLError?
     private var heldPath: String?
     private var heldBody = Data()
@@ -572,6 +573,7 @@ private actor StubTransport: HTTPTransport {
     func failDetail(_ error: URLError?) { detailFailure = error }
     func failList(_ error: URLError?) { listFailure = error }
     func setMessages(_ data: Data) { messageData = data }
+    func setMessages(_ data: Data, before: String) { messagePages[before] = data }
     func failMessages(_ error: URLError?) { messageFailure = error }
     func observePost(_ observer: (@Sendable () -> Void)?) { postObserver = observer }
     func postPaths() -> [String] { postRequests.map { $0.url?.path ?? "" } }
@@ -595,7 +597,8 @@ private actor StubTransport: HTTPTransport {
             if request.httpMethod == "GET" { messageReads += 1 }
             else { postRequests.append(request); postObserver?() }
             if let messageFailure { throw messageFailure }
-            return (messageData, response(url, 200))
+            let before = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "before_message_id" }?.value
+            return (before.flatMap { messagePages[$0] } ?? messageData, response(url, 200))
         }
         if url.path.contains("/message-attempts/") {
             return (Data(#"{"detail":"not found"}"#.utf8), response(url, 404))

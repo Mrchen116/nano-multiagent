@@ -104,6 +104,10 @@ function decode<K extends NodeCommand>(command: K, value: unknown): NodeOutput<K
       field(p, 'ok', boolean); field(p, 'error', text);
       break;
     case 'agent.work.permission': field(p, 'ok', boolean); field(p, 'error', text); break;
+    case 'agent.deletion.preview': {
+      if (p.workspace!==undefined && (!isRecord(p.workspace) || !text(p.workspace.path) || !text(p.workspace.witness))) throw new Error('invalid workspace preview');
+      break;
+    }
     case 'task.execution.state': field(p, 'state', text); break;
     case 'task.wait.validate':
       field(p, 'valid', boolean);

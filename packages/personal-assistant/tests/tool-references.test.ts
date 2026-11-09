@@ -8,7 +8,7 @@ import { InboxStore } from '../src/inbox.js';
 import { NodeStore } from '../src/store.js';
 
 const external = 'external:personal-agent:feishu:cli_a449d9dfb789cd8:dm:ou_2c73e759316310c16a2ddf99fdec10ff';
-const runtime = { onNotification: () => () => {}, request: async (method: string) => method === 'session.descendants' ? [] : { events: [], durable: true, status: 'idle' } };
+const runtime = { onNotification: () => () => {}, request: async (method: string) => method === 'session.work.children' ? {children:[]} : { events: [], durable: true, status: 'idle' } };
 const base: ProductCall = { method: '', args: {}, agentId: 'alice', ownerId: 'owner', sessionId: 'main', rootSessionId: 'main', callId: '', operationId: '' };
 const call = (product: GlobalAgent, method: string, args: Record<string, unknown>, id = method) => product.call({ ...base, method, args, callId: id, operationId: `main:${id}` }) as Promise<any>;
 const message = (id: string): RelayInput => ({ agent_id: 'alice', conversation_id: external, relay_task_id: id, idempotency_key: id,
@@ -47,7 +47,7 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
     for (const [agentId, sessionId] of [['alice', 'main'], ['bob', 'other']]) store.bind({ agentId, sessionId, ownerId: 'owner', conversationId: `global:${agentId}`, cwd: dir, revision: '1' });
     store.aliasConversation('alice', 'c_shadow', external);
     product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', store, inbox, runtime: { ...runtime,
-      request: async method => method === 'session.descendants' ? [] : { events, durable: true, status: 'idle' },
+      request: async method => method === 'session.work.children' ? {children:[]} : { events, durable: true, status: 'idle' },
     },
       agents: [{ agentId: 'alice', workspace: dir, revision: '1', provider: 'test', model: 'test', mode: 'global' }],
       relay: { async request(type, payload) {
@@ -97,14 +97,16 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
     expect(inbox.commitRead('main', 'last', [{ type: 'text', text: JSON.stringify(last) }], false, 1)).toBe(true);
     expect(await call(product, 'send_message', { target, text: 'draft' }, 'draft')).toMatchObject({ status: 'held_for_revalidation', target, inbox_targets: [target] });
     expect(sent).toBe(0);
-    expect(inbox.journal(0).find(event => event.type === 'inbox_read_committed')).toMatchObject({
-      payload: { source_refs: [{ conversation_id: external, message_id: 'first' }] },
-    });
+    expect(inbox.journal(0).find(event => event.type === 'inbox_read_committed')).toBeUndefined();
     const correction = await call(product, 'inbox', { action: 'read', target }, 'correction');
     expect(inbox.commitRead('main', 'correction', [{ type: 'text', text: JSON.stringify(correction) }], false, 1)).toBe(true);
     expect(await call(product, 'send_message.context', { target })).toMatchObject({ target: external, channel: 'feishu', recipient: { kind: 'owner' } });
     expect(await call(product, 'conversations', { action: 'info', target })).toMatchObject({ target, name: 'Owner' });
     expect(await call(product, 'task_graph', { action: 'create', target, title: 'Plan', mode: 'dag', request_key: 'plan' })).toMatchObject({ ok: true });
+    // Task Graph has drained the root Work cut. The persisted image read keeps its canonical source.
+    expect(inbox.journal(0).find(event => event.type === 'inbox_read_committed')).toMatchObject({
+      payload: { source_refs: [{ conversation_id: external, message_id: 'first' }] },
+    });
     const sentResult = await call(product, 'send_message', { target, text: 'done' }, 'send');
     expect(sentResult).toEqual({ status: 'sent', target, message_id: 'sent-1' });
     expect(await call(product, 'send_message', { target: external, text: 'done' }, 'send')).toEqual(sentResult);
