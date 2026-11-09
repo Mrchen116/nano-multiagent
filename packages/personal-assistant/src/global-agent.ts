@@ -1,10 +1,11 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
+import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
-import { interactiveResponse } from '@nano/product-contracts';
+import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
@@ -15,6 +16,7 @@ interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
+  uploadScreenshot?: ScreenshotUploader;
   onError(error: unknown): void;
   onWork?(): void;
   authorityEpoch?(): number | undefined;
@@ -668,10 +670,13 @@ export class GlobalAgent {
     const { inbox, store, runtime } = this.options;
     const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
     const global = config?.mode === 'global';
-    if(config?.personal) return this.personal.send(config,binding,call);
+    if (typeof call.args.receipt_of === 'string') return this.screenshotReceipt(binding, call, config);
+    if(config?.personal) return this.personal.send(config,binding,call,signal);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
-    const publicationBody = interactive ? sortedJsonAscii({text, interactive}) : text;
+    const paths = call.args.local_images as string[] | undefined;
+    const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? []})
+      : interactive ? sortedJsonAscii({text, interactive}) : text;
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
     const previous = inbox.publication(call.operationId);
@@ -699,43 +704,62 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
-    let correction = false;
-    if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {
+    const currentSingleGroup = !global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web';
+    const refreshTurnEvidence = async () => {
       for (const input of store.inputs(binding.sessionId)) {
-        const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId: input.id }) as { accepted: boolean; turn?: number; terminal?: unknown };
+        const evidence = await runtime.request('session.lookup', {sessionId:binding.sessionId, inputId:input.id}) as {accepted:boolean;turn?:number;terminal?:unknown};
         store.inputEvidence(input.id, evidence);
       }
-      const inputs = store.inputs(binding.sessionId);
-      const position = inputs.findLastIndex(input => input.turn === turn);
-      correction = inputs.slice(position + 1).some(input => !input.input.metadata.context_only);
-    }
-    signal.throwIfAborted();
-    // Receive and dispatch admission are synchronous in this node's event loop.
-    inbox.preparePublication(call.operationId, target, publicationBody,binding.agentId);
-    // External conversations and their IM mirrors share one delivery target.
-    const inboxTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
-    const revalidate = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
-    const unreadTargets = global && revalidate ? [...new Set(inboxTargets)].filter((target): target is string => typeof target === 'string' && inbox.blocking(binding.agentId, target)) : [];
-    if (revalidate && (global ? unreadTargets.length > 0 : correction)) {
-      const result = { status: 'held_for_revalidation', target, ...(global ? { inbox_targets: unreadTargets } : {}), message: global
+    };
+    const revalidate = () => {
+      signal.throwIfAborted();
+      const inputs = currentSingleGroup ? store.inputs(binding.sessionId) : [];
+      const correction = inputs.slice(inputs.findLastIndex(input => input.turn === turn) + 1).some(input => !input.input.metadata.context_only);
+      const targets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
+      const check = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
+      const unread = global && check ? [...new Set(targets)].filter((id): id is string => typeof id === 'string' && inbox.blocking(binding.agentId, id)) : [];
+      if (!check || !(global ? unread.length : correction)) return undefined;
+      const result = {status:'held_for_revalidation', target, ...(global ? {inbox_targets:unread} : {}), message:global
         ? 'Nothing was sent. Read the new messages from inbox_targets and reconsider before sending with a new call.'
-        : 'Read the new messages in this conversation and reconsider before sending.' };
+        : 'Read the new messages in this conversation and reconsider before sending.'};
       inbox.settlePublication(call.operationId, 'held', result);
-      if (global) this.append(binding, `publication:${call.operationId}`, {type: 'draft_withheld', payload: { call_id: call.callId, target, text }}, turn);
+      if (global) this.append(binding, `publication:${call.operationId}`, {type:'draft_withheld', payload:{call_id:call.callId,target,text}}, turn);
       return result;
+    };
+    if (currentSingleGroup) await refreshTurnEvidence();
+    signal.throwIfAborted();
+    inbox.preparePublication(call.operationId, target, publicationBody, binding.agentId);
+    const held = revalidate();
+    if (held) return held;
+
+    const attachments = paths ? await prepareScreenshots(this.options.uploadScreenshot, {
+      agentId:binding.agentId, conversationId:reviewConversation!, operationId:call.operationId,
+      lifecycleRevision:store.lifecycle.assert(binding.agentId), signal,
+    }, paths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);
+    if (paths) {
+      if (global) await this.reconcileRoot(binding);
+      if (currentSingleGroup) await refreshTurnEvidence();
+      const changed = revalidate();
+      if (changed) return changed;
     }
     inbox.settlePublication(call.operationId, 'sending');
     try {
-      const response = await this.publishMessage({ node_id: this.options.nodeId, text,
+      const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload);
     } catch (error) {
-      if (interactive && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+      if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
+        const result = {status:'not_sent',target,reason:error.message};
+        inbox.settlePublication(call.operationId, 'rejected', result);
+        return result;
+      }
+      if ((interactive || paths) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');
-        throw new Error(error.detail ? JSON.stringify(error.detail) : `Interactive reply rejected: ${error.code ?? error.message}`);
+        throw new Error(error.detail ? JSON.stringify(error.detail) : `Message rejected: ${error.code ?? error.message}`);
       }
       inbox.settlePublication(call.operationId, 'unknown');
       if(error instanceof RelayDeliveryError && error.delivery==='unknown') {
@@ -746,9 +770,29 @@ export class GlobalAgent {
           }
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }
+      if (paths && !(error instanceof RelayDeliveryError && error.delivery === 'rejected'))
+        return unknownScreenshotReceipt(target, call.operationId);
       throw error;
     }
   }
+
+  private async screenshotReceipt(binding: SessionBinding, call: ProductCall, config?: AgentConfiguration): Promise<unknown> {
+    const id = String(call.args.receipt_of), target = String(call.args.target);
+    const original = this.options.inbox.publication(id);
+    if (!id.startsWith(`${binding.sessionId}:`) || !original || original.target !== target)
+      throw new Error('No screenshot operation for this Agent and target');
+    let body: {text?:string; local_images?:unknown} | undefined;
+    try { body = JSON.parse(original.body); } catch { /* Legacy text publications have no envelope. */ }
+    if (!Array.isArray(body?.local_images)) throw new Error('No screenshot operation for this Agent and target');
+    if (original.result) return JSON.parse(original.result);
+    if (!['sending','unknown'].includes(original.state)) return {status:'not_sent', target};
+    const result = config?.personal ? await this.personal.screenshotReceipt(config, target, id)
+      : (await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:id})).payload;
+    if (result.found === true) return this.confirmPublication(binding,
+      {operationId:id,callId:id.slice(binding.sessionId.length+1),sessionId:binding.sessionId}, target, body?.text ?? '', result);
+    return unknownScreenshotReceipt(target,id);
+  }
+
   private async publishMessage(publication: AgentPublication): Promise<ProtocolFrame & {payload: {message_id: string}}> {
     const response = await this.options.relay.request('agent.message', {...publication});
     if (typeof response.payload.message_id !== 'string' || !response.payload.message_id) throw new Error('Agent publication has no message identity');
@@ -769,7 +813,7 @@ export class GlobalAgent {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
       let text=publication.body;
-      try{const body=JSON.parse(publication.body);if(body.interactive){text=body.text;}}catch{ /* Plain text publications need no envelope. */ }
+      try{const body=JSON.parse(publication.body);if(body.interactive||body.attachments){text=body.text;}}catch{ /* Plain text publications need no envelope. */ }
       this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
     }
   }

@@ -12,3 +12,13 @@ it('requires public content and does not admit malformed text or internal addres
   expect(()=>normalizeMessageArguments({target:'current',text:null,interactive:{source:'root = Col([])'}})).toThrow();
   expect(()=>normalizeMessageArguments({agent_id:'child',message:'Report'})).toThrow();
 });
+
+it('admits local screenshots only in self-authored sends and keeps receipt checks read-only', () => {
+  const local = {target:'current', text:'Comparison', local_images:['/tmp/before.png']};
+  expect(normalizeMessageArguments(local,true)).toEqual(local);
+  expect(()=>normalizeMessageArguments(local)).toThrow();
+  expect(()=>normalizeMessageArguments({...local,local_images:['../outside.png']},true)).toThrow();
+  expect(()=>normalizeMessageArguments({...local,local_images:Array(5).fill('/tmp/before.png'),attachments:[{url:'/attached'}]},true)).toThrow();
+  expect(normalizeMessageArguments({target:'current',receipt_of:'original'},true)).toEqual({target:'current',receipt_of:'original'});
+  expect(()=>normalizeMessageArguments({...local,receipt_of:'original'},true)).toThrow();
+});

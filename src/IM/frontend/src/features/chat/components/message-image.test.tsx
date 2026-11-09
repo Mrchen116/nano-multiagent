@@ -1,3 +1,5 @@
+// Load the renderer before test timers. These tests exercise attachment behavior after mount.
+import "../interactive/interactive-card";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,11 +20,11 @@ const conversation = {
   is_muted: false, unread_count: 0, last_message_preview: null, last_message_at: null, created_at: ""
 } satisfies Conversation;
 
-function pane(content: string) {
+function pane(content: string, additions?: Partial<Message>) {
   const message: Message = {
     id: "m1", conversation_id: "c1", sender: { type: "agent", id: "agent-a" },
     sender_user_id: "owner-a", sender_type: "agent", content, attachments: [],
-    delivery_status: "completed", created_at: "2026-09-10T00:00:00Z", permission_requests: []
+    delivery_status: "completed", created_at: "2026-09-10T00:00:00Z", permission_requests: [], ...additions
   };
   return <MessagePane conversation={conversation} messages={[message]} mentionCandidates={[]} onSend={() => {}} />;
 }
@@ -129,6 +131,43 @@ describe("inline reply images", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.queryByRole("img",{name:"attachment"})).toBeNull();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:private-image");
+  });
+
+  it("opens a protected attachment from a historical card and restores the fallback if its image stops rendering", async () => {
+    const attachment = { url: imagePath, file_name: "before.png", content_type: "image/png" };
+    const interactive = { format: "openui", catalog_version: "nano-iui-1", read_only: true, source: 'root = Col([AttachmentImage(1, "Before change")])' } as const;
+    vi.mocked(fetch).mockImplementation(async url => String(url).endsWith("/interaction-state")
+      ? Response.json({draft_revision: 0, state: {}, submission_message_id: null})
+      : new Response(new Blob(["image"], {type: "image/png"})));
+    render(pane("", {attachments: [attachment], interactive}));
+
+    const image = await screen.findByRole("img", {name: "Before change"});
+    expect(screen.getByRole("img", {name: "before.png"})).toBeInTheDocument();
+    fireEvent.load(image);
+    await waitFor(() => expect(screen.queryByRole("img", {name: "before.png"})).not.toBeInTheDocument());
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith(imagePath))
+      .every(([, request]) => new Headers(request?.headers).get("Authorization") === "Bearer token-a")).toBe(true);
+
+    const trigger = screen.getByRole("button", {name: /enlarge.*Before change/i});
+    fireEvent.keyDown(trigger, {key: "Enter"});
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    fireEvent.error(image);
+    expect(await screen.findByRole("img", {name: "before.png"})).toBeVisible();
+  });
+
+  it("never searches for a missing same-message attachment by its caption", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({draft_revision: 0, state: {}, submission_message_id: null}));
+    const interactive = { format: "openui", catalog_version: "nano-iui-1", source: 'root = Col([AttachmentImage(5, "Unpublished screenshot")])' } as const;
+    render(pane("", {interactive}));
+
+    expect(await screen.findByText(/Image could not be displayed|加载失败/i)).toBeVisible();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("img", {name: "Unpublished screenshot"})).not.toBeInTheDocument();
   });
 
   it("preserves remote images and code while allowing pending only on image sources", () => {
