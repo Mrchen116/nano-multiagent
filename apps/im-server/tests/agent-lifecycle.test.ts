@@ -162,7 +162,8 @@ it('requires confirmed stop, preserves chat history and rejects re-registration 
   const confirm={request_id:'delete-a',expected_revision:2,expected_profile_version:1};
   const start=await f.ctx.gateway.handle(f.connection,'node.streaming_delta',{node_id:'n',agent_id:'a',conversation_id:'chat',kind:'turn_start',lifecycle_revision:1});
   const messageId=start.payload.message_id;
-  f.db.prepare("UPDATE messages SET content='Published result',thinking_json='[{}]' WHERE id=?").run(messageId);
+  const attachments=[{url:'/im/v1/conversations/chat/images/kept-image',file_name:'kept.png',content_type:'image/png'}];
+  f.db.prepare("UPDATE messages SET content='Published result',thinking_json='[{}]',attachments_json=? WHERE id=?").run(JSON.stringify(attachments),messageId);
   f.ctx.messaging.event('chat',messageId,'permission.submitted',{request_id:'approval',decision:'allow_once'},'running');
   f.db.prepare(`INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at)
     SELECT 'b',owner_id,node_id,'Other Agent',created_at,updated_at FROM agent_profiles WHERE agent_id='a'`).run();
@@ -195,7 +196,7 @@ it('requires confirmed stop, preserves chat history and rejects re-registration 
   expect((await f.http('PUT',{enabled:true,request_id:'on',expected_revision:2})).statusCode).toBe(409);
   const cursor = Number(f.db.prepare('SELECT MAX(event_id) AS id FROM conversation_events').get()!.id);
   await f.ctx.gateway.handle(f.connection,'agent.deletion.report',{node_id:'n',agent_id:'a',operation_id,state:'deleted'});
-  expect(f.ctx.messaging.message(messageId)).toMatchObject({content:'Published result',thinking:[]});
+  expect(f.ctx.messaging.message(messageId)).toMatchObject({content:'Published result',attachments,thinking:[]});
   expect(f.db.prepare('SELECT agent_id FROM agent_settings_snapshots ORDER BY agent_id').all()).toEqual([{agent_id:'b'}]);
   const priorManifest=new ChannelService(f.db).recordReconcile({node_id:'n',manifest_revision:1,outcome:'retryable_failed',
     failures:[{channel_id:'b-channel'}],removal_outcomes:[{channel_id:'a-channel',removal_token:'a-removal',deletion_manifest_revision:1,outcome:'applied'}]});
