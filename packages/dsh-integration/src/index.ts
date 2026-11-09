@@ -254,7 +254,7 @@ export default class NanoRuntime {
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
     this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled});
     // Both hooks prepend: register catch-up last so its authority cut precedes Task decisions.
-    new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
+    const taskContext = new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
     ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
     const subagentRecovery = new SubagentRecovery(ctx, agent => {
       const binding = this.bindings.get(agent.id);
@@ -684,7 +684,7 @@ export default class NanoRuntime {
     handle('task.execution.changed', value=>{this.tasks.changed((value as {agentId:string}).agentId,(value as {reset?:boolean}).reset!==false);return {ok:true};});
     handle('task.execution.block', value=>{const {sessionId,blocked}=value as {sessionId:string;blocked:boolean};this.tasks.block(sessionId,blocked);return {ok:true};});
     handle('session.cancel', async value => {
-      const { sessionId,stoppedAt } = value as { sessionId: string;stoppedAt?:string };
+      const { sessionId,stoppedAt,settleTaskContext } = value as { sessionId: string;stoppedAt?:string;settleTaskContext?:boolean };
       this.tasks.interrupt(sessionId,stoppedAt);
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
@@ -694,6 +694,7 @@ export default class NanoRuntime {
       agent.cancel({ kind: 'user' }, { keepInbox: true });
       await agent.whenIdle();
       await this.flush(agent);
+      if (settleTaskContext) await taskContext.reconcile(agent);
       return { stopped: true, wasRunning };
     });
     handle('approval.answer', value => {

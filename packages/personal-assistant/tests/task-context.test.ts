@@ -25,7 +25,7 @@ it('persists a fixed multi-page cut, then revalidates all unread originals befor
   expect(prepared.messages).toHaveLength(32);expect(prepared.messages.some(message=>message.inputId==='m1')).toBe(false);expect(prepared.revoked).toContain('m1');
   expect(store.taskContextCursor('a')).toBe(33);expect(store.systemContextInputs('a').filter(row=>row.state==='consumed')).toHaveLength(0);
   const message=prepared.messages[0]!;
-  await expect(service.commit({...identity,evidence:[{inputId:message.inputId,content:[{type:'text',text:'forged'}],turn:1,consumedSeq:10}]})).resolves.toBeUndefined();
+  await expect(service.commit({...identity,evidence:[{inputId:message.inputId,content:[{type:'text',text:'forged'}],turn:1,consumedSeq:10}]})).resolves.toEqual({confirmed:[]});
   expect(store.systemContextInputs('a').find(row=>row.message_id===message.inputId)?.state).toBe('prepared');
   await service.commit({...identity,evidence:[{inputId:message.inputId,content:message.content,turn:1,consumedSeq:10}]});
   expect(store.systemContextInputs('a').find(row=>row.message_id===message.inputId)?.state).toBe('consumed');
@@ -91,7 +91,7 @@ it('bounds receipt reconciliation work when an idle session replays 300 consumed
     });
     const inboxReads=vi.spyOn(inbox,'prepareSystemContext');
     const updates=vi.spyOn(store,'commitSystemContext');
-    expect((await service.prepare(replay)).messages).toEqual([]);
+    expect((await service.prepare(identity)).messages).toEqual([]);
     const prepare={reads,rows,inboxReads:inboxReads.mock.calls.length,updates:updates.mock.calls.length};
     reads=0;rows=0;inboxReads.mockClear();updates.mockClear();
     await service.commit(replay);
@@ -117,11 +117,56 @@ it('repairs either outstanding product acknowledgement on replay without changin
     inbox.commitSystemContext('a','s',first!.inputId,first!.content,2);
     const row=store.systemContextInputs('a').find(item=>item.input_id===second!.inputId)!;
     store.commitSystemContext('s',row.input_id,row.digest,1);
-    expect(await service.prepare({...identity,evidence})).toEqual({messages:[],revoked:[]});
+    expect(await service.commit({...identity,evidence})).toEqual({confirmed:[
+      {inputId:first!.inputId,consumedSeq:evidence[0]!.consumedSeq,status:'consumed'},
+    ]});
+    expect(inbox.systemContextIngested('a','s',second!.inputId,2)).toBe(false);
+    expect(await service.commit({...identity,evidence:[{...evidence[1]!,turn:1}]})).toEqual({confirmed:[
+      {inputId:second!.inputId,consumedSeq:evidence[1]!.consumedSeq,status:'consumed'},
+    ]});
+    expect(await service.prepare(identity)).toEqual({messages:[],revoked:[]});
     expect(inbox.prepareSystemContext('a','s')).toHaveLength(0);
     expect(store.systemContextInputs('a')).toEqual(expect.arrayContaining([
       expect.objectContaining({input_id:'inbox-done',state:'consumed',turn:2}),
       expect.objectContaining({input_id:'mapping-done',state:'consumed',turn:1}),
     ]));
   } finally {inbox.close();store.close();}
+});
+
+
+it('shares only a queued authority cut, retains a live claim, and retires it on reset',async()=>{
+  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
+  const originalBinding={agentId:'a',sessionId:'first',conversationId:'chat',ownerId:'owner',cwd:'/tmp',revision:'1'};
+  const other={...originalBinding,sessionId:'second',conversationId:'other'};
+  const replacement={...originalBinding,sessionId:'replacement'};
+  store.bind(originalBinding);store.bind(other);inbox.receive(original('transfer'),false);
+  let reads=0;
+  let unblock!:()=>void;
+  const blocked=new Promise<void>(resolve=>{unblock=resolve;});
+  const service=new TaskContext({nodeId:'node',ownerId:'owner',agents:[agent],store,inbox,runtime,refreshSources:async()=>{},
+    relay:{request:async(_type,args)=>{
+      if(++reads===1)await blocked;
+      return {type:'result',payload:{ok:true,result:{through:0,next:0,items:[],revoked_message_ids:[]}}};
+    }}});
+  try {
+    const first=service.prepare(originalBinding),second=service.prepare(other);
+    await expect.poll(()=>reads).toBe(1);
+    const later=service.prepare(other);
+    unblock();
+    const [{messages},contender]=await Promise.all([first,second]);
+    expect(messages).toHaveLength(1);
+    expect(contender.messages).toEqual([]);
+    expect((await later).messages).toEqual([]);
+    expect(reads).toBeGreaterThan(1);
+
+    store.reset(originalBinding,replacement,'reset');
+    expect((await service.prepare(originalBinding)).messages).toEqual([]);
+    expect((await service.prepare(replacement)).messages).toEqual(messages);
+    const evidence=messages.map(({inputId,content})=>({inputId,content,turn:1,consumedSeq:5}));
+    expect(await service.commit({...originalBinding,evidence})).toEqual({confirmed:[{inputId:'transfer',consumedSeq:5,status:'discarded'}]});
+    expect((await service.prepare(replacement)).messages).toEqual(messages);
+    store.revokeSystemContext('a','transfer','chat');inbox.revokeSystemContext('a','transfer');
+    expect(await service.commit({...replacement,evidence})).toEqual({confirmed:[{inputId:'transfer',consumedSeq:5,status:'discarded'}]});
+    expect(inbox.systemContextIngested('a','replacement','transfer',1)).toBe(false);
+  }finally{unblock();inbox.close();store.close();}
 });

@@ -22,19 +22,21 @@ export class NodeStore {
   advanceTaskContext(agentId:string,seq:number):void { this.db.prepare('INSERT INTO task_context_cursors VALUES(?,?) ON CONFLICT(agent_id) DO UPDATE SET seq=max(seq,excluded.seq)').run(agentId,seq); }
   /** Persist a stable native identity without treating admission as consumption. */
   prepareSystemContext(agentId:string,messageId:string,conversationId:string,sessionId:string,digest:string):void {
-    this.db.prepare("INSERT INTO system_context_inputs VALUES(?,?,?,?,?,?,'prepared',NULL) ON CONFLICT(agent_id,message_id) DO UPDATE SET session_id=excluded.session_id,digest=excluded.digest,turn=NULL WHERE state='prepared'").run(agentId,messageId,conversationId,sessionId,messageId,digest);
+    this.db.prepare("INSERT INTO system_context_inputs VALUES(?,?,?,?,?,?,'prepared',NULL) ON CONFLICT(agent_id,message_id) DO UPDATE SET session_id=excluded.session_id,digest=excluded.digest,turn=NULL WHERE state='prepared' AND (session_id=excluded.session_id OR EXISTS (SELECT 1 FROM sessions WHERE sessions.session_id=system_context_inputs.session_id AND sessions.conversation_id='history:'||sessions.session_id))").run(agentId,messageId,conversationId,sessionId,messageId,digest);
   }
-  /** List product mappings for execution evidence repair, including terminal revocations. */
-  systemContextInputs(agentId:string):SystemContextInput[] {
-    return this.db.prepare('SELECT * FROM system_context_inputs WHERE agent_id=?').all(agentId) as unknown as SystemContextInput[];
+  /** Select product mappings by Agent and optional state. */
+  systemContextInputs(agentId:string,state?:SystemContextInput['state']):SystemContextInput[] {
+    return (state === undefined
+      ? this.db.prepare('SELECT * FROM system_context_inputs WHERE agent_id=?').all(agentId)
+      : this.db.prepare('SELECT * FROM system_context_inputs WHERE agent_id=? AND state=?').all(agentId,state)) as unknown as SystemContextInput[];
   }
-  /** Load session receipts that still need a product mapping or Inbox acknowledgement. */
-  systemContextToReconcile(agentId: string, sessionId: string, unreadIds: string[]) {
-    return this.db.prepare(`
-      SELECT input_id, digest, state FROM system_context_inputs
-      WHERE session_id=? AND agent_id=? AND
-        (state='prepared' OR (state='consumed' AND input_id IN (SELECT value FROM json_each(?))))
-    `).all(sessionId, agentId, JSON.stringify(unreadIds)) as Pick<SystemContextInput,'input_id'|'digest'|'state'>[];
+  /** Locate one original by its durable product identity. */
+  systemContextInput(agentId:string,inputId:string):SystemContextInput|undefined {
+    return this.db.prepare('SELECT * FROM system_context_inputs WHERE agent_id=? AND message_id=?').get(agentId,inputId) as unknown as SystemContextInput|undefined;
+  }
+  /** A reset preserves historical delivery while retiring admission to its old Session. */
+  taskContextRetired(sessionId:string):boolean {
+    return !!this.db.prepare("SELECT 1 FROM sessions WHERE session_id=? AND conversation_id='history:'||session_id").get(sessionId);
   }
   /** Revocation is terminal and wins over delayed admission or evidence ACKs. */
   revokeSystemContext(agentId:string,messageId:string,conversationId:string):void {
@@ -89,6 +91,7 @@ export class NodeStore {
       CREATE TABLE IF NOT EXISTS schedule_deletions(operation_id TEXT PRIMARY KEY,intent TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS task_context_cursors(agent_id TEXT PRIMARY KEY,seq INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS system_context_inputs(agent_id TEXT,message_id TEXT,conversation_id TEXT,session_id TEXT,input_id TEXT,digest TEXT,state TEXT NOT NULL,turn INTEGER,PRIMARY KEY(agent_id,message_id),UNIQUE(session_id,input_id));
+      CREATE INDEX IF NOT EXISTS system_context_state ON system_context_inputs(agent_id,state);
       CREATE TABLE IF NOT EXISTS control_intents(id TEXT PRIMARY KEY, intent TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS pending_controls ON control_intents(json_extract(intent,'$.binding.agentId')) WHERE coalesce(json_extract(intent,'$.delivered'),0)=0;
       CREATE TABLE IF NOT EXISTS command_results (id TEXT PRIMARY KEY, result TEXT NOT NULL);
