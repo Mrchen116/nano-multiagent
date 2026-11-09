@@ -1,7 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRef, useState } from "react";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { authFetchJson } from "../../auth/auth-fetch";
@@ -31,14 +30,15 @@ interface DeleteRequest {
 }
 const path = (id: string) => `/im/v1/agents/${encodeURIComponent(id)}/deletion`;
 
-export function useAgentDeletion(agentId: string, enabled: boolean) {
+export function useAgentDeletion(agentId: string, enabled: boolean, followOperation = false) {
   const self = useAuthStore(s => s.user?.id);
   const client = useQueryClient();
   const queryKey = ["agent-deletion", self, agentId];
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => authFetchJson<DeletionView>(path(agentId), { signal }, "Agent deletion"),
-    enabled: enabled && !!agentId,
+    // The deletion receipt can outlive the profile and lifecycle resources.
+    enabled: query => !!agentId && (enabled || followOperation && !!query.state.data?.operation),
     refetchInterval: query => query.state.data?.operation?.state === "deleted" ? false : 3000,
     retry: false,
   });
@@ -93,8 +93,6 @@ export function AgentDeletionControls({ deletion, name, online, active = true }:
 }) {
   const { i18n } = useTranslation();
   const l = (zh: string, en: string) => i18n.language.startsWith("zh") ? zh : en;
-  const navigate = useNavigate();
-  const client = useQueryClient();
   const isMobile = useIsMobile();
   const [confirmation, setConfirmation] = useState<DeletionView | null>(null);
   const [deleteWorkspace, setDeleteWorkspace] = useState(false);
@@ -103,15 +101,6 @@ export function AgentDeletionControls({ deletion, name, online, active = true }:
   const view = deletion.query.data;
   const operation = view?.operation;
   const mutation = deletion.mutation;
-  const done = operation?.state === "deleted";
-
-  useEffect(() => {
-    if (!active || !done) return;
-    navigate("/settings/agents", { replace: true });
-    for (const key of [["settings", "agents"], ["contacts"], ["public-agents"], ["chat", "agents"], ["chat", "conversations"], ["agent-work", view!.agent_id]]) {
-      void client.invalidateQueries({ queryKey: key });
-    }
-  }, [active, done, navigate, client, view?.agent_id]);
 
   if (!active || !view || operation || (!view.eligible && !confirmation)) return null;
   const title = l("永久删除 Agent", "Permanently delete Agent");

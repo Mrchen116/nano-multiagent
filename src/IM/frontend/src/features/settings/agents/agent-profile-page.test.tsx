@@ -16,7 +16,8 @@ const contact = {user_id:"agent-user",kind:"agent",agent_id:"colleague-agent",ow
 function response(data: unknown) { return new Response(JSON.stringify(data), {headers:{"Content-Type":"application/json"}}); }
 function view(element: React.ReactNode, path = "/settings/agents/colleague-agent") {
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/settings/agents/:agentId" element={element} /><Route path="/chat/:conversationId" element={<p>New private chat</p>} /></Routes></MemoryRouter></QueryClientProvider>);
+  const rendered = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/settings/agents" element={<h1>Agent list</h1>} /><Route path="/settings/agents/:agentId" element={element} /><Route path="/chat/:conversationId" element={<p>New private chat</p>} /></Routes></MemoryRouter></QueryClientProvider>);
+  return { ...rendered, client };
 }
 beforeEach(async () => {
   await act(async () => setLanguage("en"));
@@ -103,4 +104,35 @@ it("explains an exact deleted Work link even when the Agent is no longer in cont
   view(<AgentProfilePage />, "/settings/agents/colleague-agent?view=work&message_id=old-message");
   expect(await screen.findByText("Execution record deleted")).toBeVisible();
   expect(fetch.mock.calls.some(([url]) => String(url).includes("/deletion"))).toBe(false);
+});
+
+it("keeps tracking an accepted deletion when the Agent disappears from contacts", async () => {
+  const ownAgent = {...contact, owner_id:visitor.id};
+  const deletionKey = ["agent-deletion", visitor.id, ownAgent.agent_id];
+  const deleting = {
+    agent_id: ownAgent.agent_id, eligible:false, revision:2, profile_version:1,
+    operation:{operation_id:"remove-muse",state:"deleting",delete_workspace:false},
+  };
+  let finished = false;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/contacts?")) return response({items:[ownAgent],next_cursor:null});
+    if (url.endsWith("/deletion")) return response(finished
+      ? {...deleting, operation:{...deleting.operation,state:"deleted"}} : deleting);
+    return new Response(null, { status: 404 });
+  }));
+  const {client} = view(<AgentProfilePage />);
+  await waitFor(() => expect(client.getQueryData(["contacts", visitor.id, "agents"])).toBeDefined());
+  await act(async () => {
+    client.setQueryData(deletionKey, deleting);
+    client.setQueryData(["public-agents", visitor.id], [ownAgent]);
+    client.setQueryData(["contacts", visitor.id, "agents"], []);
+  });
+  await waitFor(() => expect(client.getQueryState(deletionKey)?.fetchStatus).toBe("idle"));
+  expect(await screen.findByText("Deleting permanently…")).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  finished = true;
+  await act(async () => { await client.invalidateQueries({queryKey:deletionKey}); });
+  expect(await screen.findByRole("heading", { name:"Agent list" })).toBeVisible();
+  expect(client.getQueryData(["public-agents", visitor.id])).toEqual([]);
 });
