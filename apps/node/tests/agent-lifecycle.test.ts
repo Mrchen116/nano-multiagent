@@ -42,6 +42,32 @@ it.each([true,false])('reports the prior execution identity after a host restart
   expect(f.lifecycle.allowed('a')).toBe(false);
 });
 
+it('repairs an already-confirmed disable after reconnecting with a stale local observation',async()=>{
+  const f=fixture();
+  const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    applied_revision:2,observed:'disabled' as const,process_instance_id:'prior-host',confirmed_at:'2026-10-26'};
+  f.states.set('a',{...confirmed,observed:'stop_unconfirmed',error_code:'managed_cleanup_unconfirmed'});
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'prior-host',stopped:true});
+  f.setStop({confirmed:false,processInstanceId:'new-shared-host'});
+  await f.lifecycle.synchronize([confirmed,initial('b')]);
+  expect(f.states.get('a')).toEqual(confirmed);
+  expect(f.reports).toContainEqual(expect.objectContaining({agent_id:'a',revision:2,observed:'disabled',process_instance_id:'prior-host'}));
+  expect(f.lifecycle.allowed('a')).toBe(false);
+  expect(f.lifecycle.allowed('b')).toBe(true);
+});
+
+it.each([undefined,'other-host'])('still requires runtime confirmation without matching stopped proof (%s)',async proofProcess=>{
+  const f=fixture();
+  const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    applied_revision:2,observed:'disabled' as const,process_instance_id:'prior-host'};
+  if(proofProcess)f.proofs.set('a',{boot:'boot-one',processInstanceId:proofProcess,stopped:true});
+  f.setStop({confirmed:true,processInstanceId:'new-shared-host'});
+  const sync=f.lifecycle.synchronize([confirmed]);
+  expect(f.states.get('a')?.observed).not.toBe('disabled');
+  await sync;
+  expect(f.reports.at(-1)?.observed).toBe('stop_unconfirmed');
+});
+
 it('resumes cleanup after a durable native purge without rebuilding the plan', async()=>{
   const {AgentDeletionLedger,NodeAgentDeletions}=await import('../src/agent-deletion.js');
   const {mkdtemp,rm}=await import('node:fs/promises');
