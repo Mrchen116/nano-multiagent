@@ -242,6 +242,18 @@ Web真实session`feat716final`、正常登录与DOM输入/Send；390×844实际�
 
 同一原reviewer完成上述原DB/journal/App/日志/图片直接读取后，已将决定日志、两张当前核心图、首失败四图/summary、native核心/实际回复proof与Debug/Release plist/hash/file最小绑定复制到主仓gitignored稳定目录`output/feat-716-80f2033f/native-reviewed/`（已实际git check-ignore）。随后逐项核对自建CC5名称/UDID/Shutdown与各临时绝对路径，**已删除CC5、独占`/tmp/nano-ios-feat716`（含凭据xctestrun、Debug/Release构建和未签名IPA）、本批两个完整xcresult**，实际list/目录均确认不存在；App/runner/Xcode均已退出。文中这些旧产物路径只说明原执行位置，现复查使用稳定最小证据，不宣称完整App/xcresult仍在。未改/删除其他模拟器、共享缓存、旧62814；52850与浏览器暂留给本批Web修复，仍由716执行者负责最终回收。
 
+## Web内部重挂：实现与最低层保护
+
+在上述真实失败/原红测之后，受委派的frontend helper仅修改`features/chat/**`，未改auth/realtime、server或iOS，也未操作浏览器/服务。新增`InteractionDraftRecord`只持有私人编辑/CAS/串行PUT/读取代际与订阅，coordinator按当前账号session+conversation+message管理；mounted handle可销毁，unsaved/conflict/inflight record保留，clean最后detach即驱逐。新renderer从保留编辑开始，PUT回执只推进revision/自有watermark，不重新seed或覆盖较新的输入。真实leave、卡片readOnly、撤权和logout/account reset各自结束本机所有权；settings的membership reconciliation同步忘记已撤权record。旧renderer回调/尚未准入动作被当前view fence挡住，不取消已经由服务端接受的请求。
+
+- 作者接回实现后实际执行八文件窄组：**8 files / 78 tests passed / 42.87s / exit0**，`/tmp/feat716-web-reattach-final-focused.log:4–24`。包含原真实card+pane remount红测现绿、transient同state重试、debounce/StrictMode、在途PUT后新输入以确认revision继续保存、clean重挂新读、显式采用失败保留以及leave/revoke/account隔离。原红测的正文断言沿用生产语义显式共享composerStore，不把测试临时store遗失正文当产品行为。
+- 作者另查出“实际离开→已返回→旧PUT才确认”的既有全局leaving空隙：每个被leave忘记的record记住自己的leave intent，旧确认仍只enqueue其自身`updated_at=T1`；确定性回归令新返回编辑先保存T2、再释放旧ACK，明确只discard T1、保留T2水位/新编辑。该case属于本unit自有水位/迟到保存边界，不推进远端观测水位、不清掉新编辑。
+- 测试策略：扩展现有`draft-failure-notice.test.tsx`保护真实card/composer接线，原`interactive-card.test.tsx`保留全部业务动作/冻结请求保护，仅增加每case协调器reset；`use-membership-cache.test.tsx`补settings撤权接线。新`interaction-draft-record.test.ts`为新数据owner的最低独立seam，使用gate强制PUT/GET交错，无随机sleep/超时扩容；没有永久浏览器测试或另造milestone套件。helper先77项绿（尚无后补leave-return case），最终22项绿/tsc绿；作者78项才是目前完整窄组，不倒算helper早期run已覆盖后补case。
+
+作者随后`npm --prefix src/IM/frontend run build`与`pnpm check:ios-runtime`实际exit0：前者tsc+Vite，26.00s，`/tmp/feat716-web-reattach-final-build.log:1754–1763`，新interactive-card chunk为`interactive-card-BxpxmND2.js`；依赖注释/动态导入与大chunk警告保留。后者`/tmp/feat716-web-reattach-ios-runtime.log`。实际source diff确认Swift、ios-interactive、catalog及open-intelligent-ui相对4ae43无变化；不是重跑Native或为新Web bundle借用原native GUI结论。
+
+这只是实现/受控测试事实，尚无新bundle真实401恢复及原reviewer对新增delta的最终批准；旧未通过路径不改写为当时已通过。D9补清内部恢复≠浏览器整页刷新，已有delta「明确放弃前保留」契约不变。
+
 ## 当前未关闭范围
 
 原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；MERGE-1及后续动作回执busy变体已分别实际红绿/完整Native unit及各自Release device archive通过，并获原reviewer对c91f、4ae43两个真实冻结范围的限定CLOSED/APPROVED。当前双端三消息有上述新作者执行证据，Web内部重挂丢本机冲突已真实红测，仍在修复/独立复核前。未改runtime的workspace-tools CI硬失败另待范围处理，不吸收进本unit。受影响恢复复验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。

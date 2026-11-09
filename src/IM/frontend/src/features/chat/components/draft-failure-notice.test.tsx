@@ -1,11 +1,14 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLanguage } from '../../../i18n';
 import type { Conversation, Message } from '../chat-types';
 import { readInteractionDraft, saveInteractionDraft } from '../chat-api';
-import { resetInteractionBackground } from '../interaction-background';
+import { draftWatermark, flushInteractionDrafts, resetInteractionBackground } from '../interaction-background';
+import type { InteractionDraft } from '../interactive/types';
 import { MessagePane } from './message-pane';
+import type { ComposerSnapshot } from './composer-draft-store';
 // Preload the lazy explorer module so the first test does not race its dynamic import.
 import '../interactive/interactive-card';
 
@@ -123,6 +126,107 @@ describe('composer block for an unsaved card edit', () => {
     expect(field).toHaveValue('不能丢的本机改动');
     expect(composerBox()).toHaveValue('正文也保留');
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('keeps a conflicted local edit across an internal pane remount until explicit adoption', async () => {
+    vi.mocked(saveInteractionDraft).mockRejectedValue(new Error('409 conflict'));
+    const send = vi.fn();
+    // Production uses the account store; test-mode panes otherwise get disposable stores.
+    const composerStore = new Map<string, ComposerSnapshot>();
+    const props = { conversation, messages: [card], selfUserId: 'u1', mentionCandidates: [], onSend: send, composerStore };
+    const view = render(<MessagePane {...props} />);
+    const field = await openCard();
+    await waitFor(() => expect(field).toHaveValue('周日见'));
+    fireEvent.change(field, { target: { value: '内部恢复不能丢的改动' } });
+    fireEvent.change(composerBox(), { target: { value: '保留正文直到我决定' } });
+    fireEvent.click(sendButton());
+    const alert = await within(composerForm()).findByRole('alert');
+    fireEvent.click(within(alert).getByRole('button', { name: '查看最新改动' }));
+    await within(alert).findByRole('table');
+
+    // Membership recovery temporarily conceals the pane without a user leave or logout.
+    view.rerender(<></>);
+    view.rerender(<MessagePane {...props} />);
+    await openCard();
+    await waitFor(() => expect(screen.getByPlaceholderText('编辑草稿')).toHaveValue('内部恢复不能丢的改动'));
+    expect(sendButton()).toBeDisabled();
+    expect(composerBox()).toHaveValue('保留正文直到我决定');
+    expect(readInteractionDraft).toHaveBeenCalledTimes(2); // initial read + comparison, not adoption on remount
+    const recovered = within(composerForm()).getByRole('alert');
+    fireEvent.click(within(recovered).getByRole('button', { name: '查看最新改动' }));
+    const comparison = await within(recovered).findByRole('table');
+    expect(comparison).toHaveTextContent('内部恢复不能丢的改动');
+    expect(comparison).toHaveTextContent('周日见');
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(within(recovered).getByRole('button', { name: '改用最新草稿（会放弃本机这次改动）' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByPlaceholderText('编辑草稿')).toHaveValue('周日见'));
+    expect(sendButton()).not.toBeDisabled();
+  });
+
+  it('retains a transient edit across a pane remount and retries the same local state', async () => {
+    vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('offline'));
+    const props = {conversation, messages:[card], selfUserId:'u1', mentionCandidates:[], onSend:vi.fn(),
+      composerStore:new Map<string, ComposerSnapshot>()};
+    const view = render(<MessagePane {...props} />);
+    const field = await openCard();
+    fireEvent.change(field, {target:{value:'断网时编辑'}});
+    fireEvent.change(composerBox(), {target:{value:'正文不丢'}});
+    fireEvent.click(sendButton());
+    await within(composerForm()).findByRole('alert');
+    view.rerender(<></>);
+    view.rerender(<MessagePane {...props} />);
+    await waitFor(() => expect(screen.getByPlaceholderText('编辑草稿')).toHaveValue('断网时编辑'));
+    expect(sendButton()).toBeDisabled();
+    expect(composerBox()).toHaveValue('正文不丢');
+    expect(readInteractionDraft).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(composerForm()).getByRole('button', {name:'重试保存'}));
+    await waitFor(() => expect(within(composerForm()).queryByRole('alert')).not.toBeInTheDocument());
+    expect(saveInteractionDraft).toHaveBeenLastCalledWith('chat','card',2,{'$body':'断网时编辑'});
+    expect(screen.getByPlaceholderText('编辑草稿')).toHaveValue('断网时编辑');
+    expect(sendButton()).not.toBeDisabled();
+    expect(props.onSend).not.toHaveBeenCalled();
+  });
+
+  it('reattaches to a pending PUT and saves newer input with its acknowledgement without reseeding the renderer', async () => {
+    let complete!: (value: InteractionDraft) => void;
+    vi.mocked(saveInteractionDraft).mockReturnValueOnce(new Promise(resolve => { complete = resolve; }))
+      .mockResolvedValueOnce({draft_revision:4,state:{},submission_message_id:null,updated_at:'2026-05-01T00:00:02.000Z'});
+    const props = {conversation,messages:[card],selfUserId:'u1',mentionCandidates:[],onSend:vi.fn()};
+    const view = render(<MessagePane {...props} />);
+    fireEvent.change(await openCard(), {target:{value:'第一次编辑'}});
+    let saving!: ReturnType<typeof flushInteractionDrafts>;
+    act(() => { saving = flushInteractionDrafts('chat'); });
+    expect(saveInteractionDraft).toHaveBeenCalledTimes(1);
+    view.rerender(<></>);
+    view.rerender(<MessagePane {...props} />);
+    const replacement = await openCard();
+    await waitFor(() => expect(replacement).toHaveValue('第一次编辑'));
+    fireEvent.change(replacement, {target:{value:'新页面继续编辑'}});
+    await act(async () => {
+      complete({draft_revision:3,state:{'$body':'旧回执不替换输入'},submission_message_id:null,updated_at:'2026-05-01T00:00:01.000Z'});
+      await saving;
+    });
+    expect(saveInteractionDraft).toHaveBeenNthCalledWith(2,'chat','card',3,{'$body':'新页面继续编辑'});
+    expect(screen.getByPlaceholderText('编辑草稿')).toBe(replacement);
+    expect(replacement).toHaveValue('新页面继续编辑');
+    expect(readInteractionDraft).toHaveBeenCalledTimes(1);
+    expect(draftWatermark('chat')).toBe('2026-05-01T00:00:02.000Z');
+    expect(within(composerForm()).queryByRole('alert')).not.toBeInTheDocument();
+    expect(props.onSend).not.toHaveBeenCalled();
+  });
+
+  it('resumes a debounce interrupted by concealment and tolerates StrictMode view leases', async () => {
+    const props = {conversation,messages:[card],selfUserId:'u1',mentionCandidates:[],onSend:vi.fn()};
+    const view = render(<StrictMode><MessagePane {...props} /></StrictMode>);
+    fireEvent.change(await openCard(), {target:{value:'防抖中尚未保存'}});
+    expect(saveInteractionDraft).not.toHaveBeenCalled();
+    view.rerender(<></>);
+    view.rerender(<StrictMode><MessagePane {...props} /></StrictMode>);
+    await waitFor(() => expect(screen.getByPlaceholderText('编辑草稿')).toHaveValue('防抖中尚未保存'));
+    await waitFor(() => expect(saveInteractionDraft).toHaveBeenCalledWith('chat','card',2,{'$body':'防抖中尚未保存'}));
+    expect(saveInteractionDraft).toHaveBeenCalledTimes(1);
+    expect(readInteractionDraft).toHaveBeenCalledTimes(1);
   });
 
   it('offers a retry on a transient save failure and releases the send once the edit is saved', async () => {

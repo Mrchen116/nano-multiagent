@@ -5,10 +5,11 @@
 import { useSyncExternalStore } from 'react';
 import { discardInteractionBackground, readInteractionDraft } from './chat-api';
 import { openChatDatabase } from './chat-local-db';
+import { InteractionDraftRecord } from './interaction-draft-record';
 
 export type DraftFailureReason = 'transient' | 'conflict';
 
-/** The only seam a card exposes to the composer; its state lives inside the card. */
+/** Mounted-view callbacks only; unsaved private data has a separate retained owner. */
 export interface DraftHandle {
   /** Finish this card's debounce window and return the confirmed save time, or why it failed. */
   flush(): Promise<{ updatedAt?: string; reason?: DraftFailureReason }>;
@@ -24,6 +25,7 @@ export interface DraftFailure {
 }
 
 const handles = new Map<string, Map<string, DraftHandle>>();
+const records = new Map<string, Map<string, InteractionDraftRecord>>();
 const failures = new Map<string, Map<string, DraftFailureReason>>();
 const listeners = new Set<() => void>();
 /** Highest confirmed save per conversation, the only thing leaving may clear. */
@@ -78,6 +80,62 @@ export function useDraftFailures(cid: string): DraftFailure[] {
     () => draftFailures(cid), () => draftFailures(cid));
 }
 
+/** Reuse unsaved data across concealed views, but refresh clean drafts on a new mount. */
+export function interactionDraftRecord(cid: string, mid: string, retained = true): InteractionDraftRecord {
+  const previous = retained ? records.get(cid)?.get(mid) : undefined;
+  if (previous?.current) return previous;
+  const session = draftSession(cid);
+  const record = new InteractionDraftRecord(cid, mid, {
+    current: () => session === draftSession(cid),
+    saved: (updatedAt, left) => {
+      if (!retained) return;
+      noteDraftSaved(cid, updatedAt, session);
+      // A returned conversation is active again, but this old record still owns its leave.
+      if (left && !leaving.has(cid)) void enqueueDiscard(cid, updatedAt);
+    },
+    failed: reason => {
+      if (retained && records.get(cid)?.get(mid) === record && session === draftSession(cid)) setFailure(cid, mid, reason);
+    },
+    idle: () => {
+      if (records.get(cid)?.get(mid) !== record) return;
+      records.get(cid)!.delete(mid);
+      if (!records.get(cid)!.size) records.delete(cid);
+    },
+  });
+  if (retained) {
+    const chat = records.get(cid) ?? new Map<string, InteractionDraftRecord>();
+    chat.set(mid, record); records.set(cid, chat);
+  }
+  return record;
+}
+
+/** StrictMode may detach and reattach the same clean record without another render. */
+export function attachDraftRecord(record: InteractionDraftRecord, retained = true): () => void {
+  if (retained && record.current) {
+    const chat = records.get(record.conversationId) ?? new Map<string, InteractionDraftRecord>();
+    chat.set(record.messageId, record); records.set(record.conversationId, chat);
+  }
+  return record.attach();
+}
+
+/** A card becoming read-only is explicit invalidation, not a temporary view detach. */
+export function forgetInteractionDraft(cid: string, mid: string): void {
+  const record = records.get(cid)?.get(mid);
+  records.get(cid)?.delete(mid);
+  if (!records.get(cid)?.size) records.delete(cid);
+  record?.forget();
+  handles.get(cid)?.delete(mid);
+  if (!handles.get(cid)?.size) handles.delete(cid);
+  clearDraftFailure(cid, mid);
+}
+
+function forgetLocalDrafts(cid: string, left = false): void {
+  const chat = records.get(cid);
+  records.delete(cid);
+  chat?.forEach(record => record.forget(left));
+  handles.delete(cid); failures.delete(cid); notify();
+}
+
 /** Idempotent: React StrictMode mounts each card twice. */
 export function registerDraftHandle(cid: string, mid: string, handle: DraftHandle): () => void {
   const chat = handles.get(cid) ?? new Map<string, DraftHandle>();
@@ -90,7 +148,8 @@ export function unregisterDraftHandle(cid: string, mid: string): void {
   if (!chat) return;
   chat.delete(mid);
   if (!chat.size) handles.delete(cid);
-  clearDraftFailure(cid, mid);
+  const record = records.get(cid)?.get(mid);
+  if (record?.unsaved) setFailure(cid, mid, record.failure ?? 'transient');
 }
 
 /** Record a confirmed save as this browser's watermark for the conversation. */
@@ -125,6 +184,7 @@ export function draftWatermark(cid: string): string | undefined { return waterma
 
 export function resetInteractionBackground(nextAccountId = ''): void {
   generation += 1; conversationGenerations.clear();
+  records.forEach(chat => chat.forEach(record => record.forget())); records.clear();
   handles.clear(); failures.clear(); watermarks.clear(); cleared.clear(); leaving.clear(); pendingDiscards.clear(); discards.clear(); recoveries.clear();
   snapshotCache.clear();
   accountId = nextAccountId; hydrated = null; notify();
@@ -137,7 +197,7 @@ export async function flushInteractionDrafts(cid: string): Promise<DraftFailure[
   await Promise.all([...chat].map(async ([mid, handle]) => {
     // 404/501 or an offline card must not throw out of the send path.
     const result = await handle.flush().catch((): { reason: DraftFailureReason } => ({ reason: 'transient' }));
-    if (session !== draftSession(cid)) return;
+    if (session !== draftSession(cid) || handles.get(cid)?.get(mid) !== handle) return;
     if (result.reason) setFailure(cid, mid, result.reason);
     else { clearDraftFailure(cid, mid); noteDraftSaved(cid, result.updatedAt, session); }
   }));
@@ -155,7 +215,7 @@ export async function retryDraft(cid: string, mid: string): Promise<void> {
   const handle = handles.get(cid)?.get(mid), session = draftSession(cid);
   if (!handle) return;
   const result = await handle.flush().catch((): { reason: DraftFailureReason } => ({ reason: 'transient' }));
-  if (session !== draftSession(cid)) return;
+  if (session !== draftSession(cid) || handles.get(cid)?.get(mid) !== handle) return;
   if (result.reason) setFailure(cid, mid, result.reason);
   else { clearDraftFailure(cid, mid); noteDraftSaved(cid, result.updatedAt, session); }
 }
@@ -175,16 +235,20 @@ export function retryTransientDrafts(cid: string): Promise<void> {
 export async function describeDraftConflict(cid: string, mid: string): Promise<{ columns: { label: string; remote: string; local: string }[] }> {
   const handle = handles.get(cid)?.get(mid);
   if (handle) return handle.describeConflict();
+  const record = records.get(cid)?.get(mid);
   const remote = await readInteractionDraft(cid, mid);
-  return { columns: (remote.fields ?? []).map(field => ({ label: field.label, remote: readable(field.value, field.display_value), local: '' })) };
+  return { columns: (remote.fields ?? []).map(field => ({ label: field.label,
+    remote: readable(field.value, field.display_value, field.options),
+    local: readable(record?.state[field.name], undefined, field.options) })) };
 }
 
 /** Adopt the server draft for one card after the user accepted the loss. */
 export async function adoptRemoteDraft(cid: string, mid: string): Promise<void> {
-  const handle = handles.get(cid)?.get(mid);
-  if (!handle) { clearDraftFailure(cid, mid); return; }
-  await handle.adoptRemote();
-  clearDraftFailure(cid, mid);
+  const handle = handles.get(cid)?.get(mid), record = records.get(cid)?.get(mid), session = draftSession(cid);
+  if (handle) await handle.adoptRemote();
+  else if (record && !await record.load(true)) throw new Error('Could not load the latest private draft');
+  if (session !== draftSession(cid) || (record && !record.current)) return;
+  clearDraftFailure(cid, mid, session);
 }
 
 /** Render one value with the labels the server sent, so both columns speak one vocabulary. */
@@ -205,6 +269,7 @@ export function readable(value: unknown, display?: string, options?: { label: st
  * counts as left, so a save that lands afterwards triggers one more clear (D4 迟到成功).
  */
 export async function discardOnLeave(cid: string, through = watermarks.get(cid)): Promise<void> {
+  forgetLocalDrafts(cid, true);
   leaving.add(cid);
   const session = draftSession(cid);
   if (!through && hydrated) {
@@ -369,7 +434,7 @@ export async function forgetInteractionBackground(userId: string, cid?: string):
     if (cid === undefined) resetInteractionBackground();
     else {
       conversationGenerations.set(cid, (conversationGenerations.get(cid) ?? 0) + 1);
-      handles.delete(cid); failures.delete(cid); watermarks.delete(cid); cleared.delete(cid);
+      forgetLocalDrafts(cid); watermarks.delete(cid); cleared.delete(cid);
       leaving.delete(cid); pendingDiscards.delete(cid); discards.delete(cid); recoveries.delete(cid); notify();
     }
   }

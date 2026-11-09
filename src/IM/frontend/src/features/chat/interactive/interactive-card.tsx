@@ -1,4 +1,4 @@
-import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Renderer, type ActionEvent } from '@openuidev/react-lang';
 import { ThemeProvider } from '@openuidev/react-ui';
 import '@openuidev/react-ui/defaults.css';
@@ -7,14 +7,14 @@ import { interactiveLibrary } from './catalog';
 import { runLibraryAction } from './open-intelligent-ui/actions';
 import { CardAttachmentImage } from './open-intelligent-ui/attachment-images';
 import { MessageImage, protectedResourceUrl } from '../components/message-image';
-import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
+import { listMessages, readInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
 import { useTranslation } from '../../../i18n';
 import './interactive-card.css';
 import { InteractionSubmissionError } from './submission-error';
-import { clearDraftFailure, draftSession, noteDraftFailed, noteDraftSaved, readable, registerDraftHandle,
-  type DraftFailureReason, type DraftHandle } from '../interaction-background';
+import { attachDraftRecord, forgetInteractionDraft, interactionDraftRecord, readable, registerDraftHandle,
+  type DraftHandle } from '../interaction-background';
 
 export interface InteractiveCardProps {
   message: Message;
@@ -40,23 +40,22 @@ function CardMessageImage({ url, alt, report }: { url: string; alt: string; repo
 /** Render public source while keeping edits private until an explicit continuation. */
 export function InteractiveCard({message, readOnly, isGroup, submittedMessageId, onSend, onComposeMessage, onAttachmentVisibility}: InteractiveCardProps) {
   const { t } = useTranslation();
-  const [loaded, setLoaded] = useState(false);
-  const [initial, setInitial] = useState<Record<string, unknown>>({});
-  const [generation, setGeneration] = useState(0);
-  const [done, setDone] = useState(false);
+  const retained = !readOnly && !isGroup;
+  const record = useMemo(() => interactionDraftRecord(message.conversation_id, message.id, retained),
+    [message.conversation_id, message.id, retained]);
+  useSyncExternalStore(record.subscribe, record.snapshot, record.snapshot);
+  // A replacement renderer starts at the retained edit, but an ordinary acknowledgement
+  // must never reseed the current renderer or move its cursor.
+  const initial = useMemo(() => record.state, [record, record.renderVersion]);
+  const { loaded, done } = record;
   const [busy, setBusy] = useState(false);
   const [applyingDraft, setApplyingDraft] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
-  const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
+  const [actionError, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
+  const error = actionError ?? (record.failure === 'conflict' ? 'conflict' : record.failure ? 'save' : record.loadFailed ? 'load' : null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
-  const state = useRef<Record<string, unknown>>({});
-  const revision = useRef(0);
   const touched = useRef(false);
-  const lastSavedAt = useRef<string | undefined>(undefined);
-  const saveFailure = useRef<DraftFailureReason | null>(null);
-  const dirty = useRef(false);
-  const saving = useRef(false);
-  const saveRequest = useRef<ReturnType<typeof saveInteractionDraft> | null>(null);
+  const viewActive = useRef(true);
   const submitting = useRef(false);
   const actionLabel = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -68,34 +67,34 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     if (!onComposeMessage || lockedRef.current || applyingDraft) return;
     clearTimeout(timer.current); setApplyingDraft(true); setComposeError(null);
     try {
-      await saveRequest.current?.catch(() => undefined);
+      await record.request;
       await save();
-      if (dirty.current || saving.current) return;
+      if (!viewActive.current || !record.current || record.dirty || record.request) return;
       const latest = await readInteractionDraft(message.conversation_id, message.id);
       if (latest.can_interact !== true || latest.read_only || latest.superseded_by) throw new Error(t('chat.interactive.readOnly'));
-      await onComposeMessage(target, text);
+      if (viewActive.current && record.current) await onComposeMessage(target, text);
     } catch (error) { setComposeError(error instanceof Error ? error.message : t('chat.interactive.actionError')); }
     finally { setApplyingDraft(false); }
   }
   async function load(adopting = false) {
     setError(null);
-    try {
-      const draft = await readInteractionDraft(message.conversation_id, message.id);
-      state.current = draft.state; revision.current = draft.draft_revision;
-      setInitial(draft.state); setDone(Boolean(draft.submission_message_id));
-      setGeneration(value => value + 1); setLoaded(true); dirty.current = false;
-      touched.current = false;
-      return true;
-    } catch { setError(adopting ? 'conflict' : 'load'); return false; }
+    const success = await record.load(adopting);
+    if (success) touched.current = false;
+    else if (adopting && record.current) setError('conflict');
+    return success;
   }
-  useEffect(() => { void load(); return () => clearTimeout(timer.current); }, [message.id]);
+  useEffect(() => {
+    viewActive.current = true;
+    const detach = attachDraftRecord(record, retained);
+    if (readOnly) forgetInteractionDraft(message.conversation_id, message.id);
+    void load();
+    // A detach may interrupt the debounce before the first PUT; resume it on this view.
+    if (record.dirty && !record.failure) timer.current = setTimeout(() => { void save(); }, 500);
+    return () => { viewActive.current = false; clearTimeout(timer.current); detach(); };
+  }, [record]);
   async function syncSubmittedDraft() {
-    try {
-      const draft = await readInteractionDraft(message.conversation_id, message.id);
-      // POST and WS can confirm the same submission in either order.
-      revision.current = Math.max(revision.current, draft.draft_revision);
-      setDone(JSON.stringify(state.current) === JSON.stringify(draft.state));
-    } catch { setError('save'); }
+    try { await record.syncSubmitted(); }
+    catch { if (record.current) setError('save'); }
   }
   // Composer submissions also advance the draft revision, without remounting the explorer.
   useEffect(() => {
@@ -103,55 +102,23 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   }, [submittedMessageId]);
 
   async function save(): Promise<string | undefined> {
-    if (saving.current || lockedRef.current || !dirty.current || pending.current) return lastSavedAt.current;
-    saving.current = true;
-    dirty.current = false;
-    const value = state.current, session = draftSession(message.conversation_id);
-    try {
-      saveRequest.current = saveInteractionDraft(message.conversation_id, message.id, revision.current, value);
-      const result = await saveRequest.current;
-      if (session !== draftSession(message.conversation_id)) return undefined;
-      revision.current = result.draft_revision;
-      lastSavedAt.current = result.updated_at ?? undefined;
-      saveFailure.current = null;
-      setError(null);
-      // Watermark advances only on confirmed saves; this is what leaving will clear.
-      if (!isGroup) {
-        noteDraftSaved(message.conversation_id, result.updated_at ?? undefined, session);
-        clearDraftFailure(message.conversation_id, message.id, session);
-      }
-    } catch (e) {
-      if (session !== draftSession(message.conversation_id)) return undefined;
-      dirty.current = true;
-      const reason: DraftFailureReason = String(e).includes('409') ? 'conflict' : 'transient';
-      saveFailure.current = reason;
-      setError(reason === 'conflict' ? 'conflict' : 'save');
-      if (!isGroup) noteDraftFailed(message.conversation_id, message.id, reason, session);
-    } finally { saving.current = false; saveRequest.current = null; }
-    // An edit during an in-flight save must persist with the newly returned revision.
-    if (state.current !== value && dirty.current) void save();
-    return lastSavedAt.current;
+    if (lockedRef.current || pending.current) return record.savedAt;
+    setError(null);
+    return record.save();
   }
-  /** Finish this card's debounce window for the composer; never throws into the send path. */
-  async function flush(): Promise<{updatedAt?: string; reason?: DraftFailureReason}> {
-    const session = draftSession(message.conversation_id);
+  /** Finish this view's debounce while the retained record owns any in-flight PUT. */
+  async function flush() {
     clearTimeout(timer.current);
-    await saveRequest.current?.catch(() => undefined);
-    if (session !== draftSession(message.conversation_id)) return {reason: 'transient'};
-    await save();
-    if (saving.current || dirty.current) {
-      const reason = saveFailure.current ?? 'transient';
-      noteDraftFailed(message.conversation_id, message.id, reason);
-      return {reason};
+    if (lockedRef.current || pending.current) {
+      return record.unsaved ? {reason: record.failure ?? 'transient' as const} : {updatedAt: record.savedAt};
     }
-    if (saveFailure.current) return {reason: saveFailure.current};
-    return lastSavedAt.current ? {updatedAt: lastSavedAt.current} : {};
+    return record.flush();
   }
   /** Read-only comparison of the server draft with this device's edit. Applies nothing. */
   async function describeConflict(): Promise<{columns: {label: string; remote: string; local: string}[]}> {
     const remote = await readInteractionDraft(message.conversation_id, message.id);
     const raw = (name: string) => {
-      const value = state.current[name];
+      const value = record.state[name];
       return value && typeof value === 'object' && 'value' in (value as Record<string, unknown>)
         ? (value as Record<string, unknown>).value : value;
     };
@@ -164,32 +131,32 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     // A failed read leaves this device's edit intact; it is not a successful adoption and
     // must not release the conversation-wide block.
     if (!await load(true)) throw new Error(t('chat.interactive.loadError'));
-    saveFailure.current = null;
-    clearDraftFailure(message.conversation_id, message.id);
   }
   const handleRef = useRef<DraftHandle>({flush, describeConflict, adoptRemote});
   handleRef.current = {flush, describeConflict, adoptRemote};
   useEffect(() => {
     if (readOnly || isGroup) return;
     return registerDraftHandle(message.conversation_id, message.id, handleRef.current);
-  }, [message.id, message.conversation_id, readOnly, isGroup]);
+  }, [record, readOnly, isGroup]);
   async function submit(request?: Pick<InteractionReplyInput, 'action_id'|'event'>, formState?: Record<string, unknown>) {
     if (lockedRef.current) { setError('stale'); throw new Error('This historical reply cannot submit new requests'); }
     if (submitting.current) throw new Error('A request is already pending');
     submitting.current = true;
     if (!pending.current) pending.current = {input: {source_message_id: message.id, ...request,
-      state: structuredClone({...state.current, ...formState})}, key: crypto.randomUUID()};
+      state: structuredClone({...record.state, ...formState})}, key: crypto.randomUUID()};
     clearTimeout(timer.current); setBusy(true); setError(null);
     try {
       // Finish an earlier private save before submission increments its revision.
-      await saveRequest.current?.catch(() => undefined);
+      await record.request;
+      if (!viewActive.current || !record.current) throw new Error('This interaction view is no longer active');
       const result = await onSend(pending.current.input, pending.current.key);
-      setDone(true); pending.current = null; dirty.current = false;
+      if (!viewActive.current || !record.current) return result;
+      record.submitted(); pending.current = null;
       await syncSubmittedDraft();
       return result;
     } catch (e) {
       if (e instanceof InteractionSubmissionError) {
-        pending.current = null; dirty.current = false;
+        pending.current = null; record.dirty = false;
         setSubmissionConflict(e); setError(e.reason);
       } else setError('send');
       throw e;
@@ -210,6 +177,7 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     },
   }), [message.id, message.conversation_id, t]);
   function onAction(action: ActionEvent) {
+    if (!viewActive.current || !record.current) return;
     const handled = runLibraryAction(action);
     if (handled) { void handled.then(ok => { if (!ok) setError('action'); }); return; }
     if (action.type === 'ComposeMessage') {
@@ -259,17 +227,17 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
       <fieldset disabled={readOnly || busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
         <CardAttachmentImage.Provider value={renderAttachment}>
         <ThemeProvider mode="light" cssSelector=".interactive-card">
-        <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
+        <Renderer key={record.renderVersion} response={message.interactive!.source} library={interactiveLibrary}
           initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
-          onParseResult={parsed => { state.current = {...parsed?.stateDeclarations, ...state.current}; }}
+          onParseResult={parsed => { if (viewActive.current) record.update({...parsed?.stateDeclarations, ...record.state}); }}
           onError={errors => { if (errors.some(error => error.source === 'parser')) setError('render'); }}
           onStateUpdate={value => {
-            state.current = value;
-            if (lockedRef.current || pending.current) return;
+            if (!viewActive.current) return;
             // Only a real input event may arm a background; rendering must never do it.
-            if (!touched.current) return;
-            dirty.current = true; setDone(false);
-            clearTimeout(timer.current); timer.current = setTimeout(() => { void save(); }, 500);
+            const edited = !lockedRef.current && !pending.current && touched.current;
+            if (record.update(value, edited)) {
+              clearTimeout(timer.current); timer.current = setTimeout(() => { void save(); }, 500);
+            }
           }}
           onAction={onAction} />
         </ThemeProvider>
@@ -285,7 +253,7 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
       {error === 'load' && <button type="button" onClick={() => void load()}>{t('chat.interactive.retry')}</button>}
       {error === 'save' && <button type="button" onClick={() => void save()}>{t('chat.interactive.retry')}</button>}
       {error === 'send' && <button type="button" onClick={() => void submit().catch(() => undefined)}>{t('chat.interactive.retry')}</button>}
-      {isGroup && error === 'conflict' && <button type="button" onClick={() => void load()}>{t('chat.interactive.loadLatest')}</button>}
+      {isGroup && error === 'conflict' && <button type="button" onClick={() => void load(true)}>{t('chat.interactive.loadLatest')}</button>}
     </div>}
   </section>;
 }

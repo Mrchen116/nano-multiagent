@@ -5,6 +5,7 @@ import { listConversations } from "./chat-api";
 import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { useAuthStore } from "../auth/auth-store";
 import type { Conversation } from "./chat-types";
+import { forgetInteractionBackground } from './interaction-background';
 
 /** Membership changes also invalidate chats while the user is viewing settings. */
 export function useMembershipCache() {
@@ -38,6 +39,7 @@ export function useMembershipCache() {
           for (const chat of removed) {
             client.removeQueries({ queryKey: ["chat", "messages", chat.id] });
             forgetComposerConversation(composerStoreFor(userId ?? null), chat.id);
+            if (userId) void forgetInteractionBackground(userId, chat.id).catch(() => {});
           }
           for (const chat of conversations) retireExecutionHistory(chat.id, chat.execution_cleanup_revision ?? 0);
           client.removeQueries({ queryKey: ["chat", "slash-candidates"] });

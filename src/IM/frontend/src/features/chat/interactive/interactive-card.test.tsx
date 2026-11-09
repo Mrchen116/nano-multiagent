@@ -4,11 +4,13 @@ import { InteractiveCard } from './interactive-card';
 import { InteractionSubmissionError } from './submission-error';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
+import { resetInteractionBackground } from '../interaction-background';
 vi.mock('../chat-api', () => ({listMessages:vi.fn(),readInteractionDraft: vi.fn(), saveInteractionDraft: vi.fn()}));
 const message = {id:'card', conversation_id:'chat', content:'确认草稿', interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
 root = Col([form])
 form = Form([TextArea($body, "消息草稿", "编辑"), Button("发送给林悦", @SendToChat("发送给林悦"))])`}} as Message;
 beforeEach(() => {
+  resetInteractionBackground();
   vi.clearAllMocks();
   vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:2,state:{'$body':'周日见'},submission_message_id:null});
   vi.mocked(saveInteractionDraft).mockResolvedValue({draft_revision:3,state:{},submission_message_id:null});
