@@ -13,6 +13,7 @@ const messages = (body: any) => body.messages.map((m: any) => ({...m,
     : m.content.map(({cache_control: _hint,...block}: any) => block),
 }));
 const system = (body: any) => body.system.map(({cache_control: _hint,...block}: any) => block);
+const tools = (body: any) => body.tools.map(({cache_control: _hint,...tool}: any) => tool);
 
 function expectWirePrefix(before: unknown[], after: unknown[], field: string) {
   expect(after.length, field).toBeGreaterThanOrEqual(before.length);
@@ -65,7 +66,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     expect(root.length, `root requests after fork tool call for ${id}`).toBeGreaterThanOrEqual(2);
     const parent=root[0]!;
     expect(child,JSON.stringify({round,session:await client!.rpc.request('session.observe',{sessionId:'root'})})+logs).toBeDefined();
-    expect(child!.body.tools).toEqual(parent.body.tools);
+    expect(tools(child!.body)).toEqual(tools(parent.body));
     expect(system(child!.body)).toEqual(system(parent.body));
     expect(JSON.stringify(child!.body)).toContain('FORK_PREFIX_TASK');
     return {parent:parent.body,child:child!.body};
@@ -95,7 +96,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
       expect(after.model, pair).toBe(before.model);
       expect(after.tools.length, `${pair}.tools`).toBe(before.tools.length);
       expect(after.system.length, `${pair}.system`).toBe(before.system.length);
-      expectWirePrefix(before.tools, after.tools, `${pair}.tools`);
+      expectWirePrefix(tools(before), tools(after), `${pair}.tools`);
       expectWirePrefix(system(before), system(after), `${pair}.system`);
       expectWirePrefix(messages(before), messages(after), `${pair}.messages`);
     }

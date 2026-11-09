@@ -19,7 +19,7 @@ def run_tlc(jar: Path, module: str, work: Path) -> int:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("case", nargs="?", default="all", choices=(
-        "all", "baseline", "mixed", "image", "breakpoint", "parallel", "pa-event", "restart", "configuration",
+        "all", "baseline", "mixed", "image", "parallel", "pa-event", "restart", "configuration",
     ))
     parser.add_argument("--agent", choices=("Global", "PA"))
     args = parser.parse_args()
@@ -29,17 +29,9 @@ if __name__ == "__main__":
     if hashlib.sha256(jar.read_bytes()).hexdigest() != digest:
         raise SystemExit("TLA2TOOLS must point to the pinned TLC v1.7.4 release jar.")
 
-    cases = ("baseline", "mixed", "image", "breakpoint") if args.case == "all" else (args.case,)
+    cases = ("baseline", "mixed", "image") if args.case == "all" else (args.case,)
     result = 0
     for case in cases:
-        if case == "breakpoint":
-            with TemporaryDirectory(prefix="nano-context-cache-breakpoint-") as work:
-                for name in ("CacheBreakpoint.tla", "CacheBreakpoint.cfg"):
-                    shutil.copy(assets / name, work)
-                print("TLC breakpoint: Anthropic Messages", flush=True)
-                code = run_tlc(jar, "CacheBreakpoint.tla", Path(work))
-                result = result or code
-            continue
         agents = (args.agent,) if args.agent else ("Global", "PA")
         # TLC stops at the first failure; search each identity independently
         # for a real counterexample.

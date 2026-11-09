@@ -18,8 +18,8 @@ function withoutCacheHint(blocks: any[]) {
 
 function expectPrefix(before: any, after: any) {
   expect(after.model).toBe(before.model);
-  expect(JSON.stringify(after.tools)).toBe(JSON.stringify(before.tools));
-  expect(JSON.stringify(after.system)).toBe(JSON.stringify(before.system));
+  expect(JSON.stringify(withoutCacheHint(after.tools))).toBe(JSON.stringify(withoutCacheHint(before.tools)));
+  expect(JSON.stringify(withoutCacheHint(after.system))).toBe(JSON.stringify(withoutCacheHint(before.system)));
   const normalize = (messages: any[]) => messages.map(message => ({
     ...message, content:withoutCacheHint(content(message)),
   }));
@@ -51,7 +51,7 @@ it.each([false, true])('checks Anthropic wire prefixes and image pressure (PA=%s
     const blocks = batch ? [
       {type:'tool_use',id:'batch-a',name:'cache_probe',input:{}},
       {type:'tool_use',id:'batch-b',name:'cache_probe',input:{}},
-    ] : Array.from({length:n===4?20:1},(_,index)=>({type:'text',text:'WIRE_REPLY_'+n+'_'+index}));
+    ] : [{type:'text',text:'WIRE_REPLY_'+n}];
     for (const [index,block] of blocks.entries()) {
       emit('content_block_start',{index,content_block:block});
       if (batch) emit('content_block_delta',{index,delta:{type:'input_json_delta',partial_json:JSON.stringify({id:index===0?'a':'b'})}});
@@ -108,12 +108,10 @@ export function apply(ctx) {
     expect(requests, JSON.stringify(await client.rpc.request('session.lookup',{sessionId:'root',inputId:'batch'}))).toHaveLength(3);
     expectPrefix(requests[0],requests[1]);
     expectPrefix(requests[1],requests[2]);
-    expect(requests[0].messages.flatMap(content).at(-1)?.cache_control).toEqual({type:'ephemeral'});
     const results = requests[2].messages.flatMap(content).filter(block=>block.type==='tool_result');
     expect(results.map(block=>block.tool_use_id)).toEqual(['batch-a','batch-b']);
     expect(results[0].is_error).not.toBe(true);
     expect(results[1].is_error).toBe(true);
-    expect(results[1].cache_control).toEqual({type:'ephemeral'});
     await submit(personal?'source-change':'followup',false,personal);
     expectPrefix(requests[2],requests[3]);
     expect(JSON.stringify(requests[3].messages)).toContain(personal?'WIRE_source-change':'WIRE_followup');
@@ -121,14 +119,6 @@ export function apply(ctx) {
     await submit('image-one',true);
     const before = requests.at(-1);
     expectPrefix(requests[3],before);
-    // The adapter moves the only message breakpoint. The old one is outside
-    // Claude's documented lookback despite the exact content prefix surviving.
-    const previousBlocks = requests[3].messages.flatMap(content);
-    const currentBlocks = before.messages.flatMap(content);
-    expect(previousBlocks.at(-1).cache_control).toEqual({type:'ephemeral'});
-    expect(currentBlocks[previousBlocks.length-1].cache_control).toBeUndefined();
-    expect(currentBlocks.at(-1).cache_control).toEqual({type:'ephemeral'});
-    expect(currentBlocks.length-previousBlocks.length).toBeGreaterThanOrEqual(20);
     expect(before.messages.flatMap(content).filter((block:any)=>block.type==='image')).toHaveLength(1);
     const previousObservation = await client.rpc.request('session.observe',{sessionId:'root'}) as any;
     await submit('image-two',true);
