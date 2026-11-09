@@ -102,6 +102,10 @@ export class NodeStore {
     if (!(this.db.prepare('PRAGMA table_info(inputs)').all() as { name: string }[]).some(column => column.name === 'evidence_final')) {
       this.db.exec('ALTER TABLE inputs ADD COLUMN evidence_final INTEGER NOT NULL DEFAULT 0');
     }
+    // Existing ledgers get the same point lookup without rewriting or duplicating history.
+    this.db.exec(`CREATE INDEX IF NOT EXISTS runtime_tool_call_lookup
+      ON runtime_events(session_id,json_extract(event,'$.data.callId'),seq)
+      WHERE json_extract(event,'$.type')='tool/call'`);
     this.db.exec('CREATE INDEX IF NOT EXISTS inputs_evidence_pending ON inputs(session_id,evidence_final)');
     this.db.exec(`CREATE INDEX IF NOT EXISTS inputs_group_session ON inputs(session_id)
       WHERE json_extract(payload,'$.metadata.conversation_type')='group';
@@ -431,6 +435,13 @@ export class NodeStore {
   }
   events(sessionId: string, afterSeq = -1, throughSeq = Number.MAX_SAFE_INTEGER): RuntimeEvent[] {
     return (this.db.prepare('SELECT event FROM runtime_events WHERE session_id=? AND seq>? AND seq<=? ORDER BY seq').all(sessionId,afterSeq,throughSeq) as { event: string }[]).map(row => JSON.parse(row.event) as RuntimeEvent);
+  }
+  /** Read the durable tool call by its Session and call identity. */
+  toolCall(sessionId: string, callId: string): RuntimeEvent | undefined {
+    const row = this.db.prepare(`SELECT event FROM runtime_events
+      WHERE session_id=? AND json_extract(event,'$.type')='tool/call'
+        AND json_extract(event,'$.data.callId')=? ORDER BY seq LIMIT 1`).get(sessionId,callId) as {event:string}|undefined;
+    return row ? JSON.parse(row.event) as RuntimeEvent : undefined;
   }
   cursor(sessionId: string): number {
     return (this.db.prepare('SELECT coalesce(max(seq),-1) AS seq FROM runtime_events WHERE session_id=?').get(sessionId) as { seq: number }).seq;

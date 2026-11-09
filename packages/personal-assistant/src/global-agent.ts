@@ -676,7 +676,8 @@ export class GlobalAgent {
     const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote})
       : interactive || replyTo ? sortedJsonAscii({text, interactive, ...quote}) : text;
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
-    const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
+    const callTurn = () => store.toolCall(call.sessionId,call.callId)?.data.turn as number|undefined;
+    const confirm = (payload:Record<string,unknown>, turn: number|undefined) => this.confirmPublication(binding,call,target,text,payload,turn);
     const previous = inbox.publication(call.operationId);
     if (previous) {
       if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
@@ -685,7 +686,7 @@ export class GlobalAgent {
       if(previous.state==='unknown' || previous.state==='sending') {
         const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
         if(status.payload.found===true) {
-          return confirm(status.payload);
+          return confirm(status.payload,callTurn());
         }
       }
     }
@@ -705,7 +706,7 @@ export class GlobalAgent {
     if(replyTo && info?.channel && info.channel!=='web')throw new Error('Quoted replies require a Nano IM destination');
     if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
-    const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
+    const turn = callTurn();
     const currentSingleGroup = !global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web';
     const refreshTurnEvidence = async () => {
       for (const input of store.inputs(binding.sessionId)) {
@@ -750,7 +751,7 @@ export class GlobalAgent {
         ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
-      return confirm(response.payload);
+      return confirm(response.payload,turn);
     } catch (error) {
       if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
         const result = {status:'not_sent',target,reason:error.message};
@@ -766,7 +767,7 @@ export class GlobalAgent {
         try {
           const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
           if(status.payload.found===true) {
-            return confirm(status.payload);
+            return confirm(status.payload,turn);
           }
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }
@@ -788,8 +789,11 @@ export class GlobalAgent {
     if (!['sending','unknown'].includes(original.state)) return {status:'not_sent', target};
     const result = config?.personal ? await this.personal.screenshotReceipt(config, target, id)
       : (await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:id})).payload;
-    if (result.found === true) return this.confirmPublication(binding,
-      {operationId:id,callId:id.slice(binding.sessionId.length+1),sessionId:binding.sessionId}, target, body?.text ?? '', result);
+    if (result.found === true) {
+      const callId=id.slice(binding.sessionId.length+1);
+      const turn=this.options.store.toolCall(binding.sessionId,callId)?.data.turn as number|undefined;
+      return this.confirmPublication(binding,{operationId:id,callId},target,body?.text??'',result,turn);
+    }
     return unknownScreenshotReceipt(target,id);
   }
 
@@ -798,11 +802,10 @@ export class GlobalAgent {
     if (typeof response.payload.message_id !== 'string' || !response.payload.message_id) throw new Error('Agent publication has no message identity');
     return {...response, payload: {...response.payload, message_id: response.payload.message_id}};
   }
-  private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'|'sessionId'>,target:string,text:string,payload:Record<string,unknown>) {
+  private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'>,target:string,text:string,payload:Record<string,unknown>,turn:number|undefined) {
     const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
     this.options.inbox.settlePublication(call.operationId,'confirmed',result);
     const global=this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode==='global';
-    const turn=this.options.store.events(call.sessionId).find(event=>event.type==='tool/call'&&event.data.callId===call.callId)?.data.turn as number|undefined;
     const sameConversation=payload.conversation_id===binding.conversationId||payload.conversation_id===this.options.store.imConversation(binding.agentId,binding.conversationId);
     if(!global&&turn!==undefined&&typeof payload.conversation_id==='string'&&sameConversation)this.options.store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
     if(global)this.append(binding,`publication:${call.operationId}`,{type:'message_sent',payload:{call_id:call.callId,text,...result}},turn);
@@ -813,14 +816,14 @@ export class GlobalAgent {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
       const callId = publication.id.slice(binding.sessionId.length + 1);
-      const call = this.options.store.events(binding.sessionId).find(event => event.type === 'tool/call' && event.data.callId === callId);
+      const call = this.options.store.toolCall(binding.sessionId,callId);
       const args = argumentsObject(call?.data.arguments);
       // Tool arguments distinguish a plain JSON message from a stored publication envelope.
       const body = argumentsObject(publication.body);
       const savedText = typeof body?.text === 'string' && (body.interactive || body.attachments || body.reply_to_message_id)
         ? body.text : publication.body;
       const text = typeof args?.text === 'string' ? args.text : savedText;
-      this.confirmPublication(binding,{operationId:publication.id,callId,sessionId:binding.sessionId},publication.target,text,status.payload);
+      this.confirmPublication(binding,{operationId:publication.id,callId},publication.target,text,status.payload,call?.data.turn as number|undefined);
     }
   }
   private async reconcile(binding: SessionBinding, childrenOnly=false): Promise<void> {

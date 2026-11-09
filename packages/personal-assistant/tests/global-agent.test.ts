@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
@@ -24,7 +24,7 @@ it.each([
   expect(inbox.publication('main:call')?.state).toBe(found?'confirmed':'sending');
   expect(requests.filter(type=>type==='agent.message.status')).toHaveLength(found?1:2);
   expect(requests).not.toContain('agent.message');
-  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toMatchObject(found?[{payload:{text}}]:[]);
+  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toMatchObject(found?[{payload:{text},...(callText?{turn_id:'1'}:{})}]:[]);
  }finally{await product.stop();inbox.close();store.close();}
 });
 
@@ -479,9 +479,16 @@ it('replays a child terminal when model fallback completes at the already acknow
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
 
-it('carries an explicit quote through Global publication and freezes its retry identity',async()=>{
+it('attributes a Global publication and its quote with one call lookup and preserves retry identity',async()=>{
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
  const binding=store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+ store.recordEvents(binding.sessionId,[
+  {seq:1,time:1,type:'request/header',data:{header:{config:{model:'old'},system:'old request'}}},
+  {seq:2,time:2,type:'tool/call',data:{turn:9,callId:'quoted',name:'send_message',arguments:'{}'}},
+ ]);
+ inbox.commitWork(binding.sessionId,{rootSessionId:binding.sessionId,throughSeq:2,replayFrom:3,modelVersion:'none'},[]);
+ const toolCall=vi.spyOn(store,'toolCall');
+ const loadEvents=vi.spyOn(store,'events');
  const sent:any[]=[];
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
  runtime:{onNotification:()=>()=>{},request:async method=>method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'}},
@@ -493,8 +500,12 @@ it('carries an explicit quote through Global publication and freezes its retry i
  const call:ProductCall={method:'send_message',args:{target:'c_group',text:'收到',reply_to_message_id:'original'},operationId:'quoted',callId:'quoted',sessionId:binding.sessionId,rootSessionId:binding.sessionId,agentId:'a',ownerId:'owner'};
  try {
   expect(await product.call(call)).toMatchObject({status:'sent'});
+  expect(toolCall.mock.calls).toEqual([['main','quoted']]);
+  expect(loadEvents.mock.calls.every(args=>args[1]===2)).toBe(true);
+  expect(inbox.journal(0).filter(row=>row.type==='message_sent')).toMatchObject([{turn_id:'9'}]);
   expect(sent).toHaveLength(1);expect(sent[0]).toMatchObject({reply_to_message_id:'original',text:'收到'});
   expect(await product.call(call)).toMatchObject({status:'sent'});expect(sent).toHaveLength(1);
+  expect(toolCall).toHaveBeenCalledTimes(1);
   await expect(product.call({...call,args:{...call.args,reply_to_message_id:'different'}})).rejects.toThrow('identity conflict');
  } finally {await product.stop();inbox.close();store.close();}
 });

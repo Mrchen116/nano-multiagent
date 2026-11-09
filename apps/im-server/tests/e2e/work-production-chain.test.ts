@@ -96,3 +96,32 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   expect(restored.body.revision).toBe(first.body.revision);
   expect(errors).toEqual([]);
 }, 30000);
+
+it('writes one plain-text Global message and attributes the actual relay receipt to its original turn', async () => {
+  const center=await start(),node=await bind(center);
+  const chat=await center.http('POST','/im/v1/conversations',{
+    title:'Publication receipt',type:'direct',participants:[{type:'agent',id:'global'}],
+  },center.tokens.alice);
+  expect(chat.status,chat.body).toBe(201);
+  const store=new NodeStore(join(center.dir,'publication-node.db'),'alice'),inbox=new InboxStore(join(center.dir,'publication-inbox.db'));
+  cleanups.push(()=>store.close(),()=>inbox.close());
+  store.bind({agentId:'global',sessionId:'publication-root',conversationId:'global:global',ownerId:'alice',cwd:center.dir,revision:'1'});
+  store.recordEvents('publication-root',[{seq:4,time:10,type:'tool/call',data:{callId:'send',name:'send_message',turn:3,arguments:'{}'}}]);
+  inbox.commitWork('publication-root',{rootSessionId:'publication-root',throughSeq:4,replayFrom:5,modelVersion:'done'},[]);
+  const product=new GlobalAgent({nodeId:node.node,ownerId:'alice',agents:[{agentId:'global',workspace:center.dir,revision:'1',provider:'fixture',model:'fixture',mode:'global'}],
+    store,inbox,image:async()=>'',onError:error=>{throw error;},
+    runtime:{onNotification:()=>()=>{},request:async()=>({durable:true,events:[],modelRuns:[],modelVersion:'done',throughSeq:4,more:false})},
+    relay:{request:(type,payload)=>node.frames.send(type,payload)}});
+  cleanups.push(()=>product.stop());
+  const text='已收到，按原计划执行。';
+  const call={method:'send_message',args:{target:chat.body.id,text},operationId:'publication-root:send',callId:'send',
+    sessionId:'publication-root',rootSessionId:'publication-root',agentId:'global',ownerId:'alice'};
+  const receipt=await product.call(call);
+  expect(receipt).toMatchObject({status:'sent',message_id:expect.any(String)});
+  expect(JSON.parse(inbox.publication(call.operationId)!.result!)).toMatchObject({conversation_id:chat.body.id});
+  expect(await product.call(call)).toEqual(receipt);
+  const messages=await center.http('GET',`/im/v1/conversations/${chat.body.id}/messages`,undefined,center.tokens.alice);
+  expect(messages.status,messages.body).toBe(200);
+  expect(messages.body.items).toMatchObject([{type:'message',message:{id:(receipt as {message_id:string}).message_id,content:text}}]);
+  expect(inbox.journal(0).filter(row=>row.type==='message_sent')).toMatchObject([{turn_id:'3',payload:{text,call_id:'send'}}]);
+},20_000);
