@@ -31,6 +31,31 @@ describe('private interactive reply', () => {
     await waitFor(()=>expect(send).toHaveBeenCalledWith(expect.objectContaining({source_message_id:'card',event:expect.objectContaining({message:'发送给林悦'}),state:expect.objectContaining({'$body':'周日10点断桥见'})}),expect.any(String)));
     expect(field).not.toBeDisabled();
   });
+  it('does not resave a pending card submission after the renderer is replaced', async () => {
+    let complete!: (value: unknown) => void;
+    const send = vi.fn(() => new Promise(resolve => { complete = resolve; }));
+    const view = render(<InteractiveCard message={message} onSend={send} />);
+    const field = await screen.findByRole('textbox');
+    await waitFor(() => expect(field).toHaveValue('周日见'));
+    fireEvent.change(field, {target:{value:'提交这次编辑'}});
+    fireEvent.click(screen.getByRole('button',{name:'发送给林悦'}));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    view.unmount();
+
+    vi.mocked(readInteractionDraft).mockResolvedValue({
+      draft_revision:3, state:{'$body':'提交这次编辑'}, submission_message_id:'accepted'
+    });
+    render(<InteractiveCard message={message} onSend={send} submittedMessageId="accepted" />);
+    expect(await screen.findByRole('textbox')).toBeDisabled();
+    complete({id:'accepted'});
+    await waitFor(() => expect(screen.getByRole('textbox')).not.toBeDisabled());
+    expect(saveInteractionDraft).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByRole('textbox'), {target:{value:'提交后的新编辑'}});
+    await waitFor(() => expect(saveInteractionDraft).toHaveBeenCalledWith('chat','card',3,{'$body':'提交后的新编辑'}));
+    expect(saveInteractionDraft).toHaveBeenCalledTimes(1);
+  });
+
   it('retries an uncertain submission with the exact frozen request and identity', async () => {
     const send=vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({});
     render(<InteractiveCard message={message} onSend={send} />);

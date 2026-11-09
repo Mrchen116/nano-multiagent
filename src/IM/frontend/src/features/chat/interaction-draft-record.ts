@@ -1,5 +1,6 @@
 import { readInteractionDraft, saveInteractionDraft } from './chat-api';
 import type { DraftFailureReason } from './interaction-background';
+import type { InteractionReplyInput } from './interactive/types';
 
 interface DraftRecordOwner {
   current(): boolean;
@@ -20,6 +21,8 @@ export class InteractionDraftRecord {
   loadFailed = false;
   renderVersion = 0;
   request: Promise<string | undefined> | null = null;
+  private pending: {input: InteractionReplyInput; key: string} | null = null;
+  private sending = false;
   private reading: Promise<boolean> | null = null;
   private live = true;
   private left = false;
@@ -34,6 +37,8 @@ export class InteractionDraftRecord {
   get current(): boolean { return this.live && this.owner.current(); }
   get unsaved(): boolean { return this.dirty || !!this.failure || !!this.request; }
   get attached(): boolean { return this.views.size > 0; }
+  get hasPendingSubmission(): boolean { return this.pending !== null; }
+  get submitting(): boolean { return this.sending; }
   snapshot = (): number => this.version;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -48,7 +53,7 @@ export class InteractionDraftRecord {
   }
 
   private releaseIfClean(): void {
-    if (!this.attached && !this.unsaved) this.owner.idle();
+    if (!this.attached && !this.unsaved && !this.pending) this.owner.idle();
   }
 
   private notify(): void {
@@ -72,7 +77,7 @@ export class InteractionDraftRecord {
 
   async load(adopting = false): Promise<boolean> {
     if (!this.current) return false;
-    if (!adopting && this.unsaved) return this.loaded;
+    if (this.pending || (!adopting && this.unsaved)) return this.loaded;
     if (!adopting && this.reading) return this.reading;
     const readVersion = ++this.readVersion, editVersion = this.editVersion;
     this.loadFailed = false;
@@ -83,7 +88,7 @@ export class InteractionDraftRecord {
         if (!this.current || readVersion !== this.readVersion) return false;
         const draft = await readInteractionDraft(this.conversationId, this.messageId);
         if (!this.current || readVersion !== this.readVersion || editVersion !== this.editVersion) return false;
-        if (!adopting && this.unsaved) return this.loaded;
+        if (this.pending || (!adopting && this.unsaved)) return this.loaded;
         this.state = draft.state;
         this.revision = draft.draft_revision;
         this.loaded = true;
@@ -107,7 +112,7 @@ export class InteractionDraftRecord {
   /** Serialize PUTs across replacement views; a late acknowledgement never replaces newer input. */
   save(): Promise<string | undefined> {
     if (this.request) return this.request;
-    if (!this.current || !this.dirty) return Promise.resolve(this.savedAt);
+    if (!this.current || this.pending || !this.dirty) return Promise.resolve(this.savedAt);
     const operation = this.saveEdits().finally(() => {
       if (this.request === operation) this.request = null;
       this.notify();
@@ -160,10 +165,27 @@ export class InteractionDraftRecord {
     this.notify();
   }
 
-  submitted(): void {
-    if (!this.current) return;
-    this.done = true;
-    this.dirty = false;
+  /** Share the frozen request and its save lock with any replacement renderer. */
+  beginSubmission(input: () => InteractionReplyInput): {input: InteractionReplyInput; key: string} {
+    if (this.sending) throw new Error('A request is already pending');
+    const pending = this.pending ??= {input: input(), key: crypto.randomUUID()};
+    this.sending = true;
+    this.notify();
+    return pending;
+  }
+
+  /** Settle an admitted request even when the original renderer has detached. */
+  finishSubmission(outcome: 'accepted' | 'rejected' | 'unknown'): void {
+    this.sending = false;
+    if (outcome !== 'unknown') {
+      this.pending = null;
+      this.dirty = false;
+    }
+    if (outcome === 'accepted' && this.current) {
+      this.done = true;
+      this.failure = null;
+      this.owner.failed(null);
+    }
     this.notify();
   }
 
@@ -171,6 +193,7 @@ export class InteractionDraftRecord {
   forget(left = false): void {
     this.left ||= left;
     this.live = false;
+    this.pending = null;
     this.readVersion += 1;
     this.state = {};
     this.dirty = false;

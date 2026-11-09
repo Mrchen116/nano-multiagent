@@ -48,18 +48,17 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   // must never reseed the current renderer or move its cursor.
   const initial = useMemo(() => record.state, [record, record.renderVersion]);
   const { loaded, done } = record;
-  const [busy, setBusy] = useState(false);
+  const busy = record.submitting;
+  const pending = record.hasPendingSubmission;
   const [applyingDraft, setApplyingDraft] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
   const [actionError, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
-  const error = actionError ?? (record.failure === 'conflict' ? 'conflict' : record.failure ? 'save' : record.loadFailed ? 'load' : null);
+  const error = actionError ?? (pending && !busy ? 'send' : record.failure === 'conflict' ? 'conflict' : record.failure ? 'save' : record.loadFailed ? 'load' : null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
   const touched = useRef(false);
   const viewActive = useRef(true);
-  const submitting = useRef(false);
   const actionLabel = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pending = useRef<{input: InteractionReplyInput; key: string}|null>(null);
   const locked = Boolean(readOnly || submissionConflict);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
@@ -89,7 +88,7 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     if (readOnly) forgetInteractionDraft(message.conversation_id, message.id);
     void load();
     // A detach may interrupt the debounce before the first PUT; resume it on this view.
-    if (record.dirty && !record.failure) timer.current = setTimeout(() => { void save(); }, 500);
+    if (record.dirty && !record.failure && !record.hasPendingSubmission) timer.current = setTimeout(() => { void save(); }, 500);
     return () => { viewActive.current = false; clearTimeout(timer.current); detach(); };
   }, [record]);
   async function syncSubmittedDraft() {
@@ -102,14 +101,14 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   }, [submittedMessageId]);
 
   async function save(): Promise<string | undefined> {
-    if (lockedRef.current || pending.current) return record.savedAt;
+    if (lockedRef.current || record.hasPendingSubmission) return record.savedAt;
     setError(null);
     return record.save();
   }
   /** Finish this view's debounce while the retained record owns any in-flight PUT. */
   async function flush() {
     clearTimeout(timer.current);
-    if (lockedRef.current || pending.current) {
+    if (lockedRef.current || record.hasPendingSubmission) {
       return record.unsaved ? {reason: record.failure ?? 'transient' as const} : {updatedAt: record.savedAt};
     }
     return record.flush();
@@ -140,28 +139,26 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   }, [record, readOnly, isGroup]);
   async function submit(request?: Pick<InteractionReplyInput, 'action_id'|'event'>, formState?: Record<string, unknown>) {
     if (lockedRef.current) { setError('stale'); throw new Error('This historical reply cannot submit new requests'); }
-    if (submitting.current) throw new Error('A request is already pending');
-    submitting.current = true;
-    if (!pending.current) pending.current = {input: {source_message_id: message.id, ...request,
-      state: structuredClone({...record.state, ...formState})}, key: crypto.randomUUID()};
-    clearTimeout(timer.current); setBusy(true); setError(null);
+    const pending = record.beginSubmission(() => ({source_message_id: message.id, ...request,
+      state: structuredClone({...record.state, ...formState})}));
+    clearTimeout(timer.current); setError(null);
+    let outcome: 'accepted' | 'rejected' | 'unknown' = 'unknown';
     try {
       // Finish an earlier private save before submission increments its revision.
       await record.request;
       if (!viewActive.current || !record.current) throw new Error('This interaction view is no longer active');
-      const result = await onSend(pending.current.input, pending.current.key);
-      if (!viewActive.current || !record.current) return result;
-      record.submitted(); pending.current = null;
-      await syncSubmittedDraft();
+      const result = await onSend(pending.input, pending.key);
+      outcome = 'accepted';
+      if (record.current) await syncSubmittedDraft();
       return result;
     } catch (e) {
       if (e instanceof InteractionSubmissionError) {
-        pending.current = null; record.dirty = false;
+        outcome = 'rejected';
         setSubmissionConflict(e); setError(e.reason);
       } else setError('send');
       throw e;
     }
-    finally { submitting.current = false; setBusy(false); }
+    finally { record.finishSubmission(outcome); }
   }
   const submitRef = useRef(submit); submitRef.current = submit;
   const toolProvider = useMemo(() => ({
@@ -224,17 +221,17 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     onChangeCapture={() => { touched.current = true; }}>
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
-      <fieldset disabled={readOnly || busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
+      <fieldset disabled={readOnly || busy || applyingDraft || pending} className="interactive-card-fields">
         <CardAttachmentImage.Provider value={renderAttachment}>
         <ThemeProvider mode="light" cssSelector=".interactive-card">
         <Renderer key={record.renderVersion} response={message.interactive!.source} library={interactiveLibrary}
-          initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
+          initialState={initial} isStreaming={busy || pending} toolProvider={toolProvider} publishObservability={false}
           onParseResult={parsed => { if (viewActive.current) record.update({...parsed?.stateDeclarations, ...record.state}); }}
           onError={errors => { if (errors.some(error => error.source === 'parser')) setError('render'); }}
           onStateUpdate={value => {
             if (!viewActive.current) return;
             // Only a real input event may arm a background; rendering must never do it.
-            const edited = !lockedRef.current && !pending.current && touched.current;
+            const edited = !lockedRef.current && !record.hasPendingSubmission && touched.current;
             if (record.update(value, edited)) {
               clearTimeout(timer.current); timer.current = setTimeout(() => { void save(); }, 500);
             }
