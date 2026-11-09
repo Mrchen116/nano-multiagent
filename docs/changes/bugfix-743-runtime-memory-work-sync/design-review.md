@@ -28,3 +28,32 @@
 - W2 accepted：专用 Work 页与既有证据读区分；状态独立读取。
 - W3 accepted：取消/释放与冷 Work 读分开，停用结果不携带全历史；保持范围和可重试位置。
 - W4 accepted：明确关闭和故障如何抵达 RuntimeClient 与 supervisor。
+
+## Round 2
+
+- Reviewer target: `/root/design_review`，独立复审 `9b45b4d29`。
+- review_mode: delta
+- mode_reason: Work 私有接口、停用确认与 stdio 故障连接有实质修订。原生审计、工具冻结存储、delta-spec 与单 milestone 保留 Round 1 覆盖。
+- retained_from: Round 1
+- started_at: 2026-11-09T19:36:41+08:00
+- completed_at: 2026-11-09T19:37:51+08:00
+- duration: 70 s
+- Verdict: Issues Found，0 CRITICAL / 3 WARNING（3 项沿用，1 项已关闭）
+
+### Coverage
+
+- 新版为 Work 设独立根入口，以可信绑定和目录校验读范围；预算纳入目录、presenter 与精简模型元数据，保留显式 throughSeq / more。根审批继续由原证据入口持有。传输端单个 Work 读取跨写屏障、独立 dispatch 和故障信号到子进程退出，闭合 Round 1 的响应侧和进程所有权缺口。
+- 对照实际入口，复核了请求侧位置、Global 工具证据、Node 生命周期与 supervisor 恢复。没有改变首文档和用户可观察 delta，上一轮的原生轨迹和存储设计判断仍适用。本轮为设计复审。
+
+### 历史问题闭环与 Issues
+
+- **R1-W1 — still-open。** Author Resolution 增加了完整回复预算、目录 anchor、增量模型摘要和独立审批路径，回复侧的问题关闭。请求仍缺边界。`packages/personal-assistant/src/global-agent.ts:830` 的 `workPositions` 将所有子执行的 checkpoint 和模型版本装进请求，`:406` 的 settled 检查与 `:909` 的目录补传共用；新版没有规定该参数如何随 anchor 分页。若直接复用，宽目录每页重复序列化整份位置，单个请求仍随历史子执行数增长。明确一次请求携带的位置上限及 settled 检查的有界取法，以跨多目录页的宽目录覆盖请求和回复实际字节。
+- **R1-W2 — still-open。** Author Resolution 保留单线程及非 Global 的旧证据语义，并把后台唤醒改成只取状态。Global 的 Task Graph 和发送仍分别在 `global-agent.ts:603`、`:697` 等待 `reconcileRoot`。新版 `design.md:13` 明确超限页停在原位置，若历史超限记录在当前调用证据之前，Work 补传失败会让后续 Global 发消息和 Task Graph 一起失败。明确 Global 取当前工具调用、轮次及来源证据的有界路径，使它可独立于 Work 补传前缀成功；验收应覆盖超限旧记录及其后的实时调用。
+- **R1-W3 — still-open。** Author Resolution 将 cancel/flush/dispose 与有界冷读分开，并按 Agent、revision、稳定切点校验。新版 `design.md:15` 依赖重试停用流程，但 `apps/node/src/main.ts:132` 的 runtime-only 重连只触发常规产品恢复，`global-agent.ts:395` 会跳过 disabled Agent；生命周期同步在 IM relay ready 触发（`main.ts:289`）。若已写生命周期 stopped proof，同 revision 的下次同步也只重报 disabled（`apps/node/src/agent-lifecycle.ts:44`、`:69`）。明确生命周期回执与 Work 完成标记的各自时点、哪个持久状态标记未补完，以及 supervisor 重连时的重入点。验证 IM relay 一直在线、停用第一页已提交、DSH 进程断开后自动恢复的场景。
+- **R1-W4 — closed。** Author Resolution 已规定写故障、排队溢出及关闭时释放队列与未决调用，并让 `RuntimeClient` 把真实链路故障接到子进程退出和已有 supervisor 恢复（`design.md:16`）；正常 shutdown 和双向独立 dispatch 保留。落地后复用慢写和 supervisor 重连验收。
+
+### Author Resolutions
+
+- W1 accepted：分页目录与单目标事件请求分开，根探测只带根 cut。
+- W2 accepted：保持既有可处理记录能力，超常规预算的单项独占，不引入会阻断后续取证的新门槛。
+- W3 accepted：本机保存原执行进程的 revision-scoped cleanup receipt，先于分页且独立于已停证明；就绪后异步重试，以免等待正在启动分区的同一停用任务。

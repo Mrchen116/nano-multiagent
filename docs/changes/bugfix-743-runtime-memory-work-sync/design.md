@@ -9,10 +9,10 @@
 
 ### 观察与确认分开
 
-- 私有 stdio 的 Work 读以消费方已处理的 native seq 取 own 事件。主会话由独立的 `session.work.root`（以已有 root binding 校验）读页；`session.observe` 保留单线程投递和非 Global Task Graph/发送的证据契约，后台唤醒改用只取状态的 `session.status`。子会话仍从可信根遍历原生 catalog；分页回复携带已遍历的 anchor，走到未读完的子执行时先保存其 throughSeq，再从该子继续。新一轮从头校验目录和变更；重连只依赖已持久化的各会话位置。只把已发送、持久化的 native 区间标为 throughSeq，未读完显式 more。原生冷观察可能解码单份完整日志；使用官方有界缓存，不在 Nano 再留全量副本。
-- 每页的预算包括实际发送的目录项、事件、附带的 presenter 和模型元数据。先按游标选取，再逐条附带相关数据计费。标准 1 MiB / 256 项（包含目录项），单条可独占一页以保留完整记录；单条超 32 MiB 明确失败、不跨过，并保留原生轨迹入口。只携带与本页或本地未完成逻辑轮相关的模型 run 公共字段，舍弃待重试的模型输入等私有载荷。状态版本按精简 run 逐条更新摘要，无需反复序列化全历史；旧版本摘要仅使首次检查补核。Work 读不附根审批审计列表；原入口保留。Work 请求快照只保留 model/contextWindow，原始日志和原生轨迹不变。实时 `session.event` 只发变化识别和必要来源标识，持久读取是权威。
+- 私有 stdio 的 Work 读以消费方已处理的 native seq 取 own 事件。主会话由独立的 `session.work.root`（以已有 root binding 校验）读页；`session.observe` 保留单线程投递和非 Global Task Graph/发送的证据契约，后台唤醒改用只取状态的 `session.status`。子会话先从可信根分页枚举原生 catalog（请求只有已遍历的 anchor），再按已发现的可信 child ID 和单会话位置拉取事件页；每个子会话先保存 throughSeq，再拉下一页。新一轮从头校验目录和变更；重连只依赖已持久化的各会话位置。`session.work.check` 的历史检查输入只传根位置；子检查复用分页目录和各个子页，不在每页附全部子游标。只把已发送、持久化的 native 区间标为 throughSeq，未读完显式 more。原生冷观察可能解码单份完整日志；使用官方有界缓存，不在 Nano 再留全量副本。
+- 每页的预算包括实际发送的目录项、事件、附带的 presenter 和模型元数据。先按游标选取，再逐条附带相关数据计费。标准 1 MiB / 256 项（包含目录项），超过常规预算的单条完整记录独占一页；内部批次内存上界是一个最大单条和固定预算中的较大值，不设会卡住后续权限取证的新单条拒绝门槛。中心协议既有 16 MiB 单条失败语义保留。只携带与本页或本地未完成逻辑轮相关的模型 run 公共字段，舍弃待重试的模型输入等私有载荷。状态版本按精简 run 逐条更新摘要，无需反复序列化全历史；旧版本摘要仅使首次检查补核。Work 读不附根审批审计列表；原入口保留。Work 请求快照只保留 model/contextWindow，原始日志和原生轨迹不变。实时 `session.event` 只发变化识别和必要来源标识，持久读取是权威。
 - 根用已有本地原生事件 ledger，从 Work checkpoint 的逻辑轮起点投影；子执行将未完成逻辑轮前缀保存在 Inbox SQLite，与该页 Work facts/checkpoint 一起提交。工具配对、用量与 fallback 逻辑轮从本地前缀和本页完成，关闭后清理处理上下文。旧 checkpoint 无本地前缀时只补一次未完成轮。模型状态变化但没有新 native seq 时仍用本地前缀重新投影，稳定 event ID 去重；中心 ACK 独立。
-- 停用先完成已有 cancel、drain、flush、dispose，确认任务只保存停用结果，不保存整段历史。按已停用的 Agent / revision 校验，同一有界 Work 读面从冷根和可信子目录补到停用后的稳定 cut，无需激活 Agent。Node 按页提交；尚未处理完保持 Work pending，保留重试停用流程可从已提交位置续读。停用确认和 Work 补传均不伪造执行结果；永久删除沿用已停、归属、清理确认边界。
+- 停用先完成已有 cancel、drain、flush、dispose，确认任务只保存停用结果，不保存整段历史。Node 在开始读取前记录与原执行进程和 revision 对应的本机 cleanup receipt；该凭证只允许下一管理进程继续已证实的清理，不能单独当作已停证明。按已停用的 Agent / revision 校验，同一有界 Work 读面从冷根和可信子目录补到停用后的稳定 cut，无需激活 Agent。Node 按页提交；尚未处理完保持 Work pending，复用现有停用包装器，最终页提交前不返回成功、不发布已停证明。Runtime 就绪后异步对本分区已停用但未确认的 revision 重试停用/补传，等待本机正在结束的同 revision 操作后重试，不依赖 relay 重连。停用确认和 Work 补传均不伪造执行结果；永久删除沿用已停、归属、清理确认边界。
 - RPC 发送在 writable 返回 false 后等 drain；有限 FIFO 在可写后才序列化下一帧。Work 页限定单个重载读取并等待该页通过写出屏障再启动下一页；反向调用与控制 handler 保持独立 dispatch。关闭、输入/输出错误或排队溢出清空队列、拒绝未决调用并释放等待者；RuntimeClient 将真实链路故障接到子进程结束与已有 supervisor 恢复（常规 shutdown 不改变），不让 peer 已关闭却宿主仍宣称可用。重连不隐式重发有副作用的请求。
 
 ## 本次审查安排
