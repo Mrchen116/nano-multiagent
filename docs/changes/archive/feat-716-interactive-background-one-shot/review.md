@@ -212,3 +212,12 @@ c91f限定关闭后，作者补核“draft已clean、动作POST已准入、等�
 - 最终固定目标已实际合入并有c91f MERGE-1及4ae43 busy的限定APPROVED/findings=[]、corrected-delta aligned。作者完整Native82/另27及新Release device archive通过，不称reviewer亲验归档。当前新双端普通核心/实际Context/正常窄屏有上述独立支持；已知Web内部重挂恢复缺口仍在修复，不套用旧ea438整体动态批准。
 - Web完整120 files/1152 tests全绿属于新Web修复前的版本；修后须跑受影响检查。backend workspace-tools未改runtime边界已定位configuration.apply cleanup.error，尚未证明所有失败同因或独立target baseline，不称本地全绿、不混入716修复。
 - canonical、archive、本地完整CI及Ready PR/远端CI未完成，不宣布交付。自有52850 IM73924/Node86686与feat716final浏览器供本批Web修复验证保留；reviewer读完原件后作者已把原生决定证据复制到主仓gitignored `output/feat-716-80f2033f/native-reviewed`；CC5已Shutdown并删除、独占DD/凭据/本批两完整xcresult已核对删除，最小绑定/日志/图保留，旧62814保护不动。
+
+## 接手后的最终集成与定向关闭
+
+- **版本**：真实运行的 Web 代码 `6000b6fb2`，`validated_at=6000b6fb2`，`executed_base=56c5083770805182832fc52543b0c35aef5a430c`。合并 `develop` 的 `4403b10e5` 保留新版会话授权、读取缓存清理及按需消息详情，同时在真正撤权时忘记该账号的私人草稿。合并后定向 Web 125 项通过。
+- **独立代码审查**：Codex 独立审查者 `review_716`（Sol high）核对 `cdcc8cf32` 的草稿重挂修复、五处合并解决及既有真实证据。App 路由离开、已提交草稿在重挂时被重新保存、待确认提交遮挡采用和重试三项问题在 `ddcc8cc4`、`d89ca024`、`6000b6fb2` 关闭。红测分别命中，最终同一相关范围 43 项通过。结论 APPROVED、corrected-delta aligned。
+- **最终 Web 恢复实测**：隔离 IM `52850` 提供最终 bundle `index-B2kWcdN8.js`。第二个浏览器标签通过普通卡片编辑成功写入，原标签随后真实 PUT 返回 409。仅为可重复触发内部恢复，对「查看最新」的一次草稿 GET 注入 401。真实刷新与会话详情授权均返回 200，原聊天 DOM 已替换，本机卡片编辑和完整正文保留，Send 仍被拦截。三列显示双方原值，显式采用后真实 Send 返回 201，IM 正文完整且唯一 relay 为 completed，携带一张有效待发卡片。另一条真实路径从聊天点 Agents，POST discard 返回 200，水位与该浏览器最后一次 PUT 确认一致，回聊天仍可读取已保存卡片。这里验证的是最终 Web bundle 与隔离运行链路；本批沿用交接时的 IM/Node 进程，未冒称重新运行了两端全矩阵或新版后端 E2E。最小日志与 390×844 对照图保存于本机忽略目录 `output/playwright/feat-716-takeover/`。
+- **证据保留**：从 `cdcc8cf32` 到最终产品树，Swift 源码、原生 renderer 源和交互契约字段无增量；前述两端真实三消息、原生预算恢复与 Context 各保留其原先验证范围。最终本机生成的 iOS renderer 检查通过。未复用最初失败的 AX 超时作为已修复证据，也不把 Inbox journal 称为 provider wire。
+- **后端清理对照**：锁定 Node 24.22.1、同一 Air，`workspace-tools.test.ts` 单 worker 在干净 `56c508377` 通过（1 项，82.00 秒），也在合并后的 716 通过（1 项，91.52 秒）；本轮未重现历史 cleanup.error。没有修改 DSH 清理逻辑或放宽超时。
+- **本地门禁**：最终 Web 121 文件 / 1,183 项全绿；合并树后端 230 文件 / 1,285 项全绿。后续代码只修改 Web，后端测试及产品源码与实跑版本一致。构建、类型检查、iOS renderer 生成校验、Python 135 项、Ruff 和文档检查通过；原生 82 XCTest、另 27 Swift Testing 与 Release archive 保留前述相同原生产物范围。最终提交仅新增 canonical 归并及归档，产品证据继续有效。
