@@ -44,3 +44,8 @@
 独立 reviewer `/root/review_ui_summary` 复核 `2433d6328..6e36e82fca46a9aa2b950a5cbe7e13f97e5e510b`，findings 为空，最终 delta aligned。只将已持久化有效 UI 纳入群回复内容条件；群类型、Agent 作者、completed、NO_REPLY、成员/空间/lifecycle/PA 限制及原有提醒策略保持。纯 UI 不自动获得 mention；幂等键与原逻辑一致。修前0条relay的失败和修后16/16已核。另独立核对私聊演示原始请求及 Work tool item，公开 UI source 一致且接收方正确算出425/75。
 
 作者补验：IM 完整64文件406项通过（`/tmp/nano-729-group-server-tests.log`）；IM build 与 docs-check 通过。其他源码与既有证据未受此一行群转发修复影响。真实私聊演示与群聊修复的证据范围分开，不把显式要求“只发UI”的机制演示当作自然选择行为证据。
+
+## 接收上下文精简追加审查（2026-11-09）
+
+- `validated_at=30a46c77e`，`executed_base=1fc7455d5`。独立 reviewer `/root/review_ui_summary` 核对 `9d0bc4eb7` 和合入后的上下文链路，findings 为空，最终契约 aligned。#482 的 Inbox 通知不带消息正文，Inbox/read 继续使用与 SingleThread 共用的投影。
+- 作者补验：构建和文档检查通过，六份接收、Inbox 与 IM 回归共111项通过。受控 DSH 的 Inbox/read 后续 pre-adapter 请求含新标签、源码和被替换消息的引用，省略渲染元数据。捕获文件为 `output/729-ui-projection-native-input.json`，不作为远端 provider raw wire。真实预览中 Work 第三轮亦确认新投影和成功回复，见 [fix.md](fix.md#接收上下文措辞与字段精简2026-11-09)。
