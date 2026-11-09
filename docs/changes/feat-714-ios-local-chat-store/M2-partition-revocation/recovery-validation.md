@@ -2,7 +2,7 @@
 
 ## 范围与授权
 
-沿用 design.md M2 退出标准，不新增产品目标。父级核对用户原话「714没做完…继续做」「所有feature开发都可以自己开独立的测试服务测试吗」，明确第二自有loopback origin属于原工程fixture范围；同557、纯合成数据、串行单IM，无新增Gateway/模型/设备。个人真机和公网HTTPS入口仍为独立未获答许可，未操作。
+沿用design.md M2产品判据，不新增目标。当前按[用户最新更正与本轮模拟器范围](../M1-local-first-paint/recovery-validation.md#当前执行范围用户更正后仅模拟器)执行：已披露的隔离服务/合成账号DB/成员与凭据失效矩阵直接接续，旧拒绝与“未答”仅属历史，不再作为当前许可阻塞。仅自有557/loopback/合成数据，无生产或手机/tunnel；716占native/heavy期间仅轻量准备，待父级给714窗口才启IM/UI/heavy。
 
 ## 首次真实membership旅程：online FAIL / offline未执行
 
@@ -55,6 +55,8 @@
 - owner串行job856第一阶段仅执行当前`NanoIMJourney build-for-testing -jobs 2 -parallel-testing-enabled NO`，**exit0 / TEST BUILD SUCCEEDED**（`/tmp/feat714-independent-recheck-d0eb4c825/journey-build.log:250`）；实际Debug App Info为win.nanoim.ios/revision d0eb4c825，覆盖最后guard的typecheck。保留旧setUp actor-isolation/Swift6及scheme/AppIntents warning，不称无warning。未执行任何Journey UI或启动IM；后续阶段为独立后端单例CI。
 - job856全部已收集exit0。实核精确557名称feat-714-native-acceptance/UDID匹配且Shutdown、53703connect61；未恢复成员、改认证DB或运行升级。上述构建/静态结果不解除两次拒绝相关本地组暂停。
 
-## 未完成
+## 当前未完成
 
-账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、真机flight/protection/20次trace、跨包CI真实失败的收口及最终target sync/完整unit门禁。以上不由限定membership/empty PASS、最后guard构建或单例补验自动关闭。
+账号切换、第二origin服务切换、旧构建真实JSON升级、真实401与离线期间撤权恢复矩阵、最终target sync/适用集成门禁及交付；CI历史两红未知保持如实披露，按最终版本评估有效CI，不盲重复核因。以上不由限定membership/empty PASS、最后guard构建或单例补验自动关闭。旧文暂停已由最新用户澄清解除，当前只等协调后的执行窗口，不再等测试许可。
+
+真机flight/protection/20次真机trace仍UNVERIFIED、本轮不执行，不作为本轮模拟器交付门禁，也不冒称由模拟器证明。

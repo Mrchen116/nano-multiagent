@@ -1,5 +1,7 @@
 # U1 实现审查
 
+> 当前执行范围见[用户最新模拟器限定](M1-local-first-paint/recovery-validation.md#当前执行范围用户更正后仅模拟器)。以下各轮判断、拒绝和pending按当时事实保留；旧“未答／权限暂停”已被新澄清取代，真机项本轮UNVERIFIED/不执行且非模拟器交付门禁，不由此冒称通过或重开已关闭代码finding。
+
 ## Round 1 — REQUEST CHANGES（0 CRITICAL / 6 WARNING）
 
 - Reviewer：独立非作者 `42a5c67d-5805-4598-b6d5-41ccd63bd851`；以下由 owner 串行归集其原结论。
