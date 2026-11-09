@@ -24,13 +24,12 @@ describe("InAppToast", () => {
     expect(screen.getByText("CI is green after the fix.")).toBeInTheDocument();
   });
 
-  it("shows the group title and sender without replacing the message preview", () => {
+  it("shows the group sender before the message preview", () => {
     render(<MemoryRouter>
       <InAppToast conversationTitle="产品讨论群" senderName="项目助手" preview="方案已整理完成。" conversationId="group" onDismiss={() => undefined} />
     </MemoryRouter>);
     expect(screen.getByText("产品讨论群")).toBeInTheDocument();
-    expect(screen.getByText("项目助手")).toBeInTheDocument();
-    expect(screen.getByText("方案已整理完成。")).toBeInTheDocument();
+    expect(screen.getByText("项目助手: 方案已整理完成。")).toBeInTheDocument();
   });
 
   it("calls onDismiss after the auto-dismiss timeout", () => {

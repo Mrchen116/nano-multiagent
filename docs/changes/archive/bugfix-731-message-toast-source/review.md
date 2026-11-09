@@ -7,7 +7,7 @@
 - executed_base：`94d663626299b2cd69c99e9740d0c3e6607b2574`。
 - validated_at：`2ec3bfe4a83bb1db5b569c296e505c6463cc9552`，完整 base..head 共 13 文件，无 dirty。
 - 已验证的原产品代码版本 `cd24971fb` 与受审版本的前后端源码完全一致；同步 develop 的新增内容仅为 bugfix-732 首文档，既有测试/截图证据 retained。
-- effective_base：`94d663626299b2cd69c99e9740d0c3e6607b2574`；effective_through：最终归档 PR head（具体 SHA 记录于 PR body）。审查后的 canonical 仅原样归并受审 delta，入口数量从 32 改为 33，产品代码未变化。
+- effective_base：`94d663626299b2cd69c99e9740d0c3e6607b2574`；effective_through：首次归档提交 `d9b5562a2`。审查后的 canonical 仅原样归并受审 delta，入口数量从 32 改为 33。
 
 ## 审查结果
 
@@ -43,3 +43,5 @@
 - 上述后端测试与 owning 代码相对 `94d663626` 完全未变；这是本次整仓检查发现的时序敏感用例，独立复跑已通过，未扩大通知修复范围。原始完整日志与单测复跑日志均保存在已有本机报告目录。
 - 完整前端的既有草稿失败继续保留与披露。远端 CI 以 PR 实际结果为准，不因用户确认截图而跳过检查或授权合并。
 - 收尾再次 fetch，`origin/develop` 仍为 executed_base；canonical 原样归并与 unit 路径归档属于文档变化，代码/测试/用户截图验收结论 retained。
+
+PR 开放后，用户要求将群聊摘要调整为 `发送者名: 摘要`，并明确跳过实际测试与代码审查。本页的审查和截图记录对应首次归档版本。

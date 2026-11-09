@@ -38,8 +38,9 @@ export function InAppToast({ conversationTitle, senderName, preview, conversatio
     >
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-semibold text-slate-900" title={conversationTitle}>{conversationTitle}</p>
-        {senderName && <p className="mt-0.5 truncate text-xs font-medium text-slate-600" title={senderName}>{senderName}</p>}
-        <p className="mt-0.5 line-clamp-2 break-words text-xs text-slate-600">{preview}</p>
+        <p className="mt-0.5 line-clamp-2 break-words text-xs text-slate-600">
+          {senderName ? `${senderName}: ${preview}` : preview}
+        </p>
         <Link
           to={`/chat/${conversationId}`}
           aria-label="View message"

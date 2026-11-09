@@ -52,8 +52,7 @@ it.each([
     } });
   });
   expect(await screen.findByText(title)).toBeInTheDocument();
-  expect(screen.getByText("方案已整理完成。")).toBeInTheDocument();
-  expect(Boolean(screen.queryByText(sender))).toBe(showSender);
+  expect(screen.getByText(showSender ? `${sender}: 方案已整理完成。` : "方案已整理完成。")).toBeInTheDocument();
   expect(screen.queryByText("ab3e25b7-c05e-4e8f-9524-88363180ab99")).not.toBeInTheDocument();
   expect(screen.getByRole("link")).toHaveAttribute("href", "/chat/room");
   client.clear();
