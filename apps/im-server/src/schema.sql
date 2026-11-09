@@ -568,6 +568,7 @@ CREATE TABLE IF NOT EXISTS message_interactive (
     catalog_version TEXT NOT NULL,
     source TEXT NOT NULL,
     registry_json TEXT NOT NULL,
+    search_text TEXT NOT NULL DEFAULT '',
     publication_json TEXT,
     supersedes_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
     superseded_by TEXT REFERENCES messages(id) ON DELETE SET NULL,

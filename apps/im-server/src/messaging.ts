@@ -776,7 +776,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       } catch { fail(400, 'invalid_cursor'); }
     }
     const targets = [...readableConversationIds(db, user)];
-    const matches = searchMessages(db, {targets, kind, terms:[q.q.trim()], action:'search', sort:'recent', cursor, limit:limit+1});
+    const term = q.q.trim(), needle = term.toLowerCase();
+    const matches = searchMessages(db, {targets, kind, terms:[term], action:'search', sort:'recent', cursor, limit:limit+1});
     const conversations = new Map<string, Row>();
     const messages = matches.slice(0,limit).map(row => {
       const message = s.message(row.id), id = message.conversation_id;
@@ -785,9 +786,11 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         chat = s.conversation(id, user.id);
         conversations.set(id, chat);
       }
-      const content = readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
-      const position = Math.max(0, content.toLowerCase().indexOf(q.q.trim().toLowerCase()));
-      const start = Math.max(0, position - 40), end = Math.min(content.length, position + q.q.trim().length + 80);
+      const content = !message.content.toLowerCase().includes(needle) && row.interactive_search_text
+        ? String(row.interactive_search_text)
+        : readableMentions(message.content, chat.participants.map((p: Row) => ({id:p.user_id ?? p.id, display_name:p.display_name})));
+      const position = Math.max(0, content.toLowerCase().indexOf(needle));
+      const start = Math.max(0, position - 40), end = Math.min(content.length, position + term.length + 80);
       return {message_id:message.id, conversation_id:message.conversation_id, conversation_name:chat.title,
         sender_name:row.sender_source_id ? row.sender_display_name || row.sender_source_id : message.sender.display_name, created_at:message.created_at,
         snippet:`${start ? '…' : ''}${content.slice(start,end)}${end < content.length ? '…' : ''}`};

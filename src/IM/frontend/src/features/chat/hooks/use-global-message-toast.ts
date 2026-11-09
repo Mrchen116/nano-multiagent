@@ -12,6 +12,7 @@ import {
   type AgentCompletionCandidate,
   type AgentCompletionState,
   emptyAgentCompletionState,
+  hasInteractiveCard,
   hydrateAgentCompletionState,
   persistAgentCompletionState,
   reduceAgentCompletionEvent
@@ -34,6 +35,7 @@ interface NotificationCandidate {
   messageKey: string;
   senderName: string;
   preview: string;
+  cardOnly?: true;
   createdAt?: string;
 }
 
@@ -163,7 +165,7 @@ function isSelfAuthoredUserMessage(payload: Record<string, unknown>, selfUserId:
 export function buildNotificationCandidate(event: UserStreamEvent): NotificationCandidate | null {
   const payload = event.payload as Record<string, unknown>;
   const preview = extractPreview(payload);
-  if (!preview) {
+  if (!preview && !hasInteractiveCard(payload)) {
     return null;
   }
 
@@ -178,7 +180,8 @@ export function buildNotificationCandidate(event: UserStreamEvent): Notification
     return {
       messageKey: `message:${messageId}`,
       senderName: extractSenderName(payload),
-      preview,
+      preview: preview ?? i18n.t("chat.toast.card"),
+      ...(!preview ? { cardOnly: true } : {}),
       createdAt: normalizeText(payload.created_at) ?? undefined
     };
   }
@@ -255,6 +258,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             messageKey: completion.candidate.messageKey,
             senderName: completion.candidate.senderName,
             preview: completion.candidate.preview,
+            cardOnly: completion.candidate.cardOnly,
             createdAt: completion.candidate.createdAt
           };
         }
@@ -271,7 +275,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           const shouldMarkUnread = !viewingConversation && !resolvedSelfAuthored;
           if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
           queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
-            patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt, shouldMarkUnread)
+            patchConversationPreview(previous, conversationId, candidate.cardOnly ? "" : candidate.preview, candidate.createdAt, shouldMarkUnread)
           );
           if (
             viewingConversation

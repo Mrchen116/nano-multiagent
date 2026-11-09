@@ -932,7 +932,7 @@
     }
   },
   "chat": {
-    "toast": { "newMessage": "New message", "member": "Member", "agent": "Agent" },
+    "toast": { "newMessage": "New message", "member": "Member", "agent": "Agent", "card": "Interactive card" },
     "conversationMenu": {
       "label": "Conversation menu",
       "rename": "Rename",

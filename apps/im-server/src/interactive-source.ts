@@ -1,6 +1,6 @@
 import { interactiveRuntimeFunctions } from '@nano/product-contracts/interactive-functions';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { autoClose, createLibrary, createParser, enrichErrors, evaluate, evaluateRoot, jsonToOpenUI, parseExpression, split, tokenize, walkAST, type ASTNode, type EvaluationContext, type OpenUIError } from '@openuidev/lang-core';
+import { autoClose, createLibrary, createParser, enrichErrors, evaluate, evaluateRoot, jsonToOpenUI, parseExpression, split, tokenize, walkAST, type ASTNode, type ElementNode, type EvaluationContext, type OpenUIError } from '@openuidev/lang-core';
 import { intelligentUICatalog as interactiveCatalog, interactiveTools } from '@nano/product-contracts';
 
 export interface InteractiveSchema { source: string; actions: Record<string, string> }
@@ -20,8 +20,66 @@ export class InteractiveSourceError extends Error {
   }
 }
 
+function initialContext(parsed: ReturnType<typeof parser.parse>, named: Map<string, ASTNode>): EvaluationContext {
+  const context: EvaluationContext = {actions: interactiveCatalog.actions, functions: interactiveRuntimeFunctions, getState: name => parsed.stateDeclarations[name],
+    resolveRef: name => {
+      const query = parsed.queryStatements.find(item => item.statementId === name);
+      const value = query?.defaultsAST ?? named.get(name);
+      return value ? evaluate(value, context) : undefined;
+    },
+  };
+  return context;
+}
+
+const displayFields = new Set([
+  'children', 'text', 'title', 'subtitle', 'label', 'description', 'caption', 'alt', 'cite', 'hint', 'placeholder',
+  'marker', 'columns', 'rows', 'items', 'options', 'front', 'back', 'trigger', 'content', 'code', 'tex',
+]);
+
+function searchText(root: ElementNode | null): string {
+  const terms = new Set<string>();
+  const collect = (value: unknown): void => {
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).replace(/\s+/g, ' ').trim();
+      if (text) terms.add(text);
+    } else if (Array.isArray(value)) {
+      value.forEach(collect);
+    } else if (value && typeof value === 'object') {
+      const row = value as Record<string, unknown>;
+      if (row.type === 'element' && row.props && typeof row.props === 'object') {
+        const {typeName, props} = row as unknown as ElementNode;
+        for (const [key, child] of Object.entries(props)) if (displayFields.has(key)) collect(child);
+        if ((typeName === 'Input' || typeName === 'TextArea') && typeof props.value === 'string') collect(props.value);
+        if (typeName === 'Chart' && Array.isArray(props.data)) {
+          const rows = props.data.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item));
+          const first = rows[0];
+          if (!first) return;
+          const axis = typeof props.x === 'string' && Object.hasOwn(first, props.x) ? props.x
+            : Object.keys(first).find(key => typeof first[key] === (props.type === 'scatter' ? 'number' : 'string')) ?? Object.keys(first)[0];
+          const series = (Array.isArray(props.series) && props.series.length ? props.series.filter(key => typeof key === 'string')
+            : Object.keys(first).filter(key => key !== axis && typeof first[key] === 'number')).slice(0, 8);
+          collect(series);
+          for (const item of rows) for (const key of [axis, ...series]) if (key !== undefined) collect(item[key]);
+        }
+      } else {
+        // E.g. option labels, but not action payloads or option IDs.
+        for (const [key, child] of Object.entries(row)) if (displayFields.has(key)) collect(child);
+      }
+    }
+  };
+  collect(root);
+  return [...terms].join('\n');
+}
+
+/** Recover searchable public text from the saved card's initial view. */
+export function interactiveSearchText(source: string): string {
+  const parsed = parser.parse(source);
+  const named = new Map(split(tokenize(source)).map(statement => [statement.id, parseExpression(statement.tokens)]));
+  return searchText(evaluateRoot(parsed, {library: validationLibrary, ctx: initialContext(parsed, named), store: null}));
+}
+
 /** Validate a complete Open Intelligent UI program. */
-export function validateInteractiveSource(source: string): InteractiveSchema {
+export function validateInteractiveSource(source: string): InteractiveSchema & {searchText: string} {
   if (Buffer.byteLength(source, 'utf8') > 65536 || autoClose(source).wasIncomplete) throw new Error('Interactive source is oversized or incomplete');
   const parsed = parser.parse(source);
   const diagnostics = enrichErrors(parsed.meta.errors, interactiveCatalog, componentNames);
@@ -35,13 +93,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
   const statements = sourceStatements.map(statement => parseExpression(statement.tokens));
   const named = new Map(sourceStatements.map((statement, index) => [statement.id, statements[index]]));
   const stringBindings = new Set<string>();
-  const context: EvaluationContext = {actions: interactiveCatalog.actions, functions: interactiveRuntimeFunctions, getState: name => parsed.stateDeclarations[name],
-    resolveRef: name => {
-      const query = parsed.queryStatements.find(item => item.statementId === name);
-      const value = query?.defaultsAST ?? named.get(name);
-      return value ? evaluate(value, context) : undefined;
-    },
-  };
+  const context = initialContext(parsed, named);
   const runtimeErrors: OpenUIError[] = [];
   const evaluated = evaluateRoot(parsed, {library: validationLibrary, ctx: context, store: null, errors: runtimeErrors});
   if (runtimeErrors.length) throw new InteractiveSourceError(runtimeErrors);
@@ -111,7 +163,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
     if (node.k === 'Comp' && node.name === 'Set' && node.args[0]?.k === 'StateRef' && stringBindings.has(node.args[0].n) && node.args[1])
       checkString(evaluate(node.args[1] as ASTNode, context), `Set(${node.args[0].n})`);
   });
-  return { source, actions };
+  return { source, actions, searchText: searchText(evaluated) };
 }
 
 /** Preserve native viewer state and derive visible field values from the current program.

@@ -34,7 +34,12 @@ export function searchMessages(db: DatabaseSync, options: {
     values.push(options.memoryRange.cutoff, options.memoryRange.after, options.memoryRange.cutoff, options.memoryRange.cutoff);
   }
   if(options.messageId){filters.push('m.id=?');values.push(options.messageId);}
-  if(options.terms.length){filters.push(`(${options.terms.map(() => 'instr(lower(m.content),lower(?))>0').join(' OR ')})`);values.push(...options.terms);}
+  const termMatch = '(instr(lower(m.content),lower(?))>0 OR instr(lower(i.search_text),lower(?))>0)';
+  const termArgs = options.terms.flatMap(term => [term, term]);
+  if (termArgs.length) {
+    filters.push(`(${options.terms.map(() => termMatch).join(' OR ')})`);
+    values.push(...termArgs);
+  }
   if(options.before){filters.push('julianday(m.created_at)<julianday(?)');values.push(options.before);}
   if(options.after){filters.push('julianday(m.created_at)>=julianday(?)');values.push(options.after);}
   if(options.participantId){filters.push("m.sender_user_id=? AND NOT (c.external_source IS NOT NULL AND m.sender_type='user' AND COALESCE(m.sender_source_id,'')!='')");values.push(options.participantId);}
@@ -42,6 +47,10 @@ export function searchMessages(db: DatabaseSync, options: {
   if(options.cursor){filters.push('(julianday(m.created_at)<julianday(?) OR (julianday(m.created_at)=julianday(?) AND m.id<?))');values.push(options.cursor.created_at,options.cursor.created_at,options.cursor.id);}
   const relevance = options.action === 'search' && (options.sort ?? 'relevance') === 'relevance';
   const order = options.action === 'read' && !options.around ? 'm.rowid DESC' : 'julianday(m.created_at) DESC,m.id DESC';
-  return all(db, `SELECT m.id,m.created_at,m.sender_source_id,m.sender_display_name FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.conversation_id IN (${targets}) AND ${filters.join(' AND ')} ORDER BY ${relevance && options.terms.length ? options.terms.map(() => 'CASE WHEN instr(lower(m.content),lower(?))>0 THEN 1 ELSE 0 END').join('+') + ' DESC,' : ''} ${order}${options.limit ? ' LIMIT ?' : ''}`,
-    ...targetParams,...values,...(relevance ? options.terms : []),...(options.limit ? [options.limit] : []));
+  const cardText = termArgs.length ? ',i.search_text AS interactive_search_text' : '';
+  const cardJoin = termArgs.length ? ' LEFT JOIN message_interactive i ON i.message_id=m.id' : '';
+  const rank = relevance && termArgs.length ? options.terms.map(() => `CASE WHEN ${termMatch} THEN 1 ELSE 0 END`).join('+') + ' DESC,' : '';
+  return all(db, `SELECT m.id,m.created_at,m.sender_source_id,m.sender_display_name${cardText} FROM messages m JOIN conversations c ON c.id=m.conversation_id${cardJoin}
+    WHERE m.conversation_id IN (${targets}) AND ${filters.join(' AND ')} ORDER BY ${rank} ${order}${options.limit ? ' LIMIT ?' : ''}`,
+    ...targetParams,...values,...(relevance ? termArgs : []),...(options.limit ? [options.limit] : []));
 }

@@ -8,6 +8,7 @@ export interface PendingAgentCompletion {
   senderUserId: string;
   senderName: string;
   createdAt?: string;
+  hasCard?: true;
 }
 
 export interface AgentCompletionState {
@@ -18,6 +19,7 @@ export interface AgentCompletionCandidate extends PendingAgentCompletion {
   messageKey: string;
   messageId: string;
   preview: string;
+  cardOnly?: true;
 }
 
 export interface AgentCompletionReduction {
@@ -37,6 +39,23 @@ function text(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+export function hasInteractiveCard(payload: Record<string, unknown>): boolean {
+  const card = payload.interactive;
+  return !!card && typeof card === "object" && "source" in card && text(card.source) !== null;
+}
+
+function completionCandidate(pending: PendingAgentCompletion, messageId: string, content: unknown): AgentCompletionCandidate | null {
+  const preview = text(content);
+  if (!preview && !pending.hasCard) return null;
+  return {
+    ...pending,
+    messageKey: `message:${messageId}`,
+    messageId,
+    preview: preview ?? i18n.t("chat.toast.card"),
+    ...(!preview ? { cardOnly: true } : {})
+  };
 }
 
 function senderName(payload: Record<string, unknown>): string {
@@ -71,20 +90,18 @@ export function reduceAgentCompletionEvent(
     if (payload.sender_type !== "agent" || !conversationId || !senderUserId) {
       return { state, candidate: null };
     }
-    return {
-      state: {
-        pendingByMessageId: {
-          ...state.pendingByMessageId,
-          [messageId]: {
-            conversationId,
-            senderUserId,
-            senderName: senderName(payload),
-            ...(text(payload.created_at) ? { createdAt: text(payload.created_at)! } : {})
-          }
-        }
-      },
-      candidate: null
+    const pending: PendingAgentCompletion = {
+      conversationId,
+      senderUserId,
+      senderName: senderName(payload),
+      ...(text(payload.created_at) ? { createdAt: text(payload.created_at)! } : {}),
+      ...(hasInteractiveCard(payload) ? { hasCard: true } : {})
     };
+    // Some explicit card sends publish a terminal creation event with no follow-up completion.
+    if (pending.hasCard && payload.delivery_status === "completed") {
+      return { state: withoutPending(state, messageId), candidate: completionCandidate(pending, messageId, payload.content) };
+    }
+    return { state: { pendingByMessageId: { ...state.pendingByMessageId, [messageId]: pending } }, candidate: null };
   }
 
   if (event.eventType === "message.discarded") {
@@ -95,17 +112,9 @@ export function reduceAgentCompletionEvent(
   // the user-facing Agent reply reminder identity.
   if (event.eventType !== "message.completed") return { state, candidate: null };
   const pending = state.pendingByMessageId[messageId];
-  const preview = text(payload.content);
-  const nextState = withoutPending(state, messageId);
-  if (!pending || !preview) return { state: nextState, candidate: null };
   return {
-    state: nextState,
-    candidate: {
-      ...pending,
-      messageKey: `message:${messageId}`,
-      messageId,
-      preview
-    }
+    state: withoutPending(state, messageId),
+    candidate: pending ? completionCandidate(pending, messageId, payload.content) : null
   };
 }
 
