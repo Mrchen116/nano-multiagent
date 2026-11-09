@@ -89,3 +89,18 @@ it("opens the owner's Work while configuration inspection is unavailable", async
   expect(await screen.findByRole("button",{name:"Config"})).toBeVisible();
   expect(calls.some(url=>url.includes("/settings") || url.includes("/capabilities"))).toBe(false);
 });
+
+it("explains an exact deleted Work link even when the Agent is no longer in contacts", async () => {
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/contacts?")) return response({ items: [], next_cursor: null });
+    if (url.includes("/work?view=summary&message_id=old-message")) {
+      return Response.json({ detail: { code: "agent_execution_deleted" } }, { status: 410 });
+    }
+    return new Response(null, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetch);
+  view(<AgentProfilePage />, "/settings/agents/colleague-agent?view=work&message_id=old-message");
+  expect(await screen.findByText("Execution record deleted")).toBeVisible();
+  expect(fetch.mock.calls.some(([url]) => String(url).includes("/deletion"))).toBe(false);
+});

@@ -154,6 +154,7 @@ export class ChannelService {
       owner,
     );
     if (!p?.node_id || !agentAvailable(this.db, p)) channelError("channel_not_found", 404);
+    if (one(this.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',agent)) channelError('agent_deletion_requested',409);
     return p.node_id as string;
   }
   private key(owner: string, node: string) {

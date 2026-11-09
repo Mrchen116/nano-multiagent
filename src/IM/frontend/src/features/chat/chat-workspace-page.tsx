@@ -159,9 +159,11 @@ function streamReducer(
   action:
     | { type: "reset"; conversationId: string; timeline: TimelineItem[]; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
     | { type: "prepend_history"; timeline: TimelineItem[] }
+    | { type: "retire_history"; conversationId: string }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
     | { type: "append_optimistic"; message: Message }
 ): ConversationState {
+  if (action.type === "retire_history") return { ...emptyConversationState, conversation_id: action.conversationId };
   if (action.type === "reset" || action.type === "prepend_history") {
     const targetConversationId = action.type === "reset" ? action.conversationId : state.conversation_id;
     if (targetConversationId === null) return state;
@@ -301,7 +303,9 @@ export function ChatWorkspacePage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const locatorMessageId = new URLSearchParams(location.search).get("message_id");
+  const explicitLocator = new URLSearchParams(location.search).get("message_id");
+  const [cleanupAnchor, setCleanupAnchor] = useState<{conversationId: string; messageId: string} | null>(null);
+  const locatorMessageId = explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
   const workReturnUrl = typeof location.state?.workReturnUrl === "string" ? location.state.workReturnUrl : null;
   const [locatorNotice, setLocatorNotice] = useState("");
   const locatedRef = useRef("");
@@ -355,9 +359,12 @@ export function ChatWorkspacePage() {
     return conversationsQuery.data?.find((c) => c.id === conversationId) ?? (conversationDetailQuery.isError ? null : conversationDetailQuery.data ?? null);
   }, [conversationId, conversationsQuery.data, conversationDetailQuery.data, conversationDetailQuery.isError, membershipReady]);
 
+  const cleanupRevisions = useRef(new Map<string, number>());
+  const [observedCleanup, setObservedCleanup] = useState<Record<string, number>>({});
+  const cleanupRevision = conversationId ? observedCleanup[conversationId] ?? 0 : 0;
   const messagesQuery = useQuery({
     enabled: Boolean(conversationId && activeConversation),
-    queryKey: ["chat", "messages", conversationId],
+    queryKey: cleanupRevision ? ["chat", "messages", conversationId, cleanupRevision] : ["chat", "messages", conversationId],
     queryFn: ({signal}) => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, signal }),
     refetchInterval: () => activeConversation?.is_member === false && document.visibilityState === "visible" ? 3000 : false,
     refetchOnWindowFocus: false,
@@ -410,7 +417,7 @@ export function ChatWorkspacePage() {
 
   const mentionCandidates = useMemo(() => {
     if (!activeConversation) return [];
-    return activeConversation.participants.filter((p) => p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
+    return activeConversation.participants.filter((p) => !p.is_deleted && p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
       user_id: p.user_id || p.id,
       agent_id: p.type === "agent" ? p.id : undefined,
       display_name: p.display_name || p.user_id || p.id,
@@ -421,7 +428,7 @@ export function ChatWorkspacePage() {
 
   const slashCandidatesQuery = useQuery({
     enabled: !!activeConversation,
-    queryKey: ["chat", "slash-candidates", selfUserId, conversationId],
+    queryKey: cleanupRevision ? ["chat", "slash-candidates", selfUserId, conversationId, cleanupRevision] : ["chat", "slash-candidates", selfUserId, conversationId],
     queryFn: async () => {
       const agents = await getConversationCommands(conversationId!);
       return {
@@ -509,7 +516,7 @@ export function ChatWorkspacePage() {
         isSelf: p.type === "user" && userId === selfUserId,
         isCreator: userId != null && userId === activeConversation.creator_id,
         status,
-        isStale: p.is_stale ?? null
+        isStale: p.is_deleted || p.is_stale || null
       };
     });
   }, [activeConversation, contactsQuery.data, selfUserId]);
@@ -535,17 +542,56 @@ export function ChatWorkspacePage() {
   // browser tabs — which triggers React Query refetchOnWindowFocus — does not
   // wipe token chips.  REST history never carries token_usage; only WS
   // message.completed provides it.  The cache survives across resets.
-  const tokenUsageCache = useRef(new Map<string, { token_usage: NonNullable<Message["token_usage"]>; delivery_status: Message["delivery_status"] }>());
+  const tokenUsageCache = useRef(new Map<string, { conversationId: string; token_usage: NonNullable<Message["token_usage"]>; delivery_status: Message["delivery_status"] }>());
+
+  function visibleReadingAnchor() {
+    const viewport = chatRootRef.current?.querySelector(".chat-pane-messages");
+    if (!viewport || viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 80) return null;
+    const top = viewport.getBoundingClientRect().top;
+    return Array.from(viewport.querySelectorAll<HTMLElement>("[data-message-id]"))
+      .find(row => row.getBoundingClientRect().bottom > top)?.dataset.messageId ?? null;
+  }
+
+  function observeExecutionCleanup(id: string, revision = 0, priorAnchor?: string | null) {
+    if (!Number.isSafeInteger(revision) || revision <= (cleanupRevisions.current.get(id) ?? 0)) return false;
+    cleanupRevisions.current.set(id, revision);
+    setObservedCleanup(current => ({ ...current, [id]: revision }));
+    if (historyRequestRef.current?.conversationId === id) {
+      historyRequestRef.current.controller.abort();
+      historyRequestRef.current = null;
+    }
+    for (const [messageId, usage] of tokenUsageCache.current) {
+      if (usage.conversationId === id) tokenUsageCache.current.delete(messageId);
+    }
+    // Old query generations can never seed the active stream again.
+    queryClient.removeQueries({ queryKey: ["chat", "messages", id], predicate: query => (Number(query.queryKey[3]) || 0) < revision });
+    if (conversationIdRef.current === id) {
+      const messageId = priorAnchor ?? visibleReadingAnchor();
+      setCleanupAnchor(messageId ? { conversationId: id, messageId } : null);
+      pendingLiveMessageIdsRef.current.clear();
+      pendingDiscardedMessageIdsRef.current.clear();
+      setHistoryCursor(null);
+      setHasMoreHistory(null);
+      setIsLoadingHistory(false);
+      dispatch({ type: "retire_history", conversationId: id });
+    }
+    return true;
+  }
 
   // Whenever the stream receives a completed message with token_usage, write
   // it into the persistent cache.
   useEffect(() => {
     for (const m of streamState.messages) {
       if (m.token_usage && m.delivery_status === "completed") {
-        tokenUsageCache.current.set(m.id, { token_usage: m.token_usage, delivery_status: m.delivery_status });
+        tokenUsageCache.current.set(m.id, { conversationId: m.conversation_id, token_usage: m.token_usage, delivery_status: m.delivery_status });
       }
     }
   }, [streamState.messages]);
+
+  useEffect(() => {
+    for (const chat of conversationsQuery.data ?? []) observeExecutionCleanup(chat.id, chat.execution_cleanup_revision);
+    if (activeConversation) observeExecutionCleanup(activeConversation.id, activeConversation.execution_cleanup_revision);
+  }, [conversationsQuery.data, activeConversation]);
 
   const visibleTimeline = streamState.conversation_id === conversationId
     ? streamState.timeline ?? []
@@ -569,6 +615,8 @@ export function ChatWorkspacePage() {
   // the current reducer state.
   useEffect(() => {
     if (!conversationId || !messagesQuery.data) return;
+    const pageRevision = messagesQuery.data.execution_cleanup_revision ?? 0;
+    if (observeExecutionCleanup(conversationId, pageRevision) || pageRevision !== (cleanupRevisions.current.get(conversationId) ?? 0)) return;
     setHistoryCursor(messagesQuery.data.next_before_message_id);
     setHasMoreHistory(messagesQuery.data.next_before_message_id !== null);
     const restored = messagesQuery.data.items.map((item): TimelineItem => {
@@ -608,6 +656,8 @@ export function ChatWorkspacePage() {
         signal: controller.signal
       });
       if (conversationIdRef.current !== conversationId || controller.signal.aborted) return;
+      const pageRevision = page.execution_cleanup_revision ?? 0;
+      if (observeExecutionCleanup(conversationId, pageRevision) || pageRevision !== (cleanupRevisions.current.get(conversationId) ?? 0)) return;
       dispatch({ type: "prepend_history", timeline: page.items });
       setHistoryCursor(page.next_before_message_id);
       setHasMoreHistory(page.next_before_message_id !== null);
@@ -624,7 +674,7 @@ export function ChatWorkspacePage() {
         setIsLoadingHistory(false);
       }
     }
-  }, [conversationId, hasMoreHistory, historyCursor, isLoadingHistory]);
+  }, [conversationId, hasMoreHistory, historyCursor, isLoadingHistory, queryClient]);
 
   useEffect(() => {
     locatedRef.current = "";
@@ -654,21 +704,27 @@ export function ChatWorkspacePage() {
       const element = Array.from(chatRootRef.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(node => node.dataset.messageId === locatorMessageId);
       if (!element) return;
       element.scrollIntoView?.({ block: "center", behavior: "instant" });
-      element.classList.add("im-work-message-target");
-      element.tabIndex = -1;
-      element.focus({ preventScroll: true });
       locatedRef.current = `${conversationId}:${locatorMessageId}`;
-      setLocatorNotice("已定位原消息");
+      if (explicitLocator) {
+        element.classList.add("im-work-message-target");
+        element.tabIndex = -1;
+        element.focus({ preventScroll: true });
+        setLocatorNotice("已定位原消息");
+      } else {
+        setLocatorNotice("");
+        setCleanupAnchor(null);
+      }
     });
     return () => cancelAnimationFrame(frame);
-  }, [locatorMessageId, conversationId, messagesQuery.isError, messagesQuery.isLoading, messagesQuery.data, conversationsQuery.isSuccess, activeConversation, hasMoreHistory, isLoadingHistory, streamState.messages, loadOlderMessages]);
+  }, [locatorMessageId, explicitLocator, conversationId, messagesQuery.isError, messagesQuery.isLoading, messagesQuery.data, conversationsQuery.isSuccess, activeConversation, hasMoreHistory, isLoadingHistory, streamState.messages, loadOlderMessages]);
 
   // Captures the latest sendersById via a ref so a fresh agents fetch becomes
   // visible to in-flight reducer dispatches without recreating the user stream.
   const sendersByIdRef = useRef(sendersById);
   sendersByIdRef.current = sendersById;
 
-  async function reconcileMembership(conversations: Conversation[]) {
+  async function reconcileMembership(conversations: Conversation[], priorAnchor?: string | null) {
+    for (const chat of conversations) observeExecutionCleanup(chat.id, chat.execution_cleanup_revision, priorAnchor);
     const allowed = new Set(conversations.map(c => c.id));
     const cached = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]) ?? [];
     for (const previous of cached) {
@@ -717,10 +773,14 @@ export function ChatWorkspacePage() {
   // Mirrors the pattern used by nodes-page.tsx and agent-status-ws-consumer.ts.
   useEffect(() => {
     const dispose = subscribeUserStream({
-      onRecovery: async () => {
+      onRecovery: async snapshot => {
+        const priorAnchor = visibleReadingAnchor();
+        for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) {
+          observeExecutionCleanup(id, revision, priorAnchor);
+        }
         setMembershipReady(false);
         const conversations = await listConversations();
-        await reconcileMembership(conversations);
+        await reconcileMembership(conversations, priorAnchor);
         setMembershipReady(true);
         await queryClient.invalidateQueries({ queryKey: ["contacts"] });
         await queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
@@ -728,6 +788,14 @@ export function ChatWorkspacePage() {
         if (id && conversations.some(c => c.id === id)) await queryClient.invalidateQueries({ queryKey: ["chat", "messages", id] });
       },
       onEvent: (event) => {
+        if (event.eventType === "conversation.execution_cleanup") {
+          const { conversation_id: id, execution_cleanup_revision: revision } = event.payload;
+          if (typeof id === "string" && typeof revision === "number" && observeExecutionCleanup(id, revision)) {
+            void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+            void queryClient.invalidateQueries({ queryKey: ["chat", "conversation-detail", id] });
+          }
+          return;
+        }
         if (event.eventType === "conversation.membership_changed" || event.eventType === "conversation.deleted") {
           const id = event.payload.conversation_id;
           if (typeof id === "string") {
@@ -1183,7 +1251,7 @@ export function ChatWorkspacePage() {
       {showDetail && (
         activeConversation ? (
           <MessagePane
-            lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} />)}
+            lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} deleted={actor.is_deleted} />)}
             onJoin={async () => { await joinConversation(activeConversation.id); await queryClient.invalidateQueries({ queryKey: ["chat"] }); }}
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}

@@ -41,3 +41,45 @@ it.each([true,false])('reports the prior execution identity after a host restart
   expect(f.reports.at(-1)).toMatchObject({process_instance_id:'prior-host',observed:priorStopped?'disabled':'stop_unconfirmed'});
   expect(f.lifecycle.allowed('a')).toBe(false);
 });
+
+it('resumes cleanup after a durable native purge without rebuilding the plan', async()=>{
+  const {AgentDeletionLedger,NodeAgentDeletions}=await import('../src/agent-deletion.js');
+  const {mkdtemp,rm}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const dir=await mkdtemp(join(tmpdir(),'nano-node-delete-'));
+  const path=join(dir,'deletions.sqlite3'),intent={agent_id:'a',operation_id:'a-operation',revision:2,workspace:{path:'/owned/a',witness:'owned'}};
+  const stages:string[]=[];
+  let failFinalize=true;
+  let failFinalReport=true;
+  const dependencies={
+    assertStopped:()=>{stages.push('stop');},
+    plan:async()=>{stages.push('plan');return {sessionIds:['session-a']};},
+    purge:async()=>{stages.push('purge');},
+    finalize:async(_intent:typeof intent,plan:{sessionIds:string[]})=>{
+      expect(plan.sessionIds).toEqual(['session-a']);
+      if (failFinalize) throw new Error('temporary filesystem failure');
+      stages.push('finalize');
+    },
+    report:async(_intent:typeof intent,state:string)=>{
+      stages.push(state);
+      if (state==='deleted' && failFinalReport) {
+        failFinalReport=false;
+        throw new Error('IM completion transaction failed');
+      }
+    },
+  };
+  let agent=new NodeAgentDeletions(new AgentDeletionLedger(path),dependencies);
+  try {
+    await agent.apply(intent);
+    expect(stages).toEqual(['stop','deleting','plan','purge','failed']);
+    await agent.close();
+    failFinalize=false;
+    const ledger = new AgentDeletionLedger(path);
+    agent=new NodeAgentDeletions(ledger,dependencies);
+    await expect(agent.apply(intent)).rejects.toThrow('IM completion transaction failed');
+    await agent.apply(intent);
+    expect(stages).toEqual(['stop','deleting','plan','purge','failed','deleting','finalize','deleted','deleted']);
+    expect(ledger.read('a')).toEqual({intent:{agent_id:'a',operation_id:'a-operation',revision:2},complete:true});
+  } finally { await agent.close(); await rm(dir,{recursive:true,force:true}); }
+});

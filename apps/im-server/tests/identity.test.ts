@@ -559,6 +559,45 @@ describe("device possession and ownership transfer", () => {
     expect(identity.deviceBrowser('accept',operation.browser_token,'owner').state).toBe('awaiting_local_confirmation');
   });
 
+  it("carries pending Agent deletion across same-owner binding and omits completed identities from transfer", () => {
+    const {identity}=fixture();
+    human(identity,'owner');
+    human(identity,'personal',false,'none');
+    identity.run("UPDATE users SET personal_space_enabled=1 WHERE id='personal'");
+    const key=deviceKey();
+    const node_id='delete-device';
+    const bind=()=>{
+      const operation=identity.deviceStart({node_id,node_name:'Device',...key});
+      const challenge=openChallenge(key,operation.challenge);
+      identity.deviceProve(operation.operation_id,operation.operation_token,challenge);
+      return {operation,challenge};
+    };
+    const commit=({operation,challenge}:ReturnType<typeof bind>)=>{
+      identity.deviceBrowser('accept',operation.browser_token,'owner');
+      const prepared=identity.devicePrepare(operation.operation_id,operation.operation_token);
+      identity.deviceCommit(operation.operation_id,operation.operation_token,proof(challenge,prepared.confirmation),{});
+    };
+    commit(bind());
+    identity.run("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES('a','owner',?,'A','then','then')",node_id);
+    identity.run("INSERT INTO agent_deletions(agent_id,operation_id,request_id,owner_id,node_id,node_epoch,revision,profile_version,state) VALUES('a','deletion','request','owner',?,1,2,1,'deleting')",node_id);
+    commit(bind());
+    expect(identity.get("SELECT node_epoch FROM agent_deletions WHERE agent_id='a'")?.node_epoch).toBe(2);
+    const recovery=bind().operation;
+    identity.deviceRecoverDevice(recovery.operation_id,recovery.operation_token);
+    expect(identity.get("SELECT node_epoch FROM agent_deletions WHERE agent_id='a'")?.node_epoch).toBe(3);
+    identity.run("UPDATE agent_deletions SET state='deleted' WHERE agent_id='a'");
+    identity.run(`INSERT INTO agent_channel_removals(channel_id,removal_token,owner_id,agent_id,node_id,provider,display_config_json,
+      deleted_channel_revision,deletion_manifest_revision,apply_state,expires_at,created_at,updated_at)
+      VALUES('a-channel','a-removal','owner','a',?,'feishu','{}',1,1,'applied',datetime('now'),datetime('now'),datetime('now'))`,node_id);
+    const {operation:transfer,challenge}=bind();
+    expect(identity.deviceBrowser('accept',transfer.browser_token,'personal')).toMatchObject({agents:[],state:'awaiting_local_confirmation'});
+    const prepared=identity.devicePrepare(transfer.operation_id,transfer.operation_token);
+    expect(prepared.snapshot).toMatchObject({agent_profiles:[],agent_channel_removals:[]});
+    identity.deviceCommit(transfer.operation_id,transfer.operation_token,proof(challenge,prepared.confirmation),{});
+    expect(identity.get("SELECT owner_id FROM agent_profiles WHERE agent_id='a'")?.owner_id).toBe('owner');
+    expect(identity.get("SELECT owner_id FROM agent_channel_removals WHERE agent_id='a'")).toBeUndefined();
+  });
+
   it("requires local enrollment of existing nodes and keeps the enrolled key immutable", () => {
     const { identity } = fixture();
     human(identity, "owner");

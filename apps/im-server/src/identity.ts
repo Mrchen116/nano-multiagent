@@ -656,6 +656,10 @@ export class Identity {
       throw new IdentityError(409, "receiving account must be active");
     return user!;
   }
+  private transferableAgents(nodeId: string): Row[] {
+    return this.all(`SELECT * FROM agent_profiles WHERE node_id=? AND NOT EXISTS (
+      SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted') ORDER BY rowid`, nodeId);
+  }
   private snapshot(nodeId: string): Row {
     return Object.fromEntries(
       [
@@ -667,7 +671,8 @@ export class Identity {
         "personal_agent_bindings",
       ].map((table) => [
         table,
-        this.all(`SELECT * FROM ${table} WHERE node_id=? ORDER BY rowid`, nodeId),
+        table==='agent_profiles' ? this.transferableAgents(nodeId) : this.all(`SELECT * FROM ${table} WHERE node_id=?${table==='agent_channel_removals'
+          ? " AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_channel_removals.agent_id AND d.state='deleted')" : ''} ORDER BY rowid`, nodeId),
       ]),
     );
   }
@@ -805,9 +810,7 @@ export class Identity {
         node_name: op.node_name,
         is_transfer: !!op.expected_owner && op.expected_owner !== user.owner_id,
         history_transferred: !!op.expected_owner && op.expected_owner !== user.owner_id,
-        agents: this.all("SELECT agent_id FROM agent_profiles WHERE node_id=?", op.node_id).map(
-          (r) => r.agent_id,
-        ),
+        agents: this.transferableAgents(op.node_id).map(r=>r.agent_id),
         state: op.state,
       };
     });
@@ -821,7 +824,7 @@ export class Identity {
   private checkTransferRecipient(node: string, user: User): void {
     if(this.get("SELECT 1 FROM pa_node_residencies WHERE node_id=? AND owner_id!=?",node,user.owner_id))
       throw new IdentityError(409,"A computer containing personal assistant data cannot be transferred to another owner");
-    const profiles = this.all("SELECT * FROM agent_profiles WHERE node_id=?", node);
+    const profiles = this.transferableAgents(node);
     if (profiles.some(p => p.space_id === "company:default") && user.membership_status !== "active")
       throw new IdentityError(409, "company agents require an active company recipient");
   }
@@ -881,6 +884,8 @@ export class Identity {
         (state?.node_epoch ?? 0) !== op.expected_epoch
       )
         throw new IdentityError(409, "node ownership changed");
+      if (op.expected_owner!==user.owner_id && this.get("SELECT 1 FROM agent_deletions WHERE node_id=? AND state!='deleted'",op.node_id))
+        throw new IdentityError(409, "Agent deletion still pending");
       const snapshot = this.snapshot(op.node_id);
       if (serializeIdentityJson(snapshot) !== op.snapshot_json)
         throw new IdentityError(409, "node configuration changed; prepare again");
@@ -910,6 +915,8 @@ export class Identity {
           channel.channel_id,
         );
       }
+      if (op.expected_owner!==user.owner_id) this.run(`DELETE FROM agent_channel_removals WHERE node_id=?
+        AND agent_id IN (SELECT agent_id FROM agent_deletions WHERE state='deleted')`,op.node_id);
       this.run(
         "INSERT INTO nodes(node_id,node_name,owner_id,status) VALUES(?,?,?,'offline') ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,status='offline'",
         op.node_id,
@@ -923,11 +930,12 @@ export class Identity {
         "agent_channel_removals",
         "node_credential_keys",
       ])
-        this.run(`UPDATE ${table} SET owner_id=? WHERE node_id=?`, user.owner_id, op.node_id);
+        this.run(`UPDATE ${table} SET owner_id=? WHERE node_id=?${table==='agent_profiles'
+          ? " AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted')" : ''}`, user.owner_id, op.node_id);
       if (snapshot.agent_profiles.some((profile: Row) => profile.space_id.startsWith("personal:")))
         this.run("UPDATE users SET personal_space_enabled=1 WHERE id=?", user.id);
-      this.run("UPDATE agent_profiles SET space_id=? WHERE node_id=? AND space_id LIKE 'personal:%'", `personal:${user.owner_id}`, op.node_id);
-      this.run("UPDATE users SET owner_id=? WHERE username IN (SELECT 'agent:'||agent_id FROM agent_profiles WHERE node_id=?)", user.owner_id, op.node_id);
+      this.run("UPDATE agent_profiles SET space_id=? WHERE node_id=? AND space_id LIKE 'personal:%' AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted')", `personal:${user.owner_id}`, op.node_id);
+      this.run("UPDATE users SET owner_id=? WHERE username IN (SELECT 'agent:'||agent_id FROM agent_profiles WHERE node_id=? AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state='deleted'))", user.owner_id, op.node_id);
       this.run(
         "UPDATE channel_manifest_heads SET manifest_revision=manifest_revision+1 WHERE node_id=?",
         op.node_id,
@@ -948,6 +956,7 @@ export class Identity {
         user.owner_id,
       );
       this.rotatePersonalEpoch(op.node_id,user.owner_id,op.expected_epoch+1);
+      this.rotateDeletionEpoch(op.node_id,user.owner_id,op.expected_epoch);
       this.run(
         "UPDATE node_binding_operations SET state='cancelled' WHERE node_id=? AND operation_id!=? AND state!='committed'",
         op.node_id,
@@ -991,6 +1000,10 @@ export class Identity {
       snapshot: this.snapshot(identity.node_id),
     };
   }
+  private rotateDeletionEpoch(node: string, owner: string, previous: number): void {
+    this.run("UPDATE agent_deletions SET node_epoch=? WHERE node_id=? AND owner_id=? AND node_epoch=? AND state!='deleted'",
+      previous+1,node,owner,previous);
+  }
   deviceRecoverDevice(id: string, token: string) {
     return this.transaction(() => {
       const op = this.operation(id, token);
@@ -1009,6 +1022,7 @@ export class Identity {
         op.node_id,
       );
       this.rotatePersonalEpoch(op.node_id,row.owner_id,row.node_epoch+1);
+      this.rotateDeletionEpoch(op.node_id,row.owner_id,row.node_epoch);
       this.run(
         "UPDATE node_binding_operations SET state='committed',target_user_id=?,target_owner=?,runtime_token=? WHERE operation_id=?",
         row.user_id,

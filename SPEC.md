@@ -45,6 +45,8 @@ Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产
 
 普通 Agent 共享一个 DSH host 与既有持久 home；PA 按 binding/epoch 保留独立 host 和 home。每个产品 Agent 的跨聊天 root Session 由 integration 持有 DSH 公开 AgentHandle，子 Agent、Job 和终端沿原生 owner scope 管理。停用仅取消并释放目标 Agent 的执行与恢复入口，不退出或重启共享 host；未确认清理完成时保留 stop_unconfirmed。模型管理、配置与只读历史继续由所在 host 提供，冷历史查询不创建或恢复 Agent。沿用既有目录，无需拆分历史或发布新布局标记。
 
+永久删除由 Node 协调，普通 host 中的 DSH integration 仅维护归属已确认的目标会话。它在锁定版本公开的每会话写租约内维护受管 JSONL 日志，通过公开 Cordis 配置装配投影缓存扩展，并按目标会话键清理缓存。共享 host 持续服务其他 Agent。DSH 升级需重新验证受管日志布局、租约与缓存清理契约。
+
 ## 依赖方向
 
 - IM 只依赖 product-contracts，不导入 Node、PA、Channels 或 DSH。

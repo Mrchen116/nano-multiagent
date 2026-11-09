@@ -1,3 +1,4 @@
+import {rejectDeletedExecution} from './agent-deletion.js';
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -400,14 +401,17 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     const personal=one(db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",id);
     if (!p || (owner && p.owner_id !== user.owner_id) || (personal && personal.owner_user_id!==user.id)) fail(404, "agent_not_accessible");
     ctx.identity.requireSpace(user, p.space_id);
+    if (one(db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',id)) fail(409,'agent_deletion_requested');
     return p;
   }
   app.get("/im/v1/agents/:agent_id/work", (req) => {
-    const p = profile(req),
-      q = query(req);
+    const q = query(req), agentId = params(req).agent_id;
+    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),agentId,q.message_id ? 'message' : 'agent',q.message_id ?? agentId);
+    const p = profile(req);
     return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary', q.message_id);
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns", (req) => {
+    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),params(req).agent_id,'session',params(req).session_id);
     profile(req);
     const p = params(req),
       q = query(req);
@@ -420,6 +424,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     );
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns/:turn_id/items", (req) => {
+    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),params(req).agent_id,'session',params(req).session_id);
     profile(req);
     const p = params(req),
       q = query(req);

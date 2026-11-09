@@ -435,9 +435,10 @@ export class Dreaming {
       global:{pending:batch.units.length>0,units:batch.units.length},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId).map(({status,summary,at,endedAt})=>({status,summary,at,endedAt}))};
   }
   /** Recover real application receipts; never reuse unfinished model staging or an old cycle target. */
-  async recover(){
+  async recover(retired: (agentId: string) => boolean = () => false){
     const domain=await this.domain;
     for(const [,run] of [...domain.table('runs').entries()].sort((a,b)=>a[1].at-b[1].at)){
+      if (retired(run.agentId)) continue;
       if(run.childSessionId&&!run.identityRecorded)await this.repairIdentity(run);
       // A saved file may still need its frozen content to retry version recording.
       const pendingVersion=run.receipts.some(receipt=>receipt.saved&&!receipt.versionRecorded);

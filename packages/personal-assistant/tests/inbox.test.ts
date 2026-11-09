@@ -10,6 +10,29 @@ const input = (id: string, text: string, target = 'group-a'): RelayInput => ({
   metadata: { conversation_type: 'group', conversation_title: target },
   message: { id, content: text, sender_user_id: 'human', sender_type: 'user', attachments: [] },
 });
+
+it('erases a retired Inbox without invalidating a peer read or reusing an input identity', () => {
+  const store = new InboxStore(':memory:');
+  const peer = { ...input('peer', 'peer content'), agent_id: 'bob' };
+  const target = input('target', 'private content');
+  try {
+    store.acceptRelay(peer, true);
+    store.acceptRelay(target, true);
+    const peerPage = store.read('bob', 'peer-session', 'peer-read', { target: peer.conversation_id });
+    const targetPage = store.read('alice', 'retired-session', 'old-read', { target: target.conversation_id });
+    const previous = store.watermark('alice');
+    store.deletionWork('alice');
+    store.purgeAgent('alice', ['retired-session']);
+    store.acceptRelay(target, true);
+    expect(store.input('alice', target.message.id)).toBeUndefined();
+    expect(store.pendingRelays().map(row => row.input.agent_id)).toEqual(['bob']);
+    expect(store.commitRead('retired-session', 'old-read', [{ type: 'text', text: JSON.stringify(targetPage) }], false)).toBe(false);
+    expect(store.commitRead('peer-session', 'peer-read', [{ type: 'text', text: JSON.stringify(peerPage) }], false)).toBe(true);
+    store.acceptRelay({ ...input('later', 'new peer input'), agent_id: 'bob' }, true);
+    expect(store.watermark('bob')).toBeGreaterThan(previous);
+  } finally { store.close(); }
+});
+
 it('only consumes exact durable read fragments, across restart and a frozen page snapshot', () => {
   const dir = mkdtempSync(join(tmpdir(), 'nano-inbox-'));
   let store = new InboxStore(join(dir, 'inbox.sqlite3'));

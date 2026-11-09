@@ -32,6 +32,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var can_write: Bool?
     var is_observer: Bool?
     var can_change_visibility: Bool?
+    var execution_cleanup_revision: Int?
     var category: String {
         if type == "direct" { if direct_kind == "agent-agent" { return "network" }; return ["user-user", "user"].contains(direct_kind ?? "") ? "people" : "agent" }
         return !participants.isEmpty && participants.allSatisfy { $0.type == "agent" } ? "network" : "group"
@@ -125,8 +126,13 @@ struct TimelineItem: Codable, Sendable, Identifiable {
 struct MessagePage: Codable, Sendable {
     var items: [TimelineItem]
     var next_before_message_id: String?
+    var execution_cleanup_revision: Int?
 }
-struct SyncSnapshot: Decodable, Sendable { var items: [Conversation]; var max_event_id: Int }
+struct SyncSnapshot: Decodable, Sendable {
+    var items: [Conversation]
+    var max_event_id: Int
+    var execution_cleanup_revisions: [String: Int]?
+}
 struct ChatCommandSet: Codable, Sendable, Identifiable {
     var agent_id: String; var display_name: String; var status: String
     var skills: [Skill]; var commands: [Command]

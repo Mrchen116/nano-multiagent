@@ -1,6 +1,7 @@
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
 import { execFileSync } from 'node:child_process';
+import { AgentDeletionLedger, NodeAgentDeletions } from './agent-deletion.js';
 import { NodeAgentLifecycle } from './agent-lifecycle.js';
 import { requestIm } from './im-http.js';
 import { uploadScreenshot } from './screenshot-upload.js';
@@ -18,7 +19,7 @@ import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
 import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
-import type { AgentConfiguration, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
+import type { AgentConfiguration, AgentDeletionIntent, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor, ConfigurationInspector } from '@nano/dsh-integration/client';
 
 const configIndex = process.argv.indexOf('--config');
@@ -28,7 +29,8 @@ try {
   const migration = JSON.parse(await readFile(join(dirname(configPath), 'migration-report.json'), 'utf8')) as {blockers: string[]};
   if(migration.blockers.length)throw new Error(`Migration has ${migration.blockers.length} unreconciled operations; inspect migration-report.json before starting`);
 } catch(error) { if((error as NodeJS.ErrnoException).code !== 'ENOENT')throw error; }
-const configuration = await NodeConfiguration.read(configPath);
+const deletionLedger = new AgentDeletionLedger(`${configPath}.deletions.sqlite3`);
+const configuration = await NodeConfiguration.read(configPath,deletionLedger.states());
 const config = configuration.value;
 const release = await loadNodeRelease();
 let updateHolding: string | undefined;
@@ -104,6 +106,7 @@ async function reportPersonalAvailability(partition: RuntimePartition, available
 }
 const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings(), onError: reportError,
   allowed: agentId => agentLifecycle?.allowed(agentId) === true,
+  retired: agentId => !!deletionLedger.read(agentId),
   execution: (agentId, action, revision) => store.lifecycle.run(agentId, revision, action),
   create: partition => {
     const partitionHome = partition.key === 'ordinary' ? home : join(home, 'pa', Buffer.from(partition.key).toString('base64url'));
@@ -157,7 +160,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       request: (method, params) => supervisor.request(method, params),
       onNotification: listener => supervisor.onNotification(listener),
       handle: (method, handler) => supervisor.handle(method, handler),
-      start: async () => { await mkdir(partitionHome, {recursive:true, mode:0o700}); await prepareProfile(partitionHome, [{id:'llm-pi-ai', config:{providers:providerProfiles(config.llm).providers}}]); await supervisor.start(); },
+      start: async () => { await mkdir(partitionHome, {recursive:true, mode:0o700}); await prepareProfile(partitionHome, [{id:'llm-pi-ai', config:{providers:providerProfiles(config.llm).providers}}], {agentDeletion:partition.key==='ordinary'}); await supervisor.start(); },
       shutdown: () => supervisor.shutdown(),
     };
   },
@@ -175,13 +178,22 @@ const relay = new WebRelayConnection({
     agent_skills: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.skills ?? []])),
     agent_skills_selection_modes: Object.fromEntries(config.agents.map(agent => [agent.agent_id, configuration.current(agent.agent_id)?.skills_selection_mode])),
     agent_tool_allowlist: Object.fromEntries(config.agents.map(agent => [agent.agent_id, agent.tool_allowlist ?? []])),
-    ...channelKey.registration, capabilities: { channel_bootstrap: true, model_setup: true, agent_lifecycle_v1: true },
+    ...channelKey.registration, capabilities: { channel_bootstrap: true, model_setup: true, agent_lifecycle_v1: true, agent_deletion_v1: true },
   } }),
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: release.version }),
   onFrame: async frame => {
     const payload = frame.payload;
     if (frame.type === 'node.request.cancel') {await capabilityRequests.handle(frame);return;}
     if (capabilityRequests.accepts(frame.type)) {await admitted(()=>capabilityRequests.handle(frame));return;}
+    if (frame.type === 'agent.deletion.apply') {
+      void deletions.apply(payload as unknown as AgentDeletionIntent).catch(reportError);
+      return;
+    }
+    if (frame.type === 'agent.deletion.preview') {
+      const workspace = await configuration.deletionWorkspace(String(payload.agent_id),operations.pending().map(row=>row.candidate));
+      await relay.request('agent.deletion.preview.result',{node_id:config.node.node_id,request_id:payload.request_id,...(workspace ? {workspace} : {})});
+      return;
+    }
     if (frame.type === 'agent.lifecycle.apply') { await agentLifecycle.apply(payload as unknown as AgentLifecycleSnapshot); return; }
     await lifecycleSync;
     if (frame.type === 'pa.observations.available') { await globalProduct.recoverPersonalObservations(); return; }
@@ -280,6 +292,8 @@ const relay = new WebRelayConnection({
       lifecycleSync = agentLifecycle.synchronize(relay.registration?.agent_lifecycles as AgentLifecycleSnapshot[]);
       await lifecycleSync;
       await runtime.start();
+      for (const intent of (relay.registration?.agent_deletions ?? []) as AgentDeletionIntent[])
+        void deletions.apply(intent).catch(reportError);
       workAvailable=true;workSync.signal();
       if(typeof relay.registration?.owner_timezone==='string')store.setOwnerTimezone(relay.registration.owner_timezone);
     }
@@ -337,7 +351,7 @@ external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config
   im,
 });
 managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, key: channelKey, relay,
-  hasAgent: id => agents.some(agent => agent.agentId === id), onError: reportError,
+  hasAgent: id => agents.some(agent => agent.agentId === id), retired: id=>!!deletionLedger.read(id), onError: reportError,
   remove: agentId => external.remove(agentId),
   create: (channel, secret, callbacks) => {
     const connection = new FeishuConnection({ appId: channel.config.app_id, appSecret: secret.app_secret!, botOpenId: channel.provider_runtime.bot_open_id, ownerOpenId: channel.provider_runtime.owner_open_id }, {
@@ -391,7 +405,10 @@ runtime.handle('product.call', value=>{
 });
 operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   current: agentId => configuration.current(agentId),
-  resolve: (candidate, creating) => configuration.resolve(candidate, creating),
+  resolve: (candidate, creating) => {
+    if (deletionLedger.read(candidate.agent_id)) throw new Error('Agent deletion requested');
+    return configuration.resolve(candidate, creating);
+  },
   persist: candidate => configuration.persist(candidate),
   prepare: async (candidate, intent) => {
     const previous = agents.find(agent => agent.agentId === candidate.agent_id);
@@ -406,6 +423,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   },
   release: async (candidate, intent) => {
     heartbeat.release(candidate.agent_id, intent.operation_id);
+    configuration.releaseWorkspace(candidate.agent_id);
     if (runtime.availableFor(candidate.agent_id)) await runtime.request('configuration.release', {agentId: candidate.agent_id, operationId: intent.operation_id});
   },
   apply: async (candidate, intent) => {
@@ -449,6 +467,51 @@ const updater = new NodeUpdater(configuration, {
       await external.recover(); await product.recover(!relay.ready); await globalProduct.recover();
       await knowledge.recover(); await workflows.recover();
     });
+  },
+});
+const deletions = new NodeAgentDeletions(deletionLedger,{
+  assertStopped: intent => {
+    const state=store.lifecycle.snapshot(intent.agent_id);
+    if (state?.revision!==intent.revision || state.applied_revision!==intent.revision || state.desired!=='disabled' || state.observed!=='disabled')
+      throw new Error('Agent stop has not been confirmed on this node');
+    if (!agents.some(agent=>agent.agentId===intent.agent_id && !agent.personal)) throw new Error('Unknown deletable Agent');
+  },
+  plan: async intent => {
+    const workspace=intent.workspace;
+    if (workspace) {
+      const current=await configuration.deletionWorkspace(intent.agent_id,operations.pending().map(row=>row.candidate));
+      if (current?.path!==workspace.path || current.witness!==workspace.witness) throw new Error('Workspace is no longer exclusive');
+    }
+    const knownSessionIds=[...new Set([...store.bindings().filter(row=>row.agentId===intent.agent_id).map(row=>row.sessionId),
+      ...inbox.deletionSessionIds(intent.agent_id)])];
+    const result = await supervisors.get('ordinary')!.request('agent.deletion.plan',{agentId:intent.agent_id,revision:intent.revision,knownSessionIds});
+    return result as {sessionIds:string[]};
+  },
+  purge: async (intent,plan) => {
+    await supervisors.get('ordinary')!.request('agent.deletion.purge',{agentId:intent.agent_id,revision:intent.revision,operationId:intent.operation_id,plan});
+  },
+  finalize: async (intent,plan) => {
+    const agentId=intent.agent_id;
+    const manifest=inbox.deletionWork(agentId);
+    for (let i=0;i<manifest.entries.length;i+=250) {
+      await relay.request('agent.deletion.work',{node_id:config.node.node_id,agent_id:agentId,operation_id:intent.operation_id,
+        manifest:{journal_id:manifest.journal_id,entries:manifest.entries.slice(i,i+250)}},{priority:'control'});
+    }
+    inbox.purgeAgent(agentId,plan.sessionIds);
+    workSync.redacted();
+    await managed.purgeAgent(agentId);
+    external.purgeAgent(agentId);
+    heartbeat.purgeAgent(agentId);
+    operations.purgeAgent(agentId);
+    store.purgeAgent(agentId,plan.sessionIds);
+    await configuration.removeAgent(agentId,intent.operation_id,intent.workspace,()=>operations.pending().map(row=>row.candidate));
+    runtime.removeAgent(agentId);
+    const index=agents.findIndex(agent=>agent.agentId===agentId);
+    if (index!==-1) agents.splice(index,1);
+  },
+  report: async (intent,state,errorDetail) => {
+    await relay.request('agent.deletion.report',{node_id:config.node.node_id,agent_id:intent.agent_id,operation_id:intent.operation_id,
+      state,...(errorDetail ? {error_detail:errorDetail.slice(0,500)} : {})},{priority:'control'});
   },
 });
 let stopping = false;
@@ -500,7 +563,7 @@ async function stop() {
   stopping = true;
   clearInterval(taskWatch);
   trajectory.closeAll();
-  try { capabilityRequests.cancelAll(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

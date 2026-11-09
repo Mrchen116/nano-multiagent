@@ -1,11 +1,17 @@
-import { afterEach, expect, test } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { afterEach, expect, test, vi } from 'vitest';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { createServer } from '../src/server.js';
 import { digest } from '../src/identity.js';
+
+vi.mock('node:fs/promises', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...fs, open: vi.fn(fs.open) };
+});
 
 const cleanups: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -284,4 +290,60 @@ test('work summary defers tool payload while the existing complete view and item
   const full = work.view('root');
   expect(JSON.stringify(full.turns[0]!.items)).toContain('x'.repeat(100));
   expect(work.items('root', 'main', '1').items).toEqual(full.turns[0]!.items);
+});
+
+test('redacting an upload in flight preserves the shared sequence for the next Agent', async () => {
+  const f = await fixture();
+  f.db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,work_mode,created_at,updated_at) VALUES('peer','alice','node','Peer','global','2026-01-01','2026-01-01')").run();
+  const post = (from_seq: number, events: object[]) => f.request('POST', `${prefix}/events`, { from_seq, events });
+  const peer = { ...event(1), root_agent_id: 'peer', session_id: 'peer-main' };
+  expect((await post(1, [peer])).json().through_seq).toBe(1);
+
+  const old = { ...event(2, { scope: 'global_main', text: 'private target'.repeat(4000) }), type: 'session_registered' };
+  const chunks = parts(old);
+  const put = (part: number) => f.request('PUT', `${prefix}/events/2/parts/${part}`, chunks[part]);
+  expect((await put(0)).json().pending_event.received_parts).toEqual([0]);
+  const { registerWorkRedactions } = await import('../src/work-sync.js');
+  const identity = { node_id: 'node', owner_id: 'alice', node_epoch: 1 };
+  const operation = { agent_id: 'root', operation_id: 'deletion-a' };
+  await expect(registerWorkRedactions(f.app.im, identity, operation, {
+    journal_id: 'journal', entries: [{ seq: 1, event_id: peer.event_id }],
+  })).rejects.toMatchObject({ statusCode: 409 });
+  const upload = f.db.prepare('SELECT id FROM work_sync_uploads WHERE seq=2').get() as { id: string };
+  const directory = join(`${f.options.dbPath}.work-sync`, upload.id);
+  let reachedWrite!: () => void, releaseWrite!: () => void;
+  const blocked = new Promise<void>(resolve => { reachedWrite = resolve; });
+  const release = new Promise<void>(resolve => { releaseWrite = resolve; });
+  const { open: openFile } = await vi.importActual<typeof fsPromises>('node:fs/promises');
+  const heldWrite = vi.mocked(fsPromises.open).mockImplementation(async (...args) => {
+    if (args[0] === join(directory, '1') && args[1] === 'w') { reachedWrite(); await release; }
+    return openFile(...args);
+  });
+  try {
+    const inFlight = put(1);
+    await blocked;
+    const deletion = registerWorkRedactions(f.app.im, identity, operation, {
+      journal_id: 'journal', entries: [{ seq: 2, event_id: old.event_id }],
+    });
+    expect(f.db.prepare('SELECT seq FROM work_sync_redactions WHERE seq=2').get()).toEqual({ seq: 2 });
+    releaseWrite();
+    const [response] = await Promise.all([inFlight, deletion]);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().through_seq).toBe(2);
+  } finally {
+    releaseWrite();
+    heldWrite.mockRestore();
+  }
+  f.db.prepare("UPDATE agent_profiles SET is_stale=1 WHERE agent_id='root'").run();
+  const redacted = { seq: 2, event_id: old.event_id, root_agent_id: 'root', session_id: 'redacted', type: 'work_redacted', payload: {} };
+  const next = { ...event(3, { text: 'peer continues' }), root_agent_id: 'peer', session_id: 'peer-main' };
+  expect((await post(2, [redacted, next])).json().through_seq).toBe(3);
+  expect((await post(2, [{ ...event(2), event_id: old.event_id }, next])).json().through_seq).toBe(3);
+  expect((await put(chunks.length - 1)).json().through_seq).toBe(3);
+  expect(f.db.prepare('SELECT seq, root_agent_id FROM agent_work_events ORDER BY seq').all()).toEqual([
+    { seq: 1, root_agent_id: 'peer' }, { seq: 3, root_agent_id: 'peer' },
+  ]);
+  expect(f.db.prepare('SELECT 1 FROM work_sync_uploads WHERE seq=2').get()).toBeUndefined();
+  expect(existsSync(directory)).toBe(false);
+  expect((await f.request('GET')).json()).toEqual({ through_seq: 3, expected_seq: 4 });
 });

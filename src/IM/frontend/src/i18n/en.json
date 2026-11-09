@@ -804,6 +804,7 @@
       "展示已截断": "Display truncated",
       "目标：": "Target:",
       "运行中收到补充输入": "Input received during execution",
+      "执行记录已删除": "Execution record deleted",
       "工作记录读取失败": "Unable to load work records",
       "已拒绝": "Denied",
       "已授权": "Allowed",
@@ -934,6 +935,7 @@
     }
   },
   "chat": {
+    "deletedAgent": "Agent deleted",
     "toast": { "newMessage": "New message", "member": "Member", "agent": "Agent", "card": "Interactive card" },
     "conversationMenu": {
       "label": "Conversation menu",

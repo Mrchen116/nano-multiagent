@@ -158,6 +158,33 @@ final class ChatStateTests: XCTestCase {
         store.clear()
     }
 
+    func testExecutionCleanupOnReconnectDiscardsOldPagesAndRestoresReadingPosition() async throws {
+        let pair = TokenPair(access_token: "test-access", refresh_token: "test-refresh", user: user)
+        let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now","execution_cleanup_revision":2}]}"#.utf8)
+        let latest = try JSONEncoder().encode(MessagePage(items: [message(2)], next_before_message_id: "m2", execution_cleanup_revision: 2))
+        let older = try JSONEncoder().encode(MessagePage(items: [message(1)], execution_cleanup_revision: 2))
+        let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: latest, bridge: older, list: list)
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials(), sendAttempts: attemptStore)
+        _ = try await session.login(username: "user", password: "test")
+        let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
+        var prior = try message(1)
+        prior.message?.thinking = [ChatThinking(seq: 1, text: "old execution details")]
+        store.timelines["chat"] = [prior]
+        store.before["chat"] = "old"
+        store.recordReadingPosition("m1", in: "chat")
+
+        await store.loadConversations()
+        XCTAssertNil(store.timelines["chat"])
+        XCTAssertNil(store.before["chat"])
+        await store.loadChat("chat")
+
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1", "m2"])
+        XCTAssertNil(store.timelines["chat"]?.first?.message?.thinking)
+        XCTAssertEqual(store.timelines["chat"]?.first?.message?.content, prior.message?.content)
+        XCTAssertEqual(store.restoreReadingPositions["chat"], "m1")
+        store.clear()
+    }
+
     func testLostSendResponseRequiresExplicitRetryWithSameKeyAndNoDuplicateHistory() async throws {
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let received = try message(1)

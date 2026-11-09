@@ -13,7 +13,7 @@ import { tr } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
-import { workBase, workRequest, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
+import { AgentExecutionDeletedError, workBase, workRequest, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
 import "./agent-work.css";
 import { AgentTrajectory } from './agent-trajectory';
 
@@ -188,7 +188,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   const renderTurn = (turn: WorkTurn) => <Turn key={`${turn.session_id}:${turn.turn_id}`} turn={turn} agentId={agentId} online={online} sessions={view?.other_executions ?? []} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh} focusToken={!nativeMode && view?.focus?.session_id === turn.session_id && view?.focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
     <div ref={root} className="im-work" data-testid="agent-work-panel">
-      {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError ? <div role="alert" className="im-work-state">{viewQuery.error.message}<button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></div> : view && <>
+      {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
         <div className="im-work-toolbar">
           <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode} onClick={showRecords}>{tr('工作记录')}</button><button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || view.focus?.session_id || view.main_session_id)}>{tr('原生轨迹')}</button></div>
           {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={shownNative ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{view.other_executions.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id === shownNative && activeNative?.base === nativeSession && activeNative.label ? activeNative.label : tr(sessionTitle(session))}</option>)}{shownNative && shownNative !== view.main_session_id && !view.other_executions.some(session => session.session_id === shownNative) && <option value={shownNative}>{activeNative?.label || tr('关联执行')}</option>}</select></label>}

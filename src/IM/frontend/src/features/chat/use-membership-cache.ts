@@ -14,6 +14,9 @@ export function useMembershipCache() {
     let disposed = false;
     let invalidateOnFailure = false;
     let running: Promise<void> | undefined;
+    function retireExecutionHistory(id: string, revision: number) {
+      client.removeQueries({ queryKey: ["chat", "messages", id], predicate: query => (Number(query.queryKey[3]) || 0) < revision });
+    }
     function refresh(fromEvent = false): Promise<void> {
       pending = true;
       invalidateOnFailure ||= fromEvent;
@@ -36,6 +39,7 @@ export function useMembershipCache() {
             client.removeQueries({ queryKey: ["chat", "messages", chat.id] });
             forgetComposerConversation(composerStoreFor(userId ?? null), chat.id);
           }
+          for (const chat of conversations) retireExecutionHistory(chat.id, chat.execution_cleanup_revision ?? 0);
           client.removeQueries({ queryKey: ["chat", "slash-candidates"] });
           restoreComposerMembership(composerStoreFor(userId ?? null), visible);
           client.setQueryData(["chat", "conversations"], conversations);
@@ -46,7 +50,15 @@ export function useMembershipCache() {
       }).finally(() => { running = undefined; invalidateOnFailure = false; });
       return running;
     }
-    const unsubscribe = subscribeUserStream({ onRecovery: refresh, onEvent: event => {
+    const unsubscribe = subscribeUserStream({ onRecovery: snapshot => {
+      for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) retireExecutionHistory(id, revision);
+      return refresh();
+    }, onEvent: event => {
+      if (event.eventType === "conversation.execution_cleanup") {
+        const { conversation_id: id, execution_cleanup_revision: revision } = event.payload;
+        if (typeof id === "string" && typeof revision === "number") retireExecutionHistory(id, revision);
+        return;
+      }
       if (event.eventType !== "conversation.membership_changed" && event.eventType !== "conversation.deleted") return;
       const id = event.payload.conversation_id;
       if (typeof id !== "string") return;

@@ -50,9 +50,10 @@ export function useAgentLifecycle(agentId: string) {
 }
 type Lifecycle = ReturnType<typeof useAgentLifecycle>;
 /** Explain retained chat messages without offering lifecycle changes in chat. */
-export function AgentLifecycleChatNotice({agentId, name}: {agentId:string; name:string}) {
-  const lifecycle = useAgentLifecycle(agentId);
+export function AgentLifecycleChatNotice({agentId, name, deleted = false}: {agentId:string; name:string; deleted?:boolean}) {
+  const lifecycle = useAgentLifecycle(deleted ? "" : agentId);
   const l = useLabels();
+  if (deleted) return <div className="chat-observer-notice" role="status"><strong>{name} · {l('Agent 已删除', 'Agent deleted')}</strong></div>;
   if (lifecycle.query.data?.desired !== 'disabled') return null;
   return <div className="chat-observer-notice" role="status"><strong>{name} · {l('不处理新消息','Not processing new messages')}</strong><span>{l('消息会保留，但该 Agent 不会处理。','Messages are kept, but this Agent will not process them.')}</span></div>;
 }

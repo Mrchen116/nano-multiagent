@@ -15,9 +15,12 @@ declare module '@deepseek-ai/cordis' { interface Context { codexApproval: CodexA
 export class CodexApproval extends Service {
   static inject=['agents','tools','systemPrompt','llm','approval'];
   private readonly sessions: ReviewSession;
-  constructor(ctx:Context, private readonly boundRoot: (sessionId: string) => Agent | undefined) {
+  constructor(ctx:Context, private readonly options: {
+    boundRoot: (sessionId: string) => Agent | undefined;
+    recordOwner?: (parentId: string, reviewerId: string) => Promise<void>;
+  }) {
     super(ctx,'codexApproval');
-    this.sessions=new ReviewSession(ctx);
+    this.sessions=new ReviewSession(ctx, options.recordOwner);
     ctx.on('agent/disposed',({agent})=>this.release(agent.id));
     ctx.effect(()=>()=>this.sessions.dispose());
   }
@@ -34,7 +37,7 @@ export class CodexApproval extends Service {
       action:{name:request.exec.name,arguments:request.exec.arguments,id:request.exec.callId,schema:this.ctx.tools.schemas(parent).find(tool=>tool.name===request.exec.name),cwd:parent.session.header.cwd,rules:request.config.approval,recipient:request.messageContext},
       retained:()=>retainInstructions(parent,request.sources.restoreEntries(request.inherited,false),request.config.personal?.ownerId),
       ...(parent.session.header.origin === 'subagent' ? { liveInstructions: () => {
-        const root = this.boundRoot(parent.id);
+        const root = this.options.boundRoot(parent.id);
         if (!root || root === parent) throw new ReviewFailure('evidence_unavailable', 'Delegated review cannot refresh its bound root instructions');
         return retainInstructions(root, [], request.config.personal?.ownerId);
       } } : {}),

@@ -6,10 +6,10 @@
 
 ## 现状分析
 
-- IM 持有 Agent profile、执行权限、任务图、聊天和 Work 投影。现有[停用服务](../../../apps/im-server/src/agent-lifecycle.ts)以真人 owner、生命周期 revision 和节点回执为准。停用已冻结任务、关闭新工作，并使待审批失效。Agent 的聊天身份行仍参与历史消息的外键和展示。
-- [节点启动与注册](../../../apps/node/src/main.ts)使用本地配置和本地生命周期状态。[配置持久化](../../../apps/node/src/configuration.ts)已有串行写入和原子替换；中心现有注册路径会将节点上报的 Agent 标记为可用，永久删除必须在这条路径加屏障。
-- 普通和 Global Agent 共用 DSH host 与持久 home。[运行时停用](../../../packages/dsh-integration/src/index.ts)只收敛目标 Agent 的活跃执行、终端、调度、后台工作和观察；它保留持久历史。[OwnedSessions](../../../packages/dsh-integration/src/owned-sessions.ts)与[子会话目录](../../../packages/dsh-integration/src/descendants.ts)提供 root binding、原生归属及冷读能力。[feat-657](../archive/feat-657-agent-disable-switch/design.md)已经验证停用与保留历史的边界。
-- [Work 同步](../../../apps/im-server/src/work-records.ts)按节点的共享 journal 连续确认序号，Agent 的事件可能与其他 Agent 交错。可清理事件内容，序号和回执必须继续有效。IM 聊天附件与该同步链中的执行快照分开存储。
+- IM 持有 Agent profile、执行权限、任务图、聊天和 Work 投影。现有[停用服务](../../../../apps/im-server/src/agent-lifecycle.ts)以真人 owner、生命周期 revision 和节点回执为准。停用已冻结任务、关闭新工作，并使待审批失效。Agent 的聊天身份行仍参与历史消息的外键和展示。
+- [节点启动与注册](../../../../apps/node/src/main.ts)使用本地配置和本地生命周期状态。[配置持久化](../../../../apps/node/src/configuration.ts)已有串行写入和原子替换；中心现有注册路径会将节点上报的 Agent 标记为可用，永久删除必须在这条路径加屏障。
+- 普通和 Global Agent 共用 DSH host 与持久 home。[运行时停用](../../../../packages/dsh-integration/src/index.ts)只收敛目标 Agent 的活跃执行、终端、调度、后台工作和观察；它保留持久历史。[OwnedSessions](../../../../packages/dsh-integration/src/owned-sessions.ts)与[子会话目录](../../../../packages/dsh-integration/src/descendants.ts)提供 root binding、原生归属及冷读能力。[feat-657](../feat-657-agent-disable-switch/design.md)已经验证停用与保留历史的边界。
+- [Work 同步](../../../../apps/im-server/src/work-records.ts)按节点的共享 journal 连续确认序号，Agent 的事件可能与其他 Agent 交错。可清理事件内容，序号和回执必须继续有效。IM 聊天附件与该同步链中的执行快照分开存储。
 - 锁定的 DSH 0.2.1-alpha.1 和 npm 发布的 0.2.2-rc.1 的会话持久化公开类型均只有 create、open、flush、stat、list。上游[持久化文档](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.2-rc.1/packages/session/session-persistence)也记录该限制。上游已有[设计草案](https://github.com/deepseek-ai/deepseek-harness/blob/master/.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md#future-work-session-side-deletion-design-settled-not-implemented-this-phase)，其接口仍属于未发布提案。
 - 上游 [JSONL 文档](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.2-rc.1/packages/session/session-persistence-jsonl)定义每个会话独占的目录，目录包含所有日志代际，明确将删除留给运行时之外的维护；[投影缓存文档](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.2.2-rc.1/packages/session/session-projection-cache)描述每会话独立记录与进程内写回。仓库锁定包的 JSONL provider 公开 `resolveCurrentLog(id)` 可定位当前代际，历史代际可通过公开 list 识别为同一会话。Nano profile 的全文索引默认不打开持久 SQLite，原生附件按内容寻址并可跨会话共享。
 - 隔离取证使用锁定的 DSH 0.2.1-alpha.1 和 Node 24.22.1，在同一 cwd 写入 A 主会话、A 子会话和 B 会话。单个 DSH 进程内取得 A 会话的公开写租约，移出 A 的日志并按 ID 删除缓存。公开查询只剩 B，B 在清理期间持有原写句柄，随后成功追加并读回事件。探针覆盖当前格式及正常清理，未验证完整产品链路。
@@ -69,7 +69,7 @@ Nano 持有产品 Agent 身份和删除授权。仅目标 Agent 的停止证明�
 
 1. **先封闭目标入口并保存清单。** 持久化删除意图和已确认停止的 revision，停止目标的新增执行、冷读、轨迹订阅与续做，等待属于目标的已接收读写退出。通过公开 `sessionPersistence.list()`、已验证的绑定与原生归属生成持久化清单。任何仍被其他 Agent 独立拥有或依赖的资源留在原处。无法证实目标归属或访问已收敛时，此次删除保持未完成。
 2. **收敛目标的缓存写入。** 普通 host 启动时通过 Nano profile 的 Cordis 配置装配官方 `SessionProjectionCache` 的扩展。其公开 `write` 记录在途写入，`coldSnapshot` 对已进入删除的会话关闭新的写回。此前由同步冷读发出的写入已经进入 domain 队列。等待目标的在途写入收敛后，通过公开 domain 表按键删除。其他会话继续执行官方读写实现。节点重启时，在开放目标的观察与执行入口前恢复删除屏障。
-3. **在目标写租约内移出日志。** 使用锁定版本 JSONL provider 的公开 `resolveCurrentLog(id)`、`acquireWriteLease(header)`。对只存在历史代际的 Nano 会话，在锁定版布局中用可信 ID 和公开 header 核对唯一目录及文件身份。持有租约时仅将该目录内的日志代际移入本操作的同文件系统暂存目录，保留 `session.lock` 的 inode。对账目标的投影缓存、对应的历史缓存备份及实际挂载的独占索引。清理仅适用于受管根及已验证的版本和布局，遇到未知或冲突时报告具体失败。运行时集成仍通过公开 exports。受管文件维护的版本约束与范围纳入 [架构契约](../../../SPEC.md) 的实施归并。
+3. **在目标写租约内移出日志。** 使用锁定版本 JSONL provider 的公开 `resolveCurrentLog(id)`、`acquireWriteLease(header)`。对只存在历史代际的 Nano 会话，在锁定版布局中用可信 ID 和公开 header 核对唯一目录及文件身份。持有租约时仅将该目录内的日志代际移入本操作的同文件系统暂存目录，保留 `session.lock` 的 inode。对账目标的投影缓存、对应的历史缓存备份及实际挂载的独占索引。清理仅适用于受管根及已验证的版本和布局，遇到未知或冲突时报告具体失败。运行时集成仍通过公开 exports。受管文件维护的版本约束与范围纳入 [架构契约](../../../../SPEC.md) 的实施归并。
 4. **验证并提交结果。** 目标的公开持久化与冷读入口返回缺失，缓存记录消失，暂存文件已清理后才确认运行数据完成。中断后用原清单及持久化屏障恢复。验证同 cwd 的另一 Agent 能在目标清理开始前进入执行，在清理时接收新输入，并在同一个进程完成原工作。另覆盖历史代际、缓存写入延迟、目标租约冲突和异常恢复。DSH 升级时重新验证当前版本的适配契约。
 
 ### 工作区须有节点侧的专属证明
@@ -89,7 +89,7 @@ Nano 持有产品 Agent 身份和删除授权。仅目标 Agent 的停止证明�
 
 ### 客户端入口
 
-Web Agent 详情的所有者管理区沿用启停状态和[渠道删除](../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx)的确认及失败反馈结构。iOS 使用现有 Agent 配置的原生确认 sheet，放在启停状态后。两个端都让目标名称、永久删除范围和聊天保留说明在工作区可选项之前出现；勾选默认关闭，仅在专用时提供并显示将删除的目录。提交后回到同一详情的进度区，显示等待节点、删除中、失败原因和重试；已确认完成后回列表。旧聊天提示“Agent 已删除”，而非设备离线或可重新启用。沿用已有详情和确认控件，无待选择的独立布局；实施时检验 Web 窄屏和 iOS sheet 能看全后果及主操作。设计基线为当前组件及 [feat-657 隔离验收记录](../archive/feat-657-agent-disable-switch/acceptance.md)，本轮未运行界面。
+Web Agent 详情的所有者管理区沿用启停状态和[渠道删除](../../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx)的确认及失败反馈结构。iOS 使用现有 Agent 配置的原生确认 sheet，放在启停状态后。两个端都让目标名称、永久删除范围和聊天保留说明在工作区可选项之前出现；勾选默认关闭，仅在专用时提供并显示将删除的目录。提交后回到同一详情的进度区，显示等待节点、删除中、失败原因和重试；已确认完成后回列表。旧聊天提示“Agent 已删除”，而非设备离线或可重新启用。沿用已有详情和确认控件，无待选择的独立布局；实施时检验 Web 窄屏和 iOS sheet 能看全后果及主操作。设计基线为当前组件及 [feat-657 隔离验收记录](../feat-657-agent-disable-switch/acceptance.md)，本轮未运行界面。
 
 ## 本次审查安排
 
@@ -109,11 +109,11 @@ Web Agent 详情的所有者管理区沿用启停状态和[渠道删除](../../.
 
 ## Runbook for Reviewer
 
-在受审构建中使用独立的 `WT_ROOT`，命令从仓库根执行，按 [daily 运行模板](../../development/worktree-runtime.md#固定日常验收模板)准备环境。
+在受审构建中使用独立的 `WT_ROOT`，命令从仓库根执行，按 [daily 运行模板](../../../development/worktree-runtime.md#固定日常验收模板)准备环境。
 
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
-| 隔离 IM 与 Node/DSH | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `./scripts/e2e-up.sh --profile daily --wt "$WT_ROOT"` | 读取本轮 `.e2e-ports.env`，检查 IM `openapi.json`、节点进程和测试 owner 的节点在线 |
+| 隔离 IM 与 Node/DSH | `./scripts/e2e-down.sh --wt "$WT_ROOT"` | `./scripts/e2e-up.sh --profile daily --wt "$WT_ROOT"` | 读取本轮 `.e2e-ports.env`，检查 IM `/health`、节点进程和测试 owner 的节点在线 |
 
 从 Web 详情完成删除和故障恢复，保留 B 作为同节点对照；iOS 用本地模拟器验证新增确认 sheet 与返回。使用 daily 提供的测试 owner 与隔离节点，准备普通/Global、主子冷会话、共享群、消息附件、共享任务、专用及共享目录。上游真实包、同文件系统的受管目录、iOS 模拟器和测试模型配置须在 Gate 2 记录可用性。验证结束回收隔离资源。
 

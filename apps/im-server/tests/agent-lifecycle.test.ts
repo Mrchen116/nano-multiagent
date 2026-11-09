@@ -5,6 +5,7 @@ import {registerControlRoutes} from '../src/control-routes.js';
 import { Gateway } from '../src/gateway.js';
 import { Messaging, registerMessagingRoutes } from '../src/messaging.js';
 import { registerConversationActions } from '../src/conversation-actions.js';
+import { ChannelService } from '../src/channels.js';
 
 const apps: ReturnType<typeof Fastify>[]=[];
 afterEach(async()=>{for(const app of apps.splice(0))await app.close();});
@@ -152,4 +153,64 @@ it('keeps only old Task schedules frozen and releases the specific human-resumed
   expect((await frozen()).payload.schedule_ids).toEqual(['task-schedule']);
   tasks.execute(human,'apply',{graph_id:graph.graph_id,base_revision:2,request_key:'resume-one',change_note:'Resume',operations:[{op:'update_task',node_id:'n1',patch:{status:'doing'}}]});
   expect((await frozen()).payload.schedule_ids).toEqual([]);
+});
+
+it('requires confirmed stop, preserves chat history and rejects re-registration after deletion', async()=>{
+  const f=setup();
+  f.connection.agent_deletion_v1=true;
+  const path='/im/v1/agents/a/deletion';
+  const confirm={request_id:'delete-a',expected_revision:2,expected_profile_version:1};
+  const start=await f.ctx.gateway.handle(f.connection,'node.streaming_delta',{node_id:'n',agent_id:'a',conversation_id:'chat',kind:'turn_start',lifecycle_revision:1});
+  const messageId=start.payload.message_id;
+  const attachments=[{url:'/im/v1/conversations/chat/images/kept-image',file_name:'kept.png',content_type:'image/png'}];
+  f.db.prepare("UPDATE messages SET content='Published result',thinking_json='[{}]',attachments_json=? WHERE id=?").run(JSON.stringify(attachments),messageId);
+  f.ctx.messaging.event('chat',messageId,'permission.submitted',{request_id:'approval',decision:'allow_once'},'running');
+  f.db.prepare(`INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at)
+    SELECT 'b',owner_id,node_id,'Other Agent',created_at,updated_at FROM agent_profiles WHERE agent_id='a'`).run();
+  f.db.prepare(`INSERT INTO agent_settings_snapshots
+    SELECT agent_id,'cron',owner_id,node_id,1,workspace_root,profile_version,created_at,'[{"instruction":"Private schedule"}]'
+    FROM agent_profiles WHERE agent_id IN ('a','b')`).run();
+  f.db.prepare("INSERT INTO channel_manifest_heads(node_id,owner_id,manifest_revision,updated_at) VALUES('n','o1',1,datetime('now'))").run();
+  f.db.prepare(`INSERT INTO agent_channel_removals(channel_id,removal_token,owner_id,agent_id,node_id,provider,display_config_json,
+    deleted_channel_revision,deletion_manifest_revision,apply_state,expires_at,created_at,updated_at)
+    VALUES('a-channel','a-removal','o1','a','n','feishu','{"label":"old channel"}',1,1,'pending',datetime('now'),datetime('now'),datetime('now'))`).run();
+  f.db.prepare("INSERT INTO conversations(id,title,created_at) VALUES('empty','No Agent replies',datetime('now'))").run();
+  f.db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('empty','u1'),('empty','a1')").run();
+  const del=(payload:object,user='u1')=>f.app.inject({method:'POST',url:path,headers:{'x-user':user},payload});
+  expect((await del(confirm)).statusCode).toBe(409);
+  expect((await del(confirm,'u2')).statusCode).toBe(403);
+  await f.report(1,'enabling');await f.report(1,'enabled');
+  await f.http('PUT',{enabled:false,request_id:'off',expected_revision:1});
+  expect((await del(confirm)).statusCode).toBe(409);
+  await f.report(2,'disabled');
+  const accepted=await del(confirm);
+  expect(accepted.statusCode,accepted.body).toBe(202);
+  const operation_id=accepted.json().operation.operation_id;
+  await f.ctx.gateway.handle(f.connection,'agent.deletion.report',{node_id:'n',agent_id:'a',operation_id,state:'deleting'});
+  f.frames.length = 0;
+  await f.ctx.gateway.handle(f.connection,'node.heartbeat',{node_id:'n'});
+  expect(f.frames).toContainEqual(expect.objectContaining({type:'agent.deletion.apply',payload:{agent_id:'a',operation_id,revision:2}}));
+  const reconnect=f.ctx.gateway.register(f.connection,{node_id:'n',agents:['b'],capabilities:{agent_lifecycle_v1:true,agent_deletion_v1:true}});
+  expect(reconnect.agent_deletions).toMatchObject([{agent_id:'a',operation_id}]);
+  expect((await f.app.inject({url:'/im/v1/agents',headers:{'x-user':'u1'}})).json()).toContainEqual(expect.objectContaining({agent_id:'a'}));
+  expect((await f.http('PUT',{enabled:true,request_id:'on',expected_revision:2})).statusCode).toBe(409);
+  const cursor = Number(f.db.prepare('SELECT MAX(event_id) AS id FROM conversation_events').get()!.id);
+  await f.ctx.gateway.handle(f.connection,'agent.deletion.report',{node_id:'n',agent_id:'a',operation_id,state:'deleted'});
+  expect(f.ctx.messaging.message(messageId)).toMatchObject({content:'Published result',attachments,thinking:[]});
+  expect(f.db.prepare('SELECT agent_id FROM agent_settings_snapshots ORDER BY agent_id').all()).toEqual([{agent_id:'b'}]);
+  const priorManifest=new ChannelService(f.db).recordReconcile({node_id:'n',manifest_revision:1,outcome:'retryable_failed',
+    failures:[{channel_id:'b-channel'}],removal_outcomes:[{channel_id:'a-channel',removal_token:'a-removal',deletion_manifest_revision:1,outcome:'applied'}]});
+  expect(priorManifest).toMatchObject({head_outcome:'accepted',removal_token_outcomes:[{outcome:'already_applied'}]});
+  expect(f.db.prepare("SELECT display_config_json FROM agent_channel_removals WHERE removal_token='a-removal'").get()).toEqual({display_config_json:'{}'});
+  expect(f.ctx.messaging.conversation('chat','u1')).toMatchObject({execution_cleanup_revision:1});
+  expect(f.db.prepare("SELECT event_id FROM conversation_events WHERE event_type='permission.submitted' AND message_id=?").get(messageId)).toBeUndefined();
+  const replayed: any[] = [];
+  f.ctx.gateway.replay({socket:{readyState:1,bufferedAmount:0,send:(frame:string)=>replayed.push(JSON.parse(frame))},
+    userId:'u1',cursor,ready:false} as any,cursor);
+  expect(replayed).toContainEqual(expect.objectContaining({event_type:'conversation.execution_cleanup',
+    conversation_id:'chat',data:expect.objectContaining({execution_cleanup_revision:1})}));
+  expect(replayed).toContainEqual(expect.objectContaining({event_type:'conversation.execution_cleanup',conversation_id:'empty'}));
+  expect(f.ctx.messaging.conversation('empty','u1').participants).toContainEqual(expect.objectContaining({id:'a',is_deleted:true}));
+  expect(f.ctx.gateway.register(f.connection,{node_id:'n',agents:['a'],capabilities:{agent_lifecycle_v1:true,agent_deletion_v1:true}}).agent_lifecycles).toEqual([]);
+  expect((await f.app.inject({url:path,headers:{'x-user':'u1'}})).json().operation.state).toBe('deleted');
 });

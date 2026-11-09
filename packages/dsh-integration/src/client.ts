@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 const integrationRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Prepare a standard profile whose bundle resolution uses this locked install. */
-export async function prepareProfile(home: string, providerPatch: unknown[] = []): Promise<void> {
+export async function prepareProfile(home: string, providerPatch: unknown[] = [], options: { agentDeletion?: boolean } = {}): Promise<void> {
   const profile = join(home, 'profiles', 'nano');
   await mkdir(join(profile, 'node_modules', '@nano'), { recursive: true });
   await link(integrationRoot, join(profile, 'node_modules', '@nano', 'dsh-integration'));
@@ -26,7 +26,11 @@ export async function prepareProfile(home: string, providerPatch: unknown[] = []
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@nano/dsh-integration'] } },
   }, null, 2));
   // JSON is a YAML subset, so runtime configuration needs no custom serializer.
-  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify([{id: 'subagent', config: {maxDepth: 2}}, {id: 'web', config: {searchProvider: process.env.DSH_WEB_SEARCH_PROVIDER ?? (process.env.SEARXNG_URL ? 'searxng' : 'duckduckgo')}}, ...providerPatch], null, 2));
+  const deletionPatch = options.agentDeletion ? [
+    { id: 'session-projection-cache', disabled: true },
+    { insert: [{ id: 'nano-deletion-cache', name: '@nano/dsh-integration/deletion-cache', config: { writeEveryEvents: 200, writeIntervalMs: 5000 } }] },
+  ] : [];
+  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify([{id: 'subagent', config: {maxDepth: 2}}, {id: 'web', config: {searchProvider: process.env.DSH_WEB_SEARCH_PROVIDER ?? (process.env.SEARXNG_URL ? 'searxng' : 'duckduckgo')}}, ...providerPatch, ...deletionPatch], null, 2));
 }
 
 async function link(target: string, path: string) {

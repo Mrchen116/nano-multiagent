@@ -70,6 +70,8 @@ export class ExternalChannels {
       updateCard:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.updateCard(...args);}});
   }
   remove(agentId: string): void { this.connections.delete(agentId); }
+  /** Purge local copies without contacting the external platform. */
+  purgeAgent(agentId:string):void { this.remove(agentId); this.state.purgeAgent(agentId); }
   available(agentId: string): boolean { return this.connections.has(agentId); }
 
   receive(agentId: string, message: FeishuMessage): Promise<void> {

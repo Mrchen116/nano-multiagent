@@ -1171,7 +1171,7 @@ export function MessagePane({
                   <span
                     key={p.id}
                     className={p.is_stale ? "opacity-40" : undefined}
-                    title={p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
+                    title={p.is_deleted ? t("chat.deletedAgent") : p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
                   >
                     {p.display_name ?? p.id}
                     {i < conversation.participants.length - 1 ? " · " : ""}
@@ -1253,7 +1253,7 @@ export function MessagePane({
                     key={m.id}
                     message={m}
                     selfUserId={selfUserId}
-                    workAgentId={m.sender.type === "agent" && globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
+                    workAgentId={m.sender.type === "agent" && (m.work_record_deleted || globalAgentIds.includes(m.sender.id)) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
                     nodeName={agentNodeNames[m.sender.id]}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}

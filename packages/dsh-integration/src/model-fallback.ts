@@ -403,6 +403,15 @@ export class ModelFallback {
     }
     await this.checkpoint();
   }
+  /** Discard snapshots and in-memory records for the retired Sessions. */
+  async forget(sessionIds: ReadonlySet<string>): Promise<void> {
+    await this.writes.forget((_, run) => sessionIds.has(run.sessionId));
+    for (const id of sessionIds) {
+      for (const run of this.list(id)) this.runs.delete(run.id);
+      this.runsBySession.delete(id);
+      this.epochs.delete(id);
+    }
+  }
   async stop() {
     this.stopped = true;
     for (const { agent } of this.agents.values()) this.interrupt(agent);
