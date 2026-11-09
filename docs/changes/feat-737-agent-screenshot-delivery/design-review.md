@@ -147,3 +147,33 @@
 ### Recommendations
 
 无。
+
+## Round 4
+
+- reviewer: `/root/design_review`，独立 Gate 2 reviewer，与 R1–R3 同一身份
+- target: `0bb73665c3198f8956c7a130ebf4e7f8b2d19de7` 与实施期间修订的 design blob `e09e6e6a`。只审 Changelog、组件决定、模型段及相关契约。
+- review_mode: `delta`
+- mode_reason: 同消息图片引用从普通 Image 的 URL 参数改为专用组件，影响卡片语法、模型说明和旧版渲染器的回退。其他已审决定沿用。
+- started_at: 2026-11-09T11:32:26+08:00
+- completed_at: 2026-11-09T11:33:10+0800
+- duration: 44s
+- verdict: **Approved · 0 CRITICAL / 0 WARNING**
+
+### Coverage 与证据
+
+- 旧目录的 `Image` 把 `src` 交给只接收 HTTP(S) 的 `webUrl`，找不到有效图片时可用 `alt` 请求公开照片搜索。旧 Web 和 iOS 共用该组件目录。若把受保护附件编码成 URL 字符串，旧版可把图片说明送去搜索，或用无关图片替代截图。专用 `AttachmentImage(1, "改动前")` 使旧目录不会调用普通图片组件处理这一引用。Web 与原生 iOS 的旧消息视图都独立于卡片遍历普通附件，支持设计规定的原图回退。以上通过基线 `0bb73665c` 的 [普通图片组件](../../../src/IM/frontend/src/features/chat/interactive/open-intelligent-ui/components/media.tsx#L81)、[URL 校验](../../../src/IM/frontend/src/features/chat/interactive/open-intelligent-ui/components/style.ts#L19)、[旧目录](../../../src/IM/frontend/src/features/chat/interactive/open-intelligent-ui/library.ts#L26)、[Web 附件入口](../../../src/IM/frontend/src/features/chat/components/message-pane.tsx#L1926) 和 [原生附件入口](../../../src/IM/ios/NanoIM/Features/Chat/ChatMessageView.swift#L68) 核对。
+- [关键决定](design.md#关键决策) 与 [模型说明](design.md#模型可见信息) 一致。数字仍为同条消息完整附件列表中的一基位置，只能取图。Alt 用于说明，普通 `Image` 保有它原来的照片行为。更新目录生成源及完整图文范例即可给模型正确入口。实施验收应观察新旧目录对同一条消息的结果，包括新版可打开原图、旧版附件仍可点开，以及截图说明未触发公开图片搜索。
+- [Gateway delta](specs/gateway/routing-delivery.md#scenario-卡片和附件对应同一批图片) 与 [IM delta](specs/im/conversations-messages.md#scenario-卡片或图像无法加载) 已按消息顺序、权限、显示结果及附件回退描述行为，无需写入组件名。设计 Changelog 记录组件语法调整及旧版回退。
+- retained_from: Round 3。附件和 PA 的身份、文件、顺序、权限、上传、回执、原生桥接及里程碑范围与此前一致。前轮关闭问题沿用已有证据。本轮核对设计与旧版源码，运行效果由 M1 实施验收证明。
+
+### 历史问题闭环
+
+R3 已无开放问题。语法改动未影响此前闭环。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。

@@ -66,6 +66,19 @@ export class PersonalActions {
       }
     } else if(!payload.task&&!payload.transport&&!conversationAccess(this.db,cid,this.pa.ctx.messaging.agentUser(b.agent_id).id)?.can_write)fail(403,'destination_not_accessible');
   }
+  /** Look up the original PA commit and optionally preflight a new screenshot destination. */
+  status(b:Row,args:Row) {
+    const id = args.conversation_id;
+    if (!this.pa.sourceAllowed(b,id)) fail(403,'destination_not_accessible');
+    if (args.prepare_screenshot) {
+      this.destination(b,id,{representation:'self'});
+      if (one(this.db,'SELECT external_source FROM conversations WHERE id=?',id)?.external_source)
+        fail(422,'native_screenshot_destination_required');
+    }
+    const op = one(this.db, "SELECT message_id,conversation_id FROM pa_operations WHERE binding_id=? AND request_key=? AND conversation_id=? AND state='confirmed'",
+      b.binding_id,args.request_key,id);
+    return op?.message_id ? {found:true,message_id:op.message_id,conversation_id:op.conversation_id} : {found:false};
+  }
   private lastOwnerMessage(b:Row,cid:string):string|null {
     return one(this.db,"SELECT m.id FROM messages m WHERE m.conversation_id=? AND m.sender_user_id=? AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=m.id AND d.representation_operation_id IS NOT NULL) ORDER BY m.rowid DESC LIMIT 1",cid,b.owner_user_id)?.id??null;
   }

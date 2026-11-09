@@ -56,3 +56,11 @@ it('rejects fake media and changed resources, and never sends a denied image',as
   expect(db.prepare("SELECT count(*) n FROM messages WHERE conversation_id='peer'").get()!.n).toBe(0);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+it('requires the PA itself to be allowed to post before preparing a screenshot', async () => {
+  const {db, service, principal, args} = personalFixture();
+  const check = {...args, conversation_id:'peer', request_key:'screenshot', prepare_screenshot:true};
+  await expect(service.handle(principal,'pa.action.status',check)).rejects.toThrow('destination_not_accessible');
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+  await expect(service.handle(principal,'pa.action.status',check)).resolves.toEqual({found:false});
+});

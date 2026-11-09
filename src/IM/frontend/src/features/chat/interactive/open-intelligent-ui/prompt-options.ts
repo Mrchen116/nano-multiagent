@@ -39,6 +39,11 @@ drawings = [s0, s1, s2, s3]
 viewer = Card([Row([Badge("Step " + ($step + 1) + " of 4", "info"), Spacer(), Caption(@Percent($step + 1, 4) + "% done")], 2), Box([drawings[$step]], null, null, 3, "surface", "lg"), Title(steps[$step].title, "md"), Text(steps[$step].text, "sm"), Row([Button("Back", @Set($step, @Clamp($step - 1, 0, 3)), "outline", null, null, "arrow-left", $step == 0), Spacer(), Button("Next step", @Set($step, @Clamp($step + 1, 0, 3)), "solid", null, null, "arrow-right", $step == 3)], 2)], null, 4, 3)
 strip = Grid(@Each(@Range(0, 4), "i", Pressable([drawings[i], Caption((i + 1) + ". " + steps[i].title)], @Set($step, i), i == $step, 2)), 4, 110, 2)`;
 
+export const exampleScreenshotComparison = `root = Col([Title("Search moved above the results", "lg"), Text("The new search stays visible while browsing."), flow, comparison, changes])
+flow = Svg([Rect(8, 14, 96, 36, "surface", "ink", 1), SvgText("Search", 56, 36, 12, "ink", "middle"), Line(110, 32, 126, 32, "info", 2), Polygon("124,27 131,32 124,37", "info"), Rect(136, 14, 96, 36, "surface", "ink", 1), SvgText("Review results", 184, 36, 12, "ink", "middle")], "0 0 240 64")
+comparison = Grid([Card([Title("Before", "md"), AttachmentImage(1, "Old results with search at the bottom")]), Card([Title("After", "md"), AttachmentImage(2, "New results with search above the list")])], 2, 240)
+changes = Table(["Area", "Before", "After"], [["Search", "Below the list", "Above the list"], ["Results", "Page reload", "Updates in place"]])`;
+
 export const exampleDashboard = `root = Col([head, kpis, Grid([weekly, byRegion], 2, 280, 4), top])
 $region = "All"
 orders = Query("get_orders", {days: 90}, {rows: []})
@@ -50,7 +55,7 @@ byRegion = Card([Title("By region", "sm"), Chart("donut", @GroupBy(orders.rows, 
 top = Table(["Product", "Revenue"], @Each(@Top(@GroupBy(rows, "product", "amount"), "value", 5), "p", [p.key, @Format(p.value, "currency")]))`;
 
 const rules = [
-  "Compose the answer like a page, not a form letter: a Title, a short Text, then a mix of blocks that show the content. SearchImage for every place, dish, product or thing that has a look (the app finds the photo, so never say you cannot show photos); Row, Grid and Carousel to set things side by side; Badge rows for quick facts; Card only to group a block; Popover for an aside.",
+  "Compose the answer like a page, not a form letter: a Title, a short Text, then a mix of blocks that show the content. Use SearchImage for recognizable public subjects; Row, Grid and Carousel to set things side by side; Badge rows for quick facts; Card only to group a block; Popover for an aside.",
   "Spacing is a system with three tiers that always nest: inner (gap 1-2, 4-8px) for a title with its subtitle, tags or line; group (gap 3-4, 12-16px) between blocks inside a Card or grid cell; section (24px) between the blocks of the page. Leave gap unset on the page's root Col and on card contents: the app applies these tiers. Set a gap only on a Row or Grid. Never use one gap for everything, and never a gap larger than the section gap.",
   "A photo beside text is a media row: Row([Box([SearchImage(query, 1.33)]), Col([Title(..., \"md\"), Row([Badge(...), Badge(...)], 1, null, null, true), Text(..., \"sm\")], 2)], 4, \"start\"). The app sizes the photo to a third of the row (at most 200px) and top-aligns the text. Facts are Badges, never Buttons or boxed pills.",
   "Every SearchImage query names the exact subject the user will recognise (\"flat-pack bookshelf assembly\", \"Sonoma Plaza\"), never a generic scene. If no photo would show the subject, use no image.",
@@ -61,6 +66,7 @@ const rules = [
   "cond ? a : b also picks between components; there is no @If. Use only the listed @functions; you cannot define your own.",
   "Derive rows once in a statement with @Each(list, \"x\", {...}), then reuse them in @Each, Table, Chart, @Sum(rows.field) and @Join. @Each(@Range(0, n), \"i\", ...) builds a series or repeats a step.",
   "@Random, @Pick and @Shuffle give a new value on every evaluation: call them inside @Set, so a click draws once and the page stays still.",
+  "Use a card without controls when layout, a diagram or a comparison table makes the result easier to understand. For your actual local screenshots, call send_message with local_images in display order and use AttachmentImage(1, alt) and AttachmentImage(2, alt) in that same card. Positions are one-based across the message attachments, with any existing attachments first. Keep visible version labels in the layout. The recipient can click to open the original. Keep a short summary in text. A delegated execution should return screenshot paths and their order to the Agent that will send the message.",
   "Pick the medium that shows the idea: Chart for numbers across time or categories; Svg drawings for shapes, parts and movement; Map with MapMarker for places and routes; Table for comparisons; Flashcard and Celebration for learning and games; HtmlView only for a game or animation that needs a loop.",
   "Draw with Svg whenever the user would otherwise have to picture it: assembly and how-to steps (a simple drawing for each step, like an instruction leaflet), knots and folds, how a machine, mechanism or the body works, geometry and science diagrams, the layout of a room, garden or board, chord and clock faces. A photo shows what a thing looks like; a drawing shows how it goes together or works, so a how-to or how-it-works answer has drawings even when it also has a photo. Keep each drawing simple: a viewBox about 240 wide, a dozen or so shapes in the listed colors with SvgText labels, a Line with a small Polygon head for an arrow, and let $variables such as the current step drive it.",
   "Format money, percentages and big numbers with @Format, counts with @Plural and dates with @FormatDate.",
@@ -78,6 +84,7 @@ export const promptOptions: PromptOptions = {
     `Example 1: A guest stepper that rescales a shopping list, with a checklist and a copy button:\n\n${exampleShoppingList}`,
     `Example 2: A composed trip answer: photos, facts, day rows and a short form:\n\n${exampleTrip}`,
     `Example 3: Step-by-step instructions with a drawing for each step, driven by $step:\n\n${exampleSteps}`,
+    `Example 4: A static before-and-after comparison with a short flow and two local screenshots. Call send_message with local_images ["<absolute before path>", "<absolute after path>"] and use this source:\n\n${exampleScreenshotComparison}`,
   ],
 };
 
@@ -85,7 +92,7 @@ export const promptOptions: PromptOptions = {
 export const dashboardPromptOptions: PromptOptions = {
   ...promptOptions,
   tools: demoToolSpecs,
-  toolExamples: [`Example 4: A live dashboard over Query rows:\n\n${exampleDashboard}`],
+  toolExamples: [`Example 5: A live dashboard over Query rows:\n\n${exampleDashboard}`],
   additionalRules: [
     ...rules,
     "Fetch rows with Query and compute every number, group and series from them with @Sum, @Count, @GroupBy, @Bucket, @Top, @Stats and @Change. A filter is a $variable (from this library's Select or SegmentedControl) applied with @Filter; select dates and ranges with @Between, since @Filter's < and > compare numbers only.",
