@@ -187,6 +187,7 @@ export interface SystemNotice {
 }
 
 import type { MessageInteractive, InteractionSnapshot } from "./interactive/types";
+import type { ChatProcessSummary } from "@nano/product-contracts";
 
 export interface PersonalDelegation {
   agent_id: string; authorized_by: string; display_name: string; label: string;
@@ -210,6 +211,7 @@ export interface Message {
   update_wait?: 'updating' | 'recovery_required' | null;
   created_at: string;
   tool_calls?: ToolCall[];
+  process_summary?: ChatProcessSummary;
   /** feat-439-M2: 整轮多段思考（过程时间线）。undefined = 无思考 / 旧行（不留空壳）。 */
   thinking?: ThinkingSegment[];
   /** feat-517: terminal background task returns displayed as process items. */

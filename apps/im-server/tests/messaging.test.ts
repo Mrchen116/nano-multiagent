@@ -110,3 +110,41 @@ it("returns the same authorized cursor without loading a conversation snapshot",
     await app.close();
   }
 });
+
+it("keeps heavy terminal process out of the opt-in history page and scopes full detail to its conversation", async () => {
+  const { db, ctx } = fixture();
+  ctx.gateway.broadcast = vi.fn();
+  ctx.messaging = new Messaging(ctx);
+  const message = ctx.messaging.insertMessage("chat", "a1", "agent", "final reply");
+  const running = ctx.messaging.insertMessage("chat", "a1", "agent", "still running", [], null, "running");
+  const longOutput = "private tool output ".repeat(8_000);
+  const toolCalls = [{ id: "allow", name: "read", status: "completed", output: longOutput },
+    { id: "legacy-deny", name: "bash", status: "failed", reason: "denied" }];
+  const thinking = [{ seq: 0, text: longOutput }];
+  const permissions = [{ request_id: "p", call_id: "allow", status: "resolved", decision: "allow_once", decided_by: "u1" }];
+  db.prepare("UPDATE messages SET tool_calls_json=?,thinking_json=?,permission_request_json=? WHERE id=?")
+    .run(JSON.stringify(toolCalls), JSON.stringify(thinking), JSON.stringify(permissions), message.id);
+  db.prepare("UPDATE messages SET thinking_json=? WHERE id=?").run(JSON.stringify(thinking), running.id);
+  db.exec("INSERT INTO conversations(id,title,type,owner_id,creator_id,space_id,created_at) SELECT 'other','Other',type,owner_id,creator_id,space_id,created_at FROM conversations WHERE id='chat'; INSERT INTO conversation_participants(conversation_id,user_id) VALUES('other','u1')");
+  const app = Fastify();
+  registerMessagingRoutes(app, ctx);
+  try {
+    const path = "/im/v1/conversations/chat/messages";
+    const legacy = await app.inject(path);
+    const summary = await app.inject(path + "?view=summary");
+    const rows = summary.json().items.map((item: { message: unknown }) => item.message);
+    const legacyRows = legacy.json().items.map((item: { message: unknown }) => item.message);
+    expect(rows[0]).toMatchObject({ id: message.id, content: "final reply", permission_requests: permissions,
+      process_summary: { tool_count: 2, thinking_count: 1, approval_allow_count: 1, approval_deny_count: 1 } });
+    expect(rows[0].tool_calls ?? []).toEqual([]);
+    expect(rows[0].thinking ?? []).toEqual([]);
+    expect(rows[1]).toEqual(legacyRows[1]);
+    expect(summary.body.length).toBeLessThan(legacy.body.length / 2);
+    const detail = await app.inject(path + "/" + message.id);
+    expect(detail.json()).toMatchObject({ message: legacyRows[0], execution_cleanup_revision: 0 });
+    expect((await app.inject("/im/v1/conversations/other/messages/" + message.id)).statusCode).toBe(404);
+    expect((await app.inject({ url: path + "/" + message.id, headers: { "x-user": "u2" } })).statusCode).toBe(404);
+  } finally {
+    await app.close();
+  }
+});

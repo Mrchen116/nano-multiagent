@@ -285,7 +285,8 @@ it('lets both real Agent owners observe existing direct history and events witho
   db.prepare("UPDATE conversations SET owner_id='legacy-orphan' WHERE id=?").run(cross);
   const interactive = {format:'openui',catalog_version:'nano-iui-1',source:'$body = "Read only"\nroot = Col([Form([TextArea($body, "Draft"), Button("Continue", @SendToChat("Continue"))])])'};
   const histories = [cross, same, personal].map(id => messaging.insertMessage(id, id === personal ? 'agent-private-left' : 'agent-left', 'agent', 'existing history', [], null, 'completed', id === cross ? {interactive} : {}));
-  const interactionPath = `/im/v1/conversations/${cross}/messages/${histories[0].id}/interaction-state`;
+  const messagePath = `/im/v1/conversations/${cross}/messages/${histories[0].id}`;
+  const interactionPath = `${messagePath}/interaction-state`;
   db.prepare('INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)').run(cross,alice.user.id);
   const upload = await app.inject({method:'POST',url:`/im/v1/uploads?conversation_id=${cross}&file_name=history.txt`,payload:'historical attachment',headers:{authorization:`Bearer ${alice.access_token}`,'content-type':'text/plain'}});
   expect(upload.statusCode).toBe(201);
@@ -297,6 +298,7 @@ it('lets both real Agent owners observe existing direct history and events witho
     expect(detail.statusCode).toBe(200);
     expect(detail.json()).toMatchObject({is_observer: true, is_member: false, can_write: false, can_join: false, title: 'left ↔ right', participant_ids: ['agent-left', 'agent-right']});
     expect((await request(pair.access_token, 'GET', `/im/v1/conversations/${cross}/messages`)).json().items[0].message.content).toBe('existing history');
+    expect((await request(pair.access_token, 'GET', messagePath)).json().message.content).toBe('existing history');
     const ids = (await request(pair.access_token, 'GET', '/im/v1/conversations')).json().items.map((c: any) => c.id);
     expect(ids.filter((id: string) => id === cross)).toHaveLength(1);
     expect((await request(pair.access_token, 'GET', '/im/v1/sync')).json().items.map((c: any) => c.id)).toContain(cross);
@@ -314,6 +316,7 @@ it('lets both real Agent owners observe existing direct history and events witho
     expect((await app.inject({method:'POST', url:`/im/v1/uploads?conversation_id=${cross}&file_name=note.txt`, payload:'blocked',headers:{authorization:`Bearer ${pair.access_token}`,'content-type':'text/plain'}})).statusCode).toBe(404);
   }
   expect((await request(outsider.access_token, 'GET', media)).statusCode).toBe(404);
+  expect((await request(outsider.access_token, 'GET', messagePath)).statusCode).toBe(404);
   expect((await request(outsider.access_token, 'GET', interactionPath)).statusCode).toBe(404);
   expect(db.prepare('SELECT COUNT(*) n FROM interaction_drafts').get()).toEqual({n:0});
   expect((await request(outsider.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(404);
