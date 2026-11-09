@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import type { SessionObservation } from '@deepseek-ai/dsh-session-query';
 import type { Context } from '@deepseek-ai/cordis';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { DescendantReader } from '../src/descendants.js';
@@ -8,6 +9,7 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   const root=SessionId('root'), child=SessionId('child'), grandchild=SessionId('grandchild');
   const entry=(id:string)=>({id,createdAt:1,mode:'one-shot'});
   const event=(seq:number)=>({seq,time:seq,type:'step/start',data:{turn:1}});
+  const rootCut={header:{id:root},projections:{values:{subagentCatalog:[entry(child)]}}} as unknown as SessionObservation;
   const stored=new Map<string, unknown>();
   const records=new Map<string, any>([
     [root,{revision:'r1',sizeBytes:100,cursor:0,children:[entry(child)],events:[event(0)]}],
@@ -55,14 +57,14 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   const current=records.get(child);
   records.set(child,{...current,revision:'c3',sizeBytes:202,events:[...current.events.slice(0,-1),
     {seq:100,type:'turn/end',data:{turn:1,reason:{kind:'interrupted'}}}]});
-  expect(await restarted.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
+  expect(await restarted.interruptedChildren(rootCut)).toEqual({interrupted:[{id:child,turnEnd:100}],complete:true});
   const saved=stored.get(Buffer.from(child).toString('base64url')) as {interruptedTurnEnd?:number};
   delete saved.interruptedTurnEnd; // An older catalog has a durable cut but no interruption witness.
   reads.length=0;
   const recovered=new DescendantReader(context());
   await recovered.ready;
-  expect(await recovered.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
-  expect(await recovered.interruptedChildren(root)).toEqual([{id:child,turnEnd:100}]);
+  expect(await recovered.interruptedChildren(rootCut)).toEqual({interrupted:[{id:child,turnEnd:100}],complete:true});
+  expect(await recovered.interruptedChildren(rootCut)).toEqual({interrupted:[{id:child,turnEnd:100}],complete:true});
   expect(reads).toEqual([child]);
 });
 

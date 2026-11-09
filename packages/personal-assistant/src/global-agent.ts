@@ -4,6 +4,7 @@ import { PersonalAssistant } from './personal-assistant.js';
 import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
+import { setImmediate as yieldToIO } from 'node:timers/promises';
 import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
 import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
@@ -61,6 +62,7 @@ export class GlobalAgent {
   private readonly agentBackoff = new Map<string, number>();
   private readonly childCatchup = new Map<string, SessionBinding>();
   private childCatchupTask?: Promise<void>;
+  private readonly childCatchupStop=new AbortController();
   private recovering?:Promise<void>;
   private readonly coldRoots = new Map<string, symbol>();
   private readonly foregroundRecovery = new Map<string, Promise<void>>();
@@ -510,7 +512,9 @@ export class GlobalAgent {
     if(this.childCatchupTask)return;
     this.childCatchupTask=(async()=>{
       while(!this.stopped && this.childCatchup.size) {
-        await new Promise<void>(resolve=>setImmediate(resolve));
+        await yieldToIO(undefined,{signal:this.childCatchupStop.signal}).catch(error=>{
+          if(!this.stopped)throw error;
+        });
         const next=this.childCatchup.values().next().value;
         if(!next || this.stopped)break;
         this.childCatchup.delete(next.sessionId);
@@ -1224,7 +1228,7 @@ export class GlobalAgent {
     for (const timer of this.workRetries.values()) clearTimeout(timer);
     this.workRetries.clear();
     for(const timer of this.agentRetry.values())clearTimeout(timer);
-    this.agentRetry.clear();this.childCatchup.clear();
+    this.agentRetry.clear();this.childCatchup.clear();this.childCatchupStop.abort();
     await Promise.allSettled([this.childCatchupTask,...this.agentRecoveries.values()]);
     await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

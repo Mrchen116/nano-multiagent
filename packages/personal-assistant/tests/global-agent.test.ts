@@ -150,6 +150,7 @@ it('projects durable native child lineage and drafts into Work without a public 
   });
   try {
     await product.recover(); await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     const events = inbox.journal(0);
     expect(events.filter(event => event.session_id === 'child' && event.type === 'session_registered')).toEqual([expect.objectContaining({ payload: expect.objectContaining({ scope: 'subagent', child_agent_id: 'child', title: 'Research' }) })]);
     expect(events.filter(event => event.session_id === 'child' && event.type === 'message')).toHaveLength(1);
