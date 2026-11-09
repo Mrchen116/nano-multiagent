@@ -143,11 +143,11 @@ export class SingleThread {
     await this.submit(binding,input);await this.reconcile(sessionId);
   }
 
-  private async submit(binding: SessionBinding, input: RelayInput) {
-    if(!this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
-    return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision??1,()=>this.submitAdmitted(binding,input));
+  private async submit(binding: SessionBinding, input: RelayInput, current?: () => boolean) {
+    if(current?.() === false || !this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
+    return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision??1,()=>this.submitAdmitted(binding,input,current));
   }
-  private async submitAdmitted(binding: SessionBinding, input: RelayInput) {
+  private async submitAdmitted(binding: SessionBinding, input: RelayInput, current?: () => boolean) {
     const { store, runtime } = this.options;
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
@@ -191,13 +191,14 @@ export class SingleThread {
         imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
         content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
       }
+      if (current?.() === false) return;
       await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources: content.map((_, index) => imageSources.get(index) ?? null),
         source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender}, ...(input.message.pa_agent_id?{pa_agent_id:input.message.pa_agent_id}:{}), contextEnvelope },
       });
     }
     store.accepted(inputId);
-    if (!store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
+    if (current?.() !== false && !store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
@@ -271,7 +272,7 @@ export class SingleThread {
         const localWork = store.hasRecoveryWork(sessionId);
         const probe = await runtime.request('session.recovery.probe', {sessionId, afterSeq: store.cursor(sessionId), localWork}) as {live: boolean; unseen: boolean};
         if (!current()) return;
-        if (probe.unseen || store.hasRecoveryWork(sessionId)) await this.restore(binding, probe.live);
+        if (probe.unseen || store.hasRecoveryWork(sessionId)) await this.restore(binding, probe.live, current);
         else if (!probe.live && generation !== boot) store.confirmColdSession(sessionId, generation);
       } catch (error) {
         if (current()) throw error;
@@ -281,10 +282,14 @@ export class SingleThread {
     return task;
   }
 
-  private async restore(binding: SessionBinding, live: boolean): Promise<void> {
+  private async restore(binding: SessionBinding, live: boolean, current?: () => boolean): Promise<void> {
     if (!live) await this.ensure(binding);
-    for (const input of this.options.store.pendingInputs(binding.sessionId)) await this.submit(binding, input.input);
-    await this.reconcile(binding.sessionId);
+    if (current?.() === false) return;
+    for (const input of this.options.store.pendingInputs(binding.sessionId)) {
+      if (current?.() === false) return;
+      await this.submit(binding, input.input, current);
+    }
+    if (current?.() !== false) await this.reconcile(binding.sessionId);
   }
 
   /** Permission responses use the independent runtime control path. */

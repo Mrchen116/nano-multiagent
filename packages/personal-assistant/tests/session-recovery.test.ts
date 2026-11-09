@@ -73,3 +73,37 @@ it('retains failed probes and cannot clear a new writable generation from an old
     expect(store.recoveryCandidates(['a']).find(item => item.binding.sessionId === 'web')?.generation).toBe('new-runtime');
   } finally { await product.stop(); store.close(); }
 });
+
+
+it.each([
+  {waitAt: 'session.ensure', changed: 'channel'},
+  {waitAt: 'session.lookup', changed: 'stop'},
+])('rechecks $changed after $waitAt before restoring pending input', async ({waitAt,changed}) => {
+  const store = new NodeStore(':memory:', 'owner');
+  const session = store.bind(binding('delivery','external:delivery'));
+  store.receive(session.sessionId,input('unsubmitted'));
+  let release!: () => void;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  let connected = true;
+  const calls: string[] = [];
+  const product = new SingleThread({store, agents: [agent], nodeId: 'node', ownerId: 'owner',
+    recoveryGeneration: () => connected ? 'runtime' : undefined, image: async () => '', onError: error => { throw error; },
+    runtime: {onNotification: () => () => {}, async request(method) {
+      calls.push(method);
+      if (method === waitAt) await waiting;
+      return method === 'session.recovery.probe' ? {live:false,unseen:false} : {accepted:false};
+    }},
+    relay: {async request() { throw new Error('unexpected relay'); }},
+  });
+  try {
+    const recovering = product.recover();
+    await expect.poll(() => calls.includes(waitAt)).toBe(true);
+    if (changed === 'channel') connected = false;
+    else store.saveControl({id:'stop',binding:session,input:input('stop'),action:'task-stop',argument:''});
+    release();
+    await recovering;
+    expect(calls).not.toContain('session.submit');
+    expect(calls).not.toContain('session.observe');
+    expect(store.pendingInputs(session.sessionId)).toHaveLength(1);
+  } finally { release(); await product.stop(); store.close(); }
+});
