@@ -300,17 +300,24 @@ export class InboxStore {
         +(!revoked&&attested.human_control?'\n'+"Application-attested human Task control follows. Apply it only to the identified Task or scope. Inputs queued before a stop cannot resume its paused Tasks. Only a later explicit human resume supersedes that pause; it grants no additional tool permission. Unrelated work may continue."+'\n'+JSON.stringify(attested.human_control):'');
       return [{inputId:input.message.id,conversationId:input.conversation_id,...(!revoked&&human_control&&typeof human_control==='object'?{humanControl:human_control as Record<string,unknown>}:{}),content:[{type:'text' as const,text}]}];
   }
+  /** Look up an exact durable ingestion, which revocation alone cannot create. */
+  systemContextIngested(agentId:string,sessionId:string,inputId:string,turn:number):boolean {
+    return !!this.db.prepare(`SELECT 1 FROM inbox i JOIN ingestions d ON d.seq=i.seq
+      WHERE i.agent_id=? AND i.message_id=? AND d.session_id=? AND d.turn=?`).get(agentId,inputId,sessionId,turn);
+  }
+
   /** Mark direct reading only after matching native durable execution evidence. */
-  commitSystemContext(agentId:string,sessionId:string,inputId:string,content:{type:string;text?:string}[],turn:number):void {
+  commitSystemContext(agentId:string,sessionId:string,inputId:string,content:{type:string;text?:string}[],turn:number):boolean {
     const row=this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND message_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0").get(agentId,inputId) as unknown as Entry|undefined;
     const prepared=row&&this.systemContextEntry(agentId,row)[0];
-    if(!row||!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))throw new Error('Unmatched system context execution evidence');
+    if(!row||!prepared||JSON.stringify(prepared.content)!==JSON.stringify(content)||!Number.isSafeInteger(turn))return false;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(row.seq);
       this.db.prepare(`DELETE FROM reads WHERE EXISTS(SELECT 1 FROM json_each(reads.fragments) part WHERE json_extract(part.value,'$.seq')=?)`).run(row.seq);
       this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(row.seq,sessionId,turn);
       this.db.exec('COMMIT');
+      return true;
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   /** Retire unread context while preserving its raw journal/history and consumed history. */

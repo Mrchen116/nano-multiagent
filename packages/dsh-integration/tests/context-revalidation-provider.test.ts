@@ -168,7 +168,9 @@ it.each([
         expect(evidence.content).toEqual(originals.get(evidence.inputId)!.content);
         consumed.add(evidence.inputId); committed.push(evidence);
       }
-      return null;
+      return {confirmed:(request as any).evidence.filter((item:any)=>consumed.has(item.inputId)).map((item:any)=>({
+        inputId:item.inputId,consumedSeq:item.consumedSeq,status:'consumed',
+      }))};
     });
     client.rpc.handle('product.task_execution.snapshot', request => {
       identity(request); snapshotCalls++;

@@ -103,7 +103,7 @@ export class SingleThread {
       if (!text) {
         let result:{wasRunning:boolean;paused?:number};
         if(controlText(input)==='/stop'&&this.options.taskStop)result=await this.options.taskStop(binding,input);
-        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean};}
+        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId,settleTaskContext:controlText(input)==='/new'}) as {wasRunning:boolean};}
         await this.reconcile(binding.sessionId);
         if (controlText(input) === '/new') {
           store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);

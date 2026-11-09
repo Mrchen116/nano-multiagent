@@ -3,10 +3,12 @@ import {NodeStore} from '../src/store.js';
 
 it('transfers only prepared originals on session reset, rejecting late ACKs from the old session',()=>{
  const store=new NodeStore(':memory:','owner');
+ const old=store.bind({agentId:'a',sessionId:'old',conversationId:'chat',ownerId:'owner',cwd:'/tmp',revision:'1'});
  try {
   for(const id of ['pending','consumed','revoked'])store.prepareSystemContext('a',id,'chat','old','digest');
   expect(store.commitSystemContext('old','consumed','digest',1)).toBe(true);
   store.revokeSystemContext('a','revoked','chat');
+  store.reset(old,{...old,sessionId:'new'},'reset');
   for(const id of ['pending','consumed','revoked'])store.prepareSystemContext('a',id,'chat','new','digest');
   expect(store.commitSystemContext('old','pending','digest',2)).toBe(false);
   expect(store.commitSystemContext('new','pending','digest',3)).toBe(true);

@@ -21,9 +21,14 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
 }
 it('records original IDs as native executed messages and repairs a lost product consumption ACK after restart',async()=>{
   const f=await fixture();let c=f.client();const original={inputId:'business-original',conversationId:'fixed-chat',content:[{type:'text',text:'原始任务更正，保留语言'}]};let consumed=false;const receipts:Evidence[]=[];
-  const prepare=(value:{evidence:Evidence[]})=>{for(const item of value.evidence)if(item.inputId===original.inputId){receipts.push(item);consumed=true;}return {messages:consumed?[]:[original],revoked:[]};};
+  const prepare=()=>({messages:consumed?[]:[original],revoked:[]});
+  const commit=({evidence}:{evidence:Evidence[]})=>({confirmed:evidence.flatMap(item=>{
+    if(item.inputId!==original.inputId)return [];
+    receipts.push(item);consumed=true;
+    return [{inputId:item.inputId,consumedSeq:item.consumedSeq,status:'consumed'}];
+  })});
   try{
-    c.rpc.handle('product.task_context.prepare',value=>prepare(value as {evidence:Evidence[]}));
+    c.rpc.handle('product.task_context.prepare',prepare);
     c.rpc.handle('product.task_context.commit',()=>{throw new Error('simulate lost product receipt');});
     await f.start(c);await f.submit(c,'first human');
     const first=(await f.observe(c)).events.filter(event=>event.type==='user/message'&&event.data.id===original.inputId);
@@ -31,10 +36,12 @@ it('records original IDs as native executed messages and repairs a lost product 
     expect(stripContextItemId(first[0]!.data.content)).toEqual(original.content);
     expect(consumed).toBe(false);
     await c.shutdown();c=f.client();
-    c.rpc.handle('product.task_context.prepare',value=>prepare(value as {evidence:Evidence[]}));c.rpc.handle('product.task_context.commit',()=>null);
+    c.rpc.handle('product.task_context.prepare',prepare);c.rpc.handle('product.task_context.commit',value=>commit(value as {evidence:Evidence[]}));
     await f.start(c);await f.submit(c,'after restart');
     expect(consumed).toBe(true);expect(receipts[0]).toMatchObject({inputId:original.inputId,content:original.content,turn:1,consumedSeq:first[0]!.seq});
     expect((await f.observe(c)).events.filter(event=>event.type==='user/message'&&event.data.id===original.inputId)).toHaveLength(1);
+    await f.submit(c,'warm turn');
+    expect(receipts).toHaveLength(1);
     expect(JSON.stringify(await f.calls())).toContain('原始任务更正，保留语言');
   }catch(error){throw new Error(String(error)+'\n'+f.logs(),{cause:error});}
   finally{await c.shutdown();await rm(f.home,{recursive:true,force:true});}

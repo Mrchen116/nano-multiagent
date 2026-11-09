@@ -51,11 +51,17 @@ export function apply(ctx){const attempted=new Set();ctx.on('llm/stream',async f
     current.rpc.handle('product.task_execution.snapshot',async()=>{state.snapshotReads++;return state.completeAfter!==undefined&&(await calls()).length>=state.completeAfter?empty:state.snapshot;});
     current.rpc.handle('product.task_context.prepare',async value=>{
       state.prepareReads++;expect(value).toMatchObject({agentId:'a',sessionId:'s',ownerId:'o'});
-      await state.beforePrepare?.();reconcile((value as {evidence:Evidence[]}).evidence);
+      await state.beforePrepare?.();
       if(state.unavailable)return {unavailable:true,messages:[],revoked:state.revoked,unavailableInputs:state.pending.filter(item=>!state.consumed.has(item.inputId)&&!state.revoked.includes(item.inputId)).map(({inputId,conversationId})=>({inputId,conversationId}))};
       return {messages:state.pending.filter(message=>!state.consumed.has(message.inputId)&&!state.revoked.includes(message.inputId)),revoked:state.revoked};
     });
-    current.rpc.handle('product.task_context.commit',value=>{reconcile((value as {evidence:Evidence[]}).evidence);return null;});
+    current.rpc.handle('product.task_context.commit',value=>{
+      const {evidence}=value as {evidence:Evidence[]};
+      reconcile(evidence);
+      return {confirmed:evidence.filter(item=>state.consumed.has(item.inputId)).map(item=>({
+        inputId:item.inputId,consumedSeq:item.consumedSeq,status:'consumed',
+      }))};
+    });
     return current;
   };
   const start=async(current:RuntimeClient,taskStopFences:(string|{sessionId:string;stoppedAt?:string})[]=[])=>{
