@@ -2150,9 +2150,13 @@ body {
   min-height: 0;
   overflow-y: auto;
   padding: 20px 20px 8px;
+}
+
+.chat-pane-message-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 100%;
 }
 
 .chat-pane-empty {
@@ -2160,7 +2164,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  flex: 1;
   gap: 0.5rem;
   color: var(--im-text-muted);
   text-align: center;
@@ -5705,7 +5709,7 @@ body {
 .agents-selection-empty h1 { margin: 0; font-size: 16px; color: var(--im-text); }
 .agents-selection-empty p { margin: 0; font-size: 13px; }
 @media (max-width: 767px) {
-  .chat-pane-messages { gap: 6px; }
+  .chat-pane-message-list { gap: 6px; }
   .chat-bubble-status { margin-top: 0; gap: 4px; }
   .chat-message-more { margin-top: -12px; margin-bottom: -12px; }
 }
