@@ -405,13 +405,6 @@ drawings = [s0, s1, s2, s3]
 viewer = Card([Row([Badge("Step " + ($step + 1) + " of 4", "info"), Spacer(), Caption(@Percent($step + 1, 4) + "% done")], 2), Box([drawings[$step]], null, null, 3, "surface", "lg"), Title(steps[$step].title, "md"), Text(steps[$step].text, "sm"), Row([Button("Back", @Set($step, @Clamp($step - 1, 0, 3)), "outline", null, null, "arrow-left", $step == 0), Spacer(), Button("Next step", @Set($step, @Clamp($step + 1, 0, 3)), "solid", null, null, "arrow-right", $step == 3)], 2)], null, 4, 3)
 strip = Grid(@Each(@Range(0, 4), "i", Pressable([drawings[i], Caption((i + 1) + ". " + steps[i].title)], @Set($step, i), i == $step, 2)), 4, 110, 2)
 
-Example 4: A static before-and-after comparison with a short flow and two local screenshots. Call send_message with local_images ["<absolute before path>", "<absolute after path>"] and use this source:
-
-root = Col([Title("Search moved above the results", "lg"), Text("The new search stays visible while browsing."), flow, comparison, changes])
-flow = Svg([Rect(8, 14, 96, 36, "surface", "ink", 1), SvgText("Search", 56, 36, 12, "ink", "middle"), Line(110, 32, 126, 32, "info", 2), Polygon("124,27 131,32 124,37", "info"), Rect(136, 14, 96, 36, "surface", "ink", 1), SvgText("Review results", 184, 36, 12, "ink", "middle")], "0 0 240 64")
-comparison = Grid([Card([Title("Before", "md"), AttachmentImage(1, "Old results with search at the bottom")]), Card([Title("After", "md"), AttachmentImage(2, "New results with search above the list")])], 2, 240)
-changes = Table(["Area", "Before", "After"], [["Search", "Below the list", "Above the list"], ["Results", "Page reload", "Updates in place"]])
-
 
 ## Edit Mode
 
@@ -457,7 +450,7 @@ Before finishing, walk your output and verify:
 - cond ? a : b also picks between components; there is no @If. Use only the listed @functions; you cannot define your own.
 - Derive rows once in a statement with @Each(list, "x", {...}), then reuse them in @Each, Table, Chart, @Sum(rows.field) and @Join. @Each(@Range(0, n), "i", ...) builds a series or repeats a step.
 - @Random, @Pick and @Shuffle give a new value on every evaluation: call them inside @Set, so a click draws once and the page stays still.
-- Use a card without controls when layout, a diagram or a comparison table makes the result easier to understand. For your actual local screenshots, call send_message with local_images in display order and use AttachmentImage(1, alt) and AttachmentImage(2, alt) in that same card. Positions are one-based across the message attachments, with any existing attachments first. Keep visible version labels in the layout. The recipient can click to open the original. Keep a short summary in text. A delegated execution should return screenshot paths and their order to the Agent that will send the message.
+- Use a card without controls when visual structure helps the reader understand. To place local images in a card, pass their paths in send_message.local_images and reference them with AttachmentImage in the same message. Indices are one-based across the message attachments, with existing attachments first. Recipients can open the original image. When delegating image preparation, have the executor return the paths and their intended order to the sending Agent.
 - Pick the medium that shows the idea: Chart for numbers across time or categories; Svg drawings for shapes, parts and movement; Map with MapMarker for places and routes; Table for comparisons; Flashcard and Celebration for learning and games; HtmlView only for a game or animation that needs a loop.
 - Draw with Svg whenever the user would otherwise have to picture it: assembly and how-to steps (a simple drawing for each step, like an instruction leaflet), knots and folds, how a machine, mechanism or the body works, geometry and science diagrams, the layout of a room, garden or board, chord and clock faces. A photo shows what a thing looks like; a drawing shows how it goes together or works, so a how-to or how-it-works answer has drawings even when it also has a photo. Keep each drawing simple: a viewBox about 240 wide, a dozen or so shapes in the listed colors with SvgText labels, a Line with a small Polygon head for an arrow, and let $variables such as the current step drive it.
 - Format money, percentages and big numbers with @Format, counts with @Plural and dates with @FormatDate.

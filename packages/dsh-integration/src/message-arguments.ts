@@ -15,7 +15,7 @@ export const publicMessageParameters = {type:'object' as const,properties:public
 export const screenshotMessageProperties = {
   ...publicMessageProperties,
   local_images: {type:'array' as const, minItems:1, maxItems:5, items:{type:'string' as const},
-    description:'Absolute paths of PNG, JPEG or WebP screenshots to attach to this Nano IM message. Existing attachments come first. Combined limit: five attachments.'},
+    description:'Absolute paths of PNG, JPEG or WebP images to attach to this Nano IM message. Existing attachments come first. Combined limit: five attachments.'},
   receipt_of: {type:'string' as const, description:'With target and no other fields, check the original operation_id from an unknown screenshot send. This does not send again.'},
 };
 export const screenshotMessageParameters = {
