@@ -75,6 +75,7 @@ export interface ChatMessage {
   id: string; conversation_id: string; sender_user_id: string; sender_type: string; lifecycle_revision: number | null;
   content: string; delivery_status: string; created_at: string; timezone: string | null; elapsed_ms: number | null; kernel_message_id: string | null;
   sender: ChatActor;
+  work_record_deleted?: true;
   attachments: ChatAttachment[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;

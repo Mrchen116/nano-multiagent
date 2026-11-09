@@ -140,6 +140,9 @@ export class MessageRecords {
     const m=this.find(id);if(!m)fail(404,'message not found');
     const u=this.db.prepare('SELECT * FROM users WHERE id=?').get(m.sender_user_id) as unknown as MessageUser;
     const delegation=this.db.prepare('SELECT * FROM pa_delegated_messages WHERE message_id=?').get(id) as unknown as MessageDelegation|undefined;
+    const deletedWork=m.sender_type==='agent' && this.db.prepare(`SELECT 1 FROM deleted_agent_work_links w
+      JOIN agent_profiles a ON a.agent_id=w.agent_id AND a.work_mode='global'
+      WHERE w.agent_id=? AND w.kind='message' AND w.target_id=?`).get(u.username.slice(6),id);
     const updateWait=this.ports.messageWait?.(id),permissions:ChatPermission[]=JSON.parse(m.permission_request_json??'[]');
     // Retain the established wire property order as well as the original stored JSON values.
     const result:ChatMessage={
@@ -147,6 +150,7 @@ export class MessageRecords {
       lifecycle_revision:m.lifecycle_revision,content:m.content,delivery_status:m.delivery_status,created_at:m.created_at,
       timezone:m.timezone,elapsed_ms:m.elapsed_ms,kernel_message_id:m.kernel_message_id,
       sender:{...this.actor(u),type:m.sender_type,display_name:m.sender_display_name??u.display_name},
+      ...(deletedWork ? {work_record_deleted:true} : {}),
       ...(updateWait!==undefined?{update_wait:updateWait}:{}),
       ...(delegation?.representation_operation_id?{pa_agent_id:delegation.agent_id}:delegation?{delegation:{agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${(this.db.prepare('SELECT display_name FROM users WHERE id=?').get(delegation.authorized_by) as MessageAuthorName|undefined)?.display_name??delegation.display_name}的 PA`}}:{}),
       attachments:JSON.parse(m.attachments_json??'[]'),

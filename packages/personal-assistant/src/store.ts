@@ -144,7 +144,6 @@ export class NodeStore {
 
   /** Drop target-owned execution rows after native purge and Work receipt. */
   purgeAgent(agentId: string, sessionIds: readonly string[]): void {
-    const ids=JSON.stringify(sessionIds);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for (const table of ['conversation_aliases','input_lifecycles','group_background','schedule_runs','canonical_sessions','task_context_cursors','system_context_inputs'])
@@ -156,7 +155,12 @@ export class NodeStore {
       for (const table of ['inputs','runtime_events','deliveries']) this.db.prepare(
         `DELETE FROM ${table} WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?)`).run(agentId);
       this.db.prepare('DELETE FROM tool_references WHERE agent_id=?').run(agentId);
-      this.db.prepare("DELETE FROM command_results WHERE json_extract(result,'$.agentId')=? OR json_extract(result,'$.sessionId') IN (SELECT value FROM json_each(?))").run(agentId,ids);
+      // Older /new and /stop receipts contain plain text. Ownership is in the key.
+      this.db.prepare("DELETE FROM command_results WHERE id GLOB ? AND instr(substr(id,?),':')=0").run(`${agentId}:*`,agentId.length+2);
+      const sessionCommands=this.db.prepare(`DELETE FROM command_results
+        WHERE id GLOB ? OR id GLOB ? OR id GLOB ? OR id GLOB ? OR id GLOB ? OR id GLOB ?`);
+      for (const id of sessionIds) sessionCommands.run(`published:${id}:*`,`interactive-delivered:${id}:*`,
+        `task-approval-visible:${id}:*`,`model-placeholder:${id}:*`,`${id}:*:failure:*`,`${id}:*:switched`);
       this.db.prepare('DELETE FROM sessions WHERE agent_id=?').run(agentId);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }

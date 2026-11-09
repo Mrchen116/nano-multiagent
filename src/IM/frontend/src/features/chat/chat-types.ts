@@ -198,6 +198,7 @@ export interface Message {
   id: string;
   conversation_id: string;
   sender: Actor;
+  work_record_deleted?: true;
   sender_user_id: string;
   sender_type: string;
   content: string;

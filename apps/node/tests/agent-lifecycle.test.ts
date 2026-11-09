@@ -51,6 +51,7 @@ it('resumes cleanup after a durable native purge without rebuilding the plan', a
   const path=join(dir,'deletions.sqlite3'),intent={agent_id:'a',operation_id:'a-operation',revision:2,workspace:{path:'/owned/a',witness:'owned'}};
   const stages:string[]=[];
   let failFinalize=true;
+  let failFinalReport=true;
   const dependencies={
     assertStopped:()=>{stages.push('stop');},
     plan:async()=>{stages.push('plan');return {sessionIds:['session-a']};},
@@ -60,7 +61,13 @@ it('resumes cleanup after a durable native purge without rebuilding the plan', a
       if (failFinalize) throw new Error('temporary filesystem failure');
       stages.push('finalize');
     },
-    report:async(_intent:typeof intent,state:string)=>{stages.push(state);},
+    report:async(_intent:typeof intent,state:string)=>{
+      stages.push(state);
+      if (state==='deleted' && failFinalReport) {
+        failFinalReport=false;
+        throw new Error('IM completion transaction failed');
+      }
+    },
   };
   let agent=new NodeAgentDeletions(new AgentDeletionLedger(path),dependencies);
   try {
@@ -70,7 +77,7 @@ it('resumes cleanup after a durable native purge without rebuilding the plan', a
     failFinalize=false;
     const ledger = new AgentDeletionLedger(path);
     agent=new NodeAgentDeletions(ledger,dependencies);
-    await agent.apply(intent);
+    await expect(agent.apply(intent)).rejects.toThrow('IM completion transaction failed');
     await agent.apply(intent);
     expect(stages).toEqual(['stop','deleting','plan','purge','failed','deleting','finalize','deleted','deleted']);
     expect(ledger.read('a')).toEqual({intent:{agent_id:'a',operation_id:'a-operation',revision:2},complete:true});

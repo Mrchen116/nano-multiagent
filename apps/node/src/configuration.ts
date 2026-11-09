@@ -75,6 +75,14 @@ export class NodeConfiguration {
     try { return (load(readFileSync(join(workspace, '.nanoassistant', 'config.yaml'), 'utf8')) as {self_evolution?: Record<string, unknown>})?.self_evolution ?? {}; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; return {}; }
   }
+  private sharedSkillRoots(): NonNullable<AgentConfiguration['skillRoots']> {
+    return [
+      { path: join(this.ownerRoot, 'skills'), source: 'global' },
+      { path: join(homedir(), '.agents', 'skills'), source: 'global' },
+      ...['.claude', '.codex'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'compat' as const })),
+      {path:builtinSkillsRoot, source:'builtin'},
+    ];
+  }
   runtime(agent: LocalAgent | CanonicalAgentConfiguration): AgentConfiguration {
     const model = agent.default_model || this.value.llm.default_model;
     const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
@@ -114,10 +122,7 @@ export class NodeConfiguration {
       skillSelection: { mode: canonical.skills_selection_mode === 'explicit_denylist' ? 'explicit_denylist' : canonical.skills_selection_mode === 'explicit_allowlist' ? 'explicit_allowlist' : 'default_discovery', names: canonical.skills ?? [] },
       skillRoots: [
         ...['.nanoassistant', '.claude', '.codex'].map(dir => ({ path: join(agent.workspace_root!, dir, 'skills'), source: 'workspace' })),
-        { path: join(this.ownerRoot, 'skills'), source: 'global' },
-        { path: join(homedir(), '.agents', 'skills'), source: 'global' },
-        ...['.claude', '.codex'].map(dir => ({ path: join(homedir(), dir, 'skills'), source: 'compat' })),
-        {path:builtinSkillsRoot, source:'builtin'},
+        ...this.sharedSkillRoots(),
         ...(canonical.personal_agent ? [{path:personalSkillsRoot, source:'builtin'}] : []),
       ],
     };
@@ -169,6 +174,7 @@ export class NodeConfiguration {
     const current = await workspaceIdentity(created.path);
     if (current?.witness!==created.witness) return;
     const other = [...this.value.agents,...pending].filter(item=>item.agent_id!==agentId).map(item=>item.workspace_root);
+    other.push(...this.sharedSkillRoots().map(root=>root.path),personalSkillsRoot,join(this.ownerRoot,'plugins.json'),this.path);
     for (const [id,value] of this.preparedWorkspaces) if (id!==agentId) other.push(value.path);
     for (const path of other) if (path && overlaps(created.path,await realpath(path).catch(()=>resolve(path)))) return;
     return current;

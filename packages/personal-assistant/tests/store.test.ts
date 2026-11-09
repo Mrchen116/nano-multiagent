@@ -6,6 +6,21 @@ import { NodeStore } from '../src/store.js';
 import { tokenUsage, toolPresentation } from '../src/presentation.js';
 import { projectWorkEvent } from '../src/work-projection.js';
 
+it('removes only the retired Agent command receipts with mixed legacy result formats', () => {
+  const store = new NodeStore(':memory:', 'o');
+  try {
+    const keys = (agent: string, session: string) => [
+      `${agent}:message-1`,`published:${session}:1`,`interactive-delivered:${session}:1`,
+      `task-approval-visible:${session}:1`,`model-placeholder:${session}:1`,`${session}:1:failure:2`,`${session}:1:switched`,
+    ];
+    const a=keys('a','session-a'), b=keys('ab','session-ab');
+    for (const key of [...a,...b]) store.saveCommand(key,'Previously delivered');
+    store.purgeAgent('a',['session-a']);
+    expect(a.map(key=>store.command(key))).toEqual(a.map(()=>undefined));
+    expect(b.map(key=>store.command(key))).toEqual(b.map(()=>'Previously delivered'));
+  } finally { store.close(); }
+});
+
 it('recovers input attribution and confirmed delivery without creating a second send', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'nano-node-store-'));
   const path = join(directory, 'node.sqlite3');

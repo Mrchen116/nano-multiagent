@@ -69,13 +69,19 @@ function purgeCenterExecution(ctx: ImContext, id: string): string[] {
   db.prepare('DELETE FROM agent_work_events WHERE root_agent_id=?').run(id);
   db.prepare("DELETE FROM agent_work_query_snapshots WHERE json_extract(data,'$.agent')=?").run(id);
   db.prepare('DELETE FROM agent_config_operations WHERE agent_id=?').run(id);
+  db.prepare('DELETE FROM agent_settings_snapshots WHERE agent_id=?').run(id);
+  db.prepare("UPDATE pa_agent_creations SET configuration_json='{}' WHERE agent_id=?").run(id);
   db.prepare("DELETE FROM relay_tasks WHERE json_extract(payload_json,'$.agent_id')=?").run(id);
   db.prepare('DELETE FROM task_context_index WHERE agent_id=?').run(id);
   db.prepare('DELETE FROM agent_message_dispatch_log WHERE source_agent_id=?').run(id);
   db.prepare(`UPDATE channel_manifest_heads SET manifest_revision=manifest_revision+1
     WHERE node_id IN (SELECT node_id FROM agent_channels WHERE agent_id=?)`).run(id);
-  db.prepare('DELETE FROM agent_channel_status WHERE channel_id IN (SELECT channel_id FROM agent_channels WHERE agent_id=?)').run(id);
-  for (const table of ['agent_channels','agent_channel_removals']) db.prepare(`DELETE FROM ${table} WHERE agent_id=?`).run(id);
+  db.prepare(`DELETE FROM agent_channel_status WHERE channel_id IN (
+    SELECT channel_id FROM agent_channels WHERE agent_id=? UNION SELECT channel_id FROM agent_channel_removals WHERE agent_id=?)`).run(id,id);
+  db.prepare('DELETE FROM agent_channels WHERE agent_id=?').run(id);
+  // Keep the normal removal acknowledgement until a later manifest can cover it.
+  db.prepare(`UPDATE agent_channel_removals SET display_config_json='{}',apply_state='applied',apply_error_code=NULL,
+    apply_error_message=NULL,applied_at=COALESCE(applied_at,datetime('now')) WHERE agent_id=?`).run(id);
   db.prepare(`UPDATE agent_profiles SET is_stale=1,staled_at=datetime('now'),description='',workspace_root=NULL,
     workspace_is_default=NULL,default_model=NULL,model_fallbacks_json='[]',reasoning_effort=NULL,approval_mode=NULL,
     custom_prompt=NULL,features_json='{}',skills_json='[]',skills_selection_mode=NULL,tool_allowlist_json='[]',heartbeat_json=NULL

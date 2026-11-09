@@ -312,7 +312,8 @@ export class Gateway {
     let withdrawals:ChatMessage[]=[];
     transaction(db,()=>{
     const before=captureTaskContextAccess(db,{agentIds:all(db,'SELECT agent_id FROM agent_profiles WHERE node_id=?',c.node_id).map(profile=>profile.agent_id)});
-    db.prepare("UPDATE agent_profiles SET is_stale=1,staled_at=? WHERE node_id=?").run(
+    db.prepare(`UPDATE agent_profiles SET is_stale=1,staled_at=? WHERE node_id=? AND NOT EXISTS (
+      SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_profiles.agent_id AND d.state!='deleted')`).run(
       now(),
       c.node_id,
     );
@@ -448,6 +449,11 @@ export class Gateway {
       ).run(p.status ?? "online", now(), p.last_error ?? null, p.agent_count ?? null, c.node_id);
       // Pending observations survive transient review failures. Existing heartbeats retry them without a new user message.
       if((p.status??'online')==='online') this.ctx.personal?.retryObservations(c);
+      // A durable Node receipt may outlive a failed IM commit on this same connection.
+      if (c.agent_deletion_v1) {
+        for (const intent of resumableAgentDeletions(this.ctx,c.node_id,c.owner_id,c.node_epoch))
+          this.send(c.node_id,{type:'agent.deletion.apply',payload:intent});
+      }
       return ack({ node_id: c.node_id });
     }
     if (type === "agent.work.append")

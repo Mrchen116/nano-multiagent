@@ -1239,7 +1239,7 @@ export function MessagePane({
                     key={m.id}
                     message={m}
                     selfUserId={selfUserId}
-                    workAgentId={m.sender.type === "agent" && globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
+                    workAgentId={m.sender.type === "agent" && (m.work_record_deleted || globalAgentIds.includes(m.sender.id)) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
                     nodeName={agentNodeNames[m.sender.id]}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}

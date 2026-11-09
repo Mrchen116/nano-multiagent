@@ -186,6 +186,7 @@ it('checks an in-flight Agent workspace reservation before removing an exclusive
     const path=join(home,'node.json');
     await writeFile(path,JSON.stringify({
       node:{workspace_base:join(home,'workspaces')},agents:[],
+      gateway:{environment:{NANO_OWNER_CONFIG_ROOT:home}},
       llm:{default_model:'test',providers:[{name:'test',models:[{name:'test'}]}]},
     }));
     const config=await NodeConfiguration.read(path);
@@ -211,6 +212,10 @@ it('checks an in-flight Agent workspace reservation before removing an exclusive
     expect(selected).toBeDefined();
     await config.removeAgent('c','op-c',selected,()=>[]);
     await expect(stat(exclusive.workspace_root!)).rejects.toMatchObject({code:'ENOENT'});
+    const shared=await config.resolve(canonicalAgentConfiguration({agent_id:'d',features,workspace_root:join(home,'skills','shared-skill')}),true);
+    await config.persist(shared);
+    config.releaseWorkspace('d');
+    expect(await config.deletionWorkspace('d',[])).toBeUndefined();
     expect((await NodeConfiguration.read(path)).current('b')).toBeDefined();
   } finally { await rm(home,{recursive:true,force:true}); }
 });
