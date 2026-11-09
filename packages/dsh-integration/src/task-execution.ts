@@ -7,12 +7,13 @@ import type {AgentConfiguration,SessionBinding} from './index.js';
 import type {RpcPeer} from './rpc.js';
 import {inputEvidence} from './input-evidence.js';
 import {scheduleEvidence} from './schedule-evidence.js';
+import {subagentRecoveryChannel} from './subagent-recovery.js';
 
 const channel=(m:UserMessage)=>m.source.kind==='nano-system'?m.source.channel:undefined;
 const automatic=(m:UserMessage)=>channel(m)==='task-execution'||channel(m)==='task-wait-repair';
 const change=(m:UserMessage)=>channel(m)==='task-change';
 const externalWake=(m:UserMessage)=>m.source.kind==='user'||m.source.kind==='schedule'||
-  m.source.kind==='nano-system'&&!['task-execution','task-change','task-human-control','task-context','task-reminder','task-context-limitation','schedule-change','task-wait-repair','revalidation','personal-state'].includes(m.source.channel);
+  m.source.kind==='nano-system'&&!['task-execution','task-change','task-human-control','task-context','task-reminder','task-context-limitation','schedule-change','task-wait-repair','revalidation','personal-state',subagentRecoveryChannel].includes(m.source.channel);
 const freshWake=(message:UserMessage,stoppedAt:number|undefined)=>{const admittedAt=(message.source as {admittedAt?:number}).admittedAt;return externalWake(message)&&typeof admittedAt==='number'&&admittedAt>(stoppedAt??Infinity);};
 const SHORT_RUN_LIMIT=256;
 const SUSTAINED_STEPS=3;
