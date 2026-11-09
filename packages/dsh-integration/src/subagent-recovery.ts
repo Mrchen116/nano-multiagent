@@ -26,21 +26,23 @@ export class SubagentRecovery {
   constructor(private readonly ctx: Context, ownerOf: (agent: Agent) => {agentId: string; revision: number} | undefined) {
     this.ready = ctx.storageDomain.open(subagentRecoveryDomain);
     ctx.effect(() => async () => { await (await this.ready).close(); });
-    ctx.on('agent/pre-step', async ({agent, messages, signal}, next) => {
+    ctx.on('agent/pre-step', async ({agent, signal}, next) => {
+      const decision = await next();
+      if (decision.kind !== 'enter' || !decision.messages.length) return decision;
       const owner = ownerOf(agent);
-      if (owner) {
-        const pending = await this.pending(agent);
-        signal.throwIfAborted();
-        messages.unshift(...pending.map(child => {
-          const id = noticeId(child);
-          return freezeMessage({id: MessageId(id), role: 'user' as const,
-            content: [{type: 'text', text: `System recovery notice: subagent ${child.id} was interrupted when the execution runtime stopped. Check any available results before deciding how to handle the delegation.`}],
-            source: {kind: 'nano-system' as const, channel: subagentRecoveryChannel, actorId: owner.agentId,
-              messageId: id, lifecycle_revision: owner.revision},
-          });
-        }));
-      }
-      return next();
+      if (!owner) return decision;
+      const pending = await this.pending(agent);
+      signal.throwIfAborted();
+      if (!pending.length) return decision;
+      const notices = pending.map(child => {
+        const id = noticeId(child);
+        return freezeMessage({id: MessageId(id), role: 'user' as const,
+          content: [{type: 'text', text: `System recovery notice: subagent ${child.id} was interrupted when the execution runtime stopped. Check any available results before deciding how to handle the delegation.`}],
+          source: {kind: 'nano-system' as const, channel: subagentRecoveryChannel, actorId: owner.agentId,
+            messageId: id, lifecycle_revision: owner.revision},
+        });
+      });
+      return {...decision, messages: [...notices, ...decision.messages]};
     });
     ctx.on('agent/turn-stopping', async ({agent}) => { if (ownerOf(agent)) await this.pending(agent); });
   }
