@@ -6,7 +6,7 @@ import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it('reviews a running child with late root Inbox authorization and rechecks a withdrawal before execution', async () => {
+it.each(['model', 'audit'])('refreshes delegated Inbox authorization and handles a withdrawal during %s', async stall => {
   const home = await mkdtemp(join(tmpdir(), 'nano-delegated-approval-'));
   let client: RuntimeClient | undefined;
   let logs = '';
@@ -15,13 +15,26 @@ it('reviews a running child with late root Inbox authorization and rechecks a wi
 import { appendFile, readFile } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 export const name = 'delegated-approval-fixture';
-export const inject = ['llm', 'tools'];
-export function apply(ctx) {
+export const inject = ['llm', 'tools', 'nanoApproval'];
+export async function apply(ctx) {
   const home = process.env.DSH_HOME;
   const log = (name, value) => appendFile(home+'/'+name, JSON.stringify(value)+'\n');
   const wait = async (name, signal) => {
     while (!await readFile(home+'/'+name, 'utf8').catch(() => '')) await setTimeout(15, undefined, { signal });
   };
+  const stall = ${JSON.stringify(stall)};
+  if (stall === 'audit') {
+    const table = (await ctx.nanoApproval.audit).table('sessions');
+    const update = table.update.bind(table);
+    table.update = async (...args) => {
+      const entries = await update(...args);
+      if (entries.at(-1)?.reason === 'fixture verdict second') {
+        await log('audit-ready', true);
+        await wait('release-review');
+      }
+      return entries;
+    };
+  }
   const steps = new Map();
   ctx.tools.register({
     name: 'fixture_effect', description: 'Mutate an isolated fixture',
@@ -40,9 +53,12 @@ export function apply(ctx) {
       const original = options.messages.flatMap(m => m.content)
         .filter(block => block.type === 'text' && block.text.startsWith('<original_instructions>'))
         .map(block => block.text.split('</original_instructions>')[0]).join('\n');
-      await log('reviews', { phase, original, input });
-      if (phase === 'second' && !original.includes('ROOT_WITHDRAWAL')) await wait('release-review', options.signal);
-      text = JSON.stringify({ risk_level:'high', outcome:original.includes('ROOT_GRANT') && !original.includes('ROOT_WITHDRAWAL') ? 'allow' : 'deny' });
+      await log('reviews', { phase, original, input, callId:action.id });
+      if (stall === 'model' && phase === 'second' && !original.includes('ROOT_WITHDRAWAL')) await wait('release-review', options.signal);
+      text = JSON.stringify({
+        risk_level:'high', outcome:original.includes('ROOT_GRANT') && !original.includes('ROOT_WITHDRAWAL') ? 'allow' : 'deny',
+        rationale:'fixture verdict '+phase,
+      });
     } else {
       const input = options.messages.findLast(m => m.role === 'user' && m.content.some(b =>
         b.type === 'text' && /^(launch|read Inbox|child task|unrelated root)/.test(b.text)));
@@ -122,18 +138,24 @@ export function apply(ctx) {
     expect(second.original).not.toContain('ROOT_WITHDRAWAL');
     expect(await lines('effects')).toEqual(['first']);
 
+    if (stall === 'audit') await expect.poll(() => lines('audit-ready'), { timeout:8000 }).toEqual([true]);
     inboxMessage = { id:'late-withdrawal', text:'ROOT_WITHDRAWAL: stop creating fixture records.' };
     await submit('root', 'read-withdrawal', 'read Inbox');
     await writeFile(join(home, 'release-review'), 'go');
 
-    await expect.poll(() => lines('reviews'), { timeout:8000 }).toHaveLength(3);
-    const replay = (await lines('reviews'))[2];
-    expect(replay).toMatchObject({ phase:'second', original:expect.stringContaining('ROOT_WITHDRAWAL') });
-    expect(replay.original.indexOf('ROOT_WITHDRAWAL')).toBeGreaterThan(replay.original.indexOf('ROOT_GRANT'));
+    if (stall === 'model') {
+      await expect.poll(() => lines('reviews'), { timeout:8000 }).toHaveLength(3);
+      const replay = (await lines('reviews'))[2];
+      expect(replay).toMatchObject({ phase:'second', original:expect.stringContaining('ROOT_WITHDRAWAL') });
+      expect(replay.original.indexOf('ROOT_WITHDRAWAL')).toBeGreaterThan(replay.original.indexOf('ROOT_GRANT'));
+    }
+    let result: { message?:{ toolCallId:string }; error?:{ code:string } } | undefined;
     await expect.poll(async () => {
-      const children = await runtime.rpc.request('session.descendants', { sessionId:'root' }) as { events:{ type:string; data:unknown }[] }[];
-      return children.flatMap(child => child.events).some(event => event.type === 'tool/result' && JSON.stringify(event.data).includes('classifier_block'));
-    }, { timeout:8000 }).toBe(true);
+      const children = await runtime.rpc.request('session.descendants', { sessionId:'root' }) as { events:{ type:string; data:typeof result }[] }[];
+      result = children.flatMap(child => child.events).find(event => event.type === 'tool/result' && event.data?.message?.toolCallId === second.callId)?.data;
+      return result;
+    }, { timeout:8000 }).toBeTruthy();
+    expect(result?.error?.code).toBe(stall === 'model' ? 'classifier_block' : 'classifier_unavailable');
     expect(await lines('effects')).toEqual(['first']);
   } catch (error) {
     throw new Error(String(error)+'\n'+logs, { cause:error });

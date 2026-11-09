@@ -18,4 +18,6 @@ export interface ApprovalReviewResult {
   usage?: unknown;
   source?: string;
   metadata?: { sessionId?: string; contextMode?: string; risk?: string; authorization?: string };
+  /** Reject a verdict that became stale while awaiting host publication. */
+  assertCurrent?: () => void;
 }

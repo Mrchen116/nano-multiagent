@@ -12,7 +12,6 @@ import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { ApprovalSources } from './sources.js';
 import { retainInstructions } from './retained-instructions.js';
-import type { ReviewDecision } from './rules.js';
 import type { ApprovalReviewResult } from './types.js';
 import { classify } from './classifier.js';
 import type {} from './cc.js';
@@ -131,22 +130,25 @@ export class NanoApproval extends Service {
     const header = agent.session.requestHeader();
     const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
     const started = Date.now();
-    let decision: ReviewDecision | undefined; let usage: unknown; let source: string | undefined; let metadata: ApprovalReviewResult['metadata'];
-    try {
-      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
-      const result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
-        : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
-      decision = result.decision; usage = result.usage; source = result.source; metadata = result.metadata;
-    } catch (error) {
+    const unavailable = async (error: unknown): Promise<PreToolDecision> => {
       if (exec.signal.aborted) return { kind: 'cancel' };
       const reason = `Automatic reviewer unavailable: ${String(error)}`;
       await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started });
       return this.escalate(exec, config, reason, 'classifier_unavailable');
-    }
+    };
+    let result: ApprovalReviewResult;
+    try {
+      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
+      result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
+        : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
+    } catch (error) { return unavailable(error); }
     if (exec.signal.aborted) return { kind: 'cancel' };
-    const verdict = decision!;
+    const { decision: verdict, usage, source, metadata } = result;
     const counts = await this.record(exec, source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
       { reviewer, metadata, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
+    if (exec.signal.aborted) return { kind: 'cancel' };
+    // The audit write yields. Revalidate before publishing the gate result to native dispatch.
+    try { result.assertCurrent?.(); } catch (error) { return unavailable(error); }
     if (verdict.behavior === 'allow') return { kind: 'allow' };
     if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block');
     return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };

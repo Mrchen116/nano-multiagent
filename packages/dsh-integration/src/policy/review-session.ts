@@ -26,7 +26,7 @@ export class ReviewFailure extends Error {
   constructor(readonly kind:'runtime'|'timeout'|'invalid_verdict'|'evidence_unavailable', message:string) { super(message); }
 }
 export type ReviewExecution<T> =
-  | {kind:'decision';value:T;usage:unknown;metadata:Metadata}
+  | {kind:'decision';value:T;usage:unknown;metadata:Metadata;assertCurrent?:()=>void}
   | {kind:'cancelled'}
   | {kind:'unavailable';cause:ReviewFailure;metadata?:Metadata};
 class ContextRebuild extends Error {}
@@ -94,8 +94,12 @@ export class ReviewSession {
       while(true) {
         try {
           run.signal.throwIfAborted();
-          const live=plan.liveInstructions?.();
+          const readLive=plan.liveInstructions;
+          const live=readLive?.();
           const instructionRevision=JSON.stringify(live);
+          const assertCurrent=readLive&&(()=>{
+            if(instructionRevision!==JSON.stringify(readLive()))throw new ContextRebuild('Root instructions changed during delegated review');
+          });
           if(checkpoint&&(!prefix(checkpoint.rows,serialized)||checkpoint.instructionRevision!==instructionRevision)){
             checkpoint=undefined;
             if(reviewer){await this.discard(reviewer);reviewer=undefined;}
@@ -141,9 +145,9 @@ export class ReviewSession {
           if(!decision)throw new ReviewFailure('invalid_verdict','Invalid reviewer verdict');
           lifetime.throwIfAborted();
           // A grant or withdrawal during the model call invalidates the entire verdict.
-          if(plan.liveInstructions&&instructionRevision!==JSON.stringify(plan.liveInstructions()))throw new ContextRebuild('Root instructions changed during delegated review');
+          assertCurrent?.();
           if(!fork&&this.trunks.get(key)===trunk){trunk.checkpoint={rows:serialized,events:[...events],sessionId:agent.id,instructionRevision};trunk.reviewer=reviewer;committed=true;}
-          return{kind:'decision',value:decision,usage:deriveTurnTokenUsage(added.slice(added.findIndex(event=>event.type==='turn/start'),added.findLastIndex(event=>event.type==='turn/end')+1)),metadata:{sessionId:agent.id,contextMode:mode}};
+          return{kind:'decision',value:decision,usage:deriveTurnTokenUsage(added.slice(added.findIndex(event=>event.type==='turn/start'),added.findLastIndex(event=>event.type==='turn/end')+1)),metadata:{sessionId:agent.id,contextMode:mode},assertCurrent};
         } catch(error) {
           if(reviewer){await this.discard(reviewer);reviewer=undefined;}
           lifetime.throwIfAborted();

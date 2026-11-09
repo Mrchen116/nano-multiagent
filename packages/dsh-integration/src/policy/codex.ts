@@ -60,7 +60,7 @@ export class CodexApproval extends Service {
 
   private async execute<T>(plan:ReviewPlan<T>) {
     const result=await this.sessions.run(plan,plan.signal);
-    if(result.kind==='decision')return{decision:result.value,usage:result.usage,metadata:result.metadata};
+    if(result.kind==='decision')return{decision:result.value,usage:result.usage,metadata:result.metadata,assertCurrent:result.assertCurrent};
     if(result.kind==='cancelled')throw plan.signal?.reason??new Error('Review cancelled');
     throw result.cause;
   }
