@@ -18,6 +18,7 @@ export interface ReviewPlan<T> {
   config: AgentConfiguration; reviewer: {provider:string;model:string};
   system: () => string | Promise<string>; evidence: () => Promise<Record<string, unknown>[]>;
   retained: () => RetainedInstructions; action: unknown; images?: readonly ImageBlock[];
+  liveInstructions?: () => RetainedInstructions;
   parse: (text:string) => T | undefined;
 }
 type Metadata = {sessionId:string;contextMode:string};
@@ -25,11 +26,11 @@ export class ReviewFailure extends Error {
   constructor(readonly kind:'runtime'|'timeout'|'invalid_verdict'|'evidence_unavailable', message:string) { super(message); }
 }
 export type ReviewExecution<T> =
-  | {kind:'decision';value:T;usage:unknown;metadata:Metadata}
+  | {kind:'decision';value:T;usage:unknown;metadata:Metadata;assertCurrent?:()=>void}
   | {kind:'cancelled'}
   | {kind:'unavailable';cause:ReviewFailure;metadata?:Metadata};
 class ContextRebuild extends Error {}
-interface Checkpoint { rows:string[]; events:SessionEvent[]; sessionId:string }
+interface Checkpoint { rows:string[]; events:SessionEvent[]; sessionId:string; instructionRevision?:string }
 interface Reviewer { handle:AgentHandle; run?:Run; start:number; input:string; inputId?:string; images?:readonly ImageBlock[]; first:boolean }
 interface Trunk { fingerprint:string; busy:boolean; reviewer?:Reviewer; checkpoint?:Checkpoint }
 interface Run {
@@ -90,14 +91,25 @@ export class ReviewSession {
       const overhead=tokenCost(system)+tokenCost(JSON.stringify(tools.map(({name,description,parameters})=>({name,description,parameters}))))+outputReserve+512;
       if(plan.images?.length&&!model.inputModalities?.includes('image'))throw new ReviewFailure('evidence_unavailable','Reviewer model does not support images');
       const serialized=evidence.map(row=>JSON.stringify(row));
-      if(checkpoint&&!prefix(checkpoint.rows,serialized)){checkpoint=undefined;if(reviewer){await this.discard(reviewer);reviewer=undefined;}mode=fork?'fork-rebuild':'rebuild';}
       while(true) {
         try {
           run.signal.throwIfAborted();
+          const readLive=plan.liveInstructions;
+          const live=readLive?.();
+          const instructionRevision=JSON.stringify(live);
+          const assertCurrent=readLive&&(()=>{
+            if(instructionRevision!==JSON.stringify(readLive()))throw new ContextRebuild('Root instructions changed during delegated review');
+          });
+          if(checkpoint&&(!prefix(checkpoint.rows,serialized)||checkpoint.instructionRevision!==instructionRevision)){
+            checkpoint=undefined;
+            if(reviewer){await this.discard(reviewer);reviewer=undefined;}
+            mode=fork?'fork-rebuild':'rebuild';
+          }
           const history=reviewer?.handle.agent.session.deriveMessages()??[];
           // A fork is rehydrated before budgeting, so visibility uses its actual surface too.
           if(!reviewer&&checkpoint){reviewer=await this.create(plan,system,checkpoint,limit,overhead,effort);continue;}
-          const original=retainedEnvelope(retained,history,Math.min(8192,Math.max(0,(limit-overhead)/4)));
+          const instructions=live?{units:[...retained.units,...live.units],incomplete:retained.incomplete||live.incomplete}:retained;
+          const original=retainedEnvelope(instructions,history,Math.min(8192,Math.max(0,(limit-overhead)/4)));
           const available=limit-overhead-tokenCost(JSON.stringify(history))-tokenCost(original);
           const envelope=reviewEnvelope(checkpoint?evidence.slice(checkpoint.rows.length):evidence,plan.action,available,!!checkpoint,plan.purpose==='disclosure');
           if(envelope.kind==='needs_rebuild')throw new ContextRebuild(envelope.reason);
@@ -132,8 +144,10 @@ export class ReviewSession {
           const decision=plan.parse(text);
           if(!decision)throw new ReviewFailure('invalid_verdict','Invalid reviewer verdict');
           lifetime.throwIfAborted();
-          if(!fork&&this.trunks.get(key)===trunk){trunk.checkpoint={rows:serialized,events:[...events],sessionId:agent.id};trunk.reviewer=reviewer;committed=true;}
-          return{kind:'decision',value:decision,usage:deriveTurnTokenUsage(added.slice(added.findIndex(event=>event.type==='turn/start'),added.findLastIndex(event=>event.type==='turn/end')+1)),metadata:{sessionId:agent.id,contextMode:mode}};
+          // A grant or withdrawal during the model call invalidates the entire verdict.
+          assertCurrent?.();
+          if(!fork&&this.trunks.get(key)===trunk){trunk.checkpoint={rows:serialized,events:[...events],sessionId:agent.id,instructionRevision};trunk.reviewer=reviewer;committed=true;}
+          return{kind:'decision',value:decision,usage:deriveTurnTokenUsage(added.slice(added.findIndex(event=>event.type==='turn/start'),added.findLastIndex(event=>event.type==='turn/end')+1)),metadata:{sessionId:agent.id,contextMode:mode},assertCurrent};
         } catch(error) {
           if(reviewer){await this.discard(reviewer);reviewer=undefined;}
           lifetime.throwIfAborted();

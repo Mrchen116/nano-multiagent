@@ -12,6 +12,7 @@ import {
   type AgentCompletionCandidate,
   type AgentCompletionState,
   emptyAgentCompletionState,
+  hasInteractiveCard,
   hydrateAgentCompletionState,
   persistAgentCompletionState,
   reduceAgentCompletionEvent
@@ -34,6 +35,7 @@ interface NotificationCandidate {
   messageKey: string;
   senderName: string;
   preview: string;
+  cardOnly?: true;
   createdAt?: string;
 }
 
@@ -81,11 +83,11 @@ function extractPreview(payload: Record<string, unknown>): string | null {
   if (content) {
     return content;
   }
-  const fileName = normalizeText(payload.file_name);
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const fileName = normalizeText(payload.file_name) ?? normalizeText(attachments[0]?.file_name);
   if (fileName) {
     return fileName;
   }
-  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   if (attachments.length > 0) {
     return "Attachment";
   }
@@ -95,8 +97,8 @@ function extractPreview(payload: Record<string, unknown>): string | null {
 function extractSenderName(payload: Record<string, unknown>): string {
   const sender = payload.sender as { display_name?: unknown } | undefined;
   return (
-    normalizeText(sender?.display_name) ??
     normalizeText(payload.sender_display_name) ??
+    normalizeText(sender?.display_name) ??
     normalizeText(payload.sender_name) ??
     normalizeText(payload.display_name) ??
     normalizeText(payload.agent_display_name) ??
@@ -107,8 +109,7 @@ function extractSenderName(payload: Record<string, unknown>): string {
 function patchConversationPreview(
   items: Conversation[] | undefined,
   conversationId: string,
-  preview: string,
-  createdAt?: string,
+  { preview, createdAt, cardOnly, senderName }: NotificationCandidate,
   markUnread = false
 ) {
   if (!items) {
@@ -125,7 +126,11 @@ function patchConversationPreview(
     }
     return {
       ...item,
-      last_message_preview: preview,
+      last_message_preview: cardOnly ? "" : preview,
+      ...(item.type === "group" ? { last_message_sender_name: senderName } : {}),
+      last_message_card: cardOnly
+        ? (createdAt === item.last_message_at ? item.last_message_card : null) ?? { title: null }
+        : null,
       last_message_system_notice: null,
       last_message_at: createdAt ?? item.last_message_at,
       unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
@@ -163,7 +168,7 @@ function isSelfAuthoredUserMessage(payload: Record<string, unknown>, selfUserId:
 export function buildNotificationCandidate(event: UserStreamEvent): NotificationCandidate | null {
   const payload = event.payload as Record<string, unknown>;
   const preview = extractPreview(payload);
-  if (!preview) {
+  if (!preview && !hasInteractiveCard(payload)) {
     return null;
   }
 
@@ -178,7 +183,8 @@ export function buildNotificationCandidate(event: UserStreamEvent): Notification
     return {
       messageKey: `message:${messageId}`,
       senderName: extractSenderName(payload),
-      preview,
+      preview: preview ?? i18n.t("chat.toast.card"),
+      ...(!preview ? { cardOnly: true } : {}),
       createdAt: normalizeText(payload.created_at) ?? undefined
     };
   }
@@ -255,10 +261,11 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             messageKey: completion.candidate.messageKey,
             senderName: completion.candidate.senderName,
             preview: completion.candidate.preview,
+            cardOnly: completion.candidate.cardOnly,
             createdAt: completion.candidate.createdAt
           };
         }
-        if (event.eventType === "message.completed") {
+        if (event.eventType === "message.completed" || (candidate && hasInteractiveCard(payload))) {
           void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }).catch(() => undefined);
         }
         if (!candidate) return;
@@ -271,7 +278,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           const shouldMarkUnread = !viewingConversation && !resolvedSelfAuthored;
           if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
           queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
-            patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt, shouldMarkUnread)
+            patchConversationPreview(previous, conversationId, candidate, shouldMarkUnread)
           );
           if (
             viewingConversation

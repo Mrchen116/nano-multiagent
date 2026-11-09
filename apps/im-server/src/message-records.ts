@@ -228,7 +228,11 @@ export class MessageRecords {
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     const m = this.message(id);
-    this.chatEvent(cId, id, {type:"message.created", data:{...m,message_id:id}}, status, extra.publish !== false);
+    // Shadow messages store under the local owner even when the provider has no display name.
+    const data = {...m,message_id:id,...(extra.sender_source_id
+      ? {sender_display_name:extra.sender_display_name?.trim() || extra.sender_source_id}
+      : {})};
+    this.chatEvent(cId, id, {type:"message.created", data}, status, extra.publish !== false);
     return m;
   }
 }
