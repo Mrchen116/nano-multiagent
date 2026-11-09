@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { modelInteractiveContent, type MessageInteractive } from '@nano/product-contracts';
 import type { ImageBlock } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-attachment';
 import {isInternalExecution} from './child-role.js';
@@ -28,7 +29,7 @@ export function personalEvidenceMessages(agent: Agent) {
 type DisclosureFacts = {
   owner_user_id: string;
   recipient: {conversation_id:string;name:string;conversation_type:string;channel:string;members:{id:string;user_id:string;display_name:string;type:string;is_stale?:boolean|null}[]};
-  payload: {content:string;reply_to?:unknown;attachments?:unknown[];attachment_snapshots?:unknown[];interactive?:unknown;representation?:'self'|'owner';
+  payload: {content:string;reply_to?:unknown;attachments?:unknown[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;representation?:'self'|'owner';
     task?:{action:string;arguments:Record<string,unknown>;source_message_id?:string};
     transport?:{kind:string;destination:Record<string,unknown>;card?:unknown}};
   policy?: {excluded_conversation_ids?:string[]};
@@ -58,7 +59,7 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
     ...(payload.task.source_message_id?{source_message_id:payload.task.source_message_id}:{})}
     :{target:recipient.conversation_id,text:payload.content,
       ...(payload.reply_to?{reply_to:payload.reply_to}:{}),
-      ...(payload.interactive?{interactive:payload.interactive}:{}),
+      ...(payload.interactive?{interactive:modelInteractiveContent(payload.interactive)}:{}),
       ...(payload.attachment_snapshots?.length?{attachments:payload.attachment_snapshots.map(row=>{const {base64,...manifest}=row as Record<string,unknown>;return manifest;})}:{}),
       ...(transport?.card?{card:transport.card}:{})};
   if(payload.attachments?.length&&!payload.attachment_snapshots?.length)throw new Error('Missing frozen attachment contents');
@@ -131,16 +132,19 @@ export function parsePersonalDecision(raw: string): PersonalReview | undefined {
 
 /** Keep complete current evidence while removing oldest whole history items to fit. */
 export function inputReviewEvidence(evidence:unknown,policy:string,contextWindow:number):string {
-  const source=evidence as {current?:Record<string,unknown>;previous?:Record<string,unknown>[];reply_target?:Record<string,unknown>;omissions?:unknown[];source?:unknown};
+  type ReviewMessage = Record<string, unknown> & {interactive?: MessageInteractive};
+  const source=evidence as {current?:ReviewMessage;previous?:ReviewMessage[];reply_target?:ReviewMessage;omissions?:unknown[];source?:unknown};
   if(!source.current || typeof source.current.content!=='string' || !Array.isArray(source.previous))throw new Error('Missing authenticated input review context');
   if(Array.isArray(source.current.attachments)&&source.current.attachments.length)throw new Error('Input review attachment projection is unavailable');
-  const previous=source.previous.slice(-20),omissions=[...(source.omissions??[])];
+  const project = (message: ReviewMessage): Record<string, unknown> => message.interactive
+    ? {...message, interactive:modelInteractiveContent(message.interactive)} : message;
+  const current=project(source.current),previous=source.previous.slice(-20).map(project),omissions=[...(source.omissions??[])];
   if(source.previous.length>20)omissions.push({reason:'history_window',limit:20});
-  let replyTarget=source.reply_target;
-  const serialize=()=>JSON.stringify({current:source.current,source:source.source,previous,...(replyTarget?{reply_target:replyTarget}:{}),omissions});
+  let replyTarget=source.reply_target ? project(source.reply_target) : undefined;
+  const serialize=()=>JSON.stringify({current,source:source.source,previous,...(replyTarget?{reply_target:replyTarget}:{}),omissions});
   const cost=(value:unknown)=>estimateContent([{type:'text',text:typeof value==='string'?value:JSON.stringify(value)}]);
   const available=contextWindow-cost(policy)-2048-512;
-  if(available<=0||cost({current:source.current,source:source.source,previous:[],omissions})>available)throw new Error('Complete current message exceeds the reviewer context window');
+  if(available<=0||cost({current,source:source.source,previous:[],omissions})>available)throw new Error('Complete current message exceeds the reviewer context window');
   while(previous.length&&(cost({previous,reply_target:replyTarget})>8192||cost(serialize())>available)) {
     const removed=previous.shift()!;omissions.push({reason:'history_budget',message_id:removed.id});
   }

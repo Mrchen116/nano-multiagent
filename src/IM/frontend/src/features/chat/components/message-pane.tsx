@@ -282,6 +282,7 @@ export function MessagePane({
 }: MessagePaneProps) {
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
+  const hasFocusedMessage = Boolean(focusMessageId);
   const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const timeDividers = timelineTimeDividers(renderedTimeline, i18n.language);
@@ -357,6 +358,7 @@ export function MessagePane({
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
   const slashWrapRef = useRef<HTMLDivElement | null>(null);
   const historyWasLoadingRef = useRef(false);
   const historyAnchorRef = useRef<{
@@ -1035,12 +1037,12 @@ export function MessagePane({
   useEffect(() => {
     lastMessageIdRef.current = null;
     lastReadRef.current = null;
-    nearBottomRef.current = !focusMessageId;
+    nearBottomRef.current = !hasFocusedMessage;
     forceScrollToBottomRef.current = false;
     historyWasLoadingRef.current = false;
     historyAnchorRef.current = null;
     skipNextMessageAutoScrollRef.current = false;
-  }, [conversation.id]);
+  }, [conversation.id, hasFocusedMessage]);
 
   useEffect(() => {
     if (sendError) forceScrollToBottomRef.current = false;
@@ -1052,9 +1054,9 @@ export function MessagePane({
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    if(focusMessageId&&!forceScrollToBottomRef.current) {
-      lastMessageIdRef.current=messages.at(-1)?.id??null;
-      nearBottomRef.current=false;
+    if (hasFocusedMessage && !forceScrollToBottomRef.current) {
+      lastMessageIdRef.current = messages.at(-1)?.id ?? null;
+      nearBottomRef.current = false;
       return;
     }
     if (skipNextMessageAutoScrollRef.current) {
@@ -1071,7 +1073,7 @@ export function MessagePane({
       (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
     const isInitialHydration = lastMessageIdRef.current === null;
     const shouldFollowBottom =
-      (isInitialHydration && !focusMessageId)
+      (isInitialHydration && !hasFocusedMessage)
       || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
       || nearBottomRef.current;
     lastMessageIdRef.current = lastMessageId;
@@ -1081,7 +1083,23 @@ export function MessagePane({
       reportReadBoundary();
     }
     forceScrollToBottomRef.current = false;
-  }, [messages]);
+  }, [messages, conversation.id, hasFocusedMessage]);
+
+  useLayoutEffect(() => {
+    const scroller = messagesContainerRef.current;
+    const list = messageListRef.current;
+    if (!scroller || !list || hasFocusedMessage || typeof ResizeObserver === "undefined") return;
+
+    // Cards and media can grow after the message data has already rendered.
+    const observer = new ResizeObserver(() => {
+      if (nearBottomRef.current && !historyAnchorRef.current) {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
+    });
+    observer.observe(list);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [hasFocusedMessage]);
 
   useEffect(() => {
     document.addEventListener("visibilitychange", reportReadBoundary);
@@ -1192,77 +1210,79 @@ export function MessagePane({
       {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
-        {messages.length === 0 ? (
-          <div className="chat-pane-empty">
-            <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
-            <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
-            <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
-            {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
-              {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
-                setDraft(t(`pa.examples.${key}`));
-                composerRef.current?.focus();
-              }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
-            </div>}
-          </div>
-        ) : (
-          <>
-            {(isLoadingHistory || hasMoreHistory === false) && (
-              <div className="chat-history-status" role="status">
-                {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
-                {isLoadingHistory
-                  ? t("chat.messagePane.historyLoading")
-                  : t("chat.messagePane.historyEnd")}
-              </div>
-            )}
-            {renderedTimeline.map((item) => {
-              if (item.type === "agent_config_changed") {
-                return anchoredMessageIds.has(item.before_message_id)
-                  ? <ConfigurationBoundaryDivider key={item.id} />
-                  : null;
-              }
-              const m = item.message;
-              return (
-                <React.Fragment key={m.id}>
-                  {timeDividers.has(m.id) && (
-                    <time dateTime={m.created_at} data-testid="chat-time-divider"
-                      className="block my-3 text-center text-xs text-[var(--im-text-muted)]">
-                      {timeDividers.get(m.id)}
-                    </time>
-                  )}
-                <MessageBubble
-                    availableMessageIds={anchoredMessageIds}
-                  key={m.id}
-                  message={m}
-                  selfUserId={selfUserId}
-                  workAgentId={m.sender.type === "agent" && globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
-                  nodeName={agentNodeNames[m.sender.id]}
-                  conversationId={conversation.id}
-                  readOnly={conversation.can_write === false}
-                  isMobile={isMobile}
-                  participants={conversation.participants}
-                  isDirectChat={isDirectChat}
-                  agentOnline={agentOnline}
-                  onReply={composerBusy ? undefined : replyToMessage}
-                  onFork={onFork}
-                  forkPending={forkPending}
-                  onCopyRequest={requestCopy}
-                  onMenuRequest={requestMessageMenu}
-                  onSheetRequest={requestActionSheet}
-                  interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
-                  interactiveSubmissionId={submittedMessages.get(m.id)}
-                  onComposeMessage={async (target, text) => {
-                    writeComposerSnapshot(composerSnapshots, conversation.id, liveComposerRef.current);
-                    await onComposeMessage?.(target, text);
-                  }}
-                  onInteractionSelect={chooseInteraction}
-                  onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
-                />
-                </React.Fragment>
-              );
-            })}
-          </>
-        )}
-        {collaborationContent}
+        <div ref={messageListRef} className="chat-pane-message-list">
+          {messages.length === 0 ? (
+            <div className="chat-pane-empty">
+              <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
+              <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
+              <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
+              {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
+                {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
+                  setDraft(t(`pa.examples.${key}`));
+                  composerRef.current?.focus();
+                }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
+              </div>}
+            </div>
+          ) : (
+            <>
+              {(isLoadingHistory || hasMoreHistory === false) && (
+                <div className="chat-history-status" role="status">
+                  {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
+                  {isLoadingHistory
+                    ? t("chat.messagePane.historyLoading")
+                    : t("chat.messagePane.historyEnd")}
+                </div>
+              )}
+              {renderedTimeline.map((item) => {
+                if (item.type === "agent_config_changed") {
+                  return anchoredMessageIds.has(item.before_message_id)
+                    ? <ConfigurationBoundaryDivider key={item.id} />
+                    : null;
+                }
+                const m = item.message;
+                return (
+                  <React.Fragment key={m.id}>
+                    {timeDividers.has(m.id) && (
+                      <time dateTime={m.created_at} data-testid="chat-time-divider"
+                        className="block my-3 text-center text-xs text-[var(--im-text-muted)]">
+                        {timeDividers.get(m.id)}
+                      </time>
+                    )}
+                  <MessageBubble
+                      availableMessageIds={anchoredMessageIds}
+                    key={m.id}
+                    message={m}
+                    selfUserId={selfUserId}
+                    workAgentId={m.sender.type === "agent" && globalAgentIds.includes(m.sender.id) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
+                    nodeName={agentNodeNames[m.sender.id]}
+                    conversationId={conversation.id}
+                    readOnly={conversation.can_write === false}
+                    isMobile={isMobile}
+                    participants={conversation.participants}
+                    isDirectChat={isDirectChat}
+                    agentOnline={agentOnline}
+                    onReply={composerBusy ? undefined : replyToMessage}
+                    onFork={onFork}
+                    forkPending={forkPending}
+                    onCopyRequest={requestCopy}
+                    onMenuRequest={requestMessageMenu}
+                    onSheetRequest={requestActionSheet}
+                    interactiveReadOnly={conversation.can_write === false || Boolean(m.interactive?.read_only || m.interactive?.superseded_by || replacedIds.has(m.id))}
+                    interactiveSubmissionId={submittedMessages.get(m.id)}
+                    onComposeMessage={async (target, text) => {
+                      writeComposerSnapshot(composerSnapshots, conversation.id, liveComposerRef.current);
+                      await onComposeMessage?.(target, text);
+                    }}
+                    onInteractionSelect={chooseInteraction}
+                    onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
+                  />
+                  </React.Fragment>
+                );
+              })}
+            </>
+          )}
+          {collaborationContent}
+        </div>
       </div>
 
       {lifecycleNotice}
@@ -2022,7 +2042,7 @@ function MessageBubble({
               />
             ))}
 
-          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work`}>{t("chat.viewWork")} →</Link>}
+          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work&message_id=${encodeURIComponent(message.id)}`}>{t("chat.viewWork")} →</Link>}
           {/* Desktop fine-pointer / keyboard toolbar. */}
           {hasMessageActions && (
             <div

@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { interactiveTextProjection } from "./interactive-source.js";
 /** Open the center's existing business database without replacing its data. */
 export function openDatabase(path: string): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -57,6 +58,22 @@ export function openDatabase(path: string): DatabaseSync {
         ALTER TABLE interaction_submissions_v2 RENAME TO interaction_submissions;
         CREATE INDEX interaction_submissions_source_user ON interaction_submissions(source_message_id,user_id);`);
       db.prepare("INSERT INTO schema_migrations VALUES('interactive-native-v2')").run();
+    }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='interactive-card-text-v1'").get()) {
+      const columns = new Set(db.prepare('PRAGMA table_info(message_interactive)').all().map(column => column.name));
+      if (!columns.has('search_text'))
+        db.exec("ALTER TABLE message_interactive ADD COLUMN search_text TEXT NOT NULL DEFAULT ''");
+      if (!columns.has('preview_title'))
+        db.exec('ALTER TABLE message_interactive ADD COLUMN preview_title TEXT');
+      const save = db.prepare('UPDATE message_interactive SET search_text=?,preview_title=? WHERE message_id=?');
+      const cards = db.prepare('SELECT message_id,source FROM message_interactive').all() as {message_id:string;source:string}[];
+      for (const card of cards) {
+        let text: ReturnType<typeof interactiveTextProjection>;
+        try { text = interactiveTextProjection(card.source); }
+        catch { continue; } // Historical programs unsupported by the current parser stay readable as stored.
+        save.run(text.searchText, text.previewTitle, card.message_id);
+      }
+      db.prepare("INSERT INTO schema_migrations VALUES('interactive-card-text-v1')").run();
     }
     if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='user-timezone-v1'").get()) {
       for (const table of ['users', 'messages']) {

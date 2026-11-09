@@ -19,6 +19,28 @@ function setup() {
   return {db,ctx,messaging,card,request};
 }
 describe('interactive message persistence', () => {
+  it('uses the first visible card title for a pure card preview and keeps ordinary previews', () => {
+    const {messaging} = setup();
+    const preview = () => messaging.conversation('chat','u1');
+    const addCard = (source: string, content = '') =>
+      messaging.insertMessage('chat','a1','agent',content,[],null,'completed',{interactive:{...interactive,source}});
+    addCard('root = Col([Popover(Icon("info"), Table(["列"], [[Title("隐藏说明")]])), Flashcard("正面", Title("背面")), Title("读书会预算"), Title("预算明细")])');
+    expect(preview()).toMatchObject({last_message_preview:'',last_message_card:{title:'读书会预算'}});
+    addCard('root = Text("周六见")\nunused = Title("未显示的标题")');
+    expect(preview()).toMatchObject({last_message_preview:'',last_message_card:{title:null}});
+    addCard('root = Title("读书会预算")', '已更新预算');
+    expect(preview()).toMatchObject({last_message_preview:'已更新预算',last_message_card:null});
+  });
+
+  it('keeps a card attachment name even when a historical fork stored only the empty body', () => {
+    const {messaging,db} = setup();
+    messaging.insertMessage('chat','a1','agent','',[{url:'/im/files/plan.pdf',content_type:'application/pdf',file_name:'plan.pdf'}],null,'completed',{
+      interactive:{...interactive,source:'root = Title("Read the plan")'},
+    });
+    db.prepare("UPDATE conversations SET last_message_preview='' WHERE id='chat'").run();
+    expect(messaging.conversation('chat','u1')).toMatchObject({last_message_preview:'plan.pdf',last_message_card:null});
+  });
+
   it('publishes complete cards and keeps user draft revisions private', () => {
     const {messaging,card,ctx,request} = setup();
     expect(card.interactive).toMatchObject(interactive);

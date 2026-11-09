@@ -389,6 +389,24 @@ it.each([false, true])("resolves agent/user mentions in preview and search (dist
 });
 
 
+it("renders titled and untitled cards in the conversation list in the selected language", async () => {
+  const conversations = [
+    conv({id:"titled",title:"Reading group",type:"group",last_message_card:{title:"读书会预算"},last_message_sender_name:"读书会助手"}),
+    conv({id:"untitled",title:"Weekend plans",last_message_card:{title:null},last_message_sender_name:"读书会助手"}),
+    conv({id:"text",title:"Plans",type:"group",last_message_preview:"周六见",last_message_sender_name:"林悦"})
+  ];
+  try {
+    await act(async()=>{await i18n.changeLanguage("zh");});
+    render(<ConversationSidebar conversations={conversations} activeConversationId={null} onSelect={()=>{}} onNewGroup={()=>{}} />);
+    expect(screen.getByText("读书会助手: 互动卡片 · 读书会预算")).toBeVisible();
+    expect(screen.getByText("互动卡片")).toBeVisible();
+    expect(screen.getByText("林悦: 周六见")).toBeVisible();
+    await act(async()=>{await i18n.changeLanguage("en");});
+    expect(screen.getByText("读书会助手: Interactive card · 读书会预算")).toBeVisible();
+    expect(screen.getByText("Interactive card")).toBeVisible();
+  } finally {await act(async()=>{await i18n.changeLanguage("en");});}
+});
+
 it("renders structured notice previews in the selected language and updates after a normal message", async () => {
   const conversation = conv({id:"notice-chat",title:"Notices",last_message_preview:"· background self-evolution review: skills updated",
     last_message_system_notice:{kind:"self_evolution_review",source_agent_id:"a",source_agent_display_name:"Assistant",updated_targets:["skills"]}});

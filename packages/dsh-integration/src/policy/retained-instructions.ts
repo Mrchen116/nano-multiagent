@@ -116,8 +116,8 @@ export function retainedEnvelope(retained: RetainedInstructions, history: readon
   const warning='<instructions_incomplete>Original instruction evidence is incomplete. Remaining permissions are not the complete authorization; omitted restrictions or withdrawals may exist.</instructions_incomplete>';
   const render=(units:string[],incomplete:boolean)=>`<original_instructions>\n${units.join('\n')}\n${incomplete?warning:''}\n</original_instructions>\n`;
   let omitted = retained.incomplete;
-  for (const unit of [...retained.units].reverse()) {
-    const serialized = JSON.stringify(unit);
+  // The newest projection wins when a live root unit also exists in the spawn snapshot.
+  for (const serialized of new Set([...retained.units].reverse().map(unit => JSON.stringify(unit)))) {
     if (tokenCost(render([serialized,...selected],true)) > budget) { omitted = true; break; }
     selected.unshift(serialized);
   }

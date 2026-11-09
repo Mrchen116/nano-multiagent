@@ -1,5 +1,6 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import {MemoryRouter} from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../../i18n";
@@ -95,6 +96,16 @@ describe("MessagePane", () => {
     });
   }
 
+  it('links each Global reply to its own message anchor in the same Agent Work', () => {
+    const reply = SAMPLE_MESSAGES[1];
+    render(<MemoryRouter><MessagePane conversation={DIRECT_CONV} messages={[reply, {...reply, id: 'older/reply?', content: 'Older reply'}]} globalAgentIds={['a-planner']} mentionCandidates={[]} onSend={() => {}} /></MemoryRouter>);
+    const links = screen.getAllByRole('link', {name: /View Work|查看 Work/});
+    expect(links.map(link => link.getAttribute('href'))).toEqual([
+      '/settings/agents/a-planner?view=work&message_id=m2',
+      '/settings/agents/a-planner?view=work&message_id=older%2Freply%3F'
+    ]);
+  });
+
   it("renders the conversation title and each message content", () => {
     render(
       <MessagePane
@@ -181,7 +192,7 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
   });
 
-  it("keeps a deep-linked historical message away from automatic bottom hydration", () => {
+  it("preserves a deep-linked position until the conversation is opened normally", () => {
     const props={conversation:DIRECT_CONV,messages:[] as Message[],selfUserId:"u1",mentionCandidates:[],onSend:vi.fn(),focusMessageId:"m1"};
     const {container,rerender}=render(<MessagePane {...props}/>);
     const scroller=container.querySelector(".chat-pane-messages") as HTMLElement;
@@ -189,8 +200,11 @@ describe("MessagePane", () => {
     setScrollMetrics(scroller,metrics);
     rerender(<MessagePane {...props} messages={SAMPLE_MESSAGES}/>);
     expect(scroller.scrollTop).toBe(0);
-    rerender(<MessagePane {...props} messages={[...SAMPLE_MESSAGES,{...SAMPLE_MESSAGES[1],id:"m3"}]}/>);
+    const refreshed = [...SAMPLE_MESSAGES, {...SAMPLE_MESSAGES[1], id: "m3"}];
+    rerender(<MessagePane {...props} messages={refreshed}/>);
     expect(scroller.scrollTop).toBe(0);
+    rerender(<MessagePane {...props} messages={refreshed} focusMessageId={null}/>);
+    expect(scroller.scrollTop).toBe(1800);
   });
 
   describe("history pagination scroll trigger (feat-451 R1)", () => {
