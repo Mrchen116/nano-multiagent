@@ -10,7 +10,7 @@ it('removes only the retired Agent command receipts with mixed legacy result for
   const store = new NodeStore(':memory:', 'o');
   try {
     const keys = (agent: string, session: string) => [
-      `${agent}:message-1`,`published:${session}:1`,`interactive-delivered:${session}:1`,
+      `${agent}:message-1`,`${agent}:external:${agent}:app:provider-message`,`published:${session}:1`,`interactive-delivered:${session}:1`,
       `task-approval-visible:${session}:1`,`model-placeholder:${session}:1`,`${session}:1:failure:2`,`${session}:1:switched`,
     ];
     const a=keys('a','session-a'), b=keys('ab','session-ab');

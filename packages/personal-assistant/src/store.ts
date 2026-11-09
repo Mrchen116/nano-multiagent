@@ -156,7 +156,8 @@ export class NodeStore {
         `DELETE FROM ${table} WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?)`).run(agentId);
       this.db.prepare('DELETE FROM tool_references WHERE agent_id=?').run(agentId);
       // Older /new and /stop receipts contain plain text. Ownership is in the key.
-      this.db.prepare("DELETE FROM command_results WHERE id GLOB ? AND instr(substr(id,?),':')=0").run(`${agentId}:*`,agentId.length+2);
+      this.db.prepare("DELETE FROM command_results WHERE (id GLOB ? AND instr(substr(id,?),':')=0) OR id GLOB ?")
+        .run(`${agentId}:*`,agentId.length+2,`${agentId}:external:${agentId}:*`);
       const sessionCommands=this.db.prepare(`DELETE FROM command_results
         WHERE id GLOB ? OR id GLOB ? OR id GLOB ? OR id GLOB ? OR id GLOB ? OR id GLOB ?`);
       for (const id of sessionIds) sessionCommands.run(`published:${id}:*`,`interactive-delivered:${id}:*`,

@@ -671,7 +671,8 @@ export class Identity {
         "personal_agent_bindings",
       ].map((table) => [
         table,
-        table==='agent_profiles' ? this.transferableAgents(nodeId) : this.all(`SELECT * FROM ${table} WHERE node_id=? ORDER BY rowid`, nodeId),
+        table==='agent_profiles' ? this.transferableAgents(nodeId) : this.all(`SELECT * FROM ${table} WHERE node_id=?${table==='agent_channel_removals'
+          ? " AND NOT EXISTS (SELECT 1 FROM agent_deletions d WHERE d.agent_id=agent_channel_removals.agent_id AND d.state='deleted')" : ''} ORDER BY rowid`, nodeId),
       ]),
     );
   }
@@ -914,6 +915,8 @@ export class Identity {
           channel.channel_id,
         );
       }
+      if (op.expected_owner!==user.owner_id) this.run(`DELETE FROM agent_channel_removals WHERE node_id=?
+        AND agent_id IN (SELECT agent_id FROM agent_deletions WHERE state='deleted')`,op.node_id);
       this.run(
         "INSERT INTO nodes(node_id,node_name,owner_id,status) VALUES(?,?,?,'offline') ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,status='offline'",
         op.node_id,
