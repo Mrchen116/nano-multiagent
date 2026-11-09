@@ -71,3 +71,9 @@
 - 同步 `origin/develop` 的 `fa3380f6e`，包含纯 UI 的历史回读、搜索与审核投影。引用快照使用同一投影，保留完整的公开卡片源码和适用的替换关系。Global Inbox 和历史返回在 `reply_to.interactive` 中提供卡片，单线程在引用段中提供同样的内容。新旧消息从当前聊天原消息建立引用，渲染字段和私有草稿不进入快照。
 - 两个隔离群由另一名 Sol 6.1 Agent 先公开发送没有正文的 UI 卡片，再加入接收方。Web 群 `c_9ysja8t8` 用卡片气泡的回复按钮引用原卡片 `0df5cd5033d24a73bf54acd8acbd63c3`。Global 主轨迹第 6 轮从 Inbox 直接读到 `reply_to.interactive.source`，随后发送「柚林-A613」，期间无历史查询。单线程群 `c_ecc5x5ce` 通过真实 IM API 投递同类引用，原生输入带卡片源码，答出「铜雀-B258」。本机原生事件和消息回执见 `/tmp/feat730-evidence/ui-quote-probes.json`。
 - 构建及 Web 135 项相关回归通过。后端定向 110 项首跑通过，1 项 PA 能力目录超时，单独重跑通过。隔离预览保留给用户检查原生轨迹。
+
+## 统一引用长度规则
+
+- 文本和 UI 源码共用前 1200 个字符的引用投影。长卡片也在 `reply_to.interactive.source` 末尾带 `[Rest of original message omitted.]`。按消息 ID 回查原卡片时返回完整源码。
+- 4 个文件的 53 项定向回归通过。实际 IM 发布短卡片和长卡片后，验证 Inbox 和单线程输入、长卡片省略说明及按 ID 读取完整原卡片。
+- 真实 Global Sol 6.1 在群聊 `c_g5pzghr9` 从 Inbox 读到带省略提示的长卡片，随后按原消息 ID 调用 `conversations.read` 并答出第 1478 个字符才出现的「雁塔-C824」。Global 原生轨迹第 7 轮的调用序号为 204、212、220。实测由隔离 IM API 发起，证据见 `/tmp/feat730-evidence/long-ui-quote.json`。

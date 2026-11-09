@@ -80,6 +80,14 @@ export interface ChatReplyReference {
   attachments: ChatAttachment[];
   interactive?: Pick<MessageInteractive, 'source' | 'supersedes_message_id' | 'superseded_by'>;
 }
+
+function quoteExcerpt(text: string): string {
+  const maxExcerptLength = 1200;
+  return text.length > maxExcerptLength
+    ? `${text.slice(0, maxExcerptLength)}\n\n[Rest of original message omitted.]`
+    : text;
+}
+
 /** Project the original message for model consumption inside its current chat.
  *
  * Args:
@@ -88,17 +96,14 @@ export interface ChatReplyReference {
  *   Author, public text and card content, and the IM identity for exact lookup.
  */
 export function projectChatReplyContext(reply: ChatReplyReference) {
-  const maxExcerptLength = 1200;
-  const text = reply.content.length > maxExcerptLength
-    ? `${reply.content.slice(0, maxExcerptLength)}\n\n[Rest of original message omitted.]`
-    : reply.content;
+  const text = quoteExcerpt(reply.content);
   const attachmentNames = reply.attachments.map(attachment =>
     attachment.file_name || (attachment.content_type?.startsWith('image/') ? 'Image' : 'File'));
   return {
     message_id: reply.message_id,
     sender: { name: reply.sender.display_name, type: reply.sender.type },
     ...(text ? { text } : {}),
-    ...(reply.interactive ? { interactive: reply.interactive } : {}),
+    ...(reply.interactive ? { interactive: { ...reply.interactive, source: quoteExcerpt(reply.interactive.source) } } : {}),
     ...(attachmentNames.length ? { attachment_names: attachmentNames } : {}),
   };
 }
