@@ -9,7 +9,8 @@ Base == INSTANCE ContextCachePrefix WITH AllowImages <- FALSE, Fault <- "none"
 ChildHeader(owner) ==
     [system |-> (IF Depth = 1 THEN <<owner, "owner-name", "shared-feature">>
                  ELSE <<"native-nested-guidance">>) \o <<"context-guidance">>,
-     tools |-> <<"native-worker-tools", Depth, "context-tools">>, route |-> "primary"]
+     tools |-> <<"native-worker-tools", IF Depth = 1 THEN "level-one" ELSE "level-two", "context-tools">>,
+     route |-> "primary"]
 
 Init ==
     \E owner \in Agents :
@@ -73,15 +74,17 @@ RefreshWorkspaceInstructions ==
 DisableContextPlugin ==
     /\ BetweenTurns("context-plugin")
     /\ s' = [s EXCEPT !.changes = Base!Use("context-plugin"), !.compaction = "legacy",
-             !.header.system = SubSeq(@, 1, Len(@) - 1),
-             !.header.tools = SubSeq(@, 1, Len(@) - 1)]
+             !.header.system = SelectSeq(@, LAMBDA part : part # "context-guidance"),
+             !.header.tools = SelectSeq(@, LAMBDA part : part # "context-tools"),
+             !.expected.system = SelectSeq(@, LAMBDA part : part # "context-guidance"),
+             !.expected.tools = SelectSeq(@, LAMBDA part : part # "context-tools")]
 
 SwitchParentModel ==
     /\ BetweenTurns("route")
     /\ s' = [s EXCEPT !.changes = Base!Use("route"), !.header.route = "secondary",
              !.config = "route-notice"]
 
-\* These are observed runtime operations, with no exception granted to a child.
+\* Pressure pruning still has no exception for an already-sent child result.
 PruneChildToolResult(i) ==
     /\ Scenario = "prune"
     /\ s.stage = "ready"
@@ -98,7 +101,8 @@ RollChildWindow ==
     /\ Base!CanUse("rollover")
     /\ s' = [s EXCEPT !.changes = Base!Use("rollover"),
              !.stage = IF s.stage = "failed" THEN "ready" ELSE @,
-             !.history = <<Base!Entry("window-notice", 1)>>]
+             !.history = <<Base!Entry("window-notice", 1)>>,
+             !.protected = <<Base!Entry("window-notice", 1)>>]
 
 CommitChildSummary(cut) ==
     /\ Scenario = "summary"
@@ -107,7 +111,8 @@ CommitChildSummary(cut) ==
     /\ Base!CanUse("summary")
     /\ s.protected[cut][1] \in {"assistant", "interrupted"}
     /\ s' = [s EXCEPT !.changes = Base!Use("summary"),
-             !.history = Base!WithSummary(@, cut)]
+             !.history = Base!WithSummary(@, cut),
+             !.protected = Base!WithSummary(@, cut)]
 
 Next ==
     \/ ChildInput \/ EmitChildRequest
