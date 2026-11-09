@@ -33,10 +33,10 @@ it('reads one exact reply summary across a thousand persisted wakes and a retire
   const focus = (id: string) => read(`${base}/focus?message_id=${id}`);
   const direct = await focus('reply-1');
   expect(direct.status).toBe(200);
-  expect(direct.body).toEqual({focus: {newer_turn_id: '2', turn: expect.objectContaining({
+  expect(direct.body).toEqual({focus: {newer_turn_id: '2', older_turn_id: null, turn: expect.objectContaining({
     session_id: 'focus-main', turn_id: '1', seq: expect.any(Number), items: [], items_deferred: true,
   })}});
-  expect((await focus('reply-999')).body.focus).toMatchObject({newer_turn_id: '1000', turn: {turn_id: '999'}});
+  expect((await focus('reply-999')).body.focus).toMatchObject({newer_turn_id: '1000', older_turn_id: '998', turn: {turn_id: '999'}});
   expect((await focus('reply-1000')).body.focus).toMatchObject({newer_turn_id: null, turn: {turn_id: '1000'}});
   expect((await focus('not-synced')).body).toEqual({focus: null});
 
@@ -51,6 +51,7 @@ it('reads one exact reply summary across a thousand persisted wakes and a retire
     expect(response.body.main_execution).toBe('running');
     allTurns.push(...response.body.turns.map((turn: {turn_id: string}) => turn.turn_id));
     cursor = response.body.next_cursor;
+    expect(response.body.next_turn_id).toBe(cursor ? String(Number(cursor) - 1) : null);
     pages++;
   } while (cursor && pages < 51);
   expect(pages).toBe(50);

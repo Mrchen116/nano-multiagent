@@ -456,6 +456,7 @@ export class WorkRecords {
       turns: rows.slice(0, limit).map(row => this.turnView(root, registered.scope, row, summary)),
       control_items: this.items(root, session, "").items,
       next_cursor: rows.length > limit ? rows[limit - 1]!.turn_id : null,
+      next_turn_id: rows[limit]?.turn_id ?? null,
     };
   }
   private turnView(root: string, scope: string, row: WorkTurnRecord, summary: boolean): WorkTurnView {
@@ -481,18 +482,19 @@ export class WorkRecords {
        ORDER BY e.revision LIMIT 1`, root, root, messageId) as (WorkTurnRecord & {scope: string}) | undefined;
   }
 
-  /** Read one reply's durable turn summary and its nearest newer neighbor.
+  /** Read one reply's durable turn summary and its nearest neighbors.
    * Args:
    *   root: Authorized product Agent identity.
    *   messageId: Published chat reply identity.
    * Returns:
-   *   The exact turn and its newer neighbor, or null while the delivery is unavailable.
+   *   The exact turn and its neighbors, or null while the delivery is unavailable.
    */
   focus(root: string, messageId: string): WorkFocus | null {
     const row = this.replyTurn(root, messageId);
     if (!row) return null;
     const newer = one(this.db, "SELECT turn_id FROM agent_work_turns WHERE session_id=? AND seq>? ORDER BY seq ASC LIMIT 1", row.session_id, row.seq);
-    return {turn: this.turnView(root, row.scope, row, true), newer_turn_id: newer?.turn_id ?? null};
+    const older = one(this.db, "SELECT turn_id FROM agent_work_turns WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT 1", row.session_id, row.seq);
+    return {turn: this.turnView(root, row.scope, row, true), newer_turn_id: newer?.turn_id ?? null, older_turn_id: older?.turn_id ?? null};
   }
 
   /** Read the committed revision used for client invalidation.
@@ -524,7 +526,7 @@ export class WorkRecords {
       main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
     const reply = messageId ? this.replyTurn(root, messageId) : undefined;
     // A message selects where to expand, not which records exist in Work.
-    const page = main ? this.turns(root, main, before, limit, summary) : { turns: [], next_cursor: null };
+    const page = main ? this.turns(root, main, before, limit, summary) : { turns: [], next_cursor: null, next_turn_id: null };
     let latest = null;
     for (const r of main
       ? this.db.prepare("SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC").iterate(main)

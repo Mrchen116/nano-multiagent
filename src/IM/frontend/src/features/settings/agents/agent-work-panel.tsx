@@ -28,21 +28,29 @@ function readSaved(key: string): SavedView {
   catch { return { selected: null, expanded: {}, scroll: 0 }; }
 }
 
-function WorkTurnList({ turns, anchors, renderTurn, earlier }: {
+function WorkTurnList({ turns, anchors, renderTurn, nextTurnId, earlier }: {
   turns: WorkTurn[];
   anchors: WorkFocus[];
   renderTurn(turn: WorkTurn): ReactNode;
+  nextTurnId?: string | null;
   earlier?: {loading: boolean; load(): void};
 }) {
   const ordinary = new Set(turns.map(turn => turn.turn_id));
   const extra = new Map(anchors.filter(anchor => !ordinary.has(anchor.turn.turn_id)).map(anchor => [anchor.turn.turn_id, anchor]));
   const merged = extra.size ? [...turns, ...[...extra.values()].map(anchor => anchor.turn)].sort((a, b) => b.seq - a.seq) : turns;
+  const olderByTurn = new Map(turns.map((turn, i) => [turn.turn_id, turns[i + 1]?.turn_id ?? nextTurnId]));
   const gaps = merged.map((turn, i) => {
-    const newer = extra.get(turn.turn_id)?.newer_turn_id;
-    return newer != null && newer !== merged[i - 1]?.turn_id;
+    const anchor = extra.get(turn.turn_id);
+    if (!anchor) return false;
+    const previous = merged[i - 1];
+    // An inactive anchor may have been newest when cached. The preceding
+    // card's older neighbor still identifies the boundary after newer turns arrive.
+    const precedingAnchor = previous && extra.get(previous.turn_id);
+    const older = precedingAnchor ? precedingAnchor.older_turn_id : previous && olderByTurn.get(previous.turn_id);
+    return older !== undefined ? older !== turn.turn_id : anchor.newer_turn_id !== (previous?.turn_id ?? null);
   });
   const firstGap = gaps.indexOf(true);
-  const more = earlier && <button type="button" disabled={earlier.loading} onClick={earlier.load}>{tr("更早轮次")}</button>;
+  const more = earlier && <button className="im-work-earlier" type="button" disabled={earlier.loading} onClick={earlier.load}>{tr("更早轮次")}</button>;
   return <>
     {merged.map((turn, i) => <Fragment key={turn.turn_id}>
       {firstGap === i && more}
@@ -235,14 +243,14 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
         <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
           <section className="im-work-trace"><header className="im-work-section-head"><h3>{tr("主 Agent")}</h3><small>{tr("最新轮次在前 · 轮次内部按实际顺序")}</small></header>
-            {mainTurns.length || mainAnchors.length ? <WorkTurnList turns={mainTurns} anchors={mainAnchors} renderTurn={renderTurn}
+            {mainTurns.length || mainAnchors.length ? <WorkTurnList turns={mainTurns} anchors={mainAnchors} renderTurn={renderTurn} nextTurnId={viewQuery.data?.pages.at(-1)?.next_turn_id}
               earlier={viewQuery.hasNextPage ? {loading: viewQuery.isFetchingNextPage, load: () => void viewQuery.fetchNextPage()} : undefined} />
               : <p className="im-work-state">{tr("暂无工作记录。符合配置的新消息会进入收件箱。")}</p>}
           </section>
           {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr("← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
             <button type="button" onClick={() => showNative(saved.selected)}>{tr('查看原生轨迹')}</button>
             {childQuery.isError ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p>
-              : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} renderTurn={renderTurn}
+              : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}
                 earlier={childQuery.hasNextPage ? {loading: childQuery.isFetchingNextPage, load: () => void childQuery.fetchNextPage()} : undefined} />
               : childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : <p>{tr("尚未报告执行轮次")}</p>}
             {!childQuery.isError && <SessionFacts items={childQuery.data?.pages[0]?.control_items} />}

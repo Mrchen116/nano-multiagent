@@ -115,6 +115,34 @@ describe("Agent work view", () => {
     expect(requested.at(-1)).toBe('3');
   });
 
+  it.each([3, 4])('uses the current page boundary when a once-newest cached anchor falls behind turn %s', async (latest) => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const turn = (id: number) => ({...view.turns[0], turn_id: String(id), seq: id * 5});
+    view = {...view, turns: [turn(1)]};
+    focus = reply(turn(1));
+    const {router} = renderWork('/settings/agents/global?view=work&message_id=A');
+    const card = (id: number) => document.getElementById(`work-turn-main-${id}`);
+    await waitFor(() => expect(card(1)).toHaveAttribute('open'));
+    await act(() => router.navigate('/settings/agents/global?view=work'));
+    view = {...view, turns: [turn(latest), turn(latest - 1)], next_cursor: String(latest - 1), next_turn_id: String(latest - 2)};
+    act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: 'agent.work.updated', payload: {agent_id: 'global'}}));
+    await waitFor(() => expect(card(latest)).toBeInTheDocument());
+
+    expect(card(latest - 1)).toBeInTheDocument();
+    expect(card(1)).toHaveAttribute('open');
+    expect(mocks.fetch.mock.calls.filter(([url]) => focusPath(String(url)))).toHaveLength(1);
+    const earlier = screen.getByRole('button', {name: '更早轮次'});
+    const gap = screen.queryByText('中间轮次尚未加载');
+    if (latest === 3) {
+      expect(gap).not.toBeInTheDocument();
+      expect(earlier.previousElementSibling).toBe(card(1));
+    } else {
+      expect(earlier.previousElementSibling).toBe(card(3));
+      expect(earlier.nextElementSibling).toBe(gap);
+      expect(card(1)?.previousElementSibling).toBe(gap);
+    }
+  });
+
   it('places ordinary pagination in the historical execution on a narrow screen', async () => {
     Element.prototype.scrollIntoView = vi.fn();
     vi.mocked(window.matchMedia).mockReturnValue({matches: true} as MediaQueryList);
