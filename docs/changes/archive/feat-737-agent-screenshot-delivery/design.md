@@ -10,10 +10,10 @@
 
 ## 现状分析
 
-- [工具声明](../../../packages/dsh-integration/src/message-arguments.ts)的 `attachments` 接收已托管 URL。PA 将其送进审核和发布，普通 Agent 的 [显式发送](../../../packages/personal-assistant/src/global-agent.ts)尚未转发本地图片。`AgentPublication` 已支持附件与卡片同发，但 [IM 发布](../../../apps/im-server/src/messaging.ts)需要补齐附件归属校验和重放一致性。
-- [媒体路由](../../../apps/im-server/src/media.ts)已有网关身份、目标会话写权限、生命周期、图片探测、10 MiB、配额和幂等上传。下载以所属会话鉴权。节点已有认证 HTTP 客户端，执行运行时继续只经既有 stdio product bridge 连接宿主。
-- PA 现有 [准备与提交](../../../apps/im-server/src/personal-actions.ts)会冻结来源图片、给审核者实际图片、授权后复制到目标会话。把待审图片准备在 PA 主人与 PA 的私聊，可直接复用该流程。
-- [OpenUI 图片组件](../../../src/IM/frontend/src/features/chat/interactive/open-intelligent-ui/components/media.tsx)使用普通 HTTP(S) 图片和公开搜索回退。Web 聊天已有受保护图片加载与放大；原生 iOS 已有原生附件预览和受限的卡片宿主桥接。卡片内的附件引用需要宿主支持。
+- [工具声明](../../../../packages/dsh-integration/src/message-arguments.ts)的 `attachments` 接收已托管 URL。PA 将其送进审核和发布，普通 Agent 的 [显式发送](../../../../packages/personal-assistant/src/global-agent.ts)尚未转发本地图片。`AgentPublication` 已支持附件与卡片同发，但 [IM 发布](../../../../apps/im-server/src/messaging.ts)需要补齐附件归属校验和重放一致性。
+- [媒体路由](../../../../apps/im-server/src/media.ts)已有网关身份、目标会话写权限、生命周期、图片探测、10 MiB、配额和幂等上传。下载以所属会话鉴权。节点已有认证 HTTP 客户端，执行运行时继续只经既有 stdio product bridge 连接宿主。
+- PA 现有 [准备与提交](../../../../apps/im-server/src/personal-actions.ts)会冻结来源图片、给审核者实际图片、授权后复制到目标会话。把待审图片准备在 PA 主人与 PA 的私聊，可直接复用该流程。
+- [OpenUI 图片组件](../../../../src/IM/frontend/src/features/chat/interactive/open-intelligent-ui/components/media.tsx)使用普通 HTTP(S) 图片和公开搜索回退。Web 聊天已有受保护图片加载与放大；原生 iOS 已有原生附件预览和受限的卡片宿主桥接。卡片内的附件引用需要宿主支持。
 - feat-551/563 的图片交付沿用同一会话受保护资源语义。DSH 迁移后的显式发送接线缺失由本 unit 补齐。Raft 参考版本为 `db5e399f017d584e49597e3a28757645d6807893`，复用其先传字节再绑定消息的语义，Nano 在一次发送调用中完成。
 
 ## 关键决策
@@ -71,7 +71,7 @@
 
 使用 daily 测试模型与 P/E/Q + PA。在隔离 IM 通过 `POST /im/v1/auth/register` 创建并登录第二个真人，完成测试空间加入流程。双账号群须使用隔离公司空间和该空间的 Agent。测试 owner 创建包含发图 Agent 的私密群。第二个账号先以非成员身份验证拒绝，再由群 owner 通过 `POST /im/v1/conversations/:id/participants` 加入并验证可读。PA 在测试群显式加入并核实有发言权限，另验审核通过和拒绝。准备两张可区分的本地截图。
 
-iOS 使用 [仓库构建入口](../../../src/IM/ios/README.md#构建)重建共享资源与 Debug App。在专用模拟器通过登录页配置隔离 IM 地址并用第二个账号回看和点开原图。结束后回收隔离栈、临时浏览器、模拟器及独占构建目录。
+iOS 使用 [仓库构建入口](../../../../src/IM/ios/README.md#构建)重建共享资源与 Debug App。在专用模拟器通过登录页配置隔离 IM 地址并用第二个账号回看和点开原图。结束后回收隔离栈、临时浏览器、模拟器及独占构建目录。
 
 ## Milestones
 

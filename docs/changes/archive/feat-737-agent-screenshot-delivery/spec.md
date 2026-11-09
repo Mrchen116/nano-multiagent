@@ -24,7 +24,7 @@
 
 Agent 改完页面后在本机截取改动前后的画面，在原 Nano IM 群里交付一条结果消息。群友能先看流程和改动说明，再比较两张截图，点开检查细节。单张截图也可以随普通消息交付。看过结果的人刷新、重开聊天或换设备后仍能回看，且读取范围遵循原群权限。
 
-当前 Gateway 契约曾记录本地图片交付，现行 DSH 节点的显式发送链路缺少本地文件准备环节。IM 已有会话级图片上传及读图权限。Raft 的已发布源码和手册显示本地文件上传后与消息绑定，群友可直接预览。参照的是这一交付语义。 [现有图片契约](../../specs/gateway/routing-delivery.md) · [Raft 附件手册](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/manual/agent-knowledge/attachment.md#L28-L57)
+当前 Gateway 契约曾记录本地图片交付，现行 DSH 节点的显式发送链路缺少本地文件准备环节。IM 已有会话级图片上传及读图权限。Raft 的已发布源码和手册显示本地文件上传后与消息绑定，群友可直接预览。参照的是这一交付语义。 [现有图片契约](../../../specs/gateway/routing-delivery.md) · [Raft 附件手册](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/manual/agent-knowledge/attachment.md#L28-L57)
 
 ## 验收标准
 
