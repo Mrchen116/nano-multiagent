@@ -215,12 +215,12 @@ export function apply(ctx) {
       { insert: [{ id: 'query-approval-fixture', name: join(home, 'fixture.mjs') }] },
     ]);
     const toolAllowlist = [...new Set([...queries, ...reviewed].map(call => call.name))];
-    const agents = ['queries', 'writes', 'dsh', 'manual', 'blocked', 'hidden'].map(agentId => ({
-      agentId, revision: '1', mode: 'global', provider: 'fixture', model: 'fixture',
+    const agents = ['queries', 'writes', 'dsh', 'manual', 'blocked', 'hidden', 'screenshot-manual'].map(agentId => ({
+      agentId, revision: '1', mode: agentId === 'screenshot-manual' ? 'single_thread' : 'global', provider: 'fixture', model: 'fixture',
       toolAllowlist: agentId === 'hidden' ? [] : toolAllowlist,
       features: { task_graph: true, skill_creation: true, memory_curation: false, cron_scheduling: true },
       knowledge: { memoryMode: 'legacy', enabled: false, globalSkillRoot: join(home, 'skills') },
-      approval: { ...approvalDefaults, enabled: agentId !== 'manual', globalRoot: home, rules: agentId === 'dsh' ? 'dsh' : 'nano' },
+      approval: { ...approvalDefaults, enabled: !['manual','screenshot-manual'].includes(agentId), globalRoot: home, rules: agentId === 'dsh' ? 'dsh' : 'nano' },
     }));
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     registerNoopTaskHosts(client);
@@ -236,7 +236,9 @@ export function apply(ctx) {
       throw error;
     });
     for (const config of agents) {
-      const calls = config.agentId === 'writes' ? reviewed : queries;
+      const calls = config.agentId === 'screenshot-manual'
+        ? [{name:'send_message',args:{target:'group',text:'Demo',local_images:['/tmp/screenshot.png']}}]
+        : config.agentId === 'writes' ? reviewed : queries;
       const prior = (await reviewLog()).length;
       await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });
       await client.rpc.request('session.submit', { sessionId: config.agentId, inputId: config.agentId, mode: 'followup', content: [{ type: 'text', text: JSON.stringify(calls) }],
@@ -258,6 +260,10 @@ export function apply(ctx) {
         } else {
           expect(results.every(event => event.data.message.isError)).toBe(true);
           if (config.agentId === 'manual') expect(JSON.stringify(results)).toContain('manual_required');
+          if (config.agentId === 'screenshot-manual') {
+            expect(JSON.stringify(results)).toContain('Screenshot delivery needs approval with private evidence');
+            expect(observed.events.some(event=>event.type==='approval/request')).toBe(false);
+          }
           if (config.agentId === 'blocked') {
             expect(JSON.stringify(results)).toContain('Explicit tool restriction');
             expect(observed.approvals).toEqual([]);

@@ -418,6 +418,18 @@ export class Messaging {
       sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,
     });
   }
+  private publicationAttachments(id: string, attachments: AgentPublication['attachments']) {
+    const submitted = attachments ?? [];
+    if (submitted.length > 5) fail(422, 'too many attachments');
+    return submitted.map(({url}) => {
+      const match = url?.match(/^\/im\/v1\/conversations\/([^/]+)\/(?:images|attachments)\/([\w-]+)$/);
+      if (!match || match[1] !== id) fail(422, 'attachment must belong to the destination conversation');
+      const row = one(this.db, 'SELECT file_name,content_type FROM message_images WHERE conversation_id=? AND image_id=?', id, match[2]);
+      if (!row) fail(404, 'attachment not found');
+      return {url, file_name:row.file_name, content_type:row.content_type};
+    });
+  }
+
   /** Commit a validated explicit publication under its existing dispatch identity. */
   publishAgent(principal:Extract<SendPrincipal,{kind:'gateway'}>,agentId:string,operationId:string|undefined,p:AgentPublication):ChatPublicationReceipt {
     const db=this.db;
@@ -431,7 +443,8 @@ export class Messaging {
       this.access(principal, previous.conversation_id, agentId);
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
-      if (saved.content !== p.text.trim() || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
+      if (saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
+        || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
         conversation_id: previous.conversation_id,
@@ -445,6 +458,7 @@ export class Messaging {
     const personal=one(db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",agentId);
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
+    const attachments = this.publicationAttachments(id, p.attachments);
     const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
     const targetUser = one(
       db,
@@ -465,7 +479,7 @@ export class Messaging {
       this.agentUser(agentId).id,
       "agent",
       p.text.trim(),
-      p.attachments ?? [],
+      attachments,
       key,
       'completed',
       { interactive, publish: false },

@@ -19,6 +19,9 @@ final class InteractiveRuntime {
     var conflict = false
     var submitted = false
     var pendingCompose: ChatStore.ComposeRequest?
+    var attachmentPreview: UIImage?
+    private var visibleAttachmentIndexes: Set<Int> = []
+    @ObservationIgnored private var left = false
     @ObservationIgnored private var context: JSContext?
     @ObservationIgnored private var engine: JSValue?
     @ObservationIgnored private var revision = 0
@@ -48,9 +51,14 @@ final class InteractiveRuntime {
     var usesWebRenderer: Bool { message.interactive?.catalog_version == "nano-iui-1" }
     var webID: UUID { generation }
     var webDisabled: Bool { readOnly || busy || hasPending || conflict }
+    var fallbackAttachmentIndexes: [Int] {
+        let shown = Set(visibleAttachmentIndexes.map { message.attachments[$0].url })
+        return message.attachments.indices.filter { !shown.contains(message.attachments[$0].url) }
+    }
 
     func load() async {
-        let token = UUID(); generation = token
+        let token = UUID(); generation = token; left = false
+        resetAttachmentPresentation()
         sessionRevision = await client.session.revision()
         error = nil; conflict = false; loaded = false
         do {
@@ -84,7 +92,7 @@ final class InteractiveRuntime {
     }
     /// The bundled renderer supplies values, never credentials or arbitrary API access.
     func webRequest(_ request: JSONValue, generation token: UUID) async throws -> JSONValue {
-        guard usesWebRenderer, loaded, token == generation, await current() else {
+        guard usesWebRenderer, loaded, await current(), !left, token == generation else {
             throw runtimeError("This card session is no longer active")
         }
         let type = request["type"].stringValue ?? ""
@@ -92,6 +100,9 @@ final class InteractiveRuntime {
             return .object(["source": .string(message.interactive?.source ?? ""), "state": .object(state), "disabled": .bool(webDisabled)])
         }
         if type == "error" { error = request["message"].stringValue; return .null }
+        if ["attachment-image", "attachment-open", "attachment-visible"].contains(type) {
+            return try await attachmentRequest(type, request, generation: token)
+        }
         if let value = request["state"].objectValue, let sequence = request["sequence"].intValue,
            sequence > webSequence, !webDisabled {
             webSequence = sequence
@@ -147,6 +158,46 @@ final class InteractiveRuntime {
         await syncRevision()
         return .object(["message_id": .string(receipt.id), "delivery_status": .string(receipt.delivery_status)])
     }
+    /// Card media uses the current message and native credentials, even in read-only history.
+    private func attachmentRequest(_ type: String, _ request: JSONValue, generation token: UUID) async throws -> JSONValue {
+        guard let value = request["index"].doubleValue, let position = Int(exactly: value),
+              position > 0, position <= message.attachments.count else {
+            throw runtimeError("This image is not attached to the message")
+        }
+        let index = position - 1
+        let attachment = message.attachments[index]
+        let imageTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"]
+        let url = try ServerOrigin.resource(attachment.url, base: client.baseURL)
+        let path = url.pathComponents
+        guard imageTypes.contains(attachment.content_type ?? ""),
+              url.query == nil, url.fragment == nil, path.count == 7,
+              Array(path.prefix(5)) == ["/", "im", "v1", "conversations", message.conversation_id],
+              ["images", "attachments"].contains(path[5]) else {
+            throw runtimeError("This image is not attached to the message")
+        }
+        if type == "attachment-visible" {
+            guard let visible = request["visible"].boolValue else { throw runtimeError("Image visibility is required") }
+            if visible { visibleAttachmentIndexes.insert(index) } else { visibleAttachmentIndexes.remove(index) }
+            return .null
+        }
+        let (data, mime) = try await client.protectedResource(attachment.url)
+        guard await current(), !left, loaded, token == generation else {
+            throw runtimeError("This card session is no longer active")
+        }
+        guard imageTypes.contains(mime) else { throw URLError(.cannotDecodeContentData) }
+        if type == "attachment-open" {
+            guard let image = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
+            attachmentPreview = image
+            return .null
+        }
+        return .object(["data": .string(data.base64EncodedString()), "mime": .string(mime)])
+    }
+
+    func resetAttachmentPresentation() {
+        visibleAttachmentIndexes.removeAll()
+        attachmentPreview = nil
+    }
+
     func setReadOnly(_ value: Bool) {
         callerReadOnly = value
         readOnly = value || draftReadOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
@@ -273,6 +324,8 @@ final class InteractiveRuntime {
         saveFlight = flight; await flight.value; saveFlight = nil
     }
     func leave() {
+        left = true
+        resetAttachmentPresentation()
         saveTimer?.cancel(); queryTask?.cancel(); queryPoll?.cancel()
         // Finish the latest private edit; Session's generation still fences logout.
         Task { await flush() }

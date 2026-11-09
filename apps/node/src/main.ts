@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { AgentDeletionLedger, NodeAgentDeletions } from './agent-deletion.js';
 import { NodeAgentLifecycle } from './agent-lifecycle.js';
 import { requestIm } from './im-http.js';
+import { uploadScreenshot } from './screenshot-upload.js';
 import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -374,7 +375,7 @@ product = new SingleThread({
 });
 let workAvailable=false;
 const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_service.url,credentials:()=>config.im_service.token,available:()=>workAvailable,onError:reportError});
-globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
+globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};
   const next = await configuration.setWorkflowGuideline(agentId, guideline);

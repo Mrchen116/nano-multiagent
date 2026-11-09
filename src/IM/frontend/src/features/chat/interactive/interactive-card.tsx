@@ -1,10 +1,12 @@
-import React, { Component, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Renderer, type ActionEvent } from '@openuidev/react-lang';
 import { ThemeProvider } from '@openuidev/react-ui';
 import '@openuidev/react-ui/defaults.css';
 import '@openuidev/react-ui/components.css';
 import { interactiveLibrary } from './catalog';
 import { runLibraryAction } from './open-intelligent-ui/actions';
+import { CardAttachmentImage } from './open-intelligent-ui/attachment-images';
+import { MessageImage, protectedResourceUrl } from '../components/message-image';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
@@ -23,6 +25,7 @@ export interface InteractiveCardProps {
   readOnly?: boolean;
   submittedMessageId?: string;
   onComposeMessage?(target: string, text: string): Promise<void>;
+  onAttachmentVisibility?(url: string, visible: boolean): void;
   onSelect(selection: InteractiveSelection): void;
   onSend(input: InteractionReplyInput, key: string): Promise<unknown>;
 }
@@ -33,8 +36,13 @@ class RenderBoundary extends Component<{ children: React.ReactNode; fallback: Re
   render() { return this.state.failed ? this.props.fallback : this.props.children; }
 }
 
+function CardMessageImage({ url, alt, report }: { url: string; alt: string; report?: InteractiveCardProps['onAttachmentVisibility'] }) {
+  const onCardVisibility = useCallback((visible: boolean) => report?.(url, visible), [url, report]);
+  return <MessageImage src={url} alt={alt} onCardVisibility={onCardVisibility} />;
+}
+
 /** Render public source while keeping edits private until an explicit continuation. */
-export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend, onComposeMessage}: InteractiveCardProps) {
+export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend, onComposeMessage, onAttachmentVisibility}: InteractiveCardProps) {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState(false);
   const [initial, setInitial] = useState<Record<string, unknown>>({});
@@ -180,19 +188,31 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     }
     setError('action');
   }
+  const renderAttachment = (index: number, alt: string) => {
+    const attachment = message.attachments?.[index - 1];
+    if (!attachment?.content_type?.startsWith('image/') || !protectedResourceUrl(attachment.url, message.conversation_id)) {
+      return <MessageImage alt={alt} />;
+    }
+    return <CardMessageImage url={attachment.url} alt={alt} report={onAttachmentVisibility} />;
+  };
   const fallback = <p role="status">{t('chat.interactive.fallback')}</p>;
+  function markTouched(event: React.SyntheticEvent) {
+    if (!(event.target instanceof Element && event.target.closest('[data-attachment-preview]'))) touched.current = true;
+  }
   return <section className={`interactive-card${message.content.trim() ? "" : " interactive-card--standalone"}`} aria-label={t('chat.interactive.title')}
     onClickCapture={event => {
+      if (event.target instanceof Element && event.target.closest('[data-attachment-preview]')) return;
       touched.current = true;
       const target = event.target instanceof Element ? event.target.closest('button,[role="button"],a,[tabindex]') : null;
       actionLabel.current = (target?.getAttribute('aria-label') || target?.textContent || '').trim();
     }}
     onTouchStart={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}
-    onPointerDownCapture={() => { touched.current = true; }} onKeyDownCapture={() => { touched.current = true; }}
+    onPointerDownCapture={markTouched} onKeyDownCapture={markTouched}
     onChangeCapture={() => { touched.current = true; }}>
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
       <fieldset disabled={readOnly || busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
+        <CardAttachmentImage.Provider value={renderAttachment}>
         <ThemeProvider mode="light" cssSelector=".interactive-card">
         <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
           initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
@@ -212,6 +232,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
           }}
           onAction={onAction} />
         </ThemeProvider>
+        </CardAttachmentImage.Provider>
       </fieldset>
     </RenderBoundary>}
     {error === 'render' && fallback}

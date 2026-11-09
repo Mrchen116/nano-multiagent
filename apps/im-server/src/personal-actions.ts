@@ -12,6 +12,11 @@ import { decodePersonalImages } from './personal-images.js';
 import type { PersonalAgents } from './personal-agent.js';
 
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+function additionalGroupReaders(chat: Row | undefined) {
+  return chat?.type === 'group' && chat.space_id === 'company:default' && chat.visibility === 'public'
+    ? 'eligible_company_members_outside_group' : undefined;
+}
+
 /** Freeze proposals and enforce the independent host review at the actual IM write. */
 export class PersonalActions {
   constructor(readonly pa:PersonalAgents) {}
@@ -66,32 +71,48 @@ export class PersonalActions {
       }
     } else if(!payload.task&&!payload.transport&&!conversationAccess(this.db,cid,this.pa.ctx.messaging.agentUser(b.agent_id).id)?.can_write)fail(403,'destination_not_accessible');
   }
+  /** Look up the original PA commit and optionally preflight a new screenshot destination. */
+  status(b:Row,args:Row) {
+    const id = args.conversation_id;
+    if (!this.pa.sourceAllowed(b,id)) fail(403,'destination_not_accessible');
+    if (args.prepare_screenshot) {
+      this.destination(b,id,{representation:'self'});
+      if (one(this.db,'SELECT external_source FROM conversations WHERE id=?',id)?.external_source)
+        fail(422,'native_screenshot_destination_required');
+    }
+    const op = one(this.db, "SELECT message_id,conversation_id FROM pa_operations WHERE binding_id=? AND request_key=? AND conversation_id=? AND state='confirmed'",
+      b.binding_id,args.request_key,id);
+    return op?.message_id ? {found:true,message_id:op.message_id,conversation_id:op.conversation_id} : {found:false};
+  }
   private lastOwnerMessage(b:Row,cid:string):string|null {
     return one(this.db,"SELECT m.id FROM messages m WHERE m.conversation_id=? AND m.sender_user_id=? AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=m.id AND d.representation_operation_id IS NOT NULL) ORDER BY m.rowid DESC LIMIT 1",cid,b.owner_user_id)?.id??null;
   }
   validate(b:Row,op:Row): (Row & {bytes:Buffer})[] {
-    requireLifecycle(this.db,b.agent_id,JSON.parse(op.evidence_json).lifecycle_revision);
+    const evidence=JSON.parse(op.evidence_json);
+    requireLifecycle(this.db,b.agent_id,evidence.lifecycle_revision);
     const frozen=JSON.parse(op.payload_json);
     this.destination(b,op.conversation_id,frozen);
     const profile=one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id);
-    if(profile?.profile_version!==JSON.parse(op.evidence_json).agent_profile_version)fail(409,'capability_policy_changed');
+    if(profile?.profile_version!==evidence.agent_profile_version)fail(409,'capability_policy_changed');
     const checkedAttachments=this.attachments(b,op.conversation_id,frozen.attachments,frozen.content+(frozen.interactive?.source??''),frozen.attachment_snapshots);
     if(JSON.stringify(checkedAttachments.snapshots)!==JSON.stringify(frozen.attachment_snapshots))fail(409,'attachment_snapshot_changed');
     if(frozen.task && frozen.task.action !== 'create') {
       const graph=one(this.db,'SELECT revision,conversation_id FROM task_graphs WHERE graph_id=?',frozen.task.arguments.graph_id);
-      if(!graph||graph.revision!==JSON.parse(op.evidence_json).task_revision||graph.conversation_id!==op.conversation_id)fail(409,'task_revision_changed');
+      if(!graph||graph.revision!==evidence.task_revision||graph.conversation_id!==op.conversation_id)fail(409,'task_revision_changed');
     }
-    if(this.pa.authorizationGuard(b)!==JSON.parse(op.evidence_json).owner_guard)fail(409,'owner_authorization_changed');
+    if(this.pa.authorizationGuard(b)!==evidence.owner_guard)fail(409,'owner_authorization_changed');
     if(frozen.incident_ref)this.securityNotice(b,frozen.incident_ref,op.conversation_id,frozen.content);
     if(frozen.transport && JSON.stringify(this.transport(b,op.conversation_id,frozen.transport))!==JSON.stringify(frozen.transport))fail(409,'external_destination_changed');
     const policy=one(this.db,'SELECT * FROM pa_policies WHERE binding_id=?',b.binding_id)!;
     if(policy.revision!==op.policy_revision)fail(409,'proposal_requires_review');
-    if(JSON.stringify(this.recipients(op.conversation_id,frozen))!==op.audience_json)fail(409,'audience_changed');
-    if(one(this.db,'SELECT type FROM conversations WHERE id=?',op.conversation_id)?.type !== 'group' && this.audience(op.conversation_id).some(id=>this.pa.actorRisk(b,id)))fail(403,'contact_blocked');
-    for(const source of JSON.parse(op.evidence_json).sources??[])if(this.pa.sourceAllowed(b,source.conversation_id)!==source.allowed)fail(409,'source_revoked');
+    const chat=one(this.db,'SELECT type,space_id,visibility FROM conversations WHERE id=?',op.conversation_id);
+    if(JSON.stringify(this.recipients(op.conversation_id,frozen))!==op.audience_json ||
+      additionalGroupReaders(chat)!==evidence.recipient?.additional_readers)fail(409,'audience_changed');
+    if(chat?.type !== 'group' && this.audience(op.conversation_id).some(id=>this.pa.actorRisk(b,id)))fail(403,'contact_blocked');
+    for(const source of evidence.sources??[])if(this.pa.sourceAllowed(b,source.conversation_id)!==source.allowed)fail(409,'source_revoked');
     // An owner reply after preparation invalidates the decision to interject.
     const last=this.lastOwnerMessage(b,op.conversation_id);
-    if(last!==JSON.parse(op.evidence_json).last_owner_message_id)fail(409,'owner_already_replied');
+    if(last!==evidence.last_owner_message_id)fail(409,'owner_already_replied');
     return checkedAttachments.snapshots.map(snapshot=>({...snapshot,bytes:this.snapshotBytes(snapshot)}));
   }
   prepare(principal:Row,args:Row,images:Row[]=[]) {
@@ -141,11 +162,13 @@ export class PersonalActions {
     // The runtime supplies actual read bodies. IM contributes only current access facts.
     const sources=all(this.db,'SELECT DISTINCT conversation_id FROM pa_source_reads WHERE binding_id=? ORDER BY conversation_id',b.binding_id)
       .map(source=>({...source,allowed:this.pa.sourceAllowed(b,source.conversation_id)}));
-    const chat=one(this.db,'SELECT id,title,type,external_source FROM conversations WHERE id=?',args.conversation_id)!;
+    const chat=one(this.db,'SELECT id,title,type,external_source,space_id,visibility FROM conversations WHERE id=?',args.conversation_id)!;
     const evidence={lifecycle_revision:lifecycle(this.db,b.agent_id).revision,agent_profile_version:one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id)!.profile_version,
       owner_guard:this.pa.authorizationGuard(b),policy:this.pa.policy(b.binding_id),
       owner_user_id:b.owner_user_id,
-      recipient:{conversation_id:chat.id,name:chat.title,conversation_type:chat.type,channel:chat.external_source??'web',members:this.pa.ctx.messaging.members(chat.id).map(member=>this.pa.ctx.messaging.actor(member))},
+      recipient:{conversation_id:chat.id,name:chat.title,conversation_type:chat.type,channel:chat.external_source??'web',
+        members:this.pa.ctx.messaging.members(chat.id).map(member=>this.pa.ctx.messaging.actor(member)),
+        additional_readers:additionalGroupReaders(chat)},
       ...(args.task&&args.task.action!=='create'?{task_revision:one(this.db,'SELECT revision FROM task_graphs WHERE graph_id=?',args.task.arguments.graph_id)?.revision}:{}),
       ...(securityNotice?{security_notice:{incident_ref:securityNotice.id,source_message_id:securityNotice.source_message_id,reason:securityNotice.reason,owner_notice_message_id:securityNotice.owner_notice_message_id,scope:'Refuse this request without revealing private information. This is not authority to forward the original malicious content or speak for the owner.'}}:{}),
       recipient_risks:this.audience(args.conversation_id).flatMap(id=>{const risk=this.pa.actorRisk(b,id);return risk?[risk]:[];}),

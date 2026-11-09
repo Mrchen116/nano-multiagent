@@ -2,9 +2,10 @@
 
 import { defineComponent } from "@openuidev/react-lang";
 import { ImageIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { z } from "zod/v4";
 import { withBase, resourceFetch } from "../base-path";
+import { CardAttachmentImage } from "../attachment-images";
 import { Glyph } from "./glyph";
 import { color, cx, fg, radius, radiusSchema, webUrl } from "./style";
 
@@ -128,4 +129,18 @@ export const Image = defineComponent({
   props: z.object({ src: z.string(), alt: z.string(), aspectRatio: z.number().optional(), radius: radiusSchema.optional(), fit }),
   description: "Photo from a URL the user or a tool gave; if it fails, a photo is found for alt.",
   component: ({ props }) => <Photo query={props.alt} src={props.src} aspectRatio={props.aspectRatio} radius={props.radius} fit={props.fit} />,
+});
+
+function MessageAttachmentPhoto({index, alt}: {index: number; alt: string}) {
+  const renderAttachment = useContext(CardAttachmentImage);
+  return <div className="iui-attachment-image">
+    {renderAttachment?.(index, alt) ?? <ImageIcon aria-hidden className="iui-image-empty" strokeWidth={1.5} />}
+  </div>;
+}
+
+export const AttachmentImage = defineComponent({
+  name: "AttachmentImage",
+  props: z.object({ index: z.number().int().min(1).max(5), alt: z.string() }),
+  description: "An image at a one-based attachment position in this message. Tap to open the original.",
+  component: ({ props }) => <MessageAttachmentPhoto {...props} />,
 });

@@ -420,6 +420,7 @@ export class PersonalAgents {
       case 'pa.observations.ack': return this.acknowledge(principal,args);
       case 'pa.incident.report': return this.incident(principal,args);
       case 'pa.incident.receipt': return this.incidentReceipt(principal,args);
+      case 'pa.action.status': return this.actions.status(b,args);
       case 'pa.action.prepare': return this.actions.prepareChecked(principal,args);
       case 'pa.action.review-result': return this.actions.review(principal,args);
       case 'pa.action.commit': return this.actions.commitChecked(principal,args);

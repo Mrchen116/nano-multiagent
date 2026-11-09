@@ -173,8 +173,16 @@ it('projects the exact frozen disclosure and complete audience without backend g
  const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Full visible text")',supersedes_message_id:'old-card'};
  const attachment={url:'/file',text:'Actual full attachment body',sha256:'content-hash'};
  frozen.payload={...frozen.payload,interactive,attachments:[{url:'/file'}],attachment_snapshots:[attachment]};
- expect(personalReviewAction(frozen).arguments).toEqual({target:'group',text,interactive:{source:interactive.source,supersedes_message_id:'old-card'},attachments:[attachment]});
+ expect(personalReviewAction(frozen).arguments).toEqual({target:'group',text,interactive:{source:interactive.source,supersedes_message_id:'old-card'},
+  attachment_positions:['/file'],attachments:[attachment]});
  expect(frozen.payload.interactive).toEqual(interactive);
+ frozen.recipient.additional_readers='eligible_company_members_outside_group';
+ const second={url:'/other',sha256:'other-hash'};
+ frozen.payload={...frozen.payload,attachments:[{url:'/file'},{url:'/file'},{url:'/other'}],attachment_snapshots:[attachment,second]};
+ expect(personalReviewAction(frozen)).toMatchObject({
+  audience:{additional_readers:'eligible_company_members_outside_group'},
+  arguments:{attachments:[attachment,second],attachment_positions:['/file','/file','/other']},
+ });
  frozen.payload={content:'Shared task change',task:{action:'apply',arguments:{graph_id:'graph',base_revision:7,operations:[{op:'update_task',patch:{result:'Full shared task result'}}]},source_message_id:'source'}};
  expect(personalReviewAction(frozen)).toMatchObject({tool:'task_graph',arguments:{...frozen.payload.task.arguments,action:'apply',source_message_id:'source'}});
 });
