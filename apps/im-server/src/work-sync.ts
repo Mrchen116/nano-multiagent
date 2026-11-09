@@ -43,6 +43,11 @@ export async function registerWorkRedactions(
 
   const staged = transaction(db, () => {
     const files = new Set<string>();
+    // Separate indexed lookups so the OR cannot scan all receipts for this journal.
+    const findUploads = db.prepare(`SELECT id,owner_id,seq,event_id FROM work_sync_uploads
+      WHERE node_id=? AND journal_id=? AND seq=?
+      UNION ALL SELECT id,owner_id,seq,event_id FROM work_sync_uploads
+      WHERE node_id=? AND journal_id=? AND event_id=? AND seq<>?`);
     for (const entry of entries) {
       if (!entry || !integer(entry.seq) || entry.seq < 1 || typeof entry.event_id !== 'string' || !entry.event_id)
         fail(400, 'invalid_work_redactions');
@@ -53,8 +58,8 @@ export async function registerWorkRedactions(
         fail(409, 'event_identity_conflict');
       const committed = all(db, 'SELECT node_id,journal_id,seq,event_id,root_agent_id FROM agent_work_events WHERE (node_id=? AND journal_id=? AND seq=?) OR event_id=?', node, journal, seq, event);
       if (committed.some(row => !matches(row) || row.root_agent_id !== operation.agent_id)) fail(409, 'event_identity_conflict');
-      const uploads = all(db, 'SELECT * FROM work_sync_uploads WHERE node_id=? AND journal_id=? AND (seq=? OR event_id=?)', node, journal, seq, event);
-      if (uploads.some(row => !matches(row) || row.owner_id !== owner)) fail(409, 'event_identity_conflict');
+      const uploads = findUploads.all(node, journal, seq, node, journal, event, seq) as Row[];
+      if (uploads.some(row => row.seq !== seq || row.event_id !== event || row.owner_id !== owner)) fail(409, 'event_identity_conflict');
 
       db.prepare('INSERT OR IGNORE INTO work_sync_redactions VALUES(?,?,?,?,?,?)').run(node, journal, seq, event, operation.agent_id, operation.operation_id);
       for (const upload of uploads) {
@@ -92,6 +97,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     committed INTEGER NOT NULL DEFAULT 0);
     CREATE UNIQUE INDEX IF NOT EXISTS work_sync_one_pending ON work_sync_uploads(node_id) WHERE committed=0;
     CREATE INDEX IF NOT EXISTS work_sync_event ON work_sync_uploads(node_id,journal_id,seq);
+    CREATE INDEX IF NOT EXISTS work_sync_upload_event_id ON work_sync_uploads(node_id,journal_id,event_id);
     CREATE TABLE IF NOT EXISTS work_sync_parts (
       upload_id TEXT NOT NULL REFERENCES work_sync_uploads(id) ON DELETE CASCADE,
       part INTEGER NOT NULL, sha256 TEXT NOT NULL, PRIMARY KEY(upload_id,part));

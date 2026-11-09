@@ -292,6 +292,22 @@ test('work summary defers tool payload while the existing complete view and item
   expect(work.items('root', 'main', '1').items).toEqual(full.turns[0]!.items);
 });
 
+test('redaction rejects staged identity conflicts by either sequence or event ID', async () => {
+  const f = await fixture();
+  const { registerWorkRedactions } = await import('../src/work-sync.js');
+  const identity = { node_id: 'node', owner_id: 'alice', node_epoch: 1 };
+  const operation = { agent_id: 'root', operation_id: 'deletion-a' };
+  const insert = f.db.prepare("INSERT INTO work_sync_uploads VALUES('staged','alice','node',1,'journal',?,?,'hash',10,1,0,1)");
+  const manifest = { journal_id: 'journal', entries: [{ seq: 1, event_id: 'event-1' }, { seq: 2, event_id: 'event-2' }] };
+  for (const [seq, eventId] of [[2, 'wrong-event'], [3, 'event-2']] as const) {
+    insert.run(seq, eventId);
+    await expect(registerWorkRedactions(f.app.im, identity, operation, manifest)).rejects.toMatchObject({ statusCode: 409 });
+    expect(f.db.prepare('SELECT seq FROM work_sync_redactions').all()).toEqual([]);
+    expect(f.db.prepare('SELECT seq,event_id FROM work_sync_uploads').all()).toEqual([{ seq, event_id: eventId }]);
+    f.db.prepare("DELETE FROM work_sync_uploads WHERE id='staged'").run();
+  }
+});
+
 test('redacting an upload in flight preserves the shared sequence for the next Agent', async () => {
   const f = await fixture();
   f.db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,work_mode,created_at,updated_at) VALUES('peer','alice','node','Peer','global','2026-01-01','2026-01-01')").run();
