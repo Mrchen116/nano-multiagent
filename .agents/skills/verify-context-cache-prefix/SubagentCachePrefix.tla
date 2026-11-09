@@ -9,8 +9,7 @@ Base == INSTANCE ContextCachePrefix WITH AllowImages <- FALSE, Fault <- "none"
 ChildHeader(owner) ==
     [system |-> (IF Depth = 1 THEN <<owner, "owner-name", "shared-feature">>
                  ELSE <<"native-nested-guidance">>) \o <<"context-guidance">>,
-     tools |-> <<"native-worker-tools", IF Depth = 1 THEN "level-one" ELSE "level-two", "context-tools">>,
-     route |-> "primary"]
+     tools |-> <<"native-worker-tools", IF Depth = 1 THEN "level-one" ELSE "level-two", "context-tools">>]
 
 Init ==
     \E owner \in Agents :
@@ -83,7 +82,7 @@ DisableContextPlugin ==
 
 SwitchParentModel ==
     /\ BetweenTurns("route")
-    /\ s' = [s EXCEPT !.changes = Base!Use("route"), !.header.route = "secondary",
+    /\ s' = [s EXCEPT !.changes = Base!Use("route"), !.route = "secondary",
              !.config = "route-notice"]
 
 RollChildWindow ==

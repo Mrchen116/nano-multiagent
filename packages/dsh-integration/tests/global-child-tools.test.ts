@@ -270,7 +270,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
         const firstNew = counts[i]!;
         const previous = rows[firstNew-1]!;
         const next = rows[firstNew]!;
-        // The strict TLC invariant reports these observed changes for policy review.
+        // Record routing separately from changes to the request prefix.
         expect(fieldsChanged(previous,next), label+' L'+child.depth).toEqual(expected[i]);
         if (addedText) expect(JSON.stringify(next.messages.slice(previous.messages.length))).toContain(addedText);
         for (let j = firstNew+1; j < rows.length; j++) {

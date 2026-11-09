@@ -6,12 +6,11 @@ VARIABLE s
 
 Entry(kind, id) == <<kind, id>>
 Header(agent) == [system |-> <<agent, "persona">>,
-                  tools |-> <<"common", agent, "optional">>,
-                  route |-> "primary"]
+                  tools |-> <<"common", agent, "optional">>]
 
 InitialState(agent) ==
             [agent |-> agent, stage |-> "idle",
-             header |-> Header(agent), expected |-> Header(agent),
+             header |-> Header(agent), expected |-> Header(agent), route |-> "primary",
              history |-> <<>>, protected |-> <<>>, bad |-> {},
              config |-> "initial", changes |-> {}, compaction |-> "native",
              pending |-> "", first |-> 0, count |-> 0,
@@ -173,13 +172,13 @@ ApplyWorkspacePlugin ==
              !.header.tools = Append(@, "plugin-tool"),
              !.expected.tools = Append(@, "plugin-tool")]
 
-\* A different route changes the cache namespace. It is not a history reset.
+\* Track the request destination separately from the prefix fields.
 ChangeRoute ==
     /\ s.stage \in {"idle", "failed"}
     /\ CanUse("route")
     /\ s' = [s EXCEPT !.changes = Use("route"),
              !.stage = IF s.stage = "failed" THEN "ready" ELSE "idle",
-             !.header.route = "secondary", !.expected.route = "secondary",
+             !.route = "secondary",
              !.history = Append(@, Entry("route-notice", s.requests))]
 
 Prune(i) ==
