@@ -53,7 +53,8 @@ ApplyRootChoices ==
 RenameOwner ==
     /\ BetweenTurns("rename")
     /\ s' = [s EXCEPT !.changes = Base!Use("rename"),
-             !.header.system = IF Depth = 1 THEN [@ EXCEPT ![2] = "renamed-owner"] ELSE @]
+             !.header.system = IF Depth = 1 THEN [@ EXCEPT ![2] = "renamed-owner"] ELSE @,
+             !.expected.system = IF Depth = 1 THEN [@ EXCEPT ![2] = "renamed-owner"] ELSE @]
 
 DisableSharedFeature ==
     /\ Scenario = "feature"
@@ -61,7 +62,8 @@ DisableSharedFeature ==
     /\ s.requests > 0
     /\ Base!CanUse("feature")
     /\ s' = [s EXCEPT !.changes = Base!Use("feature"),
-             !.header.system = IF Depth = 1 THEN <<@[1], @[2], @[4]>> ELSE @]
+             !.header.system = SelectSeq(@, LAMBDA part : part # "shared-feature"),
+             !.expected.system = SelectSeq(@, LAMBDA part : part # "shared-feature")]
 
 RefreshSkillCatalog ==
     /\ BetweenTurns("skill")
