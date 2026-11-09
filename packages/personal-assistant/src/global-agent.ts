@@ -989,11 +989,10 @@ export class GlobalAgent {
           const targets = this.childTargets.get(root);
           if (!discover && !targets?.size) break;
           this.childTargets.delete(root);
-          let failedDiscovery: unknown;
           if (discover) {
             try {await this.projectChildren(binding,this.options.runtime.request,undefined,failed);} catch (error) {
               retryDiscovery=true;
-              failedDiscovery=error;
+              this.options.onError(error);
             }
           }
           for (const id of targets ?? []) {
@@ -1003,7 +1002,6 @@ export class GlobalAgent {
               failed.delete(id);this.failedChildren.get(root)?.targets.delete(id);
             } catch(error) {failed.add(id);this.options.onError(error);}
           }
-          if (failedDiscovery) throw failedDiscovery;
         }
       } finally {
         if (this.options.store.lifecycle.allowed(binding.agentId)) {

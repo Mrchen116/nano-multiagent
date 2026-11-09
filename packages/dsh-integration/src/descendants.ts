@@ -203,9 +203,8 @@ export class DescendantReader {
     const cached = this.catalogs.get(id);
     const covered = cached && await this.unchanged(id,cached);
     if (!modelChanged && covered && !cached.active && cached.cursor === afterSeq) return;
-    // Recovery discovery has already prepared this cut. A targeted cold miss
-    // needs the events only and must not rebuild a historical child catalog.
-    using cut = await this.ctx.sessionQuery.observeSession(id,covered ? undefined : {projectionMode:'none'});
+    // The native prepared body cache is independent of projection mode.
+    using cut = await this.ctx.sessionQuery.observeSession(id,{projectionMode:'none'});
     if (cut.source === 'live') {
       const activated = this.ctx.sessions.get(id);
       if (!activated) throw new RpcError(-32005,'Child Session changed during Work observation');
