@@ -166,6 +166,45 @@ it('filters live events, replay and native trajectory by current space after com
   expect(rejected[0]).toMatchObject({type: 'failed'});
 });
 
+it('applies the replay count and age limits only to the signed-in user’s visible events', async () => {
+  const {app, db, register, request} = await fixture();
+  const [reader, other] = await Promise.all([register('replay-reader'), register('replay-other')]);
+  async function privateChat(account: typeof reader, suffix: string) {
+    agent(db, suffix, account.user.id, `personal:${account.user.id}`);
+    const response = await request(account.access_token, 'POST', '/im/v1/conversations',
+      {title: suffix, type: 'direct', participants: [{type: 'agent', id: suffix}]});
+    expect(response.statusCode).toBe(201);
+    return response.json().id as string;
+  }
+  const first = await privateChat(reader, 'replay-first');
+  const second = await privateChat(reader, 'replay-second');
+  const hidden = await privateChat(other, 'replay-hidden');
+  const record = db.prepare(`INSERT INTO conversation_events(conversation_id,event_type,delivery_status,payload_json,created_at)
+    VALUES(?,'message.completed','completed',?,?)`);
+  const add = (chat: string, content: string, at = new Date().toISOString()) => Number(record.run(chat, JSON.stringify({content}), at).lastInsertRowid);
+  const start = add(first, 'already seen');
+  const frames: {op: string; reason?: string; event_id?: number; conversation_id?: string}[] = [];
+  const browser = {socket: {readyState:1, bufferedAmount:0, send: (raw: string) => frames.push(JSON.parse(raw))} as any,
+    userId:reader.user.id, sessionId:app.im.identity.accessSession(reader.access_token).sid, ready:false, cursor:start};
+  const relevantFirst = add(second, 'first missed');
+  db.exec('BEGIN');
+  for (let i = 0; i < 2001; i++) add(hidden, 'unrelated', '2000-01-01T00:00:00.000Z');
+  db.exec('COMMIT');
+  const relevantSecond = add(first, 'second missed');
+  const replay = (cursor: number) => { frames.length = 0; app.im.gateway.replay(browser, cursor); return frames.filter(frame => frame.op === 'resync_required' || frame.conversation_id); };
+  expect(replay(start).map(frame => frame.event_id)).toEqual([relevantFirst, relevantSecond]);
+  expect(browser.cursor).toBe(relevantSecond);
+  const irrelevantOnly = add(hidden, 'only unrelated');
+  expect(replay(relevantSecond)).toEqual([]);
+  const expired = add(second, 'missed and old', '2000-01-01T00:00:00.000Z');
+  expect(replay(irrelevantOnly)).toEqual([{op:'resync_required', reason:'replay_window_expired'}]);
+  expect(replay(0).map(frame => frame.event_id)).toContain(expired);
+  db.exec('BEGIN');
+  for (let i = 0; i < 2001; i++) add(i % 2 ? first : second, 'visible');
+  db.exec('COMMIT');
+  expect(replay(expired)).toEqual([{op:'resync_required', reason:'gap_too_large'}]);
+});
+
 it('does not replay old private task mutation receipts after the Agent changes private owner', async () => {
   const { app, db, register, request } = await fixture();
   const before = await register('before-transfer'), after = await register('after-transfer');
