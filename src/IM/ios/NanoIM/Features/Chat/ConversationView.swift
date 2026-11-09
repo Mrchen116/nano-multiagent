@@ -33,7 +33,9 @@ struct ConversationView: View {
     }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
-    private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
+    // Durable pending consumes the ordinary draft, but its frozen content still owns the
+    // disabled composer until confirmation. Newer ordinary edits stay separate behind it.
+    private var draft: Binding<String> { Binding(get: { store.pending[conversationID]?.content ?? store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
     var body: some View {
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {

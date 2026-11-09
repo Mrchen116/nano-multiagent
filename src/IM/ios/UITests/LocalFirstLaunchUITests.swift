@@ -199,6 +199,7 @@ final class LocalFirstLaunchUITests: XCTestCase {
         app.buttons["Send"].tap()
         try requireFixture(app.staticTexts["Awaiting delivery confirmation"].waitForExistence(timeout: 15), "The failed submission must remain visibly unconfirmed")
         try requireFixture(app.buttons["Retry"].exists, "Only an explicit retry may advance this attempt")
+        capture("pending-before-frozen-content-assertion")
         try requireFixture(composer.value as? String == content, "The frozen content must remain visible in the composer")
         capture("pending-after-transport-failure")
     }
@@ -354,7 +355,7 @@ final class LocalFirstLaunchUITests: XCTestCase {
             try requireFixture(!message(try required(key)).exists, "Do not expose previous-account content: \(key)")
         }
         try requireFixture(!app.staticTexts["Awaiting delivery confirmation"].exists, "Do not expose a previous-account pending state")
-        try requireFixture(!app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "1 unconfirmed sends")).firstMatch.exists, "Do not inherit the previous pending-only count")
+        try requireFixture(!app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "unconfirmed sends")).firstMatch.exists, "Do not inherit any previous pending-only count")
     }
 
     private func assertSecondServiceContent() throws {
