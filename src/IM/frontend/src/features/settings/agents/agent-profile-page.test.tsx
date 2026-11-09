@@ -106,28 +106,38 @@ it("explains an exact deleted Work link even when the Agent is no longer in cont
   expect(fetch.mock.calls.some(([url]) => String(url).includes("/deletion"))).toBe(false);
 });
 
-it("keeps tracking an accepted deletion when the Agent disappears from contacts", async () => {
+it("keeps showing the accepted deletion as the lifecycle and contact disappear", async () => {
   const ownAgent = {...contact, owner_id:visitor.id};
   const deletionKey = ["agent-deletion", visitor.id, ownAgent.agent_id];
+  const lifecycleKey = ["agent-lifecycle", visitor.id, ownAgent.agent_id];
+  const contactsKey = ["contacts", visitor.id, "agents"];
   const deleting = {
     agent_id: ownAgent.agent_id, eligible:false, revision:2, profile_version:1,
     operation:{operation_id:"remove-muse",state:"deleting",delete_workspace:false},
   };
+  let lifecycleRemoved = false;
   let finished = false;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/contacts?")) return response({items:[ownAgent],next_cursor:null});
+    if (url.endsWith("/lifecycle") && !lifecycleRemoved) return response({desired:"disabled",observed:"disabled",revision:2,applied_revision:2});
     if (url.endsWith("/deletion")) return response(finished
       ? {...deleting, operation:{...deleting.operation,state:"deleted"}} : deleting);
     return new Response(null, { status: 404 });
   }));
   const {client} = view(<AgentProfilePage />);
-  await waitFor(() => expect(client.getQueryData(["contacts", visitor.id, "agents"])).toBeDefined());
+  await waitFor(() => expect(client.getQueryData(contactsKey)).toBeDefined());
   await act(async () => {
     client.setQueryData(deletionKey, deleting);
     client.setQueryData(["public-agents", visitor.id], [ownAgent]);
-    client.setQueryData(["contacts", visitor.id, "agents"], []);
   });
+  lifecycleRemoved = true;
+  await act(async () => { await client.invalidateQueries({queryKey:lifecycleKey}); });
+  expect(client.getQueryState(lifecycleKey)?.status).toBe("error");
+  expect(client.getQueryData(contactsKey)).toEqual([ownAgent]);
+  expect(await screen.findByText("Deleting permanently…")).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  await act(async () => { client.setQueryData(contactsKey, []); });
   await waitFor(() => expect(client.getQueryState(deletionKey)?.fetchStatus).toBe("idle"));
   expect(await screen.findByText("Deleting permanently…")).toBeVisible();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();

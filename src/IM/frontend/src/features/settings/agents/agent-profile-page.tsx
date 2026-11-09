@@ -66,7 +66,8 @@ export function AgentProfilePage() {
     navigate("/settings/agents", { replace: true });
   }, [returnToList, agentId, client, navigate, self]);
   const send = useMutation({ mutationFn: () => createConversation({ type: "direct", title: agent!.display_name, participants: [contactActor(agent!)] }), onSuccess: async chat => { await client.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate(`/chat/${chat.id}`); } });
-  if (returnToList || (!workRequested && deletionState && deletionState !== "deleted" && (!agent || query.isError))) {
+  // Once accepted, the receipt is authoritative even if the profile reads start failing.
+  if (returnToList || (!workRequested && deletionState && deletionState !== "deleted")) {
     return <section className="im-agent-panel im-agent-settings im-create-state">
       <AgentDeletionStatus deletion={deletion} online={agent?.status === "online"} />
     </section>;
