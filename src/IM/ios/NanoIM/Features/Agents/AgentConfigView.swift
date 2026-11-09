@@ -36,7 +36,9 @@ struct AgentConfigView: View {
                 AgentLifecycleControls(client: client, agentID: agentID, canManage: lifecycleUserID != nil && config?.owner_id == lifecycleUserID,
                                        online: lifecycleContact?.status == "online", configuration: true,
                                        deletionName: onDeleted == nil ? nil : config?.display_name,
-                                       deletionInProgress: $deleting, onDeleted: onDeleted)
+                                       deletionInProgress: $deleting, onDeleted: onDeleted.map { finished in
+                                           { finished(); dismiss() }
+                                       })
             }
             if let config {
                 AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability).disabled(pending || busy || conflicted || deleting)
