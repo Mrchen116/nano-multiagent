@@ -19,6 +19,7 @@ interface Options {
   relay: RelayPort;
   image: (url: string, agentId: string) => Promise<string>;
   onError: (error: unknown) => void;
+  recoveryGeneration?: (binding: SessionBinding) => string | undefined;
   taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
 
@@ -28,6 +29,8 @@ export class SingleThread {
   private readonly controls: SessionControls;
   private readonly draining = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
+  private readonly recovering = new Map<string, Promise<void>>();
+  private readonly ensuring = new Map<string, Promise<unknown>>();
   private readonly pendingApprovals = new Map<string, { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
   private readonly streams = new Map<string, BufferedStream>();
@@ -103,7 +106,7 @@ export class SingleThread {
       if (!text) {
         let result:{wasRunning:boolean;paused?:number};
         if(controlText(input)==='/stop'&&this.options.taskStop)result=await this.options.taskStop(binding,input);
-        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean};}
+        else {await this.ensure(binding);result=await runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean};}
         await this.reconcile(binding.sessionId);
         if (controlText(input) === '/new') {
           store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);
@@ -124,7 +127,7 @@ export class SingleThread {
     await this.controls.wait(binding.sessionId);
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
-    await runtime.request('session.ensure', runtimeBinding(binding));
+    await this.ensure(binding);
     for (const pending of store.pendingInputs(binding.sessionId)) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
   }
@@ -136,7 +139,7 @@ export class SingleThread {
   private async backgroundAdmitted(sessionId: string, input: RelayInput): Promise<void> {
     const binding=this.binding(sessionId);
     if(binding.agentId!==input.agent_id||binding.conversationId!==input.conversation_id)throw new Error('Background result belongs to another conversation');
-    this.options.store.receive(sessionId,input);await this.options.runtime.request('session.ensure',runtimeBinding(binding));
+    this.options.store.receive(sessionId,input);await this.ensure(binding);
     await this.submit(binding,input);await this.reconcile(sessionId);
   }
 
@@ -204,27 +207,84 @@ export class SingleThread {
     const binding = store.canonical(config.agentId) ?? store.bind({ sessionId: randomUUID(), agentId: config.agentId,
       conversationId: `owner:${this.options.ownerId}`, ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision });
     store.markCanonical(binding);
-    await runtime.request('session.ensure', runtimeBinding(binding));
+    await this.ensure(binding);
     return binding;
   }
 
-  /** Durable history is replayed on reconnect; display notifications are just hints. */
-  async recover(externalOnly = false): Promise<void> {
-    const recoveredControls = new Set<string>();
-    for (const binding of this.options.store.bindings()) {
-      if(!this.options.store.lifecycle.allowed(binding.agentId))continue;
-      if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
-      if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
-      await this.options.store.lifecycle.run(binding.agentId,undefined,async()=>{
-      await this.options.runtime.request('session.ensure', runtimeBinding(binding));
-      if (!recoveredControls.has(binding.agentId)) {
-        await this.controls.recover(binding.agentId);
-        recoveredControls.add(binding.agentId);
-      }
-      for (const input of this.options.store.pendingInputs(binding.sessionId)) await this.submit(binding, input.input);
-      await this.reconcile(binding.sessionId);
-      });
+  private ensure(binding: SessionBinding): Promise<unknown> {
+    const key = `${binding.sessionId}:${this.options.store.lifecycle.assert(binding.agentId)}`;
+    const existing = this.ensuring.get(key);
+    if (existing) return existing;
+    const task = this.options.runtime.request('session.ensure', runtimeBinding(binding)).finally(() => {
+      this.ensuring.delete(key);
+    });
+    this.ensuring.set(key, task);
+    return task;
+  }
+
+  /** Recover enabled single-thread bindings with local obligations or unverified native history. */
+  async recover(externalOnly = false, scope?: string[]): Promise<void> {
+    const { store, agents, recoveryGeneration } = this.options;
+    const agentIds = agents.filter(agent => agent.mode === 'single_thread' &&
+      (!scope || scope.includes(agent.agentId)) && store.lifecycle.allowed(agent.agentId)).map(agent => agent.agentId);
+    const eligible = (binding: SessionBinding) => store.lifecycle.allowed(binding.agentId) &&
+      (!externalOnly || binding.conversationId.startsWith('external:')) && !store.recoveryStopped(binding.sessionId) &&
+      (!recoveryGeneration || recoveryGeneration(binding) !== undefined);
+    for (const agentId of agentIds) await this.controls.recover(agentId, eligible);
+
+    // Standalone callers without the recovery handshake retain the original recovery path.
+    if (!recoveryGeneration) {
+      for (const binding of store.bindings()) if (agentIds.includes(binding.agentId) && eligible(binding))
+        await store.lifecycle.run(binding.agentId, undefined, () => this.restore(binding, false));
+      return;
     }
+
+    const candidates = store.recoveryCandidates(agentIds).filter(item => eligible(item.binding));
+    const pending: typeof candidates = [];
+    const unverified: typeof candidates = [];
+    for (const candidate of candidates)
+      (store.hasRecoveryWork(candidate.binding.sessionId) ? pending : unverified).push(candidate);
+    for (const batch of [pending, unverified]) {
+      for (let start = 0; start < batch.length; start += 4) {
+        const results = await Promise.allSettled(batch.slice(start, start + 4).map(({binding, generation}) => {
+          const boot = recoveryGeneration(binding);
+          if (!boot || !eligible(binding)) return;
+          return this.recoverSession(binding, generation, boot, eligible);
+        }));
+        const failure = results.find(result => result.status === 'rejected');
+        if (failure) throw failure.reason;
+      }
+    }
+  }
+
+  private recoverSession(binding: SessionBinding, generation: string | null | undefined, boot: string,
+    eligible: (binding: SessionBinding) => boolean): Promise<void> {
+    const { store, runtime, recoveryGeneration } = this.options;
+    const { sessionId, agentId } = binding;
+    const revision = store.lifecycle.assert(agentId);
+    const key = `${boot}:${revision}:${sessionId}`;
+    const existing = this.recovering.get(key);
+    if (existing) return existing;
+    const current = () => eligible(binding) && recoveryGeneration?.(binding) === boot && store.lifecycle.allowed(agentId, revision);
+    const task = store.lifecycle.run(agentId, revision, async () => {
+      try {
+        const localWork = store.hasRecoveryWork(sessionId);
+        const probe = await runtime.request('session.recovery.probe', {sessionId, afterSeq: store.cursor(sessionId), localWork}) as {live: boolean; unseen: boolean};
+        if (!current()) return;
+        if (probe.unseen || store.hasRecoveryWork(sessionId)) await this.restore(binding, probe.live);
+        else if (!probe.live && generation !== boot) store.confirmColdSession(sessionId, generation);
+      } catch (error) {
+        if (current()) throw error;
+      }
+    }).finally(() => this.recovering.delete(key));
+    this.recovering.set(key, task);
+    return task;
+  }
+
+  private async restore(binding: SessionBinding, live: boolean): Promise<void> {
+    if (!live) await this.ensure(binding);
+    for (const input of this.options.store.pendingInputs(binding.sessionId)) await this.submit(binding, input.input);
+    await this.reconcile(binding.sessionId);
   }
 
   /** Permission responses use the independent runtime control path. */
@@ -544,6 +604,7 @@ export class SingleThread {
   async stop(): Promise<void> {
     this.unsubscribe();
     await this.controls.stop();
+    await Promise.allSettled(this.recovering.values());
     await Promise.allSettled([...this.streams.values()].map(stream => this.flushStream(stream)));
     await Promise.allSettled([...this.draining.values()]);
   }
