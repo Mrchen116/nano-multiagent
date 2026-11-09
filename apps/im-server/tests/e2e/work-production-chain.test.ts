@@ -36,9 +36,15 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const runtime: RuntimePort = {
     onNotification: () => () => {},
     request: async (method, input) => {
-      const args = input as {afterSeq?: number; cursors?: Record<string, number>};
-      if (method === 'session.descendants') return [{kind: 'child', id: 'child', parentId: 'main', throughSeq: 4, modelVersion: 'done', events: child.filter(event => event.seq > (args.cursors?.child ?? -1))}];
-      return {events: source.filter(event => event.seq > (args.afterSeq ?? -1)), durable: true, status: 'idle', throughSeq: 7};
+      const args = input as {afterSeq?: number};
+      if (method === 'session.work.check') return {rootSettled:true};
+      if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'}]};
+      const isChild=method==='session.work.child';
+      const events=isChild ? child : source;
+      const after=args.afterSeq??-1;
+      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:7);
+      return {events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
+        modelRuns:[],modelVersion:'done',throughSeq,more:throughSeq<events.at(-1)!.seq};
     },
   };
   const makeProduct = (online: boolean) => new GlobalAgent({nodeId: node.node, ownerId: 'alice', agents: [{agentId: 'global', workspace: center.dir, revision: '1', provider: 'fixture', model: 'fixture-model', mode: 'global'}],

@@ -240,9 +240,9 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
       await expect.poll(async () => {
         const root = await client!.rpc.request('session.observe',{sessionId:'root'}) as any;
         const children = await workDescendants(client!.rpc, {sessionId:'root'}) as any[];
-        const cursors = Object.fromEntries([['root',root.throughSeq],...children.map(row=>[row.id,row.throughSeq])]);
-        const modelVersions = Object.fromEntries([['root',root.modelVersion],...children.map(row=>[row.id,row.modelVersion])]);
-        return (await client!.rpc.request('session.work.check',{sessionId:'root',cursors,modelVersions}) as any).settled;
+        const check=await client!.rpc.request('session.work.check',{sessionId:'root',afterSeq:root.throughSeq,modelVersion:root.modelVersion}) as {rootSettled:boolean};
+        return check.rootSettled && children.every(row=>row.events.findLast((event:any)=>event.type==='turn/start'||event.type==='turn/end')?.type==='turn/end'
+          && row.modelRuns.every((run:any)=>run.state==='completed'));
       },{timeout:15_000}).toBe(true);
     };
     await settle();
