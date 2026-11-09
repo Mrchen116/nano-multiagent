@@ -90,6 +90,9 @@ export class AgentLifecycles {
           intent,revision,intent==='disabled'?revision:current.disabled_through_revision,input.request_id,userId,now(),intent==='enabled'?'enabling':unsupported?'stop_unconfirmed':'stopping',unsupported?'node_upgrade_required':null,unsupported?'Update this node to confirm all managed execution has stopped':null,agentId);
         withdrawals=revokeLostTaskContextAccess(this.ctx.db,before,userId);
       }
+      if(retry&&current.observed==='stop_unconfirmed'&&current.error_code!=='node_upgrade_required') {
+        this.ctx.db.prepare("UPDATE agent_lifecycle SET observed='stopping',error_code=NULL,error_detail=NULL WHERE agent_id=?").run(agentId);
+      }
       const saved=lifecycle(this.ctx.db,agentId);
       this.ctx.db.prepare('INSERT INTO agent_lifecycle_requests VALUES(?,?,?,?)').run(agentId,input.request_id,intent,saved.revision);
       return saved;

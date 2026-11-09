@@ -17,17 +17,11 @@ struct AgentLifecycleSnapshot: Decodable, Sendable {
         if observed == "stop_unconfirmed" { return .retry }
         return canEnable ? .enable : nil
     }
-    var title: String {
-        if observed == "stop_unconfirmed" { return L("停止未确认", "Stop unconfirmed") }
-        if canEnable { return L("已停用", "Disabled") }
-        if desired == "disabled" { return L("停止中", "Stopping") }
-        return observed == "enabling" ? L("启用中", "Enabling") : L("已启用", "Enabled")
-    }
-    func explanation(online: Bool) -> String {
-        if observed == "stop_unconfirmed" { return L("仍禁止新工作。请重试停止。", "New work remains blocked. Retry stopping.") }
-        if canEnable { return L("重新启用只接收新工作，旧任务仍暂停。", "Enabling allows new work; old tasks remain paused.") }
-        if desired == "disabled" { return online ? L("尚未确认全部停止。", "Stopping is not yet confirmed.") : L("已请求停用，等待节点确认。", "Disable requested; waiting for the node to confirm.") }
-        return revision > 1 ? L("可接收新工作，旧任务仍暂停。", "Ready for new work; old tasks remain paused.") : ""
+    func disablingFeedback(online: Bool) -> String? {
+        guard desired == "disabled", !canEnable else { return nil }
+        if !online { return L("电脑离线，联网后会继续停用。", "The computer is offline. Disabling will continue when it reconnects.") }
+        if error_code == "node_upgrade_required" { return L("请更新电脑上的 Nano 后再停用。", "Update Nano on the computer to finish disabling.") }
+        return observed == "stop_unconfirmed" ? L("停用还没完成。", "Disabling did not finish.") : nil
     }
 }
 struct AgentLifecycleChange: Encodable, Sendable {
@@ -81,33 +75,38 @@ struct AgentLifecycleControls: View {
     @State private var requestGeneration = 0
     private var deleting: Bool { deletionInProgress.wrappedValue }
     private var path: String { agentPath(agentID) + "/lifecycle" }
-    private var action: AgentLifecycleAction? { state?.action }
+    private var action: AgentLifecycleAction? {
+        if state?.action == .retry && (!online || state?.error_code == "node_upgrade_required") { return nil }
+        return state?.action
+    }
     private var actionLabel: String {
-        if busy { return L("提交中…", "Submitting…") }
+        if busy { return action == .enable ? L("正在启用…", "Enabling…") : L("正在停用…", "Disabling…") }
         switch action {
-        case .disable: return L("停用", "Disable")
-        case .enable: return L("重新启用", "Enable again")
-        case .retry: return L("重试停止", "Retry stop")
-        case nil: return state == nil ? L("读取状态…", "Loading state…") : L("停止中…", "Stopping…")
+        case .disable: return L("停用 Agent", "Disable Agent")
+        case .enable: return L("启用 Agent", "Enable Agent")
+        case .retry: return L("重试停用", "Retry disabling")
+        case nil: return state == nil ? L("读取状态…", "Loading state…") : L("正在停用…", "Disabling…")
         }
     }
     var body: some View {
         if canManage && !deleting {
-            if configuration {
+            if configuration && !busy && (action == .disable || action == .enable) {
                 Toggle(L("启用 Agent", "Enable Agent"), isOn: Binding(get: { state?.desired == "enabled" }, set: { enabled in Task { await change(enabled ? .enable : .disable) } }))
-                    .disabled(busy || readFailed || action == nil || action == .retry)
+                    .disabled(readFailed)
                     .frame(minHeight: 44)
-                if action == .retry { actionButton }
             } else { actionButton }
         }
         VStack(alignment: .leading, spacing: 4) {
-            if let state {
-                Text(state.title).font(.subheadline.weight(.medium))
-                let explanation = state.explanation(online: online)
-                if !compact && !explanation.isEmpty { Text(explanation).font(.caption).foregroundStyle(.secondary) }
-                if !compact && state.observed == "stop_unconfirmed", let detail = state.error_detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
+            if state?.canEnable == true && !readFailed {
+                Text(L("已停用", "Disabled")).font(.subheadline.weight(.medium))
+                if !compact {
+                    Text(L("重新启用后可以接收新工作，旧任务继续暂停。", "Re-enabling allows new work. Previous tasks stay paused.")).font(.caption).foregroundStyle(.secondary)
+                }
             }
-            if let error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+            if !compact && !busy, let detail = state?.disablingFeedback(online: online) {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            if !compact, let error { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             if readFailed && !compact { Button(L("刷新状态", "Refresh state")) { Task { await refresh() } }.frame(minHeight: 44) }
         }.fixedSize(horizontal: false, vertical: true).accessibilityElement(children: .contain)
             .task(id: scenePhase) {
@@ -133,7 +132,8 @@ struct AgentLifecycleControls: View {
             if error != nil { error = nil }
         } catch {
             guard !Task.isCancelled, generation == requestGeneration else { return }
-            readFailed = true; self.error = agentError(error)
+            readFailed = true
+            self.error = L("无法读取 Agent 状态，请刷新后重试。", "Could not read the Agent status. Refresh and try again.")
         }
     }
     private func change(_ action: AgentLifecycleAction) async {
@@ -158,7 +158,7 @@ struct AgentLifecycleControls: View {
             }
             guard !Task.isCancelled else { return }
             self.state = result
-        } catch { if !Task.isCancelled { self.error = agentError(error) } }
+        } catch { if !Task.isCancelled { self.error = L("操作未完成，请重试。", "The action did not finish. Try again.") } }
     }
 }
 
@@ -262,7 +262,7 @@ private struct AgentDeletionControl: View {
                     if let workspace = confirmed.scope.workspace {
                         Toggle(L("同时删除专用工作区", "Also delete the dedicated workspace"), isOn: $includeWorkspace).disabled(busy)
                         Text(workspace.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    } else { Text(L("工作区文件会保留。", "Workspace files are kept.")).font(.caption).foregroundStyle(.secondary) }
+                    } else { Text(L("无法确认此工作区由该 Agent 独占，文件会保留。", "We couldn't verify that this Agent has exclusive use of the workspace. Its files will be kept.")).font(.caption).foregroundStyle(.secondary) }
                 }
                 if !scopeCurrent(confirmed.scope) { ErrorNotice(message: L("删除范围已变化，请关闭后重新确认。", "The deletion scope changed. Close and review it again.")) }
                 if !online { Text(L("等待设备重新在线。", "Waiting for the device to come online.")) }

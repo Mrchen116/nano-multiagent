@@ -1,5 +1,5 @@
 import { AgentExecutionDeletedError, workBase, workRequest } from "./agent-work-api";
-import { useAgentDeletion } from "./agent-deletion";
+import { AgentDeletionStatus, useAgentDeletion } from "./agent-deletion";
 import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import "./agent-settings.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar"
 import { AgentDetailPage } from "./agent-detail-page";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import { AgentWorkPanel } from "./agent-work-panel";
+import type { listPublicAgents } from "./public-agents";
 
 /** Public profile and Work never load another person's writable configuration. */
 export function AgentProfilePage() {
@@ -47,16 +48,30 @@ export function AgentProfilePage() {
   const stopped = lifecycle.query.data;
   const deletion = useAgentDeletion(agentId ?? "", query.isSuccess && (!!agent
     ? agent.owner_id === self && agent.role !== "personal" && workRequested && stopped?.desired === "disabled" && stopped.observed === "disabled" && stopped.applied_revision === stopped.revision
-    : !workRequested && !!self));
+    : !workRequested && !!self), !workRequested);
   const deletionState = deletion.query.data?.operation?.state;
   const managing = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (agent?.owner_id === self && !workRequested) managing.current = agentId;
-    if (!agent && !workRequested && managing.current === agentId && deletionState === "deleted") {
-      navigate("/settings/agents", { replace: true });
+    if (agent && agent.owner_id === self && !workRequested) managing.current = agentId;
+  }, [agent, agentId, self, workRequested]);
+  const returnToList = !!agentId && !workRequested && deletionState === "deleted"
+    && (managing.current === agentId || !!agent && agent.owner_id === self);
+  useEffect(() => {
+    if (!returnToList) return;
+    client.setQueryData<Awaited<ReturnType<typeof listPublicAgents>>>(["public-agents", self],
+      agents => agents?.filter(item => item.agent_id !== agentId));
+    for (const key of [["settings", "agents"], ["contacts"], ["public-agents"], ["chat", "agents"], ["chat", "conversations"], ["agent-work", agentId]]) {
+      void client.invalidateQueries({ queryKey: key });
     }
-  }, [agent, agentId, deletionState, navigate, self, workRequested]);
+    navigate("/settings/agents", { replace: true });
+  }, [returnToList, agentId, client, navigate, self]);
   const send = useMutation({ mutationFn: () => createConversation({ type: "direct", title: agent!.display_name, participants: [contactActor(agent!)] }), onSuccess: async chat => { await client.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate(`/chat/${chat.id}`); } });
+  // Once accepted, the receipt is authoritative even if the profile reads start failing.
+  if (returnToList || (!workRequested && deletionState && deletionState !== "deleted")) {
+    return <section className="im-agent-panel im-agent-settings im-create-state">
+      <AgentDeletionStatus deletion={deletion} online={agent?.status === "online"} />
+    </section>;
+  }
   if (historical.error instanceof AgentExecutionDeletedError || (!agent && !workRequested && deletionState === "deleted")) {
     return <section className="im-agent-panel im-agent-settings im-create-state">
       <p role="status">{workRequested ? l("执行记录已删除", "Execution record deleted") : l("Agent 已删除", "Agent deleted")}</p>
@@ -100,7 +115,7 @@ export function AgentProfilePage() {
             </p>
           </div>
           <div className="im-agent-header-actions shrink-0">
-            <AgentLifecycleAction lifecycle={lifecycle} canManage={agent.owner_id === self && !deletionState} />
+            <AgentLifecycleAction lifecycle={lifecycle} canManage={agent.owner_id === self && !deletionState} online={agent.status === "online"} />
             <button
               type="button"
               className="im-settings-action"

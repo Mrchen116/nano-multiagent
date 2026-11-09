@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { setLanguage } from "../../../i18n";
 import { AgentDeletionControls, useAgentDeletion } from "./agent-deletion";
@@ -24,12 +23,7 @@ it.each([false, true])("requires confirmation and sends a workspace witness only
     return Response.json(view);
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/settings/agents/atlas"]}>
-    <Routes>
-      <Route path="/settings/agents/atlas" element={<Surface />} />
-      <Route path="/settings/agents" element={<h1>Agent list</h1>} />
-    </Routes>
-  </MemoryRouter></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><Surface /></QueryClientProvider>);
   const user = userEvent.setup();
   const entry = await screen.findByRole("button", { name: "Permanently delete Agent" });
   await user.click(entry);
@@ -48,7 +42,7 @@ it.each([false, true])("requires confirmation and sends a workspace witness only
   expect(reopenedWorkspaceOption).not.toBeChecked();
   if (includeWorkspace) await user.click(reopenedWorkspaceOption);
   await user.click(within(dialog).getByRole("button", { name: "Confirm permanent deletion" }));
-  expect(await screen.findByRole("heading", { name: "Agent list" })).toBeVisible();
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(writes).toEqual([{
     request_id: expect.any(String),
     expected_revision: 3,
