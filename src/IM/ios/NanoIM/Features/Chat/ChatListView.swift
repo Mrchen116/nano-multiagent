@@ -7,8 +7,13 @@ struct ChatListView: View {
     @State private var category = "all"
     @State private var newChat = false
     @State private var distill = false
+    private func preview(_ chat: Conversation) -> String? {
+        guard let card = chat.last_message_card else { return chat.last_message_preview }
+        let label = L("互动卡片", "Interactive card")
+        return card.title.map { "\(label) · \($0)" } ?? label
+    }
     var filtered: [Conversation] {
-        store.conversations.filter { (category == "all" || $0.category == category) && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.last_message_preview ?? "").localizedCaseInsensitiveContains(search)) }
+        store.conversations.filter { (category == "all" || $0.category == category) && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || (preview($0) ?? "").localizedCaseInsensitiveContains(search)) }
             .sorted { a, b in a.is_pinned != b.is_pinned ? a.is_pinned : (a.last_message_at ?? a.created_at) > (b.last_message_at ?? b.created_at) }
     }
     var body: some View {
@@ -40,7 +45,7 @@ struct ChatListView: View {
                                 NanoTimestamp(value: chat.last_message_at ?? chat.created_at)
                             }
                             HStack(spacing: 8) {
-                                Text(chat.last_message_preview ?? L("开始聊天", "Start a conversation"))
+                                Text(preview(chat) ?? L("开始聊天", "Start a conversation"))
                                     .font(.subheadline).foregroundStyle(NanoTheme.muted).lineLimit(1)
                                 Spacer(minLength: 0)
                                 if chat.unread_count > 0 { Text(chat.unread_count > 99 ? "99+" : "\(chat.unread_count)").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 3).foregroundStyle(.white).background(NanoTheme.accent, in: Capsule()) }

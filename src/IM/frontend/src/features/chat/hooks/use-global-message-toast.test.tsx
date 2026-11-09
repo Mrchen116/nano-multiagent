@@ -633,8 +633,8 @@ describe("useGlobalMessageToast", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(["chat", "conversations"], [
       conversation("conv-1", {
-        last_message_preview: "older",
-        last_message_system_notice: {kind:"self_evolution_review",source_agent_id:"a",source_agent_display_name:"Assistant",updated_targets:["memory"]},
+        last_message_preview: "",
+        last_message_card: { title: "Earlier card" },
         last_message_at: "2026-03-26T00:00:00Z"
       })
     ]);
@@ -658,6 +658,7 @@ describe("useGlobalMessageToast", () => {
     expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
       conversation("conv-1", {
         last_message_preview: "my own message",
+        last_message_card: null,
         last_message_at: "2026-03-26T00:01:00Z"
       })
     ]);
@@ -764,23 +765,48 @@ describe("useGlobalMessageToast", () => {
     expect(hasLocalUnreadFeedback("conv-agent")).toBe(true);
   });
 
-  it.each(["agent", "user"])("notifies once for a completed pure card from %s without adding a sidebar preview", async senderType => {
+  it.each(["agent", "user"])("notifies once and refreshes the sidebar title for a completed pure card from %s", async senderType => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(["chat", "conversations"], [conversation("conv-card", { last_message_preview: "" })]);
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/chat/other") });
-    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+    const initial = [conversation("conv-card")];
+    const refreshed = [conversation("conv-card", { last_message_preview: "", last_message_card: { title: "Plan" } })];
+    const queryFn = vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(refreshed);
+    const { result } = renderHook(() => useGlobalMessageToast(), {
+      wrapper: buildRefetchingWrapper(queryClient, queryFn, "/chat/other")
+    });
+    await waitFor(() => expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(initial));
     emit("conv-card", {
       eventType: "message.created", eventId: 1,
       payload: { message_id: "card-1", sender_type: senderType, sender_user_id: "other-sender",
-        sender_display_name: "Planner", content: "", interactive: { source: 'root = Text("Plan")' },
+        sender_display_name: "Planner", content: "", interactive: { source: 'root = Title("Plan")' },
         delivery_status: "completed", ...(senderType === "user" ? { pa_agent_id: "planner" } : {}) }
     });
     expect(result.current.toast).toMatchObject({ id: "message:card-1", conversationId: "conv-card", senderName: "Planner" });
     expect(result.current.toast?.preview).toMatch(/互动卡片|Interactive card/);
-    expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0]?.last_message_preview).toBe("");
+    expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
+      expect.objectContaining({ last_message_preview: "", last_message_card: { title: null } })
+    ]);
+    await waitFor(() => expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(refreshed));
     act(() => result.current.dismiss());
     emit("conv-card", { eventType: "message.completed", eventId: 2, payload: { message_id: "card-1", content: "" } });
     expect(result.current.toast).toBeNull();
+  });
+
+  it("refreshes the attachment preview when a represented card has no completion event", async () => {
+    const queryClient = new QueryClient();
+    const initial = [conversation("conv-card")];
+    const refreshed = [conversation("conv-card", { last_message_preview: "plan.pdf", last_message_card: null })];
+    const queryFn = vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(refreshed);
+    renderHook(() => useGlobalMessageToast(), {
+      wrapper: buildRefetchingWrapper(queryClient, queryFn, "/chat/other")
+    });
+    await waitFor(() => expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(initial));
+    emit("conv-card", {
+      eventType: "message.created", eventId: 1,
+      payload: { message_id: "card-1", sender_type: "user", sender_user_id: "other-sender", pa_agent_id: "planner",
+        content: "", attachments: [{ file_name: "plan.pdf" }], interactive: { source: 'root = Title("Plan")' },
+        delivery_status: "completed" }
+    });
+    await waitFor(() => expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(refreshed));
   });
 
   it("restores pending sender identity when reload falls between created and completed", async () => {

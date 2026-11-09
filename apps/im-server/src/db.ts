@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { interactiveSearchText } from "./interactive-source.js";
+import { interactiveTextProjection } from "./interactive-source.js";
 /** Open the center's existing business database without replacing its data. */
 export function openDatabase(path: string): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -57,18 +57,21 @@ export function openDatabase(path: string): DatabaseSync {
         CREATE INDEX interaction_submissions_source_user ON interaction_submissions(source_message_id,user_id);`);
       db.prepare("INSERT INTO schema_migrations VALUES('interactive-native-v2')").run();
     }
-    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='interactive-search-text-v1'").get()) {
-      if (!db.prepare('PRAGMA table_info(message_interactive)').all().some(column => column.name === 'search_text'))
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='interactive-card-text-v1'").get()) {
+      const columns = new Set(db.prepare('PRAGMA table_info(message_interactive)').all().map(column => column.name));
+      if (!columns.has('search_text'))
         db.exec("ALTER TABLE message_interactive ADD COLUMN search_text TEXT NOT NULL DEFAULT ''");
-      const save = db.prepare('UPDATE message_interactive SET search_text=? WHERE message_id=?');
+      if (!columns.has('preview_title'))
+        db.exec('ALTER TABLE message_interactive ADD COLUMN preview_title TEXT');
+      const save = db.prepare('UPDATE message_interactive SET search_text=?,preview_title=? WHERE message_id=?');
       const cards = db.prepare('SELECT message_id,source FROM message_interactive').all() as {message_id:string;source:string}[];
       for (const card of cards) {
-        let text: string;
-        try { text = interactiveSearchText(card.source); }
+        let text: ReturnType<typeof interactiveTextProjection>;
+        try { text = interactiveTextProjection(card.source); }
         catch { continue; } // Historical programs unsupported by the current parser stay readable as stored.
-        save.run(text, card.message_id);
+        save.run(text.searchText, text.previewTitle, card.message_id);
       }
-      db.prepare("INSERT INTO schema_migrations VALUES('interactive-search-text-v1')").run();
+      db.prepare("INSERT INTO schema_migrations VALUES('interactive-card-text-v1')").run();
     }
     if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='user-timezone-v1'").get()) {
       for (const table of ['users', 'messages']) {

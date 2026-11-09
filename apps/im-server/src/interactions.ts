@@ -83,9 +83,9 @@ export class Interactions {
     }
     try { registry = validateInteractiveSource(value.source); }
     catch (error) { fail(422, error instanceof InteractiveSourceError ? error.detail : (error as Error).message); }
-    const {searchText, ...actionRegistry} = registry;
-    this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,search_text,supersedes_message_id,publication_json) VALUES(?,?,?,?,?,?,?,?)')
-      .run(id, value.format, value.catalog_version, value.source, JSON.stringify(actionRegistry), searchText, value.supersedes_message_id ?? null, publication);
+    const {searchText, previewTitle, ...actionRegistry} = registry;
+    this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,search_text,preview_title,supersedes_message_id,publication_json) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(id, value.format, value.catalog_version, value.source, JSON.stringify(actionRegistry), searchText, previewTitle, value.supersedes_message_id ?? null, publication);
   }
   /** Read only the authenticated viewer's draft after ordinary conversation access. */
   readDraft(req: FastifyRequest): Row {
@@ -154,7 +154,7 @@ export class Interactions {
   copy(ids: Map<string, string>): void {
     for (const [oldId, newId] of ids) {
       const old = one(this.db, 'SELECT * FROM message_interactive WHERE message_id=?', oldId);
-      if (old) this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,search_text,supersedes_message_id,superseded_by,read_only) VALUES(?,?,?,?,?,?,?,?,1)').run(newId, old.format, old.catalog_version, old.source, old.registry_json, old.search_text,
+      if (old) this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,search_text,preview_title,supersedes_message_id,superseded_by,read_only) VALUES(?,?,?,?,?,?,?,?,?,1)').run(newId, old.format, old.catalog_version, old.source, old.registry_json, old.search_text, old.preview_title,
         ids.get(old.supersedes_message_id) ?? null, ids.get(old.superseded_by) ?? null);
       const reply = one(this.db, 'SELECT interaction_reply_json FROM messages WHERE id=?', newId)?.interaction_reply_json;
       if (reply) {

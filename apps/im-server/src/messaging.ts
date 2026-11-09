@@ -127,12 +127,16 @@ export class Messaging {
     if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
     const lastMessage = c.last_message_at ? one(this.db,
-      "SELECT content, system_notice_json FROM messages WHERE conversation_id=? AND created_at=? ORDER BY rowid DESC LIMIT 1",
+      `SELECT m.content, m.system_notice_json, i.message_id AS card_id, i.preview_title,
+              CASE WHEN i.message_id IS NOT NULL THEN json_extract(m.attachments_json, '$[0].file_name') END AS card_attachment_name
+       FROM messages m LEFT JOIN message_interactive i ON i.message_id=m.id
+       WHERE m.conversation_id=? AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
       id, c.last_message_at,
     ) : undefined;
     // Stored previews can end inside a mention tag. Resolve from the full message
     // before truncating so existing conversations also recover on refresh.
-    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || c.last_message_preview : c.last_message_preview;
+    const storedPreview = c.last_message_preview || lastMessage?.card_attachment_name || c.last_message_preview;
+    const preview = lastMessage?.content ? readableMentions(lastMessage.content.trim(), members).slice(0, 120) || storedPreview : storedPreview;
     const prefs =
       one(
         this.db,
@@ -176,6 +180,7 @@ export class Messaging {
       is_muted: !!prefs.is_muted,
       unread_count: prefs.unread_count ?? 0,
       last_message_preview: preview,
+      last_message_card: !preview && lastMessage?.card_id ? {title: lastMessage.preview_title} : null,
       last_message_system_notice: JSON.parse(lastMessage?.system_notice_json ?? "null"),
       run_state: one(
         this.db,

@@ -61,9 +61,9 @@ it('finds visible pure card text in Web and Agent history without matching actio
   } finally { await app.close(); }
 });
 
-it('backfills existing cards for keyword search when opening an older database', () => {
+it('backfills existing cards for keyword search and list previews when opening an older database', () => {
   const { ctx, db } = personalFixture();
-  const source = 'root = Text("Old card content")';
+  const source = 'root = Col([Title("Existing plan"), Text("Old card content")])';
   const card = ctx.messaging.insertMessage('chat','a1','agent','',[],null,'completed',{
     interactive:{format:'openui',catalog_version:'nano-iui-1',source},
   });
@@ -73,12 +73,13 @@ it('backfills existing cards for keyword search when opening an older database',
     db.prepare('VACUUM INTO ?').run(path);
     const legacy = new DatabaseSync(path);
     try {
-      legacy.exec("ALTER TABLE message_interactive DROP COLUMN search_text; DELETE FROM schema_migrations WHERE version='interactive-search-text-v1'");
+      legacy.exec("ALTER TABLE message_interactive DROP COLUMN search_text; ALTER TABLE message_interactive DROP COLUMN preview_title; DELETE FROM schema_migrations WHERE version='interactive-card-text-v1'");
     } finally { legacy.close(); }
     const migrated = openDatabase(path);
     try {
       expect(searchMessages(migrated,{targets:['chat'],terms:['Old card content'],action:'search'}).map(row=>row.id)).toEqual([card.id]);
-      expect(migrated.prepare('SELECT source FROM message_interactive WHERE message_id=?').get(card.id)).toEqual({source});
+      expect(migrated.prepare('SELECT source,preview_title FROM message_interactive WHERE message_id=?').get(card.id))
+        .toEqual({source,preview_title:'Existing plan'});
     } finally { migrated.close(); }
   } finally { rmSync(directory,{recursive:true,force:true}); }
 });

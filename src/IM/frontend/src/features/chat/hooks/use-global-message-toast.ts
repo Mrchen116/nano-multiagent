@@ -109,8 +109,7 @@ function extractSenderName(payload: Record<string, unknown>): string {
 function patchConversationPreview(
   items: Conversation[] | undefined,
   conversationId: string,
-  preview: string,
-  createdAt?: string,
+  { preview, createdAt, cardOnly }: NotificationCandidate,
   markUnread = false
 ) {
   if (!items) {
@@ -127,7 +126,10 @@ function patchConversationPreview(
     }
     return {
       ...item,
-      last_message_preview: preview,
+      last_message_preview: cardOnly ? "" : preview,
+      last_message_card: cardOnly
+        ? (createdAt === item.last_message_at ? item.last_message_card : null) ?? { title: null }
+        : null,
       last_message_system_notice: null,
       last_message_at: createdAt ?? item.last_message_at,
       unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
@@ -262,7 +264,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             createdAt: completion.candidate.createdAt
           };
         }
-        if (event.eventType === "message.completed") {
+        if (event.eventType === "message.completed" || (candidate && hasInteractiveCard(payload))) {
           void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }).catch(() => undefined);
         }
         if (!candidate) return;
@@ -275,7 +277,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           const shouldMarkUnread = !viewingConversation && !resolvedSelfAuthored;
           if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
           queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
-            patchConversationPreview(previous, conversationId, candidate.cardOnly ? "" : candidate.preview, candidate.createdAt, shouldMarkUnread)
+            patchConversationPreview(previous, conversationId, candidate, shouldMarkUnread)
           );
           if (
             viewingConversation

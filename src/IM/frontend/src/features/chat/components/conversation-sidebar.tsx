@@ -180,7 +180,9 @@ export function ConversationSidebar({
 
   const previews = useMemo(() => new Map(searchConversations.map((c) => [
     c.id, formatSystemNotice(t, c.last_message_system_notice, c.type === "direct")
-      ?? mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants))
+      ?? (c.last_message_card
+        ? [t("chat.toast.card"), c.last_message_card.title].filter(Boolean).join(" · ")
+        : mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants)))
   ])), [searchConversations, t]);
 
   const filtered = useMemo(() => {

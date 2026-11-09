@@ -1,5 +1,9 @@
 import Foundation
 
+struct ChatCardPreview: Codable, Sendable, Hashable {
+    var title: String?
+}
+
 struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var id: String
     var title: String
@@ -13,6 +17,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var is_muted: Bool
     var unread_count: Int
     var last_message_preview: String?
+    var last_message_card: ChatCardPreview?
     var last_message_at: String?
     var created_at: String
     var run_state: String?
