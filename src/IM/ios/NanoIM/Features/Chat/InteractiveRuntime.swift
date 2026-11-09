@@ -44,6 +44,8 @@ final class InteractiveRuntime {
     @ObservationIgnored private var querySignatures: [String: String] = [:]
     @ObservationIgnored private var queries: [JSONValue] = []
     @ObservationIgnored private var generation = UUID()
+    // Recycling a page must revoke its bridge without invalidating an acknowledged draft PUT.
+    @ObservationIgnored private var rendererGeneration = UUID()
     @ObservationIgnored private var webSequence = 0
     @ObservationIgnored private var callerReadOnly: Bool
     @ObservationIgnored private var draftReadOnly = false
@@ -56,7 +58,7 @@ final class InteractiveRuntime {
     }
     var hasPending: Bool { chat.interactionAttempt(message.conversation_id, sourceMessageID: message.id) != nil }
     var usesWebRenderer: Bool { message.interactive?.catalog_version == "nano-iui-1" }
-    var webID: UUID { generation }
+    var webID: UUID { rendererGeneration }
     var webDisabled: Bool { readOnly || busy || hasPending || conflict }
     var fallbackAttachmentIndexes: [Int] {
         let shown = Set(visibleAttachmentIndexes.map { message.attachments[$0].url })
@@ -64,10 +66,12 @@ final class InteractiveRuntime {
     }
 
     func load(adoptingRemote: Bool = false) async {
-        // Generic reload/retry must not silently resolve an unsaved conflict.
-        guard isCurrentStore, !loaded || saved == edited || (adoptingRemote && conflictColumns != nil) else { return }
+        guard isCurrentStore else { return }
+        left = false
+        // Reactivation preserves unresolved edits; only explicit adoption may replace them.
+        guard !loaded || saved == edited || (adoptingRemote && conflictColumns != nil) else { return }
         chat.interactionDrafts.register(self)
-        let token = UUID(); generation = token
+        let token = UUID(); generation = token; rendererGeneration = token
         resetAttachmentPresentation()
         sessionRevision = await client.session.revision()
         if !loaded { error = nil }
@@ -102,7 +106,7 @@ final class InteractiveRuntime {
     }
     /// The bundled renderer supplies values, never credentials or arbitrary API access.
     func webRequest(_ request: JSONValue, generation token: UUID) async throws -> JSONValue {
-        guard usesWebRenderer, loaded, await current(), !left, token == generation else {
+        guard usesWebRenderer, loaded, await current(), !left, token == rendererGeneration else {
             throw runtimeError("This card session is no longer active")
         }
         let type = request["type"].stringValue ?? ""
@@ -148,9 +152,10 @@ final class InteractiveRuntime {
         }
         guard ["ComposeMessage", "SendToChat", "continue_conversation"].contains(name ?? "") else { throw runtimeError("This action is not connected") }
         busy = true; composing = name == "ComposeMessage"; error = nil
-        defer { if token == generation { busy = false; composing = false } }
+        let operationGeneration = generation
+        defer { if operationGeneration == generation { busy = false; composing = false } }
         await flush()
-        guard token == generation, await current(), !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
+        guard token == rendererGeneration, await current(), !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
         if name == "ComposeMessage" {
             guard let target = args["target"].stringValue, let text = args["text"].stringValue else { throw runtimeError("target and text required") }
             try await compose(target, text: text); return .null
@@ -163,7 +168,7 @@ final class InteractiveRuntime {
         if let form = action["formState"].objectValue { submittedState.merge(form) { _, new in new } }
         let receipt = try await chat.submitInteraction(message.conversation_id,
             input: InteractionReplyInput(source_message_id: message.id, event: .object(details), state: submittedState), key: UUID().uuidString)
-        guard token == generation, await current() else { throw runtimeError("This card session is no longer active") }
+        guard token == rendererGeneration, await current() else { throw runtimeError("This card session is no longer active") }
         submitted = true; saved = edited
         await syncRevision()
         return .object(["message_id": .string(receipt.id), "delivery_status": .string(receipt.delivery_status)])
@@ -191,7 +196,7 @@ final class InteractiveRuntime {
             return .null
         }
         let (data, mime) = try await client.protectedResource(attachment.url)
-        guard await current(), !left, loaded, token == generation else {
+        guard await current(), !left, loaded, token == rendererGeneration else {
             throw runtimeError("This card session is no longer active")
         }
         guard imageTypes.contains(mime) else { throw URLError(.cannotDecodeContentData) }
@@ -363,7 +368,7 @@ final class InteractiveRuntime {
         DraftFlushResult(updatedAt: lastConfirmedUpdate, reason: conflict ? .conflict : (loaded && !readOnly && saved != edited ? .transient : nil))
     }
     func leave() {
-        left = true
+        left = true; rendererGeneration = UUID(); webSequence = 0
         resetAttachmentPresentation()
         saveTimer?.cancel(); queryTask?.cancel(); queryPoll?.cancel()
         // Row recycling is not a conversation switch. The store owns discard ordering.

@@ -182,6 +182,21 @@
 - 作者实际读取拒绝图 `54024170-8BD9-462F-A248-4A7E1CF463C2.png`（SHA256 `0b9ff6bdfec07d35d303eb4d430734f2182da541bffaf80cd50355a40b1f3bc6`）：完整预算错误/两条恢复建议、蓝图、可编辑正文仍在；长正文尾部在输入框内部滚动范围，完整控件值/AX保留，不称全部正文同时可见。最终图 `4B6F0596-5DAB-414D-820F-E15A7C74C908.png`（SHA256 `989c82a166647c7a696176f63b53d4ff56ac5d0367d74e8f2136cca45a2f92af`）同时显示完整恢复正文、已发蓝图/同文件名、完整next和空composer；不包含其后agent回复。卡片显示前一run短备注，不声称外端CAS已刷新本端卡片。
 - 实际Inbox seq505 read→506 raw/509 projected item126，首text byteeq，正文+完整三背景逐项等relay；同read的part1/2为正文背景、part2/2为同附件，非两个human消息、无next_cursor。513/514拟send三卡2被515/519 **held_for_revalidation，未送达**；next532 read→533/536 item133仅next正文、无新块→539/540真实send received→541/544 sent `bbee98a7797345fc89cac572ed65e735`，549 turn/end completed。人数原即2，不把拟回复说成新背景唯一因果证明；历史背景不因nextnone删除。不是provider wire，也不推广到所有64KiB组一次read或图像理解。
 
+## 最终集成 MERGE-1 的最低层红绿
+
+原reviewer对375d11416集成树指出同runtime重挂漏复位`left`。作者新增独立的`InteractionDraftReentryTests.swift`（复用既有fixture/同步gate，不扩大原400行测试文件），只经真实`leave`→`load`→`webRequest`与原draft coordinator测试边界观察：
+
+- 保存干净后的新页面ready/state可用；离场旧页面ready被拒绝。
+- 503后保留本机编辑和transient失败；重挂允许继续重试，旧页面高序号state不能覆盖本机。
+- 409后保留本机编辑和冲突；重挂仍disabled，必须先只读比较才能显式采用远端。
+- gated PUT在离场/重挂后成功，真实ack仍推进自有水位，行回收不产生会话discard；旧页面被拒绝。
+
+**实际红测**：产品未改的375d11416 + 新测试，`/tmp/feat716-merge-reentry-red.log:862–879`，四项全部执行且均以422 `This card session is no longer active`失败，0.736s、xcodebuild exit65。日志随后独立的xcrun CLT路径诊断错误不改变四项已执行断言；未修改全局xcode-select。只读bundler构建先已通过。
+
+**产品修复**：有效store内load先复位left，再执行保留未保存/冲突的guard；渲染页面token与draft/engine代际分开，leave仅撤销页面token和序号，不旋转draft token，避免真实在途PUT确认/水位丢失。异步附件和业务回执仍检查页面token；业务busy/composing清理绑定操作所处draft代际，不能因页面撤销而永久busy。未改变公开API、自动采用规则或会话discard所有权。
+
+**实际绿测**：相同四项、相同自有CC5与derived data、Xcode `-jobs 2 -parallel-testing-enabled NO`，`/tmp/feat716-merge-reentry-green.log:381–402`，4 tests / 0 failures / 0.063s、exit0。随后完整Native unit target `/tmp/feat716-final-native-tests.log:318–320,396`，80 tests / 0 failures / 10.134s、exit0。再补一项同gate的业务动作保护：在动作等待PUT时离场/重挂，旧页动作拒绝、未发送、busy/composing释放、新页ready恢复可用；此增量不改产品runtime。最终完整Native unit `/tmp/feat716-final-native-tests-actions.log:264–265,401–403,479`，**81 tests / 0 failures / 10.277s、TEST SUCCEEDED、exit0**（执行时间含建置/启动则更长，不将test时间当总时长）。当前runtime SHA256 `30ba3486f9869a6be9aee15d8b6104ff133d4b43fcadc902a59ef19668689015`，新测试最终SHA256 `f191261e4528e2a948e55b277360ba6e5bf42fbca0a24724f3481f60bbe599b6`；四项红绿时测试hash为30aa1b37…，不把后加的第五项说成已红测。测试构建标签375d但以上两文件为工作树增量，**不是clean375d实测**。完整unit包含WK mock，不冒称当前真实App入口旅程或工具拒绝已解除；修复仍待原reviewerclosure。
+
 ## 当前未关闭范围
 
-原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；受影响复验/独立集成delta补验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。
+原reviewer已对冻结ea438576f实际核对新增helper/全部决定证据、两图与原始SQLite，**APPROVED / findings=[]，原生预算连续恢复缺口CLOSED、限定旅程/体验PASS、Context SUPPORTED**；此前已选目标均有对应限定支持，详情归集于[review](../review.md#冻结树-ea438576f-的独立关闭)。后续81d036d54已实际sync固定develop1e38c6a3d并解决9冲突，不能套用本批准；MERGE-1已实际红绿/完整Native unit通过，仍待独立关闭及当前双端核心真实旅程。受影响复验、canonical归并、archive、本地/远端CI与Ready PR尚未完成，整体不宣布交付。

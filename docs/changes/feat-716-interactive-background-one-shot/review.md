@@ -148,7 +148,38 @@ Manifest guard 不代表实际服务/数据库绑定，更不代表人类授权�
 - 拒绝图完整错误/恢复建议、正文控件/蓝图保留（尾部内部滚动）；最终图完整first/sentphoto/next/空composer，不含后续agent回复；卡片仍上一run短备注。唯一持久upload不证明HTTP从不重试，PNG→App JPEG→模型JPEG正常转码，不声称逐层hash相同。旧c0 receipt失败保留，单次绿不证明旧空白唯一根因。
 - helper async fulfillment、精确label、最多一次Latest、photo唯一AX/实际可见中心tap、guard throw/flush静态clean；120 allowance、receipt20、composer10不变。新helper未重跑所有旧case；旧多卡9ac8/transient6df执行hash不迁移。MainActor setup/teardown未来Swift6警告仍保留，不称warning-free。配置未暴露例外不变。Reviewer只读，无新资源/写入/worker，未碰62814或其他事项。
 
+## 最终集成独立补验（375d11416）
+
+同一原reviewer对冻结 `375d11416ae425a492759684f96b79040852fac5` 执行 patch / 证据有效性判断 / corrected-delta；产品合并提交为 `81d036d549ce6811916eeb2d017dfaee822ee759`，双parent为ea438与固定目标 `1e38c6a3d5f99ca92b5847c6b03711d6a40dfccd`。`validated_at=375d11416`，本次 `executed_base=1e38c6a3d`。审查最终target→head 74文件unit diff，重点核对27共同路径/9冲突与相邻真实调用方，没有将158个target提交变成716全量重审。仍沿本轮配置例外，不冒称固定模型/effort。
+
+**REQUEST CHANGES；存活findings=1；corrected-delta=implementation-mismatch。** 除下项未发现新增静态问题，CR1/2/3继续CLOSED。下述是实际独立结论，不是作者待修方案已通过。
+
+### MERGE-1 — 原生同runtime重新挂载后永久拒绝WK请求
+
+- **P2 / CONFIRMED**；`InteractiveRuntime.swift:66–71`，关联`:105/:366`、`InteractiveCardView.swift:8–9,38,40`、coordinator`:81–90`。
+- target load原有`left=false`在合并中遗漏；最终只init=false/leave=true。卡片行离场会leave，重新挂载从coordinator复用同runtime；clean load虽然GET成功并换generation却不复位left，新的ready/state/action/附件均被`!left`守卫拒绝。unsaved/conflict还在load guard提前return，保留的编辑同样无法再交互。ea父分支没有left守卫、target父分支有复位，两父分支分别正常而本merge引入回归。
+- 违反重新打开/私人编辑恢复/动作可用要求；不改delta迎合缺陷。作者已直接核实，正在准备clean及unsaved/conflict重挂、新页面可用/旧代际拒绝、离场在途PUT成功保留水位的最低层红绿保护；**尚未实际运行或修复，不关闭**。不能只旋转草稿save generation而让真实PUT确认被忽略。
+
+### 其余合并与delta判断
+
+- server保持先attempt命中及冻结身份返回，再解析引用目标、派生pending、事务insert/saveAttempt/enqueue；超预算在所有message/attempt/relay保存前失败。server payload/contentFields和Webstore均保留target引用身份、忽略legacy contexts；新引用变更/移除/新增409及Web frozen retry测试保护，真实onSend第5参数传引用不是旧contexts。
+- contracts同时保留InteractionDraftField与MessageInteractive，schema双方新增并存；registry search/preview存储与既有source/actions/fields投影独立。Web barrier/水位/显式采用/账号撤权及target wrapper/附件可见性保留；iOS execution_cleanup与prepare/foreground/epoch/revoke并存。
+- 两处修正delta本身**aligned**：conversations-messages将引用目标加入身份、私人背景仍不参与；web-chat-ux保留target“附加正文可选”、失败不指向不存在摘要。另两份未改delta按原范围retained。总体implementation-mismatch来自MERGE-1，不是delta文本错误。
+- reviewer实际读取sync server50/Web135绿色、最终typecheck/ios-runtime及完整Web唯一分页timeout日志；不把generate/check当Swift测试，不直接把分页timeout归为无关。backend当时仍未终结，不复制全量或推断归因。
+
+### 有效性与仍需执行的观察
+
+- `InteractionBackground`、Web coordinator/FailureNotice、iOS coordinator/FailureNotice/SendAttemptStore/ChatAPI在ea→81d逐字未变；旧fc5双端AB→none→A、预算/连续恢复、native transient、relay/实际Inbox与下一model步仍是未变机制的**历史直接证据 retained**，执行hash/held/非provider-wire等限制保留。不是375d最终运行，也不证明新renderer生命周期、布局或带引用模型投影。
+- 修复后的最低层native重入/旧代际/保存确认红绿为代码批准前置；还需最终双端核心真实旅程，并让native覆盖同runtime离场重挂。当前relay、actual `inbox(action=read)`与下一model步应绑定最终运行；无需机械重造全部64KiB边界或全部恶意矩阵。
+- target改变Web scroll wrapper及native附件fallback/阅读位置，最终窄屏的必要失败/恢复画面与可操作结果须直接观察，可嵌入有界核心旅程；旧完整画面不能直接覆盖。确定性当前引用+背景/unknown retry保护保留。
+- 新52850 fixture未ready且恢复/seed实际工具拒绝，审计第3节保留整条未执行；这是验证缺口/工具阻塞，不改成产品失败，不绕过。最终CI失败归因与Web分页单组复验仍待。reviewer全程只读、未写文件/运行GUI/服务/模型/worker，不触碰旧62814或其它事项。
+
+## MERGE-1 作者修复与待独立关闭
+
+- 已实际补最低层clean、503、409和gated PUT四项红→绿；漏复位导致四项均422失败，修后4/4通过。load在保留未保存/冲突之前恢复active，独立renderer代际撤销旧页面但不撤销在途draft确认；业务defer仍按draft代际清busy。另补动作等待保存时重挂的旧页拒绝/未发送/busy释放保护，最终完整Native unit **81 tests / 0 failures / 10.277s / exit0**。具体日志、执行树dirty说明与源码hash见[最低层红绿](evidence/multi-card-validation.md#最终集成-merge-1-的最低层红绿)。此处是作者已执行事实，**不是原reviewerclosure**；原REQUEST CHANGES保留至其实际复验。
+- Release device archive和其它全量CI失败单组归因仍在处理；新的真实双端入口/模型观察仍受精确工具拒绝阻塞，不以mock或旧树旅程代替，不套用ea438动态批准。
+
 ## 当前流程收口
 
-- 已在后续 `81d036d549ce6811916eeb2d017dfaee822ee759` 实际合入固定develop目标 `1e38c6a3d5f99ca92b5847c6b03711d6a40dfccd`，解决9处内容冲突；此集成树**尚未独立补验**，不套用ea438批准。目标集成增量与受影响复验记录随后补齐。
+- 最终固定目标已实际合入并有上述独立补验；MERGE-1已作者修复/红绿/完整81项通过，原reviewerclosure与当前动态/CI缺口尚未关闭，不套用ea438批准。
 - canonical、archive、本地完整CI及Ready PR/远端CI尚未完成，不宣布交付；旧62814人类预览保护不动。已停止本次59469栈且核实PID49976退出/端口关闭，DB和必要证据保留；自有CC5已核实Shutdown，暂留待最终集成验证。
