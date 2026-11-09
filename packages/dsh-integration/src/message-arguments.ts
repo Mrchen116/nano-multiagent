@@ -3,7 +3,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools';
 /** Shared public message fields; wire protocol constants are supplied by the host. */
 export const publicMessageProperties = {
   target: {type:'string' as const,description:'A conversation, user or IM Agent target. Use conversations info to resolve current members before addressing a particular participant.'},
-  text: {type:'string' as const,description:'Optional with interactive: put all necessary explanation inside the UI instead of duplicating it here. Required for plain-text delivery. To address a specific Agent in a group, include <mention type="user" target_id="IM_USER_ID"/> using its actual user_id from conversations info; a plain name or Agent ID does not notify mention-only Agents.'},
+  text: {type:'string' as const,description:'Message text. Optional with interactive UI. Required for plain-text delivery. To address a specific Agent in a group, include <mention type="user" target_id="IM_USER_ID"/> using its actual user_id from conversations info; a plain name or Agent ID does not notify mention-only Agents.'},
   incident_ref: {type:'string' as const,description:'Bound main PA only: incident reference for the owner notice or subsequent refusal in its original conversation.'},
   attachments: {type:'array' as const,maxItems:5,items:{type:'object' as const,properties:{url:{type:'string' as const}},required:['url'],additionalProperties:false}},
   interactive: {type:'object' as const,properties:{source:{type:'string' as const,maxLength:65536},supersedes_message_id:{type:'string' as const},source_mode:{type:'string' as const,enum:['patch']}},required:['source'],additionalProperties:false},
