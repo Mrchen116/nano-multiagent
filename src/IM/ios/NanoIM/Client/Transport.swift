@@ -2,6 +2,12 @@ import Foundation
 
 protocol HTTPTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse)
+    func download(for request: URLRequest) async throws -> (URL, HTTPURLResponse)
+}
+extension HTTPTransport {
+    func download(for request: URLRequest) async throws -> (URL, HTTPURLResponse) {
+        throw URLError(.unsupportedURL)
+    }
 }
 
 /// A protected request must never follow an off-origin redirect with credentials.
@@ -28,6 +34,14 @@ final class LiveTransport: HTTPTransport, @unchecked Sendable {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         return (data, http)
+    }
+    func download(for request: URLRequest) async throws -> (URL, HTTPURLResponse) {
+        let (file, response) = try await session.download(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            try? FileManager.default.removeItem(at: file)
+            throw URLError(.badServerResponse)
+        }
+        return (file, http)
     }
 }
 

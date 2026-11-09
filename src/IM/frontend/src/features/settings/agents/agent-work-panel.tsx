@@ -17,6 +17,7 @@ import { AgentExecutionDeletedError, workBase, workCatalogPath, workRequest, wor
 import "./agent-work.css";
 import { useWorkHistory } from './agent-work-history';
 import { LegacyWorkLinks, WorkLink } from './agent-work-links';
+import { WorkOriginals } from "./agent-work-originals";
 import { AgentTrajectory } from './agent-trajectory';
 
 type SavedView = { selected: string | null; expanded: Record<string, boolean>; scroll: number; mainScroll?: number; focus?: string };
@@ -114,6 +115,7 @@ function SessionFacts({ items, title = "执行记录" }: { items?: WorkItem[]; t
       {item.observed_at && <small className="im-work-muted"> · {new Date(item.observed_at).toLocaleString()}</small>}
       {item.kind === "cron_delivery" && str(p.conversation_id) && <div><WorkThreadLink conversationId={str(p.conversation_id)} messageId={str(p.message_id)}>{tr("投递聊天 · 原消息")}</WorkThreadLink><small className="im-work-muted"> · {str(p.conversation_id)}</small></div>}
       <pre className="chat-tool-call-pre">{str(p.text) || str(p.error) || str(p.model) || JSON.stringify(p, null, 2)}</pre>
+      {p.large_detail_preview === true && <small>{tr("部分内容为预览，可查看大型原文的可用状态")}</small>}
     </div>;
   })}</details>;
 }
@@ -330,10 +332,14 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
               : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} history={separate ? childHistory : undefined} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}
                 earlier={childQuery.hasNextPage ? {loading: childQuery.isFetchingNextPage, load: () => void childQuery.fetchNextPage()} : undefined} />
               : childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : <p>{tr("尚未报告执行轮次")}</p>}
-            {!childQuery.isError && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
+            {!childQuery.isError && !metadata.isError && <>
+              {separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />}
+              <WorkOriginals key={`originals:${saved.selected}`} agentId={agentId} sessionId={saved.selected} />
+            </>}
           </aside>}
         </div>
         {separate && view.main_session_id ? <SessionControls key={view.main_session_id} agentId={agentId} sessionId={view.main_session_id} title="控制记录" /> : <SessionFacts items={view.control_items} title="控制记录" />}
+        {view.main_session_id && <WorkOriginals key={`originals:${view.main_session_id}`} agentId={agentId} sessionId={view.main_session_id} />}
         {(separate || sessions.length > 0) && <details className="im-work-other" onToggle={event => {if (event.target === event.currentTarget) setCatalogOpen(event.currentTarget.open);}}>
           <summary>{tr("关联执行")}{!separate && ` · ${sessions.length}`}</summary>
           {sessions.map(session => <button type="button" key={session.session_id} onClick={() => selectChild(session.session_id)}>{tr(sessionTitle(session))} <small>{session.session_id}</small></button>)}
@@ -437,7 +443,8 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
       {turn.items_deferred && pages.isLoading && <p role="status">{tr("正在加载工作记录…")}</p>}
       <ul className="im-work-items">{items.map(item => {
         const p = item.payload;
-        if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind) && !str(p.reasoning_content) && !str(p.text) && !str(p.content) && !str(p.delta) && !str(p.source_session_id) && !(Array.isArray(p.background_returns) && p.background_returns.length)) return null;
+        const preview = p.large_detail_preview === true && <small>{tr("部分内容为预览，可查看大型原文的可用状态")}</small>;
+        if (!preview && ["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind) && !str(p.reasoning_content) && !str(p.text) && !str(p.content) && !str(p.delta) && !str(p.source_session_id) && !(Array.isArray(p.background_returns) && p.background_returns.length)) return null;
         const itemKey = `${key}:${item.item_id}`;
         if (item.kind === "tool") {
           const call = { ...p, input: p.input ?? p.arguments ?? {}, output: p.output ?? p.summary } as unknown as ToolCall;
@@ -456,20 +463,22 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
           const lateLink = separate && !childId && !delegation && callId
             ? <LegacyWorkLinks agentId={agentId} filter={{parent_session_id: turn.session_id, tool_call_id: callId}} onChild={onChild} label="查看子执行" />
             : null;
-          return <WorkTool key={item.item_id} call={call} expanded={expanded[itemKey] ?? false} onExpandedChange={open => expand(itemKey, open)} detailFooter={<><WorkFacts facts={p.work_facts} />{lateLink}</>} childLink={link} />;
+          return <WorkTool key={item.item_id} call={call} expanded={expanded[itemKey] ?? false} onExpandedChange={open => expand(itemKey, open)} detailFooter={<>{preview}<WorkFacts facts={p.work_facts} />{lateLink}</>} childLink={link} />;
         }
-        if (item.kind === "permission") return <li key={item.item_id}><PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;
-        if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li className="im-work-body" key={item.item_id}>{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta) || str(p.source_session_id)) && <div className="im-work-assistant"><header className="im-work-message-head"><strong>{tr(p.source_kind === "subagent-settled" ? "子执行返回" : p.source_kind === "agent-message" ? "Agent 消息" : "Agent 正文")}</strong>{str(p.source_session_id) && <button type="button" className="im-work-child-link" onClick={() => onChild(str(p.source_session_id))}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}</header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}</li>;
+        if (item.kind === "permission") return <li key={item.item_id}><PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} />{preview}</li>;
+        if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li className="im-work-body" key={item.item_id}>{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta) || str(p.source_session_id)) && <div className="im-work-assistant"><header className="im-work-message-head"><strong>{tr(p.source_kind === "subagent-settled" ? "子执行返回" : p.source_kind === "agent-message" ? "Agent 消息" : "Agent 正文")}</strong>{str(p.source_session_id) && <button type="button" className="im-work-child-link" onClick={() => onChild(str(p.source_session_id))}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}</header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}{preview}</li>;
         if (["thinking", "thinking_delta", "reasoning"].includes(item.kind)) return <li key={item.item_id}><details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey,event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.text) || str(p.content) || str(p.reasoning_content)}</p></details></li>;
         if (item.kind === "cron_delivery" || item.kind === "cron_trigger") return <li key={item.item_id}><SessionFacts items={[item]} /></li>;
         if (item.kind === "injection_consumed" && (str(p.source_session_id) || Array.isArray(p.background_returns) && p.background_returns.length > 0)) return <li key={item.item_id}>{str(p.source_session_id) && <WorkLink id={str(p.source_session_id)} label="查看关联执行" onChild={onChild} />}{backgroundRows(p.background_returns, itemKey)}</li>;
         if (item.kind === "background_return") return <li key={item.item_id}>{backgroundRows([p], itemKey)}</li>;
         if (item.kind === "injection_consumed" && Number(p.user_message_count) > 0) return <li className="im-work-assistant" key={item.item_id}>{tr("运行中收到补充输入")}</li>;
-        if (item.kind === "recording_degraded") return <li className="im-work-callout" key={item.item_id}>{tr("工作记录存在缺口")}</li>;
+        if (item.kind === "recording_degraded") return <li className="im-work-callout" key={item.item_id}>{tr("工作记录存在缺口")}{preview}</li>;
+        if (preview) return <li key={item.item_id}>{preview}</li>;
         // Lifecycle/configuration events remain in the journal, not the user-facing trace.
         return null;
       })}</ul>
       {turn.error?.message && <p className="im-work-error">{turn.error.code && `${turn.error.code}: `}{turn.error.message}</p>}
+      {expanded[key] && <WorkOriginals agentId={agentId} sessionId={turn.session_id} turnId={turn.turn_id} />}
       <footer className="im-work-turn-footer"><Usage value={turn.usage} label="本轮统计" />{typeof turn.elapsed_ms === "number" && <small>{formatDuration(turn.elapsed_ms)}</small>}</footer>
       {separate && (changes.data?.next_cursor || changes.isError) && <button type="button" disabled={changes.isFetching} onClick={() => void changes.refetch()}>{tr(changes.isError ? "重试" : "加载更多更新")}</button>}
       {cursor && <button type="button" disabled={pages.isFetching} onClick={load}>{tr("加载更多过程")}</button>}{pages.error && <p role="alert">{pages.error.message}<button type="button" onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}

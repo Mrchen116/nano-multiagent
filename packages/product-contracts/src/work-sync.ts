@@ -25,6 +25,8 @@ export interface WorkSyncCursor {
   through_seq: number;
   expected_seq?: number;
   pending_event?: WorkSyncPendingEvent;
+  large_detail?: 1;
+  detail?: WorkDetailProgress;
 }
 
 export interface WorkSyncPart {
@@ -42,4 +44,35 @@ export const workRedactedType = 'work_redacted';
 export interface WorkRedactionManifest {
   journal_id: string;
   entries: { seq: number; event_id: string }[];
+}
+
+export const workDetailLimits = {
+  chunkBytes: 256 * 1024,
+  maxBytes: 64 * 1024 * 1024,
+  projectionBytes: 24 * 1024,
+  structureTokens: 100_000,
+  stagingBytes: 256 * 1024 * 1024,
+  retainedBytes: 4 * 1024 * 1024 * 1024,
+  workerTimeoutMs: 60_000,
+} as const;
+
+export interface WorkDetailManifest {
+  total_bytes: number;
+  sha256: string | null;
+  resource_limited?: true;
+  projection: import('./work-events.js').WorkJournalEvent;
+}
+
+export interface WorkDetailProgress {
+  state: 'uploading' | 'verifying' | 'complete' | 'pending' | 'local' | 'discarded' | 'rejected';
+  offset: number;
+}
+
+export interface WorkDetailEntry {
+  revision: number;
+  event_id: string;
+  type: string;
+  observed_at: string | null;
+  total_bytes: number;
+  state: 'complete' | 'pending' | 'local';
 }

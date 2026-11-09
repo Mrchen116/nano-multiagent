@@ -30,3 +30,8 @@ Gateway 用 SQLite 里的原始 journal 字节，先从元数据判定大小。�
 - 最后请求只写入校验意图并返回 verifying。中心按身份合并任务，一节点一件、全中心限制并行 worker。相同请求不会重开校验，重启由 manifest 续领。worker 在独立的有界时限内完成，失败可重新领取。下载用 async iterator 逐段查询，每次查询结束后释放 SQLite 读取快照；慢连接不会一直持有 WAL 读事务。每次取下一段重新确认绑定或用户权限与 committed manifest。
 - Web 下载的 GET 独立使用现有 Path=/、HttpOnly、SameSite=Strict browser session cookie，服务端复用 browserSession 校验和当前 Work 访问检查。API/iOS 仍用 Bearer。下载设置附件 Content-Disposition、nosniff 和 private/no-store，不作为站内页面执行。Chrome/Safari 从同源 GET 直接下载，不在 JS 中缓冲整个文件。
 - 加入 SQLite trigger 在 Agent 删除进入 deleted 时删除该根所有待确认 manifest 和级联 BLOB。旧中心仍会写该事务状态并启用 SQLite 外键，新增 trigger 在回退时也有效；已提交原文另随对应 Work 事件删除。
+
+## 解码预算与重试隔离
+
+- 64 MiB 原文字节上限之外，两个 worker 在完整解码前均检查 JSON 字符串外的数组、对象和槽位数量。超过 100,000 个结构符号或达到 worker 堆限额的记录提交仅节点预览并推进普通日志。中心清除这次暂存，不提供未经共享 codec 验证的下载。保留节点原始字节。
+- 已确认预览的同一 manifest 可能经历多次暂存。每次重新取得暂存位置递增持久 generation，校验结束与校验错误都只处理其领取的 generation。Gateway 只保留一个按日志身份和摘要标识的临时文件，普通 Work 可中断其补传，之后复用已准备的文件。

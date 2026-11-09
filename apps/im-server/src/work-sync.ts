@@ -4,12 +4,13 @@ import { open, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkRedactionManifest, type WorkSyncPart, type WorkSyncCursor, workObject } from '@nano/product-contracts';
+import { workSyncLimits as limits, workDetailLimits, workSyncPrefix, workRedactedType, type WorkRedactionManifest, type WorkSyncPart, type WorkSyncCursor, workObject } from '@nano/product-contracts';
 import { all, one, fail, transaction, type ImContext, type Row } from './context.js';
 import type { RuntimeIdentity } from './identity.js';
 import { readWorkBatch } from './work.js';
 import type { Connection } from './gateway.js';
 import { workRedaction } from './work-records.js';
+import { WorkDetailSync } from './work-detail-sync.js';
 
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
@@ -58,6 +59,9 @@ export async function registerWorkRedactions(
         fail(409, 'event_identity_conflict');
       const committed = all(db, 'SELECT node_id,journal_id,seq,event_id,root_agent_id FROM agent_work_events WHERE (node_id=? AND journal_id=? AND seq=?) OR event_id=?', node, journal, seq, event);
       if (committed.some(row => !matches(row) || row.root_agent_id !== operation.agent_id)) fail(409, 'event_identity_conflict');
+      const details = all(db, 'SELECT * FROM work_detail_uploads WHERE (node_id=? AND journal_id=? AND seq=?) OR event_id=?', node, journal, seq, event);
+      if (details.some(row => !matches(row) || row.root_agent_id !== operation.agent_id || row.owner_id !== owner)) fail(409, 'event_identity_conflict');
+      db.prepare('DELETE FROM work_detail_uploads WHERE node_id=? AND journal_id=? AND seq=?').run(node, journal, seq);
       const uploads = findUploads.all(node, journal, seq, node, journal, event, seq) as Row[];
       if (uploads.some(row => row.seq !== seq || row.event_id !== event || row.owner_id !== owner)) fail(409, 'event_identity_conflict');
 
@@ -109,6 +113,8 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     CREATE TRIGGER work_sync_commit_update AFTER UPDATE OF through_seq ON agent_work_journals BEGIN
       UPDATE work_sync_uploads SET committed=1 WHERE id=(SELECT id FROM work_sync_uploads WHERE node_id=NEW.node_id AND committed=0) AND journal_id=NEW.journal_id AND seq<=NEW.through_seq;
     END;`);
+  const details = new WorkDetailSync(ctx, error => app.log.error(error));
+  app.addHook('preClose', async () => { await details.close(); });
   let active = 0;
   const uploadsInFlight = new Map<string, Promise<void>>();
   activeUploads.set(db, uploadsInFlight);
@@ -150,7 +156,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     const seq = through(identity.node_id, journal);
     const pending = one(db, 'SELECT * FROM work_sync_uploads WHERE node_id=? AND owner_id=? AND node_epoch=? AND journal_id=? AND committed=0',
       identity.node_id, identity.owner_id, identity.node_epoch, journal);
-    return { through_seq: seq, expected_seq: seq + 1, ...(pending ? { pending_event: {
+    return { through_seq: seq, expected_seq: seq + 1, large_detail: 1, ...(pending ? { pending_event: {
       seq: pending.seq, event_id: pending.event_id, sha256: pending.sha256, total_parts: pending.total_parts,
       received_parts: all(db, 'SELECT part FROM work_sync_parts WHERE upload_id=? ORDER BY part', pending.id).map(row => row.part),
     } } : {}) };
@@ -215,7 +221,20 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
       }
     });
     cleanup(); await new Promise<void>(resolve => setImmediate(resolve));
-    return result;
+    return {...result, large_detail: 1};
+  }));
+  const largeOptions = {...options, bodyLimit: Math.ceil(workDetailLimits.chunkBytes / 3) * 4 + 1024};
+  app.post(`${path}/large/:seq`, largeOptions, serve(async request => {
+    const {identity, journal} = scope(request), seq = Number((request.params as Row).seq);
+    if (!integer(seq) || seq < 1) fail(400, 'invalid_sequence');
+    const detail = details.begin(identity, journal, seq, request.body);
+    return {...cursor(identity, journal), detail};
+  }));
+  app.put(`${path}/large/:seq/:offset`, largeOptions, serve(async request => {
+    const {identity, journal} = scope(request), p = request.params as Row, seq = Number(p.seq);
+    if (!integer(seq) || seq < 1) fail(400, 'invalid_sequence');
+    const detail = details.put(identity, journal, seq, Number(p.offset), request.body);
+    return {...cursor(identity, journal), detail};
   }));
   app.put(`${path}/events/:seq/parts/:part`, options, serve(async request => {
     const { identity, journal } = scope(request), p = request.params as Row;
@@ -249,6 +268,8 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
         fail(409, 'event_identity_conflict');
       return cursor(identity, journal);
     }
+    if (one(db, 'SELECT 1 FROM work_detail_uploads WHERE node_id=? AND journal_id=? AND seq=?', identity.node_id, journal, seq))
+      fail(409, 'event_identity_conflict');
     const previous = through(identity.node_id, journal);
     if (seq > previous + 1) return cursor(identity, journal);
     if (seq <= previous) {

@@ -144,10 +144,11 @@ export class WorkRecords {
    *   node: Authenticated producer node, supplied by the transport adapter.
    *   p: Decoded batch retaining original payload objects.
    *   historical: HTTP recovery may register an old main execution as history.
+   *   commitDetail: Persist a large detail receipt inside the same transaction as its projection.
    * Returns:
    *   Committed acknowledgement and roots to notify after the transaction.
    */
-  append(node: string, p: WorkAppendBatch, historical = false): {ack: WorkAppendAck; appliedRoots: Set<string>} {
+  append(node: string, p: WorkAppendBatch, historical = false, commitDetail?: () => void): {ack: WorkAppendAck; appliedRoots: Set<string>} {
     let through =
       one(
         this.db,
@@ -163,6 +164,9 @@ export class WorkRecords {
       }, appliedRoots: new Set() };
     const appliedRoots = new Set<string>();
     transaction(this.db, () => {
+      if (!commitDetail && one(this.db, `SELECT 1 FROM work_detail_uploads
+        WHERE node_id=? AND journal_id=? AND seq BETWEEN ? AND ?`,
+        node, p.journal_id, p.from_seq, p.from_seq + p.events.length - 1)) fail(409, 'event_identity_conflict');
       for (const [i, e] of p.events.entries()) {
         if (e.seq !== p.from_seq + i) fail(400, "invalid_sequence");
         if (workRedaction(this.db, node, p.journal_id, e.seq, e.event_id, e.root_agent_id)) {
@@ -245,6 +249,7 @@ export class WorkRecords {
           "INSERT INTO agent_work_journals VALUES(?,?,?) ON CONFLICT(node_id,journal_id) DO UPDATE SET through_seq=excluded.through_seq",
         )
         .run(node, p.journal_id, through);
+      commitDetail?.();
     });
     return { ack: { journal_id: p.journal_id, through_seq: through }, appliedRoots };
   }
@@ -421,6 +426,7 @@ export class WorkRecords {
     } else if (fact?.type === "message_delta" || fact?.type === "text_delta")
       payload.text = (payload.text ?? "") + (fact.payload.text ?? fact.payload.delta ?? "");
     else Object.assign(payload, p);
+    if (p.large_detail_preview === true) payload.large_detail_preview = true;
     payload.seq = old?.seq ?? revision;
     this.db
       .prepare(

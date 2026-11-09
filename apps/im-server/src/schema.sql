@@ -680,3 +680,29 @@ CREATE TABLE IF NOT EXISTS conversation_execution_cleanup (
   conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
   revision INTEGER NOT NULL
 );
+
+-- Original bytes follow the same backup and deletion boundary as their Work event.
+CREATE TABLE IF NOT EXISTS work_detail_uploads (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, node_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
+ journal_id TEXT NOT NULL, seq INTEGER NOT NULL, event_id TEXT UNIQUE NOT NULL,
+ root_agent_id TEXT NOT NULL, session_id TEXT NOT NULL, turn_id TEXT,
+ total_bytes INTEGER NOT NULL, sha256 TEXT, projection_json TEXT NOT NULL, generation INTEGER NOT NULL DEFAULT 0,
+ offset INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, state TEXT NOT NULL,
+ revision INTEGER REFERENCES agent_work_events(revision) ON DELETE CASCADE,
+ UNIQUE(node_id,journal_id,seq));
+CREATE UNIQUE INDEX IF NOT EXISTS work_detail_active_node ON work_detail_uploads(node_id)
+ WHERE state IN ('uploading','verifying');
+CREATE INDEX IF NOT EXISTS work_detail_capacity ON work_detail_uploads(state,total_bytes)
+ WHERE state IN ('uploading','verifying','complete');
+CREATE INDEX IF NOT EXISTS work_detail_verification ON work_detail_uploads(updated_at,id) WHERE state='verifying';
+CREATE INDEX IF NOT EXISTS work_detail_root ON work_detail_uploads(root_agent_id);
+CREATE INDEX IF NOT EXISTS work_detail_session ON work_detail_uploads(root_agent_id,session_id,turn_id,revision)
+ WHERE revision IS NOT NULL;
+CREATE TABLE IF NOT EXISTS work_detail_parts (
+ manifest_id INTEGER NOT NULL REFERENCES work_detail_uploads(id) ON DELETE CASCADE,
+ offset INTEGER NOT NULL, sha256 TEXT NOT NULL, bytes BLOB NOT NULL,
+ PRIMARY KEY(manifest_id,offset));
+CREATE TRIGGER IF NOT EXISTS work_detail_deleted AFTER UPDATE OF state ON agent_deletions
+ WHEN NEW.state='deleted' BEGIN
+ DELETE FROM work_detail_uploads WHERE root_agent_id=NEW.agent_id;
+END;

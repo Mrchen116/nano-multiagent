@@ -552,7 +552,7 @@ const deletions = new NodeAgentDeletions(deletionLedger,{
         manifest:{journal_id:manifest.journal_id,entries:manifest.entries.slice(i,i+250)}},{priority:'control'});
     }
     inbox.purgeAgent(agentId,plan.sessionIds);
-    workSync.redacted();
+    await workSync.redacted();
     await managed.purgeAgent(agentId);
     external.purgeAgent(agentId);
     heartbeat.purgeAgent(agentId);

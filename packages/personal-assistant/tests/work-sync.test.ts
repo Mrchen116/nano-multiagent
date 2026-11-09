@@ -112,7 +112,7 @@ test('cursor corruption or a missing local interval pauses without skipping sour
   expect(f.calls.every(call => call.method === 'GET')).toBe(true);
 });
 
-test('events beyond 16 MiB remain local and pause Work rather than creating an oversized upload', async () => {
+test('events beyond 16 MiB stay local while a legacy center lacks large detail capability', async () => {
   const f = await fixture((_call, response) => json(response, { through_seq: 0, expected_seq: 1 }));
   f.inbox.append(event(1, 'x'.repeat(16 * 1024 * 1024)));
   f.sync.start();
