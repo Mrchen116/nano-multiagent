@@ -530,19 +530,23 @@ describe("ChatWorkspacePage — integration", () => {
     expect(client.getQueryData(["chat", "messages", "c1"])).toBeUndefined();
   });
 
-  it("keeps recovery access closed after a transient detail error and lets the user retry", async () => {
+  it.each(["initial cached view", "stream recovery"])("keeps %s closed after a transient detail error and lets the user retry", async (phase) => {
     const baseFetch = fetchSpy;
-    let unavailable = false;
+    let unavailable = phase === "initial cached view";
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith("/im/v1/conversations/c1") && unavailable) {
         return jsonResponse({ detail: "temporary failure" }, { status: 503 });
       }
       return baseFetch(input, init);
     }));
-    renderAtRoute("/chat/c1");
-    await screen.findByText("Hi Planner");
-    unavailable = true;
-    await act(async () => { await expect(capturedResyncHandler!()).rejects.toThrow(); });
+    const client = new QueryClient();
+    if (unavailable) client.setQueryData(["chat", "conversation-detail", "c1", "u-self"], FIXTURES.conversations.find(chat => chat.id === "c1"));
+    renderAtRoute("/chat/c1", client);
+    if (!unavailable) {
+      await screen.findByText("Hi Planner");
+      unavailable = true;
+      await act(async () => { await expect(capturedResyncHandler!()).rejects.toThrow(); });
+    }
     expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
     const retry = within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" });
     unavailable = false;

@@ -387,7 +387,7 @@ export function ChatWorkspacePage() {
     retry: (count, error) => !isAccessDenied(error) && count < 3
   });
   const accessDenied = isAccessDenied(conversationDetailQuery.error) || isAccessDenied(messagesQuery.error);
-  const activeConversation = membershipReady && deniedConversation.current !== conversationId && !accessDenied && conversationDetailQuery.isFetchedAfterMount
+  const activeConversation = membershipReady && deniedConversation.current !== conversationId && !accessDenied && conversationDetailQuery.isFetchedAfterMount && conversationDetailQuery.isSuccess
     ? conversationDetailQuery.data ?? null : null;
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState<boolean | null>(null);
