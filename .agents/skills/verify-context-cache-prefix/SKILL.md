@@ -21,7 +21,7 @@ The default run checks `baseline`, `mixed`, `image`, and `subagent`. To isolate 
 TLA2TOOLS=/absolute/path/to/tla2tools.jar python3 .agents/skills/verify-context-cache-prefix/check.py subagent --event route --level 1
 ```
 
-Pass `--agent Global` or `--agent PA` to isolate an owner. The subagent command runs each event separately so an early counterexample cannot hide another trigger. For pstack's `/statechart`, copy both TLA+ modules and the subagent config into scratch space, then set `Scenario` and `Depth` in the config.
+Pass `--agent Global` or `--agent PA` to isolate an owner. The subagent command runs each event separately so an early counterexample cannot hide another trigger. To use the [statechart skill](../statechart/SKILL.md), copy both TLA+ modules and the subagent config into scratch space, then set `Scenario` and `Depth` in the config. For a full diagram, reduce the bounds to fit the chart's 500-state limit.
 
 Replay the key traces through the actual DSH runtime and Anthropic Messages serializer, to an isolated local server:
 

@@ -30,6 +30,7 @@
 | [产品旅程](../../.agents/skills/product-journey-review/SKILL.md) | 需要跨组件证明用户从真实入口完成目标 | 实际入口、交付结果与关键恢复过程 |
 | [性能](../../.agents/skills/performance-review/SKILL.md) | 性能是目标，或有具体运行代价需要判定 | 同条件基线/候选测量、行为不变量 |
 | [架构设计](../../.agents/skills/codebase-design/SKILL.md) | 实质模块职责、接口、依赖或测试边界决定 | 真实调用方、约束、可复用机制与取舍 |
+| [形式化验证](../../.agents/skills/create-formal-verification-skill/SKILL.md) | 并发、重试、状态迁移等路径需要检查明确的不变量 | 可复跑的检查、适用边界和反例。TLA+ 模型可用 [Statechart](../../.agents/skills/statechart/SKILL.md) 查看，仓内示例见 [缓存前缀验证](../../.agents/skills/verify-context-cache-prefix/SKILL.md) |
 
 这是选择入口，不是固定套餐。权限、迁移、并发等问题先落到相关能力及项目规范，不为每个关键词创建新 skill。阶段尚无实现时审样例和验证方案；已有实现时用对应运行产物，不混淆两类结论。
 
