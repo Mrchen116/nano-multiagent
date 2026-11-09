@@ -211,7 +211,7 @@ export default class NanoRuntime {
     });
     // Track in-flight RPCs before their first await. Read paths resolving an
     // Agent can also restore durable inbox work, so they share admission.
-    const handle = (method: string, action: (value: unknown) => unknown, options?: {pull?: boolean}) => this.peer.handle(method, async value => {
+    const handle = (method: string, action: (value: unknown) => unknown, options?: {pull?: string}) => this.peer.handle(method, async value => {
       if (update.held && method !== 'approval.answer') throw new RpcError(-32003, 'Runtime is held for update');
       this.admissions++;
       try {
@@ -540,6 +540,7 @@ export default class NanoRuntime {
       return {rootSettled};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
+    // Root evidence also gates Inbox reads and sends; it must not wait for cold children.
     handle('session.work.root', async value => {
       const input = value as WorkRead;
       await workBinding(input);
@@ -555,7 +556,7 @@ export default class NanoRuntime {
       if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Root Session has no persistence barrier');
       return projectPage(input, session.inheritedEventCount, head,
         seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
-    }, {pull:true});
+    }, {pull:'work-root'});
     handle('session.work.children', async value => {
       const input = value as WorkRead & {afterId?: string};
       await workBinding(input);
@@ -582,7 +583,7 @@ export default class NanoRuntime {
       }
       if (seeking) throw new RpcError(-32005, 'Work catalog position changed');
       return reply;
-    }, {pull:true});
+    }, {pull:'work-descendants'});
     handle('session.work.child', async value => {
       const input = value as WorkRead & {childId: string};
       await workBinding(input);
@@ -592,7 +593,7 @@ export default class NanoRuntime {
         () => input.modelVersion !== version(), cut =>
           projectPage({...input,sessionId:id}, cut.inheritedEventCount, cut.cursor, seq=>cut.events[seq], policy));
       return page ?? {durable:true,events:[],modelRuns:[],modelVersion:version(),throughSeq:input.afterSeq ?? -1,more:false} satisfies RuntimeWorkPage;
-    }, {pull:true});
+    }, {pull:'work-descendants'});
     handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
       const agent = await this.agent(sessionId);

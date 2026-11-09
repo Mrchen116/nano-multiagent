@@ -15,14 +15,14 @@ export class RpcError extends Error {
 /** Keep response dispatch independent from handlers awaiting reverse calls. */
 export class RpcPeer {
   private readonly lines: Interface;
-  private readonly handlers = new Map<string, { handler: Handler; pull: boolean }>();
+  private readonly handlers = new Map<string, { handler: Handler; pull?: string }>();
   private readonly pending = new Map<number, Pending>();
   private readonly listeners = new Set<(method: string, params: unknown) => void>();
   private nextId = 1;
   private closed = false;
   private readonly frames: Frame[] = [];
   private blocked?: Frame;
-  private pulls = Promise.resolve();
+  private readonly pulls = new Map<string, Promise<void>>();
   private pulling = 0;
 
   constructor(input: Readable, private readonly output: Writable, private readonly onFailure?: (error: Error) => void) {
@@ -35,10 +35,10 @@ export class RpcPeer {
     output.on('drain', this.drain);
   }
 
-  /** Register a method. Paged producers may share a single lane through writeout. */
-  handle(method: string, handler: Handler, options?: {pull?: boolean}): () => void {
+  /** Register a method. Paged producers in one lane serialize through writeout. */
+  handle(method: string, handler: Handler, options?: {pull?: string}): () => void {
     if (this.handlers.has(method)) throw new Error(`RPC handler already registered: ${method}`);
-    this.handlers.set(method, {handler, pull: options?.pull === true});
+    this.handlers.set(method, {handler, pull: options?.pull});
     return () => { this.handlers.delete(method); };
   }
 
@@ -159,9 +159,14 @@ export class RpcPeer {
       if (!entry?.pull) await respond();
       else if (this.pulling >= queueLimit) this.fail(new Error('RPC pull queue is full'));
       else {
+        const lane=entry.pull;
         this.pulling++;
-        this.pulls = this.pulls.then(respond).finally(() => { this.pulling--; });
-        await this.pulls;
+        const task=(this.pulls.get(lane) ?? Promise.resolve()).then(respond).finally(() => {
+          this.pulling--;
+          if (this.pulls.get(lane)===task) this.pulls.delete(lane);
+        });
+        this.pulls.set(lane,task);
+        await task;
       }
     } else if (typeof message.id === 'number') {
       const pending = this.pending.get(message.id);

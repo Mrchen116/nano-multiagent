@@ -12,16 +12,18 @@ it('does not produce or serialize a second Work page before drain; controls disp
     frames.push(JSON.parse(String(chunk)));release=callback;
   }});
   const peer=new RpcPeer(input,output);
-  let generated=0,controls=0,serialized=0;
-  peer.handle('work',()=>{generated++;return {page:'x'.repeat(1024)};},{pull:true});
+  let generated=0,controls=0,rootPages=0,serialized=0;
+  peer.handle('work',()=>{generated++;return {page:'x'.repeat(1024)};},{pull:'children'});
   peer.handle('control',()=>{controls++;return 'cancelled';});
+  peer.handle('root',()=>{rootPages++;return {root:true};},{pull:'root'});
   try {
     input.write(frame(1,'work')+frame(2,'work'));
     await expect.poll(()=>output.writableNeedDrain).toBe(true);
     const before=output.writableLength;
     peer.notify('hint',{toJSON(){serialized++;return {changed:true};}});
-    input.write(frame(3,'control'));
+    input.write(frame(3,'control')+frame(4,'root'));
     await expect.poll(()=>controls).toBe(1);
+    await expect.poll(()=>rootPages).toBe(1);
     expect(generated).toBe(1);
     expect(serialized).toBe(0);
     expect(output.writableLength).toBe(before);
@@ -32,7 +34,9 @@ it('does not produce or serialize a second Work page before drain; controls disp
     await expect.poll(()=>frames.length).toBe(3);
     release!();
     await expect.poll(()=>frames.length).toBe(4);
-    expect(frames.map(value=>(value as {id?:number}).id)).toEqual([1,undefined,3,2]);
+    release!();
+    await expect.poll(()=>frames.length).toBe(5);
+    expect(frames.map(value=>(value as {id?:number}).id)).toEqual([1,undefined,3,4,2]);
     release!();
   } finally {peer.close();input.destroy();output.destroy();}
 });
@@ -42,7 +46,7 @@ it('fails outstanding calls and releases a waiting page producer on output error
   const failures:Error[]=[];
   const peer=new RpcPeer(input,output,error=>failures.push(error));
   let generated=0;
-  peer.handle('work',()=>++generated,{pull:true});
+  peer.handle('work',()=>++generated,{pull:'children'});
   try {
     const pending=peer.request('reverse',{});
     const failed=expect(pending).rejects.toThrow('pipe lost');
