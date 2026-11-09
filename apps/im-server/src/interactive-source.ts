@@ -33,7 +33,7 @@ function initialContext(parsed: ReturnType<typeof parser.parse>, named: Map<stri
 
 const displayFields = new Set([
   'children', 'text', 'title', 'subtitle', 'label', 'description', 'caption', 'alt', 'cite', 'hint', 'placeholder',
-  'marker', 'columns', 'rows', 'items', 'options', 'front', 'back', 'trigger', 'content', 'code', 'tex',
+  'marker', 'markers', 'columns', 'items', 'options', 'front', 'back', 'trigger', 'content', 'code', 'tex',
 ]);
 
 function searchText(root: ElementNode | null): string {
@@ -50,6 +50,11 @@ function searchText(root: ElementNode | null): string {
         const {typeName, props} = row as unknown as ElementNode;
         for (const [key, child] of Object.entries(props)) if (displayFields.has(key)) collect(child);
         if ((typeName === 'Input' || typeName === 'TextArea') && typeof props.value === 'string') collect(props.value);
+        if (typeName === 'MapMarker') collect(props.category);
+        if (typeName === 'Table' && Array.isArray(props.columns) && Array.isArray(props.rows)) {
+          const columns = props.columns.length;
+          for (const cells of props.rows) if (Array.isArray(cells)) collect(cells.slice(0, columns));
+        }
         if (typeName === 'Chart' && Array.isArray(props.data)) {
           const rows = props.data.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item));
           const first = rows[0];

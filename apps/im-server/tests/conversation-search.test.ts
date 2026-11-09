@@ -39,7 +39,7 @@ it('finds visible pure card text in Web and Agent history without matching actio
   const app = Fastify(); registerMessagingRoutes(app, ctx);
   try {
     const source = [
-      'root = Col([Title($heading), Table(["方案"], [["预算对照"]]), Svg([SvgText("分流节点", 20, 20, 12)], "0 0 80 40"), Button("复制", @CopyToClipboard("action-secret"))])',
+      'root = Col([Title($heading), Table(["方案"], [["预算对照", "overflow-secret"]]), Svg([SvgText("分流节点", 20, 20, 12)], "0 0 80 40"), Map([MapMarker("云桥公园", 31, 121)]), Chart("bar", [{region: "华东区域", budget: 18, note: "chart-secret"}], "region", ["budget"]), Button("复制", @CopyToClipboard("action-secret"))])',
       '$heading = "周五安排"',
       'unused = Text("unused-secret")',
     ].join('\n');
@@ -47,12 +47,12 @@ it('finds visible pure card text in Web and Agent history without matching actio
       interactive: { format:'openui', catalog_version:'nano-iui-1', source },
     });
     const query = (keyword: string) => app.inject({url:`/im/v1/messages/search?q=${encodeURIComponent(keyword)}`, headers:{'x-user':'u1'}});
-    for (const keyword of ['周五安排', '预算对照', '分流节点']) {
+    for (const keyword of ['周五安排', '预算对照', '分流节点', '云桥公园', '华东区域']) {
       const response = await query(keyword);
       expect(response.statusCode).toBe(200);
       expect(response.json().messages).toEqual([expect.objectContaining({message_id:card.id,snippet:expect.stringContaining(keyword)})]);
     }
-    for (const keyword of ['action-secret','unused-secret','CopyToClipboard']) expect((await query(keyword)).json().messages).toEqual([]);
+    for (const keyword of ['action-secret','unused-secret','overflow-secret','chart-secret','CopyToClipboard']) expect((await query(keyword)).json().messages).toEqual([]);
     const work = new Work(ctx);
     const other = ctx.messaging.insertMessage('chat','u1','user','预算对照');
     const result = work.query(principal, {...args,action:'search',target:'chat',keywords:['周五安排','预算对照']});
