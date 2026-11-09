@@ -304,3 +304,79 @@ export const name='background-model';export const inject=['llm'];export function
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{release();if(product)await product.stop();if(client){client.process.kill('SIGKILL');await client.exited;}inbox.close();store.close();await rm(home,{recursive:true,force:true});}
 },20000);
+
+it('resumes a paged native child after runtime loss and pairs the complete tool result in Work', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-work-page-restart-'));
+  const store=new NodeStore(join(home,'node.sqlite'),'owner'),inbox=new InboxStore(join(home,'inbox.sqlite'));
+  const binding=store.bind({sessionId:'root',agentId:'a',conversationId:'global:a',ownerId:'owner',cwd:home,revision:'1'});
+  const config:AgentConfiguration={agentId:'a',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
+    toolAllowlist:['subagent','work_probe'],approval:{dangerouslySkipPermissions:true}};
+  let client:RuntimeClient|undefined,product:GlobalAgent|undefined,cut:number|undefined,childId:string|undefined;
+  let cutAtReconnect:number|undefined,inject=true,logs='';
+  const errors:unknown[]=[];
+  try {
+    const fixture=join(home,'fixture.mjs');
+    await writeFile(fixture,`export const inject=['llm','tools'];export function apply(ctx){
+      ctx.tools.register({name:'work_probe',description:'Work probe',parameters:{type:'object'},output:{schema:{type:'string'},render:()=>[{type:'text',text:'probe result'}]},execute:async()=>'result',
+        presentCall:()=>({card:'generic',title:'probe'}),presentResult:()=>({card:'generic',title:'result',detail:'z'.repeat(1100000)})});
+      const called=new Set();
+      ctx.on('llm/stream',async function*(o){
+        const id=o.sessionId;
+        if(!called.has(id)){
+          called.add(id);
+          yield {type:'block-end',index:0,block:{type:'tool-call',id:'call-'+id,name:id==='root'?'subagent':'work_probe',
+            arguments:id==='root'?JSON.stringify({prompt:'Use work_probe',description:'Child Work',run_in_background:false}):'{}'}};
+          yield {type:'finish',reason:{kind:'tool-calls'}};return;
+        }
+        yield {type:'block-end',index:0,block:{type:'text',text:'DONE'}};yield {type:'finish',reason:{kind:'stop'}};
+      });
+    }`);
+    await prepareProfile(home,[{insert:[{id:'work-probe',name:fixture}]}]);
+    const start=async()=>{
+      client=new RuntimeClient({home,cwd:home,onLog:line=>{logs+=line;}});
+      registerEmptyTaskContext(client);
+      client.rpc.handle('model.check',()=>({published:false}));
+      await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});
+    };
+    await start();
+    await client!.rpc.request('session.ensure',binding);
+    await client!.rpc.request('session.submit',{sessionId:'root',inputId:'start',mode:'followup',content:[{type:'text',text:'Launch child'}],source:{kind:'human',channel:'test',actorId:'owner',messageId:'start'}});
+    await expect.poll(async()=>await client!.rpc.request('session.lookup',{sessionId:'root',inputId:'start'})).toMatchObject({terminal:{kind:'completed'}});
+    const create=()=>new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:error=>errors.push(error),
+      relay:{request:async()=>({type:'ack',payload:{}})},
+      runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
+        if(method!=='session.work.child')return client!.rpc.request(method,args);
+        childId=args.childId;
+        if(!inject)cutAtReconnect??=args.afterSeq;
+        if(inject && cut!==undefined){
+          expect(args.afterSeq).toBe(cut);
+          client!.process.kill('SIGKILL');await client!.exited;
+          throw new Error('fixture runtime disconnected before the next Work page');
+        }
+        const page=await client!.rpc.request(method,args) as import('@nano/product-contracts').RuntimeWorkPage;
+        if(inject && page.more && page.events.some(event=>event.type==='tool/call' && event.data.name==='work_probe'))cut=page.throughSeq;
+        return page;
+      }}});
+    product=create();
+    await product.recover();
+    expect(cut).toBeDefined();
+    expect(errors.map(String)).toContain('Error: fixture runtime disconnected before the next Work page');
+    expect(inbox.workCut(childId!)?.throughSeq).toBe(cut);
+    expect(inbox.workProcessingPending).toBe(true);
+    await product.stop();product=undefined;
+    inject=false;errors.length=0;
+    await start();product=create();
+    await product.recover();
+    expect(cutAtReconnect).toBe(cut);
+    expect(errors).toEqual([]);
+    const rows=inbox.journal(0,1000).filter(row=>row.session_id===childId);
+    expect(rows.filter(row=>row.type==='tool_start')).toHaveLength(1);
+    expect(rows.filter(row=>row.type==='tool_end')).toHaveLength(1);
+    expect(rows.find(row=>row.type==='tool_end')?.payload).toMatchObject({tool_name:'work_probe',presentation:{detail:{native_view:{detail:'z'.repeat(1100000)}}}});
+    expect(rows.filter(row=>row.type==='turn_end')).toHaveLength(1);
+    expect(inbox.workOpenEvents(childId!)).toEqual([]);
+    expect(inbox.workProcessingPending).toBe(false);
+  } catch(error) {throw new Error(`${String(error)}\n${logs}`,{cause:error});}
+  finally {await product?.stop();if(client?.process.exitCode===null&&client.process.signalCode===null){client.process.kill('SIGKILL');await client.exited;}
+    inbox.close();store.close();await rm(home,{recursive:true,force:true});}
+},25_000);

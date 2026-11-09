@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
-import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest } from '@nano/product-contracts';
+import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
@@ -34,6 +34,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS inbox_deleted_sessions(session_id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS work_checkpoints(session_id TEXT PRIMARY KEY,root_session_id TEXT NOT NULL,checkpoint TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS work_checkpoint_roots ON work_checkpoints(root_session_id);
+      CREATE TABLE IF NOT EXISTS work_open_events(session_id TEXT NOT NULL,seq INTEGER NOT NULL,event TEXT NOT NULL,PRIMARY KEY(session_id,seq));
       CREATE TABLE IF NOT EXISTS work_recovery(root_session_id TEXT PRIMARY KEY,pending INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
       CREATE TABLE IF NOT EXISTS read_content(session_id TEXT,call_id TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
@@ -111,6 +112,7 @@ export class InboxStore {
       for (const sessionId of sessionIds) {
         this.db.prepare('INSERT OR IGNORE INTO inbox_deleted_sessions VALUES(?)').run(sessionId);
         for (const table of ['reads', 'read_content', 'ingestions']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+        this.db.prepare('DELETE FROM work_open_events WHERE session_id IN (SELECT session_id FROM work_checkpoints WHERE session_id=? OR root_session_id=?)').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_checkpoints WHERE session_id=? OR root_session_id=?').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_recovery WHERE root_session_id=?').run(sessionId);
         this.db.prepare('DELETE FROM publications WHERE agent_id IS NULL AND substr(id,1,?)=?').run(sessionId.length + 1, `${sessionId}:`);
@@ -491,18 +493,36 @@ export class InboxStore {
     return Object.fromEntries((this.db.prepare('SELECT session_id,checkpoint FROM work_checkpoints WHERE root_session_id=?').all(rootSessionId) as {session_id:string;checkpoint:string}[])
       .map(row=>[row.session_id,JSON.parse(row.checkpoint) as WorkCheckpoint]));
   }
+  /** Look up one durable execution position without loading its siblings. */
+  workCut(sessionId:string):WorkCheckpoint|undefined {
+    const row=this.db.prepare('SELECT checkpoint FROM work_checkpoints WHERE session_id=?').get(sessionId) as {checkpoint:string}|undefined;
+    return row ? JSON.parse(row.checkpoint) as WorkCheckpoint : undefined;
+  }
+
+  /** Read the child events still needed to pair its open logical turn. */
+  workOpenEvents(sessionId: string): RuntimeEvent[] {
+    return (this.db.prepare('SELECT event FROM work_open_events WHERE session_id=? ORDER BY seq').all(sessionId) as {event:string}[])
+      .map(row=>JSON.parse(row.event) as RuntimeEvent);
+  }
+
   /** Commit display facts and their processing cut in one local transaction.
    *
    * Args:
    *   sessionId: Execution whose own events were processed.
    *   checkpoint: Position covered by the supplied projection facts.
    *   events: Product facts carrying their stable source identities.
+   *   native: Newly received child events, kept only while their logical turn is open.
    */
-  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:WorkDraft[]):void {
+  commitWork(sessionId:string,checkpoint:WorkCheckpoint,events:WorkDraft[],native?: RuntimeEvent[]):void {
     if (this.deletedSession(checkpoint.rootSessionId)) return;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for(const event of events)this.append(event);
+      if (native) {
+        this.db.prepare('DELETE FROM work_open_events WHERE session_id=? AND seq<?').run(sessionId,checkpoint.replayFrom);
+        const put=this.db.prepare('INSERT OR REPLACE INTO work_open_events VALUES(?,?,?)');
+        for (const event of native) if (event.seq>=checkpoint.replayFrom) put.run(sessionId,event.seq,JSON.stringify(event));
+      }
       this.db.prepare('INSERT INTO work_checkpoints VALUES(?,?,?) ON CONFLICT(session_id) DO UPDATE SET root_session_id=excluded.root_session_id,checkpoint=excluded.checkpoint WHERE checkpoint!=excluded.checkpoint')
         .run(sessionId,checkpoint.rootSessionId,JSON.stringify(checkpoint));
       this.db.exec('COMMIT');

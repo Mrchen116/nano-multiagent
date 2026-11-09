@@ -5,7 +5,6 @@ import { SESSION_FORMAT_VERSION, SessionId, type SessionHeader } from '@deepseek
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
-import DeletionCache from './deletion-cache.js';
 import type { SessionBinding } from './index.js';
 
 const retirement = z.object({ revision: z.number().int(), sessionIds: z.array(z.string()) });
@@ -61,7 +60,7 @@ export class SessionDeletion {
   private readonly active = new Map<string, Set<Promise<unknown>>>();
   private readonly root: string;
 
-  constructor(private readonly ctx: Context, private readonly cache: DeletionCache, private readonly storage: JsonlSessionPersistence,
+  constructor(private readonly ctx: Context, private readonly storage: JsonlSessionPersistence,
     private readonly home: string) {
     this.root = resolve(home, 'sessions');
     if (resolve(storage.config.root) !== this.root) throw new Error('Unsupported session deletion storage root');
@@ -71,20 +70,18 @@ export class SessionDeletion {
 
   /** Activate this capability only for the locked ordinary-host composition. */
   static forRuntime(ctx: Context, home: string): SessionDeletion | undefined {
-    const cache = ctx.get('sessionProjectionCache');
     const storage = ctx.sessionPersistence;
     const query = ctx.sessionQuery as typeof ctx.sessionQuery & {config?: {openAt?: string}};
     // The supported profile never opens an FTS index. The optional SQLite
     // service exposes no scoped purge operation in this pinned version.
-    if (cache instanceof DeletionCache && storage instanceof JsonlSessionPersistence && query.config?.openAt === 'never')
-      return new SessionDeletion(ctx, cache, storage, home);
+    if (!ctx.get('sessionProjectionCache') && storage instanceof JsonlSessionPersistence && query.config?.openAt === 'never')
+      return new SessionDeletion(ctx, storage, home);
   }
 
   /** Restore target fences before the Node can use cold runtime reads. */
   async restore(): Promise<void> {
     for (const [id, saved] of (await this.state).table('owners').entries()) {
       this.owners.set(id, saved);
-      this.cache.fence(saved.sessionIds);
     }
   }
 
@@ -208,7 +205,6 @@ export class SessionDeletion {
         throw new Error(`Session changed during deletion planning: ${id}`);
       manifest.push({ header, directory: relative(await realpath(this.root), directory), artifacts });
     }
-    this.cache.fence(sessionIds);
     const next = { revision, sessionIds };
     this.owners.set(agentId, next);
     await (await this.state).table('owners').put(agentId, next);
@@ -252,10 +248,9 @@ export class SessionDeletion {
       } else if (directory && (await this.artifacts(directory)).length) {
         throw new Error(`Unplanned stored session appeared: ${id}`);
       }
-      await this.cache.forget(sessionId);
       if (await this.storage.stat(sessionId)) throw new Error(`Native session still exists: ${id}`);
     }
-    await this.removeCacheBackups(ids);
+    await this.removeProjectionFiles(ids);
     await rm(staging, { recursive: true, force: true });
     await syncDirectory(dirname(staging)).catch(error => { if (error.code !== 'ENOENT') throw error; });
     const reviewers = (await this.state).table('reviewers');
@@ -307,16 +302,16 @@ export class SessionDeletion {
     return artifacts.sort((left, right) => generation(left.name) - generation(right.name));
   }
 
-  private async removeCacheBackups(ids: ReadonlySet<string>): Promise<void> {
+  private async removeProjectionFiles(ids: ReadonlySet<string>): Promise<void> {
     const storage = join(this.home, 'storages', 'session_projcache', 'sessions');
     const records = await entries(storage);
     if (!records.length) return;
     if (await realpath(storage) !== join(await realpath(this.home), 'storages', 'session_projcache', 'sessions'))
       throw new Error('Projection cache is outside the supported storage layout');
     for (const record of records) {
-      const id = /^(.*?)\.json\.bak\..+$/.exec(record.name)?.[1];
+      const id = /^(.*?)\.json(?:\.bak\..+)?$/.exec(record.name)?.[1];
       if (id && ids.has(id)) {
-        if (!record.isFile()) throw new Error('Unexpected projection cache backup type');
+        if (!record.isFile()) throw new Error('Unexpected projection cache file type');
         await rm(join(storage, record.name), { force: true });
       }
     }

@@ -22,8 +22,8 @@ function fixture(onObserve?: () => void) {
         return {accepted:true,durable:true};
       }
       if(method==='session.lookup')return {accepted:seen.has(args.inputId)};
-      if(method==='session.descendants')return [];
-      if(method==='session.observe')onObserve?.();
+      if(method==='session.work.children')return {children:[]};
+      if(method==='session.work.root')onObserve?.();
       return {events:[],status:running?'running':'idle',durable:true};
     }},
     relay:{ready:true,request:async(type,args:any)=>{

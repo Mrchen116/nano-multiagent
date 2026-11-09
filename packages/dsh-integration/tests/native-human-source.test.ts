@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -72,7 +73,7 @@ export function apply(ctx){
       expect(JSON.stringify(results[1])).toContain('this goal operation requires a direct human turn on a top-level agent');
     }
     await ensure('parent'); await submit('parent', 'spawn');
-    const children = await client.rpc.request('session.descendants', { sessionId: 'parent' }) as any[];
+    const children = await workDescendants(client.rpc, { sessionId: 'parent' }) as any[];
     expect(children).toHaveLength(1);
     const child = children[0].events;
     // Runtime snapshots now precede input: identify the child prompt, not the first user-role message.

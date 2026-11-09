@@ -47,6 +47,7 @@ export interface WorkCheckpoint {
   throughSeq: number;
   replayFrom: number;
   modelVersion?: string;
+  localReplay?: boolean;
   model?: string;
   contextWindow?: number;
 }

@@ -59,7 +59,7 @@ it('does not retry a failed input during Inbox reads or recovery and explicitly 
   runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
    if(method==='pa.review'){reviews++;return {decision:available?'allow':'unavailable',reason:'temporary model outage'};}
    if(method==='session.submit'){submissions.push(args);return {accepted:true,durable:true};}
-   if(method==='session.descendants')return [];
+   if(method==='session.work.children')return {children:[]};
    return {events:[],status:'idle',durable:true};
   }},relay:{request:async(type,args:any)=>{
    const result=type==='pa.source.admit'?{allowed:true,is_owner:args.source_message_id==='good',delivery:'participant',conversation_type:'direct',channel:'web'}

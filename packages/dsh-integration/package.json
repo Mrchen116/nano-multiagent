@@ -6,7 +6,6 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./deletion-cache": "./lib/deletion-cache.js",
     "./global-mode": "./lib/global-mode.js",
     "./features/task-graphs": "./lib/features/task-graphs.js",
     "./features/cron": "./lib/features/cron.js",

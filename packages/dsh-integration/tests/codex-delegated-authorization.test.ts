@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -154,7 +155,7 @@ export async function apply(ctx) {
     }
     let result: { message?:{ toolCallId:string }; error?:{ code:string } } | undefined;
     await expect.poll(async () => {
-      const children = await runtime.rpc.request('session.descendants', { sessionId:'root' }) as { events:{ type:string; data:typeof result }[] }[];
+      const children = await workDescendants(runtime.rpc, { sessionId:'root' }) as { events:{ type:string; data:typeof result }[] }[];
       result = children.flatMap(child => child.events).find(event => event.type === 'tool/result' && event.data?.message?.toolCallId === second.callId)?.data;
       return result;
     }, { timeout:8000 }).toBeTruthy();

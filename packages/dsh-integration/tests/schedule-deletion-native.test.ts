@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {createRequire} from 'node:module';
@@ -69,7 +70,7 @@ async function harness() {
       ...(stop === 'interrupted' ? {taskStopFences: ['root']} : {})});
   };
   const call = async <T = any>(method: string, input: unknown): Promise<T> => await client!.rpc.request(method, input) as T;
-  const descendants = () => call<Child[]>('session.descendants', {sessionId: 'root'});
+  const descendants = () => workDescendants(client!.rpc, {sessionId:'root'}) as Promise<Child[]>;
   const history = async (id: string) => id === 'root' ? (await call<{events: Event[]}>('session.observe', {sessionId: id})).events : (await descendants()).find(child => child.id === id)!.events;
   const notify = (sessionId: string, inputId: string, agentId = 'a') => call('schedule.deleted.notify', {agentId, sessionId, inputId,
     content: [{type: 'text', text: 'Schedule deleted by the user. This notice changes no Task status or authority.'}]});

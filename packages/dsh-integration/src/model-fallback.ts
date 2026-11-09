@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import type { ModelRunProjection } from '@nano/product-contracts';
 import {
   defineDomain,
   domainTable,
@@ -111,6 +113,7 @@ export class ModelFallback {
   private readonly storage: Promise<Domain<RunDomain>>;
   private readonly runs = new Map<string, ModelRun>();
   private readonly runsBySession = new Map<string, Map<string, ModelRun>>();
+  private readonly workModels = new Map<string, {byTurn: Map<number, ModelRunProjection>; hashes: Map<string, bigint>; digest: bigint}>();
   readonly ready: Promise<void>;
   private readonly agents = new Map<string, { agent: Agent; config: AgentConfiguration }>();
   private readonly tasks = new Map<string, Promise<void>>();
@@ -125,7 +128,7 @@ export class ModelFallback {
     this.writes = new RecordWrites(async (id, snapshot) => {
       await (await this.storage).table('runs').put(key(id), snapshot);
     });
-    this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.remember(this.runs.get(run.id) ?? run); });
+    this.ready = this.storage.then(storage => { for (const [,record] of storage.table('runs').entries()) { const run=this.runs.get(record.id) ?? record; this.remember(run); this.updateWorkModel(run); } });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
       if (item) this.observe(item.agent, item.config, event);
@@ -151,6 +154,7 @@ export class ModelFallback {
           active.attempts.push({ turn: consumed.turn!, route: active.pending.route });
           active.state = 'running';
           delete active.pending;
+          this.updateWorkModel(active);
           const terminal = history.findLast((event) => event.type === 'turn/end' && event.data.turn === consumed.turn);
           if (terminal) this.observe(agent, config, terminal);
         } else if (
@@ -176,6 +180,33 @@ export class ModelFallback {
     if (!runs) { runs = new Map(); this.runsBySession.set(run.sessionId, runs); }
     runs.set(run.id, run);
   }
+
+  /** Return immutable Work metadata, excluding the retry's model input and other internal state. */
+  workModel(sessionId: string, turn: number): ModelRunProjection | undefined {
+    return this.workModels.get(sessionId)?.byTurn.get(turn);
+  }
+
+  /** Order-independent version of the projected model runs, stable across reload. */
+  workVersion(sessionId: string): string {
+    const state = this.workModels.get(sessionId);
+    return `work:${state?.hashes.size ?? 0}:${state?.digest.toString(16) ?? '0'}`;
+  }
+
+  private updateWorkModel(run: ModelRun): void {
+    const {id, sessionId, turn, state, attempts, terminal, switched} = run;
+    const projection: ModelRunProjection = structuredClone({id, sessionId, turn, state, terminal, switched,
+      attempts: attempts.map(({turn, route:{provider, model}, error}) => ({turn, route:{provider, model}, error}))});
+    let index = this.workModels.get(sessionId);
+    if (!index) {
+      index = {byTurn:new Map(), hashes:new Map(), digest:0n};
+      this.workModels.set(sessionId, index);
+    }
+    const hash = BigInt('0x' + createHash('sha256').update(JSON.stringify(projection)).digest('hex'));
+    index.digest ^= (index.hashes.get(id) ?? 0n) ^ hash;
+    index.hashes.set(id, hash);
+    for (const attempt of projection.attempts) index.byTurn.set(attempt.turn, projection);
+  }
+
   evidence(agent: Agent, inputId: string) {
     const evidence = inputEvidence(agent.session.snapshotEvents(), inputId);
     const run = this.list(agent.id).findLast((run) => run.inputs.includes(inputId));
@@ -216,6 +247,7 @@ export class ModelFallback {
     return messages.filter((message) => !runs.some((run) => run.withdrawn?.includes(message.id)));
   }
   private save(run: ModelRun) {
+    this.updateWorkModel(run);
     return this.writes.put(run.id, structuredClone(run));
   }
   private finish(run: ModelRun, terminal: unknown) {
@@ -409,6 +441,7 @@ export class ModelFallback {
     for (const id of sessionIds) {
       for (const run of this.list(id)) this.runs.delete(run.id);
       this.runsBySession.delete(id);
+      this.workModels.delete(id);
       this.epochs.delete(id);
     }
   }

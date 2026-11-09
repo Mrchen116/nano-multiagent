@@ -9,7 +9,6 @@ import { knowledgeDomain } from './knowledge/state.js';
 import { modelRunsDomain } from './model-fallback.js';
 import { modelDomain } from './model-policy.js';
 import { approvalDomain } from './policy/audit.js';
-import { toolViewsDomain } from './tool-presentation.js';
 import { trajectorySourcesDomain } from './trajectory-attachments.js';
 import { trajectoryRunsDomain } from './trajectory-runs.js';
 import { workflowDomain } from './workflow/state.js';
@@ -75,7 +74,6 @@ export async function purgeDerived(ctx: Context, home: string, agentId: string, 
     remove(models.table('sessions'), key => owned(decode(key))),
     remove(models.table('commands'), (_, row) => owned(row.sessionId)),
     remove(mounted(ctx, modelRunsDomain).table('runs'), (_, row) => owned(row.sessionId)),
-    remove(mounted(ctx, toolViewsDomain).table('calls'), key => owned(tupleOwner(key))),
     remove(mounted(ctx, trajectorySourcesDomain).table('sources'), key => owned(tupleOwner(key))),
     remove(mounted(ctx, trajectoryRunsDomain).table('runs'), (_, row) => owned(row.sessionId)),
     remove(approval.table('sessions'), key => owned(key)),

@@ -17,7 +17,7 @@ it.each([
  inbox.preparePublication('main:call','c',body);inbox.settlePublication('main:call','sending');
  const requests:string[]=[];
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
-  runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+  runtime:{onNotification:()=>()=>{},request:async method=>method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'}},
   relay:{request:async(type,payload)=>{requests.push(type);return {type:'ack',payload:type==='agent.message.status'?{found,message_id:'original',conversation_id:'c'}:{}};}},image:async()=>'',onError:e=>{throw e;}});
  try{
   await product.recover();await product.recover();
@@ -42,7 +42,7 @@ it.each(['interrupted','user','completed','consumed','partially-consumed'])('rec
   runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
    if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
    if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
-   return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};
+   return method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'};
   }},relay:{request:async(type,args:any)=>({type:'ack',payload:type==='conversation.query'?{ok:true,result:{conversations:args.targets.map((target:string)=>({target,name:target}))}}:{}})},image:async()=>'',onError:e=>{throw e;}});
  try {
   await product.recover();await product.recover();
@@ -98,7 +98,7 @@ it.each([
   let sent = 0;
   const input: RelayInput = { agent_id: 'alice', conversation_id: incoming, relay_task_id: 'relay', idempotency_key: 'correction', metadata: { conversation_type: conversationType }, message: { id: 'correction', content: 'Change the date', sender_type: 'user', sender_user_id: 'human', attachments: [] } };
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'alice', workspace: '/tmp/alice', revision: '1', provider: 'test', model: 'test', mode: 'global' }], store, inbox,
-    runtime: { onNotification: () => () => {}, request: async method => method === 'session.descendants' ? [] : ({ events: [], durable: true, status: 'idle' }) },
+    runtime: { onNotification: () => () => {}, request: async method => method === 'session.work.children' ? {children:[]} : ({ events: [], durable: true, status: 'idle' }) },
     relay: { request: async (type, payload) => {
       if (type === 'agent.work.append') return { type: 'agent.work.ack', payload: { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } };
       if (type === 'conversation.query') { inbox.receive(input, true); return { type: 'conversation.query.result', payload: { ok: true, result: { type: conversationType, channel, target: resolved, name: 'Conversation' } } }; }
@@ -141,7 +141,8 @@ it('projects durable native child lineage and drafts into Work without a public 
   ];
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'alice', workspace: '/tmp/alice', revision: '1', provider: 'test', model: 'test', mode: 'global' }], store, inbox,
     runtime: { onNotification: () => () => {}, async request(method, value) {
-      if (method === 'session.descendants') return [{ kind: 'child', id: 'child', parentId: (value as { sessionId: string }).sessionId, label: 'Research', events: childEvents, throughSeq: 5 }];
+      if (method === 'session.work.children') return {children:[{ kind: 'child', id: 'child', parentId: (value as { sessionId: string }).sessionId, label: 'Research', throughSeq: 5 }]};
+      if (method === 'session.work.child') return {durable:true,events:childEvents,throughSeq:5,modelRuns:[]};
       return { events: [], durable: true, status: 'idle' };
     } }, relay: { ready: false, async request() { sends++; return { type: 'ack', payload: {} }; } }, image: async () => '', onError: () => {},
   });
@@ -163,7 +164,7 @@ it('holds a single-thread same-group tool send until the accepted correction is 
   let corrected=false,sends=0;
   const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'single_thread'}],store,inbox,
     runtime:{onNotification:()=>()=>{},async request(method,value){
-      if(method==='session.descendants')return [];
+      if(method==='session.work.children')return {children:[]};
       if(method==='session.lookup')return {accepted:true,...((value as any).inputId==='a:original'?{turn:1}:corrected?{turn:2}:{})};
       return {durable:true,events:[{seq:corrected?2:1,time:1,type:'tool/call',data:{turn:corrected?2:1,callId:corrected?'new':'old'}}],status:'running'};
     }},relay:{async request(type,payload){
@@ -188,7 +189,7 @@ it.each(['global', 'single_thread'] as const)('forwards approved %s task deletio
   const binding = store.bind({agentId:'a',sessionId:'main',conversationId:mode==='global'?'global:a':'chat',ownerId:'owner',cwd:'/tmp',revision:'1'});
   const sent: Record<string, unknown>[] = [];
   const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode}],store,inbox,
-    runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+    runtime:{onNotification:()=>()=>{},request:async method=>method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'}},
     relay:{request:async(type,payload)=>{if(type==='task_graph.command')sent.push(payload);return{type:'ack',payload:{ok:true,result:{deleted_ids:['n2']}}};}},image:async()=>'',onError:error=>{throw error;}});
   const args={action:'delete',graph_id:'graph',node_id:'n2',base_revision:3,request_key:'delete-child'};
   try {
@@ -213,7 +214,7 @@ it.each([
   store.aliasConversation('a', 'c_shadow', 'external:feishu:mapped');
   const sent: Record<string, unknown>[] = [];
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode }], store, inbox,
-    runtime: { onNotification: () => () => {}, request: async method => method === 'session.descendants' ? [] : { events: [], durable: true, status: 'idle' } },
+    runtime: { onNotification: () => () => {}, request: async method => method === 'session.work.children' ? {children:[]} : { events: [], durable: true, status: 'idle' } },
     relay: { request: async (type, payload) => { if (type === 'task_graph.command') sent.push(payload); return { type: 'ack', payload: { ok: true, result: { graph_id: 'tg_created' } } }; } }, image: async () => '', onError: error => { throw error; } });
   try {
     const result = await product.call({ method: 'task_graph', args: { action: 'create', title: 'Goal', mode: 'dag', request_key: 'create', ...(target ? { target } : {}) }, operationId: 'main:create', callId: 'create', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'a', ownerId: 'owner' });
@@ -256,7 +257,7 @@ it.each([
     runtime: { onNotification: () => () => {}, request: async (method, value) => {
       if (method === 'session.submit') submitted.push(value as Record<string, unknown>);
       if (method === 'session.cancel') { cancellations++; return { wasRunning: true }; }
-      return method === 'session.descendants' ? [] : { events: [], durable: true, status };
+      return method === 'session.work.children' ? {children:[]} : { events: [], durable: true, status };
     } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : type === 'conversation.query' ? {ok:true,result:{conversations:(payload.targets as string[]).map(target=>({target,name:target}))}} : {} }) }, image: async () => '', onError: error => { throw error; } });
   const input: RelayInput = { agent_id: 'a', conversation_id: 'c_group', relay_task_id: 'task-event', idempotency_key: 'task-event', metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [] }, message: { id: 'task-event', content: 'Assignment changed <mention type="user" target_id="a"/>', sender_type: 'system', sender_user_id: 'actor', attachments: [] } };
   try {
@@ -291,7 +292,7 @@ it('retains completed Web receipts offline while reconciling external inputs, th
   const receipts: string[] = [];
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global' }], store, inbox,
     runtime: { onNotification: () => () => {}, async request(method) {
-      if (method === 'session.descendants') return [];
+      if (method === 'session.work.children') return {children:[]};
       return { events: [{ seq: 1, time: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }], durable: true, status: 'idle' };
     } }, relay: { get ready() { return ready; }, async request(type, payload) {
       if (type === 'node.delivery_receipt') {
@@ -319,7 +320,7 @@ it('recovers healthy ordinary work while an unavailable PA retains its pending s
  const calls:{method:string;args:any}[]=[],errors:unknown[]=[];
  const agents=[{agentId:'ordinary',workspace:'/tmp/ordinary',revision:'1',provider:'test',model:'test',mode:'global' as const},{agentId:'pa',workspace:'/tmp/pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'owner-chat',epoch:1}}];
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents,store,inbox,image:async()=>'',onError:error=>errors.push(error),
-  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{calls.push({method,args});if(args?.agentId==='pa')throw new Error('personal host offline');return method==='session.descendants'?[]:{events:[],durable:true,status:'idle'};}},
+  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{calls.push({method,args});if(args?.agentId==='pa')throw new Error('personal host offline');return method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'};}},
   relay:{ready:true,request:async(type)=>({type:type+'.result',payload:{ok:true,result:type==='pa.observations.read'?{items:[{event_id:1,kind:'policy.changed',payload:{}}]}:{}}})}});
  try {
   await product.recover();
@@ -333,7 +334,7 @@ it('keeps a failed observation pending while processing later policy events in t
  const acked:number[]=[],errors:unknown[]=[];let reads=0;
  const config={agentId:'pa',workspace:'/tmp/pa',revision:'1',provider:'test',model:'test',mode:'global' as const,personal:{bindingId:'binding',ownerId:'owner',conversationId:'owner-chat',epoch:1}};
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:e=>errors.push(e),
-  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{if(method==='session.submit'&&args.inputId.endsWith(':1'))throw new Error('One source unavailable');return method==='session.descendants'?[]:{events:[],accepted:true,durable:true,status:'idle'};}},
+  runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{if(method==='session.submit'&&args.inputId.endsWith(':1'))throw new Error('One source unavailable');return method==='session.work.children'?{children:[]}:{events:[],accepted:true,durable:true,status:'idle'};}},
   relay:{ready:true,request:async(type,payload:any)=>{if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};if(type==='pa.observations.ack')acked.push(...payload.event_ids);if(type==='pa.observations.read')reads++;return {type:type+'.result',payload:{ok:true,result:type==='pa.observations.read'?{items:Array.from({length:50},(_,i)=>({event_id:i+1,kind:'policy.changed',payload:{}}))}:type==='pa.sources'?{policy:{revision:1},items:[]}:{}}};}}});
  try {
   await product.recoverPersonalObservations();
@@ -373,7 +374,7 @@ it('notifies about messages received during an in-flight busy notification witho
   const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global' }], store, inbox,
     runtime: { onNotification: () => () => {}, request: async (method, value) => {
       if (method === 'session.submit') { submitted.push(value as Record<string, unknown>); if (submitted.length === 1) await held; }
-      return method === 'session.descendants' ? [] : { events: [], durable: true, status: 'running' };
+      return method === 'session.work.children' ? {children:[]} : { events: [], durable: true, status: 'running' };
     } }, relay: { request: async (type, payload) => ({ type: 'ack', payload: type === 'agent.work.append' ? { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } : type === 'agent.message' ? {message_id: 'command-reply'} : type === 'conversation.query' ? {ok:true,result:{conversations:(payload.targets as string[]).map(target=>({target,name:target}))}} : {} }) }, image: async () => '', onError: error => { throw error; } });
   const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c_dm', relay_task_id: id, idempotency_key: id, metadata: { conversation_type: 'direct' }, message: { id, content: id, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
   try {
@@ -418,12 +419,12 @@ it.each(['task_graph', 'send_message'])('keeps %s source checks independent of p
   store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
   let started!: () => void, release!: () => void;
   const childStarted = new Promise<void>(resolve => { started = resolve; });
-  const held = new Promise<any[]>(resolve => { release = () => resolve([]); });
+  const held = new Promise(resolve => { release = () => resolve({children:[]}); });
   let durable = true;
   const deliveries: string[] = [];
   const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
     runtime:{onNotification:()=>()=>{},request:async name=>{
-      if(name==='session.descendants'){started();return held;}
+      if(name==='session.work.children'){started();return held;}
       return {events:[],durable,status:'idle'};
     }},relay:{request:async type=>{
       deliveries.push(type);
@@ -457,23 +458,23 @@ it('replays a child terminal when model fallback completes at the already acknow
   ];
   const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
     runtime:{onNotification:()=>()=>{},request:async (method,args:any)=>{
-      if(method!=='session.descendants')return {events:[],durable:true,status:'idle'};
-      acknowledgements.push(structuredClone(args));
       const modelVersion = complete?'completed':'switching';
+      if(method==='session.work.children')return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:6,modelVersion}]};
+      if(method!=='session.work.child')return {events:[],durable:true,status:'idle'};
+      acknowledgements.push(structuredClone(args));
       const runs = [{id:'run',sessionId:'child',turn:1,state:complete?'completed':'switching',attempts:[{turn:1,route:{model:'primary'}},{turn:2,route:{model:'backup'}}],terminal:{kind:complete?'completed':'error'}}];
-      return [{kind:'child',id:'child',parentId:'main',throughSeq:6,modelVersion,modelRuns:runs,
-        events:args.cursors.child===6 && args.modelVersions?.child===modelVersion?[]:events}];
+      return {durable:true,throughSeq:6,modelVersion,modelRuns:runs,events:events.filter(e=>e.seq>(args.afterSeq??-1))};
     }},relay:{request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:()=>{}});
   try {
     await product.recover();
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toEqual([]);
     complete = true;
     await product.recover();
-    expect(acknowledgements.at(-1)).toMatchObject({cursors:{child:6},modelVersions:{child:'switching'}});
+    expect(acknowledgements.at(-1)).toMatchObject({afterSeq:6,modelVersion:'switching'});
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toMatchObject([{turn_id:'1',payload:{status:'completed',elapsed_ms:6}}]);
     expect(inbox.journal(0).find(e=>e.type==='tool_end')).toMatchObject({payload:{tool_name:'read',duration_ms:1}});
     await product.recover();
-    expect(acknowledgements.at(-1)).toMatchObject({cursors:{child:6},modelVersions:{child:'completed'}});
+    expect(acknowledgements).toHaveLength(2);
     expect(inbox.journal(0).filter(e=>e.session_id==='child' && e.type==='turn_end')).toHaveLength(1);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
@@ -483,7 +484,7 @@ it('carries an explicit quote through Global publication and freezes its retry i
  const binding=store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
  const sent:any[]=[];
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
- runtime:{onNotification:()=>()=>{},request:async method=>method==='session.descendants'?[]:{events:[],durable:true,status:'idle'}},
+ runtime:{onNotification:()=>()=>{},request:async method=>method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'}},
  relay:{request:async(type,payload)=>{
   if(type==='conversation.query')return {type:'conversation.query.result',payload:{ok:true,result:{type:'group',channel:'web',target:'c_group'}}};
   if(type==='agent.message'){sent.push(payload);return {type:'ack',payload:{message_id:'sent',conversation_id:'c_group'}};}
