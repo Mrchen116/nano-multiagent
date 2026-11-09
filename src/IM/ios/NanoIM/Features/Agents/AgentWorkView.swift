@@ -321,7 +321,7 @@ struct AgentWorkItemView: View {
         let agent = [detail["agent_id"]?.agentString, input["agent_id"]?.agentString].compactMap { $0 }.first { !$0.isEmpty } ?? ""
         let name = text("name") + text("tool_name")
         return links(id: id, parent: sessionID, call: call, agent: agent,
-            canResolve: !agent.isEmpty || name.contains("agent") || name.contains("workflow"))
+            canResolve: item.has_exact_child == true || !agent.isEmpty || name.contains("agent") || name.contains("workflow"))
     }
     @ViewBuilder private func links(id: String, parent: String = "", call: String = "", agent: String = "", canResolve: Bool = true) -> some View {
         if !id.isEmpty {
@@ -329,7 +329,7 @@ struct AgentWorkItemView: View {
         } else if separate, canResolve, !call.isEmpty || !agent.isEmpty {
             let query = [("parent_session_id", parent), ("tool_call_id", call), ("child_agent_id", agent)]
                 .filter { !$0.1.isEmpty }.map { URLQueryItem(name: $0.0, value: $0.1) }
-            AgentWorkLinkMatches(client: client, agentID: agentID, query: query) { child in childLink(child.id, label: child.label) }
+            AgentWorkLinkMatches(client: client, agentID: agentID, query: query) { child in childLink(child.id, label: child.distinctLabel) }
         } else if !separate {
             let exact = sessions.filter { !call.isEmpty && $0.parent_session_id == parent && $0.parent_tool_call_id == call }
             let candidates = exact.isEmpty ? sessions.filter { !agent.isEmpty && $0.child_agent_id == agent && (parent.isEmpty || $0.parent_session_id == parent) } : exact

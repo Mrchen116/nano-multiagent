@@ -1,7 +1,7 @@
 import Foundation
 
 struct AgentWorkItem: Codable, Identifiable, Sendable {
-    var item_id: String; var seq: Int; var kind: String; var observed_at: String?; var revision: Int?; var payload: [String: JSONValue]
+    var item_id: String; var seq: Int; var kind: String; var observed_at: String?; var revision: Int?; var has_exact_child: Bool?; var payload: [String: JSONValue]
     var id: String { item_id }
 }
 struct AgentWorkTurn: Codable, Identifiable, Sendable {
@@ -28,6 +28,7 @@ struct AgentWorkSession: Codable, Identifiable, Sendable, Hashable {
     var parent_tool_call_id: String?; var child_agent_id: String?; var description: String?; var title: String?; var status: String?
     var id: String { session_id }
     var label: String { description ?? title ?? child_agent_id ?? job_id ?? session_id }
+    var distinctLabel: String { label == id ? id : label + " · " + String(id.suffix(8)) }
 }
 struct AgentWorkPage: Codable, Sendable {
     var root_agent_id: String?; var main_session_id: String?; var revision: Int?; var node_connection_state: String?; var main_execution: String?

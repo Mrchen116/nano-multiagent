@@ -586,3 +586,38 @@ it("opens a separate execution directly, without looking it up in the catalog", 
   expect(calls.some(url => url.includes("/sessions/old-direct-child/turns?view=summary&catalog=separate"))).toBe(true);
   expect(calls.some(url => url.includes("/work/sessions?"))).toBe(false);
 });
+
+it("reads final item revisions after an older active request completes", async () => {
+  let status = "running";
+  let revision = 20;
+  let release!: () => void;
+  let deltas = 0;
+  const item = (text: string, rev: number) => ({item_id: "result", seq: 1, revision: rev, kind: "message", payload: {text}});
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url === "/im/v1/conversations") return new Response(JSON.stringify({items: []}));
+    if (url.includes("after_revision=")) {
+      if (++deltas === 1) {
+        await new Promise<void>(resolve => { release = resolve; });
+        return new Response(JSON.stringify({items: [], next_cursor: null, revision: 20}));
+      }
+      return new Response(JSON.stringify({items: [item("Final result after pending fetch",22)], next_cursor: null, revision: 22}));
+    }
+    if (url.includes("/items?"))
+      return new Response(JSON.stringify({items: [item("Old running result",20)], next_cursor: null, revision: 20}));
+    return new Response(JSON.stringify({...view, catalog:"separate", revision, main_execution:status,
+      turns:[{...view.turns[0], status, items:[], items_deferred:true}]}));
+  });
+  renderWork();
+  const card = () => document.getElementById("work-turn-main-turn")!;
+  const notify = () => act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType:"agent.work.updated",payload:{agent_id:"global"}}));
+  await waitFor(() => expect(card()).toBeInTheDocument());
+  fireEvent.click(card().querySelector("summary")!);
+  expect(await screen.findByText("Old running result")).toBeVisible();
+  revision=21;notify();
+  await waitFor(() => expect(deltas).toBe(1));
+  status="completed";revision=22;notify();
+  await waitFor(() => expect(card().querySelector("summary")).toHaveTextContent("已完成"));
+  release();
+  expect(await screen.findByText("Final result after pending fetch")).toBeVisible();
+  expect(deltas).toBe(2);
+});

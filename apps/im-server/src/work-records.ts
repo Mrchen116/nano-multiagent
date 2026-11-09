@@ -69,19 +69,32 @@ export class WorkRecords {
    */
   catalog(root: string, after: string, limit: number, filter: WorkCatalogFilter): WorkCatalogPage {
     const {parent, call, agent} = filter;
-    // Choose exact call evidence before using the weaker child agent identity.
-    const exact = call && one(this.db, `SELECT 1 FROM agent_work_sessions
-      WHERE root_agent_id=? AND parent_session_id=? AND json_extract(payload,'$.parent_tool_call_id')=? LIMIT 1`, root, parent!, call);
+    // Continuations keep the match class chosen for their first page. A late
+    // exact link cannot reinterpret a weak cursor as a position in another set.
+    let mode: WorkCatalogPage['match_mode'];
+    if (parent || call || agent) {
+      if (after.startsWith('exact:') && call) { mode='exact'; after=after.slice(6); }
+      else if (after.startsWith('weak:') && agent) { mode='weak'; after=after.slice(5); }
+      else if (after) fail(400,'invalid_cursor');
+      else if (call && this.exactChild(root,parent!,call)) mode='exact';
+      else if (agent) mode='weak';
+      else return {sessions:[],next_cursor:null,match_mode:'exact'};
+    }
     const bindings: string[] = [root, after];
     let sql = `SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id>?
       AND (scope!='global_main' OR COALESCE(json_extract(payload,'$.retired'),0)!=0)`;
     if (parent) { sql += ' AND parent_session_id=?'; bindings.push(parent); }
-    if (exact) { sql += " AND json_extract(payload,'$.parent_tool_call_id')=?"; bindings.push(call!); }
-    else if (agent) { sql += " AND json_extract(payload,'$.child_agent_id')=?"; bindings.push(agent); }
-    else if (call) return {sessions: [], next_cursor: null};
+    if (mode === "exact") { sql += " AND json_extract(payload,'$.parent_tool_call_id')=?"; bindings.push(call!); }
+    else if (mode === "weak") { sql += " AND json_extract(payload,'$.child_agent_id')=?"; bindings.push(agent!); }
     const rows = all(this.db, sql + ' ORDER BY session_id LIMIT ?', ...bindings, limit + 1) as WorkSessionRecord[];
     const sessions = rows.slice(0, limit).map(row => this.sessionView(row));
-    return {sessions, next_cursor: rows.length > limit ? sessions.at(-1)!.session_id : null};
+    const end=sessions.at(-1)?.session_id;
+    return {sessions,next_cursor:rows.length > limit ? (mode ? mode+':'+end : end!) : null,
+      ...(mode ? {match_mode:mode} : {})};
+  }
+  private exactChild(root:string,parent:string,call:string):boolean {
+    return !!one(this.db, `SELECT 1 FROM agent_work_sessions
+      WHERE root_agent_id=? AND parent_session_id=? AND json_extract(payload,'$.parent_tool_call_id')=? LIMIT 1`,root,parent,call);
   }
   /** Retain execution identity while applying the existing main-session replacement rules.
    * Args:
@@ -448,14 +461,14 @@ export class WorkRecords {
       watermarked ? one(this.db, 'SELECT MAX(revision) AS n FROM agent_work_items WHERE session_id=? AND turn_id=?', session, turn)?.n ?? 0 : undefined;
     return {
       ...(revision === undefined ? {} : {revision}),
-      items: rows.slice(0, limit).map((r) => ({
-        item_id: r.item_id,
-        seq: r.seq,
-        kind: r.kind,
-        observed_at: r.observed_at,
-        revision: r.revision,
-        payload: JSON.parse(r.payload),
-      })),
+      items: rows.slice(0, limit).map(r => {
+        const payload: WorkItemData=JSON.parse(r.payload);
+        const call=payload.id ?? payload.call_id ?? payload.tool_call_id;
+        const linked=(watermarked || afterRevision !== undefined) && r.kind==='tool' && typeof call==='string' &&
+          this.exactChild(root,session,call);
+        return {item_id:r.item_id,seq:r.seq,kind:r.kind,observed_at:r.observed_at,revision:r.revision,payload,
+          ...(linked ? {has_exact_child:true} : {})};
+      }),
       next_cursor: rows.length > limit ? String(last![order]) : null,
     };
   }

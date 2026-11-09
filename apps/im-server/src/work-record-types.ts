@@ -28,10 +28,10 @@ export interface WorkItemData {
   work_facts?: Array<Record<string, unknown>>;
   [field: string]: unknown;
 }
-export interface WorkItemView {item_id: string; seq: number; kind: string; observed_at: string | null; revision: number; payload: WorkItemData}
+export interface WorkItemView {item_id: string; seq: number; kind: string; observed_at: string | null; revision: number; has_exact_child?: boolean; payload: WorkItemData}
 export interface WorkItemsPage {items: WorkItemView[]; next_cursor: string | null; revision?: number}
 export interface WorkCatalogFilter {parent?: string; call?: string; agent?: string}
-export interface WorkCatalogPage {sessions: WorkSessionView[]; next_cursor: string | null}
+export interface WorkCatalogPage {sessions: WorkSessionView[]; next_cursor: string | null; match_mode?: "exact" | "weak"}
 export interface WorkTurnView extends WorkTurnData {seq: number; scope: string; items: WorkItemView[]; next_items_cursor: string | null; items_deferred?: boolean; tool_count?: number; has_background_returns?: boolean; background_task_type?: string | null}
 export interface WorkFocus {turn: WorkTurnView; newer_turn_id: string | null; older_turn_id: string | null}
 export interface WorkTurnsPage {turns: WorkTurnView[]; control_items: WorkItemView[]; next_cursor: string | null; next_turn_id: string | null}

@@ -387,11 +387,13 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
       priorActivity.current = true;
       return;
     }
-    if (refreshedAt.current === headUpdate || (!activity && !priorActivity.current && !changes.data?.next_cursor)) return;
+    if (changes.isFetching || refreshedAt.current === headUpdate || (!activity && !priorActivity.current && !changes.data?.next_cursor)) return;
     refreshedAt.current = headUpdate;
-    priorActivity.current = Boolean(activity);
-    void changeRefetch({cancelRefetch: false});
-  }, [activity, changes.data?.next_cursor, changeRefetch, expanded, headUpdate, key, separate, watermark]);
+    if (activity) priorActivity.current = true;
+    void changeRefetch({cancelRefetch: false}).then(result => {
+      if (!activity && !result.isError) priorActivity.current = false;
+    });
+  }, [activity, changes.data?.next_cursor, changes.isFetching, changeRefetch, expanded, headUpdate, key, separate, watermark]);
   const scrolledNavigation = useRef<string | null>(null);
   const focusReady = !turn.items_deferred || Boolean(pages.data) || pages.isError;
   useEffect(() => {
@@ -446,7 +448,7 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
           const children = childId ? sessions.filter(s => s.session_id === childId) : exact.length ? exact
             : sessions.filter(s => agent && s.parent_session_id === turn.session_id && s.child_agent_id === agent);
           const filter = {parent_session_id: turn.session_id, ...(callId ? {tool_call_id: callId} : {}), ...(agent ? {child_agent_id: agent} : {})};
-          const delegation = agent || /agent|workflow/.test(call.name ?? "");
+          const delegation = item.has_exact_child || agent || /agent|workflow/.test(call.name ?? "");
           const link = childId ? <WorkLink id={childId} session={children[0]} label="查看子执行" onChild={onChild} />
             : separate && delegation && (callId || agent) ? <LegacyWorkLinks agentId={agentId} filter={filter} onChild={onChild} label="查看子执行" />
             : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看子执行" onChild={onChild} />);

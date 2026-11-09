@@ -21,7 +21,7 @@ it('serves authorized light summaries, exact and paged execution links, and same
     ['turn_start', {origin: 'inbox'}, 'first'],
     ['turn_end', {completed: true, usage: {output: 12}}, 'first'],
     ['turn_start', {origin: 'inbox'}, 'second'],
-    ['tool_start', {call_id: 'call-a', name: 'agent'}, 'second'],
+    ['tool_start', {call_id: 'call-a', name: 'read'}, 'second'],
     ['tool_start', {call_id: 'call-b', name: 'agent'}, 'second'],
     ['message_sent', {message_id: 'reply', call_id: 'send', conversation_id: 'chat'}, 'first'],
     ['control_result', {command: 'compact', text: 'large control body'.repeat(4096)}],
@@ -64,8 +64,13 @@ it('serves authorized light summaries, exact and paged execution links, and same
   expect((await read('/sessions?after_session=retired')).body).toEqual({sessions: [], next_cursor: null});
   const scoped = `/sessions?parent_session_id=${root}&child_agent_id=worker`;
   expect((await read(scoped + '&tool_call_id=call-a')).body).toMatchObject({sessions: [{session_id: 'child-1049'}], next_cursor: null});
-  expect((await read(scoped + '&tool_call_id=missing&limit=1')).body).toMatchObject({sessions: [{session_id: 'child-0000'}], next_cursor: 'child-0000'});
-  expect((await read('/sessions?child_agent_id=worker&after_session=child-1049')).body).toMatchObject({sessions: [{session_id: 'other-parent'}]});
+  const weak = (await read(scoped + '&tool_call_id=late&limit=1')).body;
+  expect(weak).toMatchObject({sessions: [{session_id: 'child-0000'}], next_cursor: 'weak:child-0000', match_mode: 'weak'});
+  await append([['session_linked', {parent_session_id: root, child_session_id: 'child-0000', parent_tool_call_id: 'late', child_agent_id:'worker'}]]);
+  expect((await read(scoped + '&tool_call_id=late&limit=1')).body).toMatchObject({sessions: [{session_id: 'child-0000'}], next_cursor:null, match_mode:'exact'});
+  expect((await read(scoped + '&tool_call_id=late&limit=1&after_session=' + weak.next_cursor)).body)
+    .toMatchObject({sessions: [{session_id:'child-0001'}],match_mode:'weak'});
+  expect((await read('/sessions?child_agent_id=worker&after_session=weak:child-1049')).body).toMatchObject({sessions: [{session_id: 'other-parent'}]});
   expect((await read('/sessions?limit=NaN')).status).toBe(400);
   expect((await read('/sessions', f.tokens.outsider)).status).toBe(404);
   expect((await read('/sessions/child-1049', f.tokens.outsider)).status).toBe(404);
@@ -74,6 +79,7 @@ it('serves authorized light summaries, exact and paged execution links, and same
 
   const details = `/sessions/${root}/turns/second/items?catalog=separate&limit=1`;
   const initial = (await read(details)).body;
+  expect(initial.items[0]).toMatchObject({item_id:'tool:call-a',has_exact_child:true});
   const older = (await read(details + '&after_seq=' + initial.next_cursor)).body;
   expect(older.items[0]).toMatchObject({item_id: 'tool:call-b', payload: {status: 'running'}});
   await append([
