@@ -4,7 +4,8 @@
 
 - 分支 `codex/feat-738`。首次审查基线 `355e2cfc9`，受审版本 `f486318a9`。
 - 第一轮定向复核对比 `f486318a9..5a7e454ea`。飞书命令键和设备转移回执的后续修复位于 `337e81c8f`。
-- 最终集成基线 `fa3380f6e`，实施树 `e10bca38e`。合并保留群聊预览与交互卡片的行为，也同时接入委派审批的 root 查找与审查会话归属登记。
+- 第一次集成基线 `fa3380f6e`，实施树 `e10bca38e`。合并保留群聊预览与交互卡片的行为，也同时接入委派审批的 root 查找与审查会话归属登记。
+- 最终集成基线 `0a31f4b43`，代码树 `69327aa21`。基线增量新增聊天卡片的图片交付，未改动删除表单、Node 清理阶段或 DSH 文件清理。保留既有隔离证据。独立交界复核判定 `aligned`，最终代码树通过构建、类型检查、iOS 交互运行时契约、91 项后端和 73 项 Web 定向测试，包含附件元数据保留与图片呈现。
 
 ## 独立代码审查
 
@@ -37,6 +38,6 @@
 
 Web 实现者另以 Chrome 360 × 640 和模拟 HTTP 验证等待、失败及重试。集成版 Web 全量 1098 项通过。
 
-iOS 在 iPhone 17 Pro、iOS 26.4 模拟器上观察 `23732e63a`。从 Agent 列表进入已停用样本的配置页，核对首次确认、默认保留、勾选、取消与重开。用隔离 REST 发起相同范围的测试操作，原生客户端收到完成回执后关闭确认页并自动回到列表。两次使用不同样本分别核对目录保留和所选目录移除。截图 `ios-confirmation-default.png`、`ios-confirmation-workspace.png`、`ios-return-list.png` 与后端结果保存在同一验收目录。生成交互资源后执行的 XCTest 53 项及 Swift Testing 27 项通过。模拟器、临时节点与 IM 端口均已回收。
+iOS 在 iPhone 17 Pro、iOS 26.4 模拟器上观察 `23732e63a`。从 Agent 列表进入已停用样本的配置页，核对首次确认、默认保留、勾选、取消与重开。用隔离 REST 发起相同范围的测试操作，原生客户端收到完成回执后关闭确认页并自动回到列表。两次使用不同样本分别核对目录保留和所选目录移除。截图 `ios-confirmation-default.png`、`ios-confirmation-workspace.png`、`ios-return-list.png` 与后端结果保存在同一验收目录。生成交互资源后执行的 XCTest 53 项及 Swift Testing 27 项通过，设备发布归档通过。模拟器、临时节点与 IM 端口均已回收。
 
-本机 Node 全量串行度为 2，1202 项通过、7 项既有 DSH 路径测试出现超时或临时检查进程回收错误。定向复跑与目标分支对照记录在本地报告目录 `backend-timeout-recheck.log`、`backend-remaining-recheck.log`、`backend-base-inspection.log`。对照在 `fa3380f6e` 同样遇到临时检查进程无法确认回收。
+本机 Node 全量以 2 个并行 worker 运行，1202 项通过、7 项既有 DSH 路径测试出现超时或临时检查进程回收错误。定向复跑后其中六项通过，剩余一项在 `fa3380f6e` 对照也出现临时检查进程无法确认回收。报告目录保留 `backend-timeout-recheck.log`、`backend-remaining-recheck.log`、`backend-base-inspection.log`。
