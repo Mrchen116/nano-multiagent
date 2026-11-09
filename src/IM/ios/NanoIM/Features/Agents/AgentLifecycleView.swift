@@ -185,6 +185,11 @@ private struct AgentDeleteRequest: Encodable, Sendable {
 }
 
 private struct AgentDeletionControl: View {
+    private struct Confirmation: Identifiable {
+        let id = UUID().uuidString
+        let scope: AgentDeletionSnapshot
+    }
+
     let client: IMClient
     let agentID: String
     let name: String
@@ -193,10 +198,8 @@ private struct AgentDeletionControl: View {
     let onDeleted: (() -> Void)?
     @Environment(\.scenePhase) private var scenePhase
     @State private var snapshot: AgentDeletionSnapshot?
-    @State private var confirmedScope: AgentDeletionSnapshot?
-    @State private var confirming = false
+    @State private var pendingConfirmation: Confirmation?
     @State private var includeWorkspace = false
-    @State private var requestID = ""
     @State private var busy = false
     @State private var readError = false
     @State private var error: String?
@@ -212,18 +215,16 @@ private struct AgentDeletionControl: View {
                 if operation.state == "failed" {
                     Button(L("重试清理", "Retry cleanup")) { Task { await retry(operation) } }.disabled(!online || busy)
                 }
-            } else if snapshot?.eligible == true {
+            } else if let snapshot, snapshot.eligible {
                 Button(L("永久删除 Agent", "Permanently delete Agent"), role: .destructive) {
-                    confirmedScope = snapshot
                     includeWorkspace = false
-                    requestID = UUID().uuidString
                     error = nil
-                    confirming = true
+                    pendingConfirmation = Confirmation(scope: snapshot)
                 }.disabled(!online || busy || readError)
             } else if let reason = snapshot?.reason, !reason.isEmpty {
                 Text(availabilityMessage(reason)).font(.caption).foregroundStyle(.secondary)
             }
-            if let error, !confirming { ErrorNotice(message: error) }
+            if let error, pendingConfirmation == nil { ErrorNotice(message: error) }
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
@@ -233,14 +234,14 @@ private struct AgentDeletionControl: View {
                 try? await Task.sleep(for: .seconds(3))
             } while !Task.isCancelled
         }
-        .sheet(isPresented: $confirming) { confirmation }
+        .sheet(item: $pendingConfirmation) { confirmation($0) }
     }
 
-    private var scopeCurrent: Bool {
-        guard let snapshot, let confirmedScope else { return false }
-        return snapshot.eligible && snapshot.revision == confirmedScope.revision
-            && snapshot.profile_version == confirmedScope.profile_version
-            && (!includeWorkspace || snapshot.workspace?.witness == confirmedScope.workspace?.witness)
+    private func scopeCurrent(_ scope: AgentDeletionSnapshot) -> Bool {
+        guard let snapshot else { return false }
+        return snapshot.eligible && snapshot.revision == scope.revision
+            && snapshot.profile_version == scope.profile_version
+            && (!includeWorkspace || snapshot.workspace?.witness == scope.workspace?.witness)
     }
 
     private func availabilityMessage(_ reason: String) -> String {
@@ -252,27 +253,27 @@ private struct AgentDeletionControl: View {
         }
     }
 
-    private var confirmation: some View {
+    private func confirmation(_ confirmed: Confirmation) -> some View {
         NavigationStack {
             Form {
                 Section {
                     Text(name).font(.headline)
                     Text(L("此操作会永久清理该 Agent 的执行会话、子会话和工作记录。聊天正文、附件和发送者身份会保留。", "This permanently removes this Agent’s execution sessions, child sessions, and work records. Chat messages, attachments, and sender identity are kept."))
-                    if let workspace = confirmedScope?.workspace {
+                    if let workspace = confirmed.scope.workspace {
                         Toggle(L("同时删除专用工作区", "Also delete the dedicated workspace"), isOn: $includeWorkspace).disabled(busy)
                         Text(workspace.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     } else { Text(L("工作区文件会保留。", "Workspace files are kept.")).font(.caption).foregroundStyle(.secondary) }
                 }
-                if !scopeCurrent { ErrorNotice(message: L("删除范围已变化，请关闭后重新确认。", "The deletion scope changed. Close and review it again.")) }
+                if !scopeCurrent(confirmed.scope) { ErrorNotice(message: L("删除范围已变化，请关闭后重新确认。", "The deletion scope changed. Close and review it again.")) }
                 if !online { Text(L("等待设备重新在线。", "Waiting for the device to come online.")) }
                 if let error { ErrorNotice(message: error) }
                 Button(busy ? L("提交中…", "Submitting…") : L("确认永久删除", "Confirm permanent deletion"), role: .destructive) {
-                    Task { await submit() }
-                }.disabled(!scopeCurrent || !online || readError || busy)
+                    Task { await submit(confirmed) }
+                }.disabled(!scopeCurrent(confirmed.scope) || !online || readError || busy)
             }
             .navigationTitle(L("永久删除 Agent", "Permanently delete Agent"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { confirming = false }.disabled(busy) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { pendingConfirmation = nil }.disabled(busy) } }
         }.interactiveDismissDisabled(busy)
     }
 
@@ -288,7 +289,7 @@ private struct AgentDeletionControl: View {
     private func apply(_ value: AgentDeletionSnapshot) {
         snapshot = value
         deleting = value.operation != nil
-        if deleting { confirming = false }
+        if deleting { pendingConfirmation = nil }
         if value.operation?.state == "deleted" { onDeleted?() }
     }
 
@@ -307,9 +308,10 @@ private struct AgentDeletionControl: View {
         }
     }
 
-    private func submit() async {
-        guard let scope = confirmedScope, scopeCurrent, online, !busy, !readError else { return }
-        await send(path, AgentDeleteRequest(request_id: requestID, expected_revision: scope.revision,
+    private func submit(_ confirmed: Confirmation) async {
+        let scope = confirmed.scope
+        guard scopeCurrent(scope), online, !busy, !readError else { return }
+        await send(path, AgentDeleteRequest(request_id: confirmed.id, expected_revision: scope.revision,
                                            expected_profile_version: scope.profile_version,
                                            workspace_witness: includeWorkspace ? scope.workspace?.witness : nil))
     }
