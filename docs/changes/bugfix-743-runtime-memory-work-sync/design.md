@@ -9,10 +9,11 @@
 
 ### 观察与确认分开
 
-- 私有 stdio 的 Work 读以消费方已处理的 native seq 取 own 事件。主会话读按页；子会话先维持现有目录/可信根与持久见证，回复对**所有**子会话共享字节/事件预算，仅把已发的区间标为 throughSeq，未读完显式 more；未提供游标才从 own 起点开始。先按游标选取，再逐条附工具展示并计入预算。标准页预算 1 MiB / 256 事件；单条可独占一页以保留完整记录，超过 32 MiB 明确失败、从同一位置重试或走原生轨迹检查。原生轨迹协议不变。原生冷观察的公开接口仍可能读取单份日志，保持官方恢复与有界缓存；不在 Nano 再留全量副本。
-- Work 传输缩小不消费的大请求快照：request/header 只保留 model 和 request/context 只保留 model/contextWindow，保持原 seq。原生存储与轨迹正文不改。实时 `session.event` 只发所需的变化/事件识别和来源元数据；持久读取是权威，必要的实时流和审批协议保持。
-- Node 已有根事件 ledger 保存收到的页，从 Work checkpoint 保留的逻辑轮起点投影。子执行将未完成逻辑轮的事件保存在 Inbox SQLite，与子 Work facts/checkpoint 一起提交；页到达后用本地前缀完成工具配对、用量及模型回退轮合并，投影后删除已结束轮次的处理上下文。旧 checkpoint 没有本地上下文时仅补一次未完成轮前缀。模型元数据更新时使用本地重投影，不重新发送已处理正文；保留现有稳定 event ID 和不可靠观察的 pending 状态。多页先应用再拉下一页，重启从事务已提交位置开始。中心同步 ACK 独立。取消或连接关闭不推进未消费页；目标停用的末尾事实继续走同一投影规则，使用有界读取。
-- RPC 在 stdout 写入返回 false 后等待 drain，等可写再序列化；输出队列有限，历史页限并发生成，避免大量已生成的页等待可写。传输故障显式断开并拒绝未决请求，现有 supervisor 重连后从持久位置恢复；保留双向独立 dispatch，不能用读暂停或全局串行 handler 造成反向调用死锁。
+- 私有 stdio 的 Work 读以消费方已处理的 native seq 取 own 事件。主会话由独立的 `session.work.root`（以已有 root binding 校验）读页；`session.observe` 保留单线程投递和非 Global Task Graph/发送的证据契约，后台唤醒改用只取状态的 `session.status`。子会话仍从可信根遍历原生 catalog；分页回复携带已遍历的 anchor，走到未读完的子执行时先保存其 throughSeq，再从该子继续。新一轮从头校验目录和变更；重连只依赖已持久化的各会话位置。只把已发送、持久化的 native 区间标为 throughSeq，未读完显式 more。原生冷观察可能解码单份完整日志；使用官方有界缓存，不在 Nano 再留全量副本。
+- 每页的预算包括实际发送的目录项、事件、附带的 presenter 和模型元数据。先按游标选取，再逐条附带相关数据计费。标准 1 MiB / 256 项（包含目录项），单条可独占一页以保留完整记录；单条超 32 MiB 明确失败、不跨过，并保留原生轨迹入口。只携带与本页或本地未完成逻辑轮相关的模型 run 公共字段，舍弃待重试的模型输入等私有载荷。状态版本按精简 run 逐条更新摘要，无需反复序列化全历史；旧版本摘要仅使首次检查补核。Work 读不附根审批审计列表；原入口保留。Work 请求快照只保留 model/contextWindow，原始日志和原生轨迹不变。实时 `session.event` 只发变化识别和必要来源标识，持久读取是权威。
+- 根用已有本地原生事件 ledger，从 Work checkpoint 的逻辑轮起点投影；子执行将未完成逻辑轮前缀保存在 Inbox SQLite，与该页 Work facts/checkpoint 一起提交。工具配对、用量与 fallback 逻辑轮从本地前缀和本页完成，关闭后清理处理上下文。旧 checkpoint 无本地前缀时只补一次未完成轮。模型状态变化但没有新 native seq 时仍用本地前缀重新投影，稳定 event ID 去重；中心 ACK 独立。
+- 停用先完成已有 cancel、drain、flush、dispose，确认任务只保存停用结果，不保存整段历史。按已停用的 Agent / revision 校验，同一有界 Work 读面从冷根和可信子目录补到停用后的稳定 cut，无需激活 Agent。Node 按页提交；尚未处理完保持 Work pending，保留重试停用流程可从已提交位置续读。停用确认和 Work 补传均不伪造执行结果；永久删除沿用已停、归属、清理确认边界。
+- RPC 发送在 writable 返回 false 后等 drain；有限 FIFO 在可写后才序列化下一帧。Work 页限定单个重载读取并等待该页通过写出屏障再启动下一页；反向调用与控制 handler 保持独立 dispatch。关闭、输入/输出错误或排队溢出清空队列、拒绝未决调用并释放等待者；RuntimeClient 将真实链路故障接到子进程结束与已有 supervisor 恢复（常规 shutdown 不改变），不让 peer 已关闭却宿主仍宣称可用。重连不隐式重发有副作用的请求。
 
 ## 本次审查安排
 

@@ -1,0 +1,30 @@
+## Round 1
+
+- Reviewer target: `/root/design_review`，独立审查 `a2c98e7cc`。
+- review_mode: full
+- mode_reason: 首轮。覆盖历史驻留、Work 数据面和双向 stdio 生命周期。
+- started_at: 2026-11-09T19:33:34+08:00
+- completed_at: 2026-11-09T19:35:30+08:00
+- duration: 116 s
+- Verdict: Issues Found，0 CRITICAL / 4 WARNING
+
+### Coverage
+
+- 从 `apps/node/src/main.ts:378` 的 Global 产品组装和 `packages/dsh-integration/src/client.ts:20` 的正式 Nano profile 核对了实际落点。锁定版 DSH 的公开 `sessionQuery.observeSession` 在 projection cache 未挂载时会从原生事件 hydrate，原生轨迹继续经过现有绑定和查询层。未见审批证据需要依赖缓存成为事实来源。涉及冷标题或子目录的模型消费验证可以复用现有入口，比较实际工具结果与原生记录。
+- 工具冻结记录适合继续复用原格式和 `RecordWrites`。公开 `JsonStorageBackend.kv` 打开 per-record 单元可定点写删；批量读由 `loadAll` 单独触发。一个 Nano adapter 足以拥有定点读取和按键枚举，免去全域打开。旧文件继续可读，无需一次性迁移。普通删除仍需验证停挂缓存后按目标身份移除旧记录和备份。
+- 活会话的公开 `Session.eventAt` 和 `snapshotEvents(from,to)` 可以避免在 Nano 层先复制整段历史。锁定版 JSONL 的 `SessionHandle.read(offset,length)` 底层仍可能读取并解码整个冷日志；设计已披露这一原生读成本。Work 的分页证据应分开测量原生日志读取、页装配和实际 stdio 字节。冷观察只按条数缓存，冷查存在单日志体量带来的峰值。
+- 采用现有 Node ledger、Inbox SQLite、独立中心 ACK 及真实 native seq，职责方向与架构一致。对照 `work-projection.ts`、`presentation.ts` 和 current IM Work 契约，delta 锚定了正确的 Requirement 并保留已有三个 Scenario。跨页工具配对、用量与 fallback 结束去重依赖持久的未完逻辑轮上下文，需与 checkpoint 一起在真实产品链路验证。单个 milestone 可完整承载；产品旅程应覆盖中心 Work 的既有读取结果、跨页恢复、停用与权限负例。页面行为沿用当前契约，无需要提前对齐的原型。未运行实现或生产服务。
+
+### Issues
+
+- **R1-W1 — Work 页预算遗漏随历史增长的回复数据。** `design.md` 的页预算只约束所选 own 事件及工具展示。现有 `packages/dsh-integration/src/index.ts:191`、`:511`、`:523`、`:531` 对整个会话的 fallback runs 做 JSON hash、clone 并传输，根读还携带审批历史，子读会为整个可达目录生成回复行；`model-fallback.ts:29` 的 pending run 可含原始消息正文。即使只追加一条事件，长会话仍能反复序列化整份 sidecar 或生成超过页上限的空目录页。明确所有 Work 相关回复的包络及游标上限，按相关切点有界传递模型变化和必要目录，分离消费者不需要的审批数据，并避免每页或 settled 检查重算整段历史。用已有大元数据、仅追加一条和仅模型状态变化三种条件检验实际帧大小与配对。
+- **R1-W2 — 根观察兼任实时业务证据，单次返回部分页会改变现有调用语义。** `packages/personal-assistant/src/single-thread.ts:257` 一次观察后即决定交付；`global-agent.ts:599` 和 `:696` 的非 Global Task Graph 与发消息路径分别依赖当前人类输入与工具调用证据；`:362` 的后台唤醒只需状态。原设计只描述 Work 页消费。若原方法统一改为一页，这些现有路径会在当前证据位于后页时使用旧数据；若保留原调用语义，它们还会生成旧的大帧。明确各入口是消费有界页到需要的证据、使用定点证据，还是只读状态。超过 Work 页上限的旧事件也不能阻塞这些实时入口。隔离验收应让当前证据落在后页。
+- **R1-W3 — 停用最终页缺少可重试的确认协议。** `apps/node/src/main.ts:525` 目前从一次 `disableAgent` 结果保存终态再向生命周期返回确认；`packages/dsh-integration/src/index.ts:838` 缓存整个 disable promise，并且普通 Global 恢复跳过 disabled Agent（`global-agent.ts:395`）。把终态快照直接截成一页会在后续页尚未持久提交时确认停用，断开后普通恢复无法补齐；复用旧 promise 也不能按新 checkpoint 取得下一页。设计需要明确定义可重试的 cleanup 回执和停用后的只读分页入口，说明最终目标切点、断线重进，以及 Work pending 与生命周期确认各在哪一步更新。至少验证停用前尚有多页及第一页提交后断线。
+- **R1-W4 — 本地 RPC close 不会触发当前 supervisor 重连。** `packages/dsh-integration/src/rpc.ts:59` 只关闭本地 readline 并拒绝 pending，不拥有或关闭 stdio；`client.ts:173` 的 supervisor 以子进程退出为恢复触发。若队列上限或 drain 故障只走 `RpcPeer.close`，父子可能维持进程存活而无法再次处理请求。明确过载与写故障如何到达实际连接/进程生命周期，关闭时释放 drain 等待和排队工作。隔离测试须触发上限或写故障并观察 supervisor 重新可用、从已提交页继续，不能只测 write 返回 false 后恢复 drain。
+
+### Author Resolutions
+
+- W1 accepted：改为整页计费和目录续读，按页携带相关公开 model run；Work 根读取不携带审批列表。
+- W2 accepted：专用 Work 页与既有证据读区分；状态独立读取。
+- W3 accepted：取消/释放与冷 Work 读分开，停用结果不携带全历史；保持范围和可重试位置。
+- W4 accepted：明确关闭和故障如何抵达 RuntimeClient 与 supervisor。
