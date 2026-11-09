@@ -33,9 +33,14 @@ extension InteractionDraftLifecycleTests {
         await transport.setStatus(status)
         try await edit(runtime, "fri")
         _ = await runtime.flush()
+        if status == 503 { await transport.gateNextSave(timestamp: "2026-11-01T10:00:00.002Z") }
         let detached = runtime.webID
         runtime.leave()
         await runtime.load()
+        if status == 503 {
+            let started = await transport.waitForGatedSave()
+            XCTAssertTrue(started, "The save started by the detached row must still be in flight")
+        }
         let ready = try await runtime.webRequest(.object(["type": .string("ready")]), generation: runtime.webID)
         XCTAssertEqual(ready["state"]["$slot"], .string("fri"), "Reattachment must not adopt the remote draft")
         XCTAssertEqual(ready["disabled"], .bool(status == 409))
@@ -55,8 +60,13 @@ extension InteractionDraftLifecycleTests {
             XCTAssertTrue(adopted)
             XCTAssertEqual(runtime.state["$slot"], .string("wed"))
         } else {
-            _ = await runtime.flush()
+            // The pending request captured 503 before recovery. Retry must outlive that receipt.
+            let release = Task { await transport.releaseSave() }
+            await runtime.retrySaving()
+            await release.value
             XCTAssertEqual(runtime.state["$slot"], .string("fri"))
+            let events = await transport.events
+            XCTAssertEqual(events.suffix(2), ["put:card", "saved:card"])
         }
         XCTAssertNil(runtime.chat.interactionDrafts.failure("chat"))
     }

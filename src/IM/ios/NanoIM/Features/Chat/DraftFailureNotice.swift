@@ -39,7 +39,7 @@ struct DraftFailureNotice: View {
                     }
                 }
             } else {
-                Button(L("重试保存", "Retry saving")) { Task { _ = await runtime.flush() } }
+                Button(L("重试保存", "Retry saving")) { Task { await runtime.retrySaving() } }
             }
             if let inspectionError { ErrorNotice(message: inspectionError) }
         }.font(.callout).accessibilityElement(children: .contain)

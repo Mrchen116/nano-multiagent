@@ -377,9 +377,14 @@ final class InteractiveRuntime {
             if result.reason != nil { chat.interactionDrafts.retainUnresolved(self) }
         }
     }
+    func retrySaving() async {
+        // A save started before the tap may still return its old failure.
+        if saveFlight != nil { _ = await flush() }
+        if flushResult.reason == .transient { _ = await flush() }
+    }
     func retryContent() async {
         if !loaded || (usesWebRenderer && edited == saved) { await load() }
-        else if !conflict { error = nil; querySignatures = [:]; refreshQueries(); _ = await flush() }
+        else if !conflict { error = nil; querySignatures = [:]; refreshQueries(); await retrySaving() }
     }
     /// Reads a comparison without applying the remote revision or changing either draft.
     func describeConflict() async throws -> [DraftConflictColumn] {
