@@ -9,11 +9,12 @@ import type { WorkView } from "./agent-work-api";
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), subscribe: vi.fn() }));
 vi.mock("../../auth/auth-fetch", () => ({ authFetch: mocks.fetch }));
 vi.mock("../../../realtime/user-stream", () => ({ subscribeUserStream: mocks.subscribe }));
+vi.mock('./agent-trajectory', () => ({AgentTrajectory: () => <p>Native trajectory</p>}));
 let view: WorkView;
 function ChatTarget() { const location = useLocation(); const navigate = useNavigate(); return <div><p>Real chat route</p><button onClick={() => navigate(location.state.workReturnUrl)}>Return to work</button></div>; }
-function renderWork() {
+function renderWork(entry = "/settings/agents/global?view=work") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createMemoryRouter([{ path: "/settings/agents/global", element: <AgentWorkPanel agentId="global" /> }, { path: "/chat/:id", element: <ChatTarget /> }, { path: "/tasks/:id", element: <p>Task graph route</p> }], { initialEntries: ["/settings/agents/global?view=work"] });
+  const router = createMemoryRouter([{ path: "/settings/agents/global", element: <div className="im-agent-panel"><AgentWorkPanel agentId="global" /></div> }, { path: "/chat/:id", element: <ChatTarget /> }, { path: "/tasks/:id", element: <p>Task graph route</p> }], { initialEntries: [entry] });
   return { ...render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>), router };
 }
 beforeEach(() => {
@@ -25,6 +26,116 @@ beforeEach(() => {
 });
 
 describe("Agent work view", () => {
+  it("opens and scrolls to the reply's recorded wake, including a different reply in the same Agent", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const items = view.turns[0].items;
+    mocks.fetch.mockImplementation(async (url: string) => {
+      const turnId = url.includes('message_id=older') ? 'old-turn' : 'new-turn';
+      return new Response(JSON.stringify(url === '/im/v1/conversations' ? {items: []} : url.includes('/items?') ? {items, next_cursor: null} : {
+        ...view, focus: {session_id: 'main', turn_id: turnId}, turns: ['new-turn', 'old-turn'].map(id => ({...view.turns[0], turn_id: id, items: [], items_deferred: true}))
+      }));
+    });
+    sessionStorage.setItem('agent-work:global', JSON.stringify({selected: 'stale-child', expanded: {}, scroll: 999}));
+    const {router} = renderWork('/settings/agents/global?view=work&message_id=older');
+    await waitFor(() => expect(document.getElementById('work-turn-main-old-turn')).toHaveAttribute('open'));
+    expect(document.getElementById('work-turn-main-new-turn')).toBeInTheDocument();
+    expect(document.getElementById('work-turn-main-new-turn')).not.toHaveAttribute('open');
+    expect(await screen.findByRole('button', {name: /inbox/})).toBeVisible();
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    expect(screen.queryByRole('button', {name: '关闭子轨迹'})).not.toBeInTheDocument();
+    await act(() => router.navigate('/settings/agents/global?view=work&message_id=newer'));
+    await waitFor(() => expect(document.getElementById('work-turn-main-new-turn')).toHaveAttribute('open'));
+    await act(() => router.navigate('/settings/agents/global?view=work&message_id=older'));
+    await waitFor(() => expect(document.getElementById('work-turn-main-old-turn')).toHaveAttribute('open'));
+    expect(mocks.fetch.mock.calls.some(([url]) => String(url).includes('/turns/old-turn/items?'))).toBe(true);
+  });
+
+  it('loads summary pages through an older anchor without dropping newer or still-earlier turns', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const template = view.turns[0];
+    mocks.fetch.mockImplementation(async (url: string) => {
+      const before = new URL(url, 'http://nano.test').searchParams.get('before_turn');
+      const ids = before === '5' ? ['4', '3'] : before === '3' ? ['2', '1'] : ['6', '5'];
+      return new Response(JSON.stringify(url === '/im/v1/conversations' ? {items: []} : url.includes('/items?') ? {items: [{item_id: 'body', seq: 1, kind: 'message', payload: {text: 'Target historical execution'}}], next_cursor: null} : {
+        ...view, focus: {session_id: 'main', turn_id: '3'}, next_cursor: ids[1] === '1' ? null : ids[1],
+        turns: ids.map(turn_id => ({...template, turn_id, items: [], items_deferred: true}))
+      }));
+    });
+    renderWork('/settings/agents/global?view=work&message_id=older');
+    expect(await screen.findByText('Target historical execution')).toBeVisible();
+    expect(document.getElementById('work-turn-main-3')).toHaveAttribute('open');
+    for (const id of ['6', '5', '4']) {
+      expect(document.getElementById(`work-turn-main-${id}`)).toBeInTheDocument();
+      expect(document.getElementById(`work-turn-main-${id}`)).not.toHaveAttribute('open');
+    }
+    expect(document.getElementById('work-turn-main-2')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: '更早轮次'}));
+    await waitFor(() => expect(document.getElementById('work-turn-main-1')).toBeInTheDocument());
+    expect([...document.querySelectorAll('.im-work-trace > details')].map(turn => turn.id)).toEqual(['6', '5', '4', '3', '2', '1'].map(id => `work-turn-main-${id}`));
+  });
+
+  it('keeps current main records when a reply belongs to a retired main execution', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const template = view.turns[0];
+    view = {...view, focus: {session_id: 'retired', turn_id: 'old'}, other_executions: [{session_id: 'retired', scope: 'global_main'}]};
+    mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === '/im/v1/conversations' ? {items: []} : url.includes('/sessions/retired/turns?') ? {turns: [{...template, session_id: 'retired', turn_id: 'old'}], next_cursor: null} : view)));
+    renderWork('/settings/agents/global?view=work&message_id=old-reply');
+    await waitFor(() => expect(document.getElementById('work-turn-retired-old')).toHaveAttribute('open'));
+    expect(document.getElementById('work-turn-main-turn')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: '关闭子轨迹'})).toBeVisible();
+  });
+
+  it('retains manual folding and reading position across native-view switches after applying a reply anchor', async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    view = {...view, focus: {session_id: 'main', turn_id: 'turn'}};
+    const {container} = renderWork('/settings/agents/global?view=work&message_id=reply');
+    const scroller = container.querySelector<HTMLElement>('.im-agent-panel')!;
+    scroller.scrollTo = vi.fn((options?: ScrollToOptions | number) => {if (typeof options === 'object') scroller.scrollTop = options.top ?? 0;});
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText('Inbox 唤醒'));
+    expect(screen.getByText('Inbox 唤醒').closest('details')).not.toHaveAttribute('open');
+    scroller.scrollTop = 320;
+    fireEvent.click(screen.getByRole('tab', {name: '原生轨迹'}));
+    expect(await screen.findByText('Native trajectory')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', {name: '工作记录'}));
+    await waitFor(() => expect(scroller.scrollTop).toBe(320));
+    expect(screen.getByText('Inbox 唤醒').closest('details')).not.toHaveAttribute('open');
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the deferred body before scrolling and does not pull readers back on refresh', async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    let finishItems!: (response: Response) => void;
+    const body = new Promise<Response>(resolve => {finishItems = resolve;});
+    view = {...view, focus: {session_id: 'main', turn_id: 'turn'}, turns: [{...view.turns[0], items: [], items_deferred: true}]};
+    mocks.fetch.mockImplementation(async (url: string) => url.includes('/items?') ? body.then(response => response.clone()) : new Response(JSON.stringify(url === '/im/v1/conversations' ? {items: []} : view)));
+    renderWork('/settings/agents/global?view=work&message_id=reply');
+    await waitFor(() => expect(screen.getByText('Inbox 唤醒').closest('details')).toHaveAttribute('open'));
+    expect(scroll).not.toHaveBeenCalled();
+    finishItems(new Response(JSON.stringify({items: [{item_id: 'body', seq: 1, kind: 'message', payload: {text: 'Actual deferred body'}}], next_cursor: null})));
+    expect(await screen.findByText('Actual deferred body')).toBeVisible();
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText('Inbox 唤醒'));
+    act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: 'agent.work.updated', payload: {agent_id: 'global'}}));
+    await waitFor(() => expect(mocks.fetch.mock.calls.filter(([url]) => String(url).includes('?view=summary')).length).toBeGreaterThan(1));
+    expect(screen.getByText('Inbox 唤醒').closest('details')).not.toHaveAttribute('open');
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not guess a wake for an unavailable reply and can retry after sync", async () => {
+    view = {...view, focus: null};
+    const {router} = renderWork('/settings/agents/global?view=work&message_id=missing');
+    expect(await screen.findByText('该回复的工作记录尚未同步或不可用。')).toBeVisible();
+    expect(screen.getByText('Inbox 唤醒').closest('details')).not.toHaveAttribute('open');
+    view = {...view, focus: {session_id: 'main', turn_id: 'turn'}};
+    act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: 'agent.work.updated', payload: {agent_id: 'global'}}));
+    await waitFor(() => expect(screen.getByText('Inbox 唤醒').closest('details')).toHaveAttribute('open'));
+    fireEvent.click(screen.getByRole('button', {name: '查看最新轮次'}));
+    await waitFor(() => expect(router.state.location.search).toBe('?view=work'));
+  });
   it("loads a deferred turn only when opened and retains its complete tool details", async () => {
     const items = view.turns[0].items;
     view = {...view, turns: [{...view.turns[0], items: [], items_deferred: true, tool_count: 1}]};

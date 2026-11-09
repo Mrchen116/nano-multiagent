@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-705
+> 对齐: bugfix-734
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -51,6 +51,14 @@
 - **THEN** 同一输入提及同一 Skill 的原生与兼容语法时只加载一次，普通 `/name` 使用原生识别
 - **AND** 未启用的 Skill 不因显式调用而重新获得访问权，重启或重复提交已消费输入不重复加载
 
+
+### Requirement: 写盘失败后由下一次正常激活恢复执行
+
+#### Scenario: 磁盘空间恢复后处理新一轮
+- **GIVEN** Agent 因本地记录写入失败暂时无法正常执行，之后本地存储恢复可写
+- **WHEN** 用户发送触发 Agent 的新消息，或符合既有调度条件的 Heartbeat 到期
+- **THEN** Agent 在同一运行进程内正常处理本轮，先前未落盘的记录可继续写入
+- **AND** 空闲期间不发起专门的磁盘恢复检查或补跑失败的轮次。Inbox 待读和 Heartbeat 调度沿用原有规则。
 
 ### Requirement: 主模型因可用性失败时按有序备用链换模型，本轮继续回复
 

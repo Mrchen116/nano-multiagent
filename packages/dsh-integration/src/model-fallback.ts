@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { AgentConfiguration } from './index.js';
 import type { ModelRoute } from './model-policy.js';
 import { inputEvidence, inputIdsForTurn } from './input-evidence.js';
+import { RecordWrites } from './record-writes.js';
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -114,15 +115,16 @@ export class ModelFallback {
   private readonly agents = new Map<string, { agent: Agent; config: AgentConfiguration }>();
   private readonly tasks = new Map<string, Promise<void>>();
   private readonly epochs = new Map<string, number>();
-  private writes: Promise<void> = Promise.resolve();
-  private pendingWrites = 0;
-  private failure: unknown;
+  private readonly writes: RecordWrites<ModelRun>;
   private stopped = false;
   constructor(
     private readonly ctx: Context,
     private readonly host: Host,
   ) {
     this.storage = ctx.storageDomain.open(modelRunsDomain);
+    this.writes = new RecordWrites(async (id, snapshot) => {
+      await (await this.storage).table('runs').put(key(id), snapshot);
+    });
     this.ready = this.storage.then(storage => { for (const [,run] of storage.table('runs').entries()) this.remember(this.runs.get(run.id) ?? run); });
     ctx.on('session/event', (session, event) => {
       const item = this.agents.get(session.id);
@@ -130,7 +132,7 @@ export class ModelFallback {
     });
   }
   /** Includes continuation work that may outlive the public Agent running state. */
-  get busy(): boolean { return this.pendingWrites > 0 || this.tasks.size > 0 || [...this.runs.values()].some(run => run.state !== 'completed'); }
+  get busy(): boolean { return this.writes.busy || this.tasks.size > 0 || [...this.runs.values()].some(run => run.state !== 'completed'); }
   async attach(agent: Agent, config: AgentConfiguration) {
     this.agents.set(agent.id, { agent, config });
     await this.ready;
@@ -207,24 +209,14 @@ export class ModelFallback {
       }
   }
   async checkpoint() {
-    await this.writes;
-    if (this.failure) throw this.failure;
+    await this.writes.flush();
   }
   allowed(agent: Agent, messages: UserMessage[]) {
     const runs = this.list(agent.id);
     return messages.filter((message) => !runs.some((run) => run.withdrawn?.includes(message.id)));
   }
   private save(run: ModelRun) {
-    this.pendingWrites++;
-    const snapshot = structuredClone(run);
-    const task = this.writes.then(async () => {
-      if (this.failure) throw this.failure;
-      await (await this.storage).table('runs').put(key(run.id), snapshot);
-    }).finally(() => { this.pendingWrites--; });
-    this.writes = task.catch((error) => {
-      this.failure ??= error;
-    });
-    return task;
+    return this.writes.put(run.id, structuredClone(run));
   }
   private finish(run: ModelRun, terminal: unknown) {
     run.state = 'completed';
@@ -309,7 +301,7 @@ export class ModelFallback {
       run.switched = route.model;
       this.host.select(agent, undefined);
       this.finish(run, reason);
-      await this.writes;
+      await this.writes.settled();
     })().catch((error) => {
       this.finish(run, { kind: 'error', error: { code: 'PERSISTENCE', message: String(error) } });
     });
@@ -415,7 +407,7 @@ export class ModelFallback {
     this.stopped = true;
     for (const { agent } of this.agents.values()) this.interrupt(agent);
     await Promise.allSettled(this.tasks.values());
-    await this.writes;
+    await this.writes.settled();
     await (await this.storage).close();
   }
 }

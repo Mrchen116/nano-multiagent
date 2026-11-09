@@ -34,6 +34,7 @@ export interface WorkTurnView extends WorkTurnData {scope: string; items: WorkIt
 export interface WorkTurnsPage {turns: WorkTurnView[]; control_items: WorkItemView[]; next_cursor: string | null}
 export interface WorkRecordView {
   root_agent_id: string; main_session_id: string | null; revision: number;
+  focus?: {session_id: string; turn_id: string} | null;
   latest_main_usage: (WorkUsage & {session_id: string; turn_id: string; model_id?: string | null}) | null;
   main_execution: string; node_id: string; control_items: WorkItemView[];
   other_executions: WorkSessionView[]; turns: WorkTurnView[]; next_cursor: string | null;
