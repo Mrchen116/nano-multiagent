@@ -4,7 +4,7 @@ import { PersonalAssistant } from './personal-assistant.js';
 import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
-import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
+import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
 import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
@@ -686,13 +686,12 @@ export class GlobalAgent {
       if(previous.state==='unknown' || previous.state==='sending') {
         const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
         if(status.payload.found===true) {
-          return confirm(status.payload,callTurn());
+          return confirm(status.payload,previous.source ? JSON.parse(previous.source).turn : callTurn());
         }
       }
     }
     const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
-    if (global) await this.reconcileRoot(binding);
-    else {
+    if (!global) {
       const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
       if (!read.durable) throw new Error('No durable source evidence');
       store.recordEvents(binding.sessionId, read.events);
@@ -706,7 +705,13 @@ export class GlobalAgent {
     if(replyTo && info?.channel && info.channel!=='web')throw new Error('Quoted replies require a Nano IM destination');
     if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
-    const turn = callTurn();
+    const targets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
+    const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
+      ? [...new Set(targets)].filter((id): id is string => typeof id === 'string') : [];
+    const savedTurn = callTurn();
+    const turn = global
+      ? await this.publicationEvidence(binding, reviewTargets, signal, savedTurn === undefined ? call.callId : undefined) ?? savedTurn
+      : savedTurn;
     const currentSingleGroup = !global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web';
     const refreshTurnEvidence = async () => {
       for (const input of store.inputs(binding.sessionId)) {
@@ -718,10 +723,8 @@ export class GlobalAgent {
       signal.throwIfAborted();
       const inputs = currentSingleGroup ? store.inputs(binding.sessionId) : [];
       const correction = inputs.slice(inputs.findLastIndex(input => input.turn === turn) + 1).some(input => !input.input.metadata.context_only);
-      const targets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
-      const check = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
-      const unread = global && check ? [...new Set(targets)].filter((id): id is string => typeof id === 'string' && inbox.blocking(binding.agentId, id)) : [];
-      if (!check || !(global ? unread.length : correction)) return undefined;
+      const unread = global ? reviewTargets.filter(id => inbox.blocking(binding.agentId, id)) : [];
+      if (!reviewTargets.length || !(global ? unread.length : correction)) return undefined;
       const result = {status:'held_for_revalidation', target, ...(global ? {inbox_targets:unread} : {}), message:global
         ? 'Nothing was sent. Read the new messages from inbox_targets and reconsider before sending with a new call.'
         : 'Read the new messages in this conversation and reconsider before sending.'};
@@ -731,7 +734,7 @@ export class GlobalAgent {
     };
     if (currentSingleGroup) await refreshTurnEvidence();
     signal.throwIfAborted();
-    inbox.preparePublication(call.operationId, target, publicationBody, binding.agentId);
+    inbox.preparePublication(call.operationId, target, publicationBody, binding.agentId, global ? {turn, text} : undefined);
     const held = revalidate();
     if (held) return held;
 
@@ -740,7 +743,7 @@ export class GlobalAgent {
       lifecycleRevision:store.lifecycle.assert(binding.agentId), signal,
     }, paths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);
     if (paths) {
-      if (global) await this.reconcileRoot(binding);
+      if (global) await this.publicationEvidence(binding, reviewTargets, signal);
       if (currentSingleGroup) await refreshTurnEvidence();
       const changed = revalidate();
       if (changed) return changed;
@@ -777,6 +780,28 @@ export class GlobalAgent {
     }
   }
 
+  private async publicationEvidence(binding: SessionBinding, targets: string[], signal: AbortSignal, callId?: string): Promise<number | undefined> {
+    const {inbox, runtime} = this.options;
+    const blocked = targets.filter(target => inbox.blocking(binding.agentId, target));
+    const readIds = blocked.length ? inbox.pendingReadCalls(binding.sessionId, blocked) : [];
+    if (callId === undefined && !readIds.length) return undefined;
+    let afterSeq = inbox.workCut(binding.sessionId)?.throughSeq ?? -1;
+    let head: number | undefined;
+    let turn: number | undefined;
+    do {
+      const page = await runtime.request('session.publication', {sessionId: binding.sessionId, afterSeq, callId, readIds, head}) as RuntimePublicationEvidence;
+      signal.throwIfAborted();
+      if (!page.durable) throw new Error('No durable publication evidence');
+      if (page.throughSeq < page.head && page.throughSeq <= afterSeq) throw new Error('Publication evidence did not advance');
+      turn ??= page.turn;
+      for (const event of page.reads ?? []) this.commitInboxRead(binding, event);
+      afterSeq = page.throughSeq;
+      head = page.head;
+      callId = undefined;
+    } while (head !== undefined && afterSeq < head);
+    return turn;
+  }
+
   private async screenshotReceipt(binding: SessionBinding, call: ProductCall, config?: AgentConfiguration): Promise<unknown> {
     const id = String(call.args.receipt_of), target = String(call.args.target);
     const original = this.options.inbox.publication(id);
@@ -791,7 +816,7 @@ export class GlobalAgent {
       : (await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:id})).payload;
     if (result.found === true) {
       const callId=id.slice(binding.sessionId.length+1);
-      const turn=this.options.store.toolCall(binding.sessionId,callId)?.data.turn as number|undefined;
+      const turn = original.source ? JSON.parse(original.source).turn : this.options.store.toolCall(binding.sessionId,callId)?.data.turn as number|undefined;
       return this.confirmPublication(binding,{operationId:id,callId},target,body?.text??'',result,turn);
     }
     return unknownScreenshotReceipt(target,id);
@@ -816,6 +841,11 @@ export class GlobalAgent {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
       const callId = publication.id.slice(binding.sessionId.length + 1);
+      if (publication.source) {
+        const {text, turn} = JSON.parse(publication.source) as {text: string; turn?: number};
+        this.confirmPublication(binding,{operationId:publication.id,callId},publication.target,text,status.payload,turn);
+        continue;
+      }
       const call = this.options.store.toolCall(binding.sessionId,callId);
       const args = argumentsObject(call?.data.arguments);
       // Tool arguments distinguish a plain JSON message from a stored publication envelope.
@@ -834,8 +864,7 @@ export class GlobalAgent {
       if(this.reconciliation.get(root)===generation) {this.options.inbox.workPending(root,false);this.options.onWork?.();}
     }catch(error){this.scheduleRecovery();throw error;}
   }
-  // Sending needs durable root evidence and Inbox consumption, not an unrelated
-  // child's display history. Separate drains also let recovery track both jobs.
+  // Separate drains let Work recover root and child histories independently.
   private reconcileRoot(binding: SessionBinding): Promise<void> {
     this.dirty.add(binding.sessionId);
     const prior = this.drains.get(binding.sessionId); if (prior) return prior;
@@ -861,16 +890,7 @@ export class GlobalAgent {
     const facts=this.modelNotices(binding, result.modelRuns ?? []);
     for (const event of events) {
       const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
-      if (!stopped && event.type === 'tool/result') {
-        const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
-        if (inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) {
-          const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
-          this.append(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
-            call_id: message.toolCallId,
-            source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
-          }}, turn, event.time);
-        }
-      }
+      if (!stopped && event.type === 'tool/result') this.commitInboxRead(binding, event);
       const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
       if (!stopped && event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {
         const status = ((run?.terminal ?? event.data.reason) as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
@@ -885,6 +905,18 @@ export class GlobalAgent {
     }
     inbox.commitWork(binding.sessionId,workCheckpoint(binding.sessionId,throughSeq,events,result.modelVersion),facts);
     this.options.onWork?.();
+  }
+
+  private commitInboxRead(binding: SessionBinding, event: RuntimeEvent): void {
+    const {inbox, store} = this.options;
+    const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
+    const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
+    if (!inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) return;
+    const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
+    this.append(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
+      call_id: message.toolCallId,
+      source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
+    }}, turn, event.time);
   }
 
   private reconcileChildren(binding: SessionBinding): Promise<void> {

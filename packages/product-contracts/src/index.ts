@@ -133,6 +133,15 @@ export interface RuntimeWorkCatalog {
   next?: string;
 }
 
+/** Durable publication facts, separate from Work presentation and its checkpoint. */
+export interface RuntimePublicationEvidence {
+  durable: true;
+  turn?: number;
+  reads: RuntimeEvent[];
+  throughSeq: number;
+  head: number;
+}
+
 export type { AgentConfigurationFields, ConfigurationIntent, ConfigurationResult } from './configuration-rpc.js';
 export {parseAgentConfigurationFields} from './configuration-rpc.js';
 export * from './work-events.js';

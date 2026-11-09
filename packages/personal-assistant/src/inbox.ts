@@ -22,6 +22,7 @@ export class InboxStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS inbox(seq INTEGER PRIMARY KEY,agent_id TEXT,target TEXT,message_id TEXT,payload TEXT,attention INTEGER,consumed INTEGER DEFAULT 0,UNIQUE(agent_id,message_id));
+      CREATE INDEX IF NOT EXISTS inbox_blocking_target ON inbox(agent_id,target) WHERE consumed=0 AND attention=1;
       CREATE TABLE IF NOT EXISTS imported_parts(seq INTEGER,part INTEGER,body TEXT,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS fragments(seq INTEGER,part INTEGER,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,data TEXT);
@@ -46,7 +47,9 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
     `);
     this.reviews = new InboxReviews(this.db);
-    if(!(this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).some(c=>c.name==='agent_id'))this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
+    const publicationColumns = (this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).map(column => column.name);
+    if (!publicationColumns.includes('agent_id')) this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
+    if (!publicationColumns.includes('source')) this.db.exec('ALTER TABLE publications ADD COLUMN source TEXT');
     this.db.prepare('INSERT OR IGNORE INTO metadata VALUES(?,?)').run('journal', randomUUID());
     this.journalId = (this.db.prepare('SELECT value FROM metadata WHERE key=?').get('journal') as { value: string }).value;
   }
@@ -335,7 +338,10 @@ export class InboxStore {
   private targetName(agent: string, target: string, input: RelayInput): string {
     return (this.db.prepare('SELECT name FROM targets WHERE agent_id=? AND target=?').get(agent,target) as {name:string}|undefined)?.name ?? String(input.metadata.conversation_title ?? target);
   }
-  blocking(agent: string, target: string): boolean { return this.entries(agent, target).some(row => !!row.attention); }
+  blocking(agent: string, target: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM inbox WHERE agent_id=? AND target=? AND consumed=0 AND attention=1
+      AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 LIMIT 1`).get(agent, target);
+  }
   watermark(agent: string): number { return Number((this.db.prepare("SELECT coalesce(max(seq),0) AS seq FROM inbox WHERE agent_id=? AND attention=1 AND review_state='admitted'").get(agent) as { seq: number }).seq); }
   /** Return only admitted unread work; consumed or unclassified inputs cannot restart a turn. */
   unreadAttention(agent: string): number | undefined { return this.entries(agent).filter(row=>row.attention).at(-1)?.seq; }
@@ -460,6 +466,15 @@ export class InboxStore {
   reviewTargets(session: string, turn: number): string[] {
     return (this.db.prepare('SELECT DISTINCT i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq WHERE g.session_id=? AND g.turn=? AND i.consumed=1').all(session, turn) as { target: string }[]).map(row => row.target);
   }
+
+  /** Find saved reads that could still consume an unread fragment in the destination. */
+  pendingReadCalls(session: string, targets: string[]): string[] {
+    return (this.db.prepare(`SELECT call_id FROM reads r WHERE session_id=? AND EXISTS (
+      SELECT 1 FROM json_each(r.fragments) fragment JOIN inbox i ON i.seq=json_extract(fragment.value,'$.seq')
+      LEFT JOIN fragments f ON f.seq=i.seq AND f.part=json_extract(fragment.value,'$.part')
+      WHERE i.attention=1 AND i.consumed=0 AND f.seq IS NULL AND i.target IN (SELECT value FROM json_each(?))
+    )`).all(session, JSON.stringify(targets)) as {call_id: string}[]).map(row => row.call_id);
+  }
   completedInputs(session: string, turn: number): { seq: number; input: RelayInput }[] {
     return (this.db.prepare('SELECT i.seq,i.payload FROM inbox i JOIN ingestions g ON g.seq=i.seq LEFT JOIN receipts r ON r.seq=i.seq WHERE g.session_id=? AND g.turn=? AND r.seq IS NULL').all(session, turn) as { seq: number; payload: string }[]).map(row => ({ seq: row.seq, input: JSON.parse(row.payload) as RelayInput }));
   }
@@ -544,14 +559,18 @@ export class InboxStore {
   get journalSeq(): number {return Number((this.db.prepare('SELECT coalesce(max(seq),0) seq FROM journal').get() as {seq:number}).seq);}
   get throughSeq(): number { return Number((this.db.prepare('SELECT value FROM metadata WHERE key=?').get('through') as { value: string } | undefined)?.value ?? 0); }
   acknowledge(seq: number): void { this.db.prepare('INSERT INTO metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('through', String(seq)); }
-  publication(id: string): { target: string; body: string; state: string; result: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null } | undefined; }
+  publication(id: string): { target: string; body: string; state: string; result: string | null; source: string | null } | undefined { return this.db.prepare('SELECT target,body,state,result,source FROM publications WHERE id=?').get(id) as { target: string; body: string; state: string; result: string | null; source: string | null } | undefined; }
   /** Read uncertain sends owned by this execution session without replaying them. */
   /** Find the current incident attempt, preserving uncertain delivery across wording changes. */
   incidentPublication(prefix: string): ({id:string} & NonNullable<ReturnType<InboxStore['publication']>>) | undefined {
     return this.db.prepare('SELECT id,target,body,state,result FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
   }
-  pendingPublications(session: string): {id:string;target:string;body:string}[] { return this.db.prepare("SELECT id,target,body FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string}[]; }
-  preparePublication(id: string, target: string, body: string, agentId?: string): void { this.db.prepare("INSERT OR IGNORE INTO publications(id,target,body,state,result,agent_id) VALUES(?,?,?,'prepared',NULL,?)").run(id, target, body, agentId??null); }
+  pendingPublications(session: string): {id:string;target:string;body:string;source:string|null}[] { return this.db.prepare("SELECT id,target,body,source FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string;source:string|null}[]; }
+  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; text: string}): void {
+    this.db.prepare(`INSERT INTO publications(id,target,body,state,result,agent_id,source) VALUES(?,?,?,'prepared',NULL,?,?)
+      ON CONFLICT(id) DO UPDATE SET source=excluded.source WHERE publications.source IS NULL AND excluded.source IS NOT NULL`)
+      .run(id, target, body, agentId ?? null, source ? JSON.stringify(source) : null);
+  }
   settlePublication(id: string, state: string, result?: unknown): void { this.db.prepare('UPDATE publications SET state=?,result=? WHERE id=?').run(state, result === undefined ? null : JSON.stringify(result), id); }
   close(): void { this.db.close(); }
 }

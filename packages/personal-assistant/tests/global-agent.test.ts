@@ -10,11 +10,12 @@ it.each([
  {found:false,body:'already reviewed reply',text:'already reviewed reply'},
  {found:true,body:quotedPublication,text:'收到'},
  {found:true,body:quotedPublication,text:quotedPublication,callText:quotedPublication},
-])('reconciles a cold uncertain publication without resending (%#)',async ({found,body,text,callText})=>{
+ {found:true,body:quotedPublication,text:quotedPublication,source:{text:quotedPublication,turn:8}},
+])('reconciles a cold uncertain publication without resending (%#)',async ({found,body,text,callText,source})=>{
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
  if (callText) store.recordEvents('main',[{seq:1,time:1,type:'tool/call',data:{turn:1,callId:'call',name:'send_message',arguments:JSON.stringify({target:'c',text:callText})}}]);
- inbox.preparePublication('main:call','c',body);inbox.settlePublication('main:call','sending');
+ inbox.preparePublication('main:call','c',body,undefined,source);inbox.settlePublication('main:call','sending');
  const requests:string[]=[];
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
   runtime:{onNotification:()=>()=>{},request:async method=>method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'}},
@@ -24,7 +25,8 @@ it.each([
   expect(inbox.publication('main:call')?.state).toBe(found?'confirmed':'sending');
   expect(requests.filter(type=>type==='agent.message.status')).toHaveLength(found?1:2);
   expect(requests).not.toContain('agent.message');
-  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toMatchObject(found?[{payload:{text},...(callText?{turn_id:'1'}:{})}]:[]);
+  const turn = source?.turn ?? (callText ? 1 : undefined);
+  expect(inbox.journal(0).filter(event=>event.type==='message_sent')).toMatchObject(found?[{payload:{text},...(turn ? {turn_id:String(turn)} : {})}]:[]);
  }finally{await product.stop();inbox.close();store.close();}
 });
 

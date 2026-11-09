@@ -106,11 +106,13 @@ it('writes one plain-text Global message and attributes the actual relay receipt
   const store=new NodeStore(join(center.dir,'publication-node.db'),'alice'),inbox=new InboxStore(join(center.dir,'publication-inbox.db'));
   cleanups.push(()=>store.close(),()=>inbox.close());
   store.bind({agentId:'global',sessionId:'publication-root',conversationId:'global:global',ownerId:'alice',cwd:center.dir,revision:'1'});
-  store.recordEvents('publication-root',[{seq:4,time:10,type:'tool/call',data:{callId:'send',name:'send_message',turn:3,arguments:'{}'}}]);
-  inbox.commitWork('publication-root',{rootSessionId:'publication-root',throughSeq:4,replayFrom:5,modelVersion:'done'},[]);
   const product=new GlobalAgent({nodeId:node.node,ownerId:'alice',agents:[{agentId:'global',workspace:center.dir,revision:'1',provider:'fixture',model:'fixture',mode:'global'}],
     store,inbox,image:async()=>'',onError:error=>{throw error;},
-    runtime:{onNotification:()=>()=>{},request:async()=>({durable:true,events:[],modelRuns:[],modelVersion:'done',throughSeq:4,more:false})},
+    runtime:{onNotification:()=>()=>{},request:async (method, params) => {
+      expect(method).toBe('session.publication');
+      expect(params).toMatchObject({sessionId:'publication-root',callId:'send',afterSeq:-1});
+      return {durable:true,turn:3,reads:[],throughSeq:4,head:4};
+    }},
     relay:{request:(type,payload)=>node.frames.send(type,payload)}});
   cleanups.push(()=>product.stop());
   const text='已收到，按原计划执行。';
@@ -118,6 +120,7 @@ it('writes one plain-text Global message and attributes the actual relay receipt
     sessionId:'publication-root',rootSessionId:'publication-root',agentId:'global',ownerId:'alice'};
   const receipt=await product.call(call);
   expect(receipt).toMatchObject({status:'sent',message_id:expect.any(String)});
+  expect(inbox.workCut(call.sessionId)).toBeUndefined();
   expect(JSON.parse(inbox.publication(call.operationId)!.result!)).toMatchObject({conversation_id:chat.body.id});
   expect(await product.call(call)).toEqual(receipt);
   const messages=await center.http('GET',`/im/v1/conversations/${chat.body.id}/messages`,undefined,center.tokens.alice);

@@ -26,7 +26,7 @@ import { scheduleEvidence } from './schedule-evidence.js';
 import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
-import type { RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
+import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
 import { jsonBytes, workPage, workPageBytes, workPageItems } from './work-page.js';
 import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
@@ -558,7 +558,45 @@ export default class NanoRuntime {
       return {rootSettled};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
-    // Root evidence also gates Inbox reads and sends; it must not wait for cold children.
+    // The send path needs durable native facts, not frozen tool cards or Work projection.
+    handle('session.publication', async value => {
+      const {sessionId, afterSeq, callId, readIds, head: upper} = value as {
+        sessionId: string; afterSeq: number; callId?: string; readIds: string[]; head?: number;
+      };
+      await workBinding({sessionId});
+      const {session} = await this.agent(sessionId);
+      const head = Math.min(session.seq - 1, upper ?? Infinity);
+      const first = Math.max(session.inheritedEventCount, afterSeq + 1);
+      const slice = (from: number, to: number) => session.snapshotEvents(SessionLogOffset(from), SessionLogOffset(to));
+      let turn: number | undefined;
+      if (callId !== undefined) for (let end = head + 1; end > first && turn === undefined;) {
+        const start = Math.max(first, end - workPageItems);
+        const call = slice(start, end).findLast(event => event.type === 'tool/call' && event.data.callId === callId);
+        if (call?.type === 'tool/call') turn = call.data.turn;
+        end = start;
+      }
+      if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Publication has no persistence barrier');
+      lifecycle.assertEnabled(this.bindings.get(sessionId)!.agentId);
+      const reads: RuntimePublicationEvidence['reads'] = [];
+      const pending = new Set(readIds);
+      const fallback = pending.size ? (await models).fallback : undefined;
+      let throughSeq = first - 1, bytes = 128;
+      if (!pending.size) throughSeq = head;
+      scan: for (let start = first; pending.size && start <= head; start += workPageItems) {
+        for (const event of slice(start, Math.min(start + workPageItems, head + 1))) {
+          if (event.type === 'tool/result' && !event.data.message.isError && pending.has(event.data.message.toolCallId)) {
+            const {type, seq, time, data:{turn, message}} = event;
+            const read = {type, seq, time, data:{turn:fallback?.workModel(sessionId,turn)?.turn ?? turn, message}};
+            const size = jsonBytes(read);
+            if (reads.length && (bytes + size > workPageBytes || reads.length >= workPageItems)) break scan;
+            reads.push(read);
+            bytes += size;
+          }
+          throughSeq = event.seq;
+        }
+      }
+      return {durable:true, turn, reads, throughSeq, head} satisfies RuntimePublicationEvidence;
+    }, {pull:'publication'});
     handle('session.work.root', async value => {
       const input = value as WorkRead;
       await workBinding(input);

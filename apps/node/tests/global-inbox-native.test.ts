@@ -171,12 +171,15 @@ export function apply(ctx){ctx.on('llm/stream',async function*(options){
   finally { await product?.stop(); await client?.shutdown(); inbox.close(); store.close(); await rm(home, { recursive: true, force: true }); }
 }, 20_000);
 
-it('delivers a busy Inbox notice at the next native model request without injecting the body or bypassing send review', async () => {
+it.each([false, true])('holds a stale private draft and sends the correction (root Work stalled: %s)', async stallWork => {
   const home = await mkdtemp(join(tmpdir(), 'nano-inbox-'));
   const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
   let client: RuntimeClient | undefined, product: GlobalAgent | undefined;
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
+  let releaseWork!: () => void;
+  const heldWork = new Promise<void>(resolve => { releaseWork = resolve; });
+  let workWaiting = false;
   let entered = false, returned = false, logs = '';
   const errors: unknown[] = [], sent: string[] = [];
   const correction = 'CORRECTION: change only the frontend';
@@ -195,7 +198,13 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     const config: AgentConfiguration = { agentId: 'a', revision: '1', workspace: home, mode: 'global', provider: 'deepseek-official', model: 'deepseek-flash', approval: { dangerouslySkipPermissions: true } };
     await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
     product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [config], store, inbox,
-      runtime: client.rpc, image: async () => '', onError: error => errors.push(error),
+      runtime: {
+        onNotification: client.rpc.onNotification.bind(client.rpc),
+        request: async (method, params) => {
+          if (stallWork && method === 'session.work.root') { workWaiting = true; await heldWork; }
+          return client!.rpc.request(method, params);
+        },
+      }, image: async () => '', onError: error => errors.push(error),
       relay: { request: async (type, payload) => {
         if (type === 'agent.work.append') return { type: 'ack', payload: { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } };
         if (type === 'conversation.query' && payload.action === 'describe') return { type: 'ack', payload: { ok: true, result: { conversations: (payload.targets as string[]).map(target => ({ target, name: 'Owner' })) } } };
@@ -226,7 +235,8 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     const noticeCount = (messages: any[]) => messages.filter(message => message.source?.channel === 'inbox').length;
     expect(noticeCount(captured[2])).toBe(noticeCount(captured[1]) + 1);
     const summary = JSON.parse(captured[2].findLast((message: any) => message.source?.channel === 'inbox').content[0].text.split('\n').at(-1));
-    expect(summary.sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 3, mentions: 0, conversation_type: 'direct' }]);
+    // The notice was assembled before the first send could commit its read when Work was held.
+    expect(summary.sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: stallWork ? 4 : 3, mentions: 0, conversation_type: 'direct' }]);
     expect(JSON.stringify(captured[2])).not.toContain(correction);
     expect(JSON.stringify(captured[2])).toContain('held_for_revalidation');
     expect(JSON.stringify(captured[3])).toContain(correction);
@@ -234,11 +244,21 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     expect(JSON.stringify(captured[3])).toContain('Final task context');
     expect(sent).toEqual(['Corrected result']);
     const binding = store.bindingFor('a', 'global:a')!;
+    if (stallWork) {
+      expect(workWaiting).toBe(true);
+      expect(inbox.workCut(binding.sessionId)).toBeUndefined();
+    }
+    expect(inbox.journal(0).filter(event => event.type === 'inbox_read_committed' || event.type === 'message_sent').map(event => event.type))
+      .toEqual(['inbox_read_committed', 'inbox_read_committed', 'message_sent']);
+    releaseWork();
+    await expect.poll(() => inbox.workCut(binding.sessionId)).toBeDefined();
+    expect(inbox.journal(0).filter(event => event.type === 'inbox_read_committed')).toHaveLength(2);
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
     expect(errors).toEqual([]);
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally {
     release();
+    releaseWork();
     if (product) await product.stop();
     if (client) { client.process.kill('SIGKILL'); await client.exited; }
     inbox.close(); store.close(); await rm(home, { recursive: true, force: true });
