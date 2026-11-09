@@ -318,8 +318,10 @@ export class ModelFallback {
     const ids = config.mode === 'global'
       ? indexedInputs(agent.session).idsForTurn(event.data.turn)
       : inputIdsForTurn(agent.session.snapshotEvents(), event.data.turn);
+    const count = run.inputs.length;
     for (const id of ids)
       if (!id.startsWith('nano-fallback:') && !run.inputs.includes(id)) run.inputs.push(id);
+    if (run.inputs.length !== count) this.remember(run);
     const attempt = run.attempts.at(-1)!;
     const reason = event.data.reason;
     if (reason.kind === 'error') attempt.error = reason.error;
@@ -453,7 +455,8 @@ export class ModelFallback {
     });
   }
   /** Invalidate durable unfinished attempts before any restored Agent can attach. */
-  async cancelPersisted(owns: (sessionId: string) => boolean = () => true): Promise<void> {
+  async cancelPersisted(owns: (sessionId: string) => boolean = () => true,
+    coldOwns?: (sessionId: string) => Promise<boolean>): Promise<void> {
     await this.ready;
     for (const {agent} of this.agents.values()) if (owns(agent.id)) this.interrupt(agent);
     await Promise.allSettled([...this.tasks].filter(([id]) => {
@@ -461,7 +464,7 @@ export class ModelFallback {
       return run && owns(run.sessionId);
     }).map(([, task]) => task));
     for (const runs of this.runsBySession.values()) for (const run of runs.active()) {
-      if (owns(run.sessionId) && run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
+      if ((owns(run.sessionId) || await coldOwns?.(run.sessionId)) && run.state !== 'completed') this.finish(run, {kind: 'cancelled', reason: 'agent_disabled'});
     }
     await this.checkpoint();
   }

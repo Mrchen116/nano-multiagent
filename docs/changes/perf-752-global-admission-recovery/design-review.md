@@ -97,6 +97,59 @@
 | ID | 核实结果 | 状态 |
 | --- | --- | --- |
 | R2-W1（R1-W2） | Author Resolution 已写入第 11 行。已验证的子中断先持久化；部分读取不放行该根首次激活，原输入和旧 pending 保留为同根重试。`OwnedSessions` 根恢复走 coalesced resolve，直接管理的历史 child 要先通过父链校验并取得同一根。既然部分失败时根无法开始模型 step，原生 `send_message` 就没有可用于冷唤醒未知 child 的 live 根。恢复后仍从已有通知入口向首个符合条件的请求交付，现有 flush 后退休规则适用。 [修订设计](design.md#恢复) [根与历史 child 顺序](../../../packages/dsh-integration/src/owned-sessions.ts#L77) [原生发送分流](../../../packages/dsh-integration/src/global-mode.ts#L65) [已持久通知消费](../../../packages/dsh-integration/src/subagent-recovery.ts#L63) | closed |
-| R2-W2（R1-W4） | M1 指定在 A 根子观察处受控暂停，经真实 Relay 验证 B 在 A 放行前持久接单，释放后验证 A 通知和回执。对照固定历史规模下的访问量，并测 readiness 前后的正文读次数、字节、就绪时间和 RSS，能区分可并发接单与迁移同等历史 I/O。中心 1,000 账号的授权与 Web 读取规模交由 perf-753，当前路径仍使用真实 Relay 用户授权。 [M1](design.md#milestone-与能力) [perf-753 规模验收](../perf-753-bounded-work-reads/design.md#milestone-与能力) | closed |
+| R2-W2（R1-W4） | M1 指定在 A 根子观察处受控暂停，经真实 Relay 验证 B 在 A 放行前持久接单，释放后验证 A 通知和回执。对照固定历史规模下的访问量，并测 readiness 前后的正文读次数、字节、就绪时间和 RSS，能区分可并发接单与迁移同等历史 I/O。中心 1,000 账号的授权与 Web 读取规模交由 perf-753，当前路径仍使用真实 Relay 用户授权。 [M1](design.md#milestone-与能力) [perf-753 规模验收](https://github.com/Mrchen116/nano-multiagent/blob/56c5083770805182832fc52543b0c35aef5a430c/docs/changes/perf-753-bounded-work-reads/design.md#milestone) | closed |
 
 本轮裁决限于设计。实际原生激活、故障重试、模型请求和性能结果由 M1 取证。
+
+## Round 4
+
+- reviewer: `/root/global_admission_design`（独立复审）
+- target: `f8892a95` 装配基线，`design.md`（`0cc94e43`）新增注册屏障与补齐调度，Gateway delta（`4746fe5a`）未变
+- review_mode: `delta`
+- mode_reason: 修改 Node 启动等待链、恢复任务归属与冷 Work 调度，需复查实际注册与关闭路径
+- retained_from: Round 3 的同根前台事实、原生 pre-activation 中断检查、索引 oracle 与中断时机 delta。此次不复审索引实现。
+- started_at: `2026-11-10T01:26:43+08:00`
+- completed_at: `2026-11-10T01:28:15+08:00`
+- duration: `1m32s`
+- verdict: **Issues Found**（0 CRITICAL / 2 WARNING）
+
+### 覆盖与证据
+
+- 当前启动链的发现成立。`relay.message` 等 `lifecycleSync`。初次同步先保存所有 lifecycle intent，再等待每 Agent 的 `applyKnown`。首次 `startAgent` 经 Supervisor 启动，等 `onReady` 返回。由此当前 Global、外部入口和其他产品恢复都可能从 `onReady` 传递到入站等待。按 Node 权威等待生命周期/原生围栏、按根合并接单恢复，符合现行断线重连与停用契约。 [入站等待](../../../apps/node/src/main.ts#L195) [初次注册](../../../apps/node/src/main.ts#L300) [同步权威](../../../apps/node/src/agent-lifecycle.ts#L29) [Supervisor](../../../packages/dsh-integration/src/client.ts#L148) [现行重连契约](../../specs/gateway/service-lifecycle.md#requirement-断线后自动重连且保持投递与权限边界)
+- 逐根后台目录发现可以复用 perf-751 的持久游标、续页与 catalog witness。现有 DSH witness 先匹配受信任 header 与 event count/size，命中且已覆盖才避免读取正文。串行冷目录发现限制启动并发，独立根的前台恢复继续使用自己的 native 事实。设计继续保留缺证明时的待补齐状态，方向满足 IM Work 现行契约，无需新增 Work delta。Node 组装验证要使用 `main.ts` 的同一注册路径。现有 A/B 测试草稿用 `WebRelayConnection.onFrame` 直接调用 `GlobalAgent.receive`，能验证真实连接与 DSH 隔离，不能单独证明 `lifecycleSync` 与 `onReady` 的等待已解除。 [已覆盖证据](../../../packages/dsh-integration/src/descendants.ts#L169) [Work 契约](../../specs/im/agent-work.md#requirement-已保存工作记录直接读取节点恢复只补缺口) [A/B 草稿装配](../../../apps/node/tests/global-relay-scale.test.ts#L125)
+
+### Issues
+
+#### R4-W1 · 注册前置还有会激活旧根或扫描后代的传递路径
+
+第 29 行提出只等待 lifecycle 与 native fence，明确移走 `globalProduct.recover` 与 `external.recover`。实际 `onReady` 还等待 `tasks.recoverStops`、`scheduleDeletions.recover` 和 `tasks.recover`。前者写 `task.execution.block` 后执行 `session.ensure`，会进入本单元的冷根中断核对。Schedule 通知直接经 `schedule.deleted.notify` 恢复原子会话。Task 已有责任恢复也对 Global 执行 `session.ensure`。初次 lifecycle 同步还通过 `start` 等同一 `recoverStops`，通过 `disable` 在原生清理确认后等 `globalProduct.recordStopped` 全量旧 Work。这些路径即使移走两条显式恢复调用，也能让有待办的 A 挂住 B。请区分前台持久禁用/停止围栏与按根恢复的动作、通知、终态 Work 补齐，保持同根动作原有顺序和真实 stop/deletion 证明，并明确哪些路径必须离开共享等待链。Node 组装用至少一种真实待办控制/恢复触发 A 再验证 B，防止只覆盖无控制的空闲配置。 [Supervisor 回调](../../../apps/node/src/main.ts#L134) [enable/disable 回调](../../../apps/node/src/main.ts#L578) [Task 恢复与停止](../../../packages/personal-assistant/src/task-execution.ts#L85) [Schedule 删除通知](../../../apps/node/src/main.ts#L441) [停止后后代补齐](../../../packages/personal-assistant/src/global-agent.ts#L1038)
+
+#### R4-W2 · 后台恢复需要可收拢的 owner 与实际隔离的外部重试
+
+第 29–31 行写由 `admitted` 生命周期追踪并按根重试。现有 `admitted` 仅增减更新屏障的计数，不记录或等待 promise。`ExternalChannels.recover()` 按 DB 行串行调用 `admit`，未把恢复操作放进 `external.stop()` 所等待的 `admissions`。若脱离回调只 `void admitted(...)`，首条 A 入站失败会终止整个外部恢复，后面的 B 即使根可用也得等再次调用。此外节点关闭可能与仍在操作 SQLite 的恢复交叠。请明确用哪一已有 owner 持有/收拢脱离就绪的任务，并让外部持久入站保持同根顺序、失败只留该根待恢复。后台冷 Work 的排队、重试和停止同样应走既有可收拢的 drain 状态，失败/取消时继续保留真实未确认状态。 [admitted 计数](../../../apps/node/src/main.ts#L38) [节点关闭顺序](../../../apps/node/src/main.ts#L620) [外部顺序恢复](../../../packages/personal-assistant/src/external.ts#L109) [外部 stop 等待范围](../../../packages/personal-assistant/src/external.ts#L397) [既有 Work drain](../../../packages/personal-assistant/src/global-agent.ts#L912)
+
+### Author Resolutions
+
+- R4-W1 accepted。实际 Relay 等待已写入的注册快照和目标 Agent 的 transition；共享 host ready 不等待能激活 Global 或历史 child 的恢复，原生 stop/schedule fences 和同 Agent transition 仍先于该 Agent 接单。
+- R4-W2 accepted。由 Node 跟踪同 partition/generation 的后台任务至关闭，外部重放按 Agent 隔离并保持各自顺序、失败状态及重试。
+
+## Round 5
+
+- reviewer: `/root/global_admission_design`（独立复审）
+- target: `f8892a95` 装配基线，`design.md`（`1750fb9f`）第 27–35 行，Gateway delta（`4746fe5a`）未变
+- review_mode: `closure`
+- mode_reason: 复核 R4 的注册等待与后台恢复归属两项发现
+- retained_from: Round 3 的接单及中断设计，Round 4 的串行冷 Work 目录发现、正文 witness 和现行契约判断
+- started_at: `2026-11-10T01:30:30+08:00`
+- completed_at: `2026-11-10T01:31:02+08:00`
+- duration: `32s`
+- verdict: **Approved**（0 CRITICAL / 0 WARNING）
+
+### 历史问题闭环
+
+| ID | 核实结果 | 状态 |
+| --- | --- | --- |
+| R4-W1 | 第 29 行明确三个不同条件。完整生命周期快照先持久写入，host ready 确认基础可用性及原生围栏，入站按已认证目标等待对应 transition。Task stop/recover、Schedule 删除通知、Global/外部重放均脱离共享 `onReady`；停用后旧 Work 仍跟随目标 transition。NodeAgentLifecycle 已有按 Agent 记录的 `applying` Promise 和同步保存所有快照的阶段，可复用这两处来拆共享等待。整节点 `connected` 可以等控制收口，B 的真实入站及模型开始可先观察，原生禁用/停止权威保持。 [修订设计](design.md#注册屏障与补齐调度) [现有每 Agent transition](../../../apps/node/src/agent-lifecycle.ts#L59) [初始 native fences](../../../apps/node/src/main.ts#L116) | closed |
+| R4-W2 | 第 31–33 行将更新计数与真正的后台 promise owner 分开。Node 持有同 partition/generation 的恢复并合并，关闭先停止调度和 I/O，再等待受管任务后关闭存储，过期 generation 不贡献新结论。外部重放按 Agent 持久输入顺序执行，失败只留该根待重试，其他 Agent 继续；既有 durable inbound 行和 lifecycle revision 可复用。冷 Work 仍按既有分根状态提交真实完成，队列未完成时继续提示待补齐。 [修订设计](design.md#注册屏障与补齐调度) [现有持久入站和 scope](../../../packages/personal-assistant/src/external.ts#L105) [现有待补齐契约](../../specs/im/agent-work.md#requirement-已保存工作记录直接读取节点恢复只补缺口) | closed |
+
+设计阶段确认方案成立。M1 仍应让真实 Node 注册入口遇到 A 的待办控制或旧历史阻塞，区分 B 的已持久接单与整节点 `connected`，并核对外部重放失败隔离和关闭收拢。本轮未执行运行验证。

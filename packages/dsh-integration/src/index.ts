@@ -184,7 +184,19 @@ export default class NanoRuntime {
     const disabled = (id: string) => { const owner = this.ownerOf(id); return owner ? lifecycle.current(owner).disabled === true : false; };
     const cancelPersisted = async (agentId: string) => {
       const owns = (id: string) => this.ownerOf(id) === agentId;
-      await (await models).cancelPersisted(owns);
+      const coldOwns=async(id:string)=>{
+        const seen=new Set<string>();
+        let sessionId:string|undefined=id;
+        while(sessionId && !seen.has(sessionId)) {
+          seen.add(sessionId);
+          const owner=this.ownerOf(sessionId);
+          if(owner)return owner===agentId;
+          const snapshot=await ctx.sessionPersistence.stat(SessionId(sessionId));
+          sessionId=snapshot?.header?.parentSession;
+        }
+        return false;
+      };
+      await (await models).cancelPersisted(owns,coldOwns);
       await (await workflow).cancelPersisted(owns);
       await (await knowledge).cancelPersisted(agentId);
     };
