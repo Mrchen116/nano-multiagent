@@ -57,8 +57,13 @@ export class ScheduleDeletions {
  /** Reconcile pending deletion and each unfinished notification after runtime recovery. */
  async recover(agentIds:string[]):Promise<void>{
   await Promise.all(agentIds.map(agentId=>this.exclusive(agentId,async()=>{
-   for(const intent of this.options.store.scheduleDeletions())
-    if(intent.agentId===agentId&&(!intent.changeNotified||!intent.repairNotified||intent.phase==='pending'))await this.execute(intent);
+   let incomplete=false;
+   for(const intent of this.options.store.scheduleDeletions()) {
+    if(intent.agentId!==agentId||intent.changeNotified&&intent.repairNotified&&intent.phase==='deleted')continue;
+    await this.execute(intent);
+    if(!intent.changeNotified||!intent.repairNotified)incomplete=true;
+   }
+   if(incomplete)throw new Error('Schedule deletion has pending delivery receipts');
   })));
  }
 }

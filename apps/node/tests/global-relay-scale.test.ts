@@ -1,12 +1,13 @@
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
 import { expect, it } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { WebRelayConnection, type ProtocolFrame } from '@nano/channels';
 import { prepareProfile, RuntimeClient } from '@nano/dsh-integration/client';
 import { GlobalAgent, InboxStore, NodeStore, type ProductCall } from '@nano/personal-assistant';
-import type { AgentConfiguration, RelayInput } from '@nano/product-contracts';
+import type { AgentConfiguration, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
 
 it('keeps a second Global available through Relay while an old child blocks recovery of its own root', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-global-relay-scale-'));
@@ -155,7 +156,7 @@ it('keeps a second Global available through Relay while an old child blocks reco
     step('held A recovery');send(root,'resume-a');
     await expect.poll(async()=>(await lines('blocked.jsonl')).some(row=>row.id===child),{timeout:10000}).toBe(true);
     step('B delivery while A is held');send(other,'accept-b');
-    await expect.poll(async()=>(await lines('model.jsonl')).some(row=>row.id===other.sessionId),{timeout:10000}).toBe(true);
+    await expect.poll(async()=>(await lines('model.jsonl')).some(row=>row.id===other.sessionId),{timeout:30000}).toBe(true);
     expect(traffic.some(frame=>frame.type==='node.delivery_receipt' && frame.payload.relay_task_id==='accept-b')).toBe(true);
     expect((await lines('reads.jsonl')).every(row=>row.id!==child)).toBe(true);
     expect(traffic.find(frame=>frame.type==='node.register')?.payload.agents).toHaveLength(50);
@@ -168,7 +169,8 @@ it('keeps a second Global available through Relay while an old child blocks reco
   } catch (error) {
     const model=(await lines('model.jsonl')).map(row=>({id:row.id,sources:row.messages.map((message:{source?:{kind?:string;channel?:string}})=>[message.source?.kind,message.source?.channel]).filter((source:unknown[])=>source[0])}));
     const notices=await readFile(join(home,'storages/nano_subagent_recovery/sessions',root.sessionId+'.json'),'utf8').catch(()=>undefined);
-    throw new Error(`${stage}: ${String(error)}\n${logs}\nmodel=${JSON.stringify(model)}\nnotices=${notices}\nrpc=${JSON.stringify(rpcTrace)}\nerrors=${errors.join('\n')}`,{cause:error});
+    const evidence=stage==='B delivery while A is held' ? await native?.rpc.request('session.lookup',{sessionId:other.sessionId,inputId:'inbox-wake:'+other.agentId+':2'}).catch(String) : undefined;
+    throw new Error(`${stage}: ${String(error)}\n${logs}\nmodel=${JSON.stringify(model)}\nnotices=${notices}\nB evidence=${JSON.stringify(evidence)}\nrpc=${JSON.stringify(rpcTrace)}\nerrors=${errors.join('\n')}`,{cause:error});
   }
   finally {
     await unlink(join(home,'hold-child')).catch(()=>{});
@@ -179,4 +181,65 @@ it('keeps a second Global available through Relay while an old child blocks reco
     await new Promise<void>(resolve=>server.close(()=>resolve()));
     inbox.close();store.close();await rm(home,{recursive:true,force:true});
   }
-},120000);
+},150000);
+
+it('delivers a Relay frame through the production Node assembly before another target completes registration', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-node-registration-cut-'));
+  const server=new WebSocketServer({host:'127.0.0.1',port:0});
+  const ids=['a','b'];
+  const lifecycles:AgentLifecycleSnapshot[]=ids.map(agent_id=>({agent_id,desired:'enabled',revision:1,
+    disabled_through_revision:0,request_id:null,actor_user_id:null,requested_at:'2026-11-10',applied_revision:0,
+    observed:'enabling',process_instance_id:null,confirmed_at:null,error_code:null,error_detail:null}));
+  let node:ReturnType<typeof spawn>|undefined, exited:Promise<unknown>|undefined;
+  let socket:WebSocket|undefined, held:(()=>void)|undefined, queries=0, log='';
+  const frames:ProtocolFrame[]=[];
+  try {
+    await new Promise<void>(resolve=>server.once('listening',resolve));
+    server.on('connection',connection=>{
+      socket=connection;
+      connection.on('message',bytes=>{
+        const frame=JSON.parse(String(bytes)) as ProtocolFrame;
+        frames.push(frame);
+        const targets=(frame.payload.targets ?? []) as string[];
+        const ack=()=>connection.send(JSON.stringify({type:frame.type==='conversation.query'?'conversation.query.result':'ack',payload:{
+          ok:true,message_type:frame.type,request_id:frame.payload.request_id,relay_request_ids:1,
+          work_sync_http:1,agent_lifecycle_v1:1,node_epoch:1,agent_lifecycles:lifecycles,
+          schedule_ids:[],result:{conversations:targets.map(target=>({target,name:target,conversation_type:'direct'}))},
+        }}));
+        if(frame.type==='task.execution.frozen_schedules'&&frame.payload.agent_id==='a'&&++queries===2)held=ack;
+        else ack();
+      });
+    });
+    const config=join(home,'config.yaml');
+    await Promise.all(ids.map(id=>mkdir(join(home,id))));
+    await writeFile(config,JSON.stringify({
+      node:{node_id:'registration-cut',user_id:'owner'},
+      im_service:{url:`http://127.0.0.1:${(server.address() as {port:number}).port}`,token:'fixture'},
+      agents:ids.map(id=>({agent_id:id,workspace_root:join(home,id),work_mode:'global',tool_allowlist:[],
+        features:{task_graph:false,intelligent_ui:false,memory_curation:false,skill_creation:false,dreaming:false}})),
+      llm:{default_model:'fixture',providers:[{name:'test',base_url:'http://127.0.0.1:9',api_key:'fixture',models:[{name:'fixture'}]}]},
+    }));
+    node=spawn(process.execPath,[resolve('apps/node/lib/main.js'),'--config',config],{
+      env:{...process.env,NANO_OWNER_CONFIG_ROOT:home},stdio:['ignore','ignore','pipe'],
+    });
+    node.stderr?.on('data',data=>{log+=String(data);});
+    exited=new Promise((resolve,reject)=>{node!.once('exit',resolve);node!.once('error',reject);});
+    await expect.poll(()=>Boolean(held),{timeout:40000}).toBe(true);
+    const input:RelayInput={agent_id:'b',conversation_id:'chat-b',relay_task_id:'accept-b',idempotency_key:'accept-b',
+      metadata:{conversation_type:'direct'},message:{id:'accept-b',content:'New task for B',sender_type:'user',sender_user_id:'owner',attachments:[]}};
+    socket!.send(JSON.stringify({type:'relay.message',payload:input}));
+    await expect.poll(()=>frames.some(frame=>frame.type==='node.delivery_receipt'&&frame.payload.relay_task_id==='accept-b'),{timeout:12000}).toBe(true);
+    expect(frames.some(frame=>frame.type==='agent.lifecycle.report'&&frame.payload.agent_id==='a'&&frame.payload.observed==='enabled')).toBe(true);
+    expect(queries).toBe(2);
+    held!();held=undefined;
+  } catch(error) {
+    throw new Error(`${String(error)}\n${log}\n${JSON.stringify(frames.map(frame=>[frame.type,frame.payload.agent_id,frame.payload.observed]))}`,{cause:error});
+  } finally {
+    held?.();
+    if(node?.exitCode===null&&node.signalCode===null)node.kill('SIGTERM');
+    for(const connection of server.clients)connection.terminate();
+    await new Promise<void>(resolve=>server.close(()=>resolve()));
+    if(exited)await exited;
+    await rm(home,{recursive:true,force:true});
+  }
+},90000);

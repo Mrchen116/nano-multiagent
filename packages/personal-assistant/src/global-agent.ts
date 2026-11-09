@@ -126,7 +126,7 @@ export class GlobalAgent {
   }
   /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
   get busy(): boolean {
-    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.calls.size > 0 ||
+    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.childCatchup.size > 0 || this.calls.size > 0 ||
       this.options.agents.some(agent => agent.mode === 'global' && this.options.inbox.wakePending(agent.agentId) !== undefined);
   }
   private binding(config: AgentConfiguration): SessionBinding {
@@ -504,6 +504,7 @@ export class GlobalAgent {
   private catchUpChildWork(binding: SessionBinding): void {
     if(this.stopped || !this.options.store.lifecycle.allowed(binding.agentId))return;
     this.childCatchup.set(binding.sessionId,binding);
+    this.updateWorkPending(binding.sessionId);
     if(this.childCatchupTask)return;
     this.childCatchupTask=(async()=>{
       while(!this.stopped && this.childCatchup.size) {
@@ -976,7 +977,7 @@ export class GlobalAgent {
   }
   private updateWorkPending(root: string): void {
     const pending=this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
-      this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
+      this.childCatchup.has(root) || this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
     this.options.inbox.workPending(root,pending);
     if (!pending) {
       clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);

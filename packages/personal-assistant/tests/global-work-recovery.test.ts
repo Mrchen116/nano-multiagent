@@ -25,7 +25,9 @@ it('reconciles only the changed Global execution after initial recovery', async 
       return {durable:true,events:[],throughSeq:4,modelVersion:'done',modelRuns:[]};
     }},relay:{ready:false,request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>errors.push(error)});
   try {
-    await product.recover(); calls.length=0;
+    await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
+    calls.length=0;
     notify('session.event',{sessionId:'main',rootSessionId:'main',event:{seq:5,type:'step/start'}});
     await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(calls).toEqual(['session.work.root']);
@@ -60,7 +62,9 @@ it('retains child processing positions when the GlobalAgent is recreated, withou
     }},relay:{ready:false,request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>{throw error;}});
   let product=create();
   try {
-    await product.recover(); await product.stop(); product=create();
+    await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
+    await product.stop(); product=create();
     await product.recover();
     await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(calls).toHaveLength(1);

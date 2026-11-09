@@ -165,7 +165,7 @@ it.each([
 
 it('does not invoke native deletion if the authorized pending intent cannot be persisted', async () => {
   const store = new NodeStore(':memory:', 'owner'); const current = harness(store);
-  const save = vi.spyOn(store, 'saveScheduleDeletion').mockImplementation(() => { throw new Error('intent storage unavailable'); });
+  const save = vi.spyOn(store, 'createScheduleDeletion').mockImplementation(() => { throw new Error('intent storage unavailable'); });
   try {
     await expect(current.service.delete(identity)).rejects.toThrow('intent storage unavailable');
     expect(current.native.state.commands.some(command => command.action === 'delete')).toBe(false);
@@ -279,4 +279,21 @@ it.each(['change', 'repair'] as const)('durably preserves the other receipt when
     expect(native.state.commands).toEqual([]);
     expect(restarted.errors).toEqual([]);
   } finally { store.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+it('retries an incomplete deletion receipt without blocking an unrelated Agent', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  const current = harness(store);
+  try {
+    current.failures.change = new Error('old child temporarily unreadable');
+    await expect(current.service.delete(identity)).resolves.toMatchObject({deleted:true});
+    const failing = expect(current.service.recover(['a'])).rejects.toThrow('pending delivery receipts');
+    await expect(current.service.recover(['b'])).resolves.toBeUndefined();
+    await failing;
+    expect(store.scheduleDeletion(identity.operationId)).toMatchObject({changeNotified:false,repairNotified:true});
+    current.failures.change = undefined;
+    await current.service.recover(['a']);
+    expect(store.scheduleDeletion(identity.operationId)).toMatchObject({changeNotified:true,repairNotified:true});
+    expect(current.repairs).toHaveLength(1);
+  } finally {store.close();}
 });
