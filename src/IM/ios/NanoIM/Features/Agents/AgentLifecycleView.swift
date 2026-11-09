@@ -262,7 +262,7 @@ private struct AgentDeletionControl: View {
                     if let workspace = confirmed.scope.workspace {
                         Toggle(L("同时删除专用工作区", "Also delete the dedicated workspace"), isOn: $includeWorkspace).disabled(busy)
                         Text(workspace.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    } else { Text(L("工作区文件会保留。", "Workspace files are kept.")).font(.caption).foregroundStyle(.secondary) }
+                    } else { Text(L("无法确认此工作区由该 Agent 独占，文件会保留。", "We couldn't verify that this Agent has exclusive use of the workspace. Its files will be kept.")).font(.caption).foregroundStyle(.secondary) }
                 }
                 if !scopeCurrent(confirmed.scope) { ErrorNotice(message: L("删除范围已变化，请关闭后重新确认。", "The deletion scope changed. Close and review it again.")) }
                 if !online { Text(L("等待设备重新在线。", "Waiting for the device to come online.")) }

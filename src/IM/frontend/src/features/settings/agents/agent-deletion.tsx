@@ -170,7 +170,7 @@ export function AgentDeletionControls({ deletion, name, online, active = true }:
                   {deleteWorkspace ? <code>{confirmation.workspace.path}</code> : <small>{l("默认保留工作区文件", "Workspace files are kept by default")}</small>}
                 </span>
               </label>}
-              {confirmation && !confirmation.workspace && <p>{l("工作区文件会保留。", "Workspace files are kept.")}</p>}
+              {confirmation && !confirmation.workspace && <p>{l("无法确认此工作区由该 Agent 独占，文件会保留。", "We couldn't verify that this Agent has exclusive use of the workspace. Its files will be kept.")}</p>}
               {confirmation && !scopeCurrent && <p role="alert">{l("删除范围已变化，请关闭后重新确认。", "The deletion scope changed. Close and review it again.")}</p>}
               {!online && <p role="status">{l("等待设备重新在线。", "Waiting for the device to come online.")}</p>}
               {mutation.isError && <p role="alert">{mutation.error.message}</p>}
