@@ -221,7 +221,10 @@ export default class NanoRuntime {
     });
     this.peer.handle('update.release', value => update.release((value as { operationId: string }).operationId));
     ctx.plugin(CcApproval);
-    ctx.plugin(CodexApproval);
+    ctx.plugin(CodexApproval, (sessionId: string) => {
+      const root = boundRoot(sessionId);
+      return root ? ctx.agents.get(SessionId(root)) : undefined;
+    });
     const codex = new Promise<CodexApproval>(resolve => { ctx.inject(['codexApproval'], child => { resolve(child.codexApproval); }); });
     const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
     const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
