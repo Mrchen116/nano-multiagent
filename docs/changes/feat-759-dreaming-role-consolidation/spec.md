@@ -70,6 +70,16 @@ Full，需求讨论中。三个改进方向已确认纳入本次范围，角色�
 - 首次填入和后续修改都由主 Agent 完成。主 Agent 先说明拟写入的约定，得到用户明确确认后再写入。用户的日常对话可以明确约定，临时交办不视为长期职责。确认行为通过 prompt 约束，无需额外的系统写入审批。
 - 主 Agent 使用当前角色约定开展工作，Dreaming 在整合开始时读取同一份约定，作为判断记忆价值的背景。Dreaming 对角色约定只读。角色背景独立于 `MEMORY.md` 提供，来源事实与业务授权仍由各自的依据决定。
 
+### Prompt 的参考要求
+
+用户要求：
+
+> 尽量从参考的项目去学习每个关键点的prompt的写法，毕竟别人经过用户的验证，或者说评测，会比我们直接想的更全面、更细致。
+
+按讨论归纳，设计时逐项核对可取得的上游原始 prompt 和调用位置，优先借鉴有运行或评测证据的写法。区分产品观察、公开示例和独立仿制。角色约定等缺少直接对应参考的行为，沿用本 unit 已对齐的需求。
+
+Wiki 整理的直接参考为 [memoryrepo 的 Dreaming prompt](https://github.com/supermemoryai/memoryrepo/blob/54f7ff3065df8af687dc5c04a4bb17d6611e5fd1/src/server/memory.ts#L60)、Anthropic Cookbook 的 [Analyzer](https://github.com/anthropics/claude-cookbooks/blob/ce8b2629efe8b24048b127b4c79af1e9cbab93d4/managed_agents/example_data/memory_distill/prompts/analyzer_system.md) 与 [Organizer](https://github.com/anthropics/claude-cookbooks/blob/ce8b2629efe8b24048b127b4c79af1e9cbab93d4/managed_agents/example_data/memory_distill/prompts/organizer_system.md)。[tigerless agent-memory](https://github.com/tigerless-labs/agent-memory/blob/f7c22b3d4696cf5d3c151861244916471aa41a78/packages/core/src/agent_memory/core/prompts.py#L138) 提供受限候选审核的写法。[instinct-memory](https://github.com/vatsal191201/instinct-memory/blob/4785fefe0bbc777be91b483a7f1c55e256763859/scripts/instinct_reconcile.py#L250) 是独立实现。[Instinct 的黑盒报告](https://supermemory.ai/blog/reverse-engineering-instinct-memory/) 未取得产品实际的整理 prompt。
+
 ## 用户场景
 
 ## 验收标准
