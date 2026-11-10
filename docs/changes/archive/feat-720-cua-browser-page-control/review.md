@@ -162,7 +162,7 @@ fixture HTTP 200、headless operator24773 打开同栈登录页，fresh snapshot
 
 ### 测试资源回收与暂留责任
 
-共享主机随后出现其他线报告的 ENOSPC，协调者要求保持不启动新 GUI/模型/重型验证并按更新后的[测试资源回收规则入口](../../development/worktree-runtime.md)先回收己有资源。owner 实际执行并核实：
+共享主机随后出现其他线报告的 ENOSPC，协调者要求保持不启动新 GUI/模型/重型验证并按更新后的[测试资源回收规则入口](../../../development/worktree-runtime.md)先回收己有资源。owner 实际执行并核实：
 
 - 关闭 task-owned `feat720-product` headless session；旧 headless pid 8243 已不存在。执行配对 `e2e-down.sh --wt <本 worktree>` 停止本栈 Node/DSH/IM，旧 pid 51690/51786 已不存在；64483（IM）与 64519（fixture）均无监听。仅终止自己创建的 `feat720-daily` / `feat720-fixture` 两个 tmux 会话，两者均已消失；无正在运行的本事项测试 job 或 CU Chrome。
 - 删除前解析并核实本 worktree 的 `src/IM/frontend/node_modules` 为独占非 symlink 目录，原 `du -sk` 为 440672 KiB；删除 exit 0 并核实路径不存在。未触及 root/pnpm 共享缓存、用户浏览器、其他 worktree 或他线服务。最后 `df` 的 Available 为 15746272 KiB，只报告该时点状态，不将全机空闲变化归因于本次删除。
@@ -239,3 +239,9 @@ B、C、D 三次独立 `browser_prepare` 的调用前、约 +0.5s 和 +2s 均有
 `054ab52ea` 源码、`fb297cba9` 契约的非作者增量复核：F1/F2 **superseded-by-authorized-scope-correction**，F3/F4 **closed**，静态存活 findings 为空；**corrected-delta = aligned（静态源码/契约范围）**。本轮配置例外及实际模型/effort 边界见上文。
 
 **实施/产品旅程整体仍 Pending。** 当前构建的安装 runtime 窄测试已补验通过；实际 Sol 样本 A 的 open/ref 消费与谨慎报告局部已由原 reviewer 确认，但 popup 因果仍未知，截图/read_image、V2/V3/V4 等真实旅程未闭环。样本 A 的实际任务提交在真实人类澄清后成功；旧拒绝与后续新操作者前置拒绝均保留。当前 720 服务/浏览器全部停止，最小 B 诊断已离线准备但未执行；最新一次恢复已取得 lifecycle ready/connected，随后操作者登录/只读设置前置被新外层工具拒绝，该调用保持停止，不自动换入口重试，接续由协调者核对；没有整体实施 Approved / 产品旅程 Approved。未归档、未创建交付 PR、未合并、未部署生产。后续沿同一事项/worktree接续，不再要求用户选择已撤回的隐私问题或额外预约，也不自行绕过新的工具拒绝。
+
+## 接手后的本地回归
+
+集成版通过 workspace build、typecheck、安装候选及 iOS runtime 资产检查，前端全量 121 个文件共 1179 项、Python 135 项、ruff 与文档检查均通过。前端关键级别 audit 重跑 exit 0，仍报告 11 个低至高危的现有依赖告警。
+
+后端全量 243 个文件运行结束，1389/1392 通过。原始失败为一次模型回退测试的临时检查进程清理未确认，以及 supervisor、history 两个超时。三项都在同一实现上以单 worker 定向复跑通过，未改断言或延长超时。分组结果不等同于单次全量退出为 0，远端 required CI 仍需确认。前台归还 V2 与窗口身份 V4 已获独立确认，浏览器页面控制的已完成证据按本单元归档。Chrome 自带界面和 macOS 原生控制由桌面 Computer Use 的独立单元接续。
