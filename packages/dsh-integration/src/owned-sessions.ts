@@ -3,9 +3,9 @@ import { mkdir } from 'node:fs/promises';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
-import { buildForkSeed, SessionId, SessionLogOffset, SessionSeq, type SessionHeader } from '@deepseek-ai/dsh-session';
+import { buildForkSeed, SessionId, SessionLogOffset, SessionSeq, type Session, type SessionHeader } from '@deepseek-ai/dsh-session';
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence';
-import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query';
+import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
 import { applyChildComposition, foldSubagentDescriptor, type ContinuableSubagentDescriptorData } from '@deepseek-ai/dsh-subagent';
 import type { SessionBinding } from './index.js';
 declare module '@deepseek-ai/cordis' { interface Context { nanoSessions: OwnedSessions } }
@@ -19,7 +19,7 @@ export class OwnedSessions {
   private readonly owners = new Map<string, string>();
   constructor(private readonly ctx: Context, private readonly bindings: Map<string, SessionBinding>, private readonly assertEnabled: (agentId: string) => void,
     private readonly markWritable: (binding: SessionBinding) => Promise<unknown>,
-    private readonly beforeResume: (binding: SessionBinding, observation: SessionObservation) => Promise<void>) {}
+    private readonly beforeResume: (binding: SessionBinding, session: Session) => Promise<void>) {}
 
   /** Create or resume one trusted root, coalescing Schedule and product admission. */
   resolve(sessionId: string, create = false): Promise<Agent> {
@@ -45,6 +45,15 @@ export class OwnedSessions {
    *   Error: Lineage, persisted composition or enabled lifecycle cannot be proven.
    */
   async resolveManaged(sessionId: string, expectedAgentId?: string): Promise<{agent: Agent; root: SessionBinding}> {
+    const binding = this.bindings.get(sessionId);
+    if (binding) {
+      if (expectedAgentId !== undefined && binding.agentId !== expectedAgentId)
+        throw new Error('Managed Session belongs to another product Agent');
+      this.assertEnabled(binding.agentId);
+      const live = this.ctx.agents.get(SessionId(sessionId));
+      if (live) this.assertRootHeader(binding, live.session.header);
+      return {agent: live ?? await this.resolve(sessionId), root: binding};
+    }
     const children: ManagedChild[] = [], seen = new Set<string>();
     let id = sessionId, childId: string | undefined, root: SessionBinding;
     while (true) {
@@ -160,22 +169,16 @@ export class OwnedSessions {
     const live = this.handles.get(binding.sessionId);
     if (live) return live.agent;
     const sessionId = SessionId(binding.sessionId), preset = `nano:${binding.agentId}:${binding.revision}`;
-    let exists: boolean;
-    {
-      using observation = await this.ctx.sessionQuery.observeSession(sessionId).catch(error => {
-        if (!create || !(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error;
-        return undefined;
-      });
-      exists = observation !== undefined;
-      if (observation) {
-        this.assertRootHeader(binding, observation.header);
-        // A live root can resume children through native tools outside OwnedSessions.
-        // Resolve both the root and managed children through this cold evidence cut.
-        await this.beforeResume(binding, observation);
-      }
-    }
+    const stored = await this.ctx.sessionPersistence.stat(sessionId);
+    if (!stored && !create) throw new SessionQueryError(`session "${sessionId}" not found`, 'SESSION_QUERY_SESSION_NOT_FOUND');
+    if (stored) this.assertRootHeader(binding, stored.header);
     this.assertEnabled(binding.agentId);
-    const setup = async (ctx: Context) => {
+    const setup = async (ctx: Context, agent: Agent) => {
+      if (stored) {
+        this.assertRootHeader(binding, agent.session.header);
+        // DSH has already loaded this log and has not yet published the Agent.
+        await this.beforeResume(binding, agent.session);
+      }
       await this.ctx.agentPresets.mount(ctx, preset);
       this.assertEnabled(binding.agentId);
       return {commit: () => this.assertEnabled(binding.agentId)};
@@ -184,7 +187,7 @@ export class OwnedSessions {
     // A writable root can accept native work before Node sees its first event.
     await this.markWritable(binding);
     this.assertEnabled(binding.agentId);
-    const handle = exists
+    const handle = stored
       ? await this.ctx.agents.resume({resumeSessionId: sessionId, setup})
       : await this.ctx.agents.create({sessionId, meta: {cwd: binding.cwd, agentPreset: preset}, setup});
     this.handles.set(sessionId, handle);

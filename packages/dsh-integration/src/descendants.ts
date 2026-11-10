@@ -141,8 +141,8 @@ export class DescendantReader {
     return rows;
   }
 
-  /** Find direct-child interruptions at the cold root's native catalog cut. */
-  async interruptedChildren(root: SessionObservation): Promise<{
+  /** Find direct-child interruptions at the root's native catalog cut. */
+  async interruptedChildren(root: Pick<SessionObservation, 'header' | 'projections'>): Promise<{
     interrupted: {id: SessionId; turnEnd: number}[];
     complete: boolean;
   }> {
