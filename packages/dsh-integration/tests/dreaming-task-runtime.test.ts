@@ -86,13 +86,23 @@ export function apply(ctx){
     let reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
     if(mode!=='valid'){
       expect(reviews).toHaveLength(2);
-      expect(reviews.every((review:any)=>review.status==='failed')).toBe(true);
+      expect(reviews.find((review: any) => review.title === 'Dreaming · 提取任务摘要')).toMatchObject({
+        status: 'failed', childSessionId: expect.stringMatching(/^dreaming-/),
+      });
+      const consolidation = reviews.find((review: any) => review.title === 'Dreaming · 整合长期记忆');
+      expect(consolidation).toMatchObject({ status: 'failed' });
+      expect(consolidation.childSessionId).toBeUndefined();
       expect(reviews.some((review:any)=>review.summary.includes('未生成有效的新版本'))).toBe(true);
       await expect(readFile(join(home,'.nanoassistant/memory/knowledge/travel.md'))).rejects.toMatchObject({code:'ENOENT'});
       return;
     }
-    expect(reviews,JSON.stringify(reviews)).toEqual(expect.arrayContaining([expect.objectContaining({status:'completed',summary:expect.stringContaining('提炼 completed')})]));
+    expect(reviews,JSON.stringify(reviews)).toEqual(expect.arrayContaining([expect.objectContaining({title:'Dreaming · 提取任务摘要',status:'completed',summary:expect.stringContaining('提炼 completed')})]));
     expect(reviews.some((review:any)=>review.status==='failed'&&review.summary?.includes('did not complete'))).toBe(true);
+    await client.rpc.request('trajectory.prepare', { observerId: 'dreaming-stages', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
+    const runs = await client.rpc.request('trajectory.call', { observerId: 'dreaming-stages', method: 'trajectory/runs' }) as { value: import('@nano/product-contracts').TrajectoryRun[] };
+    expect(runs.value.filter(run => run.kind === 'dreaming')).toEqual(expect.arrayContaining(reviews.map((review: any) =>
+      expect.objectContaining({ sessionId: review.childSessionId, label: review.title, state: review.status }))));
+    await client.rpc.request('trajectory.close', { observerId: 'dreaming-stages' });
     await submit('maintain-retry');
     const readRequests=async()=>(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const extractionIds=(requests:any[])=>new Set(requests.filter(r=>r.sessionId.startsWith('dreaming-')&&JSON.stringify(r.messages).includes('Return a JSON object with exactly two string fields')).map(r=>r.sessionId));
