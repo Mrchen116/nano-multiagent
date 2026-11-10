@@ -194,6 +194,8 @@ final class OneShotBackgroundUITests: XCTestCase {
         composer.tap(); composer.typeText(text)
         try await sendText(text, alreadyComposed: true)
         XCTAssertFalse(app.buttons["View latest changes"].exists)
+        let refreshedField = try revealCardField("参会人数")
+        XCTAssertEqual(refreshedField.value as? String, String(remoteCount), "The native card must display the adopted draft")
         let adopted = try await request(path, token: token)
         XCTAssertEqual((adopted["state"] as? [String: Any])?["$participants"] as? Int, remoteCount)
         capture("716-native-conflict-synchronized-and-sent")

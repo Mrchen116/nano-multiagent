@@ -45,7 +45,7 @@ final class InteractiveRuntime {
     @ObservationIgnored private var queries: [JSONValue] = []
     @ObservationIgnored private var generation = UUID()
     // Recycling a page must revoke its bridge without invalidating an acknowledged draft PUT.
-    @ObservationIgnored private var rendererGeneration = UUID()
+    private var rendererGeneration = UUID()
     @ObservationIgnored private var webSequence = 0
     @ObservationIgnored private var callerReadOnly: Bool
     @ObservationIgnored private var draftReadOnly = false
@@ -345,8 +345,8 @@ final class InteractiveRuntime {
                         let draft = try await client.interactionDraft(message.conversation_id, messageID: message.id)
                         guard token == generation, await current(), !hasPending else { return }
                         // A stale renderer must not submit its old form after adopting the server draft.
-                        rendererGeneration = UUID()
                         try applyDraft(draft, source: source)
+                        rendererGeneration = UUID()
                     } catch { /* The next send or reconnect retries the read, not the stale write. */ }
                     return
                 }

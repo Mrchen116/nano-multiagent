@@ -37,9 +37,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 - 先在 host 核实本轮新建 runtime 的 IM PID/出生时间、命令、cwd、监听端口，以及该 runtime 内只读数据库中的合成账号、唯一聊天标题、会话 owner 和新卡片执行来源；不能仅凭 loopback 或任意环境变量声明合成。由核实结果生成 `NANO_UI_FIXTURE_JSON`：`runID`（新 UUID）、`origin`、`username`、`conversationID`、`chatTitle`、`cardIDs`、`cardLabels`。此 JSON 是对象绑定结果，不是执行权限，也不解除已拒绝 case。
 - `NANO_UI_ORIGIN` / `NANO_UI_USERNAME` / `NANO_UI_CONVERSATION_ID` / `NANO_UI_CHAT_TITLE` 必须与该 JSON 一致，`NANO_UI_PASSWORD` 仅使用对应合成账号密码。测试在启动前强制检查 HTTP loopback 动态高位端口并排除既有 62814 预览；禁止使用 4000/8011/5173。API helper 只接受该 fixture 列出的卡片，字段编辑只接受列出的可访问名称。仅编辑环境变量不能代替 host 的进程与数据库核实。
-- `OneShotBackgroundUITests` 使用已由真实产品产生的会议卡，字段为可访问名称“参会人数”、状态键 `$participants`。409 case 另需 `NANO_UI_CONVERSATION_ID` / `NANO_UI_CARD_ID`，会通过另一正常认证客户端推进真实草稿版本，然后从 App 操作比较/采用。成功 case 输出唯一 `716_NATIVE_RUN`，需用该标记核对隔离服务中的第一/第二消息 relay；UI test 成功本身不证明背景已一次性消费。
+- `OneShotBackgroundUITests` 使用已由真实产品产生的会议卡，字段为可访问名称“参会人数”、状态键 `$participants`。409 case 另需 `NANO_UI_CONVERSATION_ID` / `NANO_UI_CARD_ID`，会通过另一正常认证客户端推进真实草稿版本，然后验证 App 自动同步最新值并发出正文。成功 case 输出唯一 `716_NATIVE_RUN`，需用该标记核对隔离服务中的第一/第二消息 relay；UI test 成功本身不证明背景已一次性消费。
 - 多卡 case `testTwoEditedCardsAreConsumedTogetherThenOnlyReeditedCardReturns` 另需 `NANO_UI_CARD_A_LABEL` / `NANO_UI_CARD_B_LABEL`，指向该合成会话两张独立卡片中唯一、可访问的人数字段；A 在 B 之前。它实际编辑 A/B、从 composer 连发两条、再改 A 发送第三条，输出 `716_NATIVE_MULTI_RUN` / `716_NATIVE_MULTI_REEDIT`。需核对三条真实 relay 的来源分别为 A+B、空、仅 A；不能只凭 XCUITest 通过宣布多卡语义成立。
-- 原生失败提示可能把原卡移出 lazy viewport，卡片和 composer 也可能同时提供同名恢复动作。测试只点击实际 hittable 的原生按钮，不以屏外字段查询或按钮数组顺序代替用户可操作性。
+- 私聊保存失败沿用普通发送错误和发送按钮。原生卡片可能因滚动暂时离开可见区域，测试应先把字段滚到可见范围再验证其值。
 - transient case 的 `NANO_UI_OUTAGE_EXPECTED=1` 只是测试前置，不是故障演练授权。必须先获得专用服务停启的明确人类授权，并准备独占服务、原数据库/端口恢复与自有进程清理；不在 preview/共享服务上运行，不自动建立故障注入或录制代理。没有授权或前置就不选择该 case，保留未验证结论。
 
 ## 设备产物

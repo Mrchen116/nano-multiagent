@@ -184,7 +184,7 @@ export async function retryDraft(cid: string, mid: string): Promise<void> {
 }
 
 /** Make one recovery pass after reconnect. */
-export function retryTransientDrafts(cid: string): Promise<void> {
+export function retryPrivateDrafts(cid: string): Promise<void> {
   const current = recoveries.get(cid);
   if (current) return current;
   const recovery = Promise.all(draftFailures(cid).map(({messageId}) => retryDraft(cid, messageId))).then(() => undefined);

@@ -44,7 +44,7 @@ import {
 import { retireChatReadCache } from "./chat-read-cache";
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
-import { discardOnLeave, forgetInteractionBackground, loadWatermarks, resumeConversation, retryPendingDiscards, retryTransientDrafts } from "./interaction-background";
+import { discardOnLeave, forgetInteractionBackground, loadWatermarks, resumeConversation, retryPendingDiscards, retryPrivateDrafts } from "./interaction-background";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
@@ -405,7 +405,7 @@ export function ChatWorkspacePage() {
       if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
       void retryPendingDiscards();
       const active = conversationIdRef.current;
-      if (active) void retryTransientDrafts(active);
+      if (active) void retryPrivateDrafts(active);
     };
     document.addEventListener('visibilitychange', foreground);
     window.addEventListener('online', foreground);

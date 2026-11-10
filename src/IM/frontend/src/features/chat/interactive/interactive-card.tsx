@@ -47,7 +47,8 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   // A replacement renderer starts at the retained edit, but an ordinary acknowledgement
   // must never reseed the current renderer or move its cursor.
   const initial = useMemo(() => record.state, [record, record.renderVersion]);
-  const { loaded, done } = record;
+  const { loaded, done, renderVersion } = record;
+  const syncingLatest = retained && record.failure === 'conflict';
   const busy = record.submitting;
   const pending = record.hasPendingSubmission;
   const [applyingDraft, setApplyingDraft] = useState(false);
@@ -206,15 +207,15 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     onChangeCapture={() => { touched.current = true; }}>
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
-      <fieldset disabled={readOnly || busy || applyingDraft || pending} className="interactive-card-fields">
+      <fieldset disabled={readOnly || busy || applyingDraft || pending || syncingLatest} className="interactive-card-fields">
         <CardAttachmentImage.Provider value={renderAttachment}>
         <ThemeProvider mode="light" cssSelector=".interactive-card">
-        <Renderer key={record.renderVersion} response={message.interactive!.source} library={interactiveLibrary}
+        <Renderer key={renderVersion} response={message.interactive!.source} library={interactiveLibrary}
           initialState={initial} isStreaming={busy || pending} toolProvider={toolProvider} publishObservability={false}
-          onParseResult={parsed => { if (viewActive.current) record.update({...parsed?.stateDeclarations, ...record.state}); }}
+          onParseResult={parsed => { if (viewActive.current && renderVersion === record.renderVersion) record.update({...parsed?.stateDeclarations, ...record.state}); }}
           onError={errors => { if (errors.some(error => error.source === 'parser')) setError('render'); }}
           onStateUpdate={value => {
-            if (!viewActive.current) return;
+            if (!viewActive.current || renderVersion !== record.renderVersion || (retained && record.failure === 'conflict')) return;
             // Only a real input event may arm a background; rendering must never do it.
             const edited = !lockedRef.current && !record.hasPendingSubmission && touched.current;
             if (record.update(value, edited)) {

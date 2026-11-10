@@ -59,10 +59,15 @@ describe('private card drafts in the ordinary send flow', () => {
     vi.mocked(saveInteractionDraft).mockRejectedValueOnce(Object.assign(new Error('conflict'), {status:409}));
     const send = vi.fn().mockResolvedValue(undefined);
     render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send} />);
-    fireEvent.change(await openCard(), {target:{value:'本机改动'}});
-    vi.mocked(readInteractionDraft).mockResolvedValueOnce({draft_revision:5,state:{'$body':'另一端最新'},submission_message_id:null});
+    const local = await openCard();
+    fireEvent.change(local, {target:{value:'本机改动'}});
+    let finishRead!: (draft: InteractionDraft) => void;
+    vi.mocked(readInteractionDraft).mockReturnValueOnce(new Promise(resolve => { finishRead = resolve; }));
     fireEvent.change(composerBox(), {target:{value:'  发送这条  '}});
     fireEvent.click(sendButton());
+    await waitFor(() => expect(local).toBeDisabled());
+    expect(send).not.toHaveBeenCalled();
+    await act(async () => { finishRead({draft_revision:5,state:{'$body':'另一端最新'},submission_message_id:null}); });
     await waitFor(() => expect(send).toHaveBeenCalledOnce());
     expect(send).toHaveBeenCalledWith('发送这条', [], undefined, expect.any(String));
     expect(screen.getByPlaceholderText('编辑草稿')).toHaveValue('另一端最新');
