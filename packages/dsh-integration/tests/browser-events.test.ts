@@ -23,6 +23,17 @@ it('classifies the fixed-size, untitled, no-target Chrome overlays as noise', ()
   }
 });
 
+it('separates the observed Chrome password warning from real or unclassified windows', () => {
+  const alert = window('30', '更改您的密码', 448, 299);
+  const refused = classifyNewWindows([], [alert], () => ({ ok: false }));
+  expect(refused.ignored).toEqual([{ width: 448, height: 299, title: '更改您的密码' }]);
+  const exact = classifyNewWindows([], [alert], () => ({
+    ok: true, binding_quality: 'exact', target_id: 'bt-30', tabs: [{ active: true, url: 'https://fixture.example', title: 'Fixture' }],
+  }));
+  expect(exact.events).toHaveLength(1);
+  expect(classifyNewWindows([], [{ ...alert, height: 300 }], () => ({ ok: false })).unclassified).toHaveLength(1);
+});
+
 it('does not treat an incomplete noise signature as noise', () => {
   const cases = [
     { window: window('31', '翻译此页？', 284, 87), probe: { ok: true, binding_quality: 'exact', target_id: 'bt-31', tabs: [] } },

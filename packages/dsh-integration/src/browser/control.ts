@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
@@ -233,7 +234,7 @@ export class BrowserControl {
         target_id: read?.targetId ?? bound.target_id,
         tab_id: read?.tabId ?? tab.tab_id,
       };
-      let baselineUrl = tab.url;
+      const baselineUrl = tab.url;
       let baselineText: string | undefined;
       if (args.action === 'open') {
         await this.dispatch(() => this.driver.call('browser_navigate', { ...base, url: args.url, delivery_mode: 'background' }));
@@ -263,8 +264,17 @@ export class BrowserControl {
         // The driver invalidates target/tab ids on every bind and may have
         // navigated during the action, so the readback starts from a fresh bind
         // and the current active tab.
-        const after = await this.bindPrimary(state, instance, turn);
-        const afterTab = selectTab(after.tabs);
+        let after = await this.bindPrimary(state, instance, turn);
+        let afterTab = selectTab(after.tabs);
+        if (args.action === 'open' && args.url !== baselineUrl) {
+          // Chrome can acknowledge navigation before the tab commits its new URL.
+          for (const settleMs of [150, 300, 600]) {
+            if (afterTab.url !== baselineUrl) break;
+            await delay(settleMs);
+            after = await this.bindPrimary(state, instance, turn);
+            afterTab = selectTab(after.tabs);
+          }
+        }
         const readback = await this.snapshot(instance, after, afterTab, undefined, args.screenshot === true || args.action === 'scroll' && args.screenshot !== false);
         observed = { url: readback.url, title: readback.title, active: afterTab.active };
         textAfter = readback.text.slice(0, DEFAULT_READ_CHARS);
@@ -607,9 +617,10 @@ function normalizeSnapshot(value: Record<string, unknown>, tab: DriverTab): Omit
       ...(Array.isArray(ref.actions) ? { actions: ref.actions.filter((action): action is string => typeof action === 'string') } : {}),
     }];
   }).slice(0, REFS_LIMIT);
+  const page = value.page as { url?: unknown; title?: unknown } | undefined;
   return {
-    url: typeof snapshot.url === 'string' ? snapshot.url : tab.url,
-    title: typeof snapshot.title === 'string' ? snapshot.title : tab.title,
+    url: typeof page?.url === 'string' ? page.url : typeof snapshot.url === 'string' ? snapshot.url : tab.url,
+    title: typeof page?.title === 'string' ? page.title : typeof snapshot.title === 'string' ? snapshot.title : tab.title,
     text,
     refs,
     truncated: value.outline_truncated === true || value.truncated === true || snapshot.truncated === true

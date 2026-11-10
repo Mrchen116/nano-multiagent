@@ -33,8 +33,12 @@ function isHttp(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
-function isNoiseSize(window: DriverWindow): boolean {
-  return CHROME_NOISE_SIZES.some(size => Math.round(window.width) === size.width && Math.round(window.height) === size.height);
+function isKnownChromeOverlay(window: DriverWindow): boolean {
+  const width = Math.round(window.width);
+  const height = Math.round(window.height);
+  const title = window.title.trim();
+  if (/^(?:更改您的密码|Change your password)$/i.test(title)) return width === 448 && height === 299;
+  return CHROME_NOISE_TITLES.test(title) && CHROME_NOISE_SIZES.some(size => width === size.width && height === size.height);
 }
 
 /** Ordered three-way classifier for windows that were not the registered main window.
@@ -64,8 +68,7 @@ export function classifyNewWindows(
     const noise = !bound.ok
       && !bound.target_id
       && urls.length === 0
-      && CHROME_NOISE_TITLES.test(window.title.trim())
-      && isNoiseSize(window);
+      && isKnownChromeOverlay(window);
     if (noise) result.ignored.push({ width: window.width, height: window.height, title: window.title });
     else result.unclassified.push(window);
   }
