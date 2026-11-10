@@ -97,6 +97,6 @@
 | ID | 核实结果 | 状态 |
 | --- | --- | --- |
 | R2-W1（R1-W2） | Author Resolution 已写入第 11 行。已验证的子中断先持久化；部分读取不放行该根首次激活，原输入和旧 pending 保留为同根重试。`OwnedSessions` 根恢复走 coalesced resolve，直接管理的历史 child 要先通过父链校验并取得同一根。既然部分失败时根无法开始模型 step，原生 `send_message` 就没有可用于冷唤醒未知 child 的 live 根。恢复后仍从已有通知入口向首个符合条件的请求交付，现有 flush 后退休规则适用。 [修订设计](design.md#恢复) [根与历史 child 顺序](../../../packages/dsh-integration/src/owned-sessions.ts#L77) [原生发送分流](../../../packages/dsh-integration/src/global-mode.ts#L65) [已持久通知消费](../../../packages/dsh-integration/src/subagent-recovery.ts#L63) | closed |
-| R2-W2（R1-W4） | M1 指定在 A 根子观察处受控暂停，经真实 Relay 验证 B 在 A 放行前持久接单，释放后验证 A 通知和回执。对照固定历史规模下的访问量，并测 readiness 前后的正文读次数、字节、就绪时间和 RSS，能区分可并发接单与迁移同等历史 I/O。中心 1,000 账号的授权与 Web 读取规模交由 perf-753，当前路径仍使用真实 Relay 用户授权。 [M1](design.md#milestone-与能力) [perf-753 规模验收](https://github.com/Mrchen116/nano-multiagent/blob/56c5083770805182832fc52543b0c35aef5a430c/docs/changes/perf-753-bounded-work-reads/design.md#milestone) | closed |
+| R2-W2（R1-W4） | M1 指定在 A 根子观察处受控暂停，经真实 Relay 验证 B 在 A 放行前持久接单，释放后验证 A 通知和回执。对照固定历史规模下的访问量，并测 readiness 前后的正文读次数、字节、就绪时间和 RSS，能区分可并发接单与迁移同等历史 I/O。中心 1,000 账号的授权与 Web 读取规模交由 perf-753，当前路径仍使用真实 Relay 用户授权。 [M1](design.md#milestone-与能力) [perf-753 规模验收](../perf-753-bounded-work-reads/design.md#milestone-与能力) | closed |
 
 本轮裁决限于设计。实际原生激活、故障重试、模型请求和性能结果由 M1 取证。

@@ -27,7 +27,7 @@ import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
 import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
-import { jsonBytes, workPage, workPageBytes, workPageItems } from './work-page.js';
+import { jsonBytes, workPage, workPageBytes, workPageItems, WorkCatalogPages } from './work-page.js';
 import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
@@ -194,7 +194,15 @@ export default class NanoRuntime {
       await (await workflow).cancelPersisted(owns);
       await (await knowledge).cancelPersisted(agentId);
     };
-    const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { this.peer.notify('model.changed', { sessionId, rootSessionId: boundRoot(sessionId) }); } });
+    const workChanged = (rootSessionId: string, childId: string) => {
+      const binding = this.bindings.get(rootSessionId);
+      if (!binding || this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') return;
+      this.peer.notify('session.work.changed', {sessionId:rootSessionId,rootSessionId,childId}, `session.work.changed:${childId}`);
+    };
+    const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => {
+      const rootSessionId = boundRoot(sessionId);
+      this.peer.notify('model.changed', { sessionId, rootSessionId, workChild:descendantReader.hasChild(sessionId) });
+    } });
     const webFiber = ctx.plugin(NanoWeb);
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
@@ -288,16 +296,20 @@ export default class NanoRuntime {
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
       history.attach(agent, config, () => modelPolicy.route(agent));
       if (agentId) lifecycle.assertEnabled(agentId);
+      await (await workflow).recordWorkChild(agent);
       liveAgents.add(agent);
     });
     const toolViews = recordToolPresentations(ctx, process.env.DSH_HOME!);
     ctx.on('session/event', (session, event) => {
       const rootSessionId = boundRoot(session.id);
-      if (rootSessionId) descendantReader.remember(session,event,rootSessionId);
+      if (rootSessionId) {
+        const discovered = descendantReader.remember(session,event,rootSessionId);
+        if (discovered) workChanged(rootSessionId,discovered);
+      }
       const source = event.type === 'user/message' ? event.data.source : undefined;
       const hint = {seq:event.seq, type:event.type, time:event.time, data: event.type === 'user/message'
         ? {id:event.data.id, source:source && {kind:source.kind, ...('channel' in source ? {channel:source.channel} : {})}} : {}};
-      this.peer.notify('session.event', {sessionId:session.id, rootSessionId, event:hint},
+      this.peer.notify('session.event', {sessionId:session.id, rootSessionId, workChild:descendantReader.hasChild(session.id), event:hint},
         ['user/message','turn/end','step/start'].includes(event.type) ? undefined : `session.event:${session.id}:changed`);
     });
     const liveness = setInterval(() => {
@@ -623,42 +635,43 @@ export default class NanoRuntime {
       return projectPage(input, session.inheritedEventCount, head,
         seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
     }, {pull:'work-root'});
+    type CatalogEntry = Awaited<ReturnType<DescendantReader['targets']>>[number];
+    const workChild = (entry: CatalogEntry, policy: ModelPolicy, engine: NanoWorkflowEngine): RuntimeWorkChild => {
+      if (entry.kind !== 'child') return {kind:'diagnostic',id:entry.id,parentId:entry.parentId,reason:entry.reason};
+      const workflowRunId = engine.workRelationship(entry.parentId,entry.id);
+      return {kind:'child',id:entry.id,parentId:entry.parentId,label:entry.label,throughSeq:entry.throughSeq,mode:entry.mode,
+        depth:entry.depth,activity:entry.activity,hasChildren:entry.hasChildren,modelVersion:policy.fallback.workVersion(entry.id),
+        ...(workflowRunId ? {workflowRunId} : {})};
+    };
+    const catalogs = new WorkCatalogPages();
     handle('session.work.children', async value => {
       const input = value as WorkRead & {afterId?: string};
       await workBinding(input);
-      const root = SessionId(input.sessionId), reply:RuntimeWorkCatalog={children:[]};
-      if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return reply;
-      const fallback = (await models).fallback;
-      const workflowRuns = await (await workflow).relationships(root);
-      let seeking = input.afterId !== undefined, bytes = 128;
-      for await (const entry of descendantReader.catalog(root)) {
-        if (seeking) { if (entry.id === input.afterId) seeking = false; continue; }
-        const linked = entry.kind === 'child' && workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===entry.id)));
-        const child:RuntimeWorkChild = entry.kind === 'child'
-          ? {kind:'child', id:entry.id, parentId:entry.parentId, label:entry.label, throughSeq:entry.throughSeq,
-            mode:entry.mode, depth:entry.depth, activity:entry.activity, hasChildren:entry.hasChildren,
-            modelVersion:fallback.workVersion(entry.id), ...(linked ? {workflowRunId:linked.id} : {})}
-          : {kind:'diagnostic', id:entry.id, parentId:entry.parentId, reason:entry.reason};
-        const size = jsonBytes(child);
-        if (reply.children.length && (reply.children.length >= workPageItems || bytes+size > workPageBytes)) {
-          reply.next = reply.children.at(-1)!.id;
-          return reply;
-        }
-        reply.children.push(child);
-        bytes += size;
-      }
-      if (seeking) throw new RpcError(-32005, 'Work catalog position changed');
-      return reply;
+      const root = SessionId(input.sessionId), policy = await models, engine = await workflow;
+      await engine.ready;
+      return catalogs.read(root,input.afterId,input.stoppedRevision,async function* () {
+        if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return;
+        for await (const entry of descendantReader.catalog(root)) yield workChild(entry,policy,engine);
+      });
+    }, {pull:'work-descendants'});
+    handle('session.work.targets', async value => {
+      const input = value as WorkRead & {childId:string};
+      await workBinding(input);
+      const policy = await models, engine = await workflow;
+      await engine.ready;
+      const targets = await descendantReader.targets(SessionId(input.sessionId),SessionId(input.childId));
+      return {children:targets.map(target=>workChild(target,policy,engine))} satisfies RuntimeWorkCatalog;
     }, {pull:'work-descendants'});
     handle('session.work.child', async value => {
       const input = value as WorkRead & {childId: string};
       await workBinding(input);
       const id = SessionId(input.childId), policy = await models;
-      const version = () => policy.fallback.workVersion(id);
-      const page = await descendantReader.page(SessionId(input.sessionId), id, input.afterSeq ?? -1,
-        () => input.modelVersion !== version(), cut =>
-          projectPage({...input,sessionId:id}, cut.inheritedEventCount, cut.cursor, seq=>cut.events[seq], policy));
-      return page ?? {durable:true,events:[],modelRuns:[],modelVersion:version(),throughSeq:input.afterSeq ?? -1,more:false} satisfies RuntimeWorkPage;
+      const modelVersion=policy.fallback.workVersion(id), afterSeq=input.afterSeq ?? -1;
+      const page=await descendantReader.eventPage(SessionId(input.sessionId),id,afterSeq,input.modelVersion!==modelVersion,
+        (session,head)=>projectPage({...input,sessionId:id},session.inheritedEventCount,head,
+          seq=>session.snapshotEvents(SessionLogOffset(seq),SessionLogOffset(seq+1))[0],policy),
+        cut=>projectPage({...input,sessionId:id},cut.inheritedEventCount,cut.cursor,seq=>cut.events[seq],policy));
+      return page ?? {durable:true,events:[],modelRuns:[],modelVersion,throughSeq:afterSeq,more:false} satisfies RuntimeWorkPage;
     }, {pull:'work-descendants'});
     handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
@@ -945,6 +958,8 @@ export default class NanoRuntime {
         ]);
         await purgeDerived(ctx, process.env.DSH_HOME!, agentId, sessionIds);
         descendantReader.forget(ids);
+        (await workflow).forgetWorkChildren(ids);
+        for (const id of ids) await catalogs.forget(id);
         await this.cron.disposeAgent(agentId, true);
         for (const id of sessionIds) if (this.bindings.get(id)?.agentId === agentId) this.bindings.delete(id);
         for (const [preset, item] of this.configurations) if (item.agentId === agentId) this.configurations.delete(preset);
