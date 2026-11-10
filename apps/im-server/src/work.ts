@@ -18,7 +18,7 @@ import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
 import type { Connection } from './gateway.js';
 import { WorkRecords } from './work-records.js';
-import type { WorkView } from './work-record-types.js';
+import type { WorkCatalogFilter, WorkView } from './work-record-types.js';
 /** Decode the wire batch before receipt checks or durable projection.
  * Args:
  *   input: Untrusted HTTP/WS body retaining the original event objects.
@@ -61,14 +61,20 @@ export class Work {
     this.records.register(root, session, node, payload);
   }
   session(root: string, id: string) { return this.records.session(root, id); }
-  items(root: string, session: string, turn: string, after = 0, limit = 100) {
-    return this.records.items(root, session, turn, after, limit);
+  catalog(root: string, after: string, limit: number, filter: WorkCatalogFilter) {
+    return this.records.catalog(root, after, limit, filter);
   }
-  turns(root: string, session: string, before?: string, limit = 20, summary = false) {
-    return this.records.turns(root, session, before, limit, summary);
+  items(root: string, session: string, turn: string, after = 0, limit = 100, afterRevision?: number, watermarked = false) {
+    return this.records.items(root, session, turn, after, limit, afterRevision, watermarked);
+  }
+  turns(root: string, session: string, before?: string, limit = 20, summary = false, separate = false) {
+    const page = this.records.turns(root, session, before, limit, summary, separate);
+    if (!separate) return page;
+    const agent = one(this.db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", root)!;
+    return {...page, catalog: 'separate', revision: this.revision(root), ...this.connection(agent.node_id)};
   }
   revision(root: string) { return this.records.revision(root); }
-  focus(root: string, messageId: string) { return this.records.focus(root, messageId); }
+  focus(root: string, messageId: string, separate = false) { return this.records.focus(root, messageId, separate); }
   append(node: string, input: unknown, historical = false): WorkAppendAck {
     const batch = readWorkBatch(input);
     const {ack, appliedRoots} = this.records.append(node, batch, historical);
@@ -87,13 +93,17 @@ export class Work {
     }
     return ack;
   }
-  view(root: string, before?: string, limit = 20, summary = false, messageId?: string): WorkView {
-    const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId);
-    const online = this.ctx.gateway.isOnline(node_id);
-    return {...view,
-      main_execution: !online && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
-      node_connection_state: online ? 'online' : 'offline',
-      record_sync_state: this.recordSyncState(node_id),
+  private connection(node: string) {
+    return {
+      node_connection_state: this.ctx.gateway.isOnline(node) ? 'online' as const : 'offline' as const,
+      record_sync_state: this.recordSyncState(node),
+    };
+  }
+  view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false): WorkView {
+    const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId, separate);
+    const connection = this.connection(node_id);
+    return {...view, ...connection,
+      main_execution: connection.node_connection_state === 'offline' && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
     };
   }
   query(c: Row, p: Row): Row {
@@ -405,44 +415,57 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     if (one(db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',id)) fail(409,'agent_deletion_requested');
     return p;
   }
+  function integer(value: unknown, fallback: number): number {
+    if (value === undefined) return fallback;
+    const n = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
+    if (!Number.isSafeInteger(n)) fail(400, 'invalid_arguments');
+    return n;
+  }
+  const boundedLimit = (value: unknown, fallback: number, maximum: number) =>
+    Math.min(maximum, Math.max(1, integer(value, fallback)));
+  function readable(req: Parameters<typeof params>[0], session?: string) {
+    const id = params(req).agent_id;
+    rejectDeletedExecution(ctx, ctx.identity.authenticateRequest(req), id, session ? 'session' : 'agent', session ?? id);
+    return profile(req).agent_id;
+  }
   app.get("/im/v1/agents/:agent_id/work", (req) => {
     const q = query(req), agentId = params(req).agent_id;
     rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),agentId,q.message_id ? 'message' : 'agent',q.message_id ?? agentId);
     const p = profile(req);
-    return w.view(p.agent_id, q.before_turn, Math.min(50, Math.max(1, Number(q.limit ?? 20))), q.view === 'summary', q.message_id);
+    return w.view(p.agent_id, q.before_turn, boundedLimit(q.limit, 20, 50), q.view === 'summary', q.message_id, q.catalog === 'separate');
   });
   app.get("/im/v1/agents/:agent_id/work/focus", (req) => {
     const messageId = query(req).message_id, agentId = params(req).agent_id;
     const user = ctx.identity.authenticateRequest(req);
     if (typeof messageId !== "string" || !messageId) fail(400, "invalid_arguments");
     rejectDeletedExecution(ctx, user, agentId, 'message', messageId);
-    return {focus: w.focus(profile(req).agent_id, messageId)};
+    return {focus: w.focus(profile(req).agent_id, messageId, query(req).catalog === 'separate')};
+  });
+  app.get("/im/v1/agents/:agent_id/work/sessions", (req) => {
+    const q = query(req), root = readable(req);
+    for (const field of ['after_session', 'parent_session_id', 'tool_call_id', 'child_agent_id'])
+      if (q[field] !== undefined && (typeof q[field] !== 'string' || !q[field])) fail(400, 'invalid_arguments');
+    if ((q.tool_call_id && !q.parent_session_id) || (q.parent_session_id && !q.tool_call_id && !q.child_agent_id)) fail(400, 'invalid_arguments');
+    return w.catalog(root, q.after_session ?? '', boundedLimit(q.limit, 20, 50),
+      {parent: q.parent_session_id, call: q.tool_call_id, agent: q.child_agent_id});
+  });
+  app.get("/im/v1/agents/:agent_id/work/sessions/:session_id", (req) => {
+    const id = params(req).session_id;
+    return w.session(readable(req, id), id);
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns", (req) => {
-    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),params(req).agent_id,'session',params(req).session_id);
-    profile(req);
-    const p = params(req),
-      q = query(req);
-    return w.turns(
-      p.agent_id,
-      p.session_id,
-      q.before_turn,
-      Math.min(50, Math.max(1, Number(q.limit ?? 20))),
-      q.view === 'summary',
-    );
+    const id = params(req).session_id, q = query(req);
+    return w.turns(readable(req, id), id, q.before_turn, boundedLimit(q.limit, 20, 50), q.view === 'summary', q.catalog === 'separate');
+  });
+  app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/controls", (req) => {
+    const id = params(req).session_id, q = query(req);
+    return w.items(readable(req, id), id, '', integer(q.after_seq, 0), boundedLimit(q.limit, 20, 100));
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns/:turn_id/items", (req) => {
-    rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),params(req).agent_id,'session',params(req).session_id);
-    profile(req);
-    const p = params(req),
-      q = query(req);
-    return w.items(
-      p.agent_id,
-      p.session_id,
-      p.turn_id,
-      Number(q.after_seq ?? 0),
-      Math.min(200, Math.max(1, Number(q.limit ?? 100))),
-    );
+    const p = params(req), q = query(req);
+    return w.items(readable(req, p.session_id), p.session_id, p.turn_id, integer(q.after_seq, 0),
+      boundedLimit(q.limit, q.catalog === 'separate' ? 20 : 100, 200),
+      q.after_revision === undefined ? undefined : integer(q.after_revision, 0), q.catalog === 'separate');
   });
   app.post("/im/v1/agents/:agent_id/work/permissions/:request_id", async (req) => {
     const a = profile(req, true),

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../../i18n";
 import { AgentWorkPanel } from "./agent-work-panel";
 import type { WorkFocus, WorkView } from "./agent-work-api";
@@ -12,6 +12,12 @@ vi.mock("../../../realtime/user-stream", () => ({ subscribeUserStream: mocks.sub
 vi.mock('./agent-trajectory', () => ({AgentTrajectory: () => <p>Native trajectory</p>}));
 let view: WorkView;
 let focus: WorkFocus | null;
+const observed = new Map<Element, IntersectionObserverCallback>();
+const earlierPage = (container: ParentNode = document) => container.querySelector<HTMLElement>(".im-work-page-end")!;
+const reachEarlierPage = (marker = earlierPage(), visible = true) => {
+  const callback = observed.get(marker)!;
+  act(() => callback([{isIntersecting: visible}] as IntersectionObserverEntry[], {} as IntersectionObserver));
+};
 const focusPath = (url: string) => url.includes("/work/focus?");
 const reply = (turn = view.turns[0], newer_turn_id: string | null = null): WorkFocus => ({turn, newer_turn_id});
 function ChatTarget() { const location = useLocation(); const navigate = useNavigate(); return <div><p>Real chat route</p><button onClick={() => navigate(location.state.workReturnUrl)}>Return to work</button></div>; }
@@ -21,6 +27,15 @@ function renderWork(entry = "/settings/agents/global?view=work") {
   return { ...render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>), router };
 }
 beforeEach(() => {
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(private callback: IntersectionObserverCallback) {}
+    observe(target: Element) { observed.set(target, this.callback); }
+    disconnect() {
+      for (const [target, callback] of observed) {
+        if (callback === this.callback) observed.delete(target);
+      }
+    }
+  });
   Object.defineProperty(window, "matchMedia", {configurable:true, value: vi.fn(() => ({matches:false}))});
   setLanguage("zh");
   sessionStorage.clear(); mocks.subscribe.mockReset(); mocks.subscribe.mockReturnValue(() => {}); mocks.fetch.mockReset();
@@ -28,6 +43,8 @@ beforeEach(() => {
   view = { root_agent_id: "global", main_session_id: "main", revision: 1, node_connection_state: "online", main_execution: "running", latest_main_usage: null, other_executions: [], next_cursor: null, turns: [{ session_id: "main", turn_id: "turn", seq: 1, status: "running", origin: "user", trigger: { kind: "inbox" }, model_id: "fixture", usage: null, next_items_cursor: null, items: [{ item_id: "tool:read", seq: 1, kind: "tool", payload: { id: "read", name: "inbox", status: "running", input: { action: "read", target: "group-a" }, detail: { action: "read", target: "group-a" } } }] }] };
   mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : focusPath(url) ? {focus} : view), { status: 200 }));
 });
+
+afterEach(() => { vi.unstubAllGlobals(); observed.clear(); });
 
 describe("Agent work view", () => {
   it("opens and scrolls to the reply's recorded wake, including a different reply in the same Agent", async () => {
@@ -49,7 +66,7 @@ describe("Agent work view", () => {
     expect(document.getElementById('work-turn-main-new-turn')).toBeInTheDocument();
     expect(document.getElementById('work-turn-main-new-turn')).not.toHaveAttribute('open');
     expect(screen.queryByText('中间轮次尚未加载')).not.toBeInTheDocument();
-    expect(document.getElementById('work-turn-main-old-turn')?.nextElementSibling).toBe(screen.getByRole('button', {name: '更早轮次'}));
+    expect(document.getElementById('work-turn-main-old-turn')?.nextElementSibling).toBe(earlierPage());
     expect(await screen.findByRole('button', {name: /inbox/})).toBeVisible();
     await waitFor(() => expect(scroll).toHaveBeenCalled());
     expect(screen.queryByRole('button', {name: '关闭子轨迹'})).not.toBeInTheDocument();
@@ -79,12 +96,12 @@ describe("Agent work view", () => {
     });
     const {router} = renderWork('/settings/agents/global?view=work&message_id=A');
     const card = (id: number) => document.getElementById(`work-turn-main-${id}`);
-    const earlier = () => screen.getByRole('button', {name: '更早轮次'});
+    const earlier = () => earlierPage();
     const gaps = () => screen.queryAllByText('中间轮次尚未加载');
     await waitFor(() => expect(card(7)).toHaveAttribute('open'));
     expect(requested).toEqual([null]);
     expect(card(11)?.nextElementSibling).toBe(earlier());
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(9)).toBeInTheDocument());
     expect(requested).toEqual([null, '11']);
     expect(gaps()).toHaveLength(1); // The one missing turn is 8, even though sequence positions are sparse.
@@ -99,18 +116,18 @@ describe("Agent work view", () => {
     await waitFor(() => expect(card(7)).toHaveAttribute('open'));
     expect(requested).toEqual([null, '11']);
 
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(8)).toBeInTheDocument());
     expect(gaps()).toHaveLength(1);
     expect(card(7)?.nextElementSibling).toBe(earlier());
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(5)).toBeInTheDocument());
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(4)).toBeInTheDocument());
     expect(gaps()).toHaveLength(0);
     expect(requested).toEqual([null, '11', '9', '7', '5']);
     expect(document.querySelectorAll('#work-turn-main-3')).toHaveLength(1);
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(1)).toBeInTheDocument());
     expect(requested.at(-1)).toBe('3');
   });
@@ -131,7 +148,7 @@ describe("Agent work view", () => {
     expect(card(latest - 1)).toBeInTheDocument();
     expect(card(1)).toHaveAttribute('open');
     expect(mocks.fetch.mock.calls.filter(([url]) => focusPath(String(url)))).toHaveLength(1);
-    const earlier = screen.getByRole('button', {name: '更早轮次'});
+    const earlier = earlierPage();
     const gap = screen.queryByText('中间轮次尚未加载');
     if (latest === 3) {
       expect(gap).not.toBeInTheDocument();
@@ -161,9 +178,9 @@ describe("Agent work view", () => {
     expect(document.getElementById('work-turn-main-turn')).toBeInTheDocument();
     const child = screen.getByRole('button', {name: '关闭子轨迹'}).closest('aside')!;
     const gap = await within(child).findByText('中间轮次尚未加载');
-    const earlier = within(child).getByRole('button', {name: '更早轮次'});
+    const earlier = earlierPage(child);
     expect(earlier.nextElementSibling).toBe(gap);
-    fireEvent.click(earlier);
+    reachEarlierPage(earlier);
     await waitFor(() => expect(document.getElementById('work-turn-retired-2')).toBeInTheDocument());
     expect(within(child).queryByText('中间轮次尚未加载')).not.toBeInTheDocument();
   });
@@ -487,4 +504,158 @@ it.each([
   expect(callouts).toHaveLength(text?1:0);
   if(text)expect(callouts[0]).toHaveTextContent(text);
   expect(result.container.querySelector('.im-work-latest')).toHaveTextContent('42');
+});
+
+it("refreshes only the separate head and opened active detail, and fills a new history gap on demand", async () => {
+  const turn = (id: number, status = "completed", session = "main") => ({
+    ...view.turns[0], session_id: session, turn_id: String(id), seq: id * 5, status,
+    items: [], items_deferred: true,
+  });
+  const requested: string[] = [];
+  let newest = 10;
+  let revision = 20;
+  let main = "main";
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url === "/im/v1/conversations") return new Response(JSON.stringify({items: []}));
+    requested.push(url);
+    const q = new URL(url, "http://nano.test").searchParams;
+    if (url.includes("/items?")) {
+      const delta = q.has("after_revision");
+      const older = q.get("after_seq") === "1";
+      const item = (second: boolean, changed = false) => ({
+        item_id: second ? "second" : "first", seq: second ? 2 : 1, revision: changed ? 21 : second ? 20 : 19,
+        kind: "message", payload: {text: changed ? "Updated same item" : second ? "Original second item" : "First item"},
+      });
+      return new Response(JSON.stringify(delta ? {items: revision > 20 && q.get("after_revision") === "20" ? [item(true, true)] : [], revision, next_cursor: null}
+        : {items: [item(older)], revision: 20, next_cursor: older ? null : "1"}));
+    }
+    if (url.endsWith("/sessions/main")) return new Response(JSON.stringify({session_id: "main", scope: "global_main"}));
+    const retired = url.includes("/sessions/main/");
+    const id = retired ? "main" : main;
+    const before = q.get("before_turn");
+    const head = before ? Number(before) - 1 : retired ? 16 : newest;
+    return new Response(JSON.stringify({
+      ...view, catalog: "separate", main_session_id: id, revision,
+      turns: [turn(head, head === 10 ? "running" : "completed", id), turn(head - 1, "completed", id)],
+      next_cursor: String(head - 1), next_turn_id: String(head - 2),
+    }));
+  });
+  renderWork();
+  const card = (id: number, session = "main") => document.getElementById(`work-turn-${session}-${id}`);
+  const notify = () => act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: "agent.work.updated", payload: {agent_id: "global"}}));
+  await waitFor(() => expect(card(10)).toBeInTheDocument());
+  fireEvent.click(card(10)!.querySelector("summary")!);
+  expect(await screen.findByText("First item")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "加载更多过程"}));
+  expect(await screen.findByText("Original second item")).toBeVisible();
+
+  for (const id of [8, 6, 4]) {
+    reachEarlierPage();
+    await waitFor(() => expect(card(id)).toBeInTheDocument());
+  }
+  const oldRequests = () => requested.filter(url => url.includes("before_turn=") || url.includes("after_seq=")).length;
+  const originalReadCount = oldRequests();
+  revision = 21;
+  notify();
+  expect(await screen.findByText("Updated same item")).toBeVisible();
+  expect(screen.queryByText("Original second item")).not.toBeInTheDocument();
+  expect(oldRequests()).toBe(originalReadCount);
+
+  newest = 16;
+  notify();
+  await waitFor(() => expect(card(16)).toBeInTheDocument());
+  expect(card(10)).toHaveAttribute("open");
+  expect(card(4)).toBeInTheDocument();
+  expect(await screen.findByText("中间轮次尚未加载")).toBeInTheDocument();
+  expect(oldRequests()).toBe(originalReadCount);
+  reachEarlierPage();
+  await waitFor(() => expect(card(14)).toBeInTheDocument());
+  reachEarlierPage();
+  await waitFor(() => expect(card(12)).toBeInTheDocument());
+  expect(screen.queryByText("中间轮次尚未加载")).not.toBeInTheDocument();
+  expect(requested.filter(url => url.includes("before_turn=")).every(url => url.includes("/sessions/main/turns?"))).toBe(true);
+
+  main = "replacement";
+  newest = 10;
+  notify();
+  await waitFor(() => expect(card(10, "replacement")).toBeInTheDocument());
+  expect(card(10)).not.toBeInTheDocument();
+  reachEarlierPage();
+  await waitFor(() => expect(card(8, "replacement")).toBeInTheDocument());
+  expect(requested.at(-1)).toContain("/sessions/replacement/turns?");
+});
+
+it("opens a separate execution directly, without looking it up in the catalog", async () => {
+  const calls: string[] = [];
+  view = {...view, catalog: "separate", turns: [{...view.turns[0], items: [], items_deferred: true}]};
+  mocks.fetch.mockImplementation(async (url: string) => {
+    calls.push(url);
+    return new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []}
+      : url.includes("/items?") ? {items: [{item_id: "sender", seq: 5, kind: "message", payload: {text: "Child message", source_session_id: "old-direct-child"}}], revision: 5, next_cursor: null}
+      : url.includes("/sessions/old-direct-child/turns") ? {turns: [], next_cursor: null}
+      : url.endsWith("/sessions/old-direct-child") ? {session_id: "old-direct-child", scope: "subagent", description: "A deeply archived execution"}
+      : view));
+  });
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  fireEvent.click(await screen.findByRole("button", {name: "查看关联执行"}));
+  expect(await screen.findByText("A deeply archived execution")).toBeVisible();
+  expect(calls.some(url => url.includes("/sessions/old-direct-child/turns?view=summary&catalog=separate"))).toBe(true);
+  expect(calls.some(url => url.includes("/work/sessions?"))).toBe(false);
+});
+
+it("reads final item revisions after an older active request completes", async () => {
+  let status = "running";
+  let revision = 20;
+  let release!: () => void;
+  let deltas = 0;
+  const item = (text: string, rev: number) => ({item_id: "result", seq: 1, revision: rev, kind: "message", payload: {text}});
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url === "/im/v1/conversations") return new Response(JSON.stringify({items: []}));
+    if (url.includes("after_revision=")) {
+      if (++deltas === 1) {
+        await new Promise<void>(resolve => { release = resolve; });
+        return new Response(JSON.stringify({items: [], next_cursor: null, revision: 20}));
+      }
+      return new Response(JSON.stringify({items: [item("Final result after pending fetch",22)], next_cursor: null, revision: 22}));
+    }
+    if (url.includes("/items?"))
+      return new Response(JSON.stringify({items: [item("Old running result",20)], next_cursor: null, revision: 20}));
+    return new Response(JSON.stringify({...view, catalog:"separate", revision, main_execution:status,
+      turns:[{...view.turns[0], status, items:[], items_deferred:true}]}));
+  });
+  renderWork();
+  const card = () => document.getElementById("work-turn-main-turn")!;
+  const notify = () => act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType:"agent.work.updated",payload:{agent_id:"global"}}));
+  await waitFor(() => expect(card()).toBeInTheDocument());
+  fireEvent.click(card().querySelector("summary")!);
+  expect(await screen.findByText("Old running result")).toBeVisible();
+  revision=21;notify();
+  await waitFor(() => expect(deltas).toBe(1));
+  status="completed";revision=22;notify();
+  await waitFor(() => expect(card().querySelector("summary")).toHaveTextContent("已完成"));
+  release();
+  expect(await screen.findByText("Final result after pending fetch")).toBeVisible();
+  expect(deltas).toBe(2);
+});
+
+it("finds a late exact child on demand for an already loaded tool", async () => {
+  const calls: string[] = [];
+  view = {...view, catalog: "separate", turns: [{...view.turns[0], items: [], items_deferred: true}]};
+  mocks.fetch.mockImplementation(async (url: string) => {
+    calls.push(url);
+    return new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []}
+      : url.includes("/items?") ? {items: [{item_id: "tool:read", seq: 5, kind: "tool", payload: {id:"read", name:"read", status:"completed"}}], revision: 5}
+      : url.includes("/work/sessions?") ? {sessions: [{session_id:"late-child"}], match_mode:"exact"}
+      : url.includes("/sessions/late-child/turns") ? {turns: [], next_cursor: null}
+      : url.endsWith("/sessions/late-child") ? {session_id:"late-child", scope:"subagent", description:"Late exact child"}
+      : view));
+  });
+  renderWork();
+  fireEvent.click(await screen.findByText("Inbox 唤醒"));
+  fireEvent.click(await screen.findByRole("button", {name: /read.*调用完成/}));
+  expect(calls.some(url => url.includes("/work/sessions?"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", {name: "查看子执行"}));
+  expect(await screen.findByText("Late exact child")).toBeVisible();
+  expect(calls.find(url => url.includes("/work/sessions?"))).toContain("tool_call_id=read");
 });

@@ -643,6 +643,18 @@ CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,sche
 
 CREATE INDEX IF NOT EXISTS agent_work_turns_sequence ON agent_work_turns(session_id,seq DESC);
 CREATE INDEX IF NOT EXISTS agent_work_items_sequence ON agent_work_items(session_id,turn_id,seq);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_catalog ON agent_work_sessions(root_agent_id,session_id);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_current_main ON agent_work_sessions(root_agent_id,session_id)
+  WHERE scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0;
+CREATE INDEX IF NOT EXISTS agent_work_sessions_parent_call
+  ON agent_work_sessions(root_agent_id,parent_session_id,json_extract(payload,'$.parent_tool_call_id'),session_id);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_child_agent
+  ON agent_work_sessions(root_agent_id,json_extract(payload,'$.child_agent_id'),session_id);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_parent_child
+  ON agent_work_sessions(root_agent_id,parent_session_id,json_extract(payload,'$.child_agent_id'),session_id);
+CREATE INDEX IF NOT EXISTS agent_work_turns_usage ON agent_work_turns(session_id,seq DESC)
+  WHERE json_type(payload,'$.usage')='object';
+CREATE INDEX IF NOT EXISTS agent_work_items_revision ON agent_work_items(session_id,turn_id,revision);
 CREATE INDEX IF NOT EXISTS conversation_events_time ON conversation_events(created_at);
 CREATE INDEX IF NOT EXISTS conversation_events_by_chat ON conversation_events(conversation_id,event_id,created_at);
 
