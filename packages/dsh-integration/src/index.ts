@@ -47,6 +47,7 @@ import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
 import { installLlmAttribution } from './llm-attribution.js';
+import { attachModelConnectionRetry } from './model-connection-retry.js';
 import { installStandaloneModelRetry } from './standalone-model-retry.js';
 import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
@@ -152,7 +153,7 @@ export default class NanoRuntime {
     const lifecycle = this.lifecycle = new ColdLifecycleBarrier(ctx);
     const deletion = !inspection && config?.agentDeletion ? SessionDeletion.forRuntime(ctx, process.env.DSH_HOME!) : undefined;
     installStandaloneModelRetry(ctx);
-    installLlmAttribution(ctx, sessionId => {
+    const takeConnectionFailure = installLlmAttribution(ctx, sessionId => {
       let session = ctx.sessions.get(SessionId(sessionId));
       while (session && !this.bindings.has(session.id) && session.header.parentSession) {
         const parent = ctx.sessions.get(session.header.parentSession);
@@ -314,6 +315,7 @@ export default class NanoRuntime {
       if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
       await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);
+      attachModelConnectionRetry(agent, takeConnectionFailure);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
       history.attach(agent, config, () => modelPolicy.route(agent));
       if (agentId) lifecycle.assertEnabled(agentId);
