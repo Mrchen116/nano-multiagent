@@ -176,7 +176,7 @@ it('reports a lost session when no window binds exactly and ends the instance', 
   expect(driver.count('end_session')).toBe(1);
 });
 
-it('dispatches click through the latest bind and reports a changed effect without returning read_id', async () => {
+it('checks the live tab and dispatches click through the binding that minted its ref', async () => {
   const driver = new BrowserFixtureDriver({ url: 'https://example.com', title: 'Example', textOnClick: 'After click' });
   const control = controlFor(driver);
   const agent = openAgent('agent-a');
@@ -188,7 +188,9 @@ it('dispatches click through the latest bind and reports a changed effect withou
   expect('read_id' in result).toBe(false);
   const click = driver.calls.find(call => call.tool === 'browser_click');
   expect(click?.args).toMatchObject({ ref: 'p1:0', delivery_mode: 'background' });
-  expect(String(click?.args.target_id)).toMatch(/^bt-10-/);
+  const snapshot = driver.calls.find(call => call.tool === 'get_browser_state' && call.args.snapshot_format);
+  expect(click?.args).toMatchObject({ target_id: snapshot!.args.target_id, tab_id: snapshot!.args.tab_id });
+  expect(driver.calls[driver.calls.indexOf(click!) - 1]).toMatchObject({ tool: 'get_browser_state', args: { window_id: '10' } });
   expect(JSON.stringify(result)).not.toContain('bt-');
 });
 

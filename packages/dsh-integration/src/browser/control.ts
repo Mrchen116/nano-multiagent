@@ -186,7 +186,7 @@ export class BrowserControl {
       const maxChars = Math.min(args.max_chars ?? DEFAULT_READ_CHARS, MAX_READ_CHARS);
       const text = page.text.slice(0, maxChars);
       // Action readback is unfiltered, so only compare text from a full read.
-      const record = instance.reads.mint({ ...tab, url: page.url, title: page.title || tab.title }, args.query ? undefined : page.text);
+      const record = instance.reads.mint(bound.target_id, { ...tab, url: page.url, title: page.title || tab.title }, args.query ? undefined : page.text);
       const screenshot = await this.saveScreenshot(workspace, productAgentId, page.screenshot);
       const events = await this.inspectWindows(instance);
       const base = {
@@ -224,7 +224,15 @@ export class BrowserControl {
       const tab = args.action === 'open'
         ? selectTab(bound.tabs, args.tab)
         : selectTab(bound.tabs, { url: read!.url, title: read!.title });
-      const base = { session: instance.label, pid: instance.pid, window_id: instance.windows.get()!.windowId, target_id: bound.target_id, tab_id: tab.tab_id };
+      // A fresh bind checks the live window and tab; refs resolve only under
+      // the target/tab pair that minted the snapshot, which the driver revalidates.
+      const base = {
+        session: instance.label,
+        pid: instance.pid,
+        window_id: instance.windows.get()!.windowId,
+        target_id: read?.targetId ?? bound.target_id,
+        tab_id: read?.tabId ?? tab.tab_id,
+      };
       let baselineUrl = tab.url;
       let baselineText: string | undefined;
       if (args.action === 'open') {

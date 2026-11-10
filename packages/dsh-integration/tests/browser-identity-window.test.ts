@@ -39,8 +39,8 @@ it('recasts target and tab ids on every bind and keeps ids out of the identity e
 it('treats only the latest read_id as current and detects URL or tab drift', () => {
   const registry = new ReadRegistry();
   const tab = tabs([{ url: 'https://a', title: 'A', active: true }])[0]!;
-  const r1 = registry.mint(tab, 'first');
-  const r2 = registry.mint(tab, 'second');
+  const r1 = registry.mint('bt-snapshot', tab, 'first');
+  const r2 = registry.mint('bt-snapshot', tab, 'second');
   expect(r2.readId).not.toBe(r1.readId);
   expect(() => registry.require(r1.readId)).toThrowError(/已过期/);
   expect(registry.validate(r2.readId, tabs([{ url: 'https://a', title: 'A' }]))).toBe(r2);
