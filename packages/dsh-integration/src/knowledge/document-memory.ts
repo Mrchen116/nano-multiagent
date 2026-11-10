@@ -36,20 +36,33 @@ export class DocumentMemory {
       const config = agent && options.configOf(agent);
       if (agent) this.roleOwners.delete(agent);
       if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || ![...options.bindings.values()].some(binding => binding.agentId === config.agentId)) return assembly;
-      const documents = await this.forConfig(config); const view = await documents.context();
+      const binding = options.bindings.get(agent.id);
+      const main = binding?.agentId === config.agentId;
+      const documents = await this.forConfig(config); const view = await documents.context({ includePreview: main });
+      const entryPath = join(view.root, 'MEMORY.md');
+      let entryContext: string;
+      if (view.entry !== undefined) {
+        entryContext = `Contents of ${entryPath} — your one-page key memory:\n<memory_content>\n${view.entry || '(empty)'}\n</memory_content>`;
+      } else if (view.entryPreview !== undefined) {
+        entryContext = `Key memory exceeds the inline limit. Later content is omitted. Read ${entryPath} for the complete file.${view.entryPreview
+          ? `\n<memory_content>\n${view.entryPreview}\n</memory_content>`
+          : '\nNo complete opening block fits the preview budget.'}`;
+      } else {
+        entryContext = `Key memory is too long to include here. Read ${entryPath} for the current contents.`;
+      }
       const previous = this.seen.get(agent);
       const changed = previous ? [...new Set([...Object.keys(previous), ...Object.keys(view.versions)])].filter(path => previous[path] !== view.versions[path]) : [];
       this.seen.set(agent, view.versions);
-      assembly.contexts.push({ name: 'nano-document-memory', text: [
+      assembly.variables.nano_document_memory = [
         'Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use read/glob/grep for memory files. Only Dreaming updates formal memory; never use write/edit, shell or other tools to bypass this boundary. Load nano-memory for memory guidance.',
         config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
         `Memory directory: ${view.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
         'Read the complete relevant pages before applying a conclusion. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Apply corrections and requests to stop using a memory immediately within their stated scope, without a maintenance call. Dreaming reads those original conversation messages and updates durable memory later. A correction limited to this turn does not delete a lasting preference. Do not claim memory is saved until the host reports it. Other conversations may still see old memory until Dreaming completes.',
-        view.entry === undefined ? `Key memory is too long to include here. Read ${join(view.root, 'MEMORY.md')} for the current contents.` : `Contents of ${join(view.root, 'MEMORY.md')} — your one-page key memory:\n<memory_content>\n${view.entry || '(empty)'}\n</memory_content>`,
+        entryContext,
         changed.length ? `These pages changed since your previous model request; reread before the next relevant decision: ${changed.join(', ')}` : '',
-      ].filter(Boolean).join('\n\n') });
-      const binding = options.bindings.get(agent.id);
-      if (binding?.agentId === config.agentId) {
+      ].filter(Boolean).join('\n\n');
+      assembly.contexts.push({ name: 'nano-document-memory', text: '{{nano_document_memory}}' });
+      if (main) {
         const role = await this.readRole(config, true);
         if (role) {
           const owner = config.personal?.ownerId ?? binding.ownerId;

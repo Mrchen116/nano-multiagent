@@ -75,15 +75,15 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     const inputIndex = external.messages.indexOf(externalInput);
     expect(externalInput.source.actorId).toBe('feishu-open-id');
     expect(external.messages[inputIndex - 1].content).toEqual([{type:'text',text:'Host-verified role agreement sender for the following direct input: bound account.'}]);
-    const currentRoleContext = async () => {
+    const currentContext = async (fragment: string) => {
       const request = JSON.parse((await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').at(-1)!);
       return request.messages.flatMap((message: {content?: Array<{text?: string}>}) => message.content ?? [])
-        .findLast((block: {text?: string}) => block.text?.includes('Role agreement file:'))?.text;
+        .findLast((block: {text?: string}) => block.text?.includes(fragment))?.text;
     };
     const oversized = 'OVERSIZED_ROLE_BODY ' + '💡'.repeat(1000);
     await writeFile(rolePath, oversized);
     await submit('check-oversized-role', 'collaborator');
-    const tooLong = await currentRoleContext();
+    const tooLong = await currentContext('Role agreement file:');
     expect(tooLong).toContain('exceeds the 2000 UTF-16 code unit limit');
     expect(tooLong).toContain('shorten the existing agreement while preserving its meaning');
     expect(tooLong).toContain('Before continuing other work, check');
@@ -97,7 +97,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     await writeFile(unrelated, 'UNRELATED_ROLE_LINK_TARGET');
     await symlink(unrelated, rolePath);
     await submit('check-unreadable-role');
-    const unavailable = await currentRoleContext();
+    const unavailable = await currentContext('Role agreement file:');
     expect(unavailable).toContain('could not read the saved role file');
     expect(unavailable).toContain('restore a readable regular file');
     expect(unavailable).toContain('Before continuing other work, check');
@@ -108,6 +108,26 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     expect(diagnostic).toMatchObject({isError: true});
     expect(JSON.stringify(diagnostic.content)).toContain('The role path is not a regular file in the assigned workspace.');
     expect(JSON.stringify(diagnostic.content)).not.toContain('UNRELATED_ROLE_LINK_TARGET');
+    const beginning = '# Key memory\n\nUse {{customer_name}} in templates.\nStill the first paragraph.\n\n';
+    const firstItem = `- ${'💡'.repeat(3500)}\n  Continuation of the first item.\n  - Nested item.`;
+    const omitted = '\n- OMITTED_ITEM\n  ';
+    const prefix = beginning + firstItem + omitted;
+    const oversizedEntry = prefix + 'x'.repeat(9461 - prefix.length);
+    await writeFile(entry, oversizedEntry);
+    await submit('preview-oversized-memory');
+    const preview = await currentContext('Memory directory:');
+    expect(preview).toContain(`<memory_content>\n${beginning}${firstItem}\n</memory_content>`);
+    expect(preview).toContain('Later content is omitted');
+    expect(preview).toContain(join(workspace, '.nanoassistant/memory/MEMORY.md'));
+    expect(preview).not.toContain('OMITTED_ITEM');
+    expect(await readFile(entry, 'utf8')).toBe(oversizedEntry);
+
+    const exactLimit = '💡'.repeat(4000);
+    await writeFile(entry, exactLimit);
+    await submit('load-at-memory-limit');
+    const fullMemory = await currentContext('Memory directory:');
+    expect(fullMemory).toContain(`<memory_content>\n${exactLimit}\n</memory_content>`);
+    expect(fullMemory).not.toContain('Later content is omitted');
     expect((await client.rpc.request('knowledge.facts',{}) as {reviews:unknown[]}).reviews).toEqual([]);
     await client.shutdown();client=undefined;
   } catch(error) { throw new Error(`${String(error)}\n${logs}`,{cause:error}); }

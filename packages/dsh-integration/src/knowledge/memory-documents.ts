@@ -4,6 +4,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { atomicWrite } from './files.js';
 
 export const memoryEntryLimit = 8000;
@@ -23,6 +24,19 @@ interface DocumentState {
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const splitNul = (text: string) => text.split('\0').filter(Boolean);
+
+function memoryEntryPreview(text: string): string {
+  let end = 0;
+  for (const block of fromMarkdown(text).children) {
+    for (const part of block.type === 'list' ? block.children : [block]) {
+      const offset = part.position?.end.offset;
+      if (offset === undefined || offset > memoryEntryLimit) return text.slice(0, end);
+      // A heading belongs with the content it introduces.
+      if (part.type !== 'heading') end = offset;
+    }
+  }
+  return text.slice(0, end);
+}
 
 function command(cwd: string, args: string[], input?: string, extraEnv?: Record<string, string>,
   {raw = false, signal}: {raw?: boolean; signal?: AbortSignal} = {}): Promise<string> {
@@ -157,12 +171,17 @@ export class MemoryDocuments {
     }
     return Object.fromEntries(Object.entries(this.hashes).sort(([a], [b]) => a.localeCompare(b)));
   }
-  /** Read current saved memory; background verification does not hide foreground knowledge. */
-  async context() {
+  /** Read current saved memory; background verification does not hide foreground knowledge.
+   *
+   * Args:
+   *   options: Request a complete-block prefix of an oversized entry for the main Agent.
+   */
+  async context({ includePreview = false } = {}) {
     const versions = await this.versions();
     const entry = await readFile(join(this.root, 'MEMORY.md'), 'utf8');
-    return { role: this.role, root: this.root, versions,
-      entry: entry.length <= memoryEntryLimit ? entry : undefined,
+    const fits = entry.length <= memoryEntryLimit;
+    return { role: this.role, root: this.root, versions, entry: fits ? entry : undefined,
+      entryPreview: includePreview && !fits ? memoryEntryPreview(entry) : undefined,
       backupRoot: this.backupRoot };
   }
   /** Tell Dreaming whether saved pages need checking before its next publication. */

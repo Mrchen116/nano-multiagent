@@ -87,6 +87,7 @@
     "cheerio": "1.2.0",
     "dsh-agent-context": "https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.9/dsh-agent-context-0.3.0-rc.9.tgz",
     "js-yaml": "4.1.0",
+    "mdast-util-from-markdown": "2.1.0",
     "proper-lockfile": "4.1.2",
     "undici": "8.11.2",
     "zod": "4.6.5"
