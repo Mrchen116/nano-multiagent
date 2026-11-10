@@ -31,8 +31,13 @@ final class InteractiveRuntimeTests: XCTestCase {
         runtime.leave()
     }
 
-    func testConflictKeepsLocalEditUntilExplicitlyLoadingLatest() async throws {
+    func testGroupConflictKeepsLocalEditUntilExplicitlyLoadingLatest() async throws {
         let (runtime, transport) = try await makeRuntime()
+        runtime.chat.conversations = [Conversation(
+            id: "chat", title: "Chat", participants: [], participant_ids: ["viewer"], type: "group",
+            owner_id: "viewer", creator_id: "viewer", is_pinned: false, is_muted: false,
+            unread_count: 0, created_at: "now"
+        )]
         await runtime.load()
         await transport.setConflict(true)
         runtime.edit(try XCTUnwrap(find("Input", runtime.root)), form: nil, value: .string("45"))

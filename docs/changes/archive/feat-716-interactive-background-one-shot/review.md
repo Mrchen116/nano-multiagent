@@ -230,3 +230,4 @@ c91f限定关闭后，作者补核“draft已clean、动作POST已准入、等�
 - iOS 隔离 IM 与专用模拟器（`bdc40e5bd`）实际通过 `testNativeConflictAutomaticallyUsesLatestDraft`：同一账号预先保存更新值，随后在客户端点一次发送。实际 WKWebView 字段显示已同步的值，完整正文只出现一次，画面无对比入口。不是实机测试。
 - `validated_at=c7bd63f67`（浏览器）、`validated_at=bdc40e5bd`（原生旅程、定向回归、代码和 delta 复审）；`executed_base=56c5083770805182832fc52543b0c35aef5a430c`。同步后的 `effective_base=199165d7d1fa4bd6da36f253211f3344fbd9333c`，`effective_through=bcbfbd9a04556c36d095e15ff2205e987bd44aa2`。基线增量只涉及 Global 的后代 Work 读取、其测试及归档，对本轮客户端与 IM 保存、发送链路无增量；本轮证据保留。
 - 同步后在相同客户端源码重跑原生 `InteractionDraftLifecycleTests`、`SendRecoveryTests`：32 项通过。
+- GitHub 首轮全量原生回归发现旧的手动采用用例未声明会话类型，实际走了私聊自动同步。将该用例明确设为群聊，保留原有手动采用断言；私聊同一次发送自动同步及读取失败后恢复由 `InteractionDraftLifecycleTests` 和隔离模拟器旅程覆盖。该修订只改测试数据。
