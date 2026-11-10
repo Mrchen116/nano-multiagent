@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { promisify } from "node:util";
 import {
   open,
@@ -229,6 +230,12 @@ export function applyGatewayEnvironment(config: NodeConfigurationFile) {
         "gateway.environment requires valid string environment values",
       );
     process.env[key] = value;
+  }
+  // The official bundle is also available to a launchd Gateway without shell dotfiles.
+  const cuaDriverBin = "/Applications/CuaDriver.app/Contents/MacOS";
+  if (process.platform === "darwin" && existsSync(join(cuaDriverBin, "cua-driver"))) {
+    const paths = (process.env.PATH ?? "").split(":").filter(Boolean);
+    process.env.PATH = [cuaDriverBin, ...paths.filter(path => path !== cuaDriverBin)].join(":");
   }
   // launchd starts Node before this config is read; assigning the flag alone
   // leaves the existing HTTP/HTTPS agents and fetch dispatcher on their old route.

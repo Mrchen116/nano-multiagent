@@ -87,6 +87,18 @@ if(m.updater_protocol!==undefined) {
   # Reuse only complete installations; a failed attempt never replaces a running version.
   if [ ! -e "$NANO_RELEASE" ]; then mv "$NANO_TEMP/package" "$NANO_RELEASE"; fi
 fi
+if [ "$(uname -s)" = Darwin ] &&
+   [ -f "$NANO_RELEASE/packages/personal-assistant/assets/skills/cua-driver/SKILL.md" ] &&
+   [ ! -x /Applications/CuaDriver.app/Contents/MacOS/cua-driver ]; then
+  echo 'Installing CuaDriver for computer use…'
+  fetch_package 'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/_install-rust.sh' "$NANO_TEMP/install-cua-driver.sh"
+  test "$(hash_file "$NANO_TEMP/install-cua-driver.sh")" = '0be0bd269056a7c0c5b15e77ff6c64c880267d091957c97efc19103380e4aeb7'
+  # The official installer sources its sibling before trying the live URL.
+  fetch_package 'https://raw.githubusercontent.com/trycua/cua/cua-driver-rs-v0.38.0/libs/cua-driver/scripts/_install-common.sh' "$NANO_TEMP/_install-common.sh"
+  test "$(hash_file "$NANO_TEMP/_install-common.sh")" = '0d5d4b023bfe9111db810b0fde2be23188b703a94093b438edc79b0af8f4b987'
+  CUA_DRIVER_RS_VERSION=0.38.0 CUA_DRIVER_RS_TELEMETRY_ENABLED=0 \
+    /bin/bash "$NANO_TEMP/install-cua-driver.sh" --no-modify-path --bin-dir "$NANO_ROOT/tooling/bin"
+fi
 echo '4/4 Confirm this computer in your browser…'
 "$NANO_NODE" "$NANO_RELEASE/apps/node/lib/cli.js" setup --im-service-url "$NANO_ORIGIN"
 echo 'Your computer is connected. Return to Nano to choose a model and create your assistant.'
