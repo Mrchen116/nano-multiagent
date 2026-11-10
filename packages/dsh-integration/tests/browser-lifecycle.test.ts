@@ -1,10 +1,15 @@
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BrowserControl } from '../src/browser/control.js';
 import type { BrowserError } from '../src/browser/errors.js';
 import { liveTurnSession } from '../src/policy/turn.js';
 import { BrowserFixtureDriver, event, fakeAgent, humanMessage } from './helpers/browser-fakes.js';
 
 const NOW = 1_000_000;
+const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+
+// These fake-driver lifecycle tests exercise macOS policy on every CI host.
+beforeEach(() => Object.defineProperty(process, 'platform', { ...platform, value: 'darwin' }));
+afterEach(() => Object.defineProperty(process, 'platform', platform));
 
 function holdProbe(driver: BrowserFixtureDriver) {
   const entered = Promise.withResolvers<void>();
