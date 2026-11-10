@@ -461,11 +461,12 @@ export default class NanoRuntime {
       for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
-      // Startup cleanup is deliberately non-blocking and scoped to configured
-      // Agent workspaces; it never walks the home directory or the repository.
-      void browser.sweepScreenshots([...new Map([...this.configurations.values()].map(agent => [agent.agentId, agent])).values()]
-        .map(agent => ({ agentId: agent.agentId, workspace: agent.workspace })))
-        .catch(error => ctx.logger.warn('browser screenshot startup sweep failed:', error));
+      if (!config.observationOnly) {
+        // Startup cleanup is non-blocking and scoped to configured Agent workspaces.
+        void browser.sweepScreenshots([...new Map([...this.configurations.values()].map(agent => [agent.agentId, agent])).values()]
+          .map(agent => ({ agentId: agent.agentId, workspace: agent.workspace })))
+          .catch(error => ctx.logger.warn('browser screenshot startup sweep failed:', error));
+      }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
     });
     handle('session.ensure', value => this.ensure(value as SessionBinding));

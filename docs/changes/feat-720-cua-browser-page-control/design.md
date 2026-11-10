@@ -56,11 +56,11 @@
 
 **证据。** 同一窗口、同一 about:blank 标签连续 3 次 `get_browser_state`（间隔 0.3s、中间无动作）得到 3 组不同的 `target_id` 与 `tab_id`（L493–501）；拿旧 id 操作返回 `browser_tab_not_found`（L291–299、L502–506）。`tabs[]` 顺序是活跃/MRU 语义：切换后 active 跑到 index 0、新标签插到 index 0（L305–307、L508–520）。ref 命名空间是 `p<snapshot>:<index>`，新快照作废旧 ref（L528–529、以及 `browser_click` schema 的 ref 说明）。
 
-**判断。** 驱动在 0.38.0 上不提供跨调用的稳定句柄；把 `tab_id`/`target_id` 缓存在我们这层必然在生产上变成“点错标签/报 tab not found”。稳定身份只有“窗口 `(pid, window_id)` + 在该窗口一次 bind 结果里按 `url`+`title`+`active` 认标签”。
+**判断。** 每次 bind 都生成一组新句柄。宿主用窗口 `(pid, window_id)` 和实时标签身份选定目标。驱动在生成元素引用的那组 `target_id`/`tab_id` 下查找快照。将旧 ref 与新 bind 的句柄配对会拒绝动作。[CuaDriver 0.38.0 ref 查找](https://github.com/trycua/cua/blob/cua-driver-rs-v0.38.0/libs/cua-driver/rust/crates/cua-driver-core/src/browser/store.rs#L343)
 
 **实现约束。**
 
-1. 每个公开工具调用内部都完整执行一次“解析窗口 → bind → 选标签 → 用本次返回的 `target_id`/`tab_id` 执行”，不跨调用复用任何驱动 id；缓存只允许存在于单次调用栈内。
+1. 每个公开工具调用都重新绑定已登记的窗口并唯一匹配当前标签。导航、读取及动作后的回读使用本次绑定。引用动作携带最近一次 `read_id` 的 ref 及其原始成组句柄，驱动在派发前重新验证该窗口、标签和元素。这组句柄仅随最近一次快照保留，不用作长期身份。
 2. 对外身份使用我们自己铸造的 `read_id`（单调递增的快照游标），绝不对模型暴露 `tab_id`/`target_id`。
 3. 选标签只按 `url`+`title`+`active` 匹配；匹配到多个 → `browser_tab_ambiguous` 并列出候选，不按 index 取第一个。`tabs[]` 的 index 只用于展示，不参与判定。
 4. ref 只在最近一次 `read` 的 `read_id` 下有效；驱动报 ref 失效或动作时 URL 与 `read_id` 记录不一致 → `browser_snapshot_stale`，要求重新读取，不做“再点一次试试”。
@@ -179,7 +179,7 @@ driver-owned isolated Chrome（独立 profile；随浏览器会话/空闲结束�
 这是本次实测用过的路径（证据 L4–5），错误形状（refusal/hint）可原样转成结构化结果；不引入 MCP 客户端、不解析私有 socket 协议（未文档化，升级即碎）。spawn 使用参数数组、不拼 shell，避免 URL/输入文本进入命令解析；设置单次超时（默认 20s，导航 30s）与输出上限（截图走 base64，上限 32 MB），超时杀子进程并返回 `browser_driver_timeout`。
 
 **D3：身份是“窗口 `(pid, window_id)` + 一次 bind 里的 `url`+`title`+`active`”，对外用 `read_id`。**
-理由与实现约束见“约束一”。拒绝备选：缓存 `tab_id`（实测 3/3 次重铸）、按 `tabs[]` index 认标签（活跃/MRU 语义，实测新标签插到 index 0）、把 `continuation` 当稳定游标（驱动有该字段，但本次未验证语义与生命周期，v1 不用）。
+理由与实现约束见“约束一”。每次调用检查实时身份。引用动作仅随最新快照保留产生 ref 的驱动句柄，由驱动重新验证。
 
 **D4：窗口事件三分类，噪声不算失败，未分类结束本次调用并交回模型。**
 理由见“约束三”。这是把“出现意外就停”的安全护栏从“驱动说什么就停”改成“我们确认过才停”。拒绝备选：见 `opened new window(s)` 就停（第一轮实测会让正常输入杀死任务）、或见文案就忽略（会把真实弹窗吞掉）。v1 没有“批次”概念，因此护栏写在错误文本（模型可见指导）里，不假装宿主能阻止模型的下一次调用。
@@ -256,9 +256,9 @@ model → browser_read {}
   TurnGate（打开中的轮次里最近人类发言 ≤300s？子 Agent 上溯到非子 Agent 祖先）→ 无实例则 prepare → 登记主窗口 → bind → snapshot semantic_v2
   → 返回 read_id=R1、tab(url,title,active,window_id)、refs
 model → browser_act {action:"click", read_id:R1, ref:"p12:3"}
-  static guard → NanoApproval（interactive 才有卡片）→ bind（新 target/tab）→ 选主窗口
+  static guard → NanoApproval（interactive 才有卡片）→ 重新绑定主窗口并唯一匹配标签
   → 校验 read_id 仍是该标签最新读取、URL 未变
-  → browser_click {target_id,tab_id,ref,delivery_mode:"background"}
+  → browser_click {快照原始 target_id,快照原始 tab_id,ref,delivery_mode:"background"}
   → 回读（bind+snapshot）→ 窗口集合检查
   → 真窗口？end_session 归还前台 → 返回 foreground_released + event
 model → browser_read {}（需要更多内容时；若实例已因真窗口结束，需要新的用户轮次）
@@ -293,9 +293,9 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 
 | 判定对象 | 稳定依据 | 只在本调用内有效 | 不确定时 |
 |---|---|---|---|
-| 主窗口 | `(pid, window_id)`，pid 必须来自本 Agent 的 `browser_prepare` 结果；每实例只登记一个（约束五） | `target_id` | 无候选 → `browser_session_lost`；多候选 → `browser_window_ambiguous`；非登记窗口 → `browser_window_not_registered` |
-| 标签 | 同一次 bind 结果里的 `url` + `title` + `active` 三元匹配，只在主窗口内 | `tab_id` | 多匹配 → `browser_tab_ambiguous`；零匹配 → `browser_tab_not_found` |
-| 元素 | 最近一次读取的 `ref`（`p<snapshot>:<index>`） | 旧快照即作废 | ref 失效 / 页面 URL 变化 → `browser_snapshot_stale` |
+| 主窗口 | `(pid, window_id)`，pid 必须来自本 Agent 的 `browser_prepare` 结果；每实例只登记一个（约束五） | 当前绑定的 `target_id` | 无候选 → `browser_session_lost`；多候选 → `browser_window_ambiguous`；非登记窗口 → `browser_window_not_registered` |
+| 标签 | 同一次 bind 结果里的 `url` + `title` + `active` 三元匹配，只在主窗口内 | 当前绑定的 `tab_id` | 多匹配 → `browser_tab_ambiguous`；零匹配 → `browser_tab_not_found` |
+| 元素 | 最近一次读取的 `ref`（`p<snapshot>:<index>`） | 快照的 `target_id` / `tab_id` 与 ref 成组 | ref 失效 / 页面 URL 变化 → `browser_snapshot_stale` |
 | 读取游标 | 我们铸造的 `read_id`（单调、按会话） | 只对产生它的标签/URL 有效 | 与当前 bind 不一致 → `browser_snapshot_stale` |
 | 新窗口事件 | bind 成功 + 至少一个 `http(s)` tab | 窗口集合只在本调用内比较 | 见错误分类（真窗口 / 噪声 / 未分类）；新窗口不登记为主窗口 |
 
@@ -424,7 +424,7 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 `[worker]` 实现与验证证据：
 
 1. 驱动客户端单测：版本/daemon/权限探测（status 文本匹配失败时错误带原始输出片段）；非 0 退出、空 stdout、非 JSON、缺字段 → `browser_driver_malformed`；超时杀进程；spawn 不经过 shell。
-2. 身份单测（用录制 fixture，不依赖真实浏览器）：连续 bind 返回不同 id 时每次都用新 id；标签匹配按 url/title/active；多匹配 → ambiguous；index 不参与判定；`read_id` 过期/URL 变化 → stale。
+2. 身份单测（用录制 fixture，不依赖真实浏览器）：连续 bind 返回不同 id 时，导航用新绑定，ref 动作用产生该 ref 的原始句柄并检查实时绑定；标签匹配按 url/title/active；多匹配 → ambiguous；index 不参与判定；`read_id` 过期/URL 变化 → stale。
 3. 窗口登记单测：初次 prepare 唯一 exact 候选（包括 about:blank）→ 登记；零个 → `browser_session_lost`；多个 → `browser_window_ambiguous`；请求非主窗口 → `browser_window_not_registered`；弹窗出现后主窗口不变；原主窗口 bind 丢失、仅剩 http(s)/about:blank 弹窗时不得提升弹窗，结束自持实例、旧 read_id 失效。
 4. 事件分类单测（有序决策树）：真窗口（bind 成功 + http(s)）、chrome 噪声（bind 失败 + 无 target/URL + 固定 UI 尺寸 + 空/自带标题）、未分类（bind 失败但噪声证据不完整；bind 成功但 URL 非 http(s)）三组 fixture 的判定与 `events`/`ignored` 输出。
 5. 参数/边界单测：`file://` 被拒；click 无 ref 被拒；参数 schema 不接受 `x`/`y`；scroll 无 ref/delta 被拒；超长文本被拒；非 darwin 不注册；`browser_act` 不含 `close`。
