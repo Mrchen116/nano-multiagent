@@ -49,6 +49,11 @@ export class InboxStore {
     `);
     if (!(this.db.prepare('PRAGMA table_info(relay_receipts)').all() as {name:string}[]).some(c=>c.name==='read_pending'))
       this.db.exec('ALTER TABLE relay_receipts ADD COLUMN read_pending INTEGER NOT NULL DEFAULT 0');
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS relay_receipts_message ON relay_receipts(agent_id,message_id);
+      CREATE INDEX IF NOT EXISTS relay_receipts_pending ON relay_receipts(confirmed)
+        WHERE confirmed>=0 AND (confirmed=0 OR read_pending=1);
+    `);
     this.reviews = new InboxReviews(this.db);
     const publicationColumns = (this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).map(column => column.name);
     if (!publicationColumns.includes('agent_id')) this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
@@ -197,6 +202,23 @@ export class InboxStore {
       ORDER BY confirmed, rowid LIMIT 100
     `).all(channel ?? null, Number(channel === 'feishu')) as {input:string;status:string}[])
       .map(row=>({input:JSON.parse(row.input) as RelayInput,status:row.status}));
+  }
+  /** Derive read badges from durable ingestions, outside the Inbox read transaction.
+   * Args:
+   *   calls: Committed Inbox tool calls to project, or undefined for restart catch-up.
+   */
+  projectReadReceipts(calls?: { sessionId: string; callId: string }[]): void {
+    const scope = calls ? `
+      FROM json_each(?) call
+      JOIN reads r ON r.session_id=json_extract(call.value,'$.sessionId') AND r.call_id=json_extract(call.value,'$.callId')
+      JOIN json_each(r.fragments) part
+      JOIN ingestions g ON g.seq=json_extract(part.value,'$.seq')
+    ` : 'FROM ingestions g';
+    this.db.prepare(`
+      UPDATE relay_receipts SET read_pending=1
+      WHERE read_pending=0 AND confirmed>=0 AND json_extract(input,'$.metadata.agent_receipt')=1
+        AND (agent_id,message_id) IN (SELECT i.agent_id,i.message_id ${scope} JOIN inbox i ON i.seq=g.seq)
+    `).run(...(calls ? [JSON.stringify(calls)] : []));
   }
   /** Enqueue a native session's receipt without adding the message to the Global Inbox. */
   queueNativeReceipt(input: RelayInput, read: boolean): void {
@@ -514,18 +536,12 @@ export class InboxStore {
     try {
       for (const fragment of fragments) {
         this.db.prepare('INSERT OR IGNORE INTO fragments VALUES(?,?)').run(fragment.seq, fragment.part);
-        const row = this.db.prepare('SELECT seq,payload,consumed FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string; consumed: number } | undefined;
+        const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string } | undefined;
         // Older revocations can leave saved reads behind; reject their entire consumption.
         if (!row) { this.db.exec('ROLLBACK'); return false; }
         const count = (this.db.prepare('SELECT count(*) AS n FROM fragments WHERE seq=?').get(fragment.seq) as { n: number }).n;
         if (count === this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length) {
           this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(fragment.seq);
-          const input = JSON.parse(row.payload) as RelayInput;
-          if (!row.consumed) {
-            this.db.prepare(`UPDATE relay_receipts SET read_pending=1
-              WHERE agent_id=? AND message_id=? AND read_pending=0 AND json_extract(input,'$.metadata.agent_receipt')=1`)
-              .run(input.agent_id,input.message.id);
-          }
           if (turn !== undefined) this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(fragment.seq, session, turn);
         }
       }

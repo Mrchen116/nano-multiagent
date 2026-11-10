@@ -58,6 +58,9 @@ export class GlobalAgent {
     im: { task: undefined as Promise<void> | undefined, timer: undefined as ReturnType<typeof setTimeout> | undefined, backoff: 1000 },
     feishu: { task: undefined as Promise<void> | undefined, timer: undefined as ReturnType<typeof setTimeout> | undefined, backoff: 1000 },
   };
+  private receiptKick?: ReturnType<typeof setImmediate>;
+  private receiptCatchUp = true;
+  private readonly receiptReadCalls: { sessionId: string; callId: string }[] = [];
   private readonly agentRecoveries = new Map<string, Promise<void>>();
   private readonly agentRetry = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly agentBackoff = new Map<string, number>();
@@ -168,7 +171,7 @@ export class GlobalAgent {
     const saved = structuredClone(input);
     if (config.personal) saved.metadata.personal_unclassified = true;
     this.options.inbox.acceptRelay(saved,!control && !config.personal && needsAttention(input,config),control);
-    void this.drainReceipts();
+    this.scheduleReceipts();
     const key = `${input.agent_id}:${input.message.id}`;
     const active = this.accepting.get(key); if (active) return active;
     if (control && !this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) return;
@@ -189,14 +192,32 @@ export class GlobalAgent {
     return this.options.relay.request('agent.session.ensure',{node_id:this.options.nodeId,agent_id:binding.agentId,session_id:binding.sessionId})
       .then(()=>{if(this.authorityEpoch===epoch)this.authorities.add(key);});
   }
-  /** Reconcile the shared node receipt outbox for IM and Feishu. */
-  async drainReceipts(): Promise<void> {
-    await Promise.all([this.drainReceiptQueue('im'), this.drainReceiptQueue('feishu')]);
+  /** Schedule badge projection and delivery without making execution wait for either. */
+  scheduleReceipts(): void {
+    if (this.stopped || this.receiptKick) return;
+    this.receiptKick = setImmediate(() => {
+      this.receiptKick = undefined;
+      try {
+        if (this.receiptCatchUp) {
+          this.options.inbox.projectReadReceipts();
+          this.receiptCatchUp = false;
+        }
+        if (this.receiptReadCalls.length) {
+          this.options.inbox.projectReadReceipts(this.receiptReadCalls);
+          this.receiptReadCalls.length = 0;
+        }
+      } catch (error) {
+        this.options.onError(error);
+      }
+      for (const channel of ['im', 'feishu'] as const) {
+        if (!this.receiptQueues[channel].timer) void this.drainReceiptQueue(channel).catch(this.options.onError);
+      }
+    });
+    this.receiptKick.unref();
   }
   private drainReceiptQueue(channel: 'im' | 'feishu'): Promise<void> {
     const queue = this.receiptQueues[channel];
     if (queue.task) return queue.task;
-    clearTimeout(queue.timer);
     const task = (async () => {
       let batch;
       while ((channel === 'feishu' || this.options.relay.ready !== false)
@@ -213,7 +234,10 @@ export class GlobalAgent {
               continue;
             }
             if (!this.stopped) {
-              queue.timer = setTimeout(() => { void this.drainReceiptQueue(channel); }, queue.backoff);
+              queue.timer = setTimeout(() => {
+                queue.timer = undefined;
+                this.scheduleReceipts();
+              }, queue.backoff);
               queue.timer.unref();
               queue.backoff = Math.min(30000, queue.backoff * 2);
             }
@@ -459,7 +483,7 @@ export class GlobalAgent {
   private async recoverAll(): Promise<void> {
     this.waitingForIdle.clear(); this.authorities.clear();
     await Promise.all(this.options.agents.map(config=>this.recoverForAgent(config.agentId)));
-    await this.recoverPersonalObservations(); await this.drainReceipts();
+    await this.recoverPersonalObservations(); this.scheduleReceipts();
   }
 
   /** Reconcile durable obligations after this Agent's own lifecycle and stop fences. */
@@ -470,7 +494,7 @@ export class GlobalAgent {
     const config=agents.find(agent=>agent.agentId===agentId);
     if(this.stopped || !config || !store.lifecycle.allowed(agentId))return Promise.resolve();
     this.waitingForIdle.delete(agentId);
-    void this.drainReceipts();
+    this.scheduleReceipts();
     const task=store.lifecycle.run(agentId,undefined,async()=>{
       const publications=config.personal ? [] : store.bindings(agentId).map(binding=>this.recoverPublications(binding));
       const results=await Promise.allSettled([...publications,...(config.mode==='global'?[this.restoreRoot(config)]:[])]);
@@ -1090,7 +1114,8 @@ export class GlobalAgent {
       source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
     }}, turn, event.time);
     inbox.appendAfterWork(fact, event.seq);
-    void this.drainReceipts();
+    this.receiptReadCalls.push({sessionId: binding.sessionId, callId: message.toolCallId});
+    this.scheduleReceipts();
   }
 
   private drainChildren(binding: SessionBinding): Promise<void> {
@@ -1234,7 +1259,7 @@ export class GlobalAgent {
   private async receipt(input: RelayInput, status: string) {
     if(input.metadata.pa_observation || (input.relay_task_id.startsWith('external:') && !input.metadata.agent_receipt)) {await this.transmitReceipt(input,status);return;}
     this.options.inbox.settleRelay(input,status);
-    await this.drainReceiptQueue(input.relay_task_id.startsWith('external:') ? 'feishu' : 'im');
+    this.scheduleReceipts();
   }
   private async transmitReceipt(input: RelayInput, status: string) {
     if(input.metadata.pa_observation) {
@@ -1244,7 +1269,7 @@ export class GlobalAgent {
     await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
   }
   async stop(): Promise<void> {
-    this.stopped=true; clearTimeout(this.backgroundTimer);
+    this.stopped=true; clearTimeout(this.backgroundTimer); clearImmediate(this.receiptKick);
     for (const queue of Object.values(this.receiptQueues)) clearTimeout(queue.timer);
     for (const timer of this.workRetries.values()) clearTimeout(timer);
     this.workRetries.clear();

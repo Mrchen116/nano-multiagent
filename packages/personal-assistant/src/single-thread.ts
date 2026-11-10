@@ -204,7 +204,8 @@ export class SingleThread {
       });
     }
     store.accepted(inputId);
-    if (current?.() !== false && !store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
+    if (current?.() !== false && !store.inputTerminal(binding.sessionId, inputId)
+      && !(input.metadata.agent_receipt && this.options.queueMessageReceipt)) await this.receipt(input, 'sent');
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */

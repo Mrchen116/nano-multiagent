@@ -468,8 +468,10 @@ product = new SingleThread({
   nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime, relay: external, onError: reportError,
   image: downloadImage, taskStop:(binding,input)=>tasks.stop(binding,input),
   queueMessageReceipt: (input, read) => {
-    inbox.queueNativeReceipt(input, read);
-    void globalProduct.drainReceipts();
+    try {
+      inbox.queueNativeReceipt(input, read);
+      globalProduct.scheduleReceipts();
+    } catch (error) { reportError(error); }
   },
   recoveryGeneration: binding => {
     const channelAvailable = binding.conversationId.startsWith('external:') ? external.canRecoverConversation(binding.agentId,binding.conversationId) : relay.ready;

@@ -289,7 +289,8 @@ it('sets a Global Feishu receipt after Inbox admission and replaces it only on r
     expect(reactions.mock.calls).toEqual([['message', undefined, 'OK']]);
 
     const page = inbox.read('a', 'main', 'read', {target: received.input.conversation_id});
-    expect(inbox.commitRead('main', 'read', [{type: 'text', text: JSON.stringify(page)}], false)).toBe(true);
+    expect(inbox.commitRead('main', 'read', [{type: 'text', text: JSON.stringify(page)}], false, 1)).toBe(true);
+    inbox.projectReadReceipts([{sessionId:'main',callId:'read'}]);
     const read = inbox.pendingRelays('feishu')[0]!;
     expect(read.status).toBe('read');
     await deliver(read.status);
