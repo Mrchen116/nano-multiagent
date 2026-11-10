@@ -63,7 +63,8 @@ export class RuntimeClient {
         ...(watchOwner ? {NANO_CONFIGURATION_INSPECTION_OWNER_PID:String(process.pid)} : {}),
       },
     });
-    this.rpc = new RpcPeer(this.process.stdout, this.process.stdin, () => this.process.kill('SIGTERM'));
+    // Inspection RPC failures reject the request, so its owner can stop the whole group.
+    this.rpc = new RpcPeer(this.process.stdout, this.process.stdin, watchOwner ? undefined : () => this.process.kill('SIGTERM'));
     if (this.inspector) {
       this.rpc.handle('configuration.inspect', async value => {
         const input = value as ConfigurationInspection;

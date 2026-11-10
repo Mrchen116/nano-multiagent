@@ -83,20 +83,44 @@ it('fences an in-flight generation and releases capacity after last-waiter cance
   expect(await readdir(root)).toEqual([]);
 },15000);
 
-it.each([false, true])('reclaims the inspection group after owner SIGKILL (blocked: %s)',async blocked=>{
+it.each(['responsive', 'blocked', 'during cleanup'] as const)('reclaims the inspection group after owner SIGKILL (%s)',async mode=>{
   const {home,root,input}=await fixture();
   const plugin=join(home,'hang.mjs'),marker=join(home,'entered'),ownerFile=join(home,'owner.mjs');
+  const release=join(home,'release'), signalled=join(home,'signalled');
+  const child=`process.on('SIGTERM',()=>{});require('node:fs').writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000)`;
+  const pluginWait={
+    responsive:'await new Promise(resolve => setTimeout(resolve, 60_000));',
+    blocked:'while (true) {}',
+    'during cleanup':`while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 20));`,
+  }[mode];
   await writeFile(plugin,`
     import {spawn} from 'node:child_process';
-    import {writeFileSync} from 'node:fs';
+    import {existsSync} from 'node:fs';
     export const name='owner-exit-fixture';
     export async function apply() {
-      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
-      writeFileSync(${JSON.stringify(marker)}, String(child.pid));
-      ${blocked ? 'while (true) {}' : 'await new Promise(resolve => setTimeout(resolve, 60_000));'}
+      spawn(process.execPath, ['-e', ${JSON.stringify(child)}], {stdio: 'ignore'});
+      ${pluginWait}
     }
   `);
-  await writeFile(ownerFile,`import {ConfigurationInspector} from ${JSON.stringify(resolve('packages/dsh-integration/lib/client.js'))};const inspector=new ConfigurationInspector({root:${JSON.stringify(root)},timeoutMs:60000});await inspector.inspect(${JSON.stringify({...input,profilePatch:[{insert:[{id:'blocking-fixture',name:plugin}]}]})});`);
+  // Pause the owner after the first real group signal, before any later cleanup can run.
+  const pauseOnGroupSignal=mode==='during cleanup' ? `
+    import {writeFileSync} from 'node:fs';
+    const kill = process.kill.bind(process);
+    process.kill = (pid, signal) => {
+      const sent = kill(pid, signal);
+      if (pid < 0) {
+        writeFileSync(${JSON.stringify(signalled)}, String(signal));
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000);
+      }
+      return sent;
+    };
+  ` : '';
+  await writeFile(ownerFile,`
+    import {ConfigurationInspector} from ${JSON.stringify(resolve('packages/dsh-integration/lib/client.js'))};
+    ${pauseOnGroupSignal}
+    const inspector = new ConfigurationInspector({root:${JSON.stringify(root)},timeoutMs:60000});
+    await inspector.inspect(${JSON.stringify({...input,profilePatch:[{insert:[{id:'owner-exit-fixture',name:plugin}]}]})});
+  `);
   const owner=spawn(process.execPath,[ownerFile],{stdio:'ignore'});
   const exited=new Promise(resolve=>owner.once('exit',resolve));
   cleanups.push(async()=>{owner.kill('SIGKILL');await exited;});
@@ -108,6 +132,11 @@ it.each([false, true])('reclaims the inspection group after owner SIGKILL (block
   const pluginPid=Number(await readFile(marker,'utf8'));
   expect(processAlive(lease.pid)).toBe(true);
   expect(processAlive(pluginPid)).toBe(true);
+  if (mode==='during cleanup') {
+    await writeFile(release, '');
+    await waitForFile(signalled);
+    await expect.poll(()=>processAlive(lease.pid),{timeout:3000}).toBe(false);
+  }
   owner.kill('SIGKILL');await exited;
   await expect.poll(()=>[processAlive(lease.pid), processAlive(pluginPid)],{timeout:3000}).toEqual([false,false]);
   expect(JSON.parse(await readFile(leasePath,'utf8'))).toEqual(lease);
@@ -127,7 +156,7 @@ it('retains an orphan with mismatched process identity and refuses new work',asy
   expect(await readdir(root)).toEqual([`inspection-${id}-fixture`]);
 });
 
-it('reclaims a plugin child that ignores SIGTERM even after its worker leader exits',async()=>{
+it('reclaims a plugin child after the inspection completes',async()=>{
   const {home,root,inspector,input}=await fixture();
   const marker=join(home,'child-pid'),plugin=join(home,'child.mjs');
   const childSource=`import {writeFileSync} from 'node:fs';process.on('SIGTERM',()=>{});writeFileSync(${JSON.stringify(marker)},String(process.pid));setInterval(()=>{},1000);`;
