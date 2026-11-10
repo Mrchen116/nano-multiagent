@@ -20,6 +20,12 @@ export interface DreamingRun {
   planRetired?: boolean;
   plan?: Array<Omit<DocumentOperation, 'content'> & { afterHash: string }>; receipts: DocumentReceipt[]; summary?: string; error?: string;
 }
+
+export const dreamingStageTitles: Record<DreamingRun['stage'], string> = {
+  extract: 'Dreaming · 提取任务摘要',
+  consolidate: 'Dreaming · 整合长期记忆',
+};
+
 export interface TaskSummary {
   agentId: string; sessionId: string; rootSessionId: string; baseline: number; through: number;
   sourceVersion: string; generation: number; path: string; hash: string; noSignal: boolean;

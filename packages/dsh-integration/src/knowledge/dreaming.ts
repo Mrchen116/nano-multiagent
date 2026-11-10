@@ -10,7 +10,7 @@ import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
 import { MemorySources, commitSourceRange, selectChildMaterial, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
-import { dreamingDomain, type DreamingOwner, type DreamingRun, type TaskSummary } from './dreaming-state.js';
+import { dreamingDomain, dreamingStageTitles, type DreamingOwner, type DreamingRun, type TaskSummary } from './dreaming-state.js';
 import type { MemoryDocuments } from './memory-documents.js';
 import { atomicWrite } from './files.js';
 import { runDreamingAgent, memoryDigest } from './dreaming-agent.js';
@@ -413,7 +413,16 @@ export class Dreaming {
     if(handle){handle.agent.session.append('user/message',createUserMessage({source:{kind:'nano-system',actorId:run.agentId,channel:'dreaming-receipt',messageId:`${run.id}:receipt`},content:[{type:'text',text:`Host application receipt (authoritative outcome): ${run.summary}`}]}),{surfaceOp:'append'});await this.ctx.sessions.flush(handle.agent.session);}
     if(run.childSessionId)await this.ctx.nanoTrajectoryRuns.finishMaintenance(run.id,run.state==='completed'?'completed':run.state==='cancelled'?'cancelled':'failed');this.options.notify();
   }
-  async reviews(){return [...(await this.domain).table('runs').entries()].map(([,run])=>({id:run.id,agentId:run.agentId,rootSessionId:run.rootSessionId,...(run.childSessionId?{childSessionId:run.childSessionId}:{}),at:run.at,kind:'dreaming' as const,status:run.state,...(run.summary!==undefined?{summary:run.summary}:{}),...(run.endedAt!==undefined?{endedAt:run.endedAt}:{})}));}
+  /** Return persisted Dreaming reviews with their stage title for Work. */
+  async reviews() {
+    return [...(await this.domain).table('runs').entries()].map(([, run]) => ({
+      id: run.id, agentId: run.agentId, rootSessionId: run.rootSessionId,
+      ...(run.childSessionId ? { childSessionId: run.childSessionId } : {}),
+      at: run.at, kind: 'dreaming' as const, title: dreamingStageTitles[run.stage], status: run.state,
+      ...(run.summary !== undefined ? { summary: run.summary } : {}),
+      ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
+    }));
+  }
   /** Report both source streams without making a model call or consuming any progress. */
   async status(agentId:string){
     const config=this.configuration(agentId);if(!config)return undefined;const owner=await this.owner(config);
@@ -464,7 +473,7 @@ export class Dreaming {
     if (!events.some(event => event.type === 'subagent/descriptor')) {
       // Append model-hidden metadata at today's time; retain every original event and sequence.
       const descriptor = snapshotSessionEvent({ type: 'subagent/descriptor', seq: SessionSeq(events.length), time: this.now(),
-        data: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'native', label: 'Dreaming · 自动整理记忆' }) });
+        data: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'native', label: dreamingStageTitles[run.stage] ?? 'Dreaming · 自动整理记忆' }) });
       await handle.append([descriptor]); await handle.flush();
     }
     run.identityRecorded = true; await this.saveRun(run);

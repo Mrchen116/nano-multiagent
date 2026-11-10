@@ -12,7 +12,7 @@ import ContextRolloverEngine from 'dsh-agent-context';
 import { z } from 'zod';
 import { contextTools } from '../agent-context.js';
 import type { AgentConfiguration } from '../index.js';
-import type { DreamingOwner, DreamingRun } from './dreaming-state.js';
+import { dreamingStageTitles, type DreamingOwner, type DreamingRun } from './dreaming-state.js';
 import type { MemoryDocuments } from './memory-documents.js';
 import type { MemorySources } from './memory-sources.js';
 import { ReviewFiles } from './review-files.js';
@@ -42,7 +42,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   const allowed=[...(extraction ? [] : ['read','write','edit','glob','grep','source_history',...(parent.ctx.tools.get('conversations',parent) ? ['conversations'] : [])]),
     ...(recovery ? [...contextTools] : [])];
   const sessionId=SessionId(`dreaming-${run.id}`);
-  const label=extraction ? 'Dreaming · 任务经历提炼' : 'Dreaming · 记忆整理';
+  const label=dreamingStageTitles[run.stage];
   const handle=await host.agents.create({sessionId,parentAgent:parent,
     meta:{cwd:staging,parentSession:parent.id,origin:'subagent'},signal,
     agentOptions:{provider:config.provider,model:config.model,...(config.reasoningEffort ? {reasoningEffort:ReasoningEffortId(config.reasoningEffort)} : {}),maxTokens:8192},
