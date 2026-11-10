@@ -253,6 +253,32 @@ final class ChatLocalFirstTests: XCTestCase {
         await run.value
     }
 
+    func testFullSyncClearsACardLedgerLeftBehindAnExistingRevocation() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["chat"], messages: 0)
+        let repository = try XCTUnwrap(store.repository)
+        let context = try await repository.writeContext()
+        try await repository.revoke("chat", reason: .snapshotAbsent, write: context)
+
+        // Simulate termination after SQLite committed but before the separate card ledger was removed.
+        let session = store.client.session
+        let revision = await session.revision()
+        let through = "2026-11-01T10:00:00.000Z"
+        _ = try await session.noteDraftSaved("chat", updatedAt: through, userID: user.id, revision: revision)
+        try await session.updateDraftDiscard("chat", through: through, userID: user.id, revision: revision)
+        await stub.setSync(Data(#"{"items":[],"max_event_id":20}"#.utf8))
+        await stub.hold("/im/v1/auth/ws-ticket", body: Data("{}".utf8))
+
+        let run = Task { await store.run() }
+        await stub.waitUntilHeld()
+        let ids = try await session.draftLedgerConversationIDs(userID: user.id, revision: revision)
+        XCTAssertTrue(ids.isEmpty)
+        XCTAssertTrue(store.interactionDrafts.watermarks.isEmpty)
+        run.cancel(); store.stop()
+        await stub.release()
+        await run.value
+    }
+
     func testSnapshotCleanupFailureBlocksOldContentAndRetriesEveryConfirmedRevocation() async throws {
         let (store, stub) = try await makeStore()
         await seed(store, conversations: ["a", "b"], messages: 1)

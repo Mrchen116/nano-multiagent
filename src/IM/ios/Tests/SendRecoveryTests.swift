@@ -222,12 +222,7 @@ final class SendRecoveryTests: XCTestCase {
 
     func testOversizedBackgroundKeepsTheDurableDraftAndAttachmentsForANewSend() async throws {
         let (store, transport, _) = try await makeStore(firstPostStatus: 422)
-        await store.restoreAttempts()
-        let storage = persistence()
-        let repository = try ChatRepository.open(storage.partition, location: storage.location, legacyAttemptRoot: directory)
-        await store.client.session.useChatStorage(storage.partition, location: storage.location)
-        let seed = try await repository.bootstrapSeed()
-        store.bind(storage: .ready(repository), seed: seed)
+        let repository = try await openRepository(for: store)
         await store.loadConversations()
         store.setDraft("chat", "keep my message")
         let attachment = ChatAttachment(url: "/im/v1/uploads/kept", content_type: "image/png", file_name: "kept.png")
@@ -253,6 +248,42 @@ final class SendRecoveryTests: XCTestCase {
         XCTAssertEqual(store.drafts["chat"], "")
         store.resetProjection()
         try await repository.close()
+    }
+
+    func testOversizedBackgroundOnRetryRestoresTheOriginalDraftAfterColdRestore() async throws {
+        let (first, transport, _) = try await makeStore()
+        let repository = try await openRepository(for: first)
+        await first.loadConversations()
+        first.setDraft("chat", "persisted before disconnect")
+        await first.send("chat")
+        let frozen = try XCTUnwrap(first.pending["chat"])
+        first.resetProjection()
+
+        let reopened = ChatStore(client: first.client, user: user)
+        let seed = try await repository.bootstrapSeed()
+        reopened.bind(storage: .ready(repository), seed: seed)
+        await reopened.reloadPending()
+        XCTAssertEqual(reopened.pending["chat"]?.key, frozen.key)
+        await transport.setNextPostStatus(422)
+        await reopened.send("chat", retry: true)
+        let requests = await transport.sent()
+        XCTAssertEqual(requests.map(\.httpBody), [frozen.requestBody, frozen.requestBody])
+        XCTAssertNil(reopened.pending["chat"])
+        XCTAssertEqual(reopened.drafts["chat"], frozen.content)
+        let stored = try await repository.draft("chat")
+        XCTAssertEqual(stored, frozen.content)
+        reopened.resetProjection()
+        try await repository.close()
+    }
+
+    private func openRepository(for store: ChatStore) async throws -> ChatRepository {
+        await store.restoreAttempts()
+        let storage = persistence()
+        let repository = try ChatRepository.open(storage.partition, location: storage.location, legacyAttemptRoot: directory)
+        await store.client.session.useChatStorage(storage.partition, location: storage.location)
+        let seed = try await repository.bootstrapSeed()
+        store.bind(storage: .ready(repository), seed: seed)
+        return repository
     }
 
     private func persistence(origin: URL? = nil, userID: String? = nil) -> ChatAttemptPersistence {
@@ -295,6 +326,7 @@ private actor RecoveryTransport: HTTPTransport {
     var posts: [URLRequest] = []
     var lookups: [String] = []
     var lookupStatus = 404
+    var nextPostStatus: Int?
     var postStarted = false
     var start: CheckedContinuation<Void, Never>?
     var release: CheckedContinuation<Void, Never>?
@@ -304,6 +336,7 @@ private actor RecoveryTransport: HTTPTransport {
     func sent() -> [URLRequest] { posts }
     func lookupKeys() -> [String] { lookups }
     func setLookup(status: Int) { lookupStatus = status }
+    func setNextPostStatus(_ status: Int) { nextPostStatus = status }
     func setCurrentUser(_ data: Data) { user = data }
     func waitForPost() async { if !postStarted { await withCheckedContinuation { start = $0 } } }
     func releasePost() { release?.resume(); release = nil }
@@ -320,7 +353,8 @@ private actor RecoveryTransport: HTTPTransport {
             posts.append(request)
             if gated { await withCheckedContinuation { release = $0; postStarted = true; start?.resume(); start = nil } }
             if posts.count == 1, firstPostStatus == 0 { throw URLError(.networkConnectionLost) }
-            status = posts.count == 1 ? firstPostStatus : 200
+            status = nextPostStatus ?? (posts.count == 1 ? firstPostStatus : 200)
+            nextPostStatus = nil
             data = status == 200 ? message : status == 422
                 ? Data(#"{"detail":{"code":"interaction_background_too_large","message":"raw-server-detail"}}"#.utf8)
                 : Data(#"{"detail":{"code":"message_attempt_conflict","message":"conflict"}}"#.utf8)

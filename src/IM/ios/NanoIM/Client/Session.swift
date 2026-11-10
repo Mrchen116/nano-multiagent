@@ -127,6 +127,12 @@ actor Session {
         try assertOwner(userID, revision: revision)
         try sendAttempts.updateDraftDiscard(conversationID, through: through, confirmed: confirmed, origin: baseURL, userID: userID)
     }
+    func draftLedgerConversationIDs(userID: String, revision: Int) throws -> Set<String> {
+        try assertOwner(userID, revision: revision)
+        let watermarks = try sendAttempts.loadDraftWatermarks(origin: baseURL, userID: userID)
+        let discards = try sendAttempts.loadDraftDiscards(origin: baseURL, userID: userID)
+        return Set(watermarks.keys).union(discards.keys)
+    }
     func removeDraftLedger(_ conversationID: String, userID: String, revision: Int) throws {
         try assertOwner(userID, revision: revision)
         try sendAttempts.removeDraftLedger(origin: baseURL, userID: userID, conversationID: conversationID)

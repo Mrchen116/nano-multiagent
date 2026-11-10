@@ -247,7 +247,9 @@ final class ChatStore {
             interactionPending[source] = attempt.draft; interactionConversations[source] = attempt.conversationID
         } else {
             pending[attempt.conversationID] = attempt.draft
-            if drafts[attempt.conversationID] == nil { drafts[attempt.conversationID] = attempt.draft.content }
+            if repository == nil, drafts[attempt.conversationID] == nil {
+                drafts[attempt.conversationID] = attempt.draft.content
+            }
             if attachments[attempt.conversationID] == nil { attachments[attempt.conversationID] = attempt.draft.attachments }
         }
     }
@@ -452,13 +454,13 @@ final class ChatStore {
             await reconcileNetwork(sync.items)
             return
         }
-        await interactionDrafts.prepare()
+        let privateDraftIDs = await privateDraftConversationIDs()
         guard await isCurrent(request) else { throw CancellationError() }
         do {
             let result = try await repository.applySnapshot(sync.items, maxEventID: sync.max_event_id,
                                                             snapshotSeq: context.snapshotSeq + 1,
                                                             executionCleanupRevisions: sync.execution_cleanup_revisions ?? [:],
-                                                            privateDraftIDs: Set(interactionDrafts.watermarks.keys), write: context)
+                                                            privateDraftIDs: privateDraftIDs, write: context)
             guard request.epoch == epoch, request.discardRevision == discardReadRevision, self.repository === repository else { throw CancellationError() }
             guard result.conversations.allSatisfy({ ($0.execution_cleanup_revision ?? 0) >= (executionCleanupRevisions[$0.id] ?? 0) }) else { throw CancellationError() }
             projectionRevision = UUID()
@@ -472,7 +474,13 @@ final class ChatStore {
                 clearConversationState(id)
                 revokedChats.insert(id)
                 errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
-                await forgetInteractionDrafts(id)
+            }
+            // The SQLite transaction may have already recorded the revocation on a previous
+            // launch. Clean up a still-present card ledger even for a known tombstone.
+            let revokedDraftIDs = privateDraftIDs.subtracting(sync.items.map(\.id)).union(result.revoked)
+            for id in revokedDraftIDs { interactionDrafts.remove(id) }
+            for id in revokedDraftIDs {
+                await eraseDraftLedger(id)
                 guard request.epoch == epoch else { throw CancellationError() }
             }
             for chat in result.conversations where chat.can_write == false || chat.dissolved_at != nil {
@@ -504,7 +512,7 @@ final class ChatStore {
     private func reconcileNetwork(_ values: [Conversation]) async {
         let values = normalizingDeletedActors(values)
         let token = epoch, discardRevision = discardReadRevision
-        await interactionDrafts.prepare()
+        let privateDraftIDs = await privateDraftConversationIDs()
         guard token == epoch, discardRevision == discardReadRevision else { return }
         for chat in values { observeExecutionCleanup(chat.id, revision: chat.execution_cleanup_revision ?? 0) }
         if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
@@ -513,7 +521,7 @@ final class ChatStore {
         if let inspectedConversation { allowed.insert(inspectedConversation.id) }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
-        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values).union(interactionDrafts.watermarks.keys) where !allowed.contains(id) {
+        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values).union(privateDraftIDs) where !allowed.contains(id) {
             // A degraded partition still has old JSON/handoff qualification to revoke.
             await revokeConversation(id, reason: .snapshotAbsent)
             errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
@@ -1146,6 +1154,8 @@ final class ChatStore {
                 pending[id] = nil
                 if drafts[id] == attempt.draft.content {
                     setDraft(id, "")
+                } else if drafts[id] == nil {
+                    drafts[id] = ""
                 }
                 let sentIDs = Set(attempt.draft.attachments.map(\.id))
                 attachments[id]?.removeAll { sentIDs.contains($0.id) }
@@ -1158,13 +1168,13 @@ final class ChatStore {
             if let api = error as? APIError, (400..<500).contains(api.status), ![408, 429].contains(api.status) {
                 // A rejected background leaves the original text available for a new send.
                 let restoreDraft = api.code == "interaction_background_too_large" && attempt.sourceMessageID == nil
-                    && drafts[id]?.isEmpty != false && !dirtyDraftIDs.contains(id)
+                    && drafts[id] == nil
                 try await removeAttempt(attempt, revision: revision, restoreDraft: restoreDraft)
                 guard isCurrent(attempt, token: token) else { throw CancellationError() }
                 if let source = attempt.sourceMessageID { interactionPending[source] = nil; interactionConversations[source] = nil }
                 else {
                     pending[id] = nil
-                    if restoreDraft, drafts[id]?.isEmpty != false, !dirtyDraftIDs.contains(id) {
+                    if restoreDraft, drafts[id] == nil {
                         drafts[id] = attempt.draft.content
                     }
                 }
@@ -1206,7 +1216,9 @@ final class ChatStore {
                 guard token == self.sendEpoch, projection == self.projectionRevision else { throw CancellationError() }
                 try self.requireWritable(attempt.conversationID)
                 if attempt.sourceMessageID == nil, self.drafts[attempt.conversationID] == attempt.draft.content {
-                    self.drafts[attempt.conversationID] = ""; self.queuedDrafts[attempt.conversationID] = nil
+                    // Absence means this attempt owns the text. An explicitly cleared
+                    // newer composer draft is the empty string and stays independent.
+                    self.drafts[attempt.conversationID] = nil; self.queuedDrafts[attempt.conversationID] = nil
                     self.dirtyDraftIDs.remove(attempt.conversationID)
                 }
             }
@@ -1318,8 +1330,19 @@ final class ChatStore {
         }
     }
 
+    private func privateDraftConversationIDs() async -> Set<String> {
+        let live = Set(interactionDrafts.watermarks.keys)
+        guard let revision = try? await sessionRevision(),
+              let stored = try? await client.session.draftLedgerConversationIDs(userID: user.id, revision: revision) else { return live }
+        return live.union(stored)
+    }
+
     private func forgetInteractionDrafts(_ id: String) async {
         interactionDrafts.remove(id)
+        await eraseDraftLedger(id)
+    }
+
+    private func eraseDraftLedger(_ id: String) async {
         if let revision = try? await sessionRevision() {
             try? await client.session.removeDraftLedger(id, userID: user.id, revision: revision)
         }
