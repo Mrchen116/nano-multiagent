@@ -260,7 +260,8 @@ export class MemoryDocuments {
           if (digest(content) !== versions[path]) throw new Error('Document versions changed before Git staging.');
           // Match the verified bytes even if Git clean filters would rewrite them.
           const blob = (await run(['hash-object', '-w', '--stdin'], content)).trim();
-          await run(['update-index', '--add', '--cacheinfo', '100644', blob, path]);
+          const mode = (await lstat(join(this.root, path))).mode & 0o100 ? '100755' : '100644';
+          await run(['update-index', '--add', '--cacheinfo', mode, blob, path]);
         }
         const staged = splitNul(await run(['diff', '--cached', '--name-only', '--no-renames', '-z']));
         if (staged.some(path => !paths.includes(path))) throw new Error('The Git index contains paths outside the checked batch.');

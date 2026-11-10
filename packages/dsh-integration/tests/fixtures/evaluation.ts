@@ -54,6 +54,8 @@ export function apply(ctx){
       const source=JSON.parse(plain.match(/Source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0].session_id;
       const found=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-1');
       const item=found&&!found.isError?JSON.parse(found.content[0].text).items[0]:undefined;
+      const existing=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-8'&&!m.isError);
+      const needsCommit=cities.has(o.sessionId)&&!existing?.content.some(block=>block.text?.includes('You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'));
       call=[['source_history',{action:'list_windows',session_id:source}],
         ['source_history',{action:'search',session_id:source,query:'LONG_MESSAGE_END',limit:10,max_chars_per_item:4000}],
         item?['source_history',{action:'read',session_id:source,window_id:item.window_id,item_id:item.item_id,limit_chars:20000}]:['source_history',{action:'list_windows',session_id:source}],
@@ -65,7 +67,7 @@ export function apply(ctx){
         cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined,
         ['conversations',{action:'search',target:chat,query:'LONG_MESSAGE_END'}],
         ['conversations',{action:'search',target:chat,query:'UNTRIGGERED_LAST_UPDATE'}],
-        ['git_commit',{message:'Consolidate verified city memory'}]
+        needsCommit?['git_commit',{message:'Consolidate verified city memory'}]:undefined
       ][n];
     }else if(process.env.EVALUATION_CHAT_ONLY){
       const result=id=>{const m=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId===id);return m&&!m.isError?JSON.parse(m.content[0].text):undefined;};

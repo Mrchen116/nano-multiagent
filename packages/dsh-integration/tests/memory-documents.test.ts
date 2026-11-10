@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
@@ -228,16 +228,19 @@ describe('Agent-initiated Git batches', () => {
     expect(git(root, 'rev-parse', 'HEAD')).toBe(before);
   });
 
-  it('commits the exact verified Markdown bytes when Git would normalize line endings', async () => {
+  it('commits the exact verified Markdown bytes and mode with Git conversion enabled', async () => {
     const {documents, root} = await library();
     const path = 'windows.md';
     const content = 'Line one.\r\nLine two.\r\n';
     git(root, 'config', 'core.autocrlf', 'true');
+    git(root, 'config', 'core.filemode', 'true');
     await writeFile(join(root, path), content);
+    await chmod(join(root, path), 0o755);
     const versions = {...await documents.versions(), [path]: createHash('sha256').update(content).digest('hex')};
     const {commit} = await documents.commitBatch('Keep verified Markdown', versions, 0, signal());
     expect(commit).toBe(git(root, 'rev-parse', 'HEAD'));
     expect(execFileSync('git', ['show', `HEAD:${path}`], {cwd:root,encoding:'utf8'})).toBe(content);
+    expect(git(root, 'ls-tree', 'HEAD', '--', path)).toMatch(/^100755 /);
     expect(await documents.gitChanges()).toEqual([]);
   });
 
