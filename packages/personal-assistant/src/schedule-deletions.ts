@@ -14,21 +14,25 @@ interface Options {
 }
 /** Durable intent for one authorized native deletion, not another Schedule catalog. */
 export class ScheduleDeletions {
- private chain:Promise<unknown>=Promise.resolve();
+ private readonly chains=new Map<string,Promise<unknown>>();
  constructor(private readonly options:Options){}
- private exclusive<T>(action:()=>Promise<T>):Promise<T>{const next=this.chain.catch(()=>{}).then(action);this.chain=next;return next;}
+ private exclusive<T>(agentId:string,action:()=>Promise<T>):Promise<T>{
+  const next=(this.chains.get(agentId)??Promise.resolve()).catch(()=>{}).then(action)
+   .finally(()=>{if(this.chains.get(agentId)===next)this.chains.delete(agentId);});
+  this.chains.set(agentId,next);return next;
+ }
  /** Save trusted operation identity before invoking the native owner. */
  delete(input:Identity):Promise<{id:string;deleted:boolean;code?:'schedule_not_found'}> {
-  return this.exclusive(async()=>{
+  return this.exclusive(input.agentId,async()=>{
    if(!input.operationId||!this.options.agents.some(agent=>agent.agentId===input.agentId)||input.actor.kind==='user'&&input.actor.id!==this.options.ownerId||input.actor.kind==='agent'&&input.actor.id!==input.agentId)throw new Error('Invalid Schedule deletion authority');
-   let intent=this.options.store.scheduleDeletions().find(item=>item.operationId===input.operationId);
+   let intent=this.options.store.scheduleDeletion(input.operationId);
    if(intent&&(intent.agentId!==input.agentId||intent.scheduleId!==input.scheduleId||intent.actor.kind!==input.actor.kind||intent.actor.id!==input.actor.id||input.sessionId!==undefined&&input.sessionId!==intent.sessionId))throw new Error('Schedule deletion identity conflict');
    if(!intent){
     const catalog=await this.options.runtime.request('schedule.command',{agentId:input.agentId,action:'jobs'}) as {id:string;sessionId:string;name:string}[];
     const schedule=catalog.find(item=>item.id===input.scheduleId&&(input.sessionId===undefined||item.sessionId===input.sessionId));
     if(!schedule)return {id:input.scheduleId,deleted:false,code:'schedule_not_found'};
     intent={operationId:input.operationId,agentId:input.agentId,sessionId:schedule.sessionId,scheduleId:schedule.id,title:schedule.name,actor:input.actor,phase:'pending',changeInputId:'schedule-deleted:'+input.operationId,repairInputId:'task-wait-repair:'+input.operationId,changeNotified:input.actor.kind!=='user',repairNotified:false};
-    this.options.store.saveScheduleDeletion(intent);
+    if(!this.options.store.createScheduleDeletion(intent))throw new Error('Schedule deletion identity conflict');
    }
    await this.execute(intent);
    return {id:intent.scheduleId,deleted:true};
@@ -47,9 +51,19 @@ export class ScheduleDeletions {
    intent.phase='deleted';intent.deletedAt=new Date().toISOString();this.options.store.saveScheduleDeletion(intent);
   }
   // The two receipts are independent. A crash retries their stable native IDs.
-  if(!intent.changeNotified)try{await this.options.notify(intent);intent.changeNotified=true;this.options.store.saveScheduleDeletion(intent);}catch(error){this.options.onError(error);}
-  if(!intent.repairNotified)try{await this.options.repair(intent);intent.repairNotified=true;this.options.store.saveScheduleDeletion(intent);}catch(error){this.options.onError(error);}
+  if(!intent.changeNotified)try{await this.options.notify(intent);this.options.store.saveScheduleDeletion({...intent,changeNotified:true});intent.changeNotified=true;}catch(error){this.options.onError(error);}
+  if(!intent.repairNotified)try{await this.options.repair(intent);this.options.store.saveScheduleDeletion({...intent,repairNotified:true});intent.repairNotified=true;}catch(error){this.options.onError(error);}
  }
  /** Reconcile pending deletion and each unfinished notification after runtime recovery. */
- recover(agentIds:string[]):Promise<void>{return this.exclusive(async()=>{for(const intent of this.options.store.scheduleDeletions())if(agentIds.includes(intent.agentId)&&(!intent.changeNotified||!intent.repairNotified||intent.phase==='pending'))await this.execute(intent);});}
+ async recover(agentIds:string[]):Promise<void>{
+  await Promise.all(agentIds.map(agentId=>this.exclusive(agentId,async()=>{
+   let incomplete=false;
+   for(const intent of this.options.store.scheduleDeletions()) {
+    if(intent.agentId!==agentId||intent.changeNotified&&intent.repairNotified&&intent.phase==='deleted')continue;
+    await this.execute(intent);
+    if(!intent.changeNotified||!intent.repairNotified)incomplete=true;
+   }
+   if(incomplete)throw new Error('Schedule deletion has pending delivery receipts');
+  })));
+ }
 }

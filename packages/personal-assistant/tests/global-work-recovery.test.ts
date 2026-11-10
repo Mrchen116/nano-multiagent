@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import type { RelayInput } from '@nano/product-contracts';
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent } from '../src/global-agent.js';
@@ -24,7 +25,9 @@ it('reconciles only the changed Global execution after initial recovery', async 
       return {durable:true,events:[],throughSeq:4,modelVersion:'done',modelRuns:[]};
     }},relay:{ready:false,request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>errors.push(error)});
   try {
-    await product.recover(); calls.length=0;
+    await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
+    calls.length=0;
     notify('session.event',{sessionId:'main',rootSessionId:'main',event:{seq:5,type:'step/start'}});
     await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(calls).toEqual(['session.work.root']);
@@ -59,8 +62,11 @@ it('retains child processing positions when the GlobalAgent is recreated, withou
     }},relay:{ready:false,request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>{throw error;}});
   let product=create();
   try {
-    await product.recover(); await product.stop(); product=create();
     await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
+    await product.stop(); product=create();
+    await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(calls).toHaveLength(1);
     expect(inbox.workCheckpoints('main').child).toMatchObject({throughSeq:4,modelVersion:'done'});
     expect(inbox.throughSeq).toBe(0);
@@ -86,6 +92,7 @@ it.each(['settled','changed-child','active-child'])('uses metadata recovery for 
   try {
     expect(inbox.workProcessingPending).toBe(true);
     await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(calls.includes('session.ensure')).toBe(state==='active-child');
     expect(calls.includes('session.work.root')).toBe(state==='active-child');
     expect(calls.includes('session.work.child')).toBe(state!=='settled');
@@ -161,4 +168,67 @@ it('does not mark the root current when only a child hint succeeds after a root 
     expect(inbox.workProcessingPending).toBe(true);
     expect(inbox.workCut('main')).toBeUndefined();
   } finally {await product.stop();inbox.close();store.close();}
+});
+
+
+it('reconciles a durable Inbox read before concurrent Relay can wake the same root, without waiting for child Work', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  const input: RelayInput = {agent_id:'a',conversation_id:'c',relay_task_id:'relay',idempotency_key:'key',
+    metadata:{conversation_type:'direct'},message:{id:'message',content:'original',sender_type:'user',sender_user_id:'owner',attachments:[]}};
+  inbox.acceptRelay(input,true);
+  inbox.admitWake('a',1);
+  const read = inbox.read('a','main','read',{target:'c'});
+  const events = [
+    {seq:0,time:0,type:'turn/start',data:{turn:1}},
+    {seq:1,time:1,type:'tool/result',data:{turn:1,message:{toolCallId:'read',isError:false,content:[{type:'text',text:JSON.stringify(read)}]}}},
+    {seq:2,time:2,type:'turn/end',data:{turn:1,reason:{kind:'interrupted'}}},
+  ];
+  const root = Promise.withResolvers<void>(), rootStarted = Promise.withResolvers<void>();
+  const child = Promise.withResolvers<void>(), childStarted = Promise.withResolvers<void>();
+  const submitted: string[] = [], receipts: string[] = [];
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,image:async()=>'',onError:error=>{throw error;},
+    agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
+    relay:{request:async(type,payload)=>{
+      if(type==='node.delivery_receipt')receipts.push(String(payload.delivery_status));
+      return {type:'ack',payload:{}};
+    }},
+    runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
+      if(method==='session.work.root'){
+        rootStarted.resolve();
+        await root.promise;
+        return {durable:true,throughSeq:2,events:events.filter(event=>event.seq>(args.afterSeq??-1))};
+      }
+      if(method==='session.work.children'){
+        childStarted.resolve();
+        await child.promise;
+        return {children:[]};
+      }
+      if(method==='session.lookup')return {accepted:true,acceptedSeq:0,terminal:{kind:'interrupted'}};
+      if(method==='session.submit')submitted.push(args.inputId);
+      return {};
+    }},
+  });
+  const recovery = product.recover();
+  let redelivery: Promise<void> | undefined;
+  try {
+    await rootStarted.promise;
+    redelivery = product.receive(input);
+    root.resolve();
+    await childStarted.promise;
+    await Promise.all([recovery, redelivery]);
+    expect(submitted).toEqual([]);
+    expect(receipts).toContain('failed');
+    expect(inbox.unreadAttention('a')).toBeUndefined();
+    expect(inbox.workProcessingPending).toBe(true);
+    child.resolve();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
+  } finally {
+    root.resolve();
+    child.resolve();
+    await Promise.allSettled([recovery, redelivery]);
+    await product.stop();
+    inbox.close();
+    store.close();
+  }
 });

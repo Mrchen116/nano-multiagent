@@ -105,6 +105,61 @@ async function reportPersonalAvailability(partition: RuntimePartition, available
     request_id:randomUUID(),node_id:config.node.node_id,agent_id:agent.agentId,binding_id:agent.personal.bindingId,epoch:agent.personal.epoch,available,
   }).catch(reportError);
 }
+type ReadyRecovery = {generation:string; timer?:ReturnType<typeof setTimeout>; resume?:()=>void};
+const readyRecovery = new Map<string,ReadyRecovery>();
+const readyRecoveryTasks = new Set<Promise<void>>();
+let registrationGeneration=0;
+function recoverAfterReady(key:string,generation:string,current:()=>boolean,restore:()=>Promise<void>): void {
+  const previous=readyRecovery.get(key);
+  if (!current() || previous?.generation===generation) return;
+  clearTimeout(previous?.timer);
+  const recovery:ReadyRecovery={generation};
+  readyRecovery.set(key,recovery);
+  let delay=1000;
+  const run=()=>{
+    if (!current() || readyRecovery.get(key)!==recovery) return;
+    if (updateHolding) {recovery.resume=run;return;}
+    recovery.resume=undefined;
+    const task=admitted(restore).catch(error=>{
+      reportError(error);
+      if (!current() || readyRecovery.get(key)!==recovery) return;
+      recovery.timer=setTimeout(run,delay);
+      recovery.timer.unref();
+      delay=Math.min(delay*2,30_000);
+    }).finally(()=>{readyRecoveryTasks.delete(task);});
+    readyRecoveryTasks.add(task);
+  };
+  queueMicrotask(run);
+}
+function schedulePartitionRecovery(partition:RuntimePartition,generation:string,current:()=>boolean):void {
+  const key=`partition:${partition.key}`;
+  for(const {agentId} of partition.agents) {
+    const available=()=>current() && runtime.availableFor(agentId);
+    recoverAfterReady(`${key}:${agentId}`,generation,available,async()=>{
+      await agentLifecycle.waitFor(agentId);
+      if(!available())return;
+      if(relay.ready) {
+        const scope=[agentId];
+        await tasks.recoverStops(scope);
+        if(!available())return;
+        await scheduleDeletions.recover(scope);
+        if(!available())return;
+        await tasks.recover(scope);
+      }
+      if(!available())return;
+      await product.recover(!relay.ready,[agentId]);
+      if(!available())return;
+      await Promise.all([globalProduct.recoverForAgent(agentId),external.recover(agentId)]);
+      if(available() && partition.agents.some(agent=>agent.agentId===agentId && agent.personal))
+        await globalProduct.recoverPersonalObservations();
+    });
+  }
+  recoverAfterReady(key,generation,current,async()=>{
+    const knowledge=knowledgeByPartition.get(partition.key);
+    if(relay.ready)await knowledge?.migrateSkills();
+    if(current())await Promise.all([knowledge?.recover(),workflowsByPartition.get(partition.key)?.recover()]);
+  });
+}
 const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings(), onError: reportError,
   allowed: agentId => agentLifecycle?.allowed(agentId) === true,
   retired: agentId => !!deletionLedger.read(agentId),
@@ -115,7 +170,8 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       onLog: text => process.stderr.write(text),
       initialize: async rpc => {
         await writeFile(join(partitionHome, 'runtime.pid'), String(supervisor.process!.pid));
-        for (const agent of partition.agents) if (agentLifecycle.allowed(agent.agentId)) await agentLifecycle.launching(agent.agentId, supervisor.processInstanceId!);
+        await Promise.all(partition.agents.filter(agent=>agentLifecycle.allowed(agent.agentId))
+          .map(agent=>agentLifecycle.launching(agent.agentId,supervisor.processInstanceId!)));
         if (partition.key !== 'ordinary') {
           const snapshot = await runtime.partitions.get('ordinary')!.runtime.request('model.setup.snapshot', {});
           await rpc.request('model.setup.sync', snapshot);
@@ -139,27 +195,20 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
             if (partition.key === 'ordinary') await operations.recover();
             else queueMicrotask(() => { void operations.recover().catch(reportError); });
           }
-          if (relay.ready) await knowledgeByPartition.get(partition.key)?.migrateSkills();
-          if (product) {
-            const scope = partition.agents.filter(agent => runtime.availableFor(agent.agentId)).map(agent => agent.agentId);
-            if (relay.ready) {
-              await tasks.recoverStops(scope);
-              await scheduleDeletions.recover(scope);
-              await tasks.recover(scope);
-            }
-            await product.recover(!relay.ready, scope);
-            await settlePartitions([globalProduct.recover(), external.recover(),
-              knowledgeByPartition.get(partition.key)!.recover(), workflowsByPartition.get(partition.key)!.recover()]);
-          }
         });
         for (const agent of partition.agents) if (store.lifecycle.snapshot(agent.agentId)?.desired==='disabled')
           void agentLifecycle.recoverStop(agent.agentId).catch(reportError);
-        for (const agent of partition.agents) if (agentLifecycle.allowed(agent.agentId)) await agentLifecycle.ready(agent.agentId, supervisor.processInstanceId!);
+        await Promise.all(partition.agents.filter(agent=>agentLifecycle.allowed(agent.agentId))
+          .map(agent=>agentLifecycle.ready(agent.agentId,supervisor.processInstanceId!)));
         await reportPersonalAvailability(partition,true);
         if (partition.key === 'ordinary') await lifecycle.ready(supervisor.process!.pid!);
+        const generation=partition.generation,registration=registrationGeneration;
+        const current=()=>!stopping && partition.generation===generation && registrationGeneration===registration && partition.runtime.available;
+        schedulePartitionRecovery(partition,`${generation}:${registration}`,current);
       },
       onError: reportError,
       onUnavailable: async () => {
+        globalProduct?.runtimeUnavailable(partition.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
         await reportPersonalAvailability(partition,false);
         for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
         if (partition.key === 'ordinary') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }
@@ -205,7 +254,9 @@ const relay = new WebRelayConnection({
       return;
     }
     if (frame.type === 'agent.lifecycle.apply') { await agentLifecycle.apply(payload as unknown as AgentLifecycleSnapshot); return; }
-    await lifecycleSync;
+    if (frame.type === 'relay.message' && agentLifecycle.synchronized && typeof payload.agent_id === 'string')
+      await agentLifecycle.waitFor(payload.agent_id);
+    else await lifecycleSync;
     if (frame.type === 'pa.observations.available') { await globalProduct.recoverPersonalObservations(); return; }
     if (frame.type === 'user.timezone') { store.setOwnerTimezone(String(payload.timezone)); return; }
     if (frame.type === 'node.update.request') { await updater.request(String(payload.operation_id)); return; }
@@ -307,6 +358,9 @@ const relay = new WebRelayConnection({
     }
     const registration = relay.registration;
     if (!registration) return;
+    const generation=++registrationGeneration;
+    const warmPartitions=[...runtime.partitions.values()].filter(partition=>partition.runtime.available)
+      .map(partition=>({partition,runtimeGeneration:partition.generation}));
     const current = () => !stopping && relay.ready && relay.registration === registration;
     let initialized = false;
     let delay = 1000;
@@ -314,28 +368,28 @@ const relay = new WebRelayConnection({
       if (!current()) return;
       try {
         if (!initialized) {
-          lifecycleSync = agentLifecycle.synchronize(registration.agent_lifecycles as AgentLifecycleSnapshot[]);
-          await lifecycleSync;
-          if (!current()) return;
+          const transitions=agentLifecycle.synchronize(registration.agent_lifecycles as AgentLifecycleSnapshot[]);
+          lifecycleSync=transitions;
+          // Target-specific Relay dispatch can proceed as soon as its transition
+          // completes. Start Work transport before waiting on the rest of the node.
+          void transitions.catch(()=>{});
+          for(const {partition,runtimeGeneration} of warmPartitions) {
+            const runtimeCurrent=()=>current() && partition.generation===runtimeGeneration && partition.runtime.available;
+            schedulePartitionRecovery(partition,`${runtimeGeneration}:${generation}`,runtimeCurrent);
+          }
           await runtime.start();
+          if (!current()) return;
+          workAvailable=true;workSync.signal();
+          await transitions;
           if (!current()) return;
           for (const intent of (registration.agent_deletions ?? []) as AgentDeletionIntent[])
             void deletions.apply(intent).catch(reportError);
-          workAvailable=true; workSync.signal();
           if (typeof registration.owner_timezone === 'string') store.setOwnerTimezone(registration.owner_timezone);
           initialized = true;
         }
-        if (!updateHolding) await admitted(async () => {
-          const scope = agents.filter(agent => runtime.availableFor(agent.agentId)).map(agent => agent.agentId);
-          await tasks.recoverStops(scope);
-          await scheduleDeletions.recover(scope);
-          await tasks.recover(scope);
-          await product.recover();
-          await settlePartitions([globalProduct.recover(), (async()=>{
-            for (const partition of runtime.partitions.values()) await reportPersonalAvailability(partition,partition.runtime.available);
-            await knowledge.migrateSkills(); await managed.flush(); await external.recover();
-            await knowledge.recover(); await workflows.recover();
-          })()]);
+        recoverAfterReady('relay-registration',String(generation),current,async()=>{
+          for(const partition of runtime.partitions.values())await reportPersonalAvailability(partition,partition.runtime.available);
+          if(current())await managed.flush();
         });
         if (current()) await lifecycle.connected(true);
       } catch (error) {
@@ -516,6 +570,7 @@ const updater = new NodeUpdater(configuration, {
     if (updateHolding && updateHolding !== operationId) return;
     if (runtime.available) await runtime.request('update.release', {operationId});
     updateHolding = undefined;
+    for(const recovery of readyRecovery.values())recovery.resume?.();
     if (runtime.available && !stopping) await admitted(async () => {
       if (relay.ready) await tasks.recoverStops(agents.filter(agent => runtime.availableFor(agent.agentId)).map(agent => agent.agentId));
       await external.recover(); await product.recover(!relay.ready); await globalProduct.recover();
@@ -620,9 +675,10 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   clearTimeout(relayRecoveryTimer);
+  for(const recovery of readyRecovery.values())clearTimeout(recovery.timer);
   clearInterval(taskWatch);
   trajectory.closeAll();
-  try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await product.stop(); await globalProduct.stop(); await operations.close(); await external.stop(); await relay.stop(); inbox.close(); store.close(); }
+  try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await relay.stop(); await product.stop(); await globalProduct.stop(); await Promise.allSettled(readyRecoveryTasks); await operations.close(); await external.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

@@ -111,7 +111,10 @@ export class TaskExecution {
   }
   /** Restore pending stop fences before any runtime session is recovered. */
   async recoverStops(agentIds?:string[]):Promise<void> {
-    for(const intent of this.options.store.controls())if(this.options.store.lifecycle.allowed(intent.binding.agentId,intent.input.lifecycle_revision??1)&&intent.action==='task-stop'&&!intent.text&&(!agentIds||agentIds.includes(intent.binding.agentId)))await this.stop(intent.binding,intent.input);
+    const intents=agentIds ? agentIds.flatMap(id=>this.options.store.pendingControls(id)) : this.options.store.pendingControls();
+    for(const intent of intents)
+      if(this.options.store.lifecycle.allowed(intent.binding.agentId,intent.input.lifecycle_revision??1)&&intent.action==='task-stop'&&!intent.text)
+        await this.stop(intent.binding,intent.input);
   }
   /** Restore responsibility even when a UI action preceded the first chat input. */
   async recover(agentIds:string[]):Promise<void> {
