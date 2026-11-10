@@ -39,13 +39,12 @@ struct ChatMessageView: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
             else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
-            VStack(alignment: receipts.isEmpty ? .leading : .trailing, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
                 if message.system_notice == nil && ((showSenderName && !mine) || message.pa_agent_id != nil || message.delegation != nil) {
                     senderIdentity
                 }
                 messageContent
                 if hasMetadata { metadata }
-                if !receipts.isEmpty { MessageReceiptButton(receipts: receipts) }
             }
             if !mine { Spacer(minLength: 14) }
             else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
@@ -97,9 +96,16 @@ struct ChatMessageView: View {
             ForEach(message.permission_requests ?? []) { permission in
                 ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, readOnly: readOnly, refreshed: refreshed)
             }
-            }.padding(intelligentUI ? 0 : 14).background(intelligentUI ? Color.clear : mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+            }.padding(intelligentUI ? 0 : 14)
+                .padding(.trailing, receipts.isEmpty ? 0 : 24)
+                .background(intelligentUI ? Color.clear : mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine || intelligentUI ? Color.clear : NanoTheme.border, lineWidth: 1))
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
+                .overlay(alignment: .bottomTrailing) {
+                    if !receipts.isEmpty {
+                        MessageReceiptButton(receipts: receipts).padding(.bottom, 4)
+                    }
+                }
     }
     private var hasMetadata: Bool {
         message.delivery_status == "running" || (message.delivery_status == "failed" && receipts.isEmpty)
@@ -157,7 +163,7 @@ private struct MessageReceiptButton: View {
 
     var body: some View {
         Button { showDetails = true } label: {
-            ReceiptMark(status: status).frame(width: 44, height: 26).contentShape(Rectangle())
+            ReceiptMark(status: status).frame(width: 36, height: 26).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(status.title)
