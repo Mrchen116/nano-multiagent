@@ -221,3 +221,12 @@ c91f限定关闭后，作者补核“draft已clean、动作POST已准入、等�
 - **证据保留**：从 `cdcc8cf32` 到最终产品树，Swift 源码、原生 renderer 源和交互契约字段无增量；前述两端真实三消息、原生预算恢复与 Context 各保留其原先验证范围。最终本机生成的 iOS renderer 检查通过。未复用最初失败的 AX 超时作为已修复证据，也不把 Inbox journal 称为 provider wire。
 - **后端清理对照**：锁定 Node 24.22.1、同一 Air，`workspace-tools.test.ts` 单 worker 在干净 `56c508377` 通过（1 项，82.00 秒），也在合并后的 716 通过（1 项，91.52 秒）；本轮未重现历史 cleanup.error。没有修改 DSH 清理逻辑或放宽超时。
 - **本地门禁**：最终 Web 121 文件 / 1,183 项全绿；合并树后端 230 文件 / 1,285 项全绿。后续代码只修改 Web，后端测试及产品源码与实跑版本一致。构建、类型检查、iOS renderer 生成校验、Python 135 项、Ruff 和文档检查通过；原生 82 XCTest、另 27 Swift Testing 与 Release archive 保留前述相同原生产物范围。最终提交仅新增 canonical 归并及归档，产品证据继续有效。
+
+## 私聊草稿同步与普通发送恢复（产品反馈后修订）
+
+- 本节取代前文的私聊草稿对比、显式采用和专用重试验收。Web 与 iOS 首次发送先保存卡片编辑；遇到版本冲突，读回最近成功保存的草稿，更新卡片，并在原点击内继续发送完整正文。保存或同步暂时失败时沿用普通发送失败反馈并保留正文。已经提交但尚未确认的消息仍按原发送尝试重试。
+- 独立审查发现 Web 在同步读取期间还允许编辑旧卡片，以及 iOS 同步后仍可能显示旧 renderer。两项在 `bdc40e5bd` 关闭；限定复审结论 APPROVED，corrected-delta aligned。Web 相关回归 9 项及构建通过。
+- Web 实际浏览器与隔离 IM（`c7bd63f67`）观察到真实 `PUT 409 → GET 200 → POST 201`。单次草稿保存注入 `503` 时显示普通发送失败、保留正文且未提交消息；点击普通发送后 `PUT 200 → POST 201`。两条消息各持久化一次，分别携带验证用的卡片值。最终 Web 锁定旧卡片的补充行为由定向测试覆盖，最终构建通过。
+- iOS 隔离 IM 与专用模拟器（`bdc40e5bd`）实际通过 `testNativeConflictAutomaticallyUsesLatestDraft`：同一账号预先保存更新值，随后在客户端点一次发送。实际 WKWebView 字段显示已同步的值，完整正文只出现一次，画面无对比入口。不是实机测试。
+- `validated_at=c7bd63f67`（浏览器）、`validated_at=bdc40e5bd`（原生旅程、定向回归、代码和 delta 复审）；`executed_base=56c5083770805182832fc52543b0c35aef5a430c`。同步后的 `effective_base=199165d7d1fa4bd6da36f253211f3344fbd9333c`，`effective_through=bcbfbd9a04556c36d095e15ff2205e987bd44aa2`。基线增量只涉及 Global 的后代 Work 读取、其测试及归档，对本轮客户端与 IM 保存、发送链路无增量；本轮证据保留。
+- 同步后在相同客户端源码重跑原生 `InteractionDraftLifecycleTests`、`SendRecoveryTests`：32 项通过。
