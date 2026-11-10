@@ -46,7 +46,7 @@ import {
   type ReplyReference,
   type TimelineItem
 } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName, initialsOf } from "./avatar";
 import { KindBadge } from "./kind-badge";
 import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
@@ -1712,25 +1712,59 @@ function ContextMenu({
 
 function MessageReceipt({ receipts }: { receipts: NonNullable<Message["receipts"]> }) {
   const { t } = useTranslation();
+  const card = useRef<HTMLSpanElement>(null);
+  const [above, setAbove] = useState(false);
+  function positionCard(button: HTMLButtonElement) {
+    const timeline = button.closest(".chat-pane-messages")?.getBoundingClientRect();
+    if (!timeline || !card.current) return;
+    const anchor = button.getBoundingClientRect();
+    const below = timeline.bottom - anchor.bottom;
+    setAbove(below < card.current.offsetHeight + 6 && anchor.top - timeline.top > below);
+  }
   const status = receipts.some(receipt => receipt.status === "sent") ? "sent"
     : receipts.some(receipt => receipt.status === "received") ? "received" : "read";
   const Icon = status === "sent" ? Check : CheckCheck;
-  const labels = receipts.map(receipt => ({
-    id: receipt.recipient_id,
-    text: receipts.length === 1 ? t(`chat.messagePane.receipt.${receipt.status}`)
-      : `${receipt.display_name} · ${t(`chat.messagePane.receipt.${receipt.status}`)}`
-  }));
+  const label = receipts.map(receipt => {
+    const state = t(`chat.messagePane.receipt.${receipt.status}`);
+    return receipts.length === 1 ? state : `${receipt.display_name} · ${state}`;
+  }).join(", ");
 
   return (
     <button type="button"
       className={`group/receipt inline-flex h-5 w-5 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-1 ${status === "read" ? "text-[var(--im-accent)]" : "text-[var(--im-text-muted)]"}`}
-      aria-label={labels.map(label => label.text).join(", ")}
+      aria-label={label}
+      onMouseEnter={event => positionCard(event.currentTarget)}
+      onFocus={event => positionCard(event.currentTarget)}
       onClick={event => event.currentTarget.focus()}
       onKeyDown={event => { if (event.key === "Escape") event.currentTarget.blur(); }}
     >
       <Icon size={14} strokeWidth={1.8} aria-hidden="true" />
-      <span aria-hidden="true" className="pointer-events-none invisible absolute right-full top-1/2 z-20 mr-2 grid w-max -translate-y-1/2 max-w-60 gap-1 rounded-md border border-[var(--im-border)] bg-[var(--im-surface)] px-2 py-1 text-left text-[11px] leading-4 text-[var(--im-text)] shadow-sm group-hover/receipt:visible group-focus/receipt:visible">
-        {labels.map(label => <span key={label.id}>{label.text}</span>)}
+      <span
+        ref={card}
+        aria-hidden="true"
+        className={`pointer-events-none absolute right-0 z-20 hidden w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[var(--im-border)] bg-[var(--im-surface)] text-left shadow-[var(--im-shadow-strong)] group-hover/receipt:block group-focus/receipt:block ${above ? "bottom-full mb-1.5" : "top-full mt-1.5"}`}
+      >
+        <span className="block border-b border-[var(--im-border)] px-3.5 py-2 text-xs font-semibold text-[var(--im-text)]">
+          {t("chat.messagePane.receipt.title")}
+        </span>
+        <span className="grid gap-1 px-3 py-2">
+          {receipts.map(receipt => {
+            const Mark = receipt.status === "sent" ? Check : CheckCheck;
+            const tint = receipt.status === "read"
+              ? "bg-[var(--im-accent-soft)] text-[var(--im-accent-2)]"
+              : "bg-[var(--im-surface-2)] text-[var(--im-text-muted)]";
+            return (
+              <span key={receipt.recipient_id} className="flex min-h-8 items-center gap-2">
+                <Avatar initials={initialsOf(receipt.display_name)} color={colorForAgentSeed(receipt.display_name)} size={24} />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--im-text)]">{receipt.display_name}</span>
+                <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${tint}`}>
+                  <Mark size={12} strokeWidth={1.9} />
+                  {t(receipt.status === "sent" ? "chat.messagePane.receipt.pending" : `chat.messagePane.receipt.${receipt.status}`)}
+                </span>
+              </span>
+            );
+          })}
+        </span>
       </span>
     </button>
   );
