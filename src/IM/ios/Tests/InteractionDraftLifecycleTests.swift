@@ -7,36 +7,23 @@ final class InteractionDraftLifecycleTests: XCTestCase {
     private let t2 = "2026-11-01T10:00:00.002Z"
     private let t3 = "2026-11-01T10:00:00.003Z"
 
-    func testComposerConflictUsesReadableComparisonAndExplicitAdoptionBeforeSending() async throws {
+    func testComposerSynchronizesLatestDraftAndSendsFromTheSameClick() async throws {
         let (runtime, transport) = try await fixture()
         let chat = runtime.chat
+        defer { chat.clear() }
         await transport.setRemote("thu", updatedAt: t3)
         await transport.setStatus(409)
         try await edit(runtime, "fri")
         chat.drafts["chat"] = "keep the question"
         await chat.send("chat")
-        let blockedPosts = await transport.posts
-        XCTAssertTrue(blockedPosts.isEmpty)
-        XCTAssertEqual(chat.interactionDrafts.failure("chat")?.reason, .conflict)
-        XCTAssertEqual(runtime.state["$slot"], .string("fri"))
-        XCTAssertEqual(chat.drafts["chat"], "keep the question")
-        await runtime.adoptRemote() // Adoption is unavailable until a successful comparison.
-        XCTAssertEqual(runtime.state["$slot"], .string("fri"))
-        let columns = try await runtime.describeConflict()
-        XCTAssertEqual(columns, [DraftConflictColumn(name: "$slot", label: "会议时间", remote: "周四 14:00", local: "周五 15:00")])
-        XCTAssertEqual(runtime.state["$slot"], .string("fri"))
-        XCTAssertEqual(chat.drafts["chat"], "keep the question")
-        XCTAssertTrue(chat.interactionDrafts.watermarks.isEmpty, "Reading another device's draft does not own its discard watermark")
-        await transport.setStatus(200)
-        await runtime.adoptRemote()
-        XCTAssertNil(chat.interactionDrafts.failure("chat"))
-        XCTAssertNil(chat.errors["chat"])
-        XCTAssertEqual(runtime.state["$slot"], .string("thu"))
-        await chat.send("chat")
-        let posts = await transport.posts
+        let posts = await transport.posts, events = await transport.events
         XCTAssertEqual(posts.count, 1)
+        XCTAssertEqual(posts.first?["content"], .string("keep the question"))
         XCTAssertNil(posts.first?.objectValue?["interaction_contexts"])
-        chat.clear()
+        XCTAssertEqual(events, ["put:card", "send"])
+        XCTAssertNil(chat.interactionDrafts.failure("chat"))
+        XCTAssertEqual(runtime.state["$slot"], .string("thu"))
+        XCTAssertTrue(chat.interactionDrafts.watermarks.isEmpty, "A read does not own the other device's discard watermark")
     }
 
     func testComposerFreezesOriginalTextBeforeWaitingForDraftFlush() async throws {
@@ -54,26 +41,31 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         runtime.chat.clear()
     }
 
-    func testFailedRemoteAdoptionDoesNotClearConflictOrReleaseSending() async throws {
+    func testFailedConflictRefreshRetainsTheMessageAndTheNextSendRetriesTheRead() async throws {
         let (runtime, transport) = try await fixture()
+        defer { runtime.chat.clear() }
         await transport.setStatus(409)
-        try await edit(runtime, "fri")
-        runtime.chat.drafts["chat"] = "do not send"
-        await runtime.chat.send("chat")
-        _ = try await runtime.describeConflict()
         await transport.setReadStatus(503)
-        await runtime.adoptRemote()
-        XCTAssertTrue(runtime.conflict)
-        XCTAssertEqual(runtime.state["$slot"], .string("fri"))
-        XCTAssertNotNil(runtime.chat.interactionDrafts.failure("chat"))
+        try await edit(runtime, "fri")
+        runtime.chat.drafts["chat"] = "keep the message"
         await runtime.chat.send("chat")
-        let posts = await transport.posts
-        XCTAssertTrue(posts.isEmpty)
-        XCTAssertEqual(runtime.chat.drafts["chat"], "do not send")
-        runtime.chat.clear()
+        XCTAssertEqual(runtime.state["$slot"], .string("fri"))
+        XCTAssertEqual(runtime.chat.drafts["chat"], "keep the message")
+        XCTAssertNotNil(runtime.chat.errors["chat"])
+        let blocked = await transport.posts
+        XCTAssertTrue(blocked.isEmpty)
+
+        await transport.setReadStatus(200)
+        await runtime.chat.send("chat")
+        let posts = await transport.posts, events = await transport.events
+        XCTAssertEqual(posts.count, 1)
+        XCTAssertEqual(posts.first?["content"], .string("keep the message"))
+        XCTAssertEqual(events, ["put:card", "send"], "Retry must refresh instead of repeating the stale write")
+        XCTAssertEqual(runtime.state["$slot"], .string("wed"))
+        XCTAssertNil(runtime.chat.errors["chat"])
     }
 
-    func testTransientComposerFailureRetainsBothDraftsAndRetrySavingUnblocksConversation() async throws {
+    func testTransientComposerFailureRetainsBothDraftsAndRetriesThroughSend() async throws {
         let (runtime, transport) = try await fixture()
         await transport.setStatus(503)
         try await edit(runtime, "fri")
@@ -85,10 +77,9 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         XCTAssertEqual(runtime.chat.drafts["chat"], "unrelated follow-up")
         XCTAssertEqual(runtime.state["$slot"], .string("fri"))
         await transport.setStatus(200)
-        _ = await runtime.flush()
+        await runtime.chat.send("chat")
         XCTAssertNil(runtime.chat.interactionDrafts.failure("chat"))
         XCTAssertNil(runtime.chat.errors["chat"])
-        await runtime.chat.send("chat")
         let posts = await transport.posts, events = await transport.events
         XCTAssertEqual(posts.count, 1)
         XCTAssertEqual(events.suffix(2), ["saved:card", "send"])

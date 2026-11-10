@@ -1140,19 +1140,7 @@
       "selectConversationTitle": "Select a conversation",
       "selectConversationSubtitle": "Pick a thread to chat with your agents.",
       "attachmentCapacity": "Attachments temporarily unavailable.",
-      "attachmentCooldown": "Uploads are temporarily limited. Wait for the retry countdown.",
-      "transientTitle": "A card change is not saved yet, so this chat cannot send",
-      "transientBody": "Save the change on “{{card}}” before sending; otherwise this message will not carry it. Every message in this chat waits for it.",
-      "transientOffline": "The network is unavailable now; sending resumes once it is back.",
-      "retrySave": "Retry save",
-      "conflictTitle": "Another device updated this card, so this chat cannot send",
-      "conflictBody": "The draft for “{{card}}” changed on another device and this device's edit is unsaved, so sending now would leave it out.",
-      "viewLatest": "View latest",
-      "adoptRemote": "Use the latest draft (discards this device's edit)",
-      "conflictField": "Field",
-      "conflictRemote": "Other device",
-      "conflictLocal": "This device",
-      "untitledCard": "this card"
+      "attachmentCooldown": "Uploads are temporarily limited. Wait for the retry countdown."
     },
     "groupSettings": {
       "title": "Group settings",

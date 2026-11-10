@@ -33,7 +33,6 @@ struct ConversationView: View {
     }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
-    private var draftFailure: DraftFailure? { conversation?.type == "group" ? nil : store.interactionDrafts.failure(conversationID) }
     private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
     var body: some View {
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
@@ -42,7 +41,7 @@ struct ConversationView: View {
                 AgentLifecycleChatNotice(client: store.client, agent: agent)
             }
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary).padding(6) }
-            if let error = store.errors[conversationID] ?? operationError, draftFailure == nil { ErrorNotice(message: error).padding(10) }
+            if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
@@ -142,7 +141,7 @@ struct ConversationView: View {
             guard phase == .active else { return }
             await store.interactionDrafts.foreground(activeConversation: store.selectedID)
             // One bounded recovery pass, never an offline retry loop.
-            if draftFailure?.reason == .transient { _ = await store.flushDrafts(conversationID) }
+            if store.interactionDrafts.failure(conversationID) != nil { _ = await store.flushDrafts(conversationID) }
             while !Task.isCancelled {
                 // Visitors do not subscribe as members; recheck access while reading public history.
                 if conversation?.is_member == false || conversation?.dissolved_at != nil {
@@ -168,9 +167,6 @@ struct ConversationView: View {
     }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let failure = draftFailure, let runtime = store.interactionDrafts.runtime(conversationID, messageID: failure.id) {
-                DraftFailureNotice(runtime: runtime, failure: failure).id(failure.id)
-            }
             if let pending = store.pending[conversationID], !store.sending.contains(conversationID) {
                 HStack { Text(L("等待核对发送结果", "Awaiting delivery confirmation")).font(.caption); Spacer(); Button(L("重试核对", "Retry")) { Task { await store.send(conversationID, retry: true) } } }
                     .accessibilityHint(pending.content)
@@ -213,7 +209,7 @@ struct ConversationView: View {
                 }.frame(maxHeight: 140).disabled(store.pending[conversationID] != nil)
                 Button(L("仅发送文字，保留附件", "Send text only; keep attachments")) {
                     Task { await store.send(conversationID, textOnly: true) }
-                }.font(.caption).disabled(draftFailure != nil || uploading || store.pending[conversationID] != nil || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.font(.caption).disabled(uploading || store.pending[conversationID] != nil || draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if let completion { completionPanel(completion) }
             HStack(alignment: .bottom, spacing: 8) {
@@ -230,7 +226,7 @@ struct ConversationView: View {
                     }
                 Button { Task { await store.send(conversationID) } } label: {
                     if store.sending.contains(conversationID) { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.largeTitle) }
-                }.disabled(draftFailure != nil || store.sending.contains(conversationID) || !uploads.isEmpty || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
+                }.disabled(store.sending.contains(conversationID) || !uploads.isEmpty || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
                     .accessibilityLabel(L("发送", "Send"))
             }
         }.padding(.horizontal, 16).padding(.vertical, 10).background(NanoTheme.surface)

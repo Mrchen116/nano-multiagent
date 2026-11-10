@@ -4,7 +4,7 @@ import { InteractiveCard } from './interactive-card';
 import { InteractionSubmissionError } from './submission-error';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
-import { adoptRemoteDraft, draftFailures, resetInteractionBackground } from '../interaction-background';
+import { resetInteractionBackground } from '../interaction-background';
 vi.mock('../chat-api', () => ({listMessages:vi.fn(),readInteractionDraft: vi.fn(), saveInteractionDraft: vi.fn()}));
 const message = {id:'card', conversation_id:'chat', content:'确认草稿', interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
 root = Col([form])
@@ -56,23 +56,6 @@ describe('private interactive reply', () => {
     expect(saveInteractionDraft).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the retry for an uncertain submission if the user attempts to adopt the remote draft', async () => {
-    vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('409 conflict'));
-    const send = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({});
-    render(<InteractiveCard message={message} onSend={send} />);
-    const field = await screen.findByRole('textbox');
-    await waitFor(() => expect(field).toHaveValue('周日见'));
-    fireEvent.change(field,{target:{value:'本机冲突稿'}});
-    await waitFor(() => expect(draftFailures('chat')).toEqual([{messageId:'card', reason:'conflict'}]));
-    fireEvent.click(screen.getByRole('button',{name:'发送给林悦'}));
-    await screen.findByRole('button',{name:/重试|Retry/});
-
-    await act(async () => { await expect(adoptRemoteDraft('chat', 'card')).rejects.toThrow(); });
-    fireEvent.click(screen.getByRole('button',{name:/重试|Retry/}));
-    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
-    expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
-  });
-
   it('retries an uncertain submission with the exact frozen request and identity', async () => {
     const send=vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({});
     render(<InteractiveCard message={message} onSend={send} />);
@@ -94,19 +77,7 @@ describe('private interactive reply', () => {
     expect(field).not.toBeDisabled();
     if(reason==='alreadySubmitted') expect(screen.getByRole('link',{name:/原提交|previous submission/i})).toHaveAttribute('href','/chat/chat?message_id=original');
   });
-  it('does not overwrite another device after a draft conflict', async () => {
-    vi.mocked(saveInteractionDraft).mockRejectedValue(new Error('409 conflict'));
-    render(<InteractiveCard message={message} onSend={vi.fn()} />);
-    const field = await screen.findByRole('textbox');
-    await waitFor(() => expect(field).toHaveValue('周日见'));
-    fireEvent.change(field,{target:{value:'保留本机输入'}});
-    expect(await screen.findByRole('alert')).toHaveTextContent(/另一设备|Another device/);
-    expect(screen.getByRole('textbox')).toHaveValue('保留本机输入');
-    expect(saveInteractionDraft).toHaveBeenCalledTimes(1);
-    // Recovery is now the composer comparison → explicit adoption path. The old card-local
-    // load button would bypass the warning and silently discard this device's edit.
-    expect(screen.queryByRole('button',{name:/载入最新|Load latest/})).not.toBeInTheDocument();
-  });
+
 });
 
 

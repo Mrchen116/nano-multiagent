@@ -164,7 +164,7 @@ describe("MessagePane composer drafts are per conversation", () => {
     let finish!: () => void;
     const saving = new Promise<void>(resolve => { finish = resolve; });
     const flush = vi.fn(async () => { await saving; return {}; });
-    registerDraftHandle(CONV_A.id, 'slow-card', { flush, describeConflict: async () => ({columns: []}), adoptRemote: async () => {} });
+    registerDraftHandle(CONV_A.id, 'slow-card', { flush });
     try {
       const send = vi.fn().mockResolvedValue(undefined);
       render(pane(CONV_A, { onSend: send }));

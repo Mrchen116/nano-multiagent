@@ -6,7 +6,7 @@ import {
 
 vi.mock('./chat-api', () => ({discardInteractionBackground:vi.fn(), readInteractionDraft:vi.fn()}));
 beforeEach(() => resetInteractionBackground());
-const card = (flush: DraftHandle['flush']): DraftHandle => ({flush, describeConflict:async()=>({columns:[]}), adoptRemote:async()=>{}});
+const card = (flush: DraftHandle['flush']): DraftHandle => ({flush});
 
 it('recovers only transient cards in the requested conversation with one bounded pass', async () => {
   const transient = vi.fn(async () => ({})), conflict = vi.fn(async () => ({})), other = vi.fn(async () => ({}));

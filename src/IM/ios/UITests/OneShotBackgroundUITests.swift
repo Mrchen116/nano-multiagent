@@ -169,8 +169,8 @@ final class OneShotBackgroundUITests: XCTestCase {
         await fulfillment(of: [empty], timeout: 10)
     }
 
-    func testNativeConflictComparisonAndExplicitAdoption() async throws {
-        let text = "716-native-conflict: Keep my message until I decide."
+    func testNativeConflictAutomaticallyUsesLatestDraft() async throws {
+        let text = "716-native-conflict: Please use the latest meeting time."
         let people = try openMeetingCard()
         let composer = app.textViews["Message"]
         // A separate authenticated device advances the real server revision, after this
@@ -191,40 +191,12 @@ final class OneShotBackgroundUITests: XCTestCase {
         people.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         let old = try XCTUnwrap(people.value as? String)
         people.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + "8")
-        // The 409 notice can move this lazy card outside the viewport immediately.
-        // Assert the actual local 8 later in the comparison rather than querying a recycled WK node.
-        let comparisons = app.buttons.matching(identifier: "View latest changes")
-        XCTAssertTrue(comparisons.firstMatch.waitForExistence(timeout: 10))
-        // The offscreen card also offers the same action. Query order is not screen
-        // order: choose the visible native notice instead of guessing a matching index.
-        let compare = try XCTUnwrap(comparisons.allElementsBoundByIndex.first(where: { $0.isHittable }))
-        XCTAssertFalse(app.buttons["Send"].isEnabled)
-        // Wait for the failure notice before typing; otherwise its arrival can move
-        // the UIKit composer between XCTest's tap and key dispatch.
         composer.tap(); composer.typeText(text)
-        XCTAssertEqual(composer.value as? String, text)
-        capture("716-native-conflict-blocks-conversation")
-        compare.tap()
-        let adoptions = app.buttons.matching(identifier: "Use latest draft (discards these local edits)")
-        XCTAssertTrue(adoptions.firstMatch.waitForExistence(timeout: 10))
-        let adopt = try XCTUnwrap(adoptions.allElementsBoundByIndex.first(where: { $0.isHittable }))
-        XCTAssertTrue(app.staticTexts["Other device"].exists)
-        XCTAssertTrue(app.staticTexts["This device"].exists)
-        XCTAssertTrue(app.staticTexts[String(remoteCount)].firstMatch.exists)
-        XCTAssertTrue(app.staticTexts["8"].firstMatch.exists)
-        // The notice may move the original card outside the lazy viewport. The local
-        // column still shows 8, so inspection has not silently replaced it with the remote value.
-        XCTAssertEqual(composer.value as? String, text)
-        capture("716-native-conflict-three-columns")
-        adopt.tap()
-        let resolved = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: compare)
-        await fulfillment(of: [resolved], timeout: 10)
-        XCTAssertTrue(app.buttons["Send"].isEnabled)
-        XCTAssertEqual(composer.value as? String, text)
-        let adoptedField = app.webViews.textFields["参会人数"].firstMatch
-        let restored = expectation(for: NSPredicate(format: "value == %@", String(remoteCount)), evaluatedWith: adoptedField)
-        await fulfillment(of: [restored], timeout: 15)
-        capture("716-native-conflict-adopted")
+        try await sendText(text, alreadyComposed: true)
+        XCTAssertFalse(app.buttons["View latest changes"].exists)
+        let adopted = try await request(path, token: token)
+        XCTAssertEqual((adopted["state"] as? [String: Any])?["$participants"] as? Int, remoteCount)
+        capture("716-native-conflict-synchronized-and-sent")
     }
 
     func testNativeTransientSaveBlocksAndRecovers() async throws {
@@ -248,18 +220,15 @@ final class OneShotBackgroundUITests: XCTestCase {
         people.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         let old = try XCTUnwrap(people.value as? String), newCount = old == "5" ? "6" : "5"
         people.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count) + newCount)
-        let retryButtons = app.buttons.matching(identifier: "Retry saving")
-        XCTAssertTrue(retryButtons.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertFalse(app.buttons["Send"].isEnabled)
         composer.tap(); composer.typeText(text)
+        XCTAssertTrue(app.buttons["Send"].isEnabled)
+        app.buttons["Send"].tap()
+        XCTAssertTrue(app.staticTexts["Message was not sent. Please try again."].waitForExistence(timeout: 10))
         XCTAssertEqual(composer.value as? String, text)
-        capture("716-native-transient-blocks-conversation")
+        capture("716-native-transient-ordinary-send-failed")
         print("716_OUTAGE_RECOVER")
         try await waitForService(available: true)
-        try XCTUnwrap(retryButtons.allElementsBoundByIndex.first(where: { $0.isHittable })).tap()
-        let recovered = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: app.buttons["Send"])
-        await fulfillment(of: [recovered], timeout: 15)
-        XCTAssertEqual(composer.value as? String, text)
+        try await sendText(text, alreadyComposed: true)
         let saved = try await request("/im/v1/conversations/\(cid)/messages/\(mid)/interaction-state", token: token)
         let savedState = try XCTUnwrap(saved["state"] as? [String: Any])
         XCTAssertEqual(savedState[stateKey] as? Int, Int(newCount))

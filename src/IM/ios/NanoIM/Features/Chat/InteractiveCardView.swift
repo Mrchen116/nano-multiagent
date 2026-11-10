@@ -24,7 +24,7 @@ struct InteractiveCardView: View {
             else if runtime.submitted && !runtime.hasPending { Text(L("请求已发送，Agent 将在聊天中回复。", "Request sent. The Agent will reply in the conversation.")).font(.caption).foregroundStyle(NanoTheme.accent) }
             if let error = runtime.error {
                 ErrorNotice(message: error)
-                if runtime.conflict, let failure = runtime.chat.interactionDrafts.failure(runtime.message.conversation_id), failure.id == runtime.message.id {
+                if runtime.conflict, runtime.chat.isGroupConversation(runtime.message.conversation_id), let failure = runtime.chat.interactionDrafts.failure(runtime.message.conversation_id), failure.id == runtime.message.id {
                     DraftFailureNotice(runtime: runtime, failure: failure)
                 } else if !runtime.loaded { Button(L("读取最新", "Load latest")) { Task { await runtime.load() } } }
                 else if !runtime.hasPending { Button(L("重试", "Retry")) { Task { await runtime.retryContent() } } }

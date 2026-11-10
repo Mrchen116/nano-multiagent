@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { discardInteractionBackground, readInteractionDraft } from './chat-api';
+import { discardInteractionBackground } from './chat-api';
 import {
-  adoptRemoteDraft,
   awaitPendingDiscard,
   awaitWatermarkWrite,
   beginSend,
-  describeDraftConflict,
   discardOnLeave,
   draftFailures,
   draftWatermark,
@@ -24,8 +22,7 @@ import {
 } from './interaction-background';
 
 vi.mock('./chat-api', () => ({
-  discardInteractionBackground: vi.fn(),
-  readInteractionDraft: vi.fn()
+  discardInteractionBackground: vi.fn()
 }));
 
 const T1 = '2026-05-01T00:00:01.000Z';
@@ -41,8 +38,6 @@ function deferred<T>() {
 function handle(overrides: Partial<DraftHandle> = {}): DraftHandle {
   return {
     flush: vi.fn(async () => ({})),
-    describeConflict: vi.fn(async () => ({ columns: [] })),
-    adoptRemote: vi.fn(async () => undefined),
     ...overrides
   };
 }
@@ -64,7 +59,6 @@ function readStoredRows(): Promise<{ userId: string; conversationId: string; thr
 beforeEach(() => {
   resetInteractionBackground();
   vi.mocked(discardInteractionBackground).mockReset();
-  vi.mocked(readInteractionDraft).mockReset();
 });
 
 describe('drafts block the send until they are saved', () => {
@@ -102,51 +96,6 @@ describe('drafts block the send until they are saved', () => {
     await retryDraft('chat', 'card');
     expect(draftFailures('chat')).toEqual([]);
     expect(draftWatermark('chat')).toBe(T2);
-  });
-});
-
-describe('409 comparison and explicit adoption', () => {
-  it('returns the server labels and both values, applying nothing', async () => {
-    const describeConflict = vi.fn(async () => ({ columns: [
-      { label: '开始时间', remote: '周四 14:00', local: '周四 15:00' },
-      { label: '参会人', remote: '我、她', local: '我' }
-    ] }));
-    const adoptRemote = vi.fn(async () => undefined);
-    registerDraftHandle('chat', 'card', handle({ flush: vi.fn(async () => ({ reason: 'conflict' as const })), describeConflict, adoptRemote }));
-    await beginSend('chat');
-
-    const comparison = await describeDraftConflict('chat', 'card');
-    expect(comparison.columns.map(column => column.label)).toEqual(['开始时间', '参会人']);
-    expect(comparison.columns.map(column => [column.remote, column.local])).toEqual([['周四 14:00', '周四 15:00'], ['我、她', '我']]);
-    // Looking is read-only: the failure survives, nothing is applied, nothing is sent.
-    expect(draftFailures('chat')).toHaveLength(1);
-    expect(adoptRemote).not.toHaveBeenCalled();
-  });
-
-  it('clears the conflict only after the server draft was adopted', async () => {
-    const adoptRemote = vi.fn(async () => undefined);
-    const flush = vi.fn<() => Promise<{ updatedAt?: string; reason?: 'conflict' }>>(async () => ({ reason: 'conflict' as const }));
-    registerDraftHandle('chat', 'card', handle({ flush, adoptRemote }));
-    await beginSend('chat');
-    expect(draftFailures('chat')).toHaveLength(1);
-
-    await adoptRemoteDraft('chat', 'card');
-    expect(adoptRemote).toHaveBeenCalledTimes(1);
-    expect(draftFailures('chat')).toEqual([]);
-
-    // Only now may the conversation send again.
-    flush.mockResolvedValue({ updatedAt: T2 });
-    expect(await beginSend('chat')).toBe(true);
-  });
-
-  it('falls back to the server fields when the card is no longer mounted', async () => {
-    vi.mocked(readInteractionDraft).mockResolvedValue({
-      draft_revision: 4, state: {}, submission_message_id: null,
-      fields: [{ name: 'start', label: '开始时间', value: 'thu', display_value: '周四 14:00', options: [{ label: '周四 14:00', value: 'thu' }] }]
-    });
-
-    const comparison = await describeDraftConflict('chat', 'card');
-    expect(comparison.columns).toEqual([{ label: '开始时间', remote: '周四 14:00', local: '' }]);
   });
 });
 

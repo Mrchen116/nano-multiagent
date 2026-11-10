@@ -32,7 +32,7 @@ export class InteractionDraftRecord {
   private views = new Set<symbol>();
   private listeners = new Set<() => void>();
 
-  constructor(readonly conversationId: string, readonly messageId: string, private owner: DraftRecordOwner) {}
+  constructor(readonly conversationId: string, readonly messageId: string, private owner: DraftRecordOwner, private syncConflicts: boolean) {}
 
   get current(): boolean { return this.live && this.owner.current(); }
   get unsaved(): boolean { return this.dirty || !!this.failure || !!this.request; }
@@ -91,15 +91,7 @@ export class InteractionDraftRecord {
         if (!this.current || readVersion !== this.readVersion || editVersion !== this.editVersion) return false;
         if (this.pending) return !adopting && this.loaded;
         if (!adopting && this.unsaved) return this.loaded;
-        this.state = draft.state;
-        this.revision = draft.draft_revision;
-        this.loaded = true;
-        this.done = Boolean(draft.submission_message_id);
-        this.dirty = false;
-        this.failure = null;
-        this.renderVersion += 1;
-        this.owner.failed(null);
-        this.notify();
+        this.applyDraft(draft);
         return true;
       } catch {
         if (this.current && readVersion === this.readVersion) { this.loadFailed = true; this.notify(); }
@@ -109,6 +101,26 @@ export class InteractionDraftRecord {
     this.reading = operation;
     try { return await operation; }
     finally { if (this.reading === operation) this.reading = null; }
+  }
+
+  private applyDraft(draft: Awaited<ReturnType<typeof readInteractionDraft>>): void {
+    this.state = draft.state;
+    this.revision = draft.draft_revision;
+    this.loaded = true;
+    this.done = Boolean(draft.submission_message_id);
+    this.dirty = false;
+    this.failure = null;
+    this.renderVersion += 1;
+    this.owner.failed(null);
+    this.notify();
+  }
+
+  private async syncLatest(): Promise<void> {
+    try {
+      const draft = await readInteractionDraft(this.conversationId, this.messageId);
+      // Reading a draft from another device never gives this device a discard watermark.
+      if (this.current && !this.pending) this.applyDraft(draft);
+    } catch { /* Keep the local edit and retry the read on the next send or reconnect. */ }
   }
 
   /** Serialize PUTs across replacement views; a late acknowledgement never replaces newer input. */
@@ -126,6 +138,10 @@ export class InteractionDraftRecord {
 
   private async saveEdits(): Promise<string | undefined> {
     while (this.current && this.dirty) {
+      if (this.syncConflicts && this.failure === 'conflict') {
+        await this.syncLatest();
+        break;
+      }
       this.dirty = false;
       const value = this.state;
       try {
@@ -143,9 +159,10 @@ export class InteractionDraftRecord {
       } catch (error) {
         if (!this.current) return undefined;
         this.dirty = true;
-        this.failure = String(error).includes('409') ? 'conflict' : 'transient';
+        this.failure = (error as {status?: number}).status === 409 ? 'conflict' : 'transient';
         this.owner.failed(this.failure);
         this.notify();
+        if (this.syncConflicts && this.failure === 'conflict') await this.syncLatest();
         break;
       }
     }

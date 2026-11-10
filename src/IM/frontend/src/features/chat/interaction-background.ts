@@ -2,8 +2,7 @@
 // carries; this module only keeps the two things a browser must own: the highest draft save
 // it has confirmed (so leaving a conversation can name what it clears) and the unsaved-draft
 // failures that must block sending instead of silently dropping the edit.
-import { useSyncExternalStore } from 'react';
-import { discardInteractionBackground, readInteractionDraft } from './chat-api';
+import { discardInteractionBackground } from './chat-api';
 import { openChatDatabase } from './chat-local-db';
 import { InteractionDraftRecord } from './interaction-draft-record';
 
@@ -13,10 +12,6 @@ export type DraftFailureReason = 'transient' | 'conflict';
 export interface DraftHandle {
   /** Finish this card's debounce window and return the confirmed save time, or why it failed. */
   flush(): Promise<{ updatedAt?: string; reason?: DraftFailureReason }>;
-  /** Read-only comparison of the server draft with the local edit; applies nothing. */
-  describeConflict(): Promise<{ columns: { label: string; remote: string; local: string }[] }>;
-  /** Adopt the server draft, discarding this device's edit, and clear this card's failure. */
-  adoptRemote(): Promise<void>;
 }
 
 export interface DraftFailure {
@@ -27,7 +22,6 @@ export interface DraftFailure {
 const handles = new Map<string, Map<string, DraftHandle>>();
 const records = new Map<string, Map<string, InteractionDraftRecord>>();
 const failures = new Map<string, Map<string, DraftFailureReason>>();
-const listeners = new Set<() => void>();
 /** Highest confirmed save per conversation, the only thing leaving may clear. */
 const watermarks = new Map<string, string>();
 /** Highest watermark this browser already cleared on the server. */
@@ -49,35 +43,15 @@ const conversationGenerations = new Map<string, number>();
 
 /** Capture before asynchronous draft work so logout/revocation fences late completions. */
 export function draftSession(cid: string): string { return `${generation}:${conversationGenerations.get(cid) ?? 0}`; }
-const snapshotCache = new Map<string, DraftFailure[]>();
-
-function notify(): void {
-  snapshotCache.clear();
-  for (const listener of listeners) listener();
-}
-
 function setFailure(cid: string, mid: string, reason: DraftFailureReason | null): void {
   const current = failures.get(cid) ?? new Map<string, DraftFailureReason>();
-  const before = current.get(mid);
   if (reason) current.set(mid, reason); else current.delete(mid);
   if (!current.size) failures.delete(cid); else failures.set(cid, current);
-  if (before !== (reason ?? undefined)) notify();
 }
 
-/** Failures blocking this conversation, newest reason per card. */
+/** Save failures that still need recovery. */
 export function draftFailures(cid: string): DraftFailure[] {
-  const cached = snapshotCache.get(cid);
-  if (cached) return cached;
-  const value = [...(failures.get(cid) ?? new Map<string, DraftFailureReason>())]
-    .map(([messageId, reason]) => ({ messageId, reason }));
-  snapshotCache.set(cid, value);
-  return value;
-}
-
-/** Subscribe the composer alert to the cards' own save outcomes. */
-export function useDraftFailures(cid: string): DraftFailure[] {
-  return useSyncExternalStore(listen => { listeners.add(listen); return () => listeners.delete(listen); },
-    () => draftFailures(cid), () => draftFailures(cid));
+  return [...(failures.get(cid) ?? [])].map(([messageId, reason]) => ({ messageId, reason }));
 }
 
 /** Reuse unsaved data across concealed views, but refresh clean drafts on a new mount. */
@@ -101,7 +75,7 @@ export function interactionDraftRecord(cid: string, mid: string, retained = true
       records.get(cid)!.delete(mid);
       if (!records.get(cid)!.size) records.delete(cid);
     },
-  });
+  }, retained);
   if (retained) {
     const chat = records.get(cid) ?? new Map<string, InteractionDraftRecord>();
     chat.set(mid, record); records.set(cid, chat);
@@ -133,7 +107,7 @@ function forgetLocalDrafts(cid: string, left = false): void {
   const chat = records.get(cid);
   records.delete(cid);
   chat?.forEach(record => record.forget(left));
-  handles.delete(cid); failures.delete(cid); notify();
+  handles.delete(cid); failures.delete(cid);
 }
 
 /** Idempotent: React StrictMode mounts each card twice. */
@@ -186,80 +160,37 @@ export function resetInteractionBackground(nextAccountId = ''): void {
   generation += 1; conversationGenerations.clear();
   records.forEach(chat => chat.forEach(record => record.forget())); records.clear();
   handles.clear(); failures.clear(); watermarks.clear(); cleared.clear(); leaving.clear(); pendingDiscards.clear(); discards.clear(); recoveries.clear();
-  snapshotCache.clear();
-  accountId = nextAccountId; hydrated = null; notify();
+  accountId = nextAccountId; hydrated = null;
 }
 
-/** Flush every mounted card in this conversation and collect the outcome per card. */
+/** Finish both visible and temporarily detached edits before sending. */
 export async function flushInteractionDrafts(cid: string): Promise<DraftFailure[]> {
-  const chat = handles.get(cid), session = draftSession(cid);
-  if (!chat?.size) return draftFailures(cid);
-  await Promise.all([...chat].map(async ([mid, handle]) => {
-    // 404/501 or an offline card must not throw out of the send path.
-    const result = await handle.flush().catch((): { reason: DraftFailureReason } => ({ reason: 'transient' }));
-    if (session !== draftSession(cid) || handles.get(cid)?.get(mid) !== handle) return;
-    if (result.reason) setFailure(cid, mid, result.reason);
-    else { clearDraftFailure(cid, mid); noteDraftSaved(cid, result.updatedAt, session); }
-  }));
+  const ids = new Set([...(handles.get(cid)?.keys() ?? []), ...(records.get(cid)?.keys() ?? [])]);
+  await Promise.all([...ids].map(mid => retryDraft(cid, mid)));
   return draftFailures(cid);
 }
 
-/** True when this conversation may send: no card is holding an unsaved edit. */
 export async function beginSend(cid: string): Promise<boolean> {
-  await flushInteractionDrafts(cid);
-  return draftFailures(cid).length === 0;
+  return (await flushInteractionDrafts(cid)).length === 0;
 }
 
-/** Retry one card's save from the composer alert (transient branch only). */
 export async function retryDraft(cid: string, mid: string): Promise<void> {
-  const handle = handles.get(cid)?.get(mid), session = draftSession(cid);
-  if (!handle) return;
-  const result = await handle.flush().catch((): { reason: DraftFailureReason } => ({ reason: 'transient' }));
-  if (session !== draftSession(cid) || handles.get(cid)?.get(mid) !== handle) return;
+  const handle = handles.get(cid)?.get(mid), record = records.get(cid)?.get(mid), session = draftSession(cid);
+  const result = await (handle ?? record)?.flush().catch((): { reason: DraftFailureReason } => ({ reason: 'transient' }));
+  if (!result) return;
+  if (session !== draftSession(cid) || (record ? !record.current : handles.get(cid)?.get(mid) !== handle)) return;
   if (result.reason) setFailure(cid, mid, result.reason);
-  else { clearDraftFailure(cid, mid); noteDraftSaved(cid, result.updatedAt, session); }
+  else { clearDraftFailure(cid, mid, session); noteDraftSaved(cid, result.updatedAt, session); }
 }
 
-/** Make one recovery pass after reconnect; conflicts still require an explicit decision. */
+/** Make one recovery pass after reconnect. */
 export function retryTransientDrafts(cid: string): Promise<void> {
   const current = recoveries.get(cid);
   if (current) return current;
-  const pending = draftFailures(cid).filter(failure => failure.reason === 'transient');
-  const recovery = Promise.all(pending.map(({messageId}) => retryDraft(cid, messageId))).then(() => undefined);
+  const recovery = Promise.all(draftFailures(cid).map(({messageId}) => retryDraft(cid, messageId))).then(() => undefined);
   recoveries.set(cid, recovery);
   void recovery.finally(() => { if (recoveries.get(cid) === recovery) recoveries.delete(cid); });
   return recovery;
-}
-
-/** Read-only three-column comparison for the 409 branch. */
-export async function describeDraftConflict(cid: string, mid: string): Promise<{ columns: { label: string; remote: string; local: string }[] }> {
-  const handle = handles.get(cid)?.get(mid);
-  if (handle) return handle.describeConflict();
-  const record = records.get(cid)?.get(mid);
-  const remote = await readInteractionDraft(cid, mid);
-  return { columns: (remote.fields ?? []).map(field => ({ label: field.label,
-    remote: readable(field.value, field.display_value, field.options),
-    local: readable(record?.state[field.name], undefined, field.options) })) };
-}
-
-/** Adopt the server draft for one card after the user accepted the loss. */
-export async function adoptRemoteDraft(cid: string, mid: string): Promise<void> {
-  const handle = handles.get(cid)?.get(mid), record = records.get(cid)?.get(mid), session = draftSession(cid);
-  if (handle) await handle.adoptRemote();
-  else if (record && !await record.load(true)) throw new Error('Could not load the latest private draft');
-  if (session !== draftSession(cid) || (record && !record.current)) return;
-  clearDraftFailure(cid, mid, session);
-}
-
-/** Render one value with the labels the server sent, so both columns speak one vocabulary. */
-export function readable(value: unknown, display?: string, options?: { label: string; value: string }[]): string {
-  if (display) return display;
-  const raw = value && typeof value === 'object' && 'value' in (value as Record<string, unknown>)
-    ? (value as Record<string, unknown>).value : value;
-  const match = options?.find(option => option.value === String(raw));
-  if (match) return match.label;
-  if (raw === null || raw === undefined) return '';
-  return typeof raw === 'string' ? raw : JSON.stringify(raw);
 }
 
 /** Leave one conversation: clear only what this browser already saved.
@@ -435,7 +366,7 @@ export async function forgetInteractionBackground(userId: string, cid?: string):
     else {
       conversationGenerations.set(cid, (conversationGenerations.get(cid) ?? 0) + 1);
       forgetLocalDrafts(cid); watermarks.delete(cid); cleared.delete(cid);
-      leaving.delete(cid); pendingDiscards.delete(cid); discards.delete(cid); recoveries.delete(cid); notify();
+      leaving.delete(cid); pendingDiscards.delete(cid); discards.delete(cid); recoveries.delete(cid);
     }
   }
   await storage('readwrite', store => {

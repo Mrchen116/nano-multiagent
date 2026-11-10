@@ -23,7 +23,7 @@ extension InteractionDraftLifecycleTests {
         try await checkUnresolvedReentry(status: 503)
     }
 
-    func testReattachingConflictedCardKeepsExplicitComparisonAndAdoption() async throws {
+    func testReattachingAfterFailedConflictReadKeepsDraftUntilRefreshSucceeds() async throws {
         try await checkUnresolvedReentry(status: 409)
     }
 
@@ -31,6 +31,7 @@ extension InteractionDraftLifecycleTests {
         let (runtime, transport) = try await fixture()
         defer { runtime.chat.clear() }
         await transport.setStatus(status)
+        if status == 409 { await transport.setReadStatus(503) }
         try await edit(runtime, "fri")
         _ = await runtime.flush()
         if status == 503 { await transport.gateNextSave(timestamp: "2026-11-01T10:00:00.002Z") }
@@ -53,11 +54,8 @@ extension InteractionDraftLifecycleTests {
         XCTAssertEqual(runtime.state["$slot"], .string("fri"))
         await transport.setStatus(200)
         if status == 409 {
-            let premature = await runtime.adoptRemote()
-            XCTAssertFalse(premature, "Comparison is required before adoption")
-            _ = try await runtime.describeConflict()
-            let adopted = await runtime.adoptRemote()
-            XCTAssertTrue(adopted)
+            await transport.setReadStatus(200)
+            await runtime.retrySaving()
             XCTAssertEqual(runtime.state["$slot"], .string("wed"))
         } else {
             // The pending request captured 503 before recovery. Retry must outlive that receipt.

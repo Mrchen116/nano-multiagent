@@ -337,7 +337,7 @@ export function readInteractionDraft(cid: string, mid: string): Promise<Interact
   return authFetchJson(interactionPath(cid, mid));
 }
 export function saveInteractionDraft(cid: string, mid: string, revision: number, state: Record<string, unknown>): Promise<InteractionDraft> {
-  return authFetchJson(interactionPath(cid, mid), { method: "PUT", body: JSON.stringify({expected_draft_revision: revision, state}) });
+  return authFetchJson(interactionPath(cid, mid), { method: "PUT", body: JSON.stringify({expected_draft_revision: revision, state}) }, "saveInteractionDraft");
 }
 /** Report the highest draft save this browser confirmed before leaving a conversation.
  *

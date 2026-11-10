@@ -18,8 +18,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../i18n";
-import { awaitPendingDiscard, beginSend, useDraftFailures } from "../interaction-background";
-import { DraftFailureNotice } from "./draft-failure-notice";
+import { awaitPendingDiscard, beginSend } from "../interaction-background";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
 import {
   classifyChatLink,
@@ -293,9 +292,6 @@ export function MessagePane({
   const [sendAttempts, setSendAttempts] = useState<Record<string, SendAttempt>>({});
   // The unconfirmed-send notice must survive the removal of client-side background data.
   const pendingInteraction = sendAttempts[conversation.id];
-  // A card whose edit has not reached the centre blocks this whole conversation: sending
-  // would silently produce a message without the change the user just made.
-  const unsavedCardEdits = useDraftFailures(conversation.id);
   function clearSendAttempt(cid: string, key?: string) {
     setSendAttempts(current => {
       if (key && current[cid]?.key !== key) return current;
@@ -710,9 +706,6 @@ export function MessagePane({
   const kind = classifyConversationKind(conversation);
   const avatarName = kind === "direct-user" ? directPersonAvatarName(conversation, selfUserId) : conversation.title;
   const isGroup = conversation.type === "group";
-  // Only a direct chat carries a background, so only there can an unsaved card edit be
-  // missing from the message; blocking group text would be friction with nothing to lose.
-  const blockOnUnsavedCardEdits = !isGroup && unsavedCardEdits.length > 0;
   const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
   const mentionQuery = mentionMatch?.[1] ?? null;
   const directControlCommand = /^\/(?:stop|new|compact)$/.test(draft.trim());
@@ -773,29 +766,6 @@ export function MessagePane({
     // quick presses must not both pass the pending-send guard above and POST twice.
     sendInFlightRef.current = true;
     sendingConversationIdRef.current = sourceConversationId;
-    // A background the user just edited must reach this message, so wait for the leave
-    // clear first and then let every card finish its debounce window. One card that cannot
-    // save blocks the whole conversation: sending would silently drop that edit.
-    if (!isGroup) {
-      await awaitPendingDiscard(sourceConversationId);
-      if (!await beginSend(sourceConversationId)) {
-        // Nothing was sent, so give the slot back: after the edit is saved the composer
-        // must be able to send without a reload.
-        if (sendingConversationIdRef.current === sourceConversationId) {
-          sendInFlightRef.current = false;
-          sendingConversationIdRef.current = null;
-        }
-        return;
-      }
-    }
-    if (currentOwnerRef.current !== sourceOwner) {
-      sendInFlightRef.current = false;
-      sendingConversationIdRef.current = null;
-      return;
-    }
-    forceScrollToBottomRef.current = true;
-    sendInFlightRef.current = true;
-    sendingConversationIdRef.current = sourceConversationId;
     markComposerSending(sourceConversationId);
     setComposerSending(true);
     let attempt: SendAttempt | undefined;
@@ -803,6 +773,16 @@ export function MessagePane({
       const prior = sendAttempts[sourceConversationId];
       const retry = prior?.draft.revision === submittedDraft.revision
         && JSON.stringify(prior.attachments) === JSON.stringify(submittedAttachments) ? prior : undefined;
+      if (!isGroup && !retry) {
+        await awaitPendingDiscard(sourceConversationId);
+        if (currentOwnerRef.current !== sourceOwner) return;
+        if (!await beginSend(sourceConversationId)) {
+          if (currentOwnerRef.current === sourceOwner) throw new Error(t('chat.interactive.saveError'));
+          return;
+        }
+      }
+      if (currentOwnerRef.current !== sourceOwner) return;
+      forceScrollToBottomRef.current = true;
       const payload = retry
         ? {text:retry.text,attachments:retry.attachments,...(retry.replyToMessageId?{replyToMessageId:retry.replyToMessageId}:{})}
         : {text:wireContent,attachments:structuredClone(submittedAttachments),...(submittedDraft.replyTo?{replyToMessageId:submittedDraft.replyTo.message_id}:{})};
@@ -1315,7 +1295,6 @@ export function MessagePane({
           <button type="button" disabled={composerBusy} aria-label={zh?"取消回复":"Cancel reply"} onClick={()=>{setReplyTo(undefined);composerRef.current?.focus();}}>×</button>
         </div>}
         {pendingInteraction && !composerBusy && <div className="interactive-selection" role="status">{t('chat.interactive.pendingRetry')}</div>}
-        {!isGroup && <DraftFailureNotice conversationId={conversation.id} />}
         <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
           <div className="chat-composer-input">
           {(pending.length > 0 || uploads.length > 0) && <div className="chat-pane-composer-chips">
@@ -1382,7 +1361,7 @@ export function MessagePane({
             <button
               type="submit"
               className="chat-pane-composer-send"
-              disabled={composerBusy || uploading > 0 || failed.length > 0 || blockOnUnsavedCardEdits || (!draft.trim() && pending.length === 0)}
+              disabled={composerBusy || uploading > 0 || failed.length > 0 || (!draft.trim() && pending.length === 0)}
               aria-label="Send"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

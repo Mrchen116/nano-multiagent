@@ -15,7 +15,6 @@ final class ChatStore {
     var pending: [String: PendingSend] = [:]
     var interactionPending: [String: PendingSend] = [:]
     let interactionDrafts: InteractionDraftCoordinator
-    private var draftBlockedChats: Set<String> = []
     private(set) var interactionEpoch = UUID()
     var interactionSending: Set<String> = []
     private var interactionConversations: [String: String] = [:]
@@ -96,7 +95,7 @@ final class ChatStore {
         sendEpoch = UUID(); interactionEpoch = UUID()
         stop(); timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []; inspectedConversation = nil
         interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
-        selectedID = nil; interactionDrafts.clear(); draftBlockedChats = []
+        selectedID = nil; interactionDrafts.clear()
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil; listLoaded = false
         executionCleanupRevisions = [:]; readingPositions = [:]; pendingReadingPositions = [:]; restoreReadingPositions = [:]
     }
@@ -119,7 +118,7 @@ final class ChatStore {
                 await reconcile(sync.items)
                 await recoverPending()
                 await interactionDrafts.foreground(activeConversation: selectedID)
-                if let selectedID, interactionDrafts.failure(selectedID)?.reason == .transient { _ = await flushDrafts(selectedID) }
+                if let selectedID, interactionDrafts.failure(selectedID) != nil { _ = await flushDrafts(selectedID) }
                 guard token == epoch, !Task.isCancelled else { return }
                 notificationFloor = sync.max_event_id
                 if cursor == nil { cursor = sync.max_event_id }
@@ -382,8 +381,13 @@ final class ChatStore {
         defer { if token == sendEpoch { sending.remove(id) } }
         // This click owns this text/files, not edits made while the draft PUT is awaited.
         let clickedContent = drafts[id] ?? "", clickedFiles = textOnly ? [] : attachments[id] ?? []
-        guard await flushDrafts(id), token == sendEpoch else { return }
         if !retry {
+            let saved = await flushDrafts(id)
+            guard token == sendEpoch, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+            guard saved else {
+                errors[id] = L("消息尚未发送，请重试。", "Message was not sent. Please try again.")
+                return
+            }
             guard pending[id] == nil, !(uploadDrafts[id] ?? []).contains(where: \.uploading),
                   textOnly || (uploadDrafts[id] ?? []).isEmpty else { return }
             let content = clickedContent, files = clickedFiles
@@ -483,22 +487,16 @@ final class ChatStore {
         }
     }
 
-    func draftFailureChanged(_ id: String) {
-        guard (inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id })?.type != "group" else { return }
-        if interactionDrafts.failure(id) != nil {
-            draftBlockedChats.insert(id)
-            errors[id] = L("卡片改动尚未保存，这个会话暂时不能发送。", "Card changes are not saved. This conversation cannot send yet.")
-        } else if draftBlockedChats.remove(id) != nil { errors[id] = nil }
+    func isGroupConversation(_ id: String) -> Bool {
+        let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
+        return chat?.type == "group"
     }
 
     @discardableResult
     func flushDrafts(_ id: String) async -> Bool {
-        let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
-        // Group drafts remain private until explicit submission; they cannot affect an ordinary send.
-        guard chat?.type != "group" else { return true }
-        let success = await interactionDrafts.flush(id)
-        draftFailureChanged(id)
-        return success
+        // Group drafts remain private until explicit submission.
+        if isGroupConversation(id) { return true }
+        return await interactionDrafts.flush(id)
     }
 
     private func isCurrent(_ attempt: SendAttempt, token: UUID) -> Bool {
@@ -572,7 +570,7 @@ final class ChatStore {
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
             interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
         }
-        interactionDrafts.remove(id); draftBlockedChats.remove(id)
+        interactionDrafts.remove(id)
         try? await client.session.removeConversationAttempts(id, userID: user.id, revision: revision)
     }
     private func revokeConversation(_ id: String) async {

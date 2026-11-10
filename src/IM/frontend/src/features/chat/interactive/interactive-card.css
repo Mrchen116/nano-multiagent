@@ -18,7 +18,3 @@
 }
 
 /* Composer-level block for an unsaved (or conflicting) card edit. */
-.draft-failure { display: flex; flex-direction: column; gap: 6px; margin: 0 8px 8px; padding: 8px 12px; border-radius: 10px; background: #fff4f4; border: 1px solid #f3c2c2; font-size: 13px; }
-.draft-failure button { align-self: flex-start; }
-.draft-failure-compare { border-collapse: collapse; font-size: 12px; }
-.draft-failure-compare th, .draft-failure-compare td { border: 1px solid #e3c8c8; padding: 2px 6px; text-align: left; }

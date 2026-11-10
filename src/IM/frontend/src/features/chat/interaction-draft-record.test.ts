@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { readInteractionDraft, saveInteractionDraft, discardInteractionBackground } from './chat-api';
 import {
-  adoptRemoteDraft, attachDraftRecord, awaitPendingDiscard, discardOnLeave, draftFailures, draftWatermark,
+  attachDraftRecord, awaitPendingDiscard, discardOnLeave, draftFailures, draftWatermark,
   forgetInteractionBackground, interactionDraftRecord, registerDraftHandle, resetInteractionBackground,
   resumeConversation, retryDraft,
 } from './interaction-background';
@@ -32,10 +32,11 @@ beforeEach(() => {
   vi.mocked(discardInteractionBackground).mockReset().mockResolvedValue({discarded_through:T1});
 });
 
-it.each(['409 conflict', 'offline'])('retains the %s edit and CAS revision after detaching, without rereading it away', async error => {
+it.each([409, 503])('retains the edit and revision after detaching when the %s save cannot recover', async status => {
   const {record, detach} = await open();
   record.update({'$body':'local'}, true);
-  vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error(error));
+  vi.mocked(saveInteractionDraft).mockRejectedValueOnce(Object.assign(new Error('save failed'), {status}));
+  if (status === 409) vi.mocked(readInteractionDraft).mockRejectedValueOnce(new Error('offline'));
   await record.flush();
   detach();
   const replacement = interactionDraftRecord('chat', 'card');
@@ -44,9 +45,9 @@ it.each(['409 conflict', 'offline'])('retains the %s edit and CAS revision after
   expect(await replacement.load()).toBe(true);
   expect(replacement.state).toEqual({'$body':'local'});
   expect(replacement.revision).toBe(2);
-  expect(replacement.failure).toBe(error.startsWith('409') ? 'conflict' : 'transient');
+  expect(replacement.failure).toBe(status === 409 ? 'conflict' : 'transient');
   expect(draftFailures('chat')).toHaveLength(1);
-  expect(readInteractionDraft).toHaveBeenCalledTimes(1);
+  expect(readInteractionDraft).toHaveBeenCalledTimes(status === 409 ? 2 : 1);
   release();
 });
 
@@ -115,35 +116,21 @@ it('allows a StrictMode detach/reattach lease without duplicating the initial GE
   release();
 });
 
-it('keeps the conflict when adoption is attempted during a pending submission', async () => {
+it('does not apply a conflict refresh after a real leave', async () => {
   const {record} = await open();
   record.update({'$body':'local'}, true);
-  vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('409 conflict'));
-  await record.save();
-  record.beginSubmission(() => ({source_message_id:'card', state:record.state}));
-
-  await expect(adoptRemoteDraft('chat', 'card')).rejects.toThrow();
-  expect(draftFailures('chat')).toEqual([{messageId:'card', reason:'conflict'}]);
-  expect(record.state).toEqual({'$body':'local'});
-  expect(readInteractionDraft).toHaveBeenCalledTimes(1);
-});
-
-it('does not apply a stale adoption read over input edited while it was in flight', async () => {
-  const {record} = await open();
-  record.update({'$body':'local'}, true);
-  vi.mocked(saveInteractionDraft).mockRejectedValueOnce(new Error('409 conflict'));
-  await record.save();
+  vi.mocked(saveInteractionDraft).mockRejectedValueOnce(Object.assign(new Error('conflict'), {status:409}));
   const pending = deferred<InteractionDraft>();
   vi.mocked(readInteractionDraft).mockReturnValueOnce(pending.promise);
-  const adopting = record.load(true);
-  // load waits for any prior PUT before starting the GET.
-  await Promise.resolve();
-  record.update({'$body':'newer local'}, true);
+  const saving = record.save();
+  await vi.waitFor(() => expect(readInteractionDraft).toHaveBeenCalledTimes(2));
+  await discardOnLeave('chat');
   pending.resolve(draft(9, 'remote'));
-  expect(await adopting).toBe(false);
-  expect(record.state).toEqual({'$body':'newer local'});
-  expect(record.revision).toBe(2);
-  expect(draftFailures('chat')).toEqual([{messageId:'card',reason:'conflict'}]);
+  await saving;
+  expect(record.current).toBe(false);
+  expect(record.state).toEqual({});
+  expect(draftFailures('chat')).toEqual([]);
+  expect(draftWatermark('chat')).toBeUndefined();
 });
 
 it('forgets local edits on a real leave but still clears the watermark of an already-started PUT', async () => {
@@ -217,7 +204,7 @@ it('does not let a detached old flush resurrect failure after an actual leave', 
   vi.mocked(saveInteractionDraft).mockReturnValueOnce(pending.promise);
   const {record} = await open();
   record.update({'$body':'local'}, true);
-  registerDraftHandle('chat','card',{flush:()=>record.flush(), describeConflict:async()=>({columns:[]}), adoptRemote:async()=>{}});
+  registerDraftHandle('chat','card',{flush:()=>record.flush()});
   const retry = retryDraft('chat','card');
   await discardOnLeave('chat');
   pending.resolve(draft(3, 'local', T1));

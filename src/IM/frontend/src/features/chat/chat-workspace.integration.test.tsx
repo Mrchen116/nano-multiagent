@@ -1889,17 +1889,17 @@ describe("ChatWorkspacePage — integration", () => {
     } finally { width.mockRestore(); }
   });
 
-  it.each(["online", "visibilitychange"])("automatically recovers a transient saved-card failure on %s without retrying conflicts", async event => {
+  it.each(["online", "visibilitychange"])("recovers private card saves and conflict refreshes on %s", async event => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
     const flush = vi.fn(async () => ({updatedAt:"2026-05-01T00:00:05.000Z"}));
     const conflictFlush = vi.fn(async () => ({reason:"conflict" as const}));
-    registerDraftHandle("c1", "transient", {flush, describeConflict:async()=>({columns:[]}), adoptRemote:async()=>{}});
-    registerDraftHandle("c1", "conflict", {flush:conflictFlush, describeConflict:async()=>({columns:[]}), adoptRemote:async()=>{}});
+    registerDraftHandle("c1", "transient", {flush});
+    registerDraftHandle("c1", "conflict", {flush:conflictFlush});
     act(() => { noteDraftFailed("c1", "transient", "transient"); noteDraftFailed("c1", "conflict", "conflict"); });
     act(() => { (event === "online" ? window : document).dispatchEvent(new Event(event)); });
     await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
-    expect(conflictFlush).not.toHaveBeenCalled();
+    expect(conflictFlush).toHaveBeenCalledOnce();
   });
 
   it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {

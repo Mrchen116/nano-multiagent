@@ -13,7 +13,7 @@ import type { InteractionReplyInput } from './types';
 import { useTranslation } from '../../../i18n';
 import './interactive-card.css';
 import { InteractionSubmissionError } from './submission-error';
-import { attachDraftRecord, forgetInteractionDraft, interactionDraftRecord, readable, registerDraftHandle,
+import { attachDraftRecord, forgetInteractionDraft, interactionDraftRecord, registerDraftHandle,
   type DraftHandle } from '../interaction-background';
 
 export interface InteractiveCardProps {
@@ -53,7 +53,7 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   const [applyingDraft, setApplyingDraft] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
   const [actionError, setError] = useState<'load'|'save'|'conflict'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
-  const error = pending && !busy ? 'send' : actionError ?? (record.failure === 'conflict' ? 'conflict' : record.failure ? 'save' : record.loadFailed ? 'load' : null);
+  const error = pending && !busy ? 'send' : actionError ?? (isGroup && record.failure === 'conflict' ? 'conflict' : isGroup && record.failure ? 'save' : record.loadFailed ? 'load' : null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
   const touched = useRef(false);
   const viewActive = useRef(true);
@@ -65,10 +65,13 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   async function composeMessage(target: string, text: string) {
     if (!onComposeMessage || lockedRef.current || applyingDraft) return;
     clearTimeout(timer.current); setApplyingDraft(true); setComposeError(null);
+    const version = record.renderVersion;
     try {
       await record.request;
       await save();
-      if (!viewActive.current || !record.current || record.dirty || record.request) return;
+      if (!viewActive.current || !record.current) return;
+      if (record.dirty || record.request) throw new Error(t('chat.interactive.saveError'));
+      if (record.renderVersion !== version) throw new Error(t('chat.interactive.conflictError'));
       const latest = await readInteractionDraft(message.conversation_id, message.id);
       if (latest.can_interact !== true || latest.read_only || latest.superseded_by) throw new Error(t('chat.interactive.readOnly'));
       if (viewActive.current && record.current) await onComposeMessage(target, text);
@@ -113,26 +116,8 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
     }
     return record.flush();
   }
-  /** Read-only comparison of the server draft with this device's edit. Applies nothing. */
-  async function describeConflict(): Promise<{columns: {label: string; remote: string; local: string}[]}> {
-    const remote = await readInteractionDraft(message.conversation_id, message.id);
-    const raw = (name: string) => {
-      const value = record.state[name];
-      return value && typeof value === 'object' && 'value' in (value as Record<string, unknown>)
-        ? (value as Record<string, unknown>).value : value;
-    };
-    return {columns: (remote.fields ?? []).map(field => ({label: field.label,
-      remote: readable(field.value, field.display_value, field.options),
-      local: readable(raw(field.name), undefined, field.options)}))};
-  }
-  /** Adopt the server draft after the user accepted discarding this device's edit. */
-  async function adoptRemote(): Promise<void> {
-    // A failed read leaves this device's edit intact; it is not a successful adoption and
-    // must not release the conversation-wide block.
-    if (!await load(true)) throw new Error(t('chat.interactive.loadError'));
-  }
-  const handleRef = useRef<DraftHandle>({flush, describeConflict, adoptRemote});
-  handleRef.current = {flush, describeConflict, adoptRemote};
+  const handleRef = useRef<DraftHandle>({flush});
+  handleRef.current = {flush};
   useEffect(() => {
     if (readOnly || isGroup) return;
     return registerDraftHandle(message.conversation_id, message.id, handleRef.current);
