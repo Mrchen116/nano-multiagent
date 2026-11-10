@@ -71,6 +71,34 @@ export class ApprovalSources {
   recordInbox(sessionId: string, callId: string) { let calls = this.live.get(sessionId); if (!calls) { calls = new Set(); this.live.set(sessionId, calls); } calls.add(callId); }
   isLiveInbox(sessionId: string, callId: string) { return this.live.get(sessionId)?.has(callId) ?? false; }
   release(sessionId: string) { this.live.delete(sessionId); }
+  /** Return original times from successful Inbox completions observed in this process.
+   *
+   * Reading an old page never refreshes its human's presence. This intentionally
+   * excludes represented, partial and observer messages, without changing the
+   * broader authorization evidence projected by humanInputs/history.
+   */
+  liveHumanTimes(agent: Agent, afterSeq: number): number[] {
+    const times: number[] = [];
+    for (const event of agent.session.snapshotEvents()) {
+      if (event.seq <= afterSeq) continue;
+      const result = event.type === 'tool/result' ? {
+        id: event.data.message.toolCallId, isError: event.data.message.isError, content: event.data.message.content,
+      } : event.type === 'tool/ptc-dispatch' && event.data.name === 'inbox' ? {
+        id: event.data.subCallId, isError: event.data.isError, content: event.data.content,
+      } : undefined;
+      if (!result || result.isError || !this.isLiveInbox(agent.id, result.id)) continue;
+      try {
+        const page = JSON.parse(text(result.content)) as { delivery?: string; messages?: { sender?: { type?: string }; partial?: boolean; pa_agent_id?: string; created_at?: unknown }[] };
+        if (page.delivery === 'observer' || !Array.isArray(page.messages)) continue;
+        for (const message of page.messages) {
+          if (message.sender?.type !== 'user' || message.partial || message.pa_agent_id || typeof message.created_at !== 'string') continue;
+          const instant = Date.parse(message.created_at);
+          if (Number.isFinite(instant)) times.push(instant);
+        }
+      } catch { /* Malformed or truncated tool output cannot attest presence. */ }
+    }
+    return times;
+  }
   humanText(agent: Agent): string { return this.humanInputs(agent).map(input=>input.text).join('\n'); }
   humanInputs(agent: Agent): HumanInput[] {
     const events=agent.session.snapshotEvents();const start=events.findLast(event=>event.type==='turn/start')?.seq??-1;const content:HumanInput[]=[];

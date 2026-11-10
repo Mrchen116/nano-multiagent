@@ -118,7 +118,7 @@ it('renders a message in its captured user timezone without changing its histori
   try {
     store.receive(message, true);
     expect(store.read('alice', 'main', 'local-read', { target: 'group-a' })).toMatchObject({
-      messages: [{ time: '2026-10-14T09:00:00+08:00', content: [{ text: message.message.content }] }],
+      messages: [{ created_at: '2026-10-14T01:00:00Z', time: '2026-10-14T09:00:00+08:00', content: [{ text: message.message.content }] }],
     });
   } finally { store.close(); }
 });

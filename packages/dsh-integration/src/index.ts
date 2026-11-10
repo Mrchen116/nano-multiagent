@@ -53,6 +53,10 @@ import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
+import { BrowserControl } from './browser/control.js';
+import { DriverClient } from './browser/driver.js';
+import { installBrowserTools } from './features/browser-control.js';
+import { liveTurnSession } from './policy/turn.js';
 import { SubagentRecovery } from './subagent-recovery.js';
 import { SessionDeletion } from './agent-deletion.js';
 import { ownedLinks, purgeDerived } from './agent-deletion-derived.js';
@@ -264,7 +268,27 @@ export default class NanoRuntime {
     });
     const codex = new Promise<CodexApproval>(resolve => { ctx.inject(['codexApproval'], child => { resolve(child.codexApproval); }); });
     const approvalFiber = ctx.plugin(NanoApproval, (agent: Agent) => configurationService.forAgent(agent));
-    const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => { resolve(child.nanoApproval); }); });
+    let approvalService: NanoApproval | undefined;
+    const approval = new Promise<NanoApproval>(resolve => { ctx.inject(['nanoApproval'], child => {
+      approvalService = child.nanoApproval;
+      resolve(approvalService);
+    }); });
+    // The guard is installed after approval so its prepend hook runs before the
+    // classifier; registration is macOS-only, while the guard itself is inert
+    // when the tools are absent.
+    const browser = new BrowserControl({
+      driver: new DriverClient(),
+      lookup: id => { const parent = ctx.agents.get(SessionId(id)); return parent ? liveTurnSession(parent) : undefined; },
+      liveHumanTimes: (id, afterSeq) => {
+        const ancestor = ctx.agents.get(SessionId(id));
+        // Cordis services are accessible only through an injected context. The
+        // guard stays synchronous and fails closed until that service is ready.
+        return ancestor ? approvalService?.sources.liveHumanTimes(ancestor, afterSeq) ?? [] : [];
+      },
+      logger: { warn: (...args: unknown[]) => ctx.logger.warn(args.map(value => String(value)).join(' ')) },
+    });
+    browser.install(ctx);
+    installBrowserTools(ctx, { control: browser, configuration: agent => configurationService.forAgent(agent) });
     const configuration = new Promise<ConfigurationScopes>(resolve => { ctx.inject(['nanoConfiguration'], child => { configurationService = child.nanoConfiguration; resolve(configurationService); }); });
     ctx.on('tools/pre-execute', async (exec, next) => {
       if (exec.agent && disabled(exec.agent.id)) return {kind: 'deny', reason: 'agent_disabled'};
@@ -444,6 +468,12 @@ export default class NanoRuntime {
       for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
+      if (!config.observationOnly) {
+        // Startup cleanup is non-blocking and scoped to configured Agent workspaces.
+        void browser.sweepScreenshots([...new Map([...this.configurations.values()].map(agent => [agent.agentId, agent])).values()]
+          .map(agent => ({ agentId: agent.agentId, workspace: agent.workspace })))
+          .catch(error => ctx.logger.warn('browser screenshot startup sweep failed:', error));
+      }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
     });
     handle('session.ensure', value => this.ensure(value as SessionBinding));

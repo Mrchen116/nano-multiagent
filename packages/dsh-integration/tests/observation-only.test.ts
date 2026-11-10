@@ -1,16 +1,21 @@
-import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm,utimes} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {expect,it} from 'vitest';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
 import {registerNoopTaskHosts} from './helpers/noop-task-hosts.js';
 
-it('observes archived evidence without recovering absolute-path Dreaming jobs',async()=>{
+it('observes archived evidence without cleaning Dreaming jobs or browser screenshots',async()=>{
   const home=await mkdtemp(join(tmpdir(),'nano-observation-'));
   const original=join(home,'original-evidence');
+  const shots=join(home,'.nanoassistant','browser','a');
+  const oldShot=join(shots,'screen-expired.png');
   let client:RuntimeClient|undefined;let logs='';
   try{
     await mkdir(original);await writeFile(join(original,'input.md'),'keep original');
+    await mkdir(shots,{recursive:true});
+    await writeFile(oldShot,'keep screenshot');
+    await utimes(oldShot,1,1);
     const domain=new URL('../lib/knowledge/dreaming-state.js',import.meta.url).href;
     await writeFile(join(home,'seed.mjs'),`import {writeFile} from 'node:fs/promises';
 import {dreamingDomain} from ${JSON.stringify(domain)};
@@ -23,16 +28,18 @@ await writeFile(process.env.DSH_HOME+'/seeded','done');}`);
     await expect.poll(()=>readFile(join(home,'seeded'),'utf8').catch(()=>logs),{timeout:5000}).toBe('done');
     client.process.kill('SIGKILL');await client.exited;client=undefined;
     await prepareProfile(home);
-    const config={protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[],lifecycle:{a:{revision:1,disabled:true,disabledThroughRevision:1}}};
+    const config={protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[],lifecycle:{a:{revision:1,disabled:true,disabledThroughRevision:1}}};
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text}});registerNoopTaskHosts(client);
     await expect(client.rpc.request('initialize',{...config,observationOnly:true,lifecycle:{}})).rejects.toThrow('requires disabled agents');
     await client.rpc.request('initialize',{...config,observationOnly:true});
     expect(await readFile(join(original,'input.md'),'utf8')).toBe('keep original');
     await client.shutdown();client=undefined;
+    expect(await readFile(oldShot,'utf8')).toBe('keep screenshot');
     // The same persisted job really is recoverable: ordinary startup performs its cleanup.
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text}});registerNoopTaskHosts(client);
     await client.rpc.request('initialize',config);
     await expect(readFile(join(original,'input.md'))).rejects.toMatchObject({code:'ENOENT'});
+    await expect.poll(()=>readFile(oldShot,'utf8').catch(error=>error.code)).toBe('ENOENT');
     await client.shutdown();client=undefined;
   }catch(error){throw new Error(String(error)+'\n'+logs,{cause:error})}
   finally{if(client){client.process.kill('SIGKILL');await client.exited}await rm(home,{recursive:true,force:true})}
