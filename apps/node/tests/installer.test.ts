@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, access, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { expect, it } from 'vitest';
@@ -29,7 +29,7 @@ it('retries interrupted runtime extraction without accepting a partial node exec
 });
 
 
-async function releaseFixture(version = '0.2.0') {
+async function releaseFixture(version = '0.2.0', withCuaDriver = false) {
   const home = await mkdtemp(join(tmpdir(), 'nano-release-install-'));
   const root = join(home, 'nano');
   const bin = join(home, 'bin');
@@ -42,6 +42,24 @@ async function releaseFixture(version = '0.2.0') {
   await mkdir(join(root, 'releases/previous'), { recursive: true });
   await writeFile(join(root, 'releases/previous/.installed'), 'old version');
   await writeFile(join(root, 'config.yaml'), 'node_id: retained\ntoken: retained\n');
+  const cuaUrl = 'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/_install-rust.sh';
+  const cuaCommonUrl = 'https://raw.githubusercontent.com/trycua/cua/cua-driver-rs-v0.38.0/libs/cua-driver/scripts/_install-common.sh';
+  const cuaExecutable = join(home, 'CuaDriver.app/Contents/MacOS/cua-driver');
+  const cuaCommon = 'CUA_COMMON_LOADED=1\n';
+  const cuaInstaller = `test "$CUA_DRIVER_RS_VERSION" = 0.38.0 || exit 1
+test "$1" = --no-modify-path || exit 1
+. "$(dirname "$0")/_install-common.sh" || exit 1
+test "$CUA_COMMON_LOADED" = 1 || exit 1
+mkdir -p "${dirname(cuaExecutable)}"
+touch "${cuaExecutable}"
+chmod +x "${cuaExecutable}"
+`;
+  if (withCuaDriver) {
+    const skill = join(payload, 'packages/personal-assistant/assets/skills/cua-driver');
+    await mkdir(skill, { recursive: true });
+    await writeFile(join(skill, 'SKILL.md'), 'fixture skill');
+    await writeFile(join(bin, 'uname'), '#!/bin/sh\necho Darwin\n', { mode: 0o700 });
+  }
   const archive = join(home, 'package.tgz');
   expect(spawnSync('tar', ['-czf', archive, '-C', payload, '.']).status).toBe(0);
   const sha256 = createHash('sha256').update(await readFile(archive)).digest('hex');
@@ -58,14 +76,36 @@ if (url === 'https://im.test/install/manifest.json') fs.copyFileSync(${JSON.stri
 else if (url === ${JSON.stringify(url)}) {
   if (fs.existsSync(${JSON.stringify(join(home, 'fail-download'))})) process.exit(22);
   fs.copyFileSync(${JSON.stringify(archive)}, output);
+} else if (${withCuaDriver} && url === ${JSON.stringify(cuaUrl)}) {
+  fs.writeFileSync(output, ${JSON.stringify(cuaInstaller)});
+} else if (${withCuaDriver} && url === ${JSON.stringify(cuaCommonUrl)}) {
+  fs.writeFileSync(output, ${JSON.stringify(cuaCommon)});
 } else process.exit(99);
 `);
   await chmod(join(bin, 'curl'), 0o700);
   const script = join(home, 'install.sh');
-  await writeFile(script, (await readFile(new URL('../../im-server/assets/install.sh', import.meta.url), 'utf8')).replace('__NANO_ORIGIN__', "'https://im.test'"));
+  const template = (await readFile(new URL('../../im-server/assets/install.sh', import.meta.url), 'utf8')).replace('__NANO_ORIGIN__', "'https://im.test'");
+  await writeFile(script, withCuaDriver ? template
+    .replace('/Applications/CuaDriver.app/Contents/MacOS/cua-driver', cuaExecutable)
+    .replace('0be0bd269056a7c0c5b15e77ff6c64c880267d091957c97efc19103380e4aeb7', createHash('sha256').update(cuaInstaller).digest('hex'))
+    .replace('0d5d4b023bfe9111db810b0fde2be23188b703a94093b438edc79b0af8f4b987', createHash('sha256').update(cuaCommon).digest('hex'))
+    : template);
   const run = () => spawnSync('/bin/bash', [script], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NANO_INSTALL_ROOT: root } });
-  return { home, root, archive, manifest, run };
+  return { home, root, archive, manifest, run, cuaUrl, cuaCommonUrl, cuaExecutable };
 }
+
+it('installs the pinned macOS driver for the packaged skill and reuses it on reinstall', async () => {
+  const f = await releaseFixture('0.2.0', true);
+  try {
+    const first = f.run();
+    expect(first.status, first.stderr).toBe(0);
+    await access(f.cuaExecutable);
+    const again = f.run();
+    expect(again.status, again.stderr).toBe(0);
+    const downloads = (await readFile(join(f.home, 'downloads'), 'utf8')).split('\n');
+    expect(downloads.filter(url => url === f.cuaUrl || url === f.cuaCommonUrl)).toEqual([f.cuaUrl, f.cuaCommonUrl]);
+  } finally { await rm(f.home, { recursive: true, force: true }); }
+});
 
 it.each(['0.2.0', 'a'.repeat(40)])('downloads pinned version %s and preserves existing files on reinstall', async (version) => {
   const f = await releaseFixture(version);

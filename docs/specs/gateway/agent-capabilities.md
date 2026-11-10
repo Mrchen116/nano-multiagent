@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-716
+> 对齐: feat-757
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -306,6 +306,12 @@ PA 随当前安装版本提供可选的产品说明书 skill，覆盖 Web IM、G
 ### Requirement: PA 内置 skill 启动自举
 
 Gateway 随包提供 PA 产品说明书与当前产品定义的完整 Lark skill bundle。启动时，Gateway 以当前安装包完整刷新运行态全局 skill root 中所有随包内置名称的目录；这些名称是 PA 托管资源，本地修改和旧版本额外文件不保留。名称不属于当前随包内置集合的用户 skill 不受影响。资源刷新不改变 Agent 的 skills 选择。绑定 Feishu channel 的 Agent 按其 selection mode 发现可用的 Lark bundle，并默认沿用 Gateway 所在机器已登录的 Lark 用户身份；只有各 skill 的既有规则明确要求时才使用其他身份。Agent 的 `skills_selection_mode` 是判断是否物化 allowlist 的权威；历史缺席 mode 时仅在读取时按“非空 names 为 explicit、空 names 为 default”兼容。
+
+#### Scenario: 内置 Computer Use Skill
+
+- **WHEN** Agent 使用默认 Skill 发现配置，或其显式配置允许 `cua-driver`
+- **THEN** Agent 可发现并加载随包的官方 CuaDriver Skill 及其操作手册
+- **AND** 当 macOS 节点已准备好 CLI 且 Agent 已启用 Bash 时，Agent 通过已有 Shell 审核调用 CLI，并可通过原有聊天路径回报结果
 
 #### Scenario: 新安装发现产品说明书与完整 Lark bundle
 
