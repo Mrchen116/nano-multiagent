@@ -70,8 +70,11 @@ struct ChatMessageView: View {
                 InteractiveCardView(client: client, message: message, chat: chat,
                     readOnly: readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil)
                     .textSelection(.disabled)
+            } else {
+                ForEach(message.attachments.indices, id: \.self) { index in
+                    AttachmentView(client: client, attachment: message.attachments[index])
+                }
             }
-            ForEach(message.attachments) { AttachmentView(client: client, attachment: $0) }
             if hasProcess {
                 DisclosureGroup(isExpanded: $showProcess) {
                     VStack(alignment: .leading, spacing: 12) {

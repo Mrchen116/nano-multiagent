@@ -15,4 +15,13 @@ it("restores process-only history, deduplicates replay, and preserves terminal s
   expect(merged.content).toBe("");
   expect(merged.delivery_status).toBe("failed");
   expect(mergeMessageWithExisting(state.messages[0]!, stale).reply_process?.[0]?.status).toBe("failed");
+  const live = { ...merged,
+    tool_calls: [{ id: "tool-live", name: "bash", status: "completed" as const, input: {}, output: "live result" }],
+    thinking: [{ seq: 1, text: "live thinking" }] };
+  const summarized = mergeMessageWithExisting({ ...merged, tool_calls: [], thinking: [], process_summary: {
+    tool_count: 1, thinking_count: 1, background_return_count: 0, reply_process_counts: {},
+    has_running_tool: false, approval_allow_count: 0, approval_deny_count: 0
+  } }, live);
+  expect(summarized.tool_calls).toEqual(live.tool_calls);
+  expect(summarized.thinking).toEqual(live.thinking);
 });

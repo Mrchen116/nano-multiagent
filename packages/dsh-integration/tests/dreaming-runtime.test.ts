@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -86,7 +87,7 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     expect(JSON.stringify(warm)).toContain('nano-dreaming');
     expect(JSON.stringify(warm)).toContain('Host application receipt');
     // Durable viewer identity does not publish a model-manageable child.
-    expect(await client.rpc.request('session.descendants', { sessionId: binding.sessionId })).toEqual([]);
+    expect(await workDescendants(client.rpc, { sessionId: binding.sessionId })).toEqual([]);
     await client.shutdown();
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
     registerNoopTaskHosts(client);
@@ -99,7 +100,7 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
       assistantStream:{...frame.assistantStream,revision:0},
     }))});
     expect(durableView(cold)).toEqual(durableView(warm));
-    expect(await client.rpc.request('session.descendants', { sessionId: binding.sessionId })).toEqual([]);
+    expect(await workDescendants(client.rpc, { sessionId: binding.sessionId })).toEqual([]);
     await client.shutdown();client=undefined;
   }catch(error){
     throw new Error(`${String(error)}\n${logs}`,{cause:error});

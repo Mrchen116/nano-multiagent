@@ -16,7 +16,8 @@ const contact = {user_id:"agent-user",kind:"agent",agent_id:"colleague-agent",ow
 function response(data: unknown) { return new Response(JSON.stringify(data), {headers:{"Content-Type":"application/json"}}); }
 function view(element: React.ReactNode, path = "/settings/agents/colleague-agent") {
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/settings/agents/:agentId" element={element} /><Route path="/chat/:conversationId" element={<p>New private chat</p>} /></Routes></MemoryRouter></QueryClientProvider>);
+  const rendered = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/settings/agents" element={<h1>Agent list</h1>} /><Route path="/settings/agents/:agentId" element={element} /><Route path="/chat/:conversationId" element={<p>New private chat</p>} /></Routes></MemoryRouter></QueryClientProvider>);
+  return { ...rendered, client };
 }
 beforeEach(async () => {
   await act(async () => setLanguage("en"));
@@ -88,4 +89,60 @@ it("opens the owner's Work while configuration inspection is unavailable", async
   expect(await screen.findByRole("heading",{name:"Muse"})).toBeVisible();
   expect(await screen.findByRole("button",{name:"Config"})).toBeVisible();
   expect(calls.some(url=>url.includes("/settings") || url.includes("/capabilities"))).toBe(false);
+});
+
+it("explains an exact deleted Work link even when the Agent is no longer in contacts", async () => {
+  const fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/contacts?")) return response({ items: [], next_cursor: null });
+    if (url.includes("/work?view=summary&message_id=old-message")) {
+      return Response.json({ detail: { code: "agent_execution_deleted" } }, { status: 410 });
+    }
+    return new Response(null, { status: 404 });
+  });
+  vi.stubGlobal("fetch", fetch);
+  view(<AgentProfilePage />, "/settings/agents/colleague-agent?view=work&message_id=old-message");
+  expect(await screen.findByText("Execution record deleted")).toBeVisible();
+  expect(fetch.mock.calls.some(([url]) => String(url).includes("/deletion"))).toBe(false);
+});
+
+it("keeps showing the accepted deletion as the lifecycle and contact disappear", async () => {
+  const ownAgent = {...contact, owner_id:visitor.id};
+  const deletionKey = ["agent-deletion", visitor.id, ownAgent.agent_id];
+  const lifecycleKey = ["agent-lifecycle", visitor.id, ownAgent.agent_id];
+  const contactsKey = ["contacts", visitor.id, "agents"];
+  const deleting = {
+    agent_id: ownAgent.agent_id, eligible:false, revision:2, profile_version:1,
+    operation:{operation_id:"remove-muse",state:"deleting",delete_workspace:false},
+  };
+  let lifecycleRemoved = false;
+  let finished = false;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/contacts?")) return response({items:[ownAgent],next_cursor:null});
+    if (url.endsWith("/lifecycle") && !lifecycleRemoved) return response({desired:"disabled",observed:"disabled",revision:2,applied_revision:2});
+    if (url.endsWith("/deletion")) return response(finished
+      ? {...deleting, operation:{...deleting.operation,state:"deleted"}} : deleting);
+    return new Response(null, { status: 404 });
+  }));
+  const {client} = view(<AgentProfilePage />);
+  await waitFor(() => expect(client.getQueryData(contactsKey)).toBeDefined());
+  await act(async () => {
+    client.setQueryData(deletionKey, deleting);
+    client.setQueryData(["public-agents", visitor.id], [ownAgent]);
+  });
+  lifecycleRemoved = true;
+  await act(async () => { await client.invalidateQueries({queryKey:lifecycleKey}); });
+  expect(client.getQueryState(lifecycleKey)?.status).toBe("error");
+  expect(client.getQueryData(contactsKey)).toEqual([ownAgent]);
+  expect(await screen.findByText("Deleting permanently…")).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  await act(async () => { client.setQueryData(contactsKey, []); });
+  await waitFor(() => expect(client.getQueryState(deletionKey)?.fetchStatus).toBe("idle"));
+  expect(await screen.findByText("Deleting permanently…")).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  finished = true;
+  await act(async () => { await client.invalidateQueries({queryKey:deletionKey}); });
+  expect(await screen.findByRole("heading", { name:"Agent list" })).toBeVisible();
+  expect(client.getQueryData(["public-agents", visitor.id])).toEqual([]);
 });

@@ -4,13 +4,16 @@ import './interactive-card';
 import { InteractionSubmissionError } from './submission-error';
 import { MessagePane } from '../components/message-pane';
 import { readInteractionDraft, saveInteractionDraft } from '../chat-api';
+import { resetInteractionBackground } from '../interaction-background';
 import type { Conversation, Message } from '../chat-types';
 vi.mock('../chat-api', () => ({readInteractionDraft:vi.fn(),saveInteractionDraft:vi.fn()}));
 const conversation={id:'chat',title:'Planner',type:'direct',direct_kind:'agent',participants:[{type:'agent',id:'a1',display_name:'Planner'}],participant_ids:['a1'],can_write:true} as Conversation;
-const card={id:'card',conversation_id:'chat',sender:{type:'agent',id:'a1',display_name:'Planner'},sender_user_id:'a1',sender_type:'agent',content:'请确认草稿',attachments:[],created_at:'2026-10-19T08:00:00Z',delivery_status:'completed',permission_requests:[],interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
+const card={id:'card',conversation_id:'chat',sender:{type:'agent',id:'a1',display_name:'Planner'},sender_user_id:'a1',sender_type:'agent',content:'',attachments:[],created_at:'2026-10-19T08:00:00Z',delivery_status:'completed',permission_requests:[],interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
 root = Col([form])
 form = Form([TextArea($body, "消息草稿", "编辑草稿"), Button("继续修改", @SendToChat("继续修改"))])`}} as Message;
 beforeEach(()=>{
+ // Draft handles, failures and watermarks are module state shared by every card/composer.
+ resetInteractionBackground();
  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:0,state:{},submission_message_id:null});
  vi.mocked(saveInteractionDraft).mockResolvedValue({draft_revision:1,state:{},submission_message_id:null});
 });
@@ -36,7 +39,7 @@ describe('interactive choices and handwritten requests',()=>{
   view.rerender(<MessagePane conversation={conversation} messages={[{...reply,delivery_status:'running'}]} selfUserId="u1" mentionCandidates={[]} onSend={vi.fn()}/>);
   expect(screen.queryByText(/已保存，等待 Agent 处理|Saved, waiting for Agent/)).not.toBeInTheDocument();
  });
- it('keeps direct-chat background silent and retains it across natural questions',async()=>{
+ it('saves the edited card first and sends private-chat text without a client-chosen background',async()=>{
   const send=vi.fn().mockResolvedValue(undefined);
   render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
   const field=await screen.findByPlaceholderText('编辑草稿', {}, {timeout:5000});
@@ -45,20 +48,31 @@ describe('interactive choices and handwritten requests',()=>{
   fireEvent.change(field,{target:{value:'私聊新草稿'}});
   const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
   fireEvent.change(composer,{target:{value:'先别发送，帮我解释'}});fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(send).toHaveBeenCalledWith('先别发送，帮我解释',[],undefined,expect.any(String),[expect.objectContaining({source_message_id:'card',state:expect.objectContaining({'$body':'私聊新草稿'})})]));
+  // The centre derives and freezes the background, so the wire call carries content and
+  // attachments only — never a "which cards to attach" decision from this client.
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('先别发送，帮我解释',[],undefined,expect.any(String)));
+  expect(send.mock.calls[0]).toHaveLength(4);
+  // Sending inside the debounce window still persists the edit first, which is what lets
+  // the centre carry it.
+  expect(saveInteractionDraft).toHaveBeenCalledWith('chat','card',expect.any(Number),expect.objectContaining({'$body':'私聊新草稿'}));
   expect(screen.queryByText(/将附带当前选择|Current choices will be attached|草稿已保存|Draft saved/)).not.toBeInTheDocument();
   await waitFor(()=>expect(composer).toHaveValue(''));
   fireEvent.change(composer,{target:{value:'你好，换个话题'}});fireEvent.submit(composer.closest('form')!);
   await waitFor(()=>expect(send).toHaveBeenCalledTimes(2));
-  expect(send.mock.calls[1][4]).toEqual(send.mock.calls[0][4]);
+  expect(send.mock.calls[1]).toHaveLength(4);
  });
- it('does not attach group state to ordinary text but shares explicit card actions',async()=>{
+ it('sends group text without a background and without waiting for card drafts',async()=>{
+  // A group message carries nothing, so a card edit that cannot save must not block chat.
+  vi.mocked(saveInteractionDraft).mockRejectedValue(new Error('offline'));
   const send=vi.fn().mockResolvedValue(undefined);
   render(<MessagePane conversation={{...conversation,type:'group'}} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
   fireEvent.change(await screen.findByPlaceholderText('编辑草稿'),{target:{value:'群内私人草稿'}});
   const composer=screen.getByPlaceholderText(/type @ to mention|输入 @ 召唤/);
   fireEvent.change(composer,{target:{value:'解释一下'}});fireEvent.submit(composer.closest('form')!);
-  await waitFor(()=>expect(send).toHaveBeenCalledWith('解释一下',[],undefined,expect.any(String),[]));
+  await waitFor(()=>expect(send).toHaveBeenCalledWith('解释一下',[],undefined,expect.any(String)));
+  expect(send.mock.calls[0]).toHaveLength(4);
+  // No composer-level block either: here a failed card save has nothing to carry.
+  expect(document.querySelector('.draft-failure')).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'继续修改'}));
   await waitFor(()=>expect(send).toHaveBeenLastCalledWith('',[],expect.objectContaining({event:expect.objectContaining({message:'继续修改'}),state:expect.objectContaining({'$body':'群内私人草稿'})}),expect.any(String)));
  });
@@ -74,7 +88,7 @@ describe('interactive choices and handwritten requests',()=>{
  });
 });
 
-it('retries unchanged handwritten sends with the same key and treats edited context as a new explicit send',async()=>{
+it('retries an unconfirmed send verbatim even after the card changed, because the identity is content plus attachments',async()=>{
  const send=vi.fn().mockRejectedValueOnce(new Error('network')).mockRejectedValueOnce(new Error('network')).mockResolvedValue(undefined);
  render(<MessagePane conversation={conversation} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
  const field=await screen.findByPlaceholderText('编辑草稿');
@@ -95,27 +109,31 @@ it('retries unchanged handwritten sends with the same key and treats edited cont
  fireEvent.change(field,{target:{value:'继续在本地探索'}});
  fireEvent.submit(composer.closest('form')!);
  await waitFor(()=>expect(send).toHaveBeenCalledTimes(3));
- expect(send.mock.calls[2][3]).not.toBe(send.mock.calls[0][3]);
- expect(send.mock.calls[2][4][0].state['$body']).toBe('继续在本地探索');
+ // A card edit no longer mints a new identity: the same content and attachments keep the
+ // frozen key, so the retry cannot turn "carried" into "not carried".
+ expect(send.mock.calls[2]).toEqual(send.mock.calls[0]);
  expect(field).toHaveValue('继续在本地探索');
 });
 
-it('keeps both private-chat card states and prioritizes the one most recently used',async()=>{
- const send=vi.fn().mockResolvedValue(undefined);
+it('saves every edited card in the conversation before the single send it belongs to',async()=>{
+ const log:string[]=[];
+ vi.mocked(saveInteractionDraft).mockImplementation(async (_cid,mid,revision) => {
+  log.push(`save:${mid}:${revision}`); return {draft_revision: revision+1, state:{}, submission_message_id: null};
+ });
+ const send=vi.fn().mockImplementation(async (...args:unknown[])=>{log.push(`send:${String(args[0])}`);});
  const second={...card,id:'other-card',content:'另一个草稿',interactive:{...card.interactive!,source:card.interactive!.source.replace('编辑草稿','另一份草稿')}};
  render(<MessagePane conversation={conversation} messages={[card,second]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
  const first=await screen.findByPlaceholderText('编辑草稿');const other=await screen.findByPlaceholderText('另一份草稿');
- const clock=vi.spyOn(Date,'now').mockReturnValue(200);
- try {
-  fireEvent.change(other,{target:{value:'第二张的修改'}});
-  clock.mockReturnValue(201);fireEvent.change(first,{target:{value:'第一张的修改'}});
- } finally {clock.mockRestore();}
+ fireEvent.change(other,{target:{value:'第二张的修改'}});
+ fireEvent.change(first,{target:{value:'第一张的修改'}});
+ // 500ms 防抖窗口内直接发送：flush 必须先把两张卡都落库，再发这一条。
  const composer=screen.getByPlaceholderText(/Message Planner|发送消息给 Planner|给 Planner/);
  fireEvent.change(composer,{target:{value:'对比这两份草稿'}});fireEvent.submit(composer.closest('form')!);
- await waitFor(()=>expect(send).toHaveBeenCalled());
- const contexts=send.mock.calls[0][4];
- expect(contexts.map((context:any)=>context.source_message_id)).toEqual(['card','other-card']);
- expect(contexts.map((context:any)=>context.state['$body'])).toEqual(['第一张的修改','第二张的修改']);
- fireEvent.change(first,{target:{value:'发送后的修改'}});
- expect(contexts[0].state['$body']).toBe('第一张的修改');
+ await waitFor(()=>expect(send).toHaveBeenCalledTimes(1));
+ expect(send.mock.calls[0]).toHaveLength(4);
+ expect(log.filter(entry=>entry.startsWith('save:')).sort()).toEqual(['save:card:0','save:other-card:0']);
+ expect(log.at(-1)).toBe('send:对比这两份草稿');
+ // Only one message is sent: the two edits travel as one derived background, not as two
+ // client-tracked selections.
+ expect(send).toHaveBeenCalledTimes(1);
 });

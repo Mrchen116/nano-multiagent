@@ -1,12 +1,34 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { decodeWorkEvent, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
+import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
-import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkRecordView } from './work-record-types.js';
+import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkTurnView, WorkFocus, WorkRecordView, WorkCatalogFilter, WorkCatalogPage } from './work-record-types.js';
+
+// The planner can otherwise favor a broader root index before fresh statistics exist.
+const currentMainSql = `SELECT session_id FROM agent_work_sessions INDEXED BY agent_work_sessions_current_main
+  WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0 LIMIT 1`;
+
+/** Look up a removed Work position and reject incompatible retries.
+ * Args:
+ *   root: The decoded product Agent when the transport carries an event body.
+ * Returns:
+ *   The root identity if the position is covered by a deletion receipt.
+ */
+export function workRedaction(db: DatabaseSync, node: string, journal: string, seq: number, eventId: string, root?: string): string | undefined {
+  const row = one(db, 'SELECT * FROM work_sync_redactions WHERE (node_id=? AND journal_id=? AND seq=?) OR event_id=?', node, journal, seq, eventId);
+  if (!row) return undefined;
+  if (row.node_id !== node || row.journal_id !== journal || row.seq !== seq || row.event_id !== eventId || (root !== undefined && row.root_agent_id !== root))
+    fail(409, 'event_identity_conflict');
+  return row.root_agent_id;
+}
 
 /** Own the atomic Work journal and its persisted public projection. */
 export class WorkRecords {
   constructor(readonly db: DatabaseSync) {
+    db.exec(`CREATE TABLE IF NOT EXISTS work_sync_redactions (
+      node_id TEXT NOT NULL, journal_id TEXT NOT NULL, seq INTEGER NOT NULL,
+      event_id TEXT NOT NULL UNIQUE, root_agent_id TEXT NOT NULL, operation_id TEXT NOT NULL,
+      PRIMARY KEY(node_id,journal_id,seq));`);
     for (const r of all(db, "SELECT session_id,turn_id,payload FROM agent_work_turns") as Pick<WorkTurnRecord, "session_id" | "turn_id" | "payload">[]) {
       const p: WorkTurnData = JSON.parse(r.payload);
       if (["running", "waiting_permission"].includes(p.status))
@@ -30,8 +52,49 @@ export class WorkRecords {
       id,
     ) as WorkSessionRecord | undefined;
     if (!r) fail(404, "scope_not_allowed");
-    const {payload, ...identity} = r;
-    return { ...(JSON.parse(payload) as Partial<WorkSessionFields>), ...identity };
+    return this.sessionView(r);
+  }
+  private sessionView({payload, ...identity}: WorkSessionRecord): WorkSessionView {
+    return {...JSON.parse(payload) as Partial<WorkSessionFields>, ...identity};
+  }
+
+  /** Page a catalog or the matching executions for one legacy link.
+   * Args:
+   *   root: Authorized product Agent identity.
+   *   after: Exclusive execution ID from the same filter.
+   *   limit: Maximum number of returned executions.
+   *   filter: Parent/call or parent/agent evidence from a Work item.
+   * Returns:
+   *   Matching executions and a stable continuation cursor.
+   */
+  catalog(root: string, after: string, limit: number, filter: WorkCatalogFilter): WorkCatalogPage {
+    const {parent, call, agent} = filter;
+    // Continuations keep the match class chosen for their first page. A late
+    // exact link cannot reinterpret a weak cursor as a position in another set.
+    let mode: WorkCatalogPage['match_mode'];
+    if (parent || call || agent) {
+      if (after.startsWith('exact:') && call) { mode='exact'; after=after.slice(6); }
+      else if (after.startsWith('weak:') && agent) { mode='weak'; after=after.slice(5); }
+      else if (after) fail(400,'invalid_cursor');
+      else if (call && this.exactChild(root,parent!,call)) mode='exact';
+      else if (agent) mode='weak';
+      else return {sessions:[],next_cursor:null,match_mode:'exact'};
+    }
+    const bindings: string[] = [root, after];
+    let sql = `SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id>?
+      AND (scope!='global_main' OR COALESCE(json_extract(payload,'$.retired'),0)!=0)`;
+    if (parent) { sql += ' AND parent_session_id=?'; bindings.push(parent); }
+    if (mode === "exact") { sql += " AND json_extract(payload,'$.parent_tool_call_id')=?"; bindings.push(call!); }
+    else if (mode === "weak") { sql += " AND json_extract(payload,'$.child_agent_id')=?"; bindings.push(agent!); }
+    const rows = all(this.db, sql + ' ORDER BY session_id LIMIT ?', ...bindings, limit + 1) as WorkSessionRecord[];
+    const sessions = rows.slice(0, limit).map(row => this.sessionView(row));
+    const end=sessions.at(-1)?.session_id;
+    return {sessions,next_cursor:rows.length > limit ? (mode ? mode+':'+end : end!) : null,
+      ...(mode ? {match_mode:mode} : {})};
+  }
+  private exactChild(root:string,parent:string,call:string):boolean {
+    return !!one(this.db, `SELECT 1 FROM agent_work_sessions
+      WHERE root_agent_id=? AND parent_session_id=? AND json_extract(payload,'$.parent_tool_call_id')=? LIMIT 1`,root,parent,call);
   }
   /** Retain execution identity while applying the existing main-session replacement rules.
    * Args:
@@ -58,7 +121,7 @@ export class WorkRecords {
       if(old && JSON.parse(old.payload).retired && !JSON.parse(old.payload).historical_only)fail(409,"retired_main_session");
       const other = one(
         this.db,
-        "SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0",
+        currentMainSql,
         root,
       );
       if (other && other.session_id !== session) {
@@ -102,6 +165,12 @@ export class WorkRecords {
     transaction(this.db, () => {
       for (const [i, e] of p.events.entries()) {
         if (e.seq !== p.from_seq + i) fail(400, "invalid_sequence");
+        if (workRedaction(this.db, node, p.journal_id, e.seq, e.event_id, e.root_agent_id)) {
+          if (e.seq > through + 1) fail(400, 'invalid_sequence');
+          through = Math.max(through, e.seq);
+          continue;
+        }
+        if (e.type === workRedactedType) fail(409, 'work_redaction_required');
         const profile = one(
           this.db,
           "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=? AND work_mode='global' AND is_stale=0",
@@ -378,26 +447,29 @@ export class WorkRecords {
    * Returns:
    *   Public items and the next page cursor.
    */
-  items(root: string, session: string, turn: string, after = 0, limit = 100): WorkItemsPage {
+  items(root: string, session: string, turn: string, after = 0, limit = 100, afterRevision?: number, watermarked = false): WorkItemsPage {
     this.session(root, session);
+    const order = afterRevision === undefined ? 'seq' : 'revision';
     const rows = all(
       this.db,
-      "SELECT * FROM agent_work_items WHERE session_id=? AND turn_id=? AND seq>? ORDER BY seq LIMIT ?",
-      session,
-      turn,
-      after,
-      limit + 1,
+      `SELECT * FROM agent_work_items WHERE session_id=? AND turn_id=? AND ${order}>? ORDER BY ${order} LIMIT ?`,
+      session, turn, afterRevision ?? after, limit + 1,
     ) as WorkItemRecord[];
+    const last = rows[Math.min(rows.length, limit) - 1];
+    // Synchronous reads take the item page and its initial watermark together.
+    const revision = afterRevision !== undefined ? last?.revision ?? afterRevision :
+      watermarked ? one(this.db, 'SELECT MAX(revision) AS n FROM agent_work_items WHERE session_id=? AND turn_id=?', session, turn)?.n ?? 0 : undefined;
     return {
-      items: rows.slice(0, limit).map((r) => ({
-        item_id: r.item_id,
-        seq: r.seq,
-        kind: r.kind,
-        observed_at: r.observed_at,
-        revision: r.revision,
-        payload: JSON.parse(r.payload),
-      })),
-      next_cursor: rows.length > limit ? String(rows[limit - 1]!.seq) : null,
+      ...(revision === undefined ? {} : {revision}),
+      items: rows.slice(0, limit).map(r => {
+        const payload: WorkItemData=JSON.parse(r.payload);
+        const call=payload.id ?? payload.call_id ?? payload.tool_call_id;
+        const linked=(watermarked || afterRevision !== undefined) && r.kind==='tool' && typeof call==='string' &&
+          this.exactChild(root,session,call);
+        return {item_id:r.item_id,seq:r.seq,kind:r.kind,observed_at:r.observed_at,revision:r.revision,payload,
+          ...(linked ? {has_exact_child:true} : {})};
+      }),
+      next_cursor: rows.length > limit ? String(last![order]) : null,
     };
   }
   /** Page logical turns with their initial item pages.
@@ -406,10 +478,11 @@ export class WorkRecords {
    *   session: Registered execution identity.
    *   before: Exclusive turn identity cursor.
    *   limit: Maximum number of returned turns.
+   *   summary: Defer full item bodies until the turn is opened.
    * Returns:
    *   Turns, control items and the next turn cursor.
    */
-  turns(root: string, session: string, before?: string, limit = 20, summary = false): WorkTurnsPage {
+  turns(root: string, session: string, before?: string, limit = 20, summary = false, separate = false): WorkTurnsPage {
     const registered = this.session(root, session);
     const anchor = before
       ? one(
@@ -428,22 +501,51 @@ export class WorkRecords {
       limit + 1,
     ) as WorkTurnRecord[];
     return {
-      turns: rows.slice(0, limit).map((r) => {
-        const page = summary ? {items: [], next_cursor: null} : this.items(root, session, r.turn_id);
-        const toolCount = summary ? (one(this.db, "SELECT COUNT(*) AS n FROM agent_work_items WHERE session_id=? AND turn_id=? AND kind='tool'", session, r.turn_id)?.n ?? 0) : undefined;
-        const background = summary ? one(this.db, "SELECT COALESCE(json_extract(payload,'$.task_type'), json_extract(payload,'$.background_returns[0].task_type')) AS task_type FROM agent_work_items WHERE session_id=? AND turn_id=? AND (kind='background_return' OR json_array_length(payload,'$.background_returns') > 0) ORDER BY seq LIMIT 1", session, r.turn_id) : undefined;
-        return {
-          ...(JSON.parse(r.payload) as WorkTurnData),
-          scope: registered.scope,
-          items: page.items,
-          next_items_cursor: page.next_cursor,
-          ...(summary ? {items_deferred: true, tool_count: toolCount, has_background_returns: Boolean(background), background_task_type: background?.task_type ?? null} : {}),
-        };
-      }),
-      control_items: this.items(root, session, "").items,
+      turns: rows.slice(0, limit).map(row => this.turnView(root, registered.scope, row, summary, separate)),
+      control_items: separate ? [] : this.items(root, session, "").items,
       next_cursor: rows.length > limit ? rows[limit - 1]!.turn_id : null,
+      next_turn_id: rows[limit]?.turn_id ?? null,
     };
   }
+  private turnView(root: string, scope: string, row: WorkTurnRecord, summary: boolean, separate: boolean): WorkTurnView {
+    const turn = {...JSON.parse(row.payload) as WorkTurnData, scope, seq: row.seq};
+    if (separate) return {...turn, items: [], next_items_cursor: null, items_deferred: true};
+    if (!summary) {
+      const page = this.items(root, row.session_id, row.turn_id);
+      return {...turn, items: page.items, next_items_cursor: page.next_cursor};
+    }
+    const toolCount = one(this.db, "SELECT COUNT(*) AS n FROM agent_work_items WHERE session_id=? AND turn_id=? AND kind='tool'", row.session_id, row.turn_id)?.n ?? 0;
+    const background = one(this.db, "SELECT COALESCE(json_extract(payload,'$.task_type'), json_extract(payload,'$.background_returns[0].task_type')) AS task_type FROM agent_work_items WHERE session_id=? AND turn_id=? AND (kind='background_return' OR json_array_length(payload,'$.background_returns') > 0) ORDER BY seq LIMIT 1", row.session_id, row.turn_id);
+    return {...turn, items: [], next_items_cursor: null, items_deferred: true, tool_count: toolCount,
+      has_background_returns: Boolean(background), background_task_type: background?.task_type ?? null};
+  }
+
+  private replyTurn(root: string, messageId: string): (WorkTurnRecord & {scope: string}) | undefined {
+    // Only a committed delivery fact can identify a reply's actual wake.
+    return one(this.db,
+      `SELECT t.*,s.scope FROM agent_work_events e
+       JOIN agent_work_sessions s ON s.session_id=e.session_id
+       JOIN agent_work_turns t ON t.session_id=e.session_id AND t.turn_id=e.turn_id
+       WHERE e.root_agent_id=? AND s.root_agent_id=? AND s.scope='global_main'
+       AND e.type='message_sent' AND json_extract(e.payload,'$.message_id')=?
+       ORDER BY e.revision LIMIT 1`, root, root, messageId) as (WorkTurnRecord & {scope: string}) | undefined;
+  }
+
+  /** Read one reply's durable turn summary and its nearest neighbors.
+   * Args:
+   *   root: Authorized product Agent identity.
+   *   messageId: Published chat reply identity.
+   * Returns:
+   *   The exact turn and its neighbors, or null while the delivery is unavailable.
+   */
+  focus(root: string, messageId: string, separate = false): WorkFocus | null {
+    const row = this.replyTurn(root, messageId);
+    if (!row) return null;
+    const newer = one(this.db, "SELECT turn_id FROM agent_work_turns WHERE session_id=? AND seq>? ORDER BY seq ASC LIMIT 1", row.session_id, row.seq);
+    const older = one(this.db, "SELECT turn_id FROM agent_work_turns WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT 1", row.session_id, row.seq);
+    return {turn: this.turnView(root, row.scope, row, true, separate), newer_turn_id: newer?.turn_id ?? null, older_turn_id: older?.turn_id ?? null};
+  }
+
   /** Read the committed revision used for client invalidation.
    * Args:
    *   root: Product Agent identity.
@@ -463,16 +565,24 @@ export class WorkRecords {
    *   root: Authorized product Agent identity.
    *   before: Exclusive main-turn identity cursor.
    *   limit: Maximum number of main turns.
+   *   summary: Defer full item bodies until the turn is opened.
+   *   messageId: Identify the reply's recorded wake without filtering the Work list.
    * Returns:
    *   Persisted main/child records and the node identity for the outer live-state adapter.
    */
-  view(root: string, before?: string, limit = 20, summary = false): WorkRecordView {
-    const sessions = all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root) as WorkSessionRecord[],
-      main = sessions.find((s) => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
-    const page = main ? this.turns(root, main, before, limit, summary) : { turns: [], next_cursor: null };
+  view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false): WorkRecordView {
+    const sessions = separate ? [] : all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root) as WorkSessionRecord[];
+    const main = (separate
+      ? one(this.db, currentMainSql, root)
+      : sessions.find(s => s.scope === "global_main" && !JSON.parse(s.payload).retired))?.session_id ?? null;
+    const reply = messageId ? this.replyTurn(root, messageId) : undefined;
+    // A message selects where to expand, not which records exist in Work.
+    const page = main ? this.turns(root, main, before, limit, summary, separate) : { turns: [], next_cursor: null, next_turn_id: null };
     let latest = null;
     for (const r of main
-      ? this.db.prepare("SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC").iterate(main)
+      ? this.db.prepare(separate
+        ? "SELECT payload FROM agent_work_turns WHERE session_id=? AND json_type(payload,'$.usage')='object' ORDER BY seq DESC LIMIT 1"
+        : "SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC").iterate(main)
       : []) {
       const t: WorkTurnData = JSON.parse(String(r.payload));
       if (t.usage) {
@@ -487,22 +597,22 @@ export class WorkRecords {
     }
     const agent = one(this.db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", root) as {node_id: string};
 
-    let state = page.turns[0]?.status ?? "idle";
+    const currentTurn = main ? one(this.db, "SELECT payload FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC LIMIT 1", main) : undefined;
+    let state = currentTurn ? (JSON.parse(currentTurn.payload) as WorkTurnData).status : "idle";
     if (["completed", "failed", "interrupted"].includes(state)) state = "idle";
     return {
+      ...(separate ? {catalog: 'separate' as const} : {}),
       root_agent_id: root,
       main_session_id: main,
+      ...(messageId ? {focus: reply ? {session_id: reply.session_id, turn_id: reply.turn_id} : null} : {}),
       revision: this.revision(root),
       latest_main_usage: latest,
       main_execution: state,
       node_id: agent.node_id,
-      control_items: main ? this.items(root, main, "").items : [],
+      control_items: [],
       other_executions: sessions
         .filter((s) => s.scope !== "global_main" || JSON.parse(s.payload).retired)
-        .map((s) => {
-          const {payload, ...identity} = s;
-          return { ...(JSON.parse(payload) as Partial<WorkSessionFields>), ...identity };
-        }),
+        .map(s => this.sessionView(s)),
       ...page,
     };
   }

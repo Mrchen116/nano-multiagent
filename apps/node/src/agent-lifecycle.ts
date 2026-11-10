@@ -1,6 +1,6 @@
 import type { AgentLifecycleSnapshot, AgentLifecycleReport } from '@nano/product-contracts';
 
-interface Proof { boot: string; processInstanceId: string | null; stopped: boolean }
+interface Proof { boot: string; processInstanceId: string | null; stopped: boolean; cleanupRevision?: number }
 interface Host {
   readonly available: boolean;
   readonly processInstanceId?: string;
@@ -22,31 +22,66 @@ interface Options {
 
 /** Applies authoritative intent before any asynchronous runtime work. */
 export class NodeAgentLifecycle {
-  private readonly applying = new Map<string, {revision:number; task:Promise<void>}>();
+  private readonly applying = new Map<string, {revision:number; task:Promise<void>; failed:boolean}>();
   synchronized = false;
   constructor(private readonly options: Options) {}
   allowed(agentId: string): boolean { return this.synchronized && this.options.snapshot(agentId)?.desired === 'enabled'; }
+  /** Wait for the authoritative transition for one incoming Relay target. */
+  async waitFor(agentId: string): Promise<void> {
+    while (true) {
+      const active = this.applying.get(agentId);
+      if (!active) return;
+      try { await active.task; }
+      catch (error) {
+        // A superseding revision owns the gate even if the old transition failed.
+        const current = this.options.snapshot(agentId);
+        if (!current || current.revision === active.revision) throw error;
+      }
+    }
+  }
   async synchronize(states: AgentLifecycleSnapshot[]): Promise<void> {
     // Persist the complete barrier before any host starts or restores input.
-    const previous = new Map(states.map(state => [state.agent_id, this.options.snapshot(state.agent_id)]));
-    for (const state of states) this.options.save(state);
+    const reconciled = states.flatMap(state => {
+      const prior = this.options.snapshot(state.agent_id);
+      if (prior && prior.revision > state.revision) return [];
+      return [{state:this.reconcileStop(state, prior), prior}];
+    });
+    for (const {state} of reconciled) this.options.save(state);
     this.synchronized = true;
-    await Promise.all(states.map(state => this.applyKnown(state, previous.get(state.agent_id))));
+    await Promise.all(reconciled.map(({state,prior}) => this.applyKnown(state, prior)));
   }
-  apply(state: AgentLifecycleSnapshot): Promise<void> { return this.applyKnown(state, this.options.snapshot(state.agent_id)); }
+  apply(state: AgentLifecycleSnapshot): Promise<void> {
+    const prior = this.options.snapshot(state.agent_id);
+    return this.applyKnown(this.reconcileStop(state, prior), prior);
+  }
+  private reconcileStop(state: AgentLifecycleSnapshot, prior: AgentLifecycleSnapshot | undefined): AgentLifecycleSnapshot {
+    if (state.desired !== 'disabled') return state;
+    const proof = this.options.proof(state.agent_id);
+    const confirmed = proof?.stopped && [state, prior].find(candidate =>
+      candidate?.desired === 'disabled' && candidate.revision === state.revision &&
+      candidate.observed === 'disabled' && candidate.applied_revision === state.revision &&
+      candidate.process_instance_id === proof.processInstanceId &&
+      (state.process_instance_id === null || state.process_instance_id === candidate.process_instance_id));
+    if (confirmed) {
+      return {...state, observed:'disabled', applied_revision:state.revision, process_instance_id:confirmed.process_instance_id,
+        confirmed_at:confirmed.confirmed_at, error_code:null, error_detail:null};
+    }
+    // A center acknowledgment alone cannot open the local deletion gate.
+    return state.observed === 'disabled' ? {...state, observed:'stopping', confirmed_at:null} : state;
+  }
   private applyKnown(state: AgentLifecycleSnapshot, prior: AgentLifecycleSnapshot | undefined): Promise<void> {
     if (prior && prior.revision > state.revision) return Promise.resolve();
-    this.options.save(state);
     const active = this.applying.get(state.agent_id);
-    if (active?.revision === state.revision) return active.task;
-    const host = this.options.host(state.agent_id);
+    if (active?.revision === state.revision && !active.failed) return active.task;
+    this.options.save(state);
     let task: Promise<void>;
     if (state.desired === 'disabled') {
       this.options.cancel(state.agent_id);
       this.options.resetHeartbeat(state.agent_id);
       // Product admission is already closed; native cleanup is scoped to this Agent.
-      const stopping = host.disable();
-      task = this.stop(state, stopping);
+      task = state.observed === 'disabled'
+        ? this.publish(state, 'disabled', state.process_instance_id)
+        : this.stop(state, this.options.host(state.agent_id).disable());
     } else {
       if (state.disabled_through_revision > 0 && (prior?.revision ?? 1) <= state.disabled_through_revision) {
         this.options.cancel(state.agent_id);
@@ -54,8 +89,12 @@ export class NodeAgentLifecycle {
       }
       task = this.options.start(state.agent_id);
     }
-    this.applying.set(state.agent_id, {revision:state.revision, task});
-    void task.finally(() => { if (this.applying.get(state.agent_id)?.task === task) this.applying.delete(state.agent_id); }).catch(() => {});
+    const transition={revision:state.revision,task,failed:false};
+    this.applying.set(state.agent_id,transition);
+    void task.then(
+      ()=>{if(this.applying.get(state.agent_id)===transition)this.applying.delete(state.agent_id);},
+      ()=>{transition.failed=true;},
+    );
     return task;
   }
   /** Record ownership before product initialization can restore native agents. */
@@ -77,16 +116,32 @@ export class NodeAgentLifecycle {
     const proof=this.options.proof(agentId);
     if(proof)this.options.saveProof(agentId,{...proof,stopped:true});
   }
+  /** Persist cleanup from the original process before pulling final Work pages. */
+  recordCleanup(agentId: string, revision: number, processInstanceId?: string): void {
+    const state = this.options.snapshot(agentId), proof = this.options.proof(agentId);
+    if (state?.desired==='disabled' && state.revision===revision && proof && proof.processInstanceId===processInstanceId)
+      this.options.saveProof(agentId,{...proof,cleanupRevision:revision});
+  }
+
+  /** Retry an unconfirmed stop after its replacement runtime has finished starting. */
+  async recoverStop(agentId: string): Promise<void> {
+    await this.applying.get(agentId)?.task.catch(() => {});
+    const state = this.options.snapshot(agentId);
+    if (state?.desired==='disabled' && state.observed!=='disabled') await this.apply(state);
+  }
+
   private async stop(state: AgentLifecycleSnapshot, stopping: Promise<{confirmed:boolean;processInstanceId?:string;errorDetail?:string}>): Promise<void> {
     const proof = this.options.proof(state.agent_id);
     const result = await stopping.catch(error => ({confirmed:false, processInstanceId:this.options.host(state.agent_id).processInstanceId, errorDetail:String(error)}));
+    if (this.options.snapshot(state.agent_id)?.revision !== state.revision) return;
     const processId = result.processInstanceId ?? proof?.processInstanceId ?? state.process_instance_id;
-    const priorSettled = proof ? proof.stopped || proof.boot !== this.options.boot || proof.processInstanceId === result.processInstanceId : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
+    const priorSettled = proof ? proof.stopped || proof.cleanupRevision === state.revision || proof.boot !== this.options.boot || proof.processInstanceId === result.processInstanceId : !state.process_instance_id || state.process_instance_id === result.processInstanceId;
     const confirmed = result.processInstanceId ? result.confirmed && priorSettled : proof ? proof.stopped || proof.boot !== this.options.boot : !state.process_instance_id;
-    if (confirmed) this.options.saveProof(state.agent_id, {boot:this.options.boot, processInstanceId:processId, stopped:true});
     // Disabled intent still names the last execution host at the center. A new
     // shared management host cannot replace that identity via an enabling report.
-    await this.publish(state, confirmed ? 'disabled' : 'stop_unconfirmed', state.process_instance_id ?? processId,
+    const executionId = state.process_instance_id ?? processId;
+    if (confirmed) this.options.saveProof(state.agent_id, {boot:this.options.boot, processInstanceId:executionId, stopped:true});
+    await this.publish(state, confirmed ? 'disabled' : 'stop_unconfirmed', executionId,
       confirmed ? undefined : 'managed_cleanup_unconfirmed', confirmed ? undefined : result.errorDetail ?? 'Previous runtime cleanup is still unconfirmed on this machine boot.');
   }
   private async publish(state: AgentLifecycleSnapshot, observed: AgentLifecycleSnapshot['observed'], processId: string | null, errorCode?: string, errorDetail?: string): Promise<void> {

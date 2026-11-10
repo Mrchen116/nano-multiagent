@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AgentConfigView: View {
     let client: IMClient; let agentID: String
+    var onDeleted: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var capabilityToast: CapabilityToastMessage?
     @State private var checkingCapability = false
@@ -19,6 +20,7 @@ struct AgentConfigView: View {
     @State private var saved = false
     @State private var lifecycleUserID: String?
     @State private var lifecycleContact: Contact?
+    @State private var deleting = false
     private var dirty: Bool {
         guard let config else { return false }
         var baseline = config.draft; baseline.fixed_tools = draft.fixed_tools
@@ -31,11 +33,16 @@ struct AgentConfigView: View {
             Section {
                 Text(config?.display_name ?? agentID).font(.headline)
                 if let contact = lifecycleContact { Text((contact.status == "online" ? L("设备在线", "Device online") : L("设备离线", "Device offline")) + " · " + (contact.node_name ?? "")).font(.caption).foregroundStyle(.secondary) }
-                AgentLifecycleControls(client: client, agentID: agentID, canManage: lifecycleUserID != nil && config?.owner_id == lifecycleUserID, online: lifecycleContact?.status == "online", configuration: true)
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: lifecycleUserID != nil && config?.owner_id == lifecycleUserID,
+                                       online: lifecycleContact?.status == "online", configuration: true,
+                                       deletionName: onDeleted == nil ? nil : config?.display_name,
+                                       deletionInProgress: $deleting, onDeleted: onDeleted.map { finished in
+                                           { finished(); dismiss() }
+                                       })
             }
             if let config {
-                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability).disabled(pending || busy || conflicted)
-                AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID).disabled(pending || busy || conflicted)
+                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability).disabled(pending || busy || conflicted || deleting)
+                AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID).disabled(pending || busy || conflicted || deleting)
                 Section {
                     DisclosureGroup(L("配置归属", "Configuration")) {
                         LabeledContent("Agent ID", value: agentID)
@@ -96,7 +103,7 @@ struct AgentConfigView: View {
         .navigationTitle(L("Agent 配置", "Agent configuration")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .confirmationAction) {
             Button(busy ? L("保存中", "Saving") : L("保存", "Save")) { Task { await save() } }
-                .fontWeight(.semibold).disabled(config == nil || busy || pending || conflicted || !dirty || draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .fontWeight(.semibold).disabled(config == nil || busy || pending || conflicted || deleting || !dirty || draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } }
         .navigationBarBackButtonHidden(dirty || pending)
         .toolbar { if dirty || pending { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
@@ -136,7 +143,7 @@ struct AgentConfigView: View {
         catch { capabilityError = agentError(error); capabilities = nil }
     }
     private func save() async {
-        guard let config else { return }
+        guard let config, !deleting else { return }
         busy = true; saved = false; error = nil; defer { busy = false }
         do { let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version)); self.config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; saved = true }
         catch {

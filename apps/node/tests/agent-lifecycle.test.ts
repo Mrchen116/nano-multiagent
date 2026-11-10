@@ -2,11 +2,11 @@ import {expect,it} from 'vitest';
 import type {AgentLifecycleSnapshot,AgentLifecycleReport} from '@nano/product-contracts';
 import {NodeAgentLifecycle} from '../src/agent-lifecycle.js';
 const initial=(agent_id='a'):AgentLifecycleSnapshot=>({agent_id,desired:'enabled',revision:1,disabled_through_revision:0,request_id:null,actor_user_id:null,requested_at:'2026-10-25',applied_revision:0,observed:'enabling',process_instance_id:null,confirmed_at:null,error_code:null,error_detail:null});
-function fixture() {
+function fixture(gate?: (id:string)=>Promise<void>) {
   const states=new Map<string,AgentLifecycleSnapshot>(),proofs=new Map<string,{boot:string;processInstanceId:string|null;stopped:boolean}>(),reports:AgentLifecycleReport[]=[],started:string[]=[],cancelled:string[]=[];
   let stopped:{confirmed:boolean;processInstanceId?:string}={confirmed:true};
   const lifecycle=new NodeAgentLifecycle({nodeId:'node',boot:'boot-one',snapshot:id=>states.get(id),save:s=>states.set(s.agent_id,s),proof:id=>proofs.get(id),saveProof:(id,p)=>proofs.set(id,p),
-    host:()=>({available:false,disable:async()=>stopped}),start:async id=>{started.push(id);},cancel:id=>{cancelled.push(id);},resetHeartbeat:()=>{},report:async r=>{reports.push(r);}});
+    host:()=>({available:false,disable:async()=>stopped}),start:async id=>{started.push(id);await gate?.(id);},cancel:id=>{cancelled.push(id);},resetHeartbeat:()=>{},report:async r=>{reports.push(r);}});
   return {lifecycle,states,proofs,reports,started,cancelled,setStop:(result:typeof stopped)=>{stopped=result;}};
 }
 it('waits for the authoritative snapshot and closes admission synchronously on disable',async()=>{
@@ -40,4 +40,142 @@ it.each([true,false])('reports the prior execution identity after a host restart
   await f.lifecycle.synchronize([disabled]);
   expect(f.reports.at(-1)).toMatchObject({process_instance_id:'prior-host',observed:priorStopped?'disabled':'stop_unconfirmed'});
   expect(f.lifecycle.allowed('a')).toBe(false);
+});
+
+it('resumes an unconfirmed stop on the same boot using the original process cleanup receipt', async()=>{
+  const f=fixture();
+  const disabled={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    observed:'stopping' as const,process_instance_id:'original-host'};
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'original-host',stopped:false});
+  f.setStop({confirmed:false,processInstanceId:'original-host'});
+  await f.lifecycle.synchronize([disabled]);
+  f.lifecycle.recordCleanup('a',2,'original-host');
+  expect(f.proofs.get('a')).toMatchObject({stopped:false,cleanupRevision:2});
+  expect(f.reports.at(-1)?.observed).toBe('stop_unconfirmed');
+  f.setStop({confirmed:true,processInstanceId:'replacement-host'});
+  await f.lifecycle.recoverStop('a');
+  expect(f.reports.at(-1)).toMatchObject({observed:'disabled',process_instance_id:'original-host'});
+  expect(f.proofs.get('a')).toMatchObject({stopped:true,processInstanceId:'original-host'});
+});
+
+it('repairs an already-confirmed disable after reconnecting with a stale local observation',async()=>{
+  const f=fixture();
+  const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    applied_revision:2,observed:'disabled' as const,process_instance_id:'prior-host',confirmed_at:'2026-10-26'};
+  f.states.set('a',{...confirmed,observed:'stop_unconfirmed',error_code:'managed_cleanup_unconfirmed'});
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'prior-host',stopped:true});
+  f.setStop({confirmed:false,processInstanceId:'new-shared-host'});
+  await f.lifecycle.synchronize([confirmed,initial('b')]);
+  expect(f.states.get('a')).toEqual(confirmed);
+  expect(f.reports).toContainEqual(expect.objectContaining({agent_id:'a',revision:2,observed:'disabled',process_instance_id:'prior-host'}));
+  expect(f.lifecycle.allowed('a')).toBe(false);
+  expect(f.lifecycle.allowed('b')).toBe(true);
+});
+
+it.each([undefined,'other-host'])('still requires runtime confirmation without matching stopped proof (%s)',async proofProcess=>{
+  const f=fixture();
+  const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    applied_revision:2,observed:'disabled' as const,process_instance_id:'prior-host'};
+  if(proofProcess)f.proofs.set('a',{boot:'boot-one',processInstanceId:proofProcess,stopped:true});
+  f.setStop({confirmed:false,processInstanceId:'new-shared-host'});
+  const sync=f.lifecycle.synchronize([confirmed]);
+  expect(f.states.get('a')?.observed).not.toBe('disabled');
+  await sync;
+  expect(f.reports.at(-1)?.observed).toBe('stop_unconfirmed');
+});
+
+it('can still confirm cleanup when an older proof named the shared management host',async()=>{
+  const f=fixture();
+  const confirmed={...initial(),desired:'disabled' as const,revision:2,disabled_through_revision:2,
+    applied_revision:2,observed:'disabled' as const,process_instance_id:'execution-host'};
+  f.states.set('a',confirmed);
+  f.proofs.set('a',{boot:'boot-one',processInstanceId:'old-management-host',stopped:true});
+  f.setStop({confirmed:true,processInstanceId:'new-management-host'});
+  await f.lifecycle.synchronize([confirmed]);
+  expect(f.reports.at(-1)).toMatchObject({observed:'disabled',process_instance_id:'execution-host'});
+  expect(f.proofs.get('a')).toMatchObject({stopped:true,processInstanceId:'execution-host'});
+});
+
+it('resumes cleanup after a durable native purge without rebuilding the plan', async()=>{
+  const {AgentDeletionLedger,NodeAgentDeletions}=await import('../src/agent-deletion.js');
+  const {mkdtemp,rm}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const dir=await mkdtemp(join(tmpdir(),'nano-node-delete-'));
+  const path=join(dir,'deletions.sqlite3'),intent={agent_id:'a',operation_id:'a-operation',revision:2,workspace:{path:'/owned/a',witness:'owned'}};
+  const stages:string[]=[];
+  let failFinalize=true;
+  let failFinalReport=true;
+  const dependencies={
+    assertStopped:()=>{stages.push('stop');},
+    plan:async()=>{stages.push('plan');return {sessionIds:['session-a']};},
+    purge:async()=>{stages.push('purge');},
+    finalize:async(_intent:typeof intent,plan:{sessionIds:string[]})=>{
+      expect(plan.sessionIds).toEqual(['session-a']);
+      if (failFinalize) throw new Error('temporary filesystem failure');
+      stages.push('finalize');
+    },
+    report:async(_intent:typeof intent,state:string)=>{
+      stages.push(state);
+      if (state==='deleted' && failFinalReport) {
+        failFinalReport=false;
+        throw new Error('IM completion transaction failed');
+      }
+    },
+  };
+  let agent=new NodeAgentDeletions(new AgentDeletionLedger(path),dependencies);
+  try {
+    await agent.apply(intent);
+    expect(stages).toEqual(['stop','deleting','plan','purge','failed']);
+    await agent.close();
+    failFinalize=false;
+    const ledger = new AgentDeletionLedger(path);
+    agent=new NodeAgentDeletions(ledger,dependencies);
+    await expect(agent.apply(intent)).rejects.toThrow('IM completion transaction failed');
+    await agent.apply(intent);
+    expect(stages).toEqual(['stop','deleting','plan','purge','failed','deleting','finalize','deleted','deleted']);
+    expect(ledger.read('a')).toEqual({intent:{agent_id:'a',operation_id:'a-operation',revision:2},complete:true});
+  } finally { await agent.close(); await rm(dir,{recursive:true,force:true}); }
+});
+
+it('releases B Relay admission while A is still applying the same registration', async()=>{
+  let release!:()=>void;
+  const held=new Promise<void>(resolve=>{release=resolve;});
+  const f=fixture(id=>id==='a' ? held : Promise.resolve());
+  let synchronized=false;
+  const done=f.lifecycle.synchronize([initial('a'),initial('b')]).then(()=>{synchronized=true;});
+  try {
+    expect(f.lifecycle.synchronized).toBe(true);
+    expect([...f.states.keys()]).toEqual(['a','b']);
+    await f.lifecycle.waitFor('b');
+    expect(synchronized).toBe(false);
+  } finally {release();await done;}
+  expect(synchronized).toBe(true);
+});
+
+it('keeps Relay admission gated when a newer target revision supersedes the one being awaited',async()=>{
+  const first=Promise.withResolvers<void>(),second=Promise.withResolvers<void>();
+  let starts=0;
+  const f=fixture(()=>++starts===1 ? first.promise : second.promise);
+  const original=f.lifecycle.synchronize([initial()]);
+  let ready=false;
+  const gate=f.lifecycle.waitFor('a').then(()=>{ready=true;});
+  const replacement=f.lifecycle.apply({...initial(),revision:2});
+  try {
+    first.resolve();
+    await original;
+    expect(ready).toBe(false);
+  } finally {second.resolve();await replacement;await gate;}
+  expect(ready).toBe(true);
+});
+
+it('keeps a failed target fenced until the authoritative revision is retried',async()=>{
+  let attempts=0;
+  const f=fixture(async()=>{if(++attempts===1)throw new Error('native enable failed');});
+  await expect(f.lifecycle.synchronize([initial()])).rejects.toThrow('native enable failed');
+  await expect(f.lifecycle.waitFor('a')).rejects.toThrow('native enable failed');
+  const retry=f.lifecycle.synchronize([initial()]);
+  await f.lifecycle.waitFor('a');
+  await retry;
+  expect(attempts).toBe(2);
 });

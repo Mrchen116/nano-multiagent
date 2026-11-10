@@ -50,14 +50,17 @@ describe('ordinary composer send identity',()=>{
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValue(new TypeError('response lost'));
     const submitted = {draft:'persist me',draftMentions:[],pending:[{url:'/upload/one',file_name:'one'}],slashDismissed:false,revision:'submitted'};
-    const frozen = await prepareSendAttempt('u1','chat',submitted,{text:'persist me',attachments:submitted.pending,contexts:[{source_message_id:'card',state:{choice:'frozen'}}]});
+    const frozen = await prepareSendAttempt('u1','chat',submitted,{text:'persist me',attachments:submitted.pending});
     render(pane({onSend}));
     await waitFor(()=>expect(screen.getByRole('textbox')).toHaveValue('persist me'));
     expect(lookupMessageAttempt).toHaveBeenCalledWith('chat',frozen.key);
     expect(onSend).not.toHaveBeenCalled();
     await user.click(screen.getByRole('textbox'));
     await user.keyboard('{Enter}');
-    await waitFor(()=>expect(onSend).toHaveBeenCalledWith(frozen.text,frozen.attachments,undefined,frozen.key,frozen.contexts));
+    await waitFor(()=>expect(onSend).toHaveBeenCalledWith(frozen.text,frozen.attachments,undefined,frozen.key));
+    // The frozen body no longer carries a client-chosen background, so a retry resends
+    // exactly the content the centre froze with the original message.
+    expect(onSend.mock.calls[0]).toHaveLength(4);
   });
 
   it.each([
@@ -65,7 +68,7 @@ describe('ordinary composer send identity',()=>{
     ['new-version','new draft','new draft']
   ])('merges recovered success and clears only the submitted draft version (%s)',async(revision,draft,expected)=>{
     const submitted = {draft:'old',draftMentions:[],pending:[],slashDismissed:false,revision:'old-version'};
-    await prepareSendAttempt('u1','chat',submitted,{text:'old',attachments:[],contexts:[]});
+    await prepareSendAttempt('u1','chat',submitted,{text:'old',attachments:[]});
     let confirm: (message:Message)=>void = ()=>{};
     vi.mocked(lookupMessageAttempt).mockReturnValue(new Promise(resolve=>{confirm=resolve;}));
     const store = new Map<string,ComposerSnapshot>([['chat',{...submitted,draft,revision}]]);
@@ -81,7 +84,7 @@ describe('ordinary composer send identity',()=>{
 
   it('keeps a newly pasted image when an older send lookup completes',async()=>{
     const submitted = {draft:'old submission',draftMentions:[],pending:[],slashDismissed:false,revision:'old-version'};
-    await prepareSendAttempt('u1','chat',submitted,{text:'old submission',attachments:[],contexts:[]});
+    await prepareSendAttempt('u1','chat',submitted,{text:'old submission',attachments:[]});
     let confirm!: (message: Message | null) => void;
     vi.mocked(lookupMessageAttempt).mockReturnValue(new Promise(resolve=>{confirm=resolve;}));
     const uploadAttachment = vi.fn(()=>new Promise<{url:string}>(()=>{}));

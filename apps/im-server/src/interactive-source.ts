@@ -1,6 +1,6 @@
 import { interactiveRuntimeFunctions } from '@nano/product-contracts/interactive-functions';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { autoClose, createLibrary, createParser, enrichErrors, evaluate, evaluateRoot, jsonToOpenUI, parseExpression, split, tokenize, walkAST, type ASTNode, type EvaluationContext, type OpenUIError } from '@openuidev/lang-core';
+import { autoClose, createLibrary, createParser, enrichErrors, evaluate, evaluateRoot, jsonToOpenUI, parseExpression, split, tokenize, walkAST, type ASTNode, type ElementNode, type EvaluationContext, type OpenUIError } from '@openuidev/lang-core';
 import { intelligentUICatalog as interactiveCatalog, interactiveTools } from '@nano/product-contracts';
 
 export interface InteractiveSchema { source: string; actions: Record<string, string> }
@@ -20,8 +20,81 @@ export class InteractiveSourceError extends Error {
   }
 }
 
+function initialContext(parsed: ReturnType<typeof parser.parse>, named: Map<string, ASTNode>): EvaluationContext {
+  const context: EvaluationContext = {actions: interactiveCatalog.actions, functions: interactiveRuntimeFunctions, getState: name => parsed.stateDeclarations[name],
+    resolveRef: name => {
+      const query = parsed.queryStatements.find(item => item.statementId === name);
+      const value = query?.defaultsAST ?? named.get(name);
+      return value ? evaluate(value, context) : undefined;
+    },
+  };
+  return context;
+}
+
+const displayFields = new Set([
+  'children', 'text', 'title', 'subtitle', 'label', 'description', 'caption', 'alt', 'cite', 'hint', 'placeholder',
+  'marker', 'markers', 'columns', 'items', 'options', 'front', 'back', 'trigger', 'content', 'code', 'tex',
+]);
+
+type CardText = {searchText: string; previewTitle: string | null};
+
+function cardText(root: ElementNode | null): CardText {
+  const terms = new Set<string>();
+  let previewTitle: string | null = null;
+  const collect = (value: unknown, titleVisible: boolean): void => {
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).replace(/\s+/g, ' ').trim();
+      if (text) terms.add(text);
+    } else if (Array.isArray(value)) {
+      value.forEach(child => collect(child, titleVisible));
+    } else if (value && typeof value === 'object') {
+      const row = value as Record<string, unknown>;
+      if (row.type === 'element' && row.props && typeof row.props === 'object') {
+        const {typeName, props} = row as unknown as ElementNode;
+        if (titleVisible && previewTitle === null && typeName === 'Title' && typeof props.text === 'string')
+          previewTitle = props.text.replace(/\s+/g, ' ').trim().slice(0, 120) || null;
+        for (const [key, child] of Object.entries(props)) {
+          if (!displayFields.has(key)) continue;
+          // Keep these sections searchable, but they require interaction to see.
+          const revealed = (typeName === 'Popover' && key === 'content') || (typeName === 'Flashcard' && key === 'back');
+          collect(child, titleVisible && !revealed);
+        }
+        if ((typeName === 'Input' || typeName === 'TextArea') && typeof props.value === 'string') collect(props.value, titleVisible);
+        if (typeName === 'MapMarker') collect(props.category, titleVisible);
+        if (typeName === 'Table' && Array.isArray(props.columns) && Array.isArray(props.rows)) {
+          const columns = props.columns.length;
+          for (const cells of props.rows) if (Array.isArray(cells)) collect(cells.slice(0, columns), titleVisible);
+        }
+        if (typeName === 'Chart' && Array.isArray(props.data)) {
+          const rows = props.data.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item));
+          const first = rows[0];
+          if (!first) return;
+          const axis = typeof props.x === 'string' && Object.hasOwn(first, props.x) ? props.x
+            : Object.keys(first).find(key => typeof first[key] === (props.type === 'scatter' ? 'number' : 'string')) ?? Object.keys(first)[0];
+          const series = (Array.isArray(props.series) && props.series.length ? props.series.filter(key => typeof key === 'string')
+            : Object.keys(first).filter(key => key !== axis && typeof first[key] === 'number')).slice(0, 8);
+          collect(series, titleVisible);
+          for (const item of rows) for (const key of [axis, ...series]) if (key !== undefined) collect(item[key], titleVisible);
+        }
+      } else {
+        // E.g. option labels, but not action payloads or option IDs.
+        for (const [key, child] of Object.entries(row)) if (displayFields.has(key)) collect(child, titleVisible);
+      }
+    }
+  };
+  collect(root, true);
+  return {searchText: [...terms].join('\n'), previewTitle};
+}
+
+/** Recover searchable text and the first visible title from a saved card. */
+export function interactiveTextProjection(source: string): CardText {
+  const parsed = parser.parse(source);
+  const named = new Map(split(tokenize(source)).map(statement => [statement.id, parseExpression(statement.tokens)]));
+  return cardText(evaluateRoot(parsed, {library: validationLibrary, ctx: initialContext(parsed, named), store: null}));
+}
+
 /** Validate a complete Open Intelligent UI program. */
-export function validateInteractiveSource(source: string): InteractiveSchema {
+export function validateInteractiveSource(source: string): InteractiveSchema & CardText {
   if (Buffer.byteLength(source, 'utf8') > 65536 || autoClose(source).wasIncomplete) throw new Error('Interactive source is oversized or incomplete');
   const parsed = parser.parse(source);
   const diagnostics = enrichErrors(parsed.meta.errors, interactiveCatalog, componentNames);
@@ -35,13 +108,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
   const statements = sourceStatements.map(statement => parseExpression(statement.tokens));
   const named = new Map(sourceStatements.map((statement, index) => [statement.id, statements[index]]));
   const stringBindings = new Set<string>();
-  const context: EvaluationContext = {actions: interactiveCatalog.actions, functions: interactiveRuntimeFunctions, getState: name => parsed.stateDeclarations[name],
-    resolveRef: name => {
-      const query = parsed.queryStatements.find(item => item.statementId === name);
-      const value = query?.defaultsAST ?? named.get(name);
-      return value ? evaluate(value, context) : undefined;
-    },
-  };
+  const context = initialContext(parsed, named);
   const runtimeErrors: OpenUIError[] = [];
   const evaluated = evaluateRoot(parsed, {library: validationLibrary, ctx: context, store: null, errors: runtimeErrors});
   if (runtimeErrors.length) throw new InteractiveSourceError(runtimeErrors);
@@ -111,7 +178,7 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
     if (node.k === 'Comp' && node.name === 'Set' && node.args[0]?.k === 'StateRef' && stringBindings.has(node.args[0].n) && node.args[1])
       checkString(evaluate(node.args[1] as ASTNode, context), `Set(${node.args[0].n})`);
   });
-  return { source, actions };
+  return { source, actions, ...cardText(evaluated) };
 }
 
 /** Preserve native viewer state and derive visible field values from the current program.
@@ -119,10 +186,13 @@ export function validateInteractiveSource(source: string): InteractiveSchema {
  * Args:
  *   schema: The validated immutable public program.
  *   input: Current viewer's native Renderer state, at most 16 KiB.
+ *   options.withOptions: Also return each choice field's normalized option list. Only the
+ *     private draft read (409 field comparison) asks for it: a background entering model
+ *     input must stay byte-identical, so this stays off by default.
  * Returns:
  *   A canonical snapshot and readable fields; state is user data, never authority.
  */
-export function interactionState(schema: InteractiveSchema, input: unknown) {
+export function interactionState(schema: InteractiveSchema, input: unknown, options: {withOptions?: boolean} = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Buffer.byteLength(JSON.stringify(input), 'utf8') > 16384)
     throw new Error('Interaction state must be an object within 16 KiB');
   const state = JSON.parse(sortedJsonAscii(input)) as Record<string, unknown>;
@@ -140,7 +210,7 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
     },
   };
   const labels: Record<string, number> = {Input:1, TextArea:1, Select:2, RadioGroup:2, Slider:4, Checkbox:1, DatePicker:1};
-  const fields: {name:string; label:string; value:unknown; display_value?:string}[] = [];
+  const fields: {name:string; label:string; value:unknown; display_value?:string; options?:{label:string;value:string}[]}[] = [];
   const seen = new Set<string>();
   for (const statement of split(tokenize(schema.source))) walkAST(parseExpression(statement.tokens), node => {
     if (node.k !== 'Comp' || !(node.name in labels || node.name === 'SegmentedControl')) return;
@@ -150,10 +220,16 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
     const value = ctx.getState!(binding.n);
     const labelNode = node.name in labels ? node.args[labels[node.name]] : undefined;
     const label = labelNode ? evaluate(labelNode, ctx) : undefined;
-    const options = ['Select','RadioGroup','SegmentedControl'].includes(node.name) ? evaluate(node.args[1], ctx) : undefined;
-    const selected = Array.isArray(options) ? options.find(option => typeof option === 'string' ? option === value : option?.value === value) : undefined;
+    const choices = ['Select','RadioGroup','SegmentedControl'].includes(node.name) ? evaluate(node.args[1], ctx) : undefined;
+    const selected = Array.isArray(choices) ? choices.find(option => typeof option === 'string' ? option === value : option?.value === value) : undefined;
+    // The catalogue allows bare strings; expand them so one shape reaches every client.
+    const optionList = options.withOptions && Array.isArray(choices)
+      ? choices.map(option => typeof option === 'string' ? {label:option, value:option}
+        : {label:String(option?.label ?? option?.value ?? ''), value:String(option?.value ?? '')})
+      : undefined;
     fields.push({name:binding.n, label:typeof label === 'string' ? label : binding.n.slice(1), value,
-      ...(selected ? {display_value:typeof selected === 'string' ? selected : selected.label} : {})});
+      ...(selected ? {display_value:typeof selected === 'string' ? selected : selected.label} : {}),
+      ...(optionList ? {options:optionList} : {})});
   });
   return {state, fields};
 }

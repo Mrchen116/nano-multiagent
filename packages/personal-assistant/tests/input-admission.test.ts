@@ -59,7 +59,7 @@ it('does not retry a failed input during Inbox reads or recovery and explicitly 
   runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
    if(method==='pa.review'){reviews++;return {decision:available?'allow':'unavailable',reason:'temporary model outage'};}
    if(method==='session.submit'){submissions.push(args);return {accepted:true,durable:true};}
-   if(method==='session.descendants')return [];
+   if(method==='session.work.children')return {children:[]};
    return {events:[],status:'idle',durable:true};
   }},relay:{request:async(type,args:any)=>{
    const result=type==='pa.source.admit'?{allowed:true,is_owner:args.source_message_id==='good',delivery:'participant',conversation_type:'direct',channel:'web'}
@@ -95,7 +95,7 @@ it('plans without writes and rolls back historical admission migration before it
   inbox=new InboxStore(path);inbox.close();inbox=undefined;
   db=new DatabaseSync(path);
   db.prepare('INSERT INTO inbox(agent_id,target,message_id,payload,attention,consumed) VALUES(?,?,?,?,0,0)').run('pa','chat','legacy',JSON.stringify(input('legacy')));
-  db.prepare("INSERT INTO publications VALUES('sent','peer','body','confirmed','{\"message_id\":\"real\"}','pa')").run();
+  db.prepare("INSERT INTO publications(id,target,body,state,result,agent_id) VALUES('sent','peer','body','confirmed','{\"message_id\":\"real\"}','pa')").run();
   await backup(db,join(root,'before.db'));before=new DatabaseSync(join(root,'before.db'),{readOnly:true});
   expect(inspectInputMigration(before).state).toBe('pending');
   db.exec("CREATE TRIGGER interrupt_input_migration BEFORE INSERT ON metadata WHEN NEW.key='input-review-v1' BEGIN SELECT RAISE(ABORT,'test interruption'); END;");db.close();db=undefined;

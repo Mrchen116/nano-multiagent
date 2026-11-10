@@ -238,12 +238,34 @@ describe("agent detail page", () => {
       const name = await screen.findByDisplayValue("Core Planner");
       await userEvent.clear(name);
       await userEvent.type(name, "Unsaved emergency edit");
-      await userEvent.click(await screen.findByRole("button", {name: "Disable"}));
-      await screen.findByText("Stopping managed execution; stop is not confirmed yet.");
+      await userEvent.click(await screen.findByRole("button", {name: "Disable Agent"}));
+      expect(await screen.findByRole("button", {name: "Disabling…"})).toBeDisabled();
       expect(name).toHaveValue("Unsaved emergency edit");
       expect(apiMocks.updateAgentConfigMock).not.toHaveBeenCalled();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     } finally { view.unmount(); vi.unstubAllGlobals(); useAuthStore.setState({user:original}); }
+  });
+
+  it("removes the permanent deletion action when an Agent is turned back on", async () => {
+    const original = useAuthStore.getState().user;
+    useAuthStore.setState({user: {id: "owner-1"} as never});
+    let lifecycle = {agent_id: "agent-core-1", desired: "disabled", observed: "disabled", revision: 2, applied_revision: 2};
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      if (String(url).endsWith("/lifecycle")) {
+        if (init?.method === "PUT") lifecycle = {...lifecycle, desired: "enabled", observed: "enabled", revision: 3, applied_revision: 3};
+        return Response.json(lifecycle);
+      }
+      if (String(url).endsWith("/deletion")) return Response.json({eligible: true, revision: 2, profile_version: 1});
+      return Response.json({binding: null, creation: null});
+    }));
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    const view = renderDetailPage();
+    try {
+      expect(await screen.findByRole("button", {name: "Permanently delete Agent"})).toBeVisible();
+      await userEvent.click(screen.getByRole("button", {name: "Enable Agent"}));
+      await screen.findByRole("button", {name: "Disable Agent"});
+      expect(screen.queryByRole("button", {name: "Permanently delete Agent"})).not.toBeInTheDocument();
+    } finally { view.unmount(); vi.unstubAllGlobals(); useAuthStore.setState({user: original}); }
   });
 
   it("protects an edited configuration when opening the personal assistant from the rail", async () => {

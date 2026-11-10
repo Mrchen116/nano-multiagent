@@ -3,15 +3,18 @@ import { closeSync, createReadStream, fsyncSync, mkdirSync, openSync, readdirSyn
 import { open, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { workSyncLimits as limits, workSyncPrefix, type WorkSyncPart, type WorkSyncCursor, workObject } from '@nano/product-contracts';
+import type { DatabaseSync } from 'node:sqlite';
+import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkRedactionManifest, type WorkSyncPart, type WorkSyncCursor, workObject } from '@nano/product-contracts';
 import { all, one, fail, transaction, type ImContext, type Row } from './context.js';
 import type { RuntimeIdentity } from './identity.js';
 import { readWorkBatch } from './work.js';
 import type { Connection } from './gateway.js';
+import { workRedaction } from './work-records.js';
 
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 const sha256 = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const activeUploads = new WeakMap<DatabaseSync, Map<string, Promise<void>>>();
 
 /** Authenticate the current durable machine binding independently of WebSocket state. */
 export function authenticateWorkSync(ctx: ImContext, request: FastifyRequest): RuntimeIdentity {
@@ -19,6 +22,61 @@ export function authenticateWorkSync(ctx: ImContext, request: FastifyRequest): R
   const identity = token ? ctx.identity.authenticateRuntime(token) : null;
   if (!identity) fail(401, 'invalid_runtime_token');
   return identity;
+}
+
+/** Persist exact redaction receipts before the Node replaces any journal bodies.
+ * Args:
+ *   ctx: Center database and staging directory owner.
+ *   identity: Current authenticated Node binding.
+ *   operation: Agent and deletion operation already authorized by the caller.
+ *   manifest: Positions selected from the target Agent's durable Node journal.
+ */
+export async function registerWorkRedactions(
+  ctx: ImContext, identity: RuntimeIdentity, operation: { agent_id: string; operation_id: string }, manifest: WorkRedactionManifest,
+): Promise<void> {
+  const { db } = ctx, { node_id: node, owner_id: owner, node_epoch: epoch } = identity;
+  if (!workObject(manifest)) fail(400, 'invalid_work_redactions');
+  const { journal_id: journal, entries } = manifest;
+  if (typeof journal !== 'string' || !journal || journal.length > 200 || !Array.isArray(entries)) fail(400, 'invalid_work_redactions');
+  if (!one(db, 'SELECT 1 FROM node_binding_state WHERE node_id=? AND owner_id=? AND node_epoch=? AND runtime_token_hash IS NOT NULL', node, owner, epoch))
+    fail(403, 'node_not_registered');
+
+  const staged = transaction(db, () => {
+    const files = new Set<string>();
+    // Separate indexed lookups so the OR cannot scan all receipts for this journal.
+    const findUploads = db.prepare(`SELECT id,owner_id,seq,event_id FROM work_sync_uploads
+      WHERE node_id=? AND journal_id=? AND seq=?
+      UNION ALL SELECT id,owner_id,seq,event_id FROM work_sync_uploads
+      WHERE node_id=? AND journal_id=? AND event_id=? AND seq<>?`);
+    for (const entry of entries) {
+      if (!entry || !integer(entry.seq) || entry.seq < 1 || typeof entry.event_id !== 'string' || !entry.event_id)
+        fail(400, 'invalid_work_redactions');
+      const { seq, event_id: event } = entry;
+      const matches = (row: Row) => row.node_id === node && row.journal_id === journal && row.seq === seq && row.event_id === event;
+      const redactions = all(db, 'SELECT * FROM work_sync_redactions WHERE (node_id=? AND journal_id=? AND seq=?) OR event_id=?', node, journal, seq, event);
+      if (redactions.some(row => !matches(row) || row.root_agent_id !== operation.agent_id || row.operation_id !== operation.operation_id))
+        fail(409, 'event_identity_conflict');
+      const committed = all(db, 'SELECT node_id,journal_id,seq,event_id,root_agent_id FROM agent_work_events WHERE (node_id=? AND journal_id=? AND seq=?) OR event_id=?', node, journal, seq, event);
+      if (committed.some(row => !matches(row) || row.root_agent_id !== operation.agent_id)) fail(409, 'event_identity_conflict');
+      const uploads = findUploads.all(node, journal, seq, node, journal, event, seq) as Row[];
+      if (uploads.some(row => row.seq !== seq || row.event_id !== event || row.owner_id !== owner)) fail(409, 'event_identity_conflict');
+
+      db.prepare('INSERT OR IGNORE INTO work_sync_redactions VALUES(?,?,?,?,?,?)').run(node, journal, seq, event, operation.agent_id, operation.operation_id);
+      for (const upload of uploads) {
+        // Release the pending slot immediately but retain the file identity for retries.
+        db.prepare('UPDATE work_sync_uploads SET committed=1 WHERE id=?').run(upload.id);
+        files.add(upload.id);
+      }
+    }
+    return files;
+  });
+  for (const id of staged) {
+    // A concurrent PUT may still have this file open. Its next persistence check sees the receipt.
+    await activeUploads.get(db)?.get(id);
+    await rm(join(`${ctx.dbPath}.work-sync`, id), { recursive: true, force: true });
+    db.prepare('DELETE FROM work_sync_parts WHERE upload_id=?').run(id);
+    db.prepare('DELETE FROM work_sync_uploads WHERE id=?').run(id);
+  }
 }
 
 /** Register bounded machine-only uploads into the existing atomic Work projection.
@@ -39,6 +97,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     committed INTEGER NOT NULL DEFAULT 0);
     CREATE UNIQUE INDEX IF NOT EXISTS work_sync_one_pending ON work_sync_uploads(node_id) WHERE committed=0;
     CREATE INDEX IF NOT EXISTS work_sync_event ON work_sync_uploads(node_id,journal_id,seq);
+    CREATE INDEX IF NOT EXISTS work_sync_upload_event_id ON work_sync_uploads(node_id,journal_id,event_id);
     CREATE TABLE IF NOT EXISTS work_sync_parts (
       upload_id TEXT NOT NULL REFERENCES work_sync_uploads(id) ON DELETE CASCADE,
       part INTEGER NOT NULL, sha256 TEXT NOT NULL, PRIMARY KEY(upload_id,part));
@@ -51,6 +110,8 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
       UPDATE work_sync_uploads SET committed=1 WHERE id=(SELECT id FROM work_sync_uploads WHERE node_id=NEW.node_id AND committed=0) AND journal_id=NEW.journal_id AND seq<=NEW.through_seq;
     END;`);
   let active = 0;
+  const uploadsInFlight = new Map<string, Promise<void>>();
+  activeUploads.set(db, uploadsInFlight);
   const activeNodes = new Set<string>(), leases = new WeakMap<FastifyRequest, string>(), handlers = new WeakSet<FastifyRequest>();
   const connections = new WeakMap<FastifyRequest, Connection>();
   const declarations = new WeakMap<FastifyRequest, { journal: string; produced: number; pending: boolean }>();
@@ -69,7 +130,10 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
       db.prepare('DELETE FROM work_sync_uploads WHERE id=?').run(row.id);
       removeFiles(row.id);
     }
-    for (const row of all(db, 'SELECT DISTINCT upload_id id FROM work_sync_parts p WHERE (SELECT committed FROM work_sync_uploads WHERE id=p.upload_id)=1')) {
+    // Drive cleanup from staged bytes, not the cumulative immutable receipts.
+    for (const row of all(db, `SELECT u.id FROM (SELECT DISTINCT upload_id FROM work_sync_parts) p
+      CROSS JOIN work_sync_uploads u ON u.id=p.upload_id
+      WHERE u.committed=1 AND NOT EXISTS (SELECT 1 FROM work_sync_redactions r WHERE r.node_id=u.node_id AND r.journal_id=u.journal_id AND r.seq=u.seq)`)) {
       // Keep the small immutable hash receipt after deleting the unconfirmed bytes.
       db.prepare('DELETE FROM work_sync_parts WHERE upload_id=?').run(row.id);
       removeFiles(row.id);
@@ -135,6 +199,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     const { identity, journal } = scope(request);
     const payload = readWorkBatch({...(workObject(request.body) ? request.body : {}), journal_id: journal});
     for (const event of payload.events) {
+      if (workRedaction(db, identity.node_id, journal, event.seq, event.event_id, event.root_agent_id)) continue;
       const receipt = one(db, 'SELECT event_id,sha256 FROM work_sync_uploads WHERE node_id=? AND journal_id=? AND seq=? LIMIT 1', identity.node_id, journal, event.seq);
       if (receipt && (receipt.event_id !== event.event_id || receipt.sha256 !== hash(JSON.stringify(event)))) fail(409, 'event_identity_conflict');
     }
@@ -142,6 +207,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     // Hash receipts keep chunk and batch retries on the same immutable event identity.
     transaction(db, () => {
       for (const event of payload.events.filter((event) => event.seq <= result.through_seq)) {
+        if (workRedaction(db, identity.node_id, journal, event.seq, event.event_id, event.root_agent_id)) continue;
         const raw = JSON.stringify(event), digest = hash(raw);
         const id = hash(JSON.stringify([identity.owner_id, identity.node_id, identity.node_epoch, journal, event.seq, event.event_id, digest]));
         db.prepare('INSERT OR IGNORE INTO work_sync_uploads VALUES(?,?,?,?,?,?,?,?,?,?,?,1)').run(id, identity.owner_id, identity.node_id, identity.node_epoch,
@@ -162,6 +228,21 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     const bytes = Buffer.from(payload.data, 'base64');
     const size = Math.min(limits.chunkBytes, payload.total_bytes - part * limits.chunkBytes);
     if (bytes.length !== size || hash(bytes) !== payload.part_sha256) fail(400, 'part_hash_mismatch');
+    const currentBinding = () => {
+      const current = authenticateWorkSync(ctx, request);
+      if (current.owner_id !== identity.owner_id || current.node_id !== identity.node_id || current.node_epoch !== identity.node_epoch) fail(401, 'invalid_runtime_token');
+    };
+    const redacted = (): WorkSyncCursor | undefined => {
+      const root = workRedaction(db, identity.node_id, journal, seq, payload.event_id);
+      if (!root) return;
+      currentBinding();
+      ctx.gateway.work.append(identity.node_id, { journal_id: journal, from_seq: seq, events: [{
+        seq, event_id: payload.event_id, root_agent_id: root, session_id: 'redacted', type: workRedactedType, payload: {},
+      }] }, true);
+      return cursor(identity, journal);
+    };
+    const removed = redacted();
+    if (removed) return removed;
     const committed = one(db, 'SELECT * FROM work_sync_uploads WHERE node_id=? AND journal_id=? AND seq=? AND committed=1 LIMIT 1', identity.node_id, journal, seq);
     if (committed) {
       if (committed.event_id !== payload.event_id || committed.sha256 !== payload.sha256 || committed.total_bytes !== payload.total_bytes || committed.total_parts !== payload.total_parts)
@@ -186,38 +267,48 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
         journal, seq, payload.event_id, payload.sha256, payload.total_bytes, payload.total_parts, Date.now());
       upload = { id, ...payload };
     }
-    const old = one(db, 'SELECT sha256 FROM work_sync_parts WHERE upload_id=? AND part=?', id, part);
-    if (old && old.sha256 !== payload.part_sha256) fail(409, 'part_identity_conflict');
-    if (!old) {
-      const folder = join(directory, id); mkdirSync(folder, { recursive: true, mode: 0o700 });
-      const directoryHandle = await open(directory, 'r');
-      try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
-      const file = await open(join(folder, String(part)), 'w', 0o600);
-      try { await file.writeFile(bytes); await file.sync(); } finally { await file.close(); }
-      const folderHandle = await open(folder, 'r');
-      try { await folderHandle.sync(); } finally { await folderHandle.close(); }
-      // A disk-full error above never creates a durable part receipt.
-      db.prepare('INSERT INTO work_sync_parts VALUES(?,?,?)').run(id, part, payload.part_sha256);
-      db.prepare('UPDATE work_sync_uploads SET updated_at=? WHERE id=?').run(Date.now(), id);
-    }
-    const count = one(db, 'SELECT count(*) count FROM work_sync_parts WHERE upload_id=?', id)!.count;
-    if (count === payload.total_parts) {
-      const digest = createHash('sha256'), raw = Buffer.allocUnsafe(payload.total_bytes);
-      let offset = 0;
-      for (let index = 0; index < payload.total_parts; index++) {
-        for await (const block of createReadStream(join(directory, id, String(index)))) {
-          const chunk = block as Buffer; digest.update(chunk); chunk.copy(raw, offset); offset += chunk.length;
-        }
+    let finish!: () => void;
+    uploadsInFlight.set(id, new Promise<void>(resolve => { finish = resolve; }));
+    try {
+      const old = one(db, 'SELECT sha256 FROM work_sync_parts WHERE upload_id=? AND part=?', id, part);
+      if (old && old.sha256 !== payload.part_sha256) fail(409, 'part_identity_conflict');
+      if (!old) {
+        const folder = join(directory, id); mkdirSync(folder, { recursive: true, mode: 0o700 });
+        const directoryHandle = await open(directory, 'r');
+        try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
+        const file = await open(join(folder, String(part)), 'w', 0o600);
+        try { await file.writeFile(bytes); await file.sync(); } finally { await file.close(); }
+        const folderHandle = await open(folder, 'r');
+        try { await folderHandle.sync(); } finally { await folderHandle.close(); }
+        const removed = redacted();
+        if (removed) return removed;
+        // A disk-full error above never creates a durable part receipt.
+        db.prepare('INSERT INTO work_sync_parts VALUES(?,?,?)').run(id, part, payload.part_sha256);
+        db.prepare('UPDATE work_sync_uploads SET updated_at=? WHERE id=?').run(Date.now(), id);
       }
-      if (offset !== payload.total_bytes || digest.digest('hex') !== payload.sha256) fail(400, 'event_hash_mismatch');
-      let event: unknown;
-      try { event = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)); } catch { fail(400, 'invalid_event'); }
-      if (!workObject(event) || event.seq !== seq || event.event_id !== payload.event_id) fail(409, 'event_identity_conflict');
-      const current = authenticateWorkSync(ctx, request);
-      if (current.owner_id !== identity.owner_id || current.node_id !== identity.node_id || current.node_epoch !== identity.node_epoch) fail(401, 'invalid_runtime_token');
-      ctx.gateway.work.append(identity.node_id, { journal_id: journal, from_seq: seq, events: [event] }, true);
-      cleanup();
+      const count = one(db, 'SELECT count(*) count FROM work_sync_parts WHERE upload_id=?', id)!.count;
+      if (count === payload.total_parts) {
+        const digest = createHash('sha256'), raw = Buffer.allocUnsafe(payload.total_bytes);
+        let offset = 0;
+        for (let index = 0; index < payload.total_parts; index++) {
+          for await (const block of createReadStream(join(directory, id, String(index)))) {
+            const chunk = block as Buffer; digest.update(chunk); chunk.copy(raw, offset); offset += chunk.length;
+          }
+        }
+        const removed = redacted();
+        if (removed) return removed;
+        if (offset !== payload.total_bytes || digest.digest('hex') !== payload.sha256) fail(400, 'event_hash_mismatch');
+        let event: unknown;
+        try { event = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)); } catch { fail(400, 'invalid_event'); }
+        if (!workObject(event) || event.seq !== seq || event.event_id !== payload.event_id) fail(409, 'event_identity_conflict');
+        currentBinding();
+        ctx.gateway.work.append(identity.node_id, { journal_id: journal, from_seq: seq, events: [event] }, true);
+        cleanup();
+      }
+      return cursor(identity, journal);
+    } finally {
+      uploadsInFlight.delete(id);
+      finish();
     }
-    return cursor(identity, journal);
   }));
 }

@@ -57,7 +57,7 @@ struct ChatInfoView: View {
                 }
                 if chat.type == "group" {
                     NavigationLink(L("群任务", "Group tasks")) { GroupTasksView(client: store.client, conversationID: conversationID) { id, text in
-                        store.drafts[id] = [store.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n")
+                        store.setDraft(id, [store.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n"))
                         openChat(id)
                     } }
                     if chat.creator_id == store.user.id, chat.can_write != false { Section { Button(L("解散群聊", "Dissolve group"), role: .destructive) { confirmDelete = true } } }

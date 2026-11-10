@@ -130,7 +130,8 @@ export function apply(ctx) {
     await client.rpc.request('session.ensure',{sessionId:'parent',agentId:'pa',revision:'1',ownerId:'owner',cwd:home});
     await client.rpc.request('session.submit',{sessionId:'parent',inputId:'owner',mode:'followup',content:[{type:'text',text:'群里现在什么进展？要催下。'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'owner'}});
     await expect.poll(async () => (await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:'owner'}) as any).terminal).toBeTruthy();
-    const review = (content: string) => client!.rpc.request('pa.review',{agentId:'pa',kind:'action',sessionId:'parent',evidence:{owner_user_id:'owner',owner_guard:'INTERNAL_FRESHNESS_GUARD',last_owner_message_id:'OLD_GROUP_MESSAGE',policy:{revision:1,excluded_conversation_ids:[]},sources:[],recipient_risks:[],recipient:{conversation_id:'group',name:'Team',conversation_type:'group',channel:'web',members:[{id:'owner',user_id:'owner',type:'user',display_name:'Owner'}]},payload:{content},recipient_ids:['owner']}}) as Promise<any>;
+    const card = {format:'openui',catalog_version:'nano-iui-1',source:'root = Text("Complete outbound card")',supersedes_message_id:'prior-card'};
+    const review = (content: string) => client!.rpc.request('pa.review',{agentId:'pa',kind:'action',sessionId:'parent',evidence:{owner_user_id:'owner',owner_guard:'INTERNAL_FRESHNESS_GUARD',last_owner_message_id:'OLD_GROUP_MESSAGE',policy:{revision:1,excluded_conversation_ids:[]},sources:[],recipient_risks:[],recipient:{conversation_id:'group',name:'Team',conversation_type:'group',channel:'web',members:[{id:'owner',user_id:'owner',type:'user',display_name:'Owner'}]},payload:{content,interactive:card},recipient_ids:['owner']}}) as Promise<any>;
       expect(await review('current')).toMatchObject({decision:'allow'});
       const requests = (await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const messages = requests[0];
@@ -140,7 +141,9 @@ export function apply(ctx) {
       const text=input.content.filter((c:any)=>c.type==='text').map((c:any)=>c.text).join('');
       expect(text).toContain('要催下');
       expect(text).not.toContain('INTERNAL_FRESHNESS_GUARD');expect(text).not.toContain('OLD_GROUP_MESSAGE');
-      expect(JSON.parse(text.split('<planned_action>')[1].split('</planned_action>')[0])).toMatchObject({tool:'send_message',arguments:{target:'group',text:'current'},audience:{members:[{id:'owner',is_owner:true}]}});
+      const action=JSON.parse(text.split('<planned_action>')[1].split('</planned_action>')[0]);
+      expect(action).toMatchObject({tool:'send_message',arguments:{target:'group',text:'current'},audience:{members:[{id:'owner',is_owner:true}]}});
+      expect(action.arguments.interactive).toEqual({source:card.source,supersedes_message_id:card.supersedes_message_id});
   } finally {
     if (client) {
       const force = setTimeout(() => client!.process.kill('SIGKILL'),1000);

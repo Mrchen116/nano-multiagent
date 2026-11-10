@@ -1,3 +1,4 @@
+import { workDescendants } from './helpers/work-history.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,7 +30,7 @@ it('keeps maintenance out of agent discovery while preserving its cold trajector
     const root = await client!.rpc.request('session.observe',{sessionId:binding.sessionId}) as {events:{type:string;data:any}[]};
     const childId = (await facts()).reviews[0]!.childSessionId!;
     expect(root.events.filter(event=>event.type==='subagent/catalog').map(event=>event.data.childId)).not.toContain(childId);
-    expect(await client!.rpc.request('session.descendants',{sessionId:binding.sessionId})).toEqual([]);
+    expect(await workDescendants(client!.rpc, {sessionId:binding.sessionId})).toEqual([]);
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const main=requests.find(request=>request.sessionId===binding.sessionId);
     const maintenance=requests.filter(request=>request.sessionId===childId);

@@ -345,15 +345,22 @@ export async function createServer(options: ServerOptions = {}) {
           try {
             const session = ctx.identity.browserSession(cookie);
             const base = `/im/v1/agents/${agentPage[1]}`;
-            const urls = ['/im/v1/contacts?q=&kind=agent', `${base}/settings?view=saved`, `${base}/lifecycle`,
-              ...(new URL(req.url,publicUrl).searchParams.get('view') === 'work' ? [`${base}/work?view=summary`] : [])];
+            const search = new URL(req.url, publicUrl).searchParams;
+            const workUrl = `${base}/work?view=summary&catalog=separate`;
+            const messageId = search.get('message_id');
+            const focusUrl = messageId && `${base}/work/focus?message_id=${encodeURIComponent(messageId)}&catalog=separate`;
+            const urls = ['/im/v1/contacts?q=&kind=agent', `${base}/settings?view=saved`, `${base}/lifecycle`];
+            if (search.get('view') === 'work') {
+              urls.push(workUrl);
+              if (focusUrl) urls.push(focusUrl);
+            }
             // Reuse the actual API authorization and projections. Only local,
             // saved reads belong in HTML; node inspection stays asynchronous.
             const responses = await Promise.all(urls.map(url=>app.inject({url,headers:{authorization:`Bearer ${session.access_token}`}})));
             const data: Row = Object.fromEntries(responses.flatMap((response,index)=>response.statusCode===200 ? [[urls[index],response.json()]] : []));
-            const search = new URL(req.url, publicUrl).searchParams;
-            const work = data[`${base}/work?view=summary`];
-            const selected = search.get('execution') || work?.main_session_id;
+            const work = data[workUrl];
+            const focus = focusUrl ? data[focusUrl]?.focus : undefined;
+            const selected = search.get('execution') || focus?.turn?.session_id || work?.main_session_id;
             if (search.get('work_view') === 'trajectory' && typeof selected === 'string' && work) {
               const prepared = await app.inject({ method: 'POST', url: `${base}/trajectory/prepare`,
                 headers: { authorization: `Bearer ${session.access_token}` }, payload: { session_id: selected } });

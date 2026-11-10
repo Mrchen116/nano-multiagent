@@ -5,7 +5,7 @@ import { RelayDeliveryError } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
-import { formatLocalTime, withInteractionContext } from '@nano/product-contracts';
+import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
@@ -19,6 +19,7 @@ interface Options {
   relay: RelayPort;
   image: (url: string, agentId: string) => Promise<string>;
   onError: (error: unknown) => void;
+  recoveryGeneration?: (binding: SessionBinding) => string | undefined;
   taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
 
@@ -28,6 +29,8 @@ export class SingleThread {
   private readonly controls: SessionControls;
   private readonly draining = new Map<string, Promise<void>>();
   private readonly dirty = new Set<string>();
+  private readonly recovering = new Map<string, Promise<void>>();
+  private readonly ensuring = new Map<string, Promise<unknown>>();
   private readonly pendingApprovals = new Map<string, { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
   private readonly streams = new Map<string, BufferedStream>();
@@ -103,7 +106,7 @@ export class SingleThread {
       if (!text) {
         let result:{wasRunning:boolean;paused?:number};
         if(controlText(input)==='/stop'&&this.options.taskStop)result=await this.options.taskStop(binding,input);
-        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean};}
+        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId,settleTaskContext:controlText(input)==='/new'}) as {wasRunning:boolean};}
         await this.reconcile(binding.sessionId);
         if (controlText(input) === '/new') {
           store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);
@@ -124,7 +127,7 @@ export class SingleThread {
     await this.controls.wait(binding.sessionId);
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
-    await runtime.request('session.ensure', runtimeBinding(binding));
+    await this.ensure(binding);
     for (const pending of store.pendingInputs(binding.sessionId)) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
   }
@@ -136,20 +139,20 @@ export class SingleThread {
   private async backgroundAdmitted(sessionId: string, input: RelayInput): Promise<void> {
     const binding=this.binding(sessionId);
     if(binding.agentId!==input.agent_id||binding.conversationId!==input.conversation_id)throw new Error('Background result belongs to another conversation');
-    this.options.store.receive(sessionId,input);await this.options.runtime.request('session.ensure',runtimeBinding(binding));
+    this.options.store.receive(sessionId,input);await this.ensure(binding);
     await this.submit(binding,input);await this.reconcile(sessionId);
   }
 
-  private async submit(binding: SessionBinding, input: RelayInput) {
-    if(!this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
-    return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision??1,()=>this.submitAdmitted(binding,input));
+  private async submit(binding: SessionBinding, input: RelayInput, current?: () => boolean) {
+    if(current?.() === false || !this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
+    return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision??1,()=>this.submitAdmitted(binding,input,current));
   }
-  private async submitAdmitted(binding: SessionBinding, input: RelayInput) {
+  private async submitAdmitted(binding: SessionBinding, input: RelayInput, current?: () => boolean) {
     const { store, runtime } = this.options;
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
     if (!evidence.accepted) {
-      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts);
+      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
       const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
       const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
       const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
@@ -164,6 +167,22 @@ export class SingleThread {
       if (input.metadata.conversation_type === 'group' && input.participants?.length) {
         content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
       }
+      if (input.message.reply_to) {
+        const original = input.message.reply_to;
+        const quote = projectChatReplyContext(original);
+        const name = quote.sender.name.replace(/[\r\n]+/g, ' ');
+        const lines = [`Quoted earlier message from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
+        if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
+        if (quote.interactive) lines.push('[Interactive UI content from the quoted message]', JSON.stringify(quote.interactive));
+        if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
+        const textOmitted = (quote.text ?? '') !== original.content;
+        const uiOmitted = quote.interactive?.source !== original.interactive?.source;
+        if (textOmitted || uiOmitted || quote.attachment_names || (!quote.text && !quote.interactive)) {
+          lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
+        }
+        // Some model adapters concatenate adjacent text parts without separators.
+        content.push({ type: 'text', text: `${content.length ? '\n\n' : ''}${lines.join('\n')}\n\nCurrent message:\n` });
+      }
       if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
       for (const part of parts) {
         if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
@@ -172,13 +191,14 @@ export class SingleThread {
         imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
         content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
       }
+      if (current?.() === false) return;
       await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources: content.map((_, index) => imageSources.get(index) ?? null),
         source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id, channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender}, ...(input.message.pa_agent_id?{pa_agent_id:input.message.pa_agent_id}:{}), contextEnvelope },
       });
     }
     store.accepted(inputId);
-    if (!store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
+    if (current?.() !== false && !store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
@@ -188,27 +208,88 @@ export class SingleThread {
     const binding = store.canonical(config.agentId) ?? store.bind({ sessionId: randomUUID(), agentId: config.agentId,
       conversationId: `owner:${this.options.ownerId}`, ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision });
     store.markCanonical(binding);
-    await runtime.request('session.ensure', runtimeBinding(binding));
+    await this.ensure(binding);
     return binding;
   }
 
-  /** Durable history is replayed on reconnect; display notifications are just hints. */
-  async recover(externalOnly = false): Promise<void> {
-    const recoveredControls = new Set<string>();
-    for (const binding of this.options.store.bindings()) {
-      if(!this.options.store.lifecycle.allowed(binding.agentId))continue;
-      if (externalOnly && !binding.conversationId.startsWith('external:')) continue;
-      if (this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') continue;
-      await this.options.store.lifecycle.run(binding.agentId,undefined,async()=>{
-      await this.options.runtime.request('session.ensure', runtimeBinding(binding));
-      if (!recoveredControls.has(binding.agentId)) {
-        await this.controls.recover(binding.agentId);
-        recoveredControls.add(binding.agentId);
-      }
-      for (const input of this.options.store.pendingInputs(binding.sessionId)) await this.submit(binding, input.input);
-      await this.reconcile(binding.sessionId);
-      });
+  private ensure(binding: SessionBinding): Promise<unknown> {
+    const key = `${binding.sessionId}:${this.options.store.lifecycle.assert(binding.agentId)}`;
+    const existing = this.ensuring.get(key);
+    if (existing) return existing;
+    const task = this.options.runtime.request('session.ensure', runtimeBinding(binding)).finally(() => {
+      this.ensuring.delete(key);
+    });
+    this.ensuring.set(key, task);
+    return task;
+  }
+
+  /** Recover enabled single-thread bindings with local obligations or unverified native history. */
+  async recover(externalOnly = false, scope?: string[]): Promise<void> {
+    const { store, agents, recoveryGeneration } = this.options;
+    const agentIds = agents.filter(agent => agent.mode === 'single_thread' &&
+      (!scope || scope.includes(agent.agentId)) && store.lifecycle.allowed(agent.agentId)).map(agent => agent.agentId);
+    const eligible = (binding: SessionBinding) => store.lifecycle.allowed(binding.agentId) &&
+      (!externalOnly || binding.conversationId.startsWith('external:')) && !store.recoveryStopped(binding.sessionId) &&
+      (!recoveryGeneration || recoveryGeneration(binding) !== undefined);
+    for (const agentId of agentIds) await this.controls.recover(agentId, eligible);
+
+    // Standalone callers without the recovery handshake retain the original recovery path.
+    if (!recoveryGeneration) {
+      for (const binding of store.bindings()) if (agentIds.includes(binding.agentId) && eligible(binding))
+        await store.lifecycle.run(binding.agentId, undefined, () => this.restore(binding, false));
+      return;
     }
+
+    const candidates = store.recoveryCandidates(agentIds).filter(item => eligible(item.binding));
+    const pending: typeof candidates = [];
+    const unverified: typeof candidates = [];
+    for (const candidate of candidates)
+      (store.hasRecoveryWork(candidate.binding.sessionId) ? pending : unverified).push(candidate);
+    for (const batch of [pending, unverified]) {
+      for (let start = 0; start < batch.length; start += 4) {
+        const results = await Promise.allSettled(batch.slice(start, start + 4).map(({binding, generation}) => {
+          const boot = recoveryGeneration(binding);
+          if (!boot || !eligible(binding)) return;
+          return this.recoverSession(binding, generation, boot, eligible);
+        }));
+        const failure = results.find(result => result.status === 'rejected');
+        if (failure) throw failure.reason;
+      }
+    }
+  }
+
+  private recoverSession(binding: SessionBinding, generation: string | null | undefined, boot: string,
+    eligible: (binding: SessionBinding) => boolean): Promise<void> {
+    const { store, runtime, recoveryGeneration } = this.options;
+    const { sessionId, agentId } = binding;
+    const revision = store.lifecycle.assert(agentId);
+    const key = `${boot}:${revision}:${sessionId}`;
+    const existing = this.recovering.get(key);
+    if (existing) return existing;
+    const current = () => eligible(binding) && recoveryGeneration?.(binding) === boot && store.lifecycle.allowed(agentId, revision);
+    const task = store.lifecycle.run(agentId, revision, async () => {
+      try {
+        const localWork = store.hasRecoveryWork(sessionId);
+        const probe = await runtime.request('session.recovery.probe', {sessionId, afterSeq: store.cursor(sessionId), localWork}) as {live: boolean; unseen: boolean};
+        if (!current()) return;
+        if (probe.unseen || store.hasRecoveryWork(sessionId)) await this.restore(binding, probe.live, current);
+        else if (!probe.live && generation !== boot) store.confirmColdSession(sessionId, generation);
+      } catch (error) {
+        if (current()) throw error;
+      }
+    }).finally(() => this.recovering.delete(key));
+    this.recovering.set(key, task);
+    return task;
+  }
+
+  private async restore(binding: SessionBinding, live: boolean, current?: () => boolean): Promise<void> {
+    if (!live) await this.ensure(binding);
+    if (current?.() === false) return;
+    for (const input of this.options.store.pendingInputs(binding.sessionId)) {
+      if (current?.() === false) return;
+      await this.submit(binding, input.input, current);
+    }
+    if (current?.() !== false) await this.reconcile(binding.sessionId);
   }
 
   /** Permission responses use the independent runtime control path. */
@@ -426,7 +507,7 @@ export class SingleThread {
     if (!delivery?.messageId) throw new Error('Approval has no product output binding');
     pending.messageId = delivery.messageId;
     this.options.store.saveCommand(`task-approval-visible:${request.sessionId}:${input!.turn}`,'visible');
-    const call = this.options.store.events(request.sessionId).find(event => event.type === 'tool/call' && event.data.callId === request.callId);
+    const call = request.callId === undefined ? undefined : this.options.store.toolCall(request.sessionId,request.callId);
     await this.delta({ kind: 'permission_request', message_id: delivery.messageId, session_id: request.sessionId,
       agent_id: this.binding(request.sessionId).agentId, run_id: request.sessionId,
       permission_request: { request_id: request.requestId, tool_name: request.toolName, reason: request.reason, call_id: request.callId,
@@ -528,6 +609,7 @@ export class SingleThread {
   async stop(): Promise<void> {
     this.unsubscribe();
     await this.controls.stop();
+    await Promise.allSettled(this.recovering.values());
     await Promise.allSettled([...this.streams.values()].map(stream => this.flushStream(stream)));
     await Promise.allSettled([...this.draining.values()]);
   }

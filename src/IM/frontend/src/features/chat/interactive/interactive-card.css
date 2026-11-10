@@ -1,4 +1,5 @@
 .interactive-card { margin-top: 20px; min-width: 0; width: 100%; color: var(--openui-text-neutral-primary); }
+.interactive-card--standalone { margin-top: 0; }
 .interactive-card-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .interactive-card :is(input, textarea, select):disabled { color: inherit; -webkit-text-fill-color: currentColor; opacity: 1; }
 .interactive-card input, .interactive-card textarea, .interactive-card select { max-width: 100%; }
@@ -15,3 +16,5 @@
   .interactive-card { margin-top: 16px; }
   .chat-bubble-card:has(.interactive-card) { padding-block: 8px; }
 }
+
+/* Composer-level block for an unsaved (or conflicting) card edit. */

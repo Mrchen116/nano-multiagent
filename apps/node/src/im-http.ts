@@ -13,7 +13,11 @@ export async function requestIm(baseUrl: string, token: string, path: string, op
   url.protocol = url.protocol === 'wss:' ? 'https:' : url.protocol === 'ws:' ? 'http:' : url.protocol;
   const headers = new Headers(options?.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(url, { ...options, signal: AbortSignal.timeout(10000), headers });
-  if (!response.ok) throw new Error(`IM external projection failed: ${response.status}`);
+  const response = await fetch(url, { ...options, signal: AbortSignal.any([AbortSignal.timeout(10000), ...(options?.signal ? [options.signal] : [])]), headers });
+  if (!response.ok) {
+    const error = await response.json().catch(() => undefined) as {detail?:unknown; message?:unknown} | undefined;
+    const detail = error?.detail ?? error?.message;
+    throw new Error(`IM request failed (${response.status})${typeof detail === 'string' ? `: ${detail}` : ''}`);
+  }
   return response.json();
 }

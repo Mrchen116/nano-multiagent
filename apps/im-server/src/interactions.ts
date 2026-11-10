@@ -1,8 +1,8 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { mergeStatements } from '@openuidev/lang-core';
 import type { FastifyRequest } from 'fastify';
-import { interactiveResponse, type InteractionSnapshot, type InteractionContext, type MessageInteractive } from '@nano/product-contracts';
-import { body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
+import { interactiveResponse, type InteractionDraftField, type InteractionSnapshot, type InteractionContext, type MessageInteractive } from '@nano/product-contracts';
+import { body, fail, now, one, params, transaction, type ImContext, type Row } from './context.js';
 import { agentAvailable } from './identity.js';
 import { conversationAccess } from './conversation-access.js';
 import { InteractiveSourceError, interactionState, validateInteractiveSource, type InteractiveSchema } from './interactive-source.js';
@@ -45,28 +45,26 @@ export class Interactions {
     const row = one(this.db, 'SELECT publication_json FROM message_interactive WHERE message_id=?', id);
     return row?.publication_json ? JSON.parse(row.publication_json) : interactiveResponse(this.message(id));
   }
-  /** Resolve private background without turning it into a submission.
+  /** Resolve a saved private draft into the one background a send may carry.
    *
    * Args:
-   *   user: Authenticated human who already passed conversation write access.
-   *   cid: Conversation containing every referenced source.
-   *   input: Browser snapshots, validated against their saved UI source.
+   *   user: Authenticated human; the derivation already passed conversation checks.
+   *   cid: Conversation containing the source message.
+   *   sourceMessageId: Draft owner row selected by the derivation query.
+   *   stateJson: That row's saved state.
    * Returns:
-   *   Canonical background for private delivery to each source Agent.
-   * Raises:
-   *   Error: A source is outside this conversation or its state is invalid.
+   *   Background for private delivery to the source Agent, or null when the card stopped
+   *   being interactive. A stale draft is client-written history and must never veto a
+   *   user's message, so invalid state degrades to "no background" instead of failing.
    */
-  contexts(user: Row, cid: string, input: unknown): InteractionContext[] {
+  background(user: Row, cid: string, sourceMessageId: string, stateJson: string): InteractionContext | null {
     if (user.kind === 'gateway' || user.username?.startsWith('agent:')) fail(403, 'Human viewer required');
-    if (!Array.isArray(input) || input.length > 3) fail(422, 'At most three interaction contexts');
-    return input.map(value => {
-      if (!value || typeof value.source_message_id !== 'string'
-        || value.interacted_at !== undefined && (!Number.isFinite(value.interacted_at) || value.interacted_at < 0)) fail(422, 'Invalid interaction context');
-      const source = this.source(value.source_message_id, cid);
-      const {state, fields} = this.state(source, value.state);
-      return {source_message_id:source.message_id, source_summary:source.content.slice(0,160), agent_id:source.executor_agent_id, state, fields,
-        ...(value.interacted_at !== undefined ? {interacted_at:value.interacted_at} : {})};
-    });
+    const source = this.source(sourceMessageId, cid);
+    if (source.read_only || source.superseded_by) return null;
+    let state, fields;
+    try { ({state, fields} = interactionState({source:source.source, actions:JSON.parse(source.registry_json).actions}, JSON.parse(stateJson))); }
+    catch { return null; }
+    return {source_message_id:source.message_id, source_summary:source.content.slice(0,160), agent_id:source.executor_agent_id, state, fields};
   }
   /** Save validated source inside the same transaction as its Agent message. */
   record(id: string, cid: string, sender: string, input: unknown): void {
@@ -83,8 +81,9 @@ export class Interactions {
     }
     try { registry = validateInteractiveSource(value.source); }
     catch (error) { fail(422, error instanceof InteractiveSourceError ? error.detail : (error as Error).message); }
-    this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,supersedes_message_id,publication_json) VALUES(?,?,?,?,?,?,?)')
-      .run(id, value.format, value.catalog_version, value.source, JSON.stringify(registry), value.supersedes_message_id ?? null, publication);
+    const {searchText, previewTitle, ...actionRegistry} = registry;
+    this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,search_text,preview_title,supersedes_message_id,publication_json) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(id, value.format, value.catalog_version, value.source, JSON.stringify(actionRegistry), searchText, previewTitle, value.supersedes_message_id ?? null, publication);
   }
   /** Read only the authenticated viewer's draft after ordinary conversation access. */
   readDraft(req: FastifyRequest): Row {
@@ -92,7 +91,14 @@ export class Interactions {
     if (p.kind === 'gateway' || p.username?.startsWith('agent:')) fail(403, 'Human viewer required');
     this.ctx.messaging.access(p, cid); const source=this.source(mid, cid);
     const row = one(this.db, 'SELECT * FROM interaction_drafts WHERE source_message_id=? AND user_id=?', mid, p.id);
-    return { read_only:!!source.read_only, superseded_by:source.superseded_by??null, can_interact:this.available(source,cid)&&!!conversationAccess(this.db,cid,p.id)?.can_write, updated_at: row?.updated_at ?? null, draft_revision: row?.draft_revision ?? 0, state: JSON.parse(row?.state_json ?? '{}'), submission_message_id: row?.submission_message_id ?? null };
+    const state = JSON.parse(row?.state_json ?? '{}');
+    // Labels for the cross-device 409 comparison; the same evaluation that labels the
+    // saved state, so both columns speak one vocabulary. A draft written against an older
+    // program degrades to no labels rather than failing the read.
+    let fields: InteractionDraftField[] = [];
+    try { fields = interactionState({source:source.source, actions:JSON.parse(source.registry_json).actions}, state, {withOptions:true}).fields; }
+    catch { fields = []; }
+    return { read_only:!!source.read_only, superseded_by:source.superseded_by??null, can_interact:this.available(source,cid)&&!!conversationAccess(this.db,cid,p.id)?.can_write, updated_at: row?.updated_at ?? null, draft_revision: row?.draft_revision ?? 0, state, submission_message_id: row?.submission_message_id ?? null, fields };
   }
   /** Compare-and-swap private local state independently of earlier requests. */
   writeDraft(req: FastifyRequest): Row {
@@ -105,7 +111,7 @@ export class Interactions {
     transaction(this.db, () => {
       this.db.prepare('INSERT OR IGNORE INTO interaction_drafts(source_message_id,user_id) VALUES(?,?)').run(mid, p.id);
       const changed = this.db.prepare('UPDATE interaction_drafts SET draft_revision=draft_revision+1,state_json=?,updated_at=?,submission_message_id=NULL WHERE source_message_id=? AND user_id=? AND draft_revision=?')
-        .run(sortedJsonAscii(state), new Date().toISOString(), mid, p.id, b.expected_draft_revision).changes;
+        .run(sortedJsonAscii(state), now(), mid, p.id, b.expected_draft_revision).changes;
       if (!changed) fail(409, { code: 'interaction_draft_conflict', message: 'The draft changed on another device' });
     });
     return this.readDraft(req);
@@ -153,7 +159,7 @@ export class Interactions {
   copy(ids: Map<string, string>): void {
     for (const [oldId, newId] of ids) {
       const old = one(this.db, 'SELECT * FROM message_interactive WHERE message_id=?', oldId);
-      if (old) this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,supersedes_message_id,superseded_by,read_only) VALUES(?,?,?,?,?,?,?,1)').run(newId, old.format, old.catalog_version, old.source, old.registry_json,
+      if (old) this.db.prepare('INSERT INTO message_interactive(message_id,format,catalog_version,source,registry_json,search_text,preview_title,supersedes_message_id,superseded_by,read_only) VALUES(?,?,?,?,?,?,?,?,?,1)').run(newId, old.format, old.catalog_version, old.source, old.registry_json, old.search_text, old.preview_title,
         ids.get(old.supersedes_message_id) ?? null, ids.get(old.superseded_by) ?? null);
       const reply = one(this.db, 'SELECT interaction_reply_json FROM messages WHERE id=?', newId)?.interaction_reply_json;
       if (reply) {

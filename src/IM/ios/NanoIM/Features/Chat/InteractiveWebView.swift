@@ -59,8 +59,10 @@ struct InteractiveWebContent: UIViewRepresentable {
                 replyHandler(nil, "This frame cannot access Nano"); return
             }
             Task {
+                var isAttachment = false
                 do {
                     let request = try JSONValue(foundationObject: message.body)
+                    isAttachment = request["type"].stringValue?.hasPrefix("attachment-") == true
                     if request["type"].stringValue == "height", generation == runtime.webID,
                        let value = request["height"].doubleValue, value.isFinite, value > 0 {
                         height.wrappedValue = CGFloat(value)
@@ -69,7 +71,7 @@ struct InteractiveWebContent: UIViewRepresentable {
                     let result = try await runtime.webRequest(request, generation: generation)
                     replyHandler(result.foundationObject, nil)
                 } catch {
-                    if generation == runtime.webID { runtime.error = error.localizedDescription }
+                    if !isAttachment, generation == runtime.webID { runtime.error = error.localizedDescription }
                     replyHandler(nil, error.localizedDescription)
                 }
             }
@@ -93,10 +95,12 @@ struct InteractiveWebContent: UIViewRepresentable {
         }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             guard generation == runtime.webID else { return }
+            runtime.resetAttachmentPresentation()
             runtime.error = error.localizedDescription
         }
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard generation == runtime.webID else { return }
+            runtime.resetAttachmentPresentation()
             runtime.error = L("交互内容已停止，请读取最新内容。", "Interactive content stopped. Load the latest content.")
             runtime.loaded = false
         }

@@ -9,6 +9,8 @@ final class InteractiveRuntime {
     let client: IMClient
     let message: ChatMessage
     let chat: ChatStore
+    private let chatEpoch: UUID
+    var isCurrentStore: Bool { chat.interactionEpoch == chatEpoch }
     var root: JSONValue = .null
     var state: [String: JSONValue] = [:]
     var busy = false
@@ -19,72 +21,95 @@ final class InteractiveRuntime {
     var conflict = false
     var submitted = false
     var pendingCompose: ChatStore.ComposeRequest?
+    var attachmentPreview: UIImage?
+    private var visibleAttachmentIndexes: Set<Int> = []
+    @ObservationIgnored private var left = false
     @ObservationIgnored private var context: JSContext?
     @ObservationIgnored private var engine: JSValue?
     @ObservationIgnored private var revision = 0
     @ObservationIgnored private var sessionRevision: Int?
     @ObservationIgnored private var edited = 0
     @ObservationIgnored private var saved = 0
-    @ObservationIgnored private var editedAt: Double = 0
+    private(set) var conflictColumns: [DraftConflictColumn]?
+    private(set) var inspectingConflict = false
+    @ObservationIgnored private var lastConfirmedUpdate: String?
+    @ObservationIgnored private var offlineFailure = false
+    var editSerial: Int { edited }
     @ObservationIgnored private var saveTimer: Task<Void, Never>?
     @ObservationIgnored private var saveFlight: Task<Void, Never>?
+    @ObservationIgnored private var saveFlightID = UUID()
     @ObservationIgnored private var queryTask: Task<Void, Never>?
     @ObservationIgnored private var queryPoll: Task<Void, Never>?
     @ObservationIgnored private var queryDue: [String: Date] = [:]
     @ObservationIgnored private var querySignatures: [String: String] = [:]
     @ObservationIgnored private var queries: [JSONValue] = []
     @ObservationIgnored private var generation = UUID()
+    // Recycling a page must revoke its bridge without invalidating an acknowledged draft PUT.
+    private var rendererGeneration = UUID()
     @ObservationIgnored private var webSequence = 0
     @ObservationIgnored private var callerReadOnly: Bool
     @ObservationIgnored private var draftReadOnly = false
     var openURL: ((URL) -> Void)?
 
     init(client: IMClient, message: ChatMessage, chat: ChatStore, readOnly: Bool) {
-        self.client = client; self.message = message; self.chat = chat
+        self.client = client; self.message = message; self.chat = chat; self.chatEpoch = chat.interactionEpoch
         callerReadOnly = readOnly
         self.readOnly = readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
     }
     var hasPending: Bool { chat.interactionAttempt(message.conversation_id, sourceMessageID: message.id) != nil }
     var usesWebRenderer: Bool { message.interactive?.catalog_version == "nano-iui-1" }
-    var webID: UUID { generation }
+    var webID: UUID { rendererGeneration }
     var webDisabled: Bool { readOnly || busy || hasPending || conflict }
+    var fallbackAttachmentIndexes: [Int] {
+        let shown = Set(visibleAttachmentIndexes.map { message.attachments[$0].url })
+        return message.attachments.indices.filter { !shown.contains(message.attachments[$0].url) }
+    }
 
-    func load() async {
-        let token = UUID(); generation = token
+    func load(adoptingRemote: Bool = false) async {
+        guard isCurrentStore else { return }
+        left = false
+        // Reactivation preserves an unresolved edit until the save path reconciles it.
+        guard !loaded || saved == edited || (adoptingRemote && conflictColumns != nil) else { return }
+        chat.interactionDrafts.register(self)
+        let token = UUID(); generation = token; rendererGeneration = token
+        resetAttachmentPresentation()
         sessionRevision = await client.session.revision()
-        error = nil; conflict = false; loaded = false
+        if !loaded { error = nil }
         do {
             guard let source = message.interactive, source.format == "openui", ["nano-1", "nano-iui-1"].contains(source.catalog_version) else {
-                throw APIError(status: 422, detail: L("此交互回复版本暂不支持，仍可阅读上方文字。", "This interactive version is unsupported. The text remains readable."))
+                throw APIError(status: 422, detail: L("此交互回复版本暂不支持，请更新客户端或在聊天中要求重新发送。", "This interactive version is unsupported. Update the app or ask for a new reply in the chat."))
             }
             let draft = try await client.interactionDraft(message.conversation_id, messageID: message.id)
             guard token == generation, await current() else { return }
-            revision = draft.draft_revision; submitted = draft.submission_message_id != nil
-            edited = 0; saved = 0; querySignatures = [:]; webSequence = 0
-            let formatter = ISO8601DateFormatter(); formatter.formatOptions.insert(.withFractionalSeconds)
-            editedAt = draft.updated_at.flatMap { formatter.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) }?.timeIntervalSince1970 ?? 0
-            editedAt *= 1000
-            if usesWebRenderer {
-                // An unavailable Agent still permits private edits, just as on Web.
-                draftReadOnly = draft.read_only == true || draft.superseded_by != nil
-                setReadOnly(callerReadOnly)
-                state = draft.state; loaded = true; select()
-                return
-            }
-            guard let url = Bundle.main.url(forResource: "InteractiveRuntime", withExtension: "js"), let js = JSContext() else { throw URLError(.cannotDecodeContentData) }
-            js.evaluateScript(try String(contentsOf: url, encoding: .utf8))
-            if let exception = js.exception { throw runtimeError(exception.toString()) }
-            let instance = js.objectForKeyedSubscript("NanoInteractive")?.invokeMethod("create", withArguments: [source.source, JSONValue.object(draft.state).foundationObject])
-            if let exception = js.exception { throw runtimeError(exception.toString()) }
-            guard let instance, !instance.isUndefined else { throw URLError(.cannotParseResponse) }
-            context = js; engine = instance
-            try receive(call("snapshot")); loaded = true
-            select(); refreshQueries(); pollQueries()
+            try applyDraft(draft, source: source.source)
         } catch { if token == generation { self.error = error.localizedDescription } }
+    }
+    private func applyDraft(_ draft: InteractionDraft, source: String) throws {
+        revision = draft.draft_revision; submitted = draft.submission_message_id != nil
+        saved = edited; querySignatures = [:]; webSequence = 0
+        // A GET may describe another device's edit. It must never advance our discard watermark.
+        conflict = false; conflictColumns = nil; offlineFailure = false; error = nil
+        chat.interactionDrafts.record(self, reason: nil)
+        if usesWebRenderer {
+            // An unavailable Agent still permits private edits, just as on Web.
+            draftReadOnly = draft.read_only == true || draft.superseded_by != nil
+            setReadOnly(callerReadOnly)
+            state = draft.state; loaded = true
+            return
+        }
+        guard let url = Bundle.main.url(forResource: "InteractiveRuntime", withExtension: "js"), let js = JSContext() else { throw URLError(.cannotDecodeContentData) }
+        js.evaluateScript(try String(contentsOf: url, encoding: .utf8))
+        if let exception = js.exception { throw runtimeError(exception.toString()) }
+        let instance = js.objectForKeyedSubscript("NanoInteractive")?.invokeMethod("create", withArguments: [source, JSONValue.object(draft.state).foundationObject])
+        if let exception = js.exception { throw runtimeError(exception.toString()) }
+        guard let instance, !instance.isUndefined else { throw URLError(.cannotParseResponse) }
+        context = js; engine = instance
+        try receive(call("snapshot")); loaded = true
+        refreshQueries(); pollQueries()
     }
     /// The bundled renderer supplies values, never credentials or arbitrary API access.
     func webRequest(_ request: JSONValue, generation token: UUID) async throws -> JSONValue {
-        guard usesWebRenderer, loaded, token == generation, await current() else {
+        guard usesWebRenderer, loaded, await current(), !left, token == rendererGeneration else {
             throw runtimeError("This card session is no longer active")
         }
         let type = request["type"].stringValue ?? ""
@@ -92,12 +117,15 @@ final class InteractiveRuntime {
             return .object(["source": .string(message.interactive?.source ?? ""), "state": .object(state), "disabled": .bool(webDisabled)])
         }
         if type == "error" { error = request["message"].stringValue; return .null }
+        if ["attachment-image", "attachment-open", "attachment-visible"].contains(type) {
+            return try await attachmentRequest(type, request, generation: token)
+        }
         if let value = request["state"].objectValue, let sequence = request["sequence"].intValue,
            sequence > webSequence, !webDisabled {
             webSequence = sequence
             let different = state != value
             state = value
-            if different && request["touched"].boolValue == true { changed() } else { select() }
+            if different && request["touched"].boolValue == true { changed() }
         }
         if type == "state" { return .null }
         if type == "resource" {
@@ -127,9 +155,10 @@ final class InteractiveRuntime {
         }
         guard ["ComposeMessage", "SendToChat", "continue_conversation"].contains(name ?? "") else { throw runtimeError("This action is not connected") }
         busy = true; composing = name == "ComposeMessage"; error = nil
-        defer { if token == generation { busy = false; composing = false } }
+        // Busy serializes actions across reloads; replacing a page must not strand its owner.
+        defer { busy = false; composing = false }
         await flush()
-        guard token == generation, await current(), !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
+        guard token == rendererGeneration, await current(), !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
         if name == "ComposeMessage" {
             guard let target = args["target"].stringValue, let text = args["text"].stringValue else { throw runtimeError("target and text required") }
             try await compose(target, text: text); return .null
@@ -142,15 +171,55 @@ final class InteractiveRuntime {
         if let form = action["formState"].objectValue { submittedState.merge(form) { _, new in new } }
         let receipt = try await chat.submitInteraction(message.conversation_id,
             input: InteractionReplyInput(source_message_id: message.id, event: .object(details), state: submittedState), key: UUID().uuidString)
-        guard token == generation, await current() else { throw runtimeError("This card session is no longer active") }
+        guard token == rendererGeneration, await current() else { throw runtimeError("This card session is no longer active") }
         submitted = true; saved = edited
         await syncRevision()
         return .object(["message_id": .string(receipt.id), "delivery_status": .string(receipt.delivery_status)])
     }
+    /// Card media uses the current message and native credentials, even in read-only history.
+    private func attachmentRequest(_ type: String, _ request: JSONValue, generation token: UUID) async throws -> JSONValue {
+        guard let value = request["index"].doubleValue, let position = Int(exactly: value),
+              position > 0, position <= message.attachments.count else {
+            throw runtimeError("This image is not attached to the message")
+        }
+        let index = position - 1
+        let attachment = message.attachments[index]
+        let imageTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"]
+        let url = try ServerOrigin.resource(attachment.url, base: client.baseURL)
+        let path = url.pathComponents
+        guard imageTypes.contains(attachment.content_type ?? ""),
+              url.query == nil, url.fragment == nil, path.count == 7,
+              Array(path.prefix(5)) == ["/", "im", "v1", "conversations", message.conversation_id],
+              ["images", "attachments"].contains(path[5]) else {
+            throw runtimeError("This image is not attached to the message")
+        }
+        if type == "attachment-visible" {
+            guard let visible = request["visible"].boolValue else { throw runtimeError("Image visibility is required") }
+            if visible { visibleAttachmentIndexes.insert(index) } else { visibleAttachmentIndexes.remove(index) }
+            return .null
+        }
+        let (data, mime) = try await client.protectedResource(attachment.url)
+        guard await current(), !left, loaded, token == rendererGeneration else {
+            throw runtimeError("This card session is no longer active")
+        }
+        guard imageTypes.contains(mime) else { throw URLError(.cannotDecodeContentData) }
+        if type == "attachment-open" {
+            guard let image = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
+            attachmentPreview = image
+            return .null
+        }
+        return .object(["data": .string(data.base64EncodedString()), "mime": .string(mime)])
+    }
+
+    func resetAttachmentPresentation() {
+        visibleAttachmentIndexes.removeAll()
+        attachmentPreview = nil
+    }
+
     func setReadOnly(_ value: Bool) {
         callerReadOnly = value
         readOnly = value || draftReadOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil
-        if readOnly { saveTimer?.cancel(); chat.interactionSelections[message.id] = nil }
+        if readOnly { saveTimer?.cancel() }
     }
     func fieldValue(_ node: JSONValue, form: String?, property: String = "value") -> JSONValue {
         let value = node["props"][property]
@@ -179,11 +248,11 @@ final class InteractiveRuntime {
             }
             composing = events.contains { $0["type"].stringValue == "custom_action" }
             busy = business
-            let token = generation
+            let token = generation, renderer = rendererGeneration
             Task {
                 defer { if token == generation { busy = false; composing = false } }
                 do {
-                    if business { await flush(); guard !conflict, saved == edited, token == generation, await current() else { return } }
+                    if business { await flush(); guard !conflict, saved == edited, token == generation, renderer == rendererGeneration, await current() else { return } }
                     for event in events {
                         guard token == generation, await current() else { return }
                         switch event["type"].stringValue {
@@ -250,46 +319,122 @@ final class InteractiveRuntime {
             await syncRevision()
         } catch { self.error = error.localizedDescription }
     }
-    func flush() async {
-        if let saveFlight { await saveFlight.value; return }
-        guard loaded, !readOnly, !conflict, !hasPending, edited != saved else { return }
+    @discardableResult
+    func flush(through limit: Int? = nil) async -> DraftFlushResult {
+        saveTimer?.cancel()
+        let autoSync = !chat.isGroupConversation(message.conversation_id)
+        if let saveFlight {
+            let id = saveFlightID
+            await saveFlight.value
+            if saveFlightID == id { self.saveFlight = nil }
+            // An old leave-flight may finish after this conversation became active again.
+            // Flush the new edit, but never include it in that departure's cutoff.
+            if error == nil, saved != edited, !conflict, !readOnly,
+               limit == nil || edited <= limit! { return await flush(through: limit) }
+            return flushResult
+        }
+        guard loaded, !readOnly, (!conflict || autoSync), !hasPending, edited != saved,
+              limit == nil || edited <= limit! else { return flushResult }
         let token = generation
         let flight = Task { [self] in
-            while token == generation, !readOnly, !conflict, saved != edited, await current() {
+            while token == generation, !readOnly, !hasPending, saved != edited,
+                  limit == nil || edited <= limit!, await current() {
+                if conflict {
+                    guard autoSync, let source = message.interactive?.source else { return }
+                    do {
+                        let draft = try await client.interactionDraft(message.conversation_id, messageID: message.id)
+                        guard token == generation, await current(), !hasPending else { return }
+                        // A stale renderer must not submit its old form after adopting the server draft.
+                        try applyDraft(draft, source: source)
+                        rendererGeneration = UUID()
+                    } catch { /* The next send or reconnect retries the read, not the stale write. */ }
+                    return
+                }
                 let serial = edited, value = state
                 do {
                     let result = try await client.saveInteractionDraft(message.conversation_id, messageID: message.id, revision: revision, state: value)
                     guard token == generation, await current() else { return }
-                    revision = result.draft_revision; saved = serial; error = nil
-                } catch {
-                    if token == generation {
-                        conflict = (error as? APIError)?.status == 409
-                        self.error = conflict ? L("其他设备已更新这张卡片，请读取最新内容。", "This card changed on another device. Load the latest content.") : error.localizedDescription
+                    revision = result.draft_revision; saved = serial; error = nil; offlineFailure = false
+                    if let updatedAt = result.updated_at, let sessionRevision {
+                        lastConfirmedUpdate = max(lastConfirmedUpdate ?? "", updatedAt)
+                        await chat.interactionDrafts.noteSaved(self, serial: serial, updatedAt: updatedAt, revision: sessionRevision)
                     }
+                    guard token == generation, await current() else { return }
+                    if saved == edited { chat.interactionDrafts.record(self, reason: nil) }
+                } catch {
+                    guard token == generation, await current() else { return }
+                    conflict = (error as? APIError)?.status == 409
+                    offlineFailure = [-1009, -1005, -1004].contains((error as? URLError)?.errorCode ?? 0)
+                    if !autoSync {
+                        self.error = conflict ? L("其他设备已更新这张卡片，请查看最新改动后决定是否放弃本机编辑。", "This card changed on another device. Compare drafts before discarding your local edits.") : error.localizedDescription
+                    }
+                    chat.interactionDrafts.record(self, reason: conflict ? .conflict : .transient, offline: offlineFailure)
+                    if autoSync, conflict { continue }
                     return
                 }
             }
         }
-        saveFlight = flight; await flight.value; saveFlight = nil
+        let id = UUID(); saveFlightID = id; saveFlight = flight
+        await flight.value
+        if saveFlightID == id { saveFlight = nil }
+        return flushResult
+    }
+    private var flushResult: DraftFlushResult {
+        DraftFlushResult(updatedAt: lastConfirmedUpdate, reason: conflict ? .conflict : (loaded && !readOnly && saved != edited ? .transient : nil))
     }
     func leave() {
+        left = true; rendererGeneration = UUID(); webSequence = 0
+        resetAttachmentPresentation()
         saveTimer?.cancel(); queryTask?.cancel(); queryPoll?.cancel()
-        // Finish the latest private edit; Session's generation still fences logout.
-        Task { await flush() }
+        // Row recycling is not a conversation switch. The store owns discard ordering.
+        Task {
+            let result = await flush()
+            if result.reason != nil { chat.interactionDrafts.retainUnresolved(self) }
+        }
+    }
+    func retrySaving() async {
+        // A save started before the tap may still return its old failure.
+        if saveFlight != nil { _ = await flush() }
+        if flushResult.reason == .transient || (conflict && !chat.isGroupConversation(message.conversation_id)) { _ = await flush() }
     }
     func retryContent() async {
-        if !loaded || conflict || usesWebRenderer { await load() }
-        else { error = nil; querySignatures = [:]; refreshQueries(); await flush() }
+        if !loaded || (usesWebRenderer && edited == saved) { await load() }
+        else if !conflict { error = nil; querySignatures = [:]; refreshQueries(); await retrySaving() }
+    }
+    /// Reads a comparison without applying the remote revision or changing either draft.
+    func describeConflict() async throws -> [DraftConflictColumn] {
+        inspectingConflict = true
+        defer { inspectingConflict = false }
+        let draft = try await client.interactionDraft(message.conversation_id, messageID: message.id)
+        guard await current() else { throw CancellationError() }
+        let columns = (draft.fields ?? []).compactMap { field -> DraftConflictColumn? in
+            let local = state[field.name] ?? .null
+            guard local != field.value else { return nil }
+            return DraftConflictColumn(name: field.name, label: field.label,
+                remote: field.display_value ?? readable(field.value, options: field.options),
+                local: readable(local, options: field.options))
+        }
+        conflictColumns = columns
+        return columns
+    }
+    /// Only explicit adoption after comparison may replace a conflicting local draft.
+    @discardableResult
+    func adoptRemote() async -> Bool {
+        guard conflictColumns != nil else { return false }
+        await load(adoptingRemote: true)
+        return !conflict && saved == edited
+    }
+    private func readable(_ value: JSONValue, options: [InteractionDraftFieldOption]?) -> String {
+        if let array = value.arrayValue { return array.map { readable($0, options: options) }.joined(separator: "、") }
+        if let text = value.stringValue { return options?.first { $0.value == text }?.label ?? text }
+        if let flag = value.boolValue { return flag ? L("是", "Yes") : L("否", "No") }
+        return value == .null ? "—" : value.prettyPrinted
     }
     private func changed() {
         guard !readOnly else { return }
-        edited += 1; submitted = false; editedAt = Date().timeIntervalSince1970 * 1000; select()
+        edited += 1; submitted = false; conflictColumns = nil
         saveTimer?.cancel()
-        saveTimer = Task { try? await Task.sleep(for: .milliseconds(500)); if !Task.isCancelled { await flush() } }
-    }
-    private func select() {
-        guard !readOnly else { return }
-        chat.interactionSelections[message.id] = InteractionSelection(conversationID: message.conversation_id, source_message_id: message.id, state: state, editedAt: editedAt)
+        saveTimer = Task { try? await Task.sleep(for: .milliseconds(500)); if !Task.isCancelled { _ = await flush() } }
     }
     private func syncRevision() async {
         do {
@@ -298,7 +443,7 @@ final class InteractiveRuntime {
         } catch { self.error = error.localizedDescription }
     }
     private func current() async -> Bool {
-        guard let sessionRevision, await client.session.revision() == sessionRevision,
+        guard isCurrentStore, let sessionRevision, await client.session.revision() == sessionRevision,
               await client.session.currentUser()?.id == chat.user.id, !chat.revokedChats.contains(message.conversation_id) else { return false }
         return true
     }

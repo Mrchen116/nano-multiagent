@@ -5,6 +5,7 @@ import { InteractionSubmissionError } from "./interactive/submission-error";
 import { authFetch, authFetchJson } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { browserTimezone } from "../auth/user-timezone";
+import { i18n } from "../../i18n";
 import type {
   Actor,
   Attachment,
@@ -36,10 +37,12 @@ export function searchMessages(query: string, kind: string, cursor?: string, sig
 export interface ListMessagesOptions {
   limit?: number;
   beforeMessageId?: string;
+  view?: "summary";
   signal?: AbortSignal;
 }
 
 export interface ListMessagesResult {
+  execution_cleanup_revision?: number;
   items: TimelineItem[];
   next_before_message_id: string | null;
 }
@@ -51,16 +54,24 @@ export async function listMessages(
   const params = new URLSearchParams();
   if (opts.limit) params.set("limit", String(opts.limit));
   if (opts.beforeMessageId) params.set("before_message_id", opts.beforeMessageId);
+  if (opts.view) params.set("view", opts.view);
   const qs = params.toString();
   const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
   return authFetchJson<ListMessagesResult>(url, opts.signal ? {signal:opts.signal} : undefined, "listMessages");
 }
 
-import type { InteractionDraft, InteractionReplyInput, InteractionContextInput } from "./interactive/types";
+export function getMessageDetail(conversationId: string, messageId: string, signal: AbortSignal) {
+  return authFetchJson<{message: Message; execution_cleanup_revision: number}>(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { signal }, "getMessageDetail"
+  );
+}
+
+import type { InteractionDraft, InteractionReplyInput } from "./interactive/types";
 
 export interface CreateMessageRequest {
+  replyToMessageId?: string;
   interactionReply?: InteractionReplyInput;
-  interactionContexts?: InteractionContextInput[];
   idempotencyKey?: string;
   conversationId: string;
   content: string;
@@ -90,10 +101,10 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
   const body = {
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
+    ...(req.replyToMessageId ? {reply_to_message_id:req.replyToMessageId} : {}),
     attachments: req.attachments ?? [],
     timezone: browserTimezone(),
-    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {}),
-    ...(req.interactionContexts?.length ? { interaction_contexts: req.interactionContexts } : {})
+    ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {})
   };
   const request = { method: "POST", body: JSON.stringify(body), ...(req.idempotencyKey ? { headers: { "Idempotency-Key": req.idempotencyKey } } : {}) };
   const send = async (): Promise<Message> => {
@@ -105,6 +116,13 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     self.assert();
     if (!response.ok) {
       const text = await response.text();
+      if (response.status === 422) {
+        let detail: {code?: string} = {};
+        try { detail = JSON.parse(text).detail ?? {}; } catch { /* Keep unrelated failures in their original form. */ }
+        if (detail.code === "interaction_background_too_large") {
+          throw Object.assign(new Error(i18n.t("chat.interactive.backgroundTooLarge")), {status:422});
+        }
+      }
       if (req.interactionReply && response.status === 409) {
         let detail: {code?: string; submission_message_id?: string} = {};
         try { detail = JSON.parse(text).detail ?? {}; } catch { /* Preserve the original response below. */ }
@@ -301,8 +319,8 @@ export async function getConversationCommands(conversationId: string): Promise<C
   return (await authFetchJson<{items: ConversationCommands[]}>(`/im/v1/conversations/${encodeURIComponent(conversationId)}/commands`)).items;
 }
 
-export function getConversation(id: string): Promise<Conversation> {
-  return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}`);
+export function getConversation(id: string, signal?: AbortSignal): Promise<Conversation> {
+  return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}`, { signal }, "getConversation");
 }
 export function joinConversation(id: string): Promise<Conversation> {
   return authFetchJson(`/im/v1/conversations/${encodeURIComponent(id)}/join`, { method: "POST", body: "{}" });
@@ -319,5 +337,17 @@ export function readInteractionDraft(cid: string, mid: string): Promise<Interact
   return authFetchJson(interactionPath(cid, mid));
 }
 export function saveInteractionDraft(cid: string, mid: string, revision: number, state: Record<string, unknown>): Promise<InteractionDraft> {
-  return authFetchJson(interactionPath(cid, mid), { method: "PUT", body: JSON.stringify({expected_draft_revision: revision, state}) });
+  return authFetchJson(interactionPath(cid, mid), { method: "PUT", body: JSON.stringify({expected_draft_revision: revision, state}) }, "saveInteractionDraft");
+}
+/** Report the highest draft save this browser confirmed before leaving a conversation.
+ *
+ * The server clears only drafts saved at or before `through`, so a late request cannot
+ * erase an edit from another device. Older servers answer 404/501; callers ignore those.
+ */
+export async function discardInteractionBackground(cid: string, through: string): Promise<{ discarded_through: string | null } | null> {
+  const response = await authFetch(`/im/v1/conversations/${encodeURIComponent(cid)}/interaction-background/discard`,
+    { method: "POST", body: JSON.stringify({ through }) });
+  if (response.status === 404 || response.status === 501 || response.status === 204) return null;
+  if (!response.ok) throw Object.assign(new Error("discardInteractionBackground failed"), { status: response.status });
+  return response.json() as Promise<{ discarded_through: string | null }>;
 }

@@ -131,6 +131,7 @@ export class WorkflowResults {
                 content_parts: undefined,
                 context_only: false,
                 mentioned_agent_ids: [binding.agentId],
+                explicit_mentioned_agent_ids: [],
                 background_returns: backgroundReturns,
               },
             });

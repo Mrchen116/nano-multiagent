@@ -11,7 +11,6 @@ import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { ApprovalSources } from './sources.js';
 import { retainInstructions } from './retained-instructions.js';
-import type { ReviewDecision } from './rules.js';
 import type { ApprovalReviewResult } from './types.js';
 import { classify } from './classifier.js';
 import type {} from './cc.js';
@@ -31,6 +30,8 @@ export const unattendedFallbackExcluded = new Set(['browser_act']);
 export function unattendedFallbackAllows(route: 'interactive' | 'unattended' | 'return_to_agent', approval: ApprovalConfiguration, tool: string): boolean {
   return route === 'unattended' && approval.unattendedFallback === 'allow' && !unattendedFallbackExcluded.has(tool);
 }
+
+const privateScreenshotApproval = 'Screenshot delivery needs approval with private evidence. Nothing was uploaded. Ask the owner to send the attachment directly or use an authorized approval mode.';
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
@@ -88,33 +89,49 @@ export class NanoApproval extends Service {
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
   }
-  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}) {
+  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}, superseded?: number) {
     let reached = { consecutive: 0, total: 0 };
+    let index = 0;
     await (await this.audit).table('sessions').update(exec.agent!.id, entries => {
-      let consecutive = entries.at(-1)?.consecutive ?? 0;
-      let total = entries.at(-1)?.total ?? 0;
-      if (decision === 'allow') consecutive = 0;
-      else if (source === 'classifier_block') { consecutive++; total++; }
-      reached = { consecutive, total };
-      if (source === 'classifier_block' && total >= config.totalDenyLimit) { consecutive = 0; total = 0; }
-      return [...entries, { time: Date.now(), callId: exec.callId, tool: exec.name, source, decision, reason, consecutive, total, rules: config.rules, ...details }];
+      index = superseded ?? entries.length;
+      const rows = entries.slice(0, index);
+      const previous = entries[index];
+      const current = { ...previous, time: previous?.time ?? Date.now(), callId: exec.callId, tool: exec.name, source, decision, reason, rules: config.rules, ...details };
+      // A stale candidate contributes no decision. Recount any later concurrent writes from the previous valid totals.
+      for (const entry of [current, ...entries.slice(index + 1)]) {
+        let consecutive = rows.at(-1)?.consecutive ?? 0;
+        let total = rows.at(-1)?.total ?? 0;
+        if (entry.decision === 'allow') consecutive = 0;
+        else if (entry.source === 'classifier_block') { consecutive++; total++; }
+        if (entry === current) reached = { consecutive, total };
+        if (entry.source === 'classifier_block' && total >= config.totalDenyLimit) { consecutive = 0; total = 0; }
+        rows.push({ ...entry, consecutive, total });
+      }
+      return rows;
     });
-    return reached;
+    return { ...reached, index };
   }
   private async escalate(exec: ToolExecution, config: AgentConfiguration, reason: string, source: string): Promise<PreToolDecision> {
     const route = this.route(exec.agent!, config);
-    const askReason = exec.name === 'browser_act' ? `${reason}\n${BROWSER_APPROVAL_REASON}` : reason;
-    if (route === 'interactive') return { kind: 'ask', reason: askReason };
+    if (route === 'interactive') {
+      if (exec.name === 'send_message' && Array.isArray((exec.arguments as {local_images?:unknown}).local_images))
+        return {kind:'deny', reason:privateScreenshotApproval};
+      const askReason = exec.name === 'browser_act' ? `${reason}\n${BROWSER_APPROVAL_REASON}` : reason;
+      return { kind: 'ask', reason: askReason };
+    }
     const allowed = unattendedFallbackAllows(route, config.approval!, exec.name);
     await this.record(exec, route, allowed ? 'allow' : 'deny', reason, config.approval!);
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
-    if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments)};
+    if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments, exec.name === 'send_message')};
     const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
-    if (!agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return next();
     const downstream = await next();
-    if (downstream.kind !== 'allow') return downstream;
+    const message = exec.name === 'send_message' ? exec.arguments as {local_images?: unknown; receipt_of?:unknown} : undefined;
+    if (downstream.kind === 'ask' && Array.isArray(message?.local_images))
+      return {kind:'deny', reason:privateScreenshotApproval};
+    if (downstream.kind !== 'allow' || !agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return downstream;
+    if (typeof message?.receipt_of === 'string') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
     // Session-local continuation must work with Auto off; downstream denials still win.
     if (contextTools.has(exec.name)) return allow('internal_context');
@@ -139,22 +156,25 @@ export class NanoApproval extends Service {
     const header = agent.session.requestHeader();
     const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
     const started = Date.now();
-    let decision: ReviewDecision | undefined; let usage: unknown; let source: string | undefined; let metadata: ApprovalReviewResult['metadata'];
-    try {
-      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
-      const result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
-        : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
-      decision = result.decision; usage = result.usage; source = result.source; metadata = result.metadata;
-    } catch (error) {
+    const unavailable = async (error: unknown, superseded?: number): Promise<PreToolDecision> => {
       if (exec.signal.aborted) return { kind: 'cancel' };
       const reason = `Automatic reviewer unavailable: ${String(error)}`;
-      await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started });
+      await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started }, superseded);
       return this.escalate(exec, config, reason, 'classifier_unavailable');
-    }
+    };
+    let result: ApprovalReviewResult;
+    try {
+      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
+      result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
+        : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
+    } catch (error) { return unavailable(error); }
     if (exec.signal.aborted) return { kind: 'cancel' };
-    const verdict = decision!;
+    const { decision: verdict, usage, source, metadata } = result;
     const counts = await this.record(exec, source ?? (verdict.behavior === 'deny' ? 'classifier_block' : 'classifier_allow'), verdict.behavior, verdict.reason, policy,
       { reviewer, metadata, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
+    if (exec.signal.aborted) return { kind: 'cancel' };
+    // The audit write yields. Revalidate before publishing the gate result to native dispatch.
+    try { result.assertCurrent?.(); } catch (error) { return unavailable(error, counts.index); }
     if (verdict.behavior === 'allow') return { kind: 'allow' };
     if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block');
     return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };

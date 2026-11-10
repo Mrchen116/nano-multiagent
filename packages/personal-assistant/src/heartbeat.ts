@@ -34,6 +34,12 @@ export class Heartbeat {
     this.db.prepare('DELETE FROM pending WHERE agent=?').run(agentId);
     this.db.prepare('DELETE FROM due WHERE agent=?').run(agentId);
   }
+  /** Remove the stopped Agent's heartbeat state. */
+  purgeAgent(agentId:string):void {
+    this.subscriptions.delete(agentId);
+    this.holds.delete(agentId);
+    for (const table of ['due','pending','resets']) this.db.prepare(`DELETE FROM ${table} WHERE agent=?`).run(agentId);
+  }
   private reset(agentId:string):{generation:number;time?:number} {
     return this.db.prepare('SELECT generation,time FROM resets WHERE agent=?').get(agentId) as {generation:number;time:number}|undefined ?? {generation:0};
   }

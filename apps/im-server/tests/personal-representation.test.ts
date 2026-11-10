@@ -35,7 +35,7 @@ it('requires the selected author to have current write access and freezes the se
 it('keeps the PA as card executor while the owner is its public author and rechecks participation',()=>{
   const {ctx,db,service,principal,args}=personalFixture();
   const interactive={format:'openui',catalog_version:'nano-iui-1',source:'$draft = "Wednesday"\nroot = Col([TextArea($draft), Button("Revise", @SendToChat("Revise"))])'};
-  const input={...args,representation:'owner',request_key:'card',conversation_id:'peer',content:'Please review',interactive};
+  const input={...args,representation:'owner',request_key:'card',conversation_id:'peer',content:'',interactive};
   expect(()=>service.actions.prepare(principal,input)).toThrow('owner_interactive_requires_pa_participant');
   db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
   const prepare=(value:any)=>{
@@ -51,7 +51,7 @@ it('keeps the PA as card executor while the owner is its public author and reche
   expect(ctx.messaging.interactions.readDraft(req)).toMatchObject({can_interact:true,read_only:false,superseded_by:null});
   const click=ctx.messaging.interactions.prepare({id:'u2',username:'bob'},'peer',{interaction_reply:{source_message_id:first.message_id,event:{type:'continue_conversation',label:'Revise',message:'Revise'},state:{'$draft':'Friday'}}},'click');
   expect(click.snapshot).toMatchObject({agent_id:'a',state:{'$draft':'Friday'}});
-  expect(ctx.messaging.interactions.contexts({id:'u2',username:'bob'},'peer',[{source_message_id:first.message_id,state:{'$draft':'Friday'}}])[0].agent_id).toBe('a');
+  expect(ctx.messaging.interactions.background({id:'u2',username:'bob'},'peer',first.message_id,'{"$draft":"Friday"}')?.agent_id).toBe('a');
   const replacement=prepare({...input,request_key:'replacement',interactive:{...interactive,supersedes_message_id:first.message_id}});
   db.prepare("DELETE FROM conversation_participants WHERE conversation_id='peer' AND user_id='a1'").run();
   expect(()=>service.actions.commit(principal,replacement)).toThrow('owner_interactive_requires_pa_participant');

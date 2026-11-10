@@ -112,10 +112,12 @@ struct NativePersonalAgentState: Decodable, Sendable {
 
 struct AgentProfileView: View {
     let client: IMClient; let user: AuthUser; let contact: Contact; let onOpenChat: @MainActor (String) -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var error: String?
     @State private var openingChat = false
     @State private var refreshedContact: Contact?
     @State private var statusError: String?
+    @State private var deleted = false
     @Environment(\.scenePhase) private var scenePhase
     private var shownContact: Contact { refreshedContact ?? contact }
     private var agentID: String { shownContact.agent_id ?? shownContact.user_id }
@@ -154,7 +156,9 @@ struct AgentProfileView: View {
             }
             if owned {
                 Section(L("管理", "Manage")) {
-                    NavigationLink { AgentConfigView(client: client, agentID: agentID) } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
+                    NavigationLink {
+                        AgentConfigView(client: client, agentID: agentID, onDeleted: shownContact.role == "personal" ? nil : { deleted = true })
+                    } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
                     NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: { Label(L("外部通道", "Channels"), systemImage: "antenna.radiowaves.left.and.right") }
                     NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: shownContact.work_mode == "global", onOpenChat: onOpenChat) } label: { Label(L("Skills 使用情况", "Skill usage"), systemImage: "sparkles") }
                 }
@@ -163,6 +167,7 @@ struct AgentProfileView: View {
             }
         }.listStyle(.insetGrouped).contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
             .navigationTitle(L("Agent 详情", "Agent profile")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+            .onAppear { if deleted { dismiss() } }
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
                 repeat {

@@ -34,41 +34,55 @@ it('coalesces Inbox notices during a model request and notifies again after cons
       runtime: client.rpc, image: async () => '', onError: error => errors.push(error),
       relay: { request: async (type, payload: any) => {
         if (type === 'agent.work.append') return { type: 'ack', payload: { through_seq: payload.events.at(-1).seq } };
-        return { type: 'ack', payload: { ok: true, result: { target: 'c_dm', name: 'Owner', type: 'direct', channel: 'web', members: [{ type: 'user', user_id: 'owner' }] } } };
+        if (type === 'conversation.query' && payload.action === 'describe') {
+          // Match production routing: only an all-external query is handled locally.
+          expect(new Set(payload.targets.map((target: string) => target.startsWith('external:'))).size).toBe(1);
+          return { type: 'ack', payload: { ok: true, result: { conversations: payload.targets.map((target: string) => ({ target, name: target === 'external:team' ? 'Team' : 'Owner' })) } } };
+        }
+        return { type: 'ack', payload: { ok: true, result: { target: payload.target, name: payload.target === 'external:team' ? 'Team' : 'Owner', type: payload.target === 'external:team' ? 'group' : 'direct', channel: 'web', members: [{ type: 'user', user_id: 'owner' }] } } };
       } },
     });
     client.rpc.handle('product.call', value => product!.call(value as ProductCall));
     client.rpc.handle('model.check', () => ({ published: false }));
-    const input = (id: string): RelayInput => ({ agent_id: 'a', conversation_id: 'c_dm', relay_task_id: id, idempotency_key: id,
-      metadata: { conversation_type: 'direct' }, message: { id, content: `BODY_${id}`, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
-    const respond = (index: number, action?: 'check' | 'read') => requests[index]!.response.end(JSON.stringify(action ? [
-      { type: 'block-end', index: 0, block: { type: 'tool-call', id: `read-${index}`, name: 'inbox', arguments: JSON.stringify({ action, ...(action === 'read' ? { target: 'c_dm' } : {}) }) } },
+    const input = (id: string, target = 'c_dm', mentions: string[] = []): RelayInput => ({ agent_id: 'a', conversation_id: target, relay_task_id: id, idempotency_key: id,
+      metadata: { conversation_type: target === 'external:team' ? 'group' : 'direct', mentioned_agent_ids: mentions },
+      message: { id, content: `BODY_${id}`, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
+    const respond = (index: number, target?: string) => requests[index]!.response.end(JSON.stringify(target ? [
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: `read-${index}`, name: 'inbox', arguments: JSON.stringify({ action: 'read', target }) } },
       { type: 'finish', reason: { kind: 'tool-calls' } },
     ] : [{ type: 'block-end', index: 0, block: { type: 'text', text: 'No public reply requested.' } }, { type: 'finish', reason: { kind: 'stop' } }]));
     const notices = (index: number) => requests[index]!.messages.filter(message => message.source?.channel === 'inbox').length;
     await product.receive(input('initial'));
     await expect.poll(() => requests.length).toBe(1);
-    for (const id of ['one', 'two', 'three']) await product.receive(input(id));
+    await product.receive(input('one', 'external:team', ['a']));
+    await product.receive(input('two', 'external:team', ['other-agent']));
+    await product.receive(input('three'));
     const binding = store.bindingFor('a', 'global:a')!;
     await client.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: 'other-notice', mode: 'inject',
       content: [{ type: 'text', text: 'OTHER_NOTICE' }], source: { kind: 'system', actorId: 'a', channel: 'other', messageId: 'other-notice' } });
-    respond(0, 'check');
+    const summary = (index: number) => JSON.parse(requests[index]!.messages.findLast(message => message.source?.channel === 'inbox').content[0].text.split('\n').at(-1));
+    expect(summary(0).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct' }]);
+    respond(0, summary(0).sources[0].target);
     await expect.poll(() => requests.length).toBe(2);
     expect(notices(1)).toBe(notices(0) + 1);
     expect(JSON.stringify(requests[1]!.messages)).toContain('OTHER_NOTICE');
-    expect(JSON.stringify(requests[1]!.messages)).not.toContain('BODY_one');
-    respond(1, 'read');
+    expect(summary(1).sources).toEqual([
+      { target: 'c_dm', name: 'Owner', unread: 2, mentions: 0, conversation_type: 'direct' },
+      { target: expect.stringMatching(/^c_f_/), name: 'Team', unread: 2, mentions: 1, conversation_type: 'group' },
+    ]);
+    const notice = requests[1]!.messages.findLast(message => message.source?.channel === 'inbox');
+    expect(JSON.stringify(notice)).not.toContain('BODY_');
+    respond(1, summary(1).sources.find((source: any) => source.name === 'Team').target);
     await expect.poll(() => requests.length).toBe(3);
     for (const id of ['initial', 'one', 'two', 'three']) expect(JSON.stringify(requests[2]!.messages)).toContain(`BODY_${id}`);
     expect(notices(2)).toBe(notices(1));
     await product.receive(input('later'));
-    respond(2, 'check');
+    respond(2, 'c_dm');
     await expect.poll(() => requests.length).toBe(4);
     expect(notices(3)).toBe(notices(2) + 1);
-    respond(3, 'read');
-    await expect.poll(() => requests.length).toBe(5);
-    expect(JSON.stringify(requests[4]!.messages)).toContain('BODY_later');
-    respond(4);
+    expect(summary(3).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct' }]);
+    expect(JSON.stringify(requests[3]!.messages)).toContain('BODY_later');
+    respond(3);
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
     expect(inbox.check('a').sources).toEqual([]);
     expect(errors).toEqual([]);
@@ -157,12 +171,15 @@ export function apply(ctx){ctx.on('llm/stream',async function*(options){
   finally { await product?.stop(); await client?.shutdown(); inbox.close(); store.close(); await rm(home, { recursive: true, force: true }); }
 }, 20_000);
 
-it('delivers a busy Inbox notice at the next native model request without injecting the body or bypassing send review', async () => {
+it.each([false, true])('holds a stale private draft and sends the correction (root Work stalled: %s)', async stallWork => {
   const home = await mkdtemp(join(tmpdir(), 'nano-inbox-'));
   const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
   let client: RuntimeClient | undefined, product: GlobalAgent | undefined;
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
+  let releaseWork!: () => void;
+  const heldWork = new Promise<void>(resolve => { releaseWork = resolve; });
+  let workWaiting = false;
   let entered = false, returned = false, logs = '';
   const errors: unknown[] = [], sent: string[] = [];
   const correction = 'CORRECTION: change only the frontend';
@@ -181,9 +198,16 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     const config: AgentConfiguration = { agentId: 'a', revision: '1', workspace: home, mode: 'global', provider: 'deepseek-official', model: 'deepseek-flash', approval: { dangerouslySkipPermissions: true } };
     await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
     product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [config], store, inbox,
-      runtime: client.rpc, image: async () => '', onError: error => errors.push(error),
+      runtime: {
+        onNotification: client.rpc.onNotification.bind(client.rpc),
+        request: async (method, params) => {
+          if (stallWork && method === 'session.work.root') { workWaiting = true; await heldWork; }
+          return client!.rpc.request(method, params);
+        },
+      }, image: async () => '', onError: error => errors.push(error),
       relay: { request: async (type, payload) => {
         if (type === 'agent.work.append') return { type: 'ack', payload: { through_seq: (payload.events as { seq: number }[]).at(-1)!.seq } };
+        if (type === 'conversation.query' && payload.action === 'describe') return { type: 'ack', payload: { ok: true, result: { conversations: (payload.targets as string[]).map(target => ({ target, name: 'Owner' })) } } };
         if (type === 'conversation.query') return { type: 'conversation.query.result', payload: { ok: true, result: { target: 'c_dm', name: 'Owner', type: 'direct', channel: 'web', members: [{ type: 'user', user_id: 'owner' }] } } };
         if (type === 'agent.message') { sent.push(String(payload.text)); return { type: 'ack', payload: { message_id: 'reply' } }; }
         return { type: 'ack', payload: {} };
@@ -210,6 +234,9 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     const captured = await requests();
     const noticeCount = (messages: any[]) => messages.filter(message => message.source?.channel === 'inbox').length;
     expect(noticeCount(captured[2])).toBe(noticeCount(captured[1]) + 1);
+    const summary = JSON.parse(captured[2].findLast((message: any) => message.source?.channel === 'inbox').content[0].text.split('\n').at(-1));
+    // The notice was assembled before the first send could commit its read when Work was held.
+    expect(summary.sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: stallWork ? 4 : 3, mentions: 0, conversation_type: 'direct' }]);
     expect(JSON.stringify(captured[2])).not.toContain(correction);
     expect(JSON.stringify(captured[2])).toContain('held_for_revalidation');
     expect(JSON.stringify(captured[3])).toContain(correction);
@@ -217,11 +244,21 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     expect(JSON.stringify(captured[3])).toContain('Final task context');
     expect(sent).toEqual(['Corrected result']);
     const binding = store.bindingFor('a', 'global:a')!;
+    if (stallWork) {
+      expect(workWaiting).toBe(true);
+      expect(inbox.workCut(binding.sessionId)).toBeUndefined();
+      expect(inbox.journal(0).filter(event => ['inbox_read_committed', 'draft_withheld', 'message_sent'].includes(event.type))).toEqual([]);
+    }
+    releaseWork();
+    await expect.poll(() => inbox.journal(0).filter(event => event.type === 'message_sent')).toHaveLength(1);
+    expect(inbox.journal(0).filter(event => event.type === 'inbox_read_committed' || event.type === 'message_sent').map(event => event.type))
+      .toEqual(['inbox_read_committed', 'inbox_read_committed', 'message_sent']);
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
     expect(errors).toEqual([]);
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally {
     release();
+    releaseWork();
     if (product) await product.stop();
     if (client) { client.process.kill('SIGKILL'); await client.exited; }
     inbox.close(); store.close(); await rm(home, { recursive: true, force: true });
@@ -249,6 +286,7 @@ export const name='background-model';export const inject=['llm'];export function
     product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime:client.rpc,image:async()=>'',onError:error=>errors.push(error),
       relay:{request:async(type,args:any)=>{
         if(type==='agent.work.append')return {type:'ack',payload:{through_seq:args.events.at(-1).seq}};
+        if(type==='conversation.query')return {type:'ack',payload:{ok:true,result:{conversations:args.targets.map((target:string)=>({target,name:target==='own'?'Owner':'Background chat'}))}}};
         const result=type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:args.conversation_id==='own'?'participant':'observer',conversation_type:'direct',channel:'web'}
           :type==='pa.observations.read'?{items:[]}:type==='pa.sources'?{policy:{revision:1},items:[{id:'background',excluded:false}]}:{};
         return {type:'ack',payload:{ok:true,result}};
@@ -277,8 +315,89 @@ export const name='background-model';export const inject=['llm'];export function
     expect(events.filter(e=>e.type==='user/message'&&e.data.source?.channel==='inbox-background')).toHaveLength(1);
     const requests=await readFile(join(home,'requests.jsonl'),'utf8');
     expect(requests).not.toContain('PRIVATE_OBSERVED_BODY');
+    const backgroundNotice=requests.trim().split('\n').flatMap(line=>JSON.parse(line)).find(message=>message.source?.channel==='inbox-background');
+    const summary=JSON.parse(backgroundNotice.content[0].text.split('\n').at(-1));
+    expect(summary.sources).toContainEqual({target:'background',name:'Background chat',unread:1,mentions:0,conversation_type:'direct',delivery:'observer'});
+    expect(summary.sources).toContainEqual({target:'own',name:'Owner',unread:1,mentions:0,conversation_type:'direct',delivery:'participant'});
     expect(inbox.check('pa',true).sources.find(s=>s.target==='background')?.unread).toBe(1);
     expect(errors).toEqual([]);
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{release();if(product)await product.stop();if(client){client.process.kill('SIGKILL');await client.exited;}inbox.close();store.close();await rm(home,{recursive:true,force:true});}
 },20000);
+
+it('resumes a paged native child after runtime loss and pairs the complete tool result in Work', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-work-page-restart-'));
+  const store=new NodeStore(join(home,'node.sqlite'),'owner'),inbox=new InboxStore(join(home,'inbox.sqlite'));
+  const binding=store.bind({sessionId:'root',agentId:'a',conversationId:'global:a',ownerId:'owner',cwd:home,revision:'1'});
+  const config:AgentConfiguration={agentId:'a',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
+    toolAllowlist:['subagent','work_probe'],approval:{dangerouslySkipPermissions:true}};
+  let client:RuntimeClient|undefined,product:GlobalAgent|undefined,cut:number|undefined,childId:string|undefined;
+  let cutAtReconnect:number|undefined,inject=true,logs='';
+  const errors:unknown[]=[];
+  try {
+    const fixture=join(home,'fixture.mjs');
+    await writeFile(fixture,`export const inject=['llm','tools'];export function apply(ctx){
+      ctx.tools.register({name:'work_probe',description:'Work probe',parameters:{type:'object'},output:{schema:{type:'string'},render:()=>[{type:'text',text:'probe result'}]},execute:async()=>'result',
+        presentCall:()=>({card:'generic',title:'probe'}),presentResult:()=>({card:'generic',title:'result',detail:'z'.repeat(1100000)})});
+      const called=new Set();
+      ctx.on('llm/stream',async function*(o){
+        const id=o.sessionId;
+        if(!called.has(id)){
+          called.add(id);
+          yield {type:'block-end',index:0,block:{type:'tool-call',id:'call-'+id,name:id==='root'?'subagent':'work_probe',
+            arguments:id==='root'?JSON.stringify({prompt:'Use work_probe',description:'Child Work',run_in_background:false}):'{}'}};
+          yield {type:'finish',reason:{kind:'tool-calls'}};return;
+        }
+        yield {type:'block-end',index:0,block:{type:'text',text:'DONE'}};yield {type:'finish',reason:{kind:'stop'}};
+      });
+    }`);
+    await prepareProfile(home,[{insert:[{id:'work-probe',name:fixture}]}]);
+    const start=async()=>{
+      client=new RuntimeClient({home,cwd:home,onLog:line=>{logs+=line;}});
+      registerEmptyTaskContext(client);
+      client.rpc.handle('model.check',()=>({published:false}));
+      await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding]});
+    };
+    await start();
+    await client!.rpc.request('session.ensure',binding);
+    await client!.rpc.request('session.submit',{sessionId:'root',inputId:'start',mode:'followup',content:[{type:'text',text:'Launch child'}],source:{kind:'human',channel:'test',actorId:'owner',messageId:'start'}});
+    await expect.poll(async()=>await client!.rpc.request('session.lookup',{sessionId:'root',inputId:'start'})).toMatchObject({terminal:{kind:'completed'}});
+    const create=()=>new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:error=>errors.push(error),
+      relay:{request:async()=>({type:'ack',payload:{}})},
+      runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
+        if(method!=='session.work.child')return client!.rpc.request(method,args);
+        childId=args.childId;
+        if(!inject)cutAtReconnect??=args.afterSeq;
+        if(inject && cut!==undefined){
+          expect(args.afterSeq).toBe(cut);
+          client!.process.kill('SIGKILL');await client!.exited;
+          throw new Error('fixture runtime disconnected before the next Work page');
+        }
+        const page=await client!.rpc.request(method,args) as import('@nano/product-contracts').RuntimeWorkPage;
+        if(inject && page.more && page.events.some(event=>event.type==='tool/call' && event.data.name==='work_probe'))cut=page.throughSeq;
+        return page;
+      }}});
+    product=create();
+    await product.recover();
+    await expect.poll(()=>errors.map(String)).toContain('Error: fixture runtime disconnected before the next Work page');
+    expect(cut).toBeDefined();
+    expect(inbox.workCut(childId!)?.throughSeq).toBe(cut);
+    expect(inbox.workProcessingPending).toBe(true);
+    await product.stop();product=undefined;
+    inject=false;errors.length=0;
+    await start();product=create();
+    await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
+    expect(cutAtReconnect).toBe(cut);
+    expect(errors).toEqual([]);
+    const rows=inbox.journal(0,1000).filter(row=>row.session_id===childId);
+    expect(rows.filter(row=>row.type==='tool_start')).toHaveLength(1);
+    expect(rows.filter(row=>row.type==='tool_end')).toHaveLength(1);
+    expect(rows.find(row=>row.type==='tool_end')?.payload).toMatchObject({tool_name:'work_probe',presentation:{detail:{native_view:{detail:'z'.repeat(1100000)}}}});
+    expect(rows.filter(row=>row.type==='turn_end')).toHaveLength(1);
+    expect(inbox.workOpenEvents(childId!)).toEqual([]);
+    expect(inbox.workProcessingPending).toBe(false);
+  } catch(error) {throw new Error(`${String(error)}\n${logs}`,{cause:error});}
+  finally {await product?.stop();if(client?.process.exitCode===null&&client.process.signalCode===null){client.process.kill('SIGKILL');await client.exited;}
+    inbox.close();store.close();await rm(home,{recursive:true,force:true});}
+},25_000);

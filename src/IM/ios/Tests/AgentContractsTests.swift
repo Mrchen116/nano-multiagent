@@ -108,6 +108,29 @@ struct AgentContractsTests {
         #expect(page.turns.first?.next_items_cursor == "2")
         #expect(page.next_cursor == "older")
     }
+    @Test func workHistoryPreservesDisplacedPagesUntilTheirGapIsFilled() throws {
+        func page(_ ids: [Int], next: String?) throws -> AgentWorkPage {
+            let turns: [[String: Any]] = ids.map { [
+                "session_id": "main", "turn_id": String($0), "seq": $0 * 5, "status": "completed",
+                "items": [], "items_deferred": true,
+            ] }
+            var response: [String: Any] = ["catalog": "separate", "turns": turns]
+            response["next_turn_id"] = next
+            return try JSONDecoder().decode(AgentWorkPage.self, from: JSONSerialization.data(withJSONObject: response))
+        }
+        var history = AgentWorkHistory()
+        history.merge(try page([6, 5], next: "4"))
+        history.merge(try page([4, 3], next: "2"))
+        history.merge(try page([10, 9], next: "8"))
+        #expect(history.turns.map(\.turn_id) == ["10", "9", "6", "5", "4", "3"])
+        #expect(history.hasGap(after: history.turns[1], before: history.turns[2]))
+        history.merge(try page([8, 7], next: "6"))
+        #expect(!history.hasGap(after: history.turns[3], before: history.turns[4]))
+        let last = try #require(history.turns.last)
+        #expect(history.hasEarlier(after: last))
+        #expect(history.turns.first?.items_deferred == true)
+    }
+
     @Test func workReplayShowsOnlyNewReasoningAndOneBackgroundResult() {
         let background: JSONValue = .object(["task_id": .string("task"), "task_type": .string("agent"), "result": .string("Done")])
         let first = AgentWorkItem(item_id: "one", seq: 1, kind: "message", payload: ["run_id": .string("run"), "group_id": .string("g"), "reasoning_content": .string("First"), "background_returns": .array([background])])

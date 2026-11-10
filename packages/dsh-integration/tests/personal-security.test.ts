@@ -80,7 +80,7 @@ it('keeps the ordinary Global capability catalog and executes owner extensions a
       await writeFile(join(root,'extension.mjs'),`export const name='owner-extension';export const inject=['tools'];export function apply(ctx){ctx.tools.register({name:'owner_tool',description:'Owner installed tool',parameters:{type:'object',properties:{}},output:{schema:{type:'object'},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},execute:()=>({value:'OWNER_EXTENSION_EXECUTED'})});}`);
       await writeFile(join(root,'plugins.json'),JSON.stringify([{module:'./extension.mjs'}]));
       await writeFile(join(root,'fixture.mjs'),`import{writeFile}from'node:fs/promises';
-export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',text:'Draft',interactive:{source:'root = TextContent("Draft")'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
+export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',interactive:{source:'root = TextContent("Draft")'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
       await prepareProfile(root,[{insert:[{id:'capability-fixture',name:join(root,'fixture.mjs')}]}]);
       let logs='';const client=new RuntimeClient({home:root,cwd:root,onLog:text=>{logs+=text;}});
       registerNoopTaskHosts(client);
@@ -131,10 +131,11 @@ export const name='capability-fixture';export const inject=['tools'];export func
           expect(names).toContain('personal_sources');
           expect(names).toContain('agent_creation');
           expect(calls.find(call=>call.method==='personal_sources').args).toEqual({action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1});
+          expect(calls.find(call=>call.method==='send_message').args.text).toBe('');
           expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
-          expect(Object.keys(send.parameters.properties)).toEqual(['target','text','incident_ref','attachments','interactive']);
+          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','interactive']);
           expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
           expect(await readFile(join(root,'.nanoassistant','memory-legacy','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');
@@ -169,10 +170,19 @@ it('projects the exact frozen disclosure and complete audience without backend g
  expect(JSON.stringify(frozen)).toBe(original);
  frozen.payload.representation='owner';
  expect(personalReviewAction(frozen)).toMatchObject({tool:'send_user_message',arguments:{target:'group',text}});
- const interactive={format:'openui',source:'root = TextContent("Full visible text")'};
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Full visible text")',supersedes_message_id:'old-card'};
  const attachment={url:'/file',text:'Actual full attachment body',sha256:'content-hash'};
  frozen.payload={...frozen.payload,interactive,attachments:[{url:'/file'}],attachment_snapshots:[attachment]};
- expect(personalReviewAction(frozen).arguments).toEqual({target:'group',text,interactive,attachments:[attachment]});
+ expect(personalReviewAction(frozen).arguments).toEqual({target:'group',text,interactive:{source:interactive.source,supersedes_message_id:'old-card'},
+  attachment_positions:['/file'],attachments:[attachment]});
+ expect(frozen.payload.interactive).toEqual(interactive);
+ frozen.recipient.additional_readers='eligible_company_members_outside_group';
+ const second={url:'/other',sha256:'other-hash'};
+ frozen.payload={...frozen.payload,attachments:[{url:'/file'},{url:'/file'},{url:'/other'}],attachment_snapshots:[attachment,second]};
+ expect(personalReviewAction(frozen)).toMatchObject({
+  audience:{additional_readers:'eligible_company_members_outside_group'},
+  arguments:{attachments:[attachment,second],attachment_positions:['/file','/file','/other']},
+ });
  frozen.payload={content:'Shared task change',task:{action:'apply',arguments:{graph_id:'graph',base_revision:7,operations:[{op:'update_task',patch:{result:'Full shared task result'}}]},source_message_id:'source'}};
  expect(personalReviewAction(frozen)).toMatchObject({tool:'task_graph',arguments:{...frozen.payload.task.arguments,action:'apply',source_message_id:'source'}});
 });
@@ -203,6 +213,22 @@ it('delivers full current input and whole bounded history to the reviewer, never
  expect(evidence.current).toEqual(current);expect(evidence.previous.length).toBeLessThan(20);
  expect(evidence.previous.every((row:any)=>previous.some(original=>JSON.stringify(original)===JSON.stringify(row)))).toBe(true);
  expect(evidence.omissions.some((row:any)=>row.reason==='history_budget')).toBe(true);
+ const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = Text("Read this card")',superseded_by:'new-card',read_only:true};
+ const card={id:'card',content:'',interactive};
+ await reviewPersonal(ctx as any,config,'input',{current:card,previous:[{...card,id:'earlier'}],reply_target:{...card,id:'reply'}});
+ const cardEvidence=JSON.parse(requests[1].messages[0].content[0].text);
+ const projected={source:interactive.source,superseded_by:'new-card'};
+ expect(cardEvidence.current.interactive).toEqual(projected);
+ expect(cardEvidence.previous[0].interactive).toEqual(projected);
+ expect(cardEvidence.reply_target.interactive).toEqual(projected);
+ expect(card.interactive).toEqual(interactive);
+ const largeOriginal = {id:'large-original',content:'Original body '.repeat(50000)};
+ const quoted = {id:'quoted',content:'Please confirm',reply_to:{message_id:largeOriginal.id,content:largeOriginal.content}};
+ await reviewPersonal(ctx as any,config,'input',{current:quoted,previous:[],reply_target:largeOriginal});
+ const quoteEvidence=JSON.parse(requests[2].messages[0].content[0].text);
+ expect(quoteEvidence.current).toEqual({...quoted,reply_to:{message_id:largeOriginal.id}});
+ expect(quoteEvidence).not.toHaveProperty('reply_target');
+ expect(quoteEvidence.omissions).toContainEqual({reason:'reply_target_budget',message_id:largeOriginal.id});
  const before=requests.length;
  expect(await reviewPersonal(ctx as any,config,'input',{current:{id:'too-big',content:'secret '.repeat(20000)},previous:[]})).toMatchObject({decision:'unavailable'});
  expect(requests).toHaveLength(before);

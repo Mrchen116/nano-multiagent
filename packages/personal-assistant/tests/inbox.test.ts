@@ -10,6 +10,29 @@ const input = (id: string, text: string, target = 'group-a'): RelayInput => ({
   metadata: { conversation_type: 'group', conversation_title: target },
   message: { id, content: text, sender_user_id: 'human', sender_type: 'user', attachments: [] },
 });
+
+it('erases a retired Inbox without invalidating a peer read or reusing an input identity', () => {
+  const store = new InboxStore(':memory:');
+  const peer = { ...input('peer', 'peer content'), agent_id: 'bob' };
+  const target = input('target', 'private content');
+  try {
+    store.acceptRelay(peer, true);
+    store.acceptRelay(target, true);
+    const peerPage = store.read('bob', 'peer-session', 'peer-read', { target: peer.conversation_id });
+    const targetPage = store.read('alice', 'retired-session', 'old-read', { target: target.conversation_id });
+    const previous = store.watermark('alice');
+    store.deletionWork('alice');
+    store.purgeAgent('alice', ['retired-session']);
+    store.acceptRelay(target, true);
+    expect(store.input('alice', target.message.id)).toBeUndefined();
+    expect(store.pendingRelays().map(row => row.input.agent_id)).toEqual(['bob']);
+    expect(store.commitRead('retired-session', 'old-read', [{ type: 'text', text: JSON.stringify(targetPage) }], false)).toBe(false);
+    expect(store.commitRead('peer-session', 'peer-read', [{ type: 'text', text: JSON.stringify(peerPage) }], false)).toBe(true);
+    store.acceptRelay({ ...input('later', 'new peer input'), agent_id: 'bob' }, true);
+    expect(store.watermark('bob')).toBeGreaterThan(previous);
+  } finally { store.close(); }
+});
+
 it('only consumes exact durable read fragments, across restart and a frozen page snapshot', () => {
   const dir = mkdtempSync(join(tmpdir(), 'nano-inbox-'));
   let store = new InboxStore(join(dir, 'inbox.sqlite3'));
@@ -124,7 +147,7 @@ it('projects one conversation context per PA page and preserves ordered ingestio
     store.receive(personalInput('peer'), false);
     store.receive(personalInput('owner'), false);
     store.receive(personalInput('joined', 'participant'), true);
-    expect(store.check('alice', true).sources).toEqual([{target:'owner-chat',name:'A conversation',unread:3,conversation_type:'direct',delivery:'observer'}]);
+    expect(store.check('alice', true).sources).toEqual([{target:'owner-chat',name:'A conversation',unread:3,mentions:0,conversation_type:'direct',delivery:'observer'}]);
     const page = store.read('alice','main','observed',{target:'owner-chat'});
     expect(page).toMatchObject({target:'owner-chat',name:'A conversation',channel:'web',conversation_type:'direct',delivery:'observer',messages:[
       {id:'peer',sender:{is_owner:false}}, {id:'owner',sender:{is_owner:true}},
@@ -234,4 +257,45 @@ it('commits product projection and its processing position together, independent
     expect(inbox.workCheckpoints('main').child.throughSeq).toBe(8);
     expect(inbox.journalSeq).toBe(through);
   } finally {inbox.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+it.each([
+  ['第二点：缓存命中率', '第二点：缓存命中率'],
+  ['甲'.repeat(1200) + '只在原文出现的尾注', '甲'.repeat(1200) + '\n\n[Rest of original message omitted.]'],
+])('projects quoted text or an excerpt in the inbox (%#)', (original, expected) => {
+  const store=new InboxStore(':memory:');
+  try {
+    const message=input('reply','展开这个');
+    message.message.reply_to={message_id:'old-message',sender:{type:'agent',id:'alice',display_name:'Alice',user_id:'alice-user',is_stale:null},content:original,attachments:[{url:'/im/uploads/chart',file_name:'图.png',content_type:'image/png'}]};
+    store.receive(message,true);
+    const page = store.read('alice', 'session', 'quoted-read', { target: 'group-a' });
+    expect(page.messages[0].content).toEqual([{ type: 'text', text: '展开这个' }]);
+    expect(page.messages[0].reply_to).toEqual({ message_id: 'old-message', sender: { name: 'Alice', type: 'agent' },
+      text: expected, attachment_names: ['图.png'] });
+    expect(JSON.stringify(page)).not.toMatch(/is_stale|alice-user|\/im\/uploads/);
+  } finally {store.close();}
+});
+
+it('counts actual mentions separately from attention without consuming unread messages', () => {
+  const store = new InboxStore(':memory:');
+  try {
+    const mentioned = input('mention', 'private body');
+    mentioned.metadata.mentioned_agent_ids = ['alice'];
+    const other = input('other', 'another body');
+    other.metadata.mentioned_agent_ids = ['bob'];
+    store.receive(mentioned, true); store.receive(other, true);
+    const reply = input('reply', 'reply without mention');
+    reply.metadata.mentioned_agent_ids = ['alice'];
+    reply.message.interaction_reply = { source_message_id: 'card', agent_id: 'alice', action_id: 'confirm', action_label: 'Confirm', fields: [] };
+    store.receive(reply, true);
+    const explicitReply = structuredClone(reply);
+    explicitReply.message.id = 'explicit-reply';
+    explicitReply.metadata.explicit_mentioned_agent_ids = ['alice'];
+    store.receive(explicitReply, true);
+    expect(store.check('alice').sources).toEqual([
+      { target: 'group-a', name: 'group-a', unread: 4, mentions: 2, conversation_type: 'group', requires_attention: true },
+    ]);
+    expect(store.check('alice', true).sources[0]).toMatchObject({ unread: 4, mentions: 2 });
+    expect(store.read('alice', 'main', 'read', { target: 'group-a' }).messages).toHaveLength(4);
+  } finally { store.close(); }
 });

@@ -6,6 +6,7 @@
 
 | 任务 | 先读 |
 |---|---|
+| 回收测试服务、模拟器、浏览器会话和临时产物 | [测试资源回收](development/worktree-runtime.md#测试资源回收) |
 | 第一次了解项目 | [`../README.md`](../README.md) → [`../SPEC.md`](../SPEC.md) → 相关包的 [`specs/`](specs/README.md) |
 | 理解组织级平台、个人 PA、专业数字员工及长期主动工作方向 | [`product/vision.md`](product/vision.md) → [`product/`](product/README.md) |
 | 修改跨包职责、依赖方向或部署拓扑 | [`../SPEC.md`](../SPEC.md) |
@@ -137,3 +138,5 @@
 累计五次自动拉黑与恢复通知的已验收变更见 [bugfix-678](changes/archive/bugfix-678-pa-permission-boundaries/incident.md)；当前行为以 [Gateway PA 契约](specs/gateway/personal-agent.md) 为准，归档不表示已部署。
 
 原生轨迹补历史恢复初始上下文的已验收修复见 [bugfix-712](changes/archive/bugfix-712-trajectory-history-prepend/acceptance.md)，随 feat-711 的 PR #466 一起交付。
+
+聊天回复 View Work 的已验收定位修复见 [bugfix-728](changes/archive/bugfix-728-view-work-wake/review.md)；当前完整列表与展开导航契约见 [Agent Work](specs/im/agent-work.md)。

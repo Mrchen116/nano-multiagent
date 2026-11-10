@@ -43,11 +43,12 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
       const immediate = source ? undefined : preceding;
       preceding = partial ? undefined : message;
       if ((sender?.type ?? sender?.kind) !== 'user' || !eligible(sender)) continue;
-      const replyId = message.reply_to ?? message.reply_to_message_id;
+      const quote=record(message.reply_to);
+      const replyId = quote?.message_id ?? (typeof message.reply_to === 'string' ? message.reply_to : message.reply_to_message_id);
       const reply = replyId ? messages.get(`${conversation ?? ''}:${replyId}`) : undefined;
       const unit = {id: key, original_message: message,
         context: {conversation_id: conversation, conversation_type: source?.conversation_type ?? page.conversation_type, delivery: source?.delivery ?? page.delivery, observation},
-        ...(replyId ? {reply_target: reply ?? {id: replyId, unavailable: true}} : immediate ? {preceding_message:immediate} : {})};
+        ...(replyId ? {reply_target: reply ?? quote ?? {id: replyId, unavailable: true}} : immediate ? {preceding_message:immediate} : {})};
       if (!partial) { units.push(unit); continue; }
       // Inbox pages number individual parts; conversations can coalesce a range per page.
       const range = record(message.partial);
@@ -115,8 +116,8 @@ export function retainedEnvelope(retained: RetainedInstructions, history: readon
   const warning='<instructions_incomplete>Original instruction evidence is incomplete. Remaining permissions are not the complete authorization; omitted restrictions or withdrawals may exist.</instructions_incomplete>';
   const render=(units:string[],incomplete:boolean)=>`<original_instructions>\n${units.join('\n')}\n${incomplete?warning:''}\n</original_instructions>\n`;
   let omitted = retained.incomplete;
-  for (const unit of [...retained.units].reverse()) {
-    const serialized = JSON.stringify(unit);
+  // The newest projection wins when a live root unit also exists in the spawn snapshot.
+  for (const serialized of new Set([...retained.units].reverse().map(unit => JSON.stringify(unit)))) {
     if (tokenCost(render([serialized,...selected],true)) > budget) { omitted = true; break; }
     selected.unshift(serialized);
   }

@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
 import "../../../i18n";
-import type { ThinkingSegment, ToolCall } from "../chat-types";
+import type { Message, ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolCallsPanel } from "./tool-calls-panel";
 
 const SAMPLE: ToolCall[] = [
@@ -24,6 +25,31 @@ describe("ToolCallsPanel", () => {
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
     expect(screen.getByText("list_files")).toBeInTheDocument();
     expect(screen.getByText("str_replace_edit")).toBeInTheDocument();
+  });
+
+  it("keeps open live process rows expanded while summary detail is pending or fails", async () => {
+    const client = new QueryClient();
+    let fail!: (error: Error) => void;
+    const load = () => new Promise<Message>((_resolve, reject) => { fail = reject; });
+    const thinking = [{ seq: 0, text: "Already visible live thinking" }];
+    const historyDetail = { key: ["history"], load };
+    const summary = { tool_count: 0, thinking_count: 1, background_return_count: 0, reply_process_counts: {},
+      has_running_tool: false, approval_allow_count: 0, approval_deny_count: 0 };
+    const panel = (summarized: boolean) => <QueryClientProvider client={client}>
+      <ToolCallsPanel toolCalls={[]} thinking={thinking} historyDetail={historyDetail} summary={summarized ? summary : undefined} />
+    </QueryClientProvider>;
+    const { rerender } = render(panel(false));
+    fireEvent.click(screen.getByRole("button", { name: /过程|process/i }));
+    fireEvent.click(screen.getByTestId("process-thinking-toggle"));
+    expect(screen.getByTestId("process-thinking-body")).toHaveTextContent(thinking[0]!.text);
+
+    rerender(panel(true));
+    await screen.findByRole("status");
+    expect(screen.getByTestId("process-thinking-body")).toHaveTextContent(thinking[0]!.text);
+    await act(async () => fail(new Error("offline")));
+    await screen.findByRole("alert");
+    expect(screen.getByTestId("process-thinking-body")).toHaveTextContent(thinking[0]!.text);
+    client.clear();
   });
 });
 

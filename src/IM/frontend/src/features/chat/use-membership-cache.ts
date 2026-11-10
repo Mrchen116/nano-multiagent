@@ -5,6 +5,8 @@ import { listConversations } from "./chat-api";
 import { composerStoreFor, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { useAuthStore } from "../auth/auth-store";
 import type { Conversation } from "./chat-types";
+import { retireChatReadCache } from "./chat-read-cache";
+import { forgetInteractionBackground } from "./interaction-background";
 
 /** Membership changes also invalidate chats while the user is viewing settings. */
 export function useMembershipCache() {
@@ -28,14 +30,13 @@ export function useMembershipCache() {
           if (pending) continue;
           const visible = new Set(conversations.map(c => c.id));
           const previous = client.getQueryData<Conversation[]>(["chat", "conversations"]) ?? [];
-          const removed = previous.filter(chat => !visible.has(chat.id));
-          await Promise.all(removed.map(chat => client.cancelQueries({ queryKey: ["chat", "messages", chat.id] })));
-          // Cancellation yields; no older authority response may restore revoked membership.
-          if (pending || disposed || useAuthStore.getState().user?.id !== userId) continue;
-          for (const chat of removed) {
-            client.removeQueries({ queryKey: ["chat", "messages", chat.id] });
+          for (const chat of previous) {
+            if (visible.has(chat.id)) continue;
+            retireChatReadCache(client, chat.id);
             forgetComposerConversation(composerStoreFor(userId ?? null), chat.id);
+            if (userId) void forgetInteractionBackground(userId, chat.id).catch(() => {});
           }
+          for (const chat of conversations) retireChatReadCache(client, chat.id, chat.execution_cleanup_revision ?? 0);
           client.removeQueries({ queryKey: ["chat", "slash-candidates"] });
           restoreComposerMembership(composerStoreFor(userId ?? null), visible);
           client.setQueryData(["chat", "conversations"], conversations);
@@ -46,12 +47,26 @@ export function useMembershipCache() {
       }).finally(() => { running = undefined; invalidateOnFailure = false; });
       return running;
     }
-    const unsubscribe = subscribeUserStream({ onRecovery: refresh, onEvent: event => {
+    const unsubscribe = subscribeUserStream({ onRecovery: snapshot => {
+      for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) retireChatReadCache(client, id, revision);
+      return refresh();
+    }, onEvent: event => {
+      if (event.eventType === "conversation.execution_cleanup") {
+        const { conversation_id: id, execution_cleanup_revision: revision } = event.payload;
+        if (typeof id === "string" && typeof revision === "number") retireChatReadCache(client, id, revision);
+        return;
+      }
+      if (event.eventType === "message.reconciled") {
+        const { conversation_id: id, message_id: messageId } = event.payload;
+        if (typeof id === "string" && typeof messageId === "string") {
+          void client.invalidateQueries({ queryKey: ["chat", "message-process", id], predicate: query => query.queryKey[5] === messageId });
+        }
+        return;
+      }
       if (event.eventType !== "conversation.membership_changed" && event.eventType !== "conversation.deleted") return;
       const id = event.payload.conversation_id;
       if (typeof id !== "string") return;
-      void client.cancelQueries({ queryKey: ["chat", "messages", id] });
-      client.removeQueries({ queryKey: ["chat", "messages", id] });
+      retireChatReadCache(client, id);
       void refresh(true).catch(() => {});
     } });
     return () => { disposed = true; unsubscribe(); };

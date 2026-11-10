@@ -4,7 +4,8 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { buildForkSeed, SessionId, SessionLogOffset, SessionSeq, type SessionHeader } from '@deepseek-ai/dsh-session';
-import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
+import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence';
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query';
 import { applyChildComposition, foldSubagentDescriptor, type ContinuableSubagentDescriptorData } from '@deepseek-ai/dsh-subagent';
 import type { SessionBinding } from './index.js';
 declare module '@deepseek-ai/cordis' { interface Context { nanoSessions: OwnedSessions } }
@@ -16,7 +17,9 @@ export class OwnedSessions {
   private readonly handles = new Map<string, AgentHandle>();
   private readonly pending = new Map<string, Promise<Agent>>();
   private readonly owners = new Map<string, string>();
-  constructor(private readonly ctx: Context, private readonly bindings: Map<string, SessionBinding>, private readonly assertEnabled: (agentId: string) => void) {}
+  constructor(private readonly ctx: Context, private readonly bindings: Map<string, SessionBinding>, private readonly assertEnabled: (agentId: string) => void,
+    private readonly markWritable: (binding: SessionBinding) => Promise<unknown>,
+    private readonly beforeResume: (binding: SessionBinding, observation: SessionObservation) => Promise<void>) {}
 
   /** Create or resume one trusted root, coalescing Schedule and product admission. */
   resolve(sessionId: string, create = false): Promise<Agent> {
@@ -119,18 +122,57 @@ export class OwnedSessions {
     return handle.agent;
   }
 
+  /** Inspect a trusted root at the Node's durable cut without restoring an Agent.
+   *
+   * Args:
+   *   sessionId: Node-owned Session identity.
+   *   afterSeq: Highest event already stored by the product.
+   *   localWork: Whether Node already has work requiring activation.
+   * Returns:
+   *   Whether the root is live and whether recovery must reconcile it.
+   */
+  async recoveryProbe(sessionId: string, afterSeq: number, localWork: boolean) {
+    const binding = this.bindings.get(sessionId);
+    if (!binding) throw new Error('Session has no trusted product binding');
+    this.assertEnabled(binding.agentId);
+    const id = SessionId(sessionId);
+    const live = this.ctx.sessions.get(id);
+    if (live) return {live: true, unseen: live.seq - 1 > afterSeq};
+    if (localWork) return {live: false, unseen: true};
+    const handle = await this.ctx.sessionPersistence.open(id, 'read').catch(error => {
+      if (!(error instanceof SessionPersistenceNotFoundError)) throw error;
+    });
+    if (!handle) return {live: false, unseen: false};
+    try {
+      this.assertRootHeader(binding, handle.header);
+      const start = SessionLogOffset(Math.max(afterSeq + 1, handle.inheritedEventCount));
+      return {live: false, unseen: (await handle.read(start, 1)).events.length > 0};
+    } finally { await handle.close(); }
+  }
+
+  private assertRootHeader(binding: SessionBinding, header: SessionHeader): void {
+    if (header.id !== binding.sessionId || header.origin === 'subagent' || header.cwd !== binding.cwd ||
+      header.agentPreset !== `nano:${binding.agentId}:${binding.revision}`)
+      throw new Error('Session binding conflicts with persisted identity');
+  }
+
   private async activate(binding: SessionBinding, create: boolean): Promise<Agent> {
     const live = this.handles.get(binding.sessionId);
     if (live) return live.agent;
     const sessionId = SessionId(binding.sessionId), preset = `nano:${binding.agentId}:${binding.revision}`;
-    let exists = true;
-    try {
-      using observation = await this.ctx.sessionQuery.observeSession(sessionId);
-      if (observation.header.origin === 'subagent' || observation.header.cwd !== binding.cwd || observation.header.agentPreset !== preset)
-        throw new Error('Session binding conflicts with persisted identity');
-    } catch (error) {
-      if (!create || !(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error;
-      exists = false;
+    let exists: boolean;
+    {
+      using observation = await this.ctx.sessionQuery.observeSession(sessionId).catch(error => {
+        if (!create || !(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error;
+        return undefined;
+      });
+      exists = observation !== undefined;
+      if (observation) {
+        this.assertRootHeader(binding, observation.header);
+        // A live root can resume children through native tools outside OwnedSessions.
+        // Resolve both the root and managed children through this cold evidence cut.
+        await this.beforeResume(binding, observation);
+      }
     }
     this.assertEnabled(binding.agentId);
     const setup = async (ctx: Context) => {
@@ -139,6 +181,9 @@ export class OwnedSessions {
       return {commit: () => this.assertEnabled(binding.agentId)};
     };
     await mkdir(binding.cwd, {recursive: true});
+    // A writable root can accept native work before Node sees its first event.
+    await this.markWritable(binding);
+    this.assertEnabled(binding.agentId);
     const handle = exists
       ? await this.ctx.agents.resume({resumeSessionId: sessionId, setup})
       : await this.ctx.agents.create({sessionId, meta: {cwd: binding.cwd, agentPreset: preset}, setup});

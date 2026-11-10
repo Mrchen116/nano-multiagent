@@ -1,0 +1,377 @@
+// Client half of the one-shot private background rule. The centre decides what a message
+// carries; this module only keeps the two things a browser must own: the highest draft save
+// it has confirmed (so leaving a conversation can name what it clears) and the unsaved-draft
+// failures that must block sending instead of silently dropping the edit.
+import { discardInteractionBackground } from './chat-api';
+import { openChatDatabase } from './chat-local-db';
+import { InteractionDraftRecord } from './interaction-draft-record';
+
+export type DraftFailureReason = 'transient' | 'conflict';
+
+/** Mounted-view callbacks only; unsaved private data has a separate retained owner. */
+export interface DraftHandle {
+  /** Finish this card's debounce window and return the confirmed save time, or why it failed. */
+  flush(): Promise<{ updatedAt?: string; reason?: DraftFailureReason }>;
+}
+
+export interface DraftFailure {
+  messageId: string;
+  reason: DraftFailureReason;
+}
+
+const handles = new Map<string, Map<string, DraftHandle>>();
+const records = new Map<string, Map<string, InteractionDraftRecord>>();
+const failures = new Map<string, Map<string, DraftFailureReason>>();
+/** Highest confirmed save per conversation, the only thing leaving may clear. */
+const watermarks = new Map<string, string>();
+/** Highest watermark this browser already cleared on the server. */
+const cleared = new Map<string, string>();
+/** Conversations this browser has left; a save that lands after that must also be cleared. */
+const leaving = new Set<string>();
+/** Failed explicit leave intents; a saved draft alone must never be cleared on foreground. */
+const pendingDiscards = new Map<string, string>();
+/** Tail of the per-conversation discard chain, so clears keep their order. */
+const discards = new Map<string, Promise<void>>();
+/** Coalesce the same browser reconnect reported by both online and visibility events. */
+const recoveries = new Map<string, Promise<void>>();
+let accountId = '';
+interface RestoredWatermark { through: string; session: string }
+let hydrated: Promise<Map<string, RestoredWatermark>> | null = null;
+let lastWrite: Promise<void> = Promise.resolve();
+let generation = 0;
+const conversationGenerations = new Map<string, number>();
+
+/** Capture before asynchronous draft work so logout/revocation fences late completions. */
+export function draftSession(cid: string): string { return `${generation}:${conversationGenerations.get(cid) ?? 0}`; }
+function setFailure(cid: string, mid: string, reason: DraftFailureReason | null): void {
+  const current = failures.get(cid) ?? new Map<string, DraftFailureReason>();
+  if (reason) current.set(mid, reason); else current.delete(mid);
+  if (!current.size) failures.delete(cid); else failures.set(cid, current);
+}
+
+/** Save failures that still need recovery. */
+export function draftFailures(cid: string): DraftFailure[] {
+  return [...(failures.get(cid) ?? [])].map(([messageId, reason]) => ({ messageId, reason }));
+}
+
+/** Reuse unsaved data across concealed views, but refresh clean drafts on a new mount. */
+export function interactionDraftRecord(cid: string, mid: string, retained = true): InteractionDraftRecord {
+  const previous = retained ? records.get(cid)?.get(mid) : undefined;
+  if (previous?.current) return previous;
+  const session = draftSession(cid);
+  const record = new InteractionDraftRecord(cid, mid, {
+    current: () => session === draftSession(cid),
+    saved: (updatedAt, left) => {
+      if (!retained) return;
+      noteDraftSaved(cid, updatedAt, session);
+      // A returned conversation is active again, but this old record still owns its leave.
+      if (left && !leaving.has(cid)) void enqueueDiscard(cid, updatedAt);
+    },
+    failed: reason => {
+      if (retained && records.get(cid)?.get(mid) === record && session === draftSession(cid)) setFailure(cid, mid, reason);
+    },
+    idle: () => {
+      if (records.get(cid)?.get(mid) !== record) return;
+      records.get(cid)!.delete(mid);
+      if (!records.get(cid)!.size) records.delete(cid);
+    },
+  }, retained);
+  if (retained) {
+    const chat = records.get(cid) ?? new Map<string, InteractionDraftRecord>();
+    chat.set(mid, record); records.set(cid, chat);
+  }
+  return record;
+}
+
+/** StrictMode may detach and reattach the same clean record without another render. */
+export function attachDraftRecord(record: InteractionDraftRecord, retained = true): () => void {
+  if (retained && record.current) {
+    const chat = records.get(record.conversationId) ?? new Map<string, InteractionDraftRecord>();
+    chat.set(record.messageId, record); records.set(record.conversationId, chat);
+  }
+  return record.attach();
+}
+
+/** A card becoming read-only is explicit invalidation, not a temporary view detach. */
+export function forgetInteractionDraft(cid: string, mid: string): void {
+  const record = records.get(cid)?.get(mid);
+  records.get(cid)?.delete(mid);
+  if (!records.get(cid)?.size) records.delete(cid);
+  record?.forget();
+  handles.get(cid)?.delete(mid);
+  if (!handles.get(cid)?.size) handles.delete(cid);
+  clearDraftFailure(cid, mid);
+}
+
+function forgetLocalDrafts(cid: string, left = false): void {
+  const chat = records.get(cid);
+  records.delete(cid);
+  chat?.forEach(record => record.forget(left));
+  handles.delete(cid); failures.delete(cid);
+}
+
+/** Idempotent: React StrictMode mounts each card twice. */
+export function registerDraftHandle(cid: string, mid: string, handle: DraftHandle): () => void {
+  const chat = handles.get(cid) ?? new Map<string, DraftHandle>();
+  chat.set(mid, handle); handles.set(cid, chat);
+  return () => { if (handles.get(cid)?.get(mid) === handle) unregisterDraftHandle(cid, mid); };
+}
+
+export function unregisterDraftHandle(cid: string, mid: string): void {
+  const chat = handles.get(cid);
+  if (!chat) return;
+  chat.delete(mid);
+  if (!chat.size) handles.delete(cid);
+  const record = records.get(cid)?.get(mid);
+  if (record?.unsaved) setFailure(cid, mid, record.failure ?? 'transient');
+}
+
+/** Record a confirmed save as this browser's watermark for the conversation. */
+export function noteDraftSaved(cid: string, updatedAt: string | undefined, session = draftSession(cid)): void {
+  if (session !== draftSession(cid) || !updatedAt || (cleared.get(cid) ?? '') >= updatedAt) return;
+  const previous = watermarks.get(cid);
+  if (previous && previous >= updatedAt) return;
+  watermarks.delete(cid); watermarks.set(cid, updatedAt);
+  if (watermarks.size > LIMIT) {
+    const oldest = watermarks.keys().next().value!;
+    watermarks.delete(oldest); pendingDiscards.delete(oldest);
+  }
+  lastWrite = persistWatermark(accountId, cid, updatedAt, session).catch(() => undefined);
+  // This save may have been in flight when the user left; the clear already sent cannot
+  // cover it, so send a second one with the time this device itself confirmed.
+  if (leaving.has(cid)) void enqueueDiscard(cid, updatedAt);
+}
+
+/** Test seam: settles once the IndexedDB write started by the last save has landed. */
+export function awaitWatermarkWrite(): Promise<void> { return lastWrite; }
+
+/** Tell the cards that a save failed, so the composer blocks until it succeeds. */
+export function noteDraftFailed(cid: string, mid: string, reason: DraftFailureReason, session = draftSession(cid)): void {
+  if (session === draftSession(cid)) setFailure(cid, mid, reason);
+}
+
+export function clearDraftFailure(cid: string, mid: string, session = draftSession(cid)): void {
+  if (session === draftSession(cid)) setFailure(cid, mid, null);
+}
+
+export function draftWatermark(cid: string): string | undefined { return watermarks.get(cid); }
+
+export function resetInteractionBackground(nextAccountId = ''): void {
+  generation += 1; conversationGenerations.clear();
+  records.forEach(chat => chat.forEach(record => record.forget())); records.clear();
+  handles.clear(); failures.clear(); watermarks.clear(); cleared.clear(); leaving.clear(); pendingDiscards.clear(); discards.clear(); recoveries.clear();
+  accountId = nextAccountId; hydrated = null;
+}
+
+/** Finish both visible and temporarily detached edits before sending. */
+export async function flushInteractionDrafts(cid: string): Promise<DraftFailure[]> {
+  const ids = new Set([...(handles.get(cid)?.keys() ?? []), ...(records.get(cid)?.keys() ?? [])]);
+  await Promise.all([...ids].map(mid => retryDraft(cid, mid)));
+  return draftFailures(cid);
+}
+
+export async function beginSend(cid: string): Promise<boolean> {
+  return (await flushInteractionDrafts(cid)).length === 0;
+}
+
+export async function retryDraft(cid: string, mid: string): Promise<void> {
+  const handle = handles.get(cid)?.get(mid), record = records.get(cid)?.get(mid), session = draftSession(cid);
+  const result = await (handle ?? record)?.flush().catch((): { reason: DraftFailureReason } => ({ reason: 'transient' }));
+  if (!result) return;
+  if (session !== draftSession(cid) || (record ? !record.current : handles.get(cid)?.get(mid) !== handle)) return;
+  if (result.reason) setFailure(cid, mid, result.reason);
+  else { clearDraftFailure(cid, mid, session); noteDraftSaved(cid, result.updatedAt, session); }
+}
+
+/** Make one recovery pass after reconnect. */
+export function retryPrivateDrafts(cid: string): Promise<void> {
+  const current = recoveries.get(cid);
+  if (current) return current;
+  const recovery = Promise.all(draftFailures(cid).map(({messageId}) => retryDraft(cid, messageId))).then(() => undefined);
+  recoveries.set(cid, recovery);
+  void recovery.finally(() => { if (recoveries.get(cid) === recovery) recoveries.delete(cid); });
+  return recovery;
+}
+
+/** Leave one conversation: clear only what this browser already saved.
+ *
+ * A device with no watermark cannot know what it would erase, so it sends nothing;
+ * pushing "now" there would wipe another device's unsent edit. The conversation still
+ * counts as left, so a save that lands afterwards triggers one more clear (D4 迟到成功).
+ */
+export async function discardOnLeave(cid: string, through = watermarks.get(cid)): Promise<void> {
+  forgetLocalDrafts(cid, true);
+  leaving.add(cid);
+  const session = draftSession(cid);
+  if (!through && hydrated) {
+    // Recover only the startup snapshot, not an edit made after returning while storage
+    // was opening. The leave still owns its pre-reload confirmed save in that case.
+    const restored = (await hydrated).get(cid);
+    if (session !== draftSession(cid)) return;
+    if (restored?.session === session) through = restored.through;
+  }
+  return enqueueDiscard(cid, through);
+}
+
+/** Retry only explicitly requested leaves when the browser returns to the foreground. */
+export async function retryPendingDiscards(): Promise<void> {
+  if (hydrated) await hydrated;
+  await Promise.all([...pendingDiscards].map(([cid, through]) => enqueueDiscard(cid, through)));
+}
+
+/** Mark a conversation active again so its earlier leave cannot clear a new edit.
+ *
+ * Without this, editing after coming back would be cleared by the late-save rule the
+ * moment it saves — the edit would silently never be carried.
+ */
+export function resumeConversation(cid: string): void { leaving.delete(cid); }
+
+/** Wait for an in-flight discard so a message cannot overtake the clear it belongs after. */
+export async function awaitPendingDiscard(cid: string): Promise<void> {
+  // A leave registered during startup queues its discard after the same hydration.
+  // Registering this continuation later keeps a returned chat's send behind that clear.
+  if (hydrated) await hydrated;
+  // A late save may enqueue its own clear while we wait, so follow the chain, not one link.
+  for (let tail = discards.get(cid); tail;) {
+    await tail.catch(() => undefined);
+    const next = discards.get(cid);
+    tail = next === tail ? undefined : next;
+  }
+}
+
+/** Queue one clear behind the previous one for this conversation.
+ *
+ * Order matters: a late save must be cleared after the earlier clear, and a message must
+ * never overtake either. Older servers answer 404/501, which we ignore but must not treat
+ * as cleared, so the watermark survives for the next leave to retry.
+ */
+function enqueueDiscard(cid: string, through: string | undefined): Promise<void> {
+  if (!through) return Promise.resolve();
+  if (cleared.get(cid) && cleared.get(cid)! >= through) return discards.get(cid) ?? Promise.resolve();
+  const session = draftSession(cid), userId = accountId;
+  if (!pendingDiscards.get(cid) || pendingDiscards.get(cid)! < through) pendingDiscards.set(cid, through);
+  const intentWrite = persistWatermark(userId, cid, through, session, through).catch(() => undefined);
+  const tail = (discards.get(cid) ?? Promise.resolve()).then(async () => {
+    await intentWrite;
+    if (session !== draftSession(cid)) return;
+    try {
+      const result = await discardInteractionBackground(cid, through);
+      if (!result || session !== draftSession(cid)) return;
+      if (!cleared.get(cid) || cleared.get(cid)! < through) cleared.set(cid, through);
+      if ((pendingDiscards.get(cid) ?? '') <= through) pendingDiscards.delete(cid);
+      const current = watermarks.get(cid);
+      if (!current || current <= through) watermarks.delete(cid);
+      await forgetWatermark(userId, cid, through, session);
+    } catch { /* Keep the explicit intent and retry on the next leave or foreground. */ }
+  });
+  discards.set(cid, tail);
+  void tail.finally(() => { if (discards.get(cid) === tail) discards.delete(cid); });
+  return tail;
+}
+
+/** Hydrate this account's watermarks once; a fresh browser starts with none. */
+export async function loadWatermarks(nextAccountId: string): Promise<void> {
+  if (accountId === nextAccountId && hydrated) { await hydrated; return; }
+  resetInteractionBackground(nextAccountId);
+  hydrated = hydrate(nextAccountId);
+  await hydrated;
+}
+
+interface WatermarkRow { userId: string; conversationId: string; through: string; at: number; pendingThrough?: string }
+const STORE = 'watermarks';
+const LIMIT = 128;
+let storageOrder = 0;
+
+async function storage<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStore, result: (value: T) => void) => void): Promise<T | undefined> {
+  if (typeof indexedDB === 'undefined') return;
+  const db = await openChatDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, mode);
+    let value: T;
+    tx.oncomplete = () => { db.close(); resolve(value); };
+    tx.onabort = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { /* Abort owns the failure. */ };
+    try { operation(tx.objectStore(STORE), next => { value = next; }); }
+    catch (error) { tx.abort(); reject(error); }
+  });
+}
+
+async function hydrate(userId: string): Promise<Map<string, RestoredWatermark>> {
+  const restored = new Map<string, RestoredWatermark>();
+  const session = generation, conversations = new Map(conversationGenerations);
+  const rows = await storage<WatermarkRow[]>('readonly', (store, result) => {
+    const request = store.index('user').getAll(userId);
+    request.onsuccess = () => result(request.result as WatermarkRow[]);
+  }).catch(() => undefined);
+  if (session !== generation) return restored;
+  for (const row of (rows ?? []).sort((a, b) => a.at - b.at).slice(-LIMIT)) {
+    if ((conversations.get(row.conversationId) ?? 0) !== (conversationGenerations.get(row.conversationId) ?? 0)) continue;
+    restored.set(row.conversationId, {through:row.through, session:draftSession(row.conversationId)});
+    storageOrder = Math.max(storageOrder, row.at);
+    const previous = watermarks.get(row.conversationId);
+    if (!previous || previous < row.through) watermarks.set(row.conversationId, row.through);
+    if (row.pendingThrough && (pendingDiscards.get(row.conversationId) ?? '') < row.pendingThrough) pendingDiscards.set(row.conversationId, row.pendingThrough);
+  }
+  return restored;
+}
+
+function persistWatermark(userId: string, cid: string, through: string, session: string, pendingThrough?: string): Promise<void> {
+  if (!userId) return Promise.resolve();
+  return storage<void>('readwrite', store => {
+    if (session !== draftSession(cid)) return;
+    // The read and max update share one transaction: a delayed write or another tab cannot
+    // replace a higher confirmed watermark with an older one.
+    const request = store.get([userId, cid]);
+    request.onsuccess = () => {
+      if (session !== draftSession(cid)) return;
+      const previous = request.result as WatermarkRow | undefined;
+      storageOrder = Math.max(Date.now(), storageOrder + 1);
+      const intent = [previous?.pendingThrough, pendingThrough].filter((value): value is string => Boolean(value)).sort().at(-1);
+      store.put({userId, conversationId: cid, through: previous && previous.through > through ? previous.through : through, at: storageOrder,
+        ...(intent ? {pendingThrough: intent} : {})} satisfies WatermarkRow);
+      const all = store.index('user').getAll(userId);
+      all.onsuccess = () => {
+        const rows = (all.result as WatermarkRow[]).sort((a, b) => b.at - a.at);
+        for (const row of rows.slice(LIMIT)) store.delete([userId, row.conversationId]);
+      };
+    };
+  });
+}
+
+function forgetWatermark(userId: string, cid: string, through: string, session: string): Promise<unknown> {
+  return storage('readwrite', store => {
+    if (session !== draftSession(cid)) return;
+    const request = store.get([userId, cid]);
+    request.onsuccess = () => {
+      const row = request.result as WatermarkRow | undefined;
+      if (session !== draftSession(cid) || !row) return;
+      if (row.through <= through) store.delete([userId, cid]);
+      else if (row.pendingThrough && row.pendingThrough <= through) {
+        delete row.pendingThrough;
+        store.put(row);
+      }
+    };
+  });
+}
+
+/** Clear local ownership on logout or revoked access; late saves cannot resurrect it.
+ *
+ * Args:
+ *   userId: Account whose local state lost authorization.
+ *   cid: Revoked conversation, or omit for all of that account's conversations.
+ */
+export async function forgetInteractionBackground(userId: string, cid?: string): Promise<void> {
+  if (accountId === userId) {
+    if (cid === undefined) resetInteractionBackground();
+    else {
+      conversationGenerations.set(cid, (conversationGenerations.get(cid) ?? 0) + 1);
+      forgetLocalDrafts(cid); watermarks.delete(cid); cleared.delete(cid);
+      leaving.delete(cid); pendingDiscards.delete(cid); discards.delete(cid); recoveries.delete(cid);
+    }
+  }
+  await storage('readwrite', store => {
+    if (cid !== undefined) { store.delete([userId, cid]); return; }
+    const request = store.index('user').getAllKeys(userId);
+    request.onsuccess = () => { for (const key of request.result) store.delete(key); };
+  });
+}

@@ -33,7 +33,9 @@ struct ConversationView: View {
     }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
-    private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
+    // Durable pending consumes the ordinary draft, but its frozen content still owns the
+    // disabled composer until confirmation. Newer ordinary edits stay separate behind it.
+    private var draft: Binding<String> { Binding(get: { store.pending[conversationID]?.content ?? store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
     var body: some View {
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
@@ -45,6 +47,31 @@ struct ConversationView: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
+                        // A confirmed access loss is not a missing cache or a connection
+                        // problem; the dedicated revocation notice below owns that state.
+                        if items.isEmpty && !store.revokedChats.contains(conversationID) {
+                            if store.timelinePhase(conversationID) == .needsConnection {
+                                VStack(spacing: 8) {
+                                    Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")
+                                        .font(.callout)
+                                    Text(L("这个会话还没有保存到本机。连上网络后会自动加载。", "This conversation is not saved on this device yet. It loads automatically once you are connected."))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
+                                }.frame(maxWidth: .infinity).padding(.vertical, 24)
+                            } else if store.timelinePhase(conversationID) == .empty {
+                                Text(L("还没有消息", "No messages yet"))
+                                    .font(.callout).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 24)
+                                    .accessibilityIdentifier("conversation.empty")
+                            } else {
+                                ProgressView(L("正在加载聊天…", "Loading conversation…")).frame(maxWidth: .infinity).padding(.vertical, 24)
+                            }
+                        }
+                        if store.olderNeedsNetwork.contains(conversationID) {
+                            // B2: the local window was trimmed; offline scrolling must not be
+                            // mistaken for "this is the beginning of the conversation".
+                            Text(L("更早消息需要连接后才能读取", "Earlier messages need a connection")).font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
+                        }
                         if store.before[conversationID] != nil {
                             Button(L("更早的消息", "Earlier messages")) {
                                 let anchor = items.first?.id
@@ -69,7 +96,10 @@ struct ConversationView: View {
                                         let frame = geometry.frame(in: .global)
                                         return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
                                     } action: { _, visible in
-                                        if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
+                                        if visible {
+                                            if !bottomVisible { store.recordReadingPosition(message.id, in: conversationID) }
+                                            Task { await store.markRead(conversationID, messageID: message.id) }
+                                        }
                                     }
                             } else {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
@@ -84,12 +114,19 @@ struct ConversationView: View {
                     geometry.visibleRect.maxY >= geometry.contentSize.height - 24
                 } action: { _, visible in
                     bottomVisible = visible
+                    if visible { store.recordReadingPosition(nil, in: conversationID) }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if !bottomVisible { Button { scroll.scrollTo("bottom", anchor: .bottom) } label: { Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle()) }.padding().accessibilityLabel(L("最新消息", "Latest messages")) }
                 }
                 .onChange(of: items.count) { _, _ in
                     if bottomVisible || !firstLoaded { scroll.scrollTo("bottom", anchor: .bottom); firstLoaded = true }
+                }
+                .onChange(of: store.restoreReadingPositions[conversationID]) { _, anchor in
+                    if let anchor {
+                        scroll.scrollTo(anchor, anchor: .center)
+                        store.restoreReadingPositions[conversationID] = nil
+                    }
                 }
                 .onChange(of: items.last?.message?.content) { _, _ in if bottomVisible { scroll.scrollTo("bottom", anchor: .bottom) } }
             }
@@ -98,7 +135,7 @@ struct ConversationView: View {
             if store.revokedChats.contains(conversationID) {
                 Text(L("此聊天已不可访问。", "This conversation is no longer accessible.")).font(.caption).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity).background(.bar)
             } else if store.checkingAccess.contains(conversationID) {
-                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.loadConversations(); await store.loadChat(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
+                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.retryAccess(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
             } else if let conversation, conversation.can_write == false {
                 VStack {
                     Text(conversation.is_observer == true ? L("Agent 协作 · 只读", "Agent collaboration · read only") : conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
@@ -121,14 +158,15 @@ struct ConversationView: View {
             ChatInfoView(store: store, conversationID: conversationID, openChat: openChat)
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
         .task(id: conversationID) {
-            store.selectedID = conversationID
-            await store.inspectConversation(conversationID)
-            await store.loadChat(conversationID)
+            await store.openConversation(conversationID)
             do { let result: ItemsPage<ChatCommandSet> = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)/commands"); commands = result.items }
             catch { /* Commands are optional when a target device is offline; message sending remains available. */ }
         }
         .task(id: "\(conversationID)-\(phase == .active)") {
             guard phase == .active else { return }
+            await store.interactionDrafts.foreground(activeConversation: store.selectedID)
+            // One bounded recovery pass, never an offline retry loop.
+            if store.interactionDrafts.failure(conversationID) != nil { _ = await store.flushDrafts(conversationID) }
             while !Task.isCancelled {
                 // Visitors do not subscribe as members; recheck access while reading public history.
                 if conversation?.is_member == false || conversation?.dissolved_at != nil {
@@ -143,7 +181,11 @@ struct ConversationView: View {
             focusRequest = ComposerFocusRequest(selection: NSRange(location: (request.text as NSString).length, length: 0))
             store.composeRequest = nil
         }
-        .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
+        .onDisappear {
+            if store.selectedID == conversationID { store.selectedID = nil }
+            // Leaving is a draft flush point: the next screen may be a different account.
+            Task { await store.flushDrafts() }
+        }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
         .onChange(of: draft.wrappedValue) { _, _ in dismissedCompletion = false }
         .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
@@ -213,7 +255,7 @@ struct ConversationView: View {
                     }
                 Button { Task { await store.send(conversationID) } } label: {
                     if store.sending.contains(conversationID) { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.largeTitle) }
-                }.disabled(!uploads.isEmpty || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
+                }.disabled(store.sending.contains(conversationID) || !uploads.isEmpty || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
                     .accessibilityLabel(L("发送", "Send"))
             }
         }.padding(.horizontal, 16).padding(.vertical, 10).background(NanoTheme.surface)
@@ -231,7 +273,8 @@ struct ConversationView: View {
         let insertion: String
     }
     private func commandChoices(_ query: String) -> [CommandChoice] {
-        commands.flatMap { group in
+        let deletedAgents = Set((conversation?.participants ?? []).filter { $0.is_deleted == true }.map(\.id))
+        return commands.filter { !deletedAgents.contains($0.agent_id) }.flatMap { group in
             group.commands.map { command in
                 CommandChoice(id: "\(group.agent_id)/\(command.name)", label: "/" + command.name, source: group.display_name, description: command.description, insertion: ChatText.command(command.name, agentID: conversation?.type == "group" ? group.agent_id : nil).trimmingCharacters(in: .whitespaces))
             } + group.skills.map { skill in
@@ -246,7 +289,7 @@ struct ConversationView: View {
     }
     private func completionPanel(_ completion: ChatText.Completion) -> some View {
         let members = (conversation?.participants ?? []).filter {
-            ($0.user_id ?? $0.id) != store.user.id && (completion.query.isEmpty || ($0.display_name ?? $0.id).localizedCaseInsensitiveContains(completion.query) || $0.id.localizedCaseInsensitiveContains(completion.query))
+            $0.is_deleted != true && ($0.user_id ?? $0.id) != store.user.id && (completion.query.isEmpty || ($0.display_name ?? $0.id).localizedCaseInsensitiveContains(completion.query) || $0.id.localizedCaseInsensitiveContains(completion.query))
         }
         let choices = commandChoices(completion.query)
         let height = min(220, max(1, Double(completion.kind == .mention ? members.count : choices.count)) * (completion.kind == .mention ? mentionRowHeight : commandRowHeight))

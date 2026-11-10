@@ -44,6 +44,7 @@ declare module '@deepseek-ai/cordis' { interface Context { nanoTrajectoryRuns: T
 export class TrajectoryRuns extends Service {
   private readonly domain;
   private writes = Promise.resolve();
+  private readonly pending = new Map<string, Promise<void>>();
   private readonly runsBySession: Promise<Map<string, Set<string>>>;
   private readonly bounds = new WeakMap<Agent, number>();
   private readonly tails = new Map<string, number>();
@@ -180,12 +181,33 @@ export class TrajectoryRuns extends Service {
   }
 
   private persist(run: TrajectoryRun): void {
-    this.writes = this.writes.then(async () => {
+    const task = this.writes = this.writes.then(async () => {
       const index = await this.runsBySession;
       await (await this.domain).table('runs').put(run.runId, run);
       this.indexRun(index, run);
     });
-    void this.writes.catch(() => {}); // Reads report a failed durable write barrier instead of fabricated saved facts.
+    this.pending.set(run.sessionId, task);
+    const settled = () => { if (this.pending.get(run.sessionId) === task) this.pending.delete(run.sessionId); };
+    void task.then(settled, settled); // Reads still report a failed durable write barrier.
+  }
+
+  /** Discard target run indexes after that target's accepted writes settle. */
+  async forget(ids: ReadonlySet<string>): Promise<void> {
+    await Promise.allSettled([...ids].map(id => this.pending.get(id)));
+    const index = await this.runsBySession;
+    const table = (await this.domain).table('runs');
+    for (const id of ids) {
+      this.tails.delete(id);
+      this.pendingDefaults.delete(id);
+      for (const runId of index.get(id) ?? []) {
+        const run = table.get(runId);
+        if (run && ids.has(run.sessionId)) {
+          this.active.delete(runId);
+          index.get(run.parentSessionId)?.delete(runId);
+          index.get(run.sessionId)?.delete(runId);
+        }
+      }
+    }
   }
 
   /** Read directly related runs after accepted observations have been saved.

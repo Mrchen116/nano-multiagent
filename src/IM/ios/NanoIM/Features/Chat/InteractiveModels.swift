@@ -16,11 +16,23 @@ struct InteractionReplyInput: Codable, Sendable {
     let state: [String: JSONValue]
 }
 
-struct InteractionSelection: Sendable {
-    let conversationID: String
-    let source_message_id: String
-    let state: [String: JSONValue]
-    let editedAt: Double
+/// Option label for a choice field, returned only by the private draft read.
+struct InteractionDraftFieldOption: Codable, Sendable, Equatable {
+    let label: String
+    let value: String
+}
+
+/// One editable column, used to compare this device's draft with another device's.
+///
+/// Hand-written because `generate-ios-interactive.ts` only bundles the JS runtime and
+/// produces no Swift; the decoded shape must match `InteractionDraftField` in
+/// `packages/product-contracts/src/interactive-types.ts`.
+struct InteractionDraftField: Codable, Sendable, Equatable {
+    let name: String
+    let label: String
+    let value: JSONValue
+    var display_value: String?
+    var options: [InteractionDraftFieldOption]?
 }
 
 struct InteractionDraft: Codable, Sendable {
@@ -31,6 +43,7 @@ struct InteractionDraft: Codable, Sendable {
     var updated_at: String?
     let state: [String: JSONValue]
     var submission_message_id: String?
+    var fields: [InteractionDraftField]?
 }
 
 extension IMClient {

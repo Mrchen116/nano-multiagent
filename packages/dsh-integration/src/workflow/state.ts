@@ -30,6 +30,7 @@ export interface WorkflowRecord {
   revision: number;
   resumedFrom?: string;
   calls: WorkflowCall[];
+  workChildren?: string[];
   logs: { at: number; text: string; phase?: string }[];
   result?: WorkflowResult;
   delivered?: boolean;

@@ -18,6 +18,7 @@ interface Options {
   relay: { readonly ready: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   create(channel: ManagedChannel, secret: Record<string, string>, callbacks: { status(state: string): void; metadata(patch: ManagedChannel['provider_runtime']): void }): Runtime;
   remove(agentId: string): void;
+  retired?(agentId: string): boolean;
   onError(error: unknown): void;
 }
 interface Instance { channel: ManagedChannel; runtime: Runtime; incarnation: string; sequence: number }
@@ -87,6 +88,7 @@ export class ManagedChannels {
   private async apply(manifest: ChannelManifest, report = true): Promise<void> {
     const previous = this.get<ChannelManifest>('manifest');
     if (previous && manifest.manifest_revision < previous.manifest_revision) return;
+    if (this.options.retired) manifest={...manifest,channels:manifest.channels.filter(item=>!this.options.retired?.(item.agent_id))};
     // Validate every envelope before replacing any working connection or persisted desired state.
     const decoded = this.prepare(manifest);
     this.put('manifest', manifest);
@@ -115,6 +117,20 @@ export class ManagedChannels {
       removal_outcomes: manifest.removals.map(item => ({ ...item, outcome: 'applied' })),
     });
     void this.flush().catch(this.options.onError);
+  }
+  /** Remove the retired Agent from the cached manifest and stop its listeners. */
+  purgeAgent(agentId:string):Promise<void> {
+    const task=this.chain.then(()=>{
+      const cached=this.get<ChannelManifest>('manifest');
+      if (!cached) return;
+      for (const item of cached.channels.filter(channel=>channel.agent_id===agentId)) {
+        this.drop(item.channel_id);
+        this.db.prepare("DELETE FROM outbox WHERE json_extract(payload,'$.channel_id')=?").run(item.channel_id);
+      }
+      this.put('manifest',{...cached,channels:cached.channels.filter(channel=>channel.agent_id!==agentId)});
+    });
+    this.chain=task.catch(()=>{});
+    return task;
   }
   private drop(id: string): void {
     const instance = this.instances.get(id); if (!instance) return;

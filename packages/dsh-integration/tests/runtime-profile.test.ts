@@ -12,7 +12,7 @@ it('refreshes retained profile links and cold-recovers a durably accepted input'
   let logs = '';
   const config = {
     protocol: 1,
-    agents: [{ agentId: 'test', revision: '1', provider: 'deepseek-official', model: 'deepseek-flash' }],
+    agents: [{ agentId: 'test', revision: '1', mode: 'global', provider: 'deepseek-official', model: 'deepseek-flash' }],
     bindings: [],
   };
   const binding = { sessionId: 'nano-test-session', agentId: 'test', revision: '1', ownerId: 'test-owner', cwd: workspace };

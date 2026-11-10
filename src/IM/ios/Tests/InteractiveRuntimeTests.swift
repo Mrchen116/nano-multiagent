@@ -31,8 +31,13 @@ final class InteractiveRuntimeTests: XCTestCase {
         runtime.leave()
     }
 
-    func testConflictKeepsLocalEditUntilExplicitlyLoadingLatest() async throws {
+    func testGroupConflictKeepsLocalEditUntilExplicitlyLoadingLatest() async throws {
         let (runtime, transport) = try await makeRuntime()
+        runtime.chat.conversations = [Conversation(
+            id: "chat", title: "Chat", participants: [], participant_ids: ["viewer"], type: "group",
+            owner_id: "viewer", creator_id: "viewer", is_pinned: false, is_muted: false,
+            unread_count: 0, created_at: "now"
+        )]
         await runtime.load()
         await transport.setConflict(true)
         runtime.edit(try XCTUnwrap(find("Input", runtime.root)), form: nil, value: .string("45"))
@@ -44,6 +49,9 @@ final class InteractiveRuntimeTests: XCTestCase {
         XCTAssertEqual(puts, 1)
         await transport.setConflict(false)
         await runtime.load()
+        XCTAssertEqual(runtime.state["$minutes"], .string("45"), "Generic reload must not discard a conflicting local edit")
+        _ = try await runtime.describeConflict()
+        await runtime.adoptRemote()
         XCTAssertFalse(runtime.conflict)
         XCTAssertEqual(runtime.state["$minutes"], .string("20"))
         runtime.leave()
@@ -158,7 +166,6 @@ final class InteractiveRuntimeTests: XCTestCase {
         try await waitFor(view, "document.querySelector('[role=radio][aria-checked=true]')?.textContent === '周三 14:00'")
         for _ in 0..<100 where runtime.state["$slot"] != .string("周三 14:00") { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertEqual(runtime.state["$slot"], .string("周三 14:00"))
-        XCTAssertEqual(runtime.chat.interactionSelections["card"]?.state["$slot"], .string("周三 14:00"))
         await runtime.flush()
         var sends = await transport.sends
         XCTAssertTrue(sends.isEmpty)
@@ -215,6 +222,67 @@ final class InteractiveRuntimeTests: XCTestCase {
         try await waitFor(view, "window.frameResult === 'blocked'")
         let sends = await transport.sends
         XCTAssertTrue(sends.isEmpty)
+    }
+
+    func testIntelligentUICardReadsOnlyItsOwnProtectedAttachment() async throws {
+        let path = "/im/v1/conversations/chat/images/first"
+        let attachments = [
+            ChatAttachment(url: path, content_type: "image/png", file_name: "before.png"),
+            ChatAttachment(url: "/im/v1/conversations/other/images/foreign", content_type: "image/png"),
+        ]
+        let (runtime, transport) = try await makeRuntime(readOnly: true,
+            source: "root = Col([AttachmentImage(1, \"Before\")])", catalog: "nano-iui-1", attachments: attachments)
+        await runtime.load()
+        let generation = runtime.webID
+        func fetch(_ index: Double) async throws -> JSONValue {
+            try await runtime.webRequest(.object(["type": .string("attachment-image"), "index": .number(index)]), generation: generation)
+        }
+
+        let image = try await fetch(1)
+        XCTAssertEqual(image["mime"], .string("image/png"))
+        XCTAssertNotNil(image["data"].stringValue.flatMap { Data(base64Encoded: $0) }.flatMap { UIImage(data: $0) })
+        for index in [0, 1.5, 2, 3, Double.greatestFiniteMagnitude] {
+            do { _ = try await fetch(index); XCTFail("Unexpected attachment index accepted: \(index)") } catch {}
+        }
+        let requests = await transport.imageRequests
+        XCTAssertEqual(requests, [path])
+
+        runtime.leave()
+        do { _ = try await fetch(1); XCTFail("Detached card could still fetch an attachment") } catch {}
+    }
+
+    func testIntelligentUIWebKitOpensHistoryImageAndKeepsFailedAttachmentFallback() async throws {
+        let before = ChatAttachment(url: "/im/v1/conversations/chat/images/first", content_type: "image/png", file_name: "before.png")
+        let after = ChatAttachment(url: "/im/v1/conversations/chat/images/unavailable", content_type: "image/png", file_name: "after.png")
+        let source = """
+        root = Col([AttachmentImage(1, "Before"), AttachmentImage(2, "After"), Button("Continue", @SendToChat("Continue"))])
+        """
+        let (runtime, transport) = try await makeRuntime(readOnly: true, source: source, catalog: "nano-iui-1", attachments: [before, after, before])
+        await runtime.load()
+        let (view, coordinator, window) = mount(runtime)
+        defer {
+            window.isHidden = true
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page)
+            runtime.leave()
+        }
+        try await waitFor(view, """
+        document.querySelector('img[alt="Before"]')?.naturalWidth === 2 &&
+        document.querySelector('[role="img"][aria-label="After"]') !== null &&
+        document.querySelector('fieldset').disabled && !document.querySelector('fieldset').inert
+        """)
+        for _ in 0..<100 where runtime.fallbackAttachmentIndexes != [1] { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(runtime.fallbackAttachmentIndexes, [1], "Hide repeated tiles for the visible image and keep the failed image entry")
+        XCTAssertNil(runtime.error, "An unavailable image should not invalidate the entire card")
+
+        _ = try await view.evaluateJavaScript("document.querySelector('[data-attachment-preview]').click()")
+        for _ in 0..<100 where runtime.attachmentPreview == nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertEqual(runtime.attachmentPreview?.size.width, 2)
+        let sends = await transport.sends
+        XCTAssertTrue(sends.isEmpty)
+
+        coordinator.webViewWebContentProcessDidTerminate(view)
+        XCTAssertEqual(runtime.fallbackAttachmentIndexes, [0, 1, 2])
+        XCTAssertNil(runtime.attachmentPreview)
     }
 
     func testIntelligentUIConnectedToolsAndComposeStayInNativeSession() async throws {
@@ -306,7 +374,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         }
         return nil
     }
-    private func makeRuntime(readOnly: Bool = false, source override: String? = nil, catalog: String = "nano-1") async throws -> (InteractiveRuntime, InteractiveTestTransport) {
+    private func makeRuntime(readOnly: Bool = false, source override: String? = nil, catalog: String = "nano-1", attachments: [ChatAttachment] = []) async throws -> (InteractiveRuntime, InteractiveTestTransport) {
         let user = AuthUser(id: "viewer", username: "viewer", display_name: "Viewer", owner_id: "viewer", locale: "zh", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let transport = InteractiveTestTransport(pair: try JSONEncoder().encode(pair))
@@ -317,6 +385,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         let client = IMClient(baseURL: session.baseURL, session: session)
         let chat = ChatStore(client: client, user: user)
         var message = try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"card","conversation_id":"chat","sender":{"type":"agent","id":"agent"},"sender_user_id":"agent","sender_type":"agent","content":"阅读安排","attachments":[],"delivery_status":"completed","created_at":"now"}"#.utf8))
+        message.attachments = attachments
         message.interactive = MessageInteractive(format: "openui", catalog_version: catalog, source: override ?? source)
         return (InteractiveRuntime(client: client, message: message, chat: chat, readOnly: readOnly), transport)
     }
@@ -333,6 +402,7 @@ private actor InteractiveTestTransport: HTTPTransport {
     let pair: Data
     var puts = 0
     var sends: [JSONValue] = []
+    var imageRequests: [String] = []
     private var conflict = false
     private var canInteract = true
     private var targetWritable = true
@@ -346,6 +416,12 @@ private actor InteractiveTestTransport: HTTPTransport {
         let path = request.url!.path
         var status = 200, data = Data("{}".utf8)
         if path.hasSuffix("/login") || path.hasSuffix("/refresh") { data = pair }
+        else if path.contains("/images/") {
+            imageRequests.append(path)
+            let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4zwAE/wEHAAH/4iOeWQAAAABJRU5ErkJggg==")!
+            let status = path.hasSuffix("/unavailable") ? 404 : request.value(forHTTPHeaderField: "Authorization") == "Bearer test" ? 200 : 401
+            return (png, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!)
+        }
         else if path.hasSuffix("/interaction-state") {
             if request.httpMethod == "PUT" {
                 puts += 1

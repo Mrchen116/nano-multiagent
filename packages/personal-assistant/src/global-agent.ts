@@ -1,20 +1,23 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
+import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
-import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimeStopHistory, MessageApprovalContext } from '@nano/product-contracts';
-import { interactiveResponse } from '@nano/product-contracts';
+import { setImmediate as yieldToIO } from 'node:timers/promises';
+import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
+import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
-import { logicalEvents } from './presentation.js';
+import { argumentsObject, logicalEvents } from './presentation.js';
 import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore;
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
+  uploadScreenshot?: ScreenshotUploader;
   onError(error: unknown): void;
   onWork?(): void;
   authorityEpoch?(): number | undefined;
@@ -24,6 +27,10 @@ export interface ProductCall {
   method: string; args: Record<string, unknown>; operationId: string; callId: string;
   sessionId: string; rootSessionId: string; agentId: string; ownerId: string; lifecycle_revision?:number;
 }
+type PublicationPosition = {turn?: number; seq?: number};
+const callPosition = (event: RuntimeEvent | undefined): PublicationPosition | undefined => event && {
+  seq: event.seq, turn: typeof event.data.turn === 'number' ? event.data.turn : undefined,
+};
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */
 export class GlobalAgent {
@@ -41,53 +48,87 @@ export class GlobalAgent {
   private readonly dirty = new Set<string>();
   private readonly childDrains = new Map<string, Promise<void>>();
   private readonly childrenDirty = new Set<string>();
+  private readonly childTargets = new Map<string, Set<string>>();
+  private readonly failedChildren = new Map<string, {discover:boolean; targets:Set<string>}>();
+  private readonly workBackoff = new Map<string,number>();
+  private readonly workRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly calls = new Map<string, AbortController>();
   private readonly callAgents = new Map<string,string>();
   private receiptDrain?: Promise<void>;
   private receiptTimer?: ReturnType<typeof setTimeout>;
   private receiptBackoff=1000;
-  private recoveryTimer?: ReturnType<typeof setTimeout>;
+  private readonly agentRecoveries = new Map<string, Promise<void>>();
+  private readonly agentRetry = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly agentBackoff = new Map<string, number>();
+  private readonly childCatchup = new Map<string, SessionBinding>();
+  private childCatchupTask?: Promise<void>;
+  private readonly childCatchupStop=new AbortController();
   private recovering?:Promise<void>;
+  private readonly coldRoots = new Map<string, symbol>();
+  private readonly foregroundRecovery = new Map<string, Promise<void>>();
   private readonly controlTasks=new Map<string,Promise<void>>();
   private readonly authorities = new Set<string>();
+  private authorityEpoch?:number;
   private readonly accepting = new Map<string,Promise<void>>();
-  private readonly reconciliation = new Map<string, number>();
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
     const relay=options.relay,runtime=options.runtime;
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
       runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
     this.options=options;
-    for(const binding of options.store.bindings())if(options.agents.some(agent=>agent.agentId===binding.agentId && agent.mode==='global'))options.inbox.workPending(binding.sessionId,true);
+    this.runtimeUnavailable(options.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
     this.controls = new SessionControls(options);
     this.personal = new PersonalAssistant(options);
     this.unsubscribe = options.runtime.onNotification((method, params) => {
       if (method === 'product.cancel') { this.calls.get((params as { operationId: string }).operationId)?.abort(); return; }
-      if (method !== 'session.event' && method !== 'model.changed' && method !== 'session.status') return;
-      const data = params as { sessionId: string; rootSessionId?: string; status?: string };
+      if (method !== 'session.event' && method !== 'model.changed' && method !== 'session.status' && method !== 'session.work.changed') return;
+      const data = params as { sessionId: string; rootSessionId?: string; status?: string; childId?: string; workChild?:boolean };
       const binding = options.store.bindingForSession(data.rootSessionId ?? data.sessionId);
       const config = options.agents.find(agent => agent.agentId === binding?.agentId && agent.mode === 'global');
       if (!binding || !config) return;
-      if (method === 'session.event' || method === 'model.changed') this.reconcile(binding).catch(options.onError);
+      const childId = method === 'session.work.changed' ? data.childId : data.workChild && data.sessionId !== binding.sessionId ? data.sessionId : undefined;
+      if (childId) {
+        const targets = this.childTargets.get(binding.sessionId) ?? new Set<string>();
+        targets.add(childId);
+        this.childTargets.set(binding.sessionId,targets);
+        this.drainChildren(binding).catch(options.onError);
+      } else if ((method === 'session.event' || method === 'model.changed') && data.sessionId === binding.sessionId) {
+        this.reconcileRoot(binding).catch(options.onError);
+      }
       if (method === 'session.status' && data.status === 'idle') {
         this.waitingForIdle.delete(config.agentId); this.wake(config, binding, true).catch(options.onError);
-        this.reconcile(binding).catch(options.onError);
+        this.reconcileRoot(binding).catch(options.onError);
       }
     });
   }
+  /** Require each affected root to reconcile durable input before its next wake. */
+  runtimeUnavailable(agentIds: readonly string[]): void {
+    const cut = Symbol('runtime outage');
+    for (const binding of this.options.store.bindings()) {
+      if (!agentIds.includes(binding.agentId) || !this.options.store.lifecycle.allowed(binding.agentId)) continue;
+      this.coldRoots.set(binding.sessionId, cut);
+      this.options.inbox.workPending(binding.sessionId, true);
+    }
+  }
+
   /** Close queued wakes and abort this Agent's product calls without waiting for runtime teardown. */
   cancelAgent(agentId:string):void {
     this.options.inbox.cancelAgent(agentId,this.options.store.bindings().filter(b=>b.agentId===agentId).map(b=>b.sessionId));
     this.backgroundRequested.delete(agentId);this.waitingForIdle.delete(agentId);
+    clearTimeout(this.agentRetry.get(agentId));this.agentRetry.delete(agentId);this.agentBackoff.delete(agentId);
     for(const [id,owner] of this.callAgents)if(owner===agentId)this.calls.get(id)?.abort();
     for(const binding of this.options.store.bindings().filter(b=>b.agentId===agentId)) {
-      this.dirty.delete(binding.sessionId);this.childrenDirty.delete(binding.sessionId);this.options.inbox.workPending(binding.sessionId,false);
+      const root = binding.sessionId;
+      this.childCatchup.delete(root);this.coldRoots.delete(root);
+      this.dirty.delete(root);this.childrenDirty.delete(root);this.childTargets.delete(root);this.failedChildren.delete(root);
+      clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
+      this.options.inbox.workPending(root,false);
     }
     this.armBackground();
   }
   /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
   get busy(): boolean {
-    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.calls.size > 0 ||
+    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.childCatchup.size > 0 || this.calls.size > 0 ||
       this.options.agents.some(agent => agent.mode === 'global' && this.options.inbox.wakePending(agent.agentId) !== undefined);
   }
   private binding(config: AgentConfiguration): SessionBinding {
@@ -132,7 +173,7 @@ export class GlobalAgent {
     if (control && !this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) return;
     const prior=control ? this.controlTasks.get(input.agent_id) : undefined;
     const task = (async()=>{await prior;await this.ingest(input);if(control)this.options.inbox.finishControl(input);})()
-      .catch(error=>{this.scheduleRecovery();throw error;}).finally(()=>{
+      .catch(error=>{this.scheduleAgentRecovery(config.agentId);throw error;}).finally(()=>{
         this.accepting.delete(key);if(this.controlTasks.get(input.agent_id)===task)this.controlTasks.delete(input.agent_id);
       });
     this.accepting.set(key,task);if(control)this.controlTasks.set(input.agent_id,task);await task;
@@ -140,10 +181,12 @@ export class GlobalAgent {
   }
   private ensureAuthority(binding: SessionBinding): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();
-    const key = `${this.options.authorityEpoch?.() ?? 0}:${binding.agentId}:${binding.sessionId}`;
+    const epoch=this.options.authorityEpoch?.();
+    if(this.authorityEpoch!==epoch) {this.authorities.clear();this.authorityEpoch=epoch;}
+    const key=`${binding.agentId}:${binding.sessionId}`;
     if (this.authorities.has(key)) return Promise.resolve();
     return this.options.relay.request('agent.session.ensure',{node_id:this.options.nodeId,agent_id:binding.agentId,session_id:binding.sessionId})
-      .then(()=>{this.authorities.add(key);});
+      .then(()=>{if(this.authorityEpoch===epoch)this.authorities.add(key);});
   }
   private drainReceipts(): Promise<void> {
     if (this.receiptDrain) return this.receiptDrain;
@@ -232,6 +275,7 @@ export class GlobalAgent {
       await this.controlTasks.get(config.agentId);
       if(this.options.inbox.pendingControls().some(input=>input.agent_id===config.agentId))throw new Error('Pending control intent');
       await this.controls.wait(binding.sessionId);
+      while (this.coldRoots.has(binding.sessionId)) await this.recoverRoot(binding);
       do {
       await this.recoverInterruptedWake(config,binding);
       let watermark: number | undefined;
@@ -248,10 +292,32 @@ export class GlobalAgent {
     })().finally(() => { this.waking.delete(config.agentId); this.armBackground(); });
     this.waking.set(config.agentId, task); return task;
   }
-  private submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
+  private async submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
+    const summary = await this.inboxSummary(config, binding);
     return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
-      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work and decide when to handle them. When you do, first check the current unread sources, then read and handle relevant messages. This is a system notification, not human permission.'}],
+      content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work or read relevant sources directly using their target. Check is optional when you need a refreshed list. This is a system notification, not human permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
+  }
+  private async checkInbox(config: AgentConfiguration, binding: SessionBinding) {
+    const sources = this.options.inbox.check(config.agentId).sources;
+    // Offline nodes can still process their persisted Inbox using the last known names.
+    if (sources.length && this.options.relay.ready !== false) {
+      // External sources are described locally; IM cannot resolve their routing IDs.
+      for (const external of [false, true]) {
+        const targets = sources.filter(source => source.target.startsWith('external:') === external).map(source => source.target);
+        if (!targets.length) continue;
+        const descriptions = await this.query(binding, { action: 'describe', targets });
+        for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(config.agentId, source.target, source.name);
+      }
+    }
+    return this.options.inbox.check(config.agentId, !!config.personal);
+  }
+  private async inboxSummary(config: AgentConfiguration, binding: SessionBinding): Promise<string> {
+    const { sources } = await this.checkInbox(config, binding);
+    return 'Unread conversation snapshot (mentions counts messages that @ you):\n'
+      + JSON.stringify(this.options.store.toolReferences.result(config.agentId, 'inbox', {
+        sources: sources.map(({ requires_attention: _attention, ...source }) => source),
+      }));
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
     if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
@@ -335,7 +401,7 @@ export class GlobalAgent {
     this.waitingForIdle.add(config.agentId);
     if (this.options.relay.ready===false) return;
     await this.refreshPersonalSources(config);
-    const state=await runtime.request('session.observe',{sessionId:binding.sessionId}) as {status:string};
+    const state=await runtime.request('session.status',{sessionId:binding.sessionId}) as {status:string};
     if(state.status!=='idle')return;
     // The active turn may consume this batch while the runtime observation is in flight.
     const batch=inbox.background(config.agentId);
@@ -346,55 +412,124 @@ export class GlobalAgent {
       if(!prior.accepted) {inbox.admitBackground(config.agentId,batch.watermark,Date.now(),false);this.waitingForIdle.delete(config.agentId);return;}
     }
     inbox.prepareBackground(config.agentId,batch.watermark);
+    const summary=await this.inboxSummary(config,binding);
     const result=await runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',onlyIfIdle:true,
-      content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Read the accumulated updates and assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.'}],
+      content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Select relevant sources and read directly using their target; check is optional to refresh the list. Assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox-background',messageId:inputId}}) as {accepted:boolean;durable?:boolean;busy?:boolean};
     if(result.accepted && result.durable) {
       inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);
     } else if(!result.busy) throw new Error('Background notification has no durable admission ACK');
   }
-  private scheduleRecovery():void {
-    if(this.stopped || this.recoveryTimer)return;
-    this.recoveryTimer=setTimeout(()=>{this.recoveryTimer=undefined;void this.recover().catch(this.options.onError);},1000);this.recoveryTimer.unref();
+  private scheduleAgentRecovery(agentId:string):void {
+    const {store,agents}=this.options;
+    if(this.stopped || this.agentRetry.has(agentId) || !store.lifecycle.allowed(agentId))return;
+    if(!agents.some(agent=>agent.agentId===agentId))return;
+    const delay=this.agentBackoff.get(agentId)??1000;
+    this.agentBackoff.set(agentId,Math.min(delay*2,30_000));
+    const timer=setTimeout(()=>{
+      this.agentRetry.delete(agentId);
+      void this.recoverForAgent(agentId).catch(this.options.onError);
+    },delay);
+    timer.unref();this.agentRetry.set(agentId,timer);
   }
   recover():Promise<void> {
+    if(this.stopped)return Promise.resolve();
     if(this.recovering)return this.recovering;
     this.recovering=this.recoverAll().finally(()=>{this.recovering=undefined;});return this.recovering;
   }
   private async recoverAll(): Promise<void> {
     this.waitingForIdle.clear(); this.authorities.clear();
-    const receipts=this.drainReceipts();
-    const publications=Promise.all(this.options.store.bindings().filter(binding=>this.options.agents.some(agent=>agent.agentId===binding.agentId&&!agent.personal)).map(async binding=>{
-      try{await this.recoverPublications(binding);}catch(error){this.scheduleRecovery();this.options.onError(error);}
-    }));
-    await Promise.all(this.options.agents.filter(agent=>agent.mode==='global' && this.options.store.lifecycle.allowed(agent.agentId)).map(config=>this.options.store.lifecycle.run(config.agentId,undefined,async()=>{
-      try {
-        for(const input of this.options.inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
-        if(config.personal)await this.restorePersonalInputs(config);
-        const binding=this.binding(config), {inbox,store,runtime}=this.options;
-        const checkpoints=inbox.workCheckpoints(binding.sessionId);
-        const background=inbox.background(config.agentId);
-        const obligations=inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
-          !!background && (background.pending || background.dueAt<=Date.now()) ||
-          store.controls().some(intent=>intent.binding.agentId===config.agentId && !intent.delivered) || store.lookupInputIds(binding.sessionId).length>0;
-        if(checkpoints[binding.sessionId] && !obligations) {
-          const check=await runtime.request('session.work.check',{sessionId:binding.sessionId,...this.workPositions(binding.sessionId)}) as {settled?:boolean;rootSettled?:boolean};
-          if(check.settled || check.rootSettled) {
-            await this.ensureAuthority(binding);
-            if(!check.settled) {
-              await this.reconcile(binding,true);
-              const refreshed=await runtime.request('session.work.check',{sessionId:binding.sessionId,...this.workPositions(binding.sessionId)}) as {settled?:boolean};
-              if(!refreshed.settled) {await this.main(config);await this.reconcile(binding);await this.wake(config,binding,true);}
-            }
-            else {inbox.workPending(binding.sessionId,false);this.options.onWork?.();}
-            this.armBackground();return;
-          }
-        }
-        await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
-      } catch(error) {this.scheduleRecovery();this.options.onError(error);}
-    })));
-    await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();await publications;
+    await Promise.all(this.options.agents.map(config=>this.recoverForAgent(config.agentId)));
+    await this.recoverPersonalObservations(); await this.drainReceipts();
   }
+
+  /** Reconcile durable obligations after this Agent's own lifecycle and stop fences. */
+  recoverForAgent(agentId:string):Promise<void> {
+    const {store,agents}=this.options;
+    const active=this.agentRecoveries.get(agentId);
+    if(active)return active;
+    const config=agents.find(agent=>agent.agentId===agentId);
+    if(this.stopped || !config || !store.lifecycle.allowed(agentId))return Promise.resolve();
+    this.waitingForIdle.delete(agentId);
+    void this.drainReceipts();
+    const task=store.lifecycle.run(agentId,undefined,async()=>{
+      const publications=config.personal ? [] : store.bindings(agentId).map(binding=>this.recoverPublications(binding));
+      const results=await Promise.allSettled([...publications,...(config.mode==='global'?[this.restoreRoot(config)]:[])]);
+      const failure=results.find(result=>result.status==='rejected');
+      if(failure)throw failure.reason;
+      clearTimeout(this.agentRetry.get(agentId));this.agentRetry.delete(agentId);this.agentBackoff.delete(agentId);
+    }).catch(error=>{this.scheduleAgentRecovery(agentId);this.options.onError(error);})
+      .finally(()=>this.agentRecoveries.delete(agentId));
+    this.agentRecoveries.set(agentId,task);return task;
+  }
+
+  private async restoreRoot(config:AgentConfiguration):Promise<void> {
+    const {inbox,runtime,store}=this.options;
+    for(const input of inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
+    if(config.personal)await this.restorePersonalInputs(config);
+    const binding=this.binding(config);
+    const checkpoint=inbox.workCut(binding.sessionId);
+    const background=inbox.background(config.agentId);
+    const obligations=inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
+      !!background && (background.pending || background.dueAt<=Date.now()) ||
+      store.pendingControls(config.agentId).length>0 || store.lookupInputIds(binding.sessionId).length>0;
+    if(checkpoint && !obligations) {
+      const outage=this.coldRoots.get(binding.sessionId);
+      const check=await runtime.request('session.work.check',{sessionId:binding.sessionId,afterSeq:checkpoint.throughSeq,
+        modelVersion:checkpoint.modelVersion}) as {rootSettled?:boolean};
+      if(check.rootSettled) {
+        await this.ensureAuthority(binding);
+        if(this.coldRoots.get(binding.sessionId)===outage)this.coldRoots.delete(binding.sessionId);
+        this.catchUpChildWork(binding);this.armBackground();return;
+      }
+    }
+    await this.main(config);
+    await this.recoverRoot(binding);
+    await this.wake(config,binding,true);
+  }
+  private recoverRoot(binding: SessionBinding): Promise<void> {
+    const id = binding.sessionId;
+    const active = this.foregroundRecovery.get(id);
+    if (active) return active;
+    const outage = this.coldRoots.get(id);
+    const task = (async () => {
+      this.options.inbox.workPending(id, true);
+      await this.controls.recover(binding.agentId);
+      await this.reconcileRoot(binding);
+      if (this.coldRoots.get(id) === outage) {
+        this.coldRoots.delete(id);
+        this.catchUpChildWork(binding);
+      }
+    })().finally(() => this.foregroundRecovery.delete(id));
+    this.foregroundRecovery.set(id, task);
+    return task;
+  }
+
+  private catchUpChildWork(binding: SessionBinding): void {
+    if(this.stopped || !this.options.store.lifecycle.allowed(binding.agentId))return;
+    this.childCatchup.set(binding.sessionId,binding);
+    this.updateWorkPending(binding.sessionId);
+    if(this.childCatchupTask)return;
+    this.childCatchupTask=(async()=>{
+      while(!this.stopped && this.childCatchup.size) {
+        await yieldToIO(undefined,{signal:this.childCatchupStop.signal}).catch(error=>{
+          if(!this.stopped)throw error;
+        });
+        const next=this.childCatchup.values().next().value;
+        if(!next || this.stopped)break;
+        this.childCatchup.delete(next.sessionId);
+        const {lifecycle}=this.options.store;
+        if(lifecycle.allowed(next.agentId))
+          await lifecycle.run(next.agentId,undefined,()=>this.reconcile(next,true)).catch(this.options.onError);
+      }
+    })().finally(()=>{
+      this.childCatchupTask=undefined;
+      const pending=this.childCatchup.values().next().value;
+      if(pending && !this.stopped)this.catchUpChildWork(pending);
+    });
+    void this.childCatchupTask.catch(this.options.onError);
+  }
+
   /** Consume persisted source events without changing the owner's read receipts. */
   recoverPersonalObservations(): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();
@@ -417,9 +552,9 @@ export class GlobalAgent {
               }
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,source_policy_revision:event.policy_revision},
+                metadata:{pa_observation:true,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
-                  attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,sender:message.sender}},true);
+                  attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,reply_to:message.reply_to,sender:message.sender}},true);
             } else {
               this.options.store.lifecycle.assert(config.agentId,event.lifecycle_revision??1);
               const binding=await this.main(config);
@@ -519,10 +654,8 @@ export class GlobalAgent {
           return {...result,other_admitted_inputs_available:true};
         }
         if (call.args.action === 'check') {
-          const sources = this.options.inbox.check(call.agentId).sources;
-          const descriptions = await this.query(binding, { action: 'describe', targets: sources.map(source => source.target) });
-          for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(call.agentId, source.target, source.name);
-          return {...this.options.inbox.check(call.agentId,!!personalConfig),...(personalConfig?{security_incidents:(await this.personal.request(personalConfig,'pa.incidents.pending')).items}:{})};
+          const config = this.options.agents.find(agent => agent.agentId === call.agentId)!;
+          return {...await this.checkInbox(config,binding),...(personalConfig?{security_incidents:(await this.personal.request(personalConfig,'pa.incidents.pending')).items}:{})};
         }
         if (call.args.action !== 'read' || typeof call.args.target !== 'string') throw new Error('Inbox read needs a target');
         const info = await this.query(binding, { action: 'info', target: call.args.target });
@@ -647,12 +780,18 @@ export class GlobalAgent {
     const { inbox, store, runtime } = this.options;
     const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
     const global = config?.mode === 'global';
-    if(config?.personal) return this.personal.send(config,binding,call);
+    if (typeof call.args.receipt_of === 'string') return this.screenshotReceipt(binding, call, config);
+    if(config?.personal) return this.personal.send(config,binding,call,signal);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
-    const publicationBody = interactive ? sortedJsonAscii({text, interactive}) : text;
-    if (!target || !text.trim()) throw new Error('Sending requires a target and non-empty text');
-    const confirm = (payload:Record<string,unknown>) => this.confirmPublication(binding,call,target,text,payload);
+    const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
+    const quote = replyTo ? { reply_to_message_id: replyTo } : {};
+    const paths = call.args.local_images as string[] | undefined;
+    const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote})
+      : interactive || replyTo ? sortedJsonAscii({text, interactive, ...quote}) : text;
+    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
+    const savedCall = () => callPosition(store.toolCall(call.sessionId,call.callId));
+    const confirm = (payload:Record<string,unknown>, position: PublicationPosition | undefined) => this.confirmPublication(binding,call,target,text,payload,position);
     const previous = inbox.publication(call.operationId);
     if (previous) {
       if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
@@ -661,13 +800,12 @@ export class GlobalAgent {
       if(previous.state==='unknown' || previous.state==='sending') {
         const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
         if(status.payload.found===true) {
-          return confirm(status.payload);
+          return confirm(status.payload,previous.source ? JSON.parse(previous.source) as PublicationPosition : savedCall());
         }
       }
     }
     const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
-    if (global) await this.reconcileRoot(binding);
-    else {
+    if (!global) {
       const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
       if (!read.durable) throw new Error('No durable source evidence');
       store.recordEvents(binding.sessionId, read.events);
@@ -678,145 +816,300 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
-    const turn = this.options.store.events(call.sessionId).find(event => event.type === 'tool/call' && event.data.callId === call.callId)?.data.turn as number | undefined;
-    let correction = false;
-    if (!global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web') {
+    if(replyTo && info?.channel && info.channel!=='web')throw new Error('Quoted replies require a Nano IM destination');
+    if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
+    if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
+    const targets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
+    const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
+      ? [...new Set(targets)].filter((id): id is string => typeof id === 'string') : [];
+    const saved = savedCall();
+    const position = global
+      ? await this.publicationEvidence(binding, reviewTargets, signal, saved ? undefined : call.callId) ?? saved
+      : saved;
+    const turn = position?.turn;
+    const currentSingleGroup = !global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web';
+    const refreshTurnEvidence = async () => {
       for (const input of store.inputs(binding.sessionId)) {
-        const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId: input.id }) as { accepted: boolean; turn?: number; terminal?: unknown };
+        const evidence = await runtime.request('session.lookup', {sessionId:binding.sessionId, inputId:input.id}) as {accepted:boolean;turn?:number;terminal?:unknown};
         store.inputEvidence(input.id, evidence);
       }
-      const inputs = store.inputs(binding.sessionId);
-      const position = inputs.findLastIndex(input => input.turn === turn);
-      correction = inputs.slice(position + 1).some(input => !input.input.metadata.context_only);
-    }
-    signal.throwIfAborted();
-    // Receive and dispatch admission are synchronous in this node's event loop.
-    inbox.preparePublication(call.operationId, target, publicationBody,binding.agentId);
-    // External conversations and their IM mirrors share one delivery target.
-    const inboxTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
-    const revalidate = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web';
-    const unreadTargets = global && revalidate ? [...new Set(inboxTargets)].filter((target): target is string => typeof target === 'string' && inbox.blocking(binding.agentId, target)) : [];
-    if (revalidate && (global ? unreadTargets.length > 0 : correction)) {
-      const result = { status: 'held_for_revalidation', target, ...(global ? { inbox_targets: unreadTargets } : {}), message: global
+    };
+    const revalidate = () => {
+      signal.throwIfAborted();
+      const inputs = currentSingleGroup ? store.inputs(binding.sessionId) : [];
+      const correction = inputs.slice(inputs.findLastIndex(input => input.turn === turn) + 1).some(input => !input.input.metadata.context_only);
+      const unread = global ? reviewTargets.filter(id => inbox.blocking(binding.agentId, id)) : [];
+      if (!reviewTargets.length || !(global ? unread.length : correction)) return undefined;
+      const result = {status:'held_for_revalidation', target, ...(global ? {inbox_targets:unread} : {}), message:global
         ? 'Nothing was sent. Read the new messages from inbox_targets and reconsider before sending with a new call.'
-        : 'Read the new messages in this conversation and reconsider before sending.' };
-      inbox.settlePublication(call.operationId, 'held', result);
-      if (global) this.append(binding, `publication:${call.operationId}`, {type: 'draft_withheld', payload: { call_id: call.callId, target, text }}, turn);
+        : 'Read the new messages in this conversation and reconsider before sending.'};
+      if (global) {
+        const fact = this.workEvent(binding, `publication:${call.operationId}`, {type:'draft_withheld', payload:{call_id:call.callId,target,text}}, turn);
+        inbox.settlePublicationWithWork(call.operationId, 'held', result, fact, position?.seq);
+        this.options.onWork?.();
+      } else inbox.settlePublication(call.operationId, 'held', result);
       return result;
+    };
+    if (currentSingleGroup) await refreshTurnEvidence();
+    signal.throwIfAborted();
+    inbox.preparePublication(call.operationId, target, publicationBody, binding.agentId, global ? {...position, text} : undefined);
+    const held = revalidate();
+    if (held) return held;
+
+    const attachments = paths ? await prepareScreenshots(this.options.uploadScreenshot, {
+      agentId:binding.agentId, conversationId:reviewConversation!, operationId:call.operationId,
+      lifecycleRevision:store.lifecycle.assert(binding.agentId), signal,
+    }, paths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);
+    if (paths) {
+      if (global) await this.publicationEvidence(binding, reviewTargets, signal);
+      if (currentSingleGroup) await refreshTurnEvidence();
+      const changed = revalidate();
+      if (changed) return changed;
     }
     inbox.settlePublication(call.operationId, 'sending');
     try {
-      const response = await this.publishMessage({ node_id: this.options.nodeId, text,
+      const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
+        ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
-      return confirm(response.payload);
+      return confirm(response.payload,position);
     } catch (error) {
-      if (interactive && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+      if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
+        const result = {status:'not_sent',target,reason:error.message};
+        inbox.settlePublication(call.operationId, 'rejected', result);
+        return result;
+      }
+      if ((interactive || paths) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');
-        throw new Error(error.detail ? JSON.stringify(error.detail) : `Interactive reply rejected: ${error.code ?? error.message}`);
+        throw new Error(error.detail ? JSON.stringify(error.detail) : `Message rejected: ${error.code ?? error.message}`);
       }
       inbox.settlePublication(call.operationId, 'unknown');
       if(error instanceof RelayDeliveryError && error.delivery==='unknown') {
         try {
           const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
           if(status.payload.found===true) {
-            return confirm(status.payload);
+            return confirm(status.payload,position);
           }
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }
+      if (paths && !(error instanceof RelayDeliveryError && error.delivery === 'rejected'))
+        return unknownScreenshotReceipt(target, call.operationId);
       throw error;
     }
   }
+
+  private async publicationEvidence(binding: SessionBinding, targets: string[], signal: AbortSignal, callId?: string): Promise<PublicationPosition | undefined> {
+    const {inbox, runtime} = this.options;
+    const blocked = targets.filter(target => inbox.blocking(binding.agentId, target));
+    const readIds = blocked.length ? inbox.pendingReadCalls(binding.sessionId, blocked) : [];
+    if (callId === undefined && !readIds.length) return undefined;
+    let afterSeq = inbox.workCut(binding.sessionId)?.throughSeq ?? -1;
+    let head: number | undefined;
+    let call: RuntimePublicationEvidence['call'];
+    do {
+      const page = await runtime.request('session.publication', {sessionId: binding.sessionId, afterSeq, callId, readIds, head}) as RuntimePublicationEvidence;
+      signal.throwIfAborted();
+      if (!page.durable) throw new Error('No durable publication evidence');
+      if (page.throughSeq < page.head && page.throughSeq <= afterSeq) throw new Error('Publication evidence did not advance');
+      call ??= page.call;
+      for (const event of page.reads ?? []) this.commitInboxRead(binding, event);
+      afterSeq = page.throughSeq;
+      head = page.head;
+      callId = undefined;
+    } while (head !== undefined && afterSeq < head);
+    return call;
+  }
+
+  private async screenshotReceipt(binding: SessionBinding, call: ProductCall, config?: AgentConfiguration): Promise<unknown> {
+    const id = String(call.args.receipt_of), target = String(call.args.target);
+    const original = this.options.inbox.publication(id);
+    if (!id.startsWith(`${binding.sessionId}:`) || !original || original.target !== target)
+      throw new Error('No screenshot operation for this Agent and target');
+    let body: {text?:string; local_images?:unknown} | undefined;
+    try { body = JSON.parse(original.body); } catch { /* Legacy text publications have no envelope. */ }
+    if (!Array.isArray(body?.local_images)) throw new Error('No screenshot operation for this Agent and target');
+    if (original.result) return JSON.parse(original.result);
+    if (!['sending','unknown'].includes(original.state)) return {status:'not_sent', target};
+    const result = config?.personal ? await this.personal.screenshotReceipt(config, target, id)
+      : (await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:id})).payload;
+    if (result.found === true) {
+      const callId=id.slice(binding.sessionId.length+1);
+      const position = original.source ? JSON.parse(original.source) as PublicationPosition : callPosition(this.options.store.toolCall(binding.sessionId,callId));
+      return this.confirmPublication(binding,{operationId:id,callId},target,body?.text??'',result,position);
+    }
+    return unknownScreenshotReceipt(target,id);
+  }
+
   private async publishMessage(publication: AgentPublication): Promise<ProtocolFrame & {payload: {message_id: string}}> {
     const response = await this.options.relay.request('agent.message', {...publication});
     if (typeof response.payload.message_id !== 'string' || !response.payload.message_id) throw new Error('Agent publication has no message identity');
     return {...response, payload: {...response.payload, message_id: response.payload.message_id}};
   }
-  private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'|'sessionId'>,target:string,text:string,payload:Record<string,unknown>) {
+  private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'>,target:string,text:string,payload:Record<string,unknown>,position?:PublicationPosition) {
+    const {inbox, store} = this.options;
     const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
-    this.options.inbox.settlePublication(call.operationId,'confirmed',result);
     const global=this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode==='global';
-    const turn=this.options.store.events(call.sessionId).find(event=>event.type==='tool/call'&&event.data.callId===call.callId)?.data.turn as number|undefined;
-    const sameConversation=payload.conversation_id===binding.conversationId||payload.conversation_id===this.options.store.imConversation(binding.agentId,binding.conversationId);
-    if(!global&&turn!==undefined&&typeof payload.conversation_id==='string'&&sameConversation)this.options.store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
-    if(global)this.append(binding,`publication:${call.operationId}`,{type:'message_sent',payload:{call_id:call.callId,text,...result}},turn);
+    const turn = position?.turn;
+    if (global) {
+      const fact = this.workEvent(binding, `publication:${call.operationId}`, {type:'message_sent',payload:{call_id:call.callId,text,...result}}, turn);
+      inbox.settlePublicationWithWork(call.operationId, 'confirmed', result, fact, position?.seq);
+      this.options.onWork?.();
+    } else {
+      inbox.settlePublication(call.operationId,'confirmed',result);
+      const sameConversation=payload.conversation_id===binding.conversationId||payload.conversation_id===store.imConversation(binding.agentId,binding.conversationId);
+      if(turn!==undefined&&typeof payload.conversation_id==='string'&&sameConversation)store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
+    }
     return result;
   }
   private async recoverPublications(binding: SessionBinding): Promise<void> {
     for(const publication of this.options.inbox.pendingPublications(binding.sessionId)) {
       const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:publication.id});
       if(status.payload.found!==true)continue;
-      let text=publication.body;
-      try{const body=JSON.parse(publication.body);if(body.interactive){text=body.text;}}catch{ /* Plain text publications need no envelope. */ }
-      this.confirmPublication(binding,{operationId:publication.id,callId:publication.id.slice(binding.sessionId.length+1),sessionId:binding.sessionId},publication.target,text,status.payload);
+      const callId = publication.id.slice(binding.sessionId.length + 1);
+      if (publication.source) {
+        const source = JSON.parse(publication.source) as PublicationPosition & {text: string};
+        this.confirmPublication(binding,{operationId:publication.id,callId},publication.target,source.text,status.payload,source);
+        continue;
+      }
+      const call = this.options.store.toolCall(binding.sessionId,callId);
+      const args = argumentsObject(call?.data.arguments);
+      // Tool arguments distinguish a plain JSON message from a stored publication envelope.
+      const body = argumentsObject(publication.body);
+      const savedText = typeof body?.text === 'string' && (body.interactive || body.attachments || body.reply_to_message_id)
+        ? body.text : publication.body;
+      const text = typeof args?.text === 'string' ? args.text : savedText;
+      this.confirmPublication(binding,{operationId:publication.id,callId},publication.target,text,status.payload,callPosition(call));
     }
   }
-  private workPositions(root:string) {
-    const checkpoints=Object.entries(this.options.inbox.workCheckpoints(root));
-    return {cursors:Object.fromEntries(checkpoints.map(([id,cut])=>[id,cut.throughSeq])),
-      modelVersions:Object.fromEntries(checkpoints.filter(([,cut])=>cut.modelVersion!==undefined).map(([id,cut])=>[id,cut.modelVersion!]))};
+  private updateWorkPending(root: string): void {
+    const pending=this.coldRoots.has(root) || this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
+      this.childCatchup.has(root) || this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
+    this.options.inbox.workPending(root,pending);
+    if (!pending) {
+      clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
+    }
+    this.options.onWork?.();
+  }
+  private retryWork(binding: SessionBinding): void {
+    const root = binding.sessionId;
+    if (this.stopped || this.workRetries.has(root) || !this.options.store.lifecycle.allowed(binding.agentId)) return;
+    const delay=this.workBackoff.get(root) ?? 1000;
+    this.workBackoff.set(root,Math.min(delay*2,30_000));
+    const timer=setTimeout(()=>{
+      this.workRetries.delete(root);
+      const failed=this.failedChildren.get(root);
+      if (failed) {
+        this.failedChildren.delete(root);
+        if (failed.discover) this.childrenDirty.add(root);
+        if (failed.targets.size) this.childTargets.set(root,new Set([...(this.childTargets.get(root) ?? []),...failed.targets]));
+      }
+      if (this.dirty.has(root)) this.reconcileRoot(binding).catch(this.options.onError);
+      if (this.childrenDirty.has(root) || this.childTargets.get(root)?.size) this.drainChildren(binding).catch(this.options.onError);
+    },delay);
+    timer.unref();this.workRetries.set(root,timer);
   }
   private async reconcile(binding: SessionBinding, childrenOnly=false): Promise<void> {
-    const root=binding.sessionId,generation=(this.reconciliation.get(root)??0)+1;
-    this.reconciliation.set(root,generation);this.options.inbox.workPending(root,true);this.options.onWork?.();
-    try {
-      await Promise.all([childrenOnly?Promise.resolve():this.reconcileRoot(binding), this.reconcileChildren(binding)]);
-      if(this.reconciliation.get(root)===generation) {this.options.inbox.workPending(root,false);this.options.onWork?.();}
-    }catch(error){this.scheduleRecovery();throw error;}
+    this.childrenDirty.add(binding.sessionId);
+    await Promise.all([childrenOnly?this.drains.get(binding.sessionId):this.reconcileRoot(binding),this.drainChildren(binding).catch(this.options.onError)]);
   }
-  // Sending needs durable root evidence and Inbox consumption, not an unrelated
-  // child's display history. Separate drains also let recovery track both jobs.
+  // Separate drains let Work recover root and child histories independently.
   private reconcileRoot(binding: SessionBinding): Promise<void> {
-    this.dirty.add(binding.sessionId);
-    const prior = this.drains.get(binding.sessionId); if (prior) return prior;
+    const root=binding.sessionId;
+    this.dirty.add(root);
+    const prior = this.drains.get(root); if (prior) return prior;
     const task = (async () => {
       while (this.dirty.delete(binding.sessionId)) {
-        const { store, inbox, runtime } = this.options;
-        const result = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; throughSeq?:number; modelRuns?: ModelRunProjection[]; modelVersion?:string };
-        if (!result.durable) throw new Error('No durable event barrier');
-        store.recordEvents(binding.sessionId, result.events);
-        // The native receive cursor can be ahead after a crash. Only the product
-        // checkpoint commits display facts; keep the open logical turn for pairing.
-        const prior=inbox.workCheckpoints(binding.sessionId)[binding.sessionId];
-        const events = logicalEvents(workSuffix(store.events(binding.sessionId,(prior?.replayFrom??0)-1),prior), result.modelRuns ?? []);
-        const facts=this.modelNotices(binding, result.modelRuns ?? []);
-        for (const event of events) {
-          const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
-          if (event.type === 'tool/result') {
-            const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
-            if (inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) {
-              const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
-              this.append(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
-                call_id: message.toolCallId,
-                source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
-              }}, turn, event.time);
+        const {inbox,runtime}=this.options;
+        const cut=inbox.workCut(binding.sessionId);
+        const page=await runtime.request('session.work.root',{sessionId:binding.sessionId,afterSeq:cut?.throughSeq,replayFrom:cut?.replayFrom}) as RuntimeWorkPage;
+        await this.projectRootPage(binding,page);
+        if (page.more) this.dirty.add(binding.sessionId);
+      }
+    })().catch(error=>{
+      if (this.options.store.lifecycle.allowed(binding.agentId)) {this.dirty.add(root);this.retryWork(binding);}
+      throw error;
+    }).finally(() => {this.drains.delete(root);this.updateWorkPending(root);});
+    this.drains.set(root, task);this.updateWorkPending(root);return task;
+  }
+  private async projectRootPage(binding: SessionBinding, result: RuntimeWorkPage, stopped = false): Promise<void> {
+    const {store,inbox}=this.options;
+    if (!result.durable) throw new Error('No durable event barrier');
+    store.recordEvents(binding.sessionId,result.events);
+    if (this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode!=='global') return;
+    const prior=inbox.workCut(binding.sessionId);
+    const throughSeq=result.throughSeq ?? store.cursor(binding.sessionId);
+    const events=logicalEvents(workSuffix(store.events(binding.sessionId,(prior?.replayFrom??0)-1,throughSeq),prior),result.modelRuns ?? [],true);
+    const facts=this.modelNotices(binding, result.modelRuns ?? []);
+    const positioned: {seq: number; event: WorkDraft}[] = [];
+    for (const event of events) {
+      const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
+      if (!stopped && event.type === 'tool/result') this.commitInboxRead(binding, event);
+      const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
+      if (!stopped && event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {
+        const status = ((run?.terminal ?? event.data.reason) as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
+        // receipt persists the Web outbox intent even while the relay is offline.
+        await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
+      }
+      const projected = projectWorkEvent(binding.sessionId, event, events);
+      if (projected) {
+        const {turn, ...fact} = projected;
+        positioned.push({seq: event.seq, event: this.workEvent(binding, `runtime:${event.seq}`, fact, turn, event.time)});
+      }
+    }
+    inbox.commitWork(binding.sessionId,workCheckpoint(binding.sessionId,throughSeq,events,result.modelVersion),facts,undefined,positioned);
+    this.options.onWork?.();
+  }
+
+  private commitInboxRead(binding: SessionBinding, event: RuntimeEvent): void {
+    const {inbox, store} = this.options;
+    const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
+    const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
+    if (!inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) return;
+    const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
+    const fact = this.workEvent(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
+      call_id: message.toolCallId,
+      source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
+    }}, turn, event.time);
+    inbox.appendAfterWork(fact, event.seq);
+  }
+
+  private drainChildren(binding: SessionBinding): Promise<void> {
+    const root=binding.sessionId;
+    const prior = this.childDrains.get(root); if (prior) return prior;
+    const task = (async () => {
+      const failed = new Set<string>();
+      let retryDiscovery=false;
+      try {
+        for (;;) {
+          const discover = this.childrenDirty.delete(root);
+          const targets = this.childTargets.get(root);
+          if (!discover && !targets?.size) break;
+          this.childTargets.delete(root);
+          if (discover) {
+            try {await this.projectChildren(binding,this.options.runtime.request,undefined,failed);} catch (error) {
+              retryDiscovery=true;
+              this.options.onError(error);
             }
           }
-          const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
-          if (event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {
-            const status = ((run?.terminal ?? event.data.reason) as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
-            // receipt persists the Web outbox intent even while the relay is offline.
-            await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
-          }
-          const projected = projectWorkEvent(binding.sessionId, event, events);
-          if (projected) {
-            const {turn, ...fact} = projected;
-            facts.push(this.workEvent(binding, `runtime:${event.seq}`, fact, turn, event.time));
+          for (const id of targets ?? []) {
+            try {
+              const catalog=await this.options.runtime.request('session.work.targets',{sessionId:root,childId:id}) as RuntimeWorkCatalog;
+              await this.projectChildRows(binding,catalog,this.options.runtime.request);
+              failed.delete(id);this.failedChildren.get(root)?.targets.delete(id);
+            } catch(error) {failed.add(id);this.options.onError(error);}
           }
         }
-        inbox.commitWork(binding.sessionId,workCheckpoint(binding.sessionId,result.throughSeq??store.cursor(binding.sessionId),events,result.modelVersion),facts);
-        this.options.onWork?.();
+      } finally {
+        if (this.options.store.lifecycle.allowed(binding.agentId)) {
+          const deferred=this.failedChildren.get(root);
+          if (retryDiscovery || failed.size || deferred?.discover || deferred?.targets.size) {
+            this.failedChildren.set(root,{discover:retryDiscovery || !!deferred?.discover,targets:new Set([...(deferred?.targets ?? []),...failed])});
+            this.retryWork(binding);
+          } else this.failedChildren.delete(root);
+        }
       }
-    })().finally(() => this.drains.delete(binding.sessionId));
-    this.drains.set(binding.sessionId, task); return task;
-  }
-  private reconcileChildren(binding: SessionBinding): Promise<void> {
-    this.childrenDirty.add(binding.sessionId);
-    const prior = this.childDrains.get(binding.sessionId); if (prior) return prior;
-    const task = (async () => {
-      while (this.childrenDirty.delete(binding.sessionId)) await this.projectChildren(binding);
-    })().finally(() => this.childDrains.delete(binding.sessionId));
-    this.childDrains.set(binding.sessionId, task); return task;
+    })().finally(() => {this.childDrains.delete(root);this.updateWorkPending(root);});
+    this.childDrains.set(root,task);this.updateWorkPending(root);return task;
   }
   private modelNotices(binding: SessionBinding, runs: ModelRunProjection[]) {
     const facts:ReturnType<GlobalAgent['workEvent']>[]=[];
@@ -828,56 +1121,86 @@ export class GlobalAgent {
     }
     return facts;
   }
-  private async projectChildren(root: SessionBinding): Promise<void> {
-    const inbox=this.options.inbox, checkpoints=inbox.workCheckpoints(root.sessionId);
-    const children = await this.options.runtime.request('session.descendants', { sessionId: root.sessionId, ...this.workPositions(root.sessionId) }) as { kind: string; id: string; parentId: string; reason?:string; workflowRunId?:string; label?: string; events?: RuntimeEvent[]; throughSeq?: number; modelRuns?: ModelRunProjection[]; modelVersion?: string }[];
-    let incomplete=false;
-    for (const child of children) {
-      if (child.kind !== 'child') {if(child.reason!=='unsupported')incomplete=true;continue;}
-      const binding = { ...root, sessionId: child.id },prior=checkpoints[child.id];
-      const facts=[this.workEvent(binding, 'registered', {type: 'session_registered', payload: { scope: child.workflowRunId?'workflow':'subagent', workflow_run_id:child.workflowRunId, parent_session_id: child.parentId, child_agent_id: child.id, title: child.label ?? child.id, description: child.label }}),
-        ...this.modelNotices(binding, child.modelRuns ?? [])];
-      const events = logicalEvents(workSuffix(child.events ?? [],prior), child.modelRuns ?? []);
-      for (const event of events) {
-        const projected = projectWorkEvent(child.id, event, events, true);
-        if (projected) {
-          const {turn, ...fact} = projected;
-          facts.push(this.workEvent(binding, `runtime:${event.seq}`, fact, turn, event.time));
-        }
-      }
-      if(child.throughSeq!==undefined) {
-        const cut=prior && !child.events?.length && prior.throughSeq===child.throughSeq ? {...prior,modelVersion:child.modelVersion??prior.modelVersion}
-          :workCheckpoint(root.sessionId,child.throughSeq,events,child.modelVersion);
-        inbox.commitWork(child.id,cut,facts);
-      }else incomplete=true;
-    }
-    this.options.onWork?.();
-    if(incomplete)throw new Error('Work descendant records are not yet available');
+  private async projectChildren(root: SessionBinding, read: Options['runtime']['request'], stoppedRevision?: number, failed?: Set<string>): Promise<void> {
+    let afterId:string|undefined, incomplete=false;
+    do {
+      const catalog=await read('session.work.children',{sessionId:root.sessionId,afterId,stoppedRevision}) as RuntimeWorkCatalog;
+      incomplete=await this.projectChildRows(root,catalog,read,stoppedRevision,failed) || incomplete;
+      afterId=catalog.next;
+    } while (afterId!==undefined);
+    if (incomplete) throw new Error('Work descendant records are not yet available');
   }
-  /** Commit final durable stop facts without creating inputs, waking agents or sending messages. */
-  recordStopped(agentId: string, snapshots: RuntimeStopHistory[]): void {
-    const {store,inbox}=this.options;
-    for(const snapshot of snapshots) {
-      const root=store.bindings().find(binding=>binding.sessionId===snapshot.rootSessionId&&binding.agentId===agentId);
-      if(!root)throw new Error('Stopped history has no trusted root');
-      const child=snapshot.sessionId!==root.sessionId;
-      if(!child)store.recordEvents(root.sessionId,snapshot.events);
-      if(this.options.agents.find(agent=>agent.agentId===agentId)?.mode!=='global')continue;
-      const binding={...root,sessionId:snapshot.sessionId};
-      const prior=inbox.workCheckpoints(root.sessionId)[snapshot.sessionId];
-      const events=logicalEvents(workSuffix(child?snapshot.events:store.events(root.sessionId,(prior?.replayFrom??0)-1),prior),snapshot.modelRuns);
-      const facts=child?[this.workEvent(binding,'registered',{type:'session_registered',payload:{scope:'subagent',parent_session_id:snapshot.parentSessionId??root.sessionId,child_agent_id:snapshot.sessionId,title:snapshot.sessionId}})]:[];
-      for(const event of events) {
-        const projected=projectWorkEvent(snapshot.sessionId,event,events,child);
-        if(projected) {
-          const {turn, ...fact} = projected;
+  private async projectChildRows(root: SessionBinding, catalog: RuntimeWorkCatalog, read: Options['runtime']['request'], stoppedRevision?: number, failed?: Set<string>): Promise<boolean> {
+    let incomplete=false;
+    for (const child of catalog.children) {
+      if (child.kind!=='child') { if(child.reason!=='unsupported') incomplete=true; continue; }
+      if (failed?.has(child.parentId)) {failed.add(child.id);continue;}
+      try {
+        await this.projectChild(root,child,read,stoppedRevision);
+      } catch (error) {
+        if (!failed) throw error;
+        failed.add(child.id);this.options.onError(error);
+      }
+    }
+    return incomplete;
+  }
+
+  private async projectChild(root: SessionBinding, child: RuntimeWorkCatalog['children'][number],
+    read: Options['runtime']['request'], stoppedRevision?:number): Promise<void> {
+    const {inbox}=this.options;
+    const binding={...root,sessionId:child.id};
+    const registered=this.workEvent(binding,'registered',{type:'session_registered',payload:{
+      scope:child.workflowRunId?'workflow':'subagent',workflow_run_id:child.workflowRunId,parent_session_id:child.parentId,
+      child_agent_id:child.id,title:child.label??child.id,description:child.label,
+    }});
+    let prior=inbox.workCut(child.id);
+    if (prior && child.throughSeq!==undefined && prior.throughSeq===child.throughSeq && prior.modelVersion===child.modelVersion) return;
+    let more:boolean;
+    do {
+      // Old checkpoints did not keep the open child prefix locally.
+      const afterSeq=prior && (prior.localReplay ? prior.throughSeq : prior.replayFrom-1);
+      const page=await read('session.work.child',{sessionId:root.sessionId,childId:child.id,afterSeq,
+        replayFrom:prior?.replayFrom,modelVersion:prior?.modelVersion,stoppedRevision}) as RuntimeWorkPage;
+      if (!page.durable) throw new Error('No durable child event barrier');
+      more=page.more;
+      if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
+      const facts=[registered,...this.modelNotices(binding,page.modelRuns)];
+      const raw=[...inbox.workOpenEvents(child.id),...page.events];
+      const events=logicalEvents(workSuffix(raw,prior),page.modelRuns,true);
+      for (const event of events) {
+        const projected=projectWorkEvent(child.id,event,events,true);
+        if (projected) {
+          const {turn,...fact}=projected;
           facts.push(this.workEvent(binding,`runtime:${event.seq}`,fact,turn,event.time));
         }
       }
-      inbox.commitWork(snapshot.sessionId,workCheckpoint(root.sessionId,snapshot.throughSeq,events,snapshot.modelVersion),facts);
-      inbox.workPending(root.sessionId,false);
+      prior={...workCheckpoint(root.sessionId,page.throughSeq,events,page.modelVersion),localReplay:true};
+      inbox.commitWork(child.id,prior,facts,page.events);
+      this.options.onWork?.();
+    } while (more);
+  }
+
+  /** Pull final durable facts after native stop, without activating the target or sending receipts. */
+  async recordStopped(agentId: string, stoppedRevision: number, read: Options['runtime']['request']): Promise<void> {
+    const {store,inbox}=this.options;
+    const global=this.options.agents.find(agent=>agent.agentId===agentId)?.mode==='global';
+    for (const binding of store.bindings().filter(binding=>binding.agentId===agentId)) {
+      await Promise.allSettled([this.drains.get(binding.sessionId),this.childDrains.get(binding.sessionId)]);
+      if (global) { inbox.workPending(binding.sessionId,true); this.options.onWork?.(); }
+      let more:boolean;
+      do {
+        const cut=global ? inbox.workCut(binding.sessionId) : undefined;
+        const page=await read('session.work.root',{sessionId:binding.sessionId,stoppedRevision,
+          afterSeq:global ? cut?.throughSeq : store.cursor(binding.sessionId),replayFrom:cut?.replayFrom}) as RuntimeWorkPage;
+        await this.projectRootPage(binding,page,true);
+        more=page.more;
+      } while (more);
+      if (global) {
+        await this.projectChildren(binding,read,stoppedRevision);
+        inbox.workPending(binding.sessionId,false);
+        this.options.onWork?.();
+      }
     }
-    this.options.onWork?.();
   }
 
   private workEvent(binding: SessionBinding, key: string, fact: WorkFact, turn?: number, time = Date.now()): WorkDraft {
@@ -901,6 +1224,11 @@ export class GlobalAgent {
     await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
   }
   async stop(): Promise<void> {
-    this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);clearTimeout(this.recoveryTimer);
+    this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);
+    for (const timer of this.workRetries.values()) clearTimeout(timer);
+    this.workRetries.clear();
+    for(const timer of this.agentRetry.values())clearTimeout(timer);
+    this.agentRetry.clear();this.childCatchup.clear();this.childCatchupStop.abort();
+    await Promise.allSettled([this.childCatchupTask,...this.agentRecoveries.values()]);
     await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

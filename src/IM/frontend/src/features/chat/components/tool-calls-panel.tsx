@@ -1,7 +1,9 @@
 import { type ReactNode, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { useTranslation } from "../../../i18n";
-import type { BackgroundReturn, ReplyProcessItem, ThinkingSegment, ToolCall } from "../chat-types";
+import { mergeToolCall } from "../chat-stream-reducer";
+import type { BackgroundReturn, ChatProcessSummary, Message, ReplyProcessItem, ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
 import {
   collapsedSummary,
@@ -19,6 +21,8 @@ interface ToolCallsPanelProps {
   /** feat-517: terminal task returns are independent process items, not tools. */
   backgroundReturns?: BackgroundReturn[];
   replyProcess?: ReplyProcessItem[];
+  summary?: ChatProcessSummary;
+  historyDetail?: { key: readonly unknown[]; load: (signal: AbortSignal) => Promise<Message> };
   availableMessageIds?: ReadonlySet<string>;
   onNavigateMessage?: (messageId: string) => void;
 }
@@ -95,6 +99,8 @@ export function ToolCallsPanel({
   thinking,
   backgroundReturns,
   replyProcess,
+  summary,
+  historyDetail,
   availableMessageIds,
   onNavigateMessage,
 }: ToolCallsPanelProps) {
@@ -103,21 +109,25 @@ export function ToolCallsPanel({
   const segments = thinking ?? [];
   const returns = backgroundReturns ?? [];
   const replies = replyProcess ?? [];
-  const anyRunning = toolCalls.some((c) => c.status === "running");
+  const toolCount = summary?.tool_count ?? toolCalls.length;
+  const thinkingCount = summary?.thinking_count ?? segments.length;
+  const backgroundCount = summary?.background_return_count ?? returns.length;
+  const anyRunning = summary?.has_running_tool ?? toolCalls.some((c) => c.status === "running");
   // feat-439-M2 fix: 长对话避免每次渲染重排过程项。
   const timeline = useMemo(
     () => buildTimeline(toolCalls, segments, returns, replies),
     [toolCalls, segments, returns, replies],
   );
 
-  if (timeline.length === 0) return null;
+  if (!toolCount && !thinkingCount && !backgroundCount && !timeline.length
+      && !Object.values(summary?.reply_process_counts ?? {}).some(Boolean)) return null;
 
   // feat-434-M1: collapsed-state approval count suffix「K 次授权 · X 允许 · Y 拒绝」.
   // Audits "how many times the user approved" (bugfix-367 risk保住) without the old
   // resolved-card wall. Only non-zero segments render (prototype). Empty when no call
   // was user-decided.
-  const allowCount = toolCalls.filter((c) => gateVerdict(c) === "allow").length;
-  const denyCount = toolCalls.filter((c) => gateVerdict(c) === "deny").length;
+  const allowCount = summary?.approval_allow_count ?? toolCalls.filter((c) => gateVerdict(c) === "allow").length;
+  const denyCount = summary?.approval_deny_count ?? toolCalls.filter((c) => gateVerdict(c) === "deny").length;
   const approvalCount = allowCount + denyCount;
 
   return (
@@ -130,42 +140,42 @@ export function ToolCallsPanel({
       >
         <span className="chat-tool-calls-arrow">{expanded ? "▾" : "▸"}</span>
         <span className="chat-process-label">{t("chat.messagePane.process")}</span>
-        {toolCalls.length > 0 && (
+        {toolCount > 0 && (
           <>
             <span className="chat-tool-calls-sep">·</span>
             <span>
               {anyRunning ? (
                 <span className="chat-tool-calls-running-wrap">
                   <span className="chat-tool-calls-pulse" />
-                  {t("chat.messagePane.toolCount", { count: toolCalls.length })} ·{" "}
+                  {t("chat.messagePane.toolCount", { count: toolCount })} ·{" "}
                   {t("chat.messagePane.running")}
                 </span>
               ) : (
-                t("chat.messagePane.toolCount", { count: toolCalls.length })
+                t("chat.messagePane.toolCount", { count: toolCount })
               )}
             </span>
           </>
         )}
-        {segments.length > 0 && (
+        {thinkingCount > 0 && (
           <>
             <span className="chat-tool-calls-sep">·</span>
             <span className="chat-process-think-count">
-              {t("chat.messagePane.thinkingCount", { count: segments.length })}
+              {t("chat.messagePane.thinkingCount", { count: thinkingCount })}
             </span>
           </>
         )}
         {(["draft", "revalidation", "segment_handoff"] as const).map(kind => {
-          const count = replies.filter(item => item.kind === kind).length;
+          const count = summary ? summary.reply_process_counts[kind] ?? 0 : replies.filter(item => item.kind === kind).length;
           return count > 0 ? <span key={kind} className="chat-reply-process-count">
             <span className="chat-tool-calls-sep">·</span>{" "}
             {t(`chat.messagePane.replyProcessCount.${kind}`, {count})}
           </span> : null;
         })}
-        {returns.length > 0 && (
+        {backgroundCount > 0 && (
           <>
             <span className="chat-tool-calls-sep">·</span>
             <span className="chat-process-background-count">
-              {t("chat.messagePane.backgroundReturnCount", { count: returns.length })}
+              {t("chat.messagePane.backgroundReturnCount", { count: backgroundCount })}
             </span>
           </>
         )}
@@ -205,23 +215,62 @@ export function ToolCallsPanel({
 
       {expanded && (
         <div className="chat-tool-calls-panel chat-tool-calls-panel--open">
-          <ul className="chat-tool-calls-list">
-            {timeline.map((item) =>
-              item.kind === "thinking" ? (
-                <ThinkingRow key={item.key} segment={item.segment} />
-              ) : item.kind === "tool" ? (
-                <ToolCallRow key={item.key} call={item.call} />
-              ) : item.kind === "reply-process" ? (
-                <ReplyProcessRow key={item.key} value={item.value} availableMessageIds={availableMessageIds} onNavigateMessage={onNavigateMessage} />
-              ) : (
-                <BackgroundReturnRow key={item.key} value={item.value} />
-              )
-            )}
-          </ul>
+          {historyDetail
+            ? <HistoryProcessRows detail={historyDetail} summarized={Boolean(summary)} liveTimeline={timeline}
+                toolCalls={toolCalls} thinking={segments} backgroundReturns={returns}
+                replyProcess={replies} availableMessageIds={availableMessageIds} onNavigateMessage={onNavigateMessage} />
+            : <ProcessRows timeline={timeline} availableMessageIds={availableMessageIds} onNavigateMessage={onNavigateMessage} />}
         </div>
       )}
     </div>
   );
+}
+
+type ProcessNavigation = Pick<ToolCallsPanelProps, 'availableMessageIds' | 'onNavigateMessage'>;
+
+function ProcessRows({timeline, availableMessageIds, onNavigateMessage}: ProcessNavigation & {timeline: ProcessItem[]}) {
+  return <ul className="chat-tool-calls-list">{timeline.map(item => {
+    if (item.kind === "thinking") return <ThinkingRow key={item.key} segment={item.segment} />;
+    if (item.kind === "tool") return <ToolCallRow key={item.key} call={item.call} />;
+    if (item.kind === "reply-process") return <ReplyProcessRow key={item.key} value={item.value}
+      availableMessageIds={availableMessageIds} onNavigateMessage={onNavigateMessage} />;
+    return <BackgroundReturnRow key={item.key} value={item.value} />;
+  })}</ul>;
+}
+
+function mergeProcessItems<T>(stored: T[] | undefined, live: T[] | undefined, key: (item: T) => string | number,
+  merge = (_previous: T, next: T) => next): T[] {
+  const byId = new Map(stored?.map(item => [key(item), item]));
+  for (const item of live ?? []) {
+    const id = key(item), previous = byId.get(id);
+    byId.set(id, previous ? merge(previous, item) : item);
+  }
+  return [...byId.values()];
+}
+
+function HistoryProcessRows({detail, summarized, liveTimeline, toolCalls, thinking, backgroundReturns, replyProcess, ...navigation}:
+  Pick<ToolCallsPanelProps, 'toolCalls' | 'thinking' | 'backgroundReturns' | 'replyProcess'> &
+  ProcessNavigation & {detail: NonNullable<ToolCallsPanelProps['historyDetail']>; summarized: boolean; liveTimeline: ProcessItem[]}) {
+  const { t } = useTranslation();
+  const query = useQuery({
+    queryKey: detail.key, queryFn: ({signal}) => detail.load(signal), enabled: summarized, staleTime: Infinity, retry: false
+  });
+  const stored = summarized ? query.data : undefined;
+  const timeline = stored ? buildTimeline(
+    mergeProcessItems(stored.tool_calls, toolCalls, item => item.id, (stored, live) =>
+      stored.status !== "running" && live.status === "running" ? mergeToolCall(live, stored) : mergeToolCall(stored, live)),
+    mergeProcessItems(stored.thinking, thinking, item => item.seq),
+    mergeProcessItems(stored.background_returns, backgroundReturns, item => item.task_id),
+    mergeProcessItems(stored.reply_process, replyProcess, item => item.item_id, (stored, live) =>
+      stored.status !== "running" && live.status === "running" ? stored : live),
+  ) : liveTimeline;
+  return <>
+    {timeline.length > 0 && <ProcessRows timeline={timeline} {...navigation} />}
+    {summarized && query.isFetching && <p role="status">{t("common.loading")}</p>}
+    {summarized && query.isError && !query.isFetching && <div role="alert">{t("chat.messagePane.processLoadError")}{" "}
+      <button type="button" onClick={() => void query.refetch()}>{t("common.retry")}</button>
+    </div>}
+  </>;
 }
 
 function ReplyProcessRow({value, availableMessageIds, onNavigateMessage}: {

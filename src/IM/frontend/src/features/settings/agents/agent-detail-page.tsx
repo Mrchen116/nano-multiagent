@@ -1,3 +1,4 @@
+import { AgentDeletionControls, AgentDeletionStatus, useAgentDeletion } from "./agent-deletion";
 import { formatSchedule } from "./schedule-display";
 import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
 import { useAuthStore } from '../../auth/auth-store';
@@ -1333,16 +1334,19 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
 
   const lifecycle = useAgentLifecycle(agentId);
   const lifecycleState = lifecycle.query.data;
+  const closed = lifecycleState?.desired === "disabled" && lifecycleState.observed === "disabled"
+    && lifecycleState.applied_revision === lifecycleState.revision;
   const showLifecycleNotice = lifecycle.query.isError || lifecycle.mutation.isError || (
-    lifecycleState?.desired === "disabled" && (
-      lifecycleState.observed !== "disabled" || lifecycleState.applied_revision !== lifecycleState.revision
-    )
+    lifecycleState?.desired === "disabled" && !closed
   );
   const self = useAuthStore(s => s.user?.id);
   const settings = useAgentSettingsState(agentId);
+  const deletion = useAgentDeletion(agentId, closed && !personal && !!self && settings.query.data?.config.owner_id === self);
+  const currentDeletion = closed && deletion.query.data?.revision === lifecycleState?.revision;
+  const deleting = Boolean(deletion.query.data?.operation);
   const detailQuery = settings.query;
   const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
-  const readOnly = settings.readOnly || confirmationPending;
+  const readOnly = settings.readOnly || confirmationPending || deleting;
   const settingsReason = confirmationPending && (!settings.reason || settings.reason === 'refreshingEditable') ? 'pending' : settings.reason;
 
   useEffect(() => {
@@ -1673,7 +1677,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             </p>
           </div>
           <div className="im-agent-header-actions">
-              <AgentLifecycleAction lifecycle={lifecycle} canManage={!!self && draft.owner_id === self} />
+              <AgentLifecycleAction lifecycle={lifecycle} canManage={!deleting && !!self && draft.owner_id === self} online={displayedNodeStatus === "online"} />
               <button
                 type="button"
                 className="im-settings-action"
@@ -1682,10 +1686,12 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
               >
                 {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
               </button>
+              {currentDeletion && !personal && !!self && draft.owner_id === self && <AgentDeletionControls deletion={deletion} name={detailQuery.data?.config.display_name || agentId} online={displayedNodeStatus === "online"} active={!inactive} />}
               {activeSection === "config" && isDirty && <span className="im-settings-save-state">{t("agents.detail.unsavedChanges")}</span>}
             </div>
         </div>
         {showLifecycleNotice && <AgentLifecycleStatus lifecycle={lifecycle} online={displayedNodeStatus === "online"} />}
+        {!inactive && (currentDeletion || deleting) && !personal && !!self && draft.owner_id === self && <AgentDeletionStatus deletion={deletion} online={displayedNodeStatus === "online"} />}
         {errorMessage ? (
           <p
             data-testid={openDirectChatMutation.isError ? "open-chat-error" : "agent-save-error"}

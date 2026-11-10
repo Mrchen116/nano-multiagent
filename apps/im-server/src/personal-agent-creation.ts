@@ -59,11 +59,16 @@ export class PersonalAgentCreation {
     if(typeof args.request_key!=='string'||!args.request_key.trim())fail(422,'request_key is required');
     let record=one(ctx.db,'SELECT * FROM pa_agent_creations WHERE binding_id=? AND request_key=?',binding.binding_id,args.request_key);
     if(args.action==='status'&&!record)return {status:'not_started',request_key:args.request_key};
+    if(record && one(ctx.db,"SELECT 1 FROM agent_deletions WHERE agent_id=? AND state='deleted'",record.agent_id)) {
+      if(args.action==='create') this.pa.ownerMessage(binding,args.source_message_id);
+      return {status:'deleted',request_key:args.request_key};
+    }
     if(args.action==='create') {
       this.pa.ownerMessage(binding,args.source_message_id);
       const node=args.target_node_id ?? binding.node_id;
       requireOwnedNode(ctx,node,binding.owner_id);
       const configuration=parseConfigurationInput(args.configuration,true);
+      if(one(ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',configuration.agent_id)) fail(409,'agent_id already exists');
       const frozen=sortedJsonUtf8(configuration);
       if(record) {
         if(record.node_id!==node||record.configuration_json!==frozen)fail(409,'creation_request_key_conflict');
