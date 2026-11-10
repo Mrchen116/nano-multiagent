@@ -11,6 +11,7 @@ struct ChatMessageView: View {
     let refreshed: () -> Void
     @State private var showProcess = false
     private var mine: Bool { message.sender.id == selfID }
+    private var receipts: [MessageReceipt] { mine && message.sender_type == "user" ? message.receipts ?? [] : [] }
     private var intelligentUI: Bool { message.interactive?.catalog_version == "nano-iui-1" }
     private var senderName: String { message.sender.display_name ?? participants.first { ($0.user_id ?? $0.id) == message.sender.id }?.display_name ?? message.sender.id }
     var body: some View {
@@ -38,12 +39,13 @@ struct ChatMessageView: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
             else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: receipts.isEmpty ? .leading : .trailing, spacing: 6) {
                 if message.system_notice == nil && ((showSenderName && !mine) || message.pa_agent_id != nil || message.delegation != nil) {
                     senderIdentity
                 }
                 messageContent
                 if hasMetadata { metadata }
+                if !receipts.isEmpty { MessageReceiptButton(receipts: receipts) }
             }
             if !mine { Spacer(minLength: 14) }
             else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
@@ -100,7 +102,8 @@ struct ChatMessageView: View {
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
     }
     private var hasMetadata: Bool {
-        ["running", "failed"].contains(message.delivery_status) || (message.sender_type == "agent" && (message.token_usage != nil || message.elapsed_ms != nil))
+        message.delivery_status == "running" || (message.delivery_status == "failed" && receipts.isEmpty)
+            || (message.sender_type == "agent" && (message.token_usage != nil || message.elapsed_ms != nil))
     }
     private var metadata: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -139,6 +142,92 @@ struct ChatMessageView: View {
                 if let detail = tool.detail { NavigationLink(L("结果详情", "Result details")) { JSONDetailPage(value: detail) } }
             }
         } label: { HStack { Text((tool.emoji ?? "🔧") + " " + tool.name); Spacer(); Text(tool.status).font(.caption); if let ms = tool.duration_ms { Text(String(format: "%.1fs", ms / 1000)).font(.caption) } } }
+    }
+}
+
+private struct MessageReceiptButton: View {
+    let receipts: [MessageReceipt]
+    @State private var showDetails = false
+
+    private var status: MessageReceipt.Status {
+        if receipts.contains(where: { $0.status == .sent }) { return .sent }
+        if receipts.contains(where: { $0.status == .received }) { return .received }
+        return .read
+    }
+
+    var body: some View {
+        Button { showDetails = true } label: {
+            ReceiptMark(status: status).frame(width: 44, height: 26).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(status.title)
+        .accessibilityHint(L("轻点查看消息回执", "Tap to view message receipts"))
+        .accessibilityIdentifier("message.receipt")
+        .popover(isPresented: $showDetails) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(L("消息回执", "Message receipts"))
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .accessibilityAddTraits(.isHeader)
+                Divider()
+                if receipts.count > 5 {
+                    ScrollView { receiptRows }.frame(height: 230)
+                } else {
+                    receiptRows
+                }
+            }
+            .foregroundStyle(NanoTheme.ink)
+            .frame(width: 252)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var receiptRows: some View {
+        VStack(spacing: 6) {
+            ForEach(receipts) { receipt in
+                HStack(spacing: 8) {
+                    AvatarView(name: receipt.display_name, size: 24).accessibilityHidden(true)
+                    Text(receipt.display_name).font(.subheadline.weight(.medium))
+                    Spacer(minLength: 4)
+                    HStack(spacing: 4) {
+                        ReceiptMark(status: receipt.status).accessibilityHidden(true)
+                        Text(receipt.status.title).font(.caption.weight(.medium))
+                    }
+                    .foregroundStyle(receipt.status == .read ? NanoTheme.accent : NanoTheme.muted)
+                    .padding(.horizontal, 7).padding(.vertical, 4)
+                    .background(receipt.status == .read ? NanoTheme.softAccent : NanoTheme.canvas, in: Capsule())
+                }.accessibilityElement(children: .combine)
+            }
+        }.padding(12)
+    }
+}
+
+private extension MessageReceipt.Status {
+    var title: String {
+        switch self {
+        case .sent: L("待送达", "Pending")
+        case .received: L("已送达", "Delivered")
+        case .read: L("已读", "Read")
+        }
+    }
+}
+
+private struct ReceiptMark: View {
+    let status: MessageReceipt.Status
+
+    var body: some View {
+        Path { path in
+            path.move(to: CGPoint(x: 1, y: 5))
+            path.addLine(to: CGPoint(x: 4, y: 8))
+            path.addLine(to: CGPoint(x: 10, y: 2))
+            if status != .sent {
+                path.move(to: CGPoint(x: 7, y: 8))
+                path.addLine(to: CGPoint(x: 13, y: 2))
+            }
+        }
+        .stroke(status == .read ? NanoTheme.accent : NanoTheme.muted,
+                style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+        .frame(width: 14, height: 10)
     }
 }
 
