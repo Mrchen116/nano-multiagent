@@ -192,32 +192,48 @@ final class SendRecoveryTests: XCTestCase {
         store.clear(); next.clear()
     }
 
-    func testPrivateBackgroundFiltersHistoryAndFreezesLatestThreeSelections() async throws {
-        for group in [false, true] {
-            let (store, transport, _) = try await makeStore()
-            await store.loadConversations()
-            store.conversations[0].type = group ? "group" : "direct"
-            let base = try JSONDecoder().decode(ChatMessage.self, from: transport.message)
-            let cards = ["old", "a", "b", "c", "d", "read-only"]
-            store.timelines["chat"] = cards.enumerated().map { index, id in
-                var message = base; message.id = id
-                message.interactive = MessageInteractive(format: "openuilang", catalog_version: "nano-1", source: "root = Text(\"example\")", read_only: id == "read-only", superseded_by: nil, supersedes_message_id: id == "d" ? "old" : nil)
-                store.interactionSelections[id] = InteractionSelection(conversationID: "chat", source_message_id: id, state: ["value": .number(Double(index))], editedAt: Double(index))
-                return TimelineItem(type: "message", message: message)
-            }
-            store.drafts["chat"] = "  preserve handwritten text  "
-            await store.send("chat")
-            let firstRequests = await transport.sent()
-            let first = try XCTUnwrap(firstRequests.first?.httpBody)
-            let body = try JSONDecoder().decode(JSONValue.self, from: first)
-            XCTAssertEqual(body["content"].stringValue, "  preserve handwritten text  ")
-            XCTAssertEqual(body["interaction_contexts"].arrayValue?.compactMap { $0["source_message_id"].stringValue } ?? [], group ? [] : ["d", "c", "b"])
-            store.interactionSelections = [:]
-            await store.send("chat", retry: true)
-            let sent = await transport.sent()
-            XCTAssertEqual(sent[1].httpBody, first)
-            store.clear()
-        }
+    func testNewBodiesOmitPrivateBackgroundButLegacyFrozenBodyIsUnchanged() async throws {
+        let (store, transport, _) = try await makeStore()
+        let draft = try store.client.prepareMessage(PendingSend(content: "handwritten", attachments: []), userID: user.id)
+        let body = try JSONDecoder().decode(JSONValue.self, from: XCTUnwrap(draft.requestBody))
+        XCTAssertNil(body.objectValue?["interaction_contexts"])
+        // Bytes from a previous app version must survive preparation, persistence and resend.
+        let bytes = Data(#"{ "content":"old", "interaction_contexts":[{"source_message_id":"card","state":{}}] }"#.utf8)
+        var legacy = PendingSend(content: "old", attachments: []); legacy.requestBody = bytes
+        let frozen = try store.client.prepareMessage(legacy, userID: user.id)
+        XCTAssertEqual(frozen.requestBody, bytes)
+        try disk.save(SendAttempt(conversationID: "chat", sourceMessageID: nil, draft: frozen), origin: origin, userID: user.id)
+        let restored = ChatStore(client: store.client, user: user)
+        await restored.send("chat", retry: true)
+        let sent = await transport.sent()
+        XCTAssertEqual(sent.first?.httpBody, bytes)
+        store.clear(); restored.clear()
+    }
+
+    func testOversizedBackgroundKeepsDraftAndAttachmentsWithoutRetryingTheRejectedAttempt() async throws {
+        let (store, transport, _) = try await makeStore(firstPostStatus: 422)
+        await store.loadConversations()
+        store.drafts["chat"] = "keep my message"
+        let attachment = ChatAttachment(url: "/im/v1/uploads/kept", content_type: "image/png", file_name: "kept.png")
+        store.attachments["chat"] = [attachment]
+        await store.send("chat")
+        let rejected = await transport.sent()
+        XCTAssertEqual(rejected.count, 1)
+        XCTAssertTrue(store.errors["chat"]?.contains(L("消息尚未发送", "not sent")) == true)
+        XCTAssertNil(store.pending["chat"])
+        XCTAssertEqual(store.drafts["chat"], "keep my message")
+        XCTAssertEqual(store.attachments["chat"]?.map(\.id), [attachment.id])
+        XCTAssertTrue(try disk.load(origin: origin, userID: user.id).isEmpty)
+        let lookups = await transport.lookupKeys()
+        XCTAssertTrue(lookups.isEmpty)
+        // A real second send is a new identity and can pick up a reduced background.
+        await store.send("chat")
+        let sent = await transport.sent()
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertNotEqual(sent.first?.value(forHTTPHeaderField: "Idempotency-Key"), sent.last?.value(forHTTPHeaderField: "Idempotency-Key"))
+        XCTAssertNil(store.pending["chat"])
+        XCTAssertEqual(store.drafts["chat"], "")
+        store.clear()
     }
 
     private func makeStore(firstPostStatus: Int = 0, gated: Bool = false) async throws -> (ChatStore, RecoveryTransport, RecoveryCredentials) {
@@ -272,7 +288,9 @@ private actor RecoveryTransport: HTTPTransport {
             if gated { await withCheckedContinuation { release = $0; postStarted = true; start?.resume(); start = nil } }
             if posts.count == 1, firstPostStatus == 0 { throw URLError(.networkConnectionLost) }
             status = posts.count == 1 ? firstPostStatus : 200
-            data = status == 200 ? message : Data(#"{"detail":{"code":"message_attempt_conflict","message":"conflict"}}"#.utf8)
+            data = status == 200 ? message : status == 422
+                ? Data(#"{"detail":{"code":"interaction_background_too_large","message":"raw-server-detail"}}"#.utf8)
+                : Data(#"{"detail":{"code":"message_attempt_conflict","message":"conflict"}}"#.utf8)
         } else if path.hasSuffix("/messages") { data = Data(#"{"items":[]}"#.utf8) }
         else if path == "/im/v1/conversations" { data = list }
         else { status = 404; data = Data(#"{"detail":"not found"}"#.utf8) }

@@ -44,6 +44,23 @@ actor Session {
         try assertOwner(userID, revision: revision)
         try sendAttempts.save(attempt, origin: baseURL, userID: userID)
     }
+    /// Read the card ledger off the main actor, fenced to the authenticated owner.
+    func draftWatermarks(userID: String, revision: Int) throws -> [String: String] {
+        try assertOwner(userID, revision: revision)
+        return try sendAttempts.loadDraftWatermarks(origin: baseURL, userID: userID)
+    }
+    func draftDiscardIntents(userID: String, revision: Int) throws -> [String: String] {
+        try assertOwner(userID, revision: revision)
+        return try sendAttempts.loadDraftDiscards(origin: baseURL, userID: userID)
+    }
+    func noteDraftSaved(_ conversationID: String, updatedAt: String, userID: String, revision: Int) throws -> [String: String] {
+        try assertOwner(userID, revision: revision)
+        return try sendAttempts.noteDraftSaved(conversationID, updatedAt: updatedAt, origin: baseURL, userID: userID)
+    }
+    func updateDraftDiscard(_ conversationID: String, through: String, confirmed: Bool = false, userID: String, revision: Int) throws {
+        try assertOwner(userID, revision: revision)
+        try sendAttempts.updateDraftDiscard(conversationID, through: through, confirmed: confirmed, origin: baseURL, userID: userID)
+    }
     func removeSendAttempt(_ attempt: SendAttempt, userID: String, revision: Int) throws {
         try assertOwner(userID, revision: revision)
         try sendAttempts.remove(attempt, origin: baseURL, userID: userID)

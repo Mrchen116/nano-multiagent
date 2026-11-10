@@ -75,7 +75,7 @@ it("removes uploading and queued files without resurrecting a late result", asyn
   await userEvent.click(screen.getByRole("button", { name: "Remove uploading.png" }));
   await userEvent.type(screen.getByRole("textbox"), "text without removed images");
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(onSend).toHaveBeenCalledWith("text without removed images", [], undefined, expect.any(String), []));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith("text without removed images", [], undefined, expect.any(String)));
   await act(async () => { complete(attachment("uploading.png")); });
   expect(screen.queryByRole("img")).not.toBeInTheDocument();
   expect(uploadAttachment).toHaveBeenCalledTimes(1);
@@ -96,7 +96,7 @@ it("keeps paste order in the sent attachments when separate uploads finish out o
   await act(async () => { finish["first.png"](attachment("first.png")); });
   expect(screen.getAllByRole("img").map(image => image.getAttribute("alt"))).toEqual(["first.png", "second.png"]);
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(onSend).toHaveBeenCalledWith("", [attachment("first.png"), attachment("second.png")], undefined, expect.any(String), []));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith("", [attachment("first.png"), attachment("second.png")], undefined, expect.any(String)));
   await waitFor(() => expect(screen.queryByRole("img")).not.toBeInTheDocument());
 });
 

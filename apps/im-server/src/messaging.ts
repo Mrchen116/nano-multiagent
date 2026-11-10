@@ -29,6 +29,7 @@ import { conversationAccess, conversationReaderIds, qualifiedUser, readableConve
 import { searchMessages } from './message-search.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
+import { InteractionBackground } from './interaction-background.js';
 
 function readableMentions(content: string, members: Row[]): string {
   const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
@@ -38,9 +39,11 @@ function readableMentions(content: string, members: Row[]): string {
 export class Messaging {
   readonly records: MessageRecords;
   readonly interactions: Interactions;
+  readonly background: InteractionBackground;
   readonly delivery:RelayDelivery;
   constructor(readonly ctx: ImContext) {
     this.interactions=new Interactions(ctx);this.delivery=new RelayDelivery(ctx);
+    this.background=new InteractionBackground(ctx.db, this.interactions);
     this.records=new MessageRecords(ctx.db,{interactions:this.interactions,agentUserId:id=>this.agentUser(id).id,
       messageWait:id=>this.ctx.updates?.messageWait(id),publish:(frame,enabled)=>this.publishEvent(frame,enabled)});
   }
@@ -567,8 +570,10 @@ export class Messaging {
     const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
     const replyTo=this.replyReference(id,b.reply_to_message_id);
-    if (b.interaction_contexts !== undefined && !key) fail(422, 'Idempotency-Key required for private interaction background');
-    const contexts = b.interaction_contexts === undefined ? [] : this.interactions.contexts(p, id, b.interaction_contexts);
+    // Must stay after the attempt hit: a retry returns the original message, so a carried
+    // background can never reappear as a second injection or vanish from a retried send.
+    // Client-supplied `interaction_contexts` are accepted but ignored; the centre decides.
+    const contexts = this.background.pending(p, id);
     // Retries and history retain the timezone captured by the original send.
     const timezone = p.kind === "gateway" ? b.timezone ?? null
       : b.timezone === undefined ? one(this.db, "SELECT timezone FROM users WHERE id=?", p.id)?.timezone ?? null
@@ -991,6 +996,16 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.get('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.readDraft(req));
   app.put('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.writeDraft(req));
+  app.post('/im/v1/conversations/:conversation_id/interaction-background/discard', (req, reply) => {
+    const p = s.principal(req), cid = params(req).conversation_id;
+    if (p.kind === 'gateway' || p.username?.startsWith('agent:')) fail(403, 'Human viewer required');
+    s.access(p, cid, undefined, 'write');
+    // Group and shadow conversations never hold a pending background.
+    if (one(db, 'SELECT type FROM conversations WHERE id=?', cid)?.type !== 'direct') { reply.code(204).send(); return; }
+    const result = s.background.discard(p, cid, body(req).through);
+    if (!result.applied) { reply.code(204).send(); return; }
+    return {discarded_through: result.discarded_through};
+  });
   app.get('/im/v1/conversations/:conversation_id/messages/:message_id', req => {
     const {conversation_id, message_id}=params(req);
     s.access(s.principal(req),conversation_id,query(req).agent_id);

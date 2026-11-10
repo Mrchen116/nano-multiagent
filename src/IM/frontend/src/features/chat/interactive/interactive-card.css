@@ -16,3 +16,5 @@
   .interactive-card { margin-top: 16px; }
   .chat-bubble-card:has(.interactive-card) { padding-block: 8px; }
 }
+
+/* Composer-level block for an unsaved (or conflicting) card edit. */

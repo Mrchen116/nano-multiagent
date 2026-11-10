@@ -44,6 +44,7 @@ import {
 import { retireChatReadCache } from "./chat-read-cache";
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
+import { discardOnLeave, forgetInteractionBackground, loadWatermarks, resumeConversation, retryPendingDiscards, retryPrivateDrafts } from "./interaction-background";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
@@ -393,6 +394,34 @@ export function ChatWorkspacePage() {
   const [hasMoreHistory, setHasMoreHistory] = useState<boolean | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const conversationIdRef = useRef(conversationId);
+  // Leaving a conversation clears the private background this browser had confirmed, and
+  // only that: a device without a watermark sends nothing, so another device's unsent edit
+  // survives. Watermarks are reloaded per account because they are per-account state.
+  const previousConversationRef = useRef<string | null>(conversationId ?? null);
+  useEffect(() => {
+    if (!selfUserId) return;
+    void loadWatermarks(selfUserId).then(retryPendingDiscards);
+    const foreground = () => {
+      if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
+      void retryPendingDiscards();
+      const active = conversationIdRef.current;
+      if (active) void retryPrivateDrafts(active);
+    };
+    document.addEventListener('visibilitychange', foreground);
+    window.addEventListener('online', foreground);
+    return () => {
+      document.removeEventListener('visibilitychange', foreground);
+      window.removeEventListener('online', foreground);
+    };
+  }, [selfUserId]);
+  useEffect(() => {
+    const previous = previousConversationRef.current;
+    // Coming back must cancel the earlier leave, otherwise this device's next edit would be
+    // cleared by the late-save rule instead of being carried by the next message.
+    if (conversationId) resumeConversation(conversationId);
+    if (previous && previous !== conversationId) void discardOnLeave(previous);
+    previousConversationRef.current = conversationId ?? null;
+  }, [conversationId]);
   const historyRequestRef = useRef<{ conversationId: string; cursor: string; controller: AbortController } | null>(null);
   const messagesQueryFetchingRef = useRef(false);
   // M5: reset should converge to REST history, except for live rows accepted
@@ -769,7 +798,9 @@ export function ChatWorkspacePage() {
     deniedConversation.current = id;
     retireConversationReads(id);
     queryClient.setQueryData<Conversation[]>(["chat", "conversations"], rows => rows?.filter(c => c.id !== id));
-    forgetComposerConversation(composerStoreFor(useAuthStore.getState().user?.id ?? null), id);
+    const account = useAuthStore.getState().user?.id;
+    forgetComposerConversation(composerStoreFor(account ?? null), id);
+    if (account) void forgetInteractionBackground(account, id).catch(() => {});
     setShowGroupSettings(false);
     setWorkspaceError({ conversationId: "", kind: "access", message: i18n.language.startsWith("zh") ? "此聊天已不可访问。" : "This conversation is no longer accessible." });
     navigate("/chat", { replace: true });
@@ -787,6 +818,7 @@ export function ChatWorkspacePage() {
       if (allowed.has(previous.id) || conversationIdRef.current === previous.id) continue;
       retireConversationReads(previous.id);
       forgetComposerConversation(composerStoreFor(account ?? null), previous.id);
+      if (account) void forgetInteractionBackground(account, previous.id).catch(() => {});
     }
     restoreComposerMembership(composerStoreFor(account ?? null), allowed);
   }
@@ -979,15 +1011,14 @@ export function ChatWorkspacePage() {
   }
 
   const sendMutation = useMutation({
-    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; replyToMessageId?:string; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string; interactionContexts?: import("./interactive/types").InteractionContextInput[] }) =>
+    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[]; replyToMessageId?:string; interactionReply?: import("./interactive/types").InteractionReplyInput; idempotencyKey?: string }) =>
       createMessage({
         conversationId: payload.conversationId,
         content: payload.text,
         attachments: payload.attachments,
         interactionReply: payload.interactionReply,
         idempotencyKey: payload.idempotencyKey,
-        replyToMessageId: payload.replyToMessageId,
-        interactionContexts: payload.interactionContexts
+        replyToMessageId: payload.replyToMessageId
       }),
     onSuccess: acceptCreatedMessage,
     onError: (err, payload) => {
@@ -1366,10 +1397,10 @@ export function ChatWorkspacePage() {
             nodeUpdate={headerAgentContext.nodeUpdate}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments, interactionReply, idempotencyKey, interactionContexts, replyToMessageId) => sendMutation.mutateAsync({
+            onSend={(text, attachments, interactionReply, idempotencyKey, replyToMessageId) => sendMutation.mutateAsync({
               conversationId: activeConversation.id,
               text,
-              attachments, interactionReply, idempotencyKey, interactionContexts, replyToMessageId
+              attachments, interactionReply, idempotencyKey, replyToMessageId
             })}
             onRecovered={acceptCreatedMessage}
             onSendFailure={() => setWorkspaceError({

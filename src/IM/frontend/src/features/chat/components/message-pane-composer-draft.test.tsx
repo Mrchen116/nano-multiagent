@@ -7,6 +7,7 @@ import { setLanguage } from "../../../i18n";
 import type { Conversation } from "../chat-types";
 import { forgetComposerConversation, restoreComposerMembership, type ComposerSnapshot } from "./composer-draft-store";
 import { MessagePane } from "./message-pane";
+import { registerDraftHandle, unregisterDraftHandle } from '../interaction-background';
 
 const CONV_A: Conversation = {
   id: "c1",
@@ -159,6 +160,24 @@ describe("MessagePane composer drafts are per conversation", () => {
     expect(await screen.findByRole("button", { name: "Remove shot.png" })).toBeInTheDocument();
   });
 
+  it("does not clear text edited while the submitted message waits for its card save", async () => {
+    let finish!: () => void;
+    const saving = new Promise<void>(resolve => { finish = resolve; });
+    const flush = vi.fn(async () => { await saving; return {}; });
+    registerDraftHandle(CONV_A.id, 'slow-card', { flush });
+    try {
+      const send = vi.fn().mockResolvedValue(undefined);
+      render(pane(CONV_A, { onSend: send }));
+      fireEvent.change(screen.getByRole('textbox'), {target: {value: 'first submitted text'}});
+      fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+      await waitFor(() => expect(flush).toHaveBeenCalled());
+      fireEvent.change(screen.getByRole('textbox'), {target: {value: 'keep this newer draft'}});
+      await act(async () => { finish(); });
+      await waitFor(() => expect(send).toHaveBeenCalledWith('first submitted text', [], undefined, expect.any(String)));
+      expect(screen.getByRole('textbox')).toHaveValue('keep this newer draft');
+    } finally { unregisterDraftHandle(CONV_A.id, 'slow-card'); }
+  });
+
   it("lets another conversation keep typing while a send is in flight", async () => {
     const user = userEvent.setup();
     let resolveSend: () => void = () => {};
@@ -308,7 +327,7 @@ it("keeps failed files across chats and sends only text without consuming attach
   expect(screen.queryByText("failed.png")).not.toBeInTheDocument();
   view.rerender(pane(CONV_A, { uploadAttachment, onSend }));
   await user.click(screen.getByRole("button", { name: "Send text only" }));
-  await waitFor(() => expect(onSend).toHaveBeenCalledWith("keep my text", [], undefined, expect.any(String), []));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith("keep my text", [], undefined, expect.any(String)));
   expect(screen.getByRole("button", { name: "Remove failed.png" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Send text only" })).toBeDisabled();
   expect(screen.getByRole("textbox")).toHaveValue("");

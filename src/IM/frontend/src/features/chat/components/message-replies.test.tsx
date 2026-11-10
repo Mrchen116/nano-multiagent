@@ -19,7 +19,7 @@ it('keeps quoted replies with the draft, preserves them on send failure, and cle
   expect(input).toHaveValue('展开这个');expect(screen.getByTestId('composer-reply')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'Send'}));
   await waitFor(()=>expect(onSend).toHaveBeenCalledTimes(2));
-  expect(onSend.mock.calls[0][5]).toBe('original');expect(onSend.mock.calls[1][3]).toBe(onSend.mock.calls[0][3]);
+  expect(onSend.mock.calls[0][4]).toBe('original');expect(onSend.mock.calls[1][4]).toBe('original');expect(onSend.mock.calls[1][3]).toBe(onSend.mock.calls[0][3]);
   await waitFor(()=>expect(screen.queryByTestId('composer-reply')).toBeNull());
 });
 
